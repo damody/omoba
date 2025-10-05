@@ -4,3 +4,9 @@
 [submodule "omf"]
 	path = omf
 	url = https://github.com/damody/open_moba_frontend.git
+[submodule "mqtt_log_viewer"]
+	path = mqtt_log_viewer
+	url = https://github.com/damody/mqtt_log_viewer.git
+[submodule "specs"]
+	path = specs
+	url = https://github.com/damody/specs.git
