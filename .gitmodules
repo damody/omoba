@@ -1,0 +1,6 @@
+[submodule "omb"]
+	path = omb
+	url = https://github.com/damody/open_moba_backend.git
+[submodule "omf"]
+	path = omf
+	url = https://github.com/damody/open_moba_frontend.git
