@@ -28,6 +28,12 @@ moba/                          # 主專案目錄
 │   ├── examples/              # 範例程式
 │   ├── Cargo.toml            # ECS 框架依賴配置
 │   └── README.md             # ECS 框架文檔
+├── log4rs/                    # 日誌框架 submodule
+│   ├── src/                   # Log4rs 源碼
+│   ├── examples/              # 日誌配置範例
+│   ├── docs/                  # 配置文檔
+│   ├── Cargo.toml            # 日誌框架依賴配置
+│   └── README.md             # 日誌框架文檔
 ├── .gitmodules               # Git submodule 配置
 └── README_CURSOR_AGENT.md    # 本文件
 ```
@@ -79,6 +85,18 @@ moba/                          # 主專案目錄
   - 資源管理系統
   - 事件系統
 
+### log4rs/ (Logging Framework)
+- **用途**: 結構化日誌框架
+- **技術**: Rust + YAML 配置 + 多種輸出格式
+- **遠端**: https://github.com/damody/log4rs.git
+- **主要功能**:
+  - 多種日誌輸出格式 (JSON, 文字, 自定義)
+  - 日誌輪轉和檔案管理
+  - 多層級日誌過濾
+  - 非同步日誌記錄
+  - 自定義編碼器和附加器
+  - 配置檔案驅動
+
 ## 🛠️ 開發環境設置
 
 ### 前置需求
@@ -125,6 +143,14 @@ cargo test
 cargo run --example simple
 ```
 
+### 日誌框架開發
+```bash
+cd log4rs/
+cargo build
+cargo test
+cargo run --example custom
+```
+
 ### MQTT 日誌查看器開發
 ```bash
 cd mqtt_log_viewer/
@@ -161,6 +187,14 @@ cargo run
 4. **資源管理**: 全域資源共享
 5. **事件系統**: 實體間通信機制
 
+### 日誌框架 (log4rs) 核心功能
+1. **多格式輸出**: 支援 JSON、文字、自定義格式
+2. **日誌輪轉**: 基於時間和檔案大小的輪轉策略
+3. **層級過濾**: 靈活的日誌級別控制
+4. **非同步記錄**: 高性能的非阻塞日誌記錄
+5. **配置驅動**: YAML 配置檔案管理
+6. **自定義擴展**: 支援自定義編碼器和附加器
+
 ## 🔧 常用開發指令
 
 ### Git Submodule 操作
@@ -173,9 +207,10 @@ git submodule update --remote omb/
 git submodule update --remote omf/
 git submodule update --remote mqtt_log_viewer/
 git submodule update --remote specs/
+git submodule update --remote log4rs/
 
 # 提交 submodule 變更
-git add omb/ omf/ mqtt_log_viewer/ specs/
+git add omb/ omf/ mqtt_log_viewer/ specs/ log4rs/
 git commit -m "Update submodules"
 ```
 
@@ -294,10 +329,12 @@ RUST_LOG=debug cargo run -- play --verbose
 - [前端詳細文檔](omf/README.md)
 - [MQTT 日誌查看器文檔](mqtt_log_viewer/README.md)
 - [ECS 框架文檔](specs/README.md)
+- [日誌框架文檔](log4rs/README.md)
 - [後端儲存庫](https://github.com/damody/open_moba_backend)
 - [前端儲存庫](https://github.com/damody/open_moba_frontend)
 - [MQTT 日誌查看器儲存庫](https://github.com/damody/mqtt_log_viewer)
 - [ECS 框架儲存庫](https://github.com/damody/specs)
+- [日誌框架儲存庫](https://github.com/damody/log4rs)
 
 ---
 

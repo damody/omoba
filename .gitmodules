@@ -10,3 +10,6 @@
 [submodule "specs"]
 	path = specs
 	url = https://github.com/damody/specs.git
+[submodule "log4rs"]
+	path = log4rs
+	url = https://github.com/damody/log4rs.git
