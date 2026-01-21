@@ -1,0 +1,31 @@
+[package]
+name = "omoba-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared core library for OMOBA frontends"
+
+[dependencies]
+# MQTT client
+rumqttc = "0.24"
+
+# Async runtime
+tokio = { version = "1.0", features = ["rt-multi-thread", "sync", "macros", "time"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Configuration
+toml = "0.9"
+
+# Logging
+log = "0.4"
+
+# Math
+vek = "0.17"
+
+# Error handling
+anyhow = "1.0"
+
+# Random (for player simulation)
+rand = "0.9"
