@@ -7,7 +7,7 @@ pub mod mqtt;
 pub mod state;
 pub mod input;
 
-pub use config::{AppConfig, ServerConfig, FrontendConfig};
+pub use config::{AppConfig, ServerConfig, BackendConfig, FrontendConfig};
 pub use state::{GameState, Entity, EntityType, Viewport};
 pub use mqtt::{MqttClient, MqttHandler};
 pub use input::{PlayerSimulator, PlayerAction};
