@@ -5,6 +5,7 @@
 use fyrox::engine::executor::Executor;
 use log::info;
 
+mod camera;
 mod game;
 mod renderer;
 
