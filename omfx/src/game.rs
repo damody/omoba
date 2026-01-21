@@ -1,21 +1,21 @@
 //! Main game implementation
 
 use fyrox::{
-    core::{
-        pool::Handle,
-        reflect::prelude::*,
-        visitor::prelude::*,
-    },
-    event::{Event, WindowEvent},
+    core::{algebra::Vector2, pool::Handle, reflect::prelude::*, visitor::prelude::*},
+    event::{ElementState, Event, WindowEvent},
     gui::message::UiMessage,
+    keyboard::{KeyCode, PhysicalKey},
     plugin::{Plugin, PluginContext, PluginRegistrationContext},
     scene::Scene,
 };
-use log::{info, debug};
+use log::{debug, info};
 
 use omoba_core::{AppConfig, GameState, MqttClient, MqttHandler};
 
-use crate::renderer::EntityRenderer;
+use crate::camera::CameraController;
+use crate::config::OmfxConfig;
+use crate::debug::DebugOverlays;
+use crate::renderer::{EffectRenderer, EntityRenderer, FogOfWarRenderer, HealthBarRenderer};
 
 /// Main game state
 #[derive(Visit, Reflect)]
@@ -25,7 +25,10 @@ pub struct Game {
     scene: Handle<Scene>,
     #[visit(skip)]
     #[reflect(hidden)]
-    config: AppConfig,
+    core_config: AppConfig,
+    #[visit(skip)]
+    #[reflect(hidden)]
+    omfx_config: OmfxConfig,
     #[visit(skip)]
     #[reflect(hidden)]
     game_state: GameState,
@@ -40,7 +43,25 @@ pub struct Game {
     entity_renderer: Option<EntityRenderer>,
     #[visit(skip)]
     #[reflect(hidden)]
+    effect_renderer: Option<EffectRenderer>,
+    #[visit(skip)]
+    #[reflect(hidden)]
+    fog_renderer: Option<FogOfWarRenderer>,
+    #[visit(skip)]
+    #[reflect(hidden)]
+    healthbar_renderer: Option<HealthBarRenderer>,
+    #[visit(skip)]
+    #[reflect(hidden)]
+    camera: CameraController,
+    #[visit(skip)]
+    #[reflect(hidden)]
+    debug_overlays: DebugOverlays,
+    #[visit(skip)]
+    #[reflect(hidden)]
     is_connected: bool,
+    #[visit(skip)]
+    #[reflect(hidden)]
+    selected_entity_id: Option<u32>,
 }
 
 impl std::fmt::Debug for Game {
@@ -54,21 +75,43 @@ impl std::fmt::Debug for Game {
 
 impl Game {
     pub fn new() -> Self {
-        let config = AppConfig::load();
+        let core_config = AppConfig::load();
+        let omfx_config = OmfxConfig::load();
         let game_state = GameState::new(
-            config.frontend.player_name.clone(),
-            config.frontend.hero_type.clone(),
+            core_config.frontend.player_name.clone(),
+            core_config.frontend.hero_type.clone(),
         );
+
+        let mut camera = CameraController::new();
+        camera.config.max_speed = omfx_config.camera.edge_scroll_speed;
+        camera.config.edge_size = omfx_config.camera.edge_scroll_zone;
+        camera.config.zoom_speed = omfx_config.camera.zoom_speed;
+        camera.config.min_zoom = omfx_config.camera.min_zoom;
+        camera.config.max_zoom = omfx_config.camera.max_zoom;
+        camera.zoom = omfx_config.camera.default_zoom;
 
         Self {
             scene: Handle::NONE,
-            config,
+            core_config,
+            omfx_config,
             game_state,
             mqtt_client: None,
             mqtt_handler: MqttHandler::new(),
             entity_renderer: None,
+            effect_renderer: None,
+            fog_renderer: None,
+            healthbar_renderer: None,
+            camera,
+            debug_overlays: DebugOverlays::new(),
             is_connected: false,
+            selected_entity_id: None,
         }
+    }
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -84,15 +127,27 @@ impl Plugin for Game {
         let scene = Scene::new();
         self.scene = context.scenes.add(scene);
 
-        // Initialize entity renderer
-        self.entity_renderer = Some(EntityRenderer::new(
-            self.config.frontend.player_name.clone()
-        ));
+        // Initialize renderers
+        self.entity_renderer = Some(EntityRenderer::new(self.core_config.frontend.player_name.clone()));
+        self.effect_renderer = Some(EffectRenderer::new());
+        self.fog_renderer = Some(FogOfWarRenderer::new());
+        self.healthbar_renderer = Some(HealthBarRenderer::new());
+
+        // Configure fog renderer
+        if let Some(ref mut fog) = self.fog_renderer {
+            fog.config.tile_size = self.omfx_config.render.fog_tile_size;
+        }
+
+        // Configure health bar renderer
+        if let Some(ref mut hb) = self.healthbar_renderer {
+            hb.config.width = self.omfx_config.render.health_bar_width;
+            hb.config.height = self.omfx_config.render.health_bar_height;
+        }
 
         // Initialize MQTT client
         match MqttClient::new(
-            &self.config.server,
-            &self.config.frontend.player_name,
+            &self.core_config.server,
+            &self.core_config.frontend.player_name,
             "omfx_client",
         ) {
             Ok(client) => {
@@ -104,42 +159,120 @@ impl Plugin for Game {
             }
         }
 
-        info!("OMFX initialized - Player: {}, Hero: {}",
-              self.config.frontend.player_name,
-              self.config.frontend.hero_type);
+        info!(
+            "OMFX initialized - Player: {}, Hero: {}",
+            self.core_config.frontend.player_name, self.core_config.frontend.hero_type
+        );
     }
 
     fn update(&mut self, context: &mut PluginContext) {
-        // Update game state cooldowns
         let dt = context.dt;
+
+        // Update game state cooldowns
         self.game_state.update_cooldowns(dt);
 
-        // Process MQTT messages (non-blocking)
-        // Note: Full async integration will be added in later tasks
+        // Update camera
+        self.camera.update(dt);
 
-        // Sync entity visuals with game state
-        if let Some(ref mut renderer) = self.entity_renderer {
-            if let Some(scene) = context.scenes.try_get_mut(self.scene) {
+        // Get scene for rendering
+        if let Some(scene) = context.scenes.try_get_mut(self.scene) {
+            // Sync entity visuals
+            if let Some(ref mut renderer) = self.entity_renderer {
                 renderer.sync_with_game_state(&self.game_state.entities, scene);
             }
+
+            // Update effects
+            if let Some(ref mut effects) = self.effect_renderer {
+                effects.update(scene);
+            }
+
+            // Update fog of war
+            if let Some(ref mut fog) = self.fog_renderer {
+                let (viewport_min, viewport_max) = self.game_state.viewport.get_bounds();
+                // Convert vek::Vec2 to fyrox::Vector2
+                let viewport_min = Vector2::new(viewport_min.x, viewport_min.y);
+                let viewport_max = Vector2::new(viewport_max.x, viewport_max.y);
+                fog.update(viewport_min, viewport_max, scene);
+            }
+
+            // Render health bars
+            if let Some(ref mut healthbars) = self.healthbar_renderer {
+                healthbars.render(scene);
+            }
+
+            // Render debug overlays
+            self.debug_overlays.render(scene);
         }
     }
 
-    fn on_os_event(&mut self, event: &Event<()>, _context: PluginContext) {
-        // Handle OS events (keyboard, mouse)
+    fn on_os_event(&mut self, event: &Event<()>, context: PluginContext) {
         if let Event::WindowEvent { event, .. } = event {
             match event {
                 WindowEvent::KeyboardInput { event: key_event, .. } => {
-                    // Handle keyboard input
-                    debug!("Key event: {:?}", key_event);
+                    // Handle debug overlays (F1-F4)
+                    if let Some(scene) = context.scenes.try_get_mut(self.scene) {
+                        let handled =
+                            self.debug_overlays
+                                .handle_key(key_event.physical_key, key_event.state, scene);
+                        if handled {
+                            return;
+                        }
+                    }
+
+                    // Handle other keys on press only
+                    if key_event.state == ElementState::Pressed {
+                        if let PhysicalKey::Code(key_code) = key_event.physical_key {
+                            match key_code {
+                                KeyCode::KeyP => {
+                                    self.game_state.toggle_pause();
+                                    info!("Paused: {}", self.game_state.is_paused);
+                                }
+                                KeyCode::Digit1 => {
+                                    self.game_state.set_time_scale(1.0);
+                                    info!("Time scale: 1.0x");
+                                }
+                                KeyCode::Digit2 => {
+                                    self.game_state.set_time_scale(2.0);
+                                    info!("Time scale: 2.0x");
+                                }
+                                KeyCode::Digit3 => {
+                                    self.game_state.set_time_scale(4.0);
+                                    info!("Time scale: 4.0x");
+                                }
+                                KeyCode::Digit0 => {
+                                    self.game_state.set_time_scale(0.5);
+                                    info!("Time scale: 0.5x");
+                                }
+                                KeyCode::Home => {
+                                    self.camera.go_to_center();
+                                    info!("Camera centered");
+                                }
+                                KeyCode::Space => {
+                                    // Focus on local player
+                                    let pos = self.game_state.local_player.position;
+                                    self.camera.focus_on(Vector2::new(pos.x, pos.y));
+                                    info!("Camera focused on player");
+                                }
+                                _ => {
+                                    debug!("Unhandled key: {:?}", key_code);
+                                }
+                            }
+                        }
+                    }
                 }
-                WindowEvent::CursorMoved { .. } => {
-                    // Handle mouse movement for edge scrolling
-                    // Will be implemented in camera task
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.camera
+                        .on_mouse_move(Vector2::new(position.x, position.y));
                 }
                 WindowEvent::MouseWheel { delta, .. } => {
-                    // Handle zoom
-                    debug!("Mouse wheel: {:?}", delta);
+                    let zoom_delta = match delta {
+                        fyrox::event::MouseScrollDelta::LineDelta(_, y) => *y,
+                        fyrox::event::MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 100.0,
+                    };
+                    self.camera.on_zoom(zoom_delta);
+                }
+                WindowEvent::Resized(size) => {
+                    self.camera.set_window_size(size.width as f32, size.height as f32);
                 }
                 _ => {}
             }

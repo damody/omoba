@@ -24,3 +24,7 @@ env_logger = "0.11"
 
 # Math (re-export from fyrox but also keep vek for compatibility)
 vek = "0.17"
+
+# Config file parsing
+toml = "0.8"
+anyhow = "1.0"
