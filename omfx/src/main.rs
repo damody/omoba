@@ -8,6 +8,7 @@ use log::info;
 mod camera;
 mod game;
 mod renderer;
+mod ui;
 
 fn main() {
     // Initialize logging
