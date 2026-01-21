@@ -6,6 +6,7 @@ use fyrox::engine::executor::Executor;
 use log::info;
 
 mod game;
+mod renderer;
 
 fn main() {
     // Initialize logging

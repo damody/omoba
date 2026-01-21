@@ -15,6 +15,8 @@ use log::{info, debug};
 
 use omoba_core::{AppConfig, GameState, MqttClient, MqttHandler};
 
+use crate::renderer::EntityRenderer;
+
 /// Main game state
 #[derive(Visit, Reflect)]
 pub struct Game {
@@ -33,6 +35,9 @@ pub struct Game {
     #[visit(skip)]
     #[reflect(hidden)]
     mqtt_handler: MqttHandler,
+    #[visit(skip)]
+    #[reflect(hidden)]
+    entity_renderer: Option<EntityRenderer>,
     #[visit(skip)]
     #[reflect(hidden)]
     is_connected: bool,
@@ -61,6 +66,7 @@ impl Game {
             game_state,
             mqtt_client: None,
             mqtt_handler: MqttHandler::new(),
+            entity_renderer: None,
             is_connected: false,
         }
     }
@@ -77,6 +83,11 @@ impl Plugin for Game {
         // Create a new empty scene for 2D rendering
         let scene = Scene::new();
         self.scene = context.scenes.add(scene);
+
+        // Initialize entity renderer
+        self.entity_renderer = Some(EntityRenderer::new(
+            self.config.frontend.player_name.clone()
+        ));
 
         // Initialize MQTT client
         match MqttClient::new(
@@ -106,8 +117,12 @@ impl Plugin for Game {
         // Process MQTT messages (non-blocking)
         // Note: Full async integration will be added in later tasks
 
-        // Update scene based on game state
-        // This will be implemented in rendering tasks
+        // Sync entity visuals with game state
+        if let Some(ref mut renderer) = self.entity_renderer {
+            if let Some(scene) = context.scenes.try_get_mut(self.scene) {
+                renderer.sync_with_game_state(&self.game_state.entities, scene);
+            }
+        }
     }
 
     fn on_os_event(&mut self, event: &Event<()>, _context: PluginContext) {
