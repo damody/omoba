@@ -1,0 +1,55 @@
+# OMFX Configuration
+# OMOBA Fyrox Debug Frontend
+
+[server]
+mqtt_host = "127.0.0.1"
+mqtt_port = 1883
+
+[backend]
+# Path to backend executable (relative to omfx or absolute)
+executable_path = "../omb/target/debug/omobab"
+# Command line arguments
+args = []
+# Working directory (optional, uses executable's directory if not set)
+# working_directory = "../omb"
+# Environment variables
+[backend.env]
+# RUST_LOG = "debug"
+
+# Auto-start backend when omfx starts
+auto_start = true
+# Delay before starting backend (ms)
+start_delay_ms = 1000
+# Timeout for graceful shutdown (ms)
+shutdown_timeout_ms = 5000
+
+[frontend]
+player_name = "TestPlayer"
+hero_type = "saika_magoichi"
+
+[window]
+width = 1920
+height = 1080
+title = "OMFX - OMOBA Debug Frontend"
+fullscreen = false
+vsync = true
+
+[camera]
+edge_scroll_speed = 800.0
+edge_scroll_zone = 20.0
+zoom_speed = 0.1
+min_zoom = 0.5
+max_zoom = 3.0
+default_zoom = 1.0
+
+[debug]
+show_fps = true
+show_entity_count = true
+default_overlays = []
+log_level = "info"
+
+[render]
+health_bar_width = 40.0
+health_bar_height = 6.0
+fog_tile_size = 32.0
+trail_duration_ms = 500

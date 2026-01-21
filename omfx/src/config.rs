@@ -1,11 +1,18 @@
-//! OMFX-specific configuration
+//! OMFX configuration - unified config for frontend, server, and backend
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-/// OMFX display configuration
+/// OMFX unified configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OmfxConfig {
+    /// Server/MQTT settings
+    pub server: ServerConfig,
+    /// Backend settings
+    pub backend: BackendConfig,
+    /// Frontend/player settings
+    pub frontend: FrontendConfig,
     /// Window settings
     pub window: WindowConfig,
     /// Camera settings
@@ -14,6 +21,41 @@ pub struct OmfxConfig {
     pub debug: DebugConfig,
     /// Render settings
     pub render: RenderConfig,
+}
+
+/// Server/MQTT configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerConfig {
+    pub mqtt_host: String,
+    pub mqtt_port: u16,
+}
+
+/// Backend process configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendConfig {
+    /// Path to backend executable
+    pub executable_path: String,
+    /// Command line arguments
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Working directory (optional)
+    pub working_directory: Option<String>,
+    /// Environment variables
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// Auto-start backend when omfx starts
+    pub auto_start: bool,
+    /// Delay in milliseconds before starting backend
+    pub start_delay_ms: u64,
+    /// Timeout in milliseconds for graceful shutdown
+    pub shutdown_timeout_ms: u64,
+}
+
+/// Frontend/player configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrontendConfig {
+    pub player_name: String,
+    pub hero_type: String,
 }
 
 /// Window configuration
@@ -58,6 +100,23 @@ pub struct RenderConfig {
 impl Default for OmfxConfig {
     fn default() -> Self {
         Self {
+            server: ServerConfig {
+                mqtt_host: "127.0.0.1".to_string(),
+                mqtt_port: 1883,
+            },
+            backend: BackendConfig {
+                executable_path: "../omb/target/debug/omobab".to_string(),
+                args: vec![],
+                working_directory: None,
+                env: HashMap::new(),
+                auto_start: true,
+                start_delay_ms: 1000,
+                shutdown_timeout_ms: 5000,
+            },
+            frontend: FrontendConfig {
+                player_name: "TestPlayer".to_string(),
+                hero_type: "saika_magoichi".to_string(),
+            },
             window: WindowConfig {
                 width: 1920,
                 height: 1080,
@@ -103,13 +162,18 @@ impl OmfxConfig {
 
     /// Load config (prefer file, fallback to default)
     pub fn load() -> Self {
-        match Self::from_file("omfx_config.toml") {
+        Self::load_from("config.toml")
+    }
+
+    /// Load config from specific path
+    pub fn load_from(path: &str) -> Self {
+        match Self::from_file(path) {
             Ok(config) => {
-                log::info!("Loaded OMFX config from omfx_config.toml");
+                log::info!("Loaded config from {}", path);
                 config
             }
             Err(e) => {
-                log::warn!("Cannot load OMFX config, using defaults: {}", e);
+                log::warn!("Cannot load config from {}, using defaults: {}", path, e);
                 Self::default()
             }
         }
@@ -122,5 +186,13 @@ impl OmfxConfig {
         std::fs::write(path, content).with_context(|| format!("Cannot write config file: {}", path))?;
 
         Ok(())
+    }
+
+    /// Convert server config to omoba-core ServerConfig
+    pub fn to_core_server_config(&self) -> omoba_core::ServerConfig {
+        omoba_core::ServerConfig {
+            mqtt_host: self.server.mqtt_host.clone(),
+            mqtt_port: self.server.mqtt_port,
+        }
     }
 }
