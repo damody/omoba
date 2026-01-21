@@ -1,9 +1,9 @@
-//! MQTT communication module (stub - to be implemented)
+//! MQTT communication module
 
 pub mod messages;
+pub mod client;
+pub mod handler;
 
-/// MQTT client placeholder
-pub struct MqttClient;
-
-/// MQTT handler trait placeholder
-pub trait MqttHandler {}
+pub use messages::*;
+pub use client::{MqttClient, MqttEvent};
+pub use handler::MqttHandler;
