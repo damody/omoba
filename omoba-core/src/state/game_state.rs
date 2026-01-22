@@ -109,6 +109,14 @@ impl GameState {
         self.last_update = SystemTime::now();
     }
 
+    /// Update entity position
+    pub fn update_entity_position(&mut self, id: u32, x: f32, y: f32) {
+        if let Some(entity) = self.entities.get_mut(&id) {
+            entity.position = Vec2::new(x, y);
+            self.last_update = SystemTime::now();
+        }
+    }
+
     /// Remove entity
     pub fn remove_entity(&mut self, entity_id: u32) {
         self.entities.remove(&entity_id);

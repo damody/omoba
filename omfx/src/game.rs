@@ -8,13 +8,14 @@ use fyrox::{
     plugin::{Plugin, PluginContext, PluginRegistrationContext},
     scene::Scene,
 };
-use log::{debug, info};
+use log::{debug, info, warn};
 
-use omoba_core::{AppConfig, GameState, MqttClient, MqttHandler};
+use omoba_core::{AppConfig, GameState, MqttEvent, MqttHandler};
 
 use crate::camera::CameraController;
 use crate::config::OmfxConfig;
 use crate::debug::DebugOverlays;
+use crate::mqtt_worker::{GameMessage, MqttWorker};
 use crate::renderer::{EffectRenderer, EntityRenderer, FogOfWarRenderer, HealthBarRenderer};
 
 /// Main game state
@@ -34,7 +35,7 @@ pub struct Game {
     game_state: GameState,
     #[visit(skip)]
     #[reflect(hidden)]
-    mqtt_client: Option<MqttClient>,
+    mqtt_worker: Option<MqttWorker>,
     #[visit(skip)]
     #[reflect(hidden)]
     mqtt_handler: MqttHandler,
@@ -95,7 +96,7 @@ impl Game {
             core_config,
             omfx_config,
             game_state,
-            mqtt_client: None,
+            mqtt_worker: None,
             mqtt_handler: MqttHandler::new(),
             entity_renderer: None,
             effect_renderer: None,
@@ -144,18 +145,17 @@ impl Plugin for Game {
             hb.config.height = self.omfx_config.render.health_bar_height;
         }
 
-        // Initialize MQTT client
-        match MqttClient::new(
+        // Initialize MQTT worker (background thread)
+        match MqttWorker::new(
             &self.core_config.server,
             &self.core_config.frontend.player_name,
-            "omfx_client",
         ) {
-            Ok(client) => {
-                self.mqtt_client = Some(client);
-                info!("MQTT client initialized");
+            Ok(worker) => {
+                self.mqtt_worker = Some(worker);
+                info!("MQTT worker started");
             }
             Err(e) => {
-                log::error!("Failed to create MQTT client: {}", e);
+                log::error!("Failed to create MQTT worker: {}", e);
             }
         }
 
@@ -167,6 +167,37 @@ impl Plugin for Game {
 
     fn update(&mut self, context: &mut PluginContext) {
         let dt = context.dt;
+
+        // Process MQTT messages from background worker
+        if let Some(ref worker) = self.mqtt_worker {
+            while let Some(msg) = worker.try_recv() {
+                match msg {
+                    GameMessage::MqttEvent(MqttEvent::Message { topic, payload }) => {
+                        if let Err(e) = self.mqtt_handler.handle_message(
+                            &topic,
+                            &payload,
+                            &mut self.game_state
+                        ) {
+                            warn!("Failed to handle MQTT message: {}", e);
+                        }
+                    }
+                    GameMessage::MqttEvent(MqttEvent::Connected) => {
+                        self.is_connected = true;
+                        info!("MQTT connected");
+                    }
+                    GameMessage::MqttEvent(MqttEvent::Disconnected) => {
+                        self.is_connected = false;
+                        warn!("MQTT disconnected");
+                    }
+                    GameMessage::MqttEvent(MqttEvent::Error(e)) => {
+                        warn!("MQTT error: {}", e);
+                    }
+                    GameMessage::Error(e) => {
+                        warn!("MQTT worker error: {}", e);
+                    }
+                }
+            }
+        }
 
         // Update game state cooldowns
         self.game_state.update_cooldowns(dt);

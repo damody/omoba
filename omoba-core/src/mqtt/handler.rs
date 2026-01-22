@@ -55,13 +55,83 @@ impl MqttHandler {
         }
     }
 
-    /// Handle broadcast message
-    fn handle_broadcast_message(&self, payload: &str, _game_state: &mut GameState) -> Result<()> {
-        if let Ok(player_data) = serde_json::from_str::<PlayerData>(payload) {
-            debug!("Broadcast - Type: {}, Action: {}", player_data.msg_type, player_data.action);
-            // Process broadcast data based on type
-        } else if let Ok(data) = serde_json::from_str::<serde_json::Value>(payload) {
-            debug!("Raw broadcast data: {}", data);
+    /// Handle broadcast message from backend
+    fn handle_broadcast_message(&self, payload: &str, game_state: &mut GameState) -> Result<()> {
+        let msg: BroadcastMessage = serde_json::from_str(payload)?;
+
+        match (msg.msg_type.as_str(), msg.action.as_str()) {
+            // 英雄創建
+            ("hero", "create") => {
+                if let Ok(data) = serde_json::from_value::<HeroCreateData>(msg.data) {
+                    let entity = Entity {
+                        id: data.entity_id,
+                        entity_type: EntityType::Player(data.name.clone()),
+                        position: Vec2::new(data.position.x, data.position.y),
+                        health: (data.hp, data.max_hp),
+                        owner: None,
+                    };
+                    game_state.upsert_entity(entity);
+                    info!("Created hero: {} at ({}, {})", data.name, data.position.x, data.position.y);
+                }
+            }
+
+            // 單位創建
+            ("unit", "create") | ("unit", "C") => {
+                if let Ok(data) = serde_json::from_value::<UnitCreateData>(msg.data) {
+                    let entity = Entity {
+                        id: data.entity_id,
+                        entity_type: EntityType::Summon(data.name.clone()),
+                        position: Vec2::new(data.position.x, data.position.y),
+                        health: (data.hp, data.max_hp),
+                        owner: None,
+                    };
+                    game_state.upsert_entity(entity);
+                    debug!("Created unit: {} at ({}, {})", data.name, data.position.x, data.position.y);
+                }
+            }
+
+            // 小兵創建
+            ("creep", "C") => {
+                if let Ok(data) = serde_json::from_value::<CreepCreateData>(msg.data) {
+                    let entity = Entity {
+                        id: data.id,
+                        entity_type: EntityType::Creep(data.name.clone()),
+                        position: Vec2::new(data.x, data.y),
+                        health: (data.hp, data.mhp),
+                        owner: None,
+                    };
+                    game_state.upsert_entity(entity);
+                    debug!("Created creep: id={} at ({}, {})", data.id, data.x, data.y);
+                }
+            }
+
+            // 移動更新
+            ("creep", "M") | ("unit", "M") | ("hero", "M") => {
+                if let Ok(data) = serde_json::from_value::<MoveData>(msg.data) {
+                    game_state.update_entity_position(data.id, data.x, data.y);
+                }
+            }
+
+            // 實體刪除/死亡
+            (_, "D") => {
+                if let Ok(data) = serde_json::from_value::<DeleteData>(msg.data) {
+                    game_state.remove_entity(data.id);
+                    debug!("Removed entity: id={}", data.id);
+                }
+            }
+
+            // 心跳
+            ("heartbeat", "tick") => {
+                if let Ok(data) = serde_json::from_value::<HeartbeatData>(msg.data) {
+                    game_state.game_time = data.game_time as f32;
+                    debug!("Heartbeat: tick={}, entities={}", data.tick, data.entity_count);
+                }
+            }
+
+            // 其他未處理的訊息
+            _ => {
+                debug!("Unhandled broadcast: type={}, action={}", msg.msg_type, msg.action);
+            }
         }
 
         Ok(())

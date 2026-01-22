@@ -123,3 +123,89 @@ pub struct TestResponse {
     pub timestamp: u64,
     pub execution_time_ms: u64,
 }
+
+// ============================================================================
+// 後端廣播訊息格式 (Backend Broadcast Message Formats)
+// ============================================================================
+
+/// 後端廣播訊息格式 (matches backend MqttMsg format)
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct BroadcastMessage {
+    #[serde(rename = "t")]
+    pub msg_type: String,
+    #[serde(rename = "a")]
+    pub action: String,
+    #[serde(rename = "d")]
+    pub data: serde_json::Value,
+}
+
+/// 位置資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PositionData {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// 英雄創建資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HeroCreateData {
+    pub entity_id: u32,
+    pub hero_id: String,
+    pub name: String,
+    pub title: String,
+    pub level: u32,
+    pub position: PositionData,
+    pub hp: f32,
+    pub max_hp: f32,
+    pub move_speed: f32,
+}
+
+/// 單位創建資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct UnitCreateData {
+    pub entity_id: u32,
+    pub unit_id: String,
+    pub name: String,
+    pub unit_type: String,
+    pub position: PositionData,
+    pub hp: f32,
+    pub max_hp: f32,
+    pub move_speed: f32,
+}
+
+/// 小兵創建資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreepCreateData {
+    pub id: u32,
+    #[serde(default)]
+    pub name: String,
+    pub x: f32,
+    pub y: f32,
+    pub hp: f32,
+    pub mhp: f32,
+}
+
+/// 移動資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MoveData {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
+}
+
+/// 刪除資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DeleteData {
+    pub id: u32,
+}
+
+/// 心跳資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct HeartbeatData {
+    pub tick: u64,
+    pub game_time: f64,
+    pub entity_count: u32,
+    pub hero_count: u32,
+    pub unit_count: u32,
+    pub creep_count: u32,
+}
