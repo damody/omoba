@@ -49,6 +49,20 @@ pub struct BackendConfig {
     pub start_delay_ms: u64,
     /// Timeout in milliseconds for graceful shutdown
     pub shutdown_timeout_ms: u64,
+    /// Require backend health check (MQTT connection) before starting
+    #[serde(default = "default_require_health_check")]
+    pub require_health_check: bool,
+    /// Timeout in milliseconds for health check
+    #[serde(default = "default_health_check_timeout")]
+    pub health_check_timeout_ms: u64,
+}
+
+fn default_require_health_check() -> bool {
+    true
+}
+
+fn default_health_check_timeout() -> u64 {
+    10000  // 10 seconds
 }
 
 /// Frontend/player configuration
@@ -112,6 +126,8 @@ impl Default for OmfxConfig {
                 auto_start: true,
                 start_delay_ms: 1000,
                 shutdown_timeout_ms: 5000,
+                require_health_check: true,
+                health_check_timeout_ms: 10000,
             },
             frontend: FrontendConfig {
                 player_name: "TestPlayer".to_string(),

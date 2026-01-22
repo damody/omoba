@@ -18,6 +18,10 @@ auto_start = true
 start_delay_ms = 1000
 # Timeout for graceful shutdown (ms)
 shutdown_timeout_ms = 5000
+# Require backend health check (exit if no MQTT message received)
+require_health_check = true
+# Timeout for health check (ms)
+health_check_timeout_ms = 10000
 
 # Environment variables (nested table must be last in section)
 [backend.env]
