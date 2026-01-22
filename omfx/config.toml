@@ -12,16 +12,16 @@ executable_path = "../omb/target/debug/omobab"
 args = []
 # Working directory (optional, uses executable's directory if not set)
 # working_directory = "../omb"
-# Environment variables
-[backend.env]
-# RUST_LOG = "debug"
-
 # Auto-start backend when omfx starts
 auto_start = true
 # Delay before starting backend (ms)
 start_delay_ms = 1000
 # Timeout for graceful shutdown (ms)
 shutdown_timeout_ms = 5000
+
+# Environment variables (nested table must be last in section)
+[backend.env]
+# RUST_LOG = "debug"
 
 [frontend]
 player_name = "TestPlayer"
