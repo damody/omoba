@@ -170,41 +170,70 @@ impl BackendManager {
         self.process.as_ref().map(|c| c.id())
     }
 
-    /// Resolve executable path (handle relative paths)
+    /// Resolve executable path (handle relative paths and Windows .exe extension)
     fn resolve_executable_path(&self) -> Result<PathBuf, String> {
         let path = PathBuf::from(&self.config.executable_path);
 
+        // On Windows, try adding .exe if not already present
+        let candidates = Self::get_path_candidates(&path);
+
         // If path is absolute, use it directly
         if path.is_absolute() {
-            if path.exists() {
-                return Ok(path);
-            } else {
-                return Err(format!("Backend executable not found: {:?}", path));
+            for candidate in &candidates {
+                if candidate.exists() {
+                    return Ok(candidate.clone());
+                }
             }
+            return Err(format!("Backend executable not found: {:?}", path));
         }
 
         // Try relative to current directory
         let current_dir = std::env::current_dir()
             .map_err(|e| format!("Cannot get current directory: {}", e))?;
 
-        let abs_path = current_dir.join(&path);
-
-        if abs_path.exists() {
-            return Ok(abs_path);
+        for candidate in &candidates {
+            let abs_path = current_dir.join(candidate);
+            if abs_path.exists() {
+                return Ok(abs_path);
+            }
         }
 
         // Try relative to executable directory
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                let from_exe = exe_dir.join(&path);
-                if from_exe.exists() {
-                    return Ok(from_exe);
+                for candidate in &candidates {
+                    let from_exe = exe_dir.join(candidate);
+                    if from_exe.exists() {
+                        return Ok(from_exe);
+                    }
                 }
             }
         }
 
+        let abs_path = current_dir.join(&path);
         Err(format!("Backend executable not found: {} (tried {:?})",
                     self.config.executable_path, abs_path))
+    }
+
+    /// Get path candidates (original path + with .exe on Windows)
+    fn get_path_candidates(path: &PathBuf) -> Vec<PathBuf> {
+        let mut candidates = vec![path.clone()];
+
+        // On Windows, also try with .exe extension if not already present
+        #[cfg(windows)]
+        {
+            if path.extension().map_or(true, |ext| ext != "exe") {
+                let mut with_exe = path.clone();
+                let new_name = format!(
+                    "{}.exe",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                );
+                with_exe.set_file_name(new_name);
+                candidates.push(with_exe);
+            }
+        }
+
+        candidates
     }
 
     /// Restart the backend
