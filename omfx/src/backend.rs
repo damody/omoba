@@ -64,9 +64,9 @@ impl BackendManager {
             cmd.env(key, value);
         }
 
-        // Configure stdio
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
+        // Configure stdio - inherit so we can see backend output
+        cmd.stdout(Stdio::inherit());
+        cmd.stderr(Stdio::inherit());
 
         // Spawn process
         match cmd.spawn() {

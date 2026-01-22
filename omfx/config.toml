@@ -10,8 +10,8 @@ mqtt_port = 1883
 executable_path = "../omb/target/debug/omobab"
 # Command line arguments
 args = []
-# Working directory (optional, uses executable's directory if not set)
-# working_directory = "../omb"
+# Working directory (required for omb to find log4rs.yml and data files)
+working_directory = "../omb"
 # Auto-start backend when omfx starts
 auto_start = true
 # Delay before starting backend (ms)
@@ -21,7 +21,7 @@ shutdown_timeout_ms = 5000
 # Require backend health check (exit if no MQTT message received)
 require_health_check = true
 # Timeout for health check (ms)
-health_check_timeout_ms = 10000
+health_check_timeout_ms = 30000
 
 # Environment variables (nested table must be last in section)
 [backend.env]
