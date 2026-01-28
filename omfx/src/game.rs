@@ -157,7 +157,7 @@ impl Plugin for Game {
             // Vertical size: how many world units visible vertically
             // 600 means 600 units from top to bottom
             vertical_size: 600.0,
-            // Near/far clipping planes
+            // Near/far clipping planes (relative to camera position)
             z_near: 0.01,
             z_far: 100.0,
         }))

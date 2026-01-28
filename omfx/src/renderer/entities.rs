@@ -1,12 +1,14 @@
 //! Entity rendering system
 
 use fyrox::{
+    asset::untyped::ResourceKind,
     core::{
         pool::Handle,
         algebra::Vector3,
         color::Color,
     },
     graph::BaseSceneGraph,
+    material::{Material, MaterialResource},
     scene::{
         Scene,
         node::Node,
@@ -15,6 +17,7 @@ use fyrox::{
         transform::TransformBuilder,
     },
 };
+use log::{debug, info};
 use std::collections::HashMap;
 
 use omoba_core::{Entity, EntityType};
@@ -52,13 +55,20 @@ pub struct EntityRenderer {
     entity_nodes: HashMap<u32, Handle<Node>>,
     /// Local player name for determining ally/enemy
     local_player_name: String,
+    /// 2D material resource for rendering rectangles
+    material: MaterialResource,
 }
 
 impl EntityRenderer {
     pub fn new(local_player_name: String) -> Self {
+        // Create a standard 2D material for rendering colored rectangles
+        let material = Material::standard_2d();
+        let material_resource = MaterialResource::new_ok(ResourceKind::Embedded, material);
+
         Self {
             entity_nodes: HashMap::new(),
             local_player_name,
+            material: material_resource,
         }
     }
 
@@ -78,6 +88,11 @@ impl EntityRenderer {
             // Create new node
             let (color, size) = self.get_entity_visual_properties(entity);
 
+            debug!(
+                "Creating visual for entity {} ({:?}) at ({}, {}) with size {}",
+                entity.id, entity.entity_type, entity.position.x, entity.position.y, size
+            );
+
             let node = RectangleBuilder::new(
                 BaseBuilder::new()
                     .with_local_transform(
@@ -87,14 +102,17 @@ impl EntityRenderer {
                                 entity.position.y,
                                 0.0,
                             ))
-                            .with_local_scale(Vector3::new(size, size, 1.0))
+                            // Use f32::EPSILON for z-scale as recommended for 2D rectangles
+                            .with_local_scale(Vector3::new(size, size, f32::EPSILON))
                             .build()
                     )
             )
             .with_color(color)
+            .with_material(self.material.clone())
             .build(&mut scene.graph);
 
             self.entity_nodes.insert(entity.id, node);
+            debug!("Entity {} visual created, node handle: {:?}", entity.id, node);
         }
     }
 
