@@ -173,16 +173,40 @@ pub struct UnitCreateData {
     pub move_speed: f32,
 }
 
-/// 小兵創建資料
+/// 小兵創建資料（匹配後端嵌套格式）
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CreepCreateData {
     pub id: u32,
-    #[serde(default)]
+    pub pos: PositionData,
+    pub creep: CreepInfo,
+    pub cdata: CreepStats,
+}
+
+/// 小兵基本資訊
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreepInfo {
     pub name: String,
-    pub x: f32,
-    pub y: f32,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub pidx: u32,
+    #[serde(default)]
+    pub block_tower: Option<u32>,
+    #[serde(default)]
+    pub status: String,
+}
+
+/// 小兵數值資料
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreepStats {
     pub hp: f32,
     pub mhp: f32,
+    #[serde(default)]
+    pub msd: f32,
+    #[serde(default)]
+    pub def_physic: f32,
+    #[serde(default)]
+    pub def_magic: f32,
 }
 
 /// 移動資料

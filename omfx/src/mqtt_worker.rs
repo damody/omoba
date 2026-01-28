@@ -56,7 +56,25 @@ impl MqttWorker {
                     }
                 };
 
-                // Subscribe to game topics
+                // 等待連線完成 (ConnAck) - 必須在訂閱之前完成
+                loop {
+                    if let Some(event) = client.poll().await {
+                        match &event {
+                            MqttEvent::Connected => {
+                                debug!("MQTT worker: Connection established");
+                                let _ = tx.send(GameMessage::MqttEvent(event));
+                                break;
+                            }
+                            MqttEvent::Error(e) => {
+                                let _ = tx.send(GameMessage::Error(format!("Connection failed: {}", e)));
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                // 連線成功後才訂閱（確保 broker 已確認連線）
                 if let Err(e) = client.subscribe_to_game_topics().await {
                     let _ = tx.send(GameMessage::Error(format!("Failed to subscribe: {}", e)));
                     return;

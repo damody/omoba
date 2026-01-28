@@ -92,16 +92,18 @@ impl MqttHandler {
 
             // 小兵創建
             ("creep", "C") => {
-                if let Ok(data) = serde_json::from_value::<CreepCreateData>(msg.data) {
+                if let Ok(data) = serde_json::from_value::<CreepCreateData>(msg.data.clone()) {
                     let entity = Entity {
                         id: data.id,
-                        entity_type: EntityType::Creep(data.name.clone()),
-                        position: Vec2::new(data.x, data.y),
-                        health: (data.hp, data.mhp),
+                        entity_type: EntityType::Creep(data.creep.name.clone()),
+                        position: Vec2::new(data.pos.x, data.pos.y),
+                        health: (data.cdata.hp, data.cdata.mhp),
                         owner: None,
                     };
                     game_state.upsert_entity(entity);
-                    debug!("Created creep: id={} at ({}, {})", data.id, data.x, data.y);
+                    debug!("Created creep: id={} '{}' at ({}, {})", data.id, data.creep.name, data.pos.x, data.pos.y);
+                } else {
+                    warn!("Failed to parse creep create data: {:?}", msg.data);
                 }
             }
 
