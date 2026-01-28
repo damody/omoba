@@ -1,12 +1,23 @@
 //! Main game implementation
 
 use fyrox::{
-    core::{algebra::Vector2, pool::Handle, reflect::prelude::*, visitor::prelude::*},
+    core::{
+        algebra::{Vector2, Vector3},
+        pool::Handle,
+        reflect::prelude::*,
+        visitor::prelude::*,
+    },
     event::{ElementState, Event, WindowEvent},
     gui::message::UiMessage,
     keyboard::{KeyCode, PhysicalKey},
     plugin::{Plugin, PluginContext, PluginRegistrationContext},
-    scene::Scene,
+    scene::{
+        Scene,
+        base::BaseBuilder,
+        camera::{CameraBuilder, Projection, OrthographicProjection},
+        node::Node,
+        transform::TransformBuilder,
+    },
 };
 use log::{debug, info, warn};
 
@@ -56,6 +67,9 @@ pub struct Game {
     camera: CameraController,
     #[visit(skip)]
     #[reflect(hidden)]
+    camera_node: Handle<Node>,
+    #[visit(skip)]
+    #[reflect(hidden)]
     debug_overlays: DebugOverlays,
     #[visit(skip)]
     #[reflect(hidden)]
@@ -103,6 +117,7 @@ impl Game {
             fog_renderer: None,
             healthbar_renderer: None,
             camera,
+            camera_node: Handle::NONE,
             debug_overlays: DebugOverlays::new(),
             is_connected: false,
             selected_entity_id: None,
@@ -125,7 +140,31 @@ impl Plugin for Game {
         info!("Initializing OMFX game plugin");
 
         // Create a new empty scene for 2D rendering
-        let scene = Scene::new();
+        let mut scene = Scene::new();
+
+        // Create 2D orthographic camera
+        // Position camera at z=10 looking at z=0 (where entities are)
+        // Use orthographic projection for 2D rendering
+        self.camera_node = CameraBuilder::new(
+            BaseBuilder::new()
+                .with_local_transform(
+                    TransformBuilder::new()
+                        .with_local_position(Vector3::new(400.0, 300.0, 10.0))
+                        .build()
+                )
+        )
+        .with_projection(Projection::Orthographic(OrthographicProjection {
+            // Vertical size: how many world units visible vertically
+            // 600 means 600 units from top to bottom
+            vertical_size: 600.0,
+            // Near/far clipping planes
+            z_near: 0.01,
+            z_far: 100.0,
+        }))
+        .build(&mut scene.graph);
+
+        info!("Created 2D camera at (400, 300, 10) with orthographic projection");
+
         self.scene = context.scenes.add(scene);
 
         // Initialize renderers
