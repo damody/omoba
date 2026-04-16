@@ -142,6 +142,18 @@ impl Plugin for Game {
         // Create a new empty scene for 2D rendering
         let mut scene = Scene::new();
 
+        // Set bright ambient lighting for 2D visibility
+        {
+            use fyrox::scene::SceneRenderingOptions;
+            use fyrox::core::color::Color;
+            scene.rendering_options.set_value_and_mark_modified(
+                SceneRenderingOptions {
+                    ambient_lighting_color: Color::opaque(255, 255, 255),
+                    ..Default::default()
+                }
+            );
+        }
+
         // Create 2D orthographic camera
         // Position camera at z=10 looking at z=0 (where entities are)
         // Use orthographic projection for 2D rendering
@@ -149,21 +161,85 @@ impl Plugin for Game {
             BaseBuilder::new()
                 .with_local_transform(
                     TransformBuilder::new()
-                        .with_local_position(Vector3::new(400.0, 300.0, 10.0))
+                        .with_local_position(Vector3::new(400.0, 0.0, 0.0))
                         .build()
                 )
         )
         .with_projection(Projection::Orthographic(OrthographicProjection {
             // Vertical size: how many world units visible vertically
-            // 600 means 600 units from top to bottom
-            vertical_size: 600.0,
-            // Near/far clipping planes (relative to camera position)
-            z_near: 0.01,
-            z_far: 100.0,
+            // 800 gives good visibility of entities (size 16-32) near origin
+            vertical_size: 800.0,
+            // Near/far clipping: match Fyrox 2D example (z_near=-0.1, z_far=16.0)
+            z_near: -0.1,
+            z_far: 16.0,
         }))
         .build(&mut scene.graph);
 
-        info!("Created 2D camera at (400, 300, 10) with orthographic projection");
+        // Add a point light covering the game area for 2D rendering
+        {
+            use fyrox::scene::light::point::PointLightBuilder;
+            use fyrox::scene::light::BaseLightBuilder;
+            use fyrox::core::color::Color;
+
+            let _light = PointLightBuilder::new(
+                BaseLightBuilder::new(
+                    BaseBuilder::new()
+                        .with_local_transform(
+                            TransformBuilder::new()
+                                .with_local_position(Vector3::new(400.0, 0.0, 5.0))
+                                .build()
+                        )
+                )
+                .with_color(Color::WHITE)
+                .with_intensity(2.0)
+                .with_scatter_enabled(false)
+            )
+            .with_radius(2000.0)
+            .build(&mut scene.graph);
+        }
+
+        info!("Created 2D camera at (400, 0, 0) with orthographic projection, vertical_size=800, z_near=-0.1, z_far=16");
+
+        // DEBUG: Add a large test rectangle at camera center to verify rendering pipeline
+        {
+            use fyrox::scene::dim2::rectangle::RectangleBuilder;
+            use fyrox::core::color::Color;
+            use fyrox::material::{Material, MaterialResource};
+            use fyrox::asset::untyped::ResourceKind;
+
+            let material = Material::standard_2d();
+            let material_resource = MaterialResource::new_ok(ResourceKind::Embedded, material);
+
+            // Big red square at (400, 0) - right at camera center, 100x100 world units
+            let _test_node = RectangleBuilder::new(
+                BaseBuilder::new()
+                    .with_local_transform(
+                        TransformBuilder::new()
+                            .with_local_position(Vector3::new(400.0, 0.0, 0.0))
+                            .with_local_scale(Vector3::new(100.0, 100.0, f32::EPSILON))
+                            .build()
+                    )
+            )
+            .with_color(Color::from_rgba(255, 0, 0, 255))
+            .with_material(material_resource.clone())
+            .build(&mut scene.graph);
+
+            // Smaller green square at (0, 0) - hero position
+            let _test_node2 = RectangleBuilder::new(
+                BaseBuilder::new()
+                    .with_local_transform(
+                        TransformBuilder::new()
+                            .with_local_position(Vector3::new(0.0, 0.0, 0.0))
+                            .with_local_scale(Vector3::new(50.0, 50.0, f32::EPSILON))
+                            .build()
+                    )
+            )
+            .with_color(Color::from_rgba(0, 255, 0, 255))
+            .with_material(material_resource)
+            .build(&mut scene.graph);
+
+            info!("DEBUG: Added test rectangles - red(100x100) at (400,0), green(50x50) at (0,0)");
+        }
 
         self.scene = context.scenes.add(scene);
 
@@ -241,11 +317,54 @@ impl Plugin for Game {
         // Update game state cooldowns
         self.game_state.update_cooldowns(dt);
 
+        // Periodic frontend entity count log (every 2 seconds)
+        {
+            static LAST_LOG: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let current_sec = self.game_state.game_time as u32;
+            let last = LAST_LOG.load(std::sync::atomic::Ordering::Relaxed);
+            if current_sec >= last + 2 && current_sec > 0 {
+                LAST_LOG.store(current_sec, std::sync::atomic::Ordering::Relaxed);
+                info!("[omfx] Frontend entities: {}, game_time: {:.1}",
+                    self.game_state.entities.len(), self.game_state.game_time);
+            }
+        }
+
         // Update camera
         self.camera.update(dt);
 
-        // Get scene for rendering
+        // Get scene for camera + rendering
         if let Some(scene) = context.scenes.try_get_mut(self.scene) {
+            // One-time diagnostic: log scene graph state
+            {
+                static DIAG_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                if !DIAG_DONE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    let node_count = scene.graph.node_count();
+                    let camera_node = &scene.graph[self.camera_node];
+                    info!("[DIAG] Scene graph: {} nodes, camera_node valid: {}, camera_name: '{}'",
+                        node_count,
+                        camera_node.is_alive(),
+                        camera_node.name()
+                    );
+                    info!("[DIAG] Scene enabled: {}", *scene.enabled);
+                    let stats = &scene.performance_statistics;
+                    info!("[DIAG] Render stats: {:?}", stats);
+                }
+            }
+
+            // Apply camera controller position and zoom to Fyrox camera node
+            {
+                let camera = scene.graph[self.camera_node].as_camera_mut();
+                camera.local_transform_mut().set_position(
+                    Vector3::new(self.camera.position.x, self.camera.position.y, 0.0)
+                );
+                let base_vertical_size = 800.0;
+                let adjusted_size = base_vertical_size / self.camera.zoom;
+                camera.set_projection(Projection::Orthographic(OrthographicProjection {
+                    vertical_size: adjusted_size,
+                    z_near: -0.1,
+                    z_far: 16.0,
+                }));
+            }
             // Sync entity visuals
             if let Some(ref mut renderer) = self.entity_renderer {
                 renderer.sync_with_game_state(&self.game_state.entities, scene);

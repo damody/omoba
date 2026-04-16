@@ -49,10 +49,10 @@ pub struct CameraController {
 impl CameraController {
     pub fn new() -> Self {
         Self {
-            position: Vector2::new(0.0, 0.0),
+            position: Vector2::new(400.0, 0.0),
             zoom: 1.0,
             window_size: Vector2::new(1920.0, 1080.0),
-            mouse_position: Vector2::new(0.0, 0.0),
+            mouse_position: Vector2::new(960.0, 540.0), // Center of default 1920x1080 window
             config: EdgeScrollConfig::default(),
             follow_target: None,
         }
@@ -139,7 +139,7 @@ impl CameraController {
 
     /// Go to map center
     pub fn go_to_center(&mut self) {
-        self.focus_on(Vector2::new(0.0, 0.0));
+        self.focus_on(Vector2::new(400.0, 0.0));
     }
 
     /// Update window size

@@ -88,8 +88,8 @@ impl EntityRenderer {
             // Create new node
             let (color, size) = self.get_entity_visual_properties(entity);
 
-            debug!(
-                "Creating visual for entity {} ({:?}) at ({}, {}) with size {}",
+            info!(
+                "[renderer] Creating visual for entity {} ({:?}) at ({}, {}) with size {}",
                 entity.id, entity.entity_type, entity.position.x, entity.position.y, size
             );
 
@@ -102,7 +102,6 @@ impl EntityRenderer {
                                 entity.position.y,
                                 0.0,
                             ))
-                            // Use f32::EPSILON for z-scale as recommended for 2D rectangles
                             .with_local_scale(Vector3::new(size, size, f32::EPSILON))
                             .build()
                     )
@@ -162,8 +161,13 @@ impl EntityRenderer {
     /// Sync with game state
     pub fn sync_with_game_state(&mut self, entities: &HashMap<u32, Entity>, scene: &mut Scene) {
         // Update existing entities
+        let before_count = self.entity_nodes.len();
         for entity in entities.values() {
             self.update_entity(entity, scene);
+        }
+        let after_count = self.entity_nodes.len();
+        if after_count != before_count {
+            info!("[renderer] Entity nodes: {} -> {} (game_state entities: {})", before_count, after_count, entities.len());
         }
 
         // Remove entities that no longer exist
