@@ -1,0 +1,1 @@
+{"nodes": [{"id": "omb_src_comp_attack_rs", "label": "attack.rs", "file_type": "code", "source_file": "omb\\src\\comp\\attack.rs", "source_location": "L1"}], "edges": [{"source": "omb_src_comp_attack_rs", "target": "serde", "relation": "imports_from", "confidence": "EXTRACTED", "source_file": "omb\\src\\comp\\attack.rs", "source_location": "L1", "weight": 1.0}]}

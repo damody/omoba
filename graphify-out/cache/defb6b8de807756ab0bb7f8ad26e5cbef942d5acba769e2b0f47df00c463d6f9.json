@@ -1,0 +1,1 @@
+{"nodes": [{"id": "omb_src_tick_mod_rs", "label": "mod.rs", "file_type": "code", "source_file": "omb\\src\\tick\\mod.rs", "source_location": "L1"}], "edges": [{"source": "omb_src_tick_mod_rs", "target": "self", "relation": "imports_from", "confidence": "EXTRACTED", "source_file": "omb\\src\\tick\\mod.rs", "source_location": "L16", "weight": 1.0}]}
