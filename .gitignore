@@ -1,3 +1,5 @@
 /target
 nul
 *.log
+omfx_tmp/
+omoba-core/target/
