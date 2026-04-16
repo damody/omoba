@@ -17,3 +17,5 @@ pub use mqtt::{MqttClient, MqttEvent, MqttHandler};
 pub use input::{PlayerSimulator, PlayerAction, MoveParams, CastAbilityParams, AttackParams};
 #[cfg(feature = "grpc")]
 pub use grpc::GrpcClient;
+#[cfg(feature = "grpc")]
+pub use grpc::client::GameEventData;
