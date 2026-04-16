@@ -64,7 +64,8 @@ impl BackendManager {
             cmd.env(key, value);
         }
 
-        // Configure stdio - inherit so we can see backend output
+        // Configure stdio - inherit stdout/stderr for backend output, null stdin to prevent EOF flood
+        cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::inherit());
         cmd.stderr(Stdio::inherit());
 
