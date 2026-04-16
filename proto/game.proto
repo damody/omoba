@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package game;
+
+service GameService {
+  // Player sends a command to the game server
+  rpc SendCommand(PlayerCommand) returns (CommandAck);
+
+  // Subscribe to game events (server-streaming)
+  rpc SubscribeEvents(SubscribeRequest) returns (stream GameEvent);
+
+  // Test interface for automated testing
+  rpc TestCommand(TestCommandRequest) returns (TestCommandResponse);
+}
+
+// Corresponds to PlayerData / InboundMsg
+message PlayerCommand {
+  string player_name = 1;
+  string msg_type = 2;   // "t" field
+  string action = 3;     // "a" field
+  bytes  data_json = 4;  // "d" field as JSON bytes
+}
+
+message CommandAck {
+  bool   ok = 1;
+  string message = 2;
+}
+
+message SubscribeRequest {
+  string player_name = 1;
+}
+
+// Corresponds to MqttMsg / OutboundMsg
+message GameEvent {
+  string topic = 1;
+  string msg_type = 2;       // "t" field
+  string action = 3;         // "a" field
+  bytes  data_json = 4;      // "d" field as JSON bytes
+  uint64 timestamp_ms = 5;
+}
+
+message TestCommandRequest {
+  string command_json = 1;
+}
+
+message TestCommandResponse {
+  string response_json = 1;
+}

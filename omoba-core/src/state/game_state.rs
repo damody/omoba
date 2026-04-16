@@ -7,7 +7,18 @@ use vek::Vec2;
 
 use crate::state::entities::*;
 use crate::state::viewport::Viewport;
+#[cfg(feature = "mqtt")]
 use crate::mqtt::messages::*;
+
+/// Player state for non-mqtt builds
+#[cfg(not(feature = "mqtt"))]
+#[derive(Debug, Clone)]
+pub struct PlayerState {
+    pub name: String,
+    pub hero_type: String,
+    pub position: (f32, f32),
+    pub health: (f32, f32),
+}
 
 /// Game state observer trait for frontends
 pub trait GameStateObserver {
