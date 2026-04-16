@@ -1,15 +1,12 @@
 [submodule "omb"]
 	path = omb
 	url = https://github.com/damody/open_moba_backend.git
-[submodule "omf"]
-	path = omf
-	url = https://github.com/damody/open_moba_frontend.git
-[submodule "mqtt_log_viewer"]
-	path = mqtt_log_viewer
-	url = https://github.com/damody/mqtt_log_viewer.git
 [submodule "specs"]
 	path = specs
 	url = https://github.com/damody/specs.git
 [submodule "log4rs"]
 	path = log4rs
 	url = https://github.com/damody/log4rs.git
+[submodule "omfx"]
+	path = omfx
+	url = https://github.com/damody/omf_fyrox.git
