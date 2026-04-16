@@ -9,4 +9,4 @@
 	url = https://github.com/damody/log4rs.git
 [submodule "omfx"]
 	path = omfx
-	url = https://github.com/damody/omf_fyrox.git
+	url = https://github.com/damody/omfx.git
