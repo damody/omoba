@@ -59,19 +59,26 @@ impl MqttHandler {
     fn handle_broadcast_message(&self, payload: &str, game_state: &mut GameState) -> Result<()> {
         let msg: BroadcastMessage = serde_json::from_str(payload)?;
 
+        debug!("[handler] Broadcast: type={}, action={}, data_len={}", msg.msg_type, msg.action, payload.len());
+
         match (msg.msg_type.as_str(), msg.action.as_str()) {
             // 英雄創建
             ("hero", "create") => {
-                if let Ok(data) = serde_json::from_value::<HeroCreateData>(msg.data) {
-                    let entity = Entity {
-                        id: data.entity_id,
-                        entity_type: EntityType::Player(data.name.clone()),
-                        position: Vec2::new(data.position.x, data.position.y),
-                        health: (data.hp, data.max_hp),
-                        owner: None,
-                    };
-                    game_state.upsert_entity(entity);
-                    info!("Created hero: {} at ({}, {})", data.name, data.position.x, data.position.y);
+                match serde_json::from_value::<HeroCreateData>(msg.data.clone()) {
+                    Ok(data) => {
+                        let entity = Entity {
+                            id: data.entity_id,
+                            entity_type: EntityType::Player(data.name.clone()),
+                            position: Vec2::new(data.position.x, data.position.y),
+                            health: (data.hp, data.max_hp),
+                            owner: None,
+                        };
+                        game_state.upsert_entity(entity);
+                        info!("Created hero: {} at ({}, {})", data.name, data.position.x, data.position.y);
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse hero create data: {}, data: {:?}", e, msg.data);
+                    }
                 }
             }
 
@@ -101,15 +108,73 @@ impl MqttHandler {
                         owner: None,
                     };
                     game_state.upsert_entity(entity);
-                    debug!("Created creep: id={} '{}' at ({}, {})", data.id, data.creep.name, data.pos.x, data.pos.y);
+                    debug!("Created creep: id={} '{}' at ({}, {}), total entities: {}", data.id, data.creep.name, data.pos.x, data.pos.y, game_state.entities.len());
                 } else {
                     warn!("Failed to parse creep create data: {:?}", msg.data);
                 }
             }
 
+            // 塔創建
+            ("tower", "C") => {
+                if let Ok(data) = serde_json::from_value::<TowerCreateData>(msg.data.clone()) {
+                    let entity = Entity {
+                        id: data.id,
+                        entity_type: EntityType::Tower,
+                        position: Vec2::new(data.pos.x, data.pos.y),
+                        health: (100.0, 100.0),
+                        owner: None,
+                    };
+                    game_state.upsert_entity(entity);
+                    info!("Created tower: id={} at ({}, {})", data.id, data.pos.x, data.pos.y);
+                } else {
+                    warn!("Failed to parse tower create data: {:?}", msg.data);
+                }
+            }
+
+            // 投射物創建
+            ("projectile", "C") => {
+                if let Ok(data) = serde_json::from_value::<ProjectileCreateData>(msg.data.clone()) {
+                    let position = data.pos.as_ref()
+                        .or(data.start_pos.as_ref())
+                        .map(|p| Vec2::new(p.x, p.y))
+                        .unwrap_or(Vec2::new(0.0, 0.0));
+                    let entity = Entity {
+                        id: data.id,
+                        entity_type: EntityType::Projectile,
+                        position,
+                        health: (1.0, 1.0),
+                        owner: None,
+                    };
+                    game_state.upsert_entity(entity);
+                    debug!("Created projectile: id={}", data.id);
+                } else {
+                    warn!("Failed to parse projectile create data: {:?}", msg.data);
+                }
+            }
+
             // 移動更新
-            ("creep", "M") | ("unit", "M") | ("hero", "M") => {
+            ("creep", "M") | ("unit", "M") | ("hero", "M") | ("tower", "M") | ("projectile", "M") => {
                 if let Ok(data) = serde_json::from_value::<MoveData>(msg.data) {
+                    if !game_state.entities.contains_key(&data.id) {
+                        // Entity not yet created (missed creation message), auto-create
+                        let entity_type = match msg.msg_type.as_str() {
+                            "hero" => EntityType::Player("unknown".to_string()),
+                            "creep" => EntityType::Creep("unknown".to_string()),
+                            "unit" => EntityType::Summon("unknown".to_string()),
+                            "tower" => EntityType::Tower,
+                            "projectile" => EntityType::Projectile,
+                            _ => EntityType::Effect,
+                        };
+                        let entity = Entity {
+                            id: data.id,
+                            entity_type,
+                            position: Vec2::new(data.x, data.y),
+                            health: (100.0, 100.0),
+                            owner: None,
+                        };
+                        game_state.upsert_entity(entity);
+                        info!("[handler] Auto-created entity {} from movement (type={})", data.id, msg.msg_type);
+                    }
                     game_state.update_entity_position(data.id, data.x, data.y);
                 }
             }
@@ -126,13 +191,13 @@ impl MqttHandler {
             ("heartbeat", "tick") => {
                 if let Ok(data) = serde_json::from_value::<HeartbeatData>(msg.data) {
                     game_state.game_time = data.game_time as f32;
-                    debug!("Heartbeat: tick={}, entities={}", data.tick, data.entity_count);
+                    info!("Heartbeat: tick={}, entities={}", data.tick, data.entity_count);
                 }
             }
 
             // 其他未處理的訊息
             _ => {
-                debug!("Unhandled broadcast: type={}, action={}", msg.msg_type, msg.action);
+                info!("Unhandled broadcast: type={}, action={}", msg.msg_type, msg.action);
             }
         }
 

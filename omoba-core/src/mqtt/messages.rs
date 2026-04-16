@@ -209,6 +209,39 @@ pub struct CreepStats {
     pub def_magic: f32,
 }
 
+/// 塔創建資料（後端格式: {tpty, tatk, id, pos}）
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TowerCreateData {
+    pub id: u32,
+    pub pos: PositionData,
+    #[serde(default)]
+    pub tpty: serde_json::Value,
+    #[serde(default)]
+    pub tatk: serde_json::Value,
+}
+
+/// 投射物創建資料（兼容兩種後端格式）
+/// - game_processor 格式: {id, pos, msd, time_left, owner, target, radius}
+/// - creation_events 格式: {id, source_id, target_id, start_pos, end_pos}
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ProjectileCreateData {
+    pub id: u32,
+    #[serde(default)]
+    pub pos: Option<PositionData>,
+    #[serde(default)]
+    pub start_pos: Option<PositionData>,
+    #[serde(default)]
+    pub msd: Option<f32>,
+    #[serde(default)]
+    pub owner: Option<u32>,
+    #[serde(default)]
+    pub source_id: Option<u32>,
+    #[serde(default)]
+    pub target: Option<u32>,
+    #[serde(default)]
+    pub target_id: Option<u32>,
+}
+
 /// 移動資料
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MoveData {
