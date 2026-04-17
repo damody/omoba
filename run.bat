@@ -1,6 +1,9 @@
 @echo off
 pushd %~dp0
 
+echo [0/2] Killing stale omobab.exe instances (if any)...
+taskkill /f /im omobab.exe >nul 2>&1
+
 echo [1/2] Building backend (omb)...
 cargo build --manifest-path omb\Cargo.toml
 if %errorlevel% neq 0 (
