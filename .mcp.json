@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "omoba-game": {
+      "command": "D:/omoba/target/release/omb-mcp.exe",
+      "env": {
+        "OMB_GRPC_ADDR": "http://localhost:50061"
+      }
+    }
+  }
+}
