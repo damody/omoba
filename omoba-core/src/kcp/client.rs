@@ -141,6 +141,19 @@ impl KcpClient {
         Ok(true)
     }
 
+    /// Send a viewport update to the server for spatial filtering.
+    pub async fn send_viewport_update(&self, cx: f32, cy: f32, hw: f32, hh: f32) -> Result<()> {
+        let vp = ViewportUpdate {
+            center_x: cx,
+            center_y: cy,
+            half_width: hw,
+            half_height: hh,
+        };
+        let mut w = self.writer.lock().await;
+        write_framed_msg(&mut *w, TAG_VIEWPORT_UPDATE, &vp).await?;
+        Ok(())
+    }
+
     /// Subscribe to game events from the server.
     /// Returns a receiver channel that yields parsed game events.
     pub async fn subscribe_events(

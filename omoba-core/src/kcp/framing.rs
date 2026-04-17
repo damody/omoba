@@ -7,6 +7,7 @@ pub const TAG_COMMAND_ACK: u8 = 0x03;
 pub const TAG_SUBSCRIBE_REQUEST: u8 = 0x04;
 pub const TAG_GAME_STATE_REQUEST: u8 = 0x05;
 pub const TAG_GAME_STATE_RESPONSE: u8 = 0x06;
+pub const TAG_VIEWPORT_UPDATE: u8 = 0x07;
 
 /// Write a framed message: [1 byte tag][4 bytes len (big-endian)][N bytes payload]
 pub async fn write_framed<W: AsyncWriteExt + Unpin>(
