@@ -1,4 +1,4 @@
-mod grpc_client;
+mod kcp_client;
 mod toon_format;
 
 use anyhow::Result;
@@ -9,7 +9,7 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 
-use grpc_client::GameClient;
+use kcp_client::GameClient;
 use toon_format::json_to_toon;
 
 #[derive(Clone)]
@@ -30,7 +30,7 @@ impl OmobaMcp {
         let mut client = self.client.lock().await;
         let resp = match client.query_state("list_players", "").await {
             Ok(r) => r,
-            Err(e) => return format!("Error: gRPC call failed: {}", e),
+            Err(e) => return format!("Error: KCP call failed: {}", e),
         };
 
         if !resp.success {
@@ -48,7 +48,7 @@ impl OmobaMcp {
         let mut client = self.client.lock().await;
         let resp = match client.query_state("inspect_player_view", &params.player_name).await {
             Ok(r) => r,
-            Err(e) => return format!("Error: gRPC call failed: {}", e),
+            Err(e) => return format!("Error: KCP call failed: {}", e),
         };
 
         if !resp.success {
@@ -72,12 +72,12 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let grpc_addr = std::env::var("OMB_GRPC_ADDR")
-        .unwrap_or_else(|_| "http://localhost:50061".to_string());
+    let kcp_addr = std::env::var("OMB_KCP_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:50061".to_string());
 
-    tracing::info!("Connecting to omb backend at {}", grpc_addr);
+    tracing::info!("Connecting to omb backend via KCP at {}", kcp_addr);
 
-    let client = GameClient::connect(&grpc_addr).await?;
+    let client = GameClient::connect(&kcp_addr).await?;
 
     let server = OmobaMcp {
         client: Arc::new(Mutex::new(client)),
