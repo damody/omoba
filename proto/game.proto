@@ -11,6 +11,9 @@ service GameService {
 
   // Test interface for automated testing
   rpc TestCommand(TestCommandRequest) returns (TestCommandResponse);
+
+  // Query game state (used by MCP server)
+  rpc QueryGameState(GameStateRequest) returns (GameStateResponse);
 }
 
 // Corresponds to PlayerData / InboundMsg
@@ -45,4 +48,15 @@ message TestCommandRequest {
 
 message TestCommandResponse {
   string response_json = 1;
+}
+
+message GameStateRequest {
+  string query_type = 1;    // "list_players" | "inspect_player_view"
+  string player_name = 2;
+}
+
+message GameStateResponse {
+  bool success = 1;
+  string error = 2;
+  bytes data_json = 3;
 }
