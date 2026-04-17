@@ -3,7 +3,7 @@
     "omoba-game": {
       "command": "D:/omoba/omb-mcp/target/debug/omb-mcp.exe",
       "env": {
-        "OMB_GRPC_ADDR": "http://localhost:50061"
+        "OMB_KCP_ADDR": "127.0.0.1:50061"
       }
     }
   }

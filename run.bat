@@ -10,7 +10,16 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [2/2] Building and running frontend (omfx)...
+echo [2/2] Starting backend and frontend...
+pushd omb
+start "" /B target\debug\omobab.exe
+popd
+
+timeout /t 2 /nobreak >nul
+
 cargo run --manifest-path omfx\Cargo.toml -p executor
+
+echo Shutting down backend...
+taskkill /f /im omobab.exe >nul 2>&1
 
 popd
