@@ -60,3 +60,10 @@ message GameStateResponse {
   string error = 2;
   bytes data_json = 3;
 }
+
+message ViewportUpdate {
+  float center_x = 1;
+  float center_y = 2;
+  float half_width = 3;
+  float half_height = 4;
+}
