@@ -9,6 +9,8 @@ pub mod state;
 pub mod input;
 #[cfg(feature = "grpc")]
 pub mod grpc;
+#[cfg(feature = "kcp")]
+pub mod kcp;
 
 pub use config::{AppConfig, ServerConfig, BackendConfig, FrontendConfig};
 pub use state::{GameState, Entity, EntityType, Viewport};
@@ -19,3 +21,7 @@ pub use input::{PlayerSimulator, PlayerAction, MoveParams, CastAbilityParams, At
 pub use grpc::GrpcClient;
 #[cfg(feature = "grpc")]
 pub use grpc::client::GameEventData;
+#[cfg(feature = "kcp")]
+pub use kcp::KcpClient;
+#[cfg(feature = "kcp")]
+pub use kcp::client::GameEventData;
