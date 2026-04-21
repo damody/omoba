@@ -10,3 +10,6 @@
 [submodule "omfx"]
 	path = omfx
 	url = https://github.com/damody/omfx.git
+[submodule "map_editor"]
+	path = map_editor
+	url = https://github.com/damody/map_editor.git
