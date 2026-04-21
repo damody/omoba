@@ -58,6 +58,35 @@ fn find_line_for_offset(lines: &[(usize, usize)], offset: usize) -> usize {
     lines.len().saturating_sub(1)
 }
 
+/// Character input filter for text input fields.
+///
+/// - `Any`：不過濾
+/// - `Int`：只允許數字與負號（`-` 可多次出現；最終語意由 parse 判斷）
+/// - `Float`：允許數字、負號、小數點（允許中間狀態，由 parse 判斷合法）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CharFilter {
+    Any,
+    Int,
+    Float,
+}
+
+impl CharFilter {
+    pub(crate) fn accept(self, c: char) -> bool {
+        match self {
+            CharFilter::Any => true,
+            CharFilter::Int => c.is_ascii_digit() || c == '-',
+            CharFilter::Float => c.is_ascii_digit() || c == '-' || c == '.',
+        }
+    }
+
+    pub(crate) fn filter_str(self, s: &str) -> String {
+        match self {
+            CharFilter::Any => s.to_string(),
+            _ => s.chars().filter(|c| self.accept(*c)).collect(),
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub struct Context {
     // Drawing
@@ -109,6 +138,9 @@ pub struct Context {
     // Active slider tracking
     pub(crate) active_slider_id: u64,
 
+    // 為 slider 右側的可編輯數字框保留的編輯中字串緩衝
+    pub(crate) slider_edit_buffers: HashMap<u64, String>,
+
     // Hysteresis counters
     pub(crate) cmd_underuse: u32,
     pub(crate) text_underuse: u32,
@@ -144,6 +176,7 @@ impl Context {
             global_alpha: 1.0,
             current_transform_index: K_INVALID_PAYLOAD_INDEX,
             active_slider_id: 0,
+            slider_edit_buffers: HashMap::new(),
             cmd_underuse: 0,
             text_underuse: 0,
         }
@@ -1439,29 +1472,45 @@ impl Context {
             );
         }
 
-        // Value box chrome + text
-        let input_bg = self.theme.input_bg;
-        let muted_text = self.theme.muted_text;
-        self.draw_input_chrome(
-            context_hash_mix(id, 0x1a2b3c4d5e6f7005),
-            value_box, _value_hovered, false,
-            mix(input_bg, secondary, 0.25),
-            (radius - 2.0).max(0.0), 1.0,
-        );
-
-        // Value text (non-editing mode) — resolve decimals matching C++
+        // 解析小數位數（與 C++ 行為一致）
         let value_decimals = if decimals >= 0 {
             (decimals as usize).min(4)
         } else {
             let span = (max_value - min_value).abs();
             if span <= 1.0 { 2 } else if span <= 10.0 { 1 } else { 0 }
         };
-        let value_text = format!("{:.prec$}", *value, prec = value_decimals);
-        self.paint_text(
-            Rect::new(value_box.x + value_padding, value_box.y,
-                       value_box.w - value_padding * 2.0, value_box.h),
-            &value_text, value_font, muted_text, TextAlign::Right,
-        );
+
+        // Value box 作為可編輯的 numeric input
+        let value_box_id = context_hash_mix(id, 0x1a2b3c4d5e6f7006);
+        let filter = if value_decimals == 0 { CharFilter::Int } else { CharFilter::Float };
+
+        let was_editing_value = self.focus_id == value_box_id;
+        let default_text = format!("{:.prec$}", *value, prec = value_decimals);
+        let mut buf = if was_editing_value {
+            self.slider_edit_buffers
+                .get(&value_box_id)
+                .cloned()
+                .unwrap_or_else(|| default_text.clone())
+        } else {
+            default_text
+        };
+
+        self.text_input_field_numeric_styled(value_box_id, value_box, &mut buf, value_font, filter);
+
+        // Focus 結束 → parse + clamp 回寫；編輯中 → 保存 buffer
+        let still_editing = self.focus_id == value_box_id;
+        if was_editing_value && !still_editing {
+            if let Ok(parsed) = buf.trim().parse::<f32>() {
+                let new_value = parsed.clamp(min_value, max_value);
+                if (new_value - *value).abs() > 1e-6 {
+                    *value = new_value;
+                    changed = true;
+                }
+            }
+            self.slider_edit_buffers.remove(&value_box_id);
+        } else if still_editing {
+            self.slider_edit_buffers.insert(value_box_id, buf);
+        }
 
         changed
     }
@@ -1676,34 +1725,42 @@ impl Context {
     /// but all mutations (typing, paste, cut, backspace, delete) are discarded.
     pub fn selectable_text(&mut self, id: u64, rect: Rect, text: &str) {
         let mut buf = text.to_string();
-        self.text_input_impl(id, rect, "", &mut buf, "", true, None, None);
+        self.text_input_impl(id, rect, "", &mut buf, "", true, None, None, CharFilter::Any);
     }
 
     /// Read-only selectable text with custom font size and color.
     pub fn selectable_text_styled(&mut self, id: u64, rect: Rect, text: &str, font_size: f32, color: Color) {
         let mut buf = text.to_string();
-        self.text_input_impl(id, rect, "", &mut buf, "", true, Some(font_size), Some(color));
+        self.text_input_impl(id, rect, "", &mut buf, "", true, Some(font_size), Some(color), CharFilter::Any);
     }
 
     pub fn selectable_text_ex(&mut self, id: u64, rect: Rect, label: &str, text: &str) {
         let mut buf = text.to_string();
-        self.text_input_impl(id, rect, label, &mut buf, "", true, None, None);
+        self.text_input_impl(id, rect, label, &mut buf, "", true, None, None, CharFilter::Any);
     }
 
     #[allow(clippy::too_many_arguments, clippy::cognitive_complexity)]
     pub fn text_input_field_ex(&mut self, id: u64, rect: Rect, label: &str, text: &mut String, placeholder: &str) -> bool {
-        self.text_input_impl(id, rect, label, text, placeholder, false, None, None)
+        self.text_input_impl(id, rect, label, text, placeholder, false, None, None, CharFilter::Any)
     }
 
     /// Text input field with custom font size.
     #[allow(clippy::too_many_arguments)]
     pub fn text_input_field_styled(&mut self, id: u64, rect: Rect, label: &str, text: &mut String, placeholder: &str, font_size: f32) -> bool {
-        self.text_input_impl(id, rect, label, text, placeholder, false, Some(font_size), None)
+        self.text_input_impl(id, rect, label, text, placeholder, false, Some(font_size), None, CharFilter::Any)
+    }
+
+    /// Numeric-only text input field. Rejects non-digit characters during typing and paste.
+    /// Use `CharFilter::Int` for integers (`0-9`, `-`) or `CharFilter::Float` (`0-9`, `-`, `.`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn text_input_field_numeric_styled(&mut self, id: u64, rect: Rect, text: &mut String, font_size: f32, filter: CharFilter) -> bool {
+        self.text_input_impl(id, rect, "", text, "", false, Some(font_size), None, filter)
     }
 
     #[allow(clippy::too_many_arguments, clippy::cognitive_complexity)]
     fn text_input_impl(&mut self, id: u64, rect: Rect, label: &str, text: &mut String, placeholder: &str,
-                        read_only: bool, font_override: Option<f32>, color_override: Option<Color>) -> bool {
+                        read_only: bool, font_override: Option<f32>, color_override: Option<Color>,
+                        filter: CharFilter) -> bool {
         // Font sizing matching C++
         let label_font = (rect.h * 0.40).clamp(13.0, 24.0);
         let value_font = font_override.unwrap_or((label_font - 0.5_f32).max(12.0));
@@ -1961,31 +2018,36 @@ impl Context {
                     } else {
                         paste_text.replace('\r', "")
                     };
-                    if has_selection {
-                        text.replace_range(sel_min..sel_max, &paste_text);
-                        cursor = sel_min + paste_text.len();
-                    } else {
-                        text.insert_str(cursor, &paste_text);
-                        cursor += paste_text.len();
+                    let paste_text = filter.filter_str(&paste_text);
+                    if !paste_text.is_empty() {
+                        if has_selection {
+                            text.replace_range(sel_min..sel_max, &paste_text);
+                            cursor = sel_min + paste_text.len();
+                        } else {
+                            text.insert_str(cursor, &paste_text);
+                            cursor += paste_text.len();
+                        }
+                        sel_start = cursor;
+                        changed = true;
+                        preferred_x = -1.0;
                     }
-                    sel_start = cursor;
-                    changed = true;
-                    preferred_x = -1.0;
                 }
 
                 // ── Text input (typing) ──
                 if !self.input.text_input.is_empty() {
-                    let typed = self.input.text_input.clone();
-                    if has_selection {
-                        text.replace_range(sel_min..sel_max, &typed);
-                        cursor = sel_min + typed.len();
-                    } else {
-                        text.insert_str(cursor, &typed);
-                        cursor += typed.len();
+                    let typed = filter.filter_str(&self.input.text_input);
+                    if !typed.is_empty() {
+                        if has_selection {
+                            text.replace_range(sel_min..sel_max, &typed);
+                            cursor = sel_min + typed.len();
+                        } else {
+                            text.insert_str(cursor, &typed);
+                            cursor += typed.len();
+                        }
+                        sel_start = cursor;
+                        changed = true;
+                        preferred_x = -1.0;
                     }
-                    sel_start = cursor;
-                    changed = true;
-                    preferred_x = -1.0;
                 }
 
                 // ── Backspace ──
