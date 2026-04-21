@@ -180,9 +180,19 @@ pub struct ButtonBuilder<'a> {
     placement: Placement,
 }
 
+/// 按鈕預設高度。與 `Context::button` 內的 `BUTTON_TEXT_SCALE`
+/// 一起向上調整，避免文字放大後縱向被截斷。
+const DEFAULT_BUTTON_HEIGHT: f32 = 44.0;
+
 impl<'a> ButtonBuilder<'a> {
     pub fn new(ctx: &'a mut Context, label: &str) -> Self {
-        Self { ctx, label: label.to_string(), style: ButtonStyle::Primary, height: 36.0, placement: Placement::default() }
+        Self {
+            ctx,
+            label: label.to_string(),
+            style: ButtonStyle::Primary,
+            height: DEFAULT_BUTTON_HEIGHT,
+            placement: Placement::default(),
+        }
     }
 
     pub fn rect(mut self, r: Rect) -> Self { self.placement.has_rect = true; self.placement.rect = r; self }
