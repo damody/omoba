@@ -1,11 +1,11 @@
 # Graph Report - .  (2026-04-21)
 
 ## Corpus Check
-- 345 files · ~359,897 words
+- 345 files · ~361,500 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4551 nodes · 6569 edges · 399 communities detected
+- 4574 nodes · 6607 edges · 399 communities detected
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 26 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
@@ -411,10 +411,10 @@
 - [[_COMMUNITY_Community 398|Community 398]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Context` - 109 edges
+1. `Context` - 110 edges
 2. `App` - 58 edges
 3. `MessageListState` - 45 edges
-4. `UI<'a>` - 36 edges
+4. `UI<'a>` - 37 edges
 5. `mix_hex()` - 31 edges
 6. `insert()` - 29 edges
 7. `draw_settings_page()` - 25 edges
@@ -454,12 +454,12 @@
 ## Communities
 
 ### Community 0 - "Community 0"
-Cohesion: 0.02
-Nodes (28): AnchorBuilder, AnchorBuilder<'a>, ButtonBuilder, ButtonBuilder<'a>, ImageBuilder, ImageBuilder<'a>, InputBuilder, InputBuilder<'a> (+20 more)
+Cohesion: 0.01
+Nodes (30): AnchorBuilder, AnchorBuilder<'a>, ButtonBuilder, ButtonBuilder<'a>, ImageBuilder, ImageBuilder<'a>, InputBuilder, InputBuilder<'a> (+22 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.04
-Nodes (5): Context, decode_utf8_at(), find_line_for_offset(), MotionResult, MotionResultEx
+Nodes (6): CharFilter, Context, decode_utf8_at(), find_line_for_offset(), MotionResult, MotionResultEx
 
 ### Community 2 - "Community 2"
 Cohesion: 0.03
@@ -494,20 +494,20 @@ Cohesion: 0.11
 Nodes (56): AccentTheme, active_bars(), clamp01(), color_from_hex(), Courier, darken_hex(), DashboardState, draw_activity_panel() (+48 more)
 
 ### Community 10 - "Community 10"
+Cohesion: 0.07
+Nodes (27): AbilityInfo, BackendGuard, build_circle_outline(), build_facing_arrow(), build_line_segment(), build_path_segment(), build_polygon_outline(), ClientProjectile (+19 more)
+
+### Community 11 - "Community 11"
 Cohesion: 0.04
 Nodes (57): log4rs 1.4.0 Release, log4rs background_rotation Feature, Rationale: Spawn Background Thread for Compression, log4rs Changelog, Logback/log4j Library Reference, log4rs README, Wasm getrandom_backend Flag, Ability: fire_dash (+49 more)
 
-### Community 11 - "Community 11"
+### Community 12 - "Community 12"
 Cohesion: 0.06
 Nodes (16): basic(), color_mode(), ColorMode, ConfigTarget, ConsoleAppender, ConsoleAppenderBuilder, ConsoleAppenderConfig, ConsoleAppenderDeserializer (+8 more)
 
-### Community 12 - "Community 12"
+### Community 13 - "Community 13"
 Cohesion: 0.05
 Nodes (19): &'a mut Storage<'e, T, D>, &'a Storage<'e, T, D>, AccessMut, AntiStorage, AnyStorage, DistinctStorage, MaskedStorage, MaskedStorage<T> (+11 more)
-
-### Community 13 - "Community 13"
-Cohesion: 0.07
-Nodes (24): AbilityInfo, BackendGuard, build_facing_arrow(), build_path_segment(), ClientProjectile, ConnectionStatus, create_job_and_attach(), effect_label() (+16 more)
 
 ### Community 14 - "Community 14"
 Cohesion: 0.04
@@ -771,111 +771,111 @@ Nodes (15): execute_attack(), find_best_target(), move_towards_position(), move_
 
 ### Community 79 - "Community 79"
 Cohesion: 0.12
-Nodes (10): ContextFlexRowState, ContextGlowCommandRange, ContextLayoutRectState, ContextMotionState, ContextRowState, ContextScopeKind, ContextScopeState, ContextScrollAreaState (+2 more)
+Nodes (3): circle_hits_polygon(), point_in_polygon(), point_segment_dist_sq()
 
 ### Community 80 - "Community 80"
+Cohesion: 0.12
+Nodes (10): ContextFlexRowState, ContextGlowCommandRange, ContextLayoutRectState, ContextMotionState, ContextRowState, ContextScopeKind, ContextScopeState, ContextScrollAreaState (+2 more)
+
+### Community 81 - "Community 81"
 Cohesion: 0.23
 Nodes (10): context_float_bits(), context_hash_brush(), context_hash_color(), context_hash_command_base(), context_hash_graphics_color(), context_hash_mix(), context_hash_rect(), context_hash_transform_3d() (+2 more)
 
-### Community 81 - "Community 81"
+### Community 82 - "Community 82"
 Cohesion: 0.17
 Nodes (9): Attributes, Attributes<'a>, default(), JsonEncoder, JsonEncoderConfig, JsonEncoderDeserializer, Mdc, Message (+1 more)
 
-### Community 82 - "Community 82"
+### Community 83 - "Community 83"
 Cohesion: 0.23
 Nodes (1): App
 
-### Community 83 - "Community 83"
+### Community 84 - "Community 84"
 Cohesion: 0.22
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), SniperModeHandler, test_ability_id(), test_can_execute_toggle_skill(), test_execute_generates_effects()
 
-### Community 84 - "Community 84"
+### Community 85 - "Community 85"
 Cohesion: 0.26
 Nodes (8): create_test_config(), create_test_level_data(), create_test_request(), MatchlockGunHandler, test_ability_id(), test_execute_creates_transformation_effects(), test_mana_cost_validation(), test_no_target_required()
 
-### Community 85 - "Community 85"
+### Community 86 - "Community 86"
 Cohesion: 0.18
 Nodes (3): Bounds, QuadTree, QuadTreeNode
 
-### Community 86 - "Community 86"
+### Community 87 - "Community 87"
 Cohesion: 0.23
 Nodes (14): add_where_clause(), add_where_clauses(), convert_fields_to_metadata(), field_should_skip(), FieldMetaData, impl_saveload(), replace_attributes(), replace_entity_type() (+6 more)
 
-### Community 87 - "Community 87"
+### Community 88 - "Community 88"
 Cohesion: 0.12
 Nodes (13): AttackJD, BlockedRegionJD, CheckPointJD, CreepJD, CreepsJD, CreepWaveData, CreepWaveJD, DetailJD (+5 more)
 
-### Community 88 - "Community 88"
+### Community 89 - "Community 89"
 Cohesion: 0.31
 Nodes (8): create_test_config(), create_test_level_data(), create_test_request(), SaikaReinforcementsHandler, test_ability_id(), test_execute_multiple_summons(), test_execute_single_summon(), test_requires_target_position()
 
-### Community 89 - "Community 89"
+### Community 90 - "Community 90"
 Cohesion: 0.16
 Nodes (2): PerformanceStats, ShadowCalculator
 
-### Community 90 - "Community 90"
+### Community 91 - "Community 91"
 Cohesion: 0.15
 Nodes (3): GameState, GameStateObserver, PlayerState
 
-### Community 91 - "Community 91"
+### Community 92 - "Community 92"
 Cohesion: 0.18
 Nodes (3): StdWriter, StdWriterLock, StdWriterLock<'a>
 
-### Community 92 - "Community 92"
+### Community 93 - "Community 93"
 Cohesion: 0.33
 Nodes (14): commit_region_draft(), draw(), draw_blocked_regions(), draw_checkpoint_chain_preview(), draw_circle(), draw_grid(), draw_paths(), draw_region_draft() (+6 more)
 
-### Community 93 - "Community 93"
+### Community 94 - "Community 94"
 Cohesion: 0.19
 Nodes (7): pick_and_load(), pick_and_load_entity(), strip_json_comments(), strip_json_comments_public(), try_load_sibling_ability(), try_load_sibling_entity(), try_load_sibling_mission()
 
-### Community 94 - "Community 94"
+### Community 95 - "Community 95"
 Cohesion: 0.47
 Nodes (14): combo_str(), draw(), draw_blocked_region(), draw_blocked_region_point(), draw_checkpoint(), draw_creep_template(), draw_enemy(), draw_hero() (+6 more)
 
-### Community 95 - "Community 95"
+### Community 96 - "Community 96"
 Cohesion: 0.3
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FlameBladeHandler, test_ability_id(), test_execute_area_attack(), test_execute_single_target()
 
-### Community 96 - "Community 96"
+### Community 97 - "Community 97"
 Cohesion: 0.29
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FireDashHandler, test_ability_id(), test_execute_creates_dash_effects(), test_requires_target_position()
 
-### Community 97 - "Community 97"
+### Community 98 - "Community 98"
 Cohesion: 0.29
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FlameAssaultHandler, test_ability_id(), test_execute_creates_area_effects(), test_requires_target_position()
 
-### Community 98 - "Community 98"
+### Community 99 - "Community 99"
 Cohesion: 0.25
 Nodes (1): GameProcessor
 
-### Community 99 - "Community 99"
+### Community 100 - "Community 100"
 Cohesion: 0.21
 Nodes (4): DrainFilterExt, EventDispatcher, OutcomeAnalysis, OutcomePercentages
 
-### Community 100 - "Community 100"
+### Community 101 - "Community 101"
 Cohesion: 0.13
 Nodes (5): Foo, ReadStorage<'a, T>, Sys, uses_setup(), WriteStorage<'a, T>
 
-### Community 101 - "Community 101"
+### Community 102 - "Community 102"
 Cohesion: 0.15
 Nodes (8): ButtonStyle, CursorIcon, FlexAlign, FlexLength, InputState, make_theme(), Theme, ThemeMode
 
-### Community 102 - "Community 102"
+### Community 103 - "Community 103"
 Cohesion: 0.23
 Nodes (8): color_from_hex(), gfx_color(), solid(), solid_color(), solid_hex(), stroke(), stroke_color(), stroke_hex()
 
-### Community 103 - "Community 103"
+### Community 104 - "Community 104"
 Cohesion: 0.14
 Nodes (7): InboundMsg, OutboundMsg, QueryRequest, QueryResponse, TransportHandle, Viewport, ViewportMsg
 
-### Community 104 - "Community 104"
+### Community 105 - "Community 105"
 Cohesion: 0.14
 Nodes (13): AttackJD, BlockedRegionJD, CheckPointJD, CreepJD, CreepsJD, CreepWaveData, CreepWaveJD, DetailJD (+5 more)
-
-### Community 105 - "Community 105"
-Cohesion: 0.16
-Nodes (3): circle_hits_polygon(), point_in_polygon(), point_segment_dist_sq()
 
 ### Community 106 - "Community 106"
 Cohesion: 0.15
@@ -2050,7 +2050,7 @@ Cohesion: 1.0
 Nodes (1): Amethyst uses Specs natively
 
 ## Knowledge Gaps
-- **697 isolated node(s):** `GalleryPalette`, `NavItem`, `OpenMenu`, `Palette`, `MetricCard` (+692 more)
+- **698 isolated node(s):** `GalleryPalette`, `NavItem`, `OpenMenu`, `Palette`, `MetricCard` (+693 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **Thin community `Community 275`** (2 nodes): `main()`, `anchor_demo.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -2304,14 +2304,14 @@ Nodes (1): Amethyst uses Specs natively
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `MqttTestClient` connect `Community 2` to `Community 11`?**
-  _High betweenness centrality (0.003) - this node is a cross-community bridge._
+- **Why does `MqttTestClient` connect `Community 2` to `Community 12`?**
+  _High betweenness centrality (0.002) - this node is a cross-community bridge._
 - **Why does `append()` connect `Community 19` to `Community 2`?**
   _High betweenness centrality (0.001) - this node is a cross-community bridge._
 - **What connects `GalleryPalette`, `NavItem`, `OpenMenu` to the rest of the system?**
-  _697 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _698 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.02 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.01 - nodes in this community are weakly interconnected._
 - **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.04 - nodes in this community are weakly interconnected._
 - **Should `Community 2` be split into smaller, more focused modules?**
