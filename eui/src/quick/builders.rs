@@ -227,28 +227,62 @@ pub struct SliderFloatBuilder<'a> {
     min: f32,
     max: f32,
     height: f32,
+    label_font_size: f32,
+    label_height: f32,
+    /// slider 內值字的字級 override；預設跟隨 slider 自動尺寸
+    value_font_size: Option<f32>,
+    /// slider 本體高度上限 override（預設 40）
+    max_bar_height: Option<f32>,
 }
 
 impl<'a> SliderFloatBuilder<'a> {
     pub fn new(ctx: &'a mut Context, label: &str, value: &'a mut f32) -> Self {
-        Self { ctx, label: label.to_string(), value, min: 0.0, max: 1.0, height: 36.0 }
+        Self {
+            ctx,
+            label: label.to_string(),
+            value,
+            min: 0.0,
+            max: 1.0,
+            height: 36.0,
+            label_font_size: 11.0,
+            label_height: 16.0,
+            value_font_size: None,
+            max_bar_height: None,
+        }
     }
 
     pub fn range(mut self, min: f32, max: f32) -> Self { self.min = min; self.max = max; self }
     pub fn height(mut self, h: f32) -> Self { self.height = h; self }
+    pub fn label_font_size(mut self, s: f32) -> Self { self.label_font_size = s; self }
+    pub fn label_height(mut self, h: f32) -> Self { self.label_height = h; self }
+    /// 強制指定 slider 值字的字級
+    pub fn value_font_size(mut self, s: f32) -> Self { self.value_font_size = Some(s); self }
+    /// 強制指定 slider bar 最大高度（影響內部字級 auto-size）
+    pub fn max_bar_height(mut self, h: f32) -> Self { self.max_bar_height = Some(h); self }
 
     pub fn draw(self) -> bool {
         let lr = self.ctx.layout_rect();
         let y = self.ctx.cursor_y();
         let r = Rect::new(lr.x, y, lr.w, self.height);
         // Label
-        let label_r = Rect::new(r.x, r.y, r.w, 16.0);
+        let label_r = Rect::new(r.x, r.y, r.w, self.label_height);
         let muted = self.ctx.theme().muted_text;
-        self.ctx.paint_text(label_r, &self.label, 11.0, muted, TextAlign::Left);
+        self.ctx.paint_text(label_r, &self.label, self.label_font_size, muted, TextAlign::Left);
         // Slider
-        let slider_r = Rect::new(r.x, r.y + 16.0, r.w, self.height - 16.0);
+        let slider_r = Rect::new(r.x, r.y + self.label_height, r.w, self.height - self.label_height);
         let id = crate::core::context_utils::context_hash_sv(&self.label);
-        let changed = self.ctx.slider(id, slider_r, self.value, self.min, self.max);
+        let changed = self.ctx.slider_labeled_styled(
+            id,
+            slider_r,
+            "",
+            self.value,
+            self.min,
+            self.max,
+            -1,
+            None,
+            self.value_font_size,
+            self.max_bar_height,
+        );
         self.ctx.advance_cursor(self.height, 4.0);
         changed
     }
@@ -261,31 +295,52 @@ pub struct InputBuilder<'a> {
     label: String,
     value: &'a mut String,
     height: f32,
+    label_font_size: f32,
+    label_height: f32,
+    /// 欄位內值的字級。None 表示沿用 text_input_impl 的自動尺寸。
+    value_font_size: Option<f32>,
 }
 
 impl<'a> InputBuilder<'a> {
     pub fn new(ctx: &'a mut Context, label: &str, value: &'a mut String) -> Self {
-        Self { ctx, label: label.to_string(), value, height: 36.0 }
+        Self {
+            ctx,
+            label: label.to_string(),
+            value,
+            height: 36.0,
+            label_font_size: 11.0,
+            label_height: 16.0,
+            value_font_size: None,
+        }
     }
 
     pub fn height(mut self, h: f32) -> Self { self.height = h; self }
+    pub fn label_font_size(mut self, s: f32) -> Self { self.label_font_size = s; self }
+    pub fn label_height(mut self, h: f32) -> Self { self.label_height = h; self }
+    /// 強制指定輸入框內值的字級（不設則採自動尺寸）
+    pub fn value_font_size(mut self, s: f32) -> Self { self.value_font_size = Some(s); self }
 
     pub fn draw(self) -> bool {
         let lr = self.ctx.layout_rect();
         let y = self.ctx.cursor_y();
         let r = Rect::new(lr.x, y, lr.w, self.height);
         if !self.label.is_empty() {
-            let label_r = Rect::new(r.x, r.y, r.w, 16.0);
+            let label_r = Rect::new(r.x, r.y, r.w, self.label_height);
             let muted = self.ctx.theme().muted_text;
-            self.ctx.paint_text(label_r, &self.label, 11.0, muted, TextAlign::Left);
+            self.ctx.paint_text(label_r, &self.label, self.label_font_size, muted, TextAlign::Left);
         }
         let field_r = if self.label.is_empty() {
             r
         } else {
-            Rect::new(r.x, r.y + 16.0, r.w, self.height - 16.0)
+            Rect::new(r.x, r.y + self.label_height, r.w, self.height - self.label_height)
         };
         let id = crate::core::context_utils::context_hash_sv(&self.label);
-        let changed = self.ctx.text_input_field(id, field_r, self.value);
+        let changed = match self.value_font_size {
+            Some(fs) => self
+                .ctx
+                .text_input_field_styled(id, field_r, "", self.value, "", fs),
+            None => self.ctx.text_input_field(id, field_r, self.value),
+        };
         self.ctx.advance_cursor(self.height, 4.0);
         changed
     }
