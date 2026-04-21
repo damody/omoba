@@ -322,6 +322,8 @@ impl ApplicationHandler for AppHandler {
                 state.input.key_copy = false;
                 state.input.key_cut = false;
                 state.input.key_paste = false;
+                state.input.key_undo = false;
+                state.input.key_redo = false;
                 state.input.clipboard_text.clear();
                 state.input.dropped_files.clear();
                 state.input.title_request = None;
@@ -402,6 +404,14 @@ impl ApplicationHandler for AppHandler {
                                         .and_then(|cb| cb.get_text().ok())
                                         .unwrap_or_default();
                                 }
+                                "z" | "Z" => {
+                                    if state.input.key_shift {
+                                        state.input.key_redo = true;
+                                    } else {
+                                        state.input.key_undo = true;
+                                    }
+                                }
+                                "y" | "Y" => state.input.key_redo = true,
                                 _ => {}
                             }
                         }
