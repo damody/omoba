@@ -1293,17 +1293,39 @@ impl Context {
 
     #[allow(clippy::too_many_arguments)]
     pub fn slider_labeled_ex(&mut self, id: u64, rect: Rect, label: &str, value: &mut f32, min: f32, max: f32, decimals: i32) -> bool {
+        self.slider_labeled_styled(id, rect, label, value, min, max, decimals, None, None, None)
+    }
+
+    /// Slider 含完整字級 / 高度 override 的版本。所有 override 為 None 時與
+    /// `slider_labeled_ex` 行為一致。
+    #[allow(clippy::too_many_arguments)]
+    pub fn slider_labeled_styled(
+        &mut self,
+        id: u64,
+        rect: Rect,
+        label: &str,
+        value: &mut f32,
+        min: f32,
+        max: f32,
+        decimals: i32,
+        label_font_override: Option<f32>,
+        value_font_override: Option<f32>,
+        max_height_override: Option<f32>,
+    ) -> bool {
         let min_value = min.min(max);
         let max_value = min.max(max);
         let radius = self.theme.radius;
 
-        // Cap height at 40px matching C++ SliderBuilder height_=40.0f (no centering, matches next_rect behavior)
-        let effective_h = rect.h.min(40.0);
+        // 高度上限可被 override；預設 40px 對齊 C++ 原版行為
+        let cap = max_height_override.unwrap_or(40.0);
+        let effective_h = rect.h.min(cap);
         let rect = Rect::new(rect.x, rect.y, rect.w, effective_h);
 
-        // Font sizing
-        let label_font = (rect.h * 0.36).clamp(13.0, 24.0);
-        let value_font = (label_font - 0.5_f32).max(12.0);
+        // Font sizing（可被 override）
+        let label_font = label_font_override
+            .unwrap_or_else(|| (rect.h * 0.36).clamp(13.0, 24.0));
+        let value_font = value_font_override
+            .unwrap_or_else(|| (label_font - 0.5_f32).max(12.0));
         let value_padding = (rect.h * 0.15).clamp(6.0, 12.0);
         let value_box_w = (rect.h * 1.8).clamp(64.0, 128.0);
         let value_box = Rect::new(
