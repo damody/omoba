@@ -127,6 +127,12 @@ impl<'a> UI<'a> {
         InputBuilder::new(self.ctx, label, value)
     }
 
+    /// 純數字欄位（無 slider bar）；以 `&mut f32` 為值，內部處理 string
+    /// buffer 與 focus，失焦時 parse 並 clamp 到指定範圍。
+    pub fn numeric_field<'b>(&'b mut self, label: &str, value: &'b mut f32) -> NumericFieldBuilder<'b> {
+        NumericFieldBuilder::new(self.ctx, label, value)
+    }
+
     pub fn progress(&mut self, label: &str, ratio: f32) -> ProgressBuilder<'_> {
         ProgressBuilder::new(self.ctx, label, ratio)
     }

@@ -1,5 +1,5 @@
 use crate::color::{rgba, Color};
-use crate::core::context::Context;
+use crate::core::context::{CharFilter, Context};
 use crate::core::draw_command::TextAlign;
 use crate::core::foundation::{ButtonStyle, FlexAlign, FlexLength};
 use crate::graphics::effects::*;
@@ -283,6 +283,122 @@ impl<'a> SliderFloatBuilder<'a> {
             self.value_font_size,
             self.max_bar_height,
         );
+        self.ctx.advance_cursor(self.height, 4.0);
+        changed
+    }
+}
+
+// ── NumericFieldBuilder ──
+
+/// 純數字欄位（無 slider bar）。以 `&mut f32` 為值來源，內部管理
+/// string buffer，失焦時 parse 並 clamp 到 `[min, max]`。
+pub struct NumericFieldBuilder<'a> {
+    ctx: &'a mut Context,
+    label: String,
+    value: &'a mut f32,
+    min: f32,
+    max: f32,
+    /// 小數位數；-1 表示依 `max-min` 區間自動決定（0 / 1 / 2）。
+    decimals: i32,
+    height: f32,
+    label_font_size: f32,
+    label_height: f32,
+    value_font_size: Option<f32>,
+}
+
+impl<'a> NumericFieldBuilder<'a> {
+    pub fn new(ctx: &'a mut Context, label: &str, value: &'a mut f32) -> Self {
+        Self {
+            ctx,
+            label: label.to_string(),
+            value,
+            min: f32::MIN,
+            max: f32::MAX,
+            decimals: -1,
+            height: 36.0,
+            label_font_size: 11.0,
+            label_height: 16.0,
+            value_font_size: None,
+        }
+    }
+
+    pub fn range(mut self, min: f32, max: f32) -> Self { self.min = min; self.max = max; self }
+    pub fn decimals(mut self, d: i32) -> Self { self.decimals = d; self }
+    pub fn height(mut self, h: f32) -> Self { self.height = h; self }
+    pub fn label_font_size(mut self, s: f32) -> Self { self.label_font_size = s; self }
+    pub fn label_height(mut self, h: f32) -> Self { self.label_height = h; self }
+    pub fn value_font_size(mut self, s: f32) -> Self { self.value_font_size = Some(s); self }
+
+    pub fn draw(self) -> bool {
+        let lr = self.ctx.layout_rect();
+        let y = self.ctx.cursor_y();
+        let r = Rect::new(lr.x, y, lr.w, self.height);
+
+        // Label
+        if !self.label.is_empty() {
+            let label_r = Rect::new(r.x, r.y, r.w, self.label_height);
+            let muted = self.ctx.theme().muted_text;
+            self.ctx
+                .paint_text(label_r, &self.label, self.label_font_size, muted, TextAlign::Left);
+        }
+        let field_r = if self.label.is_empty() {
+            r
+        } else {
+            Rect::new(r.x, r.y + self.label_height, r.w, self.height - self.label_height)
+        };
+
+        let min_value = self.min.min(self.max);
+        let max_value = self.min.max(self.max);
+
+        let value_decimals = if self.decimals >= 0 {
+            (self.decimals as usize).min(4)
+        } else {
+            let span = (max_value - min_value).abs();
+            if span <= 1.0 { 2 } else if span <= 10.0 { 1 } else { 0 }
+        };
+        let filter = if value_decimals == 0 {
+            CharFilter::Int
+        } else {
+            CharFilter::Float
+        };
+
+        let id =
+            crate::core::context_utils::context_hash_sv(&self.label) ^ 0x1c2d3e4f_5a6b7c8d;
+
+        let was_editing = self.ctx.focus_id == id;
+        let default_text = format!("{:.prec$}", *self.value, prec = value_decimals);
+        let mut buf = if was_editing {
+            self.ctx
+                .slider_edit_buffers
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| default_text.clone())
+        } else {
+            default_text
+        };
+
+        let font = self.value_font_size.unwrap_or_else(|| {
+            ((field_r.h * 0.4).clamp(13.0, 24.0) - 0.5).max(12.0)
+        });
+
+        self.ctx
+            .text_input_field_numeric_styled(id, field_r, &mut buf, font, filter);
+
+        let mut changed = false;
+        let still_editing = self.ctx.focus_id == id;
+        if was_editing && !still_editing {
+            if let Ok(parsed) = buf.trim().parse::<f32>() {
+                let new_value = parsed.clamp(min_value, max_value);
+                if (new_value - *self.value).abs() > f32::EPSILON {
+                    *self.value = new_value;
+                    changed = true;
+                }
+            }
+            self.ctx.slider_edit_buffers.remove(&id);
+        } else if still_editing {
+            self.ctx.slider_edit_buffers.insert(id, buf);
+        }
+
         self.ctx.advance_cursor(self.height, 4.0);
         changed
     }
