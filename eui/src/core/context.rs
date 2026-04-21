@@ -1101,6 +1101,10 @@ impl Context {
 
     #[allow(clippy::too_many_lines)]
     pub fn button(&mut self, id: u64, rect: Rect, label: &str, style: ButtonStyle) -> bool {
+        // Multiplier applied to every button label size (icon, plain, combo).
+        // Previously buttons looked smaller than surrounding labels because the
+        // default rect height × 0.38 gave ~13.7 px while labels grew to 1.5×.
+        const BUTTON_TEXT_SCALE: f32 = 1.5;
         let k_icon_visual_scale: f32 = 1.15;
         let draw_label = label;
 
@@ -1118,19 +1122,38 @@ impl Context {
 
         // Font sizing
         let text_size = if icon_like {
-            (rect.h * 0.72 * k_icon_visual_scale).clamp(13.0, 36.0)
+            (rect.h * 0.72 * k_icon_visual_scale * BUTTON_TEXT_SCALE)
+                .clamp(13.0 * BUTTON_TEXT_SCALE, 36.0 * BUTTON_TEXT_SCALE)
         } else {
-            (rect.h * 0.38).clamp(12.0, 34.0)
+            (rect.h * 0.38 * BUTTON_TEXT_SCALE)
+                .clamp(12.0 * BUTTON_TEXT_SCALE, 34.0 * BUTTON_TEXT_SCALE)
         };
 
-        // Icon+text combo detection
+        // Icon+text combo detection — only when the prefix consists entirely of
+        // "icon-like" codepoints (PUA for Font Awesome/Material, emoji ranges, or
+        // misc dingbats/symbols). CJK / Hangul / Hiragana / Katakana / general
+        // punctuation are explicitly NOT icons; treating "敵近戰兵 HP:220" or
+        // "切換 Player/Enemy" as icon+text combos scales the CJK prefix up to
+        // icon size (~22px) while ASCII falls back to ~12px, causing overlap.
         let mut icon_text_combo = false;
         let mut icon_part = "";
         let mut text_part = "";
+        let is_icon_codepoint = |c: char| -> bool {
+            let cp = c as u32;
+            (0xE000..=0xF8FF).contains(&cp)
+                || (0xF0000..=0xFFFFD).contains(&cp)
+                || (0x100000..=0x10FFFD).contains(&cp)
+                || (0x2190..=0x21FF).contains(&cp)   // Arrows
+                || (0x2500..=0x257F).contains(&cp)   // Box Drawing
+                || (0x2580..=0x259F).contains(&cp)   // Block Elements
+                || (0x25A0..=0x25FF).contains(&cp)   // Geometric Shapes
+                || (0x2600..=0x26FF).contains(&cp)   // Misc Symbols
+                || (0x2700..=0x27BF).contains(&cp)   // Dingbats
+                || (0x1F300..=0x1FAFF).contains(&cp) // Emoji / Symbols and Pictographs
+        };
         if !draw_label.is_empty() {
             let first_ch = draw_label.chars().next().unwrap();
-            if first_ch as u32 >= 0x80 {
-                // Find split point (double-space or single space)
+            if is_icon_codepoint(first_ch) {
                 let split = draw_label.find("  ").or_else(|| draw_label.find(' '));
                 if let Some(split_pos) = split {
                     if split_pos > 0 {
@@ -1138,9 +1161,12 @@ impl Context {
                         if let Some(ts) = text_start_pos {
                             let ts = split_pos + ts;
                             if ts < draw_label.len() {
-                                icon_part = &draw_label[..split_pos];
-                                text_part = &draw_label[ts..];
-                                icon_text_combo = true;
+                                let prefix = &draw_label[..split_pos];
+                                if prefix.chars().all(is_icon_codepoint) {
+                                    icon_part = prefix;
+                                    text_part = &draw_label[ts..];
+                                    icon_text_combo = true;
+                                }
                             }
                         }
                     }
