@@ -1257,9 +1257,11 @@ impl Context {
             let text_x = icon_rect.x + icon_rect.w + gap;
             let text_rect_w = (visual_rect.x + visual_rect.w - text_x - pad).max(0.0);
             let combo_text_size = if force_left_align {
-                (visual_rect.h * 0.37).clamp(12.0, 30.0)
+                (visual_rect.h * 0.37 * BUTTON_TEXT_SCALE)
+                    .clamp(12.0 * BUTTON_TEXT_SCALE, 30.0 * BUTTON_TEXT_SCALE)
             } else {
-                (visual_rect.h * 0.35).clamp(11.0, 30.0)
+                (visual_rect.h * 0.35 * BUTTON_TEXT_SCALE)
+                    .clamp(11.0 * BUTTON_TEXT_SCALE, 30.0 * BUTTON_TEXT_SCALE)
             };
             self.paint_text(icon_rect, icon_part, icon_size, text_color, TextAlign::Center);
             self.paint_text(
