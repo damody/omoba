@@ -1,11 +1,11 @@
 # Graph Report - .  (2026-04-21)
 
 ## Corpus Check
-- 345 files · ~358,625 words
+- 345 files · ~359,897 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4540 nodes · 6546 edges · 399 communities detected
+- 4551 nodes · 6569 edges · 399 communities detected
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 26 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
@@ -411,7 +411,7 @@
 - [[_COMMUNITY_Community 398|Community 398]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Context` - 108 edges
+1. `Context` - 109 edges
 2. `App` - 58 edges
 3. `MessageListState` - 45 edges
 4. `UI<'a>` - 36 edges
@@ -822,48 +822,48 @@ Cohesion: 0.18
 Nodes (3): StdWriter, StdWriterLock, StdWriterLock<'a>
 
 ### Community 92 - "Community 92"
+Cohesion: 0.33
+Nodes (14): commit_region_draft(), draw(), draw_blocked_regions(), draw_checkpoint_chain_preview(), draw_circle(), draw_grid(), draw_paths(), draw_region_draft() (+6 more)
+
+### Community 93 - "Community 93"
 Cohesion: 0.19
 Nodes (7): pick_and_load(), pick_and_load_entity(), strip_json_comments(), strip_json_comments_public(), try_load_sibling_ability(), try_load_sibling_entity(), try_load_sibling_mission()
 
-### Community 93 - "Community 93"
+### Community 94 - "Community 94"
+Cohesion: 0.47
+Nodes (14): combo_str(), draw(), draw_blocked_region(), draw_blocked_region_point(), draw_checkpoint(), draw_creep_template(), draw_enemy(), draw_hero() (+6 more)
+
+### Community 95 - "Community 95"
 Cohesion: 0.3
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FlameBladeHandler, test_ability_id(), test_execute_area_attack(), test_execute_single_target()
 
-### Community 94 - "Community 94"
+### Community 96 - "Community 96"
 Cohesion: 0.29
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FireDashHandler, test_ability_id(), test_execute_creates_dash_effects(), test_requires_target_position()
 
-### Community 95 - "Community 95"
+### Community 97 - "Community 97"
 Cohesion: 0.29
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FlameAssaultHandler, test_ability_id(), test_execute_creates_area_effects(), test_requires_target_position()
 
-### Community 96 - "Community 96"
+### Community 98 - "Community 98"
 Cohesion: 0.25
 Nodes (1): GameProcessor
 
-### Community 97 - "Community 97"
+### Community 99 - "Community 99"
 Cohesion: 0.21
 Nodes (4): DrainFilterExt, EventDispatcher, OutcomeAnalysis, OutcomePercentages
 
-### Community 98 - "Community 98"
+### Community 100 - "Community 100"
 Cohesion: 0.13
 Nodes (5): Foo, ReadStorage<'a, T>, Sys, uses_setup(), WriteStorage<'a, T>
 
-### Community 99 - "Community 99"
+### Community 101 - "Community 101"
 Cohesion: 0.15
 Nodes (8): ButtonStyle, CursorIcon, FlexAlign, FlexLength, InputState, make_theme(), Theme, ThemeMode
 
-### Community 100 - "Community 100"
+### Community 102 - "Community 102"
 Cohesion: 0.23
 Nodes (8): color_from_hex(), gfx_color(), solid(), solid_color(), solid_hex(), stroke(), stroke_color(), stroke_hex()
-
-### Community 101 - "Community 101"
-Cohesion: 0.35
-Nodes (13): commit_region_draft(), draw(), draw_blocked_regions(), draw_circle(), draw_grid(), draw_paths(), draw_region_draft(), fill_polygon_scanline() (+5 more)
-
-### Community 102 - "Community 102"
-Cohesion: 0.15
-Nodes (5): DateTimeNow, InspectPlayerParams, main(), OmobaMcp, read_input()
 
 ### Community 103 - "Community 103"
 Cohesion: 0.14
@@ -878,36 +878,36 @@ Cohesion: 0.16
 Nodes (3): circle_hits_polygon(), point_in_polygon(), point_segment_dist_sq()
 
 ### Community 106 - "Community 106"
+Cohesion: 0.15
+Nodes (5): DateTimeNow, InspectPlayerParams, main(), OmobaMcp, read_input()
+
+### Community 107 - "Community 107"
 Cohesion: 0.26
 Nodes (12): animate_scalar(), animate_transform_2d(), animate_transform_3d(), AnimatorState, evaluate_timeline_progress(), interpolate_transform_2d(), interpolate_transform_3d(), lerp_scalar() (+4 more)
 
-### Community 107 - "Community 107"
+### Community 108 - "Community 108"
 Cohesion: 0.15
 Nodes (10): Blur, Brush, BrushKind, ColorStop, GfxColor, LinearGradient, Point, RadialGradient (+2 more)
 
-### Community 108 - "Community 108"
+### Community 109 - "Community 109"
 Cohesion: 0.15
 Nodes (8): ClipMode, ClipRect, CornerRadius, IconPrimitive, ImageFit, ImagePrimitive, RectanglePrimitive, Size
 
-### Community 109 - "Community 109"
+### Community 110 - "Community 110"
 Cohesion: 0.28
 Nodes (11): average_corner_radius(), brush_primary_color(), combine_rect_transforms(), paint_fill_brush(), paint_icon(), paint_image(), paint_rectangle(), paint_shadow_approx() (+3 more)
 
-### Community 110 - "Community 110"
+### Community 111 - "Community 111"
 Cohesion: 0.23
 Nodes (5): init_logger(), main(), MyAppender, MyEncoder, MyFilter
 
-### Community 111 - "Community 111"
+### Community 112 - "Community 112"
 Cohesion: 0.21
 Nodes (5): CompoundPolicy, CompoundPolicyConfig, CompoundPolicyDeserializer, Roller, Trigger
 
-### Community 112 - "Community 112"
+### Community 113 - "Community 113"
 Cohesion: 0.33
 Nodes (7): ConfigReloader, deserialize(), Format, FormatError, init_file(), load_config_file(), read_config()
-
-### Community 113 - "Community 113"
-Cohesion: 0.49
-Nodes (12): draw(), draw_blocked_region(), draw_blocked_region_point(), draw_checkpoint(), draw_creep_template(), draw_enemy(), draw_hero(), draw_structure() (+4 more)
 
 ### Community 114 - "Community 114"
 Cohesion: 0.19
@@ -2305,7 +2305,7 @@ Nodes (1): Amethyst uses Specs natively
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `MqttTestClient` connect `Community 2` to `Community 11`?**
-  _High betweenness centrality (0.002) - this node is a cross-community bridge._
+  _High betweenness centrality (0.003) - this node is a cross-community bridge._
 - **Why does `append()` connect `Community 19` to `Community 2`?**
   _High betweenness centrality (0.001) - this node is a cross-community bridge._
 - **What connects `GalleryPalette`, `NavItem`, `OpenMenu` to the rest of the system?**
