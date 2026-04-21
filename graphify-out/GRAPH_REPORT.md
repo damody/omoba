@@ -1,74 +1,75 @@
 # Graph Report - .  (2026-04-21)
 
 ## Corpus Check
-- Large corpus: 402 files · ~345,629 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder, or use --no-semantic to run AST-only.
+- 345 files · ~358,625 words
+- Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4214 nodes · 6058 edges · 375 communities detected
-- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 25 edges (avg confidence: 0.79)
+- 4540 nodes · 6546 edges · 399 communities detected
+- Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 26 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_EUI Anchor Layout|EUI Anchor Layout]]
-- [[_COMMUNITY_EUI Context & Animation|EUI Context & Animation]]
-- [[_COMMUNITY_EUI Gallery Demo|EUI Gallery Demo]]
-- [[_COMMUNITY_Specs Entities & Allocator|Specs Entities & Allocator]]
-- [[_COMMUNITY_Specs Advanced Patterns|Specs Advanced Patterns]]
-- [[_COMMUNITY_Specs Examples & Tests|Specs Examples & Tests]]
-- [[_COMMUNITY_log4rs Encoding & Chunks|log4rs Encoding & Chunks]]
-- [[_COMMUNITY_EUI Reference Dashboard Demo|EUI Reference Dashboard Demo]]
-- [[_COMMUNITY_log4rs Release Rationale|log4rs Release Rationale]]
-- [[_COMMUNITY_log4rs Console Appender|log4rs Console Appender]]
-- [[_COMMUNITY_Specs Storage API|Specs Storage API]]
-- [[_COMMUNITY_Specs BTreeStorage|Specs BTreeStorage]]
-- [[_COMMUNITY_log4rs Runtime Config|log4rs Runtime Config]]
-- [[_COMMUNITY_OMFX Ability Rendering|OMFX Ability Rendering]]
-- [[_COMMUNITY_EUI Layout Primitives|EUI Layout Primitives]]
-- [[_COMMUNITY_OMB Campaign Stats|OMB Campaign Stats]]
-- [[_COMMUNITY_OMB Game Outcome & Creep|OMB Game Outcome & Creep]]
-- [[_COMMUNITY_log4rs Appender Modules|log4rs Appender Modules]]
-- [[_COMMUNITY_OMB Active Effects|OMB Active Effects]]
-- [[_COMMUNITY_log4rs Raw Config|log4rs Raw Config]]
-- [[_COMMUNITY_OMB Event Payloads|OMB Event Payloads]]
-- [[_COMMUNITY_OMB Ability System Core|OMB Ability System Core]]
-- [[_COMMUNITY_Specs Benchmark Types|Specs Benchmark Types]]
-- [[_COMMUNITY_OMB Unit Types|OMB Unit Types]]
-- [[_COMMUNITY_OMB Vision ECS|OMB Vision ECS]]
-- [[_COMMUNITY_log4rs Core Appender Trait|log4rs Core Appender Trait]]
-- [[_COMMUNITY_EUI Dashboard Content|EUI Dashboard Content]]
-- [[_COMMUNITY_OMB Resource Manager|OMB Resource Manager]]
-- [[_COMMUNITY_OMB Circular Vision|OMB Circular Vision]]
-- [[_COMMUNITY_log4rs Log Compression|log4rs Log Compression]]
-- [[_COMMUNITY_OMB Ability Config|OMB Ability Config]]
-- [[_COMMUNITY_OMB Ability Runtime|OMB Ability Runtime]]
-- [[_COMMUNITY_Omoba-Core Broadcast Data|Omoba-Core Broadcast Data]]
-- [[_COMMUNITY_Specs Parallel Bench|Specs Parallel Bench]]
-- [[_COMMUNITY_EUI ClipScope|EUI ClipScope]]
-- [[_COMMUNITY_OMB Hero Attributes|OMB Hero Attributes]]
-- [[_COMMUNITY_OMB Time Manager|OMB Time Manager]]
-- [[_COMMUNITY_OMB Campaign Data|OMB Campaign Data]]
-- [[_COMMUNITY_log4rs MQTT Appender|log4rs MQTT Appender]]
-- [[_COMMUNITY_OMB Combat Types|OMB Combat Types]]
-- [[_COMMUNITY_Specs Dispatcher Tests|Specs Dispatcher Tests]]
-- [[_COMMUNITY_log4rs Custom Appender|log4rs Custom Appender]]
-- [[_COMMUNITY_log4rs File Appender|log4rs File Appender]]
-- [[_COMMUNITY_OMB CPU Timeline|OMB CPU Timeline]]
-- [[_COMMUNITY_OMB Tower & Modifiers|OMB Tower & Modifiers]]
-- [[_COMMUNITY_OMB State Initializer|OMB State Initializer]]
-- [[_COMMUNITY_Specs World Tests|Specs World Tests]]
-- [[_COMMUNITY_Specs WriteStorage|Specs WriteStorage]]
-- [[_COMMUNITY_EUI Renderer & Text|EUI Renderer & Text]]
-- [[_COMMUNITY_OMB Vision Tests|OMB Vision Tests]]
-- [[_COMMUNITY_OMB Ability Events|OMB Ability Events]]
-- [[_COMMUNITY_OMB Vision System Manager|OMB Vision System Manager]]
-- [[_COMMUNITY_OMB Result Manager|OMB Result Manager]]
-- [[_COMMUNITY_OMB System Dispatcher|OMB System Dispatcher]]
-- [[_COMMUNITY_EUI Grid Layout|EUI Grid Layout]]
-- [[_COMMUNITY_OMB Test Fixtures|OMB Test Fixtures]]
-- [[_COMMUNITY_OMB Damage Flags|OMB Damage Flags]]
-- [[_COMMUNITY_OMB Skill State|OMB Skill State]]
-- [[_COMMUNITY_Specs Marker Saveload|Specs Marker Saveload]]
-- [[_COMMUNITY_Specs World API|Specs World API]]
+- [[_COMMUNITY_Community 0|Community 0]]
+- [[_COMMUNITY_Community 1|Community 1]]
+- [[_COMMUNITY_Community 2|Community 2]]
+- [[_COMMUNITY_Community 3|Community 3]]
+- [[_COMMUNITY_Community 4|Community 4]]
+- [[_COMMUNITY_Community 5|Community 5]]
+- [[_COMMUNITY_Community 6|Community 6]]
+- [[_COMMUNITY_Community 7|Community 7]]
+- [[_COMMUNITY_Community 8|Community 8]]
+- [[_COMMUNITY_Community 9|Community 9]]
+- [[_COMMUNITY_Community 10|Community 10]]
+- [[_COMMUNITY_Community 11|Community 11]]
+- [[_COMMUNITY_Community 12|Community 12]]
+- [[_COMMUNITY_Community 13|Community 13]]
+- [[_COMMUNITY_Community 14|Community 14]]
+- [[_COMMUNITY_Community 15|Community 15]]
+- [[_COMMUNITY_Community 16|Community 16]]
+- [[_COMMUNITY_Community 17|Community 17]]
+- [[_COMMUNITY_Community 18|Community 18]]
+- [[_COMMUNITY_Community 19|Community 19]]
+- [[_COMMUNITY_Community 20|Community 20]]
+- [[_COMMUNITY_Community 21|Community 21]]
+- [[_COMMUNITY_Community 22|Community 22]]
+- [[_COMMUNITY_Community 23|Community 23]]
+- [[_COMMUNITY_Community 24|Community 24]]
+- [[_COMMUNITY_Community 25|Community 25]]
+- [[_COMMUNITY_Community 26|Community 26]]
+- [[_COMMUNITY_Community 27|Community 27]]
+- [[_COMMUNITY_Community 28|Community 28]]
+- [[_COMMUNITY_Community 29|Community 29]]
+- [[_COMMUNITY_Community 30|Community 30]]
+- [[_COMMUNITY_Community 31|Community 31]]
+- [[_COMMUNITY_Community 32|Community 32]]
+- [[_COMMUNITY_Community 33|Community 33]]
+- [[_COMMUNITY_Community 34|Community 34]]
+- [[_COMMUNITY_Community 35|Community 35]]
+- [[_COMMUNITY_Community 36|Community 36]]
+- [[_COMMUNITY_Community 37|Community 37]]
+- [[_COMMUNITY_Community 38|Community 38]]
+- [[_COMMUNITY_Community 39|Community 39]]
+- [[_COMMUNITY_Community 40|Community 40]]
+- [[_COMMUNITY_Community 41|Community 41]]
+- [[_COMMUNITY_Community 42|Community 42]]
+- [[_COMMUNITY_Community 43|Community 43]]
+- [[_COMMUNITY_Community 44|Community 44]]
+- [[_COMMUNITY_Community 45|Community 45]]
+- [[_COMMUNITY_Community 46|Community 46]]
+- [[_COMMUNITY_Community 47|Community 47]]
+- [[_COMMUNITY_Community 48|Community 48]]
+- [[_COMMUNITY_Community 49|Community 49]]
+- [[_COMMUNITY_Community 50|Community 50]]
+- [[_COMMUNITY_Community 51|Community 51]]
+- [[_COMMUNITY_Community 52|Community 52]]
+- [[_COMMUNITY_Community 53|Community 53]]
+- [[_COMMUNITY_Community 54|Community 54]]
+- [[_COMMUNITY_Community 55|Community 55]]
+- [[_COMMUNITY_Community 56|Community 56]]
+- [[_COMMUNITY_Community 57|Community 57]]
+- [[_COMMUNITY_Community 58|Community 58]]
+- [[_COMMUNITY_Community 59|Community 59]]
 - [[_COMMUNITY_Community 60|Community 60]]
 - [[_COMMUNITY_Community 61|Community 61]]
 - [[_COMMUNITY_Community 62|Community 62]]
@@ -384,30 +385,54 @@
 - [[_COMMUNITY_Community 372|Community 372]]
 - [[_COMMUNITY_Community 373|Community 373]]
 - [[_COMMUNITY_Community 374|Community 374]]
+- [[_COMMUNITY_Community 375|Community 375]]
+- [[_COMMUNITY_Community 376|Community 376]]
+- [[_COMMUNITY_Community 377|Community 377]]
+- [[_COMMUNITY_Community 378|Community 378]]
+- [[_COMMUNITY_Community 379|Community 379]]
+- [[_COMMUNITY_Community 380|Community 380]]
+- [[_COMMUNITY_Community 381|Community 381]]
+- [[_COMMUNITY_Community 382|Community 382]]
+- [[_COMMUNITY_Community 383|Community 383]]
+- [[_COMMUNITY_Community 384|Community 384]]
+- [[_COMMUNITY_Community 385|Community 385]]
+- [[_COMMUNITY_Community 386|Community 386]]
+- [[_COMMUNITY_Community 387|Community 387]]
+- [[_COMMUNITY_Community 388|Community 388]]
+- [[_COMMUNITY_Community 389|Community 389]]
+- [[_COMMUNITY_Community 390|Community 390]]
+- [[_COMMUNITY_Community 391|Community 391]]
+- [[_COMMUNITY_Community 392|Community 392]]
+- [[_COMMUNITY_Community 393|Community 393]]
+- [[_COMMUNITY_Community 394|Community 394]]
+- [[_COMMUNITY_Community 395|Community 395]]
+- [[_COMMUNITY_Community 396|Community 396]]
+- [[_COMMUNITY_Community 397|Community 397]]
+- [[_COMMUNITY_Community 398|Community 398]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Context` - 108 edges
-2. `UI<'a>` - 36 edges
-3. `mix_hex()` - 31 edges
-4. `insert()` - 29 edges
-5. `draw_settings_page()` - 25 edges
-6. `ResourceManager` - 25 edges
-7. `State` - 24 edges
-8. `draw_fill()` - 23 edges
-9. `TimeManager` - 22 edges
-10. `draw_design_page()` - 21 edges
+2. `App` - 58 edges
+3. `MessageListState` - 45 edges
+4. `UI<'a>` - 36 edges
+5. `mix_hex()` - 31 edges
+6. `insert()` - 29 edges
+7. `draw_settings_page()` - 25 edges
+8. `ResourceManager` - 25 edges
+9. `State` - 24 edges
+10. `draw_fill()` - 23 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `run()` --calls--> `remove()`  [INFERRED]
   omfx\executor-wasm\main.js → specs\src\storage\tests.rs
-- `DenseVecStorage default when storage attr omitted` --references--> `DenseVecStorage`  [EXTRACTED]
-  specs/docs/tutorials/src/02_hello_world.md → specs\src\storage\storages.rs
-- `DenseVecStorage` --implements--> `Component slice access (as_slice/as_mut_slice)`  [EXTRACTED]
-  specs\src\storage\storages.rs → specs/docs/tutorials/src/05_storages.md
-- `Marker components (NullStorage)` --implements--> `NullStorage`  [EXTRACTED]
-  specs/docs/tutorials/src/11_advanced_component.md → specs\src\storage\storages.rs
-- `VecStorage` --implements--> `Component slice access (as_slice/as_mut_slice)`  [EXTRACTED]
-  specs\src\storage\storages.rs → specs/docs/tutorials/src/05_storages.md
+- `Graphify Knowledge Graph Rules` --conceptually_related_to--> `MOBA Project Cursor Agent Overview`  [INFERRED]
+  CLAUDE.md → README_CURSOR_AGENT.md
+- `main()` --calls--> `read_input()`  [EXTRACTED]
+  omfx\export-cli\src\main.rs → omb\src\main.rs
+- `ECS Architecture (Entity-Component-System) (chunk1)` --conceptually_related_to--> `specs Changelog`  [INFERRED]
+  omb/src/README.md → specs/CHANGELOG.md
+- `shrev (public dependency)` --semantically_similar_to--> `FlaggedStorage`  [INFERRED] [semantically similar]
+  specs/README.md → specs/docs/tutorials/src/12_tracked.md
 
 ## Hyperedges (group relationships)
 - **Ability System Integration Flow** — ability_system_crate, ability_comp, skill_tick, outcome_event_system [EXTRACTED 1.00]
@@ -428,1125 +453,1125 @@
 
 ## Communities
 
-### Community 0 - "EUI Anchor Layout"
+### Community 0 - "Community 0"
 Cohesion: 0.02
 Nodes (28): AnchorBuilder, AnchorBuilder<'a>, ButtonBuilder, ButtonBuilder<'a>, ImageBuilder, ImageBuilder<'a>, InputBuilder, InputBuilder<'a> (+20 more)
 
-### Community 1 - "EUI Context & Animation"
+### Community 1 - "Community 1"
 Cohesion: 0.04
 Nodes (5): Context, decode_utf8_at(), find_line_for_offset(), MotionResult, MotionResultEx
 
-### Community 2 - "EUI Gallery Demo"
+### Community 2 - "Community 2"
+Cohesion: 0.03
+Nodes (28): ConnectionEvent, MqttClient, MqttEvent, &'a EntitiesRes, Allocator, atomic_decrement(), atomic_increment(), CreateIterAtomic (+20 more)
+
+### Community 3 - "Community 3"
 Cohesion: 0.1
 Nodes (87): accent_hex(), accent_uses_custom(), actor_focus_bottom(), actor_focus_top(), actor_glass_bottom(), actor_glass_top(), actor_inner_hex(), actor_outline() (+79 more)
 
-### Community 3 - "Specs Entities & Allocator"
-Cohesion: 0.04
-Nodes (25): &'a EntitiesRes, Allocator, atomic_decrement(), atomic_increment(), CreateIterAtomic, CreateIterAtomic<'a>, EntitiesRes, Entity (+17 more)
-
-### Community 4 - "Specs Advanced Patterns"
-Cohesion: 0.03
-Nodes (86): ActiveCamera resource targeting, Marker components (NullStorage), Sort join results in Vec, Code of Conduct, Dispatcher and DispatcherBuilder, hibitset, shred (execution backend), Specs Project (+78 more)
-
-### Community 5 - "Specs Examples & Tests"
+### Community 4 - "Community 4"
 Cohesion: 0.04
 Nodes (38): run(), CBtree, CdefaultVec, CEntries, Cmap, CMarker, Cnull, Comp (+30 more)
 
-### Community 6 - "log4rs Encoding & Chunks"
+### Community 5 - "Community 5"
+Cohesion: 0.05
+Nodes (9): App, AppEvent, AppState, DragState, KeyRepeatState, PayloadDetailSelection, Selection, Tool (+1 more)
+
+### Community 6 - "Community 6"
+Cohesion: 0.03
+Nodes (77): ActiveCamera resource targeting, Marker components (NullStorage), Sort join results in Vec, Code of Conduct, Dispatcher and DispatcherBuilder, hibitset, shred (execution backend), Specs Project (+69 more)
+
+### Community 7 - "Community 7"
 Cohesion: 0.07
 Nodes (36): assert_info_message(), Chunk, debug_release(), escaped_chars(), FormattedChunk, kv_parsing(), left_align(), left_align_formatter() (+28 more)
 
-### Community 7 - "EUI Reference Dashboard Demo"
+### Community 8 - "Community 8"
+Cohesion: 0.05
+Nodes (13): BTreeStorage, BTreeStorage<T>, DefaultVecStorage, DefaultVecStorage<T>, DenseVecStorage, DenseVecStorage<T>, HashMapStorage, HashMapStorage<T> (+5 more)
+
+### Community 9 - "Community 9"
 Cohesion: 0.11
 Nodes (56): AccentTheme, active_bars(), clamp01(), color_from_hex(), Courier, darken_hex(), DashboardState, draw_activity_panel() (+48 more)
 
-### Community 8 - "log4rs Release Rationale"
+### Community 10 - "Community 10"
 Cohesion: 0.04
 Nodes (57): log4rs 1.4.0 Release, log4rs background_rotation Feature, Rationale: Spawn Background Thread for Compression, log4rs Changelog, Logback/log4j Library Reference, log4rs README, Wasm getrandom_backend Flag, Ability: fire_dash (+49 more)
 
-### Community 9 - "log4rs Console Appender"
+### Community 11 - "Community 11"
 Cohesion: 0.06
 Nodes (16): basic(), color_mode(), ColorMode, ConfigTarget, ConsoleAppender, ConsoleAppenderBuilder, ConsoleAppenderConfig, ConsoleAppenderDeserializer (+8 more)
 
-### Community 10 - "Specs Storage API"
+### Community 12 - "Community 12"
 Cohesion: 0.05
 Nodes (19): &'a mut Storage<'e, T, D>, &'a Storage<'e, T, D>, AccessMut, AntiStorage, AnyStorage, DistinctStorage, MaskedStorage, MaskedStorage<T> (+11 more)
 
-### Community 11 - "Specs BTreeStorage"
-Cohesion: 0.06
-Nodes (6): BTreeStorage<T>, DefaultVecStorage<T>, DenseVecStorage<T>, HashMapStorage<T>, NullStorage<T>, VecStorage<T>
+### Community 13 - "Community 13"
+Cohesion: 0.07
+Nodes (24): AbilityInfo, BackendGuard, build_facing_arrow(), build_path_segment(), ClientProjectile, ConnectionStatus, create_job_and_attach(), effect_label() (+16 more)
 
-### Community 12 - "log4rs Runtime Config"
+### Community 14 - "Community 14"
 Cohesion: 0.04
 Nodes (11): Appender, AppenderBuilder, check_logger_name(), Config, ConfigBuilder, ConfigError, ConfigErrors, Logger (+3 more)
 
-### Community 13 - "OMFX Ability Rendering"
-Cohesion: 0.08
-Nodes (22): AbilityInfo, BackendGuard, build_facing_arrow(), build_path_segment(), ClientProjectile, ConnectionStatus, create_job_and_attach(), EventBuffer (+14 more)
+### Community 15 - "Community 15"
+Cohesion: 0.06
+Nodes (4): FocusTarget, MessageListState, MessageListView, TimeEditPosition
 
-### Community 14 - "EUI Layout Primitives"
+### Community 16 - "Community 16"
 Cohesion: 0.07
 Nodes (8): inset(), inset_uniform(), make_rect(), rgb_hex(), translate(), UI, UI<'a>, with_alpha()
 
-### Community 15 - "OMB Campaign Stats"
-Cohesion: 0.06
-Nodes (11): Campaign, CampaignDifficulty, Objective, ObjectiveType, Stage, StageEnvironment, StageScore, StageScoring (+3 more)
-
-### Community 16 - "OMB Game Outcome & Creep"
+### Community 17 - "Community 17"
 Cohesion: 0.1
 Nodes (19): create_test_data(), CreepData, DisIndex, DisIndex2, intersect_sorted_iters(), Outcome, PosData, PosXIndex (+11 more)
 
-### Community 17 - "log4rs Appender Modules"
+### Community 18 - "Community 18"
+Cohesion: 0.06
+Nodes (11): Campaign, CampaignDifficulty, Objective, ObjectiveType, Stage, StageEnvironment, StageScore, StageScoring (+3 more)
+
+### Community 19 - "Community 19"
 Cohesion: 0.09
 Nodes (17): append(), AppenderConfig, deserialize(), expand_env_vars(), expand_env_vars_tests(), is_env_var_part(), is_env_var_start(), LogFile (+9 more)
 
-### Community 18 - "OMB Active Effects"
+### Community 20 - "Community 20"
 Cohesion: 0.09
 Nodes (9): ActiveEffect, ActiveEffectType, AttributeModifier, EffectData, EffectEvent, EffectFlag, EffectFlags, EffectManager (+1 more)
 
-### Community 19 - "log4rs Raw Config"
+### Community 21 - "Community 21"
 Cohesion: 0.08
 Nodes (16): AppenderErrors, de_duration(), Deserializable, Deserialize, DeserializeEraser, DeserializeEraser<T>, Deserializers, DeserializingConfigError (+8 more)
 
-### Community 20 - "OMB Event Payloads"
+### Community 22 - "Community 22"
 Cohesion: 0.11
 Nodes (7): build_creep_payload(), build_hero_payload(), build_tower_payload(), build_unit_payload(), State, StateConfig, VisSet
 
-### Community 21 - "OMB Ability System Core"
+### Community 23 - "Community 23"
 Cohesion: 0.07
 Nodes (31): ability_comp.rs (ability-system integration), attack.rs (TAttack), circular_vision.rs (360-degree Vision) (chunk1), damage.rs (DamageInstance/Types/Source), omb Component System Doc (chunk1), phys.rs (Pos, Vel, SearchRef), resources.rs (Time, DeltaTime, Searcher), skill.rs (Skill Components) (+23 more)
 
-### Community 22 - "Specs Benchmark Types"
+### Community 24 - "Community 24"
 Cohesion: 0.08
 Nodes (23): AnEnum, Combined, ComplexSerdeMixedType, ComplexSerdeType, EntityLike, Generic, LevelTwo, LevelTwoTuple (+15 more)
 
-### Community 23 - "OMB Unit Types"
+### Community 25 - "Community 25"
 Cohesion: 0.11
 Nodes (8): AiType, BountyType, DamageType, Faction, FactionType, SummonedUnit, Unit, UnitType
 
-### Community 24 - "OMB Vision ECS"
+### Community 26 - "Community 26"
 Cohesion: 0.1
 Nodes (3): VisionEventFilter, VisionResultCache, VisionUpdateSystem
 
-### Community 25 - "log4rs Core Appender Trait"
+### Community 27 - "Community 27"
 Cohesion: 0.12
 Nodes (7): Appender, ConfiguredLogger, enabled(), Handle, init_from_raw_config(), Logger, SharedLogger
 
-### Community 26 - "EUI Dashboard Content"
+### Community 28 - "Community 28"
 Cohesion: 0.11
 Nodes (28): Activity Bar Chart Panel, EUI Reference Dashboard (Dark Theme), KPI Cards: On-Time Deliveries / Total Deliveries / Total Vehicles / Driver Retention, Orders Table with Pending/Responded/Assigned/Completed Tabs, Top Couriers Avatar List, Approval Flow Bar Chart with Tooltip (38 orders), EUI Reference Dashboard (Light Theme, Waybills), Owners Avatar List Panel (+20 more)
 
-### Community 27 - "OMB Resource Manager"
+### Community 29 - "Community 29"
 Cohesion: 0.15
 Nodes (2): ResourceManager, ResourceStats
 
-### Community 28 - "OMB Circular Vision"
+### Community 30 - "Community 30"
 Cohesion: 0.13
 Nodes (9): CircularVision, ObstacleInfo, ObstacleProperties, ObstacleType, ShadowArea, ShadowCaster, ShadowGeometry, ShadowType (+1 more)
 
-### Community 29 - "log4rs Log Compression"
+### Community 31 - "Community 31"
 Cohesion: 0.21
 Nodes (17): Compression, create_archive_unvaried(), create_archive_varied(), FixedWindowRoller, FixedWindowRollerBuilder, FixedWindowRollerConfig, FixedWindowRollerDeserializer, make_temp_file_name() (+9 more)
 
-### Community 30 - "OMB Ability Config"
+### Community 32 - "Community 32"
 Cohesion: 0.11
 Nodes (10): AbilityConfig, AbilityEffect, AbilityLevelData, AbilityProcessor, AbilityRequest, AbilityResult, AbilityState, AbilityType (+2 more)
 
-### Community 31 - "OMB Ability Runtime"
+### Community 33 - "Community 33"
 Cohesion: 0.1
 Nodes (3): Ability, AbilityEffect, AbilityType
 
-### Community 32 - "Omoba-Core Broadcast Data"
+### Community 34 - "Community 34"
 Cohesion: 0.08
 Nodes (24): AbilityData, BroadcastMessage, CreepCreateData, CreepInfo, CreepStats, DeleteData, HeartbeatData, HeroCreateData (+16 more)
 
-### Community 33 - "Specs Parallel Bench"
+### Community 35 - "Community 35"
 Cohesion: 0.1
 Nodes (19): Ball, bench_parallel(), Collision, Color, DeltaTime, Force, GenCollisions, Integrate (+11 more)
 
-### Community 34 - "EUI ClipScope"
+### Community 36 - "Community 36"
 Cohesion: 0.1
 Nodes (3): ClipScope<'a>, FlexRowScope<'a>, RegionScope<'a>
 
-### Community 35 - "OMB Hero Attributes"
+### Community 37 - "Community 37"
 Cohesion: 0.13
 Nodes (3): AttributeType, Hero, LevelGrowth
 
-### Community 36 - "OMB Time Manager"
+### Community 38 - "Community 38"
 Cohesion: 0.1
 Nodes (2): TimeManager, TimeStats
 
-### Community 37 - "OMB Campaign Data"
+### Community 39 - "Community 39"
 Cohesion: 0.08
 Nodes (18): AbilityData, AbilityJD, CampaignData, CampaignInfoJD, CreepJD, EnemyJD, EntityData, EnvironmentJD (+10 more)
 
-### Community 38 - "log4rs MQTT Appender"
+### Community 40 - "Community 40"
 Cohesion: 0.14
 Nodes (6): MqttAppender, MqttAppenderBuilder, MqttAppenderConfig, MqttAppenderDeserializer, MqttBuffer, parse_broker_url()
 
-### Community 39 - "OMB Combat Types"
+### Community 41 - "Community 41"
+Cohesion: 0.11
+Nodes (4): FilterBar, FilterField, FilterState, TimeEditPosition
+
+### Community 42 - "Community 42"
 Cohesion: 0.1
 Nodes (4): AiType, DamageType, Enemy, EnemyType
 
-### Community 40 - "Specs Dispatcher Tests"
+### Community 43 - "Community 43"
 Cohesion: 0.11
 Nodes (14): AddIntToFloat, CompBool, CompFloat, CompInt, IntAndBoolData, JoinParallel, main(), SpawnData (+6 more)
 
-### Community 41 - "log4rs Custom Appender"
+### Community 44 - "Community 44"
 Cohesion: 0.13
 Nodes (11): init_logger(), main(), MyAppender, MyAppenderConfig, MyAppenderDeserializer, MyEncoder, MyEncoderConfig, MyEncoderDeserializer (+3 more)
 
-### Community 42 - "log4rs File Appender"
+### Community 45 - "Community 45"
 Cohesion: 0.2
 Nodes (13): append_false(), create_directories(), FileAppender, FileAppenderBuilder, FileAppenderConfig, FileAppenderDeserializer, test_date_time_format_over_max_replacements(), test_date_time_format_with_invalid_format() (+5 more)
 
-### Community 43 - "OMB CPU Timeline"
+### Community 46 - "Community 46"
 Cohesion: 0.13
 Nodes (10): CpuTimeline, CpuTimeStats, dispatch(), gen_stats(), Job, Job<T>, ParMode, run_now() (+2 more)
 
-### Community 44 - "OMB Tower & Modifiers"
+### Community 47 - "Community 47"
 Cohesion: 0.09
 Nodes (10): DurationType, ModifyType, NearbyEnt, TAbility, TAttack, TModify, Tower, TProperty (+2 more)
 
-### Community 45 - "OMB State Initializer"
+### Community 48 - "Community 48"
 Cohesion: 0.16
 Nodes (1): StateInitializer
 
-### Community 46 - "Specs World Tests"
+### Community 49 - "Community 49"
 Cohesion: 0.12
 Nodes (11): CompBool, CompInt, CompIntThree, CompIntTwo, create_now_with_storage(), create_world(), delete_now(), delete_now_with_storage() (+3 more)
 
-### Community 47 - "Specs WriteStorage"
+### Community 50 - "Community 50"
 Cohesion: 0.12
 Nodes (5): &'b mut WriteStorage<'a, T>, &'b ReadStorage<'a, T>, &'b WriteStorage<'a, T>, ReadStorage<'a, T>, WriteStorage<'a, T>
 
-### Community 48 - "EUI Renderer & Text"
+### Community 51 - "Community 51"
 Cohesion: 0.15
 Nodes (7): BlurResources, get_rotation(), is_private_use_codepoint(), OpenGlRenderer, resolve_image_fit(), rotate_vertices(), TextureMode
 
-### Community 49 - "OMB Vision Tests"
+### Community 52 - "Community 52"
+Cohesion: 0.16
+Nodes (2): TopicListState, TopicListView
+
+### Community 53 - "Community 53"
 Cohesion: 0.16
 Nodes (13): Bounds, CircularVision, main(), ObstacleInfo, ObstacleProperties, ObstacleType, ShadowArea, ShadowCalculator (+5 more)
 
-### Community 50 - "OMB Ability Events"
+### Community 54 - "Community 54"
 Cohesion: 0.13
 Nodes (4): AbilityEvent, AbilityInstance, AbilityRequest, AbilityState
 
-### Community 51 - "OMB Vision System Manager"
+### Community 55 - "Community 55"
 Cohesion: 0.11
 Nodes (3): VisionDebugData, VisionSystemManager, VisionSystemStats
 
-### Community 52 - "OMB Result Manager"
+### Community 56 - "Community 56"
 Cohesion: 0.11
 Nodes (3): ResultManager, VisionExportData, VisionUpdateStats
 
-### Community 53 - "OMB System Dispatcher"
+### Community 57 - "Community 57"
 Cohesion: 0.16
 Nodes (4): SystemDispatcher, SystemGroup, SystemPerformanceAnalysis, SystemStats
 
-### Community 54 - "EUI Grid Layout"
+### Community 58 - "Community 58"
 Cohesion: 0.12
 Nodes (5): GridLayout, LinearLayout, StackLayout, ViewBuilder, ViewBuilder<'a>
 
-### Community 55 - "OMB Test Fixtures"
+### Community 59 - "Community 59"
 Cohesion: 0.26
 Nodes (10): create_test_config(), create_test_level_data(), create_test_request(), test_ability_id(), test_execute_creates_multiple_damage_effects(), test_mana_cost_validation(), test_no_target_entity_no_effects(), test_requires_target_entity() (+2 more)
 
-### Community 56 - "OMB Damage Flags"
+### Community 60 - "Community 60"
 Cohesion: 0.13
 Nodes (6): DamageFlags, DamageInstance, DamageResult, DamageSource, DamageSourceType, DamageTypes
 
-### Community 57 - "OMB Skill State"
+### Community 61 - "Community 61"
 Cohesion: 0.11
 Nodes (7): Skill, SkillEffect, SkillEffectData, SkillEffectType, SkillInput, SkillState, SkillTargetType
 
-### Community 58 - "Specs Marker Saveload"
+### Community 62 - "Community 62"
 Cohesion: 0.11
 Nodes (7): MarkedBuilder, Marker, MarkerAllocator, SimpleMarker, SimpleMarker<T>, SimpleMarkerAllocator, SimpleMarkerAllocator<T>
 
-### Community 59 - "Specs World API"
+### Community 63 - "Community 63"
 Cohesion: 0.17
 Nodes (1): World
 
-### Community 60 - "Community 60"
+### Community 64 - "Community 64"
 Cohesion: 0.16
 Nodes (9): get_current_time(), pre_process(), test_time_trigger_limit_default(), TimeTrigger, TimeTriggerConfig, TimeTriggerDeserializer, TimeTriggerInterval, trigger() (+1 more)
 
-### Community 61 - "Community 61"
+### Community 65 - "Community 65"
 Cohesion: 0.12
 Nodes (6): AbilityConfig, AbilityLevelData, AbilityType, CastType, ConfigManager, TargetType
 
-### Community 62 - "Community 62"
+### Community 66 - "Community 66"
 Cohesion: 0.15
 Nodes (3): AbilityComponent, AbilityRequestComponent, AbilityResultComponent
 
-### Community 63 - "Community 63"
+### Community 67 - "Community 67"
 Cohesion: 0.2
 Nodes (4): TerrainConfig, TerrainHeightMap, TerrainRegion, TerrainType
 
-### Community 64 - "Community 64"
+### Community 68 - "Community 68"
 Cohesion: 0.11
 Nodes (12): CollisionRadius, ForceUpdate, Immovable, Mass, MoveTarget, Pos, PosVelOriDefer, PreviousPhysCache (+4 more)
 
-### Community 65 - "Community 65"
+### Community 69 - "Community 69"
 Cohesion: 0.19
 Nodes (16): apply_ability_effect_as_skill_effect(), convert_skill_input_to_ability_request(), create_summoned_unit(), execute_rain_iron_cannon(), execute_saika_reinforcements(), execute_sniper_mode(), execute_three_stage_technique(), find_summoner_entity() (+8 more)
 
-### Community 66 - "Community 66"
+### Community 70 - "Community 70"
 Cohesion: 0.15
 Nodes (7): GridVisionOutput, OutputFormat, SectorParams, ShadowPolygon, VectorVisionOutput, VisibilityLevel, VisionOutputGenerator
 
-### Community 67 - "Community 67"
+### Community 71 - "Community 71"
 Cohesion: 0.13
 Nodes (6): &'a ChangeSet<T>, &'a mut ChangeSet<T>, ChangeSet, ChangeSet<T>, Health, test()
 
-### Community 68 - "Community 68"
+### Community 72 - "Community 72"
 Cohesion: 0.13
 Nodes (5): PairedStorageRead<'rf, C>, PairedStorageWriteExclusive<'rf, C>, PairedStorageWriteShared<'rf, C>, &'rf mut RestrictedStorage<'rf, C, S>, SharedGetOnly<'a, T, S>
 
-### Community 69 - "Community 69"
+### Community 73 - "Community 73"
 Cohesion: 0.27
 Nodes (17): CompBool, CompInt, create_world(), delete_wrong_gen(), dynamic_create(), dynamic_create_and_delete(), dynamic_deletion(), getting_specific_entity_with_lend_join() (+9 more)
 
-### Community 70 - "Community 70"
+### Community 74 - "Community 74"
 Cohesion: 0.28
 Nodes (9): create_test_config(), create_test_level_data(), create_test_request(), RainIronCannonHandler, test_ability_id(), test_cannot_execute_while_casting(), test_execute_creates_area_effect(), test_mana_cost_validation() (+1 more)
 
-### Community 71 - "Community 71"
+### Community 75 - "Community 75"
 Cohesion: 0.16
 Nodes (2): VisionCalculator, VisionPerformanceStats
 
-### Community 72 - "Community 72"
+### Community 76 - "Community 76"
 Cohesion: 0.13
 Nodes (8): CircularVision, ObstacleInfo, ObstacleProperties, ObstacleType, ShadowArea, ShadowGeometry, ShadowType, VisionResult
 
-### Community 73 - "Community 73"
+### Community 77 - "Community 77"
 Cohesion: 0.27
 Nodes (4): MqttTestInterfaceManager, TestCommand, TestMetrics, TestResponse
 
-### Community 74 - "Community 74"
+### Community 78 - "Community 78"
 Cohesion: 0.28
 Nodes (15): execute_attack(), find_best_target(), move_towards_position(), move_towards_target(), patrol_movement(), process_aggressive_ai(), process_defensive_ai(), process_guard_ai() (+7 more)
 
-### Community 75 - "Community 75"
+### Community 79 - "Community 79"
 Cohesion: 0.12
 Nodes (10): ContextFlexRowState, ContextGlowCommandRange, ContextLayoutRectState, ContextMotionState, ContextRowState, ContextScopeKind, ContextScopeState, ContextScrollAreaState (+2 more)
 
-### Community 76 - "Community 76"
+### Community 80 - "Community 80"
 Cohesion: 0.23
 Nodes (10): context_float_bits(), context_hash_brush(), context_hash_color(), context_hash_command_base(), context_hash_graphics_color(), context_hash_mix(), context_hash_rect(), context_hash_transform_3d() (+2 more)
 
-### Community 77 - "Community 77"
+### Community 81 - "Community 81"
 Cohesion: 0.17
 Nodes (9): Attributes, Attributes<'a>, default(), JsonEncoder, JsonEncoderConfig, JsonEncoderDeserializer, Mdc, Message (+1 more)
 
-### Community 78 - "Community 78"
+### Community 82 - "Community 82"
+Cohesion: 0.23
+Nodes (1): App
+
+### Community 83 - "Community 83"
 Cohesion: 0.22
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), SniperModeHandler, test_ability_id(), test_can_execute_toggle_skill(), test_execute_generates_effects()
 
-### Community 79 - "Community 79"
+### Community 84 - "Community 84"
 Cohesion: 0.26
 Nodes (8): create_test_config(), create_test_level_data(), create_test_request(), MatchlockGunHandler, test_ability_id(), test_execute_creates_transformation_effects(), test_mana_cost_validation(), test_no_target_required()
 
-### Community 80 - "Community 80"
+### Community 85 - "Community 85"
 Cohesion: 0.18
 Nodes (3): Bounds, QuadTree, QuadTreeNode
 
-### Community 81 - "Community 81"
+### Community 86 - "Community 86"
 Cohesion: 0.23
 Nodes (14): add_where_clause(), add_where_clauses(), convert_fields_to_metadata(), field_should_skip(), FieldMetaData, impl_saveload(), replace_attributes(), replace_entity_type() (+6 more)
 
-### Community 82 - "Community 82"
+### Community 87 - "Community 87"
 Cohesion: 0.12
 Nodes (13): AttackJD, BlockedRegionJD, CheckPointJD, CreepJD, CreepsJD, CreepWaveData, CreepWaveJD, DetailJD (+5 more)
 
-### Community 83 - "Community 83"
+### Community 88 - "Community 88"
 Cohesion: 0.31
 Nodes (8): create_test_config(), create_test_level_data(), create_test_request(), SaikaReinforcementsHandler, test_ability_id(), test_execute_multiple_summons(), test_execute_single_summon(), test_requires_target_position()
 
-### Community 84 - "Community 84"
+### Community 89 - "Community 89"
 Cohesion: 0.16
 Nodes (2): PerformanceStats, ShadowCalculator
 
-### Community 85 - "Community 85"
+### Community 90 - "Community 90"
 Cohesion: 0.15
 Nodes (3): GameState, GameStateObserver, PlayerState
 
-### Community 86 - "Community 86"
+### Community 91 - "Community 91"
 Cohesion: 0.18
 Nodes (3): StdWriter, StdWriterLock, StdWriterLock<'a>
 
-### Community 87 - "Community 87"
+### Community 92 - "Community 92"
+Cohesion: 0.19
+Nodes (7): pick_and_load(), pick_and_load_entity(), strip_json_comments(), strip_json_comments_public(), try_load_sibling_ability(), try_load_sibling_entity(), try_load_sibling_mission()
+
+### Community 93 - "Community 93"
 Cohesion: 0.3
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FlameBladeHandler, test_ability_id(), test_execute_area_attack(), test_execute_single_target()
 
-### Community 88 - "Community 88"
+### Community 94 - "Community 94"
 Cohesion: 0.29
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FireDashHandler, test_ability_id(), test_execute_creates_dash_effects(), test_requires_target_position()
 
-### Community 89 - "Community 89"
+### Community 95 - "Community 95"
 Cohesion: 0.29
 Nodes (7): create_test_config(), create_test_level_data(), create_test_request(), FlameAssaultHandler, test_ability_id(), test_execute_creates_area_effects(), test_requires_target_position()
 
-### Community 90 - "Community 90"
+### Community 96 - "Community 96"
 Cohesion: 0.25
 Nodes (1): GameProcessor
 
-### Community 91 - "Community 91"
+### Community 97 - "Community 97"
 Cohesion: 0.21
 Nodes (4): DrainFilterExt, EventDispatcher, OutcomeAnalysis, OutcomePercentages
 
-### Community 92 - "Community 92"
+### Community 98 - "Community 98"
 Cohesion: 0.13
 Nodes (5): Foo, ReadStorage<'a, T>, Sys, uses_setup(), WriteStorage<'a, T>
 
-### Community 93 - "Community 93"
+### Community 99 - "Community 99"
 Cohesion: 0.15
 Nodes (8): ButtonStyle, CursorIcon, FlexAlign, FlexLength, InputState, make_theme(), Theme, ThemeMode
 
-### Community 94 - "Community 94"
+### Community 100 - "Community 100"
 Cohesion: 0.23
 Nodes (8): color_from_hex(), gfx_color(), solid(), solid_color(), solid_hex(), stroke(), stroke_color(), stroke_hex()
 
-### Community 95 - "Community 95"
+### Community 101 - "Community 101"
+Cohesion: 0.35
+Nodes (13): commit_region_draft(), draw(), draw_blocked_regions(), draw_circle(), draw_grid(), draw_paths(), draw_region_draft(), fill_polygon_scanline() (+5 more)
+
+### Community 102 - "Community 102"
+Cohesion: 0.15
+Nodes (5): DateTimeNow, InspectPlayerParams, main(), OmobaMcp, read_input()
+
+### Community 103 - "Community 103"
 Cohesion: 0.14
 Nodes (7): InboundMsg, OutboundMsg, QueryRequest, QueryResponse, TransportHandle, Viewport, ViewportMsg
 
-### Community 96 - "Community 96"
+### Community 104 - "Community 104"
 Cohesion: 0.14
 Nodes (13): AttackJD, BlockedRegionJD, CheckPointJD, CreepJD, CreepsJD, CreepWaveData, CreepWaveJD, DetailJD (+5 more)
 
-### Community 97 - "Community 97"
+### Community 105 - "Community 105"
+Cohesion: 0.16
+Nodes (3): circle_hits_polygon(), point_in_polygon(), point_segment_dist_sq()
+
+### Community 106 - "Community 106"
 Cohesion: 0.26
 Nodes (12): animate_scalar(), animate_transform_2d(), animate_transform_3d(), AnimatorState, evaluate_timeline_progress(), interpolate_transform_2d(), interpolate_transform_3d(), lerp_scalar() (+4 more)
 
-### Community 98 - "Community 98"
+### Community 107 - "Community 107"
 Cohesion: 0.15
 Nodes (10): Blur, Brush, BrushKind, ColorStop, GfxColor, LinearGradient, Point, RadialGradient (+2 more)
 
-### Community 99 - "Community 99"
+### Community 108 - "Community 108"
 Cohesion: 0.15
 Nodes (8): ClipMode, ClipRect, CornerRadius, IconPrimitive, ImageFit, ImagePrimitive, RectanglePrimitive, Size
 
-### Community 100 - "Community 100"
+### Community 109 - "Community 109"
 Cohesion: 0.28
 Nodes (11): average_corner_radius(), brush_primary_color(), combine_rect_transforms(), paint_fill_brush(), paint_icon(), paint_image(), paint_rectangle(), paint_shadow_approx() (+3 more)
 
-### Community 101 - "Community 101"
+### Community 110 - "Community 110"
 Cohesion: 0.23
 Nodes (5): init_logger(), main(), MyAppender, MyEncoder, MyFilter
 
-### Community 102 - "Community 102"
+### Community 111 - "Community 111"
 Cohesion: 0.21
 Nodes (5): CompoundPolicy, CompoundPolicyConfig, CompoundPolicyDeserializer, Roller, Trigger
 
-### Community 103 - "Community 103"
+### Community 112 - "Community 112"
 Cohesion: 0.33
 Nodes (7): ConfigReloader, deserialize(), Format, FormatError, init_file(), load_config_file(), read_config()
 
-### Community 104 - "Community 104"
-Cohesion: 0.17
-Nodes (5): DateTimeNow, InspectPlayerParams, main(), OmobaMcp, read_input()
+### Community 113 - "Community 113"
+Cohesion: 0.49
+Nodes (12): draw(), draw_blocked_region(), draw_blocked_region_point(), draw_checkpoint(), draw_creep_template(), draw_enemy(), draw_hero(), draw_structure() (+4 more)
 
-### Community 105 - "Community 105"
+### Community 114 - "Community 114"
+Cohesion: 0.19
+Nodes (1): MessageRepository
+
+### Community 115 - "Community 115"
+Cohesion: 0.27
+Nodes (4): JsonDisplayMode, JsonFormatter, test_format_keys_only(), test_simplify_payload()
+
+### Community 116 - "Community 116"
 Cohesion: 0.15
 Nodes (8): AbilityContext, AbilityEffect, AbilityResult, Condition, ConditionType, DamageType, TargetSelector, WorldAccess
 
-### Community 106 - "Community 106"
+### Community 117 - "Community 117"
 Cohesion: 0.27
 Nodes (1): CampaignManager
 
-### Community 107 - "Community 107"
+### Community 118 - "Community 118"
 Cohesion: 0.26
 Nodes (1): ShadowSystem
 
-### Community 108 - "Community 108"
+### Community 119 - "Community 119"
 Cohesion: 0.27
 Nodes (1): ShadowCalculator
 
-### Community 109 - "Community 109"
+### Community 120 - "Community 120"
 Cohesion: 0.17
 Nodes (3): GameEventData, GrpcClient, KcpClient
 
-### Community 110 - "Community 110"
+### Community 121 - "Community 121"
 Cohesion: 0.17
 Nodes (6): Entries, Entries<'a, 'b, T, D>, OccupiedEntry, Storage<'e, T, D>, StorageEntry, VacantEntry
 
-### Community 111 - "Community 111"
+### Community 122 - "Community 122"
 Cohesion: 0.27
 Nodes (1): FlaggedStorage<C, T>
 
-### Community 112 - "Community 112"
+### Community 123 - "Community 123"
 Cohesion: 0.21
 Nodes (7): AnchorRect, AnchorReference, AnchorUnit, AnchorValue, normalize_percent(), resolve_anchor_rect(), resolve_value_px()
 
-### Community 113 - "Community 113"
+### Community 124 - "Community 124"
 Cohesion: 0.23
 Nodes (6): OnStartUpTrigger, OnStartUpTriggerConfig, OnStartUpTriggerDeserializer, pre_process(), trigger(), trigger_with_file_size()
 
-### Community 114 - "Community 114"
+### Community 125 - "Community 125"
 Cohesion: 0.39
 Nodes (1): Parser<'a>
 
-### Community 115 - "Community 115"
+### Community 126 - "Community 126"
 Cohesion: 0.26
 Nodes (4): AbilityProcessor, DefaultAbilityProcessor, SaikaReinforcementsProcessor, SniperModeProcessor
 
-### Community 116 - "Community 116"
+### Community 127 - "Community 127"
 Cohesion: 0.18
 Nodes (5): F32Formatter, MqttMsg, new(), PlayerData, with_formatter()
 
-### Community 117 - "Community 117"
+### Community 128 - "Community 128"
+Cohesion: 0.17
+Nodes (9): CProperty, Creep, CreepEmit, CreepEmiter, CreepStatus, CreepWave, CurrentCreepWave, PathCreeps (+1 more)
+
+### Community 129 - "Community 129"
 Cohesion: 0.23
 Nodes (4): AbilityInfo, AbilityManager, AbilityType, SkillLevelEffect
 
-### Community 118 - "Community 118"
+### Community 130 - "Community 130"
 Cohesion: 0.21
 Nodes (3): CacheManager, CacheStats, VisionCache
 
-### Community 119 - "Community 119"
+### Community 131 - "Community 131"
 Cohesion: 0.29
 Nodes (1): PlayerSimulator
 
-### Community 120 - "Community 120"
+### Community 132 - "Community 132"
 Cohesion: 0.2
 Nodes (8): ClusterBomb, ClusterBombSystem, main(), PhysicsSystem, Pos, Shrapnel, ShrapnelSystem, Vel
 
-### Community 121 - "Community 121"
+### Community 133 - "Community 133"
 Cohesion: 0.26
 Nodes (2): UuidMarker, UuidMarkerAllocator
 
-### Community 122 - "Community 122"
+### Community 134 - "Community 134"
 Cohesion: 0.21
 Nodes (1): DerefFlaggedStorage<C, T>
 
-### Community 123 - "Community 123"
+### Community 135 - "Community 135"
 Cohesion: 0.24
 Nodes (3): OccupiedEntry<'a, 'b, T, D>, StorageEntry<'a, 'b, T, D>, VacantEntry<'a, 'b, T, D>
 
-### Community 124 - "Community 124"
+### Community 136 - "Community 136"
 Cohesion: 0.2
 Nodes (12): Console Appender, File Appender, Rolling File Appender, log4rs Configuration Documentation, JSON Encoder, Pattern Encoder, LevelFilter Config Item, Delete Roller (+4 more)
 
-### Community 125 - "Community 125"
+### Community 137 - "Community 137"
 Cohesion: 0.32
 Nodes (12): Force Component, Mass Component, Velocity Component, Component, Entity, Entity 1, Entity 2, Entity 3 (+4 more)
 
-### Community 126 - "Community 126"
+### Community 138 - "Community 138"
 Cohesion: 0.35
 Nodes (7): dump_commands_json(), r2(), write_brush(), write_f32(), write_f32_array(), write_json_string(), write_transform()
 
-### Community 127 - "Community 127"
+### Community 139 - "Community 139"
 Cohesion: 0.22
 Nodes (1): TextMeasurer
 
-### Community 128 - "Community 128"
+### Community 140 - "Community 140"
 Cohesion: 0.18
 Nodes (5): Color, Encode, EncoderConfig, Style, Write
 
-### Community 129 - "Community 129"
+### Community 141 - "Community 141"
 Cohesion: 0.24
 Nodes (5): test_cfg_deserializer(), test_threshold_filter(), ThresholdFilter, ThresholdFilterConfig, ThresholdFilterDeserializer
 
-### Community 130 - "Community 130"
-Cohesion: 0.18
-Nodes (9): CProperty, Creep, CreepEmit, CreepEmiter, CreepStatus, CreepWave, CurrentCreepWave, PathCreeps (+1 more)
+### Community 142 - "Community 142"
+Cohesion: 0.24
+Nodes (4): ConnectionStatus, StatusBar, StatusBarState, ViewType
 
-### Community 131 - "Community 131"
+### Community 143 - "Community 143"
 Cohesion: 0.25
 Nodes (1): GameServiceServer<T>
 
-### Community 132 - "Community 132"
+### Community 144 - "Community 144"
 Cohesion: 0.25
 Nodes (1): GeometryUtils
 
-### Community 133 - "Community 133"
+### Community 145 - "Community 145"
 Cohesion: 0.2
 Nodes (2): calculate_polygon_area(), test_visible_area_completeness()
 
-### Community 134 - "Community 134"
+### Community 146 - "Community 146"
 Cohesion: 0.22
 Nodes (7): AbilityState, Entity, EntityType, ItemState, LocalPlayer, SummonAIState, SummonState
 
-### Community 135 - "Community 135"
+### Community 147 - "Community 147"
 Cohesion: 0.22
 Nodes (3): BoxedErr, Error, WrongGeneration
 
-### Community 136 - "Community 136"
+### Community 148 - "Community 148"
 Cohesion: 0.18
 Nodes (5): F, LazyBuilder, LazyUpdate, LazyUpdateInternal, Queue
 
-### Community 137 - "Community 137"
+### Community 149 - "Community 149"
 Cohesion: 0.2
 Nodes (4): delete_all(), delete_and_lazy(), Pos, Vel
 
-### Community 138 - "Community 138"
+### Community 150 - "Community 150"
 Cohesion: 0.29
 Nodes (6): brighten_primary_for_dark_mode(), Color, color_luminance(), mix(), rgba(), srgb_to_linear()
 
-### Community 139 - "Community 139"
+### Community 151 - "Community 151"
 Cohesion: 0.31
 Nodes (8): cubic_bezier_component(), cubic_bezier_derivative(), CubicBezier, ease(), ease_bezier(), EasingPreset, preset_bezier(), sample_bezier_y()
 
-### Community 140 - "Community 140"
+### Community 152 - "Community 152"
 Cohesion: 0.24
 Nodes (4): pre_process(), SizeTrigger, SizeTriggerConfig, SizeTriggerDeserializer
 
-### Community 141 - "Community 141"
+### Community 153 - "Community 153"
 Cohesion: 0.31
 Nodes (4): AnsiWriter, AnsiWriter<W>, basic(), color_byte()
 
-### Community 142 - "Community 142"
-Cohesion: 0.49
-Nodes (9): draw(), draw_grid(), draw_paths(), point_in_rect(), point_segment_dist(), screen_to_world(), screen_to_world_raw(), try_insert_on_path() (+1 more)
-
-### Community 143 - "Community 143"
-Cohesion: 0.49
-Nodes (8): create_ability_config(), create_level_data(), create_test_entity(), test_ability_effect_types(), test_ability_handler_trait_methods(), test_date_masamune_abilities(), test_saika_magoichi_abilities(), test_summon_effects()
-
-### Community 144 - "Community 144"
-Cohesion: 0.36
-Nodes (4): JsonPreprocessor, test_comments_in_strings(), test_multiline_comments(), test_single_line_comments()
-
-### Community 145 - "Community 145"
-Cohesion: 0.24
-Nodes (2): Clock, ClockStats
-
-### Community 146 - "Community 146"
-Cohesion: 0.29
-Nodes (1): CombatEventHandler
-
-### Community 147 - "Community 147"
-Cohesion: 0.24
-Nodes (4): AppConfig, BackendConfig, FrontendConfig, ServerConfig
-
-### Community 148 - "Community 148"
-Cohesion: 0.36
-Nodes (1): MqttHandler
-
-### Community 149 - "Community 149"
-Cohesion: 0.27
-Nodes (7): bench_big(), bench_small(), Big, BigSystem, Small, Small2, SmallSystem
-
-### Community 150 - "Community 150"
-Cohesion: 0.2
-Nodes (10): Project Changelog, Hero Skill System, Rationale: State Module Modularization for Maintainability, MQTT Communication Protocol, MQTT Test Interface, Project Rename to omobab, Open MOBA Backend README, State Module Complete Refactoring (+2 more)
-
-### Community 151 - "Community 151"
-Cohesion: 0.33
-Nodes (6): project_rect_point_3d(), projected_rect_bounds(), ProjectedPoint, rotate_point_x(), rotate_point_y(), rotate_point_z()
-
-### Community 152 - "Community 152"
-Cohesion: 0.31
-Nodes (5): AppHandler, AppState, call_build_ui(), load_icon_font(), load_system_default_font()
-
-### Community 153 - "Community 153"
-Cohesion: 0.22
-Nodes (1): WinitBackend
-
 ### Community 154 - "Community 154"
-Cohesion: 0.39
-Nodes (1): InputHandler
+Cohesion: 0.29
+Nodes (2): Snapshot, UndoStack
 
 ### Community 155 - "Community 155"
 Cohesion: 0.22
-Nodes (8): CommandAck, GameEvent, GameService, GameServiceServer, PlayerCommand, SubscribeRequest, TestCommandRequest, TestCommandResponse
+Nodes (7): Config, DatabaseConfig, MqttConfig, PerformanceConfig, QuickFilter, QuickFiltersConfig, UiConfig
 
 ### Community 156 - "Community 156"
+Cohesion: 0.49
+Nodes (8): create_ability_config(), create_level_data(), create_test_entity(), test_ability_effect_types(), test_ability_handler_trait_methods(), test_date_masamune_abilities(), test_saika_magoichi_abilities(), test_summon_effects()
+
+### Community 157 - "Community 157"
+Cohesion: 0.36
+Nodes (4): JsonPreprocessor, test_comments_in_strings(), test_multiline_comments(), test_single_line_comments()
+
+### Community 158 - "Community 158"
+Cohesion: 0.24
+Nodes (2): Clock, ClockStats
+
+### Community 159 - "Community 159"
+Cohesion: 0.29
+Nodes (1): CombatEventHandler
+
+### Community 160 - "Community 160"
+Cohesion: 0.24
+Nodes (4): AppConfig, BackendConfig, FrontendConfig, ServerConfig
+
+### Community 161 - "Community 161"
+Cohesion: 0.36
+Nodes (1): MqttHandler
+
+### Community 162 - "Community 162"
+Cohesion: 0.27
+Nodes (7): bench_big(), bench_small(), Big, BigSystem, Small, Small2, SmallSystem
+
+### Community 163 - "Community 163"
+Cohesion: 0.2
+Nodes (10): Project Changelog, Hero Skill System, Rationale: State Module Modularization for Maintainability, MQTT Communication Protocol, MQTT Test Interface, Project Rename to omobab, Open MOBA Backend README, State Module Complete Refactoring (+2 more)
+
+### Community 164 - "Community 164"
+Cohesion: 0.33
+Nodes (6): project_rect_point_3d(), projected_rect_bounds(), ProjectedPoint, rotate_point_x(), rotate_point_y(), rotate_point_z()
+
+### Community 165 - "Community 165"
+Cohesion: 0.31
+Nodes (5): AppHandler, AppState, call_build_ui(), load_icon_font(), load_system_default_font()
+
+### Community 166 - "Community 166"
+Cohesion: 0.22
+Nodes (1): WinitBackend
+
+### Community 167 - "Community 167"
+Cohesion: 0.39
+Nodes (1): InputHandler
+
+### Community 168 - "Community 168"
+Cohesion: 0.22
+Nodes (8): CommandAck, GameEvent, GameService, GameServiceServer, PlayerCommand, SubscribeRequest, TestCommandRequest, TestCommandResponse
+
+### Community 169 - "Community 169"
 Cohesion: 0.33
 Nodes (1): AbilityHelper
 
-### Community 157 - "Community 157"
+### Community 170 - "Community 170"
 Cohesion: 0.22
 Nodes (0): 
 
-### Community 158 - "Community 158"
+### Community 171 - "Community 171"
 Cohesion: 0.25
 Nodes (1): Viewport
 
-### Community 159 - "Community 159"
+### Community 172 - "Community 172"
 Cohesion: 0.28
 Nodes (9): Graphify Knowledge Graph Rules, log4rs Logging Framework Submodule, MQTT Log Viewer Submodule, omb (Open MOBA Backend) Submodule, omf (Open MOBA Frontend) Submodule, MOBA Project Cursor Agent Overview, specs ECS Framework Submodule, Rationale: Frontend/Backend Submodule Separation (+1 more)
 
-### Community 160 - "Community 160"
+### Community 173 - "Community 173"
 Cohesion: 0.46
 Nodes (5): push_quad(), push_rounded_outline(), push_rounded_quad(), push_textured_quad(), Vertex
 
-### Community 161 - "Community 161"
+### Community 174 - "Community 174"
 Cohesion: 0.43
 Nodes (5): bench_find_anomalies(), main(), mk_config(), Stats, write_log()
 
-### Community 162 - "Community 162"
-Cohesion: 0.25
-Nodes (4): AppState, DragState, Selection, Tool
+### Community 175 - "Community 175"
+Cohesion: 0.32
+Nodes (2): MessageHandler, MqttMessage
 
-### Community 163 - "Community 163"
+### Community 176 - "Community 176"
 Cohesion: 0.25
 Nodes (4): ActiveEffect, ItemBonus, ItemConfig, ItemRegistry
 
-### Community 164 - "Community 164"
+### Community 177 - "Community 177"
 Cohesion: 0.25
 Nodes (0): 
 
-### Community 165 - "Community 165"
-Cohesion: 0.25
-Nodes (2): MqttClient, MqttEvent
-
-### Community 166 - "Community 166"
+### Community 178 - "Community 178"
 Cohesion: 0.32
 Nodes (4): main(), Pos, SysA, Vel
 
-### Community 167 - "Community 167"
+### Community 179 - "Community 179"
 Cohesion: 0.32
 Nodes (4): main(), SysA, SysB, TrackedComponent
 
-### Community 168 - "Community 168"
+### Community 180 - "Community 180"
 Cohesion: 0.32
 Nodes (4): A, B, bumps_index_after_reload_internal(), NetworkSync
 
-### Community 169 - "Community 169"
+### Community 181 - "Community 181"
 Cohesion: 0.29
 Nodes (2): FontAtlas, GlyphEntry
 
-### Community 170 - "Community 170"
+### Community 182 - "Community 182"
 Cohesion: 0.29
 Nodes (3): DeleteRoller, DeleteRollerConfig, DeleteRollerDeserializer
 
-### Community 171 - "Community 171"
+### Community 183 - "Community 183"
 Cohesion: 0.29
 Nodes (2): Inventory, ItemInstance
 
-### Community 172 - "Community 172"
+### Community 184 - "Community 184"
 Cohesion: 0.48
 Nodes (1): MqttHandler
 
-### Community 173 - "Community 173"
+### Community 185 - "Community 185"
 Cohesion: 0.33
 Nodes (5): DeathRead, DeathReward, DeathWrite, distribute_death_rewards(), Sys
 
-### Community 174 - "Community 174"
+### Community 186 - "Community 186"
+Cohesion: 0.38
+Nodes (5): advance_with_collision(), HeroMoveRead, HeroMoveWrite, hits_any(), Sys
+
+### Community 187 - "Community 187"
 Cohesion: 0.29
 Nodes (1): GameServiceImpl
 
-### Community 175 - "Community 175"
+### Community 188 - "Community 188"
 Cohesion: 0.29
 Nodes (0): 
 
-### Community 176 - "Community 176"
+### Community 189 - "Community 189"
 Cohesion: 0.29
 Nodes (5): PairedStorageRead, PairedStorageWriteExclusive, PairedStorageWriteShared, RestrictedStorage, SharedGetOnly
 
-### Community 177 - "Community 177"
+### Community 190 - "Community 190"
 Cohesion: 0.33
 Nodes (1): SyncUnsafeCell<T>
 
-### Community 178 - "Community 178"
+### Community 191 - "Community 191"
 Cohesion: 0.38
 Nodes (1): Storage<'e, T, D>
 
-### Community 179 - "Community 179"
+### Community 192 - "Community 192"
 Cohesion: 0.33
 Nodes (2): Rect, SplitRects
 
-### Community 180 - "Community 180"
+### Community 193 - "Community 193"
 Cohesion: 0.33
 Nodes (2): CachedImage, ImageCache
 
-### Community 181 - "Community 181"
+### Community 194 - "Community 194"
 Cohesion: 0.33
 Nodes (1): FrameContext<'a>
 
-### Community 182 - "Community 182"
+### Community 195 - "Community 195"
 Cohesion: 0.4
 Nodes (3): create_raw_config(), init_raw_config(), InitError
 
-### Community 183 - "Community 183"
+### Community 196 - "Community 196"
 Cohesion: 0.33
 Nodes (5): Alignment, Formatter, Parameters, Parser, Piece
 
-### Community 184 - "Community 184"
+### Community 197 - "Community 197"
 Cohesion: 0.33
 Nodes (3): Filter, FilterConfig, Response
 
-### Community 185 - "Community 185"
-Cohesion: 0.47
-Nodes (3): pick_and_load(), strip_json_comments(), strip_json_comments_public()
-
-### Community 186 - "Community 186"
-Cohesion: 0.4
-Nodes (4): Facing, normalize_angle(), rotate_toward(), TurnSpeed
-
-### Community 187 - "Community 187"
-Cohesion: 0.33
-Nodes (1): CreationEventHandler
-
-### Community 188 - "Community 188"
-Cohesion: 0.4
-Nodes (4): calculate_damage(), DamageRead, DamageWrite, Sys
-
-### Community 189 - "Community 189"
-Cohesion: 0.4
-Nodes (4): create_projectile_damage(), ProjectileRead, ProjectileWrite, Sys
-
-### Community 190 - "Community 190"
-Cohesion: 0.4
-Nodes (3): ClientSession, handle_client(), start()
-
-### Community 191 - "Community 191"
-Cohesion: 0.47
-Nodes (4): main(), Pos, SysA, Vel
-
-### Community 192 - "Community 192"
-Cohesion: 0.47
-Nodes (4): main(), Pos, SysA, Vel
-
-### Community 193 - "Community 193"
-Cohesion: 0.47
-Nodes (3): main(), SysA, TrackedComponent
-
-### Community 194 - "Community 194"
-Cohesion: 0.53
-Nodes (4): component(), impl_component(), saveload(), StorageAttribute
-
-### Community 195 - "Community 195"
-Cohesion: 0.53
-Nodes (1): JoinLendIter<J>
-
-### Community 196 - "Community 196"
-Cohesion: 0.4
-Nodes (2): JoinParIter<J>, JoinProducer<'a, J>
-
-### Community 197 - "Community 197"
-Cohesion: 0.4
-Nodes (3): PropertyKind, ScalarTrack, TimelineClip
-
 ### Community 198 - "Community 198"
-Cohesion: 0.4
-Nodes (3): CommandType, DrawCommand, TextAlign
+Cohesion: 0.33
+Nodes (3): FilterCriteria, Message, TopicStat
 
 ### Community 199 - "Community 199"
 Cohesion: 0.4
-Nodes (2): Transform2D, Transform3D
+Nodes (4): Facing, normalize_angle(), rotate_toward(), TurnSpeed
 
 ### Community 200 - "Community 200"
-Cohesion: 0.4
-Nodes (3): ClearState, DrawDataView, RendererBackend
+Cohesion: 0.33
+Nodes (1): CreationEventHandler
 
 ### Community 201 - "Community 201"
 Cohesion: 0.4
-Nodes (3): FrameClock, PlatformBackend, WindowMetrics
+Nodes (4): calculate_damage(), DamageRead, DamageWrite, Sys
 
 ### Community 202 - "Community 202"
 Cohesion: 0.4
-Nodes (1): SimpleWriter<W>
+Nodes (4): create_projectile_damage(), ProjectileRead, ProjectileWrite, Sys
 
 ### Community 203 - "Community 203"
 Cohesion: 0.4
-Nodes (2): GuardlessSpan, ProfSpan
+Nodes (3): ClientSession, handle_client(), start()
 
 ### Community 204 - "Community 204"
-Cohesion: 0.6
-Nodes (1): EcsSetup
+Cohesion: 0.47
+Nodes (4): main(), Pos, SysA, Vel
 
 ### Community 205 - "Community 205"
-Cohesion: 0.4
-Nodes (1): Val<T>
+Cohesion: 0.47
+Nodes (4): main(), Pos, SysA, Vel
 
 ### Community 206 - "Community 206"
-Cohesion: 0.4
-Nodes (3): CreepRead, CreepWrite, Sys
+Cohesion: 0.47
+Nodes (3): main(), SysA, TrackedComponent
 
 ### Community 207 - "Community 207"
-Cohesion: 0.4
-Nodes (3): CreepWaveRead, CreepWaveWrite, Sys
+Cohesion: 0.53
+Nodes (4): component(), impl_component(), saveload(), StorageAttribute
 
 ### Community 208 - "Community 208"
-Cohesion: 0.4
-Nodes (3): HeroMoveRead, HeroMoveWrite, Sys
+Cohesion: 0.53
+Nodes (1): JoinLendIter<J>
 
 ### Community 209 - "Community 209"
 Cohesion: 0.4
-Nodes (3): HeroRead, HeroWrite, Sys
+Nodes (2): JoinParIter<J>, JoinProducer<'a, J>
 
 ### Community 210 - "Community 210"
 Cohesion: 0.4
-Nodes (3): ItemRead, ItemWrite, Sys
+Nodes (3): PropertyKind, ScalarTrack, TimelineClip
 
 ### Community 211 - "Community 211"
 Cohesion: 0.4
-Nodes (3): NearbyRead, NearbyWrite, Sys
+Nodes (3): CommandType, DrawCommand, TextAlign
 
 ### Community 212 - "Community 212"
 Cohesion: 0.4
-Nodes (3): PlayerRead, PlayerWrite, Sys
+Nodes (2): Transform2D, Transform3D
 
 ### Community 213 - "Community 213"
-Cohesion: 0.5
-Nodes (2): Sys, update_skill_cooldowns()
+Cohesion: 0.4
+Nodes (3): ClearState, DrawDataView, RendererBackend
 
 ### Community 214 - "Community 214"
 Cohesion: 0.4
-Nodes (3): Sys, TowerRead, TowerWrite
+Nodes (3): FrameClock, PlatformBackend, WindowMetrics
 
 ### Community 215 - "Community 215"
-Cohesion: 0.5
-Nodes (1): SkillProcessor
+Cohesion: 0.4
+Nodes (1): SimpleWriter<W>
 
 ### Community 216 - "Community 216"
 Cohesion: 0.4
-Nodes (2): GameClient, QueryResponse
+Nodes (4): EnemyJD, EntityConfig, HeroJD, LevelGrowthJD
 
 ### Community 217 - "Community 217"
 Cohesion: 0.4
-Nodes (4): AttackParams, CastAbilityParams, MoveParams, PlayerAction
+Nodes (2): GuardlessSpan, ProfSpan
 
 ### Community 218 - "Community 218"
-Cohesion: 0.5
-Nodes (3): ClipScope, FlexRowScope, RegionScope
+Cohesion: 0.6
+Nodes (1): EcsSetup
 
 ### Community 219 - "Community 219"
-Cohesion: 1.0
-Nodes (3): compile_shader(), create_blur_program(), create_program()
+Cohesion: 0.4
+Nodes (1): Val<T>
 
 ### Community 220 - "Community 220"
-Cohesion: 0.5
-Nodes (1): main()
+Cohesion: 0.4
+Nodes (3): CreepRead, CreepWrite, Sys
 
 ### Community 221 - "Community 221"
-Cohesion: 0.5
-Nodes (1): MovementEventHandler
+Cohesion: 0.4
+Nodes (3): CreepWaveRead, CreepWaveWrite, Sys
 
 ### Community 222 - "Community 222"
-Cohesion: 0.5
-Nodes (2): ServerSetting, Setting
+Cohesion: 0.4
+Nodes (3): HeroRead, HeroWrite, Sys
 
 ### Community 223 - "Community 223"
-Cohesion: 0.83
-Nodes (3): create_mqtt_client(), generate_client_id(), start()
+Cohesion: 0.4
+Nodes (3): ItemRead, ItemWrite, Sys
 
 ### Community 224 - "Community 224"
-Cohesion: 0.67
-Nodes (2): write_framed(), write_framed_msg()
+Cohesion: 0.4
+Nodes (3): NearbyRead, NearbyWrite, Sys
 
 ### Community 225 - "Community 225"
-Cohesion: 0.5
-Nodes (3): JoinLendIter, LendJoin, RepeatableLendGet
+Cohesion: 0.4
+Nodes (3): PlayerRead, PlayerWrite, Sys
 
 ### Community 226 - "Community 226"
 Cohesion: 0.5
-Nodes (1): MaybeJoin<T>
+Nodes (2): Sys, update_skill_cooldowns()
 
 ### Community 227 - "Community 227"
-Cohesion: 0.5
-Nodes (3): JoinParIter, JoinProducer, ParJoin
+Cohesion: 0.4
+Nodes (3): Sys, TowerRead, TowerWrite
 
 ### Community 228 - "Community 228"
 Cohesion: 0.5
-Nodes (3): DeserializeComponents, DeserializeEntity, VisitEntities
+Nodes (1): SkillProcessor
 
 ### Community 229 - "Community 229"
-Cohesion: 0.5
-Nodes (3): GenericReadStorage, GenericWriteStorage, Seal
+Cohesion: 0.4
+Nodes (2): GameClient, QueryResponse
 
 ### Community 230 - "Community 230"
-Cohesion: 0.5
-Nodes (3): Builder, CreateIter, EntityBuilder
+Cohesion: 0.4
+Nodes (4): AttackParams, CastAbilityParams, MoveParams, PlayerAction
 
 ### Community 231 - "Community 231"
 Cohesion: 0.5
-Nodes (1): EntityBuilder<'a>
+Nodes (3): ClipScope, FlexRowScope, RegionScope
 
 ### Community 232 - "Community 232"
-Cohesion: 0.5
-Nodes (4): Ability System Refactor Project, Ability System Status Documentation, ECS Event-Driven Architecture Principle, Rationale: Event-Driven Architecture for State Changes
+Cohesion: 1.0
+Nodes (3): compile_shader(), create_blur_program(), create_program()
 
 ### Community 233 - "Community 233"
 Cohesion: 0.83
-Nodes (4): Hero 1 Frame 1 — Gun barrel / muzzle close-up icon (dark metallic cylinder, front view), Hero 1 Frame 2 — Portrait of male hero wearing wide-brimmed hat (cowboy/gunslinger face, dark palette), Hero 1 Frame 3 — Bullet / cartridge icon (silver tip with brass casing on dark background), Hero 1 Frame 4 — Gauntleted fist with fire/muzzle flash (armored hand firing, orange flame effect)
+Nodes (3): draw(), draw_entities_mode(), draw_map_mode()
 
 ### Community 234 - "Community 234"
-Cohesion: 0.67
-Nodes (1): AppOptions
+Cohesion: 0.5
+Nodes (1): main()
 
 ### Community 235 - "Community 235"
-Cohesion: 1.0
-Nodes (2): run(), run_with_options()
+Cohesion: 0.5
+Nodes (1): MovementEventHandler
 
 ### Community 236 - "Community 236"
-Cohesion: 0.67
-Nodes (1): BackdropBlurState
+Cohesion: 0.5
+Nodes (2): ServerSetting, Setting
 
 ### Community 237 - "Community 237"
-Cohesion: 1.0
-Nodes (2): foo(), main()
+Cohesion: 0.83
+Nodes (3): create_mqtt_client(), generate_client_id(), start()
 
 ### Community 238 - "Community 238"
-Cohesion: 1.0
-Nodes (2): execute_test(), test_no_color()
+Cohesion: 0.67
+Nodes (2): write_framed(), write_framed_msg()
 
 ### Community 239 - "Community 239"
-Cohesion: 0.67
-Nodes (2): CheckPoint, Path
+Cohesion: 0.5
+Nodes (3): JoinLendIter, LendJoin, RepeatableLendGet
 
 ### Community 240 - "Community 240"
-Cohesion: 0.67
-Nodes (2): Projectile, ProjectileData
+Cohesion: 0.5
+Nodes (1): MaybeJoin<T>
 
 ### Community 241 - "Community 241"
-Cohesion: 0.67
-Nodes (1): SystemEventHandler
+Cohesion: 0.5
+Nodes (3): JoinParIter, JoinProducer, ParJoin
 
 ### Community 242 - "Community 242"
-Cohesion: 0.67
-Nodes (0): 
+Cohesion: 0.5
+Nodes (3): DeserializeComponents, DeserializeEntity, VisitEntities
 
 ### Community 243 - "Community 243"
-Cohesion: 0.67
-Nodes (2): SkillRead, SkillWrite
+Cohesion: 0.5
+Nodes (3): GenericReadStorage, GenericWriteStorage, Seal
 
 ### Community 244 - "Community 244"
-Cohesion: 1.0
-Nodes (2): main(), Pos
+Cohesion: 0.5
+Nodes (3): Builder, CreateIter, EntityBuilder
 
 ### Community 245 - "Community 245"
-Cohesion: 0.67
-Nodes (2): Join, JoinIter
+Cohesion: 0.5
+Nodes (1): EntityBuilder<'a>
 
 ### Community 246 - "Community 246"
-Cohesion: 0.67
-Nodes (1): JoinIter<J>
+Cohesion: 0.5
+Nodes (4): Ability System Refactor Project, Ability System Status Documentation, ECS Event-Driven Architecture Principle, Rationale: Event-Driven Architecture for State Changes
 
 ### Community 247 - "Community 247"
-Cohesion: 0.67
-Nodes (1): VisitEntities<'a, 'b, E, M, S>
+Cohesion: 0.83
+Nodes (4): Hero 1 Frame 1 — Gun barrel / muzzle close-up icon (dark metallic cylinder, front view), Hero 1 Frame 2 — Portrait of male hero wearing wide-brimmed hat (cowboy/gunslinger face, dark palette), Hero 1 Frame 3 — Bullet / cartridge icon (silver tip with brass casing on dark background), Hero 1 Frame 4 — Gauntleted fist with fire/muzzle flash (armored hand firing, orange flame effect)
 
 ### Community 248 - "Community 248"
 Cohesion: 0.67
-Nodes (2): ConvertSaveload, EntityData
+Nodes (1): AppOptions
 
 ### Community 249 - "Community 249"
-Cohesion: 0.67
-Nodes (1): C
+Cohesion: 1.0
+Nodes (2): run(), run_with_options()
 
 ### Community 250 - "Community 250"
 Cohesion: 0.67
-Nodes (2): DerefFlaggedStorage, FlaggedAccessMut
+Nodes (1): BackdropBlurState
 
 ### Community 251 - "Community 251"
-Cohesion: 0.67
-Nodes (1): FlaggedAccessMut<'a, A, C>
+Cohesion: 1.0
+Nodes (2): foo(), main()
 
 ### Community 252 - "Community 252"
 Cohesion: 1.0
-Nodes (2): basic_drain(), Drain
+Nodes (2): execute_test(), test_no_color()
 
 ### Community 253 - "Community 253"
 Cohesion: 0.67
-Nodes (1): Drain<'a, T>
+Nodes (2): PayloadDetailState, PayloadDetailView
 
 ### Community 254 - "Community 254"
 Cohesion: 0.67
-Nodes (1): AntiStorage<'a>
+Nodes (2): BlockedRegion, BlockedRegions
 
 ### Community 255 - "Community 255"
 Cohesion: 0.67
-Nodes (1): Storage<'_, T, D>
+Nodes (2): CheckPoint, Path
 
 ### Community 256 - "Community 256"
 Cohesion: 0.67
-Nodes (1): &'rf RestrictedStorage<'rf, C, S>
+Nodes (2): Projectile, ProjectileData
 
 ### Community 257 - "Community 257"
 Cohesion: 0.67
-Nodes (2): ComponentEvent, Tracked
+Nodes (1): SystemEventHandler
 
 ### Community 258 - "Community 258"
-Cohesion: 1.0
-Nodes (2): CompNonSend, non_send_component_is_accepted()
+Cohesion: 0.67
+Nodes (0): 
 
 ### Community 259 - "Community 259"
-Cohesion: 1.0
-Nodes (0): 
+Cohesion: 0.67
+Nodes (2): SkillRead, SkillWrite
 
 ### Community 260 - "Community 260"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): main(), Pos
 
 ### Community 261 - "Community 261"
-Cohesion: 1.0
-Nodes (0): 
+Cohesion: 0.67
+Nodes (2): Join, JoinIter
 
 ### Community 262 - "Community 262"
-Cohesion: 1.0
-Nodes (1): crate::color::Color
+Cohesion: 0.67
+Nodes (1): JoinIter<J>
 
 ### Community 263 - "Community 263"
-Cohesion: 1.0
-Nodes (1): FrameContext
+Cohesion: 0.67
+Nodes (1): VisitEntities<'a, 'b, E, M, S>
 
 ### Community 264 - "Community 264"
-Cohesion: 1.0
-Nodes (0): 
+Cohesion: 0.67
+Nodes (2): ConvertSaveload, EntityData
 
 ### Community 265 - "Community 265"
-Cohesion: 1.0
-Nodes (0): 
+Cohesion: 0.67
+Nodes (1): C
 
 ### Community 266 - "Community 266"
-Cohesion: 1.0
-Nodes (0): 
+Cohesion: 0.67
+Nodes (2): DerefFlaggedStorage, FlaggedAccessMut
 
 ### Community 267 - "Community 267"
-Cohesion: 1.0
-Nodes (0): 
+Cohesion: 0.67
+Nodes (1): FlaggedAccessMut<'a, A, C>
 
 ### Community 268 - "Community 268"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): basic_drain(), Drain
 
 ### Community 269 - "Community 269"
-Cohesion: 1.0
-Nodes (0): 
+Cohesion: 0.67
+Nodes (1): Drain<'a, T>
 
 ### Community 270 - "Community 270"
-Cohesion: 1.0
-Nodes (1): dyn Append
+Cohesion: 0.67
+Nodes (1): AntiStorage<'a>
 
 ### Community 271 - "Community 271"
-Cohesion: 1.0
-Nodes (1): dyn Policy
+Cohesion: 0.67
+Nodes (1): Storage<'_, T, D>
 
 ### Community 272 - "Community 272"
-Cohesion: 1.0
-Nodes (1): Roll
+Cohesion: 0.67
+Nodes (1): &'rf RestrictedStorage<'rf, C, S>
 
 ### Community 273 - "Community 273"
-Cohesion: 1.0
-Nodes (1): dyn Roll
+Cohesion: 0.67
+Nodes (2): ComponentEvent, Tracked
 
 ### Community 274 - "Community 274"
 Cohesion: 1.0
-Nodes (1): dyn Trigger
+Nodes (2): CompNonSend, non_send_component_is_accepted()
 
 ### Community 275 - "Community 275"
 Cohesion: 1.0
-Nodes (1): SerializerVisitor<T>
+Nodes (0): 
 
 ### Community 276 - "Community 276"
 Cohesion: 1.0
-Nodes (1): dyn Encode
+Nodes (0): 
 
 ### Community 277 - "Community 277"
 Cohesion: 1.0
-Nodes (1): &'a mut W
+Nodes (0): 
 
 ### Community 278 - "Community 278"
 Cohesion: 1.0
-Nodes (1): SimpleWriter
+Nodes (1): crate::color::Color
 
 ### Community 279 - "Community 279"
 Cohesion: 1.0
-Nodes (1): dyn Filter
+Nodes (1): FrameContext
 
 ### Community 280 - "Community 280"
 Cohesion: 1.0
@@ -1574,47 +1599,47 @@ Nodes (0):
 
 ### Community 286 - "Community 286"
 Cohesion: 1.0
-Nodes (1): NaiveDateTime
+Nodes (1): dyn Append
 
 ### Community 287 - "Community 287"
 Cohesion: 1.0
-Nodes (1): Bounty
+Nodes (1): dyn Policy
 
 ### Community 288 - "Community 288"
 Cohesion: 1.0
-Nodes (1): Gold
+Nodes (1): Roll
 
 ### Community 289 - "Community 289"
 Cohesion: 1.0
-Nodes (1): IsBase
+Nodes (1): dyn Roll
 
 ### Community 290 - "Community 290"
 Cohesion: 1.0
-Nodes (1): ItemEffects
+Nodes (1): dyn Trigger
 
 ### Community 291 - "Community 291"
 Cohesion: 1.0
-Nodes (1): Last
+Nodes (1): SerializerVisitor<T>
 
 ### Community 292 - "Community 292"
 Cohesion: 1.0
-Nodes (1): Player
+Nodes (1): dyn Encode
 
 ### Community 293 - "Community 293"
 Cohesion: 1.0
-Nodes (1): f32
+Nodes (1): &'a mut W
 
 ### Community 294 - "Community 294"
 Cohesion: 1.0
-Nodes (1): Vec<T>
+Nodes (1): SimpleWriter
 
 ### Community 295 - "Community 295"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): dyn Filter
 
 ### Community 296 - "Community 296"
 Cohesion: 1.0
-Nodes (1): f32
+Nodes (0): 
 
 ### Community 297 - "Community 297"
 Cohesion: 1.0
@@ -1622,7 +1647,7 @@ Nodes (0):
 
 ### Community 298 - "Community 298"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): WrappedLine
 
 ### Community 299 - "Community 299"
 Cohesion: 1.0
@@ -1634,159 +1659,159 @@ Nodes (0):
 
 ### Community 301 - "Community 301"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): NaiveDateTime
 
 ### Community 302 - "Community 302"
 Cohesion: 1.0
-Nodes (1): BitAnd
+Nodes (1): Bounty
 
 ### Community 303 - "Community 303"
 Cohesion: 1.0
-Nodes (1): (A,)
+Nodes (1): Gold
 
 ### Community 304 - "Community 304"
 Cohesion: 1.0
-Nodes (1): MaybeJoin
+Nodes (1): IsBase
 
 ### Community 305 - "Community 305"
 Cohesion: 1.0
-Nodes (1): DeserializeEntity<'a, 'b, E, M, S>
+Nodes (1): ItemEffects
 
 ### Community 306 - "Community 306"
 Cohesion: 1.0
-Nodes (1): EntityBuilder<'a>
+Nodes (1): Last
 
 ### Community 307 - "Community 307"
 Cohesion: 1.0
-Nodes (1): LazyBuilder<'a>
+Nodes (1): Player
 
 ### Community 308 - "Community 308"
 Cohesion: 1.0
-Nodes (1): EntityResBuilder<'a>
+Nodes (1): f32
 
 ### Community 309 - "Community 309"
 Cohesion: 1.0
-Nodes (1): SerializeComponents
+Nodes (1): Vec<T>
 
 ### Community 310 - "Community 310"
 Cohesion: 1.0
-Nodes (1): FlaggedStorage
+Nodes (0): 
 
 ### Community 311 - "Community 311"
 Cohesion: 1.0
-Nodes (1): dyn AnyStorage
+Nodes (1): f32
 
 ### Community 312 - "Community 312"
 Cohesion: 1.0
-Nodes (1): SyncUnsafeCell
+Nodes (0): 
 
 ### Community 313 - "Community 313"
 Cohesion: 1.0
-Nodes (1): Component
+Nodes (0): 
 
 ### Community 314 - "Community 314"
 Cohesion: 1.0
-Nodes (1): Queue<T>
+Nodes (0): 
 
 ### Community 315 - "Community 315"
 Cohesion: 1.0
-Nodes (1): LazyBuilder<'a>
+Nodes (0): 
 
 ### Community 316 - "Community 316"
 Cohesion: 1.0
-Nodes (1): CreateIter<'a>
+Nodes (0): 
 
 ### Community 317 - "Community 317"
 Cohesion: 1.0
-Nodes (1): WorldExt
+Nodes (1): BitAnd
 
 ### Community 318 - "Community 318"
 Cohesion: 1.0
-Nodes (2): omfx executor-android Build Instructions, omfx executor-wasm Build Instructions
+Nodes (1): (A,)
 
 ### Community 319 - "Community 319"
 Cohesion: 1.0
-Nodes (2): Bors-only merge commits policy, Rebase over merge for clean history
+Nodes (1): MaybeJoin
 
 ### Community 320 - "Community 320"
 Cohesion: 1.0
-Nodes (1): LazyUpdate resource
+Nodes (1): DeserializeEntity<'a, 'b, E, M, S>
 
 ### Community 321 - "Community 321"
 Cohesion: 1.0
-Nodes (2): #[derive(SystemData)] struct bundle, shred-derive feature flag
+Nodes (1): EntityBuilder<'a>
 
 ### Community 322 - "Community 322"
 Cohesion: 1.0
-Nodes (2): Entity relationships via Target component, specs-hierarchy crate
+Nodes (1): LazyBuilder<'a>
 
 ### Community 323 - "Community 323"
 Cohesion: 1.0
-Nodes (2): Mutable Join flags every component modified, RestrictedStorage (selective mutation)
+Nodes (1): EntityResBuilder<'a>
 
 ### Community 324 - "Community 324"
 Cohesion: 1.0
-Nodes (2): Hyde Zola theme, Zola static site generator
+Nodes (1): SerializeComponents
 
 ### Community 325 - "Community 325"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): FlaggedStorage
 
 ### Community 326 - "Community 326"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): dyn AnyStorage
 
 ### Community 327 - "Community 327"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): SyncUnsafeCell
 
 ### Community 328 - "Community 328"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): Component
 
 ### Community 329 - "Community 329"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): Queue<T>
 
 ### Community 330 - "Community 330"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): LazyBuilder<'a>
 
 ### Community 331 - "Community 331"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): CreateIter<'a>
 
 ### Community 332 - "Community 332"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): WorldExt
 
 ### Community 333 - "Community 333"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): omfx executor-android Build Instructions, omfx executor-wasm Build Instructions
 
 ### Community 334 - "Community 334"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): Bors-only merge commits policy, Rebase over merge for clean history
 
 ### Community 335 - "Community 335"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): LazyUpdate resource
 
 ### Community 336 - "Community 336"
 Cohesion: 1.0
-Nodes (1): KeyAdaptor<T>
+Nodes (2): #[derive(SystemData)] struct bundle, shred-derive feature flag
 
 ### Community 337 - "Community 337"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): Entity relationships via Target component, specs-hierarchy crate
 
 ### Community 338 - "Community 338"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): Mutable Join flags every component modified, RestrictedStorage (selective mutation)
 
 ### Community 339 - "Community 339"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (2): Hyde Zola theme, Zola static site generator
 
 ### Community 340 - "Community 340"
 Cohesion: 1.0
@@ -1806,7 +1831,7 @@ Nodes (0):
 
 ### Community 344 - "Community 344"
 Cohesion: 1.0
-Nodes (1): Last<C>
+Nodes (0): 
 
 ### Community 345 - "Community 345"
 Cohesion: 1.0
@@ -1834,7 +1859,7 @@ Nodes (0):
 
 ### Community 351 - "Community 351"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): KeyAdaptor<T>
 
 ### Community 352 - "Community 352"
 Cohesion: 1.0
@@ -1894,7 +1919,7 @@ Nodes (0):
 
 ### Community 366 - "Community 366"
 Cohesion: 1.0
-Nodes (0): 
+Nodes (1): Last<C>
 
 ### Community 367 - "Community 367"
 Cohesion: 1.0
@@ -1902,210 +1927,274 @@ Nodes (0):
 
 ### Community 368 - "Community 368"
 Cohesion: 1.0
-Nodes (1): PairedStorageWriteShared<'_, C>
+Nodes (0): 
 
 ### Community 369 - "Community 369"
 Cohesion: 1.0
-Nodes (1): Comp<T>
+Nodes (0): 
 
 ### Community 370 - "Community 370"
 Cohesion: 1.0
-Nodes (1): Entity
+Nodes (0): 
 
 ### Community 371 - "Community 371"
 Cohesion: 1.0
-Nodes (1): Voracious Radix Sort Multithread Optimization
+Nodes (0): 
 
 ### Community 372 - "Community 372"
 Cohesion: 1.0
-Nodes (1): Contributor Covenant Code of Conduct
+Nodes (0): 
 
 ### Community 373 - "Community 373"
 Cohesion: 1.0
-Nodes (1): Bulk setup for libraries
+Nodes (0): 
 
 ### Community 374 - "Community 374"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 375 - "Community 375"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 376 - "Community 376"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 377 - "Community 377"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 378 - "Community 378"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 379 - "Community 379"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 380 - "Community 380"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 381 - "Community 381"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 382 - "Community 382"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 383 - "Community 383"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 384 - "Community 384"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 385 - "Community 385"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 386 - "Community 386"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 387 - "Community 387"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 388 - "Community 388"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 389 - "Community 389"
+Cohesion: 1.0
+Nodes (0): 
+
+### Community 390 - "Community 390"
+Cohesion: 1.0
+Nodes (1): PairedStorageWriteShared<'_, C>
+
+### Community 391 - "Community 391"
+Cohesion: 1.0
+Nodes (1): Comp<T>
+
+### Community 392 - "Community 392"
+Cohesion: 1.0
+Nodes (1): Entity
+
+### Community 393 - "Community 393"
+Cohesion: 1.0
+Nodes (1): Voracious Radix Sort Multithread Optimization
+
+### Community 394 - "Community 394"
+Cohesion: 1.0
+Nodes (1): Contributor Covenant Code of Conduct
+
+### Community 395 - "Community 395"
+Cohesion: 1.0
+Nodes (1): DenseVecStorage default when storage attr omitted
+
+### Community 396 - "Community 396"
+Cohesion: 1.0
+Nodes (1): Component slice access (as_slice/as_mut_slice)
+
+### Community 397 - "Community 397"
+Cohesion: 1.0
+Nodes (1): Bulk setup for libraries
+
+### Community 398 - "Community 398"
 Cohesion: 1.0
 Nodes (1): Amethyst uses Specs natively
 
 ## Knowledge Gaps
-- **667 isolated node(s):** `GalleryPalette`, `NavItem`, `OpenMenu`, `Palette`, `MetricCard` (+662 more)
+- **697 isolated node(s):** `GalleryPalette`, `NavItem`, `OpenMenu`, `Palette`, `MetricCard` (+692 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 259`** (2 nodes): `main()`, `anchor_demo.rs`
+- **Thin community `Community 275`** (2 nodes): `main()`, `anchor_demo.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 260`** (2 nodes): `main()`, `dashboard_demo.rs`
+- **Thin community `Community 276`** (2 nodes): `main()`, `dashboard_demo.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 261`** (2 nodes): `minimal_quick_demo.rs`, `main()`
+- **Thin community `Community 277`** (2 nodes): `minimal_quick_demo.rs`, `main()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 262`** (2 nodes): `crate::color::Color`, `.from()`
+- **Thin community `Community 278`** (2 nodes): `crate::color::Color`, `.from()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 263`** (2 nodes): `frame_context.rs`, `FrameContext`
+- **Thin community `Community 279`** (2 nodes): `frame_context.rs`, `FrameContext`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 264`** (2 nodes): `main()`, `compile_time_config.rs`
+- **Thin community `Community 280`** (2 nodes): `main()`, `compile_time_config.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 265`** (2 nodes): `main()`, `json_logger.rs`
+- **Thin community `Community 281`** (2 nodes): `main()`, `json_logger.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 266`** (2 nodes): `log_to_file.rs`, `main()`
+- **Thin community `Community 282`** (2 nodes): `log_to_file.rs`, `main()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 267`** (2 nodes): `log_to_file_with_rolling_and_size_trigger.rs`, `main()`
+- **Thin community `Community 283`** (2 nodes): `log_to_file_with_rolling_and_size_trigger.rs`, `main()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 268`** (2 nodes): `log_to_file_with_rolling_and_time_trigger.rs`, `main()`
+- **Thin community `Community 284`** (2 nodes): `log_to_file_with_rolling_and_time_trigger.rs`, `main()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 269`** (2 nodes): `mqtt_debug_test.rs`, `main()`
+- **Thin community `Community 285`** (2 nodes): `mqtt_debug_test.rs`, `main()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 270`** (2 nodes): `dyn Append`, `.name()`
+- **Thin community `Community 286`** (2 nodes): `dyn Append`, `.name()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 271`** (2 nodes): `dyn Policy`, `.name()`
+- **Thin community `Community 287`** (2 nodes): `dyn Policy`, `.name()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 272`** (2 nodes): `mod.rs`, `Roll`
+- **Thin community `Community 288`** (2 nodes): `mod.rs`, `Roll`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 273`** (2 nodes): `dyn Roll`, `.name()`
+- **Thin community `Community 289`** (2 nodes): `dyn Roll`, `.name()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 274`** (2 nodes): `dyn Trigger`, `.name()`
+- **Thin community `Community 290`** (2 nodes): `dyn Trigger`, `.name()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 275`** (2 nodes): `SerializerVisitor<T>`, `.visit_pair()`
+- **Thin community `Community 291`** (2 nodes): `SerializerVisitor<T>`, `.visit_pair()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 276`** (2 nodes): `dyn Encode`, `.name()`
+- **Thin community `Community 292`** (2 nodes): `dyn Encode`, `.name()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 277`** (2 nodes): `&'a mut W`, `.set_style()`
+- **Thin community `Community 293`** (2 nodes): `&'a mut W`, `.set_style()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 278`** (2 nodes): `simple.rs`, `SimpleWriter`
+- **Thin community `Community 294`** (2 nodes): `simple.rs`, `SimpleWriter`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 279`** (2 nodes): `dyn Filter`, `.name()`
+- **Thin community `Community 295`** (2 nodes): `dyn Filter`, `.name()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 280`** (2 nodes): `draw()`, `inspector.rs`
+- **Thin community `Community 296`** (2 nodes): `toolbar.rs`, `draw()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 281`** (2 nodes): `templates.rs`, `draw()`
+- **Thin community `Community 297`** (2 nodes): `waves.rs`, `draw()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 282`** (2 nodes): `toolbar.rs`, `draw()`
+- **Thin community `Community 298`** (2 nodes): `WrappedLine`, `app_render.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 283`** (2 nodes): `waves.rs`, `draw()`
+- **Thin community `Community 299`** (2 nodes): `test.rs`, `main()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 284`** (2 nodes): `test.rs`, `main()`
+- **Thin community `Community 300`** (2 nodes): `test_vision_debug.rs`, `main()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 285`** (2 nodes): `test_vision_debug.rs`, `main()`
+- **Thin community `Community 301`** (2 nodes): `NaiveDateTime`, `.now()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 286`** (2 nodes): `NaiveDateTime`, `.now()`
+- **Thin community `Community 302`** (2 nodes): `Bounty`, `bounty.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 287`** (2 nodes): `Bounty`, `bounty.rs`
+- **Thin community `Community 303`** (2 nodes): `Gold`, `gold.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 288`** (2 nodes): `Gold`, `gold.rs`
+- **Thin community `Community 304`** (2 nodes): `IsBase`, `is_base.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 289`** (2 nodes): `IsBase`, `is_base.rs`
+- **Thin community `Community 305`** (2 nodes): `ItemEffects`, `item_effects.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 290`** (2 nodes): `ItemEffects`, `item_effects.rs`
+- **Thin community `Community 306`** (2 nodes): `Last`, `last.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 291`** (2 nodes): `Last`, `last.rs`
+- **Thin community `Community 307`** (2 nodes): `player.rs`, `Player`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 292`** (2 nodes): `player.rs`, `Player`
+- **Thin community `Community 308`** (2 nodes): `f32`, `.from()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 293`** (2 nodes): `f32`, `.from()`
+- **Thin community `Community 309`** (2 nodes): `Vec<T>`, `.drain_filter()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 294`** (2 nodes): `Vec<T>`, `.drain_filter()`
+- **Thin community `Community 310`** (2 nodes): `debug_vision_calculation()`, `debug_test.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 295`** (2 nodes): `debug_vision_calculation()`, `debug_test.rs`
+- **Thin community `Community 311`** (2 nodes): `f32`, `.from()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 296`** (2 nodes): `f32`, `.from()`
+- **Thin community `Community 312`** (2 nodes): `toon_format.rs`, `json_to_toon()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 297`** (2 nodes): `toon_format.rs`, `json_to_toon()`
+- **Thin community `Community 313`** (2 nodes): `android_main()`, `lib.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 298`** (2 nodes): `android_main()`, `lib.rs`
+- **Thin community `Community 314`** (2 nodes): `main()`, `lib.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 299`** (2 nodes): `main()`, `lib.rs`
+- **Thin community `Community 315`** (2 nodes): `fyrox_plugin()`, `lib.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 300`** (2 nodes): `fyrox_plugin()`, `lib.rs`
+- **Thin community `Community 316`** (2 nodes): `main()`, `bitset.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 301`** (2 nodes): `main()`, `bitset.rs`
+- **Thin community `Community 317`** (2 nodes): `BitAnd`, `bit_and.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 302`** (2 nodes): `BitAnd`, `bit_and.rs`
+- **Thin community `Community 318`** (2 nodes): `(A,)`, `.and()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 303`** (2 nodes): `(A,)`, `.and()`
+- **Thin community `Community 319`** (2 nodes): `MaybeJoin`, `maybe.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 304`** (2 nodes): `MaybeJoin`, `maybe.rs`
+- **Thin community `Community 320`** (2 nodes): `DeserializeEntity<'a, 'b, E, M, S>`, `.deserialize()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 305`** (2 nodes): `DeserializeEntity<'a, 'b, E, M, S>`, `.deserialize()`
+- **Thin community `Community 321`** (2 nodes): `EntityBuilder<'a>`, `.marked()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 306`** (2 nodes): `EntityBuilder<'a>`, `.marked()`
+- **Thin community `Community 322`** (2 nodes): `LazyBuilder<'a>`, `.marked()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 307`** (2 nodes): `LazyBuilder<'a>`, `.marked()`
+- **Thin community `Community 323`** (2 nodes): `EntityResBuilder<'a>`, `.marked()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 308`** (2 nodes): `EntityResBuilder<'a>`, `.marked()`
+- **Thin community `Community 324`** (2 nodes): `SerializeComponents`, `ser.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 309`** (2 nodes): `SerializeComponents`, `ser.rs`
+- **Thin community `Community 325`** (2 nodes): `FlaggedStorage`, `flagged.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 310`** (2 nodes): `FlaggedStorage`, `flagged.rs`
+- **Thin community `Community 326`** (2 nodes): `dyn AnyStorage`, `.cast()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 311`** (2 nodes): `dyn AnyStorage`, `.cast()`
+- **Thin community `Community 327`** (2 nodes): `sync_unsafe_cell.rs`, `SyncUnsafeCell`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 312`** (2 nodes): `sync_unsafe_cell.rs`, `SyncUnsafeCell`
+- **Thin community `Community 328`** (2 nodes): `Component`, `comp.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 313`** (2 nodes): `Component`, `comp.rs`
+- **Thin community `Community 329`** (2 nodes): `Queue<T>`, `.default()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 314`** (2 nodes): `Queue<T>`, `.default()`
+- **Thin community `Community 330`** (2 nodes): `LazyBuilder<'a>`, `.build()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 315`** (2 nodes): `LazyBuilder<'a>`, `.build()`
+- **Thin community `Community 331`** (2 nodes): `CreateIter<'a>`, `.next()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 316`** (2 nodes): `CreateIter<'a>`, `.next()`
+- **Thin community `Community 332`** (2 nodes): `world_ext.rs`, `WorldExt`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 317`** (2 nodes): `world_ext.rs`, `WorldExt`
+- **Thin community `Community 333`** (2 nodes): `omfx executor-android Build Instructions`, `omfx executor-wasm Build Instructions`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 318`** (2 nodes): `omfx executor-android Build Instructions`, `omfx executor-wasm Build Instructions`
+- **Thin community `Community 334`** (2 nodes): `Bors-only merge commits policy`, `Rebase over merge for clean history`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 319`** (2 nodes): `Bors-only merge commits policy`, `Rebase over merge for clean history`
+- **Thin community `Community 335`** (2 nodes): `world.maintain()`, `LazyUpdate resource`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 320`** (2 nodes): `world.maintain()`, `LazyUpdate resource`
+- **Thin community `Community 336`** (2 nodes): `#[derive(SystemData)] struct bundle`, `shred-derive feature flag`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 321`** (2 nodes): `#[derive(SystemData)] struct bundle`, `shred-derive feature flag`
+- **Thin community `Community 337`** (2 nodes): `Entity relationships via Target component`, `specs-hierarchy crate`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 322`** (2 nodes): `Entity relationships via Target component`, `specs-hierarchy crate`
+- **Thin community `Community 338`** (2 nodes): `Mutable Join flags every component modified`, `RestrictedStorage (selective mutation)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 323`** (2 nodes): `Mutable Join flags every component modified`, `RestrictedStorage (selective mutation)`
+- **Thin community `Community 339`** (2 nodes): `Hyde Zola theme`, `Zola static site generator`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 324`** (2 nodes): `Hyde Zola theme`, `Zola static site generator`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 325`** (1 nodes): `lib.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 326`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 327`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 328`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 329`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 330`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 331`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 332`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 333`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 334`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 335`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 336`** (1 nodes): `KeyAdaptor<T>`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 337`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 338`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 339`** (1 nodes): `mod.rs`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 340`** (1 nodes): `mod.rs`
+- **Thin community `Community 340`** (1 nodes): `lib.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 341`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 342`** (1 nodes): `lib.rs`
+- **Thin community `Community 342`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 343`** (1 nodes): `attack.rs`
+- **Thin community `Community 343`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 344`** (1 nodes): `Last<C>`
+- **Thin community `Community 344`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 345`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 346`** (1 nodes): `state.rs`
+- **Thin community `Community 346`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 347`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -2115,11 +2204,11 @@ Nodes (1): Amethyst uses Specs natively
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 350`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 351`** (1 nodes): `mod.rs`
+- **Thin community `Community 351`** (1 nodes): `KeyAdaptor<T>`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 352`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 353`** (1 nodes): `mod.rs`
+- **Thin community `Community 353`** (1 nodes): `style.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 354`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -2127,7 +2216,7 @@ Nodes (1): Amethyst uses Specs natively
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 356`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 357`** (1 nodes): `lib.rs`
+- **Thin community `Community 357`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 358`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -2139,45 +2228,93 @@ Nodes (1): Amethyst uses Specs natively
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 362`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 363`** (1 nodes): `benches_main.rs`
+- **Thin community `Community 363`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 364`** (1 nodes): `storage_sparse.rs`
+- **Thin community `Community 364`** (1 nodes): `lib.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 365`** (1 nodes): `bitset.rs`
+- **Thin community `Community 365`** (1 nodes): `attack.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 366`** (1 nodes): `lib.rs`
+- **Thin community `Community 366`** (1 nodes): `Last<C>`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 367`** (1 nodes): `prelude.rs`
+- **Thin community `Community 367`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 368`** (1 nodes): `PairedStorageWriteShared<'_, C>`
+- **Thin community `Community 368`** (1 nodes): `state.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 369`** (1 nodes): `Comp<T>`
+- **Thin community `Community 369`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 370`** (1 nodes): `Entity`
+- **Thin community `Community 370`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 371`** (1 nodes): `Voracious Radix Sort Multithread Optimization`
+- **Thin community `Community 371`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 372`** (1 nodes): `Contributor Covenant Code of Conduct`
+- **Thin community `Community 372`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 373`** (1 nodes): `Bulk setup for libraries`
+- **Thin community `Community 373`** (1 nodes): `mod.rs`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 374`** (1 nodes): `Amethyst uses Specs natively`
+- **Thin community `Community 374`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 375`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 376`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 377`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 378`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 379`** (1 nodes): `lib.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 380`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 381`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 382`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 383`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 384`** (1 nodes): `mod.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 385`** (1 nodes): `benches_main.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 386`** (1 nodes): `storage_sparse.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 387`** (1 nodes): `bitset.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 388`** (1 nodes): `lib.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 389`** (1 nodes): `prelude.rs`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 390`** (1 nodes): `PairedStorageWriteShared<'_, C>`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 391`** (1 nodes): `Comp<T>`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 392`** (1 nodes): `Entity`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 393`** (1 nodes): `Voracious Radix Sort Multithread Optimization`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 394`** (1 nodes): `Contributor Covenant Code of Conduct`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 395`** (1 nodes): `DenseVecStorage default when storage attr omitted`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 396`** (1 nodes): `Component slice access (as_slice/as_mut_slice)`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 397`** (1 nodes): `Bulk setup for libraries`
+  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
+- **Thin community `Community 398`** (1 nodes): `Amethyst uses Specs natively`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `MqttTestClient` connect `Specs Entities & Allocator` to `log4rs Console Appender`?**
+- **Why does `MqttTestClient` connect `Community 2` to `Community 11`?**
+  _High betweenness centrality (0.002) - this node is a cross-community bridge._
+- **Why does `append()` connect `Community 19` to `Community 2`?**
   _High betweenness centrality (0.001) - this node is a cross-community bridge._
 - **What connects `GalleryPalette`, `NavItem`, `OpenMenu` to the rest of the system?**
-  _667 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `EUI Anchor Layout` be split into smaller, more focused modules?**
+  _697 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `Community 0` be split into smaller, more focused modules?**
   _Cohesion score 0.02 - nodes in this community are weakly interconnected._
-- **Should `EUI Context & Animation` be split into smaller, more focused modules?**
+- **Should `Community 1` be split into smaller, more focused modules?**
   _Cohesion score 0.04 - nodes in this community are weakly interconnected._
-- **Should `EUI Gallery Demo` be split into smaller, more focused modules?**
-  _Cohesion score 0.1 - nodes in this community are weakly interconnected._
-- **Should `Specs Entities & Allocator` be split into smaller, more focused modules?**
-  _Cohesion score 0.04 - nodes in this community are weakly interconnected._
-- **Should `Specs Advanced Patterns` be split into smaller, more focused modules?**
+- **Should `Community 2` be split into smaller, more focused modules?**
   _Cohesion score 0.03 - nodes in this community are weakly interconnected._
+- **Should `Community 3` be split into smaller, more focused modules?**
+  _Cohesion score 0.1 - nodes in this community are weakly interconnected._
