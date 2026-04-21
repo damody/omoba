@@ -10,5 +10,6 @@ settings.ron
 .claude/settings.local.json
 # graphify 工具暫存檔（GRAPH_REPORT.md / graph.* / manifest.json 保留）
 .graphify_*
+graphify-out/.graphify_*
 graphify-out/cache/
 graphify-out/cost.json
