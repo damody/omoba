@@ -2,6 +2,7 @@
 //!
 //! Provides MQTT communication, game state management, and player input handling.
 
+pub mod ability_meta;
 pub mod config;
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
@@ -12,6 +13,7 @@ pub mod grpc;
 #[cfg(feature = "kcp")]
 pub mod kcp;
 
+pub use ability_meta::{AbilityDef, AbilityLevelData, AbilityType, TargetType, CastType};
 pub use config::{AppConfig, ServerConfig, BackendConfig, FrontendConfig};
 pub use state::{GameState, Entity, EntityType, Viewport};
 #[cfg(feature = "mqtt")]
