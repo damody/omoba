@@ -27,6 +27,19 @@ impl UnitScript for IceTower {
         w.set_asd_interval(e, ASD_INTERVAL);
     }
 
+    fn tower_metadata(&self) -> ROption<TowerMetadata> {
+        RSome(TowerMetadata {
+            atk: ATK,
+            asd_interval: ASD_INTERVAL,
+            range: RANGE,
+            bullet_speed: BULLET_SPEED,
+            splash_radius: SPLASH_RADIUS,
+            hit_radius: 0.0,
+            slow_factor: SLOW_FACTOR,
+            slow_duration: SLOW_DURATION,
+        })
+    }
+
     fn on_tick(&self, e: EntityHandle, dt: f32, w: &mut GameWorldDyn<'_>) {
         let asd_interval = w.get_asd_interval(e);
         if asd_interval <= 0.0 {
