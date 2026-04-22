@@ -1,0 +1,6 @@
+# Must match omb host's rustc — abi_stable requires both sides compile with
+# the same rustc version. Update in lockstep with ../omb's toolchain.
+[toolchain]
+channel = "1.91.0"
+components = ["rustc", "cargo", "rust-std"]
+profile = "minimal"
