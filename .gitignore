@@ -6,6 +6,10 @@ omoba-core/target/
 eui/target/
 map_editor/target/
 scripts/target/
+# scripts 編譯產物（由 scripts workspace build，release 放這）
+scripts/*.dll
+scripts/*.so
+scripts/*.dylib
 # 本機 editor / 使用者狀態
 settings.ron
 .claude/settings.local.json

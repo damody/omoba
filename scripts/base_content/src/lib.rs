@@ -1,6 +1,6 @@
 //! omb base_content — native scripts for base-game units.
 //!
-//! Exports one `Manifest` containing every unit this DLL provides.
+//! Exports one `Manifest` containing every unit + ability this DLL provides.
 //! omb host loads this via `abi_stable::library::RootModule::load_from_file`.
 
 use abi_stable::{
@@ -11,6 +11,7 @@ use abi_stable::{
     std_types::{RBox, RVec},
 };
 use omb_script_abi::{
+    ability::AbilityDefFFI,
     manifest::{Manifest, Manifest_Ref, UnitDef},
     script::UnitScript_TO,
 };
@@ -19,7 +20,7 @@ mod towers;
 
 #[export_root_module]
 fn get_manifest() -> Manifest_Ref {
-    Manifest { units }.leak_into_prefix()
+    Manifest { units, abilities }.leak_into_prefix()
 }
 
 #[sabi_extern_fn]
@@ -30,6 +31,24 @@ fn units() -> RVec<UnitDef> {
         unit_id: "tower_dart".into(),
         script: UnitScript_TO::from_value(towers::dart::DartTower, TD_Opaque),
     });
+    v.push(UnitDef {
+        unit_id: "tower_bomb".into(),
+        script: UnitScript_TO::from_value(towers::bomb::BombTower, TD_Opaque),
+    });
+    v.push(UnitDef {
+        unit_id: "tower_tack".into(),
+        script: UnitScript_TO::from_value(towers::tack::TackTower, TD_Opaque),
+    });
+    v.push(UnitDef {
+        unit_id: "tower_ice".into(),
+        script: UnitScript_TO::from_value(towers::ice::IceTower, TD_Opaque),
+    });
 
     v
+}
+
+#[sabi_extern_fn]
+fn abilities() -> RVec<AbilityDefFFI> {
+    // Phase 2 將在此列出 heroes/{saika, date} 與 towers 的 ability handler。
+    RVec::new()
 }
