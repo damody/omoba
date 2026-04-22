@@ -5,6 +5,7 @@ omfx_tmp/
 omoba-core/target/
 eui/target/
 map_editor/target/
+scripts/target/
 # 本機 editor / 使用者狀態
 settings.ron
 .claude/settings.local.json

@@ -1,0 +1,17 @@
+[package]
+name = "base_content"
+version = "0.1.0"
+edition = "2021"
+authors = ["damody <t1238142000@gmail.com>"]
+description = "omb base-game unit scripts (towers, heroes, creeps)"
+
+[lib]
+name = "base_content"
+crate-type = ["cdylib"]
+
+[lints.rust]
+warnings = "allow"
+
+[dependencies]
+abi_stable = "0.11"
+omb-script-abi = { path = "../../omb/script-abi" }

@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "base_content",
+]
+
+# Release profile tuned for DLL scripts — optimize but keep debug symbols
+# stripped so the .dll stays lean.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = "symbols"
