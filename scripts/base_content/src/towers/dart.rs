@@ -37,6 +37,11 @@ impl UnitScript for DartTower {
             hit_radius: 0.0,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            cost: 200,
+            footprint: 40.0,
+            hp: 1.0,
+            turn_speed_deg: 360.0,
+            label: RString::from("Dart Monkey"),
         })
     }
 

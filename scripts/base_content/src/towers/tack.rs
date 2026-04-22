@@ -36,6 +36,11 @@ impl UnitScript for TackTower {
             hit_radius: HIT_RADIUS,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            cost: 400,
+            footprint: 40.0,
+            hp: 1.0,
+            turn_speed_deg: 3600.0,
+            label: RString::from("Tack Shooter"),
         })
     }
 
