@@ -37,6 +37,11 @@ impl UnitScript for IceTower {
             hit_radius: 0.0,
             slow_factor: SLOW_FACTOR,
             slow_duration: SLOW_DURATION,
+            cost: 400,
+            footprint: 40.0,
+            hp: 1.0,
+            turn_speed_deg: 360.0,
+            label: RString::from("Ice Monkey"),
         })
     }
 
