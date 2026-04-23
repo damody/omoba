@@ -1,6 +1,5 @@
 //! Entity definitions for game objects
 
-use serde::{Deserialize, Serialize};
 use vek::Vec2;
 use std::time::SystemTime;
 
