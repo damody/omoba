@@ -55,6 +55,7 @@ impl UnitScript for SaikaGunner {
                     splash_radius: 0.0,
                     slow_factor: 0.0,
                     slow_duration: 0.0,
+                    stun_duration: 0.0,
                     kind_tag: RString::from("saika_shot"),
                 });
             }

@@ -83,6 +83,7 @@ impl UnitScript for IceTower {
             splash_radius: SPLASH_RADIUS,
             slow_factor: SLOW_FACTOR,
             slow_duration: SLOW_DURATION,
+            stun_duration: 0.0,
             kind_tag: RString::from("ice"),
         });
     }
