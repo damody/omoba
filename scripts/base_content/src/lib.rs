@@ -17,6 +17,7 @@ use omb_script_abi::{
 };
 
 mod heroes;
+mod summons;
 mod towers;
 
 #[export_root_module]
@@ -43,6 +44,13 @@ fn units() -> RVec<UnitDef> {
     v.push(UnitDef {
         unit_id: "tower_ice".into(),
         script: UnitScript_TO::from_value(towers::ice::IceTower, TD_Opaque),
+    });
+
+    // 召喚物：由英雄技能（如 saika_reinforcements）透過 spawn_summoned_unit
+    // 呼叫時附加 ScriptUnitTag 綁定到此 id，讓 dispatch on_tick 驅動 AI。
+    v.push(UnitDef {
+        unit_id: "saika_gunner".into(),
+        script: UnitScript_TO::from_value(summons::SaikaGunner, TD_Opaque),
     });
 
     v
