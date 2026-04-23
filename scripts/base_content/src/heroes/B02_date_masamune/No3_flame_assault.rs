@@ -16,7 +16,9 @@ use omoba_core::ability_meta::{
 use std::collections::HashMap;
 
 pub const ABILITY_ID: &str = "flame_assault";
-const STUN_BUFF_ID: &str = "flame_assault_stun";
+/// 統一以 "stun" 作為暈眩狀態 buff id，host 端的 hero_tick / hero_move_tick /
+/// creep_tick 會讀取此 id 做控制判定。
+const STUN_BUFF_ID: &str = "stun";
 
 pub struct FlameAssaultHandler;
 
