@@ -1,8 +1,14 @@
-//! Ice Monkey — 減速塔：AoE 輕傷 + 減速 debuff。
+//! Ice Monkey — 減速塔，MVP 支援 12 升級 flag / stat。
 //!
-//! 由 `on_tick` 驅動：找最近敵人 → 發 homing + 小 splash + slow buff。
-//! 命中時 `projectile_tick` 自動處理 splash 傷害與 `AddBuff` outcome（`slow_{owner}` buff_id），
-//! GameProcessor 會把 SlowBuff component 加在每個被掃到的 creep 上。
+//! 支援:
+//! - Path1: deep_freeze (1s stun), icicle_impale (直線穿透 + 150 splash + 25 dmg)
+//! - Stat: slow_factor_override (越小越強), slow_duration_bonus, splash_bonus,
+//!   damage_bonus, range_bonus (透過 get_final_*)
+//!
+//! TODO:
+//! - arctic_aura_20 / snowstorm / cryo_cannon: 需 aura tick（Task 14）
+//! - embrittle_* : 需 damage_taken_bonus hook（Task 14）
+//! - refreeze: 命中時 remove+add slow，簡化版暫未處理
 
 use omb_script_abi::prelude::*;
 
@@ -63,7 +69,7 @@ impl UnitScript for IceTower {
             RSome(p) => p,
             RNone => return,
         };
-        let range = w.get_tower_range(e);
+        let range = w.get_final_attack_range(e);
         let target = match w.query_nearest_enemy(pos, range, e) {
             RSome(t) => t,
             RNone => return,
@@ -71,20 +77,73 @@ impl UnitScript for IceTower {
 
         w.set_asd_count(e, asd_count - asd_interval);
 
-        let atk = w.get_tower_atk(e);
+        let atk = w.get_final_atk(e);
+
+        // slow_factor_override：upgrade 寫入的目標 factor（越小越強，clamp 在 (0, 1) 才採用）
+        let slow_override = w.get_stat_bonus(e, RStr::from_str("slow_factor_override"));
+        let slow_factor = if slow_override > 0.0 && slow_override < 1.0 {
+            slow_override
+        } else {
+            SLOW_FACTOR
+        };
+
+        let slow_dur_bonus = w.get_stat_bonus(e, RStr::from_str("slow_duration_bonus"));
+        let slow_duration = SLOW_DURATION + slow_dur_bonus;
+
+        let splash_bonus = w.get_stat_bonus(e, RStr::from_str("splash_bonus"));
+        let splash_radius = SPLASH_RADIUS + splash_bonus;
+
+        let stun = if w.has_tower_flag(e, RStr::from_str("deep_freeze")) {
+            1.0
+        } else {
+            0.0
+        };
+        let icicle = w.has_tower_flag(e, RStr::from_str("icicle_impale"));
+
+        let (path_spec, final_splash, final_damage, kind_tag) = if icicle {
+            // 朝 target 直線穿透（至 1.5 倍 range）
+            let t_pos = match w.get_pos(target) {
+                RSome(p) => p,
+                RNone => return,
+            };
+            let dx = t_pos.x - pos.x;
+            let dy = t_pos.y - pos.y;
+            let len = (dx * dx + dy * dy).sqrt().max(1.0);
+            let nx = dx / len * range * 1.5;
+            let ny = dy / len * range * 1.5;
+            let end = Vec2f::new(pos.x + nx, pos.y + ny);
+            (
+                PathSpec::Straight { end_pos: end },
+                150.0_f32,
+                atk.max(25.0),
+                "icicle",
+            )
+        } else {
+            (
+                PathSpec::Homing { target },
+                splash_radius,
+                atk,
+                "ice",
+            )
+        };
+
         w.log_info(RStr::from_str("[tower_ice] fire!"));
         w.spawn_projectile_ex(ProjectileSpec {
             from: pos,
             owner: e,
-            path: PathSpec::Homing { target },
+            path: path_spec,
             speed: BULLET_SPEED,
-            damage: atk,
+            damage: final_damage,
             hit_radius: 0.0,
-            splash_radius: SPLASH_RADIUS,
-            slow_factor: SLOW_FACTOR,
-            slow_duration: SLOW_DURATION,
-            stun_duration: 0.0,
-            kind_tag: RString::from("ice"),
+            splash_radius: final_splash,
+            slow_factor,
+            slow_duration,
+            stun_duration: stun,
+            kind_tag: RString::from(kind_tag),
         });
+
+        // TODO arctic_aura_20 / snowstorm / cryo_cannon: 需 aura tick + damage_taken_bonus hook (Task 14)
+        // TODO embrittle_weak / embrittle_crit: 需 damage_taken_bonus (Task 14)
+        // TODO refreeze: 命中時對 target remove_buff + add_stat_buff
     }
 }
