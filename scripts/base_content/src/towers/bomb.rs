@@ -80,6 +80,7 @@ impl UnitScript for BombTower {
             splash_radius: SPLASH_RADIUS,
             slow_factor: 0.0,
             slow_duration: 0.0,
+            stun_duration: 0.0,
             kind_tag: RString::from("bomb"),
         });
     }
