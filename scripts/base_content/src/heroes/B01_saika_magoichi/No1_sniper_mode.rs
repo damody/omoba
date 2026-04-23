@@ -40,7 +40,7 @@ impl AbilityScript for SniperModeHandler {
         caster: EntityHandle,
         _target: Target,
         _level: u8,
-        _level_data_json: RStr<'_>,
+        level_data_json: RStr<'_>,
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
         let buff = RStr::from_str(BUFF_ID);
@@ -48,8 +48,27 @@ impl AbilityScript for SniperModeHandler {
             world.remove_buff(caster, buff);
             world.log_info(RStr::from_str("[sniper_mode] toggled OFF"));
         } else {
+            // 解析 level_data_json 取對應等級的 modifier 數值
+            let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
+                .unwrap_or_default();
+            let get_f = |k: &str| {
+                level_data
+                    .extra
+                    .get(k)
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+            };
+            // 懲罰欄位（_penalty）在 host 端對應 _multiplier：1.0 + penalty
+            let modifiers = serde_json::json!({
+                "range_bonus": get_f("range_bonus"),
+                "damage_bonus": get_f("damage_bonus"),
+                "attack_speed_multiplier": 1.0 + get_f("attack_speed_penalty"),
+                "move_speed_multiplier": 1.0 + get_f("move_speed_penalty"),
+                "accuracy_bonus": get_f("accuracy_bonus"),
+            });
+            let mods_str = serde_json::to_string(&modifiers).unwrap_or_else(|_| "{}".into());
             // f32::INFINITY 代表 toggle 無限期（直到再次施放 remove）
-            world.add_buff(caster, buff, f32::INFINITY);
+            world.add_stat_buff(caster, buff, f32::INFINITY, (&*mods_str).into());
             world.log_info(RStr::from_str("[sniper_mode] toggled ON"));
         }
         ROk(())
