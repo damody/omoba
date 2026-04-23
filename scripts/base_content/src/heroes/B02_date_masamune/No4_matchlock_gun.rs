@@ -40,13 +40,23 @@ impl AbilityScript for MatchlockGunHandler {
             Ok(d) => d,
             Err(_) => AbilityLevelData::default(),
         };
-        let duration = level_data
-            .extra
-            .get("duration")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(45.0) as f32;
-
-        world.add_buff(caster, RStr::from_str(BUFF_ID), duration);
+        let get_f = |k: &str| {
+            level_data
+                .extra
+                .get(k)
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0)
+        };
+        let duration = get_f("duration") as f32;
+        // range_bonus / damage_bonus 直接加法；stun 相關由 on_damage_dealt hook 未來接
+        let modifiers = serde_json::json!({
+            "range_bonus": get_f("range_bonus"),
+            "damage_bonus": get_f("damage_bonus"),
+            "attack_stun_chance": get_f("stun_chance"),
+            "attack_stun_duration": get_f("stun_duration"),
+        });
+        let mods_str = serde_json::to_string(&modifiers).unwrap_or_else(|_| "{}".into());
+        world.add_stat_buff(caster, RStr::from_str(BUFF_ID), duration, (&*mods_str).into());
         world.log_info(RStr::from_str("[matchlock_gun] transformed for 45s"));
         ROk(())
     }
