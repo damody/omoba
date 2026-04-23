@@ -16,6 +16,7 @@ use omb_script_abi::{
     script::UnitScript_TO,
 };
 
+mod heroes;
 mod towers;
 
 #[export_root_module]
@@ -49,6 +50,19 @@ fn units() -> RVec<UnitDef> {
 
 #[sabi_extern_fn]
 fn abilities() -> RVec<AbilityDefFFI> {
-    // Phase 2 將在此列出 heroes/{saika, date} 與 towers 的 ability handler。
-    RVec::new()
+    let mut v: RVec<AbilityDefFFI> = RVec::new();
+
+    // Saika Magoichi (B01)
+    v.push(heroes::B01_saika_magoichi::sniper_mode_ffi());
+    v.push(heroes::B01_saika_magoichi::saika_reinforcements_ffi());
+    v.push(heroes::B01_saika_magoichi::rain_iron_cannon_ffi());
+    v.push(heroes::B01_saika_magoichi::three_stage_ffi());
+
+    // Date Masamune (B02)
+    v.push(heroes::B02_date_masamune::flame_blade_ffi());
+    v.push(heroes::B02_date_masamune::fire_dash_ffi());
+    v.push(heroes::B02_date_masamune::flame_assault_ffi());
+    v.push(heroes::B02_date_masamune::matchlock_gun_ffi());
+
+    v
 }
