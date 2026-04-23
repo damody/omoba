@@ -42,12 +42,18 @@ impl AbilityScript for SaikaReinforcementsHandler {
             .extra
             .get("summon_count")
             .and_then(|v| v.as_u64())
-            .unwrap_or(1);
+            .unwrap_or(1)
+            .max(1);
         let formation_radius = level_data
             .extra
             .get("formation_radius")
             .and_then(|v| v.as_f64())
             .unwrap_or(100.0) as f32;
+        let duration = level_data
+            .extra
+            .get("duration")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(45.0) as f32;
 
         let center: Vec2f = match target {
             Target::Point(p) => p,
@@ -57,11 +63,24 @@ impl AbilityScript for SaikaReinforcementsHandler {
                 .unwrap_or(Vec2f::new(0.0, 0.0)),
         };
 
-        // Summon API 尚未串接，先 log 佔位（Phase 3+ 會接 world.spawn_summoned_unit）
+        let unit_type = RStr::from_str("saika_gunner");
+        if count == 1 {
+            world.spawn_summoned_unit(center, unit_type, caster, duration);
+        } else {
+            // 陣形：圍繞 center 平均分佈於 formation_radius 圓周上
+            for i in 0..count {
+                let angle = (i as f32) * std::f32::consts::TAU / (count as f32);
+                let p = Vec2f::new(
+                    center.x + formation_radius * angle.cos(),
+                    center.y + formation_radius * angle.sin(),
+                );
+                world.spawn_summoned_unit(p, unit_type, caster, duration);
+            }
+        }
         world.log_info(
             RString::from(format!(
-                "[saika_reinforcements] TODO summon {} gunners at ({:.1},{:.1}) r={}",
-                count, center.x, center.y, formation_radius
+                "[saika_reinforcements] summoned {} gunners around ({:.1},{:.1}) r={} dur={}",
+                count, center.x, center.y, formation_radius, duration
             ))
             .as_rstr(),
         );
