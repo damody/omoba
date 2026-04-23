@@ -119,7 +119,8 @@ pub fn sniper_mode_def() -> AbilityDef {
         levels,
         effects_preview: vec![EffectSpec::Buff {
             target: TargetSelector::SelfUnit,
-            duration: f32::INFINITY,
+            // toggle 技能的 buff 靠 on_skill_cast 手動移除，非時間倒數 → duration = None
+            duration: None,
             modifiers: preview_mods,
         }],
         conditions: Vec::new(),

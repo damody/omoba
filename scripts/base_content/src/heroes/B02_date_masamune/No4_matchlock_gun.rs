@@ -113,7 +113,7 @@ pub fn matchlock_gun_def() -> AbilityDef {
         levels,
         effects_preview: vec![EffectSpec::Buff {
             target: TargetSelector::SelfUnit,
-            duration: 45.0,
+            duration: Some(45.0),
             modifiers: preview_mods,
         }],
         conditions: Vec::new(),
