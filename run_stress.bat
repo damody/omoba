@@ -1,16 +1,17 @@
 @echo off
 REM ======================================================================
-REM  run_stress.bat — TD_STRESS 性能壓測場景
+REM  run_stress.bat -- TD_STRESS perf test launcher
 REM
-REM  流程：
-REM   1. 清掉舊的 omobab.exe / executor.exe
-REM   2. 重新生成 omb/Story/TD_STRESS/map.json（便於調參後馬上跑）
-REM   3. 備份 omb/game.toml，暫時換成 omb/game_stress.toml
-REM   4. build base_content DLL + omb backend（debug，因為 omfx 硬編碼
-REM      找 target/debug/omobab.exe；要 release 請自行 cargo build --release
-REM      並把 release exe 複製覆蓋 debug exe）
-REM   5. 跑 omfx executor（會自動 spawn omb backend 讀切換後的 game.toml）
-REM   6. 結束後 restore omb/game.toml
+REM  Steps:
+REM    1. Kill stale omobab.exe / executor.exe
+REM    2. Regenerate omb\Story\TD_STRESS\map.json
+REM    3. Back up omb\game.toml, swap in omb\game_stress.toml
+REM    4. Build base_content DLL + omb backend (debug; omfx hard-codes
+REM       target\debug\omobab.exe. For release perf numbers, run
+REM       cargo build --release -p omobab then copy the exe on top of
+REM       target\debug\omobab.exe)
+REM    5. Run omfx executor (spawns omb backend as a child)
+REM    6. Always restore omb\game.toml afterwards
 REM ======================================================================
 
 pushd %~dp0
@@ -32,7 +33,7 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [2/5] Switching game.toml -^> stress variant (backup at %TOML_BAK%)...
+echo [2/5] Switching game.toml to stress variant (backup at %TOML_BAK%)...
 if not exist "%TOML_STRESS%" (
     echo   %TOML_STRESS% missing!
     popd
@@ -42,7 +43,6 @@ if not exist "%TOML_STRESS%" (
 copy /y "%TOML%" "%TOML_BAK%" >nul
 copy /y "%TOML_STRESS%" "%TOML%" >nul
 
-REM 跑完主流程後一律跳到 :restore，避免 game.toml 留在壓測版
 call :main
 set MAIN_ERR=%errorlevel%
 goto :restore
