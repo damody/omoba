@@ -70,10 +70,10 @@ impl UnitScript for SaikaGunner {
                 let len = (dx * dx + dy * dy).sqrt();
                 if len > 1.0 {
                     let step = MOVE_SPEED * dt;
-                    let nx = pos.x + dx / len * step;
-                    let ny = pos.y + dy / len * step;
-                    w.set_pos(e, Vec2f::new(nx, ny));
-                    // 朝目標方向 facing（radians, +X=0, CCW）
+                    // 透過 host 碰撞檢測 —— 會自動避開其他 CollisionRadius 實體與
+                    // BlockedRegion blocker；若被完全擋住會留在原地。
+                    let new_pos = w.advance_with_collision(e, target_pos, step);
+                    w.set_pos(e, new_pos);
                     w.set_facing(e, dy.atan2(dx));
                 }
             }
