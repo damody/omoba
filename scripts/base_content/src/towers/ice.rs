@@ -1,7 +1,7 @@
 //! Ice Monkey — 減速塔：AoE 輕傷 + 減速 debuff。
 //!
 //! 由 `on_tick` 驅動：找最近敵人 → 發 homing + 小 splash + slow buff。
-//! 命中時 `projectile_tick` 自動處理 splash 傷害與 `ApplySlow` outcome，
+//! 命中時 `projectile_tick` 自動處理 splash 傷害與 `AddBuff` outcome（`slow_{owner}` buff_id），
 //! GameProcessor 會把 SlowBuff component 加在每個被掃到的 creep 上。
 
 use omb_script_abi::prelude::*;
