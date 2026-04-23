@@ -1,16 +1,15 @@
 @echo off
 REM ======================================================================
-REM  run_stress.bat -- TD_STRESS perf test launcher
+REM  run_stress.bat -- TD_STRESS perf test launcher (RELEASE build)
 REM
 REM  Steps:
 REM    1. Kill stale omobab.exe / executor.exe
 REM    2. Regenerate omb\Story\TD_STRESS\map.json
 REM    3. Back up omb\game.toml, swap in omb\game_stress.toml
-REM    4. Build base_content DLL + omb backend (debug; omfx hard-codes
-REM       target\debug\omobab.exe. For release perf numbers, run
-REM       cargo build --release -p omobab then copy the exe on top of
-REM       target\debug\omobab.exe)
-REM    5. Run omfx executor (spawns omb backend as a child)
+REM    4. Build base_content DLL (release) + omb backend (release).
+REM       omfx hard-codes target\debug\omobab.exe, so we copy the release
+REM       exe over target\debug\omobab.exe so omfx picks the fast build.
+REM    5. Run omfx executor (release; spawns omb backend as a child)
 REM    6. Always restore omb\game.toml afterwards
 REM ======================================================================
 
@@ -48,25 +47,30 @@ set MAIN_ERR=%errorlevel%
 goto :restore
 
 :main
-echo [3/5] Building script DLL (scripts\base_content)...
-cargo build --manifest-path scripts\Cargo.toml -p base_content
+echo [3/5] Building script DLL (scripts\base_content, release)...
+cargo build --release --manifest-path scripts\Cargo.toml -p base_content
 if %errorlevel% neq 0 (
     echo   Script DLL build failed!
     exit /b 1
 )
 if not exist omb\scripts mkdir omb\scripts
-copy /y scripts\target\debug\base_content.dll omb\scripts\base_content.dll >nul
-echo   -^> copied base_content.dll to omb\scripts\
+copy /y scripts\target\release\base_content.dll omb\scripts\base_content.dll >nul
+echo   -^> copied base_content.dll (release) to omb\scripts\
 
-echo [4/5] Building backend (omb)...
-cargo build --manifest-path omb\Cargo.toml
+echo [4/5] Building backend (omb, release)...
+cargo build --release --manifest-path omb\Cargo.toml -p omobab
 if %errorlevel% neq 0 (
     echo   Backend build failed!
     exit /b 1
 )
+REM omfx spawns target\debug\omobab.exe — copy release exe over it so the
+REM perf test actually runs the optimized build.
+if not exist omb\target\debug mkdir omb\target\debug
+copy /y omb\target\release\omobab.exe omb\target\debug\omobab.exe >nul
+echo   -^> copied omobab.exe (release) to omb\target\debug\ (for omfx spawn)
 
-echo [5/5] Running frontend (omfx spawns omb child process)...
-cargo run --manifest-path omfx\Cargo.toml -p executor
+echo [5/5] Running frontend (omfx executor, release; spawns omb child)...
+cargo run --release --manifest-path omfx\Cargo.toml -p executor
 exit /b %errorlevel%
 
 :restore
