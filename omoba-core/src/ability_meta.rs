@@ -84,7 +84,9 @@ pub enum EffectSpec {
     },
     Buff {
         target: TargetSelector,
-        duration: f32,
+        /// 持續秒數；`None` = 永久 buff（toggle 技能 on_off 手動移除）
+        #[serde(default)]
+        duration: Option<f32>,
         modifiers: HashMap<String, f32>,
     },
     Summon {
