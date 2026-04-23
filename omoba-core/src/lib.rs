@@ -3,6 +3,7 @@
 //! Provides MQTT communication, game state management, and player input handling.
 
 pub mod ability_meta;
+pub mod tower_meta;
 pub mod config;
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
