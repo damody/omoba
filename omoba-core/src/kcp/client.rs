@@ -26,6 +26,9 @@ pub struct GameEventData {
     pub action: String,
     pub data: serde_json::Value,
     pub timestamp_ms: u64,
+    /// 原始 proto data_json bytes 長度；供前端網路吞吐統計用，
+    /// 避免在 hot path 做冗餘 serde_json::to_string。
+    pub payload_bytes: usize,
 }
 
 impl KcpClient {
@@ -73,6 +76,7 @@ impl KcpClient {
                             TAG_GAME_EVENT => {
                                 match GameEvent::decode(payload.as_slice()) {
                                     Ok(event) => {
+                                        let payload_bytes = event.data_json.len();
                                         let data = if event.data_json.is_empty() {
                                             serde_json::Value::Null
                                         } else {
@@ -86,6 +90,7 @@ impl KcpClient {
                                             action: event.action,
                                             data,
                                             timestamp_ms: event.timestamp_ms,
+                                            payload_bytes,
                                         };
 
                                         if event_tx.send(parsed).await.is_err() {
