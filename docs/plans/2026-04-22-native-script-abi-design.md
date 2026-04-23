@@ -1,8 +1,17 @@
 # Native Script ABI 設計（abi_stable + DLL/SO 腳本）
 
-**日期**：2026-04-22
-**狀態**：設計定案，待實作
+**日期**：2026-04-22（PoC-2 完成 2026-04-23）
+**狀態**：PoC-1（DartTower）+ PoC-2（8 個英雄技能 + 4 個塔）皆已落地。
 **目的**：把 omb 的怪物、英雄、塔的**行為邏輯**抽成 native 腳本（編譯為 `.dll`/`.so`），以 `abi_stable` 達成跨 DLL 邊界 ABI 穩定。數值與資料仍走既有 config。
+
+**實作狀態**（2026-04-23）：
+- ✅ PoC-1：`scripts/base_content` DartTower（`on_attack_hit` hook）
+- ✅ PoC-2：8 個英雄技能（Saika×4、Date×4）搬進 `scripts/base_content/src/heroes/`，走新增的 `AbilityScript` sabi_trait
+- ✅ 塔擴充：Bomb / Tack / Ice 已腳本化
+- ✅ `omb/ability-system` sub-crate 解散、主 crate 平行 skill/ability 系統刪除
+- ✅ `omoba-core/ability_meta` 共享 schema 讓 client 可查 `list_abilities` metadata
+- ⏳ 待接：`AbilityScript::execute` 的 skill dispatch 路徑（玩家 cast skill → DLL handler）
+- ⏳ 待接：`host-side` buff/stat modifier 計算（目前 `add_buff`/`has_buff` 仍是 log stub）
 
 ---
 
