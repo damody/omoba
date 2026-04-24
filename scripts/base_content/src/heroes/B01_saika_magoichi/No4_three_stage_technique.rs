@@ -12,7 +12,7 @@ use abi_stable::{
 };
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
-    stat_keys as sk,
+    stat_keys::StatKey,
     types::{EntityHandle, Target},
     world::GameWorldDyn,
 };
@@ -48,7 +48,7 @@ impl AbilityScript for ThreeStageHandler {
     ) -> RResult<(), RString> {
         let mut modifiers = serde_json::Map::new();
         modifiers.insert(
-            sk::TOTALDAMAGEOUTGOING_PERCENTAGE.into(),
+            StatKey::TotalDamageOutgoingPercentage.as_str().into(),
             serde_json::json!(ATK_BONUS_PCT),
         );
         modifiers.insert(
@@ -92,7 +92,7 @@ pub fn three_stage_def() -> AbilityDef {
     }
 
     let mut preview_mods = HashMap::new();
-    preview_mods.insert(sk::TOTALDAMAGEOUTGOING_PERCENTAGE.into(), ATK_BONUS_PCT);
+    preview_mods.insert(StatKey::TotalDamageOutgoingPercentage.as_str().into(), ATK_BONUS_PCT);
     preview_mods.insert("multi_shot_visual".into(), MULTI_SHOT_COUNT);
 
     AbilityDef {
