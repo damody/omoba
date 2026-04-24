@@ -5,6 +5,7 @@
 pub mod ability_meta;
 pub mod tower_meta;
 pub mod config;
+pub mod quant;
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
 pub mod state;
