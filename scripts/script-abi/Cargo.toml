@@ -1,0 +1,18 @@
+[package]
+name = "omb-script-abi"
+version = "0.1.0"
+edition = "2021"
+authors = ["damody <t1238142000@gmail.com>"]
+description = "Stable ABI contract crate shared between omb host and script DLLs"
+license = "MIT OR Apache-2.0"
+publish = false   # 先不推 crates.io；mod 作者走 path 依賴
+
+[lib]
+name = "omb_script_abi"
+crate-type = ["rlib"]
+
+[lints.rust]
+warnings = "allow"
+
+[dependencies]
+abi_stable = "0.11"
