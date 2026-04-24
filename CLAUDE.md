@@ -43,11 +43,13 @@ $p = 'D:\omoba\xxx.bat'; $c = (Get-Content -Raw $p) -replace "(?<!`r)`n","`r`n";
 - `docs/plans/` — 各功能的 design + impl plan（目前 tower-upgrade-paths、ability-system-integration 等有詳細文件）
 - `graphify-out/` — 本 repo 的 knowledge graph（見下）
 
+> **注意**：`omb/` 單獨 clone 無法 build，需搭配完整 monorepo（`omb-script-abi` 經 path 依賴 `../scripts/script-abi`）。
+
 ## 核心架構要點
 
 ### Traits / 生命週期
 - **ECS**：specs 0.20（從 0.19 遷移過；`#[derive(Component)]` 從 `use specs::Component;` 來，不是舊的 `specs_derive`）。`Entity` 的 Serialize/Deserialize 是 fork 裡手加的。
-- **Script ABI**：`omb/script-abi` 是 host + cdylib 的**唯一**共用 crate，只能用 abi_stable 型別 — 不要在這拉 specs、serde_json 等。主要 trait：`UnitScript`（塔 / 英雄 / 怪 tick + attack hook）、`AbilityScript`（Q/W/E/R 施放）、`GameWorld`（script 回呼 host 的 FFI）。`stat_keys` 模組是 Dota 2 modifier property 對齊的 key 字串常數。
+- **Script ABI**：`scripts/script-abi` 是 host + cdylib 的**唯一**共用 crate，只能用 abi_stable 型別 — 不要在這拉 specs、serde_json 等。主要 trait：`UnitScript`（塔 / 英雄 / 怪 tick + attack hook）、`AbilityScript`（Q/W/E/R 施放）、`GameWorld`（script 回呼 host 的 FFI）。`stat_keys` 模組是 Dota 2 modifier property 對齊的 key 字串常數。
 - **Ability runtime**：`omb/src/ability_runtime/` — `BuffStore`（entity → buff list；`sum_add` / `product_mult` 聚合；payload 任意 JSON，慣例 `*_bonus` = additive、`*_multiplier` = multiplicative）、`UnitStats` helper、`Dispatcher` 快取。
 
 ### 傳輸層
