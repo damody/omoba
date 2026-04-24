@@ -89,6 +89,12 @@ message ProjectileCreate {
   Fixed16 splash_radius = 7;   // 0 = point damage
   Fixed16 hit_radius = 8;      // hit test radius, 0 = point
   string kind = 9;             // visual/gameplay variant (e.g. "arrow", "fireball")
+  // P7: pre-declared damage for single-target projectiles. When splash_radius
+  // is 0 (not AOE) and target_id is set, server pre-computes the damage here
+  // so client can apply HP update locally at impact time, eliminating a
+  // creep.H round-trip. For AOE projectiles this is 0 and server still emits
+  // creep.H per-target on impact.
+  Fixed16 damage = 10;
 }
 
 message ProjectileDestroy {
