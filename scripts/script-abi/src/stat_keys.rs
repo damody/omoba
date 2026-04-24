@@ -29,6 +29,23 @@ pub enum StatSection {
     Visual = 2,
 }
 
+/// StatKey 的聚合方式（對應 BuffStore 的 payload 數值合併規則）。
+///
+/// - `SumAdd`：`_Bonus` / `_Constant` / `_Stacking` — 多個 buff 的數值直接相加（預設 0）
+/// - `SumAddThenMul1Plus`：`_Percentage` — 相加後當倍率係數套用 `(1.0 + sum)`
+/// - `ProductMult`：`_Multiplier` — 多個 buff 的數值相乘（預設 1.0）
+/// - `Chance`：`_Chance` — 觸發機率 `[0.0, 1.0]`，通常只取最大值或 OR 邏輯
+/// - `PassThrough`：視覺 / 覆蓋型（例 `*_override`）— host 直接轉發原值不聚合
+#[repr(u8)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Aggregation {
+    SumAdd = 0,
+    SumAddThenMul1Plus = 1,
+    ProductMult = 2,
+    Chance = 3,
+    PassThrough = 4,
+}
+
 /// Script ABI 的 stat key 枚舉。
 ///
 /// # SAFETY
@@ -70,6 +87,14 @@ impl StatKey {
             StatKey::PreattackBonusDamage
             | StatKey::AttackSpeedBonusConstant
             | StatKey::DamageOutgoingPercentage => StatSection::All,
+        }
+    }
+
+    pub const fn aggregation(self) -> Aggregation {
+        match self {
+            StatKey::PreattackBonusDamage => Aggregation::SumAdd,
+            StatKey::AttackSpeedBonusConstant => Aggregation::SumAdd,
+            StatKey::DamageOutgoingPercentage => Aggregation::SumAddThenMul1Plus,
         }
     }
 }
@@ -370,5 +395,17 @@ mod tests {
         assert_eq!(StatKey::AttackSpeedBonusConstant.section(), StatSection::All);
         assert_eq!(StatKey::DamageOutgoingPercentage.section(), StatSection::All);
         // Task 5 加完其餘 variant 後會補 NonBuilding / Visual 的驗證
+    }
+
+    #[test]
+    fn aggregation_by_suffix() {
+        use super::Aggregation;
+        // _Bonus → sum
+        assert_eq!(StatKey::PreattackBonusDamage.aggregation(), Aggregation::SumAdd);
+        // _Constant → sum
+        assert_eq!(StatKey::AttackSpeedBonusConstant.aggregation(), Aggregation::SumAdd);
+        // _Percentage → (1 + sum)
+        assert_eq!(StatKey::DamageOutgoingPercentage.aggregation(), Aggregation::SumAddThenMul1Plus);
+        // Task 5 展開後再補 _Multiplier / _Chance / PassThrough 的 case
     }
 }
