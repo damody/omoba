@@ -9,6 +9,7 @@ use abi_stable::{
     RMut, sabi_trait,
     std_types::{ROption, RStr, RVec},
 };
+use crate::stat_keys::StatKey;
 use crate::types::*;
 pub use crate::types::{PathSpec, ProjectileSpec};
 
@@ -134,11 +135,11 @@ pub trait GameWorld: Send {
 
     /// 加法聚合：回傳 `e` 身上所有 buff payload 中 `stat_key` 欄位的和。
     /// 慣例：`_bonus` 後綴 stat 用這個（例 `range_bonus`、`bonus_damage`）。
-    fn sum_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32;
+    fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32;
 
     /// 乘法聚合：回傳 `e` 身上所有 buff payload 中 `stat_key` 欄位的積。
     /// 空集合回 1.0。慣例：`_multiplier` 後綴 stat 用這個。
-    fn product_stat(&self, e: EntityHandle, stat_key: RStr<'_>) -> f32;
+    fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> f32;
 
     /// 回傳單位的「實際」移速：`base_msd * (1 + move_speed_bonus_sum) *
     /// move_speed_multiplier_product`，並 clamp 到 `move_speed_min/max`（若有 buff）。
@@ -221,7 +222,7 @@ pub trait GameWorld: Send {
 
     /// 直接讀 BuffStore 加法聚合（`sum_add(e, key)`）。
     /// 供塔腳本讀 upgrade buff 寫入的任意 key（例如 `crit_chance`, `slow_factor_override`）。
-    fn get_stat_bonus(&self, e: EntityHandle, key: RStr<'_>) -> f32;
+    fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> f32;
 
     /// 對 `at` 點做圓形範圍傷害；射程內所有敵方單位吃 `damage`。
     /// 用於 ring_of_fire / mega_crit 這類 upgrade 派生的 AoE 傷害。
