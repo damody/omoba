@@ -67,7 +67,6 @@ WORDS = sorted(
         "strength",
         "agility",
         "intellect",
-        "autoattack",
         "decrepify",
         "accuracy",
         "projectile",
@@ -169,13 +168,14 @@ WORDS = sorted(
         "minimap",
         # Added for splitting CASTTIME, RESPAWNTIME, DEATHGOLDCOST,
         # MAGICDAMAGEOUTGOING, MOVESPEED, PREATTACK_CRITICALSTRIKE, etc.
-        "time",
         "death",
         "magic",
         "move",
         "critical",
         "strike",
-        "respawn",
+        # Added to silence to_pascal fallback warnings (已存在於 wire 中但字典漏列)
+        "unavoidable",
+        "heal",
     ],
     key=lambda w: (-len(w), w),
 )
@@ -219,6 +219,12 @@ def to_pascal(snake: str) -> str:
             chunk = s[i:j]
             if not chunk:
                 raise RuntimeError(f"Cannot tokenize {snake!r} at {i}")
+            # 未知 chunk：WORDS 字典沒涵蓋 → 印 warning 提示維護者擴字典，
+            # 否則會 silent 以 literal chunk 命名導致誤產 Pascal 名。
+            print(
+                f"warn: no dictionary match for chunk {chunk!r} in snake {snake!r}",
+                file=sys.stderr,
+            )
             out.append(chunk)
             i = j
     return "".join(p[:1].upper() + p[1:] for p in out)
@@ -250,6 +256,14 @@ def classify_aggregation(wire: str) -> str:
     if segs & sum_add:
         return "SumAdd"
     return "PassThrough"
+
+
+# Dota wire format 不含典型後綴但語義已知的特例覆寫。
+# 若 classify_aggregation 的 suffix rule 無法正確處理某個 wire，在此加入覆寫。
+AGGREGATION_OVERRIDES: dict[str, str] = {
+    # 受攻擊反擊傷害，多個 buff 疊加（Dota 2 語義）
+    "procattack_feedback": "SumAdd",
+}
 
 
 CONST_RE = re.compile(
@@ -590,7 +604,7 @@ def main() -> int:
         # Override if listed in BUILDING_EXCLUDED_KEYS and currently All
         if wire in excluded_wires and sec == "All":
             sec = "NonBuilding"
-        agg = classify_aggregation(wire)
+        agg = AGGREGATION_OVERRIDES.get(wire, classify_aggregation(wire))
         entries.append((pascal, wire, sec, agg, disc))
         disc += 1
 
