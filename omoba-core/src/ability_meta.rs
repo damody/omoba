@@ -14,6 +14,9 @@ pub enum AbilityType {
     Active,
     Toggle,
     Ultimate,
+    /// 被動技 — 學習時自動觸發 `on_learn`（套永久 buff / 註冊 on_attack_hit 鉤）；
+    /// 沒有 cast 按鈕，不吃 cooldown / mana。
+    Passive,
 }
 
 /// 目標類型
