@@ -1,6 +1,7 @@
 use anyhow::Result;
 use log::*;
 use prost::Message;
+use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::io::{ReadHalf, WriteHalf};
 use std::sync::Arc;
@@ -10,6 +11,7 @@ use tokio_kcp::{KcpConfig, KcpStream, KcpNoDelayConfig};
 
 use super::framing::*;
 use super::game_proto::*;
+use crate::quant::fixed_dequant;
 
 /// KCP client for communicating with the omb game server.
 pub struct KcpClient {
@@ -76,21 +78,31 @@ impl KcpClient {
                             TAG_GAME_EVENT => {
                                 match GameEvent::decode(payload.as_slice()) {
                                     Ok(event) => {
-                                        let payload_bytes = event.data_json.len();
-                                        let data = if event.data_json.is_empty() {
-                                            serde_json::Value::Null
+                                        // P2 binary-protocol path: if the server attached a typed
+                                        // prost payload, translate it back to the legacy
+                                        // {msg_type, action, data(JSON)} shape the frontend
+                                        // already consumes. Full wire-byte savings materialize
+                                        // because `data_json` is empty on the wire — the
+                                        // JSON shim here only reconstructs the in-memory form.
+                                        let parsed = if let Some(tp) = event.typed_payload.as_ref() {
+                                            let wire_bytes = event.data_json.len();
+                                            translate_typed_payload(tp, &event, wire_bytes)
                                         } else {
-                                            serde_json::from_slice(&event.data_json)
-                                                .unwrap_or(serde_json::Value::Null)
-                                        };
-
-                                        let parsed = GameEventData {
-                                            topic: event.topic,
-                                            msg_type: event.msg_type,
-                                            action: event.action,
-                                            data,
-                                            timestamp_ms: event.timestamp_ms,
-                                            payload_bytes,
+                                            let payload_bytes = event.data_json.len();
+                                            let data = if event.data_json.is_empty() {
+                                                serde_json::Value::Null
+                                            } else {
+                                                serde_json::from_slice(&event.data_json)
+                                                    .unwrap_or(serde_json::Value::Null)
+                                            };
+                                            GameEventData {
+                                                topic: event.topic,
+                                                msg_type: event.msg_type,
+                                                action: event.action,
+                                                data,
+                                                timestamp_ms: event.timestamp_ms,
+                                                payload_bytes,
+                                            }
                                         };
 
                                         if event_tx.send(parsed).await.is_err() {
@@ -167,5 +179,59 @@ impl KcpClient {
         self.event_rx
             .take()
             .ok_or_else(|| anyhow::anyhow!("subscribe_events can only be called once"))
+    }
+}
+
+/// Translate a prost typed_payload back into the legacy JSON-shaped
+/// `GameEventData` that the existing frontend dispatch expects.
+///
+/// P2 migration note: this is a temporary JSON shim. The wire-side savings
+/// are real (we ship `data_json = []` and only the prost variant); the
+/// client-side CPU cost is an extra re-serialization pass. When the frontend
+/// learns to consume typed_payload directly, this shim goes away.
+fn translate_typed_payload(
+    tp: &game_event::TypedPayload,
+    event: &GameEvent,
+    wire_bytes: usize,
+) -> GameEventData {
+    match tp {
+        game_event::TypedPayload::Heartbeat(hb) => {
+            let hp_snapshot: Vec<serde_json::Value> = hb.hp_snapshot.iter().map(|e| {
+                let hp = e.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+                json!({ "i": e.id as u32, "h": hp })
+            }).collect();
+            let d = json!({
+                "tick": hb.tick,
+                "game_time": hb.game_time,
+                "entity_count": hb.entity_count,
+                "hero_count": hb.hero_count,
+                "unit_count": hb.unit_count,
+                "creep_count": hb.creep_count,
+                "render_delay_ms": hb.render_delay_ms,
+                "hp_snapshot": hp_snapshot,
+            });
+            GameEventData {
+                topic: event.topic.clone(),
+                msg_type: "heartbeat".to_string(),
+                action: "tick".to_string(),
+                data: d,
+                timestamp_ms: event.timestamp_ms,
+                payload_bytes: wire_bytes,
+            }
+        }
+        // Other typed payload variants migrate in later tasks; until then
+        // they cannot appear because the server only emits Heartbeat via
+        // the typed path. Log+stub keeps us safe if one slips through.
+        other => {
+            warn!("typed_payload variant not yet migrated on client: {:?}", other);
+            GameEventData {
+                topic: event.topic.clone(),
+                msg_type: event.msg_type.clone(),
+                action: event.action.clone(),
+                data: serde_json::Value::Null,
+                timestamp_ms: event.timestamp_ms,
+                payload_bytes: wire_bytes,
+            }
+        }
     }
 }
