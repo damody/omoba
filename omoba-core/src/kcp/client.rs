@@ -388,6 +388,10 @@ fn translate_typed_payload(
             let end = m.end_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let splash = m.splash_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let hit = m.hit_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            // P7: pre-declared damage for non-AOE projectiles. 0 when
+            // splash > 0 or unset. omfx reads this to schedule optimistic HP
+            // update at impact tick.
+            let damage = m.damage.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let d = json!({
                 "id": m.id as u32,
                 "target_id": m.target_id as u32,
@@ -398,6 +402,7 @@ fn translate_typed_payload(
                 "splash_radius": splash,
                 "hit_radius": hit,
                 "kind": m.kind,
+                "damage": damage,
             });
             GameEventData { data: d, ..default() }
         }
