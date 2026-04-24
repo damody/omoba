@@ -52,7 +52,7 @@ impl AbilityScript for ThreeStageHandler {
             serde_json::json!(ATK_BONUS_PCT),
         );
         modifiers.insert(
-            "multi_shot_visual".into(),
+            StatKey::MultiShotVisual.as_str().into(),
             serde_json::json!(MULTI_SHOT_COUNT),
         );
         modifiers.insert(
@@ -93,7 +93,7 @@ pub fn three_stage_def() -> AbilityDef {
 
     let mut preview_mods = HashMap::new();
     preview_mods.insert(StatKey::TotalDamageOutgoingPercentage.as_str().into(), ATK_BONUS_PCT);
-    preview_mods.insert("multi_shot_visual".into(), MULTI_SHOT_COUNT);
+    preview_mods.insert(StatKey::MultiShotVisual.as_str().into(), MULTI_SHOT_COUNT);
 
     AbilityDef {
         id: ABILITY_ID.into(),
