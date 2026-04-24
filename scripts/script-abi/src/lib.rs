@@ -5,6 +5,7 @@
 //! crate, nothing that would pull engine internals across the FFI boundary.
 
 pub mod ability;
+pub mod buff_ids;
 pub mod manifest;
 pub mod script;
 pub mod stat_keys;
