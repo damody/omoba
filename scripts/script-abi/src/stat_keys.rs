@@ -196,6 +196,10 @@ pub enum StatKey {
     CritChance = 131,
     AttackStunChance = 132,
     AttackStunDuration = 133,
+    MoveSpeedBonus = 134,
+    DamageTakenBonus = 135,
+    MultiShotVisual = 136,
+    DotDamage = 137,
 }
 
 impl StatKey {
@@ -336,6 +340,10 @@ impl StatKey {
             StatKey::CritChance => "crit_chance",
             StatKey::AttackStunChance => "attack_stun_chance",
             StatKey::AttackStunDuration => "attack_stun_duration",
+            StatKey::MoveSpeedBonus => "move_speed_bonus",
+            StatKey::DamageTakenBonus => "damage_taken_bonus",
+            StatKey::MultiShotVisual => "multi_shot_visual",
+            StatKey::DotDamage => "dot_damage",
         }
     }
 
@@ -476,6 +484,10 @@ impl StatKey {
             "crit_chance" => Some(StatKey::CritChance),
             "attack_stun_chance" => Some(StatKey::AttackStunChance),
             "attack_stun_duration" => Some(StatKey::AttackStunDuration),
+            "move_speed_bonus" => Some(StatKey::MoveSpeedBonus),
+            "damage_taken_bonus" => Some(StatKey::DamageTakenBonus),
+            "multi_shot_visual" => Some(StatKey::MultiShotVisual),
+            "dot_damage" => Some(StatKey::DotDamage),
             _ => None,
         }
     }
@@ -617,6 +629,10 @@ impl StatKey {
             StatKey::CritChance => StatSection::All,
             StatKey::AttackStunChance => StatSection::All,
             StatKey::AttackStunDuration => StatSection::All,
+            StatKey::MoveSpeedBonus => StatSection::NonBuilding,
+            StatKey::DamageTakenBonus => StatSection::All,
+            StatKey::MultiShotVisual => StatSection::Visual,
+            StatKey::DotDamage => StatSection::All,
         }
     }
 
@@ -757,6 +773,10 @@ impl StatKey {
             StatKey::CritChance => Aggregation::Chance,
             StatKey::AttackStunChance => Aggregation::Chance,
             StatKey::AttackStunDuration => Aggregation::SumAdd,
+            StatKey::MoveSpeedBonus => Aggregation::SumAdd,
+            StatKey::DamageTakenBonus => Aggregation::SumAdd,
+            StatKey::MultiShotVisual => Aggregation::SumAdd,
+            StatKey::DotDamage => Aggregation::SumAdd,
         }
     }
 
@@ -770,7 +790,7 @@ impl StatKey {
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
-pub const ALL: &[StatKey; 134] = &[
+pub const ALL: &[StatKey; 138] = &[
     StatKey::PreattackBonusDamage,
     StatKey::PreattackBonusDamageProc,
     StatKey::PreattackBonusDamagePostCrit,
@@ -905,6 +925,10 @@ pub const ALL: &[StatKey; 134] = &[
     StatKey::CritChance,
     StatKey::AttackStunChance,
     StatKey::AttackStunDuration,
+    StatKey::MoveSpeedBonus,
+    StatKey::DamageTakenBonus,
+    StatKey::MultiShotVisual,
+    StatKey::DotDamage,
 ];
 
 // ============================================================
@@ -925,8 +949,8 @@ mod tests {
     use super::{StatKey, StatSection, Aggregation, ALL};
 
     #[test]
-    fn all_array_length_is_134() {
-        assert_eq!(ALL.len(), 134);
+    fn all_array_length_is_138() {
+        assert_eq!(ALL.len(), 138);
     }
 
     #[test]
@@ -986,7 +1010,7 @@ mod tests {
 
     #[test]
     fn new_tower_variants_exist() {
-        // 7 個新 variant 都可以 round-trip
+        // 7 個塔/英雄新 variant 都可以 round-trip
         let new_keys = [
             StatKey::CritChance,
             StatKey::CritBonus,
@@ -998,6 +1022,29 @@ mod tests {
         ];
         for k in new_keys {
             assert_eq!(StatKey::from_str_key(k.as_str()), Some(k));
+        }
+    }
+
+    #[test]
+    fn enum_ified_private_payload_keys() {
+        // 4 個前私有 payload key（原本走 sum_add_str 後門）已納入 StatKey
+        assert_eq!(StatKey::MoveSpeedBonus.as_str(), "move_speed_bonus");
+        assert_eq!(StatKey::DamageTakenBonus.as_str(), "damage_taken_bonus");
+        assert_eq!(StatKey::MultiShotVisual.as_str(), "multi_shot_visual");
+        assert_eq!(StatKey::DotDamage.as_str(), "dot_damage");
+        // Section 分配
+        assert_eq!(StatKey::MoveSpeedBonus.section(), StatSection::NonBuilding);
+        assert_eq!(StatKey::DamageTakenBonus.section(), StatSection::All);
+        assert_eq!(StatKey::MultiShotVisual.section(), StatSection::Visual);
+        assert_eq!(StatKey::DotDamage.section(), StatSection::All);
+        // Aggregation 都應 SumAdd（override 後）
+        for k in [
+            StatKey::MoveSpeedBonus,
+            StatKey::DamageTakenBonus,
+            StatKey::MultiShotVisual,
+            StatKey::DotDamage,
+        ] {
+            assert_eq!(k.aggregation(), Aggregation::SumAdd, "{:?}", k);
         }
     }
 

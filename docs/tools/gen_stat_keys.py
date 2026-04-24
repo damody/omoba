@@ -263,6 +263,10 @@ def classify_aggregation(wire: str) -> str:
 AGGREGATION_OVERRIDES: dict[str, str] = {
     # 受攻擊反擊傷害，多個 buff 疊加（Dota 2 語義）
     "procattack_feedback": "SumAdd",
+    # 視覺多段射擊計數（無 _bonus suffix 但需疊加）
+    "multi_shot_visual": "SumAdd",
+    # DoT tick 傷害，多個 dot buff 疊加傷害
+    "dot_damage": "SumAdd",
 }
 
 
@@ -327,7 +331,12 @@ def parse_excluded_wires(text: str, name_to_wire: dict[str, str]) -> set[str]:
     return out
 
 
-# 7 new variants appended at tail, all SECTION = All per task spec
+# New variants appended at tail.
+# Section 選擇規則（對照現有同族 variant）：
+#   - MoveSpeedBonus 同 MoveSpeedBonusConstant 等 → NonBuilding
+#   - DamageTakenBonus 同 IncomingDamage* 系 → All（建築物也受傷）
+#   - MultiShotVisual 視覺 pass-through → Visual
+#   - DotDamage 遊戲邏輯（DoT 傷害 tick）→ All
 NEW_VARIANTS: list[tuple[str, str, str, str]] = [
     # (pascal, wire, section, aggregation)
     ("CritChance", "crit_chance", "All", "Chance"),
@@ -337,6 +346,11 @@ NEW_VARIANTS: list[tuple[str, str, str, str]] = [
     ("SlowDurationBonus", "slow_duration_bonus", "All", "SumAdd"),
     ("AttackStunChance", "attack_stun_chance", "All", "Chance"),
     ("AttackStunDuration", "attack_stun_duration", "All", "SumAdd"),
+    # Task: enum-ify 4 previously private payload keys (remove sum_add_str backdoor)
+    ("MoveSpeedBonus", "move_speed_bonus", "NonBuilding", "SumAdd"),
+    ("DamageTakenBonus", "damage_taken_bonus", "All", "SumAdd"),
+    ("MultiShotVisual", "multi_shot_visual", "Visual", "SumAdd"),
+    ("DotDamage", "dot_damage", "All", "SumAdd"),
 ]
 
 
@@ -565,7 +579,7 @@ mod tests {{
 
     #[test]
     fn new_tower_variants_exist() {{
-        // 7 個新 variant 都可以 round-trip
+        // 7 個塔/英雄新 variant 都可以 round-trip
         let new_keys = [
             StatKey::CritChance,
             StatKey::CritBonus,
@@ -577,6 +591,29 @@ mod tests {{
         ];
         for k in new_keys {{
             assert_eq!(StatKey::from_str_key(k.as_str()), Some(k));
+        }}
+    }}
+
+    #[test]
+    fn enum_ified_private_payload_keys() {{
+        // 4 個前私有 payload key（原本走 sum_add_str 後門）已納入 StatKey
+        assert_eq!(StatKey::MoveSpeedBonus.as_str(), "move_speed_bonus");
+        assert_eq!(StatKey::DamageTakenBonus.as_str(), "damage_taken_bonus");
+        assert_eq!(StatKey::MultiShotVisual.as_str(), "multi_shot_visual");
+        assert_eq!(StatKey::DotDamage.as_str(), "dot_damage");
+        // Section 分配
+        assert_eq!(StatKey::MoveSpeedBonus.section(), StatSection::NonBuilding);
+        assert_eq!(StatKey::DamageTakenBonus.section(), StatSection::All);
+        assert_eq!(StatKey::MultiShotVisual.section(), StatSection::Visual);
+        assert_eq!(StatKey::DotDamage.section(), StatSection::All);
+        // Aggregation 都應 SumAdd（override 後）
+        for k in [
+            StatKey::MoveSpeedBonus,
+            StatKey::DamageTakenBonus,
+            StatKey::MultiShotVisual,
+            StatKey::DotDamage,
+        ] {{
+            assert_eq!(k.aggregation(), Aggregation::SumAdd, "{{:?}}", k);
         }}
     }}
 
