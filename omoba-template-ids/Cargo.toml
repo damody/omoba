@@ -1,0 +1,13 @@
+[package]
+name = "omoba-template-ids"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+description = "Build-time generated template ids from Story/templates.json (zero runtime dependencies)"
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dependencies]
+# 執行期零依賴 — generated const + match-based lookups，不 import 任何東西
