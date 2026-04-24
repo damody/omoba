@@ -58,6 +58,11 @@ message HeartbeatEntry {
   Fixed16 hp = 2;     // current HP only; client caches max_hp from creation events
 }
 
+message HeartbeatPosEntry {
+  uint64 id = 1;
+  Position16 pos = 2;
+}
+
 message HeartbeatTick {
   uint64 tick = 1;
   double game_time = 2;       // total seconds since scenario start
@@ -67,6 +72,9 @@ message HeartbeatTick {
   uint32 creep_count = 6;
   uint32 render_delay_ms = 7;
   repeated HeartbeatEntry hp_snapshot = 8;  // viewport-filtered per-player
+  // P4: viewport-filtered 10% position sample for drift correction on the
+  // client (velocity extrapolation accumulates error over seconds).
+  repeated HeartbeatPosEntry pos_snapshot = 9;
 }
 
 // ===== Projectile events =====
@@ -103,6 +111,14 @@ message CreepMove {
   uint64 id = 1;
   Position16 target = 2;       // current waypoint / move target
   uint32 facing_q = 3;         // Facing8
+  // P4: velocity-based extrapolation. Server now emits CreepMove only on
+  // waypoint / state change; the client extrapolates current position as
+  //     start_pos + (now_tick - start_tick) * dt * velocity * direction
+  // between events, with drift correction from heartbeat pos_snapshot.
+  Fixed16 velocity = 4;        // world units per second (== creep.msd at emit time)
+  uint64 arrival_tick = 5;     // server tick when creep reaches target (0 = unknown)
+  Position16 start_pos = 6;    // server-authoritative start position (for extrapolation anchor)
+  uint64 start_tick = 7;       // server tick when this move segment began
 }
 
 message CreepHp {
