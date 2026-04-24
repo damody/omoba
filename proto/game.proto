@@ -69,13 +69,167 @@ message HeartbeatTick {
   repeated HeartbeatEntry hp_snapshot = 8;  // viewport-filtered per-player
 }
 
-// Future migrations (schema reserved; encoders empty until implemented):
-//   HeroStatic  — hero create/level-up/ability-learn (Task 2.3/P3)
-//   HeroHot     — hero stats 0.3s tick (P3)
-//   CreepCreate / CreepMove / CreepHp / CreepFacing / CreepSlow (P2/P4)
-//   ProjectileC / ProjectileD (P2)
-//   TowerCreate / TowerUpgrade (P2)
-//   EntityDeath (P2)
+// ===== Projectile events =====
+
+message ProjectileCreate {
+  uint64 id = 1;
+  uint64 target_id = 2;        // 0 if no target
+  Position16 start_pos = 3;
+  Position16 end_pos = 4;      // computed target point (for linear travel)
+  uint32 flight_time_ms = 5;
+  bool directional = 6;        // true = positional travel; false = seeking
+  Fixed16 splash_radius = 7;   // 0 = point damage
+  Fixed16 hit_radius = 8;      // hit test radius, 0 = point
+  string kind = 9;             // visual/gameplay variant (e.g. "arrow", "fireball")
+}
+
+message ProjectileDestroy {
+  uint64 id = 1;
+}
+
+// ===== Creep events =====
+
+message CreepCreate {
+  uint64 id = 1;
+  Position16 pos = 2;
+  Fixed16 hp = 3;
+  Fixed16 max_hp = 4;
+  Fixed16 move_speed = 5;
+  string name = 6;             // display label (kept until client template cache ships)
+  string template_key = 7;     // unit-type key (optional; future use)
+}
+
+message CreepMove {
+  uint64 id = 1;
+  Position16 target = 2;       // current waypoint / move target
+  uint32 facing_q = 3;         // Facing8
+}
+
+message CreepHp {
+  uint64 id = 1;
+  Fixed16 hp = 2;
+}
+
+message CreepSlow {
+  uint64 id = 1;
+  Fixed16 move_speed = 2;
+}
+
+message EntityFacing {
+  uint64 id = 1;
+  uint32 facing_q = 2;         // Facing8
+}
+
+// Shared death for hero/creep/unit/tower (client routes on remembered type).
+message EntityDeath {
+  uint64 id = 1;
+}
+
+// Creep temporarily blocked by collision (hero/creep/tower stall feedback).
+message CreepStall {
+  uint64 id = 1;
+  Position16 pos = 2;
+  uint32 facing_q = 3;
+}
+
+// ===== Tower events =====
+
+message TowerCreate {
+  uint64 id = 1;
+  Position16 pos = 2;
+  Fixed16 hp = 3;
+  Fixed16 max_hp = 4;
+  string kind = 5;             // template key (e.g. "dart_tower")
+  string name = 6;              // display label
+}
+
+message TowerUpgrade {
+  uint64 id = 1;
+  repeated uint32 levels = 2;  // 3 path levels [p0, p1, p2]
+}
+
+// ===== Hero events =====
+
+message AbilityLevelPair {
+  uint32 cur = 1;
+  uint32 max = 2;
+}
+
+message BuffSnapshot {
+  string buff_id = 1;
+  // u16 milliseconds, 0..=65535. 0xFFFF sentinel = toggle-type / infinite.
+  uint32 remaining_ms = 2;
+  string payload_json = 3;     // arbitrary modifier data (usually small)
+}
+
+// Static hero metadata — pushed on create / level up / ability learn.
+message HeroStatic {
+  uint64 id = 1;
+  string name = 2;
+  string title = 3;
+  uint32 base_str = 4;
+  uint32 base_agi = 5;
+  uint32 base_int = 6;
+  repeated string ability_ids = 7;
+  uint32 level = 8;
+  uint32 xp = 9;
+  uint32 xp_next = 10;
+  uint32 skill_points = 11;
+  repeated AbilityLevelPair ability_levels = 12;
+}
+
+// Hot hero state — pushed every 0.3s.
+message HeroHot {
+  uint64 id = 1;
+  Fixed16 hp = 2;
+  Fixed16 max_hp = 3;
+  Fixed16 mana = 4;
+  Fixed16 max_mana = 5;
+  uint32 gold = 6;
+  Fixed16 attack_damage = 7;
+  Fixed16 armor = 8;
+  Fixed16 magic_resist = 9;
+  Fixed16 move_speed = 10;
+  Fixed16 attack_range = 11;
+  Fixed16 attack_interval = 12;
+  repeated BuffSnapshot buffs = 13;
+}
+
+// ===== Buff events =====
+
+message BuffAdd {
+  uint64 entity_id = 1;
+  string buff_id = 2;
+  uint32 remaining_ms = 3;
+  string payload_json = 4;
+}
+
+message BuffRemove {
+  uint64 entity_id = 1;
+  string buff_id = 2;
+}
+
+// ===== Game meta =====
+
+message GameRound {
+  uint32 round = 1;
+  uint32 total = 2;
+  bool is_running = 3;
+}
+
+message GameLives {
+  int32 lives = 1;
+}
+
+message GameEnd {
+  string winner = 1;
+}
+
+message GameExplosion {
+  Position16 pos = 1;
+  Fixed16 radius = 2;
+  uint32 duration_ms = 3;
+}
 
 // Corresponds to MqttMsg / OutboundMsg. P2 incremental migration: new typed
 // events use `typed_payload` oneof; legacy events continue to use `data_json`.
@@ -91,11 +245,37 @@ message GameEvent {
   // When set, decoders SHOULD prefer this over `data_json`.
   oneof typed_payload {
     HeartbeatTick heartbeat = 10;
-    // Future variants (keep numeric gaps for logical grouping):
-    //   11..=19 reserved for hero events (HeroStatic, HeroHot, etc.)
-    //   20..=29 reserved for creep events
-    //   30..=39 reserved for projectile / tower
-    //   40..=49 reserved for game meta
+
+    // Hero events (11..=19)
+    HeroStatic hero_static = 11;
+    HeroHot hero_hot = 12;
+
+    // Creep events (20..=29)
+    CreepCreate creep_create = 20;
+    CreepMove creep_move = 21;
+    CreepHp creep_hp = 22;
+    CreepSlow creep_slow = 23;
+    CreepStall creep_stall = 24;
+    EntityFacing entity_facing = 25;
+    EntityDeath entity_death = 26;
+
+    // Projectile events (30..=33)
+    ProjectileCreate projectile_create = 30;
+    ProjectileDestroy projectile_destroy = 31;
+
+    // Tower events (34..=39)
+    TowerCreate tower_create = 34;
+    TowerUpgrade tower_upgrade = 35;
+
+    // Buff events (40..=44)
+    BuffAdd buff_add = 40;
+    BuffRemove buff_remove = 41;
+
+    // Game meta events (45..=49)
+    GameRound game_round = 45;
+    GameLives game_lives = 46;
+    GameEnd game_end = 47;
+    GameExplosion game_explosion = 48;
   }
 }
 
