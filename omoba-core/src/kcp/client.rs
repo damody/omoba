@@ -4,6 +4,7 @@ use prost::Message;
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio::io::{ReadHalf, WriteHalf};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -12,6 +13,22 @@ use tokio_kcp::{KcpConfig, KcpStream, KcpNoDelayConfig};
 use super::framing::*;
 use super::game_proto::*;
 use crate::quant::{facing_dequant, fixed_dequant, pos_dequant};
+
+/// P3: client-side cache for hero static metadata.
+///
+/// The server now emits `HeroStatic` (cold, rare: create/level-up/ability learn)
+/// and `HeroHot` (hot, every 0.3s) separately. Legacy omfx expects a single
+/// merged `hero.stats` JSON. The shim caches the latest static per entity id,
+/// and on each `HeroHot` arrival merges with cache + emits one hero.stats JSON
+/// identical to the pre-P3 wire shape so omfx needs zero changes.
+///
+/// `latest_lives` tracks the most recent `GameLives` event value and is injected
+/// into the merged JSON (previously the server stuffed `lives` into hero.stats).
+#[derive(Default)]
+struct HeroStatsCache {
+    statics: HashMap<u64, HeroStatic>,
+    latest_lives: Option<i32>,
+}
 
 /// KCP client for communicating with the omb game server.
 pub struct KcpClient {
@@ -71,6 +88,10 @@ impl KcpClient {
         event_tx: mpsc::Sender<GameEventData>,
     ) {
         tokio::spawn(async move {
+            // P3: local cache lives in the reader task so no locking is needed.
+            // HeroStatic arrivals update cache only (no emit); HeroHot arrivals
+            // look up the cache + emit a merged legacy hero.stats JSON.
+            let mut hero_cache = HeroStatsCache::default();
             loop {
                 match read_framed(&mut reader).await {
                     Ok(Some((tag, payload))) => {
@@ -84,9 +105,9 @@ impl KcpClient {
                                         // already consumes. Full wire-byte savings materialize
                                         // because `data_json` is empty on the wire — the
                                         // JSON shim here only reconstructs the in-memory form.
-                                        let parsed = if let Some(tp) = event.typed_payload.as_ref() {
+                                        let parsed_opt: Option<GameEventData> = if let Some(tp) = event.typed_payload.as_ref() {
                                             let wire_bytes = event.data_json.len();
-                                            translate_typed_payload(tp, &event, wire_bytes)
+                                            translate_typed_payload(tp, &event, wire_bytes, &mut hero_cache)
                                         } else {
                                             let payload_bytes = event.data_json.len();
                                             let data = if event.data_json.is_empty() {
@@ -95,18 +116,20 @@ impl KcpClient {
                                                 serde_json::from_slice(&event.data_json)
                                                     .unwrap_or(serde_json::Value::Null)
                                             };
-                                            GameEventData {
+                                            Some(GameEventData {
                                                 topic: event.topic,
                                                 msg_type: event.msg_type,
                                                 action: event.action,
                                                 data,
                                                 timestamp_ms: event.timestamp_ms,
                                                 payload_bytes,
-                                            }
+                                            })
                                         };
 
-                                        if event_tx.send(parsed).await.is_err() {
-                                            break;
+                                        if let Some(parsed) = parsed_opt {
+                                            if event_tx.send(parsed).await.is_err() {
+                                                break;
+                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -193,7 +216,8 @@ fn translate_typed_payload(
     tp: &game_event::TypedPayload,
     event: &GameEvent,
     wire_bytes: usize,
-) -> GameEventData {
+    hero_cache: &mut HeroStatsCache,
+) -> Option<GameEventData> {
     // Keep the server-supplied msg_type / action so downstream dispatch
     // (which keys on these strings) routes identically to the JSON path.
     let default = || GameEventData {
@@ -205,7 +229,7 @@ fn translate_typed_payload(
         payload_bytes: wire_bytes,
     };
 
-    match tp {
+    let out = match tp {
         game_event::TypedPayload::Heartbeat(hb) => {
             let hp_snapshot: Vec<serde_json::Value> = hb.hp_snapshot.iter().map(|e| {
                 let hp = e.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -362,6 +386,94 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
+        // P3: HeroStatic → update cache only (no emit to omfx).
+        // Level-up / ability-learn happens rarely; omfx will see updated
+        // name/level/abilities on the next HeroHot merge (≤ 0.3s later).
+        game_event::TypedPayload::HeroStatic(m) => {
+            hero_cache.statics.insert(m.id, m.clone());
+            return None;
+        }
+        // P3: HeroHot → merge with cached HeroStatic and emit a legacy-shape
+        // hero.stats JSON so omfx needs zero changes. First HeroHot before
+        // any HeroStatic arrives → empty static fields (omfx uses `if let
+        // Some` per field, so it retains last-known values).
+        game_event::TypedPayload::HeroHot(m) => {
+            let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let attack_damage = m.attack_damage.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let armor = m.armor.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let magic_resist = m.magic_resist.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let move_speed = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let attack_range = m.attack_range.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let attack_interval = m.attack_interval.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+
+            let buffs: Vec<serde_json::Value> = m.buffs.iter().map(|b| {
+                let remaining = if b.remaining_ms == 0xFFFF { -1.0_f32 } else { b.remaining_ms as f32 / 1000.0 };
+                let payload: serde_json::Value = serde_json::from_str(&b.payload_json).unwrap_or(serde_json::Value::Null);
+                json!({ "id": b.buff_id, "remaining": remaining, "payload": payload })
+            }).collect();
+
+            let mut d = json!({
+                "id": m.id as u32,
+                "gold": m.gold as i32,
+                "hp": hp,
+                "max_hp": max_hp,
+                "attack_damage": attack_damage,
+                "armor": armor,
+                "magic_resist": magic_resist,
+                "move_speed": move_speed,
+                "attack_range": attack_range,
+                "attack_interval": attack_interval,
+                "buffs": buffs,
+            });
+
+            // Merge cached HeroStatic fields (name/title/base stats/level/xp/abilities)
+            if let Some(st) = hero_cache.statics.get(&m.id) {
+                let ability_levels_map: serde_json::Map<String, serde_json::Value> = st.ability_ids.iter().enumerate().map(|(i, id)| {
+                    let lvl = st.ability_levels.get(i).map(|p| p.cur as i32).unwrap_or(0);
+                    (id.clone(), json!(lvl))
+                }).collect();
+                // 推斷 primary_attribute：按 HeroStatic 的 base_str/agi/int 取最大；
+                // 目前 server Hero.primary_attribute 的判定也是根據角色設計 (strength/agility/
+                // intelligence) — 實務上 base 最大的就是 primary。
+                let (p_name, p_val) = [
+                    ("strength", st.base_str),
+                    ("agility", st.base_agi),
+                    ("intelligence", st.base_int),
+                ].iter().max_by_key(|(_, v)| *v).copied().unwrap_or(("strength", 0));
+                let _ = p_val;
+                if let Some(obj) = d.as_object_mut() {
+                    obj.insert("name".into(), json!(st.name));
+                    obj.insert("title".into(), json!(st.title));
+                    obj.insert("strength".into(), json!(st.base_str as i32));
+                    obj.insert("agility".into(), json!(st.base_agi as i32));
+                    obj.insert("intelligence".into(), json!(st.base_int as i32));
+                    obj.insert("primary_attribute".into(), json!(p_name));
+                    obj.insert("level".into(), json!(st.level as i32));
+                    obj.insert("xp".into(), json!(st.xp as i32));
+                    obj.insert("xp_next".into(), json!(st.xp_next as i32));
+                    obj.insert("skill_points".into(), json!(st.skill_points as i32));
+                    obj.insert("abilities".into(), json!(st.ability_ids));
+                    obj.insert("ability_levels".into(), serde_json::Value::Object(ability_levels_map));
+                }
+            }
+            // Inject latest lives (tracked from GameLives events) so omfx's
+            // TD-mode detection + HUD lives display keep working from hero.stats.
+            if let Some(lives) = hero_cache.latest_lives {
+                if let Some(obj) = d.as_object_mut() {
+                    obj.insert("lives".into(), json!(lives));
+                }
+            }
+
+            GameEventData {
+                topic: event.topic.clone(),
+                msg_type: "hero".to_string(),
+                action: "stats".to_string(),
+                data: d,
+                timestamp_ms: event.timestamp_ms,
+                payload_bytes: wire_bytes,
+            }
+        }
         game_event::TypedPayload::GameRound(m) => {
             let d = json!({
                 "round": m.round,
@@ -371,6 +483,8 @@ fn translate_typed_payload(
             GameEventData { data: d, ..default() }
         }
         game_event::TypedPayload::GameLives(m) => {
+            // P3: cache for later injection into merged hero.stats.
+            hero_cache.latest_lives = Some(m.lives);
             let d = json!({ "lives": m.lives });
             GameEventData { data: d, ..default() }
         }
@@ -395,5 +509,6 @@ fn translate_typed_payload(
             warn!("typed_payload variant not yet handled on client");
             default()
         }
-    }
+    };
+    Some(out)
 }
