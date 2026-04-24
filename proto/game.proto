@@ -33,13 +33,70 @@ message SubscribeRequest {
   string player_name = 1;
 }
 
-// Corresponds to MqttMsg / OutboundMsg
+// ===== Quantization primitives (P2) =====
+// All quantized scalars use explicit scale constants (see omoba-core/src/quant.rs):
+//   Position16: scale=0.25, range ±8191.75 world units, precision 0.25 px
+//   Fixed16:    scale=0.1,  range ±3276.7, for HP/damage/armor/move_speed
+//   Facing8:    256 steps across 0..2π, precision ~1.4°
+//
+// Use sint32 in proto3 (varint encoded) — typical sub-20 values fit in 1~2 bytes.
+message Position16 {
+  sint32 x_q = 1;  // value * 0.25 = world x
+  sint32 y_q = 2;
+}
+
+message Fixed16 {
+  sint32 v_q = 1;  // value * 0.1 = real value
+}
+
+// ===== Typed event payloads (P2) =====
+// Populated when a given event kind has been migrated off JSON. Clients
+// check `GameEvent.typed_payload` first; if unset, fall back to `data_json`.
+
+message HeartbeatEntry {
+  uint64 id = 1;      // entity index (specs::Entity::id)
+  Fixed16 hp = 2;     // current HP only; client caches max_hp from creation events
+}
+
+message HeartbeatTick {
+  uint64 tick = 1;
+  double game_time = 2;       // total seconds since scenario start
+  uint32 entity_count = 3;    // global: heroes + units + creeps (sanity UI)
+  uint32 hero_count = 4;
+  uint32 unit_count = 5;
+  uint32 creep_count = 6;
+  uint32 render_delay_ms = 7;
+  repeated HeartbeatEntry hp_snapshot = 8;  // viewport-filtered per-player
+}
+
+// Future migrations (schema reserved; encoders empty until implemented):
+//   HeroStatic  — hero create/level-up/ability-learn (Task 2.3/P3)
+//   HeroHot     — hero stats 0.3s tick (P3)
+//   CreepCreate / CreepMove / CreepHp / CreepFacing / CreepSlow (P2/P4)
+//   ProjectileC / ProjectileD (P2)
+//   TowerCreate / TowerUpgrade (P2)
+//   EntityDeath (P2)
+
+// Corresponds to MqttMsg / OutboundMsg. P2 incremental migration: new typed
+// events use `typed_payload` oneof; legacy events continue to use `data_json`.
 message GameEvent {
   string topic = 1;
-  string msg_type = 2;       // "t" field
+  string msg_type = 2;       // "t" field  (still used for dispatch + counter label)
   string action = 3;         // "a" field
-  bytes  data_json = 4;      // "d" field as JSON bytes
+  bytes  data_json = 4;      // "d" field as JSON bytes (legacy, still used)
   uint64 timestamp_ms = 5;
+  // Reserved for future fields to avoid tag collision during incremental migration.
+  reserved 6 to 9;
+  // Populated when the event has been migrated to a typed prost payload.
+  // When set, decoders SHOULD prefer this over `data_json`.
+  oneof typed_payload {
+    HeartbeatTick heartbeat = 10;
+    // Future variants (keep numeric gaps for logical grouping):
+    //   11..=19 reserved for hero events (HeroStatic, HeroHot, etc.)
+    //   20..=29 reserved for creep events
+    //   30..=39 reserved for projectile / tower
+    //   40..=49 reserved for game meta
+  }
 }
 
 message TestCommandRequest {
