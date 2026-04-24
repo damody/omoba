@@ -235,6 +235,13 @@ fn translate_typed_payload(
                 let hp = e.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
                 json!({ "i": e.id as u32, "h": hp })
             }).collect();
+            // P4: creep position sample for client drift correction. Empty
+            // Vec (no creeps visible) serialises to an empty array — omfx's
+            // snap logic iterates harmlessly.
+            let pos_snapshot: Vec<serde_json::Value> = hb.pos_snapshot.iter().map(|e| {
+                let (x, y) = e.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+                json!({ "i": e.id as u32, "x": x, "y": y })
+            }).collect();
             let d = json!({
                 "tick": hb.tick,
                 "game_time": hb.game_time,
@@ -244,6 +251,7 @@ fn translate_typed_payload(
                 "creep_count": hb.creep_count,
                 "render_delay_ms": hb.render_delay_ms,
                 "hp_snapshot": hp_snapshot,
+                "pos_snapshot": pos_snapshot,
             });
             GameEventData {
                 topic: event.topic.clone(),
@@ -294,11 +302,20 @@ fn translate_typed_payload(
         }
         game_event::TypedPayload::CreepMove(m) => {
             let tgt = m.target.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            // P4: reconstruct extrapolation fields. `velocity`/`start_pos`/`start_tick`/`arrival_tick`
+            // are zero for legacy emits (handle_creep_stop freeze) — omfx treats that as
+            // "lerp only, no extrapolation".
+            let velocity = m.velocity.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let start = m.start_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let d = json!({
                 "id": m.id as u32,
                 "x": tgt.0,
                 "y": tgt.1,
                 "facing": facing_dequant(m.facing_q),
+                "velocity": velocity,
+                "arrival_tick": m.arrival_tick,
+                "start_pos": { "x": start.0, "y": start.1 },
+                "start_tick": m.start_tick,
             });
             GameEventData { data: d, ..default() }
         }
