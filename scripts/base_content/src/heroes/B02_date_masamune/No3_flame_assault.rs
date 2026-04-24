@@ -6,6 +6,7 @@ use abi_stable::{
 };
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
+    buff_ids::BuffId,
     types::{DamageKind, EntityHandle, Target},
     world::GameWorldDyn,
 };
@@ -16,9 +17,6 @@ use omoba_core::ability_meta::{
 use std::collections::HashMap;
 
 pub const ABILITY_ID: &str = "flame_assault";
-/// 統一以 "stun" 作為暈眩狀態 buff id，host 端的 hero_tick / hero_move_tick /
-/// creep_tick 會讀取此 id 做控制判定。
-const STUN_BUFF_ID: &str = "stun";
 
 pub struct FlameAssaultHandler;
 
@@ -65,7 +63,7 @@ impl AbilityScript for FlameAssaultHandler {
 
         world.emit_explosion(center, radius, 0.2);
         let enemies = world.query_enemies_in_range(center, radius, caster);
-        let stun_buff = RStr::from_str(STUN_BUFF_ID);
+        let stun_buff = BuffId::Stun.as_rstr();
         for victim in enemies.iter().copied() {
             world.deal_damage(victim, damage, DamageKind::Magical, RNone);
             world.add_buff(victim, stun_buff, stun_duration);

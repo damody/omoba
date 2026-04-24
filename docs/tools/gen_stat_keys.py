@@ -281,12 +281,11 @@ SECTION_RE = re.compile(r"^// SECTION (\d+) —", re.MULTILINE)
 
 
 def parse_backup(text: str):
-    """Return (entries, buff_id_consts).
+    """Return entries: list of (const_name, wire, section_num) in file order.
 
-    * entries: list of (const_name, wire, section_num) in file order, EXCLUDING
-      BUFF_ID_* consts (those are buff identifiers, not stat property keys).
-    * buff_id_consts: list of (const_name, wire) preserved for emission as
-      plain `pub const` at file tail.
+    BUFF_ID_* consts from older backups are silently skipped — they are now
+    modelled as the `BuffId` enum in `scripts/script-abi/src/buff_ids.rs`,
+    which is hand-maintained and not generated from this script.
     """
     # Find SECTION banner positions to classify each const by file offset
     section_banners = [
@@ -304,17 +303,15 @@ def parse_backup(text: str):
         return cur
 
     entries: list[tuple[str, str, int]] = []
-    buff_id_consts: list[tuple[str, str]] = []
     for m in CONST_RE.finditer(text):
         name, wire = m.group(1), m.group(2)
         if name == "BUILDING_EXCLUDED_KEYS":
             continue
         if name.startswith("BUFF_ID_"):
-            # 不吸進 StatKey enum — buff identifier 不是 stat property key。
-            buff_id_consts.append((name, wire))
+            # Buff identifier 已遷至 BuffId enum（buff_ids.rs），這裡不產出。
             continue
         entries.append((name, wire, section_of(m.start())))
-    return entries, buff_id_consts
+    return entries
 
 
 def parse_excluded_wires(text: str, name_to_wire: dict[str, str]) -> set[str]:
@@ -492,26 +489,6 @@ def build_all_array(entries: list[tuple[str, str, str, str, int]]) -> str:
     return "\n".join(lines)
 
 
-def build_buff_id_consts_block(buff_id_consts: list[tuple[str, str]]) -> str:
-    """Emit the preserved BUFF_ID_* constants as plain `pub const`s.
-
-    These are buff identifier strings (consumed by `GameWorld::add_buff` /
-    `remove_buff` / `has_buff`), NOT stat property keys — they must not be
-    part of the StatKey enum.
-    """
-    lines: list[str] = []
-    lines.append("// ============================================================")
-    lines.append("// Buff IDs")
-    lines.append("// ============================================================")
-    lines.append("// 以下是 buff identifier 字串常數（供 GameWorld::add_buff /")
-    lines.append("// remove_buff / has_buff 等 API 使用），不是 stat property key，")
-    lines.append("// 不納入 StatKey enum。")
-    lines.append("")
-    for name, wire in buff_id_consts:
-        lines.append(f'pub const {name}: &str = "{wire}";')
-    return "\n".join(lines)
-
-
 def build_tests_block(total: int) -> str:
     return f"""#[cfg(test)]
 mod tests {{
@@ -641,12 +618,8 @@ def main() -> int:
         return 2
     text = BACKUP_PATH.read_text(encoding="utf-8")
 
-    raw, buff_id_consts = parse_backup(text)
+    raw = parse_backup(text)
     name_to_wire = {name: wire for (name, wire, _s) in raw}
-    # parse_excluded_wires 仍需看得到 BUFF_ID_* 的 name→wire 以防 exclusion list
-    # 引用（目前沒有，但保守起見把兩邊合一起餵 excluded parser）。
-    for n, w in buff_id_consts:
-        name_to_wire.setdefault(n, w)
     excluded_wires = parse_excluded_wires(text, name_to_wire)
 
     # Build migrated entries
@@ -697,8 +670,6 @@ def main() -> int:
     parts.append(build_impl_block(entries))
     parts.append("")
     parts.append(build_all_array(entries))
-    parts.append("")
-    parts.append(build_buff_id_consts_block(buff_id_consts))
     parts.append("")
     parts.append(build_tests_block(total))
 

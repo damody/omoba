@@ -931,19 +931,6 @@ pub const ALL: &[StatKey; 138] = &[
     StatKey::DotDamage,
 ];
 
-// ============================================================
-// Buff IDs
-// ============================================================
-// 以下是 buff identifier 字串常數（供 GameWorld::add_buff /
-// remove_buff / has_buff 等 API 使用），不是 stat property key，
-// 不納入 StatKey enum。
-
-pub const BUFF_ID_STUN: &str = "stun";
-pub const BUFF_ID_ROOT: &str = "root";
-pub const BUFF_ID_SILENCE: &str = "silence";
-pub const BUFF_ID_INVISIBLE: &str = "invisible";
-pub const BUFF_ID_INVULNERABLE: &str = "invulnerable";
-
 #[cfg(test)]
 mod tests {
     use super::{StatKey, StatSection, Aggregation, ALL};
