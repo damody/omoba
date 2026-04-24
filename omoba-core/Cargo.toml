@@ -38,6 +38,9 @@ tokio-stream = { version = "0.1", optional = true }
 # KCP client
 tokio_kcp = { version = "0.9", optional = true }
 
+# LZ4 compression (used by kcp framing)
+lz4_flex = { version = "0.11", optional = true }
+
 [build-dependencies]
 tonic-build = { version = "0.12", optional = true }
 prost-build = { version = "0.13", optional = true }
@@ -46,4 +49,4 @@ prost-build = { version = "0.13", optional = true }
 default = ["kcp"]
 mqtt = ["rumqttc"]
 grpc = ["tonic", "prost", "tokio-stream", "tonic-build"]
-kcp = ["tokio_kcp", "prost", "prost-build", "tokio/net", "tokio/io-util"]
+kcp = ["tokio_kcp", "prost", "prost-build", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
