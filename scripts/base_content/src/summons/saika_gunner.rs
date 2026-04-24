@@ -34,9 +34,20 @@ impl UnitScript for SaikaGunner {
         if asd_interval <= 0.0 {
             return;
         }
+        // 玩家命令移動由 host 端 `summon_move_tick` 處理 MoveTarget；script 專注攻擊 AI。
+        // summon_move_tick 在本 tick 前執行，抵達後移除 MoveTarget。
 
-        // 射程內敵人 → 開火
+        // 射程內敵人 → 轉向目標並開火
         if let RSome(target) = w.query_nearest_enemy(pos, attack_range, e) {
+            // 先轉向目標：即使還沒 ready to fire 也讓模型面朝敵人，避免子彈視覺
+            // 上「從身體外射出」（前端以 facing 決定槍口模型方向）。
+            if let RSome(tpos) = w.get_pos(target) {
+                let dx = tpos.x - pos.x;
+                let dy = tpos.y - pos.y;
+                if dx * dx + dy * dy > 0.0001 {
+                    w.set_facing(e, dy.atan2(dx));
+                }
+            }
             let mut asd_count = w.get_asd_count(e);
             if asd_count < asd_interval {
                 asd_count += dt;
