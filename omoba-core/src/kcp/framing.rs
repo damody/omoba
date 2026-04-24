@@ -191,20 +191,31 @@ mod tests {
     async fn incompressible_payload_falls_back() {
         // Random-ish / already-compressed data usually fails to shrink. Use
         // data that LZ4 cannot meaningfully compress: small + non-redundant.
-        // To guarantee the fallback path we construct a payload at threshold
-        // size with high entropy.
+        // Construct a payload at threshold size with high entropy (Knuth hash).
         let mut payload = Vec::with_capacity(200);
         for i in 0..200u32 {
-            // interleave bytes so they are not easily compressed
             payload.push((i.wrapping_mul(2654435761) & 0xFF) as u8);
         }
         assert!(payload.len() >= LZ4_THRESHOLD);
 
+        // Inspect the raw wire bytes directly to prove the fallback branch
+        // fired — the high-entropy Knuth sequence COULD coincidentally compress
+        // a byte or two, and we must not let roundtrip-only assertions mask
+        // that case.
         let (mut a, mut b) = duplex(8192);
         write_framed(&mut a, TAG_GAME_EVENT, &payload).await.unwrap();
         a.shutdown().await.ok();
-        let (tag, out) = read_framed(&mut b).await.unwrap().unwrap();
-        assert_eq!(tag, TAG_GAME_EVENT);
-        assert_eq!(out, payload);
+
+        let mut wire = Vec::new();
+        b.read_to_end(&mut wire).await.unwrap();
+        assert_eq!(
+            wire[0] & COMPRESSION_FLAG,
+            0,
+            "fallback path: tag high-bit must be clear when we keep raw payload"
+        );
+        assert_eq!(wire[0] & 0x7F, TAG_GAME_EVENT);
+        let len = u32::from_be_bytes(wire[1..5].try_into().unwrap()) as usize;
+        assert_eq!(len, payload.len(), "fallback path keeps original length");
+        assert_eq!(&wire[5..], payload.as_slice(), "raw bytes match payload");
     }
 }
