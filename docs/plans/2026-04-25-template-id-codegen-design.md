@@ -1,7 +1,33 @@
 # Template ID Codegen Design
 
 Date: 2026-04-25
-Status: Design (ready for plan)
+Status: **Shipped 2026-04-25** — reduced scope (see "Delivered scope" below).
+
+## Delivered scope (2026-04-25)
+
+**Landed:**
+- New crate `omoba-template-ids` (zero runtime deps, build.rs codegen)
+- `Story/templates.json` single source of truth (4 towers, 2 heroes, 8 abilities, 5 buffs, 1 summon, 14 creeps, 9 projectile kinds)
+- 7 per-namespace newtype (`TowerId`, `HeroId`, `AbilityId`, `BuffId`, `SummonId`, `CreepId`, `ProjectileKindId`) + consts + `*_by_name` / `*_id_str` / `*_display` lookups
+- **Wire migration (the high-value part):**
+  - `ProjectileCreate.kind_id`: FNV-1a u32 hash → sequential u16 (saves ~2 B/event × 3000/s ≈ 6 KB/s under stress)
+  - `CreepCreate.name_id`: FNV-1a u32 hash → sequential u16 (saves ~7 B/creep — Chinese labels hashed to big numbers)
+  - Server no longer hashes strings; client reverse-lookup through new crate
+- **Scripts (base_content):** all 4 towers + 1 summon use `TOWER_*.as_str()` / `PROJECTILE_*.0` patterns — string literal typo is a compile error
+- Legacy `omoba-core/src/template_ids.rs` (hand-maintained FNV tables) deleted
+- `ProjectileSpec.kind_tag: RString → kind_id: u16` ABI break — only FFI signature change this pass
+
+**Deferred (future work, not urgent):**
+- Trait signature changes: `UnitScript::unit_id()` / `AbilityScript::ability_id()` stay as `RStr<'_>` (scripts call `RStr::from_str(TOWER_TACK.as_str())` — compile-time safe but not type-safe at FFI boundary). Upgrading to `UnitTemplateId` / `AbilityId` newtype return is ergonomic polish, not wire-critical.
+- `GameWorld::add_buff / remove_buff / has_buff / add_stat_buff` stay as `RStr<'_>` for buff_id. Host adapter already converts via `.to_string()` for BuffStore key.
+- Proto breaking changes for `TowerCreate.kind/name`, `HeroStatic.name/title/ability_ids`, `BuffAdd.buff_id`, `BuffSnapshot.buff_id`, `BuffRemove.buff_id` — these are low-frequency events (TowerCreate ~100/session, HeroStatic ~10/session, Buff ~50/s), total wire savings < 1 KB/s, not worth the encoder/decoder rewiring right now.
+- Ability files (`heroes/**/No*.rs`) keep `pub const ABILITY_ID: &str = "sniper_mode"` as-is — runtime cross-check planned via host catalog load validation.
+
+**Rationale for scope reduction:** The ABI trait signature change touches 18 script files + host adapter + gen_docs simultaneously (non-atomic if done in multiple commits, meaning the intermediate state breaks build). The delivered scope captures ≥95% of the wire-bytes benefit with one focused FFI change (`ProjectileSpec.kind_tag → kind_id: u16`) plus the wire field semantics swap at `proto_build` level — same end result, 20% of the refactor surface.
+
+---
+
+
 
 ## Problem
 
