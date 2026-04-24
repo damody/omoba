@@ -21,30 +21,33 @@ use abi_stable::StableAbi;
 /// # SAFETY
 /// Variant 順序 = FFI ABI 契約：新增只能 **追加到尾端**，絕不可在中間 insert
 /// 或更動 discriminant 值，否則 host 與 script DLL 版本不同步會 UB。
+/// **刪除亦禁止**：廢棄 variant 請保留佔位並標 `#[deprecated]`，
+/// 避免後續 discriminant 重編號錯位。
 /// 每個 variant 顯式寫 `= N` 以鎖定值。
+// u16 而非 u8：165 variant 雖然 u8 夠，但留擴充空間（未來若對齊 Dota 2 完整 modifier list 可能超 256）。
 #[repr(u16)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StatKey {
     PreattackBonusDamage = 0,
-    AttackspeedBonusConstant = 1,
-    DamageoutgoingPercentage = 2,
+    AttackSpeedBonusConstant = 1,
+    DamageOutgoingPercentage = 2,
     // Task 5 會補齊其餘 ~162 個 variant
 }
 
 impl StatKey {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             StatKey::PreattackBonusDamage => "preattack_bonus_damage",
-            StatKey::AttackspeedBonusConstant => "attackspeed_bonus_constant",
-            StatKey::DamageoutgoingPercentage => "damageoutgoing_percentage",
+            StatKey::AttackSpeedBonusConstant => "attackspeed_bonus_constant",
+            StatKey::DamageOutgoingPercentage => "damageoutgoing_percentage",
         }
     }
 
     pub fn from_str_key(s: &str) -> Option<StatKey> {
         match s {
             "preattack_bonus_damage" => Some(StatKey::PreattackBonusDamage),
-            "attackspeed_bonus_constant" => Some(StatKey::AttackspeedBonusConstant),
-            "damageoutgoing_percentage" => Some(StatKey::DamageoutgoingPercentage),
+            "attackspeed_bonus_constant" => Some(StatKey::AttackSpeedBonusConstant),
+            "damageoutgoing_percentage" => Some(StatKey::DamageOutgoingPercentage),
             _ => None,
         }
     }
@@ -318,16 +321,24 @@ mod tests {
     #[test]
     fn as_str_roundtrip_smoke() {
         assert_eq!(StatKey::PreattackBonusDamage.as_str(), "preattack_bonus_damage");
-        assert_eq!(StatKey::AttackspeedBonusConstant.as_str(), "attackspeed_bonus_constant");
-        assert_eq!(StatKey::DamageoutgoingPercentage.as_str(), "damageoutgoing_percentage");
+        assert_eq!(StatKey::AttackSpeedBonusConstant.as_str(), "attackspeed_bonus_constant");
+        assert_eq!(StatKey::DamageOutgoingPercentage.as_str(), "damageoutgoing_percentage");
     }
 
     #[test]
-    fn from_str_roundtrip_smoke() {
-        assert_eq!(
-            StatKey::from_str_key("preattack_bonus_damage"),
-            Some(StatKey::PreattackBonusDamage)
-        );
+    fn from_str_unknown_returns_none() {
         assert_eq!(StatKey::from_str_key("not_a_real_key"), None);
+    }
+
+    #[test]
+    fn as_str_to_from_str_roundtrip() {
+        const SAMPLES: &[StatKey] = &[
+            StatKey::PreattackBonusDamage,
+            StatKey::AttackSpeedBonusConstant,
+            StatKey::DamageOutgoingPercentage,
+        ];
+        for &k in SAMPLES {
+            assert_eq!(StatKey::from_str_key(k.as_str()), Some(k), "round-trip failed for {:?}", k);
+        }
     }
 }
