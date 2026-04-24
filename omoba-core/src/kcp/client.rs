@@ -11,7 +11,7 @@ use tokio_kcp::{KcpConfig, KcpStream, KcpNoDelayConfig};
 
 use super::framing::*;
 use super::game_proto::*;
-use crate::quant::fixed_dequant;
+use crate::quant::{facing_dequant, fixed_dequant, pos_dequant};
 
 /// KCP client for communicating with the omb game server.
 pub struct KcpClient {
@@ -194,6 +194,17 @@ fn translate_typed_payload(
     event: &GameEvent,
     wire_bytes: usize,
 ) -> GameEventData {
+    // Keep the server-supplied msg_type / action so downstream dispatch
+    // (which keys on these strings) routes identically to the JSON path.
+    let default = || GameEventData {
+        topic: event.topic.clone(),
+        msg_type: event.msg_type.clone(),
+        action: event.action.clone(),
+        data: serde_json::Value::Null,
+        timestamp_ms: event.timestamp_ms,
+        payload_bytes: wire_bytes,
+    };
+
     match tp {
         game_event::TypedPayload::Heartbeat(hb) => {
             let hp_snapshot: Vec<serde_json::Value> = hb.hp_snapshot.iter().map(|e| {
@@ -219,19 +230,170 @@ fn translate_typed_payload(
                 payload_bytes: wire_bytes,
             }
         }
-        // Other typed payload variants migrate in later tasks; until then
-        // they cannot appear because the server only emits Heartbeat via
-        // the typed path. Log+stub keeps us safe if one slips through.
-        other => {
-            warn!("typed_payload variant not yet migrated on client: {:?}", other);
-            GameEventData {
-                topic: event.topic.clone(),
-                msg_type: event.msg_type.clone(),
-                action: event.action.clone(),
-                data: serde_json::Value::Null,
-                timestamp_ms: event.timestamp_ms,
-                payload_bytes: wire_bytes,
-            }
+        game_event::TypedPayload::ProjectileCreate(m) => {
+            let start = m.start_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let end = m.end_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let splash = m.splash_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let hit = m.hit_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "id": m.id as u32,
+                "target_id": m.target_id as u32,
+                "start_pos": { "x": start.0, "y": start.1 },
+                "end_pos": { "x": end.0, "y": end.1 },
+                "flight_time_ms": m.flight_time_ms,
+                "directional": m.directional,
+                "splash_radius": splash,
+                "hit_radius": hit,
+                "kind": m.kind,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::ProjectileDestroy(m) => {
+            let d = json!({ "id": m.id as u32 });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::CreepCreate(m) => {
+            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let move_speed = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "id": m.id as u32,
+                "entity_id": m.id as u32,
+                "name": m.name,
+                "position": { "x": pos.0, "y": pos.1 },
+                "hp": hp,
+                "max_hp": max_hp,
+                "move_speed": move_speed,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::CreepMove(m) => {
+            let tgt = m.target.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let d = json!({
+                "id": m.id as u32,
+                "x": tgt.0,
+                "y": tgt.1,
+                "facing": facing_dequant(m.facing_q),
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::CreepHp(m) => {
+            let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "id": m.id as u32,
+                "hp": hp,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::CreepSlow(m) => {
+            let ms = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "id": m.id as u32,
+                "move_speed": ms,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::CreepStall(m) => {
+            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let d = json!({
+                "id": m.id as u32,
+                "x": pos.0,
+                "y": pos.1,
+                "facing": facing_dequant(m.facing_q),
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::EntityFacing(m) => {
+            let d = json!({
+                "id": m.id as u32,
+                "facing": facing_dequant(m.facing_q),
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::EntityDeath(m) => {
+            let d = json!({ "id": m.id as u32 });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::TowerCreate(m) => {
+            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "id": m.id as u32,
+                "entity_id": m.id as u32,
+                "name": m.name,
+                "kind": m.kind,
+                "position": { "x": pos.0, "y": pos.1 },
+                "hp": hp,
+                "max_hp": max_hp,
+                "is_base": false,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::TowerUpgrade(m) => {
+            let l0 = m.levels.get(0).copied().unwrap_or(0);
+            let l1 = m.levels.get(1).copied().unwrap_or(0);
+            let l2 = m.levels.get(2).copied().unwrap_or(0);
+            let d = json!({
+                "tower_id": m.id as u32,
+                "levels": [l0, l1, l2],
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::BuffAdd(m) => {
+            // remaining_ms=0xFFFF sentinel → -1 remaining (infinite/toggle)
+            let remaining = if m.remaining_ms == 0xFFFF { -1.0_f32 } else { m.remaining_ms as f32 / 1000.0 };
+            let payload: serde_json::Value = serde_json::from_str(&m.payload_json).unwrap_or(serde_json::Value::Null);
+            let d = json!({
+                "entity_id": m.entity_id as u32,
+                "id": m.entity_id as u32,
+                "buff_id": m.buff_id,
+                "remaining": remaining,
+                "payload": payload,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::BuffRemove(m) => {
+            let d = json!({
+                "entity_id": m.entity_id as u32,
+                "id": m.entity_id as u32,
+                "buff_id": m.buff_id,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::GameRound(m) => {
+            let d = json!({
+                "round": m.round,
+                "total": m.total,
+                "is_running": m.is_running,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::GameLives(m) => {
+            let d = json!({ "lives": m.lives });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::GameEnd(m) => {
+            let d = json!({ "winner": m.winner });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::TypedPayload::GameExplosion(m) => {
+            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let radius = m.radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "x": pos.0,
+                "y": pos.1,
+                "radius": radius,
+                "duration": m.duration_ms as f32 / 1000.0,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        // Catch-all: preserve legacy JSON form if an unknown variant slips through.
+        #[allow(unreachable_patterns)]
+        _other => {
+            warn!("typed_payload variant not yet handled on client");
+            default()
         }
     }
 }
