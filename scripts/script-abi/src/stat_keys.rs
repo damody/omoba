@@ -16,6 +16,19 @@
 
 use abi_stable::StableAbi;
 
+/// StatKey 的三分章節分類（對應 Dota 2 modifier property 的通用性）。
+///
+/// - `All`：全單位通用（包含建築物）
+/// - `NonBuilding`：僅非建築物（有 IsBuilding 標記的實體會跳過）
+/// - `Visual`：純視覺／前端 pass-through（不影響遊戲邏輯）
+#[repr(u8)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum StatSection {
+    All = 0,
+    NonBuilding = 1,
+    Visual = 2,
+}
+
 /// Script ABI 的 stat key 枚舉。
 ///
 /// # SAFETY
@@ -49,6 +62,14 @@ impl StatKey {
             "attackspeed_bonus_constant" => Some(StatKey::AttackSpeedBonusConstant),
             "damageoutgoing_percentage" => Some(StatKey::DamageOutgoingPercentage),
             _ => None,
+        }
+    }
+
+    pub const fn section(self) -> StatSection {
+        match self {
+            StatKey::PreattackBonusDamage
+            | StatKey::AttackSpeedBonusConstant
+            | StatKey::DamageOutgoingPercentage => StatSection::All,
         }
     }
 }
@@ -340,5 +361,14 @@ mod tests {
         for &k in SAMPLES {
             assert_eq!(StatKey::from_str_key(k.as_str()), Some(k), "round-trip failed for {:?}", k);
         }
+    }
+
+    #[test]
+    fn section_classification_all() {
+        use super::StatSection;
+        assert_eq!(StatKey::PreattackBonusDamage.section(), StatSection::All);
+        assert_eq!(StatKey::AttackSpeedBonusConstant.section(), StatSection::All);
+        assert_eq!(StatKey::DamageOutgoingPercentage.section(), StatSection::All);
+        // Task 5 加完其餘 variant 後會補 NonBuilding / Visual 的驗證
     }
 }
