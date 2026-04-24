@@ -14,6 +14,42 @@
 //! 2. **僅非建築物**（有 `IsBuilding` component 的實體跳過）
 //! 3. **視覺/前端**（host pass-through only）
 
+use abi_stable::StableAbi;
+
+/// Script ABI 的 stat key 枚舉。
+///
+/// # SAFETY
+/// Variant 順序 = FFI ABI 契約：新增只能 **追加到尾端**，絕不可在中間 insert
+/// 或更動 discriminant 值，否則 host 與 script DLL 版本不同步會 UB。
+/// 每個 variant 顯式寫 `= N` 以鎖定值。
+#[repr(u16)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum StatKey {
+    PreattackBonusDamage = 0,
+    AttackspeedBonusConstant = 1,
+    DamageoutgoingPercentage = 2,
+    // Task 5 會補齊其餘 ~162 個 variant
+}
+
+impl StatKey {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            StatKey::PreattackBonusDamage => "preattack_bonus_damage",
+            StatKey::AttackspeedBonusConstant => "attackspeed_bonus_constant",
+            StatKey::DamageoutgoingPercentage => "damageoutgoing_percentage",
+        }
+    }
+
+    pub fn from_str_key(s: &str) -> Option<StatKey> {
+        match s {
+            "preattack_bonus_damage" => Some(StatKey::PreattackBonusDamage),
+            "attackspeed_bonus_constant" => Some(StatKey::AttackspeedBonusConstant),
+            "damageoutgoing_percentage" => Some(StatKey::DamageoutgoingPercentage),
+            _ => None,
+        }
+    }
+}
+
 // ============================================================
 // SECTION 1 — 全單位通用（包括建築物）
 // ============================================================
@@ -274,3 +310,24 @@ pub const BUILDING_EXCLUDED_KEYS: &[&str] = &[
     BOUNTY_CREEP_MULTIPLIER,
     BOUNTY_OTHER_MULTIPLIER,
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::StatKey;
+
+    #[test]
+    fn as_str_roundtrip_smoke() {
+        assert_eq!(StatKey::PreattackBonusDamage.as_str(), "preattack_bonus_damage");
+        assert_eq!(StatKey::AttackspeedBonusConstant.as_str(), "attackspeed_bonus_constant");
+        assert_eq!(StatKey::DamageoutgoingPercentage.as_str(), "damageoutgoing_percentage");
+    }
+
+    #[test]
+    fn from_str_roundtrip_smoke() {
+        assert_eq!(
+            StatKey::from_str_key("preattack_bonus_damage"),
+            Some(StatKey::PreattackBonusDamage)
+        );
+        assert_eq!(StatKey::from_str_key("not_a_real_key"), None);
+    }
+}
