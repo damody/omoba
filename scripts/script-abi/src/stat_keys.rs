@@ -630,7 +630,7 @@ impl StatKey {
             StatKey::ProcattackBonusDamagePhysical => Aggregation::SumAdd,
             StatKey::ProcattackBonusDamageMagical => Aggregation::SumAdd,
             StatKey::ProcattackBonusDamagePure => Aggregation::SumAdd,
-            StatKey::ProcattackFeedback => Aggregation::PassThrough,
+            StatKey::ProcattackFeedback => Aggregation::SumAdd,
             StatKey::InvisibilityLevel => Aggregation::PassThrough,
             StatKey::PersistentInvisibility => Aggregation::PassThrough,
             StatKey::AttackSpeedBaseOverride => Aggregation::PassThrough,
