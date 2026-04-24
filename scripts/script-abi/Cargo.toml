@@ -16,3 +16,4 @@ warnings = "allow"
 
 [dependencies]
 abi_stable = "0.11"
+omoba-template-ids = { path = "../../omoba-template-ids" }

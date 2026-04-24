@@ -41,6 +41,9 @@ tokio_kcp = { version = "0.9", optional = true }
 # LZ4 compression (used by kcp framing)
 lz4_flex = { version = "0.11", optional = true }
 
+# Template ids (build-time generated from Story/templates.json)
+omoba-template-ids = { path = "../omoba-template-ids" }
+
 [build-dependencies]
 tonic-build = { version = "0.12", optional = true }
 prost-build = { version = "0.13", optional = true }
