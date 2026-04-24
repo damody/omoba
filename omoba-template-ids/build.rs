@@ -92,6 +92,10 @@ fn const_name(ns_lower: &str, id: &str) -> String {
 
 fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry], has_display: bool) {
     // newtype with #[repr(transparent)] — wire-safe for abi_stable via raw u16
+    // newtype with #[repr(transparent)] — wire-safe for abi_stable via raw u16.
+    // `.as_str()` returns the original id string ("tower_tack" etc.) for use
+    // where FFI still expects RStr<'_> — scripts do `RStr::from_str(TOWER_TACK.as_str())`
+    // which is still compile-time-checked via const existence.
     out.push_str(&format!(
         "#[repr(transparent)]\n\
          #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]\n\
@@ -99,8 +103,9 @@ fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry],
          impl {}Id {{\n\
          \tpub const UNSPECIFIED: Self = Self(0);\n\
          \tpub const fn raw(self) -> u16 {{ self.0 }}\n\
+         \tpub fn as_str(self) -> &'static str {{ {}_id_str(self) }}\n\
          }}\n\n",
-        ty, ty,
+        ty, ty, ns_lower,
     ));
 
     // consts — sequential 1..N skipping tombstones (but consuming id number)

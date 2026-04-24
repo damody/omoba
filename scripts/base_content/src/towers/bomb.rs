@@ -22,7 +22,7 @@ const SPLASH_RADIUS: f32 = 200.0;
 
 impl UnitScript for BombTower {
     fn unit_id(&self) -> RStr<'_> {
-        RStr::from_str("tower_bomb")
+        RStr::from_str(TOWER_BOMB.as_str())
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
@@ -101,7 +101,7 @@ impl UnitScript for BombTower {
             slow_factor: 0.0,
             slow_duration: 0.0,
             stun_duration: stun,
-            kind_tag: RString::from("bomb"),
+            kind_id: PROJECTILE_BOMB.0,
         });
     }
 
@@ -155,7 +155,7 @@ impl UnitScript for BombTower {
                 slow_factor: 0.0,
                 slow_duration: 0.0,
                 stun_duration: 0.0,
-                kind_tag: RString::from("bomb_frag"),
+                kind_id: PROJECTILE_BOMB_FRAG.0,
             });
         }
     }

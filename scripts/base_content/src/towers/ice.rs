@@ -25,7 +25,7 @@ const SLOW_DURATION: f32 = 2.0;
 
 impl UnitScript for IceTower {
     fn unit_id(&self) -> RStr<'_> {
-        RStr::from_str("tower_ice")
+        RStr::from_str(TOWER_ICE.as_str())
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
@@ -101,7 +101,7 @@ impl UnitScript for IceTower {
         };
         let icicle = w.has_tower_flag(e, RStr::from_str("icicle_impale"));
 
-        let (path_spec, final_splash, final_damage, kind_tag) = if icicle {
+        let (path_spec, final_splash, final_damage, kind_id) = if icicle {
             // 朝 target 直線穿透（至 1.5 倍 range）
             let t_pos = match w.get_pos(target) {
                 RSome(p) => p,
@@ -117,14 +117,14 @@ impl UnitScript for IceTower {
                 PathSpec::Straight { end_pos: end },
                 150.0_f32,
                 atk.max(25.0),
-                "icicle",
+                PROJECTILE_ICICLE.0,
             )
         } else {
             (
                 PathSpec::Homing { target },
                 splash_radius,
                 atk,
-                "ice",
+                PROJECTILE_ICE.0,
             )
         };
 
@@ -140,7 +140,7 @@ impl UnitScript for IceTower {
             slow_factor,
             slow_duration,
             stun_duration: stun,
-            kind_tag: RString::from(kind_tag),
+            kind_id,
         });
 
         // TODO arctic_aura_20 / snowstorm / cryo_cannon: 需 aura tick + damage_taken_bonus hook (Task 14)

@@ -13,7 +13,7 @@ use tokio_kcp::{KcpConfig, KcpStream, KcpNoDelayConfig};
 use super::framing::*;
 use super::game_proto::*;
 use crate::quant::{facing_dequant, fixed_dequant, pos_dequant};
-use crate::template_ids::{creep_name_by_id, projectile_kind_by_id};
+use omoba_template_ids::{creep_display, projectile_id_str, CreepId, ProjectileKindId};
 
 /// P3: client-side cache for hero static metadata.
 ///
@@ -393,9 +393,10 @@ fn translate_typed_payload(
             // splash > 0 or unset. omfx reads this to schedule optimistic HP
             // update at impact tick.
             let damage = m.damage.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            // P8 bytes opt D: reverse-lookup kind_id → string. Unknown ids
-            // fall back to "" (omfx's bullet-colour switch already defaults).
-            let kind_str = projectile_kind_by_id(m.kind_id);
+            // Reverse-lookup kind_id (now sequential u16 from omoba-template-ids)
+            // → original tag string ("tack"/"bomb"/etc.). Unknown ids fall back
+            // to "" so omfx's bullet-colour switch defaults gracefully.
+            let kind_str = projectile_id_str(ProjectileKindId(m.kind_id as u16));
             let d = json!({
                 "id": m.id as u32,
                 "target_id": m.target_id as u32,
@@ -419,9 +420,9 @@ fn translate_typed_payload(
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let move_speed = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            // P8 bytes opt C: reverse-lookup name_id → display name. Unknown
-            // id → "" (omfx falls back to entity_type string).
-            let name_str = creep_name_by_id(m.name_id);
+            // Reverse-lookup name_id (sequential CreepId u16) → display name.
+            // Unknown id → "" (omfx falls back to entity_type string).
+            let name_str = creep_display(CreepId(m.name_id as u16));
             let d = json!({
                 "id": m.id as u32,
                 "entity_id": m.id as u32,
