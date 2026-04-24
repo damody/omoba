@@ -10,6 +10,7 @@
 //! - frag_recursive: 碎片再產生碎片的深度遞迴，暫只調高碎片傷害 (45 vs 25)
 
 use omb_script_abi::prelude::*;
+use omb_script_abi::stat_keys::StatKey;
 
 pub struct BombTower;
 
@@ -77,7 +78,7 @@ impl UnitScript for BombTower {
         let atk = w.get_final_atk(e);
 
         // splash_bonus: base SPLASH_RADIUS + sum_add("splash_bonus")
-        let splash_bonus = w.get_stat_bonus(e, RStr::from_str("splash_bonus"));
+        let splash_bonus = w.get_stat_bonus(e, StatKey::SplashBonus);
         let splash = SPLASH_RADIUS + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("bomb_stun")) {

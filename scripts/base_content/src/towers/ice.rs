@@ -11,6 +11,7 @@
 //! - refreeze: 命中時 remove+add slow，簡化版暫未處理
 
 use omb_script_abi::prelude::*;
+use omb_script_abi::stat_keys::StatKey;
 
 pub struct IceTower;
 
@@ -80,17 +81,17 @@ impl UnitScript for IceTower {
         let atk = w.get_final_atk(e);
 
         // slow_factor_override：upgrade 寫入的目標 factor（越小越強，clamp 在 (0, 1) 才採用）
-        let slow_override = w.get_stat_bonus(e, RStr::from_str("slow_factor_override"));
+        let slow_override = w.get_stat_bonus(e, StatKey::SlowFactorOverride);
         let slow_factor = if slow_override > 0.0 && slow_override < 1.0 {
             slow_override
         } else {
             SLOW_FACTOR
         };
 
-        let slow_dur_bonus = w.get_stat_bonus(e, RStr::from_str("slow_duration_bonus"));
+        let slow_dur_bonus = w.get_stat_bonus(e, StatKey::SlowDurationBonus);
         let slow_duration = SLOW_DURATION + slow_dur_bonus;
 
-        let splash_bonus = w.get_stat_bonus(e, RStr::from_str("splash_bonus"));
+        let splash_bonus = w.get_stat_bonus(e, StatKey::SplashBonus);
         let splash_radius = SPLASH_RADIUS + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("deep_freeze")) {

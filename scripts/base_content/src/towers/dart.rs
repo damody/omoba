@@ -9,6 +9,7 @@
 //! TODO: attack_speed_multiplier 目前不會影響腳本層 ASD（見 Task 14/15 plan）。
 
 use omb_script_abi::prelude::*;
+use omb_script_abi::stat_keys::StatKey;
 
 pub struct DartTower;
 
@@ -155,7 +156,7 @@ impl UnitScript for DartTower {
         let always = w.has_tower_flag(attacker, RStr::from_str("always_crit"));
 
         // crit_chance override：upgrade buff 寫入 crit_chance 就用那個；否則回 BONUS_PROC_CHANCE (0.25)
-        let crit_chance_bonus = w.get_stat_bonus(attacker, RStr::from_str("crit_chance"));
+        let crit_chance_bonus = w.get_stat_bonus(attacker, StatKey::CritChance);
         let effective_chance = if crit_chance_bonus > 0.0 {
             crit_chance_bonus
         } else {
@@ -168,7 +169,7 @@ impl UnitScript for DartTower {
         }
 
         // crit_bonus override
-        let crit_bonus_extra = w.get_stat_bonus(attacker, RStr::from_str("crit_bonus"));
+        let crit_bonus_extra = w.get_stat_bonus(attacker, StatKey::CritBonus);
         let bonus_damage = if crit_bonus_extra > 0.0 {
             crit_bonus_extra
         } else {
