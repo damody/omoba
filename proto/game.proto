@@ -88,9 +88,10 @@ message ProjectileCreate {
   bool directional = 6;        // true = positional travel; false = seeking
   Fixed16 splash_radius = 7;   // 0 = point damage
   Fixed16 hit_radius = 8;      // hit test radius, 0 = point
-  // P8 bytes opt D: template id (FNV-1a of the kind string). 0 = unspecified.
-  // Client reverse-lookup table lives in `omoba_core::template_ids`.
-  uint32 kind_id = 9;          // visual/gameplay variant (e.g. fnv1a_32("tack"))
+  // Template id — sequential u16 from `omoba_template_ids::ProjectileKindId`.
+  // Source: `omb/Story/templates.json` `projectile_kinds[]`. 0 = UNSPECIFIED.
+  // Wire: uint32 varint (u16 fits in 1-3 bytes typically).
+  uint32 kind_id = 9;
   // P7: pre-declared damage for single-target projectiles. When splash_radius
   // is 0 (not AOE) and target_id is set, server pre-computes the damage here
   // so client can apply HP update locally at impact time, eliminating a
@@ -111,9 +112,9 @@ message CreepCreate {
   Fixed16 hp = 3;
   Fixed16 max_hp = 4;
   Fixed16 move_speed = 5;
-  // P8 bytes opt C: template id (FNV-1a of the display name / label string).
-  // 0 = unspecified. Client reverse-lookup lives in `omoba_core::template_ids`
-  // and is populated from the known Story/*/entity.json creep set.
+  // Template id — sequential u16 from `omoba_template_ids::CreepId`.
+  // Source: `omb/Story/templates.json` `creeps[]`. 0 = UNSPECIFIED.
+  // Client reverse-looks up display name via `creep_display(CreepId)`.
   uint32 name_id = 6;
   reserved 7;                  // was `string template_key`; dropped (never populated)
 }

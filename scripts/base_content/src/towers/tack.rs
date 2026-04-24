@@ -22,7 +22,7 @@ const HIT_RADIUS: f32 = 80.0; // 與 host 端 comp::TACK_NEEDLE_HIT_RADIUS 同�
 
 impl UnitScript for TackTower {
     fn unit_id(&self) -> RStr<'_> {
-        RStr::from_str("tower_tack")
+        RStr::from_str(TOWER_TACK.as_str())
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
@@ -115,7 +115,7 @@ impl UnitScript for TackTower {
                 slow_factor: 0.0,
                 slow_duration: 0.0,
                 stun_duration: 0.0,
-                kind_tag: RString::from(if blade { "tack_blade" } else { "tack" }),
+                kind_id: if blade { PROJECTILE_TACK_BLADE.0 } else { PROJECTILE_TACK.0 },
             });
         }
 

@@ -19,7 +19,7 @@ const MOVE_SPEED: f32 = 280.0;
 
 impl UnitScript for SaikaGunner {
     fn unit_id(&self) -> RStr<'_> {
-        RStr::from_str("saika_gunner")
+        RStr::from_str(SUMMON_SAIKA_GUNNER.as_str())
     }
 
     fn on_tick(&self, e: EntityHandle, dt: f32, w: &mut GameWorldDyn<'_>) {
@@ -67,7 +67,7 @@ impl UnitScript for SaikaGunner {
                     slow_factor: 0.0,
                     slow_duration: 0.0,
                     stun_duration: 0.0,
-                    kind_tag: RString::from("saika_shot"),
+                    kind_id: PROJECTILE_SAIKA_SHOT.0,
                 });
             }
             return;

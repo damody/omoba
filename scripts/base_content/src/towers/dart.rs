@@ -24,7 +24,7 @@ const BONUS_DAMAGE: f32 = 30.0;
 
 impl UnitScript for DartTower {
     fn unit_id(&self) -> RStr<'_> {
-        RStr::from_str("tower_dart")
+        RStr::from_str(TOWER_DART.as_str())
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
@@ -141,7 +141,7 @@ impl UnitScript for DartTower {
                 slow_factor: 0.0,
                 slow_duration: 0.0,
                 stun_duration: 0.0,
-                kind_tag: RString::from(if spike { "spike_opult" } else { "dart" }),
+                kind_id: if spike { PROJECTILE_SPIKE_OPULT.0 } else { PROJECTILE_DART.0 },
             });
         }
     }

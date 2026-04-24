@@ -124,6 +124,8 @@ pub struct ProjectileSpec {
     /// 命中後對目標施加的 stun 秒數（0 = 不暈眩）。由 projectile_tick 在命中時
     /// 產生 `Outcome::AddBuff("stun", duration)`。Dart/Bomb/Tack/Ice 初版皆 0。
     pub stun_duration: f32,
-    /// 前端渲染標籤（"dart"/"bomb"/"tack"/"ice"）—— 決定子彈顏色與視覺
-    pub kind_tag: RString,
+    /// 前端渲染 kind — u16 (`ProjectileKindId.0`)。由 `omoba_template_ids`
+    /// 的 build.rs 從 `Story/templates.json` `projectile_kinds[]` 產生。
+    /// 寫成 `PROJECTILE_TACK.0` 等 const，打錯字編譯失敗。0 = UNSPECIFIED。
+    pub kind_id: u16,
 }
