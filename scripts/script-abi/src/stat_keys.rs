@@ -193,14 +193,9 @@ pub enum StatKey {
     IgnoreCastAngle = 128,
     StunChance = 129,
     StunDuration = 130,
-    BuffIdStun = 131,
-    BuffIdRoot = 132,
-    BuffIdSilence = 133,
-    BuffIdInvisible = 134,
-    BuffIdInvulnerable = 135,
-    CritChance = 136,
-    AttackStunChance = 137,
-    AttackStunDuration = 138,
+    CritChance = 131,
+    AttackStunChance = 132,
+    AttackStunDuration = 133,
 }
 
 impl StatKey {
@@ -338,11 +333,6 @@ impl StatKey {
             StatKey::IgnoreCastAngle => "ignore_cast_angle",
             StatKey::StunChance => "stun_chance",
             StatKey::StunDuration => "stun_duration",
-            StatKey::BuffIdStun => "stun",
-            StatKey::BuffIdRoot => "root",
-            StatKey::BuffIdSilence => "silence",
-            StatKey::BuffIdInvisible => "invisible",
-            StatKey::BuffIdInvulnerable => "invulnerable",
             StatKey::CritChance => "crit_chance",
             StatKey::AttackStunChance => "attack_stun_chance",
             StatKey::AttackStunDuration => "attack_stun_duration",
@@ -483,11 +473,6 @@ impl StatKey {
             "ignore_cast_angle" => Some(StatKey::IgnoreCastAngle),
             "stun_chance" => Some(StatKey::StunChance),
             "stun_duration" => Some(StatKey::StunDuration),
-            "stun" => Some(StatKey::BuffIdStun),
-            "root" => Some(StatKey::BuffIdRoot),
-            "silence" => Some(StatKey::BuffIdSilence),
-            "invisible" => Some(StatKey::BuffIdInvisible),
-            "invulnerable" => Some(StatKey::BuffIdInvulnerable),
             "crit_chance" => Some(StatKey::CritChance),
             "attack_stun_chance" => Some(StatKey::AttackStunChance),
             "attack_stun_duration" => Some(StatKey::AttackStunDuration),
@@ -629,11 +614,6 @@ impl StatKey {
             StatKey::IgnoreCastAngle => StatSection::Visual,
             StatKey::StunChance => StatSection::Visual,
             StatKey::StunDuration => StatSection::Visual,
-            StatKey::BuffIdStun => StatSection::Visual,
-            StatKey::BuffIdRoot => StatSection::Visual,
-            StatKey::BuffIdSilence => StatSection::Visual,
-            StatKey::BuffIdInvisible => StatSection::Visual,
-            StatKey::BuffIdInvulnerable => StatSection::Visual,
             StatKey::CritChance => StatSection::All,
             StatKey::AttackStunChance => StatSection::All,
             StatKey::AttackStunDuration => StatSection::All,
@@ -774,11 +754,6 @@ impl StatKey {
             StatKey::IgnoreCastAngle => Aggregation::PassThrough,
             StatKey::StunChance => Aggregation::Chance,
             StatKey::StunDuration => Aggregation::PassThrough,
-            StatKey::BuffIdStun => Aggregation::PassThrough,
-            StatKey::BuffIdRoot => Aggregation::PassThrough,
-            StatKey::BuffIdSilence => Aggregation::PassThrough,
-            StatKey::BuffIdInvisible => Aggregation::PassThrough,
-            StatKey::BuffIdInvulnerable => Aggregation::PassThrough,
             StatKey::CritChance => Aggregation::Chance,
             StatKey::AttackStunChance => Aggregation::Chance,
             StatKey::AttackStunDuration => Aggregation::SumAdd,
@@ -787,7 +762,7 @@ impl StatKey {
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
-pub const ALL: &[StatKey; 139] = &[
+pub const ALL: &[StatKey; 134] = &[
     StatKey::PreattackBonusDamage,
     StatKey::PreattackBonusDamageProc,
     StatKey::PreattackBonusDamagePostCrit,
@@ -919,23 +894,31 @@ pub const ALL: &[StatKey; 139] = &[
     StatKey::IgnoreCastAngle,
     StatKey::StunChance,
     StatKey::StunDuration,
-    StatKey::BuffIdStun,
-    StatKey::BuffIdRoot,
-    StatKey::BuffIdSilence,
-    StatKey::BuffIdInvisible,
-    StatKey::BuffIdInvulnerable,
     StatKey::CritChance,
     StatKey::AttackStunChance,
     StatKey::AttackStunDuration,
 ];
+
+// ============================================================
+// Buff IDs
+// ============================================================
+// 以下是 buff identifier 字串常數（供 GameWorld::add_buff /
+// remove_buff / has_buff 等 API 使用），不是 stat property key，
+// 不納入 StatKey enum。
+
+pub const BUFF_ID_STUN: &str = "stun";
+pub const BUFF_ID_ROOT: &str = "root";
+pub const BUFF_ID_SILENCE: &str = "silence";
+pub const BUFF_ID_INVISIBLE: &str = "invisible";
+pub const BUFF_ID_INVULNERABLE: &str = "invulnerable";
 
 #[cfg(test)]
 mod tests {
     use super::{StatKey, StatSection, Aggregation, ALL};
 
     #[test]
-    fn all_array_length_is_139() {
-        assert_eq!(ALL.len(), 139);
+    fn all_array_length_is_134() {
+        assert_eq!(ALL.len(), 134);
     }
 
     #[test]
