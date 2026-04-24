@@ -10,6 +10,7 @@ use abi_stable::{
 };
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
+    stat_keys as sk,
     types::{EntityHandle, Target},
     world::GameWorldDyn,
 };
@@ -48,14 +49,14 @@ impl AbilityScript for MatchlockGunHandler {
                 .unwrap_or(0.0)
         };
         let duration = get_f("duration") as f32;
-        // range_bonus / damage_bonus 直接加法；stun 相關由 on_damage_dealt hook 未來接
-        let modifiers = serde_json::json!({
-            "range_bonus": get_f("range_bonus"),
-            "damage_bonus": get_f("damage_bonus"),
-            "attack_stun_chance": get_f("stun_chance"),
-            "attack_stun_duration": get_f("stun_duration"),
-        });
-        let mods_str = serde_json::to_string(&modifiers).unwrap_or_else(|_| "{}".into());
+        // damage_bonus 為絕對傷害點（90/130/170）→ BASEATTACK_BONUS_DAMAGE；
+        // attack_stun_* 為自訂 key（非 stat_keys），由 on_damage_dealt hook 未來接
+        let mut modifiers = serde_json::Map::new();
+        modifiers.insert(sk::ATTACK_RANGE_BONUS.into(), serde_json::json!(get_f("range_bonus")));
+        modifiers.insert(sk::BASEATTACK_BONUS_DAMAGE.into(), serde_json::json!(get_f("damage_bonus")));
+        modifiers.insert("attack_stun_chance".into(), serde_json::json!(get_f("stun_chance")));
+        modifiers.insert("attack_stun_duration".into(), serde_json::json!(get_f("stun_duration")));
+        let mods_str = serde_json::Value::Object(modifiers).to_string();
         world.add_stat_buff(caster, RStr::from_str(BUFF_ID), duration, (&*mods_str).into());
         world.log_info(RStr::from_str("[matchlock_gun] transformed for 45s"));
         ROk(())
@@ -95,8 +96,8 @@ pub fn matchlock_gun_def() -> AbilityDef {
     }
 
     let mut preview_mods = HashMap::new();
-    preview_mods.insert("attack_range_bonus".into(), 700.0);
-    preview_mods.insert("base_damage_bonus".into(), 90.0);
+    preview_mods.insert(sk::ATTACK_RANGE_BONUS.into(), 700.0);
+    preview_mods.insert(sk::BASEATTACK_BONUS_DAMAGE.into(), 90.0);
     preview_mods.insert("attack_stun_chance".into(), 0.87);
     preview_mods.insert("attack_stun_duration".into(), 0.1);
 
