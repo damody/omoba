@@ -44,43 +44,56 @@ impl AbilityScript for SaikaReinforcementsHandler {
             .and_then(|v| v.as_u64())
             .unwrap_or(1)
             .max(1);
-        let formation_radius = level_data
-            .extra
-            .get("formation_radius")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(100.0) as f32;
         let duration = level_data
             .extra
             .get("duration")
             .and_then(|v| v.as_f64())
             .unwrap_or(45.0) as f32;
+        // 陣形可被 level_data 覆寫；未指定用預設值。
+        let spawn_distance = level_data
+            .extra
+            .get("spawn_distance")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(150.0) as f32;
+        let spacing = level_data
+            .extra
+            .get("spacing")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(60.0) as f32;
 
-        let center: Vec2f = match target {
-            Target::Point(p) => p,
-            _ => world
-                .get_pos(caster)
-                .into_option()
-                .unwrap_or(Vec2f::new(0.0, 0.0)),
+        // 取 caster 位置 + forward 方向：
+        // - 若 Target::Point 存在，forward 朝向目標點（玩家有點擊瞄準）
+        // - 否則用 caster 的 Facing
+        let caster_pos = world
+            .get_pos(caster)
+            .into_option()
+            .unwrap_or(Vec2f::new(0.0, 0.0));
+        let facing_rad = match target {
+            Target::Point(p) => (p.y - caster_pos.y).atan2(p.x - caster_pos.x),
+            _ => world.get_facing(caster),
         };
 
+        let fwd_x = facing_rad.cos();
+        let fwd_y = facing_rad.sin();
+        let perp_x = -fwd_y;
+        let perp_y = fwd_x;
+        let base = Vec2f::new(
+            caster_pos.x + fwd_x * spawn_distance,
+            caster_pos.y + fwd_y * spawn_distance,
+        );
+        let offset_center = (count as f32 - 1.0) * 0.5;
+
         let unit_type = RStr::from_str("saika_gunner");
-        if count == 1 {
-            world.spawn_summoned_unit(center, unit_type, caster, duration);
-        } else {
-            // 陣形：圍繞 center 平均分佈於 formation_radius 圓周上
-            for i in 0..count {
-                let angle = (i as f32) * std::f32::consts::TAU / (count as f32);
-                let p = Vec2f::new(
-                    center.x + formation_radius * angle.cos(),
-                    center.y + formation_radius * angle.sin(),
-                );
-                world.spawn_summoned_unit(p, unit_type, caster, duration);
-            }
+        for i in 0..count {
+            let off = (i as f32 - offset_center) * spacing;
+            let p = Vec2f::new(base.x + perp_x * off, base.y + perp_y * off);
+            world.spawn_summoned_unit(p, unit_type, caster, duration);
         }
+
         world.log_info(
             RString::from(format!(
-                "[saika_reinforcements] summoned {} gunners around ({:.1},{:.1}) r={} dur={}",
-                count, center.x, center.y, formation_radius, duration
+                "[saika_reinforcements] summoned {} gunners in front of caster at ({:.1},{:.1}) facing={:.2}rad dur={}",
+                count, base.x, base.y, facing_rad, duration
             ))
             .as_rstr(),
         );
