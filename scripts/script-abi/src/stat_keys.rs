@@ -759,6 +759,14 @@ impl StatKey {
             StatKey::AttackStunDuration => Aggregation::SumAdd,
         }
     }
+
+    /// 建築物（IsBuilding component）是否跳過這個 stat key。
+    ///
+    /// 等同 `section() == StatSection::NonBuilding`。取代舊 `BUILDING_EXCLUDED_KEYS`
+    /// 陣列掃描，host 端 UnitStats 在對建築物計算時用這個 method 快速判定。
+    pub const fn is_building_excluded(self) -> bool {
+        matches!(self.section(), StatSection::NonBuilding)
+    }
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
@@ -990,6 +998,21 @@ mod tests {
         ];
         for k in new_keys {
             assert_eq!(StatKey::from_str_key(k.as_str()), Some(k));
+        }
+    }
+
+    #[test]
+    fn is_building_excluded_matches_non_building_section() {
+        // Property：`is_building_excluded()` 應等同 `section() == NonBuilding`
+        // 取代舊 BUILDING_EXCLUDED_KEYS 陣列掃描。
+        for &k in ALL {
+            let expected = matches!(k.section(), StatSection::NonBuilding);
+            assert_eq!(
+                k.is_building_excluded(),
+                expected,
+                "variant {:?} section={:?} but is_building_excluded={}",
+                k, k.section(), k.is_building_excluded()
+            );
         }
     }
 }
