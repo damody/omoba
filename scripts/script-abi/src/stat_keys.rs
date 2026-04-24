@@ -1,18 +1,21 @@
-//! 共用 stat key 常數 — 對應 Dota 2 MODIFIER_PROPERTY_*（~118 項）。
+//! 共用 stat key 枚舉 — 對應 Dota 2 MODIFIER_PROPERTY_*（~140 項）。
 //!
 //! 所有 DLL 腳本透過 `world.add_stat_buff(..., modifiers_json)` 寫入屬性修改；
 //! host 端 `UnitStats` helper 聚合並套用到 tick 系統 / damage pipeline。
 //!
 //! 命名慣例（與 BuffStore 聚合對應）：
-//! * `*_BONUS` / `*_CONSTANT` / `*_STACKING` → 加法聚合（`sum_add`）；空為 0
-//! * `*_PERCENTAGE` → 加法聚合後當倍率（乘到 `1 + sum`）
-//! * `*_MULTIPLIER` → 乘法聚合（`product_mult`）；空為 1
-//! * `*_CHANCE` → 觸發機率（0..=1）
+//! * `*Bonus` / `*Constant` / `*Stacking` → 加法聚合（`sum_add`）；空為 0
+//! * `*Percentage` → 加法聚合後當倍率（乘到 `1 + sum`）
+//! * `*Multiplier` → 乘法聚合（`product_mult`）；空為 1
+//! * `*Chance` → 觸發機率（0..=1）
 //!
-//! 分三大 section：
-//! 1. **全單位通用**（Hero/Creep/Unit/Tower 都吃）
-//! 2. **僅非建築物**（有 `IsBuilding` component 的實體跳過）
-//! 3. **視覺/前端**（host pass-through only）
+//! 分三大 section（見 `StatSection`）：
+//! 1. **All**：全單位通用（包含建築物）
+//! 2. **NonBuilding**：僅非建築物
+//! 3. **Visual**：純視覺 / 前端 pass-through
+//!
+//! 此檔由 `docs/tools/gen_stat_keys.py` 產生；請勿手改。
+//! 新增 variant 請改 generator 後重跑並 commit 兩個檔案。
 
 use abi_stable::StableAbi;
 
@@ -46,6 +49,7 @@ pub enum Aggregation {
     PassThrough = 4,
 }
 
+
 /// Script ABI 的 stat key 枚舉。
 ///
 /// # SAFETY
@@ -54,321 +58,896 @@ pub enum Aggregation {
 /// **刪除亦禁止**：廢棄 variant 請保留佔位並標 `#[deprecated]`，
 /// 避免後續 discriminant 重編號錯位。
 /// 每個 variant 顯式寫 `= N` 以鎖定值。
-// u16 而非 u8：165 variant 雖然 u8 夠，但留擴充空間（未來若對齊 Dota 2 完整 modifier list 可能超 256）。
+// u16 而非 u8：目前 variant 數 < 256 但留擴充空間（未來若對齊 Dota 2 完整 modifier list 可能超 256）。
 #[repr(u16)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StatKey {
     PreattackBonusDamage = 0,
-    AttackSpeedBonusConstant = 1,
-    DamageOutgoingPercentage = 2,
-    // Task 5 會補齊其餘 ~162 個 variant
+    PreattackBonusDamageProc = 1,
+    PreattackBonusDamagePostCrit = 2,
+    BaseAttackBonusDamage = 3,
+    ProcattackBonusDamagePhysical = 4,
+    ProcattackBonusDamageMagical = 5,
+    ProcattackBonusDamagePure = 6,
+    ProcattackFeedback = 7,
+    InvisibilityLevel = 8,
+    PersistentInvisibility = 9,
+    AttackSpeedBaseOverride = 10,
+    FixedAttackRate = 11,
+    AttackSpeedBonusConstant = 12,
+    CooldownReductionConstant = 13,
+    BaseAttackTimeConstant = 14,
+    AttackPointConstant = 15,
+    DamageOutgoingPercentage = 16,
+    TotalDamageOutgoingPercentage = 17,
+    SpellAmplifyPercentage = 18,
+    HpRegenAmplifyPercentage = 19,
+    MagicDamageOutgoingPercentage = 20,
+    BaseDamageOutgoingPercentage = 21,
+    BaseDamageOutgoingPercentageUnique = 22,
+    IncomingDamagePercentage = 23,
+    IncomingPhysicalDamagePercentage = 24,
+    IncomingPhysicalDamageConstant = 25,
+    IncomingSpellDamageConstant = 26,
+    EvasionConstant = 27,
+    NegativeEvasionConstant = 28,
+    AvoidDamage = 29,
+    AvoidSpell = 30,
+    MissPercentage = 31,
+    PhysicalArmorBonus = 32,
+    PhysicalArmorBonusUnique = 33,
+    PhysicalArmorBonusUniqueActive = 34,
+    IgnorePhysicalArmor = 35,
+    MagicalResistanceDirectModification = 36,
+    MagicalResistanceBonus = 37,
+    MagicalResistanceDecrepifyUnique = 38,
+    BaseManaRegen = 39,
+    ManaRegenConstant = 40,
+    ManaRegenConstantUnique = 41,
+    ManaRegenPercentage = 42,
+    ManaRegenTotalPercentage = 43,
+    HealthRegenConstant = 44,
+    HealthRegenPercentage = 45,
+    HealthBonus = 46,
+    ManaBonus = 47,
+    ExtraStrengthBonus = 48,
+    ExtraHealthBonus = 49,
+    ExtraManaBonus = 50,
+    ExtraHealthPercentage = 51,
+    StatsStrengthBonus = 52,
+    StatsAgilityBonus = 53,
+    StatsIntellectBonus = 54,
+    CastRangeBonus = 55,
+    CastRangeBonusStacking = 56,
+    AttackRangeBonus = 57,
+    AttackRangeBonusUnique = 58,
+    MaxAttackRange = 59,
+    ProjectileSpeedBonus = 60,
+    CooldownPercentage = 61,
+    CooldownPercentageStacking = 62,
+    CastTimePercentage = 63,
+    ManaCostPercentage = 64,
+    PreattackCriticalStrike = 65,
+    PreattackTargetCriticalStrike = 66,
+    CritMultiplier = 67,
+    MagicalConstantBlock = 68,
+    PhysicalConstantBlock = 69,
+    PhysicalConstantBlockSpecial = 70,
+    TotalConstantBlockUnavoidablePreArmor = 71,
+    TotalConstantBlock = 72,
+    AbsorbSpell = 73,
+    ReflectSpell = 74,
+    DisableAutoattack = 75,
+    MinHealth = 76,
+    AbsoluteNoDamagePhysical = 77,
+    AbsoluteNoDamageMagical = 78,
+    AbsoluteNoDamagePure = 79,
+    DisableHealing = 80,
+    AlwaysAllowAttack = 81,
+    OverrideAttackMagical = 82,
+    Lifesteal = 83,
+    HealReceivedMultiplier = 84,
+    UnitStatsNeedsRefresh = 85,
+    AccuracyBonus = 86,
+    SplashBonus = 87,
+    CritBonus = 88,
+    SlowFactorOverride = 89,
+    SlowDurationBonus = 90,
+    AttackSpeedMultiplier = 91,
+    MoveSpeedBonusConstant = 92,
+    MoveSpeedBaseOverride = 93,
+    MoveSpeedBonusPercentage = 94,
+    MoveSpeedBonusPercentageUnique = 95,
+    MoveSpeedBonusPercentageUnique2 = 96,
+    MoveSpeedBonusUnique = 97,
+    MoveSpeedBonusUnique2 = 98,
+    MoveSpeedAbsolute = 99,
+    MoveSpeedAbsoluteMin = 100,
+    MoveSpeedLimit = 101,
+    MoveSpeedMax = 102,
+    TurnRatePercentage = 103,
+    Reincarnation = 104,
+    RespawnTime = 105,
+    RespawnTimePercentage = 106,
+    RespawnTimeStacking = 107,
+    DeathGoldCost = 108,
+    ExpRateBoost = 109,
+    BonusDayVision = 110,
+    BonusNightVision = 111,
+    BonusNightVisionUnique = 112,
+    BonusVisionPercentage = 113,
+    FixedDayVision = 114,
+    FixedNightVision = 115,
+    IsIllusion = 116,
+    IllusionLabel = 117,
+    SuperIllusion = 118,
+    SuperIllusionWithUltimate = 119,
+    DamageOutgoingPercentageIllusion = 120,
+    BountyCreepMultiplier = 121,
+    BountyOtherMultiplier = 122,
+    PreAttack = 123,
+    OverrideAnimation = 124,
+    OverrideAnimationWeight = 125,
+    OverrideAnimationRate = 126,
+    DisableTurning = 127,
+    IgnoreCastAngle = 128,
+    StunChance = 129,
+    StunDuration = 130,
+    BuffIdStun = 131,
+    BuffIdRoot = 132,
+    BuffIdSilence = 133,
+    BuffIdInvisible = 134,
+    BuffIdInvulnerable = 135,
+    CritChance = 136,
+    AttackStunChance = 137,
+    AttackStunDuration = 138,
 }
 
 impl StatKey {
+    /// 回傳對應的 wire-format 字串（與 Dota 2 modifier property 名稱一致）。
     pub const fn as_str(self) -> &'static str {
         match self {
             StatKey::PreattackBonusDamage => "preattack_bonus_damage",
+            StatKey::PreattackBonusDamageProc => "preattack_bonus_damage_proc",
+            StatKey::PreattackBonusDamagePostCrit => "preattack_bonus_damage_post_crit",
+            StatKey::BaseAttackBonusDamage => "baseattack_bonus_damage",
+            StatKey::ProcattackBonusDamagePhysical => "procattack_bonus_damage_physical",
+            StatKey::ProcattackBonusDamageMagical => "procattack_bonus_damage_magical",
+            StatKey::ProcattackBonusDamagePure => "procattack_bonus_damage_pure",
+            StatKey::ProcattackFeedback => "procattack_feedback",
+            StatKey::InvisibilityLevel => "invisibility_level",
+            StatKey::PersistentInvisibility => "persistent_invisibility",
+            StatKey::AttackSpeedBaseOverride => "attackspeed_base_override",
+            StatKey::FixedAttackRate => "fixed_attack_rate",
             StatKey::AttackSpeedBonusConstant => "attackspeed_bonus_constant",
+            StatKey::CooldownReductionConstant => "cooldown_reduction_constant",
+            StatKey::BaseAttackTimeConstant => "base_attack_time_constant",
+            StatKey::AttackPointConstant => "attack_point_constant",
             StatKey::DamageOutgoingPercentage => "damageoutgoing_percentage",
+            StatKey::TotalDamageOutgoingPercentage => "totaldamageoutgoing_percentage",
+            StatKey::SpellAmplifyPercentage => "spell_amplify_percentage",
+            StatKey::HpRegenAmplifyPercentage => "hp_regen_amplify_percentage",
+            StatKey::MagicDamageOutgoingPercentage => "magicdamageoutgoing_percentage",
+            StatKey::BaseDamageOutgoingPercentage => "basedamageoutgoing_percentage",
+            StatKey::BaseDamageOutgoingPercentageUnique => "basedamageoutgoing_percentage_unique",
+            StatKey::IncomingDamagePercentage => "incoming_damage_percentage",
+            StatKey::IncomingPhysicalDamagePercentage => "incoming_physical_damage_percentage",
+            StatKey::IncomingPhysicalDamageConstant => "incoming_physical_damage_constant",
+            StatKey::IncomingSpellDamageConstant => "incoming_spell_damage_constant",
+            StatKey::EvasionConstant => "evasion_constant",
+            StatKey::NegativeEvasionConstant => "negative_evasion_constant",
+            StatKey::AvoidDamage => "avoid_damage",
+            StatKey::AvoidSpell => "avoid_spell",
+            StatKey::MissPercentage => "miss_percentage",
+            StatKey::PhysicalArmorBonus => "physical_armor_bonus",
+            StatKey::PhysicalArmorBonusUnique => "physical_armor_bonus_unique",
+            StatKey::PhysicalArmorBonusUniqueActive => "physical_armor_bonus_unique_active",
+            StatKey::IgnorePhysicalArmor => "ignore_physical_armor",
+            StatKey::MagicalResistanceDirectModification => "magical_resistance_direct_modification",
+            StatKey::MagicalResistanceBonus => "magical_resistance_bonus",
+            StatKey::MagicalResistanceDecrepifyUnique => "magical_resistance_decrepify_unique",
+            StatKey::BaseManaRegen => "base_mana_regen",
+            StatKey::ManaRegenConstant => "mana_regen_constant",
+            StatKey::ManaRegenConstantUnique => "mana_regen_constant_unique",
+            StatKey::ManaRegenPercentage => "mana_regen_percentage",
+            StatKey::ManaRegenTotalPercentage => "mana_regen_total_percentage",
+            StatKey::HealthRegenConstant => "health_regen_constant",
+            StatKey::HealthRegenPercentage => "health_regen_percentage",
+            StatKey::HealthBonus => "health_bonus",
+            StatKey::ManaBonus => "mana_bonus",
+            StatKey::ExtraStrengthBonus => "extra_strength_bonus",
+            StatKey::ExtraHealthBonus => "extra_health_bonus",
+            StatKey::ExtraManaBonus => "extra_mana_bonus",
+            StatKey::ExtraHealthPercentage => "extra_health_percentage",
+            StatKey::StatsStrengthBonus => "stats_strength_bonus",
+            StatKey::StatsAgilityBonus => "stats_agility_bonus",
+            StatKey::StatsIntellectBonus => "stats_intellect_bonus",
+            StatKey::CastRangeBonus => "cast_range_bonus",
+            StatKey::CastRangeBonusStacking => "cast_range_bonus_stacking",
+            StatKey::AttackRangeBonus => "attack_range_bonus",
+            StatKey::AttackRangeBonusUnique => "attack_range_bonus_unique",
+            StatKey::MaxAttackRange => "max_attack_range",
+            StatKey::ProjectileSpeedBonus => "projectile_speed_bonus",
+            StatKey::CooldownPercentage => "cooldown_percentage",
+            StatKey::CooldownPercentageStacking => "cooldown_percentage_stacking",
+            StatKey::CastTimePercentage => "casttime_percentage",
+            StatKey::ManaCostPercentage => "manacost_percentage",
+            StatKey::PreattackCriticalStrike => "preattack_criticalstrike",
+            StatKey::PreattackTargetCriticalStrike => "preattack_target_criticalstrike",
+            StatKey::CritMultiplier => "crit_multiplier",
+            StatKey::MagicalConstantBlock => "magical_constant_block",
+            StatKey::PhysicalConstantBlock => "physical_constant_block",
+            StatKey::PhysicalConstantBlockSpecial => "physical_constant_block_special",
+            StatKey::TotalConstantBlockUnavoidablePreArmor => "total_constant_block_unavoidable_pre_armor",
+            StatKey::TotalConstantBlock => "total_constant_block",
+            StatKey::AbsorbSpell => "absorb_spell",
+            StatKey::ReflectSpell => "reflect_spell",
+            StatKey::DisableAutoattack => "disable_autoattack",
+            StatKey::MinHealth => "min_health",
+            StatKey::AbsoluteNoDamagePhysical => "absolute_no_damage_physical",
+            StatKey::AbsoluteNoDamageMagical => "absolute_no_damage_magical",
+            StatKey::AbsoluteNoDamagePure => "absolute_no_damage_pure",
+            StatKey::DisableHealing => "disable_healing",
+            StatKey::AlwaysAllowAttack => "always_allow_attack",
+            StatKey::OverrideAttackMagical => "override_attack_magical",
+            StatKey::Lifesteal => "lifesteal",
+            StatKey::HealReceivedMultiplier => "heal_received_multiplier",
+            StatKey::UnitStatsNeedsRefresh => "unit_stats_needs_refresh",
+            StatKey::AccuracyBonus => "accuracy_bonus",
+            StatKey::SplashBonus => "splash_bonus",
+            StatKey::CritBonus => "crit_bonus",
+            StatKey::SlowFactorOverride => "slow_factor_override",
+            StatKey::SlowDurationBonus => "slow_duration_bonus",
+            StatKey::AttackSpeedMultiplier => "attack_speed_multiplier",
+            StatKey::MoveSpeedBonusConstant => "movespeed_bonus_constant",
+            StatKey::MoveSpeedBaseOverride => "movespeed_base_override",
+            StatKey::MoveSpeedBonusPercentage => "movespeed_bonus_percentage",
+            StatKey::MoveSpeedBonusPercentageUnique => "movespeed_bonus_percentage_unique",
+            StatKey::MoveSpeedBonusPercentageUnique2 => "movespeed_bonus_percentage_unique_2",
+            StatKey::MoveSpeedBonusUnique => "movespeed_bonus_unique",
+            StatKey::MoveSpeedBonusUnique2 => "movespeed_bonus_unique_2",
+            StatKey::MoveSpeedAbsolute => "movespeed_absolute",
+            StatKey::MoveSpeedAbsoluteMin => "movespeed_absolute_min",
+            StatKey::MoveSpeedLimit => "movespeed_limit",
+            StatKey::MoveSpeedMax => "movespeed_max",
+            StatKey::TurnRatePercentage => "turn_rate_percentage",
+            StatKey::Reincarnation => "reincarnation",
+            StatKey::RespawnTime => "respawntime",
+            StatKey::RespawnTimePercentage => "respawntime_percentage",
+            StatKey::RespawnTimeStacking => "respawntime_stacking",
+            StatKey::DeathGoldCost => "deathgoldcost",
+            StatKey::ExpRateBoost => "exp_rate_boost",
+            StatKey::BonusDayVision => "bonus_day_vision",
+            StatKey::BonusNightVision => "bonus_night_vision",
+            StatKey::BonusNightVisionUnique => "bonus_night_vision_unique",
+            StatKey::BonusVisionPercentage => "bonus_vision_percentage",
+            StatKey::FixedDayVision => "fixed_day_vision",
+            StatKey::FixedNightVision => "fixed_night_vision",
+            StatKey::IsIllusion => "is_illusion",
+            StatKey::IllusionLabel => "illusion_label",
+            StatKey::SuperIllusion => "super_illusion",
+            StatKey::SuperIllusionWithUltimate => "super_illusion_with_ultimate",
+            StatKey::DamageOutgoingPercentageIllusion => "damageoutgoing_percentage_illusion",
+            StatKey::BountyCreepMultiplier => "bounty_creep_multiplier",
+            StatKey::BountyOtherMultiplier => "bounty_other_multiplier",
+            StatKey::PreAttack => "pre_attack",
+            StatKey::OverrideAnimation => "override_animation",
+            StatKey::OverrideAnimationWeight => "override_animation_weight",
+            StatKey::OverrideAnimationRate => "override_animation_rate",
+            StatKey::DisableTurning => "disable_turning",
+            StatKey::IgnoreCastAngle => "ignore_cast_angle",
+            StatKey::StunChance => "stun_chance",
+            StatKey::StunDuration => "stun_duration",
+            StatKey::BuffIdStun => "stun",
+            StatKey::BuffIdRoot => "root",
+            StatKey::BuffIdSilence => "silence",
+            StatKey::BuffIdInvisible => "invisible",
+            StatKey::BuffIdInvulnerable => "invulnerable",
+            StatKey::CritChance => "crit_chance",
+            StatKey::AttackStunChance => "attack_stun_chance",
+            StatKey::AttackStunDuration => "attack_stun_duration",
         }
     }
 
+    /// 將 wire-format 字串解析回 `StatKey`，未知值回 `None`。
     pub fn from_str_key(s: &str) -> Option<StatKey> {
         match s {
             "preattack_bonus_damage" => Some(StatKey::PreattackBonusDamage),
+            "preattack_bonus_damage_proc" => Some(StatKey::PreattackBonusDamageProc),
+            "preattack_bonus_damage_post_crit" => Some(StatKey::PreattackBonusDamagePostCrit),
+            "baseattack_bonus_damage" => Some(StatKey::BaseAttackBonusDamage),
+            "procattack_bonus_damage_physical" => Some(StatKey::ProcattackBonusDamagePhysical),
+            "procattack_bonus_damage_magical" => Some(StatKey::ProcattackBonusDamageMagical),
+            "procattack_bonus_damage_pure" => Some(StatKey::ProcattackBonusDamagePure),
+            "procattack_feedback" => Some(StatKey::ProcattackFeedback),
+            "invisibility_level" => Some(StatKey::InvisibilityLevel),
+            "persistent_invisibility" => Some(StatKey::PersistentInvisibility),
+            "attackspeed_base_override" => Some(StatKey::AttackSpeedBaseOverride),
+            "fixed_attack_rate" => Some(StatKey::FixedAttackRate),
             "attackspeed_bonus_constant" => Some(StatKey::AttackSpeedBonusConstant),
+            "cooldown_reduction_constant" => Some(StatKey::CooldownReductionConstant),
+            "base_attack_time_constant" => Some(StatKey::BaseAttackTimeConstant),
+            "attack_point_constant" => Some(StatKey::AttackPointConstant),
             "damageoutgoing_percentage" => Some(StatKey::DamageOutgoingPercentage),
+            "totaldamageoutgoing_percentage" => Some(StatKey::TotalDamageOutgoingPercentage),
+            "spell_amplify_percentage" => Some(StatKey::SpellAmplifyPercentage),
+            "hp_regen_amplify_percentage" => Some(StatKey::HpRegenAmplifyPercentage),
+            "magicdamageoutgoing_percentage" => Some(StatKey::MagicDamageOutgoingPercentage),
+            "basedamageoutgoing_percentage" => Some(StatKey::BaseDamageOutgoingPercentage),
+            "basedamageoutgoing_percentage_unique" => Some(StatKey::BaseDamageOutgoingPercentageUnique),
+            "incoming_damage_percentage" => Some(StatKey::IncomingDamagePercentage),
+            "incoming_physical_damage_percentage" => Some(StatKey::IncomingPhysicalDamagePercentage),
+            "incoming_physical_damage_constant" => Some(StatKey::IncomingPhysicalDamageConstant),
+            "incoming_spell_damage_constant" => Some(StatKey::IncomingSpellDamageConstant),
+            "evasion_constant" => Some(StatKey::EvasionConstant),
+            "negative_evasion_constant" => Some(StatKey::NegativeEvasionConstant),
+            "avoid_damage" => Some(StatKey::AvoidDamage),
+            "avoid_spell" => Some(StatKey::AvoidSpell),
+            "miss_percentage" => Some(StatKey::MissPercentage),
+            "physical_armor_bonus" => Some(StatKey::PhysicalArmorBonus),
+            "physical_armor_bonus_unique" => Some(StatKey::PhysicalArmorBonusUnique),
+            "physical_armor_bonus_unique_active" => Some(StatKey::PhysicalArmorBonusUniqueActive),
+            "ignore_physical_armor" => Some(StatKey::IgnorePhysicalArmor),
+            "magical_resistance_direct_modification" => Some(StatKey::MagicalResistanceDirectModification),
+            "magical_resistance_bonus" => Some(StatKey::MagicalResistanceBonus),
+            "magical_resistance_decrepify_unique" => Some(StatKey::MagicalResistanceDecrepifyUnique),
+            "base_mana_regen" => Some(StatKey::BaseManaRegen),
+            "mana_regen_constant" => Some(StatKey::ManaRegenConstant),
+            "mana_regen_constant_unique" => Some(StatKey::ManaRegenConstantUnique),
+            "mana_regen_percentage" => Some(StatKey::ManaRegenPercentage),
+            "mana_regen_total_percentage" => Some(StatKey::ManaRegenTotalPercentage),
+            "health_regen_constant" => Some(StatKey::HealthRegenConstant),
+            "health_regen_percentage" => Some(StatKey::HealthRegenPercentage),
+            "health_bonus" => Some(StatKey::HealthBonus),
+            "mana_bonus" => Some(StatKey::ManaBonus),
+            "extra_strength_bonus" => Some(StatKey::ExtraStrengthBonus),
+            "extra_health_bonus" => Some(StatKey::ExtraHealthBonus),
+            "extra_mana_bonus" => Some(StatKey::ExtraManaBonus),
+            "extra_health_percentage" => Some(StatKey::ExtraHealthPercentage),
+            "stats_strength_bonus" => Some(StatKey::StatsStrengthBonus),
+            "stats_agility_bonus" => Some(StatKey::StatsAgilityBonus),
+            "stats_intellect_bonus" => Some(StatKey::StatsIntellectBonus),
+            "cast_range_bonus" => Some(StatKey::CastRangeBonus),
+            "cast_range_bonus_stacking" => Some(StatKey::CastRangeBonusStacking),
+            "attack_range_bonus" => Some(StatKey::AttackRangeBonus),
+            "attack_range_bonus_unique" => Some(StatKey::AttackRangeBonusUnique),
+            "max_attack_range" => Some(StatKey::MaxAttackRange),
+            "projectile_speed_bonus" => Some(StatKey::ProjectileSpeedBonus),
+            "cooldown_percentage" => Some(StatKey::CooldownPercentage),
+            "cooldown_percentage_stacking" => Some(StatKey::CooldownPercentageStacking),
+            "casttime_percentage" => Some(StatKey::CastTimePercentage),
+            "manacost_percentage" => Some(StatKey::ManaCostPercentage),
+            "preattack_criticalstrike" => Some(StatKey::PreattackCriticalStrike),
+            "preattack_target_criticalstrike" => Some(StatKey::PreattackTargetCriticalStrike),
+            "crit_multiplier" => Some(StatKey::CritMultiplier),
+            "magical_constant_block" => Some(StatKey::MagicalConstantBlock),
+            "physical_constant_block" => Some(StatKey::PhysicalConstantBlock),
+            "physical_constant_block_special" => Some(StatKey::PhysicalConstantBlockSpecial),
+            "total_constant_block_unavoidable_pre_armor" => Some(StatKey::TotalConstantBlockUnavoidablePreArmor),
+            "total_constant_block" => Some(StatKey::TotalConstantBlock),
+            "absorb_spell" => Some(StatKey::AbsorbSpell),
+            "reflect_spell" => Some(StatKey::ReflectSpell),
+            "disable_autoattack" => Some(StatKey::DisableAutoattack),
+            "min_health" => Some(StatKey::MinHealth),
+            "absolute_no_damage_physical" => Some(StatKey::AbsoluteNoDamagePhysical),
+            "absolute_no_damage_magical" => Some(StatKey::AbsoluteNoDamageMagical),
+            "absolute_no_damage_pure" => Some(StatKey::AbsoluteNoDamagePure),
+            "disable_healing" => Some(StatKey::DisableHealing),
+            "always_allow_attack" => Some(StatKey::AlwaysAllowAttack),
+            "override_attack_magical" => Some(StatKey::OverrideAttackMagical),
+            "lifesteal" => Some(StatKey::Lifesteal),
+            "heal_received_multiplier" => Some(StatKey::HealReceivedMultiplier),
+            "unit_stats_needs_refresh" => Some(StatKey::UnitStatsNeedsRefresh),
+            "accuracy_bonus" => Some(StatKey::AccuracyBonus),
+            "splash_bonus" => Some(StatKey::SplashBonus),
+            "crit_bonus" => Some(StatKey::CritBonus),
+            "slow_factor_override" => Some(StatKey::SlowFactorOverride),
+            "slow_duration_bonus" => Some(StatKey::SlowDurationBonus),
+            "attack_speed_multiplier" => Some(StatKey::AttackSpeedMultiplier),
+            "movespeed_bonus_constant" => Some(StatKey::MoveSpeedBonusConstant),
+            "movespeed_base_override" => Some(StatKey::MoveSpeedBaseOverride),
+            "movespeed_bonus_percentage" => Some(StatKey::MoveSpeedBonusPercentage),
+            "movespeed_bonus_percentage_unique" => Some(StatKey::MoveSpeedBonusPercentageUnique),
+            "movespeed_bonus_percentage_unique_2" => Some(StatKey::MoveSpeedBonusPercentageUnique2),
+            "movespeed_bonus_unique" => Some(StatKey::MoveSpeedBonusUnique),
+            "movespeed_bonus_unique_2" => Some(StatKey::MoveSpeedBonusUnique2),
+            "movespeed_absolute" => Some(StatKey::MoveSpeedAbsolute),
+            "movespeed_absolute_min" => Some(StatKey::MoveSpeedAbsoluteMin),
+            "movespeed_limit" => Some(StatKey::MoveSpeedLimit),
+            "movespeed_max" => Some(StatKey::MoveSpeedMax),
+            "turn_rate_percentage" => Some(StatKey::TurnRatePercentage),
+            "reincarnation" => Some(StatKey::Reincarnation),
+            "respawntime" => Some(StatKey::RespawnTime),
+            "respawntime_percentage" => Some(StatKey::RespawnTimePercentage),
+            "respawntime_stacking" => Some(StatKey::RespawnTimeStacking),
+            "deathgoldcost" => Some(StatKey::DeathGoldCost),
+            "exp_rate_boost" => Some(StatKey::ExpRateBoost),
+            "bonus_day_vision" => Some(StatKey::BonusDayVision),
+            "bonus_night_vision" => Some(StatKey::BonusNightVision),
+            "bonus_night_vision_unique" => Some(StatKey::BonusNightVisionUnique),
+            "bonus_vision_percentage" => Some(StatKey::BonusVisionPercentage),
+            "fixed_day_vision" => Some(StatKey::FixedDayVision),
+            "fixed_night_vision" => Some(StatKey::FixedNightVision),
+            "is_illusion" => Some(StatKey::IsIllusion),
+            "illusion_label" => Some(StatKey::IllusionLabel),
+            "super_illusion" => Some(StatKey::SuperIllusion),
+            "super_illusion_with_ultimate" => Some(StatKey::SuperIllusionWithUltimate),
+            "damageoutgoing_percentage_illusion" => Some(StatKey::DamageOutgoingPercentageIllusion),
+            "bounty_creep_multiplier" => Some(StatKey::BountyCreepMultiplier),
+            "bounty_other_multiplier" => Some(StatKey::BountyOtherMultiplier),
+            "pre_attack" => Some(StatKey::PreAttack),
+            "override_animation" => Some(StatKey::OverrideAnimation),
+            "override_animation_weight" => Some(StatKey::OverrideAnimationWeight),
+            "override_animation_rate" => Some(StatKey::OverrideAnimationRate),
+            "disable_turning" => Some(StatKey::DisableTurning),
+            "ignore_cast_angle" => Some(StatKey::IgnoreCastAngle),
+            "stun_chance" => Some(StatKey::StunChance),
+            "stun_duration" => Some(StatKey::StunDuration),
+            "stun" => Some(StatKey::BuffIdStun),
+            "root" => Some(StatKey::BuffIdRoot),
+            "silence" => Some(StatKey::BuffIdSilence),
+            "invisible" => Some(StatKey::BuffIdInvisible),
+            "invulnerable" => Some(StatKey::BuffIdInvulnerable),
+            "crit_chance" => Some(StatKey::CritChance),
+            "attack_stun_chance" => Some(StatKey::AttackStunChance),
+            "attack_stun_duration" => Some(StatKey::AttackStunDuration),
             _ => None,
         }
     }
 
+    /// 屬於哪個 `StatSection`（影響建築物 / 前端是否套用）。
     pub const fn section(self) -> StatSection {
         match self {
-            StatKey::PreattackBonusDamage
-            | StatKey::AttackSpeedBonusConstant
-            | StatKey::DamageOutgoingPercentage => StatSection::All,
+            StatKey::PreattackBonusDamage => StatSection::All,
+            StatKey::PreattackBonusDamageProc => StatSection::All,
+            StatKey::PreattackBonusDamagePostCrit => StatSection::All,
+            StatKey::BaseAttackBonusDamage => StatSection::All,
+            StatKey::ProcattackBonusDamagePhysical => StatSection::All,
+            StatKey::ProcattackBonusDamageMagical => StatSection::All,
+            StatKey::ProcattackBonusDamagePure => StatSection::All,
+            StatKey::ProcattackFeedback => StatSection::All,
+            StatKey::InvisibilityLevel => StatSection::All,
+            StatKey::PersistentInvisibility => StatSection::All,
+            StatKey::AttackSpeedBaseOverride => StatSection::All,
+            StatKey::FixedAttackRate => StatSection::All,
+            StatKey::AttackSpeedBonusConstant => StatSection::All,
+            StatKey::CooldownReductionConstant => StatSection::All,
+            StatKey::BaseAttackTimeConstant => StatSection::All,
+            StatKey::AttackPointConstant => StatSection::All,
+            StatKey::DamageOutgoingPercentage => StatSection::All,
+            StatKey::TotalDamageOutgoingPercentage => StatSection::All,
+            StatKey::SpellAmplifyPercentage => StatSection::All,
+            StatKey::HpRegenAmplifyPercentage => StatSection::All,
+            StatKey::MagicDamageOutgoingPercentage => StatSection::All,
+            StatKey::BaseDamageOutgoingPercentage => StatSection::All,
+            StatKey::BaseDamageOutgoingPercentageUnique => StatSection::All,
+            StatKey::IncomingDamagePercentage => StatSection::All,
+            StatKey::IncomingPhysicalDamagePercentage => StatSection::All,
+            StatKey::IncomingPhysicalDamageConstant => StatSection::All,
+            StatKey::IncomingSpellDamageConstant => StatSection::All,
+            StatKey::EvasionConstant => StatSection::All,
+            StatKey::NegativeEvasionConstant => StatSection::All,
+            StatKey::AvoidDamage => StatSection::All,
+            StatKey::AvoidSpell => StatSection::All,
+            StatKey::MissPercentage => StatSection::All,
+            StatKey::PhysicalArmorBonus => StatSection::All,
+            StatKey::PhysicalArmorBonusUnique => StatSection::All,
+            StatKey::PhysicalArmorBonusUniqueActive => StatSection::All,
+            StatKey::IgnorePhysicalArmor => StatSection::All,
+            StatKey::MagicalResistanceDirectModification => StatSection::All,
+            StatKey::MagicalResistanceBonus => StatSection::All,
+            StatKey::MagicalResistanceDecrepifyUnique => StatSection::All,
+            StatKey::BaseManaRegen => StatSection::All,
+            StatKey::ManaRegenConstant => StatSection::All,
+            StatKey::ManaRegenConstantUnique => StatSection::All,
+            StatKey::ManaRegenPercentage => StatSection::All,
+            StatKey::ManaRegenTotalPercentage => StatSection::All,
+            StatKey::HealthRegenConstant => StatSection::All,
+            StatKey::HealthRegenPercentage => StatSection::All,
+            StatKey::HealthBonus => StatSection::All,
+            StatKey::ManaBonus => StatSection::All,
+            StatKey::ExtraStrengthBonus => StatSection::All,
+            StatKey::ExtraHealthBonus => StatSection::All,
+            StatKey::ExtraManaBonus => StatSection::All,
+            StatKey::ExtraHealthPercentage => StatSection::All,
+            StatKey::StatsStrengthBonus => StatSection::All,
+            StatKey::StatsAgilityBonus => StatSection::All,
+            StatKey::StatsIntellectBonus => StatSection::All,
+            StatKey::CastRangeBonus => StatSection::All,
+            StatKey::CastRangeBonusStacking => StatSection::All,
+            StatKey::AttackRangeBonus => StatSection::All,
+            StatKey::AttackRangeBonusUnique => StatSection::All,
+            StatKey::MaxAttackRange => StatSection::All,
+            StatKey::ProjectileSpeedBonus => StatSection::All,
+            StatKey::CooldownPercentage => StatSection::All,
+            StatKey::CooldownPercentageStacking => StatSection::All,
+            StatKey::CastTimePercentage => StatSection::All,
+            StatKey::ManaCostPercentage => StatSection::All,
+            StatKey::PreattackCriticalStrike => StatSection::All,
+            StatKey::PreattackTargetCriticalStrike => StatSection::All,
+            StatKey::CritMultiplier => StatSection::All,
+            StatKey::MagicalConstantBlock => StatSection::All,
+            StatKey::PhysicalConstantBlock => StatSection::All,
+            StatKey::PhysicalConstantBlockSpecial => StatSection::All,
+            StatKey::TotalConstantBlockUnavoidablePreArmor => StatSection::All,
+            StatKey::TotalConstantBlock => StatSection::All,
+            StatKey::AbsorbSpell => StatSection::All,
+            StatKey::ReflectSpell => StatSection::All,
+            StatKey::DisableAutoattack => StatSection::All,
+            StatKey::MinHealth => StatSection::All,
+            StatKey::AbsoluteNoDamagePhysical => StatSection::All,
+            StatKey::AbsoluteNoDamageMagical => StatSection::All,
+            StatKey::AbsoluteNoDamagePure => StatSection::All,
+            StatKey::DisableHealing => StatSection::All,
+            StatKey::AlwaysAllowAttack => StatSection::All,
+            StatKey::OverrideAttackMagical => StatSection::All,
+            StatKey::Lifesteal => StatSection::All,
+            StatKey::HealReceivedMultiplier => StatSection::All,
+            StatKey::UnitStatsNeedsRefresh => StatSection::All,
+            StatKey::AccuracyBonus => StatSection::All,
+            StatKey::SplashBonus => StatSection::All,
+            StatKey::CritBonus => StatSection::All,
+            StatKey::SlowFactorOverride => StatSection::All,
+            StatKey::SlowDurationBonus => StatSection::All,
+            StatKey::AttackSpeedMultiplier => StatSection::All,
+            StatKey::MoveSpeedBonusConstant => StatSection::NonBuilding,
+            StatKey::MoveSpeedBaseOverride => StatSection::NonBuilding,
+            StatKey::MoveSpeedBonusPercentage => StatSection::NonBuilding,
+            StatKey::MoveSpeedBonusPercentageUnique => StatSection::NonBuilding,
+            StatKey::MoveSpeedBonusPercentageUnique2 => StatSection::NonBuilding,
+            StatKey::MoveSpeedBonusUnique => StatSection::NonBuilding,
+            StatKey::MoveSpeedBonusUnique2 => StatSection::NonBuilding,
+            StatKey::MoveSpeedAbsolute => StatSection::NonBuilding,
+            StatKey::MoveSpeedAbsoluteMin => StatSection::NonBuilding,
+            StatKey::MoveSpeedLimit => StatSection::NonBuilding,
+            StatKey::MoveSpeedMax => StatSection::NonBuilding,
+            StatKey::TurnRatePercentage => StatSection::NonBuilding,
+            StatKey::Reincarnation => StatSection::NonBuilding,
+            StatKey::RespawnTime => StatSection::NonBuilding,
+            StatKey::RespawnTimePercentage => StatSection::NonBuilding,
+            StatKey::RespawnTimeStacking => StatSection::NonBuilding,
+            StatKey::DeathGoldCost => StatSection::NonBuilding,
+            StatKey::ExpRateBoost => StatSection::NonBuilding,
+            StatKey::BonusDayVision => StatSection::NonBuilding,
+            StatKey::BonusNightVision => StatSection::NonBuilding,
+            StatKey::BonusNightVisionUnique => StatSection::NonBuilding,
+            StatKey::BonusVisionPercentage => StatSection::NonBuilding,
+            StatKey::FixedDayVision => StatSection::NonBuilding,
+            StatKey::FixedNightVision => StatSection::NonBuilding,
+            StatKey::IsIllusion => StatSection::NonBuilding,
+            StatKey::IllusionLabel => StatSection::NonBuilding,
+            StatKey::SuperIllusion => StatSection::NonBuilding,
+            StatKey::SuperIllusionWithUltimate => StatSection::NonBuilding,
+            StatKey::DamageOutgoingPercentageIllusion => StatSection::NonBuilding,
+            StatKey::BountyCreepMultiplier => StatSection::NonBuilding,
+            StatKey::BountyOtherMultiplier => StatSection::NonBuilding,
+            StatKey::PreAttack => StatSection::Visual,
+            StatKey::OverrideAnimation => StatSection::Visual,
+            StatKey::OverrideAnimationWeight => StatSection::Visual,
+            StatKey::OverrideAnimationRate => StatSection::Visual,
+            StatKey::DisableTurning => StatSection::Visual,
+            StatKey::IgnoreCastAngle => StatSection::Visual,
+            StatKey::StunChance => StatSection::Visual,
+            StatKey::StunDuration => StatSection::Visual,
+            StatKey::BuffIdStun => StatSection::Visual,
+            StatKey::BuffIdRoot => StatSection::Visual,
+            StatKey::BuffIdSilence => StatSection::Visual,
+            StatKey::BuffIdInvisible => StatSection::Visual,
+            StatKey::BuffIdInvulnerable => StatSection::Visual,
+            StatKey::CritChance => StatSection::All,
+            StatKey::AttackStunChance => StatSection::All,
+            StatKey::AttackStunDuration => StatSection::All,
         }
     }
 
+    /// 對應的 BuffStore 聚合規則。
     pub const fn aggregation(self) -> Aggregation {
         match self {
             StatKey::PreattackBonusDamage => Aggregation::SumAdd,
+            StatKey::PreattackBonusDamageProc => Aggregation::SumAdd,
+            StatKey::PreattackBonusDamagePostCrit => Aggregation::SumAdd,
+            StatKey::BaseAttackBonusDamage => Aggregation::SumAdd,
+            StatKey::ProcattackBonusDamagePhysical => Aggregation::SumAdd,
+            StatKey::ProcattackBonusDamageMagical => Aggregation::SumAdd,
+            StatKey::ProcattackBonusDamagePure => Aggregation::SumAdd,
+            StatKey::ProcattackFeedback => Aggregation::PassThrough,
+            StatKey::InvisibilityLevel => Aggregation::PassThrough,
+            StatKey::PersistentInvisibility => Aggregation::PassThrough,
+            StatKey::AttackSpeedBaseOverride => Aggregation::PassThrough,
+            StatKey::FixedAttackRate => Aggregation::PassThrough,
             StatKey::AttackSpeedBonusConstant => Aggregation::SumAdd,
+            StatKey::CooldownReductionConstant => Aggregation::SumAdd,
+            StatKey::BaseAttackTimeConstant => Aggregation::SumAdd,
+            StatKey::AttackPointConstant => Aggregation::SumAdd,
             StatKey::DamageOutgoingPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::TotalDamageOutgoingPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::SpellAmplifyPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::HpRegenAmplifyPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::MagicDamageOutgoingPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::BaseDamageOutgoingPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::BaseDamageOutgoingPercentageUnique => Aggregation::SumAddThenMul1Plus,
+            StatKey::IncomingDamagePercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::IncomingPhysicalDamagePercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::IncomingPhysicalDamageConstant => Aggregation::SumAdd,
+            StatKey::IncomingSpellDamageConstant => Aggregation::SumAdd,
+            StatKey::EvasionConstant => Aggregation::SumAdd,
+            StatKey::NegativeEvasionConstant => Aggregation::SumAdd,
+            StatKey::AvoidDamage => Aggregation::PassThrough,
+            StatKey::AvoidSpell => Aggregation::PassThrough,
+            StatKey::MissPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::PhysicalArmorBonus => Aggregation::SumAdd,
+            StatKey::PhysicalArmorBonusUnique => Aggregation::SumAdd,
+            StatKey::PhysicalArmorBonusUniqueActive => Aggregation::SumAdd,
+            StatKey::IgnorePhysicalArmor => Aggregation::PassThrough,
+            StatKey::MagicalResistanceDirectModification => Aggregation::PassThrough,
+            StatKey::MagicalResistanceBonus => Aggregation::SumAdd,
+            StatKey::MagicalResistanceDecrepifyUnique => Aggregation::PassThrough,
+            StatKey::BaseManaRegen => Aggregation::PassThrough,
+            StatKey::ManaRegenConstant => Aggregation::SumAdd,
+            StatKey::ManaRegenConstantUnique => Aggregation::SumAdd,
+            StatKey::ManaRegenPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::ManaRegenTotalPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::HealthRegenConstant => Aggregation::SumAdd,
+            StatKey::HealthRegenPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::HealthBonus => Aggregation::SumAdd,
+            StatKey::ManaBonus => Aggregation::SumAdd,
+            StatKey::ExtraStrengthBonus => Aggregation::SumAdd,
+            StatKey::ExtraHealthBonus => Aggregation::SumAdd,
+            StatKey::ExtraManaBonus => Aggregation::SumAdd,
+            StatKey::ExtraHealthPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::StatsStrengthBonus => Aggregation::SumAdd,
+            StatKey::StatsAgilityBonus => Aggregation::SumAdd,
+            StatKey::StatsIntellectBonus => Aggregation::SumAdd,
+            StatKey::CastRangeBonus => Aggregation::SumAdd,
+            StatKey::CastRangeBonusStacking => Aggregation::SumAdd,
+            StatKey::AttackRangeBonus => Aggregation::SumAdd,
+            StatKey::AttackRangeBonusUnique => Aggregation::SumAdd,
+            StatKey::MaxAttackRange => Aggregation::PassThrough,
+            StatKey::ProjectileSpeedBonus => Aggregation::SumAdd,
+            StatKey::CooldownPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::CooldownPercentageStacking => Aggregation::SumAddThenMul1Plus,
+            StatKey::CastTimePercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::ManaCostPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::PreattackCriticalStrike => Aggregation::PassThrough,
+            StatKey::PreattackTargetCriticalStrike => Aggregation::PassThrough,
+            StatKey::CritMultiplier => Aggregation::ProductMult,
+            StatKey::MagicalConstantBlock => Aggregation::SumAdd,
+            StatKey::PhysicalConstantBlock => Aggregation::SumAdd,
+            StatKey::PhysicalConstantBlockSpecial => Aggregation::SumAdd,
+            StatKey::TotalConstantBlockUnavoidablePreArmor => Aggregation::SumAdd,
+            StatKey::TotalConstantBlock => Aggregation::SumAdd,
+            StatKey::AbsorbSpell => Aggregation::PassThrough,
+            StatKey::ReflectSpell => Aggregation::PassThrough,
+            StatKey::DisableAutoattack => Aggregation::PassThrough,
+            StatKey::MinHealth => Aggregation::PassThrough,
+            StatKey::AbsoluteNoDamagePhysical => Aggregation::SumAdd,
+            StatKey::AbsoluteNoDamageMagical => Aggregation::SumAdd,
+            StatKey::AbsoluteNoDamagePure => Aggregation::SumAdd,
+            StatKey::DisableHealing => Aggregation::PassThrough,
+            StatKey::AlwaysAllowAttack => Aggregation::PassThrough,
+            StatKey::OverrideAttackMagical => Aggregation::PassThrough,
+            StatKey::Lifesteal => Aggregation::PassThrough,
+            StatKey::HealReceivedMultiplier => Aggregation::ProductMult,
+            StatKey::UnitStatsNeedsRefresh => Aggregation::PassThrough,
+            StatKey::AccuracyBonus => Aggregation::SumAdd,
+            StatKey::SplashBonus => Aggregation::SumAdd,
+            StatKey::CritBonus => Aggregation::SumAdd,
+            StatKey::SlowFactorOverride => Aggregation::PassThrough,
+            StatKey::SlowDurationBonus => Aggregation::SumAdd,
+            StatKey::AttackSpeedMultiplier => Aggregation::ProductMult,
+            StatKey::MoveSpeedBonusConstant => Aggregation::SumAdd,
+            StatKey::MoveSpeedBaseOverride => Aggregation::PassThrough,
+            StatKey::MoveSpeedBonusPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::MoveSpeedBonusPercentageUnique => Aggregation::SumAddThenMul1Plus,
+            StatKey::MoveSpeedBonusPercentageUnique2 => Aggregation::SumAddThenMul1Plus,
+            StatKey::MoveSpeedBonusUnique => Aggregation::SumAdd,
+            StatKey::MoveSpeedBonusUnique2 => Aggregation::SumAdd,
+            StatKey::MoveSpeedAbsolute => Aggregation::SumAdd,
+            StatKey::MoveSpeedAbsoluteMin => Aggregation::SumAdd,
+            StatKey::MoveSpeedLimit => Aggregation::PassThrough,
+            StatKey::MoveSpeedMax => Aggregation::PassThrough,
+            StatKey::TurnRatePercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::Reincarnation => Aggregation::PassThrough,
+            StatKey::RespawnTime => Aggregation::PassThrough,
+            StatKey::RespawnTimePercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::RespawnTimeStacking => Aggregation::SumAdd,
+            StatKey::DeathGoldCost => Aggregation::PassThrough,
+            StatKey::ExpRateBoost => Aggregation::PassThrough,
+            StatKey::BonusDayVision => Aggregation::SumAdd,
+            StatKey::BonusNightVision => Aggregation::SumAdd,
+            StatKey::BonusNightVisionUnique => Aggregation::SumAdd,
+            StatKey::BonusVisionPercentage => Aggregation::SumAddThenMul1Plus,
+            StatKey::FixedDayVision => Aggregation::PassThrough,
+            StatKey::FixedNightVision => Aggregation::PassThrough,
+            StatKey::IsIllusion => Aggregation::PassThrough,
+            StatKey::IllusionLabel => Aggregation::PassThrough,
+            StatKey::SuperIllusion => Aggregation::PassThrough,
+            StatKey::SuperIllusionWithUltimate => Aggregation::PassThrough,
+            StatKey::DamageOutgoingPercentageIllusion => Aggregation::SumAddThenMul1Plus,
+            StatKey::BountyCreepMultiplier => Aggregation::ProductMult,
+            StatKey::BountyOtherMultiplier => Aggregation::ProductMult,
+            StatKey::PreAttack => Aggregation::PassThrough,
+            StatKey::OverrideAnimation => Aggregation::PassThrough,
+            StatKey::OverrideAnimationWeight => Aggregation::PassThrough,
+            StatKey::OverrideAnimationRate => Aggregation::PassThrough,
+            StatKey::DisableTurning => Aggregation::PassThrough,
+            StatKey::IgnoreCastAngle => Aggregation::PassThrough,
+            StatKey::StunChance => Aggregation::Chance,
+            StatKey::StunDuration => Aggregation::PassThrough,
+            StatKey::BuffIdStun => Aggregation::PassThrough,
+            StatKey::BuffIdRoot => Aggregation::PassThrough,
+            StatKey::BuffIdSilence => Aggregation::PassThrough,
+            StatKey::BuffIdInvisible => Aggregation::PassThrough,
+            StatKey::BuffIdInvulnerable => Aggregation::PassThrough,
+            StatKey::CritChance => Aggregation::Chance,
+            StatKey::AttackStunChance => Aggregation::Chance,
+            StatKey::AttackStunDuration => Aggregation::SumAdd,
         }
     }
 }
 
-// ============================================================
-// SECTION 1 — 全單位通用（包括建築物）
-// ============================================================
-
-// ---- PreAttack 系 damage (0-7) ----
-pub const PREATTACK_BONUS_DAMAGE: &str = "preattack_bonus_damage";
-pub const PREATTACK_BONUS_DAMAGE_PROC: &str = "preattack_bonus_damage_proc";
-pub const PREATTACK_BONUS_DAMAGE_POST_CRIT: &str = "preattack_bonus_damage_post_crit";
-pub const BASEATTACK_BONUS_DAMAGE: &str = "baseattack_bonus_damage";
-pub const PROCATTACK_BONUS_DAMAGE_PHYSICAL: &str = "procattack_bonus_damage_physical";
-pub const PROCATTACK_BONUS_DAMAGE_MAGICAL: &str = "procattack_bonus_damage_magical";
-pub const PROCATTACK_BONUS_DAMAGE_PURE: &str = "procattack_bonus_damage_pure";
-pub const PROCATTACK_FEEDBACK: &str = "procattack_feedback";
-
-// ---- 隱形 (9-10) ----
-pub const INVISIBILITY_LEVEL: &str = "invisibility_level";
-pub const PERSISTENT_INVISIBILITY: &str = "persistent_invisibility";
-
-// ---- 攻速 / BAT / 攻擊節奏 (22-27) ----
-pub const ATTACKSPEED_BASE_OVERRIDE: &str = "attackspeed_base_override";
-pub const FIXED_ATTACK_RATE: &str = "fixed_attack_rate";
-pub const ATTACKSPEED_BONUS_CONSTANT: &str = "attackspeed_bonus_constant";
-pub const COOLDOWN_REDUCTION_CONSTANT: &str = "cooldown_reduction_constant";
-pub const BASE_ATTACK_TIME_CONSTANT: &str = "base_attack_time_constant";
-pub const ATTACK_POINT_CONSTANT: &str = "attack_point_constant";
-
-// ---- 傷害輸出 multiplier (28-35) ----
-pub const DAMAGEOUTGOING_PERCENTAGE: &str = "damageoutgoing_percentage";
-pub const TOTALDAMAGEOUTGOING_PERCENTAGE: &str = "totaldamageoutgoing_percentage";
-pub const SPELL_AMPLIFY_PERCENTAGE: &str = "spell_amplify_percentage";
-pub const HP_REGEN_AMPLIFY_PERCENTAGE: &str = "hp_regen_amplify_percentage";
-pub const MAGICDAMAGEOUTGOING_PERCENTAGE: &str = "magicdamageoutgoing_percentage";
-pub const BASEDAMAGEOUTGOING_PERCENTAGE: &str = "basedamageoutgoing_percentage";
-pub const BASEDAMAGEOUTGOING_PERCENTAGE_UNIQUE: &str = "basedamageoutgoing_percentage_unique";
-
-// ---- 傷害承受 (36-39) ----
-pub const INCOMING_DAMAGE_PERCENTAGE: &str = "incoming_damage_percentage";
-pub const INCOMING_PHYSICAL_DAMAGE_PERCENTAGE: &str = "incoming_physical_damage_percentage";
-pub const INCOMING_PHYSICAL_DAMAGE_CONSTANT: &str = "incoming_physical_damage_constant";
-pub const INCOMING_SPELL_DAMAGE_CONSTANT: &str = "incoming_spell_damage_constant";
-
-// ---- 閃避 / miss (40-44) ----
-pub const EVASION_CONSTANT: &str = "evasion_constant";
-pub const NEGATIVE_EVASION_CONSTANT: &str = "negative_evasion_constant";
-pub const AVOID_DAMAGE: &str = "avoid_damage";
-pub const AVOID_SPELL: &str = "avoid_spell";
-pub const MISS_PERCENTAGE: &str = "miss_percentage";
-
-// ---- 護甲 / 魔抗 (45-51) ----
-pub const PHYSICAL_ARMOR_BONUS: &str = "physical_armor_bonus";
-pub const PHYSICAL_ARMOR_BONUS_UNIQUE: &str = "physical_armor_bonus_unique";
-pub const PHYSICAL_ARMOR_BONUS_UNIQUE_ACTIVE: &str = "physical_armor_bonus_unique_active";
-pub const IGNORE_PHYSICAL_ARMOR: &str = "ignore_physical_armor";
-pub const MAGICAL_RESISTANCE_DIRECT_MODIFICATION: &str = "magical_resistance_direct_modification";
-pub const MAGICAL_RESISTANCE_BONUS: &str = "magical_resistance_bonus";
-pub const MAGICAL_RESISTANCE_DECREPIFY_UNIQUE: &str = "magical_resistance_decrepify_unique";
-
-// ---- Mana regen (52-56) ----
-pub const BASE_MANA_REGEN: &str = "base_mana_regen";
-pub const MANA_REGEN_CONSTANT: &str = "mana_regen_constant";
-pub const MANA_REGEN_CONSTANT_UNIQUE: &str = "mana_regen_constant_unique";
-pub const MANA_REGEN_PERCENTAGE: &str = "mana_regen_percentage";
-pub const MANA_REGEN_TOTAL_PERCENTAGE: &str = "mana_regen_total_percentage";
-
-// ---- HP regen (57-58) ----
-pub const HEALTH_REGEN_CONSTANT: &str = "health_regen_constant";
-pub const HEALTH_REGEN_PERCENTAGE: &str = "health_regen_percentage";
-
-// ---- HP/Mana 上限 (59-64) ----
-pub const HEALTH_BONUS: &str = "health_bonus";
-pub const MANA_BONUS: &str = "mana_bonus";
-pub const EXTRA_STRENGTH_BONUS: &str = "extra_strength_bonus";
-pub const EXTRA_HEALTH_BONUS: &str = "extra_health_bonus";
-pub const EXTRA_MANA_BONUS: &str = "extra_mana_bonus";
-pub const EXTRA_HEALTH_PERCENTAGE: &str = "extra_health_percentage";
-
-// ---- 主屬性 (65-67) ----
-pub const STATS_STRENGTH_BONUS: &str = "stats_strength_bonus";
-pub const STATS_AGILITY_BONUS: &str = "stats_agility_bonus";
-pub const STATS_INTELLECT_BONUS: &str = "stats_intellect_bonus";
-
-// ---- 射程 / 彈速 (68-73) ----
-pub const CAST_RANGE_BONUS: &str = "cast_range_bonus";
-pub const CAST_RANGE_BONUS_STACKING: &str = "cast_range_bonus_stacking";
-pub const ATTACK_RANGE_BONUS: &str = "attack_range_bonus";
-pub const ATTACK_RANGE_BONUS_UNIQUE: &str = "attack_range_bonus_unique";
-pub const MAX_ATTACK_RANGE: &str = "max_attack_range";
-pub const PROJECTILE_SPEED_BONUS: &str = "projectile_speed_bonus";
-
-// ---- 冷卻 / 施法時間 / 魔耗 (78-81) ----
-pub const COOLDOWN_PERCENTAGE: &str = "cooldown_percentage";
-pub const COOLDOWN_PERCENTAGE_STACKING: &str = "cooldown_percentage_stacking";
-pub const CASTTIME_PERCENTAGE: &str = "casttime_percentage";
-pub const MANACOST_PERCENTAGE: &str = "manacost_percentage";
-
-// ---- 暴擊 (84-85) ----
-pub const PREATTACK_CRITICALSTRIKE: &str = "preattack_criticalstrike";
-pub const PREATTACK_TARGET_CRITICALSTRIKE: &str = "preattack_target_criticalstrike";
-/// 非 Dota 原生 key 但常用 — 腳本寫暴擊倍率用
-pub const CRIT_MULTIPLIER: &str = "crit_multiplier";
-
-// ---- Block (86-90) ----
-pub const MAGICAL_CONSTANT_BLOCK: &str = "magical_constant_block";
-pub const PHYSICAL_CONSTANT_BLOCK: &str = "physical_constant_block";
-pub const PHYSICAL_CONSTANT_BLOCK_SPECIAL: &str = "physical_constant_block_special";
-pub const TOTAL_CONSTANT_BLOCK_UNAVOIDABLE_PRE_ARMOR: &str = "total_constant_block_unavoidable_pre_armor";
-pub const TOTAL_CONSTANT_BLOCK: &str = "total_constant_block";
-
-// ---- 吸收 / 反射 spell (94-96) ----
-pub const ABSORB_SPELL: &str = "absorb_spell";
-pub const REFLECT_SPELL: &str = "reflect_spell";
-pub const DISABLE_AUTOATTACK: &str = "disable_autoattack";
-
-// ---- 絕對下限 / 不受特定類型傷害 (103-106) ----
-pub const MIN_HEALTH: &str = "min_health";
-pub const ABSOLUTE_NO_DAMAGE_PHYSICAL: &str = "absolute_no_damage_physical";
-pub const ABSOLUTE_NO_DAMAGE_MAGICAL: &str = "absolute_no_damage_magical";
-pub const ABSOLUTE_NO_DAMAGE_PURE: &str = "absolute_no_damage_pure";
-
-// ---- 治療 / 攻擊開關 (112-114) ----
-pub const DISABLE_HEALING: &str = "disable_healing";
-pub const ALWAYS_ALLOW_ATTACK: &str = "always_allow_attack";
-pub const OVERRIDE_ATTACK_MAGICAL: &str = "override_attack_magical";
-
-// ---- 其他常用 ----
-pub const LIFESTEAL: &str = "lifesteal";
-pub const HEAL_RECEIVED_MULTIPLIER: &str = "heal_received_multiplier";
-pub const UNIT_STATS_NEEDS_REFRESH: &str = "unit_stats_needs_refresh";
-
-// ---- 專案自訂（非 Dota 原生，但 towers / heroes 普遍使用）----
-// 這些 key 在 tower 升級、hero ability 都會進 BuffStore payload；
-// 統一收在這邊是為了避免 script 與 registry 用 magic string 造成拼寫分歧。
-pub const ACCURACY_BONUS: &str = "accuracy_bonus";
-pub const SPLASH_BONUS: &str = "splash_bonus";
-pub const CRIT_BONUS: &str = "crit_bonus";
-pub const SLOW_FACTOR_OVERRIDE: &str = "slow_factor_override";
-pub const SLOW_DURATION_BONUS: &str = "slow_duration_bonus";
-/// 攻速 multiplier（乘法聚合：product_mult，空為 1）。
-/// 語意：攻擊間隔直接乘此值；0.83 = 攻擊間隔 ×0.83（攻速 +20%）。
-/// 與 `ATTACKSPEED_BONUS_CONSTANT`（Dota 加法 bonus points）互為不同語意。
-pub const ATTACK_SPEED_MULTIPLIER: &str = "attack_speed_multiplier";
-
-// ============================================================
-// SECTION 2 — 僅非建築物（IsBuilding 的實體跳過）
-// ============================================================
-
-// ---- 移速 (11-21) ----
-pub const MOVESPEED_BONUS_CONSTANT: &str = "movespeed_bonus_constant";
-pub const MOVESPEED_BASE_OVERRIDE: &str = "movespeed_base_override";
-pub const MOVESPEED_BONUS_PERCENTAGE: &str = "movespeed_bonus_percentage";
-pub const MOVESPEED_BONUS_PERCENTAGE_UNIQUE: &str = "movespeed_bonus_percentage_unique";
-pub const MOVESPEED_BONUS_PERCENTAGE_UNIQUE_2: &str = "movespeed_bonus_percentage_unique_2";
-pub const MOVESPEED_BONUS_UNIQUE: &str = "movespeed_bonus_unique";
-pub const MOVESPEED_BONUS_UNIQUE_2: &str = "movespeed_bonus_unique_2";
-pub const MOVESPEED_ABSOLUTE: &str = "movespeed_absolute";
-pub const MOVESPEED_ABSOLUTE_MIN: &str = "movespeed_absolute_min";
-pub const MOVESPEED_LIMIT: &str = "movespeed_limit";
-pub const MOVESPEED_MAX: &str = "movespeed_max";
-
-// ---- 轉向 (111) ----
-pub const TURN_RATE_PERCENTAGE: &str = "turn_rate_percentage";
-
-// ---- 復活 (74-77) ----
-pub const REINCARNATION: &str = "reincarnation";
-pub const RESPAWNTIME: &str = "respawntime";
-pub const RESPAWNTIME_PERCENTAGE: &str = "respawntime_percentage";
-pub const RESPAWNTIME_STACKING: &str = "respawntime_stacking";
-
-// ---- 死亡代價 / 經驗 (82-83) ----
-pub const DEATHGOLDCOST: &str = "deathgoldcost";
-pub const EXP_RATE_BOOST: &str = "exp_rate_boost";
-
-// ---- 視野 (97-102) ----
-pub const BONUS_DAY_VISION: &str = "bonus_day_vision";
-pub const BONUS_NIGHT_VISION: &str = "bonus_night_vision";
-pub const BONUS_NIGHT_VISION_UNIQUE: &str = "bonus_night_vision_unique";
-pub const BONUS_VISION_PERCENTAGE: &str = "bonus_vision_percentage";
-pub const FIXED_DAY_VISION: &str = "fixed_day_vision";
-pub const FIXED_NIGHT_VISION: &str = "fixed_night_vision";
-
-// ---- 幻象 (107-110, 29) ----
-pub const IS_ILLUSION: &str = "is_illusion";
-pub const ILLUSION_LABEL: &str = "illusion_label";
-pub const SUPER_ILLUSION: &str = "super_illusion";
-pub const SUPER_ILLUSION_WITH_ULTIMATE: &str = "super_illusion_with_ultimate";
-pub const DAMAGEOUTGOING_PERCENTAGE_ILLUSION: &str = "damageoutgoing_percentage_illusion";
-
-// ---- 賞金 (116-117) ----
-pub const BOUNTY_CREEP_MULTIPLIER: &str = "bounty_creep_multiplier";
-pub const BOUNTY_OTHER_MULTIPLIER: &str = "bounty_other_multiplier";
-
-// ============================================================
-// SECTION 3 — 視覺 / 前端（host pass-through only）
-// ============================================================
-
-// ---- Animation (8, 91-93) ----
-pub const PRE_ATTACK: &str = "pre_attack";
-pub const OVERRIDE_ANIMATION: &str = "override_animation";
-pub const OVERRIDE_ANIMATION_WEIGHT: &str = "override_animation_weight";
-pub const OVERRIDE_ANIMATION_RATE: &str = "override_animation_rate";
-
-// ============================================================
-// 控制效果額外 key（非 bonus 聚合，是 runtime flag / 觸發）
-// ============================================================
-pub const DISABLE_TURNING: &str = "disable_turning";
-pub const IGNORE_CAST_ANGLE: &str = "ignore_cast_angle";
-pub const STUN_CHANCE: &str = "stun_chance";
-pub const STUN_DURATION: &str = "stun_duration";
-
-// 控制 buff id 常數
-pub const BUFF_ID_STUN: &str = "stun";
-pub const BUFF_ID_ROOT: &str = "root";
-pub const BUFF_ID_SILENCE: &str = "silence";
-pub const BUFF_ID_INVISIBLE: &str = "invisible";
-pub const BUFF_ID_INVULNERABLE: &str = "invulnerable";
-
-// ============================================================
-// BUILDING_EXCLUDED_KEYS — 建築物 tick 系統讀取時會 skip 這組
-// ============================================================
-
-pub const BUILDING_EXCLUDED_KEYS: &[&str] = &[
-    // 移速系
-    MOVESPEED_BONUS_CONSTANT,
-    MOVESPEED_BASE_OVERRIDE,
-    MOVESPEED_BONUS_PERCENTAGE,
-    MOVESPEED_BONUS_PERCENTAGE_UNIQUE,
-    MOVESPEED_BONUS_PERCENTAGE_UNIQUE_2,
-    MOVESPEED_BONUS_UNIQUE,
-    MOVESPEED_BONUS_UNIQUE_2,
-    MOVESPEED_ABSOLUTE,
-    MOVESPEED_ABSOLUTE_MIN,
-    MOVESPEED_LIMIT,
-    MOVESPEED_MAX,
-    // 轉向
-    TURN_RATE_PERCENTAGE,
-    // 復活
-    REINCARNATION,
-    RESPAWNTIME,
-    RESPAWNTIME_PERCENTAGE,
-    RESPAWNTIME_STACKING,
-    // 死亡代價 / 經驗
-    DEATHGOLDCOST,
-    EXP_RATE_BOOST,
-    // 視野
-    BONUS_DAY_VISION,
-    BONUS_NIGHT_VISION,
-    BONUS_NIGHT_VISION_UNIQUE,
-    BONUS_VISION_PERCENTAGE,
-    FIXED_DAY_VISION,
-    FIXED_NIGHT_VISION,
-    // Illusion
-    IS_ILLUSION,
-    ILLUSION_LABEL,
-    SUPER_ILLUSION,
-    SUPER_ILLUSION_WITH_ULTIMATE,
-    DAMAGEOUTGOING_PERCENTAGE_ILLUSION,
-    // Bounty
-    BOUNTY_CREEP_MULTIPLIER,
-    BOUNTY_OTHER_MULTIPLIER,
+/// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
+pub const ALL: &[StatKey; 139] = &[
+    StatKey::PreattackBonusDamage,
+    StatKey::PreattackBonusDamageProc,
+    StatKey::PreattackBonusDamagePostCrit,
+    StatKey::BaseAttackBonusDamage,
+    StatKey::ProcattackBonusDamagePhysical,
+    StatKey::ProcattackBonusDamageMagical,
+    StatKey::ProcattackBonusDamagePure,
+    StatKey::ProcattackFeedback,
+    StatKey::InvisibilityLevel,
+    StatKey::PersistentInvisibility,
+    StatKey::AttackSpeedBaseOverride,
+    StatKey::FixedAttackRate,
+    StatKey::AttackSpeedBonusConstant,
+    StatKey::CooldownReductionConstant,
+    StatKey::BaseAttackTimeConstant,
+    StatKey::AttackPointConstant,
+    StatKey::DamageOutgoingPercentage,
+    StatKey::TotalDamageOutgoingPercentage,
+    StatKey::SpellAmplifyPercentage,
+    StatKey::HpRegenAmplifyPercentage,
+    StatKey::MagicDamageOutgoingPercentage,
+    StatKey::BaseDamageOutgoingPercentage,
+    StatKey::BaseDamageOutgoingPercentageUnique,
+    StatKey::IncomingDamagePercentage,
+    StatKey::IncomingPhysicalDamagePercentage,
+    StatKey::IncomingPhysicalDamageConstant,
+    StatKey::IncomingSpellDamageConstant,
+    StatKey::EvasionConstant,
+    StatKey::NegativeEvasionConstant,
+    StatKey::AvoidDamage,
+    StatKey::AvoidSpell,
+    StatKey::MissPercentage,
+    StatKey::PhysicalArmorBonus,
+    StatKey::PhysicalArmorBonusUnique,
+    StatKey::PhysicalArmorBonusUniqueActive,
+    StatKey::IgnorePhysicalArmor,
+    StatKey::MagicalResistanceDirectModification,
+    StatKey::MagicalResistanceBonus,
+    StatKey::MagicalResistanceDecrepifyUnique,
+    StatKey::BaseManaRegen,
+    StatKey::ManaRegenConstant,
+    StatKey::ManaRegenConstantUnique,
+    StatKey::ManaRegenPercentage,
+    StatKey::ManaRegenTotalPercentage,
+    StatKey::HealthRegenConstant,
+    StatKey::HealthRegenPercentage,
+    StatKey::HealthBonus,
+    StatKey::ManaBonus,
+    StatKey::ExtraStrengthBonus,
+    StatKey::ExtraHealthBonus,
+    StatKey::ExtraManaBonus,
+    StatKey::ExtraHealthPercentage,
+    StatKey::StatsStrengthBonus,
+    StatKey::StatsAgilityBonus,
+    StatKey::StatsIntellectBonus,
+    StatKey::CastRangeBonus,
+    StatKey::CastRangeBonusStacking,
+    StatKey::AttackRangeBonus,
+    StatKey::AttackRangeBonusUnique,
+    StatKey::MaxAttackRange,
+    StatKey::ProjectileSpeedBonus,
+    StatKey::CooldownPercentage,
+    StatKey::CooldownPercentageStacking,
+    StatKey::CastTimePercentage,
+    StatKey::ManaCostPercentage,
+    StatKey::PreattackCriticalStrike,
+    StatKey::PreattackTargetCriticalStrike,
+    StatKey::CritMultiplier,
+    StatKey::MagicalConstantBlock,
+    StatKey::PhysicalConstantBlock,
+    StatKey::PhysicalConstantBlockSpecial,
+    StatKey::TotalConstantBlockUnavoidablePreArmor,
+    StatKey::TotalConstantBlock,
+    StatKey::AbsorbSpell,
+    StatKey::ReflectSpell,
+    StatKey::DisableAutoattack,
+    StatKey::MinHealth,
+    StatKey::AbsoluteNoDamagePhysical,
+    StatKey::AbsoluteNoDamageMagical,
+    StatKey::AbsoluteNoDamagePure,
+    StatKey::DisableHealing,
+    StatKey::AlwaysAllowAttack,
+    StatKey::OverrideAttackMagical,
+    StatKey::Lifesteal,
+    StatKey::HealReceivedMultiplier,
+    StatKey::UnitStatsNeedsRefresh,
+    StatKey::AccuracyBonus,
+    StatKey::SplashBonus,
+    StatKey::CritBonus,
+    StatKey::SlowFactorOverride,
+    StatKey::SlowDurationBonus,
+    StatKey::AttackSpeedMultiplier,
+    StatKey::MoveSpeedBonusConstant,
+    StatKey::MoveSpeedBaseOverride,
+    StatKey::MoveSpeedBonusPercentage,
+    StatKey::MoveSpeedBonusPercentageUnique,
+    StatKey::MoveSpeedBonusPercentageUnique2,
+    StatKey::MoveSpeedBonusUnique,
+    StatKey::MoveSpeedBonusUnique2,
+    StatKey::MoveSpeedAbsolute,
+    StatKey::MoveSpeedAbsoluteMin,
+    StatKey::MoveSpeedLimit,
+    StatKey::MoveSpeedMax,
+    StatKey::TurnRatePercentage,
+    StatKey::Reincarnation,
+    StatKey::RespawnTime,
+    StatKey::RespawnTimePercentage,
+    StatKey::RespawnTimeStacking,
+    StatKey::DeathGoldCost,
+    StatKey::ExpRateBoost,
+    StatKey::BonusDayVision,
+    StatKey::BonusNightVision,
+    StatKey::BonusNightVisionUnique,
+    StatKey::BonusVisionPercentage,
+    StatKey::FixedDayVision,
+    StatKey::FixedNightVision,
+    StatKey::IsIllusion,
+    StatKey::IllusionLabel,
+    StatKey::SuperIllusion,
+    StatKey::SuperIllusionWithUltimate,
+    StatKey::DamageOutgoingPercentageIllusion,
+    StatKey::BountyCreepMultiplier,
+    StatKey::BountyOtherMultiplier,
+    StatKey::PreAttack,
+    StatKey::OverrideAnimation,
+    StatKey::OverrideAnimationWeight,
+    StatKey::OverrideAnimationRate,
+    StatKey::DisableTurning,
+    StatKey::IgnoreCastAngle,
+    StatKey::StunChance,
+    StatKey::StunDuration,
+    StatKey::BuffIdStun,
+    StatKey::BuffIdRoot,
+    StatKey::BuffIdSilence,
+    StatKey::BuffIdInvisible,
+    StatKey::BuffIdInvulnerable,
+    StatKey::CritChance,
+    StatKey::AttackStunChance,
+    StatKey::AttackStunDuration,
 ];
 
 #[cfg(test)]
 mod tests {
-    use super::StatKey;
+    use super::{StatKey, StatSection, Aggregation, ALL};
 
     #[test]
-    fn as_str_roundtrip_smoke() {
-        assert_eq!(StatKey::PreattackBonusDamage.as_str(), "preattack_bonus_damage");
-        assert_eq!(StatKey::AttackSpeedBonusConstant.as_str(), "attackspeed_bonus_constant");
-        assert_eq!(StatKey::DamageOutgoingPercentage.as_str(), "damageoutgoing_percentage");
+    fn all_array_length_is_139() {
+        assert_eq!(ALL.len(), 139);
+    }
+
+    #[test]
+    fn as_str_to_from_str_roundtrip_all() {
+        for &k in ALL {
+            assert_eq!(
+                StatKey::from_str_key(k.as_str()),
+                Some(k),
+                "round-trip failed for {:?}",
+                k
+            );
+        }
     }
 
     #[test]
@@ -377,35 +956,57 @@ mod tests {
     }
 
     #[test]
-    fn as_str_to_from_str_roundtrip() {
-        const SAMPLES: &[StatKey] = &[
-            StatKey::PreattackBonusDamage,
-            StatKey::AttackSpeedBonusConstant,
-            StatKey::DamageOutgoingPercentage,
-        ];
-        for &k in SAMPLES {
-            assert_eq!(StatKey::from_str_key(k.as_str()), Some(k), "round-trip failed for {:?}", k);
+    fn discriminants_are_sequential() {
+        for (i, &k) in ALL.iter().enumerate() {
+            assert_eq!(k as u16, i as u16, "discriminant mismatch at {}", i);
         }
     }
 
     #[test]
-    fn section_classification_all() {
-        use super::StatSection;
+    fn section_and_aggregation_spot_checks() {
+        // SECTION 1 通用 + _bonus → SumAdd
         assert_eq!(StatKey::PreattackBonusDamage.section(), StatSection::All);
-        assert_eq!(StatKey::AttackSpeedBonusConstant.section(), StatSection::All);
-        assert_eq!(StatKey::DamageOutgoingPercentage.section(), StatSection::All);
-        // Task 5 加完其餘 variant 後會補 NonBuilding / Visual 的驗證
+        assert_eq!(
+            StatKey::PreattackBonusDamage.aggregation(),
+            Aggregation::SumAdd
+        );
+        // SECTION 2 NonBuilding + _percentage → SumAddThenMul1Plus
+        assert_eq!(
+            StatKey::MoveSpeedBonusPercentage.section(),
+            StatSection::NonBuilding
+        );
+        assert_eq!(
+            StatKey::MoveSpeedBonusPercentage.aggregation(),
+            Aggregation::SumAddThenMul1Plus
+        );
+        // SECTION 3 Visual
+        assert_eq!(StatKey::PreAttack.section(), StatSection::Visual);
+        // _multiplier → ProductMult
+        assert_eq!(
+            StatKey::AttackSpeedMultiplier.aggregation(),
+            Aggregation::ProductMult
+        );
+        // _chance → Chance
+        assert_eq!(
+            StatKey::CritChance.aggregation(),
+            Aggregation::Chance
+        );
     }
 
     #[test]
-    fn aggregation_by_suffix() {
-        use super::Aggregation;
-        // _Bonus → sum
-        assert_eq!(StatKey::PreattackBonusDamage.aggregation(), Aggregation::SumAdd);
-        // _Constant → sum
-        assert_eq!(StatKey::AttackSpeedBonusConstant.aggregation(), Aggregation::SumAdd);
-        // _Percentage → (1 + sum)
-        assert_eq!(StatKey::DamageOutgoingPercentage.aggregation(), Aggregation::SumAddThenMul1Plus);
-        // Task 5 展開後再補 _Multiplier / _Chance / PassThrough 的 case
+    fn new_tower_variants_exist() {
+        // 7 個新 variant 都可以 round-trip
+        let new_keys = [
+            StatKey::CritChance,
+            StatKey::CritBonus,
+            StatKey::SplashBonus,
+            StatKey::SlowFactorOverride,
+            StatKey::SlowDurationBonus,
+            StatKey::AttackStunChance,
+            StatKey::AttackStunDuration,
+        ];
+        for k in new_keys {
+            assert_eq!(StatKey::from_str_key(k.as_str()), Some(k));
+        }
     }
 }
