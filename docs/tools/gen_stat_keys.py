@@ -454,6 +454,15 @@ def build_impl_block(entries: list[tuple[str, str, str, str, int]]) -> str:
         lines.append(f"            StatKey::{pascal} => Aggregation::{agg},")
     lines.append("        }")
     lines.append("    }")
+    lines.append("")
+    # is_building_excluded
+    lines.append("    /// 建築物（IsBuilding component）是否跳過這個 stat key。")
+    lines.append("    ///")
+    lines.append("    /// 等同 `section() == StatSection::NonBuilding`。取代舊 `BUILDING_EXCLUDED_KEYS`")
+    lines.append("    /// 陣列掃描，host 端 UnitStats 在對建築物計算時用這個 method 快速判定。")
+    lines.append("    pub const fn is_building_excluded(self) -> bool {")
+    lines.append("        matches!(self.section(), StatSection::NonBuilding)")
+    lines.append("    }")
     lines.append("}")
     return "\n".join(lines)
 
@@ -568,6 +577,21 @@ mod tests {{
         ];
         for k in new_keys {{
             assert_eq!(StatKey::from_str_key(k.as_str()), Some(k));
+        }}
+    }}
+
+    #[test]
+    fn is_building_excluded_matches_non_building_section() {{
+        // Property：`is_building_excluded()` 應等同 `section() == NonBuilding`
+        // 取代舊 BUILDING_EXCLUDED_KEYS 陣列掃描。
+        for &k in ALL {{
+            let expected = matches!(k.section(), StatSection::NonBuilding);
+            assert_eq!(
+                k.is_building_excluded(),
+                expected,
+                "variant {{:?}} section={{:?}} but is_building_excluded={{}}",
+                k, k.section(), k.is_building_excluded()
+            );
         }}
     }}
 }}
