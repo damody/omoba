@@ -255,8 +255,18 @@ message GameEvent {
   string action = 3;         // "a" field
   bytes  data_json = 4;      // "d" field as JSON bytes (legacy, still used)
   uint64 timestamp_ms = 5;
+  // P6: per-session monotonic sequence. Server's broadcast thread stamps this
+  // on each GameEvent before the frame is encoded for a given client. Clients
+  // compare against their last-known sequence and request a snapshot via
+  // TAG_GAME_STATE_REQUEST (query_type = "seq-gap") when a gap is detected.
+  //
+  // Note: this field is PER-SESSION — different clients see different
+  // sequences for the "same" logical event because AOI filters some events
+  // out per client. Within one session the stream is strictly monotonic with
+  // NO gaps (N+1 == N + 1) under normal operation.
+  uint64 sequence = 6;
   // Reserved for future fields to avoid tag collision during incremental migration.
-  reserved 6 to 9;
+  reserved 7 to 9;
   // Populated when the event has been migrated to a typed prost payload.
   // When set, decoders SHOULD prefer this over `data_json`.
   oneof typed_payload {

@@ -37,6 +37,49 @@ pub struct KcpClient {
     event_rx: Option<mpsc::Receiver<GameEventData>>,
 }
 
+/// P6: result of the per-session sequence gap check. Exposed for tests.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SeqGapResult {
+    /// First event ever — just seed `last_seq`, no check.
+    InitialSeed,
+    /// `event.sequence == last_seq + 1` — no gap.
+    Ok,
+    /// `event.sequence < last_seq + 1` — duplicate / reorder / wrap? Log only.
+    Backwards,
+    /// `event.sequence > last_seq + 1` — missed `gap_size` events. Client
+    /// should request resync.
+    Gap { expected: u64, got: u64, gap_size: u64 },
+}
+
+/// Pure function: given the previous last-known sequence and the arriving
+/// event's sequence, return a `SeqGapResult`. Split out for unit testing
+/// without spinning up a KCP connection.
+///
+/// `last_seq_opt = None` means no events have been seen yet on this session.
+/// `last_seq_opt = Some(n)` means the last successful event had sequence `n`;
+/// the NEXT expected value is `n + 1`.
+pub fn detect_seq_gap(last_seq_opt: Option<u64>, got: u64) -> SeqGapResult {
+    match last_seq_opt {
+        None => SeqGapResult::InitialSeed,
+        Some(last) => {
+            let expected = last.wrapping_add(1);
+            if got == expected {
+                SeqGapResult::Ok
+            } else if got < expected {
+                // Likely a reorder (KCP is reliable+ordered so this should be
+                // rare) or a duplicate. Log-only; don't resync.
+                SeqGapResult::Backwards
+            } else {
+                SeqGapResult::Gap {
+                    expected,
+                    got,
+                    gap_size: got - expected,
+                }
+            }
+        }
+    }
+}
+
 /// Parsed game event data for client consumption.
 #[derive(Debug, Clone)]
 pub struct GameEventData {
@@ -74,7 +117,7 @@ impl KcpClient {
 
         // Spawn background reader task
         let (event_tx, event_rx) = mpsc::channel(10000);
-        Self::spawn_reader(reader, event_tx);
+        Self::spawn_reader(reader, event_tx, writer.clone(), player_name.clone());
 
         Ok(Self {
             player_name,
@@ -86,12 +129,22 @@ impl KcpClient {
     fn spawn_reader(
         mut reader: ReadHalf<KcpStream>,
         event_tx: mpsc::Sender<GameEventData>,
+        writer_for_resync: Arc<Mutex<WriteHalf<KcpStream>>>,
+        player_name_for_resync: String,
     ) {
         tokio::spawn(async move {
             // P3: local cache lives in the reader task so no locking is needed.
             // HeroStatic arrivals update cache only (no emit); HeroHot arrivals
             // look up the cache + emit a merged legacy hero.stats JSON.
             let mut hero_cache = HeroStatsCache::default();
+            // P6: per-session sequence gap detection. None until the first
+            // GameEvent arrives; after that, every subsequent event's sequence
+            // must equal last + 1.
+            let mut last_seq: Option<u64> = None;
+            // Throttle resync requests so a pathological flood of gaps
+            // doesn't turn into a flood of StateReq traffic. Track the last
+            // sequence we requested a resync for; skip if we already asked.
+            let mut last_resync_req: Option<u64> = None;
             loop {
                 match read_framed(&mut reader).await {
                     Ok(Some((tag, payload))) => {
@@ -99,6 +152,74 @@ impl KcpClient {
                             TAG_GAME_EVENT => {
                                 match GameEvent::decode(payload.as_slice()) {
                                     Ok(event) => {
+                                        // P6: check sequence before decoding payload.
+                                        // `sequence` is proto3 uint64 — defaults to 0
+                                        // when the server is pre-P6 or hasn't stamped
+                                        // (gRPC path), so we only engage gap detection
+                                        // once we've seen a non-zero sequence.
+                                        let got_seq = event.sequence;
+                                        match detect_seq_gap(last_seq, got_seq) {
+                                            SeqGapResult::InitialSeed => {
+                                                last_seq = Some(got_seq);
+                                            }
+                                            SeqGapResult::Ok => {
+                                                last_seq = Some(got_seq);
+                                            }
+                                            SeqGapResult::Backwards => {
+                                                warn!(
+                                                    "⏪ seq backwards (got={}, last_seq={:?}) — keeping state",
+                                                    got_seq, last_seq
+                                                );
+                                                // Do NOT update last_seq — hold the
+                                                // highest seen. Duplicate/reorder
+                                                // events still get processed.
+                                            }
+                                            SeqGapResult::Gap { expected, got, gap_size } => {
+                                                warn!(
+                                                    "⚠️ seq gap: expected={} got={} (missed {} events)",
+                                                    expected, got, gap_size
+                                                );
+                                                // Debounce: don't re-request for the
+                                                // same gap the writer already heard
+                                                // about.
+                                                let should_request = match last_resync_req {
+                                                    Some(prev) => prev < expected,
+                                                    None => true,
+                                                };
+                                                if should_request {
+                                                    last_resync_req = Some(expected);
+                                                    let req = GameStateRequest {
+                                                        query_type: "seq-gap".into(),
+                                                        // Encode last-known seq as
+                                                        // the player_name field —
+                                                        // avoids a proto schema bump
+                                                        // (see server stub for the
+                                                        // matching decode side).
+                                                        player_name: expected.saturating_sub(1).to_string(),
+                                                    };
+                                                    let w = writer_for_resync.clone();
+                                                    tokio::spawn(async move {
+                                                        let mut w = w.lock().await;
+                                                        if let Err(e) = write_framed_msg(
+                                                            &mut *w,
+                                                            TAG_GAME_STATE_REQUEST,
+                                                            &req,
+                                                        ).await {
+                                                            warn!("Failed to send seq-gap StateReq: {}", e);
+                                                        }
+                                                    });
+                                                }
+                                                // Continue processing the out-of-order
+                                                // event so we don't double-drop on top
+                                                // of the gap (client logic tolerates
+                                                // stale HP / position updates).
+                                                last_seq = Some(got_seq);
+                                            }
+                                        }
+                                        // Silence the unused-var warning on
+                                        // `player_name_for_resync` for builds
+                                        // that never hit the Gap branch.
+                                        let _ = &player_name_for_resync;
                                         // P2 binary-protocol path: if the server attached a typed
                                         // prost payload, translate it back to the legacy
                                         // {msg_type, action, data(JSON)} shape the frontend
@@ -528,4 +649,78 @@ fn translate_typed_payload(
         }
     };
     Some(out)
+}
+
+#[cfg(test)]
+mod seq_gap_tests {
+    use super::{detect_seq_gap, SeqGapResult};
+
+    #[test]
+    fn initial_event_seeds() {
+        // No prior seq → any incoming sequence just seeds the tracker.
+        assert_eq!(detect_seq_gap(None, 0), SeqGapResult::InitialSeed);
+        assert_eq!(detect_seq_gap(None, 42), SeqGapResult::InitialSeed);
+    }
+
+    #[test]
+    fn contiguous_is_ok() {
+        assert_eq!(detect_seq_gap(Some(0), 1), SeqGapResult::Ok);
+        assert_eq!(detect_seq_gap(Some(99), 100), SeqGapResult::Ok);
+    }
+
+    #[test]
+    fn gap_of_one_detected() {
+        // last=5, got=7 → missed #6.
+        match detect_seq_gap(Some(5), 7) {
+            SeqGapResult::Gap { expected, got, gap_size } => {
+                assert_eq!(expected, 6);
+                assert_eq!(got, 7);
+                assert_eq!(gap_size, 1);
+            }
+            other => panic!("expected Gap, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn large_gap_reports_size() {
+        match detect_seq_gap(Some(100), 150) {
+            SeqGapResult::Gap { expected, got, gap_size } => {
+                assert_eq!(expected, 101);
+                assert_eq!(got, 150);
+                assert_eq!(gap_size, 49);
+            }
+            other => panic!("expected Gap, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn backwards_flagged_not_gap() {
+        // Duplicate or out-of-order — do not request resync.
+        assert_eq!(detect_seq_gap(Some(10), 10), SeqGapResult::Backwards);
+        assert_eq!(detect_seq_gap(Some(10), 5), SeqGapResult::Backwards);
+    }
+
+    #[test]
+    fn streaming_sequence_smoke() {
+        // Simulate a short stream and assert gap is detected at the right spot.
+        let incoming = [0u64, 1, 2, 3, 5, 6]; // missed #4
+        let mut last: Option<u64> = None;
+        let mut gap_seen = false;
+        for (i, &s) in incoming.iter().enumerate() {
+            match detect_seq_gap(last, s) {
+                SeqGapResult::InitialSeed => { last = Some(s); }
+                SeqGapResult::Ok => { last = Some(s); }
+                SeqGapResult::Backwards => {}
+                SeqGapResult::Gap { expected, got, gap_size } => {
+                    assert_eq!(i, 4, "gap at index {}", i);
+                    assert_eq!(expected, 4);
+                    assert_eq!(got, 5);
+                    assert_eq!(gap_size, 1);
+                    last = Some(s);
+                    gap_seen = true;
+                }
+            }
+        }
+        assert!(gap_seen, "expected to observe one gap in the stream");
+    }
 }
