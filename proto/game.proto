@@ -136,6 +136,7 @@ message CreepMove {
 message CreepHp {
   uint64 id = 1;
   Fixed16 hp = 2;
+  EntityKind kind = 3;     // dynamic — creep/hero/unit/entity (default = entity)
 }
 
 message CreepSlow {
@@ -148,9 +149,22 @@ message EntityFacing {
   uint32 facing_q = 2;         // Facing8
 }
 
-// Shared death for hero/creep/unit/tower (client routes on remembered type).
+// Entity kind enum used by EntityDeath / CreepHp to disambiguate dynamic kinds.
+// 0 = unspecified → client shim treats as legacy "entity".
+enum EntityKind {
+  ENTITY_KIND_UNSPECIFIED = 0;
+  ENTITY_KIND_CREEP = 1;
+  ENTITY_KIND_HERO = 2;
+  ENTITY_KIND_TOWER = 3;
+  ENTITY_KIND_UNIT = 4;
+  ENTITY_KIND_PROJECTILE = 5;
+  ENTITY_KIND_ENTITY = 6;   // generic catch-all — matches legacy "entity" msg_type
+}
+
+// Shared death for hero/creep/unit/tower (client routes on `kind` field).
 message EntityDeath {
   uint64 id = 1;
+  EntityKind kind = 2;     // 0 = unspecified → ("entity", "D")
 }
 
 // Creep temporarily blocked by collision (hero/creep/tower stall feedback).
@@ -188,6 +202,34 @@ message BuffSnapshot {
   // u16 milliseconds, 0..=65535. 0xFFFF sentinel = toggle-type / infinite.
   uint32 remaining_ms = 2;
   string payload_json = 3;     // arbitrary modifier data (usually small)
+}
+
+// Minimal hero create — for visibility-diff / spawn. Static and Hot are pushed
+// alongside (or shortly after) so omfx can hydrate full hero state.
+message HeroCreate {
+  uint64 id = 1;
+  Position16 pos = 2;
+  Fixed16 hp = 3;
+  Fixed16 max_hp = 4;
+  string name = 5;            // hero display name
+  string title = 6;           // hero title
+}
+
+// Generic unit create — for visibility-diff and summon spawn.
+message UnitCreate {
+  uint64 id = 1;
+  Position16 pos = 2;
+  Fixed16 hp = 3;
+  Fixed16 max_hp = 4;
+  string name = 5;            // unit type label (e.g. "saika_gunner")
+}
+
+// Catch-all wrapper for low-frequency irregular events (init/ack/reject/inventory)
+// that don't justify a typed proto variant. Steady-state emit rate is ~0.
+message LegacyJson {
+  string msg_type = 1;
+  string action = 2;
+  bytes data_json = 3;
 }
 
 // Static hero metadata — pushed on create / level up / ability learn.
@@ -259,43 +301,39 @@ message GameExplosion {
   uint32 duration_ms = 3;
 }
 
-// Corresponds to MqttMsg / OutboundMsg. P2 incremental migration: new typed
-// events use `typed_payload` oneof; legacy events continue to use `data_json`.
+// P9: GameEvent envelope stripped. The original `topic`, `msg_type`, `action`,
+// `data_json`, `timestamp_ms` fields are gone. Routing/dedupe/urgency/counter
+// is server-side only and uses the variant tag of `payload`. Clients reconstruct
+// (msg_type, action) from the variant via a compile-time exhaustive shim.
+//
+// Field 1 used to be `topic`; it's now `sequence` (proto3 wire format-compatible
+// with the previous `sequence = 6` field semantically — this is a hard schema
+// break, all clients must be rebuilt).
 message GameEvent {
-  string topic = 1;
-  string msg_type = 2;       // "t" field  (still used for dispatch + counter label)
-  string action = 3;         // "a" field
-  bytes  data_json = 4;      // "d" field as JSON bytes (legacy, still used)
-  uint64 timestamp_ms = 5;
   // P6: per-session monotonic sequence. Server's broadcast thread stamps this
   // on each GameEvent before the frame is encoded for a given client. Clients
   // compare against their last-known sequence and request a snapshot via
   // TAG_GAME_STATE_REQUEST (query_type = "seq-gap") when a gap is detected.
-  //
-  // Note: this field is PER-SESSION — different clients see different
-  // sequences for the "same" logical event because AOI filters some events
-  // out per client. Within one session the stream is strictly monotonic with
-  // NO gaps (N+1 == N + 1) under normal operation.
-  uint64 sequence = 6;
-  // Reserved for future fields to avoid tag collision during incremental migration.
-  reserved 7 to 9;
-  // Populated when the event has been migrated to a typed prost payload.
-  // When set, decoders SHOULD prefer this over `data_json`.
-  oneof typed_payload {
+  uint64 sequence = 1;
+  // Reserved tags formerly used by envelope fields (topic/msg_type/action/data_json/timestamp_ms).
+  reserved 2 to 9;
+  oneof payload {
     HeartbeatTick heartbeat = 10;
 
     // Hero events (11..=19)
     HeroStatic hero_static = 11;
     HeroHot hero_hot = 12;
+    HeroCreate hero_create = 13;       // P9 visibility-diff create
 
-    // Creep events (20..=29)
+    // Creep / entity events (20..=29)
     CreepCreate creep_create = 20;
     CreepMove creep_move = 21;
-    CreepHp creep_hp = 22;
+    CreepHp creep_hp = 22;             // now carries EntityKind
     CreepSlow creep_slow = 23;
     CreepStall creep_stall = 24;
     EntityFacing entity_facing = 25;
-    EntityDeath entity_death = 26;
+    EntityDeath entity_death = 26;     // now carries EntityKind
+    UnitCreate unit_create = 27;       // P9 visibility-diff + summon
 
     // Projectile events (30..=33)
     ProjectileCreate projectile_create = 30;
@@ -314,6 +352,11 @@ message GameEvent {
     GameLives game_lives = 46;
     GameEnd game_end = 47;
     GameExplosion game_explosion = 48;
+
+    // P9 catch-all for low-frequency init / ack / reject / inventory events
+    // that don't justify a typed variant. Wire shape mirrors the old envelope
+    // fields but is gated behind a varint tag so steady-state hot-paths pay 0.
+    LegacyJson legacy_json = 60;
   }
 }
 

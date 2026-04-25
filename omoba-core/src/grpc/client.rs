@@ -55,19 +55,36 @@ impl GrpcClient {
 
         tokio::spawn(async move {
             while let Ok(Some(event)) = stream.message().await {
-                let payload_bytes = event.data_json.len();
-                let data = if event.data_json.is_empty() {
-                    serde_json::Value::Null
-                } else {
-                    serde_json::from_slice(&event.data_json).unwrap_or(serde_json::Value::Null)
+                // P9: GameEvent envelope is gone — server now wraps legacy
+                // grpc-side payloads in `LegacyJson`. Decode and recover
+                // (msg_type, action, data) from the variant.
+                let Some(payload) = event.payload else { continue };
+                let (msg_type, action, data, payload_bytes) = match payload {
+                    game_event::Payload::LegacyJson(m) => {
+                        let pb = m.data_json.len();
+                        let d = if m.data_json.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::from_slice(&m.data_json).unwrap_or(serde_json::Value::Null)
+                        };
+                        (m.msg_type, m.action, d, pb)
+                    }
+                    // gRPC path uses LegacyJson exclusively today; if a future
+                    // server wire-up adds typed variants here, fall back to a
+                    // best-effort empty payload.
+                    _ => (String::new(), String::new(), serde_json::Value::Null, 0),
                 };
+                let timestamp_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
 
                 let parsed = GameEventData {
-                    topic: event.topic,
-                    msg_type: event.msg_type,
-                    action: event.action,
+                    topic: "td/all/res".to_string(),
+                    msg_type,
+                    action,
                     data,
-                    timestamp_ms: event.timestamp_ms,
+                    timestamp_ms,
                     payload_bytes,
                 };
 
