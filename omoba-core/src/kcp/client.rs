@@ -221,31 +221,13 @@ impl KcpClient {
                                         // `player_name_for_resync` for builds
                                         // that never hit the Gap branch.
                                         let _ = &player_name_for_resync;
-                                        // P2 binary-protocol path: if the server attached a typed
-                                        // prost payload, translate it back to the legacy
-                                        // {msg_type, action, data(JSON)} shape the frontend
-                                        // already consumes. Full wire-byte savings materialize
-                                        // because `data_json` is empty on the wire — the
-                                        // JSON shim here only reconstructs the in-memory form.
-                                        let parsed_opt: Option<GameEventData> = if let Some(tp) = event.typed_payload.as_ref() {
-                                            let wire_bytes = event.data_json.len();
-                                            translate_typed_payload(tp, &event, wire_bytes, &mut hero_cache)
-                                        } else {
-                                            let payload_bytes = event.data_json.len();
-                                            let data = if event.data_json.is_empty() {
-                                                serde_json::Value::Null
-                                            } else {
-                                                serde_json::from_slice(&event.data_json)
-                                                    .unwrap_or(serde_json::Value::Null)
-                                            };
-                                            Some(GameEventData {
-                                                topic: event.topic,
-                                                msg_type: event.msg_type,
-                                                action: event.action,
-                                                data,
-                                                timestamp_ms: event.timestamp_ms,
-                                                payload_bytes,
-                                            })
+                                        // P9 envelope-strip: every event carries a typed
+                                        // `payload` oneof. The shim derives (msg_type, action)
+                                        // from the variant and rebuilds JSON for legacy omfx.
+                                        let wire_bytes = payload.len(); // raw framed payload size
+                                        let parsed_opt: Option<GameEventData> = match event.payload.as_ref() {
+                                            Some(p) => translate_typed_payload(p, wire_bytes, &mut hero_cache),
+                                            None => None,
                                         };
 
                                         if let Some(parsed) = parsed_opt {
@@ -327,32 +309,82 @@ impl KcpClient {
     }
 }
 
-/// Translate a prost typed_payload back into the legacy JSON-shaped
-/// `GameEventData` that the existing frontend dispatch expects.
-///
-/// P2 migration note: this is a temporary JSON shim. The wire-side savings
-/// are real (we ship `data_json = []` and only the prost variant); the
-/// client-side CPU cost is an extra re-serialization pass. When the frontend
-/// learns to consume typed_payload directly, this shim goes away.
+/// P9 envelope-strip shim: derive (msg_type, action) from the typed payload
+/// variant. Compile-time exhaustive — adding a new proto variant breaks the
+/// build here. `LegacyJson` carries its own keys.
+pub fn variant_to_legacy_keys(p: &game_event::Payload) -> (String, String) {
+    use game_event::Payload::*;
+    match p {
+        Heartbeat(_)         => ("heartbeat".into(), "tick".into()),
+        HeroStatic(_)        => ("hero".into(), "static_internal".into()),
+        HeroHot(_)           => ("hero".into(), "stats".into()),
+        HeroCreate(_)        => ("hero".into(), "create".into()),
+        CreepCreate(_)       => ("creep".into(), "create".into()),
+        CreepMove(_)         => ("creep".into(), "M".into()),
+        CreepHp(m)           => match super::game_proto::EntityKind::try_from(m.kind).unwrap_or(super::game_proto::EntityKind::Unspecified) {
+            super::game_proto::EntityKind::Creep => ("creep".into(), "H".into()),
+            super::game_proto::EntityKind::Hero  => ("hero".into(), "H".into()),
+            super::game_proto::EntityKind::Unit  => ("unit".into(), "H".into()),
+            super::game_proto::EntityKind::Tower => ("tower".into(), "H".into()),
+            _                                    => ("entity".into(), "H".into()),
+        },
+        CreepSlow(_)         => ("creep".into(), "S".into()),
+        CreepStall(_)        => ("creep".into(), "stall".into()),
+        EntityFacing(_)      => ("entity".into(), "F".into()),
+        EntityDeath(m)       => match super::game_proto::EntityKind::try_from(m.kind).unwrap_or(super::game_proto::EntityKind::Unspecified) {
+            super::game_proto::EntityKind::Creep      => ("creep".into(), "D".into()),
+            super::game_proto::EntityKind::Tower      => ("tower".into(), "D".into()),
+            super::game_proto::EntityKind::Hero       => ("hero".into(), "D".into()),
+            super::game_proto::EntityKind::Unit       => ("unit".into(), "D".into()),
+            super::game_proto::EntityKind::Projectile => ("projectile".into(), "D".into()),
+            _                                         => ("entity".into(), "D".into()),
+        },
+        UnitCreate(_)        => ("unit".into(), "create".into()),
+        ProjectileCreate(_)  => ("projectile".into(), "C".into()),
+        ProjectileDestroy(_) => ("projectile".into(), "D".into()),
+        TowerCreate(_)       => ("tower".into(), "create".into()),
+        TowerUpgrade(_)      => ("tower".into(), "upgrade".into()),
+        BuffAdd(_)           => ("buff".into(), "buff_add".into()),
+        BuffRemove(_)        => ("buff".into(), "buff_remove".into()),
+        GameRound(_)         => ("game".into(), "round".into()),
+        GameLives(_)         => ("game".into(), "lives".into()),
+        GameEnd(_)           => ("game".into(), "end".into()),
+        GameExplosion(_)     => ("game".into(), "explosion".into()),
+        LegacyJson(m)        => (m.msg_type.clone(), m.action.clone()),
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Translate a prost typed Payload into the legacy JSON-shaped `GameEventData`
+/// that omfx already consumes. P9: the wire no longer carries topic / msg_type /
+/// action / data_json / timestamp_ms — we derive (msg_type, action) from the
+/// variant tag, set topic = "td/all/res" (server already routed), and use the
+/// client-local clock for timestamp_ms.
 fn translate_typed_payload(
-    tp: &game_event::TypedPayload,
-    event: &GameEvent,
+    tp: &game_event::Payload,
     wire_bytes: usize,
     hero_cache: &mut HeroStatsCache,
 ) -> Option<GameEventData> {
-    // Keep the server-supplied msg_type / action so downstream dispatch
-    // (which keys on these strings) routes identically to the JSON path.
+    let (msg_type, action) = variant_to_legacy_keys(tp);
+    let topic = "td/all/res".to_string();
+    let timestamp_ms = now_ms();
     let default = || GameEventData {
-        topic: event.topic.clone(),
-        msg_type: event.msg_type.clone(),
-        action: event.action.clone(),
+        topic: topic.clone(),
+        msg_type: msg_type.clone(),
+        action: action.clone(),
         data: serde_json::Value::Null,
-        timestamp_ms: event.timestamp_ms,
+        timestamp_ms,
         payload_bytes: wire_bytes,
     };
 
     let out = match tp {
-        game_event::TypedPayload::Heartbeat(hb) => {
+        game_event::Payload::Heartbeat(hb) => {
             let hp_snapshot: Vec<serde_json::Value> = hb.hp_snapshot.iter().map(|e| {
                 let hp = e.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
                 json!({ "i": e.id as u32, "h": hp })
@@ -376,15 +408,15 @@ fn translate_typed_payload(
                 "pos_snapshot": pos_snapshot,
             });
             GameEventData {
-                topic: event.topic.clone(),
+                topic: topic.clone(),
                 msg_type: "heartbeat".to_string(),
                 action: "tick".to_string(),
                 data: d,
-                timestamp_ms: event.timestamp_ms,
+                timestamp_ms,
                 payload_bytes: wire_bytes,
             }
         }
-        game_event::TypedPayload::ProjectileCreate(m) => {
+        game_event::Payload::ProjectileCreate(m) => {
             let start = m.start_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let end = m.end_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let splash = m.splash_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -411,11 +443,11 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::ProjectileDestroy(m) => {
+        game_event::Payload::ProjectileDestroy(m) => {
             let d = json!({ "id": m.id as u32 });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::CreepCreate(m) => {
+        game_event::Payload::CreepCreate(m) => {
             let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -434,7 +466,7 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::CreepMove(m) => {
+        game_event::Payload::CreepMove(m) => {
             let tgt = m.target.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             // P4: reconstruct extrapolation fields. `velocity`/`start_pos`/`start_tick`/`arrival_tick`
             // are zero for legacy emits (handle_creep_stop freeze) — omfx treats that as
@@ -453,7 +485,7 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::CreepHp(m) => {
+        game_event::Payload::CreepHp(m) => {
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let d = json!({
                 "id": m.id as u32,
@@ -461,7 +493,7 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::CreepSlow(m) => {
+        game_event::Payload::CreepSlow(m) => {
             let ms = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let d = json!({
                 "id": m.id as u32,
@@ -469,7 +501,7 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::CreepStall(m) => {
+        game_event::Payload::CreepStall(m) => {
             let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let d = json!({
                 "id": m.id as u32,
@@ -479,18 +511,18 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::EntityFacing(m) => {
+        game_event::Payload::EntityFacing(m) => {
             let d = json!({
                 "id": m.id as u32,
                 "facing": facing_dequant(m.facing_q),
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::EntityDeath(m) => {
+        game_event::Payload::EntityDeath(m) => {
             let d = json!({ "id": m.id as u32 });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::TowerCreate(m) => {
+        game_event::Payload::TowerCreate(m) => {
             let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -506,7 +538,7 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::TowerUpgrade(m) => {
+        game_event::Payload::TowerUpgrade(m) => {
             let l0 = m.levels.get(0).copied().unwrap_or(0);
             let l1 = m.levels.get(1).copied().unwrap_or(0);
             let l2 = m.levels.get(2).copied().unwrap_or(0);
@@ -516,7 +548,7 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::BuffAdd(m) => {
+        game_event::Payload::BuffAdd(m) => {
             // remaining_ms=0xFFFF sentinel → -1 remaining (infinite/toggle)
             let remaining = if m.remaining_ms == 0xFFFF { -1.0_f32 } else { m.remaining_ms as f32 / 1000.0 };
             let payload: serde_json::Value = serde_json::from_str(&m.payload_json).unwrap_or(serde_json::Value::Null);
@@ -529,7 +561,7 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::BuffRemove(m) => {
+        game_event::Payload::BuffRemove(m) => {
             let d = json!({
                 "entity_id": m.entity_id as u32,
                 "id": m.entity_id as u32,
@@ -540,7 +572,7 @@ fn translate_typed_payload(
         // P3: HeroStatic → update cache only (no emit to omfx).
         // Level-up / ability-learn happens rarely; omfx will see updated
         // name/level/abilities on the next HeroHot merge (≤ 0.3s later).
-        game_event::TypedPayload::HeroStatic(m) => {
+        game_event::Payload::HeroStatic(m) => {
             hero_cache.statics.insert(m.id, m.clone());
             return None;
         }
@@ -548,7 +580,7 @@ fn translate_typed_payload(
         // hero.stats JSON so omfx needs zero changes. First HeroHot before
         // any HeroStatic arrives → empty static fields (omfx uses `if let
         // Some` per field, so it retains last-known values).
-        game_event::TypedPayload::HeroHot(m) => {
+        game_event::Payload::HeroHot(m) => {
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let attack_damage = m.attack_damage.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -617,15 +649,15 @@ fn translate_typed_payload(
             }
 
             GameEventData {
-                topic: event.topic.clone(),
+                topic: topic.clone(),
                 msg_type: "hero".to_string(),
                 action: "stats".to_string(),
                 data: d,
-                timestamp_ms: event.timestamp_ms,
+                timestamp_ms,
                 payload_bytes: wire_bytes,
             }
         }
-        game_event::TypedPayload::GameRound(m) => {
+        game_event::Payload::GameRound(m) => {
             let d = json!({
                 "round": m.round,
                 "total": m.total,
@@ -633,17 +665,17 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::GameLives(m) => {
+        game_event::Payload::GameLives(m) => {
             // P3: cache for later injection into merged hero.stats.
             hero_cache.latest_lives = Some(m.lives);
             let d = json!({ "lives": m.lives });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::GameEnd(m) => {
+        game_event::Payload::GameEnd(m) => {
             let d = json!({ "winner": m.winner });
             GameEventData { data: d, ..default() }
         }
-        game_event::TypedPayload::GameExplosion(m) => {
+        game_event::Payload::GameExplosion(m) => {
             let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let radius = m.radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let d = json!({
@@ -654,11 +686,56 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        // Catch-all: preserve legacy JSON form if an unknown variant slips through.
-        #[allow(unreachable_patterns)]
-        _other => {
-            warn!("typed_payload variant not yet handled on client");
-            default()
+        // P9: HeroCreate / UnitCreate visibility-diff (placeholder — omfx
+        // currently spawns from creep.create-style payload; these emit a
+        // minimal create JSON so the existing dispatch can still see them).
+        game_event::Payload::HeroCreate(m) => {
+            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "id": m.id as u32,
+                "entity_id": m.id as u32,
+                "name": m.name,
+                "title": m.title,
+                "position": { "x": pos.0, "y": pos.1 },
+                "hp": hp,
+                "max_hp": max_hp,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        game_event::Payload::UnitCreate(m) => {
+            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let d = json!({
+                "id": m.id as u32,
+                "entity_id": m.id as u32,
+                "name": m.name,
+                "position": { "x": pos.0, "y": pos.1 },
+                "hp": hp,
+                "max_hp": max_hp,
+            });
+            GameEventData { data: d, ..default() }
+        }
+        // P9: catch-all for low-frequency irregular events (init / ack /
+        // reject / inventory). Decode the carried JSON bytes back into a
+        // serde_json::Value so omfx's existing dispatcher sees the original
+        // (msg_type, action, data) shape.
+        game_event::Payload::LegacyJson(m) => {
+            let data = if m.data_json.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::from_slice(&m.data_json).unwrap_or(serde_json::Value::Null)
+            };
+            GameEventData {
+                topic: topic.clone(),
+                msg_type: m.msg_type.clone(),
+                action: m.action.clone(),
+                data,
+                timestamp_ms,
+                payload_bytes: wire_bytes,
+            }
         }
     };
     Some(out)
