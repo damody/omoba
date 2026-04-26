@@ -255,6 +255,7 @@ name = "omb-script-abi"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
+ "omoba-template-ids",
 ]
 
 [[package]]
@@ -263,12 +264,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
+ "omoba-template-ids",
  "rand",
  "serde",
  "serde_json",
  "tokio",
  "toml",
  "vek",
+]
+
+[[package]]
+name = "omoba-template-ids"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
