@@ -79,15 +79,20 @@ pub async fn write_framed_msg<W: AsyncWriteExt + Unpin, M: prost::Message>(
     write_framed(writer, tag, &payload).await
 }
 
-/// Read a framed message, returns (tag, payload bytes).
+/// Read a framed message, returns (tag, decompressed_payload, wire_bytes).
 /// Returns None on EOF.
+///
+/// `wire_bytes` is the actual UDP/KCP byte cost on the wire = 1 (tag) +
+/// 4 (length prefix) + N (raw framed payload, possibly LZ4-compressed).
+/// Lets the caller report compressed wire-cost separately from the
+/// decompressed logical payload size for HUD / counter reporting.
 ///
 /// If the incoming tag byte has `COMPRESSION_FLAG` set, the payload is decoded
 /// as an LZ4 size-prepended block and the returned tag has the flag stripped
 /// (so callers see the original 0x01~0x07 tag regardless of the wire form).
 pub async fn read_framed<R: AsyncReadExt + Unpin>(
     reader: &mut R,
-) -> std::io::Result<Option<(u8, Vec<u8>)>> {
+) -> std::io::Result<Option<(u8, Vec<u8>, usize)>> {
     let tag_raw = match reader.read_u8().await {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
@@ -96,13 +101,14 @@ pub async fn read_framed<R: AsyncReadExt + Unpin>(
     let len = reader.read_u32().await? as usize;
     let mut buf = vec![0u8; len];
     reader.read_exact(&mut buf).await?;
+    let wire_bytes = 1 + 4 + len;
     if tag_raw & COMPRESSION_FLAG != 0 {
         let base_tag = tag_raw & 0x7F;
         let decompressed = lz4_flex::block::decompress_size_prepended(&buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        Ok(Some((base_tag, decompressed)))
+        Ok(Some((base_tag, decompressed, wire_bytes)))
     } else {
-        Ok(Some((tag_raw, buf)))
+        Ok(Some((tag_raw, buf, wire_bytes)))
     }
 }
 
