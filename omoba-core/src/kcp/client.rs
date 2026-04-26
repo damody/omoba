@@ -91,7 +91,14 @@ pub struct GameEventData {
     pub timestamp_ms: u64,
     /// 原始 proto data_json bytes 長度；供前端網路吞吐統計用，
     /// 避免在 hot path 做冗餘 serde_json::to_string。
+    /// **舊欄位**：=`logical_bytes`（解壓後 prost payload 長度）。
+    /// 保留欄位名為了 source-compat。前端要看真實 UDP 成本請用
+    /// `wire_bytes` 欄位（`logical_bytes` 約等於 `wire_bytes` × LZ4 解壓比）。
     pub payload_bytes: usize,
+    /// **真實 UDP/KCP wire 成本**（LZ4 壓縮後 + framing 1+4 byte header）。
+    /// 對應 server 端 `KcpBytesCounter::record(frame.len())` 計的同一個值。
+    /// 前端 HUD 顯示真實 bandwidth 應用此欄位，不是 `payload_bytes`。
+    pub wire_bytes: usize,
 }
 
 impl KcpClient {
@@ -148,7 +155,7 @@ impl KcpClient {
             let mut last_resync_req: Option<u64> = None;
             loop {
                 match read_framed(&mut reader).await {
-                    Ok(Some((tag, payload))) => {
+                    Ok(Some((tag, payload, wire_compressed_bytes))) => {
                         match tag {
                             TAG_GAME_EVENT => {
                                 match GameEvent::decode(payload.as_slice()) {
@@ -224,9 +231,11 @@ impl KcpClient {
                                         // P9 envelope-strip: every event carries a typed
                                         // `payload` oneof. The shim derives (msg_type, action)
                                         // from the variant and rebuilds JSON for legacy omfx.
-                                        let wire_bytes = payload.len(); // raw framed payload size
+                                        // `wire_compressed_bytes` = actual UDP cost (LZ4'd if shrunk + framing);
+                                        // `payload.len()` = decompressed prost bytes (logical payload).
+                                        let logical_bytes = payload.len();
                                         let parsed_opt: Option<GameEventData> = match event.payload.as_ref() {
-                                            Some(p) => translate_typed_payload(p, wire_bytes, &mut hero_cache),
+                                            Some(p) => translate_typed_payload(p, wire_compressed_bytes, logical_bytes, &mut hero_cache),
                                             None => None,
                                         };
 
@@ -369,6 +378,7 @@ fn now_ms() -> u64 {
 fn translate_typed_payload(
     tp: &game_event::Payload,
     wire_bytes: usize,
+    logical_bytes: usize,
     hero_cache: &mut HeroStatsCache,
 ) -> Option<GameEventData> {
     let (msg_type, action) = variant_to_legacy_keys(tp);
@@ -380,7 +390,8 @@ fn translate_typed_payload(
         action: action.clone(),
         data: serde_json::Value::Null,
         timestamp_ms,
-        payload_bytes: wire_bytes,
+        payload_bytes: logical_bytes,
+        wire_bytes,
     };
 
     let out = match tp {
@@ -413,7 +424,8 @@ fn translate_typed_payload(
                 action: "tick".to_string(),
                 data: d,
                 timestamp_ms,
-                payload_bytes: wire_bytes,
+                payload_bytes: logical_bytes,
+        wire_bytes,
             }
         }
         game_event::Payload::ProjectileCreate(m) => {
@@ -654,7 +666,8 @@ fn translate_typed_payload(
                 action: "stats".to_string(),
                 data: d,
                 timestamp_ms,
-                payload_bytes: wire_bytes,
+                payload_bytes: logical_bytes,
+        wire_bytes,
             }
         }
         game_event::Payload::GameRound(m) => {
@@ -734,7 +747,8 @@ fn translate_typed_payload(
                 action: m.action.clone(),
                 data,
                 timestamp_ms,
-                payload_bytes: wire_bytes,
+                payload_bytes: logical_bytes,
+        wire_bytes,
             }
         }
     };

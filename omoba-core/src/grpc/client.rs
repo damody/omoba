@@ -86,6 +86,8 @@ impl GrpcClient {
                     data,
                     timestamp_ms,
                     payload_bytes,
+                    // gRPC 路徑沒有 LZ4 壓縮層，wire bytes ≈ logical bytes。
+                    wire_bytes: payload_bytes,
                 };
 
                 if tx.send(parsed).await.is_err() {
@@ -106,6 +108,8 @@ pub struct GameEventData {
     pub action: String,
     pub data: serde_json::Value,
     pub timestamp_ms: u64,
-    /// 原始 proto data_json bytes 長度；供前端網路吞吐統計用。
+    /// Logical (decompressed) payload bytes — 應用層 size。
     pub payload_bytes: usize,
+    /// 真實 wire bytes — gRPC 路徑無 LZ4，wire ≈ logical。
+    pub wire_bytes: usize,
 }
