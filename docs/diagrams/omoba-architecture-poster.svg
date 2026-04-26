@@ -135,7 +135,7 @@
       <rect x="80" y="320" width="2080" height="580" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#f59e0b" stroke-width="3"/>
       <circle cx="160" cy="400" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
-      <text x="160" y="416" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">①</text>
+      <text x="160" y="416" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">1</text>
       <text x="240" y="395" class="title-text" font-size="48">Story / templates.json</text>
       <text x="240" y="445" class="body-text muted" font-size="28">single source of truth for entity templates</text>
 
@@ -175,7 +175,7 @@
       <rect x="80" y="970" width="2080" height="560" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#f59e0b" stroke-width="3"/>
       <circle cx="160" cy="1050" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
-      <text x="160" y="1066" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">②</text>
+      <text x="160" y="1066" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">2</text>
       <text x="240" y="1045" class="title-text" font-size="48">omoba-template-ids</text>
       <text x="240" y="1095" class="body-text muted" font-size="28">build-time codegen · sequential u16 newtype</text>
 
@@ -210,13 +210,13 @@
     <!-- 卡片 ③: scripts/script-abi (y=1600..2280, height=680) -->
     <g id="card-3" filter="url(#card-shadow)">
       <rect x="80" y="1600" width="2080" height="680" rx="24" ry="24"
-            fill="url(#card-fill)" stroke="#a78bfa" stroke-width="4"/>
-      <circle cx="160" cy="1680" r="48" fill="#0b1220" stroke="#a78bfa" stroke-width="4"/>
-      <text x="160" y="1696" class="title-text" font-size="44" fill="#a78bfa" text-anchor="middle">③</text>
+            fill="url(#card-fill)" stroke="#f59e0b" stroke-width="3"/>
+      <circle cx="160" cy="1680" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
+      <text x="160" y="1696" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">3</text>
       <text x="240" y="1675" class="title-text" font-size="48">scripts/script-abi</text>
       <text x="240" y="1725" class="body-text" font-size="26" fill="#a78bfa">◇ FFI 邊界 — abi_stable host + cdylib 共用 crate</text>
 
-      <line x1="1190" y1="1755" x2="1190" y2="2250" stroke="#a78bfa" stroke-width="1" stroke-opacity="0.3"/>
+      <line x1="1190" y1="1755" x2="1190" y2="2250" stroke="#f59e0b" stroke-width="1" stroke-opacity="0.3"/>
 
       <text x="120" y="1810" class="code" font-size="26" fill="#dccfff">trait UnitScript</text>
       <text x="120" y="1845" class="code" font-size="22" fill="#94a3b8">  on_tick / on_attack / on_hit</text>
@@ -255,7 +255,7 @@
       <rect x="80" y="2350" width="2080" height="600" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#f59e0b" stroke-width="3"/>
       <circle cx="160" cy="2430" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
-      <text x="160" y="2446" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">④</text>
+      <text x="160" y="2446" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">4</text>
       <text x="240" y="2425" class="title-text" font-size="48">scripts/base_content</text>
       <text x="240" y="2475" class="body-text muted" font-size="28">cdylib · 所有 script 實作的內容包</text>
 
@@ -293,7 +293,7 @@
       <rect x="80" y="3020" width="2080" height="360" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#f59e0b" stroke-width="3"/>
       <circle cx="160" cy="3100" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
-      <text x="160" y="3116" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">⑤</text>
+      <text x="160" y="3116" class="title-text" font-size="44" fill="#f59e0b" text-anchor="middle">5</text>
       <text x="240" y="3095" class="title-text" font-size="48">DLL hot-load → omb/scripts/</text>
       <text x="240" y="3145" class="body-text muted" font-size="28">runtime side：cdylib loaded into specs world</text>
 
@@ -633,7 +633,7 @@
       <rect x="4880" y="320" width="2080" height="560" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#22d3ee" stroke-width="3"/>
       <circle cx="4960" cy="400" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
-      <text x="4960" y="416" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">⑥</text>
+      <text x="4960" y="416" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">6</text>
       <text x="5040" y="395" class="title-text" font-size="48">omb host broadcast</text>
       <text x="5040" y="445" class="body-text muted" font-size="28">廣播站 · OutboundMsg::typed</text>
 
@@ -668,7 +668,7 @@
       <rect x="4880" y="960" width="2080" height="580" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#22d3ee" stroke-width="3"/>
       <circle cx="4960" cy="1040" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
-      <text x="4960" y="1056" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">⑦</text>
+      <text x="4960" y="1056" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">7</text>
       <text x="5040" y="1035" class="title-text" font-size="48">omoba-core · encode</text>
       <text x="5040" y="1085" class="body-text muted" font-size="28">非 submodule 共用 schema crate（host + client）</text>
 
@@ -705,7 +705,7 @@
       <rect x="4880" y="1620" width="2080" height="740" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#22d3ee" stroke-width="4"/>
       <circle cx="4960" cy="1700" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
-      <text x="4960" y="1716" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">⑧</text>
+      <text x="4960" y="1716" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">8</text>
       <text x="5040" y="1695" class="title-text" font-size="48">KCP wire (UDP 50061)</text>
       <text x="5040" y="1745" class="body-text muted" font-size="28">framing: [1B tag][4B len BE][prost/json payload]</text>
 
@@ -800,7 +800,7 @@
       <rect x="4880" y="2440" width="2080" height="560" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#22d3ee" stroke-width="3"/>
       <circle cx="4960" cy="2520" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
-      <text x="4960" y="2536" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">⑨</text>
+      <text x="4960" y="2536" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">9</text>
       <text x="5040" y="2515" class="title-text" font-size="48">omoba-core · client decode</text>
       <text x="5040" y="2565" class="body-text muted" font-size="28">同 crate · client 端 reverse path</text>
 
@@ -837,7 +837,7 @@
       <rect x="4880" y="3080" width="2080" height="560" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#22d3ee" stroke-width="3"/>
       <circle cx="4960" cy="3160" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
-      <text x="4960" y="3176" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">⑩</text>
+      <text x="4960" y="3176" class="title-text" font-size="36" fill="#22d3ee" text-anchor="middle">10</text>
       <text x="5040" y="3155" class="title-text" font-size="48">omfx (Fyrox engine)</text>
       <text x="5040" y="3205" class="body-text muted" font-size="28">純網路渲染器 · 無本地遊戲邏輯</text>
 
@@ -874,7 +874,7 @@
       <rect x="4880" y="3720" width="2080" height="180" rx="24" ry="24"
             fill="url(#card-fill)" stroke="#22d3ee" stroke-width="3"/>
       <circle cx="4960" cy="3795" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
-      <text x="4960" y="3811" class="title-text" font-size="44" fill="#22d3ee" text-anchor="middle">⑪</text>
+      <text x="4960" y="3811" class="title-text" font-size="36" fill="#22d3ee" text-anchor="middle">11</text>
       <text x="5040" y="3790" class="title-text" font-size="48">executor (Fyrox bin)</text>
       <text x="5040" y="3835" class="body-text muted" font-size="24">spawn target/debug/omobab.exe（hard-coded debug 路徑）</text>
 
