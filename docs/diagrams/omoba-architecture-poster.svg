@@ -160,8 +160,8 @@
       <text x="1230" y="710" class="why-text" font-size="26">遊戲沒有動態生成模板的需求 —</text>
       <text x="1230" y="745" class="why-text" font-size="26">所有 Tower / Creep / Hero 都在</text>
       <text x="1230" y="780" class="why-text" font-size="26">templates.json 編譯期就能定型。</text>
-      <text x="1230" y="835" class="why-text" font-size="26" fill="#cbd5e1">u16 比字串短一個量級，server</text>
-      <text x="1230" y="870" class="why-text" font-size="26" fill="#cbd5e1">hot-loop 也省去字串雜湊比對成本。</text>
+      <text x="1230" y="835" class="why-text" font-size="26">u16 比字串短一個量級，server</text>
+      <text x="1230" y="870" class="why-text" font-size="26">hot-loop 也省去字串雜湊比對成本。</text>
     </g>
 
     <g>
@@ -187,8 +187,8 @@
       <text x="120" y="1325" class="body-text" font-size="24" fill="#cbd5e1">build.rs 從 templates.json</text>
       <text x="120" y="1360" class="body-text" font-size="24" fill="#cbd5e1">解析後輸出 const 陣列 +</text>
       <text x="120" y="1395" class="body-text" font-size="24" fill="#cbd5e1">impl serde + abi_stable safe</text>
-      <text x="120" y="1450" class="body-text small" fill="#a78bfa">P9 envelope strip 後 KCP 才能</text>
-      <text x="120" y="1480" class="body-text small" fill="#a78bfa">真正把字串 id 砍乾淨</text>
+      <text x="120" y="1450" class="body-text small" fill="#cbd5e1">P9 envelope strip 後 KCP 才能</text>
+      <text x="120" y="1480" class="body-text small" fill="#cbd5e1">真正把字串 id 砍乾淨</text>
 
       <text x="1230" y="1175" class="why-label" font-size="28" fill="#f59e0b">▶ 為何 newtype 而非 type alias？</text>
       <text x="1230" y="1235" class="why-text" font-size="26">type alias 不擋 TowerKindId 跟</text>
@@ -196,9 +196,9 @@
       <text x="1230" y="1305" class="why-text" font-size="26">看不出哪邊應該收哪種 id；</text>
       <text x="1230" y="1340" class="why-text" font-size="26">newtype 讓型別系統幫忙擋下</text>
       <text x="1230" y="1375" class="why-text" font-size="26">混用 bug。</text>
-      <text x="1230" y="1430" class="why-text" font-size="26" fill="#cbd5e1">u16 對 wire bytes 已經很省 —</text>
-      <text x="1230" y="1465" class="why-text" font-size="26" fill="#cbd5e1">模板數遠少於 65k，未來擴增 mod</text>
-      <text x="1230" y="1500" class="why-text" font-size="26" fill="#cbd5e1">也不會踩到上限。</text>
+      <text x="1230" y="1430" class="why-text" font-size="26">u16 對 wire bytes 已經很省 —</text>
+      <text x="1230" y="1465" class="why-text" font-size="26">模板數遠少於 65k，未來擴增 mod</text>
+      <text x="1230" y="1500" class="why-text" font-size="26">也不會踩到上限。</text>
     </g>
 
     <g>
@@ -239,9 +239,9 @@
       <text x="1230" y="2060" class="why-text" font-size="24">layout hash 比對，host 載入 cdylib</text>
       <text x="1230" y="2095" class="why-text" font-size="24">時若不一致拒絕；rustc 1.91.0 鎖版</text>
       <text x="1230" y="2130" class="why-text" font-size="24">是雙重保險。</text>
-      <text x="1230" y="2185" class="why-text" font-size="24" fill="#cbd5e1">StatKey enum 取代 magic string —</text>
-      <text x="1230" y="2220" class="why-text" font-size="24" fill="#cbd5e1">拼錯編譯期就擋下，IDE 補全有清單，</text>
-      <text x="1230" y="2255" class="why-text" font-size="24" fill="#cbd5e1">mod 作者也容易參照熟悉的 Dota 系統。</text>
+      <text x="1230" y="2185" class="why-text" font-size="24">StatKey enum 取代 magic string —</text>
+      <text x="1230" y="2220" class="why-text" font-size="24">拼錯編譯期就擋下，IDE 補全有清單，</text>
+      <text x="1230" y="2255" class="why-text" font-size="24">mod 作者也容易參照熟悉的 Dota 系統。</text>
     </g>
 
     <g>
@@ -277,9 +277,9 @@
       <text x="1230" y="2720" class="why-text" font-size="26">分 workspace 後依賴樹小一個</text>
       <text x="1230" y="2755" class="why-text" font-size="26">量級，外部 clone scripts/ 編譯</text>
       <text x="1230" y="2790" class="why-text" font-size="26">幾秒內就完成。</text>
-      <text x="1230" y="2845" class="why-text" font-size="26" fill="#cbd5e1">cdylib 也讓 iteration cycle 縮短：</text>
-      <text x="1230" y="2880" class="why-text" font-size="26" fill="#cbd5e1">改 ability 不用重編 host，</text>
-      <text x="1230" y="2915" class="why-text" font-size="26" fill="#cbd5e1">複製 .dll 重啟即可進遊戲。</text>
+      <text x="1230" y="2845" class="why-text" font-size="26">cdylib 也讓 iteration cycle 縮短：</text>
+      <text x="1230" y="2880" class="why-text" font-size="26">改 ability 不用重編 host，</text>
+      <text x="1230" y="2915" class="why-text" font-size="26">複製 .dll 重啟即可進遊戲。</text>
     </g>
 
     <g>
@@ -425,9 +425,9 @@
       <text x="3580" y="960" class="why-text" font-size="24">broadcast 也從這層送出，未來新增</text>
       <text x="3580" y="995" class="why-text" font-size="24">transport（gRPC / MQTT）不必動</text>
       <text x="3580" y="1030" class="why-text" font-size="24">任何 system。</text>
-      <text x="3580" y="1085" class="why-text" font-size="24" fill="#cbd5e1">command-dispatch 模式讓網路層跟</text>
-      <text x="3580" y="1120" class="why-text" font-size="24" fill="#cbd5e1">game logic 完全解耦 — 對 server</text>
-      <text x="3580" y="1155" class="why-text" font-size="24" fill="#cbd5e1">authoritative 設計是必要前置。</text>
+      <text x="3580" y="1085" class="why-text" font-size="24">command-dispatch 模式讓網路層跟</text>
+      <text x="3580" y="1120" class="why-text" font-size="24">game logic 完全解耦 — 對 server</text>
+      <text x="3580" y="1155" class="why-text" font-size="24">authoritative 設計是必要前置。</text>
       <text x="3580" y="1210" class="why-text" font-size="22" fill="#fb7185">⚠ SearchNN_XY 邊界 bug 已修（2026-04-22）</text>
     </g>
 
@@ -462,9 +462,9 @@
       <text x="3580" y="1615" class="why-text" font-size="24">CD gate / Passive gate 統一在</text>
       <text x="3580" y="1650" class="why-text" font-size="24">dispatch — 不會發生「某個 system</text>
       <text x="3580" y="1685" class="why-text" font-size="24">忘了檢查 cooldown」的 bug。</text>
-      <text x="3580" y="1740" class="why-text" font-size="24" fill="#cbd5e1">FFI 回呼在 world_adapter 收口，</text>
-      <text x="3580" y="1775" class="why-text" font-size="24" fill="#cbd5e1">type 轉換（specs Entity ↔ EntityHandle）</text>
-      <text x="3580" y="1810" class="why-text" font-size="24" fill="#cbd5e1">只一處實作。</text>
+      <text x="3580" y="1740" class="why-text" font-size="24">FFI 回呼在 world_adapter 收口，</text>
+      <text x="3580" y="1775" class="why-text" font-size="24">type 轉換（specs Entity ↔ EntityHandle）</text>
+      <text x="3580" y="1810" class="why-text" font-size="24">只一處實作。</text>
     </g>
 
     <!-- LAYER C: ability_runtime/ (y=1860..2440, height=580) -->
@@ -498,9 +498,9 @@
       <text x="3580" y="2170" class="why-text" font-size="24">BASEDAMAGEOUTGOING_PERCENTAGE，</text>
       <text x="3580" y="2205" class="why-text" font-size="24">數值漂移、玩家看到的傷害跟實際</text>
       <text x="3580" y="2240" class="why-text" font-size="24">扣血對不上。</text>
-      <text x="3580" y="2295" class="why-text" font-size="24" fill="#cbd5e1">後來統一走 UnitStats::final_*，</text>
-      <text x="3580" y="2330" class="why-text" font-size="24" fill="#cbd5e1">配 StatKey enum 強制 key 一致。</text>
-      <text x="3580" y="2385" class="why-text" font-size="24" fill="#a78bfa">教訓：聚合邏輯絕對不能複製。</text>
+      <text x="3580" y="2295" class="why-text" font-size="24">後來統一走 UnitStats::final_*，</text>
+      <text x="3580" y="2330" class="why-text" font-size="24">配 StatKey enum 強制 key 一致。</text>
+      <text x="3580" y="2385" class="why-text" font-size="24">教訓：聚合邏輯絕對不能複製。</text>
     </g>
 
     <!-- LAYER D: tick/ (y=2460..3120, height=660) -->
@@ -542,8 +542,8 @@
 
       <text x="2360" y="2790" class="body-text small" fill="#cbd5e1">par_join 用於 hot-loop（hero / creep AI）</text>
       <text x="2360" y="2825" class="body-text small" fill="#cbd5e1">sequential 用於 mutate ScriptEventQueue</text>
-      <text x="2360" y="2880" class="body-text small" fill="#a78bfa">UnitScript::on_tick 每 entity 都呼叫</text>
-      <text x="2360" y="2920" class="body-text small" fill="#a78bfa">cdylib script handle</text>
+      <text x="2360" y="2880" class="body-text small" fill="#cbd5e1">UnitScript::on_tick 每 entity 都呼叫</text>
+      <text x="2360" y="2920" class="body-text small" fill="#cbd5e1">cdylib script handle</text>
       <text x="2360" y="2980" class="body-text small" fill="#fb7185">⚐ stress 1000 塔 × 1000 creep → 60 fps OK</text>
 
       <text x="3580" y="2580" class="why-label" font-size="28" fill="#4ade80">▶ 為何這個執行順序？</text>
@@ -555,10 +555,10 @@
       <text x="3580" y="2830" class="why-text" font-size="24">projectile_tick 在 hero/creep 之前 —</text>
       <text x="3580" y="2865" class="why-text" font-size="24">飛行子彈位置先確定，才不會把</text>
       <text x="3580" y="2900" class="why-text" font-size="24">已死目標誤判命中。</text>
-      <text x="3580" y="2955" class="why-text" font-size="24" fill="#cbd5e1">broadcast_tick 最後 — 客戶端</text>
-      <text x="3580" y="2990" class="why-text" font-size="24" fill="#cbd5e1">看到的是「結算後」狀態，不是</text>
-      <text x="3580" y="3025" class="why-text" font-size="24" fill="#cbd5e1">中間值（避免閃爍）。</text>
-      <text x="3580" y="3080" class="why-text" font-size="22" fill="#a78bfa">每次調順序都要回測 stress 場景。</text>
+      <text x="3580" y="2955" class="why-text" font-size="24">broadcast_tick 最後 — 客戶端</text>
+      <text x="3580" y="2990" class="why-text" font-size="24">看到的是「結算後」狀態，不是</text>
+      <text x="3580" y="3025" class="why-text" font-size="24">中間值（避免閃爍）。</text>
+      <text x="3580" y="3080" class="why-text" font-size="22">每次調順序都要回測 stress 場景。</text>
     </g>
 
     <!-- LAYER E: transport/ (y=3140..3580, height=440) -->
@@ -586,7 +586,7 @@
       <text x="3580" y="3430" class="why-text" font-size="24">每個 transport 引入的 runtime</text>
       <text x="3580" y="3465" class="why-text" font-size="24">（tonic / kcp / rumqttc）依賴不同，</text>
       <text x="3580" y="3500" class="why-text" font-size="24">同時編入會讓 binary size 暴漲。</text>
-      <text x="3580" y="3550" class="why-text" font-size="22" fill="#cbd5e1">compile_error! 強制三選一 — fail fast。</text>
+      <text x="3580" y="3550" class="why-text" font-size="22">compile_error! 強制三選一 — fail fast。</text>
     </g>
 
     <!-- gen-docs / 旁路 reflection 工具 -->
@@ -646,7 +646,7 @@
       <text x="4920" y="700" class="code" font-size="22" fill="#94a3b8">HeroStatic / HeroHot split    (P3)</text>
       <text x="4920" y="740" class="code" font-size="22" fill="#94a3b8">per-entity HP diff heartbeat  (P9b)</text>
       <text x="4920" y="780" class="code" font-size="22" fill="#94a3b8">pre-declared projectile dmg   (P7)</text>
-      <text x="4920" y="830" class="body-text small" fill="#a78bfa">P0–P9 累計 KCP 優化階段</text>
+      <text x="4920" y="830" class="body-text small" fill="#cbd5e1">P0–P9 累計 KCP 優化階段</text>
 
       <text x="6030" y="525" class="why-label" font-size="28" fill="#22d3ee">▶ 為何切 HeroStatic / HeroHot？</text>
       <text x="6030" y="580" class="why-text" font-size="24">hero 的 base 屬性（職業、等級、</text>
@@ -655,7 +655,7 @@
       <text x="6030" y="700" class="why-text" font-size="24">Static 進 client 後 cache，後續</text>
       <text x="6030" y="735" class="why-text" font-size="24">只推 Hot；P3 後 hero.stats 廣播</text>
       <text x="6030" y="770" class="why-text" font-size="24">平均 bytes 砍掉一半以上。</text>
-      <text x="6030" y="830" class="why-text" font-size="22" fill="#cbd5e1">10 階段每階段針對不同 wire profile。</text>
+      <text x="6030" y="830" class="why-text" font-size="22">10 階段每階段針對不同 wire profile。</text>
     </g>
 
     <g>
@@ -692,7 +692,7 @@
       <text x="6030" y="1380" class="why-text" font-size="24">schema 編譯期 type-checked，</text>
       <text x="6030" y="1415" class="why-text" font-size="24">不會因為手寫 JSON 拼錯欄位</text>
       <text x="6030" y="1450" class="why-text" font-size="24">而 silent 漏資料。</text>
-      <text x="6030" y="1500" class="why-text" font-size="22" fill="#cbd5e1">遊戲精度本就不需 32-bit float。</text>
+      <text x="6030" y="1500" class="why-text" font-size="22">遊戲精度本就不需 32-bit float。</text>
     </g>
 
     <g>
@@ -787,7 +787,7 @@
       <text x="6030" y="2190" class="why-text" font-size="24">retransmit 策略可調。QUIC 較新，</text>
       <text x="6030" y="2225" class="why-text" font-size="24">啟動時生態尚未成熟。</text>
       <text x="6030" y="2275" class="why-label" font-size="22" fill="#22d3ee">▶ 為何 lz4 而非 zstd？</text>
-      <text x="6030" y="2310" class="why-text" font-size="22" fill="#cbd5e1">解壓速度 ~10× 快，幀邊界對 ms 敏感</text>
+      <text x="6030" y="2310" class="why-text" font-size="22">解壓速度 ~10× 快，幀邊界對 ms 敏感</text>
     </g>
 
     <g>
@@ -823,8 +823,8 @@
       <text x="6030" y="2805" class="why-text" font-size="24">依 timestamp 取出 — 避免事件抖動</text>
       <text x="6030" y="2840" class="why-text" font-size="24">造成單位「跳格」。</text>
       <text x="6030" y="2895" class="why-text" font-size="24">EMA clock sync 平滑 server 時鐘</text>
-      <text x="6030" y="2930" class="why-text" font-size="24" fill="#cbd5e1">drift；否則動畫週期性跳幀，</text>
-      <text x="6030" y="2965" class="why-text" font-size="24" fill="#cbd5e1">很傷遊戲手感。</text>
+      <text x="6030" y="2930" class="why-text" font-size="24">drift；否則動畫週期性跳幀，</text>
+      <text x="6030" y="2965" class="why-text" font-size="24">很傷遊戲手感。</text>
     </g>
 
     <g>
@@ -861,7 +861,7 @@
       <text x="6030" y="3495" class="why-text" font-size="24">extrap）+ 渲染，網路斷線重連即可</text>
       <text x="6030" y="3530" class="why-text" font-size="24">從 server snapshot 完全恢復 —</text>
       <text x="6030" y="3565" class="why-text" font-size="24">不需 client reconciliation 邏輯。</text>
-      <text x="6030" y="3610" class="why-text" font-size="22" fill="#cbd5e1">eui immediate-mode 對 1000+ 動態實體記憶體更省</text>
+      <text x="6030" y="3610" class="why-text" font-size="22">eui immediate-mode 對 1000+ 動態實體記憶體更省</text>
     </g>
 
     <g>
