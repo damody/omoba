@@ -13,3 +13,6 @@
 [submodule "map_editor"]
 	path = map_editor
 	url = https://github.com/damody/map_editor.git
+[submodule "mqtt_log_viewer"]
+	path = mqtt_log_viewer
+	url = https://github.com/damody/mqtt_log_viewer.git
