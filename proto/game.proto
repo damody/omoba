@@ -75,6 +75,14 @@ message HeartbeatTick {
   // P4: viewport-filtered 10% position sample for drift correction on the
   // client (velocity extrapolation accumulates error over seconds).
   repeated HeartbeatPosEntry pos_snapshot = 9;
+  // P7 layered: still-alive predeclared-damage projectile ids targeting
+  // entities visible to this player. Client uses this set to retain its
+  // pending_pred_dmg map (any pending entry whose proj_id is NOT in this
+  // set has been settled server-side and is already reflected in
+  // hp_snapshot — drop it). Filtered to non-AOE non-directional shots
+  // (radius < 1.0 && damage_phys > 0) since those are the only ones whose
+  // damage was pre-declared in ProjectileCreate.damage.
+  repeated uint32 in_flight_projectiles = 10;
 }
 
 // ===== Projectile events =====

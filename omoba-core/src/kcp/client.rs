@@ -407,6 +407,14 @@ fn translate_typed_payload(
                 let (x, y) = e.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
                 json!({ "i": e.id as u32, "x": x, "y": y })
             }).collect();
+            // P7 layered: server-side authoritative set of still-alive
+            // predeclared-damage projectiles whose target is in this player's
+            // viewport. Client uses this to retain its pending_pred_dmg map
+            // (entries whose proj_id is NOT in this set have settled).
+            let in_flight_projectiles: Vec<serde_json::Value> = hb.in_flight_projectiles
+                .iter()
+                .map(|&id| serde_json::Value::from(id))
+                .collect();
             let d = json!({
                 "tick": hb.tick,
                 "game_time": hb.game_time,
@@ -417,6 +425,7 @@ fn translate_typed_payload(
                 "render_delay_ms": hb.render_delay_ms,
                 "hp_snapshot": hp_snapshot,
                 "pos_snapshot": pos_snapshot,
+                "in_flight_projectiles": in_flight_projectiles,
             });
             GameEventData {
                 topic: topic.clone(),
