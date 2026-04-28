@@ -132,8 +132,7 @@
 
     <!-- 卡片 ①: templates.json (y=320..900, height=580) -->
     <g id="card-1" filter="url(#card-shadow)">
-      <rect x="80" y="320" width="1500" height="580" rx="24" ry="24"
-            fill="#101a2e" stroke="#f59e0b" stroke-width="3"/>
+      <rect x="80" y="320" width="1500" height="580" rx="24" ry="24" fill="#101a2e" stroke="#f59e0b" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.05;0.10;0.15;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="160" cy="400" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
       <text x="160" y="416" class="title-text" font-size="52" fill="#f59e0b" text-anchor="middle">1</text>
       <text x="240" y="395" class="title-text" font-size="58">Story / templates.json</text>
@@ -172,8 +171,7 @@
 
     <!-- 卡片 ②: omoba-template-ids (y=970..1530, height=560) -->
     <g id="card-2" filter="url(#card-shadow)">
-      <rect x="80" y="970" width="1500" height="560" rx="24" ry="24"
-            fill="#101a2e" stroke="#f59e0b" stroke-width="3"/>
+      <rect x="80" y="970" width="1500" height="560" rx="24" ry="24" fill="#101a2e" stroke="#f59e0b" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.25;0.30;0.35;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="160" cy="1050" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
       <text x="160" y="1066" class="title-text" font-size="52" fill="#f59e0b" text-anchor="middle">2</text>
       <text x="240" y="1045" class="title-text" font-size="58">omoba-template-ids</text>
@@ -209,8 +207,7 @@
 
     <!-- 卡片 ③: scripts/script-abi (y=1600..2280, height=680) -->
     <g id="card-3" filter="url(#card-shadow)">
-      <rect x="80" y="1600" width="1500" height="680" rx="24" ry="24"
-            fill="#101a2e" stroke="#f59e0b" stroke-width="3"/>
+      <rect x="80" y="1600" width="1500" height="680" rx="24" ry="24" fill="#101a2e" stroke="#f59e0b" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.45;0.50;0.55;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="160" cy="1680" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
       <text x="160" y="1696" class="title-text" font-size="52" fill="#f59e0b" text-anchor="middle">3</text>
       <text x="240" y="1675" class="title-text" font-size="58">scripts/script-abi</text>
@@ -252,8 +249,7 @@
 
     <!-- 卡片 ④: scripts/base_content (y=2350..2950, height=600) -->
     <g id="card-4" filter="url(#card-shadow)">
-      <rect x="80" y="2350" width="1500" height="600" rx="24" ry="24"
-            fill="#101a2e" stroke="#f59e0b" stroke-width="3"/>
+      <rect x="80" y="2350" width="1500" height="600" rx="24" ry="24" fill="#101a2e" stroke="#f59e0b" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.65;0.70;0.75;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="160" cy="2430" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
       <text x="160" y="2446" class="title-text" font-size="52" fill="#f59e0b" text-anchor="middle">4</text>
       <text x="240" y="2425" class="title-text" font-size="58">scripts/base_content</text>
@@ -290,8 +286,7 @@
 
     <!-- 卡片 ⑤: DLL hot-load (y=3020..3380, height=360) -->
     <g id="card-5" filter="url(#card-shadow)">
-      <rect x="80" y="3020" width="1500" height="360" rx="24" ry="24"
-            fill="#101a2e" stroke="#f59e0b" stroke-width="3"/>
+      <rect x="80" y="3020" width="1500" height="360" rx="24" ry="24" fill="#101a2e" stroke="#f59e0b" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.85;0.90;0.95;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="160" cy="3100" r="48" fill="#0b1220" stroke="#f59e0b" stroke-width="4"/>
       <text x="160" y="3116" class="title-text" font-size="52" fill="#f59e0b" text-anchor="middle">5</text>
       <text x="240" y="3095" class="title-text" font-size="58">DLL hot-load → omb/scripts/</text>
@@ -339,49 +334,33 @@
       <text x="860" y="3625" class="code" font-size="26" fill="#cbd5e1">給 LLM agents 抓即時遊戲狀態</text>
       <text x="860" y="3675" class="body-text tiny" fill="#cbd5e1">▶ 為何 query-only：避免 LLM 被 broadcast 量壓垮</text>
     </g>
-
-    <!-- BUILD PULSE：amber 光圈沿主動脈跳卡片中心 -->
-    <!-- 中心 y：① 610, ② 1250, ③ 1940, ④ 2650, ⑤ 3200 -->
-    <g id="build-pulse">
-      <circle cx="830" cy="610" r="36" fill="#f59e0b" opacity="0.0" filter="url(#glow-amber)">
-        <animate attributeName="cy" dur="6s" repeatCount="indefinite"
-                 keyTimes="0;0.05;0.18;0.36;0.54;0.72;0.90;0.95;1"
-                 values="610;610;1250;1940;2650;3200;3200;3200;610"/>
-        <animate attributeName="opacity" dur="6s" repeatCount="indefinite"
-                 keyTimes="0;0.04;0.06;0.18;0.20;0.36;0.38;0.54;0.56;0.72;0.74;0.90;0.95;1"
-                 values="0;0;0.95;0.95;0.95;0.95;0.95;0.95;0.95;0.95;0.95;0.95;0;0"/>
-        <animate attributeName="r" dur="6s" repeatCount="indefinite"
-                 keyTimes="0;0.05;0.18;0.36;0.54;0.72;0.90;1"
-                 values="20;36;36;36;36;36;36;20"/>
-      </circle>
-    </g>
   </g>
 
   <!-- ============================================================== -->
   <!-- CENTER COLUMN: omb host ECS world (x=2280..4880)                -->
   <!-- ============================================================== -->
   <g id="ecs-host" transform="translate(-620, 0)">
-    <rect x="2280" y="320" width="1320" height="3580" rx="32" ry="32"
+    <rect x="2280" y="320" width="1452" height="3580" rx="32" ry="32"
           fill="#0e1729" stroke="#4ade80" stroke-width="4" opacity="0.95"
           filter="url(#card-shadow)"/>
 
-    <rect x="2280" y="320" width="1320" height="120" rx="32" ry="32" fill="#152038"/>
-    <rect x="2280" y="380" width="1320" height="60" fill="#152038"/>
-    <text x="2940" y="395" class="title-text" font-size="64" text-anchor="middle">
+    <rect x="2280" y="320" width="1452" height="120" rx="32" ry="32" fill="#152038"/>
+    <rect x="2280" y="380" width="1452" height="60" fill="#152038"/>
+    <text x="3006" y="395" class="title-text" font-size="64" text-anchor="middle">
       omb <tspan fill="#4ade80">host</tspan> · specs ECS world
     </text>
-    <text x="2940" y="425" class="body-text muted" font-size="30" text-anchor="middle">
+    <text x="3006" y="425" class="body-text muted" font-size="30" text-anchor="middle">
       bin = omobab · 60 fps fixed-step · single tokio runtime
     </text>
 
     <!-- ECS Resources bar (y=470..640) -->
     <g id="ecs-resources">
-      <rect x="2320" y="470" width="1280" height="170" rx="16" ry="16"
+      <rect x="2320" y="470" width="1408" height="170" rx="16" ry="16"
             fill="#1a263d" stroke="#4ade80" stroke-width="2" stroke-opacity="0.5"/>
       <text x="2350" y="520" class="title-text" font-size="38" fill="#4ade80">ECS Resources</text>
       <text x="2350" y="565" class="code" font-size="28" fill="#cbd5e1">GameMode · PlayerLives · TowerKind · DeltaTime</text>
       <text x="2350" y="600" class="code" font-size="28" fill="#cbd5e1">ScriptEventQueue · BuffStore · TowerUpgradeRegistry</text>
-      <text x="2940" y="630" class="why-text" font-size="24" fill="#cbd5e1" text-anchor="middle">
+      <text x="3006" y="630" class="why-text" font-size="24" fill="#cbd5e1" text-anchor="middle">
         ▶ 全 frame 共享狀態都掛這層；systems 透過 read/write storage 通信，無 channel
       </text>
     </g>
@@ -394,7 +373,7 @@
 
     <!-- LAYER A: state/ (y=660..1240, height=580) -->
     <g id="layer-a">
-      <rect id="layer-a-rect" x="2320" y="660" width="1280" height="580" rx="20" ry="20"
+      <rect id="layer-a-rect" x="2320" y="660" width="1408" height="580" rx="20" ry="20"
             fill="#101a2e" stroke="#4ade80" stroke-width="3" stroke-opacity="0.4">
         <animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite"
                  keyTimes="0;0.05;0.20;0.30;1" values="0.4;1.0;1.0;0.4;0.4"/>
@@ -433,7 +412,7 @@
 
     <!-- LAYER B: scripting/ (y=1260..1840, height=580) -->
     <g id="layer-b">
-      <rect id="layer-b-rect" x="2320" y="1260" width="1280" height="580" rx="20" ry="20"
+      <rect id="layer-b-rect" x="2320" y="1260" width="1408" height="580" rx="20" ry="20"
             fill="#101a2e" stroke="#4ade80" stroke-width="3" stroke-opacity="0.4">
         <animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite"
                  keyTimes="0;0.25;0.40;0.50;1" values="0.4;0.4;1.0;1.0;0.4"/>
@@ -469,7 +448,7 @@
 
     <!-- LAYER C: ability_runtime/ (y=1860..2440, height=580) -->
     <g id="layer-c">
-      <rect id="layer-c-rect" x="2320" y="1860" width="1280" height="580" rx="20" ry="20"
+      <rect id="layer-c-rect" x="2320" y="1860" width="1408" height="580" rx="20" ry="20"
             fill="#101a2e" stroke="#4ade80" stroke-width="3" stroke-opacity="0.4">
         <animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite"
                  keyTimes="0;0.45;0.60;0.70;1" values="0.4;0.4;1.0;1.0;0.4"/>
@@ -505,7 +484,7 @@
 
     <!-- LAYER D: tick/ (y=2460..3120, height=660) -->
     <g id="layer-d">
-      <rect id="layer-d-rect" x="2320" y="2460" width="1280" height="660" rx="20" ry="20"
+      <rect id="layer-d-rect" x="2320" y="2460" width="1408" height="660" rx="20" ry="20"
             fill="#101a2e" stroke="#4ade80" stroke-width="3" stroke-opacity="0.4">
         <animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite"
                  keyTimes="0;0.65;0.80;0.90;1" values="0.4;0.4;1.0;1.0;0.4"/>
@@ -515,30 +494,10 @@
       <text x="2440" y="2530" class="title-text" font-size="48">tick/</text>
       <text x="2580" y="2530" class="body-text muted" font-size="34">— specs Dispatcher systems（順序執行）</text>
 
-      <!-- tick pipeline 流圖 -->
-      <g transform="translate(2360,2580)" font-size="26" class="code">
-        <rect x="0"    y="0" width="220" height="56" rx="8" fill="#1a263d" stroke="#4ade80" stroke-width="1"/>
-        <text x="110"  y="36" fill="#cbd5e1" text-anchor="middle">buff_tick</text>
-        <text x="244"  y="36" fill="#4ade80">→</text>
-        <rect x="280"  y="0" width="220" height="56" rx="8" fill="#1a263d" stroke="#4ade80" stroke-width="1"/>
-        <text x="390"  y="36" fill="#cbd5e1" text-anchor="middle">ability_tick</text>
-        <text x="524"  y="36" fill="#4ade80">→</text>
-        <rect x="560"  y="0" width="270" height="56" rx="8" fill="#1a263d" stroke="#4ade80" stroke-width="1"/>
-        <text x="695"  y="36" fill="#cbd5e1" text-anchor="middle">projectile_tick</text>
-        <text x="854"  y="36" fill="#4ade80">→</text>
-        <rect x="890"  y="0" width="220" height="56" rx="8" fill="#1a263d" stroke="#4ade80" stroke-width="1"/>
-        <text x="1000" y="36" fill="#cbd5e1" text-anchor="middle">hero_tick</text>
-      </g>
-      <g transform="translate(2360,2660)" font-size="26" class="code">
-        <rect x="0"    y="0" width="220" height="56" rx="8" fill="#1a263d" stroke="#4ade80" stroke-width="1"/>
-        <text x="110"  y="36" fill="#cbd5e1" text-anchor="middle">creep_tick</text>
-        <text x="244"  y="36" fill="#4ade80">→</text>
-        <rect x="280"  y="0" width="220" height="56" rx="8" fill="#1a263d" stroke="#4ade80" stroke-width="1"/>
-        <text x="390"  y="36" fill="#cbd5e1" text-anchor="middle">summon_tick</text>
-        <text x="524"  y="36" fill="#4ade80">→</text>
-        <rect x="560"  y="0" width="240" height="56" rx="8" fill="#1a263d" stroke="#4ade80" stroke-width="1"/>
-        <text x="680"  y="36" fill="#cbd5e1" text-anchor="middle">broadcast_tick</text>
-      </g>
+      <!-- tick pipeline 順序 (文字版) -->
+      <text x="2360" y="2610" class="code" font-size="28" fill="#4ade80">tick order:</text>
+      <text x="2360" y="2655" class="code" font-size="26" fill="#cbd5e1">  buff → ability → projectile → hero</text>
+      <text x="2360" y="2695" class="code" font-size="26" fill="#cbd5e1">  → creep → summon → broadcast</text>
 
       <text x="2360" y="2790" class="body-text small" fill="#cbd5e1">par_join 用於 hot-loop（hero / creep AI）</text>
       <text x="2360" y="2825" class="body-text small" fill="#cbd5e1">sequential 用於 mutate ScriptEventQueue</text>
@@ -563,7 +522,7 @@
 
     <!-- LAYER E: transport/ (y=3140..3580, height=440) -->
     <g id="layer-e">
-      <rect id="layer-e-rect" x="2320" y="3140" width="1280" height="440" rx="20" ry="20"
+      <rect id="layer-e-rect" x="2320" y="3140" width="1408" height="440" rx="20" ry="20"
             fill="#101a2e" stroke="#4ade80" stroke-width="3" stroke-opacity="0.4">
         <animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite"
                  keyTimes="0;0.85;0.95;1" values="0.4;0.4;1.0;1.0"/>
@@ -591,7 +550,7 @@
 
     <!-- gen-docs / 旁路 reflection 工具 -->
     <g id="ecs-side-tool">
-      <rect x="2360" y="3620" width="1240" height="260" rx="16" ry="16"
+      <rect x="2360" y="3620" width="1364" height="260" rx="16" ry="16"
             fill="#152038" stroke="#475569" stroke-width="2"/>
       <text x="2380" y="3675" class="title-text" font-size="38" fill="#cbd5e1">gen-docs · 旁路 reflection 工具</text>
       <text x="2380" y="3725" class="code" font-size="28" fill="#cbd5e1">cargo run -p omobab --bin gen-docs --features gen-docs</text>
@@ -600,38 +559,25 @@
       <text x="2380" y="3855" class="why-text" font-size="26" fill="#cbd5e1">▶ 為何 runtime reflect 而非 AST？實際 DLL 的 def/levels 才是權威，AST 只看到 trait 簽章</text>
     </g>
 
-    <!-- TICK HEARTBEAT 動畫 -->
-    <g id="tick-pulse">
-      <circle cx="2397" cy="900" r="22" fill="#4ade80" opacity="0" filter="url(#glow-green)">
-        <animate attributeName="cy" dur="3s" repeatCount="indefinite"
-                 keyTimes="0;0.05;0.20;0.40;0.60;0.80;0.95;1"
-                 values="900;900;1550;2150;2790;3360;3580;3580"/>
-        <animate attributeName="opacity" dur="3s" repeatCount="indefinite"
-                 keyTimes="0;0.04;0.06;0.95;1"
-                 values="0;0;1.0;1.0;0"/>
-      </circle>
-    </g>
-
     <!-- 從 Layer E 右邊界吐出 dot 進右軌 -->
     <g id="ecs-to-transport-bridge">
-      <line x1="3650" y1="3370" x2="3700" y2="3370" stroke="#22d3ee" stroke-width="4" opacity="0.6"/>
-      <polygon points="3700,3370 3670,3355 3670,3385" fill="#22d3ee"/>
+      <line x1="3740" y1="3370" x2="3812" y2="3370" stroke="#22d3ee" stroke-width="4" opacity="0.6"/>
+      <polygon points="3812,3370 3782,3355 3782,3385" fill="#22d3ee"/>
     </g>
   </g>
 
   <!-- ============================================================== -->
   <!-- RIGHT COLUMN: TRANSPORT TRACK (x=4880..6960)                    -->
   <!-- ============================================================== -->
-  <g id="transport-track" transform="translate(-1820, 0)">
-    <rect x="5620" y="320" width="20" height="3580" fill="url(#cyan-track)" filter="url(#glow-cyan)" opacity="0.0"/>
-    <text x="5630" y="300" class="title-text" font-size="48" fill="#22d3ee" text-anchor="middle">
+  <g id="transport-track" transform="translate(-1688, 0)">
+    <rect x="5695" y="320" width="20" height="3580" fill="url(#cyan-track)" filter="url(#glow-cyan)" opacity="0.0"/>
+    <text x="5705" y="300" class="title-text" font-size="48" fill="#22d3ee" text-anchor="middle">
       KCP TRANSPORT &amp; RUNTIME
     </text>
 
     <!-- 卡片 ⑥: omb broadcast (y=320..880, height=560) -->
     <g id="card-6" filter="url(#card-shadow)">
-      <rect x="4880" y="320" width="1500" height="560" rx="24" ry="24"
-            fill="#101a2e" stroke="#22d3ee" stroke-width="3"/>
+      <rect x="4880" y="320" width="1650" height="560" rx="24" ry="24" fill="#101a2e" stroke="#22d3ee" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.04;0.08;0.12;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="4960" cy="400" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
       <text x="4960" y="416" class="title-text" font-size="52" fill="#22d3ee" text-anchor="middle">6</text>
       <text x="5040" y="395" class="title-text" font-size="58">omb host broadcast</text>
@@ -659,14 +605,13 @@
     </g>
 
     <g>
-      <line x1="5630" y1="880" x2="5630" y2="940" stroke="#22d3ee" stroke-width="4"/>
-      <polygon points="5630,940 5610,910 5650,910" fill="#22d3ee"/>
+      <line x1="5705" y1="880" x2="5705" y2="940" stroke="#22d3ee" stroke-width="4"/>
+      <polygon points="5705,940 5685,910 5725,910" fill="#22d3ee"/>
     </g>
 
     <!-- 卡片 ⑦: omoba-core encode (y=960..1540, height=580) -->
     <g id="card-7" filter="url(#card-shadow)">
-      <rect x="4880" y="960" width="1500" height="580" rx="24" ry="24"
-            fill="#101a2e" stroke="#22d3ee" stroke-width="3"/>
+      <rect x="4880" y="960" width="1650" height="580" rx="24" ry="24" fill="#101a2e" stroke="#22d3ee" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.21;0.25;0.29;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="4960" cy="1040" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
       <text x="4960" y="1056" class="title-text" font-size="52" fill="#22d3ee" text-anchor="middle">7</text>
       <text x="5040" y="1035" class="title-text" font-size="58">omoba-core · encode</text>
@@ -696,14 +641,13 @@
     </g>
 
     <g>
-      <line x1="5630" y1="1540" x2="5630" y2="1600" stroke="#22d3ee" stroke-width="4"/>
-      <polygon points="5630,1600 5610,1570 5650,1570" fill="#22d3ee"/>
+      <line x1="5705" y1="1540" x2="5705" y2="1600" stroke="#22d3ee" stroke-width="4"/>
+      <polygon points="5705,1600 5685,1570 5725,1570" fill="#22d3ee"/>
     </g>
 
     <!-- 卡片 ⑧: KCP wire (y=1620..2360, height=740) -->
     <g id="card-8" filter="url(#card-shadow)">
-      <rect x="4880" y="1620" width="1500" height="740" rx="24" ry="24"
-            fill="#101a2e" stroke="#22d3ee" stroke-width="4"/>
+      <rect x="4880" y="1620" width="1650" height="740" rx="24" ry="24" fill="#101a2e" stroke="#22d3ee" stroke-width="4" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.38;0.42;0.46;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="4960" cy="1700" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
       <text x="4960" y="1716" class="title-text" font-size="52" fill="#22d3ee" text-anchor="middle">8</text>
       <text x="5040" y="1695" class="title-text" font-size="58">KCP wire (UDP 50061)</text>
@@ -712,61 +656,61 @@
       <!-- P0-P9 grid (左半，2 cols × 5 rows) -->
       <g transform="translate(4920,1790)" font-size="26" class="code">
         <g transform="translate(0,0)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P0</text>
           <text x="56" y="26" fill="#cbd5e1">bytes/msg counters baseline</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">per-event 監控 transport</text>
         </g>
-        <g transform="translate(0,56)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(480,0)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P1</text>
           <text x="56" y="26" fill="#cbd5e1">lz4_flex (high-bit tag)</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">flush_batch + facing 3°→15°</text>
         </g>
-        <g transform="translate(0,112)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(0,72)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P2</text>
           <text x="56" y="26" fill="#cbd5e1">prost typed_payload</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">17 kinds · typed 取代 JSON</text>
         </g>
-        <g transform="translate(0,168)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(480,72)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P3</text>
           <text x="56" y="26" fill="#cbd5e1">HeroStatic / HeroHot split</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">不變欄位廣播一次</text>
         </g>
-        <g transform="translate(0,224)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(0,144)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P4</text>
           <text x="56" y="26" fill="#cbd5e1">CreepMove velocity extrap</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">客戶端外插 → state-change-only</text>
         </g>
-        <g transform="translate(0,280)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(480,144)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P5</text>
           <text x="56" y="26" fill="#cbd5e1">per-player AOI broadphase</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">Arc&lt;[u8]&gt; fan-out · viewport</text>
         </g>
-        <g transform="translate(0,336)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(0,216)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P6</text>
           <text x="56" y="26" fill="#cbd5e1">two-tier batch window</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">per-session sequence gap</text>
         </g>
-        <g transform="translate(0,392)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(480,216)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P7</text>
           <text x="56" y="26" fill="#cbd5e1">pre-declared projectile dmg</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">省 creep.H · client 預測</text>
         </g>
-        <g transform="translate(0,448)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
+        <g transform="translate(0,288)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#a78bfa" stroke-width="1"/>
           <text x="14" y="26" fill="#a78bfa">P8</text>
           <text x="56" y="26" fill="#cbd5e1">FNV-1a u32 hash</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">projectile.kind / creep.name</text>
         </g>
-        <g transform="translate(0,504)">
-          <rect width="500" height="56" rx="10" fill="#1c2942" stroke="#fb7185" stroke-width="2"/>
+        <g transform="translate(480,288)">
+          <rect width="460" height="56" rx="10" fill="#1c2942" stroke="#fb7185" stroke-width="2"/>
           <text x="14" y="26" fill="#fb7185">P9</text>
           <text x="56" y="26" fill="#cbd5e1">strip GameEvent envelope</text>
           <text x="14" y="48" fill="#cbd5e1" font-size="22">最終裸 prost 變體直接傳</text>
@@ -774,31 +718,30 @@
       </g>
 
       <!-- 右側 WHY -->
-      <line x1="5460" y1="1790" x2="5460" y2="2330" stroke="#22d3ee" stroke-width="1" stroke-opacity="0.3"/>
-      <text x="5500" y="1815" class="why-label" font-size="34" fill="#cbd5e1">▶ 為何 KCP 而非 TCP / QUIC？</text>
-      <text x="5500" y="1870" class="why-text" font-size="28">TCP head-of-line blocking 對</text>
-      <text x="5500" y="1905" class="why-text" font-size="28">60 fps 遊戲是致命傷 — 一個</text>
-      <text x="5500" y="1940" class="why-text" font-size="28">packet 漏，後面所有 packet</text>
-      <text x="5500" y="1975" class="why-text" font-size="28">都要等 retransmit。</text>
-      <text x="5500" y="2030" class="why-text" font-size="28">遊戲事件中若 player.heartbeat</text>
-      <text x="5500" y="2065" class="why-text" font-size="28">漏掉，下一個 0.5s 自然會送，</text>
-      <text x="5500" y="2100" class="why-text" font-size="28">沒必要等 retransmit。</text>
-      <text x="5500" y="2155" class="why-text" font-size="28">KCP 在 UDP 上自實作可靠+排序，</text>
-      <text x="5500" y="2190" class="why-text" font-size="28">retransmit 策略可調。QUIC 較新，</text>
-      <text x="5500" y="2225" class="why-text" font-size="28">啟動時生態尚未成熟。</text>
-      <text x="5500" y="2275" class="why-label" font-size="26" fill="#cbd5e1">▶ 為何 lz4 而非 zstd？</text>
-      <text x="5500" y="2310" class="why-text" font-size="26">解壓速度 ~10× 快，幀邊界對 ms 敏感</text>
+      <line x1="5900" y1="1790" x2="5900" y2="2330" stroke="#22d3ee" stroke-width="1" stroke-opacity="0.3"/>
+      <text x="5940" y="1815" class="why-label" font-size="34" fill="#cbd5e1">▶ 為何 KCP 而非 TCP / QUIC？</text>
+      <text x="5940" y="1870" class="why-text" font-size="28">TCP head-of-line blocking 對</text>
+      <text x="5940" y="1905" class="why-text" font-size="28">60 fps 遊戲是致命傷 — 一個</text>
+      <text x="5940" y="1940" class="why-text" font-size="28">packet 漏，後面所有 packet</text>
+      <text x="5940" y="1975" class="why-text" font-size="28">都要等 retransmit。</text>
+      <text x="5940" y="2030" class="why-text" font-size="28">遊戲事件中若 player.heartbeat</text>
+      <text x="5940" y="2065" class="why-text" font-size="28">漏掉，下一個 0.5s 自然會送，</text>
+      <text x="5940" y="2100" class="why-text" font-size="28">沒必要等 retransmit。</text>
+      <text x="5940" y="2155" class="why-text" font-size="28">KCP 在 UDP 上自實作可靠+排序，</text>
+      <text x="5940" y="2190" class="why-text" font-size="28">retransmit 策略可調。QUIC 較新，</text>
+      <text x="5940" y="2225" class="why-text" font-size="28">啟動時生態尚未成熟。</text>
+      <text x="5940" y="2275" class="why-label" font-size="26" fill="#cbd5e1">▶ 為何 lz4 而非 zstd？</text>
+      <text x="5940" y="2310" class="why-text" font-size="26">解壓速度 ~10× 快，幀邊界對 ms 敏感</text>
     </g>
 
     <g>
-      <line x1="5630" y1="2360" x2="5630" y2="2420" stroke="#22d3ee" stroke-width="4"/>
-      <polygon points="5630,2420 5610,2390 5650,2390" fill="#22d3ee"/>
+      <line x1="5705" y1="2360" x2="5705" y2="2420" stroke="#22d3ee" stroke-width="4"/>
+      <polygon points="5705,2420 5685,2390 5725,2390" fill="#22d3ee"/>
     </g>
 
     <!-- 卡片 ⑨: client decode (y=2440..3000, height=560) -->
     <g id="card-9" filter="url(#card-shadow)">
-      <rect x="4880" y="2440" width="1500" height="560" rx="24" ry="24"
-            fill="#101a2e" stroke="#22d3ee" stroke-width="3"/>
+      <rect x="4880" y="2440" width="1650" height="560" rx="24" ry="24" fill="#101a2e" stroke="#22d3ee" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.54;0.58;0.62;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="4960" cy="2520" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
       <text x="4960" y="2536" class="title-text" font-size="52" fill="#22d3ee" text-anchor="middle">9</text>
       <text x="5040" y="2515" class="title-text" font-size="58">omoba-core · client decode</text>
@@ -828,14 +771,13 @@
     </g>
 
     <g>
-      <line x1="5630" y1="3000" x2="5630" y2="3060" stroke="#22d3ee" stroke-width="4"/>
-      <polygon points="5630,3060 5610,3030 5650,3030" fill="#22d3ee"/>
+      <line x1="5705" y1="3000" x2="5705" y2="3060" stroke="#22d3ee" stroke-width="4"/>
+      <polygon points="5705,3060 5685,3030 5725,3030" fill="#22d3ee"/>
     </g>
 
     <!-- 卡片 ⑩: omfx (y=3080..3640, height=560) -->
     <g id="card-10" filter="url(#card-shadow)">
-      <rect x="4880" y="3080" width="1500" height="560" rx="24" ry="24"
-            fill="#101a2e" stroke="#22d3ee" stroke-width="3"/>
+      <rect x="4880" y="3080" width="1650" height="560" rx="24" ry="24" fill="#101a2e" stroke="#22d3ee" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.71;0.75;0.79;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="4960" cy="3160" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
       <text x="4960" y="3176" class="title-text" font-size="42" fill="#22d3ee" text-anchor="middle">10</text>
       <text x="5040" y="3155" class="title-text" font-size="58">omfx (Fyrox engine)</text>
@@ -865,14 +807,13 @@
     </g>
 
     <g>
-      <line x1="5630" y1="3640" x2="5630" y2="3700" stroke="#22d3ee" stroke-width="4"/>
-      <polygon points="5630,3700 5610,3670 5650,3670" fill="#22d3ee"/>
+      <line x1="5705" y1="3640" x2="5705" y2="3700" stroke="#22d3ee" stroke-width="4"/>
+      <polygon points="5705,3700 5685,3670 5725,3670" fill="#22d3ee"/>
     </g>
 
     <!-- 卡片 ⑪: Fyrox executor (y=3720..4000) -->
     <g id="card-11" filter="url(#card-shadow)">
-      <rect x="4880" y="3720" width="1500" height="280" rx="24" ry="24"
-            fill="#101a2e" stroke="#22d3ee" stroke-width="3"/>
+      <rect x="4880" y="3720" width="1650" height="280" rx="24" ry="24" fill="#101a2e" stroke="#22d3ee" stroke-width="3" stroke-opacity="0.4"><animate attributeName="stroke-opacity" dur="3s" repeatCount="indefinite" keyTimes="0;0.88;0.92;0.96;1" values="0.4;0.4;1.0;0.4;0.4"/></rect>
       <circle cx="4960" cy="3795" r="48" fill="#0b1220" stroke="#22d3ee" stroke-width="4"/>
       <text x="4960" y="3811" class="title-text" font-size="42" fill="#22d3ee" text-anchor="middle">11</text>
       <text x="5040" y="3790" class="title-text" font-size="58">executor (Fyrox bin)</text>
@@ -883,162 +824,92 @@
       <text x="4920" y="3955" class="why-text" font-size="26">renderer crash 不影響 server，獨立</text>
       <text x="4920" y="3990" class="why-text" font-size="26">binary 也方便 attach debugger。</text>
     </g>
-
-    <!-- ============================================================== -->
-    <!-- PACKET FLOW 動畫                                                 -->
-    <!-- 卡片中心 y：⑥ 600, ⑦ 1250, ⑧ 1990, ⑨ 2720, ⑩ 3360, ⑪ 3810       -->
-    <!-- ============================================================== -->
-    <g id="packet-stream" filter="url(#glow-cyan)">
-      <circle r="14" fill="#4ade80">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite"/>
-        <animate attributeName="cy" values="600;600;1250;1250;1950;1950;2030;2030;2720;2720;3360;3360" keyTimes="0;0.05;0.18;0.22;0.40;0.50;0.55;0.62;0.78;0.85;0.97;1" dur="6s" repeatCount="indefinite"/>
-        <animate attributeName="r" values="14;14;14;14;14;14;9;14;14;14;14;14" keyTimes="0;0.05;0.18;0.22;0.40;0.50;0.55;0.62;0.78;0.85;0.97;1" dur="6s" repeatCount="indefinite"/>
-      </circle>
-      <circle r="14" fill="#cbd5e1">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="0.5s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="0.5s"/>
-        <animate attributeName="r" values="14;14;14;9;14;14" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="0.5s"/>
-      </circle>
-      <circle r="14" fill="#f97316">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="1.0s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="1.0s"/>
-        <animate attributeName="r" values="14;14;14;9;14;14" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="1.0s"/>
-      </circle>
-      <circle r="11" fill="#cbd5e1">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="1.5s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="1.5s"/>
-        <animate attributeName="r" values="11;11;11;7;11;11" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="1.5s"/>
-      </circle>
-      <circle r="14" fill="#4ade80">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="2.2s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="2.2s"/>
-        <animate attributeName="r" values="14;14;14;9;14;14" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="2.2s"/>
-      </circle>
-      <circle r="14" fill="#cbd5e1">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="2.7s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="2.7s"/>
-        <animate attributeName="r" values="14;14;14;9;14;14" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="2.7s"/>
-      </circle>
-      <circle r="14" fill="#f97316">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="3.3s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="3.3s"/>
-        <animate attributeName="r" values="14;14;14;9;14;14" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="3.3s"/>
-      </circle>
-      <circle r="11" fill="#cbd5e1">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="4.0s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="4.0s"/>
-        <animate attributeName="r" values="11;11;11;7;11;11" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="4.0s"/>
-      </circle>
-      <circle r="14" fill="#4ade80">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="4.7s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="4.7s"/>
-        <animate attributeName="r" values="14;14;14;9;14;14" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="4.7s"/>
-      </circle>
-      <circle r="14" fill="#f97316">
-        <animate attributeName="cx" values="5630;5630" dur="6s" repeatCount="indefinite" begin="5.3s"/>
-        <animate attributeName="cy" values="600;1250;1950;2030;2720;3360" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="5.3s"/>
-        <animate attributeName="r" values="14;14;14;9;14;14" keyTimes="0;0.18;0.40;0.55;0.78;1" dur="6s" repeatCount="indefinite" begin="5.3s"/>
-      </circle>
-    </g>
   </g>
 
   <!-- ============================================================== -->
   <!-- RIGHT SIDEBAR                                                   -->
   <!-- ============================================================== -->
-  <g id="sidebar" transform="translate(-2360, 0)">
-    <rect x="7000" y="320" width="1100" height="3580" rx="20" ry="20"
+  <g id="sidebar" transform="translate(-2020, 0)">
+    <rect x="7000" y="320" width="880" height="3580" rx="20" ry="20"
           fill="#0e1729" stroke="#475569" stroke-width="2" opacity="0.85"/>
 
-    <text x="7550" y="380" class="title-text" font-size="52" text-anchor="middle">Crate Dependency</text>
-    <text x="7550" y="415" class="body-text muted" font-size="32" text-anchor="middle">六個 crate 的相依結構</text>
+    <text x="7440" y="380" class="title-text" font-size="64" text-anchor="middle">Crate Dependency</text>
+    <text x="7440" y="415" class="body-text muted" font-size="48" text-anchor="middle">六個 crate 的相依結構</text>
 
     <g id="mini-graph" transform="translate(7000, 480)">
-      <g><circle cx="320" cy="120" r="48" fill="#152038" stroke="#a78bfa" stroke-width="3"/>
-        <text x="320" y="125" class="code" font-size="30" fill="#cbd5e1" text-anchor="middle">script-abi</text></g>
-      <g><circle cx="120" cy="280" r="44" fill="#152038" stroke="#f59e0b" stroke-width="3"/>
-        <text x="120" y="284" class="code" font-size="28" fill="#cbd5e1" text-anchor="middle">template-ids</text></g>
-      <g><circle cx="520" cy="280" r="44" fill="#152038" stroke="#22d3ee" stroke-width="3"/>
-        <text x="520" y="284" class="code" font-size="30" fill="#cbd5e1" text-anchor="middle">omoba-core</text></g>
-      <g><circle cx="120" cy="480" r="44" fill="#152038" stroke="#f59e0b" stroke-width="3"/>
-        <text x="120" y="484" class="code" font-size="30" fill="#cbd5e1" text-anchor="middle">base_content</text></g>
-      <g><circle cx="320" cy="500" r="50" fill="#152038" stroke="#4ade80" stroke-width="3"/>
-        <text x="320" y="504" class="code" font-size="32" fill="#bbf7d0" text-anchor="middle">omb</text></g>
-      <g><circle cx="520" cy="480" r="44" fill="#152038" stroke="#22d3ee" stroke-width="3"/>
-        <text x="520" y="484" class="code" font-size="30" fill="#cbd5e1" text-anchor="middle">omfx</text></g>
+      <g><circle cx="440" cy="100" r="64" fill="#152038" stroke="#a78bfa" stroke-width="3"/>
+        <text x="440" y="108" class="code" font-size="46" fill="#cbd5e1" text-anchor="middle">script-abi</text></g>
+      <g><circle cx="200" cy="300" r="56" fill="#152038" stroke="#f59e0b" stroke-width="3"/>
+        <text x="200" y="308" class="code" font-size="44" fill="#cbd5e1" text-anchor="middle">template-ids</text></g>
+      <g><circle cx="680" cy="300" r="56" fill="#152038" stroke="#22d3ee" stroke-width="3"/>
+        <text x="680" y="308" class="code" font-size="46" fill="#cbd5e1" text-anchor="middle">omoba-core</text></g>
+      <g><circle cx="200" cy="500" r="56" fill="#152038" stroke="#f59e0b" stroke-width="3"/>
+        <text x="200" y="508" class="code" font-size="44" fill="#cbd5e1" text-anchor="middle">base_content</text></g>
+      <g><circle cx="440" cy="520" r="64" fill="#152038" stroke="#4ade80" stroke-width="3"/>
+        <text x="440" y="530" class="code" font-size="46" fill="#bbf7d0" text-anchor="middle">omb</text></g>
+      <g><circle cx="680" cy="500" r="56" fill="#152038" stroke="#22d3ee" stroke-width="3"/>
+        <text x="680" y="508" class="code" font-size="46" fill="#cbd5e1" text-anchor="middle">omfx</text></g>
       <g stroke="#475569" stroke-width="2" fill="none" opacity="0.6">
-        <line x1="285" y1="155" x2="155" y2="245"/>
-        <line x1="355" y1="155" x2="485" y2="245"/>
-        <line x1="120" y1="324" x2="120" y2="436"/>
-        <line x1="155" y1="465" x2="270" y2="490"/>
-        <line x1="370" y1="490" x2="475" y2="476"/>
-        <line x1="290" y1="156" x2="290" y2="465"/>
-        <line x1="520" y1="324" x2="520" y2="436"/>
-        <line x1="486" y1="291" x2="364" y2="487"/>
+        <line x1="391" y1="141" x2="243" y2="264"/>
+        <line x1="489" y1="141" x2="637" y2="264"/>
+        <line x1="440" y1="164" x2="440" y2="456"/>
+        <line x1="200" y1="356" x2="200" y2="444"/>
+        <line x1="680" y1="356" x2="680" y2="444"/>
+        <line x1="256" y1="505" x2="376" y2="515"/>
+        <line x1="504" y1="515" x2="624" y2="505"/>
+        <line x1="639" y1="338" x2="487" y2="477"/>
       </g>
     </g>
 
-    <text x="7020" y="1100" class="title-text" font-size="42" fill="#a78bfa">爲何兩 cargo workspace?</text>
-    <text x="7020" y="1145" class="body-text small" fill="#cbd5e1">scripts/ 是公開 SDK，</text>
-    <text x="7020" y="1180" class="body-text small" fill="#cbd5e1">不該拉 specs / tokio。</text>
-    <text x="7020" y="1215" class="body-text small" fill="#cbd5e1">兩 workspace 各自的</text>
-    <text x="7020" y="1250" class="body-text small" fill="#cbd5e1">Cargo.lock 獨立解析，</text>
-    <text x="7020" y="1285" class="body-text small" fill="#cbd5e1">避免依賴版本互相牽連，</text>
-    <text x="7020" y="1320" class="body-text small" fill="#cbd5e1">保 ABI 透過 abi_stable</text>
-    <text x="7020" y="1355" class="body-text small" fill="#cbd5e1">而非結構記憶體布局。</text>
+    <text x="7020" y="1100" class="title-text" font-size="64" fill="#a78bfa">爲何兩 cargo workspace?</text>
+    <text x="7020" y="1161" class="body-text small" font-size="48" fill="#cbd5e1">scripts/ 是公開 SDK，</text>
+    <text x="7020" y="1208" class="body-text small" font-size="48" fill="#cbd5e1">不該拉 specs / tokio。</text>
+    <text x="7020" y="1255" class="body-text small" font-size="48" fill="#cbd5e1">兩 workspace 各自的</text>
+    <text x="7020" y="1302" class="body-text small" font-size="48" fill="#cbd5e1">Cargo.lock 獨立解析，</text>
+    <text x="7020" y="1350" class="body-text small" font-size="48" fill="#cbd5e1">避免依賴版本互相牽連，</text>
+    <text x="7020" y="1397" class="body-text small" font-size="48" fill="#cbd5e1">保 ABI 透過 abi_stable</text>
+    <text x="7020" y="1444" class="body-text small" font-size="48" fill="#cbd5e1">而非結構記憶體布局。</text>
 
-    <text x="7020" y="1450" class="title-text" font-size="42" fill="#22d3ee">傳輸層 features</text>
-    <text x="7020" y="1500" class="code" font-size="32" fill="#cbd5e1">kcp  (default)</text>
-    <text x="7020" y="1535" class="body-text tiny" fill="#cbd5e1">UDP 50061 · framing · prost · lz4</text>
-    <text x="7020" y="1580" class="code" font-size="32" fill="#cbd5e1">grpc</text>
-    <text x="7020" y="1615" class="body-text tiny" fill="#cbd5e1">tonic + protobuf-build · streaming</text>
-    <text x="7020" y="1660" class="code" font-size="32" fill="#cbd5e1">mqtt</text>
-    <text x="7020" y="1695" class="body-text tiny" fill="#cbd5e1">rumqttc · 早期 prototype，已淘汰</text>
-    <text x="7020" y="1745" class="body-text tiny" fill="#fb7185">三者互斥（compile_error!）</text>
+    <text x="7020" y="1573" class="title-text" font-size="64" fill="#22d3ee">傳輸層 features</text>
+    <text x="7020" y="1640" class="code" font-size="48" fill="#cbd5e1">kcp  (default)</text>
+    <text x="7020" y="1687" class="body-text tiny" font-size="44" fill="#cbd5e1">UDP 50061 · framing · prost · lz4</text>
+    <text x="7020" y="1748" class="code" font-size="48" fill="#cbd5e1">grpc</text>
+    <text x="7020" y="1795" class="body-text tiny" font-size="44" fill="#cbd5e1">tonic + protobuf-build · streaming</text>
+    <text x="7020" y="1856" class="code" font-size="48" fill="#cbd5e1">mqtt</text>
+    <text x="7020" y="1903" class="body-text tiny" font-size="44" fill="#cbd5e1">rumqttc · 早期 prototype，已淘汰</text>
+    <text x="7020" y="1971" class="body-text tiny" font-size="44" fill="#fb7185">三者互斥（compile_error!）</text>
 
-    <text x="7020" y="1840" class="title-text" font-size="42" fill="#4ade80">Game modes</text>
-    <text x="7020" y="1885" class="code" font-size="32" fill="#cbd5e1">STORY = "MVP_1"</text>
-    <text x="7020" y="1920" class="body-text tiny" fill="#cbd5e1">原 MOBA 單路推塔</text>
-    <text x="7020" y="1965" class="code" font-size="32" fill="#cbd5e1">STORY = "TD_1"</text>
-    <text x="7020" y="2000" class="body-text tiny" fill="#cbd5e1">Bloons 風塔防 · 12 wave</text>
-    <text x="7020" y="2045" class="code" font-size="32" fill="#cbd5e1">STORY = "DEBUG_1"</text>
-    <text x="7020" y="2080" class="body-text tiny" fill="#cbd5e1">scripted scene 用於測試</text>
-    <text x="7020" y="2125" class="code" font-size="32" fill="#cbd5e1">STORY = "TD_STRESS"</text>
-    <text x="7020" y="2160" class="body-text tiny" fill="#cbd5e1">1000 塔 × 1000 creep 壓測</text>
+    <text x="7020" y="2099" class="title-text" font-size="64" fill="#fb7185">關鍵約束</text>
+    <text x="7020" y="2166" class="body-text small" font-size="48" fill="#cbd5e1">⚠ rustc 1.91.0 鎖定</text>
+    <text x="7020" y="2214" class="body-text tiny" font-size="44" fill="#cbd5e1">  abi_stable host + cdylib 必須同版</text>
+    <text x="7020" y="2274" class="body-text small" font-size="48" fill="#cbd5e1">⚠ tokio (not async-std)</text>
+    <text x="7020" y="2322" class="body-text tiny" font-size="44" fill="#cbd5e1">  rumqttc 0.24 是 runtime-agnostic</text>
+    <text x="7020" y="2382" class="body-text small" font-size="48" fill="#cbd5e1">⚠ specs 0.20 (forked)</text>
+    <text x="7020" y="2430" class="body-text tiny" font-size="44" fill="#cbd5e1">  Entity Serialize/Deserialize 手加</text>
+    <text x="7020" y="2490" class="body-text small" font-size="48" fill="#cbd5e1">⚠ .bat CRLF only</text>
+    <text x="7020" y="2538" class="body-text tiny" font-size="44" fill="#cbd5e1">  Windows cmd 遇 LF 吃首字元</text>
 
-    <text x="7020" y="2260" class="title-text" font-size="42" fill="#fb7185">關鍵約束</text>
-    <text x="7020" y="2310" class="body-text small" fill="#cbd5e1">⚠ rustc 1.91.0 鎖定</text>
-    <text x="7020" y="2345" class="body-text tiny" fill="#cbd5e1">  abi_stable host + cdylib 必須同版</text>
-    <text x="7020" y="2390" class="body-text small" fill="#cbd5e1">⚠ tokio (not async-std)</text>
-    <text x="7020" y="2425" class="body-text tiny" fill="#cbd5e1">  rumqttc 0.24 是 runtime-agnostic</text>
-    <text x="7020" y="2470" class="body-text small" fill="#cbd5e1">⚠ specs 0.20 (forked)</text>
-    <text x="7020" y="2505" class="body-text tiny" fill="#cbd5e1">  Entity Serialize/Deserialize 手加</text>
-    <text x="7020" y="2550" class="body-text small" fill="#cbd5e1">⚠ .bat CRLF only</text>
-    <text x="7020" y="2585" class="body-text tiny" fill="#cbd5e1">  Windows cmd 遇 LF 吃首字元</text>
+    <text x="7020" y="2666" class="title-text" font-size="64" fill="#cbd5e1">效能熱點</text>
+    <text x="7020" y="2734" class="body-text small" font-size="48" fill="#cbd5e1">stress 1000 塔 × 1000 creep</text>
+    <text x="7020" y="2801" class="body-text tiny" font-size="44" fill="#cbd5e1">collision ring 24 段 × 1000</text>
+    <text x="7020" y="2842" class="body-text tiny" font-size="44" fill="#cbd5e1">  → 24K scene node</text>
+    <text x="7020" y="2889" class="body-text tiny" font-size="44" fill="#cbd5e1">  COLLISION_RING_ENABLED=false</text>
+    <text x="7020" y="2956" class="body-text tiny" font-size="44" fill="#cbd5e1">name label ui.send 做 diff</text>
+    <text x="7020" y="2997" class="body-text tiny" font-size="44" fill="#cbd5e1">  位移 &lt; 1 px + 文字未變則跳過</text>
 
-    <text x="7020" y="2680" class="title-text" font-size="42" fill="#cbd5e1">效能熱點</text>
-    <text x="7020" y="2730" class="body-text small" fill="#cbd5e1">stress 1000 塔 × 1000 creep</text>
-    <text x="7020" y="2780" class="body-text tiny" fill="#cbd5e1">collision ring 24 段 × 1000</text>
-    <text x="7020" y="2810" class="body-text tiny" fill="#cbd5e1">  → 24K scene node</text>
-    <text x="7020" y="2845" class="body-text tiny" fill="#cbd5e1">  COLLISION_RING_ENABLED=false</text>
-    <text x="7020" y="2895" class="body-text tiny" fill="#cbd5e1">name label ui.send 做 diff</text>
-    <text x="7020" y="2925" class="body-text tiny" fill="#cbd5e1">  位移 &lt; 1 px + 文字未變則跳過</text>
+    <text x="7020" y="3139" class="title-text" font-size="64" fill="#a78bfa">文件入口</text>
+    <text x="7020" y="3206" class="code" font-size="46" fill="#cbd5e1">CLAUDE.md</text>
+    <text x="7020" y="3253" class="code" font-size="46" fill="#cbd5e1">graphify-out/GRAPH_REPORT.md</text>
+    <text x="7020" y="3300" class="code" font-size="46" fill="#cbd5e1">docs/plans/*.md</text>
+    <text x="7020" y="3348" class="code" font-size="46" fill="#cbd5e1">omb/target/docs/index.html</text>
+    <text x="7020" y="3395" class="code" font-size="46" fill="#cbd5e1">  (gen-docs output)</text>
 
-    <text x="7020" y="3030" class="title-text" font-size="42" fill="#a78bfa">文件入口</text>
-    <text x="7020" y="3080" class="code" font-size="30" fill="#cbd5e1">CLAUDE.md</text>
-    <text x="7020" y="3115" class="code" font-size="30" fill="#cbd5e1">graphify-out/GRAPH_REPORT.md</text>
-    <text x="7020" y="3150" class="code" font-size="30" fill="#cbd5e1">docs/plans/*.md</text>
-    <text x="7020" y="3185" class="code" font-size="30" fill="#cbd5e1">omb/target/docs/index.html</text>
-    <text x="7020" y="3220" class="code" font-size="30" fill="#cbd5e1">  (gen-docs output)</text>
+    <text x="7020" y="3530" class="title-text" font-size="64" fill="#cbd5e1">設計哲學</text>
+    <text x="7020" y="3611" class="why-text" font-size="46">「伺服器權威，客戶端推測」</text>
+    <text x="7020" y="3685" class="why-text" font-size="46">「資料驅動優先；codegen 壓縮 wire bytes」</text>
+    <text x="7020" y="3760" class="why-text" font-size="46">「FFI cdylib 加速迭代，enum 確保型別安全」</text>
 
-    <text x="7020" y="3320" class="title-text" font-size="42" fill="#cbd5e1">設計哲學</text>
-    <text x="7020" y="3370" class="why-text" font-size="30">"server authoritative,</text>
-    <text x="7020" y="3398" class="why-text" font-size="30">client speculative."</text>
-    <text x="7020" y="3445" class="why-text" font-size="30">"data-driven first;</text>
-    <text x="7020" y="3473" class="why-text" font-size="30">codegen 解 wire bytes."</text>
-    <text x="7020" y="3520" class="why-text" font-size="30">"FFI cdylib for iteration,</text>
-    <text x="7020" y="3548" class="why-text" font-size="30">enum for type-safety."</text>
-
-    <text x="7550" y="3870" class="body-text tiny" fill="#475569" text-anchor="middle">2026-04-25 · Rust 1.91.0 · specs 0.20 · abi_stable 0.11</text>
+    <text x="7440" y="3870" class="body-text tiny" font-size="44" fill="#475569" text-anchor="middle">2026-04-25 · Rust 1.91.0 · specs 0.20 · abi_stable 0.11</text>
   </g>
 
   <!-- ============================================================== -->
