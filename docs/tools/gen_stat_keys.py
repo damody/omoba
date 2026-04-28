@@ -330,7 +330,7 @@ def parse_excluded_wires(text: str, name_to_wire: dict[str, str]) -> set[str]:
 
 # New variants appended at tail.
 # Section 選擇規則（對照現有同族 variant）：
-#   - MoveSpeedBonus 同 MoveSpeedBonusConstant 等 → NonBuilding
+#   - MoveSpeedBonus 同 MoveSpeedBonusEquipment 等 → NonBuilding
 #   - DamageTakenBonus 同 IncomingDamage* 系 → All（建築物也受傷）
 #   - MultiShotVisual 視覺 pass-through → Visual
 #   - DotDamage 遊戲邏輯（DoT 傷害 tick）→ All
