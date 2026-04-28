@@ -154,52 +154,55 @@ pub enum StatKey {
     SlowFactorOverride = 89,
     SlowDurationBonus = 90,
     AttackSpeedMultiplier = 91,
-    MoveSpeedBonusConstant = 92,
+    MoveSpeedBonusEquipment = 92,
     MoveSpeedBaseOverride = 93,
     MoveSpeedBonusPercentage = 94,
     MoveSpeedBonusPercentageUnique = 95,
     MoveSpeedBonusPercentageUnique2 = 96,
-    MoveSpeedBonusUnique = 97,
-    MoveSpeedBonusUnique2 = 98,
-    MoveSpeedAbsolute = 99,
-    MoveSpeedAbsoluteMin = 100,
-    MoveSpeedLimit = 101,
-    MoveSpeedMax = 102,
-    TurnRatePercentage = 103,
-    Reincarnation = 104,
-    RespawnTime = 105,
-    RespawnTimePercentage = 106,
-    RespawnTimeStacking = 107,
-    DeathGoldCost = 108,
-    ExpRateBoost = 109,
-    BonusDayVision = 110,
-    BonusNightVision = 111,
-    BonusNightVisionUnique = 112,
-    BonusVisionPercentage = 113,
-    FixedDayVision = 114,
-    FixedNightVision = 115,
-    IsIllusion = 116,
-    IllusionLabel = 117,
-    SuperIllusion = 118,
-    SuperIllusionWithUltimate = 119,
-    DamageOutgoingPercentageIllusion = 120,
-    BountyCreepMultiplier = 121,
-    BountyOtherMultiplier = 122,
-    PreAttack = 123,
-    OverrideAnimation = 124,
-    OverrideAnimationWeight = 125,
-    OverrideAnimationRate = 126,
-    DisableTurning = 127,
-    IgnoreCastAngle = 128,
-    StunChance = 129,
-    StunDuration = 130,
-    CritChance = 131,
-    AttackStunChance = 132,
-    AttackStunDuration = 133,
-    MoveSpeedBonus = 134,
-    DamageTakenBonus = 135,
-    MultiShotVisual = 136,
-    DotDamage = 137,
+    MoveSpeedAbsolute = 97,
+    MoveSpeedAbsoluteMin = 98,
+    MoveSpeedLimit = 99,
+    MoveSpeedMax = 100,
+    TurnRatePercentage = 101,
+    Reincarnation = 102,
+    RespawnTime = 103,
+    RespawnTimePercentage = 104,
+    RespawnTimeStacking = 105,
+    DeathGoldCost = 106,
+    ExpRateBoost = 107,
+    BonusDayVision = 108,
+    BonusNightVision = 109,
+    BonusNightVisionUnique = 110,
+    BonusVisionPercentage = 111,
+    FixedDayVision = 112,
+    FixedNightVision = 113,
+    IsIllusion = 114,
+    IllusionLabel = 115,
+    SuperIllusion = 116,
+    SuperIllusionWithUltimate = 117,
+    DamageOutgoingPercentageIllusion = 118,
+    BountyCreepMultiplier = 119,
+    BountyOtherMultiplier = 120,
+    PreAttack = 121,
+    OverrideAnimation = 122,
+    OverrideAnimationWeight = 123,
+    OverrideAnimationRate = 124,
+    DisableTurning = 125,
+    IgnoreCastAngle = 126,
+    StunChance = 127,
+    StunDuration = 128,
+    CritChance = 129,
+    AttackStunChance = 130,
+    AttackStunDuration = 131,
+    MoveSpeedBonus = 132,
+    DamageTakenBonus = 133,
+    MultiShotVisual = 134,
+    DotDamage = 135,
+    /// Buff 專用的 post-percentage flat 移速加減：套用於 `(base + equipment) * (1 + pct)` 之後。
+    /// 不被 percentage slow 削弱、不疊到 base/equipment 上，數值好預測——適合「+30 ms 衝刺 buff」
+    /// 或「-20 ms 沼澤地形」這類「固定數值」效果。對比 `MoveSpeedBonusEquipment`（裝備 flat、會被
+    /// percentage 縮放）與 `MoveSpeedBonus`（percentage slow，乘到 base+equipment 上）。
+    MoveSpeedBonusBuff = 136,
 }
 
 impl StatKey {
@@ -298,13 +301,11 @@ impl StatKey {
             StatKey::SlowFactorOverride => "slow_factor_override",
             StatKey::SlowDurationBonus => "slow_duration_bonus",
             StatKey::AttackSpeedMultiplier => "attack_speed_multiplier",
-            StatKey::MoveSpeedBonusConstant => "movespeed_bonus_constant",
+            StatKey::MoveSpeedBonusEquipment => "movespeed_bonus_equipment",
             StatKey::MoveSpeedBaseOverride => "movespeed_base_override",
             StatKey::MoveSpeedBonusPercentage => "movespeed_bonus_percentage",
             StatKey::MoveSpeedBonusPercentageUnique => "movespeed_bonus_percentage_unique",
             StatKey::MoveSpeedBonusPercentageUnique2 => "movespeed_bonus_percentage_unique_2",
-            StatKey::MoveSpeedBonusUnique => "movespeed_bonus_unique",
-            StatKey::MoveSpeedBonusUnique2 => "movespeed_bonus_unique_2",
             StatKey::MoveSpeedAbsolute => "movespeed_absolute",
             StatKey::MoveSpeedAbsoluteMin => "movespeed_absolute_min",
             StatKey::MoveSpeedLimit => "movespeed_limit",
@@ -344,6 +345,7 @@ impl StatKey {
             StatKey::DamageTakenBonus => "damage_taken_bonus",
             StatKey::MultiShotVisual => "multi_shot_visual",
             StatKey::DotDamage => "dot_damage",
+            StatKey::MoveSpeedBonusBuff => "movespeed_bonus_buff",
         }
     }
 
@@ -442,13 +444,11 @@ impl StatKey {
             "slow_factor_override" => Some(StatKey::SlowFactorOverride),
             "slow_duration_bonus" => Some(StatKey::SlowDurationBonus),
             "attack_speed_multiplier" => Some(StatKey::AttackSpeedMultiplier),
-            "movespeed_bonus_constant" => Some(StatKey::MoveSpeedBonusConstant),
+            "movespeed_bonus_equipment" => Some(StatKey::MoveSpeedBonusEquipment),
             "movespeed_base_override" => Some(StatKey::MoveSpeedBaseOverride),
             "movespeed_bonus_percentage" => Some(StatKey::MoveSpeedBonusPercentage),
             "movespeed_bonus_percentage_unique" => Some(StatKey::MoveSpeedBonusPercentageUnique),
             "movespeed_bonus_percentage_unique_2" => Some(StatKey::MoveSpeedBonusPercentageUnique2),
-            "movespeed_bonus_unique" => Some(StatKey::MoveSpeedBonusUnique),
-            "movespeed_bonus_unique_2" => Some(StatKey::MoveSpeedBonusUnique2),
             "movespeed_absolute" => Some(StatKey::MoveSpeedAbsolute),
             "movespeed_absolute_min" => Some(StatKey::MoveSpeedAbsoluteMin),
             "movespeed_limit" => Some(StatKey::MoveSpeedLimit),
@@ -488,6 +488,7 @@ impl StatKey {
             "damage_taken_bonus" => Some(StatKey::DamageTakenBonus),
             "multi_shot_visual" => Some(StatKey::MultiShotVisual),
             "dot_damage" => Some(StatKey::DotDamage),
+            "movespeed_bonus_buff" => Some(StatKey::MoveSpeedBonusBuff),
             _ => None,
         }
     }
@@ -587,13 +588,11 @@ impl StatKey {
             StatKey::SlowFactorOverride => StatSection::All,
             StatKey::SlowDurationBonus => StatSection::All,
             StatKey::AttackSpeedMultiplier => StatSection::All,
-            StatKey::MoveSpeedBonusConstant => StatSection::NonBuilding,
+            StatKey::MoveSpeedBonusEquipment => StatSection::NonBuilding,
             StatKey::MoveSpeedBaseOverride => StatSection::NonBuilding,
             StatKey::MoveSpeedBonusPercentage => StatSection::NonBuilding,
             StatKey::MoveSpeedBonusPercentageUnique => StatSection::NonBuilding,
             StatKey::MoveSpeedBonusPercentageUnique2 => StatSection::NonBuilding,
-            StatKey::MoveSpeedBonusUnique => StatSection::NonBuilding,
-            StatKey::MoveSpeedBonusUnique2 => StatSection::NonBuilding,
             StatKey::MoveSpeedAbsolute => StatSection::NonBuilding,
             StatKey::MoveSpeedAbsoluteMin => StatSection::NonBuilding,
             StatKey::MoveSpeedLimit => StatSection::NonBuilding,
@@ -633,6 +632,7 @@ impl StatKey {
             StatKey::DamageTakenBonus => StatSection::All,
             StatKey::MultiShotVisual => StatSection::Visual,
             StatKey::DotDamage => StatSection::All,
+            StatKey::MoveSpeedBonusBuff => StatSection::NonBuilding,
         }
     }
 
@@ -731,13 +731,11 @@ impl StatKey {
             StatKey::SlowFactorOverride => Aggregation::PassThrough,
             StatKey::SlowDurationBonus => Aggregation::SumAdd,
             StatKey::AttackSpeedMultiplier => Aggregation::ProductMult,
-            StatKey::MoveSpeedBonusConstant => Aggregation::SumAdd,
+            StatKey::MoveSpeedBonusEquipment => Aggregation::SumAdd,
             StatKey::MoveSpeedBaseOverride => Aggregation::PassThrough,
             StatKey::MoveSpeedBonusPercentage => Aggregation::SumAddThenMul1Plus,
             StatKey::MoveSpeedBonusPercentageUnique => Aggregation::SumAddThenMul1Plus,
             StatKey::MoveSpeedBonusPercentageUnique2 => Aggregation::SumAddThenMul1Plus,
-            StatKey::MoveSpeedBonusUnique => Aggregation::SumAdd,
-            StatKey::MoveSpeedBonusUnique2 => Aggregation::SumAdd,
             StatKey::MoveSpeedAbsolute => Aggregation::SumAdd,
             StatKey::MoveSpeedAbsoluteMin => Aggregation::SumAdd,
             StatKey::MoveSpeedLimit => Aggregation::PassThrough,
@@ -777,6 +775,7 @@ impl StatKey {
             StatKey::DamageTakenBonus => Aggregation::SumAdd,
             StatKey::MultiShotVisual => Aggregation::SumAdd,
             StatKey::DotDamage => Aggregation::SumAdd,
+            StatKey::MoveSpeedBonusBuff => Aggregation::SumAdd,
         }
     }
 
@@ -790,7 +789,7 @@ impl StatKey {
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
-pub const ALL: &[StatKey; 138] = &[
+pub const ALL: &[StatKey; 137] = &[
     StatKey::PreattackBonusDamage,
     StatKey::PreattackBonusDamageProc,
     StatKey::PreattackBonusDamagePostCrit,
@@ -883,13 +882,11 @@ pub const ALL: &[StatKey; 138] = &[
     StatKey::SlowFactorOverride,
     StatKey::SlowDurationBonus,
     StatKey::AttackSpeedMultiplier,
-    StatKey::MoveSpeedBonusConstant,
+    StatKey::MoveSpeedBonusEquipment,
     StatKey::MoveSpeedBaseOverride,
     StatKey::MoveSpeedBonusPercentage,
     StatKey::MoveSpeedBonusPercentageUnique,
     StatKey::MoveSpeedBonusPercentageUnique2,
-    StatKey::MoveSpeedBonusUnique,
-    StatKey::MoveSpeedBonusUnique2,
     StatKey::MoveSpeedAbsolute,
     StatKey::MoveSpeedAbsoluteMin,
     StatKey::MoveSpeedLimit,
@@ -929,6 +926,7 @@ pub const ALL: &[StatKey; 138] = &[
     StatKey::DamageTakenBonus,
     StatKey::MultiShotVisual,
     StatKey::DotDamage,
+    StatKey::MoveSpeedBonusBuff,
 ];
 
 #[cfg(test)]
@@ -936,8 +934,8 @@ mod tests {
     use super::{StatKey, StatSection, Aggregation, ALL};
 
     #[test]
-    fn all_array_length_is_138() {
-        assert_eq!(ALL.len(), 138);
+    fn all_array_length_is_137() {
+        assert_eq!(ALL.len(), 137);
     }
 
     #[test]
