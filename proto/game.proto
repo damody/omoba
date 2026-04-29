@@ -36,7 +36,8 @@ message SubscribeRequest {
 // ===== Quantization primitives (P2) =====
 // All quantized scalars use explicit scale constants (see omoba-core/src/quant.rs):
 //   Position16: scale=0.25, range ±8191.75 world units, precision 0.25 px
-//   Fixed16:    scale=0.1,  range ±3276.7, for HP/damage/armor/move_speed
+//   Fixed16:    scale=0.1, wire=sint32 (varint, 1-5 B). HP/damage/armor/move_speed.
+//               不再 clamp 到 i16；典型值仍 2-byte varint，極端值（stress 10M HP）走 5 byte。
 //   Facing8:    256 steps across 0..2π, precision ~1.4°
 //
 // Use sint32 in proto3 (varint encoded) — typical sub-20 values fit in 1~2 bytes.
