@@ -10,7 +10,7 @@ from pathlib import Path
 OUT = Path("D:/omoba/omb/Story/TD_STRESS/map.json")
 
 N_CREEPS = 1000
-CREEP_HP = 10000.0
+CREEP_HP = 10_000_000.0  # 1000× 原 10K — stress profile 要 creep 活久才能讓塔持續開火
 CREEP_SPEED = 100.0
 SPAWN_INTERVAL = 0.1  # 秒
 
@@ -71,23 +71,38 @@ data = {
         {"Name": "td_cp6",   "Class": "Path",  "X":  1400.0, "Y":  800.0},
         {"Name": "td_exit",  "Class": "Base",  "X": -1400.0, "Y":  800.0},
     ],
-    "Tower": [{
-        "Name": "stress_tower",
-        "Property": {"Hp": 1000, "Block": 0},
-        "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
-        "TurnSpeed": 360.0,
-        "CollisionRadius": 50.0,
-    }],
+    # Tower 模板（fallback 用 — 實際 spawn 走 spawn_td_tower 從 TowerTemplateRegistry 取）。
+    # 兩個 template 對應 base_content 的 ice / bomb script，host 的
+    # spawn_structures_from_map 會偵測 Tower name 命中 registry 改走腳本路徑，
+    # 帶 ScriptUnitTag、每 tick 跑 on_tick → 真正觸發 script_dispatch 工作量。
+    "Tower": [
+        {
+            "Name": "tower_ice",
+            "Property": {"Hp": 1000, "Block": 0},
+            "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
+            "TurnSpeed": 360.0,
+            "CollisionRadius": 50.0,
+        },
+        {
+            "Name": "tower_bomb",
+            "Property": {"Hp": 1000, "Block": 0},
+            "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
+            "TurnSpeed": 360.0,
+            "CollisionRadius": 50.0,
+        },
+    ],
+    # Structures 按 grid index 交錯：偶數 ice / 奇數 bomb。兩種 script 各 ~500 個，
+    # 可在 tick_profile 看到 per-script-id 的耗時對比。
     "Structures": [
         {
-            "Tower": "stress_tower",
+            "Tower": "tower_ice" if i % 2 == 0 else "tower_bomb",
             "Faction": "Player",
             "X": float(x),
             "Y": float(y),
             "IsBase": False,
             "CollisionRadius": None,
         }
-        for (x, y) in pts[:N_TOWERS]
+        for i, (x, y) in enumerate(pts[:N_TOWERS])
     ],
     "CreepWave": [{
         "Name": "W_STRESS",
