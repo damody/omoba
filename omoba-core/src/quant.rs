@@ -3,9 +3,13 @@
 //! Three quantization schemes match the proto primitives in `proto/game.proto`:
 //!
 //! - **Position16** (`scale = 0.25`) — world coordinates, ±8191.75 range,
-//!   0.25 px precision. Each axis encoded as `sint32` (varint in proto3, ~2 B).
-//! - **Fixed16** (`scale = 0.1`) — HP / damage / armor / move_speed, ±3276.7
-//!   range, 0.1 precision.
+//!   0.25 px precision. Each軸 encoded as `sint32` (varint in proto3, ~2 B for
+//!   typical values). Clamped to i16 range because map bounds are固定的.
+//! - **Fixed** (`scale = 0.1`) — HP / damage / armor / move_speed, scale 0.1
+//!   precision。Wire type 是 proto sint32 (varint)，**不再 clamp 到 i16**：
+//!   typical values 1000s 仍只用 2 bytes，stress 場景的 10M HP 用 5 bytes —
+//!   bandwidth 損失極小，但避免後端真實值被前端 clamp 成假數（10M → 3276.7）。
+//!   名字保留 `Fixed16` 是 proto 的歷史命名；wire 是 sint32 全範圍。
 //! - **Facing8** (256 steps across 2π) — facing angle, ~1.4° precision. Single
 //!   `uint32` (1 byte varint typical).
 //!
@@ -27,8 +31,11 @@ pub fn pos_dequant(q: i32) -> f32 {
 }
 
 pub fn fixed_quant(v: f32) -> i32 {
+    // 不 clamp 到 i16：HP 沒有自然上界（stress 場景 10M+ 也得能跑），
+    // 前端應該無條件相信後端數字。typical 值仍走 2-byte varint，極端值 5 byte。
+    // 用 i32 邊界當保險避免 overflow（f32→i32 saturating cast）。
     let scaled = (v / FIXED_SCALE).round();
-    scaled.clamp(i16::MIN as f32, i16::MAX as f32) as i32
+    scaled.clamp(i32::MIN as f32, i32::MAX as f32) as i32
 }
 
 pub fn fixed_dequant(q: i32) -> f32 {
@@ -86,6 +93,23 @@ mod tests {
                 (back - v).abs() <= tol,
                 "fixed roundtrip v={} → q={} → back={} tol={}",
                 v, q, back, tol
+            );
+        }
+    }
+
+    #[test]
+    fn fixed_no_longer_clamps_at_i16() {
+        // HP 大到超出舊的 ±3276.7 上限也要 round-trip。
+        // 注意：f32 mantissa 24-bit，超過 ~16M 的 q 值會有 1 unit 精度損失，
+        // 所以容忍度放寬到 FIXED_SCALE * 2。
+        for v in [10_000.0f32, 100_000.0, 1_000_000.0, 10_000_000.0] {
+            let q = fixed_quant(v);
+            let back = fixed_dequant(q);
+            let tol = (FIXED_SCALE * 2.0).max(v.abs() * 1e-6);
+            assert!(
+                (back - v).abs() <= tol,
+                "fixed large-value roundtrip v={} → q={} → back={} tol={}",
+                v, q, back, tol,
             );
         }
     }
