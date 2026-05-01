@@ -89,14 +89,14 @@ data = {
             "Property": {"Hp": 1000, "Block": 0},
             "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
             "TurnSpeed": 360.0,
-            "CollisionRadius": 25.0,
+            "CollisionRadius": 12.5,
         },
         {
             "Name": "tower_bomb",
             "Property": {"Hp": 1000, "Block": 0},
             "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
             "TurnSpeed": 360.0,
-            "CollisionRadius": 25.0,
+            "CollisionRadius": 12.5,
         },
     ],
     # Structures 按 grid index 交錯：偶數 ice / 奇數 bomb。兩種 script 各 ~500 個，
