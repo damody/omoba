@@ -25,14 +25,22 @@ CORRIDORS = [
 ]
 
 
+# 英雄起始點 (0,0) 周圍留一個淨空圈，否則 hero 一生出來就被 corridor B 的塔
+# 包住，rmb 移動因為 collision 推不動，看起來像「英雄完全不會動」。
+HERO_CLEAR_RADIUS = 250.0  # backend units；hero coll_radius=30 + tower coll_radius=50 + 餘裕
+
+
 def grid_points(corridors, spacing, limit):
     out = []
+    r2 = HERO_CLEAR_RADIUS * HERO_CLEAR_RADIUS
     for (xmin, xmax, ymin, ymax) in corridors:
         x = xmin
         while x <= xmax and len(out) < limit:
             y = ymin
             while y <= ymax and len(out) < limit:
-                out.append((x, y))
+                # 跳過英雄淨空圈內的 grid 點
+                if x * x + y * y >= r2:
+                    out.append((x, y))
                 y += spacing
             x += spacing
     return out
