@@ -14,11 +14,9 @@ use omb_script_abi::prelude::*;
 
 pub struct TackTower;
 
-const ATK: f32 = 8.0;
-const ASD_INTERVAL: f32 = 1.2;
-const RANGE: f32 = 380.0;
-const BULLET_SPEED: f32 = 1400.0;
-const HIT_RADIUS: f32 = 80.0; // 與 host 端 comp::TACK_NEEDLE_HIT_RADIUS 同步
+// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// `TOWER_TACK_STATS`。hit_radius 80 須與 host 端 `comp::TACK_NEEDLE_HIT_RADIUS` 同步。
+const STATS: &TowerStats = &TOWER_TACK_STATS;
 
 impl UnitScript for TackTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -26,26 +24,26 @@ impl UnitScript for TackTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, ATK);
-        w.set_tower_range(e, RANGE);
-        w.set_asd_interval(e, ASD_INTERVAL);
+        w.set_tower_atk(e, STATS.atk);
+        w.set_tower_range(e, STATS.range);
+        w.set_asd_interval(e, STATS.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
         RSome(TowerMetadata {
-            atk: ATK,
-            asd_interval: ASD_INTERVAL,
-            range: RANGE,
-            bullet_speed: BULLET_SPEED,
-            splash_radius: 0.0,
-            hit_radius: HIT_RADIUS,
-            slow_factor: 0.0,
-            slow_duration: 0.0,
-            cost: 400,
-            footprint: 40.0,
-            hp: 1.0,
-            turn_speed_deg: 3600.0,
-            label: RString::from("Tack Shooter"),
+            atk: STATS.atk,
+            asd_interval: STATS.asd_interval,
+            range: STATS.range,
+            bullet_speed: STATS.bullet_speed,
+            splash_radius: STATS.splash_radius,
+            hit_radius: STATS.hit_radius,
+            slow_factor: STATS.slow_factor,
+            slow_duration: STATS.slow_duration,
+            cost: STATS.cost,
+            footprint: STATS.footprint,
+            hp: STATS.hp,
+            turn_speed_deg: STATS.turn_speed_deg,
+            label: RString::from(tower_display(TOWER_TACK)),
         })
     }
 
@@ -92,7 +90,7 @@ impl UnitScript for TackTower {
         let (hit_radius, damage) = if blade {
             (110.0_f32, atk.max(20.0))
         } else {
-            (HIT_RADIUS, atk)
+            (STATS.hit_radius, atk)
         };
 
         w.log_info(RStr::from_str("[tower_tack] fire needles!"));
@@ -108,7 +106,7 @@ impl UnitScript for TackTower {
                 from: pos,
                 owner: e,
                 path: PathSpec::Straight { end_pos: end },
-                speed: BULLET_SPEED,
+                speed: STATS.bullet_speed,
                 damage,
                 hit_radius,
                 splash_radius: 0.0,

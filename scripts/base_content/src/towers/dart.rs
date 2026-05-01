@@ -13,12 +13,11 @@ use omb_script_abi::stat_keys::StatKey;
 
 pub struct DartTower;
 
-// 數值 source of truth — 改完重 build DLL 就生效，不用動 host
-const ATK: f32 = 10.0;
-const ASD_INTERVAL: f32 = 0.8;
-const RANGE: f32 = 350.0;
-const BULLET_SPEED: f32 = 1200.0;
+// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// `TOWER_DART_STATS`。
+const STATS: &TowerStats = &TOWER_DART_STATS;
 
+// 升級加成（不來自 templates.json — 是腳本邏輯參數）
 const BONUS_PROC_CHANCE: f32 = 0.25;
 const BONUS_DAMAGE: f32 = 30.0;
 
@@ -28,26 +27,26 @@ impl UnitScript for DartTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, ATK);
-        w.set_tower_range(e, RANGE);
-        w.set_asd_interval(e, ASD_INTERVAL);
+        w.set_tower_atk(e, STATS.atk);
+        w.set_tower_range(e, STATS.range);
+        w.set_asd_interval(e, STATS.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
         RSome(TowerMetadata {
-            atk: ATK,
-            asd_interval: ASD_INTERVAL,
-            range: RANGE,
-            bullet_speed: BULLET_SPEED,
-            splash_radius: 0.0,
-            hit_radius: 0.0,
-            slow_factor: 0.0,
-            slow_duration: 0.0,
-            cost: 200,
-            footprint: 40.0,
-            hp: 1.0,
-            turn_speed_deg: 360.0,
-            label: RString::from("Dart Monkey"),
+            atk: STATS.atk,
+            asd_interval: STATS.asd_interval,
+            range: STATS.range,
+            bullet_speed: STATS.bullet_speed,
+            splash_radius: STATS.splash_radius,
+            hit_radius: STATS.hit_radius,
+            slow_factor: STATS.slow_factor,
+            slow_duration: STATS.slow_duration,
+            cost: STATS.cost,
+            footprint: STATS.footprint,
+            hp: STATS.hp,
+            turn_speed_deg: STATS.turn_speed_deg,
+            label: RString::from(tower_display(TOWER_DART)),
         })
     }
 
@@ -94,10 +93,10 @@ impl UnitScript for DartTower {
 
         // Spike-o-pult 覆蓋：巨釘、splash、半速彈
         let (bullet_speed, damage, splash_radius) = if spike {
-            (BULLET_SPEED * 0.5, 40.0_f32.max(atk), 100.0)
+            (STATS.bullet_speed * 0.5, 40.0_f32.max(atk), 100.0)
         } else {
             let speed_mul = if fan_club { 2.0 } else { 1.0 };
-            (BULLET_SPEED * speed_mul, atk, 0.0)
+            (STATS.bullet_speed * speed_mul, atk, 0.0)
         };
 
         w.log_info(RStr::from_str("[tower_dart] fire!"));
