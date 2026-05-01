@@ -15,13 +15,9 @@ use omb_script_abi::stat_keys::StatKey;
 
 pub struct IceTower;
 
-const ATK: f32 = 3.0;
-const ASD_INTERVAL: f32 = 1.5;
-const RANGE: f32 = 180.0;
-const BULLET_SPEED: f32 = 600.0;
-const SPLASH_RADIUS: f32 = 90.0;
-const SLOW_FACTOR: f32 = 0.5; // 減速至 50%
-const SLOW_DURATION: f32 = 2.0;
+// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// `TOWER_ICE_STATS`。
+const STATS: &TowerStats = &TOWER_ICE_STATS;
 
 impl UnitScript for IceTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -29,26 +25,26 @@ impl UnitScript for IceTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, ATK);
-        w.set_tower_range(e, RANGE);
-        w.set_asd_interval(e, ASD_INTERVAL);
+        w.set_tower_atk(e, STATS.atk);
+        w.set_tower_range(e, STATS.range);
+        w.set_asd_interval(e, STATS.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
         RSome(TowerMetadata {
-            atk: ATK,
-            asd_interval: ASD_INTERVAL,
-            range: RANGE,
-            bullet_speed: BULLET_SPEED,
-            splash_radius: SPLASH_RADIUS,
-            hit_radius: 0.0,
-            slow_factor: SLOW_FACTOR,
-            slow_duration: SLOW_DURATION,
-            cost: 400,
-            footprint: 40.0,
-            hp: 1.0,
-            turn_speed_deg: 360.0,
-            label: RString::from("Ice Monkey"),
+            atk: STATS.atk,
+            asd_interval: STATS.asd_interval,
+            range: STATS.range,
+            bullet_speed: STATS.bullet_speed,
+            splash_radius: STATS.splash_radius,
+            hit_radius: STATS.hit_radius,
+            slow_factor: STATS.slow_factor,
+            slow_duration: STATS.slow_duration,
+            cost: STATS.cost,
+            footprint: STATS.footprint,
+            hp: STATS.hp,
+            turn_speed_deg: STATS.turn_speed_deg,
+            label: RString::from(tower_display(TOWER_ICE)),
         })
     }
 
@@ -85,14 +81,14 @@ impl UnitScript for IceTower {
         let slow_factor = if slow_override > 0.0 && slow_override < 1.0 {
             slow_override
         } else {
-            SLOW_FACTOR
+            STATS.slow_factor
         };
 
         let slow_dur_bonus = w.get_stat_bonus(e, StatKey::SlowDurationBonus);
-        let slow_duration = SLOW_DURATION + slow_dur_bonus;
+        let slow_duration = STATS.slow_duration + slow_dur_bonus;
 
         let splash_bonus = w.get_stat_bonus(e, StatKey::SplashBonus);
-        let splash_radius = SPLASH_RADIUS + splash_bonus;
+        let splash_radius = STATS.splash_radius + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("deep_freeze")) {
             1.0
@@ -133,7 +129,7 @@ impl UnitScript for IceTower {
             from: pos,
             owner: e,
             path: path_spec,
-            speed: BULLET_SPEED,
+            speed: STATS.bullet_speed,
             damage: final_damage,
             hit_radius: 0.0,
             splash_radius: final_splash,

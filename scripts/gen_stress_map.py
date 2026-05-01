@@ -79,26 +79,12 @@ data = {
         {"Name": "td_cp6",   "Class": "Path",  "X":  1400.0, "Y":  800.0},
         {"Name": "td_exit",  "Class": "Base",  "X": -1400.0, "Y":  800.0},
     ],
-    # Tower 模板（fallback 用 — 實際 spawn 走 spawn_td_tower 從 TowerTemplateRegistry 取）。
-    # 兩個 template 對應 base_content 的 ice / bomb script，host 的
-    # spawn_structures_from_map 會偵測 Tower name 命中 registry 改走腳本路徑，
-    # 帶 ScriptUnitTag、每 tick 跑 on_tick → 真正觸發 script_dispatch 工作量。
-    "Tower": [
-        {
-            "Name": "tower_ice",
-            "Property": {"Hp": 1000, "Block": 0},
-            "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
-            "TurnSpeed": 360.0,
-            "CollisionRadius": 12.5,
-        },
-        {
-            "Name": "tower_bomb",
-            "Property": {"Hp": 1000, "Block": 0},
-            "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
-            "TurnSpeed": 360.0,
-            "CollisionRadius": 12.5,
-        },
-    ],
+    # Tower templates 留空 — 實際 spawn 走 spawn_td_tower 從 TowerTemplateRegistry
+    # 取，數值（atk / range / cost / footprint / ...）唯一來源是
+    # `omb/Story/templates.json` 的 towers[]，由 omoba-template-ids 編譯期生成
+    # `TOWER_*_STATS` const，base_content 的 tower_ice / tower_bomb 腳本直接讀。
+    # map.json 的 Tower fallback 在 stress 場景永遠不會觸發。
+    "Tower": [],
     # Structures 按 grid index 交錯：偶數 ice / 奇數 bomb。兩種 script 各 ~500 個，
     # 可在 tick_profile 看到 per-script-id 的耗時對比。
     "Structures": [

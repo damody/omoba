@@ -14,11 +14,9 @@ use omb_script_abi::stat_keys::StatKey;
 
 pub struct BombTower;
 
-const ATK: f32 = 30.0;
-const ASD_INTERVAL: f32 = 1.5;
-const RANGE: f32 = 400.0;
-const BULLET_SPEED: f32 = 900.0;
-const SPLASH_RADIUS: f32 = 200.0;
+// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// `TOWER_BOMB_STATS`。改數值編 omoba-template-ids → scripts 重 build 即生效。
+const STATS: &TowerStats = &TOWER_BOMB_STATS;
 
 impl UnitScript for BombTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -26,26 +24,26 @@ impl UnitScript for BombTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, ATK);
-        w.set_tower_range(e, RANGE);
-        w.set_asd_interval(e, ASD_INTERVAL);
+        w.set_tower_atk(e, STATS.atk);
+        w.set_tower_range(e, STATS.range);
+        w.set_asd_interval(e, STATS.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
         RSome(TowerMetadata {
-            atk: ATK,
-            asd_interval: ASD_INTERVAL,
-            range: RANGE,
-            bullet_speed: BULLET_SPEED,
-            splash_radius: SPLASH_RADIUS,
-            hit_radius: 0.0,
-            slow_factor: 0.0,
-            slow_duration: 0.0,
-            cost: 650,
-            footprint: 50.0,
-            hp: 1.0,
-            turn_speed_deg: 360.0,
-            label: RString::from("Bomb Shooter"),
+            atk: STATS.atk,
+            asd_interval: STATS.asd_interval,
+            range: STATS.range,
+            bullet_speed: STATS.bullet_speed,
+            splash_radius: STATS.splash_radius,
+            hit_radius: STATS.hit_radius,
+            slow_factor: STATS.slow_factor,
+            slow_duration: STATS.slow_duration,
+            cost: STATS.cost,
+            footprint: STATS.footprint,
+            hp: STATS.hp,
+            turn_speed_deg: STATS.turn_speed_deg,
+            label: RString::from(tower_display(TOWER_BOMB)),
         })
     }
 
@@ -77,9 +75,9 @@ impl UnitScript for BombTower {
 
         let atk = w.get_final_atk(e);
 
-        // splash_bonus: base SPLASH_RADIUS + sum_add("splash_bonus")
+        // splash_bonus: base STATS.splash_radius + sum_add("splash_bonus")
         let splash_bonus = w.get_stat_bonus(e, StatKey::SplashBonus);
-        let splash = SPLASH_RADIUS + splash_bonus;
+        let splash = STATS.splash_radius + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("bomb_stun")) {
             0.5
@@ -87,7 +85,7 @@ impl UnitScript for BombTower {
             0.0
         };
         let missile = w.has_tower_flag(e, RStr::from_str("missile"));
-        let bullet_speed = if missile { BULLET_SPEED * 1.5 } else { BULLET_SPEED };
+        let bullet_speed = if missile { STATS.bullet_speed * 1.5 } else { STATS.bullet_speed };
 
         w.log_info(RStr::from_str("[tower_bomb] fire!"));
         w.spawn_projectile_ex(ProjectileSpec {
