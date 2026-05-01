@@ -15,7 +15,7 @@ CREEP_SPEED = 100.0
 SPAWN_INTERVAL = 0.1  # 秒
 
 N_TOWERS = 1000
-TOWER_SPACING = 50.0  # grid 間距；塔 radius=50 時緊貼但不重疊
+TOWER_SPACING = 50.0  # grid 間距（radius=25 時 50 間隔留 50% 空隙）
 
 # 走廊範圍（避開 U 字路徑的四條水平線 Y=-800/-200/400/800，各留 60px 安全距離）
 CORRIDORS = [
@@ -89,14 +89,14 @@ data = {
             "Property": {"Hp": 1000, "Block": 0},
             "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
             "TurnSpeed": 360.0,
-            "CollisionRadius": 50.0,
+            "CollisionRadius": 25.0,
         },
         {
             "Name": "tower_bomb",
             "Property": {"Hp": 1000, "Block": 0},
             "Attack": {"Range": 200.0, "AttackSpeed": 1.0, "Physic": 20.0, "Magic": 0.0},
             "TurnSpeed": 360.0,
-            "CollisionRadius": 50.0,
+            "CollisionRadius": 25.0,
         },
     ],
     # Structures 按 grid index 交錯：偶數 ice / 奇數 bomb。兩種 script 各 ~500 個，
