@@ -60,6 +60,21 @@ vsync OFF 後 stress 場景能跑 280+ fps，但 CPU 會被佔滿。在 Fyrox �
 
 要更穩的 fps cap（例如 144 fps）把 `from_millis(1)` 改大即可（每加 1 ms 大約再降 ~50 fps，因 Windows `thread::sleep` 通常 overshoot 1-2 ms）。
 
+#### 配套：`timeBeginPeriod(1)`（已 commit 在 `executor/src/main.rs`）
+
+Windows 預設 timer granularity 15.6 ms，`thread::sleep(1ms)` 在 idle Windows
+上會變成 sleep ~15 ms 把 fps 鎖到 60。`executor/src/main.rs` 開頭呼叫
+`timeBeginPeriod(1)` 強制把 system-wide timer resolution 降到 1 ms。
+
+實際在 desktop Windows 通常已經有別的 process（Chrome / 遊戲）request 1 ms
+timer，`timeBeginPeriod` 多半是 no-op 但保險著。在 server / clean Windows
+環境（沒 Chrome 等）上一定要有它，否則 sleep(1) 會塞 15 ms。
+
+注意這只是 timer granularity 上限，**不是真正 1 ms sleep**。Windows
+scheduler context switch latency 大約 1-2 ms，sleep(1) 在最佳情況也是 ~2 ms。
+要真 1 ms 級的精度需要 `CreateWaitableTimerEx(STATE_HIGH_RESOLUTION)` 或
+spin-wait，目前不需要。
+
 ### 重 patch 流程
 
 ```bash
