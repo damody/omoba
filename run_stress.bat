@@ -20,11 +20,16 @@ set TOML_BAK=omb\game.toml.bak
 set TOML_STRESS=omb\game_stress.toml
 
 echo [0/5] Killing stale processes (if any)...
-taskkill /f /im omobab.exe >nul 2>&1
-taskkill /f /im executor.exe >nul 2>&1
+REM 不用 taskkill — 此機器上 taskkill/tasklist 會卡住數十秒不返回（疑似某個
+REM Windows process enumeration API 路徑被 hook 卡住）。改走 PowerShell 的
+REM Stop-Process，走不同 API 路徑、秒回。
+powershell -NoProfile -Command "Stop-Process -Name 'omobab','executor' -Force -ErrorAction SilentlyContinue"
 
 echo [1/5] Regenerating stress map...
-python scripts\gen_stress_map.py
+REM 使用 Windows 官方 py launcher 而非 `python`，避免 PATH 上的 Microsoft Store
+REM stub (C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\python.exe) 攔截
+REM 並彈出 Store 對話框讓 cmd 卡死。
+py -3 scripts\gen_stress_map.py
 if %errorlevel% neq 0 (
     echo   Stress map generation failed!
     popd
