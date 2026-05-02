@@ -50,13 +50,15 @@ impl AbilityScript for ThreeStageHandler {
         let multi_shot = get_fx("multi_shot_count", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", level));
 
         let mut modifiers = serde_json::Map::new();
+        // Phase 1de.2: emit raw Fixed32 i32 — host BuffStore::read_fixed_from_payload
+        // prefers integer (lockstep-correct) over the legacy f64 quantization path.
         modifiers.insert(
             StatKey::TotalDamageOutgoingPercentage.as_str().into(),
-            serde_json::json!(atk_bonus.to_f32_for_render()),
+            serde_json::json!(atk_bonus.raw()),
         );
         modifiers.insert(
             StatKey::MultiShotVisual.as_str().into(),
-            serde_json::json!(multi_shot.to_f32_for_render()),
+            serde_json::json!(multi_shot.raw()),
         );
         modifiers.insert(
             "visual_effect".into(),

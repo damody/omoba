@@ -35,7 +35,7 @@ impl AbilityScript for MatchlockGunHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // JSON extras still f32; raw f64 read for serde_json::json! payload (host BuffStore reads f64).
+        // JSON extras still f64-encoded.
         let get_f = |k: &str| {
             level_data
                 .extra
@@ -43,14 +43,19 @@ impl AbilityScript for MatchlockGunHandler {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0)
         };
+        // Phase 1de.2: sum_add-aggregated stats emit raw Fixed32 i32 (lockstep-correct).
+        // Helpers that read via raw `payload.get(...).as_f64()` (attack_stun_*) keep f64.
+        let get_raw = |k: &str| -> i32 {
+            Fixed32::from_raw((get_f(k) * 1024.0) as i32).raw()
+        };
         // duration: f64 → Fixed32 at boundary for the FFI add_stat_buff call.
         let duration_f = get_f("duration");
         let duration = Fixed32::from_raw((duration_f * 1024.0) as i32);
         // damage_bonus 為絕對傷害點（90/130/170）→ BaseAttackBonusDamage；
-        // attack_stun_* 已納入 StatKey enum，由 on_damage_dealt hook 未來接
+        // attack_stun_* 不在 StatKey 聚合路徑（game_processor 直接 .as_f64() 讀）→ 保留 f64。
         let mut modifiers = serde_json::Map::new();
-        modifiers.insert(StatKey::AttackRangeBonus.as_str().into(), serde_json::json!(get_f("range_bonus")));
-        modifiers.insert(StatKey::BaseAttackBonusDamage.as_str().into(), serde_json::json!(get_f("damage_bonus")));
+        modifiers.insert(StatKey::AttackRangeBonus.as_str().into(), serde_json::json!(get_raw("range_bonus")));
+        modifiers.insert(StatKey::BaseAttackBonusDamage.as_str().into(), serde_json::json!(get_raw("damage_bonus")));
         modifiers.insert(StatKey::AttackStunChance.as_str().into(), serde_json::json!(get_f("stun_chance")));
         modifiers.insert(StatKey::AttackStunDuration.as_str().into(), serde_json::json!(get_f("stun_duration")));
         let mods_str = serde_json::Value::Object(modifiers).to_string();
