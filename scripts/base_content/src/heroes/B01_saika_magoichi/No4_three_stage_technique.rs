@@ -36,7 +36,7 @@ impl AbilityScript for ThreeStageHandler {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
         // omoba_core JSON extras still f32; convert to Fixed32 at boundary.
-        // TODO Phase 1[bcd]: omoba_core::AbilityLevelData migrated → drop f64 hop.
+        // TODO Phase 1[d]: omoba_core::AbilityLevelData migrated → drop f64 hop.
         let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
             level_data
                 .extra
