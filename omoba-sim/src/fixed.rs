@@ -6,7 +6,9 @@ pub const SCALE: i32 = 1024;
 pub const SCALE_BITS: u32 = 10;
 const _: () = assert!(SCALE == 1 << SCALE_BITS);
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "abi-stable", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi-stable", repr(transparent))]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Fixed32(i32);
 
 impl Fixed32 {

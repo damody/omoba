@@ -12,6 +12,11 @@ fxhash = "0.2"
 bincode = "1.3"
 serde = { version = "1", features = ["derive"] }
 once_cell = "1"
+abi_stable = { version = "0.11", optional = true }
+
+[features]
+default = []
+abi-stable = ["dep:abi_stable"]
 
 [dev-dependencies]
 proptest = "1"

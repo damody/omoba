@@ -9,3 +9,7 @@ pub mod trig;
 pub mod rng;
 pub mod state_hash;
 pub mod snapshot;
+
+pub use crate::fixed::Fixed32;
+pub use crate::vec2::Vec2;
+pub use crate::trig::Angle;
