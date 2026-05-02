@@ -10,6 +10,8 @@
 
 #![allow(clippy::too_many_lines)]
 
+pub use omoba_sim::Fixed32;
+
 /// Tower numerical stats, single source of truth — `omb/Story/templates.json` 的
 /// `towers[].{atk, asd_interval, ...}` 透過 build.rs 編譯期生成 `TOWER_*_STATS`
 /// const + `tower_stats(id)` lookup。base_content 的 tower scripts 直接 import
@@ -17,30 +19,30 @@
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct TowerStats {
-    pub atk: f32,
-    pub asd_interval: f32,
-    pub range: f32,
-    pub bullet_speed: f32,
-    pub splash_radius: f32,
-    pub hit_radius: f32,
-    pub slow_factor: f32,
-    pub slow_duration: f32,
+    pub atk: Fixed32,
+    pub asd_interval: Fixed32,
+    pub range: Fixed32,
+    pub bullet_speed: Fixed32,
+    pub splash_radius: Fixed32,
+    pub hit_radius: Fixed32,
+    pub slow_factor: Fixed32,
+    pub slow_duration: Fixed32,
     pub cost: i32,
-    pub footprint: f32,
-    pub hp: f32,
-    pub turn_speed_deg: f32,
+    pub footprint: Fixed32,
+    pub hp: Fixed32,
+    pub turn_speed_deg: Fixed32,
 }
 
 /// Hero level-growth — 對應 templates.json heroes[i].level_growth nested object。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct LevelGrowth {
-    pub strength_per_level: f32,
-    pub agility_per_level: f32,
-    pub intelligence_per_level: f32,
-    pub damage_per_level: f32,
-    pub hp_per_level: f32,
-    pub mana_per_level: f32,
+    pub strength_per_level: Fixed32,
+    pub agility_per_level: Fixed32,
+    pub intelligence_per_level: Fixed32,
+    pub damage_per_level: Fixed32,
+    pub hp_per_level: Fixed32,
+    pub mana_per_level: Fixed32,
 }
 
 /// Hero intrinsic stats — 對應 templates.json heroes[i] 全部 stat 欄位。
@@ -52,13 +54,13 @@ pub struct HeroStats {
     pub agility: i32,
     pub intelligence: i32,
     pub primary_attribute: u8,
-    pub attack_range: f32,
+    pub attack_range: Fixed32,
     pub base_damage: i32,
-    pub base_armor: f32,
+    pub base_armor: Fixed32,
     pub base_hp: i32,
     pub base_mana: i32,
-    pub move_speed: f32,
-    pub turn_speed: f32,
+    pub move_speed: Fixed32,
+    pub turn_speed: Fixed32,
     pub level_growth: LevelGrowth,
 }
 
@@ -68,12 +70,12 @@ pub struct HeroStats {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct CreepStats {
-    pub hp: f32,
-    pub armor: f32,
-    pub magic_resistance: f32,
-    pub damage: f32,
-    pub attack_range: f32,
-    pub move_speed: f32,
+    pub hp: Fixed32,
+    pub armor: Fixed32,
+    pub magic_resistance: Fixed32,
+    pub damage: Fixed32,
+    pub attack_range: Fixed32,
+    pub move_speed: Fixed32,
     pub enemy_type: u8,
     pub ai_type: u8,
     pub exp_reward: i32,
@@ -84,10 +86,10 @@ pub struct CreepStats {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct SummonStats {
-    pub hp: f32,
-    pub damage: f32,
-    pub duration: f32,
-    pub move_speed: f32,
+    pub hp: Fixed32,
+    pub damage: Fixed32,
+    pub duration: Fixed32,
+    pub move_speed: Fixed32,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly
@@ -118,14 +120,14 @@ pub enum TargetTypeC {
 }
 
 /// 單一等級的核心數值 — const-friendly mirror of `AbilityLevelData`。
-/// Per-level extras 走 `AbilityConst.extras` (key, [f32; max_level])。
+/// Per-level extras 走 `AbilityConst.extras` (key, [Fixed32; max_level])。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct AbilityLevelDataConst {
-    pub cooldown: f32,
-    pub mana_cost: f32,
-    pub cast_time: f32,
-    pub range: f32,
+    pub cooldown: Fixed32,
+    pub mana_cost: Fixed32,
+    pub cast_time: Fixed32,
+    pub range: Fixed32,
 }
 
 /// Ability 數值 const — 對應 templates.json abilities[i]。runtime 由
@@ -141,7 +143,7 @@ pub struct AbilityConst {
     pub max_level: u8,
     pub description: &'static str,
     pub levels: &'static [AbilityLevelDataConst],
-    pub extras: &'static [(&'static str, &'static [f32])],
+    pub extras: &'static [(&'static str, &'static [Fixed32])],
 }
 
 /// Tower upgrade effect — `omoba_core::tower_meta::StatOp` 的 const-friendly mirror。
@@ -167,7 +169,7 @@ pub enum UpgradeEffectKindC {
 pub struct UpgradeEffectConst {
     pub kind: UpgradeEffectKindC,
     pub key: &'static str,
-    pub value: f32,
+    pub value: Fixed32,
     pub op: StatOpC,
 }
 

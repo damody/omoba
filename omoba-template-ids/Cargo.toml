@@ -10,4 +10,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dependencies]
-# 執行期零依賴 — generated const + match-based lookups，不 import 任何東西
+# Fixed32 用於 deterministic lockstep — 透過 abi-stable feature 取得 #[repr(transparent)]
+# + StableAbi derive，generated const 透過 Fixed32::from_raw(...) 編譯期 build。
+omoba-sim = { path = "../omoba-sim", features = ["abi-stable"] }
