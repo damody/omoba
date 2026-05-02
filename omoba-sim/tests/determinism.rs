@@ -91,6 +91,33 @@ fn composite_rng_trig_fixed_vec2_pin_hash() {
     assert_eq!(actual, 4431538388923105100u64);
 }
 
+#[test]
+fn atan2_pin_hash() {
+    use omoba_sim::fixed::Fixed32;
+    use omoba_sim::trig::atan2;
+    let mut h = fxhash::FxHasher64::default();
+
+    // Sample atan2 across all 8 octants and a fine grid in Q1.
+    let cardinals = [
+        (0, 1), (1, 1), (1, 0), (1, -1),
+        (0, -1), (-1, -1), (-1, 0), (-1, 1),
+    ];
+    for &(y, x) in cardinals.iter() {
+        atan2(Fixed32::from_i32(y), Fixed32::from_i32(x)).ticks().hash(&mut h);
+    }
+
+    // Q1 grid: y ∈ [1, 100], x ∈ [1, 100] step 7 — 196 samples
+    for y in (1..=100).step_by(7) {
+        for x in (1..=100).step_by(7) {
+            atan2(Fixed32::from_i32(y), Fixed32::from_i32(x)).ticks().hash(&mut h);
+        }
+    }
+
+    let actual = h.finish();
+    println!("ATAN2 PIN HASH = {}", actual);
+    assert_eq!(actual, 14253043781236842372u64);
+}
+
 /// Snapshot wire format pin: serialize Fixed32 + Angle + Vec2 round-trip.
 /// Locks bincode 1.x default config wire format for Phase 5 observer rejoin.
 #[test]
