@@ -369,6 +369,166 @@ message GameEvent {
   }
 }
 
+// ===== Phase 2 Lockstep Quantized Primitives =====
+//
+// Vec2I / FixedI carry Fixed32 raw values (1024 raw = 1.0 unit) for
+// lossless wire transmission of sim state. Distinct from legacy
+// Position16 / Fixed16 which use 0.25 / 0.1 quantization for compactness.
+
+message Vec2I {
+  sint32 x = 1;  // Fixed32::raw() — divide by 1024 to get real units
+  sint32 y = 2;
+}
+
+message FixedI {
+  sint32 raw = 1;  // Fixed32::raw()
+}
+
+message AngleI {
+  sint32 ticks = 1;  // omoba_sim::Angle::ticks() in [0, 4096)
+}
+
+// ===== PlayerInput =====
+
+message NoOp {}
+
+message MoveTo {
+  Vec2I target = 1;  // world position to move toward
+}
+
+message AttackTarget {
+  uint32 target_id = 1;  // entity id
+}
+
+message CastAbility {
+  uint32 ability_index = 1;  // 0..3 for Q/W/E/R
+  // optional cast position; omitted for self-cast
+  optional Vec2I target_pos = 2;
+  optional uint32 target_entity = 3;
+}
+
+message TowerPlace {
+  uint32 tower_kind_id = 1;  // matches omoba_template_ids tower id
+  Vec2I pos = 2;
+}
+
+// NOTE: legacy `TowerUpgrade` (above, used as a server-broadcast event in
+// GameEvent.payload tag 35) keeps its name. The new client→server input
+// action is named `TowerUpgradeInput` to avoid the proto3 namespace collision.
+message TowerUpgradeInput {
+  uint32 tower_entity_id = 1;
+  uint32 path = 2;       // 0/1/2 upgrade path
+  uint32 level = 3;      // target level after upgrade
+}
+
+message TowerSell {
+  uint32 tower_entity_id = 1;
+}
+
+message ItemUse {
+  uint32 item_slot = 1;  // inventory slot index
+  optional Vec2I target_pos = 2;
+  optional uint32 target_entity = 3;
+}
+
+message PlayerInput {
+  oneof action {
+    NoOp no_op = 1;
+    MoveTo move_to = 2;
+    AttackTarget attack_target = 3;
+    CastAbility cast_ability = 4;
+    TowerPlace tower_place = 5;
+    TowerUpgradeInput tower_upgrade = 6;
+    TowerSell tower_sell = 7;
+    ItemUse item_use = 8;
+  }
+}
+
+// ===== Lockstep Wire Messages =====
+
+// Tag 0x10 (C→S): client submits an input targeted at a future tick.
+message InputSubmit {
+  uint32 player_id = 1;
+  uint32 target_tick = 2;
+  PlayerInput input = 3;
+}
+
+// ServerEvent — non-input events server injects into ticks (player join/leave, scripted scene start, etc.)
+message PlayerJoinEvent { uint32 player_id = 1; string player_name = 2; }
+message PlayerLeaveEvent { uint32 player_id = 1; }
+message WaveStartEvent { uint32 wave_index = 1; }
+message GameEndEvent { string winner = 1; }
+
+message ServerEvent {
+  oneof event {
+    PlayerJoinEvent player_join = 1;
+    PlayerLeaveEvent player_leave = 2;
+    WaveStartEvent wave_start = 3;
+    GameEndEvent game_end = 4;
+  }
+}
+
+message InputForPlayer {
+  uint32 player_id = 1;
+  PlayerInput input = 2;
+}
+
+// Tag 0x11 (S→C): server-paced tick broadcast. Sent every 16.66ms (60Hz)
+// even if inputs and server_events are both empty (heartbeat).
+message TickBatch {
+  uint32 tick = 1;
+  repeated InputForPlayer inputs = 2;
+  repeated ServerEvent server_events = 3;
+}
+
+// Tag 0x12 (S→C): broadcast every 600 ticks (10s @ 60Hz) for desync detection.
+// Clients hash their local sim state at this tick and compare; mismatch → kick.
+message StateHash {
+  uint32 tick = 1;
+  uint64 hash = 2;
+}
+
+// Tag 0x13 (C→S): client wants to join. role: 0=Player, 1=Observer.
+enum JoinRole {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_PLAYER = 1;
+  ROLE_OBSERVER = 2;
+}
+
+message JoinRequest {
+  string player_name = 1;
+  JoinRole role = 2;
+}
+
+// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
+// initial SimSnapshot to bootstrap the client.
+message GameStart {
+  uint32 player_id = 1;          // assigned to this client
+  uint32 start_tick = 2;
+  uint64 master_seed = 3;
+  SimSnapshot initial_state = 4;  // empty for fresh game start
+}
+
+// Tag 0x15 (C→S): observer requests current snapshot.
+message SnapshotReq {
+  uint32 from_tick = 1;  // earliest tick observer can fast-forward from; server picks closest snapshot
+}
+
+// Tag 0x16 (S→C): server sends snapshot. observer plays forward via
+// subsequent TickBatch broadcasts.
+message SnapshotResp {
+  uint32 tick = 1;
+  SimSnapshot state = 2;
+}
+
+// SimSnapshot — opaque bincode-serialized omoba_sim::World. Deserialized
+// client-side via omoba_sim::snapshot::deserialize. Schema versioning
+// embedded in the bincode payload.
+message SimSnapshot {
+  bytes world_bytes = 1;     // bincode-serialized omoba_sim sim state
+  uint32 schema_version = 2; // for forward compatibility
+}
+
 message TestCommandRequest {
   string command_json = 1;
 }
