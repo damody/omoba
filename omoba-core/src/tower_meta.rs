@@ -57,8 +57,9 @@ mod tests {
 
     #[test]
     fn serde_roundtrip() {
+        use omoba_template_ids::TOWER_DART;
         let def = TowerUpgradeDef {
-            tower_kind: "tower_dart".into(), path: 0, level: 1,
+            tower_kind: TOWER_DART.as_str().into(), path: 0, level: 1,
             name: "Long Range Darts".into(),
             description: "射程 +50".into(),
             cost: 50,

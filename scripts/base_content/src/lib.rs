@@ -13,6 +13,7 @@ use abi_stable::{
 use omb_script_abi::{
     ability::AbilityDefFFI,
     manifest::{Manifest, Manifest_Ref, UnitDef},
+    prelude::{TOWER_DART, TOWER_BOMB, TOWER_TACK, TOWER_ICE, SUMMON_SAIKA_GUNNER},
     script::UnitScript_TO,
 };
 
@@ -30,26 +31,26 @@ fn units() -> RVec<UnitDef> {
     let mut v: RVec<UnitDef> = RVec::new();
 
     v.push(UnitDef {
-        unit_id: "tower_dart".into(),
+        unit_id: TOWER_DART.as_str().into(),
         script: UnitScript_TO::from_value(towers::dart::DartTower, TD_Opaque),
     });
     v.push(UnitDef {
-        unit_id: "tower_bomb".into(),
+        unit_id: TOWER_BOMB.as_str().into(),
         script: UnitScript_TO::from_value(towers::bomb::BombTower, TD_Opaque),
     });
     v.push(UnitDef {
-        unit_id: "tower_tack".into(),
+        unit_id: TOWER_TACK.as_str().into(),
         script: UnitScript_TO::from_value(towers::tack::TackTower, TD_Opaque),
     });
     v.push(UnitDef {
-        unit_id: "tower_ice".into(),
+        unit_id: TOWER_ICE.as_str().into(),
         script: UnitScript_TO::from_value(towers::ice::IceTower, TD_Opaque),
     });
 
     // 召喚物：由英雄技能（如 saika_reinforcements）透過 spawn_summoned_unit
     // 呼叫時附加 ScriptUnitTag 綁定到此 id，讓 dispatch on_tick 驅動 AI。
     v.push(UnitDef {
-        unit_id: "saika_gunner".into(),
+        unit_id: SUMMON_SAIKA_GUNNER.as_str().into(),
         script: UnitScript_TO::from_value(summons::SaikaGunner, TD_Opaque),
     });
 
