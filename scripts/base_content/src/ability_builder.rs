@@ -56,7 +56,7 @@ pub fn build_ability_def_from_const(
         let mut extra = HashMap::new();
         for (key, per_lvl) in c.extras.iter() {
             // omoba_core JSON metadata still uses f32; convert at the boundary.
-            // TODO Phase 1[bcd]: migrate omoba_core::ability_meta to Fixed32.
+            // TODO Phase 1[d]: migrate omoba_core::ability_meta to Fixed32.
             extra.insert(
                 (*key).to_string(),
                 serde_json::json!(per_lvl[i].to_f32_for_render()),
@@ -125,7 +125,7 @@ pub fn extra_at(c: &AbilityConst, key: &str, level: u8) -> omoba_sim::Fixed32 {
 }
 
 /// 取單級 extras 並轉 f32 — 給 EffectSpec / preview 等 omoba_core metadata 用。
-/// TODO Phase 1[bcd]: omoba_core::ability_meta::EffectSpec 還是 f32，這個 helper
+/// TODO Phase 1[d]: omoba_core::ability_meta::EffectSpec 還是 f32，這個 helper
 /// 在那層 migrate 完之後可以拿掉。
 pub fn extra_at_f32(c: &AbilityConst, key: &str, level: u8) -> f32 {
     extra_at(c, key, level).to_f32_for_render()
