@@ -10,7 +10,7 @@
 
 #![allow(clippy::too_many_lines)]
 
-pub use omoba_sim::Fixed32;
+pub use omoba_sim::Fixed64;
 
 /// Tower numerical stats, single source of truth — `omb/Story/templates.json` 的
 /// `towers[].{atk, asd_interval, ...}` 透過 build.rs 編譯期生成 `TOWER_*_STATS`
@@ -19,30 +19,30 @@ pub use omoba_sim::Fixed32;
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct TowerStats {
-    pub atk: Fixed32,
-    pub asd_interval: Fixed32,
-    pub range: Fixed32,
-    pub bullet_speed: Fixed32,
-    pub splash_radius: Fixed32,
-    pub hit_radius: Fixed32,
-    pub slow_factor: Fixed32,
-    pub slow_duration: Fixed32,
+    pub atk: Fixed64,
+    pub asd_interval: Fixed64,
+    pub range: Fixed64,
+    pub bullet_speed: Fixed64,
+    pub splash_radius: Fixed64,
+    pub hit_radius: Fixed64,
+    pub slow_factor: Fixed64,
+    pub slow_duration: Fixed64,
     pub cost: i32,
-    pub footprint: Fixed32,
-    pub hp: Fixed32,
-    pub turn_speed_deg: Fixed32,
+    pub footprint: Fixed64,
+    pub hp: Fixed64,
+    pub turn_speed_deg: Fixed64,
 }
 
 /// Hero level-growth — 對應 templates.json heroes[i].level_growth nested object。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct LevelGrowth {
-    pub strength_per_level: Fixed32,
-    pub agility_per_level: Fixed32,
-    pub intelligence_per_level: Fixed32,
-    pub damage_per_level: Fixed32,
-    pub hp_per_level: Fixed32,
-    pub mana_per_level: Fixed32,
+    pub strength_per_level: Fixed64,
+    pub agility_per_level: Fixed64,
+    pub intelligence_per_level: Fixed64,
+    pub damage_per_level: Fixed64,
+    pub hp_per_level: Fixed64,
+    pub mana_per_level: Fixed64,
 }
 
 /// Hero intrinsic stats — 對應 templates.json heroes[i] 全部 stat 欄位。
@@ -54,13 +54,13 @@ pub struct HeroStats {
     pub agility: i32,
     pub intelligence: i32,
     pub primary_attribute: u8,
-    pub attack_range: Fixed32,
+    pub attack_range: Fixed64,
     pub base_damage: i32,
-    pub base_armor: Fixed32,
+    pub base_armor: Fixed64,
     pub base_hp: i32,
     pub base_mana: i32,
-    pub move_speed: Fixed32,
-    pub turn_speed: Fixed32,
+    pub move_speed: Fixed64,
+    pub turn_speed: Fixed64,
     pub level_growth: LevelGrowth,
 }
 
@@ -70,12 +70,12 @@ pub struct HeroStats {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct CreepStats {
-    pub hp: Fixed32,
-    pub armor: Fixed32,
-    pub magic_resistance: Fixed32,
-    pub damage: Fixed32,
-    pub attack_range: Fixed32,
-    pub move_speed: Fixed32,
+    pub hp: Fixed64,
+    pub armor: Fixed64,
+    pub magic_resistance: Fixed64,
+    pub damage: Fixed64,
+    pub attack_range: Fixed64,
+    pub move_speed: Fixed64,
     pub enemy_type: u8,
     pub ai_type: u8,
     pub exp_reward: i32,
@@ -86,10 +86,10 @@ pub struct CreepStats {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct SummonStats {
-    pub hp: Fixed32,
-    pub damage: Fixed32,
-    pub duration: Fixed32,
-    pub move_speed: Fixed32,
+    pub hp: Fixed64,
+    pub damage: Fixed64,
+    pub duration: Fixed64,
+    pub move_speed: Fixed64,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly
@@ -120,14 +120,14 @@ pub enum TargetTypeC {
 }
 
 /// 單一等級的核心數值 — const-friendly mirror of `AbilityLevelData`。
-/// Per-level extras 走 `AbilityConst.extras` (key, [Fixed32; max_level])。
+/// Per-level extras 走 `AbilityConst.extras` (key, [Fixed64; max_level])。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct AbilityLevelDataConst {
-    pub cooldown: Fixed32,
-    pub mana_cost: Fixed32,
-    pub cast_time: Fixed32,
-    pub range: Fixed32,
+    pub cooldown: Fixed64,
+    pub mana_cost: Fixed64,
+    pub cast_time: Fixed64,
+    pub range: Fixed64,
 }
 
 /// Ability 數值 const — 對應 templates.json abilities[i]。runtime 由
@@ -143,7 +143,7 @@ pub struct AbilityConst {
     pub max_level: u8,
     pub description: &'static str,
     pub levels: &'static [AbilityLevelDataConst],
-    pub extras: &'static [(&'static str, &'static [Fixed32])],
+    pub extras: &'static [(&'static str, &'static [Fixed64])],
 }
 
 /// Tower upgrade effect — `omoba_core::tower_meta::StatOp` 的 const-friendly mirror。
@@ -169,7 +169,7 @@ pub enum UpgradeEffectKindC {
 pub struct UpgradeEffectConst {
     pub kind: UpgradeEffectKindC,
     pub key: &'static str,
-    pub value: Fixed32,
+    pub value: Fixed64,
     pub op: StatOpC,
 }
 
