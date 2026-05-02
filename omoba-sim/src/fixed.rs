@@ -31,8 +31,9 @@ impl std::ops::Sub for Fixed32 {
 
 impl std::ops::Mul for Fixed32 {
     type Output = Fixed32;
+    /// Rounds toward -infinity (arithmetic right-shift). Asymmetric with Div which truncates toward zero.
+    /// Safe envelope: |a| × |b| < ~1448 real units (post-shift `as i32` truncates silently above this).
     fn mul(self, rhs: Fixed32) -> Fixed32 {
-        // (a * SCALE) * (b * SCALE) / SCALE = a*b*SCALE
         let prod = (self.0 as i64) * (rhs.0 as i64);
         Fixed32((prod >> SCALE_BITS) as i32)
     }
@@ -40,6 +41,7 @@ impl std::ops::Mul for Fixed32 {
 
 impl std::ops::Div for Fixed32 {
     type Output = Fixed32;
+    /// Rounds toward zero (Rust integer division semantics). Asymmetric with Mul which floors toward -infinity.
     fn div(self, rhs: Fixed32) -> Fixed32 {
         let num = (self.0 as i64) << SCALE_BITS;
         Fixed32((num / rhs.0 as i64) as i32)
@@ -48,7 +50,7 @@ impl std::ops::Div for Fixed32 {
 
 impl std::ops::Neg for Fixed32 {
     type Output = Fixed32;
-    fn neg(self) -> Fixed32 { Fixed32(-self.0) }
+    fn neg(self) -> Fixed32 { Fixed32(self.0.wrapping_neg()) }
 }
 
 #[cfg(test)]
@@ -92,10 +94,51 @@ mod tests {
     }
 
     #[test]
-    fn mul_no_overflow_in_range() {
-        // ±2000 unit (typical map size) × Fixed32 must not panic
+    fn mul_typical_map_scale() {
+        // ±2000 unit (typical map size) × scale value; both well within Mul's ~1448-unit safe envelope
+        // squared, so post-shift truncation does not occur for normal game math.
         let pos = Fixed32::from_i32(2000);
         let scale = Fixed32::from_raw(2048);  // 2.0
         let _ = pos * scale;
+    }
+
+    #[test]
+    fn neg_basic() {
+        assert_eq!(-Fixed32::from_i32(3), Fixed32::from_i32(-3));
+        assert_eq!(-Fixed32::from_raw(512), Fixed32::from_raw(-512));
+    }
+
+    #[test]
+    fn neg_min_wraps() {
+        // Documents the wrap contract (matches Add/Sub/from_i32). Without wrapping_neg this would
+        // panic in debug builds — a dev/release divergence that breaks lockstep determinism.
+        let m = Fixed32::from_raw(i32::MIN);
+        assert_eq!((-m).raw(), i32::MIN);
+    }
+
+    #[test]
+    fn mul_negative() {
+        assert_eq!(Fixed32::from_i32(-3) * Fixed32::from_i32(4), Fixed32::from_i32(-12));
+        assert_eq!(Fixed32::from_i32(-3) * Fixed32::from_i32(-4), Fixed32::from_i32(12));
+    }
+
+    #[test]
+    fn mul_floor_on_tiny_negative() {
+        // Locks the Mul-floors-toward-neg-inf contract.
+        // Fixed32(raw=-1) * Fixed32(raw=1): real product ≈ -1/2^20, post-shift floors to -1.
+        // Div would yield 0 here — this test ensures Mul stays asymmetric.
+        let a = Fixed32::from_raw(-1);
+        let b = Fixed32::from_raw(1);
+        assert_eq!((a * b).raw(), -1);
+    }
+
+    #[test]
+    fn div_negative() {
+        let a = Fixed32::from_i32(-10);
+        let b = Fixed32::from_i32(4);
+        assert_eq!((a / b).raw(), -2560);
+        let c = Fixed32::from_i32(10);
+        let d = Fixed32::from_i32(-4);
+        assert_eq!((c / d).raw(), -2560);
     }
 }
