@@ -20,7 +20,7 @@ use abi_stable::{
     StableAbi, sabi_trait,
     std_types::{RBox, RResult, RStr, RString},
 };
-use crate::types::*;
+use crate::types::{EntityHandle, Fixed32, Target};
 use crate::world::GameWorldDyn;
 
 #[sabi_trait]
@@ -56,7 +56,7 @@ pub trait AbilityScript: Send + Sync {
         &self,
         _caster: EntityHandle,
         _target: Target,
-        _elapsed: f32,
+        _elapsed: Fixed32,
         _world: &mut GameWorldDyn<'_>,
     ) {
     }

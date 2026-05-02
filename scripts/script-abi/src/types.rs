@@ -2,10 +2,10 @@
 
 use abi_stable::{StableAbi, std_types::{ROption, RString}};
 
-/// Re-export Fixed32 / Vec2 from omoba-sim so script-abi consumers (base_content, omb)
-/// don't need a separate dep on omoba-sim. Both types carry abi_stable::StableAbi via
+/// Re-export Fixed32 / Vec2 / Angle from omoba-sim so script-abi consumers (base_content, omb)
+/// don't need a separate dep on omoba-sim. Types carry abi_stable::StableAbi via
 /// omoba-sim's `abi-stable` feature.
-pub use omoba_sim::{Fixed32, Vec2};
+pub use omoba_sim::{Angle, Fixed32, Vec2};
 
 /// Opaque handle to a game entity. Host converts to/from `specs::Entity`.
 #[repr(C)]
