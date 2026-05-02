@@ -16,8 +16,8 @@ struct Manifest {
     #[serde(default)] heroes: Vec<HeroEntry>,
     #[serde(default)] abilities: Vec<Entry>,
     #[serde(default)] buffs: Vec<Entry>,
-    #[serde(default)] summons: Vec<Entry>,
-    #[serde(default)] creeps: Vec<Entry>,
+    #[serde(default)] summons: Vec<SummonEntry>,
+    #[serde(default)] creeps: Vec<CreepEntry>,
     #[serde(default)] projectile_kinds: Vec<ProjKind>,
 }
 
@@ -54,8 +54,62 @@ struct HeroEntry {
     id: String,
     #[serde(default)] display_name: String,
     #[serde(default)] title: String,
+    #[serde(default)] background: String,
     #[serde(default)] tombstone: bool,
     #[serde(default)] abilities: Vec<String>,
+    // intrinsic stats (Phase B)
+    #[serde(default)] strength: i32,
+    #[serde(default)] agility: i32,
+    #[serde(default)] intelligence: i32,
+    #[serde(default)] primary_attribute: String,
+    #[serde(default)] attack_range: f32,
+    #[serde(default)] base_damage: i32,
+    #[serde(default)] base_armor: f32,
+    #[serde(default)] base_hp: i32,
+    #[serde(default)] base_mana: i32,
+    #[serde(default)] move_speed: f32,
+    #[serde(default)] turn_speed: f32,
+    #[serde(default)] level_growth: HeroLevelGrowthEntry,
+}
+
+#[derive(Deserialize, Default, Clone)]
+struct HeroLevelGrowthEntry {
+    #[serde(default)] strength_per_level: f32,
+    #[serde(default)] agility_per_level: f32,
+    #[serde(default)] intelligence_per_level: f32,
+    #[serde(default)] damage_per_level: f32,
+    #[serde(default)] hp_per_level: f32,
+    #[serde(default)] mana_per_level: f32,
+}
+
+/// Creep / Enemy entry — 對應 templates.json creeps[]。
+#[derive(Deserialize, Clone)]
+struct CreepEntry {
+    id: String,
+    #[serde(default)] display_name: String,
+    #[serde(default)] tombstone: bool,
+    #[serde(default)] hp: f32,
+    #[serde(default)] armor: f32,
+    #[serde(default)] magic_resistance: f32,
+    #[serde(default)] damage: f32,
+    #[serde(default)] attack_range: f32,
+    #[serde(default)] move_speed: f32,
+    #[serde(default)] enemy_type: String,
+    #[serde(default)] ai_type: String,
+    #[serde(default)] exp_reward: i32,
+    #[serde(default)] gold_reward: i32,
+}
+
+/// Summon entry — 對應 templates.json summons[]。
+#[derive(Deserialize, Clone)]
+struct SummonEntry {
+    id: String,
+    #[serde(default)] display_name: String,
+    #[serde(default)] tombstone: bool,
+    #[serde(default)] hp: f32,
+    #[serde(default)] damage: f32,
+    #[serde(default)] duration: f32,
+    #[serde(default)] move_speed: f32,
 }
 
 #[derive(Deserialize)]
@@ -83,8 +137,14 @@ fn main() {
     emit_hero_namespace(&mut out, &m.heroes);
     emit_namespace(&mut out, "Ability",        "ability",    &m.abilities, true);
     emit_namespace(&mut out, "Buff",           "buff",       &m.buffs,     true);
-    emit_namespace(&mut out, "Summon",         "summon",     &m.summons,   true);
-    emit_namespace(&mut out, "Creep",          "creep",      &m.creeps,    true);
+    let summon_ids: Vec<Entry> = m.summons.iter().map(|s| Entry {
+        id: s.id.clone(), display_name: s.display_name.clone(), tombstone: s.tombstone,
+    }).collect();
+    emit_namespace(&mut out, "Summon",         "summon",     &summon_ids,  true);
+    let creep_ids: Vec<Entry> = m.creeps.iter().map(|c| Entry {
+        id: c.id.clone(), display_name: c.display_name.clone(), tombstone: c.tombstone,
+    }).collect();
+    emit_namespace(&mut out, "Creep",          "creep",      &creep_ids,   true);
     emit_projectile_kinds(&mut out, &m.projectile_kinds);
 
     // Hero → abilities lookup（必須在 abilities namespace emit 後做，因為 AbilityId 才存在）。
@@ -99,6 +159,11 @@ fn main() {
         next_aid += 1;
     }
     emit_hero_abilities(&mut out, &m.heroes, &ability_id_map);
+
+    // Phase B: hero / creep / summon stats const + lookup
+    emit_hero_stats(&mut out, &m.heroes);
+    emit_creep_stats(&mut out, &m.creeps);
+    emit_summon_stats(&mut out, &m.summons);
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = format!("{}/template_ids_gen.rs", out_dir);
@@ -350,6 +415,157 @@ fn emit_hero_abilities(
         next += 1;
     }
     out.push_str("\t\t_ => &[],\n\t}\n}\n\n");
+}
+
+fn primary_attribute_to_u8(s: &str) -> u8 {
+    match s {
+        "" | "strength" => 0,
+        "agility" => 1,
+        "intelligence" => 2,
+        other => panic!("unknown primary_attribute '{}'", other),
+    }
+}
+
+fn enemy_type_to_u8(s: &str) -> u8 {
+    match s {
+        "" | "caster" => 0,
+        "melee" => 1,
+        "ranged" => 2,
+        "boss" => 3,
+        other => panic!("unknown enemy_type '{}'", other),
+    }
+}
+
+fn ai_type_to_u8(s: &str) -> u8 {
+    match s {
+        "" | "defensive" => 0,
+        "aggressive" => 1,
+        "patrol" => 2,
+        "guard" => 3,
+        "passive" => 4,
+        "berserker" => 5,
+        other => panic!("unknown ai_type '{}'", other),
+    }
+}
+
+/// emit `HERO_<NAME>_STATS: HeroStats` const + `hero_stats(id)` lookup。
+fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
+    for e in entries {
+        if e.tombstone { continue; }
+        let cname = const_name("hero", &e.id);
+        out.push_str(&format!(
+            "pub const {}_STATS: HeroStats = HeroStats {{\n\
+             \tstrength: {}i32,\n\
+             \tagility: {}i32,\n\
+             \tintelligence: {}i32,\n\
+             \tprimary_attribute: {}u8,\n\
+             \tattack_range: {:?}_f32,\n\
+             \tbase_damage: {}i32,\n\
+             \tbase_armor: {:?}_f32,\n\
+             \tbase_hp: {}i32,\n\
+             \tbase_mana: {}i32,\n\
+             \tmove_speed: {:?}_f32,\n\
+             \tturn_speed: {:?}_f32,\n\
+             \tlevel_growth: LevelGrowth {{\n\
+             \t\tstrength_per_level: {:?}_f32,\n\
+             \t\tagility_per_level: {:?}_f32,\n\
+             \t\tintelligence_per_level: {:?}_f32,\n\
+             \t\tdamage_per_level: {:?}_f32,\n\
+             \t\thp_per_level: {:?}_f32,\n\
+             \t\tmana_per_level: {:?}_f32,\n\
+             \t}},\n\
+             }};\n",
+            cname,
+            e.strength, e.agility, e.intelligence,
+            primary_attribute_to_u8(&e.primary_attribute),
+            e.attack_range, e.base_damage, e.base_armor,
+            e.base_hp, e.base_mana, e.move_speed, e.turn_speed,
+            e.level_growth.strength_per_level,
+            e.level_growth.agility_per_level,
+            e.level_growth.intelligence_per_level,
+            e.level_growth.damage_per_level,
+            e.level_growth.hp_per_level,
+            e.level_growth.mana_per_level,
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("pub fn hero_stats(id: HeroId) -> Option<&'static HeroStats> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            let cname = const_name("hero", &e.id);
+            out.push_str(&format!("\t\t{} => Some(&{}_STATS),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+/// emit `CREEP_<NAME>_STATS: CreepStats` const + `creep_stats(id)` lookup。
+fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
+    for e in entries {
+        if e.tombstone { continue; }
+        let cname = const_name("creep", &e.id);
+        out.push_str(&format!(
+            "pub const {}_STATS: CreepStats = CreepStats {{\n\
+             \thp: {:?}_f32,\n\
+             \tarmor: {:?}_f32,\n\
+             \tmagic_resistance: {:?}_f32,\n\
+             \tdamage: {:?}_f32,\n\
+             \tattack_range: {:?}_f32,\n\
+             \tmove_speed: {:?}_f32,\n\
+             \tenemy_type: {}u8,\n\
+             \tai_type: {}u8,\n\
+             \texp_reward: {}i32,\n\
+             \tgold_reward: {}i32,\n\
+             }};\n",
+            cname,
+            e.hp, e.armor, e.magic_resistance,
+            e.damage, e.attack_range, e.move_speed,
+            enemy_type_to_u8(&e.enemy_type), ai_type_to_u8(&e.ai_type),
+            e.exp_reward, e.gold_reward,
+        ));
+    }
+    out.push('\n');
+    out.push_str("pub fn creep_stats(id: CreepId) -> Option<&'static CreepStats> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            let cname = const_name("creep", &e.id);
+            out.push_str(&format!("\t\t{} => Some(&{}_STATS),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+/// emit `SUMMON_<NAME>_STATS: SummonStats` const + `summon_stats(id)` lookup。
+fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
+    for e in entries {
+        if e.tombstone { continue; }
+        let cname = const_name("summon", &e.id);
+        out.push_str(&format!(
+            "pub const {}_STATS: SummonStats = SummonStats {{\n\
+             \thp: {:?}_f32,\n\
+             \tdamage: {:?}_f32,\n\
+             \tduration: {:?}_f32,\n\
+             \tmove_speed: {:?}_f32,\n\
+             }};\n",
+            cname, e.hp, e.damage, e.duration, e.move_speed,
+        ));
+    }
+    out.push('\n');
+    out.push_str("pub fn summon_stats(id: SummonId) -> Option<&'static SummonStats> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            let cname = const_name("summon", &e.id);
+            out.push_str(&format!("\t\t{} => Some(&{}_STATS),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
 fn emit_projectile_kinds(out: &mut String, entries: &[ProjKind]) {
