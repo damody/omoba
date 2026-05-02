@@ -10,6 +10,16 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 
+/// Format an f32 value from templates.json as a `Fixed32::from_raw(N)` literal,
+/// where N = round(v * 1024). Mirrors `omoba_sim::fixed::SCALE = 1024`. JSON is
+/// still floating-point as a serialization format; the cast is the lockstep
+/// boundary — every f32 we generate goes through here so precision loss is
+/// bounded and deterministic across hosts.
+fn fixed32_lit(v: f32) -> String {
+    let raw = (v * 1024.0).round() as i32;
+    format!("Fixed32::from_raw({})", raw)
+}
+
 #[derive(Deserialize)]
 struct Manifest {
     #[serde(default)] towers: Vec<TowerEntry>,
@@ -374,23 +384,23 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
         let cname = const_name("tower", &e.id);
         out.push_str(&format!(
             "pub const {}_STATS: TowerStats = TowerStats {{\n\
-             \tatk: {:?}_f32,\n\
-             \tasd_interval: {:?}_f32,\n\
-             \trange: {:?}_f32,\n\
-             \tbullet_speed: {:?}_f32,\n\
-             \tsplash_radius: {:?}_f32,\n\
-             \thit_radius: {:?}_f32,\n\
-             \tslow_factor: {:?}_f32,\n\
-             \tslow_duration: {:?}_f32,\n\
+             \tatk: {},\n\
+             \tasd_interval: {},\n\
+             \trange: {},\n\
+             \tbullet_speed: {},\n\
+             \tsplash_radius: {},\n\
+             \thit_radius: {},\n\
+             \tslow_factor: {},\n\
+             \tslow_duration: {},\n\
              \tcost: {}i32,\n\
-             \tfootprint: {:?}_f32,\n\
-             \thp: {:?}_f32,\n\
-             \tturn_speed_deg: {:?}_f32,\n\
+             \tfootprint: {},\n\
+             \thp: {},\n\
+             \tturn_speed_deg: {},\n\
              }};\n",
             cname,
-            e.atk, e.asd_interval, e.range, e.bullet_speed,
-            e.splash_radius, e.hit_radius, e.slow_factor, e.slow_duration,
-            e.cost, e.footprint, e.hp, e.turn_speed_deg,
+            fixed32_lit(e.atk), fixed32_lit(e.asd_interval), fixed32_lit(e.range), fixed32_lit(e.bullet_speed),
+            fixed32_lit(e.splash_radius), fixed32_lit(e.hit_radius), fixed32_lit(e.slow_factor), fixed32_lit(e.slow_duration),
+            e.cost, fixed32_lit(e.footprint), fixed32_lit(e.hp), fixed32_lit(e.turn_speed_deg),
         ));
     }
     out.push('\n');
@@ -521,33 +531,33 @@ fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
              \tagility: {}i32,\n\
              \tintelligence: {}i32,\n\
              \tprimary_attribute: {}u8,\n\
-             \tattack_range: {:?}_f32,\n\
+             \tattack_range: {},\n\
              \tbase_damage: {}i32,\n\
-             \tbase_armor: {:?}_f32,\n\
+             \tbase_armor: {},\n\
              \tbase_hp: {}i32,\n\
              \tbase_mana: {}i32,\n\
-             \tmove_speed: {:?}_f32,\n\
-             \tturn_speed: {:?}_f32,\n\
+             \tmove_speed: {},\n\
+             \tturn_speed: {},\n\
              \tlevel_growth: LevelGrowth {{\n\
-             \t\tstrength_per_level: {:?}_f32,\n\
-             \t\tagility_per_level: {:?}_f32,\n\
-             \t\tintelligence_per_level: {:?}_f32,\n\
-             \t\tdamage_per_level: {:?}_f32,\n\
-             \t\thp_per_level: {:?}_f32,\n\
-             \t\tmana_per_level: {:?}_f32,\n\
+             \t\tstrength_per_level: {},\n\
+             \t\tagility_per_level: {},\n\
+             \t\tintelligence_per_level: {},\n\
+             \t\tdamage_per_level: {},\n\
+             \t\thp_per_level: {},\n\
+             \t\tmana_per_level: {},\n\
              \t}},\n\
              }};\n",
             cname,
             e.strength, e.agility, e.intelligence,
             primary_attribute_to_u8(&e.primary_attribute),
-            e.attack_range, e.base_damage, e.base_armor,
-            e.base_hp, e.base_mana, e.move_speed, e.turn_speed,
-            e.level_growth.strength_per_level,
-            e.level_growth.agility_per_level,
-            e.level_growth.intelligence_per_level,
-            e.level_growth.damage_per_level,
-            e.level_growth.hp_per_level,
-            e.level_growth.mana_per_level,
+            fixed32_lit(e.attack_range), e.base_damage, fixed32_lit(e.base_armor),
+            e.base_hp, e.base_mana, fixed32_lit(e.move_speed), fixed32_lit(e.turn_speed),
+            fixed32_lit(e.level_growth.strength_per_level),
+            fixed32_lit(e.level_growth.agility_per_level),
+            fixed32_lit(e.level_growth.intelligence_per_level),
+            fixed32_lit(e.level_growth.damage_per_level),
+            fixed32_lit(e.level_growth.hp_per_level),
+            fixed32_lit(e.level_growth.mana_per_level),
         ));
     }
     out.push('\n');
@@ -571,20 +581,20 @@ fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
         let cname = const_name("creep", &e.id);
         out.push_str(&format!(
             "pub const {}_STATS: CreepStats = CreepStats {{\n\
-             \thp: {:?}_f32,\n\
-             \tarmor: {:?}_f32,\n\
-             \tmagic_resistance: {:?}_f32,\n\
-             \tdamage: {:?}_f32,\n\
-             \tattack_range: {:?}_f32,\n\
-             \tmove_speed: {:?}_f32,\n\
+             \thp: {},\n\
+             \tarmor: {},\n\
+             \tmagic_resistance: {},\n\
+             \tdamage: {},\n\
+             \tattack_range: {},\n\
+             \tmove_speed: {},\n\
              \tenemy_type: {}u8,\n\
              \tai_type: {}u8,\n\
              \texp_reward: {}i32,\n\
              \tgold_reward: {}i32,\n\
              }};\n",
             cname,
-            e.hp, e.armor, e.magic_resistance,
-            e.damage, e.attack_range, e.move_speed,
+            fixed32_lit(e.hp), fixed32_lit(e.armor), fixed32_lit(e.magic_resistance),
+            fixed32_lit(e.damage), fixed32_lit(e.attack_range), fixed32_lit(e.move_speed),
             enemy_type_to_u8(&e.enemy_type), ai_type_to_u8(&e.ai_type),
             e.exp_reward, e.gold_reward,
         ));
@@ -609,12 +619,14 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
         let cname = const_name("summon", &e.id);
         out.push_str(&format!(
             "pub const {}_STATS: SummonStats = SummonStats {{\n\
-             \thp: {:?}_f32,\n\
-             \tdamage: {:?}_f32,\n\
-             \tduration: {:?}_f32,\n\
-             \tmove_speed: {:?}_f32,\n\
+             \thp: {},\n\
+             \tdamage: {},\n\
+             \tduration: {},\n\
+             \tmove_speed: {},\n\
              }};\n",
-            cname, e.hp, e.damage, e.duration, e.move_speed,
+            cname,
+            fixed32_lit(e.hp), fixed32_lit(e.damage),
+            fixed32_lit(e.duration), fixed32_lit(e.move_speed),
         ));
     }
     out.push('\n');
@@ -685,24 +697,25 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
         out.push_str(&format!("pub const {}_LEVELS: &[AbilityLevelDataConst] = &[\n", cname));
         for ld in &e.levels {
             out.push_str(&format!(
-                "\tAbilityLevelDataConst {{ cooldown: {:?}_f32, mana_cost: {:?}_f32, cast_time: {:?}_f32, range: {:?}_f32 }},\n",
-                ld.cooldown, ld.mana_cost, ld.cast_time, ld.range,
+                "\tAbilityLevelDataConst {{ cooldown: {}, mana_cost: {}, cast_time: {}, range: {} }},\n",
+                fixed32_lit(ld.cooldown), fixed32_lit(ld.mana_cost),
+                fixed32_lit(ld.cast_time), fixed32_lit(ld.range),
             ));
         }
         out.push_str("];\n");
 
         // Emit each extra's per-level slice as a named static so the &[(key, &[..])]
-        // can reference it (avoids `&[f32; N]` literal lifetime issues).
+        // can reference it (avoids `&[Fixed32; N]` literal lifetime issues).
         for (k, v) in &e.extras {
             let extra_const = format!("{}_EXTRA_{}", cname, sanitize_ident(k).to_uppercase());
-            out.push_str(&format!("pub const {}: &[f32] = &[", extra_const));
+            out.push_str(&format!("pub const {}: &[Fixed32] = &[", extra_const));
             for (i, x) in v.iter().enumerate() {
                 if i > 0 { out.push_str(", "); }
-                out.push_str(&format!("{:?}_f32", x));
+                out.push_str(&fixed32_lit(*x));
             }
             out.push_str("];\n");
         }
-        out.push_str(&format!("pub const {}_EXTRAS: &[(&str, &[f32])] = &[\n", cname));
+        out.push_str(&format!("pub const {}_EXTRAS: &[(&str, &[Fixed32])] = &[\n", cname));
         for (k, _v) in &e.extras {
             let extra_const = format!("{}_EXTRA_{}", cname, sanitize_ident(k).to_uppercase());
             out.push_str(&format!("\t(\"{}\", {}),\n", escape_str_literal(k), extra_const));
@@ -819,13 +832,13 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
                     match ef {
                         UpgradeEffectEntry::StatMod { key, value, op } => {
                             out.push_str(&format!(
-                                "\tUpgradeEffectConst {{ kind: UpgradeEffectKindC::StatMod, key: \"{}\", value: {:?}_f32, op: StatOpC::{} }},\n",
-                                escape_str_literal(key), value, stat_op_to_variant(op)
+                                "\tUpgradeEffectConst {{ kind: UpgradeEffectKindC::StatMod, key: \"{}\", value: {}, op: StatOpC::{} }},\n",
+                                escape_str_literal(key), fixed32_lit(*value), stat_op_to_variant(op)
                             ));
                         }
                         UpgradeEffectEntry::BehaviorFlag { flag } => {
                             out.push_str(&format!(
-                                "\tUpgradeEffectConst {{ kind: UpgradeEffectKindC::BehaviorFlag, key: \"{}\", value: 0.0_f32, op: StatOpC::Add }},\n",
+                                "\tUpgradeEffectConst {{ kind: UpgradeEffectKindC::BehaviorFlag, key: \"{}\", value: Fixed32::from_raw(0), op: StatOpC::Add }},\n",
                                 escape_str_literal(flag)
                             ));
                         }
