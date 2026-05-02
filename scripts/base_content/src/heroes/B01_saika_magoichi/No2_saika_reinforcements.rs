@@ -38,7 +38,7 @@ impl AbilityScript for SaikaReinforcementsHandler {
         };
         // JSON extras still carry f32 (omoba_core::AbilityLevelData not yet migrated).
         // Read as f64 then convert to Fixed32 at the boundary.
-        // TODO Phase 1[d]: omoba_core::ability_meta migrated → drop the f64 hop.
+        // PHASE 2: omoba_core::ability_meta still f32; redesign in Phase 2 KCP tag rework.
         let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
             level_data
                 .extra
