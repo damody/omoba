@@ -3,7 +3,7 @@
 use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Target},
+    types::{DamageKind, EntityHandle, Fixed32, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{
@@ -11,7 +11,7 @@ use omoba_core::ability_meta::{
 };
 use omoba_template_ids::{ABILITY_FIRE_DASH, ABILITY_FIRE_DASH_CONST};
 
-use crate::ability_builder::{build_ability_ffi, extra_at};
+use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
 
 pub struct FireDashHandler;
 
@@ -30,18 +30,30 @@ impl AbilityScript for FireDashHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        let get_f = |k: &str, dft: f32| {
+        // JSON extras still f32 → Fixed32 conversion at boundary.
+        // TODO Phase 1[bcd]: omoba_core migrated → drop hop.
+        let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
             level_data
                 .extra
                 .get(k)
                 .and_then(|v| v.as_f64())
-                .map(|v| v as f32)
+                .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
                 .unwrap_or(dft)
         };
-        let damage_per_tick = get_f("damage_per_tick", extra_at(&ABILITY_FIRE_DASH_CONST, "damage_per_tick", level));
-        let dash_duration = get_f("dash_duration", extra_at(&ABILITY_FIRE_DASH_CONST, "dash_duration", level));
-        let dash_width = get_f("dash_width", extra_at(&ABILITY_FIRE_DASH_CONST, "dash_width", level));
-        let tick_interval = 0.1f32;
+        let damage_per_tick = get_fx(
+            "damage_per_tick",
+            extra_at(&ABILITY_FIRE_DASH_CONST, "damage_per_tick", level),
+        );
+        let dash_duration = get_fx(
+            "dash_duration",
+            extra_at(&ABILITY_FIRE_DASH_CONST, "dash_duration", level),
+        );
+        let dash_width = get_fx(
+            "dash_width",
+            extra_at(&ABILITY_FIRE_DASH_CONST, "dash_width", level),
+        );
+        let tick_interval = Fixed32::from_raw(102); // 0.1 (≈ 102/1024)
+        // total_damage = damage_per_tick * (dash_duration / tick_interval)
         let total_damage = damage_per_tick * (dash_duration / tick_interval);
 
         let dest = match target {
@@ -53,7 +65,8 @@ impl AbilityScript for FireDashHandler {
         };
 
         world.set_pos(caster, dest);
-        let enemies = world.query_enemies_in_range(dest, dash_width / 2.0, caster);
+        let half_width = dash_width / Fixed32::from_i32(2);
+        let enemies = world.query_enemies_in_range(dest, half_width, caster);
         for victim in enemies.iter().copied() {
             world.deal_damage(victim, total_damage, DamageKind::Magical, RNone);
         }
@@ -62,9 +75,11 @@ impl AbilityScript for FireDashHandler {
 }
 
 pub fn fire_dash_ffi() -> AbilityDefFFI {
-    let dmg_lv1 = extra_at(&ABILITY_FIRE_DASH_CONST, "damage_per_tick", 1)
-        * (extra_at(&ABILITY_FIRE_DASH_CONST, "dash_duration", 1) / 0.1);
-    let radius = extra_at(&ABILITY_FIRE_DASH_CONST, "dash_width", 1) / 2.0;
+    // EffectSpec preview values stay f32 (omoba_core not migrated).
+    let dpt = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "damage_per_tick", 1);
+    let dur = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "dash_duration", 1);
+    let dmg_lv1 = dpt * (dur / 0.1);
+    let radius = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "dash_width", 1) / 2.0;
     let effects_preview = vec![EffectSpec::Damage {
         target: TargetSelector::InRadius {
             center: vek::Vec2::new(0.0, 0.0),

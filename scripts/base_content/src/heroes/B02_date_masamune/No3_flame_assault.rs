@@ -4,7 +4,7 @@ use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     buff_ids::BuffId,
-    types::{DamageKind, EntityHandle, Target},
+    types::{DamageKind, EntityHandle, Fixed32, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{
@@ -12,7 +12,7 @@ use omoba_core::ability_meta::{
 };
 use omoba_template_ids::{ABILITY_FLAME_ASSAULT, ABILITY_FLAME_ASSAULT_CONST};
 
-use crate::ability_builder::{build_ability_ffi, extra_at};
+use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
 
 pub struct FlameAssaultHandler;
 
@@ -31,20 +31,22 @@ impl AbilityScript for FlameAssaultHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        let get_f = |k: &str, dft: f32| {
+        // JSON extras still f32 → Fixed32 conversion at boundary.
+        // TODO Phase 1[bcd]: omoba_core migrated → drop hop.
+        let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
             level_data
                 .extra
                 .get(k)
                 .and_then(|v| v.as_f64())
-                .map(|v| v as f32)
+                .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
                 .unwrap_or(dft)
         };
-        let damage = get_f("damage", extra_at(&ABILITY_FLAME_ASSAULT_CONST, "damage", level));
-        let stun_duration = get_f(
+        let damage = get_fx("damage", extra_at(&ABILITY_FLAME_ASSAULT_CONST, "damage", level));
+        let stun_duration = get_fx(
             "stun_duration",
             extra_at(&ABILITY_FLAME_ASSAULT_CONST, "stun_duration", level),
         );
-        let radius = get_f("radius", extra_at(&ABILITY_FLAME_ASSAULT_CONST, "radius", level));
+        let radius = get_fx("radius", extra_at(&ABILITY_FLAME_ASSAULT_CONST, "radius", level));
 
         let center = match target {
             Target::Point(p) => p,
@@ -54,7 +56,7 @@ impl AbilityScript for FlameAssaultHandler {
             }
         };
 
-        world.emit_explosion(center, radius, 0.2);
+        world.emit_explosion(center, radius, Fixed32::from_raw(204) /* 0.2 */);
         let enemies = world.query_enemies_in_range(center, radius, caster);
         let stun_buff = BuffId::Stun.as_rstr();
         for victim in enemies.iter().copied() {
@@ -66,8 +68,8 @@ impl AbilityScript for FlameAssaultHandler {
 }
 
 pub fn flame_assault_ffi() -> AbilityDefFFI {
-    let radius_lv1 = extra_at(&ABILITY_FLAME_ASSAULT_CONST, "radius", 1);
-    let dmg_lv1 = extra_at(&ABILITY_FLAME_ASSAULT_CONST, "damage", 1);
+    let radius_lv1 = extra_at_f32(&ABILITY_FLAME_ASSAULT_CONST, "radius", 1);
+    let dmg_lv1 = extra_at_f32(&ABILITY_FLAME_ASSAULT_CONST, "damage", 1);
     let effects_preview = vec![EffectSpec::AreaEffect {
         radius: radius_lv1,
         duration: 0.2,

@@ -9,7 +9,7 @@ use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     stat_keys::StatKey,
-    types::{EntityHandle, Target},
+    types::{EntityHandle, Fixed32, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{
@@ -64,7 +64,9 @@ impl AbilityScript for SniperModeHandler {
             modifiers.insert(StatKey::MoveSpeedBonusPercentage.as_str().into(), serde_json::json!(get_f("move_speed_penalty")));
             modifiers.insert(StatKey::AccuracyBonus.as_str().into(), serde_json::json!(get_f("accuracy_bonus")));
             let mods_str = serde_json::Value::Object(modifiers).to_string();
-            world.add_stat_buff(caster, buff, f32::INFINITY, (&*mods_str).into());
+            // Toggle buff — duration is Fixed32 now; use a very large positive value as
+            // "indefinite" sentinel (matches host BuffStore convention; toggle removes via has_buff/remove_buff).
+            world.add_stat_buff(caster, buff, Fixed32::from_i32(i32::MAX / 1024), (&*mods_str).into());
             world.log_info(RStr::from_str("[sniper_mode] toggled ON"));
         }
         ROk(())
