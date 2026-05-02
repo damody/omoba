@@ -110,8 +110,8 @@ pub fn build_ability_ffi<S: AbilityScript + 'static>(
     }
 }
 
-/// 取單級 extras Fixed32 值；找不到 panic（caller 必須確認 templates.json 有該 key）。
-pub fn extra_at(c: &AbilityConst, key: &str, level: u8) -> omoba_sim::Fixed32 {
+/// 取單級 extras Fixed64 值；找不到 panic（caller 必須確認 templates.json 有該 key）。
+pub fn extra_at(c: &AbilityConst, key: &str, level: u8) -> omoba_sim::Fixed64 {
     let lvl_idx = (level.saturating_sub(1) as usize).min(c.max_level.saturating_sub(1) as usize);
     for (k, per_lvl) in c.extras.iter() {
         if *k == key {

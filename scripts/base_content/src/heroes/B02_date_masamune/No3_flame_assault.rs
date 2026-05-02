@@ -4,7 +4,7 @@ use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     buff_ids::BuffId,
-    types::{DamageKind, EntityHandle, Fixed32, Target},
+    types::{DamageKind, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{
@@ -31,14 +31,14 @@ impl AbilityScript for FlameAssaultHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // JSON extras still f32 → Fixed32 conversion at boundary.
+        // JSON extras still f32 → Fixed64 conversion at boundary.
         // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
-        let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
+        let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra
                 .get(k)
                 .and_then(|v| v.as_f64())
-                .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
+                .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
                 .unwrap_or(dft)
         };
         let damage = get_fx("damage", extra_at(&ABILITY_FLAME_ASSAULT_CONST, "damage", level));
@@ -56,7 +56,7 @@ impl AbilityScript for FlameAssaultHandler {
             }
         };
 
-        world.emit_explosion(center, radius, Fixed32::from_raw(204) /* 0.2 */);
+        world.emit_explosion(center, radius, Fixed64::from_raw(204) /* 0.2 */);
         let enemies = world.query_enemies_in_range(center, radius, caster);
         let stun_buff = BuffId::Stun.as_rstr();
         for victim in enemies.iter().copied() {

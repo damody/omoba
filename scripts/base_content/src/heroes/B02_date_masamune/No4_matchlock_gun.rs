@@ -7,7 +7,7 @@ use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     stat_keys::StatKey,
-    types::{EntityHandle, Fixed32, Target},
+    types::{EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
@@ -43,14 +43,14 @@ impl AbilityScript for MatchlockGunHandler {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0)
         };
-        // Phase 1de.2: sum_add-aggregated stats emit raw Fixed32 i32 (lockstep-correct).
+        // Phase 1de.2: sum_add-aggregated stats emit raw Fixed64 i32 (lockstep-correct).
         // Helpers that read via raw `payload.get(...).as_f64()` (attack_stun_*) keep f64.
         let get_raw = |k: &str| -> i32 {
-            Fixed32::from_raw((get_f(k) * 1024.0) as i32).raw()
+            Fixed64::from_raw((get_f(k) * 1024.0) as i64).raw() as i32
         };
-        // duration: f64 → Fixed32 at boundary for the FFI add_stat_buff call.
+        // duration: f64 → Fixed64 at boundary for the FFI add_stat_buff call.
         let duration_f = get_f("duration");
-        let duration = Fixed32::from_raw((duration_f * 1024.0) as i32);
+        let duration = Fixed64::from_raw((duration_f * 1024.0) as i64);
         // damage_bonus 為絕對傷害點（90/130/170）→ BaseAttackBonusDamage；
         // attack_stun_* 不在 StatKey 聚合路徑（game_processor 直接 .as_f64() 讀）→ 保留 f64。
         let mut modifiers = serde_json::Map::new();

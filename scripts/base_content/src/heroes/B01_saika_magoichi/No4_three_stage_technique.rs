@@ -7,7 +7,7 @@ use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     stat_keys::StatKey,
-    types::{EntityHandle, Fixed32, Target},
+    types::{EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
@@ -35,14 +35,14 @@ impl AbilityScript for ThreeStageHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // omoba_core JSON extras still f32; convert to Fixed32 at boundary.
+        // omoba_core JSON extras still f32; convert to Fixed64 at boundary.
         // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
-        let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
+        let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra
                 .get(k)
                 .and_then(|v| v.as_f64())
-                .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
+                .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
                 .unwrap_or(dft)
         };
         let duration = get_fx("duration", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", level));
@@ -50,7 +50,7 @@ impl AbilityScript for ThreeStageHandler {
         let multi_shot = get_fx("multi_shot_count", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", level));
 
         let mut modifiers = serde_json::Map::new();
-        // Phase 1de.2: emit raw Fixed32 i32 — host BuffStore::read_fixed_from_payload
+        // Phase 1de.2: emit raw Fixed64 i32 — host BuffStore::read_fixed_from_payload
         // prefers integer (lockstep-correct) over the legacy f64 quantization path.
         modifiers.insert(
             StatKey::TotalDamageOutgoingPercentage.as_str().into(),
