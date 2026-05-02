@@ -90,6 +90,7 @@ dependencies = [
  "abi_stable",
  "omb-script-abi",
  "omoba-core",
+ "omoba-template-ids",
  "serde",
  "serde_json",
  "vek",

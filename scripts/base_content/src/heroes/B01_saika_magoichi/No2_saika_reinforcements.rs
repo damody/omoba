@@ -1,30 +1,27 @@
 //! 雜賀眾（saika_reinforcements）— 雜賀孫市的 E 技能：召喚雜賀鐵炮兵。
 //!
-//! 召喚 API（`world.spawn_summoned_unit`）尚未存在，此 handler 暫時
-//! 只發 log_info 佔位。等 summon API 接通後再補實作。
+//! 數值（summon_count / duration / 陣形 spacing 等）由 templates.json
+//! `abilities[saika_reinforcements].extras` 提供，runtime 透過
+//! `ABILITY_SAIKA_REINFORCEMENTS_CONST` 取得。
 
-use abi_stable::{
-    sabi_trait::prelude::TD_Opaque,
-    std_types::{RBox, ROk, RResult, RStr, RString},
-};
+use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
-    ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
-    prelude::SUMMON_SAIKA_GUNNER,
+    ability::{AbilityDefFFI, AbilityScript},
     types::{EntityHandle, Target, Vec2f},
     world::GameWorldDyn,
 };
-use omoba_core::ability_meta::{
-    AbilityDef, AbilityLevelData, AbilityType, CastType, EffectSpec, TargetSelector, TargetType,
+use omoba_core::ability_meta::{AbilityLevelData, EffectSpec};
+use omoba_template_ids::{
+    ABILITY_SAIKA_REINFORCEMENTS, ABILITY_SAIKA_REINFORCEMENTS_CONST, SUMMON_SAIKA_GUNNER,
 };
-use std::collections::HashMap;
 
-pub const ABILITY_ID: &str = "saika_reinforcements";
+use crate::ability_builder::{build_ability_ffi, extra_at};
 
 pub struct SaikaReinforcementsHandler;
 
 impl AbilityScript for SaikaReinforcementsHandler {
     fn ability_id(&self) -> RStr<'_> {
-        RStr::from_str(ABILITY_ID)
+        RStr::from_str(ABILITY_SAIKA_REINFORCEMENTS.as_str())
     }
 
     fn execute(
@@ -39,37 +36,23 @@ impl AbilityScript for SaikaReinforcementsHandler {
             Ok(d) => d,
             Err(_) => AbilityLevelData::default(),
         };
-        let count = level_data
-            .extra
-            .get("summon_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(2)
-            .max(2);
-        let duration = level_data
-            .extra
-            .get("duration")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(45.0) as f32;
-        // 陣形參數；可被 level_data 覆寫。
-        let row_spacing = level_data
-            .extra
-            .get("row_spacing")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(60.0) as f32;
-        let col_spacing = level_data
-            .extra
-            .get("col_spacing")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(60.0) as f32;
-        let front_row_distance = level_data
-            .extra
-            .get("front_row_distance")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(120.0) as f32;
+        let get_f = |k: &str, dft: f32| {
+            level_data
+                .extra
+                .get(k)
+                .and_then(|v| v.as_f64())
+                .map(|v| v as f32)
+                .unwrap_or(dft)
+        };
+        let count = get_f("summon_count", 2.0).max(2.0) as u64;
+        let duration = get_f("duration", 45.0);
+        let row_spacing = get_f("row_spacing", 60.0);
+        let col_spacing = get_f("col_spacing", 60.0);
+        let front_row_distance = get_f("front_row_distance", 120.0);
 
         // forward = 永遠用 caster 的 Facing（忽略 target，因前端每次按鍵都送滑鼠
         // 位置做 target_pos；這個 W 設計上是「以自身朝向往前方兩排召喚」）。
-        let _ = target; // 明確標示不用 target
+        let _ = target;
         let caster_pos = world
             .get_pos(caster)
             .into_option()
@@ -88,7 +71,6 @@ impl AbilityScript for SaikaReinforcementsHandler {
 
         let unit_type = RStr::from_str(SUMMON_SAIKA_GUNNER.as_str());
         for r in 0..rows {
-            // 前排距離 front_row_distance，後排再 + row_spacing
             let row_dist = front_row_distance + (r as f32) * row_spacing;
             let base_x = caster_pos.x + fwd_x * row_dist;
             let base_y = caster_pos.y + fwd_y * row_dist;
@@ -110,61 +92,18 @@ impl AbilityScript for SaikaReinforcementsHandler {
     }
 }
 
-pub fn saika_reinforcements_def() -> AbilityDef {
-    let mut levels = HashMap::new();
-    for lvl in 1u8..=4 {
-        let mut extra = HashMap::new();
-        // Lv1 = 2 隻（1排）、Lv2 = 4 隻（2排）、Lv3 = 6 隻（3排）、Lv4 = 8 隻（4排）；
-        // 配合 handler 的 2 排 formation，cols = count/2，所以
-        // Lv1 每排 1 隻、Lv2 每排 2 隻、Lv3 每排 3 隻、Lv4 每排 4 隻。
-        extra.insert(
-            "summon_count".into(),
-            serde_json::json!((lvl as u32) * 2),
-        );
-        extra.insert("duration".into(), serde_json::json!(40.0 + 5.0 * lvl as f32));
-        extra.insert("formation_radius".into(), serde_json::json!(100.0));
-        extra.insert("gunner_hp".into(), serde_json::json!(300.0 + 50.0 * lvl as f32));
-        extra.insert(
-            "gunner_damage".into(),
-            serde_json::json!(40.0 + 10.0 * lvl as f32),
-        );
-        levels.insert(
-            lvl.to_string(),
-            AbilityLevelData {
-                cooldown: 28.0 - 1.0 * lvl as f32,
-                mana_cost: 90.0,
-                cast_time: 0.5,
-                range: 800.0,
-                extra,
-            },
-        );
-    }
-
-    AbilityDef {
-        id: ABILITY_ID.into(),
-        name: "雜賀眾".into(),
-        description: "在目標位置召喚雜賀鐵炮兵協助作戰。".into(),
-        ability_type: AbilityType::Active,
-        target_type: TargetType::Point,
-        cast_type: CastType::Instant,
-        icon: None,
-        max_level: 4,
-        levels,
-        effects_preview: vec![EffectSpec::Summon {
-            unit_type: SUMMON_SAIKA_GUNNER.as_str().into(),
-            count: 2,
-            duration: Some(50.0),
-        }],
-        conditions: Vec::new(),
-        properties: HashMap::new(),
-    }
-}
-
 pub fn saika_reinforcements_ffi() -> AbilityDefFFI {
-    let def = saika_reinforcements_def();
-    let def_json = serde_json::to_string(&def).expect("serialize");
-    AbilityDefFFI {
-        def_json: def_json.into(),
-        script: AbilityScript_TO::from_value(SaikaReinforcementsHandler, TD_Opaque),
-    }
+    // Lv1 預覽：召喚 2 隻、duration 45s
+    let count_lv1 = extra_at(&ABILITY_SAIKA_REINFORCEMENTS_CONST, "summon_count", 1) as u32;
+    let duration_lv1 = extra_at(&ABILITY_SAIKA_REINFORCEMENTS_CONST, "duration", 1);
+    let effects_preview = vec![EffectSpec::Summon {
+        unit_type: SUMMON_SAIKA_GUNNER.as_str().into(),
+        count: count_lv1,
+        duration: Some(duration_lv1),
+    }];
+    build_ability_ffi(
+        ABILITY_SAIKA_REINFORCEMENTS,
+        SaikaReinforcementsHandler,
+        effects_preview,
+    )
 }

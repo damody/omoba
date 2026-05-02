@@ -90,4 +90,58 @@ pub struct SummonStats {
     pub move_speed: f32,
 }
 
+/// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly
+/// 鏡像（`#[repr(u8)]` enum，可塞進 const struct）。`From<AbilityTypeC>` 在
+/// helper crate (base_content) 端做 mapping。
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AbilityTypeC {
+    Active = 0,
+    Toggle = 1,
+    Ultimate = 2,
+    Passive = 3,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CastTypeC {
+    Instant = 0,
+    Channeled = 1,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TargetTypeC {
+    None = 0,
+    Point = 1,
+    Unit = 2,
+}
+
+/// 單一等級的核心數值 — const-friendly mirror of `AbilityLevelData`。
+/// Per-level extras 走 `AbilityConst.extras` (key, [f32; max_level])。
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct AbilityLevelDataConst {
+    pub cooldown: f32,
+    pub mana_cost: f32,
+    pub cast_time: f32,
+    pub range: f32,
+}
+
+/// Ability 數值 const — 對應 templates.json abilities[i]。runtime 由
+/// `build_ability_def_from_const(id, &CONST)` 攤成完整 `AbilityDef`（含
+/// HashMap 的 levels / extras）。`extras` 是 sorted-by-key 的 `(name, per_level_values)`
+/// pairs，per_level_values.len() 必須等於 max_level。
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct AbilityConst {
+    pub ability_type: AbilityTypeC,
+    pub cast_type: CastTypeC,
+    pub target_type: TargetTypeC,
+    pub max_level: u8,
+    pub description: &'static str,
+    pub levels: &'static [AbilityLevelDataConst],
+    pub extras: &'static [(&'static str, &'static [f32])],
+}
+
 include!(concat!(env!("OUT_DIR"), "/template_ids_gen.rs"));
