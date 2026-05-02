@@ -9,6 +9,7 @@ use abi_stable::{
 };
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
+    prelude::SUMMON_SAIKA_GUNNER,
     types::{EntityHandle, Target, Vec2f},
     world::GameWorldDyn,
 };
@@ -85,7 +86,7 @@ impl AbilityScript for SaikaReinforcementsHandler {
         let cols = count / rows;
         let col_center = (cols as f32 - 1.0) * 0.5;
 
-        let unit_type = RStr::from_str("saika_gunner");
+        let unit_type = RStr::from_str(SUMMON_SAIKA_GUNNER.as_str());
         for r in 0..rows {
             // 前排距離 front_row_distance，後排再 + row_spacing
             let row_dist = front_row_distance + (r as f32) * row_spacing;
@@ -150,7 +151,7 @@ pub fn saika_reinforcements_def() -> AbilityDef {
         max_level: 4,
         levels,
         effects_preview: vec![EffectSpec::Summon {
-            unit_type: "saika_gunner".into(),
+            unit_type: SUMMON_SAIKA_GUNNER.as_str().into(),
             count: 2,
             duration: Some(50.0),
         }],

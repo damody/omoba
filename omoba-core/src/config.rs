@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use anyhow::{Result, Context};
+use omoba_template_ids::HERO_SAIKA_MAGOICHI;
 
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +57,7 @@ impl Default for AppConfig {
             },
             frontend: FrontendConfig {
                 player_name: "TestPlayer".to_string(),
-                hero_type: "saika_magoichi".to_string(),
+                hero_type: HERO_SAIKA_MAGOICHI.as_str().to_string(),
                 auto_start_backend: true,
                 backend_start_delay: 1000,
                 backend_shutdown_timeout: 5000,
