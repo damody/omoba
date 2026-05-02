@@ -48,3 +48,16 @@ fn trig_lut_pin_hash() {
     println!("TRIG PIN HASH = {}", actual);
     assert_eq!(actual, 10864827002850446389u64);
 }
+
+#[test]
+fn rng_sequence_pin_hash() {
+    use omoba_sim::rng::SimRng;
+    let mut h = fxhash::FxHasher64::default();
+    let mut r = SimRng::from_master(0xDEAD_BEEF_CAFE_BABE, 12345);
+    for _ in 0..10000 {
+        r.next_u64().hash(&mut h);
+    }
+    let actual = h.finish();
+    println!("RNG PIN HASH = {}", actual);
+    assert_eq!(actual, 864202779384842305u64);
+}
