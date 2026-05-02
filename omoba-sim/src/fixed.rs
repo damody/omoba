@@ -17,6 +17,22 @@ impl Fixed32 {
     pub const fn from_i32(v: i32) -> Self { Fixed32(v.wrapping_mul(SCALE)) }
     pub const fn raw(self) -> i32 { self.0 }
     pub fn to_f32(self) -> f32 { self.0 as f32 / SCALE as f32 }
+
+    /// Integer square root via Newton's method, 16 iterations max (well past Q22.10 convergence).
+    /// Returns ZERO for non-positive inputs (deterministic — never panics, never poisons).
+    pub fn sqrt(self) -> Fixed32 {
+        if self.0 <= 0 { return Fixed32::ZERO; }
+        // In Q22.10: sqrt(a*SCALE) gives a*sqrt(SCALE), so we widen first by SCALE_BITS to
+        // recover the SCALE factor in the result. x = self.0 << SCALE_BITS keeps headroom in i64.
+        let x = (self.0 as i64) << SCALE_BITS;
+        let mut y: i64 = (self.0 as i64).max(SCALE as i64);
+        for _ in 0..16 {
+            let next = (y + x / y) >> 1;
+            if next == y { break; }
+            y = next;
+        }
+        Fixed32(y as i32)
+    }
 }
 
 impl std::ops::Add for Fixed32 {
@@ -140,5 +156,34 @@ mod tests {
         let c = Fixed32::from_i32(10);
         let d = Fixed32::from_i32(-4);
         assert_eq!((c / d).raw(), -2560);
+    }
+
+    #[test]
+    fn sqrt_perfect() {
+        assert_eq!(Fixed32::from_i32(4).sqrt(), Fixed32::from_i32(2));
+        assert_eq!(Fixed32::from_i32(9).sqrt(), Fixed32::from_i32(3));
+        assert_eq!(Fixed32::from_i32(100).sqrt(), Fixed32::from_i32(10));
+    }
+
+    #[test]
+    fn sqrt_imperfect_within_1lsb() {
+        // sqrt(2) ≈ 1.41421
+        let r = Fixed32::from_i32(2).sqrt();
+        let expected = Fixed32::from_raw(1448);  // ≈ 1.41406
+        let diff = (r.raw() - expected.raw()).abs();
+        assert!(diff <= 2, "sqrt(2) raw={} expected~={}, diff={}", r.raw(), expected.raw(), diff);
+    }
+
+    #[test]
+    fn sqrt_zero() {
+        assert_eq!(Fixed32::ZERO.sqrt(), Fixed32::ZERO);
+    }
+
+    #[test]
+    fn sqrt_negative_returns_zero() {
+        // Determinism guarantee: sqrt of negative returns ZERO, not panic, not NaN-equivalent.
+        // Lockstep cannot tolerate either dev/release divergence or sentinel poisoning.
+        assert_eq!(Fixed32::from_i32(-5).sqrt(), Fixed32::ZERO);
+        assert_eq!(Fixed32::from_raw(i32::MIN).sqrt(), Fixed32::ZERO);
     }
 }
