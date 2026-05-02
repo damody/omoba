@@ -11,18 +11,18 @@ use omb_script_abi::prelude::*;
 
 pub struct SaikaGunner;
 
-const BULLET_SPEED: Fixed32 = Fixed32::from_i32(900);
+const BULLET_SPEED: Fixed64 = Fixed64::from_i32(900);
 /// 追擊搜索範圍 = 攻擊射程 × 此倍率（跟 Unit::create_saika_gunner 的 aggro 匹配）
-const AGGRO_MULTIPLIER: Fixed32 = Fixed32::from_raw(1331); // 1.3 * 1024 = 1331.2 ≈ 1331
+const AGGRO_MULTIPLIER: Fixed64 = Fixed64::from_raw(1331); // 1.3 * 1024 = 1331.2 ≈ 1331
 /// 移動速度（單位/秒），跟 Unit 預設的 move_speed 匹配
-const MOVE_SPEED: Fixed32 = Fixed32::from_i32(280);
+const MOVE_SPEED: Fixed64 = Fixed64::from_i32(280);
 
 impl UnitScript for SaikaGunner {
     fn unit_id(&self) -> RStr<'_> {
         RStr::from_str(SUMMON_SAIKA_GUNNER.as_str())
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: Fixed32, w: &mut GameWorldDyn<'_>) {
+    fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
         let pos = match w.get_pos(e) {
             RSome(p) => p,
             RNone => return,
@@ -31,7 +31,7 @@ impl UnitScript for SaikaGunner {
         let aggro_range = attack_range * AGGRO_MULTIPLIER;
 
         let asd_interval = w.get_asd_interval(e);
-        if asd_interval <= Fixed32::ZERO {
+        if asd_interval <= Fixed64::ZERO {
             return;
         }
         // 玩家命令移動由 host 端 `summon_move_tick` 處理 MoveTarget；script 專注攻擊 AI。
@@ -44,7 +44,7 @@ impl UnitScript for SaikaGunner {
             if let RSome(tpos) = w.get_pos(target) {
                 let dx = tpos.x - pos.x;
                 let dy = tpos.y - pos.y;
-                if dx * dx + dy * dy > Fixed32::from_raw(1) {
+                if dx * dx + dy * dy > Fixed64::from_raw(1) {
                     w.set_facing(e, omoba_sim::trig::atan2(dy, dx));
                 }
             }
@@ -62,11 +62,11 @@ impl UnitScript for SaikaGunner {
                     path: PathSpec::Homing { target },
                     speed: BULLET_SPEED,
                     damage: atk,
-                    hit_radius: Fixed32::ZERO,
-                    splash_radius: Fixed32::ZERO,
-                    slow_factor: Fixed32::ZERO,
-                    slow_duration: Fixed32::ZERO,
-                    stun_duration: Fixed32::ZERO,
+                    hit_radius: Fixed64::ZERO,
+                    splash_radius: Fixed64::ZERO,
+                    slow_factor: Fixed64::ZERO,
+                    slow_duration: Fixed64::ZERO,
+                    stun_duration: Fixed64::ZERO,
                     kind_id: PROJECTILE_SAIKA_SHOT.0,
                 });
             }
@@ -79,7 +79,7 @@ impl UnitScript for SaikaGunner {
                 let dx = target_pos.x - pos.x;
                 let dy = target_pos.y - pos.y;
                 let len = (dx * dx + dy * dy).sqrt();
-                if len > Fixed32::ONE {
+                if len > Fixed64::ONE {
                     let step = MOVE_SPEED * dt;
                     // 透過 host 碰撞檢測 —— 會自動避開其他 CollisionRadius 實體與
                     // BlockedRegion blocker；若被完全擋住會留在原地。

@@ -47,9 +47,9 @@ impl UnitScript for TackTower {
         })
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: Fixed32, w: &mut GameWorldDyn<'_>) {
+    fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
         let asd_interval = w.get_asd_interval(e);
-        if asd_interval <= Fixed32::ZERO {
+        if asd_interval <= Fixed64::ZERO {
             return;
         }
         let mut asd_count = w.get_asd_count(e);
@@ -88,9 +88,9 @@ impl UnitScript for TackTower {
         };
 
         let (hit_radius, damage) = if blade {
-            let twenty = Fixed32::from_i32(20);
+            let twenty = Fixed64::from_i32(20);
             let dmg = if atk > twenty { atk } else { twenty };
-            (Fixed32::from_i32(110), dmg)
+            (Fixed64::from_i32(110), dmg)
         } else {
             (STATS.hit_radius, atk)
         };
@@ -111,10 +111,10 @@ impl UnitScript for TackTower {
                 speed: STATS.bullet_speed,
                 damage,
                 hit_radius,
-                splash_radius: Fixed32::ZERO,
-                slow_factor: Fixed32::ZERO,
-                slow_duration: Fixed32::ZERO,
-                stun_duration: Fixed32::ZERO,
+                splash_radius: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
                 kind_id: if blade { PROJECTILE_TACK_BLADE.0 } else { PROJECTILE_TACK.0 },
             });
         }
@@ -124,9 +124,9 @@ impl UnitScript for TackTower {
         let ring = inferno || w.has_tower_flag(e, RStr::from_str("ring_of_fire"));
         if ring {
             let (r, dmg) = if inferno {
-                (Fixed32::from_i32(200), Fixed32::from_i32(50))
+                (Fixed64::from_i32(200), Fixed64::from_i32(50))
             } else {
-                (Fixed32::from_i32(200), Fixed32::from_i32(20))
+                (Fixed64::from_i32(200), Fixed64::from_i32(20))
             };
             w.deal_damage_splash(pos, r, dmg, DamageKind::Magical, RSome(e));
             w.play_vfx(RStr::from_str("vfx_ring_of_fire"), pos);

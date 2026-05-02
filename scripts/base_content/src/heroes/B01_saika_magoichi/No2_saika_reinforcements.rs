@@ -7,7 +7,7 @@
 use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{EntityHandle, Fixed32, Target, Vec2},
+    types::{EntityHandle, Fixed64, Target, Vec2},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec};
@@ -37,14 +37,14 @@ impl AbilityScript for SaikaReinforcementsHandler {
             Err(_) => AbilityLevelData::default(),
         };
         // JSON extras still carry f32 (omoba_core::AbilityLevelData not yet migrated).
-        // Read as f64 then convert to Fixed32 at the boundary.
+        // Read as f64 then convert to Fixed64 at the boundary.
         // PHASE 2: omoba_core::ability_meta still f32; redesign in Phase 2 KCP tag rework.
-        let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
+        let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra
                 .get(k)
                 .and_then(|v| v.as_f64())
-                .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
+                .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
                 .unwrap_or(dft)
         };
         let get_count = |k: &str, dft: u64| -> u64 {
@@ -56,10 +56,10 @@ impl AbilityScript for SaikaReinforcementsHandler {
                 .unwrap_or(dft)
         };
         let count = get_count("summon_count", 2).max(2);
-        let duration = get_fx("duration", Fixed32::from_i32(45));
-        let row_spacing = get_fx("row_spacing", Fixed32::from_i32(60));
-        let col_spacing = get_fx("col_spacing", Fixed32::from_i32(60));
-        let front_row_distance = get_fx("front_row_distance", Fixed32::from_i32(120));
+        let duration = get_fx("duration", Fixed64::from_i32(45));
+        let row_spacing = get_fx("row_spacing", Fixed64::from_i32(60));
+        let col_spacing = get_fx("col_spacing", Fixed64::from_i32(60));
+        let front_row_distance = get_fx("front_row_distance", Fixed64::from_i32(120));
 
         // forward = 永遠用 caster 的 Facing（忽略 target，因前端每次按鍵都送滑鼠
         // 位置做 target_pos；這個 W 設計上是「以自身朝向往前方兩排召喚」）。
@@ -78,17 +78,17 @@ impl AbilityScript for SaikaReinforcementsHandler {
         // 2 排 × cols 欄：count 必為偶數（保底 max(2)）；cols = count/2。
         let rows: u64 = 2;
         let cols = count / rows;
-        // col_center = (cols - 1) / 2 — keep in Fixed32 for downstream offset math.
-        let half = Fixed32::from_raw(512); // 0.5
-        let col_center = Fixed32::from_i32((cols as i32) - 1) * half;
+        // col_center = (cols - 1) / 2 — keep in Fixed64 for downstream offset math.
+        let half = Fixed64::from_raw(512); // 0.5
+        let col_center = Fixed64::from_i32((cols as i32) - 1) * half;
 
         let unit_type = RStr::from_str(SUMMON_SAIKA_GUNNER.as_str());
         for r in 0..rows {
-            let row_dist = front_row_distance + Fixed32::from_i32(r as i32) * row_spacing;
+            let row_dist = front_row_distance + Fixed64::from_i32(r as i32) * row_spacing;
             let base_x = caster_pos.x + fwd_x * row_dist;
             let base_y = caster_pos.y + fwd_y * row_dist;
             for c in 0..cols {
-                let off = (Fixed32::from_i32(c as i32) - col_center) * col_spacing;
+                let off = (Fixed64::from_i32(c as i32) - col_center) * col_spacing;
                 let p = Vec2 {
                     x: base_x + perp_x * off,
                     y: base_y + perp_y * off,

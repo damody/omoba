@@ -19,9 +19,9 @@ const STATS: &TowerStats = &TOWER_DART_STATS;
 
 // 升級加成（不來自 templates.json — 是腳本邏輯參數）
 // 0.25 * 1024 = 256
-const BONUS_PROC_CHANCE: Fixed32 = Fixed32::from_raw(256);
+const BONUS_PROC_CHANCE: Fixed64 = Fixed64::from_raw(256);
 // 30.0 * 1024 = 30720
-const BONUS_DAMAGE: Fixed32 = Fixed32::from_raw(30720);
+const BONUS_DAMAGE: Fixed64 = Fixed64::from_raw(30720);
 
 impl UnitScript for DartTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -52,9 +52,9 @@ impl UnitScript for DartTower {
         })
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: Fixed32, w: &mut GameWorldDyn<'_>) {
+    fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
         let asd_interval = w.get_asd_interval(e);
-        if asd_interval <= Fixed32::ZERO {
+        if asd_interval <= Fixed64::ZERO {
             return;
         }
         let mut asd_count = w.get_asd_count(e);
@@ -95,16 +95,16 @@ impl UnitScript for DartTower {
 
         // Spike-o-pult 覆蓋：巨釘、splash、半速彈
         let (bullet_speed, damage, splash_radius) = if spike {
-            let forty = Fixed32::from_i32(40);
+            let forty = Fixed64::from_i32(40);
             let dmg = if atk > forty { atk } else { forty };
             (
-                STATS.bullet_speed * Fixed32::from_raw(512), // 0.5
+                STATS.bullet_speed * Fixed64::from_raw(512), // 0.5
                 dmg,
-                Fixed32::from_i32(100),
+                Fixed64::from_i32(100),
             )
         } else {
-            let speed_mul = if fan_club { Fixed32::from_i32(2) } else { Fixed32::ONE };
-            (STATS.bullet_speed * speed_mul, atk, Fixed32::ZERO)
+            let speed_mul = if fan_club { Fixed64::from_i32(2) } else { Fixed64::ONE };
+            (STATS.bullet_speed * speed_mul, atk, Fixed64::ZERO)
         };
 
         w.log_info(RStr::from_str("[tower_dart] fire!"));
@@ -116,7 +116,7 @@ impl UnitScript for DartTower {
         let dx = t_pos.x - pos.x;
         let dy = t_pos.y - pos.y;
         let base_angle = omoba_sim::trig::atan2(dy, dx);
-        let range_x_1_5 = range * Fixed32::from_raw(1536); // 1.5
+        let range_x_1_5 = range * Fixed64::from_raw(1536); // 1.5
 
         for i in 0..count {
             let angle = if count == 1 {
@@ -148,11 +148,11 @@ impl UnitScript for DartTower {
                 path: path_spec,
                 speed: bullet_speed,
                 damage,
-                hit_radius: Fixed32::ZERO,
+                hit_radius: Fixed64::ZERO,
                 splash_radius,
-                slow_factor: Fixed32::ZERO,
-                slow_duration: Fixed32::ZERO,
-                stun_duration: Fixed32::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
                 kind_id: if spike { PROJECTILE_SPIKE_OPULT.0 } else { PROJECTILE_DART.0 },
             });
         }
@@ -169,7 +169,7 @@ impl UnitScript for DartTower {
 
         // crit_chance override：upgrade buff 寫入 crit_chance 就用那個；否則回 BONUS_PROC_CHANCE (0.25)
         let crit_chance_bonus = w.get_stat_bonus(attacker, StatKey::CritChance);
-        let effective_chance = if crit_chance_bonus > Fixed32::ZERO {
+        let effective_chance = if crit_chance_bonus > Fixed64::ZERO {
             crit_chance_bonus
         } else {
             BONUS_PROC_CHANCE
@@ -182,7 +182,7 @@ impl UnitScript for DartTower {
 
         // crit_bonus override
         let crit_bonus_extra = w.get_stat_bonus(attacker, StatKey::CritBonus);
-        let bonus_damage = if crit_bonus_extra > Fixed32::ZERO {
+        let bonus_damage = if crit_bonus_extra > Fixed64::ZERO {
             crit_bonus_extra
         } else {
             BONUS_DAMAGE
@@ -205,8 +205,8 @@ impl UnitScript for DartTower {
                 w.play_vfx(RStr::from_str("vfx_explosion"), at);
                 w.deal_damage_splash(
                     at,
-                    Fixed32::from_i32(60),
-                    Fixed32::from_i32(60),
+                    Fixed64::from_i32(60),
+                    Fixed64::from_i32(60),
                     DamageKind::Physical,
                     RSome(attacker),
                 );

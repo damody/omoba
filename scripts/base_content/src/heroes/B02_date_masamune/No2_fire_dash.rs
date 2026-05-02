@@ -3,7 +3,7 @@
 use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Fixed32, Target},
+    types::{DamageKind, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{
@@ -30,14 +30,14 @@ impl AbilityScript for FireDashHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // JSON extras still f32 → Fixed32 conversion at boundary.
+        // JSON extras still f32 → Fixed64 conversion at boundary.
         // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
-        let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
+        let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra
                 .get(k)
                 .and_then(|v| v.as_f64())
-                .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
+                .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
                 .unwrap_or(dft)
         };
         let damage_per_tick = get_fx(
@@ -52,7 +52,7 @@ impl AbilityScript for FireDashHandler {
             "dash_width",
             extra_at(&ABILITY_FIRE_DASH_CONST, "dash_width", level),
         );
-        let tick_interval = Fixed32::from_raw(102); // 0.1 (≈ 102/1024)
+        let tick_interval = Fixed64::from_raw(102); // 0.1 (≈ 102/1024)
         // total_damage = damage_per_tick * (dash_duration / tick_interval)
         let total_damage = damage_per_tick * (dash_duration / tick_interval);
 
@@ -65,7 +65,7 @@ impl AbilityScript for FireDashHandler {
         };
 
         world.set_pos(caster, dest);
-        let half_width = dash_width / Fixed32::from_i32(2);
+        let half_width = dash_width / Fixed64::from_i32(2);
         let enemies = world.query_enemies_in_range(dest, half_width, caster);
         for victim in enemies.iter().copied() {
             world.deal_damage(victim, total_damage, DamageKind::Magical, RNone);

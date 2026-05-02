@@ -7,7 +7,7 @@
 use abi_stable::std_types::{ROk, RResult, RSome, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Fixed32, Target},
+    types::{DamageKind, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_template_ids::{ABILITY_RAIN_IRON_CANNON, ABILITY_RAIN_IRON_CANNON_CONST};
@@ -56,12 +56,12 @@ impl AbilityScript for RainIronCannonHandler {
             "true_damage_pct": pct,
         });
         let s = modifiers.to_string();
-        // Permanent buff — Fixed32 duration uses near-MAX as "indefinite" sentinel
+        // Permanent buff — Fixed64 duration uses near-MAX as "indefinite" sentinel
         // (BuffStore convention; passive never cleared via tick decrement).
         world.add_stat_buff(
             caster,
             RStr::from_str(BUFF_ID),
-            Fixed32::from_i32(i32::MAX / 1024),
+            Fixed64::from_i32(i32::MAX / 1024),
             (&*s).into(),
         );
     }
@@ -75,7 +75,7 @@ impl AbilityScript for RainIronCannonHandler {
         world: &mut GameWorldDyn<'_>,
     ) {
         let pct = extra_at(&ABILITY_RAIN_IRON_CANNON_CONST, "true_damage_pct", level);
-        if pct <= Fixed32::ZERO {
+        if pct <= Fixed64::ZERO {
             return;
         }
         let aoe_radius = extra_at(&ABILITY_RAIN_IRON_CANNON_CONST, "aoe_radius", level);
@@ -91,14 +91,14 @@ impl AbilityScript for RainIronCannonHandler {
         };
         let dx = victim_pos.x - attacker_pos.x;
         let dy = victim_pos.y - attacker_pos.y;
-        // tiny-distance guard (was 0.0001 in f32; raw 1 ~ 0.001 in Fixed32)
-        if dx * dx + dy * dy < Fixed32::from_raw(1) {
+        // tiny-distance guard (was 0.0001 in f32; raw 1 ~ 0.001 in Fixed64)
+        if dx * dx + dy * dy < Fixed64::from_raw(1) {
             return;
         }
         let base_angle = omoba_sim::trig::atan2(dy, dx);
         let atk = world.get_final_atk(attacker);
         let true_damage = atk * pct;
-        if true_damage <= Fixed32::ZERO {
+        if true_damage <= Fixed64::ZERO {
             return;
         }
 
@@ -121,7 +121,7 @@ impl AbilityScript for RainIronCannonHandler {
             };
             let edx = epos.x - attacker_pos.x;
             let edy = epos.y - attacker_pos.y;
-            if edx * edx + edy * edy < Fixed32::from_raw(1) {
+            if edx * edx + edy * edy < Fixed64::from_raw(1) {
                 continue;
             }
             let enemy_angle = omoba_sim::trig::atan2(edy, edx);

@@ -3,7 +3,7 @@
 use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Fixed32, Target},
+    types::{DamageKind, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{
@@ -30,19 +30,19 @@ impl AbilityScript for FlameBladeHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // JSON extras still f32 → Fixed32 conversion at the boundary.
+        // JSON extras still f32 → Fixed64 conversion at the boundary.
         // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
         let damage = level_data
             .extra
             .get("damage")
             .and_then(|v| v.as_f64())
-            .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
+            .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
             .unwrap_or_else(|| extra_at(&ABILITY_FLAME_BLADE_CONST, "damage", level));
         let swipe_radius = level_data
             .extra
             .get("swipe_radius")
             .and_then(|v| v.as_f64())
-            .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
+            .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
             .unwrap_or_else(|| extra_at(&ABILITY_FLAME_BLADE_CONST, "swipe_radius", level));
 
         match target {
@@ -50,7 +50,7 @@ impl AbilityScript for FlameBladeHandler {
                 world.deal_damage(victim, damage, DamageKind::Magical, RNone);
             }
             Target::Point(p) => {
-                world.emit_explosion(p, swipe_radius, Fixed32::from_raw(204) /* 0.2 */);
+                world.emit_explosion(p, swipe_radius, Fixed64::from_raw(204) /* 0.2 */);
                 let enemies = world.query_enemies_in_range(p, swipe_radius, caster);
                 for victim in enemies.iter().copied() {
                     world.deal_damage(victim, damage, DamageKind::Magical, RNone);
