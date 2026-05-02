@@ -28,3 +28,45 @@ fn unknown_hero_has_no_abilities() {
     let abs = hero_abilities(HeroId::UNSPECIFIED);
     assert_eq!(abs.len(), 0);
 }
+
+// ===== Phase B: hero / creep / summon stats lookup =====
+
+#[test]
+fn saika_magoichi_stats_match_json() {
+    let s = hero_stats(HERO_SAIKA_MAGOICHI).expect("saika has stats");
+    assert_eq!(s.strength, 18);
+    assert_eq!(s.agility, 28);
+    assert_eq!(s.intelligence, 16);
+    assert_eq!(s.primary_attribute, 1); // 1 = agility
+    assert_eq!(s.base_hp, 580);
+    assert_eq!(s.base_damage, 52);
+    assert_eq!(s.attack_range, 900.0);
+    assert_eq!(s.level_growth.hp_per_level, 58.0);
+}
+
+#[test]
+fn training_mage_creep_stats() {
+    let s = creep_stats(CREEP_TRAINING_MAGE).expect("training_mage has stats");
+    assert_eq!(s.hp, 320.0);
+    assert_eq!(s.damage, 45.0);
+    assert_eq!(s.enemy_type, 0); // 0 = caster
+    assert_eq!(s.ai_type, 0);    // 0 = defensive
+    assert_eq!(s.exp_reward, 80);
+    assert_eq!(s.gold_reward, 45);
+}
+
+#[test]
+fn saika_gunner_summon_stats() {
+    let s = summon_stats(SUMMON_SAIKA_GUNNER).expect("saika_gunner has stats");
+    assert_eq!(s.hp, 400.0);
+    assert_eq!(s.damage, 45.0);
+    assert_eq!(s.duration, 60.0);
+    assert_eq!(s.move_speed, 320.0);
+}
+
+#[test]
+fn unknown_unit_returns_none() {
+    assert!(hero_stats(HeroId::UNSPECIFIED).is_none());
+    assert!(creep_stats(CreepId::UNSPECIFIED).is_none());
+    assert!(summon_stats(SummonId::UNSPECIFIED).is_none());
+}
