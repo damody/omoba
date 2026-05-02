@@ -47,9 +47,9 @@ impl UnitScript for TackTower {
         })
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: f32, w: &mut GameWorldDyn<'_>) {
+    fn on_tick(&self, e: EntityHandle, dt: Fixed32, w: &mut GameWorldDyn<'_>) {
         let asd_interval = w.get_asd_interval(e);
-        if asd_interval <= 0.0 {
+        if asd_interval <= Fixed32::ZERO {
             return;
         }
         let mut asd_count = w.get_asd_count(e);
@@ -88,20 +88,22 @@ impl UnitScript for TackTower {
         };
 
         let (hit_radius, damage) = if blade {
-            (110.0_f32, atk.max(20.0))
+            let twenty = Fixed32::from_i32(20);
+            let dmg = if atk > twenty { atk } else { twenty };
+            (Fixed32::from_i32(110), dmg)
         } else {
             (STATS.hit_radius, atk)
         };
 
         w.log_info(RStr::from_str("[tower_tack] fire needles!"));
 
-        let step = core::f32::consts::TAU / (needle_count as f32);
+        let step_deg: i32 = 360 / (needle_count as i32);
         for i in 0..needle_count {
-            let angle = step * (i as f32);
-            let end = Vec2f::new(
-                pos.x + angle.cos() * range,
-                pos.y + angle.sin() * range,
-            );
+            let angle = omoba_sim::trig::Angle::from_degrees_i32(step_deg * (i as i32));
+            let end = Vec2 {
+                x: pos.x + omoba_sim::trig::cos(angle) * range,
+                y: pos.y + omoba_sim::trig::sin(angle) * range,
+            };
             w.spawn_projectile_ex(ProjectileSpec {
                 from: pos,
                 owner: e,
@@ -109,10 +111,10 @@ impl UnitScript for TackTower {
                 speed: STATS.bullet_speed,
                 damage,
                 hit_radius,
-                splash_radius: 0.0,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-                stun_duration: 0.0,
+                splash_radius: Fixed32::ZERO,
+                slow_factor: Fixed32::ZERO,
+                slow_duration: Fixed32::ZERO,
+                stun_duration: Fixed32::ZERO,
                 kind_id: if blade { PROJECTILE_TACK_BLADE.0 } else { PROJECTILE_TACK.0 },
             });
         }
@@ -122,9 +124,9 @@ impl UnitScript for TackTower {
         let ring = inferno || w.has_tower_flag(e, RStr::from_str("ring_of_fire"));
         if ring {
             let (r, dmg) = if inferno {
-                (200.0_f32, 50.0_f32)
+                (Fixed32::from_i32(200), Fixed32::from_i32(50))
             } else {
-                (200.0_f32, 20.0_f32)
+                (Fixed32::from_i32(200), Fixed32::from_i32(20))
             };
             w.deal_damage_splash(pos, r, dmg, DamageKind::Magical, RSome(e));
             w.play_vfx(RStr::from_str("vfx_ring_of_fire"), pos);

@@ -48,9 +48,9 @@ impl UnitScript for IceTower {
         })
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: f32, w: &mut GameWorldDyn<'_>) {
+    fn on_tick(&self, e: EntityHandle, dt: Fixed32, w: &mut GameWorldDyn<'_>) {
         let asd_interval = w.get_asd_interval(e);
-        if asd_interval <= 0.0 {
+        if asd_interval <= Fixed32::ZERO {
             return;
         }
         let mut asd_count = w.get_asd_count(e);
@@ -78,7 +78,7 @@ impl UnitScript for IceTower {
 
         // slow_factor_override：upgrade 寫入的目標 factor（越小越強，clamp 在 (0, 1) 才採用）
         let slow_override = w.get_stat_bonus(e, StatKey::SlowFactorOverride);
-        let slow_factor = if slow_override > 0.0 && slow_override < 1.0 {
+        let slow_factor = if slow_override > Fixed32::ZERO && slow_override < Fixed32::ONE {
             slow_override
         } else {
             STATS.slow_factor
@@ -91,9 +91,9 @@ impl UnitScript for IceTower {
         let splash_radius = STATS.splash_radius + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("deep_freeze")) {
-            1.0
+            Fixed32::ONE
         } else {
-            0.0
+            Fixed32::ZERO
         };
         let icicle = w.has_tower_flag(e, RStr::from_str("icicle_impale"));
 
@@ -105,14 +105,18 @@ impl UnitScript for IceTower {
             };
             let dx = t_pos.x - pos.x;
             let dy = t_pos.y - pos.y;
-            let len = (dx * dx + dy * dy).sqrt().max(1.0);
-            let nx = dx / len * range * 1.5;
-            let ny = dy / len * range * 1.5;
-            let end = Vec2f::new(pos.x + nx, pos.y + ny);
+            let len_raw = (dx * dx + dy * dy).sqrt();
+            let len = if len_raw < Fixed32::ONE { Fixed32::ONE } else { len_raw };
+            let scale = Fixed32::from_raw(1536); // 1.5
+            let nx = dx / len * range * scale;
+            let ny = dy / len * range * scale;
+            let end = Vec2 { x: pos.x + nx, y: pos.y + ny };
+            let twenty_five = Fixed32::from_i32(25);
+            let dmg = if atk > twenty_five { atk } else { twenty_five };
             (
                 PathSpec::Straight { end_pos: end },
-                150.0_f32,
-                atk.max(25.0),
+                Fixed32::from_i32(150),
+                dmg,
                 PROJECTILE_ICICLE.0,
             )
         } else {
@@ -131,7 +135,7 @@ impl UnitScript for IceTower {
             path: path_spec,
             speed: STATS.bullet_speed,
             damage: final_damage,
-            hit_radius: 0.0,
+            hit_radius: Fixed32::ZERO,
             splash_radius: final_splash,
             slow_factor,
             slow_duration,
