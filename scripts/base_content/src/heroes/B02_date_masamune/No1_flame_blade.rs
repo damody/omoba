@@ -3,7 +3,7 @@
 use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Target},
+    types::{DamageKind, EntityHandle, Fixed32, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{
@@ -11,7 +11,7 @@ use omoba_core::ability_meta::{
 };
 use omoba_template_ids::{ABILITY_FLAME_BLADE, ABILITY_FLAME_BLADE_CONST};
 
-use crate::ability_builder::{build_ability_ffi, extra_at};
+use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
 
 pub struct FlameBladeHandler;
 
@@ -30,17 +30,19 @@ impl AbilityScript for FlameBladeHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
+        // JSON extras still f32 → Fixed32 conversion at the boundary.
+        // TODO Phase 1[bcd]: omoba_core::AbilityLevelData migrated → drop hop.
         let damage = level_data
             .extra
             .get("damage")
             .and_then(|v| v.as_f64())
-            .map(|v| v as f32)
+            .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
             .unwrap_or_else(|| extra_at(&ABILITY_FLAME_BLADE_CONST, "damage", level));
         let swipe_radius = level_data
             .extra
             .get("swipe_radius")
             .and_then(|v| v.as_f64())
-            .map(|v| v as f32)
+            .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
             .unwrap_or_else(|| extra_at(&ABILITY_FLAME_BLADE_CONST, "swipe_radius", level));
 
         match target {
@@ -48,7 +50,7 @@ impl AbilityScript for FlameBladeHandler {
                 world.deal_damage(victim, damage, DamageKind::Magical, RNone);
             }
             Target::Point(p) => {
-                world.emit_explosion(p, swipe_radius, 0.2);
+                world.emit_explosion(p, swipe_radius, Fixed32::from_raw(204) /* 0.2 */);
                 let enemies = world.query_enemies_in_range(p, swipe_radius, caster);
                 for victim in enemies.iter().copied() {
                     world.deal_damage(victim, damage, DamageKind::Magical, RNone);
@@ -63,7 +65,7 @@ impl AbilityScript for FlameBladeHandler {
 }
 
 pub fn flame_blade_ffi() -> AbilityDefFFI {
-    let dmg_lv1 = extra_at(&ABILITY_FLAME_BLADE_CONST, "damage", 1);
+    let dmg_lv1 = extra_at_f32(&ABILITY_FLAME_BLADE_CONST, "damage", 1);
     let effects_preview = vec![EffectSpec::Damage {
         target: TargetSelector::Target,
         amount: dmg_lv1,

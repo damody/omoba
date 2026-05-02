@@ -7,14 +7,14 @@ use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     stat_keys::StatKey,
-    types::{EntityHandle, Target},
+    types::{EntityHandle, Fixed32, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
 use omoba_template_ids::{ABILITY_MATCHLOCK_GUN, ABILITY_MATCHLOCK_GUN_CONST};
 use std::collections::HashMap;
 
-use crate::ability_builder::{build_ability_ffi, extra_at};
+use crate::ability_builder::{build_ability_ffi, extra_at_f32};
 
 const BUFF_ID: &str = "matchlock_gun";
 
@@ -35,6 +35,7 @@ impl AbilityScript for MatchlockGunHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
+        // JSON extras still f32; raw f64 read for serde_json::json! payload (host BuffStore reads f64).
         let get_f = |k: &str| {
             level_data
                 .extra
@@ -42,7 +43,9 @@ impl AbilityScript for MatchlockGunHandler {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0)
         };
-        let duration = get_f("duration") as f32;
+        // duration: f64 → Fixed32 at boundary for the FFI add_stat_buff call.
+        let duration_f = get_f("duration");
+        let duration = Fixed32::from_raw((duration_f * 1024.0) as i32);
         // damage_bonus 為絕對傷害點（90/130/170）→ BaseAttackBonusDamage；
         // attack_stun_* 已納入 StatKey enum，由 on_damage_dealt hook 未來接
         let mut modifiers = serde_json::Map::new();
@@ -58,11 +61,11 @@ impl AbilityScript for MatchlockGunHandler {
 }
 
 pub fn matchlock_gun_ffi() -> AbilityDefFFI {
-    let dur_lv1 = extra_at(&ABILITY_MATCHLOCK_GUN_CONST, "duration", 1);
-    let range_lv1 = extra_at(&ABILITY_MATCHLOCK_GUN_CONST, "range_bonus", 1);
-    let dmg_lv1 = extra_at(&ABILITY_MATCHLOCK_GUN_CONST, "damage_bonus", 1);
-    let stun_c_lv1 = extra_at(&ABILITY_MATCHLOCK_GUN_CONST, "stun_chance", 1);
-    let stun_d_lv1 = extra_at(&ABILITY_MATCHLOCK_GUN_CONST, "stun_duration", 1);
+    let dur_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "duration", 1);
+    let range_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "range_bonus", 1);
+    let dmg_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "damage_bonus", 1);
+    let stun_c_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "stun_chance", 1);
+    let stun_d_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "stun_duration", 1);
     let mut preview_mods = HashMap::new();
     preview_mods.insert(StatKey::AttackRangeBonus.as_str().into(), range_lv1);
     preview_mods.insert(StatKey::BaseAttackBonusDamage.as_str().into(), dmg_lv1);

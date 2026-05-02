@@ -7,14 +7,14 @@ use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     stat_keys::StatKey,
-    types::{EntityHandle, Target},
+    types::{EntityHandle, Fixed32, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
 use omoba_template_ids::{ABILITY_THREE_STAGE_TECHNIQUE, ABILITY_THREE_STAGE_TECHNIQUE_CONST};
 use std::collections::HashMap;
 
-use crate::ability_builder::{build_ability_ffi, extra_at};
+use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
 
 const BUFF_ID: &str = "three_stage_transform";
 
@@ -35,26 +35,28 @@ impl AbilityScript for ThreeStageHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        let get_f = |k: &str, dft: f32| {
+        // omoba_core JSON extras still f32; convert to Fixed32 at boundary.
+        // TODO Phase 1[bcd]: omoba_core::AbilityLevelData migrated → drop f64 hop.
+        let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
             level_data
                 .extra
                 .get(k)
                 .and_then(|v| v.as_f64())
-                .map(|v| v as f32)
+                .map(|v| Fixed32::from_raw((v * 1024.0) as i32))
                 .unwrap_or(dft)
         };
-        let duration = get_f("duration", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", level));
-        let atk_bonus = get_f("atk_bonus_pct", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", level));
-        let multi_shot = get_f("multi_shot_count", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", level));
+        let duration = get_fx("duration", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", level));
+        let atk_bonus = get_fx("atk_bonus_pct", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", level));
+        let multi_shot = get_fx("multi_shot_count", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", level));
 
         let mut modifiers = serde_json::Map::new();
         modifiers.insert(
             StatKey::TotalDamageOutgoingPercentage.as_str().into(),
-            serde_json::json!(atk_bonus),
+            serde_json::json!(atk_bonus.to_f32_for_render()),
         );
         modifiers.insert(
             StatKey::MultiShotVisual.as_str().into(),
-            serde_json::json!(multi_shot),
+            serde_json::json!(multi_shot.to_f32_for_render()),
         );
         modifiers.insert(
             "visual_effect".into(),
@@ -73,9 +75,9 @@ impl AbilityScript for ThreeStageHandler {
 }
 
 pub fn three_stage_ffi() -> AbilityDefFFI {
-    let dur_lv1 = extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", 1);
-    let atk_lv1 = extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", 1);
-    let multi_lv1 = extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", 1);
+    let dur_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", 1);
+    let atk_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", 1);
+    let multi_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", 1);
     let mut preview_mods = HashMap::new();
     preview_mods.insert(StatKey::TotalDamageOutgoingPercentage.as_str().into(), atk_lv1);
     preview_mods.insert(StatKey::MultiShotVisual.as_str().into(), multi_lv1);
