@@ -29,6 +29,28 @@ impl std::ops::Sub for Fixed32 {
     fn sub(self, rhs: Fixed32) -> Fixed32 { Fixed32(self.0.wrapping_sub(rhs.0)) }
 }
 
+impl std::ops::Mul for Fixed32 {
+    type Output = Fixed32;
+    fn mul(self, rhs: Fixed32) -> Fixed32 {
+        // (a * SCALE) * (b * SCALE) / SCALE = a*b*SCALE
+        let prod = (self.0 as i64) * (rhs.0 as i64);
+        Fixed32((prod >> SCALE_BITS) as i32)
+    }
+}
+
+impl std::ops::Div for Fixed32 {
+    type Output = Fixed32;
+    fn div(self, rhs: Fixed32) -> Fixed32 {
+        let num = (self.0 as i64) << SCALE_BITS;
+        Fixed32((num / rhs.0 as i64) as i32)
+    }
+}
+
+impl std::ops::Neg for Fixed32 {
+    type Output = Fixed32;
+    fn neg(self) -> Fixed32 { Fixed32(-self.0) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,5 +68,34 @@ mod tests {
         let a = Fixed32::from_raw(512);  // 0.5
         let b = Fixed32::from_raw(256);  // 0.25
         assert_eq!((a + b).raw(), 768);  // 0.75
+    }
+
+    #[test]
+    fn mul_basic() {
+        let a = Fixed32::from_i32(3);
+        let b = Fixed32::from_i32(4);
+        assert_eq!(a * b, Fixed32::from_i32(12));
+    }
+
+    #[test]
+    fn mul_fractional() {
+        let a = Fixed32::from_raw(512);  // 0.5
+        let b = Fixed32::from_raw(512);  // 0.5
+        assert_eq!((a * b).raw(), 256);  // 0.25
+    }
+
+    #[test]
+    fn div_basic() {
+        let a = Fixed32::from_i32(10);
+        let b = Fixed32::from_i32(4);
+        assert_eq!((a / b).raw(), 2560);  // 2.5
+    }
+
+    #[test]
+    fn mul_no_overflow_in_range() {
+        // ±2000 unit (typical map size) × Fixed32 must not panic
+        let pos = Fixed32::from_i32(2000);
+        let scale = Fixed32::from_raw(2048);  // 2.0
+        let _ = pos * scale;
     }
 }
