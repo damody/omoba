@@ -44,7 +44,10 @@ impl AbilityScript for RainIronCannonHandler {
         world: &mut GameWorldDyn<'_>,
     ) {
         // 永久可見 buff — payload 標等級，前端可據此渲染 icon / tooltip。
-        // pct in JSON metadata stays f32 for now (omoba_core not migrated).
+        // Phase 1de.2: this payload is NOT consumed via BuffStore::sum_add (no
+        // matching StatKey); it's a tooltip / visual-only marker. Keep f32
+        // emission for the frontend tooltip path. If a future system reads
+        // `true_damage_pct` numerically, switch to `.raw()`.
         let pct = extra_at(&ABILITY_RAIN_IRON_CANNON_CONST, "true_damage_pct", new_level)
             .to_f32_for_render();
         let modifiers = serde_json::json!({
