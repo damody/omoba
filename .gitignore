@@ -3,6 +3,7 @@ nul
 *.log
 omfx_tmp/
 omoba-core/target/
+omoba-sim/target/
 eui/target/
 map_editor/target/
 scripts/target/
