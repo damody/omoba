@@ -32,7 +32,7 @@ impl AbilityScript for FlameAssaultHandler {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
         // JSON extras still f32 → Fixed32 conversion at boundary.
-        // TODO Phase 1[d]: omoba_core migrated → drop hop.
+        // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
         let get_fx = |k: &str, dft: Fixed32| -> Fixed32 {
             level_data
                 .extra
