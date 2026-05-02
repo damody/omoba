@@ -1,13 +1,13 @@
 //! Deterministic sin/cos via 4096-tick LUT. Implemented in Task 0.6.
 
-use crate::fixed::{Fixed32, SCALE};
+use crate::fixed::{Fixed64, SCALE};
 use serde::{Serialize, Deserialize};
 
 /// Number of discrete angle ticks in a full turn (2π). Each tick = ~0.0879°.
 pub const TAU_TICKS: i32 = 4096;
 
-/// 2π in Fixed32 raw units: round(2 * 3.14159265358979 * 1024) = 6434.
-/// Constant used to convert Fixed32 radians to angle ticks.
+/// 2π in Fixed64 raw units: round(2 * 3.14159265358979 * 1024) = 6434.
+/// Constant used to convert Fixed64 radians to angle ticks.
 pub const TAU_FIXED_RAW: i64 = 6434;
 
 /// Convert a fixed-point radians value (e.g. TurnSpeed × dt) into Angle ticks
@@ -17,8 +17,8 @@ pub const TAU_FIXED_RAW: i64 = 6434;
 ///
 /// For typical inputs (TurnSpeed × dt ≈ 0.1 rad), the precision loss is at most
 /// 1 tick — acceptable for game movement.
-pub fn fixed_rad_to_ticks(rad: Fixed32) -> i32 {
-    ((rad.raw() as i64 * TAU_TICKS as i64) / TAU_FIXED_RAW) as i32
+pub fn fixed_rad_to_ticks(rad: Fixed64) -> i32 {
+    ((rad.raw() * TAU_TICKS as i64) / TAU_FIXED_RAW) as i32
 }
 
 /// Angle in fixed ticks, modulo TAU_TICKS. 0 = 0°, TAU_TICKS/4 = 90°, etc.
@@ -48,22 +48,22 @@ impl Angle {
 // LUT generated at first call. Uses f64 with `round()` for cross-platform reproducibility:
 // IEEE-754 f64 sin() agrees bit-for-bit on all major platforms (the variation is in trig
 // intrinsics' last bits which `round()` discards).
-static SIN_LUT: once_cell::sync::Lazy<[i32; TAU_TICKS as usize]> = once_cell::sync::Lazy::new(|| {
-    let mut lut = [0i32; TAU_TICKS as usize];
+static SIN_LUT: once_cell::sync::Lazy<[i64; TAU_TICKS as usize]> = once_cell::sync::Lazy::new(|| {
+    let mut lut = [0i64; TAU_TICKS as usize];
     for i in 0..TAU_TICKS {
         let rad = (i as f64) * std::f64::consts::TAU / TAU_TICKS as f64;
-        lut[i as usize] = (rad.sin() * SCALE as f64).round() as i32;
+        lut[i as usize] = (rad.sin() * SCALE as f64).round() as i64;
     }
     lut
 });
 
-pub fn sin(a: Angle) -> Fixed32 {
-    Fixed32::from_raw(SIN_LUT[a.0 as usize])
+pub fn sin(a: Angle) -> Fixed64 {
+    Fixed64::from_raw(SIN_LUT[a.0 as usize])
 }
 
-pub fn cos(a: Angle) -> Fixed32 {
+pub fn cos(a: Angle) -> Fixed64 {
     let i = (a.0 + TAU_TICKS / 4).rem_euclid(TAU_TICKS);
-    Fixed32::from_raw(SIN_LUT[i as usize])
+    Fixed64::from_raw(SIN_LUT[i as usize])
 }
 
 /// 4096-entry lookup table for `atan(t)` where `t = y/x` in real units, t ∈ [0, 1].
@@ -92,7 +92,7 @@ static ATAN_LUT: once_cell::sync::Lazy<[i32; 1024]> = once_cell::sync::Lazy::new
 /// Special cases:
 /// - `atan2(0, 0) = 0` (no panic, no NaN-equivalent — lockstep cannot tolerate either)
 /// - Cardinal axes hit table boundaries exactly (atan2(0, +1) = 0, atan2(+1, 0) = π/2)
-pub fn atan2(y: Fixed32, x: Fixed32) -> Angle {
+pub fn atan2(y: Fixed64, x: Fixed64) -> Angle {
     let yr = y.raw();
     let xr = x.raw();
     if yr == 0 && xr == 0 {
@@ -153,20 +153,20 @@ pub fn angle_rotate_toward(current: Angle, target: Angle, max_step_ticks: i32) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fixed::Fixed32;
+    use crate::fixed::Fixed64;
 
     #[test]
     fn sin_known_values() {
-        assert_eq!(sin(Angle::ZERO), Fixed32::ZERO);
-        assert_eq!(sin(Angle::QUARTER_TURN), Fixed32::ONE);
-        assert_eq!(sin(Angle::HALF_TURN), Fixed32::ZERO);
+        assert_eq!(sin(Angle::ZERO), Fixed64::ZERO);
+        assert_eq!(sin(Angle::QUARTER_TURN), Fixed64::ONE);
+        assert_eq!(sin(Angle::HALF_TURN), Fixed64::ZERO);
     }
 
     #[test]
     fn cos_known_values() {
-        assert_eq!(cos(Angle::ZERO), Fixed32::ONE);
-        assert_eq!(cos(Angle::QUARTER_TURN), Fixed32::ZERO);
-        assert_eq!(cos(Angle::HALF_TURN), -Fixed32::ONE);
+        assert_eq!(cos(Angle::ZERO), Fixed64::ONE);
+        assert_eq!(cos(Angle::QUARTER_TURN), Fixed64::ZERO);
+        assert_eq!(cos(Angle::HALF_TURN), -Fixed64::ONE);
     }
 
     #[test]
@@ -174,52 +174,52 @@ mod tests {
         // 30° = π/6, sin = 0.5
         let a = Angle::from_degrees_i32(30);
         let s = sin(a);
-        let expected = Fixed32::from_raw(512);  // 0.5
+        let expected = Fixed64::from_raw(512);  // 0.5
         assert!((s.raw() - expected.raw()).abs() <= 2);
     }
 
     #[test]
     fn atan2_zero_zero() {
-        assert_eq!(atan2(Fixed32::ZERO, Fixed32::ZERO), Angle::ZERO);
+        assert_eq!(atan2(Fixed64::ZERO, Fixed64::ZERO), Angle::ZERO);
     }
 
     #[test]
     fn atan2_cardinal_axes() {
         // +x axis: atan2(0, 1) = 0
-        assert_eq!(atan2(Fixed32::ZERO, Fixed32::ONE), Angle::ZERO);
+        assert_eq!(atan2(Fixed64::ZERO, Fixed64::ONE), Angle::ZERO);
         // +y axis: atan2(1, 0) = π/2 = TAU_TICKS/4
-        assert_eq!(atan2(Fixed32::ONE, Fixed32::ZERO).ticks(), TAU_TICKS / 4);
+        assert_eq!(atan2(Fixed64::ONE, Fixed64::ZERO).ticks(), TAU_TICKS / 4);
         // -x axis: atan2(0, -1) = π = TAU_TICKS/2
-        assert_eq!(atan2(Fixed32::ZERO, -Fixed32::ONE).ticks(), TAU_TICKS / 2);
+        assert_eq!(atan2(Fixed64::ZERO, -Fixed64::ONE).ticks(), TAU_TICKS / 2);
         // -y axis: atan2(-1, 0) = 3π/2 = 3*TAU_TICKS/4
-        assert_eq!(atan2(-Fixed32::ONE, Fixed32::ZERO).ticks(), 3 * TAU_TICKS / 4);
+        assert_eq!(atan2(-Fixed64::ONE, Fixed64::ZERO).ticks(), 3 * TAU_TICKS / 4);
     }
 
     #[test]
     fn atan2_45deg_diagonals() {
         // First-quadrant diagonal: atan2(1, 1) = π/4 = TAU_TICKS/8 = 512
-        let a = atan2(Fixed32::ONE, Fixed32::ONE);
+        let a = atan2(Fixed64::ONE, Fixed64::ONE);
         assert!((a.ticks() - TAU_TICKS / 8).abs() <= 1, "Q1 diagonal: got {}, expected ~512", a.ticks());
 
         // Q2 diagonal: atan2(1, -1) = 3π/4 = 3*TAU_TICKS/8 = 1536
-        let b = atan2(Fixed32::ONE, -Fixed32::ONE);
+        let b = atan2(Fixed64::ONE, -Fixed64::ONE);
         assert!((b.ticks() - 3 * TAU_TICKS / 8).abs() <= 1, "Q2 diagonal: got {}, expected ~1536", b.ticks());
 
         // Q3 diagonal: atan2(-1, -1) = 5π/4 = 5*TAU_TICKS/8 = 2560
-        let c = atan2(-Fixed32::ONE, -Fixed32::ONE);
+        let c = atan2(-Fixed64::ONE, -Fixed64::ONE);
         assert!((c.ticks() - 5 * TAU_TICKS / 8).abs() <= 1, "Q3 diagonal: got {}, expected ~2560", c.ticks());
 
         // Q4 diagonal: atan2(-1, 1) = 7π/4 = 7*TAU_TICKS/8 = 3584
-        let d = atan2(-Fixed32::ONE, Fixed32::ONE);
+        let d = atan2(-Fixed64::ONE, Fixed64::ONE);
         assert!((d.ticks() - 7 * TAU_TICKS / 8).abs() <= 1, "Q4 diagonal: got {}, expected ~3584", d.ticks());
     }
 
     #[test]
     fn atan2_30deg() {
         // atan2(1, sqrt(3)) ≈ 30° = TAU_TICKS * 30/360 = ~341 ticks
-        // Approximate sqrt(3) as Fixed32(1773) (raw, ≈ 1.732)
-        let y = Fixed32::ONE;
-        let x = Fixed32::from_raw(1773);
+        // Approximate sqrt(3) as Fixed64(1773) (raw, ≈ 1.732)
+        let y = Fixed64::ONE;
+        let x = Fixed64::from_raw(1773);
         let a = atan2(y, x);
         let expected = Angle::from_degrees_i32(30).ticks();
         let diff = (a.ticks() - expected).abs();
@@ -265,14 +265,14 @@ mod tests {
 
     #[test]
     fn fixed_rad_to_ticks_basic() {
-        // π/2 in Fixed32 raw ≈ 1608. Expected ticks: TAU_TICKS / 4 = 1024.
-        let half_pi = Fixed32::from_raw(1608);  // ~π/2
+        // π/2 in Fixed64 raw ≈ 1608. Expected ticks: TAU_TICKS / 4 = 1024.
+        let half_pi = Fixed64::from_raw(1608);  // ~π/2
         let ticks = fixed_rad_to_ticks(half_pi);
         assert!((ticks - 1024).abs() <= 2, "fixed_rad_to_ticks(π/2) = {} ticks, expected ~1024", ticks);
     }
 
     #[test]
     fn fixed_rad_to_ticks_zero() {
-        assert_eq!(fixed_rad_to_ticks(Fixed32::ZERO), 0);
+        assert_eq!(fixed_rad_to_ticks(Fixed64::ZERO), 0);
     }
 }
