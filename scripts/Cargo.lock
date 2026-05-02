@@ -90,6 +90,7 @@ dependencies = [
  "abi_stable",
  "omb-script-abi",
  "omoba-core",
+ "omoba-sim",
  "omoba-template-ids",
  "serde",
  "serde_json",
@@ -280,6 +281,7 @@ name = "omb-script-abi"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
+ "omoba-sim",
  "omoba-template-ids",
 ]
 
