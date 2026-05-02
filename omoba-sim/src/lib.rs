@@ -13,3 +13,4 @@ pub mod snapshot;
 pub use crate::fixed::Fixed32;
 pub use crate::vec2::Vec2;
 pub use crate::trig::Angle;
+pub use crate::rng::SimRng;
