@@ -47,7 +47,32 @@ struct TowerEntry {
     #[serde(default)] footprint: f32,
     #[serde(default)] hp: f32,
     #[serde(default)] turn_speed_deg: f32,
+    /// Phase D: 3 路線 × 4 級 upgrade tree。長度必須 = 3 (paths)，每路 4 entries。
+    /// 空陣列等於 tower 沒有 upgrade tree（測試 / 未來新塔可暫缺）。
+    #[serde(default)] upgrades: Vec<Vec<UpgradeEntry>>,
 }
+
+/// 單一 upgrade 條目（per path × per level）。
+#[derive(Deserialize, Clone)]
+struct UpgradeEntry {
+    #[serde(default)] name: String,
+    #[serde(default)] description: String,
+    #[serde(default)] cost: i32,
+    #[serde(default)] effects: Vec<UpgradeEffectEntry>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum UpgradeEffectEntry {
+    StatMod {
+        key: String,
+        value: f32,
+        #[serde(default = "default_stat_op")] op: String, // "add" or "mul"
+    },
+    BehaviorFlag { flag: String },
+}
+
+fn default_stat_op() -> String { "add".into() }
 
 #[derive(Deserialize)]
 struct HeroEntry {
@@ -198,6 +223,9 @@ fn main() {
     // Phase C: ability const + lookup
     emit_ability_const(&mut out, &m.abilities);
     emit_ability_description(&mut out, &m.abilities);
+
+    // Phase D: tower upgrade tree const + lookup
+    emit_tower_upgrades(&mut out, &m.towers);
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = format!("{}/template_ids_gen.rs", out_dir);
@@ -735,6 +763,141 @@ fn sanitize_ident(s: &str) -> String {
     s.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
         .collect()
+}
+
+fn stat_op_to_variant(s: &str) -> &'static str {
+    match s {
+        "" | "add" => "Add",
+        "mul" => "Mul",
+        other => panic!("unknown stat_op '{}', expected add|mul", other),
+    }
+}
+
+/// Emit `TOWER_<NAME>_UPGRADES: &[&[UpgradeDefConst]] = &[Path0, Path1, Path2]`
+/// + `tower_upgrades(id) -> &'static [&'static [UpgradeDefConst]]` lookup。
+/// 跳過 tombstone / 沒有 upgrades 的 tower。
+fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
+    use omoba_core_dummy::upgrade_cost; // local helper, see bottom
+
+    for e in entries {
+        if e.tombstone || e.upgrades.is_empty() {
+            continue;
+        }
+        if e.upgrades.len() != 3 {
+            panic!("tower '{}' upgrades must have 3 paths, got {}", e.id, e.upgrades.len());
+        }
+        for (path_idx, path) in e.upgrades.iter().enumerate() {
+            if path.len() != 4 {
+                panic!(
+                    "tower '{}' path {} must have 4 levels, got {}",
+                    e.id, path_idx, path.len()
+                );
+            }
+            for (lvl_idx, u) in path.iter().enumerate() {
+                let lvl = (lvl_idx + 1) as u8;
+                let expected = upgrade_cost(e.cost, lvl);
+                if u.cost != expected {
+                    panic!(
+                        "tower '{}' path {} L{} cost mismatch: declared {} but base {} × multiplier = {}",
+                        e.id, path_idx, lvl, u.cost, e.cost, expected
+                    );
+                }
+            }
+        }
+
+        let cname = const_name("tower", &e.id);
+
+        // Per-upgrade effects array — emit a named static so the slice address is stable.
+        for (path_idx, path) in e.upgrades.iter().enumerate() {
+            for (lvl_idx, u) in path.iter().enumerate() {
+                let effects_const = format!("{}_UPGRADE_P{}_L{}_EFFECTS", cname, path_idx, lvl_idx + 1);
+                out.push_str(&format!(
+                    "pub const {}: &[UpgradeEffectConst] = &[\n",
+                    effects_const
+                ));
+                for ef in &u.effects {
+                    match ef {
+                        UpgradeEffectEntry::StatMod { key, value, op } => {
+                            out.push_str(&format!(
+                                "\tUpgradeEffectConst {{ kind: UpgradeEffectKindC::StatMod, key: \"{}\", value: {:?}_f32, op: StatOpC::{} }},\n",
+                                escape_str_literal(key), value, stat_op_to_variant(op)
+                            ));
+                        }
+                        UpgradeEffectEntry::BehaviorFlag { flag } => {
+                            out.push_str(&format!(
+                                "\tUpgradeEffectConst {{ kind: UpgradeEffectKindC::BehaviorFlag, key: \"{}\", value: 0.0_f32, op: StatOpC::Add }},\n",
+                                escape_str_literal(flag)
+                            ));
+                        }
+                    }
+                }
+                out.push_str("];\n");
+            }
+        }
+
+        // Per-path slice
+        for (path_idx, path) in e.upgrades.iter().enumerate() {
+            let path_const = format!("{}_UPGRADES_P{}", cname, path_idx);
+            out.push_str(&format!(
+                "pub const {}: &[UpgradeDefConst] = &[\n",
+                path_const
+            ));
+            for (lvl_idx, u) in path.iter().enumerate() {
+                let effects_const = format!("{}_UPGRADE_P{}_L{}_EFFECTS", cname, path_idx, lvl_idx + 1);
+                out.push_str(&format!(
+                    "\tUpgradeDefConst {{ name: \"{}\", description: \"{}\", cost: {}i32, effects: {} }},\n",
+                    escape_str_literal(&u.name),
+                    escape_str_literal(&u.description),
+                    u.cost,
+                    effects_const,
+                ));
+            }
+            out.push_str("];\n");
+        }
+
+        // Top-level &[&[UpgradeDefConst]]
+        out.push_str(&format!(
+            "pub const {}_UPGRADES: &[&[UpgradeDefConst]] = &[\n",
+            cname
+        ));
+        for path_idx in 0..3 {
+            let path_const = format!("{}_UPGRADES_P{}", cname, path_idx);
+            out.push_str(&format!("\t{},\n", path_const));
+        }
+        out.push_str("];\n");
+    }
+    out.push('\n');
+
+    // tower_upgrades(id) lookup
+    out.push_str("pub fn tower_upgrades(id: TowerId) -> Option<&'static [&'static [UpgradeDefConst]]> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            if e.upgrades.is_empty() {
+                // skip
+            } else {
+                let cname = const_name("tower", &e.id);
+                out.push_str(&format!("\t\t{} => Some({}_UPGRADES),\n", next, cname));
+            }
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+mod omoba_core_dummy {
+    /// Mirror of `omoba_core::tower_meta::upgrade_cost` — duplicate locally to
+    /// avoid build-time dependency on omoba-core.
+    pub fn upgrade_cost(base_cost: i32, level: u8) -> i32 {
+        let mul: f32 = match level {
+            1 => 0.25,
+            2 => 0.50,
+            3 => 1.00,
+            4 => 2.50,
+            _ => return 0,
+        };
+        (base_cost as f32 * mul) as i32
+    }
 }
 
 fn emit_projectile_kinds(out: &mut String, entries: &[ProjKind]) {

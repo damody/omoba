@@ -144,4 +144,43 @@ pub struct AbilityConst {
     pub extras: &'static [(&'static str, &'static [f32])],
 }
 
+/// Tower upgrade effect — `omoba_core::tower_meta::StatOp` 的 const-friendly mirror。
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum StatOpC {
+    Add = 0,
+    Mul = 1,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum UpgradeEffectKindC {
+    StatMod = 0,
+    BehaviorFlag = 1,
+}
+
+/// Tower upgrade single effect — POD; runtime 端透過 `From` 轉成
+/// `omoba_core::tower_meta::UpgradeEffect`。`StatMod` 用 (key, value, op)；
+/// `BehaviorFlag` 用 key 當 flag name，value/op 忽略。
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct UpgradeEffectConst {
+    pub kind: UpgradeEffectKindC,
+    pub key: &'static str,
+    pub value: f32,
+    pub op: StatOpC,
+}
+
+/// 一個 upgrade 等級（per tower / per path / per level）。
+/// `cost` 必須符合 `omoba_core::tower_meta::upgrade_cost(base, level)` 公式；
+/// build.rs 編譯期驗證。
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct UpgradeDefConst {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub cost: i32,
+    pub effects: &'static [UpgradeEffectConst],
+}
+
 include!(concat!(env!("OUT_DIR"), "/template_ids_gen.rs"));
