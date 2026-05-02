@@ -4,6 +4,7 @@ use serde::{Serialize, Deserialize};
 
 pub const SCALE: i32 = 1024;
 pub const SCALE_BITS: u32 = 10;
+const _: () = assert!(SCALE == 1 << SCALE_BITS);
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Fixed32(i32);
@@ -13,7 +14,7 @@ impl Fixed32 {
     pub const ONE: Fixed32 = Fixed32(SCALE);
 
     pub const fn from_raw(raw: i32) -> Self { Fixed32(raw) }
-    pub const fn from_i32(v: i32) -> Self { Fixed32(v * SCALE) }
+    pub const fn from_i32(v: i32) -> Self { Fixed32(v.wrapping_mul(SCALE)) }
     pub const fn raw(self) -> i32 { self.0 }
     pub fn to_f32(self) -> f32 { self.0 as f32 / SCALE as f32 }
 }
