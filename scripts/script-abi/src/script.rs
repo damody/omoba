@@ -10,7 +10,7 @@ use abi_stable::{
     sabi_trait,
     std_types::{RNone, ROption, RStr},
 };
-use crate::types::{DamageInfo, EntityHandle, Fixed32, Target, TowerMetadata};
+use crate::types::{DamageInfo, EntityHandle, Fixed64, Target, TowerMetadata};
 use crate::world::GameWorldDyn;
 
 #[sabi_trait]
@@ -26,7 +26,7 @@ pub trait UnitScript: Send + Sync {
     /// Called every tick for entities with `ScriptUnitTag`. Scripts use this
     /// to drive active behaviour (e.g. towers: find target → spawn projectile).
     /// `dt` is the tick delta in seconds.
-    fn on_tick(&self, _e: EntityHandle, _dt: Fixed32, _w: &mut GameWorldDyn<'_>) {}
+    fn on_tick(&self, _e: EntityHandle, _dt: Fixed64, _w: &mut GameWorldDyn<'_>) {}
 
     /// 塔的靜態 metadata（atk/asd/range/bullet_speed/...）。
     /// host 在 startup 時 iter registry 收集，連同 host 端的 cost/footprint/label
@@ -59,7 +59,7 @@ pub trait UnitScript: Send + Sync {
         &self,
         _attacker: EntityHandle,
         _victim: EntityHandle,
-        _final_amount: Fixed32,
+        _final_amount: Fixed64,
         _w: &mut GameWorldDyn<'_>,
     ) {
     }
@@ -104,7 +104,7 @@ pub trait UnitScript: Send + Sync {
         &self,
         _attacker: EntityHandle,
         _victim: EntityHandle,
-        _damage: Fixed32,
+        _damage: Fixed64,
         _w: &mut GameWorldDyn<'_>,
     ) {
     }
@@ -133,7 +133,7 @@ pub trait UnitScript: Send + Sync {
     fn on_health_gained(
         &self,
         _e: EntityHandle,
-        _amount: Fixed32,
+        _amount: Fixed64,
         _w: &mut GameWorldDyn<'_>,
     ) {
     }
@@ -142,7 +142,7 @@ pub trait UnitScript: Send + Sync {
     fn on_mana_gained(
         &self,
         _e: EntityHandle,
-        _amount: Fixed32,
+        _amount: Fixed64,
         _w: &mut GameWorldDyn<'_>,
     ) {
     }
@@ -151,7 +151,7 @@ pub trait UnitScript: Send + Sync {
     fn on_spent_mana(
         &self,
         _caster: EntityHandle,
-        _cost: Fixed32,
+        _cost: Fixed64,
         _ability_id: RStr<'_>,
         _w: &mut GameWorldDyn<'_>,
     ) {
@@ -161,7 +161,7 @@ pub trait UnitScript: Send + Sync {
     fn on_heal_received(
         &self,
         _target: EntityHandle,
-        _amount: Fixed32,
+        _amount: Fixed64,
         _source: ROption<EntityHandle>,
         _w: &mut GameWorldDyn<'_>,
     ) {
