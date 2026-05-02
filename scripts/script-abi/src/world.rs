@@ -21,7 +21,7 @@ pub type GameWorldDyn<'a> = GameWorld_TO<'a, RMut<'a, ()>>;
 #[sabi_trait]
 pub trait GameWorld: Send {
     // ---- Query ----
-    fn get_pos(&self, e: EntityHandle) -> ROption<Vec2f>;
+    fn get_pos(&self, e: EntityHandle) -> ROption<Vec2>;
     fn get_hp(&self, e: EntityHandle) -> ROption<f32>;
     fn get_max_hp(&self, e: EntityHandle) -> ROption<f32>;
     fn is_alive(&self, e: EntityHandle) -> bool;
@@ -29,13 +29,13 @@ pub trait GameWorld: Send {
     fn unit_id_of(&self, e: EntityHandle) -> ROption<RStr<'_>>;
     fn query_enemies_in_range(
         &self,
-        center: Vec2f,
+        center: Vec2,
         radius: f32,
         of: EntityHandle,
     ) -> RVec<EntityHandle>;
 
     // ---- Mutate ----
-    fn set_pos(&mut self, e: EntityHandle, p: Vec2f);
+    fn set_pos(&mut self, e: EntityHandle, p: Vec2);
     /// 計算 `e` 朝 `target` 位移 `step` 後的合法位置（避開其他 CollisionRadius
     /// 實體與 BlockedRegion blocker）。策略：直接走 → 只走 X 軸 → 只走 Y 軸 → 停。
     /// 回傳 post-collision 位置；DLL 拿到後可自行 `set_pos` 與 `set_facing`。
@@ -43,9 +43,9 @@ pub trait GameWorld: Send {
     fn advance_with_collision(
         &mut self,
         e: EntityHandle,
-        target: Vec2f,
+        target: Vec2,
         step: f32,
-    ) -> Vec2f;
+    ) -> Vec2;
     fn deal_damage(
         &mut self,
         target: EntityHandle,
@@ -74,7 +74,7 @@ pub trait GameWorld: Send {
     /// 由 `summon_tick` 自動 despawn；傳 0 代表永久。回傳新 entity handle。
     fn spawn_summoned_unit(
         &mut self,
-        pos: Vec2f,
+        pos: Vec2,
         unit_type: RStr<'_>,
         owner: EntityHandle,
         duration: f32,
@@ -83,7 +83,7 @@ pub trait GameWorld: Send {
     /// 廣播 projectile/C 給前端。支援 Homing / Straight / AoE / Slow。
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle;
     /// 發爆炸特效事件給前端（由小到大紅圈）。不造成傷害；傷害由 projectile 本身的 splash。
-    fn emit_explosion(&mut self, pos: Vec2f, radius: f32, duration: f32);
+    fn emit_explosion(&mut self, pos: Vec2, radius: f32, duration: f32);
     fn despawn(&mut self, e: EntityHandle);
 
     // ---- Tower / 單位屬性讀寫（供 on_tick 使用）----
@@ -111,14 +111,14 @@ pub trait GameWorld: Send {
     /// 查射程內最近的敵人（過濾 faction）；無則 RNone
     fn query_nearest_enemy(
         &self,
-        center: Vec2f,
+        center: Vec2,
         radius: f32,
         of: EntityHandle,
     ) -> ROption<EntityHandle>;
 
     // ---- Non-state side effects ----
-    fn play_vfx(&mut self, id: RStr<'_>, at: Vec2f);
-    fn play_sfx(&mut self, id: RStr<'_>, at: Vec2f);
+    fn play_vfx(&mut self, id: RStr<'_>, at: Vec2);
+    fn play_sfx(&mut self, id: RStr<'_>, at: Vec2);
 
     // ---- Deterministic RNG (host-seeded) ----
     /// Returns uniform float in [0, 1). Deterministic across replays.
@@ -228,7 +228,7 @@ pub trait GameWorld: Send {
     /// 用於 ring_of_fire / mega_crit 這類 upgrade 派生的 AoE 傷害。
     fn deal_damage_splash(
         &mut self,
-        at: Vec2f,
+        at: Vec2,
         radius: f32,
         damage: f32,
         kind: DamageKind,
