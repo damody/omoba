@@ -7,3 +7,4 @@ pub mod game_proto {
 
 pub use client::KcpClient;
 pub use client::GameEventData;
+pub use client::LockstepInbound;

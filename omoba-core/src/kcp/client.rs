@@ -36,6 +36,25 @@ pub struct KcpClient {
     player_name: String,
     writer: Arc<Mutex<WriteHalf<KcpStream>>>,
     event_rx: Option<mpsc::Receiver<GameEventData>>,
+    /// Phase 2 lockstep: separate channel fed by the reader task whenever a
+    /// 0x11 / 0x12 / 0x14 / 0x16 frame arrives. Taken once via
+    /// `subscribe_lockstep`.
+    lockstep_rx: Option<mpsc::Receiver<LockstepInbound>>,
+    /// Phase 2 lockstep: assigned by GameStart; needed to stamp InputSubmit.
+    last_player_id: Option<u32>,
+    /// Phase 2 lockstep: master_seed cached for caller.
+    last_master_seed: Option<u64>,
+}
+
+/// Phase 2 lockstep inbound frames the client surfaces from the kcp reader
+/// task. `GameStart` is delivered through this channel as well so a caller
+/// awaiting `join_lockstep` can recv from the same stream.
+#[derive(Debug, Clone)]
+pub enum LockstepInbound {
+    TickBatch(TickBatch),
+    StateHash(StateHash),
+    GameStart(GameStart),
+    SnapshotResp(SnapshotResp),
 }
 
 /// P6: result of the per-session sequence gap check. Exposed for tests.
@@ -125,18 +144,23 @@ impl KcpClient {
 
         // Spawn background reader task
         let (event_tx, event_rx) = mpsc::channel(10000);
-        Self::spawn_reader(reader, event_tx, writer.clone(), player_name.clone());
+        let (lockstep_tx, lockstep_rx) = mpsc::channel(1024);
+        Self::spawn_reader(reader, event_tx, lockstep_tx, writer.clone(), player_name.clone());
 
         Ok(Self {
             player_name,
             writer,
             event_rx: Some(event_rx),
+            lockstep_rx: Some(lockstep_rx),
+            last_player_id: None,
+            last_master_seed: None,
         })
     }
 
     fn spawn_reader(
         mut reader: ReadHalf<KcpStream>,
         event_tx: mpsc::Sender<GameEventData>,
+        lockstep_tx: mpsc::Sender<LockstepInbound>,
         writer_for_resync: Arc<Mutex<WriteHalf<KcpStream>>>,
         player_name_for_resync: String,
     ) {
@@ -256,6 +280,47 @@ impl KcpClient {
                             TAG_GAME_STATE_RESPONSE => {
                                 // GameStateResponse — currently not used by client
                             }
+                            // ===== Phase 2 Lockstep tags =====
+                            TAG_TICK_BATCH => {
+                                match TickBatch::decode(payload.as_slice()) {
+                                    Ok(b) => {
+                                        if lockstep_tx.send(LockstepInbound::TickBatch(b)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode TickBatch: {}", e),
+                                }
+                            }
+                            TAG_STATE_HASH => {
+                                match StateHash::decode(payload.as_slice()) {
+                                    Ok(s) => {
+                                        if lockstep_tx.send(LockstepInbound::StateHash(s)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode StateHash: {}", e),
+                                }
+                            }
+                            TAG_GAME_START => {
+                                match GameStart::decode(payload.as_slice()) {
+                                    Ok(gs) => {
+                                        if lockstep_tx.send(LockstepInbound::GameStart(gs)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode GameStart: {}", e),
+                                }
+                            }
+                            TAG_SNAPSHOT_RESP => {
+                                match SnapshotResp::decode(payload.as_slice()) {
+                                    Ok(s) => {
+                                        if lockstep_tx.send(LockstepInbound::SnapshotResp(s)).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode SnapshotResp: {}", e),
+                                }
+                            }
                             _ => {
                                 warn!("Unknown tag from server: 0x{:02x}", tag);
                             }
@@ -315,6 +380,98 @@ impl KcpClient {
         self.event_rx
             .take()
             .ok_or_else(|| anyhow::anyhow!("subscribe_events can only be called once"))
+    }
+
+    // ===== Phase 2 Lockstep API =====
+
+    /// Take ownership of the lockstep inbound stream. Yields TickBatch /
+    /// StateHash / GameStart / SnapshotResp frames as they arrive from the
+    /// server. Can only be called once per client.
+    pub fn subscribe_lockstep(&mut self) -> Result<mpsc::Receiver<LockstepInbound>> {
+        self.lockstep_rx
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("subscribe_lockstep can only be called once"))
+    }
+
+    /// Send a JoinRequest (tag 0x13) and await the server's GameStart reply
+    /// (tag 0x14). Returns the assigned `master_seed` from GameStart so the
+    /// caller can construct deterministic SimRng streams.
+    ///
+    /// CAUTION: this method internally drains the lockstep inbound channel
+    /// until it sees a GameStart, so do not call this AFTER `subscribe_lockstep`.
+    /// The recommended flow is:
+    ///   1. `connect`
+    ///   2. `join_lockstep` (consumes GameStart from the channel)
+    ///   3. `subscribe_lockstep` (now yields only TickBatch/StateHash/SnapshotResp)
+    pub async fn join_lockstep(&mut self, player_name: String, observer: bool) -> Result<u64> {
+        let role = if observer { JoinRole::RoleObserver } else { JoinRole::RolePlayer };
+        let req = JoinRequest {
+            player_name: player_name.clone(),
+            role: role as i32,
+        };
+        {
+            let mut w = self.writer.lock().await;
+            write_framed_msg(&mut *w, TAG_JOIN_REQUEST, &req).await?;
+        }
+        // Drain the lockstep stream until GameStart arrives.
+        let rx = self
+            .lockstep_rx
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("lockstep_rx already taken"))?;
+        loop {
+            match rx.recv().await {
+                Some(LockstepInbound::GameStart(gs)) => {
+                    self.last_player_id = Some(gs.player_id);
+                    self.last_master_seed = Some(gs.master_seed);
+                    return Ok(gs.master_seed);
+                }
+                Some(_) => {
+                    // Possible race: a TickBatch may arrive before GameStart
+                    // if the server fires it just after `lockstep_joined=true`
+                    // is set. We deliberately drop those — Phase 2 callers
+                    // should join first, then subscribe.
+                    continue;
+                }
+                None => {
+                    anyhow::bail!("lockstep stream closed before GameStart");
+                }
+            }
+        }
+    }
+
+    /// Submit a player input targeted at `target_tick`. Caller must have
+    /// invoked `join_lockstep` first (otherwise no `player_id` is known).
+    pub async fn submit_input(&mut self, target_tick: u32, input: PlayerInput) -> Result<()> {
+        let player_id = self
+            .last_player_id
+            .ok_or_else(|| anyhow::anyhow!("submit_input before join_lockstep"))?;
+        let req = InputSubmit {
+            player_id,
+            target_tick,
+            input: Some(input),
+        };
+        let mut w = self.writer.lock().await;
+        write_framed_msg(&mut *w, TAG_INPUT_SUBMIT, &req).await?;
+        Ok(())
+    }
+
+    /// Request a snapshot from the server. Reply arrives as
+    /// `LockstepInbound::SnapshotResp` on the lockstep stream.
+    pub async fn request_snapshot(&mut self, from_tick: u32) -> Result<()> {
+        let req = SnapshotReq { from_tick };
+        let mut w = self.writer.lock().await;
+        write_framed_msg(&mut *w, TAG_SNAPSHOT_REQ, &req).await?;
+        Ok(())
+    }
+
+    /// Most recently observed player_id assigned by GameStart.
+    pub fn lockstep_player_id(&self) -> Option<u32> {
+        self.last_player_id
+    }
+
+    /// Most recently observed master_seed from GameStart.
+    pub fn lockstep_master_seed(&self) -> Option<u64> {
+        self.last_master_seed
     }
 }
 
