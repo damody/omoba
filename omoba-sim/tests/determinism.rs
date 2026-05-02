@@ -61,3 +61,62 @@ fn rng_sequence_pin_hash() {
     println!("RNG PIN HASH = {}", actual);
     assert_eq!(actual, 864202779384842305u64);
 }
+
+/// Composite interaction pin: RNG → Angle → sin → Fixed32 → Vec2 → hash.
+/// Catches cross-module determinism regressions that intra-module pins miss
+/// (e.g., someone renaming TAU_TICKS without re-capturing the trig pin).
+#[test]
+fn composite_rng_trig_fixed_vec2_pin_hash() {
+    use omoba_sim::fixed::Fixed32;
+    use omoba_sim::trig::{sin, cos, Angle, TAU_TICKS};
+    use omoba_sim::rng::SimRng;
+    use omoba_sim::vec2::Vec2;
+
+    let mut h = fxhash::FxHasher64::default();
+    let mut rng = SimRng::from_master(0x1234_5678_9ABC_DEF0, 7);
+    let mut acc = Vec2::ZERO;
+
+    for _ in 0..200 {
+        let tick = (rng.next_u32() as i32).rem_euclid(TAU_TICKS);
+        let a = Angle::from_ticks(tick);
+        let r = Fixed32::from_raw(rng.next_u32() as i32);
+        let step = Vec2::new(cos(a) * r, sin(a) * r);
+        acc = acc + step;
+        acc.x.raw().hash(&mut h);
+        acc.y.raw().hash(&mut h);
+    }
+
+    let actual = h.finish();
+    println!("COMPOSITE PIN HASH = {}", actual);
+    assert_eq!(actual, 4431538388923105100u64);
+}
+
+/// Snapshot wire format pin: serialize Fixed32 + Angle + Vec2 round-trip.
+/// Locks bincode 1.x default config wire format for Phase 5 observer rejoin.
+#[test]
+fn snapshot_wire_format_pin_hash() {
+    use omoba_sim::fixed::Fixed32;
+    use omoba_sim::trig::Angle;
+    use omoba_sim::vec2::Vec2;
+    use omoba_sim::snapshot::serialize;
+
+    #[derive(serde::Serialize)]
+    struct Sample {
+        f: Fixed32,
+        a: Angle,
+        v: Vec2,
+    }
+
+    let s = Sample {
+        f: Fixed32::from_raw(123456),
+        a: Angle::from_degrees_i32(73),
+        v: Vec2::new(Fixed32::from_i32(-100), Fixed32::from_raw(987654)),
+    };
+
+    let bytes = serialize(&s).expect("serialize");
+    let mut h = fxhash::FxHasher64::default();
+    bytes.hash(&mut h);
+    let actual = h.finish();
+    println!("SNAPSHOT PIN HASH = {}", actual);
+    assert_eq!(actual, 18245341913185412542u64);
+}

@@ -16,7 +16,11 @@ impl Fixed32 {
     pub const fn from_raw(raw: i32) -> Self { Fixed32(raw) }
     pub const fn from_i32(v: i32) -> Self { Fixed32(v.wrapping_mul(SCALE)) }
     pub const fn raw(self) -> i32 { self.0 }
-    pub fn to_f32(self) -> f32 { self.0 as f32 / SCALE as f32 }
+    /// Converts to f32 — RENDER-BRIDGE USE ONLY. Calling this from sim hot-path
+    /// code introduces non-determinism (f32 arithmetic is platform-divergent in the
+    /// last few ULPs). The omfx render layer converts at the sim→GPU boundary;
+    /// nothing inside `omoba-sim` should call this.
+    pub fn to_f32_for_render(self) -> f32 { self.0 as f32 / SCALE as f32 }
 
     /// Integer square root via Newton's method, 16 iterations max (well past Q22.10 convergence).
     /// Returns ZERO for non-positive inputs (deterministic — never panics, never poisons).
