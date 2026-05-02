@@ -34,3 +34,17 @@ fn fixed32_arithmetic_pin_hash() {
     // First run: assert_eq!(actual, 0) — capture printed value, then lock.
     assert_eq!(actual, 16173917078359596551u64);
 }
+
+#[test]
+fn trig_lut_pin_hash() {
+    use omoba_sim::trig::{sin, cos, Angle, TAU_TICKS};
+    let mut h = fxhash::FxHasher64::default();
+    for i in 0..TAU_TICKS {
+        let a = Angle::from_ticks(i);
+        sin(a).raw().hash(&mut h);
+        cos(a).raw().hash(&mut h);
+    }
+    let actual = h.finish();
+    println!("TRIG PIN HASH = {}", actual);
+    assert_eq!(actual, 10864827002850446389u64);
+}
