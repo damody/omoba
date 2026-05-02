@@ -147,3 +147,22 @@ fn snapshot_wire_format_pin_hash() {
     println!("SNAPSHOT PIN HASH = {}", actual);
     assert_eq!(actual, 18245341913185412542u64);
 }
+
+#[test]
+fn vec2_normalize_pin_hash() {
+    use omoba_sim::vec2::Vec2;
+    use omoba_sim::fixed::Fixed32;
+    let mut h = fxhash::FxHasher64::default();
+    // 15x15 = 225 sample points across the cardinal + off-axis grid
+    for x in (-50..=50).step_by(7) {
+        for y in (-50..=50).step_by(7) {
+            let v = Vec2::new(Fixed32::from_i32(x), Fixed32::from_i32(y));
+            let n = v.normalized();
+            n.x.raw().hash(&mut h);
+            n.y.raw().hash(&mut h);
+        }
+    }
+    let actual = h.finish();
+    println!("VEC2_NORMALIZE PIN HASH = {}", actual);
+    assert_eq!(actual, 5617743241457808499u64);
+}
