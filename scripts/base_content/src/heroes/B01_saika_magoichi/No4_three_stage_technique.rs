@@ -1,59 +1,60 @@
 //! 三段擊（three_stage_technique）— 雜賀孫市的 R 大絕：變身 buff。
 //!
-//! 變身 5 秒：
-//! - 攻擊力 +200%（`TOTALDAMAGEOUTGOING_PERCENTAGE = 2.0` → `(base + bonus) × 3`）
-//! - 普攻特效改為連發 3 發子彈但只判定 1 次傷害
-//!   （`multi_shot_visual = 3.0`，由 `game_processor::handle_projectile` 讀取）
-//! - 前端紅色變身特效標記 `visual_effect = "three_stage_transform_red"`
+//! 數值（duration / atk_bonus_pct / multi_shot_count）由 templates.json
+//! `abilities[three_stage_technique]` 提供。
 
-use abi_stable::{
-    sabi_trait::prelude::TD_Opaque,
-    std_types::{RBox, ROk, RResult, RStr, RString},
-};
+use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
-    ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
+    ability::{AbilityDefFFI, AbilityScript},
     stat_keys::StatKey,
     types::{EntityHandle, Target},
     world::GameWorldDyn,
 };
-use omoba_core::ability_meta::{
-    AbilityDef, AbilityLevelData, AbilityType, CastType, EffectSpec, TargetSelector, TargetType,
-};
+use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
+use omoba_template_ids::{ABILITY_THREE_STAGE_TECHNIQUE, ABILITY_THREE_STAGE_TECHNIQUE_CONST};
 use std::collections::HashMap;
 
-pub const ABILITY_ID: &str = "three_stage_technique";
-const BUFF_ID: &str = "three_stage_transform";
+use crate::ability_builder::{build_ability_ffi, extra_at};
 
-/// 變身持續秒數
-const DURATION_S: f32 = 5.0;
-/// 攻擊力 +200% → 套在 TOTALDAMAGEOUTGOING_PERCENTAGE（value = 2.0）
-const ATK_BONUS_PCT: f32 = 2.0;
-/// 普攻連發視覺彈數（其中 1 發真實判傷，其餘為無傷害視覺彈）
-const MULTI_SHOT_COUNT: f32 = 3.0;
+const BUFF_ID: &str = "three_stage_transform";
 
 pub struct ThreeStageHandler;
 
 impl AbilityScript for ThreeStageHandler {
     fn ability_id(&self) -> RStr<'_> {
-        RStr::from_str(ABILITY_ID)
+        RStr::from_str(ABILITY_THREE_STAGE_TECHNIQUE.as_str())
     }
 
     fn execute(
         &self,
         caster: EntityHandle,
         _target: Target,
-        _level: u8,
-        _level_data_json: RStr<'_>,
+        level: u8,
+        level_data_json: RStr<'_>,
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
+        let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
+            .unwrap_or_default();
+        let get_f = |k: &str, dft: f32| {
+            level_data
+                .extra
+                .get(k)
+                .and_then(|v| v.as_f64())
+                .map(|v| v as f32)
+                .unwrap_or(dft)
+        };
+        let duration = get_f("duration", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", level));
+        let atk_bonus = get_f("atk_bonus_pct", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", level));
+        let multi_shot = get_f("multi_shot_count", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", level));
+
         let mut modifiers = serde_json::Map::new();
         modifiers.insert(
             StatKey::TotalDamageOutgoingPercentage.as_str().into(),
-            serde_json::json!(ATK_BONUS_PCT),
+            serde_json::json!(atk_bonus),
         );
         modifiers.insert(
             StatKey::MultiShotVisual.as_str().into(),
-            serde_json::json!(MULTI_SHOT_COUNT),
+            serde_json::json!(multi_shot),
         );
         modifiers.insert(
             "visual_effect".into(),
@@ -63,63 +64,29 @@ impl AbilityScript for ThreeStageHandler {
         world.add_stat_buff(
             caster,
             RStr::from_str(BUFF_ID),
-            DURATION_S,
+            duration,
             (&*mods_str).into(),
         );
-        world.log_info(RStr::from_str("[three_stage_technique] transformed 5s"));
+        world.log_info(RStr::from_str("[three_stage_technique] transformed"));
         ROk(())
     }
 }
 
-pub fn three_stage_def() -> AbilityDef {
-    let mut levels = HashMap::new();
-    // Lv1-4：冷卻 15/13/11/9 秒，mana 90/100/110/120
-    for lvl in 1u8..=4 {
-        let mut extra = HashMap::new();
-        extra.insert("duration".into(), serde_json::json!(DURATION_S));
-        extra.insert("atk_bonus_pct".into(), serde_json::json!(ATK_BONUS_PCT));
-        extra.insert("multi_shot_count".into(), serde_json::json!(MULTI_SHOT_COUNT));
-        levels.insert(
-            lvl.to_string(),
-            AbilityLevelData {
-                cooldown: 17.0 - 2.0 * lvl as f32,
-                mana_cost: 80.0 + 10.0 * (lvl - 1) as f32,
-                cast_time: 0.0,
-                range: 0.0,
-                extra,
-            },
-        );
-    }
-
-    let mut preview_mods = HashMap::new();
-    preview_mods.insert(StatKey::TotalDamageOutgoingPercentage.as_str().into(), ATK_BONUS_PCT);
-    preview_mods.insert(StatKey::MultiShotVisual.as_str().into(), MULTI_SHOT_COUNT);
-
-    AbilityDef {
-        id: ABILITY_ID.into(),
-        name: "三段擊".into(),
-        description: "變身 5 秒：攻擊力 +200%，普攻特效改為連發 3 發子彈（只判定 1 次傷害），身上有紅色變身特效。".into(),
-        ability_type: AbilityType::Active,
-        target_type: TargetType::None,
-        cast_type: CastType::Instant,
-        icon: None,
-        max_level: 4,
-        levels,
-        effects_preview: vec![EffectSpec::Buff {
-            target: TargetSelector::SelfUnit,
-            duration: Some(DURATION_S),
-            modifiers: preview_mods,
-        }],
-        conditions: Vec::new(),
-        properties: HashMap::new(),
-    }
-}
-
 pub fn three_stage_ffi() -> AbilityDefFFI {
-    let def = three_stage_def();
-    let def_json = serde_json::to_string(&def).expect("serialize");
-    AbilityDefFFI {
-        def_json: def_json.into(),
-        script: AbilityScript_TO::from_value(ThreeStageHandler, TD_Opaque),
-    }
+    let dur_lv1 = extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", 1);
+    let atk_lv1 = extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", 1);
+    let multi_lv1 = extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", 1);
+    let mut preview_mods = HashMap::new();
+    preview_mods.insert(StatKey::TotalDamageOutgoingPercentage.as_str().into(), atk_lv1);
+    preview_mods.insert(StatKey::MultiShotVisual.as_str().into(), multi_lv1);
+    let effects_preview = vec![EffectSpec::Buff {
+        target: TargetSelector::SelfUnit,
+        duration: Some(dur_lv1),
+        modifiers: preview_mods,
+    }];
+    build_ability_ffi(
+        ABILITY_THREE_STAGE_TECHNIQUE,
+        ThreeStageHandler,
+        effects_preview,
+    )
 }

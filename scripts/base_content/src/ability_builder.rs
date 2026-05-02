@@ -1,0 +1,127 @@
+//! Helper：把 omoba_template_ids::AbilityConst（POD 常數）攤成完整
+//! `omoba_core::ability_meta::AbilityDef`（含 HashMap）。所有 ability scripts
+//! 共用一份，避免每個 `*_def()` 重抄 levels HashMap 構造邏輯。
+//!
+//! 數值來源是 templates.json → omoba-template-ids/build.rs codegen，scripts
+//! 端不再寫 hardcoded number。
+
+use abi_stable::{sabi_trait::prelude::TD_Opaque, std_types::RBox};
+use omb_script_abi::{
+    ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
+    AbilityId,
+};
+use omoba_core::ability_meta::{
+    AbilityDef, AbilityLevelData, AbilityType, CastType, EffectSpec, TargetType,
+};
+use omoba_template_ids::{
+    ability_const, ability_description, ability_display, AbilityConst, AbilityTypeC, CastTypeC,
+    TargetTypeC,
+};
+use std::collections::HashMap;
+
+fn ability_type_from(c: AbilityTypeC) -> AbilityType {
+    match c {
+        AbilityTypeC::Active => AbilityType::Active,
+        AbilityTypeC::Toggle => AbilityType::Toggle,
+        AbilityTypeC::Ultimate => AbilityType::Ultimate,
+        AbilityTypeC::Passive => AbilityType::Passive,
+    }
+}
+
+fn cast_type_from(c: CastTypeC) -> CastType {
+    match c {
+        CastTypeC::Instant => CastType::Instant,
+        CastTypeC::Channeled => CastType::Channeled,
+    }
+}
+
+fn target_type_from(c: TargetTypeC) -> TargetType {
+    match c {
+        TargetTypeC::None => TargetType::None,
+        TargetTypeC::Point => TargetType::Point,
+        TargetTypeC::Unit => TargetType::Unit,
+    }
+}
+
+/// 從 const POD 攤成完整 `AbilityDef`。`effects_preview` 留給 caller 自己塞
+/// （含遞迴 Vec / 不適合 const POD），無傳入時預設空 Vec。
+pub fn build_ability_def_from_const(
+    id: AbilityId,
+    c: &AbilityConst,
+    effects_preview: Vec<EffectSpec>,
+) -> AbilityDef {
+    let mut levels = HashMap::new();
+    for (i, ld) in c.levels.iter().enumerate() {
+        let lvl = (i + 1) as u8;
+        let mut extra = HashMap::new();
+        for (key, per_lvl) in c.extras.iter() {
+            extra.insert(
+                (*key).to_string(),
+                serde_json::json!(per_lvl[i]),
+            );
+        }
+        levels.insert(
+            lvl.to_string(),
+            AbilityLevelData {
+                cooldown: ld.cooldown,
+                mana_cost: ld.mana_cost,
+                cast_time: ld.cast_time,
+                range: ld.range,
+                extra,
+            },
+        );
+    }
+    AbilityDef {
+        id: id.as_str().to_string(),
+        name: ability_display(id).to_string(),
+        description: c.description.to_string(),
+        ability_type: ability_type_from(c.ability_type),
+        target_type: target_type_from(c.target_type),
+        cast_type: cast_type_from(c.cast_type),
+        icon: None,
+        max_level: c.max_level,
+        levels,
+        effects_preview,
+        conditions: Vec::new(),
+        properties: HashMap::new(),
+    }
+}
+
+/// 從 ability id 直接組 FFI 結構 — 各 script 的 `*_ffi()` 主要走這條捷徑。
+pub fn build_ability_ffi<S: AbilityScript + 'static>(
+    id: AbilityId,
+    handler: S,
+    effects_preview: Vec<EffectSpec>,
+) -> AbilityDefFFI {
+    let c = ability_const(id).unwrap_or_else(|| {
+        panic!(
+            "ability_const not found for id={} (raw={}); is templates.json abilities[] complete?",
+            id.as_str(),
+            id.raw()
+        )
+    });
+    let def = build_ability_def_from_const(id, c, effects_preview);
+    let def_json = serde_json::to_string(&def).expect("AbilityDef serialize must succeed");
+    AbilityDefFFI {
+        def_json: def_json.into(),
+        script: AbilityScript_TO::from_value(handler, TD_Opaque),
+    }
+}
+
+/// 取單級 extras float 值；找不到 panic（caller 必須確認 templates.json 有該 key）。
+pub fn extra_at(c: &AbilityConst, key: &str, level: u8) -> f32 {
+    let lvl_idx = (level.saturating_sub(1) as usize).min(c.max_level.saturating_sub(1) as usize);
+    for (k, per_lvl) in c.extras.iter() {
+        if *k == key {
+            return per_lvl[lvl_idx];
+        }
+    }
+    panic!(
+        "extra '{}' not found in ability extras (max_level={})",
+        key, c.max_level
+    );
+}
+
+/// 用 helper 從 const fetch 描述，不過 caller 直接 ability_description() 也行；
+/// re-export 圖讓 ability scripts 不用 import omoba_template_ids 兩遍。
+pub use omoba_template_ids::ability_description as description_of;

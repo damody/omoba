@@ -14,7 +14,7 @@ use std::path::PathBuf;
 struct Manifest {
     #[serde(default)] towers: Vec<TowerEntry>,
     #[serde(default)] heroes: Vec<HeroEntry>,
-    #[serde(default)] abilities: Vec<Entry>,
+    #[serde(default)] abilities: Vec<AbilityEntry>,
     #[serde(default)] buffs: Vec<Entry>,
     #[serde(default)] summons: Vec<SummonEntry>,
     #[serde(default)] creeps: Vec<CreepEntry>,
@@ -112,6 +112,33 @@ struct SummonEntry {
     #[serde(default)] move_speed: f32,
 }
 
+/// Ability entry — 對應 templates.json abilities[]。
+/// `levels`：核心數值（cooldown/mana_cost/cast_time/range）每級一筆。
+/// `extras`：per-level 浮點 extras，key→[v_lvl1, v_lvl2, ...]；長度必須 = max_level。
+#[derive(Deserialize, Clone)]
+struct AbilityEntry {
+    id: String,
+    #[serde(default)] display_name: String,
+    #[serde(default)] tombstone: bool,
+    #[serde(default)] description: String,
+    #[serde(default)] ability_type: String,   // "active" | "toggle" | "ultimate" | "passive"
+    #[serde(default)] cast_type: String,      // "instant" | "channeled"
+    #[serde(default)] target_type: String,    // "none" | "point" | "unit"
+    #[serde(default = "default_max_level")] max_level: u8,
+    #[serde(default)] levels: Vec<AbilityLevelEntry>,
+    #[serde(default)] extras: std::collections::BTreeMap<String, Vec<f32>>,
+}
+
+fn default_max_level() -> u8 { 4 }
+
+#[derive(Deserialize, Clone, Default)]
+struct AbilityLevelEntry {
+    #[serde(default)] cooldown: f32,
+    #[serde(default)] mana_cost: f32,
+    #[serde(default)] cast_time: f32,
+    #[serde(default)] range: f32,
+}
+
 #[derive(Deserialize)]
 struct ProjKind {
     id: String,
@@ -135,7 +162,10 @@ fn main() {
 
     emit_tower_namespace(&mut out, &m.towers);
     emit_hero_namespace(&mut out, &m.heroes);
-    emit_namespace(&mut out, "Ability",        "ability",    &m.abilities, true);
+    let ability_ids_for_ns: Vec<Entry> = m.abilities.iter().map(|a| Entry {
+        id: a.id.clone(), display_name: a.display_name.clone(), tombstone: a.tombstone,
+    }).collect();
+    emit_namespace(&mut out, "Ability",        "ability",    &ability_ids_for_ns, true);
     emit_namespace(&mut out, "Buff",           "buff",       &m.buffs,     true);
     let summon_ids: Vec<Entry> = m.summons.iter().map(|s| Entry {
         id: s.id.clone(), display_name: s.display_name.clone(), tombstone: s.tombstone,
@@ -164,6 +194,10 @@ fn main() {
     emit_hero_stats(&mut out, &m.heroes);
     emit_creep_stats(&mut out, &m.creeps);
     emit_summon_stats(&mut out, &m.summons);
+
+    // Phase C: ability const + lookup
+    emit_ability_const(&mut out, &m.abilities);
+    emit_ability_description(&mut out, &m.abilities);
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = format!("{}/template_ids_gen.rs", out_dir);
@@ -566,6 +600,141 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
         next += 1;
     }
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+fn ability_type_to_variant(s: &str) -> &'static str {
+    match s {
+        "" | "active" => "Active",
+        "toggle" => "Toggle",
+        "ultimate" => "Ultimate",
+        "passive" => "Passive",
+        other => panic!("unknown ability_type '{}'", other),
+    }
+}
+
+fn cast_type_to_variant(s: &str) -> &'static str {
+    match s {
+        "" | "instant" => "Instant",
+        "channeled" => "Channeled",
+        other => panic!("unknown cast_type '{}'", other),
+    }
+}
+
+fn target_type_to_variant(s: &str) -> &'static str {
+    match s {
+        "" | "none" => "None",
+        "point" => "Point",
+        "unit" => "Unit",
+        other => panic!("unknown target_type '{}'", other),
+    }
+}
+
+/// Emit `ABILITY_<NAME>_CONST: AbilityConst` const + `ability_const(id)` lookup。
+/// 每個 ability 的 levels 數目必須等於 max_level；extras[k].len() 也必須 = max_level。
+fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
+    // emit per-ability levels static + extras static + the const itself
+    for e in entries {
+        if e.tombstone { continue; }
+        if e.levels.len() != e.max_level as usize {
+            panic!(
+                "ability '{}': levels.len()={} but max_level={}",
+                e.id, e.levels.len(), e.max_level
+            );
+        }
+        for (k, v) in &e.extras {
+            if v.len() != e.max_level as usize {
+                panic!(
+                    "ability '{}': extras['{}'].len()={} but max_level={}",
+                    e.id, k, v.len(), e.max_level
+                );
+            }
+        }
+
+        let cname = const_name("ability", &e.id);
+
+        // emit per-extra static slice (must be named to take address of in const)
+        // but actually `&[...]` is fine inline; we'll just inline the literal.
+        out.push_str(&format!("pub const {}_LEVELS: &[AbilityLevelDataConst] = &[\n", cname));
+        for ld in &e.levels {
+            out.push_str(&format!(
+                "\tAbilityLevelDataConst {{ cooldown: {:?}_f32, mana_cost: {:?}_f32, cast_time: {:?}_f32, range: {:?}_f32 }},\n",
+                ld.cooldown, ld.mana_cost, ld.cast_time, ld.range,
+            ));
+        }
+        out.push_str("];\n");
+
+        // Emit each extra's per-level slice as a named static so the &[(key, &[..])]
+        // can reference it (avoids `&[f32; N]` literal lifetime issues).
+        for (k, v) in &e.extras {
+            let extra_const = format!("{}_EXTRA_{}", cname, sanitize_ident(k).to_uppercase());
+            out.push_str(&format!("pub const {}: &[f32] = &[", extra_const));
+            for (i, x) in v.iter().enumerate() {
+                if i > 0 { out.push_str(", "); }
+                out.push_str(&format!("{:?}_f32", x));
+            }
+            out.push_str("];\n");
+        }
+        out.push_str(&format!("pub const {}_EXTRAS: &[(&str, &[f32])] = &[\n", cname));
+        for (k, _v) in &e.extras {
+            let extra_const = format!("{}_EXTRA_{}", cname, sanitize_ident(k).to_uppercase());
+            out.push_str(&format!("\t(\"{}\", {}),\n", escape_str_literal(k), extra_const));
+        }
+        out.push_str("];\n");
+
+        out.push_str(&format!(
+            "pub const {}_CONST: AbilityConst = AbilityConst {{\n\
+             \tability_type: AbilityTypeC::{},\n\
+             \tcast_type: CastTypeC::{},\n\
+             \ttarget_type: TargetTypeC::{},\n\
+             \tmax_level: {}u8,\n\
+             \tdescription: \"{}\",\n\
+             \tlevels: {}_LEVELS,\n\
+             \textras: {}_EXTRAS,\n\
+             }};\n",
+            cname,
+            ability_type_to_variant(&e.ability_type),
+            cast_type_to_variant(&e.cast_type),
+            target_type_to_variant(&e.target_type),
+            e.max_level,
+            escape_str_literal(&e.description),
+            cname, cname,
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("pub fn ability_const(id: AbilityId) -> Option<&'static AbilityConst> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            let cname = const_name("ability", &e.id);
+            out.push_str(&format!("\t\t{} => Some(&{}_CONST),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+/// Emit `ability_description(id)` lookup — runtime helper for tooltips。
+fn emit_ability_description(out: &mut String, entries: &[AbilityEntry]) {
+    out.push_str("pub fn ability_description(id: AbilityId) -> &'static str {\n\tmatch id.0 {\n\t\t0 => \"\",\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            out.push_str(&format!(
+                "\t\t{} => \"{}\",\n",
+                next, escape_str_literal(&e.description),
+            ));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => \"\",\n\t}\n}\n\n");
+}
+
+/// 把 extras key（例 "true_damage_pct"）轉成合法 Rust ident 片段（純 ASCII 大寫字母 + 底線）。
+fn sanitize_ident(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .collect()
 }
 
 fn emit_projectile_kinds(out: &mut String, entries: &[ProjKind]) {

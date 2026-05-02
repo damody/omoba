@@ -17,6 +17,7 @@ use omb_script_abi::{
     script::UnitScript_TO,
 };
 
+pub mod ability_builder;
 mod heroes;
 mod summons;
 mod towers;
