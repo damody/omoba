@@ -41,7 +41,7 @@ impl SimRng {
     /// `(high-low)` is not a power of 2 (modulo bias). Acceptable for game math —
     /// upgrade to widening multiply if pure uniformity is ever needed.
     pub fn range(&mut self, low: i32, high: i32) -> i32 {
-        debug_assert!(high > low, "SimRng::range called with low={} high={}", low, high);
+        assert!(high > low, "SimRng::range requires low < high (got low={}, high={})", low, high);
         let span = (high - low) as u32;
         let r = self.next_u32() % span;
         low + r as i32
@@ -89,10 +89,9 @@ mod tests {
     }
 
     #[test]
-    fn range_below_low_panics_in_debug() {
-        // Implementation uses debug_assert!; this test only meaningful in debug builds.
-        // Confirms the API contract that low < high is required.
+    #[should_panic(expected = "SimRng::range requires low < high")]
+    fn range_low_eq_high_panics() {
         let mut r = SimRng::from_master(42, 0);
-        let _ = r.range(0, 10);  // valid; should not panic
+        let _ = r.range(5, 5);
     }
 }
