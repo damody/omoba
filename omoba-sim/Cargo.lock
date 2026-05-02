@@ -214,6 +214,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "fxhash",
+ "once_cell",
  "proptest",
  "rand_core 0.6.4",
  "rand_pcg",
