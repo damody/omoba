@@ -149,6 +149,25 @@ fn snapshot_wire_format_pin_hash() {
 }
 
 #[test]
+fn angle_rotate_toward_pin_hash() {
+    use omoba_sim::trig::{angle_rotate_toward, Angle, TAU_TICKS};
+    let mut h = fxhash::FxHasher64::default();
+    // 8 starting angles × 8 targets × 3 step sizes = 192 samples
+    let starts = [0, TAU_TICKS / 8, TAU_TICKS / 4, 3 * TAU_TICKS / 8,
+                  TAU_TICKS / 2, 5 * TAU_TICKS / 8, 3 * TAU_TICKS / 4, 7 * TAU_TICKS / 8];
+    for &c in &starts {
+        for &t in &starts {
+            for &step in &[10, 100, 1000] {
+                angle_rotate_toward(Angle::from_ticks(c), Angle::from_ticks(t), step).ticks().hash(&mut h);
+            }
+        }
+    }
+    let actual = h.finish();
+    println!("ANGLE_ROTATE_TOWARD PIN HASH = {}", actual);
+    assert_eq!(actual, 15173432368798260831u64);
+}
+
+#[test]
 fn vec2_normalize_pin_hash() {
     use omoba_sim::vec2::Vec2;
     use omoba_sim::fixed::Fixed32;

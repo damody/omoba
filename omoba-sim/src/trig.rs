@@ -117,6 +117,24 @@ pub fn atan2(y: Fixed32, x: Fixed32) -> Angle {
     Angle::from_ticks(final_ticks)
 }
 
+/// Rotate `current` toward `target` by at most `max_step_ticks` ticks.
+/// Picks the shorter direction (clockwise vs counter-clockwise).
+///
+/// Examples:
+/// - current=10, target=20, max=5 → returns 15 (3-tick step toward target along shorter arc)
+/// - current=20, target=10, max=5 → returns 15 (similar, opposite direction)
+/// - current=0, target=TAU/2, max=TAU/4 → returns TAU/4 (steps half-way; tie-broken by sign of signed_diff)
+/// - current=0, target=TAU/4, max=10000 → returns TAU/4 (overshoot clamped)
+///
+/// Deterministic across platforms (i32 arithmetic + rem_euclid).
+pub fn angle_rotate_toward(current: Angle, target: Angle, max_step_ticks: i32) -> Angle {
+    let diff = (target.ticks() - current.ticks()).rem_euclid(TAU_TICKS);
+    // Convert to signed distance in (-TAU/2, TAU/2]
+    let signed_diff = if diff > TAU_TICKS / 2 { diff - TAU_TICKS } else { diff };
+    let clamped = signed_diff.clamp(-max_step_ticks.abs(), max_step_ticks.abs());
+    Angle::from_ticks(current.ticks() + clamped)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,5 +209,42 @@ mod tests {
         let expected = Angle::from_degrees_i32(30).ticks();
         let diff = (a.ticks() - expected).abs();
         assert!(diff <= 4, "atan2(1, √3) ticks={} expected={} diff={}", a.ticks(), expected, diff);
+    }
+
+    #[test]
+    fn angle_rotate_toward_overshoot_clamped_to_target() {
+        // 0 → TAU/8, with max=TAU (huge), should reach exactly TAU/8
+        let r = angle_rotate_toward(Angle::ZERO, Angle::from_ticks(TAU_TICKS / 8), TAU_TICKS);
+        assert_eq!(r.ticks(), TAU_TICKS / 8);
+    }
+
+    #[test]
+    fn angle_rotate_toward_step_partial_forward() {
+        let r = angle_rotate_toward(Angle::from_ticks(10), Angle::from_ticks(20), 3);
+        assert_eq!(r.ticks(), 13);
+    }
+
+    #[test]
+    fn angle_rotate_toward_step_partial_backward() {
+        let r = angle_rotate_toward(Angle::from_ticks(20), Angle::from_ticks(10), 3);
+        assert_eq!(r.ticks(), 17);
+    }
+
+    #[test]
+    fn angle_rotate_toward_shortest_path_wraparound() {
+        // Going from near-end-of-cycle to near-start: should wrap forward, not backward
+        // current = TAU - 5, target = 5, max = 20 → should reach target = 5 directly via short arc
+        let r = angle_rotate_toward(
+            Angle::from_ticks(TAU_TICKS - 5),
+            Angle::from_ticks(5),
+            20,
+        );
+        assert_eq!(r.ticks(), 5);
+    }
+
+    #[test]
+    fn angle_rotate_toward_equal_unchanged() {
+        let r = angle_rotate_toward(Angle::from_ticks(123), Angle::from_ticks(123), 10);
+        assert_eq!(r.ticks(), 123);
     }
 }
