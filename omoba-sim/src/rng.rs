@@ -3,6 +3,8 @@
 use rand_pcg::Pcg64Mcg;
 use rand_core::{RngCore, SeedableRng};
 
+use crate::fixed::Fixed32;
+
 /// Deterministic RNG for simulation. Wraps Pcg64Mcg.
 ///
 /// All sources of randomness in the sim must go through this type. Each call site picks
@@ -45,6 +47,14 @@ impl SimRng {
         let span = (high - low) as u32;
         let r = self.next_u32() % span;
         low + r as i32
+    }
+
+    /// Returns a uniformly-distributed Fixed32 in [0, 1) with raw value in [0, 1024).
+    /// Modulo bias is ~0.000023% (negligible for game math). For wider unbiased range,
+    /// use `next_u32()` directly with widening multiply.
+    pub fn gen_fixed32_unit(&mut self) -> Fixed32 {
+        let raw = (self.next_u32() % 1024) as i32;
+        Fixed32::from_raw(raw)
     }
 }
 
@@ -93,5 +103,23 @@ mod tests {
     fn range_low_eq_high_panics() {
         let mut r = SimRng::from_master(42, 0);
         let _ = r.range(5, 5);
+    }
+
+    #[test]
+    fn gen_fixed32_unit_in_range() {
+        let mut r = SimRng::from_master(42, 0);
+        for _ in 0..1000 {
+            let v = r.gen_fixed32_unit();
+            assert!(v.raw() >= 0 && v.raw() < 1024, "out of [0, 1024): raw={}", v.raw());
+        }
+    }
+
+    #[test]
+    fn gen_fixed32_unit_deterministic() {
+        let mut a = SimRng::from_master(0xCAFE, 99);
+        let mut b = SimRng::from_master(0xCAFE, 99);
+        for _ in 0..100 {
+            assert_eq!(a.gen_fixed32_unit(), b.gen_fixed32_unit());
+        }
     }
 }

@@ -61,6 +61,18 @@ impl std::ops::Mul for Fixed32 {
     }
 }
 
+impl std::ops::Mul<i32> for Fixed32 {
+    type Output = Fixed32;
+    /// Multiply Fixed32 by integer scalar. Equivalent to `self * Fixed32::from_i32(rhs)`
+    /// but cheaper (no widening; just `raw.wrapping_mul(rhs)`).
+    fn mul(self, rhs: i32) -> Fixed32 { Fixed32(self.0.wrapping_mul(rhs)) }
+}
+
+impl std::ops::Mul<Fixed32> for i32 {
+    type Output = Fixed32;
+    fn mul(self, rhs: Fixed32) -> Fixed32 { Fixed32(self.wrapping_mul(rhs.0)) }
+}
+
 impl std::ops::Div for Fixed32 {
     type Output = Fixed32;
     /// Rounds toward zero (Rust integer division semantics). Asymmetric with Mul which floors toward -infinity.
@@ -81,6 +93,14 @@ impl std::ops::AddAssign for Fixed32 {
 
 impl std::ops::SubAssign for Fixed32 {
     fn sub_assign(&mut self, rhs: Fixed32) { self.0 = self.0.wrapping_sub(rhs.0); }
+}
+
+impl std::ops::MulAssign for Fixed32 {
+    fn mul_assign(&mut self, rhs: Fixed32) { *self = *self * rhs; }
+}
+
+impl std::ops::DivAssign for Fixed32 {
+    fn div_assign(&mut self, rhs: Fixed32) { *self = *self / rhs; }
 }
 
 #[cfg(test)]
@@ -213,5 +233,25 @@ mod tests {
         // Lockstep cannot tolerate either dev/release divergence or sentinel poisoning.
         assert_eq!(Fixed32::from_i32(-5).sqrt(), Fixed32::ZERO);
         assert_eq!(Fixed32::from_raw(i32::MIN).sqrt(), Fixed32::ZERO);
+    }
+
+    #[test]
+    fn mul_by_i32_basic() {
+        assert_eq!(Fixed32::from_raw(512) * 3, Fixed32::from_raw(1536));
+        assert_eq!(2 * Fixed32::from_raw(512), Fixed32::from_raw(1024));
+    }
+
+    #[test]
+    fn mul_assign_basic() {
+        let mut a = Fixed32::from_i32(3);
+        a *= Fixed32::from_i32(4);
+        assert_eq!(a, Fixed32::from_i32(12));
+    }
+
+    #[test]
+    fn div_assign_basic() {
+        let mut a = Fixed32::from_i32(12);
+        a /= Fixed32::from_i32(4);
+        assert_eq!(a, Fixed32::from_i32(3));
     }
 }

@@ -6,6 +6,21 @@ use serde::{Serialize, Deserialize};
 /// Number of discrete angle ticks in a full turn (2π). Each tick = ~0.0879°.
 pub const TAU_TICKS: i32 = 4096;
 
+/// 2π in Fixed32 raw units: round(2 * 3.14159265358979 * 1024) = 6434.
+/// Constant used to convert Fixed32 radians to angle ticks.
+pub const TAU_FIXED_RAW: i64 = 6434;
+
+/// Convert a fixed-point radians value (e.g. TurnSpeed × dt) into Angle ticks
+/// for use with `angle_rotate_toward`. Deterministic via i64 arithmetic.
+///
+/// Formula: ticks = rad × TAU_TICKS / 2π
+///
+/// For typical inputs (TurnSpeed × dt ≈ 0.1 rad), the precision loss is at most
+/// 1 tick — acceptable for game movement.
+pub fn fixed_rad_to_ticks(rad: Fixed32) -> i32 {
+    ((rad.raw() as i64 * TAU_TICKS as i64) / TAU_FIXED_RAW) as i32
+}
+
 /// Angle in fixed ticks, modulo TAU_TICKS. 0 = 0°, TAU_TICKS/4 = 90°, etc.
 #[cfg_attr(feature = "abi-stable", derive(abi_stable::StableAbi))]
 #[cfg_attr(feature = "abi-stable", repr(transparent))]
@@ -246,5 +261,18 @@ mod tests {
     fn angle_rotate_toward_equal_unchanged() {
         let r = angle_rotate_toward(Angle::from_ticks(123), Angle::from_ticks(123), 10);
         assert_eq!(r.ticks(), 123);
+    }
+
+    #[test]
+    fn fixed_rad_to_ticks_basic() {
+        // π/2 in Fixed32 raw ≈ 1608. Expected ticks: TAU_TICKS / 4 = 1024.
+        let half_pi = Fixed32::from_raw(1608);  // ~π/2
+        let ticks = fixed_rad_to_ticks(half_pi);
+        assert!((ticks - 1024).abs() <= 2, "fixed_rad_to_ticks(π/2) = {} ticks, expected ~1024", ticks);
+    }
+
+    #[test]
+    fn fixed_rad_to_ticks_zero() {
+        assert_eq!(fixed_rad_to_ticks(Fixed32::ZERO), 0);
     }
 }
