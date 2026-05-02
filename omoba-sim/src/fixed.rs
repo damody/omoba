@@ -75,6 +75,14 @@ impl std::ops::Neg for Fixed32 {
     fn neg(self) -> Fixed32 { Fixed32(self.0.wrapping_neg()) }
 }
 
+impl std::ops::AddAssign for Fixed32 {
+    fn add_assign(&mut self, rhs: Fixed32) { self.0 = self.0.wrapping_add(rhs.0); }
+}
+
+impl std::ops::SubAssign for Fixed32 {
+    fn sub_assign(&mut self, rhs: Fixed32) { self.0 = self.0.wrapping_sub(rhs.0); }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +191,20 @@ mod tests {
     #[test]
     fn sqrt_zero() {
         assert_eq!(Fixed32::ZERO.sqrt(), Fixed32::ZERO);
+    }
+
+    #[test]
+    fn add_assign_basic() {
+        let mut a = Fixed32::from_i32(3);
+        a += Fixed32::from_i32(2);
+        assert_eq!(a, Fixed32::from_i32(5));
+    }
+
+    #[test]
+    fn sub_assign_basic() {
+        let mut a = Fixed32::from_i32(5);
+        a -= Fixed32::from_i32(2);
+        assert_eq!(a, Fixed32::from_i32(3));
     }
 
     #[test]

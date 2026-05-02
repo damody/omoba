@@ -104,7 +104,7 @@ pub trait UnitScript: Send + Sync {
         &self,
         _attacker: EntityHandle,
         _victim: EntityHandle,
-        _damage: f32,
+        _damage: Fixed32,
         _w: &mut GameWorldDyn<'_>,
     ) {
     }

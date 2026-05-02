@@ -18,8 +18,10 @@ pub struct DartTower;
 const STATS: &TowerStats = &TOWER_DART_STATS;
 
 // 升級加成（不來自 templates.json — 是腳本邏輯參數）
-const BONUS_PROC_CHANCE: f32 = 0.25;
-const BONUS_DAMAGE: f32 = 30.0;
+// 0.25 * 1024 = 256
+const BONUS_PROC_CHANCE: Fixed32 = Fixed32::from_raw(256);
+// 30.0 * 1024 = 30720
+const BONUS_DAMAGE: Fixed32 = Fixed32::from_raw(30720);
 
 impl UnitScript for DartTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -50,9 +52,9 @@ impl UnitScript for DartTower {
         })
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: f32, w: &mut GameWorldDyn<'_>) {
+    fn on_tick(&self, e: EntityHandle, dt: Fixed32, w: &mut GameWorldDyn<'_>) {
         let asd_interval = w.get_asd_interval(e);
-        if asd_interval <= 0.0 {
+        if asd_interval <= Fixed32::ZERO {
             return;
         }
         let mut asd_count = w.get_asd_count(e);
@@ -82,21 +84,27 @@ impl UnitScript for DartTower {
         let triple = w.has_tower_flag(e, RStr::from_str("triple_shot"));
         let spike = w.has_tower_flag(e, RStr::from_str("spike_o_pult"));
 
-        // 決定發射模式
-        let (count, spread_deg) = if fan_club {
-            (5u32, 30.0_f32)
+        // 決定發射模式 — spread 用整數度數，給 Angle::from_degrees_i32 直接用
+        let (count, spread_deg): (u32, i32) = if fan_club {
+            (5, 30)
         } else if triple {
-            (3u32, 15.0_f32)
+            (3, 15)
         } else {
-            (1u32, 0.0_f32)
+            (1, 0)
         };
 
         // Spike-o-pult 覆蓋：巨釘、splash、半速彈
         let (bullet_speed, damage, splash_radius) = if spike {
-            (STATS.bullet_speed * 0.5, 40.0_f32.max(atk), 100.0)
+            let forty = Fixed32::from_i32(40);
+            let dmg = if atk > forty { atk } else { forty };
+            (
+                STATS.bullet_speed * Fixed32::from_raw(512), // 0.5
+                dmg,
+                Fixed32::from_i32(100),
+            )
         } else {
-            let speed_mul = if fan_club { 2.0 } else { 1.0 };
-            (STATS.bullet_speed * speed_mul, atk, 0.0)
+            let speed_mul = if fan_club { Fixed32::from_i32(2) } else { Fixed32::ONE };
+            (STATS.bullet_speed * speed_mul, atk, Fixed32::ZERO)
         };
 
         w.log_info(RStr::from_str("[tower_dart] fire!"));
@@ -107,23 +115,28 @@ impl UnitScript for DartTower {
         };
         let dx = t_pos.x - pos.x;
         let dy = t_pos.y - pos.y;
-        let base_angle = dy.atan2(dx);
+        let base_angle = omoba_sim::trig::atan2(dy, dx);
+        let range_x_1_5 = range * Fixed32::from_raw(1536); // 1.5
 
         for i in 0..count {
             let angle = if count == 1 {
                 base_angle
             } else {
-                let offset = spread_deg * core::f32::consts::PI / 180.0;
-                let step = (2.0 * offset) / (count as f32 - 1.0);
-                base_angle - offset + step * (i as f32)
+                // step_deg = (2 * spread_deg) / (count - 1)
+                let denom = (count as i32) - 1;
+                // i 個彈 step：from -spread_deg to +spread_deg；
+                // total ticks = base_angle.ticks() + (-spread_deg + step_deg*i) (in degrees)
+                let offset_deg = -spread_deg + (2 * spread_deg * (i as i32)) / denom;
+                let offset_ticks = omoba_sim::trig::Angle::from_degrees_i32(offset_deg).ticks();
+                omoba_sim::trig::Angle::from_ticks(base_angle.ticks() + offset_ticks)
             };
 
             // Spike 或多發：直線；單發 homing
             let path_spec = if spike || count > 1 {
-                let end = Vec2f::new(
-                    pos.x + angle.cos() * range * 1.5,
-                    pos.y + angle.sin() * range * 1.5,
-                );
+                let end = Vec2 {
+                    x: pos.x + omoba_sim::trig::cos(angle) * range_x_1_5,
+                    y: pos.y + omoba_sim::trig::sin(angle) * range_x_1_5,
+                };
                 PathSpec::Straight { end_pos: end }
             } else {
                 PathSpec::Homing { target }
@@ -135,11 +148,11 @@ impl UnitScript for DartTower {
                 path: path_spec,
                 speed: bullet_speed,
                 damage,
-                hit_radius: 0.0,
+                hit_radius: Fixed32::ZERO,
                 splash_radius,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-                stun_duration: 0.0,
+                slow_factor: Fixed32::ZERO,
+                slow_duration: Fixed32::ZERO,
+                stun_duration: Fixed32::ZERO,
                 kind_id: if spike { PROJECTILE_SPIKE_OPULT.0 } else { PROJECTILE_DART.0 },
             });
         }
@@ -156,20 +169,20 @@ impl UnitScript for DartTower {
 
         // crit_chance override：upgrade buff 寫入 crit_chance 就用那個；否則回 BONUS_PROC_CHANCE (0.25)
         let crit_chance_bonus = w.get_stat_bonus(attacker, StatKey::CritChance);
-        let effective_chance = if crit_chance_bonus > 0.0 {
+        let effective_chance = if crit_chance_bonus > Fixed32::ZERO {
             crit_chance_bonus
         } else {
             BONUS_PROC_CHANCE
         };
 
-        let roll = w.rand_f32();
+        let roll = w.rand_unit();
         if !always && roll >= effective_chance {
             return;
         }
 
         // crit_bonus override
         let crit_bonus_extra = w.get_stat_bonus(attacker, StatKey::CritBonus);
-        let bonus_damage = if crit_bonus_extra > 0.0 {
+        let bonus_damage = if crit_bonus_extra > Fixed32::ZERO {
             crit_bonus_extra
         } else {
             BONUS_DAMAGE
@@ -192,8 +205,8 @@ impl UnitScript for DartTower {
                 w.play_vfx(RStr::from_str("vfx_explosion"), at);
                 w.deal_damage_splash(
                     at,
-                    60.0,
-                    60.0,
+                    Fixed32::from_i32(60),
+                    Fixed32::from_i32(60),
                     DamageKind::Physical,
                     RSome(attacker),
                 );

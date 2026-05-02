@@ -47,9 +47,9 @@ impl UnitScript for BombTower {
         })
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: f32, w: &mut GameWorldDyn<'_>) {
+    fn on_tick(&self, e: EntityHandle, dt: Fixed32, w: &mut GameWorldDyn<'_>) {
         let asd_interval = w.get_asd_interval(e);
-        if asd_interval <= 0.0 {
+        if asd_interval <= Fixed32::ZERO {
             return;
         }
         let mut asd_count = w.get_asd_count(e);
@@ -80,12 +80,16 @@ impl UnitScript for BombTower {
         let splash = STATS.splash_radius + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("bomb_stun")) {
-            0.5
+            Fixed32::from_raw(512) // 0.5
         } else {
-            0.0
+            Fixed32::ZERO
         };
         let missile = w.has_tower_flag(e, RStr::from_str("missile"));
-        let bullet_speed = if missile { STATS.bullet_speed * 1.5 } else { STATS.bullet_speed };
+        let bullet_speed = if missile {
+            STATS.bullet_speed * Fixed32::from_raw(1536) // 1.5
+        } else {
+            STATS.bullet_speed
+        };
 
         w.log_info(RStr::from_str("[tower_bomb] fire!"));
         w.spawn_projectile_ex(ProjectileSpec {
@@ -94,10 +98,10 @@ impl UnitScript for BombTower {
             path: PathSpec::Homing { target },
             speed: bullet_speed,
             damage: atk,
-            hit_radius: 0.0,
+            hit_radius: Fixed32::ZERO,
             splash_radius: splash,
-            slow_factor: 0.0,
-            slow_duration: 0.0,
+            slow_factor: Fixed32::ZERO,
+            slow_duration: Fixed32::ZERO,
             stun_duration: stun,
             kind_id: PROJECTILE_BOMB.0,
         });
@@ -122,37 +126,41 @@ impl UnitScript for BombTower {
 
         // frag_recursive 目前只拉高單片傷害（真正遞迴留 TODO）
         let frag_damage = if w.has_tower_flag(attacker, RStr::from_str("frag_recursive")) {
-            45.0
+            Fixed32::from_i32(45)
         } else if w.has_tower_flag(attacker, RStr::from_str("frag_12")) {
-            25.0
+            Fixed32::from_i32(25)
         } else {
-            15.0
+            Fixed32::from_i32(15)
         };
 
         let pos = match w.get_pos(victim) {
             RSome(p) => p,
             RNone => return,
         };
-        let step = core::f32::consts::TAU / (frag_count as f32);
-        let frag_range = 300.0;
+        let frag_range = Fixed32::from_i32(300);
+        let frag_speed = Fixed32::from_i32(800);
+        let frag_hit_radius = Fixed32::from_i32(40);
+
+        // 360° / frag_count，用 from_degrees_i32 維持決定性 LUT
+        let step_deg: i32 = 360 / (frag_count as i32);
 
         for i in 0..frag_count {
-            let angle = step * (i as f32);
-            let end = Vec2f::new(
-                pos.x + angle.cos() * frag_range,
-                pos.y + angle.sin() * frag_range,
-            );
+            let angle = omoba_sim::trig::Angle::from_degrees_i32(step_deg * (i as i32));
+            let end = Vec2 {
+                x: pos.x + omoba_sim::trig::cos(angle) * frag_range,
+                y: pos.y + omoba_sim::trig::sin(angle) * frag_range,
+            };
             w.spawn_projectile_ex(ProjectileSpec {
                 from: pos,
                 owner: attacker,
                 path: PathSpec::Straight { end_pos: end },
-                speed: 800.0,
+                speed: frag_speed,
                 damage: frag_damage,
-                hit_radius: 40.0,
-                splash_radius: 0.0,
-                slow_factor: 0.0,
-                slow_duration: 0.0,
-                stun_duration: 0.0,
+                hit_radius: frag_hit_radius,
+                splash_radius: Fixed32::ZERO,
+                slow_factor: Fixed32::ZERO,
+                slow_duration: Fixed32::ZERO,
+                stun_duration: Fixed32::ZERO,
                 kind_id: PROJECTILE_BOMB_FRAG.0,
             });
         }
