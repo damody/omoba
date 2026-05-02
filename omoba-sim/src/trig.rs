@@ -7,6 +7,8 @@ use serde::{Serialize, Deserialize};
 pub const TAU_TICKS: i32 = 4096;
 
 /// Angle in fixed ticks, modulo TAU_TICKS. 0 = 0°, TAU_TICKS/4 = 90°, etc.
+#[cfg_attr(feature = "abi-stable", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi-stable", repr(transparent))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Angle(i32);
 

@@ -7,7 +7,9 @@
 use crate::fixed::Fixed32;
 use serde::{Serialize, Deserialize};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "abi-stable", derive(abi_stable::StableAbi))]
+#[cfg_attr(feature = "abi-stable", repr(C))]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Vec2 {
     pub x: Fixed32,
     pub y: Fixed32,
