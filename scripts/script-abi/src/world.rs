@@ -22,15 +22,15 @@ pub type GameWorldDyn<'a> = GameWorld_TO<'a, RMut<'a, ()>>;
 pub trait GameWorld: Send {
     // ---- Query ----
     fn get_pos(&self, e: EntityHandle) -> ROption<Vec2>;
-    fn get_hp(&self, e: EntityHandle) -> ROption<Fixed32>;
-    fn get_max_hp(&self, e: EntityHandle) -> ROption<Fixed32>;
+    fn get_hp(&self, e: EntityHandle) -> ROption<Fixed64>;
+    fn get_max_hp(&self, e: EntityHandle) -> ROption<Fixed64>;
     fn is_alive(&self, e: EntityHandle) -> bool;
     fn faction_of(&self, e: EntityHandle) -> ROption<RStr<'_>>;
     fn unit_id_of(&self, e: EntityHandle) -> ROption<RStr<'_>>;
     fn query_enemies_in_range(
         &self,
         center: Vec2,
-        radius: Fixed32,
+        radius: Fixed64,
         of: EntityHandle,
     ) -> RVec<EntityHandle>;
 
@@ -44,17 +44,17 @@ pub trait GameWorld: Send {
         &mut self,
         e: EntityHandle,
         target: Vec2,
-        step: Fixed32,
+        step: Fixed64,
     ) -> Vec2;
     fn deal_damage(
         &mut self,
         target: EntityHandle,
-        amount: Fixed32,
+        amount: Fixed64,
         kind: DamageKind,
         source: ROption<EntityHandle>,
     );
-    fn heal(&mut self, target: EntityHandle, amount: Fixed32);
-    fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: Fixed32);
+    fn heal(&mut self, target: EntityHandle, amount: Fixed64);
+    fn add_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>, duration: Fixed64);
     fn remove_buff(&mut self, target: EntityHandle, buff_id: RStr<'_>);
     /// 查詢 target 身上是否有指定 buff（toggle 技能判斷是否要 remove 用）。
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool;
@@ -66,7 +66,7 @@ pub trait GameWorld: Send {
         &mut self,
         target: EntityHandle,
         buff_id: RStr<'_>,
-        duration: Fixed32,
+        duration: Fixed64,
         modifiers_json: RStr<'_>,
     );
     /// 召喚一個單位：在 `pos` 生成 `unit_type` 指定的預設模板（saika_gunner、
@@ -77,32 +77,32 @@ pub trait GameWorld: Send {
         pos: Vec2,
         unit_type: RStr<'_>,
         owner: EntityHandle,
-        duration: Fixed32,
+        duration: Fixed64,
     ) -> EntityHandle;
     /// TD-mode 通用發射 API：依 `ProjectileSpec` 建立 projectile entity 並
     /// 廣播 projectile/C 給前端。支援 Homing / Straight / AoE / Slow。
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle;
     /// 發爆炸特效事件給前端（由小到大紅圈）。不造成傷害；傷害由 projectile 本身的 splash。
-    fn emit_explosion(&mut self, pos: Vec2, radius: Fixed32, duration: Fixed32);
+    fn emit_explosion(&mut self, pos: Vec2, radius: Fixed64, duration: Fixed64);
     fn despawn(&mut self, e: EntityHandle);
 
     // ---- Tower / 單位屬性讀寫（供 on_tick 使用）----
     /// 讀塔的攻擊射程（TAttack.range）
-    fn get_tower_range(&self, e: EntityHandle) -> Fixed32;
+    fn get_tower_range(&self, e: EntityHandle) -> Fixed64;
     /// 讀塔的攻擊力（TAttack.atk_physic）
-    fn get_tower_atk(&self, e: EntityHandle) -> Fixed32;
+    fn get_tower_atk(&self, e: EntityHandle) -> Fixed64;
     /// 讀攻速間隔秒數（TAttack.asd）
-    fn get_asd_interval(&self, e: EntityHandle) -> Fixed32;
+    fn get_asd_interval(&self, e: EntityHandle) -> Fixed64;
     /// 讀目前攻速計數器（TAttack.asd_count）
-    fn get_asd_count(&self, e: EntityHandle) -> Fixed32;
+    fn get_asd_count(&self, e: EntityHandle) -> Fixed64;
     /// 設目前攻速計數器（腳本決定何時消耗）
-    fn set_asd_count(&mut self, e: EntityHandle, v: Fixed32);
+    fn set_asd_count(&mut self, e: EntityHandle, v: Fixed64);
     /// 設攻擊力（覆寫 TAttack.atk_physic；供 on_spawn 初始化數值用）
-    fn set_tower_atk(&mut self, e: EntityHandle, v: Fixed32);
+    fn set_tower_atk(&mut self, e: EntityHandle, v: Fixed64);
     /// 設射程（覆寫 TAttack.range）
-    fn set_tower_range(&mut self, e: EntityHandle, v: Fixed32);
+    fn set_tower_range(&mut self, e: EntityHandle, v: Fixed64);
     /// 設攻擊間隔秒數（覆寫 TAttack.asd）
-    fn set_asd_interval(&mut self, e: EntityHandle, v: Fixed32);
+    fn set_asd_interval(&mut self, e: EntityHandle, v: Fixed64);
     /// 設塔/單位 facing 角度（+X = 0，CCW）
     fn set_facing(&mut self, e: EntityHandle, angle: Angle);
     /// 讀單位當前 facing 角度（+X = 0，CCW）。
@@ -112,7 +112,7 @@ pub trait GameWorld: Send {
     fn query_nearest_enemy(
         &self,
         center: Vec2,
-        radius: Fixed32,
+        radius: Fixed64,
         of: EntityHandle,
     ) -> ROption<EntityHandle>;
 
@@ -121,8 +121,8 @@ pub trait GameWorld: Send {
     fn play_sfx(&mut self, id: RStr<'_>, at: Vec2);
 
     // ---- Deterministic RNG (host-seeded) ----
-    /// Returns uniform Fixed32 in [0, 1). Deterministic across replays.
-    fn rand_unit(&mut self) -> Fixed32;
+    /// Returns uniform Fixed64 in [0, 1). Deterministic across replays.
+    fn rand_unit(&mut self) -> Fixed64;
 
     // ---- Log (forwarded to host's log4rs) ----
     fn log_info(&self, msg: RStr<'_>);
@@ -135,19 +135,19 @@ pub trait GameWorld: Send {
 
     /// 加法聚合：回傳 `e` 身上所有 buff payload 中 `stat_key` 欄位的和。
     /// 慣例：`_bonus` 後綴 stat 用這個（例 `range_bonus`、`bonus_damage`）。
-    fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed32;
+    fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64;
 
     /// 乘法聚合：回傳 `e` 身上所有 buff payload 中 `stat_key` 欄位的積。
     /// 空集合回 1.0。慣例：`_multiplier` 後綴 stat 用這個。
-    fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed32;
+    fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64;
 
     /// 回傳單位的「實際」移速：`base_msd * (1 + move_speed_bonus_sum) *
     /// move_speed_multiplier_product`，並 clamp 到 `move_speed_min/max`（若有 buff）。
-    fn get_final_move_speed(&self, e: EntityHandle) -> Fixed32;
+    fn get_final_move_speed(&self, e: EntityHandle) -> Fixed64;
 
     /// 回傳單位的「實際」攻擊力：`base_atk + bonus_damage_sum + base_damage_bonus_sum`，
     /// 再乘以 `damage_out_multiplier_product`。
-    fn get_final_atk(&self, e: EntityHandle) -> Fixed32;
+    fn get_final_atk(&self, e: EntityHandle) -> Fixed64;
 
     /// 取得該塔第 `path` 路線已升級的等級（0..=4）。
     fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8;
@@ -160,20 +160,20 @@ pub trait GameWorld: Send {
     fn apply_tower_permanent_buff(&mut self, e: EntityHandle, buff_id: RStr<'_>, modifiers_json: RStr<'_>);
 
     /// 回傳單位的「實際」攻擊射程：`base_range + attack_range_bonus_sum`。
-    fn get_final_attack_range(&self, e: EntityHandle) -> Fixed32;
+    fn get_final_attack_range(&self, e: EntityHandle) -> Fixed64;
 
     /// 回傳指定 buff 還剩多少秒；不存在回 0。
-    fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> Fixed32;
+    fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> Fixed64;
 
     /// 讀取當前 mana（英雄/可施法單位）。無法取得時回 0。
-    fn current_mana(&self, e: EntityHandle) -> Fixed32;
+    fn current_mana(&self, e: EntityHandle) -> Fixed64;
 
     /// 扣 mana；足夠時扣除並回傳 true，不足回 false。
     /// 會自動 push `SpentMana` 事件供腳本 hook。
-    fn spend_mana(&mut self, e: EntityHandle, amount: Fixed32, ability_id: RStr<'_>) -> bool;
+    fn spend_mana(&mut self, e: EntityHandle, amount: Fixed64, ability_id: RStr<'_>) -> bool;
 
     /// 補 mana，自動 push `ManaGained` 事件。
-    fn restore_mana(&mut self, e: EntityHandle, amount: Fixed32);
+    fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64);
 
     /// 從腳本端主動 push 一個 `ModifierAdded` 事件（進階用）。
     /// 一般呼叫 `add_buff` / `add_stat_buff` 時會自動 push；
@@ -189,48 +189,48 @@ pub trait GameWorld: Send {
 
     /// 實際護甲 = base + PHYSICAL_ARMOR_BONUS (+ UNIQUE + UNIQUE_ACTIVE)。
     /// base 來自 `CProperty.def_physic`。
-    fn get_final_armor(&self, e: EntityHandle) -> Fixed32;
+    fn get_final_armor(&self, e: EntityHandle) -> Fixed64;
 
     /// 實際魔抗（0..1）。支援 MAGICAL_RESISTANCE_DIRECT_MODIFICATION 覆蓋、
     /// MAGICAL_RESISTANCE_BONUS / DECREPIFY_UNIQUE 疊加。
     /// base 來自 `CProperty.def_magic`。
-    fn get_final_magic_resist(&self, e: EntityHandle) -> Fixed32;
+    fn get_final_magic_resist(&self, e: EntityHandle) -> Fixed64;
 
     /// 閃避機率（0..1）= EVASION_CONSTANT - NEGATIVE_EVASION_CONSTANT clamp。
-    fn get_evasion_chance(&self, e: EntityHandle) -> Fixed32;
+    fn get_evasion_chance(&self, e: EntityHandle) -> Fixed64;
 
     /// Miss 機率（0..1）= MISS_PERCENTAGE clamp。
-    fn get_miss_chance(&self, e: EntityHandle) -> Fixed32;
+    fn get_miss_chance(&self, e: EntityHandle) -> Fixed64;
 
     /// 暴擊機率 = PREATTACK_CRITICALSTRIKE clamp 0..1。
-    fn get_crit_chance(&self, e: EntityHandle) -> Fixed32;
+    fn get_crit_chance(&self, e: EntityHandle) -> Fixed64;
 
     /// 暴擊倍率 = CRIT_MULTIPLIER（預設 1.0，若 buff payload 未設）。
-    fn get_crit_multiplier(&self, e: EntityHandle) -> Fixed32;
+    fn get_crit_multiplier(&self, e: EntityHandle) -> Fixed64;
 
     /// 冷卻倍率 = 1 + COOLDOWN_PERCENTAGE + COOLDOWN_PERCENTAGE_STACKING。
-    fn get_cooldown_mult(&self, e: EntityHandle) -> Fixed32;
+    fn get_cooldown_mult(&self, e: EntityHandle) -> Fixed64;
 
     /// 是否為建築物（有 `IsBuilding` marker component）。
     fn is_building(&self, e: EntityHandle) -> bool;
 
     /// HP 上限加值 = HEALTH_BONUS + EXTRA_HEALTH_BONUS。
-    fn get_max_hp_bonus(&self, e: EntityHandle) -> Fixed32;
+    fn get_max_hp_bonus(&self, e: EntityHandle) -> Fixed64;
 
     /// HP regen / 秒（已套 DISABLE_HEALING 與 HP_REGEN_AMPLIFY_PERCENTAGE）。
-    fn get_hp_regen(&self, e: EntityHandle) -> Fixed32;
+    fn get_hp_regen(&self, e: EntityHandle) -> Fixed64;
 
     /// 直接讀 BuffStore 加法聚合（`sum_add(e, key)`）。
     /// 供塔腳本讀 upgrade buff 寫入的任意 key（例如 `crit_chance`, `slow_factor_override`）。
-    fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> Fixed32;
+    fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> Fixed64;
 
     /// 對 `at` 點做圓形範圍傷害；射程內所有敵方單位吃 `damage`。
     /// 用於 ring_of_fire / mega_crit 這類 upgrade 派生的 AoE 傷害。
     fn deal_damage_splash(
         &mut self,
         at: Vec2,
-        radius: Fixed32,
-        damage: Fixed32,
+        radius: Fixed64,
+        damage: Fixed64,
         kind: DamageKind,
         source: ROption<EntityHandle>,
     );
