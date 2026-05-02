@@ -55,6 +55,7 @@ struct HeroEntry {
     #[serde(default)] display_name: String,
     #[serde(default)] title: String,
     #[serde(default)] tombstone: bool,
+    #[serde(default)] abilities: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -85,6 +86,19 @@ fn main() {
     emit_namespace(&mut out, "Summon",         "summon",     &m.summons,   true);
     emit_namespace(&mut out, "Creep",          "creep",      &m.creeps,    true);
     emit_projectile_kinds(&mut out, &m.projectile_kinds);
+
+    // Hero → abilities lookup（必須在 abilities namespace emit 後做，因為 AbilityId 才存在）。
+    // build.rs 自己 build 一個 ability id map，把字串 abilities 翻成 raw u16。
+    let mut ability_id_map: std::collections::HashMap<&str, u16> =
+        std::collections::HashMap::new();
+    let mut next_aid: u16 = 1;
+    for a in &m.abilities {
+        if !a.tombstone {
+            ability_id_map.insert(&a.id, next_aid);
+        }
+        next_aid += 1;
+    }
+    emit_hero_abilities(&mut out, &m.heroes, &ability_id_map);
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = format!("{}/template_ids_gen.rs", out_dir);
@@ -291,6 +305,51 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
         next += 1;
     }
     out.push_str("\t\t_ => \"\",\n\t}\n}\n\n");
+}
+
+/// Hero → abilities[] codegen — 從 templates.json heroes[i].abilities 字串陣列翻成
+/// `HERO_<NAME>_ABILITIES: &[AbilityId] = &[AbilityId(N), ...]` const + lookup
+/// `hero_abilities(HeroId) -> &'static [AbilityId]`。消除 omoba-core 端寫死的
+/// `match hero_type { "saika_..." => [...] }` match 表。
+fn emit_hero_abilities(
+    out: &mut String,
+    entries: &[HeroEntry],
+    ability_ids: &std::collections::HashMap<&str, u16>,
+) {
+    for e in entries {
+        if e.tombstone {
+            continue;
+        }
+        let cname = const_name("hero", &e.id);
+        out.push_str(&format!(
+            "pub const {}_ABILITIES: &[AbilityId] = &[\n",
+            cname,
+        ));
+        for ab_id in &e.abilities {
+            let raw = ability_ids.get(ab_id.as_str()).unwrap_or_else(|| {
+                panic!(
+                    "hero '{}' references unknown ability '{}'",
+                    e.id, ab_id
+                )
+            });
+            out.push_str(&format!("\tAbilityId({}),\n", raw));
+        }
+        out.push_str("];\n");
+    }
+    out.push('\n');
+
+    out.push_str(
+        "pub fn hero_abilities(id: HeroId) -> &'static [AbilityId] {\n\tmatch id.0 {\n",
+    );
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            let cname = const_name("hero", &e.id);
+            out.push_str(&format!("\t\t{} => {}_ABILITIES,\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => &[],\n\t}\n}\n\n");
 }
 
 fn emit_projectile_kinds(out: &mut String, entries: &[ProjKind]) {
