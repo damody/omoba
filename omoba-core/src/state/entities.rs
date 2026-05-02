@@ -99,29 +99,20 @@ impl LocalPlayer {
     }
 
     fn init_hero_abilities(hero_type: &str) -> Vec<AbilityState> {
-        let ability_ids = match hero_type {
-            "saika_magoichi" => vec![
-                "sniper_mode",
-                "saika_reinforcements",
-                "rain_iron_cannon",
-                "three_stage_technique"
-            ],
-            "date_masamune" => vec![
-                "flame_blade",
-                "fire_dash",
-                "flame_assault",
-                "matchlock_gun"
-            ],
-            _ => vec![]
-        };
-
-        ability_ids.into_iter().map(|id| AbilityState {
-            ability_id: id.to_string(),
-            level: 1,
-            cooldown_remaining: 0.0,
-            is_available: true,
-            last_used: None,
-        }).collect()
+        // hero → abilities 唯一來源是 templates.json heroes[].abilities[]，透過
+        // omoba_template_ids 編譯期生成 hero_abilities(HeroId) lookup。這裡不再
+        // 寫死 match 表（hero_type 字串無法靜態檢查、新增 hero 時容易漏改）。
+        let id = omoba_template_ids::hero_by_name(hero_type).unwrap_or_default();
+        omoba_template_ids::hero_abilities(id)
+            .iter()
+            .map(|aid| AbilityState {
+                ability_id: aid.as_str().to_string(),
+                level: 1,
+                cooldown_remaining: 0.0,
+                is_available: true,
+                last_used: None,
+            })
+            .collect()
     }
 
     fn init_default_items() -> Vec<ItemState> {

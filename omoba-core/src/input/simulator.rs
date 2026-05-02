@@ -137,23 +137,13 @@ impl PlayerSimulator {
         self.get_hero_abilities().contains(&ability_id.to_string())
     }
 
-    /// Get hero abilities
+    /// Get hero abilities — 走 omoba_template_ids 生成 lookup（單一來源 templates.json）。
     pub fn get_hero_abilities(&self) -> Vec<String> {
-        match self.hero_type.as_str() {
-            "saika_magoichi" => vec![
-                "sniper_mode".to_string(),
-                "saika_reinforcements".to_string(),
-                "rain_iron_cannon".to_string(),
-                "three_stage_technique".to_string(),
-            ],
-            "date_masamune" => vec![
-                "flame_blade".to_string(),
-                "fire_dash".to_string(),
-                "flame_assault".to_string(),
-                "matchlock_gun".to_string(),
-            ],
-            _ => vec![]
-        }
+        let id = omoba_template_ids::hero_by_name(&self.hero_type).unwrap_or_default();
+        omoba_template_ids::hero_abilities(id)
+            .iter()
+            .map(|aid| aid.as_str().to_string())
+            .collect()
     }
 
     /// Generate random action for auto mode
