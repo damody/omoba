@@ -4,10 +4,17 @@ REM run_smoke.bat — automated smoke run.
 REM Auto-presses Start Round at t=2s, exits at t=10s. Reads game.toml
 REM STORY as-is; assume TD_1 unless caller already swapped it.
 REM
+REM `setlocal` keeps the OMFX_AUTO_* env vars scoped to this script —
+REM otherwise they leak into the parent cmd and a subsequent `run.bat`
+REM in the same window would also auto-exit at 10s, which would look
+REM exactly like the game freezing.
+REM
 REM Output:
 REM   - omfx_app.log      (omfx + sim_runner side)
 REM   - omb/log/requests.log  (omb host side; appends, very large)
 REM ======================================================================
+
+setlocal
 
 pushd %~dp0
 
