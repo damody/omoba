@@ -431,6 +431,10 @@ message ItemUse {
   optional uint32 target_entity = 3;
 }
 
+// TD: client requests the next creep wave to begin (legacy "Start Round").
+// Server flips `CurrentCreepWave.is_running = true` and stamps wave_start_time.
+message StartRound {}
+
 message PlayerInput {
   oneof action {
     NoOp no_op = 1;
@@ -441,6 +445,7 @@ message PlayerInput {
     TowerUpgradeInput tower_upgrade = 6;
     TowerSell tower_sell = 7;
     ItemUse item_use = 8;
+    StartRound start_round = 9;
   }
 }
 
