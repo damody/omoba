@@ -264,8 +264,23 @@ impl KcpClient {
                                         };
 
                                         if let Some(parsed) = parsed_opt {
-                                            if event_tx.send(parsed).await.is_err() {
-                                                break;
+                                            // try_send instead of send().await: when no
+                                            // consumer is draining `event_rx` (e.g. Phase 5.1+
+                                            // omfx, which only subscribes to the lockstep
+                                            // stream), a blocking send fills the 10000-slot
+                                            // channel in ~10s of TD_STRESS load and then
+                                            // stalls THIS reader task — preventing lockstep
+                                            // frames on the same socket from ever being
+                                            // delivered. Dropping legacy events on full is
+                                            // safe because their consumer is opt-in.
+                                            match event_tx.try_send(parsed) {
+                                                Ok(()) => {}
+                                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                                    // No subscriber draining; drop silently.
+                                                }
+                                                Err(mpsc::error::TrySendError::Closed(_)) => {
+                                                    break;
+                                                }
                                             }
                                         }
                                     }
