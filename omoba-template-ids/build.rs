@@ -89,7 +89,7 @@ struct HeroEntry {
     id: String,
     #[serde(default)] display_name: String,
     #[serde(default)] title: String,
-    #[serde(default)] background: String,
+    #[serde(default)] #[allow(dead_code)] background: String,
     #[serde(default)] tombstone: bool,
     #[serde(default)] abilities: Vec<String>,
     // intrinsic stats (Phase B)

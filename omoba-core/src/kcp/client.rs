@@ -60,6 +60,10 @@ pub enum LockstepInbound {
     StateHash { msg: StateHash, wire_bytes: usize, logical_bytes: usize },
     GameStart { msg: GameStart, wire_bytes: usize, logical_bytes: usize },
     SnapshotResp { msg: SnapshotResp, wire_bytes: usize, logical_bytes: usize },
+    /// Server echoed a PingRequest. `rtt_us` = round-trip time in microseconds,
+    /// computed from the echoed `client_send_us` against the client's local
+    /// monotonic clock at receive time.
+    Pong { rtt_us: u64, wire_bytes: usize, logical_bytes: usize },
 }
 
 /// P6: result of the per-session sequence gap check. Exposed for tests.
@@ -138,6 +142,11 @@ impl KcpClient {
         let (reader, writer) = tokio::io::split(stream);
         let writer = Arc::new(Mutex::new(writer));
 
+        // Shared monotonic epoch — both the ping sender and the reader (which
+        // computes RTT on PingResponse) timestamp against this single Instant
+        // so the subtraction is wraparound-safe.
+        let epoch = std::time::Instant::now();
+
         // Send subscribe request immediately
         {
             let mut w = writer.lock().await;
@@ -150,7 +159,11 @@ impl KcpClient {
         // Spawn background reader task
         let (event_tx, event_rx) = mpsc::channel(10000);
         let (lockstep_tx, lockstep_rx) = mpsc::channel(1024);
-        Self::spawn_reader(reader, event_tx, lockstep_tx, writer.clone(), player_name.clone());
+        Self::spawn_reader(reader, event_tx, lockstep_tx.clone(), writer.clone(), player_name.clone(), epoch);
+
+        // Spawn ping loop — sends TAG_PING_REQ every 1s. The reader handles
+        // TAG_PING_RESP and emits LockstepInbound::Pong with the computed RTT.
+        Self::spawn_ping_loop(writer.clone(), epoch);
 
         Ok(Self {
             player_name,
@@ -162,12 +175,38 @@ impl KcpClient {
         })
     }
 
+    /// Periodically send TAG_PING_REQ stamped with a monotonic timestamp.
+    /// The server echoes it as TAG_PING_RESP; the reader task derives RTT
+    /// against the same epoch.
+    fn spawn_ping_loop(
+        writer: Arc<Mutex<WriteHalf<KcpStream>>>,
+        epoch: std::time::Instant,
+    ) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            // First tick fires immediately; skip it so we do not race the
+            // subscribe/join handshake at session start.
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let now_us = epoch.elapsed().as_micros() as i64;
+                let req = PingRequest { client_send_us: now_us };
+                let mut w = writer.lock().await;
+                if let Err(e) = write_framed_msg(&mut *w, TAG_PING_REQ, &req).await {
+                    warn!("Failed to send PingRequest: {}", e);
+                    break;
+                }
+            }
+        });
+    }
+
     fn spawn_reader(
         mut reader: ReadHalf<KcpStream>,
         event_tx: mpsc::Sender<GameEventData>,
         lockstep_tx: mpsc::Sender<LockstepInbound>,
         writer_for_resync: Arc<Mutex<WriteHalf<KcpStream>>>,
         player_name_for_resync: String,
+        epoch: std::time::Instant,
     ) {
         tokio::spawn(async move {
             // P3: local cache lives in the reader task so no locking is needed.
@@ -359,6 +398,23 @@ impl KcpClient {
                                         }
                                     }
                                     Err(e) => warn!("Failed to decode SnapshotResp: {}", e),
+                                }
+                            }
+                            TAG_PING_RESP => {
+                                let logical_bytes = payload.len();
+                                match PingResponse::decode(payload.as_slice()) {
+                                    Ok(resp) => {
+                                        let now_us = epoch.elapsed().as_micros() as i64;
+                                        let rtt_us = (now_us - resp.client_send_us).max(0) as u64;
+                                        if lockstep_tx.send(LockstepInbound::Pong {
+                                            rtt_us,
+                                            wire_bytes: wire_compressed_bytes,
+                                            logical_bytes,
+                                        }).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(e) => warn!("Failed to decode PingResponse: {}", e),
                                 }
                             }
                             _ => {

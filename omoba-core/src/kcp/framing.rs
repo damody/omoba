@@ -9,7 +9,7 @@ pub const TAG_GAME_STATE_REQUEST: u8 = 0x05;
 pub const TAG_GAME_STATE_RESPONSE: u8 = 0x06;
 pub const TAG_VIEWPORT_UPDATE: u8 = 0x07;
 
-// Phase 2 Lockstep tags. Range 0x10..=0x16. The COMPRESSION_FLAG (0x80) bit
+// Phase 2 Lockstep tags. Range 0x10..=0x18. The COMPRESSION_FLAG (0x80) bit
 // is unused on these too, so the same write_framed / read_framed path works.
 pub const TAG_INPUT_SUBMIT: u8 = 0x10;  // C→S
 pub const TAG_TICK_BATCH: u8 = 0x11;    // S→C broadcast (lockstep_joined sessions)
@@ -18,6 +18,8 @@ pub const TAG_JOIN_REQUEST: u8 = 0x13;  // C→S
 pub const TAG_GAME_START: u8 = 0x14;    // S→C unicast (reply to JoinRequest)
 pub const TAG_SNAPSHOT_REQ: u8 = 0x15;  // C→S
 pub const TAG_SNAPSHOT_RESP: u8 = 0x16; // S→C unicast
+pub const TAG_PING_REQ: u8 = 0x17;      // C→S RTT probe
+pub const TAG_PING_RESP: u8 = 0x18;     // S→C echo
 
 /// High bit of the tag byte — set when the framed payload is LZ4-compressed.
 /// Base tags 0x01~0x07 never use this bit so it is always free as a flag.

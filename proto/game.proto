@@ -526,6 +526,21 @@ message SnapshotResp {
   SimSnapshot state = 2;
 }
 
+// Tag 0x17 (C→S): client RTT probe. `client_send_us` is the client's local
+// monotonic timestamp in microseconds at send time. Server echoes it back
+// in PingResponse without modification — client subtracts from `now` on
+// receipt to derive round-trip time.
+message PingRequest {
+  int64 client_send_us = 1;
+}
+
+// Tag 0x18 (S→C): echo of PingRequest. Carries the unmodified client
+// timestamp so the client can compute RTT without needing a clock-sync
+// step. Server adds nothing.
+message PingResponse {
+  int64 client_send_us = 1;
+}
+
 // SimSnapshot — opaque bincode-serialized omoba_sim::World. Deserialized
 // client-side via omoba_sim::snapshot::deserialize. Schema versioning
 // embedded in the bincode payload.
