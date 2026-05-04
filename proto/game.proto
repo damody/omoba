@@ -456,6 +456,7 @@ message InputSubmit {
   uint32 player_id = 1;
   uint32 target_tick = 2;
   PlayerInput input = 3;
+  uint32 input_id = 4;
 }
 
 // ServerEvent — non-input events server injects into ticks (player join/leave, scripted scene start, etc.)
@@ -476,6 +477,7 @@ message ServerEvent {
 message InputForPlayer {
   uint32 player_id = 1;
   PlayerInput input = 2;
+  uint32 input_id = 3;
 }
 
 // Tag 0x11 (S→C): server-paced tick broadcast. Sent every 16.66ms (60Hz)

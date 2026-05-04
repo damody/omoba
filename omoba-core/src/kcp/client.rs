@@ -546,6 +546,7 @@ impl KcpClient {
         &mut self,
         target_tick: u32,
         input: PlayerInput,
+        input_id: u32,
     ) -> Result<(usize, usize)> {
         let player_id = self
             .last_player_id
@@ -554,6 +555,7 @@ impl KcpClient {
             player_id,
             target_tick,
             input: Some(input),
+            input_id,
         };
         let logical_bytes = req.encoded_len();
         let mut w = self.writer.lock().await;
