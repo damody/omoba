@@ -14,8 +14,6 @@ scripts/*.dylib
 # 本機 editor / 使用者狀態
 settings.ron
 .claude/settings.local.json
-# graphify 工具暫存檔（GRAPH_REPORT.md / graph.* / manifest.json 保留）
+# graphify 知識圖輸出在本機重建，不進 Git
 .graphify_*
-graphify-out/.graphify_*
-graphify-out/cache/
-graphify-out/cost.json
+graphify-out/
