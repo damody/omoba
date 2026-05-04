@@ -44,4 +44,4 @@
 - [ ] 6.4 TD_1 60s smoke：點塔 / 升塔 / 賣塔 / Q 升 / 撿物 各幾次，HUD `Lag: p50 ... / p99 ...` 顯示有限數字（typical ~50-150ms localhost）；`omfx_app.log` `grep "input_render_latency:" | wc -l` ≥ 5
 - [ ] 6.5 TD_STRESS 60s smoke：跑滿 60 秒，期間定期點塔（至少 30 次），verify：(a) `Lag: p99 < 200ms` HUD 數字穩定；(b) `pending_inputs.len()` 不持續成長（housekeeping 有效）；(c) `omfx_app.log` `grep -c "input_render_latency:"` ≥ 30；(d) 無 desync / panic
 - [x] 6.6 grep guard — `input_id` 不出現在 sim 路徑：grep `input_id` 在 `omb/src/comp/`、`omb/src/tick/`、`omoba-sim/src/` — 預期 0 命中（除 `comp/lockstep_resources.rs` 等 wire-edge metadata 模組）
-- [ ] 6.7 graphify update：`graphify update .` 把本 change 變動同步進 graph；commit `chore: graphify update post input-render-latency`
+- [x] 6.7 graphify update：`graphify update .` 把本 change 變動同步進 graph；commit `chore: graphify update post input-render-latency`
