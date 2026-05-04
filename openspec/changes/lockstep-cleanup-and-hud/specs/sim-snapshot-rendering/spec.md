@@ -177,6 +177,63 @@ omfx render 端 SHALL 在每 frame 進 snapshot lock 後，把 `EntityKind::Towe
 - **THEN** `network_entities[eid].upgrade_levels == [2, 0, 0]`
 - **AND** Sell 面板的 path 0 升級按鈕顯示 `■■□□  [P1] L2->L3 $<cost>`
 
+### Requirement: TowerUpgradeRegistry 透過 snapshot Arc 共享
+
+`SimWorldSnapshot.tower_upgrades: Arc<Vec<TowerUpgradeDefSnapshot>>` SHALL 在 sim worker 跑第一個 tick 後從 `omobab::comp::tower_upgrade_registry::TowerUpgradeRegistry` 抽出共享的 `Arc`，後續每 snapshot `.clone()` Arc（O(1)）。`TowerUpgradeDefSnapshot` SHALL 含 `tower_kind`, `path`, `level`, `name`, `cost`。`TowerUpgradeRegistry` SHALL 提供 `iter_all()` method 讓 omfx sim worker 一次抽 48 個 def。
+
+omfx render 端 SHALL 把 snapshot.tower_upgrades 種進 `td_upgrade_defs: HashMap<(unit_id, path, level), (name, cost)>` cache（lazy build；首個非空 snapshot 後永久 immutable，跟 `tower_templates` / `abilities` 同 pattern）。
+
+#### Scenario: omfx Sell 退款公式對齊 omb
+
+- **WHEN** 玩家對 path 0 升 2 級後（基礎 cost 100、L1 cost 25、L2 cost 50）點 SELL 按鈕
+- **THEN** omfx Sell 面板顯示 refund = `100*0.85 + 25*0.75 + 50*0.75 = 141`
+- **AND** omb 端 `sell_tower::refund` 計算同值
+
+#### Scenario: 升級按鈕顯示 next-level upgrade 名稱
+
+- **WHEN** TD_1 玩家選中 dart_monkey tower（未升級），3 條升級按鈕顯示
+- **THEN** path 0 按鈕文字為 `[P1] L0->L1 Long Range Darts $50`
+- **AND** path 1 按鈕為 `[P2] L0->L1 Quick Shots $50`
+- **AND** path 2 按鈕為 `[P3] L0->L1 Keen Eyes $50`
+- **AND** **不**使用 `■`/`□`/`●`/`○` 等 unicode pip glyph（Fyrox 預設字型缺字會 render 成 missing-glyph 方框）
+
+#### Scenario: 滿級按鈕顯示 MAX
+
+- **WHEN** path 0 已升到 L4
+- **THEN** path 0 升級按鈕文字為 `[P1] MAX`
+
+### Requirement: 塔身上 label 只顯示升級級別摘要
+
+omfx render 端 sim_runner-backed name labels（`omfx/game/src/lib.rs:2516+`）對 `EntityKind::Tower` SHALL：
+- 若 `upgrade_levels` 任一 path > 0：label 文字為 `"<L0>/<L1>/<L2>"`（例：`2/4/0`）
+- 若全 0 / `None`：**不**建立 label widget（從 `sim_entity_labels` 移除既有 entry）
+- **不**顯示塔的 hp / max_hp（塔不需要 HP 資訊）
+
+Hero / Creep 走既有 `"name HP/MaxHP"` 格式不變。
+
+#### Scenario: 未升級塔不顯示 label
+
+- **WHEN** TD_1 玩家剛蓋一座 dart_monkey（`upgrade_levels == [0, 0, 0]`）
+- **THEN** 塔身上**沒有**任何 name label widget
+- **AND** scene 內該 entity 對應的 `sim_entity_labels` entry 不存在
+
+#### Scenario: 升級後塔顯示 N/N/N
+
+- **WHEN** 玩家對 path 0 升 2 級、path 1 升 4 級
+- **THEN** 下一 snapshot 該塔 `upgrade_levels == Some([2, 4, 0])`
+- **AND** 塔身上 label 文字為 `"2/4/0"`
+- **AND** **不**含塔名稱、HP、`■`/`●` pip glyph
+
+### Requirement: Sell/Upgrade 面板寬度避免切字
+
+`omfx/game/src/lib.rs::Game::on_init` 內三個 widget (`ui_td_sell_name_text` / `ui_td_sell_button_text` / `ui_td_upgrade_buttons[0..3]`) 的 `with_width` SHALL ≥ 360.0；面板算位 `panel_w` 同步 ≥ 360.0。原本 240.0 不夠寬，升級按鈕 `[P1] L0->L1 Long Range Darts $50` 末段 `$50` 會被視窗右緣截掉。
+
+#### Scenario: 寬度足夠顯示完整按鈕文字
+
+- **WHEN** TD_1 選中 dart_monkey tower，path 0 升級按鈕渲染
+- **THEN** 按鈕 widget 的 `with_width` 為 360.0
+- **AND** 文字 `[P1] L0->L1 Long Range Darts $50` 完整顯示，末段 `$50` 不被切
+
 ### Requirement: BlockedRegion polygons via snapshot
 
 `SimWorldSnapshot.blocked_regions: Vec<Vec<(f32, f32)>>` SHALL 在 `extract_snapshot` 時從 `omobab::comp::BlockedRegions` resource 讀取（map load 後不變，每 snapshot clone 成本可忽略；TD_1 為空）。omfx render SHALL 用既有 `build_polygon_outline` 紅線 + `build_circle_outline` 橘圓畫出 region 輪廓。

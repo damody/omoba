@@ -55,6 +55,8 @@
 
 - [x] 2.4 若任 verify 失敗：把該項缺的部分開新 task 補進此 phase（命名 `2.X-fix-<item>`）；驗證後 commit
 
+- [x] 2.6-fix-sell-panel-and-tower-label 修兩個 UX 問題：(a) Sell 面板退款只算 base*0.85 沒含升級退款，(b) 升級按鈕 / 塔身 label 用 `■/□/●/○` unicode pip 但字型缺字 render 成方框，(c) 240px 寬度不夠把按鈕末段切掉，(d) 塔身 label 顯示 `name H/M` 不需要 HP。修法：plumb `tower_upgrades: Arc<Vec<TowerUpgradeDefSnapshot>>` 透過 snapshot；omfx 端 cache `td_upgrade_defs: HashMap<(unit_id, path, level), (name, cost)>` 供 Sell 退款計算 + 升級按鈕 label；塔身 label 改顯示 `"L0/L1/L2"` 升級摘要、無升級不建 widget；面板寬度 240→360；commit `omb b08c76c` (iter_all) + `omfx 035b28b` (snapshot.tower_upgrades + Sell refund 公式 + upgrade name button) + `omfx <new>` (panel widen + tower label N/N/N)
+
 - [x] 2.5-fix-tower-selection 鏡射 snapshot Tower → `network_entities`：手動 smoke 後發現 Phase 5.1 砍 legacy GameEvent 後 `network_entities` 永遠空，導致 (a) 點塔沒反應 (b) Sell + 3 條升級路線面板不出現 (c) 攻擊範圍紅圈不顯示。在 `omfx/game/src/lib.rs` 進 snapshot lock 後（`render_bridge.update` 之後）對 `EntityKind::Tower` 鏡射進 `network_entities`，欄位 mapping `entity_type/position/tower_kind/upgrade_levels/collision_radius_render/attack_range_backend`；`retain` 砍掉不在當 frame snapshot 的 tower entry；commit `omfx 08112af` + bump pointer `omoba 9ffcf30`
 
 ## 3. Final — 全 phase verify gates
