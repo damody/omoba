@@ -49,12 +49,17 @@ pub struct KcpClient {
 /// Phase 2 lockstep inbound frames the client surfaces from the kcp reader
 /// task. `GameStart` is delivered through this channel as well so a caller
 /// awaiting `join_lockstep` can recv from the same stream.
+///
+/// `wire_bytes` = real UDP cost (post-compression + 5 byte framing).
+/// `logical_bytes` = decompressed prost payload length. Lets the consumer
+/// HUD show both numbers so the lockstep bandwidth win over the legacy
+/// per-event broadcast can be quantified.
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
-    TickBatch(TickBatch),
-    StateHash(StateHash),
-    GameStart(GameStart),
-    SnapshotResp(SnapshotResp),
+    TickBatch { msg: TickBatch, wire_bytes: usize, logical_bytes: usize },
+    StateHash { msg: StateHash, wire_bytes: usize, logical_bytes: usize },
+    GameStart { msg: GameStart, wire_bytes: usize, logical_bytes: usize },
+    SnapshotResp { msg: SnapshotResp, wire_bytes: usize, logical_bytes: usize },
 }
 
 /// P6: result of the per-session sequence gap check. Exposed for tests.
@@ -297,9 +302,14 @@ impl KcpClient {
                             }
                             // ===== Phase 2 Lockstep tags =====
                             TAG_TICK_BATCH => {
+                                let logical_bytes = payload.len();
                                 match TickBatch::decode(payload.as_slice()) {
                                     Ok(b) => {
-                                        if lockstep_tx.send(LockstepInbound::TickBatch(b)).await.is_err() {
+                                        if lockstep_tx.send(LockstepInbound::TickBatch {
+                                            msg: b,
+                                            wire_bytes: wire_compressed_bytes,
+                                            logical_bytes,
+                                        }).await.is_err() {
                                             break;
                                         }
                                     }
@@ -307,9 +317,14 @@ impl KcpClient {
                                 }
                             }
                             TAG_STATE_HASH => {
+                                let logical_bytes = payload.len();
                                 match StateHash::decode(payload.as_slice()) {
                                     Ok(s) => {
-                                        if lockstep_tx.send(LockstepInbound::StateHash(s)).await.is_err() {
+                                        if lockstep_tx.send(LockstepInbound::StateHash {
+                                            msg: s,
+                                            wire_bytes: wire_compressed_bytes,
+                                            logical_bytes,
+                                        }).await.is_err() {
                                             break;
                                         }
                                     }
@@ -317,9 +332,14 @@ impl KcpClient {
                                 }
                             }
                             TAG_GAME_START => {
+                                let logical_bytes = payload.len();
                                 match GameStart::decode(payload.as_slice()) {
                                     Ok(gs) => {
-                                        if lockstep_tx.send(LockstepInbound::GameStart(gs)).await.is_err() {
+                                        if lockstep_tx.send(LockstepInbound::GameStart {
+                                            msg: gs,
+                                            wire_bytes: wire_compressed_bytes,
+                                            logical_bytes,
+                                        }).await.is_err() {
                                             break;
                                         }
                                     }
@@ -327,9 +347,14 @@ impl KcpClient {
                                 }
                             }
                             TAG_SNAPSHOT_RESP => {
+                                let logical_bytes = payload.len();
                                 match SnapshotResp::decode(payload.as_slice()) {
                                     Ok(s) => {
-                                        if lockstep_tx.send(LockstepInbound::SnapshotResp(s)).await.is_err() {
+                                        if lockstep_tx.send(LockstepInbound::SnapshotResp {
+                                            msg: s,
+                                            wire_bytes: wire_compressed_bytes,
+                                            logical_bytes,
+                                        }).await.is_err() {
                                             break;
                                         }
                                     }
@@ -435,7 +460,7 @@ impl KcpClient {
             .ok_or_else(|| anyhow::anyhow!("lockstep_rx already taken"))?;
         loop {
             match rx.recv().await {
-                Some(LockstepInbound::GameStart(gs)) => {
+                Some(LockstepInbound::GameStart { msg: gs, .. }) => {
                     self.last_player_id = Some(gs.player_id);
                     self.last_master_seed = Some(gs.master_seed);
                     return Ok(gs.master_seed);
@@ -456,7 +481,16 @@ impl KcpClient {
 
     /// Submit a player input targeted at `target_tick`. Caller must have
     /// invoked `join_lockstep` first (otherwise no `player_id` is known).
-    pub async fn submit_input(&mut self, target_tick: u32, input: PlayerInput) -> Result<()> {
+    ///
+    /// Returns `(logical_bytes, wire_bytes)` so the caller can feed network
+    /// throughput counters. InputSubmit messages are tiny (well under
+    /// `LZ4_THRESHOLD = 128`), so they are never compressed and
+    /// `wire = 1 + 4 + logical`.
+    pub async fn submit_input(
+        &mut self,
+        target_tick: u32,
+        input: PlayerInput,
+    ) -> Result<(usize, usize)> {
         let player_id = self
             .last_player_id
             .ok_or_else(|| anyhow::anyhow!("submit_input before join_lockstep"))?;
@@ -465,9 +499,11 @@ impl KcpClient {
             target_tick,
             input: Some(input),
         };
+        let logical_bytes = req.encoded_len();
         let mut w = self.writer.lock().await;
         write_framed_msg(&mut *w, TAG_INPUT_SUBMIT, &req).await?;
-        Ok(())
+        let wire_bytes = 1 + 4 + logical_bytes;
+        Ok((logical_bytes, wire_bytes))
     }
 
     /// Request a snapshot from the server. Reply arrives as
