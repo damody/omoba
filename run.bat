@@ -1,32 +1,72 @@
 @echo off
+setlocal
 pushd %~dp0
 
-echo [0/3] Killing stale processes (if any)...
+set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
+set EXECUTOR=omfx\target\debug\executor.exe
+
+echo [0/4] Killing stale processes (if any)...
 taskkill /f /im omobab.exe >nul 2>&1
 taskkill /f /im executor.exe >nul 2>&1
 
-echo [1/3] Building script DLL (scripts\base_content)...
-cargo build --manifest-path scripts\Cargo.toml -p base_content
-if %errorlevel% neq 0 (
-    echo Script DLL build failed!
-    popd
-    pause
-    exit /b 1
-)
-if not exist omb\scripts mkdir omb\scripts
-copy /y scripts\target\debug\base_content.dll omb\scripts\base_content.dll >nul
-echo   -^> copied base_content.dll to omb\scripts\
+echo [1/4] Checking script DLL (scripts\base_content)...
+call :ensure_fresh script-dll "script DLL" "cargo build --manifest-path scripts\Cargo.toml -p base_content" "Script DLL build failed!"
+if errorlevel 1 goto :fail
 
-echo [2/3] Building backend (omb)...
-cargo build --manifest-path omb\Cargo.toml
-if %errorlevel% neq 0 (
-    echo Backend build failed!
-    popd
-    pause
-    exit /b 1
+%FRESHNESS% -Action stage-dll
+if errorlevel 1 (
+    echo Script DLL staging failed!
+    goto :fail_pause
 )
 
-echo [3/3] Running frontend (spawns backend; backend dies when frontend exits)...
-cargo run --manifest-path omfx\Cargo.toml -p executor
+echo [2/4] Checking backend (omb)...
+call :ensure_fresh backend "backend" "cargo build --manifest-path omb\Cargo.toml" "Backend build failed!"
+if errorlevel 1 goto :fail
 
+echo [3/4] Checking frontend (omfx executor)...
+call :ensure_fresh frontend "frontend" "cargo build --manifest-path omfx\Cargo.toml -p executor" "Frontend build failed!"
+if errorlevel 1 goto :fail
+
+if not exist "%EXECUTOR%" (
+    echo Frontend executable missing: %EXECUTOR%
+    goto :fail_pause
+)
+
+echo [4/4] Running frontend (spawns backend; backend dies when frontend exits)...
+"%EXECUTOR%"
+set RUN_ERR=%errorlevel%
 popd
+exit /b %RUN_ERR%
+
+:ensure_fresh
+set ARTIFACT=%~1
+set LABEL=%~2
+set BUILD_CMD=%~3
+set FAIL_MSG=%~4
+
+%FRESHNESS% -Action check -Artifact %ARTIFACT%
+set FRESH_ERR=%errorlevel%
+if "%FRESH_ERR%"=="0" (
+    echo   -^> %LABEL% up-to-date; skipping build.
+    exit /b 0
+)
+if "%FRESH_ERR%"=="1" (
+    echo   -^> %LABEL% stale; building...
+) else (
+    echo   -^> freshness check failed for %LABEL%; building...
+)
+
+%BUILD_CMD%
+if errorlevel 1 (
+    echo %FAIL_MSG%
+    pause
+    exit /b 1
+)
+exit /b 0
+
+:fail_pause
+pause
+
+:fail
+popd
+exit /b 1
