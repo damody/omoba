@@ -1,4 +1,4 @@
-## 0. Pre-flight audit
+## 0. 事前 audit
 
 - [x] 0.1 Audit `omfx/game/src/lockstep_client.rs` 確認 `LockstepEvent` enum 結構 + 既有 `send_lockstep_input` 函式簽章；列出可加 `input_id` 的注入點（建議在 `send_lockstep_input` 內 assign id 後返回給 caller，或 caller 預先 assign）；no commit
 - [x] 0.2 Audit `omfx/game/src/sim_runner.rs::extract_snapshot` 跟 `dispatch_loop` — 確認 sim worker 怎麼從 lockstep_client 接 TickBatch、TickBatch.inputs[] 怎麼變成 sim 內 PendingMoveQueue / PendingTowerSpawnQueue 等 push（這條路徑要記錄 input_id → 該 tick）；no commit

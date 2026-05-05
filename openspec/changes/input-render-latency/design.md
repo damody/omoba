@@ -1,4 +1,4 @@
-## Context
+## 背景
 
 omoba 採 server-paced lockstep（`docs/plans/2026-05-02-server-paced-lockstep-design.md`）：omfx 跑跟 omb 同步的 sim ECS，input 經 `InputSubmit{target_tick, input}` 上行，omb scheduler 排到 `target_tick` 後在 `TickBatch{tick, [InputForPlayer]}` broadcast 回所有 client。omfx sim_runner 拿 TickBatch 餵進 dispatch，跑到該 tick 後 `extract_snapshot` 推 `SimWorldSnapshot` 給 render thread，render thread 才畫出反映該 input 的畫面。
 
@@ -19,7 +19,7 @@ audit 出來既有相關基礎設施：
 - `omfx/game/src/lib.rs:1842-1843` 1Hz 滾動視窗（`net_wire_bytes_last_sec` 抽樣模式）
 - `omfx/game/src/sim_runner.rs::SimWorldSnapshot` 欄位多但**沒** `applied_input_ids`
 
-## Goals / Non-Goals
+## 目標 / 非目標
 
 **Goals:**
 
@@ -37,9 +37,9 @@ audit 出來既有相關基礎設施：
 - **不**對 server-injected ticks 做量測（waveStart / GameEnd 等 ServerEvent 沒有「玩家輸入」起點，量測無意義）
 - **不**改 sim 確定性的任何路徑（input_id 嚴禁進 ECS / Outcome / 任何 hash 過的 byte）
 
-## Decisions
+## 決策
 
-### Decision 1: `input_id` 放在 `InputSubmit` / `InputForPlayer` wire 層，不放 `PlayerInput`
+### 決策 1: `input_id` 放在 `InputSubmit` / `InputForPlayer` wire 層，不放 `PlayerInput`
 
 **選擇：** proto schema：
 ```
@@ -47,7 +47,7 @@ message InputSubmit {
   uint32 player_id = 1;
   uint32 target_tick = 2;
   PlayerInput input = 3;
-  uint32 input_id = 4;     // NEW: omfx-assigned, server echoes back
+  uint32 input_id = 4;     // NEW: omfx 指派，server echo back
 }
 
 message InputForPlayer {
@@ -65,7 +65,7 @@ message InputForPlayer {
 
 **理由：** wrapper-level 欄位是 metadata 自然位置；server 純 echo 不解析；`PlayerInput` 保持乾淨。
 
-### Decision 2: `input_id` 編號用 omfx-side `AtomicU32` counter，不參與 determinism
+### 決策 2: `input_id` 編號用 omfx-side `AtomicU32` counter，不參與 determinism
 
 **選擇：** `omfx/game/src/lockstep_client.rs` 加 `input_id_counter: AtomicU32`，每次 submit 時 `fetch_add(1)` 取下一個 id（從 1 起，0 保留為 "no id"）。range 4 billion 對單局遊戲足夠（一局最多 ~1 萬輸入）。
 
@@ -75,7 +75,7 @@ message InputForPlayer {
 
 **理由：** AtomicU32 counter 是 lock-free、O(1)、單調遞增、log 易讀；不進 sim 路徑所以不需 deterministic。
 
-### Decision 3: omfx-side `PendingInputBook: HashMap<u32, PendingInput>` 跟 sim 完全隔離
+### 決策 3: omfx-side `PendingInputBook: HashMap<u32, PendingInput>` 跟 sim 完全隔離
 
 **選擇：**
 ```rust
@@ -99,7 +99,7 @@ submit 時 insert，pair（snapshot.applied_input_ids 含此 id）後 remove + �
 
 **理由：** 純 client-side state 最便宜；HashMap O(1) lookup；evict 簡單線性掃 N < 100 完全可接受。
 
-### Decision 4: `SimWorldSnapshot.applied_input_ids: Vec<u32>` 走非 sim metadata channel
+### 決策 4: `SimWorldSnapshot.applied_input_ids: Vec<u32>` 走非 sim metadata channel
 
 **選擇：** `extract_snapshot` 在生 snapshot 時，從**這個 tick 接收到的 TickBatch.inputs[] 的 input_id 列表**生成 `applied_input_ids: Vec<u32>`，塞進 snapshot。重要：
 
@@ -113,7 +113,7 @@ submit 時 insert，pair（snapshot.applied_input_ids 含此 id）後 remove + �
 
 **理由：** sim_runner 已經拿到 TickBatch；順手把 input_ids 列表塞進 snapshot 是 O(input_count_per_tick) 動作，免費；render 端按 snapshot.tick 就知道這些 id 該配對。
 
-### Decision 5: `InputLatencyMeter` 用 ringbuffer + sorted Vec 算 p50/p99，每秒重算 1 次
+### 決策 5: `InputLatencyMeter` 用 ringbuffer + sorted Vec 算 p50/p99，每秒重算 1 次
 
 **選擇：**
 ```rust
@@ -143,7 +143,7 @@ struct LatencySample {
 
 **理由：** 1Hz 重算 + 快取讀取對 HUD 是 zero overhead；sorted Vec O(N log N) 一次成本可忽略；標準庫工具夠用。
 
-### Decision 6: HUD 顯示格式整合進既有 `Ping` 行
+### 決策 6: HUD 顯示格式整合進既有 `Ping` 行
 
 **選擇：** 既有 line：
 ```
@@ -163,7 +163,7 @@ Connected | Ping: 12 ms | Lag: p50 65 / p99 120 ms | Tick: 1234 | ...
 
 **理由：** 同行擴展是最低 UI 成本；用 `Lag` 標籤跟 `Ping` 區隔語意；symbol `—` 跟既有 `Ping: —` pattern 一致。
 
-### Decision 7: stress log 結構 — 每樣本一行 debug log
+### 決策 7: stress log 結構 — 每樣本一行 debug log
 
 **選擇：** pair 成功時：
 ```
@@ -179,7 +179,7 @@ TD_STRESS 60s smoke 跑完後可 grep `input_render_latency:` 拿到所有樣本
 
 **理由：** log 是現成基建；debug level 不影響 release；key=value 適合 grep + awk pipeline。
 
-## Risks / Trade-offs
+## 風險 / 取捨
 
 | Risk | Mitigation |
 |---|---|
@@ -191,7 +191,7 @@ TD_STRESS 60s smoke 跑完後可 grep `input_render_latency:` 拿到所有樣本
 | HUD 加 `Lag:` 欄破壞既有 ASCII 寬度假設 | 既有 status string format!() 沒有寬度約束 / 沒 column 對齊；新增段不影響 layout |
 | `input_id_counter` overflow（u32 4 billion） | 一局 4B input 不可能；overflow 後 wrap-around 可能撞到舊 pending entry 但跟 `Instant` 對比會自然失配 evict — 不寫額外 saturation 檢查 |
 
-## Migration Plan
+## 遷移計畫
 
 無 schema migration（無 DB / 序列化檔需 migrate）。Wire 協定 BREAKING — `InputSubmit` / `InputForPlayer` 增 `input_id` 欄位，但 protobuf field 規則：新增 optional / scalar 欄位不破壞舊 client 解碼（會被忽略）；新 server 收舊 client 的 `InputSubmit{input_id=0}` 也能跑（id=0 被當 sentinel 視為「無 metric」）。
 
@@ -207,7 +207,7 @@ TD_STRESS 60s smoke 跑完後可 grep `input_render_latency:` 拿到所有樣本
 
 Rollback：本 change 純加法（沒砍既有 emit 跟 logic），revert commit 即可；無 wire 協定不可逆變動（proto 加欄位反向解碼仍可跑）。
 
-## Open Questions
+## 未決問題
 
 - 既有 `LockstepEvent` enum 是否已有「input echoed back」事件？若沒有，本 change 要加 `LockstepEvent::InputApplied { input_id, target_tick, render_wall_clock_us }`；若已有類似事件可直接擴展（待 audit `lockstep_client.rs` 看 enum 定義）
 - HUD `Lag:` 段顯示 `pending_count` 是否進入第一版？或先不顯示，等 stress 跑出問題再加？— 建議**進**，因為觀察到「p99 突然飆 + pending_count 飆」就能直接定位是 sample lost 還是真延遲

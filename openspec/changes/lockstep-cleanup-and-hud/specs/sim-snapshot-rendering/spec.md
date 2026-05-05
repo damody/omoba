@@ -83,7 +83,7 @@ omfx HUD render SHALL 從 snapshot 讀這些欄位顯示，**不得**從舊的 `
 - **THEN** snapshot `round_is_running == true`、`round` 增加
 - **AND** omfx 對應 UI（start button hide / wave counter）反映新狀態
 
-### Requirement: HeroStatsExt aggregation in omfx
+### Requirement: HeroStatsExt aggregation 在 omfx 執行
 
 `EntityRenderData` SHALL 加 `pub hero_ext: Option<Box<HeroStatsExt>>` 欄位（`Box` 避免普通 entity size bloat）。`HeroStatsExt` SHALL 包含：
 
@@ -234,7 +234,7 @@ Hero / Creep 走既有 `"name HP/MaxHP"` 格式不變。
 - **THEN** 按鈕 widget 的 `with_width` 為 360.0
 - **AND** 文字 `[P1] L0->L1 Long Range Darts $50` 完整顯示，末段 `$50` 不被切
 
-### Requirement: BlockedRegion polygons via snapshot
+### Requirement: BlockedRegion polygons 透過 snapshot 提供
 
 `SimWorldSnapshot.blocked_regions: Vec<Vec<(f32, f32)>>` SHALL 在 `extract_snapshot` 時從 `omobab::comp::BlockedRegions` resource 讀取（map load 後不變，每 snapshot clone 成本可忽略；TD_1 為空）。omfx render SHALL 用既有 `build_polygon_outline` 紅線 + `build_circle_outline` 橘圓畫出 region 輪廓。
 

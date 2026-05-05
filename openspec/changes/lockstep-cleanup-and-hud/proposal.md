@@ -1,8 +1,8 @@
-## Why
+## 為什麼
 
 原 plan（`docs/plans/2026-05-04-lockstep-cleanup-and-hud.md`）寫於 Phase 4.2 那波遷移之前，認為還有三大塊待做：24 個 emit 沒砍 / 13 個 HUD 元素失聯 / 4 個 PlayerInput stub。本 change spec 期間做完 audit 後發現絕大多數已被 Phase 4.2 那波遷移順手做完 — 真正剩下的是：**(1) ~7 個 active emit 沒砍**（EntityDeath ×2 / TowerCreate / TowerUpgrade / GameRound / HeroStatic / HeroHot — wire 上死信，omfx 已不消費）、**(2) `removed_entity_ids` 目前用 `prev_alive: HashSet<u32>` diff 跑著（`omfx/game/src/sim_runner.rs:383, 949-951`），需重構成 `Outcome::EntityRemoved` 通道跟 Explosion 統一**、**(3) graph + plan 文件需同步**。Phase 2-4（13 個 HUD 元素 + 4 個 PlayerInput）皆已實作，本 change 純 verify-only。
 
-## What Changes
+## 變更內容
 
 - **砍 ~7 個 active legacy emit**（EntityDeath ×2 / TowerCreate / TowerUpgrade / GameRound / HeroStatic / HeroHot / `push_hero_stats` 內部 broadcast）— omfx side snapshot 已涵蓋這些資料，wire 上是死信
 - **重構 `removed_entity_ids` 演算法**：從現有 `prev_alive: HashSet<u32>` diff（`sim_runner.rs:383, 949-951`）改成 `Outcome::EntityRemoved { entity_id }` → `RemovedEntitiesQueue` resource → `extract_snapshot` drain，跟 `Outcome::Explosion` 統一 pipeline pattern；所有 `world.delete_entity(e)` SHALL 走新 helper `delete_entity_tracked(world, e)` 強制配對 outcome push，加 grep guard test 防漏 delete site
@@ -23,7 +23,7 @@
 
 （無 — `openspec/specs/` 目前無既有 capability）
 
-## Impact
+## 影響範圍
 
 - **Code**（實際變動範圍小於原 plan 預期）：
   - `omb/src/state/resource_management.rs` — 砍 5 個 active emit（EntityDeath sell / TowerCreate / GameRound / TowerUpgrade / `push_hero_stats` 整段函式 + 3 個 builder fn）

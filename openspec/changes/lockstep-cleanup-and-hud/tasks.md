@@ -1,4 +1,4 @@
-> **Audit summary（執行前必讀）**：原 plan（`docs/plans/2026-05-04-lockstep-cleanup-and-hud.md`）寫於 Phase 4.2 那波遷移之前，過期甚多。實際 audit 結果：
+> **Audit 摘要（執行前必讀）**：原 plan（`docs/plans/2026-05-04-lockstep-cleanup-and-hud.md`）寫於 Phase 4.2 那波遷移之前，過期甚多。實際 audit 結果：
 >
 > - **Phase 1**：原列 24 個 emit，~17 個已被 Phase 4.2 順手砍（facing / stall / slow / creep_create / hp_update / projectile_create / make_game_explosion 全系列），剩 ~7 個 active
 > - **Phase 2**：4 個 PlayerInput **全部已實作** — `omfx/game/src/lib.rs` 4 個 click handler + `omb/src/tick/player_input_tick.rs` 4 個 PendingQueue push + `GameProcessor::handle_*_from_input` ×4 + `drain_pending_*` ×4，皆已 wire（Phase 2.1 ~ 2.4 註解都在）
@@ -7,7 +7,7 @@
 >
 > 所以本 change 真實工作只剩三件事：(1) **砍 7 個 active emit**、(2) **重構** `removed_entity_ids` 從現有 prev_alive diff（`sim_runner.rs:383,949-951`）改成 `Outcome::EntityRemoved` 通道（用戶決定），(3) `graphify update .` 同步 graph + plan 文件。Phase 2/3/4 全 verify-only。
 
-## 0. Pre-flight — graphify 同步 + audit 結果註記
+## 0. 事前作業 — graphify 同步 + audit 結果註記
 
 - [x] 0.1 跑 `graphify update .` 把 graph 拉回現況（`graphify-out/GRAPH_REPORT.md` 仍顯示 `make_creep_create` / `make_entity_facing` 等已不存在的節點）；commit `chore: graphify update sync after phase 4.2 migration`
 

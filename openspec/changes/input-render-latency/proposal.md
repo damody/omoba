@@ -1,8 +1,8 @@
-## Why
+## 為什麼
 
 目前 omoba 有 `Ping: {ms}` 顯示單向 RTT，但**沒有端到端 input-to-render 延遲量測** — 玩家點下 click 到看見畫面變化的真實感受值是黑盒。這個值是「網路 RTT + lockstep buffer + render frame」總和，比 RTT 更直觀，也是 stress 場景優化的關鍵指標：玩家抱怨「卡」時問題可能在 lockstep buffer 而非 RTT。本 change 加入端到端量測：UI click 時給 input 一個 `input_id` + wall-clock 戳，配對 sim 推進到該 tick 的 snapshot 進入 render 的時刻，算出總延遲，HUD 顯示最近 N 筆的 p50 / p99，並 log 出來給 TD_STRESS 分析。
 
-## What Changes
+## 變更內容
 
 - **PlayerInput wire schema 擴展**：`InputSubmit` 加 `input_id: u32`、`InputForPlayer` 加 `input_id: u32`，server 端純 echo back（不影響 sim determinism — id 不進 sim ECS）
 - **omfx 端 `PendingInputBook`**：HashMap<input_id, (submit_wall_clock_us, target_tick)>，submit 時 record，sim 跑到該 tick 後配對
@@ -22,7 +22,7 @@
 
 （無 — `openspec/specs/` 目前無既有 capability。`input-render-latency` 跟同期的 `lockstep-cleanup-and-hud` 平行進行，後者的 `player-input-routing` capability 不被本 change 改動 — 4 個 PlayerInput 端到端流程不變，只是 wire 上多帶一個 metadata 欄位）
 
-## Impact
+## 影響範圍
 
 - **Wire 協定**：BREAKING — `InputSubmit` 跟 `InputForPlayer` proto schema 加 `input_id: u32`；舊 client 與新 server 不相容（client/server 同步發行）
 - **Code**：

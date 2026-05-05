@@ -1,109 +1,109 @@
 ## Purpose
 
-Define which legacy network render events are forbidden or retained, and establish outcome queues as the authoritative bridge from omb simulation events to omfx snapshot rendering.
+定義哪些 legacy network render events 被禁止或保留，並建立 outcome queues 作為 omb simulation events 到 omfx snapshot rendering 的 authoritative bridge。
 
 ## Requirements
 
-### Requirement: legacy render-event emits are forbidden
+### Requirement: legacy render-event emits 禁止
 
-omb ECS tick and handler systems SHALL NOT send legacy render-state `TypedOutbound` events for state that is now derived from omfx lockstep simulation and `SimWorldSnapshot` extraction.
+omb ECS tick 與 handler systems SHALL NOT 為已由 omfx lockstep simulation 與 `SimWorldSnapshot` extraction 推導出的 state 送出 legacy render-state `TypedOutbound` events。
 
-The forbidden emit list includes:
+forbidden emit list 包含：
 
-- `EntityFacing`, `CreepStall`, `CreepSlow`, `CreepCreate`, `CreepMove`, `CreepHp`, `ProjectileCreate`, `ProjectileDestroy`, `UnitCreate`, entity `Miss`, and `GameExplosion` legacy render payloads.
-- `TypedOutbound::EntityDeath`, `TypedOutbound::TowerCreate`, `TypedOutbound::TowerUpgrade`, `TypedOutbound::GameRound`, `TypedOutbound::HeroStatic`, and `TypedOutbound::HeroHot`.
-- Builder functions for those payloads, including entity death, tower create, tower upgrade, game round, hero static, hero hot, and game explosion builders.
+- `EntityFacing`、`CreepStall`、`CreepSlow`、`CreepCreate`、`CreepMove`、`CreepHp`、`ProjectileCreate`、`ProjectileDestroy`、`UnitCreate`、entity `Miss` 與 `GameExplosion` legacy render payloads。
+- `TypedOutbound::EntityDeath`、`TypedOutbound::TowerCreate`、`TypedOutbound::TowerUpgrade`、`TypedOutbound::GameRound`、`TypedOutbound::HeroStatic` 與 `TypedOutbound::HeroHot`。
+- 這些 payload 的 builder functions，包括 entity death、tower create、tower upgrade、game round、hero static、hero hot 與 game explosion builders。
 
-All equivalent render state SHALL come from the local omfx sim ECS world and extracted snapshots.
+所有等效 render state SHALL 來自 local omfx sim ECS world 與 extracted snapshots。
 
 #### Scenario: TD_STRESS wire traffic stays low
 
-- **WHEN** `run_smoke_long.bat` runs for 60 seconds with `STORY = "TD_STRESS"`
-- **THEN** the sampled `kcp-p7 .* bytes_per_sec` values in `omb_app.log` remain below 5000 bytes per second
-- **AND** `omb_app.log` contains zero `Removed disconnected KCP session` lines
-- **AND** `omfx_app.log` contains zero `no TickBatch in 1.0s` lines
+- **WHEN** `run_smoke_long.bat` 以 `STORY = "TD_STRESS"` 跑 60 秒
+- **THEN** `omb_app.log` 中 sampled `kcp-p7 .* bytes_per_sec` values 維持低於 5000 bytes per second
+- **AND** `omb_app.log` 包含零行 `Removed disconnected KCP session`
+- **AND** `omfx_app.log` 包含零行 `no TickBatch in 1.0s`
 
-#### Scenario: forbidden TypedOutbound variants are not constructed
+#### Scenario: forbidden TypedOutbound variants 不被 constructed
 
-- **WHEN** `omb/src/` is searched for `TypedOutbound::EntityDeath`, `TypedOutbound::TowerCreate`, `TypedOutbound::TowerUpgrade`, `TypedOutbound::GameRound`, `TypedOutbound::HeroStatic`, and `TypedOutbound::HeroHot`
-- **THEN** no `OutboundMsg::new_typed*` construction uses those variants as payload
-- **AND** the corresponding KCP routing entries and dead builder functions are absent
+- **WHEN** 搜尋 `omb/src/` 中的 `TypedOutbound::EntityDeath`、`TypedOutbound::TowerCreate`、`TypedOutbound::TowerUpgrade`、`TypedOutbound::GameRound`、`TypedOutbound::HeroStatic` 與 `TypedOutbound::HeroHot`
+- **THEN** 沒有任何 `OutboundMsg::new_typed*` construction 使用這些 variants 作為 payload
+- **AND** 對應 KCP routing entries 與 dead builder functions 不存在
 
-#### Scenario: omb lib tests pass
+#### Scenario: omb lib tests 通過
 
-- **WHEN** `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --lib` is run
-- **THEN** the omb library test suite passes
+- **WHEN** 執行 `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --lib`
+- **THEN** omb library test suite 通過
 
-### Requirement: retained HUD broadcasts are allowlisted
+### Requirement: retained HUD broadcasts 進入 allowlist
 
-omb SHALL retain only gameplay broadcasts that are still required as player-visible acknowledgements or one-shot terminal events.
+omb SHALL 只保留仍需要作為 player-visible acknowledgements 或 one-shot terminal events 的 gameplay broadcasts。
 
-The allowlist is:
+allowlist 是：
 
-- `TypedOutbound::GameLives` / `make_game_lives` for life-loss acknowledgement.
-- `TypedOutbound::GameEnd` / `make_game_end` for game end overlays.
+- `TypedOutbound::GameLives` / `make_game_lives` 作為 life-loss acknowledgement。
+- `TypedOutbound::GameEnd` / `make_game_end` 作為 game end overlays。
 
-Explosion VFX SHALL NOT be broadcast and SHALL use `Outcome::Explosion` into `ExplosionFxQueue` and `snapshot.explosions`.
+Explosion VFX SHALL NOT broadcast，且 SHALL 使用 `Outcome::Explosion` 進入 `ExplosionFxQueue` 與 `snapshot.explosions`。
 
-#### Scenario: life loss remains visible
+#### Scenario: life loss 仍可見
 
-- **WHEN** a TD_1 creep reaches the base and reduces lives
-- **THEN** omb broadcasts the retained `game.lives` event
-- **AND** omfx HUD reflects the new lives value
+- **WHEN** TD_1 creep 到達 base 並降低 lives
+- **THEN** omb broadcast retained `game.lives` event
+- **AND** omfx HUD 反映新的 lives value
 
-#### Scenario: game end remains visible
+#### Scenario: game end 仍可見
 
-- **WHEN** TD_1 ends because the game is completed or lives reach zero
-- **THEN** omb broadcasts the retained `game.end` event
-- **AND** omfx displays the game end overlay
+- **WHEN** TD_1 因 game completed 或 lives 歸零而結束
+- **THEN** omb broadcast retained `game.end` event
+- **AND** omfx 顯示 game end overlay
 
-### Requirement: entity removal uses `Outcome::EntityRemoved` as the only delete channel
+### Requirement: entity removal 使用 `Outcome::EntityRemoved` 作為唯一 delete channel
 
-`omb/src/comp/outcome.rs` SHALL define `Outcome::EntityRemoved { entity: Entity }` and `RemovedEntitiesQueue { pending: Vec<u32> }`. `process_outcomes` SHALL be the only code path that calls `entities().delete()`. The `EntityRemoved` arm SHALL push `entity.id()` into `RemovedEntitiesQueue.pending` and delete the entity in the same outcome-processing pass.
+`omb/src/comp/outcome.rs` SHALL 定義 `Outcome::EntityRemoved { entity: Entity }` 與 `RemovedEntitiesQueue { pending: Vec<u32> }`。`process_outcomes` SHALL 是唯一呼叫 `entities().delete()` 的 code path。`EntityRemoved` arm SHALL 將 `entity.id()` push 到 `RemovedEntitiesQueue.pending`，並在同一次 outcome-processing pass 中 delete entity。
 
-All systems that need to remove an entity SHALL push `Outcome::EntityRemoved { entity }` into the world `Vec<Outcome>` resource. Script boundary despawn calls SHALL route through the same outcome resource. Direct entity deletion outside `process_outcomes` is prohibited.
+所有需要 remove entity 的 systems SHALL 將 `Outcome::EntityRemoved { entity }` push 到 world `Vec<Outcome>` resource。Script boundary despawn calls SHALL 透過相同 outcome resource routing。禁止在 `process_outcomes` 之外直接 delete entity。
 
-`extract_snapshot` SHALL drain `RemovedEntitiesQueue` into `SimWorldSnapshot.removed_entity_ids`. omfx render code SHALL release per-entity render caches for those ids, including scene nodes, labels, and collision rings.
+`extract_snapshot` SHALL drain `RemovedEntitiesQueue` 到 `SimWorldSnapshot.removed_entity_ids`。omfx render code SHALL release 該 ids 的 per-entity render caches，包含 scene nodes、labels 與 collision rings。
 
-#### Scenario: creep death removes the omfx scene node
+#### Scenario: creep death 移除 omfx scene node
 
-- **WHEN** a TD_1 creep dies in sim
-- **THEN** death handling enqueues `Outcome::EntityRemoved { entity }`
-- **AND** `process_outcomes` deletes the entity and records its id in `RemovedEntitiesQueue.pending`
-- **AND** the next snapshot includes the creep id in `removed_entity_ids`
-- **AND** omfx releases render caches for that id
-- **AND** omb does not broadcast `EntityDeath`
+- **WHEN** TD_1 creep 在 sim 中死亡
+- **THEN** death handling enqueue `Outcome::EntityRemoved { entity }`
+- **AND** `process_outcomes` delete entity 並將其 id 記錄在 `RemovedEntitiesQueue.pending`
+- **AND** 下一個 snapshot 的 `removed_entity_ids` 包含該 creep id
+- **AND** omfx release 該 id 的 render caches
+- **AND** omb 不 broadcast `EntityDeath`
 
-#### Scenario: sold tower is removed through the outcome channel
+#### Scenario: sold tower 透過 outcome channel 移除
 
-- **WHEN** a TD_1 player sells a tower
-- **THEN** sell handling enqueues `Outcome::EntityRemoved { entity }`
-- **AND** `process_outcomes` deletes the tower and records its id
-- **AND** the next snapshot includes the tower id in `removed_entity_ids`
-- **AND** the tower's scene node, label, and collision ring disappear
+- **WHEN** TD_1 player sell tower
+- **THEN** sell handling enqueue `Outcome::EntityRemoved { entity }`
+- **AND** `process_outcomes` delete tower 並記錄其 id
+- **AND** 下一個 snapshot 的 `removed_entity_ids` 包含該 tower id
+- **AND** tower 的 scene node、label 與 collision ring 消失
 
-#### Scenario: process_outcomes is the only delete sink
+#### Scenario: process_outcomes 是唯一 delete sink
 
-- **WHEN** `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --test delete_entity_outcome_only` is run
-- **THEN** the grep guard passes and finds no `entities().delete(` or `.delete_entity(` calls outside the allowed outcome-processing sink
+- **WHEN** 執行 `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --test delete_entity_outcome_only`
+- **THEN** grep guard 通過，且沒有在 allowed outcome-processing sink 之外找到 `entities().delete(` 或 `.delete_entity(` calls
 
-### Requirement: explosion VFX use `Outcome::Explosion` and a drainable queue
+### Requirement: explosion VFX 使用 `Outcome::Explosion` 與 drainable queue
 
-`omb/src/comp/outcome.rs` SHALL define `Outcome::Explosion { pos: omoba_sim::Vec2, radius: omoba_sim::Fixed64, duration: omoba_sim::Fixed64 }` and `ExplosionFxQueue { pending: Vec<ExplosionFx> }`. `process_outcomes` SHALL push explosion data into `ExplosionFxQueue`. Script boundary explosion calls SHALL push into the same queue and SHALL NOT send a legacy network event.
+`omb/src/comp/outcome.rs` SHALL 定義 `Outcome::Explosion { pos: omoba_sim::Vec2, radius: omoba_sim::Fixed64, duration: omoba_sim::Fixed64 }` 與 `ExplosionFxQueue { pending: Vec<ExplosionFx> }`。`process_outcomes` SHALL 將 explosion data push 到 `ExplosionFxQueue`。Script boundary explosion calls SHALL push 到相同 queue，且 SHALL NOT 送 legacy network event。
 
-`extract_snapshot` SHALL drain the queue into `SimWorldSnapshot.explosions`. omfx render code SHALL create a red-circle VFX for each explosion, animate scale and alpha over `duration_ms`, and release the scene node when the duration ends.
+`extract_snapshot` SHALL drain queue 到 `SimWorldSnapshot.explosions`。omfx render code SHALL 為每個 explosion 建立 red-circle VFX，依 `duration_ms` animate scale 與 alpha，並在 duration 結束時 release scene node。
 
-#### Scenario: bomb tower explosion renders locally
+#### Scenario: bomb tower explosion 在 local render
 
-- **WHEN** a bomb tower hits a creep and emits an explosion outcome
-- **THEN** the next snapshot contains an explosion entry with position, radius, duration, and spawn tick
-- **AND** omfx renders a fading red-circle VFX
-- **AND** the VFX node is released when its duration ends
-- **AND** omb does not broadcast `GameExplosion`
+- **WHEN** bomb tower 擊中 creep 並 emit explosion outcome
+- **THEN** 下一個 snapshot 包含 position、radius、duration 與 spawn tick 的 explosion entry
+- **AND** omfx render fading red-circle VFX
+- **AND** duration 結束時 release VFX node
+- **AND** omb 不 broadcast `GameExplosion`
 
-#### Scenario: legacy explosion builders are absent
+#### Scenario: legacy explosion builders 不存在
 
-- **WHEN** `omb/src/` is searched for `Outcome::Explosion`, `ExplosionFxQueue`, and legacy game explosion builders
-- **THEN** `Outcome::Explosion` and `ExplosionFxQueue` are present
-- **AND** legacy `make_game_explosion` builders are absent except comments
-- **AND** extraction drains the queue into `snapshot.explosions`
+- **WHEN** 搜尋 `omb/src/` 中的 `Outcome::Explosion`、`ExplosionFxQueue` 與 legacy game explosion builders
+- **THEN** `Outcome::Explosion` 與 `ExplosionFxQueue` 存在
+- **AND** legacy `make_game_explosion` builders 除 comments 外不存在
+- **AND** extraction drain queue 到 `snapshot.explosions`

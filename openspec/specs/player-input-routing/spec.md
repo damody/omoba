@@ -1,94 +1,94 @@
 ## Purpose
 
-Define how omfx UI actions are routed through lockstep `PlayerInput` and applied by omb ECS systems, so gameplay actions are deterministic and render feedback comes from snapshots.
+定義 omfx UI actions 如何透過 lockstep `PlayerInput` routing 並由 omb ECS systems apply，讓 gameplay actions deterministic，且 render feedback 來自 snapshots。
 
 ## Requirements
 
-### Requirement: PlayerInput end-to-end flow
+### Requirement: PlayerInput 端到端流程
 
-The omb side `omb/src/tick/player_input_tick.rs` SHALL implement all supported `PlayerInputEnum` gameplay variants without log-only stubs. Each variant SHALL follow this flow:
+omb side `omb/src/tick/player_input_tick.rs` SHALL 實作所有 supported `PlayerInputEnum` gameplay variants，不得保留 log-only stubs。每個 variant SHALL 遵循以下流程：
 
-1. omfx UI handler receives a click or keyboard event.
-2. omfx packages UI state into the corresponding `PlayerInputAction` variant.
-3. omfx sends the input through `lockstep_client.send_lockstep_input(PlayerInput { action: Some(...) })`.
-4. omb `player_input_tick` reads the input for the scheduled tick.
-5. omb logs input metadata including player id, tick, and variant data.
-6. omb calls the corresponding ECS entry point.
-7. Failures SHALL be logged with `warn` and MUST NOT panic or send a bespoke ack; the player observes success or failure through snapshot state.
+1. omfx UI handler 收到 click 或 keyboard event。
+2. omfx 將 UI state package 成對應的 `PlayerInputAction` variant。
+3. omfx 透過 `lockstep_client.send_lockstep_input(PlayerInput { action: Some(...) })` 送出 input。
+4. omb `player_input_tick` 讀取 scheduled tick 的 input。
+5. omb log input metadata，包含 player id、tick 與 variant data。
+6. omb 呼叫對應 ECS entry point。
+7. Failures SHALL 用 `warn` log，且 MUST NOT panic 或送 bespoke ack；player 透過 snapshot state 觀察成功或失敗。
 
-#### Scenario: PlayerInput arms are implemented
+#### Scenario: PlayerInput arms 已實作
 
-- **WHEN** `omb/src/tick/player_input_tick.rs` is searched for `TowerPlace TODO`, `TowerSell TODO`, `TowerUpgrade TODO`, or `ItemUse TODO`
-- **THEN** no TODO stub remains
-- **AND** each arm calls the corresponding `GameProcessor::handle_*` or registry entry point
+- **WHEN** 搜尋 `omb/src/tick/player_input_tick.rs` 中的 `TowerPlace TODO`、`TowerSell TODO`、`TowerUpgrade TODO` 或 `ItemUse TODO`
+- **THEN** 不存在 TODO stub
+- **AND** 每個 arm 都呼叫對應的 `GameProcessor::handle_*` 或 registry entry point
 
-### Requirement: TowerPlace end-to-end
+### Requirement: TowerPlace 端到端
 
-omfx tower button and map click handling SHALL send `PlayerInputAction::TowerPlace { tower_kind_id, pos }` through lockstep input. omb SHALL call `crate::comp::GameProcessor::handle_tower_spawn(world, kind_id: u32, pos: omoba_sim::Vec2, owner_pid: u32) -> Result<Entity, _>`, and that function SHALL be public. Wire integer positions SHALL be converted to `omoba_sim::Fixed64` values using `Fixed64::from_raw(...)`.
+omfx tower button 與 map click handling SHALL 透過 lockstep input 送出 `PlayerInputAction::TowerPlace { tower_kind_id, pos }`。omb SHALL 呼叫 `crate::comp::GameProcessor::handle_tower_spawn(world, kind_id: u32, pos: omoba_sim::Vec2, owner_pid: u32) -> Result<Entity, _>`，且該 function SHALL 是 public。Wire integer positions SHALL 使用 `Fixed64::from_raw(...)` 轉成 `omoba_sim::Fixed64` values。
 
 #### Scenario: TD_1 player places a tower
 
-- **WHEN** a TD_1 player selects a tower kind and clicks the map
-- **THEN** `omb_app.log` includes a `player_input_tick` line for `TowerPlace` with player id, tick, kind id, and raw position
-- **AND** the sim ECS spawns a Tower entity
-- **AND** the next snapshot contains that tower so omfx renders it without a legacy create event
+- **WHEN** TD_1 player 選擇 tower kind 並點擊 map
+- **THEN** `omb_app.log` 包含 `TowerPlace` 的 `player_input_tick` line，含 player id、tick、kind id 與 raw position
+- **AND** sim ECS spawn 一個 Tower entity
+- **AND** 下一個 snapshot 包含該 tower，讓 omfx 在沒有 legacy create event 的情況下 render
 
-#### Scenario: TowerPlace failure only warns
+#### Scenario: TowerPlace failure 只 warn
 
-- **WHEN** a player submits `TowerPlace` with an invalid kind or invalid placement
-- **THEN** `handle_tower_spawn` returns `Err(...)`
-- **AND** omb logs a warning containing the player id and kind id
-- **AND** omb does not panic or disconnect the player
+- **WHEN** player submit invalid kind 或 invalid placement 的 `TowerPlace`
+- **THEN** `handle_tower_spawn` 回傳 `Err(...)`
+- **AND** omb log warning，內容包含 player id 與 kind id
+- **AND** omb 不 panic 也不 disconnect player
 
-### Requirement: TowerSell end-to-end
+### Requirement: TowerSell 端到端
 
-omfx sell button handling SHALL send `PlayerInputAction::TowerSell { tower_entity_id }` through lockstep input. omb SHALL call `crate::comp::GameProcessor::handle_tower_sell(world, entity_id: u32, owner_pid: u32) -> Result<(), _>`, and that function SHALL be public.
+omfx sell button handling SHALL 透過 lockstep input 送出 `PlayerInputAction::TowerSell { tower_entity_id }`。omb SHALL 呼叫 `crate::comp::GameProcessor::handle_tower_sell(world, entity_id: u32, owner_pid: u32) -> Result<(), _>`，且該 function SHALL 是 public。
 
-The sell handler SHALL look up the entity by id, verify it is a Tower owned by the submitting player, calculate refund gold using the active sell rule, add gold to the owning hero/player, and enqueue `Outcome::EntityRemoved { entity }`. Direct calls to `entities().delete()` or `world.delete_entity()` outside `process_outcomes` are prohibited.
+sell handler SHALL 用 id lookup entity、確認它是由 submitting player 擁有的 Tower、依 active sell rule 計算 refund gold、把 gold 加到 owning hero/player，並 enqueue `Outcome::EntityRemoved { entity }`。`process_outcomes` 以外禁止直接呼叫 `entities().delete()` 或 `world.delete_entity()`。
 
-#### Scenario: selling a tower refunds gold and removes the tower
+#### Scenario: selling tower refund gold 並移除 tower
 
-- **WHEN** a TD_1 player places two towers and sells the first tower
-- **THEN** the player's gold increases by the refund amount
-- **AND** `process_outcomes` deletes the first tower through `Outcome::EntityRemoved`
-- **AND** the next snapshot includes the first tower id in `removed_entity_ids`
-- **AND** the second tower remains alive and rendered
+- **WHEN** TD_1 player 放置兩座 towers 並賣掉第一座 tower
+- **THEN** player gold 依 refund amount 增加
+- **AND** `process_outcomes` 透過 `Outcome::EntityRemoved` delete 第一座 tower
+- **AND** 下一個 snapshot 的 `removed_entity_ids` 包含第一座 tower id
+- **AND** 第二座 tower 仍 alive 並 rendered
 
 #### Scenario: selling another player's tower fails
 
-- **WHEN** player A sends `TowerSell` for a tower owned by player B
-- **THEN** `handle_tower_sell` returns `Err(...)` and logs a warning
-- **AND** the tower is not removed
+- **WHEN** player A 對 player B 擁有的 tower 送出 `TowerSell`
+- **THEN** `handle_tower_sell` 回傳 `Err(...)` 並 log warning
+- **AND** 該 tower 不被移除
 
-### Requirement: TowerUpgrade end-to-end
+### Requirement: TowerUpgrade 端到端
 
-omfx upgrade button handling SHALL send `PlayerInputAction::TowerUpgrade { tower_entity_id, path: u32, level: u32 }` through lockstep input. omb SHALL call `crate::comp::tower_upgrade_registry::apply_upgrade(world, entity_id, path: u8, level: u8, owner_pid: u32) -> Result<(), _>`, and that function SHALL be public. Applying an upgrade SHALL change the sim ECS tower stats and the next snapshot SHALL reflect the updated `upgrade_levels`.
+omfx upgrade button handling SHALL 透過 lockstep input 送出 `PlayerInputAction::TowerUpgrade { tower_entity_id, path: u32, level: u32 }`。omb SHALL 呼叫 `crate::comp::tower_upgrade_registry::apply_upgrade(world, entity_id, path: u8, level: u8, owner_pid: u32) -> Result<(), _>`，且該 function SHALL 是 public。Applying upgrade SHALL 改變 sim ECS tower stats，下一個 snapshot SHALL 反映 updated `upgrade_levels`。
 
-#### Scenario: upgrading a tower changes upgrade level
+#### Scenario: upgrading tower 會改變 upgrade level
 
-- **WHEN** a player sends `TowerUpgrade { path: 0, level: 1 }` for their own tower
-- **THEN** `omb_app.log` includes a `TowerUpgrade` line with entity id, path, and level
-- **AND** the tower's relevant attack stats are updated in sim ECS
-- **AND** the next snapshot has `upgrade_levels[0] == 1` for that tower
+- **WHEN** player 對自己的 tower 送出 `TowerUpgrade { path: 0, level: 1 }`
+- **THEN** `omb_app.log` 包含 `TowerUpgrade` line，含 entity id、path 與 level
+- **AND** tower 的相關 attack stats 在 sim ECS 中更新
+- **AND** 下一個 snapshot 中該 tower 的 `upgrade_levels[0] == 1`
 
-### Requirement: ItemUse end-to-end
+### Requirement: ItemUse 端到端
 
-omfx hero hotbar slot handling SHALL send `PlayerInputAction::ItemUse { item_slot, target_pos, target_entity }` through lockstep input. omb SHALL call `crate::comp::inventory::use_item(world, pid, slot: u8, target_pos: Option<Vec2>, target_entity: Option<u32>) -> Result<(), _>`.
+omfx hero hotbar slot handling SHALL 透過 lockstep input 送出 `PlayerInputAction::ItemUse { item_slot, target_pos, target_entity }`。omb SHALL 呼叫 `crate::comp::inventory::use_item(world, pid, slot: u8, target_pos: Option<Vec2>, target_entity: Option<u32>) -> Result<(), _>`。
 
-#### Scenario: using an item consumes the slot
+#### Scenario: 使用 item 會 consume slot
 
-- **WHEN** a player picks up an item and clicks hotbar slot 0
-- **THEN** `omb_app.log` includes an `ItemUse slot=0` line
-- **AND** the item is consumed from the inventory
-- **AND** the next snapshot inventory has slot 0 set to `None`
+- **WHEN** player 撿起 item 並點擊 hotbar slot 0
+- **THEN** `omb_app.log` 包含 `ItemUse slot=0` line
+- **AND** item 從 inventory consume
+- **AND** 下一個 snapshot inventory 的 slot 0 為 `None`
 
-### Requirement: StartRound remains functional
+### Requirement: StartRound 維持 functional
 
-`PlayerInputEnum::StartRound` SHALL continue using the same lockstep input pattern as the other PlayerInput variants: log metadata, call an ECS entry point, and warn on failure.
+`PlayerInputEnum::StartRound` SHALL 持續使用與其他 PlayerInput variants 相同的 lockstep input pattern：log metadata、呼叫 ECS entry point，並在失敗時 warn。
 
-#### Scenario: StartRound advances the wave
+#### Scenario: StartRound 推進 wave
 
-- **WHEN** a player clicks the start round button
-- **THEN** omb receives a `StartRound` input
-- **AND** the next wave starts
-- **AND** the next snapshot has `round_is_running == true` and an updated `round` value
+- **WHEN** player 點擊 start round button
+- **THEN** omb receives `StartRound` input
+- **AND** 下一波開始
+- **AND** 下一個 snapshot 有 `round_is_running == true` 與 updated `round` value

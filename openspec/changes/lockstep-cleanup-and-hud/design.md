@@ -1,4 +1,4 @@
-## Context
+## 背景
 
 omb / omfx 之間在 Phase 0–3 之前是 **per-event broadcast 模型**：omb 每個 ECS tick 用 `mqtx.send(...)` / `tx.try_send(...)` 把 hp_update / facing / projectile_create / creep_create / entity_death / hero.stats / explosion / slow / stall 等事件序列化發給 omfx；omfx 端維護一份 mirror state 套 event 還原渲染。Phase 0–3 引入 **server-paced lockstep**（plan 文件：`docs/plans/2026-05-02-server-paced-lockstep-design.md`）：omb 改廣播 `TickBatch{tick, [PlayerInput]}`，omfx 端內嵌 `omoba_sim` 跑一份**完全 deterministic** 的 ECS World（fixed-point `Fixed64` + `Vec2`），所有渲染狀態從 sim World extract 成 `SimWorldSnapshot`。
 
@@ -12,7 +12,7 @@ spec 期間做完逐項 audit 後揭露 — 原 plan（`docs/plans/2026-05-04-lo
 
 本 change 的範圍是把這三件事一次收掉，達成「omb 不再 per-event broadcast，所有渲染狀態走 lockstep sim 從 omfx side 跑出來」的單一資料流，並把 13 個 HUD 元素全部接回新的 snapshot 來源。
 
-## Goals / Non-Goals
+## 目標 / 非目標
 
 **Goals:**
 
@@ -34,9 +34,9 @@ spec 期間做完逐項 audit 後揭露 — 原 plan（`docs/plans/2026-05-04-lo
 - 不重寫 `proto/game.proto`（4 個 PlayerInput variant 已存在）
 - 不調整 KCP 傳輸層 framing 或 backpressure 機制（Phase 1 砍 emit 後流量自然降到不會壓爆）
 
-## Decisions
+## 決策
 
-### Decision 1: Entity 死亡走 `Outcome::EntityRemoved` 唯一通道
+### 決策 1: Entity 死亡走 `Outcome::EntityRemoved` 唯一通道
 
 **選擇：** `omb/src/comp/outcome.rs` 加 `Outcome::EntityRemoved { entity: Entity }` variant 跟 `RemovedEntitiesQueue { pending: Vec<u32> }` resource。entity 帶 generation 是必要的（specs reuses indices；只記 u32 id 不夠）。
 
@@ -68,11 +68,11 @@ Outcome::EntityRemoved { entity } => {
 
 **理由：** Outcome 唯一通道是最小 surface area + 最一致 — 沒有 helper、沒有跨 tick 演算法。grep guard test 強制只有 `process_outcomes` 能呼叫 `entities().delete()`。
 
-### Decision 2: 爆炸 VFX 已走 `Outcome::Explosion` + drainable resource（現況確認，非新增）
+### 決策 2: 爆炸 VFX 已走 `Outcome::Explosion` + drainable resource（現況確認，非新增）
 
 **現況：** 本 change 開工前 audit 發現 Phase 4.2 已完成此 pipeline：`omb/src/comp/outcome.rs:161-176` 定義 `Outcome::Explosion` + `ExplosionFxQueue`、`game_processor.rs:187-207` 處理 outcome arm、`world_adapter.rs:489` 走 queue 不走 mqtx、`omfx/game/src/sim_runner.rs:996` drain queue、`omfx/game/src/lib.rs:1590-1593` render consumer 完整。本 change 視為 reference 實作而非新增工作。
 
-**Decision 1 (`Outcome::EntityRemoved`) 採同 pipeline pattern**：variant → queue resource → `mem::take` drain → snapshot field → render cleanup。差異只在 render 動作（Explosion 是 spawn 紅圈漸消、EntityRemoved 是釋放 per-eid cache）。
+**決策 1 (`Outcome::EntityRemoved`) 採同 pipeline pattern**：variant → queue resource → `mem::take` drain → snapshot field → render cleanup。差異只在 render 動作（Explosion 是 spawn 紅圈漸消、EntityRemoved 是釋放 per-eid cache）。
 
 **替代方案：**
 - (A) 直接在 ECS 加 `ExplosionFx` component + entity：違反 sim/render 分離，sim crate 不應該為了 render fx 增加 ECS entity（影響 determinism hash）。
@@ -80,7 +80,7 @@ Outcome::EntityRemoved { entity } => {
 
 **理由：** Outcome queue 已是 omb 處理「sim 推算出的事件」的標準通道（Phase 4 加 Death / GoldDrop），Explosion 走同 pipeline；resource drain 比 component-on-entity 開銷低，且 lifecycle 由 render 端 ratio 控制不需 sim 端管 frame-accurate 結束時間。
 
-### Decision 3: HeroStatsExt aggregation 在 omfx side 跑，read-only 跨 process API
+### 決策 3: HeroStatsExt aggregation 在 omfx side 跑，read-only 跨 process API
 
 **選擇：** `omfx/game/src/sim_runner.rs::extract_snapshot` 對 Hero kind entity 呼叫 `omobab::ability_runtime::UnitStats::from_refs(&buff_store, e, false)`，再對每個 `final_*` method 算出實際 stat（armor / atk / range / msd / asd / mana），寫進 `EntityRenderData.hero_ext: Option<Box<HeroStatsExt>>`。要求：(1) `UnitStats::from_refs` **嚴禁寫 ECS** — 否則破壞 lockstep determinism；(2) `BuffStore` / `UnitStats::from_refs` / `CProperty` / `TAttack` 改 `pub` 並 re-export 到 `omobab::ability_runtime::*` / `omobab::comp::*`；(3) buff `remaining` field：`-1.0` 代表 toggle / 無限期，否則為剩餘秒數，render side per-frame 自行扣 `frame_dt`，下次 snapshot 重設權威值避免漂移（同 Phase 0 的 hero_stats broadcast 設計）。
 
@@ -90,7 +90,7 @@ Outcome::EntityRemoved { entity } => {
 
 **理由：** Phase 0 的 hero_stats broadcast 已驗證 aggregation logic 正確，本 change 把同一個函式從 omb side（每 0.3s 廣播）搬到 omfx side（每 snapshot tick 跑），避免 wire 上多送一份 payload；read-only 限制是 lockstep 的硬約束，aggregation 純讀 component 不會破壞此邊界。
 
-### Decision 4: AbilityRegistry 用 `Arc<Vec<AbilityDefSnapshot>>`，per-snapshot O(1) clone
+### 決策 4: AbilityRegistry 用 `Arc<Vec<AbilityDefSnapshot>>`，per-snapshot O(1) clone
 
 **選擇：** `extract_snapshot` worker init 時跑一次 `extract_ability_defs(&world)` 建出 `Arc<Vec<AbilityDefSnapshot>>`，之後每 snapshot 直接 `.clone()` Arc 不複製 inner data；`HeroStatsExt.ability_levels: [i32; 4]` 給每個 hero 自己的 Q W E R 等級。
 
@@ -100,7 +100,7 @@ Outcome::EntityRemoved { entity } => {
 
 **理由：** ability defs 是 static 資料（map load 後不變），Arc 共享是 zero-cost 抽象的標準作法；ability_levels 是 per-hero 動態狀態，跟 `hero_ext` 同陣營。
 
-### Decision 5: 4 個 PlayerInput 端到端 wire — 抽出 `GameProcessor::handle_*` public API
+### 決策 5: 4 個 PlayerInput 端到端 wire — 抽出 `GameProcessor::handle_*` public API
 
 **選擇：** omb 端把現有 tower spawn / tower sell / inventory use_item / tower upgrade 流程抽出成 `pub fn`：
 - `comp::GameProcessor::handle_tower_spawn(world, kind_id, pos: omoba_sim::Vec2, owner_pid: u32) -> Result<Entity, _>`
@@ -116,7 +116,7 @@ Outcome::EntityRemoved { entity } => {
 
 **理由：** 抽 public API 是最小破壞 — 既有 spawn / sell / upgrade / inventory 邏輯不動，只是把 entry point 從 internal 改成 pub；ownership 檢查 / refund 規則 / template lookup 全在 handler 內封裝。
 
-### Decision 6: 保留 `make_game_lives` / `make_game_end` 兩條 broadcast 不動
+### 決策 6: 保留 `make_game_lives` / `make_game_end` 兩條 broadcast 不動
 
 **選擇：** Phase 1 不動 `omb/src/comp/game_processor.rs:496, 941, 944` 三個呼叫點。
 
@@ -124,7 +124,7 @@ Outcome::EntityRemoved { entity } => {
 
 **理由：** 這兩條 broadcast 流量極小（lives 漏怪才送，game_end 一局一次），不在 TD_STRESS 流量問題範圍內；保留有玩家操作 ack 路徑語義價值。
 
-### Decision 7: Tower upgrade pip 走 `EntityRenderData.upgrade_levels: Option<[u8; 3]>`
+### 決策 7: Tower upgrade pip 走 `EntityRenderData.upgrade_levels: Option<[u8; 3]>`
 
 **選擇：** Tower kind entity 在 `extract_snapshot` 時讀 `omobab::comp::Tower.upgrade_levels` 塞進 `EntityRenderData`；render 端對 Tower entity 在 body 旁畫 3 個 pip — 已升 path 綠色、未升 path 灰色。
 
@@ -132,7 +132,7 @@ Outcome::EntityRemoved { entity } => {
 
 **理由：** upgrade_levels 是 fixed-size 24-bit 資料，inline 比 boxed cheaper；tower 數量 TD_STRESS 達 1000 個，Box per entity 是 1000 個額外 alloc。
 
-## Risks / Trade-offs
+## 風險 / 取捨
 
 | Risk | Mitigation |
 |---|---|
@@ -147,7 +147,7 @@ Outcome::EntityRemoved { entity } => {
 | Phase 4b Outcome::Explosion 上線前還有 `make_game_explosion` broadcast 並存，render 端兩邊都收到造成 double-render | Phase 4b 完成後同 commit 砍 `make_game_explosion` 兩個 emit + builder fn；intermediate phase 不啟用 `ExplosionFxQueue` consumer |
 | 如果 4 個 PlayerInput 之中有 entry point 不存在（如 `inventory::use_item`）| Task 2.4 註明：先 stub `use_item`（slot 從 inventory 移除 + log），等 Phase 4d snapshot inventory ready 再回填邏輯 |
 
-## Migration Plan
+## 遷移計畫
 
 不需 schema migration（無 DB / 序列化檔）。Wire 協定 BREAKING 但 client/server 同步發行 — 沒有「舊 client + 新 server」共存場景。
 
@@ -159,7 +159,7 @@ Outcome::EntityRemoved { entity } => {
 
 Rollback：每 task 一個 commit，任何階段失敗可 `git revert` 該 commit；Phase 1 砍 emit 是 additive-revert（恢復 emit 即可），無資料層動作。
 
-## Open Questions
+## 未決問題
 
 - ~~`comp::inventory::use_item` 是否已存在~~ — **已 audit**：不存在於 `comp::inventory`，但 `GameProcessor::handle_item_use_from_input` (game_processor.rs:1144) 已是 pub fn entry point，且 player_input_tick 已 push 進 `PendingItemUseQueue` defer 處理。Phase 2 全部已實作，2.1 verify-only 即可
 - ~~`comp::CurrentCreepWave` field 名稱~~ — **已 audit**：`wave: usize` / `path: Vec<usize>` / `is_running: bool` / `wave_start_time: f32`；total 從 `Vec<CreepWave>` resource `.len()`。`extract_snapshot` 已使用此 schema (`omfx/game/src/sim_runner.rs:974-980`)
