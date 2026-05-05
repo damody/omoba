@@ -13,11 +13,11 @@ use omb_script_abi::stat_keys::StatKey;
 
 pub struct DartTower;
 
-// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_DART_STATS`。
 const STATS: &TowerStats = &TOWER_DART_STATS;
 
-// 升級加成（不來自 templates.json — 是腳本邏輯參數）
+// 升級加成（不來自 templates.lua — 是腳本邏輯參數）
 // 0.25 * 1024 = 256
 const BONUS_PROC_CHANCE: Fixed64 = Fixed64::from_raw(256);
 // 30.0 * 1024 = 30720

@@ -1,20 +1,24 @@
 //! Build-time codegen for template ids.
 //!
-//! Reads `omb/Story/templates.json` and emits `template_ids_gen.rs` into OUT_DIR.
-//! Id allocation: sequential u16 in JSON declaration order, starting from 1.
+//! Reads Lua builders under `scripts/lua_data` and emits `template_ids_gen.rs` into OUT_DIR.
+//! Id allocation: sequential u16 in Lua declaration order, starting from 1.
 //! Id 0 is reserved as UNSPECIFIED. Tombstone entries (`"tombstone": true`)
 //! consume an id but emit no const / lookup entry — append-only safety.
 
+use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
+use std::rc::Rc;
 
-/// Format an f32 value from templates.json as a `Fixed64::from_raw(N)` literal,
-/// where N = round(v * 1024). Mirrors `omoba_sim::fixed::SCALE = 1024`. JSON is
-/// still floating-point as a serialization format; the cast is the lockstep
-/// boundary — every f32 we generate goes through here so precision loss is
-/// bounded and deterministic across hosts.
+/// Format an f32 value from Lua content as a `Fixed64::from_raw(N)` literal,
+/// where N = round(v * 1024). Mirrors `omoba_sim::fixed::SCALE = 1024`. Lua
+/// numbers are the authoring format; the cast is the lockstep boundary — every
+/// f32 we generate goes through here so precision loss is bounded and
+/// deterministic across hosts.
 fn fixed64_lit(v: f32) -> String {
     let raw = (v * 1024.0).round() as i32;
     format!("Fixed64::from_raw({})", raw)
@@ -38,7 +42,7 @@ struct Entry {
     #[serde(default)] tombstone: bool,
 }
 
-/// Tower entry — id + display_name + 全部 stat 欄位都從 templates.json 讀。
+/// Tower entry — id + display_name + 全部 stat 欄位都從 templates.lua 讀。
 /// 對應 omoba_template_ids::TowerStats（src/lib.rs）— 增欄位時兩邊都要改。
 #[derive(Deserialize, Clone)]
 struct TowerEntry {
@@ -117,7 +121,7 @@ struct HeroLevelGrowthEntry {
     #[serde(default)] mana_per_level: f32,
 }
 
-/// Creep / Enemy entry — 對應 templates.json creeps[]。
+/// Creep / Enemy entry — 對應 templates.lua creeps[]。
 #[derive(Deserialize, Clone)]
 struct CreepEntry {
     id: String,
@@ -135,7 +139,7 @@ struct CreepEntry {
     #[serde(default)] gold_reward: i32,
 }
 
-/// Summon entry — 對應 templates.json summons[]。
+/// Summon entry — 對應 templates.lua summons[]。
 #[derive(Deserialize, Clone)]
 struct SummonEntry {
     id: String,
@@ -147,7 +151,7 @@ struct SummonEntry {
     #[serde(default)] move_speed: f32,
 }
 
-/// Ability entry — 對應 templates.json abilities[]。
+/// Ability entry — 對應 templates.lua abilities[]。
 /// `levels`：核心數值（cooldown/mana_cost/cast_time/range）每級一筆。
 /// `extras`：per-level 浮點 extras，key→[v_lvl1, v_lvl2, ...]；長度必須 = max_level。
 #[derive(Deserialize, Clone)]
@@ -180,20 +184,183 @@ struct ProjKind {
     #[serde(default)] tombstone: bool,
 }
 
+#[derive(Clone)]
+struct LuaContentLoader {
+    root: PathBuf,
+    root_canonical: PathBuf,
+    state: Rc<RefCell<LuaLoaderState>>,
+}
+
+#[derive(Default)]
+struct LuaLoaderState {
+    read_files: BTreeSet<PathBuf>,
+    include_stack: Vec<PathBuf>,
+}
+
+impl LuaContentLoader {
+    fn new(root: PathBuf) -> Self {
+        let root_canonical = root
+            .canonicalize()
+            .unwrap_or_else(|e| panic!("canonicalize content root {}: {}", root.display(), e));
+        Self {
+            root,
+            root_canonical,
+            state: Rc::new(RefCell::new(LuaLoaderState::default())),
+        }
+    }
+
+    fn load<T>(&self, lua: &Lua, rel_path: &str) -> T
+    where
+        T: DeserializeOwned,
+    {
+        let value = self
+            .load_value(lua, rel_path)
+            .unwrap_or_else(|e| panic!("load Lua builder {}: {}", rel_path, e));
+        lua.from_value(value)
+            .unwrap_or_else(|e| panic!("convert Lua builder {} output: {}", rel_path, e))
+    }
+
+    fn load_json_value(&self, lua: &Lua, rel_path: &str) -> serde_json::Value {
+        self.load(lua, rel_path)
+    }
+
+    fn load_value(&self, lua: &Lua, rel_path: &str) -> mlua::Result<LuaValue> {
+        let full_path = self.resolve_existing(rel_path)?;
+        {
+            let state = self.state.borrow();
+            if let Some(first) = state.include_stack.iter().position(|p| p == &full_path) {
+                let mut cycle: Vec<String> = state.include_stack[first..]
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect();
+                cycle.push(full_path.display().to_string());
+                return Err(mlua::Error::external(format!(
+                    "Lua include cycle: {}",
+                    cycle.join(" -> ")
+                )));
+            }
+        }
+
+        {
+            let mut state = self.state.borrow_mut();
+            state.read_files.insert(full_path.clone());
+            state.include_stack.push(full_path.clone());
+        }
+
+        let result = (|| {
+            let source = fs::read_to_string(&full_path).map_err(|e| {
+                mlua::Error::external(format!("read {}: {}", full_path.display(), e))
+            })?;
+            let builder: mlua::Function = lua.load(&source).set_name(rel_path).eval()?;
+            let ctx = self.create_context(lua)?;
+            builder.call(ctx)
+        })();
+
+        self.state.borrow_mut().include_stack.pop();
+        result
+    }
+
+    fn create_context(&self, lua: &Lua) -> mlua::Result<mlua::Table> {
+        let ctx = lua.create_table()?;
+
+        let include_loader = self.clone();
+        ctx.set(
+            "include",
+            lua.create_function(move |lua, rel_path: String| include_loader.load_value(lua, &rel_path))?,
+        )?;
+
+        let read_text_loader = self.clone();
+        ctx.set(
+            "read_text",
+            lua.create_function(move |_lua, rel_path: String| read_text_loader.read_text(&rel_path))?,
+        )?;
+
+        let read_toml_loader = self.clone();
+        ctx.set(
+            "read_toml",
+            lua.create_function(move |lua, rel_path: String| {
+                let text = read_toml_loader.read_text(&rel_path)?;
+                let parsed: toml::Value = toml::from_str(&text).map_err(|e| {
+                    mlua::Error::external(format!("parse TOML {}: {}", rel_path, e))
+                })?;
+                lua.to_value(&parsed)
+            })?,
+        )?;
+
+        Ok(ctx)
+    }
+
+    fn read_text(&self, rel_path: &str) -> mlua::Result<String> {
+        let full_path = self.resolve_existing(rel_path)?;
+        self.state.borrow_mut().read_files.insert(full_path.clone());
+        fs::read_to_string(&full_path).map_err(|e| {
+            mlua::Error::external(format!("read {}: {}", full_path.display(), e))
+        })
+    }
+
+    fn resolve_existing(&self, rel_path: &str) -> mlua::Result<PathBuf> {
+        let rel = Path::new(rel_path);
+        if rel.as_os_str().is_empty() || rel.is_absolute() {
+            return Err(mlua::Error::external(format!(
+                "rejected content path '{}': must be relative to scripts/lua_data",
+                rel_path
+            )));
+        }
+        for component in rel.components() {
+            match component {
+                Component::Normal(_) | Component::CurDir => {}
+                Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+                    return Err(mlua::Error::external(format!(
+                        "rejected content path '{}': parent/absolute paths are not allowed",
+                        rel_path
+                    )));
+                }
+            }
+        }
+        let full_path = self.root.join(rel);
+        let canonical = full_path.canonicalize().map_err(|e| {
+            mlua::Error::external(format!("resolve {}: {}", full_path.display(), e))
+        })?;
+        if !canonical.starts_with(&self.root_canonical) {
+            return Err(mlua::Error::external(format!(
+                "rejected content path '{}': resolved outside scripts/lua_data",
+                rel_path
+            )));
+        }
+        Ok(canonical)
+    }
+
+    fn read_files(&self) -> Vec<PathBuf> {
+        self.state.borrow().read_files.iter().cloned().collect()
+    }
+}
+
+struct StoryBundle {
+    id: String,
+    entity: serde_json::Value,
+    ability: serde_json::Value,
+    mission: serde_json::Value,
+    map: serde_json::Value,
+}
+
 fn main() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let json_path = manifest_dir.parent().unwrap().join("omb/Story/templates.json");
-    println!("cargo:rerun-if-changed={}", json_path.display());
+    let content_root = manifest_dir.parent().unwrap().join("scripts/lua_data");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed={}", content_root.display());
 
-    let raw = fs::read_to_string(&json_path)
-        .unwrap_or_else(|e| panic!("read {}: {}", json_path.display(), e));
-    let m: Manifest = serde_json::from_str(&raw)
-        .unwrap_or_else(|e| panic!("parse templates.json: {}", e));
+    let lua = Lua::new();
+    let loader = LuaContentLoader::new(content_root.clone());
+    let m: Manifest = loader.load(&lua, "templates.lua");
+    let stories = load_stories(&loader, &lua, &content_root, &m);
+
+    for path in loader.read_files() {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
 
     let mut out = String::new();
     out.push_str("// AUTO-GENERATED by omoba-template-ids/build.rs — DO NOT EDIT.\n");
-    out.push_str("// Source: omb/Story/templates.json\n\n");
+    out.push_str("// Source: scripts/lua_data Lua builders\n\n");
 
     emit_tower_namespace(&mut out, &m.towers);
     emit_hero_namespace(&mut out, &m.heroes);
@@ -237,6 +404,9 @@ fn main() {
     // Phase D: tower upgrade tree const + lookup
     emit_tower_upgrades(&mut out, &m.towers);
 
+    // Generated story data for pure-Rust runtime loading.
+    emit_story_data(&mut out, &stories);
+
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = format!("{}/template_ids_gen.rs", out_dir);
     fs::write(&out_path, out).unwrap();
@@ -244,6 +414,182 @@ fn main() {
 
 fn escape_str_literal(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn load_stories(
+    loader: &LuaContentLoader,
+    lua: &Lua,
+    content_root: &Path,
+    manifest: &Manifest,
+) -> Vec<StoryBundle> {
+    let mut story_ids: Vec<String> = fs::read_dir(content_root)
+        .unwrap_or_else(|e| panic!("read content root {}: {}", content_root.display(), e))
+        .filter_map(|entry| {
+            let entry = entry.unwrap_or_else(|e| panic!("read content root entry: {}", e));
+            let path = entry.path();
+            if !path.is_dir() {
+                return None;
+            }
+            let id = entry.file_name().to_string_lossy().into_owned();
+            let has_story_files = ["entity.lua", "ability.lua", "mission.lua", "map.lua"]
+                .iter()
+                .all(|name| path.join(name).is_file());
+            has_story_files.then_some(id)
+        })
+        .collect();
+    story_ids.sort();
+
+    let active_creeps: HashSet<&str> = manifest
+        .creeps
+        .iter()
+        .filter(|creep| !creep.tombstone)
+        .map(|creep| creep.id.as_str())
+        .collect();
+
+    story_ids
+        .into_iter()
+        .map(|id| {
+            let entity = loader.load_json_value(lua, &format!("{}/entity.lua", id));
+            let ability = loader.load_json_value(lua, &format!("{}/ability.lua", id));
+            let mission = loader.load_json_value(lua, &format!("{}/mission.lua", id));
+            let map = loader.load_json_value(lua, &format!("{}/map.lua", id));
+            validate_map_creep_references(&id, &map, &active_creeps);
+            StoryBundle { id, entity, ability, mission, map }
+        })
+        .collect()
+}
+
+fn validate_map_creep_references(story_id: &str, map: &serde_json::Value, active_creeps: &HashSet<&str>) {
+    let forbidden = [
+        "Label",
+        "HP",
+        "DefendPhysic",
+        "DefendMagic",
+        "MoveSpeed",
+        "damage",
+        "attack_range",
+        "enemy_type",
+        "ai_type",
+        "exp_reward",
+        "gold_reward",
+        "coins",
+    ];
+    let Some(creeps) = map.get("Creep").and_then(serde_json::Value::as_array) else {
+        return;
+    };
+    for creep in creeps {
+        let name = creep
+            .get("Name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| panic!("story {} map Creep[] entry missing Name", story_id));
+        for field in forbidden {
+            if creep.get(field).is_some() {
+                panic!(
+                    "story {} map Creep '{}' has forbidden map-local unit field '{}'",
+                    story_id, name, field
+                );
+            }
+        }
+        if !active_creeps.contains(name) {
+            panic!(
+                "story {} map Creep '{}' does not resolve to a generated creep template",
+                story_id, name
+            );
+        }
+    }
+}
+
+fn emit_story_data(out: &mut String, stories: &[StoryBundle]) {
+    out.push_str("\n// ===== Generated shipped story data =====\n");
+    for story in stories {
+        let const_name = story_const_name(&story.id);
+        out.push_str(&format!("pub static {}: GeneratedStory = GeneratedStory {{\n", const_name));
+        out.push_str(&format!("    id: \"{}\",\n", escape_str_literal(&story.id)));
+        out.push_str(&format!("    entity: {},\n", emit_story_value(&story.entity, 1)));
+        out.push_str(&format!("    ability: {},\n", emit_story_value(&story.ability, 1)));
+        out.push_str(&format!("    mission: {},\n", emit_story_value(&story.mission, 1)));
+        out.push_str(&format!("    map: {},\n", emit_story_value(&story.map, 1)));
+        out.push_str("};\n\n");
+    }
+
+    out.push_str("pub fn story_ids() -> &'static [&'static str] {\n    &[\n");
+    for story in stories {
+        out.push_str(&format!("        \"{}\",\n", escape_str_literal(&story.id)));
+    }
+    out.push_str("    ]\n}\n\n");
+
+    out.push_str("pub fn story_by_name(name: &str) -> Option<&'static GeneratedStory> {\n    match name {\n");
+    for story in stories {
+        out.push_str(&format!(
+            "        \"{}\" => Some(&{}),\n",
+            escape_str_literal(&story.id),
+            story_const_name(&story.id)
+        ));
+    }
+    out.push_str("        _ => None,\n    }\n}\n");
+}
+
+fn story_const_name(id: &str) -> String {
+    format!("STORY_{}", sanitize_const_ident(id))
+}
+
+fn sanitize_const_ident(id: &str) -> String {
+    let mut out = String::new();
+    for ch in id.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_uppercase());
+        } else {
+            out.push('_');
+        }
+    }
+    out
+}
+
+fn emit_story_value(value: &serde_json::Value, indent: usize) -> String {
+    let space = "    ".repeat(indent);
+    let child = "    ".repeat(indent + 1);
+    match value {
+        serde_json::Value::Null => "StoryValue::Null".to_string(),
+        serde_json::Value::Bool(v) => format!("StoryValue::Bool({})", v),
+        serde_json::Value::Number(v) => {
+            let n = v.as_f64().unwrap_or_else(|| panic!("story number is not f64: {}", v));
+            format!("StoryValue::Number({:?})", n)
+        }
+        serde_json::Value::String(v) => {
+            format!("StoryValue::String(\"{}\")", escape_str_literal(v))
+        }
+        serde_json::Value::Array(items) => {
+            if items.is_empty() {
+                return "StoryValue::Array(&[])".to_string();
+            }
+            let mut s = String::from("StoryValue::Array(&[\n");
+            for item in items {
+                s.push_str(&child);
+                s.push_str(&emit_story_value(item, indent + 1));
+                s.push_str(",\n");
+            }
+            s.push_str(&space);
+            s.push_str("])");
+            s
+        }
+        serde_json::Value::Object(items) => {
+            if items.is_empty() {
+                return "StoryValue::Object(&[])".to_string();
+            }
+            let mut s = String::from("StoryValue::Object(&[\n");
+            for (key, item) in items {
+                s.push_str(&child);
+                s.push_str(&format!(
+                    "(\"{}\", {}),\n",
+                    escape_str_literal(key),
+                    emit_story_value(item, indent + 1)
+                ));
+            }
+            s.push_str(&space);
+            s.push_str("])");
+            s
+        }
+    }
 }
 
 /// Strip a leading namespace prefix (e.g. "tower_tack" → "tack" when ns="tower").
@@ -444,7 +790,7 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
     out.push_str("\t\t_ => \"\",\n\t}\n}\n\n");
 }
 
-/// Hero → abilities[] codegen — 從 templates.json heroes[i].abilities 字串陣列翻成
+/// Hero → abilities[] codegen — 從 templates.lua heroes[i].abilities 字串陣列翻成
 /// `HERO_<NAME>_ABILITIES: &[AbilityId] = &[AbilityId(N), ...]` const + lookup
 /// `hero_abilities(HeroId) -> &'static [AbilityId]`。消除 omoba-core 端寫死的
 /// `match hero_type { "saika_..." => [...] }` match 表。

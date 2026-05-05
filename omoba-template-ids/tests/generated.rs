@@ -73,3 +73,176 @@ fn projectile_kinds_no_display() {
     assert_eq!(projectile_id_str(PROJECTILE_TACK), "tack");
     assert_eq!(projectile_id_str(PROJECTILE_BOMB_FRAG), "bomb_frag");
 }
+
+#[test]
+fn td_stress_template_values_are_authoritative() {
+    let id = creep_by_name("td_stress").expect("td_stress template exists");
+    assert_eq!(id, CREEP_TD_STRESS);
+    assert_eq!(id.0, 15);
+    let stats = creep_stats(id).expect("td_stress has stats");
+    assert_eq!(creep_display(id), "壓測怪");
+    assert_eq!(stats.hp, Fixed64::from_i32(10_000));
+    assert_eq!(stats.move_speed, Fixed64::from_i32(100));
+}
+
+#[test]
+fn generated_td_stories_are_available_without_json_sources() {
+    assert!(story_by_name("TD_1").is_some());
+    assert!(story_by_name("TD_STRESS").is_some());
+    assert!(story_ids().contains(&"TD_1"));
+    assert!(story_ids().contains(&"TD_STRESS"));
+
+    let root = workspace_root().join("scripts/lua_data");
+    let mut json_files = Vec::new();
+    collect_files_with_extension(&root, "json", &mut json_files);
+    assert!(json_files.is_empty(), "shipped JSON sources remain: {json_files:?}");
+}
+
+#[test]
+fn generated_map_creep_references_resolve_and_are_slim() {
+    let forbidden = [
+        "Label",
+        "HP",
+        "DefendPhysic",
+        "DefendMagic",
+        "MoveSpeed",
+        "damage",
+        "attack_range",
+        "enemy_type",
+        "ai_type",
+        "exp_reward",
+        "gold_reward",
+        "coins",
+    ];
+
+    for story_id in story_ids() {
+        let story = story_by_name(story_id).expect("known generated story");
+        let creeps = object_field(&story.map, "Creep")
+            .and_then(StoryValueExt::as_array)
+            .unwrap_or_else(|| panic!("story {story_id} map has no Creep[]"));
+        for creep in creeps {
+            let name = object_field(creep, "Name")
+                .and_then(StoryValueExt::as_str)
+                .unwrap_or_else(|| panic!("story {story_id} Creep[] entry missing Name"));
+            let id = creep_by_name(name)
+                .unwrap_or_else(|| panic!("story {story_id} creep '{name}' has no template"));
+            assert!(creep_stats(id).is_some(), "story {story_id} creep '{name}' has no stats");
+            for field in forbidden {
+                assert!(
+                    object_field(creep, field).is_none(),
+                    "story {story_id} creep '{name}' has forbidden field '{field}'"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_crates_do_not_depend_on_mlua() {
+    let root = workspace_root();
+    let mut manifests = Vec::new();
+    collect_cargo_manifests(&root, &mut manifests);
+    for manifest in manifests {
+        if manifest.components().any(|c| c.as_os_str() == "omoba-template-ids") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&manifest).expect("read Cargo.toml");
+        assert!(!text.contains("mlua"), "mlua dependency outside omoba-template-ids: {manifest:?}");
+    }
+}
+
+#[test]
+fn runtime_and_tooling_do_not_reference_old_story_json_paths() {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    for extension in ["rs", "ps1", "bat"] {
+        collect_files_with_extension(&root, extension, &mut files);
+    }
+    for file in files {
+        if file.components().any(|c| c.as_os_str() == "target") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        let old_omb_story = ["omb", "/", "Story"].concat();
+        let old_story_slash = ["Story", "/"].concat();
+        let old_templates_json = ["templates", ".", "json"].concat();
+        let old_lua_data = ["scripts", "/", "lua_data", "/"].concat();
+        let old_lua_data_win = ["scripts", "\\", "lua_data", "\\"].concat();
+        assert!(!text.contains(&old_omb_story), "old omb story path reference: {file:?}");
+        assert!(!text.contains(&old_story_slash), "old Story path reference: {file:?}");
+        assert!(!text.contains(&old_templates_json), "old template JSON reference: {file:?}");
+        for old_name in ["entity.json", "ability.json", "mission.json", "map.json"] {
+            assert!(
+                !text.contains(&(old_lua_data.clone() + old_name))
+                    && !text.contains(&(old_lua_data_win.clone() + old_name)),
+                "old lua_data JSON reference: {file:?}"
+            );
+        }
+    }
+}
+
+trait StoryValueExt {
+    fn as_array(&self) -> Option<&'static [StoryValue]>;
+    fn as_str(&self) -> Option<&'static str>;
+}
+
+impl StoryValueExt for StoryValue {
+    fn as_array(&self) -> Option<&'static [StoryValue]> {
+        match self {
+            StoryValue::Array(values) => Some(values),
+            _ => None,
+        }
+    }
+
+    fn as_str(&self) -> Option<&'static str> {
+        match self {
+            StoryValue::String(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
+fn object_field(value: &StoryValue, key: &str) -> Option<&'static StoryValue> {
+    match value {
+        StoryValue::Object(fields) => fields
+            .iter()
+            .find_map(|(field_key, field_value)| (*field_key == key).then_some(field_value)),
+        _ => None,
+    }
+}
+
+fn workspace_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("omoba-template-ids has workspace parent")
+        .to_path_buf()
+}
+
+fn collect_files_with_extension(dir: &std::path::Path, extension: &str, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return; };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_files_with_extension(&path, extension, out);
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some(extension) {
+            out.push(path);
+        }
+    }
+}
+
+fn collect_cargo_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let skip = [".git", "target", "graphify-out"];
+    let Ok(entries) = std::fs::read_dir(dir) else { return; };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        if path.is_dir() {
+            if skip.iter().any(|skip| name == *skip) {
+                continue;
+            }
+            collect_cargo_manifests(&path, out);
+        } else if name == "Cargo.toml" {
+            out.push(path);
+        }
+    }
+}

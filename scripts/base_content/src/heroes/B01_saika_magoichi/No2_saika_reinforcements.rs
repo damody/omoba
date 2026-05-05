@@ -1,6 +1,6 @@
 //! 雜賀眾（saika_reinforcements）— 雜賀孫市的 E 技能：召喚雜賀鐵炮兵。
 //!
-//! 數值（summon_count / duration / 陣形 spacing 等）由 templates.json
+//! 數值（summon_count / duration / 陣形 spacing 等）由 templates.lua
 //! `abilities[saika_reinforcements].extras` 提供，runtime 透過
 //! `ABILITY_SAIKA_REINFORCEMENTS_CONST` 取得。
 

@@ -14,7 +14,7 @@ use omb_script_abi::prelude::*;
 
 pub struct TackTower;
 
-// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_TACK_STATS`。hit_radius 80 須與 host 端 `comp::TACK_NEEDLE_HIT_RADIUS` 同步。
 const STATS: &TowerStats = &TOWER_TACK_STATS;
 

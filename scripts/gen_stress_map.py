@@ -2,16 +2,13 @@
 """Generate stress-test TD map (1000 towers + 1000 creeps).
 
 Usage: python scripts/gen_stress_map.py
-Writes to: D:/omoba/omb/Story/TD_STRESS/map.json
+Writes to: D:/omoba/scripts/lua_data/TD_STRESS/map.lua
 """
-import json
 from pathlib import Path
 
-OUT = Path("D:/omoba/omb/Story/TD_STRESS/map.json")
+OUT = Path("D:/omoba/scripts/lua_data/TD_STRESS/map.lua")
 
 N_CREEPS = 1000
-CREEP_HP = 10_000_000.0  # 1000× 原 10K — stress profile 要 creep 活久才能讓塔持續開火
-CREEP_SPEED = 100.0
 SPAWN_INTERVAL = 0.1  # 秒
 
 N_TOWERS = 1000
@@ -60,14 +57,6 @@ data = {
     }],
     "Creep": [{
         "Name": "td_stress",
-        "Label": "壓測怪",
-        "HP": CREEP_HP,
-        "DefendPhysic": 0.0,
-        "DefendMagic": 0.0,
-        "MoveSpeed": CREEP_SPEED,
-        "Faction": "Enemy",
-        "TurnSpeed": None,
-        "CollisionRadius": None,
     }],
     "CheckPoint": [
         {"Name": "td_spawn", "Class": "Spawn", "X": -1400.0, "Y": -800.0},
@@ -81,9 +70,9 @@ data = {
     ],
     # Tower templates 留空 — 實際 spawn 走 spawn_td_tower 從 TowerTemplateRegistry
     # 取，數值（atk / range / cost / footprint / ...）唯一來源是
-    # `omb/Story/templates.json` 的 towers[]，由 omoba-template-ids 編譯期生成
+    # `scripts/lua_data/templates.lua` 的 towers[]，由 omoba-template-ids 編譯期生成
     # `TOWER_*_STATS` const，base_content 的 tower_ice / tower_bomb 腳本直接讀。
-    # map.json 的 Tower fallback 在 stress 場景永遠不會觸發。
+    # map.lua 的 Tower fallback 在 stress 場景永遠不會觸發。
     "Tower": [],
     # Structures 按 grid index 交錯：偶數 ice / 奇數 bomb。兩種 script 各 ~500 個，
     # 可在 tick_profile 看到 per-script-id 的耗時對比。
@@ -112,8 +101,47 @@ data = {
     "BlockedRegions": [],
 }
 
+
+def lua_string(value):
+    return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def lua_key(key):
+    return key if key.replace('_', '').isalnum() and not key[0].isdigit() else f"[{lua_string(key)}]"
+
+
+def to_lua(value, indent=0):
+    space = "  " * indent
+    child = "  " * (indent + 1)
+    if value is None:
+        return "nil"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return repr(float(value)) if isinstance(value, float) else str(value)
+    if isinstance(value, str):
+        return lua_string(value)
+    if isinstance(value, list):
+        if not value:
+            return "{}"
+        lines = ["{"]
+        for item in value:
+            lines.append(f"{child}{to_lua(item, indent + 1)},")
+        lines.append(f"{space}}}")
+        return "\n".join(lines)
+    if isinstance(value, dict):
+        items = [(k, v) for k, v in value.items() if v is not None]
+        if not items:
+            return "{}"
+        lines = ["{"]
+        for key, item in items:
+            lines.append(f"{child}{lua_key(key)} = {to_lua(item, indent + 1)},")
+        lines.append(f"{space}}}")
+        return "\n".join(lines)
+    raise TypeError(type(value))
+
 OUT.parent.mkdir(parents=True, exist_ok=True)
-OUT.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+OUT.write_text("return function(ctx)\n  return " + to_lua(data, 1) + "\nend\n", encoding="utf-8")
 print(
     f"wrote {OUT}  towers={len(data['Structures'])}  "
     f"creeps={len(data['CreepWave'][0]['Detail'][0]['Creeps'])}"

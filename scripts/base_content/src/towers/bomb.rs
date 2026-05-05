@@ -14,7 +14,7 @@ use omb_script_abi::stat_keys::StatKey;
 
 pub struct BombTower;
 
-// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_BOMB_STATS`。改數值編 omoba-template-ids → scripts 重 build 即生效。
 const STATS: &TowerStats = &TOWER_BOMB_STATS;
 

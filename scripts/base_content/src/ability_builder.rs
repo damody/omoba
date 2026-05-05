@@ -2,7 +2,7 @@
 //! `omoba_core::ability_meta::AbilityDef`（含 HashMap）。所有 ability scripts
 //! 共用一份，避免每個 `*_def()` 重抄 levels HashMap 構造邏輯。
 //!
-//! 數值來源是 templates.json → omoba-template-ids/build.rs codegen，scripts
+//! 數值來源是 templates.lua → omoba-template-ids/build.rs codegen，scripts
 //! 端不再寫 hardcoded number。
 
 use abi_stable::{sabi_trait::prelude::TD_Opaque, std_types::RBox};
@@ -97,7 +97,7 @@ pub fn build_ability_ffi<S: AbilityScript + 'static>(
 ) -> AbilityDefFFI {
     let c = ability_const(id).unwrap_or_else(|| {
         panic!(
-            "ability_const not found for id={} (raw={}); is templates.json abilities[] complete?",
+            "ability_const not found for id={} (raw={}); is templates.lua abilities[] complete?",
             id.as_str(),
             id.raw()
         )
@@ -110,7 +110,7 @@ pub fn build_ability_ffi<S: AbilityScript + 'static>(
     }
 }
 
-/// 取單級 extras Fixed64 值；找不到 panic（caller 必須確認 templates.json 有該 key）。
+/// 取單級 extras Fixed64 值；找不到 panic（caller 必須確認 templates.lua 有該 key）。
 pub fn extra_at(c: &AbilityConst, key: &str, level: u8) -> omoba_sim::Fixed64 {
     let lvl_idx = (level.saturating_sub(1) as usize).min(c.max_level.saturating_sub(1) as usize);
     for (k, per_lvl) in c.extras.iter() {

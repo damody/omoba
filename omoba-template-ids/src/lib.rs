@@ -1,6 +1,6 @@
 //! Build-time generated template ids.
 //!
-//! Source of truth: `omb/Story/templates.json`.
+//! Source of truth: Lua builders under `scripts/lua_data`.
 //! Design: `docs/plans/2026-04-25-template-id-codegen-design.md`.
 //!
 //! Each category (tower, hero, ability, buff, summon, creep, projectile_kind)
@@ -12,7 +12,7 @@
 
 pub use omoba_sim::Fixed64;
 
-/// Tower numerical stats, single source of truth — `omb/Story/templates.json` 的
+/// Tower numerical stats, single source of truth — `scripts/lua_data/templates.lua` 的
 /// `towers[].{atk, asd_interval, ...}` 透過 build.rs 編譯期生成 `TOWER_*_STATS`
 /// const + `tower_stats(id)` lookup。base_content 的 tower scripts 直接 import
 /// 對應 const，避免每個塔 script 各自在 .rs 裡寫一份 hardcode 數值。
@@ -33,7 +33,7 @@ pub struct TowerStats {
     pub turn_speed_deg: Fixed64,
 }
 
-/// Hero level-growth — 對應 templates.json heroes[i].level_growth nested object。
+/// Hero level-growth — 對應 templates.lua heroes[i].level_growth nested object。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct LevelGrowth {
@@ -45,7 +45,7 @@ pub struct LevelGrowth {
     pub mana_per_level: Fixed64,
 }
 
-/// Hero intrinsic stats — 對應 templates.json heroes[i] 全部 stat 欄位。
+/// Hero intrinsic stats — 對應 templates.lua heroes[i] 全部 stat 欄位。
 /// `primary_attribute`：0=strength, 1=agility, 2=intelligence。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -64,7 +64,7 @@ pub struct HeroStats {
     pub level_growth: LevelGrowth,
 }
 
-/// Creep / Enemy intrinsic stats — 對應 templates.json creeps[i]。
+/// Creep / Enemy intrinsic stats — 對應 templates.lua creeps[i]。
 /// `enemy_type`：0=caster, 1=melee, 2=ranged, 3=boss
 /// `ai_type`：0=defensive, 1=aggressive, 2=patrol, 3=guard, 4=passive, 5=berserker
 #[repr(C)]
@@ -82,7 +82,7 @@ pub struct CreepStats {
     pub gold_reward: i32,
 }
 
-/// Summon intrinsic stats — 對應 templates.json summons[i]。
+/// Summon intrinsic stats — 對應 templates.lua summons[i]。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct SummonStats {
@@ -130,7 +130,7 @@ pub struct AbilityLevelDataConst {
     pub range: Fixed64,
 }
 
-/// Ability 數值 const — 對應 templates.json abilities[i]。runtime 由
+/// Ability 數值 const — 對應 templates.lua abilities[i]。runtime 由
 /// `build_ability_def_from_const(id, &CONST)` 攤成完整 `AbilityDef`（含
 /// HashMap 的 levels / extras）。`extras` 是 sorted-by-key 的 `(name, per_level_values)`
 /// pairs，per_level_values.len() 必須等於 max_level。
@@ -183,6 +183,29 @@ pub struct UpgradeDefConst {
     pub description: &'static str,
     pub cost: i32,
     pub effects: &'static [UpgradeEffectConst],
+}
+
+/// Dependency-light generated data tree for shipped story content.
+///
+/// Runtime crates can adapt this into their local structs without reading JSON or
+/// Lua source files and without making this crate depend on runtime crate types.
+#[derive(Copy, Clone, Debug)]
+pub enum StoryValue {
+    Null,
+    Bool(bool),
+    Number(f64),
+    String(&'static str),
+    Array(&'static [StoryValue]),
+    Object(&'static [(&'static str, StoryValue)]),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct GeneratedStory {
+    pub id: &'static str,
+    pub entity: StoryValue,
+    pub ability: StoryValue,
+    pub mission: StoryValue,
+    pub map: StoryValue,
 }
 
 include!(concat!(env!("OUT_DIR"), "/template_ids_gen.rs"));

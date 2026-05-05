@@ -8,7 +8,7 @@ pub mod config;
 pub mod quant;
 // template_ids removed (2026-04-25): migrated to omoba-template-ids crate.
 // Downstream code: `use omoba_template_ids::*;` — sequential u16 newtypes sourced
-// from omb/Story/templates.json instead of hand-maintained FNV-1a hash tables.
+// from scripts/lua_data/templates.lua instead of hand-maintained FNV-1a hash tables.
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
 pub mod state;

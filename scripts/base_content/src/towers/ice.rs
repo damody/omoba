@@ -15,7 +15,7 @@ use omb_script_abi::stat_keys::StatKey;
 
 pub struct IceTower;
 
-// 數值唯一來源：omb/Story/templates.json → omoba_template_ids 編譯期生成
+// 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_ICE_STATS`。
 const STATS: &TowerStats = &TOWER_ICE_STATS;
 

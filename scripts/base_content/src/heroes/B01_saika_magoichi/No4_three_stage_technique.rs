@@ -1,6 +1,6 @@
 //! 三段擊（three_stage_technique）— 雜賀孫市的 R 大絕：變身 buff。
 //!
-//! 數值（duration / atk_bonus_pct / multi_shot_count）由 templates.json
+//! 數值（duration / atk_bonus_pct / multi_shot_count）由 templates.lua
 //! `abilities[three_stage_technique]` 提供。
 
 use abi_stable::std_types::{ROk, RResult, RStr, RString};

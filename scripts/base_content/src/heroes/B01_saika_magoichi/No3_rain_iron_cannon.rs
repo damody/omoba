@@ -1,7 +1,7 @@
 //! 雨鐵炮（rain_iron_cannon）— 雜賀孫市的 R 位被動：普攻命中附加扇形 AoE 真實傷害。
 //!
 //! 學到後 `on_learn` 套永久可見 buff；`on_attack_hit` 以受擊點為中心、朝
-//! attacker→victim 方向的扇形（半角 templates.json 給）內所有敵人造成
+//! attacker→victim 方向的扇形（半角 templates.lua 給）內所有敵人造成
 //! `atk × true_damage_pct[level]` 真實傷害。被動不走 `execute`。
 
 use abi_stable::std_types::{ROk, RResult, RSome, RStr, RString};
@@ -102,7 +102,7 @@ impl AbilityScript for RainIronCannonHandler {
             return;
         }
 
-        // arc_half is stored in templates.json as radians (legacy). Convert radians to ticks:
+        // arc_half is stored in templates.lua as radians (legacy). Convert radians to ticks:
         // ticks_per_radian = TAU_TICKS / TAU = 4096 / (2π) ≈ 651.9.
         // Multiply by 652 (raw, so divide by 1024 implicitly) — but easier: half_arc_ticks =
         // raw_radian_value * (4096 / 2π). We approximate via tick math at the same precision.

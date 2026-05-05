@@ -1,4 +1,4 @@
-//! 驗證 templates.json heroes[].abilities[] 透過 build.rs codegen 生成的
+//! 驗證 templates.lua heroes[].abilities[] 透過 build.rs codegen 生成的
 //! `HERO_*_ABILITIES` const 與 `hero_abilities()` lookup 對應正確 ability ids。
 
 use omoba_template_ids::*;
@@ -40,15 +40,15 @@ fn saika_magoichi_stats_match_json() {
     assert_eq!(s.primary_attribute, 1); // 1 = agility
     assert_eq!(s.base_hp, 580);
     assert_eq!(s.base_damage, 52);
-    assert_eq!(s.attack_range, 900.0);
-    assert_eq!(s.level_growth.hp_per_level, 58.0);
+    assert_eq!(s.attack_range, Fixed64::from_i32(900));
+    assert_eq!(s.level_growth.hp_per_level, Fixed64::from_i32(58));
 }
 
 #[test]
 fn training_mage_creep_stats() {
     let s = creep_stats(CREEP_TRAINING_MAGE).expect("training_mage has stats");
-    assert_eq!(s.hp, 320.0);
-    assert_eq!(s.damage, 45.0);
+    assert_eq!(s.hp, Fixed64::from_i32(320));
+    assert_eq!(s.damage, Fixed64::from_i32(45));
     assert_eq!(s.enemy_type, 0); // 0 = caster
     assert_eq!(s.ai_type, 0);    // 0 = defensive
     assert_eq!(s.exp_reward, 80);
@@ -58,10 +58,10 @@ fn training_mage_creep_stats() {
 #[test]
 fn saika_gunner_summon_stats() {
     let s = summon_stats(SUMMON_SAIKA_GUNNER).expect("saika_gunner has stats");
-    assert_eq!(s.hp, 400.0);
-    assert_eq!(s.damage, 45.0);
-    assert_eq!(s.duration, 60.0);
-    assert_eq!(s.move_speed, 320.0);
+    assert_eq!(s.hp, Fixed64::from_i32(400));
+    assert_eq!(s.damage, Fixed64::from_i32(45));
+    assert_eq!(s.duration, Fixed64::from_i32(60));
+    assert_eq!(s.move_speed, Fixed64::from_i32(320));
 }
 
 #[test]

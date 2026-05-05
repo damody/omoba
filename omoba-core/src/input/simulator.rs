@@ -137,7 +137,7 @@ impl PlayerSimulator {
         self.get_hero_abilities().contains(&ability_id.to_string())
     }
 
-    /// Get hero abilities — 走 omoba_template_ids 生成 lookup（單一來源 templates.json）。
+    /// Get hero abilities — 走 omoba_template_ids 生成 lookup（單一來源 templates.lua）。
     pub fn get_hero_abilities(&self) -> Vec<String> {
         let id = omoba_template_ids::hero_by_name(&self.hero_type).unwrap_or_default();
         omoba_template_ids::hero_abilities(id)

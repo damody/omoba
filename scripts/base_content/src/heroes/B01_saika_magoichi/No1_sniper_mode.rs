@@ -2,7 +2,7 @@
 //!
 //! Toggle：無冷卻、無法力消耗，切換開/關。開啟時施加 `sniper_mode` buff，
 //! 各等級數值（range_bonus / damage_bonus / attack_speed_penalty 等）由
-//! templates.json `abilities[].extras` 透過 `omoba_template_ids::ABILITY_SNIPER_MODE_CONST`
+//! templates.lua `abilities[].extras` 透過 `omoba_template_ids::ABILITY_SNIPER_MODE_CONST`
 //! 提供。
 
 use abi_stable::std_types::{ROk, RResult, RStr, RString};

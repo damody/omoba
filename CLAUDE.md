@@ -56,7 +56,7 @@ $p = 'D:\omoba\xxx.bat'; $c = (Get-Content -Raw $p) -replace "(?<!`r)`n","`r`n";
 三個 feature 互斥：`mqtt` / `grpc` / `kcp`（**default = kcp**），port 50061。KCP 協定是 `[1B tag][4B len BE][prost payload]`，tag 0x01–0x06 對應 PlayerCommand / GameEvent / CommandAck / Subscribe / StateReq / StateResp。`omb/src/transport/` 抽象 `OutboundMsg` / `InboundMsg` / `TransportHandle`，同步 runtime 是 tokio（不是 async-std）。
 
 ### 遊戲模式
-`omb/game.toml` 的 `STORY` 欄位切 scene 資料夾（`omb/Story/{MVP_1,TD_1,DEBUG_1,TD_STRESS,...}`）；runtime 由 `GameMode`、`PlayerLives`、`TowerKind` 等 resource 控制 TD 波控 / 漏怪 / Ice 減速行為。
+`omb/game.toml` 的 `STORY` 欄位切 generated story id（source 位於 `scripts/lua_data/{MVP_1,TD_1,DEBUG_1,TD_STRESS,...}` 的 Lua builders）；runtime 由 `GameMode`、`PlayerLives`、`TowerKind` 等 resource 控制 TD 波控 / 漏怪 / Ice 減速行為。
 
 ### Hero stats 廣播
 `omb` 每 0.3 秒對每個 Hero 廣播一次 `hero.stats` snapshot，payload 已聚合 BuffStore 的 `_bonus` / `_multiplier` 到實際生效屬性 + `buffs` 陣列含 `remaining` 倒數（-1 代表 toggle 型無限期）。前端本地每 frame 遞減 `remaining`、下次 backend push 重設權威值避免漂移。四個廣播 site 共用 `build_hero_stats_payload()` builder（`omb/src/state/resource_management.rs` 末段）。
