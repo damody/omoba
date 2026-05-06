@@ -81,7 +81,7 @@ pub fn make_theme(mode: ThemeMode, primary: &Color) -> Theme {
     let primary_color = if mode == ThemeMode::Dark {
         brighten_primary_for_dark_mode(primary)
     } else {
-        *primary
+        * 基本的
     };
 
     if mode == ThemeMode::Dark {

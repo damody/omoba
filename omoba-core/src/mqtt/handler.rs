@@ -1,4 +1,4 @@
-//! MQTT message handler
+//! MQTT 訊息處理程序
 
 use log::{info, warn, debug};
 use anyhow::Result;
@@ -7,7 +7,7 @@ use vek::Vec2;
 use crate::state::{GameState, Entity, EntityType};
 use crate::mqtt::messages::*;
 
-/// MQTT message handler
+/// MQTT 訊息處理程序
 #[derive(Debug, Clone, Default)]
 pub struct MqttHandler {
     pub messages_received: u64,
@@ -15,12 +15,12 @@ pub struct MqttHandler {
 }
 
 impl MqttHandler {
-    /// Create new handler
+    /// 建立新處理程序
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Handle incoming MQTT message
+    /// 處理傳入的 MQTT 訊息
     pub fn handle_message(&mut self, topic: &str, payload: &[u8], game_state: &mut GameState) -> Result<()> {
         self.messages_received += 1;
 
@@ -39,7 +39,7 @@ impl MqttHandler {
         Ok(())
     }
 
-    /// Route message to appropriate handler
+    /// 將訊息路由到適當的處理程序
     fn route_message(&self, topic: &str, payload: &str, game_state: &mut GameState) -> Result<()> {
         if topic == "td/all/res" {
             self.handle_broadcast_message(payload, game_state)
@@ -55,7 +55,7 @@ impl MqttHandler {
         }
     }
 
-    /// Handle broadcast message from backend
+    /// 處理來自後端的廣播訊息
     fn handle_broadcast_message(&self, payload: &str, game_state: &mut GameState) -> Result<()> {
         let msg: BroadcastMessage = serde_json::from_str(payload)?;
 
@@ -156,7 +156,7 @@ impl MqttHandler {
             ("creep", "M") | ("unit", "M") | ("hero", "M") | ("tower", "M") | ("projectile", "M") => {
                 if let Ok(data) = serde_json::from_value::<MoveData>(msg.data) {
                     if !game_state.entities.contains_key(&data.id) {
-                        // Entity not yet created (missed creation message), auto-create
+                        // 實體尚未創建（錯過創建訊息），自動創建
                         let entity_type = match msg.msg_type.as_str() {
                             "hero" => EntityType::Player("unknown".to_string()),
                             "creep" => EntityType::Creep("unknown".to_string()),
@@ -204,7 +204,7 @@ impl MqttHandler {
         Ok(())
     }
 
-    /// Handle player state message
+    /// 處理玩家狀態訊息
     fn handle_player_state_message(&self, payload: &str, game_state: &mut GameState) -> Result<()> {
         if let Ok(player_data) = serde_json::from_str::<PlayerData>(payload) {
             match player_data.msg_type.as_str() {
@@ -233,10 +233,10 @@ impl MqttHandler {
         Ok(())
     }
 
-    /// Handle screen response message
+    /// 處理螢幕回應訊息
     fn handle_screen_response(&self, payload: &str, game_state: &mut GameState) -> Result<()> {
         if let Ok(response) = serde_json::from_str::<ScreenResponse>(payload) {
-            // Update viewport
+            // 更新視口
             if let Some(area) = &response.data.area {
                 game_state.viewport.center.x = (area.min_x + area.max_x) / 2.0;
                 game_state.viewport.center.y = (area.min_y + area.max_y) / 2.0;
@@ -244,7 +244,7 @@ impl MqttHandler {
                 game_state.viewport.height = area.max_y - area.min_y;
             }
 
-            // Update entities
+            // 更新實體
             if let Some(entities) = &response.data.entities {
                 for net_entity in entities {
                     let entity = Entity {
@@ -266,7 +266,7 @@ impl MqttHandler {
                 debug!("Updated {} entities", entities.len());
             }
 
-            // Update players
+            // 更新球員
             if let Some(players) = &response.data.players {
                 for player in players {
                     game_state.sync_player_state(player);
@@ -278,7 +278,7 @@ impl MqttHandler {
         Ok(())
     }
 
-    /// Handle test response
+    /// 處理測試回應
     fn handle_test_response(&self, payload: &str) -> Result<()> {
         if let Ok(response) = serde_json::from_str::<TestResponse>(payload) {
             info!("Test response - Command: {}, Success: {}", response.command, response.success);
@@ -286,7 +286,7 @@ impl MqttHandler {
         Ok(())
     }
 
-    /// Get statistics
+    /// 取得統計數據
     pub fn get_stats(&self) -> (u64, u64) {
         (self.messages_received, self.messages_processed)
     }

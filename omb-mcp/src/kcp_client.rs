@@ -17,7 +17,7 @@ pub struct GameClient {
 }
 
 impl GameClient {
-    /// Connect to the KCP game server (query-only, no subscribe).
+    /// 連線到 KCP 遊戲伺服器（僅查詢，不訂閱事件）。
     pub async fn connect(addr: &str) -> Result<Self> {
         let mut config = KcpConfig::default();
         config.nodelay = KcpNoDelayConfig::fastest();
@@ -33,14 +33,14 @@ impl GameClient {
             player_name: player_name.to_string(),
         };
 
-        // Write framed request
+        // 寫入封包化 request
         let payload = req.encode_to_vec();
         self.stream.write_u8(TAG_GAME_STATE_REQUEST).await?;
         self.stream.write_u32(payload.len() as u32).await?;
         self.stream.write_all(&payload).await?;
         self.stream.flush().await?;
 
-        // Read framed response (query-only connection, no events expected)
+        // 讀取封包化 response（query-only 連線不會接收 events）
         let tag = self.stream.read_u8().await?;
         let len = self.stream.read_u32().await? as usize;
         let mut buf = vec![0u8; len];

@@ -50,8 +50,8 @@ pub fn resolve_icon_rect(prim: &IconPrimitive) -> Rect {
     apply_rect_transform_3d_fallback(&rect, &prim.transform_3d)
 }
 
-/// Card/surface shadow matching C++ `paint_shadow` (SurfaceBuilder).
-/// Different formula from `paint_shadow_approx` (used by primitives/actors).
+/// 卡片/表面陰影符合 C++ `paint_shadow` (SurfaceBuilder)。
+/// 與“paint_shadow_approx”（由基元/演員使用）不同的公式。
 pub fn paint_shadow(ctx: &mut Context, rect: &Rect, radius: f32, shadow: &Shadow, alpha: f32) {
     let blur = shadow.blur_radius.max(0.0);
     let spread = shadow.spread.max(0.0);
@@ -76,7 +76,7 @@ pub fn paint_shadow(ctx: &mut Context, rect: &Rect, radius: f32, shadow: &Shadow
     }
 }
 
-/// Primitive/actor shadow matching C++ `paint_shadow_approx`.
+/// 原始/演員陰影匹配 C++ `paint_shadow_approx`。
 pub fn paint_shadow_approx(ctx: &mut Context, rect: &Rect, radius: f32, shadow: &Shadow, opacity: f32) {
     let blur = shadow.blur_radius.max(0.0);
     let spread = shadow.spread.max(0.0);
@@ -84,7 +84,7 @@ pub fn paint_shadow_approx(ctx: &mut Context, rect: &Rect, radius: f32, shadow: 
         return;
     }
 
-    // Match C++ paint_shadow_approx exactly
+    // 完全符合 C++ Paint_shadow_approx
     let layers = ((blur / 4.5) as i32 + 6).clamp(6, 16);
     let base = Color::new(shadow.color.r, shadow.color.g, shadow.color.b, shadow.color.a);
     for i in (1..=layers).rev() {

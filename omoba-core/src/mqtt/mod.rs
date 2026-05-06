@@ -1,4 +1,4 @@
-//! MQTT communication module
+//! MQTT通訊模組
 
 pub mod messages;
 pub mod client;

@@ -1,5 +1,5 @@
--- Template ids are append-only: changing declaration order shifts generated ids.
--- Id 0 is reserved as UNSPECIFIED; active ids are assigned from declaration order.
+-- 範本 ID 是僅附加的：變更聲明順序會改變產生的 ID。
+-- ID 0 保留為 UNSPECIFIED；活動 ID 是根據聲明順序分配的。
 return function(ctx)
   local note = ctx.read_text("templates/catalog_note.txt")
   local meta = ctx.read_toml("templates/catalog_meta.toml")

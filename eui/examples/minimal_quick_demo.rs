@@ -32,7 +32,7 @@ fn main() {
             ui.slider("Opacity", &mut slider_val).range(0.0, 1.0).draw();
             ui.spacer(12.0);
 
-            // Text input
+            // 文字輸入
             ui.input("Name", &mut name).draw();
             ui.spacer(8.0);
             ui.label(&format!("Hello, {}!", name)).draw();

@@ -12,8 +12,8 @@ pub enum CommandType {
     Text,
     ImageRect,
     Chevron,
-    /// Line segment: rect.x/y = start point, radius/thickness = end point x/y (repurposed),
-    /// thickness stored in blur_radius, color = line color.
+    /// 線段： rect.x/y = 起點，半徑/厚度 = 終點 x/y（重新調整用途），
+    /// 厚度儲存在blur_radius中，顏色=線條顏色。
     Line,
 }
 

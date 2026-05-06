@@ -1,5 +1,5 @@
-//! `UnitScript` — the sabi_trait each unit type (hero/tower/creep) implements.
-//! All hooks have default no-op impls; scripts override only what they need.
+//! `UnitScript` — 每個單位類型（英雄/塔/小兵）實現的 sabi_trait。
+//! 所有鉤子都有預設的無操作實作；腳本僅覆蓋它們需要的內容。
 //!
 //! Hooks 命名對應 Dota 2 MODIFIER_EVENT_*：`on_attack_start` / `on_attack_landed`
 //! / `on_attacked` / `on_health_gained` / `on_mana_gained` / `on_spent_mana`
@@ -15,17 +15,17 @@ use crate::world::GameWorldDyn;
 
 #[sabi_trait]
 pub trait UnitScript: Send + Sync {
-    /// Unit identifier used by host to dispatch (must match `script` field
-    /// in the unit's config entry).
+    /// 主機用於調度的單元標識符（必須與“script”欄位匹配
+    /// 在設備的配置條目中）。
     fn unit_id(&self) -> RStr<'_>;
 
-    /// Called once when the entity is spawned.
+    /// 當實體生成時呼叫一次。
     #[sabi(last_prefix_field)]
     fn on_spawn(&self, _e: EntityHandle, _w: &mut GameWorldDyn<'_>) {}
 
-    /// Called every tick for entities with `ScriptUnitTag`. Scripts use this
-    /// to drive active behaviour (e.g. towers: find target → spawn projectile).
-    /// `dt` is the tick delta in seconds.
+    /// 使用“ScriptUnitTag”呼叫實體的每個刻度。腳本使用這個
+    /// 驅動主動行為（例如塔：找到目標→生成彈頭）。
+    /// `dt` 是以秒為單位的刻度增量。
     fn on_tick(&self, _e: EntityHandle, _dt: Fixed64, _w: &mut GameWorldDyn<'_>) {}
 
     /// 塔的靜態 metadata（atk/asd/range/bullet_speed/...）。
@@ -34,7 +34,7 @@ pub trait UnitScript: Send + Sync {
     /// 回 `RNone` 表示「這不是 TD 塔」（英雄/敵人 creep 等）。
     fn tower_metadata(&self) -> ROption<TowerMetadata> { RNone }
 
-    /// Called when the entity dies. `killer` = the killing entity if known.
+    /// 當實體死亡時呼叫。 `killer` = 已知的殺戮實體。
     fn on_death(
         &self,
         _e: EntityHandle,
@@ -43,8 +43,8 @@ pub trait UnitScript: Send + Sync {
     ) {
     }
 
-    /// Called on the victim before damage is applied. Script may mutate
-    /// `info.amount` to implement shields / damage reduction / reflect.
+    /// 在造成傷害之前呼叫受害者。腳本可能會發生變化
+    /// `info.amount` 實現護盾/傷害減少/反射。
     fn on_damage_taken(
         &self,
         _e: EntityHandle,
@@ -53,8 +53,8 @@ pub trait UnitScript: Send + Sync {
     ) {
     }
 
-    /// Called on the attacker after `on_damage_taken` has resolved the
-    /// final amount. Useful for lifesteal, on-hit effects.
+    /// 在“on_damage_taken”解決問題後呼叫攻擊者
+    /// 最終金額。對於吸血、擊中效果很有用。
     fn on_damage_dealt(
         &self,
         _attacker: EntityHandle,
@@ -64,7 +64,7 @@ pub trait UnitScript: Send + Sync {
     ) {
     }
 
-    /// Called on the caster when a skill is activated.
+    /// 當技能啟動時對施法者進行召喚。
     fn on_skill_cast(
         &self,
         _caster: EntityHandle,
@@ -74,8 +74,8 @@ pub trait UnitScript: Send + Sync {
     ) {
     }
 
-    /// Called on the attacker at the moment an attack connects.
-    /// Tower-style scripts usually live here (splash, pierce, crit).
+    /// 在攻擊連線時呼叫攻擊者。
+    /// 塔式腳本通常存在於此（飛濺、刺穿、暴擊）。
     fn on_attack_hit(
         &self,
         _attacker: EntityHandle,

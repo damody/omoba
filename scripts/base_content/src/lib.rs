@@ -1,7 +1,7 @@
-//! omb base_content — native scripts for base-game units.
+//! omb base_content — 基礎遊戲單元的本機腳本。
 //!
-//! Exports one `Manifest` containing every unit + ability this DLL provides.
-//! omb host loads this via `abi_stable::library::RootModule::load_from_file`.
+//! 匯出一個包含此 DLL 提供的每個單元和功能的「清單」。
+//! omb 主機透過 `abi_stable::library::RootModule::load_from_file` 載入它。
 
 use abi_stable::{
     export_root_module,
@@ -62,13 +62,13 @@ fn units() -> RVec<UnitDef> {
 fn abilities() -> RVec<AbilityDefFFI> {
     let mut v: RVec<AbilityDefFFI> = RVec::new();
 
-    // Saika Magoichi (B01)
+    // 齋香孫市 (B01)
     v.push(heroes::B01_saika_magoichi::sniper_mode_ffi());
     v.push(heroes::B01_saika_magoichi::saika_reinforcements_ffi());
     v.push(heroes::B01_saika_magoichi::rain_iron_cannon_ffi());
     v.push(heroes::B01_saika_magoichi::three_stage_ffi());
 
-    // Date Masamune (B02)
+    // 伊達政宗 (B02)
     v.push(heroes::B02_date_masamune::flame_blade_ffi());
     v.push(heroes::B02_date_masamune::fire_dash_ffi());
     v.push(heroes::B02_date_masamune::flame_assault_ffi());

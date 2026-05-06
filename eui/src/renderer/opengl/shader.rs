@@ -1,7 +1,7 @@
 use glow::HasContext;
 
 pub const VERTEX_SHADER_SOURCE: &str = r#"
-#version 120
+# 120版
 attribute vec2 a_position;
 attribute vec4 a_color;
 attribute vec2 a_texcoord;
@@ -21,7 +21,7 @@ void main() {
 "#;
 
 pub const FRAGMENT_SHADER_SOURCE: &str = r#"
-#version 120
+# 120版
 
 varying vec4 v_color;
 varying vec2 v_texcoord;
@@ -41,10 +41,10 @@ void main() {
 }
 "#;
 
-// ── Kawase blur shader (for BackdropBlur) ──
+// ── Kawase 模糊著色器（用於 BackdropBlur）—
 
 pub const BLUR_VERTEX_SOURCE: &str = r#"
-#version 120
+# 120版
 attribute vec2 a_position;
 varying vec2 v_texcoord;
 void main() {
@@ -54,7 +54,7 @@ void main() {
 "#;
 
 pub const BLUR_FRAGMENT_SOURCE: &str = r#"
-#version 120
+# 120版
 varying vec2 v_texcoord;
 uniform sampler2D u_texture;
 uniform vec2 u_texel_size;

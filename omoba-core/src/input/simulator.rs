@@ -1,4 +1,4 @@
-//! Player action simulator
+//! 玩家動作模擬器
 
 use serde_json;
 use rand::{rng, Rng};
@@ -8,7 +8,7 @@ use vek::Vec2;
 
 use crate::input::commands::*;
 
-/// Player simulator for automated actions
+/// 用於自動操作的玩家模擬器
 #[derive(Debug, Clone)]
 pub struct PlayerSimulator {
     pub player_name: String,
@@ -19,7 +19,7 @@ pub struct PlayerSimulator {
 }
 
 impl PlayerSimulator {
-    /// Create new player simulator
+    /// 建立新的玩家模擬器
     pub fn new(player_name: String, hero_type: String) -> Self {
         info!("Create player simulator - Player: {}, Hero: {}", player_name, hero_type);
 
@@ -32,7 +32,7 @@ impl PlayerSimulator {
         }
     }
 
-    /// Perform player action
+    /// 執行玩家動作
     pub fn perform_action(&mut self, action: &str, params: serde_json::Value) -> Result<serde_json::Value> {
         debug!("Perform action: {} - Params: {}", action, params);
 
@@ -45,7 +45,7 @@ impl PlayerSimulator {
             }
         };
 
-        // Record action
+        // 記錄動作
         let action_record = PlayerAction {
             action_type: action.to_string(),
             timestamp: std::time::SystemTime::now(),
@@ -62,7 +62,7 @@ impl PlayerSimulator {
         Ok(result)
     }
 
-    /// Handle move action
+    /// 手柄移動動作
     fn handle_move(&mut self, params: serde_json::Value) -> Result<serde_json::Value> {
         let move_params: MoveParams = serde_json::from_value(params)?;
 
@@ -87,7 +87,7 @@ impl PlayerSimulator {
         }))
     }
 
-    /// Handle cast ability action
+    /// 處理施放技能動作
     fn handle_cast_ability(&mut self, params: serde_json::Value) -> Result<serde_json::Value> {
         let cast_params: CastAbilityParams = serde_json::from_value(params)?;
 
@@ -107,7 +107,7 @@ impl PlayerSimulator {
         }))
     }
 
-    /// Handle attack action
+    /// 處理攻擊動作
     fn handle_attack(&mut self, params: serde_json::Value) -> Result<serde_json::Value> {
         let attack_params: AttackParams = serde_json::from_value(params)?;
 
@@ -132,7 +132,7 @@ impl PlayerSimulator {
         }))
     }
 
-    /// Check if ability is valid for this hero
+    /// 檢查該英雄的能力是否有效
     fn is_ability_valid(&self, ability_id: &str) -> bool {
         self.get_hero_abilities().contains(&ability_id.to_string())
     }
@@ -146,7 +146,7 @@ impl PlayerSimulator {
             .collect()
     }
 
-    /// Generate random action for auto mode
+    /// 為自動模式產生隨機動作
     pub fn generate_random_action(&self) -> Option<(String, serde_json::Value)> {
         if !self.auto_mode_enabled {
             return None;
@@ -195,13 +195,13 @@ impl PlayerSimulator {
         }
     }
 
-    /// Set auto mode
+    /// 設定自動模式
     pub fn set_auto_mode(&mut self, enabled: bool) {
         self.auto_mode_enabled = enabled;
         info!("Player {} auto mode: {}", self.player_name, if enabled { "enabled" } else { "disabled" });
     }
 
-    /// Update position from game state
+    /// 從遊戲狀態更新位置
     pub fn update_position(&mut self, position: Vec2<f32>) {
         self.current_position = position;
     }

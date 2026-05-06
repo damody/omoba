@@ -1,8 +1,8 @@
-//! Player command definitions
+//! 播放器命令定義
 
 use serde::{Deserialize, Serialize};
 
-/// Move command parameters
+/// 移動命令參數
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MoveParams {
     pub target_x: f32,
@@ -10,7 +10,7 @@ pub struct MoveParams {
     pub speed: Option<f32>,
 }
 
-/// Cast ability command parameters
+/// 施放能力指令參數
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CastAbilityParams {
     pub ability_id: String,
@@ -19,14 +19,14 @@ pub struct CastAbilityParams {
     pub level: Option<u8>,
 }
 
-/// Attack command parameters
+/// 攻擊命令參數
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttackParams {
     pub target_position: (f32, f32),
     pub attack_type: String,
 }
 
-/// Player action record
+/// 玩家動作記錄
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerAction {
     pub action_type: String,

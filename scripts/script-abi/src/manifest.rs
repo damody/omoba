@@ -1,8 +1,8 @@
-//! Manifest — the root module each script DLL exports.
+//! Manifest — 每個腳本 DLL 導出的根模組。
 //!
-//! Host calls `Manifest_Ref::load_from_file(dll)` then iterates the
-//! provided function pointers to collect `UnitDef` entries (legacy) and
-//! `AbilityDefFFI` entries (new).
+//! 主機呼叫“Manifest_Ref::load_from_file(dll)”，然後迭代
+//! 提供函數指標來收集`UnitDef`條目（遺留）和
+//! `AbilityDefFFI` 條目（新）。
 
 use abi_stable::{
     StableAbi,
@@ -26,12 +26,12 @@ pub struct UnitDef {
 #[sabi(kind(Prefix(prefix_ref = Manifest_Ref, prefix_fields = Manifest_Prefix)))]
 #[sabi(missing_field(panic))]
 pub struct Manifest {
-    /// Returns every unit this DLL provides.
+    /// 傳回此 DLL 提供的每個單元。
     pub units: extern "C" fn() -> RVec<UnitDef>,
 
-    /// Returns every ability this DLL provides. DLLs that don't define
-    /// abilities still need to export this function returning an empty
-    /// `RVec` (`missing_field(panic)` policy).
+    /// 傳回此 DLL 提供的所有功能。未定义的 DLL
+    /// 能力仍然需要導出這個函數傳回一個空
+    /// `RVec`（`missing_field(panic)` 策略）。
     #[sabi(last_prefix_field)]
     pub abilities: extern "C" fn() -> RVec<AbilityDefFFI>,
 }

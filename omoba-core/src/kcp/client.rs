@@ -15,78 +15,78 @@ use super::game_proto::*;
 use crate::quant::{facing_dequant, fixed_dequant, pos_dequant};
 use omoba_template_ids::{creep_display, projectile_id_str, CreepId, ProjectileKindId};
 
-/// P3: client-side cache for hero static metadata.
+/// P3：英雄靜態元資料的客戶端快取。
 ///
-/// The server now emits `HeroStatic` (cold, rare: create/level-up/ability learn)
-/// and `HeroHot` (hot, every 0.3s) separately. Legacy omfx expects a single
-/// merged `hero.stats` JSON. The shim caches the latest static per entity id,
-/// and on each `HeroHot` arrival merges with cache + emits one hero.stats JSON
-/// identical to the pre-P3 wire shape so omfx needs zero changes.
+/// 伺服器現在發出“HeroStatic”（冷，罕見：創建/升級/能力學習）
+/// 和「HeroHot」（熱，每 0.3 秒）分別。舊版 omfx 需要一個
+/// 合併 `hero.stats` JSON。 shim 快取每個實體 id 的最新靜態，
+/// 每次「HeroHot」到達時都會與快取合併並發出一個 Hero.stats JSON
+/// 與 P3 之前的線形狀相同，因此 omfx 需要零更改。
 ///
-/// `latest_lives` tracks the most recent `GameLives` event value and is injected
-/// into the merged JSON (previously the server stuffed `lives` into hero.stats).
+/// `latest_lives` 追蹤最新的 `GameLives` 事件值並被注入
+/// 到合併的 JSON 中（先前伺服器將“lives”填入 Hero.stats 中）。
 #[derive(Default)]
 struct HeroStatsCache {
     statics: HashMap<u64, HeroStatic>,
     latest_lives: Option<i32>,
 }
 
-/// KCP client for communicating with the omb game server.
+/// KCP客戶端用於與omb遊戲伺服器通訊。
 pub struct KcpClient {
     player_name: String,
     writer: Arc<Mutex<WriteHalf<KcpStream>>>,
     event_rx: Option<mpsc::Receiver<GameEventData>>,
-    /// Phase 2 lockstep: separate channel fed by the reader task whenever a
-    /// 0x11 / 0x12 / 0x14 / 0x16 frame arrives. Taken once via
-    /// `subscribe_lockstep`.
+    /// 第 2 階段鎖步：每當讀取器任務
+    /// 0x11 / 0x12 / 0x14 / 0x16 幀到達。透過拍攝一次
+    /// `subscribe_lockstep`。
     lockstep_rx: Option<mpsc::Receiver<LockstepInbound>>,
-    /// Phase 2 lockstep: assigned by GameStart; needed to stamp InputSubmit.
+    /// 第2階段鎖步：由GameStart分配；需要標記InputSubmit。
     last_player_id: Option<u32>,
-    /// Phase 2 lockstep: master_seed cached for caller.
+    /// 第 2 階段鎖步：為呼叫者快取 master_seed。
     last_master_seed: Option<u64>,
 }
 
-/// Phase 2 lockstep inbound frames the client surfaces from the kcp reader
-/// task. `GameStart` is delivered through this channel as well so a caller
-/// awaiting `join_lockstep` can recv from the same stream.
+/// 階段 2 鎖定步入站幀從 kcp 讀取器顯示客戶端
+/// 任務。 `GameStart` 也是透過這個通道傳遞的，因此呼叫者
+/// 等待“join_lockstep”可以從同一流接收。
 ///
-/// `wire_bytes` = real UDP cost (post-compression + 5 byte framing).
-/// `logical_bytes` = decompressed prost payload length. Lets the consumer
-/// HUD show both numbers so the lockstep bandwidth win over the legacy
-/// per-event broadcast can be quantified.
+/// `wire_bytes` = 實際 UDP 成本（壓縮後 + 5 位元組幀）。
+/// `邏輯位元組` = 解壓縮後的 prost 有效負載長度。讓消費者
+/// HUD 顯示這兩個數字，因此鎖步頻寬勝過傳統頻寬
+/// 每個事件的廣播可以量化。
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
     TickBatch { msg: TickBatch, wire_bytes: usize, logical_bytes: usize },
     StateHash { msg: StateHash, wire_bytes: usize, logical_bytes: usize },
     GameStart { msg: GameStart, wire_bytes: usize, logical_bytes: usize },
     SnapshotResp { msg: SnapshotResp, wire_bytes: usize, logical_bytes: usize },
-    /// Server echoed a PingRequest. `rtt_us` = round-trip time in microseconds,
-    /// computed from the echoed `client_send_us` against the client's local
-    /// monotonic clock at receive time.
+    /// 伺服器回顯 PingRequest。 `rtt_us` = 往返時間（以微秒為單位），
+    /// 根據回顯的“client_send_us”相對於客戶端的本機計算
+    /// 接收時的單調時鐘。
     Pong { rtt_us: u64, wire_bytes: usize, logical_bytes: usize },
 }
 
-/// P6: result of the per-session sequence gap check. Exposed for tests.
+/// P6：每會話序列間隙檢查的結果。暴露進行測試。
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum SeqGapResult {
-    /// First event ever — just seed `last_seq`, no check.
+    /// 有史以來的第一個事件 - 只是種子“last_seq”，沒有檢查。
     InitialSeed,
-    /// `event.sequence == last_seq + 1` — no gap.
+    /// `event.sequence == last_seq + 1` — 沒有間隙。
     Ok,
-    /// `event.sequence < last_seq + 1` — duplicate / reorder / wrap? Log only.
+    /// `event.sequence < last_seq + 1` — 重複/重新排序/換行？僅記錄。
     Backwards,
-    /// `event.sequence > last_seq + 1` — missed `gap_size` events. Client
-    /// should request resync.
+    /// `event.sequence > last_seq + 1` — 錯過了 `gap_size` 事件。客戶
+    /// 應請求重新同步。
     Gap { expected: u64, got: u64, gap_size: u64 },
 }
 
-/// Pure function: given the previous last-known sequence and the arriving
-/// event's sequence, return a `SeqGapResult`. Split out for unit testing
-/// without spinning up a KCP connection.
+/// 純函數：給定先前最後已知的序列和到達的序列
+/// 事件的序列，傳回一個`SeqGapResult`。拆分出來進行單元測試
+/// 無需啟動 KCP 連線。
 ///
-/// `last_seq_opt = None` means no events have been seen yet on this session.
-/// `last_seq_opt = Some(n)` means the last successful event had sequence `n`;
-/// the NEXT expected value is `n + 1`.
+/// `last_seq_opt = None` 表示此會話中尚未看到任何事件。
+/// `last_seq_opt = Some(n)` 表示最後一個成功事件的序列為 `n`；
+/// 下一個期望值是「n + 1」。
 pub fn detect_seq_gap(last_seq_opt: Option<u64>, got: u64) -> SeqGapResult {
     match last_seq_opt {
         None => SeqGapResult::InitialSeed,
@@ -95,8 +95,8 @@ pub fn detect_seq_gap(last_seq_opt: Option<u64>, got: u64) -> SeqGapResult {
             if got == expected {
                 SeqGapResult::Ok
             } else if got < expected {
-                // Likely a reorder (KCP is reliable+ordered so this should be
-                // rare) or a duplicate. Log-only; don't resync.
+                // 可能是重新排序（KCP 是可靠的+有序的，所以這應該是
+                // 罕見）或重複。僅記錄；不要重新同步。
                 SeqGapResult::Backwards
             } else {
                 SeqGapResult::Gap {
@@ -109,7 +109,7 @@ pub fn detect_seq_gap(last_seq_opt: Option<u64>, got: u64) -> SeqGapResult {
     }
 }
 
-/// Parsed game event data for client consumption.
+/// 解析遊戲事件資料供客戶端使用。
 #[derive(Debug, Clone)]
 pub struct GameEventData {
     pub topic: String,
@@ -130,7 +130,7 @@ pub struct GameEventData {
 }
 
 impl KcpClient {
-    /// Connect to the KCP game server.
+    /// 連接到KCP遊戲伺服器。
     pub async fn connect(addr: &str, player_name: String) -> Result<Self> {
         let mut config = KcpConfig::default();
         config.nodelay = KcpNoDelayConfig::fastest();
@@ -142,12 +142,12 @@ impl KcpClient {
         let (reader, writer) = tokio::io::split(stream);
         let writer = Arc::new(Mutex::new(writer));
 
-        // Shared monotonic epoch — both the ping sender and the reader (which
-        // computes RTT on PingResponse) timestamp against this single Instant
-        // so the subtraction is wraparound-safe.
+        // 共享單調紀元 — ping 發送者和閱讀者（其中
+        // 根據該單一即時計算 PingResponse 上的 RTT）時間戳
+        // 所以減法是環繞安全的。
         let epoch = std::time::Instant::now();
 
-        // Send subscribe request immediately
+        // 立即發送訂閱請求
         {
             let mut w = writer.lock().await;
             let sub = SubscribeRequest {
@@ -156,13 +156,13 @@ impl KcpClient {
             write_framed_msg(&mut *w, TAG_SUBSCRIBE_REQUEST, &sub).await?;
         }
 
-        // Spawn background reader task
+        // 產生後台閱讀器任務
         let (event_tx, event_rx) = mpsc::channel(10000);
         let (lockstep_tx, lockstep_rx) = mpsc::channel(1024);
         Self::spawn_reader(reader, event_tx, lockstep_tx.clone(), writer.clone(), player_name.clone(), epoch);
 
-        // Spawn ping loop — sends TAG_PING_REQ every 1s. The reader handles
-        // TAG_PING_RESP and emits LockstepInbound::Pong with the computed RTT.
+        // 產生 ping 循環 — 每 1 秒發送一次 TAG_PING_REQ。讀者處理
+        // TAG_PING_RESP 並發出 LockstepInbound::Pong 以及計算出的 RTT。
         Self::spawn_ping_loop(writer.clone(), epoch);
 
         Ok(Self {
@@ -175,17 +175,17 @@ impl KcpClient {
         })
     }
 
-    /// Periodically send TAG_PING_REQ stamped with a monotonic timestamp.
-    /// The server echoes it as TAG_PING_RESP; the reader task derives RTT
-    /// against the same epoch.
+    /// 定期發送帶有單調時間戳記的 TAG_PING_REQ。
+    /// 伺服器將其回應為 TAG_PING_RESP；讀者任務匯出 RTT
+    /// 對抗同一個時代。
     fn spawn_ping_loop(
         writer: Arc<Mutex<WriteHalf<KcpStream>>>,
         epoch: std::time::Instant,
     ) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
-            // First tick fires immediately; skip it so we do not race the
-            // subscribe/join handshake at session start.
+            // 第一個蜱立即觸發；跳過它，這樣我們就不會參加比賽
+            // 會話開始時訂閱/加入握手。
             interval.tick().await;
             loop {
                 interval.tick().await;
@@ -209,17 +209,17 @@ impl KcpClient {
         epoch: std::time::Instant,
     ) {
         tokio::spawn(async move {
-            // P3: local cache lives in the reader task so no locking is needed.
-            // HeroStatic arrivals update cache only (no emit); HeroHot arrivals
-            // look up the cache + emit a merged legacy hero.stats JSON.
+            // P3：本機快取位於讀取器任務中，因此不需要鎖定。
+            // HeroStatic 到達僅更新快取（不發出）；英雄熱門登場
+            // 尋找快取+發出合併的舊版hero.stats JSON。
             let mut hero_cache = HeroStatsCache::default();
-            // P6: per-session sequence gap detection. None until the first
-            // GameEvent arrives; after that, every subsequent event's sequence
-            // must equal last + 1.
+            // P6：每會話序列間隙檢測。直到第一次之前都沒有
+            // 遊戲事件到來；之後，每個後續事件的順序
+            // 必須等於最後 + 1。
             let mut last_seq: Option<u64> = None;
-            // Throttle resync requests so a pathological flood of gaps
-            // doesn't turn into a flood of StateReq traffic. Track the last
-            // sequence we requested a resync for; skip if we already asked.
+            // 限制重新同步請求，導致病態的間隙氾濫
+            // 不會變成 StateReq 流量的洪流。跟踪最後一個
+            // 我們請求重新同步的序列；如果我們已經問過，請跳過。
             let mut last_resync_req: Option<u64> = None;
             loop {
                 match read_framed(&mut reader).await {
@@ -228,11 +228,11 @@ impl KcpClient {
                             TAG_GAME_EVENT => {
                                 match GameEvent::decode(payload.as_slice()) {
                                     Ok(event) => {
-                                        // P6: check sequence before decoding payload.
-                                        // `sequence` is proto3 uint64 — defaults to 0
-                                        // when the server is pre-P6 or hasn't stamped
-                                        // (gRPC path), so we only engage gap detection
-                                        // once we've seen a non-zero sequence.
+                                        // P6：解碼有效負載之前檢查序列。
+                                        // `sequence` 是 proto3 uint64 — 預設為 0
+                                        // 當伺服器是 P6 之前的版本或尚未標記時
+                                        // （gRPC路徑），所以我們只進行間隙檢測
+                                        // 一旦我們看到一個非零序列。
                                         let got_seq = event.sequence;
                                         match detect_seq_gap(last_seq, got_seq) {
                                             SeqGapResult::InitialSeed => {
@@ -246,18 +246,18 @@ impl KcpClient {
                                                     "⏪ seq backwards (got={}, last_seq={:?}) — keeping state",
                                                     got_seq, last_seq
                                                 );
-                                                // Do NOT update last_seq — hold the
-                                                // highest seen. Duplicate/reorder
-                                                // events still get processed.
+                                                // 不要更新last_seq——保留
+                                                // 所見最高。複製/重新排序
+                                                // 事件仍然得到處理。
                                             }
                                             SeqGapResult::Gap { expected, got, gap_size } => {
                                                 warn!(
                                                     "⚠️ seq gap: expected={} got={} (missed {} events)",
                                                     expected, got, gap_size
                                                 );
-                                                // Debounce: don't re-request for the
-                                                // same gap the writer already heard
-                                                // about.
+                                                // Debounce：不重新要求
+                                                // 作者已經聽過同樣的差距
+                                                // 關於。
                                                 let should_request = match last_resync_req {
                                                     Some(prev) => prev < expected,
                                                     None => true,
@@ -266,11 +266,11 @@ impl KcpClient {
                                                     last_resync_req = Some(expected);
                                                     let req = GameStateRequest {
                                                         query_type: "seq-gap".into(),
-                                                        // Encode last-known seq as
-                                                        // the player_name field —
-                                                        // avoids a proto schema bump
-                                                        // (see server stub for the
-                                                        // matching decode side).
+                                                        // 將最後已知的 seq 編碼為
+                                                        // player_name 欄位 —
+                                                        // 避免原型模式碰撞
+                                                        // （請參閱伺服器存根
+                                                        // 匹配解碼端）。
                                                         player_name: expected.saturating_sub(1).to_string(),
                                                     };
                                                     let w = writer_for_resync.clone();
@@ -285,22 +285,22 @@ impl KcpClient {
                                                         }
                                                     });
                                                 }
-                                                // Continue processing the out-of-order
-                                                // event so we don't double-drop on top
-                                                // of the gap (client logic tolerates
-                                                // stale HP / position updates).
+                                                // 繼續處理無序的情況
+                                                // 事件，這樣我們就不會在頂部雙重下降
+                                                // 差距（客戶端邏輯容忍
+                                                // 過時的 HP/位置更新）。
                                                 last_seq = Some(got_seq);
                                             }
                                         }
-                                        // Silence the unused-var warning on
-                                        // `player_name_for_resync` for builds
-                                        // that never hit the Gap branch.
+                                        // 靜默未使用的 var 警告
+                                        // 用於建置的“player_name_for_resync”
+                                        // 從未到達 Gap 分支。
                                         let _ = &player_name_for_resync;
-                                        // P9 envelope-strip: every event carries a typed
-                                        // `payload` oneof. The shim derives (msg_type, action)
-                                        // from the variant and rebuilds JSON for legacy omfx.
-                                        // `wire_compressed_bytes` = actual UDP cost (LZ4'd if shrunk + framing);
-                                        // `payload.len()` = decompressed prost bytes (logical payload).
+                                        // P9 信封條：每個事件都帶有印刷的
+                                        // 其中“有效負載”。墊片派生 (msg_type, action)
+                                        // 來自變體並為舊版 omfx 重建 JSON。
+                                        // `wire_compressed_bytes` = 實際 UDP 成本（如果縮小 + 成幀則為 LZ4）；
+                                        // `payload.len()` = 解壓縮的 prost 位元組（邏輯有效負載）。
                                         let logical_bytes = payload.len();
                                         let parsed_opt: Option<GameEventData> = match event.payload.as_ref() {
                                             Some(p) => translate_typed_payload(p, wire_compressed_bytes, logical_bytes, &mut hero_cache),
@@ -308,19 +308,19 @@ impl KcpClient {
                                         };
 
                                         if let Some(parsed) = parsed_opt {
-                                            // try_send instead of send().await: when no
-                                            // consumer is draining `event_rx` (e.g. Phase 5.1+
-                                            // omfx, which only subscribes to the lockstep
-                                            // stream), a blocking send fills the 10000-slot
-                                            // channel in ~10s of TD_STRESS load and then
-                                            // stalls THIS reader task — preventing lockstep
-                                            // frames on the same socket from ever being
-                                            // delivered. Dropping legacy events on full is
-                                            // safe because their consumer is opt-in.
+                                            // try_send 而非 send().await：當沒有時
+                                            // 消費者正在耗盡「event_rx」（例如階段 5.1+
+                                            // omfx，僅訂閱鎖步
+                                            // 流），阻塞發送填充 10000 槽
+                                            // 在大約 10 秒的 TD_STRESS 負載中建立通道，然後
+                                            // 停止此讀取器任務 - 防止鎖定步
+                                            // 同一套接字上的幀永遠不會
+                                            // 發表。完全刪除遺留事件是
+                                            // 安全，因為他們的消費者選擇加入。
                                             match event_tx.try_send(parsed) {
                                                 Ok(()) => {}
                                                 Err(mpsc::error::TrySendError::Full(_)) => {
-                                                    // No subscriber draining; drop silently.
+                                                    // 不會耗盡訂閱者；默默地掉落。
                                                 }
                                                 Err(mpsc::error::TrySendError::Closed(_)) => {
                                                     break;
@@ -334,12 +334,12 @@ impl KcpClient {
                                 }
                             }
                             TAG_COMMAND_ACK => {
-                                // CommandAck — currently ignored
+                                // CommandAck — 目前被忽略
                             }
                             TAG_GAME_STATE_RESPONSE => {
-                                // GameStateResponse — currently not used by client
+                                // GameStateResponse — 目前未被客戶端使用
                             }
-                            // ===== Phase 2 Lockstep tags =====
+                            // ===== 第 2 階段鎖步標籤 =====
                             TAG_TICK_BATCH => {
                                 let logical_bytes = payload.len();
                                 match TickBatch::decode(payload.as_slice()) {
@@ -435,7 +435,7 @@ impl KcpClient {
         });
     }
 
-    /// Send a player command to the server.
+    /// 向伺服器發送玩家命令。
     pub async fn send_command(
         &mut self,
         msg_type: &str,
@@ -455,7 +455,7 @@ impl KcpClient {
         Ok(true)
     }
 
-    /// Send a viewport update to the server for spatial filtering.
+    /// 將視口更新傳送到伺服器以進行空間過濾。
     pub async fn send_viewport_update(&self, cx: f32, cy: f32, hw: f32, hh: f32) -> Result<()> {
         let vp = ViewportUpdate {
             center_x: cx,
@@ -468,8 +468,8 @@ impl KcpClient {
         Ok(())
     }
 
-    /// Subscribe to game events from the server.
-    /// Returns a receiver channel that yields parsed game events.
+    /// 從伺服器訂閱遊戲事件。
+    /// 傳回一個接收器通道，該通道產生已解析的遊戲事件。
     pub async fn subscribe_events(
         &mut self,
     ) -> Result<mpsc::Receiver<GameEventData>> {
@@ -478,27 +478,27 @@ impl KcpClient {
             .ok_or_else(|| anyhow::anyhow!("subscribe_events can only be called once"))
     }
 
-    // ===== Phase 2 Lockstep API =====
+    // ===== 第 2 階段 Lockstep API =====
 
-    /// Take ownership of the lockstep inbound stream. Yields TickBatch /
-    /// StateHash / GameStart / SnapshotResp frames as they arrive from the
-    /// server. Can only be called once per client.
+    /// 取得同步入站流的所有權。產量TickBatch /
+    /// StateHash / GameStart / SnapshotResp 幀從
+    /// 伺服器.每個客戶端只能呼叫一次。
     pub fn subscribe_lockstep(&mut self) -> Result<mpsc::Receiver<LockstepInbound>> {
         self.lockstep_rx
             .take()
             .ok_or_else(|| anyhow::anyhow!("subscribe_lockstep can only be called once"))
     }
 
-    /// Send a JoinRequest (tag 0x13) and await the server's GameStart reply
-    /// (tag 0x14). Returns the assigned `master_seed` from GameStart so the
-    /// caller can construct deterministic SimRng streams.
+    /// 發送JoinRequest（標籤0x13）並等待伺服器的GameStart回复
+    /// （標籤 0x14）。從 GameStart 傳回指定的 `master_seed`
+    /// 呼叫者可以構造確定性 SimRng 流。
     ///
-    /// CAUTION: this method internally drains the lockstep inbound channel
-    /// until it sees a GameStart, so do not call this AFTER `subscribe_lockstep`.
-    /// The recommended flow is:
-    ///   1. `connect`
-    ///   2. `join_lockstep` (consumes GameStart from the channel)
-    ///   3. `subscribe_lockstep` (now yields only TickBatch/StateHash/SnapshotResp)
+    /// 注意：此方法在內部耗盡鎖定步入站通道
+    /// 直到它看到 GameStart，所以不要在 `subscribe_lockstep` 之後呼叫它。
+    /// 推薦流程為：
+    /// 1.`連線`
+    /// 2. `join_lockstep` （從頻道消耗 GameStart）
+    /// 3. `subscribe_lockstep` （現在只產生 TickBatch/StateHash/SnapshotResp）
     pub async fn join_lockstep(&mut self, player_name: String, observer: bool) -> Result<u64> {
         let role = if observer { JoinRole::RoleObserver } else { JoinRole::RolePlayer };
         let req = JoinRequest {
@@ -509,7 +509,7 @@ impl KcpClient {
             let mut w = self.writer.lock().await;
             write_framed_msg(&mut *w, TAG_JOIN_REQUEST, &req).await?;
         }
-        // Drain the lockstep stream until GameStart arrives.
+        // 排空鎖步流，直到 GameStart 到達。
         let rx = self
             .lockstep_rx
             .as_mut()
@@ -522,10 +522,10 @@ impl KcpClient {
                     return Ok(gs.master_seed);
                 }
                 Some(_) => {
-                    // Possible race: a TickBatch may arrive before GameStart
-                    // if the server fires it just after `lockstep_joined=true`
-                    // is set. We deliberately drop those — Phase 2 callers
-                    // should join first, then subscribe.
+                    // 可能的競爭：TickBatch 可能在 GameStart 之前到達
+                    // 如果伺服器在 `lockstep_joined=true` 之後觸發它
+                    // 已設定。我們故意放棄那些──第二階段的來電者
+                    // 應該先加入，然後訂閱。
                     continue;
                 }
                 None => {
@@ -535,13 +535,13 @@ impl KcpClient {
         }
     }
 
-    /// Submit a player input targeted at `target_tick`. Caller must have
-    /// invoked `join_lockstep` first (otherwise no `player_id` is known).
+    /// 提交針對「target_tick」的玩家輸入。呼叫者必須有
+    /// 先呼叫 `join_lockstep` （否則不知道 `player_id`）。
     ///
-    /// Returns `(logical_bytes, wire_bytes)` so the caller can feed network
-    /// throughput counters. InputSubmit messages are tiny (well under
-    /// `LZ4_THRESHOLD = 128`), so they are never compressed and
-    /// `wire = 1 + 4 + logical`.
+    /// 返回“(邏輯字節，線路字節)”，以便呼叫者可以饋送網絡
+    /// 吞吐量計數器。 InputSubmit 訊息很小（遠低於
+    /// `LZ4_THRESHOLD = 128`)，因此它們永遠不會被壓縮並且
+    /// `連線 = 1 + 4 + 邏輯`。
     pub async fn submit_input(
         &mut self,
         target_tick: u32,
@@ -564,8 +564,8 @@ impl KcpClient {
         Ok((logical_bytes, wire_bytes))
     }
 
-    /// Request a snapshot from the server. Reply arrives as
-    /// `LockstepInbound::SnapshotResp` on the lockstep stream.
+    /// 從伺服器請求快照。回覆如下
+    /// 鎖步流上的「LockstepInbound::SnapshotResp」。
     pub async fn request_snapshot(&mut self, from_tick: u32) -> Result<()> {
         let req = SnapshotReq { from_tick };
         let mut w = self.writer.lock().await;
@@ -573,20 +573,20 @@ impl KcpClient {
         Ok(())
     }
 
-    /// Most recently observed player_id assigned by GameStart.
+    /// 最近觀察到的由 GameStart 指派的player_id。
     pub fn lockstep_player_id(&self) -> Option<u32> {
         self.last_player_id
     }
 
-    /// Most recently observed master_seed from GameStart.
+    /// 最近從 GameStart 觀察到的 master_seed。
     pub fn lockstep_master_seed(&self) -> Option<u64> {
         self.last_master_seed
     }
 }
 
-/// P9 envelope-strip shim: derive (msg_type, action) from the typed payload
-/// variant. Compile-time exhaustive — adding a new proto variant breaks the
-/// build here. `LegacyJson` carries its own keys.
+/// P9 信封條墊片：從輸入的有效負載衍生（msg_type，action）
+/// 變體。編譯時詳盡 - 添加新的原型變體打破了
+/// 建在這裡。 `LegacyJson` 帶有它自己的密鑰。
 pub fn variant_to_legacy_keys(p: &game_event::Payload) -> (String, String) {
     use game_event::Payload::*;
     match p {
@@ -636,11 +636,11 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Translate a prost typed Payload into the legacy JSON-shaped `GameEventData`
-/// that omfx already consumes. P9: the wire no longer carries topic / msg_type /
-/// action / data_json / timestamp_ms — we derive (msg_type, action) from the
-/// variant tag, set topic = "td/all/res" (server already routed), and use the
-/// client-local clock for timestamp_ms.
+/// 將 prost 類型的 Payload 轉換為傳統的 JSON 形狀的“GameEventData”
+/// omfx 已經消耗了。 P9：線路不再攜帶 topic/msg_type/
+/// action / data_json / timestamp_ms — 我們從 (msg_type, action) 匯出
+/// 變體標籤，設定 topic =“td/all/res”（伺服器已路由），並使用
+/// timestamp_ms 的客戶端本機時鐘。
 fn translate_typed_payload(
     tp: &game_event::Payload,
     wire_bytes: usize,
@@ -666,17 +666,17 @@ fn translate_typed_payload(
                 let hp = e.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
                 json!({ "i": e.id as u32, "h": hp })
             }).collect();
-            // P4: creep position sample for client drift correction. Empty
-            // Vec (no creeps visible) serialises to an empty array — omfx's
-            // snap logic iterates harmlessly.
+            // P4：用於客戶端漂移校正的蠕變位置樣本。空的
+            // Vec（沒有可見的蠕變）序列化為空數組 - omfx 的
+            // 快照邏輯的迭代是無害的。
             let pos_snapshot: Vec<serde_json::Value> = hb.pos_snapshot.iter().map(|e| {
                 let (x, y) = e.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
                 json!({ "i": e.id as u32, "x": x, "y": y })
             }).collect();
-            // P7 layered: server-side authoritative set of still-alive
-            // predeclared-damage projectiles whose target is in this player's
-            // viewport. Client uses this to retain its pending_pred_dmg map
-            // (entries whose proj_id is NOT in this set have settled).
+            // P7分層：伺服器端權威集依然存在
+            // 目標在該玩家的範圍內的預先聲明傷害彈頭
+            // 視口。客戶端使用它來保留其pending_pred_dmg映射
+            // （proj_id 不在該集合中的條目已解決）。
             let in_flight_projectiles: Vec<serde_json::Value> = hb.in_flight_projectiles
                 .iter()
                 .map(|&id| serde_json::Value::from(id))
@@ -708,13 +708,13 @@ fn translate_typed_payload(
             let end = m.end_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let splash = m.splash_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let hit = m.hit_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            // P7: pre-declared damage for non-AOE projectiles. 0 when
-            // splash > 0 or unset. omfx reads this to schedule optimistic HP
-            // update at impact tick.
+            // P7：非AOE彈丸的預先聲明傷害。 0 當
+            // 飛濺 > 0 或未設定。 omfx 讀取此內容以安排樂觀的 HP
+            // 在影響刻度時更新。
             let damage = m.damage.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            // Reverse-lookup kind_id (now sequential u16 from omoba-template-ids)
-            // → original tag string ("tack"/"bomb"/etc.). Unknown ids fall back
-            // to "" so omfx's bullet-colour switch defaults gracefully.
+            // 反向查找 kind_id（現在是來自 omoba-template-ids 的連續 u16）
+            // → 原始標籤字串（「大頭釘」/「炸彈」/等）。未知 ID 回退
+            // 到“”，這樣 omfx 的項目符號顏色開關就可以優雅地預設。
             let kind_str = projectile_id_str(ProjectileKindId(m.kind_id as u16));
             let d = json!({
                 "id": m.id as u32,
@@ -739,8 +739,8 @@ fn translate_typed_payload(
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let move_speed = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            // Reverse-lookup name_id (sequential CreepId u16) → display name.
-            // Unknown id → "" (omfx falls back to entity_type string).
+            // 反向查找name_id（順序CreepId u16）→顯示名稱。
+            // 未知 id →“”（omfx 回落到實體類型字串）。
             let name_str = creep_display(CreepId(m.name_id as u16));
             let d = json!({
                 "id": m.id as u32,
@@ -755,9 +755,9 @@ fn translate_typed_payload(
         }
         game_event::Payload::CreepMove(m) => {
             let tgt = m.target.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
-            // P4: reconstruct extrapolation fields. `velocity`/`start_pos`/`start_tick`/`arrival_tick`
-            // are zero for legacy emits (handle_creep_stop freeze) — omfx treats that as
-            // "lerp only, no extrapolation".
+            // P4：重建外推場。 `velocity`/`start_pos`/`start_tick`/`arrival_tick`
+            // 對於遺留發射（handle_creep_stop freeze）為零 - omfx 將其視為
+            // 「僅 lerp，無推論」。
             let velocity = m.velocity.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let start = m.start_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let d = json!({
@@ -836,7 +836,7 @@ fn translate_typed_payload(
             GameEventData { data: d, ..default() }
         }
         game_event::Payload::BuffAdd(m) => {
-            // remaining_ms=0xFFFF sentinel → -1 remaining (infinite/toggle)
+            // 剩餘_ms=0xFFFF 哨兵 → -1 剩餘（無限/切換）
             let remaining = if m.remaining_ms == 0xFFFF { -1.0_f32 } else { m.remaining_ms as f32 / 1000.0 };
             let payload: serde_json::Value = serde_json::from_str(&m.payload_json).unwrap_or(serde_json::Value::Null);
             let d = json!({
@@ -856,17 +856,17 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        // P3: HeroStatic → update cache only (no emit to omfx).
-        // Level-up / ability-learn happens rarely; omfx will see updated
-        // name/level/abilities on the next HeroHot merge (≤ 0.3s later).
+        // P3：HeroStatic → 僅更新快取（不傳送到 omfx）。
+        // 升級/能力學習很少發生； omfx 將看到更新
+        // 下一次 HeroHot 合併時的名稱/等級/能力（≤ 0.3 秒後）。
         game_event::Payload::HeroStatic(m) => {
             hero_cache.statics.insert(m.id, m.clone());
             return None;
         }
-        // P3: HeroHot → merge with cached HeroStatic and emit a legacy-shape
-        // hero.stats JSON so omfx needs zero changes. First HeroHot before
-        // any HeroStatic arrives → empty static fields (omfx uses `if let
-        // Some` per field, so it retains last-known values).
+        // P3：HeroHot → 與緩存的 HeroStatic 合併並發出舊形狀
+        // Hero.stats JSON 因此 omfx 需要零更改。 First Hero之前很熱
+        // 任何 HeroStatic 到達 → 空靜態欄位（omfx 使用 `if let
+        // 每個字段都有一些，因此它保留最後已知的值）。
         game_event::Payload::HeroHot(m) => {
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
             let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -897,7 +897,7 @@ fn translate_typed_payload(
                 "buffs": buffs,
             });
 
-            // Merge cached HeroStatic fields (name/title/base stats/level/xp/abilities)
+            // 合併快取的 HeroStatic 欄位（名稱/頭銜/基本統計資料/等級/xp/能力）
             if let Some(st) = hero_cache.statics.get(&m.id) {
                 let ability_levels_map: serde_json::Map<String, serde_json::Value> = st.ability_ids.iter().enumerate().map(|(i, id)| {
                     let lvl = st.ability_levels.get(i).map(|p| p.cur as i32).unwrap_or(0);
@@ -927,8 +927,8 @@ fn translate_typed_payload(
                     obj.insert("ability_levels".into(), serde_json::Value::Object(ability_levels_map));
                 }
             }
-            // Inject latest lives (tracked from GameLives events) so omfx's
-            // TD-mode detection + HUD lives display keep working from hero.stats.
+            // 注入最新的生命（從 GameLives 事件追蹤），以便 omfx 的
+            // TD 模式偵測 + HUD 生命顯示在 Hero.stats 中保持正常運作。
             if let Some(lives) = hero_cache.latest_lives {
                 if let Some(obj) = d.as_object_mut() {
                     obj.insert("lives".into(), json!(lives));
@@ -954,7 +954,7 @@ fn translate_typed_payload(
             GameEventData { data: d, ..default() }
         }
         game_event::Payload::GameLives(m) => {
-            // P3: cache for later injection into merged hero.stats.
+            // P3：快取以便稍後注入合併的hero.stats。
             hero_cache.latest_lives = Some(m.lives);
             let d = json!({ "lives": m.lives });
             GameEventData { data: d, ..default() }
@@ -974,9 +974,9 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        // P9: HeroCreate / UnitCreate visibility-diff (placeholder — omfx
-        // currently spawns from creep.create-style payload; these emit a
-        // minimal create JSON so the existing dispatch can still see them).
+        // P9：HeroCreate / UnitCreate 可見性差異（佔位符 — omfx
+        // 目前從 Creep.create 風格的有效負載中產生；這些會發出
+        // 最小化創建 JSON，以便現有調度仍然可以看到它們）。
         game_event::Payload::HeroCreate(m) => {
             let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -1006,10 +1006,10 @@ fn translate_typed_payload(
             });
             GameEventData { data: d, ..default() }
         }
-        // P9: catch-all for low-frequency irregular events (init / ack /
-        // reject / inventory). Decode the carried JSON bytes back into a
-        // serde_json::Value so omfx's existing dispatcher sees the original
-        // (msg_type, action, data) shape.
+        // P9：低頻不規則事件的包羅萬象（init / ack /
+        // 拒絕/庫存）。將攜帶的 JSON 位元組解碼回
+        // serde_json::Value，以便 omfx 的現有調度程序看到原始數據
+        // （訊息類型、操作、資料）形狀。
         game_event::Payload::LegacyJson(m) => {
             let data = if m.data_json.is_empty() {
                 serde_json::Value::Null
@@ -1036,7 +1036,7 @@ mod seq_gap_tests {
 
     #[test]
     fn initial_event_seeds() {
-        // No prior seq → any incoming sequence just seeds the tracker.
+        // 沒有先前的 seq → 任何傳入的序列只是為追蹤器播種。
         assert_eq!(detect_seq_gap(None, 0), SeqGapResult::InitialSeed);
         assert_eq!(detect_seq_gap(None, 42), SeqGapResult::InitialSeed);
     }
@@ -1049,7 +1049,7 @@ mod seq_gap_tests {
 
     #[test]
     fn gap_of_one_detected() {
-        // last=5, got=7 → missed #6.
+        // 最後=5，得到=7 → 錯過了#6。
         match detect_seq_gap(Some(5), 7) {
             SeqGapResult::Gap { expected, got, gap_size } => {
                 assert_eq!(expected, 6);
@@ -1074,14 +1074,14 @@ mod seq_gap_tests {
 
     #[test]
     fn backwards_flagged_not_gap() {
-        // Duplicate or out-of-order — do not request resync.
+        // 重複或無序 — 不請求重新同步。
         assert_eq!(detect_seq_gap(Some(10), 10), SeqGapResult::Backwards);
         assert_eq!(detect_seq_gap(Some(10), 5), SeqGapResult::Backwards);
     }
 
     #[test]
     fn streaming_sequence_smoke() {
-        // Simulate a short stream and assert gap is detected at the right spot.
+        // 模擬短流並斷言在正確位置檢測到間隙。
         let incoming = [0u64, 1, 2, 3, 5, 6]; // missed #4
         let mut last: Option<u64> = None;
         let mut gap_seen = false;

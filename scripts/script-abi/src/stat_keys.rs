@@ -52,7 +52,7 @@ pub enum Aggregation {
 
 /// Script ABI 的 stat key 枚舉。
 ///
-/// # SAFETY
+/// ＃ 安全
 /// Variant 順序 = FFI ABI 契約：新增只能 **追加到尾端**，絕不可在中間 insert
 /// 或更動 discriminant 值，否則 host 與 script DLL 版本不同步會 UB。
 /// **刪除亦禁止**：廢棄 variant 請保留佔位並標 `#[deprecated]`，
@@ -970,7 +970,7 @@ mod tests {
             StatKey::PreattackBonusDamage.aggregation(),
             Aggregation::SumAdd
         );
-        // SECTION 2 NonBuilding + _percentage → SumAddThenMul1Plus
+        // 第 2 節 非建築 + _percentage → SumAddThenMul1Plus
         assert_eq!(
             StatKey::MoveSpeedBonusPercentage.section(),
             StatSection::NonBuilding
@@ -979,14 +979,14 @@ mod tests {
             StatKey::MoveSpeedBonusPercentage.aggregation(),
             Aggregation::SumAddThenMul1Plus
         );
-        // SECTION 3 Visual
+        // 第 3 節 視覺
         assert_eq!(StatKey::PreAttack.section(), StatSection::Visual);
         // _multiplier → ProductMult
         assert_eq!(
             StatKey::AttackSpeedMultiplier.aggregation(),
             Aggregation::ProductMult
         );
-        // _chance → Chance
+        // _chance → 機會
         assert_eq!(
             StatKey::CritChance.aggregation(),
             Aggregation::Chance

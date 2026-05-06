@@ -61,17 +61,17 @@ struct AppHandler {
     state: Option<AppState>,
 }
 
-/// Helper to call build_ui with a Context, working around borrow checker.
-/// This is safe because UI borrows from ctx, and build_ui receives both
-/// but the UI is created fresh each frame and does not outlive this call.
+/// 使用上下文呼叫 build_ui 的幫助程序，圍繞借用檢查器進行工作。
+/// 這是安全的，因為 UI 借用了 ctx，而 build_ui 接收了兩者
+/// 但 UI 是在每一幀中重新建立的，並且不會比此呼叫更長久。
 fn call_build_ui(
     build_ui: &mut dyn FnMut(&mut Context, &mut crate::quick::ui::UI<'_>),
     ctx: &mut Context,
 ) {
     let mut ui = crate::quick::ui::UI::new(ctx);
-    // We need to pass ctx to build_ui, but ui already borrows it.
-    // Instead, build_ui should just use &mut UI which gives access to ctx.
-    // However, the signature expects both. We use a raw pointer to break the alias.
+    // 我們需要將 ctx 傳遞給 build_ui，但 ui 已經借用了它。
+    // 相反，build_ui 應該只使用 &mut UI 來存取 ctx。
+    // 然而，簽名期望兩者兼而有之。我們使用原始指標來破壞別名。
     let ctx_ptr = ui.ctx() as *mut Context;
     unsafe {
         build_ui(&mut *ctx_ptr, &mut ui);
@@ -146,7 +146,7 @@ impl ApplicationHandler for AppHandler {
 
         let mut renderer = unsafe { OpenGlRenderer::new(gl).expect("failed to create OpenGL renderer") };
 
-        // Load font: user-specified file, or fall back to system default
+        // 載入字體：使用者指定的文件，或回退到系統預設值
         let font_data = if let Some(ref font_file) = self.options.text_font_file {
             std::fs::read(font_file).ok()
         } else {
@@ -162,9 +162,9 @@ impl ApplicationHandler for AppHandler {
             }
         }
 
-        // Load icon font (Font Awesome) for PUA codepoint rendering.
-        // Icon font may be OTF (CFF-based) which stb_truetype can't parse,
-        // so we load it with fontdue only — no STB measurement needed for icons.
+        // 載入圖示字體（Font Awesome）以進行 PUA 程式碼點渲染。
+        // 圖示字體可能是stb_truetype無法解析的OTF（基於CFF），
+        // 所以我們只用 fontdue 載入它——圖示不需要 STB 測量。
         if self.options.enable_icon_font_fallback {
             if let Some(icon_data) = load_icon_font(&self.options.icon_font_file) {
                 let settings = fontdue::FontSettings {
@@ -173,8 +173,8 @@ impl ApplicationHandler for AppHandler {
                     load_substitutions: true,
                 };
                 if let Ok(icon_font) = fontdue::Font::from_bytes(&icon_data[..], settings) {
-                    // Icon font uses fontdue directly (ratio=0 means no STB correction).
-                    // Icon sizes are determined by the rect, not text metrics.
+                    // 圖示字體直接使用fontdue（ratio=0表示不進行STB校正）。
+                    // 圖示大小由矩形決定，而不是文字度量。
                     unsafe { renderer.set_icon_font(icon_font, 0.0); }
                 }
             }
@@ -230,26 +230,26 @@ impl ApplicationHandler for AppHandler {
 
                 state.input.time_seconds = state.start_time.elapsed().as_secs_f64();
 
-                // Begin frame
+                // 開始幀
                 state.ctx.begin_frame(fb_w as f32, fb_h as f32, scale, state.input.clone());
 
-                // Build UI
+                // 建構使用者介面
                 call_build_ui(&mut *self.build_ui, &mut state.ctx);
 
                 state.ctx.end_frame();
 
-                // Sync clipboard_out from context back to state
-                // (begin_frame clones input, so ctx modifies a copy)
+                // 將 Clipboard_out 從上下文同步回狀態
+                // （begin_frame 複製輸入，因此 ctx 修改副本）
                 if !state.ctx.input().clipboard_out.is_empty() {
                     state.input.clipboard_out = state.ctx.input().clipboard_out.clone();
                 }
 
-                // Render
+                // 使成為
                 let bg = state.ctx.theme().background;
                 let clear = ClearState { r: bg.r, g: bg.g, b: bg.b, a: bg.a, clear_color: true };
                 state.renderer.begin_frame(&metrics, &clear);
 
-                // Custom pre-render callback (GPU slice rects, etc.)
+                // 自訂預渲染回呼（GPU切片矩形等）
                 if let Some(ref mut cb) = self.options.pre_render {
                     let gl = state.renderer.gl();
                     cb(gl, fb_w as f32, fb_h as f32);
@@ -263,18 +263,18 @@ impl ApplicationHandler for AppHandler {
                 state.renderer.render(&draw_data, &metrics);
                 state.renderer.end_frame();
 
-                // Custom post-render callback (geometry shader flows, etc.)
+                // 自訂渲染後回調（幾何著色器流程等）
                 if let Some(ref mut cb) = self.options.post_render {
                     let gl = state.renderer.gl();
                     cb(gl, fb_w as f32, fb_h as f32);
                 }
 
-                // Apply title change if requested
+                // 如果需要，請應用標題更改
                 if let Some(ref new_title) = state.input.title_request {
                     state.window.set_title(new_title);
                 }
 
-                // Apply cursor icon
+                // 應用遊標圖標
                 {
                     use crate::core::foundation::CursorIcon as CI;
                     let winit_cursor = match state.input.cursor_icon {
@@ -288,7 +288,7 @@ impl ApplicationHandler for AppHandler {
                     state.input.cursor_icon = CI::Default;
                 }
 
-                // Write clipboard_out to system clipboard if non-empty
+                // 如果非空白則將clipboard_out寫入系統剪貼簿
                 if !state.input.clipboard_out.is_empty() {
                     if let Some(cb) = state.clipboard.as_mut() {
                         let _ = cb.set_text(state.input.clipboard_out.clone());
@@ -299,7 +299,7 @@ impl ApplicationHandler for AppHandler {
                 state.gl_surface.swap_buffers(&state.gl_context).expect("swap buffers");
                 state.frame_index += 1;
 
-                // Reset per-frame input
+                // 重置每幀輸入
                 state.input.mouse_pressed = false;
                 state.input.mouse_released = false;
                 state.input.mouse_right_pressed = false;
@@ -328,7 +328,7 @@ impl ApplicationHandler for AppHandler {
                 state.input.dropped_files.clear();
                 state.input.title_request = None;
 
-                // Request continuous redraws
+                // 請求連續重畫
                 state.window.request_redraw();
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -417,8 +417,8 @@ impl ApplicationHandler for AppHandler {
                         }
                         _ => {}
                     }
-                    // Forward printable text to text_input (winit 0.30: event.text)
-                    // Skip when Ctrl is held to avoid inserting control chars
+                    // 將可列印文字轉送至text_input（winit 0.30：event.text）
+                    // 按住 Ctrl 時跳過以避免插入控製字符
                     if !state.key_ctrl {
                         if let Some(ref text) = event.text {
                             let s = text.as_str();
@@ -460,10 +460,10 @@ impl ApplicationHandler for AppHandler {
     }
 }
 
-/// Try to load a default system font.
-/// Windows: Segoe UI → Arial → Tahoma
-/// macOS: SF Pro / Helvetica Neue
-/// Linux: DejaVu Sans / Noto Sans / Liberation Sans
+/// 嘗試載入預設的系統字體。
+/// Windows：Segoe UI → Arial → Tahoma
+/// macOS：SF Pro / Helvetica Neue
+/// Linux：DejaVu Sans / Noto Sans / Liberation Sans
 fn load_system_default_font() -> Option<Vec<u8>> {
     let candidates: &[&str] = if cfg!(target_os = "windows") {
         &[
@@ -481,7 +481,7 @@ fn load_system_default_font() -> Option<Vec<u8>> {
             "/Library/Fonts/Arial.ttf",
         ]
     } else {
-        // Linux / other
+        // Linux/其他
         &[
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             "/usr/share/fonts/TTF/DejaVuSans.ttf",
@@ -499,19 +499,19 @@ fn load_system_default_font() -> Option<Vec<u8>> {
     None
 }
 
-/// Resolve and load icon font file, trying multiple candidate paths
-/// matching C++ resolve_bundled_icon_font_file() behavior.
+/// 解析並載入圖標字體文件，嘗試多個候選路徑
+/// 符合 C++resolve_bundled_icon_font_file() 行為。
 fn load_icon_font(explicit_file: &Option<String>) -> Option<Vec<u8>> {
     const BUNDLED_NAME: &str = "Font Awesome 7 Free-Solid-900.otf";
 
-    // Try explicit path first
+    // 首先嘗試顯式路徑
     if let Some(ref path) = explicit_file {
         if let Ok(data) = std::fs::read(path) {
             return Some(data);
         }
     }
 
-    // Try candidate locations (matching C++)
+    // 嘗試候選位置（匹配 C++）
     let candidates = [
         format!("include/{BUNDLED_NAME}"),
         format!("./include/{BUNDLED_NAME}"),
@@ -524,7 +524,7 @@ fn load_icon_font(explicit_file: &Option<String>) -> Option<Vec<u8>> {
         }
     }
 
-    // Try relative to executable
+    // 嘗試相對於可執行文件
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
             for depth in &["", "..", "../..", "../../.."] {

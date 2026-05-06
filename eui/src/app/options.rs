@@ -13,9 +13,9 @@ pub struct AppOptions {
     pub icon_font_family: String,
     pub icon_font_file: Option<String>,
     pub enable_icon_font_fallback: bool,
-    /// Called before EUI rendering, after begin_frame. Receives (gl, fb_width, fb_height).
+    /// 在 EUI 渲染之前、begin_frame 之後呼叫。接收（gl，fb_width，fb_height）。
     pub pre_render: Option<Box<dyn FnMut(&glow::Context, f32, f32)>>,
-    /// Called after EUI rendering, before swap_buffers. Receives (gl, fb_width, fb_height).
+    /// 在 EUI 渲染之後、swap_buffers 之前呼叫。接收（gl，fb_width，fb_height）。
     pub post_render: Option<Box<dyn FnMut(&glow::Context, f32, f32)>>,
 }
 

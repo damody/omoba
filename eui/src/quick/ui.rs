@@ -71,7 +71,7 @@ impl<'a> UI<'a> {
         self.ctx.measure_text(text, font_size)
     }
 
-    // ── Split ──
+    // ── 分裂──
 
     pub fn split_h(&self, rect: &Rect, first_width: f32, gap: f32) -> SplitRects {
         let g = gap.max(0.0);
@@ -101,7 +101,7 @@ impl<'a> UI<'a> {
         self.split_v(rect, usable * ratio.clamp(0.0, 1.0), gap)
     }
 
-    // ── Builders ──
+    // ── 建設者 ──
 
     pub fn shape(&mut self) -> ShapeBuilder<'_> {
         ShapeBuilder::new(self.ctx)
@@ -169,7 +169,7 @@ impl<'a> UI<'a> {
         ViewBuilder::new(self.ctx, rect)
     }
 
-    // ── Scopes via closures ──
+    // ── 透過閉包作用域 ──
 
     pub fn scope<F: FnOnce(&mut Context)>(&mut self, rect: Rect, f: F) {
         self.ctx.push_layout_rect(rect);
@@ -193,7 +193,7 @@ impl<'a> UI<'a> {
         self.ctx.advance_cursor(height, 0.0);
     }
 
-    // ── Paint primitives directly ──
+    // ── 直接繪製圖元 ──
 
     pub fn paint_rectangle(&mut self, prim: &RectanglePrimitive) -> Rect {
         crate::quick::primitive_painter::paint_rectangle(self.ctx, prim);

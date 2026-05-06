@@ -1,7 +1,7 @@
-#![allow(clippy::missing_safety_doc)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::new_without_default)]
-#![allow(clippy::type_complexity)]
+# ![允許(clippy::missing_safety_doc)]
+# ![允許(clippy::too_many_arguments)]
+# ![允許(clippy::new_without_default)]
+# ![允許(clippy::type_complexity)]
 
 pub mod color;
 pub mod rect;
@@ -16,10 +16,10 @@ pub mod quick;
 pub mod platform;
 pub mod app;
 
-// Re-export glow so downstream crates use the same version
+// 重新匯出發光，以便下游板條箱使用相同的版本
 pub use glow;
 
-// Re-exports for convenience
+// 為方便再出口
 pub use color::{rgba, rgb, mix, Color};
 pub use rect::{Rect, SplitRects};
 pub use core::foundation::{FlexLength, FlexAlign, Theme, ThemeMode, ButtonStyle, InputState, px, fr, fit, make_theme};

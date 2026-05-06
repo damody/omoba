@@ -5,7 +5,7 @@
 //!   frag_8 / frag_12 / frag_homing (命中後 8/12/16 碎片)
 //! - Stat: splash_bonus, damage_bonus, range_bonus (透過 get_final_*)
 //!
-//! TODO:
+//! 待辦事項：
 //! - moab_assassin: 需 ultimate_cooldown FFI (Task 14+)
 //! - frag_recursive: 碎片再產生碎片的深度遞迴，暫只調高碎片傷害 (45 vs 25)
 
@@ -75,7 +75,7 @@ impl UnitScript for BombTower {
 
         let atk = w.get_final_atk(e);
 
-        // splash_bonus: base STATS.splash_radius + sum_add("splash_bonus")
+        // flash_bonus: 基礎 STATS.splash_radius + sum_add("splash_bonus")
         let splash_bonus = w.get_stat_bonus(e, StatKey::SplashBonus);
         let splash = STATS.splash_radius + splash_bonus;
 

@@ -1,4 +1,4 @@
-// Phase 5: Full Context implementation
+// 階段 5：完整情境實施
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use crate::graphics::transforms::*;
 use crate::rect::Rect;
 use crate::text::measurement::TextMeasurer;
 
-/// Decode a single UTF-8 codepoint at byte position `pos`. Returns (codepoint, next_byte_index).
+/// 在位元組位置“pos”處解碼單一 UTF-8 代碼點。返回（代碼點，next_byte_index）。
 fn decode_utf8_at(bytes: &[u8], pos: usize) -> (u32, usize) {
     let b0 = bytes[pos] as u32;
     if b0 < 0x80 {
@@ -41,15 +41,15 @@ fn decode_utf8_at(bytes: &[u8], pos: usize) -> (u32, usize) {
     ((b0 & 0x07) << 18 | b1 << 12 | b2 << 6 | b3, pos + 4)
 }
 
-/// Find which wrapped line a byte offset falls into.
+/// 尋找位元組偏移量落入哪個換行行。
 fn find_line_for_offset(lines: &[(usize, usize)], offset: usize) -> usize {
     for (i, (start, len)) in lines.iter().enumerate() {
         if offset <= start + len {
-            // If offset is exactly at line boundary, prefer previous line end
-            // unless it's the first line
+            // 如果偏移量恰好位於行邊界，則優先選擇前一行末尾
+            // 除非它是第一行
             if offset == *start + *len && i + 1 < lines.len() && offset == lines[i + 1].0 {
-                // offset sits at the boundary; if it matches the next line start,
-                // it belongs to the next line only if we're mid-string
+                // 偏移量位於邊界處；如果它符合下一行的開頭，
+                // 只有當我們處於中弦時它才屬於下一行
                 continue;
             }
             return i;
@@ -58,7 +58,7 @@ fn find_line_for_offset(lines: &[(usize, usize)], offset: usize) -> usize {
     lines.len().saturating_sub(1)
 }
 
-/// Character input filter for text input fields.
+/// 用於文字輸入欄位的字元輸入過濾器。
 ///
 /// - `Any`：不過濾
 /// - `Int`：只允許數字與負號（`-` 可多次出現；最終語意由 parse 判斷）
@@ -89,23 +89,23 @@ impl CharFilter {
 
 #[allow(dead_code)]
 pub struct Context {
-    // Drawing
+    // 繪畫
     pub(crate) commands: Vec<DrawCommand>,
     pub(crate) text_arena: Vec<u8>,
     pub(crate) brush_payloads: Vec<Brush>,
     pub(crate) transform_payloads: Vec<Transform3D>,
 
-    // Layout
+    // 佈局
     pub(crate) layout_stack: Vec<ContextLayoutRectState>,
     pub(crate) scope_stack: Vec<ContextScopeState>,
     pub(crate) clip_stack: Vec<Rect>,
 
-    // State
+    // 狀態
     pub(crate) motion_states: HashMap<u64, ContextMotionState>,
     pub(crate) scroll_states: HashMap<u64, ContextScrollAreaState>,
     pub(crate) text_area_states: HashMap<u64, ContextTextAreaState>,
 
-    // Input
+    // 輸入
     pub(crate) input: InputState,
     pub(crate) theme: Theme,
     pub(crate) frame_index: u64,
@@ -113,35 +113,35 @@ pub struct Context {
     pub(crate) has_prev_time: bool,
     pub(crate) ui_dt: f32,
 
-    // Viewport
+    // 視窗
     pub(crate) viewport_w: f32,
     pub(crate) viewport_h: f32,
     pub(crate) dpi_scale: f32,
 
-    // Text
+    // 文字
     pub(crate) text_measurer: Option<TextMeasurer>,
 
-    // Hot/Active tracking
+    // 熱/主動跟踪
     pub(crate) hot_id: u64,
     pub(crate) active_id: u64,
     pub(crate) focus_id: u64,
 
-    // Memory asset registry
+    // 記憶體資產註冊表
     pub(crate) memory_assets: HashMap<String, Arc<Vec<u8>>>,
 
-    // Global alpha
+    // 全球阿爾法
     pub(crate) global_alpha: f32,
 
-    // Current transform (applied to all pushed commands)
+    // 當前變換（應用於所有推送的命令）
     pub(crate) current_transform_index: u32,
 
-    // Active slider tracking
+    // 主動滑桿跟踪
     pub(crate) active_slider_id: u64,
 
     // 為 slider 右側的可編輯數字框保留的編輯中字串緩衝
     pub(crate) slider_edit_buffers: HashMap<u64, String>,
 
-    // Hysteresis counters
+    // 磁滯計數器
     pub(crate) cmd_underuse: u32,
     pub(crate) text_underuse: u32,
 }
@@ -190,7 +190,7 @@ impl Context {
         self.viewport_w = viewport_w;
         self.viewport_h = viewport_h;
         self.dpi_scale = dpi_scale;
-        // Compute frame delta time matching C++ ui_dt_ = clamp(dt, 1/240, 0.10)
+        // 計算幀增量時間匹配 C++ ui_dt_ = Clip(dt, 1/240, 0.10)
         if self.has_prev_time {
             let dt = input.time_seconds - self.prev_time_seconds;
             self.ui_dt = (dt as f32).clamp(1.0 / 240.0, 0.10);
@@ -211,7 +211,7 @@ impl Context {
         self.scope_stack.clear();
         self.clip_stack.clear();
 
-        // Push root layout
+        // 推根佈局
         self.layout_stack.push(ContextLayoutRectState {
             layout_rect: Rect::new(0.0, 0.0, viewport_w, viewport_h),
             cursor_y: 0.0,
@@ -220,19 +220,19 @@ impl Context {
     }
 
     pub fn end_frame(&mut self) {
-        // Compute hashes for dirty checking
+        // 計算髒檢查的哈希值
         for cmd in &mut self.commands {
             cmd.hash = context_hash_command_base(cmd);
         }
 
-        // GC stale motion states
+        // GC 陳舊運動狀態
         let frame = self.frame_index;
         self.motion_states.retain(|_, state| frame - state.last_touched_frame < 120);
         self.scroll_states.retain(|_, state| frame - state.last_touched_frame < 120);
         self.text_area_states.retain(|_, state| frame - state.last_touched_frame < 120);
     }
 
-    // ── Layout Rect ──
+    // ── 佈局矩形 ──
 
     pub fn layout_rect(&self) -> Rect {
         self.layout_stack.last()
@@ -264,7 +264,7 @@ impl Context {
         }
     }
 
-    // ── Clip ──
+    // ── 剪輯 ──
 
     pub fn push_clip(&mut self, rect: Rect) {
         let clipped = if let Some(top) = self.clip_stack.last() {
@@ -283,9 +283,9 @@ impl Context {
         self.clip_stack.last().copied()
     }
 
-    // ── Paint Commands ──
+    // ── 繪畫指令 ──
 
-    /// Merge a requested clip with the clip stack, returning the effective clip.
+    /// 將請求的剪輯與剪輯堆疊合併，並返回有效剪輯。
     fn resolve_effective_clip(&self, requested_clip: Option<&Rect>) -> (Option<Rect>, bool) {
         let mut has_clip = false;
         let mut effective = Rect::ZERO;
@@ -308,9 +308,9 @@ impl Context {
         if has_clip { (Some(effective), true) } else { (None, false) }
     }
 
-    /// Apply effective clip to a command. Returns false if the command is fully clipped.
+    /// 將有效剪輯應用於命令。如果命令被完全裁剪，則傳回 false。
     fn apply_clip_to_command(&self, cmd: &mut DrawCommand, requested_clip: Option<&Rect>) -> bool {
-        // Use pre-computed visible_rect (from rotation transform) if available, else use rect
+        // 如果可用，請使用預先計算的visible_rect（來自旋轉變換），否則使用矩形
         let base_vis = if cmd.visible_rect.w > 0.0 && cmd.visible_rect.h > 0.0 {
             cmd.visible_rect
         } else {
@@ -338,7 +338,7 @@ impl Context {
         }
         if self.current_transform_index != K_INVALID_PAYLOAD_INDEX {
             cmd.transform_payload_index = self.current_transform_index;
-            // Compute visible_rect as axis-aligned bounding box of rotated rect
+            // 計算visible_rect作為旋轉矩形的軸對齊邊界框
             if let Some(t) = self.transform_payloads.get(self.current_transform_index as usize) {
                 if t.rotation_z_deg.abs() > 0.001 {
                     let cx = cmd.rect.x + t.origin_x;
@@ -382,7 +382,7 @@ impl Context {
         self.push_command_with_clip(cmd, None)
     }
 
-    /// Draw a line segment from (x0,y0) to (x1,y1) with given color and thickness.
+    /// 使用給定的顏色和粗細繪製從 (x0,y0) 到 (x1,y1) 的線段。
     pub fn paint_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: Color, thickness: f32) -> usize {
         let half = thickness * 0.5;
         let min_x = x0.min(x1) - half;
@@ -477,16 +477,15 @@ impl Context {
         self.paint_text_clipped(rect, text, font_size, color, align, None)
     }
 
-    /// Paint text with character-level wrapping, emitting one Text command per line.
-    /// Matches C++ `context_text_area` wrapping algorithm: character-by-character width
-    /// measurement, `\n` forces a line break, exceeding `rect.w` wraps to next line.
-    pub fn paint_text_wrapped(&mut self, rect: Rect, text: &str, font_size: f32, color: Color, align: TextAlign) {
+    /// 使用字元級換行繪製文本，每行發出一個文本命令。
+    /// 符合 C++ `context_text_area` 換行演算法：逐字元寬度
+    /// 測量時，「\n」強制換行，超過「rect.w」則換行到下一行。    pub fn paint_text_wrapped(&mut self, rect: Rect, text: &str, font_size: f32, color: Color, align: TextAlign) {
         let content_w = rect.w;
         if content_w <= 0.0 || text.is_empty() {
             return;
         }
 
-        // Match C++ text_area: line_h = text_font + 5.0
+        // 符合C++文字區域：line_h = text_font + 5.0
         let line_h = font_size + 5.0;
 
         let mut y = rect.y;
@@ -498,13 +497,13 @@ impl Context {
         while index < bytes.len() {
             let ch = bytes[index];
 
-            // Skip \r
+            // 跳過\r
             if ch == b'\r' {
                 index += 1;
                 continue;
             }
 
-            // Hard line break
+            // 硬斷線
             if ch == b'\n' {
                 let line_text = &text[line_start..index];
                 let line_rect = Rect::new(rect.x, y, content_w, line_h);
@@ -518,7 +517,7 @@ impl Context {
                 continue;
             }
 
-            // Decode UTF-8 codepoint and measure advance
+            // 解碼 UTF-8 碼點並測量提前量
             let (cp, next) = decode_utf8_at(bytes, index);
             let advance = if let Some(ref measurer) = self.text_measurer {
                 let ch_char = char::from_u32(cp).unwrap_or('\u{FFFD}');
@@ -527,7 +526,7 @@ impl Context {
                 font_size * 0.5
             };
 
-            // Wrap if exceeds content width
+            // 如果超出內容寬度則換行
             if line_width > 0.0 && line_width + advance > content_w {
                 let line_text = &text[line_start..index];
                 let line_rect = Rect::new(rect.x, y, content_w, line_h);
@@ -544,7 +543,7 @@ impl Context {
             line_width += advance;
         }
 
-        // Emit final line
+        // 發出最後一行
         if line_start <= bytes.len() {
             let line_text = &text[line_start..];
             let line_rect = Rect::new(rect.x, y, content_w, line_h);
@@ -554,8 +553,8 @@ impl Context {
         }
     }
 
-    /// Compute line breaks for wrapped text matching C++ character wrapping algorithm.
-    /// Returns Vec of (start_byte, length_bytes) for each line.
+    /// 計算與 C++ 字元換行演算法相符的換行文字的換行符。
+    /// 傳回每行的 (start_byte, length_bytes) Vec。
     fn compute_wrapped_lines(&self, text: &str, font_size: f32, content_w: f32) -> Vec<(usize, usize)> {
         let bytes = text.as_bytes();
         let mut lines = Vec::with_capacity(64);
@@ -596,7 +595,7 @@ impl Context {
         lines
     }
 
-    /// Like paint_text_wrapped but passes clip_rect to each line (matching C++ text_area).
+    /// 與paint_text_wrapped類似，但將clip_rect傳遞給每一行（符合C++ text_area）。
     pub fn paint_text_wrapped_clipped(&mut self, rect: Rect, text: &str, font_size: f32,
                                        color: Color, align: TextAlign, clip: &Rect) {
         let content_w = rect.w;
@@ -698,7 +697,7 @@ impl Context {
         })
     }
 
-    // ── Dock/Split ──
+    // ── 停靠/分離 ──
 
     pub fn dock_top(&mut self, height: f32) -> Rect {
         let lr = self.layout_rect();
@@ -753,7 +752,7 @@ impl Context {
         (top, bottom)
     }
 
-    // ── Flex Row ──
+    // ── 屈伸划船 ──
 
     pub fn begin_flex_row(&mut self, items: &[FlexLength], gap: f32, align: FlexAlign) {
         let lr = self.layout_rect();
@@ -761,7 +760,7 @@ impl Context {
         let total_gap = if n > 1 { gap * (n as f32 - 1.0) } else { 0.0 };
         let avail = (lr.w - total_gap).max(0.0);
 
-        // Resolve widths
+        // 解析寬度
         let mut widths = vec![0.0f32; n];
         let mut total_fixed = 0.0f32;
         let mut total_flex = 0.0f32;
@@ -791,7 +790,7 @@ impl Context {
             }
         }
 
-        // Compute rects
+        // 計算矩形
         let mut rects = Vec::with_capacity(n);
         let mut x = lr.x;
         let y = self.cursor_y();
@@ -853,7 +852,7 @@ impl Context {
             let row_height = state.flex_row.row_height;
             let align = state.flex_row.align;
 
-            // Apply vertical alignment
+            // 應用垂直對齊
             if align != FlexAlign::Top {
                 let n = state.flex_row.item_rects.len();
                 for i in 0..n {
@@ -869,7 +868,7 @@ impl Context {
                         for cmd_idx in begin..end.min(self.commands.len()) {
                             self.commands[cmd_idx].rect.y += offset;
                             if self.commands[cmd_idx].has_clip {
-                                // Don't move clip rects
+                                // 不要移動剪輯矩形
                             }
                             self.commands[cmd_idx].visible_rect.y += offset;
                         }
@@ -882,7 +881,7 @@ impl Context {
         }
     }
 
-    // ── Row (grid) ──
+    // ── 行（網格）──
 
     pub fn begin_row(&mut self, columns: i32, gap: f32) {
         if let Some(state) = self.layout_stack.last_mut() {
@@ -945,9 +944,9 @@ impl Context {
         }
     }
 
-    // ── Motion (animation state) ──
+    // ── 運動（動畫狀態）──
 
-    /// Animate a single motion channel using exponential decay matching C++ animate_motion_channel.
+    /// 使用匹配 C++ animate_motion_channel 的指數衰減對單一運動通道進行動畫處理。
     fn animate_motion_channel(current: f32, target: f32, speed: f32, dt: f32) -> f32 {
         if (current - target).abs() <= 1.5e-3 {
             return target;
@@ -1023,7 +1022,7 @@ impl Context {
         state.value_initialized = true;
     }
 
-    /// Full motion state with focus and active channels, matching C++ update_motion_state.
+    /// 具有焦點和活動通道的全運動狀態，與 C++ update_motion_state 相符。
     pub fn motion_ex(&mut self, id: u64, hovered: bool, pressed: bool, focused: bool, active: bool) -> MotionResultEx {
         let dt = self.ui_dt;
         let state = self.motion_states.entry(id).or_default();
@@ -1055,7 +1054,7 @@ impl Context {
         }
     }
 
-    /// Snap a 0..1 motion value to clean steps, matching C++ snap_visual_motion.
+    /// 將 0..1 運動值捕捉乾淨的步驟，與 C++ snap_visual_motion 相符。
     pub fn snap_visual_motion(value: f32, step: f32) -> f32 {
         let clamped = value.clamp(0.0, 1.0);
         if step <= 1e-6 {
@@ -1070,7 +1069,7 @@ impl Context {
         (clamped / step).round() * step
     }
 
-    /// Soft glow effect matching C++ add_soft_glow_tracked.
+    /// 與 C++ add_soft_glow_tracked 相符的柔和發光效果。
     pub fn paint_soft_glow(&mut self, rect: Rect, color: Color, radius: f32, intensity: f32, spread: f32) {
         let glow = intensity.clamp(0.0, 1.0);
         let area = rect.w.max(0.0) * rect.h.max(0.0);
@@ -1092,7 +1091,7 @@ impl Context {
         self.paint_filled_rect(inner_rect, inner_color, radius + inner_spread);
     }
 
-    /// Input chrome (background + border with hover/focus animation), matching C++ draw_input_chrome.
+    /// 輸入鑲邊（背景+帶有懸停/焦點動畫的邊框），匹配C++draw_input_chrome。
     pub fn draw_input_chrome(&mut self, id: u64, rect: Rect, hovered: bool, focused: bool,
                               base_fill: Color, radius: f32, base_thickness: f32) {
         let m = self.motion_ex(id, hovered, false, focused, focused);
@@ -1112,7 +1111,7 @@ impl Context {
         self.paint_outline_rect(rect, border, radius, thickness);
     }
 
-    // ── Hit testing ──
+    // ── 命中測試 ──
 
     pub fn is_hovered(&self, rect: &Rect) -> bool {
         rect.contains(self.input.mouse_x, self.input.mouse_y)
@@ -1130,30 +1129,30 @@ impl Context {
         self.input.mouse_down
     }
 
-    // ── Widget helpers ──
+    // ── 小部件助手 ──
 
     #[allow(clippy::too_many_lines)]
     pub fn button(&mut self, id: u64, rect: Rect, label: &str, style: ButtonStyle) -> bool {
-        // Multiplier applied to every button label size (icon, plain, combo).
-        // Previously buttons looked smaller than surrounding labels because the
-        // default rect height × 0.38 gave ~13.7 px while labels grew to 1.5×.
+        // 乘數應用於每個按鈕標籤尺寸（圖示、普通、組合）。
+        // 以前的按鈕看起來比周圍的標籤小，因為
+        // 預設矩形高度 × 0.38 給出約 13.7 px，而標籤則成長到 1.5 ×。
         const BUTTON_TEXT_SCALE: f32 = 1.5;
         let k_icon_visual_scale: f32 = 1.15;
         let draw_label = label;
 
-        // Detect force-left-align (tab prefix)
+        // 檢測強制左對齊（製表符前綴）
         let (draw_label, force_left_align) = if let Some(stripped) = draw_label.strip_prefix('\t') {
             (stripped, true)
         } else {
             (draw_label, false)
         };
 
-        // Detect icon-like labels (<=4 chars, all non-ASCII or non-alphanumeric)
+        // 檢測類似圖示的標籤（<=4 個字符，所有非 ASCII 或非字母數字）
         let icon_like = !draw_label.is_empty()
             && draw_label.chars().count() <= 4
             && draw_label.chars().all(|ch| ch as u32 >= 0x80 || !ch.is_alphanumeric());
 
-        // Font sizing
+        // 字體大小
         let text_size = if icon_like {
             (rect.h * 0.72 * k_icon_visual_scale * BUTTON_TEXT_SCALE)
                 .clamp(13.0 * BUTTON_TEXT_SCALE, 36.0 * BUTTON_TEXT_SCALE)
@@ -1162,12 +1161,12 @@ impl Context {
                 .clamp(12.0 * BUTTON_TEXT_SCALE, 34.0 * BUTTON_TEXT_SCALE)
         };
 
-        // Icon+text combo detection — only when the prefix consists entirely of
-        // "icon-like" codepoints (PUA for Font Awesome/Material, emoji ranges, or
-        // misc dingbats/symbols). CJK / Hangul / Hiragana / Katakana / general
+        // 圖示+文字組合偵測 - 僅當前綴完全由以下組成時
+        // 「類似圖示」的程式碼點（PUA 表示 Font Awesome/Material、表情符號範圍或
+        // 雜項標誌/符號）。 CJK / 韓文 / 平假名 / 片假名 / 一般
         // punctuation are explicitly NOT icons; treating "敵近戰兵 HP:220" or
         // "切換 Player/Enemy" as icon+text combos scales the CJK prefix up to
-        // icon size (~22px) while ASCII falls back to ~12px, causing overlap.
+        // 圖示大小 (~22px)，而 ASCII 回落到~12px，導致重疊。
         let mut icon_text_combo = false;
         let mut icon_part = "";
         let mut text_part = "";
@@ -1207,7 +1206,7 @@ impl Context {
             }
         }
 
-        // Colors
+        // 顏色
         let hovered = self.is_hovered(&rect);
         let held = hovered && self.is_mouse_down();
 
@@ -1233,12 +1232,12 @@ impl Context {
             fill = mix(fill, self.theme.secondary_hover, 0.30);
         }
 
-        // Motion
+        // 運動
         let m = self.motion_ex(id, hovered, held, false, false);
         let hover_v = Self::snap_visual_motion(m.hover, 1.0 / 48.0);
         let press_v = Self::snap_visual_motion(m.press, 1.0 / 36.0);
 
-        // Visual transforms
+        // 視覺變換
         let visual_scale = 1.0 - press_v * 0.018;
         let mut visual_rect = context_scale_rect_from_center(&rect, visual_scale, visual_scale);
         visual_rect = context_translate_rect(&visual_rect, 0.0, press_v * 0.4);
@@ -1264,7 +1263,7 @@ impl Context {
         self.paint_filled_rect(visual_rect, fill, radius);
         self.paint_outline_rect(visual_rect, outline_color, radius, 1.0 + hover_v * 0.14);
 
-        // Text rendering
+        // 文字渲染
         if icon_text_combo {
             let pad = if force_left_align {
                 (visual_rect.h * 0.24).clamp(9.0, 14.0)
@@ -1371,7 +1370,7 @@ impl Context {
         let hovered = self.is_hovered(&rect);
         let _value_hovered = value_box.contains(self.input.mouse_x, self.input.mouse_y);
 
-        // Interaction: active slider state machine
+        // 互動：主動滑桿狀態機
         let mut changed = false;
         if hovered && self.input.mouse_pressed && !_value_hovered {
             self.active_slider_id = id;
@@ -1382,7 +1381,7 @@ impl Context {
                 let t = ((self.input.mouse_x - rect.x) / rect.w).clamp(0.0, 1.0);
                 let new_value = min_value + (max_value - min_value) * t;
                 if (new_value - *value).abs() > 1e-6 {
-                    *value = new_value;
+                    * 值=新值；
                     changed = true;
                 }
             }
@@ -1391,7 +1390,7 @@ impl Context {
             }
         }
 
-        // Fill calculation matching C++
+        // 填充計算匹配C++
         let range = (max_value - min_value).max(1e-6);
         let t = ((*value - min_value) / range).clamp(0.0, 1.0);
         let inner_x = rect.x + 1.0;
@@ -1411,7 +1410,7 @@ impl Context {
         let fill = Rect::new(inner_x, inner_y, (fill_right - inner_x).max(0.0), inner_h);
         let thumb = Rect::new(thumb_x, inner_y, thumb_w, inner_h);
 
-        // Motion
+        // 運動
         let is_active = self.active_slider_id == id;
         let thumb_hovered = thumb.contains(self.input.mouse_x, self.input.mouse_y);
         let slider_m = self.motion_ex(
@@ -1427,7 +1426,7 @@ impl Context {
         let thumb_hover_v = Self::snap_visual_motion(thumb_m.hover, 1.0 / 48.0);
         let thumb_active_v = Self::snap_visual_motion(thumb_m.active, 1.0 / 36.0);
 
-        // Background
+        // 背景
         let panel = self.theme.panel;
         let secondary = self.theme.secondary;
         let primary = self.theme.primary;
@@ -1435,20 +1434,20 @@ impl Context {
 
         self.paint_filled_rect(rect, mix(secondary, panel, slider_hover_v * 0.05), radius);
 
-        // Fill bar
+        // 填充欄
         if fill.w > 0.0 && fill.h > 0.0 {
             let fill_radius = (radius - 1.0).min(fill.h * 0.5).min(fill.w * 0.5).max(0.0);
             self.paint_filled_rect(fill, mix(primary, secondary, 0.75), fill_radius);
         }
 
-        // Outline
+        // 大綱
         self.paint_outline_rect(
             rect,
             mix(outline_col, primary, slider_hover_v * 0.44 + _slider_active_v * 0.16),
             radius, 1.0 + slider_hover_v * 0.08,
         );
 
-        // Thumb
+        // 大拇指
         let thumb_radius = (radius - 1.0).min(thumb.w.min(thumb.h) * 0.5).max(0.0);
         let thumb_color = if is_active {
             mix(primary, panel, 0.18)
@@ -1462,7 +1461,7 @@ impl Context {
         self.paint_soft_glow(visual_thumb, primary, thumb_radius, thumb_hover_v * 0.14 + thumb_active_v * 0.18, 3.6);
         self.paint_filled_rect(visual_thumb, thumb_color, thumb_radius);
 
-        // Label text (matching C++ add_text(label, ..., theme_.text, label_font, Left) — no clip_rect)
+        // 標籤文字（符合 C++ add_text(label, ..., theme_.text, label_font, Left) — 無 Clip_rect）
         if !label.is_empty() {
             let text_col = self.theme.text;
             self.paint_text(
@@ -1503,7 +1502,7 @@ impl Context {
             if let Ok(parsed) = buf.trim().parse::<f32>() {
                 let new_value = parsed.clamp(min_value, max_value);
                 if (new_value - *value).abs() > 1e-6 {
-                    *value = new_value;
+                    * 值=新值；
                     changed = true;
                 }
             }
@@ -1518,14 +1517,14 @@ impl Context {
     pub fn progress(&mut self, id: u64, rect: Rect, label: &str, value: f32, height: f32) {
         let ratio = value.clamp(0.0, 1.0);
 
-        // Animated ratio
+        // 動畫比例
         let animated_ratio = self.animated_value(id, ratio);
 
-        // Text sizing
+        // 文字大小調整
         let label_h = (height * 1.6).clamp(14.0, 26.0);
         let text_gap = 8.0_f32.max(label_h + 4.0);
 
-        // Label text (left 70%)
+        // 標籤文字（左 70%）
         if !label.is_empty() {
             let muted = self.theme.muted_text;
             self.paint_text(
@@ -1533,7 +1532,7 @@ impl Context {
                 label, label_h, muted, TextAlign::Left,
             );
 
-            // Percentage text (right 30%)
+            // 百分比文字（右30%）
             let pct = format!("{:.0}%", ratio * 100.0);
             let text_col = self.theme.text;
             self.paint_text(
@@ -1542,13 +1541,13 @@ impl Context {
             );
         }
 
-        // Track
+        // 追蹤
         let track = Rect::new(rect.x, rect.y + text_gap, rect.w, height.max(4.0));
         let track_radius = track.h * 0.5;
         let track_col = self.theme.track;
         self.paint_filled_rect(track, track_col, track_radius);
 
-        // Fill with 1px padding
+        // 填滿 1px 內邊距
         let fill = Rect::new(
             track.x + 1.0,
             track.y + 1.0,
@@ -1563,7 +1562,7 @@ impl Context {
         }
     }
 
-    /// Simple progress bar without label (backwards-compatible)
+    /// 無標籤的簡單進度條（向後相容）
     pub fn progress_bar(&mut self, rect: Rect, value: f32) {
         let ratio = value.clamp(0.0, 1.0);
         let track_radius = rect.h * 0.5;
@@ -1580,18 +1579,17 @@ impl Context {
         }
     }
 
-    // ── Text measurement ──
+    // ── 文字測量 ──
 
     pub fn measure_text(&self, text: &str, font_size: f32) -> f32 {
         if let Some(ref measurer) = self.text_measurer {
             measurer.measure_width(text, font_size)
         } else {
-            // Approximate: ~0.5 em per char
-            text.len() as f32 * font_size * 0.5
+            // 近似值：每個字元約 0.5 em            text.len() as f32 * font_size * 0.5
         }
     }
 
-    // ── Getters ──
+    // ── 吸氣劑 ──
 
     pub fn commands(&self) -> &[DrawCommand] {
         &self.commands
@@ -1629,12 +1627,11 @@ impl Context {
         &mut self.input
     }
 
-    /// Programmatically set keyboard focus to the widget with the given id.
-    pub fn set_focus(&mut self, id: u64) {
+    /// 以程式設計方式將鍵盤焦點設定為具有給定 id 的小工具。    pub fn set_focus(&mut self, id: u64) {
         self.focus_id = id;
     }
 
-    /// Check if a specific widget currently has keyboard focus.
+    /// 檢查特定小部件目前是否具有鍵盤焦點。
     pub fn has_focus(&self, id: u64) -> bool {
         self.focus_id == id
     }
@@ -1647,8 +1644,7 @@ impl Context {
         self.dpi_scale
     }
 
-    // ── Memory assets ──
-
+    // ── 記憶資產──
     pub fn register_memory_asset(&mut self, name: &str, data: Vec<u8>) {
         if name.is_empty() {
             return;
@@ -1677,8 +1673,7 @@ impl Context {
         format!("asset://{}", name)
     }
 
-    // ── Scroll Area ──
-
+    // ── 滾動區域 ──
     pub fn begin_scroll_area(&mut self, id: u64, viewport: Rect) -> f32 {
         let state = self.scroll_states.entry(id).or_default();
         state.last_touched_frame = self.frame_index;
@@ -1702,12 +1697,12 @@ impl Context {
         if let Some(state) = self.scroll_states.get_mut(&id) {
             state.content_height = content_h;
 
-            // Mouse wheel
+            // 滑鼠滾輪
             if hovered {
                 state.scroll -= wheel_y * 40.0;
             }
 
-            // Inertia
+            // 慣性
             state.scroll += state.velocity;
             state.velocity *= 0.92;
 
@@ -1715,21 +1710,20 @@ impl Context {
         }
     }
 
-    // ── Text Input ──
+    // ── 文字輸入 ──
 
     pub fn text_input_field(&mut self, id: u64, rect: Rect, text: &mut String) -> bool {
         self.text_input_field_ex(id, rect, "", text, "")
     }
 
-    /// Read-only selectable text field. Supports mouse selection and Ctrl+C copy,
-    /// but all mutations (typing, paste, cut, backspace, delete) are discarded.
+    /// 只讀可選擇文字欄位。支援滑鼠選擇和Ctrl+C複製，
+    /// 但所有突變（鍵入、貼上、剪下、退格、刪除）都將被丟棄。
     pub fn selectable_text(&mut self, id: u64, rect: Rect, text: &str) {
         let mut buf = text.to_string();
         self.text_input_impl(id, rect, "", &mut buf, "", true, None, None, CharFilter::Any);
     }
 
-    /// Read-only selectable text with custom font size and color.
-    pub fn selectable_text_styled(&mut self, id: u64, rect: Rect, text: &str, font_size: f32, color: Color) {
+    /// 具有自訂字體大小和顏色的唯讀可選文字。    pub fn selectable_text_styled(&mut self, id: u64, rect: Rect, text: &str, font_size: f32, color: Color) {
         let mut buf = text.to_string();
         self.text_input_impl(id, rect, "", &mut buf, "", true, Some(font_size), Some(color), CharFilter::Any);
     }
@@ -1744,14 +1738,13 @@ impl Context {
         self.text_input_impl(id, rect, label, text, placeholder, false, None, None, CharFilter::Any)
     }
 
-    /// Text input field with custom font size.
-    #[allow(clippy::too_many_arguments)]
+    /// 具有自訂字體大小的文字輸入欄位。
+    #[allow(clippy::too_many_arguments, clippy::cognitive_complexity)]
     pub fn text_input_field_styled(&mut self, id: u64, rect: Rect, label: &str, text: &mut String, placeholder: &str, font_size: f32) -> bool {
         self.text_input_impl(id, rect, label, text, placeholder, false, Some(font_size), None, CharFilter::Any)
     }
 
-    /// Numeric-only text input field. Rejects non-digit characters during typing and paste.
-    /// Use `CharFilter::Int` for integers (`0-9`, `-`) or `CharFilter::Float` (`0-9`, `-`, `.`).
+    /// 純數位文字輸入欄位。在鍵入和貼上過程中拒絕非數字字元。    /// 使用“CharFilter::Int”表示整數（“0-9”、“-”）或“CharFilter::Float”（“0-9”、“-”、“.”）。
     #[allow(clippy::too_many_arguments)]
     pub fn text_input_field_numeric_styled(&mut self, id: u64, rect: Rect, text: &mut String, font_size: f32, filter: CharFilter) -> bool {
         self.text_input_impl(id, rect, "", text, "", false, Some(font_size), None, filter)
@@ -1761,7 +1754,7 @@ impl Context {
     fn text_input_impl(&mut self, id: u64, rect: Rect, label: &str, text: &mut String, placeholder: &str,
                         read_only: bool, font_override: Option<f32>, color_override: Option<Color>,
                         filter: CharFilter) -> bool {
-        // Font sizing matching C++
+        // 字體大小匹配 C++
         let label_font = (rect.h * 0.40).clamp(13.0, 24.0);
         let value_font = font_override.unwrap_or((label_font - 0.5_f32).max(12.0));
         let input_padding = (rect.h * 0.18).clamp(6.0, 12.0);
@@ -1784,7 +1777,7 @@ impl Context {
                        rect.w, rect.h - input_padding)
         };
 
-        // Label
+        // 標籤
         if has_label {
             let text_col = self.theme.text;
             self.paint_text(label_rect, label, label_font, text_col, TextAlign::Left);
@@ -1798,20 +1791,20 @@ impl Context {
 
         let editing = self.focus_id == id;
 
-        // ── Text area state (cursor/selection) ──
+        // ── 文字區域狀態（遊標/選擇）──
         let ta_state = self.text_area_states.entry(id).or_default();
         ta_state.last_touched_frame = self.frame_index;
-        // Clamp cursor/sel_start to text length
+        // 將遊標/sel_start 固定到文字長度
         ta_state.cursor = ta_state.cursor.min(text.len());
         ta_state.sel_start = ta_state.sel_start.min(text.len());
-        // Extract state to local vars to avoid borrow issues
+        // 將狀態提取到本地變數以避免借用問題
         let mut cursor = ta_state.cursor;
         let mut sel_start = ta_state.sel_start;
         let mut dragging = ta_state.dragging;
         let mut scroll = ta_state.scroll;
         let mut preferred_x = ta_state.preferred_x;
 
-        // ── Compute layout params ──
+        // ── 計算佈局參數 ──
         let text_col = color_override.unwrap_or(self.theme.text);
         let muted_col = self.theme.muted_text;
         let render_font = if let Some(fs) = font_override {
@@ -1828,7 +1821,7 @@ impl Context {
         };
         let line_h = render_font + 5.0;
 
-        // Input chrome (skip for read-only to preserve plain text appearance)
+        // 輸入鑲邊（跳過只讀以保留純文字外觀）
         let input_bg = self.theme.input_bg;
         let chrome_radius = (self.theme.radius - 2.0).max(0.0);
         if !read_only {
@@ -1841,7 +1834,7 @@ impl Context {
             );
         }
 
-        // ── Compute wrapped lines for multiline ──
+        // ── 計算多行換行 ──
         let content_w = if is_multiline {
             (input_rect.w - text_pad * 2.0 - 2.0).max(24.0)
         } else {
@@ -1853,7 +1846,7 @@ impl Context {
             vec![(0, text.len())]
         };
 
-        // ── Helper: hit-test byte offset from pixel position ──
+        // ── Helper：命中測試距離像素位置的位元組偏移量──
         let content_top = if is_multiline { input_rect.y + text_pad - scroll } else { input_rect.y };
         let content_left = if is_multiline { input_rect.x + text_pad } else { input_rect.x + text_pad };
 
@@ -1867,7 +1860,7 @@ impl Context {
             let (line_start, line_len) = lines[line_idx];
             let line_str = &text_bytes[line_start..line_start + line_len];
             let rel_x = mx - content_left;
-            // Walk chars to find nearest byte offset
+            // 遍歷字元以查找最近的位元組偏移量
             let mut x_acc = 0.0_f32;
             let mut best_offset = line_start;
             for (i, ch) in line_str.char_indices() {
@@ -1886,10 +1879,10 @@ impl Context {
             best_offset
         };
 
-        // ── Mouse interaction ──
+        // ── 滑鼠交互 ──
         let mut changed = false;
         if editing {
-            // Mouse press: set cursor position
+            // 按下滑鼠：設定遊標位置
             if self.input.mouse_pressed && hovered {
                 let pos = hit_test(self.input.mouse_x, self.input.mouse_y, text, &lines, &self.text_measurer);
                 cursor = pos;
@@ -1899,7 +1892,7 @@ impl Context {
                 dragging = true;
                 preferred_x = -1.0;
             }
-            // Mouse drag: extend selection
+            // 滑鼠拖曳：擴展選擇範圍
             if self.input.mouse_down && dragging && !self.input.mouse_pressed {
                 let pos = hit_test(self.input.mouse_x, self.input.mouse_y, text, &lines, &self.text_measurer);
                 cursor = pos;
@@ -1913,10 +1906,10 @@ impl Context {
             let sel_min = cursor.min(sel_start);
             let sel_max = cursor.max(sel_start);
 
-            // ── Keyboard navigation ──
+            // ── 鍵盤導航 ──
             if self.input.key_left {
                 if cursor > 0 {
-                    // Move back one char (UTF-8 aware)
+                    // 後移一個字元（支援 UTF-8）
                     let mut pos = cursor - 1;
                     while pos > 0 && !text.is_char_boundary(pos) { pos -= 1; }
                     cursor = pos;
@@ -1934,14 +1927,14 @@ impl Context {
                 preferred_x = -1.0;
             }
             if self.input.key_home {
-                // Move to start of current line
+                // 移動到目前行的開頭
                 let line_idx = find_line_for_offset(&lines, cursor);
                 cursor = lines[line_idx].0;
                 if !self.input.key_shift { sel_start = cursor; }
                 preferred_x = -1.0;
             }
             if self.input.key_end {
-                // Move to end of current line
+                // 移至目前行末尾
                 let line_idx = find_line_for_offset(&lines, cursor);
                 let (start, len) = lines[line_idx];
                 cursor = start + len;
@@ -1950,7 +1943,7 @@ impl Context {
             }
             if (self.input.key_up || self.input.key_down) && is_multiline {
                 let line_idx = find_line_for_offset(&lines, cursor);
-                // Compute preferred_x if not set
+                // 如果未設定則計算preferred_x
                 if preferred_x < 0.0 {
                     let (ls, _) = lines[line_idx];
                     preferred_x = self.measure_text(&text[ls..cursor], render_font);
@@ -1961,7 +1954,7 @@ impl Context {
                     (line_idx + 1).min(lines.len() - 1)
                 };
                 if new_line != line_idx {
-                    // Find byte offset in new line closest to preferred_x
+                    // 在最接近preferred_x的新行中尋找位元組偏移量
                     let (ls, ll) = lines[new_line];
                     let line_str = &text[ls..ls + ll];
                     let mut x_acc = 0.0_f32;
@@ -1982,21 +1975,21 @@ impl Context {
                     cursor = new_cursor;
                 }
                 if !self.input.key_shift { sel_start = cursor; }
-                // Don't reset preferred_x on up/down
+                // 不要在上/下重設preferred_x
             }
 
-            // ── Select All ──
+            // ── 選擇全部 ──
             if self.input.key_select_all {
                 sel_start = 0;
                 cursor = text.len();
             }
 
-            // ── Copy ──
+            // ── 複製 ──
             if self.input.key_copy && has_selection {
                 self.input.clipboard_out = text[sel_min..sel_max].to_string();
             }
 
-            // ── Cut (read-only: copy only, no mutation) ──
+            // ── 剪切（唯讀：僅複製，不突變）—
             if self.input.key_cut && has_selection {
                 self.input.clipboard_out = text[sel_min..sel_max].to_string();
                 if !read_only {
@@ -2009,10 +2002,10 @@ impl Context {
             }
 
             if !read_only {
-                // ── Paste ──
+                // ── 貼 ──
                 if self.input.key_paste && !self.input.clipboard_text.is_empty() {
                     let paste_text = self.input.clipboard_text.clone();
-                    // Single-line: strip newlines
+                    // 單行：去除換行符
                     let paste_text = if !is_multiline {
                         paste_text.replace('\n', " ").replace('\r', "")
                     } else {
@@ -2033,7 +2026,7 @@ impl Context {
                     }
                 }
 
-                // ── Text input (typing) ──
+                // ── 文字輸入（打字）──
                 if !self.input.text_input.is_empty() {
                     let typed = filter.filter_str(&self.input.text_input);
                     if !typed.is_empty() {
@@ -2050,7 +2043,7 @@ impl Context {
                     }
                 }
 
-                // ── Backspace ──
+                // ── 退格鍵 ──
                 if self.input.key_backspace {
                     if has_selection {
                         text.replace_range(sel_min..sel_max, "");
@@ -2068,7 +2061,7 @@ impl Context {
                     preferred_x = -1.0;
                 }
 
-                // ── Delete ──
+                // ── 刪除 ──
                 if self.input.key_delete {
                     if has_selection {
                         text.replace_range(sel_min..sel_max, "");
@@ -2084,7 +2077,7 @@ impl Context {
                     preferred_x = -1.0;
                 }
 
-                // ── Enter (multiline only) ──
+                // ── 輸入（僅限多行）──
                 if self.input.key_enter {
                     if is_multiline {
                         if has_selection {
@@ -2098,52 +2091,51 @@ impl Context {
                         changed = true;
                         preferred_x = -1.0;
                     } else {
-                        // Single-line: lose focus on Enter
+                        // 單行：失去 Enter 焦點
                         self.focus_id = 0;
                     }
                 }
             } // end if !read_only
 
-            // ── Escape: lose focus ──
+            // ── 逃脫：失去焦點──
             if self.input.key_escape {
                 self.focus_id = 0;
             }
 
-            // ── Click outside: lose focus ──
+            // ── 點選外部：失去焦點──
             if self.input.mouse_pressed && !hovered {
                 self.focus_id = 0;
             }
         }
 
-        // Enforce 256 char limit (single-line only, matching C++)
+        // 強制 256 個字元限制（僅限單行，匹配 C++）
         if !is_multiline && text.len() > 256 {
             text.truncate(256);
             cursor = cursor.min(text.len());
             sel_start = sel_start.min(text.len());
         }
 
-        // ── Recompute wrapped lines after edits ──
+        // ── 編輯後重新計算換行 ──
         let lines: Vec<(usize, usize)> = if is_multiline {
             self.compute_wrapped_lines(text, render_font, content_w)
         } else {
             vec![(0, text.len())]
         };
 
-        // ── Scroll follow cursor (multiline) ──
+        // ── 捲動跟隨遊標（多行）──
         if is_multiline && editing {
             let viewport_h = (input_rect.h - text_pad * 2.0).max(24.0);
             let total_h = lines.len() as f32 * line_h;
             let max_scroll = (total_h - viewport_h).max(0.0);
 
-            // Mouse wheel scrolling
+            // 滑鼠滾輪滾動
             if hovered && self.input.mouse_wheel_y.abs() > 0.001 {
                 scroll -= self.input.mouse_wheel_y * line_h * 3.0;
             }
 
             let cursor_line = find_line_for_offset(&lines, cursor);
             let cursor_y_in_content = cursor_line as f32 * line_h;
-            // Scroll to keep cursor visible
-            if cursor_y_in_content < scroll {
+            // 捲動以保持遊標可見            if cursor_y_in_content < scroll {
                 scroll = cursor_y_in_content;
             }
             if cursor_y_in_content + line_h > scroll + viewport_h {
@@ -2152,7 +2144,7 @@ impl Context {
             scroll = scroll.clamp(0.0, max_scroll);
         }
 
-        // ── Rendering ──
+        // ── 渲染 ──
         if is_multiline {
             let viewport_h = (input_rect.h - text_pad * 2.0).max(24.0);
             let content_clip = Rect::new(
@@ -2162,7 +2154,7 @@ impl Context {
             let total_h = lines.len() as f32 * line_h;
             let max_scroll = (total_h - viewport_h).max(0.0);
 
-            // Scrollbar
+            // 捲軸
             let scrollbar_w = 8.0_f32;
             let track_rect = Rect::new(
                 input_rect.x + input_rect.w - text_pad - scrollbar_w,
@@ -2179,7 +2171,7 @@ impl Context {
             } else {
                 track_rect.y
             };
-            // Hide scrollbar for read-only when content fits
+            // 當內容適合時隱藏滾動條以只讀
             if !read_only || max_scroll > 0.0 {
                 let secondary = self.theme.secondary;
                 let panel = self.theme.panel;
@@ -2188,14 +2180,14 @@ impl Context {
                 self.paint_filled_rect(Rect::new(track_rect.x, thumb_y, track_rect.w, thumb_h), mix(primary, panel, 0.40), 3.0);
             }
 
-            // Selection highlight + text lines
+            // 選擇突出顯示 + 文字行
             let sel_min = cursor.min(sel_start);
             let sel_max = cursor.max(sel_start);
             let sel_color = rgba(self.theme.primary.r, self.theme.primary.g, self.theme.primary.b, 0.35);
             let mut y = input_rect.y + text_pad - scroll;
             for (line_start, line_len) in &lines {
                 let line_end = *line_start + *line_len;
-                // Draw selection highlight for this line
+                // 為這條線繪製選擇突出顯示
                 if editing && sel_min != sel_max && sel_min < line_end && sel_max > *line_start {
                     let hl_start = sel_min.max(*line_start);
                     let hl_end = sel_max.min(line_end);
@@ -2207,7 +2199,7 @@ impl Context {
                     );
                     self.paint_filled_rect_clipped(hl_rect, sel_color, 0.0, Some(&content_clip));
                 }
-                // Draw text
+                // 繪製文字
                 if *line_len > 0 {
                     let line_text = &text[*line_start..line_end];
                     self.paint_text_clipped(
@@ -2218,7 +2210,7 @@ impl Context {
                 y += line_h;
             }
 
-            // Blinking caret
+            // 閃爍插入符號
             if editing {
                 let blink = (self.frame_index / 30) % 2 == 0;
                 if blink {
@@ -2232,7 +2224,7 @@ impl Context {
                 }
             }
         } else {
-            // ── Single-line rendering ──
+            // ── 單線渲染 ──
             let content_clip = Rect::new(
                 input_rect.x + text_pad,
                 input_rect.y + 2.0,
@@ -2250,7 +2242,7 @@ impl Context {
                 text_col
             };
 
-            // Selection highlight
+            // 選擇亮點
             let sel_min = cursor.min(sel_start);
             let sel_max = cursor.max(sel_start);
             if editing && sel_min != sel_max && !text.is_empty() {
@@ -2270,7 +2262,7 @@ impl Context {
             let text_rect = Rect::new(content_clip.x, input_rect.y, content_clip.w.max(text_w), input_rect.h);
             self.paint_text_clipped(text_rect, display_text, render_font, display_color, TextAlign::Left, Some(&content_clip));
 
-            // Blinking caret when editing
+            // 編輯時閃爍插入符
             if editing {
                 let blink = (self.frame_index / 30) % 2 == 0;
                 if blink {
@@ -2285,7 +2277,7 @@ impl Context {
             }
         }
 
-        // ── Write back state ──
+        // ── 回寫狀態 ──
         if let Some(ta_state) = self.text_area_states.get_mut(&id) {
             ta_state.cursor = cursor;
             ta_state.sel_start = sel_start;
@@ -2297,7 +2289,7 @@ impl Context {
         changed
     }
 
-    // ── Input Readonly ──
+    // ── 輸入唯讀 ──
 
     pub fn input_readonly(&mut self, id: u64, rect: Rect, label: &str, value: &str) {
         self.input_readonly_ex(id, rect, label, value, false, 1.0, true);
@@ -2338,8 +2330,8 @@ impl Context {
             mix(input_bg, secondary, 0.08), chrome_radius, 1.0,
         );
 
-        // Value text content matching C++ draw_static_input_content:
-        // text rect uses full input_rect.y/h, clip is content_clip (y+2, h-4)
+        // 值文字內容符合C++draw_static_input_content：
+        // 文字矩形使用完整的input_rect.y/h，剪輯是content_clip(y+2, h-4)
         let content_clip = Rect::new(
             input_rect.x + input_padding,
             input_rect.y + 2.0,
@@ -2358,47 +2350,47 @@ impl Context {
         self.paint_text_clipped(text_rect, value, value_font, text_color, align, Some(&content_clip));
     }
 
-    // ── Dropdown ──
+    // ── 下拉式選單 ──
 
     pub fn dropdown(&mut self, id: u64, rect: Rect, items: &[&str], selected: &mut usize) -> bool {
         let hovered = self.is_hovered(&rect);
         let held = hovered && self.is_mouse_down();
 
-        // Dynamic font sizing matching C++
+        // 動態字型大小比對 C++
         let header_font = (rect.h * 0.38).clamp(13.0, 24.0);
         let header_pad = (rect.h * 0.28).clamp(10.0, 22.0);
         let indicator_size = (rect.h * 0.34).clamp(10.0, 18.0);
 
-        // 4-channel motion
+        // 4通道運動
         let m = self.motion_ex(id, hovered, held, false, false);
         let hover_v = Self::snap_visual_motion(m.hover, 1.0 / 48.0);
         let active_v = Self::snap_visual_motion(m.active, 1.0 / 40.0);
 
-        // Fill color matching C++
+        // 填滿顏色匹配C++
         let panel = self.theme.panel;
         let secondary_hover = self.theme.secondary_hover;
         let fill = mix(panel, secondary_hover, hover_v * 0.32 + active_v * 0.08);
         let primary = self.theme.primary;
         let radius = self.theme.radius;
 
-        // Soft glow
+        // 柔和的光芒
         self.paint_soft_glow(rect, primary, radius, active_v * 0.26 + hover_v * 0.10, 5.0);
 
         self.paint_filled_rect(rect, fill, radius);
 
-        // Outline
+        // 大綱
         let outline_color = mix(self.theme.outline, self.theme.focus_ring,
                                  hover_v * 0.20 + active_v * 0.18);
         self.paint_outline_rect(rect, outline_color, radius, 1.0 + hover_v * 0.10);
 
-        // Label text
+        // 標籤文字
         let label = if *selected < items.len() { items[*selected] } else { "" };
         let text_rect = Rect::new(rect.x + header_pad, rect.y,
                                    rect.w - header_pad * 2.0 - indicator_size - 4.0, rect.h);
         let text_col = self.theme.text;
         self.paint_text(text_rect, label, header_font, text_col, TextAlign::Left);
 
-        // Chevron with animated color
+        // 具有動畫色彩的 V 形圖案
         let chevron_size = indicator_size;
         let chevron_rect = Rect::new(
             rect.x + rect.w - header_pad - chevron_size,
@@ -2409,17 +2401,17 @@ impl Context {
                                  active_v * 0.20 + hover_v * 0.10);
         self.paint_chevron(chevron_rect, chevron_color, 90.0);
 
-        // Click-to-cycle
+        // 點擊循環
         let mut changed = false;
         if hovered && self.input.mouse_pressed && !items.is_empty() {
-            *selected = (*selected + 1) % items.len();
+            * 所選值 = (*所選 + 1) % items.len();
             changed = true;
         }
         changed
     }
 
-    /// Expanding dropdown with selectable items, matching C++ `internal_begin_dropdown`.
-    /// Items are rendered as ghost buttons (fill + outline + center text).
+    /// 使用可選項目擴展下拉列表，匹配 C++ `internal_begin_dropdown`。
+    /// 項目呈現為幽靈按鈕（填滿+輪廓+中心文字）。
     pub fn dropdown_select(
         &mut self, id: u64, rect: Rect, label: &str, open: &mut bool,
         items: &[&str], selected: &mut usize,
@@ -2430,29 +2422,29 @@ impl Context {
         let header_h = 34.0_f32.max(padding * 3.0);
         let header_rect = Rect::new(rect.x, rect.y, rect.w, header_h);
 
-        // Dynamic sizing matching C++
+        // 動態調整大小比對 C++
         let header_font = (header_h * 0.38).clamp(13.0, 24.0);
         let header_pad = (header_h * 0.28).clamp(10.0, 22.0);
         let indicator_size = (header_h * 0.34).clamp(10.0, 18.0);
 
-        // Reveal animation (0 = closed, 1 = open)
+        // 顯示動畫（0 = 關閉，1 = 開啟）
         let reveal_id = context_hash_mix(id, 0x1a2b3c4d5e6f7013);
         let reveal = self.presence(reveal_id, *open);
         let reveal_alpha = 1.0 - (1.0 - reveal) * (1.0 - reveal); // ease-out
 
-        // Header hover / click
+        // 標題懸停/單擊
         let header_hovered = self.is_hovered(&header_rect);
         let header_held = header_hovered && self.is_mouse_down();
         if header_hovered && self.input.mouse_pressed {
-            *open = !*open;
+            * 打開=！ *打開；
         }
 
-        // 4-channel motion for header
+        // 標頭 4 通道運動
         let m = self.motion_ex(id, header_hovered, header_held, false, *open);
         let hover_v = Self::snap_visual_motion(m.hover, 1.0 / 48.0);
         let active_v = Self::snap_visual_motion(m.active, 1.0 / 40.0);
 
-        // Header chrome
+        // 標頭鍍鉻
         let panel = self.theme.panel;
         let secondary_hover = self.theme.secondary_hover;
         let primary = self.theme.primary;
@@ -2464,7 +2456,7 @@ impl Context {
                                  hover_v * 0.20 + active_v * 0.18);
         self.paint_outline_rect(header_rect, outline_color, radius, 1.0 + hover_v * 0.10);
 
-        // Header label
+        // 標題標籤
         let text_rect = Rect::new(
             header_rect.x + header_pad, header_rect.y,
             header_rect.w - header_pad * 2.0 - indicator_size - 6.0, header_rect.h,
@@ -2472,8 +2464,7 @@ impl Context {
         let text_col = self.theme.text;
         self.paint_text(text_rect, label, header_font, text_col, TextAlign::Left);
 
-        // Chevron: rotates from 0 (closed) to π/2 (open) matching C++
-        let chevron_rect = Rect::new(
+        // Chevron：從 0（閉合）旋轉到 π/2（開放），與 C++ 匹配        let chevron_rect = Rect::new(
             header_rect.x + header_rect.w - header_pad - indicator_size,
             header_rect.y + (header_rect.h - indicator_size) * 0.5,
             indicator_size, indicator_size,
@@ -2484,7 +2475,7 @@ impl Context {
         let chevron_thickness = (header_h * 0.065).clamp(1.4, 2.4);
         self.paint_chevron_ex(chevron_rect, chevron_color, chevron_rotation, chevron_thickness);
 
-        // Body (only when animating or open)
+        // 主體（僅當動畫或開啟時）
         let mut changed = false;
         if reveal > 0.01 {
             let body_alpha = (0.16 + reveal_alpha * 0.84).clamp(0.0, 1.0);
@@ -2497,7 +2488,7 @@ impl Context {
                 rect.w, body_height,
             );
 
-            // Body shell: soft glow + fill + outline
+            // 身體外殼：柔光+填充+輪廓
             let body_fill = mix(panel, self.theme.secondary_hover, 0.35);
             let body_fill_a = Color::new(body_fill.r, body_fill.g, body_fill.b, body_fill.a * body_alpha);
             self.paint_soft_glow(body_rect, primary, radius, (active_v * 0.10 + reveal_alpha * 0.14) * body_alpha, 6.0);
@@ -2507,7 +2498,7 @@ impl Context {
             let body_outline_a = Color::new(body_outline.r, body_outline.g, body_outline.b, body_outline.a * outline_a);
             self.paint_outline_rect(body_rect, body_outline_a, radius, 1.0 + active_v * 0.12);
 
-            // Items as ghost buttons (fill + outline + center text) matching C++
+            // 項目作為與 C++ 匹配的幽靈按鈕（填充 + 輪廓 + 中心文字）
             let btn_font = (item_h * 0.38).clamp(13.0, 24.0);
             let btn_x = body_rect.x + padding;
             let btn_w = body_rect.w - padding * 2.0;
@@ -2519,12 +2510,12 @@ impl Context {
                 let item_held = item_hovered && self.is_mouse_down();
                 let item_id = context_hash_mix(id, 0x1a2b3c4d5e6f8000 + i as u64);
 
-                // Ghost button: 4-channel motion
+                // 幽靈按鈕：4通道動作
                 let im = self.motion_ex(item_id, item_hovered, item_held, false, false);
                 let ih = Self::snap_visual_motion(im.hover, 1.0 / 48.0);
                 let ia = Self::snap_visual_motion(im.active, 1.0 / 40.0);
 
-                // Ghost button chrome: fill + outline (matching C++ button.ghost())
+                // 幽靈按鈕鍍鉻：填充+輪廓（匹配C++button.ghost()）
                 let btn_fill = mix(panel, secondary_hover, ih * 0.32 + ia * 0.08);
                 let btn_fill_a = Color::new(btn_fill.r, btn_fill.g, btn_fill.b, btn_fill.a * content_alpha);
                 self.paint_filled_rect(btn_rect, btn_fill_a, radius);
@@ -2533,15 +2524,15 @@ impl Context {
                 let btn_outline_a = Color::new(btn_outline.r, btn_outline.g, btn_outline.b, btn_outline.a * content_alpha);
                 self.paint_outline_rect(btn_rect, btn_outline_a, radius, 1.0);
 
-                // Center-aligned text (matching C++ button text)
+                // 居中對齊文字（匹配 C++ 按鈕文字）
                 let btn_text_color = self.theme.text;
                 let btn_text_a = Color::new(btn_text_color.r, btn_text_color.g, btn_text_color.b, btn_text_color.a * content_alpha);
                 self.paint_text(btn_rect, item_label, btn_font, btn_text_a, TextAlign::Center);
 
-                // Click to select
+                // 點選選擇
                 if item_hovered && self.input.mouse_pressed {
-                    *selected = i;
-                    *open = false;
+                    * 選定=我；
+                    * 打開=假；
                     changed = true;
                 }
 
@@ -2549,15 +2540,15 @@ impl Context {
             }
         }
 
-        // Close if clicked outside when open
+        // 開啟時如果在外部按一下則關閉
         if *open && self.input.mouse_pressed && !self.is_hovered(&rect) {
-            *open = false;
+            * 打開=假；
         }
 
         changed
     }
 
-    // ── Tabs ──
+    // ── 標籤 ──
 
     pub fn tab_bar(&mut self, id: u64, rect: Rect, labels: &[&str], selected: &mut usize) -> bool {
         let n = labels.len();
@@ -2574,16 +2565,16 @@ impl Context {
             let held = hovered && self.is_mouse_down();
             let tab_id = context_hash_mix(id, i as u64);
 
-            // Dynamic font sizing matching C++
+            // 動態字型大小比對 C++
             let text_size = (tab_rect.h * 0.42).clamp(13.0, 26.0);
 
-            // 4-channel motion
+            // 4通道運動
             let m = self.motion_ex(tab_id, hovered, held, false, is_selected);
             let hover_v = Self::snap_visual_motion(m.hover, 1.0 / 48.0);
             let press_v = Self::snap_visual_motion(m.press, 1.0 / 36.0);
             let active_v = Self::snap_visual_motion(m.active, 1.0 / 40.0);
 
-            // Fill color (3-layer mix matching C++)
+            // 填滿顏色（3層混合匹配C++）
             let primary = self.theme.primary;
             let secondary = self.theme.secondary;
             let panel = self.theme.panel;
@@ -2593,30 +2584,30 @@ impl Context {
             fill = mix(fill, self.theme.secondary_active,
                        press_v * if is_selected { 0.18 } else { 0.32 });
 
-            // Scale transform
+            // 尺度變換
             let tab_radius = (self.theme.radius - 2.0).max(0.0);
             let visual_scale = 1.0 + active_v * 0.004 - press_v * 0.014;
             let mut visual_rect = context_scale_rect_from_center(&tab_rect, visual_scale, visual_scale);
             visual_rect = context_translate_rect(&visual_rect, 0.0, press_v * 0.3);
 
-            // Soft glow
+            // 柔和的光芒
             self.paint_soft_glow(visual_rect, primary, tab_radius, active_v * 0.34 + hover_v * 0.06, 5.0);
 
-            // Fill
+            // 充滿
             self.paint_filled_rect(visual_rect, fill, tab_radius);
 
-            // Outline
+            // 大綱
             let outline_base = mix(self.theme.outline, panel, 0.6);
             let outline_color = mix(outline_base, primary, active_v * 0.78 + hover_v * 0.18);
             self.paint_outline_rect(visual_rect, outline_color, tab_radius,
                                      1.0 + active_v * 0.36 + hover_v * 0.06);
 
-            // Text color with animation blend
+            // 文字顏色與動畫混合
             let text_color = mix(self.theme.muted_text, self.theme.text, 0.38 + active_v * 0.62);
             self.paint_text(visual_rect, label, text_size, text_color, TextAlign::Center);
 
             if hovered && self.input.mouse_pressed && !is_selected {
-                *selected = i;
+                * 選定=我；
                 changed = true;
             }
         }
@@ -2624,7 +2615,7 @@ impl Context {
         changed
     }
 
-    // ── Global alpha ──
+    // ── 全域阿爾法──
 
     pub fn set_global_alpha(&mut self, alpha: f32) {
         self.global_alpha = alpha.clamp(0.0, 1.0);
@@ -2634,17 +2625,17 @@ impl Context {
         self.global_alpha
     }
 
-    // ── Glyph (icon) rendering ──
+    // ── 字形（圖示）渲染 ──
 
     pub fn paint_glyph(&mut self, rect: Rect, codepoint: u32, color: Color, font_size: f32) -> usize {
         let ch = char::from_u32(codepoint).unwrap_or('\u{FFFD}');
         let mut buf = [0u8; 4];
         let s = ch.encode_utf8(&mut buf);
-        // C++ paint_icon does NOT pass clip_rect by default (only when ClipMode::bounds)
+        // C++ Paint_icon 預設不傳遞 Clip_rect（僅當 ClipMode::bounds 時）
         self.paint_text_clipped(rect, s, font_size, color, TextAlign::Center, None)
     }
 
-    // ── Transform payload ──
+    // ── 變換負載 ──
 
     pub fn push_transform_3d(&mut self, transform: Transform3D) -> u32 {
         let idx = self.transform_payloads.len() as u32;
@@ -2652,8 +2643,8 @@ impl Context {
         idx
     }
 
-    /// Push a rotation transform. All subsequent draw commands will have this transform
-    /// until `pop_transform()` is called. Origin is relative to each command's rect.
+    /// 推動旋轉變換。所有後續繪製命令都將具有此變換
+    /// 直到呼叫“pop_transform()”。原點相對於每個指令的矩形。
     pub fn push_rotation(&mut self, angle_deg: f32, origin_x: f32, origin_y: f32) {
         let transform = Transform3D {
             rotation_z_deg: angle_deg,
@@ -2668,9 +2659,9 @@ impl Context {
         self.current_transform_index = K_INVALID_PAYLOAD_INDEX;
     }
 
-    /// If a rotation transform is active, push a new one with the same angle but
-    /// a different origin. Returns the previous transform index for restoring later.
-    /// If no transform is active, does nothing and returns K_INVALID_PAYLOAD_INDEX.
+    /// 如果旋轉變換處於活動狀態，則推入一個具有相同角度的新旋轉變換，但
+    /// 不同的起源。返回先前的變換索引以便稍後恢復。
+    /// 如果沒有任何轉換處於活動狀態，則不執行任何操作並傳回 K_INVALID_PAYLOAD_INDEX。
     pub fn swap_rotation_origin(&mut self, new_ox: f32, new_oy: f32) -> u32 {
         let old_idx = self.current_transform_index;
         if old_idx != K_INVALID_PAYLOAD_INDEX {
@@ -2683,7 +2674,7 @@ impl Context {
         old_idx
     }
 
-    /// Restore a previously saved transform index from swap_rotation_origin.
+    /// 從 swap_rotation_origin 恢復先前儲存的變換索引。
     pub fn restore_transform(&mut self, idx: u32) {
         self.current_transform_index = idx;
     }
@@ -2695,13 +2686,13 @@ impl Default for Context {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MotionResult {
     pub hover: f32,
     pub press: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MotionResultEx {
     pub hover: f32,
     pub press: f32,

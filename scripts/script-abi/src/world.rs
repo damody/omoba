@@ -1,9 +1,9 @@
-//! `GameWorld` — the sabi_trait that gives scripts read/write access to the
-//! host's ECS. Host implements this on a `WorldAdapter<'a>` that wraps
-//! `&'a mut specs::World`.
+//! `GameWorld` — sabi_trait 賦予腳本讀取/寫入存取權限
+//! 主機的ECS。主機在包裝的“WorldAdapter<'a>”上實現了這一點
+//! `&'一個 mut 規格::世界`。
 //!
-//! Methods are non-generic (FFI constraint). Adding a component exposure
-//! means adding methods here.
+//! 方法是非通用的（FFI 約束）。新增組件曝光
+//! 意思是在這裡添加方法。
 
 use abi_stable::{
     RMut, sabi_trait,
@@ -13,14 +13,14 @@ use crate::stat_keys::StatKey;
 use crate::types::*;
 pub use crate::types::{PathSpec, ProjectileSpec};
 
-/// Type alias for the borrowed-mutable dyn form of `GameWorld` — this is
-/// what hooks receive. Using this uniformly avoids sprinkling the pointer
-/// generic across every hook signature.
+/// “GameWorld” 的借用可變動態形式的類型別名 - 這是
+/// 鉤子收到什麼。統一使用這個可以避免指針被淋濕
+/// 每個鉤子簽名都是通用的。
 pub type GameWorldDyn<'a> = GameWorld_TO<'a, RMut<'a, ()>>;
 
 #[sabi_trait]
 pub trait GameWorld: Send {
-    // ---- Query ----
+    // - - 詢問 - -
     fn get_pos(&self, e: EntityHandle) -> ROption<Vec2>;
     fn get_hp(&self, e: EntityHandle) -> ROption<Fixed64>;
     fn get_max_hp(&self, e: EntityHandle) -> ROption<Fixed64>;
@@ -34,7 +34,7 @@ pub trait GameWorld: Send {
         of: EntityHandle,
     ) -> RVec<EntityHandle>;
 
-    // ---- Mutate ----
+    // ---- 變異 ----
     fn set_pos(&mut self, e: EntityHandle, p: Vec2);
     /// 計算 `e` 朝 `target` 位移 `step` 後的合法位置（避開其他 CollisionRadius
     /// 實體與 BlockedRegion blocker）。策略：直接走 → 只走 X 軸 → 只走 Y 軸 → 停。
@@ -116,15 +116,15 @@ pub trait GameWorld: Send {
         of: EntityHandle,
     ) -> ROption<EntityHandle>;
 
-    // ---- Non-state side effects ----
+    // ---- 非狀態副作用 ----
     fn play_vfx(&mut self, id: RStr<'_>, at: Vec2);
     fn play_sfx(&mut self, id: RStr<'_>, at: Vec2);
 
-    // ---- Deterministic RNG (host-seeded) ----
-    /// Returns uniform Fixed64 in [0, 1). Deterministic across replays.
+    // ---- 確定性 RNG（主機種子） ----
+    /// 傳回 [0, 1) 中的統一固定64。跨重播具有確定性。
     fn rand_unit(&mut self) -> Fixed64;
 
-    // ---- Log (forwarded to host's log4rs) ----
+    // ---- 日誌（轉送到主機的log4rs）----
     fn log_info(&self, msg: RStr<'_>);
     fn log_warn(&self, msg: RStr<'_>);
     fn log_error(&self, msg: RStr<'_>);

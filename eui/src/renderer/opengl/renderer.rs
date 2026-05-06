@@ -12,7 +12,7 @@ use crate::renderer::opengl::shader;
 use crate::renderer::opengl::vertex::*;
 use crate::runtime::contracts::WindowMetrics;
 
-/// Rotate all vertices around an origin point by angle_deg degrees.
+/// 將所有頂點圍繞原點旋轉 angle_deg 度。
 fn rotate_vertices(verts: &mut [Vertex], angle_deg: f32, origin_x: f32, origin_y: f32) {
     let rad = angle_deg * std::f32::consts::PI / 180.0;
     let cos_a = rad.cos();
@@ -25,7 +25,7 @@ fn rotate_vertices(verts: &mut [Vertex], angle_deg: f32, origin_x: f32, origin_y
     }
 }
 
-/// Get rotation info from a command's transform. Returns (angle_deg, origin_x, origin_y) or None.
+/// 從命令的變換中獲取旋轉訊息。返回 (angle_deg, origin_x, origin_y) 或無。
 fn get_rotation(cmd: &DrawCommand, transforms: &[Transform3D]) -> Option<(f32, f32, f32)> {
     if cmd.transform_payload_index == K_INVALID_PAYLOAD_INDEX {
         return None;
@@ -34,7 +34,7 @@ fn get_rotation(cmd: &DrawCommand, transforms: &[Transform3D]) -> Option<(f32, f
     if t.rotation_z_deg.abs() < 0.001 {
         return None;
     }
-    // Origin is relative to rect position
+    // 原點是相對於矩形位置的
     Some((t.rotation_z_deg, cmd.rect.x + t.origin_x, cmd.rect.y + t.origin_y))
 }
 
@@ -73,14 +73,14 @@ pub struct OpenGlRenderer {
     blur: Option<BlurResources>,
 }
 
-/// Returns true if the codepoint is in the Unicode Private Use Area
-/// (used for icon fonts like Font Awesome).
+/// 如果代碼點位於 Unicode 專用區域中，則傳回 true
+/// （用於圖示字體，如 Font Awesome）。
 fn is_private_use_codepoint(cp: u32) -> bool {
     cp >= 0xE000 && cp <= 0xF8FF
 }
 
-/// Calculate draw rect and UV coords for a given image fit mode.
-/// Returns (draw_x, draw_y, draw_w, draw_h, u0, v0, u1, v1).
+/// 計算給定影像擬合模式的繪製矩形和 UV 座標。
+/// 返回（draw_x、draw_y、draw_w、draw_h、u0、v0、u1、v1）。
 fn resolve_image_fit(
     fit: ImageFit, fx: f32, fy: f32, fw: f32, fh: f32, img_w: f32, img_h: f32,
 ) -> (f32, f32, f32, f32, f32, f32, f32, f32) {
@@ -235,7 +235,7 @@ impl OpenGlRenderer {
             if b.copy_w == fb_w && b.copy_h == fb_h {
                 return;
             }
-            // Size changed — destroy old resources and recreate
+            // 大小已更改 - 銷毀舊資源並重新創建
             let gl = &self.gl;
             gl.delete_texture(b.copy_tex);
             gl.delete_texture(b.tex[0]);
@@ -351,14 +351,14 @@ impl RendererBackend for OpenGlRenderer {
                                     render_fs
                                 };
 
-                                // Pass 1: compute metrics and rasterize all glyphs.
-                                // Collect per-glyph data to avoid holding mutable borrows during flush.
+                                // 第 1 遍：計算指標並柵格化所有字形。
+                                // 收集每個字形的資料以避免在刷新期間持有可變借用。
                                 struct GlyphInfo {
                                     is_icon: bool,
                                     advance: f32,
-                                    // Quad data (None if glyph has zero size)
+                                    // 四邊形資料（如果字形大小為零則無）
                                     quad: Option<(f32, f32, f32, f32, f32, f32, f32, f32)>,
-                                    // u0, v0, u1, v1
+                                    // u0、v0、u1、v1
                                 }
                                 let mut max_above: f32 = 0.0;
                                 let mut max_below: f32 = 0.0;
@@ -409,8 +409,8 @@ impl RendererBackend for OpenGlRenderer {
                                     TextAlign::Right => cmd.rect.x + cmd.rect.w - total_width,
                                 };
 
-                                // Pass 2: build vertex batches and flush.
-                                // No mutable atlas borrows needed — all glyphs already rasterized.
+                                // 第 2 遍：建立頂點批次並刷新。
+                                // 不需要藉用可變的圖集－所有字形都已經光柵化。
                                 let text_tex = font_atlas.texture;
                                 let icon_tex = self.icon_font_atlas.as_ref().map(|a| a.texture);
 
@@ -456,14 +456,14 @@ impl RendererBackend for OpenGlRenderer {
                                 let frame = &cmd.rect;
                                 let fit = cmd.image_fit;
 
-                                // Calculate draw rect and UV based on fit mode
+                                // 根據擬合模式計算繪製矩形和UV
                                 let (draw_x, draw_y, draw_w, draw_h, u0, v0, u1, v1) =
                                     resolve_image_fit(fit, frame.x, frame.y, frame.w, frame.h, img_w, img_h);
 
                                 let gl = &self.gl;
                                 let radius = cmd.radius;
 
-                                // Set scissor to frame rect (clips Cover/Center overflow)
+                                // 將剪刀設定為框架矩形（剪輯覆蓋/中心溢出）
                                 let sx = frame.x as i32;
                                 let sy = fb_h - (frame.y + frame.h) as i32;
                                 let sw = frame.w as i32;
@@ -471,14 +471,14 @@ impl RendererBackend for OpenGlRenderer {
                                 gl.scissor(sx.max(0), sy.max(0), sw.max(1), sh.max(1));
 
                                 if radius > 0.0 {
-                                    // Stencil-based rounded corner clipping
+                                    // 基於模板的圓角剪切
                                     gl.enable(glow::STENCIL_TEST);
                                     gl.clear(glow::STENCIL_BUFFER_BIT);
                                     gl.stencil_func(glow::ALWAYS, 1, 0xFF);
                                     gl.stencil_op(glow::KEEP, glow::KEEP, glow::REPLACE);
                                     gl.color_mask(false, false, false, false);
 
-                                    // Draw rounded rect shape into stencil
+                                    // 將圓角矩形繪製到模板中
                                     let mut stencil_verts = Vec::new();
                                     push_rounded_quad(
                                         &mut stencil_verts,
@@ -488,7 +488,7 @@ impl RendererBackend for OpenGlRenderer {
                                     );
                                     self.flush_vertices(&stencil_verts, TextureMode::None, None);
 
-                                    // Now draw image only where stencil == 1
+                                    // 現在只在 stencil == 1 的地方繪製影像
                                     gl.color_mask(true, true, true, true);
                                     gl.stencil_func(glow::EQUAL, 1, 0xFF);
                                     gl.stencil_op(glow::KEEP, glow::KEEP, glow::KEEP);
@@ -504,7 +504,7 @@ impl RendererBackend for OpenGlRenderer {
 
                                     gl.disable(glow::STENCIL_TEST);
                                 } else {
-                                    // No radius — just draw with scissor clipping
+                                    // 沒有半徑——只需用剪刀剪裁繪製
                                     let mut verts = Vec::new();
                                     push_textured_quad(
                                         &mut verts,
@@ -515,7 +515,7 @@ impl RendererBackend for OpenGlRenderer {
                                     self.flush_vertices(&verts, TextureMode::Rgba, Some(tex));
                                 }
 
-                                // Restore scissor
+                                // 恢復剪刀
                                 self.set_scissor(cmd, fb_w, fb_h);
                             }
                         }
@@ -526,12 +526,12 @@ impl RendererBackend for OpenGlRenderer {
                         let rect = cmd.rect;
 
                         if blur_radius < 1.0 {
-                            // No blur — just draw semi-transparent overlay
+                            // 無模糊 - 只需繪製半透明疊加層
                             let mut verts = Vec::new();
                             push_quad(&mut verts, rect.x, rect.y, rect.w, rect.h, 0.0, 0.0, 0.0, 0.15);
                             self.flush_vertices(&verts, TextureMode::None, None);
                         } else {
-                            // Real Kawase backdrop blur
+                            // 真正的河瀨背景模糊
                             self.ensure_blur(fb_w, fb_h);
                             let b = self.blur.as_ref().unwrap();
                             let bp = b.program;
@@ -546,16 +546,16 @@ impl RendererBackend for OpenGlRenderer {
 
                             let gl = &self.gl;
 
-                            // 1. Copy current framebuffer → copy_tex
+                            // 1.複製目前幀緩衝區→copy_tex
                             gl.bind_texture(glow::TEXTURE_2D, Some(bct));
                             gl.copy_tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, 0, 0, fb_w, fb_h);
 
-                            // 2. Disable scissor for blur passes
+                            // 2.禁用剪刀模糊頻道
                             gl.disable(glow::SCISSOR_TEST);
 
                             let passes = ((blur_radius / 3.0) as i32).clamp(2, 6);
 
-                            // 3. Set up blur shader + fullscreen quad VBO
+                            // 3.設定模糊著色器+全螢幕四元VBO
                             gl.use_program(Some(bp));
                             gl.bind_buffer(glow::ARRAY_BUFFER, Some(bqv));
                             gl.enable_vertex_attrib_array(0);
@@ -564,7 +564,7 @@ impl RendererBackend for OpenGlRenderer {
                             gl.disable_vertex_attrib_array(2);
                             gl.active_texture(glow::TEXTURE0);
 
-                            // 4. Pass 0: downsample copy_tex → fbo[0] at half res
+                            // 4. Pass 0：以一半解析度下取樣 copy_tex → fbo[0]
                             gl.bind_framebuffer(glow::FRAMEBUFFER, Some(bfbo[0]));
                             gl.viewport(0, 0, bhw, bhh);
                             gl.bind_texture(glow::TEXTURE_2D, Some(bct));
@@ -572,7 +572,7 @@ impl RendererBackend for OpenGlRenderer {
                             gl.uniform_1_f32(Some(&bol), 0.0);
                             gl.draw_arrays(glow::TRIANGLES, 0, 6);
 
-                            // 5. Kawase blur passes (ping-pong at half res)
+                            // 5. Kawase 模糊通道（半解析度乒乓球）
                             for i in 1..passes {
                                 let src = ((i - 1) % 2) as usize;
                                 let dst = (i % 2) as usize;
@@ -585,7 +585,7 @@ impl RendererBackend for OpenGlRenderer {
 
                             let final_tex = btex[((passes - 1) % 2) as usize];
 
-                            // 6. Restore main framebuffer + viewport + scissor + main shader
+                            // 6.恢復主幀緩衝區+視窗+剪刀+主著色器
                             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
                             gl.viewport(0, 0, fb_w, fb_h);
                             gl.enable(glow::SCISSOR_TEST);
@@ -593,7 +593,7 @@ impl RendererBackend for OpenGlRenderer {
                             gl.use_program(Some(self.program));
                             gl.uniform_2_f32(Some(&self.viewport_uniform), fb_w as f32, fb_h as f32);
 
-                            // 7. Composite: draw blurred texture into blur rect
+                            // 7. Composite：將模糊紋理繪製到模糊矩形中
                             let fb_wf = fb_w as f32;
                             let fb_hf = fb_h as f32;
                             let u0 = rect.x / fb_wf;
@@ -602,7 +602,7 @@ impl RendererBackend for OpenGlRenderer {
                             let v_bot = 1.0 - (rect.y + rect.h) / fb_hf;
 
                             if corner_radius > 0.0 {
-                                // Stencil for rounded corners
+                                // 圓角模板
                                 gl.enable(glow::STENCIL_TEST);
                                 gl.clear(glow::STENCIL_BUFFER_BIT);
                                 gl.stencil_func(glow::ALWAYS, 1, 0xFF);
@@ -640,31 +640,31 @@ impl RendererBackend for OpenGlRenderer {
                         let rotate = |dx: f32, dy: f32| -> (f32, f32) {
                             (cx + dx * cos_r - dy * sin_r, cy + dx * sin_r + dy * cos_r)
                         };
-                        // ">" shape (rotation=0): tip at right, arms go to upper-left and lower-left
-                        // Upper arm: (left, top) -> (right, center)
+                        // ">" 形狀（旋轉 = 0）：尖端位於右側，手臂位於左上角和左下角
+                        // 上臂：（左，上）->（右，中）
                         let ax0 = -sz * 0.4;
                         let ay0 = -sz * 0.5;
                         let ax1 = sz * 0.4;
                         let ay1 = 0.0_f32;
-                        // Lower arm: (right, center) -> (left, bottom)
+                        // 下臂：（右，中）->（左，下）
                         let bx0 = sz * 0.4;
                         let by0 = 0.0_f32;
                         let bx1 = -sz * 0.4;
                         let by1 = sz * 0.5;
 
-                        // Draw each arm as a rotated thin quad (line segment with thickness)
+                        // 將每個手臂繪製為旋轉的細四邊形（具有厚度的線段）
                         let draw_line = |verts: &mut Vec<Vertex>, lx0: f32, ly0: f32, lx1: f32, ly1: f32| {
                             let dx = lx1 - lx0;
                             let dy = ly1 - ly0;
                             let len = (dx * dx + dy * dy).sqrt().max(0.001);
-                            // Perpendicular direction for thickness
+                            // 厚度垂直方向
                             let px = -dy / len * half_t;
                             let py = dx / len * half_t;
                             let (p0x, p0y) = rotate(lx0 - px, ly0 - py);
                             let (p1x, p1y) = rotate(lx0 + px, ly0 + py);
                             let (p2x, p2y) = rotate(lx1 + px, ly1 + py);
                             let (p3x, p3y) = rotate(lx1 - px, ly1 - py);
-                            // Two triangles for the quad
+                            // 四邊形的兩個三角形
                             let v = |x: f32, y: f32| -> Vertex {
                                 Vertex { x, y, u: 0.0, v: 0.0, r: c.r, g: c.g, b: c.b, a: c.a }
                             };
@@ -680,7 +680,7 @@ impl RendererBackend for OpenGlRenderer {
                         self.flush_vertices(&verts, TextureMode::None, None);
                     }
                     CommandType::Line => {
-                        // rect.x/y = start, rect.w/h = end (repurposed)
+                        // rect.x/y = 開始，rect.w/h = 結束（重新調整用途）
                         let x0 = cmd.rect.x;
                         let y0 = cmd.rect.y;
                         let x1 = cmd.rect.w;

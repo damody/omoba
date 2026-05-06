@@ -3,7 +3,7 @@ use eui::core::context_utils::{context_hash_sv, context_hash_mix};
 use eui::quick::gfx;
 use eui::quick::primitive_painter;
 
-// ── Enums ──
+// ── 枚舉 ──
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
@@ -24,7 +24,7 @@ enum OpenMenu {
     Couriers = 3,
 }
 
-// ── Structs ──
+// ── 結構 ──
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -124,7 +124,7 @@ impl Default for DashboardState {
     }
 }
 
-// ── Static data ──
+// ── 靜態資料 ──
 
 const K_METRICS: [MetricCard; 4] = [
     MetricCard { title: "On-Time Deliveries", value: "96%", delta: "+2% vs last month" },
@@ -210,7 +210,7 @@ const K_ACCENT_THEMES: [AccentTheme; 12] = [
     AccentTheme { _name: "Slate", accent: 0x7C8AA6 },
 ];
 
-// ── Utility functions ──
+// ── 實用功能 ──
 
 fn mix_hex(lhs: u32, rhs: u32, t: f32) -> u32 {
     let t = t.clamp(0.0, 1.0);
@@ -322,7 +322,7 @@ fn color_from_hex(hex: u32, alpha: f32) -> Color {
     )
 }
 
-// ── Input helpers ──
+// ── 輸入助手 ──
 
 fn pointer_captured_by_overlay(state: &DashboardState, input: &InputState) -> bool {
     state.overlay_block_active && state.overlay_block_rect.contains(input.mouse_x, input.mouse_y)
@@ -349,7 +349,7 @@ fn interactive_clicked(state: &DashboardState, input: &InputState, rect: &Rect) 
     input.mouse_pressed && interactive_hovered(state, input, rect)
 }
 
-// ── Drawing helpers ──
+// ── 繪圖助手 ──
 
 fn draw_fill(ctx: &mut Context, r: Rect, hex: u32, radius: f32, alpha: f32) {
     ctx.paint_filled_rect(r, color_from_hex(hex, alpha), radius);
@@ -380,7 +380,7 @@ fn draw_soft_glow(ctx: &mut Context, r: Rect, inner: u32, outer: u32, radius: f3
     ctx.paint_filled_rect_with_brush(r, brush, r.w.max(r.h) * 0.5);
 }
 
-/// Paint a shape with fill + stroke + shadow + blur + opacity (maps to C++ ui.shape()...draw())
+/// 使用填滿 + 描邊 + 陰影 + 模糊 + 不透明度繪製形狀（映射到 C++ ui.shape()...draw()）
 fn paint_shape(ctx: &mut Context, r: Rect, radius: f32, fill_hex: u32, fill_alpha: f32,
                stroke_hex: u32, stroke_width: f32, stroke_alpha: f32,
                shadow_ox: f32, shadow_oy: f32, shadow_blur: f32, shadow_hex: u32, shadow_alpha: f32,
@@ -414,7 +414,7 @@ fn paint_shape(ctx: &mut Context, r: Rect, radius: f32, fill_hex: u32, fill_alph
     primitive_painter::paint_rectangle(ctx, &prim);
 }
 
-/// Simplified paint_shape for common fill+stroke case
+/// 常見填充+描邊情況的簡化paint_shape
 fn paint_fill_stroke(ctx: &mut Context, r: Rect, radius: f32,
                      fill_hex: u32, fill_alpha: f32,
                      stroke_hex: u32, stroke_width: f32, stroke_alpha: f32) {
@@ -424,7 +424,7 @@ fn paint_fill_stroke(ctx: &mut Context, r: Rect, radius: f32,
     }
 }
 
-/// Paint a shape with fill + shadow (no blur)
+/// 使用填滿+陰影繪製形狀（無模糊）
 fn paint_fill_shadow(ctx: &mut Context, r: Rect, radius: f32,
                      fill_hex: u32, fill_alpha: f32,
                      shadow_oy: f32, shadow_blur: f32, shadow_hex: u32, shadow_alpha: f32) {
@@ -432,7 +432,7 @@ fn paint_fill_shadow(ctx: &mut Context, r: Rect, radius: f32,
                 0.0, shadow_oy, shadow_blur, shadow_hex, shadow_alpha, 0.0, 0.0, 1.0);
 }
 
-/// Paint a gradient fill using vertical_gradient brush
+/// 使用vertical_gradient畫筆繪製漸層填充
 fn paint_gradient(ctx: &mut Context, r: Rect, top_hex: u32, bottom_hex: u32, alpha: f32) {
     let brush = gfx::vertical_gradient(
         gfx::color_from_hex(top_hex, alpha),
@@ -441,7 +441,7 @@ fn paint_gradient(ctx: &mut Context, r: Rect, top_hex: u32, bottom_hex: u32, alp
     ctx.paint_filled_rect_with_brush(r, brush, 0.0);
 }
 
-// ── UI Components ──
+// ── 使用者介面組件 ──
 
 fn draw_avatar(ctx: &mut Context, rect: Rect, avatar: &Courier, scale: f32) {
     let radius = rect.w * 0.5;
@@ -449,14 +449,14 @@ fn draw_avatar(ctx: &mut Context, rect: Rect, avatar: &Courier, scale: f32) {
     let inner = inset_rect(rect, 2.0 * scale);
     let ir = inner.w * 0.5;
     paint_gradient(ctx, inner, avatar.avatar_top, avatar.avatar_bottom, 1.0);
-    // Overdraw with rounded clip approximation via large radius
+    // 透過大半徑使用圓形剪輯近似進行過度繪製
     draw_fill(ctx, Rect::new(inner.x + inner.w * 0.18, inner.y + inner.h * 0.58, inner.w * 0.64, inner.h * 0.34), avatar.shirt, inner.h * 0.17, 0.95);
     draw_fill(ctx, Rect::new(inner.x + inner.w * 0.43, inner.y + inner.h * 0.46, inner.w * 0.14, inner.h * 0.11), avatar.skin, inner.w * 0.06, 1.0);
     draw_fill(ctx, Rect::new(inner.x + inner.w * 0.30, inner.y + inner.h * 0.19, inner.w * 0.40, inner.h * 0.40), avatar.skin, inner.w * 0.20, 1.0);
     draw_fill(ctx, Rect::new(inner.x + inner.w * 0.20, inner.y + inner.h * 0.06, inner.w * 0.60, inner.h * 0.36), avatar.hair, inner.w * 0.30, 0.98);
     draw_fill(ctx, Rect::new(inner.x + inner.w * 0.19, inner.y + inner.h * 0.24, inner.w * 0.12, inner.h * 0.22), avatar.hair, inner.w * 0.06, 0.98);
     draw_fill(ctx, Rect::new(inner.x + inner.w * 0.69, inner.y + inner.h * 0.24, inner.w * 0.12, inner.h * 0.22), avatar.hair, inner.w * 0.06, 0.98);
-    // Re-clip avatar circle by drawing an outline on top (the gradient doesn't have radius, so we approximate)
+    // 透過在頂部繪製輪廓來重新剪輯頭像圓（漸變沒有半徑，所以我們近似）
     let _ = ir; // avatar_top gradient is actually drawn without radius, matching C++ ui.shape().in(inner).radius(ir).gradient(...)
 }
 
@@ -528,7 +528,7 @@ fn draw_dropdown_control(
     );
     set_overlay_block(state, Rect::new(menu.x - 10.0 * scale, menu.y - 10.0 * scale, menu.w + 20.0 * scale, menu.h + 20.0 * scale));
 
-    // Backdrop blur + fill
+    // 背景模糊+填充
     paint_shape(ctx, menu, 12.0 * scale,
         0xF7FAFF, (if palette.dark { 0.05 } else { 0.12 }) * menu_mix,
         0xFFFFFF, 1.0, (if palette.dark { 0.10 } else { 0.16 }) * menu_mix,
@@ -560,7 +560,7 @@ fn draw_dropdown_control(
             Rect::new(item.x + 12.0 * scale, item.y + 7.0 * scale, item.w - 24.0 * scale, 16.0 * scale),
             11.5 * scale, if item_selected { palette.chip_active_text } else { palette.text }, 0.98);
         if menu_mix > 0.9 && is_clicked(input, &item) {
-            *selected_index = i as i32;
+            * 所選索引 = i 作為 i32；
             state.open_menu = OpenMenu::None;
         }
     }
@@ -800,7 +800,7 @@ fn draw_orders_panel(ctx: &mut Context, input: &InputState, state: &mut Dashboar
     let inner = inset_rect(rect, 26.0 * scale);
     draw_text_left(ctx, title, Rect::new(inner.x, inner.y + 8.0 * scale, 220.0 * scale, 28.0 * scale), 23.0 * scale, palette.text, 1.0);
 
-    // Dropdown (needs mutable access to state)
+    // 下拉式選單（需要對狀態進行可變存取）
     let mut orders_range = state.orders_range;
     draw_dropdown_control(ctx, input,
         Rect::new(inner.x + inner.w - 128.0 * scale, inner.y, 128.0 * scale, 42.0 * scale),
@@ -847,7 +847,7 @@ fn draw_activity_panel(ctx: &mut Context, input: &InputState, state: &mut Dashbo
     draw_fill(ctx, Rect::new(rect.x + rect.w * 0.48, rect.y + rect.h * 0.52, rect.w * 0.26, rect.h * 0.02), 0xD7E1FF, 8.0 * scale, 0.04);
     ctx.pop_clip();
 
-    // Backdrop blur layer
+    // 背景模糊層
     paint_shape(ctx, inset_rect(rect, 1.0), 0.0,
         0xF7F9FF, if palette.dark { 0.040 } else { 0.085 },
         0xFFFFFF, 1.0, if palette.dark { 0.055 } else { 0.18 },
@@ -953,7 +953,7 @@ fn draw_activity_panel(ctx: &mut Context, input: &InputState, state: &mut Dashbo
             0.0, 4.0 * scale, 10.0 * scale, 0x020617, tooltip_alpha * 0.12,
             0.0, 0.0, 1.0);
         draw_text_center(ctx, &tooltip_text, bubble, 11.4 * scale, 0x181B2A, tooltip_alpha);
-        // Arrow with rotation
+        // 帶旋轉的箭頭
         ctx.push_rotation(45.0, arrow.w * 0.5, arrow.h * 0.5);
         draw_fill(ctx, arrow, 0xFBFBFD, 2.0 * scale, tooltip_alpha * 0.95);
         ctx.pop_transform();
@@ -1014,7 +1014,7 @@ fn draw_settings_panel(ctx: &mut Context, input: &InputState, state: &mut Dashbo
     let panel_mix = panel_mix.clamp(0.0, 1.0);
     let panel = settings_panel_rect(rect, scale, panel_mix);
 
-    // Backdrop blur panel
+    // 背景模糊面板
     paint_shape(ctx, panel, 22.0 * scale,
         0xF7FAFF, if palette.dark { 0.07 } else { 0.18 },
         0xFFFFFF, 1.0, if palette.dark { 0.10 } else { 0.18 },
@@ -1114,7 +1114,7 @@ fn draw_settings_panel(ctx: &mut Context, input: &InputState, state: &mut Dashbo
     ctx.set_global_alpha(1.0);
 }
 
-// ── Main layout ──
+// ── 主要佈局──
 
 fn draw_dashboard(ctx: &mut Context, input: &InputState, state: &mut DashboardState, rect: Rect, scale: f32, palette: &Palette) {
     let page = page_copy(state.nav);
@@ -1210,7 +1210,7 @@ fn draw_dashboard(ctx: &mut Context, input: &InputState, state: &mut DashboardSt
     }
 }
 
-// ── Entry point ──
+// ── 切入點──
 
 fn main() {
     let mut state = DashboardState::default();
@@ -1230,14 +1230,14 @@ fn main() {
 
         let palette = make_palette(state.theme_dark, state.accent_index);
 
-        // Set theme based on state
+        // 根據狀態設定主題
         let accent_hex = K_ACCENT_THEMES[state.accent_index.clamp(0, K_ACCENT_THEMES.len() as i32 - 1) as usize].accent;
         let accent_color = color_from_hex(accent_hex, 1.0);
         let mode = if state.theme_dark { ThemeMode::Dark } else { ThemeMode::Light };
         ctx.set_theme(make_theme(mode, &accent_color));
         ctx.set_corner_radius(10.0 * scale);
 
-        // Clone input to avoid borrow conflicts
+        // 克隆輸入以避免借用衝突
         let input = ctx.input().clone();
 
         state.overlay_block_active = false;

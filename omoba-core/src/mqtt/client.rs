@@ -1,4 +1,4 @@
-//! MQTT client wrapper
+//! MQTT 用戶端包裝器
 
 use rumqttc::{AsyncClient, MqttOptions, QoS, EventLoop, Event, Packet};
 use log::{info, warn, debug, error};
@@ -6,14 +6,14 @@ use anyhow::Result;
 
 use crate::config::ServerConfig;
 
-/// MQTT client for game communication
+/// 遊戲通訊MQTT客戶端
 pub struct MqttClient {
     client: AsyncClient,
     event_loop: EventLoop,
     player_name: String,
 }
 
-/// MQTT event for the frontend to process
+/// 供前端處理的 MQTT 事件
 #[derive(Debug, Clone)]
 pub enum MqttEvent {
     Connected,
@@ -23,7 +23,7 @@ pub enum MqttEvent {
 }
 
 impl MqttClient {
-    /// Create new MQTT client
+    /// 建立新的 MQTT 用戶端
     pub fn new(config: &ServerConfig, player_name: &str, client_id: &str) -> Result<Self> {
         let mut mqttoptions = MqttOptions::new(
             client_id,
@@ -44,20 +44,20 @@ impl MqttClient {
         })
     }
 
-    /// Subscribe to game topics
+    /// 訂閱遊戲主題
     pub async fn subscribe_to_game_topics(&self) -> Result<()> {
-        // Subscribe to broadcast messages
+        // 訂閱廣播訊息
         self.client.subscribe("td/all/res", QoS::AtMostOnce).await?;
 
-        // Subscribe to player-specific messages
+        // 訂閱特定於玩家的訊息
         let player_topic = format!("td/{}/send", self.player_name);
         self.client.subscribe(&player_topic, QoS::AtMostOnce).await?;
 
-        // Subscribe to screen response
+        // 訂閱螢幕回應
         let screen_topic = format!("td/{}/screen_response", self.player_name);
         self.client.subscribe(&screen_topic, QoS::AtMostOnce).await?;
 
-        // Subscribe to ability test response
+        // 訂閱能力測驗答案
         self.client.subscribe("ability_test/response", QoS::AtMostOnce).await?;
 
         info!("Subscribed to game topics for player: {}", self.player_name);
@@ -65,7 +65,7 @@ impl MqttClient {
         Ok(())
     }
 
-    /// Publish player action
+    /// 發布玩家動作
     pub async fn publish_action(&self, action: &str, data: serde_json::Value) -> Result<()> {
         let topic = format!("td/{}/action", self.player_name);
         let message = serde_json::json!({
@@ -82,7 +82,7 @@ impl MqttClient {
         Ok(())
     }
 
-    /// Poll for next event
+    /// 下次活動的投票
     pub async fn poll(&mut self) -> Option<MqttEvent> {
         match self.event_loop.poll().await {
             Ok(Event::Incoming(Packet::Publish(publish))) => {
@@ -107,7 +107,7 @@ impl MqttClient {
         }
     }
 
-    /// Get player name
+    /// 取得玩家姓名
     pub fn player_name(&self) -> &str {
         &self.player_name
     }

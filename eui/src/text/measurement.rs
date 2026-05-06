@@ -27,10 +27,10 @@ impl TextMeasurer {
         Some(Self { font, stb_font })
     }
 
-    /// Measure character advance matching C++ STB Truetype:
-    /// px = round(font_size * 1.20)
-    /// scale = stbtt_ScaleForPixelHeight(px)
-    /// advance = stbtt_GetGlyphHMetrics(glyph).advance_width * scale
+    /// 測量與 C++ STB Truetype 相符的字元提前：
+    /// px = 圓形(字體大小 * 1.20)
+    /// 比例 = stbtt_ScaleForPixelHeight(px)
+    /// 提前 = stbtt_GetGlyphHMetrics(glyph).advance_width * 比例
     pub fn measure_char_advance(&self, ch: char, font_size: f32) -> f32 {
         let px = (font_size * 1.20_f32).round();
         let scale = self.stb_font.scale_for_pixel_height(px);
@@ -82,20 +82,20 @@ impl TextMeasurer {
         &self.font
     }
 
-    /// Compute the ratio to convert STB pixel_height to fontdue font_size
-    /// so that fontdue renders glyphs at the same visual scale as STB measures.
+    /// 計算將 STB Pixel_height 轉換為 fontdue font_size 的比率
+    /// 以便 fontdue 以與 STB 測量相同的視覺比例呈現字形。
     ///
-    /// STB scale = pixel_height / (raw_ascent - raw_descent)
-    /// fontdue scale = font_size / units_per_em
-    /// To match: fontdue_fs = stb_pixel_height * units_per_em / (raw_ascent - raw_descent)
-    /// This method returns units_per_em / (raw_ascent - raw_descent).
+    /// STB 比例 = 像素高度 / (raw_ascent - raw_descent)
+    /// 字體大小 = font_size /units_per_em
+    /// 匹配：fontdue_fs = stb_pixel_height *units_per_em / (raw_ascent - raw_descent)
+    /// 此方法傳回units_per_em / (raw_ascent - raw_descent)。
     pub fn stb_to_fontdue_ratio(&self) -> f32 {
         let vm = self.stb_font.get_v_metrics();
         let raw_asc_desc = (vm.ascent - vm.descent) as f32;
         if raw_asc_desc.abs() < 1.0 {
             return 1.0;
         }
-        // Derive units_per_em from fontdue: at a reference size,
+        // 從 fontdue 匯出units_per_em：在參考尺寸，
         // fontdue_ascent = raw_ascent * ref_size / upm
         // => upm = raw_ascent * ref_size / fontdue_ascent
         let ref_size = 100.0;

@@ -5,8 +5,8 @@ members = [
     "base_content",
 ]
 
-# Release profile tuned for DLL scripts — optimize but keep debug symbols
-# stripped so the .dll stays lean.
+# 針對 DLL 腳本調整的發布設定檔 — 最佳化但保留偵錯符號
+# 被剝離，以便 .dll 保持精簡。
 [profile.release]
 opt-level = 3
 lto = "thin"

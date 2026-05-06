@@ -1,9 +1,9 @@
-//! Entity definitions for game objects
+//! 遊戲物件的實體定義
 
 use vek::Vec2;
 use std::time::SystemTime;
 
-/// Game entity
+/// 遊戲實體
 #[derive(Debug, Clone)]
 pub struct Entity {
     pub id: u32,
@@ -13,7 +13,7 @@ pub struct Entity {
     pub owner: Option<String>,
 }
 
-/// Entity type
+/// 實體類型
 #[derive(Debug, Clone, PartialEq)]
 pub enum EntityType {
     Player(String),
@@ -24,7 +24,7 @@ pub enum EntityType {
     Effect,
 }
 
-/// Ability state
+/// 能力狀態
 #[derive(Debug, Clone)]
 pub struct AbilityState {
     pub ability_id: String,
@@ -34,7 +34,7 @@ pub struct AbilityState {
     pub last_used: Option<SystemTime>,
 }
 
-/// Item state
+/// 物品狀態
 #[derive(Debug, Clone)]
 pub struct ItemState {
     pub item_id: String,
@@ -46,7 +46,7 @@ pub struct ItemState {
     pub last_used: Option<SystemTime>,
 }
 
-/// Summon state
+/// 召喚狀態
 #[derive(Debug, Clone)]
 pub struct SummonState {
     pub id: u32,
@@ -57,7 +57,7 @@ pub struct SummonState {
     pub spawn_time: SystemTime,
 }
 
-/// Summon AI state
+/// 召喚AI狀態
 #[derive(Debug, Clone, PartialEq)]
 pub enum SummonAIState {
     Idle,
@@ -67,7 +67,7 @@ pub enum SummonAIState {
     Dead,
 }
 
-/// Local player state
+/// 本地玩家狀態
 #[derive(Debug, Clone)]
 pub struct LocalPlayer {
     pub name: String,

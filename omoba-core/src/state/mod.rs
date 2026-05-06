@@ -1,4 +1,4 @@
-//! Game state management module
+//! 遊戲狀態管理模組
 
 pub mod entities;
 pub mod game_state;

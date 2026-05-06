@@ -1,4 +1,4 @@
-//! Game state management
+//! 遊戲狀態管理
 
 use std::collections::HashMap;
 use std::time::SystemTime;
@@ -10,7 +10,7 @@ use crate::state::viewport::Viewport;
 #[cfg(feature = "mqtt")]
 use crate::mqtt::messages::*;
 
-/// Player state for non-mqtt builds
+/// 非 mqtt 建構的播放器狀態
 #[cfg(not(feature = "mqtt"))]
 #[derive(Debug, Clone)]
 pub struct PlayerState {
@@ -20,14 +20,14 @@ pub struct PlayerState {
     pub health: (f32, f32),
 }
 
-/// Game state observer trait for frontends
+/// 前端的遊戲狀態觀察者特徵
 pub trait GameStateObserver {
     fn on_state_update(&mut self, state: &GameState);
     fn on_entity_added(&mut self, entity: &Entity);
     fn on_entity_removed(&mut self, entity_id: u32);
 }
 
-/// Main game state container
+/// 主遊戲狀態容器
 #[derive(Debug, Clone)]
 pub struct GameState {
     pub local_player: LocalPlayer,
@@ -42,7 +42,7 @@ pub struct GameState {
 }
 
 impl GameState {
-    /// Create new game state
+    /// 創造新的遊戲狀態
     pub fn new(player_name: String, hero_type: String) -> Self {
         let local_player = LocalPlayer::new(player_name.clone(), hero_type.clone());
 
@@ -61,7 +61,7 @@ impl GameState {
         }
     }
 
-    /// Update player position
+    /// 更新玩家位置
     pub fn update_player_position(&mut self, player_name: &str, x: f32, y: f32) {
         if player_name == self.local_player.name {
             self.local_player.position = Vec2::new(x, y);
@@ -76,7 +76,7 @@ impl GameState {
         self.last_update = SystemTime::now();
     }
 
-    /// Update player health
+    /// 更新玩家健康狀況
     pub fn update_player_health(&mut self, player_name: &str, current: f32, max: f32) {
         if player_name == self.local_player.name {
             self.local_player.health = (current, max);
@@ -90,7 +90,7 @@ impl GameState {
         self.last_update = SystemTime::now();
     }
 
-    /// Sync player state from server
+    /// 從伺服器同步玩家狀態
     pub fn sync_player_state(&mut self, player_state: &PlayerState) {
         if player_state.name == self.local_player.name {
             let server_pos = Vec2::new(player_state.position.0, player_state.position.1);
@@ -114,13 +114,13 @@ impl GameState {
         self.last_update = SystemTime::now();
     }
 
-    /// Add or update entity
+    /// 新增或更新實體
     pub fn upsert_entity(&mut self, entity: Entity) {
         self.entities.insert(entity.id, entity);
         self.last_update = SystemTime::now();
     }
 
-    /// Update entity position
+    /// 更新實體位置
     pub fn update_entity_position(&mut self, id: u32, x: f32, y: f32) {
         if let Some(entity) = self.entities.get_mut(&id) {
             entity.position = Vec2::new(x, y);
@@ -128,13 +128,13 @@ impl GameState {
         }
     }
 
-    /// Remove entity
+    /// 刪除實體
     pub fn remove_entity(&mut self, entity_id: u32) {
         self.entities.remove(&entity_id);
         self.last_update = SystemTime::now();
     }
 
-    /// Update cooldowns
+    /// 更新冷卻時間
     pub fn update_cooldowns(&mut self, delta_time: f32) {
         if self.is_paused {
             return;
@@ -164,19 +164,19 @@ impl GameState {
         }
     }
 
-    /// Set time scale (for debug)
+    /// 設定時間刻度（用於調試）
     pub fn set_time_scale(&mut self, scale: f32) {
         self.time_scale = scale.clamp(0.0, 4.0);
         info!("Time scale set to: {}x", self.time_scale);
     }
 
-    /// Toggle pause
+    /// 切換暫停
     pub fn toggle_pause(&mut self) {
         self.is_paused = !self.is_paused;
         info!("Game {}", if self.is_paused { "paused" } else { "resumed" });
     }
 
-    /// Get status summary
+    /// 取得狀態摘要
     pub fn get_status_summary(&self) -> String {
         format!(
             "Player: {} ({}) | Pos: ({:.1}, {:.1}) | HP: {:.0}/{:.0} | Time: {:.1}s | Scale: {}x",
@@ -191,7 +191,7 @@ impl GameState {
         )
     }
 
-    /// Check if state has valid data
+    /// 檢查狀態是否有有效數據
     pub fn has_valid_data(&self) -> bool {
         !self.local_player.name.is_empty()
             || !self.other_players.is_empty()

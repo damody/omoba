@@ -1,12 +1,12 @@
 //! Tack Shooter — 近戰放射針塔，MVP 支援 12 升級 flag / stat。
 //!
 //! 支援:
-//! - Path1: needles_12 / needles_16 / needles_32, blade_shooter (hit_radius 110, dmg ≥ 20)
+//! - 路徑1：needles_12/needles_16/needles_32，blade_shooter（命中半徑110，傷害≥20）
 //! - Path2: ring_of_fire (每射一次塔周 200 radius / 20 dmg magical),
 //!   inferno_ring (同半徑 / 50 dmg)
 //! - Stat: damage_bonus, range_bonus (透過 get_final_*)
 //!
-//! TODO:
+//! 待辦事項：
 //! - burn_tier1 / burn_tier2: 需 DoT 系統（Task 15）才能真正掛 burn buff。
 //!   這裡先暫不處理命中後加 burn。
 

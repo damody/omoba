@@ -31,8 +31,8 @@ impl AbilityScript for FlameAssaultHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // JSON extras still f32 → Fixed64 conversion at boundary.
-        // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
+        // JSON 額外內容仍然是 f32 → 邊界處的固定 64 轉換。
+        // 第 2 階段：omoba_core::AbilityLevelData 仍為 f32；第二階段 KCP 標籤返工中的重新設計。
         let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra

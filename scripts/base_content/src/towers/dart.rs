@@ -125,7 +125,7 @@ impl UnitScript for DartTower {
                 // step_deg = (2 * spread_deg) / (count - 1)
                 let denom = (count as i32) - 1;
                 // i 個彈 step：from -spread_deg to +spread_deg；
-                // total ticks = base_angle.ticks() + (-spread_deg + step_deg*i) (in degrees)
+                // 總刻度 = base_angle.ticks() + (-spread_deg + step_deg*i) （以度為單位）
                 let offset_deg = -spread_deg + (2 * spread_deg * (i as i32)) / denom;
                 let offset_ticks = omoba_sim::trig::Angle::from_degrees_i32(offset_deg).ticks();
                 omoba_sim::trig::Angle::from_ticks(base_angle.ticks() + offset_ticks)
@@ -180,7 +180,7 @@ impl UnitScript for DartTower {
             return;
         }
 
-        // crit_bonus override
+        // 暴擊獎勵覆蓋
         let crit_bonus_extra = w.get_stat_bonus(attacker, StatKey::CritBonus);
         let bonus_damage = if crit_bonus_extra > Fixed64::ZERO {
             crit_bonus_extra

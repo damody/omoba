@@ -12,7 +12,7 @@ use abi_stable::{std_types::RStr, StableAbi};
 
 /// 標準狀態 buff 識別字（stun / root / silence / invisible / invulnerable）。
 ///
-/// # SAFETY
+/// ＃ 安全
 /// Variant 順序 = FFI ABI 契約：新增只能**追加到尾端**，絕不可在中間 insert
 /// 或更動 discriminant 值，否則 host 與 script DLL 版本不同步會 UB。
 /// 每個 variant 顯式寫 `= N` 以鎖定值。

@@ -1,4 +1,4 @@
-//! Configuration management for OMOBA frontends
+//! OMOBA 前端的設定管理
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Result, Context};
 use omoba_template_ids::HERO_SAIKA_MAGOICHI;
 
-/// Application configuration
+/// 應用程式配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
@@ -14,14 +14,14 @@ pub struct AppConfig {
     pub frontend: FrontendConfig,
 }
 
-/// Server configuration
+/// 伺服器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub mqtt_host: String,
     pub mqtt_port: u16,
 }
 
-/// Backend configuration
+/// 後端配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackendConfig {
     pub executable_path: String,
@@ -32,7 +32,7 @@ pub struct BackendConfig {
     pub env: HashMap<String, String>,
 }
 
-/// Frontend configuration
+/// 前端配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrontendConfig {
     pub player_name: String,
@@ -67,7 +67,7 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    /// Load configuration from file
+    /// 從檔案載入配置
     pub fn from_file(path: &str) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Cannot read config file: {}", path))?;
@@ -78,7 +78,7 @@ impl AppConfig {
         Ok(config)
     }
 
-    /// Load configuration (prefer file, fallback to default)
+    /// 載入配置（首選文件，回退到預設值）
     pub fn load() -> Self {
         match Self::from_file("config.toml") {
             Ok(config) => {
@@ -92,7 +92,7 @@ impl AppConfig {
         }
     }
 
-    /// Save configuration to file
+    /// 將配置儲存到文件
     pub fn save_to_file(&self, path: &str) -> Result<()> {
         let content = toml::to_string_pretty(self)
             .context("Cannot serialize config")?;
@@ -103,7 +103,7 @@ impl AppConfig {
         Ok(())
     }
 
-    /// Get backend executable absolute path
+    /// 取得後端可執行檔的絕對路徑
     pub fn get_backend_executable_path(&self) -> Result<PathBuf> {
         let path = PathBuf::from(&self.backend.executable_path);
 

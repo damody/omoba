@@ -51,7 +51,7 @@ pub fn sample_bezier_y(bezier: &CubicBezier, progress: f32) -> f32 {
         return progress;
     }
 
-    // Newton-Raphson
+    // 牛頓-拉夫遜
     let mut t = progress;
     for _ in 0..6 {
         let x = cubic_bezier_component(0.0, bezier.x1, bezier.x2, 1.0, t);
@@ -63,7 +63,7 @@ pub fn sample_bezier_y(bezier: &CubicBezier, progress: f32) -> f32 {
         t = t.clamp(0.0, 1.0);
     }
 
-    // Bisection refinement
+    // 二分細化
     let mut low = 0.0_f32;
     let mut high = 1.0_f32;
     for _ in 0..8 {

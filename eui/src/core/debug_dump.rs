@@ -162,41 +162,41 @@ pub fn dump_commands_json(
     for (i, cmd) in commands.iter().enumerate() {
         out.push_str("    {\n");
 
-        // index, type
+        // 索引、類型
         writeln!(out, "      \"index\": {},", i).unwrap();
         writeln!(out, "      \"type\": \"{}\",", command_type_str(cmd.command_type)).unwrap();
 
-        // rect
+        // 直角
         out.push_str("      \"rect\": ");
         write_f32_array(&mut out, &[cmd.rect.x, cmd.rect.y, cmd.rect.w, cmd.rect.h]);
         out.push_str(",\n");
 
-        // clip_rect
+        // 剪輯矩形
         out.push_str("      \"clip_rect\": ");
         write_f32_array(&mut out, &[cmd.clip_rect.x, cmd.clip_rect.y, cmd.clip_rect.w, cmd.clip_rect.h]);
         out.push_str(",\n");
 
-        // visible_rect
+        // 可見矩形
         out.push_str("      \"visible_rect\": ");
         write_f32_array(&mut out, &[cmd.visible_rect.x, cmd.visible_rect.y, cmd.visible_rect.w, cmd.visible_rect.h]);
         out.push_str(",\n");
 
-        // color
+        // 顏色
         out.push_str("      \"color\": ");
         write_f32_array(&mut out, &[cmd.color.r, cmd.color.g, cmd.color.b, cmd.color.a]);
         out.push_str(",\n");
 
-        // scalar fields
+        // 標量場
         out.push_str("      \"radius\": "); write_f32(&mut out, cmd.radius); out.push_str(",\n");
         out.push_str("      \"thickness\": "); write_f32(&mut out, cmd.thickness); out.push_str(",\n");
         out.push_str("      \"rotation\": "); write_f32(&mut out, cmd.rotation); out.push_str(",\n");
         out.push_str("      \"blur_radius\": "); write_f32(&mut out, cmd.blur_radius); out.push_str(",\n");
         out.push_str("      \"effect_alpha\": "); write_f32(&mut out, cmd.effect_alpha); out.push_str(",\n");
 
-        // has_clip
+        // 有剪輯
         writeln!(out, "      \"has_clip\": {},", cmd.has_clip).unwrap();
 
-        // text — inline from text_arena
+        // 文字 — 來自 text_arena 的內聯
         let text = if cmd.text_length > 0 {
             let start = cmd.text_offset as usize;
             let end = start + cmd.text_length as usize;
@@ -212,12 +212,12 @@ pub fn dump_commands_json(
         write_json_string(&mut out, text);
         out.push_str(",\n");
 
-        // font_size, align, image_fit
+        // 字體大小、對齊、圖片適合
         out.push_str("      \"font_size\": "); write_f32(&mut out, cmd.font_size); out.push_str(",\n");
         writeln!(out, "      \"align\": \"{}\",", text_align_str(cmd.align)).unwrap();
         writeln!(out, "      \"image_fit\": \"{}\",", image_fit_str(cmd.image_fit)).unwrap();
 
-        // brush — inline payload
+        // Brush — 內聯有效負載
         out.push_str("      \"brush\": ");
         if cmd.brush_payload_index != K_INVALID_PAYLOAD_INDEX {
             let idx = cmd.brush_payload_index as usize;
@@ -231,7 +231,7 @@ pub fn dump_commands_json(
         }
         out.push_str(",\n");
 
-        // transform — inline payload
+        // 轉換 — 內聯有效負載
         out.push_str("      \"transform\": ");
         if cmd.transform_payload_index != K_INVALID_PAYLOAD_INDEX {
             let idx = cmd.transform_payload_index as usize;
@@ -245,7 +245,7 @@ pub fn dump_commands_json(
         }
         out.push('\n');
 
-        // close object
+        // 接近的物體
         out.push_str("    }");
         if i + 1 < commands.len() {
             out.push(',');

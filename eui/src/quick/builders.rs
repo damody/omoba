@@ -10,7 +10,7 @@ use crate::quick::gfx;
 use crate::quick::primitive_painter;
 use crate::rect::Rect;
 
-// ── Placement helper ──
+// ── 安置助手 ──
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Placement {
@@ -39,7 +39,7 @@ fn resolve_placement(p: &Placement, content: Rect) -> Rect {
     Rect::new(x, y, w, h)
 }
 
-// ── ShapeBuilder ──
+// ── 形狀產生器 ──
 
 pub struct ShapeBuilder<'a> {
     ctx: &'a mut Context,
@@ -98,7 +98,7 @@ impl<'a> ShapeBuilder<'a> {
     }
 }
 
-// ── TextBuilder ──
+// ── 文字產生器 ──
 
 pub struct TextBuilder<'a> {
     ctx: &'a mut Context,
@@ -140,7 +140,7 @@ impl<'a> TextBuilder<'a> {
     }
 }
 
-// ── LabelBuilder ──
+// ── 標籤產生器 ──
 
 pub struct LabelBuilder<'a> {
     ctx: &'a mut Context,
@@ -170,7 +170,7 @@ impl<'a> LabelBuilder<'a> {
     }
 }
 
-// ── ButtonBuilder ──
+// ── 按鈕產生器 ──
 
 pub struct ButtonBuilder<'a> {
     ctx: &'a mut Context,
@@ -264,11 +264,11 @@ impl<'a> SliderFloatBuilder<'a> {
         let lr = self.ctx.layout_rect();
         let y = self.ctx.cursor_y();
         let r = Rect::new(lr.x, y, lr.w, self.height);
-        // Label
+        // 標籤
         let label_r = Rect::new(r.x, r.y, r.w, self.label_height);
         let muted = self.ctx.theme().muted_text;
         self.ctx.paint_text(label_r, &self.label, self.label_font_size, muted, TextAlign::Left);
-        // Slider
+        // 滑桿
         let slider_r = Rect::new(r.x, r.y + self.label_height, r.w, self.height - self.label_height);
         let id = crate::core::context_utils::context_hash_sv(&self.label);
         let changed = self.ctx.slider_labeled_styled(
@@ -288,7 +288,7 @@ impl<'a> SliderFloatBuilder<'a> {
     }
 }
 
-// ── NumericFieldBuilder ──
+// ── 數字欄位產生器 ──
 
 /// 純數字欄位（無 slider bar）。以 `&mut f32` 為值來源，內部管理
 /// string buffer，失焦時 parse 並 clamp 到 `[min, max]`。
@@ -334,7 +334,7 @@ impl<'a> NumericFieldBuilder<'a> {
         let y = self.ctx.cursor_y();
         let r = Rect::new(lr.x, y, lr.w, self.height);
 
-        // Label
+        // 標籤
         if !self.label.is_empty() {
             let label_r = Rect::new(r.x, r.y, r.w, self.label_height);
             let muted = self.ctx.theme().muted_text;
@@ -404,7 +404,7 @@ impl<'a> NumericFieldBuilder<'a> {
     }
 }
 
-// ── InputBuilder ──
+// ── 輸入生成器 ──
 
 pub struct InputBuilder<'a> {
     ctx: &'a mut Context,
@@ -462,7 +462,7 @@ impl<'a> InputBuilder<'a> {
     }
 }
 
-// ── ProgressBuilder ──
+// ── 進步建造者 ──
 
 pub struct ProgressBuilder<'a> {
     ctx: &'a mut Context,
@@ -494,7 +494,7 @@ impl<'a> ProgressBuilder<'a> {
     }
 }
 
-// ── AnchorBuilder ──
+// ── 錨點產生器 ──
 
 pub struct AnchorBuilder<'a> {
     ctx: &'a Context,
@@ -531,7 +531,7 @@ impl<'a> AnchorBuilder<'a> {
     }
 }
 
-// ── ImageBuilder ──
+// ── 影像產生器 ──
 
 pub struct ImageBuilder<'a> {
     ctx: &'a mut Context,
@@ -558,7 +558,7 @@ impl<'a> ImageBuilder<'a> {
     }
 }
 
-// ── RectangleBuilder (wraps graphics::RectanglePrimitive) ──
+// － RectangleBuilder（包裹圖形::RectanglePrimitive）—
 
 pub struct RectangleBuilder<'a> {
     ctx: &'a mut Context,
@@ -597,7 +597,7 @@ impl<'a> RectangleBuilder<'a> {
     }
 }
 
-// ── SurfaceBuilder (panel/card) ──
+// ── SurfaceBuilder（面板/卡）—
 
 pub struct SurfaceBuilder<'a> {
     ctx: &'a mut Context,
@@ -625,13 +625,13 @@ impl<'a> SurfaceBuilder<'a> {
         let content = self.ctx.layout_rect();
         let r = resolve_placement(&self.placement, content);
 
-        // Background
+        // 背景
         let panel_color = self.ctx.theme().panel;
         let border_color = self.ctx.theme().panel_border;
         self.ctx.paint_filled_rect(r, panel_color, self.radius);
         self.ctx.paint_outline_rect(r, border_color, self.radius, 1.0);
 
-        // Title
+        // 標題
         let inner = Rect::new(r.x + self.padding, r.y + self.padding, (r.w - self.padding * 2.0).max(0.0), (r.h - self.padding * 2.0).max(0.0));
         if !self.title.is_empty() {
             let title_r = Rect::new(inner.x, inner.y, inner.w, 20.0);
@@ -648,7 +648,7 @@ impl<'a> SurfaceBuilder<'a> {
     }
 }
 
-// ── MetricBuilder ──
+// ── 指標產生器 ──
 
 pub struct MetricBuilder<'a> {
     ctx: &'a mut Context,
@@ -677,7 +677,7 @@ impl<'a> MetricBuilder<'a> {
     }
 }
 
-// ── RowBuilder ──
+// ── 行生成器 ──
 
 pub struct RowBuilder<'a> {
     ctx: &'a mut Context,

@@ -1,9 +1,9 @@
-//! MQTT message format definitions
+//! MQTT 訊息格式定義
 
 use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 
-/// MQTT message format (matches backend MqttMsg)
+/// MQTT訊息格式（匹配後端MqttMsg）
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MqttMessage {
     pub topic: String,
@@ -11,7 +11,7 @@ pub struct MqttMessage {
     pub time: SystemTime,
 }
 
-/// Player data format (matches backend PlayerData)
+/// 播放器資料格式（匹配後端PlayerData）
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PlayerData {
     pub name: String,
@@ -23,7 +23,7 @@ pub struct PlayerData {
     pub data: serde_json::Value,
 }
 
-/// Ability data
+/// 能力數據
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AbilityData {
     pub ability_id: String,
@@ -33,7 +33,7 @@ pub struct AbilityData {
     pub target_entity: Option<u32>,
 }
 
-/// Summon data
+/// 召喚數據
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SummonData {
     pub unit_type: String,
@@ -42,7 +42,7 @@ pub struct SummonData {
     pub state: String,
 }
 
-/// Player state (full state sync)
+/// 播放器狀態（全狀態同步）
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PlayerState {
     pub name: String,
@@ -55,7 +55,7 @@ pub struct PlayerState {
     pub summons: Vec<SummonData>,
 }
 
-/// Screen response format
+/// 螢幕回應格式
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScreenResponse {
     #[serde(rename = "t")]
@@ -64,7 +64,7 @@ pub struct ScreenResponse {
     pub data: ScreenData,
 }
 
-/// Screen data
+/// 螢幕數據
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScreenData {
     pub area: Option<ScreenArea>,
@@ -76,7 +76,7 @@ pub struct ScreenData {
     pub timestamp: u64,
 }
 
-/// Screen area bounds
+/// 螢幕區域邊界
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ScreenArea {
     pub min_x: f32,
@@ -85,7 +85,7 @@ pub struct ScreenArea {
     pub max_y: f32,
 }
 
-/// Network entity data
+/// 網路實體資料
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NetworkEntity {
     pub id: u32,
@@ -96,7 +96,7 @@ pub struct NetworkEntity {
     pub state: String,
 }
 
-/// Projectile data
+/// 彈丸數據
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ProjectileData {
     pub id: u32,
@@ -106,7 +106,7 @@ pub struct ProjectileData {
     pub owner: String,
 }
 
-/// Terrain data
+/// 地形數據
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TerrainData {
     pub position: (f32, f32),
@@ -114,7 +114,7 @@ pub struct TerrainData {
     pub properties: serde_json::Value,
 }
 
-/// Test response format
+/// 測試響應格式
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TestResponse {
     pub command: String,

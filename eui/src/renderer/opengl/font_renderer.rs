@@ -23,16 +23,16 @@ pub struct FontAtlas {
     pub row_height: u32,
     pub glyphs: HashMap<(char, u32), GlyphEntry>,
     pub font: Font,
-    /// Ratio to convert STB pixel_height to fontdue font_size:
+    /// 將 STB Pixel_height 轉換為 fontdue font_size 的比值：
     /// render_fs = round(cmd_fs * 1.20) * stb_to_fontdue_ratio
-    /// When 0.0, no STB correction is applied (icon fonts).
+    /// 當 0.0 時，不套用 STB 校正（圖示字體）。
     pub stb_to_fontdue_ratio: f32,
 }
 
 impl FontAtlas {
-    /// Convert a DrawCommand font_size to the fontdue render font_size.
-    /// For text fonts: matches the STB measurement scale.
-    /// For icon fonts (ratio=0): uses font_size directly.
+    /// 將 DrawCommand font_size 轉換為 fontdue 渲染 font_size。
+    /// 對於文字字體：匹配 STB 測量比例。
+    /// 對於圖示字體（ratio=0）：直接使用font_size。
     pub fn render_font_size(&self, cmd_font_size: f32) -> f32 {
         if self.stb_to_fontdue_ratio > 0.0 {
             (cmd_font_size * 1.20_f32).round() * self.stb_to_fontdue_ratio
@@ -88,7 +88,7 @@ impl FontAtlas {
             self.row_height = 0;
         }
         if self.cursor_y + gh + 1 > self.atlas_h {
-            // Atlas full - just reuse origin (lossy but won't crash)
+            // Atlas full - 只需重複使用原點（有損但不會崩潰）
             self.cursor_x = 1;
             self.cursor_y = 1;
             self.row_height = 0;

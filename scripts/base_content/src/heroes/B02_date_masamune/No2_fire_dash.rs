@@ -30,8 +30,8 @@ impl AbilityScript for FireDashHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // JSON extras still f32 → Fixed64 conversion at boundary.
-        // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
+        // JSON 額外內容仍然是 f32 → 邊界處的固定 64 轉換。
+        // 第 2 階段：omoba_core::AbilityLevelData 仍為 f32；第二階段 KCP 標籤返工中的重新設計。
         let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra
@@ -53,7 +53,7 @@ impl AbilityScript for FireDashHandler {
             extra_at(&ABILITY_FIRE_DASH_CONST, "dash_width", level),
         );
         let tick_interval = Fixed64::from_raw(102); // 0.1 (≈ 102/1024)
-        // total_damage = damage_per_tick * (dash_duration / tick_interval)
+        // 總傷害=每次tick傷害*（dash_duration/tick_interval）
         let total_damage = damage_per_tick * (dash_duration / tick_interval);
 
         let dest = match target {
@@ -75,7 +75,7 @@ impl AbilityScript for FireDashHandler {
 }
 
 pub fn fire_dash_ffi() -> AbilityDefFFI {
-    // EffectSpec preview values stay f32 (omoba_core not migrated).
+    // EffectSpec 預覽值保持 f32（omoba_core 未遷移）。
     let dpt = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "damage_per_tick", 1);
     let dur = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "dash_duration", 1);
     let dmg_lv1 = dpt * (dur / 0.1);

@@ -42,9 +42,9 @@ pub fn push_textured_quad(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h:
     vertices.extend_from_slice(&[va, vb, vc, va, vc, vd]);
 }
 
-/// Push a filled rounded rectangle as triangles.
-/// When `radius <= 0` this falls back to a plain quad.
-/// Arc segment count is dynamic matching C++: `clamp(radius * 0.65, 3, 10)`.
+/// 將填滿的圓角矩形壓入三角形。
+/// 當“radius <= 0”時，這會退回到普通四邊形。
+/// 弧段計數是動態匹配C++：「clamp(radius * 0.65, 3, 10)」。
 pub fn push_rounded_quad(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h: f32,
                          r: f32, g: f32, b: f32, a: f32, radius: f32) {
     let rad = radius.clamp(0.0, (w.min(h)) * 0.5);
@@ -53,10 +53,10 @@ pub fn push_rounded_quad(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h: 
         return;
     }
 
-    // Dynamic segment count matching C++ build_rounded_points
+    // 動態段計數匹配 C++ build_rounded_points
     let steps = ((rad * 0.65) as usize).clamp(3, 10);
 
-    // Center of the rectangle
+    // 矩形的中心
     let cx = x + w * 0.5;
     let cy = y + h * 0.5;
     let center = Vertex::colored(cx, cy, r, g, b, a);
@@ -67,8 +67,8 @@ pub fn push_rounded_quad(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h: 
     let bottom = y + h;
     let pi = std::f32::consts::PI;
 
-    // Build perimeter points matching C++ build_rounded_points exactly:
-    // 4 arcs, first arc includes first point, subsequent arcs skip first point to avoid duplicates
+    // 建構與 C++ build_rounded_points 完全匹配的周界點：
+    // 4 條弧，第一個弧包含第一個點，後續弧跳過第一個點以避免重複
     let mut perimeter: Vec<Vertex> = Vec::with_capacity(steps * 4 + 4);
     let arcs: [(f32, f32, f32, f32, bool); 4] = [
         (left + rad,  top + rad,    pi,       1.5 * pi, true),   // top-left
@@ -90,7 +90,7 @@ pub fn push_rounded_quad(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h: 
         }
     }
 
-    // Triangle fan from center to perimeter
+    // 從中心到週邊呈三角形扇形
     let n = perimeter.len();
     for i in 0..n {
         let j = (i + 1) % n;
@@ -100,14 +100,14 @@ pub fn push_rounded_quad(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h: 
     }
 }
 
-/// Push a rounded rectangle outline as triangles.
-/// When `radius <= 0` this falls back to plain quads for the edges.
-/// Arc segment count is dynamic matching C++: `clamp(radius * 0.65, 3, 10)`.
+/// 將圓角矩形輪廓推為三角形。
+/// 當「radius <= 0」時，邊緣會回退到普通四邊形。
+/// 弧段計數是動態匹配C++：「clamp(radius * 0.65, 3, 10)」。
 pub fn push_rounded_outline(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, h: f32,
                             r: f32, g: f32, b: f32, a: f32, radius: f32, thickness: f32) {
     let rad = radius.clamp(0.0, (w.min(h)) * 0.5);
     if rad <= 0.0 {
-        // Fallback: 4 edge quads
+        // 後備：4 個邊四邊形
         let t = thickness;
         push_quad(vertices, x, y, w, t, r, g, b, a);
         push_quad(vertices, x, y + h - t, w, t, r, g, b, a);
@@ -116,7 +116,7 @@ pub fn push_rounded_outline(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, 
         return;
     }
 
-    // Dynamic segment count matching C++
+    // 動態段計數匹配C++
     let steps = ((rad * 0.65) as usize).clamp(3, 10);
 
     let left = x;
@@ -132,7 +132,7 @@ pub fn push_rounded_outline(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, 
         (left + rad,  bottom - rad, 0.5 * pi, pi,       false),
     ];
 
-    // Build inner and outer perimeter rings
+    // 建置內、外周邊環
     let mut outer: Vec<(f32, f32)> = Vec::with_capacity(steps * 4 + 4);
     let mut inner: Vec<(f32, f32)> = Vec::with_capacity(steps * 4 + 4);
     let half_t = thickness * 0.5;
@@ -151,7 +151,7 @@ pub fn push_rounded_outline(vertices: &mut Vec<Vertex>, x: f32, y: f32, w: f32, 
         }
     }
 
-    // Generate quad strip between inner and outer rings
+    // 在內環和外環之間產生四邊形帶
     let n = outer.len();
     for i in 0..n {
         let j = (i + 1) % n;

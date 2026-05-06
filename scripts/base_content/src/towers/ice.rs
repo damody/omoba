@@ -5,7 +5,7 @@
 //! - Stat: slow_factor_override (越小越強), slow_duration_bonus, splash_bonus,
 //!   damage_bonus, range_bonus (透過 get_final_*)
 //!
-//! TODO:
+//! 待辦事項：
 //! - arctic_aura_20 / snowstorm / cryo_cannon: 需 aura tick（Task 14）
 //! - embrittle_* : 需 damage_taken_bonus hook（Task 14）
 //! - refreeze: 命中時 remove+add slow，簡化版暫未處理

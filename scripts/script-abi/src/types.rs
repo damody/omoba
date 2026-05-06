@@ -1,13 +1,13 @@
-//! Stable-ABI value types that cross the host/DLL boundary.
+//! 跨越主機/DLL 邊界的穩定 ABI 值類型。
 
 use abi_stable::{StableAbi, std_types::{ROption, RString}};
 
-/// Re-export Fixed64 / Vec2 / Angle from omoba-sim so script-abi consumers (base_content, omb)
-/// don't need a separate dep on omoba-sim. Types carry abi_stable::StableAbi via
-/// omoba-sim's `abi-stable` feature.
+/// 從 omoba-sim 重新匯出 Fix64 / Vec2 / Angle，以便 script-abi 消費者（base_content、omb）
+/// 不需要 omoba-sim 上的單獨部門。類型透過 abi_stable::StableAbi 攜帶
+/// omoba-sim 的「abi-stable」功能。
 pub use omoba_sim::{Angle, Fixed64, Vec2};
 
-/// Opaque handle to a game entity. Host converts to/from `specs::Entity`.
+/// 遊戲實體的不透明句柄。主機與“specs::Entity”之間進行轉換。
 #[repr(C)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EntityHandle {
@@ -28,8 +28,8 @@ pub enum DamageKind {
     Pure,
 }
 
-/// Passed to `on_damage_taken` as `&mut` — scripts may modify `amount`
-/// (e.g. shield, damage reduction, reflect).
+/// 作為“&mut”傳遞給“on_damage_taken”——腳本可以修改“amount”
+/// （例如護盾、傷害減免、反射）。
 #[repr(C)]
 #[derive(StableAbi, Clone, Debug)]
 pub struct DamageInfo {

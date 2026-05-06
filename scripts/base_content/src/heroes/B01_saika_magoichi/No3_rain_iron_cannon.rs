@@ -44,10 +44,10 @@ impl AbilityScript for RainIronCannonHandler {
         world: &mut GameWorldDyn<'_>,
     ) {
         // 永久可見 buff — payload 標等級，前端可據此渲染 icon / tooltip。
-        // Phase 1de.2: this payload is NOT consumed via BuffStore::sum_add (no
-        // matching StatKey); it's a tooltip / visual-only marker. Keep f32
-        // emission for the frontend tooltip path. If a future system reads
-        // `true_damage_pct` numerically, switch to `.raw()`.
+        // 階段 1de.2：此有效負載不透過 BuffStore::sum_add 消耗（無
+        // 匹配 StatKey);它是一個工具提示/僅視覺標記。保留f32
+        // 前端工具提示路徑的發射。如果未來的系統讀取
+        // `true_damage_pct` 數值，切換到 `.raw()`。
         let pct = extra_at(&ABILITY_RAIN_IRON_CANNON_CONST, "true_damage_pct", new_level)
             .to_f32_for_render();
         let modifiers = serde_json::json!({
@@ -56,8 +56,8 @@ impl AbilityScript for RainIronCannonHandler {
             "true_damage_pct": pct,
         });
         let s = modifiers.to_string();
-        // Permanent buff — Fixed64 duration uses near-MAX as "indefinite" sentinel
-        // (BuffStore convention; passive never cleared via tick decrement).
+        // 永久增益 - 固定 64 持續時間使用接近 MAX 作為「無限期」哨兵
+        // （BuffStore 約定；被動永遠不會透過刻度遞減清除）。
         world.add_stat_buff(
             caster,
             RStr::from_str(BUFF_ID),
@@ -91,7 +91,7 @@ impl AbilityScript for RainIronCannonHandler {
         };
         let dx = victim_pos.x - attacker_pos.x;
         let dy = victim_pos.y - attacker_pos.y;
-        // tiny-distance guard (was 0.0001 in f32; raw 1 ~ 0.001 in Fixed64)
+        // 微小距離保護（f32 中為 0.0001；Fixed64 中原始 1 ~ 0.001）
         if dx * dx + dy * dy < Fixed64::from_raw(1) {
             return;
         }
@@ -102,14 +102,14 @@ impl AbilityScript for RainIronCannonHandler {
             return;
         }
 
-        // arc_half is stored in templates.lua as radians (legacy). Convert radians to ticks:
-        // ticks_per_radian = TAU_TICKS / TAU = 4096 / (2π) ≈ 651.9.
-        // Multiply by 652 (raw, so divide by 1024 implicitly) — but easier: half_arc_ticks =
-        // raw_radian_value * (4096 / 2π). We approximate via tick math at the same precision.
-        // raw value of arc_half is `radians * 1024`. ticks = radians * 4096 / (2π) =
-        //                    raw * (4096 / (2π * 1024))  ≈ raw * 0.6366
-        // Use i64 multiply: ticks ≈ raw * 4096 * 1000 / (6283 * 1024) — keep deterministic.
-        // arc_half_ticks = arc_half.raw() * 4096 / (2π * 1024); 2π ≈ 6283/1000.
+        // arc_half 以弧度形式儲存在 templates.lua 中（舊版）。將弧度轉換為刻度：
+        // 每弧度刻度數 = TAU_TICKS / TAU = 4096 / (2π) ≈ 651.9。
+        // 乘以 652（原始，因此隱式除以 1024）—但更簡單：half_arc_ticks =
+        // 原始弧度值 * (4096 / 2π)。我們透過刻度數學以相同的精度進行近似。
+        // arc_half 的原始值為「弧度 * 1024」。刻度 = 弧度 * 4096 / (2π) =
+        // 原 * (4096 / (2π * 1024)) ≈ 原 * 0.6366
+        // 使用 i64 乘法：ticks ≈ raw * 4096 * 1000 / (6283 * 1024) — 保持確定性。
+        // arc_half_ticks = arc_half.raw() * 4096 / (2π * 1024); 2π ≈ 6283/1000。
         let arc_half_ticks: i32 =
             ((arc_half.raw() as i64 * 4096 * 1000) / (6283 * 1024)) as i32;
 
@@ -125,10 +125,10 @@ impl AbilityScript for RainIronCannonHandler {
                 continue;
             }
             let enemy_angle = omoba_sim::trig::atan2(edy, edx);
-            // Compute shortest signed tick difference modulo TAU (4096).
+            // 計算最短帶符號刻度差模 TAU (4096)。
             const TAU_TICKS: i32 = 4096;
             let mut diff = enemy_angle.ticks() - base_angle.ticks();
-            // Normalize to (-TAU/2, TAU/2]
+            // 標準化為 (-TAU/2, TAU/2]
             while diff > TAU_TICKS / 2 {
                 diff -= TAU_TICKS;
             }

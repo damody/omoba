@@ -5,10 +5,10 @@ edition = "2021"
 description = "Shared core library for OMOBA frontends"
 
 [dependencies]
-# MQTT client
+# MQTT客戶端
 rumqttc = { version = "0.24", optional = true }
 
-# Async runtime
+# 非同步運行時
 tokio = { version = "1.0", features = ["rt-multi-thread", "sync", "macros", "time"] }
 
 # Serialization
@@ -24,24 +24,24 @@ log = "0.4"
 # Math
 vek = "0.17"
 
-# Error handling
+# 錯誤處理
 anyhow = "1.0"
 
-# Random (for player simulation)
+# 隨機（用於玩家模擬）
 rand = "0.9"
 
-# gRPC client
+# gRPC 用戶端
 tonic = { version = "0.12", optional = true }
 prost = { version = "0.13", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
-# KCP client
+# KCP客戶端
 tokio_kcp = { version = "0.9", optional = true }
 
-# LZ4 compression (used by kcp framing)
+# LZ4 壓縮（由 kcp 成幀使用）
 lz4_flex = { version = "0.11", optional = true }
 
-# Template ids (build-time generated from Story/templates.json)
+# 模板 ID（建置時從 Story/templates.json 產生）
 omoba-template-ids = { path = "../omoba-template-ids" }
 
 [build-dependencies]

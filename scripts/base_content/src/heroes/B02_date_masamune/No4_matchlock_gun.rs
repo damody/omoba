@@ -35,7 +35,7 @@ impl AbilityScript for MatchlockGunHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // JSON extras still f64-encoded.
+        // JSON 額外內容仍採用 f64 編碼。
         let get_f = |k: &str| {
             level_data
                 .extra
@@ -43,12 +43,12 @@ impl AbilityScript for MatchlockGunHandler {
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0)
         };
-        // Phase 1de.2: sum_add-aggregated stats emit raw Fixed64 i32 (lockstep-correct).
-        // Helpers that read via raw `payload.get(...).as_f64()` (attack_stun_*) keep f64.
+        // 階段 1de.2：sum_add-聚合統計資料發出原始的 Fix64 i32（鎖步正確）。
+        // 透過原始 `payload.get(...).as_f64()` (attack_stun_*) 讀取的幫助程式保留 f64。
         let get_raw = |k: &str| -> i32 {
             Fixed64::from_raw((get_f(k) * 1024.0) as i64).raw() as i32
         };
-        // duration: f64 → Fixed64 at boundary for the FFI add_stat_buff call.
+        // 持續時間：f64 → FFI add_stat_buff 呼叫邊界處的固定 64。
         let duration_f = get_f("duration");
         let duration = Fixed64::from_raw((duration_f * 1024.0) as i64);
         // damage_bonus 為絕對傷害點（90/130/170）→ BaseAttackBonusDamage；

@@ -5,7 +5,7 @@ fn main() {
     eui::run(move |_ctx, ui| {
         let content = ui.content_rect();
 
-        // Center box
+        // 中心盒
         let center = ui.anchor()
             .in_rect(content)
             .center_x(0.0)
@@ -19,7 +19,7 @@ fn main() {
             ui.label("This card is centered using anchors").draw();
             ui.spacer(8.0);
 
-            // Anchor from parent
+            // 來自父級的錨點
             let inner = ui.content_rect();
             let top_left = ui.anchor()
                 .in_rect(inner)

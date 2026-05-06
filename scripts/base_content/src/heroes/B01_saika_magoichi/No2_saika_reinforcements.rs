@@ -36,9 +36,9 @@ impl AbilityScript for SaikaReinforcementsHandler {
             Ok(d) => d,
             Err(_) => AbilityLevelData::default(),
         };
-        // JSON extras still carry f32 (omoba_core::AbilityLevelData not yet migrated).
-        // Read as f64 then convert to Fixed64 at the boundary.
-        // PHASE 2: omoba_core::ability_meta still f32; redesign in Phase 2 KCP tag rework.
+        // JSON extras 仍然帶有 f32（omoba_core::AbilityLevelData 尚未遷移）。
+        // 讀取為 f64，然後在邊界處轉換為固定64。
+        // 第 2 階段：omoba_core::ability_meta 仍然是 f32；第二階段 KCP 標籤返工中的重新設計。
         let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra
@@ -78,7 +78,7 @@ impl AbilityScript for SaikaReinforcementsHandler {
         // 2 排 × cols 欄：count 必為偶數（保底 max(2)）；cols = count/2。
         let rows: u64 = 2;
         let cols = count / rows;
-        // col_center = (cols - 1) / 2 — keep in Fixed64 for downstream offset math.
+        // col_center = (cols - 1) / 2 — 保留在 Fix64 以進行下游偏移數學計算。
         let half = Fixed64::from_raw(512); // 0.5
         let col_center = Fixed64::from_i32((cols as i32) - 1) * half;
 

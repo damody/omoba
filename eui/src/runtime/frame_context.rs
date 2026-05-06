@@ -23,7 +23,7 @@ impl<'a> FrameContext<'a> {
 
     pub fn request_next_frame(&mut self) {
         if let Some(flag) = self.repaint_flag.as_mut() {
-            **flag = true;
+            * *標誌=真；
         }
     }
 

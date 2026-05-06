@@ -35,8 +35,8 @@ impl AbilityScript for ThreeStageHandler {
     ) -> RResult<(), RString> {
         let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
             .unwrap_or_default();
-        // omoba_core JSON extras still f32; convert to Fixed64 at boundary.
-        // PHASE 2: omoba_core::AbilityLevelData still f32; redesign in Phase 2 KCP tag rework.
+        // omoba_core JSON 額外內容仍為 f32；在邊界處轉換為固定64。
+        // 第 2 階段：omoba_core::AbilityLevelData 仍為 f32；第二階段 KCP 標籤返工中的重新設計。
         let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
             level_data
                 .extra
@@ -50,8 +50,8 @@ impl AbilityScript for ThreeStageHandler {
         let multi_shot = get_fx("multi_shot_count", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", level));
 
         let mut modifiers = serde_json::Map::new();
-        // Phase 1de.2: emit raw Fixed64 i32 — host BuffStore::read_fixed_from_payload
-        // prefers integer (lockstep-correct) over the legacy f64 quantization path.
+        // 階段 1de.2：發出原始的 Fix64 i32 — 主機 BuffStore::read_fixed_from_payload
+        // 與傳統的 f64 量化路徑相比，偏好整數（鎖步正確）。
         modifiers.insert(
             StatKey::TotalDamageOutgoingPercentage.as_str().into(),
             serde_json::json!(atk_bonus.raw()),

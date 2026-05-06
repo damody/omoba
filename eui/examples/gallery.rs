@@ -3,7 +3,7 @@ use eui::quick::ui::*;
 use eui::quick::layouts::*;
 use eui::core::context_utils::{context_scale_rect_from_center, context_translate_rect};
 
-// ── State ──
+// ── 狀態 ──
 
 #[allow(dead_code)]
 struct GalleryState {
@@ -61,7 +61,7 @@ impl Default for GalleryState {
     }
 }
 
-// ── Palette ──
+// ── 調色盤 ──
 
 #[derive(Clone, Copy)]
 struct GalleryPalette {
@@ -80,7 +80,7 @@ struct GalleryPalette {
     grid: u32,
 }
 
-// ── Constants ──
+// ── 常量 ──
 
 const PAGE_NAMES: [&str; 8] = [
     "Basic Controls", "Design", "Layout", "Animation",
@@ -142,7 +142,7 @@ const ICON_LIBRARY: [(u32, &str, &str); 12] = [
     (0xF061, "Arrow", "Forward / next"),
 ];
 
-// ── Helpers ──
+// ── 幫手 ──
 
 fn color_from_hex(hex: u32, alpha: f32) -> Color {
     rgb_hex(hex, alpha)
@@ -210,7 +210,7 @@ fn timeline_ping_pong(time: f64, duration: f32, preset: EasingPreset) -> f32 {
 }
 
 fn cubic_bezier_ease(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
-    // Attempt to solve for the parameter u such that bezier_x(u) == t
+    // 試著求解參數 u 使得 bezier_x(u) == t
     let mut u = t;
     for _ in 0..8 {
         let bx = 3.0 * (1.0 - u) * (1.0 - u) * u * x1
@@ -287,7 +287,7 @@ fn make_gallery_palette(state: &GalleryState) -> GalleryPalette {
     }
 }
 
-// ── Palette-derived colors ──
+// ── 源自調色盤的顏色 ──
 
 fn nav_selected_fill(p: &GalleryPalette) -> u32 {
     mix_hex(p.surface_deep, p.accent, if p.light { 0.18 } else { 0.24 })
@@ -360,7 +360,7 @@ fn panel_shadow_hex(p: &GalleryPalette) -> u32 {
     if p.light { 0x93A8BC } else { 0x020617 }
 }
 
-// ── Drawing helpers ──
+// ── 繪圖助手 ──
 
 fn draw_shadow(ctx: &mut Context, r: Rect, radius: f32, offset_y: f32, blur: f32, hex: u32, alpha: f32) {
     let shadow = Shadow {
@@ -373,7 +373,7 @@ fn draw_shadow(ctx: &mut Context, r: Rect, radius: f32, offset_y: f32, blur: f32
     eui::quick::primitive_painter::paint_shadow_approx(ctx, &r, radius, &shadow, alpha);
 }
 
-/// Card/surface shadow matching C++ SurfaceBuilder paint_shadow (different formula from paint_shadow_approx)
+/// 卡片/表面陰影匹配C++ SurfaceBuilder Paint_shadow（與paint_shadow_approx的公式不同）
 fn draw_shadow_card(ctx: &mut Context, r: Rect, radius: f32, offset_y: f32, blur: f32, hex: u32, alpha: f32) {
     let shadow = Shadow {
         offset_x: 0.0,
@@ -392,7 +392,7 @@ fn draw_fill(ctx: &mut Context, r: Rect, hex: u32, radius: f32, alpha: f32) {
 fn draw_gradient(ctx: &mut Context, r: Rect, top_hex: u32, bottom_hex: u32, radius: f32, alpha: f32) {
     let top_c = color_from_hex(top_hex, alpha);
     let bottom_c = color_from_hex(bottom_hex, alpha);
-    // Use normalized coordinates (0..1) matching C++ gfx::vertical_gradient
+    // 使用與 C++ gfx::vertical_gradient 相符的歸一化座標 (0..1)
     let brush = Brush {
         kind: BrushKind::LinearGradient,
         solid: GfxColor::from(top_c),
@@ -440,7 +440,7 @@ fn clicked(ctx: &Context, r: &Rect) -> bool {
     hovered(ctx, r) && ctx.is_mouse_pressed()
 }
 
-// ── Stage background ──
+// ── 舞台背景──
 
 fn draw_stage_background(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette) {
     draw_fill(ctx, rect, p.surface_alt, 22.0 * s, 1.0);
@@ -458,17 +458,17 @@ fn draw_stage_background(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalet
     }
 }
 
-// ── Actor ──
+// ── 演員 ──
 
 fn draw_actor(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette, top: u32, bottom: u32, alpha: f32) {
-    // Shadow matching C++: shadow(0.0, 8.0*s, 20.0*s, panel_shadow_hex, light?0.08:0.12)
+    // 陰影匹配 C++：shadow(0.0, 8.0*s, 20.0*s, panel_shadow_hex, light?0.08:0.12)
     draw_shadow(ctx, rect, 18.0 * s, 8.0 * s, 20.0 * s, panel_shadow_hex(p), if p.light { 0.08 } else { 0.12 });
-    // Gradient fill matching C++: .gradient(top, bottom, alpha)
+    // 漸變填充匹配C++：.gradient(top,bottom,alpha)
     draw_gradient(ctx, rect, top, bottom, 18.0 * s, alpha);
     // Stroke
     draw_stroke(ctx, rect, actor_stroke(p), 18.0 * s, 1.0, 0.92 * alpha);
-    // Inner card matching C++: inset(10*s), radius=10*s, fill=actor_inner_hex
-    // C++ uses .origin_center() per shape — inner fill needs its own rotation origin
+    // 內卡符合C++：inset(10*s), radius=10*s, fill=actor_inner_hex
+    // C++ 每個形狀使用 .origin_center() — 內部填滿需要自己的旋轉原點
     let inner_rect = inset_rect(&rect, 10.0 * s, 10.0 * s);
     let inner_alpha = if p.light { 0.32 } else { 0.18 };
     let saved = ctx.swap_rotation_origin(inner_rect.w * 0.5, inner_rect.h * 0.5);
@@ -478,7 +478,7 @@ fn draw_actor(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette, top: u3
 
 #[allow(clippy::too_many_arguments)]
 fn draw_actor_ex(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette, top: u32, bottom: u32, alpha: f32, blur_radius: f32, backdrop_blur: f32, fill_alpha: f32) {
-    // Outer shape: shadow + backdrop blur + gradient + stroke
+    // 外型：陰影+背景模糊+漸層+描邊
     draw_shadow(ctx, rect, 18.0 * s, 8.0 * s, 20.0 * s, panel_shadow_hex(p), if p.light { 0.08 } else { 0.12 });
     if blur_radius > 0.0 || backdrop_blur > 0.0 {
         ctx.paint_backdrop_blur(rect, backdrop_blur, 18.0 * s);
@@ -486,8 +486,8 @@ fn draw_actor_ex(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette, top:
     draw_gradient(ctx, rect, top, bottom, 18.0 * s, fill_alpha);
     draw_stroke(ctx, rect, actor_stroke(p), 18.0 * s, 1.0, 0.92 * alpha);
 
-    // Inner shape matching C++: inset(10*s), radius=10*s, fill=actor_inner_hex
-    // C++ uses .origin_center() per shape — inner fill needs its own rotation origin
+    // 內部形狀符合C++: inset(10*s), radius=10*s, fill=actor_inner_hex
+    // C++ 每個形狀使用 .origin_center() — 內部填滿需要自己的旋轉原點
     let inner_rect = inset_rect(&rect, 10.0 * s, 10.0 * s);
     let inner_alpha = (if p.light { 0.32 } else { 0.18 }) * fill_alpha;
     let inner_hex = actor_inner_hex(p);
@@ -503,7 +503,7 @@ fn draw_actor_default(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette,
     draw_actor(ctx, rect, s, p, actor_primary_top(p), actor_primary_bottom(p), alpha);
 }
 
-// ── Blur reference ──
+// ── 模糊參考 ──
 
 fn draw_blur_reference(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette) {
     let cx = rect.x + rect.w * 0.5;
@@ -516,7 +516,7 @@ fn draw_blur_reference(ctx: &mut Context, rect: Rect, s: f32, p: &GalleryPalette
     draw_fill(ctx, Rect::new(cx - 9.0 * s, cy - 116.0 * s, 18.0 * s, 220.0 * s), colors[4], 9.0 * s, 0.78);
 }
 
-// ── Animation demos ──
+// ── 動畫演示 ──
 
 fn draw_translate_demo(ctx: &mut Context, rect: Rect, s: f32, time: f64, p: &GalleryPalette) {
     draw_stage_background(ctx, rect, s, p);
@@ -544,19 +544,19 @@ fn draw_rotate_demo(ctx: &mut Context, rect: Rect, s: f32, time: f64, p: &Galler
     draw_stage_background(ctx, rect, s, p);
     let cx = rect.x + rect.w * 0.5;
     let cy = rect.y + rect.h * 0.5;
-    // Circle outline (drawn before crosshairs, matching C++)
+    // 圓形輪廓（在十字線之前繪製，匹配 C++）
     draw_stroke(ctx, Rect::new(cx - 132.0 * s, cy - 132.0 * s, 264.0 * s, 264.0 * s), demo_axis(p), 132.0 * s, 1.0 * s, 0.42);
     // Crosshairs
     draw_fill(ctx, Rect::new(cx - 1.0, rect.y + 48.0 * s, 2.0, rect.h - 96.0 * s), demo_axis(p), 0.0, 0.66);
     draw_fill(ctx, Rect::new(rect.x + 48.0 * s, cy - 1.0, rect.w - 96.0 * s, 2.0), demo_axis(p), 0.0, 0.66);
-    // Actor with rotation matching C++: .rotate(angle).origin_center()
+    // 旋轉與 C++ 相符的 Actor：.rotate(angle).origin_center()
     let t = loop_progress(time, 2.40);
     let angle = 360.0 * t;
     let actor_rect = Rect::new(cx - 92.0 * s, cy - 42.0 * s, 184.0 * s, 84.0 * s);
     ctx.push_rotation(angle, actor_rect.w * 0.5, actor_rect.h * 0.5);
     draw_actor(ctx, actor_rect, s, p, actor_focus_top(p), actor_focus_bottom(p), 1.0);
     ctx.pop_transform();
-    // Center dot
+    // 中心點
     draw_fill(ctx, Rect::new(cx - 7.0 * s, cy - 7.0 * s, 14.0 * s, 14.0 * s), actor_glass_top(p), 7.0 * s, 0.98);
 }
 
@@ -617,7 +617,7 @@ fn draw_color_demo(ctx: &mut Context, rect: Rect, s: f32, time: f64, p: &Gallery
     let bottom = mix_hex(actor_primary_bottom(p), mix_hex(p.accent, 0xEF4444, 0.68), t);
     let actor = Rect::new(rect.x + rect.w * 0.5 - 88.0 * s, rect.y + rect.h * 0.5 - 52.0 * s, 176.0 * s, 104.0 * s);
     draw_actor(ctx, actor, s, p, top, bottom, 1.0);
-    // Color swatches at bottom
+    // 底部有色樣
     draw_fill(ctx, Rect::new(rect.x + 58.0 * s, rect.y + rect.h - 78.0 * s, 84.0 * s, 18.0 * s), actor_primary_top(p), 9.0 * s, 0.92);
     let mid = mix_hex(actor_primary_top(p), mix_hex(p.accent, 0xF59E0B, 0.72), 0.5);
     draw_fill(ctx, Rect::new(rect.x + 154.0 * s, rect.y + rect.h - 78.0 * s, 84.0 * s, 18.0 * s), mid, 9.0 * s, 0.92);
@@ -682,7 +682,7 @@ fn draw_demo_scene(ctx: &mut Context, demo: usize, rect: Rect, s: f32, time: f64
     }
 }
 
-// ── Page: Basic Controls ──
+// ── 頁：基本控制 ──
 
 fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
@@ -692,13 +692,13 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
 
     let control_icons: [(u32, &str); 3] = [(0xF002, "Search"), (0xF0DB, "Layout"), (0xF061, "Motion")];
 
-    // Card 1: Buttons
+    // 卡 1：按鈕
     if let Some(col) = cols.first() {
         draw_card(ctx, *col, "Buttons", s, &p, |ctx, content| {
             let rows = LinearLayout::column(content).gap(12.0 * s)
                 .items(&[px(72.0 * s), fr(1.0), px(18.0 * s)]).resolve();
 
-            // Icon chips
+            // 圖示晶片
             if let Some(icon_row) = rows.first() {
                 let chips = LinearLayout::row(*icon_row).gap(8.0 * s)
                     .items(&[fr(1.0), fr(1.0), fr(1.0)]).resolve();
@@ -744,11 +744,11 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
         });
     }
 
-    // Card 2: Selection — match C++ ui.tab() widget rendering
+    // 卡2：選擇－匹配C++ ui.tab()小工具渲染
     if cols.len() > 1 {
         let control_modes = ["Compact", "Balanced", "Comfortable"];
         let control_toggles = ["Toolbar", "Cards", "Blur"];
-        // Extract theme colors before the closure borrows ctx
+        // 閉包借用ctx之前提取主題顏色
         let theme_secondary = ctx.theme().secondary;
         let theme_primary = ctx.theme().primary;
         let theme_panel = ctx.theme().panel;
@@ -767,17 +767,17 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
                     let is_selected = state.controls_mode == i;
                     let active_v: f32 = if is_selected { 1.0 } else { 0.0 };
                     let press_v: f32 = 0.0; // static first frame
-                    // C++: visual_scale = 1.0 + active_v * 0.004 - press_v * 0.014
+                    // C++：視覺比例 = 1.0 + active_v * 0.004 - press_v * 0.014
                     let visual_scale = 1.0 + active_v * 0.004 - press_v * 0.014;
                     let mut visual_rect = context_scale_rect_from_center(&rows[i + 1], visual_scale, visual_scale);
                     visual_rect = context_translate_rect(&visual_rect, 0.0, press_v * 0.3);
-                    // C++ fill: mix(secondary, mix(primary, panel, 0.72), active_v)
+                    // C++ 填入： mix(secondary, mix(primary, panel, 0.72), active_v)
                     let fill = mix_color(theme_secondary, mix_color(theme_primary, theme_panel, 0.72), active_v);
-                    // C++ outline: mix(mix(outline, panel, 0.6), primary, active_v * 0.78)
+                    // C++ 大綱：mix(mix(outline, panel, 0.6), Primary, active_v * 0.78)
                     let outline = mix_color(mix_color(theme_outline, theme_panel, 0.6), theme_primary, active_v * 0.78);
                     let thickness = 1.0 + active_v * 0.36;
                     let text_size = (rows[i + 1].h * 0.42).clamp(13.0, 26.0);
-                    // C++ text: mix(muted_text, text, 0.38 + active_v * 0.62)
+                    // C++ 文字：mix(muted_text, text, 0.38 + active_v * 0.62)
                     let text_color = mix_color(theme_muted_text, theme_text, 0.38 + active_v * 0.62);
                     if is_selected {
                         ctx.paint_soft_glow(visual_rect, theme_primary, tab_radius, active_v * 0.34, 5.0);
@@ -822,7 +822,7 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
         });
     }
 
-    // Card 3: Inputs (matches C++ order: search, dropdown, slider, slider, progress, readonly, button)
+    // 卡 3：輸入（與 C++ 順序相符：搜尋、下拉清單、滑桿、滑桿、進度、唯讀、按鈕）
     if cols.len() > 2 {
         draw_card(ctx, cols[2], "Inputs", s, &p, |ctx, content| {
             let compact_h = 32.0 * s;
@@ -838,7 +838,7 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
             let dropdown_item_gap = 6.0 * s;
             let dropdown_item_h = compact_h;
             let dropdown_header_h = 34.0_f32.max(dropdown_padding * 3.0);
-            // C++: body = padding*2 + item_h*n + gap*(n-1)
+            // C++：主體 = 填滿*2 + item_h*n + 間隙*(n-1)
             let n_items = control_modes_labels.len() as f32;
             let dropdown_body_h = dropdown_padding * 2.0
                 + dropdown_item_h * n_items
@@ -851,11 +851,11 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
             let rows = LinearLayout::column(content).gap(8.0 * s)
                 .items(&[px(38.0 * s), px(dropdown_track_h), px(normal_h), px(normal_h), px(progress_track_h), px(compact_h), px(normal_h)]).resolve();
 
-            // Row 0: Search input (with "Search" label matching C++ ui.input("Search", ...))
+            // 第 0 行：搜尋輸入（與 C++ ui.input("Search", ...) 相符的「Search」標籤）
             if !rows.is_empty() {
                 ctx.text_input_field_ex(hash_str("search_input"), rows[0], "Search", &mut state.search_text, "Type to filter");
             }
-            // Row 1: Density dropdown — expanding with selectable items
+            // 第 1 行：密度下拉式選單 — 透過選用項目進行擴展
             if rows.len() > 1 {
                 ctx.dropdown_select(
                     hash_str("density_dropdown"), rows[1], &dropdown_label,
@@ -864,25 +864,25 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
                     dropdown_body_h, dropdown_padding, dropdown_item_h, dropdown_item_gap,
                 );
             }
-            // Row 2: Progress slider (C++ ui.slider("Progress", ...) — label drawn internally)
+            // 第 2 行：進度滑桿（C++ ui.slider("Progress", ...) — 內部繪製的標籤）
             if rows.len() > 2 {
                 ctx.slider_labeled(hash_str("progress_slider"), rows[2], "Progress", &mut state.progress_ratio, 0.0, 1.0);
             }
-            // Row 3: Live Value slider (C++ ui.slider("Live Value", ...) — label drawn internally)
+            // 第 3 行：即時值滑桿（C++ ui.slider("Live Value", ...) — 內部繪製的標籤）
             if rows.len() > 3 {
                 ctx.slider_labeled(hash_str("control_slider"), rows[3], "Live Value", &mut state.control_slider, 0.0, 1.0);
             }
-            // Row 4: Completion progress bar (C++ ui.progress("Completion", ...) — label drawn internally)
+            // 第 4 行：完成進度條（C++ ui.progress("Completion", ...) — 內部繪製的標籤）
             if rows.len() > 4 {
                 let pr = state.progress_ratio;
                 ctx.progress(hash_str("completion_progress"), rows[4], "Completion", pr, progress_bar_h);
             }
-            // Row 5: Gap / Accent readonly
+            // 第 5 行：間隙/重音唯讀
             if rows.len() > 5 {
                 let info = format!("{} / {}", format_pixels(state.layout_gap), format_hex_color(accent_hex(state)));
                 draw_readonly(ctx, rows[5], "Gap / Accent", &info, s, &p);
             }
-            // Row 6: Jump To Animation button
+            // 第 6 行：跳到動畫按鈕
             if rows.len() > 6
                 && ctx.button(hash_str("jump_animation"), rows[6], "Jump To Animation Page", ButtonStyle::Secondary) {
                 state.selected_page = 3;
@@ -890,7 +890,7 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
         });
     }
 
-    // Card 4: Editor
+    // 卡4：編輯器
     if cols.len() > 3 {
         draw_card(ctx, cols[3], "Editor", s, &p, |ctx, content| {
             draw_readonly(ctx, Rect::new(content.x, content.y, content.w, 32.0 * s), "Purpose", "Multiline input, wrapping and scroll behavior", s, &p);
@@ -899,13 +899,13 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
             let text_area_y = content.y + compact_h + item_spacing;
             let text_area_h = (160.0_f32 * s).max(content.h - 40.0 * s); // C++: max(160*scale, card.content().h - 40*scale)
             let text_area_rect = Rect::new(content.x, text_area_y, content.w, text_area_h);
-            // "Notes" label matching C++ text_area("Notes", ...) label rendering
+            // “Notes”標籤匹配 C++ text_area("Notes", ...) 標籤渲染
             let label_font = (text_area_rect.h * 0.12).clamp(12.0, 18.0);
             let outer_pad = (text_area_rect.h * 0.04).clamp(6.0, 12.0);
-            // C++ add_text(label, label_rect, muted_text, label_font, Left) — no clip
+            // C++ add_text(label, label_rect, muted_text, label_font, Left) — 無剪輯
             let muted_text_col = ctx.theme().muted_text;
             ctx.paint_text(Rect::new(text_area_rect.x + outer_pad, text_area_rect.y + outer_pad, text_area_rect.w - outer_pad * 2.0, label_font), "Notes", label_font, muted_text_col, TextAlign::Left);
-            // Text area box below the label
+            // 標籤下方的文字區域框
             let box_y = text_area_rect.y + outer_pad + label_font + 6.0;
             let box_rect = Rect::new(text_area_rect.x + outer_pad, box_y, text_area_rect.w - outer_pad * 2.0, (text_area_rect.h - (label_font + outer_pad + 12.0)).max(0.0));
             ctx.text_input_field(hash_str("notes_area"), box_rect, &mut state.notes_text);
@@ -913,7 +913,7 @@ fn draw_basic_controls_page(ctx: &mut Context, state: &mut GalleryState, rect: R
     }
 }
 
-// ── Page: Design ──
+// ── 頁面：設計 ──
 
 fn draw_design_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
@@ -959,13 +959,13 @@ fn draw_design_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: 
         });
     }
 
-    // Color System
+    // 色彩系統
     if cols.len() > 1 {
         draw_card(ctx, cols[1], "Color System", s, &p, |ctx, content| {
             let sections = LinearLayout::column(content).gap(12.0 * s)
                 .items(&[fr(1.0), fr(2.1)]).resolve();
 
-            // Accent presets
+            // 重音預設
             if let Some(accents_rect) = sections.first() {
                 draw_fill(ctx, *accents_rect, p.surface_deep, 18.0 * s, 0.92);
                 draw_stroke(ctx, *accents_rect, p.border_soft, 18.0 * s, 1.0, 0.90);
@@ -982,7 +982,7 @@ fn draw_design_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: 
                 }
             }
 
-            // Theme tokens
+            // 主題代幣
             if sections.len() > 1 {
                 let tokens_area = sections[1];
                 draw_fill(ctx, tokens_area, p.surface_deep, 18.0 * s, 0.92);
@@ -1013,13 +1013,13 @@ fn draw_design_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: 
         });
     }
 
-    // Icon Reference
+    // 圖標參考
     if cols.len() > 2 {
         draw_card(ctx, cols[2], "Icon Reference", s, &p, |ctx, content| {
             let rows = LinearLayout::column(content).gap(12.0 * s)
                 .items(&[px(38.0 * s), fr(1.0)]).resolve();
 
-            // "Open Icon Sidebar" action row
+            // “開啟圖示側邊欄”操作行
             if let Some(action_row) = rows.first() {
                 let ar = *action_row;
                 let open_hovered = hovered(ctx, &ar);
@@ -1035,7 +1035,7 @@ fn draw_design_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: 
                 if clicked(ctx, &ar) { state.design_icon_library_open = true; }
             }
 
-            // Icon grid (4 rows x 3 columns)
+            // 圖示網格（4 行 x 3 列）
             if rows.len() > 1 {
                 let grid_content = rows[1];
                 let grid = GridLayout::new(grid_content, 3).rows(4).gap(10.0 * s);
@@ -1054,7 +1054,7 @@ fn draw_design_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: 
     }
 }
 
-// ── Page: Layout ──
+// ── 頁面：佈局 ──
 
 fn draw_layout_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
@@ -1079,7 +1079,7 @@ fn draw_layout_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: 
         });
     }
 
-    // Layout Composition preview
+    // 佈局構圖預覽
     if rows.len() > 1 {
         let preview = rows[1];
         let gap = state.layout_gap * s;
@@ -1139,7 +1139,7 @@ fn draw_layout_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: 
     }
 }
 
-// ── Page: Animation ──
+// ── 頁：動畫 ──
 
 fn draw_animation_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32, time: f64) {
     let p = make_gallery_palette(state);
@@ -1188,7 +1188,7 @@ fn draw_animation_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, 
     // Stage
     if rows.len() > 1 {
         draw_card(ctx, rows[1], "Animation Stage", s, &p, |ctx, content| {
-            // Draw current demo with crossfade using global_alpha
+            // 使用 global_alpha 透過交叉淡入淡出繪製當前演示
             for i in 0..9usize {
                 let is_current = state.selected_animation_demo == i;
                 let mix = ctx.presence(hash_str(&format!("anim_view_{}", i)), is_current);
@@ -1205,7 +1205,7 @@ fn draw_animation_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, 
     }
 }
 
-// ── Page: Dashboard ──
+// ── 頁面：儀表板 ──
 
 fn draw_dashboard_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
@@ -1233,7 +1233,7 @@ fn draw_dashboard_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f
                 }
             }
 
-            // Main area
+            // 主要區域
             if cols.len() > 1 {
                 let main = cols[1];
                 let main_rows = LinearLayout::column(main).gap(14.0 * s)
@@ -1247,7 +1247,7 @@ fn draw_dashboard_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f
                     draw_text_left(ctx, "The full standalone example remains available as reference_dashboard_demo.cpp", Rect::new(hero.x + 18.0 * s, hero.y + 40.0 * s, hero.w - 36.0 * s, 16.0 * s), font_meta(s), p.muted, 0.96);
                 }
 
-                // Metric cards
+                // 公制卡
                 if main_rows.len() > 1 {
                     let cards = LinearLayout::row(main_rows[1]).gap(12.0 * s)
                         .items(&[fr(1.0), fr(1.0), fr(1.0)]).resolve();
@@ -1262,7 +1262,7 @@ fn draw_dashboard_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f
                         draw_stroke(ctx, *card_rect, p.border_soft, 18.0 * s, 1.0, 0.90);
                         draw_text_left(ctx, metrics[i].0, Rect::new(card_rect.x + 16.0 * s, card_rect.y + 14.0 * s, card_rect.w - 32.0 * s, 16.0 * s), font_body(s), p.muted, 0.98);
                         draw_text_left(ctx, metrics[i].1, Rect::new(card_rect.x + 16.0 * s, card_rect.y + 38.0 * s, card_rect.w - 32.0 * s, 24.0 * s), font_heading(s), p.text, 0.98);
-                        // Tag chip
+                        // 標籤晶片
                         let tag_w = 48.0 * s;
                         let tag_r = Rect::new(card_rect.x + card_rect.w - tag_w - 12.0 * s, card_rect.y + 14.0 * s, tag_w, 18.0 * s);
                         draw_fill(ctx, tag_r, mix_hex(p.surface_deep, accent, 0.24), tag_r.h * 0.5, 0.94);
@@ -1272,7 +1272,7 @@ fn draw_dashboard_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f
                     }
                 }
 
-                // Activity chart
+                // 活動圖
                 if main_rows.len() > 2 {
                     let activity = main_rows[2];
                     draw_fill(ctx, activity, p.surface_deep, 18.0 * s, 0.98);
@@ -1291,7 +1291,7 @@ fn draw_dashboard_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f
         });
     }
 
-    // Bottom info cards
+    // 底部資訊卡
     if page_rows.len() > 1 {
         let stats_cols = LinearLayout::row(page_rows[1]).gap(18.0 * s)
             .items(&[fr(1.0), fr(1.0)]).resolve();
@@ -1309,14 +1309,14 @@ fn draw_dashboard_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f
     }
 }
 
-// ── Page: Settings ──
+// ── 頁面：設定 ──
 
 fn draw_settings_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
     let cols = LinearLayout::row(rect).gap(18.0 * s)
         .items(&[fr(1.08), fr(0.92)]).resolve();
 
-    // Settings panel
+    // 設定面板
     if let Some(settings_rect) = cols.first() {
         draw_card(ctx, *settings_rect, "Gallery Settings", s, &p, |ctx, content| {
             let rows = LinearLayout::column(content).gap(12.0 * s)
@@ -1328,20 +1328,20 @@ fn draw_settings_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s
                     px(36.0 * s), px(36.0 * s),  // radius, blur
                 ]).resolve();
 
-            // Theme Mode
+            // 主題模式
             if !rows.is_empty() { draw_text_left(ctx, "Theme Mode", rows[0], font_meta(s), p.muted, 0.96); }
             if rows.len() > 1 {
                 let mode_cols = LinearLayout::row(rows[1]).gap(10.0 * s)
                     .items(&[fr(1.0), fr(1.0)]).resolve();
                 if mode_cols.len() >= 2 {
                     let accent = accent_hex(state);
-                    // Dark button
+                    // 深色按鈕
                     let dark_bg = if state.light_mode { p.surface_deep } else { nav_selected_fill(&p) };
                     let dark_border = if state.light_mode { p.border_soft } else { accent };
                     draw_fill(ctx, mode_cols[0], dark_bg, mode_cols[0].h * 0.5, 0.98);
                     draw_stroke(ctx, mode_cols[0], dark_border, mode_cols[0].h * 0.5, 1.0, 0.96);
                     draw_text_center(ctx, "Dark", mode_cols[0], font_body(s), if state.light_mode { p.muted } else { p.text }, 0.98);
-                    // Light button
+                    // 燈按鈕
                     let light_bg = if state.light_mode { nav_selected_fill(&p) } else { p.surface_deep };
                     let light_border = if state.light_mode { accent } else { p.border_soft };
                     draw_fill(ctx, mode_cols[1], light_bg, mode_cols[1].h * 0.5, 0.98);
@@ -1352,7 +1352,7 @@ fn draw_settings_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s
                 }
             }
 
-            // Accent Color
+            // 強調色
             if rows.len() > 2 { draw_text_left(ctx, "Accent Color", rows[2], font_meta(s), p.muted, 0.96); }
             if rows.len() > 3 {
                 let swatch_size = 28.0 * s;
@@ -1373,7 +1373,7 @@ fn draw_settings_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s
                 }
             }
 
-            // Custom RGB
+            // 客製化RGB
             if rows.len() > 4 { draw_text_left(ctx, "Custom RGB", rows[4], font_meta(s), p.muted, 0.96); }
             if rows.len() > 5 {
                 let custom_cols = LinearLayout::row(rows[5]).gap(10.0 * s)
@@ -1391,7 +1391,7 @@ fn draw_settings_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s
                 }
             }
 
-            // RGB sliders (decimals=0 matching C++)
+            // RGB 滑桿（小數點 = 0 匹配 C++）
             if rows.len() > 6 {
                 if ctx.slider_labeled_ex(hash_str("red_slider"), rows[6], "Red", &mut state.custom_accent_r, 0.0, 255.0, 0) {
                     state.accent_index = custom_accent_slot();
@@ -1416,12 +1416,12 @@ fn draw_settings_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s
         });
     }
 
-    // Live Preview
+    // 即時預覽
     if cols.len() > 1 {
         draw_card(ctx, cols[1], "Live Preview", s, &p, |ctx, content| {
             let preview_radius = state.layout_radius * s;
             let preview = inset_rect(&content, 6.0 * s, 6.0 * s);
-            // Clip to preview area matching C++ ui.clip(preview, ...)
+            // 剪輯到預覽區域以符合 C++ ui.clip(preview, ...)
             ctx.push_clip(preview);
             draw_fill(ctx, preview, preview_backdrop(&p), preview_radius, 1.0);
             draw_stroke(ctx, preview, accent_hex(state), preview_radius, 1.0, 0.76);
@@ -1437,7 +1437,7 @@ fn draw_settings_page(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s
     }
 }
 
-// ── Page: Image ──
+// ── 頁：圖片 ──
 
 fn draw_image_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
@@ -1452,7 +1452,7 @@ fn draw_image_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) 
             let hero_path = gallery_preview_path("0.jpg");
             draw_card(ctx, *preview, "ui.image(...)", s, &p, |ctx, content| {
                 ctx.paint_image_rect(content, &hero_path, ImageFit::Cover, 18.0 * s);
-                // Cover chip
+                // 覆蓋晶片
                 let chip = Rect::new(content.x + content.w - 140.0 * s, content.y + 16.0 * s, 124.0 * s, 28.0 * s);
                 draw_fill(ctx, chip, mix_hex(p.surface_deep, p.accent, 0.24), chip.h * 0.5, 0.94);
                 draw_stroke(ctx, chip, p.accent, chip.h * 0.5, 1.0, 0.90);
@@ -1474,7 +1474,7 @@ fn draw_image_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) 
         }
     }
 
-    // Fit mode cards
+    // 適合模式卡
     if rows.len() > 1 {
         let mode_cols = LinearLayout::row(rows[1]).gap(12.0 * s)
             .items(&[fr(1.0), fr(1.0), fr(1.0), fr(1.0)]).resolve();
@@ -1500,7 +1500,7 @@ fn draw_image_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) 
     }
 }
 
-// ── Page: About ──
+// ── 頁面：關於──
 
 fn draw_about_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
@@ -1523,7 +1523,7 @@ fn draw_about_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) 
             let inner = inset_rect(&hero, 20.0 * s, 20.0 * s);
             let avatar_size = 72.0 * s;
 
-            // Avatar image
+            // 頭像圖片
             let avatar = Rect::new(inner.x + (inner.w - avatar_size) * 0.5, inner.y, avatar_size, avatar_size);
             let avatar_path = gallery_preview_path("5.jpg");
             ctx.paint_image_rect(avatar, &avatar_path, ImageFit::Cover, avatar_size * 0.5);
@@ -1562,7 +1562,7 @@ fn draw_about_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) 
         }
     }
 
-    // Info grid
+    // 資訊網格
     if rows.len() > 1 {
         let info_cols = LinearLayout::row(rows[1]).gap(16.0 * s)
             .items(&[fr(1.0), fr(1.0)]).resolve();
@@ -1590,7 +1590,7 @@ fn draw_about_page(ctx: &mut Context, state: &GalleryState, rect: Rect, s: f32) 
     }
 }
 
-// ── Sidebar ──
+// ── 側邊欄 ──
 
 fn draw_sidebar(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32) {
     let p = make_gallery_palette(state);
@@ -1609,14 +1609,14 @@ fn draw_sidebar(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32)
             Rect::new(header.x, header.y + 26.0 * s, header.w, 18.0 * s), font_meta(s), p.muted, 0.96);
     }
 
-    // Nav list
+    // 導航列表
     if main_rows.len() > 1 {
         let list_rect = main_rows[1];
         let row_h = 42.0 * s;
         let items: Vec<FlexLength> = (0..8).map(|_| px(row_h)).collect();
         let nav_rows = LinearLayout::column(list_rect).gap(8.0 * s).items(&items).resolve();
 
-        // Animated indicator
+        // 動畫指示器
         let selected_idx = state.selected_page.min(7);
         if let Some(selected_row) = nav_rows.get(selected_idx) {
             let target_y = selected_row.y;
@@ -1649,7 +1649,7 @@ fn draw_sidebar(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32)
     }
 }
 
-// ── Stage dispatcher ──
+// ── 舞台調度員──
 
 fn draw_stage(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32, time: f64) {
     let p = make_gallery_palette(state);
@@ -1689,7 +1689,7 @@ fn draw_stage(ctx: &mut Context, state: &mut GalleryState, rect: Rect, s: f32, t
     }
 }
 
-// ── Card helper ──
+// ── 卡片幫手 ──
 
 fn draw_card(ctx: &mut Context, rect: Rect, title: &str, s: f32, p: &GalleryPalette, body: impl FnOnce(&mut Context, Rect)) {
     draw_card_r(ctx, rect, title, s, p, 22.0 * s, body);
@@ -1699,13 +1699,13 @@ fn draw_card_r(ctx: &mut Context, rect: Rect, title: &str, s: f32, p: &GalleryPa
     draw_shadow_card(ctx, rect, card_radius, 10.0, 18.0, 0x020617, 0.12);
     draw_fill(ctx, rect, p.surface_alt, card_radius, 1.0);
     draw_stroke(ctx, rect, p.border, card_radius, 1.0, 1.0);
-    // C++ SurfaceBuilder does NOT push_clip for cards
+    // C++ SurfaceBuilder 不會為卡片推送_clip
     let inner = inset_rect(&rect, 16.0, 16.0);
     if !title.is_empty() {
         let title_font = font_heading(s);
         let title_height = title_font + 4.0;
-        // C++ SurfaceBuilder: paint_text(title, title_rect, ..., &shell)
-        // Uses theme text color and clips to entire card shell rect, not title_rect
+        // C++ SurfaceBuilder：paint_text(title, title_rect, ..., &shell)
+        // 使用主題文字顏色和剪輯到整個卡殼矩形，而不是 title_rect
         let title_rect = Rect::new(inner.x, inner.y, inner.w, title_height);
         let title_color = ctx.theme().text;
         ctx.paint_text_clipped(title_rect, title, title_font, title_color, TextAlign::Left, Some(&rect));
@@ -1716,18 +1716,18 @@ fn draw_card_r(ctx: &mut Context, rect: Rect, title: &str, s: f32, p: &GalleryPa
     }
 }
 
-// ── Readonly helper ──
+// ── 只讀助手 ──
 
 fn draw_readonly(ctx: &mut Context, rect: Rect, label: &str, value: &str, _s: f32, _p: &GalleryPalette) {
-    // Use the proper input_readonly widget matching C++ internal_input_readonly
+    // 使用與C++internal_input_readonly相符的正確input_readonly小工具
     let id = hash_str(label) ^ hash_str(value);
     ctx.input_readonly(id, rect, label, value);
 }
 
-// ── Asset path helper ──
+// ── 資產路徑助手 ──
 
 fn gallery_preview_path(filename: &str) -> String {
-    // Search upward from exe for "preview/" directory, matching C++ gallery_asset_path
+    // 從exe向上搜尋「preview/」目錄，符合C++ gallery_asset_path
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent().map(|p| p.to_path_buf());
         for _ in 0..6 {
@@ -1743,7 +1743,7 @@ fn gallery_preview_path(filename: &str) -> String {
     format!("preview/{}", filename)
 }
 
-// ── Hash helper ──
+// ── 哈希助手 ──
 
 fn hash_str(s: &str) -> u64 {
     let mut hash: u64 = 5381;
@@ -1753,7 +1753,7 @@ fn hash_str(s: &str) -> u64 {
     hash
 }
 
-// ── Main ──
+// ── 主要──
 
 fn main() {
     let mut state = GalleryState::default();
@@ -1771,7 +1771,7 @@ fn main() {
         let s = 1.0_f32.max(ctx.dpi_scale());
         let time = ctx.input().time_seconds;
 
-        // Set theme based on state
+        // 根據狀態設定主題
         let accent = accent_hex(&state);
         let accent_color = color_from_hex(accent, 1.0);
         let mode = if state.light_mode { ThemeMode::Light } else { ThemeMode::Dark };
@@ -1782,7 +1782,7 @@ fn main() {
         let margin = 18.0 * s;
         let frame_rect = Rect::new(margin, margin, (vw - margin * 2.0).max(0.0), (vh - margin * 2.0).max(0.0));
 
-        // Shell background with shadow + gradient matching C++ SurfaceBuilder(panel)
+        // 有陰影的外殼背景+漸層匹配C++ SurfaceBuilder(面板)
         draw_shadow_card(ctx, frame_rect, 30.0 * s, 14.0 * s, 28.0 * s, panel_shadow_hex(&p), if p.light { 0.10 } else { 0.18 });
         draw_gradient(ctx, frame_rect, p.shell_top, p.shell_bottom, 30.0 * s, 1.0);
         draw_stroke(ctx, frame_rect, p.border, 30.0 * s, 1.0, 1.0);
@@ -1803,7 +1803,7 @@ fn main() {
                 font_meta(s), p.muted, 0.96);
         }
 
-        // Body: sidebar + stage
+        // 主體：側邊欄+舞台
         if shell_rows.len() > 1 {
             let body = shell_rows[1];
             let sidebar_w = (320.0 * s).min(body.w * 0.26);

@@ -1,20 +1,20 @@
-//! `AbilityScript` — sabi_trait each DLL implements to provide a castable
-//! ability (active skill, ultimate, toggle, tower attack).
+//! `AbilityScript` — 每個 DLL 實作的 sabi_trait 以提供可轉換的
+//! 能力（主動技能、大招、切換、塔攻擊）。
 //!
-//! Companion to `UnitScript`:
-//! - `UnitScript` reacts to unit lifecycle events (spawn, death, hit).
-//! - `AbilityScript` is invoked when a specific ability is cast.
+//! `UnitScript` 的伴侶：
+//! - `UnitScript` 對單元生命週期事件（生成、死亡、命中）做出反應。
+//! - 施展特定能力時會呼叫「AbilityScript」。
 //!
-//! ## Metadata vs. Logic
-//! The stable ABI carries `AbilityDef` as a JSON-encoded `RString`
-//! (`AbilityDefFFI::def_json`). This avoids `StableAbi` derives on
-//! `HashMap<String, serde_json::Value>` and keeps the ABI simple. Host
-//! `deserialize`s into `omoba_core::ability_meta::AbilityDef` once at
-//! DLL load time for metadata queries (e.g. client tooltip).
+//! ## 元資料與邏輯
+//! 穩定的 ABI 將“AbilityDef”作為 JSON 編碼的“RString”
+//! （`AbilityDefFFI::def_json`）。這避免了“StableAbi”的派生
+//! `HashMap<String, serde_json::Value>` 並保持 ABI 簡單。主持人
+//! 一次將`omoba_core::ability_meta::AbilityDef`反序列化為`omoba_core::ability_meta::AbilityDef`
+//! 元資料查詢的 DLL 載入時間（例如客戶端工具提示）。
 //!
-//! `level_data_json` passed to `execute` is the JSON-encoded
-//! `AbilityLevelData` for the caster's current level — also avoids
-//! StableAbi on the `extra: HashMap<String, Value>` field.
+//! 傳遞給 `execute` 的 `level_data_json` 是 JSON 編碼的
+//! 施法者目前等級的 `AbilityLevelData` — 也避免了
+//! StableAbi 在 `extra: HashMap<String, Value>` 欄位上。
 
 use abi_stable::{
     StableAbi, sabi_trait,
@@ -25,20 +25,20 @@ use crate::world::GameWorldDyn;
 
 #[sabi_trait]
 pub trait AbilityScript: Send + Sync {
-    /// Ability identifier (must match the `id` field in the companion
-    /// `AbilityDef`). Used by host to dispatch.
+    /// 能力標識符（必須與同伴中的“id”字段匹配
+    /// `能力定義`）。由主機用來調度。
     fn ability_id(&self) -> RStr<'_>;
 
-    /// Execute the ability. Handler applies effects via `world` methods
-    /// (`deal_damage`, `add_buff`, `spawn_projectile`, …) directly rather
-    /// than returning an effect list — mirrors the `UnitScript` pattern.
+    /// 執行能力。處理程序透過“world”方法應用效果
+    /// (`deal_damage`, `add_buff`, `spawn_projectile`, ...) 直接而非
+    /// 而不是傳回效果清單 — 反映了「UnitScript」模式。
     ///
-    /// `level_data_json` is `omoba_core::ability_meta::AbilityLevelData`
-    /// serialized to JSON. Handler deserializes on entry to read
-    /// `cooldown`, `mana_cost`, `range`, `extra[...]`, etc.
+    /// `level_data_json` 是 `omoba_core::ability_meta::AbilityLevelData`
+    /// 序列化為 JSON。處理程序在進入時反序列化以讀取
+    /// `冷卻時間`、`法力消耗`、`範圍`、`額外[...]`等。
     ///
-    /// Returns `RErr(msg)` on failure (caller logs); the host still
-    /// deducts cooldown/charges on `RErr` only if the handler chooses.
+    /// 失敗時返回「RErr(msg)」（呼叫者日誌）；樓主還在
+    /// 只有當處理程序選擇時，才會扣除「RErr」的冷卻時間/費用。
     #[sabi(last_prefix_field)]
     fn execute(
         &self,
@@ -49,9 +49,9 @@ pub trait AbilityScript: Send + Sync {
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString>;
 
-    /// Called each host tick while at least one active effect spawned
-    /// by this ability is alive. `elapsed` = seconds since the ability
-    /// was cast. Default is no-op (most abilities are fire-and-forget).
+    /// 在至少產生一個活動效果時呼叫每個主機滴答聲
+    /// 靠這個能力才活著。 `elapsed` = 自該能力生效以來的秒數
+    /// was cast.預設為無操作（大多數能力都是「即發即棄」）。
     fn on_tick(
         &self,
         _caster: EntityHandle,
@@ -85,12 +85,12 @@ pub trait AbilityScript: Send + Sync {
     }
 }
 
-/// `AbilityDef` + the script that implements it — one entry per ability
-/// in a DLL. Host registry builds a `HashMap<id, AbilityDefFFI>` at load.
+/// `AbilityDef` + 實作它的腳本 — 每種能力一個條目
+/// 在 DLL 中。主機註冊表在載入時建立一個「HashMap<id，AbilityDefFFI>」。
 ///
-/// `def_json` is `omoba_core::ability_meta::AbilityDef` serialized with
-/// serde_json. Keeping it as a string avoids dragging serde-json /
-/// HashMap through `abi_stable::StableAbi`.
+/// `def_json` 是 `omoba_core::ability_meta::AbilityDef` 序列化的
+/// serde_json。將其保留為字串可以避免拖曳 serde-json /
+/// 以 `abi_stable::StableAbi` 進行 HashMap。
 #[repr(C)]
 #[derive(StableAbi)]
 pub struct AbilityDefFFI {

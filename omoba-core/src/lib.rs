@@ -1,14 +1,14 @@
-//! OMOBA Core - Shared library for OMOBA frontends
+//! OMOBA Core - OMOBA 前端的共享庫
 //!
-//! Provides MQTT communication, game state management, and player input handling.
+//! 提供 MQTT 通訊、遊戲狀態管理和玩家輸入處理。
 
 pub mod ability_meta;
 pub mod tower_meta;
 pub mod config;
 pub mod quant;
-// template_ids removed (2026-04-25): migrated to omoba-template-ids crate.
-// Downstream code: `use omoba_template_ids::*;` — sequential u16 newtypes sourced
-// from scripts/lua_data/templates.lua instead of hand-maintained FNV-1a hash tables.
+// template_ids 已刪除 (2026-04-25)：遷移到 omoba-template-ids 箱。
+// 下游代碼：`use omoba_template_ids::*;` — 源自連續的 u16 新類型
+// 來自 script/lua_data/templates.lua 而不是手動維護的 FNV-1a 雜湊表。
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
 pub mod state;

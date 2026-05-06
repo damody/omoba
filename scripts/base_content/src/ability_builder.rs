@@ -55,8 +55,8 @@ pub fn build_ability_def_from_const(
         let lvl = (i + 1) as u8;
         let mut extra = HashMap::new();
         for (key, per_lvl) in c.extras.iter() {
-            // PHASE 2: omoba_core::ability_meta JSON metadata still f32; convert at boundary.
-            // Redesign in Phase 2 KCP tag rework.
+            // 第 2 階段：omoba_core::ability_meta JSON 元資料仍為 f32；在邊界處轉換。
+            // 第二階段 KCP 標籤返工中的重新設計。
             extra.insert(
                 (*key).to_string(),
                 serde_json::json!(per_lvl[i].to_f32_for_render()),
@@ -125,8 +125,8 @@ pub fn extra_at(c: &AbilityConst, key: &str, level: u8) -> omoba_sim::Fixed64 {
 }
 
 /// 取單級 extras 並轉 f32 — 給 EffectSpec / preview 等 omoba_core metadata 用。
-/// PHASE 2: omoba_core::ability_meta::EffectSpec is f32; this helper retained until that layer
-/// migrates in Phase 2 KCP tag rework.
+/// 第 2 階段：omoba_core::ability_meta::EffectSpec 為 f32；這個助手保留到該層
+/// 在第 2 階段 KCP 標籤返工中遷移。
 pub fn extra_at_f32(c: &AbilityConst, key: &str, level: u8) -> f32 {
     extra_at(c, key, level).to_f32_for_render()
 }

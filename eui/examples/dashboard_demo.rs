@@ -44,7 +44,7 @@ fn main() {
             });
         });
 
-        // Main content
+        // 主要內容
         ui.scope(sides.second, |ctx| {
             let mut ui = UI::new(ctx);
             let r = ui.content_rect();
@@ -58,7 +58,7 @@ fn main() {
                         ui.label("Overview").font_size(20.0).height(32.0).draw();
                         ui.spacer(16.0);
 
-                        // Metrics row
+                        // 指標行
                         let metrics_area = Rect::new(
                             ui.content_rect().x,
                             ui.cursor_y(),

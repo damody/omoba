@@ -18,7 +18,7 @@ impl PlatformBackend for WinitBackend {
     }
 
     fn poll_events(&mut self, _blocking: bool, _timeout_seconds: f64) {
-        // Handled by winit event loop externally
+        // 由外部的 winit 事件循環處理
     }
 
     fn query_metrics(&self) -> WindowMetrics {

@@ -1,4 +1,4 @@
-/// RGBA color with f32 components in [0, 1].
+/// RGBA 顏色，f32 分量位於 [0, 1] 中。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     pub r: f32,
