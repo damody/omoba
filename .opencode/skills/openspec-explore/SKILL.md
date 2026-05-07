@@ -79,6 +79,10 @@ Depending on what the user brings, you might:
 
 You have full context of the OpenSpec system. Use it naturally, don't force it.
 
+### Output Language
+
+When the user asks to create or update OpenSpec Markdown artifacts, write them in Traditional Chinese using Taiwan terminology. Keep code identifiers, paths, commands, API names, protocol fields, logs/errors, runtime-visible strings, and schema-required keywords in English/original form.
+
 ### Check for context
 
 At the start, quickly check what exists:

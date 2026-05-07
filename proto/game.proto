@@ -401,24 +401,28 @@ message AttackTarget {
 }
 
 message CastAbility {
-  uint32 ability_index = 1;  // 0..3 for Q/W/E/R
-  // optional cast position; omitted for self-cast
+  uint32 ability_index = 1;  // Q/W/E/R 對應 0..3
+  // optional 施法位置；self-cast 時省略
   optional Vec2I target_pos = 2;
   optional uint32 target_entity = 3;
 }
 
+message UpgradeAbility {
+  uint32 ability_index = 1;  // W/E/R/T 升級 slot 對應 0..3
+}
+
 message TowerPlace {
-  uint32 tower_kind_id = 1;  // matches omoba_template_ids tower id
+  uint32 tower_kind_id = 1;  // 對應 omoba_template_ids tower id
   Vec2I pos = 2;
 }
 
-// NOTE: legacy `TowerUpgrade` (above, used as a server-broadcast event in
-// GameEvent.payload tag 35) keeps its name. The new client→server input
-// action is named `TowerUpgradeInput` to avoid the proto3 namespace collision.
+// NOTE：legacy `TowerUpgrade`（上方，作為 GameEvent.payload tag 35 的
+// server-broadcast event）保留原名。新的 client→server input action 命名為
+// `TowerUpgradeInput`，避免 proto3 namespace collision。
 message TowerUpgradeInput {
   uint32 tower_entity_id = 1;
   uint32 path = 2;       // 0/1/2 upgrade path
-  uint32 level = 3;      // target level after upgrade
+  uint32 level = 3;      // 升級後的目標 level
 }
 
 message TowerSell {
@@ -431,8 +435,8 @@ message ItemUse {
   optional uint32 target_entity = 3;
 }
 
-// TD: client requests the next creep wave to begin (legacy "Start Round").
-// Server flips `CurrentCreepWave.is_running = true` and stamps wave_start_time.
+// TD：client 請求開始下一波 creep wave（legacy "Start Round"）。
+// Server 會切換 `CurrentCreepWave.is_running = true` 並寫入 wave_start_time。
 message StartRound {}
 
 message PlayerInput {
@@ -446,6 +450,7 @@ message PlayerInput {
     TowerSell tower_sell = 7;
     ItemUse item_use = 8;
     StartRound start_round = 9;
+    UpgradeAbility upgrade_ability = 10;
   }
 }
 

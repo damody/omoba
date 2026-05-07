@@ -21,7 +21,7 @@ return function(ctx)
       base_hp = 580,
       base_mana = 300,
       move_speed = 320.0,
-      turn_speed = 180.0,
+      turn_speed = 720.0,
       level_growth = {
         strength_per_level = 1.8,
         agility_per_level = 3.2,

@@ -85,6 +85,12 @@ After completing all artifacts, summarize:
 - What's ready: "All artifacts created! Ready for implementation."
 - Prompt: "Run `/opsx-apply` to start implementing."
 
+**Output Language**
+
+- Write all generated OpenSpec Markdown artifacts in Traditional Chinese using Taiwan terminology.
+- Keep code identifiers, paths, commands, API names, protocol fields, logs/errors, and schema-required keywords in English/original form.
+- For spec files, keep OpenSpec structural keywords such as `## ADDED Requirements`, `### Requirement:`, and `#### Scenario:` if required by the parser.
+
 **Artifact Creation Guidelines**
 
 - Follow the `instruction` field from `openspec instructions` for each artifact type

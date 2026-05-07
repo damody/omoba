@@ -2,7 +2,7 @@ return function(ctx)
   return {
     {
       id = "tower_dart",
-      display_name = "Dart Monkey",
+      display_name = "飛鏢猴",
       atk = 10.0,
       asd_interval = 0.8,
       range = 350.0,
@@ -18,7 +18,7 @@ return function(ctx)
       upgrades = {
         {
           {
-            name = "Long Range Darts",
+            name = "長射程飛鏢",
             description = "射程 350→400",
             cost = 50,
             effects = {
@@ -31,7 +31,7 @@ return function(ctx)
             },
           },
           {
-            name = "Enhanced Eyesight",
+            name = "強化視力",
             description = "射程 →450, damage 10→15",
             cost = 100,
             effects = {
@@ -50,7 +50,7 @@ return function(ctx)
             },
           },
           {
-            name = "Razor Sharp Shots",
+            name = "剃刀銳利射擊",
             description = "穿透 +1, damage →20",
             cost = 200,
             effects = {
@@ -67,7 +67,7 @@ return function(ctx)
             },
           },
           {
-            name = "Spike-o-pult",
+            name = "巨釘投石機",
             description = "改投巨釘：splash 100, damage 40, 彈速減半",
             cost = 500,
             effects = {
@@ -80,7 +80,7 @@ return function(ctx)
         },
         {
           {
-            name = "Quick Shots",
+            name = "快速射擊",
             description = "攻速 +20%",
             cost = 50,
             effects = {
@@ -93,7 +93,7 @@ return function(ctx)
             },
           },
           {
-            name = "Very Quick Shots",
+            name = "極速射擊",
             description = "攻速再 +30%",
             cost = 100,
             effects = {
@@ -106,7 +106,7 @@ return function(ctx)
             },
           },
           {
-            name = "Triple Shot",
+            name = "三重射擊",
             description = "一發變 3 發扇形 ±15°",
             cost = 200,
             effects = {
@@ -117,7 +117,7 @@ return function(ctx)
             },
           },
           {
-            name = "Super Monkey Fan Club",
+            name = "超級猴子粉絲俱樂部",
             description = "5 發扇形 + 彈速×2 + 攻速再 +30%",
             cost = 500,
             effects = {
@@ -136,7 +136,7 @@ return function(ctx)
         },
         {
           {
-            name = "Keen Eyes",
+            name = "銳利雙眼",
             description = "爆率 25→40%, 爆傷 30→40",
             cost = 50,
             effects = {
@@ -155,7 +155,7 @@ return function(ctx)
             },
           },
           {
-            name = "Crossbow",
+            name = "弩弓",
             description = "爆率 →50%, 爆傷 →60, 射程 +30",
             cost = 100,
             effects = {
@@ -180,7 +180,7 @@ return function(ctx)
             },
           },
           {
-            name = "Sharp Shooter",
+            name = "神射手",
             description = "必爆 (100%), base dmg +30%",
             cost = 200,
             effects = {
@@ -197,7 +197,7 @@ return function(ctx)
             },
           },
           {
-            name = "Ultra-Juggernaut",
+            name = "究極重裝彈",
             description = "爆擊 100 dmg + splash 60",
             cost = 500,
             effects = {
@@ -212,7 +212,7 @@ return function(ctx)
     },
     {
       id = "tower_tack",
-      display_name = "Tack Shooter",
+      display_name = "鐵釘射手",
       atk = 8.0,
       asd_interval = 1.2,
       range = 380.0,
@@ -228,7 +228,7 @@ return function(ctx)
       upgrades = {
         {
           {
-            name = "Faster Shooting",
+            name = "更快射擊",
             description = "攻速 +20%",
             cost = 100,
             effects = {
@@ -241,7 +241,7 @@ return function(ctx)
             },
           },
           {
-            name = "Long Range Tacks",
+            name = "長射程鐵釘",
             description = "射程 380→460, damage 8→11",
             cost = 200,
             effects = {
@@ -260,7 +260,7 @@ return function(ctx)
             },
           },
           {
-            name = "Super Range Tacks",
+            name = "超遠程鐵釘",
             description = "射程 →530, damage →14",
             cost = 400,
             effects = {
@@ -279,7 +279,7 @@ return function(ctx)
             },
           },
           {
-            name = "Blade Shooter",
+            name = "飛刀射手",
             description = "飛刀: dmg 20, hit_radius 110, 穿透 +2",
             cost = 1000,
             effects = {
@@ -298,7 +298,7 @@ return function(ctx)
         },
         {
           {
-            name = "Hot Shots",
+            name = "灼熱射擊",
             description = "命中附 2s 灼燒 5dps",
             cost = 100,
             effects = {
@@ -309,7 +309,7 @@ return function(ctx)
             },
           },
           {
-            name = "Burny Stuff",
+            name = "易燃材料",
             description = "灼燒 3s × 10dps",
             cost = 200,
             effects = {
@@ -320,7 +320,7 @@ return function(ctx)
             },
           },
           {
-            name = "Ring of Fire",
+            name = "烈焰火環",
             description = "每次開火塔周 200 半徑 20 dmg",
             cost = 400,
             effects = {
@@ -331,7 +331,7 @@ return function(ctx)
             },
           },
           {
-            name = "Inferno Ring",
+            name = "煉獄火環",
             description = "火圈 dmg →50, 針 dmg +10, 火圈附燃燒",
             cost = 1000,
             effects = {
@@ -350,7 +350,7 @@ return function(ctx)
         },
         {
           {
-            name = "Faster Shooting II",
+            name = "更快射擊二型",
             description = "攻速 +30%",
             cost = 100,
             effects = {
@@ -363,7 +363,7 @@ return function(ctx)
             },
           },
           {
-            name = "Even More Tacks",
+            name = "更多鐵釘",
             description = "針數 8→12",
             cost = 200,
             effects = {
@@ -374,7 +374,7 @@ return function(ctx)
             },
           },
           {
-            name = "Tack Sprayer",
+            name = "鐵釘噴灑器",
             description = "針數 →16, 射程 +50",
             cost = 400,
             effects = {
@@ -391,7 +391,7 @@ return function(ctx)
             },
           },
           {
-            name = "The Tack Zone",
+            name = "鐵釘禁區",
             description = "針數 →32, 攻速再 +40%",
             cost = 1000,
             effects = {
@@ -412,7 +412,7 @@ return function(ctx)
     },
     {
       id = "tower_bomb",
-      display_name = "Bomb Shooter",
+      display_name = "炸彈射手",
       atk = 30.0,
       asd_interval = 1.5,
       range = 400.0,
@@ -428,7 +428,7 @@ return function(ctx)
       upgrades = {
         {
           {
-            name = "Extra Range",
+            name = "額外射程",
             description = "射程 400→475",
             cost = 162,
             effects = {
@@ -441,7 +441,7 @@ return function(ctx)
             },
           },
           {
-            name = "Bigger Bombs",
+            name = "更大炸彈",
             description = "splash 200→250, damage 30→40",
             cost = 325,
             effects = {
@@ -460,7 +460,7 @@ return function(ctx)
             },
           },
           {
-            name = "Really Big Bombs",
+            name = "超大炸彈",
             description = "splash →300, damage →60",
             cost = 650,
             effects = {
@@ -479,7 +479,7 @@ return function(ctx)
             },
           },
           {
-            name = "Bloon Impact",
+            name = "氣球衝擊",
             description = "splash →400, damage →100, 命中 0.5s 眩暈",
             cost = 1625,
             effects = {
@@ -504,7 +504,7 @@ return function(ctx)
         },
         {
           {
-            name = "Faster Reload",
+            name = "更快裝填",
             description = "攻速 +20%",
             cost = 162,
             effects = {
@@ -517,7 +517,7 @@ return function(ctx)
             },
           },
           {
-            name = "Missile Launcher",
+            name = "飛彈發射器",
             description = "射程 +150, 彈速 900→1350",
             cost = 325,
             effects = {
@@ -534,7 +534,7 @@ return function(ctx)
             },
           },
           {
-            name = "MOAB Mauler",
+            name = "飛艇粉碎者",
             description = "damage +30, 彈速再 +50%",
             cost = 650,
             effects = {
@@ -547,7 +547,7 @@ return function(ctx)
             },
           },
           {
-            name = "MOAB Assassin",
+            name = "飛艇刺客",
             description = "每 15s 超級彈 + 常攻再 +30% 攻速",
             cost = 1625,
             effects = {
@@ -566,7 +566,7 @@ return function(ctx)
         },
         {
           {
-            name = "Frag Bombs",
+            name = "破片炸彈",
             description = "爆炸後 8 方向碎片 15 dmg",
             cost = 162,
             effects = {
@@ -577,7 +577,7 @@ return function(ctx)
             },
           },
           {
-            name = "Cluster Bombs",
+            name = "集束炸彈",
             description = "碎片 →12, dmg 25",
             cost = 325,
             effects = {
@@ -588,7 +588,7 @@ return function(ctx)
             },
           },
           {
-            name = "Recursive Cluster",
+            name = "遞迴集束",
             description = "碎片 dmg →45, 再生 4 個小碎片",
             cost = 650,
             effects = {
@@ -599,7 +599,7 @@ return function(ctx)
             },
           },
           {
-            name = "Bomb Blitz",
+            name = "炸彈閃擊",
             description = "碎片 →16 homing, 主彈 dmg +50",
             cost = 1625,
             effects = {
@@ -620,7 +620,7 @@ return function(ctx)
     },
     {
       id = "tower_ice",
-      display_name = "Ice Monkey",
+      display_name = "冰凍猴",
       atk = 3.0,
       asd_interval = 1.5,
       range = 180.0,
@@ -636,7 +636,7 @@ return function(ctx)
       upgrades = {
         {
           {
-            name = "Permafrost",
+            name = "永久凍霜",
             description = "slow 50%→65%",
             cost = 100,
             effects = {
@@ -649,7 +649,7 @@ return function(ctx)
             },
           },
           {
-            name = "Enhanced Freeze",
+            name = "強化冰凍",
             description = "slow 持續 2.0→3.0s",
             cost = 200,
             effects = {
@@ -662,7 +662,7 @@ return function(ctx)
             },
           },
           {
-            name = "Deep Freeze",
+            name = "深度凍結",
             description = "命中附 1.0s 完全凍結",
             cost = 400,
             effects = {
@@ -673,7 +673,7 @@ return function(ctx)
             },
           },
           {
-            name = "Absolute Zero",
+            name = "絕對零度",
             description = "每 15s 全屏凍結 2s, 常規 slow →80%",
             cost = 1000,
             effects = {
@@ -692,7 +692,7 @@ return function(ctx)
         },
         {
           {
-            name = "Larger Range",
+            name = "更大範圍",
             description = "range 180→250, splash 90→120",
             cost = 100,
             effects = {
@@ -711,7 +711,7 @@ return function(ctx)
             },
           },
           {
-            name = "Arctic Wind",
+            name = "極地寒風",
             description = "range →300, 塔周光環減速 20%",
             cost = 200,
             effects = {
@@ -728,7 +728,7 @@ return function(ctx)
             },
           },
           {
-            name = "Snowstorm",
+            name = "暴風雪",
             description = "光環疊到 35%, 凍敵所有塔攻速 +10%",
             cost = 400,
             effects = {
@@ -739,7 +739,7 @@ return function(ctx)
             },
           },
           {
-            name = "Cryo Cannon",
+            name = "低溫冰砲",
             description = "range →400, 光環 40%, 每 10s 射巨冰彈",
             cost = 1000,
             effects = {
@@ -758,7 +758,7 @@ return function(ctx)
         },
         {
           {
-            name = "Enhanced Freeze",
+            name = "強化凍傷",
             description = "本塔減速敵人受物理 +15%",
             cost = 100,
             effects = {
@@ -769,7 +769,7 @@ return function(ctx)
             },
           },
           {
-            name = "Re-Freeze",
+            name = "再次凍結",
             description = "攻擊刷新 slow 到滿 duration",
             cost = 200,
             effects = {
@@ -780,7 +780,7 @@ return function(ctx)
             },
           },
           {
-            name = "Embrittlement",
+            name = "脆化",
             description = "減速中敵人受全來源 +25% 傷害",
             cost = 400,
             effects = {
@@ -791,7 +791,7 @@ return function(ctx)
             },
           },
           {
-            name = "Icicle Impale",
+            name = "冰錐穿刺",
             description = "冰錐穿透 3, base dmg 3→25, splash 150",
             cost = 1000,
             effects = {

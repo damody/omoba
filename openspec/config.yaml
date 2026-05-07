@@ -1,20 +1,19 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  所有 OpenSpec 產生或更新的 Markdown artifacts（proposal.md、design.md、tasks.md、specs/**/*.md）
+  都必須使用繁體中文，採用台灣常用詞彙與自然語氣。
+  程式碼識別字、API 名稱、檔名、路徑、指令、protocol 欄位、log/error message、
+  external spec keywords 與 runtime-visible string literal 保留原文。
+  若 OpenSpec schema/parser 需要固定英文結構標題，該結構標題保留原文，其內容仍使用繁體中文。
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - 內文、條列與原因說明使用繁體中文；必要技術名詞可保留英文。
+  design:
+    - 設計背景、決策、取捨、風險與遷移計畫使用繁體中文。
+  tasks:
+    - 任務描述使用繁體中文；保留 checkbox 語法與檔案/API 名稱原文。
+  specs:
+    - requirement 與 scenario 的描述使用繁體中文。
+    - 保留 OpenSpec 必要結構關鍵字，例如 `## ADDED Requirements`、`### Requirement:`、`#### Scenario:`。
