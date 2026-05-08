@@ -483,9 +483,12 @@ message InputForPlayer {
   uint32 player_id = 1;
   PlayerInput input = 2;
   uint32 input_id = 3;
+  uint32 server_receive_tick = 4;
+  uint32 server_drain_tick = 5;
+  uint64 server_queue_us = 6;
 }
 
-// Tag 0x11 (S→C): server-paced tick broadcast. Sent every 16.66ms (60Hz)
+// Tag 0x11 (S→C): server-paced tick broadcast. Sent every ~8.33ms (120Hz)
 // even if inputs and server_events are both empty (heartbeat).
 message TickBatch {
   uint32 tick = 1;
@@ -493,7 +496,7 @@ message TickBatch {
   repeated ServerEvent server_events = 3;
 }
 
-// Tag 0x12 (S→C): broadcast every 600 ticks (10s @ 60Hz) for desync detection.
+// Tag 0x12 (S→C): broadcast every 1200 ticks (10s @ 120Hz) for desync detection.
 // Clients hash their local sim state at this tick and compare; mismatch → kick.
 message StateHash {
   uint32 tick = 1;

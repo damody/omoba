@@ -5,6 +5,7 @@
 pub mod ability_meta;
 pub mod tower_meta;
 pub mod config;
+pub mod lockstep_timing;
 pub mod quant;
 // template_ids 已刪除 (2026-04-25)：遷移到 omoba-template-ids 箱。
 // 下游代碼：`use omoba_template_ids::*;` — 源自連續的 u16 新類型

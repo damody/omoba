@@ -150,7 +150,7 @@ mod tests {
         let (mut a2, mut b2) = duplex(8192);
         write_framed(&mut a2, TAG_GAME_EVENT, &payload).await.unwrap();
         a2.shutdown().await.ok();
-        let (tag, out) = read_framed(&mut b2).await.unwrap().unwrap();
+        let (tag, out, _wire_bytes) = read_framed(&mut b2).await.unwrap().unwrap();
         assert_eq!(tag, TAG_GAME_EVENT);
         assert_eq!(out, payload);
     }
@@ -194,7 +194,7 @@ mod tests {
         let (mut a2, mut b2) = duplex(8192);
         write_framed(&mut a2, TAG_GAME_EVENT, &payload).await.unwrap();
         a2.shutdown().await.ok();
-        let (tag, out) = read_framed(&mut b2).await.unwrap().unwrap();
+        let (tag, out, _wire_bytes) = read_framed(&mut b2).await.unwrap().unwrap();
         assert_eq!(tag, TAG_GAME_EVENT, "read_framed must strip COMPRESSION_FLAG");
         assert_eq!(out, payload, "decompressed bytes must equal original");
 
