@@ -75,3 +75,17 @@ Each fire cue SHALL include at minimum the tower entity id, spawn tick, and firi
 - **WHEN** determinism tests hash the sim state before and after tower fire cue extraction
 - **THEN** render-only fire cue queue contents are not part of the authoritative gameplay hash
 - **AND** draining the cue queue does not mutate gameplay components, resources, entity existence, damage, cooldown, or projectile state
+
+### Requirement: attack phase cues are exposed through render snapshots
+`SimWorldSnapshot` SHALL expose render-only attack phase cues for unit attack animation. Each cue SHALL represent an attack windup start and include entity id, attack sequence id, windup duration, impact offset, backswing duration, and target or direction data. The cue source queue SHALL be drained with the same render-only pattern as explosion and tower fire cues.
+
+#### Scenario: attack phase cue appears before impact
+- **WHEN** a unit starts attack windup at tick N and impact is scheduled for a later tick or sub-tick offset
+- **THEN** the next render snapshot includes an attack phase cue for that unit
+- **AND** omfx can start attack animation before projectile spawn or damage impact
+
+#### Scenario: attack phase cue queue drains once
+- **WHEN** `extract_snapshot` drains pending attack phase cues
+- **THEN** drained cues appear in the snapshot
+- **AND** the source queue is empty after extraction
+- **AND** the same cue does not appear again in later snapshots unless another attack windup starts

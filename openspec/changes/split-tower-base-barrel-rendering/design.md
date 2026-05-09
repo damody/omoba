@@ -233,6 +233,9 @@ Alternatives considered:
 - [Risk] 多重射擊塔 recoil 過於頻繁或方向不穩 → Mitigation：同 entity 同 tick 合併 cue，方向使用 primary target/facing，不逐發抖動。
 - [Risk] 對針塔套用單一目標旋轉會讓視覺語意錯誤 → Mitigation：新增 `rotation_mode = "fixed"` 與 `recoil.mode = "scale_pulse"`，讓 `tower_tack` 固定不轉向，開火只做整塔縮小再回彈的 pulse。
 - [Risk] `tower_tack` 升級後發射針數與視覺砲管數不一致 → Mitigation：新增 `barrel_layout = "radial_count_variants"` 與 upgrade-level-based variant 選擇，至少提供 8/12/16 三種 barrel 圖。
+- [Risk] 前端攻擊動畫與後端 impact 不一致 → Mitigation：後端在 windup 開始時推送包含 windup/impact/backswing timing 的 authoritative render cue，前端只對齊 cue 播放，不自行預測攻擊時間。
+- [Risk] 攻速極快時前搖/後搖太短看不見 → Mitigation：attack timing metadata 提供 minimum durations，同時仍讓 effective interval 縮短時依規則縮放。
+- [Risk] animation frame 數量多會增加載入與記憶體成本 → Mitigation：每種 animated tower/barrel 第一版限制少量 PNG，透過 texture cache 一次載入並重用，不在每 frame 讀檔。
 - [Risk] 缺少正式美術時戰鬥畫面變空白 → Mitigation：所有塔提供 placeholder base/barrel PNG，loader 缺圖時 log 並 fallback。
 
 ## Migration Plan
@@ -240,6 +243,8 @@ Alternatives considered:
 - 先新增 metadata 型別與 default codegen，不改現有塔行為。
 - 在 `scripts/base_content/assets/towers/` 新增預設 base/barrel placeholder 與 README。
 - 為現有 `tower_dart`、`tower_tack`、`tower_bomb`、`tower_ice` 補上 `render` metadata，其中 `tower_tack` 使用 `rotation_mode = "fixed"`、`barrel_layout = "radial_count_variants"`、8/12/16 barrel variants 與 `scale_pulse` recoil。
+- 新增 barrel animation frames 與無砲管範圍傷害塔 frames，並把 attack animation 起點對齊 windup cue。
+- 新增所有單位共用 attack timing metadata 與後端 windup/impact/backswing scheduling。
 - 同步新增 `asset-prompts.md`，逐張列出甜點戰爭完整生圖提示詞，讓企劃可用 ChatGPT 重新產生同名 PNG。
 - 使用 `combat-tower-layout.svg` 對照實作結果，確認一般砲塔會朝目標旋轉、`tower_tack` 不朝單一目標旋轉且可切換 8/12/16 barrel variants。
 - 擴充 `TowerTemplateRegistry` 與 `TowerTemplateSnapshot`，讓 omfx 能取得 render metadata。
