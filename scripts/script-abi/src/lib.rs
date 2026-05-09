@@ -33,8 +33,8 @@ pub mod prelude {
 
     // 讓腳本可以方便建這些常用型別不用自己 import
     pub use crate::types::{
-        EntityHandle, DamageKind, DamageInfo, Target, PathSpec,
-        TowerMetadata, ProjectileSpec, Fixed64, Vec2, Angle,
+        Angle, DamageInfo, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileSpec, Target,
+        TowerMetadata, Vec2,
     };
 
     // 模板 ids — 由 omoba-template-ids build.rs 產生的 newtype + const。

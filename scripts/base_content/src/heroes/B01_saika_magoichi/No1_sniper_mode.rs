@@ -12,9 +12,7 @@ use omb_script_abi::{
     types::{EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
-use omoba_core::ability_meta::{
-    AbilityLevelData, EffectSpec, TargetSelector,
-};
+use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
 use omoba_template_ids::{ABILITY_SNIPER_MODE, ABILITY_SNIPER_MODE_CONST};
 use std::collections::HashMap;
 
@@ -42,8 +40,8 @@ impl AbilityScript for SniperModeHandler {
             world.remove_buff(caster, buff);
             world.log_info(RStr::from_str("[sniper_mode] toggled OFF"));
         } else {
-            let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
-                .unwrap_or_default();
+            let level_data: AbilityLevelData =
+                serde_json::from_str(level_data_json.as_str()).unwrap_or_default();
             // 階段 1de.2：從 JSON extra 讀取為 f64，然後轉換為原始固定64
             // 用於線路有效負載（鎖步正確整數編碼）。
             let get_raw = |k: &str| -> i32 {
@@ -70,15 +68,35 @@ impl AbilityScript for SniperModeHandler {
             // - MOVESPEED_BONUS_PERCENTAGE: -0.5 會被聚合後套 (1 + sum) = 50% 移速
             // - ACCURACY_BONUS: 非 Dota 原生；game_processor 讀取
             let mut modifiers = serde_json::Map::new();
-            modifiers.insert(StatKey::AttackRangeBonus.as_str().into(), serde_json::json!(get_raw("range_bonus")));
-            modifiers.insert(StatKey::BaseDamageOutgoingPercentage.as_str().into(), serde_json::json!(get_raw("damage_bonus")));
-            modifiers.insert(StatKey::AttackSpeedBonusConstant.as_str().into(), serde_json::json!(get_raw_scaled("attack_speed_penalty", 100.0)));
-            modifiers.insert(StatKey::MoveSpeedBonusPercentage.as_str().into(), serde_json::json!(get_raw("move_speed_penalty")));
-            modifiers.insert(StatKey::AccuracyBonus.as_str().into(), serde_json::json!(get_raw("accuracy_bonus")));
+            modifiers.insert(
+                StatKey::AttackRangeBonus.as_str().into(),
+                serde_json::json!(get_raw("range_bonus")),
+            );
+            modifiers.insert(
+                StatKey::BaseDamageOutgoingPercentage.as_str().into(),
+                serde_json::json!(get_raw("damage_bonus")),
+            );
+            modifiers.insert(
+                StatKey::AttackSpeedBonusConstant.as_str().into(),
+                serde_json::json!(get_raw_scaled("attack_speed_penalty", 100.0)),
+            );
+            modifiers.insert(
+                StatKey::MoveSpeedBonusPercentage.as_str().into(),
+                serde_json::json!(get_raw("move_speed_penalty")),
+            );
+            modifiers.insert(
+                StatKey::AccuracyBonus.as_str().into(),
+                serde_json::json!(get_raw("accuracy_bonus")),
+            );
             let mods_str = serde_json::Value::Object(modifiers).to_string();
             // 切換 buff — 持續時間現在為固定 64；使用非常大的正值作為
             // 「不確定」哨兵（與主機 BuffStore 約定相符；切換透過 has_buff/remove_buff 刪除）。
-            world.add_stat_buff(caster, buff, Fixed64::from_i32(i32::MAX / 1024), (&*mods_str).into());
+            world.add_stat_buff(
+                caster,
+                buff,
+                Fixed64::from_i32(i32::MAX / 1024),
+                (&*mods_str).into(),
+            );
             world.log_info(RStr::from_str("[sniper_mode] toggled ON"));
         }
         ROk(())

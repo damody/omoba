@@ -1,7 +1,7 @@
 //! Deterministic RNG seeded by master_seed + tick. Implemented in Task 0.7.
 
-use rand_pcg::Pcg64Mcg;
 use rand_core::{RngCore, SeedableRng};
+use rand_pcg::Pcg64Mcg;
 
 use crate::fixed::Fixed64;
 
@@ -36,14 +36,23 @@ impl SimRng {
         SimRng(Pcg64Mcg::seed_from_u64(state))
     }
 
-    pub fn next_u32(&mut self) -> u32 { self.0.next_u32() }
-    pub fn next_u64(&mut self) -> u64 { self.0.next_u64() }
+    pub fn next_u32(&mut self) -> u32 {
+        self.0.next_u32()
+    }
+    pub fn next_u64(&mut self) -> u64 {
+        self.0.next_u64()
+    }
 
     /// Returns an integer in `[low, high)`, biased slightly toward lower values when
     /// `(high-low)` is not a power of 2 (modulo bias). Acceptable for game math —
     /// upgrade to widening multiply if pure uniformity is ever needed.
     pub fn range(&mut self, low: i32, high: i32) -> i32 {
-        assert!(high > low, "SimRng::range requires low < high (got low={}, high={})", low, high);
+        assert!(
+            high > low,
+            "SimRng::range requires low < high (got low={}, high={})",
+            low,
+            high
+        );
         let span = (high - low) as u32;
         let r = self.next_u32() % span;
         low + r as i32
@@ -94,7 +103,11 @@ mod tests {
             histogram[r.range(0, 10) as usize] += 1;
         }
         for c in &histogram {
-            assert!(*c >= 800 && *c <= 1200, "bucket {} out of expected ±20% range", c);
+            assert!(
+                *c >= 800 && *c <= 1200,
+                "bucket {} out of expected ±20% range",
+                c
+            );
         }
     }
 
@@ -110,7 +123,11 @@ mod tests {
         let mut r = SimRng::from_master(42, 0);
         for _ in 0..1000 {
             let v = r.gen_fixed64_unit();
-            assert!(v.raw() >= 0 && v.raw() < 1024, "out of [0, 1024): raw={}", v.raw());
+            assert!(
+                v.raw() >= 0 && v.raw() < 1024,
+                "out of [0, 1024): raw={}",
+                v.raw()
+            );
         }
     }
 

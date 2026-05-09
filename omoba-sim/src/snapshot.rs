@@ -8,7 +8,7 @@
 //! depend only on `omoba_sim::snapshot::{serialize, deserialize}` rather than on bincode
 //! directly — so a future migration to bincode 2.x or a different encoder is one file.
 
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Serialize};
 
 /// Serializes a value to bytes using bincode 1.x default config (little-endian, varint sizes).
 pub fn serialize<T: Serialize>(value: &T) -> Result<Vec<u8>, bincode::Error> {
@@ -23,7 +23,7 @@ pub fn deserialize<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, bincode::Erro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::{Serialize, Deserialize};
+    use serde::{Deserialize, Serialize};
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct DummyWorld {
@@ -44,7 +44,10 @@ mod tests {
 
     #[test]
     fn empty_world_round_trip() {
-        let w = DummyWorld { tick: 0, entities: vec![] };
+        let w = DummyWorld {
+            tick: 0,
+            entities: vec![],
+        };
         let bytes = serialize(&w).expect("serialize");
         let w2: DummyWorld = deserialize(&bytes).expect("deserialize");
         assert_eq!(w, w2);

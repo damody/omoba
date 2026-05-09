@@ -5,7 +5,7 @@
 //! by virtue of Fixed64's underlying contract.
 
 use crate::fixed::Fixed64;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[cfg_attr(feature = "abi-stable", derive(abi_stable::StableAbi))]
 #[cfg_attr(feature = "abi-stable", repr(C))]
@@ -16,9 +16,14 @@ pub struct Vec2 {
 }
 
 impl Vec2 {
-    pub const ZERO: Vec2 = Vec2 { x: Fixed64::ZERO, y: Fixed64::ZERO };
+    pub const ZERO: Vec2 = Vec2 {
+        x: Fixed64::ZERO,
+        y: Fixed64::ZERO,
+    };
 
-    pub const fn new(x: Fixed64, y: Fixed64) -> Self { Vec2 { x, y } }
+    pub const fn new(x: Fixed64, y: Fixed64) -> Self {
+        Vec2 { x, y }
+    }
 
     /// Dot product: x1*x2 + y1*y2. Useful for projection / facing checks.
     pub fn dot(self, other: Vec2) -> Fixed64 {
@@ -54,29 +59,54 @@ impl Vec2 {
     /// `Fixed64::sqrt(non-positive) → ZERO` contract used elsewhere in the sim.
     pub fn normalized(self) -> Vec2 {
         let len = self.length();
-        if len == Fixed64::ZERO { return Vec2::ZERO; }
-        Vec2 { x: self.x / len, y: self.y / len }
+        if len == Fixed64::ZERO {
+            return Vec2::ZERO;
+        }
+        Vec2 {
+            x: self.x / len,
+            y: self.y / len,
+        }
     }
 }
 
 impl std::ops::Add for Vec2 {
     type Output = Vec2;
-    fn add(self, rhs: Vec2) -> Vec2 { Vec2 { x: self.x + rhs.x, y: self.y + rhs.y } }
+    fn add(self, rhs: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
 }
 
 impl std::ops::Sub for Vec2 {
     type Output = Vec2;
-    fn sub(self, rhs: Vec2) -> Vec2 { Vec2 { x: self.x - rhs.x, y: self.y - rhs.y } }
+    fn sub(self, rhs: Vec2) -> Vec2 {
+        Vec2 {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
 }
 
 impl std::ops::Neg for Vec2 {
     type Output = Vec2;
-    fn neg(self) -> Vec2 { Vec2 { x: -self.x, y: -self.y } }
+    fn neg(self) -> Vec2 {
+        Vec2 {
+            x: -self.x,
+            y: -self.y,
+        }
+    }
 }
 
 impl std::ops::Mul<Fixed64> for Vec2 {
     type Output = Vec2;
-    fn mul(self, scalar: Fixed64) -> Vec2 { Vec2 { x: self.x * scalar, y: self.y * scalar } }
+    fn mul(self, scalar: Fixed64) -> Vec2 {
+        Vec2 {
+            x: self.x * scalar,
+            y: self.y * scalar,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -165,14 +195,23 @@ mod tests {
         // arrived-at-waypoint check pass on tick 1 and pidx skip every
         // checkpoint until CreepLeaked. Must round-trip cleanly now.
         let a = Vec2::new(Fixed64::from_i32(-1400), Fixed64::from_i32(-800));
-        let b = Vec2::new(Fixed64::from_i32( 1400), Fixed64::from_i32(-800));
+        let b = Vec2::new(Fixed64::from_i32(1400), Fixed64::from_i32(-800));
         let d2 = a.distance_squared(b);
-        assert_eq!(d2, Fixed64::from_i32(2800 * 2800),
-            "distance_squared overflow: raw={}", d2.raw());
+        assert_eq!(
+            d2,
+            Fixed64::from_i32(2800 * 2800),
+            "distance_squared overflow: raw={}",
+            d2.raw()
+        );
         let d = a.distance(b);
         let diff = (d.raw() - Fixed64::from_i32(2800).raw()).abs();
-        assert!(diff <= 2, "distance: raw={} expected~={}, diff={}",
-            d.raw(), Fixed64::from_i32(2800).raw(), diff);
+        assert!(
+            diff <= 2,
+            "distance: raw={} expected~={}, diff={}",
+            d.raw(),
+            Fixed64::from_i32(2800).raw(),
+            diff
+        );
     }
 
     #[test]

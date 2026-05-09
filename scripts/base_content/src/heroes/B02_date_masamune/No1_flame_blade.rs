@@ -6,9 +6,7 @@ use omb_script_abi::{
     types::{DamageKind, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
-use omoba_core::ability_meta::{
-    AbilityLevelData, DamageType, EffectSpec, TargetSelector,
-};
+use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
 use omoba_template_ids::{ABILITY_FLAME_BLADE, ABILITY_FLAME_BLADE_CONST};
 
 use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
@@ -28,8 +26,8 @@ impl AbilityScript for FlameBladeHandler {
         level_data_json: RStr<'_>,
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
-        let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
-            .unwrap_or_default();
+        let level_data: AbilityLevelData =
+            serde_json::from_str(level_data_json.as_str()).unwrap_or_default();
         // JSON extras 仍然是 f32 → 邊界處的固定 64 轉換。
         // 第 2 階段：omoba_core::AbilityLevelData 仍為 f32；第二階段 KCP 標籤返工中的重新設計。
         let damage = level_data

@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TowerUpgradeDef {
-    pub tower_kind: String,  // "tower_dart" / "tower_bomb" / "tower_tack" / "tower_ice"
-    pub path: u8,            // 0, 1, 2
-    pub level: u8,           // 1..=4
+    pub tower_kind: String, // "tower_dart" / "tower_bomb" / "tower_tack" / "tower_ice"
+    pub path: u8,           // 0, 1, 2
+    pub level: u8,          // 1..=4
     pub name: String,
     pub description: String,
     pub cost: i32,
@@ -26,8 +26,8 @@ pub enum UpgradeEffect {
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StatOp {
-    Add,  // _bonus 後綴，BuffStore sum_add
-    Mul,  // _multiplier 後綴，BuffStore product_mult
+    Add, // _bonus 後綴，BuffStore sum_add
+    Mul, // _multiplier 後綴，BuffStore product_mult
 }
 
 /// 費用公式：base × {0.25, 0.5, 1.0, 2.5}[level-1]
@@ -59,12 +59,16 @@ mod tests {
     fn serde_roundtrip() {
         use omoba_template_ids::TOWER_DART;
         let def = TowerUpgradeDef {
-            tower_kind: TOWER_DART.as_str().into(), path: 0, level: 1,
+            tower_kind: TOWER_DART.as_str().into(),
+            path: 0,
+            level: 1,
             name: "Long Range Darts".into(),
             description: "射程 +50".into(),
             cost: 50,
             effects: vec![UpgradeEffect::StatMod {
-                key: "range_bonus".into(), value: 50.0, op: StatOp::Add,
+                key: "range_bonus".into(),
+                value: 50.0,
+                op: StatOp::Add,
             }],
         };
         let s = serde_json::to_string(&def).unwrap();

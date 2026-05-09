@@ -33,8 +33,8 @@ impl AbilityScript for ThreeStageHandler {
         level_data_json: RStr<'_>,
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
-        let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
-            .unwrap_or_default();
+        let level_data: AbilityLevelData =
+            serde_json::from_str(level_data_json.as_str()).unwrap_or_default();
         // omoba_core JSON 額外內容仍為 f32；在邊界處轉換為固定64。
         // 第 2 階段：omoba_core::AbilityLevelData 仍為 f32；第二階段 KCP 標籤返工中的重新設計。
         let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
@@ -45,9 +45,22 @@ impl AbilityScript for ThreeStageHandler {
                 .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
                 .unwrap_or(dft)
         };
-        let duration = get_fx("duration", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", level));
-        let atk_bonus = get_fx("atk_bonus_pct", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", level));
-        let multi_shot = get_fx("multi_shot_count", extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", level));
+        let duration = get_fx(
+            "duration",
+            extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", level),
+        );
+        let atk_bonus = get_fx(
+            "atk_bonus_pct",
+            extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", level),
+        );
+        let multi_shot = get_fx(
+            "multi_shot_count",
+            extra_at(
+                &ABILITY_THREE_STAGE_TECHNIQUE_CONST,
+                "multi_shot_count",
+                level,
+            ),
+        );
 
         let mut modifiers = serde_json::Map::new();
         // 階段 1de.2：發出原始的 Fix64 i32 — 主機 BuffStore::read_fixed_from_payload
@@ -81,7 +94,10 @@ pub fn three_stage_ffi() -> AbilityDefFFI {
     let atk_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", 1);
     let multi_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", 1);
     let mut preview_mods = HashMap::new();
-    preview_mods.insert(StatKey::TotalDamageOutgoingPercentage.as_str().into(), atk_lv1);
+    preview_mods.insert(
+        StatKey::TotalDamageOutgoingPercentage.as_str().into(),
+        atk_lv1,
+    );
     preview_mods.insert(StatKey::MultiShotVisual.as_str().into(), multi_lv1);
     let effects_preview = vec![EffectSpec::Buff {
         target: TargetSelector::SelfUnit,

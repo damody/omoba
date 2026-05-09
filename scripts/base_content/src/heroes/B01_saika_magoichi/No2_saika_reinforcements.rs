@@ -64,10 +64,7 @@ impl AbilityScript for SaikaReinforcementsHandler {
         // forward = 永遠用 caster 的 Facing（忽略 target，因前端每次按鍵都送滑鼠
         // 位置做 target_pos；這個 W 設計上是「以自身朝向往前方兩排召喚」）。
         let _ = target;
-        let caster_pos = world
-            .get_pos(caster)
-            .into_option()
-            .unwrap_or(Vec2::ZERO);
+        let caster_pos = world.get_pos(caster).into_option().unwrap_or(Vec2::ZERO);
         let facing = world.get_facing(caster);
 
         let fwd_x = omoba_sim::trig::cos(facing);
@@ -115,8 +112,8 @@ impl AbilityScript for SaikaReinforcementsHandler {
 
 pub fn saika_reinforcements_ffi() -> AbilityDefFFI {
     // Lv1 預覽：召喚 2 隻、duration 45s
-    let count_lv1 = extra_at(&ABILITY_SAIKA_REINFORCEMENTS_CONST, "summon_count", 1)
-        .to_f32_for_render() as u32;
+    let count_lv1 =
+        extra_at(&ABILITY_SAIKA_REINFORCEMENTS_CONST, "summon_count", 1).to_f32_for_render() as u32;
     let duration_lv1 = extra_at_f32(&ABILITY_SAIKA_REINFORCEMENTS_CONST, "duration", 1);
     let effects_preview = vec![EffectSpec::Summon {
         unit_type: SUMMON_SAIKA_GUNNER.as_str().into(),

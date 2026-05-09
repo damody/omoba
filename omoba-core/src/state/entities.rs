@@ -1,7 +1,7 @@
 //! 遊戲物件的實體定義
 
-use vek::Vec2;
 use std::time::SystemTime;
+use vek::Vec2;
 
 /// 遊戲實體
 #[derive(Debug, Clone)]

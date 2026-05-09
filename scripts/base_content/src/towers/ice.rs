@@ -106,11 +106,18 @@ impl UnitScript for IceTower {
             let dx = t_pos.x - pos.x;
             let dy = t_pos.y - pos.y;
             let len_raw = (dx * dx + dy * dy).sqrt();
-            let len = if len_raw < Fixed64::ONE { Fixed64::ONE } else { len_raw };
+            let len = if len_raw < Fixed64::ONE {
+                Fixed64::ONE
+            } else {
+                len_raw
+            };
             let scale = Fixed64::from_raw(1536); // 1.5
             let nx = dx / len * range * scale;
             let ny = dy / len * range * scale;
-            let end = Vec2 { x: pos.x + nx, y: pos.y + ny };
+            let end = Vec2 {
+                x: pos.x + nx,
+                y: pos.y + ny,
+            };
             let twenty_five = Fixed64::from_i32(25);
             let dmg = if atk > twenty_five { atk } else { twenty_five };
             (

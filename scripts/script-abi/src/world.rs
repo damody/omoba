@@ -5,13 +5,14 @@
 //! 方法是非通用的（FFI 約束）。新增組件曝光
 //! 意思是在這裡添加方法。
 
-use abi_stable::{
-    RMut, sabi_trait,
-    std_types::{ROption, RStr, RVec},
-};
 use crate::stat_keys::StatKey;
 use crate::types::*;
 pub use crate::types::{PathSpec, ProjectileSpec};
+use abi_stable::{
+    sabi_trait,
+    std_types::{ROption, RStr, RVec},
+    RMut,
+};
 
 /// “GameWorld” 的借用可變動態形式的類型別名 - 這是
 /// 鉤子收到什麼。統一使用這個可以避免指針被淋濕
@@ -40,12 +41,7 @@ pub trait GameWorld: Send {
     /// 實體與 BlockedRegion blocker）。策略：直接走 → 只走 X 軸 → 只走 Y 軸 → 停。
     /// 回傳 post-collision 位置；DLL 拿到後可自行 `set_pos` 與 `set_facing`。
     /// 適用於腳本化召喚物/主動位移單位（如 saika_gunner）。
-    fn advance_with_collision(
-        &mut self,
-        e: EntityHandle,
-        target: Vec2,
-        step: Fixed64,
-    ) -> Vec2;
+    fn advance_with_collision(&mut self, e: EntityHandle, target: Vec2, step: Fixed64) -> Vec2;
     fn deal_damage(
         &mut self,
         target: EntityHandle,
@@ -157,7 +153,12 @@ pub trait GameWorld: Send {
 
     /// 對 tower entity 套一個永久 stat buff（供 upgrade 使用）。
     /// `modifiers_json` 應為 `{"key": value}` 形式（與 add_stat_buff 同）。
-    fn apply_tower_permanent_buff(&mut self, e: EntityHandle, buff_id: RStr<'_>, modifiers_json: RStr<'_>);
+    fn apply_tower_permanent_buff(
+        &mut self,
+        e: EntityHandle,
+        buff_id: RStr<'_>,
+        modifiers_json: RStr<'_>,
+    );
 
     /// 回傳單位的「實際」攻擊射程：`base_range + attack_range_bonus_sum`。
     fn get_final_attack_range(&self, e: EntityHandle) -> Fixed64;

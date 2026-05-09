@@ -43,9 +43,7 @@ impl GrpcClient {
 
     /// 從伺服器訂閱遊戲事件。
     /// 傳回一個接收器通道，該通道產生已解析的遊戲事件。
-    pub async fn subscribe_events(
-        &mut self,
-    ) -> Result<mpsc::Receiver<GameEventData>> {
+    pub async fn subscribe_events(&mut self) -> Result<mpsc::Receiver<GameEventData>> {
         let request = tonic::Request::new(SubscribeRequest {
             player_name: self.player_name.clone(),
         });
@@ -58,7 +56,9 @@ impl GrpcClient {
                 // P9：GameEvent 信封已消失 - 伺服器現在包裝舊版
                 // `LegacyJson` 中的 grpc 端有效負載。解碼並恢復
                 // 來自變體的（msg_type、操作、資料）。
-                let Some(payload) = event.payload else { continue };
+                let Some(payload) = event.payload else {
+                    continue;
+                };
                 let (msg_type, action, data, payload_bytes) = match payload {
                     game_event::Payload::LegacyJson(m) => {
                         let pb = m.data_json.len();

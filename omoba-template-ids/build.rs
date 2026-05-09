@@ -26,20 +26,29 @@ fn fixed64_lit(v: f32) -> String {
 
 #[derive(Deserialize)]
 struct Manifest {
-    #[serde(default)] towers: Vec<TowerEntry>,
-    #[serde(default)] heroes: Vec<HeroEntry>,
-    #[serde(default)] abilities: Vec<AbilityEntry>,
-    #[serde(default)] buffs: Vec<Entry>,
-    #[serde(default)] summons: Vec<SummonEntry>,
-    #[serde(default)] creeps: Vec<CreepEntry>,
-    #[serde(default)] projectile_kinds: Vec<ProjKind>,
+    #[serde(default)]
+    towers: Vec<TowerEntry>,
+    #[serde(default)]
+    heroes: Vec<HeroEntry>,
+    #[serde(default)]
+    abilities: Vec<AbilityEntry>,
+    #[serde(default)]
+    buffs: Vec<Entry>,
+    #[serde(default)]
+    summons: Vec<SummonEntry>,
+    #[serde(default)]
+    creeps: Vec<CreepEntry>,
+    #[serde(default)]
+    projectile_kinds: Vec<ProjKind>,
 }
 
 #[derive(Deserialize, Clone)]
 struct Entry {
     id: String,
-    #[serde(default)] display_name: String,
-    #[serde(default)] tombstone: bool,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    tombstone: bool,
 }
 
 /// Tower entry — id + display_name + 全部 stat 欄位都從 templates.lua 讀。
@@ -47,32 +56,51 @@ struct Entry {
 #[derive(Deserialize, Clone)]
 struct TowerEntry {
     id: String,
-    #[serde(default)] display_name: String,
-    #[serde(default)] tombstone: bool,
-    #[serde(default)] atk: f32,
-    #[serde(default)] asd_interval: f32,
-    #[serde(default)] range: f32,
-    #[serde(default)] bullet_speed: f32,
-    #[serde(default)] splash_radius: f32,
-    #[serde(default)] hit_radius: f32,
-    #[serde(default)] slow_factor: f32,
-    #[serde(default)] slow_duration: f32,
-    #[serde(default)] cost: i32,
-    #[serde(default)] footprint: f32,
-    #[serde(default)] hp: f32,
-    #[serde(default)] turn_speed_deg: f32,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    tombstone: bool,
+    #[serde(default)]
+    atk: f32,
+    #[serde(default)]
+    asd_interval: f32,
+    #[serde(default)]
+    range: f32,
+    #[serde(default)]
+    bullet_speed: f32,
+    #[serde(default)]
+    splash_radius: f32,
+    #[serde(default)]
+    hit_radius: f32,
+    #[serde(default)]
+    slow_factor: f32,
+    #[serde(default)]
+    slow_duration: f32,
+    #[serde(default)]
+    cost: i32,
+    #[serde(default)]
+    footprint: f32,
+    #[serde(default)]
+    hp: f32,
+    #[serde(default)]
+    turn_speed_deg: f32,
     /// Phase D: 3 路線 × 4 級 upgrade tree。長度必須 = 3 (paths)，每路 4 entries。
     /// 空陣列等於 tower 沒有 upgrade tree（測試 / 未來新塔可暫缺）。
-    #[serde(default)] upgrades: Vec<Vec<UpgradeEntry>>,
+    #[serde(default)]
+    upgrades: Vec<Vec<UpgradeEntry>>,
 }
 
 /// 單一 upgrade 條目（per path × per level）。
 #[derive(Deserialize, Clone)]
 struct UpgradeEntry {
-    #[serde(default)] name: String,
-    #[serde(default)] description: String,
-    #[serde(default)] cost: i32,
-    #[serde(default)] effects: Vec<UpgradeEffectEntry>,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    cost: i32,
+    #[serde(default)]
+    effects: Vec<UpgradeEffectEntry>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -81,74 +109,121 @@ enum UpgradeEffectEntry {
     StatMod {
         key: String,
         value: f32,
-        #[serde(default = "default_stat_op")] op: String, // "add" or "mul"
+        #[serde(default = "default_stat_op")]
+        op: String, // "add" or "mul"
     },
-    BehaviorFlag { flag: String },
+    BehaviorFlag {
+        flag: String,
+    },
 }
 
-fn default_stat_op() -> String { "add".into() }
+fn default_stat_op() -> String {
+    "add".into()
+}
 
 #[derive(Deserialize)]
 struct HeroEntry {
     id: String,
-    #[serde(default)] display_name: String,
-    #[serde(default)] title: String,
-    #[serde(default)] #[allow(dead_code)] background: String,
-    #[serde(default)] tombstone: bool,
-    #[serde(default)] abilities: Vec<String>,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    background: String,
+    #[serde(default)]
+    tombstone: bool,
+    #[serde(default)]
+    abilities: Vec<String>,
     // intrinsic stats (Phase B)
-    #[serde(default)] strength: i32,
-    #[serde(default)] agility: i32,
-    #[serde(default)] intelligence: i32,
-    #[serde(default)] primary_attribute: String,
-    #[serde(default)] attack_range: f32,
-    #[serde(default)] base_damage: i32,
-    #[serde(default)] base_armor: f32,
-    #[serde(default)] base_hp: i32,
-    #[serde(default)] base_mana: i32,
-    #[serde(default)] move_speed: f32,
-    #[serde(default)] turn_speed: f32,
-    #[serde(default)] level_growth: HeroLevelGrowthEntry,
+    #[serde(default)]
+    strength: i32,
+    #[serde(default)]
+    agility: i32,
+    #[serde(default)]
+    intelligence: i32,
+    #[serde(default)]
+    primary_attribute: String,
+    #[serde(default)]
+    attack_range: f32,
+    #[serde(default)]
+    base_damage: i32,
+    #[serde(default)]
+    base_armor: f32,
+    #[serde(default)]
+    base_hp: i32,
+    #[serde(default)]
+    base_mana: i32,
+    #[serde(default)]
+    move_speed: f32,
+    #[serde(default)]
+    turn_speed: f32,
+    #[serde(default)]
+    level_growth: HeroLevelGrowthEntry,
 }
 
 #[derive(Deserialize, Default, Clone)]
 struct HeroLevelGrowthEntry {
-    #[serde(default)] strength_per_level: f32,
-    #[serde(default)] agility_per_level: f32,
-    #[serde(default)] intelligence_per_level: f32,
-    #[serde(default)] damage_per_level: f32,
-    #[serde(default)] hp_per_level: f32,
-    #[serde(default)] mana_per_level: f32,
+    #[serde(default)]
+    strength_per_level: f32,
+    #[serde(default)]
+    agility_per_level: f32,
+    #[serde(default)]
+    intelligence_per_level: f32,
+    #[serde(default)]
+    damage_per_level: f32,
+    #[serde(default)]
+    hp_per_level: f32,
+    #[serde(default)]
+    mana_per_level: f32,
 }
 
 /// Creep / Enemy entry — 對應 templates.lua creeps[]。
 #[derive(Deserialize, Clone)]
 struct CreepEntry {
     id: String,
-    #[serde(default)] display_name: String,
-    #[serde(default)] tombstone: bool,
-    #[serde(default)] hp: f32,
-    #[serde(default)] armor: f32,
-    #[serde(default)] magic_resistance: f32,
-    #[serde(default)] damage: f32,
-    #[serde(default)] attack_range: f32,
-    #[serde(default)] move_speed: f32,
-    #[serde(default)] enemy_type: String,
-    #[serde(default)] ai_type: String,
-    #[serde(default)] exp_reward: i32,
-    #[serde(default)] gold_reward: i32,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    tombstone: bool,
+    #[serde(default)]
+    hp: f32,
+    #[serde(default)]
+    armor: f32,
+    #[serde(default)]
+    magic_resistance: f32,
+    #[serde(default)]
+    damage: f32,
+    #[serde(default)]
+    attack_range: f32,
+    #[serde(default)]
+    move_speed: f32,
+    #[serde(default)]
+    enemy_type: String,
+    #[serde(default)]
+    ai_type: String,
+    #[serde(default)]
+    exp_reward: i32,
+    #[serde(default)]
+    gold_reward: i32,
 }
 
 /// Summon entry — 對應 templates.lua summons[]。
 #[derive(Deserialize, Clone)]
 struct SummonEntry {
     id: String,
-    #[serde(default)] display_name: String,
-    #[serde(default)] tombstone: bool,
-    #[serde(default)] hp: f32,
-    #[serde(default)] damage: f32,
-    #[serde(default)] duration: f32,
-    #[serde(default)] move_speed: f32,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    tombstone: bool,
+    #[serde(default)]
+    hp: f32,
+    #[serde(default)]
+    damage: f32,
+    #[serde(default)]
+    duration: f32,
+    #[serde(default)]
+    move_speed: f32,
 }
 
 /// Ability entry — 對應 templates.lua abilities[]。
@@ -157,31 +232,47 @@ struct SummonEntry {
 #[derive(Deserialize, Clone)]
 struct AbilityEntry {
     id: String,
-    #[serde(default)] display_name: String,
-    #[serde(default)] tombstone: bool,
-    #[serde(default)] description: String,
-    #[serde(default)] ability_type: String,   // "active" | "toggle" | "ultimate" | "passive"
-    #[serde(default)] cast_type: String,      // "instant" | "channeled"
-    #[serde(default)] target_type: String,    // "none" | "point" | "unit"
-    #[serde(default = "default_max_level")] max_level: u8,
-    #[serde(default)] levels: Vec<AbilityLevelEntry>,
-    #[serde(default)] extras: std::collections::BTreeMap<String, Vec<f32>>,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    tombstone: bool,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    ability_type: String, // "active" | "toggle" | "ultimate" | "passive"
+    #[serde(default)]
+    cast_type: String, // "instant" | "channeled"
+    #[serde(default)]
+    target_type: String, // "none" | "point" | "unit"
+    #[serde(default = "default_max_level")]
+    max_level: u8,
+    #[serde(default)]
+    levels: Vec<AbilityLevelEntry>,
+    #[serde(default)]
+    extras: std::collections::BTreeMap<String, Vec<f32>>,
 }
 
-fn default_max_level() -> u8 { 4 }
+fn default_max_level() -> u8 {
+    4
+}
 
 #[derive(Deserialize, Clone, Default)]
 struct AbilityLevelEntry {
-    #[serde(default)] cooldown: f32,
-    #[serde(default)] mana_cost: f32,
-    #[serde(default)] cast_time: f32,
-    #[serde(default)] range: f32,
+    #[serde(default)]
+    cooldown: f32,
+    #[serde(default)]
+    mana_cost: f32,
+    #[serde(default)]
+    cast_time: f32,
+    #[serde(default)]
+    range: f32,
 }
 
 #[derive(Deserialize)]
 struct ProjKind {
     id: String,
-    #[serde(default)] tombstone: bool,
+    #[serde(default)]
+    tombstone: bool,
 }
 
 #[derive(Clone)]
@@ -266,13 +357,17 @@ impl LuaContentLoader {
         let include_loader = self.clone();
         ctx.set(
             "include",
-            lua.create_function(move |lua, rel_path: String| include_loader.load_value(lua, &rel_path))?,
+            lua.create_function(move |lua, rel_path: String| {
+                include_loader.load_value(lua, &rel_path)
+            })?,
         )?;
 
         let read_text_loader = self.clone();
         ctx.set(
             "read_text",
-            lua.create_function(move |_lua, rel_path: String| read_text_loader.read_text(&rel_path))?,
+            lua.create_function(move |_lua, rel_path: String| {
+                read_text_loader.read_text(&rel_path)
+            })?,
         )?;
 
         let read_toml_loader = self.clone();
@@ -293,9 +388,8 @@ impl LuaContentLoader {
     fn read_text(&self, rel_path: &str) -> mlua::Result<String> {
         let full_path = self.resolve_existing(rel_path)?;
         self.state.borrow_mut().read_files.insert(full_path.clone());
-        fs::read_to_string(&full_path).map_err(|e| {
-            mlua::Error::external(format!("read {}: {}", full_path.display(), e))
-        })
+        fs::read_to_string(&full_path)
+            .map_err(|e| mlua::Error::external(format!("read {}: {}", full_path.display(), e)))
     }
 
     fn resolve_existing(&self, rel_path: &str) -> mlua::Result<PathBuf> {
@@ -364,25 +458,42 @@ fn main() {
 
     emit_tower_namespace(&mut out, &m.towers);
     emit_hero_namespace(&mut out, &m.heroes);
-    let ability_ids_for_ns: Vec<Entry> = m.abilities.iter().map(|a| Entry {
-        id: a.id.clone(), display_name: a.display_name.clone(), tombstone: a.tombstone,
-    }).collect();
-    emit_namespace(&mut out, "Ability",        "ability",    &ability_ids_for_ns, true);
-    emit_namespace(&mut out, "Buff",           "buff",       &m.buffs,     true);
-    let summon_ids: Vec<Entry> = m.summons.iter().map(|s| Entry {
-        id: s.id.clone(), display_name: s.display_name.clone(), tombstone: s.tombstone,
-    }).collect();
-    emit_namespace(&mut out, "Summon",         "summon",     &summon_ids,  true);
-    let creep_ids: Vec<Entry> = m.creeps.iter().map(|c| Entry {
-        id: c.id.clone(), display_name: c.display_name.clone(), tombstone: c.tombstone,
-    }).collect();
-    emit_namespace(&mut out, "Creep",          "creep",      &creep_ids,   true);
+    let ability_ids_for_ns: Vec<Entry> = m
+        .abilities
+        .iter()
+        .map(|a| Entry {
+            id: a.id.clone(),
+            display_name: a.display_name.clone(),
+            tombstone: a.tombstone,
+        })
+        .collect();
+    emit_namespace(&mut out, "Ability", "ability", &ability_ids_for_ns, true);
+    emit_namespace(&mut out, "Buff", "buff", &m.buffs, true);
+    let summon_ids: Vec<Entry> = m
+        .summons
+        .iter()
+        .map(|s| Entry {
+            id: s.id.clone(),
+            display_name: s.display_name.clone(),
+            tombstone: s.tombstone,
+        })
+        .collect();
+    emit_namespace(&mut out, "Summon", "summon", &summon_ids, true);
+    let creep_ids: Vec<Entry> = m
+        .creeps
+        .iter()
+        .map(|c| Entry {
+            id: c.id.clone(),
+            display_name: c.display_name.clone(),
+            tombstone: c.tombstone,
+        })
+        .collect();
+    emit_namespace(&mut out, "Creep", "creep", &creep_ids, true);
     emit_projectile_kinds(&mut out, &m.projectile_kinds);
 
     // Hero → abilities lookup（必須在 abilities namespace emit 後做，因為 AbilityId 才存在）。
     // build.rs 自己 build 一個 ability id map，把字串 abilities 翻成 raw u16。
-    let mut ability_id_map: std::collections::HashMap<&str, u16> =
-        std::collections::HashMap::new();
+    let mut ability_id_map: std::collections::HashMap<&str, u16> = std::collections::HashMap::new();
     let mut next_aid: u16 = 1;
     for a in &m.abilities {
         if !a.tombstone {
@@ -454,12 +565,22 @@ fn load_stories(
             let mission = loader.load_json_value(lua, &format!("{}/mission.lua", id));
             let map = loader.load_json_value(lua, &format!("{}/map.lua", id));
             validate_map_creep_references(&id, &map, &active_creeps);
-            StoryBundle { id, entity, ability, mission, map }
+            StoryBundle {
+                id,
+                entity,
+                ability,
+                mission,
+                map,
+            }
         })
         .collect()
 }
 
-fn validate_map_creep_references(story_id: &str, map: &serde_json::Value, active_creeps: &HashSet<&str>) {
+fn validate_map_creep_references(
+    story_id: &str,
+    map: &serde_json::Value,
+    active_creeps: &HashSet<&str>,
+) {
     let forbidden = [
         "Label",
         "HP",
@@ -503,11 +624,23 @@ fn emit_story_data(out: &mut String, stories: &[StoryBundle]) {
     out.push_str("\n// ===== Generated shipped story data =====\n");
     for story in stories {
         let const_name = story_const_name(&story.id);
-        out.push_str(&format!("pub static {}: GeneratedStory = GeneratedStory {{\n", const_name));
+        out.push_str(&format!(
+            "pub static {}: GeneratedStory = GeneratedStory {{\n",
+            const_name
+        ));
         out.push_str(&format!("    id: \"{}\",\n", escape_str_literal(&story.id)));
-        out.push_str(&format!("    entity: {},\n", emit_story_value(&story.entity, 1)));
-        out.push_str(&format!("    ability: {},\n", emit_story_value(&story.ability, 1)));
-        out.push_str(&format!("    mission: {},\n", emit_story_value(&story.mission, 1)));
+        out.push_str(&format!(
+            "    entity: {},\n",
+            emit_story_value(&story.entity, 1)
+        ));
+        out.push_str(&format!(
+            "    ability: {},\n",
+            emit_story_value(&story.ability, 1)
+        ));
+        out.push_str(&format!(
+            "    mission: {},\n",
+            emit_story_value(&story.mission, 1)
+        ));
         out.push_str(&format!("    map: {},\n", emit_story_value(&story.map, 1)));
         out.push_str("};\n\n");
     }
@@ -518,7 +651,9 @@ fn emit_story_data(out: &mut String, stories: &[StoryBundle]) {
     }
     out.push_str("    ]\n}\n\n");
 
-    out.push_str("pub fn story_by_name(name: &str) -> Option<&'static GeneratedStory> {\n    match name {\n");
+    out.push_str(
+        "pub fn story_by_name(name: &str) -> Option<&'static GeneratedStory> {\n    match name {\n",
+    );
     for story in stories {
         out.push_str(&format!(
             "        \"{}\" => Some(&{}),\n",
@@ -552,7 +687,9 @@ fn emit_story_value(value: &serde_json::Value, indent: usize) -> String {
         serde_json::Value::Null => "StoryValue::Null".to_string(),
         serde_json::Value::Bool(v) => format!("StoryValue::Bool({})", v),
         serde_json::Value::Number(v) => {
-            let n = v.as_f64().unwrap_or_else(|| panic!("story number is not f64: {}", v));
+            let n = v
+                .as_f64()
+                .unwrap_or_else(|| panic!("story number is not f64: {}", v));
             format!("StoryValue::Number({:?})", n)
         }
         serde_json::Value::String(v) => {
@@ -608,7 +745,13 @@ fn const_name(ns_lower: &str, id: &str) -> String {
     format!("{}_{}", ns_upper, stripped.to_uppercase())
 }
 
-fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry], has_display: bool) {
+fn emit_namespace(
+    out: &mut String,
+    ty: &str,
+    ns_lower: &str,
+    entries: &[Entry],
+    has_display: bool,
+) {
     // newtype with #[repr(transparent)] — wire-safe for abi_stable via raw u16
     // newtype with #[repr(transparent)] — wire-safe for abi_stable via raw u16.
     // `.as_str()` returns the original id string ("tower_tack" etc.) for use
@@ -640,7 +783,8 @@ fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry],
                 cname, ty, ty, next,
             ));
         }
-        next = next.checked_add(1)
+        next = next
+            .checked_add(1)
             .unwrap_or_else(|| panic!("{}Id exhausted u16 space", ty));
     }
     out.push('\n');
@@ -655,7 +799,9 @@ fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry],
         if !e.tombstone {
             out.push_str(&format!(
                 "\t\t\"{}\" => Some({}Id({})),\n",
-                escape_str_literal(&e.id), ty, next,
+                escape_str_literal(&e.id),
+                ty,
+                next,
             ));
         }
         next += 1;
@@ -672,7 +818,8 @@ fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry],
         if !e.tombstone {
             out.push_str(&format!(
                 "\t\t{} => \"{}\",\n",
-                next, escape_str_literal(&e.id),
+                next,
+                escape_str_literal(&e.id),
             ));
         }
         next += 1;
@@ -694,10 +841,15 @@ fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry],
         let mut next: u16 = 1;
         for e in entries {
             if !e.tombstone {
-                let display = if e.display_name.is_empty() { &e.id } else { &e.display_name };
+                let display = if e.display_name.is_empty() {
+                    &e.id
+                } else {
+                    &e.display_name
+                };
                 out.push_str(&format!(
                     "\t\t{} => \"{}\",\n",
-                    next, escape_str_literal(display),
+                    next,
+                    escape_str_literal(display),
                 ));
             }
             next += 1;
@@ -715,12 +867,15 @@ fn emit_namespace(out: &mut String, ty: &str, ns_lower: &str, entries: &[Entry],
 /// Towers 走自己的 emit：除了 id/display 外還要生 `TOWER_<NAME>_STATS: TowerStats`
 /// 跟 `tower_stats(id)` lookup。
 fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
-    let converted: Vec<Entry> = entries.iter().map(|t| Entry {
-        id: t.id.clone(),
-        display_name: t.display_name.clone(),
-        tombstone: t.tombstone,
-    }).collect();
-    emit_namespace(out, "Tower", "tower", &converted, /*display*/true);
+    let converted: Vec<Entry> = entries
+        .iter()
+        .map(|t| Entry {
+            id: t.id.clone(),
+            display_name: t.display_name.clone(),
+            tombstone: t.tombstone,
+        })
+        .collect();
+    emit_namespace(out, "Tower", "tower", &converted, /*display*/ true);
 
     // Per-tower const: TOWER_<NAME>_STATS
     for e in entries {
@@ -744,23 +899,31 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
              \tturn_speed_deg: {},\n\
              }};\n",
             cname,
-            fixed64_lit(e.atk), fixed64_lit(e.asd_interval), fixed64_lit(e.range), fixed64_lit(e.bullet_speed),
-            fixed64_lit(e.splash_radius), fixed64_lit(e.hit_radius), fixed64_lit(e.slow_factor), fixed64_lit(e.slow_duration),
-            e.cost, fixed64_lit(e.footprint), fixed64_lit(e.hp), fixed64_lit(e.turn_speed_deg),
+            fixed64_lit(e.atk),
+            fixed64_lit(e.asd_interval),
+            fixed64_lit(e.range),
+            fixed64_lit(e.bullet_speed),
+            fixed64_lit(e.splash_radius),
+            fixed64_lit(e.hit_radius),
+            fixed64_lit(e.slow_factor),
+            fixed64_lit(e.slow_duration),
+            e.cost,
+            fixed64_lit(e.footprint),
+            fixed64_lit(e.hp),
+            fixed64_lit(e.turn_speed_deg),
         ));
     }
     out.push('\n');
 
     // Lookup tower_stats(TowerId) → Option<&'static TowerStats>
-    out.push_str("pub fn tower_stats(id: TowerId) -> Option<&'static TowerStats> {\n\tmatch id.0 {\n");
+    out.push_str(
+        "pub fn tower_stats(id: TowerId) -> Option<&'static TowerStats> {\n\tmatch id.0 {\n",
+    );
     let mut next: u16 = 1;
     for e in entries {
         if !e.tombstone {
             let cname = const_name("tower", &e.id);
-            out.push_str(&format!(
-                "\t\t{} => Some(&{}_STATS),\n",
-                next, cname,
-            ));
+            out.push_str(&format!("\t\t{} => Some(&{}_STATS),\n", next, cname,));
         }
         next += 1;
     }
@@ -769,20 +932,26 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
 
 fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
     // Reuse emit_namespace machinery for id/display; add hero_title lookup.
-    let converted: Vec<Entry> = entries.iter().map(|h| Entry {
-        id: h.id.clone(),
-        display_name: h.display_name.clone(),
-        tombstone: h.tombstone,
-    }).collect();
+    let converted: Vec<Entry> = entries
+        .iter()
+        .map(|h| Entry {
+            id: h.id.clone(),
+            display_name: h.display_name.clone(),
+            tombstone: h.tombstone,
+        })
+        .collect();
     emit_namespace(out, "Hero", "hero", &converted, true);
 
-    out.push_str("pub fn hero_title(id: HeroId) -> &'static str {\n\tmatch id.0 {\n\t\t0 => \"\",\n");
+    out.push_str(
+        "pub fn hero_title(id: HeroId) -> &'static str {\n\tmatch id.0 {\n\t\t0 => \"\",\n",
+    );
     let mut next: u16 = 1;
     for h in entries {
         if !h.tombstone {
             out.push_str(&format!(
                 "\t\t{} => \"{}\",\n",
-                next, escape_str_literal(&h.title),
+                next,
+                escape_str_literal(&h.title),
             ));
         }
         next += 1;
@@ -810,10 +979,7 @@ fn emit_hero_abilities(
         ));
         for ab_id in &e.abilities {
             let raw = ability_ids.get(ab_id.as_str()).unwrap_or_else(|| {
-                panic!(
-                    "hero '{}' references unknown ability '{}'",
-                    e.id, ab_id
-                )
+                panic!("hero '{}' references unknown ability '{}'", e.id, ab_id)
             });
             out.push_str(&format!("\tAbilityId({}),\n", raw));
         }
@@ -821,9 +987,7 @@ fn emit_hero_abilities(
     }
     out.push('\n');
 
-    out.push_str(
-        "pub fn hero_abilities(id: HeroId) -> &'static [AbilityId] {\n\tmatch id.0 {\n",
-    );
+    out.push_str("pub fn hero_abilities(id: HeroId) -> &'static [AbilityId] {\n\tmatch id.0 {\n");
     let mut next: u16 = 1;
     for e in entries {
         if !e.tombstone {
@@ -869,7 +1033,9 @@ fn ai_type_to_u8(s: &str) -> u8 {
 /// emit `HERO_<NAME>_STATS: HeroStats` const + `hero_stats(id)` lookup。
 fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
     for e in entries {
-        if e.tombstone { continue; }
+        if e.tombstone {
+            continue;
+        }
         let cname = const_name("hero", &e.id);
         out.push_str(&format!(
             "pub const {}_STATS: HeroStats = HeroStats {{\n\
@@ -894,10 +1060,17 @@ fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
              \t}},\n\
              }};\n",
             cname,
-            e.strength, e.agility, e.intelligence,
+            e.strength,
+            e.agility,
+            e.intelligence,
             primary_attribute_to_u8(&e.primary_attribute),
-            fixed64_lit(e.attack_range), e.base_damage, fixed64_lit(e.base_armor),
-            e.base_hp, e.base_mana, fixed64_lit(e.move_speed), fixed64_lit(e.turn_speed),
+            fixed64_lit(e.attack_range),
+            e.base_damage,
+            fixed64_lit(e.base_armor),
+            e.base_hp,
+            e.base_mana,
+            fixed64_lit(e.move_speed),
+            fixed64_lit(e.turn_speed),
             fixed64_lit(e.level_growth.strength_per_level),
             fixed64_lit(e.level_growth.agility_per_level),
             fixed64_lit(e.level_growth.intelligence_per_level),
@@ -923,7 +1096,9 @@ fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
 /// emit `CREEP_<NAME>_STATS: CreepStats` const + `creep_stats(id)` lookup。
 fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
     for e in entries {
-        if e.tombstone { continue; }
+        if e.tombstone {
+            continue;
+        }
         let cname = const_name("creep", &e.id);
         out.push_str(&format!(
             "pub const {}_STATS: CreepStats = CreepStats {{\n\
@@ -939,14 +1114,22 @@ fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
              \tgold_reward: {}i32,\n\
              }};\n",
             cname,
-            fixed64_lit(e.hp), fixed64_lit(e.armor), fixed64_lit(e.magic_resistance),
-            fixed64_lit(e.damage), fixed64_lit(e.attack_range), fixed64_lit(e.move_speed),
-            enemy_type_to_u8(&e.enemy_type), ai_type_to_u8(&e.ai_type),
-            e.exp_reward, e.gold_reward,
+            fixed64_lit(e.hp),
+            fixed64_lit(e.armor),
+            fixed64_lit(e.magic_resistance),
+            fixed64_lit(e.damage),
+            fixed64_lit(e.attack_range),
+            fixed64_lit(e.move_speed),
+            enemy_type_to_u8(&e.enemy_type),
+            ai_type_to_u8(&e.ai_type),
+            e.exp_reward,
+            e.gold_reward,
         ));
     }
     out.push('\n');
-    out.push_str("pub fn creep_stats(id: CreepId) -> Option<&'static CreepStats> {\n\tmatch id.0 {\n");
+    out.push_str(
+        "pub fn creep_stats(id: CreepId) -> Option<&'static CreepStats> {\n\tmatch id.0 {\n",
+    );
     let mut next: u16 = 1;
     for e in entries {
         if !e.tombstone {
@@ -961,7 +1144,9 @@ fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
 /// emit `SUMMON_<NAME>_STATS: SummonStats` const + `summon_stats(id)` lookup。
 fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
     for e in entries {
-        if e.tombstone { continue; }
+        if e.tombstone {
+            continue;
+        }
         let cname = const_name("summon", &e.id);
         out.push_str(&format!(
             "pub const {}_STATS: SummonStats = SummonStats {{\n\
@@ -971,12 +1156,16 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tmove_speed: {},\n\
              }};\n",
             cname,
-            fixed64_lit(e.hp), fixed64_lit(e.damage),
-            fixed64_lit(e.duration), fixed64_lit(e.move_speed),
+            fixed64_lit(e.hp),
+            fixed64_lit(e.damage),
+            fixed64_lit(e.duration),
+            fixed64_lit(e.move_speed),
         ));
     }
     out.push('\n');
-    out.push_str("pub fn summon_stats(id: SummonId) -> Option<&'static SummonStats> {\n\tmatch id.0 {\n");
+    out.push_str(
+        "pub fn summon_stats(id: SummonId) -> Option<&'static SummonStats> {\n\tmatch id.0 {\n",
+    );
     let mut next: u16 = 1;
     for e in entries {
         if !e.tombstone {
@@ -1020,18 +1209,25 @@ fn target_type_to_variant(s: &str) -> &'static str {
 fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
     // emit per-ability levels static + extras static + the const itself
     for e in entries {
-        if e.tombstone { continue; }
+        if e.tombstone {
+            continue;
+        }
         if e.levels.len() != e.max_level as usize {
             panic!(
                 "ability '{}': levels.len()={} but max_level={}",
-                e.id, e.levels.len(), e.max_level
+                e.id,
+                e.levels.len(),
+                e.max_level
             );
         }
         for (k, v) in &e.extras {
             if v.len() != e.max_level as usize {
                 panic!(
                     "ability '{}': extras['{}'].len()={} but max_level={}",
-                    e.id, k, v.len(), e.max_level
+                    e.id,
+                    k,
+                    v.len(),
+                    e.max_level
                 );
             }
         }
@@ -1040,7 +1236,10 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
 
         // emit per-extra static slice (must be named to take address of in const)
         // but actually `&[...]` is fine inline; we'll just inline the literal.
-        out.push_str(&format!("pub const {}_LEVELS: &[AbilityLevelDataConst] = &[\n", cname));
+        out.push_str(&format!(
+            "pub const {}_LEVELS: &[AbilityLevelDataConst] = &[\n",
+            cname
+        ));
         for ld in &e.levels {
             out.push_str(&format!(
                 "\tAbilityLevelDataConst {{ cooldown: {}, mana_cost: {}, cast_time: {}, range: {} }},\n",
@@ -1056,15 +1255,24 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             let extra_const = format!("{}_EXTRA_{}", cname, sanitize_ident(k).to_uppercase());
             out.push_str(&format!("pub const {}: &[Fixed64] = &[", extra_const));
             for (i, x) in v.iter().enumerate() {
-                if i > 0 { out.push_str(", "); }
+                if i > 0 {
+                    out.push_str(", ");
+                }
                 out.push_str(&fixed64_lit(*x));
             }
             out.push_str("];\n");
         }
-        out.push_str(&format!("pub const {}_EXTRAS: &[(&str, &[Fixed64])] = &[\n", cname));
+        out.push_str(&format!(
+            "pub const {}_EXTRAS: &[(&str, &[Fixed64])] = &[\n",
+            cname
+        ));
         for (k, _v) in &e.extras {
             let extra_const = format!("{}_EXTRA_{}", cname, sanitize_ident(k).to_uppercase());
-            out.push_str(&format!("\t(\"{}\", {}),\n", escape_str_literal(k), extra_const));
+            out.push_str(&format!(
+                "\t(\"{}\", {}),\n",
+                escape_str_literal(k),
+                extra_const
+            ));
         }
         out.push_str("];\n");
 
@@ -1084,12 +1292,15 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             target_type_to_variant(&e.target_type),
             e.max_level,
             escape_str_literal(&e.description),
-            cname, cname,
+            cname,
+            cname,
         ));
     }
     out.push('\n');
 
-    out.push_str("pub fn ability_const(id: AbilityId) -> Option<&'static AbilityConst> {\n\tmatch id.0 {\n");
+    out.push_str(
+        "pub fn ability_const(id: AbilityId) -> Option<&'static AbilityConst> {\n\tmatch id.0 {\n",
+    );
     let mut next: u16 = 1;
     for e in entries {
         if !e.tombstone {
@@ -1109,7 +1320,8 @@ fn emit_ability_description(out: &mut String, entries: &[AbilityEntry]) {
         if !e.tombstone {
             out.push_str(&format!(
                 "\t\t{} => \"{}\",\n",
-                next, escape_str_literal(&e.description),
+                next,
+                escape_str_literal(&e.description),
             ));
         }
         next += 1;
@@ -1120,7 +1332,13 @@ fn emit_ability_description(out: &mut String, entries: &[AbilityEntry]) {
 /// 把 extras key（例 "true_damage_pct"）轉成合法 Rust ident 片段（純 ASCII 大寫字母 + 底線）。
 fn sanitize_ident(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -1143,13 +1361,19 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
             continue;
         }
         if e.upgrades.len() != 3 {
-            panic!("tower '{}' upgrades must have 3 paths, got {}", e.id, e.upgrades.len());
+            panic!(
+                "tower '{}' upgrades must have 3 paths, got {}",
+                e.id,
+                e.upgrades.len()
+            );
         }
         for (path_idx, path) in e.upgrades.iter().enumerate() {
             if path.len() != 4 {
                 panic!(
                     "tower '{}' path {} must have 4 levels, got {}",
-                    e.id, path_idx, path.len()
+                    e.id,
+                    path_idx,
+                    path.len()
                 );
             }
             for (lvl_idx, u) in path.iter().enumerate() {
@@ -1169,7 +1393,8 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
         // Per-upgrade effects array — emit a named static so the slice address is stable.
         for (path_idx, path) in e.upgrades.iter().enumerate() {
             for (lvl_idx, u) in path.iter().enumerate() {
-                let effects_const = format!("{}_UPGRADE_P{}_L{}_EFFECTS", cname, path_idx, lvl_idx + 1);
+                let effects_const =
+                    format!("{}_UPGRADE_P{}_L{}_EFFECTS", cname, path_idx, lvl_idx + 1);
                 out.push_str(&format!(
                     "pub const {}: &[UpgradeEffectConst] = &[\n",
                     effects_const
@@ -1202,7 +1427,8 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
                 path_const
             ));
             for (lvl_idx, u) in path.iter().enumerate() {
-                let effects_const = format!("{}_UPGRADE_P{}_L{}_EFFECTS", cname, path_idx, lvl_idx + 1);
+                let effects_const =
+                    format!("{}_UPGRADE_P{}_L{}_EFFECTS", cname, path_idx, lvl_idx + 1);
                 out.push_str(&format!(
                     "\tUpgradeDefConst {{ name: \"{}\", description: \"{}\", cost: {}i32, effects: {} }},\n",
                     escape_str_literal(&u.name),
@@ -1261,10 +1487,13 @@ mod omoba_core_dummy {
 
 fn emit_projectile_kinds(out: &mut String, entries: &[ProjKind]) {
     // No display_name for projectile kinds (they are visual kinds, not labels).
-    let converted: Vec<Entry> = entries.iter().map(|p| Entry {
-        id: p.id.clone(),
-        display_name: String::new(),
-        tombstone: p.tombstone,
-    }).collect();
+    let converted: Vec<Entry> = entries
+        .iter()
+        .map(|p| Entry {
+            id: p.id.clone(),
+            display_name: String::new(),
+            tombstone: p.tombstone,
+        })
+        .collect();
     emit_namespace(out, "ProjectileKind", "projectile", &converted, false);
 }

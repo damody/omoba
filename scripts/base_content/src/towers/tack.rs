@@ -115,7 +115,11 @@ impl UnitScript for TackTower {
                 slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO,
                 stun_duration: Fixed64::ZERO,
-                kind_id: if blade { PROJECTILE_TACK_BLADE.0 } else { PROJECTILE_TACK.0 },
+                kind_id: if blade {
+                    PROJECTILE_TACK_BLADE.0
+                } else {
+                    PROJECTILE_TACK.0
+                },
             });
         }
 

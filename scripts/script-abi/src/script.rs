@@ -6,12 +6,12 @@
 //! / `on_heal_received` / `on_state_changed` / `on_modifier_added` /
 //! `on_modifier_removed`。所有 hook 皆為 no-op default，腳本只覆寫需要的。
 
+use crate::types::{DamageInfo, EntityHandle, Fixed64, Target, TowerMetadata};
+use crate::world::GameWorldDyn;
 use abi_stable::{
     sabi_trait,
     std_types::{RNone, ROption, RStr},
 };
-use crate::types::{DamageInfo, EntityHandle, Fixed64, Target, TowerMetadata};
-use crate::world::GameWorldDyn;
 
 #[sabi_trait]
 pub trait UnitScript: Send + Sync {
@@ -32,7 +32,9 @@ pub trait UnitScript: Send + Sync {
     /// host 在 startup 時 iter registry 收集，連同 host 端的 cost/footprint/label
     /// 組成完整 template 廣播給前端（下拉選單成本顯示 + placement 預覽 range）。
     /// 回 `RNone` 表示「這不是 TD 塔」（英雄/敵人 creep 等）。
-    fn tower_metadata(&self) -> ROption<TowerMetadata> { RNone }
+    fn tower_metadata(&self) -> ROption<TowerMetadata> {
+        RNone
+    }
 
     /// 當實體死亡時呼叫。 `killer` = 已知的殺戮實體。
     fn on_death(
@@ -45,12 +47,7 @@ pub trait UnitScript: Send + Sync {
 
     /// 在造成傷害之前呼叫受害者。腳本可能會發生變化
     /// `info.amount` 實現護盾/傷害減少/反射。
-    fn on_damage_taken(
-        &self,
-        _e: EntityHandle,
-        _info: &mut DamageInfo,
-        _w: &mut GameWorldDyn<'_>,
-    ) {
+    fn on_damage_taken(&self, _e: EntityHandle, _info: &mut DamageInfo, _w: &mut GameWorldDyn<'_>) {
     }
 
     /// 在“on_damage_taken”解決問題後呼叫攻擊者
@@ -130,22 +127,10 @@ pub trait UnitScript: Send + Sync {
     }
 
     /// 對應 `MODIFIER_EVENT_ON_HEALTH_GAINED`：HP 淨增加（heal 或 regen）。
-    fn on_health_gained(
-        &self,
-        _e: EntityHandle,
-        _amount: Fixed64,
-        _w: &mut GameWorldDyn<'_>,
-    ) {
-    }
+    fn on_health_gained(&self, _e: EntityHandle, _amount: Fixed64, _w: &mut GameWorldDyn<'_>) {}
 
     /// 對應 `MODIFIER_EVENT_ON_MANA_GAINED`：MP 淨增加。
-    fn on_mana_gained(
-        &self,
-        _e: EntityHandle,
-        _amount: Fixed64,
-        _w: &mut GameWorldDyn<'_>,
-    ) {
-    }
+    fn on_mana_gained(&self, _e: EntityHandle, _amount: Fixed64, _w: &mut GameWorldDyn<'_>) {}
 
     /// 對應 `MODIFIER_EVENT_ON_SPENT_MANA`：腳本釋放技能花費 mana 後。
     fn on_spent_mana(
@@ -210,10 +195,5 @@ pub trait UnitScript: Send + Sync {
     }
 
     /// 對應 `MODIFIER_EVENT_ON_RESPAWN`：英雄復活完成。
-    fn on_respawn(
-        &self,
-        _e: EntityHandle,
-        _w: &mut GameWorldDyn<'_>,
-    ) {
-    }
+    fn on_respawn(&self, _e: EntityHandle, _w: &mut GameWorldDyn<'_>) {}
 }

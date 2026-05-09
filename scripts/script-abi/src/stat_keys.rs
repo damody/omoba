@@ -49,7 +49,6 @@ pub enum Aggregation {
     PassThrough = 4,
 }
 
-
 /// Script ABI 的 stat key 枚舉。
 ///
 /// ＃ 安全
@@ -245,7 +244,9 @@ impl StatKey {
             StatKey::PhysicalArmorBonusUnique => "physical_armor_bonus_unique",
             StatKey::PhysicalArmorBonusUniqueActive => "physical_armor_bonus_unique_active",
             StatKey::IgnorePhysicalArmor => "ignore_physical_armor",
-            StatKey::MagicalResistanceDirectModification => "magical_resistance_direct_modification",
+            StatKey::MagicalResistanceDirectModification => {
+                "magical_resistance_direct_modification"
+            }
             StatKey::MagicalResistanceBonus => "magical_resistance_bonus",
             StatKey::MagicalResistanceDecrepifyUnique => "magical_resistance_decrepify_unique",
             StatKey::BaseManaRegen => "base_mana_regen",
@@ -280,7 +281,9 @@ impl StatKey {
             StatKey::MagicalConstantBlock => "magical_constant_block",
             StatKey::PhysicalConstantBlock => "physical_constant_block",
             StatKey::PhysicalConstantBlockSpecial => "physical_constant_block_special",
-            StatKey::TotalConstantBlockUnavoidablePreArmor => "total_constant_block_unavoidable_pre_armor",
+            StatKey::TotalConstantBlockUnavoidablePreArmor => {
+                "total_constant_block_unavoidable_pre_armor"
+            }
             StatKey::TotalConstantBlock => "total_constant_block",
             StatKey::AbsorbSpell => "absorb_spell",
             StatKey::ReflectSpell => "reflect_spell",
@@ -374,9 +377,13 @@ impl StatKey {
             "hp_regen_amplify_percentage" => Some(StatKey::HpRegenAmplifyPercentage),
             "magicdamageoutgoing_percentage" => Some(StatKey::MagicDamageOutgoingPercentage),
             "basedamageoutgoing_percentage" => Some(StatKey::BaseDamageOutgoingPercentage),
-            "basedamageoutgoing_percentage_unique" => Some(StatKey::BaseDamageOutgoingPercentageUnique),
+            "basedamageoutgoing_percentage_unique" => {
+                Some(StatKey::BaseDamageOutgoingPercentageUnique)
+            }
             "incoming_damage_percentage" => Some(StatKey::IncomingDamagePercentage),
-            "incoming_physical_damage_percentage" => Some(StatKey::IncomingPhysicalDamagePercentage),
+            "incoming_physical_damage_percentage" => {
+                Some(StatKey::IncomingPhysicalDamagePercentage)
+            }
             "incoming_physical_damage_constant" => Some(StatKey::IncomingPhysicalDamageConstant),
             "incoming_spell_damage_constant" => Some(StatKey::IncomingSpellDamageConstant),
             "evasion_constant" => Some(StatKey::EvasionConstant),
@@ -388,9 +395,13 @@ impl StatKey {
             "physical_armor_bonus_unique" => Some(StatKey::PhysicalArmorBonusUnique),
             "physical_armor_bonus_unique_active" => Some(StatKey::PhysicalArmorBonusUniqueActive),
             "ignore_physical_armor" => Some(StatKey::IgnorePhysicalArmor),
-            "magical_resistance_direct_modification" => Some(StatKey::MagicalResistanceDirectModification),
+            "magical_resistance_direct_modification" => {
+                Some(StatKey::MagicalResistanceDirectModification)
+            }
             "magical_resistance_bonus" => Some(StatKey::MagicalResistanceBonus),
-            "magical_resistance_decrepify_unique" => Some(StatKey::MagicalResistanceDecrepifyUnique),
+            "magical_resistance_decrepify_unique" => {
+                Some(StatKey::MagicalResistanceDecrepifyUnique)
+            }
             "base_mana_regen" => Some(StatKey::BaseManaRegen),
             "mana_regen_constant" => Some(StatKey::ManaRegenConstant),
             "mana_regen_constant_unique" => Some(StatKey::ManaRegenConstantUnique),
@@ -423,7 +434,9 @@ impl StatKey {
             "magical_constant_block" => Some(StatKey::MagicalConstantBlock),
             "physical_constant_block" => Some(StatKey::PhysicalConstantBlock),
             "physical_constant_block_special" => Some(StatKey::PhysicalConstantBlockSpecial),
-            "total_constant_block_unavoidable_pre_armor" => Some(StatKey::TotalConstantBlockUnavoidablePreArmor),
+            "total_constant_block_unavoidable_pre_armor" => {
+                Some(StatKey::TotalConstantBlockUnavoidablePreArmor)
+            }
             "total_constant_block" => Some(StatKey::TotalConstantBlock),
             "absorb_spell" => Some(StatKey::AbsorbSpell),
             "reflect_spell" => Some(StatKey::ReflectSpell),
@@ -931,7 +944,7 @@ pub const ALL: &[StatKey; 137] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{StatKey, StatSection, Aggregation, ALL};
+    use super::{Aggregation, StatKey, StatSection, ALL};
 
     #[test]
     fn all_array_length_is_137() {
@@ -987,10 +1000,7 @@ mod tests {
             Aggregation::ProductMult
         );
         // _chance → 機會
-        assert_eq!(
-            StatKey::CritChance.aggregation(),
-            Aggregation::Chance
-        );
+        assert_eq!(StatKey::CritChance.aggregation(), Aggregation::Chance);
     }
 
     #[test]
@@ -1043,7 +1053,9 @@ mod tests {
                 k.is_building_excluded(),
                 expected,
                 "variant {:?} section={:?} but is_building_excluded={}",
-                k, k.section(), k.is_building_excluded()
+                k,
+                k.section(),
+                k.is_building_excluded()
             );
         }
     }

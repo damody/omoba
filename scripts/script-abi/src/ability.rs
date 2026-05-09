@@ -16,12 +16,13 @@
 //! 施法者目前等級的 `AbilityLevelData` — 也避免了
 //! StableAbi 在 `extra: HashMap<String, Value>` 欄位上。
 
-use abi_stable::{
-    StableAbi, sabi_trait,
-    std_types::{RBox, RResult, RStr, RString},
-};
 use crate::types::{EntityHandle, Fixed64, Target};
 use crate::world::GameWorldDyn;
+use abi_stable::{
+    sabi_trait,
+    std_types::{RBox, RResult, RStr, RString},
+    StableAbi,
+};
 
 #[sabi_trait]
 pub trait AbilityScript: Send + Sync {
@@ -63,13 +64,7 @@ pub trait AbilityScript: Send + Sync {
 
     /// 技能被學會（或升等）時觸發。
     /// Passive 技用這個把永久 buff 套上；Active / Toggle / Ultimate 預設忽略。
-    fn on_learn(
-        &self,
-        _caster: EntityHandle,
-        _new_level: u8,
-        _world: &mut GameWorldDyn<'_>,
-    ) {
-    }
+    fn on_learn(&self, _caster: EntityHandle, _new_level: u8, _world: &mut GameWorldDyn<'_>) {}
 
     /// 攻擊者命中目標時觸發 — host 會對 attacker 已學的每個 passive ability 輪詢此 hook。
     /// Passive 技能（如雜賀雨鐵砲）用此實作「普攻附帶的額外效果」。

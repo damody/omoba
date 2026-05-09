@@ -1,10 +1,10 @@
 //! OMOBA 前端的設定管理
 
+use anyhow::{Context, Result};
+use omoba_template_ids::HERO_SAIKA_MAGOICHI;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use anyhow::{Result, Context};
-use omoba_template_ids::HERO_SAIKA_MAGOICHI;
 
 /// 應用程式配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +84,7 @@ impl AppConfig {
             Ok(config) => {
                 log::info!("Loaded config file: config.toml");
                 config
-            },
+            }
             Err(e) => {
                 log::warn!("Cannot load config file, using defaults: {}", e);
                 Self::default()
@@ -94,8 +94,7 @@ impl AppConfig {
 
     /// 將配置儲存到文件
     pub fn save_to_file(&self, path: &str) -> Result<()> {
-        let content = toml::to_string_pretty(self)
-            .context("Cannot serialize config")?;
+        let content = toml::to_string_pretty(self).context("Cannot serialize config")?;
 
         std::fs::write(path, content)
             .with_context(|| format!("Cannot write config file: {}", path))?;

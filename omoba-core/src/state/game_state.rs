@@ -1,14 +1,14 @@
 //! 遊戲狀態管理
 
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::time::SystemTime;
-use log::{info, warn, debug};
 use vek::Vec2;
 
-use crate::state::entities::*;
-use crate::state::viewport::Viewport;
 #[cfg(feature = "mqtt")]
 use crate::mqtt::messages::*;
+use crate::state::entities::*;
+use crate::state::viewport::Viewport;
 
 /// 非 mqtt 建構的播放器狀態
 #[cfg(not(feature = "mqtt"))]
@@ -46,7 +46,10 @@ impl GameState {
     pub fn new(player_name: String, hero_type: String) -> Self {
         let local_player = LocalPlayer::new(player_name.clone(), hero_type.clone());
 
-        info!("Initialize game state - Player: {}, Hero: {}", player_name, hero_type);
+        info!(
+            "Initialize game state - Player: {}, Hero: {}",
+            player_name, hero_type
+        );
 
         Self {
             local_player,
@@ -97,8 +100,10 @@ impl GameState {
             let pos_diff = (self.local_player.position - server_pos).magnitude();
 
             if pos_diff > 5.0 {
-                warn!("Position sync difference too large: local {:?}, server {:?}",
-                      self.local_player.position, server_pos);
+                warn!(
+                    "Position sync difference too large: local {:?}, server {:?}",
+                    self.local_player.position, server_pos
+                );
                 self.sync_errors += 1;
             }
 
@@ -107,7 +112,8 @@ impl GameState {
 
             debug!("Synced local player state");
         } else {
-            self.other_players.insert(player_state.name.clone(), player_state.clone());
+            self.other_players
+                .insert(player_state.name.clone(), player_state.clone());
             debug!("Updated other player state: {}", player_state.name);
         }
 

@@ -5,11 +5,11 @@
 //! server and client simulations. The sort step ensures hash is invariant under storage
 //! ordering (BTreeMap iteration order, ECS join order, etc.).
 //!
-//! Used by Phase 2+ desync detection: server broadcasts hash every 600 ticks, clients
-//! compare; mismatch = kick + log replay for analysis.
+//! Used by Phase 2+ desync detection: server broadcasts hashes on the configured
+//! lockstep interval, clients compare; mismatch = kick + log replay for analysis.
 
-use std::hash::{Hash, Hasher};
 use fxhash::FxHasher64;
+use std::hash::{Hash, Hasher};
 
 /// Hashes a slice of items, sorted by id, into a single u64.
 /// `id_of` extracts the sort/identity key from each item; ties on id produce non-deterministic
@@ -30,28 +30,54 @@ mod tests {
     use super::*;
 
     #[derive(Hash)]
-    struct Dummy { id: u32, x: i32, y: i32 }
+    struct Dummy {
+        id: u32,
+        x: i32,
+        y: i32,
+    }
 
     #[test]
     fn order_invariant() {
         let a = vec![
-            Dummy { id: 2, x: 10, y: 20 },
+            Dummy {
+                id: 2,
+                x: 10,
+                y: 20,
+            },
             Dummy { id: 1, x: 5, y: 5 },
-            Dummy { id: 3, x: 30, y: 30 },
+            Dummy {
+                id: 3,
+                x: 30,
+                y: 30,
+            },
         ];
         let b = vec![
-            Dummy { id: 3, x: 30, y: 30 },
-            Dummy { id: 2, x: 10, y: 20 },
+            Dummy {
+                id: 3,
+                x: 30,
+                y: 30,
+            },
+            Dummy {
+                id: 2,
+                x: 10,
+                y: 20,
+            },
             Dummy { id: 1, x: 5, y: 5 },
         ];
-        assert_eq!(hash_sorted_by_id(&a, |d| d.id), hash_sorted_by_id(&b, |d| d.id));
+        assert_eq!(
+            hash_sorted_by_id(&a, |d| d.id),
+            hash_sorted_by_id(&b, |d| d.id)
+        );
     }
 
     #[test]
     fn detects_change() {
         let a = vec![Dummy { id: 1, x: 5, y: 5 }];
         let b = vec![Dummy { id: 1, x: 6, y: 5 }];
-        assert_ne!(hash_sorted_by_id(&a, |d| d.id), hash_sorted_by_id(&b, |d| d.id));
+        assert_ne!(
+            hash_sorted_by_id(&a, |d| d.id),
+            hash_sorted_by_id(&b, |d| d.id)
+        );
     }
 
     #[test]
@@ -67,6 +93,9 @@ mod tests {
     fn detects_added_entity() {
         let a = vec![Dummy { id: 1, x: 5, y: 5 }];
         let b = vec![Dummy { id: 1, x: 5, y: 5 }, Dummy { id: 2, x: 0, y: 0 }];
-        assert_ne!(hash_sorted_by_id(&a, |d| d.id), hash_sorted_by_id(&b, |d| d.id));
+        assert_ne!(
+            hash_sorted_by_id(&a, |d| d.id),
+            hash_sorted_by_id(&b, |d| d.id)
+        );
     }
 }

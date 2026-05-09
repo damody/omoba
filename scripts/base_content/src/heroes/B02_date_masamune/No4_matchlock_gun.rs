@@ -33,8 +33,8 @@ impl AbilityScript for MatchlockGunHandler {
         level_data_json: RStr<'_>,
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
-        let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
-            .unwrap_or_default();
+        let level_data: AbilityLevelData =
+            serde_json::from_str(level_data_json.as_str()).unwrap_or_default();
         // JSON 額外內容仍採用 f64 編碼。
         let get_f = |k: &str| {
             level_data
@@ -45,21 +45,37 @@ impl AbilityScript for MatchlockGunHandler {
         };
         // 階段 1de.2：sum_add-聚合統計資料發出原始的 Fix64 i32（鎖步正確）。
         // 透過原始 `payload.get(...).as_f64()` (attack_stun_*) 讀取的幫助程式保留 f64。
-        let get_raw = |k: &str| -> i32 {
-            Fixed64::from_raw((get_f(k) * 1024.0) as i64).raw() as i32
-        };
+        let get_raw =
+            |k: &str| -> i32 { Fixed64::from_raw((get_f(k) * 1024.0) as i64).raw() as i32 };
         // 持續時間：f64 → FFI add_stat_buff 呼叫邊界處的固定 64。
         let duration_f = get_f("duration");
         let duration = Fixed64::from_raw((duration_f * 1024.0) as i64);
         // damage_bonus 為絕對傷害點（90/130/170）→ BaseAttackBonusDamage；
         // attack_stun_* 不在 StatKey 聚合路徑（game_processor 直接 .as_f64() 讀）→ 保留 f64。
         let mut modifiers = serde_json::Map::new();
-        modifiers.insert(StatKey::AttackRangeBonus.as_str().into(), serde_json::json!(get_raw("range_bonus")));
-        modifiers.insert(StatKey::BaseAttackBonusDamage.as_str().into(), serde_json::json!(get_raw("damage_bonus")));
-        modifiers.insert(StatKey::AttackStunChance.as_str().into(), serde_json::json!(get_f("stun_chance")));
-        modifiers.insert(StatKey::AttackStunDuration.as_str().into(), serde_json::json!(get_f("stun_duration")));
+        modifiers.insert(
+            StatKey::AttackRangeBonus.as_str().into(),
+            serde_json::json!(get_raw("range_bonus")),
+        );
+        modifiers.insert(
+            StatKey::BaseAttackBonusDamage.as_str().into(),
+            serde_json::json!(get_raw("damage_bonus")),
+        );
+        modifiers.insert(
+            StatKey::AttackStunChance.as_str().into(),
+            serde_json::json!(get_f("stun_chance")),
+        );
+        modifiers.insert(
+            StatKey::AttackStunDuration.as_str().into(),
+            serde_json::json!(get_f("stun_duration")),
+        );
         let mods_str = serde_json::Value::Object(modifiers).to_string();
-        world.add_stat_buff(caster, RStr::from_str(BUFF_ID), duration, (&*mods_str).into());
+        world.add_stat_buff(
+            caster,
+            RStr::from_str(BUFF_ID),
+            duration,
+            (&*mods_str).into(),
+        );
         world.log_info(RStr::from_str("[matchlock_gun] transformed"));
         ROk(())
     }

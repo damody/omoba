@@ -66,7 +66,9 @@ mod tests {
             assert!(
                 (back - v).abs() <= POSITION_SCALE / 2.0,
                 "pos roundtrip v={} → q={} → back={}",
-                v, q, back
+                v,
+                q,
+                back
             );
         }
     }
@@ -92,7 +94,10 @@ mod tests {
             assert!(
                 (back - v).abs() <= tol,
                 "fixed roundtrip v={} → q={} → back={} tol={}",
-                v, q, back, tol
+                v,
+                q,
+                back,
+                tol
             );
         }
     }
@@ -109,7 +114,10 @@ mod tests {
             assert!(
                 (back - v).abs() <= tol,
                 "fixed large-value roundtrip v={} → q={} → back={} tol={}",
-                v, q, back, tol,
+                v,
+                q,
+                back,
+                tol,
             );
         }
     }
@@ -127,15 +135,27 @@ mod tests {
     fn facing_roundtrip_within_precision() {
         // 跨象限採樣。
         let samples = [
-            0.0, std::f32::consts::PI / 4.0, std::f32::consts::PI / 2.0,
-            std::f32::consts::PI, std::f32::consts::PI * 1.5,
+            0.0,
+            std::f32::consts::PI / 4.0,
+            std::f32::consts::PI / 2.0,
+            std::f32::consts::PI,
+            std::f32::consts::PI * 1.5,
         ];
         for &v in &samples {
             let q = facing_quant(v);
             let back = facing_dequant(q);
             let max_err = std::f32::consts::TAU / 256.0; // ~0.0245 rad ≈ 1.4°
-            let err = (back - v).abs().min((std::f32::consts::TAU - (back - v).abs()).abs());
-            assert!(err <= max_err, "facing v={} → q={} → back={} err={}", v, q, back, err);
+            let err = (back - v)
+                .abs()
+                .min((std::f32::consts::TAU - (back - v).abs()).abs());
+            assert!(
+                err <= max_err,
+                "facing v={} → q={} → back={} err={}",
+                v,
+                q,
+                back,
+                err
+            );
         }
     }
 

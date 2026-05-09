@@ -1,6 +1,9 @@
 //! 跨越主機/DLL 邊界的穩定 ABI 值類型。
 
-use abi_stable::{StableAbi, std_types::{ROption, RString}};
+use abi_stable::{
+    std_types::{ROption, RString},
+    StableAbi,
+};
 
 /// 從 omoba-sim 重新匯出 Fix64 / Vec2 / Angle，以便 script-abi 消費者（base_content、omb）
 /// 不需要 omoba-sim 上的單獨部門。類型透過 abi_stable::StableAbi 攜帶
@@ -16,8 +19,13 @@ pub struct EntityHandle {
 }
 
 impl EntityHandle {
-    pub const INVALID: Self = Self { id: u32::MAX, gen: 0 };
-    pub fn is_valid(&self) -> bool { self.id != u32::MAX }
+    pub const INVALID: Self = Self {
+        id: u32::MAX,
+        gen: 0,
+    };
+    pub fn is_valid(&self) -> bool {
+        self.id != u32::MAX
+    }
 }
 
 #[repr(u8)]

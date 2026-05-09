@@ -103,7 +103,11 @@ impl UnitScript for DartTower {
                 Fixed64::from_i32(100),
             )
         } else {
-            let speed_mul = if fan_club { Fixed64::from_i32(2) } else { Fixed64::ONE };
+            let speed_mul = if fan_club {
+                Fixed64::from_i32(2)
+            } else {
+                Fixed64::ONE
+            };
             (STATS.bullet_speed * speed_mul, atk, Fixed64::ZERO)
         };
 
@@ -153,7 +157,11 @@ impl UnitScript for DartTower {
                 slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO,
                 stun_duration: Fixed64::ZERO,
-                kind_id: if spike { PROJECTILE_SPIKE_OPULT.0 } else { PROJECTILE_DART.0 },
+                kind_id: if spike {
+                    PROJECTILE_SPIKE_OPULT.0
+                } else {
+                    PROJECTILE_DART.0
+                },
             });
         }
     }
@@ -189,12 +197,7 @@ impl UnitScript for DartTower {
         };
 
         w.log_info(RStr::from_str("[tower_dart] crit!"));
-        w.deal_damage(
-            victim,
-            bonus_damage,
-            DamageKind::Physical,
-            RSome(attacker),
-        );
+        w.deal_damage(victim, bonus_damage, DamageKind::Physical, RSome(attacker));
         if let RSome(at) = w.get_pos(victim) {
             w.play_vfx(RStr::from_str("vfx_dart_crit"), at);
         }

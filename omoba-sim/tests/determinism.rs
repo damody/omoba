@@ -24,8 +24,12 @@ fn fixed64_arithmetic_pin_hash() {
         let v = Fixed64::from_raw(i);
         acc = (acc + v) * Fixed64::from_raw(1003);
         acc = acc / Fixed64::from_raw(997);
-        if i % 7 == 0 { acc = acc.sqrt(); }
-        if i % 13 == 0 { acc = -acc; }
+        if i % 7 == 0 {
+            acc = acc.sqrt();
+        }
+        if i % 13 == 0 {
+            acc = -acc;
+        }
         acc.raw().hash(&mut h);
     }
 
@@ -38,7 +42,7 @@ fn fixed64_arithmetic_pin_hash() {
 
 #[test]
 fn trig_lut_pin_hash() {
-    use omoba_sim::trig::{sin, cos, Angle, TAU_TICKS};
+    use omoba_sim::trig::{cos, sin, Angle, TAU_TICKS};
     let mut h = fxhash::FxHasher64::default();
     for i in 0..TAU_TICKS {
         let a = Angle::from_ticks(i);
@@ -70,8 +74,8 @@ fn rng_sequence_pin_hash() {
 #[test]
 fn composite_rng_trig_fixed_vec2_pin_hash() {
     use omoba_sim::fixed::Fixed64;
-    use omoba_sim::trig::{sin, cos, Angle, TAU_TICKS};
     use omoba_sim::rng::SimRng;
+    use omoba_sim::trig::{cos, sin, Angle, TAU_TICKS};
     use omoba_sim::vec2::Vec2;
 
     let mut h = fxhash::FxHasher64::default();
@@ -102,17 +106,27 @@ fn atan2_pin_hash() {
 
     // Sample atan2 across all 8 octants and a fine grid in Q1.
     let cardinals = [
-        (0, 1), (1, 1), (1, 0), (1, -1),
-        (0, -1), (-1, -1), (-1, 0), (-1, 1),
+        (0, 1),
+        (1, 1),
+        (1, 0),
+        (1, -1),
+        (0, -1),
+        (-1, -1),
+        (-1, 0),
+        (-1, 1),
     ];
     for &(y, x) in cardinals.iter() {
-        atan2(Fixed64::from_i32(y), Fixed64::from_i32(x)).ticks().hash(&mut h);
+        atan2(Fixed64::from_i32(y), Fixed64::from_i32(x))
+            .ticks()
+            .hash(&mut h);
     }
 
     // Q1 grid: y ∈ [1, 100], x ∈ [1, 100] step 7 — 196 samples
     for y in (1..=100).step_by(7) {
         for x in (1..=100).step_by(7) {
-            atan2(Fixed64::from_i32(y), Fixed64::from_i32(x)).ticks().hash(&mut h);
+            atan2(Fixed64::from_i32(y), Fixed64::from_i32(x))
+                .ticks()
+                .hash(&mut h);
         }
     }
 
@@ -126,9 +140,9 @@ fn atan2_pin_hash() {
 #[test]
 fn snapshot_wire_format_pin_hash() {
     use omoba_sim::fixed::Fixed64;
+    use omoba_sim::snapshot::serialize;
     use omoba_sim::trig::Angle;
     use omoba_sim::vec2::Vec2;
-    use omoba_sim::snapshot::serialize;
 
     #[derive(serde::Serialize)]
     struct Sample {
@@ -157,12 +171,22 @@ fn angle_rotate_toward_pin_hash() {
     use omoba_sim::trig::{angle_rotate_toward, Angle, TAU_TICKS};
     let mut h = fxhash::FxHasher64::default();
     // 8 starting angles × 8 targets × 3 step sizes = 192 samples
-    let starts = [0, TAU_TICKS / 8, TAU_TICKS / 4, 3 * TAU_TICKS / 8,
-                  TAU_TICKS / 2, 5 * TAU_TICKS / 8, 3 * TAU_TICKS / 4, 7 * TAU_TICKS / 8];
+    let starts = [
+        0,
+        TAU_TICKS / 8,
+        TAU_TICKS / 4,
+        3 * TAU_TICKS / 8,
+        TAU_TICKS / 2,
+        5 * TAU_TICKS / 8,
+        3 * TAU_TICKS / 4,
+        7 * TAU_TICKS / 8,
+    ];
     for &c in &starts {
         for &t in &starts {
             for &step in &[10, 100, 1000] {
-                angle_rotate_toward(Angle::from_ticks(c), Angle::from_ticks(t), step).ticks().hash(&mut h);
+                angle_rotate_toward(Angle::from_ticks(c), Angle::from_ticks(t), step)
+                    .ticks()
+                    .hash(&mut h);
             }
         }
     }
@@ -173,8 +197,8 @@ fn angle_rotate_toward_pin_hash() {
 
 #[test]
 fn vec2_normalize_pin_hash() {
-    use omoba_sim::vec2::Vec2;
     use omoba_sim::fixed::Fixed64;
+    use omoba_sim::vec2::Vec2;
     let mut h = fxhash::FxHasher64::default();
     // 15x15 = 225 sample points across the cardinal + off-axis grid
     for x in (-50..=50).step_by(7) {

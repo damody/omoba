@@ -1,9 +1,9 @@
 //! 玩家動作模擬器
 
-use serde_json;
-use rand::{rng, Rng};
-use log::{info, debug};
 use anyhow::Result;
+use log::{debug, info};
+use rand::{rng, Rng};
+use serde_json;
 use vek::Vec2;
 
 use crate::input::commands::*;
@@ -21,7 +21,10 @@ pub struct PlayerSimulator {
 impl PlayerSimulator {
     /// 建立新的玩家模擬器
     pub fn new(player_name: String, hero_type: String) -> Self {
-        info!("Create player simulator - Player: {}, Hero: {}", player_name, hero_type);
+        info!(
+            "Create player simulator - Player: {}, Hero: {}",
+            player_name, hero_type
+        );
 
         Self {
             player_name,
@@ -33,7 +36,11 @@ impl PlayerSimulator {
     }
 
     /// 執行玩家動作
-    pub fn perform_action(&mut self, action: &str, params: serde_json::Value) -> Result<serde_json::Value> {
+    pub fn perform_action(
+        &mut self,
+        action: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value> {
         debug!("Perform action: {} - Params: {}", action, params);
 
         let result = match action {
@@ -92,10 +99,15 @@ impl PlayerSimulator {
         let cast_params: CastAbilityParams = serde_json::from_value(params)?;
 
         if !self.is_ability_valid(&cast_params.ability_id) {
-            return Err(anyhow::anyhow!("Ability {} not valid for hero {}", cast_params.ability_id, self.hero_type));
+            return Err(anyhow::anyhow!(
+                "Ability {} not valid for hero {}",
+                cast_params.ability_id,
+                self.hero_type
+            ));
         }
 
-        let cast_position = cast_params.target_position
+        let cast_position = cast_params
+            .target_position
             .unwrap_or((self.current_position.x, self.current_position.y));
 
         Ok(serde_json::json!({
@@ -111,7 +123,10 @@ impl PlayerSimulator {
     fn handle_attack(&mut self, params: serde_json::Value) -> Result<serde_json::Value> {
         let attack_params: AttackParams = serde_json::from_value(params)?;
 
-        let target_pos = Vec2::new(attack_params.target_position.0, attack_params.target_position.1);
+        let target_pos = Vec2::new(
+            attack_params.target_position.0,
+            attack_params.target_position.1,
+        );
         let target_distance = (target_pos - self.current_position).magnitude();
 
         let max_attack_range = match attack_params.attack_type.as_str() {
@@ -160,45 +175,58 @@ impl PlayerSimulator {
                 let target_x = self.current_position.x + rng.random_range(-100.0..100.0);
                 let target_y = self.current_position.y + rng.random_range(-100.0..100.0);
 
-                Some(("move".to_string(), serde_json::json!({
-                    "target_x": target_x.max(0.0).min(800.0),
-                    "target_y": target_y.max(0.0).min(600.0)
-                })))
-            },
+                Some((
+                    "move".to_string(),
+                    serde_json::json!({
+                        "target_x": target_x.max(0.0).min(800.0),
+                        "target_y": target_y.max(0.0).min(600.0)
+                    }),
+                ))
+            }
             1 => {
                 let abilities = self.get_hero_abilities();
                 if !abilities.is_empty() {
                     let ability = &abilities[rng.random_range(0..abilities.len())];
 
-                    Some(("cast_ability".to_string(), serde_json::json!({
-                        "ability_id": ability,
-                        "target_position": [
-                            self.current_position.x + rng.random_range(-50.0..50.0),
-                            self.current_position.y + rng.random_range(-50.0..50.0)
-                        ],
-                        "level": 1
-                    })))
+                    Some((
+                        "cast_ability".to_string(),
+                        serde_json::json!({
+                            "ability_id": ability,
+                            "target_position": [
+                                self.current_position.x + rng.random_range(-50.0..50.0),
+                                self.current_position.y + rng.random_range(-50.0..50.0)
+                            ],
+                            "level": 1
+                        }),
+                    ))
                 } else {
                     None
                 }
-            },
+            }
             2 => {
                 let target_x = self.current_position.x + rng.random_range(-80.0..80.0);
                 let target_y = self.current_position.y + rng.random_range(-80.0..80.0);
 
-                Some(("attack".to_string(), serde_json::json!({
-                    "target_position": [target_x, target_y],
-                    "attack_type": "basic"
-                })))
-            },
-            _ => None
+                Some((
+                    "attack".to_string(),
+                    serde_json::json!({
+                        "target_position": [target_x, target_y],
+                        "attack_type": "basic"
+                    }),
+                ))
+            }
+            _ => None,
         }
     }
 
     /// 設定自動模式
     pub fn set_auto_mode(&mut self, enabled: bool) {
         self.auto_mode_enabled = enabled;
-        info!("Player {} auto mode: {}", self.player_name, if enabled { "enabled" } else { "disabled" });
+        info!(
+            "Player {} auto mode: {}",
+            self.player_name,
+            if enabled { "enabled" } else { "disabled" }
+        );
     }
 
     /// 從遊戲狀態更新位置

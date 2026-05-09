@@ -28,14 +28,8 @@ impl Viewport {
         let half_width = self.width / (2.0 * self.zoom);
         let half_height = self.height / (2.0 * self.zoom);
 
-        let min = Vec2::new(
-            self.center.x - half_width,
-            self.center.y - half_height,
-        );
-        let max = Vec2::new(
-            self.center.x + half_width,
-            self.center.y + half_height,
-        );
+        let min = Vec2::new(self.center.x - half_width, self.center.y - half_height);
+        let max = Vec2::new(self.center.x + half_width, self.center.y + half_height);
 
         (min, max)
     }

@@ -1,8 +1,8 @@
 //! MQTT 用戶端包裝器
 
-use rumqttc::{AsyncClient, MqttOptions, QoS, EventLoop, Event, Packet};
-use log::{info, warn, debug, error};
 use anyhow::Result;
+use log::{debug, error, info, warn};
+use rumqttc::{AsyncClient, Event, EventLoop, MqttOptions, Packet, QoS};
 
 use crate::config::ServerConfig;
 
@@ -25,17 +25,15 @@ pub enum MqttEvent {
 impl MqttClient {
     /// 建立新的 MQTT 用戶端
     pub fn new(config: &ServerConfig, player_name: &str, client_id: &str) -> Result<Self> {
-        let mut mqttoptions = MqttOptions::new(
-            client_id,
-            &config.mqtt_host,
-            config.mqtt_port,
-        );
+        let mut mqttoptions = MqttOptions::new(client_id, &config.mqtt_host, config.mqtt_port);
         mqttoptions.set_keep_alive(std::time::Duration::from_secs(30));
 
         let (client, event_loop) = AsyncClient::new(mqttoptions, 10);
 
-        info!("MQTT client created - Host: {}:{}, Client ID: {}",
-              config.mqtt_host, config.mqtt_port, client_id);
+        info!(
+            "MQTT client created - Host: {}:{}, Client ID: {}",
+            config.mqtt_host, config.mqtt_port, client_id
+        );
 
         Ok(Self {
             client,
@@ -51,14 +49,20 @@ impl MqttClient {
 
         // 訂閱特定於玩家的訊息
         let player_topic = format!("td/{}/send", self.player_name);
-        self.client.subscribe(&player_topic, QoS::AtMostOnce).await?;
+        self.client
+            .subscribe(&player_topic, QoS::AtMostOnce)
+            .await?;
 
         // 訂閱螢幕回應
         let screen_topic = format!("td/{}/screen_response", self.player_name);
-        self.client.subscribe(&screen_topic, QoS::AtMostOnce).await?;
+        self.client
+            .subscribe(&screen_topic, QoS::AtMostOnce)
+            .await?;
 
         // 訂閱能力測驗答案
-        self.client.subscribe("ability_test/response", QoS::AtMostOnce).await?;
+        self.client
+            .subscribe("ability_test/response", QoS::AtMostOnce)
+            .await?;
 
         info!("Subscribed to game topics for player: {}", self.player_name);
 
@@ -75,7 +79,9 @@ impl MqttClient {
         });
 
         let payload = serde_json::to_string(&message)?;
-        self.client.publish(&topic, QoS::AtMostOnce, false, payload).await?;
+        self.client
+            .publish(&topic, QoS::AtMostOnce, false, payload)
+            .await?;
 
         debug!("Published action: {} to {}", action, topic);
 
@@ -85,12 +91,10 @@ impl MqttClient {
     /// 下次活動的投票
     pub async fn poll(&mut self) -> Option<MqttEvent> {
         match self.event_loop.poll().await {
-            Ok(Event::Incoming(Packet::Publish(publish))) => {
-                Some(MqttEvent::Message {
-                    topic: publish.topic.to_string(),
-                    payload: publish.payload.to_vec(),
-                })
-            }
+            Ok(Event::Incoming(Packet::Publish(publish))) => Some(MqttEvent::Message {
+                topic: publish.topic.to_string(),
+                payload: publish.payload.to_vec(),
+            }),
             Ok(Event::Incoming(Packet::ConnAck(_))) => {
                 info!("MQTT connected");
                 Some(MqttEvent::Connected)

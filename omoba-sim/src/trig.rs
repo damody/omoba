@@ -1,7 +1,7 @@
 //! Deterministic sin/cos via 4096-tick LUT. Implemented in Task 0.6.
 
 use crate::fixed::{Fixed64, SCALE};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Number of discrete angle ticks in a full turn (2π). Each tick = ~0.0879°.
 pub const TAU_TICKS: i32 = 4096;
@@ -34,7 +34,9 @@ impl Angle {
     pub const THREE_QUARTER_TURN: Angle = Angle(3 * TAU_TICKS / 4);
 
     /// Constructs an angle from raw ticks. Reduces modulo TAU_TICKS to canonical [0, TAU_TICKS).
-    pub fn from_ticks(t: i32) -> Self { Angle(t.rem_euclid(TAU_TICKS)) }
+    pub fn from_ticks(t: i32) -> Self {
+        Angle(t.rem_euclid(TAU_TICKS))
+    }
 
     /// Constructs from integer degrees. 360° → TAU_TICKS via i64 intermediate to avoid overflow.
     pub fn from_degrees_i32(d: i32) -> Self {
@@ -42,20 +44,23 @@ impl Angle {
     }
 
     /// Raw tick count, in [0, TAU_TICKS).
-    pub fn ticks(self) -> i32 { self.0 }
+    pub fn ticks(self) -> i32 {
+        self.0
+    }
 }
 
 // LUT generated at first call. Uses f64 with `round()` for cross-platform reproducibility:
 // IEEE-754 f64 sin() agrees bit-for-bit on all major platforms (the variation is in trig
 // intrinsics' last bits which `round()` discards).
-static SIN_LUT: once_cell::sync::Lazy<[i64; TAU_TICKS as usize]> = once_cell::sync::Lazy::new(|| {
-    let mut lut = [0i64; TAU_TICKS as usize];
-    for i in 0..TAU_TICKS {
-        let rad = (i as f64) * std::f64::consts::TAU / TAU_TICKS as f64;
-        lut[i as usize] = (rad.sin() * SCALE as f64).round() as i64;
-    }
-    lut
-});
+static SIN_LUT: once_cell::sync::Lazy<[i64; TAU_TICKS as usize]> =
+    once_cell::sync::Lazy::new(|| {
+        let mut lut = [0i64; TAU_TICKS as usize];
+        for i in 0..TAU_TICKS {
+            let rad = (i as f64) * std::f64::consts::TAU / TAU_TICKS as f64;
+            lut[i as usize] = (rad.sin() * SCALE as f64).round() as i64;
+        }
+        lut
+    });
 
 pub fn sin(a: Angle) -> Fixed64 {
     Fixed64::from_raw(SIN_LUT[a.0 as usize])
@@ -72,8 +77,8 @@ pub fn cos(a: Angle) -> Fixed64 {
 static ATAN_LUT: once_cell::sync::Lazy<[i32; 1024]> = once_cell::sync::Lazy::new(|| {
     let mut lut = [0i32; 1024];
     for i in 0..1024 {
-        let t = i as f64 / 1024.0;  // t in [0, 1)
-        // atan(t) in radians; convert to ticks: ticks = (atan / 2pi) * TAU_TICKS
+        let t = i as f64 / 1024.0; // t in [0, 1)
+                                   // atan(t) in radians; convert to ticks: ticks = (atan / 2pi) * TAU_TICKS
         let radians = t.atan();
         let ticks = (radians / std::f64::consts::TAU * TAU_TICKS as f64).round() as i32;
         lut[i] = ticks;
@@ -105,9 +110,9 @@ pub fn atan2(y: Fixed64, x: Fixed64) -> Angle {
 
     // Reduce to first octant: t = min/max in [0, 1]
     let (t_num, t_den, swap_xy) = if ay <= ax {
-        (ay, ax, false)  // |y| ≤ |x| — already in first octant of upper-right
+        (ay, ax, false) // |y| ≤ |x| — already in first octant of upper-right
     } else {
-        (ax, ay, true)   // |y| > |x| — swap so we look up atan(x/y) then complement
+        (ax, ay, true) // |y| > |x| — swap so we look up atan(x/y) then complement
     };
 
     // LUT index in [0, 1024): (t_num * 1024) / t_den. t_den != 0 here (else
@@ -123,10 +128,10 @@ pub fn atan2(y: Fixed64, x: Fixed64) -> Angle {
 
     // Map to correct octant using sign of x and y. Reference: standard atan2 quadrant fix.
     let final_ticks = match (xr >= 0, yr >= 0) {
-        (true, true)   => ticks,                            // Q1 (+x, +y)
-        (false, true)  => TAU_TICKS / 2 - ticks,            // Q2 (-x, +y)
-        (false, false) => TAU_TICKS / 2 + ticks,            // Q3 (-x, -y)
-        (true, false)  => TAU_TICKS - ticks,                // Q4 (+x, -y)
+        (true, true) => ticks,                   // Q1 (+x, +y)
+        (false, true) => TAU_TICKS / 2 - ticks,  // Q2 (-x, +y)
+        (false, false) => TAU_TICKS / 2 + ticks, // Q3 (-x, -y)
+        (true, false) => TAU_TICKS - ticks,      // Q4 (+x, -y)
     };
 
     Angle::from_ticks(final_ticks)
@@ -145,7 +150,11 @@ pub fn atan2(y: Fixed64, x: Fixed64) -> Angle {
 pub fn angle_rotate_toward(current: Angle, target: Angle, max_step_ticks: i32) -> Angle {
     let diff = (target.ticks() - current.ticks()).rem_euclid(TAU_TICKS);
     // Convert to signed distance in (-TAU/2, TAU/2]
-    let signed_diff = if diff > TAU_TICKS / 2 { diff - TAU_TICKS } else { diff };
+    let signed_diff = if diff > TAU_TICKS / 2 {
+        diff - TAU_TICKS
+    } else {
+        diff
+    };
     let clamped = signed_diff.clamp(-max_step_ticks.abs(), max_step_ticks.abs());
     Angle::from_ticks(current.ticks() + clamped)
 }
@@ -174,7 +183,7 @@ mod tests {
         // 30° = π/6, sin = 0.5
         let a = Angle::from_degrees_i32(30);
         let s = sin(a);
-        let expected = Fixed64::from_raw(512);  // 0.5
+        let expected = Fixed64::from_raw(512); // 0.5
         assert!((s.raw() - expected.raw()).abs() <= 2);
     }
 
@@ -192,26 +201,45 @@ mod tests {
         // -x axis: atan2(0, -1) = π = TAU_TICKS/2
         assert_eq!(atan2(Fixed64::ZERO, -Fixed64::ONE).ticks(), TAU_TICKS / 2);
         // -y axis: atan2(-1, 0) = 3π/2 = 3*TAU_TICKS/4
-        assert_eq!(atan2(-Fixed64::ONE, Fixed64::ZERO).ticks(), 3 * TAU_TICKS / 4);
+        assert_eq!(
+            atan2(-Fixed64::ONE, Fixed64::ZERO).ticks(),
+            3 * TAU_TICKS / 4
+        );
     }
 
     #[test]
     fn atan2_45deg_diagonals() {
         // First-quadrant diagonal: atan2(1, 1) = π/4 = TAU_TICKS/8 = 512
         let a = atan2(Fixed64::ONE, Fixed64::ONE);
-        assert!((a.ticks() - TAU_TICKS / 8).abs() <= 1, "Q1 diagonal: got {}, expected ~512", a.ticks());
+        assert!(
+            (a.ticks() - TAU_TICKS / 8).abs() <= 1,
+            "Q1 diagonal: got {}, expected ~512",
+            a.ticks()
+        );
 
         // Q2 diagonal: atan2(1, -1) = 3π/4 = 3*TAU_TICKS/8 = 1536
         let b = atan2(Fixed64::ONE, -Fixed64::ONE);
-        assert!((b.ticks() - 3 * TAU_TICKS / 8).abs() <= 1, "Q2 diagonal: got {}, expected ~1536", b.ticks());
+        assert!(
+            (b.ticks() - 3 * TAU_TICKS / 8).abs() <= 1,
+            "Q2 diagonal: got {}, expected ~1536",
+            b.ticks()
+        );
 
         // Q3 diagonal: atan2(-1, -1) = 5π/4 = 5*TAU_TICKS/8 = 2560
         let c = atan2(-Fixed64::ONE, -Fixed64::ONE);
-        assert!((c.ticks() - 5 * TAU_TICKS / 8).abs() <= 1, "Q3 diagonal: got {}, expected ~2560", c.ticks());
+        assert!(
+            (c.ticks() - 5 * TAU_TICKS / 8).abs() <= 1,
+            "Q3 diagonal: got {}, expected ~2560",
+            c.ticks()
+        );
 
         // Q4 diagonal: atan2(-1, 1) = 7π/4 = 7*TAU_TICKS/8 = 3584
         let d = atan2(-Fixed64::ONE, Fixed64::ONE);
-        assert!((d.ticks() - 7 * TAU_TICKS / 8).abs() <= 1, "Q4 diagonal: got {}, expected ~3584", d.ticks());
+        assert!(
+            (d.ticks() - 7 * TAU_TICKS / 8).abs() <= 1,
+            "Q4 diagonal: got {}, expected ~3584",
+            d.ticks()
+        );
     }
 
     #[test]
@@ -223,7 +251,13 @@ mod tests {
         let a = atan2(y, x);
         let expected = Angle::from_degrees_i32(30).ticks();
         let diff = (a.ticks() - expected).abs();
-        assert!(diff <= 4, "atan2(1, √3) ticks={} expected={} diff={}", a.ticks(), expected, diff);
+        assert!(
+            diff <= 4,
+            "atan2(1, √3) ticks={} expected={} diff={}",
+            a.ticks(),
+            expected,
+            diff
+        );
     }
 
     #[test]
@@ -249,11 +283,7 @@ mod tests {
     fn angle_rotate_toward_shortest_path_wraparound() {
         // Going from near-end-of-cycle to near-start: should wrap forward, not backward
         // current = TAU - 5, target = 5, max = 20 → should reach target = 5 directly via short arc
-        let r = angle_rotate_toward(
-            Angle::from_ticks(TAU_TICKS - 5),
-            Angle::from_ticks(5),
-            20,
-        );
+        let r = angle_rotate_toward(Angle::from_ticks(TAU_TICKS - 5), Angle::from_ticks(5), 20);
         assert_eq!(r.ticks(), 5);
     }
 
@@ -266,9 +296,13 @@ mod tests {
     #[test]
     fn fixed_rad_to_ticks_basic() {
         // π/2 in Fixed64 raw ≈ 1608. Expected ticks: TAU_TICKS / 4 = 1024.
-        let half_pi = Fixed64::from_raw(1608);  // ~π/2
+        let half_pi = Fixed64::from_raw(1608); // ~π/2
         let ticks = fixed_rad_to_ticks(half_pi);
-        assert!((ticks - 1024).abs() <= 2, "fixed_rad_to_ticks(π/2) = {} ticks, expected ~1024", ticks);
+        assert!(
+            (ticks - 1024).abs() <= 2,
+            "fixed_rad_to_ticks(π/2) = {} ticks, expected ~1024",
+            ticks
+        );
     }
 
     #[test]

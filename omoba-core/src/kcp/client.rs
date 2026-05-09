@@ -2,13 +2,13 @@ use anyhow::Result;
 use log::*;
 use prost::Message;
 use serde_json::json;
-use tokio::sync::mpsc;
-use tokio::io::{ReadHalf, WriteHalf};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::io::{ReadHalf, WriteHalf};
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
-use tokio_kcp::{KcpConfig, KcpStream, KcpNoDelayConfig};
+use tokio_kcp::{KcpConfig, KcpNoDelayConfig, KcpStream};
 
 use super::framing::*;
 use super::game_proto::*;
@@ -56,14 +56,34 @@ pub struct KcpClient {
 /// 每個事件的廣播可以量化。
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
-    TickBatch { msg: TickBatch, wire_bytes: usize, logical_bytes: usize },
-    StateHash { msg: StateHash, wire_bytes: usize, logical_bytes: usize },
-    GameStart { msg: GameStart, wire_bytes: usize, logical_bytes: usize },
-    SnapshotResp { msg: SnapshotResp, wire_bytes: usize, logical_bytes: usize },
+    TickBatch {
+        msg: TickBatch,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
+    StateHash {
+        msg: StateHash,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
+    GameStart {
+        msg: GameStart,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
+    SnapshotResp {
+        msg: SnapshotResp,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
     /// 伺服器回顯 PingRequest。 `rtt_us` = 往返時間（以微秒為單位），
     /// 根據回顯的“client_send_us”相對於客戶端的本機計算
     /// 接收時的單調時鐘。
-    Pong { rtt_us: u64, wire_bytes: usize, logical_bytes: usize },
+    Pong {
+        rtt_us: u64,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
 }
 
 /// P6：每會話序列間隙檢查的結果。暴露進行測試。
@@ -77,7 +97,11 @@ pub enum SeqGapResult {
     Backwards,
     /// `event.sequence > last_seq + 1` — 錯過了 `gap_size` 事件。客戶
     /// 應請求重新同步。
-    Gap { expected: u64, got: u64, gap_size: u64 },
+    Gap {
+        expected: u64,
+        got: u64,
+        gap_size: u64,
+    },
 }
 
 /// 純函數：給定先前最後已知的序列和到達的序列
@@ -159,7 +183,14 @@ impl KcpClient {
         // 產生後台閱讀器任務
         let (event_tx, event_rx) = mpsc::channel(10000);
         let (lockstep_tx, lockstep_rx) = mpsc::channel(1024);
-        Self::spawn_reader(reader, event_tx, lockstep_tx.clone(), writer.clone(), player_name.clone(), epoch);
+        Self::spawn_reader(
+            reader,
+            event_tx,
+            lockstep_tx.clone(),
+            writer.clone(),
+            player_name.clone(),
+            epoch,
+        );
 
         // 產生 ping 循環 — 每 1 秒發送一次 TAG_PING_REQ。讀者處理
         // TAG_PING_RESP 並發出 LockstepInbound::Pong 以及計算出的 RTT。
@@ -178,10 +209,7 @@ impl KcpClient {
     /// 定期發送帶有單調時間戳記的 TAG_PING_REQ。
     /// 伺服器將其回應為 TAG_PING_RESP；讀者任務匯出 RTT
     /// 對抗同一個時代。
-    fn spawn_ping_loop(
-        writer: Arc<Mutex<WriteHalf<KcpStream>>>,
-        epoch: std::time::Instant,
-    ) {
+    fn spawn_ping_loop(writer: Arc<Mutex<WriteHalf<KcpStream>>>, epoch: std::time::Instant) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             // 第一個蜱立即觸發；跳過它，這樣我們就不會參加比賽
@@ -190,7 +218,9 @@ impl KcpClient {
             loop {
                 interval.tick().await;
                 let now_us = epoch.elapsed().as_micros() as i64;
-                let req = PingRequest { client_send_us: now_us };
+                let req = PingRequest {
+                    client_send_us: now_us,
+                };
                 let mut w = writer.lock().await;
                 if let Err(e) = write_framed_msg(&mut *w, TAG_PING_REQ, &req).await {
                     warn!("Failed to send PingRequest: {}", e);
@@ -250,7 +280,11 @@ impl KcpClient {
                                                 // 所見最高。複製/重新排序
                                                 // 事件仍然得到處理。
                                             }
-                                            SeqGapResult::Gap { expected, got, gap_size } => {
+                                            SeqGapResult::Gap {
+                                                expected,
+                                                got,
+                                                gap_size,
+                                            } => {
                                                 warn!(
                                                     "⚠️ seq gap: expected={} got={} (missed {} events)",
                                                     expected, got, gap_size
@@ -271,7 +305,9 @@ impl KcpClient {
                                                         // 避免原型模式碰撞
                                                         // （請參閱伺服器存根
                                                         // 匹配解碼端）。
-                                                        player_name: expected.saturating_sub(1).to_string(),
+                                                        player_name: expected
+                                                            .saturating_sub(1)
+                                                            .to_string(),
                                                     };
                                                     let w = writer_for_resync.clone();
                                                     tokio::spawn(async move {
@@ -280,7 +316,9 @@ impl KcpClient {
                                                             &mut *w,
                                                             TAG_GAME_STATE_REQUEST,
                                                             &req,
-                                                        ).await {
+                                                        )
+                                                        .await
+                                                        {
                                                             warn!("Failed to send seq-gap StateReq: {}", e);
                                                         }
                                                     });
@@ -302,10 +340,16 @@ impl KcpClient {
                                         // `wire_compressed_bytes` = 實際 UDP 成本（如果縮小 + 成幀則為 LZ4）；
                                         // `payload.len()` = 解壓縮的 prost 位元組（邏輯有效負載）。
                                         let logical_bytes = payload.len();
-                                        let parsed_opt: Option<GameEventData> = match event.payload.as_ref() {
-                                            Some(p) => translate_typed_payload(p, wire_compressed_bytes, logical_bytes, &mut hero_cache),
-                                            None => None,
-                                        };
+                                        let parsed_opt: Option<GameEventData> =
+                                            match event.payload.as_ref() {
+                                                Some(p) => translate_typed_payload(
+                                                    p,
+                                                    wire_compressed_bytes,
+                                                    logical_bytes,
+                                                    &mut hero_cache,
+                                                ),
+                                                None => None,
+                                            };
 
                                         if let Some(parsed) = parsed_opt {
                                             // try_send 而非 send().await：當沒有時
@@ -344,11 +388,15 @@ impl KcpClient {
                                 let logical_bytes = payload.len();
                                 match TickBatch::decode(payload.as_slice()) {
                                     Ok(b) => {
-                                        if lockstep_tx.send(LockstepInbound::TickBatch {
-                                            msg: b,
-                                            wire_bytes: wire_compressed_bytes,
-                                            logical_bytes,
-                                        }).await.is_err() {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::TickBatch {
+                                                msg: b,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
@@ -359,11 +407,15 @@ impl KcpClient {
                                 let logical_bytes = payload.len();
                                 match StateHash::decode(payload.as_slice()) {
                                     Ok(s) => {
-                                        if lockstep_tx.send(LockstepInbound::StateHash {
-                                            msg: s,
-                                            wire_bytes: wire_compressed_bytes,
-                                            logical_bytes,
-                                        }).await.is_err() {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::StateHash {
+                                                msg: s,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
@@ -374,11 +426,15 @@ impl KcpClient {
                                 let logical_bytes = payload.len();
                                 match GameStart::decode(payload.as_slice()) {
                                     Ok(gs) => {
-                                        if lockstep_tx.send(LockstepInbound::GameStart {
-                                            msg: gs,
-                                            wire_bytes: wire_compressed_bytes,
-                                            logical_bytes,
-                                        }).await.is_err() {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::GameStart {
+                                                msg: gs,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
@@ -389,11 +445,15 @@ impl KcpClient {
                                 let logical_bytes = payload.len();
                                 match SnapshotResp::decode(payload.as_slice()) {
                                     Ok(s) => {
-                                        if lockstep_tx.send(LockstepInbound::SnapshotResp {
-                                            msg: s,
-                                            wire_bytes: wire_compressed_bytes,
-                                            logical_bytes,
-                                        }).await.is_err() {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::SnapshotResp {
+                                                msg: s,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
@@ -406,11 +466,15 @@ impl KcpClient {
                                     Ok(resp) => {
                                         let now_us = epoch.elapsed().as_micros() as i64;
                                         let rtt_us = (now_us - resp.client_send_us).max(0) as u64;
-                                        if lockstep_tx.send(LockstepInbound::Pong {
-                                            rtt_us,
-                                            wire_bytes: wire_compressed_bytes,
-                                            logical_bytes,
-                                        }).await.is_err() {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::Pong {
+                                                rtt_us,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
                                             break;
                                         }
                                     }
@@ -470,9 +534,7 @@ impl KcpClient {
 
     /// 從伺服器訂閱遊戲事件。
     /// 傳回一個接收器通道，該通道產生已解析的遊戲事件。
-    pub async fn subscribe_events(
-        &mut self,
-    ) -> Result<mpsc::Receiver<GameEventData>> {
+    pub async fn subscribe_events(&mut self) -> Result<mpsc::Receiver<GameEventData>> {
         self.event_rx
             .take()
             .ok_or_else(|| anyhow::anyhow!("subscribe_events can only be called once"))
@@ -500,7 +562,11 @@ impl KcpClient {
     /// 2. `join_lockstep` （從頻道消耗 GameStart）
     /// 3. `subscribe_lockstep` （現在只產生 TickBatch/StateHash/SnapshotResp）
     pub async fn join_lockstep(&mut self, player_name: String, observer: bool) -> Result<u64> {
-        let role = if observer { JoinRole::RoleObserver } else { JoinRole::RolePlayer };
+        let role = if observer {
+            JoinRole::RoleObserver
+        } else {
+            JoinRole::RolePlayer
+        };
         let req = JoinRequest {
             player_name: player_name.clone(),
             role: role as i32,
@@ -590,42 +656,46 @@ impl KcpClient {
 pub fn variant_to_legacy_keys(p: &game_event::Payload) -> (String, String) {
     use game_event::Payload::*;
     match p {
-        Heartbeat(_)         => ("heartbeat".into(), "tick".into()),
-        HeroStatic(_)        => ("hero".into(), "static_internal".into()),
-        HeroHot(_)           => ("hero".into(), "stats".into()),
-        HeroCreate(_)        => ("hero".into(), "create".into()),
-        CreepCreate(_)       => ("creep".into(), "create".into()),
-        CreepMove(_)         => ("creep".into(), "M".into()),
-        CreepHp(m)           => match super::game_proto::EntityKind::try_from(m.kind).unwrap_or(super::game_proto::EntityKind::Unspecified) {
+        Heartbeat(_) => ("heartbeat".into(), "tick".into()),
+        HeroStatic(_) => ("hero".into(), "static_internal".into()),
+        HeroHot(_) => ("hero".into(), "stats".into()),
+        HeroCreate(_) => ("hero".into(), "create".into()),
+        CreepCreate(_) => ("creep".into(), "create".into()),
+        CreepMove(_) => ("creep".into(), "M".into()),
+        CreepHp(m) => match super::game_proto::EntityKind::try_from(m.kind)
+            .unwrap_or(super::game_proto::EntityKind::Unspecified)
+        {
             super::game_proto::EntityKind::Creep => ("creep".into(), "H".into()),
-            super::game_proto::EntityKind::Hero  => ("hero".into(), "H".into()),
-            super::game_proto::EntityKind::Unit  => ("unit".into(), "H".into()),
+            super::game_proto::EntityKind::Hero => ("hero".into(), "H".into()),
+            super::game_proto::EntityKind::Unit => ("unit".into(), "H".into()),
             super::game_proto::EntityKind::Tower => ("tower".into(), "H".into()),
-            _                                    => ("entity".into(), "H".into()),
+            _ => ("entity".into(), "H".into()),
         },
-        CreepSlow(_)         => ("creep".into(), "S".into()),
-        CreepStall(_)        => ("creep".into(), "stall".into()),
-        EntityFacing(_)      => ("entity".into(), "F".into()),
-        EntityDeath(m)       => match super::game_proto::EntityKind::try_from(m.kind).unwrap_or(super::game_proto::EntityKind::Unspecified) {
-            super::game_proto::EntityKind::Creep      => ("creep".into(), "D".into()),
-            super::game_proto::EntityKind::Tower      => ("tower".into(), "D".into()),
-            super::game_proto::EntityKind::Hero       => ("hero".into(), "D".into()),
-            super::game_proto::EntityKind::Unit       => ("unit".into(), "D".into()),
+        CreepSlow(_) => ("creep".into(), "S".into()),
+        CreepStall(_) => ("creep".into(), "stall".into()),
+        EntityFacing(_) => ("entity".into(), "F".into()),
+        EntityDeath(m) => match super::game_proto::EntityKind::try_from(m.kind)
+            .unwrap_or(super::game_proto::EntityKind::Unspecified)
+        {
+            super::game_proto::EntityKind::Creep => ("creep".into(), "D".into()),
+            super::game_proto::EntityKind::Tower => ("tower".into(), "D".into()),
+            super::game_proto::EntityKind::Hero => ("hero".into(), "D".into()),
+            super::game_proto::EntityKind::Unit => ("unit".into(), "D".into()),
             super::game_proto::EntityKind::Projectile => ("projectile".into(), "D".into()),
-            _                                         => ("entity".into(), "D".into()),
+            _ => ("entity".into(), "D".into()),
         },
-        UnitCreate(_)        => ("unit".into(), "create".into()),
-        ProjectileCreate(_)  => ("projectile".into(), "C".into()),
+        UnitCreate(_) => ("unit".into(), "create".into()),
+        ProjectileCreate(_) => ("projectile".into(), "C".into()),
         ProjectileDestroy(_) => ("projectile".into(), "D".into()),
-        TowerCreate(_)       => ("tower".into(), "create".into()),
-        TowerUpgrade(_)      => ("tower".into(), "upgrade".into()),
-        BuffAdd(_)           => ("buff".into(), "buff_add".into()),
-        BuffRemove(_)        => ("buff".into(), "buff_remove".into()),
-        GameRound(_)         => ("game".into(), "round".into()),
-        GameLives(_)         => ("game".into(), "lives".into()),
-        GameEnd(_)           => ("game".into(), "end".into()),
-        GameExplosion(_)     => ("game".into(), "explosion".into()),
-        LegacyJson(m)        => (m.msg_type.clone(), m.action.clone()),
+        TowerCreate(_) => ("tower".into(), "create".into()),
+        TowerUpgrade(_) => ("tower".into(), "upgrade".into()),
+        BuffAdd(_) => ("buff".into(), "buff_add".into()),
+        BuffRemove(_) => ("buff".into(), "buff_remove".into()),
+        GameRound(_) => ("game".into(), "round".into()),
+        GameLives(_) => ("game".into(), "lives".into()),
+        GameEnd(_) => ("game".into(), "end".into()),
+        GameExplosion(_) => ("game".into(), "explosion".into()),
+        LegacyJson(m) => (m.msg_type.clone(), m.action.clone()),
     }
 }
 
@@ -662,22 +732,35 @@ fn translate_typed_payload(
 
     let out = match tp {
         game_event::Payload::Heartbeat(hb) => {
-            let hp_snapshot: Vec<serde_json::Value> = hb.hp_snapshot.iter().map(|e| {
-                let hp = e.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-                json!({ "i": e.id as u32, "h": hp })
-            }).collect();
+            let hp_snapshot: Vec<serde_json::Value> = hb
+                .hp_snapshot
+                .iter()
+                .map(|e| {
+                    let hp = e.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+                    json!({ "i": e.id as u32, "h": hp })
+                })
+                .collect();
             // P4：用於客戶端漂移校正的蠕變位置樣本。空的
             // Vec（沒有可見的蠕變）序列化為空數組 - omfx 的
             // 快照邏輯的迭代是無害的。
-            let pos_snapshot: Vec<serde_json::Value> = hb.pos_snapshot.iter().map(|e| {
-                let (x, y) = e.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
-                json!({ "i": e.id as u32, "x": x, "y": y })
-            }).collect();
+            let pos_snapshot: Vec<serde_json::Value> = hb
+                .pos_snapshot
+                .iter()
+                .map(|e| {
+                    let (x, y) = e
+                        .pos
+                        .as_ref()
+                        .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                        .unwrap_or((0.0, 0.0));
+                    json!({ "i": e.id as u32, "x": x, "y": y })
+                })
+                .collect();
             // P7分層：伺服器端權威集依然存在
             // 目標在該玩家的範圍內的預先聲明傷害彈頭
             // 視口。客戶端使用它來保留其pending_pred_dmg映射
             // （proj_id 不在該集合中的條目已解決）。
-            let in_flight_projectiles: Vec<serde_json::Value> = hb.in_flight_projectiles
+            let in_flight_projectiles: Vec<serde_json::Value> = hb
+                .in_flight_projectiles
                 .iter()
                 .map(|&id| serde_json::Value::from(id))
                 .collect();
@@ -700,18 +783,38 @@ fn translate_typed_payload(
                 data: d,
                 timestamp_ms,
                 payload_bytes: logical_bytes,
-        wire_bytes,
+                wire_bytes,
             }
         }
         game_event::Payload::ProjectileCreate(m) => {
-            let start = m.start_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
-            let end = m.end_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
-            let splash = m.splash_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let hit = m.hit_radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let start = m
+                .start_pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
+            let end = m
+                .end_pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
+            let splash = m
+                .splash_radius
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let hit = m
+                .hit_radius
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             // P7：非AOE彈丸的預先聲明傷害。 0 當
             // 飛濺 > 0 或未設定。 omfx 讀取此內容以安排樂觀的 HP
             // 在影響刻度時更新。
-            let damage = m.damage.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let damage = m
+                .damage
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             // 反向查找 kind_id（現在是來自 omoba-template-ids 的連續 u16）
             // → 原始標籤字串（「大頭釘」/「炸彈」/等）。未知 ID 回退
             // 到“”，這樣 omfx 的項目符號顏色開關就可以優雅地預設。
@@ -728,17 +831,35 @@ fn translate_typed_payload(
                 "kind": kind_str,
                 "damage": damage,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::ProjectileDestroy(m) => {
             let d = json!({ "id": m.id as u32 });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::CreepCreate(m) => {
-            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let pos = m
+                .pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let move_speed = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m
+                .max_hp
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let move_speed = m
+                .move_speed
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             // 反向查找name_id（順序CreepId u16）→顯示名稱。
             // 未知 id →“”（omfx 回落到實體類型字串）。
             let name_str = creep_display(CreepId(m.name_id as u16));
@@ -751,15 +872,30 @@ fn translate_typed_payload(
                 "max_hp": max_hp,
                 "move_speed": move_speed,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::CreepMove(m) => {
-            let tgt = m.target.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let tgt = m
+                .target
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
             // P4：重建外推場。 `velocity`/`start_pos`/`start_tick`/`arrival_tick`
             // 對於遺留發射（handle_creep_stop freeze）為零 - omfx 將其視為
             // 「僅 lerp，無推論」。
-            let velocity = m.velocity.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let start = m.start_pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let velocity = m
+                .velocity
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let start = m
+                .start_pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
             let d = json!({
                 "id": m.id as u32,
                 "x": tgt.0,
@@ -770,7 +906,10 @@ fn translate_typed_payload(
                 "start_pos": { "x": start.0, "y": start.1 },
                 "start_tick": m.start_tick,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::CreepHp(m) => {
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
@@ -778,41 +917,72 @@ fn translate_typed_payload(
                 "id": m.id as u32,
                 "hp": hp,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::CreepSlow(m) => {
-            let ms = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let ms = m
+                .move_speed
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             let d = json!({
                 "id": m.id as u32,
                 "move_speed": ms,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::CreepStall(m) => {
-            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let pos = m
+                .pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
             let d = json!({
                 "id": m.id as u32,
                 "x": pos.0,
                 "y": pos.1,
                 "facing": facing_dequant(m.facing_q),
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::EntityFacing(m) => {
             let d = json!({
                 "id": m.id as u32,
                 "facing": facing_dequant(m.facing_q),
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::EntityDeath(m) => {
             let d = json!({ "id": m.id as u32 });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::TowerCreate(m) => {
-            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let pos = m
+                .pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m
+                .max_hp
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             let d = json!({
                 "id": m.id as u32,
                 "entity_id": m.id as u32,
@@ -823,7 +993,10 @@ fn translate_typed_payload(
                 "max_hp": max_hp,
                 "is_base": false,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::TowerUpgrade(m) => {
             let l0 = m.levels.get(0).copied().unwrap_or(0);
@@ -833,12 +1006,20 @@ fn translate_typed_payload(
                 "tower_id": m.id as u32,
                 "levels": [l0, l1, l2],
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::BuffAdd(m) => {
             // 剩餘_ms=0xFFFF 哨兵 → -1 剩餘（無限/切換）
-            let remaining = if m.remaining_ms == 0xFFFF { -1.0_f32 } else { m.remaining_ms as f32 / 1000.0 };
-            let payload: serde_json::Value = serde_json::from_str(&m.payload_json).unwrap_or(serde_json::Value::Null);
+            let remaining = if m.remaining_ms == 0xFFFF {
+                -1.0_f32
+            } else {
+                m.remaining_ms as f32 / 1000.0
+            };
+            let payload: serde_json::Value =
+                serde_json::from_str(&m.payload_json).unwrap_or(serde_json::Value::Null);
             let d = json!({
                 "entity_id": m.entity_id as u32,
                 "id": m.entity_id as u32,
@@ -846,7 +1027,10 @@ fn translate_typed_payload(
                 "remaining": remaining,
                 "payload": payload,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::BuffRemove(m) => {
             let d = json!({
@@ -854,7 +1038,10 @@ fn translate_typed_payload(
                 "id": m.entity_id as u32,
                 "buff_id": m.buff_id,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         // P3：HeroStatic → 僅更新快取（不傳送到 omfx）。
         // 升級/能力學習很少發生； omfx 將看到更新
@@ -869,19 +1056,56 @@ fn translate_typed_payload(
         // 每個字段都有一些，因此它保留最後已知的值）。
         game_event::Payload::HeroHot(m) => {
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let attack_damage = m.attack_damage.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let armor = m.armor.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let magic_resist = m.magic_resist.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let move_speed = m.move_speed.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let attack_range = m.attack_range.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let attack_interval = m.attack_interval.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m
+                .max_hp
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let attack_damage = m
+                .attack_damage
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let armor = m
+                .armor
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let magic_resist = m
+                .magic_resist
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let move_speed = m
+                .move_speed
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let attack_range = m
+                .attack_range
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
+            let attack_interval = m
+                .attack_interval
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
 
-            let buffs: Vec<serde_json::Value> = m.buffs.iter().map(|b| {
-                let remaining = if b.remaining_ms == 0xFFFF { -1.0_f32 } else { b.remaining_ms as f32 / 1000.0 };
-                let payload: serde_json::Value = serde_json::from_str(&b.payload_json).unwrap_or(serde_json::Value::Null);
-                json!({ "id": b.buff_id, "remaining": remaining, "payload": payload })
-            }).collect();
+            let buffs: Vec<serde_json::Value> = m
+                .buffs
+                .iter()
+                .map(|b| {
+                    let remaining = if b.remaining_ms == 0xFFFF {
+                        -1.0_f32
+                    } else {
+                        b.remaining_ms as f32 / 1000.0
+                    };
+                    let payload: serde_json::Value =
+                        serde_json::from_str(&b.payload_json).unwrap_or(serde_json::Value::Null);
+                    json!({ "id": b.buff_id, "remaining": remaining, "payload": payload })
+                })
+                .collect();
 
             let mut d = json!({
                 "id": m.id as u32,
@@ -899,10 +1123,15 @@ fn translate_typed_payload(
 
             // 合併快取的 HeroStatic 欄位（名稱/頭銜/基本統計資料/等級/xp/能力）
             if let Some(st) = hero_cache.statics.get(&m.id) {
-                let ability_levels_map: serde_json::Map<String, serde_json::Value> = st.ability_ids.iter().enumerate().map(|(i, id)| {
-                    let lvl = st.ability_levels.get(i).map(|p| p.cur as i32).unwrap_or(0);
-                    (id.clone(), json!(lvl))
-                }).collect();
+                let ability_levels_map: serde_json::Map<String, serde_json::Value> = st
+                    .ability_ids
+                    .iter()
+                    .enumerate()
+                    .map(|(i, id)| {
+                        let lvl = st.ability_levels.get(i).map(|p| p.cur as i32).unwrap_or(0);
+                        (id.clone(), json!(lvl))
+                    })
+                    .collect();
                 // 推斷 primary_attribute：按 HeroStatic 的 base_str/agi/int 取最大；
                 // 目前 server Hero.primary_attribute 的判定也是根據角色設計 (strength/agility/
                 // intelligence) — 實務上 base 最大的就是 primary。
@@ -910,7 +1139,11 @@ fn translate_typed_payload(
                     ("strength", st.base_str),
                     ("agility", st.base_agi),
                     ("intelligence", st.base_int),
-                ].iter().max_by_key(|(_, v)| *v).copied().unwrap_or(("strength", 0));
+                ]
+                .iter()
+                .max_by_key(|(_, v)| *v)
+                .copied()
+                .unwrap_or(("strength", 0));
                 let _ = p_val;
                 if let Some(obj) = d.as_object_mut() {
                     obj.insert("name".into(), json!(st.name));
@@ -924,7 +1157,10 @@ fn translate_typed_payload(
                     obj.insert("xp_next".into(), json!(st.xp_next as i32));
                     obj.insert("skill_points".into(), json!(st.skill_points as i32));
                     obj.insert("abilities".into(), json!(st.ability_ids));
-                    obj.insert("ability_levels".into(), serde_json::Value::Object(ability_levels_map));
+                    obj.insert(
+                        "ability_levels".into(),
+                        serde_json::Value::Object(ability_levels_map),
+                    );
                 }
             }
             // 注入最新的生命（從 GameLives 事件追蹤），以便 omfx 的
@@ -942,7 +1178,7 @@ fn translate_typed_payload(
                 data: d,
                 timestamp_ms,
                 payload_bytes: logical_bytes,
-        wire_bytes,
+                wire_bytes,
             }
         }
         game_event::Payload::GameRound(m) => {
@@ -951,36 +1187,64 @@ fn translate_typed_payload(
                 "total": m.total,
                 "is_running": m.is_running,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::GameLives(m) => {
             // P3：快取以便稍後注入合併的hero.stats。
             hero_cache.latest_lives = Some(m.lives);
             let d = json!({ "lives": m.lives });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::GameEnd(m) => {
             let d = json!({ "winner": m.winner });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::GameExplosion(m) => {
-            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
-            let radius = m.radius.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let pos = m
+                .pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
+            let radius = m
+                .radius
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             let d = json!({
                 "x": pos.0,
                 "y": pos.1,
                 "radius": radius,
                 "duration": m.duration_ms as f32 / 1000.0,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         // P9：HeroCreate / UnitCreate 可見性差異（佔位符 — omfx
         // 目前從 Creep.create 風格的有效負載中產生；這些會發出
         // 最小化創建 JSON，以便現有調度仍然可以看到它們）。
         game_event::Payload::HeroCreate(m) => {
-            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let pos = m
+                .pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m
+                .max_hp
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             let d = json!({
                 "id": m.id as u32,
                 "entity_id": m.id as u32,
@@ -990,12 +1254,23 @@ fn translate_typed_payload(
                 "hp": hp,
                 "max_hp": max_hp,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         game_event::Payload::UnitCreate(m) => {
-            let pos = m.pos.as_ref().map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q))).unwrap_or((0.0, 0.0));
+            let pos = m
+                .pos
+                .as_ref()
+                .map(|p| (pos_dequant(p.x_q), pos_dequant(p.y_q)))
+                .unwrap_or((0.0, 0.0));
             let hp = m.hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
-            let max_hp = m.max_hp.as_ref().map(|f| fixed_dequant(f.v_q)).unwrap_or(0.0);
+            let max_hp = m
+                .max_hp
+                .as_ref()
+                .map(|f| fixed_dequant(f.v_q))
+                .unwrap_or(0.0);
             let d = json!({
                 "id": m.id as u32,
                 "entity_id": m.id as u32,
@@ -1004,7 +1279,10 @@ fn translate_typed_payload(
                 "hp": hp,
                 "max_hp": max_hp,
             });
-            GameEventData { data: d, ..default() }
+            GameEventData {
+                data: d,
+                ..default()
+            }
         }
         // P9：低頻不規則事件的包羅萬象（init / ack /
         // 拒絕/庫存）。將攜帶的 JSON 位元組解碼回
@@ -1023,7 +1301,7 @@ fn translate_typed_payload(
                 data,
                 timestamp_ms,
                 payload_bytes: logical_bytes,
-        wire_bytes,
+                wire_bytes,
             }
         }
     };
@@ -1051,7 +1329,11 @@ mod seq_gap_tests {
     fn gap_of_one_detected() {
         // 最後=5，得到=7 → 錯過了#6。
         match detect_seq_gap(Some(5), 7) {
-            SeqGapResult::Gap { expected, got, gap_size } => {
+            SeqGapResult::Gap {
+                expected,
+                got,
+                gap_size,
+            } => {
                 assert_eq!(expected, 6);
                 assert_eq!(got, 7);
                 assert_eq!(gap_size, 1);
@@ -1063,7 +1345,11 @@ mod seq_gap_tests {
     #[test]
     fn large_gap_reports_size() {
         match detect_seq_gap(Some(100), 150) {
-            SeqGapResult::Gap { expected, got, gap_size } => {
+            SeqGapResult::Gap {
+                expected,
+                got,
+                gap_size,
+            } => {
                 assert_eq!(expected, 101);
                 assert_eq!(got, 150);
                 assert_eq!(gap_size, 49);
@@ -1087,10 +1373,18 @@ mod seq_gap_tests {
         let mut gap_seen = false;
         for (i, &s) in incoming.iter().enumerate() {
             match detect_seq_gap(last, s) {
-                SeqGapResult::InitialSeed => { last = Some(s); }
-                SeqGapResult::Ok => { last = Some(s); }
+                SeqGapResult::InitialSeed => {
+                    last = Some(s);
+                }
+                SeqGapResult::Ok => {
+                    last = Some(s);
+                }
                 SeqGapResult::Backwards => {}
-                SeqGapResult::Gap { expected, got, gap_size } => {
+                SeqGapResult::Gap {
+                    expected,
+                    got,
+                    gap_size,
+                } => {
                     assert_eq!(i, 4, "gap at index {}", i);
                     assert_eq!(expected, 4);
                     assert_eq!(got, 5);

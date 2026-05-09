@@ -67,8 +67,15 @@ pub enum TargetSelector {
     Target,
     AllEnemies,
     AllAllies,
-    Nearest { enemy: bool, range: f32 },
-    InRadius { center: Vec2<f32>, radius: f32, enemy: bool },
+    Nearest {
+        enemy: bool,
+        range: f32,
+    },
+    InRadius {
+        center: Vec2<f32>,
+        radius: f32,
+        enemy: bool,
+    },
     Custom(String),
 }
 

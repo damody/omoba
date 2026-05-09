@@ -11,15 +11,15 @@ pub const TAG_VIEWPORT_UPDATE: u8 = 0x07;
 
 // 第 2 階段鎖步標籤。範圍 0x10..=0x18。 COMPRESSION_FLAG (0x80) 位
 // 這些也未使用，因此相同的 write_framed / read_framed 路徑可以工作。
-pub const TAG_INPUT_SUBMIT: u8 = 0x10;  // C→S
-pub const TAG_TICK_BATCH: u8 = 0x11;    // S→C broadcast (lockstep_joined sessions)
-pub const TAG_STATE_HASH: u8 = 0x12;    // S→C broadcast (lockstep_joined sessions)
-pub const TAG_JOIN_REQUEST: u8 = 0x13;  // C→S
-pub const TAG_GAME_START: u8 = 0x14;    // S→C unicast (reply to JoinRequest)
-pub const TAG_SNAPSHOT_REQ: u8 = 0x15;  // C→S
+pub const TAG_INPUT_SUBMIT: u8 = 0x10; // C→S
+pub const TAG_TICK_BATCH: u8 = 0x11; // S→C broadcast (lockstep_joined sessions)
+pub const TAG_STATE_HASH: u8 = 0x12; // S→C broadcast (lockstep_joined sessions)
+pub const TAG_JOIN_REQUEST: u8 = 0x13; // C→S
+pub const TAG_GAME_START: u8 = 0x14; // S→C unicast (reply to JoinRequest)
+pub const TAG_SNAPSHOT_REQ: u8 = 0x15; // C→S
 pub const TAG_SNAPSHOT_RESP: u8 = 0x16; // S→C unicast
-pub const TAG_PING_REQ: u8 = 0x17;      // C→S RTT probe
-pub const TAG_PING_RESP: u8 = 0x18;     // S→C echo
+pub const TAG_PING_REQ: u8 = 0x17; // C→S RTT probe
+pub const TAG_PING_RESP: u8 = 0x18; // S→C echo
 
 /// 標籤位元組的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
 /// 基本標籤 0x01~0x07 從不使用該位，因此它始終可以作為標誌自由使用。
@@ -127,7 +127,7 @@ pub async fn read_framed<R: AsyncReadExt + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::{AsyncWriteExt, duplex};
+    use tokio::io::{duplex, AsyncWriteExt};
 
     #[tokio::test]
     async fn small_payload_not_compressed() {
@@ -136,19 +136,28 @@ mod tests {
         let payload = b"hello world".to_vec();
         assert!(payload.len() < LZ4_THRESHOLD);
 
-        write_framed(&mut a, TAG_GAME_EVENT, &payload).await.unwrap();
+        write_framed(&mut a, TAG_GAME_EVENT, &payload)
+            .await
+            .unwrap();
         a.shutdown().await.ok();
 
         // 手動查看原始線字節：第一個位元組應該是基本標籤，
         // 不是標籤 |壓縮標誌。
         let mut wire = Vec::new();
-        tokio::io::AsyncReadExt::read_to_end(&mut b, &mut wire).await.unwrap();
-        assert_eq!(wire[0], TAG_GAME_EVENT, "small payload must not set compression flag");
+        tokio::io::AsyncReadExt::read_to_end(&mut b, &mut wire)
+            .await
+            .unwrap();
+        assert_eq!(
+            wire[0], TAG_GAME_EVENT,
+            "small payload must not set compression flag"
+        );
         assert_eq!(wire[0] & COMPRESSION_FLAG, 0);
 
         // 並且完整的往返恢復原始位元組+標籤。
         let (mut a2, mut b2) = duplex(8192);
-        write_framed(&mut a2, TAG_GAME_EVENT, &payload).await.unwrap();
+        write_framed(&mut a2, TAG_GAME_EVENT, &payload)
+            .await
+            .unwrap();
         a2.shutdown().await.ok();
         let (tag, out, _wire_bytes) = read_framed(&mut b2).await.unwrap().unwrap();
         assert_eq!(tag, TAG_GAME_EVENT);
@@ -162,10 +171,14 @@ mod tests {
 
         // 首先，捕獲原始線路位元組以斷言我們確實節省了空間。
         let (mut a, mut b) = duplex(8192);
-        write_framed(&mut a, TAG_GAME_EVENT, &payload).await.unwrap();
+        write_framed(&mut a, TAG_GAME_EVENT, &payload)
+            .await
+            .unwrap();
         a.shutdown().await.ok();
         let mut wire = Vec::new();
-        tokio::io::AsyncReadExt::read_to_end(&mut b, &mut wire).await.unwrap();
+        tokio::io::AsyncReadExt::read_to_end(&mut b, &mut wire)
+            .await
+            .unwrap();
 
         // 線路格式：[1B 標籤][4B 長度][壓縮有效負載]
         assert_eq!(
@@ -192,10 +205,15 @@ mod tests {
 
         // 其次，完整往返：read_framed 透明解壓縮。
         let (mut a2, mut b2) = duplex(8192);
-        write_framed(&mut a2, TAG_GAME_EVENT, &payload).await.unwrap();
+        write_framed(&mut a2, TAG_GAME_EVENT, &payload)
+            .await
+            .unwrap();
         a2.shutdown().await.ok();
         let (tag, out, _wire_bytes) = read_framed(&mut b2).await.unwrap().unwrap();
-        assert_eq!(tag, TAG_GAME_EVENT, "read_framed must strip COMPRESSION_FLAG");
+        assert_eq!(
+            tag, TAG_GAME_EVENT,
+            "read_framed must strip COMPRESSION_FLAG"
+        );
         assert_eq!(out, payload, "decompressed bytes must equal original");
 
         eprintln!(
@@ -221,7 +239,9 @@ mod tests {
         // 一兩個字節，我們不能讓僅往返斷言屏蔽
         // 那種情況。
         let (mut a, mut b) = duplex(8192);
-        write_framed(&mut a, TAG_GAME_EVENT, &payload).await.unwrap();
+        write_framed(&mut a, TAG_GAME_EVENT, &payload)
+            .await
+            .unwrap();
         a.shutdown().await.ok();
 
         let mut wire = Vec::new();

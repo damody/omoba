@@ -6,9 +6,7 @@ use omb_script_abi::{
     types::{DamageKind, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
-use omoba_core::ability_meta::{
-    AbilityLevelData, DamageType, EffectSpec, TargetSelector,
-};
+use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
 use omoba_template_ids::{ABILITY_FIRE_DASH, ABILITY_FIRE_DASH_CONST};
 
 use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
@@ -28,8 +26,8 @@ impl AbilityScript for FireDashHandler {
         level_data_json: RStr<'_>,
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
-        let level_data: AbilityLevelData = serde_json::from_str(level_data_json.as_str())
-            .unwrap_or_default();
+        let level_data: AbilityLevelData =
+            serde_json::from_str(level_data_json.as_str()).unwrap_or_default();
         // JSON 額外內容仍然是 f32 → 邊界處的固定 64 轉換。
         // 第 2 階段：omoba_core::AbilityLevelData 仍為 f32；第二階段 KCP 標籤返工中的重新設計。
         let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
@@ -53,7 +51,7 @@ impl AbilityScript for FireDashHandler {
             extra_at(&ABILITY_FIRE_DASH_CONST, "dash_width", level),
         );
         let tick_interval = Fixed64::from_raw(102); // 0.1 (≈ 102/1024)
-        // 總傷害=每次tick傷害*（dash_duration/tick_interval）
+                                                    // 總傷害=每次tick傷害*（dash_duration/tick_interval）
         let total_damage = damage_per_tick * (dash_duration / tick_interval);
 
         let dest = match target {

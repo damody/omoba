@@ -50,7 +50,7 @@ fn training_mage_creep_stats() {
     assert_eq!(s.hp, Fixed64::from_i32(320));
     assert_eq!(s.damage, Fixed64::from_i32(45));
     assert_eq!(s.enemy_type, 0); // 0 = caster
-    assert_eq!(s.ai_type, 0);    // 0 = defensive
+    assert_eq!(s.ai_type, 0); // 0 = defensive
     assert_eq!(s.exp_reward, 80);
     assert_eq!(s.gold_reward, 45);
 }
