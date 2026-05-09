@@ -30,21 +30,12 @@ impl UnitScript for BombTower {
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
-        RSome(TowerMetadata {
-            atk: STATS.atk,
-            asd_interval: STATS.asd_interval,
-            range: STATS.range,
-            bullet_speed: STATS.bullet_speed,
-            splash_radius: STATS.splash_radius,
-            hit_radius: STATS.hit_radius,
-            slow_factor: STATS.slow_factor,
-            slow_duration: STATS.slow_duration,
-            cost: STATS.cost,
-            footprint: STATS.footprint,
-            hp: STATS.hp,
-            turn_speed_deg: STATS.turn_speed_deg,
-            label: RString::from(tower_display(TOWER_BOMB)),
-        })
+        RSome(super::tower_metadata_from_consts(
+            TOWER_BOMB,
+            STATS,
+            &TOWER_BOMB_RENDER,
+            TOWER_BOMB_ATTACK_TIMING,
+        ))
     }
 
     fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
@@ -52,12 +43,8 @@ impl UnitScript for BombTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
-        let mut asd_count = w.get_asd_count(e);
-        if asd_count < asd_interval {
-            asd_count += dt;
-            w.set_asd_count(e, asd_count);
-        }
-        if asd_count < asd_interval {
+        let phase = super::advance_attack_phase(e, dt, asd_interval, TOWER_BOMB_ATTACK_TIMING, w);
+        if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
 
@@ -70,8 +57,19 @@ impl UnitScript for BombTower {
             RSome(t) => t,
             RNone => return,
         };
-
-        w.set_asd_count(e, asd_count - asd_interval);
+        if matches!(phase, super::AttackPhaseStep::Ready) {
+            if let RSome(t_pos) = w.get_pos(target) {
+                w.set_facing(e, omoba_sim::trig::atan2(t_pos.y - pos.y, t_pos.x - pos.x));
+            }
+            super::start_attack_windup(
+                e,
+                asd_interval,
+                TOWER_BOMB_ATTACK_TIMING,
+                Target::Entity(target),
+                w,
+            );
+            return;
+        }
 
         let atk = w.get_final_atk(e);
 
@@ -92,6 +90,9 @@ impl UnitScript for BombTower {
         };
 
         w.log_info(RStr::from_str("[tower_bomb] fire!"));
+        if let RSome(t_pos) = w.get_pos(target) {
+            w.set_facing(e, omoba_sim::trig::atan2(t_pos.y - pos.y, t_pos.x - pos.x));
+        }
         w.spawn_projectile_ex(ProjectileSpec {
             from: pos,
             owner: e,

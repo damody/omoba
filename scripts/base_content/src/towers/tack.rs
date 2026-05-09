@@ -30,21 +30,12 @@ impl UnitScript for TackTower {
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
-        RSome(TowerMetadata {
-            atk: STATS.atk,
-            asd_interval: STATS.asd_interval,
-            range: STATS.range,
-            bullet_speed: STATS.bullet_speed,
-            splash_radius: STATS.splash_radius,
-            hit_radius: STATS.hit_radius,
-            slow_factor: STATS.slow_factor,
-            slow_duration: STATS.slow_duration,
-            cost: STATS.cost,
-            footprint: STATS.footprint,
-            hp: STATS.hp,
-            turn_speed_deg: STATS.turn_speed_deg,
-            label: RString::from(tower_display(TOWER_TACK)),
-        })
+        RSome(super::tower_metadata_from_consts(
+            TOWER_TACK,
+            STATS,
+            &TOWER_TACK_RENDER,
+            TOWER_TACK_ATTACK_TIMING,
+        ))
     }
 
     fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
@@ -52,12 +43,8 @@ impl UnitScript for TackTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
-        let mut asd_count = w.get_asd_count(e);
-        if asd_count < asd_interval {
-            asd_count += dt;
-            w.set_asd_count(e, asd_count);
-        }
-        if asd_count < asd_interval {
+        let phase = super::advance_attack_phase(e, dt, asd_interval, TOWER_TACK_ATTACK_TIMING, w);
+        if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
 
@@ -70,8 +57,16 @@ impl UnitScript for TackTower {
         if matches!(w.query_nearest_enemy(pos, range, e), RNone) {
             return;
         }
-
-        w.set_asd_count(e, asd_count - asd_interval);
+        if matches!(phase, super::AttackPhaseStep::Ready) {
+            super::start_attack_windup(
+                e,
+                asd_interval,
+                TOWER_TACK_ATTACK_TIMING,
+                Target::None,
+                w,
+            );
+            return;
+        }
 
         let atk = w.get_final_atk(e);
 

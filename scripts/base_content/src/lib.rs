@@ -13,7 +13,9 @@ use abi_stable::{
 use omb_script_abi::{
     ability::AbilityDefFFI,
     manifest::{Manifest, Manifest_Ref, UnitDef},
-    prelude::{SUMMON_SAIKA_GUNNER, TOWER_BOMB, TOWER_DART, TOWER_ICE, TOWER_TACK},
+    prelude::{
+        SUMMON_SAIKA_GUNNER, TOWER_BOMB, TOWER_CAKE_SPLASH, TOWER_DART, TOWER_ICE, TOWER_TACK,
+    },
     script::UnitScript_TO,
 };
 
@@ -46,6 +48,10 @@ fn units() -> RVec<UnitDef> {
     v.push(UnitDef {
         unit_id: TOWER_ICE.as_str().into(),
         script: UnitScript_TO::from_value(towers::ice::IceTower, TD_Opaque),
+    });
+    v.push(UnitDef {
+        unit_id: TOWER_CAKE_SPLASH.as_str().into(),
+        script: UnitScript_TO::from_value(towers::cake_splash::CakeSplashTower, TD_Opaque),
     });
 
     // 召喚物：由英雄技能（如 saika_reinforcements）透過 spawn_summoned_unit

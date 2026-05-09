@@ -1,5 +1,89 @@
 return function(ctx)
-  return {
+  local function barrel_frames(id)
+    return {
+      "assets/towers/" .. id .. "_barrel_frame_01.png",
+      "assets/towers/" .. id .. "_barrel_frame_02.png",
+      "assets/towers/" .. id .. "_barrel_frame_03.png",
+    }
+  end
+
+  local function cake_splash_frames()
+    return {
+      "assets/towers/tower_cake_splash_frame_01.png",
+      "assets/towers/tower_cake_splash_frame_02.png",
+      "assets/towers/tower_cake_splash_frame_03.png",
+      "assets/towers/tower_cake_splash_frame_04.png",
+      "assets/towers/tower_cake_splash_frame_05.png",
+      "assets/towers/tower_cake_splash_frame_06.png",
+    }
+  end
+
+  local function fill_defaults(dst, defaults)
+    for key, value in pairs(defaults) do
+      if dst[key] == nil then
+        dst[key] = value
+      elseif type(dst[key]) == "table" and type(value) == "table" then
+        fill_defaults(dst[key], value)
+      end
+    end
+    return dst
+  end
+
+  local function default_base_barrel_render(id)
+    return {
+      render_mode = "base_barrel",
+      base = "assets/towers/" .. id .. "_base.png",
+      barrel = "assets/towers/" .. id .. "_barrel.png",
+      barrel_frames = barrel_frames(id),
+      barrel_animation = { fps = 10.0, loop = true, fire_fps = 18.0, fire_once = true },
+      rotation_mode = "targeted",
+      barrel_layout = "single",
+      barrel_offset = { x = 0.0, y = -6.0 },
+      barrel_pivot = { x = 0.5, y = 0.65 },
+      muzzle_offset = { x = 0.0, y = -28.0 },
+      default_angle_deg = 0.0,
+      recoil = {
+        mode = "directional",
+        distance = 7.0,
+        scale = 0.94,
+        duration_ms = 70,
+        return_ms = 110,
+      },
+    }
+  end
+
+  local function default_animated_area_render()
+    return {
+      render_mode = "animated_area",
+      base = "assets/towers/tower_cake_splash_frame_01.png",
+      animation = {
+        frames = cake_splash_frames(),
+        fps = 10.0,
+        loop = true,
+        fire_fps = 18.0,
+        fire_once = true,
+      },
+      default_angle_deg = 0.0,
+      recoil = {
+        mode = "scale_pulse",
+        distance = 0.0,
+        scale = 0.9,
+        duration_ms = 70,
+        return_ms = 110,
+      },
+    }
+  end
+
+  local function apply_render_defaults(tower)
+    local render = tower.render or {}
+    if render.render_mode == "animated_area" then
+      tower.render = fill_defaults(render, default_animated_area_render())
+    else
+      tower.render = fill_defaults(render, default_base_barrel_render(tower.id))
+    end
+  end
+
+  local towers = {
     {
       id = "tower_dart",
       display_name = "飛鏢猴",
@@ -15,6 +99,25 @@ return function(ctx)
       footprint = 10.0,
       hp = 1.0,
       turn_speed_deg = 360.0,
+      render = {
+        render_mode = "base_barrel",
+        base = "assets/towers/tower_dart_base.png",
+        barrel = "assets/towers/tower_dart_barrel.png",
+        barrel_frames = barrel_frames("tower_dart"),
+        barrel_animation = { fps = 12.0, loop = true, fire_fps = 22.0, fire_once = true },
+        rotation_mode = "targeted",
+        barrel_layout = "single",
+        barrel_offset = { x = 0.0, y = -6.0 },
+        barrel_pivot = { x = 0.5, y = 0.66 },
+        muzzle_offset = { x = 0.0, y = -30.0 },
+        recoil = {
+          mode = "directional",
+          distance = 6.0,
+          scale = 0.95,
+          duration_ms = 60,
+          return_ms = 95,
+        },
+      },
       upgrades = {
         {
           {
@@ -225,6 +328,60 @@ return function(ctx)
       footprint = 10.0,
       hp = 1.0,
       turn_speed_deg = 3600.0,
+      render = {
+        render_mode = "base_barrel",
+        base = "assets/towers/tower_tack_base.png",
+        barrel = "assets/towers/tower_tack_barrel_8.png",
+        rotation_mode = "fixed",
+        barrel_layout = "radial_count_variants",
+        barrel_variants = {
+          {
+            min_path = 3,
+            min_level = 0,
+            count = 8,
+            image = "assets/towers/tower_tack_barrel_8.png",
+            frames = {
+              "assets/towers/tower_tack_barrel_8_frame_01.png",
+              "assets/towers/tower_tack_barrel_8_frame_02.png",
+              "assets/towers/tower_tack_barrel_8_frame_03.png",
+            },
+          },
+          {
+            min_path = 3,
+            min_level = 2,
+            count = 12,
+            image = "assets/towers/tower_tack_barrel_12.png",
+            frames = {
+              "assets/towers/tower_tack_barrel_12_frame_01.png",
+              "assets/towers/tower_tack_barrel_12_frame_02.png",
+              "assets/towers/tower_tack_barrel_12_frame_03.png",
+            },
+          },
+          {
+            min_path = 3,
+            min_level = 3,
+            count = 16,
+            image = "assets/towers/tower_tack_barrel_16.png",
+            frames = {
+              "assets/towers/tower_tack_barrel_16_frame_01.png",
+              "assets/towers/tower_tack_barrel_16_frame_02.png",
+              "assets/towers/tower_tack_barrel_16_frame_03.png",
+            },
+          },
+        },
+        barrel_animation = { fps = 10.0, loop = true, fire_fps = 22.0, fire_once = true },
+        barrel_offset = { x = 0.0, y = -4.0 },
+        barrel_pivot = { x = 0.5, y = 0.5 },
+        muzzle_offset = { x = 0.0, y = 0.0 },
+        default_angle_deg = 0.0,
+        recoil = {
+          mode = "scale_pulse",
+          distance = 0.0,
+          scale = 0.9,
+          duration_ms = 55,
+          return_ms = 90,
+        },
+      },
       upgrades = {
         {
           {
@@ -425,6 +582,25 @@ return function(ctx)
       footprint = 12.5,
       hp = 1.0,
       turn_speed_deg = 360.0,
+      render = {
+        render_mode = "base_barrel",
+        base = "assets/towers/tower_bomb_base.png",
+        barrel = "assets/towers/tower_bomb_barrel.png",
+        barrel_frames = barrel_frames("tower_bomb"),
+        barrel_animation = { fps = 9.0, loop = true, fire_fps = 18.0, fire_once = true },
+        rotation_mode = "targeted",
+        barrel_layout = "single",
+        barrel_offset = { x = 0.0, y = -7.0 },
+        barrel_pivot = { x = 0.5, y = 0.7 },
+        muzzle_offset = { x = 0.0, y = -34.0 },
+        recoil = {
+          mode = "directional",
+          distance = 12.0,
+          scale = 0.92,
+          duration_ms = 80,
+          return_ms = 125,
+        },
+      },
       upgrades = {
         {
           {
@@ -633,6 +809,25 @@ return function(ctx)
       footprint = 10.0,
       hp = 1.0,
       turn_speed_deg = 360.0,
+      render = {
+        render_mode = "base_barrel",
+        base = "assets/towers/tower_ice_base.png",
+        barrel = "assets/towers/tower_ice_barrel.png",
+        barrel_frames = barrel_frames("tower_ice"),
+        barrel_animation = { fps = 10.0, loop = true, fire_fps = 18.0, fire_once = true },
+        rotation_mode = "targeted",
+        barrel_layout = "single",
+        barrel_offset = { x = 0.0, y = -6.0 },
+        barrel_pivot = { x = 0.5, y = 0.66 },
+        muzzle_offset = { x = 0.0, y = -30.0 },
+        recoil = {
+          mode = "directional",
+          distance = 5.0,
+          scale = 0.96,
+          duration_ms = 65,
+          return_ms = 105,
+        },
+      },
       upgrades = {
         {
           {
@@ -810,5 +1005,45 @@ return function(ctx)
         },
       },
     },
+    {
+      id = "tower_cake_splash",
+      display_name = "蛋糕濺射塔",
+      atk = 18.0,
+      asd_interval = 1.4,
+      range = 240.0,
+      bullet_speed = 0.0,
+      splash_radius = 160.0,
+      hit_radius = 0.0,
+      slow_factor = 0.0,
+      slow_duration = 0.0,
+      cost = 500,
+      footprint = 12.5,
+      hp = 1.0,
+      turn_speed_deg = 0.0,
+      render = {
+        render_mode = "animated_area",
+        base = "assets/towers/tower_cake_splash_frame_01.png",
+        animation = {
+          frames = cake_splash_frames(),
+          fps = 10.0,
+          loop = true,
+          fire_fps = 18.0,
+          fire_once = true,
+        },
+        recoil = {
+          mode = "scale_pulse",
+          distance = 0.0,
+          scale = 0.88,
+          duration_ms = 70,
+          return_ms = 110,
+        },
+      },
+    },
   }
+
+  for _, tower in ipairs(towers) do
+    apply_render_defaults(tower)
+  end
+
+  return towers
 end

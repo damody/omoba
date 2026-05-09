@@ -31,21 +31,12 @@ impl UnitScript for IceTower {
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
-        RSome(TowerMetadata {
-            atk: STATS.atk,
-            asd_interval: STATS.asd_interval,
-            range: STATS.range,
-            bullet_speed: STATS.bullet_speed,
-            splash_radius: STATS.splash_radius,
-            hit_radius: STATS.hit_radius,
-            slow_factor: STATS.slow_factor,
-            slow_duration: STATS.slow_duration,
-            cost: STATS.cost,
-            footprint: STATS.footprint,
-            hp: STATS.hp,
-            turn_speed_deg: STATS.turn_speed_deg,
-            label: RString::from(tower_display(TOWER_ICE)),
-        })
+        RSome(super::tower_metadata_from_consts(
+            TOWER_ICE,
+            STATS,
+            &TOWER_ICE_RENDER,
+            TOWER_ICE_ATTACK_TIMING,
+        ))
     }
 
     fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
@@ -53,12 +44,8 @@ impl UnitScript for IceTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
-        let mut asd_count = w.get_asd_count(e);
-        if asd_count < asd_interval {
-            asd_count += dt;
-            w.set_asd_count(e, asd_count);
-        }
-        if asd_count < asd_interval {
+        let phase = super::advance_attack_phase(e, dt, asd_interval, TOWER_ICE_ATTACK_TIMING, w);
+        if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
 
@@ -71,10 +58,24 @@ impl UnitScript for IceTower {
             RSome(t) => t,
             RNone => return,
         };
-
-        w.set_asd_count(e, asd_count - asd_interval);
+        if matches!(phase, super::AttackPhaseStep::Ready) {
+            if let RSome(t_pos) = w.get_pos(target) {
+                w.set_facing(e, omoba_sim::trig::atan2(t_pos.y - pos.y, t_pos.x - pos.x));
+            }
+            super::start_attack_windup(
+                e,
+                asd_interval,
+                TOWER_ICE_ATTACK_TIMING,
+                Target::Entity(target),
+                w,
+            );
+            return;
+        }
 
         let atk = w.get_final_atk(e);
+        if let RSome(t_pos) = w.get_pos(target) {
+            w.set_facing(e, omoba_sim::trig::atan2(t_pos.y - pos.y, t_pos.x - pos.x));
+        }
 
         // slow_factor_override：upgrade 寫入的目標 factor（越小越強，clamp 在 (0, 1) 才採用）
         let slow_override = w.get_stat_bonus(e, StatKey::SlowFactorOverride);
