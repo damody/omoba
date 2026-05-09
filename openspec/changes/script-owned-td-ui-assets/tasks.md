@@ -31,7 +31,7 @@
 ## 5. 驗證
 
 - [x] 5.1 執行 `cargo check --manifest-path omfx/Cargo.toml`。
-- [ ] 5.2 手動確認 TD UI 在沒有 `omfx/data/td_ui/` 時仍能從 scripts asset 目錄載入圖片。
-- [ ] 5.3 手動替換一張 scripts asset PNG，確認重新啟動後 UI 顯示替換結果。
-- [ ] 5.4 手動確認缺少專屬升級圖時會 fallback 到 `upgrade_p*.png` 或 `tower_fallback.png` 且不 panic。
+- [x] 5.2 手動確認 TD UI 在沒有 `omfx/data/td_ui/` 時仍能從 scripts asset 目錄載入圖片。
+- [x] 5.3 手動替換一張 scripts asset PNG，確認重新啟動後 UI 顯示替換結果。
+- [x] 5.4 手動確認缺少專屬升級圖時會 fallback 到 `upgrade_p*.png` 或 `tower_fallback.png` 且不 panic。
 - [x] 5.5 修改完成後執行 `graphify update .`。
