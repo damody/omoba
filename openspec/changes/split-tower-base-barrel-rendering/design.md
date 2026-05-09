@@ -192,20 +192,20 @@ Alternatives considered:
 
 所有會普攻的單位（英雄、召喚物、creep、tower）都使用同一套權威攻擊生命週期：`windup`（攻擊前搖）、`impact`（攻擊瞬間）、`backswing`（攻擊後搖）。後端負責排程這三段時間，`impact` 才是 projectile spawn、damage apply 或命中 outcome 的權威時間點。前端只根據 render cue 播動畫，不提前造成 gameplay 結果。
 
-建議 metadata 以比例為主、毫秒 default 為輔：
+建議 metadata 使用整數權重，避免浮點誤差：
 
 ```lua
 attack_timing = {
-  windup_ratio = 0.35,
-  backswing_ratio = 0.45,
-  min_windup_ms = 60,
-  min_backswing_ms = 80,
+  windup = 350,
+  backswing = 650,
 }
 ```
 
-實際攻擊間隔由現有攻速與 buff 聚合得到，例如 effective interval = `asd_interval * AttackSpeedMultiplier`。`windup_ms` 與 `backswing_ms` SHALL 隨 effective interval 縮短；若攻速非常快，使用 min 值避免動畫時間變成 0。剩餘時間可視為 recovery/idle buffer，但下一次攻擊不得早於 cooldown/interval 規則。若某單位沒有宣告 `attack_timing`，使用全域 default 比例。
+`windup + backswing` SHALL 等於 `1000`。`impact` 不是一段 duration，而是 `windup` 結束、`backswing` 開始的瞬間事件點。實際攻擊間隔由現有攻速與 buff 聚合得到，例如 effective interval = `asd_interval * AttackSpeedMultiplier`。計算 SHALL 使用整數或 `Fixed64`，不得用浮點直接比較。建議做法是 `windup_duration = effective_interval * windup / 1000`，`backswing_duration = effective_interval - windup_duration`，確保 `windup_duration + backswing_duration == effective_interval`，且兩者都會隨 effective interval 縮短。若某單位沒有宣告 `attack_timing`，使用全域 default 整數權重；content validation SHALL 拒絕權重總和不是 `1000` 的設定。
 
-後端在 `windup` 開始時推送 render-only `AttackPhaseFx { entity_id, target_entity/target_pos, windup_ms, impact_ms, backswing_ms, attack_seq, dir_rad }` 到 snapshot queue。前端收到 cue 的同一 render 更新就開始播放攻擊動畫，並把 barrel/body animation 的總長度對齊 `windup_ms + backswing_ms`，其中最明顯的 fire/recoil frame 對齊 `impact_ms`。`impact` cue 可由同一筆 `AttackPhaseFx` 的 phase offsets 表示，不需要額外 optimistic damage。
+這要接在目前既有事件語意上：現有 tower/hero attack tick 在 `asd_count >= effective_interval` 時會產生 `Outcome::ProjectileLine2`、`Outcome::ProjectileDirectional`、script `spawn_projectile_ex` 或直接 damage/attack outcomes，並透過 `Outcome::UpdateAttack` / `asd_count` 做冷卻計算。新設計不新增「impact duration」，而是把這些既有 projectile/damage/attack outcome 延後到 authoritative impact event point 執行；`asd_count`/cooldown 仍代表完整攻擊間隔的權威節奏。
+
+後端在 `windup` 開始時推送 render-only `AttackPhaseFx { entity_id, target_entity/target_pos, windup_ms, impact_at_ms, backswing_ms, attack_seq, dir_rad }` 到 snapshot queue，其中 `impact_at_ms == windup_ms`。前端收到 cue 的同一 render 更新就開始播放攻擊動畫，並把 barrel/body animation 的總長度對齊 `windup_ms + backswing_ms`，其中最明顯的 fire/recoil frame 對齊 `impact_at_ms`。`impact` cue 可由同一筆 `AttackPhaseFx` 的 phase offset 表示，不需要額外 optimistic damage。
 
 Alternatives considered:
 
@@ -234,7 +234,7 @@ Alternatives considered:
 - [Risk] 對針塔套用單一目標旋轉會讓視覺語意錯誤 → Mitigation：新增 `rotation_mode = "fixed"` 與 `recoil.mode = "scale_pulse"`，讓 `tower_tack` 固定不轉向，開火只做整塔縮小再回彈的 pulse。
 - [Risk] `tower_tack` 升級後發射針數與視覺砲管數不一致 → Mitigation：新增 `barrel_layout = "radial_count_variants"` 與 upgrade-level-based variant 選擇，至少提供 8/12/16 三種 barrel 圖。
 - [Risk] 前端攻擊動畫與後端 impact 不一致 → Mitigation：後端在 windup 開始時推送包含 windup/impact/backswing timing 的 authoritative render cue，前端只對齊 cue 播放，不自行預測攻擊時間。
-- [Risk] 攻速極快時前搖/後搖太短看不見 → Mitigation：attack timing metadata 提供 minimum durations，同時仍讓 effective interval 縮短時依規則縮放。
+- [Risk] 攻速極快時前搖/後搖太短看不見 → Mitigation：動畫 frame sampling 允許跳 frame 或播放最接近 impact 的關鍵 frame，但後端不拉長 authoritative interval；`windup + backswing` 永遠等於 effective interval。
 - [Risk] animation frame 數量多會增加載入與記憶體成本 → Mitigation：每種 animated tower/barrel 第一版限制少量 PNG，透過 texture cache 一次載入並重用，不在每 frame 讀檔。
 - [Risk] 缺少正式美術時戰鬥畫面變空白 → Mitigation：所有塔提供 placeholder base/barrel PNG，loader 缺圖時 log 並 fallback。
 

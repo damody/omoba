@@ -50,11 +50,11 @@
     <text class="font note" x="260" y="36">backswing: recover</text>
   </g>
 
-  <rect x="48" y="130" width="690" height="700" rx="28" fill="url(#panel)" stroke="#6b3b17" stroke-width="5" filter="url(#shadow)"/>
+  <rect x="48" y="145" width="690" height="420" rx="28" fill="url(#panel)" stroke="#6b3b17" stroke-width="5" filter="url(#shadow)"/>
   <text class="font label" x="82" y="180">A. Target-facing tower</text>
   <text class="font note" x="84" y="210">Example: dart, bomb, ice</text>
 
-  <g id="target-facing" transform="translate(370 435)">
+  <g id="target-facing" transform="translate(370 360) scale(0.82)">
     <circle r="110" fill="#3e8f3a" opacity="0.22" stroke="#27622a" stroke-width="4" stroke-dasharray="10 8"/>
     <ellipse cx="0" cy="32" rx="112" ry="72" fill="#000" opacity="0.10"/>
     <g id="base" filter="url(#shadow)">
@@ -76,21 +76,46 @@
     <text class="font small" x="158" y="-288">target</text>
   </g>
 
-  <g transform="translate(88 600)">
-    <rect x="0" y="0" width="596" height="160" rx="18" fill="#fff4c6" stroke="#7a461c" stroke-width="3"/>
+  <g transform="translate(88 455)">
+    <rect x="0" y="0" width="596" height="90" rx="18" fill="#fff4c6" stroke="#7a461c" stroke-width="3"/>
     <text class="font small" x="24" y="38">rotation_mode = targeted</text>
-    <text class="font small" x="24" y="72">barrel uses snapshot aim/facing, not frontend target picking</text>
-    <text class="font small" x="24" y="106">barrel_frames start at windup; fire frame aligns to impact</text>
-    <line x1="390" y1="82" x2="510" y2="82" stroke="#47240e" stroke-width="7" marker-end="url(#arrow)"/>
-    <line x1="510" y1="112" x2="390" y2="112" stroke="#c4004f" stroke-width="7" marker-end="url(#arrow)"/>
-    <text class="font note" x="368" y="140">fire direction / recoil back</text>
+    <text class="font small" x="24" y="72">barrel_frames start at windup; fire frame aligns to impact</text>
+    <line x1="410" y1="54" x2="510" y2="54" stroke="#47240e" stroke-width="7" marker-end="url(#arrow)"/>
+    <line x1="510" y1="76" x2="410" y2="76" stroke="#c4004f" stroke-width="7" marker-end="url(#arrow)"/>
   </g>
 
-  <g transform="translate(88 772)">
-    <text class="font note" x="0" y="0">No-barrel area tower: render_mode = animated_area, body frames loop/attack from windup, no target-facing barrel.</text>
+  <rect x="48" y="590" width="690" height="240" rx="28" fill="url(#panel)" stroke="#6b3b17" stroke-width="5" filter="url(#shadow)"/>
+  <text class="font label" x="82" y="635">C. No-barrel animated area tower</text>
+  <text class="font note" x="84" y="662">Example: cake splash AoE tower</text>
+  <g id="animated-area" transform="translate(115 690)">
+    <g transform="translate(0 0)">
+      <circle cx="55" cy="55" r="42" fill="url(#cookie)" class="outline"/>
+      <path d="M28 55 C36 22 74 22 82 55 C73 43 37 43 28 55 Z" fill="#fff7fb" stroke="#3b220d" stroke-width="3"/>
+      <text class="font note" x="24" y="125">frame 01</text>
+    </g>
+    <g transform="translate(140 0)">
+      <circle cx="55" cy="55" r="42" fill="url(#cookie)" class="outline"/>
+      <path d="M22 58 C35 10 75 10 88 58 C76 38 34 38 22 58 Z" fill="#fff7fb" stroke="#3b220d" stroke-width="3"/>
+      <circle cx="55" cy="35" r="12" fill="#ff8fb5" opacity="0.75"/>
+      <text class="font note" x="20" y="125">windup</text>
+    </g>
+    <g transform="translate(280 0)">
+      <circle cx="55" cy="55" r="42" fill="url(#cookie)" class="outline"/>
+      <circle cx="55" cy="55" r="68" fill="#ff8fb5" opacity="0.30" stroke="#c4004f" stroke-width="4"/>
+      <path d="M14 58 C30 -2 80 -2 96 58 C80 28 30 28 14 58 Z" fill="#fff7fb" stroke="#3b220d" stroke-width="3"/>
+      <circle cx="55" cy="27" r="18" fill="#ffcf00" opacity="0.8"/>
+      <text class="font note" x="28" y="125">impact</text>
+    </g>
+    <g transform="translate(420 0)">
+      <circle cx="55" cy="55" r="42" fill="url(#cookie)" class="outline"/>
+      <circle cx="55" cy="55" r="56" fill="#8fd8ff" opacity="0.22" stroke="#3b220d" stroke-width="3" stroke-dasharray="6 5"/>
+      <path d="M26 58 C38 25 72 25 84 58 C74 44 36 44 26 58 Z" fill="#fff7fb" stroke="#3b220d" stroke-width="3"/>
+      <text class="font note" x="16" y="125">backswing</text>
+    </g>
+    <text class="font small" x="0" y="158">render_mode = animated_area, body frames start at windup, no barrel node, no target-facing rotation</text>
   </g>
 
-  <rect x="820" y="130" width="730" height="700" rx="28" fill="url(#panel)" stroke="#6b3b17" stroke-width="5" filter="url(#shadow)"/>
+  <rect x="820" y="145" width="730" height="685" rx="28" fill="url(#panel)" stroke="#6b3b17" stroke-width="5" filter="url(#shadow)"/>
   <text class="font label" x="854" y="180">B. Tack shooter radial variants</text>
   <text class="font note" x="856" y="210">Fixed rotation, count changes with upgrade_levels, recoil uses scale_pulse.</text>
 

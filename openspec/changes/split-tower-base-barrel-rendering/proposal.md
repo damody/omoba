@@ -9,7 +9,7 @@
 - 所有 barrel SHALL 支援由多張連續 PNG 組成 animation sequence；沒有宣告 frames 時才 fallback 到單張 barrel 圖。
 - `tower_tack` 這類放射針塔 SHALL 支援依升級狀態動態改變砲管/針孔數量，至少涵蓋 8、12、16 根同時發射針的視覺狀態。
 - 新增一種沒有砲管的範圍傷害塔 archetype：塔本體由多張連續 frame PNG 組成動畫，攻擊時播放或加速播放範圍傷害動畫，不需要 barrel sprite 或目標朝向。
-- 所有單位（英雄、召喚物、creep、tower）攻擊 SHALL 有三個權威階段：攻擊前搖、攻擊瞬間、攻擊後搖；攻速變快時三段時間 SHALL 等比例或依 metadata 規則縮短。
+- 所有單位（英雄、召喚物、creep、tower）攻擊 SHALL 有三個權威階段：攻擊前搖、攻擊瞬間事件、攻擊後搖；攻擊瞬間不是 duration，攻速變快時前搖與後搖 SHALL 依整數權重縮短且總和維持完整攻擊間隔。
 - 前端 SHALL 在攻擊前搖開始時收到 render cue 並立即播放攻擊動畫；攻擊瞬間才對應 projectile spawn、damage apply 或命中事件。
 - 發射瞬間 base 與 barrel SHALL 同步播放短暫 recoil 表演；可依塔種設定為沿砲口反方向後震，或整座塔先縮小再回彈放大的 scale pulse。
 - 每種塔的 base 圖、barrel 圖或 animation frames、rotation mode、barrel layout、animation 參數、pivot/offset 與 recoil 參數 SHALL 由 scripts content mod 設定，預設路徑位於 `scripts/base_content/assets/towers/` 與 `scripts/lua_data/templates/towers.lua`。
