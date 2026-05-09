@@ -126,7 +126,7 @@ Tower render metadata SHALL support a no-barrel animated-area archetype for area
 
 #### Scenario: barrel animation frames can exist for shipped towers
 - **WHEN** 檢查 `scripts/base_content/assets/towers/`
-- **THEN** shipped tower barrel animation frames MAY be represented by ordered files such as `tower_dart_barrel_frame_01.png`
+- **THEN** shipped tower barrel animation frames can be represented by ordered files such as `tower_dart_barrel_frame_01.png`
 - **AND** 如果 metadata 宣告這些 frames，每個檔案都 SHALL 存在且可載入
 
 #### Scenario: tack barrel variants exist
