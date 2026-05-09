@@ -57,7 +57,7 @@ fn display_name_lookup() {
     assert_eq!(creep_display(CREEP_TRAINING_MAGE), "訓練法師");
     assert_eq!(hero_display(HERO_SAIKA_MAGOICHI), "雜賀孫市");
     assert_eq!(hero_title(HERO_SAIKA_MAGOICHI), "千里狙擊手");
-    assert_eq!(tower_display(TOWER_TACK), "Tack Shooter");
+    assert_eq!(tower_display(TOWER_TACK), "鐵釘射手");
 }
 
 #[test]
@@ -86,6 +86,48 @@ fn td_stress_template_values_are_authoritative() {
     assert_eq!(creep_display(id), "壓測怪");
     assert_eq!(stats.hp, Fixed64::from_i32(10_000));
     assert_eq!(stats.move_speed, Fixed64::from_i32(100));
+}
+
+#[test]
+fn tower_dart_render_metadata_is_generated() {
+    let render = tower_render_metadata(TOWER_DART).expect("tower_dart render metadata");
+    assert_eq!(render.render_mode, TowerRenderModeC::BaseBarrel);
+    assert_eq!(render.rotation_mode, TowerRotationModeC::Targeted);
+    assert_eq!(render.barrel_layout, TowerBarrelLayoutC::Single);
+    assert_eq!(render.base, "assets/towers/tower_dart_base.png");
+    assert_eq!(render.barrel, "assets/towers/tower_dart_barrel.png");
+    assert!(render.barrel_frames.contains(&"assets/towers/tower_dart_barrel_frame_01.png"));
+    assert_eq!(render.barrel_pivot.x, Fixed64::from_raw(512));
+    assert_eq!(render.barrel_offset.y, Fixed64::from_i32(-6));
+    assert_eq!(render.recoil.mode, TowerRecoilModeC::Directional);
+    assert_eq!(render.recoil.distance, Fixed64::from_i32(6));
+}
+
+#[test]
+fn tower_tack_render_metadata_has_fixed_radial_variants() {
+    let render = tower_render_metadata(TOWER_TACK).expect("tower_tack render metadata");
+    assert_eq!(render.rotation_mode, TowerRotationModeC::Fixed);
+    assert_eq!(render.barrel_layout, TowerBarrelLayoutC::RadialCountVariants);
+    assert_eq!(render.recoil.mode, TowerRecoilModeC::ScalePulse);
+    let counts: Vec<u16> = render.barrel_variants.iter().map(|v| v.count).collect();
+    assert_eq!(counts, vec![8, 12, 16]);
+    assert_eq!(render.barrel_variants[0].image, "assets/towers/tower_tack_barrel_8.png");
+    assert_eq!(render.barrel_variants[1].image, "assets/towers/tower_tack_barrel_12.png");
+    assert_eq!(render.barrel_variants[2].image, "assets/towers/tower_tack_barrel_16.png");
+    assert!(render.barrel_variants[1]
+        .frames
+        .contains(&"assets/towers/tower_tack_barrel_12_frame_01.png"));
+}
+
+#[test]
+fn attack_timing_weights_validate_with_integer_sum() {
+    assert!(TOWER_DART_ATTACK_TIMING.is_valid());
+    assert!(HERO_SAIKA_MAGOICHI_ATTACK_TIMING.is_valid());
+    assert!(!AttackTimingConst {
+        windup: 350,
+        backswing: 450,
+    }
+    .is_valid());
 }
 
 #[test]

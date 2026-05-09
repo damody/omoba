@@ -84,10 +84,149 @@ struct TowerEntry {
     hp: f32,
     #[serde(default)]
     turn_speed_deg: f32,
+    #[serde(default)]
+    render: TowerRenderEntry,
+    #[serde(default = "default_attack_timing")]
+    attack_timing: AttackTimingEntry,
     /// Phase D: 3 路線 × 4 級 upgrade tree。長度必須 = 3 (paths)，每路 4 entries。
     /// 空陣列等於 tower 沒有 upgrade tree（測試 / 未來新塔可暫缺）。
     #[serde(default)]
     upgrades: Vec<Vec<UpgradeEntry>>,
+}
+
+#[derive(Deserialize, Clone, Default)]
+struct TowerRenderEntry {
+    #[serde(default)]
+    render_mode: String,
+    #[serde(default)]
+    base: String,
+    #[serde(default)]
+    barrel: String,
+    #[serde(default)]
+    barrel_frames: Vec<String>,
+    #[serde(default)]
+    animation: TowerAnimationEntry,
+    #[serde(default)]
+    barrel_animation: TowerAnimationEntry,
+    #[serde(default)]
+    rotation_mode: String,
+    #[serde(default)]
+    barrel_layout: String,
+    #[serde(default)]
+    barrel_variants: Vec<TowerBarrelVariantEntry>,
+    #[serde(default)]
+    barrel_offset: TowerPointEntry,
+    #[serde(default)]
+    barrel_pivot: TowerPointEntry,
+    #[serde(default)]
+    muzzle_offset: TowerPointEntry,
+    #[serde(default)]
+    default_angle_deg: f32,
+    #[serde(default)]
+    recoil: TowerRecoilEntry,
+}
+
+#[derive(Deserialize, Clone)]
+struct TowerAnimationEntry {
+    #[serde(default)]
+    frames: Vec<String>,
+    #[serde(default)]
+    fps: f32,
+    #[serde(default, rename = "loop")]
+    loop_animation: bool,
+    #[serde(default)]
+    fire_fps: f32,
+    #[serde(default)]
+    fire_once: bool,
+}
+
+impl Default for TowerAnimationEntry {
+    fn default() -> Self {
+        Self {
+            frames: Vec::new(),
+            fps: 10.0,
+            loop_animation: true,
+            fire_fps: 18.0,
+            fire_once: true,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+struct TowerPointEntry {
+    #[serde(default)]
+    x: f32,
+    #[serde(default)]
+    y: f32,
+}
+
+impl Default for TowerPointEntry {
+    fn default() -> Self {
+        Self { x: 0.0, y: 0.0 }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+struct TowerRecoilEntry {
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    distance: f32,
+    #[serde(default)]
+    scale: f32,
+    #[serde(default)]
+    duration_ms: u32,
+    #[serde(default)]
+    return_ms: u32,
+}
+
+impl Default for TowerRecoilEntry {
+    fn default() -> Self {
+        Self {
+            mode: "directional".into(),
+            distance: 7.0,
+            scale: 0.94,
+            duration_ms: 70,
+            return_ms: 110,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+struct TowerBarrelVariantEntry {
+    #[serde(default)]
+    min_path: u8,
+    #[serde(default)]
+    min_level: u8,
+    #[serde(default)]
+    count: u16,
+    #[serde(default)]
+    image: String,
+    #[serde(default)]
+    frames: Vec<String>,
+}
+
+#[derive(Deserialize, Copy, Clone)]
+struct AttackTimingEntry {
+    #[serde(default = "default_attack_windup")]
+    windup: u16,
+    #[serde(default = "default_attack_backswing")]
+    backswing: u16,
+}
+
+fn default_attack_windup() -> u16 {
+    350
+}
+
+fn default_attack_backswing() -> u16 {
+    650
+}
+
+fn default_attack_timing() -> AttackTimingEntry {
+    AttackTimingEntry {
+        windup: default_attack_windup(),
+        backswing: default_attack_backswing(),
+    }
 }
 
 /// 單一 upgrade 條目（per path × per level）。
@@ -160,6 +299,8 @@ struct HeroEntry {
     move_speed: f32,
     #[serde(default)]
     turn_speed: f32,
+    #[serde(default = "default_attack_timing")]
+    attack_timing: AttackTimingEntry,
     #[serde(default)]
     level_growth: HeroLevelGrowthEntry,
 }
@@ -204,6 +345,8 @@ struct CreepEntry {
     enemy_type: String,
     #[serde(default)]
     ai_type: String,
+    #[serde(default = "default_attack_timing")]
+    attack_timing: AttackTimingEntry,
     #[serde(default)]
     exp_reward: i32,
     #[serde(default)]
@@ -226,6 +369,8 @@ struct SummonEntry {
     duration: f32,
     #[serde(default)]
     move_speed: f32,
+    #[serde(default = "default_attack_timing")]
+    attack_timing: AttackTimingEntry,
 }
 
 /// Ability entry — 對應 templates.lua abilities[]。
@@ -461,6 +606,7 @@ fn main() {
     out.push_str("// Source: scripts/lua_data Lua builders\n\n");
 
     emit_tower_namespace(&mut out, &m.towers);
+    emit_tower_render_metadata(&mut out, &m.towers);
     emit_hero_namespace(&mut out, &m.heroes);
     let ability_ids_for_ns: Vec<Entry> = m
         .abilities
@@ -511,6 +657,8 @@ fn main() {
     emit_hero_stats(&mut out, &m.heroes);
     emit_creep_stats(&mut out, &m.creeps);
     emit_summon_stats(&mut out, &m.summons);
+
+    emit_attack_timing(&mut out, &m.towers, &m.heroes, &m.creeps, &m.summons);
 
     // Phase C: ability const + lookup
     emit_ability_const(&mut out, &m.abilities);
@@ -928,6 +1076,193 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
         if !e.tombstone {
             let cname = const_name("tower", &e.id);
             out.push_str(&format!("\t\t{} => Some(&{}_STATS),\n", next, cname,));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+fn emit_str_slice_const(out: &mut String, const_name: &str, values: &[String]) {
+    out.push_str(&format!("pub const {}: &[&str] = &[\n", const_name));
+    for value in values {
+        out.push_str(&format!("\t\"{}\",\n", escape_str_literal(value)));
+    }
+    out.push_str("];\n");
+}
+
+fn tower_render_mode_to_variant(value: &str) -> &'static str {
+    match value {
+        "" | "base_barrel" => "BaseBarrel",
+        "animated_area" => "AnimatedArea",
+        other => panic!("unknown tower render_mode '{}', expected base_barrel|animated_area", other),
+    }
+}
+
+fn tower_rotation_mode_to_variant(value: &str) -> &'static str {
+    match value {
+        "" | "targeted" | "target-facing" | "target_facing" => "Targeted",
+        "fixed" => "Fixed",
+        other => panic!("unknown tower rotation_mode '{}', expected targeted|fixed", other),
+    }
+}
+
+fn tower_barrel_layout_to_variant(value: &str) -> &'static str {
+    match value {
+        "" | "single" => "Single",
+        "radial_count_variants" => "RadialCountVariants",
+        other => panic!("unknown tower barrel_layout '{}', expected single|radial_count_variants", other),
+    }
+}
+
+fn tower_recoil_mode_to_variant(value: &str) -> &'static str {
+    match value {
+        "" | "directional" => "Directional",
+        "scale_pulse" => "ScalePulse",
+        other => panic!("unknown tower recoil.mode '{}', expected directional|scale_pulse", other),
+    }
+}
+
+fn render_point_lit(point: &TowerPointEntry) -> String {
+    format!(
+        "TowerRenderPointConst {{ x: {}, y: {} }}",
+        fixed64_lit(point.x),
+        fixed64_lit(point.y)
+    )
+}
+
+fn render_animation_lit(animation: &TowerAnimationEntry) -> String {
+    format!(
+        "TowerRenderAnimationConst {{ fps: {}, loop_animation: {}, fire_fps: {}, fire_once: {} }}",
+        fixed64_lit(animation.fps),
+        animation.loop_animation,
+        fixed64_lit(animation.fire_fps),
+        animation.fire_once
+    )
+}
+
+fn render_recoil_lit(recoil: &TowerRecoilEntry) -> String {
+    format!(
+        "TowerRecoilConst {{ mode: TowerRecoilModeC::{}, distance: {}, scale: {}, duration_ms: {}u32, return_ms: {}u32 }}",
+        tower_recoil_mode_to_variant(&recoil.mode),
+        fixed64_lit(recoil.distance),
+        fixed64_lit(recoil.scale),
+        recoil.duration_ms,
+        recoil.return_ms
+    )
+}
+
+fn normalized_tower_render(e: &TowerEntry) -> TowerRenderEntry {
+    let mut r = e.render.clone();
+    if r.render_mode.is_empty() {
+        r.render_mode = "base_barrel".into();
+    }
+    if r.base.is_empty() {
+        r.base = if r.render_mode == "animated_area" {
+            format!("assets/towers/{}_frame_01.png", e.id)
+        } else {
+            format!("assets/towers/{}_base.png", e.id)
+        };
+    }
+    if r.render_mode != "animated_area" && r.barrel.is_empty() {
+        r.barrel = format!("assets/towers/{}_barrel.png", e.id);
+    }
+    if r.rotation_mode.is_empty() {
+        r.rotation_mode = "targeted".into();
+    }
+    if r.barrel_layout.is_empty() {
+        r.barrel_layout = "single".into();
+    }
+    if r.barrel_pivot.x == 0.0 && r.barrel_pivot.y == 0.0 {
+        r.barrel_pivot = TowerPointEntry { x: 0.5, y: 0.65 };
+    }
+    r
+}
+
+fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
+    for e in entries {
+        if e.tombstone {
+            continue;
+        }
+        let cname = const_name("tower", &e.id);
+        let render = normalized_tower_render(e);
+        let barrel_frames_const = format!("{}_RENDER_BARREL_FRAMES", cname);
+        emit_str_slice_const(out, &barrel_frames_const, &render.barrel_frames);
+
+        let body_frames: &[String] = if render.render_mode == "animated_area" {
+            &render.animation.frames
+        } else {
+            &[]
+        };
+        let body_frames_const = format!("{}_RENDER_BODY_FRAMES", cname);
+        emit_str_slice_const(out, &body_frames_const, body_frames);
+
+        for (idx, variant) in render.barrel_variants.iter().enumerate() {
+            let frames_const = format!("{}_RENDER_VARIANT_{}_FRAMES", cname, idx);
+            emit_str_slice_const(out, &frames_const, &variant.frames);
+        }
+
+        let variants_const = format!("{}_RENDER_BARREL_VARIANTS", cname);
+        out.push_str(&format!(
+            "pub const {}: &[TowerBarrelVariantConst] = &[\n",
+            variants_const
+        ));
+        for (idx, variant) in render.barrel_variants.iter().enumerate() {
+            let frames_const = format!("{}_RENDER_VARIANT_{}_FRAMES", cname, idx);
+            out.push_str(&format!(
+                "\tTowerBarrelVariantConst {{ min_path: {}u8, min_level: {}u8, count: {}u16, image: \"{}\", frames: {} }},\n",
+                variant.min_path,
+                variant.min_level,
+                variant.count,
+                escape_str_literal(&variant.image),
+                frames_const
+            ));
+        }
+        out.push_str("];\n");
+
+        out.push_str(&format!(
+            "pub const {}_RENDER: TowerRenderMetadataConst = TowerRenderMetadataConst {{\n\
+             \trender_mode: TowerRenderModeC::{},\n\
+             \tbase: \"{}\",\n\
+             \tbarrel: \"{}\",\n\
+             \tbarrel_frames: {},\n\
+             \tbody_frames: {},\n\
+             \tbarrel_animation: {},\n\
+             \tbody_animation: {},\n\
+             \trotation_mode: TowerRotationModeC::{},\n\
+             \tbarrel_layout: TowerBarrelLayoutC::{},\n\
+             \tbarrel_variants: {},\n\
+             \tbarrel_offset: {},\n\
+             \tbarrel_pivot: {},\n\
+             \tmuzzle_offset: {},\n\
+             \tdefault_angle_deg: {},\n\
+             \trecoil: {},\n\
+             }};\n",
+            cname,
+            tower_render_mode_to_variant(&render.render_mode),
+            escape_str_literal(&render.base),
+            escape_str_literal(&render.barrel),
+            barrel_frames_const,
+            body_frames_const,
+            render_animation_lit(&render.barrel_animation),
+            render_animation_lit(&render.animation),
+            tower_rotation_mode_to_variant(&render.rotation_mode),
+            tower_barrel_layout_to_variant(&render.barrel_layout),
+            variants_const,
+            render_point_lit(&render.barrel_offset),
+            render_point_lit(&render.barrel_pivot),
+            render_point_lit(&render.muzzle_offset),
+            fixed64_lit(render.default_angle_deg),
+            render_recoil_lit(&render.recoil),
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("pub fn tower_render_metadata(id: TowerId) -> Option<&'static TowerRenderMetadataConst> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            let cname = const_name("tower", &e.id);
+            out.push_str(&format!("\t\t{} => Some(&{}_RENDER),\n", next, cname));
         }
         next += 1;
     }
@@ -1370,6 +1705,121 @@ fn stat_op_to_variant(s: &str) -> &'static str {
         "mul" => "Mul",
         other => panic!("unknown stat_op '{}', expected add|mul", other),
     }
+}
+
+fn validate_attack_timing(kind: &str, id: &str, timing: AttackTimingEntry) {
+    let total = timing.windup as u32 + timing.backswing as u32;
+    if total != 1000 {
+        panic!(
+            "{} '{}' attack_timing must have windup + backswing == 1000, got {} + {} = {}",
+            kind, id, timing.windup, timing.backswing, total
+        );
+    }
+}
+
+fn emit_attack_timing_const(out: &mut String, const_name: &str, timing: AttackTimingEntry) {
+    out.push_str(&format!(
+        "pub const {}: AttackTimingConst = AttackTimingConst {{ windup: {}u16, backswing: {}u16 }};\n",
+        const_name, timing.windup, timing.backswing
+    ));
+}
+
+fn emit_attack_timing(
+    out: &mut String,
+    towers: &[TowerEntry],
+    heroes: &[HeroEntry],
+    creeps: &[CreepEntry],
+    summons: &[SummonEntry],
+) {
+    for e in towers {
+        if e.tombstone {
+            continue;
+        }
+        validate_attack_timing("tower", &e.id, e.attack_timing);
+        emit_attack_timing_const(
+            out,
+            &format!("{}_ATTACK_TIMING", const_name("tower", &e.id)),
+            e.attack_timing,
+        );
+    }
+    for e in heroes {
+        if e.tombstone {
+            continue;
+        }
+        validate_attack_timing("hero", &e.id, e.attack_timing);
+        emit_attack_timing_const(
+            out,
+            &format!("{}_ATTACK_TIMING", const_name("hero", &e.id)),
+            e.attack_timing,
+        );
+    }
+    for e in creeps {
+        if e.tombstone {
+            continue;
+        }
+        validate_attack_timing("creep", &e.id, e.attack_timing);
+        emit_attack_timing_const(
+            out,
+            &format!("{}_ATTACK_TIMING", const_name("creep", &e.id)),
+            e.attack_timing,
+        );
+    }
+    for e in summons {
+        if e.tombstone {
+            continue;
+        }
+        validate_attack_timing("summon", &e.id, e.attack_timing);
+        emit_attack_timing_const(
+            out,
+            &format!("{}_ATTACK_TIMING", const_name("summon", &e.id)),
+            e.attack_timing,
+        );
+    }
+    out.push('\n');
+
+    out.push_str("pub fn tower_attack_timing(id: TowerId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in towers {
+        if !e.tombstone {
+            let cname = const_name("tower", &e.id);
+            out.push_str(&format!("\t\t{} => Some({}_ATTACK_TIMING),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+
+    out.push_str("pub fn hero_attack_timing(id: HeroId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in heroes {
+        if !e.tombstone {
+            let cname = const_name("hero", &e.id);
+            out.push_str(&format!("\t\t{} => Some({}_ATTACK_TIMING),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+
+    out.push_str("pub fn creep_attack_timing(id: CreepId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in creeps {
+        if !e.tombstone {
+            let cname = const_name("creep", &e.id);
+            out.push_str(&format!("\t\t{} => Some({}_ATTACK_TIMING),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+
+    out.push_str("pub fn summon_attack_timing(id: SummonId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in summons {
+        if !e.tombstone {
+            let cname = const_name("summon", &e.id);
+            out.push_str(&format!("\t\t{} => Some({}_ATTACK_TIMING),\n", next, cname));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
 /// Emit `TOWER_<NAME>_UPGRADES: &[&[UpgradeDefConst]] = &[Path0, Path1, Path2]`

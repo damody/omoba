@@ -33,6 +33,103 @@ pub struct TowerStats {
     pub turn_speed_deg: Fixed64,
 }
 
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TowerRenderModeC {
+    BaseBarrel = 0,
+    AnimatedArea = 1,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TowerRotationModeC {
+    Targeted = 0,
+    Fixed = 1,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TowerBarrelLayoutC {
+    Single = 0,
+    RadialCountVariants = 1,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum TowerRecoilModeC {
+    Directional = 0,
+    ScalePulse = 1,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct TowerRenderPointConst {
+    pub x: Fixed64,
+    pub y: Fixed64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct TowerRenderAnimationConst {
+    pub fps: Fixed64,
+    pub loop_animation: bool,
+    pub fire_fps: Fixed64,
+    pub fire_once: bool,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct TowerBarrelVariantConst {
+    pub min_path: u8,
+    pub min_level: u8,
+    pub count: u16,
+    pub image: &'static str,
+    pub frames: &'static [&'static str],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct TowerRecoilConst {
+    pub mode: TowerRecoilModeC,
+    pub distance: Fixed64,
+    pub scale: Fixed64,
+    pub duration_ms: u32,
+    pub return_ms: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct TowerRenderMetadataConst {
+    pub render_mode: TowerRenderModeC,
+    pub base: &'static str,
+    pub barrel: &'static str,
+    pub barrel_frames: &'static [&'static str],
+    pub body_frames: &'static [&'static str],
+    pub barrel_animation: TowerRenderAnimationConst,
+    pub body_animation: TowerRenderAnimationConst,
+    pub rotation_mode: TowerRotationModeC,
+    pub barrel_layout: TowerBarrelLayoutC,
+    pub barrel_variants: &'static [TowerBarrelVariantConst],
+    pub barrel_offset: TowerRenderPointConst,
+    pub barrel_pivot: TowerRenderPointConst,
+    pub muzzle_offset: TowerRenderPointConst,
+    pub default_angle_deg: Fixed64,
+    pub recoil: TowerRecoilConst,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct AttackTimingConst {
+    pub windup: u16,
+    pub backswing: u16,
+}
+
+impl AttackTimingConst {
+    pub const fn is_valid(self) -> bool {
+        self.windup as u32 + self.backswing as u32 == 1000
+    }
+}
+
 /// Hero level-growth — 對應 templates.lua heroes[i].level_growth nested object。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]

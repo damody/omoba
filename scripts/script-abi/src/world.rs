@@ -176,11 +176,6 @@ pub trait GameWorld: Send {
     /// 補 mana，自動 push `ManaGained` 事件。
     fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64);
 
-    /// 從腳本端主動 push 一個 `ModifierAdded` 事件（進階用）。
-    /// 一般呼叫 `add_buff` / `add_stat_buff` 時會自動 push；
-    /// 這個 API 用於不想改 BuffStore 但要發 hook 的情況。
-    fn trigger_modifier_added(&mut self, e: EntityHandle, modifier_id: RStr<'_>);
-
     /// 從腳本端主動 push `StateChanged` 事件。
     fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool);
 
@@ -234,5 +229,15 @@ pub trait GameWorld: Send {
         damage: Fixed64,
         kind: DamageKind,
         source: ROption<EntityHandle>,
+    );
+
+    /// Render-only attack windup cue. `impact_at_ms` is implicitly `windup_ms`.
+    /// Gameplay effects must still be applied by authoritative script/backend logic.
+    fn emit_attack_phase_fx(
+        &mut self,
+        entity: EntityHandle,
+        target: Target,
+        windup_ms: u32,
+        backswing_ms: u32,
     );
 }

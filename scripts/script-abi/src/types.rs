@@ -1,7 +1,7 @@
 //! 跨越主機/DLL 邊界的穩定 ABI 值類型。
 
 use abi_stable::{
-    std_types::{ROption, RString},
+    std_types::{ROption, RString, RVec},
     StableAbi,
 };
 
@@ -64,6 +64,117 @@ pub enum PathSpec {
     Straight { end_pos: Vec2 },
 }
 
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, Default)]
+pub struct TowerRenderPoint {
+    pub x: Fixed64,
+    pub y: Fixed64,
+}
+
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug)]
+pub struct TowerRenderAnimation {
+    pub fps: Fixed64,
+    pub loop_animation: bool,
+    pub fire_fps: Fixed64,
+    pub fire_once: bool,
+}
+
+impl Default for TowerRenderAnimation {
+    fn default() -> Self {
+        Self {
+            fps: Fixed64::from_i32(10),
+            loop_animation: true,
+            fire_fps: Fixed64::from_i32(18),
+            fire_once: true,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(StableAbi, Clone, Debug, Default)]
+pub struct TowerBarrelVariant {
+    pub min_path: u8,
+    pub min_level: u8,
+    pub count: u16,
+    pub image: RString,
+    pub frames: RVec<RString>,
+}
+
+#[repr(C)]
+#[derive(StableAbi, Clone, Debug)]
+pub struct TowerRecoil {
+    pub mode: RString,
+    pub distance: Fixed64,
+    pub scale: Fixed64,
+    pub duration_ms: u32,
+    pub return_ms: u32,
+}
+
+impl Default for TowerRecoil {
+    fn default() -> Self {
+        Self {
+            mode: RString::from("directional"),
+            distance: Fixed64::from_i32(7),
+            scale: Fixed64::from_raw(963),
+            duration_ms: 70,
+            return_ms: 110,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(StableAbi, Clone, Debug)]
+pub struct TowerRenderMetadata {
+    pub render_mode: RString,
+    pub base: RString,
+    pub barrel: RString,
+    pub barrel_frames: RVec<RString>,
+    pub body_frames: RVec<RString>,
+    pub barrel_animation: TowerRenderAnimation,
+    pub body_animation: TowerRenderAnimation,
+    pub rotation_mode: RString,
+    pub barrel_layout: RString,
+    pub barrel_variants: RVec<TowerBarrelVariant>,
+    pub barrel_offset: TowerRenderPoint,
+    pub barrel_pivot: TowerRenderPoint,
+    pub muzzle_offset: TowerRenderPoint,
+    pub default_angle_deg: Fixed64,
+    pub recoil: TowerRecoil,
+}
+
+impl Default for TowerRenderMetadata {
+    fn default() -> Self {
+        Self {
+            render_mode: RString::from("base_barrel"),
+            base: RString::new(),
+            barrel: RString::new(),
+            barrel_frames: RVec::new(),
+            body_frames: RVec::new(),
+            barrel_animation: TowerRenderAnimation::default(),
+            body_animation: TowerRenderAnimation::default(),
+            rotation_mode: RString::from("targeted"),
+            barrel_layout: RString::from("single"),
+            barrel_variants: RVec::new(),
+            barrel_offset: TowerRenderPoint::default(),
+            barrel_pivot: TowerRenderPoint {
+                x: Fixed64::from_raw(512),
+                y: Fixed64::from_raw(666),
+            },
+            muzzle_offset: TowerRenderPoint::default(),
+            default_angle_deg: Fixed64::ZERO,
+            recoil: TowerRecoil::default(),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, Default)]
+pub struct AttackTimingMetadata {
+    pub windup: u16,
+    pub backswing: u16,
+}
+
 /// TD 塔的完整 metadata（由腳本回報；host 和前端共用）。
 #[repr(C)]
 #[derive(StableAbi, Clone, Debug, Default)]
@@ -95,6 +206,10 @@ pub struct TowerMetadata {
     pub turn_speed_deg: Fixed64,
     /// UI 顯示名稱
     pub label: RString,
+    /// 戰鬥畫面 base/barrel/body-frame render metadata。
+    pub render: TowerRenderMetadata,
+    /// 普攻 windup / backswing 整數權重；總和必須為 1000。
+    pub attack_timing: AttackTimingMetadata,
 }
 
 /// 發射子彈的完整規格。`spawn_projectile_ex` 接這個。
