@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="BTD style split TD UI mockup">
+  <defs>
+    <linearGradient id="grass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8ee34b"/>
+      <stop offset="0.55" stop-color="#6fc83a"/>
+      <stop offset="1" stop-color="#4fa528"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c99854"/>
+      <stop offset="1" stop-color="#9c672f"/>
+    </linearGradient>
+    <linearGradient id="blueCard" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bfefff"/>
+      <stop offset="1" stop-color="#27aee4"/>
+    </linearGradient>
+    <linearGradient id="greenBtn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7dff20"/>
+      <stop offset="1" stop-color="#22b900"/>
+    </linearGradient>
+    <linearGradient id="upgradeBtn" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b86b25"/>
+      <stop offset="0.52" stop-color="#a06832"/>
+      <stop offset="1" stop-color="#43db00"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#000" flood-opacity="0.32"/>
+    </filter>
+    <style>
+      .font { font-family: "Segoe UI", "Microsoft JhengHei", sans-serif; }
+      .outline { paint-order: stroke; stroke: #000; stroke-width: 5px; stroke-linejoin: round; }
+      .small-outline { paint-order: stroke; stroke: #000; stroke-width: 3px; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#grass)"/>
+  <path d="M300 210 C420 120 540 130 610 230 S820 330 940 220" fill="none" stroke="#b5b7a9" stroke-width="62" stroke-linecap="round" opacity="0.82"/>
+  <path d="M308 210 C425 132 533 142 602 235 S817 320 928 224" fill="none" stroke="#d9dccf" stroke-width="42" stroke-linecap="round" opacity="0.82"/>
+  <circle cx="705" cy="390" r="142" fill="#3b7c2f" opacity="0.22" stroke="#1f5024" stroke-width="3"/>
+  <g opacity="0.9">
+    <text class="font small-outline" x="468" y="54" font-size="34" font-weight="900" fill="#fff">❤ 200</text>
+    <text class="font small-outline" x="618" y="54" font-size="34" font-weight="900" fill="#fff">🪙 $380</text>
+    <text class="font small-outline" x="902" y="54" font-size="34" font-weight="900" fill="#fff">1/40</text>
+  </g>
+
+  <rect x="16" y="30" width="284" height="660" rx="24" fill="url(#wood)" stroke="#6e421d" stroke-width="4" filter="url(#shadow)"/>
+  <rect x="32" y="48" width="252" height="42" rx="12" fill="#8a562b" opacity="0.72"/>
+  <text class="font small-outline" x="84" y="78" font-size="24" font-weight="900" fill="#fff">選中塔面板</text>
+  <rect x="252" y="51" width="26" height="26" rx="6" fill="#6e421d" opacity="0.7"/>
+  <text class="font" x="259" y="72" font-size="22" font-weight="900" fill="#f4d3a0">×</text>
+
+  <rect x="42" y="105" width="232" height="170" rx="14" fill="#9fe5ff" stroke="#49a9d4" stroke-width="4"/>
+  <circle cx="158" cy="183" r="58" fill="#f9cc2c" stroke="#7a3e00" stroke-width="4"/>
+  <path d="M122 160 L181 126 L202 172 L168 235 L112 218 Z" fill="#ffd900" opacity="0.95"/>
+  <path d="M148 126 L165 204" stroke="#fa1c14" stroke-width="13" stroke-linecap="round"/>
+  <text class="font small-outline" x="107" y="259" font-size="26" font-weight="900" fill="#fff">飛鏢猴</text>
+  <circle cx="58" cy="125" r="24" fill="#00bfff" stroke="#fff" stroke-width="5"/>
+  <text class="font" x="51" y="135" font-size="28" font-weight="900" fill="#fff">i</text>
+
+  <text class="font" x="48" y="305" font-size="15" font-weight="800" fill="#543111">升級路線跟出售放左邊</text>
+  <g class="font">
+    <g transform="translate(38 320)">
+      <rect width="238" height="78" rx="16" fill="url(#upgradeBtn)" stroke="#5a3619" stroke-width="4"/>
+      <rect x="10" y="12" width="48" height="54" rx="10" fill="#6b3d1c" opacity="0.55"/>
+      <path d="M25 53 C45 30 48 26 56 20" fill="none" stroke="#d87918" stroke-width="12" stroke-linecap="round"/>
+      <text class="small-outline" x="76" y="31" font-size="20" font-weight="900" fill="#fff">長距攻擊</text>
+      <text class="small-outline" x="76" y="61" font-size="22" font-weight="900" fill="#fff">$85</text>
+    </g>
+    <g transform="translate(38 410)">
+      <rect width="238" height="78" rx="16" fill="url(#upgradeBtn)" stroke="#5a3619" stroke-width="4"/>
+      <rect x="10" y="12" width="48" height="54" rx="10" fill="#6b3d1c" opacity="0.55"/>
+      <path d="M22 50 L55 22 L63 55" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"/>
+      <text class="small-outline" x="76" y="31" font-size="20" font-weight="900" fill="#fff">快速投擲</text>
+      <text class="small-outline" x="76" y="61" font-size="22" font-weight="900" fill="#fff">$150</text>
+    </g>
+    <g transform="translate(38 500)">
+      <rect width="238" height="78" rx="16" fill="url(#upgradeBtn)" stroke="#5a3619" stroke-width="4"/>
+      <rect x="10" y="12" width="48" height="54" rx="10" fill="#6b3d1c" opacity="0.55"/>
+      <path d="M24 56 C34 36 43 34 58 18" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+      <text class="small-outline" x="76" y="31" font-size="20" font-weight="900" fill="#fff">銳利雙眼</text>
+      <text class="small-outline" x="76" y="61" font-size="22" font-weight="900" fill="#fff">$50</text>
+    </g>
+  </g>
+  <rect x="38" y="610" width="118" height="52" rx="8" fill="#6d391b" opacity="0.85"/>
+  <text class="font small-outline" x="55" y="645" font-size="28" font-weight="900" fill="#fff">$189</text>
+  <rect x="170" y="600" width="106" height="66" rx="18" fill="#ff5c00" stroke="#fff" stroke-width="5" filter="url(#shadow)"/>
+  <text class="font small-outline" x="199" y="642" font-size="30" font-weight="900" fill="#fff">出售</text>
+
+  <rect x="986" y="0" width="270" height="720" fill="url(#wood)" stroke="#6e421d" stroke-width="4" filter="url(#shadow)"/>
+  <rect x="1004" y="22" width="234" height="64" rx="18" fill="url(#greenBtn)" stroke="#ffffff" stroke-width="5"/>
+  <text class="font small-outline" x="1080" y="63" font-size="30" font-weight="900" fill="#fff">買塔</text>
+  <rect x="1002" y="102" width="238" height="44" rx="8" fill="#8a562b" opacity="0.82"/>
+  <text class="font small-outline" x="1060" y="133" font-size="24" font-weight="900" fill="#fff">塔商店</text>
+
+  <g class="font">
+    <g transform="translate(1005 160)">
+      <rect width="108" height="130" rx="12" fill="url(#blueCard)" stroke="#127aa4" stroke-width="4"/>
+      <circle cx="54" cy="52" r="35" fill="#f9cc2c" stroke="#7a3e00" stroke-width="3"/>
+      <path d="M42 23 L50 77" stroke="#fa1c14" stroke-width="8" stroke-linecap="round"/>
+      <text class="small-outline" x="20" y="116" font-size="25" font-weight="900" fill="#fff">$270</text>
+    </g>
+    <g transform="translate(1128 160)">
+      <rect width="108" height="130" rx="12" fill="url(#blueCard)" stroke="#127aa4" stroke-width="4"/>
+      <circle cx="54" cy="52" r="36" fill="#20232a" stroke="#0b0c10" stroke-width="3"/>
+      <rect x="24" y="36" width="60" height="30" rx="12" fill="#4b3d7d"/>
+      <text class="small-outline" x="20" y="116" font-size="25" font-weight="900" fill="#fff">$320</text>
+    </g>
+    <g transform="translate(1005 305)">
+      <rect width="108" height="130" rx="12" fill="url(#blueCard)" stroke="#127aa4" stroke-width="4"/>
+      <circle cx="54" cy="52" r="36" fill="#e65ab2" stroke="#7a1c52" stroke-width="3"/>
+      <text class="small-outline" x="20" y="116" font-size="25" font-weight="900" fill="#fff">$220</text>
+    </g>
+    <g transform="translate(1128 305)">
+      <rect width="108" height="130" rx="12" fill="url(#blueCard)" stroke="#127aa4" stroke-width="4" opacity="0.65"/>
+      <path d="M32 80 L76 26" stroke="#ffffff" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+      <text class="small-outline" x="20" y="116" font-size="25" font-weight="900" fill="#fff">$340</text>
+    </g>
+    <g transform="translate(1005 450)">
+      <rect width="108" height="130" rx="12" fill="#55e238" stroke="#178a1c" stroke-width="4"/>
+      <circle cx="54" cy="52" r="36" fill="#c97923" stroke="#7a3e00" stroke-width="3"/>
+      <text class="small-outline" x="20" y="116" font-size="25" font-weight="900" fill="#fff">$300</text>
+    </g>
+    <g transform="translate(1128 450)">
+      <rect width="108" height="130" rx="12" fill="#55e238" stroke="#178a1c" stroke-width="4" opacity="0.72"/>
+      <path d="M24 70 L88 38" stroke="#7fc7ff" stroke-width="18" stroke-linecap="round"/>
+      <text class="small-outline" x="20" y="116" font-size="25" font-weight="900" fill="#fff">$275</text>
+    </g>
+  </g>
+
+  <text class="font" x="1008" y="606" font-size="15" font-weight="800" fill="#4b2a10">開始/暫停也固定右邊</text>
+  <rect x="1005" y="625" width="108" height="74" rx="18" fill="#ffcf00" stroke="#ffffff" stroke-width="6" filter="url(#shadow)"/>
+  <path d="M1074 638 L1036 670 L1062 670 L1046 694 L1088 657 L1062 659 Z" fill="#fff"/>
+  <rect x="1128" y="625" width="108" height="74" rx="18" fill="url(#greenBtn)" stroke="#ffffff" stroke-width="6" filter="url(#shadow)"/>
+  <path d="M1164 644 L1164 682 L1202 663 Z" fill="#fff"/>
+
+  <text class="font" x="420" y="680" font-size="18" font-weight="800" fill="#154113">Map remains center; left panel opens for selected tower, right panel always handles shop/start/pause.</text>
+</svg>
