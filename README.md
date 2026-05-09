@@ -133,6 +133,8 @@ Gameplay content 分成兩層：Lua template/story data 與 Rust script DLL。
 
 `scripts/script-abi` 是 host 與 cdylib 的唯一共用 crate，只能放 `abi_stable` 可跨 DLL 邊界安全傳遞的型別。不要在這裡引入 `specs`、`serde_json` 或 host-only dependency。
 
+英雄頭像由 `scripts/lua_data/templates/heroes.lua` 的 `portrait` 欄位指定，預設檔放在 `omfx/data/hero_portraits/`。技能圖示由 `scripts/lua_data/templates/abilities.lua` 的 `icon` 欄位指定；雜賀孫市沿用既有 `omfx/data/hero1_1.png` 到 `hero1_4.png`，新 placeholder 放在 `omfx/data/ability_icons/`。企劃要換圖時直接替換同名 PNG；每個英雄與技能都有獨立檔名，例如 `hero_saika_magoichi_portrait.png`、`ability_flame_blade.png`。
+
 主要 script traits：
 
 | Trait | 用途 |

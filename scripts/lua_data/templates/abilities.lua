@@ -3,6 +3,7 @@ return function(ctx)
     {
       id = "sniper_mode",
       display_name = "狙擊模式",
+      icon = "data/hero1_1.png",
       description = "切換到狙擊模式，增加射程和傷害，但降低攻擊速度和移動速度。",
       ability_type = "toggle",
       target_type = "none",
@@ -70,6 +71,7 @@ return function(ctx)
     {
       id = "saika_reinforcements",
       display_name = "雜賀援軍",
+      icon = "data/hero1_2.png",
       description = "在目標位置召喚雜賀鐵炮兵協助作戰。",
       ability_type = "active",
       target_type = "point",
@@ -155,6 +157,7 @@ return function(ctx)
     {
       id = "rain_iron_cannon",
       display_name = "雨鐵砲",
+      icon = "data/hero1_3.png",
       description = "被動：普攻命中時以受擊點為中心、朝攻擊方向 90° 扇形 150 半徑對範圍內所有單位造成 15/25/35/45% 攻擊力的真實傷害。",
       ability_type = "passive",
       target_type = "none",
@@ -210,6 +213,7 @@ return function(ctx)
     {
       id = "three_stage_technique",
       display_name = "三段擊",
+      icon = "data/hero1_4.png",
       description = "變身 5 秒：攻擊力 +200%，普攻特效改為連發 3 發子彈（只判定 1 次傷害），身上有紅色變身特效。",
       ability_type = "active",
       target_type = "none",
@@ -265,6 +269,7 @@ return function(ctx)
     {
       id = "flame_blade",
       display_name = "炎刃",
+      icon = "data/ability_icons/ability_flame_blade.png",
       description = "往前方揮出一刀，對單體或範圍目標造成大量火焰傷害。",
       ability_type = "active",
       target_type = "point",
@@ -314,6 +319,7 @@ return function(ctx)
     {
       id = "fire_dash",
       display_name = "火焰衝擊",
+      icon = "data/ability_icons/ability_fire_dash.png",
       description = "往前衝刺，沿路對敵人造成火焰傷害。",
       ability_type = "active",
       target_type = "point",
@@ -375,6 +381,7 @@ return function(ctx)
     {
       id = "flame_assault",
       display_name = "炎襲",
+      icon = "data/ability_icons/ability_flame_assault.png",
       description = "施展一道巨型火焰，對範圍內敵人造成傷害並暈眩。",
       ability_type = "ultimate",
       target_type = "point",
@@ -430,6 +437,7 @@ return function(ctx)
     {
       id = "matchlock_gun",
       display_name = "火繩銃",
+      icon = "data/ability_icons/ability_matchlock_gun.png",
       description = "將武器變身火繩銃，增加攻擊距離與傷害，攻擊時有機率暈眩敵人。持續 45 秒。",
       ability_type = "active",
       target_type = "none",

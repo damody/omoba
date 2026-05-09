@@ -4,6 +4,7 @@ return function(ctx)
       id = "saika_magoichi",
       display_name = "雜賀孫市",
       title = "千里狙擊手",
+      portrait = "data/hero_portraits/hero_saika_magoichi_portrait.png",
       background = "雜賀眾的領袖，以精準的遠程射擊聞名於戰國時代",
       abilities = {
         "sniper_mode",
@@ -35,6 +36,7 @@ return function(ctx)
       id = "date_masamune",
       display_name = "伊達政宗",
       title = "獨眼龍",
+      portrait = "data/hero_portraits/hero_date_masamune_portrait.png",
       background = "奧州的霸主，以炎之鬥技與火繩銃聞名",
       abilities = {
         "flame_blade",

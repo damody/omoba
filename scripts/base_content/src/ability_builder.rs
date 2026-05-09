@@ -80,7 +80,7 @@ pub fn build_ability_def_from_const(
         ability_type: ability_type_from(c.ability_type),
         target_type: target_type_from(c.target_type),
         cast_type: cast_type_from(c.cast_type),
-        icon: None,
+        icon: (!c.icon.is_empty()).then(|| c.icon.to_string()),
         max_level: c.max_level,
         levels,
         effects_preview,

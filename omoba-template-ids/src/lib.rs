@@ -141,6 +141,7 @@ pub struct AbilityConst {
     pub cast_type: CastTypeC,
     pub target_type: TargetTypeC,
     pub max_level: u8,
+    pub icon: &'static str,
     pub description: &'static str,
     pub levels: &'static [AbilityLevelDataConst],
     pub extras: &'static [(&'static str, &'static [Fixed64])],

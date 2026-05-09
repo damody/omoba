@@ -129,6 +129,8 @@ struct HeroEntry {
     #[serde(default)]
     title: String,
     #[serde(default)]
+    portrait: String,
+    #[serde(default)]
     #[allow(dead_code)]
     background: String,
     #[serde(default)]
@@ -236,6 +238,8 @@ struct AbilityEntry {
     display_name: String,
     #[serde(default)]
     tombstone: bool,
+    #[serde(default)]
+    icon: String,
     #[serde(default)]
     description: String,
     #[serde(default)]
@@ -957,6 +961,22 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
         next += 1;
     }
     out.push_str("\t\t_ => \"\",\n\t}\n}\n\n");
+
+    out.push_str(
+        "pub fn hero_portrait(id: HeroId) -> &'static str {\n\tmatch id.0 {\n\t\t0 => \"\",\n",
+    );
+    let mut next: u16 = 1;
+    for h in entries {
+        if !h.tombstone {
+            out.push_str(&format!(
+                "\t\t{} => \"{}\",\n",
+                next,
+                escape_str_literal(&h.portrait),
+            ));
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => \"\",\n\t}\n}\n\n");
 }
 
 /// Hero → abilities[] codegen — 從 templates.lua heroes[i].abilities 字串陣列翻成
@@ -1282,6 +1302,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              \tcast_type: CastTypeC::{},\n\
              \ttarget_type: TargetTypeC::{},\n\
              \tmax_level: {}u8,\n\
+             \ticon: \"{}\",\n\
              \tdescription: \"{}\",\n\
              \tlevels: {}_LEVELS,\n\
              \textras: {}_EXTRAS,\n\
@@ -1291,6 +1312,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
             cast_type_to_variant(&e.cast_type),
             target_type_to_variant(&e.target_type),
             e.max_level,
+            escape_str_literal(&e.icon),
             escape_str_literal(&e.description),
             cname,
             cname,
