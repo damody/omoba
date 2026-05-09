@@ -43,12 +43,12 @@
 ## 5. 驗證
 
 - [x] 5.1 執行 `cargo check --manifest-path omfx/Cargo.toml` 或等效 omfx build 檢查，修正編譯錯誤。
-- [ ] 5.2 執行 `run.bat` 手動驗證 TD_1：右側買塔、context panel 選塔資訊、出售、三路升級與右側 Start Round 仍可用。
-- [ ] 5.3 手動驗證未選塔狀態：context panel 隱藏且出售/升級 rect 不可點擊，右側買塔仍可用。
-- [ ] 5.4 手動驗證圖片缺失情境：暫時移除或改名其中一張 TD UI PNG，確認 UI fallback 不 panic。
-- [ ] 5.5 手動驗證透明圖片：替換一張含 alpha 的 PNG，確認透明區域不遮住面板背景。
+- [x] 5.2 執行 `run.bat` 手動驗證 TD_1：右側買塔、context panel 選塔資訊、出售、三路升級與右側 Start Round 仍可用。
+- [x] 5.3 手動驗證未選塔狀態：context panel 隱藏且出售/升級 rect 不可點擊，右側買塔仍可用。
+- [x] 5.4 手動驗證圖片缺失情境：暫時移除或改名其中一張 TD UI PNG，確認 UI fallback 不 panic。
+- [x] 5.5 手動驗證透明圖片：替換一張含 alpha 的 PNG，確認透明區域不遮住面板背景。
 - [x] 5.6 修改完成後執行 `graphify update .` 更新 knowledge graph。
-- [ ] 5.7 以 1920x1080 截圖對照 `ui-layout.svg` 與 Image 1：context panel 自動換邊、三張升級大卡、右側可捲動 2 欄買塔 viewport、scrollbar 與右側底部 Start/Pause 位置都符合版面。
+- [x] 5.7 以 1920x1080 截圖對照 `ui-layout.svg` 與 Image 1：context panel 自動換邊、三張升級大卡、右側可捲動 2 欄買塔 viewport、scrollbar 與右側底部 Start/Pause 位置都符合版面。
 
 ## 6. 右側塔商店 scrollbar 與 12 塔容量修正
 
@@ -57,7 +57,7 @@
 - [x] 6.3 將買塔卡片改為 content-space 2 欄網格，內容容量至少 12 個塔卡（2 欄 x 6 列）；塔數超過可見高度時只裁切顯示，不刪節點。
 - [x] 6.4 將 `td_tower_button_rects` 改為 viewport-clipped rect：卡片捲出 viewport 後不可點擊，卡片在 viewport 內時 hit-test rect 必須對齊視覺卡片 bounds。
 - [x] 6.5 更新小視窗布局：可退化為 1 欄，但仍保留至少 12 張塔卡的可捲動內容容量與 scrollbar。
-- [ ] 6.6 手動驗證 12 個 tower templates：第 1 到第 12 張卡都可透過 scrollbar 看到並點選，且 Start/Pause 位置不被商店內容擠走。
+- [x] 6.6 手動驗證 12 個 tower templates：第 1 到第 12 張卡都可透過 scrollbar 看到並點選，且 Start/Pause 位置不被商店內容擠走。
 
 ## 7. 1920x1080 與選中塔面板自動換邊
 
@@ -65,4 +65,4 @@
 - [x] 7.2 計算選中塔的 screen-space x；當塔中心位於 1920 視窗左半邊（`x < 960`）時，context panel 顯示在右側 shop/control panel 左緣。
 - [x] 7.3 當塔中心位於 1920 視窗右半邊（`x >= 960`）時，context panel 使用左側錨點，避免遮住右半邊的塔。
 - [x] 7.4 確認 context panel 在右側錨點時，不覆蓋右側 shop/control panel，不跟 shop viewport scroll，且升級/出售 hit-test 仍準確。
-- [ ] 7.5 以 1920x1080 手動驗證：選左半邊塔時升級 UI 靠右側欄左緣，選右半邊塔時升級 UI 靠左側，兩種情況都不擋住選中塔本體。
+- [x] 7.5 以 1920x1080 手動驗證：選左半邊塔時升級 UI 靠右側欄左緣，選右半邊塔時升級 UI 靠左側，兩種情況都不擋住選中塔本體。
