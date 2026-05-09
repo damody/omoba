@@ -53,7 +53,7 @@ omfx 會根據 `SimWorldSnapshot` 英雄資料與 `AbilityDefSnapshot` metadata 
 
 7. 將三角升級按鈕放在技能圖示上方，並讓 hit-test 優先於圖示施法。
 
-   理由：使用者期待類 LoL 的升級按鈕位置，應在 icon 上方獨立呈現，而不是覆蓋在圖示內部。左鍵 hit-test 順序應為：升級三角按鈕優先，其次技能圖示本體施法，最後才落到 TD/map click。這樣點三角形會升級，點圖示會施法，兩者不會互相觸發。
+   理由：使用者期待類 LoL 的升級按鈕位置，應在 icon 上方獨立呈現，而不是覆蓋在圖示內部。三角按鈕的底部應緊貼 icon 上緣，且顯示寬度與 hit-test 寬度都應等於 icon 寬度，避免像漂浮小 glyph；三角箭頭本體也應比預設文字大小更寬、更醒目。左鍵 hit-test 順序應為：升級三角按鈕優先，其次技能圖示本體施法，最後才落到 TD/map click。這樣點三角形會升級，點圖示會施法，兩者不會互相觸發。
 
 8. 將永久 buff sentinel 正規化為 infinity display。
 

@@ -29,15 +29,15 @@
 
 ## 4. Determinism Guardrails
 
-- [ ] 4.1 確認 `input_id`、phase timestamps 與 server queue metadata 不寫入 gameplay ECS components、resources、outcomes 或 state hash payload。
-- [ ] 4.2 加入或更新 grep guard 測試，限制 phase metadata 只出現在 transport、lockstep wire-edge、input buffer metadata、omfx pending book 與 tests。
-- [ ] 4.3 檢查 120Hz 後 movement、buff、projectile、attack cooldown、wave timing 與 script dt 使用，修正任何 tick-dependent speed regression。
+- [x] 4.1 確認 `input_id`、phase timestamps 與 server queue metadata 不寫入 gameplay ECS components、resources、outcomes 或 state hash payload。
+- [x] 4.2 加入或更新 grep guard 測試，限制 phase metadata 只出現在 transport、lockstep wire-edge、input buffer metadata、omfx pending book 與 tests。
+- [x] 4.3 檢查 120Hz 後 movement、buff、projectile、attack cooldown、wave timing 與 script dt 使用，修正任何 tick-dependent speed regression。
 
 ## 5. Verification
 
-- [ ] 5.1 執行 `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --lib`。
-- [ ] 5.2 執行 `cargo test --manifest-path D:/omoba/omoba-core/Cargo.toml` 或等價 omoba-core test command。
-- [ ] 5.3 執行 `cargo test --manifest-path D:/omoba/omfx/Cargo.toml -p omfx` 或最接近的 omfx game crate tests。
-- [ ] 5.4 執行 `cargo test --manifest-path D:/omoba/omoba-sim/Cargo.toml --no-default-features`，確認 determinism tests 與 pin hash 不受影響。
-- [ ] 5.5 跑 TD_1 smoke，確認 lockstep healthy log 約 600 TickBatch frames / 5s、`Lag` p50/p99 下降、late input log 沒有異常增加。
-- [ ] 5.6 跑 TD_STRESS 或既有 smoke long，確認 120Hz 不造成 TickBatch starvation、KCP session removal 或 server tick profile 超出預算。
+- [x] 5.1 執行 `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --lib`。
+- [x] 5.2 執行 `cargo test --manifest-path D:/omoba/omoba-core/Cargo.toml` 或等價 omoba-core test command。
+- [x] 5.3 執行 `cargo test --manifest-path D:/omoba/omfx/Cargo.toml -p omfx` 或最接近的 omfx game crate tests。
+- [x] 5.4 執行 `cargo test --manifest-path D:/omoba/omoba-sim/Cargo.toml --no-default-features`，確認 determinism tests 與 pin hash 不受影響。
+- [x] 5.5 跑 TD_1 smoke，確認 lockstep healthy log 約 600 TickBatch frames / 5s、`Lag` p50/p99 下降、late input log 沒有異常增加。
+- [x] 5.6 跑 TD_STRESS 或既有 smoke long，確認 120Hz 不造成 TickBatch starvation、KCP session removal 或 server tick profile 超出預算。

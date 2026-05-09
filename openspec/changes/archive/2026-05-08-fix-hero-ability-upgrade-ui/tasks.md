@@ -23,8 +23,8 @@
 ## 4. 驗證
 
 - [x] 4.1 實作後針對 proto consumers、omb 與 omfx 執行相關 Cargo check/test 指令。
-- [ ] 4.2 手動 smoke test 一個有可用技能點的英雄：確認 `Shift+W/E/R/T` 會升級對應欄位，且下一個快照會更新 HUD。
-- [ ] 4.3 手動確認三角升級按鈕只會出現在可升級技能上，點擊會升級對應技能，並在技能點耗盡或技能達最高等級時消失。
+- [x] 4.2 手動 smoke test 一個有可用技能點的英雄：確認 `Shift+W/E/R/T` 會升級對應欄位，且下一個快照會更新 HUD。
+- [x] 4.3 手動確認三角升級按鈕只會出現在可升級技能上，點擊會升級對應技能，並在技能點耗盡或技能達最高等級時消失。
 
 ## 5. 施法與永久 Buff 修正
 
@@ -34,7 +34,9 @@
 - [x] 5.4 在 omb host 與 omfx sim_runner 的相同 post-dispatch、pre-script-dispatch 邊界 drain ability cast queue。
 - [x] 5.5 修正 hero buff snapshot extraction，將 `Fixed64::from_raw(i64::MAX)` 或等效永久 sentinel 正規化為 `remaining_secs == -1.0`。
 - [x] 5.6 新增或擴充測試，覆蓋 `W/E/R/T` cast mapping、backend cast enqueue、未學技能拒絕，以及永久 buff 顯示為 `∞`。
-- [ ] 5.7 執行相關 `cargo test/check`，再由使用者手動驗證 W/E/R/T 施法與 R 被動 buff 顯示。
+- [x] 5.7 執行相關 `cargo test/check`，再由使用者手動驗證 W/E/R/T 施法與 R 被動 buff 顯示。
 - [x] 5.8 新增技能圖示本體左鍵施法：點擊欄位 0..3 的 icon 送出對應 `CastAbility { ability_index }`，並阻止該點擊落到 TD/map click handling。
 - [x] 5.9 將三角升級按鈕移到技能圖示上方的 LoL-style 位置，更新 UI positioning 與 hit-test，並確保三角點擊優先於 icon 施法。
-- [ ] 5.10 手動驗證：點 icon 施法、點 icon 上方三角升級，兩者不互相觸發。
+- [x] 5.10 手動驗證：點 icon 施法、點 icon 上方三角升級，兩者不互相觸發。
+- [x] 5.11 修正三角升級按鈕版面，使其底部緊貼技能 icon 上緣，且顯示寬度與 hit-test 寬度等於 icon 寬度。
+- [x] 5.12 放大三角箭頭本體，使箭頭比預設文字大小更寬、更醒目。
