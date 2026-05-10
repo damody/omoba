@@ -34,6 +34,7 @@ return function(ctx)
       render_mode = "base_barrel",
       base = "assets/towers/" .. id .. "_base.png",
       barrel = "assets/towers/" .. id .. "_barrel.png",
+      size = 180.0,
       barrel_frames = barrel_frames(id),
       barrel_animation = { fps = 10.0, loop = true, fire_fps = 18.0, fire_once = true },
       rotation_mode = "targeted",
@@ -56,6 +57,7 @@ return function(ctx)
     return {
       render_mode = "animated_area",
       base = "assets/towers/tower_cake_splash_frame_01.png",
+      size = 225.0,
       animation = {
         frames = cake_splash_frames(),
         fps = 10.0,
@@ -81,6 +83,9 @@ return function(ctx)
     else
       tower.render = fill_defaults(render, default_base_barrel_render(tower.id))
     end
+    if tower.render.size == nil then
+      tower.render.size = tower.footprint * 18.0
+    end
   end
 
   local towers = {
@@ -103,6 +108,7 @@ return function(ctx)
         render_mode = "base_barrel",
         base = "assets/towers/tower_dart_base.png",
         barrel = "assets/towers/tower_dart_barrel.png",
+        size = 180.0,
         barrel_frames = barrel_frames("tower_dart"),
         barrel_animation = { fps = 12.0, loop = true, fire_fps = 22.0, fire_once = true },
         rotation_mode = "targeted",
@@ -332,6 +338,7 @@ return function(ctx)
         render_mode = "base_barrel",
         base = "assets/towers/tower_tack_base.png",
         barrel = "assets/towers/tower_tack_barrel_8.png",
+        size = 180.0,
         rotation_mode = "fixed",
         barrel_layout = "radial_count_variants",
         barrel_variants = {
@@ -586,6 +593,7 @@ return function(ctx)
         render_mode = "base_barrel",
         base = "assets/towers/tower_bomb_base.png",
         barrel = "assets/towers/tower_bomb_barrel.png",
+        size = 225.0,
         barrel_frames = barrel_frames("tower_bomb"),
         barrel_animation = { fps = 9.0, loop = true, fire_fps = 18.0, fire_once = true },
         rotation_mode = "targeted",
@@ -813,6 +821,7 @@ return function(ctx)
         render_mode = "base_barrel",
         base = "assets/towers/tower_ice_base.png",
         barrel = "assets/towers/tower_ice_barrel.png",
+        size = 180.0,
         barrel_frames = barrel_frames("tower_ice"),
         barrel_animation = { fps = 10.0, loop = true, fire_fps = 18.0, fire_once = true },
         rotation_mode = "targeted",
@@ -1023,6 +1032,7 @@ return function(ctx)
       render = {
         render_mode = "animated_area",
         base = "assets/towers/tower_cake_splash_frame_01.png",
+        size = 225.0,
         animation = {
           frames = cake_splash_frames(),
           fps = 10.0,

@@ -51,6 +51,10 @@ Default: `targeted`.
 
 Default: `single`.
 
+### `size`
+
+`render.size` is the script-owned baseline combat sprite diameter in backend world units. omfx converts it to render units with `WORLD_SCALE` and uses temporary animation/recoil/buff scale only on top of this baseline. Backend placement validation uses `render.size / 2` as the tower placement radius, while runtime collision, attack range, projectile spawn, hit detection, and cooldown stay separate gameplay values.
+
 ## Coordinates
 
 All render offsets are visual-only and do not affect gameplay position, range, projectile spawn, hit detection, or cooldown.

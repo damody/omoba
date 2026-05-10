@@ -58,13 +58,7 @@ impl UnitScript for TackTower {
             return;
         }
         if matches!(phase, super::AttackPhaseStep::Ready) {
-            super::start_attack_windup(
-                e,
-                asd_interval,
-                TOWER_TACK_ATTACK_TIMING,
-                Target::None,
-                w,
-            );
+            super::start_attack_windup(e, asd_interval, TOWER_TACK_ATTACK_TIMING, Target::None, w);
             return;
         }
 
