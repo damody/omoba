@@ -96,7 +96,9 @@ fn tower_dart_render_metadata_is_generated() {
     assert_eq!(render.barrel_layout, TowerBarrelLayoutC::Single);
     assert_eq!(render.base, "assets/towers/tower_dart_base.png");
     assert_eq!(render.barrel, "assets/towers/tower_dart_barrel.png");
-    assert_eq!(render.size, Fixed64::from_i32(180));
+    assert_eq!(render.visual_size, Fixed64::from_i32(180));
+    let stats = tower_stats(TOWER_DART).expect("tower_dart stats");
+    assert_eq!(stats.placement_radius, Fixed64::from_i32(90));
     assert!(render
         .barrel_frames
         .contains(&"assets/towers/tower_dart_barrel_frame_01.png"));
@@ -132,6 +134,14 @@ fn tower_tack_render_metadata_has_fixed_radial_variants() {
     assert!(render.barrel_variants[1]
         .frames
         .contains(&"assets/towers/tower_tack_barrel_12_frame_01.png"));
+}
+
+#[test]
+fn tower_bomb_sizing_metadata_is_explicit() {
+    let render = tower_render_metadata(TOWER_BOMB).expect("tower_bomb render metadata");
+    assert_eq!(render.visual_size, Fixed64::from_i32(225));
+    let stats = tower_stats(TOWER_BOMB).expect("tower_bomb stats");
+    assert_eq!(stats.placement_radius, Fixed64::from_i32(96));
 }
 
 #[test]

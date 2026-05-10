@@ -81,6 +81,8 @@ struct TowerEntry {
     #[serde(default)]
     footprint: f32,
     #[serde(default)]
+    placement_radius: f32,
+    #[serde(default)]
     hp: f32,
     #[serde(default)]
     turn_speed_deg: f32,
@@ -103,7 +105,7 @@ struct TowerRenderEntry {
     #[serde(default)]
     barrel: String,
     #[serde(default)]
-    size: f32,
+    visual_size: f32,
     #[serde(default)]
     barrel_frames: Vec<String>,
     #[serde(default)]
@@ -1036,6 +1038,7 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
         if e.tombstone {
             continue;
         }
+        validate_tower_sizing(e);
         let cname = const_name("tower", &e.id);
         out.push_str(&format!(
             "pub const {}_STATS: TowerStats = TowerStats {{\n\
@@ -1049,6 +1052,7 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
              \tslow_duration: {},\n\
              \tcost: {}i32,\n\
              \tfootprint: {},\n\
+             \tplacement_radius: {},\n\
              \thp: {},\n\
              \tturn_speed_deg: {},\n\
              }};\n",
@@ -1063,6 +1067,7 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
             fixed64_lit(e.slow_duration),
             e.cost,
             fixed64_lit(e.footprint),
+            fixed64_lit(e.placement_radius),
             fixed64_lit(e.hp),
             fixed64_lit(e.turn_speed_deg),
         ));
@@ -1082,6 +1087,21 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
         next += 1;
     }
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+fn validate_tower_sizing(e: &TowerEntry) {
+    if e.placement_radius <= 0.0 {
+        panic!(
+            "tower '{}' placement_radius must be > 0 and declared in scripts Lua metadata",
+            e.id
+        );
+    }
+    if e.render.visual_size <= 0.0 {
+        panic!(
+            "tower '{}' render.visual_size must be > 0 and declared in scripts Lua metadata",
+            e.id
+        );
+    }
 }
 
 fn emit_str_slice_const(out: &mut String, const_name: &str, values: &[String]) {
@@ -1180,8 +1200,11 @@ fn normalized_tower_render(e: &TowerEntry) -> TowerRenderEntry {
     if r.render_mode != "animated_area" && r.barrel.is_empty() {
         r.barrel = format!("assets/towers/{}_barrel.png", e.id);
     }
-    if r.size <= 0.0 {
-        r.size = e.footprint * 18.0;
+    if r.visual_size <= 0.0 {
+        panic!(
+            "tower '{}' render.visual_size must be > 0 and declared in scripts Lua metadata",
+            e.id
+        );
     }
     if r.rotation_mode.is_empty() {
         r.rotation_mode = "targeted".into();
@@ -1241,7 +1264,7 @@ fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
              \trender_mode: TowerRenderModeC::{},\n\
              \tbase: \"{}\",\n\
              \tbarrel: \"{}\",\n\
-             \tsize: {},\n\
+             \tvisual_size: {},\n\
              \tbarrel_frames: {},\n\
              \tbody_frames: {},\n\
              \tbarrel_animation: {},\n\
@@ -1259,7 +1282,7 @@ fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
             tower_render_mode_to_variant(&render.render_mode),
             escape_str_literal(&render.base),
             escape_str_literal(&render.barrel),
-            fixed64_lit(render.size),
+            fixed64_lit(render.visual_size),
             barrel_frames_const,
             body_frames_const,
             render_animation_lit(&render.barrel_animation),

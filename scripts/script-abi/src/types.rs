@@ -129,7 +129,7 @@ pub struct TowerRenderMetadata {
     pub render_mode: RString,
     pub base: RString,
     pub barrel: RString,
-    pub size: Fixed64,
+    pub visual_size: Fixed64,
     pub barrel_frames: RVec<RString>,
     pub body_frames: RVec<RString>,
     pub barrel_animation: TowerRenderAnimation,
@@ -150,7 +150,7 @@ impl Default for TowerRenderMetadata {
             render_mode: RString::from("base_barrel"),
             base: RString::new(),
             barrel: RString::new(),
-            size: Fixed64::from_i32(180),
+            visual_size: Fixed64::ZERO,
             barrel_frames: RVec::new(),
             body_frames: RVec::new(),
             barrel_animation: TowerRenderAnimation::default(),
@@ -200,8 +200,10 @@ pub struct TowerMetadata {
 
     /// 建造金幣
     pub cost: i32,
-    /// 放置碰撞半徑
+    /// runtime collision/template footprint；建塔放置檢查使用 `placement_radius`。
     pub footprint: Fixed64,
+    /// 建塔放置檢查半徑（backend 單位）；不等同 runtime CollisionRadius。
+    pub placement_radius: Fixed64,
     /// 塔 HP
     pub hp: Fixed64,
     /// 塔轉向速度（度/秒）

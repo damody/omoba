@@ -29,6 +29,7 @@ pub struct TowerStats {
     pub slow_duration: Fixed64,
     pub cost: i32,
     pub footprint: Fixed64,
+    pub placement_radius: Fixed64,
     pub hp: Fixed64,
     pub turn_speed_deg: Fixed64,
 }
@@ -103,7 +104,7 @@ pub struct TowerRenderMetadataConst {
     pub render_mode: TowerRenderModeC,
     pub base: &'static str,
     pub barrel: &'static str,
-    pub size: Fixed64,
+    pub visual_size: Fixed64,
     pub barrel_frames: &'static [&'static str],
     pub body_frames: &'static [&'static str],
     pub barrel_animation: TowerRenderAnimationConst,
