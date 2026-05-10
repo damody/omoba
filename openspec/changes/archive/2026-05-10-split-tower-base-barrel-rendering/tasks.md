@@ -65,10 +65,10 @@
 - [x] 5.8 執行 `cargo test --manifest-path scripts/Cargo.toml -p base_content` 或等效 script workspace 測試。
 - [x] 5.9 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab` 或受影響 crate 的 focused tests。
 - [x] 5.10 執行 `cargo check --manifest-path omfx/Cargo.toml` 或等效 omfx build 檢查。
-- [ ] 5.11 手動驗證 TD_1：放置 `tower_dart`、`tower_bomb`、`tower_ice` 後可看到 base/barrel 組合，barrel 朝向目標，攻擊前搖開始時 barrel animation 開始播放，impact event 時 fire frame/recoil 對齊。
-- [ ] 5.12 手動驗證 `tower_tack`：barrel 不跟單一 creep 旋轉，攻擊前搖開始時對應 count variant animation 播放，impact event 時整座塔縮小再回彈放大，針發射方向與命中仍依 sim 規則正常。
-- [ ] 5.13 手動驗證 `tower_tack` 升級：未升級顯示 8 根，升到對應更多針狀態後顯示 12 根，再升級後顯示 16 根。
-- [ ] 5.14 手動驗證無砲管範圍傷害塔：沒有 barrel node，攻擊前搖開始播放 body frame animation，impact frame 對齊範圍傷害瞬間。
-- [ ] 5.15 以 `combat-tower-layout.svg` 對照手動驗證結果，確認 target-facing tower、fixed tack tower、8/12/16 variant、barrel/body animation 與 `scale_pulse` 表現符合示意圖。
-- [ ] 5.16 手動驗證 fallback：暫時改名其中一張 barrel/body frame PNG，確認 omfx log 缺圖但不 panic，且 tower 仍可操作。
-- [ ] 5.17 手動或壓測驗證大量 tower 場景，確認 composite render 不造成明顯 frame-time regression 或 node allocation churn。
+- [x] 5.11 手動驗證 TD_1：放置 `tower_dart`、`tower_bomb`、`tower_ice` 後可看到 base/barrel 組合，barrel 朝向目標，攻擊前搖開始時 barrel animation 開始播放，impact event 時 fire frame/recoil 對齊。
+- [x] 5.12 手動驗證 `tower_tack`：barrel 不跟單一 creep 旋轉，攻擊前搖開始時對應 count variant animation 播放，impact event 時整座塔縮小再回彈放大，針發射方向與命中仍依 sim 規則正常。
+- [x] 5.13 手動驗證 `tower_tack` 升級：未升級顯示 8 根，升到對應更多針狀態後顯示 12 根，再升級後顯示 16 根。
+- [x] 5.14 手動驗證無砲管範圍傷害塔：沒有 barrel node，攻擊前搖開始播放 body frame animation，impact frame 對齊範圍傷害瞬間。
+- [x] 5.15 以 `combat-tower-layout.svg` 對照手動驗證結果，確認 target-facing tower、fixed tack tower、8/12/16 variant、barrel/body animation 與 `scale_pulse` 表現符合示意圖。
+- [x] 5.16 手動驗證 fallback：暫時改名其中一張 barrel/body frame PNG，確認 omfx log 缺圖但不 panic，且 tower 仍可操作。
+- [x] 5.17 手動或壓測驗證大量 tower 場景，確認 composite render 不造成明顯 frame-time regression 或 node allocation churn。
