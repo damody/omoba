@@ -57,7 +57,8 @@ if "%FRESH_ERR%"=="0" (
 if "%FRESH_ERR%"=="1" (
     echo   -^> %LABEL% stale; building...
 ) else (
-    echo   -^> freshness check failed for %LABEL%; building...
+    echo   -^> freshness check failed for %LABEL%; aborting.
+    exit /b 1
 )
 
 %BUILD_CMD%

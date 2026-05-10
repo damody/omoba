@@ -216,7 +216,6 @@ $omobaCore = New-InputSet -Files @(
 
 $templateIds = New-InputSet -Files @(
     'omoba-template-ids/Cargo.toml',
-    'omoba-template-ids/Cargo.lock',
     'omoba-template-ids/build.rs',
     'scripts/lua_data/templates.lua'
 ) -Directories @(
