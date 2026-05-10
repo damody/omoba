@@ -805,7 +805,7 @@ return function(ctx)
       display_name = "冰凍猴",
       atk = 3.0,
       asd_interval = 1.5,
-      range = 280.0,
+      range = 300.0,
       bullet_speed = 600.0,
       splash_radius = 90.0,
       hit_radius = 0.0,
@@ -813,7 +813,7 @@ return function(ctx)
       slow_duration = 2.0,
       cost = 400,
       footprint = 10.0,
-      placement_radius = 900.0,
+      placement_radius = 80.0,
       hp = 1.0,
       turn_speed_deg = 360.0,
       render = {
