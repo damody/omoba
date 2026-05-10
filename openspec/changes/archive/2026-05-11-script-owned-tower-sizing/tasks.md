@@ -40,7 +40,7 @@
 - [x] 5.3 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab` 或至少 placement/snapshot 相關 focused tests。
 - [x] 5.4 執行 `cargo check --manifest-path omfx/Cargo.toml`。
 - [x] 5.5 執行 `openspec validate --all --strict`。
-- [ ] 5.6 手動驗證 TD_1 放塔 preview footprint 圈與後端實際可放置結果一致。
-- [ ] 5.7 手動驗證調整 `scripts/lua_data/templates/towers.lua` 中單座 tower 的 `render.visual_size` 只改變視覺基準大小，不影響 attack range、damage、cooldown。
-- [ ] 5.8 手動驗證調整單座 tower 的 `placement_radius` 只改變放置碰撞，不影響 runtime `CollisionRadius`、攻擊與彈道。
+- [x] 5.6 手動驗證 TD_1 放塔 preview footprint 圈與後端實際可放置結果一致。
+- [x] 5.7 手動驗證調整 `scripts/lua_data/templates/towers.lua` 中單座 tower 的 `render.visual_size` 只改變視覺基準大小，不影響 attack range、damage、cooldown。
+- [x] 5.8 手動驗證調整單座 tower 的 `placement_radius` 只改變放置碰撞，不影響 runtime `CollisionRadius`、攻擊與彈道。
 - [x] 5.9 使用 grep 或 focused test 確認 tower placement sizing 不再包含 `render.visual_size / 2`、`render.size / 2`、`footprint` fallback 或 frontend global visual scale。

@@ -13,7 +13,7 @@ snapshot entity data SHALL 包含 optional hero extension data、optional tower 
 #### Scenario: extract_snapshot 只 drain outcome queues
 
 - **WHEN** 搜尋 `omfx/game/src/sim_runner.rs::extract_snapshot` 中的 `write_storage`、`write_resource`、`entities.create` 與 `entities.delete`
-- **THEN** 唯一允許的 writes 是 `RemovedEntitiesQueue` 與 `ExplosionFxQueue` 的 `mem::take` drains
+- **THEN** 唯一允許的 writes 是 `RemovedEntitiesQueue`、`ExplosionFxQueue`、`TowerFireFxQueue` 與 `AttackPhaseFxQueue` 的 `mem::take` drains
 - **AND** 沒有 component writes、entity creates 或 entity deletes
 
 #### Scenario: omoba-sim determinism tests 通過
@@ -163,7 +163,7 @@ Tower click hit-testing、sell/upgrade panel rendering 與 attack-range display 
 
 ### Requirement: tower template snapshots expose combat render metadata
 
-`SimWorldSnapshot.tower_templates` SHALL expose render-facing tower combat metadata needed by omfx composite rendering. For each tower template, the snapshot data SHALL include render mode, base image path, barrel image path, script-owned visual size, barrel frame paths, barrel animation timing, body animation frame paths for animated-area towers, rotation mode, barrel layout, barrel count variants, barrel offset, barrel pivot, muzzle offset, recoil distance, recoil scale, recoil attack duration, recoil return duration, and recoil mode. The metadata SHALL originate from scripts content data and SHALL be shared through `Arc` with the same static template lifecycle as existing tower template snapshot data.
+`SimWorldSnapshot.tower_templates` SHALL expose render-facing tower combat metadata needed by omfx composite rendering. For each tower template, the snapshot data SHALL include render mode, base image path, barrel image path, script-owned `render.visual_size`, script-owned `placement_radius`, barrel frame paths, barrel animation timing, body animation frame paths for animated-area towers, rotation mode, barrel layout, barrel count variants, barrel offset, barrel pivot, muzzle offset, recoil distance, recoil scale, recoil attack duration, recoil return duration, and recoil mode. The metadata SHALL originate from scripts content data and SHALL be shared through `Arc` with the same static template lifecycle as existing tower template snapshot data.
 
 #### Scenario: tower template snapshot contains base and barrel paths
 
@@ -171,6 +171,13 @@ Tower click hit-testing、sell/upgrade panel rendering 與 attack-range display 
 - **THEN** the snapshot entry contains a non-empty base image path for `tower_dart`
 - **AND** the snapshot entry contains a non-empty barrel image path for `tower_dart`
 - **AND** omfx can cache the metadata by `unit_id`
+
+#### Scenario: tower template snapshot contains script-owned sizing
+
+- **WHEN** `extract_snapshot` builds `TowerTemplateSnapshot` for `tower_dart`
+- **THEN** the snapshot entry contains `render.visual_size` from scripts metadata
+- **AND** the snapshot entry contains `placement_radius` from scripts metadata
+- **AND** neither value is inferred from `footprint`, image dimensions, global frontend scale, or another snapshot field
 
 #### Scenario: tower template snapshot contains barrel animation frames
 
@@ -228,7 +235,7 @@ Tower barrel aiming SHALL use authoritative render-facing data from the simulati
 
 ### Requirement: tower fire cues are drained as render-only snapshot events
 
-`SimWorldSnapshot` SHALL include render-only tower fire cues for recoil animation. The source queue SHALL follow the `ExplosionFxQueue` pattern: deterministic gameplay processing pushes fire cue data when a tower actually fires, and `extract_snapshot` drains the pending queue with `std::mem::take`. The queue SHALL NOT be read by simulation systems for gameplay and SHALL NOT affect state hashing.
+`SimWorldSnapshot` SHALL include render-only tower fire cues for recoil animation. The source queue SHALL follow the `ExplosionFxQueue` pattern: deterministic gameplay processing pushes fire cue data when a tower actually fires, and `extract_snapshot` drains the pending queue with `std::mem::take`. The queue SHALL NOT be read by simulation systems for gameplay and SHALL NOT affect state hashing. The sim runner MAY retain recently drained cues in published snapshots for a short render handoff window so a render frame cannot miss a single-tick cue.
 
 Each fire cue SHALL include at minimum the tower entity id, spawn tick, and firing direction in radians. If multiple projectile outcomes from the same tower occur in the same tick, the render cue producer or omfx SHALL allow them to collapse into one recoil pulse for that tower tick.
 
@@ -244,7 +251,7 @@ Each fire cue SHALL include at minimum the tower entity id, spawn tick, and firi
 - **WHEN** `extract_snapshot` drains pending tower fire cues
 - **THEN** the drained cues appear in the snapshot
 - **AND** the source queue is empty after extraction
-- **AND** the same cue does not repeat in later snapshots unless the tower fires again
+- **AND** any retained copies in later snapshots carry the same cue identity and are ignored by omfx after the first render-side consumption
 
 #### Scenario: fire cues do not change determinism
 
@@ -267,7 +274,13 @@ Each fire cue SHALL include at minimum the tower entity id, spawn tick, and firi
 - **WHEN** `extract_snapshot` drains pending attack phase cues
 - **THEN** drained cues appear in the snapshot
 - **AND** the source queue is empty after extraction
-- **AND** the same cue does not appear again in later snapshots unless another attack windup starts
+- **AND** any retained copies in later snapshots carry the same cue identity and are ignored by omfx after the first render-side consumption
+
+#### Scenario: retained render cues survive snapshot overwrite
+
+- **WHEN** sim publishes tick N with a tower fire or attack phase cue and then publishes later ticks before the render thread reads tick N
+- **THEN** the latest snapshot may still include the recent cue within the render handoff window
+- **AND** omfx consumes the cue once based on entity id, generation, spawn tick, and attack sequence id where available
 
 ### Requirement: tower body labels 只顯示 upgrade level summaries
 
