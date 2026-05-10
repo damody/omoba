@@ -1,6 +1,6 @@
 {
-    "1a33e0eb-d794-4516-a48b-2a2f47280ad1": "data/hero1_4.png",
-    "2b67ea03-9639-44dc-a4d5-47c4338a3156": "data/hero1_1.png",
-    "7c128fad-40b2-41ef-90e1-6f26a13d433e": "data/hero1_3.png",
-    "7fc272b1-dbc1-4814-9c3f-9953bea73c35": "data/hero1_2.png",
+    "92cef178-c4e3-42d8-93b3-29ab54c96ef8": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_stand3.fbx",
+    "b6902097-3aa0-4aad-8f9c-ba259b020460": "scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi.fbx",
+    "ce4a6310-d09a-460f-9460-e0d969fec140": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_attack.fbx",
+    "d9e02b33-0912-45c8-a362-9b81ea307950": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_run.fbx",
 }

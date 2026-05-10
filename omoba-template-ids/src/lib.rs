@@ -163,6 +163,49 @@ pub struct HeroStats {
     pub level_growth: LevelGrowth,
 }
 
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum HeroRenderModeC {
+    Model3d = 1,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct HeroAnimationSourceConst {
+    pub key: &'static str,
+    pub model: &'static str,
+    pub animation: &'static str,
+    pub duration_ticks: Fixed64,
+    pub ticks_per_second: Fixed64,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct HeroAnimationBindingConst {
+    pub action: &'static str,
+    pub source: &'static str,
+    pub start_tick: Fixed64,
+    pub end_tick: Fixed64,
+    pub has_impact_tick: bool,
+    pub impact_tick: Fixed64,
+    pub loop_animation: bool,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct HeroRenderMetadataConst {
+    pub render_mode: HeroRenderModeC,
+    pub model: &'static str,
+    pub texture: &'static str,
+    pub scale: Fixed64,
+    pub pitch_offset_deg: Fixed64,
+    pub roll_offset_deg: Fixed64,
+    pub yaw_offset_deg: Fixed64,
+    pub z_offset: Fixed64,
+    pub animation_sources: &'static [HeroAnimationSourceConst],
+    pub animations: &'static [HeroAnimationBindingConst],
+}
+
 /// Creep / Enemy intrinsic stats — 對應 templates.lua creeps[i]。
 /// `enemy_type`：0=caster, 1=melee, 2=ranged, 3=boss。
 /// `ai_type`：0=defensive, 1=aggressive, 2=patrol, 3=guard, 4=passive, 5=berserker。

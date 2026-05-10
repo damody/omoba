@@ -9,7 +9,7 @@ use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::cell::RefCell;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
@@ -305,7 +305,59 @@ struct HeroEntry {
     #[serde(default = "default_attack_timing")]
     attack_timing: AttackTimingEntry,
     #[serde(default)]
+    render: Option<HeroRenderEntry>,
+    #[serde(default)]
     level_growth: HeroLevelGrowthEntry,
+}
+
+#[derive(Deserialize, Clone, Default)]
+struct HeroRenderEntry {
+    #[serde(default)]
+    render_mode: String,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    texture: String,
+    #[serde(default)]
+    scale: f32,
+    #[serde(default)]
+    pitch_offset_deg: f32,
+    #[serde(default)]
+    roll_offset_deg: f32,
+    #[serde(default)]
+    yaw_offset_deg: f32,
+    #[serde(default)]
+    z_offset: f32,
+    #[serde(default)]
+    animation_sources: BTreeMap<String, HeroAnimationSourceEntry>,
+    #[serde(default)]
+    animations: BTreeMap<String, HeroAnimationBindingEntry>,
+}
+
+#[derive(Deserialize, Clone, Default)]
+struct HeroAnimationSourceEntry {
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    animation: String,
+    #[serde(default)]
+    duration_ticks: f32,
+    #[serde(default)]
+    ticks_per_second: f32,
+}
+
+#[derive(Deserialize, Clone, Default)]
+struct HeroAnimationBindingEntry {
+    #[serde(default)]
+    source: String,
+    #[serde(default)]
+    start_tick: f32,
+    #[serde(default)]
+    impact_tick: Option<f32>,
+    #[serde(default)]
+    end_tick: f32,
+    #[serde(default, rename = "loop")]
+    loop_animation: bool,
 }
 
 #[derive(Deserialize, Default, Clone)]
@@ -611,6 +663,7 @@ fn main() {
     emit_tower_namespace(&mut out, &m.towers);
     emit_tower_render_metadata(&mut out, &m.towers);
     emit_hero_namespace(&mut out, &m.heroes);
+    emit_hero_render_metadata(&mut out, &m.heroes);
     let ability_ids_for_ns: Vec<Entry> = m
         .abilities
         .iter()
@@ -1352,6 +1405,214 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
         next += 1;
     }
     out.push_str("\t\t_ => \"\",\n\t}\n}\n\n");
+}
+
+fn hero_render_mode_to_variant(value: &str) -> &'static str {
+    match value {
+        "model_3d" => "Model3d",
+        other => panic!(
+            "unknown hero render_mode '{}', expected model_3d",
+            other
+        ),
+    }
+}
+
+fn validate_content_rel_path(owner: &str, field: &str, value: &str) {
+    if value.trim().is_empty() {
+        panic!("{} {} must be non-empty", owner, field);
+    }
+    let path = Path::new(value);
+    if path.is_absolute() {
+        panic!("{} {} must be relative to scripts/lua_data: {}", owner, field, value);
+    }
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => panic!(
+                "{} {} must not escape scripts/lua_data: {}",
+                owner, field, value
+            ),
+        }
+    }
+}
+
+fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
+    let render = e.render.clone()?;
+    if render.render_mode.trim().is_empty() {
+        return None;
+    }
+    if render.render_mode != "model_3d" {
+        hero_render_mode_to_variant(&render.render_mode);
+    }
+
+    let owner = format!("hero '{}' render", e.id);
+    validate_content_rel_path(&owner, "model", &render.model);
+    validate_content_rel_path(&owner, "texture", &render.texture);
+    if render.scale <= 0.0 {
+        panic!("{} scale must be > 0", owner);
+    }
+    if render.animation_sources.is_empty() {
+        panic!("{} animation_sources must not be empty", owner);
+    }
+
+    for (source_key, source) in &render.animation_sources {
+        if source_key.trim().is_empty() {
+            panic!("{} animation source key must be non-empty", owner);
+        }
+        validate_content_rel_path(
+            &owner,
+            &format!("animation_sources.{}.model", source_key),
+            &source.model,
+        );
+        if source.animation.trim().is_empty() {
+            panic!("{} animation source '{}' animation must be non-empty", owner, source_key);
+        }
+        if source.duration_ticks <= 0.0 {
+            panic!("{} animation source '{}' duration_ticks must be > 0", owner, source_key);
+        }
+        if source.ticks_per_second <= 0.0 {
+            panic!("{} animation source '{}' ticks_per_second must be > 0", owner, source_key);
+        }
+    }
+
+    for action in ["move", "attack", "critical", "sniper"] {
+        let binding = render
+            .animations
+            .get(action)
+            .unwrap_or_else(|| panic!("{} missing required animation binding '{}'", owner, action));
+        let source = render.animation_sources.get(&binding.source).unwrap_or_else(|| {
+            panic!(
+                "{} animation '{}' references unknown source '{}'",
+                owner, action, binding.source
+            )
+        });
+        if binding.start_tick < 0.0 {
+            panic!("{} animation '{}' start_tick must be >= 0", owner, action);
+        }
+        if binding.end_tick <= binding.start_tick {
+            panic!("{} animation '{}' end_tick must be > start_tick", owner, action);
+        }
+        if binding.end_tick > source.duration_ticks {
+            panic!(
+                "{} animation '{}' end_tick {} exceeds source '{}' duration {}",
+                owner, action, binding.end_tick, binding.source, source.duration_ticks
+            );
+        }
+        match action {
+            "attack" | "critical" => {
+                if binding.loop_animation {
+                    panic!("{} animation '{}' must be non-looping", owner, action);
+                }
+                let impact = binding
+                    .impact_tick
+                    .unwrap_or_else(|| panic!("{} animation '{}' missing impact_tick", owner, action));
+                if !(binding.start_tick < impact && impact < binding.end_tick) {
+                    panic!(
+                        "{} animation '{}' must satisfy start_tick < impact_tick < end_tick",
+                        owner, action
+                    );
+                }
+            }
+            "move" | "sniper" => {
+                if !binding.loop_animation {
+                    panic!("{} animation '{}' must be loopable", owner, action);
+                }
+                if binding.impact_tick.is_some() {
+                    panic!("{} animation '{}' must not declare impact_tick", owner, action);
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    Some(render)
+}
+
+fn emit_hero_render_metadata(out: &mut String, entries: &[HeroEntry]) {
+    for e in entries {
+        if e.tombstone {
+            continue;
+        }
+        let Some(render) = normalized_hero_render(e) else {
+            continue;
+        };
+        let cname = const_name("hero", &e.id);
+        let sources_const = format!("{}_RENDER_ANIMATION_SOURCES", cname);
+        out.push_str(&format!(
+            "pub const {}: &[HeroAnimationSourceConst] = &[\n",
+            sources_const
+        ));
+        for (key, source) in &render.animation_sources {
+            out.push_str(&format!(
+                "\tHeroAnimationSourceConst {{ key: \"{}\", model: \"{}\", animation: \"{}\", duration_ticks: {}, ticks_per_second: {} }},\n",
+                escape_str_literal(key),
+                escape_str_literal(&source.model),
+                escape_str_literal(&source.animation),
+                fixed64_lit(source.duration_ticks),
+                fixed64_lit(source.ticks_per_second),
+            ));
+        }
+        out.push_str("];\n");
+
+        let bindings_const = format!("{}_RENDER_ANIMATIONS", cname);
+        out.push_str(&format!(
+            "pub const {}: &[HeroAnimationBindingConst] = &[\n",
+            bindings_const
+        ));
+        for (action, binding) in &render.animations {
+            out.push_str(&format!(
+                "\tHeroAnimationBindingConst {{ action: \"{}\", source: \"{}\", start_tick: {}, end_tick: {}, has_impact_tick: {}, impact_tick: {}, loop_animation: {} }},\n",
+                escape_str_literal(action),
+                escape_str_literal(&binding.source),
+                fixed64_lit(binding.start_tick),
+                fixed64_lit(binding.end_tick),
+                binding.impact_tick.is_some(),
+                fixed64_lit(binding.impact_tick.unwrap_or(0.0)),
+                binding.loop_animation,
+            ));
+        }
+        out.push_str("];\n");
+
+        out.push_str(&format!(
+            "pub const {}_RENDER: HeroRenderMetadataConst = HeroRenderMetadataConst {{\n\
+             \trender_mode: HeroRenderModeC::{},\n\
+             \tmodel: \"{}\",\n\
+             \ttexture: \"{}\",\n\
+             \tscale: {},\n\
+             \tpitch_offset_deg: {},\n\
+             \troll_offset_deg: {},\n\
+             \tyaw_offset_deg: {},\n\
+             \tz_offset: {},\n\
+             \tanimation_sources: {},\n\
+             \tanimations: {},\n\
+             }};\n",
+            cname,
+            hero_render_mode_to_variant(&render.render_mode),
+            escape_str_literal(&render.model),
+            escape_str_literal(&render.texture),
+            fixed64_lit(render.scale),
+            fixed64_lit(render.pitch_offset_deg),
+            fixed64_lit(render.roll_offset_deg),
+            fixed64_lit(render.yaw_offset_deg),
+            fixed64_lit(render.z_offset),
+            sources_const,
+            bindings_const,
+        ));
+    }
+    out.push('\n');
+
+    out.push_str("pub fn hero_render_metadata(id: HeroId) -> Option<&'static HeroRenderMetadataConst> {\n\tmatch id.0 {\n");
+    let mut next: u16 = 1;
+    for e in entries {
+        if !e.tombstone {
+            if normalized_hero_render(e).is_some() {
+                let cname = const_name("hero", &e.id);
+                out.push_str(&format!("\t\t{} => Some(&{}_RENDER),\n", next, cname));
+            }
+        }
+        next += 1;
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
 /// Hero → abilities[] codegen — 從 templates.lua heroes[i].abilities 字串陣列翻成

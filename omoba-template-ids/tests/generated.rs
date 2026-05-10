@@ -137,6 +137,64 @@ fn tower_tack_render_metadata_has_fixed_radial_variants() {
 }
 
 #[test]
+fn hero_saika_render_metadata_is_generated() {
+    let render = hero_render_metadata(HERO_SAIKA_MAGOICHI).expect("saika render metadata");
+    assert_eq!(render.render_mode, HeroRenderModeC::Model3d);
+    assert_eq!(
+        render.model,
+        "templates/heroes/saika_magoichi/saika_magoichi.fbx"
+    );
+    assert_eq!(
+        render.texture,
+        "templates/heroes/saika_magoichi/saika_magoichi_mat.png"
+    );
+    assert!(render.scale > Fixed64::from_raw(0));
+    assert_eq!(render.pitch_offset_deg, Fixed64::from_i32(-90));
+    assert_eq!(render.roll_offset_deg, Fixed64::from_raw(0));
+    assert_eq!(render.yaw_offset_deg, Fixed64::from_raw(0));
+    assert_eq!(render.z_offset, Fixed64::from_raw(0));
+
+    let move_source = hero_source(render, "move");
+    assert_eq!(
+        move_source.model,
+        "templates/heroes/saika_magoichi/b01_ani_run.fbx"
+    );
+    assert_eq!(move_source.animation, "Take 001");
+    assert_eq!(move_source.duration_ticks, Fixed64::from_i32(23));
+    assert_eq!(move_source.ticks_per_second, Fixed64::from_i32(30));
+
+    for key in ["attack", "critical"] {
+        let source = hero_source(render, key);
+        assert_eq!(
+            source.model,
+            "templates/heroes/saika_magoichi/b01_ani_attack.fbx"
+        );
+        assert_eq!(source.animation, "Take 001");
+        assert_eq!(source.duration_ticks, Fixed64::from_i32(100));
+        assert_eq!(source.ticks_per_second, Fixed64::from_i32(30));
+    }
+
+    let sniper_source = hero_source(render, "sniper");
+    assert_eq!(
+        sniper_source.model,
+        "templates/heroes/saika_magoichi/b01_ani_stand3.fbx"
+    );
+    assert_eq!(sniper_source.animation, "Take 001");
+    assert_eq!(sniper_source.duration_ticks, Fixed64::from_i32(53));
+    assert_eq!(sniper_source.ticks_per_second, Fixed64::from_i32(30));
+
+    assert_loop_binding(render, "move", "move", 23);
+    assert_loop_binding(render, "sniper", "sniper", 53);
+    assert_attack_binding(render, "attack", "attack");
+    assert_attack_binding(render, "critical", "critical");
+}
+
+#[test]
+fn hero_without_render_metadata_returns_none() {
+    assert!(hero_render_metadata(HERO_DATE_MASAMUNE).is_none());
+}
+
+#[test]
 fn tower_bomb_sizing_metadata_is_explicit() {
     let render = tower_render_metadata(TOWER_BOMB).expect("tower_bomb render metadata");
     assert_eq!(render.visual_size, Fixed64::from_i32(225));
@@ -300,6 +358,53 @@ fn object_field(value: &StoryValue, key: &str) -> Option<&'static StoryValue> {
             .find_map(|(field_key, field_value)| (*field_key == key).then_some(field_value)),
         _ => None,
     }
+}
+
+fn hero_source(
+    render: &HeroRenderMetadataConst,
+    key: &str,
+) -> &'static HeroAnimationSourceConst {
+    render
+        .animation_sources
+        .iter()
+        .find(|source| source.key == key)
+        .unwrap_or_else(|| panic!("missing hero animation source {key}"))
+}
+
+fn hero_binding(
+    render: &HeroRenderMetadataConst,
+    action: &str,
+) -> &'static HeroAnimationBindingConst {
+    render
+        .animations
+        .iter()
+        .find(|binding| binding.action == action)
+        .unwrap_or_else(|| panic!("missing hero animation binding {action}"))
+}
+
+fn assert_loop_binding(
+    render: &HeroRenderMetadataConst,
+    action: &str,
+    source_key: &str,
+    end_tick: i32,
+) {
+    let binding = hero_binding(render, action);
+    assert_eq!(binding.source, source_key);
+    assert_eq!(binding.start_tick, Fixed64::from_raw(0));
+    assert_eq!(binding.end_tick, Fixed64::from_i32(end_tick));
+    assert!(!binding.has_impact_tick);
+    assert_eq!(binding.impact_tick, Fixed64::from_raw(0));
+    assert!(binding.loop_animation);
+}
+
+fn assert_attack_binding(render: &HeroRenderMetadataConst, action: &str, source_key: &str) {
+    let binding = hero_binding(render, action);
+    assert_eq!(binding.source, source_key);
+    assert_eq!(binding.start_tick, Fixed64::from_raw(0));
+    assert_eq!(binding.impact_tick, Fixed64::from_i32(22));
+    assert_eq!(binding.end_tick, Fixed64::from_i32(100));
+    assert!(binding.has_impact_tick);
+    assert!(!binding.loop_animation);
 }
 
 fn workspace_root() -> std::path::PathBuf {
