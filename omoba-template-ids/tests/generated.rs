@@ -151,7 +151,7 @@ fn hero_saika_render_metadata_is_generated() {
     assert!(render.scale > Fixed64::from_raw(0));
     assert_eq!(render.pitch_offset_deg, Fixed64::from_i32(-90));
     assert_eq!(render.roll_offset_deg, Fixed64::from_raw(0));
-    assert_eq!(render.yaw_offset_deg, Fixed64::from_raw(0));
+    assert_eq!(render.yaw_offset_deg, Fixed64::from_i32(-90));
     assert_eq!(render.z_offset, Fixed64::from_raw(0));
 
     let move_source = hero_source(render, "move");

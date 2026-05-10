@@ -30,7 +30,7 @@ return function(ctx)
         scale = 0.012,
         pitch_offset_deg = -90.0,
         roll_offset_deg = 0.0,
-        yaw_offset_deg = 90.0,
+        yaw_offset_deg = -90.0,
         z_offset = 0.0,
         animation_sources = {
           move = {
