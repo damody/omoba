@@ -96,7 +96,10 @@ fn tower_dart_render_metadata_is_generated() {
     assert_eq!(render.barrel_layout, TowerBarrelLayoutC::Single);
     assert_eq!(render.base, "assets/towers/tower_dart_base.png");
     assert_eq!(render.barrel, "assets/towers/tower_dart_barrel.png");
-    assert!(render.barrel_frames.contains(&"assets/towers/tower_dart_barrel_frame_01.png"));
+    assert_eq!(render.size, Fixed64::from_i32(180));
+    assert!(render
+        .barrel_frames
+        .contains(&"assets/towers/tower_dart_barrel_frame_01.png"));
     assert_eq!(render.barrel_pivot.x, Fixed64::from_raw(512));
     assert_eq!(render.barrel_offset.y, Fixed64::from_i32(-6));
     assert_eq!(render.recoil.mode, TowerRecoilModeC::Directional);
@@ -107,13 +110,25 @@ fn tower_dart_render_metadata_is_generated() {
 fn tower_tack_render_metadata_has_fixed_radial_variants() {
     let render = tower_render_metadata(TOWER_TACK).expect("tower_tack render metadata");
     assert_eq!(render.rotation_mode, TowerRotationModeC::Fixed);
-    assert_eq!(render.barrel_layout, TowerBarrelLayoutC::RadialCountVariants);
+    assert_eq!(
+        render.barrel_layout,
+        TowerBarrelLayoutC::RadialCountVariants
+    );
     assert_eq!(render.recoil.mode, TowerRecoilModeC::ScalePulse);
     let counts: Vec<u16> = render.barrel_variants.iter().map(|v| v.count).collect();
     assert_eq!(counts, vec![8, 12, 16]);
-    assert_eq!(render.barrel_variants[0].image, "assets/towers/tower_tack_barrel_8.png");
-    assert_eq!(render.barrel_variants[1].image, "assets/towers/tower_tack_barrel_12.png");
-    assert_eq!(render.barrel_variants[2].image, "assets/towers/tower_tack_barrel_16.png");
+    assert_eq!(
+        render.barrel_variants[0].image,
+        "assets/towers/tower_tack_barrel_8.png"
+    );
+    assert_eq!(
+        render.barrel_variants[1].image,
+        "assets/towers/tower_tack_barrel_12.png"
+    );
+    assert_eq!(
+        render.barrel_variants[2].image,
+        "assets/towers/tower_tack_barrel_16.png"
+    );
     assert!(render.barrel_variants[1]
         .frames
         .contains(&"assets/towers/tower_tack_barrel_12_frame_01.png"));

@@ -12,10 +12,7 @@ pub enum AttackPhaseStep {
     Impact,
 }
 
-pub fn attack_phase_durations(
-    interval: Fixed64,
-    timing: AttackTimingConst,
-) -> (Fixed64, Fixed64) {
+pub fn attack_phase_durations(interval: Fixed64, timing: AttackTimingConst) -> (Fixed64, Fixed64) {
     let windup = interval * Fixed64::from_i32(timing.windup as i32) / Fixed64::from_i32(1000);
     let backswing = interval - windup;
     (windup, backswing)
@@ -113,6 +110,7 @@ fn render_metadata_from_const(src: &TowerRenderMetadataConst) -> TowerRenderMeta
         render_mode: RString::from(render_mode_name(src.render_mode)),
         base: RString::from(src.base),
         barrel: RString::from(src.barrel),
+        size: src.size,
         barrel_frames: rstrings(src.barrel_frames),
         body_frames: rstrings(src.body_frames),
         barrel_animation: render_animation_from_const(src.barrel_animation),
@@ -142,7 +140,9 @@ fn rstrings(values: &'static [&'static str]) -> RVec<RString> {
     out
 }
 
-fn barrel_variants_from_const(values: &'static [TowerBarrelVariantConst]) -> RVec<TowerBarrelVariant> {
+fn barrel_variants_from_const(
+    values: &'static [TowerBarrelVariantConst],
+) -> RVec<TowerBarrelVariant> {
     let mut out = RVec::new();
     for value in values {
         out.push(TowerBarrelVariant {

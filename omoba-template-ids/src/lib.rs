@@ -103,6 +103,7 @@ pub struct TowerRenderMetadataConst {
     pub render_mode: TowerRenderModeC,
     pub base: &'static str,
     pub barrel: &'static str,
+    pub size: Fixed64,
     pub barrel_frames: &'static [&'static str],
     pub body_frames: &'static [&'static str],
     pub barrel_animation: TowerRenderAnimationConst,

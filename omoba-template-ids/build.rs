@@ -103,6 +103,8 @@ struct TowerRenderEntry {
     #[serde(default)]
     barrel: String,
     #[serde(default)]
+    size: f32,
+    #[serde(default)]
     barrel_frames: Vec<String>,
     #[serde(default)]
     animation: TowerAnimationEntry,
@@ -1094,7 +1096,10 @@ fn tower_render_mode_to_variant(value: &str) -> &'static str {
     match value {
         "" | "base_barrel" => "BaseBarrel",
         "animated_area" => "AnimatedArea",
-        other => panic!("unknown tower render_mode '{}', expected base_barrel|animated_area", other),
+        other => panic!(
+            "unknown tower render_mode '{}', expected base_barrel|animated_area",
+            other
+        ),
     }
 }
 
@@ -1102,7 +1107,10 @@ fn tower_rotation_mode_to_variant(value: &str) -> &'static str {
     match value {
         "" | "targeted" | "target-facing" | "target_facing" => "Targeted",
         "fixed" => "Fixed",
-        other => panic!("unknown tower rotation_mode '{}', expected targeted|fixed", other),
+        other => panic!(
+            "unknown tower rotation_mode '{}', expected targeted|fixed",
+            other
+        ),
     }
 }
 
@@ -1110,7 +1118,10 @@ fn tower_barrel_layout_to_variant(value: &str) -> &'static str {
     match value {
         "" | "single" => "Single",
         "radial_count_variants" => "RadialCountVariants",
-        other => panic!("unknown tower barrel_layout '{}', expected single|radial_count_variants", other),
+        other => panic!(
+            "unknown tower barrel_layout '{}', expected single|radial_count_variants",
+            other
+        ),
     }
 }
 
@@ -1118,7 +1129,10 @@ fn tower_recoil_mode_to_variant(value: &str) -> &'static str {
     match value {
         "" | "directional" => "Directional",
         "scale_pulse" => "ScalePulse",
-        other => panic!("unknown tower recoil.mode '{}', expected directional|scale_pulse", other),
+        other => panic!(
+            "unknown tower recoil.mode '{}', expected directional|scale_pulse",
+            other
+        ),
     }
 }
 
@@ -1165,6 +1179,9 @@ fn normalized_tower_render(e: &TowerEntry) -> TowerRenderEntry {
     }
     if r.render_mode != "animated_area" && r.barrel.is_empty() {
         r.barrel = format!("assets/towers/{}_barrel.png", e.id);
+    }
+    if r.size <= 0.0 {
+        r.size = e.footprint * 18.0;
     }
     if r.rotation_mode.is_empty() {
         r.rotation_mode = "targeted".into();
@@ -1224,6 +1241,7 @@ fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
              \trender_mode: TowerRenderModeC::{},\n\
              \tbase: \"{}\",\n\
              \tbarrel: \"{}\",\n\
+             \tsize: {},\n\
              \tbarrel_frames: {},\n\
              \tbody_frames: {},\n\
              \tbarrel_animation: {},\n\
@@ -1241,6 +1259,7 @@ fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
             tower_render_mode_to_variant(&render.render_mode),
             escape_str_literal(&render.base),
             escape_str_literal(&render.barrel),
+            fixed64_lit(render.size),
             barrel_frames_const,
             body_frames_const,
             render_animation_lit(&render.barrel_animation),
@@ -1777,7 +1796,9 @@ fn emit_attack_timing(
     }
     out.push('\n');
 
-    out.push_str("pub fn tower_attack_timing(id: TowerId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n");
+    out.push_str(
+        "pub fn tower_attack_timing(id: TowerId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n",
+    );
     let mut next: u16 = 1;
     for e in towers {
         if !e.tombstone {
@@ -1788,7 +1809,9 @@ fn emit_attack_timing(
     }
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 
-    out.push_str("pub fn hero_attack_timing(id: HeroId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n");
+    out.push_str(
+        "pub fn hero_attack_timing(id: HeroId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n",
+    );
     let mut next: u16 = 1;
     for e in heroes {
         if !e.tombstone {
@@ -1799,7 +1822,9 @@ fn emit_attack_timing(
     }
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 
-    out.push_str("pub fn creep_attack_timing(id: CreepId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n");
+    out.push_str(
+        "pub fn creep_attack_timing(id: CreepId) -> Option<AttackTimingConst> {\n\tmatch id.0 {\n",
+    );
     let mut next: u16 = 1;
     for e in creeps {
         if !e.tombstone {
