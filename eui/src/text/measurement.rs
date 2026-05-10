@@ -71,7 +71,9 @@ impl TextMeasurer {
 
     pub fn measure_height(&self, font_size: f32) -> f32 {
         let metrics = self.font.horizontal_line_metrics(font_size);
-        metrics.map(|m| m.ascent - m.descent + m.line_gap).unwrap_or(font_size * 1.2)
+        metrics
+            .map(|m| m.ascent - m.descent + m.line_gap)
+            .unwrap_or(font_size * 1.2)
     }
 
     pub fn line_height(&self, font_size: f32) -> f32 {
@@ -96,8 +98,8 @@ impl TextMeasurer {
             return 1.0;
         }
         // 從 fontdue 匯出units_per_em：在參考尺寸，
-        // fontdue_ascent = raw_ascent * ref_size / upm
-        // => upm = raw_ascent * ref_size / fontdue_ascent
+        // fontdue_ascent 計算式：raw_ascent * ref_size / upm
+        // 因此 upm = raw_ascent * ref_size / fontdue_ascent
         let ref_size = 100.0;
         if let Some(metrics) = self.font.horizontal_line_metrics(ref_size) {
             if metrics.ascent.abs() > 0.001 {

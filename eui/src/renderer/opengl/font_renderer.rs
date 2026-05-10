@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use fontdue::Font;
 use glow::HasContext;
+use std::collections::HashMap;
 
 pub struct GlyphEntry {
     pub u0: f32,
@@ -24,7 +24,7 @@ pub struct FontAtlas {
     pub glyphs: HashMap<(char, u32), GlyphEntry>,
     pub font: Font,
     /// 將 STB Pixel_height 轉換為 fontdue font_size 的比值：
-    /// render_fs = round(cmd_fs * 1.20) * stb_to_fontdue_ratio
+    /// render_fs 計算式：round(cmd_fs * 1.20) * stb_to_fontdue_ratio
     /// 當 0.0 時，不套用 STB 校正（圖示字體）。
     pub stb_to_fontdue_ratio: f32,
 }
@@ -46,16 +46,38 @@ impl FontAtlas {
         let atlas_h = 1024u32;
         let texture = gl.create_texture().expect("create font atlas texture");
         gl.bind_texture(glow::TEXTURE_2D, Some(texture));
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MIN_FILTER,
+            glow::LINEAR as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MAG_FILTER,
+            glow::LINEAR as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_S,
+            glow::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_T,
+            glow::CLAMP_TO_EDGE as i32,
+        );
 
         let blank = vec![0u8; (atlas_w * atlas_h) as usize];
         gl.tex_image_2d(
-            glow::TEXTURE_2D, 0, glow::RED as i32,
-            atlas_w as i32, atlas_h as i32, 0,
-            glow::RED, glow::UNSIGNED_BYTE, Some(&blank),
+            glow::TEXTURE_2D,
+            0,
+            glow::RED as i32,
+            atlas_w as i32,
+            atlas_h as i32,
+            0,
+            glow::RED,
+            glow::UNSIGNED_BYTE,
+            Some(&blank),
         );
         gl.bind_texture(glow::TEXTURE_2D, None);
 
@@ -72,7 +94,12 @@ impl FontAtlas {
         }
     }
 
-    pub unsafe fn get_or_rasterize(&mut self, gl: &glow::Context, ch: char, font_size: f32) -> &GlyphEntry {
+    pub unsafe fn get_or_rasterize(
+        &mut self,
+        gl: &glow::Context,
+        ch: char,
+        font_size: f32,
+    ) -> &GlyphEntry {
         let key = (ch, (font_size * 10.0) as u32);
         if self.glyphs.contains_key(&key) {
             return &self.glyphs[&key];
@@ -101,9 +128,14 @@ impl FontAtlas {
             gl.bind_texture(glow::TEXTURE_2D, Some(self.texture));
             gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
             gl.tex_sub_image_2d(
-                glow::TEXTURE_2D, 0,
-                px as i32, py as i32, gw as i32, gh as i32,
-                glow::RED, glow::UNSIGNED_BYTE,
+                glow::TEXTURE_2D,
+                0,
+                px as i32,
+                py as i32,
+                gw as i32,
+                gh as i32,
+                glow::RED,
+                glow::UNSIGNED_BYTE,
                 glow::PixelUnpackData::Slice(&bitmap),
             );
             gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
@@ -118,17 +150,20 @@ impl FontAtlas {
         let aw = self.atlas_w as f32;
         let ah = self.atlas_h as f32;
 
-        self.glyphs.insert(key, GlyphEntry {
-            u0: px as f32 / aw,
-            v0: py as f32 / ah,
-            u1: (px + gw) as f32 / aw,
-            v1: (py + gh) as f32 / ah,
-            width: gw as f32,
-            height: gh as f32,
-            advance_width: metrics.advance_width,
-            offset_x: metrics.xmin as f32,
-            offset_y: metrics.ymin as f32,
-        });
+        self.glyphs.insert(
+            key,
+            GlyphEntry {
+                u0: px as f32 / aw,
+                v0: py as f32 / ah,
+                u1: (px + gw) as f32 / aw,
+                v1: (py + gh) as f32 / ah,
+                width: gw as f32,
+                height: gh as f32,
+                advance_width: metrics.advance_width,
+                offset_x: metrics.xmin as f32,
+                offset_y: metrics.ymin as f32,
+            },
+        );
 
         &self.glyphs[&key]
     }

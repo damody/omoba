@@ -1,5 +1,5 @@
-use eui::*;
 use eui::quick::ui::*;
+use eui::*;
 
 fn main() {
     let mut counter = 0i32;
@@ -14,11 +14,14 @@ fn main() {
         ui.scope(inner, |ctx| {
             let mut ui = UI::new(ctx);
 
-            // Title
-            ui.label("EUI Rust Demo").font_size(24.0).height(36.0).draw();
+            // 標題
+            ui.label("EUI Rust Demo")
+                .font_size(24.0)
+                .height(36.0)
+                .draw();
             ui.spacer(8.0);
 
-            // Counter
+            // 計數器
             ui.label(&format!("Counter: {}", counter)).draw();
             if ui.button("Increment").draw() {
                 counter += 1;
@@ -28,7 +31,7 @@ fn main() {
             }
             ui.spacer(12.0);
 
-            // Slider
+            // 滑桿
             ui.slider("Opacity", &mut slider_val).range(0.0, 1.0).draw();
             ui.spacer(12.0);
 
@@ -37,7 +40,7 @@ fn main() {
             ui.spacer(8.0);
             ui.label(&format!("Hello, {}!", name)).draw();
 
-            // Progress
+            // 進度
             ui.spacer(12.0);
             ui.progress("Progress", slider_val).draw();
         });

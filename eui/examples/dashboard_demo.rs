@@ -1,5 +1,5 @@
-use eui::*;
 use eui::quick::ui::*;
+use eui::*;
 
 fn main() {
     let mut tab = 0usize;
@@ -9,7 +9,7 @@ fn main() {
         let bg = ui.theme().background;
         ui.paint_filled_rect(content, bg, 0.0);
 
-        // Header
+        // 標題列
         let header_h = 56.0;
         let header = Rect::new(content.x, content.y, content.w, header_h);
         let panel_color = ui.theme().panel;
@@ -17,13 +17,21 @@ fn main() {
 
         let header_inner = inset(&header, 16.0, 0.0);
         let text_color = ui.theme().text;
-        ui.text("Dashboard").rect(Rect::new(header_inner.x, header_inner.y, 200.0, header_h))
-            .font_size(18.0).color(text_color).draw();
+        ui.text("Dashboard")
+            .rect(Rect::new(header_inner.x, header_inner.y, 200.0, header_h))
+            .font_size(18.0)
+            .color(text_color)
+            .draw();
 
-        let body = Rect::new(content.x, content.y + header_h, content.w, (content.h - header_h).max(0.0));
+        let body = Rect::new(
+            content.x,
+            content.y + header_h,
+            content.w,
+            (content.h - header_h).max(0.0),
+        );
         let sides = ui.split_h(&body, 200.0, 0.0);
 
-        // Sidebar
+        // 側邊欄
         ui.scope(sides.first, |ctx| {
             let mut ui = UI::new(ctx);
             let r = ui.content_rect();
@@ -35,7 +43,11 @@ fn main() {
                 let mut ui = UI::new(ctx);
                 let labels = ["Overview", "Analytics", "Reports", "Settings"];
                 for (i, label) in labels.iter().enumerate() {
-                    let style = if i == tab { ButtonStyle::Primary } else { ButtonStyle::Ghost };
+                    let style = if i == tab {
+                        ButtonStyle::Primary
+                    } else {
+                        ButtonStyle::Ghost
+                    };
                     if ui.button(label).style(style).draw() {
                         tab = i;
                     }
@@ -84,7 +96,9 @@ fn main() {
                     1 => {
                         ui.label("Analytics").font_size(20.0).height(32.0).draw();
                         ui.spacer(16.0);
-                        ui.label("Charts and analytics would go here.").muted().draw();
+                        ui.label("Charts and analytics would go here.")
+                            .muted()
+                            .draw();
                     }
                     2 => {
                         ui.label("Reports").font_size(20.0).height(32.0).draw();
