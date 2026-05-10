@@ -1,9 +1,9 @@
-//! Build-time codegen for template ids.
+//! template ids 的 build-time codegen。
 //!
-//! Reads Lua builders under `scripts/lua_data` and emits `template_ids_gen.rs` into OUT_DIR.
-//! Id allocation: sequential u16 in Lua declaration order, starting from 1.
-//! Id 0 is reserved as UNSPECIFIED. Tombstone entries (`"tombstone": true`)
-//! consume an id but emit no const / lookup entry — append-only safety.
+//! 讀取 `scripts/lua_data` 下的 Lua builders，並將 `template_ids_gen.rs` 輸出到 OUT_DIR。
+//! Id 配置：依 Lua 宣告順序從 1 開始配置連續 u16。
+//! Id 0 保留給 UNSPECIFIED。Tombstone entries (`"tombstone": true`)
+//! 會消耗 id，但不輸出 const / lookup entry，維持 append-only safety。
 
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde::de::DeserializeOwned;
@@ -14,11 +14,10 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 
-/// Format an f32 value from Lua content as a `Fixed64::from_raw(N)` literal,
-/// where N = round(v * 1024). Mirrors `omoba_sim::fixed::SCALE = 1024`. Lua
-/// numbers are the authoring format; the cast is the lockstep boundary — every
-/// f32 we generate goes through here so precision loss is bounded and
-/// deterministic across hosts.
+/// 將 Lua content 中的 f32 值格式化為 `Fixed64::from_raw(N)` literal，
+/// 其中 N = round(v * 1024)。這鏡像 `omoba_sim::fixed::SCALE = 1024`。
+/// Lua number 是 authoring 格式；cast 是 lockstep boundary。所有產生出的 f32
+/// 都會經過這裡，因此精度損失有界且跨 host deterministic。
 fn fixed64_lit(v: f32) -> String {
     let raw = (v * 1024.0).round() as i32;
     format!("Fixed64::from_raw({})", raw)
@@ -280,7 +279,7 @@ struct HeroEntry {
     tombstone: bool,
     #[serde(default)]
     abilities: Vec<String>,
-    // intrinsic stats (Phase B)
+    // 內建 stats（Phase B）
     #[serde(default)]
     strength: i32,
     #[serde(default)]
@@ -657,21 +656,21 @@ fn main() {
     }
     emit_hero_abilities(&mut out, &m.heroes, &ability_id_map);
 
-    // Phase B: hero / creep / summon stats const + lookup
+    // Phase B：hero / creep / summon stats const + lookup
     emit_hero_stats(&mut out, &m.heroes);
     emit_creep_stats(&mut out, &m.creeps);
     emit_summon_stats(&mut out, &m.summons);
 
     emit_attack_timing(&mut out, &m.towers, &m.heroes, &m.creeps, &m.summons);
 
-    // Phase C: ability const + lookup
+    // Phase C：ability const + lookup
     emit_ability_const(&mut out, &m.abilities);
     emit_ability_description(&mut out, &m.abilities);
 
-    // Phase D: tower upgrade tree const + lookup
+    // Phase D：tower upgrade tree const + lookup
     emit_tower_upgrades(&mut out, &m.towers);
 
-    // Generated story data for pure-Rust runtime loading.
+    // 純 Rust runtime loading 使用的 generated story data。
     emit_story_data(&mut out, &stories);
 
     let out_dir = std::env::var("OUT_DIR").unwrap();
@@ -885,19 +884,19 @@ fn emit_story_value(value: &serde_json::Value, indent: usize) -> String {
     }
 }
 
-/// Strip a leading namespace prefix (e.g. "tower_tack" → "tack" when ns="tower").
-/// Falls back to the full id when no prefix match.
+/// 移除開頭 namespace prefix（例如 ns="tower" 時，"tower_tack" → "tack"）。
+/// 若 prefix 不符合，則 fallback 到完整 id。
 fn strip_prefix<'a>(id: &'a str, ns_lower: &str) -> &'a str {
     let pfx = format!("{}_", ns_lower);
     id.strip_prefix(&pfx).unwrap_or(id)
 }
 
-/// Build the exported const identifier. For namespace "tower" and id "tower_tack",
-/// returns "TOWER_TACK". If id already has the namespace prefix, it is removed.
+/// 建立匯出的 const identifier。namespace 為 "tower" 且 id 為 "tower_tack" 時，
+/// 回傳 "TOWER_TACK"。若 id 已有 namespace prefix，會先移除它。
 fn const_name(ns_lower: &str, id: &str) -> String {
     let ns_upper = ns_lower.to_uppercase();
     let stripped = strip_prefix(id, ns_lower);
-    // Guard: after stripping, "tack".to_uppercase() = "TACK" → ns_upper + "_" + "TACK"
+    // Guard：strip 後 "tack".to_uppercase() = "TACK" → ns_upper + "_" + "TACK"
     format!("{}_{}", ns_upper, stripped.to_uppercase())
 }
 
@@ -908,11 +907,10 @@ fn emit_namespace(
     entries: &[Entry],
     has_display: bool,
 ) {
-    // newtype with #[repr(transparent)] — wire-safe for abi_stable via raw u16
-    // newtype with #[repr(transparent)] — wire-safe for abi_stable via raw u16.
-    // `.as_str()` returns the original id string ("tower_tack" etc.) for use
-    // where FFI still expects RStr<'_> — scripts do `RStr::from_str(TOWER_TACK.as_str())`
-    // which is still compile-time-checked via const existence.
+    // 帶有 #[repr(transparent)] 的 newtype，透過 raw u16 對 abi_stable 保持 wire-safe。
+    // 帶有 #[repr(transparent)] 的 newtype，透過 raw u16 對 abi_stable 保持 wire-safe。
+    // `.as_str()` 回傳原始 id string（"tower_tack" 等），供仍期待 RStr<'_> 的 FFI 使用。
+    // scripts 會呼叫 `RStr::from_str(TOWER_TACK.as_str())`，仍可透過 const 存在性做編譯期檢查。
     out.push_str(&format!(
         "#[repr(transparent)]\n\
          #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]\n\
@@ -925,7 +923,7 @@ fn emit_namespace(
         ty, ty, ns_lower,
     ));
 
-    // consts — sequential 1..N skipping tombstones (but consuming id number)
+    // consts：連續 1..N，略過 tombstones（但仍消耗 id number）。
     let mut seen: HashSet<&str> = HashSet::new();
     let mut next: u16 = 1;
     for e in entries {
@@ -945,7 +943,7 @@ fn emit_namespace(
     }
     out.push('\n');
 
-    // forward lookup: name → Option<Id>
+    // forward lookup：name → Option<Id>
     out.push_str(&format!(
         "pub fn {}_by_name(s: &str) -> Option<{}Id> {{\n\tmatch s {{\n",
         ns_lower, ty,
@@ -964,7 +962,7 @@ fn emit_namespace(
     }
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 
-    // reverse: id → original id string (for logs / backward-compat JSON)
+    // reverse：id → 原始 id string（供 logs / backward-compat JSON 使用）
     out.push_str(&format!(
         "pub fn {}_id_str(id: {}Id) -> &'static str {{\n\tmatch id.0 {{\n\t\t0 => \"\",\n",
         ns_lower, ty,
@@ -988,7 +986,7 @@ fn emit_namespace(
          \t}\n}\n\n",
     );
 
-    // display lookup if applicable
+    // 若適用則產生 display lookup。
     if has_display {
         out.push_str(&format!(
             "pub fn {}_display(id: {}Id) -> &'static str {{\n\tmatch id.0 {{\n\t\t0 => \"\",\n",
@@ -1033,7 +1031,7 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
         .collect();
     emit_namespace(out, "Tower", "tower", &converted, /*display*/ true);
 
-    // Per-tower const: TOWER_<NAME>_STATS
+    // 每座塔的 const：TOWER_<NAME>_STATS
     for e in entries {
         if e.tombstone {
             continue;
@@ -1074,7 +1072,7 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
     }
     out.push('\n');
 
-    // Lookup tower_stats(TowerId) → Option<&'static TowerStats>
+    // 查詢 tower_stats(TowerId) → Option<&'static TowerStats>
     out.push_str(
         "pub fn tower_stats(id: TowerId) -> Option<&'static TowerStats> {\n\tmatch id.0 {\n",
     );
@@ -1312,7 +1310,7 @@ fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
 }
 
 fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
-    // Reuse emit_namespace machinery for id/display; add hero_title lookup.
+    // 重用 emit_namespace 的 id/display 機制，並加上 hero_title lookup。
     let converted: Vec<Entry> = entries
         .iter()
         .map(|h| Entry {
@@ -1357,7 +1355,7 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
 }
 
 /// Hero → abilities[] codegen — 從 templates.lua heroes[i].abilities 字串陣列翻成
-/// `HERO_<NAME>_ABILITIES: &[AbilityId] = &[AbilityId(N), ...]` const + lookup
+/// `HERO_<NAME>_ABILITIES: &[AbilityId] = &[AbilityId(N), ...]` const + lookup。
 /// `hero_abilities(HeroId) -> &'static [AbilityId]`。消除 omoba-core 端寫死的
 /// `match hero_type { "saika_..." => [...] }` match 表。
 fn emit_hero_abilities(
@@ -1427,7 +1425,7 @@ fn ai_type_to_u8(s: &str) -> u8 {
     }
 }
 
-/// emit `HERO_<NAME>_STATS: HeroStats` const + `hero_stats(id)` lookup。
+/// 輸出 `HERO_<NAME>_STATS: HeroStats` const + `hero_stats(id)` lookup。
 fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
     for e in entries {
         if e.tombstone {
@@ -1490,7 +1488,7 @@ fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
-/// emit `CREEP_<NAME>_STATS: CreepStats` const + `creep_stats(id)` lookup。
+/// 輸出 `CREEP_<NAME>_STATS: CreepStats` const + `creep_stats(id)` lookup。
 fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
     for e in entries {
         if e.tombstone {
@@ -1538,7 +1536,7 @@ fn emit_creep_stats(out: &mut String, entries: &[CreepEntry]) {
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
-/// emit `SUMMON_<NAME>_STATS: SummonStats` const + `summon_stats(id)` lookup。
+/// 輸出 `SUMMON_<NAME>_STATS: SummonStats` const + `summon_stats(id)` lookup。
 fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
     for e in entries {
         if e.tombstone {
@@ -1601,10 +1599,10 @@ fn target_type_to_variant(s: &str) -> &'static str {
     }
 }
 
-/// Emit `ABILITY_<NAME>_CONST: AbilityConst` const + `ability_const(id)` lookup。
+/// 輸出 `ABILITY_<NAME>_CONST: AbilityConst` const + `ability_const(id)` lookup。
 /// 每個 ability 的 levels 數目必須等於 max_level；extras[k].len() 也必須 = max_level。
 fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
-    // emit per-ability levels static + extras static + the const itself
+    // 輸出每個 ability 的 levels static、extras static 與 const 本體。
     for e in entries {
         if e.tombstone {
             continue;
@@ -1631,8 +1629,8 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
 
         let cname = const_name("ability", &e.id);
 
-        // emit per-extra static slice (must be named to take address of in const)
-        // but actually `&[...]` is fine inline; we'll just inline the literal.
+        // 輸出每個 extra 的 static slice（若要在 const 取位址就必須命名）。
+        // 但實際上 `&[...]` inline 即可，因此直接 inline literal。
         out.push_str(&format!(
             "pub const {}_LEVELS: &[AbilityLevelDataConst] = &[\n",
             cname
@@ -1646,8 +1644,8 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
         }
         out.push_str("];\n");
 
-        // Emit each extra's per-level slice as a named static so the &[(key, &[..])]
-        // can reference it (avoids `&[Fixed64; N]` literal lifetime issues).
+        // 將每個 extra 的 per-level slice 輸出為 named static，讓 &[(key, &[..])]
+        // 可以引用它（避免 `&[Fixed64; N]` literal lifetime 問題）。
         for (k, v) in &e.extras {
             let extra_const = format!("{}_EXTRA_{}", cname, sanitize_ident(k).to_uppercase());
             out.push_str(&format!("pub const {}: &[Fixed64] = &[", extra_const));
@@ -1711,7 +1709,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
-/// Emit `ability_description(id)` lookup — runtime helper for tooltips。
+/// 輸出 `ability_description(id)` lookup，供 runtime tooltip helper 使用。
 fn emit_ability_description(out: &mut String, entries: &[AbilityEntry]) {
     out.push_str("pub fn ability_description(id: AbilityId) -> &'static str {\n\tmatch id.0 {\n\t\t0 => \"\",\n");
     let mut next: u16 = 1;
@@ -1870,8 +1868,8 @@ fn emit_attack_timing(
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
-/// Emit `TOWER_<NAME>_UPGRADES: &[&[UpgradeDefConst]] = &[Path0, Path1, Path2]`
-/// + `tower_upgrades(id) -> &'static [&'static [UpgradeDefConst]]` lookup。
+/// 輸出 `TOWER_<NAME>_UPGRADES: &[&[UpgradeDefConst]] = &[Path0, Path1, Path2]`
+/// 以及 `tower_upgrades(id) -> &'static [&'static [UpgradeDefConst]]` lookup。
 /// 跳過 tombstone / 沒有 upgrades 的 tower。
 fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
     use omoba_core_dummy::upgrade_cost; // local helper, see bottom
@@ -1910,7 +1908,7 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
 
         let cname = const_name("tower", &e.id);
 
-        // Per-upgrade effects array — emit a named static so the slice address is stable.
+        // 每個 upgrade 的 effects array：輸出 named static，讓 slice address 穩定。
         for (path_idx, path) in e.upgrades.iter().enumerate() {
             for (lvl_idx, u) in path.iter().enumerate() {
                 let effects_const =
@@ -1939,7 +1937,7 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
             }
         }
 
-        // Per-path slice
+        // 每條 path 的 slice。
         for (path_idx, path) in e.upgrades.iter().enumerate() {
             let path_const = format!("{}_UPGRADES_P{}", cname, path_idx);
             out.push_str(&format!(
@@ -1960,7 +1958,7 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
             out.push_str("];\n");
         }
 
-        // Top-level &[&[UpgradeDefConst]]
+        // Top-level &[&[UpgradeDefConst]]。
         out.push_str(&format!(
             "pub const {}_UPGRADES: &[&[UpgradeDefConst]] = &[\n",
             cname
@@ -1973,13 +1971,13 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
     }
     out.push('\n');
 
-    // tower_upgrades(id) lookup
+    // tower_upgrades(id) lookup。
     out.push_str("pub fn tower_upgrades(id: TowerId) -> Option<&'static [&'static [UpgradeDefConst]]> {\n\tmatch id.0 {\n");
     let mut next: u16 = 1;
     for e in entries {
         if !e.tombstone {
             if e.upgrades.is_empty() {
-                // skip
+                // 跳過。
             } else {
                 let cname = const_name("tower", &e.id);
                 out.push_str(&format!("\t\t{} => Some({}_UPGRADES),\n", next, cname));
@@ -1991,8 +1989,8 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
 }
 
 mod omoba_core_dummy {
-    /// Mirror of `omoba_core::tower_meta::upgrade_cost` — duplicate locally to
-    /// avoid build-time dependency on omoba-core.
+    /// `omoba_core::tower_meta::upgrade_cost` 的鏡像；在本地複製以避免
+    /// 對 omoba-core 產生 build-time dependency。
     pub fn upgrade_cost(base_cost: i32, level: u8) -> i32 {
         let mul: f32 = match level {
             1 => 0.25,
@@ -2006,7 +2004,7 @@ mod omoba_core_dummy {
 }
 
 fn emit_projectile_kinds(out: &mut String, entries: &[ProjKind]) {
-    // No display_name for projectile kinds (they are visual kinds, not labels).
+    // Projectile kinds 沒有 display_name（它們是 visual kinds，不是 labels）。
     let converted: Vec<Entry> = entries
         .iter()
         .map(|p| Entry {

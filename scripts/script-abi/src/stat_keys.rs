@@ -994,7 +994,7 @@ mod tests {
         );
         // 第 3 節 視覺
         assert_eq!(StatKey::PreAttack.section(), StatSection::Visual);
-        // _multiplier → ProductMult
+        // _multiplier 後綴 → ProductMult
         assert_eq!(
             StatKey::AttackSpeedMultiplier.aggregation(),
             Aggregation::ProductMult

@@ -1,12 +1,12 @@
-//! Build-time generated template ids.
+//! Build-time 產生的 template ids。
 //!
-//! Source of truth: Lua builders under `scripts/lua_data`.
-//! Design: `docs/plans/2026-04-25-template-id-codegen-design.md`.
+//! Source of truth：`scripts/lua_data` 下的 Lua builders。
+//! Design：`docs/plans/2026-04-25-template-id-codegen-design.md`。
 //!
-//! Each category (tower, hero, ability, buff, summon, creep, projectile_kind)
-//! gets its own `#[repr(transparent)]` newtype wrapping `u16`. Id 0 is reserved
-//! as UNSPECIFIED. Forward lookup (`*_by_name`) + reverse lookup (`*_id_str`,
-//! `*_display`) are generated as match statements.
+//! 每個 category（tower、hero、ability、buff、summon、creep、projectile_kind）
+//! 都有自己的 `#[repr(transparent)]` newtype 包住 `u16`。Id 0 保留為
+//! UNSPECIFIED。Forward lookup（`*_by_name`）與 reverse lookup（`*_id_str`、
+//! `*_display`）都會產生為 match statements。
 
 #![allow(clippy::too_many_lines)]
 
@@ -164,8 +164,8 @@ pub struct HeroStats {
 }
 
 /// Creep / Enemy intrinsic stats — 對應 templates.lua creeps[i]。
-/// `enemy_type`：0=caster, 1=melee, 2=ranged, 3=boss
-/// `ai_type`：0=defensive, 1=aggressive, 2=patrol, 3=guard, 4=passive, 5=berserker
+/// `enemy_type`：0=caster, 1=melee, 2=ranged, 3=boss。
+/// `ai_type`：0=defensive, 1=aggressive, 2=patrol, 3=guard, 4=passive, 5=berserker。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct CreepStats {
@@ -285,10 +285,10 @@ pub struct UpgradeDefConst {
     pub effects: &'static [UpgradeEffectConst],
 }
 
-/// Dependency-light generated data tree for shipped story content.
+/// shipped story content 的 dependency-light generated data tree。
 ///
-/// Runtime crates can adapt this into their local structs without reading JSON or
-/// Lua source files and without making this crate depend on runtime crate types.
+/// Runtime crates 可以把它轉接成自己的 local structs，不需讀取 JSON 或 Lua source files，
+/// 也不需要讓本 crate 依賴 runtime crate types。
 #[derive(Copy, Clone, Debug)]
 pub enum StoryValue {
     Null,

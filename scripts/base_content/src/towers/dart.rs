@@ -125,7 +125,7 @@ impl UnitScript for DartTower {
             let angle = if count == 1 {
                 base_angle
             } else {
-                // step_deg = (2 * spread_deg) / (count - 1)
+                // step_deg 計算式：(2 * spread_deg) / (count - 1)
                 let denom = (count as i32) - 1;
                 // i 個彈 step：from -spread_deg to +spread_deg；
                 // 總刻度 = base_angle.ticks() + (-spread_deg + step_deg*i) （以度為單位）

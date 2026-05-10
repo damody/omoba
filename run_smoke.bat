@@ -1,17 +1,16 @@
 @echo off
 REM ======================================================================
-REM run_smoke.bat — automated smoke run.
-REM Auto-presses Start Round at t=2s, exits at t=10s. Reads game.toml
-REM STORY as-is; assume TD_1 unless caller already swapped it.
+REM run_smoke.bat — 自動化 smoke run。
+REM t=2s 自動按 Start Round，t=10s 結束。直接讀取 game.toml 的
+REM STORY；除非 caller 已替換，否則假設為 TD_1。
 REM
-REM `setlocal` keeps the OMFX_AUTO_* env vars scoped to this script —
-REM otherwise they leak into the parent cmd and a subsequent `run.bat`
-REM in the same window would also auto-exit at 10s, which would look
-REM exactly like the game freezing.
+REM `setlocal` 讓 OMFX_AUTO_* env vars 只作用於此 script；
+REM 否則它們會 leak 到 parent cmd，導致同一視窗後續執行的 `run.bat`
+REM 也在 10s 自動結束，看起來就像遊戲 freeze。
 REM
-REM Output:
+REM 輸出：
 REM   - omfx_app.log      (omfx + sim_runner side)
-REM   - omb/log/requests.log  (omb host side; appends, very large)
+REM   - omb/log/requests.log  (omb host side；append，可能很大)
 REM ======================================================================
 
 setlocal

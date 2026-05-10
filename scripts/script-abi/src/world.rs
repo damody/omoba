@@ -231,8 +231,8 @@ pub trait GameWorld: Send {
         source: ROption<EntityHandle>,
     );
 
-    /// Render-only attack windup cue. `impact_at_ms` is implicitly `windup_ms`.
-    /// Gameplay effects must still be applied by authoritative script/backend logic.
+    /// Render-only attack windup cue。`impact_at_ms` 隱含為 `windup_ms`。
+    /// Gameplay effects 仍必須由權威 script/backend logic 套用。
     fn emit_attack_phase_fx(
         &mut self,
         entity: EntityHandle,

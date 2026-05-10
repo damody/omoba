@@ -1,18 +1,18 @@
-//! Shared lockstep timing constants used by omb and omfx.
+//! omb 與 omfx 共用的 lockstep timing constants。
 
-/// Authoritative lockstep tick rate. A 2-tick input lookahead is ~16.7 ms.
+/// 權威 lockstep tick rate。2-tick input lookahead 約為 16.7 ms。
 pub const LOCKSTEP_TPS: u32 = 120;
 pub const LOCKSTEP_TPS_U64: u64 = LOCKSTEP_TPS as u64;
 
-/// Truncated microsecond period used by tokio intervals.
+/// tokio intervals 使用的截斷 microsecond period。
 pub const LOCKSTEP_TICK_PERIOD_US: u64 = 1_000_000 / LOCKSTEP_TPS_U64;
 
 pub const LOCKSTEP_DT_F32: f32 = 1.0 / LOCKSTEP_TPS as f32;
 pub const LOCKSTEP_DT_F64: f64 = 1.0 / LOCKSTEP_TPS as f64;
 
-/// Fixed64 uses Q10 raw units in omoba-sim. `1 / 120 * 1024` is not an integer,
-/// so per-tick fixed dt must be distributed as a deterministic 8/9 raw schedule
-/// instead of truncating every tick to raw 8 (`1/128s`).
+/// Fixed64 在 omoba-sim 中使用 Q10 raw units。`1 / 120 * 1024` 不是整數，
+/// 因此 per-tick fixed dt 必須分配成 deterministic 8/9 raw schedule，
+/// 而不是每 tick 都截斷為 raw 8（`1/128s`）。
 pub const LOCKSTEP_FIXED_SCALE: i64 = 1024;
 
 pub const LOCKSTEP_ONE_SECOND_TICKS_U32: u32 = LOCKSTEP_TPS;
@@ -25,10 +25,10 @@ pub fn ticks_to_seconds_f64(tick: u32) -> f64 {
     tick as f64 * LOCKSTEP_DT_F64
 }
 
-/// Returns the Q10 Fixed64 raw delta for the interval ending at `tick`.
+/// 回傳以 `tick` 結尾的 interval 對應的 Q10 Fixed64 raw delta。
 ///
-/// For ticks `1..=LOCKSTEP_TPS`, the returned raw values sum to exactly 1024,
-/// preserving one second of simulation time at 120Hz without using floats.
+/// 對 ticks `1..=LOCKSTEP_TPS`，回傳的 raw values 總和剛好為 1024，
+/// 不使用 floats 也能在 120Hz 保留一秒 simulation time。
 pub fn lockstep_dt_fixed_raw_for_tick(tick: u64) -> i64 {
     if tick == 0 {
         return 0;

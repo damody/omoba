@@ -1,4 +1,4 @@
-//! Cake Splash Tower — no-barrel animated-area placeholder tower.
+//! Cake Splash Tower：沒有 barrel 的 animated-area placeholder tower。
 
 use omb_script_abi::prelude::*;
 

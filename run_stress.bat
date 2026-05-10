@@ -1,16 +1,16 @@
 @echo off
 REM ======================================================================
-REM  run_stress.bat -- TD_STRESS perf test launcher (RELEASE build)
+REM  run_stress.bat -- TD_STRESS 效能測試啟動器（RELEASE build）
 REM
-REM  Steps:
-REM    1. Kill stale omobab.exe / executor.exe
-REM    2. Regenerate scripts\lua_data\TD_STRESS\map.lua
-REM    3. Back up omb\game.toml, swap in omb\game_stress.toml
-REM    4. Build base_content DLL (release) + omb backend (release) only when stale.
-REM       omfx hard-codes target\debug\omobab.exe, so we copy the release
-REM       exe over target\debug\omobab.exe so omfx picks the fast build.
-REM    5. Build omfx executor (release) only when stale, then run it.
-REM    6. Always restore omb\game.toml afterwards
+REM  步驟：
+REM    1. 結束殘留的 omobab.exe / executor.exe
+REM    2. 重新產生 scripts\lua_data\TD_STRESS\map.lua
+REM    3. 備份 omb\game.toml，並暫時替換為 omb\game_stress.toml
+REM    4. 只有過期時才 build base_content DLL (release) + omb backend (release)。
+REM       omfx hard-code target\debug\omobab.exe，所以把 release exe 複製覆蓋
+REM       target\debug\omobab.exe，讓 omfx 使用快速 build。
+REM    5. 只有過期時才 build omfx executor (release)，然後執行。
+REM    6. 結束後一律還原 omb\game.toml
 REM ======================================================================
 
 setlocal
@@ -70,8 +70,8 @@ echo [4/6] Checking backend (omb, release)...
 call :ensure_fresh backend release "release backend" "cargo build --release --manifest-path omb\Cargo.toml -p omobab" "Backend build failed!"
 if errorlevel 1 exit /b 1
 
-REM omfx spawns target\debug\omobab.exe — copy release exe over it so the
-REM perf test actually runs the optimized build.
+REM omfx 會 spawn target\debug\omobab.exe；用 release exe 覆蓋它，
+REM 讓 perf test 實際跑 optimized build。
 %FRESHNESS% -Action stage-backend-spawn
 if errorlevel 1 (
     echo   Backend spawn staging failed!
