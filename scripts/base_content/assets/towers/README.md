@@ -51,9 +51,15 @@ Default: `targeted`.
 
 Default: `single`.
 
-### `size`
+### `render.visual_size`
 
-`render.size` is the script-owned baseline combat sprite diameter in backend world units. omfx converts it to render units with `WORLD_SCALE` and uses temporary animation/recoil/buff scale only on top of this baseline. Backend placement validation uses `render.size / 2` as the tower placement radius, while runtime collision, attack range, projectile spawn, hit detection, and cooldown stay separate gameplay values.
+`render.visual_size` is the script-owned baseline combat sprite diameter in backend world units. omfx converts it to render units with `render.visual_size * WORLD_SCALE` and uses temporary animation/recoil/buff/hover scale only on top of this baseline. Do not tune this value by changing Rust constants, `footprint`, image dimensions, or frontend multipliers.
+
+### `placement_radius`
+
+`placement_radius` is the script-owned tower placement blocker radius in backend world units. omb uses it for authoritative path, blocked-region, and tower-overlap placement checks; omfx uses the same value from tower template snapshots for the local preview circle and can-place checks.
+
+`placement_radius` is intentionally independent from `render.visual_size`; do not derive it from `render.visual_size / 2`. It is also independent from `footprint`, which remains the runtime `CollisionRadius` source for placed tower entities. Changing `placement_radius` must not change attack range, projectile spawn, hit detection, damage, cooldown, or lockstep combat state.
 
 ## Coordinates
 
