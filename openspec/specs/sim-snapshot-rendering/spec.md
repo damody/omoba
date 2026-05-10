@@ -163,7 +163,7 @@ Tower click hit-testing、sell/upgrade panel rendering 與 attack-range display 
 
 ### Requirement: tower template snapshots expose combat render metadata
 
-`SimWorldSnapshot.tower_templates` SHALL expose render-facing tower combat metadata needed by omfx composite rendering. For each tower template, the snapshot data SHALL include render mode, base image path, barrel image path, barrel frame paths, barrel animation timing, body animation frame paths for animated-area towers, rotation mode, barrel layout, barrel count variants, barrel offset, barrel pivot, muzzle offset, recoil distance, recoil scale, recoil attack duration, recoil return duration, and recoil mode. The metadata SHALL originate from scripts content data and SHALL be shared through `Arc` with the same static template lifecycle as existing tower template snapshot data.
+`SimWorldSnapshot.tower_templates` SHALL expose render-facing tower combat metadata needed by omfx composite rendering. For each tower template, the snapshot data SHALL include render mode, base image path, barrel image path, script-owned visual size, barrel frame paths, barrel animation timing, body animation frame paths for animated-area towers, rotation mode, barrel layout, barrel count variants, barrel offset, barrel pivot, muzzle offset, recoil distance, recoil scale, recoil attack duration, recoil return duration, and recoil mode. The metadata SHALL originate from scripts content data and SHALL be shared through `Arc` with the same static template lifecycle as existing tower template snapshot data.
 
 #### Scenario: tower template snapshot contains base and barrel paths
 

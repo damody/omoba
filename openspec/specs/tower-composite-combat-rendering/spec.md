@@ -138,7 +138,7 @@ Tower render metadata SHALL support a no-barrel animated-area archetype for area
 
 ### Requirement: Tower combat assets and render parameters are owned by scripts content mod
 
-每座 tower 的 render mode、base image、barrel image、barrel frames、body animation frames、rotation mode、barrel layout、barrel count variants、barrel offset、barrel pivot、muzzle offset 與 recoil 參數 SHALL 由 scripts content mod 提供。預設圖片 SHALL 位於 `scripts/base_content/assets/towers/`，預設 metadata SHALL 由 `scripts/lua_data/templates/towers.lua` 的 tower entry 宣告或透過 codegen default 補齊。企劃替換 tower 戰鬥圖片時 SHALL 替換 scripts asset 目錄中的 PNG，而不是修改 omfx source。
+每座 tower 的 render mode、base image、barrel image、visual size、barrel frames、body animation frames、rotation mode、barrel layout、barrel count variants、barrel offset、barrel pivot、muzzle offset 與 recoil 參數 SHALL 由 scripts content mod 提供。預設圖片 SHALL 位於 `scripts/base_content/assets/towers/`，預設 metadata SHALL 由 `scripts/lua_data/templates/towers.lua` 的 tower entry 宣告或透過 codegen default 補齊。企劃替換 tower 戰鬥圖片或調整戰鬥 sprite 基準大小時 SHALL 替換 scripts asset 目錄中的 PNG 或更新 scripts render metadata，而不是修改 omfx source。
 
 #### Scenario: base and barrel assets exist for shipped towers
 
