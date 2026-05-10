@@ -813,7 +813,7 @@ return function(ctx)
       slow_duration = 2.0,
       cost = 400,
       footprint = 10.0,
-      placement_radius = 90.0,
+      placement_radius = 900.0,
       hp = 1.0,
       turn_speed_deg = 360.0,
       render = {
