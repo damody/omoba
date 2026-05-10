@@ -45,6 +45,9 @@
 | `sell.png` | 96x96 | 左側出售按鈕圖 |
 | `start_round.png` | 96x96 | 右側開始回合按鈕圖 |
 | `pause.png` | 96x96 | 右側暫停 placeholder 圖 |
+| `hud_hp.png` | 96x96 | TD 上方英雄血量圖示 |
+| `hud_lives.png` | 96x96 | TD 上方生命數圖示 |
+| `hud_gold.png` | 96x96 | TD 上方金錢圖示 |
 
 ## 生圖提示詞
 
