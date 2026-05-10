@@ -4,13 +4,15 @@
 
 omfx 目前透過 `SimWorldSnapshot` 取得 entity render data。英雄、creep、projectile 走 batched quad，tower 則已有 script-owned render metadata 與 composite sprite pipeline。`saika_magoichi` 的 FBX 與 PNG 已存在於 `scripts/lua_data/templates/heroes/saika_magoichi/`，但 runtime 沒有任何路徑會讀取它們。
 
-資料權威邊界：Saika 3D visual 的所有資料都屬於 scripts content。模型檔、貼圖檔、asset path、scale、yaw offset、z offset、animation action keys、source animation name 與 tick ranges 都 SHALL 由 `scripts/lua_data` 宣告，再由 `omoba-template-ids` build-time codegen 產生 Rust lookup。`omfx` 只提供 data-driven renderer/loader/player 功能，不擁有 Saika 專屬資料，也不在 source 內維護 Saika 專屬表。
+資料權威邊界：Saika 3D visual 的所有資料都屬於 scripts content。模型檔、貼圖檔、asset path、scale、pitch/roll/yaw offset、z offset、animation action keys、source animation name 與 tick ranges 都 SHALL 由 `scripts/lua_data` 宣告，再由 `omoba-template-ids` build-time codegen 產生 Rust lookup。`omfx` 只提供 data-driven renderer/loader/player 功能，不擁有 Saika 專屬資料，也不在 source 內維護 Saika 專屬表。
 
 現有 camera 是 orthographic 3D camera，使用 XY 作為畫面平面、Z 作為 draw order depth。這次設計不改整個 camera 或 2D tower/creep pipeline，而是把 hero 3D model 作為單一 Scene node hierarchy 放進既有 XY 畫面平面，並用 metadata 調整 scale、Z layer 與 facing offset。
 
-`assimp info scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi.fbx` 的檢查結果顯示：4 meshes、1059 vertices、847 faces、32 bones、1 animation、24 animation channels、3 materials、0 embedded textures。唯一 animation 名稱是 `Take 001`；`assimp dump` 進一步顯示 `Take 001` 的 duration 是 `1000` ticks、`tick_cnt = 30`，也就是約 33.33 秒。FBX 沒有直接命名為 attack/move/sniper 的多個 clips，因此實作必須把 `Take 001` 切成 action bindings，而不是假設 engine 可直接用 named clips。
+`assimp info scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi.fbx` 的檢查結果顯示 base FBX：4 meshes、1059 vertices、847 faces、32 bones、1 animation、24 animation channels、3 materials、0 embedded textures。base FBX 唯一 animation 名稱是 `Take 001`；`assimp dump` 進一步顯示 `Take 001` 的 duration 是 `1000` ticks、`tick_cnt = 30`，也就是約 33.33 秒。
 
-`omoba-template-ids/build.rs` 目前只用 `mlua`/`serde` 讀取 Lua content，不應為了驗證 FBX 再新增 assimp/FBX parser dependency，也不應在 build script shell out 到開發機限定的 `assimp` CLI。因此 Assimp 檢查結果會被納入 scripts-owned metadata 的 animation source inventory；codegen 只驗證 binding 是否引用已宣告的 source，以及 tick range 是否落在宣告的 duration 內。`assimp info`/`assimp dump` 保留為 authoring/verification task。
+實作前新增的同目錄 action FBX 提供更精準的 action source：`b01_ani_attack.fbx` duration 100 ticks、`b01_ani_run.fbx` duration 23 ticks、`b01_ani_run2.fbx` duration 32 ticks、`b01_ani_stand.fbx` duration 80 ticks、`b01_ani_stand2.fbx` duration 125 ticks、`b01_ani_stand3.fbx` duration 53 ticks、`b01_ani_cast.fbx` duration 73 ticks、`b01_ani_cast2.fbx` duration 50 ticks、`b01_ani_die.fbx` duration 110 ticks；所有檔案的唯一 animation name 都是 `Take 001`，tick rate 都是 30。這些 action FBX 仍屬於 `scripts/lua_data`，因此 metadata 應以 logical source key 區分 action source，而不是只用 animation name `Take 001`。
+
+`omoba-template-ids/build.rs` 目前只用 `mlua`/`serde` 讀取 Lua content，不應為了驗證 FBX 再新增 assimp/FBX parser dependency，也不應在 build script shell out 到開發機限定的 `assimp` CLI。因此 Assimp 檢查結果會被納入 scripts-owned metadata 的 animation source inventory；codegen 只驗證 binding 是否引用已宣告的 logical source，以及 tick range 是否落在該 source 宣告的 duration 內。`assimp info`/`assimp dump` 保留為 authoring/verification task。
 
 ## Goals / Non-Goals
 
@@ -45,33 +47,38 @@ render = {
   model = "templates/heroes/saika_magoichi/saika_magoichi.fbx",
   texture = "templates/heroes/saika_magoichi/saika_magoichi_mat.png",
   scale = 0.01,
+  pitch_offset_deg = -90.0,
+  roll_offset_deg = 0.0,
   yaw_offset_deg = 0.0,
   z_offset = 0.0,
   animation_sources = {
-    ["Take 001"] = { duration_ticks = 1000.0, ticks_per_second = 30.0 },
+    move = { model = "templates/heroes/saika_magoichi/b01_ani_run.fbx", animation = "Take 001", duration_ticks = 23.0, ticks_per_second = 30.0 },
+    attack = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0 },
+    critical = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0 },
+    sniper = { model = "templates/heroes/saika_magoichi/b01_ani_stand3.fbx", animation = "Take 001", duration_ticks = 53.0, ticks_per_second = 30.0 },
   },
   animations = {
-    move = { source = "Take 001", start_tick = 0.0, end_tick = 0.0, loop = true },
-    attack = { source = "Take 001", start_tick = 0.0, impact_tick = 0.0, end_tick = 0.0, loop = false },
-    critical = { source = "Take 001", start_tick = 0.0, impact_tick = 0.0, end_tick = 0.0, loop = false },
-    sniper = { source = "Take 001", start_tick = 0.0, end_tick = 0.0, loop = true },
+    move = { source = "move", start_tick = 0.0, end_tick = 23.0, loop = true },
+    attack = { source = "attack", start_tick = 0.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
+    critical = { source = "critical", start_tick = 0.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
+    sniper = { source = "sniper", start_tick = 0.0, end_tick = 53.0, loop = true },
   },
 }
 ```
 
 理由是 hero visual 是 content 屬性，應與 tower render metadata 一樣由 scripts content 宣告，而不是在 omfx 針對 `saika_magoichi` 寫死路徑、scale 或 animation ranges。`render_mode = "model_3d"` 讓沒有 metadata 的英雄維持現有 2D fallback。
 
-`start_tick` / `impact_tick` / `end_tick` 上方以 `0.0` 表示 schema shape，不是最終值；實作階段必須依 `assimp dump`/實機預覽填入 `0..1000` 內的明確 ranges。四個 required action keys 是 `move`、`attack`、`critical`、`sniper`。`move` 與 `sniper` 可 loop；`attack` 與 `critical` 應單次播放，且需要 `start_tick < impact_tick < end_tick`，讓 omfx 能把 animation hit frame 對齊 authoritative impact event。
+四個 required action keys 是 `move`、`attack`、`critical`、`sniper`。`move` 與 `sniper` 可 loop；`attack` 與 `critical` 應單次播放，且需要 `start_tick < impact_tick < end_tick`，讓 omfx 能把 animation hit frame 對齊 authoritative impact event。`attack`/`critical` 的 `impact_tick = 22.0` 來自 `b01_ani_attack.fbx` 動作分析：右手/武器主動作集中於 1..22 ticks，之後進入 torso/root recoil 與 recovery。
 
-`animation_sources` 是 build-time 可驗證的 source inventory。Saika 目前只宣告 `Take 001`，`duration_ticks = 1000.0` 與 `ticks_per_second = 30.0` 來自 Assimp 檢查。omfx 播放 Fyrox animation 時以 `seconds = tick / ticks_per_second` 把 content tick range 轉成 Fyrox `Animation::set_time_slice` 使用的秒數。
+`animation_sources` 是 build-time 可驗證的 source inventory。每個 source key 是 content-owned logical id，包含 source FBX path、該 FBX 內的 animation name、duration ticks 與 ticks-per-second。所有 Saika action FBX 的 animation name 都是 `Take 001`，所以 codegen/runtime 不得用 animation name 當唯一 key；binding 的 `source` 必須指向 logical source key。omfx 播放 Fyrox animation 時以 `seconds = tick / ticks_per_second` 把 content tick range 轉成 Fyrox `Animation::set_time_slice` 使用的秒數。
 
 替代方案是直接在 omfx hard-code `hero_saika_magoichi` 到 FBX/PNG 的 mapping。這雖然最短，但會破壞 content-owned asset pattern，之後新增英雄模型時必須改前端 source，因此不採用。
 
 ### Generated API 新增 optional hero render lookup
 
-`omoba-template-ids` 新增 `HeroRenderMetadataConst` 與 `hero_render_metadata(HeroId) -> Option<&'static HeroRenderMetadataConst>`。`HeroEntry` 反序列化 `render` table；當 `render_mode = "model_3d"` 時驗證 `model` 非空、`scale > 0`，並保留 texture path、yaw offset 與 z offset。
+`omoba-template-ids` 新增 `HeroRenderMetadataConst` 與 `hero_render_metadata(HeroId) -> Option<&'static HeroRenderMetadataConst>`。`HeroEntry` 反序列化 `render` table；當 `render_mode = "model_3d"` 時驗證 `model` 非空、`scale > 0`，並保留 texture path、pitch/roll/yaw offset 與 z offset。
 
-同時新增 `HeroAnimationSourceConst` 與 `HeroAnimationBindingConst` 或等效結構。source const 包含 source animation name、duration ticks 與 ticks-per-second；binding const 包含 action key、source animation name、start/end tick、optional impact tick、loop、priority/interrupt policy。對 `model_3d` hero，codegen 驗證 required bindings：`move`、`attack`、`critical`、`sniper` 都存在、source 存在於 `animation_sources`、tick range 在 `0..=source.duration_ticks` 且 `end_tick > start_tick`。對 `attack` 與 `critical`，額外驗證 `start_tick < impact_tick < end_tick`。codegen 不直接解析 FBX；FBX inventory 由 Assimp authoring task 產生並寫進 scripts metadata。
+同時新增 `HeroAnimationSourceConst` 與 `HeroAnimationBindingConst` 或等效結構。source const 包含 logical source key、optional source model path、source animation name、duration ticks 與 ticks-per-second；binding const 包含 action key、logical source key、start/end tick、optional impact tick、loop、priority/interrupt policy。對 `model_3d` hero，codegen 驗證 required bindings：`move`、`attack`、`critical`、`sniper` 都存在、source 存在於 `animation_sources`、tick range 在 `0..=source.duration_ticks` 且 `end_tick > start_tick`。對 `attack` 與 `critical`，額外驗證 `start_tick < impact_tick < end_tick`。codegen 不直接解析 FBX；FBX inventory 由 Assimp authoring task 產生並寫進 scripts metadata。
 
 理由是 omfx 已依賴 `omoba-template-ids`，可以在 sim snapshot extraction 階段用 generated lookup 取得資料，避免 runtime 讀 Lua 或 JSON。這也符合現有「Lua builders build-time only」契約。
 
@@ -89,7 +96,7 @@ render = {
 
 ### omfx 以 per-entity node cache 呈現 3D hero
 
-omfx 新增 `hero_model_nodes: HashMap<u32, HeroModelRender>` 與 asset load status cache。`update_sim_batches` 遇到 hero 且 `hero_render.render_mode == "model_3d"` 時，嘗試載入/instantiate model，將 root node 放到 `world_to_render(e)` 的 XY 位置與 hero Z layer，並用 `facing_rad + yaw_offset_deg` 更新旋轉。
+omfx 新增 `hero_model_nodes: HashMap<u32, HeroModelRender>` 與 asset load status cache。`update_sim_batches` 遇到 hero 且 `hero_render.render_mode == "model_3d"` 時，嘗試載入/instantiate model，將 root node 放到 `world_to_render(e)` 的 XY 位置與 hero Z layer，並用 render-space facing 加上 metadata pitch/roll/yaw offset 更新旋轉。
 
 這個 pipeline 必須是 generic。`omfx` 可以知道「如何」載入 scripts asset、建立 Fyrox node、套用 scale/offset、播放 segment、fallback，但不能知道「Saika 的資料值」。具體 path、`Take 001`、tick ranges、action binding 都來自 snapshot/generated metadata。
 
@@ -116,16 +123,16 @@ let root = model_resource
 
 ### Fyrox animation player 使用方式
 
-FBX model resource 內的 animation track target 指向 resource graph node；實例 node 要播放時必須 retarget。實作不依賴 importer 是否已建立 animation player，而是在 model root 下建立專用 player：
+FBX model resource 內的 animation track target 指向 resource graph node；實例 node 要播放時必須 retarget。實作不依賴 importer 是否已建立 animation player，而是在 model root 下建立專用 player。base model 只負責 mesh/skeleton；action source FBX 透過 metadata path 載入後 retarget 到同一個 instance root：
 
 ```rust
 let player = AnimationPlayerBuilder::new(BaseBuilder::new().with_name("Hero Animation Player"))
     .build(&mut scene.graph);
 scene.graph.link_nodes(player, root);
-let handles = model_resource.retarget_animations_to_player(root, player, &mut scene.graph);
+let handles = action_model_resource.retarget_animations_to_player(root, player, &mut scene.graph);
 ```
 
-`HeroModelRender` 應保存 `root_node`、`animation_player`、`animations_by_source: HashMap<String, Handle<Animation>>` 與 active playback state。retarget 後從 `AnimationContainer` 讀取 `Animation::name()` 建立 source name 到 handle 的 mapping；Saika 會得到 `Take 001`。播放 action 時先停用同 player 的其他 animation，再對 active source 設定：`set_time_slice(start_sec..end_sec)`、`set_time_position(start_sec)`、`set_loop(loop_flag)`、`set_enabled(true)`、`set_speed(speed)`。
+`HeroModelRender` 應保存 `root_node`、`animation_player`、`animations_by_source: HashMap<String, Handle<Animation>>` 與 active playback state。retarget 後使用 metadata logical source key 建立 source key 到 handle 的 mapping；不得只用 `Animation::name()`，因為多個 action FBX 都叫 `Take 001`。播放 action 時先停用同 player 的其他 animation，再對 active source 設定：`set_time_slice(start_sec..end_sec)`、`set_time_position(start_sec)`、`set_loop(loop_flag)`、`set_enabled(true)`、`set_speed(speed)`。
 
 因為 Fyrox `Animation::set_speed` 對整個 current time slice 只有一個倍率，`attack`/`critical` one-shot 不能用單一 slice 同時精準對齊 windup 與 backswing。實作應把一個 attack action 當成兩個 visual sub-phase：先播放 `start_tick..impact_tick`，`speed = source_windup_seconds / cue.windup_seconds`；到 authoritative impact time 後切成 `impact_tick..end_tick`，`speed = source_backswing_seconds / cue.backswing_seconds`。windup cancel cue 抵達時停用該 sequence animation 並回到 sustained state；backswing interrupt cue 抵達時可停用後搖，但不回收已 impact 的 hit/projectile/critical visual。
 
@@ -145,7 +152,7 @@ let material = MaterialResource::new_embedded(material);
 
 ### Animation binding 由 content metadata 驅動
 
-Saika FBX 只有單一 `Take 001`，因此 omfx 不應寫死 frame ranges。Content metadata 需要提供 `animations` table，把 gameplay-facing action key 對到 `Take 001` 的 tick segment。Generated metadata 會把 tick segment 交給 omfx，omfx 播放時只依 action key 選 segment。
+Saika base/action FBX 都只有單一 `Take 001`，因此 omfx 不應寫死 frame ranges，也不能只靠 animation name 區分 action。Content metadata 需要提供 `animation_sources` 與 `animations` table，把 gameplay-facing action key 對到 logical source key 與 tick segment。Generated metadata 會把 source path、source animation name 與 tick segment 交給 omfx，omfx 播放時只依 action key 選 segment。
 
 行為選擇規則：移動速度或 position delta 高於小閾值時播放 `move` loop；`sniper_mode` buff 存在時播放 `sniper` loop 作為站立/瞄準 fallback；收到 attack phase cue 時播放 `attack` one-shot；收到 critical cue 時用 `critical` one-shot 覆蓋一般 attack。one-shot 播放時，omfx 需把 `start_tick..impact_tick` retime 到 cue 的 windup duration，把 `impact_tick..end_tick` retime 到 cue 的 backswing duration，使 hit frame 對齊 authoritative impact event。one-shot 播完後回到 `sniper`、`move` 或預設站立狀態。
 
@@ -169,7 +176,7 @@ Resolver 可以有 scripts-root 搜尋策略，但不應有 Saika 專屬 fallbac
 
 ## Risks / Trade-offs
 
-- [Risk] FBX import 的實際座標軸、比例或材質綁定可能與 omfx camera 不一致 → Mitigation：metadata 保留 `scale`、`yaw_offset_deg`、`z_offset`；implementation 以 TD_1/dev run 實機畫面微調預設值。
+- [Risk] FBX import 的實際座標軸、比例或材質綁定可能與 omfx camera 不一致 → Mitigation：metadata 保留 `scale`、`pitch_offset_deg`、`roll_offset_deg`、`yaw_offset_deg`、`z_offset`；implementation 以 TD_1/dev run 實機畫面微調預設值。
 - [Risk] FBX 只有 `Take 001`，action segment ranges 需要人工校準 → Mitigation：tasks 要求用 `assimp dump`/實機預覽填入明確 tick ranges，並在 metadata validation 阻擋缺漏或空 range。
 - [Risk] build-time codegen 直接解析 FBX 會引入新 dependency 或開發機工具耦合 → Mitigation：Assimp 結果寫入 scripts metadata 的 `animation_sources`，codegen 驗證 declared source/duration/range，不解析 FBX。
 - [Risk] 實作時為了快速驗證而把 Saika path/ranges 寫進 omfx → Mitigation：specs/tasks 加入禁止 hard-code 與 grep 驗證，所有 Saika data 必須只在 scripts metadata 或 generated output 中出現。
@@ -181,7 +188,7 @@ Resolver 可以有 scripts-root 搜尋策略，但不應有 Saika 專屬 fallbac
 
 ## Migration Plan
 
-1. 用 `assimp info`/`assimp dump` 確認 Saika FBX animation inventory，記錄 `Take 001`、duration `1000`、tick rate `30`，並找出 `move`、`attack`、`critical`、`sniper` 的實際 tick ranges。
+1. 用 `assimp info`/`assimp dump` 確認 Saika base/action FBX animation inventory，記錄每個 source 的 `Take 001` duration 與 tick rate，並找出 `move`、`attack`、`critical`、`sniper` 的實際 tick ranges。
 2. 擴充 `omoba-template-ids` hero metadata model 與 generated lookup，新增 animation binding schema 與 validation。
 3. 在 `scripts/lua_data/templates/heroes.lua` 為 `saika_magoichi` 宣告 3D metadata、`animation_sources` 與四個 required animation bindings，路徑指向現有 FBX/PNG。
 4. 擴充 backend attack scheduler，讓已接受的移動/技能指令在 windup 取消攻擊且不出傷害，在 backswing 只取消後搖不 rollback impact outcome。
@@ -193,7 +200,7 @@ Rollback 很簡單：移除或停用 `saika_magoichi.render` metadata，omfx 會
 
 ## Open Questions
 
-- `scale`、`yaw_offset_deg`、`z_offset` 與四個 animation segment tick ranges 的最終值需要在載入實際 FBX 後目視微調。
+- `scale`、`pitch_offset_deg`、`roll_offset_deg`、`yaw_offset_deg`、`z_offset` 與四個 animation segment tick ranges 的最終值仍需要在載入實際 FBX 後目視微調。
 - 仍需確認 Saika FBX 內部 material reference 的 filename 是否能讓 Fyrox `RecursiveUp` 自動找到 `saika_magoichi_mat.png`；若不能，走 metadata texture manual fallback。
 - 現有 damage/attack render cues 是否已能標示 hero critical hit 需要實作階段確認；若不能，需要新增 render-only critical cue。
 - 現有 input/attack scheduler 是否已保存 pending impact outcome 需要實作階段確認；若沒有，需要新增 attack sequence state 來支援 windup cancel 與 backswing interrupt。
