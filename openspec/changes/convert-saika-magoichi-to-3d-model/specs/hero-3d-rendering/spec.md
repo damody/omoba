@@ -4,22 +4,79 @@
 
 Hero 3D visual metadata SHALL be declared in the scripts content hero template data. `saika_magoichi` SHALL declare `render_mode = "model_3d"`, a model path, a texture path, and positive scale metadata that points to the existing assets under `scripts/lua_data/templates/heroes/saika_magoichi/`.
 
+The authoritative location for hero 3D assets and metadata SHALL be `scripts/lua_data`. omfx SHALL NOT own or require Saika-specific copies under `omfx/data`, and omfx source SHALL NOT contain Saika-specific asset paths, scale values, offsets, source animation names, or tick ranges.
+
+The metadata SHALL also declare animation source inventory and required animation bindings for `move`, `attack`, `critical`, and `sniper`. Because the current FBX exposes a single animation named `Take 001`, Saika metadata SHALL declare `Take 001` with duration `1000` ticks and `30` ticks per second, and each required binding SHALL map to `Take 001` with an explicit non-empty tick range.
+
 #### Scenario: Saika declares 3D model metadata
 - **WHEN** `scripts/lua_data/templates/heroes.lua` is loaded by template codegen
 - **THEN** the `saika_magoichi` hero entry contains `render.render_mode = "model_3d"`
 - **AND** it references `templates/heroes/saika_magoichi/saika_magoichi.fbx`
 - **AND** it references `templates/heroes/saika_magoichi/saika_magoichi_mat.png`
 - **AND** it declares a positive model scale
+- **AND** it declares animation source metadata for `Take 001` with positive duration ticks and positive ticks-per-second
+- **AND** it declares animation bindings for `move`, `attack`, `critical`, and `sniper`
 
 #### Scenario: Saika 3D assets exist at the declared location
 - **WHEN** the declared `saika_magoichi` 3D asset paths are checked relative to `scripts/lua_data/`
 - **THEN** `scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi.fbx` exists
 - **AND** `scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi_mat.png` exists
 
+#### Scenario: No canonical Saika 3D data exists in omfx
+- **WHEN** implementation is complete
+- **THEN** Saika model path, texture path, scale, yaw offset, z offset, source animation name, and animation tick ranges are declared in scripts metadata or generated data
+- **AND** `omfx` source does not contain a Saika-specific hard-coded asset path or animation range table
+- **AND** `omfx/data` is not required as a canonical location for Saika 3D model or texture files
+
 #### Scenario: Heroes without 3D metadata remain valid
 - **WHEN** a hero template does not declare a `render` table
 - **THEN** template codegen still succeeds
 - **AND** that hero remains eligible for existing 2D fallback rendering
+
+#### Scenario: Assimp reports Saika animation inventory
+- **WHEN** `assimp info scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi.fbx` is run against the shipped model
+- **THEN** the output reports `Animations: 1`
+- **AND** the output lists named animation `Take 001`
+- **AND** the output reports 32 bones and 24 animation channels
+- **AND** `assimp dump` reports `Take 001` duration `1000` ticks and tick count/rate `30`
+
+### Requirement: Hero animation bindings describe gameplay actions
+
+For a `model_3d` hero, the content metadata SHALL map gameplay-facing animation actions to source animation segments. `saika_magoichi` SHALL provide an animation source inventory entry for `Take 001` and bindings for `move`, `attack`, `critical`, and `sniper`; each binding SHALL include source animation name, start tick, end tick, and loop behavior. `attack` and `critical` bindings SHALL also include an impact tick between start and end so omfx can align the animation hit frame with the authoritative attack impact event.
+
+#### Scenario: Required Saika animation bindings are present
+- **WHEN** template codegen reads `saika_magoichi.render.animations`
+- **THEN** it finds `move`, `attack`, `critical`, and `sniper` keys
+- **AND** every binding uses source animation `Take 001`
+- **AND** `Take 001` exists in the declared animation source inventory
+- **AND** every binding has `end_tick > start_tick`
+- **AND** every binding range is within the declared `Take 001` duration that was authored from Assimp inspection
+- **AND** `attack` and `critical` bindings have `start_tick < impact_tick < end_tick`
+
+#### Scenario: Animation source inventory is build-time validated
+- **WHEN** template codegen reads `saika_magoichi.render.animation_sources`
+- **THEN** it finds source `Take 001`
+- **AND** the source declares positive `duration_ticks`
+- **AND** the source declares positive `ticks_per_second`
+- **AND** codegen can validate binding ranges without parsing the FBX file or requiring an `assimp` executable
+
+#### Scenario: Move and sniper bindings are loopable
+- **WHEN** Saika metadata is generated
+- **THEN** the `move` binding is marked loopable
+- **AND** the `sniper` binding is marked loopable
+- **AND** omfx can use either binding as a sustained state animation
+
+#### Scenario: Attack and critical bindings are one-shot
+- **WHEN** Saika metadata is generated
+- **THEN** the `attack` binding is marked non-looping
+- **AND** the `critical` binding is marked non-looping
+- **AND** both bindings include an impact tick for windup/impact/backswing alignment
+- **AND** omfx can return to a sustained state animation after either binding completes
+
+#### Scenario: Missing required binding fails validation
+- **WHEN** a `model_3d` hero omits any of `move`, `attack`, `critical`, or `sniper`
+- **THEN** `omoba-template-ids` build-time codegen fails
+- **AND** the error message identifies the hero id and missing action key
 
 ### Requirement: Generated hero render metadata is available to runtime code
 
@@ -31,6 +88,9 @@ Hero 3D visual metadata SHALL be declared in the scripts content hero template d
 - **AND** the metadata contains the Saika FBX path
 - **AND** the metadata contains the Saika PNG texture path
 - **AND** the metadata contains positive scale data
+- **AND** the metadata contains generated animation source data for `Take 001`
+- **AND** the metadata contains generated animation bindings for `move`, `attack`, `critical`, and `sniper`
+- **AND** the `attack` and `critical` bindings contain impact tick metadata
 
 #### Scenario: Hero without render metadata returns none
 - **WHEN** runtime code calls `hero_render_metadata` for a hero that has no `render` table
@@ -42,14 +102,33 @@ Hero 3D visual metadata SHALL be declared in the scripts content hero template d
 - **THEN** `omoba-template-ids` build-time codegen fails
 - **AND** the error message identifies the invalid hero id and invalid field
 
+#### Scenario: Invalid animation source or range fails during codegen
+- **WHEN** a hero animation binding references an unknown declared source animation, has `end_tick <= start_tick`, has an attack impact tick outside `start_tick..end_tick`, exceeds the declared source animation duration, or the source has non-positive ticks-per-second
+- **THEN** `omoba-template-ids` build-time codegen fails
+- **AND** the error message identifies the invalid hero id, action key, and range field
+
 ### Requirement: Simulation snapshot exposes optional hero 3D render data
 
 `SimWorldSnapshot` entity render data SHALL include optional hero 3D render metadata for hero entities whose template declares `model_3d`. Snapshot extraction SHALL resolve hero render metadata from generated template APIs using the hero template id represented by `ScriptUnitTag.unit_id`.
+
+Snapshot data SHALL provide enough render-only state for omfx to choose `move`, `attack`, `critical`, and `sniper` animation actions. These cues SHALL be derived from existing movement, buff, attack, or damage/outcome data and SHALL NOT affect deterministic gameplay state.
 
 #### Scenario: Saika entity snapshot contains hero render data
 - **WHEN** a `saika_magoichi` hero entity with `ScriptUnitTag.unit_id = "hero_saika_magoichi"` appears in a snapshot
 - **THEN** the corresponding `EntityRenderData` contains optional hero render data
 - **AND** that render data contains the Saika FBX path, texture path, scale, yaw offset, and z offset
+- **AND** that render data contains the four generated animation bindings
+
+#### Scenario: Saika sniper mode snapshot exposes sniper action state
+- **WHEN** Saika has an active `sniper_mode` buff in snapshot data
+- **THEN** omfx can choose the `sniper` animation action for the hero model
+- **AND** the action cue remains render-only
+
+#### Scenario: Saika attack and critical cues are distinguishable
+- **WHEN** Saika performs a normal attack
+- **THEN** omfx can choose the `attack` animation action
+- **AND** when the attack result is critical, omfx can choose the `critical` animation action instead
+- **AND** neither cue changes damage, cooldown, target selection, or simulation hash input
 
 #### Scenario: Non-hero entities do not carry hero render data
 - **WHEN** snapshot extraction emits tower, creep, projectile, or other non-hero entities
@@ -65,12 +144,59 @@ Hero 3D visual metadata SHALL be declared in the scripts content hero template d
 
 omfx SHALL instantiate and update a Fyrox scene node hierarchy for hero entities that have valid `model_3d` snapshot metadata and successfully loaded assets. The model visual SHALL follow the snapshot entity position and facing while hero UI, HP bars, input, abilities, and gameplay data continue to use snapshot entity data.
 
+omfx SHALL use generated animation source and binding metadata to play Saika's `move`, `attack`, `critical`, and `sniper` actions from `Take 001` tick ranges. omfx SHALL convert content ticks to Fyrox animation seconds using generated ticks-per-second metadata. omfx SHALL NOT hard-code Saika animation tick ranges, Saika asset paths, Saika source animation names, or Saika model scale/offsets in frontend source.
+
+The omfx implementation SHALL be generic: it MAY provide scripts asset path resolution, model loading, texture binding, node lifecycle management, animation segment playback, and fallback behavior, but all hero-specific values SHALL come from generated/snapshot metadata.
+
 #### Scenario: Saika uses a 3D scene node instead of the generic 2D body
 - **WHEN** omfx receives a Saika hero snapshot with valid `model_3d` metadata and the model loads successfully
 - **THEN** omfx creates or reuses a 3D model node for that entity id
 - **AND** omfx positions the model at the hero snapshot position in render space
 - **AND** omfx applies the declared scale and facing offset
 - **AND** omfx suppresses the generic 2D body quad and facing bar for that hero
+
+#### Scenario: Saika movement plays move binding
+- **WHEN** Saika is moving according to snapshot position/state
+- **THEN** omfx plays the `move` animation binding as a loop
+- **AND** the playback segment comes from the metadata range for `Take 001`
+- **AND** omfx converts the metadata tick range to seconds before calling Fyrox animation playback APIs
+
+#### Scenario: Saika normal attack plays attack binding
+- **WHEN** Saika receives a normal attack render cue
+- **THEN** omfx plays the `attack` animation binding once
+- **AND** omfx retimes the binding so `start_tick..impact_tick` matches the cue windup duration
+- **AND** omfx retimes `impact_tick..end_tick` to match the cue backswing duration
+- **AND** omfx uses separate Fyrox playback phases before and after impact if one `Animation::set_speed` value cannot satisfy both durations
+- **AND** playback returns to `move`, `sniper`, or default state after the one-shot completes
+
+#### Scenario: Fyrox model resource is cached and instantiated once per entity
+- **WHEN** omfx receives a hero snapshot with valid `model_3d` metadata for the first time
+- **THEN** omfx requests the model through Fyrox `ResourceManager` using the resolved scripts asset path
+- **AND** omfx keeps 2D fallback visible while the resource is still loading
+- **AND** after the model resource is loaded, omfx instantiates a scene node hierarchy and reuses it for stable snapshots
+
+#### Scenario: Fyrox animation is retargeted to the model instance
+- **WHEN** omfx instantiates a model-backed hero
+- **THEN** omfx creates or finds an animation player for that model instance
+- **AND** omfx retargets model resource animations to the instance hierarchy
+- **AND** action playback selects animations by generated source name rather than by hero-specific frontend code
+
+#### Scenario: Manual texture fallback is generic
+- **WHEN** the FBX importer does not bind the declared diffuse texture automatically
+- **THEN** omfx may load the metadata texture path relative to `scripts/lua_data/`
+- **AND** omfx may bind it to the model mesh surfaces through a standard 3D material
+- **AND** the fallback remains generic and does not contain a Saika-specific path outside generated/snapshot metadata
+
+#### Scenario: Saika critical attack plays critical binding
+- **WHEN** Saika receives a critical attack render cue
+- **THEN** omfx plays the `critical` animation binding once
+- **AND** the binding impact tick aligns with the authoritative attack impact event
+- **AND** this visual choice does not change damage calculation
+
+#### Scenario: Saika sniper mode plays sniper binding
+- **WHEN** Saika has active `sniper_mode` state and is not playing a higher-priority one-shot
+- **THEN** omfx plays the `sniper` animation binding as a loop
+- **AND** the binding remains active until `sniper_mode` ends or a higher-priority action interrupts it
 
 #### Scenario: Existing hero HUD remains driven by snapshot data
 - **WHEN** Saika is rendered as a 3D model
@@ -81,6 +207,16 @@ omfx SHALL instantiate and update a Fyrox scene node hierarchy for hero entities
 - **WHEN** the same Saika entity appears in consecutive snapshots
 - **THEN** omfx reuses the existing 3D model node for that entity id
 - **AND** it updates transforms instead of reloading or re-instantiating the model every frame
+
+#### Scenario: Animation binding ranges are data-driven
+- **WHEN** Saika animation tick ranges are changed in `scripts/lua_data/templates/heroes.lua`
+- **THEN** omfx uses the generated metadata after rebuild
+- **AND** no omfx source change is required for those range adjustments
+
+#### Scenario: omfx renderer is hero-data agnostic
+- **WHEN** a different hero later declares `model_3d` metadata in scripts with its own model path, texture path, scale, offsets, and animation bindings
+- **THEN** omfx can load and play that hero through the same generic pipeline
+- **AND** no new hero-specific source mapping is required in omfx
 
 #### Scenario: Removed hero cleans up model node
 - **WHEN** a hero entity using a 3D model is removed from the snapshot or appears in `removed_entity_ids`
