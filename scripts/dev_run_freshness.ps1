@@ -221,8 +221,6 @@ $templateIds = New-InputSet -Files @(
 ) -Directories @(
     'omoba-template-ids/src',
     'scripts/lua_data/templates',
-    'scripts/lua_data/B01_1',
-    'scripts/lua_data/DEBUG_1',
     'scripts/lua_data/MVP_1',
     'scripts/lua_data/TD_1',
     'scripts/lua_data/TD_STRESS'
