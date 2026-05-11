@@ -202,6 +202,7 @@ pub struct HeroRenderMetadataConst {
     pub roll_offset_deg: Fixed64,
     pub yaw_offset_deg: Fixed64,
     pub z_offset: Fixed64,
+    pub muzzle_bone: &'static str,
     pub animation_sources: &'static [HeroAnimationSourceConst],
     pub animations: &'static [HeroAnimationBindingConst],
 }

@@ -153,6 +153,7 @@ fn hero_saika_render_metadata_is_generated() {
     assert_eq!(render.roll_offset_deg, Fixed64::from_raw(0));
     assert_eq!(render.yaw_offset_deg, Fixed64::from_i32(-90));
     assert_eq!(render.z_offset, Fixed64::from_raw(0));
+    assert_eq!(render.muzzle_bone, "Weapon Ref");
 
     let move_source = hero_source(render, "move");
     assert_eq!(

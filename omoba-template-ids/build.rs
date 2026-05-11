@@ -329,6 +329,8 @@ struct HeroRenderEntry {
     #[serde(default)]
     z_offset: f32,
     #[serde(default)]
+    muzzle_bone: String,
+    #[serde(default)]
     animation_sources: BTreeMap<String, HeroAnimationSourceEntry>,
     #[serde(default)]
     animations: BTreeMap<String, HeroAnimationBindingEntry>,
@@ -1583,6 +1585,7 @@ fn emit_hero_render_metadata(out: &mut String, entries: &[HeroEntry]) {
              \troll_offset_deg: {},\n\
              \tyaw_offset_deg: {},\n\
              \tz_offset: {},\n\
+             \tmuzzle_bone: \"{}\",\n\
              \tanimation_sources: {},\n\
              \tanimations: {},\n\
              }};\n",
@@ -1595,6 +1598,7 @@ fn emit_hero_render_metadata(out: &mut String, entries: &[HeroEntry]) {
             fixed64_lit(render.roll_offset_deg),
             fixed64_lit(render.yaw_offset_deg),
             fixed64_lit(render.z_offset),
+            escape_str_literal(&render.muzzle_bone),
             sources_const,
             bindings_const,
         ));

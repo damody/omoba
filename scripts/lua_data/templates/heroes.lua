@@ -32,6 +32,7 @@ return function(ctx)
         roll_offset_deg = 0.0,
         yaw_offset_deg = -90.0,
         z_offset = 0.0,
+        muzzle_bone = "Weapon Ref",
         animation_sources = {
           move = {
             model = "templates/heroes/saika_magoichi/b01_ani_run.fbx",
