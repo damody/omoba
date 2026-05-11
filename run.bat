@@ -9,7 +9,10 @@ set OMB_DLL_PATH=omb\scripts\base_content.dll
 set OMB_GAME_TOML=omb\game.toml
 set OMB_LUA_CONTENT=1
 set OMB_LUA_CONTENT_ROOT=scripts\lua_data
+set OMB_LUA_HOT_RELOAD=1
 set OMB_STORY_DATA_DIR=%OMB_LUA_CONTENT_ROOT%
+set OMB_STORY=TD_1
+set OMB_SCENE_PATH=%OMB_STORY_DATA_DIR%\%OMB_STORY%
 
 echo [0/5] Killing stale processes (if any)...
 taskkill /f /im omobab.exe >nul 2>&1

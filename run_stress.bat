@@ -22,6 +22,7 @@ set OMB_DLL_PATH=omb\scripts\base_content.dll
 set OMB_GAME_TOML=omb\game.toml
 set OMB_LUA_CONTENT=
 set OMB_LUA_CONTENT_ROOT=
+set OMB_LUA_HOT_RELOAD=
 set OMB_STORY_DATA_DIR=scripts\lua_data
 
 set TOML=omb\game.toml
