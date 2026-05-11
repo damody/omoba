@@ -3,6 +3,8 @@
 //! 匯出一個包含此 DLL 提供的每個單元和功能的「清單」。
 //! omb 主機透過 `abi_stable::library::RootModule::load_from_file` 載入它。
 
+#![allow(non_snake_case)]
+
 use abi_stable::{
     export_root_module,
     prefix_type::PrefixTypeTrait,

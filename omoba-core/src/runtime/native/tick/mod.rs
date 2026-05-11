@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports, dead_code, unused_variables)]
+
 #[path = "../../../../../omb/src/tick/attack_phase.rs"]
 pub mod attack_phase;
 #[path = "../../../../../omb/src/tick/buff_tick.rs"]

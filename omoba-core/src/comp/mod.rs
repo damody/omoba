@@ -1,3 +1,5 @@
+#![allow(ambiguous_glob_reexports, dead_code, unused_variables)]
+
 pub use crate::runtime::comp::*;
 pub use crate::runtime::comp::{
     blocked_region, bounty, building, check_point, circular_vision, collision_index, creep,

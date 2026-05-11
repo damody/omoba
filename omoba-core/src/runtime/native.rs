@@ -33,8 +33,9 @@ pub use game_processor::{
     interrupt_attack_for_accepted_command, process_outcomes,
 };
 pub use initialization::{
-    create_world_for_scene, populate_ability_registry, populate_tower_template_registry,
-    populate_tower_upgrade_registry, StateInitializer,
+    create_world_for_scene, create_world_for_scene_with_content, create_world_from_loaded_content,
+    populate_ability_registry, populate_tower_template_registry, populate_tower_upgrade_registry,
+    StateInitializer,
 };
 pub use input::*;
 pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};

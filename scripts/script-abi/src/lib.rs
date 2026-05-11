@@ -4,6 +4,8 @@
 //! 依賴。它必須僅使用 `abi_stable` 類型；沒有規格，沒有 omb main
 //! 板條箱，沒有任何東西可以將引擎內部結構拉過 FFI 邊界。
 
+#![allow(non_camel_case_types, non_local_definitions)]
+
 pub mod ability;
 pub mod buff_ids;
 pub mod manifest;

@@ -121,6 +121,8 @@ impl AppConfig {
 }
 
 pub mod server_config {
+    #![allow(non_snake_case)]
+
     #[derive(Debug)]
     pub struct RuntimeServerConfig {
         pub PLAYER_NAME: String,
