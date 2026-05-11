@@ -1,7 +1,7 @@
 //! Tower upgrade metadata — client/server 共用 schema。
 //!
 //! 四塔 × 3 路線 × 4 級 = 48 個 TowerUpgradeDef。
-//! server 側 registry 見 omb/src/comp/tower_upgrade_registry.rs。
+//! runtime registry 見 `runtime::comp::tower_upgrade_registry`。
 
 use serde::{Deserialize, Serialize};
 

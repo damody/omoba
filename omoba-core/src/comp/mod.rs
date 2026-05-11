@@ -24,15 +24,10 @@ pub mod base {
 pub use base::ProfSpan;
 pub(crate) use base::prof_span;
 
-#[path = "../../../omb/src/comp/ecs.rs"]
 pub mod ecs;
-#[path = "../../../omb/src/comp/tick_profile.rs"]
 pub mod tick_profile;
-#[path = "../../../omb/src/comp/enemy.rs"]
 pub mod enemy;
-#[path = "../../../omb/src/comp/campaign.rs"]
 pub mod campaign;
-#[path = "../../../omb/src/comp/player.rs"]
 pub mod player;
 
 pub mod outcome {

@@ -1,4 +1,3 @@
-#[path = "../../../omb/src/scripting/loader.rs"]
 pub mod loader;
 
 pub use crate::runtime::scripting::{
