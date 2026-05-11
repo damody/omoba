@@ -1536,7 +1536,11 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
                     );
                 }
             }
-            "move" | "sniper" | "idle" => {
+            action_key if action_key == "move"
+                || action_key == "sniper"
+                || action_key == "idle"
+                || action_key.starts_with("idle_") =>
+            {
                 if !binding.loop_animation {
                     panic!("{} animation '{}' must be loopable", owner, action);
                 }
