@@ -1,11 +1,14 @@
 @echo off
 setlocal
 
-cd /d "%~dp0"
+pushd "%~dp0"
 
 set WS_ADDR=127.0.0.1:50062
 set KCP_ADDR=127.0.0.1:50061
 set WEBROOT=omfx\executor-wasm\web-root
+set OMB_DLL_PATH=omb\scripts\base_content.dll
+set OMB_GAME_TOML=omb\game.toml
+set OMB_STORY_DATA_DIR=scripts\lua_data
 set BUILD_ONLY=0
 set WASM_PROFILE=dev
 set WASM_PACK_FLAGS=--target web --dev --no-opt

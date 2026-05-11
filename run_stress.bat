@@ -13,14 +13,16 @@ REM    7. 結束後一律清理 backend 並還原 omb\game.toml
 REM ======================================================================
 
 setlocal
-pushd %~dp0
+pushd "%~dp0"
 
 set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
 set EXECUTOR=omfx\target\release\executor.exe
 set BACKEND=omb\target\release\omobab.exe
+set OMB_DLL_PATH=omb\scripts\base_content.dll
+set OMB_GAME_TOML=omb\game.toml
 set OMB_LUA_CONTENT=
 set OMB_LUA_CONTENT_ROOT=
-set OMB_STORY_DATA_DIR=
+set OMB_STORY_DATA_DIR=scripts\lua_data
 
 set TOML=omb\game.toml
 set TOML_BAK=omb\game.toml.bak
@@ -34,7 +36,7 @@ powershell -NoProfile -Command "Stop-Process -Name 'omobab','executor' -Force -E
 
 echo [1/7] Regenerating stress map...
 REM 使用 Windows 官方 py launcher 而非 `python`，避免 PATH 上的 Microsoft Store
-REM stub (C:\Users\<user>\AppData\Local\Microsoft\WindowsApps\python.exe) 攔截
+REM Microsoft Store python.exe stub 攔截
 REM 並彈出 Store 對話框讓 cmd 卡死。
 py -3 scripts\gen_stress_map.py
 if %errorlevel% neq 0 (
