@@ -66,8 +66,8 @@ render = {
     idle_2 = { source = "idle_2", start_tick = 0.0, end_tick = 125.0, loop = true },
     idle_3 = { source = "idle_3", start_tick = 0.0, end_tick = 53.0, loop = true },
     move = { source = "move", start_tick = 0.0, end_tick = 23.0, loop = true },
-    attack = { source = "attack", start_tick = 0.0, repeat_start_tick = 6.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
-    critical = { source = "critical", start_tick = 0.0, repeat_start_tick = 6.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
+    attack = { source = "attack", start_tick = 0.0, repeat_start_tick = 20.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
+    critical = { source = "critical", start_tick = 0.0, repeat_start_tick = 20.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
     sniper = { source = "sniper", start_tick = 0.0, end_tick = 53.0, loop = true },
   },
 }
@@ -75,7 +75,7 @@ render = {
 
 理由是 hero visual 是 content 屬性，應與 tower render metadata 一樣由 scripts content 宣告，而不是在 omfx 針對 `saika_magoichi` 寫死路徑、scale 或 animation ranges。`render_mode = "model_3d"` 讓沒有 metadata 的英雄維持現有 2D fallback。
 
-四個 required action keys 是 `move`、`attack`、`critical`、`sniper`。`idle` action family 是 optional loop bindings；普通待機時 omfx 可在 `idle`、`idle_2`、`idle_3` 等 action 中輪替/隨機播放，`sniper` 只在 `sniper_mode` 狀態使用。`move`、`idle*` 與 `sniper` 可 loop；`attack` 與 `critical` 應單次播放，且需要 `start_tick < impact_tick < end_tick`，讓 omfx 能把 animation hit frame 對齊 authoritative impact event。`attack`/`critical` 的 `impact_tick = 22.0` 來自 `b01_ani_attack.fbx` 動作分析：右手/武器主動作集中於 1..22 ticks，之後進入 torso/root recoil 與 recovery。`repeat_start_tick = 6.0` 是連續射擊的視覺起點；第二槍以後用 `repeat_start_tick..impact_tick` retime 到同一個 `cue.windup_ms`，因此只跳過拔槍視覺，不改 backend 前搖時間或 impact commit point。
+四個 required action keys 是 `move`、`attack`、`critical`、`sniper`。`idle` action family 是 optional loop bindings；普通待機時 omfx 可在 `idle`、`idle_2`、`idle_3` 等 action 中輪替/隨機播放，`sniper` 只在 `sniper_mode` 狀態使用。`move`、`idle*` 與 `sniper` 可 loop；`attack` 與 `critical` 應單次播放，且需要 `start_tick < impact_tick < end_tick`，讓 omfx 能把 animation hit frame 對齊 authoritative impact event。`attack`/`critical` 的 `impact_tick = 22.0` 來自 `b01_ani_attack.fbx` 動作分析：右手/武器主動作集中於 1..22 ticks，之後進入 torso/root recoil 與 recovery。`repeat_start_tick = 20.0` 是連續射擊的視覺起點；第二槍以後用 `repeat_start_tick..impact_tick` retime 到同一個 `cue.windup_ms`，因此只跳過拔槍視覺，不改 backend 前搖時間或 impact commit point。
 
 `animation_sources` 是 build-time 可驗證的 source inventory。每個 source key 是 content-owned logical id，包含 source FBX path、該 FBX 內的 animation name、duration ticks、ticks-per-second 與 timeline offset。所有 Saika action FBX 的 animation name 都是 `Take 001`，所以 codegen/runtime 不得用 animation name 當唯一 key；binding 的 `source` 必須指向 logical source key。Fyrox FBX importer 會保留 action FBX 原始 timeline offset，因此 omfx 播放 Fyrox animation 時以 `seconds = (timeline_offset_ticks + tick) / ticks_per_second` 把 content tick range 轉成 Fyrox `Animation::set_time_slice` 使用的秒數。
 

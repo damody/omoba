@@ -94,7 +94,7 @@ return function(ctx)
           attack = {
             source = "attack",
             start_tick = 0.0,
-            repeat_start_tick = 0.0,
+            repeat_start_tick = 20.0,
             impact_tick = 22.0,
             end_tick = 100.0,
             loop = false,
@@ -102,7 +102,7 @@ return function(ctx)
           critical = {
             source = "critical",
             start_tick = 0.0,
-            repeat_start_tick = 6.0,
+            repeat_start_tick = 20.0,
             impact_tick = 22.0,
             end_tick = 100.0,
             loop = false,

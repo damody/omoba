@@ -216,8 +216,8 @@ fn hero_saika_render_metadata_is_generated() {
     assert_loop_binding(render, "idle_2", "idle_2", 125);
     assert_loop_binding(render, "idle_3", "idle_3", 53);
     assert_loop_binding(render, "sniper", "sniper", 53);
-    assert_attack_binding(render, "attack", "attack", 0);
-    assert_attack_binding(render, "critical", "critical", 6);
+    assert_attack_binding(render, "attack", "attack", 20);
+    assert_attack_binding(render, "critical", "critical", 20);
 }
 
 #[test]
