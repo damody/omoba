@@ -39,6 +39,8 @@ pub use input::*;
 pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
 pub use scene::*;
 pub use snapshot::*;
-pub use scripting::{ScriptEvent, ScriptEventQueue, ScriptUnitTag, SkillTarget};
+pub use scripting::{
+    run_script_dispatch, ScriptEvent, ScriptEventQueue, ScriptRegistry, ScriptUnitTag, SkillTarget,
+};
 pub use spatial::{Bounds, Entry, SpatialIndex, SpatialIndexParams};
 pub use system_dispatcher::{build_phase3_dispatcher, SystemDispatcher};

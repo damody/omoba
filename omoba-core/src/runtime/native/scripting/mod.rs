@@ -5,3 +5,5 @@ pub mod tag;
 
 pub use event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 pub use tag::ScriptUnitTag;
+
+pub use crate::scripting::{run_script_dispatch, ScriptRegistry};
