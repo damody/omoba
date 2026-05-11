@@ -16,8 +16,8 @@
 
 ## 3. Split Runtime Processing
 
-- [ ] 3.1 拆分 `GameProcessor`：將 tower place/sell/upgrade、ability cast/upgrade、item use、move drain 與 pure outcome mutation 搬到 `omoba-core::runtime`。
-- [ ] 3.2 將 `GameProcessor` 中 legacy/typed broadcast payload construction 留在 `omb` adapter，runtime 只 emit runtime events 或 mutate ECS。
+- [x] 3.1 拆分 `GameProcessor`：將 tower place/sell/upgrade、ability cast/upgrade、item use、move drain 與 pure outcome mutation 搬到 `omoba-core::runtime`。
+- [x] 3.2 將 `GameProcessor` 中 legacy/typed broadcast payload construction 留在 `omb` adapter，runtime 只 emit runtime events 或 mutate ECS。
 - [ ] 3.3 將 tick systems 搬到 `omoba-core::runtime::tick`，並用 runtime event sink 取代 direct `OutboundMsg` channels。
 - [ ] 3.4 將 phase3 dispatcher build 搬到 `omoba-core::runtime`，暴露 `build_phase3_dispatcher` 或等效 entrypoint。
 - [ ] 3.5 將 native script runtime（`ScriptRegistry`、`ScriptEventQueue`、`ScriptUnitTag`、`run_script_dispatch`、`WorldAdapter`）搬到 `omoba-core::runtime`，DLL path discovery/loading orchestration 留在 `omb`。
