@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- 在 scripts-owned hero template metadata 中加入可選的 3D render 設定，讓 `saika_magoichi` 指向 `saika_magoichi.fbx` 與 `saika_magoichi_mat.png`；asset path、texture path、scale、pitch/roll/yaw/z offset、muzzle bone、animation source 與 tick ranges 都 SHALL 存在於 `scripts/lua_data`，不放在 `omfx` source 或 `omfx/data`。
+- 在 scripts-owned hero template metadata 中加入可選的 3D render 設定，讓 `saika_magoichi` 指向 `saika_magoichi.fbx` 與 `saika_magoichi_mat.png`；asset path、texture path、scale、pitch/roll/yaw/z offset、muzzle bone、animation source、timeline offset 與 tick ranges 都 SHALL 存在於 `scripts/lua_data`，不放在 `omfx` source 或 `omfx/data`。
 - 依 `assimp info` 檢查結果列出 Saika base FBX：4 meshes、32 bones、1 animation (`Take 001`)、24 animation channels；並使用同目錄 action FBX (`b01_ani_attack/run/stand3...`) 作為 scripts-owned animation sources，將 attack、critical、move、sniper 四個動作綁到各自 source 的明確 tick ranges。
 - 讓 generated template data 與 `SimWorldSnapshot` 提供 hero render metadata，供 omfx 依 `unit_id` 建立與更新 3D hero visual。
 - 在 omfx 新增 hero 3D model 載入、節點生命週期、位置、facing 與 animation state 同步；有 3D metadata 的 hero 不再顯示通用 2D body/facing quad。

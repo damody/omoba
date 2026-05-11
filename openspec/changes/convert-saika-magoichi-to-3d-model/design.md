@@ -4,7 +4,7 @@
 
 omfx 目前透過 `SimWorldSnapshot` 取得 entity render data。英雄、creep、projectile 走 batched quad，tower 則已有 script-owned render metadata 與 composite sprite pipeline。`saika_magoichi` 的 FBX 與 PNG 已存在於 `scripts/lua_data/templates/heroes/saika_magoichi/`，但 runtime 沒有任何路徑會讀取它們。
 
-資料權威邊界：Saika 3D visual 的所有資料都屬於 scripts content。模型檔、貼圖檔、asset path、scale、pitch/roll/yaw offset、z offset、muzzle bone、animation action keys、source animation name 與 tick ranges 都 SHALL 由 `scripts/lua_data` 宣告，再由 `omoba-template-ids` build-time codegen 產生 Rust lookup。`omfx` 只提供 data-driven renderer/loader/player 功能，不擁有 Saika 專屬資料，也不在 source 內維護 Saika 專屬表。
+資料權威邊界：Saika 3D visual 的所有資料都屬於 scripts content。模型檔、貼圖檔、asset path、scale、pitch/roll/yaw offset、z offset、muzzle bone、animation action keys、source animation name、timeline offset 與 tick ranges 都 SHALL 由 `scripts/lua_data` 宣告，再由 `omoba-template-ids` build-time codegen 產生 Rust lookup。`omfx` 只提供 data-driven renderer/loader/player 功能，不擁有 Saika 專屬資料，也不在 source 內維護 Saika 專屬表。
 
 現有 camera 是 orthographic 3D camera，使用 XY 作為畫面平面、Z 作為 draw order depth。這次設計不改整個 camera 或 2D tower/creep pipeline，而是把 hero 3D model 作為單一 Scene node hierarchy 放進既有 XY 畫面平面，並用 metadata 調整 scale、Z layer 與 facing offset。
 
@@ -53,10 +53,10 @@ render = {
   z_offset = 0.0,
   muzzle_bone = "Weapon Ref",
   animation_sources = {
-    move = { model = "templates/heroes/saika_magoichi/b01_ani_run.fbx", animation = "Take 001", duration_ticks = 23.0, ticks_per_second = 30.0 },
-    attack = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0 },
-    critical = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0 },
-    sniper = { model = "templates/heroes/saika_magoichi/b01_ani_stand3.fbx", animation = "Take 001", duration_ticks = 53.0, ticks_per_second = 30.0 },
+    move = { model = "templates/heroes/saika_magoichi/b01_ani_run.fbx", animation = "Take 001", duration_ticks = 23.0, ticks_per_second = 30.0, timeline_offset_ticks = 394.0 },
+    attack = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0, timeline_offset_ticks = 268.0 },
+    critical = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0, timeline_offset_ticks = 268.0 },
+    sniper = { model = "templates/heroes/saika_magoichi/b01_ani_stand3.fbx", animation = "Take 001", duration_ticks = 53.0, ticks_per_second = 30.0, timeline_offset_ticks = 747.0 },
   },
   animations = {
     move = { source = "move", start_tick = 0.0, end_tick = 23.0, loop = true },
@@ -71,7 +71,7 @@ render = {
 
 四個 required action keys 是 `move`、`attack`、`critical`、`sniper`。`move` 與 `sniper` 可 loop；`attack` 與 `critical` 應單次播放，且需要 `start_tick < impact_tick < end_tick`，讓 omfx 能把 animation hit frame 對齊 authoritative impact event。`attack`/`critical` 的 `impact_tick = 22.0` 來自 `b01_ani_attack.fbx` 動作分析：右手/武器主動作集中於 1..22 ticks，之後進入 torso/root recoil 與 recovery。
 
-`animation_sources` 是 build-time 可驗證的 source inventory。每個 source key 是 content-owned logical id，包含 source FBX path、該 FBX 內的 animation name、duration ticks 與 ticks-per-second。所有 Saika action FBX 的 animation name 都是 `Take 001`，所以 codegen/runtime 不得用 animation name 當唯一 key；binding 的 `source` 必須指向 logical source key。omfx 播放 Fyrox animation 時以 `seconds = tick / ticks_per_second` 把 content tick range 轉成 Fyrox `Animation::set_time_slice` 使用的秒數。
+`animation_sources` 是 build-time 可驗證的 source inventory。每個 source key 是 content-owned logical id，包含 source FBX path、該 FBX 內的 animation name、duration ticks、ticks-per-second 與 timeline offset。所有 Saika action FBX 的 animation name 都是 `Take 001`，所以 codegen/runtime 不得用 animation name 當唯一 key；binding 的 `source` 必須指向 logical source key。Fyrox FBX importer 會保留 action FBX 原始 timeline offset，因此 omfx 播放 Fyrox animation 時以 `seconds = (timeline_offset_ticks + tick) / ticks_per_second` 把 content tick range 轉成 Fyrox `Animation::set_time_slice` 使用的秒數。
 
 替代方案是直接在 omfx hard-code `hero_saika_magoichi` 到 FBX/PNG 的 mapping。這雖然最短，但會破壞 content-owned asset pattern，之後新增英雄模型時必須改前端 source，因此不採用。
 
@@ -79,7 +79,7 @@ render = {
 
 `omoba-template-ids` 新增 `HeroRenderMetadataConst` 與 `hero_render_metadata(HeroId) -> Option<&'static HeroRenderMetadataConst>`。`HeroEntry` 反序列化 `render` table；當 `render_mode = "model_3d"` 時驗證 `model` 非空、`scale > 0`，並保留 texture path、pitch/roll/yaw offset、z offset 與 muzzle bone。
 
-同時新增 `HeroAnimationSourceConst` 與 `HeroAnimationBindingConst` 或等效結構。source const 包含 logical source key、optional source model path、source animation name、duration ticks 與 ticks-per-second；binding const 包含 action key、logical source key、start/end tick、optional impact tick、loop、priority/interrupt policy。對 `model_3d` hero，codegen 驗證 required bindings：`move`、`attack`、`critical`、`sniper` 都存在、source 存在於 `animation_sources`、tick range 在 `0..=source.duration_ticks` 且 `end_tick > start_tick`。對 `attack` 與 `critical`，額外驗證 `start_tick < impact_tick < end_tick`。codegen 不直接解析 FBX；FBX inventory 由 Assimp authoring task 產生並寫進 scripts metadata。
+同時新增 `HeroAnimationSourceConst` 與 `HeroAnimationBindingConst` 或等效結構。source const 包含 logical source key、optional source model path、source animation name、duration ticks、ticks-per-second 與 timeline offset；binding const 包含 action key、logical source key、start/end tick、optional impact tick、loop、priority/interrupt policy。對 `model_3d` hero，codegen 驗證 required bindings：`move`、`attack`、`critical`、`sniper` 都存在、source 存在於 `animation_sources`、tick range 在 `0..=source.duration_ticks` 且 `end_tick > start_tick`。對 `attack` 與 `critical`，額外驗證 `start_tick < impact_tick < end_tick`。codegen 不直接解析 FBX；FBX inventory 由 Assimp authoring task 產生並寫進 scripts metadata。
 
 理由是 omfx 已依賴 `omoba-template-ids`，可以在 sim snapshot extraction 階段用 generated lookup 取得資料，避免 runtime 讀 Lua 或 JSON。這也符合現有「Lua builders build-time only」契約。
 

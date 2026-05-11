@@ -6,7 +6,7 @@ Hero 3D visual metadata SHALL be declared in the scripts content hero template d
 
 The authoritative location for hero 3D assets and metadata SHALL be `scripts/lua_data`. omfx SHALL NOT own or require Saika-specific copies under `omfx/data`, and omfx source SHALL NOT contain Saika-specific asset paths, scale values, offsets, source animation names, or tick ranges.
 
-The metadata SHALL also declare optional muzzle bone metadata plus animation source inventory and required animation bindings for `move`, `attack`, `critical`, and `sniper`. Because Saika's base/action FBX files expose animations named `Take 001`, Saika metadata SHALL declare logical animation source keys with source FBX paths, source animation names, duration ticks, and ticks per second. Each required binding SHALL map to a logical source key with an explicit non-empty tick range.
+The metadata SHALL also declare optional muzzle bone metadata plus animation source inventory and required animation bindings for `move`, `attack`, `critical`, and `sniper`. Because Saika's base/action FBX files expose animations named `Take 001`, Saika metadata SHALL declare logical animation source keys with source FBX paths, source animation names, duration ticks, ticks per second, and importer timeline offsets when needed. Each required binding SHALL map to a logical source key with an explicit non-empty tick range.
 
 #### Scenario: Saika declares 3D model metadata
 - **WHEN** `scripts/lua_data/templates/heroes.lua` is loaded by template codegen
@@ -14,7 +14,7 @@ The metadata SHALL also declare optional muzzle bone metadata plus animation sou
 - **AND** it references `templates/heroes/saika_magoichi/saika_magoichi.fbx`
 - **AND** it references `templates/heroes/saika_magoichi/saika_magoichi_mat.png`
 - **AND** it declares a positive model scale
-- **AND** it declares logical animation source metadata with source FBX paths, source animation names, positive duration ticks, and positive ticks-per-second
+- **AND** it declares logical animation source metadata with source FBX paths, source animation names, positive duration ticks, positive ticks-per-second, and non-negative timeline offsets
 - **AND** it declares animation bindings for `move`, `attack`, `critical`, and `sniper`
 
 #### Scenario: Saika 3D assets exist at the declared location
@@ -49,7 +49,7 @@ The metadata SHALL also declare optional muzzle bone metadata plus animation sou
 
 ### Requirement: Hero animation bindings describe gameplay actions
 
-For a `model_3d` hero, the content metadata SHALL map gameplay-facing animation actions to logical source animation segments. `saika_magoichi` SHALL provide logical animation source inventory entries and bindings for `move`, `attack`, `critical`, and `sniper`; each source SHALL include source FBX path, source animation name, duration ticks, and ticks-per-second. Each binding SHALL include logical source key, start tick, end tick, and loop behavior. `attack` and `critical` bindings SHALL also include an impact tick between start and end so omfx can align the animation hit frame with the authoritative attack impact event.
+For a `model_3d` hero, the content metadata SHALL map gameplay-facing animation actions to logical source animation segments. `saika_magoichi` SHALL provide logical animation source inventory entries and bindings for `move`, `attack`, `critical`, and `sniper`; each source SHALL include source FBX path, source animation name, duration ticks, ticks-per-second, and timeline offset ticks. Each binding SHALL include logical source key, start tick, end tick, and loop behavior. `attack` and `critical` bindings SHALL also include an impact tick between start and end so omfx can align the animation hit frame with the authoritative attack impact event.
 
 #### Scenario: Required Saika animation bindings are present
 - **WHEN** template codegen reads `saika_magoichi.render.animations`
@@ -67,6 +67,7 @@ For a `model_3d` hero, the content metadata SHALL map gameplay-facing animation 
 - **AND** every source declares a non-empty source animation name
 - **AND** every source declares positive `duration_ticks`
 - **AND** every source declares positive `ticks_per_second`
+- **AND** every source declares non-negative `timeline_offset_ticks`
 - **AND** codegen can validate binding ranges without parsing the FBX file or requiring an `assimp` executable
 
 #### Scenario: Move and sniper bindings are loopable
@@ -154,7 +155,7 @@ Snapshot data SHALL provide enough render-only state for omfx to choose `move`, 
 
 omfx SHALL instantiate and update a Fyrox scene node hierarchy for hero entities that have valid `model_3d` snapshot metadata and successfully loaded assets. The model visual SHALL follow the snapshot entity position and facing while hero UI, HP bars, input, abilities, and gameplay data continue to use snapshot entity data.
 
-omfx SHALL use generated logical animation source and binding metadata to play Saika's `move`, `attack`, `critical`, and `sniper` actions from content-owned action FBX tick ranges. omfx SHALL convert content ticks to Fyrox animation seconds using generated ticks-per-second metadata. omfx SHALL NOT hard-code Saika animation tick ranges, Saika asset paths, Saika source animation names, or Saika model scale/offsets in frontend source.
+omfx SHALL use generated logical animation source and binding metadata to play Saika's `move`, `attack`, `critical`, and `sniper` actions from content-owned action FBX tick ranges. omfx SHALL convert content ticks to Fyrox animation seconds using generated ticks-per-second and timeline offset metadata. omfx SHALL NOT hard-code Saika animation tick ranges, Saika asset paths, Saika source animation names, or Saika model scale/offsets in frontend source.
 
 If a model-backed hero declares a muzzle bone name, omfx SHALL resolve that node inside the instantiated model hierarchy and MAY use its global position as the render-only projectile origin for projectiles owned by that hero. Missing muzzle bone metadata or a missing node SHALL fall back to the existing projectile origin without affecting gameplay.
 
