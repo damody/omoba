@@ -12,6 +12,11 @@
 
 pub use omoba_sim::Fixed64;
 
+#[cfg(feature = "runtime-lua-content")]
+pub(crate) mod lua_content;
+#[cfg(feature = "runtime-lua-content")]
+pub mod runtime_content;
+
 /// Tower numerical stats, single source of truth — `scripts/lua_data/templates.lua` 的
 /// `towers[].{atk, asd_interval, ...}` 透過 build.rs 編譯期生成 `TOWER_*_STATS`
 /// const + `tower_stats(id)` lookup。base_content 的 tower scripts 直接 import
@@ -355,3 +360,257 @@ pub struct GeneratedStory {
 }
 
 include!(concat!(env!("OUT_DIR"), "/template_ids_gen.rs"));
+
+pub fn active_tower_stats(id: TowerId) -> Option<&'static TowerStats> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::tower_stats(id) {
+            return Some(value);
+        }
+    }
+    tower_stats(id)
+}
+
+pub fn active_tower_display(id: TowerId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::tower_display(id) {
+            return value;
+        }
+    }
+    tower_display(id)
+}
+
+pub fn active_tower_render_metadata(id: TowerId) -> Option<&'static TowerRenderMetadataConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::tower_render_metadata(id) {
+            return Some(value);
+        }
+    }
+    tower_render_metadata(id)
+}
+
+pub fn active_tower_attack_timing(id: TowerId) -> Option<AttackTimingConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::tower_attack_timing(id) {
+            return Some(value);
+        }
+    }
+    tower_attack_timing(id)
+}
+
+pub fn active_tower_upgrades(id: TowerId) -> Option<&'static [&'static [UpgradeDefConst]]> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::tower_upgrades(id) {
+            return Some(value);
+        }
+    }
+    tower_upgrades(id)
+}
+
+pub fn active_hero_stats(id: HeroId) -> Option<&'static HeroStats> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::hero_stats(id) {
+            return Some(value);
+        }
+    }
+    hero_stats(id)
+}
+
+pub fn active_hero_display(id: HeroId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::hero_display(id) {
+            return value;
+        }
+    }
+    hero_display(id)
+}
+
+pub fn active_hero_title(id: HeroId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::hero_title(id) {
+            return value;
+        }
+    }
+    hero_title(id)
+}
+
+pub fn active_hero_portrait(id: HeroId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::hero_portrait(id) {
+            return value;
+        }
+    }
+    hero_portrait(id)
+}
+
+pub fn active_hero_render_metadata(id: HeroId) -> Option<&'static HeroRenderMetadataConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::hero_render_metadata(id) {
+            return Some(value);
+        }
+    }
+    hero_render_metadata(id)
+}
+
+pub fn active_hero_abilities(id: HeroId) -> &'static [AbilityId] {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::hero_abilities(id) {
+            return value;
+        }
+    }
+    hero_abilities(id)
+}
+
+pub fn active_hero_attack_timing(id: HeroId) -> Option<AttackTimingConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::hero_attack_timing(id) {
+            return Some(value);
+        }
+    }
+    hero_attack_timing(id)
+}
+
+pub fn active_creep_stats(id: CreepId) -> Option<&'static CreepStats> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::creep_stats(id) {
+            return Some(value);
+        }
+    }
+    creep_stats(id)
+}
+
+pub fn active_creep_display(id: CreepId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::creep_display(id) {
+            return value;
+        }
+    }
+    creep_display(id)
+}
+
+pub fn active_creep_attack_timing(id: CreepId) -> Option<AttackTimingConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::creep_attack_timing(id) {
+            return Some(value);
+        }
+    }
+    creep_attack_timing(id)
+}
+
+pub fn active_summon_stats(id: SummonId) -> Option<&'static SummonStats> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::summon_stats(id) {
+            return Some(value);
+        }
+    }
+    summon_stats(id)
+}
+
+pub fn active_summon_display(id: SummonId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::summon_display(id) {
+            return value;
+        }
+    }
+    summon_display(id)
+}
+
+pub fn active_summon_attack_timing(id: SummonId) -> Option<AttackTimingConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::summon_attack_timing(id) {
+            return Some(value);
+        }
+    }
+    summon_attack_timing(id)
+}
+
+pub fn active_ability_const(id: AbilityId) -> Option<&'static AbilityConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::ability_const(id) {
+            return Some(value);
+        }
+    }
+    ability_const(id)
+}
+
+pub fn active_ability_display(id: AbilityId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::ability_display(id) {
+            return value;
+        }
+    }
+    ability_display(id)
+}
+
+pub fn active_ability_description(id: AbilityId) -> &'static str {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::ability_description(id) {
+            return value;
+        }
+    }
+    ability_description(id)
+}
+
+pub fn active_story_by_name(name: &str) -> Option<&'static GeneratedStory> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::story_by_name(name) {
+            return Some(value);
+        }
+    }
+    story_by_name(name)
+}
+
+pub fn active_story_ids() -> &'static [&'static str] {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::story_ids() {
+            return value;
+        }
+    }
+    story_ids()
+}
+
+pub fn ensure_runtime_lua_content() -> Result<bool, String> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        return runtime_content::ensure_loaded().map(|content| content.is_some());
+    }
+    #[cfg(not(feature = "runtime-lua-content"))]
+    {
+        if std::env::var("OMB_LUA_CONTENT")
+            .ok()
+            .map(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false)
+        {
+            Err("OMB_LUA_CONTENT=1 but omoba-template-ids was built without runtime-lua-content".into())
+        } else {
+            Ok(false)
+        }
+    }
+}

@@ -13,7 +13,7 @@ use tokio_kcp::{KcpConfig, KcpNoDelayConfig, KcpStream};
 use super::framing::*;
 use super::game_proto::*;
 use crate::quant::{facing_dequant, fixed_dequant, pos_dequant};
-use omoba_template_ids::{creep_display, projectile_id_str, CreepId, ProjectileKindId};
+use omoba_template_ids::{active_creep_display, projectile_id_str, CreepId, ProjectileKindId};
 
 /// P3：英雄靜態元資料的客戶端快取。
 ///
@@ -862,7 +862,7 @@ fn translate_typed_payload(
                 .unwrap_or(0.0);
             // 反向查找name_id（順序CreepId u16）→顯示名稱。
             // 未知 id →“”（omfx 回落到實體類型字串）。
-            let name_str = creep_display(CreepId(m.name_id as u16));
+            let name_str = active_creep_display(CreepId(m.name_id as u16));
             let d = json!({
                 "id": m.id as u32,
                 "entity_id": m.id as u32,

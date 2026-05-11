@@ -15,3 +15,11 @@ toml = "0.8"
 # Fixed32 用於 deterministic lockstep — 透過 abi-stable feature 取得 #[repr(transparent)]
 # + StableAbi derive，generated const 透過 Fixed32::from_raw(...) 編譯期 build。
 omoba-sim = { path = "../omoba-sim", features = ["abi-stable"] }
+mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+toml = { version = "0.8", optional = true }
+
+[features]
+default = []
+runtime-lua-content = ["dep:mlua", "dep:serde", "dep:serde_json", "dep:toml"]

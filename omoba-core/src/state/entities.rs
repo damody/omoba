@@ -103,7 +103,7 @@ impl LocalPlayer {
         // omoba_template_ids 編譯期生成 hero_abilities(HeroId) lookup。這裡不再
         // 寫死 match 表（hero_type 字串無法靜態檢查、新增 hero 時容易漏改）。
         let id = omoba_template_ids::hero_by_name(hero_type).unwrap_or_default();
-        omoba_template_ids::hero_abilities(id)
+        omoba_template_ids::active_hero_abilities(id)
             .iter()
             .map(|aid| AbilityState {
                 ability_id: aid.as_str().to_string(),
