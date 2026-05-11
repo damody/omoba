@@ -17,6 +17,7 @@ pub mod snapshot;
 pub mod scripting;
 pub mod spatial;
 pub mod system_dispatcher;
+pub mod tick;
 
 pub use ability_runtime::{armor_to_mult, AbilityRegistry, BuffEntry, BuffStore, UnitStats};
 pub use comp::*;
@@ -41,6 +42,7 @@ pub use scene::*;
 pub use snapshot::*;
 pub use scripting::{
     run_script_dispatch, ScriptEvent, ScriptEventQueue, ScriptRegistry, ScriptUnitTag, SkillTarget,
+    WorldAdapter,
 };
 pub use spatial::{Bounds, Entry, SpatialIndex, SpatialIndexParams};
 pub use system_dispatcher::{build_phase3_dispatcher, SystemDispatcher};

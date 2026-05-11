@@ -8,26 +8,6 @@ pub use crate::runtime::comp::{
 
 pub mod base {
     #[cfg(not(feature = "tracy"))]
-    macro_rules! span {
-        ($guard_name:tt, $level:ident, $name:expr, $($fields:tt)*) => {
-            let span = tracing::span!(tracing::Level::$level, $name, $($fields)*);
-            let $guard_name = span.enter();
-        };
-        ($guard_name:tt, $level:ident, $name:expr) => {
-            let span = tracing::span!(tracing::Level::$level, $name);
-            let $guard_name = span.enter();
-        };
-        ($guard_name:tt, $name:expr) => {
-            let span = tracing::span!(tracing::Level::TRACE, $name);
-            let $guard_name = span.enter();
-        };
-        ($guard_name:tt, $no_tracy_name:expr, $tracy_name:expr) => {
-            $crate::span!($guard_name, $no_tracy_name);
-        };
-    }
-    pub(crate) use span;
-
-    #[cfg(not(feature = "tracy"))]
     macro_rules! prof_span {
         ($guard_name:tt, $name:expr) => {
             let $guard_name = $crate::comp::base::ProfSpan;
@@ -40,7 +20,7 @@ pub mod base {
 }
 
 pub use base::ProfSpan;
-pub(crate) use base::{prof_span, span};
+pub(crate) use base::prof_span;
 
 #[path = "../../../omb/src/comp/ecs.rs"]
 pub mod ecs;
