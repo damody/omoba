@@ -41,6 +41,20 @@ return function(ctx)
             ticks_per_second = 30.0,
             timeline_offset_ticks = 66.0,
           },
+          idle_2 = {
+            model = "templates/heroes/saika_magoichi/b01_ani_stand2.fbx",
+            animation = "Take 001",
+            duration_ticks = 125.0,
+            ticks_per_second = 30.0,
+            timeline_offset_ticks = 143.0,
+          },
+          idle_3 = {
+            model = "templates/heroes/saika_magoichi/b01_ani_stand3.fbx",
+            animation = "Take 001",
+            duration_ticks = 53.0,
+            ticks_per_second = 30.0,
+            timeline_offset_ticks = 747.0,
+          },
           move = {
             model = "templates/heroes/saika_magoichi/b01_ani_run.fbx",
             animation = "Take 001",
@@ -97,6 +111,18 @@ return function(ctx)
             source = "idle",
             start_tick = 0.0,
             end_tick = 80.0,
+            loop = true,
+          },
+          idle_2 = {
+            source = "idle_2",
+            start_tick = 0.0,
+            end_tick = 125.0,
+            loop = true,
+          },
+          idle_3 = {
+            source = "idle_3",
+            start_tick = 0.0,
+            end_tick = 53.0,
             loop = true,
           },
           sniper = {
