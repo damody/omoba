@@ -346,6 +346,8 @@ struct HeroAnimationSourceEntry {
     duration_ticks: f32,
     #[serde(default)]
     ticks_per_second: f32,
+    #[serde(default)]
+    timeline_offset_ticks: f32,
 }
 
 #[derive(Deserialize, Clone, Default)]
@@ -354,6 +356,8 @@ struct HeroAnimationBindingEntry {
     source: String,
     #[serde(default)]
     start_tick: f32,
+    #[serde(default)]
+    repeat_start_tick: f32,
     #[serde(default)]
     impact_tick: Option<f32>,
     #[serde(default)]
@@ -1475,13 +1479,18 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
         if source.ticks_per_second <= 0.0 {
             panic!("{} animation source '{}' ticks_per_second must be > 0", owner, source_key);
         }
+        if source.timeline_offset_ticks < 0.0 {
+            panic!("{} animation source '{}' timeline_offset_ticks must be >= 0", owner, source_key);
+        }
     }
 
     for action in ["move", "attack", "critical", "sniper"] {
-        let binding = render
-            .animations
-            .get(action)
-            .unwrap_or_else(|| panic!("{} missing required animation binding '{}'", owner, action));
+        if !render.animations.contains_key(action) {
+            panic!("{} missing required animation binding '{}'", owner, action);
+        }
+    }
+
+    for (action, binding) in &render.animations {
         let source = render.animation_sources.get(&binding.source).unwrap_or_else(|| {
             panic!(
                 "{} animation '{}' references unknown source '{}'",
@@ -1490,6 +1499,9 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
         });
         if binding.start_tick < 0.0 {
             panic!("{} animation '{}' start_tick must be >= 0", owner, action);
+        }
+        if binding.repeat_start_tick < 0.0 {
+            panic!("{} animation '{}' repeat_start_tick must be >= 0", owner, action);
         }
         if binding.end_tick <= binding.start_tick {
             panic!("{} animation '{}' end_tick must be > start_tick", owner, action);
@@ -1500,7 +1512,7 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
                 owner, action, binding.end_tick, binding.source, source.duration_ticks
             );
         }
-        match action {
+        match action.as_str() {
             "attack" | "critical" => {
                 if binding.loop_animation {
                     panic!("{} animation '{}' must be non-looping", owner, action);
@@ -1514,8 +1526,17 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
                         owner, action
                     );
                 }
+                if binding.repeat_start_tick > 0.0
+                    && !(binding.start_tick <= binding.repeat_start_tick
+                        && binding.repeat_start_tick < impact)
+                {
+                    panic!(
+                        "{} animation '{}' repeat_start_tick must be in start_tick..impact_tick",
+                        owner, action
+                    );
+                }
             }
-            "move" | "sniper" => {
+            "move" | "sniper" | "idle" => {
                 if !binding.loop_animation {
                     panic!("{} animation '{}' must be loopable", owner, action);
                 }
@@ -1523,7 +1544,16 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
                     panic!("{} animation '{}' must not declare impact_tick", owner, action);
                 }
             }
-            _ => unreachable!(),
+            _ => {
+                if let Some(impact) = binding.impact_tick {
+                    if !(binding.start_tick < impact && impact < binding.end_tick) {
+                        panic!(
+                            "{} animation '{}' must satisfy start_tick < impact_tick < end_tick",
+                            owner, action
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -1546,12 +1576,13 @@ fn emit_hero_render_metadata(out: &mut String, entries: &[HeroEntry]) {
         ));
         for (key, source) in &render.animation_sources {
             out.push_str(&format!(
-                "\tHeroAnimationSourceConst {{ key: \"{}\", model: \"{}\", animation: \"{}\", duration_ticks: {}, ticks_per_second: {} }},\n",
+                "\tHeroAnimationSourceConst {{ key: \"{}\", model: \"{}\", animation: \"{}\", duration_ticks: {}, ticks_per_second: {}, timeline_offset_ticks: {} }},\n",
                 escape_str_literal(key),
                 escape_str_literal(&source.model),
                 escape_str_literal(&source.animation),
                 fixed64_lit(source.duration_ticks),
                 fixed64_lit(source.ticks_per_second),
+                fixed64_lit(source.timeline_offset_ticks),
             ));
         }
         out.push_str("];\n");
@@ -1563,11 +1594,12 @@ fn emit_hero_render_metadata(out: &mut String, entries: &[HeroEntry]) {
         ));
         for (action, binding) in &render.animations {
             out.push_str(&format!(
-                "\tHeroAnimationBindingConst {{ action: \"{}\", source: \"{}\", start_tick: {}, end_tick: {}, has_impact_tick: {}, impact_tick: {}, loop_animation: {} }},\n",
+                "\tHeroAnimationBindingConst {{ action: \"{}\", source: \"{}\", start_tick: {}, end_tick: {}, repeat_start_tick: {}, has_impact_tick: {}, impact_tick: {}, loop_animation: {} }},\n",
                 escape_str_literal(action),
                 escape_str_literal(&binding.source),
                 fixed64_lit(binding.start_tick),
                 fixed64_lit(binding.end_tick),
+                fixed64_lit(binding.repeat_start_tick),
                 binding.impact_tick.is_some(),
                 fixed64_lit(binding.impact_tick.unwrap_or(0.0)),
                 binding.loop_animation,

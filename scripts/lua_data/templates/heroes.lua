@@ -34,29 +34,40 @@ return function(ctx)
         z_offset = 0.0,
         muzzle_bone = "Weapon Ref",
         animation_sources = {
+          idle = {
+            model = "templates/heroes/saika_magoichi/b01_ani_stand.fbx",
+            animation = "Take 001",
+            duration_ticks = 80.0,
+            ticks_per_second = 30.0,
+            timeline_offset_ticks = 66.0,
+          },
           move = {
             model = "templates/heroes/saika_magoichi/b01_ani_run.fbx",
             animation = "Take 001",
             duration_ticks = 23.0,
             ticks_per_second = 30.0,
+            timeline_offset_ticks = 394.0,
           },
           attack = {
             model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx",
             animation = "Take 001",
             duration_ticks = 100.0,
             ticks_per_second = 30.0,
+            timeline_offset_ticks = 268.0,
           },
           critical = {
             model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx",
             animation = "Take 001",
             duration_ticks = 100.0,
             ticks_per_second = 30.0,
+            timeline_offset_ticks = 268.0,
           },
           sniper = {
             model = "templates/heroes/saika_magoichi/b01_ani_stand3.fbx",
             animation = "Take 001",
             duration_ticks = 53.0,
             ticks_per_second = 30.0,
+            timeline_offset_ticks = 747.0,
           },
         },
         animations = {
@@ -69,6 +80,7 @@ return function(ctx)
           attack = {
             source = "attack",
             start_tick = 0.0,
+            repeat_start_tick = 6.0,
             impact_tick = 22.0,
             end_tick = 100.0,
             loop = false,
@@ -76,9 +88,16 @@ return function(ctx)
           critical = {
             source = "critical",
             start_tick = 0.0,
+            repeat_start_tick = 6.0,
             impact_tick = 22.0,
             end_tick = 100.0,
             loop = false,
+          },
+          idle = {
+            source = "idle",
+            start_tick = 0.0,
+            end_tick = 80.0,
+            loop = true,
           },
           sniper = {
             source = "sniper",

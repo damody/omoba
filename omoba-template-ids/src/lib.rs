@@ -177,6 +177,7 @@ pub struct HeroAnimationSourceConst {
     pub animation: &'static str,
     pub duration_ticks: Fixed64,
     pub ticks_per_second: Fixed64,
+    pub timeline_offset_ticks: Fixed64,
 }
 
 #[repr(C)]
@@ -186,6 +187,7 @@ pub struct HeroAnimationBindingConst {
     pub source: &'static str,
     pub start_tick: Fixed64,
     pub end_tick: Fixed64,
+    pub repeat_start_tick: Fixed64,
     pub has_impact_tick: bool,
     pub impact_tick: Fixed64,
     pub loop_animation: bool,

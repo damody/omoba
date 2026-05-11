@@ -163,6 +163,7 @@ fn hero_saika_render_metadata_is_generated() {
     assert_eq!(move_source.animation, "Take 001");
     assert_eq!(move_source.duration_ticks, Fixed64::from_i32(23));
     assert_eq!(move_source.ticks_per_second, Fixed64::from_i32(30));
+    assert_eq!(move_source.timeline_offset_ticks, Fixed64::from_i32(394));
 
     for key in ["attack", "critical"] {
         let source = hero_source(render, key);
@@ -173,6 +174,7 @@ fn hero_saika_render_metadata_is_generated() {
         assert_eq!(source.animation, "Take 001");
         assert_eq!(source.duration_ticks, Fixed64::from_i32(100));
         assert_eq!(source.ticks_per_second, Fixed64::from_i32(30));
+        assert_eq!(source.timeline_offset_ticks, Fixed64::from_i32(268));
     }
 
     let sniper_source = hero_source(render, "sniper");
@@ -183,6 +185,7 @@ fn hero_saika_render_metadata_is_generated() {
     assert_eq!(sniper_source.animation, "Take 001");
     assert_eq!(sniper_source.duration_ticks, Fixed64::from_i32(53));
     assert_eq!(sniper_source.ticks_per_second, Fixed64::from_i32(30));
+    assert_eq!(sniper_source.timeline_offset_ticks, Fixed64::from_i32(747));
 
     assert_loop_binding(render, "move", "move", 23);
     assert_loop_binding(render, "sniper", "sniper", 53);
