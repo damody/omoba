@@ -13,6 +13,7 @@ pub mod initialization;
 pub mod input;
 pub mod item;
 pub mod scene;
+pub mod snapshot;
 pub mod scripting;
 pub mod spatial;
 pub mod system_dispatcher;
@@ -37,6 +38,7 @@ pub use initialization::{
 pub use input::*;
 pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
 pub use scene::*;
+pub use snapshot::*;
 pub use scripting::{ScriptEvent, ScriptEventQueue, ScriptUnitTag, SkillTarget};
 pub use spatial::{Bounds, Entry, SpatialIndex, SpatialIndexParams};
 pub use system_dispatcher::{build_phase3_dispatcher, SystemDispatcher};
