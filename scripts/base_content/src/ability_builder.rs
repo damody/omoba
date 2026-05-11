@@ -5,7 +5,7 @@
 //! 數值來源是 templates.lua → omoba-template-ids/build.rs codegen，scripts
 //! 端不再寫 hardcoded number。
 
-use abi_stable::{sabi_trait::prelude::TD_Opaque, std_types::RBox};
+use abi_stable::sabi_trait::prelude::TD_Opaque;
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript, AbilityScript_TO},
     AbilityId,

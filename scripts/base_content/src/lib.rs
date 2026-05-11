@@ -8,7 +8,7 @@ use abi_stable::{
     prefix_type::PrefixTypeTrait,
     sabi_extern_fn,
     sabi_trait::prelude::TD_Opaque,
-    std_types::{RBox, RVec},
+    std_types::RVec,
 };
 use omb_script_abi::{
     ability::AbilityDefFFI,
