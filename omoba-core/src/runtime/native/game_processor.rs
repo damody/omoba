@@ -975,3 +975,821 @@ pub fn drain_pending_item_uses(world: &mut World) {
         }
     }
 }
+
+fn outcome_kind(outcome: &Outcome) -> &'static str {
+    match outcome {
+        Outcome::Damage { .. } => "Damage",
+        Outcome::ProjectileLine2 { .. } => "ProjectileLine2",
+        Outcome::Death { .. } => "Death",
+        Outcome::Creep { .. } => "Creep",
+        Outcome::CreepStop { .. } => "CreepStop",
+        Outcome::CreepWalk { .. } => "CreepWalk",
+        Outcome::Tower { .. } => "Tower",
+        Outcome::Heal { .. } => "Heal",
+        Outcome::UpdateAttack { .. } => "UpdateAttack",
+        Outcome::GainExperience { .. } => "GainExperience",
+        Outcome::GainGold { .. } => "GainGold",
+        Outcome::SpawnUnit { .. } => "SpawnUnit",
+        Outcome::CreepLeaked { .. } => "CreepLeaked",
+        Outcome::AddBuff { .. } => "AddBuff",
+        Outcome::Explosion { .. } => "Explosion",
+        Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
+        Outcome::AttackPhaseCue { .. } => "AttackPhaseCue",
+        Outcome::EntityRemoved { .. } => "EntityRemoved",
+    }
+}
+
+fn game_lives_event(lives: i32) -> RuntimeEvent {
+    RuntimeEvent::new("td/all/res", "game", "lives", json!({ "lives": lives }))
+        .with_broadcast(RuntimeBroadcast::All)
+}
+
+fn game_end_event(winner: &str, data: serde_json::Value) -> RuntimeEvent {
+    RuntimeEvent::new("td/all/res", "game", "end", data)
+        .with_broadcast(RuntimeBroadcast::All)
+        .with_broadcast(RuntimeBroadcast::All)
+        .with_broadcast(RuntimeBroadcast::All)
+}
+
+pub fn process_outcomes(
+    world: &mut World,
+    events: &mut impl RuntimeEventSink,
+) -> Result<(), failure::Error> {
+    let mut remove_uids = Vec::new();
+    let mut next_outcomes = Vec::new();
+
+    let outcomes = {
+        let mut outcomes = world.write_resource::<Vec<Outcome>>();
+        let mut raw = Vec::new();
+        raw.append(&mut outcomes);
+        merge_damage_outcomes(raw)
+    };
+
+    for outcome in outcomes {
+        let kind = outcome_kind(&outcome);
+        match outcome {
+            Outcome::Death { ent, .. } => {
+                remove_uids.push(ent);
+                handle_death(world, &mut next_outcomes, events, ent)?;
+            }
+            Outcome::ProjectileLine2 {
+                pos,
+                source,
+                target,
+            } => handle_projectile(world, pos, source, target)?,
+            Outcome::ProjectileDirectional {
+                pos,
+                source,
+                end_pos,
+            } => handle_projectile_directional(world, pos, source, end_pos)?,
+            Outcome::Creep { cd } => handle_creep_spawn(world, cd)?,
+            Outcome::Tower { pos, td } => handle_tower_spawn(world, pos, td)?,
+            Outcome::CreepStop { source, target } => handle_creep_stop(world, source, target)?,
+            Outcome::CreepWalk { target } => handle_creep_walk(world, target)?,
+            Outcome::Damage {
+                pos,
+                phys,
+                magi,
+                real,
+                source,
+                target,
+                predeclared,
+            } => handle_damage(
+                world,
+                &mut next_outcomes,
+                pos,
+                phys,
+                magi,
+                real,
+                source,
+                target,
+                predeclared,
+            )?,
+            Outcome::Heal { target, amount, .. } => handle_heal(world, target, amount)?,
+            Outcome::UpdateAttack {
+                target,
+                asd_count,
+                cooldown_reset,
+            } => handle_attack_update(world, target, asd_count, cooldown_reset)?,
+            Outcome::GainExperience { target, amount } => {
+                handle_experience_gain(world, target, amount as u32)?
+            }
+            Outcome::GainGold { target, amount } => handle_gold_gain(world, target, amount)?,
+            Outcome::CreepLeaked { ent } => {
+                remove_uids.push(ent);
+                handle_creep_leaked(world, events, ent)?;
+            }
+            Outcome::AddBuff {
+                target,
+                buff_id,
+                duration,
+                payload,
+            } => handle_add_buff(world, target, buff_id, duration, payload)?,
+            Outcome::Explosion {
+                pos,
+                radius,
+                duration,
+            } => handle_explosion(world, pos, radius, duration),
+            Outcome::AttackPhaseCue {
+                entity,
+                attack_seq,
+                is_critical,
+                target,
+                target_pos,
+                windup_ms,
+                backswing_ms,
+                dir_rad,
+            } => handle_attack_phase_cue(
+                world,
+                entity,
+                attack_seq,
+                is_critical,
+                target,
+                target_pos,
+                windup_ms,
+                backswing_ms,
+                dir_rad,
+            ),
+            Outcome::EntityRemoved { entity } => {
+                world
+                    .write_resource::<RemovedEntitiesQueue>()
+                    .pending
+                    .push(entity.id());
+                let _ = world.entities().delete(entity);
+            }
+            Outcome::SpawnUnit { .. } => {}
+        }
+        log::trace!("processed outcome {}", kind);
+    }
+
+    world.delete_entities(&remove_uids[..]);
+    world.write_resource::<Vec<Outcome>>().clear();
+    world
+        .write_resource::<Vec<Outcome>>()
+        .append(&mut next_outcomes);
+
+    Ok(())
+}
+
+fn merge_damage_outcomes(raw: Vec<Outcome>) -> Vec<Outcome> {
+    let mut first_dmg_idx: std::collections::HashMap<Entity, usize> =
+        std::collections::HashMap::new();
+    let mut aggregated = Vec::with_capacity(raw.len());
+    for outcome in raw {
+        if let Outcome::Damage {
+            phys,
+            magi,
+            real,
+            target,
+            predeclared,
+            ..
+        } = &outcome
+        {
+            if let Some(&idx) = first_dmg_idx.get(target) {
+                if let Outcome::Damage {
+                    phys: acc_phys,
+                    magi: acc_magi,
+                    real: acc_real,
+                    predeclared: acc_predeclared,
+                    ..
+                } = &mut aggregated[idx]
+                {
+                    *acc_phys += *phys;
+                    *acc_magi += *magi;
+                    *acc_real += *real;
+                    *acc_predeclared = *acc_predeclared && *predeclared;
+                    continue;
+                }
+            }
+            first_dmg_idx.insert(*target, aggregated.len());
+        }
+        aggregated.push(outcome);
+    }
+    aggregated
+}
+
+fn handle_death(
+    world: &mut World,
+    next_outcomes: &mut Vec<Outcome>,
+    events: &mut impl RuntimeEventSink,
+    entity: Entity,
+) -> Result<(), failure::Error> {
+    let is_enemy_base = {
+        let bases = world.read_storage::<IsBase>();
+        let factions = world.read_storage::<Faction>();
+        bases.get(entity).is_some()
+            && factions
+                .get(entity)
+                .map(|faction| faction.faction_id == FactionType::Enemy)
+                .unwrap_or(false)
+    };
+
+    distribute_bounty(world, entity);
+
+    {
+        let mut creeps = world.write_storage::<Creep>();
+        let mut towers = world.write_storage::<Tower>();
+        if let Some(creep) = creeps.get_mut(entity) {
+            if let Some(blocking_tower) = creep.block_tower {
+                if let Some(tower) = towers.get_mut(blocking_tower) {
+                    tower.block_creeps.retain(|&x| x != entity);
+                }
+            }
+        } else if let Some(tower) = towers.get_mut(entity) {
+            let blocked = tower.block_creeps.clone();
+            for creep_entity in blocked {
+                if let Some(creep) = creeps.get_mut(creep_entity) {
+                    creep.block_tower = None;
+                    next_outcomes.push(Outcome::CreepWalk {
+                        target: creep_entity,
+                    });
+                }
+            }
+        }
+    }
+
+    if is_enemy_base {
+        log::info!("enemy base entity {:?} destroyed", entity);
+        events.emit(game_end_event(
+            "player",
+            json!({ "winner": "player", "base_entity_id": entity.id() }),
+        ));
+    }
+    Ok(())
+}
+
+fn distribute_bounty(world: &mut World, dead: Entity) {
+    let bounty = match world.read_storage::<Bounty>().get(dead).copied() {
+        Some(bounty) => bounty,
+        None => return,
+    };
+    let dead_pos = match world.read_storage::<Pos>().get(dead).map(|pos| pos.0) {
+        Some(pos) => pos,
+        None => return,
+    };
+    let dead_faction = world.read_storage::<Faction>().get(dead).cloned();
+
+    let hero_entity = {
+        let entities = world.entities();
+        let heroes = world.read_storage::<Hero>();
+        let factions = world.read_storage::<Faction>();
+        let positions = world.read_storage::<Pos>();
+        let mut best = None;
+        for (entity, _hero, faction, pos) in (&entities, &heroes, &factions, &positions).join() {
+            if faction.faction_id != FactionType::Player {
+                continue;
+            }
+            if let Some(ref dead_faction) = dead_faction {
+                if !faction.is_hostile_to(dead_faction) {
+                    continue;
+                }
+            }
+            let (px, py) = pos.xy_f32();
+            let dx = px - dead_pos.x.to_f32_for_render();
+            let dy = py - dead_pos.y.to_f32_for_render();
+            let d2 = dx * dx + dy * dy;
+            if d2 > 1200.0 * 1200.0 {
+                continue;
+            }
+            if best.map(|(_, d)| d2 < d).unwrap_or(true) {
+                best = Some((entity, d2));
+            }
+        }
+        match best {
+            Some((entity, _)) => entity,
+            None => return,
+        }
+    };
+
+    if let Some(gold) = world.write_storage::<Gold>().get_mut(hero_entity) {
+        gold.0 += bounty.gold;
+    }
+    let leveled_up = {
+        let mut heroes = world.write_storage::<Hero>();
+        if let Some(hero) = heroes.get_mut(hero_entity) {
+            let before = hero.level;
+            let _ = hero.add_experience(bounty.exp);
+            hero.level != before
+        } else {
+            false
+        }
+    };
+    if leveled_up {
+        log::info!("hero entity {:?} leveled up", hero_entity);
+    }
+}
+
+fn handle_projectile(
+    world: &mut World,
+    pos: omoba_sim::Vec2,
+    source: Option<Entity>,
+    target: Option<Entity>,
+) -> Result<(), failure::Error> {
+    use omoba_sim::Vec2 as SimVec2;
+
+    let source_entity = source.ok_or_else(|| failure::err_msg("Missing source entity"))?;
+    let target_entity = target.ok_or_else(|| failure::err_msg("Missing target entity"))?;
+    let master_seed = world.read_resource::<MasterSeed>().0;
+    let tick = world.read_resource::<Tick>().0 as u32;
+    let attacker_id = source_entity.id();
+
+    let (msd, target_pos, atk_phys, stun_duration_roll, visual_count) = {
+        let positions = world.read_storage::<Pos>();
+        let attacks = world.read_storage::<TAttack>();
+        let buff_store = world.read_resource::<BuffStore>();
+        let buildings = world.read_storage::<IsBuilding>();
+
+        let _source_pos = positions
+            .get(source_entity)
+            .ok_or_else(|| failure::err_msg("Source position not found"))?;
+        let target_pos = positions
+            .get(target_entity)
+            .ok_or_else(|| failure::err_msg("Target position not found"))?;
+        let attack = attacks
+            .get(source_entity)
+            .ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
+        let is_building = buildings.get(source_entity).is_some();
+        let stats = crate::runtime::ability_runtime::UnitStats::from_refs(&*buff_store, is_building);
+        let mut final_atk = stats.final_atk(attack.atk_physic.v, source_entity);
+
+        let accuracy_bonus = buff_store.sum_add(source_entity, StatKey::AccuracyBonus);
+        let accuracy = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
+        if accuracy < Fixed64::ONE {
+            let mut rng = omoba_sim::SimRng::from_master_entity(
+                master_seed,
+                tick,
+                attacker_id,
+                OP_PROJECTILE_ACCURACY,
+            );
+            if rng.gen_fixed64_unit() >= accuracy {
+                final_atk = Fixed64::ZERO;
+            }
+        }
+
+        let mut stun_chance = 0.0f32;
+        let mut stun_duration = 0.0f32;
+        for (_, entry) in buff_store.iter_for(source_entity) {
+            let chance = entry
+                .payload
+                .get("attack_stun_chance")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0) as f32;
+            let duration = entry
+                .payload
+                .get("attack_stun_duration")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0) as f32;
+            if chance > stun_chance {
+                stun_chance = chance;
+                stun_duration = duration;
+            }
+        }
+        let stun_duration_roll = if stun_chance > 0.0 && stun_duration > 0.0 {
+            let mut rng = omoba_sim::SimRng::from_master_entity(
+                master_seed,
+                tick,
+                attacker_id,
+                OP_PROJECTILE_STUN_ROLL,
+            );
+            if rng.gen_fixed64_unit().to_f32_for_render() < stun_chance {
+                Fixed64::from_raw((stun_duration * omoba_sim::fixed::SCALE as f32) as i64)
+            } else {
+                Fixed64::ZERO
+            }
+        } else {
+            Fixed64::ZERO
+        };
+
+        let visual_count = buff_store
+            .sum_add(source_entity, StatKey::MultiShotVisual)
+            .to_f32_for_render();
+        let visual_count = if visual_count >= 2.0 {
+            visual_count.round().max(1.0) as u32
+        } else {
+            1
+        };
+
+        (
+            attack.bullet_speed,
+            target_pos.0,
+            final_atk,
+            stun_duration_roll,
+            visual_count,
+        )
+    };
+
+    let initial_dist = (target_pos - pos).length();
+    let flight_time_s = if msd.to_f32_for_render() > 0.0 {
+        (initial_dist.to_f32_for_render() / msd.to_f32_for_render()).max(0.01)
+    } else {
+        0.01
+    };
+    let safety_time_left = Fixed64::from_raw(
+        ((flight_time_s * 3.0 + 3.0) * omoba_sim::fixed::SCALE as f32) as i64,
+    );
+
+    let delta = target_pos - pos;
+    let dir = if delta.length_squared() > Fixed64::from_raw(1) {
+        delta.normalized()
+    } else {
+        SimVec2::new(Fixed64::ONE, Fixed64::ZERO)
+    };
+    let perp = SimVec2::new(-dir.y, dir.x);
+    let lateral_step = Fixed64::from_i32(24);
+
+    for i in 0..visual_count {
+        let is_real = i == 0;
+        let target_this = if is_real { target } else { None };
+        let lateral = if visual_count > 1 {
+            let half_raw = (visual_count as i64 - 1) * 512;
+            let i_scaled = i as i64 * omoba_sim::fixed::SCALE;
+            Fixed64::from_raw(i_scaled - half_raw) * lateral_step
+        } else {
+            Fixed64::ZERO
+        };
+        let start_pos = pos + perp * lateral;
+        world
+            .create_entity()
+            .with(Pos(start_pos))
+            .with(Projectile {
+                time_left: safety_time_left,
+                owner: source_entity,
+                tpos: target_pos,
+                target: target_this,
+                radius: Fixed64::ZERO,
+                msd,
+                damage_phys: if is_real { atk_phys } else { Fixed64::ZERO },
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::ZERO,
+                stun_duration: if is_real {
+                    stun_duration_roll
+                } else {
+                    Fixed64::ZERO
+                },
+            })
+            .build();
+    }
+    Ok(())
+}
+
+fn handle_creep_spawn(world: &mut World, cd: CreepData) -> Result<(), failure::Error> {
+    let creep_name = cd.creep.name.clone();
+    let bounty = match creep_name.as_str() {
+        "melee_minion" => Bounty { gold: 18, exp: 55 },
+        "ranged_minion" => Bounty { gold: 15, exp: 45 },
+        "siege_minion" => Bounty { gold: 40, exp: 110 },
+        name if name.starts_with("ally_") => Bounty { gold: 0, exp: 0 },
+        _ => Bounty { gold: 10, exp: 25 },
+    };
+    let faction = match cd.faction_name.as_str() {
+        "Player" | "player" => Faction::new(FactionType::Player, 0),
+        _ => Faction::new(FactionType::Enemy, 1),
+    };
+    let turn_speed_rad_f = cd.turn_speed_deg.to_f32_for_render().to_radians();
+    let unit_id = format!("creep_{}", creep_name);
+    let entity = world
+        .create_entity()
+        .with(Pos(cd.pos))
+        .with(cd.creep)
+        .with(cd.cdata)
+        .with(faction)
+        .with(bounty)
+        .with(Facing(omoba_sim::Angle::ZERO))
+        .with(FacingBroadcast(None))
+        .with(TurnSpeed(Fixed64::from_raw(
+            (turn_speed_rad_f * 1024.0) as i64,
+        )))
+        .with(ScriptUnitTag { unit_id })
+        .build();
+    world
+        .write_resource::<ScriptEventQueue>()
+        .push(ScriptEvent::Spawn { e: entity });
+    world.write_resource::<BuffStore>().add(
+        entity,
+        "creep_min_speed_floor",
+        Fixed64::from_raw(i64::MAX),
+        json!({ "movespeed_absolute_min": 10.0 }),
+    );
+    Ok(())
+}
+
+fn handle_add_buff(
+    world: &mut World,
+    target: Entity,
+    buff_id: String,
+    duration: Fixed64,
+    payload: serde_json::Value,
+) -> Result<(), failure::Error> {
+    world
+        .write_resource::<BuffStore>()
+        .add(target, &buff_id, duration, payload);
+    Ok(())
+}
+
+fn handle_creep_leaked(
+    world: &mut World,
+    events: &mut impl RuntimeEventSink,
+    entity: Entity,
+) -> Result<(), failure::Error> {
+    let remaining = {
+        let mut lives = world.write_resource::<crate::runtime::comp::PlayerLives>();
+        lives.0 = (lives.0 - 1).max(0);
+        lives.0
+    };
+    log::info!("creep leaked; lives={} entity={:?}", remaining, entity);
+    events.emit(game_lives_event(remaining));
+    if remaining <= 0 {
+        events.emit(game_end_event(
+            "defeat",
+            json!({ "result": "defeat", "reason": "lives_depleted" }),
+        ));
+        log::warn!("TD mode: player lives depleted");
+    }
+    Ok(())
+}
+
+fn handle_projectile_directional(
+    world: &mut World,
+    pos: omoba_sim::Vec2,
+    source: Option<Entity>,
+    end_pos: omoba_sim::Vec2,
+) -> Result<(), failure::Error> {
+    let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional missing source"))?;
+    let (msd, atk_phys) = {
+        let attacks = world.read_storage::<TAttack>();
+        let attack = attacks
+            .get(source_entity)
+            .ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
+        (attack.bullet_speed, attack.atk_physic.v)
+    };
+
+    let initial_dist = (end_pos - pos).length();
+    let flight_time_s = if msd.to_f32_for_render() > 0.0 {
+        (initial_dist.to_f32_for_render() / msd.to_f32_for_render()).max(0.01)
+    } else {
+        0.01
+    };
+    let safety_time_left = Fixed64::from_raw(
+        ((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i64,
+    );
+
+    world
+        .create_entity()
+        .with(Pos(pos))
+        .with(Projectile {
+            time_left: safety_time_left,
+            owner: source_entity,
+            tpos: end_pos,
+            target: None,
+            radius: Fixed64::ZERO,
+            msd,
+            damage_phys: atk_phys,
+            damage_magi: Fixed64::ZERO,
+            damage_real: Fixed64::ZERO,
+            slow_factor: Fixed64::ZERO,
+            slow_duration: Fixed64::ZERO,
+            hit_radius: Fixed64::ZERO,
+            stun_duration: Fixed64::ZERO,
+        })
+        .build();
+    Ok(())
+}
+
+fn handle_tower_spawn(
+    world: &mut World,
+    pos: omoba_sim::Vec2,
+    td: TowerData,
+) -> Result<(), failure::Error> {
+    world
+        .create_entity()
+        .with(Pos(pos))
+        .with(Tower::new())
+        .with(td.tpty)
+        .with(td.tatk)
+        .build();
+    world.write_resource::<Searcher>().tower.mark_dirty();
+    Ok(())
+}
+
+fn handle_creep_stop(
+    world: &mut World,
+    source: Entity,
+    target: Entity,
+) -> Result<(), failure::Error> {
+    let mut creeps = world.write_storage::<Creep>();
+    let creep = creeps
+        .get_mut(target)
+        .ok_or_else(|| failure::err_msg("Creep not found"))?;
+    creep.block_tower = Some(source);
+    creep.status = CreepStatus::Stop;
+    Ok(())
+}
+
+fn handle_creep_walk(world: &mut World, target: Entity) -> Result<(), failure::Error> {
+    let mut creeps = world.write_storage::<Creep>();
+    let creep = creeps
+        .get_mut(target)
+        .ok_or_else(|| failure::err_msg("Creep not found"))?;
+    creep.status = CreepStatus::PreWalk;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_damage(
+    world: &mut World,
+    next_outcomes: &mut Vec<Outcome>,
+    pos: omoba_sim::Vec2,
+    phys: Fixed64,
+    magi: Fixed64,
+    real: Fixed64,
+    source: Entity,
+    target: Entity,
+    _predeclared: bool,
+) -> Result<(), failure::Error> {
+    let dmg_taken_bonus = world
+        .read_resource::<BuffStore>()
+        .sum_add(target, StatKey::DamageTakenBonus);
+    let dmg_multiplier = (Fixed64::ONE + dmg_taken_bonus).max(Fixed64::ZERO);
+    let mut died = false;
+    let mut max_hp = Fixed64::ZERO;
+
+    {
+        let mut properties = world.write_storage::<CProperty>();
+        if let Some(target_props) = properties.get_mut(target) {
+            let hp_before = target_props.hp;
+            let total_damage = (phys + magi + real) * dmg_multiplier;
+            target_props.hp = target_props.hp - total_damage;
+            max_hp = target_props.mhp;
+            let (source_name, target_name) = get_entity_names(world, source, target);
+            log::debug!(
+                "{} attacked {} | damage {:.1} | HP {:.1} -> {:.1}/{:.1}",
+                source_name,
+                target_name,
+                total_damage.to_f32_for_render(),
+                hp_before.to_f32_for_render(),
+                target_props.hp.to_f32_for_render(),
+                target_props.mhp.to_f32_for_render()
+            );
+            if target_props.hp <= Fixed64::ZERO {
+                target_props.hp = Fixed64::ZERO;
+                died = true;
+                if max_hp > Fixed64::from_i32(100) {
+                    log::info!(
+                        "{} died | max_hp={} hp_before={} dmg={:.1} source={}",
+                        target_name,
+                        max_hp.to_f32_for_render(),
+                        hp_before.to_f32_for_render(),
+                        total_damage.to_f32_for_render(),
+                        source_name
+                    );
+                }
+            }
+        }
+    }
+
+    if died {
+        next_outcomes.push(Outcome::Death { pos, ent: target });
+    }
+    Ok(())
+}
+
+fn handle_heal(world: &mut World, target: Entity, amount: Fixed64) -> Result<(), failure::Error> {
+    let mut properties = world.write_storage::<CProperty>();
+    if let Some(target_props) = properties.get_mut(target) {
+        let summed = target_props.hp + amount;
+        target_props.hp = if summed > target_props.mhp {
+            target_props.mhp
+        } else {
+            summed
+        };
+    }
+    Ok(())
+}
+
+fn handle_attack_update(
+    world: &mut World,
+    target: Entity,
+    asd_count: Option<Fixed64>,
+    cooldown_reset: bool,
+) -> Result<(), failure::Error> {
+    let mut attacks = world.write_storage::<TAttack>();
+    if let Some(attack) = attacks.get_mut(target) {
+        if let Some(new_count) = asd_count {
+            attack.asd_count = new_count;
+        }
+        if cooldown_reset {
+            attack.asd_count = attack.asd.v;
+        }
+    }
+    Ok(())
+}
+
+fn handle_experience_gain(
+    world: &mut World,
+    target: Entity,
+    amount: u32,
+) -> Result<(), failure::Error> {
+    let mut heroes = world.write_storage::<Hero>();
+    if let Some(hero) = heroes.get_mut(target) {
+        let leveled_up = hero.add_experience(amount as i32);
+        if leveled_up {
+            log::info!("Hero '{}' gained {} experience and leveled up", hero.name, amount);
+        } else {
+            log::info!("Hero '{}' gained {} experience", hero.name, amount);
+        }
+    }
+    Ok(())
+}
+
+fn handle_gold_gain(world: &mut World, target: Entity, amount: i32) -> Result<(), failure::Error> {
+    if amount == 0 {
+        return Ok(());
+    }
+    let mut golds = world.write_storage::<Gold>();
+    match golds.get_mut(target) {
+        Some(gold) => gold.0 = gold.0.saturating_add(amount),
+        None => {
+            let _ = golds.insert(target, Gold(amount.max(0)));
+        }
+    }
+    Ok(())
+}
+
+fn get_entity_names(world: &World, source: Entity, target: Entity) -> (String, String) {
+    let creeps = world.read_storage::<Creep>();
+    let heroes = world.read_storage::<Hero>();
+    let units = world.read_storage::<Unit>();
+    let towers = world.read_storage::<Tower>();
+    let script_tags = world.read_storage::<ScriptUnitTag>();
+    let registry = world.read_resource::<TowerTemplateRegistry>();
+
+    let name_of = |entity: Entity| -> String {
+        if let Some(creep) = creeps.get(entity) {
+            return creep.name.clone();
+        }
+        if let Some(hero) = heroes.get(entity) {
+            return hero.name.clone();
+        }
+        if let Some(unit) = units.get(entity) {
+            return unit.name.clone();
+        }
+        if let Some(tag) = script_tags.get(entity) {
+            if let Some(tpl) = registry.get(&tag.unit_id) {
+                return tpl.label.clone();
+            }
+        }
+        if towers.get(entity).is_some() {
+            return "Tower".to_string();
+        }
+        format!("Entity({})", entity.id())
+    };
+
+    (name_of(source), name_of(target))
+}
+
+fn handle_explosion(world: &mut World, pos: omoba_sim::Vec2, radius: Fixed64, duration: Fixed64) {
+    let current_tick = world.read_resource::<Tick>().0 as u32;
+    let duration_ms = (duration.to_f32_for_render() * 1000.0).clamp(0.0, u32::MAX as f32) as u32;
+    world.write_resource::<ExplosionFxQueue>().pending.push(ExplosionFx {
+        pos_x: pos.x.to_f32_for_render(),
+        pos_y: pos.y.to_f32_for_render(),
+        radius: radius.to_f32_for_render(),
+        duration_ms,
+        spawn_tick: current_tick,
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_attack_phase_cue(
+    world: &mut World,
+    entity: Entity,
+    attack_seq: u32,
+    is_critical: bool,
+    target: Option<Entity>,
+    target_pos: Option<omoba_sim::Vec2>,
+    windup_ms: u32,
+    backswing_ms: u32,
+    dir_rad: f32,
+) {
+    let current_tick = world.read_resource::<Tick>().0 as u32;
+    world
+        .write_resource::<crate::runtime::comp::AttackPhaseFxQueue>()
+        .pending
+        .push(crate::runtime::comp::AttackPhaseFx {
+            entity_id: entity.id(),
+            entity_gen: entity.gen().id() as u32,
+            spawn_tick: current_tick,
+            attack_seq,
+            is_critical,
+            windup_ms,
+            impact_at_ms: windup_ms,
+            backswing_ms,
+            dir_rad,
+            target_entity_id: target.map(|target| target.id()),
+            target_pos_x: target_pos.map(|pos| pos.x.to_f32_for_render()),
+            target_pos_y: target_pos.map(|pos| pos.y.to_f32_for_render()),
+        });
+}
