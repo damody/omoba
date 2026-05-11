@@ -7,6 +7,7 @@ pub mod ability_meta;
 pub mod config;
 pub mod lockstep_timing;
 pub mod quant;
+pub mod runtime;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tower_meta;
 // template_ids 已刪除 (2026-04-25)：遷移到 omoba-template-ids 箱。
@@ -16,7 +17,6 @@ pub mod tower_meta;
 pub mod grpc;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod input;
-#[cfg(feature = "game-proto")]
 pub mod game_proto {
     include!(concat!(env!("OUT_DIR"), "/game.rs"));
 }

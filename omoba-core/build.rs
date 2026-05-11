@@ -10,7 +10,7 @@ fn main() {
             .expect("Failed to compile proto files");
     }
 
-    #[cfg(any(feature = "kcp", feature = "game-proto"))]
+    #[cfg(not(feature = "grpc"))]
     {
         prost_build::compile_protos(&["../proto/game.proto"], &["../proto"])
             .expect("Failed to compile proto files");
