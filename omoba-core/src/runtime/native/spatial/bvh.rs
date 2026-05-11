@@ -153,8 +153,16 @@ where
 
         for axis in 0..2 {
             entries.sort_by(|a, b| {
-                let av = if axis == 0 { a.position.x } else { a.position.y };
-                let bv = if axis == 0 { b.position.x } else { b.position.y };
+                let av = if axis == 0 {
+                    a.position.x
+                } else {
+                    a.position.y
+                };
+                let bv = if axis == 0 {
+                    b.position.x
+                } else {
+                    b.position.y
+                };
                 av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
             });
 
@@ -192,8 +200,16 @@ where
         }
 
         entries.sort_by(|a, b| {
-            let av = if best_axis == 0 { a.position.x } else { a.position.y };
-            let bv = if best_axis == 0 { b.position.x } else { b.position.y };
+            let av = if best_axis == 0 {
+                a.position.x
+            } else {
+                a.position.y
+            };
+            let bv = if best_axis == 0 {
+                b.position.x
+            } else {
+                b.position.y
+            };
             av.partial_cmp(&bv).unwrap_or(std::cmp::Ordering::Equal)
         });
 

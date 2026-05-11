@@ -1,7 +1,7 @@
 #![allow(unused_mut, unused_variables)]
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
-use specs::{Builder, World, WorldExt};
+use specs::{Builder, Join, World, WorldExt};
 /// 狀態初始化器 - 負責設置 ECS 世界和遊戲場景
 use std::sync::Arc;
 use vek::Vec2;
@@ -258,6 +258,30 @@ impl StateInitializer {
                 },
             );
         }
+    }
+
+    /// DEV Lua hot reload path: rebuild only cached creep emitters from the
+    /// current active template generation without resetting wave progress.
+    pub fn refresh_creep_emiters(ecs: &mut World, cw: &CreepWaveData) {
+        ecs.write_resource::<std::collections::BTreeMap<String, CreepEmiter>>()
+            .clear();
+        Self::setup_creep_emiters(ecs, cw);
+    }
+
+    /// DEV Lua hot reload path shared by backend and local replica.
+    /// Rebuilds Lua-derived caches and conservatively refreshes copied base stats.
+    pub fn refresh_dev_lua_gameplay_content(
+        ecs: &mut World,
+        cw: &CreepWaveData,
+        script_registry: &crate::scripting::ScriptRegistry,
+    ) {
+        Self::refresh_creep_emiters(ecs, cw);
+        populate_tower_template_registry(ecs, script_registry);
+        populate_tower_upgrade_registry(ecs);
+        populate_ability_registry(ecs, script_registry);
+        refresh_live_heroes_from_lua(ecs);
+        refresh_live_creeps_from_lua(ecs);
+        refresh_live_towers_from_lua(ecs);
     }
 
     /// 設置小兵波
@@ -873,6 +897,161 @@ impl StateInitializer {
         // 創建地形遮擋物
         log::info!("地形遮擋物創建（新視野系統待實現）");
     }
+}
+
+fn refresh_live_heroes_from_lua(ecs: &mut World) {
+    let mut heroes = ecs.write_storage::<Hero>();
+    let mut props = ecs.write_storage::<CProperty>();
+    let mut attacks = ecs.write_storage::<TAttack>();
+    let mut turns = ecs.write_storage::<TurnSpeed>();
+    for (hero, prop, attack, turn) in (&mut heroes, &mut props, &mut attacks, &mut turns).join() {
+        let Some(hero_id) = omoba_template_ids::hero_by_name(&hero.id) else {
+            continue;
+        };
+        let Some(stats) = omoba_template_ids::active_hero_stats(hero_id) else {
+            continue;
+        };
+        hero.name = omoba_template_ids::active_hero_display(hero_id).to_string();
+        hero.title = omoba_template_ids::active_hero_title(hero_id).to_string();
+        hero.strength = stats.strength;
+        hero.agility = stats.agility;
+        hero.intelligence = stats.intelligence;
+        hero.primary_attribute = match stats.primary_attribute {
+            1 => AttributeType::Agility,
+            2 => AttributeType::Intelligence,
+            _ => AttributeType::Strength,
+        };
+        hero.level_growth = LevelGrowth {
+            strength_per_level: stats.level_growth.strength_per_level,
+            agility_per_level: stats.level_growth.agility_per_level,
+            intelligence_per_level: stats.level_growth.intelligence_per_level,
+            damage_per_level: stats.level_growth.damage_per_level,
+            hp_per_level: stats.level_growth.hp_per_level,
+            mana_per_level: stats.level_growth.mana_per_level,
+        };
+        let new_abilities: Vec<String> = omoba_template_ids::active_hero_abilities(hero_id)
+            .iter()
+            .map(|id| id.as_str().to_string())
+            .collect();
+        for id in &new_abilities {
+            hero.ability_levels.entry(id.clone()).or_insert(0);
+        }
+        hero.ability_levels
+            .retain(|id, _| new_abilities.iter().any(|new_id| new_id == id));
+        hero.abilities = new_abilities;
+
+        let new_mhp = omoba_sim::Fixed64::from_i32(500)
+            + omoba_sim::Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
+        preserve_cproperty_hp_ratio(prop, new_mhp);
+        prop.msd = stats.move_speed;
+        prop.def_physic = omoba_sim::Fixed64::from_i32(hero.strength)
+            * omoba_sim::Fixed64::from_raw(205);
+        prop.def_magic = omoba_sim::Fixed64::from_i32(hero.intelligence)
+            * omoba_sim::Fixed64::from_raw(154);
+        attack.atk_physic = Vf32::new(
+            omoba_sim::Fixed64::from_i32(50)
+                + omoba_sim::Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level,
+        );
+        attack.range = Vf32::new(stats.attack_range);
+        attack.attack_phase = AttackSequencePhase::Idle;
+        turn.0 = omoba_sim::Fixed64::from_raw(
+            (stats.turn_speed.to_f32_for_render().to_radians() * 1024.0) as i64,
+        );
+    }
+}
+
+fn refresh_live_creeps_from_lua(ecs: &mut World) {
+    let emitters = ecs
+        .read_resource::<std::collections::BTreeMap<String, CreepEmiter>>()
+        .clone();
+    let mut creeps = ecs.write_storage::<Creep>();
+    let mut props = ecs.write_storage::<CProperty>();
+    let mut bounties = ecs.write_storage::<Bounty>();
+    let mut turns = ecs.write_storage::<TurnSpeed>();
+    for (creep, prop, bounty, turn) in (&mut creeps, &mut props, &mut bounties, &mut turns).join() {
+        let Some(creep_id) = omoba_template_ids::creep_by_name(&creep.name) else {
+            continue;
+        };
+        let Some(stats) = omoba_template_ids::active_creep_stats(creep_id) else {
+            continue;
+        };
+        let display = omoba_template_ids::active_creep_display(creep_id);
+        creep.label = (!display.is_empty()).then(|| display.to_string());
+        preserve_cproperty_hp_ratio(prop, stats.hp);
+        prop.msd = stats.move_speed;
+        prop.def_physic = stats.armor;
+        prop.def_magic = stats.magic_resistance;
+        bounty.gold = stats.gold_reward;
+        bounty.exp = stats.exp_reward;
+        if let Some(emitter) = emitters.get(&creep.name) {
+            turn.0 = omoba_sim::Fixed64::from_raw(
+                (emitter.turn_speed_deg.to_radians() * 1024.0) as i64,
+            );
+        }
+    }
+}
+
+fn refresh_live_towers_from_lua(ecs: &mut World) {
+    let registry = ecs.read_resource::<TowerTemplateRegistry>().clone();
+    let tags = ecs.read_storage::<crate::scripting::ScriptUnitTag>();
+    let mut towers = ecs.write_storage::<Tower>();
+    let mut tprops = ecs.write_storage::<TProperty>();
+    let mut cprops = ecs.write_storage::<CProperty>();
+    let mut attacks = ecs.write_storage::<TAttack>();
+    let mut visions = ecs.write_storage::<CircularVision>();
+    let mut turns = ecs.write_storage::<TurnSpeed>();
+    let mut radii = ecs.write_storage::<CollisionRadius>();
+    let f32_to_fx = |v: f32| omoba_sim::Fixed64::from_raw((v * 1024.0) as i64);
+    for (tag, _tower, tprop, cprop, attack, vision, turn, radius) in (
+        &tags,
+        &mut towers,
+        &mut tprops,
+        &mut cprops,
+        &mut attacks,
+        &mut visions,
+        &mut turns,
+        &mut radii,
+    )
+        .join()
+    {
+        let Some(tpl) = registry.get(&tag.unit_id) else {
+            continue;
+        };
+        let new_hp = f32_to_fx(tpl.hp);
+        let current_hp = scaled_hp(tprop.hp.v, tprop.hp.bv, new_hp);
+        tprop.hp = Vf32 {
+            bv: new_hp,
+            v: current_hp,
+        };
+        preserve_cproperty_hp_ratio(cprop, new_hp);
+        attack.atk_physic = Vf32::new(f32_to_fx(tpl.atk));
+        attack.asd = Vf32::new(f32_to_fx(tpl.asd_interval));
+        attack.range = Vf32::new(f32_to_fx(tpl.range));
+        attack.bullet_speed = f32_to_fx(tpl.bullet_speed);
+        vision.range = tpl.range + 100.0;
+        turn.0 = f32_to_fx(tpl.turn_speed_deg.to_radians());
+        radius.0 = f32_to_fx(tpl.footprint);
+    }
+    ecs.write_resource::<Searcher>().tower.mark_dirty();
+}
+
+fn preserve_cproperty_hp_ratio(prop: &mut CProperty, new_mhp: omoba_sim::Fixed64) {
+    let new_hp = scaled_hp(prop.hp, prop.mhp, new_mhp);
+    prop.mhp = new_mhp;
+    prop.hp = new_hp;
+}
+
+fn scaled_hp(
+    old_hp: omoba_sim::Fixed64,
+    old_mhp: omoba_sim::Fixed64,
+    new_mhp: omoba_sim::Fixed64,
+) -> omoba_sim::Fixed64 {
+    if old_mhp.raw() <= 0 {
+        return new_mhp;
+    }
+    let raw = (old_hp.raw() as i128 * new_mhp.raw() as i128 / old_mhp.raw() as i128)
+        .clamp(0, new_mhp.raw() as i128) as i64;
+    omoba_sim::Fixed64::from_raw(raw)
 }
 
 // =====================================================================

@@ -22,14 +22,7 @@ impl OutboundMsg {
         Self::new_s(topic, t, a, v)
     }
 
-    pub fn new_s_at(
-        topic: &str,
-        t: &str,
-        a: &str,
-        v: serde_json::Value,
-        x: f32,
-        y: f32,
-    ) -> Self {
+    pub fn new_s_at(topic: &str, t: &str, a: &str, v: serde_json::Value, x: f32, y: f32) -> Self {
         let mut msg = Self::new_s(topic, t, a, v);
         msg.entity_pos = Some((x, y));
         msg

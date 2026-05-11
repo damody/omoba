@@ -3,9 +3,20 @@
 //! 在整個進程生命週期內都處於活動狀態（H1 - 無熱重載）。
 
 use crate::ability_meta::AbilityDef;
-use abi_stable::std_types::RBox;
+use abi_stable::std_types::{RBox, RErr, ROk, RStr};
 use hashbrown::HashMap;
-use omb_script_abi::{ability::AbilityScript_TO, manifest::Manifest_Ref, script::UnitScript_TO};
+use omb_script_abi::{
+    ability::AbilityScript_TO,
+    manifest::{Manifest_Ref, RuntimeLuaReloadInfoFFI},
+    script::UnitScript_TO,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScriptRuntimeLuaReloadInfo {
+    pub module_index: usize,
+    pub generation: u64,
+    pub hash: String,
+}
 
 pub struct ScriptRegistry {
     scripts: HashMap<String, UnitScript_TO<'static, RBox<()>>>,
@@ -116,6 +127,40 @@ impl ScriptRegistry {
         self.order
             .iter()
             .filter_map(|id| self.scripts.get(id).map(|s| (id.as_str(), s)))
+    }
+
+    /// DEV-only runtime Lua content synchronization for loaded script DLLs.
+    pub fn reload_runtime_lua_content_dev(
+        &self,
+        expected_hash: &str,
+    ) -> Result<Vec<ScriptRuntimeLuaReloadInfo>, String> {
+        let mut reloaded = Vec::new();
+        for (module_index, manifest) in self._manifests.iter().enumerate() {
+            let result = (manifest.dev_reload_runtime_lua_content())(RStr::from_str(expected_hash));
+            match result {
+                ROk(RuntimeLuaReloadInfoFFI { generation, hash }) => {
+                    let hash = hash.to_string();
+                    if hash != expected_hash {
+                        return Err(format!(
+                            "script module #{} runtime Lua content hash mismatch: expected {}, got {}",
+                            module_index, expected_hash, hash
+                        ));
+                    }
+                    reloaded.push(ScriptRuntimeLuaReloadInfo {
+                        module_index,
+                        generation,
+                        hash,
+                    });
+                }
+                RErr(err) => {
+                    return Err(format!(
+                        "script module #{} runtime Lua content reload failed: {}",
+                        module_index, err
+                    ));
+                }
+            }
+        }
+        Ok(reloaded)
     }
 }
 

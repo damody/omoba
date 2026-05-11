@@ -9,9 +9,9 @@ use crate::lockstep_timing::LOCKSTEP_ONE_SECOND_TICKS_U32;
 use super::ability_runtime::{AbilityRegistry, BuffStore, UnitStats};
 use super::comp::hero::AttributeType;
 use super::comp::{
-    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, Gold, Hero,
-    Inventory, IsBuilding, MoveTarget, Path as CreepPath, PlayerLives, Pos, Projectile,
-    RemovedEntitiesQueue, TAttack, Tower, TowerTemplateRegistry, TowerUpgradeRegistry,
+    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, Gold, Hero, Inventory,
+    IsBuilding, MoveTarget, Path as CreepPath, PlayerLives, Pos, Projectile, RemovedEntitiesQueue,
+    TAttack, Tower, TowerTemplateRegistry, TowerUpgradeRegistry,
 };
 use super::scripting::ScriptUnitTag;
 
@@ -51,6 +51,9 @@ pub struct SimWorldSnapshot {
     pub attack_cancel_fx: Vec<AttackCancelFx>,
     pub applied_input_ids: Vec<u32>,
     pub applied_input_meta: Vec<AppliedInputMeta>,
+    pub lua_content_generation: u64,
+    pub lua_content_hash: String,
+    pub dev_lua_reload_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -332,9 +335,7 @@ pub fn build_ability_def_snapshots(reg: &AbilityRegistry) -> Vec<AbilityDefSnaps
         .collect()
 }
 
-pub fn build_tower_template_snapshots(
-    reg: &TowerTemplateRegistry,
-) -> Vec<TowerTemplateSnapshot> {
+pub fn build_tower_template_snapshots(reg: &TowerTemplateRegistry) -> Vec<TowerTemplateSnapshot> {
     reg.iter_ordered()
         .map(|t| TowerTemplateSnapshot {
             unit_id: t.unit_id.clone(),
@@ -678,7 +679,12 @@ pub fn extract_snapshot(
     let paths: Vec<Vec<(f32, f32)>> = world
         .read_resource::<BTreeMap<String, CreepPath>>()
         .values()
-        .map(|p| p.check_points.iter().map(|cp| (cp.pos.x, cp.pos.y)).collect())
+        .map(|p| {
+            p.check_points
+                .iter()
+                .map(|cp| (cp.pos.x, cp.pos.y))
+                .collect()
+        })
         .collect();
 
     if tick % LOCKSTEP_ONE_SECOND_TICKS_U32 == 0 && !out.is_empty() {
@@ -788,5 +794,14 @@ pub fn extract_snapshot(
         attack_cancel_fx,
         applied_input_ids,
         applied_input_meta,
+        lua_content_generation: omoba_template_ids::runtime_lua_content_generation()
+            .ok()
+            .flatten()
+            .unwrap_or(0),
+        lua_content_hash: omoba_template_ids::runtime_lua_content_hash()
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+        dev_lua_reload_error: None,
     }
 }

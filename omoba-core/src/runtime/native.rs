@@ -13,8 +13,8 @@ pub mod initialization;
 pub mod input;
 pub mod item;
 pub mod scene;
-pub mod snapshot;
 pub mod scripting;
+pub mod snapshot;
 pub mod spatial;
 pub mod system_dispatcher;
 pub mod tick;
@@ -29,8 +29,8 @@ pub use game_processor::{
     drain_pending_moves, drain_pending_tower_sells, drain_pending_tower_spawns,
     drain_pending_tower_upgrades, handle_ability_cast_from_input,
     handle_ability_upgrade_from_input, handle_item_use_from_input, handle_tower_sell_from_input,
-    handle_tower_spawn_from_input, handle_tower_upgrade_from_input, spawn_td_tower,
-    interrupt_attack_for_accepted_command, process_outcomes,
+    handle_tower_spawn_from_input, handle_tower_upgrade_from_input,
+    interrupt_attack_for_accepted_command, process_outcomes, spawn_td_tower,
 };
 pub use initialization::{
     create_world_for_scene, create_world_for_scene_with_content, create_world_from_loaded_content,
@@ -40,10 +40,10 @@ pub use initialization::{
 pub use input::*;
 pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
 pub use scene::*;
-pub use snapshot::*;
 pub use scripting::{
     run_script_dispatch, ScriptEvent, ScriptEventQueue, ScriptRegistry, ScriptUnitTag, SkillTarget,
     WorldAdapter,
 };
+pub use snapshot::*;
 pub use spatial::{Bounds, Entry, SpatialIndex, SpatialIndexParams};
 pub use system_dispatcher::{build_phase3_dispatcher, SystemDispatcher};

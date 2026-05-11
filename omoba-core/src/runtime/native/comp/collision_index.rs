@@ -5,7 +5,9 @@ use specs::Entity;
 use vek::Vec2;
 use voracious_radix_sort::Radixable;
 
-use crate::runtime::spatial::{build_entity_index, Bounds, Entry, SpatialIndex, SpatialIndexParams};
+use crate::runtime::spatial::{
+    build_entity_index, Bounds, Entry, SpatialIndex, SpatialIndexParams,
+};
 
 const DEFAULT_WORLD_MIN: f32 = -10000.0;
 const DEFAULT_WORLD_MAX: f32 = 10000.0;

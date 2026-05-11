@@ -21,14 +21,14 @@ pub mod base {
     pub struct ProfSpan;
 }
 
-pub use base::ProfSpan;
 pub(crate) use base::prof_span;
+pub use base::ProfSpan;
 
-pub mod ecs;
-pub mod tick_profile;
-pub mod enemy;
 pub mod campaign;
+pub mod ecs;
+pub mod enemy;
 pub mod player;
+pub mod tick_profile;
 
 pub mod outcome {
     pub use crate::runtime::comp::outcome::*;

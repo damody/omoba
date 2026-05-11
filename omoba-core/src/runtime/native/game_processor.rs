@@ -6,17 +6,17 @@ use specs::{Builder, Entity, Join, LendJoin, World, WorldExt};
 use vek::Vec2;
 
 use crate::runtime::ability_runtime::{AbilityRegistry, BuffStore};
+use crate::runtime::comp::tower_upgrade_rules;
 use crate::runtime::comp::{
     AttackCancelFx, AttackCancelFxQueue, AttackCancelPhase, AttackSequencePhase, BlockedRegions,
-    Bounty, CProperty, CircularVision, CollisionRadius, Creep, CreepData, CreepStatus,
-    ExplosionFx, ExplosionFxQueue, Facing, FacingBroadcast, Faction, FactionType, Gold, Hero,
-    Inventory, IsBase, IsBuilding, MasterSeed, MoveTarget, Outcome, Path,
-    PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue,
-    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue, Pos, Projectile,
-    RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerData, TowerTemplate,
-    TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
+    Bounty, CProperty, CircularVision, CollisionRadius, Creep, CreepData, CreepStatus, ExplosionFx,
+    ExplosionFxQueue, Facing, FacingBroadcast, Faction, FactionType, Gold, Hero, Inventory, IsBase,
+    IsBuilding, MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue,
+    PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue, PendingTowerSellQueue,
+    PendingTowerSpawnQueue, PendingTowerUpgradeQueue, Pos, Projectile, RemovedEntitiesQueue,
+    Searcher, TAttack, TProperty, Tick, Tower, TowerData, TowerTemplate, TowerTemplateRegistry,
+    TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
 };
-use crate::runtime::comp::tower_upgrade_rules;
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
 use crate::runtime::item::{ActiveEffect, ItemRegistry};
@@ -476,7 +476,8 @@ fn validate_tower_place_from_input(
         let positions = world.read_storage::<Pos>();
         let tags = world.read_storage::<ScriptUnitTag>();
         let registry = world.read_resource::<TowerTemplateRegistry>();
-        for (_entity, _tower, position, tag) in (&entities, &towers, &positions, tags.maybe()).join()
+        for (_entity, _tower, position, tag) in
+            (&entities, &towers, &positions, tags.maybe()).join()
         {
             let Some(existing_radius) = tag
                 .and_then(|tag| registry.get(&tag.unit_id))
@@ -520,9 +521,9 @@ pub fn handle_tower_spawn_from_input(
     let pos_f32 = Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
     let tpl = {
         let reg = world.read_resource::<TowerTemplateRegistry>();
-        reg.get(unit_id).cloned().ok_or_else(|| {
-            failure::err_msg(format!("TowerPlace: unknown unit_id '{}'", unit_id))
-        })?
+        reg.get(unit_id)
+            .cloned()
+            .ok_or_else(|| failure::err_msg(format!("TowerPlace: unknown unit_id '{}'", unit_id)))?
     };
     let hero_entity = validate_tower_place_from_input(world, &tpl, pos_f32, owner_pid)?;
     let entity = spawn_td_tower(world, pos_f32, unit_id).ok_or_else(|| {
@@ -1005,8 +1006,7 @@ fn game_lives_event(lives: i32) -> RuntimeEvent {
 }
 
 fn game_end_event(_winner: &str, data: serde_json::Value) -> RuntimeEvent {
-    RuntimeEvent::new("td/all/res", "game", "end", data)
-        .with_broadcast(RuntimeBroadcast::All)
+    RuntimeEvent::new("td/all/res", "game", "end", data).with_broadcast(RuntimeBroadcast::All)
 }
 
 pub fn process_outcomes(
@@ -1307,7 +1307,8 @@ fn handle_projectile(
             .get(source_entity)
             .ok_or_else(|| failure::err_msg("Source attack properties not found"))?;
         let is_building = buildings.get(source_entity).is_some();
-        let stats = crate::runtime::ability_runtime::UnitStats::from_refs(&*buff_store, is_building);
+        let stats =
+            crate::runtime::ability_runtime::UnitStats::from_refs(&*buff_store, is_building);
         let mut final_atk = stats.final_atk(attack.atk_physic.v, source_entity);
 
         let accuracy_bonus = buff_store.sum_add(source_entity, StatKey::AccuracyBonus);
@@ -1382,9 +1383,8 @@ fn handle_projectile(
     } else {
         0.01
     };
-    let safety_time_left = Fixed64::from_raw(
-        ((flight_time_s * 3.0 + 3.0) * omoba_sim::fixed::SCALE as f32) as i64,
-    );
+    let safety_time_left =
+        Fixed64::from_raw(((flight_time_s * 3.0 + 3.0) * omoba_sim::fixed::SCALE as f32) as i64);
 
     let delta = target_pos - pos;
     let dir = if delta.length_squared() > Fixed64::from_raw(1) {
@@ -1435,13 +1435,7 @@ fn handle_projectile(
 
 fn handle_creep_spawn(world: &mut World, cd: CreepData) -> Result<(), failure::Error> {
     let creep_name = cd.creep.name.clone();
-    let bounty = match creep_name.as_str() {
-        "melee_minion" => Bounty { gold: 18, exp: 55 },
-        "ranged_minion" => Bounty { gold: 15, exp: 45 },
-        "siege_minion" => Bounty { gold: 40, exp: 110 },
-        name if name.starts_with("ally_") => Bounty { gold: 0, exp: 0 },
-        _ => Bounty { gold: 10, exp: 25 },
-    };
+    let bounty = creep_bounty_from_template(&creep_name);
     let faction = match cd.faction_name.as_str() {
         "Player" | "player" => Faction::new(FactionType::Player, 0),
         _ => Faction::new(FactionType::Enemy, 1),
@@ -1472,6 +1466,43 @@ fn handle_creep_spawn(world: &mut World, cd: CreepData) -> Result<(), failure::E
         json!({ "movespeed_absolute_min": 10.0 }),
     );
     Ok(())
+}
+
+fn creep_bounty_from_template(creep_name: &str) -> Bounty {
+    if creep_name.starts_with("ally_") {
+        return Bounty { gold: 0, exp: 0 };
+    }
+    if let Some(stats) = omoba_template_ids::creep_by_name(creep_name)
+        .and_then(omoba_template_ids::active_creep_stats)
+    {
+        return Bounty {
+            gold: stats.gold_reward,
+            exp: stats.exp_reward,
+        };
+    }
+    match creep_name {
+        "melee_minion" => Bounty { gold: 18, exp: 55 },
+        "ranged_minion" => Bounty { gold: 15, exp: 45 },
+        "siege_minion" => Bounty { gold: 40, exp: 110 },
+        _ => Bounty { gold: 10, exp: 25 },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omoba_template_ids::{active_creep_stats, creep_id_str, CreepId};
+
+    #[test]
+    fn creep_bounty_uses_active_template_rewards() {
+        let id = CreepId(1);
+        let name = creep_id_str(id);
+        assert_ne!(name, "?");
+        let stats = active_creep_stats(id).expect("generated creep stats");
+        let bounty = creep_bounty_from_template(name);
+        assert_eq!(bounty.gold, stats.gold_reward);
+        assert_eq!(bounty.exp, stats.exp_reward);
+    }
 }
 
 fn handle_add_buff(
@@ -1515,7 +1546,8 @@ fn handle_projectile_directional(
     source: Option<Entity>,
     end_pos: omoba_sim::Vec2,
 ) -> Result<(), failure::Error> {
-    let source_entity = source.ok_or_else(|| failure::err_msg("ProjectileDirectional missing source"))?;
+    let source_entity =
+        source.ok_or_else(|| failure::err_msg("ProjectileDirectional missing source"))?;
     let (msd, atk_phys) = {
         let attacks = world.read_storage::<TAttack>();
         let attack = attacks
@@ -1530,9 +1562,8 @@ fn handle_projectile_directional(
     } else {
         0.01
     };
-    let safety_time_left = Fixed64::from_raw(
-        ((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i64,
-    );
+    let safety_time_left =
+        Fixed64::from_raw(((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i64);
 
     world
         .create_entity()
@@ -1691,7 +1722,11 @@ fn handle_experience_gain(
     if let Some(hero) = heroes.get_mut(target) {
         let leveled_up = hero.add_experience(amount as i32);
         if leveled_up {
-            log::info!("Hero '{}' gained {} experience and leveled up", hero.name, amount);
+            log::info!(
+                "Hero '{}' gained {} experience and leveled up",
+                hero.name,
+                amount
+            );
         } else {
             log::info!("Hero '{}' gained {} experience", hero.name, amount);
         }
@@ -1748,13 +1783,16 @@ fn get_entity_names(world: &World, source: Entity, target: Entity) -> (String, S
 fn handle_explosion(world: &mut World, pos: omoba_sim::Vec2, radius: Fixed64, duration: Fixed64) {
     let current_tick = world.read_resource::<Tick>().0 as u32;
     let duration_ms = (duration.to_f32_for_render() * 1000.0).clamp(0.0, u32::MAX as f32) as u32;
-    world.write_resource::<ExplosionFxQueue>().pending.push(ExplosionFx {
-        pos_x: pos.x.to_f32_for_render(),
-        pos_y: pos.y.to_f32_for_render(),
-        radius: radius.to_f32_for_render(),
-        duration_ms,
-        spawn_tick: current_tick,
-    });
+    world
+        .write_resource::<ExplosionFxQueue>()
+        .pending
+        .push(ExplosionFx {
+            pos_x: pos.x.to_f32_for_render(),
+            pos_y: pos.y.to_f32_for_render(),
+            radius: radius.to_f32_for_render(),
+            duration_ms,
+            spawn_tick: current_tick,
+        });
 }
 
 #[allow(clippy::too_many_arguments)]

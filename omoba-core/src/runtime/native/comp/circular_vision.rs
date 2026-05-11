@@ -66,13 +66,17 @@ pub struct ObstacleInfo {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObstacleType {
-    Circular { radius: f32 },
+    Circular {
+        radius: f32,
+    },
     Rectangle {
         width: f32,
         height: f32,
         rotation: f32,
     },
-    Terrain { elevation: f32 },
+    Terrain {
+        elevation: f32,
+    },
 }
 
 #[derive(Debug, Clone)]
