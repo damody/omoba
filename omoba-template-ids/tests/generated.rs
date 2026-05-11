@@ -216,8 +216,8 @@ fn hero_saika_render_metadata_is_generated() {
     assert_loop_binding(render, "idle_2", "idle_2", 125);
     assert_loop_binding(render, "idle_3", "idle_3", 53);
     assert_loop_binding(render, "sniper", "sniper", 53);
-    assert_attack_binding(render, "attack", "attack");
-    assert_attack_binding(render, "critical", "critical");
+    assert_attack_binding(render, "attack", "attack", 0);
+    assert_attack_binding(render, "critical", "critical", 6);
 }
 
 #[test]
@@ -429,13 +429,18 @@ fn assert_loop_binding(
     assert!(binding.loop_animation);
 }
 
-fn assert_attack_binding(render: &HeroRenderMetadataConst, action: &str, source_key: &str) {
+fn assert_attack_binding(
+    render: &HeroRenderMetadataConst,
+    action: &str,
+    source_key: &str,
+    repeat_start_tick: i32,
+) {
     let binding = hero_binding(render, action);
     assert_eq!(binding.source, source_key);
     assert_eq!(binding.start_tick, Fixed64::from_raw(0));
     assert_eq!(binding.impact_tick, Fixed64::from_i32(22));
     assert_eq!(binding.end_tick, Fixed64::from_i32(100));
-    assert_eq!(binding.repeat_start_tick, Fixed64::from_i32(6));
+    assert_eq!(binding.repeat_start_tick, Fixed64::from_i32(repeat_start_tick));
     assert!(binding.has_impact_tick);
     assert!(!binding.loop_animation);
 }
