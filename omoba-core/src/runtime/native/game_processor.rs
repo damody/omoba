@@ -1004,10 +1004,8 @@ fn game_lives_event(lives: i32) -> RuntimeEvent {
         .with_broadcast(RuntimeBroadcast::All)
 }
 
-fn game_end_event(winner: &str, data: serde_json::Value) -> RuntimeEvent {
+fn game_end_event(_winner: &str, data: serde_json::Value) -> RuntimeEvent {
     RuntimeEvent::new("td/all/res", "game", "end", data)
-        .with_broadcast(RuntimeBroadcast::All)
-        .with_broadcast(RuntimeBroadcast::All)
         .with_broadcast(RuntimeBroadcast::All)
 }
 
@@ -1122,7 +1120,7 @@ pub fn process_outcomes(
         log::trace!("processed outcome {}", kind);
     }
 
-    world.delete_entities(&remove_uids[..]);
+    let _ = world.delete_entities(&remove_uids[..]);
     world.write_resource::<Vec<Outcome>>().clear();
     world
         .write_resource::<Vec<Outcome>>()
@@ -1614,15 +1612,12 @@ fn handle_damage(
         .sum_add(target, StatKey::DamageTakenBonus);
     let dmg_multiplier = (Fixed64::ONE + dmg_taken_bonus).max(Fixed64::ZERO);
     let mut died = false;
-    let mut max_hp = Fixed64::ZERO;
-
     {
         let mut properties = world.write_storage::<CProperty>();
         if let Some(target_props) = properties.get_mut(target) {
             let hp_before = target_props.hp;
             let total_damage = (phys + magi + real) * dmg_multiplier;
             target_props.hp = target_props.hp - total_damage;
-            max_hp = target_props.mhp;
             let (source_name, target_name) = get_entity_names(world, source, target);
             log::debug!(
                 "{} attacked {} | damage {:.1} | HP {:.1} -> {:.1}/{:.1}",
@@ -1636,11 +1631,11 @@ fn handle_damage(
             if target_props.hp <= Fixed64::ZERO {
                 target_props.hp = Fixed64::ZERO;
                 died = true;
-                if max_hp > Fixed64::from_i32(100) {
+                if target_props.mhp > Fixed64::from_i32(100) {
                     log::info!(
                         "{} died | max_hp={} hp_before={} dmg={:.1} source={}",
                         target_name,
-                        max_hp.to_f32_for_render(),
+                        target_props.mhp.to_f32_for_render(),
                         hp_before.to_f32_for_render(),
                         total_damage.to_f32_for_render(),
                         source_name

@@ -119,3 +119,16 @@ impl AppConfig {
         Ok(abs_path)
     }
 }
+
+pub mod server_config {
+    #[derive(Debug)]
+    pub struct RuntimeServerConfig {
+        pub PLAYER_NAME: String,
+    }
+
+    lazy_static::lazy_static! {
+        pub static ref CONFIG: RuntimeServerConfig = RuntimeServerConfig {
+            PLAYER_NAME: std::env::var("OMB_PLAYER_NAME").unwrap_or_else(|_| "player".to_string()),
+        };
+    }
+}

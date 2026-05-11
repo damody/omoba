@@ -9,11 +9,13 @@ pub mod comp;
 pub mod events;
 pub mod game_processor;
 pub mod geometry;
+pub mod initialization;
 pub mod input;
 pub mod item;
 pub mod scene;
 pub mod scripting;
 pub mod spatial;
+pub mod system_dispatcher;
 
 pub use ability_runtime::{armor_to_mult, AbilityRegistry, BuffEntry, BuffStore, UnitStats};
 pub use comp::*;
@@ -26,10 +28,15 @@ pub use game_processor::{
     drain_pending_tower_upgrades, handle_ability_cast_from_input,
     handle_ability_upgrade_from_input, handle_item_use_from_input, handle_tower_sell_from_input,
     handle_tower_spawn_from_input, handle_tower_upgrade_from_input, spawn_td_tower,
-    interrupt_attack_for_accepted_command,
+    interrupt_attack_for_accepted_command, process_outcomes,
+};
+pub use initialization::{
+    create_world_for_scene, populate_ability_registry, populate_tower_template_registry,
+    populate_tower_upgrade_registry, StateInitializer,
 };
 pub use input::*;
 pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
 pub use scene::*;
 pub use scripting::{ScriptEvent, ScriptEventQueue, ScriptUnitTag, SkillTarget};
 pub use spatial::{Bounds, Entry, SpatialIndex, SpatialIndexParams};
+pub use system_dispatcher::{build_phase3_dispatcher, SystemDispatcher};

@@ -188,6 +188,15 @@ pub struct UiSettingsJD {
 }
 
 // ===== 載入函數 =====
+pub fn load_generated(story_id: &str) -> Result<CampaignData, Box<dyn std::error::Error>> {
+    omoba_template_ids::ensure_runtime_lua_content().map_err(|e| {
+        Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error>
+    })?;
+    let story = omoba_template_ids::active_story_by_name(story_id)
+        .ok_or_else(|| format!("unknown active story '{}'", story_id))?;
+    CampaignData::from_generated_story(story)
+}
+
 impl CampaignData {
     pub fn from_generated_story(
         story: &omoba_template_ids::GeneratedStory,
