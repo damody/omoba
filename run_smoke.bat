@@ -19,14 +19,15 @@ pushd %~dp0
 
 set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
 set EXECUTOR=omfx\target\debug\executor.exe
+set BACKEND=omb\target\debug\omobab.exe
 set OMB_LUA_CONTENT=1
 set OMB_LUA_CONTENT_ROOT=%CD%\scripts\lua_data
 set OMB_STORY_DATA_DIR=%OMB_LUA_CONTENT_ROOT%
 
-echo [0/5] Killing stale processes...
+echo [0/6] Killing stale processes...
 powershell -NoProfile -Command "Stop-Process -Name 'omobab','executor' -Force -ErrorAction SilentlyContinue"
 
-echo [1/5] Checking script DLL (debug)...
+echo [1/6] Checking script DLL (debug)...
 call :ensure_fresh script-dll debug "script DLL" "cargo build --manifest-path scripts\Cargo.toml -p base_content --features runtime-lua-content" "Script DLL build failed!"
 if errorlevel 1 goto :fail
 
@@ -36,31 +37,60 @@ if errorlevel 1 (
     goto :fail
 )
 
-echo [2/5] Checking backend (debug)...
+echo [2/6] Checking backend (debug)...
 call :ensure_fresh backend debug "backend" "cargo build --manifest-path omb\Cargo.toml --features runtime-lua-content" "Backend build failed!"
 if errorlevel 1 goto :fail
 
-echo [3/5] Checking frontend (debug)...
+echo [3/6] Checking frontend (debug)...
 call :ensure_fresh frontend debug "frontend" "cargo build --manifest-path omfx\Cargo.toml -p executor --features runtime-lua-content" "Frontend build failed!"
 if errorlevel 1 goto :fail
+
+if not exist "%BACKEND%" (
+    echo Backend executable missing: %BACKEND%
+    goto :fail
+)
 
 if not exist "%EXECUTOR%" (
     echo Frontend executable missing: %EXECUTOR%
     goto :fail
 )
 
-echo [4/5] Set auto-smoke envs (start at 2s, exit at 10s)...
+echo [4/6] Set auto-smoke envs (start at 2s, exit at 10s)...
 set OMFX_AUTO_START_AFTER_SEC=2
 set OMFX_AUTO_EXIT_AFTER_SEC=10
 
-echo [5/5] Run executor (auto-pressed + auto-exit)...
+echo [5/6] Starting backend...
+call :start_backend
+if errorlevel 1 goto :fail
+
+echo [6/6] Run executor (auto-pressed + auto-exit)...
 "%EXECUTOR%"
 set RUN_ERR=%errorlevel%
+call :stop_backend
 
 echo.
 echo ===== smoke run complete =====
 popd
 exit /b %RUN_ERR%
+
+:start_backend
+set BACKEND_PID=
+for /f %%P in ('powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb"') do set BACKEND_PID=%%P
+if not defined BACKEND_PID (
+    echo Backend start failed!
+    exit /b 1
+)
+echo   -^> backend PID %BACKEND_PID%
+powershell -NoProfile -Command "Start-Sleep -Milliseconds 500"
+exit /b 0
+
+:stop_backend
+if defined BACKEND_PID (
+    echo Stopping backend PID %BACKEND_PID%...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Id %BACKEND_PID% -Force -ErrorAction SilentlyContinue"
+    set BACKEND_PID=
+)
+exit /b 0
 
 :ensure_fresh
 set ARTIFACT=%~1
@@ -90,5 +120,6 @@ if errorlevel 1 (
 exit /b 0
 
 :fail
+call :stop_backend
 popd
 exit /b 1
