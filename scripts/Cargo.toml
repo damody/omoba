@@ -5,11 +5,14 @@ members = [
     "base_content",
 ]
 
-# 針對 DLL 腳本調整的發布設定檔 — 最佳化但保留偵錯符號
-# 被剝離，以便 .dll 保持精簡。
+# 針對 DLL 腳本調整的發布設定檔：最佳化且不輸出 PDB / debug info。
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
-debug = false
+debug = "none"
+split-debuginfo = "off"
 strip = "symbols"
+
+[profile.release.build-override]
+debug = "none"
