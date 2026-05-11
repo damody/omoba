@@ -22,7 +22,7 @@ Release builds MAY compile and use the same runtime Lua content support when exp
 
 #### Scenario: stress launcher does not enable runtime Lua content mode
 - **WHEN** `run_stress.bat` launches with fresh release artifacts
-- **THEN** it does not set the debug Lua content mode environment variables
+- **THEN** it does not set the runtime Lua content mode environment variables
 - **AND** stress gameplay initializes from release build-time generated Rust data
 
 #### Scenario: release build can opt into runtime Lua content mode
@@ -36,7 +36,7 @@ Release builds MAY compile and use the same runtime Lua content support when exp
 
 每個 `run*.bat` launcher SHALL 在該 artifact 的任何 configured relevant input path 比 artifact 更新時，將 artifact 視為 stale。Relevant inputs MUST 包含 Rust source files、Cargo manifests、Cargo lockfiles、`rust-toolchain.toml`、build scripts、shared path dependency sources，以及該 artifact 使用的 protocol files。
 
-Release-profile freshness inputs MUST include generated-data Lua inputs under `scripts/lua_data` because release/stress artifacts use build-time generated Rust data. Debug-profile freshness inputs SHALL NOT treat Lua content-only changes under `scripts/lua_data` as Rust artifact staleness when debug runtime Lua content mode is enabled; debug-profile freshness MUST still treat `omoba-template-ids` Rust sources, manifests, build scripts, shared dependency sources, protocol files, and script source changes as relevant Rust inputs.
+Release-profile freshness inputs MUST include generated-data Lua inputs under `scripts/lua_data` because release/stress artifacts use build-time generated Rust data. Debug-profile freshness inputs SHALL NOT treat Lua content-only changes under `scripts/lua_data` as Rust artifact staleness when runtime Lua content mode is enabled by debug launcher; debug-profile freshness MUST still treat `omoba-template-ids` Rust sources, manifests, build scripts, shared dependency sources, protocol files, and script source changes as relevant Rust inputs.
 
 #### Scenario: script source change 會 rebuild DLL
 - **WHEN** `scripts/base_content/src` 底下某檔案 newer than `scripts/target/debug/base_content.dll`
@@ -59,7 +59,7 @@ Release-profile freshness inputs MUST include generated-data Lua inputs under `s
 #### Scenario: debug Lua content-only change does not rebuild Rust artifacts
 - **WHEN** only files under `scripts/lua_data` are newer than `scripts/target/debug/base_content.dll`, `omb/target/debug/omobab.exe`, and `omfx/target/debug/executor.exe`
 - **THEN** debug launchers do not mark those Rust artifacts stale solely because of the Lua content timestamps
-- **AND** debug runtime Lua content mode is responsible for loading the latest Lua values at initialization
+- **AND** runtime Lua content mode is responsible for loading the latest Lua values at initialization
 
 #### Scenario: release Lua content change rebuilds generated-data consumers
 - **WHEN** a file under `scripts/lua_data` is newer than `scripts/target/release/base_content.dll`, `omb/target/release/omobab.exe`, or `omfx/target/release/executor.exe`
