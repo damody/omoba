@@ -32,15 +32,15 @@
 
 ## 5. Frontend/Backend Decoupling
 
-- [ ] 5.1 從 `omfx/game/Cargo.toml` 移除 `omobab` dependency，改依賴 mandatory runtime-capable `omoba-core`，並確認 `omfx/game/src/**/*.rs` 沒有 `omobab::` references。
-- [ ] 5.2 從 `omfx/game/src/native.rs` 移除 `BackendGuard`、`spawn_backend`、`create_job_and_attach`、hard-coded `omb` path discovery 與 frontend-owned `cargo run` fallback。
-- [ ] 5.3 更新 `run.bat`、`run_smoke.bat` 與其他 debug launchers，由 launcher 在啟動 `executor.exe` 前啟動 backend，並在 frontend 結束後清理它啟動的 backend process。
-- [ ] 5.4 更新 `run_stress.bat` 直接啟動 release `omobab.exe`，移除為 frontend hard-coded spawn path staging `omb/target/debug/omobab.exe` 的流程。
+- [x] 5.1 從 `omfx/game/Cargo.toml` 移除 `omobab` dependency，改依賴 mandatory runtime-capable `omoba-core`，並確認 `omfx/game/src/**/*.rs` 沒有 `omobab::` references。
+- [x] 5.2 從 `omfx/game/src/native.rs` 移除 `BackendGuard`、`spawn_backend`、`create_job_and_attach`、hard-coded `omb` path discovery 與 frontend-owned `cargo run` fallback。
+- [x] 5.3 更新 `run.bat`、`run_smoke.bat` 與其他 debug launchers，由 launcher 在啟動 `executor.exe` 前啟動 backend，並在 frontend 結束後清理它啟動的 backend process。
+- [x] 5.4 更新 `run_stress.bat` 直接啟動 release `omobab.exe`，移除為 frontend hard-coded spawn path staging `omb/target/debug/omobab.exe` 的流程。
 
 ## 6. Verification
 
-- [ ] 6.1 執行 grep guard：`omfx/game/Cargo.toml` 不含 `omobab =`，且 `omfx/game/src/**/*.rs` 不含 `omobab::`、`spawn_backend`、`target/debug/omobab.exe`。
-- [ ] 6.2 執行 grep guard：repo 內沒有新增 `omoba-runtime` crate 或 `omoba-runtime` dependency。
+- [x] 6.1 執行 grep guard：`omfx/game/Cargo.toml` 不含 `omobab =`，且 `omfx/game/src/**/*.rs` 不含 `omobab::`、`spawn_backend`、`target/debug/omobab.exe`。
+- [x] 6.2 執行 grep guard：repo 內沒有新增 `omoba-runtime` crate 或 `omoba-runtime` dependency。
 - [ ] 6.3 執行 `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --lib`。
 - [ ] 6.4 執行 `cargo test --manifest-path D:/omoba/omoba-sim/Cargo.toml --no-default-features`。
 - [ ] 6.5 執行 `cargo build --manifest-path D:/omoba/omfx/Cargo.toml -p executor`，確認 native frontend 不需編譯 `D:/omoba/omb` crate。
