@@ -165,6 +165,30 @@ fn hero_saika_render_metadata_is_generated() {
     assert_eq!(move_source.ticks_per_second, Fixed64::from_i32(30));
     assert_eq!(move_source.timeline_offset_ticks, Fixed64::from_i32(394));
 
+    let idle_source = hero_source(render, "idle");
+    assert_eq!(
+        idle_source.model,
+        "templates/heroes/saika_magoichi/b01_ani_stand.fbx"
+    );
+    assert_eq!(idle_source.duration_ticks, Fixed64::from_i32(80));
+    assert_eq!(idle_source.timeline_offset_ticks, Fixed64::from_i32(66));
+
+    let idle_2_source = hero_source(render, "idle_2");
+    assert_eq!(
+        idle_2_source.model,
+        "templates/heroes/saika_magoichi/b01_ani_stand2.fbx"
+    );
+    assert_eq!(idle_2_source.duration_ticks, Fixed64::from_i32(125));
+    assert_eq!(idle_2_source.timeline_offset_ticks, Fixed64::from_i32(143));
+
+    let idle_3_source = hero_source(render, "idle_3");
+    assert_eq!(
+        idle_3_source.model,
+        "templates/heroes/saika_magoichi/b01_ani_stand3.fbx"
+    );
+    assert_eq!(idle_3_source.duration_ticks, Fixed64::from_i32(53));
+    assert_eq!(idle_3_source.timeline_offset_ticks, Fixed64::from_i32(747));
+
     for key in ["attack", "critical"] {
         let source = hero_source(render, key);
         assert_eq!(
@@ -188,6 +212,9 @@ fn hero_saika_render_metadata_is_generated() {
     assert_eq!(sniper_source.timeline_offset_ticks, Fixed64::from_i32(747));
 
     assert_loop_binding(render, "move", "move", 23);
+    assert_loop_binding(render, "idle", "idle", 80);
+    assert_loop_binding(render, "idle_2", "idle_2", 125);
+    assert_loop_binding(render, "idle_3", "idle_3", 53);
     assert_loop_binding(render, "sniper", "sniper", 53);
     assert_attack_binding(render, "attack", "attack");
     assert_attack_binding(render, "critical", "critical");
@@ -396,6 +423,7 @@ fn assert_loop_binding(
     assert_eq!(binding.source, source_key);
     assert_eq!(binding.start_tick, Fixed64::from_raw(0));
     assert_eq!(binding.end_tick, Fixed64::from_i32(end_tick));
+    assert_eq!(binding.repeat_start_tick, Fixed64::from_raw(0));
     assert!(!binding.has_impact_tick);
     assert_eq!(binding.impact_tick, Fixed64::from_raw(0));
     assert!(binding.loop_animation);
@@ -407,6 +435,7 @@ fn assert_attack_binding(render: &HeroRenderMetadataConst, action: &str, source_
     assert_eq!(binding.start_tick, Fixed64::from_raw(0));
     assert_eq!(binding.impact_tick, Fixed64::from_i32(22));
     assert_eq!(binding.end_tick, Fixed64::from_i32(100));
+    assert_eq!(binding.repeat_start_tick, Fixed64::from_i32(6));
     assert!(binding.has_impact_tick);
     assert!(!binding.loop_animation);
 }
