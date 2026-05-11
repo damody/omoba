@@ -11,10 +11,10 @@ use omb_script_abi::{
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
-use omoba_template_ids::{ABILITY_MATCHLOCK_GUN, ABILITY_MATCHLOCK_GUN_CONST};
+use omoba_template_ids::ABILITY_MATCHLOCK_GUN;
 use std::collections::HashMap;
 
-use crate::ability_builder::{build_ability_ffi, extra_at_f32};
+use crate::ability_builder::{build_ability_ffi, extra_at_id_f32};
 
 const BUFF_ID: &str = "matchlock_gun";
 
@@ -82,11 +82,11 @@ impl AbilityScript for MatchlockGunHandler {
 }
 
 pub fn matchlock_gun_ffi() -> AbilityDefFFI {
-    let dur_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "duration", 1);
-    let range_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "range_bonus", 1);
-    let dmg_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "damage_bonus", 1);
-    let stun_c_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "stun_chance", 1);
-    let stun_d_lv1 = extra_at_f32(&ABILITY_MATCHLOCK_GUN_CONST, "stun_duration", 1);
+    let dur_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "duration", 1);
+    let range_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "range_bonus", 1);
+    let dmg_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "damage_bonus", 1);
+    let stun_c_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "stun_chance", 1);
+    let stun_d_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "stun_duration", 1);
     let mut preview_mods = HashMap::new();
     preview_mods.insert(StatKey::AttackRangeBonus.as_str().into(), range_lv1);
     preview_mods.insert(StatKey::BaseAttackBonusDamage.as_str().into(), dmg_lv1);

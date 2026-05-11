@@ -10,9 +10,9 @@ use omb_script_abi::{
     types::{DamageKind, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
-use omoba_template_ids::{ABILITY_RAIN_IRON_CANNON, ABILITY_RAIN_IRON_CANNON_CONST};
+use omoba_template_ids::ABILITY_RAIN_IRON_CANNON;
 
-use crate::ability_builder::{build_ability_ffi, extra_at};
+use crate::ability_builder::{build_ability_ffi, extra_at_id};
 
 const BUFF_ID: &str = "rain_iron_cannon_passive";
 
@@ -43,12 +43,8 @@ impl AbilityScript for RainIronCannonHandler {
         // 匹配 StatKey);它是一個工具提示/僅視覺標記。保留f32
         // 前端工具提示路徑的發射。如果未來的系統讀取
         // `true_damage_pct` 數值，切換到 `.raw()`。
-        let pct = extra_at(
-            &ABILITY_RAIN_IRON_CANNON_CONST,
-            "true_damage_pct",
-            new_level,
-        )
-        .to_f32_for_render();
+        let pct = extra_at_id(ABILITY_RAIN_IRON_CANNON, "true_damage_pct", new_level)
+            .to_f32_for_render();
         let modifiers = serde_json::json!({
             "visual_effect": "rain_iron_cannon_passive",
             "level": new_level,
@@ -73,12 +69,12 @@ impl AbilityScript for RainIronCannonHandler {
         level: u8,
         world: &mut GameWorldDyn<'_>,
     ) {
-        let pct = extra_at(&ABILITY_RAIN_IRON_CANNON_CONST, "true_damage_pct", level);
+        let pct = extra_at_id(ABILITY_RAIN_IRON_CANNON, "true_damage_pct", level);
         if pct <= Fixed64::ZERO {
             return;
         }
-        let aoe_radius = extra_at(&ABILITY_RAIN_IRON_CANNON_CONST, "aoe_radius", level);
-        let arc_half = extra_at(&ABILITY_RAIN_IRON_CANNON_CONST, "arc_half_angle_rad", level);
+        let aoe_radius = extra_at_id(ABILITY_RAIN_IRON_CANNON, "aoe_radius", level);
+        let arc_half = extra_at_id(ABILITY_RAIN_IRON_CANNON, "arc_half_angle_rad", level);
 
         let attacker_pos = match world.get_pos(attacker) {
             RSome(p) => p,

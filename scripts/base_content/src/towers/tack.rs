@@ -24,9 +24,10 @@ impl UnitScript for TackTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, STATS.atk);
-        w.set_tower_range(e, STATS.range);
-        w.set_asd_interval(e, STATS.asd_interval);
+        let stats = super::tower_stats(TOWER_TACK, STATS);
+        w.set_tower_atk(e, stats.atk);
+        w.set_tower_range(e, stats.range);
+        w.set_asd_interval(e, stats.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
@@ -43,7 +44,9 @@ impl UnitScript for TackTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
-        let phase = super::advance_attack_phase(e, dt, asd_interval, TOWER_TACK_ATTACK_TIMING, w);
+        let stats = super::tower_stats(TOWER_TACK, STATS);
+        let timing = super::tower_attack_timing(TOWER_TACK, TOWER_TACK_ATTACK_TIMING);
+        let phase = super::advance_attack_phase(e, dt, asd_interval, timing, w);
         if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
@@ -58,7 +61,7 @@ impl UnitScript for TackTower {
             return;
         }
         if matches!(phase, super::AttackPhaseStep::Ready) {
-            super::start_attack_windup(e, asd_interval, TOWER_TACK_ATTACK_TIMING, Target::None, w);
+            super::start_attack_windup(e, asd_interval, timing, Target::None, w);
             return;
         }
 
@@ -81,7 +84,7 @@ impl UnitScript for TackTower {
             let dmg = if atk > twenty { atk } else { twenty };
             (Fixed64::from_i32(110), dmg)
         } else {
-            (STATS.hit_radius, atk)
+            (stats.hit_radius, atk)
         };
 
         w.log_info(RStr::from_str("[tower_tack] fire needles!"));
@@ -97,7 +100,7 @@ impl UnitScript for TackTower {
                 from: pos,
                 owner: e,
                 path: PathSpec::Straight { end_pos: end },
-                speed: STATS.bullet_speed,
+                speed: stats.bullet_speed,
                 damage,
                 hit_radius,
                 splash_radius: Fixed64::ZERO,

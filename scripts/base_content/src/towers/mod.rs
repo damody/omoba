@@ -77,12 +77,23 @@ pub fn fixed_secs_to_ms(value: Fixed64) -> u32 {
     (value.to_f32_for_render() * 1000.0).clamp(0.0, u32::MAX as f32) as u32
 }
 
+pub fn tower_stats(id: TowerId, fallback: &'static TowerStats) -> &'static TowerStats {
+    omoba_template_ids::active_tower_stats(id).unwrap_or(fallback)
+}
+
+pub fn tower_attack_timing(id: TowerId, fallback: AttackTimingConst) -> AttackTimingConst {
+    omoba_template_ids::active_tower_attack_timing(id).unwrap_or(fallback)
+}
+
 pub fn tower_metadata_from_consts(
     id: TowerId,
     stats: &TowerStats,
     render: &TowerRenderMetadataConst,
     attack_timing: AttackTimingConst,
 ) -> TowerMetadata {
+    let stats = omoba_template_ids::active_tower_stats(id).unwrap_or(stats);
+    let render = omoba_template_ids::active_tower_render_metadata(id).unwrap_or(render);
+    let attack_timing = omoba_template_ids::active_tower_attack_timing(id).unwrap_or(attack_timing);
     TowerMetadata {
         atk: stats.atk,
         asd_interval: stats.asd_interval,
@@ -97,7 +108,7 @@ pub fn tower_metadata_from_consts(
         placement_radius: stats.placement_radius,
         hp: stats.hp,
         turn_speed_deg: stats.turn_speed_deg,
-        label: RString::from(tower_display(id)),
+        label: RString::from(omoba_template_ids::active_tower_display(id)),
         render: render_metadata_from_const(render),
         attack_timing: AttackTimingMetadata {
             windup: attack_timing.windup,

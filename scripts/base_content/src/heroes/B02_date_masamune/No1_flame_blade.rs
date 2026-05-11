@@ -7,9 +7,9 @@ use omb_script_abi::{
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
-use omoba_template_ids::{ABILITY_FLAME_BLADE, ABILITY_FLAME_BLADE_CONST};
+use omoba_template_ids::ABILITY_FLAME_BLADE;
 
-use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
+use crate::ability_builder::{build_ability_ffi, extra_at_id, extra_at_id_f32};
 
 pub struct FlameBladeHandler;
 
@@ -35,13 +35,13 @@ impl AbilityScript for FlameBladeHandler {
             .get("damage")
             .and_then(|v| v.as_f64())
             .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
-            .unwrap_or_else(|| extra_at(&ABILITY_FLAME_BLADE_CONST, "damage", level));
+            .unwrap_or_else(|| extra_at_id(ABILITY_FLAME_BLADE, "damage", level));
         let swipe_radius = level_data
             .extra
             .get("swipe_radius")
             .and_then(|v| v.as_f64())
             .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
-            .unwrap_or_else(|| extra_at(&ABILITY_FLAME_BLADE_CONST, "swipe_radius", level));
+            .unwrap_or_else(|| extra_at_id(ABILITY_FLAME_BLADE, "swipe_radius", level));
 
         match target {
             Target::Entity(victim) => {
@@ -63,7 +63,7 @@ impl AbilityScript for FlameBladeHandler {
 }
 
 pub fn flame_blade_ffi() -> AbilityDefFFI {
-    let dmg_lv1 = extra_at_f32(&ABILITY_FLAME_BLADE_CONST, "damage", 1);
+    let dmg_lv1 = extra_at_id_f32(ABILITY_FLAME_BLADE, "damage", 1);
     let effects_preview = vec![EffectSpec::Damage {
         target: TargetSelector::Target,
         amount: dmg_lv1,

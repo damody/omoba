@@ -25,9 +25,10 @@ impl UnitScript for IceTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, STATS.atk);
-        w.set_tower_range(e, STATS.range);
-        w.set_asd_interval(e, STATS.asd_interval);
+        let stats = super::tower_stats(TOWER_ICE, STATS);
+        w.set_tower_atk(e, stats.atk);
+        w.set_tower_range(e, stats.range);
+        w.set_asd_interval(e, stats.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
@@ -44,7 +45,9 @@ impl UnitScript for IceTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
-        let phase = super::advance_attack_phase(e, dt, asd_interval, TOWER_ICE_ATTACK_TIMING, w);
+        let stats = super::tower_stats(TOWER_ICE, STATS);
+        let timing = super::tower_attack_timing(TOWER_ICE, TOWER_ICE_ATTACK_TIMING);
+        let phase = super::advance_attack_phase(e, dt, asd_interval, timing, w);
         if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
@@ -65,7 +68,7 @@ impl UnitScript for IceTower {
             super::start_attack_windup(
                 e,
                 asd_interval,
-                TOWER_ICE_ATTACK_TIMING,
+                timing,
                 Target::Entity(target),
                 w,
             );
@@ -82,14 +85,14 @@ impl UnitScript for IceTower {
         let slow_factor = if slow_override > Fixed64::ZERO && slow_override < Fixed64::ONE {
             slow_override
         } else {
-            STATS.slow_factor
+            stats.slow_factor
         };
 
         let slow_dur_bonus = w.get_stat_bonus(e, StatKey::SlowDurationBonus);
-        let slow_duration = STATS.slow_duration + slow_dur_bonus;
+        let slow_duration = stats.slow_duration + slow_dur_bonus;
 
         let splash_bonus = w.get_stat_bonus(e, StatKey::SplashBonus);
-        let splash_radius = STATS.splash_radius + splash_bonus;
+        let splash_radius = stats.splash_radius + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("deep_freeze")) {
             Fixed64::ONE
@@ -141,7 +144,7 @@ impl UnitScript for IceTower {
             from: pos,
             owner: e,
             path: path_spec,
-            speed: STATS.bullet_speed,
+            speed: stats.bullet_speed,
             damage: final_damage,
             hit_radius: Fixed64::ZERO,
             splash_radius: final_splash,

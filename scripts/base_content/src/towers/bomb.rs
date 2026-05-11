@@ -15,7 +15,7 @@ use omb_script_abi::stat_keys::StatKey;
 pub struct BombTower;
 
 // 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
-// `TOWER_BOMB_STATS`。改數值編 omoba-template-ids → scripts 重 build 即生效。
+// `TOWER_BOMB_STATS`。runtime Lua content mode 會以 active lookup 覆蓋此 fallback。
 const STATS: &TowerStats = &TOWER_BOMB_STATS;
 
 impl UnitScript for BombTower {
@@ -24,9 +24,10 @@ impl UnitScript for BombTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, STATS.atk);
-        w.set_tower_range(e, STATS.range);
-        w.set_asd_interval(e, STATS.asd_interval);
+        let stats = super::tower_stats(TOWER_BOMB, STATS);
+        w.set_tower_atk(e, stats.atk);
+        w.set_tower_range(e, stats.range);
+        w.set_asd_interval(e, stats.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
@@ -43,7 +44,9 @@ impl UnitScript for BombTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
-        let phase = super::advance_attack_phase(e, dt, asd_interval, TOWER_BOMB_ATTACK_TIMING, w);
+        let stats = super::tower_stats(TOWER_BOMB, STATS);
+        let timing = super::tower_attack_timing(TOWER_BOMB, TOWER_BOMB_ATTACK_TIMING);
+        let phase = super::advance_attack_phase(e, dt, asd_interval, timing, w);
         if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
@@ -64,7 +67,7 @@ impl UnitScript for BombTower {
             super::start_attack_windup(
                 e,
                 asd_interval,
-                TOWER_BOMB_ATTACK_TIMING,
+                timing,
                 Target::Entity(target),
                 w,
             );
@@ -75,7 +78,7 @@ impl UnitScript for BombTower {
 
         // flash_bonus: 基礎 STATS.splash_radius + sum_add("splash_bonus")
         let splash_bonus = w.get_stat_bonus(e, StatKey::SplashBonus);
-        let splash = STATS.splash_radius + splash_bonus;
+        let splash = stats.splash_radius + splash_bonus;
 
         let stun = if w.has_tower_flag(e, RStr::from_str("bomb_stun")) {
             Fixed64::from_raw(512) // 0.5
@@ -84,9 +87,9 @@ impl UnitScript for BombTower {
         };
         let missile = w.has_tower_flag(e, RStr::from_str("missile"));
         let bullet_speed = if missile {
-            STATS.bullet_speed * Fixed64::from_raw(1536) // 1.5
+            stats.bullet_speed * Fixed64::from_raw(1536) // 1.5
         } else {
-            STATS.bullet_speed
+            stats.bullet_speed
         };
 
         w.log_info(RStr::from_str("[tower_bomb] fire!"));

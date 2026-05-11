@@ -11,10 +11,10 @@ use omb_script_abi::{
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
-use omoba_template_ids::{ABILITY_THREE_STAGE_TECHNIQUE, ABILITY_THREE_STAGE_TECHNIQUE_CONST};
+use omoba_template_ids::ABILITY_THREE_STAGE_TECHNIQUE;
 use std::collections::HashMap;
 
-use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
+use crate::ability_builder::{build_ability_ffi, extra_at_id, extra_at_id_f32};
 
 const BUFF_ID: &str = "three_stage_transform";
 
@@ -47,19 +47,15 @@ impl AbilityScript for ThreeStageHandler {
         };
         let duration = get_fx(
             "duration",
-            extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", level),
+            extra_at_id(ABILITY_THREE_STAGE_TECHNIQUE, "duration", level),
         );
         let atk_bonus = get_fx(
             "atk_bonus_pct",
-            extra_at(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", level),
+            extra_at_id(ABILITY_THREE_STAGE_TECHNIQUE, "atk_bonus_pct", level),
         );
         let multi_shot = get_fx(
             "multi_shot_count",
-            extra_at(
-                &ABILITY_THREE_STAGE_TECHNIQUE_CONST,
-                "multi_shot_count",
-                level,
-            ),
+            extra_at_id(ABILITY_THREE_STAGE_TECHNIQUE, "multi_shot_count", level),
         );
 
         let mut modifiers = serde_json::Map::new();
@@ -90,9 +86,9 @@ impl AbilityScript for ThreeStageHandler {
 }
 
 pub fn three_stage_ffi() -> AbilityDefFFI {
-    let dur_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "duration", 1);
-    let atk_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "atk_bonus_pct", 1);
-    let multi_lv1 = extra_at_f32(&ABILITY_THREE_STAGE_TECHNIQUE_CONST, "multi_shot_count", 1);
+    let dur_lv1 = extra_at_id_f32(ABILITY_THREE_STAGE_TECHNIQUE, "duration", 1);
+    let atk_lv1 = extra_at_id_f32(ABILITY_THREE_STAGE_TECHNIQUE, "atk_bonus_pct", 1);
+    let multi_lv1 = extra_at_id_f32(ABILITY_THREE_STAGE_TECHNIQUE, "multi_shot_count", 1);
     let mut preview_mods = HashMap::new();
     preview_mods.insert(
         StatKey::TotalDamageOutgoingPercentage.as_str().into(),

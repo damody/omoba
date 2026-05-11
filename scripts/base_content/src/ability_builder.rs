@@ -14,8 +14,8 @@ use omoba_core::ability_meta::{
     AbilityDef, AbilityLevelData, AbilityType, CastType, EffectSpec, TargetType,
 };
 use omoba_template_ids::{
-    ability_const, ability_description, ability_display, AbilityConst, AbilityTypeC, CastTypeC,
-    TargetTypeC,
+    active_ability_const, active_ability_display, AbilityConst, AbilityId as TemplateAbilityId,
+    AbilityTypeC, CastTypeC, TargetTypeC,
 };
 use std::collections::HashMap;
 
@@ -75,7 +75,7 @@ pub fn build_ability_def_from_const(
     }
     AbilityDef {
         id: id.as_str().to_string(),
-        name: ability_display(id).to_string(),
+        name: active_ability_display(id).to_string(),
         description: c.description.to_string(),
         ability_type: ability_type_from(c.ability_type),
         target_type: target_type_from(c.target_type),
@@ -95,7 +95,7 @@ pub fn build_ability_ffi<S: AbilityScript + 'static>(
     handler: S,
     effects_preview: Vec<EffectSpec>,
 ) -> AbilityDefFFI {
-    let c = ability_const(id).unwrap_or_else(|| {
+    let c = active_ability_const(id).unwrap_or_else(|| {
         panic!(
             "ability_const not found for id={} (raw={}); is templates.lua abilities[] complete?",
             id.as_str(),
@@ -131,6 +131,21 @@ pub fn extra_at_f32(c: &AbilityConst, key: &str, level: u8) -> f32 {
     extra_at(c, key, level).to_f32_for_render()
 }
 
+pub fn extra_at_id(id: TemplateAbilityId, key: &str, level: u8) -> omoba_sim::Fixed64 {
+    let c = active_ability_const(id).unwrap_or_else(|| {
+        panic!(
+            "ability_const not found for id={} (raw={})",
+            id.as_str(),
+            id.raw()
+        )
+    });
+    extra_at(c, key, level)
+}
+
+pub fn extra_at_id_f32(id: TemplateAbilityId, key: &str, level: u8) -> f32 {
+    extra_at_id(id, key, level).to_f32_for_render()
+}
+
 /// 用 helper 從 const fetch 描述，不過 caller 直接 ability_description() 也行；
 /// re-export 圖讓 ability scripts 不用 import omoba_template_ids 兩遍。
-pub use omoba_template_ids::ability_description as description_of;
+pub use omoba_template_ids::active_ability_description as description_of;

@@ -2,7 +2,7 @@
 //!
 //! 數值（summon_count / duration / 陣形 spacing 等）由 templates.lua
 //! `abilities[saika_reinforcements].extras` 提供，runtime 透過
-//! `ABILITY_SAIKA_REINFORCEMENTS_CONST` 取得。
+//! active runtime content lookup 取得。
 
 use abi_stable::std_types::{ROk, RResult, RStr, RString};
 use omb_script_abi::{
@@ -11,11 +11,9 @@ use omb_script_abi::{
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, EffectSpec};
-use omoba_template_ids::{
-    ABILITY_SAIKA_REINFORCEMENTS, ABILITY_SAIKA_REINFORCEMENTS_CONST, SUMMON_SAIKA_GUNNER,
-};
+use omoba_template_ids::{ABILITY_SAIKA_REINFORCEMENTS, SUMMON_SAIKA_GUNNER};
 
-use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
+use crate::ability_builder::{build_ability_ffi, extra_at_id, extra_at_id_f32};
 
 pub struct SaikaReinforcementsHandler;
 
@@ -112,9 +110,9 @@ impl AbilityScript for SaikaReinforcementsHandler {
 
 pub fn saika_reinforcements_ffi() -> AbilityDefFFI {
     // Lv1 預覽：召喚 2 隻、duration 45s
-    let count_lv1 =
-        extra_at(&ABILITY_SAIKA_REINFORCEMENTS_CONST, "summon_count", 1).to_f32_for_render() as u32;
-    let duration_lv1 = extra_at_f32(&ABILITY_SAIKA_REINFORCEMENTS_CONST, "duration", 1);
+    let count_lv1 = extra_at_id(ABILITY_SAIKA_REINFORCEMENTS, "summon_count", 1)
+        .to_f32_for_render() as u32;
+    let duration_lv1 = extra_at_id_f32(ABILITY_SAIKA_REINFORCEMENTS, "duration", 1);
     let effects_preview = vec![EffectSpec::Summon {
         unit_type: SUMMON_SAIKA_GUNNER.as_str().into(),
         count: count_lv1,

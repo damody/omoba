@@ -7,9 +7,9 @@ use omb_script_abi::{
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
-use omoba_template_ids::{ABILITY_FIRE_DASH, ABILITY_FIRE_DASH_CONST};
+use omoba_template_ids::ABILITY_FIRE_DASH;
 
-use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
+use crate::ability_builder::{build_ability_ffi, extra_at_id, extra_at_id_f32};
 
 pub struct FireDashHandler;
 
@@ -40,15 +40,15 @@ impl AbilityScript for FireDashHandler {
         };
         let damage_per_tick = get_fx(
             "damage_per_tick",
-            extra_at(&ABILITY_FIRE_DASH_CONST, "damage_per_tick", level),
+            extra_at_id(ABILITY_FIRE_DASH, "damage_per_tick", level),
         );
         let dash_duration = get_fx(
             "dash_duration",
-            extra_at(&ABILITY_FIRE_DASH_CONST, "dash_duration", level),
+            extra_at_id(ABILITY_FIRE_DASH, "dash_duration", level),
         );
         let dash_width = get_fx(
             "dash_width",
-            extra_at(&ABILITY_FIRE_DASH_CONST, "dash_width", level),
+            extra_at_id(ABILITY_FIRE_DASH, "dash_width", level),
         );
         let tick_interval = Fixed64::from_raw(102); // 0.1 (≈ 102/1024)
                                                     // 總傷害=每次tick傷害*（dash_duration/tick_interval）
@@ -74,10 +74,10 @@ impl AbilityScript for FireDashHandler {
 
 pub fn fire_dash_ffi() -> AbilityDefFFI {
     // EffectSpec 預覽值保持 f32（omoba_core 未遷移）。
-    let dpt = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "damage_per_tick", 1);
-    let dur = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "dash_duration", 1);
+    let dpt = extra_at_id_f32(ABILITY_FIRE_DASH, "damage_per_tick", 1);
+    let dur = extra_at_id_f32(ABILITY_FIRE_DASH, "dash_duration", 1);
     let dmg_lv1 = dpt * (dur / 0.1);
-    let radius = extra_at_f32(&ABILITY_FIRE_DASH_CONST, "dash_width", 1) / 2.0;
+    let radius = extra_at_id_f32(ABILITY_FIRE_DASH, "dash_width", 1) / 2.0;
     let effects_preview = vec![EffectSpec::Damage {
         target: TargetSelector::InRadius {
             center: vek::Vec2::new(0.0, 0.0),

@@ -29,9 +29,10 @@ impl UnitScript for DartTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, STATS.atk);
-        w.set_tower_range(e, STATS.range);
-        w.set_asd_interval(e, STATS.asd_interval);
+        let stats = super::tower_stats(TOWER_DART, STATS);
+        w.set_tower_atk(e, stats.atk);
+        w.set_tower_range(e, stats.range);
+        w.set_asd_interval(e, stats.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
@@ -48,7 +49,9 @@ impl UnitScript for DartTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
-        let phase = super::advance_attack_phase(e, dt, asd_interval, TOWER_DART_ATTACK_TIMING, w);
+        let stats = super::tower_stats(TOWER_DART, STATS);
+        let timing = super::tower_attack_timing(TOWER_DART, TOWER_DART_ATTACK_TIMING);
+        let phase = super::advance_attack_phase(e, dt, asd_interval, timing, w);
         if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
@@ -69,7 +72,7 @@ impl UnitScript for DartTower {
             super::start_attack_windup(
                 e,
                 asd_interval,
-                TOWER_DART_ATTACK_TIMING,
+                timing,
                 Target::Entity(target),
                 w,
             );
@@ -96,7 +99,7 @@ impl UnitScript for DartTower {
             let forty = Fixed64::from_i32(40);
             let dmg = if atk > forty { atk } else { forty };
             (
-                STATS.bullet_speed * Fixed64::from_raw(512), // 0.5
+                stats.bullet_speed * Fixed64::from_raw(512), // 0.5
                 dmg,
                 Fixed64::from_i32(100),
             )
@@ -106,7 +109,7 @@ impl UnitScript for DartTower {
             } else {
                 Fixed64::ONE
             };
-            (STATS.bullet_speed * speed_mul, atk, Fixed64::ZERO)
+            (stats.bullet_speed * speed_mul, atk, Fixed64::ZERO)
         };
 
         w.log_info(RStr::from_str("[tower_dart] fire!"));

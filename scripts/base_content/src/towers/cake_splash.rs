@@ -12,9 +12,10 @@ impl UnitScript for CakeSplashTower {
     }
 
     fn on_spawn(&self, e: EntityHandle, w: &mut GameWorldDyn<'_>) {
-        w.set_tower_atk(e, STATS.atk);
-        w.set_tower_range(e, STATS.range);
-        w.set_asd_interval(e, STATS.asd_interval);
+        let stats = super::tower_stats(TOWER_CAKE_SPLASH, STATS);
+        w.set_tower_atk(e, stats.atk);
+        w.set_tower_range(e, stats.range);
+        w.set_asd_interval(e, stats.asd_interval);
     }
 
     fn tower_metadata(&self) -> ROption<TowerMetadata> {
@@ -31,8 +32,10 @@ impl UnitScript for CakeSplashTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
+        let stats = super::tower_stats(TOWER_CAKE_SPLASH, STATS);
+        let timing = super::tower_attack_timing(TOWER_CAKE_SPLASH, TOWER_CAKE_SPLASH_ATTACK_TIMING);
         let phase =
-            super::advance_attack_phase(e, dt, asd_interval, TOWER_CAKE_SPLASH_ATTACK_TIMING, w);
+            super::advance_attack_phase(e, dt, asd_interval, timing, w);
         if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
@@ -49,7 +52,7 @@ impl UnitScript for CakeSplashTower {
             super::start_attack_windup(
                 e,
                 asd_interval,
-                TOWER_CAKE_SPLASH_ATTACK_TIMING,
+                timing,
                 Target::None,
                 w,
             );
@@ -57,8 +60,8 @@ impl UnitScript for CakeSplashTower {
         }
 
         let damage = w.get_final_atk(e);
-        let radius = if STATS.splash_radius > Fixed64::ZERO {
-            STATS.splash_radius
+        let radius = if stats.splash_radius > Fixed64::ZERO {
+            stats.splash_radius
         } else {
             range
         };

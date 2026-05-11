@@ -8,9 +8,9 @@ use omb_script_abi::{
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
-use omoba_template_ids::{ABILITY_FLAME_ASSAULT, ABILITY_FLAME_ASSAULT_CONST};
+use omoba_template_ids::ABILITY_FLAME_ASSAULT;
 
-use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_f32};
+use crate::ability_builder::{build_ability_ffi, extra_at_id, extra_at_id_f32};
 
 pub struct FlameAssaultHandler;
 
@@ -39,18 +39,12 @@ impl AbilityScript for FlameAssaultHandler {
                 .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
                 .unwrap_or(dft)
         };
-        let damage = get_fx(
-            "damage",
-            extra_at(&ABILITY_FLAME_ASSAULT_CONST, "damage", level),
-        );
+        let damage = get_fx("damage", extra_at_id(ABILITY_FLAME_ASSAULT, "damage", level));
         let stun_duration = get_fx(
             "stun_duration",
-            extra_at(&ABILITY_FLAME_ASSAULT_CONST, "stun_duration", level),
+            extra_at_id(ABILITY_FLAME_ASSAULT, "stun_duration", level),
         );
-        let radius = get_fx(
-            "radius",
-            extra_at(&ABILITY_FLAME_ASSAULT_CONST, "radius", level),
-        );
+        let radius = get_fx("radius", extra_at_id(ABILITY_FLAME_ASSAULT, "radius", level));
 
         let center = match target {
             Target::Point(p) => p,
@@ -74,8 +68,8 @@ impl AbilityScript for FlameAssaultHandler {
 }
 
 pub fn flame_assault_ffi() -> AbilityDefFFI {
-    let radius_lv1 = extra_at_f32(&ABILITY_FLAME_ASSAULT_CONST, "radius", 1);
-    let dmg_lv1 = extra_at_f32(&ABILITY_FLAME_ASSAULT_CONST, "damage", 1);
+    let radius_lv1 = extra_at_id_f32(ABILITY_FLAME_ASSAULT, "radius", 1);
+    let dmg_lv1 = extra_at_id_f32(ABILITY_FLAME_ASSAULT, "damage", 1);
     let effects_preview = vec![EffectSpec::AreaEffect {
         radius: radius_lv1,
         duration: 0.2,
