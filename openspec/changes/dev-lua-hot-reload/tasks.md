@@ -35,17 +35,17 @@
 
 ## 5. omfx Replica And Frontend Caches
 
-- [ ] 5.1 將 backend scheduled reload generation/hash 傳到 omfx sim_runner，並在 apply tick 前 reload/verify matching hash
-- [ ] 5.2 omfx hash mismatch 或 local reload failure 時停止 local sim apply，並回報清楚 DEV reload error state
-- [ ] 5.3 在 sim_runner reload 成功後重建 abilities、tower templates、tower upgrades metadata arcs 或等價 caches
-- [ ] 5.4 在 snapshot 或 sim metadata 加入 content generation/hash，讓 frontend UI 能偵測新 generation
-- [ ] 5.5 frontend 看到 generation 改變時清除並重新 seed tower template、upgrade、ability、icon/texture/model 等 Lua-referenced caches
-- [ ] 5.6 補 omfx tests 或 smoke 驗證：tower sidebar values/icons 更新、asset path cache invalidation、mismatch 不 silent diverge
+- [x] 5.1 將 backend scheduled reload generation/hash 傳到 omfx sim_runner，並在 apply tick 前 reload/verify matching hash
+- [x] 5.2 omfx hash mismatch 或 local reload failure 時停止 local sim apply，並回報清楚 DEV reload error state
+- [x] 5.3 在 sim_runner reload 成功後重建 abilities、tower templates、tower upgrades metadata arcs 或等價 caches
+- [x] 5.4 在 snapshot 或 sim metadata 加入 content generation/hash，讓 frontend UI 能偵測新 generation
+- [x] 5.5 frontend 看到 generation 改變時清除並重新 seed tower template、upgrade、ability、icon/texture/model 等 Lua-referenced caches
+- [x] 5.6 補 omfx tests 或 smoke 驗證：tower sidebar values/icons 更新、asset path cache invalidation、mismatch 不 silent diverge
 
 ## 6. Verification
 
-- [ ] 6.1 執行 `cargo test --manifest-path scripts/Cargo.toml -p base_content` 驗證 script-side reload hook 與 runtime Lua content feature
-- [ ] 6.2 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab` 或相關 package tests 驗證 backend reload scheduler 與 gameplay apply pipeline
-- [ ] 6.3 執行 `cargo test --manifest-path omb/Cargo.toml -p omb-script-abi` 驗證 ABI 變更
+- [x] 6.1 執行 `cargo test --manifest-path scripts/Cargo.toml -p base_content` 驗證 script-side reload hook 與 runtime Lua content feature
+- [x] 6.2 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab` 或相關 package tests 驗證 backend reload scheduler 與 gameplay apply pipeline
+- [x] 6.3 執行 `cargo test --manifest-path omb/Cargo.toml -p omb-script-abi` 驗證 ABI 變更
 - [ ] 6.4 用 `run.bat` 手動驗證：修改既有 Lua 數值後，不 rebuild、不重啟即可看到遊戲內數值/UI 更新
 - [ ] 6.5 用 `run_stress.bat` 或 release/stress smoke 驗證 hot reload 未啟用且 generated-data 行為不變
