@@ -1,8 +1,8 @@
 {
-    "054e7859-ba2b-4048-a4fa-c6474199028e": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_stand.fbx",
-    "1e531877-ebda-4fbd-b84c-bb9c0704e592": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_attack.fbx",
-    "2b518e67-c3dd-46bd-b05a-843aefbc40d6": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_stand3.fbx",
-    "4fc0fdb0-6114-4d55-8ae3-79963b4a887c": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_run.fbx",
-    "5f66cafa-de5e-41f2-aa1b-6688c4d24d78": "scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi.fbx",
-    "c06b1cdb-2a24-4956-91aa-33def7a11be1": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_stand2.fbx",
+    "0696617c-d0c4-46b5-b019-c39626f0dd53": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_stand2.fbx",
+    "13129224-3f1b-4c1b-b1db-c95af9056c6e": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_run.fbx",
+    "3f497ef9-4669-4674-98be-8f0d2b4b73be": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_stand.fbx",
+    "9dee7267-171c-4b31-b95d-613d2172bfaa": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_stand3.fbx",
+    "d5ca0451-0d3c-41be-9119-df22096f3f8d": "scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi.fbx",
+    "fa77226b-9c5c-4b1c-a0dd-6c40ff3ef7fd": "scripts/lua_data/templates/heroes/saika_magoichi/b01_ani_attack.fbx",
 }
