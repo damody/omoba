@@ -10,11 +10,13 @@ use abi_stable::{
     prefix_type::PrefixTypeTrait,
     sabi_extern_fn,
     sabi_trait::prelude::TD_Opaque,
-    std_types::RVec,
+    std_types::{RErr, ROk, RStr, RString, RVec},
 };
 use omb_script_abi::{
     ability::AbilityDefFFI,
-    manifest::{Manifest, Manifest_Ref, UnitDef},
+    manifest::{
+        Manifest, Manifest_Ref, RuntimeLuaReloadInfoFFI, RuntimeLuaReloadResultFFI, UnitDef,
+    },
     prelude::{
         SUMMON_SAIKA_GUNNER, TOWER_BOMB, TOWER_CAKE_SPLASH, TOWER_DART, TOWER_ICE, TOWER_TACK,
     },
@@ -28,7 +30,12 @@ mod towers;
 
 #[export_root_module]
 fn get_manifest() -> Manifest_Ref {
-    Manifest { units, abilities }.leak_into_prefix()
+    Manifest {
+        units,
+        abilities,
+        dev_reload_runtime_lua_content,
+    }
+    .leak_into_prefix()
 }
 
 #[sabi_extern_fn]
@@ -83,4 +90,35 @@ fn abilities() -> RVec<AbilityDefFFI> {
     v.push(heroes::B02_date_masamune::matchlock_gun_ffi());
 
     v
+}
+
+#[sabi_extern_fn]
+fn dev_reload_runtime_lua_content(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
+    dev_reload_runtime_lua_content_impl(expected_hash)
+}
+
+#[cfg(feature = "runtime-lua-content")]
+fn dev_reload_runtime_lua_content_impl(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
+    let expected = if expected_hash.is_empty() {
+        None
+    } else {
+        Some(expected_hash.as_str())
+    };
+    match omoba_template_ids::reload_runtime_lua_content_dev(expected) {
+        Ok(Some(info)) => ROk(RuntimeLuaReloadInfoFFI {
+            generation: info.generation,
+            hash: info.hash.into(),
+        }),
+        Ok(None) => RErr(RString::from(
+            "runtime Lua content is not active in base_content.dll",
+        )),
+        Err(err) => RErr(err.into()),
+    }
+}
+
+#[cfg(not(feature = "runtime-lua-content"))]
+fn dev_reload_runtime_lua_content_impl(_expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
+    RErr(RString::from(
+        "base_content.dll was built without runtime-lua-content",
+    ))
 }

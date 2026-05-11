@@ -64,13 +64,7 @@ impl UnitScript for BombTower {
             if let RSome(t_pos) = w.get_pos(target) {
                 w.set_facing(e, omoba_sim::trig::atan2(t_pos.y - pos.y, t_pos.x - pos.x));
             }
-            super::start_attack_windup(
-                e,
-                asd_interval,
-                timing,
-                Target::Entity(target),
-                w,
-            );
+            super::start_attack_windup(e, asd_interval, timing, Target::Entity(target), w);
             return;
         }
 

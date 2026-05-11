@@ -110,8 +110,8 @@ impl AbilityScript for SaikaReinforcementsHandler {
 
 pub fn saika_reinforcements_ffi() -> AbilityDefFFI {
     // Lv1 預覽：召喚 2 隻、duration 45s
-    let count_lv1 = extra_at_id(ABILITY_SAIKA_REINFORCEMENTS, "summon_count", 1)
-        .to_f32_for_render() as u32;
+    let count_lv1 =
+        extra_at_id(ABILITY_SAIKA_REINFORCEMENTS, "summon_count", 1).to_f32_for_render() as u32;
     let duration_lv1 = extra_at_id_f32(ABILITY_SAIKA_REINFORCEMENTS, "duration", 1);
     let effects_preview = vec![EffectSpec::Summon {
         unit_type: SUMMON_SAIKA_GUNNER.as_str().into(),

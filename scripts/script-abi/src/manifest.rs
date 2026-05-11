@@ -10,7 +10,7 @@ use abi_stable::{
     library::RootModule,
     package_version_strings,
     sabi_types::VersionStrings,
-    std_types::{RBox, RString, RVec},
+    std_types::{RBox, RResult, RStr, RString, RVec},
     StableAbi,
 };
 
@@ -23,6 +23,15 @@ pub struct UnitDef {
 
 #[repr(C)]
 #[derive(StableAbi)]
+pub struct RuntimeLuaReloadInfoFFI {
+    pub generation: u64,
+    pub hash: RString,
+}
+
+pub type RuntimeLuaReloadResultFFI = RResult<RuntimeLuaReloadInfoFFI, RString>;
+
+#[repr(C)]
+#[derive(StableAbi)]
 #[sabi(kind(Prefix(prefix_ref = Manifest_Ref, prefix_fields = Manifest_Prefix)))]
 #[sabi(missing_field(panic))]
 pub struct Manifest {
@@ -32,8 +41,12 @@ pub struct Manifest {
     /// 傳回此 DLL 提供的所有功能。未定义的 DLL
     /// 能力仍然需要導出這個函數傳回一個空
     /// `RVec`（`missing_field(panic)` 策略）。
-    #[sabi(last_prefix_field)]
     pub abilities: extern "C" fn() -> RVec<AbilityDefFFI>,
+
+    /// DEV-only hook: reload this DLL's runtime Lua content snapshot and return
+    /// the loaded generation/hash. Default release hosts do not call this.
+    #[sabi(last_prefix_field)]
+    pub dev_reload_runtime_lua_content: extern "C" fn(RStr<'_>) -> RuntimeLuaReloadResultFFI,
 }
 
 impl RootModule for Manifest_Ref {

@@ -494,6 +494,8 @@ message TickBatch {
   uint32 tick = 1;
   repeated InputForPlayer inputs = 2;
   repeated ServerEvent server_events = 3;
+  uint64 lua_content_generation = 4;
+  string lua_content_hash = 5;
 }
 
 // Tag 0x12 (S→C): broadcast every 1200 ticks (10s @ 120Hz) for desync detection.

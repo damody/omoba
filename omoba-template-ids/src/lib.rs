@@ -608,9 +608,67 @@ pub fn ensure_runtime_lua_content() -> Result<bool, String> {
             })
             .unwrap_or(false)
         {
-            Err("OMB_LUA_CONTENT=1 but omoba-template-ids was built without runtime-lua-content".into())
+            Err(
+                "OMB_LUA_CONTENT=1 but omoba-template-ids was built without runtime-lua-content"
+                    .into(),
+            )
         } else {
             Ok(false)
         }
     }
+}
+
+pub fn runtime_lua_content_generation() -> Result<Option<u64>, String> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        return runtime_content::runtime_lua_content_generation();
+    }
+    #[cfg(not(feature = "runtime-lua-content"))]
+    {
+        Ok(None)
+    }
+}
+
+pub fn runtime_lua_content_hash() -> Result<Option<String>, String> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        return runtime_content::runtime_lua_content_hash();
+    }
+    #[cfg(not(feature = "runtime-lua-content"))]
+    {
+        Ok(None)
+    }
+}
+
+pub fn lua_hot_reload_enabled() -> bool {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        return runtime_content::lua_hot_reload_enabled();
+    }
+    #[cfg(not(feature = "runtime-lua-content"))]
+    {
+        false
+    }
+}
+
+#[cfg(feature = "runtime-lua-content")]
+pub fn reload_runtime_lua_content_dev(
+    expected_hash: Option<&str>,
+) -> Result<Option<runtime_content::RuntimeContentInfo>, String> {
+    runtime_content::reload_runtime_lua_content_dev(expected_hash)
+}
+
+#[cfg(feature = "runtime-lua-content")]
+pub fn validate_runtime_lua_content_dev() -> Result<Option<runtime_content::RuntimeContentInfo>, String> {
+    runtime_content::validate_runtime_lua_content_dev()
+}
+
+#[cfg(not(feature = "runtime-lua-content"))]
+pub fn reload_runtime_lua_content_dev(_expected_hash: Option<&str>) -> Result<Option<()>, String> {
+    Ok(None)
+}
+
+#[cfg(not(feature = "runtime-lua-content"))]
+pub fn validate_runtime_lua_content_dev() -> Result<Option<()>, String> {
+    Ok(None)
 }

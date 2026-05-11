@@ -391,10 +391,7 @@ fn object_field(value: &StoryValue, key: &str) -> Option<&'static StoryValue> {
     }
 }
 
-fn hero_source(
-    render: &HeroRenderMetadataConst,
-    key: &str,
-) -> &'static HeroAnimationSourceConst {
+fn hero_source(render: &HeroRenderMetadataConst, key: &str) -> &'static HeroAnimationSourceConst {
     render
         .animation_sources
         .iter()
@@ -440,7 +437,10 @@ fn assert_attack_binding(
     assert_eq!(binding.start_tick, Fixed64::from_raw(0));
     assert_eq!(binding.impact_tick, Fixed64::from_i32(22));
     assert_eq!(binding.end_tick, Fixed64::from_i32(100));
-    assert_eq!(binding.repeat_start_tick, Fixed64::from_i32(repeat_start_tick));
+    assert_eq!(
+        binding.repeat_start_tick,
+        Fixed64::from_i32(repeat_start_tick)
+    );
     assert!(binding.has_impact_tick);
     assert!(!binding.loop_animation);
 }

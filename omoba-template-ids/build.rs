@@ -697,10 +697,7 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
 fn hero_render_mode_to_variant(value: &str) -> &'static str {
     match value {
         "model_3d" => "Model3d",
-        other => panic!(
-            "unknown hero render_mode '{}', expected model_3d",
-            other
-        ),
+        other => panic!("unknown hero render_mode '{}', expected model_3d", other),
     }
 }
 
@@ -710,7 +707,10 @@ fn validate_content_rel_path(owner: &str, field: &str, value: &str) {
     }
     let path = Path::new(value);
     if path.is_absolute() {
-        panic!("{} {} must be relative to scripts/lua_data: {}", owner, field, value);
+        panic!(
+            "{} {} must be relative to scripts/lua_data: {}",
+            owner, field, value
+        );
     }
     for component in path.components() {
         match component {
@@ -752,16 +752,28 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
             &source.model,
         );
         if source.animation.trim().is_empty() {
-            panic!("{} animation source '{}' animation must be non-empty", owner, source_key);
+            panic!(
+                "{} animation source '{}' animation must be non-empty",
+                owner, source_key
+            );
         }
         if source.duration_ticks <= 0.0 {
-            panic!("{} animation source '{}' duration_ticks must be > 0", owner, source_key);
+            panic!(
+                "{} animation source '{}' duration_ticks must be > 0",
+                owner, source_key
+            );
         }
         if source.ticks_per_second <= 0.0 {
-            panic!("{} animation source '{}' ticks_per_second must be > 0", owner, source_key);
+            panic!(
+                "{} animation source '{}' ticks_per_second must be > 0",
+                owner, source_key
+            );
         }
         if source.timeline_offset_ticks < 0.0 {
-            panic!("{} animation source '{}' timeline_offset_ticks must be >= 0", owner, source_key);
+            panic!(
+                "{} animation source '{}' timeline_offset_ticks must be >= 0",
+                owner, source_key
+            );
         }
     }
 
@@ -772,20 +784,29 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
     }
 
     for (action, binding) in &render.animations {
-        let source = render.animation_sources.get(&binding.source).unwrap_or_else(|| {
-            panic!(
-                "{} animation '{}' references unknown source '{}'",
-                owner, action, binding.source
-            )
-        });
+        let source = render
+            .animation_sources
+            .get(&binding.source)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{} animation '{}' references unknown source '{}'",
+                    owner, action, binding.source
+                )
+            });
         if binding.start_tick < 0.0 {
             panic!("{} animation '{}' start_tick must be >= 0", owner, action);
         }
         if binding.repeat_start_tick < 0.0 {
-            panic!("{} animation '{}' repeat_start_tick must be >= 0", owner, action);
+            panic!(
+                "{} animation '{}' repeat_start_tick must be >= 0",
+                owner, action
+            );
         }
         if binding.end_tick <= binding.start_tick {
-            panic!("{} animation '{}' end_tick must be > start_tick", owner, action);
+            panic!(
+                "{} animation '{}' end_tick must be > start_tick",
+                owner, action
+            );
         }
         if binding.end_tick > source.duration_ticks {
             panic!(
@@ -798,9 +819,9 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
                 if binding.loop_animation {
                     panic!("{} animation '{}' must be non-looping", owner, action);
                 }
-                let impact = binding
-                    .impact_tick
-                    .unwrap_or_else(|| panic!("{} animation '{}' missing impact_tick", owner, action));
+                let impact = binding.impact_tick.unwrap_or_else(|| {
+                    panic!("{} animation '{}' missing impact_tick", owner, action)
+                });
                 if !(binding.start_tick < impact && impact < binding.end_tick) {
                     panic!(
                         "{} animation '{}' must satisfy start_tick < impact_tick < end_tick",
@@ -817,16 +838,20 @@ fn normalized_hero_render(e: &HeroEntry) -> Option<HeroRenderEntry> {
                     );
                 }
             }
-            action_key if action_key == "move"
-                || action_key == "sniper"
-                || action_key == "idle"
-                || action_key.starts_with("idle_") =>
+            action_key
+                if action_key == "move"
+                    || action_key == "sniper"
+                    || action_key == "idle"
+                    || action_key.starts_with("idle_") =>
             {
                 if !binding.loop_animation {
                     panic!("{} animation '{}' must be loopable", owner, action);
                 }
                 if binding.impact_tick.is_some() {
-                    panic!("{} animation '{}' must not declare impact_tick", owner, action);
+                    panic!(
+                        "{} animation '{}' must not declare impact_tick",
+                        owner, action
+                    );
                 }
             }
             _ => {

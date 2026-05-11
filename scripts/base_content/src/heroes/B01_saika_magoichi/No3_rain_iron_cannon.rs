@@ -43,8 +43,8 @@ impl AbilityScript for RainIronCannonHandler {
         // 匹配 StatKey);它是一個工具提示/僅視覺標記。保留f32
         // 前端工具提示路徑的發射。如果未來的系統讀取
         // `true_damage_pct` 數值，切換到 `.raw()`。
-        let pct = extra_at_id(ABILITY_RAIN_IRON_CANNON, "true_damage_pct", new_level)
-            .to_f32_for_render();
+        let pct =
+            extra_at_id(ABILITY_RAIN_IRON_CANNON, "true_damage_pct", new_level).to_f32_for_render();
         let modifiers = serde_json::json!({
             "visual_effect": "rain_iron_cannon_passive",
             "level": new_level,

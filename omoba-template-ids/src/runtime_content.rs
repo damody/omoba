@@ -3,22 +3,46 @@ use crate::lua_content::{
     Manifest, StoryBundle, SummonEntry, TowerEntry, UpgradeEffectEntry,
 };
 use crate::{
-    ability_by_name, ability_id_str, AbilityConst, AbilityId, AbilityLevelDataConst,
-    AbilityTypeC, AttackTimingConst, CastTypeC, CreepId, CreepStats, Fixed64, GeneratedStory,
-    HeroAnimationBindingConst, HeroAnimationSourceConst, HeroId, HeroRenderMetadataConst,
-    HeroRenderModeC, HeroStats, LevelGrowth, StatOpC, StoryValue, SummonId, SummonStats,
-    TargetTypeC, TowerBarrelLayoutC, TowerBarrelVariantConst, TowerId,
-    TowerRecoilConst, TowerRecoilModeC, TowerRenderAnimationConst, TowerRenderMetadataConst,
-    TowerRenderModeC, TowerRenderPointConst, TowerRotationModeC, TowerStats, UpgradeDefConst,
-    UpgradeEffectConst, UpgradeEffectKindC, creep_id_str, hero_id_str, summon_id_str,
-    tower_id_str,
+    ability_by_name, ability_id_str, creep_id_str, hero_id_str, summon_id_str, tower_id_str,
+    AbilityConst, AbilityId, AbilityLevelDataConst, AbilityTypeC, AttackTimingConst, CastTypeC,
+    CreepId, CreepStats, Fixed64, GeneratedStory, HeroAnimationBindingConst,
+    HeroAnimationSourceConst, HeroId, HeroRenderMetadataConst, HeroRenderModeC, HeroStats,
+    LevelGrowth, StatOpC, StoryValue, SummonId, SummonStats, TargetTypeC, TowerBarrelLayoutC,
+    TowerBarrelVariantConst, TowerId, TowerRecoilConst, TowerRecoilModeC,
+    TowerRenderAnimationConst, TowerRenderMetadataConst, TowerRenderModeC, TowerRenderPointConst,
+    TowerRotationModeC, TowerStats, UpgradeDefConst, UpgradeEffectConst, UpgradeEffectKindC,
 };
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
-static CONTENT: OnceLock<Result<Option<RuntimeContent>, String>> = OnceLock::new();
+static CONTENT: OnceLock<RuntimeContentStore> = OnceLock::new();
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeContentInfo {
+    pub generation: u64,
+    pub hash: String,
+    pub root: PathBuf,
+}
+
+struct RuntimeContentStore {
+    state: RwLock<RuntimeContentState>,
+}
+
+enum RuntimeContentState {
+    Uninitialized,
+    Disabled,
+    Loaded(RuntimeSnapshot),
+    Failed(String),
+}
+
+#[derive(Clone)]
+struct RuntimeSnapshot {
+    content: &'static RuntimeContent,
+    shape: ContentShape,
+    info: RuntimeContentInfo,
+}
 
 pub struct RuntimeContent {
     tower_stats: Vec<Option<&'static TowerStats>>,
@@ -47,11 +71,9 @@ pub struct RuntimeContent {
 }
 
 pub fn ensure_loaded() -> Result<Option<&'static RuntimeContent>, String> {
-    match CONTENT.get_or_init(load_from_env) {
-        Ok(Some(content)) => Ok(Some(content)),
-        Ok(None) => Ok(None),
-        Err(err) => Err(err.clone()),
-    }
+    CONTENT
+        .get_or_init(RuntimeContentStore::new)
+        .ensure_loaded()
 }
 
 fn active_content() -> Option<&'static RuntimeContent> {
@@ -61,15 +83,184 @@ fn active_content() -> Option<&'static RuntimeContent> {
     }
 }
 
-fn load_from_env() -> Result<Option<RuntimeContent>, String> {
-    if !env_truthy("OMB_LUA_CONTENT") {
-        return Ok(None);
+pub fn reload_runtime_lua_content_dev(
+    expected_hash: Option<&str>,
+) -> Result<Option<RuntimeContentInfo>, String> {
+    CONTENT
+        .get_or_init(RuntimeContentStore::new)
+        .reload_dev(expected_hash)
+}
+
+pub fn validate_runtime_lua_content_dev() -> Result<Option<RuntimeContentInfo>, String> {
+    CONTENT.get_or_init(RuntimeContentStore::new).validate_dev()
+}
+
+pub fn runtime_lua_content_info() -> Result<Option<RuntimeContentInfo>, String> {
+    CONTENT.get_or_init(RuntimeContentStore::new).info()
+}
+
+pub fn runtime_lua_content_generation() -> Result<Option<u64>, String> {
+    runtime_lua_content_info().map(|info| info.map(|info| info.generation))
+}
+
+pub fn runtime_lua_content_hash() -> Result<Option<String>, String> {
+    runtime_lua_content_info().map(|info| info.map(|info| info.hash))
+}
+
+pub fn lua_hot_reload_enabled() -> bool {
+    env_truthy("OMB_LUA_CONTENT") && env_truthy("OMB_LUA_HOT_RELOAD")
+}
+
+impl RuntimeContentStore {
+    fn new() -> Self {
+        Self {
+            state: RwLock::new(RuntimeContentState::Uninitialized),
+        }
     }
+
+    fn ensure_loaded(&self) -> Result<Option<&'static RuntimeContent>, String> {
+        {
+            let state = self.state.read().map_err(lock_err)?;
+            if !matches!(*state, RuntimeContentState::Uninitialized) {
+                return content_from_state(&state);
+            }
+        }
+
+        let mut state = self.state.write().map_err(lock_err)?;
+        if matches!(*state, RuntimeContentState::Uninitialized) {
+            *state = load_initial_state();
+        }
+        content_from_state(&state)
+    }
+
+    fn info(&self) -> Result<Option<RuntimeContentInfo>, String> {
+        let _ = self.ensure_loaded()?;
+        let state = self.state.read().map_err(lock_err)?;
+        match &*state {
+            RuntimeContentState::Loaded(snapshot) => Ok(Some(snapshot.info.clone())),
+            RuntimeContentState::Disabled => Ok(None),
+            RuntimeContentState::Failed(err) => Err(err.clone()),
+            RuntimeContentState::Uninitialized => Ok(None),
+        }
+    }
+
+    fn reload_dev(
+        &self,
+        expected_hash: Option<&str>,
+    ) -> Result<Option<RuntimeContentInfo>, String> {
+        let _ = self.ensure_loaded()?;
+
+        let mut state = self.state.write().map_err(lock_err)?;
+        let RuntimeContentState::Loaded(current) = &*state else {
+            return match &*state {
+                RuntimeContentState::Disabled => Ok(None),
+                RuntimeContentState::Failed(err) => Err(err.clone()),
+                RuntimeContentState::Uninitialized => Ok(None),
+                RuntimeContentState::Loaded(_) => unreachable!(),
+            };
+        };
+
+        let root = content_root();
+        let next_generation = current.info.generation.saturating_add(1);
+        let next = load_runtime_snapshot(root, next_generation)?;
+        next.shape.ensure_compatible_with(&current.shape)?;
+        if let Some(expected_hash) = expected_hash {
+            if next.info.hash != expected_hash {
+                return Err(format!(
+                    "runtime Lua content hash mismatch: expected {}, got {}",
+                    expected_hash, next.info.hash
+                ));
+            }
+        }
+
+        let info = next.info.clone();
+        *state = RuntimeContentState::Loaded(next);
+        Ok(Some(info))
+    }
+
+    fn validate_dev(&self) -> Result<Option<RuntimeContentInfo>, String> {
+        let _ = self.ensure_loaded()?;
+
+        let state = self.state.read().map_err(lock_err)?;
+        let RuntimeContentState::Loaded(current) = &*state else {
+            return match &*state {
+                RuntimeContentState::Disabled => Ok(None),
+                RuntimeContentState::Failed(err) => Err(err.clone()),
+                RuntimeContentState::Uninitialized => Ok(None),
+                RuntimeContentState::Loaded(_) => unreachable!(),
+            };
+        };
+
+        let root = content_root();
+        let next_generation = current.info.generation.saturating_add(1);
+        let next = load_runtime_snapshot(root, next_generation)?;
+        next.shape.ensure_compatible_with(&current.shape)?;
+        Ok(Some(next.info))
+    }
+
+    #[cfg(test)]
+    fn reset_for_tests(&self) {
+        *self.state.write().unwrap() = RuntimeContentState::Uninitialized;
+    }
+}
+
+fn content_from_state(
+    state: &RuntimeContentState,
+) -> Result<Option<&'static RuntimeContent>, String> {
+    match state {
+        RuntimeContentState::Loaded(snapshot) => Ok(Some(snapshot.content)),
+        RuntimeContentState::Disabled => Ok(None),
+        RuntimeContentState::Failed(err) => Err(err.clone()),
+        RuntimeContentState::Uninitialized => Ok(None),
+    }
+}
+
+fn load_initial_state() -> RuntimeContentState {
+    if !env_truthy("OMB_LUA_CONTENT") {
+        return RuntimeContentState::Disabled;
+    }
+
     let root = content_root();
+    match load_runtime_snapshot(root, 1) {
+        Ok(snapshot) => RuntimeContentState::Loaded(snapshot),
+        Err(err) => RuntimeContentState::Failed(err),
+    }
+}
+
+fn load_runtime_snapshot(root: PathBuf, generation: u64) -> Result<RuntimeSnapshot, String> {
     let content = load_content(root.clone())?;
-    RuntimeContent::from_manifest(content.manifest, content.stories)
-        .map(Some)
-        .map_err(|err| format!("{} (root={})", err, root.display()))
+    let hash = content_hash(&content.manifest, &content.stories)?;
+    let shape = ContentShape::from_manifest(&content.manifest, &content.stories);
+    let runtime = RuntimeContent::from_manifest(content.manifest, content.stories)
+        .map_err(|err| format!("{} (root={})", err, root.display()))?;
+    Ok(RuntimeSnapshot {
+        content: leak(runtime),
+        shape,
+        info: RuntimeContentInfo {
+            generation,
+            hash,
+            root,
+        },
+    })
+}
+
+fn content_hash(manifest: &Manifest, stories: &[StoryBundle]) -> Result<String, String> {
+    let bytes = serde_json::to_vec(&(manifest, stories))
+        .map_err(|err| format!("serialize runtime Lua content for hash: {}", err))?;
+    Ok(format!("{:016x}", fnv1a64(&bytes)))
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn lock_err<T>(err: std::sync::PoisonError<T>) -> String {
+    format!("runtime Lua content store lock poisoned: {}", err)
 }
 
 fn env_truthy(name: &str) -> bool {
@@ -165,7 +356,10 @@ impl RuntimeContent {
             let mut abilities = Vec::new();
             for ability in &entry.abilities {
                 let id = ability_by_name(ability).ok_or_else(|| {
-                    format!("hero '{}' references unknown ability '{}'", entry.id, ability)
+                    format!(
+                        "hero '{}' references unknown ability '{}'",
+                        entry.id, ability
+                    )
                 })?;
                 abilities.push(id);
             }
@@ -263,41 +457,209 @@ impl RuntimeContent {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ContentShape {
+    towers: Vec<Option<String>>,
+    heroes: Vec<Option<String>>,
+    abilities: Vec<Option<String>>,
+    buffs: Vec<Option<String>>,
+    summons: Vec<Option<String>>,
+    creeps: Vec<Option<String>>,
+    projectile_kinds: Vec<Option<String>>,
+    stories: Vec<StoryShape>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct StoryShape {
+    id: String,
+    entity: JsonShape,
+    ability: JsonShape,
+    mission: JsonShape,
+    map: JsonShape,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum JsonShape {
+    Null,
+    Bool,
+    Number,
+    String,
+    Array(Vec<JsonShape>),
+    Object(Vec<(String, JsonShape)>),
+}
+
+impl ContentShape {
+    fn from_manifest(manifest: &Manifest, stories: &[StoryBundle]) -> Self {
+        Self {
+            towers: entry_shape(&manifest.towers),
+            heroes: entry_shape(&manifest.heroes),
+            abilities: entry_shape(&manifest.abilities),
+            buffs: entry_shape(&manifest.buffs),
+            summons: entry_shape(&manifest.summons),
+            creeps: entry_shape(&manifest.creeps),
+            projectile_kinds: entry_shape(&manifest.projectile_kinds),
+            stories: stories
+                .iter()
+                .map(|story| StoryShape {
+                    id: story.id.clone(),
+                    entity: JsonShape::from_value(&story.entity),
+                    ability: JsonShape::from_value(&story.ability),
+                    mission: JsonShape::from_value(&story.mission),
+                    map: JsonShape::from_value(&story.map),
+                })
+                .collect(),
+        }
+    }
+
+    fn ensure_compatible_with(&self, previous: &Self) -> Result<(), String> {
+        compare_shape("tower ids", &self.towers, &previous.towers)?;
+        compare_shape("hero ids", &self.heroes, &previous.heroes)?;
+        compare_shape("ability ids", &self.abilities, &previous.abilities)?;
+        compare_shape("buff ids", &self.buffs, &previous.buffs)?;
+        compare_shape("summon ids", &self.summons, &previous.summons)?;
+        compare_shape("creep ids", &self.creeps, &previous.creeps)?;
+        compare_shape(
+            "projectile kind ids",
+            &self.projectile_kinds,
+            &previous.projectile_kinds,
+        )?;
+        if self.stories != previous.stories {
+            return Err(
+                "runtime Lua content story topology changed; restart gameplay to apply structural changes"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+}
+
+impl JsonShape {
+    fn from_value(value: &JsonValue) -> Self {
+        match value {
+            JsonValue::Null => Self::Null,
+            JsonValue::Bool(_) => Self::Bool,
+            JsonValue::Number(_) => Self::Number,
+            JsonValue::String(_) => Self::String,
+            JsonValue::Array(values) => Self::Array(values.iter().map(Self::from_value).collect()),
+            JsonValue::Object(values) => {
+                let mut pairs: Vec<_> = values
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Self::from_value(value)))
+                    .collect();
+                pairs.sort_by(|left, right| left.0.cmp(&right.0));
+                Self::Object(pairs)
+            }
+        }
+    }
+}
+
+fn entry_shape<T: RuntimeEntry>(entries: &[T]) -> Vec<Option<String>> {
+    entries
+        .iter()
+        .map(|entry| {
+            if entry.tombstone() {
+                None
+            } else {
+                Some(entry.id().to_string())
+            }
+        })
+        .collect()
+}
+
+fn compare_shape<T: PartialEq + std::fmt::Debug>(
+    label: &str,
+    next: &T,
+    previous: &T,
+) -> Result<(), String> {
+    if next != previous {
+        return Err(format!(
+            "runtime Lua content {} changed; restart gameplay to apply structural changes",
+            label
+        ));
+    }
+    Ok(())
+}
+
 trait RuntimeEntry {
+    fn id(&self) -> &str;
     fn tombstone(&self) -> bool;
 }
 
 impl RuntimeEntry for TowerEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
     fn tombstone(&self) -> bool {
         self.tombstone
     }
 }
 
 impl RuntimeEntry for HeroEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
     fn tombstone(&self) -> bool {
         self.tombstone
     }
 }
 
 impl RuntimeEntry for CreepEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
     fn tombstone(&self) -> bool {
         self.tombstone
     }
 }
 
 impl RuntimeEntry for SummonEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
     fn tombstone(&self) -> bool {
         self.tombstone
     }
 }
 
 impl RuntimeEntry for AbilityEntry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
     fn tombstone(&self) -> bool {
         self.tombstone
     }
 }
 
-fn build_indexed<T, U, F>(entries: &[T], kind: &str, mut convert: F) -> Result<Vec<Option<U>>, String>
+impl RuntimeEntry for crate::lua_content::Entry {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn tombstone(&self) -> bool {
+        self.tombstone
+    }
+}
+
+impl RuntimeEntry for crate::lua_content::ProjKind {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn tombstone(&self) -> bool {
+        self.tombstone
+    }
+}
+
+fn build_indexed<T, U, F>(
+    entries: &[T],
+    kind: &str,
+    mut convert: F,
+) -> Result<Vec<Option<U>>, String>
 where
     T: RuntimeEntry,
     F: FnMut(u16, &T) -> Result<Option<U>, String>,
@@ -719,7 +1081,9 @@ fn target_type(value: &str) -> Result<TargetTypeC, String> {
     }
 }
 
-fn build_tower_upgrades(entry: &TowerEntry) -> Result<&'static [&'static [UpgradeDefConst]], String> {
+fn build_tower_upgrades(
+    entry: &TowerEntry,
+) -> Result<&'static [&'static [UpgradeDefConst]], String> {
     if entry.upgrades.len() != 3 {
         return Err(format!(
             "tower '{}' upgrades must have 3 paths, got {}",
@@ -804,7 +1168,9 @@ fn story_value(value: JsonValue) -> StoryValue {
         JsonValue::Bool(value) => StoryValue::Bool(value),
         JsonValue::Number(value) => StoryValue::Number(value.as_f64().unwrap_or(0.0)),
         JsonValue::String(value) => StoryValue::String(leak_str(value)),
-        JsonValue::Array(values) => StoryValue::Array(leak_slice(values.into_iter().map(story_value).collect())),
+        JsonValue::Array(values) => {
+            StoryValue::Array(leak_slice(values.into_iter().map(story_value).collect()))
+        }
         JsonValue::Object(values) => StoryValue::Object(leak_slice(
             values
                 .into_iter()
@@ -908,4 +1274,187 @@ pub fn story_by_name(name: &str) -> Option<&'static GeneratedStory> {
 
 pub fn story_ids() -> Option<&'static [&'static str]> {
     active_content().map(|content| content.story_ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{active_creep_stats, creep_id_str, CreepId, Fixed64};
+    use std::fs;
+    use std::path::Path;
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    fn temp_root(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("omoba_runtime_content_{name}_{stamp}"))
+    }
+
+    fn write(path: &Path, text: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, text).unwrap();
+    }
+
+    fn write_templates(root: &Path, creep_id: &str, hp: f32) {
+        write(
+            &root.join("templates.lua"),
+            &format!(
+                "return function(ctx) return {{ creeps = {{ {{ id = '{}', hp = {}, move_speed = 100 }} }} }} end\n",
+                creep_id, hp
+            ),
+        );
+    }
+
+    fn minimal_story(root: &Path, story: &str, creep: &str) {
+        let dir = root.join(story);
+        write(
+            &dir.join("entity.lua"),
+            "return function(ctx) return {} end\n",
+        );
+        write(
+            &dir.join("ability.lua"),
+            "return function(ctx) return {} end\n",
+        );
+        write(
+            &dir.join("mission.lua"),
+            "return function(ctx) return {} end\n",
+        );
+        write(
+            &dir.join("map.lua"),
+            &format!(
+                "return function(ctx) return {{ Creep = {{ {{ Name = '{}' }} }} }} end\n",
+                creep
+            ),
+        );
+    }
+
+    fn reset_store() {
+        CONTENT
+            .get_or_init(RuntimeContentStore::new)
+            .reset_for_tests();
+    }
+
+    fn enable_runtime_content(root: &Path) {
+        std::env::set_var("OMB_LUA_CONTENT", "1");
+        std::env::set_var("OMB_LUA_CONTENT_ROOT", root);
+        std::env::set_var("OMB_LUA_HOT_RELOAD", "1");
+    }
+
+    fn cleanup(root: PathBuf) {
+        std::env::remove_var("OMB_LUA_CONTENT");
+        std::env::remove_var("OMB_LUA_CONTENT_ROOT");
+        std::env::remove_var("OMB_LUA_HOT_RELOAD");
+        reset_store();
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn reload_updates_generation_hash_and_active_values() {
+        let _guard = test_lock();
+        let root = temp_root("reload_values");
+        let creep_id = creep_id_str(CreepId(1));
+        write_templates(&root, creep_id, 100.0);
+        minimal_story(&root, "S", creep_id);
+        enable_runtime_content(&root);
+        reset_store();
+
+        ensure_loaded().unwrap().unwrap();
+        let initial = runtime_lua_content_info().unwrap().unwrap();
+        assert_eq!(initial.generation, 1);
+        assert_eq!(
+            active_creep_stats(CreepId(1)).unwrap().hp,
+            Fixed64::from_raw(100 * 1024)
+        );
+
+        write_templates(&root, creep_id, 150.0);
+        let reloaded = reload_runtime_lua_content_dev(None).unwrap().unwrap();
+        assert_eq!(reloaded.generation, 2);
+        assert_ne!(reloaded.hash, initial.hash);
+        assert_eq!(
+            active_creep_stats(CreepId(1)).unwrap().hp,
+            Fixed64::from_raw(150 * 1024)
+        );
+
+        cleanup(root);
+    }
+
+    #[test]
+    fn invalid_reload_keeps_previous_generation_active() {
+        let _guard = test_lock();
+        let root = temp_root("invalid_reload");
+        let creep_id = creep_id_str(CreepId(1));
+        write_templates(&root, creep_id, 100.0);
+        minimal_story(&root, "S", creep_id);
+        enable_runtime_content(&root);
+        reset_store();
+        ensure_loaded().unwrap().unwrap();
+
+        write(
+            &root.join("templates.lua"),
+            "return function(ctx) return { creeps =\n",
+        );
+        let err = reload_runtime_lua_content_dev(None).unwrap_err();
+        assert!(err.contains("load Lua builder templates.lua"), "{err}");
+        let info = runtime_lua_content_info().unwrap().unwrap();
+        assert_eq!(info.generation, 1);
+        assert_eq!(
+            active_creep_stats(CreepId(1)).unwrap().hp,
+            Fixed64::from_raw(100 * 1024)
+        );
+
+        cleanup(root);
+    }
+
+    #[test]
+    fn structural_reload_is_rejected() {
+        let _guard = test_lock();
+        let root = temp_root("structural_reload");
+        let creep_id = creep_id_str(CreepId(1));
+        write_templates(&root, creep_id, 100.0);
+        minimal_story(&root, "S", creep_id);
+        enable_runtime_content(&root);
+        reset_store();
+        ensure_loaded().unwrap().unwrap();
+
+        let second_creep = creep_id_str(CreepId(2));
+        write(
+            &root.join("templates.lua"),
+            &format!(
+                "return function(ctx) return {{ creeps = {{ {{ id = '{}' }}, {{ id = '{}' }} }} }} end\n",
+                creep_id, second_creep
+            ),
+        );
+        let err = reload_runtime_lua_content_dev(None).unwrap_err();
+        assert!(err.contains("creep ids changed"), "{err}");
+        assert_eq!(runtime_lua_content_generation().unwrap(), Some(1));
+
+        cleanup(root);
+    }
+
+    #[test]
+    fn content_hash_is_deterministic() {
+        let _guard = test_lock();
+        let root = temp_root("hash_deterministic");
+        let creep_id = creep_id_str(CreepId(1));
+        write_templates(&root, creep_id, 100.0);
+        minimal_story(&root, "S", creep_id);
+
+        let first = load_content(root.clone()).unwrap();
+        let first_hash = content_hash(&first.manifest, &first.stories).unwrap();
+        let second = load_content(root.clone()).unwrap();
+        let second_hash = content_hash(&second.manifest, &second.stories).unwrap();
+        assert_eq!(first_hash, second_hash);
+
+        fs::remove_dir_all(root).ok();
+    }
 }

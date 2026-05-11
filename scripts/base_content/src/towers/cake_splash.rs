@@ -34,8 +34,7 @@ impl UnitScript for CakeSplashTower {
         }
         let stats = super::tower_stats(TOWER_CAKE_SPLASH, STATS);
         let timing = super::tower_attack_timing(TOWER_CAKE_SPLASH, TOWER_CAKE_SPLASH_ATTACK_TIMING);
-        let phase =
-            super::advance_attack_phase(e, dt, asd_interval, timing, w);
+        let phase = super::advance_attack_phase(e, dt, asd_interval, timing, w);
         if matches!(phase, super::AttackPhaseStep::Charging) {
             return;
         }
@@ -49,13 +48,7 @@ impl UnitScript for CakeSplashTower {
             return;
         }
         if matches!(phase, super::AttackPhaseStep::Ready) {
-            super::start_attack_windup(
-                e,
-                asd_interval,
-                timing,
-                Target::None,
-                w,
-            );
+            super::start_attack_windup(e, asd_interval, timing, Target::None, w);
             return;
         }
 

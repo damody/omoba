@@ -2,7 +2,7 @@
 
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use serde::de::DeserializeOwned;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
@@ -16,7 +16,7 @@ pub(crate) struct LuaContent {
     pub(crate) read_files: Vec<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Manifest {
     #[serde(default)]
     pub(crate) towers: Vec<TowerEntry>,
@@ -34,7 +34,7 @@ pub(crate) struct Manifest {
     pub(crate) projectile_kinds: Vec<ProjKind>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct Entry {
     pub(crate) id: String,
     #[serde(default)]
@@ -43,7 +43,7 @@ pub(crate) struct Entry {
     pub(crate) tombstone: bool,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct TowerEntry {
     pub(crate) id: String,
     #[serde(default)]
@@ -84,7 +84,7 @@ pub(crate) struct TowerEntry {
     pub(crate) upgrades: Vec<Vec<UpgradeEntry>>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub(crate) struct TowerRenderEntry {
     #[serde(default)]
     pub(crate) render_mode: String,
@@ -118,7 +118,7 @@ pub(crate) struct TowerRenderEntry {
     pub(crate) recoil: TowerRecoilEntry,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct TowerAnimationEntry {
     #[serde(default)]
     pub(crate) frames: Vec<String>,
@@ -144,7 +144,7 @@ impl Default for TowerAnimationEntry {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct TowerPointEntry {
     #[serde(default)]
     pub(crate) x: f32,
@@ -158,7 +158,7 @@ impl Default for TowerPointEntry {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct TowerRecoilEntry {
     #[serde(default)]
     pub(crate) mode: String,
@@ -184,7 +184,7 @@ impl Default for TowerRecoilEntry {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct TowerBarrelVariantEntry {
     #[serde(default)]
     pub(crate) min_path: u8,
@@ -198,7 +198,7 @@ pub(crate) struct TowerBarrelVariantEntry {
     pub(crate) frames: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Copy, Clone)]
+#[derive(Debug, Deserialize, Serialize, Copy, Clone)]
 pub(crate) struct AttackTimingEntry {
     #[serde(default = "default_attack_windup")]
     pub(crate) windup: u16,
@@ -221,7 +221,7 @@ pub(crate) fn default_attack_timing() -> AttackTimingEntry {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct UpgradeEntry {
     #[serde(default)]
     pub(crate) name: String,
@@ -233,7 +233,7 @@ pub(crate) struct UpgradeEntry {
     pub(crate) effects: Vec<UpgradeEffectEntry>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum UpgradeEffectEntry {
     StatMod {
@@ -251,7 +251,7 @@ fn default_stat_op() -> String {
     "add".into()
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct HeroEntry {
     pub(crate) id: String,
     #[serde(default)]
@@ -297,7 +297,7 @@ pub(crate) struct HeroEntry {
     pub(crate) level_growth: HeroLevelGrowthEntry,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub(crate) struct HeroRenderEntry {
     #[serde(default)]
     pub(crate) render_mode: String,
@@ -323,7 +323,7 @@ pub(crate) struct HeroRenderEntry {
     pub(crate) animations: BTreeMap<String, HeroAnimationBindingEntry>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub(crate) struct HeroAnimationSourceEntry {
     #[serde(default)]
     pub(crate) model: String,
@@ -337,7 +337,7 @@ pub(crate) struct HeroAnimationSourceEntry {
     pub(crate) timeline_offset_ticks: f32,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub(crate) struct HeroAnimationBindingEntry {
     #[serde(default)]
     pub(crate) source: String,
@@ -353,7 +353,7 @@ pub(crate) struct HeroAnimationBindingEntry {
     pub(crate) loop_animation: bool,
 }
 
-#[derive(Debug, Deserialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub(crate) struct HeroLevelGrowthEntry {
     #[serde(default)]
     pub(crate) strength_per_level: f32,
@@ -369,7 +369,7 @@ pub(crate) struct HeroLevelGrowthEntry {
     pub(crate) mana_per_level: f32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct CreepEntry {
     pub(crate) id: String,
     #[serde(default)]
@@ -400,7 +400,7 @@ pub(crate) struct CreepEntry {
     pub(crate) gold_reward: i32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct SummonEntry {
     pub(crate) id: String,
     #[serde(default)]
@@ -419,7 +419,7 @@ pub(crate) struct SummonEntry {
     pub(crate) attack_timing: AttackTimingEntry,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct AbilityEntry {
     pub(crate) id: String,
     #[serde(default)]
@@ -448,7 +448,7 @@ fn default_max_level() -> u8 {
     4
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub(crate) struct AbilityLevelEntry {
     #[serde(default)]
     pub(crate) cooldown: f32,
@@ -460,7 +460,7 @@ pub(crate) struct AbilityLevelEntry {
     pub(crate) range: f32,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct ProjKind {
     pub(crate) id: String,
     #[serde(default)]
@@ -625,7 +625,7 @@ impl LuaContentLoader {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Clone)]
 pub(crate) struct StoryBundle {
     pub(crate) id: String,
     pub(crate) entity: serde_json::Value,
@@ -764,9 +764,18 @@ mod tests {
 
     fn minimal_story(root: &Path, story: &str, creep: &str) {
         let dir = root.join(story);
-        write(&dir.join("entity.lua"), "return function(ctx) return {} end\n");
-        write(&dir.join("ability.lua"), "return function(ctx) return {} end\n");
-        write(&dir.join("mission.lua"), "return function(ctx) return {} end\n");
+        write(
+            &dir.join("entity.lua"),
+            "return function(ctx) return {} end\n",
+        );
+        write(
+            &dir.join("ability.lua"),
+            "return function(ctx) return {} end\n",
+        );
+        write(
+            &dir.join("mission.lua"),
+            "return function(ctx) return {} end\n",
+        );
         write(
             &dir.join("map.lua"),
             &format!(
@@ -783,8 +792,14 @@ mod tests {
             &root.join("templates.lua"),
             "return function(ctx) return { creeps = { ctx.include('a.lua')[1], ctx.include('b.lua')[1] } } end\n",
         );
-        write(&root.join("a.lua"), "return function(ctx) return { { id = 'a' } } end\n");
-        write(&root.join("b.lua"), "return function(ctx) return { { id = 'b' } } end\n");
+        write(
+            &root.join("a.lua"),
+            "return function(ctx) return { { id = 'a' } } end\n",
+        );
+        write(
+            &root.join("b.lua"),
+            "return function(ctx) return { { id = 'b' } } end\n",
+        );
         minimal_story(&root, "S", "a");
 
         let content = load_content(root.clone()).unwrap();
@@ -806,7 +821,10 @@ mod tests {
             "return function(ctx) ctx.read_text('../secret.txt') return {} end\n",
         );
         let err = load_content(root.clone()).unwrap_err();
-        assert!(err.contains("rejected content path '../secret.txt'"), "{err}");
+        assert!(
+            err.contains("rejected content path '../secret.txt'"),
+            "{err}"
+        );
         fs::remove_dir_all(root).ok();
     }
 
@@ -817,8 +835,14 @@ mod tests {
             &root.join("templates.lua"),
             "return function(ctx) return ctx.include('a.lua') end\n",
         );
-        write(&root.join("a.lua"), "return function(ctx) return ctx.include('b.lua') end\n");
-        write(&root.join("b.lua"), "return function(ctx) return ctx.include('a.lua') end\n");
+        write(
+            &root.join("a.lua"),
+            "return function(ctx) return ctx.include('b.lua') end\n",
+        );
+        write(
+            &root.join("b.lua"),
+            "return function(ctx) return ctx.include('a.lua') end\n",
+        );
         let err = load_content(root.clone()).unwrap_err();
         assert!(err.contains("Lua include cycle"), "{err}");
         fs::remove_dir_all(root).ok();
@@ -834,7 +858,11 @@ mod tests {
         minimal_story(&root, "Z", "creep_a");
         minimal_story(&root, "A", "creep_a");
         let content = load_content(root.clone()).unwrap();
-        let ids: Vec<&str> = content.stories.iter().map(|story| story.id.as_str()).collect();
+        let ids: Vec<&str> = content
+            .stories
+            .iter()
+            .map(|story| story.id.as_str())
+            .collect();
         assert_eq!(ids, ["A", "Z"]);
         fs::remove_dir_all(root).ok();
     }
