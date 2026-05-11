@@ -1,0 +1,100 @@
+[package]
+name = "fyrox-impl"
+version = "1.0.1"
+authors = ["Dmitry Stepanov <d1maxa@yandex.ru>", "Fyrox Engine Contributors"]
+edition = "2021"
+license = "MIT"
+description = "Feature-rich, easy-to-use, 2D/3D game engine with a scene editor. Like Godot, but in Rust."
+keywords = ["sound", "game", "engine", "3d", "gui"]
+categories = ["game-engines", "graphics", "gui", "rendering", "wasm"]
+include = ["/src/**/*", "/Cargo.toml", "/LICENSE", "/README.md"]
+homepage = "https://fyrox.rs"
+documentation = "https://docs.rs/fyrox"
+repository = "https://github.com/FyroxEngine/Fyrox"
+readme = "README.md"
+rust-version = "1.87"
+
+[dependencies]
+fyrox-core-derive = { path = "../fyrox-core-derive", version = "1.0.1" }
+fyrox-core = { path = "../fyrox-core", version = "1.0.1", features = ["serde"] }
+fyrox-sound = { path = "../fyrox-sound", version = "1.0.1" }
+fyrox-ui = { path = "../fyrox-ui", version = "1.0.1" }
+fyrox-resource = { path = "../fyrox-resource", version = "1.0.1" }
+fyrox-animation = { path = "../fyrox-animation", version = "1.0.1" }
+fyrox-graph = { path = "../fyrox-graph", version = "1.0.1" }
+fyrox-graphics = { path = "../fyrox-graphics", version = "1.0.1" }
+fyrox-graphics-gl = { path = "../fyrox-graphics-gl", version = "1.0.1" }
+fyrox-texture = { path = "../fyrox-texture", version = "1.0.1" }
+fyrox-autotile = { path = "../fyrox-autotile", version = "1.0.1" }
+fyrox-material = { path = "../fyrox-material", version = "1.0.1" }
+rapier2d = { version = "0.32", features = ["debug-render", ] }
+rapier3d = { version = "0.32", features = ["debug-render"] }
+image = { version = "0.25.1", default-features = false, features = ["gif", "jpeg", "png", "tga", "tiff", "bmp"] }
+inflate = "0.4.5"
+serde = { version = "1", features = ["derive"] }
+rayon = "1.5.1"
+bitflags = "2.9.1"
+walkdir = "2.3.2"
+ron = "0.11.0"
+fxhash = "0.2.1"
+strum = "0.27"
+strum_macros = "0.27"
+clap = { version = "4", features = ["derive"] }
+winit = { version = "0.30", features = ["serde"] }
+half = { version = "2.2.1", features = ["bytemuck"] }
+base64 = "0.22.1"
+uvgen = "0.3.0"
+lightmap = "0.6.0"
+libloading = "0.9"
+gltf = { version = "1.4.0", default-features = false, features = ["names", "utils", "extras", "KHR_materials_emissive_strength"] }
+bytemuck = { version = "1.23.2", features = ["derive"] }
+approx = "0.5.1"
+
+# These dependencies aren't used by the engine, but it is necessary to prevent cargo from rebuilding
+# the engine lib on different packages. This is especially important for hot reloading feature.
+# Sometimes there could be a situation when the editor and the engine use the same crate but with
+# different features. This will force cargo to rebuild the engine when building the editor. This is
+# an undesirable effect for builds that support hot reloading because the game and the editor will
+# use different DLLs, which will result in a hard crash which is hard to debug.
+#
+# Such sutiation can be spotted when building the game DLL and the editor consecutively. At first,
+# the game crate will compile the engine, and it will result in a DLL of the engine. The editor is
+# compiled next, but some features of some crate could be different, which will force engine
+# recompilation and new DLL will be produced. Usually it can be seen as `fyrox-impl` compiled twice.
+#
+# To find which feature causing the issue, you need to find out which crates recompile when you're building
+# the editor. Make a list of such crates, then use `cargo tree` command two times:
+#
+# RUSTFLAGS="-C prefer-dynamic=yes" cargo tree --package game_dylib --no-default-features --features dylib-engine -e features > game.txt
+# RUSTFLAGS="-C prefer-dynamic=yes" cargo tree --package editor --no-default-features --features dylib -e features > editor.txt
+#
+# These commands will create two files: game.txt and editor.txt. Open both and search for the crates from the list,
+# make a list of features used by these crates and compare them for both game.txt and editor.txt. If features
+# don't match, add a new dependency of the corresponding crate below with such features and the issue should
+# be fixed.
+#
+# In most cases, it is enough to copy dependencies from the `fyroxed_base` crate to fix these issues.
+#
+# === start of additional deps ===
+hashbrown = { version = "0.15", features = ["default", "default-hasher"] }
+imageproc = "0.25.0"
+serde_core = { version = "1.0.225", features = ["default"] }
+wide = { version = "0.7.33", features = ["std", "default"] }
+serde_json = { version = "1", features = ["raw_value", "default", "std", "unbounded_depth"] }
+uuid = { version = "1", features = ["v4", "default", "js"] }
+toml = { version = "0.9", default-features = false, features = ["parse"] }
+toml_edit = "0.23"
+rust-fuzzy-search = "0.1.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cargo_metadata = "0.22"
+open = "5"
+opener = { version = "0.8", default-features = false, features = ["reveal"] }
+# === end of additional deps ===
+
+[features]
+enable_profiler = ["fyrox-core/enable_profiler"]
+mesh_analysis = []
+
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.30", features = ["android-native-activity"] }

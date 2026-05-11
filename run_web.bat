@@ -6,8 +6,28 @@ cd /d "%~dp0"
 set WS_ADDR=127.0.0.1:50062
 set KCP_ADDR=127.0.0.1:50061
 set WEBROOT=omfx\executor-wasm\web-root
-set MODE=%~1
+set BUILD_ONLY=0
+set WASM_PROFILE=dev
+set WASM_PACK_FLAGS=--target web --dev --no-opt
 
+:parse_args
+if "%~1"=="" goto args_done
+if /i "%~1"=="--build-only" (
+  set BUILD_ONLY=1
+  shift
+  goto parse_args
+)
+if /i "%~1"=="--release" (
+  set WASM_PROFILE=release
+  set WASM_PACK_FLAGS=--target web --release
+  shift
+  goto parse_args
+)
+echo Unknown argument: %~1
+echo Usage: run_web.bat [--build-only] [--release]
+goto :fail_pause
+
+:args_done
 echo [0/8] Killing stale web processes (if any)...
 powershell -NoProfile -Command "Stop-Process -Name 'omobab','omb-ws-bridge','basic-http-server' -Force -ErrorAction SilentlyContinue"
 
@@ -34,9 +54,9 @@ echo [4/8] Building WebSocket bridge...
 cargo build --manifest-path omb-ws-bridge\Cargo.toml
 if errorlevel 1 goto :fail_pause
 
-echo [5/8] Building Web/WASM executor...
+echo [5/8] Building Web/WASM executor (%WASM_PROFILE%)...
 pushd omfx\executor-wasm
-wasm-pack build --target web --release
+wasm-pack build %WASM_PACK_FLAGS%
 if errorlevel 1 goto :fail_popd
 popd
 
@@ -49,33 +69,44 @@ copy /y "omfx\executor-wasm\index.html" "%WEBROOT%\index.html" >nul
 if errorlevel 1 goto :fail_pause
 copy /y "omfx\executor-wasm\main.js" "%WEBROOT%\main.js" >nul
 if errorlevel 1 goto :fail_pause
+copy /y "omfx\executor-wasm\styles.css" "%WEBROOT%\styles.css" >nul
+if errorlevel 1 goto :fail_pause
 if exist "omfx\data" (
   if exist "%WEBROOT%\data" rmdir /s /q "%WEBROOT%\data"
   xcopy /e /i /y "omfx\data" "%WEBROOT%\data" >nul
   if errorlevel 1 goto :fail_pause
 )
 
-if /i "%MODE%"=="--build-only" (
+if "%BUILD_ONLY%"=="1" (
   echo Web build staged at %WEBROOT%
   exit /b 0
 )
 
+if not exist "omb\target\debug\omobab.exe" (
+  echo Missing backend executable: omb\target\debug\omobab.exe
+  goto :fail_pause
+)
+if not exist "omb-ws-bridge\target\debug\omb-ws-bridge.exe" (
+  echo Missing bridge executable: omb-ws-bridge\target\debug\omb-ws-bridge.exe
+  goto :fail_pause
+)
+
 echo [7/8] Starting backend and WebSocket bridge...
-start "omoba backend" cmd /k "cd /d "%~dp0omb" && target\debug\omobab.exe"
+start "omoba backend" /D "%~dp0omb" cmd /k "target\debug\omobab.exe"
 timeout /t 2 /nobreak >nul
-start "omoba web bridge" cmd /k ""%~dp0omb-ws-bridge\target\debug\omb-ws-bridge.exe" %WS_ADDR% %KCP_ADDR%"
+start "omoba web bridge" /D "%~dp0" cmd /k "omb-ws-bridge\target\debug\omb-ws-bridge.exe %WS_ADDR% %KCP_ADDR%"
 
 echo [8/8] Starting static web server...
 where basic-http-server >nul 2>nul
 if not errorlevel 1 (
-  start "omoba web server" cmd /k "basic-http-server "%WEBROOT%""
+  start "omoba web server" /D "%~dp0" cmd /k "basic-http-server %WEBROOT%"
 ) else (
   where py >nul 2>nul
   if errorlevel 1 (
     echo basic-http-server and py are both missing. Install one of them to serve %WEBROOT%.
     goto :fail_pause
   )
-  start "omoba web server" cmd /k "py -3 -m http.server 4000 -d "%WEBROOT%""
+  start "omoba web server" /D "%~dp0" cmd /k "py -3 -m http.server 4000 -d %WEBROOT%"
 )
 
 echo.
