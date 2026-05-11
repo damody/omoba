@@ -8,6 +8,8 @@ The authoritative location for hero 3D assets and metadata SHALL be `scripts/lua
 
 The metadata SHALL also declare optional muzzle bone metadata plus animation source inventory and required animation bindings for `move`, `attack`, `critical`, and `sniper`. Because Saika's base/action FBX files expose animations named `Take 001`, Saika metadata SHALL declare logical animation source keys with source FBX paths, source animation names, duration ticks, ticks per second, and importer timeline offsets when needed. Each required binding SHALL map to a logical source key with an explicit non-empty tick range.
 
+The metadata MAY declare multiple ordinary idle loop bindings using the `idle` action family, such as `idle`, `idle_2`, and `idle_3`. omfx SHALL use those idle bindings only for ordinary idle state, while `sniper` remains reserved for `sniper_mode` visual state.
+
 #### Scenario: Saika declares 3D model metadata
 - **WHEN** `scripts/lua_data/templates/heroes.lua` is loaded by template codegen
 - **THEN** the `saika_magoichi` hero entry contains `render.render_mode = "model_3d"`
@@ -16,6 +18,7 @@ The metadata SHALL also declare optional muzzle bone metadata plus animation sou
 - **AND** it declares a positive model scale
 - **AND** it declares logical animation source metadata with source FBX paths, source animation names, positive duration ticks, positive ticks-per-second, and non-negative timeline offsets
 - **AND** it declares animation bindings for `move`, `attack`, `critical`, and `sniper`
+- **AND** it may declare multiple `idle` action-family loop bindings for ordinary idle animation variety
 
 #### Scenario: Saika 3D assets exist at the declared location
 - **WHEN** the declared `saika_magoichi` 3D asset paths are checked relative to `scripts/lua_data/`
@@ -51,6 +54,8 @@ The metadata SHALL also declare optional muzzle bone metadata plus animation sou
 
 For a `model_3d` hero, the content metadata SHALL map gameplay-facing animation actions to logical source animation segments. `saika_magoichi` SHALL provide logical animation source inventory entries and bindings for `move`, `attack`, `critical`, and `sniper`; each source SHALL include source FBX path, source animation name, duration ticks, ticks-per-second, and timeline offset ticks. Each binding SHALL include logical source key, start tick, end tick, and loop behavior. `attack` and `critical` bindings SHALL also include an impact tick between start and end so omfx can align the animation hit frame with the authoritative attack impact event.
 
+Attack and critical bindings MAY include `repeat_start_tick`. When present, omfx SHALL use it only as the visual source tick for repeated basic attacks after a prior attack animation from the same attack family. omfx SHALL still retime `repeat_start_tick..impact_tick` to the authoritative windup duration, so gameplay windup length and impact commit timing do not change.
+
 #### Scenario: Required Saika animation bindings are present
 - **WHEN** template codegen reads `saika_magoichi.render.animations`
 - **THEN** it finds `move`, `attack`, `critical`, and `sniper` keys
@@ -59,6 +64,12 @@ For a `model_3d` hero, the content metadata SHALL map gameplay-facing animation 
 - **AND** every binding has `end_tick > start_tick`
 - **AND** every binding range is within the declared source duration that was authored from Assimp inspection
 - **AND** `attack` and `critical` bindings have `start_tick < impact_tick < end_tick`
+- **AND** if `repeat_start_tick` is present, it satisfies `start_tick <= repeat_start_tick < impact_tick`
+
+#### Scenario: Ordinary idle has multiple randomizable bindings
+- **WHEN** Saika is model-backed, not moving, not in `sniper_mode`, and not playing a one-shot action
+- **THEN** omfx can choose among declared `idle` action-family loop bindings
+- **AND** omfx does not use the `sniper` action as the ordinary idle fallback when idle bindings are present
 
 #### Scenario: Animation source inventory is build-time validated
 - **WHEN** template codegen reads `saika_magoichi.render.animation_sources`
@@ -210,6 +221,13 @@ The omfx implementation SHALL be generic: it MAY provide scripts asset path reso
 - **WHEN** Saika has active `sniper_mode` state and is not playing a higher-priority one-shot
 - **THEN** omfx plays the `sniper` animation binding as a loop
 - **AND** the binding remains active until `sniper_mode` ends or a higher-priority action interrupts it
+
+#### Scenario: Repeated attack skips draw animation visually only
+- **WHEN** Saika receives consecutive attack render cues and the `attack` binding declares `repeat_start_tick`
+- **THEN** the first attack visual windup starts from `start_tick`
+- **AND** subsequent consecutive attack visual windups may start from `repeat_start_tick`
+- **AND** both windup visuals remain retimed to the same authoritative cue windup duration
+- **AND** backend windup timing, damage timing, projectile spawn timing, and impact commit point remain unchanged
 
 #### Scenario: Existing hero HUD remains driven by snapshot data
 - **WHEN** Saika is rendered as a 3D model

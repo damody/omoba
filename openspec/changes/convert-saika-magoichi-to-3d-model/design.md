@@ -53,15 +53,21 @@ render = {
   z_offset = 0.0,
   muzzle_bone = "Weapon Ref",
   animation_sources = {
+    idle = { model = "templates/heroes/saika_magoichi/b01_ani_stand.fbx", animation = "Take 001", duration_ticks = 80.0, ticks_per_second = 30.0, timeline_offset_ticks = 66.0 },
+    idle_2 = { model = "templates/heroes/saika_magoichi/b01_ani_stand2.fbx", animation = "Take 001", duration_ticks = 125.0, ticks_per_second = 30.0, timeline_offset_ticks = 143.0 },
+    idle_3 = { model = "templates/heroes/saika_magoichi/b01_ani_stand3.fbx", animation = "Take 001", duration_ticks = 53.0, ticks_per_second = 30.0, timeline_offset_ticks = 747.0 },
     move = { model = "templates/heroes/saika_magoichi/b01_ani_run.fbx", animation = "Take 001", duration_ticks = 23.0, ticks_per_second = 30.0, timeline_offset_ticks = 394.0 },
     attack = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0, timeline_offset_ticks = 268.0 },
     critical = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0, timeline_offset_ticks = 268.0 },
     sniper = { model = "templates/heroes/saika_magoichi/b01_ani_stand3.fbx", animation = "Take 001", duration_ticks = 53.0, ticks_per_second = 30.0, timeline_offset_ticks = 747.0 },
   },
   animations = {
+    idle = { source = "idle", start_tick = 0.0, end_tick = 80.0, loop = true },
+    idle_2 = { source = "idle_2", start_tick = 0.0, end_tick = 125.0, loop = true },
+    idle_3 = { source = "idle_3", start_tick = 0.0, end_tick = 53.0, loop = true },
     move = { source = "move", start_tick = 0.0, end_tick = 23.0, loop = true },
-    attack = { source = "attack", start_tick = 0.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
-    critical = { source = "critical", start_tick = 0.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
+    attack = { source = "attack", start_tick = 0.0, repeat_start_tick = 6.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
+    critical = { source = "critical", start_tick = 0.0, repeat_start_tick = 6.0, impact_tick = 22.0, end_tick = 100.0, loop = false },
     sniper = { source = "sniper", start_tick = 0.0, end_tick = 53.0, loop = true },
   },
 }
@@ -69,7 +75,7 @@ render = {
 
 理由是 hero visual 是 content 屬性，應與 tower render metadata 一樣由 scripts content 宣告，而不是在 omfx 針對 `saika_magoichi` 寫死路徑、scale 或 animation ranges。`render_mode = "model_3d"` 讓沒有 metadata 的英雄維持現有 2D fallback。
 
-四個 required action keys 是 `move`、`attack`、`critical`、`sniper`。`move` 與 `sniper` 可 loop；`attack` 與 `critical` 應單次播放，且需要 `start_tick < impact_tick < end_tick`，讓 omfx 能把 animation hit frame 對齊 authoritative impact event。`attack`/`critical` 的 `impact_tick = 22.0` 來自 `b01_ani_attack.fbx` 動作分析：右手/武器主動作集中於 1..22 ticks，之後進入 torso/root recoil 與 recovery。
+四個 required action keys 是 `move`、`attack`、`critical`、`sniper`。`idle` action family 是 optional loop bindings；普通待機時 omfx 可在 `idle`、`idle_2`、`idle_3` 等 action 中輪替/隨機播放，`sniper` 只在 `sniper_mode` 狀態使用。`move`、`idle*` 與 `sniper` 可 loop；`attack` 與 `critical` 應單次播放，且需要 `start_tick < impact_tick < end_tick`，讓 omfx 能把 animation hit frame 對齊 authoritative impact event。`attack`/`critical` 的 `impact_tick = 22.0` 來自 `b01_ani_attack.fbx` 動作分析：右手/武器主動作集中於 1..22 ticks，之後進入 torso/root recoil 與 recovery。`repeat_start_tick = 6.0` 是連續射擊的視覺起點；第二槍以後用 `repeat_start_tick..impact_tick` retime 到同一個 `cue.windup_ms`，因此只跳過拔槍視覺，不改 backend 前搖時間或 impact commit point。
 
 `animation_sources` 是 build-time 可驗證的 source inventory。每個 source key 是 content-owned logical id，包含 source FBX path、該 FBX 內的 animation name、duration ticks、ticks-per-second 與 timeline offset。所有 Saika action FBX 的 animation name 都是 `Take 001`，所以 codegen/runtime 不得用 animation name 當唯一 key；binding 的 `source` 必須指向 logical source key。Fyrox FBX importer 會保留 action FBX 原始 timeline offset，因此 omfx 播放 Fyrox animation 時以 `seconds = (timeline_offset_ticks + tick) / ticks_per_second` 把 content tick range 轉成 Fyrox `Animation::set_time_slice` 使用的秒數。
 
@@ -155,7 +161,7 @@ let material = MaterialResource::new_embedded(material);
 
 Saika base/action FBX 都只有單一 `Take 001`，因此 omfx 不應寫死 frame ranges，也不能只靠 animation name 區分 action。Content metadata 需要提供 `animation_sources` 與 `animations` table，把 gameplay-facing action key 對到 logical source key 與 tick segment。Generated metadata 會把 source path、source animation name 與 tick segment 交給 omfx，omfx 播放時只依 action key 選 segment。
 
-行為選擇規則：移動速度或 position delta 高於小閾值時播放 `move` loop；`sniper_mode` buff 存在時播放 `sniper` loop 作為站立/瞄準 fallback；收到 attack phase cue 時播放 `attack` one-shot；收到 critical cue 時用 `critical` one-shot 覆蓋一般 attack。one-shot 播放時，omfx 需把 `start_tick..impact_tick` retime 到 cue 的 windup duration，把 `impact_tick..end_tick` retime 到 cue 的 backswing duration，使 hit frame 對齊 authoritative impact event。one-shot 播完後回到 `sniper`、`move` 或預設站立狀態。
+行為選擇規則：移動速度或 position delta 高於小閾值時播放 `move` loop；`sniper_mode` buff 存在時播放 `sniper` loop；普通待機時從 `idle` action family 中選擇一個 loop binding 輪替/隨機播放；收到 attack phase cue 時播放 `attack` one-shot；收到 critical cue 時用 `critical` one-shot 覆蓋一般 attack。one-shot 播放時，第一槍把 `start_tick..impact_tick` retime 到 cue 的 windup duration；連續攻擊若 binding 宣告 `repeat_start_tick`，第二槍以後把 `repeat_start_tick..impact_tick` retime 到同一個 cue windup duration；impact 後把 `impact_tick..end_tick` retime 到 cue 的 backswing duration，使 hit frame 對齊 authoritative impact event。one-shot 播完後回到 `move`、`sniper` 或普通 idle 狀態。
 
 ### Attack cancel semantics use impact as the commit point
 
