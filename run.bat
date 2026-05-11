@@ -56,7 +56,14 @@ exit /b %RUN_ERR%
 
 :start_backend
 set BACKEND_PID=
-for /f %%P in ('powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb"') do set BACKEND_PID=%%P
+set BACKEND_PID_FILE=omb\log\launcher_backend.pid
+if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb" -PidFile "%BACKEND_PID_FILE%"
+if errorlevel 1 (
+    echo Backend start failed!
+    exit /b 1
+)
+if exist "%BACKEND_PID_FILE%" set /p BACKEND_PID=<"%BACKEND_PID_FILE%"
 if not defined BACKEND_PID (
     echo Backend start failed!
     exit /b 1
@@ -69,6 +76,7 @@ exit /b 0
 if defined BACKEND_PID (
     echo Stopping backend PID %BACKEND_PID%...
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Id %BACKEND_PID% -Force -ErrorAction SilentlyContinue"
+    if defined BACKEND_PID_FILE if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
     set BACKEND_PID=
 )
 exit /b 0
