@@ -8,8 +8,9 @@ description = "Shared core library for OMOBA frontends"
 # MQTT客戶端
 rumqttc = { version = "0.24", optional = true }
 
-# 非同步運行時
-tokio = { version = "1.0", features = ["rt-multi-thread", "sync", "macros", "time"] }
+# 非同步運行時。`rt` is wasm-compatible; native binaries can still run a
+# multi-thread runtime from their own crate.
+tokio = { version = "1.0", features = ["rt", "sync", "macros", "time"] }
 
 # 序列化
 serde = { version = "1.0", features = ["derive"] }
@@ -27,9 +28,6 @@ vek = "0.17"
 # 錯誤處理
 anyhow = "1.0"
 
-# 隨機（用於玩家模擬）
-rand = "0.9"
-
 # gRPC 用戶端
 tonic = { version = "0.12", optional = true }
 prost = { version = "0.13", optional = true }
@@ -41,6 +39,9 @@ tokio_kcp = { version = "0.9", optional = true }
 # LZ4 壓縮（由 kcp 成幀使用）
 lz4_flex = { version = "0.11", optional = true }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# 隨機（用於玩家模擬）
+rand = "0.9"
 # 模板 ID（建置時從 Story/templates.json 產生）
 omoba-template-ids = { path = "../omoba-template-ids" }
 
@@ -52,4 +53,5 @@ prost-build = { version = "0.13", optional = true }
 default = ["kcp"]
 mqtt = ["rumqttc"]
 grpc = ["tonic", "prost", "tokio-stream", "tonic-build"]
-kcp = ["tokio_kcp", "prost", "prost-build", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
+game-proto = ["prost", "prost-build"]
+kcp = ["game-proto", "tokio_kcp", "tokio/net", "tokio/io-util", "dep:lz4_flex"]
