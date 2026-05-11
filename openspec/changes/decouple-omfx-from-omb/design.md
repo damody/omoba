@@ -71,12 +71,16 @@
 ## Migration Plan
 
 1. 在 `omoba-core` 新增 mandatory `src/runtime/` module，加入必要 runtime dependencies。
-2. 將 deterministic gameplay modules 與 runtime entrypoints 搬到 `omoba-core::runtime`，讓 `omb` 改用此 runtime 並保持 backend tests 通過。
-3. 將 `SimWorldSnapshot`、render snapshot DTO、render-only queues 與 `extract_snapshot` 搬到 `omoba-core::runtime`，調整 `sim-snapshot-rendering` 對 shared source 的要求。
-4. 將 lockstep `PlayerInput` boundary 收斂到 `omoba-core` shared protocol type，刪除 omfx 端 `convert_player_input` prost roundtrip。
-5. 修改 `omfx/game/Cargo.toml` 移除 `omobab` dependency，`sim_runner.rs` 改依賴 mandatory `omoba-core::runtime`。
-6. 移除 `native.rs` 的 `BackendGuard` / `spawn_backend` / `create_job_and_attach` 與 hard-coded `omb` path discovery；更新 `run*.bat` 由 launcher 啟動與清理 backend。
-7. 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab --lib`、`cargo test --manifest-path omoba-sim/Cargo.toml --no-default-features`、`cargo build --manifest-path omfx/Cargo.toml -p executor` 與 smoke launcher 驗證。
+2. 建立 runtime event/sink abstraction，先切斷 deterministic runtime 對 `omb::transport::OutboundMsg` 的直接依賴，並在 `omb` 保留 event-to-transport adapter。
+3. 將 lockstep `PlayerInput` boundary 收斂到 `omoba-core` shared protocol type，讓 runtime 不依賴 `omb::transport::kcp_transport::game_proto`，並刪除 omfx 端 `convert_player_input` prost roundtrip。
+4. 先搬 leaf modules：geometry helpers、ability runtime、pure ECS components/resources、pure item/scene DTO；file IO、config path discovery 與 backend-specific loading adapter 留在 `omb`。
+5. 拆分 `GameProcessor`：pure ECS mutation、pending queue drains 與 outcome mutation 搬到 `omoba-core::runtime`；legacy/typed broadcast payload construction 留在 `omb` adapter。
+6. 搬 tick systems、phase3 dispatcher 與 native script runtime 到 `omoba-core::runtime`，所有 transport side effects 都透過 runtime event sink。
+7. 將 pure world initialization 搬到 `omoba-core::runtime`，由 `omb` 提供已載入 config/scene/items/scripts，避免 runtime 讀 backend-specific paths。
+8. 將 `SimWorldSnapshot`、render snapshot DTO、render-only queues 與 `extract_snapshot` 搬到 `omoba-core::runtime`，調整 `sim-snapshot-rendering` 對 shared source 的要求。
+9. 修改 `omfx/game/Cargo.toml` 移除 `omobab` dependency，`sim_runner.rs` 改依賴 mandatory `omoba-core::runtime`。
+10. 移除 `native.rs` 的 `BackendGuard` / `spawn_backend` / `create_job_and_attach` 與 hard-coded `omb` path discovery；更新 `run*.bat` 由 launcher 啟動與清理 backend。
+11. 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab --lib`、`cargo test --manifest-path omoba-sim/Cargo.toml --no-default-features`、`cargo build --manifest-path omfx/Cargo.toml -p executor` 與 smoke launcher 驗證。
 
 Rollback strategy: 若 runtime 搬移造成 regression，保留 change branch 並回退到 `omb` 仍消費原 modules 的階段；不要把 `omfx -> omobab` dependency 加回來作為長期修復。
 
