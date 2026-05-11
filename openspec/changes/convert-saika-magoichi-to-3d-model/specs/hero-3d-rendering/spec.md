@@ -6,7 +6,7 @@ Hero 3D visual metadata SHALL be declared in the scripts content hero template d
 
 The authoritative location for hero 3D assets and metadata SHALL be `scripts/lua_data`. omfx SHALL NOT own or require Saika-specific copies under `omfx/data`, and omfx source SHALL NOT contain Saika-specific asset paths, scale values, offsets, source animation names, or tick ranges.
 
-The metadata SHALL also declare animation source inventory and required animation bindings for `move`, `attack`, `critical`, and `sniper`. Because Saika's base/action FBX files expose animations named `Take 001`, Saika metadata SHALL declare logical animation source keys with source FBX paths, source animation names, duration ticks, and ticks per second. Each required binding SHALL map to a logical source key with an explicit non-empty tick range.
+The metadata SHALL also declare optional muzzle bone metadata plus animation source inventory and required animation bindings for `move`, `attack`, `critical`, and `sniper`. Because Saika's base/action FBX files expose animations named `Take 001`, Saika metadata SHALL declare logical animation source keys with source FBX paths, source animation names, duration ticks, and ticks per second. Each required binding SHALL map to a logical source key with an explicit non-empty tick range.
 
 #### Scenario: Saika declares 3D model metadata
 - **WHEN** `scripts/lua_data/templates/heroes.lua` is loaded by template codegen
@@ -24,7 +24,7 @@ The metadata SHALL also declare animation source inventory and required animatio
 
 #### Scenario: No canonical Saika 3D data exists in omfx
 - **WHEN** implementation is complete
-- **THEN** Saika model path, texture path, scale, pitch offset, roll offset, yaw offset, z offset, source animation name, and animation tick ranges are declared in scripts metadata or generated data
+- **THEN** Saika model path, texture path, scale, pitch offset, roll offset, yaw offset, z offset, muzzle bone, source animation name, and animation tick ranges are declared in scripts metadata or generated data
 - **AND** `omfx` source does not contain a Saika-specific hard-coded asset path or animation range table
 - **AND** `omfx/data` is not required as a canonical location for Saika 3D model or texture files
 
@@ -126,6 +126,7 @@ Snapshot data SHALL provide enough render-only state for omfx to choose `move`, 
 - **WHEN** a `saika_magoichi` hero entity with `ScriptUnitTag.unit_id = "hero_saika_magoichi"` appears in a snapshot
 - **THEN** the corresponding `EntityRenderData` contains optional hero render data
 - **AND** that render data contains the Saika FBX path, texture path, scale, pitch offset, roll offset, yaw offset, and z offset
+- **AND** that render data contains the declared muzzle bone name when one is present
 - **AND** that render data contains the four generated animation bindings
 
 #### Scenario: Saika sniper mode snapshot exposes sniper action state
@@ -154,6 +155,8 @@ Snapshot data SHALL provide enough render-only state for omfx to choose `move`, 
 omfx SHALL instantiate and update a Fyrox scene node hierarchy for hero entities that have valid `model_3d` snapshot metadata and successfully loaded assets. The model visual SHALL follow the snapshot entity position and facing while hero UI, HP bars, input, abilities, and gameplay data continue to use snapshot entity data.
 
 omfx SHALL use generated logical animation source and binding metadata to play Saika's `move`, `attack`, `critical`, and `sniper` actions from content-owned action FBX tick ranges. omfx SHALL convert content ticks to Fyrox animation seconds using generated ticks-per-second metadata. omfx SHALL NOT hard-code Saika animation tick ranges, Saika asset paths, Saika source animation names, or Saika model scale/offsets in frontend source.
+
+If a model-backed hero declares a muzzle bone name, omfx SHALL resolve that node inside the instantiated model hierarchy and MAY use its global position as the render-only projectile origin for projectiles owned by that hero. Missing muzzle bone metadata or a missing node SHALL fall back to the existing projectile origin without affecting gameplay.
 
 The omfx implementation SHALL be generic: it MAY provide scripts asset path resolution, model loading, texture binding, node lifecycle management, animation segment playback, and fallback behavior, but all hero-specific values SHALL come from generated/snapshot metadata.
 

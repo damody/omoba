@@ -4,7 +4,7 @@
 
 omfx 目前透過 `SimWorldSnapshot` 取得 entity render data。英雄、creep、projectile 走 batched quad，tower 則已有 script-owned render metadata 與 composite sprite pipeline。`saika_magoichi` 的 FBX 與 PNG 已存在於 `scripts/lua_data/templates/heroes/saika_magoichi/`，但 runtime 沒有任何路徑會讀取它們。
 
-資料權威邊界：Saika 3D visual 的所有資料都屬於 scripts content。模型檔、貼圖檔、asset path、scale、pitch/roll/yaw offset、z offset、animation action keys、source animation name 與 tick ranges 都 SHALL 由 `scripts/lua_data` 宣告，再由 `omoba-template-ids` build-time codegen 產生 Rust lookup。`omfx` 只提供 data-driven renderer/loader/player 功能，不擁有 Saika 專屬資料，也不在 source 內維護 Saika 專屬表。
+資料權威邊界：Saika 3D visual 的所有資料都屬於 scripts content。模型檔、貼圖檔、asset path、scale、pitch/roll/yaw offset、z offset、muzzle bone、animation action keys、source animation name 與 tick ranges 都 SHALL 由 `scripts/lua_data` 宣告，再由 `omoba-template-ids` build-time codegen 產生 Rust lookup。`omfx` 只提供 data-driven renderer/loader/player 功能，不擁有 Saika 專屬資料，也不在 source 內維護 Saika 專屬表。
 
 現有 camera 是 orthographic 3D camera，使用 XY 作為畫面平面、Z 作為 draw order depth。這次設計不改整個 camera 或 2D tower/creep pipeline，而是把 hero 3D model 作為單一 Scene node hierarchy 放進既有 XY 畫面平面，並用 metadata 調整 scale、Z layer 與 facing offset。
 
@@ -46,11 +46,12 @@ render = {
   render_mode = "model_3d",
   model = "templates/heroes/saika_magoichi/saika_magoichi.fbx",
   texture = "templates/heroes/saika_magoichi/saika_magoichi_mat.png",
-  scale = 0.01,
+  scale = 0.012,
   pitch_offset_deg = -90.0,
   roll_offset_deg = 0.0,
-  yaw_offset_deg = 0.0,
+  yaw_offset_deg = -90.0,
   z_offset = 0.0,
+  muzzle_bone = "Weapon Ref",
   animation_sources = {
     move = { model = "templates/heroes/saika_magoichi/b01_ani_run.fbx", animation = "Take 001", duration_ticks = 23.0, ticks_per_second = 30.0 },
     attack = { model = "templates/heroes/saika_magoichi/b01_ani_attack.fbx", animation = "Take 001", duration_ticks = 100.0, ticks_per_second = 30.0 },
@@ -76,7 +77,7 @@ render = {
 
 ### Generated API 新增 optional hero render lookup
 
-`omoba-template-ids` 新增 `HeroRenderMetadataConst` 與 `hero_render_metadata(HeroId) -> Option<&'static HeroRenderMetadataConst>`。`HeroEntry` 反序列化 `render` table；當 `render_mode = "model_3d"` 時驗證 `model` 非空、`scale > 0`，並保留 texture path、pitch/roll/yaw offset 與 z offset。
+`omoba-template-ids` 新增 `HeroRenderMetadataConst` 與 `hero_render_metadata(HeroId) -> Option<&'static HeroRenderMetadataConst>`。`HeroEntry` 反序列化 `render` table；當 `render_mode = "model_3d"` 時驗證 `model` 非空、`scale > 0`，並保留 texture path、pitch/roll/yaw offset、z offset 與 muzzle bone。
 
 同時新增 `HeroAnimationSourceConst` 與 `HeroAnimationBindingConst` 或等效結構。source const 包含 logical source key、optional source model path、source animation name、duration ticks 與 ticks-per-second；binding const 包含 action key、logical source key、start/end tick、optional impact tick、loop、priority/interrupt policy。對 `model_3d` hero，codegen 驗證 required bindings：`move`、`attack`、`critical`、`sniper` 都存在、source 存在於 `animation_sources`、tick range 在 `0..=source.duration_ticks` 且 `end_tick > start_tick`。對 `attack` 與 `critical`，額外驗證 `start_tick < impact_tick < end_tick`。codegen 不直接解析 FBX；FBX inventory 由 Assimp authoring task 產生並寫進 scripts metadata。
 
@@ -96,7 +97,7 @@ render = {
 
 ### omfx 以 per-entity node cache 呈現 3D hero
 
-omfx 新增 `hero_model_nodes: HashMap<u32, HeroModelRender>` 與 asset load status cache。`update_sim_batches` 遇到 hero 且 `hero_render.render_mode == "model_3d"` 時，嘗試載入/instantiate model，將 root node 放到 `world_to_render(e)` 的 XY 位置與 hero Z layer，並用 render-space facing 加上 metadata pitch/roll/yaw offset 更新旋轉。
+omfx 新增 `hero_model_nodes: HashMap<u32, HeroModelRender>` 與 asset load status cache。`update_sim_batches` 遇到 hero 且 `hero_render.render_mode == "model_3d"` 時，嘗試載入/instantiate model，將 root node 放到 `world_to_render(e)` 的 XY 位置與 hero Z layer，並用 render-space facing 加上 metadata pitch/roll/yaw offset 更新旋轉。若 metadata 提供 muzzle bone，omfx 會在模型 hierarchy 中查找同名 node，並用該 node 的 global position 作為該 hero projectile 的 render-only 起點。
 
 這個 pipeline 必須是 generic。`omfx` 可以知道「如何」載入 scripts asset、建立 Fyrox node、套用 scale/offset、播放 segment、fallback，但不能知道「Saika 的資料值」。具體 path、`Take 001`、tick ranges、action binding 都來自 snapshot/generated metadata。
 
@@ -200,7 +201,7 @@ Rollback 很簡單：移除或停用 `saika_magoichi.render` metadata，omfx 會
 
 ## Open Questions
 
-- `scale`、`pitch_offset_deg`、`roll_offset_deg`、`yaw_offset_deg`、`z_offset` 與四個 animation segment tick ranges 的最終值仍需要在載入實際 FBX 後目視微調。
+- `scale`、`pitch_offset_deg`、`roll_offset_deg`、`yaw_offset_deg`、`z_offset`、`muzzle_bone` 與四個 animation segment tick ranges 的最終值仍需要在載入實際 FBX 後目視微調。
 - 仍需確認 Saika FBX 內部 material reference 的 filename 是否能讓 Fyrox `RecursiveUp` 自動找到 `saika_magoichi_mat.png`；若不能，走 metadata texture manual fallback。
 - 現有 damage/attack render cues 是否已能標示 hero critical hit 需要實作階段確認；若不能，需要新增 render-only critical cue。
 - 現有 input/attack scheduler 是否已保存 pending impact outcome 需要實作階段確認；若沒有，需要新增 attack sequence state 來支援 windup cancel 與 backswing interrupt。
