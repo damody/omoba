@@ -18,9 +18,9 @@
 
 - [x] 3.1 拆分 `GameProcessor`：將 tower place/sell/upgrade、ability cast/upgrade、item use、move drain 與 pure outcome mutation 搬到 `omoba-core::runtime`。
 - [x] 3.2 將 `GameProcessor` 中 legacy/typed broadcast payload construction 留在 `omb` adapter，runtime 只 emit runtime events 或 mutate ECS。
-- [ ] 3.3 將 tick systems 搬到 `omoba-core::runtime::tick`，並用 runtime event sink 取代 direct `OutboundMsg` channels。
+- [x] 3.3 將 tick systems 搬到 `omoba-core::runtime::tick`，並用 runtime event sink 取代 direct `OutboundMsg` channels。
 - [x] 3.4 將 phase3 dispatcher build 搬到 `omoba-core::runtime`，暴露 `build_phase3_dispatcher` 或等效 entrypoint。
-- [ ] 3.5 將 native script runtime（`ScriptRegistry`、`ScriptEventQueue`、`ScriptUnitTag`、`run_script_dispatch`、`WorldAdapter`）搬到 `omoba-core::runtime`，DLL path discovery/loading orchestration 留在 `omb`。
+- [x] 3.5 將 native script runtime（`ScriptRegistry`、`ScriptEventQueue`、`ScriptUnitTag`、`run_script_dispatch`、`WorldAdapter`）搬到 `omoba-core::runtime`，DLL path discovery/loading orchestration 留在 `omb`。
 - [ ] 3.6 將 pure world initialization 搬到 `omoba-core::runtime`，讓 `omb` 提供已載入的 config/scene/items/scripts，避免 runtime 讀 backend-specific paths。
 
 ## 4. Snapshot And Input Boundary
@@ -41,8 +41,8 @@
 
 - [x] 6.1 執行 grep guard：`omfx/game/Cargo.toml` 不含 `omobab =`，且 `omfx/game/src/**/*.rs` 不含 `omobab::`、`spawn_backend`、`target/debug/omobab.exe`。
 - [x] 6.2 執行 grep guard：repo 內沒有新增 `omoba-runtime` crate 或 `omoba-runtime` dependency。
-- [ ] 6.3 執行 `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --lib`。
-- [ ] 6.4 執行 `cargo test --manifest-path D:/omoba/omoba-sim/Cargo.toml --no-default-features`。
-- [ ] 6.5 執行 `cargo build --manifest-path D:/omoba/omfx/Cargo.toml -p executor`，確認 native frontend 不需編譯 `D:/omoba/omb` crate。
+- [x] 6.3 執行 `cargo test --manifest-path D:/omoba/omb/Cargo.toml -p omobab --lib`。
+- [x] 6.4 執行 `cargo test --manifest-path D:/omoba/omoba-sim/Cargo.toml --no-default-features`。
+- [x] 6.5 執行 `cargo build --manifest-path D:/omoba/omfx/Cargo.toml -p executor`，確認 native frontend 不需編譯 `D:/omoba/omb` crate。
 - [ ] 6.6 執行 smoke launcher 驗證 launcher-owned backend lifecycle 與 snapshot-driven TD UI 行為。
 - [ ] 6.7 修改 code 後執行 `graphify update .` 更新 knowledge graph。
