@@ -659,7 +659,8 @@ pub fn reload_runtime_lua_content_dev(
 }
 
 #[cfg(feature = "runtime-lua-content")]
-pub fn validate_runtime_lua_content_dev() -> Result<Option<runtime_content::RuntimeContentInfo>, String> {
+pub fn validate_runtime_lua_content_dev(
+) -> Result<Option<runtime_content::RuntimeContentInfo>, String> {
     runtime_content::validate_runtime_lua_content_dev()
 }
 

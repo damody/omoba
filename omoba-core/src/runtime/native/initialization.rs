@@ -944,10 +944,10 @@ fn refresh_live_heroes_from_lua(ecs: &mut World) {
             + omoba_sim::Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
         preserve_cproperty_hp_ratio(prop, new_mhp);
         prop.msd = stats.move_speed;
-        prop.def_physic = omoba_sim::Fixed64::from_i32(hero.strength)
-            * omoba_sim::Fixed64::from_raw(205);
-        prop.def_magic = omoba_sim::Fixed64::from_i32(hero.intelligence)
-            * omoba_sim::Fixed64::from_raw(154);
+        prop.def_physic =
+            omoba_sim::Fixed64::from_i32(hero.strength) * omoba_sim::Fixed64::from_raw(205);
+        prop.def_magic =
+            omoba_sim::Fixed64::from_i32(hero.intelligence) * omoba_sim::Fixed64::from_raw(154);
         attack.atk_physic = Vf32::new(
             omoba_sim::Fixed64::from_i32(50)
                 + omoba_sim::Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level,
@@ -984,9 +984,8 @@ fn refresh_live_creeps_from_lua(ecs: &mut World) {
         bounty.gold = stats.gold_reward;
         bounty.exp = stats.exp_reward;
         if let Some(emitter) = emitters.get(&creep.name) {
-            turn.0 = omoba_sim::Fixed64::from_raw(
-                (emitter.turn_speed_deg.to_radians() * 1024.0) as i64,
-            );
+            turn.0 =
+                omoba_sim::Fixed64::from_raw((emitter.turn_speed_deg.to_radians() * 1024.0) as i64);
         }
     }
 }
