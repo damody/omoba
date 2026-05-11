@@ -214,17 +214,23 @@ $omobaCore = New-InputSet -Files @(
     'omoba-core/src'
 )
 
-$templateIds = New-InputSet -Files @(
+$templateIdsRust = New-InputSet -Files @(
     'omoba-template-ids/Cargo.toml',
-    'omoba-template-ids/build.rs',
+    'omoba-template-ids/build.rs'
+) -Directories @(
+    'omoba-template-ids/src'
+)
+
+$templateIdsLua = New-InputSet -Files @(
     'scripts/lua_data/templates.lua'
 ) -Directories @(
-    'omoba-template-ids/src',
     'scripts/lua_data/templates',
     'scripts/lua_data/MVP_1',
     'scripts/lua_data/TD_1',
     'scripts/lua_data/TD_STRESS'
 )
+
+$templateIds = Merge-InputSets $templateIdsRust $templateIdsLua
 
 $sim = New-InputSet -Files @(
     'omoba-sim/Cargo.toml',
@@ -247,7 +253,7 @@ $log4rs = New-InputSet -Files @(
     'log4rs/src'
 )
 
-$scriptDllInputs = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim (New-InputSet -Files @(
+$scriptDllInputsDebug = Merge-InputSets $common $scriptAbi $omobaCore $templateIdsRust $sim (New-InputSet -Files @(
     'scripts/Cargo.toml',
     'scripts/Cargo.lock',
     'scripts/base_content/Cargo.toml'
@@ -255,7 +261,15 @@ $scriptDllInputs = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $s
     'scripts/base_content/src'
 ))
 
-$backendInputs = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim $specs $log4rs (New-InputSet -Files @(
+$scriptDllInputsRelease = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim (New-InputSet -Files @(
+    'scripts/Cargo.toml',
+    'scripts/Cargo.lock',
+    'scripts/base_content/Cargo.toml'
+) -Directories @(
+    'scripts/base_content/src'
+))
+
+$backendInputsDebug = Merge-InputSets $common $scriptAbi $omobaCore $templateIdsRust $sim $specs $log4rs (New-InputSet -Files @(
     'omb/Cargo.toml',
     'omb/Cargo.lock',
     'omb/build.rs'
@@ -263,7 +277,29 @@ $backendInputs = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim
     'omb/src'
 ))
 
-$frontendInputs = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim $specs $log4rs (New-InputSet -Files @(
+$backendInputsRelease = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim $specs $log4rs (New-InputSet -Files @(
+    'omb/Cargo.toml',
+    'omb/Cargo.lock',
+    'omb/build.rs'
+) -Directories @(
+    'omb/src'
+))
+
+$frontendInputsDebug = Merge-InputSets $common $scriptAbi $omobaCore $templateIdsRust $sim $specs $log4rs (New-InputSet -Files @(
+    'omfx/Cargo.toml',
+    'omfx/Cargo.lock',
+    'omfx/executor/Cargo.toml',
+    'omfx/game/Cargo.toml',
+    'omb/Cargo.toml',
+    'omb/Cargo.lock',
+    'omb/build.rs'
+) -Directories @(
+    'omfx/executor/src',
+    'omfx/game/src',
+    'omb/src'
+))
+
+$frontendInputsRelease = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim $specs $log4rs (New-InputSet -Files @(
     'omfx/Cargo.toml',
     'omfx/Cargo.lock',
     'omfx/executor/Cargo.toml',
@@ -280,27 +316,27 @@ $frontendInputs = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $si
 $configs = @{
     'script-dll-debug' = @{
         Output = 'scripts/target/debug/base_content.dll'
-        Inputs = $scriptDllInputs
+        Inputs = $scriptDllInputsDebug
     }
     'backend-debug' = @{
         Output = 'omb/target/debug/omobab.exe'
-        Inputs = $backendInputs
+        Inputs = $backendInputsDebug
     }
     'frontend-debug' = @{
         Output = 'omfx/target/debug/executor.exe'
-        Inputs = $frontendInputs
+        Inputs = $frontendInputsDebug
     }
     'script-dll-release' = @{
         Output = 'scripts/target/release/base_content.dll'
-        Inputs = $scriptDllInputs
+        Inputs = $scriptDllInputsRelease
     }
     'backend-release' = @{
         Output = 'omb/target/release/omobab.exe'
-        Inputs = $backendInputs
+        Inputs = $backendInputsRelease
     }
     'frontend-release' = @{
         Output = 'omfx/target/release/executor.exe'
-        Inputs = $frontendInputs
+        Inputs = $frontendInputsRelease
     }
 }
 

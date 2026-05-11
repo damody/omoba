@@ -19,12 +19,15 @@ pushd %~dp0
 
 set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
 set EXECUTOR=omfx\target\debug\executor.exe
+set OMB_LUA_CONTENT=1
+set OMB_LUA_CONTENT_ROOT=%CD%\scripts\lua_data
+set OMB_STORY_DATA_DIR=%OMB_LUA_CONTENT_ROOT%
 
 echo [0/5] Killing stale processes...
 powershell -NoProfile -Command "Stop-Process -Name 'omobab','executor' -Force -ErrorAction SilentlyContinue"
 
 echo [1/5] Checking script DLL (debug)...
-call :ensure_fresh script-dll debug "script DLL" "cargo build --manifest-path scripts\Cargo.toml -p base_content" "Script DLL build failed!"
+call :ensure_fresh script-dll debug "script DLL" "cargo build --manifest-path scripts\Cargo.toml -p base_content --features runtime-lua-content" "Script DLL build failed!"
 if errorlevel 1 goto :fail
 
 %FRESHNESS% -Action stage-dll -Profile debug
@@ -34,11 +37,11 @@ if errorlevel 1 (
 )
 
 echo [2/5] Checking backend (debug)...
-call :ensure_fresh backend debug "backend" "cargo build --manifest-path omb\Cargo.toml" "Backend build failed!"
+call :ensure_fresh backend debug "backend" "cargo build --manifest-path omb\Cargo.toml --features runtime-lua-content" "Backend build failed!"
 if errorlevel 1 goto :fail
 
 echo [3/5] Checking frontend (debug)...
-call :ensure_fresh frontend debug "frontend" "cargo build --manifest-path omfx\Cargo.toml -p executor" "Frontend build failed!"
+call :ensure_fresh frontend debug "frontend" "cargo build --manifest-path omfx\Cargo.toml -p executor --features runtime-lua-content" "Frontend build failed!"
 if errorlevel 1 goto :fail
 
 if not exist "%EXECUTOR%" (

@@ -18,6 +18,9 @@ pushd %~dp0
 
 set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
 set EXECUTOR=omfx\target\release\executor.exe
+set OMB_LUA_CONTENT=
+set OMB_LUA_CONTENT_ROOT=
+set OMB_STORY_DATA_DIR=
 
 set TOML=omb\game.toml
 set TOML_BAK=omb\game.toml.bak
