@@ -44,12 +44,29 @@ use fyrox_resource::io::FsResourceIo;
 use fyrox_ui::constructor::new_widget_constructor_container;
 use std::cell::Cell;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
 };
 use winit::event_loop::ActiveEventLoop;
+
+static RENDER_TARGET_TPS: AtomicU32 = AtomicU32::new(0);
+
+/// Sets the runtime redraw request target rate in frames per second.
+pub fn set_render_target_tps(tps: u32) {
+    RENDER_TARGET_TPS.store(tps.max(1), Ordering::Relaxed);
+}
+
+fn render_target_tps(default_tps: u32) -> u32 {
+    let target = RENDER_TARGET_TPS.load(Ordering::Relaxed);
+    if target == 0 {
+        default_tps.max(1)
+    } else {
+        target
+    }
+}
 
 #[derive(Parser, Debug, Default)]
 #[clap(author, version, about, long_about = None)]
@@ -267,6 +284,7 @@ fn run_headless(
     let mut lag = fixed_time_step;
     let mut frame_counter = 0usize;
     let mut last_throttle_frame_number = 0usize;
+    let mut last_redraw_request = Instant::now();
     let is_running = Cell::new(true);
 
     while is_running.get() {
@@ -282,7 +300,7 @@ fn run_headless(
 
         register_scripted_scenes(&mut engine);
 
-        game_loop_iteration(
+        let _ = game_loop_iteration(
             &mut engine,
             ApplicationLoopController::Headless {
                 running: &is_running,
@@ -294,6 +312,7 @@ fn run_headless(
             throttle_frame_interval,
             frame_counter,
             &mut last_throttle_frame_number,
+            &mut last_redraw_request,
         );
 
         frame_counter += 1;
@@ -320,6 +339,7 @@ fn run_normal(
     let mut lag = 0.0;
     let mut frame_counter = 0usize;
     let mut last_throttle_frame_number = 0usize;
+    let mut last_redraw_request = Instant::now();
 
     let override_scene = override_scene.map(|s| s.to_string());
 
@@ -331,7 +351,7 @@ fn run_normal(
     let mut graphics_event_queue = VecDeque::new();
 
     run_executor(event_loop, move |event, active_event_loop| {
-        active_event_loop.set_control_flow(ControlFlow::Wait);
+        active_event_loop.set_control_flow(ControlFlow::Poll);
 
         engine.handle_os_events(
             &event,
@@ -404,7 +424,7 @@ fn run_normal(
                 }
             }
             Event::AboutToWait => {
-                game_loop_iteration(
+                let should_render = game_loop_iteration(
                     &mut engine,
                     ApplicationLoopController::ActiveEventLoop(active_event_loop),
                     &mut previous,
@@ -414,12 +434,31 @@ fn run_normal(
                     throttle_frame_interval,
                     frame_counter,
                     &mut last_throttle_frame_number,
+                    &mut last_redraw_request,
                 );
-                // omfx-local patch：每 frame 強制 sleep 1ms 把 CPU 從 ~100%
-                // 降下來。對於 vsync=off 跑 250+ fps 場景特別有用 — 不會被 vsync 限速
-                // 但又不想讓 CPU 跑滿。
+                if should_render {
+                    engine.handle_before_rendering_by_plugins(
+                        fixed_time_step,
+                        ApplicationLoopController::ActiveEventLoop(active_event_loop),
+                        &mut lag,
+                    );
+
+                    engine.render().unwrap();
+
+                    frame_counter += 1;
+                }
+                // omfx-local patch：避免固定 1ms sleep 把 120 Hz cadence 量化成
+                // ~9ms wakeups。離 deadline 還早時讓渡 CPU；接近 deadline 時
+                // 不 yield，避免 Windows scheduler 把下一幀喚醒推過 8.33ms。
                 #[cfg(not(target_arch = "wasm32"))]
-                std::thread::sleep(std::time::Duration::from_millis(1));
+                {
+                    let remaining = (fixed_time_step - lag).max(0.0);
+                    if remaining > 0.002 {
+                        std::thread::yield_now();
+                    } else {
+                        std::hint::spin_loop();
+                    }
+                }
             }
             Event::WindowEvent { event, .. } => {
                 match event {
@@ -432,17 +471,7 @@ fn run_normal(
                             );
                         }
                     }
-                    WindowEvent::RedrawRequested => {
-                        engine.handle_before_rendering_by_plugins(
-                            fixed_time_step,
-                            ApplicationLoopController::ActiveEventLoop(active_event_loop),
-                            &mut lag,
-                        );
-
-                        engine.render().unwrap();
-
-                        frame_counter += 1;
-                    }
+                    WindowEvent::RedrawRequested => {}
                     _ => (),
                 }
 
@@ -483,12 +512,14 @@ fn game_loop_iteration(
     throttle_frame_interval: usize,
     frame_counter: usize,
     last_throttle_frame_number: &mut usize,
-) {
+    last_redraw_request: &mut Instant,
+) -> bool {
     let elapsed = previous.elapsed();
     *previous = Instant::now();
     *lag += elapsed.as_secs_f32();
 
     // Update rate stabilization loop.
+    let mut updated = false;
     while *lag >= fixed_time_step {
         let time_step;
         if *lag >= throttle_threshold
@@ -507,6 +538,7 @@ fn game_loop_iteration(
         }
 
         engine.update(time_step, controller, lag, Default::default());
+        updated = true;
 
         // Additional check is needed, because the `update` call above could modify
         // the lag.
@@ -518,9 +550,17 @@ fn game_loop_iteration(
         }
     }
 
-    if let GraphicsContext::Initialized(ref ctx) = engine.graphics_context {
-        ctx.window.request_redraw();
+    let default_render_tps = (1.0 / fixed_time_step).round().max(1.0) as u32;
+    let render_target_tps = render_target_tps(default_render_tps);
+    let render_interval = Duration::from_secs_f32(1.0 / render_target_tps as f32);
+    if updated
+        && last_redraw_request.elapsed() >= render_interval
+        && matches!(engine.graphics_context, GraphicsContext::Initialized(_))
+    {
+        *last_redraw_request = Instant::now();
+        return true;
     }
+    false
 }
 
 #[allow(deprecated)] // TODO
