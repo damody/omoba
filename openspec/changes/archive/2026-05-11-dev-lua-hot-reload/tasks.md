@@ -47,5 +47,5 @@
 - [x] 6.1 執行 `cargo test --manifest-path scripts/Cargo.toml -p base_content` 驗證 script-side reload hook 與 runtime Lua content feature
 - [x] 6.2 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab` 或相關 package tests 驗證 backend reload scheduler 與 gameplay apply pipeline
 - [x] 6.3 執行 `cargo test --manifest-path omb/Cargo.toml -p omb-script-abi` 驗證 ABI 變更
-- [ ] 6.4 用 `run.bat` 手動驗證：修改既有 Lua 數值後，不 rebuild、不重啟即可看到遊戲內數值/UI 更新
-- [ ] 6.5 用 `run_stress.bat` 或 release/stress smoke 驗證 hot reload 未啟用且 generated-data 行為不變
+- [x] 6.4 用 `run.bat` 手動驗證：修改既有 Lua 數值後，不 rebuild、不重啟即可看到遊戲內數值/UI 更新
+- [x] 6.5 用 `run_stress.bat` 或 release/stress smoke 驗證 hot reload 未啟用且 generated-data 行為不變

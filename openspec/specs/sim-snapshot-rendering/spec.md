@@ -6,15 +6,16 @@
 
 ### Requirement: `SimWorldSnapshot` structure 與 read-only-except-queues invariant
 
-`omfx/game/src/sim_runner.rs::SimWorldSnapshot` SHALL 包含 omfx render-facing 所需的所有 state，包括 tick、entities、paths、removed entity ids、round data、lives、blocked regions、explosions、ability definitions、tower templates 與 tower upgrade definitions。
+`omoba-core::runtime::SimWorldSnapshot` SHALL 包含 omfx render-facing 所需的所有 state，包括 tick、entities、paths、removed entity ids、round data、lives、blocked regions、explosions、ability definitions、tower templates 與 tower upgrade definitions。`omfx` SHALL consume this type directly or through a wrapper/re-export whose source of truth is `omoba-core::runtime`，而不是 `omobab` crate。
 
-snapshot entity data SHALL 包含 optional hero extension data、optional tower upgrade levels，以及 render-safe fixed-point conversions。`extract_snapshot` SHALL 將 sim ECS world 視為 read-only，唯一例外是用 `std::mem::take(&mut q.pending)` drain producer-consumer queues。它 SHALL NOT write components、create entities、delete entities 或 mutate unrelated resources。Boundary values SHALL 透過 project fixed-point helpers，從 fixed-point 轉成 render `f32`。
+snapshot entity data SHALL 包含 optional hero extension data、optional tower upgrade levels，以及 render-safe fixed-point conversions。`omoba-core::runtime::extract_snapshot` SHALL 將 sim ECS world 視為 read-only，唯一例外是用 `std::mem::take(&mut q.pending)` drain producer-consumer queues。它 SHALL NOT write components、create entities、delete entities 或 mutate unrelated resources。Boundary values SHALL 透過 project fixed-point helpers，從 fixed-point 轉成 render `f32`。
 
 #### Scenario: extract_snapshot 只 drain outcome queues
 
-- **WHEN** 搜尋 `omfx/game/src/sim_runner.rs::extract_snapshot` 中的 `write_storage`、`write_resource`、`entities.create` 與 `entities.delete`
+- **WHEN** 搜尋 `omoba-core::runtime::extract_snapshot` implementation 中的 `write_storage`、`write_resource`、`entities.create` 與 `entities.delete`
 - **THEN** 唯一允許的 writes 是 `RemovedEntitiesQueue`、`ExplosionFxQueue`、`TowerFireFxQueue` 與 `AttackPhaseFxQueue` 的 `mem::take` drains
 - **AND** 沒有 component writes、entity creates 或 entity deletes
+- **AND** implementation path 不在 `omfx/game/src` 且不透過 `omobab::*` 取得 ECS types
 
 #### Scenario: omoba-sim determinism tests 通過
 
@@ -51,7 +52,7 @@ snapshot entity data SHALL 包含 optional hero extension data、optional tower 
 
 ### Requirement: HUD 從 snapshots 讀取 round、lives 與 running state
 
-`extract_snapshot` SHALL 從與 `omobab::comp` 對齊的 sim ECS resources 讀取 round、total rounds、round running state 與 lives：`CurrentCreepWave` 與 `PlayerLives`。omfx HUD SHALL 從 snapshot 讀取這些 values，且 SHALL NOT 對這些 fields 使用 legacy heartbeat 或 mirror state。
+`extract_snapshot` SHALL 從 `omoba-core::runtime` sim ECS resources 讀取 round、total rounds、round running state 與 lives：`CurrentCreepWave` 與 `PlayerLives`。omfx HUD SHALL 從 snapshot 讀取這些 values，且 SHALL NOT 對這些 fields 使用 legacy heartbeat 或 mirror state。
 
 #### Scenario: HUD lives 與 round 反映 sim state
 
@@ -69,7 +70,7 @@ snapshot entity data SHALL 包含 optional hero extension data、optional tower 
 
 `EntityRenderData` SHALL 對 hero entities 包含 `hero_ext: Option<Box<HeroStatsExt>>`。`HeroStatsExt` SHALL 包含 omfx UI 需要的 armor、magic resist、attack damage、attack range、move speed、attack speed seconds、bullet speed、mana、max mana、buffs、inventory、ability levels 與 ability ids。
 
-對每個 Hero entity，`extract_snapshot` SHALL 使用 `omobab::ability_runtime::UnitStats::from_refs(...)` 與 final stat accessors 填入 `HeroStatsExt`。omfx hero panel UI SHALL 從 local hero 的 snapshot entity data 讀取 hero stats。Buff countdown display MAY 在 snapshots 之間 locally decrement，且 SHALL 被 authoritative snapshot values reset。
+對每個 Hero entity，`extract_snapshot` SHALL 使用 `omoba-core::runtime::ability_runtime::UnitStats` equivalent 與 final stat accessors 填入 `HeroStatsExt`。omfx hero panel UI SHALL 從 local hero 的 snapshot entity data 讀取 hero stats。Authoritative snapshot values SHALL reset any local buff countdown display between snapshots。
 
 #### Scenario: hero panel 顯示 expected reference stats
 
@@ -142,13 +143,13 @@ Tower click hit-testing、sell/upgrade panel rendering 與 attack-range display 
 
 ### Requirement: tower upgrade definitions 透過 snapshot Arc data 共享
 
-`SimWorldSnapshot.tower_upgrades` SHALL 是從 `TowerUpgradeRegistry` 建立的 `Arc<Vec<TowerUpgradeDefSnapshot>>`。`TowerUpgradeDefSnapshot` SHALL 包含 tower kind、path、level、name 與 cost。sim worker SHALL build 此 data 一次並為 snapshots clone `Arc`。omfx SHALL 以 `(unit_id, path, level)` cache 這些 definitions，供 sell refund 與 upgrade button text 使用。
+`SimWorldSnapshot.tower_upgrades` SHALL 是從 `omoba-core::runtime::TowerUpgradeRegistry` 建立的 `Arc<Vec<TowerUpgradeDefSnapshot>>`。`TowerUpgradeDefSnapshot` SHALL 包含 tower kind、path、level、name 與 cost。sim worker SHALL build 此 data 一次並為 snapshots clone `Arc`。omfx SHALL 以 `(unit_id, path, level)` cache 這些 definitions，供 sell refund 與 upgrade button text 使用。
 
 #### Scenario: omfx sell refund 與 omb 相符
 
 - **WHEN** player 在買 upgrades 後賣掉 tower
 - **THEN** omfx sell panel refund calculation 使用 base tower cost 與 snapshot tower upgrade definitions 中的 upgrade costs
-- **AND** displayed refund 與 omb sell logic 相符
+- **AND** displayed refund 與 backend sell logic 相符
 
 #### Scenario: upgrade buttons 顯示 next-level names
 
@@ -310,7 +311,7 @@ omfx sim-runner-backed entity labels SHALL 只在至少一個 upgrade path 大�
 
 ### Requirement: blocked regions 從 snapshots render
 
-`SimWorldSnapshot.blocked_regions` SHALL 從 `omobab::comp::BlockedRegions` populate。omfx SHALL 從此 snapshot data render polygon outlines 與 circle outlines。
+`SimWorldSnapshot.blocked_regions` SHALL 從 `omoba-core::runtime::BlockedRegions` resource populate。omfx SHALL 從此 snapshot data render polygon outlines 與 circle outlines。
 
 #### Scenario: DEBUG_1 顯示 region outlines
 
@@ -391,3 +392,33 @@ omfx 的技能 HUD SHALL 在目前可升級的每個技能圖示上方渲染三�
 - **WHEN** TD_1 載入
 - **THEN** path rendering 使用 thick cream zigzag line style
 - **AND** corners 不 render 額外 checkpoint marker dots
+
+### Requirement: snapshot 只由外部連線初始化觸發
+
+omb transport layer SHALL only send lockstep/world snapshot data as part of external client/session bootstrap when a new connection or subscription needs initial authoritative state. Gameplay input paths, including `PlayerCommand`, lockstep `InputSubmit`, player input tick handling, tower actions, ability actions and item actions, MUST NOT trigger snapshot extraction, snapshot request handling or snapshot response sending.
+
+`SnapshotStore` MAY continue to be updated by the simulation tick loop, but reading from it for network delivery SHALL be restricted to connection/subscription bootstrap code paths. Input acknowledgement SHALL remain command acceptance, tick batches, applied input metadata or subsequent authoritative state, not a snapshot response caused by the input command.
+
+#### Scenario: 新外部連線收到初始化 snapshot
+
+- **WHEN** external client/session 建立連線或完成訂閱，且 server 已有可用的 latest snapshot
+- **THEN** omb 會將該 snapshot 作為 bootstrap state 傳給該 session
+- **AND** 該 snapshot send 不需要先收到 gameplay input command
+
+#### Scenario: lockstep input 不觸發 snapshot response
+
+- **WHEN** 已在遊戲中的玩家送出 lockstep `InputSubmit`
+- **THEN** omb 只將 input 放入排程 buffer 並回報既有 acceptance/diagnostics
+- **AND** omb 不會因該 input 讀取 `SnapshotStore`、呼叫 snapshot extraction 或送出 snapshot response
+
+#### Scenario: legacy player command 不觸發 snapshot response
+
+- **WHEN** 已在遊戲中的玩家送出 legacy `PlayerCommand` 或其他 gameplay command
+- **THEN** omb 依既有 command path 處理該指令
+- **AND** 該 command path 不會建構或送出 snapshot response
+
+#### Scenario: input 後狀態觀察來自後續權威流程
+
+- **WHEN** 玩家送出 tower、ability 或 item gameplay input 並由 sim 套用
+- **THEN** 玩家透過後續 tick batches、snapshot publication、outcome queues 或 render-facing authoritative state 觀察結果
+- **AND** 該觀察不依賴 input command 同步觸發的 snapshot

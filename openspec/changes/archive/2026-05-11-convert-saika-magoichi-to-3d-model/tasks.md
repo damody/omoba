@@ -50,8 +50,8 @@
 - [x] 5.2 執行 backend attack scheduler/cancel tests，確認前搖取消不造成傷害、後搖取消保留已擊中的攻擊結果
 - [x] 5.3 執行 `cargo test --manifest-path omfx/Cargo.toml -p omfx` 或最小可行 omfx/sim_runner test，確認 snapshot 與 render helper tests 通過
 - [x] 5.4 執行 `cargo build --manifest-path omfx/Cargo.toml -p omfx`，確認前端可編譯
-- [ ] 5.5 以 `run.bat` 或 TD_1 dev run 目視確認 `saika_magoichi` 使用 3D model，且移動、一般攻擊、爆擊攻擊、`sniper_mode` 都會切到對應 animation binding
-- [ ] 5.6 目視確認攻擊動畫前搖、hit frame、後搖與 backend timing 對齊；前搖中移動/技能取消不出傷害，後搖中取消仍保留已擊中的傷害或 projectile
-- [ ] 5.7 目視確認 HP bar、hero panel、移動、攻擊、技能與 `sniper_mode` gameplay 效果仍正常，且缺 model/texture/binding 時會 fallback 到 2D
+- [x] 5.5 以 `run.bat` 或 TD_1 dev run 目視確認 `saika_magoichi` 使用 3D model，且移動、一般攻擊、爆擊攻擊、`sniper_mode` 都會切到對應 animation binding
+- [x] 5.6 目視確認攻擊動畫前搖、hit frame、後搖與 backend timing 對齊；前搖中移動/技能取消不出傷害，後搖中取消仍保留已擊中的傷害或 projectile
+- [x] 5.7 目視確認 HP bar、hero panel、移動、攻擊、技能與 `sniper_mode` gameplay 效果仍正常，且缺 model/texture/binding 時會 fallback 到 2D
 - [x] 5.8 搜尋 omfx source，確認沒有 Saika 專屬 hard-code data；允許通用欄位名稱與 generated metadata 型別，禁止 `saika_magoichi` 專屬資料表或 `omfx/data` canonical asset path
 - [x] 5.9 完成 code changes 後執行 `graphify update .` 更新 knowledge graph
