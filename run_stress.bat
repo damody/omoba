@@ -5,11 +5,15 @@ REM
 REM  步驟：
 REM    1. 結束殘留的 omobab.exe / executor.exe
 REM    2. 重新產生 scripts\lua_data\TD_STRESS\map.lua
-REM    3. 備份 omb\game.toml，並暫時替換為 omb\game_stress.toml
+REM    3. 備份 scripts\game.toml，並暫時替換為 scripts\game_stress.toml
 REM    4. 只有過期時才 build base_content DLL (release) + omb backend (release)。
 REM    5. 只有過期時才 build omfx executor (release)，然後執行。
 REM    6. 啟動 release backend，再啟動 release frontend。
-REM    7. 結束後一律清理 backend 並還原 omb\game.toml
+REM    7. 結束後一律清理 backend 並還原 scripts\game.toml
+REM
+REM  Options:
+REM    --trace  啟用 omfx Perfetto trace（輸出預設由 executor 決定；可先設定
+REM             OMFX_PERFETTO_PATH / OMFX_PERFETTO_DETAIL / OMFX_PERFETTO_MAX_SECONDS）
 REM ======================================================================
 
 setlocal
@@ -18,16 +22,38 @@ pushd "%~dp0"
 set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
 set EXECUTOR=omfx\target\release\executor.exe
 set BACKEND=omb\target\release\omobab.exe
-set OMB_DLL_PATH=omb\scripts\base_content.dll
-set OMB_GAME_TOML=omb\game.toml
+set OMB_DLL_PATH=scripts\base_content.dll
+set OMB_GAME_TOML=scripts\game.toml
 set OMB_LUA_CONTENT=
 set OMB_LUA_CONTENT_ROOT=
 set OMB_LUA_HOT_RELOAD=
 set OMB_STORY_DATA_DIR=scripts\lua_data
+if not defined OMFX_AUTO_START_AFTER_SEC set OMFX_AUTO_START_AFTER_SEC=2
+if not defined OMFX_AUTO_EXIT_AFTER_SEC set OMFX_AUTO_EXIT_AFTER_SEC=90
+if not defined OMOBA_STRESS_CREEPS set OMOBA_STRESS_CREEPS=2000
+if not defined OMOBA_STRESS_TOWERS set OMOBA_STRESS_TOWERS=1000
+if not defined OMOBA_STRESS_SPAWN_INTERVAL set OMOBA_STRESS_SPAWN_INTERVAL=0.001
+if not defined OMOBA_STRESS_DIRECT_CREEPS set OMOBA_STRESS_DIRECT_CREEPS=1
 
-set TOML=omb\game.toml
-set TOML_BAK=omb\game.toml.bak
-set TOML_STRESS=omb\game_stress.toml
+set TOML=scripts\game.toml
+set TOML_BAK=scripts\game.toml.bak
+set TOML_STRESS=scripts\game_stress.toml
+
+set RUN_STRESS_TRACE=
+:parse_args
+if "%~1"=="" goto :args_done
+if /I "%~1"=="--trace" set RUN_STRESS_TRACE=1
+shift
+goto :parse_args
+
+:args_done
+if defined RUN_STRESS_TRACE (
+    set OMFX_PERFETTO_TRACE=1
+    if not defined OMFX_PERFETTO_DETAIL set OMFX_PERFETTO_DETAIL=frame
+    if not defined OMFX_PERFETTO_PATH set OMFX_PERFETTO_PATH=omfx\target\profiles\stress.perfetto-trace
+    echo Perfetto trace enabled for stress run.
+    echo   -^> trace path: %OMFX_PERFETTO_PATH%
+)
 
 echo [0/7] Killing stale processes (if any)...
 REM 不用 taskkill — 此機器上 taskkill/tasklist 會卡住數十秒不返回（疑似某個

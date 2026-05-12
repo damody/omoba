@@ -199,7 +199,7 @@ return function(ctx)
     {
       id = "td_stress",
       display_name = "壓測怪",
-      hp = 10000.0,
+      hp = 1000000000.0,
       armor = 0.0,
       magic_resistance = 0.0,
       damage = 0.0,
