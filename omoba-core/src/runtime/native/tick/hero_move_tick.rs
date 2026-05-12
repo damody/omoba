@@ -70,7 +70,7 @@ pub(crate) fn hits_any(
 
 /// 計算避開其他單位的下一步位置：嘗試直接走 → 只走 X → 只走 Y → 停。
 /// 回傳 (新位置, 是否抵達目標範圍)。
-pub(crate) fn advance_with_collision(
+pub fn advance_with_collision(
     pos: SimVec2,
     target: SimVec2,
     step: Fixed64,
@@ -130,7 +130,7 @@ impl<'a> System<'a> for Sys {
         // 每 120 tick (~2s) log 一次 searcher 各 index 大小，確認 region 已載入
         let t = TICK_COUNTER.fetch_add(1, Ordering::Relaxed);
         if t % 120 == 0 {
-            log::warn!(
+            log::debug!(
                 "🔍 searcher sizes: hero={}, creep={}, tower={}, region={}",
                 tr.searcher.hero.count(),
                 tr.searcher.creep.count(),

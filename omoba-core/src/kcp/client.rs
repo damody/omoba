@@ -155,6 +155,7 @@ pub struct GameEventData {
 
 impl KcpClient {
     /// 連接到KCP遊戲伺服器。
+    #[tracing::instrument(skip_all, fields(perfetto = true, addr = %addr))]
     pub async fn connect(addr: &str, player_name: String) -> Result<Self> {
         let mut config = KcpConfig::default();
         config.nodelay = KcpNoDelayConfig::fastest();
@@ -221,6 +222,7 @@ impl KcpClient {
                 let req = PingRequest {
                     client_send_us: now_us,
                 };
+                tracing::trace!(perfetto = true, "omoba_core::kcp::send_ping_request");
                 let mut w = writer.lock().await;
                 if let Err(e) = write_framed_msg(&mut *w, TAG_PING_REQ, &req).await {
                     warn!("Failed to send PingRequest: {}", e);
@@ -254,6 +256,13 @@ impl KcpClient {
             loop {
                 match read_framed(&mut reader).await {
                     Ok(Some((tag, payload, wire_compressed_bytes))) => {
+                        tracing::trace!(
+                            perfetto = true,
+                            tag,
+                            wire_bytes = wire_compressed_bytes,
+                            logical_bytes = payload.len(),
+                            "omoba_core::kcp::frame_received"
+                        );
                         match tag {
                             TAG_GAME_EVENT => {
                                 match GameEvent::decode(payload.as_slice()) {
@@ -311,6 +320,11 @@ impl KcpClient {
                                                     };
                                                     let w = writer_for_resync.clone();
                                                     tokio::spawn(async move {
+                                                        tracing::trace!(
+                                                            perfetto = true,
+                                                            expected_seq = expected,
+                                                            "omoba_core::kcp::send_seq_gap_state_req"
+                                                        );
                                                         let mut w = w.lock().await;
                                                         if let Err(e) = write_framed_msg(
                                                             &mut *w,
@@ -561,6 +575,7 @@ impl KcpClient {
     /// 1.`連線`
     /// 2. `join_lockstep` （從頻道消耗 GameStart）
     /// 3. `subscribe_lockstep` （現在只產生 TickBatch/StateHash/SnapshotResp）
+    #[tracing::instrument(skip_all, fields(perfetto = true, observer))]
     pub async fn join_lockstep(&mut self, player_name: String, observer: bool) -> Result<u64> {
         let role = if observer {
             JoinRole::RoleObserver
@@ -608,6 +623,7 @@ impl KcpClient {
     /// 吞吐量計數器。 InputSubmit 訊息很小（遠低於
     /// `LZ4_THRESHOLD = 128`)，因此它們永遠不會被壓縮並且
     /// `連線 = 1 + 4 + 邏輯`。
+    #[tracing::instrument(skip_all, fields(perfetto = true, target_tick, input_id))]
     pub async fn submit_input(
         &mut self,
         target_tick: u32,
@@ -632,6 +648,7 @@ impl KcpClient {
 
     /// 從伺服器請求快照。回覆如下
     /// 鎖步流上的「LockstepInbound::SnapshotResp」。
+    #[tracing::instrument(skip_all, fields(perfetto = true, from_tick))]
     pub async fn request_snapshot(&mut self, from_tick: u32) -> Result<()> {
         let req = SnapshotReq { from_tick };
         let mut w = self.writer.lock().await;

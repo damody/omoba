@@ -2,7 +2,7 @@ use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use serde::{Deserialize, Serialize};
 use specs::Entity;
 
-use crate::runtime::comp::{CProperty, Creep, Faction, TAttack, TProperty, Unit};
+use crate::runtime::comp::{CProperty, Creep, CreepStatus, Faction, TAttack, TProperty, Unit};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Outcome {
@@ -27,6 +27,14 @@ pub enum Outcome {
     },
     Creep {
         cd: CreepData,
+    },
+    CreepUpdate {
+        entity: Entity,
+        pos: SimVec2,
+        status: CreepStatus,
+        pidx: usize,
+        facing: omoba_sim::Angle,
+        facing_broadcast: Option<f32>,
     },
     CreepStop {
         source: Entity,

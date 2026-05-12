@@ -100,7 +100,14 @@ pub fn drain_pending_moves(world: &mut World) {
         let mut q = world.write_resource::<PendingMoveQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_moves",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     if drained.is_empty() {
+        drop(drain_span);
         return;
     }
 
@@ -134,6 +141,7 @@ pub fn drain_pending_moves(world: &mut World) {
             .write_storage::<MoveTarget>()
             .insert(hero, MoveTarget(req.pos));
     }
+    drop(drain_span);
 }
 
 pub fn handle_ability_upgrade_from_input(
@@ -229,6 +237,12 @@ pub fn drain_pending_ability_upgrades(world: &mut World) {
         let mut q = world.write_resource::<PendingAbilityUpgradeQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_ability_upgrades",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_ability_upgrade_from_input(world, req.ability_index, req.owner_pid) {
             log::warn!(
@@ -239,6 +253,7 @@ pub fn drain_pending_ability_upgrades(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_ability_cast_from_input(
@@ -340,6 +355,12 @@ pub fn drain_pending_ability_casts(world: &mut World) {
         let mut q = world.write_resource::<PendingAbilityCastQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_ability_casts",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_ability_cast_from_input(
             world,
@@ -356,6 +377,7 @@ pub fn drain_pending_ability_casts(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Option<Entity> {
@@ -556,6 +578,12 @@ pub fn drain_pending_tower_spawns(world: &mut World) {
         let mut q = world.write_resource::<PendingTowerSpawnQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_tower_spawns",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_tower_spawn_from_input(world, req.kind_id, req.pos, req.owner_pid) {
             log::warn!(
@@ -566,6 +594,7 @@ pub fn drain_pending_tower_spawns(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_tower_sell_from_input(
@@ -665,6 +694,12 @@ pub fn drain_pending_tower_sells(world: &mut World) {
         let mut q = world.write_resource::<PendingTowerSellQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_tower_sells",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_tower_sell_from_input(world, req.tower_entity_id, req.owner_pid) {
             log::warn!(
@@ -675,6 +710,7 @@ pub fn drain_pending_tower_sells(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_tower_upgrade_from_input(
@@ -813,6 +849,12 @@ pub fn drain_pending_tower_upgrades(world: &mut World) {
         let mut q = world.write_resource::<PendingTowerUpgradeQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_tower_upgrades",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_tower_upgrade_from_input(
             world,
@@ -830,6 +872,7 @@ pub fn drain_pending_tower_upgrades(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_item_use_from_input(
@@ -959,6 +1002,12 @@ pub fn drain_pending_item_uses(world: &mut World) {
         let mut q = world.write_resource::<PendingItemUseQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_item_uses",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_item_use_from_input(
             world,
@@ -975,6 +1024,7 @@ pub fn drain_pending_item_uses(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 fn outcome_kind(outcome: &Outcome) -> &'static str {
@@ -985,6 +1035,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::Creep { .. } => "Creep",
         Outcome::CreepStop { .. } => "CreepStop",
         Outcome::CreepWalk { .. } => "CreepWalk",
+        Outcome::CreepUpdate { .. } => "CreepUpdate",
         Outcome::Tower { .. } => "Tower",
         Outcome::Heal { .. } => "Heal",
         Outcome::UpdateAttack { .. } => "UpdateAttack",
@@ -1022,6 +1073,12 @@ pub fn process_outcomes(
         raw.append(&mut outcomes);
         merge_damage_outcomes(raw)
     };
+    let outcomes_span = tracing::trace_span!(
+        "omoba_core::runtime::process_outcomes",
+        perfetto = true,
+        outcome_count = outcomes.len(),
+    )
+    .entered();
 
     for outcome in outcomes {
         let kind = outcome_kind(&outcome);
@@ -1044,6 +1101,14 @@ pub fn process_outcomes(
             Outcome::Tower { pos, td } => handle_tower_spawn(world, pos, td)?,
             Outcome::CreepStop { source, target } => handle_creep_stop(world, source, target)?,
             Outcome::CreepWalk { target } => handle_creep_walk(world, target)?,
+            Outcome::CreepUpdate {
+                entity,
+                pos,
+                status,
+                pidx,
+                facing,
+                facing_broadcast,
+            } => handle_creep_update(world, entity, pos, status, pidx, facing, facing_broadcast)?,
             Outcome::Damage {
                 pos,
                 phys,
@@ -1125,6 +1190,7 @@ pub fn process_outcomes(
     world
         .write_resource::<Vec<Outcome>>()
         .append(&mut next_outcomes);
+    drop(outcomes_span);
 
     Ok(())
 }
@@ -1523,12 +1589,16 @@ fn handle_creep_leaked(
     events: &mut impl RuntimeEventSink,
     entity: Entity,
 ) -> Result<(), failure::Error> {
-    let remaining = {
+    let (previous, remaining) = {
         let mut lives = world.write_resource::<crate::runtime::comp::PlayerLives>();
+        let previous = lives.0;
         lives.0 = (lives.0 - 1).max(0);
-        lives.0
+        (previous, lives.0)
     };
-    log::info!("creep leaked; lives={} entity={:?}", remaining, entity);
+    log::debug!("creep leaked; lives={} entity={:?}", remaining, entity);
+    if previous <= 0 {
+        return Ok(());
+    }
     events.emit(game_lives_event(remaining));
     if remaining <= 0 {
         events.emit(game_end_event(
@@ -1623,6 +1693,31 @@ fn handle_creep_walk(world: &mut World, target: Entity) -> Result<(), failure::E
         .get_mut(target)
         .ok_or_else(|| failure::err_msg("Creep not found"))?;
     creep.status = CreepStatus::PreWalk;
+    Ok(())
+}
+
+fn handle_creep_update(
+    world: &mut World,
+    entity: Entity,
+    pos: omoba_sim::Vec2,
+    status: CreepStatus,
+    pidx: usize,
+    facing: omoba_sim::Angle,
+    facing_broadcast: Option<f32>,
+) -> Result<(), failure::Error> {
+    if let Some(creep) = world.write_storage::<Creep>().get_mut(entity) {
+        creep.status = status;
+        creep.pidx = pidx;
+    }
+    if let Some(pos_comp) = world.write_storage::<Pos>().get_mut(entity) {
+        pos_comp.0 = pos;
+    }
+    if let Some(facing_comp) = world.write_storage::<Facing>().get_mut(entity) {
+        facing_comp.0 = facing;
+    }
+    if let Some(facing_bc_comp) = world.write_storage::<FacingBroadcast>().get_mut(entity) {
+        facing_bc_comp.0 = facing_broadcast;
+    }
     Ok(())
 }
 

@@ -54,6 +54,15 @@ pub fn run_script_dispatch(
         return;
     }
 
+    let tagged = filter_ready_on_ticks(world, tagged, dt);
+    let dispatch_span = tracing::trace_span!(
+        "omoba_core::runtime::run_script_dispatch",
+        perfetto = true,
+        tagged_count = tagged.len(),
+        event_count = events.len(),
+    )
+    .entered();
+
     // 每個刻度一個適配器； RNG 對此調度通道而言是本地的
     // 確定性重播（由上游滴答計數器驅動的種子）。
     // Cached storages 在這個 adapter 生命週期內共用，所有 GameWorld API 不再
@@ -64,15 +73,28 @@ pub fn run_script_dispatch(
     // 這樣新 spawn 的塔 on_spawn 能先初始化 stats，第一次 on_tick 看得到正確值
     let event_count = events.len();
     let event_t = Instant::now();
+    let event_span = tracing::trace_span!(
+        "omoba_core::runtime::script_events",
+        perfetto = true,
+        event_count,
+    )
+    .entered();
     for ev in events {
         dispatch_one(&mut adapter, registry, ev);
     }
     let event_ns = event_t.elapsed().as_nanos();
+    drop(event_span);
 
     // Dispatch on_tick for every tagged entity（塔主動行為）
     // 收集 (script_id, ns) — 不能在迴圈裡觸 adapter borrow 的 world，所以先攢著
     // 之後 drop(adapter) 再一次性 push 到 TickProfile。
     let mut on_tick_timings: Vec<(String, u128)> = Vec::with_capacity(tagged.len());
+    let on_tick_span = tracing::trace_span!(
+        "omoba_core::runtime::script_on_tick",
+        perfetto = true,
+        tagged_count = tagged.len(),
+    )
+    .entered();
     for (ent, uid) in &tagged {
         let Some(script) = registry.get(uid) else {
             continue;
@@ -89,6 +111,7 @@ pub fn run_script_dispatch(
         }
         on_tick_timings.push((uid.clone(), ns));
     }
+    drop(on_tick_span);
 
     // 釋放 adapter 對 world 的 &mut 借用，才能拿到 TickProfile resource
     drop(adapter);
@@ -106,6 +129,49 @@ pub fn run_script_dispatch(
             profile.record_script(&id, ns);
         }
     }
+    drop(dispatch_span);
+}
+
+fn filter_ready_on_ticks(
+    world: &mut World,
+    tagged: Vec<(Entity, String)>,
+    dt: Fixed64,
+) -> Vec<(Entity, String)> {
+    use crate::comp::{TAttack, Tower};
+
+    let towers = world.read_storage::<Tower>();
+    let mut attacks = world.write_storage::<TAttack>();
+    tagged
+        .into_iter()
+        .filter(|(ent, _)| {
+            if towers.get(*ent).is_none() {
+                return true;
+            }
+            let Some(atk) = attacks.get_mut(*ent) else {
+                return true;
+            };
+            let interval = atk.asd.val();
+            if interval <= Fixed64::ZERO {
+                return true;
+            }
+            if atk.asd_count < Fixed64::ZERO {
+                let next = atk.asd_count + dt;
+                if next < Fixed64::ZERO {
+                    atk.asd_count = next;
+                    return false;
+                }
+                return true;
+            }
+            if atk.asd_count < interval {
+                let next = atk.asd_count + dt;
+                if next < interval {
+                    atk.asd_count = next;
+                    return false;
+                }
+            }
+            true
+        })
+        .collect()
 }
 
 fn dispatch_one(adapter: &mut WorldAdapter<'_>, registry: &ScriptRegistry, ev: ScriptEvent) {

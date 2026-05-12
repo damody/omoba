@@ -313,6 +313,14 @@ pub fn retain_recent_render_fx<T: Clone>(
     tick: u32,
     spawn_tick: impl Fn(&T) -> u32,
 ) -> Vec<T> {
+    let fx_span = tracing::trace_span!(
+        "omoba_core::runtime::retain_recent_render_fx",
+        perfetto = true,
+        tick,
+        retained_count = retained.len(),
+        current_count = current.len(),
+    )
+    .entered();
     retained.extend(current);
     while retained
         .front()
@@ -321,22 +329,38 @@ pub fn retain_recent_render_fx<T: Clone>(
     {
         retained.pop_front();
     }
-    retained.iter().cloned().collect()
+    let out = retained.iter().cloned().collect();
+    drop(fx_span);
+    out
 }
 
 pub fn build_ability_def_snapshots(reg: &AbilityRegistry) -> Vec<AbilityDefSnapshot> {
-    reg.all()
+    let metadata_span = tracing::trace_span!(
+        "omoba_core::runtime::build_ability_def_snapshots",
+        perfetto = true,
+    )
+    .entered();
+    let out = reg
+        .all()
         .map(|d| AbilityDefSnapshot {
             ability_id: d.id.clone(),
             display_name: d.name.clone(),
             max_level: d.max_level,
             icon_path: d.icon.clone().unwrap_or_default(),
         })
-        .collect()
+        .collect();
+    drop(metadata_span);
+    out
 }
 
 pub fn build_tower_template_snapshots(reg: &TowerTemplateRegistry) -> Vec<TowerTemplateSnapshot> {
-    reg.iter_ordered()
+    let metadata_span = tracing::trace_span!(
+        "omoba_core::runtime::build_tower_template_snapshots",
+        perfetto = true,
+    )
+    .entered();
+    let out = reg
+        .iter_ordered()
         .map(|t| TowerTemplateSnapshot {
             unit_id: t.unit_id.clone(),
             label: t.label.clone(),
@@ -403,12 +427,19 @@ pub fn build_tower_template_snapshots(reg: &TowerTemplateRegistry) -> Vec<TowerT
             attack_windup: t.attack_timing.windup,
             attack_backswing: t.attack_timing.backswing,
         })
-        .collect()
+        .collect();
+    drop(metadata_span);
+    out
 }
 
 pub fn build_tower_upgrade_def_snapshots(
     reg: &TowerUpgradeRegistry,
 ) -> Vec<TowerUpgradeDefSnapshot> {
+    let metadata_span = tracing::trace_span!(
+        "omoba_core::runtime::build_tower_upgrade_def_snapshots",
+        perfetto = true,
+    )
+    .entered();
     let mut defs: Vec<TowerUpgradeDefSnapshot> = reg
         .iter_all()
         .map(|d| TowerUpgradeDefSnapshot {
@@ -426,6 +457,7 @@ pub fn build_tower_upgrade_def_snapshots(
             .then(a.path.cmp(&b.path))
             .then(a.level.cmp(&b.level))
     });
+    drop(metadata_span);
     defs
 }
 
@@ -438,6 +470,17 @@ pub fn extract_snapshot(
     applied_input_ids: Vec<u32>,
     applied_input_meta: Vec<AppliedInputMeta>,
 ) -> SimWorldSnapshot {
+    let snapshot_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_snapshot",
+        perfetto = true,
+        tick,
+    )
+    .entered();
+    let storage_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_runtime.storage_borrows",
+        perfetto = true,
+    )
+    .entered();
     let entities = world.entities();
     let pos_storage = world.read_storage::<Pos>();
     let facing_storage = world.read_storage::<Facing>();
@@ -453,8 +496,425 @@ pub fn extract_snapshot(
     let buff_store = world.read_resource::<BuffStore>();
     let is_building_storage = world.read_storage::<IsBuilding>();
     let inventory_storage = world.read_storage::<Inventory>();
+    drop(storage_span);
 
     let mut out = Vec::new();
+    let entities_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_runtime.entities",
+        perfetto = true,
+    )
+    .entered();
+    for (entity, pos) in (&entities, &pos_storage).join() {
+        let entity_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity",
+            perfetto = true,
+            entity = entity.id(),
+        )
+        .entered();
+        let classify_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity.classify",
+            perfetto = true,
+        )
+        .entered();
+        let kind = if hero_storage.get(entity).is_some() {
+            EntityKind::Hero
+        } else if tower_storage.get(entity).is_some() {
+            EntityKind::Tower
+        } else if proj_storage.get(entity).is_some() {
+            EntityKind::Projectile
+        } else if creep_storage.get(entity).is_some() {
+            EntityKind::Creep
+        } else {
+            EntityKind::Other
+        };
+        drop(classify_span);
+
+        let scalar_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity.scalars",
+            perfetto = true,
+            kind = ?kind,
+        )
+        .entered();
+        let facing = facing_storage
+            .get(entity)
+            .map(|f| {
+                (f.0.ticks() as f32) / (omoba_sim::trig::TAU_TICKS as f32)
+                    * 2.0
+                    * std::f32::consts::PI
+            })
+            .unwrap_or(0.0);
+
+        let (hp, max_hp) = cprop_storage
+            .get(entity)
+            .map(|c| {
+                (
+                    c.hp.to_f32_for_render() as i32,
+                    c.mhp.to_f32_for_render() as i32,
+                )
+            })
+            .unwrap_or((0, 0));
+
+        let (px, py) = pos.xy_f32();
+        drop(scalar_span);
+
+        let identity_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity.identity_render",
+            perfetto = true,
+            kind = ?kind,
+        )
+        .entered();
+        let unit_id = unit_tag_storage
+            .get(entity)
+            .map(|t| t.unit_id.clone())
+            .unwrap_or_default();
+        let hero_render = if matches!(kind, EntityKind::Hero) {
+            hero_render_snapshot_for_unit_id(
+                &unit_id,
+                move_target_storage.get(entity).is_some(),
+                buff_store.has(entity, "sniper_mode"),
+            )
+        } else {
+            None
+        };
+        let projectile_owner_entity_id = proj_storage.get(entity).map(|p| p.owner.id());
+        let gold = gold_storage.get(entity).map(|g| g.0).unwrap_or(0);
+        drop(identity_span);
+
+        let stats_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity.stats_attack",
+            perfetto = true,
+            kind = ?kind,
+        )
+        .entered();
+        let stats = UnitStats::from_refs(&*buff_store, is_building_storage.get(entity).is_some());
+        let attack_range = tatk_storage
+            .get(entity)
+            .map(|a| {
+                stats
+                    .final_attack_range(a.range.v, entity)
+                    .to_f32_for_render()
+            })
+            .unwrap_or(0.0);
+        drop(stats_span);
+
+        let hero_fields_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity.hero_fields",
+            perfetto = true,
+            is_hero = matches!(kind, EntityKind::Hero),
+        )
+        .entered();
+        let (
+            hero_name,
+            hero_title,
+            hero_level,
+            hero_xp,
+            hero_xp_next,
+            hero_skill_points,
+            hero_primary_attribute,
+            hero_strength,
+            hero_agility,
+            hero_intelligence,
+        ) = if let Some(h) = hero_storage.get(entity) {
+            let attr = match h.primary_attribute {
+                AttributeType::Strength => "力量",
+                AttributeType::Agility => "敏捷",
+                AttributeType::Intelligence => "智力",
+            };
+            (
+                h.name.clone(),
+                h.title.clone(),
+                h.level,
+                h.experience,
+                h.experience_to_next,
+                h.skill_points,
+                attr.to_string(),
+                h.strength,
+                h.agility,
+                h.intelligence,
+            )
+        } else {
+            (
+                String::new(),
+                String::new(),
+                0,
+                0,
+                0,
+                0,
+                String::new(),
+                0,
+                0,
+                0,
+            )
+        };
+        drop(hero_fields_span);
+
+        let hero_ext_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity.hero_ext",
+            perfetto = true,
+            is_hero = matches!(kind, EntityKind::Hero),
+        )
+        .entered();
+        let hero_ext = if matches!(kind, EntityKind::Hero) {
+            let prop = cprop_storage.get(entity);
+            let atk = tatk_storage.get(entity);
+
+            let armor = prop
+                .map(|p| stats.final_armor(p.def_physic, entity).to_f32_for_render())
+                .unwrap_or(0.0);
+            let magic_resist = prop
+                .map(|p| {
+                    stats
+                        .final_magic_resist(p.def_magic, entity)
+                        .to_f32_for_render()
+                })
+                .unwrap_or(0.0);
+            let move_speed = prop
+                .map(|p| stats.final_move_speed(p.msd, entity).to_f32_for_render())
+                .unwrap_or(0.0);
+            let attack_damage = atk
+                .map(|a| stats.final_atk(a.atk_physic.v, entity).to_f32_for_render())
+                .unwrap_or(0.0);
+            let attack_speed_sec = atk
+                .map(|a| {
+                    let asd_mult = stats.final_attack_speed_mult(entity).to_f32_for_render();
+                    let base = a.asd.v.to_f32_for_render();
+                    if asd_mult > 0.0 {
+                        base / asd_mult
+                    } else {
+                        base
+                    }
+                })
+                .unwrap_or(0.0);
+            let bullet_speed = atk
+                .map(|a| a.bullet_speed.to_f32_for_render())
+                .unwrap_or(0.0);
+            let mana = 0.0_f32;
+            let max_mana = 0.0_f32;
+
+            let buffs: Vec<BuffSnapshot> = buff_store
+                .iter_for(entity)
+                .map(|(id, entry)| BuffSnapshot {
+                    buff_id: id.to_string(),
+                    remaining_secs: buff_remaining_secs_for_snapshot(entry.remaining),
+                    payload_json: serde_json::to_string(&entry.payload).unwrap_or_default(),
+                })
+                .collect();
+
+            let mut inventory: [Option<String>; 6] = Default::default();
+            if let Some(inv) = inventory_storage.get(entity) {
+                for (i, slot) in inv.slots.iter().enumerate().take(6) {
+                    inventory[i] = slot.as_ref().map(|it| it.item_id.clone());
+                }
+            }
+
+            let mut ability_ids: [Option<String>; 4] = Default::default();
+            let mut ability_levels: [i32; 4] = [0; 4];
+            if let Some(h) = hero_storage.get(entity) {
+                for i in 0..4 {
+                    if let Some(id) = h.abilities.get(i) {
+                        let lvl = h.ability_levels.get(id).copied().unwrap_or(0);
+                        ability_levels[i] = lvl;
+                        ability_ids[i] = Some(id.clone());
+                    }
+                }
+            }
+
+            Some(Box::new(HeroStatsExt {
+                armor,
+                magic_resist,
+                attack_damage,
+                attack_range,
+                move_speed,
+                attack_speed_sec,
+                bullet_speed,
+                mana,
+                max_mana,
+                buffs,
+                inventory,
+                ability_levels,
+                ability_ids,
+            }))
+        } else {
+            None
+        };
+        drop(hero_ext_span);
+
+        let push_span = tracing::trace_span!(
+            "omoba_core::runtime::extract_runtime.entity.push",
+            perfetto = true,
+            kind = ?kind,
+        )
+        .entered();
+        let upgrade_levels: Option<[u8; 3]> = if matches!(kind, EntityKind::Tower) {
+            tower_storage.get(entity).map(|t| t.upgrade_levels)
+        } else {
+            None
+        };
+
+        out.push(EntityRenderData {
+            entity_id: entity.id(),
+            entity_gen: entity.gen().id() as u32,
+            kind,
+            pos_x: px,
+            pos_y: py,
+            facing_rad: facing,
+            hp,
+            max_hp,
+            unit_id,
+            hero_name,
+            hero_title,
+            hero_level,
+            hero_xp,
+            hero_xp_next,
+            hero_skill_points,
+            hero_primary_attribute,
+            hero_strength,
+            hero_agility,
+            hero_intelligence,
+            gold,
+            hero_ext,
+            hero_render,
+            projectile_owner_entity_id,
+            upgrade_levels,
+            attack_range,
+        });
+        drop(push_span);
+        drop(entity_span);
+    }
+    drop(entities_span);
+
+    let paths: Vec<Vec<(f32, f32)>> = world
+        .read_resource::<BTreeMap<String, CreepPath>>()
+        .values()
+        .map(|p| {
+            p.check_points
+                .iter()
+                .map(|cp| (cp.pos.x, cp.pos.y))
+                .collect()
+        })
+        .collect();
+
+    let removed_entity_ids: Vec<u32> = {
+        let mut q = world.write_resource::<RemovedEntitiesQueue>();
+        std::mem::take(&mut q.pending)
+    };
+
+    let blocked_regions: Vec<BlockedRegionSnapshot> = world
+        .read_resource::<BlockedRegions>()
+        .0
+        .iter()
+        .map(|r| BlockedRegionSnapshot {
+            points: r.points.iter().map(|p| (p.x, p.y)).collect(),
+            circle: None,
+        })
+        .collect();
+
+    let round: u32;
+    let total_rounds: u32;
+    let round_is_running: bool;
+    {
+        let ccw = world.read_resource::<CurrentCreepWave>();
+        round = ccw.wave as u32;
+        round_is_running = ccw.is_running;
+    }
+    {
+        let waves = world.read_resource::<Vec<CreepWave>>();
+        total_rounds = waves.len() as u32;
+    }
+    let lives = world.read_resource::<PlayerLives>().0;
+
+    let explosions: Vec<ExplosionFx> = {
+        let mut q = world.write_resource::<super::comp::ExplosionFxQueue>();
+        std::mem::take(&mut q.pending)
+    };
+    let tower_fire_fx: Vec<TowerFireFx> = {
+        let mut q = world.write_resource::<super::comp::TowerFireFxQueue>();
+        std::mem::take(&mut q.pending)
+    };
+    let attack_phase_fx: Vec<AttackPhaseFx> = {
+        let mut q = world.write_resource::<super::comp::AttackPhaseFxQueue>();
+        std::mem::take(&mut q.pending)
+    };
+    let attack_cancel_fx: Vec<AttackCancelFx> = {
+        let mut q = world.write_resource::<super::comp::AttackCancelFxQueue>();
+        std::mem::take(&mut q.pending)
+    };
+
+    let snapshot = SimWorldSnapshot {
+        tick,
+        entities: out,
+        paths,
+        removed_entity_ids,
+        round,
+        total_rounds,
+        lives,
+        round_is_running,
+        blocked_regions,
+        abilities: abilities_arc,
+        tower_templates: tower_templates_arc,
+        tower_upgrades: tower_upgrades_arc,
+        explosions,
+        tower_fire_fx,
+        attack_phase_fx,
+        attack_cancel_fx,
+        applied_input_ids,
+        applied_input_meta,
+        lua_content_generation: omoba_template_ids::runtime_lua_content_generation()
+            .ok()
+            .flatten()
+            .unwrap_or(0),
+        lua_content_hash: omoba_template_ids::runtime_lua_content_hash()
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+        dev_lua_reload_error: None,
+    };
+    drop(snapshot_span);
+    snapshot
+}
+
+/// Extracts runtime-changing render data without rebuilding initialization-only
+/// snapshot fields such as paths and static metadata registries.
+pub fn extract_runtime_render_update(
+    world: &mut World,
+    tick: u32,
+    applied_input_ids: Vec<u32>,
+    applied_input_meta: Vec<AppliedInputMeta>,
+) -> SimWorldSnapshot {
+    let snapshot_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_runtime_render_update",
+        perfetto = true,
+        tick,
+    )
+    .entered();
+    let storage_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_runtime.storage_borrows",
+        perfetto = true,
+    )
+    .entered();
+    let entities = world.entities();
+    let pos_storage = world.read_storage::<Pos>();
+    let facing_storage = world.read_storage::<Facing>();
+    let cprop_storage = world.read_storage::<CProperty>();
+    let hero_storage = world.read_storage::<Hero>();
+    let tower_storage = world.read_storage::<Tower>();
+    let proj_storage = world.read_storage::<Projectile>();
+    let creep_storage = world.read_storage::<Creep>();
+    let unit_tag_storage = world.read_storage::<ScriptUnitTag>();
+    let move_target_storage = world.read_storage::<MoveTarget>();
+    let gold_storage = world.read_storage::<Gold>();
+    let tatk_storage = world.read_storage::<TAttack>();
+    let buff_store = world.read_resource::<BuffStore>();
+    let is_building_storage = world.read_storage::<IsBuilding>();
+    let inventory_storage = world.read_storage::<Inventory>();
+    drop(storage_span);
+
+    let mut out = Vec::new();
+    let entities_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_runtime.entities",
+        perfetto = true,
+    )
+    .entered();
     for (entity, pos) in (&entities, &pos_storage).join() {
         let kind = if hero_storage.get(entity).is_some() {
             EntityKind::Hero
@@ -675,74 +1135,18 @@ pub fn extract_snapshot(
             attack_range,
         });
     }
+    drop(entities_span);
 
-    let paths: Vec<Vec<(f32, f32)>> = world
-        .read_resource::<BTreeMap<String, CreepPath>>()
-        .values()
-        .map(|p| {
-            p.check_points
-                .iter()
-                .map(|cp| (cp.pos.x, cp.pos.y))
-                .collect()
-        })
-        .collect();
-
-    if tick % LOCKSTEP_ONE_SECOND_TICKS_U32 == 0 && !out.is_empty() {
-        let mut counts = [0u32; 5];
-        for e in &out {
-            counts[match e.kind {
-                EntityKind::Hero => 0,
-                EntityKind::Tower => 1,
-                EntityKind::Creep => 2,
-                EntityKind::Projectile => 3,
-                EntityKind::Other => 4,
-            }] += 1;
-        }
-        log::info!(
-            "[sim_runner] tick={} total={} hero={} tower={} creep={} proj={} other={}",
-            tick,
-            out.len(),
-            counts[0],
-            counts[1],
-            counts[2],
-            counts[3],
-            counts[4],
-        );
-        for (i, e) in out
-            .iter()
-            .filter(|e| !matches!(e.kind, EntityKind::Hero))
-            .enumerate()
-            .take(10)
-        {
-            log::info!(
-                "  [{}] id={} gen={} kind={:?} unit_id={:?} pos=({:.0},{:.0}) hp={}/{}",
-                i,
-                e.entity_id,
-                e.entity_gen,
-                e.kind,
-                e.unit_id,
-                e.pos_x,
-                e.pos_y,
-                e.hp,
-                e.max_hp,
-            );
-        }
-    }
-
+    let queues_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_runtime.queues",
+        perfetto = true,
+        entities = out.len(),
+    )
+    .entered();
     let removed_entity_ids: Vec<u32> = {
         let mut q = world.write_resource::<RemovedEntitiesQueue>();
         std::mem::take(&mut q.pending)
     };
-
-    let blocked_regions: Vec<BlockedRegionSnapshot> = world
-        .read_resource::<BlockedRegions>()
-        .0
-        .iter()
-        .map(|r| BlockedRegionSnapshot {
-            points: r.points.iter().map(|p| (p.x, p.y)).collect(),
-            circle: None,
-        })
-        .collect();
 
     let round: u32;
     let total_rounds: u32;
@@ -774,20 +1178,32 @@ pub fn extract_snapshot(
         let mut q = world.write_resource::<super::comp::AttackCancelFxQueue>();
         std::mem::take(&mut q.pending)
     };
+    drop(queues_span);
 
-    SimWorldSnapshot {
+    let assemble_span = tracing::trace_span!(
+        "omoba_core::runtime::extract_runtime.assemble",
+        perfetto = true,
+        entities = out.len(),
+        removed = removed_entity_ids.len(),
+        explosions = explosions.len(),
+        tower_fire_fx = tower_fire_fx.len(),
+        attack_phase_fx = attack_phase_fx.len(),
+        attack_cancel_fx = attack_cancel_fx.len(),
+    )
+    .entered();
+    let snapshot = SimWorldSnapshot {
         tick,
         entities: out,
-        paths,
+        paths: Vec::new(),
         removed_entity_ids,
         round,
         total_rounds,
         lives,
         round_is_running,
-        blocked_regions,
-        abilities: abilities_arc,
-        tower_templates: tower_templates_arc,
-        tower_upgrades: tower_upgrades_arc,
+        blocked_regions: Vec::new(),
+        abilities: Arc::new(Vec::new()),
+        tower_templates: Arc::new(Vec::new()),
+        tower_upgrades: Arc::new(Vec::new()),
         explosions,
         tower_fire_fx,
         attack_phase_fx,
@@ -803,5 +1219,8 @@ pub fn extract_snapshot(
             .flatten()
             .unwrap_or_default(),
         dev_lua_reload_error: None,
-    }
+    };
+    drop(assemble_span);
+    drop(snapshot_span);
+    snapshot
 }

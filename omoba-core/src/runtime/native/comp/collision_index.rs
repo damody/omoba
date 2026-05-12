@@ -105,10 +105,21 @@ impl CollisionIndex {
         for entry in self.index.query_in_range(pos, radius) {
             let d2 = entry.position.distance_squared(pos);
             if d2 < r2 {
-                out.push(DisIndex {
+                let hit = DisIndex {
                     e: entry.id,
                     dis: d2,
-                });
+                };
+                if out.len() < n {
+                    out.push(hit);
+                } else if let Some((max_i, max)) = out
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.dis.partial_cmp(&b.dis).unwrap_or(Ordering::Equal))
+                {
+                    if hit.dis < max.dis {
+                        out[max_i] = hit;
+                    }
+                }
             }
         }
         out.sort_by(|a, b| {
@@ -129,15 +140,26 @@ impl CollisionIndex {
     ) -> (Vec<DisIndex>, Vec<DisIndex>) {
         let r2_inner = r_inner * r_inner;
         let r2_outer = r_outer * r_outer;
-        let mut inner = Vec::new();
+        let mut inner = Vec::with_capacity(n);
         let mut outer = Vec::new();
         for entry in self.index.query_in_range(pos, r_outer) {
             let d2 = entry.position.distance_squared(pos);
             if d2 < r2_inner {
-                inner.push(DisIndex {
+                let hit = DisIndex {
                     e: entry.id,
                     dis: d2,
-                });
+                };
+                if inner.len() < n {
+                    inner.push(hit);
+                } else if let Some((max_i, max)) = inner
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.dis.partial_cmp(&b.dis).unwrap_or(Ordering::Equal))
+                {
+                    if hit.dis < max.dis {
+                        inner[max_i] = hit;
+                    }
+                }
             } else if d2 < r2_outer {
                 outer.push(DisIndex {
                     e: entry.id,
@@ -198,6 +220,15 @@ impl Searcher {
 
 impl Default for Searcher {
     fn default() -> Self {
-        Self::from_index_kinds("sap", "sap", "sap", "sap", SpatialIndexParams::default())
+        // Creep/unit positions rebuild every tick and receive many tower script
+        // radius queries in TD stress. hash_grid keeps query cost local while
+        // retaining deterministic insertion/query order from sorted rebuilds.
+        Self::from_index_kinds(
+            "sap",
+            "hash_grid",
+            "sap",
+            "sap",
+            SpatialIndexParams::default(),
+        )
     }
 }
