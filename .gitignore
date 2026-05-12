@@ -14,7 +14,4 @@ scripts/*.dylib
 # 本機 editor / 使用者狀態
 settings.ron
 .claude/settings.local.json
-# graphify 知識圖輸出在本機重建，不進 Git
-.graphify_*
-graphify-out/
 data/resources.registry

@@ -62,7 +62,6 @@ Submodule 內的修改要先在該 submodule repo commit，再回到 monorepo bu
 | `omb-mcp/` | MCP server，以 KCP query-only 方式查詢 `omb`，避免訂閱 event 洪水 |
 | `proto/game.proto` | prost / tonic 共用 wire schema，依 Cargo feature 由 build script 產生 |
 | `docs/plans/` | 架構設計與實作計畫紀錄 |
-| `graphify-out/` | 本 repo 的 knowledge graph 輸出 |
 
 `omb/` 單獨 clone 無法完整 build，因為它依賴 monorepo 內的 `../scripts/script-abi`、`../omoba-core`、`../omoba-sim` 等 path dependencies。
 
@@ -271,24 +270,6 @@ Stress 場景已驗證過 1000 towers x 1000 creeps 的熱路徑。新增高頻 
 | `omb/target/docs/index.html` | `gen_docs.bat` 產生的 catalog |
 
 `omb/game.toml` 支援 debug speed multiplier：`SPEED_MULT = 1`。執行中可在 `omb` stdin 輸入 `:speed 4`、`:speed 1` 等指令切換 1..=16 倍模擬速度；硬體跟不上時有效速度會低於設定值。
-
-## Graphify Knowledge Graph
-
-本 repo 有 graphify 輸出於 `graphify-out/`。架構或跨模組問題可先看：
-
-```text
-graphify-out/GRAPH_REPORT.md
-```
-
-目前 graph report 的高連結核心節點包含 `WorldAdapter<'a>`、`App`、`MessageListState`、`UI<'a>` 與 `GameProcessor`，可作為探索 script host boundary、frontend app state、UI 與 backend processor 的入口。
-
-若修改 code files，應執行：
-
-```bat
-graphify update .
-```
-
-本次只改 README 這類文件時通常不需要更新 AST graph。
 
 ## Transient Fyrox Patches
 

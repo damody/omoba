@@ -899,10 +899,9 @@
 
     <text x="7020" y="3139" class="title-text" font-size="64" fill="#a78bfa">文件入口</text>
     <text x="7020" y="3206" class="code" font-size="46" fill="#cbd5e1">CLAUDE.md</text>
-    <text x="7020" y="3253" class="code" font-size="46" fill="#cbd5e1">graphify-out/GRAPH_REPORT.md</text>
-    <text x="7020" y="3300" class="code" font-size="46" fill="#cbd5e1">docs/plans/*.md</text>
-    <text x="7020" y="3348" class="code" font-size="46" fill="#cbd5e1">omb/target/docs/index.html</text>
-    <text x="7020" y="3395" class="code" font-size="46" fill="#cbd5e1">  (gen-docs output)</text>
+    <text x="7020" y="3253" class="code" font-size="46" fill="#cbd5e1">docs/plans/*.md</text>
+    <text x="7020" y="3300" class="code" font-size="46" fill="#cbd5e1">omb/target/docs/index.html</text>
+    <text x="7020" y="3348" class="code" font-size="46" fill="#cbd5e1">  (gen-docs output)</text>
 
     <text x="7020" y="3530" class="title-text" font-size="64" fill="#cbd5e1">設計哲學</text>
     <text x="7020" y="3611" class="why-text" font-size="46">「伺服器權威，客戶端推測」</text>
