@@ -17,15 +17,55 @@ Repository root SHALL 提供 `run_2player.bat`，從 `D:\omoba` 執行時會建�
 #### Scenario: frontend identity 不互相覆蓋
 
 - **WHEN** `run_2player.bat` 啟動兩個 frontend
-- **THEN** player 1 frontend 使用不同於 player 2 的 `OMB_PLAYER_NAME`
+- **THEN** player 1 frontend 在連線前已設定 `OMB_PLAYER_ID=1`
+- **AND** player 2 frontend 在連線前已設定 `OMB_PLAYER_ID=2`
+- **AND** player 1 frontend 使用不同於 player 2 的 `OMB_PLAYER_NAME`
 - **AND** player 1 frontend 使用不同於 player 2 的 `OMB_LOCKSTEP_PLAYER_NAME`
 - **AND** log 或 window title SHALL 足以分辨兩個 frontend process
+
+### Requirement: client 連線前已知 player_id
+
+omfx frontend SHALL 在建立 KCP/lockstep 連線前就知道自己的 local `player_id`。`run_2player.bat` SHALL 透過 `OMB_PLAYER_ID` 或等效設定傳入固定 id。Join handshake SHALL 攜帶 client-declared `player_id`；server SHALL 驗證 id 合法且未被 active player session 使用，成功時回覆同一個 `player_id`。
+
+server MUST NOT 在一般 player join 時臨時分配與 client 預期不同的 `player_id`。若 client 未提供 `player_id`、提供不合法 id、或提供已被使用的 id，server SHALL 拒絕 join 或回報連線失敗，不得靜默改派其他 id。
+
+#### Scenario: player 1 連線前已有 id
+
+- **WHEN** `run_2player.bat` 啟動 player 1 frontend
+- **THEN** omfx 在呼叫 lockstep join 前已讀到 local `player_id = 1`
+- **AND** JoinRequest 或等效 handshake 攜帶 `player_id = 1`
+- **AND** server GameStart 或等效回應中的 `player_id` 仍為 `1`
+
+#### Scenario: 重複 player_id 被拒絕
+
+- **WHEN** 已有 active frontend 以 `player_id = 1` 加入
+- **AND** 第二個 frontend 也宣告 `player_id = 1`
+- **THEN** server 拒絕第二個 join
+- **AND** 不會把第二個 frontend 靜默改派成其他 `player_id`
+
+### Requirement: 兩個玩家共用 combat team_id
+
+兩個 player 的 Hero 與 player-owned Tower SHALL 使用相同 combat `team_id`，並透過獨立 owner metadata 表示玩家身份。`team_id` MUST NOT 被設成 `player_id`，也 MUST NOT 被用來判斷 tower/hero ownership。
+
+#### Scenario: heroes 使用相同 team_id 但不同 owner
+
+- **WHEN** TD_1 初始化兩個 player heroes
+- **THEN** 兩個 Hero entity 的 `Faction.team_id` 相同
+- **AND** 兩個 Hero entity 的 owner metadata 分別為 `player_id = 1` 與 `player_id = 2`
+
+#### Scenario: towers 使用相同 team_id 但不同 owner
+
+- **WHEN** player 1 與 player 2 各建造一座 tower
+- **THEN** 兩座 Tower entity 的 `Faction.team_id` 相同
+- **AND** 兩座 Tower entity 的 owner metadata 分別對應各自建造者
 
 ### Requirement: 每個 player 控制自己的英雄
 
 Authoritative runtime SHALL 將 lockstep `player_id` 綁定到對應 Hero entity。所有 hero-owned input，包括 `MoveTo`、`CastAbility`、`UpgradeAbility` 與 `ItemUse`，SHALL 套用到 submitting `player_id` 的 hero，而不是任意第一個 Player faction hero。
 
 omfx local replica SHALL 使用相同的 shared runtime ownership mapping，讓本地模擬與後端權威結果一致。
+
+每個 player-owned Hero 的玩家可見名稱 SHALL 在原英雄名稱前加上 `player_id` 前綴，以便兩個玩家使用同一 hero template 時仍可辨識。前綴 SHALL 來自 owner metadata 的 `player_id`，不得使用 `team_id`。
 
 #### Scenario: player 1 移動只影響 player 1 hero
 
@@ -38,6 +78,13 @@ omfx local replica SHALL 使用相同的 shared runtime ownership mapping，讓�
 - **WHEN** player 2 送出 `CastAbility { ability_index: 0 }`
 - **THEN** omb 以 player 2 綁定的 hero 作為 caster 建立 `ScriptEvent::SkillCast`
 - **AND** player 1 綁定的 hero 不會成為該次 caster
+
+#### Scenario: hero name 顯示 player_id 前綴
+
+- **WHEN** TD_1 初始化 player 1 與 player 2 的 heroes
+- **THEN** player 1 hero 的玩家可見名稱以前綴 `[P1]` 或等效 `player_id = 1` 標示開頭
+- **AND** player 2 hero 的玩家可見名稱以前綴 `[P2]` 或等效 `player_id = 2` 標示開頭
+- **AND** 這些前綴不改變 script lookup 使用的 hero id 或 unit id
 
 ### Requirement: player 建造的塔具有 owner
 
@@ -92,8 +139,8 @@ frontend SHOULD 對非本地 owner 的 selected tower 隱藏或停用升級與�
 #### Scenario: smoke log 顯示兩位 player 加入
 
 - **WHEN** 執行 `run_2player.bat` 並等待兩個 frontend 完成 lockstep join
-- **THEN** omb log 包含兩筆 `JoinRequest`，分別指派不同 `player_id`
-- **AND** 兩個 frontend log 各自記錄自己的 assigned `player_id`
+- **THEN** omb log 包含兩筆 `JoinRequest` 或等效 join log，分別接受 client-declared `player_id = 1` 與 `player_id = 2`
+- **AND** 兩個 frontend log 各自記錄自己的 configured `player_id`
 
 #### Scenario: smoke 中交叉操作塔會被拒絕
 
