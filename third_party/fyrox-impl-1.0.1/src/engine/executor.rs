@@ -447,16 +447,33 @@ fn run_normal(
 
                     frame_counter += 1;
                 }
-                // omfx-local patch：避免固定 1ms sleep 把 120 Hz cadence 量化成
-                // ~9ms wakeups。離 deadline 還早時讓渡 CPU；接近 deadline 時
-                // 不 yield，避免 Windows scheduler 把下一幀喚醒推過 8.33ms。
+                // omfx-local patch: sleep only while far from the next fixed-step
+                // deadline, then spin briefly to avoid overshooting 120 Hz on Windows.
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let remaining = (fixed_time_step - lag).max(0.0);
-                    if remaining > 0.002 {
-                        std::thread::yield_now();
-                    } else {
-                        std::hint::spin_loop();
+                    const SPIN_WINDOW: Duration = Duration::from_millis(2);
+                    const RETURN_GUARD: Duration = Duration::from_micros(250);
+                    loop {
+                        let left_secs = fixed_time_step - lag - previous.elapsed().as_secs_f32();
+                        if left_secs <= 0.0 {
+                            break;
+                        }
+                        let left = Duration::from_secs_f32(left_secs);
+                        if left <= RETURN_GUARD {
+                            break;
+                        }
+                        if left > SPIN_WINDOW {
+                            std::thread::sleep((left - SPIN_WINDOW).min(Duration::from_millis(1)));
+                        } else {
+                            while {
+                                let left_secs =
+                                    fixed_time_step - lag - previous.elapsed().as_secs_f32();
+                                left_secs > 0.0 && Duration::from_secs_f32(left_secs) > RETURN_GUARD
+                            } {
+                                std::hint::spin_loop();
+                            }
+                            break;
+                        }
                     }
                 }
             }
