@@ -17,9 +17,6 @@
 //! 沒有任何內容寫入或讀取的空資源。
 
 #[cfg(feature = "kcp")]
-use std::collections::HashMap;
-
-#[cfg(feature = "kcp")]
 use crate::runtime::input::PlayerInput;
 
 use omoba_sim::Vec2 as SimVec2;
@@ -31,10 +28,11 @@ use omoba_sim::Vec2 as SimVec2;
 #[cfg(feature = "kcp")]
 #[derive(Default)]
 pub struct PendingPlayerInputs {
-    /// `player_id → PlayerInput` 用於目前的鎖步刻度。每個
-    /// `TickBatch` 寫入批次替換了這張地圖（每個玩家一個輸入
-    /// 每個價格變動是鎖步合約）。
-    pub by_player: HashMap<u32, PlayerInput>,
+    /// `(player_id, PlayerInput)` list for the current lockstep tick.
+    /// Multiple inputs from the same player can land on one server tick when
+    /// the client and server phases are close; preserving every entry avoids
+    /// dropping input ids before the runtime applies them in arrival order.
+    pub inputs: Vec<(u32, PlayerInput)>,
     /// 鎖步勾選輸入目標。消費者係統使用這個
     /// 僅適用於日誌上下文 - 實際副作用針對任何刻度
     /// 調度程序目前正在運行。

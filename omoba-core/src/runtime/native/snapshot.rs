@@ -28,7 +28,7 @@ pub struct AppliedInputMeta {
     pub server_queue_us: u64,
     pub client_receive_us: u64,
     pub game_forward_us: u64,
-    pub sim_publish_us: u64,
+    pub extract_data_for_render_us: u64,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -873,16 +873,16 @@ pub fn extract_snapshot(
     snapshot
 }
 
-/// Extracts runtime-changing render data without rebuilding initialization-only
-/// snapshot fields such as paths and static metadata registries.
-pub fn extract_runtime_render_update(
+/// Extract data for render from the ECS world without rebuilding
+/// initialization-only fields such as paths and static metadata registries.
+pub fn extract_data_for_render(
     world: &mut World,
     tick: u32,
     applied_input_ids: Vec<u32>,
     applied_input_meta: Vec<AppliedInputMeta>,
 ) -> SimWorldSnapshot {
     let snapshot_span = tracing::trace_span!(
-        "omoba_core::runtime::extract_runtime_render_update",
+        "omoba_core::runtime::extract_data_for_render",
         perfetto = true,
         tick,
     )
