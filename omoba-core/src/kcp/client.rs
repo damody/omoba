@@ -12,8 +12,17 @@ use tokio_kcp::{KcpConfig, KcpNoDelayConfig, KcpStream};
 
 use super::framing::*;
 use super::game_proto::*;
+use crate::lockstep_timing::LOCKSTEP_TPS;
 use crate::quant::{facing_dequant, fixed_dequant, pos_dequant};
 use omoba_template_ids::{active_creep_display, projectile_id_str, CreepId, ProjectileKindId};
+
+fn normalize_game_start_step_fps(step_fps: u32) -> u32 {
+    if step_fps == 0 {
+        LOCKSTEP_TPS
+    } else {
+        step_fps
+    }
+}
 
 /// P3：英雄靜態元資料的客戶端快取。
 ///
@@ -44,6 +53,8 @@ pub struct KcpClient {
     last_player_id: Option<u32>,
     /// 第 2 階段鎖步：為呼叫者快取 master_seed。
     last_master_seed: Option<u64>,
+    /// Server-authoritative cadence announced by GameStart.
+    last_step_fps: Option<u32>,
 }
 
 /// 階段 2 鎖定步入站幀從 kcp 讀取器顯示客戶端
@@ -204,6 +215,7 @@ impl KcpClient {
             lockstep_rx: Some(lockstep_rx),
             last_player_id: None,
             last_master_seed: None,
+            last_step_fps: None,
         })
     }
 
@@ -600,6 +612,7 @@ impl KcpClient {
                 Some(LockstepInbound::GameStart { msg: gs, .. }) => {
                     self.last_player_id = Some(gs.player_id);
                     self.last_master_seed = Some(gs.master_seed);
+                    self.last_step_fps = Some(normalize_game_start_step_fps(gs.step_fps));
                     return Ok(gs.master_seed);
                 }
                 Some(_) => {
@@ -664,6 +677,12 @@ impl KcpClient {
     /// 最近從 GameStart 觀察到的 master_seed。
     pub fn lockstep_master_seed(&self) -> Option<u64> {
         self.last_master_seed
+    }
+
+    /// Server-authoritative cadence from GameStart. Defaults to 120 for older
+    /// servers that do not populate the proto3 field.
+    pub fn lockstep_step_fps(&self) -> Option<u32> {
+        self.last_step_fps
     }
 }
 
@@ -1327,7 +1346,14 @@ fn translate_typed_payload(
 
 #[cfg(test)]
 mod seq_gap_tests {
-    use super::{detect_seq_gap, SeqGapResult};
+    use super::{detect_seq_gap, normalize_game_start_step_fps, SeqGapResult};
+
+    #[test]
+    fn game_start_step_fps_defaults_only_for_legacy_zero() {
+        assert_eq!(normalize_game_start_step_fps(0), 120);
+        assert_eq!(normalize_game_start_step_fps(90), 90);
+        assert_eq!(normalize_game_start_step_fps(60), 60);
+    }
 
     #[test]
     fn initial_event_seeds() {
