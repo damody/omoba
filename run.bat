@@ -6,30 +6,26 @@ REM Options:
 REM   --trace  啟用 omfx Perfetto trace（輸出預設由 executor 決定；可先設定
 REM            OMFX_PERFETTO_PATH / OMFX_PERFETTO_DETAIL / OMFX_PERFETTO_MAX_SECONDS）
 
-set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
-set EXECUTOR=omfx\target\debug\executor.exe
-set BACKEND=omb\target\debug\omobab.exe
-set OMB_DLL_PATH=scripts\base_content.dll
-set OMB_GAME_TOML=scripts\game.toml
-set OMB_LUA_CONTENT=1
-set OMB_LUA_CONTENT_ROOT=scripts\lua_data
-set OMB_LUA_HOT_RELOAD=1
-set OMB_STORY_DATA_DIR=%OMB_LUA_CONTENT_ROOT%
-set OMB_STORY=TD_1
-set OMB_SCENE_PATH=%OMB_STORY_DATA_DIR%\%OMB_STORY%
+set "FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1"
+set "EXECUTOR=omfx\target\debug\executor.exe"
+set "BACKEND=omb\target\debug\omobab.exe"
+set "OMB_GAME_TOML=%CD%\omb\game.toml"
+set "OMFX_GAME_TOML=%CD%\omfx\game.toml"
+set "OMB_STORY=TD_1"
+set "OMB_SCENE_PATH="
 
-set RUN_TRACE=
+set "RUN_TRACE="
 :parse_args
 if "%~1"=="" goto :args_done
-if /I "%~1"=="--trace" set RUN_TRACE=1
+if /I "%~1"=="--trace" set "RUN_TRACE=1"
 shift
 goto :parse_args
 
 :args_done
 if defined RUN_TRACE (
-    set OMFX_PERFETTO_TRACE=1
-    if not defined OMFX_PERFETTO_DETAIL set OMFX_PERFETTO_DETAIL=frame
-    if not defined OMFX_PERFETTO_PATH set OMFX_PERFETTO_PATH=omfx\target\profiles\run.perfetto-trace
+    set "OMFX_PERFETTO_TRACE=1"
+    if not defined OMFX_PERFETTO_DETAIL set "OMFX_PERFETTO_DETAIL=frame"
+    if not defined OMFX_PERFETTO_PATH set "OMFX_PERFETTO_PATH=omfx\target\profiles\run.perfetto-trace"
     echo Perfetto trace enabled for run.
     echo   -^> trace path: %OMFX_PERFETTO_PATH%
 )
@@ -72,16 +68,16 @@ if errorlevel 1 goto :fail
 
 echo [5/5] Running frontend...
 "%EXECUTOR%"
-set RUN_ERR=%errorlevel%
+set "RUN_ERR=%errorlevel%"
 call :stop_backend
 popd
 exit /b %RUN_ERR%
 
 :start_backend
-set BACKEND_PID=
-set BACKEND_PID_FILE=omb\log\launcher_backend.pid
+set "BACKEND_PID="
+set "BACKEND_PID_FILE=omb\log\launcher_backend.pid"
 if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb" -PidFile "%BACKEND_PID_FILE%"
+call powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb" -PidFile "%BACKEND_PID_FILE%"
 if errorlevel 1 (
     echo Backend start failed!
     exit /b 1
@@ -100,18 +96,18 @@ if defined BACKEND_PID (
     echo Stopping backend PID %BACKEND_PID%...
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Id %BACKEND_PID% -Force -ErrorAction SilentlyContinue"
     if defined BACKEND_PID_FILE if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
-    set BACKEND_PID=
+    set "BACKEND_PID="
 )
 exit /b 0
 
 :ensure_fresh
-set ARTIFACT=%~1
-set LABEL=%~2
-set BUILD_CMD=%~3
-set FAIL_MSG=%~4
+set "ARTIFACT=%~1"
+set "LABEL=%~2"
+set "BUILD_CMD=%~3"
+set "FAIL_MSG=%~4"
 
 %FRESHNESS% -Action check -Artifact %ARTIFACT%
-set FRESH_ERR=%errorlevel%
+set "FRESH_ERR=%errorlevel%"
 if "%FRESH_ERR%"=="0" (
     echo   -^> %LABEL% up-to-date; skipping build.
     exit /b 0

@@ -13,6 +13,19 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Normalize-ProcessPathEnv {
+    $pathValue = [Environment]::GetEnvironmentVariable("Path", "Process")
+    if ([string]::IsNullOrEmpty($pathValue)) {
+        $pathValue = [Environment]::GetEnvironmentVariable("PATH", "Process")
+    }
+    if (-not [string]::IsNullOrEmpty($pathValue)) {
+        [Environment]::SetEnvironmentVariable("PATH", $null, "Process")
+        [Environment]::SetEnvironmentVariable("Path", $pathValue, "Process")
+    }
+}
+
+Normalize-ProcessPathEnv
+
 $exePath = (Resolve-Path -LiteralPath $Exe).Path
 $workDir = (Resolve-Path -LiteralPath $WorkingDirectory).Path
 $stdoutPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Stdout)
@@ -51,8 +64,6 @@ if ($pidFilePath) {
 $process = Start-Process `
     -FilePath $exePath `
     -WorkingDirectory $workDir `
-    -RedirectStandardOutput $stdoutPath `
-    -RedirectStandardError $stderrPath `
     -WindowStyle Hidden `
     -PassThru
 

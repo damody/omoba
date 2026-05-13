@@ -2,9 +2,10 @@
 """Generate stress-test TD map.
 
 Usage: python scripts/gen_stress_map.py
-Writes to: D:/omoba/scripts/lua_data/TD_STRESS/map.lua
+Writes to: {STORY_DATA_DIR}/{STORY}/map.lua from OMB_GAME_TOML.
 
 Optional environment variables:
+  OMB_GAME_TOML=omb/game_stress.toml
   OMOBA_STRESS_CREEPS=2000
   OMOBA_STRESS_TOWERS=1000
   OMOBA_STRESS_SPAWN_INTERVAL=0.001
@@ -13,15 +14,71 @@ Optional environment variables:
 """
 import os
 from pathlib import Path
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback.
+    tomllib = None
 
-OUT = Path("D:/omoba/scripts/lua_data/TD_STRESS/map.lua")
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CONFIG = ROOT / "omb" / "game_stress.toml"
 
-N_CREEPS = int(os.environ.get("OMOBA_STRESS_CREEPS", "2000"))
-SPAWN_INTERVAL = float(os.environ.get("OMOBA_STRESS_SPAWN_INTERVAL", "0.001"))  # 秒
-DIRECT_CREEPS = os.environ.get("OMOBA_STRESS_DIRECT_CREEPS", "1") != "0"
 
-N_TOWERS = int(os.environ.get("OMOBA_STRESS_TOWERS", "1000"))
-TOWER_SPACING = float(os.environ.get("OMOBA_STRESS_TOWER_SPACING", "50.0"))  # grid 間距（radius=25 時 50 間隔留 50% 空隙）
+def load_config():
+    path = Path(os.environ.get("OMB_GAME_TOML", DEFAULT_CONFIG))
+    if not path.is_absolute():
+        path = ROOT / path
+    if tomllib is None or not path.exists():
+        return path, {}
+    with path.open("rb") as f:
+        return path, tomllib.load(f)
+
+
+CONFIG_PATH, CONFIG = load_config()
+
+
+def config_section(name):
+    value = CONFIG.get(name, {})
+    return value if isinstance(value, dict) else {}
+
+
+SERVER_CONFIG = config_section("server")
+CONTENT_CONFIG = config_section("content")
+STRESS_CONFIG = config_section("stress")
+
+
+def resolve_config_path(value):
+    path = Path(str(value))
+    if path.is_absolute():
+        return path
+    return CONFIG_PATH.parent / path
+
+
+def env_or_config(env_name, key, default, caster):
+    value = os.environ.get(env_name)
+    if value is None or value == "":
+        value = STRESS_CONFIG.get(key, default)
+    return caster(value)
+
+
+def env_or_config_bool(env_name, key, default):
+    value = os.environ.get(env_name)
+    if value is None or value == "":
+        value = STRESS_CONFIG.get(key, default)
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in ("0", "false", "no", "off")
+
+
+STORY = str(SERVER_CONFIG.get("STORY", "TD_STRESS"))
+STORY_DATA_DIR = resolve_config_path(CONTENT_CONFIG.get("STORY_DATA_DIR", "../scripts/lua_data"))
+OUT = STORY_DATA_DIR / STORY / "map.lua"
+
+N_CREEPS = env_or_config("OMOBA_STRESS_CREEPS", "CREEPS", 2000, int)
+SPAWN_INTERVAL = env_or_config("OMOBA_STRESS_SPAWN_INTERVAL", "SPAWN_INTERVAL", 0.001, float)  # 秒
+DIRECT_CREEPS = env_or_config_bool("OMOBA_STRESS_DIRECT_CREEPS", "DIRECT_CREEPS", True)
+
+N_TOWERS = env_or_config("OMOBA_STRESS_TOWERS", "TOWERS", 1000, int)
+TOWER_SPACING = env_or_config("OMOBA_STRESS_TOWER_SPACING", "TOWER_SPACING", 50.0, float)  # grid 間距（radius=25 時 50 間隔留 50% 空隙）
 
 # 走廊範圍（避開 U 字路徑的四條水平線 Y=-800/-200/400/800，各留 60px 安全距離）
 CORRIDORS = [

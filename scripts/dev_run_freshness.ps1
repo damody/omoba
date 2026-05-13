@@ -318,7 +318,8 @@ $frontendInputsDebug = Merge-InputSets $common $scriptAbi $omobaCore $templateId
     'omfx/game/Cargo.toml'
 ) -Directories @(
     'omfx/executor/src',
-    'omfx/game/src'
+    'omfx/game/src',
+    'third_party/fyrox-impl-1.0.1/src'
 ))
 
 $frontendInputsRelease = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim $specs $log4rs (New-InputSet -Files @(
@@ -328,7 +329,8 @@ $frontendInputsRelease = Merge-InputSets $common $scriptAbi $omobaCore $template
     'omfx/game/Cargo.toml'
 ) -Directories @(
     'omfx/executor/src',
-    'omfx/game/src'
+    'omfx/game/src',
+    'third_party/fyrox-impl-1.0.1/src'
 ))
 
 $configs = @{
