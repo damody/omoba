@@ -2,6 +2,10 @@
 setlocal
 pushd "%~dp0"
 
+REM Options:
+REM   --trace  啟用 omfx Perfetto trace（輸出預設由 executor 決定；可先設定
+REM            OMFX_PERFETTO_PATH / OMFX_PERFETTO_DETAIL / OMFX_PERFETTO_MAX_SECONDS）
+
 set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
 set EXECUTOR=omfx\target\debug\executor.exe
 set BACKEND=omb\target\debug\omobab.exe
@@ -13,6 +17,22 @@ set OMB_LUA_HOT_RELOAD=1
 set OMB_STORY_DATA_DIR=%OMB_LUA_CONTENT_ROOT%
 set OMB_STORY=TD_1
 set OMB_SCENE_PATH=%OMB_STORY_DATA_DIR%\%OMB_STORY%
+
+set RUN_TRACE=
+:parse_args
+if "%~1"=="" goto :args_done
+if /I "%~1"=="--trace" set RUN_TRACE=1
+shift
+goto :parse_args
+
+:args_done
+if defined RUN_TRACE (
+    set OMFX_PERFETTO_TRACE=1
+    if not defined OMFX_PERFETTO_DETAIL set OMFX_PERFETTO_DETAIL=frame
+    if not defined OMFX_PERFETTO_PATH set OMFX_PERFETTO_PATH=omfx\target\profiles\run.perfetto-trace
+    echo Perfetto trace enabled for run.
+    echo   -^> trace path: %OMFX_PERFETTO_PATH%
+)
 
 echo [0/5] Killing stale processes (if any)...
 taskkill /f /im omobab.exe >nul 2>&1
