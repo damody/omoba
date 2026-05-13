@@ -165,6 +165,11 @@ pub enum Outcome {
         backswing_ms: u32,
         dir_rad: f32,
     },
+    ScriptStartCooldown {
+        entity: Entity,
+        ability_id: String,
+        duration: Fixed64,
+    },
     EntityRemoved {
         entity: Entity,
     },

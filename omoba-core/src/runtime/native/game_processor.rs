@@ -1059,6 +1059,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptProjectile { .. } => "ScriptProjectile",
         Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
         Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
+        Outcome::ScriptStartCooldown { .. } => "ScriptStartCooldown",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -1257,6 +1258,11 @@ pub fn process_outcomes(
                 backswing_ms,
                 dir_rad,
             ),
+            Outcome::ScriptStartCooldown {
+                entity,
+                ability_id,
+                duration,
+            } => handle_script_start_cooldown(world, entity, ability_id, duration),
             Outcome::EntityRemoved { entity } => {
                 world
                     .write_resource::<RemovedEntitiesQueue>()
@@ -1800,6 +1806,17 @@ fn handle_script_attack_phase_cue(
         target_pos_x: target_pos.map(|pos| pos.x.to_f32_for_render()),
         target_pos_y: target_pos.map(|pos| pos.y.to_f32_for_render()),
     });
+}
+
+fn handle_script_start_cooldown(
+    world: &mut World,
+    entity: Entity,
+    ability_id: String,
+    duration: Fixed64,
+) {
+    if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
+        hero.start_cooldown(&ability_id, duration);
+    }
 }
 
 #[cfg(test)]

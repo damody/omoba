@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use crate::comp::*;
 use crate::runtime::ability_runtime::{BuffStore, UnitStats};
 
+use super::tag::ScriptUnitTag;
+
 pub struct ParallelAdapterCache<'a> {
     pub entities: Entities<'a>,
     pub tattack: ReadStorage<'a, TAttack>,
@@ -24,6 +26,7 @@ pub struct ParallelAdapterCache<'a> {
     pub tower: ReadStorage<'a, Tower>,
     pub is_building: ReadStorage<'a, IsBuilding>,
     pub collision: ReadStorage<'a, CollisionRadius>,
+    pub tags: ReadStorage<'a, ScriptUnitTag>,
     pub buffs: Read<'a, BuffStore>,
     pub searcher: Read<'a, Searcher>,
     pub blocked: Read<'a, BlockedRegions>,
@@ -46,6 +49,7 @@ impl<'a> ParallelAdapterCache<'a> {
             tower: world.read_storage::<Tower>(),
             is_building: world.read_storage::<IsBuilding>(),
             collision: world.read_storage::<CollisionRadius>(),
+            tags: world.read_storage::<ScriptUnitTag>(),
             buffs: world.read_resource::<BuffStore>().into(),
             searcher: world.read_resource::<Searcher>().into(),
             blocked: world.read_resource::<BlockedRegions>().into(),
@@ -56,7 +60,7 @@ impl<'a> ParallelAdapterCache<'a> {
 }
 
 pub struct ParallelWorldAdapter<'a> {
-    cache: &'a ParallelAdapterCache<'a>,
+    pub cache: &'a ParallelAdapterCache<'a>,
     invocation_entity: Entity,
     invocation_rng_op: u32,
     outcomes: Vec<Outcome>,
@@ -80,6 +84,14 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     pub fn finish(self) -> Vec<Outcome> {
         self.outcomes
+    }
+
+    pub fn start_cooldown(&mut self, entity: Entity, ability_id: String, duration: Fixed64) {
+        self.outcomes.push(Outcome::ScriptStartCooldown {
+            entity,
+            ability_id,
+            duration,
+        });
     }
 
     #[inline]
@@ -853,6 +865,7 @@ mod tests {
         world.register::<Tower>();
         world.register::<IsBuilding>();
         world.register::<CollisionRadius>();
+        world.register::<ScriptUnitTag>();
         world.insert(BuffStore::default());
         world.insert(Searcher::default());
         world.insert(BlockedRegions::default());

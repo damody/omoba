@@ -5,11 +5,9 @@ pub mod event;
 pub mod parallel_world_adapter;
 pub mod registry;
 pub mod tag;
-pub mod world_adapter;
 
 pub use dispatch::run_script_dispatch;
 pub use event::{ScriptEvent, ScriptEventQueue, SkillTarget};
 pub use parallel_world_adapter::{ParallelAdapterCache, ParallelWorldAdapter};
 pub use registry::ScriptRegistry;
 pub use tag::ScriptUnitTag;
-pub use world_adapter::WorldAdapter;
