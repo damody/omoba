@@ -552,13 +552,17 @@ fn game_loop_iteration(
 
     let default_render_tps = (1.0 / fixed_time_step).round().max(1.0) as u32;
     let render_target_tps = render_target_tps(default_render_tps);
-    let render_interval = Duration::from_secs_f32(1.0 / render_target_tps as f32);
-    if updated
-        && last_redraw_request.elapsed() >= render_interval
-        && matches!(engine.graphics_context, GraphicsContext::Initialized(_))
-    {
-        *last_redraw_request = Instant::now();
-        return true;
+    if updated && matches!(engine.graphics_context, GraphicsContext::Initialized(_)) {
+        if render_target_tps >= default_render_tps {
+            *last_redraw_request = Instant::now();
+            return true;
+        }
+
+        let render_interval = Duration::from_secs_f32(1.0 / render_target_tps as f32);
+        if last_redraw_request.elapsed() >= render_interval {
+            *last_redraw_request = Instant::now();
+            return true;
+        }
     }
     false
 }

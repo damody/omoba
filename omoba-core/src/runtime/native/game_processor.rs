@@ -8,14 +8,14 @@ use vek::Vec2;
 use crate::runtime::ability_runtime::{AbilityRegistry, BuffStore};
 use crate::runtime::comp::tower_upgrade_rules;
 use crate::runtime::comp::{
-    AttackCancelFx, AttackCancelFxQueue, AttackCancelPhase, AttackSequencePhase, BlockedRegions,
-    Bounty, CProperty, CircularVision, CollisionRadius, Creep, CreepData, CreepStatus, ExplosionFx,
-    ExplosionFxQueue, Facing, FacingBroadcast, Faction, FactionType, Gold, Hero, Inventory, IsBase,
-    IsBuilding, MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue,
-    PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue, PendingTowerSellQueue,
-    PendingTowerSpawnQueue, PendingTowerUpgradeQueue, Pos, Projectile, RemovedEntitiesQueue,
-    Searcher, TAttack, TProperty, Tick, Tower, TowerData, TowerTemplate, TowerTemplateRegistry,
-    TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
+    AttackCancelFx, AttackCancelFxQueue, AttackCancelPhase, AttackPhaseFx, AttackPhaseFxQueue,
+    AttackSequencePhase, BlockedRegions, Bounty, CProperty, CircularVision, CollisionRadius, Creep,
+    CreepData, CreepStatus, ExplosionFx, ExplosionFxQueue, Facing, FacingBroadcast, Faction,
+    FactionType, Gold, Hero, Inventory, IsBase, IsBuilding, MasterSeed, MoveTarget, Outcome, Path,
+    PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue,
+    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue, Pos, Projectile,
+    RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerData, TowerFireFxQueue,
+    TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -1047,6 +1047,18 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::Explosion { .. } => "Explosion",
         Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
         Outcome::AttackPhaseCue { .. } => "AttackPhaseCue",
+        Outcome::ScriptSetPos { .. } => "ScriptSetPos",
+        Outcome::ScriptSetFacing { .. } => "ScriptSetFacing",
+        Outcome::ScriptSetAsdCount { .. } => "ScriptSetAsdCount",
+        Outcome::ScriptSetTowerAtk { .. } => "ScriptSetTowerAtk",
+        Outcome::ScriptSetTowerRange { .. } => "ScriptSetTowerRange",
+        Outcome::ScriptSetAsdInterval { .. } => "ScriptSetAsdInterval",
+        Outcome::ScriptDirectDamage { .. } => "ScriptDirectDamage",
+        Outcome::ScriptHeal { .. } => "ScriptHeal",
+        Outcome::ScriptRemoveBuff { .. } => "ScriptRemoveBuff",
+        Outcome::ScriptProjectile { .. } => "ScriptProjectile",
+        Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
+        Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -1167,6 +1179,78 @@ pub fn process_outcomes(
                 entity,
                 attack_seq,
                 is_critical,
+                target,
+                target_pos,
+                windup_ms,
+                backswing_ms,
+                dir_rad,
+            ),
+            Outcome::ScriptSetPos { entity, pos } => handle_script_set_pos(world, entity, pos),
+            Outcome::ScriptSetFacing { entity, facing } => {
+                handle_script_set_facing(world, entity, facing)
+            }
+            Outcome::ScriptSetAsdCount { entity, asd_count } => {
+                handle_script_set_asd_count(world, entity, asd_count)
+            }
+            Outcome::ScriptSetTowerAtk { entity, value } => {
+                handle_script_set_tower_atk(world, entity, value)
+            }
+            Outcome::ScriptSetTowerRange { entity, value } => {
+                handle_script_set_tower_range(world, entity, value)
+            }
+            Outcome::ScriptSetAsdInterval { entity, value } => {
+                handle_script_set_asd_interval(world, entity, value)
+            }
+            Outcome::ScriptDirectDamage { target, amount } => {
+                handle_script_direct_damage(world, target, amount)
+            }
+            Outcome::ScriptHeal { target, amount } => handle_script_heal(world, target, amount),
+            Outcome::ScriptRemoveBuff { target, buff_id } => {
+                handle_script_remove_buff(world, target, buff_id)
+            }
+            Outcome::ScriptProjectile {
+                pos,
+                owner,
+                target,
+                tpos,
+                radius,
+                msd,
+                damage_phys,
+                damage_magi,
+                damage_real,
+                slow_factor,
+                slow_duration,
+                hit_radius,
+                stun_duration,
+            } => handle_script_projectile(
+                world,
+                pos,
+                owner,
+                target,
+                tpos,
+                radius,
+                msd,
+                damage_phys,
+                damage_magi,
+                damage_real,
+                slow_factor,
+                slow_duration,
+                hit_radius,
+                stun_duration,
+            ),
+            Outcome::ScriptTowerFireFx { entity, dir_rad } => {
+                handle_script_tower_fire_fx(world, entity, dir_rad)
+            }
+            Outcome::ScriptAttackPhaseCue {
+                entity,
+                target,
+                target_pos,
+                windup_ms,
+                backswing_ms,
+                dir_rad,
+            } => handle_script_attack_phase_cue(
+                world,
+                entity,
                 target,
                 target_pos,
                 windup_ms,
@@ -1554,10 +1638,175 @@ fn creep_bounty_from_template(creep_name: &str) -> Bounty {
     }
 }
 
+fn handle_script_set_pos(world: &mut World, entity: Entity, pos: omoba_sim::Vec2) {
+    if let Some(pos_comp) = world.write_storage::<Pos>().get_mut(entity) {
+        pos_comp.0 = pos;
+    }
+}
+
+fn handle_script_set_facing(world: &mut World, entity: Entity, facing: omoba_sim::Angle) {
+    if let Some(facing_comp) = world.write_storage::<Facing>().get_mut(entity) {
+        facing_comp.0 = facing;
+    }
+}
+
+fn handle_script_set_asd_count(world: &mut World, entity: Entity, asd_count: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.asd_count = asd_count;
+    }
+}
+
+fn handle_script_set_tower_atk(world: &mut World, entity: Entity, value: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.atk_physic.bv = value;
+        attack.atk_physic.v = value;
+    }
+}
+
+fn handle_script_set_tower_range(world: &mut World, entity: Entity, value: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.range.bv = value;
+        attack.range.v = value;
+    }
+}
+
+fn handle_script_set_asd_interval(world: &mut World, entity: Entity, value: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.asd.bv = value;
+        attack.asd.v = value;
+    }
+}
+
+fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed64) {
+    if let Some(prop) = world.write_storage::<CProperty>().get_mut(target) {
+        prop.hp = (prop.hp - amount).max(Fixed64::ZERO);
+        return;
+    }
+    if let Some(unit) = world.write_storage::<Unit>().get_mut(target) {
+        let amount_i = amount.to_f32_for_render() as i32;
+        unit.current_hp = (unit.current_hp - amount_i).max(0);
+    }
+}
+
+fn handle_script_heal(world: &mut World, target: Entity, amount: Fixed64) {
+    if let Some(prop) = world.write_storage::<CProperty>().get_mut(target) {
+        prop.hp = (prop.hp + amount).min(prop.mhp);
+        return;
+    }
+    if let Some(unit) = world.write_storage::<Unit>().get_mut(target) {
+        let amount_i = amount.to_f32_for_render() as i32;
+        unit.current_hp = (unit.current_hp + amount_i).min(unit.max_hp);
+    }
+}
+
+fn handle_script_remove_buff(world: &mut World, target: Entity, buff_id: String) {
+    world.write_resource::<BuffStore>().remove(target, &buff_id);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_script_projectile(
+    world: &mut World,
+    pos: omoba_sim::Vec2,
+    owner: Entity,
+    target: Option<Entity>,
+    tpos: omoba_sim::Vec2,
+    radius: Fixed64,
+    msd: Fixed64,
+    damage_phys: Fixed64,
+    damage_magi: Fixed64,
+    damage_real: Fixed64,
+    slow_factor: Fixed64,
+    slow_duration: Fixed64,
+    hit_radius: Fixed64,
+    stun_duration: Fixed64,
+) {
+    let initial_dist = (tpos - pos).length();
+    let speed_f = msd.to_f32_for_render();
+    let flight_time_s = if speed_f > 0.0 {
+        (initial_dist.to_f32_for_render() / speed_f).max(0.01)
+    } else {
+        0.01
+    };
+    let safety =
+        Fixed64::from_raw(((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i64);
+
+    world
+        .create_entity()
+        .with(Pos(pos))
+        .with(Projectile {
+            time_left: safety,
+            owner,
+            target,
+            tpos,
+            radius,
+            msd,
+            damage_phys,
+            damage_magi,
+            damage_real,
+            slow_factor,
+            slow_duration,
+            hit_radius,
+            stun_duration,
+        })
+        .build();
+}
+
+fn handle_script_tower_fire_fx(world: &mut World, entity: Entity, dir_rad: f32) {
+    if world.read_storage::<Tower>().get(entity).is_none() {
+        return;
+    }
+    let spawn_tick = world.read_resource::<Tick>().0 as u32;
+    let entity_id = entity.id();
+    let mut queue = world.write_resource::<TowerFireFxQueue>();
+    if queue
+        .pending
+        .iter()
+        .any(|fx| fx.entity_id == entity_id && fx.spawn_tick == spawn_tick)
+    {
+        return;
+    }
+    queue.pending.push(crate::runtime::comp::TowerFireFx {
+        entity_id,
+        entity_gen: entity.gen().id() as u32,
+        spawn_tick,
+        dir_rad,
+    });
+}
+
+fn handle_script_attack_phase_cue(
+    world: &mut World,
+    entity: Entity,
+    target: Option<Entity>,
+    target_pos: Option<omoba_sim::Vec2>,
+    windup_ms: u32,
+    backswing_ms: u32,
+    dir_rad: f32,
+) {
+    let current_tick = world.read_resource::<Tick>().0 as u32;
+    let mut queue = world.write_resource::<AttackPhaseFxQueue>();
+    let attack_seq = queue.next_seq;
+    queue.next_seq = queue.next_seq.wrapping_add(1);
+    queue.pending.push(AttackPhaseFx {
+        entity_id: entity.id(),
+        entity_gen: entity.gen().id() as u32,
+        spawn_tick: current_tick,
+        attack_seq,
+        is_critical: false,
+        windup_ms,
+        impact_at_ms: windup_ms,
+        backswing_ms,
+        dir_rad,
+        target_entity_id: target.map(|target| target.id()),
+        target_pos_x: target_pos.map(|pos| pos.x.to_f32_for_render()),
+        target_pos_y: target_pos.map(|pos| pos.y.to_f32_for_render()),
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use omoba_template_ids::{active_creep_stats, creep_id_str, CreepId};
+    use specs::Join;
 
     #[test]
     fn creep_bounty_uses_active_template_rewards() {
@@ -1568,6 +1817,139 @@ mod tests {
         let bounty = creep_bounty_from_template(name);
         assert_eq!(bounty.gold, stats.gold_reward);
         assert_eq!(bounty.exp, stats.exp_reward);
+    }
+
+    fn world_for_script_outcome_tests() -> (World, Entity) {
+        let mut world = World::new();
+        world.register::<Pos>();
+        world.register::<Facing>();
+        world.register::<TAttack>();
+        world.register::<Tower>();
+        world.register::<Projectile>();
+        world.register::<CProperty>();
+        world.insert(Vec::<Outcome>::new());
+        world.insert(Tick(7));
+        world.insert(TowerFireFxQueue::default());
+        world.insert(AttackPhaseFxQueue::default());
+        world.insert(ExplosionFxQueue::default());
+        world.insert(RemovedEntitiesQueue::default());
+        world.insert(BuffStore::default());
+
+        let entity = world
+            .create_entity()
+            .with(Pos(omoba_sim::Vec2::new(
+                Fixed64::from_i32(1),
+                Fixed64::from_i32(2),
+            )))
+            .with(Facing(omoba_sim::Angle::ZERO))
+            .with(Tower::new())
+            .with(TAttack::new(
+                Fixed64::from_i32(10),
+                Fixed64::from_i32(1),
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(900),
+            ))
+            .build();
+        (world, entity)
+    }
+
+    #[test]
+    fn script_outcomes_apply_in_order() {
+        let (mut world, entity) = world_for_script_outcome_tests();
+        let pos = omoba_sim::Vec2::new(Fixed64::from_i32(5), Fixed64::from_i32(6));
+        let facing = omoba_sim::Angle::from_degrees_i32(90);
+        world.write_resource::<Vec<Outcome>>().extend([
+            Outcome::ScriptSetAsdCount {
+                entity,
+                asd_count: Fixed64::from_raw(111),
+            },
+            Outcome::ScriptSetAsdCount {
+                entity,
+                asd_count: Fixed64::from_raw(222),
+            },
+            Outcome::ScriptSetPos { entity, pos },
+            Outcome::ScriptSetFacing { entity, facing },
+            Outcome::ScriptTowerFireFx {
+                entity,
+                dir_rad: 1.25,
+            },
+            Outcome::ScriptProjectile {
+                pos,
+                owner: entity,
+                target: None,
+                tpos: omoba_sim::Vec2::new(Fixed64::from_i32(10), Fixed64::from_i32(6)),
+                radius: Fixed64::ZERO,
+                msd: Fixed64::from_i32(900),
+                damage_phys: Fixed64::from_i32(10),
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
+            },
+        ]);
+
+        let mut sink = crate::runtime::RuntimeEventVecSink::default();
+        process_outcomes(&mut world, &mut sink).expect("script outcomes apply");
+
+        assert_eq!(world.read_storage::<Pos>().get(entity).unwrap().0, pos);
+        assert_eq!(
+            world.read_storage::<Facing>().get(entity).unwrap().0,
+            facing
+        );
+        assert_eq!(
+            world
+                .read_storage::<TAttack>()
+                .get(entity)
+                .unwrap()
+                .asd_count,
+            Fixed64::from_raw(222)
+        );
+        assert_eq!(
+            (&world.entities(), &world.read_storage::<Projectile>())
+                .join()
+                .count(),
+            1
+        );
+        assert_eq!(world.read_resource::<TowerFireFxQueue>().pending.len(), 1);
+    }
+
+    #[test]
+    fn script_direct_damage_and_heal_match_adapter_semantics() {
+        let (mut world, entity) = world_for_script_outcome_tests();
+        let target = world
+            .create_entity()
+            .with(CProperty {
+                hp: Fixed64::from_i32(30),
+                mhp: Fixed64::from_i32(40),
+                msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .build();
+        world.write_resource::<Vec<Outcome>>().extend([
+            Outcome::ScriptDirectDamage {
+                target,
+                amount: Fixed64::from_i32(50),
+            },
+            Outcome::ScriptHeal {
+                target,
+                amount: Fixed64::from_i32(15),
+            },
+            Outcome::ScriptRemoveBuff {
+                target: entity,
+                buff_id: "missing".to_string(),
+            },
+        ]);
+
+        let mut sink = crate::runtime::RuntimeEventVecSink::default();
+        process_outcomes(&mut world, &mut sink).expect("damage and heal apply");
+
+        assert_eq!(
+            world.read_storage::<CProperty>().get(target).unwrap().hp,
+            Fixed64::from_i32(15)
+        );
     }
 }
 

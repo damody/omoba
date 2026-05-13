@@ -14,15 +14,20 @@ use omb_script_abi::{
     types::{DamageInfo, DamageKind, EntityHandle, Fixed64, Target, Vec2},
     world::{GameWorldDyn, GameWorld_TO},
 };
+use rayon::prelude::*;
 use specs::{Entity, Join, World, WorldExt};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use std::time::Instant;
 
 use super::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
+use super::parallel_world_adapter::{ParallelAdapterCache, ParallelWorldAdapter};
 use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
 use super::world_adapter::{AdapterCache, WorldAdapter};
+
+const SCRIPT_ON_TICK_DEFERRED_OUTCOMES: bool = true;
+const SCRIPT_ON_TICK_PARALLEL: bool = true;
 
 /// 主入口點 - 在所有平行報價系統之後，每個報價調用一次
 /// 已經完成並且在 `world.maintain()` 之前。
@@ -54,7 +59,8 @@ pub fn run_script_dispatch(
         return;
     }
 
-    let tagged = filter_ready_on_ticks(world, tagged, dt);
+    let mut tagged = filter_ready_on_ticks(world, tagged, dt);
+    tagged.sort_by_key(|(entity, unit_id)| (entity.id(), entity.gen().id(), unit_id.clone()));
     let dispatch_span = tracing::trace_span!(
         "omoba_core::runtime::run_script_dispatch",
         perfetto = true,
@@ -62,12 +68,6 @@ pub fn run_script_dispatch(
         event_count = events.len(),
     )
     .entered();
-
-    // 每個刻度一個適配器； RNG 對此調度通道而言是本地的
-    // 確定性重播（由上游滴答計數器驅動的種子）。
-    // Cached storages 在這個 adapter 生命週期內共用，所有 GameWorld API 不再
-    // 重新 borrow specs storage（單筆 4.17µs → 預期 ~1.5µs）。
-    let mut adapter = WorldAdapter::new(&*world, rng_seed);
 
     // 首先調度排隊事件（Spawn / AttackHit / Damage / Death / ...）
     // 這樣新 spawn 的塔 on_spawn 能先初始化 stats，第一次 on_tick 看得到正確值
@@ -79,8 +79,13 @@ pub fn run_script_dispatch(
         event_count,
     )
     .entered();
-    for ev in events {
-        dispatch_one(&mut adapter, registry, ev);
+    {
+        // Event hooks stay serial because they can mutate shared ECS state and may
+        // intentionally observe earlier hook side effects in queue order.
+        let mut adapter = WorldAdapter::new(&*world, rng_seed);
+        for ev in events {
+            dispatch_one(&mut adapter, registry, ev);
+        }
     }
     let event_ns = event_t.elapsed().as_nanos();
     drop(event_span);
@@ -89,32 +94,74 @@ pub fn run_script_dispatch(
     // 收集 (script_id, ns) — 不能在迴圈裡觸 adapter borrow 的 world，所以先攢著
     // 之後 drop(adapter) 再一次性 push 到 TickProfile。
     let mut on_tick_timings: Vec<(String, u128)> = Vec::with_capacity(tagged.len());
+    let on_tick_compute_started = Instant::now();
+    let mut deferred_outcome_count = 0usize;
     let on_tick_span = tracing::trace_span!(
         "omoba_core::runtime::script_on_tick",
         perfetto = true,
         tagged_count = tagged.len(),
     )
     .entered();
-    for (ent, uid) in &tagged {
-        let Some(script) = registry.get(uid) else {
-            continue;
-        };
-        let handle = WorldAdapter::entity_to_handle(*ent);
-        let t = Instant::now();
-        let mut world_dyn = world_dyn_of(&mut adapter);
-        let r = catch_unwind(AssertUnwindSafe(|| {
-            script.on_tick(handle, dt, &mut world_dyn);
-        }));
-        let ns = t.elapsed().as_nanos();
-        if r.is_err() {
-            log::error!("[scripting] panic in on_tick of {}", uid);
+    if SCRIPT_ON_TICK_PARALLEL {
+        let cache = ParallelAdapterCache::new(&*world, rng_seed);
+        let results: Vec<_> = tagged
+            .par_iter()
+            .map(|(ent, uid)| {
+                let Some(script) = registry.get(uid) else {
+                    return None;
+                };
+                let handle = ParallelWorldAdapter::entity_to_handle(*ent);
+                let t = Instant::now();
+                let mut adapter = ParallelWorldAdapter::new(&cache, *ent);
+                let mut world_dyn = parallel_world_dyn_of(&mut adapter);
+                let r = catch_unwind(AssertUnwindSafe(|| {
+                    script.on_tick(handle, dt, &mut world_dyn);
+                }));
+                drop(world_dyn);
+                let ns = t.elapsed().as_nanos();
+                if r.is_err() {
+                    log::error!("[scripting] panic in on_tick of {}", uid);
+                }
+                Some((uid.clone(), ns, adapter.finish()))
+            })
+            .collect();
+        drop(cache);
+        let mut global_outcomes = world.write_resource::<Vec<crate::comp::Outcome>>();
+        for result in results {
+            if let Some((uid, ns, mut outcomes)) = result {
+                deferred_outcome_count += outcomes.len();
+                global_outcomes.append(&mut outcomes);
+                on_tick_timings.push((uid, ns));
+            }
         }
-        on_tick_timings.push((uid.clone(), ns));
+    } else {
+        let mut adapter = WorldAdapter::new(&*world, rng_seed);
+        for (ent, uid) in &tagged {
+            let Some(script) = registry.get(uid) else {
+                continue;
+            };
+            let handle = WorldAdapter::entity_to_handle(*ent);
+            let t = Instant::now();
+            if SCRIPT_ON_TICK_DEFERRED_OUTCOMES {
+                adapter.begin_deferred_invocation(*ent);
+            }
+            let mut world_dyn = world_dyn_of(&mut adapter);
+            let r = catch_unwind(AssertUnwindSafe(|| {
+                script.on_tick(handle, dt, &mut world_dyn);
+            }));
+            drop(world_dyn);
+            let ns = t.elapsed().as_nanos();
+            if SCRIPT_ON_TICK_DEFERRED_OUTCOMES {
+                deferred_outcome_count += adapter.flush_deferred_invocation();
+            }
+            if r.is_err() {
+                log::error!("[scripting] panic in on_tick of {}", uid);
+            }
+            on_tick_timings.push((uid.clone(), ns));
+        }
     }
+    let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
     drop(on_tick_span);
-
-    // 釋放 adapter 對 world 的 &mut 借用，才能拿到 TickProfile resource
-    drop(adapter);
 
     {
         use crate::comp::TickProfile;
@@ -128,6 +175,11 @@ pub fn run_script_dispatch(
         for (id, ns) in on_tick_timings {
             profile.record_script(&id, ns);
         }
+        profile.record_script_compute_batch(
+            tagged.len(),
+            on_tick_compute_ns,
+            deferred_outcome_count,
+        );
     }
     drop(dispatch_span);
 }
@@ -629,6 +681,10 @@ where
 
 /// 建構一個“GameWorldDyn”，借用適配器進行一次鉤子呼叫。
 fn world_dyn_of<'a>(adapter: &'a mut WorldAdapter<'_>) -> GameWorldDyn<'a> {
+    GameWorld_TO::from_ptr(RMut::new(adapter), TD_Opaque)
+}
+
+fn parallel_world_dyn_of<'a>(adapter: &'a mut ParallelWorldAdapter<'_>) -> GameWorldDyn<'a> {
     GameWorld_TO::from_ptr(RMut::new(adapter), TD_Opaque)
 }
 

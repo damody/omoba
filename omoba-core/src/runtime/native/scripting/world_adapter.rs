@@ -19,6 +19,7 @@ use specs::{
     Builder, Entities, Entity, Join, LazyUpdate, Read, ReadStorage, World, WorldExt, Write,
     WriteStorage,
 };
+use std::collections::HashMap;
 
 use super::event::{ScriptEvent, ScriptEventQueue};
 use super::tag::ScriptUnitTag;
@@ -110,6 +111,14 @@ impl<'a> AdapterCache<'a> {
 pub struct WorldAdapter<'a> {
     pub cache: AdapterCache<'a>,
     pub rng: Pcg64Mcg,
+    rng_seed: u64,
+    current_invocation_entity: Option<Entity>,
+    invocation_rng_op: u32,
+    defer_mutations: bool,
+    deferred: Vec<crate::comp::Outcome>,
+    overlay_pos: HashMap<Entity, Vec2>,
+    overlay_facing: HashMap<Entity, Angle>,
+    overlay_asd_count: HashMap<Entity, Fixed64>,
 }
 
 impl<'a> WorldAdapter<'a> {
@@ -122,7 +131,37 @@ impl<'a> WorldAdapter<'a> {
         Self {
             cache,
             rng: Pcg64Mcg::seed_from_u64(seed),
+            rng_seed: seed,
+            current_invocation_entity: None,
+            invocation_rng_op: 0,
+            defer_mutations: false,
+            deferred: Vec::new(),
+            overlay_pos: HashMap::new(),
+            overlay_facing: HashMap::new(),
+            overlay_asd_count: HashMap::new(),
         }
+    }
+
+    pub fn begin_deferred_invocation(&mut self, entity: Entity) {
+        self.defer_mutations = true;
+        self.current_invocation_entity = Some(entity);
+        self.invocation_rng_op = 0;
+        self.deferred.clear();
+        self.overlay_pos.clear();
+        self.overlay_facing.clear();
+        self.overlay_asd_count.clear();
+    }
+
+    pub fn flush_deferred_invocation(&mut self) -> usize {
+        let count = self.deferred.len();
+        self.cache.outcomes.extend(self.deferred.drain(..));
+        self.overlay_pos.clear();
+        self.overlay_facing.clear();
+        self.overlay_asd_count.clear();
+        self.defer_mutations = false;
+        self.current_invocation_entity = None;
+        self.invocation_rng_op = 0;
+        count
     }
 
     #[inline]
@@ -151,6 +190,21 @@ impl<'a> WorldAdapter<'a> {
 
     fn push_tower_fire_fx(&mut self, owner: Entity, dir_rad: f32) {
         if self.cache.tower.get(owner).is_none() {
+            return;
+        }
+        if self.defer_mutations {
+            if self.deferred.iter().any(|outcome| {
+                matches!(
+                    outcome,
+                    crate::comp::Outcome::ScriptTowerFireFx { entity, .. } if *entity == owner
+                )
+            }) {
+                return;
+            }
+            self.deferred.push(crate::comp::Outcome::ScriptTowerFireFx {
+                entity: owner,
+                dir_rad,
+            });
             return;
         }
         let spawn_tick = self.cache.tick.0 as u32;
@@ -186,6 +240,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return RNone;
         };
+        if let Some(p) = self.overlay_pos.get(&ent) {
+            return RSome(*p);
+        }
         match self.cache.pos.get(ent) {
             Some(p) => RSome(p.0),
             None => RNone,
@@ -278,6 +335,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return;
         };
+        if self.defer_mutations {
+            self.overlay_pos.insert(ent, p);
+            self.deferred.push(crate::comp::Outcome::ScriptSetPos {
+                entity: ent,
+                pos: p,
+            });
+            return;
+        }
         if let Some(pos) = self.cache.pos.get_mut(ent) {
             pos.0 = p;
         }
@@ -322,6 +387,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(target) else {
             return;
         };
+        if self.defer_mutations {
+            self.deferred
+                .push(crate::comp::Outcome::ScriptDirectDamage {
+                    target: ent,
+                    amount,
+                });
+            return;
+        }
         // 階段 1c.3：CProperty.hp 是 Fix64 — 直接算術。
         if let Some(p) = self.cache.cprop.get_mut(ent) {
             let new_hp = p.hp - amount;
@@ -343,6 +416,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(target) else {
             return;
         };
+        if self.defer_mutations {
+            self.deferred.push(crate::comp::Outcome::ScriptHeal {
+                target: ent,
+                amount,
+            });
+            return;
+        }
         // 階段 1c.3：CProperty.hp / mhp 現在是 Fix64 — 直接算術。
         if let Some(p) = self.cache.cprop.get_mut(ent) {
             let new_hp = p.hp + amount;
@@ -361,6 +441,15 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             return;
         };
         let id_owned = buff_id.as_str().to_string();
+        if self.defer_mutations {
+            self.deferred.push(crate::comp::Outcome::AddBuff {
+                target: ent,
+                buff_id: id_owned,
+                duration,
+                payload: serde_json::Value::Null,
+            });
+            return;
+        }
         // 階段 1c.3：BuffStore::add 現在採用 Fix64 — 直接呼叫。
         self.cache
             .buffs
@@ -376,6 +465,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             return;
         };
         let id_owned = buff_id.as_str().to_string();
+        if self.defer_mutations {
+            self.deferred.push(crate::comp::Outcome::ScriptRemoveBuff {
+                target: ent,
+                buff_id: id_owned,
+            });
+            return;
+        }
         self.cache.buffs.remove(ent, &id_owned);
         self.cache.events.push(ScriptEvent::ModifierRemoved {
             e: ent,
@@ -403,6 +499,15 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let payload: serde_json::Value =
             serde_json::from_str(modifiers_json.as_str()).unwrap_or(serde_json::Value::Null);
         let id_owned = buff_id.as_str().to_string();
+        if self.defer_mutations {
+            self.deferred.push(crate::comp::Outcome::AddBuff {
+                target: ent,
+                buff_id: id_owned,
+                duration,
+                payload,
+            });
+            return;
+        }
         // 階段 1c.3：BuffStore::add 現在採用 Fix64 — 直接呼叫。
         self.cache.buffs.add(ent, &id_owned, duration, payload);
         self.cache.events.push(ScriptEvent::ModifierAdded {
@@ -540,6 +645,30 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             ((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i64,
         );
         let fire_angle = omoba_sim::trig::atan2(tpos.y - from.y, tpos.x - from.x);
+        if self.defer_mutations {
+            self.overlay_facing.insert(owner_ent, fire_angle);
+            self.deferred.push(crate::comp::Outcome::ScriptSetFacing {
+                entity: owner_ent,
+                facing: fire_angle,
+            });
+            self.push_tower_fire_fx(owner_ent, Self::angle_to_rad_f32(fire_angle));
+            self.deferred.push(crate::comp::Outcome::ScriptProjectile {
+                pos: from,
+                owner: owner_ent,
+                target: target_opt,
+                tpos,
+                radius: spec.splash_radius,
+                msd: spec.speed,
+                damage_phys: spec.damage,
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                slow_factor: spec.slow_factor,
+                slow_duration: spec.slow_duration,
+                hit_radius: spec.hit_radius,
+                stun_duration: spec.stun_duration,
+            });
+            return EntityHandle::INVALID;
+        }
         if let Some(facing) = self.cache.facing.get_mut(owner_ent) {
             facing.0 = fire_angle;
         }
@@ -572,6 +701,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     }
 
     fn emit_explosion(&mut self, pos: Vec2, radius: Fixed64, duration: Fixed64) {
+        if self.defer_mutations {
+            self.deferred.push(crate::comp::Outcome::Explosion {
+                pos,
+                radius,
+                duration,
+            });
+            return;
+        }
         // 階段 4.2：爆炸特效走鎖步快照管道；
         // 現在透過推入來完成
         // `ExplosionFxQueue`。 sim_runner 提取器會耗盡每個
@@ -644,6 +781,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Fixed64::ZERO;
         };
+        if let Some(v) = self.overlay_asd_count.get(&ent) {
+            return *v;
+        }
         // 階段 1c.3：TAtack.asd_count 為 Fix64 — 直接回傳。
         self.cache
             .tattack
@@ -656,6 +796,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return;
         };
+        if self.defer_mutations {
+            self.overlay_asd_count.insert(ent, v);
+            self.deferred.push(crate::comp::Outcome::ScriptSetAsdCount {
+                entity: ent,
+                asd_count: v,
+            });
+            return;
+        }
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：TAtack.asd_count 是固定 64 — 直接寫入。
             t.asd_count = v;
@@ -666,6 +814,13 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return;
         };
+        if self.defer_mutations {
+            self.deferred.push(crate::comp::Outcome::ScriptSetTowerAtk {
+                entity: ent,
+                value: v,
+            });
+            return;
+        }
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：Vf32 保留 Fix64 — 直接寫入。
             t.atk_physic.bv = v;
@@ -677,6 +832,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return;
         };
+        if self.defer_mutations {
+            self.deferred
+                .push(crate::comp::Outcome::ScriptSetTowerRange {
+                    entity: ent,
+                    value: v,
+                });
+            return;
+        }
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：Vf32 保留 Fix64 — 直接寫入。
             t.range.bv = v;
@@ -688,6 +851,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return;
         };
+        if self.defer_mutations {
+            self.deferred
+                .push(crate::comp::Outcome::ScriptSetAsdInterval {
+                    entity: ent,
+                    value: v,
+                });
+            return;
+        }
         if let Some(t) = self.cache.tattack.get_mut(ent) {
             // 階段 1c.3：Vf32 保留 Fix64 — 直接寫入。
             t.asd.bv = v;
@@ -699,6 +870,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return;
         };
+        if self.defer_mutations {
+            self.overlay_facing.insert(ent, angle);
+            self.deferred.push(crate::comp::Outcome::ScriptSetFacing {
+                entity: ent,
+                facing: angle,
+            });
+            return;
+        }
         if let Some(f) = self.cache.facing.get_mut(ent) {
             f.0 = angle;
         }
@@ -708,6 +887,9 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Angle::ZERO;
         };
+        if let Some(angle) = self.overlay_facing.get(&ent) {
+            return *angle;
+        }
         self.cache
             .facing
             .get(ent)
@@ -767,6 +949,21 @@ impl<'a> GameWorld for WorldAdapter<'a> {
     // ---------------- RNG ----------------
 
     fn rand_unit(&mut self) -> Fixed64 {
+        if self.defer_mutations {
+            let entity_id = self
+                .current_invocation_entity
+                .map(|entity| entity.id())
+                .unwrap_or(0);
+            let op_kind = 1_000u32.wrapping_add(self.invocation_rng_op);
+            self.invocation_rng_op = self.invocation_rng_op.wrapping_add(1);
+            let mut rng = omoba_sim::SimRng::from_master_entity(
+                self.rng_seed,
+                self.cache.tick.0 as u32,
+                entity_id,
+                op_kind,
+            );
+            return rng.gen_fixed64_unit();
+        }
         // 階段 1de.2：確定性 Pcg64Mcg → Fix64 [0,1)，無 f32 量化。
         // 匹配 omoba_sim::SimRng::gen_fixed64_unit （相同的 Pcg 變體，相同的模 1024）。
         // 這裡的 Pcg64Mcg 透過 `WorldAdapter::new(world, Seed, ..)` 在每次調度時播種，
@@ -1077,12 +1274,7 @@ impl<'a> GameWorld for WorldAdapter<'a> {
             ROption::RNone => return,
         };
         if let Some(source_ent) = Self::handle_to_entity(of) {
-            let dir = self
-                .cache
-                .facing
-                .get(source_ent)
-                .map(|f| Self::angle_to_rad_f32(f.0))
-                .unwrap_or(0.0);
+            let dir = Self::angle_to_rad_f32(self.get_facing(Self::entity_to_handle(source_ent)));
             self.push_tower_fire_fx(source_ent, dir);
         }
         let targets = self.query_enemies_in_range(at, radius, of);
@@ -1104,14 +1296,14 @@ impl<'a> GameWorld for WorldAdapter<'a> {
         let Some(pos) = self.cache.pos.get(ent).map(|p| p.0) else {
             return;
         };
-        let (target_entity_id, target_pos) = match target {
+        let (target_entity, target_entity_id, target_pos) = match target {
             Target::Entity(handle) => {
                 let target_ent = Self::handle_to_entity(handle);
                 let tpos = target_ent.and_then(|te| self.cache.pos.get(te).map(|p| p.0));
-                (target_ent.map(|te| te.id()), tpos)
+                (target_ent, target_ent.map(|te| te.id()), tpos)
             }
-            Target::Point(point) => (None, Some(point)),
-            Target::None => (None, None),
+            Target::Point(point) => (None, None, Some(point)),
+            Target::None => (None, None, None),
         };
         let dir_angle = if let Some(tpos) = target_pos {
             omoba_sim::trig::atan2(tpos.y - pos.y, tpos.x - pos.x)
@@ -1122,6 +1314,23 @@ impl<'a> GameWorld for WorldAdapter<'a> {
                 .map(|f| f.0)
                 .unwrap_or(Angle::ZERO)
         };
+        if self.defer_mutations {
+            self.overlay_facing.insert(ent, dir_angle);
+            self.deferred.push(crate::comp::Outcome::ScriptSetFacing {
+                entity: ent,
+                facing: dir_angle,
+            });
+            self.deferred
+                .push(crate::comp::Outcome::ScriptAttackPhaseCue {
+                    entity: ent,
+                    target: target_entity,
+                    target_pos,
+                    windup_ms,
+                    backswing_ms,
+                    dir_rad: Self::angle_to_rad_f32(dir_angle),
+                });
+            return;
+        }
         if let Some(facing) = self.cache.facing.get_mut(ent) {
             facing.0 = dir_angle;
         }

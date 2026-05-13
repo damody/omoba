@@ -102,6 +102,69 @@ pub enum Outcome {
         backswing_ms: u32,
         dir_rad: f32,
     },
+    ScriptSetPos {
+        entity: Entity,
+        pos: SimVec2,
+    },
+    ScriptSetFacing {
+        entity: Entity,
+        facing: omoba_sim::Angle,
+    },
+    ScriptSetAsdCount {
+        entity: Entity,
+        asd_count: Fixed64,
+    },
+    ScriptSetTowerAtk {
+        entity: Entity,
+        value: Fixed64,
+    },
+    ScriptSetTowerRange {
+        entity: Entity,
+        value: Fixed64,
+    },
+    ScriptSetAsdInterval {
+        entity: Entity,
+        value: Fixed64,
+    },
+    ScriptDirectDamage {
+        target: Entity,
+        amount: Fixed64,
+    },
+    ScriptHeal {
+        target: Entity,
+        amount: Fixed64,
+    },
+    ScriptRemoveBuff {
+        target: Entity,
+        buff_id: String,
+    },
+    ScriptProjectile {
+        pos: SimVec2,
+        owner: Entity,
+        target: Option<Entity>,
+        tpos: SimVec2,
+        radius: Fixed64,
+        msd: Fixed64,
+        damage_phys: Fixed64,
+        damage_magi: Fixed64,
+        damage_real: Fixed64,
+        slow_factor: Fixed64,
+        slow_duration: Fixed64,
+        hit_radius: Fixed64,
+        stun_duration: Fixed64,
+    },
+    ScriptTowerFireFx {
+        entity: Entity,
+        dir_rad: f32,
+    },
+    ScriptAttackPhaseCue {
+        entity: Entity,
+        target: Option<Entity>,
+        target_pos: Option<SimVec2>,
+        windup_ms: u32,
+        backswing_ms: u32,
+        dir_rad: f32,
+    },
     EntityRemoved {
         entity: Entity,
     },

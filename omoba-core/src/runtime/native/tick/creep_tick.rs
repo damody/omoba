@@ -108,228 +108,233 @@ impl<'a> System<'a> for Sys {
                         (guard, tracing_guard)
                     },
                     |(_guard, _tracing_guard), (e, creep, pos, cp, facing, facing_bc)| {
-                    let mut outcomes: Vec<Outcome> = Vec::new();
-                    let mut cands: Vec<MoveCandidate> = Vec::new();
+                        let mut outcomes: Vec<Outcome> = Vec::new();
+                        let mut cands: Vec<MoveCandidate> = Vec::new();
 
-                    #[inline(always)]
-                    fn p_to_f(p: SimVec2) -> vek::Vec2<f32> {
-                        vek::Vec2::new(p.x.to_f32_for_render(), p.y.to_f32_for_render())
-                    }
-                    #[inline(always)]
-                    fn a_to_rad(a: Angle) -> f32 {
-                        (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
-                    }
-
-                    let mut new_pos = pos.0;
-                    let mut new_status = creep.status.clone();
-                    let mut new_pidx = creep.pidx;
-                    let mut new_facing = facing.0;
-                    let mut new_facing_bc = facing_bc.0;
-                    let mut needs_update = false;
-
-                    if cp.hp <= Fixed64::ZERO {
-                        log::info!(
-                            "☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
-                            creep.name,
-                            cp.hp.to_f32_for_render(),
-                            cp.mhp.to_f32_for_render(),
-                            e.id()
-                        );
-                        outcomes.push(Outcome::Death { pos: pos.0, ent: e });
-                        return (outcomes, cands);
-                    }
-
-                    let Some(path) = tr.paths.get(&creep.path) else {
-                        return (outcomes, cands);
-                    };
-                    if creep.block_tower.is_some() {
-                        return (outcomes, cands);
-                    }
-                    if creep.pidx >= path.check_points.len() {
-                        if !matches!(creep.status, CreepStatus::Leaked) {
-                            outcomes.push(Outcome::CreepLeaked { ent: e });
-                            new_status = CreepStatus::Leaked;
-                            needs_update = true;
+                        #[inline(always)]
+                        fn p_to_f(p: SimVec2) -> vek::Vec2<f32> {
+                            vek::Vec2::new(p.x.to_f32_for_render(), p.y.to_f32_for_render())
                         }
-                    } else if let Some(p) = path.check_points.get(creep.pidx) {
-                        let target_point_f: vek::Vec2<f32> = p.pos;
-                        let target_point = SimVec2::new(
-                            Fixed64::from_raw(
-                                (target_point_f.x * omoba_sim::fixed::SCALE as f32) as i64,
-                            ),
-                            Fixed64::from_raw(
-                                (target_point_f.y * omoba_sim::fixed::SCALE as f32) as i64,
-                            ),
-                        );
-                        let stats = omoba_core::runtime::ability_runtime::UnitStats::from_refs(
-                            &*tr.buff_store,
-                            tr.is_buildings.get(e).is_some(),
-                        );
-                        let effective_msd = stats.final_move_speed(cp.msd, e);
+                        #[inline(always)]
+                        fn a_to_rad(a: Angle) -> f32 {
+                            (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
+                        }
 
-                        match creep.status {
-                            CreepStatus::PreWalk => {
-                                cands.push(MoveCandidate {
-                                    entity: e,
-                                    target: target_point_f,
-                                    velocity: effective_msd.to_f32_for_render(),
-                                    start_pos: p_to_f(pos.0),
-                                    facing: a_to_rad(facing.0),
-                                });
-                                new_status = CreepStatus::Walk;
+                        let mut new_pos = pos.0;
+                        let mut new_status = creep.status.clone();
+                        let mut new_pidx = creep.pidx;
+                        let mut new_facing = facing.0;
+                        let mut new_facing_bc = facing_bc.0;
+                        let mut needs_update = false;
+
+                        if cp.hp <= Fixed64::ZERO {
+                            log::info!(
+                                "☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
+                                creep.name,
+                                cp.hp.to_f32_for_render(),
+                                cp.mhp.to_f32_for_render(),
+                                e.id()
+                            );
+                            outcomes.push(Outcome::Death { pos: pos.0, ent: e });
+                            return (outcomes, cands);
+                        }
+
+                        let Some(path) = tr.paths.get(&creep.path) else {
+                            return (outcomes, cands);
+                        };
+                        if creep.block_tower.is_some() {
+                            return (outcomes, cands);
+                        }
+                        if creep.pidx >= path.check_points.len() {
+                            if !matches!(creep.status, CreepStatus::Leaked) {
+                                outcomes.push(Outcome::CreepLeaked { ent: e });
+                                new_status = CreepStatus::Leaked;
                                 needs_update = true;
                             }
-                            CreepStatus::Walk => {
-                                if tr.buff_store.is_rooted(e) {
-                                    return (outcomes, cands);
+                        } else if let Some(p) = path.check_points.get(creep.pidx) {
+                            let target_point_f: vek::Vec2<f32> = p.pos;
+                            let target_point = SimVec2::new(
+                                Fixed64::from_raw(
+                                    (target_point_f.x * omoba_sim::fixed::SCALE as f32) as i64,
+                                ),
+                                Fixed64::from_raw(
+                                    (target_point_f.y * omoba_sim::fixed::SCALE as f32) as i64,
+                                ),
+                            );
+                            let stats = omoba_core::runtime::ability_runtime::UnitStats::from_refs(
+                                &*tr.buff_store,
+                                tr.is_buildings.get(e).is_some(),
+                            );
+                            let effective_msd = stats.final_move_speed(cp.msd, e);
+
+                            match creep.status {
+                                CreepStatus::PreWalk => {
+                                    cands.push(MoveCandidate {
+                                        entity: e,
+                                        target: target_point_f,
+                                        velocity: effective_msd.to_f32_for_render(),
+                                        start_pos: p_to_f(pos.0),
+                                        facing: a_to_rad(facing.0),
+                                    });
+                                    new_status = CreepStatus::Walk;
+                                    needs_update = true;
                                 }
-
-                                let step = effective_msd * dt;
-                                let diff = target_point - pos.0;
-                                let dist_sq = diff.length_squared();
-                                let arrived_eps_sq = Fixed64::from_raw(10);
-                                if dist_sq < arrived_eps_sq {
-                                    new_pidx = creep.pidx + 1;
-                                    if let Some(t) = path.check_points.get(new_pidx) {
-                                        cands.push(MoveCandidate {
-                                            entity: e,
-                                            target: t.pos,
-                                            velocity: effective_msd.to_f32_for_render(),
-                                            start_pos: p_to_f(new_pos),
-                                            facing: a_to_rad(new_facing),
-                                        });
+                                CreepStatus::Walk => {
+                                    if tr.buff_store.is_rooted(e) {
+                                        return (outcomes, cands);
                                     }
-                                    needs_update = true;
-                                } else {
-                                    let desired_angle = sim_atan2(diff.y, diff.x);
-                                    let turn_rate = tr
-                                        .turn_speeds
-                                        .get(e)
-                                        .map(|t| t.0)
-                                        .unwrap_or(Fixed64::from_raw(1608));
-                                    let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
-                                    new_facing = angle_rotate_toward(
-                                        facing.0,
-                                        desired_angle,
-                                        max_step_ticks,
-                                    );
-                                    let new_facing_rad = a_to_rad(new_facing);
-                                    let facing_needs_emit = match facing_bc.0 {
-                                        None => true,
-                                        Some(last) => {
-                                            (new_facing_rad - last).abs()
-                                                > FACING_BROADCAST_THRESHOLD_RAD
-                                        }
-                                    };
-                                    if facing_needs_emit {
-                                        new_facing_bc = Some(new_facing_rad);
-                                    }
-                                    needs_update = true;
 
-                                    let diff_ticks = (desired_angle.ticks() - new_facing.ticks())
-                                        .rem_euclid(TAU_TICKS);
-                                    let signed_diff_ticks = if diff_ticks > TAU_TICKS / 2 {
-                                        diff_ticks - TAU_TICKS
-                                    } else {
-                                        diff_ticks
-                                    };
-                                    if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
-                                        let radius = tr
-                                            .radii
-                                            .get(e)
-                                            .map(|r| r.0)
-                                            .unwrap_or(Fixed64::from_i32(20));
-                                        let self_entity = e;
-                                        let radius_f = radius.to_f32_for_render();
-                                        let hits = |p_sim: SimVec2| -> bool {
-                                            let q_r = radius_f + MAX_COLLISION_RADIUS;
-                                            let p_vek = vek::Vec2::new(
-                                                p_sim.x.to_f32_for_render(),
-                                                p_sim.y.to_f32_for_render(),
-                                            );
-                                            for di in tr.searcher.search_collidable(p_vek, q_r, 16)
-                                            {
-                                                if di.e == self_entity {
-                                                    continue;
-                                                }
-                                                let Some(other_r) = tr.radii.get(di.e).map(|cr| cr.0)
-                                                else {
-                                                    continue;
-                                                };
-                                                let touch = radius + other_r;
-                                                let touch_f = touch.to_f32_for_render();
-                                                if di.dis < touch_f * touch_f {
-                                                    return true;
-                                                }
-                                            }
-                                            false
-                                        };
-
-                                        let mut blocked = false;
-                                        if dist_sq > step * step {
-                                            let v = diff.normalized() * step;
-                                            let full = pos.0 + v;
-                                            if !hits(full) {
-                                                new_pos = full;
-                                            } else {
-                                                let only_x = SimVec2::new(pos.0.x + v.x, pos.0.y);
-                                                let only_y = SimVec2::new(pos.0.x, pos.0.y + v.y);
-                                                if !hits(only_x) {
-                                                    new_pos = only_x;
-                                                } else if !hits(only_y) {
-                                                    new_pos = only_y;
-                                                } else {
-                                                    blocked = true;
-                                                }
-                                            }
-                                        } else if !hits(target_point) {
-                                            new_pos = target_point;
-                                            new_pidx = creep.pidx + 1;
-                                            if let Some(t) = path.check_points.get(new_pidx) {
-                                                cands.push(MoveCandidate {
-                                                    entity: e,
-                                                    target: t.pos,
-                                                    velocity: effective_msd.to_f32_for_render(),
-                                                    start_pos: p_to_f(new_pos),
-                                                    facing: a_to_rad(new_facing),
-                                                });
-                                            }
-                                        } else {
-                                            blocked = true;
-                                        }
-
-                                        if !blocked {
+                                    let step = effective_msd * dt;
+                                    let diff = target_point - pos.0;
+                                    let dist_sq = diff.length_squared();
+                                    let arrived_eps_sq = Fixed64::from_raw(10);
+                                    if dist_sq < arrived_eps_sq {
+                                        new_pidx = creep.pidx + 1;
+                                        if let Some(t) = path.check_points.get(new_pidx) {
                                             cands.push(MoveCandidate {
                                                 entity: e,
-                                                target: target_point_f,
+                                                target: t.pos,
                                                 velocity: effective_msd.to_f32_for_render(),
                                                 start_pos: p_to_f(new_pos),
                                                 facing: a_to_rad(new_facing),
                                             });
                                         }
+                                        needs_update = true;
+                                    } else {
+                                        let desired_angle = sim_atan2(diff.y, diff.x);
+                                        let turn_rate = tr
+                                            .turn_speeds
+                                            .get(e)
+                                            .map(|t| t.0)
+                                            .unwrap_or(Fixed64::from_raw(1608));
+                                        let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
+                                        new_facing = angle_rotate_toward(
+                                            facing.0,
+                                            desired_angle,
+                                            max_step_ticks,
+                                        );
+                                        let new_facing_rad = a_to_rad(new_facing);
+                                        let facing_needs_emit = match facing_bc.0 {
+                                            None => true,
+                                            Some(last) => {
+                                                (new_facing_rad - last).abs()
+                                                    > FACING_BROADCAST_THRESHOLD_RAD
+                                            }
+                                        };
+                                        if facing_needs_emit {
+                                            new_facing_bc = Some(new_facing_rad);
+                                        }
+                                        needs_update = true;
+
+                                        let diff_ticks = (desired_angle.ticks()
+                                            - new_facing.ticks())
+                                        .rem_euclid(TAU_TICKS);
+                                        let signed_diff_ticks = if diff_ticks > TAU_TICKS / 2 {
+                                            diff_ticks - TAU_TICKS
+                                        } else {
+                                            diff_ticks
+                                        };
+                                        if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
+                                            let radius = tr
+                                                .radii
+                                                .get(e)
+                                                .map(|r| r.0)
+                                                .unwrap_or(Fixed64::from_i32(20));
+                                            let self_entity = e;
+                                            let radius_f = radius.to_f32_for_render();
+                                            let hits = |p_sim: SimVec2| -> bool {
+                                                let q_r = radius_f + MAX_COLLISION_RADIUS;
+                                                let p_vek = vek::Vec2::new(
+                                                    p_sim.x.to_f32_for_render(),
+                                                    p_sim.y.to_f32_for_render(),
+                                                );
+                                                for di in
+                                                    tr.searcher.search_collidable(p_vek, q_r, 16)
+                                                {
+                                                    if di.e == self_entity {
+                                                        continue;
+                                                    }
+                                                    let Some(other_r) =
+                                                        tr.radii.get(di.e).map(|cr| cr.0)
+                                                    else {
+                                                        continue;
+                                                    };
+                                                    let touch = radius + other_r;
+                                                    let touch_f = touch.to_f32_for_render();
+                                                    if di.dis < touch_f * touch_f {
+                                                        return true;
+                                                    }
+                                                }
+                                                false
+                                            };
+
+                                            let mut blocked = false;
+                                            if dist_sq > step * step {
+                                                let v = diff.normalized() * step;
+                                                let full = pos.0 + v;
+                                                if !hits(full) {
+                                                    new_pos = full;
+                                                } else {
+                                                    let only_x =
+                                                        SimVec2::new(pos.0.x + v.x, pos.0.y);
+                                                    let only_y =
+                                                        SimVec2::new(pos.0.x, pos.0.y + v.y);
+                                                    if !hits(only_x) {
+                                                        new_pos = only_x;
+                                                    } else if !hits(only_y) {
+                                                        new_pos = only_y;
+                                                    } else {
+                                                        blocked = true;
+                                                    }
+                                                }
+                                            } else if !hits(target_point) {
+                                                new_pos = target_point;
+                                                new_pidx = creep.pidx + 1;
+                                                if let Some(t) = path.check_points.get(new_pidx) {
+                                                    cands.push(MoveCandidate {
+                                                        entity: e,
+                                                        target: t.pos,
+                                                        velocity: effective_msd.to_f32_for_render(),
+                                                        start_pos: p_to_f(new_pos),
+                                                        facing: a_to_rad(new_facing),
+                                                    });
+                                                }
+                                            } else {
+                                                blocked = true;
+                                            }
+
+                                            if !blocked {
+                                                cands.push(MoveCandidate {
+                                                    entity: e,
+                                                    target: target_point_f,
+                                                    velocity: effective_msd.to_f32_for_render(),
+                                                    start_pos: p_to_f(new_pos),
+                                                    facing: a_to_rad(new_facing),
+                                                });
+                                            }
+                                        }
                                     }
                                 }
+                                CreepStatus::Stop => {
+                                    new_status = CreepStatus::PreWalk;
+                                    needs_update = true;
+                                }
+                                CreepStatus::Leaked => {}
                             }
-                            CreepStatus::Stop => {
-                                new_status = CreepStatus::PreWalk;
-                                needs_update = true;
-                            }
-                            CreepStatus::Leaked => {}
+                        } else {
+                            outcomes.push(Outcome::Death { pos: pos.0, ent: e });
                         }
-                    } else {
-                        outcomes.push(Outcome::Death { pos: pos.0, ent: e });
-                    }
 
-                    if needs_update {
-                        outcomes.push(Outcome::CreepUpdate {
-                            entity: e,
-                            pos: new_pos,
-                            status: new_status,
-                            pidx: new_pidx,
-                            facing: new_facing,
-                            facing_broadcast: new_facing_bc,
-                        });
-                    }
+                        if needs_update {
+                            outcomes.push(Outcome::CreepUpdate {
+                                entity: e,
+                                pos: new_pos,
+                                status: new_status,
+                                pidx: new_pidx,
+                                facing: new_facing,
+                                facing_broadcast: new_facing_bc,
+                            });
+                        }
                         (outcomes, cands)
                     },
                 )
