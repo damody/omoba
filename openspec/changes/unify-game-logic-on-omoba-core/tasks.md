@@ -20,6 +20,13 @@
 - [x] 3.5 執行 `cargo build --manifest-path omfx/Cargo.toml -p executor` 與 sim runner smoke test，確認 native frontend 仍可 build。
 - [x] 3.6 更新 `tasks.md` checkbox，記錄完成項目與任何保留邊界的理由。
 
+## 已移除的重複層
+
+- `omb/src/scripting/{dispatch,event,loader,registry,tag,world_adapter}.rs`：改由 `omb/src/scripting/mod.rs` re-export `omoba-core` scripting/runtime API。
+- `omb/src/state/{initialization,system_dispatcher}.rs`：改由 `omb/src/state/mod.rs` re-export `omoba_core::runtime::{StateInitializer, SystemDispatcher}`。
+- `omb/src/comp/game_processor.rs`：backend `State` 與 `ResourceManager` 改成直接呼叫 `omoba_core::runtime` drain/process APIs。
+- `omb` KCP/lockstep proto：改用 `omoba_core::game_proto`，移除 host sidecar 的同 process `PlayerInput` prost roundtrip。
+
 ## 保留邊界
 
 - `omb/src/transport/grpc_transport.rs` 保留本地 `game_proto` include，因為它屬於 `grpc` transport feature 的 wire protocol 邊界，不是 native `omfx`/`omb` 同 process gameplay type bridge。
