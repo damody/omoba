@@ -13,9 +13,10 @@ use crate::runtime::comp::{
     CreepData, CreepStatus, ExplosionFx, ExplosionFxQueue, Facing, FacingBroadcast, Faction,
     FactionType, Gold, Hero, Inventory, IsBase, IsBuilding, MasterSeed, MoveTarget, Outcome, Path,
     PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue,
-    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue, Pos, Projectile,
-    RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerData, TowerFireFxQueue,
-    TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
+    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue, PlayerOwner, Pos,
+    Projectile, RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerData,
+    TowerFireFxQueue, TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit,
+    INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -34,14 +35,14 @@ fn player_hero_entity(
 ) -> Result<Entity, failure::Error> {
     let entities = world.entities();
     let heroes = world.read_storage::<Hero>();
-    let factions = world.read_storage::<Faction>();
-    (&entities, &heroes, &factions)
+    let owners = world.read_storage::<PlayerOwner>();
+    (&entities, &heroes, &owners)
         .join()
-        .find(|(_, _, f)| f.faction_id == FactionType::Player)
+        .find(|(_, _, owner)| owner.player_id == owner_pid)
         .map(|(e, _, _)| e)
         .ok_or_else(|| {
             failure::err_msg(format!(
-                "{}: no Player-faction Hero entity (pid={})",
+                "{}: no Hero entity owned by player_id={}",
                 context, owner_pid
             ))
         })
@@ -111,24 +112,14 @@ pub fn drain_pending_moves(world: &mut World) {
         return;
     }
 
-    let hero_entity = {
-        let entities = world.entities();
-        let heroes = world.read_storage::<Hero>();
-        let factions = world.read_storage::<Faction>();
-        (&entities, &heroes, &factions)
-            .join()
-            .find(|(_, _, f)| f.faction_id == FactionType::Player)
-            .map(|(e, _, _)| e)
-    };
-    let Some(hero) = hero_entity else {
-        log::warn!(
-            "MoveTo: no Player-faction hero found ({} requests dropped)",
-            drained.len()
-        );
-        return;
-    };
-
     for req in drained {
+        let hero = match player_hero_entity(world, "MoveTo", req.owner_pid) {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("{}", e);
+                continue;
+            }
+        };
         log::info!(
             "MoveTo pid={} -> hero={:?} pos=({:.1},{:.1})",
             req.owner_pid,
@@ -381,6 +372,15 @@ pub fn drain_pending_ability_casts(world: &mut World) {
 }
 
 pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Option<Entity> {
+    spawn_td_tower_with_owner(world, pos, unit_id, None)
+}
+
+pub fn spawn_td_tower_with_owner(
+    world: &mut World,
+    pos: Vec2<f32>,
+    unit_id: &str,
+    owner_pid: Option<u32>,
+) -> Option<Entity> {
     let tpl = {
         let reg = world.read_resource::<TowerTemplateRegistry>();
         reg.get(unit_id).cloned()
@@ -431,6 +431,20 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
             unit_id: unit_id.to_string(),
         })
         .build();
+
+    if let Some(player_id) = owner_pid {
+        if let Err(e) = world
+            .write_storage::<PlayerOwner>()
+            .insert(entity, PlayerOwner::new(player_id))
+        {
+            log::warn!(
+                "spawn_td_tower: failed to attach PlayerOwner({}) to {:?}: {}",
+                player_id,
+                entity,
+                e
+            );
+        }
+    }
 
     world
         .write_resource::<ScriptEventQueue>()
@@ -548,12 +562,13 @@ pub fn handle_tower_spawn_from_input(
             .ok_or_else(|| failure::err_msg(format!("TowerPlace: unknown unit_id '{}'", unit_id)))?
     };
     let hero_entity = validate_tower_place_from_input(world, &tpl, pos_f32, owner_pid)?;
-    let entity = spawn_td_tower(world, pos_f32, unit_id).ok_or_else(|| {
-        failure::err_msg(format!(
-            "spawn_td_tower returned None for unit_id='{}'",
-            unit_id
-        ))
-    })?;
+    let entity =
+        spawn_td_tower_with_owner(world, pos_f32, unit_id, Some(owner_pid)).ok_or_else(|| {
+            failure::err_msg(format!(
+                "spawn_td_tower returned None for unit_id='{}'",
+                unit_id
+            ))
+        })?;
     {
         let mut golds = world.write_storage::<Gold>();
         if let Some(gold) = golds.get_mut(hero_entity) {
@@ -635,6 +650,24 @@ pub fn handle_tower_sell_from_input(
             }
         }
     }
+    {
+        let owners = world.read_storage::<PlayerOwner>();
+        match owners.get(target_entity) {
+            Some(owner) if owner.player_id == owner_pid => {}
+            Some(owner) => {
+                return Err(failure::err_msg(format!(
+                    "TowerSell: tower id={} owner_pid={} rejected requester pid={}",
+                    tower_entity_id, owner.player_id, owner_pid
+                )));
+            }
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerSell: tower id={} has no PlayerOwner (pid={})",
+                    tower_entity_id, owner_pid
+                )));
+            }
+        }
+    }
 
     let refund = {
         let tags = world.read_storage::<ScriptUnitTag>();
@@ -664,7 +697,8 @@ pub fn handle_tower_sell_from_input(
         base_refund + upgrade_refund
     };
 
-    if let Ok(hero_entity) = player_hero_entity(world, "TowerSell", owner_pid) {
+    let hero_entity = player_hero_entity(world, "TowerSell", owner_pid)?;
+    {
         let mut golds = world.write_storage::<Gold>();
         if let Some(gold) = golds.get_mut(hero_entity) {
             gold.0 += refund;
@@ -756,6 +790,24 @@ pub fn handle_tower_upgrade_from_input(
             None => {
                 return Err(failure::err_msg(format!(
                     "TowerUpgrade: tower id={} has no Faction component (pid={})",
+                    tower_entity_id, owner_pid
+                )));
+            }
+        }
+    }
+    {
+        let owners = world.read_storage::<PlayerOwner>();
+        match owners.get(target_entity) {
+            Some(owner) if owner.player_id == owner_pid => {}
+            Some(owner) => {
+                return Err(failure::err_msg(format!(
+                    "TowerUpgrade: tower id={} owner_pid={} rejected requester pid={}",
+                    tower_entity_id, owner.player_id, owner_pid
+                )));
+            }
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerUpgrade: tower id={} has no PlayerOwner (pid={})",
                     tower_entity_id, owner_pid
                 )));
             }
@@ -1868,6 +1920,115 @@ mod tests {
             ))
             .build();
         (world, entity)
+    }
+
+    fn world_for_owner_tests() -> World {
+        let mut world = World::new();
+        world.register::<Hero>();
+        world.register::<Tower>();
+        world.register::<Faction>();
+        world.register::<PlayerOwner>();
+        world.register::<Gold>();
+        world.register::<MoveTarget>();
+        world.register::<Pos>();
+        world.register::<ScriptUnitTag>();
+        world.register::<TAttack>();
+        world.register::<CProperty>();
+        world.insert(PendingMoveQueue::default());
+        world.insert(Tick(0));
+        world.insert(BuffStore::default());
+        world.insert(Vec::<Outcome>::new());
+        world
+    }
+
+    fn add_owned_hero(world: &mut World, player_id: u32, name: &str) -> Entity {
+        world
+            .create_entity()
+            .with(Hero {
+                name: format!("[P{}] {}", player_id, name),
+                ..Hero::default()
+            })
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(player_id))
+            .with(Gold(1000))
+            .build()
+    }
+
+    #[test]
+    fn player_hero_entity_uses_owner_not_team_id() {
+        let mut world = world_for_owner_tests();
+        let p1 = add_owned_hero(&mut world, 1, "Hero");
+        let p2 = add_owned_hero(&mut world, 2, "Hero");
+
+        assert_eq!(player_hero_entity(&world, "test", 1).unwrap(), p1);
+        assert_eq!(player_hero_entity(&world, "test", 2).unwrap(), p2);
+        assert_eq!(
+            world.read_storage::<Faction>().get(p1).unwrap().team_id,
+            world.read_storage::<Faction>().get(p2).unwrap().team_id
+        );
+        assert!(world
+            .read_storage::<Hero>()
+            .get(p1)
+            .unwrap()
+            .name
+            .starts_with("[P1]"));
+        assert!(world
+            .read_storage::<Hero>()
+            .get(p2)
+            .unwrap()
+            .name
+            .starts_with("[P2]"));
+    }
+
+    #[test]
+    fn drain_pending_moves_routes_each_player_to_own_hero() {
+        let mut world = world_for_owner_tests();
+        let p1 = add_owned_hero(&mut world, 1, "Hero");
+        let p2 = add_owned_hero(&mut world, 2, "Hero");
+        {
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            q.requests.push(crate::comp::PendingMoveTo {
+                pos: omoba_sim::Vec2::new(Fixed64::from_i32(10), Fixed64::from_i32(20)),
+                owner_pid: 2,
+            });
+        }
+
+        drain_pending_moves(&mut world);
+
+        assert!(world.read_storage::<MoveTarget>().get(p1).is_none());
+        assert!(world.read_storage::<MoveTarget>().get(p2).is_some());
+    }
+
+    fn add_owned_tower(world: &mut World, player_id: u32) -> Entity {
+        world
+            .create_entity()
+            .with(Tower::new())
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(player_id))
+            .with(ScriptUnitTag {
+                unit_id: "tower_dart".to_string(),
+            })
+            .build()
+    }
+
+    #[test]
+    fn tower_sell_and_upgrade_reject_non_owner_before_state_change() {
+        let mut world = world_for_owner_tests();
+        add_owned_hero(&mut world, 1, "Hero");
+        add_owned_hero(&mut world, 2, "Hero");
+        let tower = add_owned_tower(&mut world, 2);
+
+        assert!(handle_tower_sell_from_input(&mut world, tower.id(), 1).is_err());
+        assert!(world.read_resource::<Vec<Outcome>>().is_empty());
+        assert!(handle_tower_upgrade_from_input(&mut world, tower.id(), 0, 1, 1).is_err());
+        assert_eq!(
+            world
+                .read_storage::<Tower>()
+                .get(tower)
+                .unwrap()
+                .upgrade_levels,
+            [0; 3]
+        );
     }
 
     #[test]

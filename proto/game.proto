@@ -515,12 +515,15 @@ enum JoinRole {
 message JoinRequest {
   string player_name = 1;
   JoinRole role = 2;
+  // Client-declared player id. Player clients must provide a non-zero id
+  // before connecting; server validates and echoes it in GameStart.
+  uint32 player_id = 3;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 // initial SimSnapshot to bootstrap the client.
 message GameStart {
-  uint32 player_id = 1;          // assigned to this client
+  uint32 player_id = 1;          // validated client-declared player id
   uint32 start_tick = 2;
   uint64 master_seed = 3;
   SimSnapshot initial_state = 4;  // empty for fresh game start

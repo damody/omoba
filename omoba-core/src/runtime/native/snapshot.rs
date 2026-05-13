@@ -10,8 +10,8 @@ use super::ability_runtime::{AbilityRegistry, BuffStore, UnitStats};
 use super::comp::hero::AttributeType;
 use super::comp::{
     BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, Gold, Hero, Inventory,
-    IsBuilding, MoveTarget, Path as CreepPath, PlayerLives, Pos, Projectile, RemovedEntitiesQueue,
-    TAttack, Tower, TowerTemplateRegistry, TowerUpgradeRegistry,
+    IsBuilding, MoveTarget, Path as CreepPath, PlayerLives, PlayerOwner, Pos, Projectile,
+    RemovedEntitiesQueue, TAttack, Tower, TowerTemplateRegistry, TowerUpgradeRegistry,
 };
 use super::scripting::ScriptUnitTag;
 
@@ -207,6 +207,7 @@ pub struct EntityRenderData {
     pub hero_ext: Option<Box<HeroStatsExt>>,
     pub hero_render: Option<Box<HeroRenderSnapshot>>,
     pub projectile_owner_entity_id: Option<u32>,
+    pub owner_player_id: Option<u32>,
     pub upgrade_levels: Option<[u8; 3]>,
     pub attack_range: f32,
 }
@@ -493,6 +494,7 @@ pub fn extract_snapshot(
     let move_target_storage = world.read_storage::<MoveTarget>();
     let gold_storage = world.read_storage::<Gold>();
     let tatk_storage = world.read_storage::<TAttack>();
+    let owner_storage = world.read_storage::<PlayerOwner>();
     let buff_store = world.read_resource::<BuffStore>();
     let is_building_storage = world.read_storage::<IsBuilding>();
     let inventory_storage = world.read_storage::<Inventory>();
@@ -577,6 +579,7 @@ pub fn extract_snapshot(
             None
         };
         let projectile_owner_entity_id = proj_storage.get(entity).map(|p| p.owner.id());
+        let owner_player_id = owner_storage.get(entity).map(|o| o.player_id);
         let gold = gold_storage.get(entity).map(|g| g.0).unwrap_or(0);
         drop(identity_span);
 
@@ -775,6 +778,7 @@ pub fn extract_snapshot(
             hero_ext,
             hero_render,
             projectile_owner_entity_id,
+            owner_player_id,
             upgrade_levels,
             attack_range,
         });
@@ -904,6 +908,7 @@ pub fn extract_data_for_render(
     let move_target_storage = world.read_storage::<MoveTarget>();
     let gold_storage = world.read_storage::<Gold>();
     let tatk_storage = world.read_storage::<TAttack>();
+    let owner_storage = world.read_storage::<PlayerOwner>();
     let buff_store = world.read_resource::<BuffStore>();
     let is_building_storage = world.read_storage::<IsBuilding>();
     let inventory_storage = world.read_storage::<Inventory>();
@@ -962,6 +967,7 @@ pub fn extract_data_for_render(
             None
         };
         let projectile_owner_entity_id = proj_storage.get(entity).map(|p| p.owner.id());
+        let owner_player_id = owner_storage.get(entity).map(|o| o.player_id);
         let gold = gold_storage.get(entity).map(|g| g.0).unwrap_or(0);
         let stats = UnitStats::from_refs(&*buff_store, is_building_storage.get(entity).is_some());
         let attack_range = tatk_storage
@@ -1131,6 +1137,7 @@ pub fn extract_data_for_render(
             hero_ext,
             hero_render,
             projectile_owner_entity_id,
+            owner_player_id,
             upgrade_levels,
             attack_range,
         });

@@ -366,6 +366,7 @@ impl StateInitializer {
         ecs.register::<Hero>();
         ecs.register::<Unit>();
         ecs.register::<Faction>();
+        ecs.register::<PlayerOwner>();
         ecs.register::<SummonedUnit>();
         ecs.register::<CircularVision>();
         // 舊 Ability/AbilityEffect/Skill/SkillEffect 已隨 skill_system 移除。
@@ -564,10 +565,25 @@ impl StateInitializer {
 
     fn create_campaign_heroes(ecs: &mut World, campaign_data: &CampaignData) {
         // 從戰役資料創建英雄
-        if let Some(hero_data) = campaign_data.entity.heroes.first() {
-            let hero = Hero::from_campaign_data(hero_data);
+        let Some(first_hero_data) = campaign_data.entity.heroes.first() else {
+            return;
+        };
+        let hero_count = if ecs.read_resource::<GameMode>().is_td() {
+            2usize
+        } else {
+            1usize
+        };
+        for idx in 0..hero_count {
+            let player_id = (idx + 1) as u32;
+            let hero_data = campaign_data
+                .entity
+                .heroes
+                .get(idx)
+                .unwrap_or(first_hero_data);
+            let mut hero = Hero::from_campaign_data(hero_data);
+            hero.name = format!("[P{}] {}", player_id, hero.name);
             let hero_faction = Faction::new(FactionType::Player, 0);
-            let hero_pos = Pos::from_xy_f32(0.0, 0.0);
+            let hero_pos = Pos::from_xy_f32(idx as f32 * 80.0, 0.0);
             let hero_vel = Vel::zero();
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
@@ -623,6 +639,7 @@ impl StateInitializer {
                 .with(hero_vel)
                 .with(hero)
                 .with(hero_faction)
+                .with(PlayerOwner::new(player_id))
                 .with(hero_properties)
                 .with(hero_attack)
                 .with(hero_vision)
@@ -647,8 +664,8 @@ impl StateInitializer {
                 .push(crate::scripting::ScriptEvent::Spawn { e: hero_entity });
 
             log::info!(
-                "創建戰役英雄實體: {:?} unit_id={}（含 Gold/Inventory/ItemEffects + ScriptUnitTag）",
-                hero_entity, unit_id
+                "創建戰役英雄實體: {:?} player_id={} team_id=0 unit_id={}（含 Gold/Inventory/ItemEffects + ScriptUnitTag）",
+                hero_entity, player_id, unit_id
             );
         }
     }
@@ -972,18 +989,26 @@ impl StateInitializer {
 }
 
 fn refresh_live_heroes_from_lua(ecs: &mut World) {
+    let entities = ecs.entities();
     let mut heroes = ecs.write_storage::<Hero>();
     let mut props = ecs.write_storage::<CProperty>();
     let mut attacks = ecs.write_storage::<TAttack>();
     let mut turns = ecs.write_storage::<TurnSpeed>();
-    for (hero, prop, attack, turn) in (&mut heroes, &mut props, &mut attacks, &mut turns).join() {
+    let owners = ecs.read_storage::<PlayerOwner>();
+    for (entity, hero, prop, attack, turn) in
+        (&entities, &mut heroes, &mut props, &mut attacks, &mut turns).join()
+    {
         let Some(hero_id) = omoba_template_ids::hero_by_name(&hero.id) else {
             continue;
         };
         let Some(stats) = omoba_template_ids::active_hero_stats(hero_id) else {
             continue;
         };
-        hero.name = omoba_template_ids::active_hero_display(hero_id).to_string();
+        let display_name = omoba_template_ids::active_hero_display(hero_id).to_string();
+        hero.name = owners
+            .get(entity)
+            .map(|owner| format!("[P{}] {}", owner.player_id, display_name))
+            .unwrap_or(display_name);
         hero.title = omoba_template_ids::active_hero_title(hero_id).to_string();
         hero.strength = stats.strength;
         hero.agility = stats.agility;
