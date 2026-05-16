@@ -42,7 +42,6 @@ pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
 pub use scene::*;
 pub use scripting::{
     run_script_dispatch, ScriptEvent, ScriptEventQueue, ScriptRegistry, ScriptUnitTag, SkillTarget,
-    WorldAdapter,
 };
 pub use snapshot::*;
 pub use spatial::{Bounds, Entry, SpatialIndex, SpatialIndexParams};

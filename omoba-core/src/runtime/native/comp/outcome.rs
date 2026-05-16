@@ -2,7 +2,7 @@ use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use serde::{Deserialize, Serialize};
 use specs::Entity;
 
-use crate::runtime::comp::{CProperty, Creep, Faction, TAttack, TProperty, Unit};
+use crate::runtime::comp::{CProperty, Creep, CreepStatus, Faction, TAttack, TProperty, Unit};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Outcome {
@@ -27,6 +27,14 @@ pub enum Outcome {
     },
     Creep {
         cd: CreepData,
+    },
+    CreepUpdate {
+        entity: Entity,
+        pos: SimVec2,
+        status: CreepStatus,
+        pidx: usize,
+        facing: omoba_sim::Angle,
+        facing_broadcast: Option<f32>,
     },
     CreepStop {
         source: Entity,
@@ -93,6 +101,74 @@ pub enum Outcome {
         windup_ms: u32,
         backswing_ms: u32,
         dir_rad: f32,
+    },
+    ScriptSetPos {
+        entity: Entity,
+        pos: SimVec2,
+    },
+    ScriptSetFacing {
+        entity: Entity,
+        facing: omoba_sim::Angle,
+    },
+    ScriptSetAsdCount {
+        entity: Entity,
+        asd_count: Fixed64,
+    },
+    ScriptSetTowerAtk {
+        entity: Entity,
+        value: Fixed64,
+    },
+    ScriptSetTowerRange {
+        entity: Entity,
+        value: Fixed64,
+    },
+    ScriptSetAsdInterval {
+        entity: Entity,
+        value: Fixed64,
+    },
+    ScriptDirectDamage {
+        target: Entity,
+        amount: Fixed64,
+    },
+    ScriptHeal {
+        target: Entity,
+        amount: Fixed64,
+    },
+    ScriptRemoveBuff {
+        target: Entity,
+        buff_id: String,
+    },
+    ScriptProjectile {
+        pos: SimVec2,
+        owner: Entity,
+        target: Option<Entity>,
+        tpos: SimVec2,
+        radius: Fixed64,
+        msd: Fixed64,
+        damage_phys: Fixed64,
+        damage_magi: Fixed64,
+        damage_real: Fixed64,
+        slow_factor: Fixed64,
+        slow_duration: Fixed64,
+        hit_radius: Fixed64,
+        stun_duration: Fixed64,
+    },
+    ScriptTowerFireFx {
+        entity: Entity,
+        dir_rad: f32,
+    },
+    ScriptAttackPhaseCue {
+        entity: Entity,
+        target: Option<Entity>,
+        target_pos: Option<SimVec2>,
+        windup_ms: u32,
+        backswing_ms: u32,
+        dir_rad: f32,
+    },
+    ScriptStartCooldown {
+        entity: Entity,
+        ability_id: String,
+        duration: Fixed64,
     },
     EntityRemoved {
         entity: Entity,

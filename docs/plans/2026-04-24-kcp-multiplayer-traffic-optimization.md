@@ -18,7 +18,6 @@
 - **Feature gating**：本計畫只修 `kcp` feature path。`mqtt` / `grpc` path 保留原 JSON pipeline，build 必須仍然過 —— 每個 phase 的 verification 都要跑三套 feature 的 `cargo check`。
 - **Commit message 語系**：延續 repo 風格，`chore:` / `feat:` / `fix:` / `perf:` 前綴，中文描述可接受（參考 recent commit `5e4c4c9 chore: 更新 omb + omfx 子模組參考`）。
 - **Metrics counter 命名**：`kcp_tx_bytes_total{event=..}`、`kcp_msg_total{event=..}`。統計物件放 `omb/src/transport/kcp_transport.rs` 的 `KcpTransport` struct 裡；provided getter 讓 stress test 查。
-- **Graphify update**：每 phase 收尾 `graphify update .`，保 knowledge graph 同步。
 - **.bat 行尾**：本計畫不新建 .bat 檔。如需調用既有：`run.bat`、`run_stress.bat`、`gen_docs.bat`。
 - **Submodule bump 時機**：P2 的 proto schema 切換是 hard cutover —— `omb` / `omfx` / `omoba-core` 的新 commit 必須在同一個 master commit bump 三個指標，避免中間有 broken state。
 - **Worktree**：每個 phase 起手先 `git worktree add ../omoba-kcp-pN -b kcp-opt/pN`，phase 結束合回 master 再啟下一個。
@@ -470,10 +469,6 @@ cd D:/omoba
 git merge --no-ff kcp-opt/p1
 git worktree remove ../omoba-kcp-p1
 ```
-
-**Step 4: `graphify update .`**
-
----
 
 ## Phase 2: Proto schema 重寫 + binary（1~2 週，worktree `kcp-opt/p2`）
 
@@ -1469,12 +1464,6 @@ cd D:/omoba
 git add omb omfx omoba-core proto docs/plans/
 git commit -m "chore: kcp multiplayer traffic optimization P1-P6 complete (-85~88% bytes)"
 ```
-
-**Step 3: 收尾 graphify**
-
-Run: `graphify update .`
-
----
 
 ## Global Verification Matrix
 

@@ -1235,13 +1235,7 @@ cd D:/omoba && ./run.bat
 8. Ice + Arctic Wind L2 → creep 在範圍內 HP 移動速度 -20%
 9. Tack + Ring of Fire L3 → 每次射針時塔周 200 半徑 creep 一起扣血
 
-**Step 3: 更新 graphify**
-
-```bash
-cd D:/omoba && graphify update .
-```
-
-**Step 4: 最終 commit（總結）**
+**Step 3: 最終 commit（總結）**
 
 ```bash
 git log --oneline -20

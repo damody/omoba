@@ -1,6 +1,6 @@
 use crate::comp::*;
 use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent, RuntimeEvents};
-use omoba_sim::{Fixed64, Vec2 as SimVec2};
+use omoba_sim::Fixed64;
 use serde_json::json;
 use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write};
 use std::collections::BTreeMap;
@@ -70,21 +70,13 @@ impl<'a> System<'a> for Sys {
                     let cp = tr.creep_emiters.get(&pc.creeps[cur_path_idx].name);
                     let path = tr.paths.get(&pc.path_name);
                     if let (Some(cp), Some(path)) = (cp, path) {
-                        if let Some(ct) = path.check_points.first() {
+                        if let Some(pos) = path.check_points_sim.first().cloned() {
                             let mut cpp = cp.root.clone();
                             cpp.path = pc.path_name.clone();
-                            // CreepData.{pos、turn_speed_deg、collision_radius} 現在為 SimVec2/Fixed64
-                            // （階段 1c.2）。 CreepEmiter / CheckPoint 仍為 f32（模板端遷移
-                            // 是階段 1d)。每次生成時橋一次。
+                            // Path 初始化時已把 CheckPoint f32 座標轉成 fixed，spawn hot path
+                            // 直接重用，避免每隻 creep 重複橋接。
                             let cp0 = CreepData {
-                                pos: SimVec2::new(
-                                    Fixed64::from_raw(
-                                        (ct.pos.x * omoba_sim::fixed::SCALE as f32) as i64,
-                                    ),
-                                    Fixed64::from_raw(
-                                        (ct.pos.y * omoba_sim::fixed::SCALE as f32) as i64,
-                                    ),
-                                ),
+                                pos,
                                 creep: cpp.clone(),
                                 cdata: cp.property.clone(),
                                 faction_name: cp.faction_name.clone(),

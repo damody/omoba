@@ -4,7 +4,7 @@ use specs::storage::VecStorage;
 use specs::Component;
 use specs::Entity;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum CreepStatus {
     Walk,
     Stop,

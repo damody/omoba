@@ -8,14 +8,15 @@ use vek::Vec2;
 use crate::runtime::ability_runtime::{AbilityRegistry, BuffStore};
 use crate::runtime::comp::tower_upgrade_rules;
 use crate::runtime::comp::{
-    AttackCancelFx, AttackCancelFxQueue, AttackCancelPhase, AttackSequencePhase, BlockedRegions,
-    Bounty, CProperty, CircularVision, CollisionRadius, Creep, CreepData, CreepStatus, ExplosionFx,
-    ExplosionFxQueue, Facing, FacingBroadcast, Faction, FactionType, Gold, Hero, Inventory, IsBase,
-    IsBuilding, MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue,
-    PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue, PendingTowerSellQueue,
-    PendingTowerSpawnQueue, PendingTowerUpgradeQueue, Pos, Projectile, RemovedEntitiesQueue,
-    Searcher, TAttack, TProperty, Tick, Tower, TowerData, TowerTemplate, TowerTemplateRegistry,
-    TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
+    AttackCancelFx, AttackCancelFxQueue, AttackCancelPhase, AttackPhaseFx, AttackPhaseFxQueue,
+    AttackSequencePhase, BlockedRegions, Bounty, CProperty, CircularVision, CollisionRadius, Creep,
+    CreepData, CreepStatus, ExplosionFx, ExplosionFxQueue, Facing, FacingBroadcast, Faction,
+    FactionType, Gold, Hero, Inventory, IsBase, IsBuilding, MasterSeed, MoveTarget, Outcome, Path,
+    PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue,
+    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue, PlayerOwner, Pos,
+    Projectile, RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerData,
+    TowerFireFxQueue, TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit,
+    INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -34,14 +35,14 @@ fn player_hero_entity(
 ) -> Result<Entity, failure::Error> {
     let entities = world.entities();
     let heroes = world.read_storage::<Hero>();
-    let factions = world.read_storage::<Faction>();
-    (&entities, &heroes, &factions)
+    let owners = world.read_storage::<PlayerOwner>();
+    (&entities, &heroes, &owners)
         .join()
-        .find(|(_, _, f)| f.faction_id == FactionType::Player)
+        .find(|(_, _, owner)| owner.player_id == owner_pid)
         .map(|(e, _, _)| e)
         .ok_or_else(|| {
             failure::err_msg(format!(
-                "{}: no Player-faction Hero entity (pid={})",
+                "{}: no Hero entity owned by player_id={}",
                 context, owner_pid
             ))
         })
@@ -100,28 +101,25 @@ pub fn drain_pending_moves(world: &mut World) {
         let mut q = world.write_resource::<PendingMoveQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_moves",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     if drained.is_empty() {
+        drop(drain_span);
         return;
     }
 
-    let hero_entity = {
-        let entities = world.entities();
-        let heroes = world.read_storage::<Hero>();
-        let factions = world.read_storage::<Faction>();
-        (&entities, &heroes, &factions)
-            .join()
-            .find(|(_, _, f)| f.faction_id == FactionType::Player)
-            .map(|(e, _, _)| e)
-    };
-    let Some(hero) = hero_entity else {
-        log::warn!(
-            "MoveTo: no Player-faction hero found ({} requests dropped)",
-            drained.len()
-        );
-        return;
-    };
-
     for req in drained {
+        let hero = match player_hero_entity(world, "MoveTo", req.owner_pid) {
+            Ok(e) => e,
+            Err(e) => {
+                log::warn!("{}", e);
+                continue;
+            }
+        };
         log::info!(
             "MoveTo pid={} -> hero={:?} pos=({:.1},{:.1})",
             req.owner_pid,
@@ -134,6 +132,7 @@ pub fn drain_pending_moves(world: &mut World) {
             .write_storage::<MoveTarget>()
             .insert(hero, MoveTarget(req.pos));
     }
+    drop(drain_span);
 }
 
 pub fn handle_ability_upgrade_from_input(
@@ -229,6 +228,12 @@ pub fn drain_pending_ability_upgrades(world: &mut World) {
         let mut q = world.write_resource::<PendingAbilityUpgradeQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_ability_upgrades",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_ability_upgrade_from_input(world, req.ability_index, req.owner_pid) {
             log::warn!(
@@ -239,6 +244,7 @@ pub fn drain_pending_ability_upgrades(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_ability_cast_from_input(
@@ -340,6 +346,12 @@ pub fn drain_pending_ability_casts(world: &mut World) {
         let mut q = world.write_resource::<PendingAbilityCastQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_ability_casts",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_ability_cast_from_input(
             world,
@@ -356,9 +368,19 @@ pub fn drain_pending_ability_casts(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Option<Entity> {
+    spawn_td_tower_with_owner(world, pos, unit_id, None)
+}
+
+pub fn spawn_td_tower_with_owner(
+    world: &mut World,
+    pos: Vec2<f32>,
+    unit_id: &str,
+    owner_pid: Option<u32>,
+) -> Option<Entity> {
     let tpl = {
         let reg = world.read_resource::<TowerTemplateRegistry>();
         reg.get(unit_id).cloned()
@@ -409,6 +431,20 @@ pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Optio
             unit_id: unit_id.to_string(),
         })
         .build();
+
+    if let Some(player_id) = owner_pid {
+        if let Err(e) = world
+            .write_storage::<PlayerOwner>()
+            .insert(entity, PlayerOwner::new(player_id))
+        {
+            log::warn!(
+                "spawn_td_tower: failed to attach PlayerOwner({}) to {:?}: {}",
+                player_id,
+                entity,
+                e
+            );
+        }
+    }
 
     world
         .write_resource::<ScriptEventQueue>()
@@ -526,12 +562,13 @@ pub fn handle_tower_spawn_from_input(
             .ok_or_else(|| failure::err_msg(format!("TowerPlace: unknown unit_id '{}'", unit_id)))?
     };
     let hero_entity = validate_tower_place_from_input(world, &tpl, pos_f32, owner_pid)?;
-    let entity = spawn_td_tower(world, pos_f32, unit_id).ok_or_else(|| {
-        failure::err_msg(format!(
-            "spawn_td_tower returned None for unit_id='{}'",
-            unit_id
-        ))
-    })?;
+    let entity =
+        spawn_td_tower_with_owner(world, pos_f32, unit_id, Some(owner_pid)).ok_or_else(|| {
+            failure::err_msg(format!(
+                "spawn_td_tower returned None for unit_id='{}'",
+                unit_id
+            ))
+        })?;
     {
         let mut golds = world.write_storage::<Gold>();
         if let Some(gold) = golds.get_mut(hero_entity) {
@@ -556,6 +593,12 @@ pub fn drain_pending_tower_spawns(world: &mut World) {
         let mut q = world.write_resource::<PendingTowerSpawnQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_tower_spawns",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_tower_spawn_from_input(world, req.kind_id, req.pos, req.owner_pid) {
             log::warn!(
@@ -566,6 +609,7 @@ pub fn drain_pending_tower_spawns(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_tower_sell_from_input(
@@ -606,6 +650,24 @@ pub fn handle_tower_sell_from_input(
             }
         }
     }
+    {
+        let owners = world.read_storage::<PlayerOwner>();
+        match owners.get(target_entity) {
+            Some(owner) if owner.player_id == owner_pid => {}
+            Some(owner) => {
+                return Err(failure::err_msg(format!(
+                    "TowerSell: tower id={} owner_pid={} rejected requester pid={}",
+                    tower_entity_id, owner.player_id, owner_pid
+                )));
+            }
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerSell: tower id={} has no PlayerOwner (pid={})",
+                    tower_entity_id, owner_pid
+                )));
+            }
+        }
+    }
 
     let refund = {
         let tags = world.read_storage::<ScriptUnitTag>();
@@ -635,7 +697,8 @@ pub fn handle_tower_sell_from_input(
         base_refund + upgrade_refund
     };
 
-    if let Ok(hero_entity) = player_hero_entity(world, "TowerSell", owner_pid) {
+    let hero_entity = player_hero_entity(world, "TowerSell", owner_pid)?;
+    {
         let mut golds = world.write_storage::<Gold>();
         if let Some(gold) = golds.get_mut(hero_entity) {
             gold.0 += refund;
@@ -665,6 +728,12 @@ pub fn drain_pending_tower_sells(world: &mut World) {
         let mut q = world.write_resource::<PendingTowerSellQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_tower_sells",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_tower_sell_from_input(world, req.tower_entity_id, req.owner_pid) {
             log::warn!(
@@ -675,6 +744,7 @@ pub fn drain_pending_tower_sells(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_tower_upgrade_from_input(
@@ -720,6 +790,24 @@ pub fn handle_tower_upgrade_from_input(
             None => {
                 return Err(failure::err_msg(format!(
                     "TowerUpgrade: tower id={} has no Faction component (pid={})",
+                    tower_entity_id, owner_pid
+                )));
+            }
+        }
+    }
+    {
+        let owners = world.read_storage::<PlayerOwner>();
+        match owners.get(target_entity) {
+            Some(owner) if owner.player_id == owner_pid => {}
+            Some(owner) => {
+                return Err(failure::err_msg(format!(
+                    "TowerUpgrade: tower id={} owner_pid={} rejected requester pid={}",
+                    tower_entity_id, owner.player_id, owner_pid
+                )));
+            }
+            None => {
+                return Err(failure::err_msg(format!(
+                    "TowerUpgrade: tower id={} has no PlayerOwner (pid={})",
                     tower_entity_id, owner_pid
                 )));
             }
@@ -813,6 +901,12 @@ pub fn drain_pending_tower_upgrades(world: &mut World) {
         let mut q = world.write_resource::<PendingTowerUpgradeQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_tower_upgrades",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_tower_upgrade_from_input(
             world,
@@ -830,6 +924,7 @@ pub fn drain_pending_tower_upgrades(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 pub fn handle_item_use_from_input(
@@ -959,6 +1054,12 @@ pub fn drain_pending_item_uses(world: &mut World) {
         let mut q = world.write_resource::<PendingItemUseQueue>();
         std::mem::take(&mut q.requests)
     };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_item_uses",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
     for req in drained {
         if let Err(e) = handle_item_use_from_input(
             world,
@@ -975,6 +1076,7 @@ pub fn drain_pending_item_uses(world: &mut World) {
             );
         }
     }
+    drop(drain_span);
 }
 
 fn outcome_kind(outcome: &Outcome) -> &'static str {
@@ -985,6 +1087,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::Creep { .. } => "Creep",
         Outcome::CreepStop { .. } => "CreepStop",
         Outcome::CreepWalk { .. } => "CreepWalk",
+        Outcome::CreepUpdate { .. } => "CreepUpdate",
         Outcome::Tower { .. } => "Tower",
         Outcome::Heal { .. } => "Heal",
         Outcome::UpdateAttack { .. } => "UpdateAttack",
@@ -996,6 +1099,19 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::Explosion { .. } => "Explosion",
         Outcome::ProjectileDirectional { .. } => "ProjectileDirectional",
         Outcome::AttackPhaseCue { .. } => "AttackPhaseCue",
+        Outcome::ScriptSetPos { .. } => "ScriptSetPos",
+        Outcome::ScriptSetFacing { .. } => "ScriptSetFacing",
+        Outcome::ScriptSetAsdCount { .. } => "ScriptSetAsdCount",
+        Outcome::ScriptSetTowerAtk { .. } => "ScriptSetTowerAtk",
+        Outcome::ScriptSetTowerRange { .. } => "ScriptSetTowerRange",
+        Outcome::ScriptSetAsdInterval { .. } => "ScriptSetAsdInterval",
+        Outcome::ScriptDirectDamage { .. } => "ScriptDirectDamage",
+        Outcome::ScriptHeal { .. } => "ScriptHeal",
+        Outcome::ScriptRemoveBuff { .. } => "ScriptRemoveBuff",
+        Outcome::ScriptProjectile { .. } => "ScriptProjectile",
+        Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
+        Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
+        Outcome::ScriptStartCooldown { .. } => "ScriptStartCooldown",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -1022,6 +1138,12 @@ pub fn process_outcomes(
         raw.append(&mut outcomes);
         merge_damage_outcomes(raw)
     };
+    let outcomes_span = tracing::trace_span!(
+        "omoba_core::runtime::process_outcomes",
+        perfetto = true,
+        outcome_count = outcomes.len(),
+    )
+    .entered();
 
     for outcome in outcomes {
         let kind = outcome_kind(&outcome);
@@ -1044,6 +1166,14 @@ pub fn process_outcomes(
             Outcome::Tower { pos, td } => handle_tower_spawn(world, pos, td)?,
             Outcome::CreepStop { source, target } => handle_creep_stop(world, source, target)?,
             Outcome::CreepWalk { target } => handle_creep_walk(world, target)?,
+            Outcome::CreepUpdate {
+                entity,
+                pos,
+                status,
+                pidx,
+                facing,
+                facing_broadcast,
+            } => handle_creep_update(world, entity, pos, status, pidx, facing, facing_broadcast)?,
             Outcome::Damage {
                 pos,
                 phys,
@@ -1108,6 +1238,83 @@ pub fn process_outcomes(
                 backswing_ms,
                 dir_rad,
             ),
+            Outcome::ScriptSetPos { entity, pos } => handle_script_set_pos(world, entity, pos),
+            Outcome::ScriptSetFacing { entity, facing } => {
+                handle_script_set_facing(world, entity, facing)
+            }
+            Outcome::ScriptSetAsdCount { entity, asd_count } => {
+                handle_script_set_asd_count(world, entity, asd_count)
+            }
+            Outcome::ScriptSetTowerAtk { entity, value } => {
+                handle_script_set_tower_atk(world, entity, value)
+            }
+            Outcome::ScriptSetTowerRange { entity, value } => {
+                handle_script_set_tower_range(world, entity, value)
+            }
+            Outcome::ScriptSetAsdInterval { entity, value } => {
+                handle_script_set_asd_interval(world, entity, value)
+            }
+            Outcome::ScriptDirectDamage { target, amount } => {
+                handle_script_direct_damage(world, target, amount)
+            }
+            Outcome::ScriptHeal { target, amount } => handle_script_heal(world, target, amount),
+            Outcome::ScriptRemoveBuff { target, buff_id } => {
+                handle_script_remove_buff(world, target, buff_id)
+            }
+            Outcome::ScriptProjectile {
+                pos,
+                owner,
+                target,
+                tpos,
+                radius,
+                msd,
+                damage_phys,
+                damage_magi,
+                damage_real,
+                slow_factor,
+                slow_duration,
+                hit_radius,
+                stun_duration,
+            } => handle_script_projectile(
+                world,
+                pos,
+                owner,
+                target,
+                tpos,
+                radius,
+                msd,
+                damage_phys,
+                damage_magi,
+                damage_real,
+                slow_factor,
+                slow_duration,
+                hit_radius,
+                stun_duration,
+            ),
+            Outcome::ScriptTowerFireFx { entity, dir_rad } => {
+                handle_script_tower_fire_fx(world, entity, dir_rad)
+            }
+            Outcome::ScriptAttackPhaseCue {
+                entity,
+                target,
+                target_pos,
+                windup_ms,
+                backswing_ms,
+                dir_rad,
+            } => handle_script_attack_phase_cue(
+                world,
+                entity,
+                target,
+                target_pos,
+                windup_ms,
+                backswing_ms,
+                dir_rad,
+            ),
+            Outcome::ScriptStartCooldown {
+                entity,
+                ability_id,
+                duration,
+            } => handle_script_start_cooldown(world, entity, ability_id, duration),
             Outcome::EntityRemoved { entity } => {
                 world
                     .write_resource::<RemovedEntitiesQueue>()
@@ -1125,6 +1332,7 @@ pub fn process_outcomes(
     world
         .write_resource::<Vec<Outcome>>()
         .append(&mut next_outcomes);
+    drop(outcomes_span);
 
     Ok(())
 }
@@ -1488,10 +1696,186 @@ fn creep_bounty_from_template(creep_name: &str) -> Bounty {
     }
 }
 
+fn handle_script_set_pos(world: &mut World, entity: Entity, pos: omoba_sim::Vec2) {
+    if let Some(pos_comp) = world.write_storage::<Pos>().get_mut(entity) {
+        pos_comp.0 = pos;
+    }
+}
+
+fn handle_script_set_facing(world: &mut World, entity: Entity, facing: omoba_sim::Angle) {
+    if let Some(facing_comp) = world.write_storage::<Facing>().get_mut(entity) {
+        facing_comp.0 = facing;
+    }
+}
+
+fn handle_script_set_asd_count(world: &mut World, entity: Entity, asd_count: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.asd_count = asd_count;
+    }
+}
+
+fn handle_script_set_tower_atk(world: &mut World, entity: Entity, value: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.atk_physic.bv = value;
+        attack.atk_physic.v = value;
+    }
+}
+
+fn handle_script_set_tower_range(world: &mut World, entity: Entity, value: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.range.bv = value;
+        attack.range.v = value;
+    }
+}
+
+fn handle_script_set_asd_interval(world: &mut World, entity: Entity, value: Fixed64) {
+    if let Some(attack) = world.write_storage::<TAttack>().get_mut(entity) {
+        attack.asd.bv = value;
+        attack.asd.v = value;
+    }
+}
+
+fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed64) {
+    if let Some(prop) = world.write_storage::<CProperty>().get_mut(target) {
+        prop.hp = (prop.hp - amount).max(Fixed64::ZERO);
+        return;
+    }
+    if let Some(unit) = world.write_storage::<Unit>().get_mut(target) {
+        let amount_i = amount.to_f32_for_render() as i32;
+        unit.current_hp = (unit.current_hp - amount_i).max(0);
+    }
+}
+
+fn handle_script_heal(world: &mut World, target: Entity, amount: Fixed64) {
+    if let Some(prop) = world.write_storage::<CProperty>().get_mut(target) {
+        prop.hp = (prop.hp + amount).min(prop.mhp);
+        return;
+    }
+    if let Some(unit) = world.write_storage::<Unit>().get_mut(target) {
+        let amount_i = amount.to_f32_for_render() as i32;
+        unit.current_hp = (unit.current_hp + amount_i).min(unit.max_hp);
+    }
+}
+
+fn handle_script_remove_buff(world: &mut World, target: Entity, buff_id: String) {
+    world.write_resource::<BuffStore>().remove(target, &buff_id);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_script_projectile(
+    world: &mut World,
+    pos: omoba_sim::Vec2,
+    owner: Entity,
+    target: Option<Entity>,
+    tpos: omoba_sim::Vec2,
+    radius: Fixed64,
+    msd: Fixed64,
+    damage_phys: Fixed64,
+    damage_magi: Fixed64,
+    damage_real: Fixed64,
+    slow_factor: Fixed64,
+    slow_duration: Fixed64,
+    hit_radius: Fixed64,
+    stun_duration: Fixed64,
+) {
+    let initial_dist = (tpos - pos).length();
+    let speed_f = msd.to_f32_for_render();
+    let flight_time_s = if speed_f > 0.0 {
+        (initial_dist.to_f32_for_render() / speed_f).max(0.01)
+    } else {
+        0.01
+    };
+    let safety =
+        Fixed64::from_raw(((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i64);
+
+    world
+        .create_entity()
+        .with(Pos(pos))
+        .with(Projectile {
+            time_left: safety,
+            owner,
+            target,
+            tpos,
+            radius,
+            msd,
+            damage_phys,
+            damage_magi,
+            damage_real,
+            slow_factor,
+            slow_duration,
+            hit_radius,
+            stun_duration,
+        })
+        .build();
+}
+
+fn handle_script_tower_fire_fx(world: &mut World, entity: Entity, dir_rad: f32) {
+    if world.read_storage::<Tower>().get(entity).is_none() {
+        return;
+    }
+    let spawn_tick = world.read_resource::<Tick>().0 as u32;
+    let entity_id = entity.id();
+    let mut queue = world.write_resource::<TowerFireFxQueue>();
+    if queue
+        .pending
+        .iter()
+        .any(|fx| fx.entity_id == entity_id && fx.spawn_tick == spawn_tick)
+    {
+        return;
+    }
+    queue.pending.push(crate::runtime::comp::TowerFireFx {
+        entity_id,
+        entity_gen: entity.gen().id() as u32,
+        spawn_tick,
+        dir_rad,
+    });
+}
+
+fn handle_script_attack_phase_cue(
+    world: &mut World,
+    entity: Entity,
+    target: Option<Entity>,
+    target_pos: Option<omoba_sim::Vec2>,
+    windup_ms: u32,
+    backswing_ms: u32,
+    dir_rad: f32,
+) {
+    let current_tick = world.read_resource::<Tick>().0 as u32;
+    let mut queue = world.write_resource::<AttackPhaseFxQueue>();
+    let attack_seq = queue.next_seq;
+    queue.next_seq = queue.next_seq.wrapping_add(1);
+    queue.pending.push(AttackPhaseFx {
+        entity_id: entity.id(),
+        entity_gen: entity.gen().id() as u32,
+        spawn_tick: current_tick,
+        attack_seq,
+        is_critical: false,
+        windup_ms,
+        impact_at_ms: windup_ms,
+        backswing_ms,
+        dir_rad,
+        target_entity_id: target.map(|target| target.id()),
+        target_pos_x: target_pos.map(|pos| pos.x.to_f32_for_render()),
+        target_pos_y: target_pos.map(|pos| pos.y.to_f32_for_render()),
+    });
+}
+
+fn handle_script_start_cooldown(
+    world: &mut World,
+    entity: Entity,
+    ability_id: String,
+    duration: Fixed64,
+) {
+    if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
+        hero.start_cooldown(&ability_id, duration);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use omoba_template_ids::{active_creep_stats, creep_id_str, CreepId};
+    use specs::Join;
 
     #[test]
     fn creep_bounty_uses_active_template_rewards() {
@@ -1502,6 +1886,248 @@ mod tests {
         let bounty = creep_bounty_from_template(name);
         assert_eq!(bounty.gold, stats.gold_reward);
         assert_eq!(bounty.exp, stats.exp_reward);
+    }
+
+    fn world_for_script_outcome_tests() -> (World, Entity) {
+        let mut world = World::new();
+        world.register::<Pos>();
+        world.register::<Facing>();
+        world.register::<TAttack>();
+        world.register::<Tower>();
+        world.register::<Projectile>();
+        world.register::<CProperty>();
+        world.insert(Vec::<Outcome>::new());
+        world.insert(Tick(7));
+        world.insert(TowerFireFxQueue::default());
+        world.insert(AttackPhaseFxQueue::default());
+        world.insert(ExplosionFxQueue::default());
+        world.insert(RemovedEntitiesQueue::default());
+        world.insert(BuffStore::default());
+
+        let entity = world
+            .create_entity()
+            .with(Pos(omoba_sim::Vec2::new(
+                Fixed64::from_i32(1),
+                Fixed64::from_i32(2),
+            )))
+            .with(Facing(omoba_sim::Angle::ZERO))
+            .with(Tower::new())
+            .with(TAttack::new(
+                Fixed64::from_i32(10),
+                Fixed64::from_i32(1),
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(900),
+            ))
+            .build();
+        (world, entity)
+    }
+
+    fn world_for_owner_tests() -> World {
+        let mut world = World::new();
+        world.register::<Hero>();
+        world.register::<Tower>();
+        world.register::<Faction>();
+        world.register::<PlayerOwner>();
+        world.register::<Gold>();
+        world.register::<MoveTarget>();
+        world.register::<Pos>();
+        world.register::<ScriptUnitTag>();
+        world.register::<TAttack>();
+        world.register::<CProperty>();
+        world.insert(PendingMoveQueue::default());
+        world.insert(Tick(0));
+        world.insert(BuffStore::default());
+        world.insert(Vec::<Outcome>::new());
+        world
+    }
+
+    fn add_owned_hero(world: &mut World, player_id: u32, name: &str) -> Entity {
+        world
+            .create_entity()
+            .with(Hero {
+                name: format!("[P{}] {}", player_id, name),
+                ..Hero::default()
+            })
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(player_id))
+            .with(Gold(1000))
+            .build()
+    }
+
+    #[test]
+    fn player_hero_entity_uses_owner_not_team_id() {
+        let mut world = world_for_owner_tests();
+        let p1 = add_owned_hero(&mut world, 1, "Hero");
+        let p2 = add_owned_hero(&mut world, 2, "Hero");
+
+        assert_eq!(player_hero_entity(&world, "test", 1).unwrap(), p1);
+        assert_eq!(player_hero_entity(&world, "test", 2).unwrap(), p2);
+        assert_eq!(
+            world.read_storage::<Faction>().get(p1).unwrap().team_id,
+            world.read_storage::<Faction>().get(p2).unwrap().team_id
+        );
+        assert!(world
+            .read_storage::<Hero>()
+            .get(p1)
+            .unwrap()
+            .name
+            .starts_with("[P1]"));
+        assert!(world
+            .read_storage::<Hero>()
+            .get(p2)
+            .unwrap()
+            .name
+            .starts_with("[P2]"));
+    }
+
+    #[test]
+    fn drain_pending_moves_routes_each_player_to_own_hero() {
+        let mut world = world_for_owner_tests();
+        let p1 = add_owned_hero(&mut world, 1, "Hero");
+        let p2 = add_owned_hero(&mut world, 2, "Hero");
+        {
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            q.requests.push(crate::comp::PendingMoveTo {
+                pos: omoba_sim::Vec2::new(Fixed64::from_i32(10), Fixed64::from_i32(20)),
+                owner_pid: 2,
+            });
+        }
+
+        drain_pending_moves(&mut world);
+
+        assert!(world.read_storage::<MoveTarget>().get(p1).is_none());
+        assert!(world.read_storage::<MoveTarget>().get(p2).is_some());
+    }
+
+    fn add_owned_tower(world: &mut World, player_id: u32) -> Entity {
+        world
+            .create_entity()
+            .with(Tower::new())
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(player_id))
+            .with(ScriptUnitTag {
+                unit_id: "tower_dart".to_string(),
+            })
+            .build()
+    }
+
+    #[test]
+    fn tower_sell_and_upgrade_reject_non_owner_before_state_change() {
+        let mut world = world_for_owner_tests();
+        add_owned_hero(&mut world, 1, "Hero");
+        add_owned_hero(&mut world, 2, "Hero");
+        let tower = add_owned_tower(&mut world, 2);
+
+        assert!(handle_tower_sell_from_input(&mut world, tower.id(), 1).is_err());
+        assert!(world.read_resource::<Vec<Outcome>>().is_empty());
+        assert!(handle_tower_upgrade_from_input(&mut world, tower.id(), 0, 1, 1).is_err());
+        assert_eq!(
+            world
+                .read_storage::<Tower>()
+                .get(tower)
+                .unwrap()
+                .upgrade_levels,
+            [0; 3]
+        );
+    }
+
+    #[test]
+    fn script_outcomes_apply_in_order() {
+        let (mut world, entity) = world_for_script_outcome_tests();
+        let pos = omoba_sim::Vec2::new(Fixed64::from_i32(5), Fixed64::from_i32(6));
+        let facing = omoba_sim::Angle::from_degrees_i32(90);
+        world.write_resource::<Vec<Outcome>>().extend([
+            Outcome::ScriptSetAsdCount {
+                entity,
+                asd_count: Fixed64::from_raw(111),
+            },
+            Outcome::ScriptSetAsdCount {
+                entity,
+                asd_count: Fixed64::from_raw(222),
+            },
+            Outcome::ScriptSetPos { entity, pos },
+            Outcome::ScriptSetFacing { entity, facing },
+            Outcome::ScriptTowerFireFx {
+                entity,
+                dir_rad: 1.25,
+            },
+            Outcome::ScriptProjectile {
+                pos,
+                owner: entity,
+                target: None,
+                tpos: omoba_sim::Vec2::new(Fixed64::from_i32(10), Fixed64::from_i32(6)),
+                radius: Fixed64::ZERO,
+                msd: Fixed64::from_i32(900),
+                damage_phys: Fixed64::from_i32(10),
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
+            },
+        ]);
+
+        let mut sink = crate::runtime::RuntimeEventVecSink::default();
+        process_outcomes(&mut world, &mut sink).expect("script outcomes apply");
+
+        assert_eq!(world.read_storage::<Pos>().get(entity).unwrap().0, pos);
+        assert_eq!(
+            world.read_storage::<Facing>().get(entity).unwrap().0,
+            facing
+        );
+        assert_eq!(
+            world
+                .read_storage::<TAttack>()
+                .get(entity)
+                .unwrap()
+                .asd_count,
+            Fixed64::from_raw(222)
+        );
+        assert_eq!(
+            (&world.entities(), &world.read_storage::<Projectile>())
+                .join()
+                .count(),
+            1
+        );
+        assert_eq!(world.read_resource::<TowerFireFxQueue>().pending.len(), 1);
+    }
+
+    #[test]
+    fn script_direct_damage_and_heal_match_adapter_semantics() {
+        let (mut world, entity) = world_for_script_outcome_tests();
+        let target = world
+            .create_entity()
+            .with(CProperty {
+                hp: Fixed64::from_i32(30),
+                mhp: Fixed64::from_i32(40),
+                msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .build();
+        world.write_resource::<Vec<Outcome>>().extend([
+            Outcome::ScriptDirectDamage {
+                target,
+                amount: Fixed64::from_i32(50),
+            },
+            Outcome::ScriptHeal {
+                target,
+                amount: Fixed64::from_i32(15),
+            },
+            Outcome::ScriptRemoveBuff {
+                target: entity,
+                buff_id: "missing".to_string(),
+            },
+        ]);
+
+        let mut sink = crate::runtime::RuntimeEventVecSink::default();
+        process_outcomes(&mut world, &mut sink).expect("damage and heal apply");
+
+        assert_eq!(
+            world.read_storage::<CProperty>().get(target).unwrap().hp,
+            Fixed64::from_i32(15)
+        );
     }
 }
 
@@ -1523,12 +2149,16 @@ fn handle_creep_leaked(
     events: &mut impl RuntimeEventSink,
     entity: Entity,
 ) -> Result<(), failure::Error> {
-    let remaining = {
+    let (previous, remaining) = {
         let mut lives = world.write_resource::<crate::runtime::comp::PlayerLives>();
+        let previous = lives.0;
         lives.0 = (lives.0 - 1).max(0);
-        lives.0
+        (previous, lives.0)
     };
-    log::info!("creep leaked; lives={} entity={:?}", remaining, entity);
+    log::debug!("creep leaked; lives={} entity={:?}", remaining, entity);
+    if previous <= 0 {
+        return Ok(());
+    }
     events.emit(game_lives_event(remaining));
     if remaining <= 0 {
         events.emit(game_end_event(
@@ -1623,6 +2253,31 @@ fn handle_creep_walk(world: &mut World, target: Entity) -> Result<(), failure::E
         .get_mut(target)
         .ok_or_else(|| failure::err_msg("Creep not found"))?;
     creep.status = CreepStatus::PreWalk;
+    Ok(())
+}
+
+fn handle_creep_update(
+    world: &mut World,
+    entity: Entity,
+    pos: omoba_sim::Vec2,
+    status: CreepStatus,
+    pidx: usize,
+    facing: omoba_sim::Angle,
+    facing_broadcast: Option<f32>,
+) -> Result<(), failure::Error> {
+    if let Some(creep) = world.write_storage::<Creep>().get_mut(entity) {
+        creep.status = status;
+        creep.pidx = pidx;
+    }
+    if let Some(pos_comp) = world.write_storage::<Pos>().get_mut(entity) {
+        pos_comp.0 = pos;
+    }
+    if let Some(facing_comp) = world.write_storage::<Facing>().get_mut(entity) {
+        facing_comp.0 = facing;
+    }
+    if let Some(facing_bc_comp) = world.write_storage::<FacingBroadcast>().get_mut(entity) {
+        facing_bc_comp.0 = facing_broadcast;
+    }
     Ok(())
 }
 

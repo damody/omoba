@@ -268,9 +268,17 @@ where
         //   3. SysMetrics.stats.lock().insert(String::new) — Mutex 把 par_join 排序化
         // SysMetrics HashMap 目前無人讀，全部砍掉；若之後要重啟 profiling，
         // 在這裡改用 lock-free per-thread 統計即可。
+        let system_span = tracing::span!(
+            tracing::Level::TRACE,
+            "omoba_core::runtime::system",
+            perfetto = true,
+            system = T::NAME,
+        )
+        .entered();
         let start = std::time::Instant::now();
         T::run(self, data.0);
         let elapsed = start.elapsed();
+        drop(system_span);
         let ns = elapsed.as_nanos();
         // ReadExpect<TickProfile> 拿到 &TickProfile，內部 Mutex 處理並行寫入。
         data.2.record_system(T::NAME, ns);

@@ -46,38 +46,33 @@ impl<'a> UnitStats<'a> {
         if self.is_building {
             return Fixed64::ZERO;
         }
-        let abs = self.buffs.sum_add(e, StatKey::MoveSpeedAbsolute);
-        let effective = if abs > Fixed64::ZERO {
-            abs
+        if !self.buffs.has_any(e) {
+            return base;
+        }
+        let sums = self.buffs.move_speed_sums(e);
+        let effective = if sums.absolute > Fixed64::ZERO {
+            sums.absolute
         } else {
-            let override_base = self.buffs.sum_add(e, StatKey::MoveSpeedBaseOverride);
-            let base_eff = if override_base > Fixed64::ZERO {
-                override_base
+            let base_eff = if sums.base_override > Fixed64::ZERO {
+                sums.base_override
             } else {
                 base
             };
             // Equipment flat（boots、靴類道具）：跟 base 一起被 percentage 縮放
-            let bonus_c = self.buffs.sum_add(e, StatKey::MoveSpeedBonusEquipment);
+            let bonus_c = sums.bonus_equipment;
             // Percentage（含 ice tower 用的 MoveSpeedBonus，當 -50% 寫進去）
-            let pct = self.buffs.sum_add(e, StatKey::MoveSpeedBonusPercentage)
-                + self
-                    .buffs
-                    .sum_add(e, StatKey::MoveSpeedBonusPercentageUnique)
-                + self
-                    .buffs
-                    .sum_add(e, StatKey::MoveSpeedBonusPercentageUnique2)
-                + self.buffs.sum_add(e, StatKey::MoveSpeedBonus);
+            let pct = sums.percentage;
             // Buff flat post-percentage：不被 slow 削弱、不疊到 base/equipment 上
-            let buff_bonus = self.buffs.sum_add(e, StatKey::MoveSpeedBonusBuff);
+            let buff_bonus = sums.bonus_buff;
             (base_eff + bonus_c) * (Fixed64::ONE + pct) + buff_bonus
         };
-        self.apply_move_clamp(effective, e)
+        self.apply_move_clamp_sums(effective, sums)
     }
 
-    fn apply_move_clamp(&self, v: Fixed64, e: Entity) -> Fixed64 {
-        let min_abs = self.buffs.sum_add(e, StatKey::MoveSpeedAbsoluteMin);
-        let max_abs = self.buffs.sum_add(e, StatKey::MoveSpeedMax);
-        let limit = self.buffs.sum_add(e, StatKey::MoveSpeedLimit);
+    fn apply_move_clamp_sums(&self, v: Fixed64, sums: super::buff_store::MoveSpeedSums) -> Fixed64 {
+        let min_abs = sums.absolute_min;
+        let max_abs = sums.max;
+        let limit = sums.limit;
         let mut r = v;
         if min_abs > Fixed64::ZERO && r < min_abs {
             r = min_abs;

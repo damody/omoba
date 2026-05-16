@@ -130,10 +130,10 @@ impl<'a> System<'a> for Sys {
                             }
                         }
                     }
-                    // 找目標 + 轉向：
-                    //   - 腳本塔：每 tick 都做（host 負責平滑旋轉、對齊到 script 選的目標）
-                    //   - 非腳本塔：asd_count 就緒才做（效能優化）
-                    let do_seek = is_scripted || !matches!(attack_phase, AttackPhaseStep::Charging);
+                    // Scripted towers choose targets and set facing in UnitScript::on_tick.
+                    // Avoid a second host-side spatial query for every scripted tower.
+                    let do_seek =
+                        !is_scripted && !matches!(attack_phase, AttackPhaseStep::Charging);
                     if do_seek {
                         let time2 = Instant::now();
                         let elpsed = time2.duration_since(time1);

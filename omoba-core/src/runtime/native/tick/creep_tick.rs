@@ -25,14 +25,14 @@ pub struct CreepRead<'a> {
     searcher: Read<'a, Searcher>,
     buff_store: Read<'a, omoba_core::runtime::ability_runtime::BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
+    creeps: ReadStorage<'a, Creep>,
+    pos: ReadStorage<'a, Pos>,
+    facings: ReadStorage<'a, Facing>,
+    facing_bcs: ReadStorage<'a, FacingBroadcast>,
 }
 
 #[derive(SystemData)]
 pub struct CreepWrite<'a> {
-    creeps: WriteStorage<'a, Creep>,
-    pos: WriteStorage<'a, Pos>,
-    facings: WriteStorage<'a, Facing>,
-    facing_bcs: WriteStorage<'a, FacingBroadcast>,
     /// P4：用於 M 發射選通的每個 Creep 最後廣播快照。
     /// 在第一次發射時延遲插入（對於 Creep 來說組件可能不存在
     /// 在 P4 升級路徑之前就存在）。
@@ -55,6 +55,13 @@ impl<'a> System<'a> for Sys {
         // CProperty.msd 的 dt 的舊版 f32 視圖（仍然是 f32；第 1c 階段）。
         let dt_f = dt.to_f32_for_render();
         let server_tick = tr.tick.0;
+        let _tick_span = tracing::span!(
+            tracing::Level::TRACE,
+            "omoba_core::runtime::creep_tick.tick",
+            perfetto = true,
+            tick = server_tick,
+        )
+        .entered();
 
         // P4 發出從 par_join 通道收集的候選者，由實體鍵入。
         // 承載電流（目標、速度、起始位置、朝向）- 閘控 +
@@ -69,298 +76,285 @@ impl<'a> System<'a> for Sys {
             facing: f32,
         }
 
-        let (mut outcomes, move_candidates) = (
-            &tr.entities,
-            &mut tw.creeps,
-            &mut tw.pos,
-            &tr.cpropertys,
-            &mut tw.facings,
-            &mut tw.facing_bcs,
-        )
-            .par_join()
-            .filter(|(_e, _creep, _p, _cp, _f, _fb)| true)
-            .map_init(
-                || {
-                    prof_span!(guard, "creep update rayon job");
-                    guard
-                },
-                |_guard, (e, creep, pos, cp, facing, facing_bc)| {
-                    let mut outcomes: Vec<Outcome> = Vec::new();
-                    let mut cands: Vec<MoveCandidate> = Vec::new();
-                    // 內聯邊界助手 - 必須使用明確的 `&*pos` / 來調用
-                    // `&*faceing` 以避免捕獲儲存引用作為借用
-                    // 會阻止 pos.0/faceing.0 的後續突變。
-                    #[inline(always)]
-                    fn p_to_f(p: SimVec2) -> vek::Vec2<f32> {
-                        vek::Vec2::new(p.x.to_f32_for_render(), p.y.to_f32_for_render())
-                    }
-                    #[inline(always)]
-                    fn a_to_rad(a: Angle) -> f32 {
-                        (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
-                    }
+        let (mut outcomes, move_candidates) = {
+            let _par_join_span = tracing::span!(
+                tracing::Level::TRACE,
+                "omoba_core::runtime::creep_tick.par_join",
+                perfetto = true,
+                tick = server_tick,
+            )
+            .entered();
 
-                    if cp.hp <= Fixed64::ZERO {
-                        // [DEBUG-STRESS] creep_tick 看到的 hp 值（應該與 handle_damage 寫入後的 hp 一致）
-                        log::info!(
-                            "☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
-                            creep.name,
-                            cp.hp.to_f32_for_render(),
-                            cp.mhp.to_f32_for_render(),
-                            e.id()
+            (
+                &tr.entities,
+                &tr.creeps,
+                &tr.pos,
+                &tr.cpropertys,
+                &tr.facings,
+                &tr.facing_bcs,
+            )
+                .par_join()
+                .filter(|(_e, _creep, _p, _cp, _f, _fb)| true)
+                .map_init(
+                    || {
+                        prof_span!(guard, "creep update rayon job");
+                        let span = tracing::span!(
+                            tracing::Level::TRACE,
+                            "omoba_core::runtime::creep_tick.rayon_job",
+                            perfetto = true,
+                            tick = server_tick,
                         );
-                        outcomes.push(Outcome::Death {
-                            pos: pos.0,
-                            ent: e.clone(),
-                        });
-                    } else {
-                        if let Some(path) = tr.paths.get(&creep.path) {
-                            if let Some(_b) = creep.block_tower {
-                                // 被檔住了
-                            } else if creep.pidx >= path.check_points.len() {
-                                // TD 模式：走到 path 終點 → 漏怪事件（GameProcessor 扣 PlayerLives）
-                                // 設定 status=Leaked 避免下個 tick 重複觸發
-                                if !matches!(creep.status, CreepStatus::Leaked) {
-                                    outcomes.push(Outcome::CreepLeaked { ent: e.clone() });
-                                    creep.status = CreepStatus::Leaked;
+                        let tracing_guard = span.entered();
+                        (guard, tracing_guard)
+                    },
+                    |(_guard, _tracing_guard), (e, creep, pos, cp, facing, facing_bc)| {
+                        let mut outcomes: Vec<Outcome> = Vec::new();
+                        let mut cands: Vec<MoveCandidate> = Vec::new();
+
+                        #[inline(always)]
+                        fn p_to_f(p: SimVec2) -> vek::Vec2<f32> {
+                            vek::Vec2::new(p.x.to_f32_for_render(), p.y.to_f32_for_render())
+                        }
+                        #[inline(always)]
+                        fn a_to_rad(a: Angle) -> f32 {
+                            (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
+                        }
+
+                        let mut new_pos = pos.0;
+                        let mut new_status = creep.status.clone();
+                        let mut new_pidx = creep.pidx;
+                        let mut new_facing = facing.0;
+                        let mut new_facing_bc = facing_bc.0;
+                        let mut needs_update = false;
+
+                        if cp.hp <= Fixed64::ZERO {
+                            log::info!(
+                                "☠️ creep_tick sees hp<=0: name={} hp={:.1} mhp={:.1} ent={}",
+                                creep.name,
+                                cp.hp.to_f32_for_render(),
+                                cp.mhp.to_f32_for_render(),
+                                e.id()
+                            );
+                            outcomes.push(Outcome::Death { pos: pos.0, ent: e });
+                            return (outcomes, cands);
+                        }
+
+                        let Some(path) = tr.paths.get(&creep.path) else {
+                            return (outcomes, cands);
+                        };
+                        if creep.block_tower.is_some() {
+                            return (outcomes, cands);
+                        }
+                        if creep.pidx >= path.check_points.len() {
+                            if !matches!(creep.status, CreepStatus::Leaked) {
+                                outcomes.push(Outcome::CreepLeaked { ent: e });
+                                new_status = CreepStatus::Leaked;
+                                needs_update = true;
+                            }
+                        } else if let Some(p) = path.check_points.get(creep.pidx) {
+                            let target_point_f: vek::Vec2<f32> = p.pos;
+                            let target_point = SimVec2::new(
+                                Fixed64::from_raw(
+                                    (target_point_f.x * omoba_sim::fixed::SCALE as f32) as i64,
+                                ),
+                                Fixed64::from_raw(
+                                    (target_point_f.y * omoba_sim::fixed::SCALE as f32) as i64,
+                                ),
+                            );
+                            let stats = omoba_core::runtime::ability_runtime::UnitStats::from_refs(
+                                &*tr.buff_store,
+                                tr.is_buildings.get(e).is_some(),
+                            );
+                            let effective_msd = stats.final_move_speed(cp.msd, e);
+
+                            match creep.status {
+                                CreepStatus::PreWalk => {
+                                    cands.push(MoveCandidate {
+                                        entity: e,
+                                        target: target_point_f,
+                                        velocity: effective_msd.to_f32_for_render(),
+                                        start_pos: p_to_f(pos.0),
+                                        facing: a_to_rad(facing.0),
+                                    });
+                                    new_status = CreepStatus::Walk;
+                                    needs_update = true;
                                 }
-                            } else {
-                                if let Some(p) = path.check_points.get(creep.pidx) {
-                                    // CheckPoint.pos 仍然是 vek::Vec2<f32> （第 1c 階段將遷移
-                                    // 路徑資料到Fixed64）。每次迭代橋接一次。
-                                    let target_point_f: vek::Vec2<f32> = p.pos;
-                                    let target_point: SimVec2 = SimVec2::new(
-                                        Fixed64::from_raw(
-                                            (target_point_f.x * omoba_sim::fixed::SCALE as f32)
-                                                as i64,
-                                        ),
-                                        Fixed64::from_raw(
-                                            (target_point_f.y * omoba_sim::fixed::SCALE as f32)
-                                                as i64,
-                                        ),
-                                    );
-                                    let mut next_status = creep.status.clone();
-                                    // P4：每個週期計算一次有效移動速度 - 分享
-                                    // 在移動步驟和 M 發射候選之間。
-                                    let stats =
-                                        omoba_core::runtime::ability_runtime::UnitStats::from_refs(
-                                            &*tr.buff_store,
-                                            tr.is_buildings.get(e).is_some(),
-                                        );
-                                    let effective_msd = stats.final_move_speed(cp.msd, e);
-                                    match creep.status {
-                                        CreepStatus::PreWalk => {
-                                            // 首先在spawn / PreWalk → 無條件候選時發出。
+                                CreepStatus::Walk => {
+                                    if tr.buff_store.is_rooted(e) {
+                                        return (outcomes, cands);
+                                    }
+
+                                    let step = effective_msd * dt;
+                                    let diff = target_point - pos.0;
+                                    let dist_sq = diff.length_squared();
+                                    let arrived_eps_sq = Fixed64::from_raw(10);
+                                    if dist_sq < arrived_eps_sq {
+                                        new_pidx = creep.pidx + 1;
+                                        if let Some(t) = path.check_points.get(new_pidx) {
                                             cands.push(MoveCandidate {
                                                 entity: e,
-                                                target: target_point_f,
+                                                target: t.pos,
                                                 velocity: effective_msd.to_f32_for_render(),
-                                                start_pos: p_to_f(pos.0),
-                                                facing: a_to_rad(facing.0),
+                                                start_pos: p_to_f(new_pos),
+                                                facing: a_to_rad(new_facing),
                                             });
-                                            next_status = CreepStatus::Walk;
                                         }
-                                        CreepStatus::Walk => {
-                                            // Root / stun：本 tick 完全不前進（閉包提早返回 → 此 creep 本 tick 無 outcomes）
-                                            if tr.buff_store.is_rooted(e) {
-                                                return (outcomes, cands);
+                                        needs_update = true;
+                                    } else {
+                                        let desired_angle = sim_atan2(diff.y, diff.x);
+                                        let turn_rate = tr
+                                            .turn_speeds
+                                            .get(e)
+                                            .map(|t| t.0)
+                                            .unwrap_or(Fixed64::from_raw(1608));
+                                        let max_step_ticks = fixed_rad_to_ticks(turn_rate * dt);
+                                        new_facing = angle_rotate_toward(
+                                            facing.0,
+                                            desired_angle,
+                                            max_step_ticks,
+                                        );
+                                        let new_facing_rad = a_to_rad(new_facing);
+                                        let facing_needs_emit = match facing_bc.0 {
+                                            None => true,
+                                            Some(last) => {
+                                                (new_facing_rad - last).abs()
+                                                    > FACING_BROADCAST_THRESHOLD_RAD
                                             }
-                                            // 階段 1c.3： effective_msd 為固定 64（UnitStats 已遷移）。
-                                            // 步驟 = effective_msd × dt (Fixed64 × Fix64)。
-                                            let step = effective_msd * dt;
-                                            let diff = target_point - pos.0;
-                                            let dist_sq = diff.length_squared();
-                                            // 0.01 在固定 64 原始 = 輪(0.01 * 1024) = 10
-                                            let arrived_eps_sq = Fixed64::from_raw(10);
-                                            if dist_sq < arrived_eps_sq {
-                                                // 已抵達 waypoint — pidx advances, new waypoint
-                                                // 觸發 M 候選（目標變更）。
-                                                creep.pidx += 1;
-                                                if let Some(t) = path.check_points.get(creep.pidx) {
+                                        };
+                                        if facing_needs_emit {
+                                            new_facing_bc = Some(new_facing_rad);
+                                        }
+                                        needs_update = true;
+
+                                        let diff_ticks = (desired_angle.ticks()
+                                            - new_facing.ticks())
+                                        .rem_euclid(TAU_TICKS);
+                                        let signed_diff_ticks = if diff_ticks > TAU_TICKS / 2 {
+                                            diff_ticks - TAU_TICKS
+                                        } else {
+                                            diff_ticks
+                                        };
+                                        if signed_diff_ticks.abs() < MOVE_ANGLE_THRESHOLD_TICKS {
+                                            let radius = tr
+                                                .radii
+                                                .get(e)
+                                                .map(|r| r.0)
+                                                .unwrap_or(Fixed64::from_i32(20));
+                                            let self_entity = e;
+                                            let radius_f = radius.to_f32_for_render();
+                                            let hits = |p_sim: SimVec2| -> bool {
+                                                let q_r = radius_f + MAX_COLLISION_RADIUS;
+                                                let p_vek = vek::Vec2::new(
+                                                    p_sim.x.to_f32_for_render(),
+                                                    p_sim.y.to_f32_for_render(),
+                                                );
+                                                for di in
+                                                    tr.searcher.search_collidable(p_vek, q_r, 16)
+                                                {
+                                                    if di.e == self_entity {
+                                                        continue;
+                                                    }
+                                                    let Some(other_r) =
+                                                        tr.radii.get(di.e).map(|cr| cr.0)
+                                                    else {
+                                                        continue;
+                                                    };
+                                                    let touch = radius + other_r;
+                                                    let touch_f = touch.to_f32_for_render();
+                                                    if di.dis < touch_f * touch_f {
+                                                        return true;
+                                                    }
+                                                }
+                                                false
+                                            };
+
+                                            let mut blocked = false;
+                                            if dist_sq > step * step {
+                                                let v = diff.normalized() * step;
+                                                let full = pos.0 + v;
+                                                if !hits(full) {
+                                                    new_pos = full;
+                                                } else {
+                                                    let only_x =
+                                                        SimVec2::new(pos.0.x + v.x, pos.0.y);
+                                                    let only_y =
+                                                        SimVec2::new(pos.0.x, pos.0.y + v.y);
+                                                    if !hits(only_x) {
+                                                        new_pos = only_x;
+                                                    } else if !hits(only_y) {
+                                                        new_pos = only_y;
+                                                    } else {
+                                                        blocked = true;
+                                                    }
+                                                }
+                                            } else if !hits(target_point) {
+                                                new_pos = target_point;
+                                                new_pidx = creep.pidx + 1;
+                                                if let Some(t) = path.check_points.get(new_pidx) {
                                                     cands.push(MoveCandidate {
                                                         entity: e,
                                                         target: t.pos,
                                                         velocity: effective_msd.to_f32_for_render(),
-                                                        start_pos: p_to_f(pos.0),
-                                                        facing: a_to_rad(facing.0),
+                                                        start_pos: p_to_f(new_pos),
+                                                        facing: a_to_rad(new_facing),
                                                     });
                                                 }
                                             } else {
-                                                // 先轉向目標
-                                                let desired_angle: Angle =
-                                                    sim_atan2(diff.y, diff.x);
-                                                let turn_rate = tr
-                                                    .turn_speeds
-                                                    .get(e)
-                                                    .map(|t| t.0)
-                                                    .unwrap_or(Fixed64::from_raw(1608)); // π/2 rad/s default
-                                                let max_step_ticks =
-                                                    fixed_rad_to_ticks(turn_rate * dt);
-                                                facing.0 = angle_rotate_toward(
-                                                    facing.0,
-                                                    desired_angle,
-                                                    max_step_ticks,
-                                                );
-                                                let new_facing_rad = a_to_rad(facing.0);
-                                                // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
-                                                let needs_emit = match facing_bc.0 {
-                                                    None => true,
-                                                    Some(last) => {
-                                                        (new_facing_rad - last).abs()
-                                                            > FACING_BROADCAST_THRESHOLD_RAD
-                                                    }
-                                                };
-                                                if needs_emit {
-                                                    facing_bc.0 = Some(new_facing_rad);
-                                                }
+                                                blocked = true;
+                                            }
 
-                                                // 角度對齊（<30°）才移動 — Angle ticks comparison.
-                                                let diff_ticks = (desired_angle.ticks()
-                                                    - facing.0.ticks())
-                                                .rem_euclid(TAU_TICKS);
-                                                let signed_diff_ticks =
-                                                    if diff_ticks > TAU_TICKS / 2 {
-                                                        diff_ticks - TAU_TICKS
-                                                    } else {
-                                                        diff_ticks
-                                                    };
-                                                if signed_diff_ticks.abs()
-                                                    < MOVE_ANGLE_THRESHOLD_TICKS
-                                                {
-                                                    let radius = tr
-                                                        .radii
-                                                        .get(e)
-                                                        .map(|r| r.0)
-                                                        .unwrap_or(Fixed64::from_i32(20));
-                                                    let self_entity = e;
-                                                    // 注意：搜尋器在內部使用 f32 來實作 instant_distance lib 相容性。
-                                                    // 呼叫者的最終距離檢查是固定64。
-                                                    let radius_f = radius.to_f32_for_render();
-                                                    let hits = |p_sim: SimVec2| -> bool {
-                                                        let q_r = radius_f + MAX_COLLISION_RADIUS;
-                                                        let p_vek = vek::Vec2::new(
-                                                            p_sim.x.to_f32_for_render(),
-                                                            p_sim.y.to_f32_for_render(),
-                                                        );
-                                                        for di in tr
-                                                            .searcher
-                                                            .search_collidable(p_vek, q_r, 16)
-                                                        {
-                                                            if di.e == self_entity {
-                                                                continue;
-                                                            }
-                                                            let Some(other_r) =
-                                                                tr.radii.get(di.e).map(|cr| cr.0)
-                                                            else {
-                                                                continue;
-                                                            };
-                                                            let touch = radius + other_r;
-                                                            let touch_f = touch.to_f32_for_render();
-                                                            if di.dis < touch_f * touch_f {
-                                                                return true;
-                                                            }
-                                                        }
-                                                        false
-                                                    };
-                                                    // 記錄本 tick 是否因為碰撞而停住
-                                                    let mut blocked = false;
-                                                    if dist_sq > step * step {
-                                                        let v = diff.normalized() * step;
-                                                        let full = pos.0 + v;
-                                                        if !hits(full) {
-                                                            pos.0 = full;
-                                                        } else {
-                                                            let only_x = SimVec2::new(
-                                                                pos.0.x + v.x,
-                                                                pos.0.y,
-                                                            );
-                                                            let only_y = SimVec2::new(
-                                                                pos.0.x,
-                                                                pos.0.y + v.y,
-                                                            );
-                                                            if !hits(only_x) {
-                                                                pos.0 = only_x;
-                                                            } else if !hits(only_y) {
-                                                                pos.0 = only_y;
-                                                            } else {
-                                                                blocked = true;
-                                                            }
-                                                        }
-                                                    } else {
-                                                        if !hits(target_point) {
-                                                            pos.0 = target_point;
-                                                            creep.pidx += 1;
-                                                            // 到達中途航路點：前進並
-                                                            // 為下一個航路點發出 M（目標變更）。
-                                                            if let Some(t) =
-                                                                path.check_points.get(creep.pidx)
-                                                            {
-                                                                cands.push(MoveCandidate {
-                                                                    entity: e,
-                                                                    target: t.pos,
-                                                                    velocity: effective_msd
-                                                                        .to_f32_for_render(),
-                                                                    start_pos: p_to_f(pos.0),
-                                                                    facing: a_to_rad(facing.0),
-                                                                });
-                                                            }
-                                                        } else {
-                                                            blocked = true;
-                                                        }
-                                                    }
-                                                    if blocked {
-                                                        // 凍結前端 lerp（action="stall"），避免視覺上穿過其他單位。
-                                                    } else {
-                                                        // 不是一個航點前進，也沒有被阻擋──但是
-                                                        // 如果速度改變仍然考慮發射
-                                                        // （緩慢應用/刪除）。下面的門通行證
-                                                        // 與上次廣播相比，如果相同則丟棄。
-                                                        cands.push(MoveCandidate {
-                                                            entity: e,
-                                                            target: target_point_f,
-                                                            velocity: effective_msd
-                                                                .to_f32_for_render(),
-                                                            start_pos: p_to_f(pos.0),
-                                                            facing: a_to_rad(facing.0),
-                                                        });
-                                                    }
-                                                }
-                                                // 角度太大：只轉向、本 tick 不位移
+                                            if !blocked {
+                                                cands.push(MoveCandidate {
+                                                    entity: e,
+                                                    target: target_point_f,
+                                                    velocity: effective_msd.to_f32_for_render(),
+                                                    start_pos: p_to_f(new_pos),
+                                                    facing: a_to_rad(new_facing),
+                                                });
                                             }
                                         }
-                                        CreepStatus::Stop => {
-                                            next_status = CreepStatus::PreWalk;
-                                        }
-                                        CreepStatus::Leaked => {
-                                            // 不該發生（Leaked 狀態在外層已被 pidx>=len 分支攔下）
-                                        }
                                     }
-                                    creep.status = next_status;
-                                } else {
-                                    // creep 到終點了
-                                    outcomes.push(Outcome::Death { pos: pos.0, ent: e });
                                 }
+                                CreepStatus::Stop => {
+                                    new_status = CreepStatus::PreWalk;
+                                    needs_update = true;
+                                }
+                                CreepStatus::Leaked => {}
                             }
+                        } else {
+                            outcomes.push(Outcome::Death { pos: pos.0, ent: e });
                         }
-                    }
-                    (outcomes, cands)
-                },
-            )
-            .fold(
-                || (Vec::new(), Vec::<MoveCandidate>::new()),
-                |(mut all_outcomes, mut all_cands), (mut outcomes, mut cands)| {
-                    all_outcomes.append(&mut outcomes);
-                    all_cands.append(&mut cands);
-                    (all_outcomes, all_cands)
-                },
-            )
-            .reduce(
-                || (Vec::new(), Vec::<MoveCandidate>::new()),
-                |(mut outcomes_a, mut cands_a), (mut outcomes_b, mut cands_b)| {
-                    outcomes_a.append(&mut outcomes_b);
-                    cands_a.append(&mut cands_b);
-                    (outcomes_a, cands_a)
-                },
-            );
+
+                        if needs_update {
+                            outcomes.push(Outcome::CreepUpdate {
+                                entity: e,
+                                pos: new_pos,
+                                status: new_status,
+                                pidx: new_pidx,
+                                facing: new_facing,
+                                facing_broadcast: new_facing_bc,
+                            });
+                        }
+                        (outcomes, cands)
+                    },
+                )
+                .fold(
+                    || (Vec::new(), Vec::<MoveCandidate>::new()),
+                    |(mut all_outcomes, mut all_cands), (mut outcomes, mut cands)| {
+                        all_outcomes.append(&mut outcomes);
+                        all_cands.append(&mut cands);
+                        (all_outcomes, all_cands)
+                    },
+                )
+                .reduce(
+                    || (Vec::new(), Vec::<MoveCandidate>::new()),
+                    |(mut outcomes_a, mut cands_a), (mut outcomes_b, mut cands_b)| {
+                        outcomes_a.append(&mut outcomes_b);
+                        cands_a.append(&mut cands_b);
+                        (outcomes_a, cands_a)
+                    },
+                )
+        };
 
         // P4 串行發射閘通：將每個候選者與
         // 實體的最後廣播快照（CreepMoveBroadcast 元件）。
@@ -415,7 +409,7 @@ impl<'a> System<'a> for Sys {
                 let total_damage: Fixed64 = phys_damage + magi_damage;
 
                 // 獲取目標名稱用於日誌
-                let target_name = if let Some(creep) = tw.creeps.get(td.ent) {
+                let target_name = if let Some(creep) = tr.creeps.get(td.ent) {
                     creep.name.clone()
                 } else {
                     // 暫時使用實體 ID，因為沒有在 Read 結構中包含 Hero
@@ -424,7 +418,7 @@ impl<'a> System<'a> for Sys {
 
                 if total_damage > Fixed64::ZERO {
                     // 階段 1c.4：Outcome::Damage.pos 是 SimVec2（階段 1c.2）。
-                    let target_pos = tw.pos.get(td.ent).map(|p| p.0).unwrap_or(SimVec2::ZERO);
+                    let target_pos = tr.pos.get(td.ent).map(|p| p.0).unwrap_or(SimVec2::ZERO);
 
                     // 生成傷害事件（日誌將在 state.rs 中統一處理）
                     tw.outcomes.push(Outcome::Damage {

@@ -51,13 +51,40 @@ pub struct BuffEntry {
     pub payload: Value,
 }
 
-/// 以 `(Entity, buff_id)` 為 key 的 O(1) buff 索引。
+/// 以 `Entity -> buff_id` 為 key 的 O(1) buff 索引。
 /// `entities_by_key` 是 stat key → entity → 引用計數的反向索引，
 /// 加速「哪些 entity 受某類 stat 影響」的查詢（regen / DoT 系統用）。
 #[derive(Default, Debug)]
 pub struct BuffStore {
-    buffs: HashMap<(Entity, String), BuffEntry>,
+    buffs: HashMap<Entity, HashMap<String, BuffEntry>>,
     entities_by_key: HashMap<String, HashMap<Entity, u32>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct MoveSpeedSums {
+    pub absolute: Fixed64,
+    pub base_override: Fixed64,
+    pub bonus_equipment: Fixed64,
+    pub percentage: Fixed64,
+    pub bonus_buff: Fixed64,
+    pub absolute_min: Fixed64,
+    pub max: Fixed64,
+    pub limit: Fixed64,
+}
+
+impl Default for MoveSpeedSums {
+    fn default() -> Self {
+        Self {
+            absolute: Fixed64::ZERO,
+            base_override: Fixed64::ZERO,
+            bonus_equipment: Fixed64::ZERO,
+            percentage: Fixed64::ZERO,
+            bonus_buff: Fixed64::ZERO,
+            absolute_min: Fixed64::ZERO,
+            max: Fixed64::ZERO,
+            limit: Fixed64::ZERO,
+        }
+    }
 }
 
 impl BuffStore {
@@ -70,8 +97,8 @@ impl BuffStore {
     /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
     /// 負載約定）。
     pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
-        let key = (entity, buff_id.to_string());
-        match self.buffs.get_mut(&key) {
+        let entity_buffs = self.buffs.entry(entity).or_default();
+        match entity_buffs.get_mut(buff_id) {
             Some(e) => {
                 if duration > e.remaining {
                     e.remaining = duration;
@@ -110,8 +137,8 @@ impl BuffStore {
             None => {
                 let new_keys: Vec<String> =
                     Self::payload_keys(&payload).map(String::from).collect();
-                self.buffs.insert(
-                    key,
+                entity_buffs.insert(
+                    buff_id.to_string(),
                     BuffEntry {
                         remaining: duration,
                         payload,
@@ -125,7 +152,23 @@ impl BuffStore {
     }
 
     pub fn remove(&mut self, entity: Entity, buff_id: &str) {
-        if let Some(entry) = self.buffs.remove(&(entity, buff_id.to_string())) {
+        let _ = self.remove_entry(entity, buff_id);
+    }
+
+    fn remove_entry(&mut self, entity: Entity, buff_id: &str) -> Option<BuffEntry> {
+        let mut remove_entity = false;
+        let entry = match self.buffs.get_mut(&entity) {
+            Some(entity_buffs) => {
+                let entry = entity_buffs.remove(buff_id);
+                remove_entity = entity_buffs.is_empty();
+                entry
+            }
+            None => None,
+        };
+        if remove_entity {
+            self.buffs.remove(&entity);
+        }
+        if let Some(entry) = &entry {
             let keys: Vec<String> = Self::payload_keys(&entry.payload)
                 .map(String::from)
                 .collect();
@@ -133,32 +176,36 @@ impl BuffStore {
                 self.index_dec(entity, k);
             }
         }
+        entry
     }
 
     pub fn has(&self, entity: Entity, buff_id: &str) -> bool {
-        self.buffs.contains_key(&(entity, buff_id.to_string()))
+        self.buffs
+            .get(&entity)
+            .is_some_and(|entity_buffs| entity_buffs.contains_key(buff_id))
     }
 
     pub fn get(&self, entity: Entity, buff_id: &str) -> Option<&BuffEntry> {
-        self.buffs.get(&(entity, buff_id.to_string()))
+        self.buffs
+            .get(&entity)
+            .and_then(|entity_buffs| entity_buffs.get(buff_id))
+    }
+
+    pub fn has_any(&self, entity: Entity) -> bool {
+        self.buffs
+            .get(&entity)
+            .is_some_and(|entity_buffs| !entity_buffs.is_empty())
     }
 
     /// 清除 entity 的所有 buff（單位死亡時呼叫）。
     pub fn remove_all_for(&mut self, entity: Entity) {
-        // 收集要清掉的 buff 索引（避免 retain 內部觸 &mut self）
-        let drained: Vec<(Entity, String)> = self
-            .buffs
-            .iter()
-            .filter(|((e, _), _)| *e == entity)
-            .map(|((e, id), _)| (*e, id.clone()))
-            .collect();
-        for (e, id) in drained {
-            if let Some(entry) = self.buffs.remove(&(e, id.clone())) {
+        if let Some(entity_buffs) = self.buffs.remove(&entity) {
+            for entry in entity_buffs.into_values() {
                 let keys: Vec<String> = Self::payload_keys(&entry.payload)
                     .map(String::from)
                     .collect();
                 for k in &keys {
-                    self.index_dec(e, k);
+                    self.index_dec(entity, k);
                 }
             }
         }
@@ -166,13 +213,10 @@ impl BuffStore {
 
     /// 迭代某單位身上所有 buff（供 creep_tick 算移速乘數等）。
     pub fn iter_for(&self, entity: Entity) -> impl Iterator<Item = (&str, &BuffEntry)> {
-        self.buffs.iter().filter_map(move |((e, id), v)| {
-            if *e == entity {
-                Some((id.as_str(), v))
-            } else {
-                None
-            }
-        })
+        self.buffs
+            .get(&entity)
+            .into_iter()
+            .flat_map(|entity_buffs| entity_buffs.iter().map(|(id, v)| (id.as_str(), v)))
     }
 
     /// 從 payload 抽出所有頂層 key（這些就是 stat key 字串）。
@@ -225,6 +269,22 @@ impl BuffStore {
             .fold(Fixed64::ZERO, |acc, v| acc + v)
     }
 
+    pub fn move_speed_sums(&self, entity: Entity) -> MoveSpeedSums {
+        let mut sums = MoveSpeedSums::default();
+        for (_, entry) in self.iter_for(entity) {
+            let Some(payload) = entry.payload.as_object() else {
+                continue;
+            };
+            for (key, value) in payload {
+                let Some(slot) = move_speed_sum_slot(&mut sums, key.as_str()) else {
+                    continue;
+                };
+                *slot = *slot + read_fixed_from_payload(value);
+            }
+        }
+        sums
+    }
+
     /// 乘法聚合：對 entity 身上所有 buff，若 `payload[stat]` 是數字則連乘。
     /// 空集合回 1.0 (Fixed64::ONE)。慣例：`_multiplier` 後綴的 stat 用這個
     /// （例 `attack_speed_multiplier`、`move_speed_multiplier`）。
@@ -260,20 +320,16 @@ impl BuffStore {
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
         let mut to_drop: Vec<(Entity, String)> = Vec::new();
-        for ((e, id), v) in self.buffs.iter_mut() {
-            v.remaining -= dt;
-            if v.remaining <= Fixed64::ZERO {
-                to_drop.push((*e, id.clone()));
+        for (e, entity_buffs) in self.buffs.iter_mut() {
+            for (id, v) in entity_buffs.iter_mut() {
+                v.remaining -= dt;
+                if v.remaining <= Fixed64::ZERO {
+                    to_drop.push((*e, id.clone()));
+                }
             }
         }
         for (e, id) in to_drop {
-            if let Some(entry) = self.buffs.remove(&(e, id.clone())) {
-                let keys: Vec<String> = Self::payload_keys(&entry.payload)
-                    .map(String::from)
-                    .collect();
-                for k in &keys {
-                    self.index_dec(e, k);
-                }
+            if let Some(entry) = self.remove_entry(e, &id) {
                 expired.push((e, id, entry.payload));
             }
         }
@@ -281,11 +337,28 @@ impl BuffStore {
     }
 
     pub fn len(&self) -> usize {
-        self.buffs.len()
+        self.buffs.values().map(HashMap::len).sum()
     }
 
     pub fn is_empty(&self) -> bool {
         self.buffs.is_empty()
+    }
+}
+
+fn move_speed_sum_slot<'a>(sums: &'a mut MoveSpeedSums, key: &str) -> Option<&'a mut Fixed64> {
+    match key {
+        "movespeed_absolute" => Some(&mut sums.absolute),
+        "movespeed_base_override" => Some(&mut sums.base_override),
+        "movespeed_bonus_equipment" => Some(&mut sums.bonus_equipment),
+        "movespeed_bonus_percentage"
+        | "movespeed_bonus_percentage_unique"
+        | "movespeed_bonus_percentage_unique_2"
+        | "move_speed_bonus" => Some(&mut sums.percentage),
+        "movespeed_bonus_buff" => Some(&mut sums.bonus_buff),
+        "movespeed_absolute_min" => Some(&mut sums.absolute_min),
+        "movespeed_max" => Some(&mut sums.max),
+        "movespeed_limit" => Some(&mut sums.limit),
+        _ => None,
     }
 }
 

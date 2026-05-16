@@ -5,8 +5,9 @@ pushd "%~dp0"
 set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
 set EXECUTOR=omfx\target\debug\executor.exe
 set BACKEND=omb\target\debug\omobab.exe
-set OMB_DLL_PATH=omb\scripts\base_content.dll
-set OMB_GAME_TOML=omb\game.toml
+set OMB_DLL_PATH=scripts\base_content.dll
+set OMB_SCRIPTS_DIR=scripts
+set OMB_GAME_TOML=scripts\game.toml
 set OMB_LUA_CONTENT=1
 set OMB_LUA_CONTENT_ROOT=scripts\lua_data
 set OMB_STORY_DATA_DIR=%OMB_LUA_CONTENT_ROOT%

@@ -41,7 +41,6 @@ $p = 'D:\omoba\xxx.bat'; $c = (Get-Content -Raw $p) -replace "(?<!`r)`n","`r`n";
 - `omb-mcp/` — MCP server，用 KCP query-only 連 omb，不訂閱 event 洪水
 - `proto/game.proto` — prost / tonic 共用 schema（build.rs 按 feature 編）
 - `docs/plans/` — 各功能的 design + impl plan（目前 tower-upgrade-paths、ability-system-integration 等有詳細文件）
-- `graphify-out/` — 本 repo 的 knowledge graph（見下）
 
 > **注意**：`omb/` 單獨 clone 無法 build，需搭配完整 monorepo（`omb-script-abi` 經 path 依賴 `../scripts/script-abi`）。
 
@@ -63,15 +62,6 @@ $p = 'D:\omoba\xxx.bat'; $c = (Get-Content -Raw $p) -replace "(?<!`r)`n","`r`n";
 
 ### 效能注意
 stress 場景（1000 塔 × 1000 creep）已驗證兩個熱路徑：(1) omfx 的 collision ring（24 段 × 1000 entity = 24K scene node）用 `COLLISION_RING_ENABLED: bool` 全關；(2) name label 的 `ui.send` 做 diff（位置差 < 1 px + 文字未變就跳過）。新加 per-entity 每幀 UI 動作時務必檢查這些節流模式。
-
-## graphify
-
-This project has a graphify knowledge graph at graphify-out/.
-
-Rules:
-- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
-- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
-- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost)
 
 ## Unit & Script API catalog (gen-docs)
 

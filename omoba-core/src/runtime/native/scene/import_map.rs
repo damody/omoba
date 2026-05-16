@@ -9,6 +9,10 @@ pub struct CreepWaveData {
     pub CheckPoint: Vec<CheckPointJD>,
     pub Tower: Vec<TowerJD>,
     pub CreepWave: Vec<CreepWaveJD>,
+    /// 初始小兵放置。主要供 stress 場景在載入時直接建立大量 render-backed creeps，
+    /// 避免透過 wave cadence 慢慢出怪而量不到目標 entity 數。
+    #[serde(default)]
+    pub InitialCreeps: Vec<InitialCreepJD>,
     /// 初始建物放置（引用 `Tower` 模板，指定位置/陣營/是否為基地）
     #[serde(default)]
     pub Structures: Vec<StructureJD>,
@@ -20,6 +24,18 @@ pub struct CreepWaveData {
     /// 轉為 `GameMode` resource 供各 system 查詢。
     #[serde(default)]
     pub GameMode: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct InitialCreepJD {
+    pub Creep: String,
+    pub Path: String,
+    #[serde(default)]
+    pub PathIndex: usize,
+    #[serde(default)]
+    pub Faction: Option<String>,
+    pub X: f32,
+    pub Y: f32,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

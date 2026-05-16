@@ -471,7 +471,7 @@ fn collect_files_with_extension(
 }
 
 fn collect_cargo_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let skip = [".git", "target", "graphify-out"];
+    let skip = [".git", "target"];
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };

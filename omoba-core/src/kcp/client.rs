@@ -12,8 +12,17 @@ use tokio_kcp::{KcpConfig, KcpNoDelayConfig, KcpStream};
 
 use super::framing::*;
 use super::game_proto::*;
+use crate::lockstep_timing::LOCKSTEP_TPS;
 use crate::quant::{facing_dequant, fixed_dequant, pos_dequant};
 use omoba_template_ids::{active_creep_display, projectile_id_str, CreepId, ProjectileKindId};
+
+fn normalize_game_start_step_fps(step_fps: u32) -> u32 {
+    if step_fps == 0 {
+        LOCKSTEP_TPS
+    } else {
+        step_fps
+    }
+}
 
 /// P3：英雄靜態元資料的客戶端快取。
 ///
@@ -40,10 +49,12 @@ pub struct KcpClient {
     /// 0x11 / 0x12 / 0x14 / 0x16 幀到達。透過拍攝一次
     /// `subscribe_lockstep`。
     lockstep_rx: Option<mpsc::Receiver<LockstepInbound>>,
-    /// 第2階段鎖步：由GameStart分配；需要標記InputSubmit。
+    /// 第2階段鎖步：由 client 宣告並由 GameStart 驗證；需要標記InputSubmit。
     last_player_id: Option<u32>,
     /// 第 2 階段鎖步：為呼叫者快取 master_seed。
     last_master_seed: Option<u64>,
+    /// Server-authoritative cadence announced by GameStart.
+    last_step_fps: Option<u32>,
 }
 
 /// 階段 2 鎖定步入站幀從 kcp 讀取器顯示客戶端
@@ -155,6 +166,7 @@ pub struct GameEventData {
 
 impl KcpClient {
     /// 連接到KCP遊戲伺服器。
+    #[tracing::instrument(skip_all, fields(perfetto = true, addr = %addr))]
     pub async fn connect(addr: &str, player_name: String) -> Result<Self> {
         let mut config = KcpConfig::default();
         config.nodelay = KcpNoDelayConfig::fastest();
@@ -203,6 +215,7 @@ impl KcpClient {
             lockstep_rx: Some(lockstep_rx),
             last_player_id: None,
             last_master_seed: None,
+            last_step_fps: None,
         })
     }
 
@@ -221,6 +234,7 @@ impl KcpClient {
                 let req = PingRequest {
                     client_send_us: now_us,
                 };
+                tracing::trace!(perfetto = true, "omoba_core::kcp::send_ping_request");
                 let mut w = writer.lock().await;
                 if let Err(e) = write_framed_msg(&mut *w, TAG_PING_REQ, &req).await {
                     warn!("Failed to send PingRequest: {}", e);
@@ -254,6 +268,13 @@ impl KcpClient {
             loop {
                 match read_framed(&mut reader).await {
                     Ok(Some((tag, payload, wire_compressed_bytes))) => {
+                        tracing::trace!(
+                            perfetto = true,
+                            tag,
+                            wire_bytes = wire_compressed_bytes,
+                            logical_bytes = payload.len(),
+                            "omoba_core::kcp::frame_received"
+                        );
                         match tag {
                             TAG_GAME_EVENT => {
                                 match GameEvent::decode(payload.as_slice()) {
@@ -311,6 +332,11 @@ impl KcpClient {
                                                     };
                                                     let w = writer_for_resync.clone();
                                                     tokio::spawn(async move {
+                                                        tracing::trace!(
+                                                            perfetto = true,
+                                                            expected_seq = expected,
+                                                            "omoba_core::kcp::send_seq_gap_state_req"
+                                                        );
                                                         let mut w = w.lock().await;
                                                         if let Err(e) = write_framed_msg(
                                                             &mut *w,
@@ -552,7 +578,8 @@ impl KcpClient {
     }
 
     /// 發送JoinRequest（標籤0x13）並等待伺服器的GameStart回复
-    /// （標籤 0x14）。從 GameStart 傳回指定的 `master_seed`
+    /// （標籤 0x14）。`player_id` 必須在連線前由 client 決定；
+    /// server 成功時會回覆同一個 id。從 GameStart 傳回指定的 `master_seed`
     /// 呼叫者可以構造確定性 SimRng 流。
     ///
     /// 注意：此方法在內部耗盡鎖定步入站通道
@@ -561,7 +588,16 @@ impl KcpClient {
     /// 1.`連線`
     /// 2. `join_lockstep` （從頻道消耗 GameStart）
     /// 3. `subscribe_lockstep` （現在只產生 TickBatch/StateHash/SnapshotResp）
-    pub async fn join_lockstep(&mut self, player_name: String, observer: bool) -> Result<u64> {
+    #[tracing::instrument(skip_all, fields(perfetto = true, observer))]
+    pub async fn join_lockstep(
+        &mut self,
+        player_name: String,
+        player_id: u32,
+        observer: bool,
+    ) -> Result<u64> {
+        if !observer && player_id == 0 {
+            anyhow::bail!("player join requires non-zero client-declared player_id");
+        }
         let role = if observer {
             JoinRole::RoleObserver
         } else {
@@ -570,6 +606,7 @@ impl KcpClient {
         let req = JoinRequest {
             player_name: player_name.clone(),
             role: role as i32,
+            player_id,
         };
         {
             let mut w = self.writer.lock().await;
@@ -583,8 +620,16 @@ impl KcpClient {
         loop {
             match rx.recv().await {
                 Some(LockstepInbound::GameStart { msg: gs, .. }) => {
+                    if !observer && gs.player_id != player_id {
+                        anyhow::bail!(
+                            "server returned player_id {} but client declared {}",
+                            gs.player_id,
+                            player_id
+                        );
+                    }
                     self.last_player_id = Some(gs.player_id);
                     self.last_master_seed = Some(gs.master_seed);
+                    self.last_step_fps = Some(normalize_game_start_step_fps(gs.step_fps));
                     return Ok(gs.master_seed);
                 }
                 Some(_) => {
@@ -608,6 +653,7 @@ impl KcpClient {
     /// 吞吐量計數器。 InputSubmit 訊息很小（遠低於
     /// `LZ4_THRESHOLD = 128`)，因此它們永遠不會被壓縮並且
     /// `連線 = 1 + 4 + 邏輯`。
+    #[tracing::instrument(skip_all, fields(perfetto = true, target_tick, input_id))]
     pub async fn submit_input(
         &mut self,
         target_tick: u32,
@@ -632,6 +678,7 @@ impl KcpClient {
 
     /// 從伺服器請求快照。回覆如下
     /// 鎖步流上的「LockstepInbound::SnapshotResp」。
+    #[tracing::instrument(skip_all, fields(perfetto = true, from_tick))]
     pub async fn request_snapshot(&mut self, from_tick: u32) -> Result<()> {
         let req = SnapshotReq { from_tick };
         let mut w = self.writer.lock().await;
@@ -639,7 +686,7 @@ impl KcpClient {
         Ok(())
     }
 
-    /// 最近觀察到的由 GameStart 指派的player_id。
+    /// 最近觀察到的由 GameStart 驗證的 player_id。
     pub fn lockstep_player_id(&self) -> Option<u32> {
         self.last_player_id
     }
@@ -647,6 +694,12 @@ impl KcpClient {
     /// 最近從 GameStart 觀察到的 master_seed。
     pub fn lockstep_master_seed(&self) -> Option<u64> {
         self.last_master_seed
+    }
+
+    /// Server-authoritative cadence from GameStart. Defaults to 120 for older
+    /// servers that do not populate the proto3 field.
+    pub fn lockstep_step_fps(&self) -> Option<u32> {
+        self.last_step_fps
     }
 }
 
@@ -1310,7 +1363,14 @@ fn translate_typed_payload(
 
 #[cfg(test)]
 mod seq_gap_tests {
-    use super::{detect_seq_gap, SeqGapResult};
+    use super::{detect_seq_gap, normalize_game_start_step_fps, SeqGapResult};
+
+    #[test]
+    fn game_start_step_fps_defaults_only_for_legacy_zero() {
+        assert_eq!(normalize_game_start_step_fps(0), 120);
+        assert_eq!(normalize_game_start_step_fps(90), 90);
+        assert_eq!(normalize_game_start_step_fps(60), 60);
+    }
 
     #[test]
     fn initial_event_seeds() {

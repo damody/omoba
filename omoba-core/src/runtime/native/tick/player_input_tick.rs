@@ -1,8 +1,8 @@
 //! 階段 3.4：每次調度程式勾選時都會耗盡「PendingPlayerInputs」。
 //!
 //! Lockstep runtime consumer 將每個 TickBatch 的
-//! 「player_id → PlayerInput」寫入資源。這
-//! 系統消耗它們（清除資源，這樣過時的輸入就不會
+//! `(player_id, PlayerInput)` 寫入資源。這
+//! 系統依序消耗它們（清除資源，這樣過時的輸入就不會
 //! 累積）並將每個變體路由到適當的遊戲端
 //! 處理程序。
 //!
@@ -57,12 +57,12 @@ impl<'a> System<'a> for Sys {
             mut move_q,
         ): Self::SystemData,
     ) {
-        if pending.by_player.is_empty() {
+        if pending.inputs.is_empty() {
             return;
         }
         let target_tick = pending.tick;
         let totaltime = time.0 as f32;
-        let drained: Vec<_> = pending.by_player.drain().collect();
+        let drained: Vec<_> = pending.inputs.drain(..).collect();
         log::trace!(
             "player_input_tick: draining {} inputs for tick {}",
             drained.len(),

@@ -4,38 +4,50 @@ REM  run_stress.bat -- TD_STRESS 效能測試啟動器（RELEASE build）
 REM
 REM  步驟：
 REM    1. 結束殘留的 omobab.exe / executor.exe
-REM    2. 重新產生 scripts\lua_data\TD_STRESS\map.lua
-REM    3. 備份 omb\game.toml，並暫時替換為 omb\game_stress.toml
-REM    4. 只有過期時才 build base_content DLL (release) + omb backend (release)。
-REM    5. 只有過期時才 build omfx executor (release)，然後執行。
-REM    6. 啟動 release backend，再啟動 release frontend。
-REM    7. 結束後一律清理 backend 並還原 omb\game.toml
+REM    2. 依 omb\game_stress.toml 重新產生 scripts\lua_data\TD_STRESS\map.lua
+REM    3. 只有過期時才 build base_content DLL (release) + omb backend (release)。
+REM    4. 只有過期時才 build omfx executor (release)，然後執行。
+REM    5. 啟動 release backend，再啟動 release frontend。
+REM
+REM  Options:
+REM    --trace  啟用 omfx Perfetto trace（輸出預設由 executor 決定；可先設定
+REM             OMFX_PERFETTO_PATH / OMFX_PERFETTO_DETAIL / OMFX_PERFETTO_MAX_SECONDS）
 REM ======================================================================
 
 setlocal
 pushd "%~dp0"
 
-set FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1
-set EXECUTOR=omfx\target\release\executor.exe
-set BACKEND=omb\target\release\omobab.exe
-set OMB_DLL_PATH=omb\scripts\base_content.dll
-set OMB_GAME_TOML=omb\game.toml
-set OMB_LUA_CONTENT=
-set OMB_LUA_CONTENT_ROOT=
-set OMB_LUA_HOT_RELOAD=
-set OMB_STORY_DATA_DIR=scripts\lua_data
+set "FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1"
+set "EXECUTOR=omfx\target\release\executor.exe"
+set "BACKEND=omb\target\release\omobab.exe"
+set "OMB_GAME_TOML=%CD%\omb\game_stress.toml"
+set "OMFX_GAME_TOML=%OMB_GAME_TOML%"
+set "OMB_STORY=TD_STRESS"
+set "OMB_SCENE_PATH="
 
-set TOML=omb\game.toml
-set TOML_BAK=omb\game.toml.bak
-set TOML_STRESS=omb\game_stress.toml
+set "RUN_STRESS_TRACE="
+:parse_args
+if "%~1"=="" goto :args_done
+if /I "%~1"=="--trace" set "RUN_STRESS_TRACE=1"
+shift
+goto :parse_args
 
-echo [0/7] Killing stale processes (if any)...
+:args_done
+if defined RUN_STRESS_TRACE (
+    set "OMFX_PERFETTO_TRACE=1"
+    if not defined OMFX_PERFETTO_DETAIL set "OMFX_PERFETTO_DETAIL=frame"
+    if not defined OMFX_PERFETTO_PATH set "OMFX_PERFETTO_PATH=omfx\target\profiles\stress.perfetto-trace"
+    echo Perfetto trace enabled for stress run.
+    echo   -^> trace path: %OMFX_PERFETTO_PATH%
+)
+
+echo [0/5] Killing stale processes (if any)...
 REM 不用 taskkill — 此機器上 taskkill/tasklist 會卡住數十秒不返回（疑似某個
 REM Windows process enumeration API 路徑被 hook 卡住）。改走 PowerShell 的
 REM Stop-Process，走不同 API 路徑、秒回。
 powershell -NoProfile -Command "Stop-Process -Name 'omobab','executor' -Force -ErrorAction SilentlyContinue"
 
-echo [1/7] Regenerating stress map...
+echo [1/5] Regenerating stress map...
 REM 使用 Windows 官方 py launcher 而非 `python`，避免 PATH 上的 Microsoft Store
 REM Microsoft Store python.exe stub 攔截
 REM 並彈出 Store 對話框讓 cmd 卡死。
@@ -47,22 +59,12 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-echo [2/7] Switching game.toml to stress variant (backup at %TOML_BAK%)...
-if not exist "%TOML_STRESS%" (
-    echo   %TOML_STRESS% missing!
-    popd
-    pause
-    exit /b 1
-)
-copy /y "%TOML%" "%TOML_BAK%" >nul
-copy /y "%TOML_STRESS%" "%TOML%" >nul
-
 call :main
-set MAIN_ERR=%errorlevel%
-goto :restore
+set "MAIN_ERR=%errorlevel%"
+goto :cleanup
 
 :main
-echo [3/7] Checking script DLL (scripts\base_content, release)...
+echo [2/5] Checking script DLL (scripts\base_content, release)...
 call :ensure_fresh script-dll release "release script DLL" "cargo build --release --manifest-path scripts\Cargo.toml -p base_content" "Script DLL build failed!"
 if errorlevel 1 exit /b 1
 
@@ -72,11 +74,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [4/7] Checking backend (omb, release)...
+echo [3/5] Checking backend (omb, release)...
 call :ensure_fresh backend release "release backend" "cargo build --release --manifest-path omb\Cargo.toml -p omobab" "Backend build failed!"
 if errorlevel 1 exit /b 1
 
-echo [5/7] Checking frontend (omfx executor, release)...
+echo [4/5] Checking frontend (omfx executor, release)...
 call :ensure_fresh frontend release "release frontend" "cargo build --release --manifest-path omfx\Cargo.toml -p executor" "Frontend build failed!"
 if errorlevel 1 exit /b 1
 
@@ -90,21 +92,21 @@ if not exist "%EXECUTOR%" (
     exit /b 1
 )
 
-echo [6/7] Starting backend (omobab, release)...
+echo [5/5] Starting backend (omobab, release)...
 call :start_backend
 if errorlevel 1 exit /b 1
 
-echo [7/7] Running frontend (omfx executor, release)...
+echo Running frontend (omfx executor, release)...
 "%EXECUTOR%"
-set RUN_ERR=%errorlevel%
+set "RUN_ERR=%errorlevel%"
 call :stop_backend
 exit /b %RUN_ERR%
 
 :start_backend
-set BACKEND_PID=
-set BACKEND_PID_FILE=omb\log\launcher_backend.pid
+set "BACKEND_PID="
+set "BACKEND_PID_FILE=omb\log\launcher_backend.pid"
 if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb" -PidFile "%BACKEND_PID_FILE%"
+call powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb" -PidFile "%BACKEND_PID_FILE%"
 if errorlevel 1 (
     echo   Backend start failed!
     exit /b 1
@@ -123,19 +125,19 @@ if defined BACKEND_PID (
     echo Stopping backend PID %BACKEND_PID%...
     powershell -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Id %BACKEND_PID% -Force -ErrorAction SilentlyContinue"
     if defined BACKEND_PID_FILE if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
-    set BACKEND_PID=
+    set "BACKEND_PID="
 )
 exit /b 0
 
 :ensure_fresh
-set ARTIFACT=%~1
-set PROFILE=%~2
-set LABEL=%~3
-set BUILD_CMD=%~4
-set FAIL_MSG=%~5
+set "ARTIFACT=%~1"
+set "PROFILE=%~2"
+set "LABEL=%~3"
+set "BUILD_CMD=%~4"
+set "FAIL_MSG=%~5"
 
 %FRESHNESS% -Action check -Artifact %ARTIFACT% -Profile %PROFILE%
-set FRESH_ERR=%errorlevel%
+set "FRESH_ERR=%errorlevel%"
 if "%FRESH_ERR%"=="0" (
     echo   -^> %LABEL% up-to-date; skipping build.
     exit /b 0
@@ -154,14 +156,8 @@ if errorlevel 1 (
 )
 exit /b 0
 
-:restore
+:cleanup
 echo.
 call :stop_backend
-echo Restoring %TOML% from backup...
-if exist "%TOML_BAK%" (
-    copy /y "%TOML_BAK%" "%TOML%" >nul
-    del "%TOML_BAK%" >nul 2>&1
-)
-
 popd
 exit /b %MAIN_ERR%

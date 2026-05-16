@@ -488,8 +488,8 @@ message InputForPlayer {
   uint64 server_queue_us = 6;
 }
 
-// Tag 0x11 (S→C): server-paced tick broadcast. Sent every ~8.33ms (120Hz)
-// even if inputs and server_events are both empty (heartbeat).
+// Tag 0x11 (S→C): server-paced tick broadcast. Sent at the GameStart.step_fps
+// cadence even if inputs and server_events are both empty (heartbeat).
 message TickBatch {
   uint32 tick = 1;
   repeated InputForPlayer inputs = 2;
@@ -498,7 +498,7 @@ message TickBatch {
   string lua_content_hash = 5;
 }
 
-// Tag 0x12 (S→C): broadcast every 1200 ticks (10s @ 120Hz) for desync detection.
+// Tag 0x12 (S→C): broadcast about every 10s for desync detection.
 // Clients hash their local sim state at this tick and compare; mismatch → kick.
 message StateHash {
   uint32 tick = 1;
@@ -515,15 +515,19 @@ enum JoinRole {
 message JoinRequest {
   string player_name = 1;
   JoinRole role = 2;
+  // Client-declared player id. Player clients must provide a non-zero id
+  // before connecting; server validates and echoes it in GameStart.
+  uint32 player_id = 3;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 // initial SimSnapshot to bootstrap the client.
 message GameStart {
-  uint32 player_id = 1;          // assigned to this client
+  uint32 player_id = 1;          // validated client-declared player id
   uint32 start_tick = 2;
   uint64 master_seed = 3;
   SimSnapshot initial_state = 4;  // empty for fresh game start
+  uint32 step_fps = 5;            // server-authoritative lockstep cadence
 }
 
 // Tag 0x15 (C→S): observer requests current snapshot.

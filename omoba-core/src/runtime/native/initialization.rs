@@ -194,12 +194,7 @@ impl StateInitializer {
                     cp_in_path.push(v.clone());
                 }
             }
-            paths.insert(
-                p.Name.clone(),
-                Path {
-                    check_points: cp_in_path,
-                },
-            );
+            paths.insert(p.Name.clone(), Path::new(cp_in_path));
         }
     }
 
@@ -352,6 +347,7 @@ impl StateInitializer {
             // TD 模式下塔由玩家運行時建造，不在場景初始化時生訓練敵人
             Self::create_training_enemies(ecs, campaign_data);
         }
+        Self::spawn_initial_creeps_from_map(ecs, &campaign_data.map);
         Self::create_terrain_blockers(ecs);
         log::info!("創建戰役場景完成: {}", campaign_data.mission.campaign.name);
     }
@@ -370,6 +366,7 @@ impl StateInitializer {
         ecs.register::<Hero>();
         ecs.register::<Unit>();
         ecs.register::<Faction>();
+        ecs.register::<PlayerOwner>();
         ecs.register::<SummonedUnit>();
         ecs.register::<CircularVision>();
         // 舊 Ability/AbilityEffect/Skill/SkillEffect 已隨 skill_system 移除。
@@ -568,10 +565,25 @@ impl StateInitializer {
 
     fn create_campaign_heroes(ecs: &mut World, campaign_data: &CampaignData) {
         // 從戰役資料創建英雄
-        if let Some(hero_data) = campaign_data.entity.heroes.first() {
-            let hero = Hero::from_campaign_data(hero_data);
+        let Some(first_hero_data) = campaign_data.entity.heroes.first() else {
+            return;
+        };
+        let hero_count = if ecs.read_resource::<GameMode>().is_td() {
+            2usize
+        } else {
+            1usize
+        };
+        for idx in 0..hero_count {
+            let player_id = (idx + 1) as u32;
+            let hero_data = campaign_data
+                .entity
+                .heroes
+                .get(idx)
+                .unwrap_or(first_hero_data);
+            let mut hero = Hero::from_campaign_data(hero_data);
+            hero.name = format!("[P{}] {}", player_id, hero.name);
             let hero_faction = Faction::new(FactionType::Player, 0);
-            let hero_pos = Pos::from_xy_f32(0.0, 0.0);
+            let hero_pos = Pos::from_xy_f32(idx as f32 * 80.0, 0.0);
             let hero_vel = Vel::zero();
 
             // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
@@ -627,6 +639,7 @@ impl StateInitializer {
                 .with(hero_vel)
                 .with(hero)
                 .with(hero_faction)
+                .with(PlayerOwner::new(player_id))
                 .with(hero_properties)
                 .with(hero_attack)
                 .with(hero_vision)
@@ -651,8 +664,8 @@ impl StateInitializer {
                 .push(crate::scripting::ScriptEvent::Spawn { e: hero_entity });
 
             log::info!(
-                "創建戰役英雄實體: {:?} unit_id={}（含 Gold/Inventory/ItemEffects + ScriptUnitTag）",
-                hero_entity, unit_id
+                "創建戰役英雄實體: {:?} player_id={} team_id=0 unit_id={}（含 Gold/Inventory/ItemEffects + ScriptUnitTag）",
+                hero_entity, player_id, unit_id
             );
         }
     }
@@ -734,6 +747,82 @@ impl StateInitializer {
             script_count,
             dumb_count
         );
+    }
+
+    pub fn spawn_initial_creeps_from_map(ecs: &mut World, cw: &CreepWaveData) {
+        use std::collections::BTreeMap;
+
+        if cw.InitialCreeps.is_empty() {
+            return;
+        }
+
+        let emitters = {
+            let emitters = ecs.read_resource::<BTreeMap<String, CreepEmiter>>();
+            (*emitters).clone()
+        };
+        let mut spawned = 0usize;
+        for c in &cw.InitialCreeps {
+            let Some(emitter) = emitters.get(&c.Creep) else {
+                log::warn!("InitialCreeps 未知 Creep 模板 '{}'，跳過", c.Creep);
+                continue;
+            };
+            let mut creep = emitter.root.clone();
+            creep.path = c.Path.clone();
+            creep.pidx = c.PathIndex;
+
+            let faction_name = c
+                .Faction
+                .clone()
+                .unwrap_or_else(|| emitter.faction_name.clone());
+            let faction = match faction_name.as_str() {
+                "Player" | "player" => Faction::new(FactionType::Player, 0),
+                _ => Faction::new(FactionType::Enemy, 1),
+            };
+            let bounty = Self::creep_bounty_from_template(&c.Creep);
+            let turn_speed_rad = emitter.turn_speed_deg.to_radians();
+            let entity = ecs
+                .create_entity()
+                .with(Pos::from_xy_f32(c.X, c.Y))
+                .with(creep)
+                .with(emitter.property.clone())
+                .with(faction)
+                .with(bounty)
+                .with(Facing(omoba_sim::Angle::ZERO))
+                .with(FacingBroadcast(None))
+                .with(TurnSpeed(omoba_sim::Fixed64::from_raw(
+                    (turn_speed_rad * omoba_sim::fixed::SCALE as f32) as i64,
+                )))
+                .with(crate::scripting::ScriptUnitTag {
+                    unit_id: format!("creep_{}", c.Creep),
+                })
+                .build();
+            ecs.write_resource::<crate::scripting::ScriptEventQueue>()
+                .push(crate::scripting::ScriptEvent::Spawn { e: entity });
+            ecs.write_resource::<omoba_core::runtime::ability_runtime::BuffStore>()
+                .add(
+                    entity,
+                    "creep_min_speed_floor",
+                    omoba_sim::Fixed64::from_raw(i64::MAX),
+                    serde_json::json!({ "movespeed_absolute_min": 10.0 }),
+                );
+            spawned += 1;
+        }
+        log::info!("已依 generated map data 放置 {} 個 InitialCreeps", spawned);
+    }
+
+    fn creep_bounty_from_template(creep_name: &str) -> Bounty {
+        if creep_name.starts_with("ally_") {
+            return Bounty { gold: 0, exp: 0 };
+        }
+        if let Some(stats) = omoba_template_ids::creep_by_name(creep_name)
+            .and_then(omoba_template_ids::active_creep_stats)
+        {
+            return Bounty {
+                gold: stats.gold_reward,
+                exp: stats.exp_reward,
+            };
+        }
+        Bounty { gold: 0, exp: 0 }
     }
 
     fn spawn_tower(
@@ -900,18 +989,26 @@ impl StateInitializer {
 }
 
 fn refresh_live_heroes_from_lua(ecs: &mut World) {
+    let entities = ecs.entities();
     let mut heroes = ecs.write_storage::<Hero>();
     let mut props = ecs.write_storage::<CProperty>();
     let mut attacks = ecs.write_storage::<TAttack>();
     let mut turns = ecs.write_storage::<TurnSpeed>();
-    for (hero, prop, attack, turn) in (&mut heroes, &mut props, &mut attacks, &mut turns).join() {
+    let owners = ecs.read_storage::<PlayerOwner>();
+    for (entity, hero, prop, attack, turn) in
+        (&entities, &mut heroes, &mut props, &mut attacks, &mut turns).join()
+    {
         let Some(hero_id) = omoba_template_ids::hero_by_name(&hero.id) else {
             continue;
         };
         let Some(stats) = omoba_template_ids::active_hero_stats(hero_id) else {
             continue;
         };
-        hero.name = omoba_template_ids::active_hero_display(hero_id).to_string();
+        let display_name = omoba_template_ids::active_hero_display(hero_id).to_string();
+        hero.name = owners
+            .get(entity)
+            .map(|owner| format!("[P{}] {}", owner.player_id, display_name))
+            .unwrap_or(display_name);
         hero.title = omoba_template_ids::active_hero_title(hero_id).to_string();
         hero.strength = stats.strength;
         hero.agility = stats.agility;
@@ -1110,6 +1207,11 @@ pub fn create_world_from_loaded_content(
     item_registry: crate::item::ItemRegistry,
     script_registry: crate::scripting::ScriptRegistry,
 ) -> Result<World, failure::Error> {
+    let init_span = tracing::trace_span!(
+        "omoba_core::runtime::create_world_from_loaded_content",
+        perfetto = true,
+    )
+    .entered();
     use failure::err_msg;
     if let Err(err) = campaign_data.validate() {
         return Err(err_msg(format!("Campaign data validation failed: {}", err)));
@@ -1133,6 +1235,7 @@ pub fn create_world_from_loaded_content(
     StateInitializer::populate_region_blockers(&mut ecs);
 
     log::info!("[create_world_from_loaded_content] ECS world ready");
+    drop(init_span);
     Ok(ecs)
 }
 
@@ -1310,11 +1413,13 @@ mod tests {
 
         let emitters = ecs.read_resource::<BTreeMap<String, CreepEmiter>>();
         let emitter = emitters.get("td_stress").expect("td_stress emitter");
+        let creep_id = omoba_template_ids::creep_by_name("td_stress").expect("td_stress template");
+        let stats = omoba_template_ids::active_creep_stats(creep_id).expect("td_stress stats");
         assert_eq!(emitter.root.label.as_deref(), Some("壓測怪"));
-        assert_eq!(emitter.property.hp, omoba_sim::Fixed64::from_i32(10_000));
-        assert_eq!(emitter.property.mhp, omoba_sim::Fixed64::from_i32(10_000));
-        assert_eq!(emitter.property.msd, omoba_sim::Fixed64::from_i32(100));
-        assert_eq!(emitter.property.def_physic, omoba_sim::Fixed64::ZERO);
-        assert_eq!(emitter.property.def_magic, omoba_sim::Fixed64::ZERO);
+        assert_eq!(emitter.property.hp, stats.hp);
+        assert_eq!(emitter.property.mhp, stats.hp);
+        assert_eq!(emitter.property.msd, stats.move_speed);
+        assert_eq!(emitter.property.def_physic, stats.armor);
+        assert_eq!(emitter.property.def_magic, stats.magic_resistance);
     }
 }

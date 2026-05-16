@@ -9,9 +9,8 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
-if not exist omb\scripts mkdir omb\scripts
-copy /y scripts\target\release\base_content.dll omb\scripts\base_content.dll >nul
-echo   -^> copied base_content.dll to omb\scripts\
+copy /y scripts\target\release\base_content.dll scripts\base_content.dll >nul
+echo   -^> copied base_content.dll to scripts\
 
 echo [2/3] Building gen-docs...
 cargo build --manifest-path omb\Cargo.toml -p omobab --bin gen-docs --features gen-docs --release

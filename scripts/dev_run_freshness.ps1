@@ -122,6 +122,32 @@ function Test-ArtifactFresh {
     }
 
     $output = Get-Item -LiteralPath $outputPath
+
+    if ($Config.ContainsKey('RequiredFeatures')) {
+        $fingerprintDir = Join-RepoPath $Config.FingerprintDir
+        if (-not (Test-Path -LiteralPath $fingerprintDir -PathType Container)) {
+            Write-Host "stale: $Name fingerprint directory missing: $($Config.FingerprintDir)"
+            return 1
+        }
+
+        $fingerprints = @(Get-ChildItem -LiteralPath $fingerprintDir -Recurse -File -Filter $Config.FingerprintFile |
+            Sort-Object LastWriteTimeUtc -Descending)
+        if ($fingerprints.Count -eq 0) {
+            Write-Host "stale: $Name fingerprint missing: $($Config.FingerprintFile)"
+            return 1
+        }
+
+        $latestFingerprint = $fingerprints[0]
+        $metadata = Get-Content -Raw -LiteralPath $latestFingerprint.FullName | ConvertFrom-Json
+        $features = [string]$metadata.features
+        foreach ($feature in $Config.RequiredFeatures) {
+            if (-not $features.Contains("`"$feature`"")) {
+                Write-Host "stale: $Name latest fingerprint missing feature '$feature': $($latestFingerprint.FullName.Substring($RepoRoot.Length + 1))"
+                return 1
+            }
+        }
+    }
+
     $newestInput = Get-NewestInput -Files $Config.Inputs.Files -Directories $Config.Inputs.Directories
 
     if ($newestInput.Time -gt $output.LastWriteTimeUtc) {
@@ -137,7 +163,7 @@ function Stage-BaseContentDll {
     param([Parameter(Mandatory = $true)][string]$SourceProfile)
 
     $sourceRelative = "scripts/target/$SourceProfile/base_content.dll"
-    $destinationRelative = 'omb/scripts/base_content.dll'
+    $destinationRelative = 'scripts/base_content.dll'
     $sourcePath = Join-RepoPath $sourceRelative
     $destinationPath = Join-RepoPath $destinationRelative
 
@@ -161,7 +187,7 @@ function Stage-BaseContentDll {
 
     Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
     (Get-Item -LiteralPath $destinationPath).LastWriteTimeUtc = $source.LastWriteTimeUtc
-    Write-Host "staged: copied base_content.dll ($SourceProfile) to omb/scripts/"
+    Write-Host "staged: copied base_content.dll ($SourceProfile) to scripts/"
     return 0
 }
 
@@ -289,42 +315,45 @@ $frontendInputsDebug = Merge-InputSets $common $scriptAbi $omobaCore $templateId
     'omfx/Cargo.toml',
     'omfx/Cargo.lock',
     'omfx/executor/Cargo.toml',
-    'omfx/game/Cargo.toml',
-    'omb/Cargo.toml',
-    'omb/Cargo.lock',
-    'omb/build.rs'
+    'omfx/game/Cargo.toml'
 ) -Directories @(
     'omfx/executor/src',
     'omfx/game/src',
-    'omb/src'
+    'third_party/fyrox-impl-1.0.1/src'
 ))
 
 $frontendInputsRelease = Merge-InputSets $common $scriptAbi $omobaCore $templateIds $sim $specs $log4rs (New-InputSet -Files @(
     'omfx/Cargo.toml',
     'omfx/Cargo.lock',
     'omfx/executor/Cargo.toml',
-    'omfx/game/Cargo.toml',
-    'omb/Cargo.toml',
-    'omb/Cargo.lock',
-    'omb/build.rs'
+    'omfx/game/Cargo.toml'
 ) -Directories @(
     'omfx/executor/src',
     'omfx/game/src',
-    'omb/src'
+    'third_party/fyrox-impl-1.0.1/src'
 ))
 
 $configs = @{
     'script-dll-debug' = @{
         Output = 'scripts/target/debug/base_content.dll'
         Inputs = $scriptDllInputsDebug
+        FingerprintDir = 'scripts/target/debug/.fingerprint'
+        FingerprintFile = 'lib-base_content.json'
+        RequiredFeatures = @('runtime-lua-content')
     }
     'backend-debug' = @{
         Output = 'omb/target/debug/omobab.exe'
         Inputs = $backendInputsDebug
+        FingerprintDir = 'omb/target/debug/.fingerprint'
+        FingerprintFile = 'bin-omobab.json'
+        RequiredFeatures = @('runtime-lua-content')
     }
     'frontend-debug' = @{
         Output = 'omfx/target/debug/executor.exe'
         Inputs = $frontendInputsDebug
+        FingerprintDir = 'omfx/target/debug/.fingerprint'
+        FingerprintFile = 'bin-executor.json'
+        RequiredFeatures = @('runtime-lua-content')
     }
     'script-dll-release' = @{
         Output = 'scripts/target/release/base_content.dll'

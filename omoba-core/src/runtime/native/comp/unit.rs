@@ -69,6 +69,13 @@ pub struct Faction {
     pub team_id: i32, // 隊伍ID，相同隊伍不會互相攻擊
 }
 
+/// 玩家 ownership metadata。這和 `Faction.team_id` 分開：
+/// `team_id` 表示戰鬥隊伍，`player_id` 表示哪個 lockstep player 可控制。
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PlayerOwner {
+    pub player_id: u32,
+}
+
 /// 陣營類型
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub enum FactionType {
@@ -92,6 +99,10 @@ impl Component for Unit {
 }
 
 impl Component for Faction {
+    type Storage = VecStorage<Self>;
+}
+
+impl Component for PlayerOwner {
     type Storage = VecStorage<Self>;
 }
 
@@ -450,6 +461,12 @@ impl Faction {
             (_, FactionType::Neutral) => false,
             _ => false,
         }
+    }
+}
+
+impl PlayerOwner {
+    pub fn new(player_id: u32) -> Self {
+        Self { player_id }
     }
 }
 
