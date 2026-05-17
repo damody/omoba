@@ -394,10 +394,31 @@ message NoOp {}
 
 message MoveTo {
   Vec2I target = 1;  // world position to move toward
+  bool queued = 2;   // append to the hero command queue when Shift is held
 }
 
 message AttackTarget {
   uint32 target_id = 1;  // entity id
+  bool queued = 2;       // append to the hero command queue when Shift is held
+}
+
+message AttackMove {
+  Vec2I target = 1;  // world position to attack-move toward
+  bool queued = 2;   // append to the hero command queue when Shift is held
+}
+
+enum TargetPriority {
+  TARGET_PRIORITY_FIRST = 0;
+  TARGET_PRIORITY_LAST = 1;
+  TARGET_PRIORITY_NEAREST = 2;
+  TARGET_PRIORITY_FARTHEST = 3;
+  TARGET_PRIORITY_HIGHEST_HEALTH = 4;
+  TARGET_PRIORITY_LOWEST_HEALTH = 5;
+}
+
+message SetTowerTargetPriority {
+  uint32 tower_entity_id = 1;
+  TargetPriority priority = 2;
 }
 
 message CastAbility {
@@ -451,6 +472,8 @@ message PlayerInput {
     ItemUse item_use = 8;
     StartRound start_round = 9;
     UpgradeAbility upgrade_ability = 10;
+    AttackMove attack_move = 11;
+    SetTowerTargetPriority set_tower_target_priority = 12;
   }
 }
 
