@@ -133,6 +133,46 @@ return function(ctx)
           },
         },
       },
+      ue = {
+        animation = {
+          idle_variants = { "stand_1", "stand_2", "stand_3" },
+          locomotion_variants = {
+            walk = "walk",
+            sniper_mode_walk = "sniper_walk",
+          },
+          anim_bp_variables = {
+            locomotion = "Locomotion",
+            locomotion_variant = "LocomotionVariant",
+            animation_overlay = "AnimationOverlay",
+            idle_variant = "IdleVariant",
+            action_state = "ActionState",
+            attack_phase = "AttackPhase",
+            phase_progress = "PhaseProgress",
+            action_instance_id = "ActionInstanceId",
+            critical = "bCriticalAttack",
+          },
+          state_mapping = {
+            stand_1 = "Stand1",
+            stand_2 = "Stand2",
+            stand_3 = "Stand3",
+            walk = "Walk",
+            sniper_walk = "SniperWalk",
+            attack = "Attack",
+            critical_attack = "CriticalAttack",
+          },
+          attack_phase_mapping = {
+            windup = "Windup",
+            impact = "Impact",
+            recovery = "Recovery",
+          },
+          critical_attack = {
+            action_state = "CriticalAttack",
+            animation = "critical",
+          },
+          default_play_rate = 1.0,
+          fallback_policy = "UseGenericState",
+        },
+      },
       level_growth = {
         strength_per_level = 1.8,
         agility_per_level = 3.2,
