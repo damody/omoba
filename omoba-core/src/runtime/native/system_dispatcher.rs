@@ -94,7 +94,8 @@ impl SystemDispatcher {
         // 第二階段：需要 Vec<Outcome> 的系統，按依賴順序執行
         dispatch::<projectile_tick::Sys>(dispatch_builder, &["nearby_sys", "player_sys"]);
         dispatch::<tower_tick::Sys>(dispatch_builder, &["projectile_sys"]);
-        dispatch::<hero_move_tick::Sys>(dispatch_builder, &["projectile_sys"]);
+        dispatch::<hero_command_tick::Sys>(dispatch_builder, &["projectile_sys"]);
+        dispatch::<hero_move_tick::Sys>(dispatch_builder, &["hero_command_sys"]);
         dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys", "hero_move_sys"]);
         dispatch::<item_tick::Sys>(dispatch_builder, &["hero_sys"]);
         dispatch::<buff_tick::Sys>(dispatch_builder, &["item_sys"]);
@@ -116,12 +117,15 @@ impl SystemDispatcher {
 
     fn build_combat_systems(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
         dispatch::<tower_tick::Sys>(dispatch_builder, &[]);
-        dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys"]);
+        dispatch::<hero_command_tick::Sys>(dispatch_builder, &["tower_sys"]);
+        dispatch::<hero_tick::Sys>(dispatch_builder, &["hero_command_sys"]);
         dispatch::<damage_tick::Sys>(dispatch_builder, &["hero_sys"]);
         dispatch::<death_tick::Sys>(dispatch_builder, &["damage_sys"]);
     }
 
     fn build_movement_systems(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
+        dispatch::<hero_command_tick::Sys>(dispatch_builder, &[]);
+        dispatch::<hero_move_tick::Sys>(dispatch_builder, &["hero_command_sys"]);
         dispatch::<creep_tick::Sys>(dispatch_builder, &[]);
         dispatch::<projectile_tick::Sys>(dispatch_builder, &[]);
     }
@@ -233,7 +237,8 @@ pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> 
     // 第 2 階段 — Vec<Outcome> 生產者/消費者，已排序。
     dispatch::<projectile_tick::Sys>(&mut builder, &["nearby_sys", "player_sys"]);
     dispatch::<tower_tick::Sys>(&mut builder, &["projectile_sys"]);
-    dispatch::<hero_move_tick::Sys>(&mut builder, &["projectile_sys"]);
+    dispatch::<hero_command_tick::Sys>(&mut builder, &["projectile_sys"]);
+    dispatch::<hero_move_tick::Sys>(&mut builder, &["hero_command_sys"]);
     dispatch::<hero_tick::Sys>(&mut builder, &["tower_sys", "hero_move_sys"]);
     dispatch::<item_tick::Sys>(&mut builder, &["hero_sys"]);
     dispatch::<buff_tick::Sys>(&mut builder, &["item_sys"]);

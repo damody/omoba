@@ -9,6 +9,7 @@ use vek::Vec2;
 use crate::comp::*;
 use crate::ue4::import_campaign::CampaignData;
 use crate::ue4::import_map::CreepWaveData;
+use omoba_sim::Fixed64;
 
 /// 狀態初始化器
 pub struct StateInitializer;
@@ -237,6 +238,7 @@ impl StateInitializer {
                         label,
                         path: "".to_owned(),
                         pidx: 0,
+                        path_remaining_distance: Fixed64::from_i32(1_000_000),
                         block_tower: None,
                         status: CreepStatus::Walk,
                     },
@@ -376,6 +378,7 @@ impl StateInitializer {
         ecs.register::<DamageInstance>();
         ecs.register::<DamageResult>();
         ecs.register::<MoveTarget>();
+        ecs.register::<HeroCommandQueue>();
         ecs.register::<Player>();
         ecs.register::<Last<Pos>>();
         ecs.register::<Last<Vel>>();
@@ -449,6 +452,8 @@ impl StateInitializer {
         // 移至輸入。之後在 dispatcher 後由 `GameProcessor::drain_pending_moves`
         // drain，authoritative runtime 與 local replica 使用相同 boundary。
         ecs.insert(crate::comp::PendingMoveQueue::default());
+        ecs.insert(crate::comp::PendingHeroCommandClearQueue::default());
+        ecs.insert(crate::comp::PendingTowerTargetPriorityQueue::default());
 
         // 階段 5.3：觀察者重新加入的最新序列化世界快照。
         // 每 SNAPSHOT_INTERVAL_TICKS (= 30 s @ 120 Hz) 刷新一次
@@ -534,6 +539,7 @@ impl StateInitializer {
 
         // 腳本事件佇列（由 tick 系統推入、ScriptDispatchSystem 於本 tick 尾端抽乾）
         ecs.insert(crate::scripting::ScriptEventQueue::default());
+        ecs.insert(crate::scripting::ScriptVisualEventQueue::default());
 
         // Buff 系統資源（取代舊的 SlowBuff component）— creep_tick / buff_tick 都會讀
         ecs.insert(omoba_core::runtime::ability_runtime::BuffStore::new());

@@ -143,3 +143,99 @@ impl ScriptEventQueue {
         self.events.is_empty()
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScriptVisualEventKind {
+    Spawn,
+    Tick,
+    Death,
+    DamageTaken,
+    DamageDealt,
+    SkillCast,
+    AttackHit,
+    AttackStart,
+    AttackLanded,
+    AttackFail,
+    Attacked,
+    HealthGained,
+    ManaGained,
+    SpentMana,
+    HealReceived,
+    StateChanged,
+    ModifierAdded,
+    ModifierRemoved,
+    Order,
+    Respawn,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScriptVisualEvent {
+    pub kind: ScriptVisualEventKind,
+    pub primary: Entity,
+    pub secondary: Option<Entity>,
+    pub skill_id: Option<String>,
+    pub state_id: Option<String>,
+    pub modifier_id: Option<String>,
+    pub order_id: Option<String>,
+    pub amount: Fixed64,
+    pub damage: Fixed64,
+    pub action_instance_id: u64,
+    pub first_tick: u64,
+    pub latest_tick: u64,
+    pub hook_count: u32,
+    pub accumulated_dt: Fixed64,
+}
+
+impl ScriptVisualEvent {
+    pub fn new(kind: ScriptVisualEventKind, primary: Entity, tick: u64) -> Self {
+        Self {
+            kind,
+            primary,
+            secondary: None,
+            skill_id: None,
+            state_id: None,
+            modifier_id: None,
+            order_id: None,
+            amount: Fixed64::ZERO,
+            damage: Fixed64::ZERO,
+            action_instance_id: 0,
+            first_tick: tick,
+            latest_tick: tick,
+            hook_count: 1,
+            accumulated_dt: Fixed64::ZERO,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ScriptVisualEventQueue {
+    events: Vec<ScriptVisualEvent>,
+}
+
+impl ScriptVisualEventQueue {
+    pub fn push(&mut self, event: ScriptVisualEvent) {
+        self.events.push(event);
+    }
+
+    pub fn extend(&mut self, events: impl IntoIterator<Item = ScriptVisualEvent>) {
+        self.events.extend(events);
+    }
+
+    pub fn push_tick(&mut self, entity: Entity, tick: u64, dt: Fixed64) {
+        if let Some(existing) = self.events.iter_mut().find(|event| {
+            event.kind == ScriptVisualEventKind::Tick && event.primary == entity
+        }) {
+            existing.latest_tick = tick;
+            existing.hook_count = existing.hook_count.saturating_add(1);
+            existing.accumulated_dt += dt;
+            return;
+        }
+        let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::Tick, entity, tick);
+        event.accumulated_dt = dt;
+        self.events.push(event);
+    }
+
+    pub fn drain(&mut self) -> Vec<ScriptVisualEvent> {
+        std::mem::take(&mut self.events)
+    }
+}

@@ -17,9 +17,10 @@ use crate::comp::ecs::{Job, System};
 use crate::comp::PendingPlayerInputs;
 #[cfg(feature = "kcp")]
 use crate::comp::{
-    CurrentCreepWave, PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue,
-    PendingMoveQueue, PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue,
-    Time,
+    CurrentCreepWave, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
+    PendingHeroCommandClearQueue, PendingHeroCommandKind, PendingItemUseQueue, PendingMoveQueue,
+    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue,
+    PendingTowerUpgradeQueue, Time, TowerTargetPriority,
 };
 
 #[derive(Default)]
@@ -38,6 +39,8 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingAbilityCastQueue>,
         Write<'a, PendingItemUseQueue>,
         Write<'a, PendingMoveQueue>,
+        Write<'a, PendingHeroCommandClearQueue>,
+        Write<'a, PendingTowerTargetPriorityQueue>,
     );
 
     const NAME: &'static str = "player_input";
@@ -55,6 +58,8 @@ impl<'a> System<'a> for Sys {
             mut cast_q,
             mut item_q,
             mut move_q,
+            mut clear_q,
+            mut target_priority_q,
         ): Self::SystemData,
     ) {
         if pending.inputs.is_empty() {
@@ -82,6 +87,8 @@ impl<'a> System<'a> for Sys {
                 &mut cast_q,
                 &mut item_q,
                 &mut move_q,
+                &mut clear_q,
+                &mut target_priority_q,
             );
         }
     }
@@ -111,6 +118,8 @@ fn route_input(
     cast_q: &mut PendingAbilityCastQueue,
     item_q: &mut PendingItemUseQueue,
     move_q: &mut PendingMoveQueue,
+    clear_q: &mut PendingHeroCommandClearQueue,
+    target_priority_q: &mut PendingTowerTargetPriorityQueue,
 ) {
     use omoba_core::runtime::PlayerInputEnum;
 
@@ -129,6 +138,7 @@ fn route_input(
                     cw.wave,
                     totaltime,
                 );
+                clear_q.requests.push(player_id);
             } else {
                 log::warn!(
                     "player_input_tick: pid={} tick={} StartRound ignored (round already running)",
@@ -143,11 +153,12 @@ fn route_input(
         Some(PlayerInputEnum::MoveTo(m)) => {
             let (x, y) = m.target.map(|v| (v.x, v.y)).unwrap_or((0, 0));
             log::info!(
-                "player_input_tick: pid={} tick={} MoveTo target_raw=({}, {})",
+                "player_input_tick: pid={} tick={} MoveTo target_raw=({}, {}) queued={}",
                 player_id,
                 tick,
                 x,
                 y,
+                m.queued,
             );
             // 遵循 PendingMoveQueue：將 MoveTarget 寫入玩家的佇列中
             // 英雄需要加入系統儲存的（英雄、派系）
@@ -159,18 +170,72 @@ fn route_input(
                 omoba_sim::Fixed64::from_raw(x as i64),
                 omoba_sim::Fixed64::from_raw(y as i64),
             );
-            move_q.requests.push(crate::comp::PendingMoveTo {
-                pos,
+            move_q.requests.push(crate::comp::PendingHeroCommand {
                 owner_pid: player_id,
+                queued: m.queued,
+                kind: PendingHeroCommandKind::MoveTo { pos },
+            });
+        }
+        Some(PlayerInputEnum::AttackMove(a)) => {
+            let (x, y) = a.target.map(|v| (v.x, v.y)).unwrap_or((0, 0));
+            log::info!(
+                "player_input_tick: pid={} tick={} AttackMove target_raw=({}, {}) queued={}",
+                player_id,
+                tick,
+                x,
+                y,
+                a.queued,
+            );
+            let pos = omoba_sim::Vec2::new(
+                omoba_sim::Fixed64::from_raw(x as i64),
+                omoba_sim::Fixed64::from_raw(y as i64),
+            );
+            move_q.requests.push(crate::comp::PendingHeroCommand {
+                owner_pid: player_id,
+                queued: a.queued,
+                kind: PendingHeroCommandKind::AttackMove { pos },
             });
         }
         Some(PlayerInputEnum::AttackTarget(a)) => {
-            log::trace!(
-                "player_input_tick: pid={} tick={} AttackTarget target_id={}",
+            log::info!(
+                "player_input_tick: pid={} tick={} AttackTarget target_id={} queued={}",
                 player_id,
                 tick,
-                a.target_id
+                a.target_id,
+                a.queued,
             );
+            move_q.requests.push(crate::comp::PendingHeroCommand {
+                owner_pid: player_id,
+                queued: a.queued,
+                kind: PendingHeroCommandKind::AttackTarget {
+                    target_entity_id: a.target_id,
+                },
+            });
+        }
+        Some(PlayerInputEnum::SetTowerTargetPriority(p)) => {
+            let Some(priority) = map_target_priority(p.priority) else {
+                log::warn!(
+                    "player_input_tick: pid={} tick={} SetTowerTargetPriority ignored invalid priority={}",
+                    player_id,
+                    tick,
+                    p.priority,
+                );
+                return;
+            };
+            log::info!(
+                "player_input_tick: pid={} tick={} SetTowerTargetPriority tower={} priority={}",
+                player_id,
+                tick,
+                p.tower_entity_id,
+                priority.as_str(),
+            );
+            target_priority_q
+                .requests
+                .push(crate::comp::PendingTowerTargetPriority {
+                    tower_entity_id: p.tower_entity_id,
+                    priority,
+                    owner_pid: player_id,
+                });
         }
         Some(PlayerInputEnum::CastAbility(c)) => {
             log::info!(
@@ -308,5 +373,125 @@ fn route_input(
                 tick
             );
         }
+    }
+}
+
+#[cfg(feature = "kcp")]
+fn map_target_priority(raw: i32) -> Option<TowerTargetPriority> {
+    match raw {
+        0 => Some(TowerTargetPriority::First),
+        1 => Some(TowerTargetPriority::Last),
+        2 => Some(TowerTargetPriority::Nearest),
+        3 => Some(TowerTargetPriority::Farthest),
+        4 => Some(TowerTargetPriority::HighestHealth),
+        5 => Some(TowerTargetPriority::LowestHealth),
+        _ => None,
+    }
+}
+
+#[cfg(all(test, feature = "kcp"))]
+mod tests {
+    use super::*;
+    use omoba_core::runtime::{
+        AttackMove, AttackTarget, PlayerInput, PlayerInputEnum, SetTowerTargetPriority,
+        TargetPriority, Vec2I,
+    };
+
+    #[test]
+    fn routes_new_rts_inputs_to_pending_queues() {
+        let mut cw = CurrentCreepWave::default();
+        let mut tower_q = PendingTowerSpawnQueue::default();
+        let mut sell_q = PendingTowerSellQueue::default();
+        let mut upgrade_q = PendingTowerUpgradeQueue::default();
+        let mut ability_q = PendingAbilityUpgradeQueue::default();
+        let mut cast_q = PendingAbilityCastQueue::default();
+        let mut item_q = PendingItemUseQueue::default();
+        let mut move_q = PendingMoveQueue::default();
+        let mut clear_q = PendingHeroCommandClearQueue::default();
+        let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+
+        route_input(
+            7,
+            42,
+            PlayerInput {
+                action: Some(PlayerInputEnum::AttackMove(AttackMove {
+                    target: Some(Vec2I { x: 10, y: 20 }),
+                    queued: true,
+                })),
+            },
+            &mut cw,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+        );
+        route_input(
+            7,
+            43,
+            PlayerInput {
+                action: Some(PlayerInputEnum::AttackTarget(AttackTarget {
+                    target_id: 99,
+                    queued: false,
+                })),
+            },
+            &mut cw,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+        );
+        route_input(
+            7,
+            44,
+            PlayerInput {
+                action: Some(PlayerInputEnum::SetTowerTargetPriority(
+                    SetTowerTargetPriority {
+                        tower_entity_id: 123,
+                        priority: TargetPriority::Farthest as i32,
+                    },
+                )),
+            },
+            &mut cw,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+        );
+
+        assert_eq!(move_q.requests.len(), 2);
+        assert!(move_q.requests[0].queued);
+        assert!(matches!(
+            move_q.requests[0].kind,
+            PendingHeroCommandKind::AttackMove { .. }
+        ));
+        assert!(matches!(
+            move_q.requests[1].kind,
+            PendingHeroCommandKind::AttackTarget {
+                target_entity_id: 99
+            }
+        ));
+        assert_eq!(target_priority_q.requests.len(), 1);
+        assert_eq!(
+            target_priority_q.requests[0].priority,
+            TowerTargetPriority::Farthest
+        );
     }
 }

@@ -2,18 +2,19 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use omoba_sim::Fixed64;
-use specs::{Join, World, WorldExt};
+use specs::{Join, ReadStorage, World, WorldExt};
 
 use crate::lockstep_timing::LOCKSTEP_ONE_SECOND_TICKS_U32;
 
 use super::ability_runtime::{AbilityRegistry, BuffStore, UnitStats};
 use super::comp::hero::AttributeType;
 use super::comp::{
-    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, Gold, Hero, Inventory,
-    IsBuilding, MoveTarget, Path as CreepPath, PlayerLives, PlayerOwner, Pos, Projectile,
-    RemovedEntitiesQueue, TAttack, Tower, TowerTemplateRegistry, TowerUpgradeRegistry,
+    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, Gold, Hero, HeroCommand,
+    HeroCommandQueue, Inventory, IsBuilding, MoveTarget, Path as CreepPath, PlayerLives,
+    PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, TAttack, Tower, TowerTemplateRegistry,
+    TowerUpgradeRegistry,
 };
-use super::scripting::ScriptUnitTag;
+use super::scripting::{ScriptUnitTag, ScriptVisualEventKind, ScriptVisualEventQueue};
 
 pub use super::comp::{AttackCancelFx, AttackPhaseFx, ExplosionFx, TowerFireFx};
 
@@ -49,6 +50,7 @@ pub struct SimWorldSnapshot {
     pub tower_fire_fx: Vec<TowerFireFx>,
     pub attack_phase_fx: Vec<AttackPhaseFx>,
     pub attack_cancel_fx: Vec<AttackCancelFx>,
+    pub script_visual_events: Vec<ScriptVisualEventSnapshot>,
     pub applied_input_ids: Vec<u32>,
     pub applied_input_meta: Vec<AppliedInputMeta>,
     pub lua_content_generation: u64,
@@ -60,6 +62,26 @@ pub struct SimWorldSnapshot {
 pub struct BlockedRegionSnapshot {
     pub points: Vec<(f32, f32)>,
     pub circle: Option<((f32, f32), f32)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScriptVisualEventSnapshot {
+    pub kind: ScriptVisualEventKind,
+    pub primary_entity_id: u32,
+    pub primary_entity_gen: u32,
+    pub secondary_entity_id: Option<u32>,
+    pub secondary_entity_gen: Option<u32>,
+    pub skill_id: Option<String>,
+    pub state_id: Option<String>,
+    pub modifier_id: Option<String>,
+    pub order_id: Option<String>,
+    pub amount: f32,
+    pub damage: f32,
+    pub action_instance_id: u64,
+    pub first_tick: u64,
+    pub latest_tick: u64,
+    pub hook_count: u32,
+    pub accumulated_dt_secs: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -209,7 +231,122 @@ pub struct EntityRenderData {
     pub projectile_owner_entity_id: Option<u32>,
     pub owner_player_id: Option<u32>,
     pub upgrade_levels: Option<[u8; 3]>,
+    pub tower_target_priority: String,
+    pub hero_command: Option<Box<HeroCommandSnapshot>>,
+    pub buffs: Vec<BuffSnapshot>,
     pub attack_range: f32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HeroCommandSnapshot {
+    pub command_type: String,
+    pub target_entity_id: Option<u32>,
+    pub destination: Option<(f32, f32)>,
+    pub next_waypoint: Option<(f32, f32)>,
+    pub queued_count: u8,
+    pub queue_limit: u8,
+    pub queued_targets: Vec<HeroQueuedCommandSnapshot>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HeroQueuedCommandSnapshot {
+    pub command_type: String,
+    pub target_entity_id: Option<u32>,
+    pub target: Option<(f32, f32)>,
+}
+
+fn hero_command_target_point(
+    command: HeroCommand,
+    pos_storage: &ReadStorage<'_, Pos>,
+) -> Option<(f32, f32)> {
+    command
+        .destination()
+        .map(|pos| (pos.x.to_f32_for_render(), pos.y.to_f32_for_render()))
+        .or_else(|| {
+            command.target().and_then(|entity| {
+                pos_storage
+                    .get(entity)
+                    .map(|pos| (pos.0.x.to_f32_for_render(), pos.0.y.to_f32_for_render()))
+            })
+        })
+}
+
+fn hero_command_snapshot(
+    queue: Option<&HeroCommandQueue>,
+    move_target: Option<&MoveTarget>,
+    pos_storage: &ReadStorage<'_, Pos>,
+) -> Option<Box<HeroCommandSnapshot>> {
+    let queue = queue?;
+    let active = queue.active?;
+    let destination = active
+        .destination()
+        .map(|pos| (pos.x.to_f32_for_render(), pos.y.to_f32_for_render()));
+    let next_waypoint = move_target.map(|target| {
+        (
+            target.0.x.to_f32_for_render(),
+            target.0.y.to_f32_for_render(),
+        )
+    });
+    let queued_targets = queue
+        .queued
+        .iter()
+        .copied()
+        .map(|command| HeroQueuedCommandSnapshot {
+            command_type: command.command_type().to_string(),
+            target_entity_id: command.target().map(|entity| entity.id()),
+            target: hero_command_target_point(command, pos_storage),
+        })
+        .collect();
+    Some(Box::new(HeroCommandSnapshot {
+        command_type: active.command_type().to_string(),
+        target_entity_id: active.target().map(|entity| entity.id()),
+        destination,
+        next_waypoint,
+        queued_count: queue.queued.len().min(u8::MAX as usize) as u8,
+        queue_limit: HeroCommandQueue::LIMIT as u8,
+        queued_targets,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::comp::HeroCommand;
+    use super::*;
+    use omoba_sim::Fixed64;
+
+    #[test]
+    fn hero_command_snapshot_exposes_active_command_without_mutating_queue() {
+        let queue = HeroCommandQueue {
+            active: Some(HeroCommand::AttackMove {
+                pos: omoba_sim::Vec2::new(Fixed64::from_i32(10), Fixed64::from_i32(20)),
+            }),
+            queued: vec![HeroCommand::MoveTo {
+                pos: omoba_sim::Vec2::new(Fixed64::from_i32(30), Fixed64::from_i32(40)),
+            }],
+        };
+        let before = queue.clone();
+        let move_target = MoveTarget(omoba_sim::Vec2::new(
+            Fixed64::from_i32(11),
+            Fixed64::from_i32(21),
+        ));
+
+        let mut world = World::new();
+        world.register::<Pos>();
+        let pos_storage = world.read_storage::<Pos>();
+
+        let snapshot =
+            hero_command_snapshot(Some(&queue), Some(&move_target), &pos_storage).unwrap();
+
+        assert_eq!(queue, before);
+        assert_eq!(snapshot.command_type, "attack_move");
+        assert_eq!(snapshot.destination, Some((10.0, 20.0)));
+        assert_eq!(snapshot.next_waypoint, Some((11.0, 21.0)));
+        assert_eq!(snapshot.queued_count, 1);
+        assert_eq!(snapshot.queue_limit, HeroCommandQueue::LIMIT as u8);
+        assert_eq!(snapshot.queued_targets.len(), 1);
+        assert_eq!(snapshot.queued_targets[0].command_type, "move_to");
+        assert_eq!(snapshot.queued_targets[0].target, Some((30.0, 40.0)));
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -333,6 +470,32 @@ pub fn retain_recent_render_fx<T: Clone>(
     let out = retained.iter().cloned().collect();
     drop(fx_span);
     out
+}
+
+fn drain_script_visual_events(world: &World) -> Vec<ScriptVisualEventSnapshot> {
+    let mut queue = world.write_resource::<ScriptVisualEventQueue>();
+    queue
+        .drain()
+        .into_iter()
+        .map(|event| ScriptVisualEventSnapshot {
+            kind: event.kind,
+            primary_entity_id: event.primary.id(),
+            primary_entity_gen: event.primary.gen().id() as u32,
+            secondary_entity_id: event.secondary.map(|entity| entity.id()),
+            secondary_entity_gen: event.secondary.map(|entity| entity.gen().id() as u32),
+            skill_id: event.skill_id,
+            state_id: event.state_id,
+            modifier_id: event.modifier_id,
+            order_id: event.order_id,
+            amount: event.amount.to_f32_for_render(),
+            damage: event.damage.to_f32_for_render(),
+            action_instance_id: event.action_instance_id,
+            first_tick: event.first_tick,
+            latest_tick: event.latest_tick,
+            hook_count: event.hook_count,
+            accumulated_dt_secs: event.accumulated_dt.to_f32_for_render(),
+        })
+        .collect()
 }
 
 pub fn build_ability_def_snapshots(reg: &AbilityRegistry) -> Vec<AbilityDefSnapshot> {
@@ -492,6 +655,7 @@ pub fn extract_snapshot(
     let creep_storage = world.read_storage::<Creep>();
     let unit_tag_storage = world.read_storage::<ScriptUnitTag>();
     let move_target_storage = world.read_storage::<MoveTarget>();
+    let command_queue_storage = world.read_storage::<HeroCommandQueue>();
     let gold_storage = world.read_storage::<Gold>();
     let tatk_storage = world.read_storage::<TAttack>();
     let owner_storage = world.read_storage::<PlayerOwner>();
@@ -657,6 +821,14 @@ pub fn extract_snapshot(
             is_hero = matches!(kind, EntityKind::Hero),
         )
         .entered();
+        let entity_buffs: Vec<BuffSnapshot> = buff_store
+            .iter_for(entity)
+            .map(|(id, entry)| BuffSnapshot {
+                buff_id: id.to_string(),
+                remaining_secs: buff_remaining_secs_for_snapshot(entry.remaining),
+                payload_json: serde_json::to_string(&entry.payload).unwrap_or_default(),
+            })
+            .collect();
         let hero_ext = if matches!(kind, EntityKind::Hero) {
             let prop = cprop_storage.get(entity);
             let atk = tatk_storage.get(entity);
@@ -694,15 +866,6 @@ pub fn extract_snapshot(
             let mana = 0.0_f32;
             let max_mana = 0.0_f32;
 
-            let buffs: Vec<BuffSnapshot> = buff_store
-                .iter_for(entity)
-                .map(|(id, entry)| BuffSnapshot {
-                    buff_id: id.to_string(),
-                    remaining_secs: buff_remaining_secs_for_snapshot(entry.remaining),
-                    payload_json: serde_json::to_string(&entry.payload).unwrap_or_default(),
-                })
-                .collect();
-
             let mut inventory: [Option<String>; 6] = Default::default();
             if let Some(inv) = inventory_storage.get(entity) {
                 for (i, slot) in inv.slots.iter().enumerate().take(6) {
@@ -732,7 +895,7 @@ pub fn extract_snapshot(
                 bullet_speed,
                 mana,
                 max_mana,
-                buffs,
+                buffs: entity_buffs.clone(),
                 inventory,
                 ability_levels,
                 ability_ids,
@@ -753,6 +916,15 @@ pub fn extract_snapshot(
         } else {
             None
         };
+        let tower_target_priority = tower_storage
+            .get(entity)
+            .map(|t| t.target_priority.as_str().to_string())
+            .unwrap_or_default();
+        let hero_command = hero_command_snapshot(
+            command_queue_storage.get(entity),
+            move_target_storage.get(entity),
+            &pos_storage,
+        );
 
         out.push(EntityRenderData {
             entity_id: entity.id(),
@@ -780,6 +952,9 @@ pub fn extract_snapshot(
             projectile_owner_entity_id,
             owner_player_id,
             upgrade_levels,
+            tower_target_priority,
+            hero_command,
+            buffs: entity_buffs,
             attack_range,
         });
         drop(push_span);
@@ -843,6 +1018,7 @@ pub fn extract_snapshot(
         let mut q = world.write_resource::<super::comp::AttackCancelFxQueue>();
         std::mem::take(&mut q.pending)
     };
+    let script_visual_events = drain_script_visual_events(world);
 
     let snapshot = SimWorldSnapshot {
         tick,
@@ -861,6 +1037,7 @@ pub fn extract_snapshot(
         tower_fire_fx,
         attack_phase_fx,
         attack_cancel_fx,
+        script_visual_events,
         applied_input_ids,
         applied_input_meta,
         lua_content_generation: omoba_template_ids::runtime_lua_content_generation()
@@ -906,6 +1083,7 @@ pub fn extract_data_for_render(
     let creep_storage = world.read_storage::<Creep>();
     let unit_tag_storage = world.read_storage::<ScriptUnitTag>();
     let move_target_storage = world.read_storage::<MoveTarget>();
+    let command_queue_storage = world.read_storage::<HeroCommandQueue>();
     let gold_storage = world.read_storage::<Gold>();
     let tatk_storage = world.read_storage::<TAttack>();
     let owner_storage = world.read_storage::<PlayerOwner>();
@@ -1023,6 +1201,15 @@ pub fn extract_data_for_render(
             )
         };
 
+        let entity_buffs: Vec<BuffSnapshot> = buff_store
+            .iter_for(entity)
+            .map(|(id, entry)| BuffSnapshot {
+                buff_id: id.to_string(),
+                remaining_secs: buff_remaining_secs_for_snapshot(entry.remaining),
+                payload_json: serde_json::to_string(&entry.payload).unwrap_or_default(),
+            })
+            .collect();
+
         let hero_ext = if matches!(kind, EntityKind::Hero) {
             let prop = cprop_storage.get(entity);
             let atk = tatk_storage.get(entity);
@@ -1060,15 +1247,6 @@ pub fn extract_data_for_render(
             let mana = 0.0_f32;
             let max_mana = 0.0_f32;
 
-            let buffs: Vec<BuffSnapshot> = buff_store
-                .iter_for(entity)
-                .map(|(id, entry)| BuffSnapshot {
-                    buff_id: id.to_string(),
-                    remaining_secs: buff_remaining_secs_for_snapshot(entry.remaining),
-                    payload_json: serde_json::to_string(&entry.payload).unwrap_or_default(),
-                })
-                .collect();
-
             let mut inventory: [Option<String>; 6] = Default::default();
             if let Some(inv) = inventory_storage.get(entity) {
                 for (i, slot) in inv.slots.iter().enumerate().take(6) {
@@ -1098,7 +1276,7 @@ pub fn extract_data_for_render(
                 bullet_speed,
                 mana,
                 max_mana,
-                buffs,
+                buffs: entity_buffs.clone(),
                 inventory,
                 ability_levels,
                 ability_ids,
@@ -1112,6 +1290,15 @@ pub fn extract_data_for_render(
         } else {
             None
         };
+        let tower_target_priority = tower_storage
+            .get(entity)
+            .map(|t| t.target_priority.as_str().to_string())
+            .unwrap_or_default();
+        let hero_command = hero_command_snapshot(
+            command_queue_storage.get(entity),
+            move_target_storage.get(entity),
+            &pos_storage,
+        );
 
         out.push(EntityRenderData {
             entity_id: entity.id(),
@@ -1139,6 +1326,9 @@ pub fn extract_data_for_render(
             projectile_owner_entity_id,
             owner_player_id,
             upgrade_levels,
+            tower_target_priority,
+            hero_command,
+            buffs: entity_buffs,
             attack_range,
         });
     }
@@ -1185,6 +1375,7 @@ pub fn extract_data_for_render(
         let mut q = world.write_resource::<super::comp::AttackCancelFxQueue>();
         std::mem::take(&mut q.pending)
     };
+    let script_visual_events = drain_script_visual_events(world);
     drop(queues_span);
 
     let assemble_span = tracing::trace_span!(
@@ -1215,6 +1406,7 @@ pub fn extract_data_for_render(
         tower_fire_fx,
         attack_phase_fx,
         attack_cancel_fx,
+        script_visual_events,
         applied_input_ids,
         applied_input_meta,
         lua_content_generation: omoba_template_ids::runtime_lua_content_generation()

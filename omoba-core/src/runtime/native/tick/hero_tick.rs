@@ -28,6 +28,7 @@ pub struct HeroRead<'a> {
     propertys: ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     move_targets: ReadStorage<'a, MoveTarget>,
+    command_queues: ReadStorage<'a, HeroCommandQueue>,
     buff_store: Read<'a, omoba_core::runtime::ability_runtime::BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
 }
@@ -197,7 +198,21 @@ impl<'a> System<'a> for Sys {
 
                             if valid_targets.len() > 0 {
                                 // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
-                                let target = valid_targets[0].e;
+                                let forced_target = tr.command_queues.get(e).and_then(|queue| {
+                                    match queue.active {
+                                        Some(HeroCommand::AttackTarget { target, .. }) => Some(target),
+                                        _ => None,
+                                    }
+                                });
+                                let selected_target = forced_target
+                                    .and_then(|target| {
+                                        valid_targets
+                                            .iter()
+                                            .copied()
+                                            .find(|target_info| target_info.e == target)
+                                    })
+                                    .unwrap_or(valid_targets[0]);
+                                let target = selected_target.e;
                                 // 注意：轉向日誌使用 f32 邊界 — Fix64 沒有顯示。
                                 let target_pos = tr.pos.get(target)
                                     .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
@@ -245,7 +260,7 @@ impl<'a> System<'a> for Sys {
                                                 source: Some(e.clone()),
                                                 target: Some(target)
                                             });
-                                            let actual_distance = valid_targets[0].dis.sqrt();
+                                            let actual_distance = selected_target.dis.sqrt();
                                             log::debug!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}",
                                                 hero_name, actual_distance,
                                                 atk.atk_physic.v.to_f32_for_render());

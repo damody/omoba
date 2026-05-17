@@ -19,6 +19,7 @@
 #[cfg(feature = "kcp")]
 use crate::runtime::input::PlayerInput;
 
+use super::TowerTargetPriority;
 use omoba_sim::Vec2 as SimVec2;
 
 /// 從最新解碼的玩家輸入的每個刻度集合
@@ -169,21 +170,45 @@ pub struct PendingItemUse {
     pub owner_pid: u32,
 }
 
-/// MoveTo：英雄右鍵移動。將 `MoveTarget` 元件寫入
-/// 玩家的英雄實體。與其他 Pending 相同的「&mut World」基本原理
-/// 隊列——系統不能藉用世界，所以我們排隊並在之後耗盡
-/// 調度員。
+/// Hero command requests from MoveTo / AttackMove / AttackTarget. They are
+/// routed through one queue so Shift-appended commands can share validation,
+/// replacement, and the 16-command cap.
 ///
 /// 不變式：authoritative/local replica 每個 tick 都必須 drain：
 /// `comp::GameProcessor::drain_pending_moves`。
 #[derive(Default)]
 pub struct PendingMoveQueue {
-    pub requests: Vec<PendingMoveTo>,
+    pub requests: Vec<PendingHeroCommand>,
 }
 
 #[derive(Clone, Debug)]
-pub struct PendingMoveTo {
-    pub pos: SimVec2,
+pub struct PendingHeroCommand {
+    pub owner_pid: u32,
+    pub queued: bool,
+    pub kind: PendingHeroCommandKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum PendingHeroCommandKind {
+    MoveTo { pos: SimVec2 },
+    AttackMove { pos: SimVec2 },
+    AttackTarget { target_entity_id: u32 },
+}
+
+#[derive(Default)]
+pub struct PendingHeroCommandClearQueue {
+    pub requests: Vec<u32>,
+}
+
+#[derive(Default)]
+pub struct PendingTowerTargetPriorityQueue {
+    pub requests: Vec<PendingTowerTargetPriority>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingTowerTargetPriority {
+    pub tower_entity_id: u32,
+    pub priority: TowerTargetPriority,
     pub owner_pid: u32,
 }
 

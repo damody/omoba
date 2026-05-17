@@ -23,6 +23,10 @@ pub struct Creep {
     pub label: Option<String>,
     pub path: String,
     pub pidx: usize,
+    /// TD path ranking cache. Lower remaining distance means the creep is
+    /// further along the path and should win "first" tower targeting.
+    #[serde(default = "default_path_remaining_distance")]
+    pub path_remaining_distance: Fixed64,
     pub block_tower: Option<Entity>,
     pub status: CreepStatus,
 }
@@ -64,6 +68,11 @@ fn default_turn_speed_deg() -> f32 {
 fn default_creep_collision_radius() -> f32 {
     20.0
 }
+
+fn default_path_remaining_distance() -> Fixed64 {
+    Fixed64::from_i32(1_000_000)
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct CurrentCreepWave {
     pub wave: usize,

@@ -33,6 +33,7 @@ pub enum Outcome {
         pos: SimVec2,
         status: CreepStatus,
         pidx: usize,
+        path_remaining_distance: Fixed64,
         facing: omoba_sim::Angle,
         facing_broadcast: Option<f32>,
     },

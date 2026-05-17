@@ -7,7 +7,10 @@ pub mod registry;
 pub mod tag;
 
 pub use dispatch::run_script_dispatch;
-pub use event::{ScriptEvent, ScriptEventQueue, SkillTarget};
+pub use event::{
+    ScriptEvent, ScriptEventQueue, ScriptVisualEvent, ScriptVisualEventKind,
+    ScriptVisualEventQueue, SkillTarget,
+};
 pub use parallel_world_adapter::{ParallelAdapterCache, ParallelWorldAdapter};
 pub use registry::ScriptRegistry;
 pub use tag::ScriptUnitTag;

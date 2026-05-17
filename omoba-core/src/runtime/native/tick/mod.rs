@@ -6,6 +6,7 @@ pub mod creep_tick;
 pub mod creep_wave;
 pub mod damage_tick;
 pub mod death_tick;
+pub mod hero_command_tick;
 pub mod hero_move_tick;
 pub mod hero_tick;
 pub mod item_tick;
@@ -18,6 +19,7 @@ pub mod summon_tick;
 pub mod tower_tick;
 
 pub use self::{
-    creep_tick::*, creep_wave::*, damage_tick::*, death_tick::*, hero_move_tick::*, hero_tick::*,
-    item_tick::*, nearby_tick::*, player_tick::*, projectile_tick::*, tower_tick::*,
+    creep_tick::*, creep_wave::*, damage_tick::*, death_tick::*, hero_command_tick::*,
+    hero_move_tick::*, hero_tick::*, item_tick::*, nearby_tick::*, player_tick::*,
+    projectile_tick::*, tower_tick::*,
 };

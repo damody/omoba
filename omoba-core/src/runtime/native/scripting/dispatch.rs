@@ -20,7 +20,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use std::time::Instant;
 
-use super::event::{ScriptEvent, ScriptEventQueue, SkillTarget};
+use super::event::{
+    ScriptEvent, ScriptEventQueue, ScriptVisualEvent, ScriptVisualEventKind,
+    ScriptVisualEventQueue, SkillTarget,
+};
 use super::parallel_world_adapter::{ParallelAdapterCache, ParallelWorldAdapter};
 use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
@@ -82,10 +85,11 @@ pub fn run_script_dispatch(
         // adapter as parallel on_tick so script mutations have one code path.
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let mut event_outcomes = Vec::new();
+        let mut visual_events = Vec::new();
         for ev in events {
             let invocation_entity = event_invocation_entity(&ev);
             let mut adapter = ParallelWorldAdapter::new(&cache, invocation_entity);
-            dispatch_one(&mut adapter, registry, ev);
+            dispatch_one(&mut adapter, registry, ev, rng_seed, &mut visual_events);
             event_outcomes.extend(adapter.finish());
         }
         drop(cache);
@@ -93,6 +97,11 @@ pub fn run_script_dispatch(
             world
                 .write_resource::<Vec<crate::comp::Outcome>>()
                 .extend(event_outcomes);
+        }
+        if !visual_events.is_empty() {
+            world
+                .write_resource::<ScriptVisualEventQueue>()
+                .extend(visual_events);
         }
     }
     let event_ns = event_t.elapsed().as_nanos();
@@ -130,16 +139,27 @@ pub fn run_script_dispatch(
                 if r.is_err() {
                     log::error!("[scripting] panic in on_tick of {}", uid);
                 }
-                Some((uid.clone(), ns, adapter.finish()))
+                let visual = ScriptVisualEvent::new(ScriptVisualEventKind::Tick, *ent, rng_seed);
+                Some((uid.clone(), ns, adapter.finish(), visual))
             })
             .collect();
         drop(cache);
         let mut global_outcomes = world.write_resource::<Vec<crate::comp::Outcome>>();
+        let mut tick_visuals = Vec::new();
         for result in results {
-            if let Some((uid, ns, mut outcomes)) = result {
+            if let Some((uid, ns, mut outcomes, visual)) = result {
                 deferred_outcome_count += outcomes.len();
                 global_outcomes.append(&mut outcomes);
                 on_tick_timings.push((uid, ns));
+                tick_visuals.push(visual);
+            }
+        }
+        drop(global_outcomes);
+        if !tick_visuals.is_empty() {
+            let mut queue = world.write_resource::<ScriptVisualEventQueue>();
+            for mut visual in tick_visuals {
+                visual.accumulated_dt = dt;
+                queue.push_tick(visual.primary, rng_seed, dt);
             }
         }
     }
@@ -233,11 +253,167 @@ fn event_invocation_entity(ev: &ScriptEvent) -> Entity {
     }
 }
 
+fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptVisualEvent> {
+    let event = match ev {
+        ScriptEvent::Spawn { e } => ScriptVisualEvent::new(ScriptVisualEventKind::Spawn, *e, tick),
+        ScriptEvent::Death { victim, killer } => {
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::Death, *victim, tick);
+            event.secondary = *killer;
+            event
+        }
+        ScriptEvent::Respawn { e } => {
+            ScriptVisualEvent::new(ScriptVisualEventKind::Respawn, *e, tick)
+        }
+        ScriptEvent::AttackHit { attacker, victim } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::AttackHit, *attacker, tick);
+            event.secondary = Some(*victim);
+            event.action_instance_id = action_instance_id(*attacker, tick);
+            event
+        }
+        ScriptEvent::AttackStart { attacker, target } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::AttackStart, *attacker, tick);
+            event.secondary = *target;
+            event.action_instance_id = action_instance_id(*attacker, tick);
+            event
+        }
+        ScriptEvent::AttackLanded {
+            attacker,
+            victim,
+            damage,
+        } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::AttackLanded, *attacker, tick);
+            event.secondary = Some(*victim);
+            event.damage = *damage;
+            event.amount = *damage;
+            event.action_instance_id = action_instance_id(*attacker, tick);
+            event
+        }
+        ScriptEvent::AttackFail { attacker, victim } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::AttackFail, *attacker, tick);
+            event.secondary = Some(*victim);
+            event.action_instance_id = action_instance_id(*attacker, tick);
+            event
+        }
+        ScriptEvent::Attacked { attacker, victim } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::Attacked, *victim, tick);
+            event.secondary = Some(*attacker);
+            event.action_instance_id = action_instance_id(*attacker, tick);
+            event
+        }
+        ScriptEvent::HealthGained { e, amount } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::HealthGained, *e, tick);
+            event.amount = *amount;
+            event
+        }
+        ScriptEvent::ManaGained { e, amount } => {
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::ManaGained, *e, tick);
+            event.amount = *amount;
+            event
+        }
+        ScriptEvent::SpentMana {
+            caster,
+            cost,
+            ability_id,
+        } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::SpentMana, *caster, tick);
+            event.amount = *cost;
+            event.skill_id = Some(ability_id.clone());
+            event
+        }
+        ScriptEvent::HealReceived {
+            target,
+            amount,
+            source,
+        } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::HealReceived, *target, tick);
+            event.secondary = *source;
+            event.amount = *amount;
+            event
+        }
+        ScriptEvent::StateChanged {
+            e,
+            state_id,
+            active,
+        } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::StateChanged, *e, tick);
+            event.state_id = Some(state_id.clone());
+            event.amount = if *active {
+                Fixed64::from_i32(1)
+            } else {
+                Fixed64::ZERO
+            };
+            event
+        }
+        ScriptEvent::ModifierAdded { e, modifier_id } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::ModifierAdded, *e, tick);
+            event.modifier_id = Some(modifier_id.clone());
+            event
+        }
+        ScriptEvent::ModifierRemoved { e, modifier_id } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::ModifierRemoved, *e, tick);
+            event.modifier_id = Some(modifier_id.clone());
+            event
+        }
+        ScriptEvent::SkillCast {
+            caster,
+            skill_id,
+            target,
+        } => {
+            let mut event =
+                ScriptVisualEvent::new(ScriptVisualEventKind::SkillCast, *caster, tick);
+            event.skill_id = Some(skill_id.clone());
+            event.secondary = skill_target_entity(target);
+            event
+        }
+        ScriptEvent::Order {
+            e,
+            order_kind,
+            target,
+        } => {
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::Order, *e, tick);
+            event.order_id = Some(order_kind.clone());
+            event.secondary = skill_target_entity(target);
+            event
+        }
+        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. } => return None,
+    };
+    Some(event)
+}
+
+fn skill_target_entity(target: &SkillTarget) -> Option<Entity> {
+    match target {
+        SkillTarget::Entity(entity) => Some(*entity),
+        SkillTarget::Point { .. } | SkillTarget::None => None,
+    }
+}
+
+fn action_instance_id(entity: Entity, tick: u64) -> u64 {
+    (u64::from(entity.id()) << 32) | tick
+}
+
 fn dispatch_one(
     adapter: &mut ParallelWorldAdapter<'_>,
     registry: &ScriptRegistry,
     ev: ScriptEvent,
+    tick: u64,
+    visual_events: &mut Vec<ScriptVisualEvent>,
 ) {
+    if !matches!(ev, ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. }) {
+        if let Some(event) = visual_event_from_script_event(&ev, tick) {
+            visual_events.push(event);
+        }
+    }
     match ev {
         ScriptEvent::Spawn { e } => {
             with_script(adapter, registry, e, |script, handle, world_dyn| {
@@ -306,6 +482,21 @@ fn dispatch_one(
                         }
                     }
                 }
+            }
+
+            let mut taken =
+                ScriptVisualEvent::new(ScriptVisualEventKind::DamageTaken, victim, tick);
+            taken.secondary = attacker;
+            taken.amount = info.amount;
+            taken.damage = info.amount;
+            visual_events.push(taken);
+            if let Some(attacker) = attacker {
+                let mut dealt =
+                    ScriptVisualEvent::new(ScriptVisualEventKind::DamageDealt, attacker, tick);
+                dealt.secondary = Some(victim);
+                dealt.amount = info.amount;
+                dealt.damage = info.amount;
+                visual_events.push(dealt);
             }
 
             // 3) 主辦單位申請最終金額

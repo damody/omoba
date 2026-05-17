@@ -1,7 +1,7 @@
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
-use specs::{Component, FlaggedStorage, NullStorage};
+use specs::{Component, Entity, FlaggedStorage, NullStorage};
 use vek::*;
 
 /// 位置
@@ -102,6 +102,94 @@ impl MoveTarget {
 }
 
 impl Component for MoveTarget {
+    type Storage = VecStorage<Self>;
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum HeroCommand {
+    MoveTo {
+        pos: SimVec2,
+    },
+    AttackMove {
+        pos: SimVec2,
+    },
+    AttackTarget {
+        target: Entity,
+        #[serde(default)]
+        chase_origin: Option<SimVec2>,
+    },
+}
+
+impl HeroCommand {
+    pub fn command_type(self) -> &'static str {
+        match self {
+            HeroCommand::MoveTo { .. } => "move_to",
+            HeroCommand::AttackMove { .. } => "attack_move",
+            HeroCommand::AttackTarget { .. } => "attack_target",
+        }
+    }
+
+    pub fn destination(self) -> Option<SimVec2> {
+        match self {
+            HeroCommand::MoveTo { pos } | HeroCommand::AttackMove { pos } => Some(pos),
+            HeroCommand::AttackTarget { .. } => None,
+        }
+    }
+
+    pub fn target(self) -> Option<Entity> {
+        match self {
+            HeroCommand::AttackTarget { target, .. } => Some(target),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct HeroCommandQueue {
+    pub active: Option<HeroCommand>,
+    pub queued: Vec<HeroCommand>,
+}
+
+impl HeroCommandQueue {
+    pub const LIMIT: usize = 16;
+
+    pub fn total_len(&self) -> usize {
+        self.active.iter().count() + self.queued.len()
+    }
+
+    pub fn replace(&mut self, command: HeroCommand) {
+        self.active = Some(command);
+        self.queued.clear();
+    }
+
+    pub fn append(&mut self, command: HeroCommand) -> bool {
+        if self.total_len() >= Self::LIMIT {
+            return false;
+        }
+        if self.active.is_none() {
+            self.active = Some(command);
+        } else {
+            self.queued.push(command);
+        }
+        true
+    }
+
+    pub fn clear_all(&mut self) {
+        self.active = None;
+        self.queued.clear();
+    }
+
+    pub fn advance(&mut self) -> Option<HeroCommand> {
+        self.active = if self.queued.is_empty() {
+            None
+        } else {
+            Some(self.queued.remove(0))
+        };
+        self.active
+    }
+}
+
+impl Component for HeroCommandQueue {
     type Storage = VecStorage<Self>;
 }
 

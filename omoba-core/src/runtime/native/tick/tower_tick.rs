@@ -26,6 +26,8 @@ pub struct TowerRead<'a> {
     pos: ReadStorage<'a, Pos>,
     searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
+    creeps: ReadStorage<'a, Creep>,
+    cpropertys: ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     // 有 ScriptUnitTag 的塔由腳本 on_tick 自主決策；tower_tick 只幫忙轉向
     script_tags: ReadStorage<'a, crate::scripting::ScriptUnitTag>,
@@ -41,6 +43,32 @@ pub struct TowerWrite<'a> {
     facing_bcs: WriteStorage<'a, FacingBroadcast>,
 }
 
+struct TowerDecisionRead<'a, 'b> {
+    dt: Fixed64,
+    dt_f: f32,
+    master_seed: u64,
+    tick: u32,
+    time1: Instant,
+    pos: &'b ReadStorage<'a, Pos>,
+    searcher: &'b Searcher,
+    factions: &'b ReadStorage<'a, Faction>,
+    creeps: &'b ReadStorage<'a, Creep>,
+    cpropertys: &'b ReadStorage<'a, CProperty>,
+    turn_speeds: &'b ReadStorage<'a, TurnSpeed>,
+    script_tags: &'b ReadStorage<'a, crate::scripting::ScriptUnitTag>,
+}
+
+#[derive(Debug)]
+pub(crate) struct TowerTickDecision {
+    entity: Entity,
+    tower: Tower,
+    property: TProperty,
+    attack: TAttack,
+    facing: Facing,
+    facing_bc: FacingBroadcast,
+    outcomes: Vec<Outcome>,
+}
+
 #[derive(Default)]
 pub struct Sys;
 
@@ -52,21 +80,29 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         // 階段 1c.4：dt 在整個戰鬥週期中固定為 64。
         let dt: Fixed64 = tr.dt.0;
-        // 有損投影僅保留面向弧度算術+搜尋器邊界。
-        // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；面對弧度僅是對數。
-        let dt_f = dt.to_f32_for_render();
-        // 階段 1de.2：SimRng 種子輸入提升到 Par_join 閉包的 Copy 局部變數。
-        let master_seed: u64 = tr.master_seed.0;
-        let tick: u32 = tr.tick.0 as u32;
-        let time1 = Instant::now();
-        let mut outcomes = (
+        let read = TowerDecisionRead {
+            dt,
+            dt_f: dt.to_f32_for_render(),
+            master_seed: tr.master_seed.0,
+            tick: tr.tick.0 as u32,
+            time1: Instant::now(),
+            pos: &tr.pos,
+            searcher: &*tr.searcher,
+            factions: &tr.factions,
+            creeps: &tr.creeps,
+            cpropertys: &tr.cpropertys,
+            turn_speeds: &tr.turn_speeds,
+            script_tags: &tr.script_tags,
+        };
+
+        let mut decisions = (
             &tr.entities,
-            &mut tw.towers,
-            &mut tw.propertys,
-            &mut tw.tatks,
+            &tw.towers,
+            &tw.propertys,
+            &tw.tatks,
             &tr.pos,
-            &mut tw.facings,
-            &mut tw.facing_bcs,
+            &tw.facings,
+            &tw.facing_bcs,
         )
             .par_join()
             .map_init(
@@ -75,212 +111,356 @@ impl<'a> System<'a> for Sys {
                     guard
                 },
                 |_guard, (e, tower, pty, atk, pos, facing, facing_bc)| {
-                    let mut outcomes: Vec<Outcome> = Vec::new();
-                    // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
-                    let (pos_x_f, pos_y_f) = pos.xy_f32();
-                    let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
-
-                    // 腳本塔：開火/asd_count 由 on_tick 自管；但「找目標 + 轉向」仍由 host 做。
-                    // 非腳本塔：host 管全部（累計 asd、找目標、轉向、開火）。
-                    let is_scripted = tr.script_tags.get(e).is_some();
-                    let attack_phase = if is_scripted {
-                        AttackPhaseStep::Charging
-                    } else {
-                        advance_attack_phase(&mut atk.asd_count, dt, atk.asd.val())
-                    };
-                    if matches!(attack_phase, AttackPhaseStep::Ready) {
-                        atk.clear_attack_sequence();
-                    }
-                    if pty.mblock > 0 {
-                        // 確認所有檔的怪死了沒
-                        let mut rm_ids = vec![];
-                        for bc in tower.block_creeps.iter() {
-                            if let Some(p) = tr.pos.get(*bc) {
-                            } else {
-                                rm_ids.push(bc);
-                            }
-                        }
-                        let bc: Vec<Entity> = tower
-                            .block_creeps
-                            .iter()
-                            .filter(|e| rm_ids.contains(&e))
-                            .map(|e| *e)
-                            .collect();
-                        tower.block_creeps = bc;
-                        pty.block = tower.block_creeps.len() as i32;
-                    }
-                    if pty.mblock > pty.block {
-                        // 試試看會不會阻檔
-                        let size_sq: Fixed64 = pty.size * pty.size;
-                        for nc in tower.nearby_creeps.iter() {
-                            if tower.block_creeps.contains(&nc.ent) {
-                                // 已經阻檔了
-                            } else {
-                                if let Some(p) = tr.pos.get(nc.ent) {
-                                    // 距離平方 in Fixed64 — 與 size_sq (Fixed64) 直接比較。
-                                    let diff = p.0 - pos.0;
-                                    if diff.length_squared() < size_sq {
-                                        tower.block_creeps.push(nc.ent);
-                                        outcomes.push(Outcome::CreepStop {
-                                            source: e,
-                                            target: nc.ent,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // Scripted towers choose targets and set facing in UnitScript::on_tick.
-                    // Avoid a second host-side spatial query for every scripted tower.
-                    let do_seek =
-                        !is_scripted && !matches!(attack_phase, AttackPhaseStep::Charging);
-                    if do_seek {
-                        let time2 = Instant::now();
-                        let elpsed = time2.duration_since(time1);
-                        if elpsed.as_secs_f32() < 0.05 {
-                            let search_n = 1.max(pty.mblock).max(6) as usize;
-                            // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
-                            let range_f = atk.range.val().to_f32_for_render();
-                            let (creeps, near_creeps) = tr.searcher.creep.search_nn_two_radii(
-                                pos_vek,
-                                range_f,
-                                range_f + 30.,
-                                search_n,
-                            );
-
-                            // faction filter：若本塔有 Faction，則只攻擊敵對 creep
-                            let my_faction = tr.factions.get(e);
-                            let hostile_creeps: Vec<_> = creeps
-                                .iter()
-                                .filter(|ci| match (my_faction, tr.factions.get(ci.e)) {
-                                    (Some(mf), Some(tf)) => mf.is_hostile_to(tf),
-                                    // 無 Faction 的塔（玩家建的防禦塔）沿用舊行為，攻擊所有 creep
-                                    (None, _) => true,
-                                    // 目標無 Faction（舊資料）沿用舊行為
-                                    (_, None) => true,
-                                })
-                                .collect();
-
-                            if !hostile_creeps.is_empty() {
-                                if pty.mblock > 0 {
-                                    tower.nearby_creeps.clear();
-                                    for c in hostile_creeps.iter() {
-                                        // 注意：DisIndex.dis 是 f32 平方距離（搜尋器邊界）；轉換為 Fix64 以進行 sim 算術。
-                                        let dis_fx = Fixed64::from_raw((c.dis * 1024.0) as i64);
-                                        tower.nearby_creeps.push(NearbyEnt {
-                                            ent: c.e,
-                                            dis: dis_fx,
-                                        });
-                                    }
-                                }
-                                // 轉向目標：算出 desired angle，旋轉 facing
-                                let target_entity = hostile_creeps[0].e;
-                                let target_pos = tr
-                                    .pos
-                                    .get(target_entity)
-                                    .map(|p| {
-                                        let (x, y) = p.xy_f32();
-                                        vek::Vec2::new(x, y)
-                                    })
-                                    .unwrap_or(pos_vek);
-                                let diff = target_pos - pos_vek;
-                                if diff.magnitude_squared() > 0.01 {
-                                    let desired = diff.y.atan2(diff.x);
-                                    let turn = tr
-                                        .turn_speeds
-                                        .get(e)
-                                        .map(|t| t.0.to_f32_for_render())
-                                        .unwrap_or(std::f32::consts::FRAC_PI_2);
-                                    let cur_rad = facing.rad_f32();
-                                    let new_rad = rotate_toward(cur_rad, desired, turn * dt_f);
-                                    *facing = Facing::from_rad_f32(new_rad);
-
-                                    // 廣播 facing 變化：和「上次廣播」差 > 15° 才送。
-                                    // 必須比較 last_broadcast 而不是 per-tick old_facing —
-                                    // 否則每 tick 旋轉量 (~3°) 永遠 < 15° 永遠不發。
-                                    let needs_emit = match facing_bc.0 {
-                                        None => true, // 第一次必發（client 原預設 0 → 校正）
-                                        Some(last) => {
-                                            (new_rad - last).abs() > FACING_BROADCAST_THRESHOLD_RAD
-                                        }
-                                    };
-                                    if needs_emit {
-                                        facing_bc.0 = Some(new_rad);
-                                    }
-
-                                    // 腳本塔：host 只負責轉向，不自動開火（腳本 on_tick 全權決定）
-                                    if is_scripted {
-                                        return outcomes;
-                                    }
-
-                                    // MOBA 塔：Ready 先進 windup；Impact tick 才發單體 homing 彈。
-                                    if normalize_angle(desired - new_rad).abs()
-                                        < MOVE_ANGLE_THRESHOLD
-                                    {
-                                        if matches!(attack_phase, AttackPhaseStep::Ready) {
-                                            let (windup, backswing) = start_attack_windup(
-                                                &mut atk.asd_count,
-                                                atk.asd.val(),
-                                            );
-                                            let attack_seq = atk.begin_attack_windup();
-                                            outcomes.push(Outcome::AttackPhaseCue {
-                                                entity: e,
-                                                attack_seq,
-                                                is_critical: false,
-                                                target: Some(target_entity),
-                                                target_pos: tr.pos.get(target_entity).map(|p| p.0),
-                                                windup_ms: fixed_secs_to_ms(windup),
-                                                backswing_ms: fixed_secs_to_ms(backswing),
-                                                dir_rad: desired,
-                                            });
-                                        } else {
-                                            atk.mark_attack_impact();
-                                            outcomes.push(Outcome::ProjectileLine2 {
-                                                pos: pos.0,
-                                                source: Some(e.clone()),
-                                                target: Some(target_entity),
-                                            });
-                                        }
-                                    }
-                                    // 角度太大 → 繼續轉，本 tick 不開火
-                                }
-                            } else {
-                                if !is_scripted
-                                    && matches!(attack_phase, AttackPhaseStep::Ready)
-                                    && near_creeps.len() == 0
-                                {
-                                    // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
-                                    // 階段 1de.2：透過 SimRng 確定的每（塔、滴答）抖動。
-                                    let mut rng = omoba_sim::SimRng::from_master_entity(
-                                        master_seed,
-                                        tick,
-                                        e.id(),
-                                        OP_TOWER_NO_TARGET_JITTER,
-                                    );
-                                    let jitter = Fixed64::from_raw((rng.next_u32() % 256) as i64);
-                                    atk.asd_count = atk.asd.val() - Fixed64::from_raw(307) - jitter;
-                                }
-                            }
-                        }
-                    }
-                    outcomes
+                    decide_tower_tick(&read, e, tower, pty, atk, pos, facing, facing_bc)
                 },
             )
-            .fold(
-                || Vec::new(),
-                |mut all_outcomes, mut outcomes| {
-                    all_outcomes.append(&mut outcomes);
-                    all_outcomes
-                },
-            )
-            .reduce(
-                || Vec::new(),
-                |mut outcomes_a, mut outcomes_b| {
-                    outcomes_a.append(&mut outcomes_b);
-                    outcomes_a
-                },
-            );
-        // log::info!("塔更新1時間{:?}", elpsed);
+            .fold(Vec::new, |mut all, decision| {
+                all.push(decision);
+                all
+            })
+            .reduce(Vec::new, |mut a, mut b| {
+                a.append(&mut b);
+                a
+            });
+
+        decisions.sort_by_key(|decision| decision.entity.id());
+        let mut outcomes = Vec::new();
+        for mut decision in decisions {
+            if let Some(tower) = tw.towers.get_mut(decision.entity) {
+                *tower = decision.tower;
+            }
+            if let Some(property) = tw.propertys.get_mut(decision.entity) {
+                *property = decision.property;
+            }
+            if let Some(attack) = tw.tatks.get_mut(decision.entity) {
+                *attack = decision.attack;
+            }
+            if let Some(facing) = tw.facings.get_mut(decision.entity) {
+                *facing = decision.facing;
+            }
+            if let Some(facing_bc) = tw.facing_bcs.get_mut(decision.entity) {
+                *facing_bc = decision.facing_bc;
+            }
+            outcomes.append(&mut decision.outcomes);
+        }
         tw.outcomes.append(&mut outcomes);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn decide_tower_tick(
+    tr: &TowerDecisionRead<'_, '_>,
+    e: Entity,
+    tower_src: &Tower,
+    pty_src: &TProperty,
+    atk_src: &TAttack,
+    pos: &Pos,
+    facing_src: &Facing,
+    facing_bc_src: &FacingBroadcast,
+) -> TowerTickDecision {
+    let mut tower = tower_src.clone();
+    let mut pty = *pty_src;
+    let mut atk = *atk_src;
+    let mut facing = *facing_src;
+    let mut facing_bc = *facing_bc_src;
+    let mut outcomes: Vec<Outcome> = Vec::new();
+
+    // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
+    let (pos_x_f, pos_y_f) = pos.xy_f32();
+    let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
+
+    // 腳本塔：開火/asd_count 由 on_tick 自管；非腳本塔：host 管全部。
+    let is_scripted = tr.script_tags.get(e).is_some();
+    let attack_phase = if is_scripted {
+        AttackPhaseStep::Charging
+    } else {
+        advance_attack_phase(&mut atk.asd_count, tr.dt, atk.asd.val())
+    };
+    if matches!(attack_phase, AttackPhaseStep::Ready) {
+        atk.clear_attack_sequence();
+    }
+
+    if pty.mblock > 0 {
+        let stale_block_creeps: Vec<Entity> = tower
+            .block_creeps
+            .iter()
+            .copied()
+            .filter(|blocked| tr.pos.get(*blocked).is_none())
+            .collect();
+        tower.block_creeps = tower
+            .block_creeps
+            .iter()
+            .copied()
+            .filter(|blocked| !stale_block_creeps.contains(blocked))
+            .collect();
+        pty.block = tower.block_creeps.len() as i32;
+    }
+    if pty.mblock > pty.block {
+        let size_sq: Fixed64 = pty.size * pty.size;
+        for nc in tower.nearby_creeps.iter() {
+            if tower.block_creeps.contains(&nc.ent) {
+                continue;
+            }
+            if let Some(p) = tr.pos.get(nc.ent) {
+                let diff = p.0 - pos.0;
+                if diff.length_squared() < size_sq {
+                    tower.block_creeps.push(nc.ent);
+                    outcomes.push(Outcome::CreepStop {
+                        source: e,
+                        target: nc.ent,
+                    });
+                }
+            }
+        }
+    }
+
+    let do_seek = !is_scripted && !matches!(attack_phase, AttackPhaseStep::Charging);
+    if do_seek {
+        let time2 = Instant::now();
+        let elpsed = time2.duration_since(tr.time1);
+        if elpsed.as_secs_f32() < 0.05 {
+            let search_n = tr.searcher.creep.count().max(1);
+            let range_f = atk.range.val().to_f32_for_render();
+            let (creeps, near_creeps) =
+                tr.searcher
+                    .creep
+                    .search_nn_two_radii(pos_vek, range_f, range_f + 30., search_n);
+
+            let my_faction = tr.factions.get(e);
+            let hostile_creeps: Vec<_> = creeps
+                .iter()
+                .filter(|ci| match (my_faction, tr.factions.get(ci.e)) {
+                    (Some(mf), Some(tf)) => mf.is_hostile_to(tf),
+                    (None, _) => true,
+                    (_, None) => true,
+                })
+                .collect();
+
+            if !hostile_creeps.is_empty() {
+                if pty.mblock > 0 {
+                    tower.nearby_creeps.clear();
+                    for c in hostile_creeps.iter() {
+                        let dis_fx = Fixed64::from_raw((c.dis * 1024.0) as i64);
+                        tower.nearby_creeps.push(NearbyEnt {
+                            ent: c.e,
+                            dis: dis_fx,
+                        });
+                    }
+                }
+                let target_entity = select_tower_target(
+                    tower.target_priority,
+                    &hostile_creeps,
+                    tr.creeps,
+                    tr.cpropertys,
+                )
+                .unwrap_or_else(|| hostile_creeps[0].e);
+                let target_pos = tr
+                    .pos
+                    .get(target_entity)
+                    .map(|p| {
+                        let (x, y) = p.xy_f32();
+                        vek::Vec2::new(x, y)
+                    })
+                    .unwrap_or(pos_vek);
+                let diff = target_pos - pos_vek;
+                if diff.magnitude_squared() > 0.01 {
+                    let desired = diff.y.atan2(diff.x);
+                    let turn = tr
+                        .turn_speeds
+                        .get(e)
+                        .map(|t| t.0.to_f32_for_render())
+                        .unwrap_or(std::f32::consts::FRAC_PI_2);
+                    let cur_rad = facing.rad_f32();
+                    let new_rad = rotate_toward(cur_rad, desired, turn * tr.dt_f);
+                    facing = Facing::from_rad_f32(new_rad);
+
+                    let needs_emit = match facing_bc.0 {
+                        None => true,
+                        Some(last) => (new_rad - last).abs() > FACING_BROADCAST_THRESHOLD_RAD,
+                    };
+                    if needs_emit {
+                        facing_bc.0 = Some(new_rad);
+                    }
+
+                    if normalize_angle(desired - new_rad).abs() < MOVE_ANGLE_THRESHOLD {
+                        if matches!(attack_phase, AttackPhaseStep::Ready) {
+                            let (windup, backswing) =
+                                start_attack_windup(&mut atk.asd_count, atk.asd.val());
+                            let attack_seq = atk.begin_attack_windup();
+                            outcomes.push(Outcome::AttackPhaseCue {
+                                entity: e,
+                                attack_seq,
+                                is_critical: false,
+                                target: Some(target_entity),
+                                target_pos: tr.pos.get(target_entity).map(|p| p.0),
+                                windup_ms: fixed_secs_to_ms(windup),
+                                backswing_ms: fixed_secs_to_ms(backswing),
+                                dir_rad: desired,
+                            });
+                        } else {
+                            atk.mark_attack_impact();
+                            outcomes.push(Outcome::ProjectileLine2 {
+                                pos: pos.0,
+                                source: Some(e),
+                                target: Some(target_entity),
+                            });
+                        }
+                    }
+                }
+            } else if matches!(attack_phase, AttackPhaseStep::Ready) && near_creeps.is_empty() {
+                let mut rng = omoba_sim::SimRng::from_master_entity(
+                    tr.master_seed,
+                    tr.tick,
+                    e.id(),
+                    OP_TOWER_NO_TARGET_JITTER,
+                );
+                let jitter = Fixed64::from_raw((rng.next_u32() % 256) as i64);
+                atk.asd_count = atk.asd.val() - Fixed64::from_raw(307) - jitter;
+            }
+        }
+    }
+
+    TowerTickDecision {
+        entity: e,
+        tower,
+        property: pty,
+        attack: atk,
+        facing,
+        facing_bc,
+        outcomes,
+    }
+}
+
+pub(crate) fn select_tower_target(
+    priority: TowerTargetPriority,
+    candidates: &[&DisIndex],
+    creeps: &ReadStorage<'_, Creep>,
+    cpropertys: &ReadStorage<'_, CProperty>,
+) -> Option<Entity> {
+    candidates
+        .iter()
+        .copied()
+        .min_by(|a, b| compare_tower_targets(priority, a, b, creeps, cpropertys))
+        .map(|candidate| candidate.e)
+}
+
+fn compare_tower_targets(
+    priority: TowerTargetPriority,
+    a: &DisIndex,
+    b: &DisIndex,
+    creeps: &ReadStorage<'_, Creep>,
+    cpropertys: &ReadStorage<'_, CProperty>,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let primary = match priority {
+        TowerTargetPriority::First => {
+            let ar = creeps
+                .get(a.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            let br = creeps
+                .get(b.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            ar.partial_cmp(&br).unwrap_or(Ordering::Equal)
+        }
+        TowerTargetPriority::Last => {
+            let ar = creeps
+                .get(a.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            let br = creeps
+                .get(b.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            br.partial_cmp(&ar).unwrap_or(Ordering::Equal)
+        }
+        TowerTargetPriority::Nearest => a.dis.partial_cmp(&b.dis).unwrap_or(Ordering::Equal),
+        TowerTargetPriority::Farthest => b.dis.partial_cmp(&a.dis).unwrap_or(Ordering::Equal),
+        TowerTargetPriority::HighestHealth => {
+            let ahp = cpropertys.get(a.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            let bhp = cpropertys.get(b.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            bhp.partial_cmp(&ahp).unwrap_or(Ordering::Equal)
+        }
+        TowerTargetPriority::LowestHealth => {
+            let ahp = cpropertys.get(a.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            let bhp = cpropertys.get(b.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            ahp.partial_cmp(&bhp).unwrap_or(Ordering::Equal)
+        }
+    };
+    primary.then_with(|| a.e.id().cmp(&b.e.id()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use specs::{Builder, World, WorldExt};
+
+    fn add_creep(world: &mut World, remaining: i32, hp: i32) -> Entity {
+        world
+            .create_entity()
+            .with(Creep {
+                name: "test".to_string(),
+                label: None,
+                path: "p".to_string(),
+                pidx: 0,
+                path_remaining_distance: Fixed64::from_i32(remaining),
+                block_tower: None,
+                status: CreepStatus::Walk,
+            })
+            .with(CProperty {
+                hp: Fixed64::from_i32(hp),
+                mhp: Fixed64::from_i32(hp),
+                msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .build()
+    }
+
+    #[test]
+    fn tower_priority_selects_by_path_rank_distance_health_and_entity_tie() {
+        let mut world = World::new();
+        world.register::<Creep>();
+        world.register::<CProperty>();
+        let first = add_creep(&mut world, 10, 50);
+        let last = add_creep(&mut world, 80, 200);
+        let low_hp = add_creep(&mut world, 40, 5);
+        let candidates = vec![
+            DisIndex { e: first, dis: 9.0 },
+            DisIndex { e: last, dis: 1.0 },
+            DisIndex {
+                e: low_hp,
+                dis: 4.0,
+            },
+        ];
+        let refs: Vec<_> = candidates.iter().collect();
+        let creeps = world.read_storage::<Creep>();
+        let props = world.read_storage::<CProperty>();
+
+        assert_eq!(
+            select_tower_target(TowerTargetPriority::First, &refs, &creeps, &props),
+            Some(first)
+        );
+        assert_eq!(
+            select_tower_target(TowerTargetPriority::Last, &refs, &creeps, &props),
+            Some(last)
+        );
+        assert_eq!(
+            select_tower_target(TowerTargetPriority::Nearest, &refs, &creeps, &props),
+            Some(last)
+        );
+        assert_eq!(
+            select_tower_target(TowerTargetPriority::Farthest, &refs, &creeps, &props),
+            Some(first)
+        );
+        assert_eq!(
+            select_tower_target(TowerTargetPriority::HighestHealth, &refs, &creeps, &props),
+            Some(last)
+        );
+        assert_eq!(
+            select_tower_target(TowerTargetPriority::LowestHealth, &refs, &creeps, &props),
+            Some(low_hp)
+        );
     }
 }

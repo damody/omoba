@@ -326,11 +326,14 @@ impl<'a> System<'a> for Sys {
                         }
 
                         if needs_update {
+                            let path_remaining_distance =
+                                path_remaining_distance(path, new_pos, new_pidx);
                             outcomes.push(Outcome::CreepUpdate {
                                 entity: e,
                                 pos: new_pos,
                                 status: new_status,
                                 pidx: new_pidx,
+                                path_remaining_distance,
                                 facing: new_facing,
                                 facing_broadcast: new_facing_bc,
                             });
@@ -445,4 +448,16 @@ impl<'a> System<'a> for Sys {
         }
         tw.taken_damages.clear();
     }
+}
+
+fn path_remaining_distance(path: &Path, pos: SimVec2, pidx: usize) -> Fixed64 {
+    let cps = &path.check_points_sim;
+    if pidx >= cps.len() {
+        return Fixed64::ZERO;
+    }
+    let mut remaining = (cps[pidx] - pos).length();
+    for i in pidx..cps.len().saturating_sub(1) {
+        remaining += (cps[i + 1] - cps[i]).length();
+    }
+    remaining
 }

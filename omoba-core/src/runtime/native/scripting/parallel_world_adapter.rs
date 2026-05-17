@@ -69,6 +69,65 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_asd_count: HashMap<Entity, Fixed64>,
 }
 
+fn select_script_tower_target(
+    priority: TowerTargetPriority,
+    candidates: &[DisIndex],
+    creeps: &ReadStorage<'_, Creep>,
+    cprops: &ReadStorage<'_, CProperty>,
+) -> Option<Entity> {
+    candidates
+        .iter()
+        .min_by(|a, b| compare_script_tower_targets(priority, a, b, creeps, cprops))
+        .map(|candidate| candidate.e)
+}
+
+fn compare_script_tower_targets(
+    priority: TowerTargetPriority,
+    a: &DisIndex,
+    b: &DisIndex,
+    creeps: &ReadStorage<'_, Creep>,
+    cprops: &ReadStorage<'_, CProperty>,
+) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    let primary = match priority {
+        TowerTargetPriority::First => {
+            let ar = creeps
+                .get(a.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            let br = creeps
+                .get(b.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            ar.partial_cmp(&br).unwrap_or(Ordering::Equal)
+        }
+        TowerTargetPriority::Last => {
+            let ar = creeps
+                .get(a.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            let br = creeps
+                .get(b.e)
+                .map(|c| c.path_remaining_distance)
+                .unwrap_or_else(|| Fixed64::from_i32(1_000_000));
+            br.partial_cmp(&ar).unwrap_or(Ordering::Equal)
+        }
+        TowerTargetPriority::Nearest => a.dis.partial_cmp(&b.dis).unwrap_or(Ordering::Equal),
+        TowerTargetPriority::Farthest => b.dis.partial_cmp(&a.dis).unwrap_or(Ordering::Equal),
+        TowerTargetPriority::HighestHealth => {
+            let ahp = cprops.get(a.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            let bhp = cprops.get(b.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            bhp.partial_cmp(&ahp).unwrap_or(Ordering::Equal)
+        }
+        TowerTargetPriority::LowestHealth => {
+            let ahp = cprops.get(a.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            let bhp = cprops.get(b.e).map(|p| p.hp).unwrap_or(Fixed64::ZERO);
+            ahp.partial_cmp(&bhp).unwrap_or(Ordering::Equal)
+        }
+    };
+    primary.then_with(|| a.e.id().cmp(&b.e.id()))
+}
+
 impl<'a> ParallelWorldAdapter<'a> {
     pub fn new(cache: &'a ParallelAdapterCache<'a>, invocation_entity: Entity) -> Self {
         Self {
@@ -491,15 +550,28 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         };
         let center_f = vek::Vec2::new(center.x.to_f32_for_render(), center.y.to_f32_for_render());
         let radius_f = radius.to_f32_for_render();
-        for di in self.cache.searcher.creep.search_nn(center_f, radius_f, 16) {
+        let priority = self
+            .cache
+            .tower
+            .get(of_ent)
+            .map(|tower| tower.target_priority)
+            .unwrap_or(TowerTargetPriority::Nearest);
+        let mut candidates = Vec::new();
+        for di in self.cache.searcher.creep.search_nn(
+            center_f,
+            radius_f,
+            self.cache.searcher.creep.count().max(1),
+        ) {
             let Some(fac) = self.cache.faction.get(di.e) else {
                 continue;
             };
             if fac.team_id != my_team && self.cache.creep.get(di.e).is_some() {
-                return RSome(Self::entity_to_handle(di.e));
+                candidates.push(di);
             }
         }
-        RNone
+        select_script_tower_target(priority, &candidates, &self.cache.creep, &self.cache.cprop)
+            .map(Self::entity_to_handle)
+            .map_or(RNone, RSome)
     }
 
     fn play_vfx(&mut self, id: RStr<'_>, at: Vec2) {
@@ -961,6 +1033,7 @@ mod tests {
                 label: None,
                 path: "test_path".to_string(),
                 pidx: 0,
+                path_remaining_distance: Fixed64::from_i32(1_000_000),
                 block_tower: None,
                 status: CreepStatus::Walk,
             })

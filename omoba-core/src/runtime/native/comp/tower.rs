@@ -4,6 +4,30 @@ use specs::storage::VecStorage;
 use specs::{Component, Entity};
 use std::collections::BTreeMap;
 
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum TowerTargetPriority {
+    #[default]
+    First,
+    Last,
+    Nearest,
+    Farthest,
+    HighestHealth,
+    LowestHealth,
+}
+
+impl TowerTargetPriority {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TowerTargetPriority::First => "first",
+            TowerTargetPriority::Last => "last",
+            TowerTargetPriority::Nearest => "nearest",
+            TowerTargetPriority::Farthest => "farthest",
+            TowerTargetPriority::HighestHealth => "highest_health",
+            TowerTargetPriority::LowestHealth => "lowest_health",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Tower {
     pub nearby_creeps: Vec<NearbyEnt>,
@@ -15,6 +39,8 @@ pub struct Tower {
     pub upgrade_flags: Vec<String>,
     #[serde(default)]
     pub ultimate_cooldown: Fixed64,
+    #[serde(default)]
+    pub target_priority: TowerTargetPriority,
 }
 impl Tower {
     pub fn new() -> Self {
@@ -25,6 +51,7 @@ impl Tower {
             upgrade_levels: [0; 3],
             upgrade_flags: vec![],
             ultimate_cooldown: Fixed64::ZERO,
+            target_priority: TowerTargetPriority::First,
         }
     }
 }

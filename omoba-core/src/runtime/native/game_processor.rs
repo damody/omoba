@@ -11,12 +11,13 @@ use crate::runtime::comp::{
     AttackCancelFx, AttackCancelFxQueue, AttackCancelPhase, AttackPhaseFx, AttackPhaseFxQueue,
     AttackSequencePhase, BlockedRegions, Bounty, CProperty, CircularVision, CollisionRadius, Creep,
     CreepData, CreepStatus, ExplosionFx, ExplosionFxQueue, Facing, FacingBroadcast, Faction,
-    FactionType, Gold, Hero, Inventory, IsBase, IsBuilding, MasterSeed, MoveTarget, Outcome, Path,
-    PendingAbilityCastQueue, PendingAbilityUpgradeQueue, PendingItemUseQueue, PendingMoveQueue,
-    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerUpgradeQueue, PlayerOwner, Pos,
-    Projectile, RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerData,
-    TowerFireFxQueue, TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit,
-    INVENTORY_SLOTS,
+    FactionType, Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBase, IsBuilding,
+    MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
+    PendingHeroCommandClearQueue, PendingHeroCommandKind, PendingItemUseQueue, PendingMoveQueue,
+    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue,
+    PendingTowerUpgradeQueue, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, Searcher,
+    TAttack, TProperty, Tick, Tower, TowerData, TowerFireFxQueue, TowerTargetPriority,
+    TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -96,6 +97,67 @@ pub fn interrupt_attack_for_accepted_command(
     }
 }
 
+fn entity_by_id(world: &World, entity_id: u32) -> Option<Entity> {
+    let entities = world.entities();
+    (&entities).join().find(|e| e.id() == entity_id)
+}
+
+fn clear_hero_command_queue(world: &mut World, hero: Entity) {
+    {
+        let mut queues = world.write_storage::<HeroCommandQueue>();
+        if let Some(queue) = queues.get_mut(hero) {
+            queue.clear_all();
+        } else {
+            let _ = queues.insert(hero, HeroCommandQueue::default());
+        }
+    }
+    world.write_storage::<MoveTarget>().remove(hero);
+}
+
+fn clear_hero_command_queue_for_player(
+    world: &mut World,
+    context: &str,
+    owner_pid: u32,
+) -> Result<Entity, failure::Error> {
+    let hero = player_hero_entity(world, context, owner_pid)?;
+    clear_hero_command_queue(world, hero);
+    Ok(hero)
+}
+
+fn validate_attack_target(
+    world: &World,
+    hero: Entity,
+    target_entity_id: u32,
+    owner_pid: u32,
+) -> Result<Entity, failure::Error> {
+    let target = entity_by_id(world, target_entity_id).ok_or_else(|| {
+        failure::err_msg(format!(
+            "AttackTarget: entity id={} not found (pid={})",
+            target_entity_id, owner_pid
+        ))
+    })?;
+    let factions = world.read_storage::<Faction>();
+    let hero_faction = factions.get(hero).ok_or_else(|| {
+        failure::err_msg(format!(
+            "AttackTarget: hero {:?} has no Faction (pid={})",
+            hero, owner_pid
+        ))
+    })?;
+    let target_faction = factions.get(target).ok_or_else(|| {
+        failure::err_msg(format!(
+            "AttackTarget: target id={} has no Faction (pid={})",
+            target_entity_id, owner_pid
+        ))
+    })?;
+    if hero_faction.team_id == target_faction.team_id {
+        return Err(failure::err_msg(format!(
+            "AttackTarget: target id={} is allied with pid={}",
+            target_entity_id, owner_pid
+        )));
+    }
+    Ok(target)
+}
+
 pub fn drain_pending_moves(world: &mut World) {
     let drained = {
         let mut q = world.write_resource::<PendingMoveQueue>();
@@ -113,26 +175,85 @@ pub fn drain_pending_moves(world: &mut World) {
     }
 
     for req in drained {
-        let hero = match player_hero_entity(world, "MoveTo", req.owner_pid) {
+        let hero = match player_hero_entity(world, "HeroCommand", req.owner_pid) {
             Ok(e) => e,
             Err(e) => {
                 log::warn!("{}", e);
                 continue;
             }
         };
+        let command = match req.kind {
+            PendingHeroCommandKind::MoveTo { pos } => HeroCommand::MoveTo { pos },
+            PendingHeroCommandKind::AttackMove { pos } => HeroCommand::AttackMove { pos },
+            PendingHeroCommandKind::AttackTarget { target_entity_id } => {
+                match validate_attack_target(world, hero, target_entity_id, req.owner_pid) {
+                    Ok(target) => HeroCommand::AttackTarget {
+                        target,
+                        chase_origin: None,
+                    },
+                    Err(e) => {
+                        log::warn!("{}", e);
+                        continue;
+                    }
+                }
+            }
+        };
         log::info!(
-            "MoveTo pid={} -> hero={:?} pos=({:.1},{:.1})",
+            "HeroCommand pid={} -> hero={:?} kind={} queued={}",
             req.owner_pid,
             hero,
-            req.pos.x.to_f32_for_render(),
-            req.pos.y.to_f32_for_render(),
+            command.command_type(),
+            req.queued,
         );
-        interrupt_attack_for_accepted_command(world, hero);
-        let _ = world
-            .write_storage::<MoveTarget>()
-            .insert(hero, MoveTarget(req.pos));
+        if req.queued {
+            let accepted = {
+                let mut queues = world.write_storage::<HeroCommandQueue>();
+                if queues.get(hero).is_none() {
+                    let _ = queues.insert(hero, HeroCommandQueue::default());
+                }
+                let queue = queues
+                    .get_mut(hero)
+                    .expect("HeroCommandQueue just inserted but missing");
+                queue.append(command)
+            };
+            if !accepted {
+                log::warn!(
+                    "HeroCommand rejected pid={} hero={:?} kind={} reason=queue_limit limit={}",
+                    req.owner_pid,
+                    hero,
+                    command.command_type(),
+                    HeroCommandQueue::LIMIT,
+                );
+            }
+            continue;
+        }
+
+        clear_hero_command_queue(world, hero);
+        if !matches!(command, HeroCommand::AttackMove { .. }) {
+            interrupt_attack_for_accepted_command(world, hero);
+        }
+        let mut queues = world.write_storage::<HeroCommandQueue>();
+        if queues.get(hero).is_none() {
+            let _ = queues.insert(hero, HeroCommandQueue::default());
+        }
+        let queue = queues
+            .get_mut(hero)
+            .expect("HeroCommandQueue just inserted but missing");
+        queue.replace(command);
     }
     drop(drain_span);
+}
+
+pub fn drain_pending_hero_command_clears(world: &mut World) {
+    let drained = {
+        let mut q = world.write_resource::<PendingHeroCommandClearQueue>();
+        std::mem::take(&mut q.requests)
+    };
+    for owner_pid in drained {
+        if let Err(e) = clear_hero_command_queue_for_player(world, "HeroCommandClear", owner_pid) {
+            log::warn!("{}", e);
+        }
+    }
 }
 
 pub fn handle_ability_upgrade_from_input(
@@ -204,6 +325,8 @@ pub fn handle_ability_upgrade_from_input(
         hero.skill_points -= 1;
         next
     };
+
+    clear_hero_command_queue(world, hero_entity);
 
     world
         .write_resource::<ScriptEventQueue>()
@@ -322,6 +445,7 @@ pub fn handle_ability_cast_from_input(
         SkillTarget::None
     };
 
+    clear_hero_command_queue(world, caster);
     interrupt_attack_for_accepted_command(world, caster);
 
     world
@@ -575,6 +699,7 @@ pub fn handle_tower_spawn_from_input(
             gold.0 -= tpl.cost;
         }
     }
+    clear_hero_command_queue(world, hero_entity);
     log::info!(
         "TowerPlace ok pid={} kind_id={} unit_id='{}' cost={} pos=({:.1},{:.1}) entity={:?}",
         owner_pid,
@@ -704,6 +829,7 @@ pub fn handle_tower_sell_from_input(
             gold.0 += refund;
         }
     }
+    clear_hero_command_queue(world, hero_entity);
 
     world
         .write_resource::<BuffStore>()
@@ -851,6 +977,7 @@ pub fn handle_tower_upgrade_from_input(
             gold.0 -= def.cost;
         }
     }
+    clear_hero_command_queue(world, hero_entity);
 
     let mut flags_to_add = Vec::new();
     let mut stat_mods = Vec::new();
@@ -894,6 +1021,97 @@ pub fn handle_tower_upgrade_from_input(
         def.cost
     );
     Ok(())
+}
+
+pub fn handle_tower_target_priority_from_input(
+    world: &mut World,
+    tower_entity_id: u32,
+    priority: TowerTargetPriority,
+    owner_pid: u32,
+) -> Result<(), failure::Error> {
+    let target_entity = {
+        let entities = world.entities();
+        let towers = world.read_storage::<Tower>();
+        (&entities, &towers)
+            .join()
+            .find(|(entity, _)| entity.id() == tower_entity_id)
+            .map(|(entity, _)| entity)
+    }
+    .ok_or_else(|| {
+        failure::err_msg(format!(
+            "SetTowerTargetPriority: tower id={} not found / not a Tower (pid={})",
+            tower_entity_id, owner_pid
+        ))
+    })?;
+
+    {
+        let owners = world.read_storage::<PlayerOwner>();
+        match owners.get(target_entity) {
+            Some(owner) if owner.player_id == owner_pid => {}
+            Some(owner) => {
+                return Err(failure::err_msg(format!(
+                    "SetTowerTargetPriority: tower id={} owner_pid={} rejected requester pid={}",
+                    tower_entity_id, owner.player_id, owner_pid
+                )));
+            }
+            None => {
+                return Err(failure::err_msg(format!(
+                    "SetTowerTargetPriority: tower id={} has no PlayerOwner (pid={})",
+                    tower_entity_id, owner_pid
+                )));
+            }
+        }
+    }
+    let hero_entity = player_hero_entity(world, "SetTowerTargetPriority", owner_pid)?;
+
+    {
+        let mut towers = world.write_storage::<Tower>();
+        let Some(tower) = towers.get_mut(target_entity) else {
+            return Err(failure::err_msg(format!(
+                "SetTowerTargetPriority: tower id={} vanished before write (pid={})",
+                tower_entity_id, owner_pid
+            )));
+        };
+        tower.target_priority = priority;
+    }
+    clear_hero_command_queue(world, hero_entity);
+    log::info!(
+        "SetTowerTargetPriority ok pid={} eid={} priority={}",
+        owner_pid,
+        tower_entity_id,
+        priority.as_str()
+    );
+    Ok(())
+}
+
+pub fn drain_pending_tower_target_priorities(world: &mut World) {
+    let drained = {
+        let mut q = world.write_resource::<PendingTowerTargetPriorityQueue>();
+        std::mem::take(&mut q.requests)
+    };
+    let drain_span = tracing::trace_span!(
+        "omoba_core::runtime::drain_pending_tower_target_priorities",
+        perfetto = true,
+        request_count = drained.len(),
+    )
+    .entered();
+    for req in drained {
+        if let Err(e) = handle_tower_target_priority_from_input(
+            world,
+            req.tower_entity_id,
+            req.priority,
+            req.owner_pid,
+        ) {
+            log::warn!(
+                "SetTowerTargetPriority failed pid={} eid={} priority={}: {}",
+                req.owner_pid,
+                req.tower_entity_id,
+                req.priority.as_str(),
+                e
+            );
+        }
+    }
+    drop(drain_span);
 }
 
 pub fn drain_pending_tower_upgrades(world: &mut World) {
@@ -1038,6 +1256,7 @@ pub fn handle_item_use_from_input(
             }
         }
     }
+    clear_hero_command_queue(world, hero_entity);
 
     log::info!(
         "ItemUse ok pid={} slot={} item={} cooldown={}s",
@@ -1171,9 +1390,19 @@ pub fn process_outcomes(
                 pos,
                 status,
                 pidx,
+                path_remaining_distance,
                 facing,
                 facing_broadcast,
-            } => handle_creep_update(world, entity, pos, status, pidx, facing, facing_broadcast)?,
+            } => handle_creep_update(
+                world,
+                entity,
+                pos,
+                status,
+                pidx,
+                path_remaining_distance,
+                facing,
+                facing_broadcast,
+            )?,
             Outcome::Damage {
                 pos,
                 phys,
@@ -1930,11 +2159,13 @@ mod tests {
         world.register::<PlayerOwner>();
         world.register::<Gold>();
         world.register::<MoveTarget>();
+        world.register::<HeroCommandQueue>();
         world.register::<Pos>();
         world.register::<ScriptUnitTag>();
         world.register::<TAttack>();
         world.register::<CProperty>();
         world.insert(PendingMoveQueue::default());
+        world.insert(PendingTowerTargetPriorityQueue::default());
         world.insert(Tick(0));
         world.insert(BuffStore::default());
         world.insert(Vec::<Outcome>::new());
@@ -1987,16 +2218,151 @@ mod tests {
         let p2 = add_owned_hero(&mut world, 2, "Hero");
         {
             let mut q = world.write_resource::<PendingMoveQueue>();
-            q.requests.push(crate::comp::PendingMoveTo {
-                pos: omoba_sim::Vec2::new(Fixed64::from_i32(10), Fixed64::from_i32(20)),
+            q.requests.push(crate::comp::PendingHeroCommand {
                 owner_pid: 2,
+                queued: false,
+                kind: crate::comp::PendingHeroCommandKind::MoveTo {
+                    pos: omoba_sim::Vec2::new(Fixed64::from_i32(10), Fixed64::from_i32(20)),
+                },
             });
         }
 
         drain_pending_moves(&mut world);
 
-        assert!(world.read_storage::<MoveTarget>().get(p1).is_none());
-        assert!(world.read_storage::<MoveTarget>().get(p2).is_some());
+        assert!(world.read_storage::<HeroCommandQueue>().get(p1).is_none());
+        assert!(matches!(
+            world
+                .read_storage::<HeroCommandQueue>()
+                .get(p2)
+                .and_then(|q| q.active),
+            Some(HeroCommand::MoveTo { .. })
+        ));
+    }
+
+    #[test]
+    fn queued_hero_commands_cap_at_sixteen_and_nonqueued_replaces_all() {
+        let mut world = world_for_owner_tests();
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        {
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            for i in 0..(HeroCommandQueue::LIMIT + 1) {
+                q.requests.push(crate::comp::PendingHeroCommand {
+                    owner_pid: 1,
+                    queued: true,
+                    kind: crate::comp::PendingHeroCommandKind::MoveTo {
+                        pos: omoba_sim::Vec2::new(
+                            Fixed64::from_i32(i as i32),
+                            Fixed64::from_i32(0),
+                        ),
+                    },
+                });
+            }
+        }
+
+        drain_pending_moves(&mut world);
+
+        assert_eq!(
+            world
+                .read_storage::<HeroCommandQueue>()
+                .get(hero)
+                .unwrap()
+                .total_len(),
+            HeroCommandQueue::LIMIT
+        );
+
+        {
+            let _ = world.write_storage::<MoveTarget>().insert(
+                hero,
+                MoveTarget(omoba_sim::Vec2::new(Fixed64::ONE, Fixed64::ONE)),
+            );
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            q.requests.push(crate::comp::PendingHeroCommand {
+                owner_pid: 1,
+                queued: false,
+                kind: crate::comp::PendingHeroCommandKind::AttackMove {
+                    pos: omoba_sim::Vec2::new(Fixed64::from_i32(50), Fixed64::from_i32(0)),
+                },
+            });
+        }
+
+        drain_pending_moves(&mut world);
+
+        let queues = world.read_storage::<HeroCommandQueue>();
+        let queue = queues.get(hero).unwrap();
+        assert_eq!(queue.total_len(), 1);
+        assert!(matches!(queue.active, Some(HeroCommand::AttackMove { .. })));
+        assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+    }
+
+    #[test]
+    fn attack_target_rejects_allied_target_without_replacing_queue() {
+        let mut world = world_for_owner_tests();
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        let allied = world
+            .create_entity()
+            .with(Faction::new(FactionType::Player, 0))
+            .build();
+        {
+            let _ = world.write_storage::<HeroCommandQueue>().insert(
+                hero,
+                HeroCommandQueue {
+                    active: Some(HeroCommand::MoveTo {
+                        pos: omoba_sim::Vec2::new(Fixed64::from_i32(1), Fixed64::from_i32(0)),
+                    }),
+                    queued: Vec::new(),
+                },
+            );
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            q.requests.push(crate::comp::PendingHeroCommand {
+                owner_pid: 1,
+                queued: false,
+                kind: crate::comp::PendingHeroCommandKind::AttackTarget {
+                    target_entity_id: allied.id(),
+                },
+            });
+        }
+
+        drain_pending_moves(&mut world);
+
+        assert!(matches!(
+            world
+                .read_storage::<HeroCommandQueue>()
+                .get(hero)
+                .and_then(|q| q.active),
+            Some(HeroCommand::MoveTo { .. })
+        ));
+    }
+
+    #[test]
+    fn accepted_attack_move_does_not_cancel_backswing() {
+        let mut world = world_for_owner_tests();
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        {
+            let mut attack = TAttack::new(
+                Fixed64::from_i32(10),
+                Fixed64::from_i32(1),
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(900),
+            );
+            attack.attack_phase = AttackSequencePhase::Backswing;
+            attack.asd_count = Fixed64::from_raw(123);
+            let _ = world.write_storage::<TAttack>().insert(hero, attack);
+
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            q.requests.push(crate::comp::PendingHeroCommand {
+                owner_pid: 1,
+                queued: false,
+                kind: crate::comp::PendingHeroCommandKind::AttackMove {
+                    pos: omoba_sim::Vec2::new(Fixed64::from_i32(50), Fixed64::from_i32(0)),
+                },
+            });
+        }
+
+        drain_pending_moves(&mut world);
+
+        let attack = *world.read_storage::<TAttack>().get(hero).unwrap();
+        assert_eq!(attack.attack_phase, AttackSequencePhase::Backswing);
+        assert_eq!(attack.asd_count, Fixed64::from_raw(123));
     }
 
     fn add_owned_tower(world: &mut World, player_id: u32) -> Entity {
@@ -2009,6 +2375,46 @@ mod tests {
                 unit_id: "tower_dart".to_string(),
             })
             .build()
+    }
+
+    #[test]
+    fn tower_target_priority_updates_only_for_owner() {
+        let mut world = world_for_owner_tests();
+        add_owned_hero(&mut world, 1, "Hero");
+        add_owned_hero(&mut world, 2, "Hero");
+        let tower = add_owned_tower(&mut world, 1);
+
+        assert!(handle_tower_target_priority_from_input(
+            &mut world,
+            tower.id(),
+            TowerTargetPriority::LowestHealth,
+            2,
+        )
+        .is_err());
+        assert_eq!(
+            world
+                .read_storage::<Tower>()
+                .get(tower)
+                .unwrap()
+                .target_priority,
+            TowerTargetPriority::First
+        );
+
+        handle_tower_target_priority_from_input(
+            &mut world,
+            tower.id(),
+            TowerTargetPriority::HighestHealth,
+            1,
+        )
+        .expect("owner may update priority");
+        assert_eq!(
+            world
+                .read_storage::<Tower>()
+                .get(tower)
+                .unwrap()
+                .target_priority,
+            TowerTargetPriority::HighestHealth
+        );
     }
 
     #[test]
@@ -2262,12 +2668,14 @@ fn handle_creep_update(
     pos: omoba_sim::Vec2,
     status: CreepStatus,
     pidx: usize,
+    path_remaining_distance: Fixed64,
     facing: omoba_sim::Angle,
     facing_broadcast: Option<f32>,
 ) -> Result<(), failure::Error> {
     if let Some(creep) = world.write_storage::<Creep>().get_mut(entity) {
         creep.status = status;
         creep.pidx = pidx;
+        creep.path_remaining_distance = path_remaining_distance;
     }
     if let Some(pos_comp) = world.write_storage::<Pos>().get_mut(entity) {
         pos_comp.0 = pos;
