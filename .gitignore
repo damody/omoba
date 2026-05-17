@@ -6,6 +6,7 @@ omoba-core/target/
 omoba-sim/target/
 eui/target/
 map_editor/target/
+omb-ws-bridge/target/
 scripts/target/
 # scripts 編譯產物（由 scripts workspace build，release 放這）
 scripts/*.dll

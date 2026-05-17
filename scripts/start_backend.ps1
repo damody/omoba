@@ -56,6 +56,8 @@ Convert-EnvPathToAbsolute "OMB_DLL_PATH"
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stdoutPath) | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stderrPath) | Out-Null
+Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
 if ($pidFilePath) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $pidFilePath) | Out-Null
     Remove-Item -LiteralPath $pidFilePath -Force -ErrorAction SilentlyContinue
@@ -64,6 +66,8 @@ if ($pidFilePath) {
 $process = Start-Process `
     -FilePath $exePath `
     -WorkingDirectory $workDir `
+    -RedirectStandardOutput $stdoutPath `
+    -RedirectStandardError $stderrPath `
     -WindowStyle Hidden `
     -PassThru
 
