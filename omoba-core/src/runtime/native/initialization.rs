@@ -14,6 +14,16 @@ use omoba_sim::Fixed64;
 /// 狀態初始化器
 pub struct StateInitializer;
 
+const DOTA_UNITS_PER_MAP_UNIT: i64 = 100;
+
+fn dota_units_to_map_units(value: Fixed64) -> Fixed64 {
+    Fixed64::from_raw(value.raw() / DOTA_UNITS_PER_MAP_UNIT)
+}
+
+fn dota_units_f32_to_map_units(value: f32) -> f32 {
+    value / DOTA_UNITS_PER_MAP_UNIT as f32
+}
+
 impl StateInitializer {
     /// 創建執行緒池
     pub fn create_thread_pool() -> Arc<ThreadPool> {
@@ -245,13 +255,15 @@ impl StateInitializer {
                     property: CProperty {
                         hp: stats.hp,
                         mhp: stats.hp,
-                        msd: stats.move_speed,
+                        msd: dota_units_to_map_units(stats.move_speed),
                         def_physic: stats.armor,
                         def_magic: stats.magic_resistance,
                     },
                     faction_name,
                     turn_speed_deg: cp.TurnSpeed.unwrap_or(90.0),
-                    collision_radius: cp.CollisionRadius.unwrap_or(20.0),
+                    collision_radius: dota_units_f32_to_map_units(
+                        cp.CollisionRadius.unwrap_or(20.0),
+                    ),
                 },
             );
         }
@@ -602,7 +614,7 @@ impl StateInitializer {
             let hero_properties = CProperty {
                 hp: base_hp,
                 mhp: base_hp,
-                msd: Fixed64::from_i32(350), // 基礎移動速度
+                msd: dota_units_to_map_units(Fixed64::from_i32(350)), // 基礎移動速度
                 def_physic: Fixed64::from_i32(hero.strength) * Fixed64::from_raw(205), // ≈ 0.2 = 205/1024
                 def_magic: Fixed64::from_i32(hero.intelligence) * Fixed64::from_raw(154), // ≈ 0.15 = 154/1024
             };
@@ -616,7 +628,7 @@ impl StateInitializer {
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
                 asd: Vf32::new(Fixed64::from_raw(602)), // 1/1.7 ≈ 0.588 (= 602/1024)
-                range: Vf32::new(hero_template_stats.attack_range),
+                range: Vf32::new(dota_units_to_map_units(hero_template_stats.attack_range)),
                 asd_count: Fixed64::ZERO,
                 bullet_speed: Fixed64::from_i32(1000),
                 attack_seq: 0,
@@ -625,7 +637,7 @@ impl StateInitializer {
 
             // 創建英雄圓形視野組件
             let hero_vision = CircularVision::new(
-                1200.0, // 英雄視野範圍
+                dota_units_f32_to_map_units(1200.0), // 英雄視野範圍
                 180.0,  // 英雄高度
             )
             .with_precision(720); // 高精度視野
@@ -635,7 +647,7 @@ impl StateInitializer {
                 hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 story source optional override，
             // 簡化後固定）。
-            let hero_radius = 30.0_f32;
+            let hero_radius = dota_units_f32_to_map_units(30.0);
             // Hero 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "hero_{HeroJD.id}"
             // 若 registry 無對應腳本，dispatch 會 silent skip，host hero_tick 仍跑預設 auto-attack
             let unit_id = format!("hero_{}", hero_data.id);
