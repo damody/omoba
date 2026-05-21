@@ -8,7 +8,7 @@ omoba 是 MOBA / TD 雙模的 Rust 遊戲，分 server（`omb`）與前端渲染
 
 ## Toolchain
 
-固定於 **Rust 1.91.0**（`rust-toolchain.toml`）。abi_stable 要求 host 與 script DLL 用同一個 rustc，所以不能隨便升 channel 或在某個 workspace 用不同 toolchain。
+固定於 **Rust 1.95.0**（`rust-toolchain.toml`）。abi_stable 要求 host 與 script DLL 用同一個 rustc，所以不能隨便升 channel 或在某個 workspace 用不同 toolchain。
 
 ## 常用指令
 

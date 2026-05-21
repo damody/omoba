@@ -22,7 +22,7 @@
 
 ## Toolchain
 
-- Rust 版本固定在 `rust-toolchain.toml` 的 Rust `1.91.0`。
+- Rust 版本固定在 `rust-toolchain.toml` 的 Rust `1.95.0`。
 - `abi_stable` 要求 host (`omb`) 與 script DLL (`scripts/base_content.dll`) 使用同一個 rustc，不能只在其中一個 workspace 升級 toolchain。
 - 一次完整啟動通常會碰到三個 Cargo workspace：`scripts/Cargo.toml` 先編 `base_content.dll`，再編 `omb/Cargo.toml` 與 `omfx/Cargo.toml`。
 - `.bat` 檔必須使用 CRLF 行尾。LF-only 會讓 Windows `cmd.exe` 把每行首字吃掉，常見錯誤是 `'M' is not recognized`。

@@ -1,6 +1,6 @@
 # 必須符合 omb 主機的 rustc — abi_stable 需要雙方編譯
 # 相同的 rustc 版本。與 ../omb 的工具鏈同步更新。
 [toolchain]
-channel = "1.91.0"
+channel = "1.95.0"
 components = ["rustc", "cargo", "rust-std"]
 profile = "minimal"
