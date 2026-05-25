@@ -1,0 +1,129 @@
+{
+  "screens": [
+    {
+      "id": "main_menu",
+      "title": "Open MOBA TD",
+      "subtitle": "Defend the lane, build the route, start when ready.",
+      "background_image": "lobby_background.png",
+      "widgets": [
+        {
+          "id": "start",
+          "label": "Start",
+          "description": "Choose a map",
+          "image": "button_start.png",
+          "enabled": true,
+          "locked": false,
+          "action": { "kind": "Navigate", "target": "map_select" }
+        },
+        {
+          "id": "heroes",
+          "label": "Heroes",
+          "description": "Coming soon",
+          "enabled": false,
+          "locked": true,
+          "action": { "kind": "NoOp" }
+        },
+        {
+          "id": "settings",
+          "label": "Settings",
+          "description": "Coming soon",
+          "enabled": false,
+          "locked": true,
+          "action": { "kind": "NoOp" }
+        }
+      ]
+    },
+    {
+      "id": "map_select",
+      "title": "Select Map",
+      "subtitle": "Pick a script-owned story/runtime.",
+      "widgets": [
+        {
+          "id": "back",
+          "label": "Back",
+          "enabled": true,
+          "locked": false,
+          "action": { "kind": "Back" }
+        }
+      ]
+    },
+    {
+      "id": "difficulty_select",
+      "title": "Select Difficulty",
+      "subtitle": "Difficulty metadata is passed to the backend session.",
+      "widgets": [
+        {
+          "id": "back",
+          "label": "Back",
+          "enabled": true,
+          "locked": false,
+          "action": { "kind": "Back" }
+        }
+      ]
+    }
+  ],
+  "maps": [
+    {
+      "id": "td_1",
+      "label": "Green Crossing",
+      "description": "A compact lane for the default TD flow.",
+      "story": "TD_1",
+      "runtime": "TD_1",
+      "image": "map_td_1.png",
+      "enabled": true,
+      "locked": false,
+      "reward": "100 gold"
+    },
+    {
+      "id": "mvp_1",
+      "label": "Training Grounds",
+      "description": "Legacy generated scenario for renderer checks.",
+      "story": "MVP_1",
+      "runtime": "MVP_1",
+      "image": "map_mvp_1.png",
+      "enabled": true,
+      "locked": false,
+      "reward": "Practice"
+    },
+    {
+      "id": "td_stress",
+      "label": "Stress Field",
+      "description": "Reserved for performance testing.",
+      "story": "TD_STRESS",
+      "runtime": "TD_STRESS",
+      "image": "map_td_stress.png",
+      "enabled": false,
+      "locked": true,
+      "reward": "Developer only"
+    }
+  ],
+  "difficulties": [
+    {
+      "id": "easy",
+      "label": "Easy",
+      "description": "Relaxed waves and forgiving economy.",
+      "config": "easy",
+      "reward": "1x reward",
+      "image": "difficulty_easy.png",
+      "enabled": true
+    },
+    {
+      "id": "medium",
+      "label": "Medium",
+      "description": "Default balance.",
+      "config": "medium",
+      "reward": "1.25x reward",
+      "image": "difficulty_medium.png",
+      "enabled": true
+    },
+    {
+      "id": "hard",
+      "label": "Hard",
+      "description": "Less room for mistakes.",
+      "config": "hard",
+      "reward": "1.5x reward",
+      "image": "difficulty_hard.png",
+      "enabled": true
+    }
+  ]
+}

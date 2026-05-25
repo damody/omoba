@@ -12,6 +12,7 @@ scripts/target/
 scripts/*.dll
 scripts/*.so
 scripts/*.dylib
+.run-local/
 # 本機 editor / 使用者狀態
 settings.ron
 .claude/settings.local.json

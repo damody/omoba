@@ -9,6 +9,7 @@ REM            OMFX_PERFETTO_PATH / OMFX_PERFETTO_DETAIL / OMFX_PERFETTO_MAX_SEC
 set "FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1"
 set "EXECUTOR=omfx\target\debug\executor.exe"
 set "BACKEND=omb\target\debug\omobab.exe"
+set "OMFX_BACKEND_EXE=%CD%\%BACKEND%"
 set "OMB_GAME_TOML=%CD%\omb\game.toml"
 set "OMFX_GAME_TOML=%CD%\omfx\game.toml"
 set "OMB_STORY=TD_1"
@@ -65,14 +66,10 @@ if not exist "%EXECUTOR%" (
     goto :fail_pause
 )
 
-echo [4/5] Starting backend...
-call :start_backend
-if errorlevel 1 goto :fail
-
-echo [5/5] Running frontend...
+echo [4/5] Running frontend...
+echo   -^> frontend session launcher will start backend: %OMFX_BACKEND_EXE%
 "%EXECUTOR%"
 set "RUN_ERR=%errorlevel%"
-call :stop_backend
 popd
 exit /b %RUN_ERR%
 
