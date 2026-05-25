@@ -16,3 +16,6 @@
 [submodule "mqtt_log_viewer"]
 	path = mqtt_log_viewer
 	url = https://github.com/damody/mqtt_log_viewer.git
+[submodule "omfue"]
+	path = omfue
+	url = git@github.com:damody/omfue.git
