@@ -41,6 +41,8 @@ pub struct Tower {
     pub ultimate_cooldown: Fixed64,
     #[serde(default)]
     pub target_priority: TowerTargetPriority,
+    #[serde(default)]
+    pub pops: u32,
 }
 impl Tower {
     pub fn new() -> Self {
@@ -52,6 +54,7 @@ impl Tower {
             upgrade_flags: vec![],
             ultimate_cooldown: Fixed64::ZERO,
             target_priority: TowerTargetPriority::First,
+            pops: 0,
         }
     }
 }

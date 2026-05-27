@@ -231,6 +231,9 @@ pub struct EntityRenderData {
     pub projectile_owner_entity_id: Option<u32>,
     pub owner_player_id: Option<u32>,
     pub upgrade_levels: Option<[u8; 3]>,
+    pub tower_pops: Option<u32>,
+    pub tower_atk: Option<f32>,
+    pub tower_asd: Option<f32>,
     pub tower_target_priority: String,
     pub hero_command: Option<Box<HeroCommandSnapshot>>,
     pub buffs: Vec<BuffSnapshot>,
@@ -916,6 +919,21 @@ pub fn extract_snapshot(
         } else {
             None
         };
+        let tower_pops: Option<u32> = if matches!(kind, EntityKind::Tower) {
+            tower_storage.get(entity).map(|t| t.pops)
+        } else {
+            None
+        };
+        let tower_atk: Option<f32> = if matches!(kind, EntityKind::Tower) {
+            tatk_storage.get(entity).map(|a| a.atk_physic.v.to_f32_for_render())
+        } else {
+            None
+        };
+        let tower_asd: Option<f32> = if matches!(kind, EntityKind::Tower) {
+            tatk_storage.get(entity).map(|a| a.asd.v.to_f32_for_render())
+        } else {
+            None
+        };
         let tower_target_priority = tower_storage
             .get(entity)
             .map(|t| t.target_priority.as_str().to_string())
@@ -952,6 +970,9 @@ pub fn extract_snapshot(
             projectile_owner_entity_id,
             owner_player_id,
             upgrade_levels,
+            tower_pops,
+            tower_atk,
+            tower_asd,
             tower_target_priority,
             hero_command,
             buffs: entity_buffs,
@@ -1290,6 +1311,21 @@ pub fn extract_data_for_render(
         } else {
             None
         };
+        let tower_pops: Option<u32> = if matches!(kind, EntityKind::Tower) {
+            tower_storage.get(entity).map(|t| t.pops)
+        } else {
+            None
+        };
+        let tower_atk: Option<f32> = if matches!(kind, EntityKind::Tower) {
+            tatk_storage.get(entity).map(|a| a.atk_physic.v.to_f32_for_render())
+        } else {
+            None
+        };
+        let tower_asd: Option<f32> = if matches!(kind, EntityKind::Tower) {
+            tatk_storage.get(entity).map(|a| a.asd.v.to_f32_for_render())
+        } else {
+            None
+        };
         let tower_target_priority = tower_storage
             .get(entity)
             .map(|t| t.target_priority.as_str().to_string())
@@ -1326,6 +1362,9 @@ pub fn extract_data_for_render(
             projectile_owner_entity_id,
             owner_player_id,
             upgrade_levels,
+            tower_pops,
+            tower_atk,
+            tower_asd,
             tower_target_priority,
             hero_command,
             buffs: entity_buffs,

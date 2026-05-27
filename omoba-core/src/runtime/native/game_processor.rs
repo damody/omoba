@@ -2740,6 +2740,11 @@ fn handle_damage(
     }
 
     if died {
+        let mut towers = world.write_storage::<Tower>();
+        if let Some(tower) = towers.get_mut(source) {
+            tower.pops = tower.pops.saturating_add(1);
+        }
+        drop(towers);
         next_outcomes.push(Outcome::Death { pos, ent: target });
     }
     Ok(())
