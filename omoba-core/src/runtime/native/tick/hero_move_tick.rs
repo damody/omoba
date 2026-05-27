@@ -258,3 +258,213 @@ impl<'a> System<'a> for Sys {
 fn angle_to_rad_f32(a: omoba_sim::Angle) -> f32 {
     (a.ticks() as f32 / TAU_TICKS as f32) * std::f32::consts::TAU
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use omoba_core::runtime::ability_runtime::BuffStore;
+    use specs::{Builder, Join, World, WorldExt};
+
+    fn movement_world() -> (World, specs::Entity) {
+        let mut world = World::new();
+        world.register::<Faction>();
+        world.register::<HeroCommandQueue>();
+        world.register::<Hero>();
+        world.register::<CProperty>();
+        world.register::<CollisionRadius>();
+        world.register::<Facing>();
+        world.register::<IsBuilding>();
+        world.register::<MoveTarget>();
+        world.register::<PlayerOwner>();
+        world.register::<Pos>();
+        world.register::<TAttack>();
+        world.register::<TurnSpeed>();
+        world.insert(DeltaTime(Fixed64::from_raw(1024 / 30)));
+        world.insert(Tick(0));
+        world.insert(Time::default());
+        world.insert(CurrentCreepWave::default());
+        world.insert(PendingMoveQueue::default());
+        world.insert(PendingTowerSpawnQueue::default());
+        world.insert(PendingTowerSellQueue::default());
+        world.insert(PendingTowerUpgradeQueue::default());
+        world.insert(PendingAbilityUpgradeQueue::default());
+        world.insert(PendingAbilityCastQueue::default());
+        world.insert(PendingItemUseQueue::default());
+        world.insert(PendingHeroCommandClearQueue::default());
+        world.insert(PendingTowerTargetPriorityQueue::default());
+        world.insert(Searcher::default());
+        world.insert(BlockedRegions::default());
+        world.insert(BuffStore::default());
+        world.insert(crate::comp::SysMetrics::default());
+        world.insert(crate::comp::TickProfile::default());
+
+        let hero = world
+            .create_entity()
+            .with(Hero::default())
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(1))
+            .with(CProperty {
+                hp: Fixed64::from_i32(100),
+                mhp: Fixed64::from_i32(100),
+                msd: Fixed64::from_i32(120),
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .with(CollisionRadius(Fixed64::from_i32(10)))
+            .with(Facing(Angle::ZERO))
+            .with(TurnSpeed(Fixed64::from_raw(1608)))
+            .with(Pos(SimVec2::new(Fixed64::ZERO, Fixed64::ZERO)))
+            .build();
+
+        (world, hero)
+    }
+
+    #[test]
+    fn hero_with_move_target_advances_position() {
+        let (mut world, hero) = movement_world();
+        let _ = world.write_storage::<MoveTarget>().insert(
+            hero,
+            MoveTarget(SimVec2::new(Fixed64::from_i32(100), Fixed64::ZERO)),
+        );
+        let start = world.read_storage::<Pos>().get(hero).unwrap().0;
+
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+
+        let end = world.read_storage::<Pos>().get(hero).unwrap().0;
+        assert!(
+            end.x > start.x,
+            "expected hero x to advance, start={:?} end={:?}",
+            start,
+            end
+        );
+    }
+
+    #[test]
+    fn pending_move_command_advances_hero_after_command_tick() {
+        let (mut world, hero) = movement_world();
+        let start = world.read_storage::<Pos>().get(hero).unwrap().0;
+        {
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            q.requests.push(PendingHeroCommand {
+                owner_pid: 1,
+                queued: false,
+                kind: PendingHeroCommandKind::MoveTo {
+                    pos: SimVec2::new(Fixed64::from_i32(100), Fixed64::ZERO),
+                },
+            });
+        }
+
+        crate::runtime::drain_pending_moves(&mut world);
+        world.maintain();
+        crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&world);
+        world.maintain();
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+
+        let end = world.read_storage::<Pos>().get(hero).unwrap().0;
+        assert!(
+            end.x > start.x,
+            "expected pending MoveTo to advance hero, start={:?} end={:?}",
+            start,
+            end
+        );
+    }
+
+    #[test]
+    fn lockstep_move_input_advances_on_following_tick() {
+        let (mut world, hero) = movement_world();
+        world.insert(PendingPlayerInputs {
+            tick: 1,
+            inputs: vec![(
+                1,
+                crate::runtime::PlayerInput {
+                    action: Some(crate::runtime::PlayerInputEnum::MoveTo(
+                        crate::runtime::MoveTo {
+                            target: Some(crate::runtime::Vec2I {
+                                x: 100 * 1024,
+                                y: 0,
+                            }),
+                            queued: false,
+                        },
+                    )),
+                },
+            )],
+        });
+        let start = world.read_storage::<Pos>().get(hero).unwrap().0;
+
+        world.write_resource::<Tick>().0 = 1;
+        crate::comp::run_now::<crate::tick::player_input_tick::Sys>(&world);
+        world.maintain();
+        crate::runtime::drain_pending_moves(&mut world);
+        world.maintain();
+
+        world.write_resource::<PendingPlayerInputs>().inputs.clear();
+        world.write_resource::<Tick>().0 = 2;
+        crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&world);
+        world.maintain();
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+
+        let end = world.read_storage::<Pos>().get(hero).unwrap().0;
+        assert!(
+            end.x > start.x,
+            "expected lockstep MoveTo to advance next tick, start={:?} end={:?}",
+            start,
+            end
+        );
+    }
+
+    #[test]
+    fn td1_initialized_hero_moves_after_pending_move() {
+        let scene = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("repo root")
+            .join("scripts/lua_data/TD_1");
+        if !scene.exists() {
+            eprintln!("skipping TD_1 movement test: {} missing", scene.display());
+            return;
+        }
+
+        let mut world = crate::runtime::create_world_for_scene(&scene)
+            .expect("TD_1 world should initialize");
+        let hero = {
+            let entities = world.entities();
+            let heroes = world.read_storage::<Hero>();
+            let owners = world.read_storage::<PlayerOwner>();
+            (&entities, &heroes, &owners)
+                .join()
+                .find_map(|(entity, _hero, owner)| (owner.player_id == 1).then_some(entity))
+                .expect("player 1 hero")
+        };
+        let start = world.read_storage::<Pos>().get(hero).unwrap().0;
+        {
+            let mut q = world.write_resource::<PendingMoveQueue>();
+            q.requests.push(PendingHeroCommand {
+                owner_pid: 1,
+                queued: false,
+                kind: PendingHeroCommandKind::MoveTo {
+                    pos: start + SimVec2::new(Fixed64::from_i32(120), Fixed64::ZERO),
+                },
+            });
+        }
+
+        crate::runtime::drain_pending_moves(&mut world);
+        world.maintain();
+        let mut dispatcher = crate::runtime::build_phase3_dispatcher().expect("dispatcher");
+        for tick in 1..=20u64 {
+            world.write_resource::<Tick>().0 = tick;
+            world.write_resource::<DeltaTime>().0 = Fixed64::from_raw(1024 / 30);
+            dispatcher.dispatch(&world);
+            world.maintain();
+        }
+
+        let end = world.read_storage::<Pos>().get(hero).unwrap().0;
+        assert!(
+            (end - start).length() > Fixed64::from_i32(50),
+            "expected TD_1 hero to move at gameplay speed, start={:?} end={:?}",
+            start,
+            end
+        );
+    }
+}

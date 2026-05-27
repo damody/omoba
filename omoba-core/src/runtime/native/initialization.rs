@@ -611,24 +611,24 @@ impl StateInitializer {
             let base_damage = Fixed64::from_i32(50)
                 + Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level;
 
-            let hero_properties = CProperty {
-                hp: base_hp,
-                mhp: base_hp,
-                msd: dota_units_to_map_units(Fixed64::from_i32(350)), // 基礎移動速度
-                def_physic: Fixed64::from_i32(hero.strength) * Fixed64::from_raw(205), // ≈ 0.2 = 205/1024
-                def_magic: Fixed64::from_i32(hero.intelligence) * Fixed64::from_raw(154), // ≈ 0.15 = 154/1024
-            };
-
             // 從 templates.lua generated stats 取 hero stats（attack_range / turn_speed / 等）。
             // generated story hero 條目已 slim 成只剩 id，無 attack_range / turn_speed / collision_radius。
             let hero_template_stats = omoba_template_ids::hero_by_name(&hero_data.id)
                 .and_then(|hid| omoba_template_ids::active_hero_stats(hid))
                 .unwrap_or_else(|| panic!("hero '{}' not in generated templates", hero_data.id));
 
+            let hero_properties = CProperty {
+                hp: base_hp,
+                mhp: base_hp,
+                msd: hero_template_stats.move_speed,
+                def_physic: Fixed64::from_i32(hero.strength) * Fixed64::from_raw(205), // ≈ 0.2 = 205/1024
+                def_magic: Fixed64::from_i32(hero.intelligence) * Fixed64::from_raw(154), // ≈ 0.15 = 154/1024
+            };
+
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
                 asd: Vf32::new(Fixed64::from_raw(602)), // 1/1.7 ≈ 0.588 (= 602/1024)
-                range: Vf32::new(dota_units_to_map_units(hero_template_stats.attack_range)),
+                range: Vf32::new(hero_template_stats.attack_range),
                 asd_count: Fixed64::ZERO,
                 bullet_speed: Fixed64::from_i32(1000),
                 attack_seq: 0,
@@ -637,7 +637,7 @@ impl StateInitializer {
 
             // 創建英雄圓形視野組件
             let hero_vision = CircularVision::new(
-                dota_units_f32_to_map_units(1200.0), // 英雄視野範圍
+                1200.0, // 英雄視野範圍
                 180.0,  // 英雄高度
             )
             .with_precision(720); // 高精度視野
@@ -647,7 +647,7 @@ impl StateInitializer {
                 hero_template_stats.turn_speed.to_f32_for_render() * std::f32::consts::PI / 180.0;
             // Hero collision_radius 暫定 30（之前由 story source optional override，
             // 簡化後固定）。
-            let hero_radius = dota_units_f32_to_map_units(30.0);
+            let hero_radius = 30.0;
             // Hero 統一掛 ScriptUnitTag（預設全單位腳本化）；unit_id = "hero_{HeroJD.id}"
             // 若 registry 無對應腳本，dispatch 會 silent skip，host hero_tick 仍跑預設 auto-attack
             let unit_id = format!("hero_{}", hero_data.id);
