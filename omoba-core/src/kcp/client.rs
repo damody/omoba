@@ -10,6 +10,69 @@ use tokio::sync::Mutex;
 
 use tokio_kcp::{KcpConfig, KcpNoDelayConfig, KcpStream};
 
+// On Windows, disable SIO_UDP_CONNRESET so that ICMP "port unreachable" responses
+// (which arrive when the backend hasn't started yet or briefly restarted) don't
+// permanently poison the UDP socket with repeated recv() error 10054.
+#[cfg(windows)]
+mod win_udp {
+    use std::ffi::c_void;
+    pub type SOCKET = usize;
+    pub type BOOL = i32;
+    pub type DWORD = u32;
+    pub const SIO_UDP_CONNRESET: DWORD = 0x9800_000C;
+    pub const FALSE: BOOL = 0;
+    #[link(name = "ws2_32")]
+    extern "system" {
+        pub fn WSAIoctl(
+            s: SOCKET,
+            dw_ioctl_code: DWORD,
+            lp_vb_in_buffer: *const c_void,
+            cb_in_buffer: DWORD,
+            lp_vb_out_buffer: *mut c_void,
+            cb_out_buffer: DWORD,
+            lpcb_bytes_returned: *mut DWORD,
+            lp_overlapped: *mut c_void,
+            lp_completion_routine: *mut c_void,
+        ) -> i32;
+    }
+}
+
+#[cfg(windows)]
+fn udp_socket_no_connreset(
+    addr: &std::net::SocketAddr,
+) -> std::io::Result<tokio::net::UdpSocket> {
+    use std::os::windows::io::AsRawSocket;
+    use win_udp::*;
+
+    let bind_addr: std::net::SocketAddr = if addr.is_ipv4() {
+        "0.0.0.0:0".parse().unwrap()
+    } else {
+        "[::]:0".parse().unwrap()
+    };
+    let std_sock = std::net::UdpSocket::bind(bind_addr)?;
+
+    let mut bytes_returned: DWORD = 0;
+    let ret = unsafe {
+        WSAIoctl(
+            std_sock.as_raw_socket() as SOCKET,
+            SIO_UDP_CONNRESET,
+            &FALSE as *const BOOL as *const std::ffi::c_void,
+            std::mem::size_of::<BOOL>() as DWORD,
+            std::ptr::null_mut(),
+            0,
+            &mut bytes_returned,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    if ret != 0 {
+        log::warn!("SIO_UDP_CONNRESET ioctl failed (will use default socket behavior)");
+    }
+
+    std_sock.set_nonblocking(true)?;
+    tokio::net::UdpSocket::from_std(std_sock)
+}
+
 use super::framing::*;
 use super::game_proto::*;
 use crate::lockstep_timing::LOCKSTEP_TPS;
@@ -172,6 +235,14 @@ impl KcpClient {
         config.nodelay = KcpNoDelayConfig::fastest();
 
         let sock_addr: std::net::SocketAddr = addr.parse()?;
+
+        #[cfg(windows)]
+        let stream = {
+            let udp = udp_socket_no_connreset(&sock_addr)
+                .map_err(|e| anyhow::anyhow!("failed to create UDP socket: {}", e))?;
+            KcpStream::connect_with_socket(&config, udp, sock_addr).await?
+        };
+        #[cfg(not(windows))]
         let stream = KcpStream::connect(&config, sock_addr).await?;
         info!("Connected to KCP server at {}", addr);
 

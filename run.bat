@@ -66,10 +66,14 @@ if not exist "%EXECUTOR%" (
     goto :fail_pause
 )
 
-echo [4/5] Running frontend...
-echo   -^> frontend session launcher will start backend: %OMFX_BACKEND_EXE%
+echo [4/5] Starting backend...
+call :start_backend
+if errorlevel 1 goto :fail_pause
+
+echo [5/5] Running frontend...
 "%EXECUTOR%"
 set "RUN_ERR=%errorlevel%"
+call :stop_backend
 popd
 exit /b %RUN_ERR%
 
