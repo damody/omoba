@@ -44,6 +44,6 @@
 ## 6. 提交與整合
 
 - [x] 6.1 在 `omfx` submodule commit pregame UI restore，commit message 說明保留 current session/runtime fixes。
-- [ ] 6.2 在 root repo 更新 `omfx` submodule pointer。
+- [x] 6.2 在 root repo 更新 `omfx` submodule pointer。
 - [x] 6.3 若有修改 `.bat`，確認 CRLF 行尾。
 - [x] 6.4 更新 OpenSpec task checkbox 與最終驗證紀錄。

@@ -36,4 +36,5 @@
 - `omfx/game` search found no `omobab =`, `omobab::`, `Command::new("cargo")`, or `cargo build` backend startup path.
 - No `.bat` files were modified.
 - `omfx` implementation committed as `64b0701` (`前端: 還原 pregame UI 與場次流程`).
+- Root repository updates the `omfx` submodule pointer to `64b0701`.
 - Manual native-window smoke tasks remain pending because they require launching and inspecting the Fyrox app interactively.
