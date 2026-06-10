@@ -17,7 +17,7 @@ use crate::comp::ecs::{Job, System};
 use crate::comp::PendingPlayerInputs;
 #[cfg(feature = "kcp")]
 use crate::comp::{
-    CurrentCreepWave, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
+    CurrentCreepWave, GamePause, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
     PendingHeroCommandClearQueue, PendingHeroCommandKind, PendingItemUseQueue, PendingMoveQueue,
     PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue,
     PendingTowerUpgradeQueue, Time, TowerTargetPriority,
@@ -31,6 +31,7 @@ impl<'a> System<'a> for Sys {
     type SystemData = (
         Write<'a, PendingPlayerInputs>,
         Write<'a, CurrentCreepWave>,
+        Write<'a, GamePause>,
         Read<'a, Time>,
         Write<'a, PendingTowerSpawnQueue>,
         Write<'a, PendingTowerSellQueue>,
@@ -50,6 +51,7 @@ impl<'a> System<'a> for Sys {
         (
             mut pending,
             mut cw,
+            mut pause,
             time,
             mut tower_q,
             mut sell_q,
@@ -79,6 +81,7 @@ impl<'a> System<'a> for Sys {
                 target_tick,
                 input,
                 &mut cw,
+                &mut pause,
                 totaltime,
                 &mut tower_q,
                 &mut sell_q,
@@ -110,6 +113,7 @@ fn route_input(
     tick: u32,
     input: omoba_core::runtime::PlayerInput,
     cw: &mut CurrentCreepWave,
+    pause: &mut GamePause,
     totaltime: f32,
     tower_q: &mut PendingTowerSpawnQueue,
     sell_q: &mut PendingTowerSellQueue,
@@ -146,6 +150,15 @@ fn route_input(
                     tick,
                 );
             }
+        }
+        Some(PlayerInputEnum::TogglePause(_)) => {
+            pause.is_paused = !pause.is_paused;
+            log::info!(
+                "player_input_tick: pid={} tick={} TogglePause → {}",
+                player_id,
+                tick,
+                if pause.is_paused { "paused" } else { "resumed" }
+            );
         }
         Some(PlayerInputEnum::NoOp(_)) => {
             // 僅確認 - 保持活動心跳，沒有副作用。
@@ -394,12 +407,70 @@ mod tests {
     use super::*;
     use omoba_core::runtime::{
         AttackMove, AttackTarget, PlayerInput, PlayerInputEnum, SetTowerTargetPriority,
-        TargetPriority, Vec2I,
+        TargetPriority, TogglePause, Vec2I,
     };
+
+    #[test]
+    fn routes_toggle_pause_to_authoritative_pause_state() {
+        let mut cw = CurrentCreepWave::default();
+        let mut pause = GamePause::default();
+        let mut tower_q = PendingTowerSpawnQueue::default();
+        let mut sell_q = PendingTowerSellQueue::default();
+        let mut upgrade_q = PendingTowerUpgradeQueue::default();
+        let mut ability_q = PendingAbilityUpgradeQueue::default();
+        let mut cast_q = PendingAbilityCastQueue::default();
+        let mut item_q = PendingItemUseQueue::default();
+        let mut move_q = PendingMoveQueue::default();
+        let mut clear_q = PendingHeroCommandClearQueue::default();
+        let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+
+        route_input(
+            7,
+            42,
+            PlayerInput {
+                action: Some(PlayerInputEnum::TogglePause(TogglePause {})),
+            },
+            &mut cw,
+            &mut pause,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+        );
+        assert!(pause.is_paused);
+
+        route_input(
+            7,
+            43,
+            PlayerInput {
+                action: Some(PlayerInputEnum::TogglePause(TogglePause {})),
+            },
+            &mut cw,
+            &mut pause,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+        );
+        assert!(!pause.is_paused);
+    }
 
     #[test]
     fn routes_new_rts_inputs_to_pending_queues() {
         let mut cw = CurrentCreepWave::default();
+        let mut pause = GamePause::default();
         let mut tower_q = PendingTowerSpawnQueue::default();
         let mut sell_q = PendingTowerSellQueue::default();
         let mut upgrade_q = PendingTowerUpgradeQueue::default();
@@ -420,6 +491,7 @@ mod tests {
                 })),
             },
             &mut cw,
+            &mut pause,
             0.0,
             &mut tower_q,
             &mut sell_q,
@@ -441,6 +513,7 @@ mod tests {
                 })),
             },
             &mut cw,
+            &mut pause,
             0.0,
             &mut tower_q,
             &mut sell_q,
@@ -464,6 +537,7 @@ mod tests {
                 )),
             },
             &mut cw,
+            &mut pause,
             0.0,
             &mut tower_q,
             &mut sell_q,

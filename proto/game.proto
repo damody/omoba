@@ -460,6 +460,10 @@ message ItemUse {
 // Server 會切換 `CurrentCreepWave.is_running = true` 並寫入 wave_start_time。
 message StartRound {}
 
+// Client requests toggling the authoritative simulation pause state.
+// The input remains lockstep-driven so all replicas pause/resume on the same tick.
+message TogglePause {}
+
 message PlayerInput {
   oneof action {
     NoOp no_op = 1;
@@ -474,6 +478,7 @@ message PlayerInput {
     UpgradeAbility upgrade_ability = 10;
     AttackMove attack_move = 11;
     SetTowerTargetPriority set_tower_target_priority = 12;
+    TogglePause toggle_pause = 13;
   }
 }
 

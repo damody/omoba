@@ -16,10 +16,6 @@ pub struct StateInitializer;
 
 const DOTA_UNITS_PER_MAP_UNIT: i64 = 100;
 
-fn dota_units_to_map_units(value: Fixed64) -> Fixed64 {
-    Fixed64::from_raw(value.raw() / DOTA_UNITS_PER_MAP_UNIT)
-}
-
 fn dota_units_f32_to_map_units(value: f32) -> f32 {
     value / DOTA_UNITS_PER_MAP_UNIT as f32
 }
@@ -255,7 +251,7 @@ impl StateInitializer {
                     property: CProperty {
                         hp: stats.hp,
                         mhp: stats.hp,
-                        msd: dota_units_to_map_units(stats.move_speed),
+                        msd: stats.move_speed,
                         def_physic: stats.armor,
                         def_magic: stats.magic_resistance,
                     },
@@ -420,6 +416,7 @@ impl StateInitializer {
         ecs.insert(TimeOfDay(0.0));
         ecs.insert(Time(0.0));
         ecs.insert(DeltaTime(omoba_sim::Fixed64::ZERO));
+        ecs.insert(crate::comp::GamePause::default());
         // 階段 1c.3：確定性 SimRng 流的主種子。第二階段將
         // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());

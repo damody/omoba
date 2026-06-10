@@ -282,6 +282,7 @@ mod tests {
         world.insert(DeltaTime(Fixed64::from_raw(1024 / 30)));
         world.insert(Tick(0));
         world.insert(Time::default());
+        world.insert(GamePause::default());
         world.insert(CurrentCreepWave::default());
         world.insert(PendingMoveQueue::default());
         world.insert(PendingTowerSpawnQueue::default());
@@ -426,8 +427,8 @@ mod tests {
             return;
         }
 
-        let mut world = crate::runtime::create_world_for_scene(&scene)
-            .expect("TD_1 world should initialize");
+        let mut world =
+            crate::runtime::create_world_for_scene(&scene).expect("TD_1 world should initialize");
         let hero = {
             let entities = world.entities();
             let heroes = world.read_storage::<Hero>();

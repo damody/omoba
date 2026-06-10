@@ -11,6 +11,12 @@ pub struct Time(pub f64);
 #[derive(Copy, Clone, Debug, Default)]
 pub struct DeltaTime(pub Fixed64);
 
+/// Authoritative lockstep pause state for gameplay simulation.
+#[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GamePause {
+    pub is_paused: bool,
+}
+
 // 刻度開始，用於指標
 #[derive(Copy, Clone)]
 pub struct TickStart(pub Instant);

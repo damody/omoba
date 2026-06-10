@@ -9,10 +9,10 @@ use crate::lockstep_timing::LOCKSTEP_ONE_SECOND_TICKS_U32;
 use super::ability_runtime::{AbilityRegistry, BuffStore, UnitStats};
 use super::comp::hero::AttributeType;
 use super::comp::{
-    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, Gold, Hero, HeroCommand,
-    HeroCommandQueue, Inventory, IsBuilding, MoveTarget, Path as CreepPath, PlayerLives,
-    PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, TAttack, Tower, TowerTemplateRegistry,
-    TowerUpgradeRegistry,
+    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, GamePause, Gold, Hero,
+    HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MoveTarget, Path as CreepPath,
+    PlayerLives, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, TAttack, Tower,
+    TowerTemplateRegistry, TowerUpgradeRegistry,
 };
 use super::scripting::{ScriptUnitTag, ScriptVisualEventKind, ScriptVisualEventQueue};
 
@@ -42,6 +42,7 @@ pub struct SimWorldSnapshot {
     pub total_rounds: u32,
     pub lives: i32,
     pub round_is_running: bool,
+    pub is_paused: bool,
     pub blocked_regions: Vec<BlockedRegionSnapshot>,
     pub abilities: Arc<Vec<AbilityDefSnapshot>>,
     pub tower_templates: Arc<Vec<TowerTemplateSnapshot>>,
@@ -925,12 +926,16 @@ pub fn extract_snapshot(
             None
         };
         let tower_atk: Option<f32> = if matches!(kind, EntityKind::Tower) {
-            tatk_storage.get(entity).map(|a| a.atk_physic.v.to_f32_for_render())
+            tatk_storage
+                .get(entity)
+                .map(|a| a.atk_physic.v.to_f32_for_render())
         } else {
             None
         };
         let tower_asd: Option<f32> = if matches!(kind, EntityKind::Tower) {
-            tatk_storage.get(entity).map(|a| a.asd.v.to_f32_for_render())
+            tatk_storage
+                .get(entity)
+                .map(|a| a.asd.v.to_f32_for_render())
         } else {
             None
         };
@@ -1022,6 +1027,7 @@ pub fn extract_snapshot(
         total_rounds = waves.len() as u32;
     }
     let lives = world.read_resource::<PlayerLives>().0;
+    let is_paused = world.read_resource::<GamePause>().is_paused;
 
     let explosions: Vec<ExplosionFx> = {
         let mut q = world.write_resource::<super::comp::ExplosionFxQueue>();
@@ -1050,6 +1056,7 @@ pub fn extract_snapshot(
         total_rounds,
         lives,
         round_is_running,
+        is_paused,
         blocked_regions,
         abilities: abilities_arc,
         tower_templates: tower_templates_arc,
@@ -1317,12 +1324,16 @@ pub fn extract_data_for_render(
             None
         };
         let tower_atk: Option<f32> = if matches!(kind, EntityKind::Tower) {
-            tatk_storage.get(entity).map(|a| a.atk_physic.v.to_f32_for_render())
+            tatk_storage
+                .get(entity)
+                .map(|a| a.atk_physic.v.to_f32_for_render())
         } else {
             None
         };
         let tower_asd: Option<f32> = if matches!(kind, EntityKind::Tower) {
-            tatk_storage.get(entity).map(|a| a.asd.v.to_f32_for_render())
+            tatk_storage
+                .get(entity)
+                .map(|a| a.asd.v.to_f32_for_render())
         } else {
             None
         };
@@ -1397,6 +1408,7 @@ pub fn extract_data_for_render(
         total_rounds = waves.len() as u32;
     }
     let lives = world.read_resource::<PlayerLives>().0;
+    let is_paused = world.read_resource::<GamePause>().is_paused;
 
     let explosions: Vec<ExplosionFx> = {
         let mut q = world.write_resource::<super::comp::ExplosionFxQueue>();
@@ -1437,6 +1449,7 @@ pub fn extract_data_for_render(
         total_rounds,
         lives,
         round_is_running,
+        is_paused,
         blocked_regions: Vec::new(),
         abilities: Arc::new(Vec::new()),
         tower_templates: Arc::new(Vec::new()),

@@ -623,6 +623,10 @@ pub struct ItemUse {
 /// Server flips `CurrentCreepWave.is_running = true` and stamps wave_start_time.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StartRound {}
+/// Client requests toggling the authoritative simulation pause state.
+/// The input remains lockstep-driven so all replicas pause/resume on the same tick.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TogglePause {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum TargetPriority {
@@ -660,7 +664,7 @@ impl TargetPriority {
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -692,6 +696,8 @@ pub mod player_input {
         AttackMove(super::AttackMove),
         #[prost(message, tag = "12")]
         SetTowerTargetPriority(super::SetTowerTargetPriority),
+        #[prost(message, tag = "13")]
+        TogglePause(super::TogglePause),
     }
 }
 /// Tag 0x10 (C→S): client submits an input targeted at a future tick.

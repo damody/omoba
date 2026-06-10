@@ -3,7 +3,7 @@
 pub use crate::game_proto::{
     AngleI, AttackMove, AttackTarget, CastAbility, FixedI, InputForPlayer, InputSubmit, ItemUse,
     MoveTo, NoOp, PlayerInput, SetTowerTargetPriority, StartRound, TargetPriority, TickBatch,
-    TowerPlace, TowerSell, TowerUpgradeInput, UpgradeAbility, Vec2I,
+    TogglePause, TowerPlace, TowerSell, TowerUpgradeInput, UpgradeAbility, Vec2I,
 };
 
 pub use crate::game_proto::player_input::Action as PlayerInputEnum;

@@ -2,7 +2,7 @@
 
 use failure::Error;
 use rayon::ThreadPool;
-use specs::{Dispatcher, DispatcherBuilder, World};
+use specs::{Dispatcher, DispatcherBuilder, World, WorldExt};
 /// 系統分派器 - 負責協調和運行所有遊戲系統
 use std::sync::Arc;
 
@@ -30,6 +30,10 @@ impl SystemDispatcher {
 
     /// 運行所有遊戲系統
     pub fn run_systems(&mut self, world: &World) -> Result<(), Error> {
+        crate::comp::run_now::<player_input_tick::Sys>(world);
+        if world.read_resource::<GamePause>().is_paused {
+            return Ok(());
+        }
         if self.dispatcher.is_none() {
             let mut builder = DispatcherBuilder::new().with_pool(Arc::clone(&self.thread_pool));
             self.build_system_dependencies(&mut builder);
@@ -79,11 +83,6 @@ impl SystemDispatcher {
 
     // 私有方法：構建系統依賴關係
     fn build_system_dependencies(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
-        // 階段 3.4：先耗盡 PendingPlayerInputs，以便任何每刻輸入
-        // 路由發生在調度程序的其餘部分讀取遊戲之前
-        // 狀態。對後續系統沒有資料依賴性→並行安全。
-        dispatch::<player_input_tick::Sys>(dispatch_builder, &[]);
-
         // 第一階段：不需要 Vec<Outcome> 的系統，可以並行執行
         dispatch::<nearby_tick::Sys>(dispatch_builder, &[]);
         dispatch::<player_tick::Sys>(dispatch_builder, &[]);
