@@ -2,31 +2,31 @@
   "screens": [
     {
       "id": "main_menu",
-      "title": "Open MOBA TD",
-      "subtitle": "Defend the lane, build the route, start when ready.",
+      "title": "Omoba 塔防",
+      "subtitle": "準備守住路線，選擇難度與地圖後開始。",
       "background_image": "lobby_background.png",
       "widgets": [
         {
           "id": "start",
-          "label": "Start",
-          "description": "Choose a map",
+          "label": "開始",
+          "description": "選擇難度",
           "image": "button_start.png",
           "enabled": true,
           "locked": false,
-          "action": { "kind": "Navigate", "target": "map_select" }
+          "action": { "kind": "Navigate", "target": "difficulty_select" }
         },
         {
           "id": "heroes",
-          "label": "Heroes",
-          "description": "Coming soon",
+          "label": "英雄",
+          "description": "即將開放",
           "enabled": false,
           "locked": true,
           "action": { "kind": "NoOp" }
         },
         {
           "id": "settings",
-          "label": "Settings",
-          "description": "Coming soon",
+          "label": "設定",
+          "description": "即將開放",
           "enabled": false,
           "locked": true,
           "action": { "kind": "NoOp" }
@@ -35,12 +35,12 @@
     },
     {
       "id": "map_select",
-      "title": "Select Map",
-      "subtitle": "Pick a script-owned story/runtime.",
+      "title": "選擇地圖",
+      "subtitle": "選擇要挑戰的路線。",
       "widgets": [
         {
           "id": "back",
-          "label": "Back",
+          "label": "返回",
           "enabled": true,
           "locked": false,
           "action": { "kind": "Back" }
@@ -49,12 +49,12 @@
     },
     {
       "id": "difficulty_select",
-      "title": "Select Difficulty",
-      "subtitle": "Difficulty metadata is passed to the backend session.",
+      "title": "選擇難度",
+      "subtitle": "先選難度，再挑戰地圖。",
       "widgets": [
         {
           "id": "back",
-          "label": "Back",
+          "label": "返回",
           "enabled": true,
           "locked": false,
           "action": { "kind": "Back" }
@@ -65,63 +65,63 @@
   "maps": [
     {
       "id": "td_1",
-      "label": "Green Crossing",
-      "description": "A compact lane for the default TD flow.",
+      "label": "綠野路口",
+      "description": "預設塔防流程的小型路線。",
       "story": "TD_1",
       "runtime": "TD_1",
       "image": "map_td_1.png",
       "enabled": true,
       "locked": false,
-      "reward": "100 gold"
+      "reward": "100 金幣"
     },
     {
       "id": "mvp_1",
-      "label": "Training Grounds",
-      "description": "Legacy generated scenario for renderer checks.",
+      "label": "訓練場",
+      "description": "用於渲染檢查的舊版生成場景。",
       "story": "MVP_1",
       "runtime": "MVP_1",
       "image": "map_mvp_1.png",
       "enabled": true,
       "locked": false,
-      "reward": "Practice"
+      "reward": "練習"
     },
     {
       "id": "td_stress",
-      "label": "Stress Field",
-      "description": "Reserved for performance testing.",
+      "label": "壓測場",
+      "description": "保留給效能測試使用。",
       "story": "TD_STRESS",
       "runtime": "TD_STRESS",
       "image": "map_td_stress.png",
       "enabled": false,
       "locked": true,
-      "reward": "Developer only"
+      "reward": "開發者限定"
     }
   ],
   "difficulties": [
     {
       "id": "easy",
-      "label": "Easy",
-      "description": "Relaxed waves and forgiving economy.",
+      "label": "簡單",
+      "description": "放鬆波次與寬裕經濟。",
       "config": "easy",
-      "reward": "1x reward",
+      "reward": "1x 獎勵",
       "image": "difficulty_easy.png",
       "enabled": true
     },
     {
       "id": "medium",
-      "label": "Medium",
-      "description": "Default balance.",
+      "label": "中級",
+      "description": "標準平衡挑戰。",
       "config": "medium",
-      "reward": "1.25x reward",
+      "reward": "1.25x 獎勵",
       "image": "difficulty_medium.png",
       "enabled": true
     },
     {
       "id": "hard",
-      "label": "Hard",
-      "description": "Less room for mistakes.",
+      "label": "困難",
+      "description": "經濟更緊，失誤空間更少。",
       "config": "hard",
-      "reward": "1.5x reward",
+      "reward": "1.5x 獎勵",
       "image": "difficulty_hard.png",
       "enabled": true
     }
