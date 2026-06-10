@@ -9,10 +9,11 @@ for %%P in ("%PROJECT%") do set "UE_PROJECT_NAME=%%~nP"
 set "UE_MAP=/Game/Map/Main"
 set "RUN_MODE=game"
 set "SMOKE_SECONDS=90"
-set "SKIP_BUILD="
+set "SKIP_BUILD=1"
 set "UE_RHI_ARG=-d3d11"
 set "RUN_BACKEND=0"
 set "UE_RUNTIME_ARG=-om-single-player"
+if not defined CARGO_INCREMENTAL set "CARGO_INCREMENTAL=1"
 
 if defined UE_5_7_ROOT (
   set "UE_ROOT_RESOLVED=%UE_5_7_ROOT%"
@@ -20,9 +21,18 @@ if defined UE_5_7_ROOT (
 ) else if defined UE_ROOT (
   set "UE_ROOT_RESOLVED=%UE_ROOT%"
   set "UE_ROOT_SOURCE=UE_ROOT"
-) else (
+) else if exist "D:\UE_5.7\Engine\Binaries\Win64\UnrealEditor.exe" (
+  set "UE_ROOT_RESOLVED=D:\UE_5.7"
+  set "UE_ROOT_SOURCE=default D:\UE_5.7"
+) else if exist "D:\UE5.7\Engine\Binaries\Win64\UnrealEditor.exe" (
   set "UE_ROOT_RESOLVED=D:\UE5.7"
-  set "UE_ROOT_SOURCE=default"
+  set "UE_ROOT_SOURCE=default D:\UE5.7"
+) else if exist "C:\Program Files\Epic Games\UE_5.7\Engine\Binaries\Win64\UnrealEditor.exe" (
+  set "UE_ROOT_RESOLVED=C:\Program Files\Epic Games\UE_5.7"
+  set "UE_ROOT_SOURCE=default Epic Games UE_5.7"
+) else (
+  set "UE_ROOT_RESOLVED=D:\UE_5.7"
+  set "UE_ROOT_SOURCE=default missing"
 )
 
 :parse_args
@@ -39,6 +49,12 @@ if /I "%~1"=="--headless-smoke" (
 )
 if /I "%~1"=="--build-only" (
   set "RUN_MODE=build-only"
+  set "SKIP_BUILD="
+  shift
+  goto :parse_args
+)
+if /I "%~1"=="--build" (
+  set "SKIP_BUILD="
   shift
   goto :parse_args
 )
@@ -146,22 +162,11 @@ if not exist "%UE_UAT%" (
   echo [run_ue] RunUAT.bat not found under %UE_ROOT_RESOLVED%
   goto :fail
 )
-where cargo >nul 2>&1
-if errorlevel 1 (
-  echo [run_ue] cargo was not found in PATH.
-  goto :fail
-)
-where cbindgen >nul 2>&1
-if errorlevel 1 (
-  echo [run_ue] cbindgen was not found in PATH.
-  goto :fail
-)
-
 if not defined SKIP_BUILD (
   call :build_all
   if errorlevel 1 goto :fail
 ) else (
-  echo [run_ue] skipping build because --no-build was specified.
+  echo [run_ue] skipping build. Use --build or --build-only to rebuild.
 )
 
 if /I "%RUN_MODE%"=="build-only" (
@@ -185,7 +190,20 @@ exit /b %RUN_ERR%
 :build_all
 pushd "%ROOT%" >nul
 
-echo [run_ue] [1/5] building script DLL with runtime Lua content...
+where cargo >nul 2>&1
+if errorlevel 1 (
+  echo [run_ue] cargo was not found in PATH.
+  popd >nul
+  exit /b 1
+)
+where cbindgen >nul 2>&1
+if errorlevel 1 (
+  echo [run_ue] cbindgen was not found in PATH.
+  popd >nul
+  exit /b 1
+)
+
+echo [run_ue] [1/5] incrementally building script DLL with runtime Lua content...
 cargo build --manifest-path "%ROOT%\scripts\Cargo.toml" -p base_content --features runtime-lua-content
 if errorlevel 1 (
   popd >nul
@@ -210,7 +228,7 @@ if errorlevel 1 (
 )
 
 if "%RUN_BACKEND%"=="1" (
-  echo [run_ue] [2/5] building Rust backend with runtime Lua content...
+  echo [run_ue] [2/5] incrementally building Rust backend with runtime Lua content...
   cargo build --manifest-path "%ROOT%\omb\Cargo.toml" -p omobab --features runtime-lua-content
   if errorlevel 1 (
     popd >nul
@@ -220,7 +238,7 @@ if "%RUN_BACKEND%"=="1" (
   echo [run_ue] [2/5] skipping Rust backend build for single-player runtime.
 )
 
-echo [run_ue] [3/5] generating and staging UE bridge...
+echo [run_ue] [3/5] incrementally generating and staging UE bridge...
 call "%OMFUE%\build_bridge.bat"
 if errorlevel 1 (
   popd >nul
@@ -261,7 +279,7 @@ popd >nul
 exit /b 0
 
 :build_ue_editor
-echo [run_ue] [5/5] building UE editor target...
+echo [run_ue] [5/5] incrementally building UE editor target...
 call "%UE_BUILD%" OmGameEditor Win64 Development -Project="%PROJECT%" -WaitMutex -NoHotReloadFromIDE
 if errorlevel 1 (
   popd >nul
@@ -335,7 +353,7 @@ if /I "%RUN_MODE%"=="game-smoke" (
   if not exist "%OMFUE%\Saved\Logs" mkdir "%OMFUE%\Saved\Logs"
   call :resolve_staged_exe
   if errorlevel 1 (
-    echo [run_ue] missing staged UE game executable. Run without --no-build once to cook and stage it.
+    echo [run_ue] missing staged UE game executable. Run with --build once to cook and stage it.
     exit /b 1
   )
   call :stage_runtime_script_dll
@@ -353,7 +371,7 @@ if /I "%RUN_MODE%"=="game-smoke" (
 
 call :resolve_staged_exe
 if errorlevel 1 (
-  echo [run_ue] missing staged UE game executable. Run without --no-build once to cook and stage it.
+  echo [run_ue] missing staged UE game executable. Run with --build once to cook and stage it.
   exit /b 1
 )
 call :stage_runtime_script_dll
