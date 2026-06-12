@@ -78,6 +78,11 @@ fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tower_meta::upgrade_cost;
+    use omoba_template_ids::{
+        TOWER_BOMB_STATS, TOWER_DART_STATS, TOWER_ICE_STATS, TOWER_TACK_STATS,
+    };
+    use std::collections::BTreeSet;
 
     #[test]
     fn dart_has_12_upgrades() {
@@ -151,5 +156,126 @@ mod tests {
     fn no_duplicate_keys() {
         let reg = TowerUpgradeRegistry::new();
         assert_eq!(reg.defs.len(), 48);
+    }
+
+    #[test]
+    fn all_upgrade_metadata_passes_strict_lint() {
+        let reg = TowerUpgradeRegistry::new();
+        validate_all_upgrade_metadata(&reg);
+    }
+
+    fn validate_all_upgrade_metadata(reg: &TowerUpgradeRegistry) {
+        validate_registry_shape(reg);
+        validate_text_and_costs(reg);
+    }
+
+    fn expected_towers() -> [(&'static str, i32); 4] {
+        [
+            (TOWER_DART.as_str(), TOWER_DART_STATS.cost),
+            (TOWER_TACK.as_str(), TOWER_TACK_STATS.cost),
+            (TOWER_BOMB.as_str(), TOWER_BOMB_STATS.cost),
+            (TOWER_ICE.as_str(), TOWER_ICE_STATS.cost),
+        ]
+    }
+
+    fn validate_registry_shape(reg: &TowerUpgradeRegistry) {
+        assert_eq!(
+            reg.defs.len(),
+            48,
+            "tower upgrade registry must contain exactly 4 towers * 3 paths * 4 levels"
+        );
+
+        let expected_tower_ids: BTreeSet<&str> =
+            expected_towers().into_iter().map(|(kind, _)| kind).collect();
+        let actual_tower_ids: BTreeSet<&str> =
+            reg.iter_all().map(|def| def.tower_kind.as_str()).collect();
+        assert_eq!(
+            actual_tower_ids, expected_tower_ids,
+            "tower upgrade registry contains unexpected tower ids"
+        );
+
+        for (kind, _) in expected_towers() {
+            for path in 0..=2u8 {
+                for level in 1..=4u8 {
+                    let def = reg.get(kind, path, level).unwrap_or_else(|| {
+                        panic!("missing upgrade def for {kind} path {path} level {level}")
+                    });
+                    assert_eq!(
+                        def.tower_kind, kind,
+                        "{kind} path {path} level {level}: tower_kind mismatch"
+                    );
+                    assert_eq!(
+                        def.path, path,
+                        "{kind} path {path} level {level}: path mismatch"
+                    );
+                    assert_eq!(
+                        def.level, level,
+                        "{kind} path {path} level {level}: level mismatch"
+                    );
+                }
+            }
+        }
+
+        for def in reg.iter_all() {
+            assert!(
+                expected_tower_ids.contains(def.tower_kind.as_str()),
+                "{} path {} level {}: unexpected tower_kind",
+                def.tower_kind,
+                def.path,
+                def.level
+            );
+            assert!(
+                def.path <= 2,
+                "{} path {} level {}: path must be 0..=2",
+                def.tower_kind,
+                def.path,
+                def.level
+            );
+            assert!(
+                (1..=4).contains(&def.level),
+                "{} path {} level {}: level must be 1..=4",
+                def.tower_kind,
+                def.path,
+                def.level
+            );
+        }
+    }
+
+    fn validate_text_and_costs(reg: &TowerUpgradeRegistry) {
+        for (kind, base_cost) in expected_towers() {
+            for path in 0..=2u8 {
+                for level in 1..=4u8 {
+                    let def = reg
+                        .get(kind, path, level)
+                        .expect("shape validation guarantees every upgrade exists");
+                    let label = upgrade_label(kind, path, level);
+
+                    assert!(!def.name.trim().is_empty(), "{label}: name must not be empty");
+                    assert!(
+                        !def.description.trim().is_empty(),
+                        "{label}: description must not be empty"
+                    );
+                    assert_ne!(
+                        def.name.trim(),
+                        def.description.trim(),
+                        "{label}: description must not be identical to name"
+                    );
+                    assert!(def.cost > 0, "{label}: cost must be positive");
+                    assert_eq!(
+                        def.cost,
+                        upgrade_cost(base_cost, level),
+                        "{label}: cost must match upgrade_cost(base_cost, level)"
+                    );
+                    assert!(
+                        !def.effects.is_empty(),
+                        "{label}: upgrade must contain at least one effect"
+                    );
+                }
+            }
+        }
+    }
+
+    fn upgrade_label(kind: &str, path: u8, level: u8) -> String {
+        format!("{kind} path {path} level {level}")
     }
 }
