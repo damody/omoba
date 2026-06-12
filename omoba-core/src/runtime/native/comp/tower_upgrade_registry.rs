@@ -169,6 +169,7 @@ mod tests {
         validate_registry_shape(reg);
         validate_text_and_costs(reg);
         validate_stat_effects(reg);
+        validate_behavior_flags(reg);
     }
 
     fn expected_towers() -> [(&'static str, i32); 4] {
@@ -359,6 +360,71 @@ mod tests {
             "PreattackCriticalStrike" // Dart crit path exposes an absolute critical-strike proc value.
                 | "SlowFactorOverride" // Ice path writes an override factor through tower upgrade metadata.
         )
+    }
+
+    fn validate_behavior_flags(reg: &TowerUpgradeRegistry) {
+        for def in reg.iter_all() {
+            let label = upgrade_label(&def.tower_kind, def.path, def.level);
+            for effect in &def.effects {
+                let UpgradeEffect::BehaviorFlag { flag } = effect else {
+                    continue;
+                };
+
+                assert!(
+                    !flag.trim().is_empty(),
+                    "{label}: behavior flag must not be empty"
+                );
+                assert!(
+                    supported_behavior_flags(def.tower_kind.as_str()).contains(&flag.as_str()),
+                    "{label}: unsupported behavior flag `{flag}` for {}",
+                    def.tower_kind
+                );
+            }
+        }
+    }
+
+    fn supported_behavior_flags(tower_kind: &str) -> &'static [&'static str] {
+        match tower_kind {
+            "tower_dart" => &[
+                "sharp_pierce",
+                "spike_o_pult",
+                "triple_shot",
+                "fan_club",
+                "always_crit",
+                "mega_crit",
+            ],
+            "tower_bomb" => &[
+                "bomb_stun",
+                "missile",
+                "moab_assassin",
+                "frag_8",
+                "frag_12",
+                "frag_recursive",
+                "frag_homing",
+            ],
+            "tower_tack" => &[
+                "blade_shooter",
+                "burn_tier1",
+                "burn_tier2",
+                "ring_of_fire",
+                "inferno_ring",
+                "needles_12",
+                "needles_16",
+                "needles_32",
+            ],
+            "tower_ice" => &[
+                "deep_freeze",
+                "absolute_zero",
+                "arctic_aura_20",
+                "snowstorm",
+                "cryo_cannon",
+                "embrittle_15",
+                "refreeze",
+                "embrittle_25",
+                "icicle_impale",
+            ],
+            _ => &[],
+        }
     }
 
     fn upgrade_label(kind: &str, path: u8, level: u8) -> String {
