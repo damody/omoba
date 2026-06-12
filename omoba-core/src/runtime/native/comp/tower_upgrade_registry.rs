@@ -78,7 +78,8 @@ fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tower_meta::upgrade_cost;
+    use crate::tower_meta::{upgrade_cost, StatOp, UpgradeEffect};
+    use omb_script_abi::stat_keys::{Aggregation, StatKey, ALL as ALL_STAT_KEYS};
     use omoba_template_ids::{
         TOWER_BOMB_STATS, TOWER_DART_STATS, TOWER_ICE_STATS, TOWER_TACK_STATS,
     };
@@ -167,6 +168,7 @@ mod tests {
     fn validate_all_upgrade_metadata(reg: &TowerUpgradeRegistry) {
         validate_registry_shape(reg);
         validate_text_and_costs(reg);
+        validate_stat_effects(reg);
     }
 
     fn expected_towers() -> [(&'static str, i32); 4] {
@@ -273,6 +275,90 @@ mod tests {
                 }
             }
         }
+    }
+
+    fn validate_stat_effects(reg: &TowerUpgradeRegistry) {
+        for def in reg.iter_all() {
+            let label = upgrade_label(&def.tower_kind, def.path, def.level);
+            for effect in &def.effects {
+                let UpgradeEffect::StatMod { key, value, op } = effect else {
+                    continue;
+                };
+
+                assert!(!key.trim().is_empty(), "{label}: stat key must not be empty");
+                assert!(value.is_finite(), "{label}: stat key {key} value must be finite");
+                assert_ne!(*value, 0.0, "{label}: stat key {key} value must not be zero");
+
+                validate_stat_op_matches_key(&label, key, *op);
+            }
+        }
+    }
+
+    fn validate_stat_op_matches_key(label: &str, key: &str, op: StatOp) {
+        if key.ends_with("_bonus") || is_absolute_stat_key(key) {
+            assert_eq!(
+                op,
+                StatOp::Add,
+                "{label}: suffix-style stat key `{key}` must use StatOp::Add"
+            );
+            return;
+        }
+        if key.ends_with("_multiplier") {
+            assert_eq!(
+                op,
+                StatOp::Mul,
+                "{label}: suffix-style stat key `{key}` must use StatOp::Mul"
+            );
+            return;
+        }
+
+        let Some(stat_key) = stat_key_by_metadata_key(key) else {
+            panic!(
+                "{label}: stat key `{key}` must use suffix style, be explicitly allowlisted, or match a StatKey variant/as_str value"
+            );
+        };
+        match (op, stat_key.aggregation()) {
+            (
+                StatOp::Add,
+                Aggregation::SumAdd | Aggregation::SumAddThenMul1Plus | Aggregation::Chance,
+            ) => {}
+            (StatOp::Add, Aggregation::PassThrough) if is_pass_through_upgrade_stat(key) => {}
+            (StatOp::Mul, Aggregation::ProductMult) => {}
+            (StatOp::Add, aggregation) => {
+                panic!(
+                    "{label}: StatOp::Add key `{key}` maps to {:?} with unsupported {:?} aggregation",
+                    stat_key, aggregation
+                );
+            }
+            (StatOp::Mul, aggregation) => {
+                panic!(
+                    "{label}: StatOp::Mul key `{key}` maps to {:?} with unsupported {:?} aggregation",
+                    stat_key, aggregation
+                );
+            }
+        }
+    }
+
+    fn stat_key_by_metadata_key(key: &str) -> Option<StatKey> {
+        ALL_STAT_KEYS
+            .iter()
+            .copied()
+            .find(|stat_key| format!("{:?}", stat_key) == key || stat_key.as_str() == key)
+    }
+
+    fn is_absolute_stat_key(key: &str) -> bool {
+        matches!(
+            key,
+            "crit_chance" | "crit_bonus" // Dart crit path uses absolute values in suffix-style content.
+        )
+    }
+
+    fn is_pass_through_upgrade_stat(key: &str) -> bool {
+        matches!(
+            key,
+            "PreattackCriticalStrike" // Dart crit path exposes an absolute critical-strike proc value.
+                | "SlowFactorOverride" // Ice path writes an override factor through tower upgrade metadata.
+        )
     }
 
     fn upgrade_label(kind: &str, path: u8, level: u8) -> String {
