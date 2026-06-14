@@ -2,7 +2,7 @@
 //!
 //! 支援:
 //! - Path1: triple_shot (3 發 15° 扇形), fan_club (5 發 30° 扇形 + 彈速 ×2),
-//!   spike_o_pult (40dmg splash 100 巨釘, 彈速 ×0.5)
+//!   spike_o_pult (40dmg splash 100 巨釘, hit radius 50)
 //! - Path2: always_crit, mega_crit (crit 時 60dmg splash 60)
 //! - Stat: crit_chance, crit_bonus, damage_bonus, range_bonus (透過 get_final_*)
 //!
@@ -88,13 +88,14 @@ impl UnitScript for DartTower {
             (1, 0)
         };
 
-        // Spike-o-pult 覆蓋：巨釘、splash、半速彈
-        let (bullet_speed, damage, splash_radius) = if spike {
+        // Spike-o-pult 覆蓋：巨釘、splash、直徑 100 的沿路判定
+        let (bullet_speed, damage, hit_radius, splash_radius) = if spike {
             let forty = Fixed64::from_i32(40);
             let dmg = if atk > forty { atk } else { forty };
             (
-                stats.bullet_speed * Fixed64::from_raw(512), // 0.5
+                stats.bullet_speed,
                 dmg,
+                Fixed64::from_i32(50),
                 Fixed64::from_i32(100),
             )
         } else {
@@ -103,7 +104,12 @@ impl UnitScript for DartTower {
             } else {
                 Fixed64::ONE
             };
-            (stats.bullet_speed * speed_mul, atk, Fixed64::ZERO)
+            (
+                stats.bullet_speed * speed_mul,
+                atk,
+                Fixed64::ZERO,
+                Fixed64::ZERO,
+            )
         };
 
         w.log_info(RStr::from_str("[tower_dart] fire!"));
@@ -148,7 +154,7 @@ impl UnitScript for DartTower {
                 path: path_spec,
                 speed: bullet_speed,
                 damage,
-                hit_radius: Fixed64::ZERO,
+                hit_radius,
                 splash_radius,
                 slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO,

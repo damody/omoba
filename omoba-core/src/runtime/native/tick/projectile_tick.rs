@@ -68,12 +68,14 @@ impl<'a> System<'a> for Sys {
                     // 無 target 的方向性子彈（Tack 放射針）：用掃掠 segment 檢查命中
                     // （不只檢查當前 point，還要檢查本 tick 即將走過的路徑）避免高速子彈
                     // 跨過氣球之間的間隔而沒打中。
-                    let needle_r = if proj.hit_radius > Fixed64::ZERO {
+                    let sweep_radius = if proj.hit_radius > Fixed64::ZERO {
                         proj.hit_radius
+                    } else if proj.radius > Fixed64::ONE {
+                        proj.radius
                     } else {
                         Fixed64::from_i32(50)
                     };
-                    if proj.target.is_none() && proj.radius < Fixed64::ONE {
+                    if proj.target.is_none() {
                         // 計算本 tick 的 swept segment：從 pos.0 出發，沿 delta 方向走 step 距離
                         let a: SimVec2 = pos.0;
                         let b: SimVec2 = if dist > Fixed64::ZERO {
@@ -83,43 +85,32 @@ impl<'a> System<'a> for Sys {
                         };
                         // 注意：mid + half_len 僅在搜尋呼叫邊界在 f32 中計算
                         // （搜尋器在內部使用 f32 來實作 instant_distance lib 相容性；呼叫者中的最終距離檢查是固定 64）。
-                        let a_xf = a.x.to_f32_for_render();
-                        let a_yf = a.y.to_f32_for_render();
-                        let b_xf = b.x.to_f32_for_render();
-                        let b_yf = b.y.to_f32_for_render();
-                        let seg_mid_f = vek::Vec2::new((a_xf + b_xf) * 0.5, (a_yf + b_yf) * 0.5);
-                        let half_len_f =
-                            (vek::Vec2::new(b_xf - a_xf, b_yf - a_yf)).magnitude() * 0.5;
-                        let needle_r_f = needle_r.to_f32_for_render();
-                        let search_r = half_len_f + needle_r_f + 5.0;
-                        let candidates = tr.searcher.creep.search_nn(seg_mid_f, search_r, 16);
-                        let needle_r2 = needle_r_f * needle_r_f;
-                        let mut hit: Option<specs::Entity> = None;
-                        let a_vek = vek::Vec2::new(a_xf, a_yf);
-                        let b_vek = vek::Vec2::new(b_xf, b_yf);
-                        for ci in candidates.iter() {
-                            let cpos_sim = target_positions
-                                .get(&ci.e)
-                                .copied()
-                                .unwrap_or(SimVec2::ZERO);
-                            let cpos_vek = vek::Vec2::new(
-                                cpos_sim.x.to_f32_for_render(),
-                                cpos_sim.y.to_f32_for_render(),
-                            );
-                            if crate::util::geometry::point_segment_dist_sq(cpos_vek, a_vek, b_vek)
-                                <= needle_r2
-                            {
-                                hit = Some(ci.e);
-                                break;
+                        if let Some((hit_ent, hit_pos)) =
+                            swept_creep_hit(&tr.searcher, &target_positions, a, b, sweep_radius)
+                        {
+                            if proj.radius > Fixed64::ONE {
+                                let hit_pos_vek = vek::Vec2::new(
+                                    hit_pos.x.to_f32_for_render(),
+                                    hit_pos.y.to_f32_for_render(),
+                                );
+                                let radius_f = proj.radius.to_f32_for_render();
+                                let targets = tr.searcher.creep.search_nn(hit_pos_vek, radius_f, 5);
+                                for target_info in targets.iter() {
+                                    create_projectile_damage(
+                                        &proj,
+                                        target_info.e,
+                                        &mut outcomes,
+                                        hit_pos,
+                                    );
+                                }
+                                outcomes.push(Outcome::Explosion {
+                                    pos: hit_pos,
+                                    radius: proj.radius,
+                                    duration: Fixed64::from_raw(512),
+                                });
+                            } else {
+                                create_projectile_damage(&proj, hit_ent, &mut outcomes, hit_pos);
                             }
-                        }
-                        if let Some(hit_ent) = hit {
-                            // 命中點：取子彈與氣球最接近那一點（pos.0 or b 取近的）
-                            let c_sim = target_positions.get(&hit_ent).copied().unwrap_or(a);
-                            let da = (c_sim - a).length_squared();
-                            let db = (c_sim - b).length_squared();
-                            let hit_pos: SimVec2 = if da <= db { a } else { b };
-                            create_projectile_damage(&proj, hit_ent, &mut outcomes, hit_pos);
                             outcomes.push(Outcome::Death {
                                 pos: hit_pos,
                                 ent: e.clone(),
@@ -213,6 +204,41 @@ impl<'a> System<'a> for Sys {
     }
 }
 
+fn swept_creep_hit(
+    searcher: &Searcher,
+    target_positions: &std::collections::HashMap<specs::Entity, SimVec2>,
+    a: SimVec2,
+    b: SimVec2,
+    radius: Fixed64,
+) -> Option<(specs::Entity, SimVec2)> {
+    let a_xf = a.x.to_f32_for_render();
+    let a_yf = a.y.to_f32_for_render();
+    let b_xf = b.x.to_f32_for_render();
+    let b_yf = b.y.to_f32_for_render();
+    let seg_mid_f = vek::Vec2::new((a_xf + b_xf) * 0.5, (a_yf + b_yf) * 0.5);
+    let half_len_f = (vek::Vec2::new(b_xf - a_xf, b_yf - a_yf)).magnitude() * 0.5;
+    let radius_f = radius.to_f32_for_render();
+    let search_r = half_len_f + radius_f + 5.0;
+    let candidates = searcher.creep.search_nn(seg_mid_f, search_r, 16);
+    let radius2 = radius_f * radius_f;
+    let a_vek = vek::Vec2::new(a_xf, a_yf);
+    let b_vek = vek::Vec2::new(b_xf, b_yf);
+    for ci in candidates.iter() {
+        let cpos_sim = target_positions
+            .get(&ci.e)
+            .copied()
+            .unwrap_or(SimVec2::ZERO);
+        let cpos_vek = vek::Vec2::new(
+            cpos_sim.x.to_f32_for_render(),
+            cpos_sim.y.to_f32_for_render(),
+        );
+        if crate::util::geometry::point_segment_dist_sq(cpos_vek, a_vek, b_vek) <= radius2 {
+            return Some((ci.e, cpos_sim));
+        }
+    }
+    None
+}
+
 /// 創建投射物傷害事件 - 使用新的傷害事件系統。
 /// 若 projectile 帶有 slow_factor/slow_duration（Ice 塔）則同時 push `AddBuff`：
 /// Slow buff 採單一 instance 設計：buff_id = "slow"。同 creep 上多次命中：
@@ -288,5 +314,115 @@ fn create_projectile_damage(
             duration: proj.stun_duration,
             payload: serde_json::Value::Null,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::comp::{run_now, SysMetrics, TickProfile};
+    use specs::{Builder, Join, World, WorldExt};
+
+    fn test_creep(name: &str) -> Creep {
+        Creep {
+            name: name.to_string(),
+            label: None,
+            path: "test".to_string(),
+            pidx: 0,
+            path_remaining_distance: Fixed64::ZERO,
+            block_tower: None,
+            status: CreepStatus::Walk,
+        }
+    }
+
+    fn projectile_world() -> World {
+        let mut world = World::new();
+        world.register::<Pos>();
+        world.register::<Projectile>();
+        world.register::<Creep>();
+        world.insert(DeltaTime(Fixed64::from_raw(512)));
+        world.insert(Searcher::default());
+        world.insert(Vec::<Outcome>::new());
+        world.insert(SysMetrics::default());
+        world.insert(TickProfile::default());
+        world
+    }
+
+    fn rebuild_creep_index(world: &mut World) {
+        let items: Vec<_> = {
+            let entities = world.entities();
+            let positions = world.read_storage::<Pos>();
+            let creeps = world.read_storage::<Creep>();
+            (&entities, &positions, &creeps)
+                .join()
+                .map(|(entity, pos, _)| {
+                    (
+                        entity,
+                        vek::Vec2::new(pos.0.x.to_f32_for_render(), pos.0.y.to_f32_for_render()),
+                    )
+                })
+                .collect()
+        };
+        world.write_resource::<Searcher>().creep.rebuild_from(items);
+    }
+
+    #[test]
+    fn straight_aoe_projectile_uses_hit_radius_along_swept_path() {
+        let mut world = projectile_world();
+        let owner = world.create_entity().build();
+        let creep = world
+            .create_entity()
+            .with(Pos(SimVec2::new(
+                Fixed64::from_i32(300),
+                Fixed64::from_i32(40),
+            )))
+            .with(test_creep("target"))
+            .build();
+        rebuild_creep_index(&mut world);
+
+        world
+            .create_entity()
+            .with(Pos(SimVec2::new(Fixed64::ZERO, Fixed64::ZERO)))
+            .with(Projectile {
+                time_left: Fixed64::from_i32(10),
+                owner,
+                target: None,
+                tpos: SimVec2::new(Fixed64::from_i32(1000), Fixed64::ZERO),
+                radius: Fixed64::from_i32(100),
+                msd: Fixed64::from_i32(1000),
+                damage_phys: Fixed64::from_i32(40),
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::from_i32(50),
+                stun_duration: Fixed64::ZERO,
+            })
+            .build();
+
+        run_now::<Sys>(&world);
+
+        let outcomes = world.read_resource::<Vec<Outcome>>();
+        assert!(outcomes.iter().any(|outcome| matches!(
+            outcome,
+            Outcome::Damage {
+                target,
+                phys,
+                predeclared,
+                ..
+            } if *target == creep && *phys == Fixed64::from_i32(40) && !*predeclared
+        )));
+        assert!(
+            outcomes
+                .iter()
+                .any(|outcome| matches!(outcome, Outcome::Explosion { radius, .. } if *radius == Fixed64::from_i32(100)))
+        );
+        assert_eq!(
+            (&world.entities(), &world.read_storage::<Projectile>())
+                .join()
+                .count(),
+            1,
+            "projectile entity is marked for Death outcome and removed by outcome processing"
+        );
     }
 }

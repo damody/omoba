@@ -173,7 +173,7 @@ return function(ctx)
           },
           {
             name = "巨釘投石機",
-            description = "改投巨釘：splash 100, damage 40, 彈速減半",
+            description = "改投巨釘：直徑100判定, splash 100, damage 40",
             cost = 500,
             effects = {
               {
