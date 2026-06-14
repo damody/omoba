@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use omoba_sim::Fixed64;
@@ -986,6 +987,7 @@ pub fn handle_tower_upgrade_from_input(
             UpgradeEffect::BehaviorFlag { flag } => flags_to_add.push(flag.clone()),
             UpgradeEffect::StatMod { key, value, op: _ } => {
                 let buff_id = format!("upgrade_{}_{}_{}", path, next_level, effect_idx);
+                let key = canonical_upgrade_stat_key(key).into_owned();
                 stat_mods.push((buff_id, json!({ key: *value })));
             }
         }
@@ -1021,6 +1023,20 @@ pub fn handle_tower_upgrade_from_input(
         def.cost
     );
     Ok(())
+}
+
+fn canonical_upgrade_stat_key(key: &str) -> Cow<'_, str> {
+    if let Some(stat_key) = StatKey::from_str_key(key) {
+        return Cow::Borrowed(stat_key.as_str());
+    }
+    if let Some(stat_key) = omb_script_abi::stat_keys::ALL
+        .iter()
+        .copied()
+        .find(|stat_key| format!("{:?}", stat_key) == key)
+    {
+        return Cow::Borrowed(stat_key.as_str());
+    }
+    Cow::Borrowed(key)
 }
 
 pub fn handle_tower_target_priority_from_input(
@@ -2103,6 +2119,7 @@ fn handle_script_start_cooldown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::UnitStats;
     use omoba_template_ids::{active_creep_stats, creep_id_str, CreepId};
     use specs::Join;
 
@@ -2435,6 +2452,37 @@ mod tests {
                 .upgrade_levels,
             [0; 3]
         );
+    }
+
+    #[test]
+    fn dart_range_upgrade_updates_effective_attack_range() {
+        let mut world = world_for_owner_tests();
+        world.insert(TowerUpgradeRegistry::new());
+        add_owned_hero(&mut world, 1, "Hero");
+        let tower = add_owned_tower(&mut world, 1);
+        world
+            .write_storage::<TAttack>()
+            .insert(
+                tower,
+                TAttack::new(
+                    Fixed64::from_i32(10),
+                    Fixed64::from_i32(1),
+                    Fixed64::from_i32(350),
+                    Fixed64::from_i32(900),
+                ),
+            )
+            .unwrap();
+
+        handle_tower_upgrade_from_input(&mut world, tower.id(), 0, 1, 1)
+            .expect("owner can buy dart path 0 level 1");
+
+        let buff_store = world.read_resource::<BuffStore>();
+        let stats = UnitStats::from_refs(&*buff_store, true);
+        let attack = world.read_storage::<TAttack>();
+        let range = stats
+            .final_attack_range(attack.get(tower).unwrap().range.v, tower)
+            .to_f32_for_render();
+        assert_eq!(range, 400.0);
     }
 
     #[test]
