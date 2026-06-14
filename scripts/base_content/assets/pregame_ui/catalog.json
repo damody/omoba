@@ -99,29 +99,38 @@
   ],
   "difficulties": [
     {
-      "id": "easy",
-      "label": "簡單",
-      "description": "放鬆波次與寬裕經濟。",
-      "config": "easy",
-      "reward": "1x 獎勵",
+      "id": "novice",
+      "label": "新手",
+      "description": "塔價 70%，40 關。",
+      "config": "novice",
+      "reward": "",
       "image": "difficulty_easy.png",
       "enabled": true
     },
     {
-      "id": "medium",
+      "id": "intermediate",
       "label": "中級",
-      "description": "標準平衡挑戰。",
-      "config": "medium",
-      "reward": "1.25x 獎勵",
+      "description": "塔價 80%，65 關。",
+      "config": "intermediate",
+      "reward": "",
       "image": "difficulty_medium.png",
       "enabled": true
     },
     {
-      "id": "hard",
-      "label": "困難",
-      "description": "經濟更緊，失誤空間更少。",
-      "config": "hard",
-      "reward": "1.5x 獎勵",
+      "id": "advanced",
+      "label": "高級",
+      "description": "塔價 90%，85 關。",
+      "config": "advanced",
+      "reward": "",
+      "image": "difficulty_hard.png",
+      "enabled": true
+    },
+    {
+      "id": "expert",
+      "label": "專家",
+      "description": "塔價 100%，100 關。",
+      "config": "expert",
+      "reward": "",
       "image": "difficulty_hard.png",
       "enabled": true
     }

@@ -15,9 +15,73 @@ use omoba_sim::Fixed64;
 pub struct StateInitializer;
 
 const DOTA_UNITS_PER_MAP_UNIT: i64 = 100;
+const TD_DIFFICULTY_ENV: &str = "OMB_DIFFICULTY";
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TdDifficultyConfig {
+    pub id: &'static str,
+    pub tower_cost_multiplier: f32,
+    pub round_count: usize,
+}
+
+impl TdDifficultyConfig {
+    pub const EXPERT: Self = Self {
+        id: "expert",
+        tower_cost_multiplier: 1.0,
+        round_count: 100,
+    };
+
+    pub fn from_env() -> Self {
+        std::env::var(TD_DIFFICULTY_ENV)
+            .ok()
+            .map(|value| Self::from_config_value(&value))
+            .unwrap_or(Self::EXPERT)
+    }
+
+    pub fn from_config_value(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "novice" | "beginner" | "easy" => Self {
+                id: "novice",
+                tower_cost_multiplier: 0.7,
+                round_count: 40,
+            },
+            "intermediate" | "medium" | "normal" => Self {
+                id: "intermediate",
+                tower_cost_multiplier: 0.8,
+                round_count: 65,
+            },
+            "advanced" | "hard" => Self {
+                id: "advanced",
+                tower_cost_multiplier: 0.9,
+                round_count: 85,
+            },
+            "expert" => Self::EXPERT,
+            _ => Self::EXPERT,
+        }
+    }
+}
 
 fn dota_units_f32_to_map_units(value: f32) -> f32 {
     value / DOTA_UNITS_PER_MAP_UNIT as f32
+}
+
+fn scaled_td_cost(base_cost: i32, multiplier: f32) -> i32 {
+    ((base_cost as f32) * multiplier).round() as i32
+}
+
+fn fit_td_creep_waves_to_round_count(waves: &mut Vec<CreepWave>, round_count: usize) {
+    if round_count == 0 || waves.is_empty() {
+        waves.clear();
+        return;
+    }
+    if waves.len() > round_count {
+        waves.truncate(round_count);
+        return;
+    }
+    let original = waves.clone();
+    while waves.len() < round_count {
+        waves.push(original[waves.len() % original.len()].clone());
+    }
 }
 
 impl StateInitializer {
@@ -89,7 +153,7 @@ impl StateInitializer {
         Self::setup_creep_emiters(ecs, cw);
 
         // 設置小兵波
-        Self::setup_creep_waves(ecs, cw);
+        Self::setup_creep_waves_with_difficulty(ecs, cw, TdDifficultyConfig::from_env());
 
         // 設置不可通行多邊形
         Self::setup_blocked_regions(ecs, cw);
@@ -290,7 +354,11 @@ impl StateInitializer {
     }
 
     /// 設置小兵波
-    fn setup_creep_waves(ecs: &mut World, cw: &CreepWaveData) {
+    pub fn setup_creep_waves_with_difficulty(
+        ecs: &mut World,
+        cw: &CreepWaveData,
+        difficulty: TdDifficultyConfig,
+    ) {
         // Debug 開關：設 OMB_NO_CREEPS=1 完全跳過小兵波載入（碰撞除錯用）
         if std::env::var("OMB_NO_CREEPS").ok().as_deref() == Some("1") {
             log::warn!(
@@ -328,6 +396,20 @@ impl StateInitializer {
                 total_creeps
             );
             cws.push(tcw);
+        }
+        fit_td_creep_waves_to_round_count(cws, difficulty.round_count);
+        log::info!(
+            "TD difficulty '{}' applied: rounds={} tower_cost_multiplier={}",
+            difficulty.id,
+            cws.len(),
+            difficulty.tower_cost_multiplier
+        );
+    }
+
+    pub fn apply_td_difficulty_to_tower_templates(ecs: &mut World, difficulty: TdDifficultyConfig) {
+        let mut reg = ecs.write_resource::<crate::comp::tower_registry::TowerTemplateRegistry>();
+        for template in reg.templates.values_mut() {
+            template.cost = scaled_td_cost(template.cost, difficulty.tower_cost_multiplier).max(1);
         }
     }
 
@@ -1374,7 +1456,16 @@ pub fn populate_tower_template_registry(
             },
         });
     }
-    log::info!("[tower_registry] {} templates loaded", reg.templates.len());
+    let difficulty = TdDifficultyConfig::from_env();
+    for template in reg.templates.values_mut() {
+        template.cost = scaled_td_cost(template.cost, difficulty.tower_cost_multiplier).max(1);
+    }
+    log::info!(
+        "[tower_registry] {} templates loaded; TD difficulty '{}' tower_cost_multiplier={}",
+        reg.templates.len(),
+        difficulty.id,
+        difficulty.tower_cost_multiplier
+    );
     ecs.insert(reg);
 
     fn runtime_point(point: abi_types::TowerRenderPoint) -> RuntimeRenderPoint {
@@ -1415,6 +1506,7 @@ pub fn populate_ability_registry(ecs: &mut World, registry: &crate::scripting::S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ue4::import_map::CreepWaveJD;
     use std::collections::BTreeMap;
 
     #[test]
@@ -1436,5 +1528,112 @@ mod tests {
         assert_eq!(emitter.property.msd, stats.move_speed);
         assert_eq!(emitter.property.def_physic, stats.armor);
         assert_eq!(emitter.property.def_magic, stats.magic_resistance);
+    }
+
+    #[test]
+    fn novice_difficulty_scales_tower_template_costs() {
+        use crate::runtime::comp::tower_registry::{
+            AttackTimingMetadata, TowerRecoil, TowerRenderAnimation, TowerRenderMetadata,
+            TowerRenderPoint, TowerTemplate, TowerTemplateRegistry,
+        };
+
+        let mut ecs = World::new();
+        let mut registry = TowerTemplateRegistry::default();
+        registry.insert(TowerTemplate {
+            unit_id: "tower_dart".to_string(),
+            label: "飛鏢猴".to_string(),
+            atk: 10.0,
+            asd_interval: 0.8,
+            range: 350.0,
+            bullet_speed: 1200.0,
+            splash_radius: 0.0,
+            hit_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+            cost: 200,
+            footprint: 10.0,
+            placement_radius: 90.0,
+            hp: 1.0,
+            turn_speed_deg: 360.0,
+            render: TowerRenderMetadata {
+                render_mode: "base_barrel".to_string(),
+                base: String::new(),
+                barrel: String::new(),
+                visual_size: 180.0,
+                barrel_frames: Vec::new(),
+                body_frames: Vec::new(),
+                barrel_animation: TowerRenderAnimation {
+                    fps: 0.0,
+                    loop_animation: false,
+                    fire_fps: 0.0,
+                    fire_once: false,
+                },
+                body_animation: TowerRenderAnimation {
+                    fps: 0.0,
+                    loop_animation: false,
+                    fire_fps: 0.0,
+                    fire_once: false,
+                },
+                rotation_mode: "targeted".to_string(),
+                barrel_layout: "single".to_string(),
+                barrel_variants: Vec::new(),
+                barrel_offset: TowerRenderPoint { x: 0.0, y: 0.0 },
+                barrel_pivot: TowerRenderPoint { x: 0.5, y: 0.5 },
+                muzzle_offset: TowerRenderPoint { x: 0.0, y: 0.0 },
+                default_angle_deg: 0.0,
+                recoil: TowerRecoil {
+                    mode: String::new(),
+                    distance: 0.0,
+                    scale: 1.0,
+                    duration_ms: 0,
+                    return_ms: 0,
+                },
+            },
+            attack_timing: AttackTimingMetadata {
+                windup: 0,
+                backswing: 0,
+            },
+        });
+        ecs.insert(registry);
+
+        StateInitializer::apply_td_difficulty_to_tower_templates(
+            &mut ecs,
+            TdDifficultyConfig::from_config_value("novice"),
+        );
+
+        let registry = ecs.read_resource::<TowerTemplateRegistry>();
+        assert_eq!(registry.get("tower_dart").unwrap().cost, 140);
+    }
+
+    #[test]
+    fn novice_difficulty_expands_td_waves_to_configured_round_count() {
+        let mut ecs = World::new();
+        ecs.insert(Vec::<CreepWave>::new());
+        let cw = CreepWaveData {
+            CreepWave: vec![
+                CreepWaveJD {
+                    Name: "W01".to_string(),
+                    StartTime: 0.0,
+                    Detail: Vec::new(),
+                },
+                CreepWaveJD {
+                    Name: "W02".to_string(),
+                    StartTime: 0.0,
+                    Detail: Vec::new(),
+                },
+            ],
+            ..Default::default()
+        };
+
+        StateInitializer::setup_creep_waves_with_difficulty(
+            &mut ecs,
+            &cw,
+            TdDifficultyConfig::from_config_value("novice"),
+        );
+
+        let waves = ecs.read_resource::<Vec<CreepWave>>();
+        assert_eq!(waves.len(), 40);
+        assert_eq!(waves[0].time, 0.0);
+        assert_eq!(waves[39].time, 0.0);
     }
 }
