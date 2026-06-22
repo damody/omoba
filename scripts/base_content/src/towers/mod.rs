@@ -1,3 +1,4 @@
+pub mod arty;
 pub mod bomb;
 pub mod cake_splash;
 pub mod dart;
