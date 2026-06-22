@@ -945,6 +945,39 @@ mod tests {
         world
     }
 
+    fn add_targetable_creep(
+        world: &mut World,
+        pos: Vec2,
+        remaining: i32,
+        hp: i32,
+        team_id: i32,
+    ) -> Entity {
+        world
+            .create_entity()
+            .with(Pos(pos))
+            .with(Faction {
+                faction_id: FactionType::Enemy,
+                team_id,
+            })
+            .with(Creep {
+                name: "test_creep".to_string(),
+                label: None,
+                path: "test_path".to_string(),
+                pidx: 0,
+                path_remaining_distance: Fixed64::from_i32(remaining),
+                block_tower: None,
+                status: CreepStatus::Walk,
+            })
+            .with(CProperty {
+                hp: Fixed64::from_i32(hp),
+                mhp: Fixed64::from_i32(hp),
+                msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .build()
+    }
+
     #[test]
     fn parallel_adapter_buffers_mutations_and_reads_overlay() {
         let mut world = world_for_adapter_tests();
@@ -1055,6 +1088,58 @@ mod tests {
         );
         assert!(
             matches!(outcomes[1], Outcome::ScriptDirectDamage { target, amount } if target == enemy && amount == Fixed64::from_i32(7))
+        );
+    }
+
+    #[test]
+    fn query_nearest_enemy_uses_selected_tower_priority_for_scripted_towers() {
+        let mut world = world_for_adapter_tests();
+        let tower = world
+            .create_entity()
+            .with(Pos(Vec2::new(Fixed64::ZERO, Fixed64::ZERO)))
+            .with(Faction {
+                faction_id: FactionType::Player,
+                team_id: 1,
+            })
+            .with(Tower {
+                target_priority: TowerTargetPriority::First,
+                ..Tower::new()
+            })
+            .build();
+        let nearest_to_tower = add_targetable_creep(
+            &mut world,
+            Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+            500,
+            10,
+            2,
+        );
+        let closest_to_exit = add_targetable_creep(
+            &mut world,
+            Vec2::new(Fixed64::from_i32(90), Fixed64::ZERO),
+            20,
+            10,
+            2,
+        );
+        {
+            let mut searcher = world.write_resource::<Searcher>();
+            searcher.creep.rebuild_from([
+                (nearest_to_tower, vek::Vec2::new(10.0, 0.0)),
+                (closest_to_exit, vek::Vec2::new(90.0, 0.0)),
+            ]);
+        }
+
+        let cache = ParallelAdapterCache::new(&world, 123);
+        let adapter = ParallelWorldAdapter::new(&cache, tower);
+        let target = adapter.query_nearest_enemy(
+            Vec2::new(Fixed64::ZERO, Fixed64::ZERO),
+            Fixed64::from_i32(100),
+            ParallelWorldAdapter::entity_to_handle(tower),
+        );
+
+        assert_eq!(
+            target,
+            RSome(ParallelWorldAdapter::entity_to_handle(closest_to_exit)),
+            "First priority should choose the in-range creep nearest the path endpoint, not the closest creep to the tower"
         );
     }
 }

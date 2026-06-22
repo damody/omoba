@@ -51,6 +51,7 @@ pub struct CollisionIndex {
     bounds: Bounds,
     dirty: bool,
     kind: &'static str,
+    item_count: usize,
 }
 
 impl CollisionIndex {
@@ -66,6 +67,7 @@ impl CollisionIndex {
             bounds,
             dirty: false,
             kind: kind_static,
+            item_count: 0,
         };
         idx.index.initialize(idx.bounds.clone(), Vec::new());
         idx
@@ -79,6 +81,7 @@ impl CollisionIndex {
             .into_iter()
             .map(|(entity, pos)| Entry::point(entity, (), pos))
             .collect();
+        self.item_count = entries.len();
         self.index.bulk_replace(self.bounds.clone(), entries);
         self.dirty = false;
     }
@@ -92,7 +95,7 @@ impl CollisionIndex {
     }
 
     pub fn count(&self) -> usize {
-        self.index.count_nodes()
+        self.item_count
     }
 
     pub fn kind(&self) -> &'static str {
@@ -230,5 +233,28 @@ impl Default for Searcher {
             "sap",
             SpatialIndexParams::default(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use specs::world::Builder;
+    use specs::{World, WorldExt};
+
+    #[test]
+    fn collision_index_count_tracks_entities_not_spatial_nodes() {
+        let mut world = World::new();
+        let a = world.create_entity().build();
+        let b = world.create_entity().build();
+        let mut index = CollisionIndex::new("hash_grid", SpatialIndexParams::default());
+
+        index.rebuild_from([
+            (a, Vec2::new(10.0, 0.0)),
+            (b, Vec2::new(90.0, 0.0)),
+        ]);
+
+        assert_eq!(index.count(), 2);
+        assert_eq!(index.search_nn(Vec2::new(0.0, 0.0), 100.0, index.count()).len(), 2);
     }
 }
