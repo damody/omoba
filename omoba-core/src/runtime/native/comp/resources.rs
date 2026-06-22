@@ -17,6 +17,29 @@ pub struct GamePause {
     pub is_paused: bool,
 }
 
+/// Authoritative lockstep simulation speed. Stored as a small integer so every
+/// replica applies the same deterministic time scale.
+#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GameSpeed {
+    multiplier: u32,
+}
+
+impl Default for GameSpeed {
+    fn default() -> Self {
+        Self { multiplier: 1 }
+    }
+}
+
+impl GameSpeed {
+    pub fn multiplier(self) -> u32 {
+        self.multiplier.max(1)
+    }
+
+    pub fn toggle_between_1x_and_2x(&mut self) {
+        self.multiplier = if self.multiplier() >= 2 { 1 } else { 2 };
+    }
+}
+
 // 刻度開始，用於指標
 #[derive(Copy, Clone)]
 pub struct TickStart(pub Instant);

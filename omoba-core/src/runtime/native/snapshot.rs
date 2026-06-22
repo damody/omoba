@@ -9,10 +9,10 @@ use crate::lockstep_timing::LOCKSTEP_ONE_SECOND_TICKS_U32;
 use super::ability_runtime::{AbilityRegistry, BuffStore, UnitStats};
 use super::comp::hero::AttributeType;
 use super::comp::{
-    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, GamePause, Gold, Hero,
-    HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MoveTarget, Path as CreepPath,
-    PlayerLives, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, TAttack, Tower,
-    TowerTemplateRegistry, TowerUpgradeRegistry,
+    BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, GamePause, GameSpeed,
+    Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MoveTarget,
+    Path as CreepPath, PlayerLives, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, TAttack,
+    Tower, TowerTemplateRegistry, TowerUpgradeRegistry,
 };
 use super::scripting::{ScriptUnitTag, ScriptVisualEventKind, ScriptVisualEventQueue};
 
@@ -43,6 +43,7 @@ pub struct SimWorldSnapshot {
     pub lives: i32,
     pub round_is_running: bool,
     pub is_paused: bool,
+    pub game_speed_multiplier: u32,
     pub blocked_regions: Vec<BlockedRegionSnapshot>,
     pub abilities: Arc<Vec<AbilityDefSnapshot>>,
     pub tower_templates: Arc<Vec<TowerTemplateSnapshot>>,
@@ -1028,6 +1029,10 @@ pub fn extract_snapshot(
     }
     let lives = world.read_resource::<PlayerLives>().0;
     let is_paused = world.read_resource::<GamePause>().is_paused;
+    let game_speed_multiplier = world
+        .try_fetch::<GameSpeed>()
+        .map(|speed| speed.multiplier())
+        .unwrap_or(1);
 
     let explosions: Vec<ExplosionFx> = {
         let mut q = world.write_resource::<super::comp::ExplosionFxQueue>();
@@ -1057,6 +1062,7 @@ pub fn extract_snapshot(
         lives,
         round_is_running,
         is_paused,
+        game_speed_multiplier,
         blocked_regions,
         abilities: abilities_arc,
         tower_templates: tower_templates_arc,
@@ -1409,6 +1415,10 @@ pub fn extract_data_for_render(
     }
     let lives = world.read_resource::<PlayerLives>().0;
     let is_paused = world.read_resource::<GamePause>().is_paused;
+    let game_speed_multiplier = world
+        .try_fetch::<GameSpeed>()
+        .map(|speed| speed.multiplier())
+        .unwrap_or(1);
 
     let explosions: Vec<ExplosionFx> = {
         let mut q = world.write_resource::<super::comp::ExplosionFxQueue>();
@@ -1450,6 +1460,7 @@ pub fn extract_data_for_render(
         lives,
         round_is_running,
         is_paused,
+        game_speed_multiplier,
         blocked_regions: Vec::new(),
         abilities: Arc::new(Vec::new()),
         tower_templates: Arc::new(Vec::new()),

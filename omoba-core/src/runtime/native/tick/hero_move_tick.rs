@@ -283,6 +283,7 @@ mod tests {
         world.insert(Tick(0));
         world.insert(Time::default());
         world.insert(GamePause::default());
+        world.insert(GameSpeed::default());
         world.insert(CurrentCreepWave::default());
         world.insert(PendingMoveQueue::default());
         world.insert(PendingTowerSpawnQueue::default());

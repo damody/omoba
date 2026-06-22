@@ -464,6 +464,10 @@ message StartRound {}
 // The input remains lockstep-driven so all replicas pause/resume on the same tick.
 message TogglePause {}
 
+// Client requests toggling authoritative simulation speed between 1x and 2x.
+// The input is lockstep-driven so all replicas apply the speed on the same tick.
+message ToggleGameSpeed {}
+
 message PlayerInput {
   oneof action {
     NoOp no_op = 1;
@@ -479,6 +483,7 @@ message PlayerInput {
     AttackMove attack_move = 11;
     SetTowerTargetPriority set_tower_target_priority = 12;
     TogglePause toggle_pause = 13;
+    ToggleGameSpeed toggle_game_speed = 14;
   }
 }
 
