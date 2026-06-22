@@ -30,8 +30,8 @@ impl GameMode {
 }
 
 /// 玩家生命（TD 模式下才有意義）。小兵走到 path 終點時扣 1，歸零敗北。
-/// 預設 0 當作「非 TD 模式」旗標；TD 模式在 `state/initialization.rs` 顯式
-/// 設為 `PlayerLives::td_default()` = 100。前端藉 `lives > 0` 判斷是否為 TD 模式。
+/// 預設 0 當作「非 TD 模式」旗標；TD 模式在 `state/initialization.rs`
+/// 依目前難度設定生命值。前端藉 `lives > 0` 判斷是否為 TD 模式。
 #[derive(Clone, Copy, Debug)]
 pub struct PlayerLives(pub i32);
 

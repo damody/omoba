@@ -20,6 +20,10 @@ pub struct TowerUpgradeRegistry {
 
 impl TowerUpgradeRegistry {
     pub fn new() -> Self {
+        Self::new_with_cost_multiplier(1.0)
+    }
+
+    pub fn new_with_cost_multiplier(cost_multiplier: f32) -> Self {
         let mut defs = HashMap::new();
         for &tid in &[TOWER_DART, TOWER_TACK, TOWER_BOMB, TOWER_ICE] {
             let kind = tid.as_str();
@@ -35,7 +39,7 @@ impl TowerUpgradeRegistry {
                         level: lvl,
                         name: c.name.into(),
                         description: c.description.into(),
-                        cost: c.cost,
+                        cost: scaled_cost(c.cost, cost_multiplier),
                         effects: c.effects.iter().map(upgrade_effect_from_const).collect(),
                     };
                     let prev = defs.insert((kind.into(), path_idx as u8, lvl), def);
@@ -59,6 +63,10 @@ impl TowerUpgradeRegistry {
     pub fn iter_all(&self) -> impl Iterator<Item = &TowerUpgradeDef> {
         self.defs.values()
     }
+}
+
+fn scaled_cost(base_cost: i32, multiplier: f32) -> i32 {
+    ((base_cost as f32) * multiplier).round().max(1.0) as i32
 }
 
 fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
@@ -121,6 +129,14 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn cost_multiplier_scales_all_upgrade_costs() {
+        let reg = TowerUpgradeRegistry::new_with_cost_multiplier(0.7);
+        let def = reg.get(TOWER_DART.as_str(), 0, 1).expect("dart p1 l1");
+
+        assert_eq!(def.cost, 35);
     }
 
     #[test]
@@ -188,8 +204,10 @@ mod tests {
             "tower upgrade registry must contain exactly 4 towers * 3 paths * 4 levels"
         );
 
-        let expected_tower_ids: BTreeSet<&str> =
-            expected_towers().into_iter().map(|(kind, _)| kind).collect();
+        let expected_tower_ids: BTreeSet<&str> = expected_towers()
+            .into_iter()
+            .map(|(kind, _)| kind)
+            .collect();
         let actual_tower_ids: BTreeSet<&str> =
             reg.iter_all().map(|def| def.tower_kind.as_str()).collect();
         assert_eq!(
@@ -253,7 +271,10 @@ mod tests {
                         .expect("shape validation guarantees every upgrade exists");
                     let label = upgrade_label(kind, path, level);
 
-                    assert!(!def.name.trim().is_empty(), "{label}: name must not be empty");
+                    assert!(
+                        !def.name.trim().is_empty(),
+                        "{label}: name must not be empty"
+                    );
                     assert!(
                         !def.description.trim().is_empty(),
                         "{label}: description must not be empty"
@@ -286,9 +307,18 @@ mod tests {
                     continue;
                 };
 
-                assert!(!key.trim().is_empty(), "{label}: stat key must not be empty");
-                assert!(value.is_finite(), "{label}: stat key {key} value must be finite");
-                assert_ne!(*value, 0.0, "{label}: stat key {key} value must not be zero");
+                assert!(
+                    !key.trim().is_empty(),
+                    "{label}: stat key must not be empty"
+                );
+                assert!(
+                    value.is_finite(),
+                    "{label}: stat key {key} value must be finite"
+                );
+                assert_ne!(
+                    *value, 0.0,
+                    "{label}: stat key {key} value must not be zero"
+                );
 
                 validate_stat_op_matches_key(&label, key, *op);
             }

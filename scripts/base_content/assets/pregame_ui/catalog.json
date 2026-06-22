@@ -101,7 +101,7 @@
     {
       "id": "novice",
       "label": "新手",
-      "description": "適合初次熟悉路線的地圖。",
+      "description": "200 HP，40 關，塔與升級價格 0.7 倍。",
       "config": "novice",
       "reward": "",
       "image": "difficulty_easy.png",
@@ -110,7 +110,7 @@
     {
       "id": "intermediate",
       "label": "中級",
-      "description": "路線與節奏更有挑戰的地圖。",
+      "description": "150 HP，65 關，塔與升級價格 0.8 倍。",
       "config": "intermediate",
       "reward": "",
       "image": "difficulty_medium.png",
@@ -119,7 +119,7 @@
     {
       "id": "advanced",
       "label": "高級",
-      "description": "複雜路線與更高壓力的地圖。",
+      "description": "125 HP，85 關，塔與升級價格 0.9 倍。",
       "config": "advanced",
       "reward": "",
       "image": "difficulty_hard.png",
@@ -128,7 +128,7 @@
     {
       "id": "expert",
       "label": "專家",
-      "description": "最高難度地圖分類。",
+      "description": "100 HP，100 關，塔與升級價格 1 倍。",
       "config": "expert",
       "reward": "",
       "image": "difficulty_hard.png",
