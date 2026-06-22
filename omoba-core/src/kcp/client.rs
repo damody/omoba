@@ -38,9 +38,7 @@ mod win_udp {
 }
 
 #[cfg(windows)]
-fn udp_socket_no_connreset(
-    addr: &std::net::SocketAddr,
-) -> std::io::Result<tokio::net::UdpSocket> {
+fn udp_socket_no_connreset(addr: &std::net::SocketAddr) -> std::io::Result<tokio::net::UdpSocket> {
     use std::os::windows::io::AsRawSocket;
     use win_udp::*;
 

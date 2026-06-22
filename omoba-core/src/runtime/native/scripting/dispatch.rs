@@ -299,15 +299,13 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             event
         }
         ScriptEvent::Attacked { attacker, victim } => {
-            let mut event =
-                ScriptVisualEvent::new(ScriptVisualEventKind::Attacked, *victim, tick);
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::Attacked, *victim, tick);
             event.secondary = Some(*attacker);
             event.action_instance_id = action_instance_id(*attacker, tick);
             event
         }
         ScriptEvent::HealthGained { e, amount } => {
-            let mut event =
-                ScriptVisualEvent::new(ScriptVisualEventKind::HealthGained, *e, tick);
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::HealthGained, *e, tick);
             event.amount = *amount;
             event
         }
@@ -321,8 +319,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             cost,
             ability_id,
         } => {
-            let mut event =
-                ScriptVisualEvent::new(ScriptVisualEventKind::SpentMana, *caster, tick);
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::SpentMana, *caster, tick);
             event.amount = *cost;
             event.skill_id = Some(ability_id.clone());
             event
@@ -343,8 +340,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             state_id,
             active,
         } => {
-            let mut event =
-                ScriptVisualEvent::new(ScriptVisualEventKind::StateChanged, *e, tick);
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::StateChanged, *e, tick);
             event.state_id = Some(state_id.clone());
             event.amount = if *active {
                 Fixed64::from_i32(1)
@@ -354,8 +350,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             event
         }
         ScriptEvent::ModifierAdded { e, modifier_id } => {
-            let mut event =
-                ScriptVisualEvent::new(ScriptVisualEventKind::ModifierAdded, *e, tick);
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::ModifierAdded, *e, tick);
             event.modifier_id = Some(modifier_id.clone());
             event
         }
@@ -370,8 +365,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             skill_id,
             target,
         } => {
-            let mut event =
-                ScriptVisualEvent::new(ScriptVisualEventKind::SkillCast, *caster, tick);
+            let mut event = ScriptVisualEvent::new(ScriptVisualEventKind::SkillCast, *caster, tick);
             event.skill_id = Some(skill_id.clone());
             event.secondary = skill_target_entity(target);
             event
@@ -409,7 +403,10 @@ fn dispatch_one(
     tick: u64,
     visual_events: &mut Vec<ScriptVisualEvent>,
 ) {
-    if !matches!(ev, ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. }) {
+    if !matches!(
+        ev,
+        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. }
+    ) {
         if let Some(event) = visual_event_from_script_event(&ev, tick) {
             visual_events.push(event);
         }

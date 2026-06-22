@@ -222,9 +222,11 @@ impl ScriptVisualEventQueue {
     }
 
     pub fn push_tick(&mut self, entity: Entity, tick: u64, dt: Fixed64) {
-        if let Some(existing) = self.events.iter_mut().find(|event| {
-            event.kind == ScriptVisualEventKind::Tick && event.primary == entity
-        }) {
+        if let Some(existing) = self
+            .events
+            .iter_mut()
+            .find(|event| event.kind == ScriptVisualEventKind::Tick && event.primary == entity)
+        {
             existing.latest_tick = tick;
             existing.hook_count = existing.hook_count.saturating_add(1);
             existing.accumulated_dt += dt;
