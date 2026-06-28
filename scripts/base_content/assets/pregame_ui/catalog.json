@@ -26,10 +26,10 @@
         {
           "id": "settings",
           "label": "設定",
-          "description": "即將開放",
-          "enabled": false,
-          "locked": true,
-          "action": { "kind": "NoOp" }
+          "description": "音效、解析度、熱鍵",
+          "enabled": true,
+          "locked": false,
+          "action": { "kind": "Navigate", "target": "settings" }
         }
       ]
     },
