@@ -348,6 +348,7 @@ return function(ctx)
               "assets/towers/tower_tack_barrel_8_frame_01.png",
               "assets/towers/tower_tack_barrel_8_frame_02.png",
               "assets/towers/tower_tack_barrel_8_frame_03.png",
+              "assets/towers/tower_tack_barrel_8_frame_04.png",
             },
           },
           {
@@ -359,6 +360,7 @@ return function(ctx)
               "assets/towers/tower_tack_barrel_12_frame_01.png",
               "assets/towers/tower_tack_barrel_12_frame_02.png",
               "assets/towers/tower_tack_barrel_12_frame_03.png",
+              "assets/towers/tower_tack_barrel_12_frame_04.png",
             },
           },
           {
@@ -370,10 +372,11 @@ return function(ctx)
               "assets/towers/tower_tack_barrel_16_frame_01.png",
               "assets/towers/tower_tack_barrel_16_frame_02.png",
               "assets/towers/tower_tack_barrel_16_frame_03.png",
+              "assets/towers/tower_tack_barrel_16_frame_04.png",
             },
           },
         },
-        barrel_animation = { fps = 10.0, loop = true, fire_fps = 22.0, fire_once = true },
+        barrel_animation = { fps = 10.0, loop = true, fire_fps = 18.0, fire_once = true },
         barrel_offset = { x = 0.0, y = -4.0 },
         barrel_pivot = { x = 0.5, y = 0.5 },
         muzzle_offset = { x = 0.0, y = 0.0 },
@@ -592,8 +595,14 @@ return function(ctx)
         base = "assets/towers/tower_bomb_base.png",
         barrel = "assets/towers/tower_bomb_barrel.png",
         visual_size = 225.0,
-        barrel_frames = barrel_frames("tower_bomb"),
-        barrel_animation = { fps = 9.0, loop = true, fire_fps = 18.0, fire_once = true },
+        barrel_frames = {
+          "assets/towers/tower_bomb_barrel_frame_01.png",
+          "assets/towers/tower_bomb_barrel_frame_02.png",
+          "assets/towers/tower_bomb_barrel_frame_03.png",
+          "assets/towers/tower_bomb_barrel_frame_04.png",
+          "assets/towers/tower_bomb_barrel_frame_05.png",
+        },
+        barrel_animation = { fps = 9.0, loop = false, fire_fps = 14.0, fire_once = true },
         rotation_mode = "targeted",
         barrel_layout = "single",
         barrel_offset = { x = 0.0, y = -7.0 },
@@ -821,8 +830,13 @@ return function(ctx)
         base = "assets/towers/tower_ice_base.png",
         barrel = "assets/towers/tower_ice_barrel.png",
         visual_size = 180.0,
-        barrel_frames = barrel_frames("tower_ice"),
-        barrel_animation = { fps = 10.0, loop = true, fire_fps = 18.0, fire_once = true },
+        barrel_frames = {
+          "assets/towers/tower_ice_barrel_frame_01.png",
+          "assets/towers/tower_ice_barrel_frame_02.png",
+          "assets/towers/tower_ice_barrel_frame_03.png",
+          "assets/towers/tower_ice_barrel_frame_04.png",
+        },
+        barrel_animation = { fps = 10.0, loop = true, fire_fps = 16.0, fire_once = true },
         rotation_mode = "targeted",
         barrel_layout = "single",
         barrel_offset = { x = 0.0, y = -6.0 },
@@ -1006,6 +1020,235 @@ return function(ctx)
                 type = "stat_mod",
                 key = "BaseDamageOutgoingPercentage",
                 value = 7.33,
+                op = "add",
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      id = "tower_arty",
+      display_name = "吉拿棒迫擊砲",
+      atk = 50.0,
+      asd_interval = 2.5,
+      range = 600.0,
+      bullet_speed = 700.0,
+      splash_radius = 200.0,
+      hit_radius = 0.0,
+      slow_factor = 0.0,
+      slow_duration = 0.0,
+      cost = 900,
+      footprint = 12.5,
+      placement_radius = 96.0,
+      hp = 1.0,
+      turn_speed_deg = 180.0,
+      render = {
+        render_mode = "base_barrel",
+        base = "assets/towers/tower_arty_base.png",
+        barrel = "assets/towers/tower_arty_barrel.png",
+        visual_size = 240.0,
+        barrel_frames = {
+          "assets/towers/tower_arty_barrel_frame_01.png",
+          "assets/towers/tower_arty_barrel_frame_02.png",
+          "assets/towers/tower_arty_barrel_frame_03.png",
+          "assets/towers/tower_arty_barrel_frame_04.png",
+        },
+        barrel_animation = { fps = 10.0, loop = false, fire_fps = 12.0, fire_once = true },
+        rotation_mode = "targeted",
+        barrel_layout = "single",
+        barrel_offset = { x = 0.0, y = -8.0 },
+        barrel_pivot = { x = 0.5, y = 0.72 },
+        muzzle_offset = { x = 0.0, y = -38.0 },
+        recoil = {
+          mode = "directional",
+          distance = 15.0,
+          scale = 0.90,
+          duration_ms = 100,
+          return_ms = 160,
+        },
+      },
+      attack_timing = { windup = 400, backswing = 600 },
+      upgrades = {
+        {
+          {
+            name = "延長射程",
+            description = "射程 600→700",
+            cost = 225,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "AttackRangeBonus",
+                value = 100.0,
+                op = "add",
+              },
+            },
+          },
+          {
+            name = "重型彈頭",
+            description = "傷害 50→75，濺射 200→250",
+            cost = 450,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "BaseDamageOutgoingPercentage",
+                value = 0.5,
+                op = "add",
+              },
+              {
+                type = "stat_mod",
+                key = "SplashBonus",
+                value = 50.0,
+                op = "add",
+              },
+            },
+          },
+          {
+            name = "超級轟炸",
+            description = "傷害→100，濺射→300",
+            cost = 900,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "BaseDamageOutgoingPercentage",
+                value = 1.0,
+                op = "add",
+              },
+              {
+                type = "stat_mod",
+                key = "SplashBonus",
+                value = 100.0,
+                op = "add",
+              },
+            },
+          },
+          {
+            name = "終極砲擊",
+            description = "傷害→150，濺射→400，射程→800",
+            cost = 2250,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "BaseDamageOutgoingPercentage",
+                value = 2.0,
+                op = "add",
+              },
+              {
+                type = "stat_mod",
+                key = "SplashBonus",
+                value = 200.0,
+                op = "add",
+              },
+              {
+                type = "stat_mod",
+                key = "AttackRangeBonus",
+                value = 200.0,
+                op = "add",
+              },
+            },
+          },
+        },
+        {
+          {
+            name = "暈眩彈",
+            description = "命中暈眩敵人 1 秒",
+            cost = 225,
+            effects = {
+              {
+                type = "behavior_flag",
+                flag = "arty_stun",
+              },
+            },
+          },
+          {
+            name = "強力暈眩",
+            description = "暈眩時間→2 秒",
+            cost = 450,
+            effects = {
+              {
+                type = "behavior_flag",
+                flag = "arty_stun_2",
+              },
+            },
+          },
+          {
+            name = "群體暈眩",
+            description = "暈眩時間→3 秒",
+            cost = 900,
+            effects = {
+              {
+                type = "behavior_flag",
+                flag = "arty_stun_3",
+              },
+            },
+          },
+          {
+            name = "永久凍結",
+            description = "暈眩時間→3 秒，附加減速 50%",
+            cost = 2250,
+            effects = {
+              {
+                type = "behavior_flag",
+                flag = "arty_stun_3",
+              },
+              {
+                type = "stat_mod",
+                key = "SlowMultiplier",
+                value = 0.5,
+                op = "add",
+              },
+            },
+          },
+        },
+        {
+          {
+            name = "加速裝填",
+            description = "攻擊速度 +25%",
+            cost = 225,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "AttackSpeedMultiplier",
+                value = 0.25,
+                op = "add",
+              },
+            },
+          },
+          {
+            name = "快速裝填",
+            description = "攻擊速度 +50%",
+            cost = 450,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "AttackSpeedMultiplier",
+                value = 0.5,
+                op = "add",
+              },
+            },
+          },
+          {
+            name = "自動裝填",
+            description = "攻擊速度 +100%",
+            cost = 900,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "AttackSpeedMultiplier",
+                value = 1.0,
+                op = "add",
+              },
+            },
+          },
+          {
+            name = "連射模式",
+            description = "攻擊速度 +200%",
+            cost = 2250,
+            effects = {
+              {
+                type = "stat_mod",
+                key = "AttackSpeedMultiplier",
+                value = 2.0,
                 op = "add",
               },
             },

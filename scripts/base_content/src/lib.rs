@@ -18,7 +18,8 @@ use omb_script_abi::{
         Manifest, Manifest_Ref, RuntimeLuaReloadInfoFFI, RuntimeLuaReloadResultFFI, UnitDef,
     },
     prelude::{
-        SUMMON_SAIKA_GUNNER, TOWER_BOMB, TOWER_CAKE_SPLASH, TOWER_DART, TOWER_ICE, TOWER_TACK,
+        SUMMON_SAIKA_GUNNER, TOWER_ARTY, TOWER_BOMB, TOWER_CAKE_SPLASH, TOWER_DART, TOWER_ICE,
+        TOWER_TACK,
     },
     script::UnitScript_TO,
 };
@@ -42,6 +43,10 @@ fn get_manifest() -> Manifest_Ref {
 fn units() -> RVec<UnitDef> {
     let mut v: RVec<UnitDef> = RVec::new();
 
+    v.push(UnitDef {
+        unit_id: TOWER_ARTY.as_str().into(),
+        script: UnitScript_TO::from_value(towers::arty::ArtyTower, TD_Opaque),
+    });
     v.push(UnitDef {
         unit_id: TOWER_DART.as_str().into(),
         script: UnitScript_TO::from_value(towers::dart::DartTower, TD_Opaque),

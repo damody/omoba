@@ -627,6 +627,10 @@ pub struct StartRound {}
 /// The input remains lockstep-driven so all replicas pause/resume on the same tick.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TogglePause {}
+/// Client requests toggling authoritative simulation speed between 1x and 2x.
+/// The input is lockstep-driven so all replicas apply the speed on the same tick.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ToggleGameSpeed {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum TargetPriority {
@@ -664,7 +668,7 @@ impl TargetPriority {
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -698,6 +702,8 @@ pub mod player_input {
         SetTowerTargetPriority(super::SetTowerTargetPriority),
         #[prost(message, tag = "13")]
         TogglePause(super::TogglePause),
+        #[prost(message, tag = "14")]
+        ToggleGameSpeed(super::ToggleGameSpeed),
     }
 }
 /// Tag 0x10 (C→S): client submits an input targeted at a future tick.

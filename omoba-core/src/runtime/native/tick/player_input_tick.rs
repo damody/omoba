@@ -17,7 +17,7 @@ use crate::comp::ecs::{Job, System};
 use crate::comp::PendingPlayerInputs;
 #[cfg(feature = "kcp")]
 use crate::comp::{
-    CurrentCreepWave, GamePause, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
+    CurrentCreepWave, GamePause, GameSpeed, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
     PendingHeroCommandClearQueue, PendingHeroCommandKind, PendingItemUseQueue, PendingMoveQueue,
     PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue,
     PendingTowerUpgradeQueue, Time, TowerTargetPriority,
@@ -32,6 +32,7 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingPlayerInputs>,
         Write<'a, CurrentCreepWave>,
         Write<'a, GamePause>,
+        Write<'a, GameSpeed>,
         Read<'a, Time>,
         Write<'a, PendingTowerSpawnQueue>,
         Write<'a, PendingTowerSellQueue>,
@@ -52,6 +53,7 @@ impl<'a> System<'a> for Sys {
             mut pending,
             mut cw,
             mut pause,
+            mut speed,
             time,
             mut tower_q,
             mut sell_q,
@@ -82,6 +84,7 @@ impl<'a> System<'a> for Sys {
                 input,
                 &mut cw,
                 &mut pause,
+                &mut speed,
                 totaltime,
                 &mut tower_q,
                 &mut sell_q,
@@ -114,6 +117,7 @@ fn route_input(
     input: omoba_core::runtime::PlayerInput,
     cw: &mut CurrentCreepWave,
     pause: &mut GamePause,
+    speed: &mut GameSpeed,
     totaltime: f32,
     tower_q: &mut PendingTowerSpawnQueue,
     sell_q: &mut PendingTowerSellQueue,
@@ -158,6 +162,15 @@ fn route_input(
                 player_id,
                 tick,
                 if pause.is_paused { "paused" } else { "resumed" }
+            );
+        }
+        Some(PlayerInputEnum::ToggleGameSpeed(_)) => {
+            speed.toggle_between_1x_and_2x();
+            log::info!(
+                "player_input_tick: pid={} tick={} ToggleGameSpeed → {}x",
+                player_id,
+                tick,
+                speed.multiplier()
             );
         }
         Some(PlayerInputEnum::NoOp(_)) => {
@@ -407,13 +420,14 @@ mod tests {
     use super::*;
     use omoba_core::runtime::{
         AttackMove, AttackTarget, PlayerInput, PlayerInputEnum, SetTowerTargetPriority,
-        TargetPriority, TogglePause, Vec2I,
+        TargetPriority, ToggleGameSpeed, TogglePause, Vec2I,
     };
 
     #[test]
     fn routes_toggle_pause_to_authoritative_pause_state() {
         let mut cw = CurrentCreepWave::default();
         let mut pause = GamePause::default();
+        let mut speed = GameSpeed::default();
         let mut tower_q = PendingTowerSpawnQueue::default();
         let mut sell_q = PendingTowerSellQueue::default();
         let mut upgrade_q = PendingTowerUpgradeQueue::default();
@@ -432,6 +446,7 @@ mod tests {
             },
             &mut cw,
             &mut pause,
+            &mut speed,
             0.0,
             &mut tower_q,
             &mut sell_q,
@@ -453,6 +468,7 @@ mod tests {
             },
             &mut cw,
             &mut pause,
+            &mut speed,
             0.0,
             &mut tower_q,
             &mut sell_q,
@@ -468,9 +484,70 @@ mod tests {
     }
 
     #[test]
+    fn routes_toggle_game_speed_between_normal_and_double_speed() {
+        let mut cw = CurrentCreepWave::default();
+        let mut pause = GamePause::default();
+        let mut speed = GameSpeed::default();
+        let mut tower_q = PendingTowerSpawnQueue::default();
+        let mut sell_q = PendingTowerSellQueue::default();
+        let mut upgrade_q = PendingTowerUpgradeQueue::default();
+        let mut ability_q = PendingAbilityUpgradeQueue::default();
+        let mut cast_q = PendingAbilityCastQueue::default();
+        let mut item_q = PendingItemUseQueue::default();
+        let mut move_q = PendingMoveQueue::default();
+        let mut clear_q = PendingHeroCommandClearQueue::default();
+        let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+
+        route_input(
+            7,
+            42,
+            PlayerInput {
+                action: Some(PlayerInputEnum::ToggleGameSpeed(ToggleGameSpeed {})),
+            },
+            &mut cw,
+            &mut pause,
+            &mut speed,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+        );
+        assert_eq!(speed.multiplier(), 2);
+
+        route_input(
+            7,
+            43,
+            PlayerInput {
+                action: Some(PlayerInputEnum::ToggleGameSpeed(ToggleGameSpeed {})),
+            },
+            &mut cw,
+            &mut pause,
+            &mut speed,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+        );
+        assert_eq!(speed.multiplier(), 1);
+    }
+
+    #[test]
     fn routes_new_rts_inputs_to_pending_queues() {
         let mut cw = CurrentCreepWave::default();
         let mut pause = GamePause::default();
+        let mut speed = GameSpeed::default();
         let mut tower_q = PendingTowerSpawnQueue::default();
         let mut sell_q = PendingTowerSellQueue::default();
         let mut upgrade_q = PendingTowerUpgradeQueue::default();
@@ -492,6 +569,7 @@ mod tests {
             },
             &mut cw,
             &mut pause,
+            &mut speed,
             0.0,
             &mut tower_q,
             &mut sell_q,
@@ -514,6 +592,7 @@ mod tests {
             },
             &mut cw,
             &mut pause,
+            &mut speed,
             0.0,
             &mut tower_q,
             &mut sell_q,
@@ -538,6 +617,7 @@ mod tests {
             },
             &mut cw,
             &mut pause,
+            &mut speed,
             0.0,
             &mut tower_q,
             &mut sell_q,
