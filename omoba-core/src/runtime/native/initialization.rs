@@ -30,7 +30,7 @@ impl TdDifficultyConfig {
     pub const EXPERT: Self = Self {
         id: "expert",
         player_lives: 100,
-        starting_gold: 1000,
+        starting_gold: 650,
         tower_cost_multiplier: 1.0,
         round_count: 100,
     };
@@ -47,21 +47,21 @@ impl TdDifficultyConfig {
             "novice" | "beginner" | "easy" => Self {
                 id: "novice",
                 player_lives: 200,
-                starting_gold: 1000,
+                starting_gold: 650,
                 tower_cost_multiplier: 0.7,
                 round_count: 40,
             },
             "intermediate" | "medium" | "normal" => Self {
                 id: "intermediate",
                 player_lives: 150,
-                starting_gold: 1000,
+                starting_gold: 650,
                 tower_cost_multiplier: 0.8,
                 round_count: 65,
             },
             "advanced" | "hard" => Self {
                 id: "advanced",
                 player_lives: 125,
-                starting_gold: 1000,
+                starting_gold: 650,
                 tower_cost_multiplier: 0.9,
                 round_count: 85,
             },
@@ -80,6 +80,31 @@ fn scaled_td_cost(base_cost: i32, multiplier: f32) -> i32 {
 }
 
 const BTD_SPAWN_INTERVAL_SECS: f32 = 0.18;
+// Topper64 BTD6 income table, Easy / Standard:
+// https://topper64.co.uk/nk/btd6/income/easy
+const BTD_EASY_ROUND_INCOME_CASH: [f32; 100] = [
+    121.0, 137.0, 138.0, 175.0, 164.0, 163.0, 182.0, 200.0, 199.0, 314.0, 189.0, 192.0, 282.0,
+    259.0, 266.0, 268.0, 165.0, 358.0, 260.0, 186.0, 351.0, 298.0, 277.0, 167.0, 335.0, 333.0,
+    662.0, 266.0, 389.0, 337.0, 537.0, 627.0, 205.0, 912.0, 1150.0, 896.0, 1339.0, 1277.0,
+    1759.0, 521.0, 2181.0, 659.0, 1278.0, 1294.0, 2422.0, 716.0, 1637.0, 2843.0, 4758.0, 3016.0,
+    1098.5, 1595.5, 924.5, 2197.5, 2483.0, 1286.5, 1859.0, 2298.0, 2159.0, 922.5, 1232.0,
+    1386.4, 2826.0, 849.8, 3071.6, 1004.2, 1023.6, 777.8, 1391.0, 2618.8, 1503.0, 1504.0,
+    1392.6, 3044.0, 2667.4, 1316.0, 2540.2, 4862.0, 6709.0, 1400.2, 5366.0, 4757.0, 4749.0,
+    7044.0, 2625.4, 948.5, 2627.4, 3314.0, 2171.0, 339.3, 4191.0, 4537.4, 1946.6, 7667.1,
+    3718.0, 9955.6, 1417.2, 9653.8, 2827.9, 1534.6,
+];
+
+pub(crate) fn btd_easy_round_income_cash(round: usize) -> Option<f32> {
+    round
+        .checked_sub(1)
+        .and_then(|idx| BTD_EASY_ROUND_INCOME_CASH.get(idx))
+        .copied()
+}
+
+pub(crate) fn btd_easy_round_income_gold(round: usize) -> Option<i32> {
+    btd_easy_round_income_cash(round).map(|cash| cash.round() as i32)
+}
+
 const BTD_ROUND_DESCRIPTIONS: [&str; 100] = [
     "20 Reds",
     "35 Reds",
@@ -1948,18 +1973,31 @@ mod tests {
         let expert = TdDifficultyConfig::from_config_value("expert");
 
         assert_eq!(novice.player_lives, 200);
-        assert_eq!(novice.starting_gold, 1000);
+        assert_eq!(novice.starting_gold, 650);
         assert_eq!(novice.round_count, 40);
         assert_eq!(novice.tower_cost_multiplier, 0.7);
         assert_eq!(intermediate.player_lives, 150);
+        assert_eq!(intermediate.starting_gold, 650);
         assert_eq!(intermediate.round_count, 65);
         assert_eq!(intermediate.tower_cost_multiplier, 0.8);
         assert_eq!(advanced.player_lives, 125);
+        assert_eq!(advanced.starting_gold, 650);
         assert_eq!(advanced.round_count, 85);
         assert_eq!(advanced.tower_cost_multiplier, 0.9);
         assert_eq!(expert.player_lives, 100);
+        assert_eq!(expert.starting_gold, 650);
         assert_eq!(expert.round_count, 100);
         assert_eq!(expert.tower_cost_multiplier, 1.0);
+    }
+
+    #[test]
+    fn btd_easy_round_cash_matches_topper64_income_table() {
+        assert_eq!(btd_easy_round_income_cash(1), Some(121.0));
+        assert_eq!(btd_easy_round_income_cash(2), Some(137.0));
+        assert_eq!(btd_easy_round_income_cash(40), Some(521.0));
+        assert_eq!(btd_easy_round_income_cash(51), Some(1098.5));
+        assert_eq!(btd_easy_round_income_cash(100), Some(1534.6));
+        assert_eq!(btd_easy_round_income_gold(51), Some(1099));
     }
 
     #[test]
