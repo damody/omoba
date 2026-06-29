@@ -7,8 +7,8 @@
 //! - Stat: damage_bonus, range_bonus (透過 get_final_*)
 //!
 //! 待辦事項：
-//! - burn_tier1 / burn_tier2: 需 DoT 系統（Task 15）才能真正掛 burn buff。
-//!   這裡先暫不處理命中後加 burn。
+//! - burn_tier1 / burn_tier2: 目前以 slow 代替 DoT（暫代實作）。
+//!   待 DoT 系統就緒後，替換為真正的 burn buff（5dps / 10dps 持續傷害）。
 
 use omb_script_abi::prelude::*;
 
@@ -67,6 +67,16 @@ impl UnitScript for TackTower {
 
         let atk = w.get_final_atk(e);
 
+        // burn_tier1 / burn_tier2：以 slow 代替 DoT（暫代，待 DoT 系統就緒後替換）
+        // burn_tier2 優先（高階覆蓋低階）
+        let (burn_slow, burn_dur) = if w.has_tower_flag(e, RStr::from_str("burn_tier2")) {
+            (Fixed64::from_raw(512), Fixed64::from_i32(3)) // slow 0.5×, 3s
+        } else if w.has_tower_flag(e, RStr::from_str("burn_tier1")) {
+            (Fixed64::from_raw(717), Fixed64::from_i32(2)) // slow ≈0.7×, 2s
+        } else {
+            (Fixed64::ZERO, Fixed64::ZERO)
+        };
+
         // 針數 + blade
         let blade = w.has_tower_flag(e, RStr::from_str("blade_shooter"));
         let needle_count: u32 = if w.has_tower_flag(e, RStr::from_str("needles_32")) {
@@ -104,8 +114,8 @@ impl UnitScript for TackTower {
                 damage,
                 hit_radius,
                 splash_radius: Fixed64::ZERO,
-                slow_factor: Fixed64::ZERO,
-                slow_duration: Fixed64::ZERO,
+                slow_factor: burn_slow,
+                slow_duration: burn_dur,
                 stun_duration: Fixed64::ZERO,
                 kind_id: if blade {
                     PROJECTILE_TACK_BLADE.0
@@ -128,6 +138,5 @@ impl UnitScript for TackTower {
             w.play_vfx(RStr::from_str("vfx_ring_of_fire"), pos);
         }
 
-        // TODO burn_tier1 / burn_tier2: 需 DoT 系統 (Task 15) 才能對命中 target 掛 burn buff。
     }
 }

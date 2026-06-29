@@ -6,7 +6,8 @@
 //! - Stat: splash_bonus, damage_bonus, range_bonus (透過 get_final_*)
 //!
 //! 待辦事項：
-//! - moab_assassin: 需 ultimate_cooldown FFI (Task 14+)
+//! - moab_assassin: 超級導彈目前無 15s 冷卻計時（簡化版）。
+//!   待 ultimate_cooldown FFI 就緒後，限制觸發頻率為每 15s 一次。
 //! - frag_recursive: 碎片再產生碎片的深度遞迴，暫只調高碎片傷害 (45 vs 25)
 
 use omb_script_abi::prelude::*;
@@ -103,6 +104,24 @@ impl UnitScript for BombTower {
             stun_duration: stun,
             kind_id: PROJECTILE_BOMB.0,
         });
+
+        // moab_assassin：額外發射高傷害超級導彈（atk × 10）
+        // TODO: 目前無 15s 冷卻計時（簡化版），待 ultimate_cooldown FFI 就緒後補充冷卻限制
+        if w.has_tower_flag(e, RStr::from_str("moab_assassin")) {
+            w.spawn_projectile_ex(ProjectileSpec {
+                from: pos,
+                owner: e,
+                path: PathSpec::Homing { target },
+                speed: Fixed64::from_i32(2000),
+                damage: atk * Fixed64::from_i32(10),
+                hit_radius: Fixed64::from_i32(60),
+                splash_radius: splash,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                stun_duration: stun,
+                kind_id: PROJECTILE_BOMB.0,
+            });
+        }
     }
 
     fn on_attack_hit(

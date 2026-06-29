@@ -88,7 +88,7 @@ impl UnitScript for DartTower {
             (1, 0)
         };
 
-        // Spike-o-pult 覆蓋：巨釘、splash、直徑 100 的沿路判定
+        // Spike-o-pult 覆蓋：巨釘、splash、直徑 100 的沿路判定（優先於 sharp_pierce）
         let (bullet_speed, damage, hit_radius, splash_radius) = if spike {
             let forty = Fixed64::from_i32(40);
             let dmg = if atk > forty { atk } else { forty };
@@ -104,10 +104,16 @@ impl UnitScript for DartTower {
             } else {
                 Fixed64::ONE
             };
+            // sharp_pierce：hit_radius 擴大至 90 模擬穿透效果（spike_o_pult 優先，已在上方處理）
+            let pierce_radius = if w.has_tower_flag(e, RStr::from_str("sharp_pierce")) {
+                Fixed64::from_i32(90)
+            } else {
+                Fixed64::ZERO
+            };
             (
                 stats.bullet_speed * speed_mul,
                 atk,
-                Fixed64::ZERO,
+                pierce_radius,
                 Fixed64::ZERO,
             )
         };

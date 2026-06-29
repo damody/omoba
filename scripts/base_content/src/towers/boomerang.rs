@@ -92,6 +92,9 @@ impl UnitScript for BoomerangTower {
         } else {
             stats.bullet_speed
         };
+        // turbo_charge：攻速 ×2 + 傷害 +30% 由 Lua stat_mod（AttackSpeedMultiplier × 0.5、
+        // BaseDamageOutgoingPercentage +0.3）自動套用至 get_asd_interval / get_final_atk，
+        // 無需額外的 has_tower_flag 檢查。behavior_flag 保留供未來渲染特效使用。
 
         // moab_press：附加減速
         let (slow_factor, slow_duration) =
