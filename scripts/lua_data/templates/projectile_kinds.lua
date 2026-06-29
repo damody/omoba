@@ -27,5 +27,11 @@ return function(ctx)
     {
       id = "icicle",
     },
+    {
+      id = "boomerang",
+    },
+    {
+      id = "shuriken",
+    },
   }
 end

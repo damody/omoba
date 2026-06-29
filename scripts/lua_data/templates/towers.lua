@@ -86,7 +86,7 @@ return function(ctx)
   local towers = {
     {
       id = "tower_dart",
-      display_name = "飛鏢猴",
+      display_name = "糖球砲手",
       atk = 10.0,
       asd_interval = 0.8,
       range = 350.0,
@@ -317,7 +317,7 @@ return function(ctx)
     },
     {
       id = "tower_tack",
-      display_name = "鐵釘射手",
+      display_name = "刺蝟射手",
       atk = 8.0,
       asd_interval = 1.2,
       range = 380.0,
@@ -576,7 +576,7 @@ return function(ctx)
     },
     {
       id = "tower_bomb",
-      display_name = "炸彈射手",
+      display_name = "馬卡龍砲車",
       atk = 30.0,
       asd_interval = 1.5,
       range = 400.0,
@@ -811,7 +811,7 @@ return function(ctx)
     },
     {
       id = "tower_ice",
-      display_name = "冰凍猴",
+      display_name = "冰晶泰迪",
       atk = 3.0,
       asd_interval = 1.5,
       range = 300.0,
@@ -1289,6 +1289,159 @@ return function(ctx)
           scale = 0.88,
           duration_ms = 70,
           return_ms = 110,
+        },
+      },
+    },
+    {
+      id = "tower_boomerang",
+      display_name = "香蕉回力鏢",
+      atk = 12.0,
+      asd_interval = 0.85,
+      range = 320.0,
+      bullet_speed = 1500.0,
+      splash_radius = 0.0,
+      hit_radius = 60.0,
+      slow_factor = 0.0,
+      slow_duration = 0.0,
+      cost = 325,
+      footprint = 10.0,
+      placement_radius = 90.0,
+      hp = 1.0,
+      turn_speed_deg = 720.0,
+      render = {
+        render_mode = "base_barrel",
+        base = "assets/towers/tower_boomerang_base.png",
+        barrel = "assets/towers/tower_boomerang_barrel.png",
+        visual_size = 180.0,
+        barrel_frames = barrel_frames("tower_boomerang"),
+        barrel_animation = { fps = 12.0, loop = true, fire_fps = 22.0, fire_once = true },
+        rotation_mode = "targeted",
+        barrel_layout = "single",
+        barrel_offset = { x = 0.0, y = -6.0 },
+        barrel_pivot = { x = 0.5, y = 0.66 },
+        muzzle_offset = { x = 0.0, y = -28.0 },
+        recoil = {
+          mode = "directional",
+          distance = 6.0,
+          scale = 0.95,
+          duration_ms = 60,
+          return_ms = 100,
+        },
+      },
+      attack_timing = { windup = 350, backswing = 650 },
+      upgrades = {
+        -- Path 1：穿透 / 傷害（飛鏢路線）
+        -- 費用公式：base_cost(325) × [0.25, 0.50, 1.00, 2.50] = [81, 162, 325, 812]
+        {
+          {
+            name = "長射程回力鏢",
+            description = "射程 320→400",
+            cost = 81,
+            effects = {
+              { type = "stat_mod", key = "AttackRangeBonus", value = 80.0, op = "add" },
+            },
+          },
+          {
+            name = "回力飛射",
+            description = "命中後彈向附近第 2 個目標",
+            cost = 162,
+            effects = {
+              { type = "behavior_flag", flag = "glaive_ricochet" },
+            },
+          },
+          {
+            name = "飛鏢霸主",
+            description = "每次投擲 2 個回力鏢",
+            cost = 325,
+            effects = {
+              { type = "behavior_flag", flag = "glaive_lord" },
+            },
+          },
+          {
+            name = "飛艇壓制",
+            description = "命中附 0.5s 減速 + damage ×2",
+            cost = 812,
+            effects = {
+              { type = "behavior_flag", flag = "moab_press" },
+              { type = "stat_mod", key = "BaseDamageOutgoingPercentage", value = 1.0, op = "add" },
+            },
+          },
+        },
+        -- Path 2：攻速 / 連射（仿生路線）
+        {
+          {
+            name = "更快投擲",
+            description = "攻速 +25%",
+            cost = 81,
+            effects = {
+              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 0.8, op = "mul" },
+            },
+          },
+          {
+            name = "更快回力鏢",
+            description = "彈速 ×1.5，射程 +30",
+            cost = 162,
+            effects = {
+              { type = "stat_mod", key = "AttackRangeBonus", value = 30.0, op = "add" },
+              { type = "behavior_flag", flag = "faster_rangs" },
+            },
+          },
+          {
+            name = "仿生回力鏢",
+            description = "一次連射 3 個回力鏢",
+            cost = 325,
+            effects = {
+              { type = "behavior_flag", flag = "bionic_burst" },
+            },
+          },
+          {
+            name = "渦輪衝鋒",
+            description = "攻速再 ×2，damage +30%",
+            cost = 812,
+            effects = {
+              { type = "behavior_flag", flag = "turbo_charge" },
+              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 0.5, op = "mul" },
+              { type = "stat_mod", key = "BaseDamageOutgoingPercentage", value = 0.3, op = "add" },
+            },
+          },
+        },
+        -- Path 3：手裡劍（特殊路線）
+        {
+          {
+            name = "手裡劍投擲",
+            description = "升級為手裡劍：dmg +50%, hit_radius 90",
+            cost = 81,
+            effects = {
+              { type = "behavior_flag", flag = "shuriken" },
+              { type = "stat_mod", key = "BaseDamageOutgoingPercentage", value = 0.5, op = "add" },
+            },
+          },
+          {
+            name = "強化手裡劍",
+            description = "damage +50%，射程 +40",
+            cost = 162,
+            effects = {
+              { type = "stat_mod", key = "BaseDamageOutgoingPercentage", value = 0.5, op = "add" },
+              { type = "stat_mod", key = "AttackRangeBonus", value = 40.0, op = "add" },
+            },
+          },
+          {
+            name = "雙手裡劍",
+            description = "每次投擲 2 個手裡劍",
+            cost = 325,
+            effects = {
+              { type = "behavior_flag", flag = "double_shuriken" },
+            },
+          },
+          {
+            name = "風暴手裡劍",
+            description = "3 連射 + 彈射 + 攻速 +30%",
+            cost = 812,
+            effects = {
+              { type = "behavior_flag", flag = "storm_shuriken" },
+              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 0.7, op = "mul" },
+            },
+          },
         },
       },
     },

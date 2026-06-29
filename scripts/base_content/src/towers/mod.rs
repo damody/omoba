@@ -1,5 +1,6 @@
 pub mod arty;
 pub mod bomb;
+pub mod boomerang;
 pub mod cake_splash;
 pub mod dart;
 pub mod ice;
