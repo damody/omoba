@@ -1,14 +1,15 @@
-//! Ice Monkey — 減速塔，MVP 支援 12 升級 flag / stat。
+//! Ice Monkey — 減速塔，支援全部 9 個升級 flag。
 //!
 //! 支援:
-//! - Path1: deep_freeze (1s stun), icicle_impale (直線穿透 + 150 splash + 25 dmg)
+//! - Path1: deep_freeze (1s stun), absolute_zero (全局凍結), icicle_impale (直線穿透 + 150 splash + 25 dmg)
+//! - Path2: arctic_aura_20 (光環 20% 減速), snowstorm (光環 50% 減速), cryo_cannon (AoE 冰凍砲)
+//! - Path3: embrittle_15 (目標受傷 +15%), embrittle_25 (目標受傷 +25%), refreeze (命中後重置凍結)
 //! - Stat: slow_factor_override (越小越強), slow_duration_bonus, splash_bonus,
 //!   damage_bonus, range_bonus (透過 get_final_*)
 //!
-//! 待辦事項：
-//! - arctic_aura_20 / snowstorm / cryo_cannon: 需 aura tick（Task 14）
-//! - embrittle_* : 需 damage_taken_bonus hook（Task 14）
-//! - refreeze: 命中時 remove+add slow，簡化版暫未處理
+//! 注意：
+//! - absolute_zero：無冷卻計時（待 ultimate_cooldown FFI），每次攻擊凍結全場
+//! - cryo_cannon：以 deal_damage_splash + query_enemies_in_range 模擬 AoE 冰凍砲
 
 use omb_script_abi::prelude::*;
 use omb_script_abi::stat_keys::StatKey;
@@ -18,6 +19,27 @@ pub struct IceTower;
 // 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_ICE_STATS`。
 const STATS: &TowerStats = &TOWER_ICE_STATS;
+
+// 光環 buff 持續時間：略長於單 tick，確保每幀刷新不斷開（~0.2s = 205/1024）
+const AURA_BUFF_DUR: Fixed64 = Fixed64::from_raw(205);
+// arctic_aura_20: 移速降低 20%
+const AURA_20_JSON: &str = r#"{"movespeed_bonus_percentage":-0.2}"#;
+// snowstorm: 移速降低 50%
+const AURA_50_JSON: &str = r#"{"movespeed_bonus_percentage":-0.5}"#;
+// cryo_cannon: AoE 凍結半徑（200 units = 204800/1024）
+const CRYO_CANNON_RADIUS: Fixed64 = Fixed64::from_raw(204800);
+// cryo_cannon: 凍結持續時間（1s）
+const CRYO_CANNON_FREEZE_DUR: Fixed64 = Fixed64::ONE;
+// embrittle: debuff 持續時間（3s = 3072/1024）
+const EMBRITTLE_DUR: Fixed64 = Fixed64::from_raw(3072);
+// embrittle_15: 目標受傷增幅 +15%
+const EMBRITTLE_15_JSON: &str = r#"{"incoming_damage_percentage":0.15}"#;
+// embrittle_25: 目標受傷增幅 +25%
+const EMBRITTLE_25_JSON: &str = r#"{"incoming_damage_percentage":0.25}"#;
+// absolute_zero: 超大半徑模擬全場（2000 units = 2048000/1024）
+const GLOBAL_RADIUS: Fixed64 = Fixed64::from_raw(2048000);
+// refreeze: 重置凍結 duration（1s）
+const REFREEZE_DUR: Fixed64 = Fixed64::ONE;
 
 impl UnitScript for IceTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -45,6 +67,29 @@ impl UnitScript for IceTower {
         if asd_interval <= Fixed64::ZERO {
             return;
         }
+
+        let pos = match w.get_pos(e) {
+            RSome(p) => p,
+            RNone => return,
+        };
+        let range = w.get_final_attack_range(e);
+
+        // ── Path2 光環：arctic_aura_20 / snowstorm（每 tick 刷新，不受攻速影響）──
+        let has_snowstorm = w.has_tower_flag(e, RStr::from_str("snowstorm"));
+        let has_aura_20 = w.has_tower_flag(e, RStr::from_str("arctic_aura_20"));
+        if has_aura_20 || has_snowstorm {
+            let json = if has_snowstorm { AURA_50_JSON } else { AURA_20_JSON };
+            let aura_targets = w.query_enemies_in_range(pos, range, e);
+            for victim in aura_targets.iter().copied() {
+                w.add_stat_buff(
+                    victim,
+                    RStr::from_str("ice_aura_slow"),
+                    AURA_BUFF_DUR,
+                    RStr::from_str(json),
+                );
+            }
+        }
+
         let stats = super::tower_stats(TOWER_ICE, STATS);
         let timing = super::tower_attack_timing(TOWER_ICE, TOWER_ICE_ATTACK_TIMING);
         let phase = super::advance_attack_phase(e, dt, asd_interval, timing, w);
@@ -52,11 +97,6 @@ impl UnitScript for IceTower {
             return;
         }
 
-        let pos = match w.get_pos(e) {
-            RSome(p) => p,
-            RNone => return,
-        };
-        let range = w.get_final_attack_range(e);
         let target = match w.query_nearest_enemy(pos, range, e) {
             RSome(t) => t,
             RNone => return,
@@ -94,6 +134,34 @@ impl UnitScript for IceTower {
             Fixed64::ZERO
         };
         let icicle = w.has_tower_flag(e, RStr::from_str("icicle_impale"));
+        let cryo = w.has_tower_flag(e, RStr::from_str("cryo_cannon"));
+        let absolute_zero = w.has_tower_flag(e, RStr::from_str("absolute_zero"));
+
+        // ── Path1 ultimate：absolute_zero — 攻擊時凍結全場所有敵人 ────
+        // 注意：無 15s 冷卻（待 ultimate_cooldown FFI）
+        if absolute_zero {
+            let all_enemies = w.query_enemies_in_range(pos, GLOBAL_RADIUS, e);
+            for victim in all_enemies.iter().copied() {
+                w.add_buff(victim, RStr::from_str("stun"), Fixed64::ONE);
+            }
+        }
+
+        // ── Path2 Tier3：cryo_cannon — AoE 傷害 + 逐個凍結 ────────────
+        if cryo {
+            if let RSome(t_pos) = w.get_pos(target) {
+                w.deal_damage_splash(
+                    t_pos,
+                    CRYO_CANNON_RADIUS,
+                    atk,
+                    DamageKind::Magical,
+                    RSome(e),
+                );
+                let cryo_targets = w.query_enemies_in_range(t_pos, CRYO_CANNON_RADIUS, e);
+                for victim in cryo_targets.iter().copied() {
+                    w.add_buff(victim, RStr::from_str("stun"), CRYO_CANNON_FREEZE_DUR);
+                }
+            }
+        }
 
         let (path_spec, final_splash, final_damage, kind_id) = if icicle {
             // 朝 target 直線穿透（至 1.5 倍 range）
@@ -147,9 +215,38 @@ impl UnitScript for IceTower {
             stun_duration: stun,
             kind_id,
         });
+    }
 
-        // TODO arctic_aura_20 / snowstorm / cryo_cannon: 需 aura tick + damage_taken_bonus hook (Task 14)
-        // TODO embrittle_weak / embrittle_crit: 需 damage_taken_bonus (Task 14)
-        // TODO refreeze: 命中時對 target remove_buff + add_stat_buff
+    fn on_attack_hit(
+        &self,
+        attacker: EntityHandle,
+        victim: EntityHandle,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        // ── Path3：embrittle — 命中時對目標施加受傷增幅 debuff ─────────
+        // embrittle_25 優先（升級覆蓋 embrittle_15）
+        let has_embrittle_25 = w.has_tower_flag(attacker, RStr::from_str("embrittle_25"));
+        let has_embrittle_15 = w.has_tower_flag(attacker, RStr::from_str("embrittle_15"));
+        if has_embrittle_25 {
+            w.add_stat_buff(
+                victim,
+                RStr::from_str("ice_embrittle"),
+                EMBRITTLE_DUR,
+                RStr::from_str(EMBRITTLE_25_JSON),
+            );
+        } else if has_embrittle_15 {
+            w.add_stat_buff(
+                victim,
+                RStr::from_str("ice_embrittle"),
+                EMBRITTLE_DUR,
+                RStr::from_str(EMBRITTLE_15_JSON),
+            );
+        }
+
+        // ── Path3：refreeze — 命中時重置目標的凍結（stun）buff ──────────
+        if w.has_tower_flag(attacker, RStr::from_str("refreeze")) {
+            w.remove_buff(victim, RStr::from_str("stun"));
+            w.add_buff(victim, RStr::from_str("stun"), REFREEZE_DUR);
+        }
     }
 }
