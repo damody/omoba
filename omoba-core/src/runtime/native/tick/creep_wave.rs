@@ -1,4 +1,5 @@
 use crate::comp::*;
+use crate::runtime::native::initialization::btd_easy_round_income_gold;
 use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent, RuntimeEvents};
 use omoba_sim::Fixed64;
 use serde_json::json;
@@ -14,6 +15,7 @@ pub struct CreepWaveRead<'a> {
     paths: Read<'a, BTreeMap<String, Path>>,
     check_points: Read<'a, BTreeMap<String, CheckPoint>>,
     creeps: ReadStorage<'a, Creep>,
+    heroes: ReadStorage<'a, Hero>,
     game_mode: Read<'a, GameMode>,
 }
 
@@ -108,6 +110,14 @@ impl<'a> System<'a> for Sys {
                 cw.is_running = false;
                 let finished = cw.wave; // 已完成的波數（從 1 開始給前端看）
                 let total = tw.creep_waves.len();
+                if let Some(amount) = btd_easy_round_income_gold(finished) {
+                    for (hero_entity, _) in (&tr.entities, &tr.heroes).join() {
+                        tw.outcomes.push(Outcome::GainGold {
+                            target: hero_entity,
+                            amount,
+                        });
+                    }
+                }
                 let payload = json!({
                     "round": finished,
                     "total": total,
@@ -138,5 +148,53 @@ impl<'a> System<'a> for Sys {
                 cw.path.clear();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn td_wave_clear_awards_btd_easy_round_income_to_heroes() {
+        let mut world = World::new();
+        world.register::<Creep>();
+        world.register::<Hero>();
+
+        world.insert(Time(1.0));
+        world.insert(DeltaTime(omoba_sim::Fixed64::ZERO));
+        world.insert(BTreeMap::<String, CreepEmiter>::new());
+        world.insert(BTreeMap::<String, Path>::new());
+        world.insert(BTreeMap::<String, CheckPoint>::new());
+        world.insert(GameMode::TowerDefense);
+        world.insert(Vec::<Outcome>::new());
+        world.insert(RuntimeEvents::default());
+        world.insert(crate::comp::SysMetrics::default());
+        world.insert(crate::comp::TickProfile::default());
+        world.insert(CurrentCreepWave {
+            wave: 0,
+            path: Vec::new(),
+            is_running: true,
+            wave_start_time: 0.0,
+        });
+        world.insert(vec![CreepWave {
+            time: 0.0,
+            path_creeps: vec![PathCreeps {
+                creeps: Vec::new(),
+                path_name: "td_main".to_string(),
+            }],
+        }]);
+
+        let hero = world.create_entity().with(Hero::default()).build();
+
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+
+        let outcomes = world.read_resource::<Vec<Outcome>>();
+        assert!(outcomes.iter().any(|outcome| matches!(
+            outcome,
+            Outcome::GainGold { target, amount } if *target == hero && *amount == 121
+        )));
     }
 }
