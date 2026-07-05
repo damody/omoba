@@ -88,6 +88,22 @@ pub struct PendingTowerSell {
     pub owner_pid: u32,
 }
 
+/// 沙箱/測試：延遲的 debug creep 生成請求，源自
+/// `PlayerInputEnum::DebugSpawnCreep`（BTD6 沙箱「發送氣球」對應）。
+/// 由 `creep_wave::Sys` 在每 tick 開頭 drain（該系統已有
+/// creep_emiters / paths / outcomes 存取權限），主機與副本走同一條
+/// lockstep 輸入路徑，維持 deterministic equivalence。
+#[derive(Default)]
+pub struct PendingDebugCreepSpawnQueue {
+    pub requests: Vec<PendingDebugCreepSpawn>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingDebugCreepSpawn {
+    pub emitter_index: u32,
+    pub count: u32,
+}
+
 /// 階段 2.3：延遲的塔升級請求源自
 /// `PlayerInputEnum::TowerUpgrade`。與「PendingTowerSellQueue」的基本原則相同：
 /// 鎖定步驟 `player_input_tick::Sys` 僅有 SystemData 存取權限，但是

@@ -484,7 +484,15 @@ message PlayerInput {
     SetTowerTargetPriority set_tower_target_priority = 12;
     TogglePause toggle_pause = 13;
     ToggleGameSpeed toggle_game_speed = 14;
+    DebugSpawnCreep debug_spawn_creep = 15;
   }
+}
+
+// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
+// emitter_index 是 creep_emiters BTreeMap 的排序位置（決定性順序）。
+message DebugSpawnCreep {
+  uint32 emitter_index = 1;
+  uint32 count = 2;
 }
 
 // ===== Lockstep Wire Messages =====

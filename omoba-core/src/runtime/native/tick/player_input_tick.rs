@@ -18,9 +18,9 @@ use crate::comp::PendingPlayerInputs;
 #[cfg(feature = "kcp")]
 use crate::comp::{
     CurrentCreepWave, GamePause, GameSpeed, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
-    PendingHeroCommandClearQueue, PendingHeroCommandKind, PendingItemUseQueue, PendingMoveQueue,
-    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue,
-    PendingTowerUpgradeQueue, Time, TowerTargetPriority,
+    PendingDebugCreepSpawnQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
+    PendingItemUseQueue, PendingMoveQueue, PendingTowerSellQueue, PendingTowerSpawnQueue,
+    PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, Time, TowerTargetPriority,
 };
 
 #[derive(Default)]
@@ -43,6 +43,7 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingMoveQueue>,
         Write<'a, PendingHeroCommandClearQueue>,
         Write<'a, PendingTowerTargetPriorityQueue>,
+        Write<'a, PendingDebugCreepSpawnQueue>,
     );
 
     const NAME: &'static str = "player_input";
@@ -64,6 +65,7 @@ impl<'a> System<'a> for Sys {
             mut move_q,
             mut clear_q,
             mut target_priority_q,
+            mut debug_spawn_q,
         ): Self::SystemData,
     ) {
         if pending.inputs.is_empty() {
@@ -95,6 +97,7 @@ impl<'a> System<'a> for Sys {
                 &mut move_q,
                 &mut clear_q,
                 &mut target_priority_q,
+                &mut debug_spawn_q,
             );
         }
     }
@@ -128,6 +131,7 @@ fn route_input(
     move_q: &mut PendingMoveQueue,
     clear_q: &mut PendingHeroCommandClearQueue,
     target_priority_q: &mut PendingTowerTargetPriorityQueue,
+    debug_spawn_q: &mut PendingDebugCreepSpawnQueue,
 ) {
     use omoba_core::runtime::PlayerInputEnum;
 
@@ -392,6 +396,21 @@ fn route_input(
                 owner_pid: player_id,
             });
         }
+        Some(PlayerInputEnum::DebugSpawnCreep(d)) => {
+            log::info!(
+                "player_input_tick: pid={} tick={} DebugSpawnCreep emitter_index={} count={}",
+                player_id,
+                tick,
+                d.emitter_index,
+                d.count,
+            );
+            // 沙箱測試生怪：creep_wave::Sys 每 tick 開頭 drain（該系統
+            // 已有 creep_emiters / paths / outcomes 存取權限）。
+            debug_spawn_q.requests.push(crate::comp::PendingDebugCreepSpawn {
+                emitter_index: d.emitter_index,
+                count: d.count.max(1),
+            });
+        }
         None => {
             log::warn!(
                 "player_input_tick: pid={} tick={} input action is None (malformed proto?)",
@@ -437,6 +456,7 @@ mod tests {
         let mut move_q = PendingMoveQueue::default();
         let mut clear_q = PendingHeroCommandClearQueue::default();
         let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+        let mut debug_spawn_q = PendingDebugCreepSpawnQueue::default();
 
         route_input(
             7,
@@ -457,6 +477,7 @@ mod tests {
             &mut move_q,
             &mut clear_q,
             &mut target_priority_q,
+            &mut debug_spawn_q,
         );
         assert!(pause.is_paused);
 
@@ -479,6 +500,7 @@ mod tests {
             &mut move_q,
             &mut clear_q,
             &mut target_priority_q,
+            &mut debug_spawn_q,
         );
         assert!(!pause.is_paused);
     }
@@ -497,6 +519,7 @@ mod tests {
         let mut move_q = PendingMoveQueue::default();
         let mut clear_q = PendingHeroCommandClearQueue::default();
         let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+        let mut debug_spawn_q = PendingDebugCreepSpawnQueue::default();
 
         route_input(
             7,
@@ -517,6 +540,7 @@ mod tests {
             &mut move_q,
             &mut clear_q,
             &mut target_priority_q,
+            &mut debug_spawn_q,
         );
         assert_eq!(speed.multiplier(), 2);
 
@@ -539,6 +563,7 @@ mod tests {
             &mut move_q,
             &mut clear_q,
             &mut target_priority_q,
+            &mut debug_spawn_q,
         );
         assert_eq!(speed.multiplier(), 1);
     }
@@ -557,6 +582,7 @@ mod tests {
         let mut move_q = PendingMoveQueue::default();
         let mut clear_q = PendingHeroCommandClearQueue::default();
         let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+        let mut debug_spawn_q = PendingDebugCreepSpawnQueue::default();
 
         route_input(
             7,
@@ -580,6 +606,7 @@ mod tests {
             &mut move_q,
             &mut clear_q,
             &mut target_priority_q,
+            &mut debug_spawn_q,
         );
         route_input(
             7,
@@ -603,6 +630,7 @@ mod tests {
             &mut move_q,
             &mut clear_q,
             &mut target_priority_q,
+            &mut debug_spawn_q,
         );
         route_input(
             7,
@@ -628,6 +656,7 @@ mod tests {
             &mut move_q,
             &mut clear_q,
             &mut target_priority_q,
+            &mut debug_spawn_q,
         );
 
         assert_eq!(move_q.requests.len(), 2);

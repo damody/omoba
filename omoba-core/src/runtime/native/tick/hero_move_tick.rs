@@ -294,6 +294,7 @@ mod tests {
         world.insert(PendingItemUseQueue::default());
         world.insert(PendingHeroCommandClearQueue::default());
         world.insert(PendingTowerTargetPriorityQueue::default());
+        world.insert(PendingDebugCreepSpawnQueue::default());
         world.insert(Searcher::default());
         world.insert(BlockedRegions::default());
         world.insert(BuffStore::default());

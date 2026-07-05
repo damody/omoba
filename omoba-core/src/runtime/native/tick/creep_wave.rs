@@ -25,6 +25,7 @@ pub struct CreepWaveWrite<'a> {
     cur_creep_wave: Write<'a, CurrentCreepWave>,
     creep_waves: Write<'a, Vec<CreepWave>>,
     runtime_events: Write<'a, RuntimeEvents>,
+    debug_spawns: Write<'a, PendingDebugCreepSpawnQueue>,
 }
 
 #[derive(Default)]
@@ -38,6 +39,55 @@ impl<'a> System<'a> for Sys {
     fn run(_job: &mut Job<Self>, (tr, mut tw): Self::SystemData) {
         let totaltime = tr.time.0;
         let is_td = tr.game_mode.is_td();
+
+        // 沙箱/測試生怪：drain PendingDebugCreepSpawnQueue（Ctrl+數字熱鍵）。
+        // 必須在 wave 早退判斷之前跑，全部波打完後仍可測試。
+        if !tw.debug_spawns.requests.is_empty() {
+            let requests: Vec<_> = tw.debug_spawns.requests.drain(..).collect();
+            for req in requests {
+                let Some((emitter_name, cp)) =
+                    tr.creep_emiters.iter().nth(req.emitter_index as usize)
+                else {
+                    log::warn!(
+                        "debug_spawn_creep: emitter_index={} 超出範圍（共 {} 種）",
+                        req.emitter_index,
+                        tr.creep_emiters.len()
+                    );
+                    continue;
+                };
+                let Some((path_name, path)) = tr.paths.iter().next() else {
+                    log::warn!("debug_spawn_creep: 地圖沒有任何 path，無法生怪");
+                    continue;
+                };
+                let Some(pos) = path.check_points_sim.first().cloned() else {
+                    continue;
+                };
+                for _ in 0..req.count {
+                    let mut cpp = cp.root.clone();
+                    cpp.path = path_name.clone();
+                    let cp0 = CreepData {
+                        pos,
+                        creep: cpp,
+                        cdata: cp.property.clone(),
+                        faction_name: cp.faction_name.clone(),
+                        turn_speed_deg: Fixed64::from_raw(
+                            (cp.turn_speed_deg * omoba_sim::fixed::SCALE as f32) as i64,
+                        ),
+                        collision_radius: Fixed64::from_raw(
+                            (cp.collision_radius * omoba_sim::fixed::SCALE as f32) as i64,
+                        ),
+                    };
+                    tw.outcomes.push(Outcome::Creep { cd: cp0 });
+                }
+                log::info!(
+                    "debug_spawn_creep: 生成 {} x{}（path={}）",
+                    emitter_name,
+                    req.count,
+                    path_name
+                );
+            }
+        }
+
         let mut cw = tw.cur_creep_wave;
         if cw.wave >= tw.creep_waves.len() {
             return;
