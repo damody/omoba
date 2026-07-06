@@ -9,14 +9,20 @@ $maxX = 1400.0
 $minY = -800.0
 $maxY = 800.0
 
-$coordPattern = "X\s*=\s*(?<x>-?\d+(?:\.\d+)?)\s*,\s*Y\s*=\s*(?<y>-?\d+(?:\.\d+)?)"
+$numberPattern = "-?\d+(?:\.\d+)?"
+$coordPattern = "(?:X\s*=\s*(?<x>$numberPattern)\s*,\s*Y\s*=\s*(?<y>$numberPattern)|Y\s*=\s*(?<y>$numberPattern)\s*,\s*X\s*=\s*(?<x>$numberPattern))"
 $namePattern = 'Name\s*=\s*"(?<name>[^"]+)"'
 
 $mapFiles = @(Get-ChildItem -Path $Root -Recurse -Filter map.lua |
-    Where-Object { $_.FullName -match "TD_" } |
+    Where-Object { $_.Directory.Name -like "TD_*" } |
     Sort-Object FullName)
 
 $failures = @()
+
+if ($mapFiles.Count -eq 0) {
+    Write-Host "TD map bounds failed: no TD map.lua files found under '$Root'"
+    exit 1
+}
 
 foreach ($file in $mapFiles) {
     $text = Get-Content -Raw -LiteralPath $file.FullName
@@ -59,7 +65,8 @@ foreach ($file in $mapFiles) {
 }
 
 if ($failures.Count -gt 0) {
-    $failures | ForEach-Object { Write-Error -ErrorAction Continue $_ }
+    Write-Host "TD map bounds failed: $($failures.Count) out-of-range coordinate(s)"
+    $failures | ForEach-Object { Write-Host $_ }
     exit 1
 }
 
