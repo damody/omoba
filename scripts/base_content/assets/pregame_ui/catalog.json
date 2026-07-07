@@ -70,7 +70,7 @@
       "story": "TD_GREEN_CROSSROADS",
       "runtime": "TD_GREEN_CROSSROADS",
       "difficulty_id": "novice",
-      "image": "map_td_1.png",
+      "image": "map_td_green_crossroads.png",
       "enabled": true,
       "locked": false,
       "reward": "100 金幣"
@@ -82,7 +82,7 @@
       "story": "TD_RIVERSIDE_PATH",
       "runtime": "TD_RIVERSIDE_PATH",
       "difficulty_id": "novice",
-      "image": "map_td_1.png",
+      "image": "map_td_riverside_path.png",
       "enabled": true,
       "locked": false,
       "reward": "100 金幣"
@@ -94,7 +94,7 @@
       "story": "TD_FARMSTEAD_BENDS",
       "runtime": "TD_FARMSTEAD_BENDS",
       "difficulty_id": "novice",
-      "image": "map_td_1.png",
+      "image": "map_td_farmstead_bends.png",
       "enabled": true,
       "locked": false,
       "reward": "100 金幣"
@@ -106,7 +106,7 @@
       "story": "TD_TWIN_GATE_OUTPOST",
       "runtime": "TD_TWIN_GATE_OUTPOST",
       "difficulty_id": "intermediate",
-      "image": "map_td_1.png",
+      "image": "map_td_twin_gate_outpost.png",
       "enabled": true,
       "locked": false,
       "reward": "150 金幣"
@@ -118,7 +118,7 @@
       "story": "TD_TIDAL_HARBOR",
       "runtime": "TD_TIDAL_HARBOR",
       "difficulty_id": "intermediate",
-      "image": "map_td_1.png",
+      "image": "map_td_tidal_harbor.png",
       "enabled": true,
       "locked": false,
       "reward": "150 金幣"
@@ -130,7 +130,7 @@
       "story": "TD_MINE_CORRIDOR",
       "runtime": "TD_MINE_CORRIDOR",
       "difficulty_id": "intermediate",
-      "image": "map_td_1.png",
+      "image": "map_td_mine_corridor.png",
       "enabled": true,
       "locked": false,
       "reward": "150 金幣"
@@ -142,7 +142,7 @@
       "story": "TD_MOLTEN_FORK",
       "runtime": "TD_MOLTEN_FORK",
       "difficulty_id": "advanced",
-      "image": "map_td_1.png",
+      "image": "map_td_molten_fork.png",
       "enabled": true,
       "locked": false,
       "reward": "200 金幣"
@@ -154,7 +154,7 @@
       "story": "TD_TWILIGHT_MAZE",
       "runtime": "TD_TWILIGHT_MAZE",
       "difficulty_id": "advanced",
-      "image": "map_td_1.png",
+      "image": "map_td_twilight_maze.png",
       "enabled": true,
       "locked": false,
       "reward": "200 金幣"
@@ -166,7 +166,7 @@
       "story": "TD_FROZEN_BRIDGE",
       "runtime": "TD_FROZEN_BRIDGE",
       "difficulty_id": "advanced",
-      "image": "map_td_1.png",
+      "image": "map_td_frozen_bridge.png",
       "enabled": true,
       "locked": false,
       "reward": "200 金幣"
