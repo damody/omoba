@@ -15,6 +15,7 @@ scripts/*.dylib
 .run-local/
 .perf-packages/
 .superpowers/
+.worktrees/
 # 本機 editor / 使用者狀態
 settings.ron
 .claude/settings.local.json
