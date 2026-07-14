@@ -210,20 +210,65 @@ mod tests {
     }
 
     #[test]
-    fn exactly_three_shipped_active_abilities_are_valid() {
+    fn all_seven_towers_have_exactly_one_valid_active_ability() {
         let reg = TowerUpgradeRegistry::new();
-        let active: Vec<_> = reg
-            .iter_all()
-            .filter_map(|d| d.active_ability.as_ref())
-            .collect();
+        let expected = [
+            (
+                TOWER_DART.as_str(),
+                "dart_heavy_burst",
+                Fixed64::from_i32(12),
+                2,
+            ),
+            (
+                TOWER_BOMB.as_str(),
+                "bomb_cluster_overload",
+                Fixed64::from_i32(12),
+                2,
+            ),
+            (
+                TOWER_ICE.as_str(),
+                "ice_crystal_nova",
+                Fixed64::from_i32(12),
+                2,
+            ),
+            (
+                TOWER_TACK.as_str(),
+                "tack_blade_maelstrom",
+                Fixed64::from_i32(12),
+                2,
+            ),
+            (
+                TOWER_ARTY.as_str(),
+                "arty_fire_at_will",
+                Fixed64::from_i32(10),
+                2,
+            ),
+            (
+                TOWER_CAKE_SPLASH.as_str(),
+                "cake_dessert_party",
+                Fixed64::from_i32(10),
+                1,
+            ),
+            (
+                TOWER_BOOMERANG.as_str(),
+                "boomerang_turbo_charge",
+                Fixed64::from_i32(10),
+                1,
+            ),
+        ];
 
-        assert_eq!(active.len(), 3);
-        assert!(active
-            .iter()
-            .all(|ability| ability.cooldown == Fixed64::from_i32(10)));
-        let ids: std::collections::HashSet<_> =
-            active.iter().map(|ability| &ability.ability_id).collect();
-        assert_eq!(ids.len(), 3);
+        for (kind, ability_id, cooldown, expected_path) in expected {
+            let matches: Vec<_> = reg
+                .iter_all()
+                .filter(|def| def.tower_kind == kind && def.active_ability.is_some())
+                .collect();
+            assert_eq!(matches.len(), 1, "{kind}");
+            let def = matches[0];
+            assert_eq!((def.path, def.level), (expected_path, 4), "{kind}");
+            let active = def.active_ability.as_ref().unwrap();
+            assert_eq!(active.ability_id, ability_id);
+            assert_eq!(active.cooldown, cooldown);
+        }
     }
 
     #[test]
@@ -565,6 +610,10 @@ mod tests {
 
     fn validate_active_abilities(reg: &TowerUpgradeRegistry) {
         let scoped_towers = [
+            TOWER_DART.as_str(),
+            TOWER_BOMB.as_str(),
+            TOWER_ICE.as_str(),
+            TOWER_TACK.as_str(),
             TOWER_ARTY.as_str(),
             TOWER_CAKE_SPLASH.as_str(),
             TOWER_BOOMERANG.as_str(),
@@ -595,14 +644,13 @@ mod tests {
                 "{label}: duplicate active ability id `{}`",
                 ability.ability_id
             );
-            assert_eq!(
-                ability.cooldown,
-                Fixed64::from_i32(10),
-                "{label}: active ability cooldown must be 10 seconds"
+            assert!(
+                ability.cooldown > Fixed64::ZERO,
+                "{label}: active ability cooldown must be positive"
             );
             assert!(
-                ability.duration > Fixed64::ZERO,
-                "{label}: active ability duration must be positive"
+                ability.duration >= Fixed64::ZERO,
+                "{label}: active ability duration must not be negative"
             );
             let pulses_absent = ability.pulse_interval == Fixed64::ZERO && ability.pulse_count == 0;
             let pulses_present = ability.pulse_interval > Fixed64::ZERO && ability.pulse_count > 0;
@@ -610,6 +658,13 @@ mod tests {
                 pulses_absent || pulses_present,
                 "{label}: pulse interval and count must both be positive or both be zero"
             );
+            if pulses_present {
+                assert!(
+                    ability.duration
+                        >= ability.pulse_interval * Fixed64::from_i32(ability.pulse_count as i32),
+                    "{label}: active duration must cover every authored pulse"
+                );
+            }
 
             *active_counts.entry(def.tower_kind.as_str()).or_default() += 1;
         }

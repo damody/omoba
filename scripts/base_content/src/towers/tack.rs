@@ -15,6 +15,10 @@ pub struct TackTower;
 // 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_TACK_STATS`。hit_radius 80 須與 host 端 `comp::TACK_NEEDLE_HIT_RADIUS` 同步。
 const STATS: &TowerStats = &TOWER_TACK_STATS;
+const BLADE_MAELSTROM_ABILITY_ID: &str = "tack_blade_maelstrom";
+const BLADE_MAELSTROM_PULSES: u16 = 4;
+const BLADE_MAELSTROM_BLADES: u32 = 16;
+const BLADE_MAELSTROM_RANGE: Fixed64 = Fixed64::from_i32(600);
 
 fn burn_spec(e: EntityHandle, w: &GameWorldDyn<'_>) -> Option<(Fixed64, &'static str)> {
     if w.has_tower_flag(e, RStr::from_str("burn_tier2")) {
@@ -153,6 +157,48 @@ impl UnitScript for TackTower {
         }
     }
 
+    fn on_tower_ability_pulse(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        pulse_index: u16,
+        w: &mut GameWorldDyn<'_>,
+    ) -> bool {
+        if ability_id.as_str() != BLADE_MAELSTROM_ABILITY_ID
+            || pulse_index >= BLADE_MAELSTROM_PULSES
+        {
+            return false;
+        }
+        let pos = match w.get_pos(tower) {
+            RSome(pos) => pos,
+            RNone => return false,
+        };
+        let stats = super::tower_stats(TOWER_TACK, STATS);
+        let damage = w.get_final_atk(tower) * Fixed64::from_i32(3);
+        let step_ticks = omoba_sim::trig::TAU_TICKS / BLADE_MAELSTROM_BLADES as i32;
+        for i in 0..BLADE_MAELSTROM_BLADES {
+            let angle = omoba_sim::trig::Angle::from_ticks(step_ticks * i as i32);
+            let end = Vec2 {
+                x: pos.x + omoba_sim::trig::cos(angle) * BLADE_MAELSTROM_RANGE,
+                y: pos.y + omoba_sim::trig::sin(angle) * BLADE_MAELSTROM_RANGE,
+            };
+            w.spawn_projectile_ex(ProjectileSpec {
+                from: pos,
+                owner: tower,
+                path: PathSpec::Straight { end_pos: end },
+                speed: stats.bullet_speed,
+                damage,
+                hit_radius: Fixed64::from_i32(110),
+                splash_radius: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
+                kind_id: PROJECTILE_TACK_BLADE.0,
+            });
+        }
+        true
+    }
+
     fn on_projectile_hit(
         &self,
         attacker: EntityHandle,
@@ -172,9 +218,75 @@ impl UnitScript for TackTower {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::towers::projectile_test_support::{fixture, invoke, invoke_tick};
+    use crate::towers::projectile_test_support::{fixture, invoke, invoke_pulse, invoke_tick};
     use omoba_core::Outcome;
     use specs::WorldExt;
+
+    #[test]
+    fn blade_maelstrom_emits_four_consumable_rings_of_sixteen_blades() {
+        let fixture = fixture(
+            &["needles_32", "burn_tier2"],
+            &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)],
+        );
+        let mut total = 0;
+        for pulse_index in 0..4 {
+            let (consumed, outcomes) = invoke_pulse(
+                &fixture.world,
+                &TackTower,
+                fixture.tower,
+                "tack_blade_maelstrom",
+                pulse_index,
+            );
+            assert!(consumed);
+            let blades: Vec<_> = outcomes
+                .iter()
+                .filter(|outcome| {
+                    matches!(outcome,
+                        Outcome::ScriptProjectile { kind_id, .. }
+                            if *kind_id == PROJECTILE_TACK_BLADE.0
+                    )
+                })
+                .collect();
+            assert_eq!(blades.len(), 16);
+            assert!(blades.iter().all(|outcome| matches!(outcome,
+                Outcome::ScriptProjectile { damage_phys, hit_radius, .. }
+                    if *damage_phys == Fixed64::from_i32(30)
+                        && *hit_radius == Fixed64::from_i32(110)
+            )));
+            total += blades.len();
+        }
+        assert_eq!(total, 64);
+
+        let burn = invoke(
+            &fixture.world,
+            &TackTower,
+            fixture.tower,
+            fixture.enemies[0],
+            ProjectileHitContext {
+                kind_id: PROJECTILE_TACK_BLADE.0,
+                generation: 0,
+            },
+        );
+        assert!(burn.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { payload, .. } if payload["dot_damage"] == 10
+        )));
+    }
+
+    #[test]
+    fn blade_maelstrom_rejects_unknown_id_and_out_of_range_pulse() {
+        let fixture = fixture(&["needles_32"], &[]);
+        for (ability_id, pulse_index) in [("wrong", 0), ("tack_blade_maelstrom", 4)] {
+            let (consumed, outcomes) = invoke_pulse(
+                &fixture.world,
+                &TackTower,
+                fixture.tower,
+                ability_id,
+                pulse_index,
+            );
+            assert!(!consumed);
+            assert!(outcomes.is_empty());
+        }
+    }
 
     #[test]
     fn burn_tiers_apply_five_and_ten_dps_without_projectile_slow() {

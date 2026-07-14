@@ -15,6 +15,9 @@ pub struct BombTower;
 // 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_BOMB_STATS`。runtime Lua content mode 會以 active lookup 覆蓋此 fallback。
 const STATS: &TowerStats = &TOWER_BOMB_STATS;
+const CLUSTER_OVERLOAD_ABILITY_ID: &str = "bomb_cluster_overload";
+const CLUSTER_OVERLOAD_ACTIVE_BUFF: &str = "bomb_cluster_overload_active";
+const CLUSTER_OVERLOAD_MULTIPLIER: Fixed64 = Fixed64::from_raw(1536);
 
 impl UnitScript for BombTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -132,6 +135,26 @@ impl UnitScript for BombTower {
         }
     }
 
+    fn on_tower_ability_activate_with_access(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        access: &TowerActiveAbilityAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        if ability_id.as_str() != CLUSTER_OVERLOAD_ABILITY_ID {
+            return;
+        }
+        let remaining = access.get_tower_ability_active_remaining(tower, ability_id);
+        if remaining > Fixed64::ZERO {
+            w.add_buff(
+                tower,
+                RStr::from_str(CLUSTER_OVERLOAD_ACTIVE_BUFF),
+                remaining,
+            );
+        }
+    }
+
     fn on_projectile_hit(
         &self,
         attacker: EntityHandle,
@@ -159,20 +182,29 @@ impl UnitScript for BombTower {
             return;
         };
 
-        let frag_damage = if recursive {
+        let base_frag_damage = if recursive {
             Fixed64::from_i32(45)
         } else if w.has_tower_flag(attacker, RStr::from_str("frag_12")) {
             Fixed64::from_i32(25)
         } else {
             Fixed64::from_i32(15)
         };
+        let overloaded = w
+            .get_buff_remaining(attacker, RStr::from_str(CLUSTER_OVERLOAD_ACTIVE_BUFF))
+            > Fixed64::ZERO;
+        let multiplier = if overloaded {
+            CLUSTER_OVERLOAD_MULTIPLIER
+        } else {
+            Fixed64::ONE
+        };
+        let frag_damage = base_frag_damage * multiplier;
 
         let pos = match w.get_pos(victim) {
             RSome(p) => p,
             RNone => return,
         };
         let frag_range = Fixed64::from_i32(300);
-        let frag_speed = Fixed64::from_i32(800);
+        let frag_speed = Fixed64::from_i32(800) * multiplier;
         let frag_hit_radius = Fixed64::from_i32(40);
         let homing = w.has_tower_flag(attacker, RStr::from_str("frag_homing"));
         let mut homing_targets: Vec<EntityHandle> = if homing {
@@ -233,7 +265,8 @@ impl UnitScript for BombTower {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::towers::projectile_test_support::{fixture, invoke, invoke_tick};
+    use crate::towers::projectile_test_support::{fixture, invoke, invoke_activation, invoke_tick};
+    use omoba_core::runtime::BuffStore;
     use omoba_core::Outcome;
     use specs::WorldExt;
 
@@ -245,6 +278,96 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn cluster_overload_marks_five_second_window() {
+        let mut fixture = fixture(&["frag_homing", "frag_recursive"], &[]);
+        fixture
+            .world
+            .write_storage::<omoba_core::Tower>()
+            .get_mut(fixture.tower)
+            .unwrap()
+            .active_ability = Some(omoba_core::TowerActiveAbilityState {
+            ability_id: "bomb_cluster_overload".to_string(),
+            active_remaining: Fixed64::from_i32(5),
+            activation_serial: 1,
+            ..Default::default()
+        });
+
+        let outcomes = invoke_activation(
+            &fixture.world,
+            &BombTower,
+            fixture.tower,
+            "bomb_cluster_overload",
+        );
+
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { buff_id, duration, .. }
+                if buff_id == "bomb_cluster_overload_active" && *duration == Fixed64::from_i32(5)
+        )));
+    }
+
+    #[test]
+    fn cluster_overload_boosts_both_fragment_generations_without_adding_fragments() {
+        let mut fixture = fixture(
+            &["frag_homing", "frag_recursive"],
+            &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)],
+        );
+        fixture.world.write_resource::<BuffStore>().add(
+            fixture.tower,
+            "bomb_cluster_overload_active",
+            Fixed64::from_i32(5),
+            serde_json::Value::Null,
+        );
+
+        for (context, expected_generation, expected_count) in [
+            (
+                ProjectileHitContext {
+                    kind_id: PROJECTILE_BOMB.0,
+                    generation: 0,
+                },
+                1,
+                16,
+            ),
+            (
+                ProjectileHitContext {
+                    kind_id: PROJECTILE_BOMB_FRAG.0,
+                    generation: 1,
+                },
+                2,
+                4,
+            ),
+        ] {
+            let outcomes = invoke(
+                &fixture.world,
+                &BombTower,
+                fixture.tower,
+                fixture.enemies[0],
+                context,
+            );
+            let fragments: Vec<_> = outcomes
+                .iter()
+                .filter(|outcome| {
+                    matches!(outcome,
+                        Outcome::ScriptProjectile { generation, .. }
+                            if *generation == expected_generation
+                    )
+                })
+                .collect();
+            assert_eq!(fragments.len(), expected_count);
+            assert!(fragments.iter().all(|outcome| matches!(outcome,
+                Outcome::ScriptProjectile { damage_phys, msd, .. }
+                    if *damage_phys == Fixed64::from_raw(69120)
+                        && *msd == Fixed64::from_i32(1200)
+            )));
+        }
+    }
+
+    #[test]
+    fn cluster_overload_ignores_unknown_ability_id() {
+        let fixture = fixture(&["frag_homing", "frag_recursive"], &[]);
+        assert!(invoke_activation(&fixture.world, &BombTower, fixture.tower, "wrong").is_empty());
     }
 
     #[test]

@@ -251,14 +251,16 @@ pub(crate) mod projectile_test_support {
     use omb_script_abi::{
         script::UnitScript,
         types::{EntityHandle, ProjectileHitContext},
-        world::{GameWorld_TO, ProjectileQuery_TO, TowerCooldownAccess_TO},
+        world::{
+            GameWorld_TO, ProjectileQuery_TO, TowerActiveAbilityAccess_TO, TowerCooldownAccess_TO,
+        },
     };
     use omoba_core::runtime::BuffStore;
     use omoba_core::scripting::ScriptUnitTag;
     use omoba_core::{
         scripting::parallel_world_adapter::{
-            ParallelAdapterCache, ParallelProjectileQuery, ParallelTowerCooldownAccess,
-            ParallelWorldAdapter,
+            ParallelAdapterCache, ParallelProjectileQuery, ParallelTowerActiveAbilityAccess,
+            ParallelTowerCooldownAccess, ParallelWorldAdapter,
         },
         BlockedRegions, CProperty, CollisionRadius, Creep, Facing, Faction, Hero, IsBuilding,
         Outcome, PlayerOwner, Pos, Searcher, TAttack, Tick, Tower, Unit,
@@ -382,6 +384,86 @@ pub(crate) mod projectile_test_support {
         );
         drop(world_dyn);
         adapter.finish()
+    }
+
+    pub fn invoke_attack_hit(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        victim: specs::Entity,
+    ) -> Vec<Outcome> {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        script.on_attack_hit(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            EntityHandle {
+                id: victim.id(),
+                gen: victim.gen().id() as u32,
+            },
+            &mut world_dyn,
+        );
+        drop(world_dyn);
+        adapter.finish()
+    }
+
+    pub fn invoke_activation(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        ability_id: &str,
+    ) -> Vec<Outcome> {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        let access_dyn =
+            TowerActiveAbilityAccess_TO::from_ptr(RRef::new(&access_adapter), TD_Opaque);
+        script.on_tower_ability_activate_with_access(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            RStr::from_str(ability_id),
+            &access_dyn,
+            &mut world_dyn,
+        );
+        drop(access_dyn);
+        drop(world_dyn);
+        let mut outcomes = adapter.finish();
+        outcomes.extend(access_adapter.finish());
+        outcomes
+    }
+
+    pub fn invoke_pulse(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        ability_id: &str,
+        pulse_index: u16,
+    ) -> (bool, Vec<Outcome>) {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        let access_dyn =
+            TowerActiveAbilityAccess_TO::from_ptr(RRef::new(&access_adapter), TD_Opaque);
+        let consumed = script.on_tower_ability_pulse_with_access(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            RStr::from_str(ability_id),
+            pulse_index,
+            &access_dyn,
+            &mut world_dyn,
+        );
+        drop(access_dyn);
+        drop(world_dyn);
+        (consumed, adapter.finish())
     }
 
     pub fn invoke_tick(

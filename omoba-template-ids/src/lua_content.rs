@@ -279,9 +279,9 @@ pub(crate) fn validate_active_ability_quantization(
         duration: quantize("duration", ability.duration)?,
         pulse_interval: quantize("pulse_interval", ability.pulse_interval)?,
     };
-    if raw.cooldown <= 0 || raw.duration <= 0 {
+    if raw.cooldown <= 0 || raw.duration < 0 {
         return Err(format!(
-            "active ability '{}' cooldown and duration must quantize to positive Fixed64 values",
+            "active ability '{}' cooldown must quantize positive and duration must not be negative",
             ability.ability_id
         ));
     }
@@ -290,6 +290,17 @@ pub(crate) fn validate_active_ability_quantization(
     if !pulses_zero && !pulses_positive {
         return Err(format!(
             "active ability '{}' pulse_interval and pulse_count must both quantize positive or both be zero",
+            ability.ability_id
+        ));
+    }
+    if pulses_positive
+        && raw.duration
+            < raw
+                .pulse_interval
+                .saturating_mul(ability.pulse_count as i64)
+    {
+        return Err(format!(
+            "active ability '{}' duration must cover every authored pulse",
             ability.ability_id
         ));
     }
@@ -847,6 +858,18 @@ mod tests {
         ability.cooldown = 10.0;
         ability.pulse_interval = 0.0001;
         assert!(validate_active_ability_quantization(&ability).is_err());
+    }
+
+    #[test]
+    fn instant_active_ability_allows_zero_duration_without_pulses() {
+        let mut ability = active_ability();
+        ability.duration = 0.0;
+        ability.pulse_interval = 0.0;
+        ability.pulse_count = 0;
+
+        let raw = validate_active_ability_quantization(&ability).unwrap();
+
+        assert_eq!(raw.duration, 0);
     }
 
     #[test]

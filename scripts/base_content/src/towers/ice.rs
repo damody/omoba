@@ -42,6 +42,11 @@ const EMBRITTLE_25_JSON: &str = r#"{"incoming_damage_percentage":0.25}"#;
 const GLOBAL_RADIUS: Fixed64 = Fixed64::from_raw(2048000);
 // refreeze: 重置凍結 duration（1s）
 const REFREEZE_DUR: Fixed64 = Fixed64::ONE;
+const CRYSTAL_NOVA_ABILITY_ID: &str = "ice_crystal_nova";
+const CRYSTAL_NOVA_PROJECTILES: u32 = 16;
+const CRYSTAL_NOVA_RANGE: Fixed64 = Fixed64::from_i32(600);
+const CRYSTAL_NOVA_SPLASH: Fixed64 = Fixed64::from_i32(75);
+const CRYSTAL_NOVA_FREEZE: Fixed64 = Fixed64::from_raw(1536);
 
 impl UnitScript for IceTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -233,6 +238,44 @@ impl UnitScript for IceTower {
         });
     }
 
+    fn on_tower_ability_activate(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        if ability_id.as_str() != CRYSTAL_NOVA_ABILITY_ID {
+            return;
+        }
+        let pos = match w.get_pos(tower) {
+            RSome(pos) => pos,
+            RNone => return,
+        };
+        let stats = super::tower_stats(TOWER_ICE, STATS);
+        let damage = w.get_final_atk(tower) * Fixed64::from_i32(4);
+        let step_ticks = omoba_sim::trig::TAU_TICKS / CRYSTAL_NOVA_PROJECTILES as i32;
+        for i in 0..CRYSTAL_NOVA_PROJECTILES {
+            let angle = omoba_sim::trig::Angle::from_ticks(step_ticks * i as i32);
+            let end = Vec2 {
+                x: pos.x + omoba_sim::trig::cos(angle) * CRYSTAL_NOVA_RANGE,
+                y: pos.y + omoba_sim::trig::sin(angle) * CRYSTAL_NOVA_RANGE,
+            };
+            w.spawn_projectile_ex(ProjectileSpec {
+                from: pos,
+                owner: tower,
+                path: PathSpec::Straight { end_pos: end },
+                speed: stats.bullet_speed,
+                damage,
+                hit_radius: Fixed64::ZERO,
+                splash_radius: CRYSTAL_NOVA_SPLASH,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                stun_duration: CRYSTAL_NOVA_FREEZE,
+                kind_id: PROJECTILE_ICICLE.0,
+            });
+        }
+    }
+
     fn on_attack_hit(
         &self,
         attacker: EntityHandle,
@@ -270,7 +313,7 @@ impl UnitScript for IceTower {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::towers::projectile_test_support::{fixture, invoke_tick};
+    use crate::towers::projectile_test_support::{fixture, invoke_activation, invoke_tick};
     use omoba_core::Outcome;
     use specs::WorldExt;
 
@@ -294,6 +337,50 @@ mod tests {
             fixture.tower,
             Fixed64::from_raw(1),
         )
+    }
+
+    #[test]
+    fn crystal_nova_emits_sixteen_deterministic_icicles_without_an_enemy() {
+        let fixture = fixture(&["icicle_impale"], &[]);
+
+        let outcomes =
+            invoke_activation(&fixture.world, &IceTower, fixture.tower, "ice_crystal_nova");
+        let shots: Vec<_> = outcomes
+            .iter()
+            .filter_map(|outcome| match outcome {
+                Outcome::ScriptProjectile {
+                    tpos,
+                    radius,
+                    damage_phys,
+                    stun_duration,
+                    kind_id,
+                    ..
+                } => Some((*tpos, *radius, *damage_phys, *stun_duration, *kind_id)),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(shots.len(), 16);
+        assert!(shots
+            .iter()
+            .all(
+                |(_, radius, damage, stun, kind_id)| *radius == Fixed64::from_i32(75)
+                    && *damage == Fixed64::from_i32(40)
+                    && *stun == Fixed64::from_raw(1536)
+                    && *kind_id == PROJECTILE_ICICLE.0
+            ));
+        assert!(shots
+            .iter()
+            .any(|(end, ..)| *end == Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO)));
+        assert!(shots
+            .iter()
+            .any(|(end, ..)| *end == Vec2::new(Fixed64::ZERO, Fixed64::from_i32(600))));
+    }
+
+    #[test]
+    fn crystal_nova_ignores_unknown_ability_id() {
+        let fixture = fixture(&["icicle_impale"], &[]);
+        assert!(invoke_activation(&fixture.world, &IceTower, fixture.tower, "wrong").is_empty());
     }
 
     #[test]
