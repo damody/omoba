@@ -8,11 +8,14 @@ use crate::ability_meta::AbilityType;
 use abi_stable::{
     sabi_trait::prelude::TD_Opaque,
     std_types::{RNone, RSome},
-    RMut,
+    RMut, RRef,
 };
 use omb_script_abi::{
-    types::{DamageInfo, EntityHandle, Fixed64, Target, Vec2},
-    world::{GameWorld, GameWorldDyn, GameWorld_TO},
+    types::{DamageInfo, EntityHandle, Fixed64, ProjectileHitContext, Target, Vec2},
+    world::{
+        GameWorld, GameWorldDyn, GameWorld_TO, ProjectileQuery_TO, TowerActiveAbilityAccessDyn,
+        TowerActiveAbilityAccess_TO, TowerCooldownAccessDyn, TowerCooldownAccess_TO,
+    },
 };
 use rayon::prelude::*;
 use specs::{Entity, Join, World, WorldExt};
@@ -24,7 +27,10 @@ use super::event::{
     ScriptEvent, ScriptEventQueue, ScriptVisualEvent, ScriptVisualEventKind,
     ScriptVisualEventQueue, SkillTarget,
 };
-use super::parallel_world_adapter::{ParallelAdapterCache, ParallelWorldAdapter};
+use super::parallel_world_adapter::{
+    ParallelAdapterCache, ParallelProjectileQuery, ParallelTowerActiveAbilityAccess,
+    ParallelTowerCooldownAccess, ParallelWorldAdapter,
+};
 use super::registry::ScriptRegistry;
 use super::tag::ScriptUnitTag;
 
@@ -60,7 +66,11 @@ pub fn run_script_dispatch(
         return;
     }
 
-    let mut tagged = filter_ready_on_ticks(world, tagged, dt);
+    let mut tagged = if world.read_resource::<crate::comp::GamePause>().is_paused {
+        Vec::new()
+    } else {
+        filter_ready_on_ticks(world, tagged, dt)
+    };
     tagged.sort_by_key(|(entity, unit_id)| (entity.id(), entity.gen().id(), unit_id.clone()));
     let dispatch_span = tracing::trace_span!(
         "omoba_core::runtime::run_script_dispatch",
@@ -130,17 +140,22 @@ pub fn run_script_dispatch(
                 let handle = ParallelWorldAdapter::entity_to_handle(*ent);
                 let t = Instant::now();
                 let mut adapter = ParallelWorldAdapter::new(&cache, *ent);
+                let mut cooldown_adapter = ParallelTowerCooldownAccess::new(&cache);
                 let mut world_dyn = world_dyn_of(&mut adapter);
+                let mut cooldown_dyn = cooldown_dyn_of(&mut cooldown_adapter);
                 let r = catch_unwind(AssertUnwindSafe(|| {
-                    script.on_tick(handle, dt, &mut world_dyn);
+                    script.on_tower_tick(handle, dt, &mut cooldown_dyn, &mut world_dyn);
                 }));
+                drop(cooldown_dyn);
                 drop(world_dyn);
                 let ns = t.elapsed().as_nanos();
                 if r.is_err() {
-                    log::error!("[scripting] panic in on_tick of {}", uid);
+                    log::error!("[scripting] panic in on_tower_tick of {}", uid);
                 }
                 let visual = ScriptVisualEvent::new(ScriptVisualEventKind::Tick, *ent, rng_seed);
-                Some((uid.clone(), ns, adapter.finish(), visual))
+                let mut outcomes = adapter.finish();
+                outcomes.extend(cooldown_adapter.finish());
+                Some((uid.clone(), ns, outcomes, visual))
             })
             .collect();
         drop(cache);
@@ -198,8 +213,8 @@ fn filter_ready_on_ticks(
     let mut attacks = world.write_storage::<TAttack>();
     tagged
         .into_iter()
-        .filter(|(ent, _)| {
-            if towers.get(*ent).is_none() {
+        .filter(|(ent, uid)| {
+            if towers.get(*ent).is_none() || uid == "tower_ice" {
                 return true;
             }
             let Some(atk) = attacks.get_mut(*ent) else {
@@ -247,6 +262,7 @@ fn event_invocation_entity(ev: &ScriptEvent) -> Entity {
         | ScriptEvent::SkillLearn { caster, .. }
         | ScriptEvent::SpentMana { caster, .. } => *caster,
         ScriptEvent::AttackHit { attacker, .. }
+        | ScriptEvent::ProjectileHit { attacker, .. }
         | ScriptEvent::AttackStart { attacker, .. }
         | ScriptEvent::AttackLanded { attacker, .. }
         | ScriptEvent::AttackFail { attacker, .. } => *attacker,
@@ -271,6 +287,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             event.action_instance_id = action_instance_id(*attacker, tick);
             event
         }
+        ScriptEvent::ProjectileHit { .. } => return None,
         ScriptEvent::AttackStart { attacker, target } => {
             let mut event =
                 ScriptVisualEvent::new(ScriptVisualEventKind::AttackStart, *attacker, tick);
@@ -706,6 +723,26 @@ fn dispatch_one(
             }
         }
 
+        ScriptEvent::ProjectileHit {
+            attacker,
+            victim,
+            kind_id,
+            generation,
+        } => {
+            let victim_handle = ParallelWorldAdapter::entity_to_handle(victim);
+            let context = ProjectileHitContext {
+                kind_id,
+                generation,
+            };
+            adapter.set_projectile_hit_generation(generation);
+            let cache = adapter.cache;
+            let query_adapter = ParallelProjectileQuery::new(cache);
+            let query_dyn = ProjectileQuery_TO::from_ptr(RRef::new(&query_adapter), TD_Opaque);
+            with_script(adapter, registry, attacker, |script, handle, world_dyn| {
+                script.on_projectile_hit(handle, victim_handle, context, &query_dyn, world_dyn);
+            });
+        }
+
         ScriptEvent::Respawn { e } => {
             with_script(adapter, registry, e, |script, handle, world_dyn| {
                 script.on_respawn(handle, world_dyn);
@@ -888,4 +925,274 @@ fn with_script<F>(
 /// 建構一個“GameWorldDyn”，借用適配器進行一次鉤子呼叫。
 fn world_dyn_of<'a>(adapter: &'a mut ParallelWorldAdapter<'_>) -> GameWorldDyn<'a> {
     GameWorld_TO::from_ptr(RMut::new(adapter), TD_Opaque)
+}
+
+/// Drain accepted activation and scheduled pulse records exactly once.
+///
+/// This is public within the runtime primarily so focused deterministic tests can
+/// exercise the boundary without also running ordinary per-unit `on_tick` hooks.
+pub fn drain_pending_tower_ability_callbacks(
+    world: &mut World,
+    registry: &ScriptRegistry,
+    rng_seed: u64,
+) -> TowerAbilityDispatchSummary {
+    let activations = world
+        .try_fetch_mut::<crate::comp::PendingTowerAbilityActivationQueue>()
+        .map(|mut queue| std::mem::take(&mut queue.requests))
+        .unwrap_or_default();
+    let pulses = world
+        .try_fetch_mut::<crate::comp::PendingTowerAbilityPulseQueue>()
+        .map(|mut queue| std::mem::take(&mut queue.requests))
+        .unwrap_or_default();
+    if activations.is_empty() && pulses.is_empty() {
+        return TowerAbilityDispatchSummary::default();
+    }
+
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut callback_outcomes = Vec::new();
+    let mut reset_outcomes = Vec::new();
+    let mut acknowledgements = Vec::new();
+    let mut cancellations = Vec::new();
+    let mut missing_towers = Vec::new();
+
+    for activation in activations {
+        match tower_ability_record_status(
+            cache.tower.get(activation.entity),
+            &activation.ability_id,
+            activation.activation_serial,
+        ) {
+            TowerAbilityRecordStatus::Match => {}
+            TowerAbilityRecordStatus::MissingTower => {
+                missing_towers.push((
+                    activation.entity,
+                    activation.ability_id,
+                    activation.activation_serial,
+                ));
+                continue;
+            }
+            TowerAbilityRecordStatus::Stale => continue,
+        }
+        let Some(script) = script_id_of(&cache, activation.entity)
+            .and_then(|unit_id| registry.get(&unit_id).map(|script| (unit_id, script)))
+        else {
+            cancellations.push((
+                activation.entity,
+                activation.ability_id,
+                activation.activation_serial,
+            ));
+            continue;
+        };
+        let (unit_id, script) = script;
+        let mut adapter = ParallelWorldAdapter::new(&cache, activation.entity);
+        let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
+        let handle = ParallelWorldAdapter::entity_to_handle(activation.entity);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let access_dyn = active_ability_access_dyn_of(&access_adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            script.on_tower_ability_activate_with_access(
+                handle,
+                activation.ability_id.as_str().into(),
+                &access_dyn,
+                &mut world_dyn,
+            );
+        }));
+        drop(access_dyn);
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!(
+                "[scripting] panic in on_tower_ability_activate of {}",
+                unit_id
+            );
+        }
+        callback_outcomes.extend(adapter.finish());
+        reset_outcomes.extend(access_adapter.finish());
+    }
+
+    for pulse in pulses {
+        match tower_ability_record_status(
+            cache.tower.get(pulse.entity),
+            &pulse.ability_id,
+            pulse.activation_serial,
+        ) {
+            TowerAbilityRecordStatus::Match => {}
+            TowerAbilityRecordStatus::MissingTower => {
+                missing_towers.push((pulse.entity, pulse.ability_id, pulse.activation_serial));
+                continue;
+            }
+            TowerAbilityRecordStatus::Stale => continue,
+        }
+        let Some(script) = script_id_of(&cache, pulse.entity)
+            .and_then(|unit_id| registry.get(&unit_id).map(|script| (unit_id, script)))
+        else {
+            cancellations.push((pulse.entity, pulse.ability_id, pulse.activation_serial));
+            continue;
+        };
+        let (unit_id, script) = script;
+        let mut adapter = ParallelWorldAdapter::new(&cache, pulse.entity);
+        let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
+        let handle = ParallelWorldAdapter::entity_to_handle(pulse.entity);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let access_dyn = active_ability_access_dyn_of(&access_adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            script.on_tower_ability_pulse_with_access(
+                handle,
+                pulse.ability_id.as_str().into(),
+                pulse.pulse_index,
+                &access_dyn,
+                &mut world_dyn,
+            )
+        }));
+        drop(access_dyn);
+        drop(world_dyn);
+        let consumed = match result {
+            Ok(consumed) => consumed,
+            Err(_) => {
+                log::error!("[scripting] panic in on_tower_ability_pulse of {}", unit_id);
+                false
+            }
+        };
+        callback_outcomes.extend(adapter.finish());
+        reset_outcomes.extend(access_adapter.finish());
+        acknowledgements.push((
+            pulse.entity,
+            pulse.ability_id,
+            pulse.activation_serial,
+            consumed,
+        ));
+    }
+    drop(cache);
+
+    missing_towers.sort_by(|a, b| {
+        (a.0.id(), a.0.gen().id(), a.2, &a.1).cmp(&(b.0.id(), b.0.gen().id(), b.2, &b.1))
+    });
+    missing_towers.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1 && a.2 == b.2);
+    let missing_tower_diagnostics = missing_towers.len();
+    for (entity, ability_id, activation_serial) in missing_towers {
+        log::warn!(
+            "[scripting] dropped tower active ability `{}` serial {} for {:?}: tower missing",
+            ability_id,
+            activation_serial,
+            entity
+        );
+    }
+
+    for (entity, ability_id, activation_serial, consumed) in acknowledgements {
+        crate::runtime::native::game_processor::acknowledge_tower_ability_pulse(
+            world,
+            entity,
+            &ability_id,
+            activation_serial,
+            consumed,
+        );
+    }
+
+    for (entity, ability_id, activation_serial) in cancellations {
+        let cancelled = crate::runtime::native::game_processor::cancel_tower_active_ability(
+            world,
+            entity,
+            &ability_id,
+            activation_serial,
+        );
+        if cancelled {
+            log::warn!(
+                "[scripting] cancelled tower active ability `{}` serial {} for {:?}: tower script missing",
+                ability_id,
+                activation_serial,
+                entity
+            );
+        }
+    }
+
+    // Backswing resets must be visible before the next ordinary tower attack
+    // scheduler. Other script mutations retain the normal outcome pipeline.
+    for outcome in reset_outcomes {
+        if let crate::comp::Outcome::ScriptSetAsdCount { entity, asd_count } = outcome {
+            if let Some(attack) = world
+                .write_storage::<crate::comp::TAttack>()
+                .get_mut(entity)
+            {
+                attack.asd_count = asd_count;
+            }
+        }
+    }
+    if !callback_outcomes.is_empty() {
+        if let Some(mut outcomes) = world.try_fetch_mut::<Vec<crate::comp::Outcome>>() {
+            outcomes.extend(callback_outcomes);
+        }
+    }
+
+    TowerAbilityDispatchSummary {
+        missing_tower_diagnostics,
+    }
+}
+
+/// Compatibility name retained for focused callback tests. Runtime runners use
+/// `drain_pending_tower_ability_callbacks` to make the phase boundary explicit.
+pub fn dispatch_tower_ability_callbacks(
+    world: &mut World,
+    registry: &ScriptRegistry,
+    rng_seed: u64,
+) -> TowerAbilityDispatchSummary {
+    drain_pending_tower_ability_callbacks(world, registry, rng_seed)
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct TowerAbilityDispatchSummary {
+    pub missing_tower_diagnostics: usize,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum TowerAbilityRecordStatus {
+    Match,
+    MissingTower,
+    Stale,
+}
+
+fn tower_ability_record_status(
+    tower: Option<&crate::comp::Tower>,
+    ability_id: &str,
+    activation_serial: u32,
+) -> TowerAbilityRecordStatus {
+    let Some(tower) = tower else {
+        return TowerAbilityRecordStatus::MissingTower;
+    };
+    if tower.active_ability.as_ref().is_some_and(|state| {
+        state.ability_id == ability_id && state.activation_serial == activation_serial
+    }) {
+        TowerAbilityRecordStatus::Match
+    } else {
+        TowerAbilityRecordStatus::Stale
+    }
+}
+
+fn cooldown_dyn_of<'a>(
+    adapter: &'a mut ParallelTowerCooldownAccess<'_>,
+) -> TowerCooldownAccessDyn<'a> {
+    TowerCooldownAccess_TO::from_ptr(RMut::new(adapter), TD_Opaque)
+}
+
+fn active_ability_access_dyn_of<'a>(
+    adapter: &'a ParallelTowerActiveAbilityAccess<'_>,
+) -> TowerActiveAbilityAccessDyn<'a> {
+    TowerActiveAbilityAccess_TO::from_ptr(RRef::new(adapter), TD_Opaque)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tower_ability_record_status, TowerAbilityRecordStatus};
+
+    #[test]
+    fn parallel_tower_tick_panic_diagnostic_names_the_dispatched_hook() {
+        let source = include_str!("dispatch.rs");
+        assert!(source.contains(concat!("panic in on_tower", "_tick of")));
+        assert!(!source.contains(concat!("panic in on_", "tick of")));
+    }
+
+    #[test]
+    fn tower_ability_dispatch_classifies_missing_tower_for_one_shot_diagnostic() {
+        assert_eq!(
+            tower_ability_record_status(None, "test_active", 7),
+            TowerAbilityRecordStatus::MissingTower
+        );
+    }
 }

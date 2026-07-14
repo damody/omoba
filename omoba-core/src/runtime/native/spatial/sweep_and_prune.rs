@@ -5,7 +5,7 @@ use std::hash::Hash;
 use vek::Vec2;
 use voracious_radix_sort::{RadixSort, Radixable};
 
-use super::{Bounds, Entry, SpatialIndex};
+use super::{BoundedQueryResult, Bounds, Entry, SpatialIndex};
 
 #[derive(Copy, Clone, Debug)]
 struct AxisRef {
@@ -82,15 +82,39 @@ where
         self.free_slots.push(idx);
     }
 
-    fn axis_insert_sorted(arr: &mut Vec<AxisRef>, item: AxisRef) {
+    fn compare_axis_refs(a: &AxisRef, b: &AxisRef, slots: &[Option<Slot<Id, Item>>]) -> Ordering {
+        a.coord
+            .total_cmp(&b.coord)
+            .then_with(
+                || match (&slots[a.slot as usize], &slots[b.slot as usize]) {
+                    (Some(a_slot), Some(b_slot)) => a_slot.id.cmp(&b_slot.id),
+                    _ => a.slot.cmp(&b.slot),
+                },
+            )
+            .then_with(|| a.slot.cmp(&b.slot))
+    }
+
+    fn sort_axis(arr: &mut Vec<AxisRef>, slots: &[Option<Slot<Id, Item>>]) {
+        if arr.len() < 2 {
+            return;
+        }
+        arr.voracious_mt_sort(4);
+
+        let mut start = 0;
+        while start < arr.len() {
+            let coord = arr[start].coord;
+            let mut end = start + 1;
+            while end < arr.len() && arr[end].coord.total_cmp(&coord) == Ordering::Equal {
+                end += 1;
+            }
+            arr[start..end].sort_unstable_by(|a, b| Self::compare_axis_refs(a, b, slots));
+            start = end;
+        }
+    }
+
+    fn axis_insert_sorted(arr: &mut Vec<AxisRef>, item: AxisRef, slots: &[Option<Slot<Id, Item>>]) {
         let pos = arr
-            .binary_search_by(|probe| {
-                probe
-                    .coord
-                    .partial_cmp(&item.coord)
-                    .unwrap_or(Ordering::Equal)
-                    .then(Ordering::Greater)
-            })
+            .binary_search_by(|probe| Self::compare_axis_refs(probe, &item, slots))
             .unwrap_or_else(|i| i);
         arr.insert(pos, item);
     }
@@ -169,10 +193,8 @@ where
             }));
         }
 
-        if self.xs.len() >= 2 {
-            self.xs.voracious_mt_sort(4);
-            self.ys.voracious_mt_sort(4);
-        }
+        Self::sort_axis(&mut self.xs, &self.slots);
+        Self::sort_axis(&mut self.ys, &self.slots);
     }
 
     fn insert(&mut self, entry: Entry<Id, Item>) {
@@ -196,8 +218,8 @@ where
             bounding_radius: radius,
         });
         self.id_to_slot.insert(id, slot);
-        Self::axis_insert_sorted(&mut self.xs, AxisRef { slot, coord: pos.x });
-        Self::axis_insert_sorted(&mut self.ys, AxisRef { slot, coord: pos.y });
+        Self::axis_insert_sorted(&mut self.xs, AxisRef { slot, coord: pos.x }, &self.slots);
+        Self::axis_insert_sorted(&mut self.ys, AxisRef { slot, coord: pos.y }, &self.slots);
         if radius > self.max_bounding_radius {
             self.max_bounding_radius = radius;
         }
@@ -293,10 +315,8 @@ where
                 });
             }
         }
-        if self.xs.len() >= 2 {
-            self.xs.voracious_mt_sort(4);
-            self.ys.voracious_mt_sort(4);
-        }
+        Self::sort_axis(&mut self.xs, &self.slots);
+        Self::sort_axis(&mut self.ys, &self.slots);
     }
 
     fn query_in_range(&self, center: Vec2<f32>, radius: f32) -> Vec<Entry<Id, Item>> {
@@ -330,11 +350,85 @@ where
         results
     }
 
+    fn query_in_range_bounded(
+        &self,
+        center: Vec2<f32>,
+        radius: f32,
+        visit_budget: usize,
+    ) -> BoundedQueryResult<Id, Item> {
+        let extended = radius + self.max_bounding_radius;
+        let (ly, ry) = Self::axis_range(&self.ys, center.y - extended, center.y + extended);
+        let min_x = center.x - extended;
+        let max_x = center.x + extended;
+        let mut entries = Vec::new();
+        let mut visited_candidates = 0;
+
+        for axis_ref in &self.ys[ly..ry] {
+            if visited_candidates == visit_budget {
+                break;
+            }
+            visited_candidates += 1;
+            if let Some(Some(slot)) = self.slots.get(axis_ref.slot as usize) {
+                if slot.position.x < min_x || slot.position.x > max_x {
+                    continue;
+                }
+                let extended_r = radius + slot.bounding_radius.max(0.0);
+                if slot.position.distance(center) <= extended_r {
+                    entries.push(Entry {
+                        id: slot.id.clone(),
+                        item: slot.item.clone(),
+                        position: slot.position,
+                        bounding_radius: slot.bounding_radius,
+                    });
+                }
+            }
+        }
+
+        BoundedQueryResult {
+            entries,
+            visited_candidates,
+        }
+    }
+
     fn count_nodes(&self) -> usize {
         self.id_to_slot.len()
     }
 
     fn name(&self) -> &'static str {
         "sap"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_equal_coordinate_subset_is_independent_of_rebuild_order() {
+        let bounds = Bounds::new(Vec2::new(-10.0, -10.0), Vec2::new(10.0, 10.0));
+        let entries: Vec<_> = (0..32)
+            .map(|id| Entry::point(id, (), Vec2::new(1.0, 1.0)))
+            .collect();
+        let mut forward = SweepAndPrune::new();
+        forward.bulk_replace(bounds.clone(), entries.clone());
+
+        let mut reverse = SweepAndPrune::new();
+        reverse.bulk_replace(bounds, entries.into_iter().rev().collect());
+
+        let forward_ids: Vec<_> = forward
+            .query_in_range_bounded(Vec2::new(0.0, 0.0), 5.0, 7)
+            .entries
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        let reverse_ids: Vec<_> = reverse
+            .query_in_range_bounded(Vec2::new(0.0, 0.0), 5.0, 7)
+            .entries
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+
+        assert_eq!(forward_ids, reverse_ids);
+        assert_eq!(forward_ids, (0..7).collect::<Vec<_>>());
     }
 }

@@ -16,11 +16,14 @@
 //! 有效負載和消費者係統也具有門功能。非 kcp 建置獲取
 //! 沒有任何內容寫入或讀取的空資源。
 
+use std::collections::BTreeMap;
+
 #[cfg(feature = "kcp")]
 use crate::runtime::input::PlayerInput;
 
 use super::TowerTargetPriority;
 use omoba_sim::Vec2 as SimVec2;
+use specs::Entity;
 
 /// 從最新解碼的玩家輸入的每個刻度集合
 /// `TickBatch`。每個刻度由消費者係統清除。 ‘勾選’紀錄
@@ -163,6 +166,69 @@ pub struct PendingAbilityCast {
     pub target_pos: Option<SimVec2>,
     pub target_entity: Option<u32>,
     pub owner_pid: u32,
+}
+
+/// Deterministic tower active-ability pulse opportunities awaiting script
+/// dispatch. Dispatch drains these records before the tower scheduler advances
+/// the same tower on the next authoritative tick.
+#[derive(Default)]
+pub struct PendingTowerAbilityPulseQueue {
+    pub requests: Vec<PendingTowerAbilityPulse>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingTowerAbilityPulse {
+    pub entity: Entity,
+    pub ability_id: String,
+    pub activation_serial: u32,
+    pub pulse_index: u16,
+}
+
+/// Lockstep tower active-ability requests routed by `player_input_tick::Sys`.
+/// The queue is drained at the same deterministic boundary on host and replica.
+#[derive(Default)]
+pub struct PendingTowerAbilityCastQueue {
+    pub requests: Vec<PendingTowerAbilityCast>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingTowerAbilityCast {
+    pub tower_entity_id: u32,
+    pub ability_id: String,
+    pub owner_pid: u32,
+}
+
+/// Accepted activations waiting for Task 5's script ABI dispatch.
+#[derive(Default)]
+pub struct PendingTowerAbilityActivationQueue {
+    pub requests: Vec<PendingTowerAbilityActivation>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingTowerAbilityActivation {
+    pub entity: Entity,
+    pub ability_id: String,
+    pub activation_serial: u32,
+}
+
+/// Latest authoritative outcome of a processed tower ability cast.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TowerAbilityCastResult {
+    pub player_id: u32,
+    pub tower_entity_id: u32,
+    pub ability_id: String,
+    pub accepted: bool,
+    pub reason: String,
+    pub result_serial: u32,
+}
+
+/// Latest authoritative tower ability cast outcome for every player.
+///
+/// `BTreeMap` makes iteration and render snapshot extraction deterministic on
+/// both the authoritative server and local lockstep replicas.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TowerAbilityCastResults {
+    pub latest_by_player: BTreeMap<u32, TowerAbilityCastResult>,
 }
 
 /// 階段 2.4：延遲的物品使用請求源自

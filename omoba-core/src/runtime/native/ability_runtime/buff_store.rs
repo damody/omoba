@@ -13,13 +13,18 @@
 //!   且雙方 payload 都帶 `slow_factor` 時，較小者勝出（refresh duration 不變、
 //!   payload 只在新 factor 較強時才覆寫）。任一邊缺欄位或型別不對 → fallback
 //!   到舊行為（直接覆寫）。新增其他需要「比較合併」的 stat 時，請在這裡記載。
+//! - `__aggregation_family: string` — 同一 family 的不同 source buff 對每個 stat
+//!   只採絕對值最強者；乘法 stat 採離 1.0 最遠者。Family 依名稱排序聚合，
+//!   保持 fixed-point 計算順序確定。
 
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
 use omoba_sim::Fixed64;
 use serde_json::Value;
 use specs::Entity;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+
+const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
 
 /// 從 JSON 負載中讀取固定 64 的數字統計值。
 ///
@@ -262,24 +267,47 @@ impl BuffStore {
     /// 階段 1de.2：有效負載偏好原始 i32（鎖步正確）；傳統 f64 仍然
     /// 透過「read_fixed_from_payload」後備接受。
     pub fn sum_add(&self, entity: Entity, stat: StatKey) -> Fixed64 {
-        let key = stat.as_str();
-        self.iter_for(entity)
-            .filter_map(|(_, e)| e.payload.get(key))
-            .map(read_fixed_from_payload)
-            .fold(Fixed64::ZERO, |acc, v| acc + v)
+        self.sum_add_key(entity, stat.as_str())
+    }
+
+    fn sum_add_key(&self, entity: Entity, key: &str) -> Fixed64 {
+        let mut total = Fixed64::ZERO;
+        let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
+        for (_, entry) in self.iter_for(entity) {
+            let Some(value) = entry.payload.get(key) else {
+                continue;
+            };
+            let value = read_fixed_from_payload(value);
+            let Some(family) = entry
+                .payload
+                .get(AGGREGATION_FAMILY_KEY)
+                .and_then(Value::as_str)
+            else {
+                total += value;
+                continue;
+            };
+            family_values
+                .entry(family)
+                .and_modify(|current| {
+                    if value.raw().abs() > current.raw().abs()
+                        || (value.raw().abs() == current.raw().abs() && value > *current)
+                    {
+                        *current = value;
+                    }
+                })
+                .or_insert(value);
+        }
+        family_values
+            .into_values()
+            .fold(total, |acc, value| acc + value)
     }
 
     pub fn move_speed_sums(&self, entity: Entity) -> MoveSpeedSums {
         let mut sums = MoveSpeedSums::default();
-        for (_, entry) in self.iter_for(entity) {
-            let Some(payload) = entry.payload.as_object() else {
-                continue;
-            };
-            for (key, value) in payload {
-                let Some(slot) = move_speed_sum_slot(&mut sums, key.as_str()) else {
-                    continue;
-                };
-                *slot = *slot + read_fixed_from_payload(value);
+        for key in MOVE_SPEED_SUM_KEYS {
+            let value = self.sum_add_key(entity, key);
+            if let Some(slot) = move_speed_sum_slot(&mut sums, key) {
+                *slot += value;
             }
         }
         sums
@@ -292,10 +320,37 @@ impl BuffStore {
     /// 透過「read_fixed_from_payload」後備接受。
     pub fn product_mult(&self, entity: Entity, stat: StatKey) -> Fixed64 {
         let key = stat.as_str();
-        self.iter_for(entity)
-            .filter_map(|(_, e)| e.payload.get(key))
-            .map(read_fixed_from_payload)
-            .fold(Fixed64::ONE, |acc, v| acc * v)
+        let mut product = Fixed64::ONE;
+        let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
+        for (_, entry) in self.iter_for(entity) {
+            let Some(value) = entry.payload.get(key) else {
+                continue;
+            };
+            let value = read_fixed_from_payload(value);
+            let Some(family) = entry
+                .payload
+                .get(AGGREGATION_FAMILY_KEY)
+                .and_then(Value::as_str)
+            else {
+                product *= value;
+                continue;
+            };
+            family_values
+                .entry(family)
+                .and_modify(|current| {
+                    let distance = (value - Fixed64::ONE).raw().abs();
+                    let current_distance = (*current - Fixed64::ONE).raw().abs();
+                    if distance > current_distance
+                        || (distance == current_distance && value > *current)
+                    {
+                        *current = value;
+                    }
+                })
+                .or_insert(value);
+        }
+        family_values
+            .into_values()
+            .fold(product, |acc, value| acc * value)
     }
 
     /// 控制類 buff 判定 — 這些 buff_id 出現在單位身上代表其處於特定 CC 狀態。
@@ -549,4 +604,83 @@ mod tests {
             entry.remaining
         );
     }
+
+    #[test]
+    fn aggregation_family_sums_only_strongest_magnitude_per_stat() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(
+            e,
+            "cake_frosting:1",
+            fx(2.0),
+            json!({
+                "__aggregation_family": "cake_frosting",
+                "movespeed_bonus_percentage": -205,
+                "incoming_damage_percentage": 256
+            }),
+        );
+        s.add(
+            e,
+            "cake_frosting:2",
+            fx(2.0),
+            json!({
+                "__aggregation_family": "cake_frosting",
+                "movespeed_bonus_percentage": -512,
+                "incoming_damage_percentage": 154
+            }),
+        );
+
+        assert_eq!(
+            s.sum_add(e, StatKey::MoveSpeedBonusPercentage),
+            Fixed64::from_raw(-512)
+        );
+        assert_eq!(
+            s.sum_add(e, StatKey::IncomingDamagePercentage),
+            Fixed64::from_raw(256)
+        );
+        assert_eq!(s.move_speed_sums(e).percentage, Fixed64::from_raw(-512));
+    }
+
+    #[test]
+    fn aggregation_family_multiplies_only_factor_farthest_from_one() {
+        let mut s = BuffStore::new();
+        let e = ent(1, 1);
+        s.add(
+            e,
+            "party:1",
+            fx(1.0),
+            json!({
+                "__aggregation_family": "cake_party_haste",
+                "attack_speed_multiplier": 1280
+            }),
+        );
+        s.add(
+            e,
+            "party:2",
+            fx(1.0),
+            json!({
+                "__aggregation_family": "cake_party_haste",
+                "attack_speed_multiplier": 1280
+            }),
+        );
+
+        assert_eq!(
+            s.product_mult(e, StatKey::AttackSpeedMultiplier),
+            Fixed64::from_raw(1280)
+        );
+    }
 }
+
+const MOVE_SPEED_SUM_KEYS: &[&str] = &[
+    "movespeed_absolute",
+    "movespeed_base_override",
+    "movespeed_bonus_equipment",
+    "movespeed_bonus_percentage",
+    "movespeed_bonus_percentage_unique",
+    "movespeed_bonus_percentage_unique_2",
+    "move_speed_bonus",
+    "movespeed_bonus_buff",
+    "movespeed_absolute_min",
+    "movespeed_max",
+    "movespeed_limit",
+];

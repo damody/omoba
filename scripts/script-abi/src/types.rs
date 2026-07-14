@@ -64,6 +64,16 @@ pub enum PathSpec {
     Straight { end_pos: Vec2 },
 }
 
+/// Provenance attached to a projectile impact before it crosses into script code.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProjectileHitContext {
+    /// Script-visible projectile kind.
+    pub kind_id: u16,
+    /// Zero for primary shots; child shots increment with saturation.
+    pub generation: u8,
+}
+
 #[repr(C)]
 #[derive(StableAbi, Copy, Clone, Debug, Default)]
 pub struct TowerRenderPoint {

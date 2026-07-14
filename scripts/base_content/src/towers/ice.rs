@@ -8,8 +8,8 @@
 //!   damage_bonus, range_bonus (透過 get_final_*)
 //!
 //! 注意：
-//! - absolute_zero：無冷卻計時（待 ultimate_cooldown FFI），每次攻擊凍結全場
-//! - cryo_cannon：以 deal_damage_splash + query_enemies_in_range 模擬 AoE 冰凍砲
+//! - absolute_zero：每 15s 凍結全場 2s
+//! - cryo_cannon：每 10s 以 deal_damage_splash + query_enemies_in_range 發射 AoE 冰凍砲
 
 use omb_script_abi::prelude::*;
 use omb_script_abi::stat_keys::StatKey;
@@ -24,8 +24,10 @@ const STATS: &TowerStats = &TOWER_ICE_STATS;
 const AURA_BUFF_DUR: Fixed64 = Fixed64::from_raw(205);
 // arctic_aura_20: 移速降低 20%
 const AURA_20_JSON: &str = r#"{"movespeed_bonus_percentage":-0.2}"#;
-// snowstorm: 移速降低 50%
-const AURA_50_JSON: &str = r#"{"movespeed_bonus_percentage":-0.5}"#;
+// snowstorm: 移速降低 35%
+const AURA_35_JSON: &str = r#"{"movespeed_bonus_percentage":-0.35}"#;
+// cryo_cannon: 移速降低 40%
+const AURA_40_JSON: &str = r#"{"movespeed_bonus_percentage":-0.4}"#;
 // cryo_cannon: AoE 凍結半徑（200 units = 204800/1024）
 const CRYO_CANNON_RADIUS: Fixed64 = Fixed64::from_raw(204800);
 // cryo_cannon: 凍結持續時間（1s）
@@ -62,7 +64,13 @@ impl UnitScript for IceTower {
         ))
     }
 
-    fn on_tick(&self, e: EntityHandle, dt: Fixed64, w: &mut GameWorldDyn<'_>) {
+    fn on_tower_tick(
+        &self,
+        e: EntityHandle,
+        dt: Fixed64,
+        cooldowns: &mut TowerCooldownAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
         let asd_interval = w.get_asd_interval(e);
         if asd_interval <= Fixed64::ZERO {
             return;
@@ -75,10 +83,17 @@ impl UnitScript for IceTower {
         let range = w.get_final_attack_range(e);
 
         // ── Path2 光環：arctic_aura_20 / snowstorm（每 tick 刷新，不受攻速影響）──
+        let has_cryo = w.has_tower_flag(e, RStr::from_str("cryo_cannon"));
         let has_snowstorm = w.has_tower_flag(e, RStr::from_str("snowstorm"));
         let has_aura_20 = w.has_tower_flag(e, RStr::from_str("arctic_aura_20"));
-        if has_aura_20 || has_snowstorm {
-            let json = if has_snowstorm { AURA_50_JSON } else { AURA_20_JSON };
+        if has_aura_20 || has_snowstorm || has_cryo {
+            let json = if has_cryo {
+                AURA_40_JSON
+            } else if has_snowstorm {
+                AURA_35_JSON
+            } else {
+                AURA_20_JSON
+            };
             let aura_targets = w.query_enemies_in_range(pos, range, e);
             for victim in aura_targets.iter().copied() {
                 w.add_stat_buff(
@@ -87,6 +102,37 @@ impl UnitScript for IceTower {
                     AURA_BUFF_DUR,
                     RStr::from_str(json),
                 );
+            }
+        }
+
+        let atk = w.get_final_atk(e);
+        let absolute_zero = w.has_tower_flag(e, RStr::from_str("absolute_zero"));
+        if cooldowns.get_tower_internal_cooldown(e) <= Fixed64::ZERO {
+            if absolute_zero {
+                let all_enemies = w.query_enemies_in_range(pos, GLOBAL_RADIUS, e);
+                if !all_enemies.is_empty() {
+                    for victim in all_enemies.iter().copied() {
+                        w.add_buff(victim, RStr::from_str("stun"), Fixed64::from_i32(2));
+                    }
+                    cooldowns.start_tower_internal_cooldown(e, Fixed64::from_i32(15));
+                }
+            } else if has_cryo {
+                if let RSome(cryo_target) = w.query_nearest_enemy(pos, range, e) {
+                    if let RSome(t_pos) = w.get_pos(cryo_target) {
+                        w.deal_damage_splash(
+                            t_pos,
+                            CRYO_CANNON_RADIUS,
+                            atk,
+                            DamageKind::Magical,
+                            RSome(e),
+                        );
+                        let cryo_targets = w.query_enemies_in_range(t_pos, CRYO_CANNON_RADIUS, e);
+                        for victim in cryo_targets.iter().copied() {
+                            w.add_buff(victim, RStr::from_str("stun"), CRYO_CANNON_FREEZE_DUR);
+                        }
+                        cooldowns.start_tower_internal_cooldown(e, Fixed64::from_i32(10));
+                    }
+                }
             }
         }
 
@@ -109,7 +155,6 @@ impl UnitScript for IceTower {
             return;
         }
 
-        let atk = w.get_final_atk(e);
         if let RSome(t_pos) = w.get_pos(target) {
             w.set_facing(e, omoba_sim::trig::atan2(t_pos.y - pos.y, t_pos.x - pos.x));
         }
@@ -134,35 +179,6 @@ impl UnitScript for IceTower {
             Fixed64::ZERO
         };
         let icicle = w.has_tower_flag(e, RStr::from_str("icicle_impale"));
-        let cryo = w.has_tower_flag(e, RStr::from_str("cryo_cannon"));
-        let absolute_zero = w.has_tower_flag(e, RStr::from_str("absolute_zero"));
-
-        // ── Path1 ultimate：absolute_zero — 攻擊時凍結全場所有敵人 ────
-        // 注意：無 15s 冷卻（待 ultimate_cooldown FFI）
-        if absolute_zero {
-            let all_enemies = w.query_enemies_in_range(pos, GLOBAL_RADIUS, e);
-            for victim in all_enemies.iter().copied() {
-                w.add_buff(victim, RStr::from_str("stun"), Fixed64::ONE);
-            }
-        }
-
-        // ── Path2 Tier3：cryo_cannon — AoE 傷害 + 逐個凍結 ────────────
-        if cryo {
-            if let RSome(t_pos) = w.get_pos(target) {
-                w.deal_damage_splash(
-                    t_pos,
-                    CRYO_CANNON_RADIUS,
-                    atk,
-                    DamageKind::Magical,
-                    RSome(e),
-                );
-                let cryo_targets = w.query_enemies_in_range(t_pos, CRYO_CANNON_RADIUS, e);
-                for victim in cryo_targets.iter().copied() {
-                    w.add_buff(victim, RStr::from_str("stun"), CRYO_CANNON_FREEZE_DUR);
-                }
-            }
-        }
-
         let (path_spec, final_splash, final_damage, kind_id) = if icicle {
             // 朝 target 直線穿透（至 1.5 倍 range）
             let t_pos = match w.get_pos(target) {
@@ -248,5 +264,92 @@ impl UnitScript for IceTower {
             w.remove_buff(victim, RStr::from_str("stun"));
             w.add_buff(victim, RStr::from_str("stun"), REFREEZE_DUR);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::towers::projectile_test_support::{fixture, invoke_tick};
+    use omoba_core::Outcome;
+    use specs::WorldExt;
+
+    fn impact_outcomes(flags: &[&str], cooldown: Fixed64) -> Vec<Outcome> {
+        let mut fixture = fixture(flags, &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)]);
+        fixture
+            .world
+            .write_storage::<omoba_core::TAttack>()
+            .get_mut(fixture.tower)
+            .unwrap()
+            .asd_count = -Fixed64::from_raw(1);
+        fixture
+            .world
+            .write_storage::<omoba_core::Tower>()
+            .get_mut(fixture.tower)
+            .unwrap()
+            .ultimate_cooldown = cooldown;
+        invoke_tick(
+            &fixture.world,
+            &IceTower,
+            fixture.tower,
+            Fixed64::from_raw(1),
+        )
+    }
+
+    #[test]
+    fn absolute_zero_freezes_for_two_seconds_and_waits_fifteen_seconds() {
+        let ready = impact_outcomes(&["absolute_zero"], Fixed64::ZERO);
+        assert!(ready.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { buff_id, duration, .. } if buff_id == "stun" && *duration == Fixed64::from_i32(2)
+        )));
+        assert!(ready.iter().any(|outcome| matches!(outcome,
+            Outcome::ScriptSetTowerInternalCooldown { duration, .. }
+                if *duration == Fixed64::from_i32(15)
+        )));
+
+        let cooling_down = impact_outcomes(&["absolute_zero"], Fixed64::from_i32(5));
+        assert!(!cooling_down.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { buff_id, .. } if buff_id == "stun"
+        )));
+    }
+
+    #[test]
+    fn ice_aura_percentages_match_twenty_thirty_five_and_forty_percent() {
+        for (flags, expected) in [
+            (vec!["arctic_aura_20"], -0.2),
+            (vec!["snowstorm"], -0.35),
+            (vec!["cryo_cannon"], -0.4),
+        ] {
+            let outcomes = impact_outcomes(&flags, Fixed64::from_i32(5));
+            assert!(outcomes.iter().any(|outcome| matches!(outcome,
+                Outcome::AddBuff { buff_id, payload, .. }
+                    if buff_id == "ice_aura_slow" && payload["movespeed_bonus_percentage"] == expected
+            )), "missing authored aura for {flags:?}");
+        }
+    }
+
+    #[test]
+    fn cryo_cannon_fires_only_on_its_ten_second_cadence() {
+        let ready = impact_outcomes(&["cryo_cannon"], Fixed64::ZERO);
+        assert_eq!(
+            ready
+                .iter()
+                .filter(|outcome| matches!(outcome, Outcome::ScriptDirectDamage { .. }))
+                .count(),
+            1
+        );
+        assert!(ready.iter().any(|outcome| matches!(outcome,
+            Outcome::ScriptSetTowerInternalCooldown { duration, .. }
+                if *duration == Fixed64::from_i32(10)
+        )));
+
+        let cooling_down = impact_outcomes(&["cryo_cannon"], Fixed64::from_i32(5));
+        assert_eq!(
+            cooling_down
+                .iter()
+                .filter(|outcome| matches!(outcome, Outcome::ScriptDirectDamage { .. }))
+                .count(),
+            0
+        );
     }
 }

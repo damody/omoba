@@ -165,6 +165,8 @@ fn decide_tower_tick(
     let mut facing_bc = *facing_bc_src;
     let mut outcomes: Vec<Outcome> = Vec::new();
 
+    tower.ultimate_cooldown = (tower.ultimate_cooldown - tr.dt).max(Fixed64::ZERO);
+
     // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
     let (pos_x_f, pos_y_f) = pos.xy_f32();
     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
@@ -395,6 +397,49 @@ fn compare_tower_targets(
 mod tests {
     use super::*;
     use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn tower_internal_cooldown_ticks_once_with_authoritative_fixed_dt() {
+        let mut world = World::new();
+        world.register::<Tower>();
+        world.register::<TProperty>();
+        world.register::<TAttack>();
+        world.register::<Pos>();
+        world.register::<Facing>();
+        world.register::<FacingBroadcast>();
+        world.register::<Faction>();
+        world.register::<Creep>();
+        world.register::<CProperty>();
+        world.register::<TurnSpeed>();
+        world.register::<crate::scripting::ScriptUnitTag>();
+        world.insert(Time::default());
+        world.insert(DeltaTime(Fixed64::from_raw(512)));
+        world.insert(MasterSeed::default());
+        world.insert(Tick::default());
+        world.insert(Searcher::default());
+        world.insert(Vec::<Outcome>::new());
+        world.insert(crate::comp::SysMetrics::default());
+        world.insert(crate::comp::TickProfile::default());
+
+        let mut tower = Tower::new();
+        tower.ultimate_cooldown = Fixed64::from_i32(2);
+        let entity = world
+            .create_entity()
+            .with(tower)
+            .with(TProperty::new(Fixed64::ONE, 0, Fixed64::ONE))
+            .with(TAttack::new(Fixed64::ONE, Fixed64::ONE, Fixed64::ONE, Fixed64::ONE))
+            .with(Pos(omoba_sim::Vec2::ZERO))
+            .with(Facing::default())
+            .with(FacingBroadcast::default())
+            .build();
+
+        crate::comp::run_now::<Sys>(&world);
+
+        assert_eq!(
+            world.read_storage::<Tower>().get(entity).unwrap().ultimate_cooldown,
+            Fixed64::from_raw(1536)
+        );
+    }
 
     fn add_creep(world: &mut World, remaining: i32, hp: i32) -> Entity {
         world

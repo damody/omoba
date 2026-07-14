@@ -5,6 +5,20 @@
 
 use serde::{Deserialize, Serialize};
 
+use omoba_sim::Fixed64;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct TowerActiveAbilityDef {
+    pub ability_id: String,
+    pub display_name: String,
+    pub description: String,
+    pub icon: String,
+    pub cooldown: Fixed64,
+    pub duration: Fixed64,
+    pub pulse_interval: Fixed64,
+    pub pulse_count: u16,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TowerUpgradeDef {
     pub tower_kind: String, // "tower_dart" / "tower_bomb" / "tower_tack" / "tower_ice"
@@ -14,6 +28,7 @@ pub struct TowerUpgradeDef {
     pub description: String,
     pub cost: i32,
     pub effects: Vec<UpgradeEffect>,
+    pub active_ability: Option<TowerActiveAbilityDef>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -70,6 +85,7 @@ mod tests {
                 value: 50.0,
                 op: StatOp::Add,
             }],
+            active_ability: None,
         };
         let s = serde_json::to_string(&def).unwrap();
         let _: TowerUpgradeDef = serde_json::from_str(&s).unwrap();

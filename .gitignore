@@ -8,8 +8,8 @@ eui/target/
 map_editor/target/
 omb-ws-bridge/target/
 scripts/target/
-# scripts 編譯產物（由 scripts workspace build，release 放這）
-scripts/*.dll
+# Native build/runtime artifacts
+*.dll
 scripts/*.so
 scripts/*.dylib
 .run-local/

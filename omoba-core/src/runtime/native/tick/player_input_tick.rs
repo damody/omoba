@@ -19,8 +19,9 @@ use crate::comp::PendingPlayerInputs;
 use crate::comp::{
     CurrentCreepWave, GamePause, GameSpeed, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
     PendingDebugCreepSpawnQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
-    PendingItemUseQueue, PendingMoveQueue, PendingTowerSellQueue, PendingTowerSpawnQueue,
-    PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, Time, TowerTargetPriority,
+    PendingItemUseQueue, PendingMoveQueue, PendingTowerAbilityCastQueue, PendingTowerSellQueue,
+    PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, Time,
+    TowerTargetPriority,
 };
 
 #[derive(Default)]
@@ -44,6 +45,7 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingHeroCommandClearQueue>,
         Write<'a, PendingTowerTargetPriorityQueue>,
         Write<'a, PendingDebugCreepSpawnQueue>,
+        Write<'a, PendingTowerAbilityCastQueue>,
     );
 
     const NAME: &'static str = "player_input";
@@ -66,6 +68,7 @@ impl<'a> System<'a> for Sys {
             mut clear_q,
             mut target_priority_q,
             mut debug_spawn_q,
+            mut tower_ability_cast_q,
         ): Self::SystemData,
     ) {
         if pending.inputs.is_empty() {
@@ -98,6 +101,7 @@ impl<'a> System<'a> for Sys {
                 &mut clear_q,
                 &mut target_priority_q,
                 &mut debug_spawn_q,
+                &mut tower_ability_cast_q,
             );
         }
     }
@@ -132,6 +136,7 @@ fn route_input(
     clear_q: &mut PendingHeroCommandClearQueue,
     target_priority_q: &mut PendingTowerTargetPriorityQueue,
     debug_spawn_q: &mut PendingDebugCreepSpawnQueue,
+    tower_ability_cast_q: &mut PendingTowerAbilityCastQueue,
 ) {
     use omoba_core::runtime::PlayerInputEnum;
 
@@ -353,6 +358,22 @@ fn route_input(
                 owner_pid: player_id,
             });
         }
+        Some(PlayerInputEnum::TowerAbilityCast(c)) => {
+            log::info!(
+                "player_input_tick: pid={} tick={} TowerAbilityCast eid={} ability={}",
+                player_id,
+                tick,
+                c.tower_entity_id,
+                c.ability_id,
+            );
+            tower_ability_cast_q
+                .requests
+                .push(crate::comp::PendingTowerAbilityCast {
+                    tower_entity_id: c.tower_entity_id,
+                    ability_id: c.ability_id,
+                    owner_pid: player_id,
+                });
+        }
         Some(PlayerInputEnum::TowerSell(s)) => {
             log::info!(
                 "player_input_tick: pid={} tick={} TowerSell tower_entity_id={}",
@@ -439,8 +460,58 @@ mod tests {
     use super::*;
     use omoba_core::runtime::{
         AttackMove, AttackTarget, PlayerInput, PlayerInputEnum, SetTowerTargetPriority,
-        TargetPriority, ToggleGameSpeed, TogglePause, Vec2I,
+        TargetPriority, ToggleGameSpeed, TogglePause, TowerAbilityCastInput, Vec2I,
     };
+
+    #[test]
+    fn tower_ability_cast_input_routes_to_pending_queue() {
+        let mut cw = CurrentCreepWave::default();
+        let mut pause = GamePause::default();
+        let mut speed = GameSpeed::default();
+        let mut tower_q = PendingTowerSpawnQueue::default();
+        let mut sell_q = PendingTowerSellQueue::default();
+        let mut upgrade_q = PendingTowerUpgradeQueue::default();
+        let mut ability_q = PendingAbilityUpgradeQueue::default();
+        let mut cast_q = PendingAbilityCastQueue::default();
+        let mut item_q = PendingItemUseQueue::default();
+        let mut move_q = PendingMoveQueue::default();
+        let mut clear_q = PendingHeroCommandClearQueue::default();
+        let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+        let mut debug_spawn_q = PendingDebugCreepSpawnQueue::default();
+        let mut tower_ability_cast_q = PendingTowerAbilityCastQueue::default();
+
+        route_input(
+            7,
+            42,
+            PlayerInput {
+                action: Some(PlayerInputEnum::TowerAbilityCast(TowerAbilityCastInput {
+                    tower_entity_id: 123,
+                    ability_id: "boomerang_turbo_charge".to_string(),
+                })),
+            },
+            &mut cw,
+            &mut pause,
+            &mut speed,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+            &mut debug_spawn_q,
+            &mut tower_ability_cast_q,
+        );
+
+        assert_eq!(tower_ability_cast_q.requests.len(), 1);
+        let request = &tower_ability_cast_q.requests[0];
+        assert_eq!(request.owner_pid, 7);
+        assert_eq!(request.tower_entity_id, 123);
+        assert_eq!(request.ability_id, "boomerang_turbo_charge");
+    }
 
     #[test]
     fn routes_toggle_pause_to_authoritative_pause_state() {
@@ -478,6 +549,7 @@ mod tests {
             &mut clear_q,
             &mut target_priority_q,
             &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
         );
         assert!(pause.is_paused);
 
@@ -501,6 +573,7 @@ mod tests {
             &mut clear_q,
             &mut target_priority_q,
             &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
         );
         assert!(!pause.is_paused);
     }
@@ -541,6 +614,7 @@ mod tests {
             &mut clear_q,
             &mut target_priority_q,
             &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
         );
         assert_eq!(speed.multiplier(), 2);
 
@@ -564,6 +638,7 @@ mod tests {
             &mut clear_q,
             &mut target_priority_q,
             &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
         );
         assert_eq!(speed.multiplier(), 1);
     }
@@ -607,6 +682,7 @@ mod tests {
             &mut clear_q,
             &mut target_priority_q,
             &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
         );
         route_input(
             7,
@@ -631,6 +707,7 @@ mod tests {
             &mut clear_q,
             &mut target_priority_q,
             &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
         );
         route_input(
             7,
@@ -657,6 +734,7 @@ mod tests {
             &mut clear_q,
             &mut target_priority_q,
             &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
         );
 
         assert_eq!(move_q.requests.len(), 2);

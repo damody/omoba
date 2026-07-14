@@ -567,10 +567,10 @@ pub struct SetTowerTargetPriority {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct CastAbility {
-    /// 0..3 for Q/W/E/R
+    /// Q/W/E/R 對應 0..3
     #[prost(uint32, tag = "1")]
     pub ability_index: u32,
-    /// optional cast position; omitted for self-cast
+    /// optional 施法位置；self-cast 時省略
     #[prost(message, optional, tag = "2")]
     pub target_pos: ::core::option::Option<Vec2I>,
     #[prost(uint32, optional, tag = "3")]
@@ -578,21 +578,21 @@ pub struct CastAbility {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct UpgradeAbility {
-    /// W/E/R/T upgrade slot 0..3
+    /// W/E/R/T 升級 slot 對應 0..3
     #[prost(uint32, tag = "1")]
     pub ability_index: u32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TowerPlace {
-    /// matches omoba_template_ids tower id
+    /// 對應 omoba_template_ids tower id
     #[prost(uint32, tag = "1")]
     pub tower_kind_id: u32,
     #[prost(message, optional, tag = "2")]
     pub pos: ::core::option::Option<Vec2I>,
 }
-/// NOTE: legacy `TowerUpgrade` (above, used as a server-broadcast event in
-/// GameEvent.payload tag 35) keeps its name. The new client→server input
-/// action is named `TowerUpgradeInput` to avoid the proto3 namespace collision.
+/// NOTE：legacy `TowerUpgrade`（上方，作為 GameEvent.payload tag 35 的
+/// server-broadcast event）保留原名。新的 client→server input action 命名為
+/// `TowerUpgradeInput`，避免 proto3 namespace collision。
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TowerUpgradeInput {
     #[prost(uint32, tag = "1")]
@@ -600,9 +600,16 @@ pub struct TowerUpgradeInput {
     /// 0/1/2 upgrade path
     #[prost(uint32, tag = "2")]
     pub path: u32,
-    /// target level after upgrade
+    /// 升級後的目標 level
     #[prost(uint32, tag = "3")]
     pub level: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TowerAbilityCastInput {
+    #[prost(uint32, tag = "1")]
+    pub tower_entity_id: u32,
+    #[prost(string, tag = "2")]
+    pub ability_id: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TowerSell {
@@ -619,8 +626,8 @@ pub struct ItemUse {
     #[prost(uint32, optional, tag = "3")]
     pub target_entity: ::core::option::Option<u32>,
 }
-/// TD: client requests the next creep wave to begin (legacy "Start Round").
-/// Server flips `CurrentCreepWave.is_running = true` and stamps wave_start_time.
+/// TD：client 請求開始下一波 creep wave（legacy "Start Round"）。
+/// Server 會切換 `CurrentCreepWave.is_running = true` 並寫入 wave_start_time。
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StartRound {}
 /// Client requests toggling the authoritative simulation pause state.
@@ -631,59 +638,17 @@ pub struct TogglePause {}
 /// The input is lockstep-driven so all replicas apply the speed on the same tick.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ToggleGameSpeed {}
-/// Sandbox/test: directly spawn a requested creep kind.
-/// emitter_index is the sorted position in creep_emiters for deterministic order.
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct DebugSpawnCreep {
-    #[prost(uint32, tag = "1")]
-    pub emitter_index: u32,
-    #[prost(uint32, tag = "2")]
-    pub count: u32,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum TargetPriority {
-    First = 0,
-    Last = 1,
-    Nearest = 2,
-    Farthest = 3,
-    HighestHealth = 4,
-    LowestHealth = 5,
-}
-impl TargetPriority {
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            TargetPriority::First => "TARGET_PRIORITY_FIRST",
-            TargetPriority::Last => "TARGET_PRIORITY_LAST",
-            TargetPriority::Nearest => "TARGET_PRIORITY_NEAREST",
-            TargetPriority::Farthest => "TARGET_PRIORITY_FARTHEST",
-            TargetPriority::HighestHealth => "TARGET_PRIORITY_HIGHEST_HEALTH",
-            TargetPriority::LowestHealth => "TARGET_PRIORITY_LOWEST_HEALTH",
-        }
-    }
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "TARGET_PRIORITY_FIRST" => Some(Self::First),
-            "TARGET_PRIORITY_LAST" => Some(Self::Last),
-            "TARGET_PRIORITY_NEAREST" => Some(Self::Nearest),
-            "TARGET_PRIORITY_FARTHEST" => Some(Self::Farthest),
-            "TARGET_PRIORITY_HIGHEST_HEALTH" => Some(Self::HighestHealth),
-            "TARGET_PRIORITY_LOWEST_HEALTH" => Some(Self::LowestHealth),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
 /// Nested message and enum types in `PlayerInput`.
 pub mod player_input {
-    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Action {
         #[prost(message, tag = "1")]
         NoOp(super::NoOp),
@@ -715,10 +680,21 @@ pub mod player_input {
         ToggleGameSpeed(super::ToggleGameSpeed),
         #[prost(message, tag = "15")]
         DebugSpawnCreep(super::DebugSpawnCreep),
+        #[prost(message, tag = "16")]
+        TowerAbilityCast(super::TowerAbilityCastInput),
     }
 }
-/// Tag 0x10 (C→S): client submits an input targeted at a future tick.
+/// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
+/// emitter_index 是 creep_emiters BTreeMap 的排序位置（決定性順序）。
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct DebugSpawnCreep {
+    #[prost(uint32, tag = "1")]
+    pub emitter_index: u32,
+    #[prost(uint32, tag = "2")]
+    pub count: u32,
+}
+/// Tag 0x10 (C→S): client submits an input targeted at a future tick.
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InputSubmit {
     #[prost(uint32, tag = "1")]
     pub player_id: u32,
@@ -771,7 +747,7 @@ pub mod server_event {
         GameEnd(super::GameEndEvent),
     }
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct InputForPlayer {
     #[prost(uint32, tag = "1")]
     pub player_id: u32,
@@ -962,6 +938,44 @@ impl EntityKind {
             "ENTITY_KIND_UNIT" => Some(Self::Unit),
             "ENTITY_KIND_PROJECTILE" => Some(Self::Projectile),
             "ENTITY_KIND_ENTITY" => Some(Self::Entity),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum TargetPriority {
+    First = 0,
+    Last = 1,
+    Nearest = 2,
+    Farthest = 3,
+    HighestHealth = 4,
+    LowestHealth = 5,
+}
+impl TargetPriority {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::First => "TARGET_PRIORITY_FIRST",
+            Self::Last => "TARGET_PRIORITY_LAST",
+            Self::Nearest => "TARGET_PRIORITY_NEAREST",
+            Self::Farthest => "TARGET_PRIORITY_FARTHEST",
+            Self::HighestHealth => "TARGET_PRIORITY_HIGHEST_HEALTH",
+            Self::LowestHealth => "TARGET_PRIORITY_LOWEST_HEALTH",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TARGET_PRIORITY_FIRST" => Some(Self::First),
+            "TARGET_PRIORITY_LAST" => Some(Self::Last),
+            "TARGET_PRIORITY_NEAREST" => Some(Self::Nearest),
+            "TARGET_PRIORITY_FARTHEST" => Some(Self::Farthest),
+            "TARGET_PRIORITY_HIGHEST_HEALTH" => Some(Self::HighestHealth),
+            "TARGET_PRIORITY_LOWEST_HEALTH" => Some(Self::LowestHealth),
             _ => None,
         }
     }

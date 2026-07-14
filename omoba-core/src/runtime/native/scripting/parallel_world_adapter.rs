@@ -2,11 +2,12 @@ use abi_stable::std_types::{RNone, ROption, RSome, RStr, RVec};
 use omb_script_abi::{
     stat_keys::StatKey,
     types::{Angle, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileSpec, Target, Vec2},
-    world::GameWorld,
+    world::{GameWorld, ProjectileQuery, TowerActiveAbilityAccess, TowerCooldownAccess},
 };
 use specs::world::Generation;
 use specs::{Entities, Entity, Join, Read, ReadStorage, World, WorldExt};
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::comp::*;
 use crate::runtime::ability_runtime::{BuffStore, UnitStats};
@@ -27,6 +28,7 @@ pub struct ParallelAdapterCache<'a> {
     pub is_building: ReadStorage<'a, IsBuilding>,
     pub collision: ReadStorage<'a, CollisionRadius>,
     pub tags: ReadStorage<'a, ScriptUnitTag>,
+    pub player_owner: ReadStorage<'a, PlayerOwner>,
     pub buffs: Read<'a, BuffStore>,
     pub searcher: Read<'a, Searcher>,
     pub blocked: Read<'a, BlockedRegions>,
@@ -50,6 +52,7 @@ impl<'a> ParallelAdapterCache<'a> {
             is_building: world.read_storage::<IsBuilding>(),
             collision: world.read_storage::<CollisionRadius>(),
             tags: world.read_storage::<ScriptUnitTag>(),
+            player_owner: world.read_storage::<PlayerOwner>(),
             buffs: world.read_resource::<BuffStore>().into(),
             searcher: world.read_resource::<Searcher>().into(),
             blocked: world.read_resource::<BlockedRegions>().into(),
@@ -67,6 +70,261 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_pos: HashMap<Entity, Vec2>,
     overlay_facing: HashMap<Entity, Angle>,
     overlay_asd_count: HashMap<Entity, Fixed64>,
+    projectile_hit_generation: Option<u8>,
+}
+
+pub struct ParallelProjectileQuery<'a> {
+    cache: &'a ParallelAdapterCache<'a>,
+}
+
+pub struct ParallelTowerCooldownAccess<'a> {
+    cache: &'a ParallelAdapterCache<'a>,
+    outcomes: Vec<Outcome>,
+    overlay: HashMap<Entity, Fixed64>,
+}
+
+pub struct ParallelTowerActiveAbilityAccess<'a> {
+    cache: &'a ParallelAdapterCache<'a>,
+    outcomes: Mutex<Vec<Outcome>>,
+}
+
+impl<'a> ParallelTowerActiveAbilityAccess<'a> {
+    pub fn new(cache: &'a ParallelAdapterCache<'a>) -> Self {
+        Self {
+            cache,
+            outcomes: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub fn finish(self) -> Vec<Outcome> {
+        self.outcomes
+            .into_inner()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn matching_state(
+        &self,
+        e: EntityHandle,
+        ability_id: RStr<'_>,
+    ) -> Option<&TowerActiveAbilityState> {
+        let entity = ParallelWorldAdapter::handle_to_entity(e)?;
+        let state = self.cache.tower.get(entity)?.active_ability.as_ref()?;
+        (state.ability_id == ability_id.as_str()).then_some(state)
+    }
+}
+
+impl TowerActiveAbilityAccess for ParallelTowerActiveAbilityAccess<'_> {
+    fn get_tower_ability_active_remaining(&self, e: EntityHandle, ability_id: RStr<'_>) -> Fixed64 {
+        self.matching_state(e, ability_id)
+            .map(|state| state.active_remaining)
+            .unwrap_or(Fixed64::ZERO)
+    }
+
+    fn get_tower_ability_activation_serial(&self, e: EntityHandle, ability_id: RStr<'_>) -> u32 {
+        self.matching_state(e, ability_id)
+            .map(|state| state.activation_serial)
+            .unwrap_or(0)
+    }
+
+    fn reset_attack_backswing(&self, e: EntityHandle) {
+        let Some(entity) = ParallelWorldAdapter::handle_to_entity(e) else {
+            return;
+        };
+        let Some(base_interval) = self.cache.tattack.get(entity).map(|attack| attack.asd.v) else {
+            return;
+        };
+        let stats = UnitStats::from_refs(
+            &self.cache.buffs,
+            self.cache.is_building.get(entity).is_some(),
+        );
+        let interval =
+            (base_interval / stats.final_attack_speed_mult(entity)).max(Fixed64::from_raw(1));
+        self.outcomes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(Outcome::ScriptSetAsdCount {
+                entity,
+                asd_count: interval,
+            });
+    }
+
+    fn query_friendly_towers_in_range(
+        &self,
+        center: Vec2,
+        radius: Fixed64,
+        exclude: EntityHandle,
+    ) -> RVec<EntityHandle> {
+        let Some(excluded) = ParallelWorldAdapter::handle_to_entity(exclude) else {
+            return RVec::new();
+        };
+        if radius < Fixed64::ZERO {
+            return RVec::new();
+        }
+        let Some(origin_faction) = self.cache.faction.get(excluded) else {
+            return RVec::new();
+        };
+        let origin_owner = self
+            .cache
+            .player_owner
+            .get(excluded)
+            .map(|owner| owner.player_id);
+        let radius_squared = radius * radius;
+        let mut matches = (
+            &self.cache.entities,
+            &self.cache.tower,
+            &self.cache.pos,
+            &self.cache.faction,
+        )
+            .join()
+            .filter_map(|(entity, _, pos, faction)| {
+                if entity == excluded || faction.team_id != origin_faction.team_id {
+                    return None;
+                }
+                if let Some(owner) = origin_owner {
+                    if self
+                        .cache
+                        .player_owner
+                        .get(entity)
+                        .map(|candidate| candidate.player_id)
+                        != Some(owner)
+                    {
+                        return None;
+                    }
+                }
+                let delta = pos.0 - center;
+                (delta.x * delta.x + delta.y * delta.y <= radius_squared)
+                    .then(|| ParallelWorldAdapter::entity_to_handle(entity))
+            })
+            .collect::<Vec<_>>();
+        matches.sort_by_key(|handle| (handle.id, handle.gen));
+        matches.into()
+    }
+
+    fn query_first_enemy_in_range(
+        &self,
+        center: Vec2,
+        radius: Fixed64,
+        of: EntityHandle,
+    ) -> ROption<EntityHandle> {
+        query_script_tower_enemy(self.cache, center, radius, of, TowerTargetPriority::First)
+    }
+}
+
+impl<'a> ParallelTowerCooldownAccess<'a> {
+    pub fn new(cache: &'a ParallelAdapterCache<'a>) -> Self {
+        Self {
+            cache,
+            outcomes: Vec::new(),
+            overlay: HashMap::new(),
+        }
+    }
+
+    pub fn finish(self) -> Vec<Outcome> {
+        self.outcomes
+    }
+}
+
+impl TowerCooldownAccess for ParallelTowerCooldownAccess<'_> {
+    fn get_tower_internal_cooldown(&self, e: EntityHandle) -> Fixed64 {
+        let Some(ent) = ParallelWorldAdapter::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
+        self.overlay
+            .get(&ent)
+            .copied()
+            .or_else(|| {
+                self.cache
+                    .tower
+                    .get(ent)
+                    .map(|tower| tower.ultimate_cooldown)
+            })
+            .unwrap_or(Fixed64::ZERO)
+    }
+
+    fn start_tower_internal_cooldown(&mut self, e: EntityHandle, duration: Fixed64) {
+        if let Some(ent) = ParallelWorldAdapter::handle_to_entity(e) {
+            let duration = duration.max(Fixed64::ZERO);
+            self.overlay.insert(ent, duration);
+            self.outcomes.push(Outcome::ScriptSetTowerInternalCooldown {
+                entity: ent,
+                duration,
+            });
+        }
+    }
+}
+
+impl<'a> ParallelProjectileQuery<'a> {
+    pub fn new(cache: &'a ParallelAdapterCache<'a>) -> Self {
+        Self { cache }
+    }
+}
+
+impl ProjectileQuery for ParallelProjectileQuery<'_> {
+    fn enemy_candidates_bounded(
+        &self,
+        center: Vec2,
+        radius: Fixed64,
+        of: EntityHandle,
+        exclude: ROption<EntityHandle>,
+        cap: u16,
+    ) -> RVec<EntityHandle> {
+        let Some(of_entity) = ParallelWorldAdapter::handle_to_entity(of) else {
+            return RVec::new();
+        };
+        let Some(my_faction) = self.cache.faction.get(of_entity) else {
+            return RVec::new();
+        };
+        let cap = usize::from(cap);
+        if cap == 0 || radius <= Fixed64::ZERO {
+            return RVec::new();
+        }
+        let excluded = match exclude {
+            RSome(handle) => ParallelWorldAdapter::handle_to_entity(handle),
+            RNone => None,
+        };
+        // Spatial retrieval stays explicitly bounded. Small overscan absorbs the one
+        // exclusion plus allied/stale entries without falling back to a full ECS join.
+        let search_cap = cap.saturating_mul(4).saturating_add(1).min(64);
+        let spatial = self.cache.searcher.creep.search_nn_bounded(
+            vek::Vec2::new(center.x.to_f32_for_render(), center.y.to_f32_for_render()),
+            radius.to_f32_for_render(),
+            search_cap,
+        );
+        let radius_squared = radius * radius;
+        let mut candidates: Vec<(Fixed64, EntityHandle)> = spatial
+            .into_iter()
+            .filter_map(|candidate| {
+                if Some(candidate.e) == excluded {
+                    return None;
+                }
+                let faction = self.cache.faction.get(candidate.e)?;
+                if faction.team_id == my_faction.team_id {
+                    return None;
+                }
+                let pos = self.cache.pos.get(candidate.e)?.0;
+                let distance_squared = pos.distance_squared(center);
+                if distance_squared > radius_squared {
+                    return None;
+                }
+                Some((
+                    distance_squared,
+                    ParallelWorldAdapter::entity_to_handle(candidate.e),
+                ))
+            })
+            .collect();
+        candidates.sort_by(|(distance_a, entity_a), (distance_b, entity_b)| {
+            distance_a
+                .partial_cmp(distance_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| (entity_a.id, entity_a.gen).cmp(&(entity_b.id, entity_b.gen)))
+        });
+        candidates.truncate(cap);
+        candidates
+            .into_iter()
+            .map(|(_, entity)| entity)
+            .collect::<Vec<_>>()
+            .into()
+    }
 }
 
 fn select_script_tower_target(
@@ -79,6 +337,41 @@ fn select_script_tower_target(
         .iter()
         .min_by(|a, b| compare_script_tower_targets(priority, a, b, creeps, cprops))
         .map(|candidate| candidate.e)
+}
+
+fn query_script_tower_enemy(
+    cache: &ParallelAdapterCache<'_>,
+    center: Vec2,
+    radius: Fixed64,
+    of: EntityHandle,
+    priority: TowerTargetPriority,
+) -> ROption<EntityHandle> {
+    let Some(of_ent) = ParallelWorldAdapter::handle_to_entity(of) else {
+        return RNone;
+    };
+    let my_team = match cache.faction.get(of_ent) {
+        Some(faction) => faction.team_id,
+        None => return RNone,
+    };
+    let center_f = vek::Vec2::new(center.x.to_f32_for_render(), center.y.to_f32_for_render());
+    let radius_f = radius.to_f32_for_render();
+    let mut candidates = Vec::new();
+    for candidate in
+        cache
+            .searcher
+            .creep
+            .search_nn(center_f, radius_f, cache.searcher.creep.count().max(1))
+    {
+        let Some(faction) = cache.faction.get(candidate.e) else {
+            continue;
+        };
+        if faction.team_id != my_team && cache.creep.get(candidate.e).is_some() {
+            candidates.push(candidate);
+        }
+    }
+    select_script_tower_target(priority, &candidates, &cache.creep, &cache.cprop)
+        .map(ParallelWorldAdapter::entity_to_handle)
+        .map_or(RNone, RSome)
 }
 
 fn compare_script_tower_targets(
@@ -138,6 +431,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             overlay_pos: HashMap::new(),
             overlay_facing: HashMap::new(),
             overlay_asd_count: HashMap::new(),
+            projectile_hit_generation: None,
         }
     }
 
@@ -151,6 +445,10 @@ impl<'a> ParallelWorldAdapter<'a> {
             ability_id,
             duration,
         });
+    }
+
+    pub fn set_projectile_hit_generation(&mut self, generation: u8) {
+        self.projectile_hit_generation = Some(generation);
     }
 
     #[inline]
@@ -430,6 +728,11 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             slow_duration: spec.slow_duration,
             hit_radius: spec.hit_radius,
             stun_duration: spec.stun_duration,
+            kind_id: spec.kind_id,
+            generation: self
+                .projectile_hit_generation
+                .map(|generation| generation.saturating_add(1))
+                .unwrap_or(0),
         });
         EntityHandle::INVALID
     }
@@ -461,9 +764,16 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn get_asd_interval(&self, e: EntityHandle) -> Fixed64 {
-        Self::handle_to_entity(e)
-            .and_then(|ent| self.cache.tattack.get(ent).map(|t| t.asd.v))
-            .unwrap_or(Fixed64::ZERO)
+        let Some(ent) = Self::handle_to_entity(e) else {
+            return Fixed64::ZERO;
+        };
+        let Some(base_interval) = self.cache.tattack.get(ent).map(|t| t.asd.v) else {
+            return Fixed64::ZERO;
+        };
+        let stats =
+            UnitStats::from_refs(&self.cache.buffs, self.cache.is_building.get(ent).is_some());
+        let interval = base_interval / stats.final_attack_speed_mult(ent);
+        interval.max(Fixed64::from_raw(1))
     }
 
     fn get_asd_count(&self, e: EntityHandle) -> Fixed64 {
@@ -544,34 +854,13 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(of_ent) = Self::handle_to_entity(of) else {
             return RNone;
         };
-        let my_team = match self.cache.faction.get(of_ent) {
-            Some(f) => f.team_id,
-            None => return RNone,
-        };
-        let center_f = vek::Vec2::new(center.x.to_f32_for_render(), center.y.to_f32_for_render());
-        let radius_f = radius.to_f32_for_render();
         let priority = self
             .cache
             .tower
             .get(of_ent)
             .map(|tower| tower.target_priority)
             .unwrap_or(TowerTargetPriority::Nearest);
-        let mut candidates = Vec::new();
-        for di in self.cache.searcher.creep.search_nn(
-            center_f,
-            radius_f,
-            self.cache.searcher.creep.count().max(1),
-        ) {
-            let Some(fac) = self.cache.faction.get(di.e) else {
-                continue;
-            };
-            if fac.team_id != my_team && self.cache.creep.get(di.e).is_some() {
-                candidates.push(di);
-            }
-        }
-        select_script_tower_target(priority, &candidates, &self.cache.creep, &self.cache.cprop)
-            .map(Self::entity_to_handle)
-            .map_or(RNone, RSome)
+        query_script_tower_enemy(self.cache, center, radius, of, priority)
     }
 
     fn play_vfx(&mut self, id: RStr<'_>, at: Vec2) {
@@ -665,7 +954,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8 {
         Self::handle_to_entity(e)
             .and_then(|ent| self.cache.tower.get(ent))
-            .and_then(|t| t.upgrade_levels.get(path as usize))
+            .and_then(|tower| tower.upgrade_levels.get(path as usize))
             .copied()
             .unwrap_or(0)
     }
@@ -921,8 +1210,26 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use omb_script_abi::world::GameWorld;
+    use abi_stable::{sabi_trait::prelude::TD_Opaque, std_types::RStr};
+    use omb_script_abi::{
+        script::{UnitScript, UnitScript_TO},
+        world::{GameWorld, GameWorldDyn, TowerActiveAbilityAccessDyn},
+    };
+    use serde_json::json;
     use specs::Builder;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use crate::runtime::{
+        comp::{
+            PendingTowerAbilityActivation, PendingTowerAbilityActivationQueue,
+            PendingTowerAbilityPulse, PendingTowerAbilityPulseQueue, PlayerOwner,
+            TowerActiveAbilityState,
+        },
+        scripting::{dispatch::dispatch_tower_ability_callbacks, ScriptRegistry},
+    };
 
     fn world_for_adapter_tests() -> World {
         let mut world = World::new();
@@ -938,11 +1245,389 @@ mod tests {
         world.register::<IsBuilding>();
         world.register::<CollisionRadius>();
         world.register::<ScriptUnitTag>();
+        world.register::<PlayerOwner>();
         world.insert(BuffStore::default());
         world.insert(Searcher::default());
         world.insert(BlockedRegions::default());
         world.insert(Tick(42));
         world
+    }
+
+    #[derive(Clone)]
+    struct ExactTowerAbilityScript {
+        activations: Arc<AtomicUsize>,
+        pulses: Arc<AtomicUsize>,
+    }
+
+    impl UnitScript for ExactTowerAbilityScript {
+        fn unit_id(&self) -> RStr<'_> {
+            "tower_exact".into()
+        }
+
+        fn on_tower_ability_activate(
+            &self,
+            _tower: EntityHandle,
+            _ability_id: RStr<'_>,
+            _w: &mut GameWorldDyn<'_>,
+        ) {
+            self.activations.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn on_tower_ability_pulse(
+            &self,
+            _tower: EntityHandle,
+            _ability_id: RStr<'_>,
+            _pulse_index: u16,
+            _w: &mut GameWorldDyn<'_>,
+        ) -> bool {
+            self.pulses.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+    }
+
+    #[derive(Clone)]
+    struct AccessTowerAbilityScript {
+        remaining_raw: Arc<AtomicUsize>,
+        serial: Arc<AtomicUsize>,
+        friendly_count: Arc<AtomicUsize>,
+    }
+
+    impl UnitScript for AccessTowerAbilityScript {
+        fn unit_id(&self) -> RStr<'_> {
+            "tower_access".into()
+        }
+
+        fn on_tower_ability_activate_with_access(
+            &self,
+            tower: EntityHandle,
+            ability_id: RStr<'_>,
+            access: &TowerActiveAbilityAccessDyn<'_>,
+            _w: &mut GameWorldDyn<'_>,
+        ) {
+            self.remaining_raw.store(
+                access
+                    .get_tower_ability_active_remaining(tower, ability_id)
+                    .raw() as usize,
+                Ordering::SeqCst,
+            );
+            self.serial.store(
+                access.get_tower_ability_activation_serial(tower, ability_id) as usize,
+                Ordering::SeqCst,
+            );
+            self.friendly_count.store(
+                access
+                    .query_friendly_towers_in_range(Vec2::ZERO, Fixed64::from_i32(100), tower)
+                    .len(),
+                Ordering::SeqCst,
+            );
+            access.reset_attack_backswing(tower);
+        }
+    }
+
+    struct DefaultTowerAbilityScript;
+
+    impl UnitScript for DefaultTowerAbilityScript {
+        fn unit_id(&self) -> RStr<'_> {
+            "tower_default".into()
+        }
+    }
+
+    #[test]
+    fn tower_ability_dispatch_exact_hooks_run_once_and_acknowledge_pulse() {
+        let mut world = world_for_adapter_tests();
+        world.insert(PendingTowerAbilityActivationQueue::default());
+        world.insert(PendingTowerAbilityPulseQueue::default());
+        let mut tower_data = Tower::new();
+        let mut state = TowerActiveAbilityState::ready("test_active");
+        state
+            .activate(Fixed64::from_i32(10), Fixed64::from_i32(3), Fixed64::ONE, 1)
+            .unwrap();
+        assert!(state.advance(Fixed64::ONE).pulse_due);
+        tower_data.active_ability = Some(state);
+        let tower = world
+            .create_entity()
+            .with(tower_data)
+            .with(ScriptUnitTag {
+                unit_id: "tower_exact".to_string(),
+            })
+            .build();
+        world
+            .write_resource::<PendingTowerAbilityActivationQueue>()
+            .requests
+            .push(PendingTowerAbilityActivation {
+                entity: tower,
+                ability_id: "test_active".to_string(),
+                activation_serial: 1,
+            });
+        world
+            .write_resource::<PendingTowerAbilityPulseQueue>()
+            .requests
+            .push(PendingTowerAbilityPulse {
+                entity: tower,
+                ability_id: "test_active".to_string(),
+                activation_serial: 1,
+                pulse_index: 0,
+            });
+
+        let activations = Arc::new(AtomicUsize::new(0));
+        let pulses = Arc::new(AtomicUsize::new(0));
+        let mut registry = ScriptRegistry::new();
+        registry.insert_unit_for_test(
+            "tower_exact",
+            UnitScript_TO::from_value(
+                ExactTowerAbilityScript {
+                    activations: Arc::clone(&activations),
+                    pulses: Arc::clone(&pulses),
+                },
+                TD_Opaque,
+            ),
+        );
+
+        dispatch_tower_ability_callbacks(&mut world, &registry, 7);
+        dispatch_tower_ability_callbacks(&mut world, &registry, 7);
+
+        assert_eq!(activations.load(Ordering::SeqCst), 1);
+        assert_eq!(pulses.load(Ordering::SeqCst), 1);
+        let towers = world.read_storage::<Tower>();
+        let state = towers.get(tower).unwrap().active_ability.as_ref().unwrap();
+        assert_eq!(state.pulses_remaining, 0);
+        assert!(!state.opportunity_outstanding);
+    }
+
+    #[test]
+    fn tower_ability_dispatch_extension_reads_state_and_resets_backswing() {
+        let mut world = world_for_adapter_tests();
+        world.insert(PendingTowerAbilityActivationQueue::default());
+        world.insert(PendingTowerAbilityPulseQueue::default());
+        let mut tower_data = Tower::new();
+        let mut state = TowerActiveAbilityState::ready("test_active");
+        state
+            .activate(
+                Fixed64::from_i32(10),
+                Fixed64::from_i32(3),
+                Fixed64::ZERO,
+                0,
+            )
+            .unwrap();
+        tower_data.active_ability = Some(state);
+        let tower = world
+            .create_entity()
+            .with(Pos(Vec2::ZERO))
+            .with(Faction::new(FactionType::Player, 1))
+            .with(PlayerOwner::new(7))
+            .with(TAttack::new(
+                Fixed64::ONE,
+                Fixed64::from_i32(2),
+                Fixed64::from_i32(100),
+                Fixed64::ONE,
+            ))
+            .with(tower_data)
+            .with(ScriptUnitTag {
+                unit_id: "tower_access".to_string(),
+            })
+            .build();
+        let _friendly = world
+            .create_entity()
+            .with(Pos(Vec2::new(Fixed64::from_i32(20), Fixed64::ZERO)))
+            .with(Faction::new(FactionType::Player, 1))
+            .with(PlayerOwner::new(7))
+            .with(Tower::new())
+            .build();
+        let _other_owner = world
+            .create_entity()
+            .with(Pos(Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)))
+            .with(Faction::new(FactionType::Player, 1))
+            .with(PlayerOwner::new(8))
+            .with(Tower::new())
+            .build();
+        world
+            .write_resource::<PendingTowerAbilityActivationQueue>()
+            .requests
+            .push(PendingTowerAbilityActivation {
+                entity: tower,
+                ability_id: "test_active".to_string(),
+                activation_serial: 1,
+            });
+
+        let remaining_raw = Arc::new(AtomicUsize::new(0));
+        let serial = Arc::new(AtomicUsize::new(0));
+        let friendly_count = Arc::new(AtomicUsize::new(0));
+        let mut registry = ScriptRegistry::new();
+        registry.insert_unit_for_test(
+            "tower_access",
+            UnitScript_TO::from_value(
+                AccessTowerAbilityScript {
+                    remaining_raw: Arc::clone(&remaining_raw),
+                    serial: Arc::clone(&serial),
+                    friendly_count: Arc::clone(&friendly_count),
+                },
+                TD_Opaque,
+            ),
+        );
+
+        dispatch_tower_ability_callbacks(&mut world, &registry, 9);
+
+        assert_eq!(
+            remaining_raw.load(Ordering::SeqCst),
+            Fixed64::from_i32(3).raw() as usize
+        );
+        assert_eq!(serial.load(Ordering::SeqCst), 1);
+        assert_eq!(friendly_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            world
+                .read_storage::<TAttack>()
+                .get(tower)
+                .unwrap()
+                .asd_count,
+            Fixed64::from_i32(2)
+        );
+    }
+
+    #[test]
+    fn tower_ability_dispatch_default_hooks_are_safe_and_consume_pulse() {
+        let mut world = world_for_adapter_tests();
+        world.insert(PendingTowerAbilityActivationQueue::default());
+        world.insert(PendingTowerAbilityPulseQueue::default());
+        let mut tower_data = Tower::new();
+        let mut state = TowerActiveAbilityState::ready("test_default");
+        state
+            .activate(Fixed64::ONE, Fixed64::ONE, Fixed64::ONE, 1)
+            .unwrap();
+        assert!(state.advance(Fixed64::ONE).pulse_due);
+        tower_data.active_ability = Some(state);
+        let tower = world
+            .create_entity()
+            .with(tower_data)
+            .with(ScriptUnitTag {
+                unit_id: "tower_default".to_string(),
+            })
+            .build();
+        world
+            .write_resource::<PendingTowerAbilityActivationQueue>()
+            .requests
+            .push(PendingTowerAbilityActivation {
+                entity: tower,
+                ability_id: "test_default".to_string(),
+                activation_serial: 1,
+            });
+        world
+            .write_resource::<PendingTowerAbilityPulseQueue>()
+            .requests
+            .push(PendingTowerAbilityPulse {
+                entity: tower,
+                ability_id: "test_default".to_string(),
+                activation_serial: 1,
+                pulse_index: 0,
+            });
+        let mut registry = ScriptRegistry::new();
+        registry.insert_unit_for_test(
+            "tower_default",
+            UnitScript_TO::from_value(DefaultTowerAbilityScript, TD_Opaque),
+        );
+
+        dispatch_tower_ability_callbacks(&mut world, &registry, 11);
+
+        let towers = world.read_storage::<Tower>();
+        let state = towers.get(tower).unwrap().active_ability.as_ref().unwrap();
+        assert_eq!(state.pulses_remaining, 0);
+        assert!(!state.opportunity_outstanding);
+    }
+
+    #[test]
+    fn tower_ability_dispatch_missing_script_cancels_matching_state_once() {
+        let mut world = world_for_adapter_tests();
+        world.insert(PendingTowerAbilityActivationQueue::default());
+        world.insert(PendingTowerAbilityPulseQueue::default());
+        let mut tower_data = Tower::new();
+        let mut state = TowerActiveAbilityState::ready("test_missing");
+        state
+            .activate(Fixed64::from_i32(10), Fixed64::from_i32(3), Fixed64::ONE, 1)
+            .unwrap();
+        assert!(state.advance(Fixed64::ONE).pulse_due);
+        tower_data.active_ability = Some(state);
+        let tower = world
+            .create_entity()
+            .with(tower_data)
+            .with(ScriptUnitTag {
+                unit_id: "not_registered".to_string(),
+            })
+            .build();
+        world
+            .write_resource::<PendingTowerAbilityActivationQueue>()
+            .requests
+            .push(PendingTowerAbilityActivation {
+                entity: tower,
+                ability_id: "test_missing".to_string(),
+                activation_serial: 1,
+            });
+        world
+            .write_resource::<PendingTowerAbilityPulseQueue>()
+            .requests
+            .push(PendingTowerAbilityPulse {
+                entity: tower,
+                ability_id: "test_missing".to_string(),
+                activation_serial: 1,
+                pulse_index: 0,
+            });
+
+        let registry = ScriptRegistry::new();
+        dispatch_tower_ability_callbacks(&mut world, &registry, 13);
+        dispatch_tower_ability_callbacks(&mut world, &registry, 13);
+
+        let towers = world.read_storage::<Tower>();
+        let state = towers.get(tower).unwrap().active_ability.as_ref().unwrap();
+        assert_eq!(state.active_remaining, Fixed64::ZERO);
+        assert_eq!(state.pulses_remaining, 0);
+        assert_eq!(state.pending_due, 0);
+        assert!(!state.opportunity_outstanding);
+        assert!(world
+            .read_resource::<PendingTowerAbilityActivationQueue>()
+            .requests
+            .is_empty());
+        assert!(world
+            .read_resource::<PendingTowerAbilityPulseQueue>()
+            .requests
+            .is_empty());
+    }
+
+    #[test]
+    fn tower_ability_dispatch_missing_tower_logs_once_and_drains_stale_records() {
+        let mut world = world_for_adapter_tests();
+        world.insert(PendingTowerAbilityActivationQueue::default());
+        world.insert(PendingTowerAbilityPulseQueue::default());
+        let missing_tower = world.create_entity().build();
+        world
+            .write_resource::<PendingTowerAbilityActivationQueue>()
+            .requests
+            .push(PendingTowerAbilityActivation {
+                entity: missing_tower,
+                ability_id: "test_deleted".to_string(),
+                activation_serial: 5,
+            });
+        world
+            .write_resource::<PendingTowerAbilityPulseQueue>()
+            .requests
+            .push(PendingTowerAbilityPulse {
+                entity: missing_tower,
+                ability_id: "test_deleted".to_string(),
+                activation_serial: 5,
+                pulse_index: 0,
+            });
+
+        let registry = ScriptRegistry::new();
+        let first = dispatch_tower_ability_callbacks(&mut world, &registry, 17);
+        let second = dispatch_tower_ability_callbacks(&mut world, &registry, 17);
+
+        assert_eq!(first.missing_tower_diagnostics, 1);
+        assert_eq!(second.missing_tower_diagnostics, 0);
+        assert!(world
+            .read_resource::<PendingTowerAbilityActivationQueue>()
+            .requests
+            .is_empty());
+        assert!(world
+            .read_resource::<PendingTowerAbilityPulseQueue>()
+            .requests
+            .is_empty());
     }
 
     fn add_targetable_creep(
@@ -1016,6 +1701,58 @@ mod tests {
         );
         assert!(
             matches!(outcomes[2], Outcome::ScriptSetAsdCount { entity: e, asd_count } if e == entity && asd_count == Fixed64::from_raw(321))
+        );
+    }
+
+    #[test]
+    fn scripted_attack_interval_uses_final_attack_speed_multiplier() {
+        let mut world = world_for_adapter_tests();
+        let entity = world
+            .create_entity()
+            .with(TAttack::new(
+                Fixed64::from_i32(10),
+                Fixed64::from_i32(1),
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(900),
+            ))
+            .build();
+        world.write_resource::<BuffStore>().add(
+            entity,
+            "test_attack_speed",
+            Fixed64::from_i32(10),
+            json!({ StatKey::AttackSpeedMultiplier.as_str(): 1.2 }),
+        );
+
+        let cache = ParallelAdapterCache::new(&world, 123);
+        let adapter = ParallelWorldAdapter::new(&cache, entity);
+        let interval = adapter.get_asd_interval(ParallelWorldAdapter::entity_to_handle(entity));
+
+        assert!(
+            (interval.to_f32_for_render() - (1.0 / 1.2)).abs() < 0.002,
+            "expected ~0.833 seconds, got {}",
+            interval.to_f32_for_render()
+        );
+    }
+
+    #[test]
+    fn scripted_attack_interval_clamps_to_positive_minimum() {
+        let mut world = world_for_adapter_tests();
+        let entity = world
+            .create_entity()
+            .with(TAttack::new(
+                Fixed64::from_i32(10),
+                Fixed64::ZERO,
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(900),
+            ))
+            .build();
+
+        let cache = ParallelAdapterCache::new(&world, 123);
+        let adapter = ParallelWorldAdapter::new(&cache, entity);
+
+        assert_eq!(
+            adapter.get_asd_interval(ParallelWorldAdapter::entity_to_handle(entity)),
+            Fixed64::from_raw(1)
         );
     }
 
@@ -1140,6 +1877,109 @@ mod tests {
             target,
             RSome(ParallelWorldAdapter::entity_to_handle(closest_to_exit)),
             "First priority should choose the in-range creep nearest the path endpoint, not the closest creep to the tower"
+        );
+    }
+
+    #[test]
+    fn bounded_candidate_query_excludes_caps_and_uses_stable_ties() {
+        let mut world = world_for_adapter_tests();
+        let tower = world
+            .create_entity()
+            .with(Pos(Vec2::ZERO))
+            .with(Faction::new(FactionType::Player, 1))
+            .build();
+        let excluded = add_targetable_creep(
+            &mut world,
+            Vec2::new(Fixed64::from_i32(5), Fixed64::ZERO),
+            0,
+            10,
+            2,
+        );
+        let first_tie = add_targetable_creep(
+            &mut world,
+            Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+            0,
+            10,
+            2,
+        );
+        let second_tie = add_targetable_creep(
+            &mut world,
+            Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+            0,
+            10,
+            2,
+        );
+        let farther = add_targetable_creep(
+            &mut world,
+            Vec2::new(Fixed64::from_i32(20), Fixed64::ZERO),
+            0,
+            10,
+            2,
+        );
+        let fixed_out_of_range = add_targetable_creep(
+            &mut world,
+            Vec2::new(Fixed64::from_i32(101), Fixed64::ZERO),
+            0,
+            10,
+            2,
+        );
+        let decoys: Vec<_> = (0..70)
+            .map(|_| {
+                add_targetable_creep(
+                    &mut world,
+                    Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+                    0,
+                    10,
+                    2,
+                )
+            })
+            .collect();
+        let mut spatial = decoys
+            .iter()
+            .rev()
+            .map(|entity| (*entity, vek::Vec2::new(10.0, 0.0)))
+            .collect::<Vec<_>>();
+        spatial.extend([
+            (farther, vek::Vec2::new(20.0, 0.0)),
+            (second_tie, vek::Vec2::new(10.0, 0.0)),
+            (fixed_out_of_range, vek::Vec2::new(1.0, 0.0)),
+            (first_tie, vek::Vec2::new(10.0, 0.0)),
+            (excluded, vek::Vec2::new(5.0, 0.0)),
+        ]);
+        world
+            .write_resource::<Searcher>()
+            .creep
+            .rebuild_from(spatial);
+
+        let cache = ParallelAdapterCache::new(&world, 123);
+        let query = ParallelProjectileQuery::new(&cache);
+        let candidates = query.enemy_candidates_bounded(
+            Vec2::ZERO,
+            Fixed64::from_i32(100),
+            ParallelWorldAdapter::entity_to_handle(tower),
+            RSome(ParallelWorldAdapter::entity_to_handle(excluded)),
+            2,
+        );
+
+        assert_eq!(candidates.len(), 2);
+        assert_ne!(
+            candidates[0],
+            ParallelWorldAdapter::entity_to_handle(excluded)
+        );
+        assert_ne!(
+            candidates[1],
+            ParallelWorldAdapter::entity_to_handle(excluded)
+        );
+        assert!(candidates[0].id < candidates[1].id);
+        assert_eq!(
+            query.enemy_candidates_bounded(
+                Vec2::ZERO,
+                Fixed64::from_i32(100),
+                ParallelWorldAdapter::entity_to_handle(tower),
+                RSome(ParallelWorldAdapter::entity_to_handle(excluded)),
+                2,
+            ),
+            candidates
         );
     }
 }

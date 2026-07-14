@@ -231,6 +231,69 @@ pub(crate) struct UpgradeEntry {
     pub(crate) cost: i32,
     #[serde(default)]
     pub(crate) effects: Vec<UpgradeEffectEntry>,
+    #[serde(default)]
+    pub(crate) active_ability: Option<ActiveAbilityEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub(crate) struct ActiveAbilityEntry {
+    #[serde(default)]
+    pub(crate) ability_id: String,
+    #[serde(default)]
+    pub(crate) display_name: String,
+    #[serde(default)]
+    pub(crate) description: String,
+    #[serde(default)]
+    pub(crate) icon: String,
+    #[serde(default)]
+    pub(crate) cooldown: f32,
+    #[serde(default)]
+    pub(crate) duration: f32,
+    #[serde(default)]
+    pub(crate) pulse_interval: f32,
+    #[serde(default)]
+    pub(crate) pulse_count: u16,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct ActiveAbilityFixedRaw {
+    pub(crate) cooldown: i64,
+    pub(crate) duration: i64,
+    pub(crate) pulse_interval: i64,
+}
+
+pub(crate) fn validate_active_ability_quantization(
+    ability: &ActiveAbilityEntry,
+) -> Result<ActiveAbilityFixedRaw, String> {
+    let quantize = |field: &str, value: f32| {
+        if !value.is_finite() {
+            return Err(format!(
+                "active ability '{}' {} must be finite",
+                ability.ability_id, field
+            ));
+        }
+        Ok((value * 1024.0).round() as i64)
+    };
+    let raw = ActiveAbilityFixedRaw {
+        cooldown: quantize("cooldown", ability.cooldown)?,
+        duration: quantize("duration", ability.duration)?,
+        pulse_interval: quantize("pulse_interval", ability.pulse_interval)?,
+    };
+    if raw.cooldown <= 0 || raw.duration <= 0 {
+        return Err(format!(
+            "active ability '{}' cooldown and duration must quantize to positive Fixed64 values",
+            ability.ability_id
+        ));
+    }
+    let pulses_zero = raw.pulse_interval == 0 && ability.pulse_count == 0;
+    let pulses_positive = raw.pulse_interval > 0 && ability.pulse_count > 0;
+    if !pulses_zero && !pulses_positive {
+        return Err(format!(
+            "active ability '{}' pulse_interval and pulse_count must both quantize positive or both be zero",
+            ability.ability_id
+        ));
+    }
+    Ok(raw)
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -760,6 +823,39 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, text).unwrap();
+    }
+
+    fn active_ability() -> ActiveAbilityEntry {
+        ActiveAbilityEntry {
+            ability_id: "test_active".into(),
+            display_name: "Test".into(),
+            description: "Test ability".into(),
+            icon: "test.png".into(),
+            cooldown: 10.0,
+            duration: 5.0,
+            pulse_interval: 0.5,
+            pulse_count: 10,
+        }
+    }
+
+    #[test]
+    fn active_ability_rejects_positive_values_that_quantize_to_zero() {
+        let mut ability = active_ability();
+        ability.cooldown = 0.0001;
+        assert!(validate_active_ability_quantization(&ability).is_err());
+
+        ability.cooldown = 10.0;
+        ability.pulse_interval = 0.0001;
+        assert!(validate_active_ability_quantization(&ability).is_err());
+    }
+
+    #[test]
+    fn active_ability_rejects_non_finite_fixed_values() {
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut ability = active_ability();
+            ability.duration = value;
+            assert!(validate_active_ability_quantization(&ability).is_err());
+        }
     }
 
     fn minimal_story(root: &Path, story: &str, creep: &str) {

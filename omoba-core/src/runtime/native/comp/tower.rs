@@ -40,6 +40,8 @@ pub struct Tower {
     #[serde(default)]
     pub ultimate_cooldown: Fixed64,
     #[serde(default)]
+    pub active_ability: Option<TowerActiveAbilityState>,
+    #[serde(default)]
     pub target_priority: TowerTargetPriority,
     #[serde(default)]
     pub pops: u32,
@@ -53,9 +55,139 @@ impl Tower {
             upgrade_levels: [0; 3],
             upgrade_flags: vec![],
             ultimate_cooldown: Fixed64::ZERO,
+            active_ability: None,
             target_priority: TowerTargetPriority::First,
             pops: 0,
         }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct TowerActiveAbilityState {
+    pub ability_id: String,
+    pub cooldown_remaining: Fixed64,
+    pub active_remaining: Fixed64,
+    pub pulse_accumulator: Fixed64,
+    pub pulse_interval: Fixed64,
+    pub pulses_remaining: u16,
+    pub activation_serial: u32,
+    #[serde(default)]
+    pub next_pulse_index: u16,
+    #[serde(default)]
+    pub pending_due: u16,
+    #[serde(skip, default)]
+    pub opportunity_outstanding: bool,
+}
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct TowerAbilityPulseOpportunity {
+    pub pulse_due: bool,
+    pub pulse_index: u16,
+}
+
+impl TowerActiveAbilityState {
+    pub fn ready(ability_id: impl Into<String>) -> Self {
+        Self {
+            ability_id: ability_id.into(),
+            ..Self::default()
+        }
+    }
+
+    pub fn activate(
+        &mut self,
+        cooldown: Fixed64,
+        duration: Fixed64,
+        pulse_interval: Fixed64,
+        pulse_count: u16,
+    ) -> Result<(), &'static str> {
+        if self.cooldown_remaining > Fixed64::ZERO {
+            return Err("tower ability is on cooldown");
+        }
+
+        self.cooldown_remaining = cooldown.max(Fixed64::ZERO);
+        self.active_remaining = duration.max(Fixed64::ZERO);
+        self.pulse_accumulator = Fixed64::ZERO;
+        self.pulse_interval = pulse_interval.max(Fixed64::ZERO);
+        self.pulses_remaining = pulse_count;
+        self.pending_due = 0;
+        self.opportunity_outstanding = false;
+        self.activation_serial = self.activation_serial.wrapping_add(1);
+        if self.activation_serial == 0 {
+            self.activation_serial = 1;
+        }
+        self.next_pulse_index = 0;
+        Ok(())
+    }
+
+    pub fn advance(&mut self, dt: Fixed64) -> TowerAbilityPulseOpportunity {
+        if dt <= Fixed64::ZERO {
+            return TowerAbilityPulseOpportunity::default();
+        }
+
+        self.cooldown_remaining = saturating_sub_time(self.cooldown_remaining, dt);
+
+        let active_dt = dt.min(self.active_remaining.max(Fixed64::ZERO));
+        self.active_remaining = saturating_sub_time(self.active_remaining, dt);
+
+        if active_dt > Fixed64::ZERO
+            && self.pulse_interval > Fixed64::ZERO
+            && self.pulses_remaining > 0
+        {
+            self.quantize_due_intervals(active_dt);
+        }
+
+        self.expire_unused_pulses_if_finished();
+        if self.opportunity_outstanding || self.pending_due == 0 {
+            return TowerAbilityPulseOpportunity::default();
+        }
+
+        self.opportunity_outstanding = true;
+        TowerAbilityPulseOpportunity {
+            pulse_due: true,
+            pulse_index: self.next_pulse_index,
+        }
+    }
+
+    pub fn acknowledge_pulse(&mut self, consumed: bool) {
+        if !self.opportunity_outstanding {
+            return;
+        }
+
+        self.opportunity_outstanding = false;
+        self.pending_due = self.pending_due.saturating_sub(1);
+        if consumed && self.pulses_remaining > 0 {
+            self.pulses_remaining -= 1;
+            self.next_pulse_index = self.next_pulse_index.saturating_add(1);
+        }
+        self.expire_unused_pulses_if_finished();
+    }
+
+    fn quantize_due_intervals(&mut self, active_dt: Fixed64) {
+        let interval_raw = self.pulse_interval.raw() as i128;
+        let total_raw = self.pulse_accumulator.raw() as i128 + active_dt.raw() as i128;
+        let crossed = total_raw / interval_raw;
+        self.pulse_accumulator = Fixed64::from_raw((total_raw % interval_raw) as i64);
+
+        let capacity = self.pulses_remaining.saturating_sub(self.pending_due);
+        let newly_due = crossed.min(capacity as i128) as u16;
+        self.pending_due = self.pending_due.saturating_add(newly_due);
+    }
+
+    fn expire_unused_pulses_if_finished(&mut self) {
+        if self.active_remaining == Fixed64::ZERO
+            && self.pending_due == 0
+            && !self.opportunity_outstanding
+        {
+            self.pulses_remaining = 0;
+        }
+    }
+}
+
+fn saturating_sub_time(value: Fixed64, dt: Fixed64) -> Fixed64 {
+    if value <= dt {
+        Fixed64::ZERO
+    } else {
+        value - dt
     }
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -66,6 +198,41 @@ pub struct NearbyEnt {
 
 impl Component for Tower {
     type Storage = VecStorage<Self>;
+}
+
+/// Deterministic creation order assigned by the authoritative/replica spawn path.
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TowerSpawnOrder(pub u64);
+
+impl Component for TowerSpawnOrder {
+    type Storage = VecStorage<Self>;
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TowerSpawnOrderCounter {
+    next: u64,
+}
+
+impl TowerSpawnOrderCounter {
+    pub fn allocate(&mut self) -> TowerSpawnOrder {
+        let order = TowerSpawnOrder(self.next);
+        self.next = self.next.saturating_add(1);
+        order
+    }
+}
+
+#[cfg(test)]
+mod tower_spawn_order_tests {
+    use super::*;
+
+    #[test]
+    fn tower_spawn_order_is_monotonic_and_independent_of_entity_ids() {
+        let mut counter = TowerSpawnOrderCounter::default();
+
+        assert_eq!(counter.allocate(), TowerSpawnOrder(0));
+        assert_eq!(counter.allocate(), TowerSpawnOrder(1));
+        assert_eq!(counter.allocate(), TowerSpawnOrder(2));
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]

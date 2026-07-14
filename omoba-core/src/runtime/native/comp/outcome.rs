@@ -16,6 +16,12 @@ pub enum Outcome {
         #[serde(default)]
         predeclared: bool,
     },
+    ProjectileHit {
+        source: Entity,
+        target: Entity,
+        kind_id: u16,
+        generation: u8,
+    },
     ProjectileLine2 {
         pos: SimVec2,
         source: Option<Entity>,
@@ -127,6 +133,10 @@ pub enum Outcome {
         entity: Entity,
         value: Fixed64,
     },
+    ScriptSetTowerInternalCooldown {
+        entity: Entity,
+        duration: Fixed64,
+    },
     ScriptDirectDamage {
         target: Entity,
         amount: Fixed64,
@@ -153,6 +163,8 @@ pub enum Outcome {
         slow_duration: Fixed64,
         hit_radius: Fixed64,
         stun_duration: Fixed64,
+        kind_id: u16,
+        generation: u8,
     },
     ScriptTowerFireFx {
         entity: Entity,

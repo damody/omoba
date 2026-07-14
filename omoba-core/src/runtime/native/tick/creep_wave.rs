@@ -220,6 +220,7 @@ mod tests {
         world.insert(GameMode::TowerDefense);
         world.insert(Vec::<Outcome>::new());
         world.insert(RuntimeEvents::default());
+        world.insert(crate::comp::PendingDebugCreepSpawnQueue::default());
         world.insert(crate::comp::SysMetrics::default());
         world.insert(crate::comp::TickProfile::default());
         world.insert(CurrentCreepWave {

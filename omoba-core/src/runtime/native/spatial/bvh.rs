@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use vek::Vec2;
 
-use super::{Bounds, Entry, SpatialIndex};
+use super::{BoundedQueryResult, Bounds, Entry, SpatialIndex};
 
 const NIL: u32 = u32::MAX;
 const T_TRAVERSE: f32 = 1.0;
@@ -316,6 +316,60 @@ where
         }
 
         results
+    }
+
+    fn query_in_range_bounded(
+        &self,
+        center: Vec2<f32>,
+        radius: f32,
+        visit_budget: usize,
+    ) -> BoundedQueryResult<Id, Item> {
+        let mut entries = Vec::new();
+        let mut visited_candidates = 0;
+        if self.nodes.is_empty() || visit_budget == 0 {
+            return BoundedQueryResult {
+                entries,
+                visited_candidates,
+            };
+        }
+
+        let query = Aabb::from_query(center, radius);
+        let mut seen = BTreeSet::new();
+        let mut stack = vec![0];
+        'traversal: while let Some(idx) = stack.pop() {
+            let node = &self.nodes[idx as usize];
+            if !node.bounds.intersects(&query) {
+                continue;
+            }
+            if node.is_leaf() {
+                for entry in &node.entries {
+                    if seen.contains(&entry.id) {
+                        continue;
+                    }
+                    if visited_candidates == visit_budget {
+                        break 'traversal;
+                    }
+                    seen.insert(entry.id.clone());
+                    visited_candidates += 1;
+                    let extended = radius + entry.bounding_radius.max(0.0);
+                    if entry.position.distance(center) <= extended {
+                        entries.push(entry.clone());
+                    }
+                }
+            } else {
+                if node.left != NIL {
+                    stack.push(node.left);
+                }
+                if node.right != NIL {
+                    stack.push(node.right);
+                }
+            }
+        }
+
+        BoundedQueryResult {
+            entries,
+            visited_candidates,
+        }
     }
 
     fn count_nodes(&self) -> usize {

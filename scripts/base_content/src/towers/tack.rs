@@ -6,9 +6,7 @@
 //!   inferno_ring (同半徑 / 50 dmg)
 //! - Stat: damage_bonus, range_bonus (透過 get_final_*)
 //!
-//! 待辦事項：
-//! - burn_tier1 / burn_tier2: 目前以 slow 代替 DoT（暫代實作）。
-//!   待 DoT 系統就緒後，替換為真正的 burn buff（5dps / 10dps 持續傷害）。
+//! - burn_tier1 / burn_tier2: projectile hit 套用 5/10 DPS 的 DoT buff。
 
 use omb_script_abi::prelude::*;
 
@@ -17,6 +15,27 @@ pub struct TackTower;
 // 數值唯一來源：scripts/lua_data/templates.lua → omoba_template_ids 編譯期生成
 // `TOWER_TACK_STATS`。hit_radius 80 須與 host 端 `comp::TACK_NEEDLE_HIT_RADIUS` 同步。
 const STATS: &TowerStats = &TOWER_TACK_STATS;
+
+fn burn_spec(e: EntityHandle, w: &GameWorldDyn<'_>) -> Option<(Fixed64, &'static str)> {
+    if w.has_tower_flag(e, RStr::from_str("burn_tier2")) {
+        Some((Fixed64::from_i32(3), r#"{"dot_damage":10}"#))
+    } else if w.has_tower_flag(e, RStr::from_str("burn_tier1")) {
+        Some((Fixed64::from_i32(2), r#"{"dot_damage":5}"#))
+    } else {
+        None
+    }
+}
+
+fn apply_burn(e: EntityHandle, victim: EntityHandle, w: &mut GameWorldDyn<'_>) {
+    if let Some((duration, payload)) = burn_spec(e, w) {
+        w.add_stat_buff(
+            victim,
+            RStr::from_str("tack_burn"),
+            duration,
+            RStr::from_str(payload),
+        );
+    }
+}
 
 impl UnitScript for TackTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -67,16 +86,6 @@ impl UnitScript for TackTower {
 
         let atk = w.get_final_atk(e);
 
-        // burn_tier1 / burn_tier2：以 slow 代替 DoT（暫代，待 DoT 系統就緒後替換）
-        // burn_tier2 優先（高階覆蓋低階）
-        let (burn_slow, burn_dur) = if w.has_tower_flag(e, RStr::from_str("burn_tier2")) {
-            (Fixed64::from_raw(512), Fixed64::from_i32(3)) // slow 0.5×, 3s
-        } else if w.has_tower_flag(e, RStr::from_str("burn_tier1")) {
-            (Fixed64::from_raw(717), Fixed64::from_i32(2)) // slow ≈0.7×, 2s
-        } else {
-            (Fixed64::ZERO, Fixed64::ZERO)
-        };
-
         // 針數 + blade
         let blade = w.has_tower_flag(e, RStr::from_str("blade_shooter"));
         let needle_count: u32 = if w.has_tower_flag(e, RStr::from_str("needles_32")) {
@@ -114,8 +123,8 @@ impl UnitScript for TackTower {
                 damage,
                 hit_radius,
                 splash_radius: Fixed64::ZERO,
-                slow_factor: burn_slow,
-                slow_duration: burn_dur,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
                 stun_duration: Fixed64::ZERO,
                 kind_id: if blade {
                     PROJECTILE_TACK_BLADE.0
@@ -135,8 +144,111 @@ impl UnitScript for TackTower {
                 (Fixed64::from_i32(200), Fixed64::from_i32(20))
             };
             w.deal_damage_splash(pos, r, dmg, DamageKind::Magical, RSome(e));
+            if inferno {
+                for victim in w.query_enemies_in_range(pos, r, e).iter().copied() {
+                    apply_burn(e, victim, w);
+                }
+            }
             w.play_vfx(RStr::from_str("vfx_ring_of_fire"), pos);
         }
+    }
 
+    fn on_projectile_hit(
+        &self,
+        attacker: EntityHandle,
+        victim: EntityHandle,
+        context: ProjectileHitContext,
+        _query: &omb_script_abi::world::ProjectileQueryDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        if context.generation == 0
+            && (context.kind_id == PROJECTILE_TACK.0 || context.kind_id == PROJECTILE_TACK_BLADE.0)
+        {
+            apply_burn(attacker, victim, w);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::towers::projectile_test_support::{fixture, invoke, invoke_tick};
+    use omoba_core::Outcome;
+    use specs::WorldExt;
+
+    #[test]
+    fn burn_tiers_apply_five_and_ten_dps_without_projectile_slow() {
+        for (flag, expected_dps) in [("burn_tier1", 5), ("burn_tier2", 10)] {
+            let mut fixture = fixture(&[flag], &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)]);
+            fixture
+                .world
+                .write_storage::<omoba_core::TAttack>()
+                .get_mut(fixture.tower)
+                .unwrap()
+                .asd_count = -Fixed64::from_raw(1);
+            let fired = invoke_tick(
+                &fixture.world,
+                &TackTower,
+                fixture.tower,
+                Fixed64::from_raw(1),
+            );
+            assert!(fired
+                .iter()
+                .filter_map(|outcome| match outcome {
+                    Outcome::ScriptProjectile {
+                        slow_factor,
+                        slow_duration,
+                        ..
+                    } => Some((*slow_factor, *slow_duration)),
+                    _ => None,
+                })
+                .all(|slow| slow == (Fixed64::ZERO, Fixed64::ZERO)));
+
+            let hit = invoke(
+                &fixture.world,
+                &TackTower,
+                fixture.tower,
+                fixture.enemies[0],
+                ProjectileHitContext {
+                    kind_id: PROJECTILE_TACK.0,
+                    generation: 0,
+                },
+            );
+            assert!(hit.iter().any(|outcome| matches!(outcome,
+                Outcome::AddBuff { payload, .. } if payload["dot_damage"] == expected_dps
+            )));
+        }
+    }
+
+    #[test]
+    fn inferno_ring_applies_tier_two_burn_to_every_enemy_in_ring() {
+        let mut fixture = fixture(
+            &["inferno_ring", "burn_tier2"],
+            &[
+                Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+                Vec2::new(Fixed64::from_i32(20), Fixed64::ZERO),
+            ],
+        );
+        fixture
+            .world
+            .write_storage::<omoba_core::TAttack>()
+            .get_mut(fixture.tower)
+            .unwrap()
+            .asd_count = -Fixed64::from_raw(1);
+        let outcomes = invoke_tick(
+            &fixture.world,
+            &TackTower,
+            fixture.tower,
+            Fixed64::from_raw(1),
+        );
+        let burns = outcomes
+            .iter()
+            .filter(|outcome| {
+                matches!(outcome,
+                    Outcome::AddBuff { payload, .. } if payload["dot_damage"] == 10
+                )
+            })
+            .count();
+        assert_eq!(burns, 2);
     }
 }

@@ -192,7 +192,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.83,
+                value = 1.2,
                 op = "mul",
               },
             },
@@ -205,7 +205,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.7,
+                value = 1.3,
                 op = "mul",
               },
             },
@@ -233,7 +233,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.7,
+                value = 1.3,
                 op = "mul",
               },
             },
@@ -399,7 +399,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.83,
+                value = 1.2,
                 op = "mul",
               },
             },
@@ -521,7 +521,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.77,
+                value = 1.3,
                 op = "mul",
               },
             },
@@ -566,7 +566,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.7,
+                value = 1.4,
                 op = "mul",
               },
             },
@@ -702,7 +702,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.83,
+                value = 1.2,
                 op = "mul",
               },
             },
@@ -730,6 +730,10 @@ return function(ctx)
             cost = 650,
             effects = {
               {
+                type = "behavior_flag",
+                flag = "missile_speed_tier2",
+              },
+              {
                 type = "stat_mod",
                 key = "BaseDamageOutgoingPercentage",
                 value = 1.0,
@@ -749,7 +753,7 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.7,
+                value = 1.3,
                 op = "mul",
               },
             },
@@ -946,7 +950,7 @@ return function(ctx)
           },
           {
             name = "暴風雪",
-            description = "光環疊到 35%, 凍敵所有塔攻速 +10%",
+            description = "光環疊到 35% 減速",
             cost = 400,
             effects = {
               {
@@ -1111,13 +1115,13 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "BaseDamageOutgoingPercentage",
-                value = 1.0,
+                value = 0.5,
                 op = "add",
               },
               {
                 type = "stat_mod",
                 key = "SplashBonus",
-                value = 100.0,
+                value = 50.0,
                 op = "add",
               },
             },
@@ -1130,19 +1134,19 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "BaseDamageOutgoingPercentage",
-                value = 2.0,
+                value = 1.0,
                 op = "add",
               },
               {
                 type = "stat_mod",
                 key = "SplashBonus",
-                value = 200.0,
+                value = 100.0,
                 op = "add",
               },
               {
                 type = "stat_mod",
                 key = "AttackRangeBonus",
-                value = 200.0,
+                value = 100.0,
                 op = "add",
               },
             },
@@ -1183,8 +1187,8 @@ return function(ctx)
             },
           },
           {
-            name = "永久凍結",
-            description = "暈眩時間→3 秒，附加減速 50%",
+            name = "深度凍結",
+            description = "暈眩時間→3 秒，附加 5 秒 50% 減速",
             cost = 2250,
             effects = {
               {
@@ -1192,10 +1196,8 @@ return function(ctx)
                 flag = "arty_stun_3",
               },
               {
-                type = "stat_mod",
-                key = "SlowMultiplier",
-                value = 0.5,
-                op = "add",
+                type = "behavior_flag",
+                flag = "arty_slow_50",
               },
             },
           },
@@ -1209,8 +1211,8 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.25,
-                op = "add",
+                value = 1.25,
+                op = "mul",
               },
             },
           },
@@ -1222,8 +1224,8 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 0.5,
-                op = "add",
+                value = 1.2,
+                op = "mul",
               },
             },
           },
@@ -1235,22 +1237,21 @@ return function(ctx)
               {
                 type = "stat_mod",
                 key = "AttackSpeedMultiplier",
-                value = 1.0,
-                op = "add",
+                value = 1.3333333333333333,
+                op = "mul",
               },
             },
           },
           {
             name = "連射模式",
-            description = "攻擊速度 +200%",
+            description = "解鎖火力全開",
             cost = 2250,
-            effects = {
-              {
-                type = "stat_mod",
-                key = "AttackSpeedMultiplier",
-                value = 2.0,
-                op = "add",
-              },
+            effects = {},
+            active_ability = {
+              ability_id = "arty_fire_at_will", display_name = "火力全開",
+              description = "3 秒內額外發射 6 發砲彈",
+              icon = "assets/ui/abilities/arty_fire_at_will.png",
+              cooldown = 10.0, duration = 3.0, pulse_interval = 0.5, pulse_count = 6,
             },
           },
         },
@@ -1289,6 +1290,117 @@ return function(ctx)
           scale = 0.88,
           duration_ms = 70,
           return_ms = 110,
+        },
+      },
+      upgrades = {
+        {
+          {
+            name = "強力烘焙",
+            description = "傷害 +25%",
+            cost = 125,
+            effects = {
+              { type = "stat_mod", key = "BaseDamageOutgoingPercentage", value = 0.25, op = "add" },
+            },
+          },
+          {
+            name = "加大蛋糕盤",
+            description = "攻擊半徑 +40",
+            cost = 250,
+            effects = {
+              { type = "stat_mod", key = "AttackRangeBonus", value = 40.0, op = "add" },
+            },
+          },
+          {
+            name = "焦糖灼燒",
+            description = "命中附加 3 秒灼燒，每秒造成該次傷害的 20%",
+            cost = 500,
+            effects = {
+              { type = "behavior_flag", flag = "cake_burn_20" },
+            },
+          },
+          {
+            name = "烈焰烘焙",
+            description = "灼燒提升至每秒 40%，脈衝傷害 +50%",
+            cost = 1250,
+            effects = {
+              { type = "behavior_flag", flag = "cake_burn_40" },
+              { type = "stat_mod", key = "BaseDamageOutgoingPercentage", value = 0.5, op = "add" },
+            },
+          },
+        },
+        {
+          {
+            name = "派對節拍",
+            description = "攻擊間隔 ×0.8",
+            cost = 125,
+            effects = {
+              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 1.25, op = "mul" },
+            },
+          },
+          {
+            name = "雙拍",
+            description = "每次普通攻擊追加 1 次 50% 傷害脈衝",
+            cost = 250,
+            effects = {
+              { type = "behavior_flag", flag = "cake_secondary_pulse_1" },
+            },
+          },
+          {
+            name = "三連拍",
+            description = "每次普通攻擊追加 2 次 50% 傷害脈衝",
+            cost = 500,
+            effects = {
+              { type = "behavior_flag", flag = "cake_secondary_pulse_2" },
+            },
+          },
+          {
+            name = "甜點狂歡",
+            description = "解鎖甜點狂歡",
+            cost = 1250,
+            effects = {
+              { type = "behavior_flag", flag = "cake_dessert_party" },
+            },
+            active_ability = {
+              ability_id = "cake_dessert_party", display_name = "甜點狂歡",
+              description = "5 秒內每 0.5 秒造成脈衝並強化附近友軍塔",
+              icon = "assets/ui/abilities/cake_dessert_party.png",
+              cooldown = 10.0, duration = 5.0, pulse_interval = 0.5, pulse_count = 10,
+            },
+          },
+        },
+        {
+          {
+            name = "薄層糖霜",
+            description = "命中使敵人減速 20%，持續 2 秒",
+            cost = 125,
+            effects = {
+              { type = "behavior_flag", flag = "cake_frost_20" },
+            },
+          },
+          {
+            name = "厚層糖霜",
+            description = "減速提升至 35%",
+            cost = 250,
+            effects = {
+              { type = "behavior_flag", flag = "cake_frost_35" },
+            },
+          },
+          {
+            name = "脆弱糖衣",
+            description = "糖霜敵人受到的傷害 +15%",
+            cost = 500,
+            effects = {
+              { type = "behavior_flag", flag = "cake_frost_vulnerability_15" },
+            },
+          },
+          {
+            name = "極寒糖霜",
+            description = "減速提升至 50%，受到的傷害 +25%",
+            cost = 1250,
+            effects = {
+              { type = "behavior_flag", flag = "cake_frost_50_vulnerability_25" },
+            },
+          },
         },
       },
     },
@@ -1374,7 +1486,7 @@ return function(ctx)
             description = "攻速 +25%",
             cost = 81,
             effects = {
-              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 0.8, op = "mul" },
+              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 1.25, op = "mul" },
             },
           },
           {
@@ -1396,12 +1508,17 @@ return function(ctx)
           },
           {
             name = "渦輪衝鋒",
-            description = "攻速再 ×2，damage +30%",
+            description = "解鎖渦輪充能，damage +30%",
             cost = 812,
             effects = {
               { type = "behavior_flag", flag = "turbo_charge" },
-              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 0.5, op = "mul" },
               { type = "stat_mod", key = "BaseDamageOutgoingPercentage", value = 0.3, op = "add" },
+            },
+            active_ability = {
+              ability_id = "boomerang_turbo_charge", display_name = "渦輪充能",
+              description = "5 秒內攻擊間隔 ×0.35，每次攻擊額外投射 2 枚回力鏢",
+              icon = "assets/ui/abilities/boomerang_turbo_charge.png",
+              cooldown = 10.0, duration = 5.0,
             },
           },
         },
@@ -1439,7 +1556,7 @@ return function(ctx)
             cost = 812,
             effects = {
               { type = "behavior_flag", flag = "storm_shuriken" },
-              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 0.7, op = "mul" },
+              { type = "stat_mod", key = "AttackSpeedMultiplier", value = 1.3, op = "mul" },
             },
           },
         },

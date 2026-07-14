@@ -5,6 +5,7 @@ use omoba_sim::Fixed64;
 use specs::{Join, ReadStorage, World, WorldExt};
 
 use crate::lockstep_timing::LOCKSTEP_ONE_SECOND_TICKS_U32;
+use crate::tower_meta::TowerActiveAbilityDef;
 
 use super::ability_runtime::{AbilityRegistry, BuffStore, UnitStats};
 use super::comp::hero::AttributeType;
@@ -12,7 +13,8 @@ use super::comp::{
     BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, GamePause, GameSpeed,
     Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MoveTarget,
     Path as CreepPath, PlayerLives, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, TAttack,
-    Tower, TowerTemplateRegistry, TowerUpgradeRegistry,
+    Tower, TowerAbilityCastResult, TowerAbilityCastResults, TowerSpawnOrder, TowerTemplateRegistry,
+    TowerUpgradeRegistry,
 };
 use super::scripting::{ScriptUnitTag, ScriptVisualEventKind, ScriptVisualEventQueue};
 
@@ -58,6 +60,43 @@ pub struct SimWorldSnapshot {
     pub lua_content_generation: u64,
     pub lua_content_hash: String,
     pub dev_lua_reload_error: Option<String>,
+    pub latest_tower_ability_cast_result: Option<TowerAbilityCastResultSnapshot>,
+    pub tower_ability_cast_results: Vec<TowerAbilityCastResultSnapshot>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TowerAbilityCastResultSnapshot {
+    pub player_id: u32,
+    pub tower_entity_id: u32,
+    pub ability_id: String,
+    pub accepted: bool,
+    pub reason: String,
+    pub result_serial: u32,
+}
+
+impl From<&TowerAbilityCastResult> for TowerAbilityCastResultSnapshot {
+    fn from(result: &TowerAbilityCastResult) -> Self {
+        Self {
+            player_id: result.player_id,
+            tower_entity_id: result.tower_entity_id,
+            ability_id: result.ability_id.clone(),
+            accepted: result.accepted,
+            reason: result.reason.clone(),
+            result_serial: result.result_serial,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TowerActiveAbilitySnapshot {
+    pub ability_id: String,
+    pub display_name: String,
+    pub description: String,
+    pub icon: String,
+    pub cooldown_total: f32,
+    pub cooldown_remaining: f32,
+    pub active_remaining: f32,
+    pub activation_serial: u32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -102,6 +141,7 @@ pub struct TowerUpgradeDefSnapshot {
     pub name: String,
     pub description: String,
     pub cost: i32,
+    pub active_ability: Option<TowerActiveAbilityDef>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -210,6 +250,7 @@ pub struct HeroRenderSnapshot {
 pub struct EntityRenderData {
     pub entity_id: u32,
     pub entity_gen: u32,
+    pub spawn_order: u64,
     pub kind: EntityKind,
     pub pos_x: f32,
     pub pos_y: f32,
@@ -237,9 +278,57 @@ pub struct EntityRenderData {
     pub tower_atk: Option<f32>,
     pub tower_asd: Option<f32>,
     pub tower_target_priority: String,
+    pub tower_active_ability: Option<TowerActiveAbilitySnapshot>,
     pub hero_command: Option<Box<HeroCommandSnapshot>>,
     pub buffs: Vec<BuffSnapshot>,
     pub attack_range: f32,
+}
+
+fn tower_active_ability_snapshot(
+    tower: Option<&Tower>,
+    hp: i32,
+    upgrades: &TowerUpgradeRegistry,
+) -> Option<TowerActiveAbilitySnapshot> {
+    let state = tower?.active_ability.as_ref()?;
+    if hp <= 0 {
+        return None;
+    }
+    let def = upgrades.iter_all().find_map(|def| {
+        def.active_ability
+            .as_ref()
+            .filter(|ability| ability.ability_id == state.ability_id)
+    })?;
+    Some(TowerActiveAbilitySnapshot {
+        ability_id: state.ability_id.clone(),
+        display_name: def.display_name.clone(),
+        description: def.description.clone(),
+        icon: def.icon.clone(),
+        cooldown_total: def.cooldown.to_f32_for_render(),
+        cooldown_remaining: state.cooldown_remaining.to_f32_for_render(),
+        active_remaining: state.active_remaining.to_f32_for_render(),
+        activation_serial: state.activation_serial,
+    })
+}
+
+fn latest_tower_ability_cast_result(world: &World) -> Option<TowerAbilityCastResultSnapshot> {
+    world
+        .try_fetch::<TowerAbilityCastResult>()
+        .and_then(|result| {
+            (result.result_serial != 0).then(|| TowerAbilityCastResultSnapshot::from(&*result))
+        })
+}
+
+fn tower_ability_cast_results(world: &World) -> Vec<TowerAbilityCastResultSnapshot> {
+    world
+        .try_fetch::<TowerAbilityCastResults>()
+        .map(|results| {
+            results
+                .latest_by_player
+                .values()
+                .map(TowerAbilityCastResultSnapshot::from)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -315,9 +404,59 @@ fn hero_command_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::super::comp::HeroCommand;
+    use super::super::comp::{HeroCommand, TowerAbilityCastResults};
     use super::*;
     use omoba_sim::Fixed64;
+
+    #[test]
+    fn tower_upgrade_snapshot_exposes_active_ability_metadata() {
+        use omoba_template_ids::TOWER_ARTY;
+
+        let registry = TowerUpgradeRegistry::new();
+        let snapshots = build_tower_upgrade_def_snapshots(&registry);
+        let active = snapshots
+            .iter()
+            .find(|def| def.tower_kind == TOWER_ARTY.as_str() && def.path == 2 && def.level == 4)
+            .and_then(|def| def.active_ability.as_ref())
+            .expect("Arty level-four active ability snapshot");
+
+        assert_eq!(active.ability_id, "arty_fire_at_will");
+        assert_eq!(active.display_name, "火力全開");
+        assert_eq!(active.cooldown, Fixed64::from_i32(10));
+        assert_eq!(active.duration, Fixed64::from_i32(3));
+        assert_eq!(active.pulse_interval, Fixed64::from_raw(512));
+        assert_eq!(active.pulse_count, 6);
+    }
+
+    #[test]
+    fn tower_ability_cast_result_snapshots_are_sorted_by_player() {
+        let mut world = World::new();
+        let mut results = TowerAbilityCastResults::default();
+        for player_id in [8, 7] {
+            results.latest_by_player.insert(
+                player_id,
+                TowerAbilityCastResult {
+                    player_id,
+                    tower_entity_id: player_id * 10,
+                    ability_id: format!("ability_{player_id}"),
+                    accepted: false,
+                    reason: "tower_missing".into(),
+                    result_serial: player_id,
+                },
+            );
+        }
+        world.insert(results);
+
+        let snapshots = tower_ability_cast_results(&world);
+
+        assert_eq!(
+            snapshots
+                .iter()
+                .map(|result| result.player_id)
+                .collect::<Vec<_>>(),
+            vec![7, 8]
+        );
+    }
 
     #[test]
     fn hero_command_snapshot_exposes_active_command_without_mutating_queue() {
@@ -618,6 +757,7 @@ pub fn build_tower_upgrade_def_snapshots(
             name: d.name.clone(),
             description: d.description.clone(),
             cost: d.cost,
+            active_ability: d.active_ability.clone(),
         })
         .collect();
     defs.sort_by(|a, b| {
@@ -656,6 +796,7 @@ pub fn extract_snapshot(
     let cprop_storage = world.read_storage::<CProperty>();
     let hero_storage = world.read_storage::<Hero>();
     let tower_storage = world.read_storage::<Tower>();
+    let tower_spawn_order_storage = world.read_storage::<TowerSpawnOrder>();
     let proj_storage = world.read_storage::<Projectile>();
     let creep_storage = world.read_storage::<Creep>();
     let unit_tag_storage = world.read_storage::<ScriptUnitTag>();
@@ -667,6 +808,7 @@ pub fn extract_snapshot(
     let buff_store = world.read_resource::<BuffStore>();
     let is_building_storage = world.read_storage::<IsBuilding>();
     let inventory_storage = world.read_storage::<Inventory>();
+    let tower_upgrade_registry = world.read_resource::<TowerUpgradeRegistry>();
     drop(storage_span);
 
     let mut out = Vec::new();
@@ -944,6 +1086,8 @@ pub fn extract_snapshot(
             .get(entity)
             .map(|t| t.target_priority.as_str().to_string())
             .unwrap_or_default();
+        let tower_active_ability =
+            tower_active_ability_snapshot(tower_storage.get(entity), hp, &tower_upgrade_registry);
         let hero_command = hero_command_snapshot(
             command_queue_storage.get(entity),
             move_target_storage.get(entity),
@@ -953,6 +1097,10 @@ pub fn extract_snapshot(
         out.push(EntityRenderData {
             entity_id: entity.id(),
             entity_gen: entity.gen().id() as u32,
+            spawn_order: tower_spawn_order_storage
+                .get(entity)
+                .map(|order| order.0)
+                .unwrap_or(u64::MAX),
             kind,
             pos_x: px,
             pos_y: py,
@@ -980,6 +1128,7 @@ pub fn extract_snapshot(
             tower_atk,
             tower_asd,
             tower_target_priority,
+            tower_active_ability,
             hero_command,
             buffs: entity_buffs,
             attack_range,
@@ -1083,6 +1232,8 @@ pub fn extract_snapshot(
             .flatten()
             .unwrap_or_default(),
         dev_lua_reload_error: None,
+        latest_tower_ability_cast_result: latest_tower_ability_cast_result(world),
+        tower_ability_cast_results: tower_ability_cast_results(world),
     };
     drop(snapshot_span);
     snapshot
@@ -1113,6 +1264,7 @@ pub fn extract_data_for_render(
     let cprop_storage = world.read_storage::<CProperty>();
     let hero_storage = world.read_storage::<Hero>();
     let tower_storage = world.read_storage::<Tower>();
+    let tower_spawn_order_storage = world.read_storage::<TowerSpawnOrder>();
     let proj_storage = world.read_storage::<Projectile>();
     let creep_storage = world.read_storage::<Creep>();
     let unit_tag_storage = world.read_storage::<ScriptUnitTag>();
@@ -1124,6 +1276,7 @@ pub fn extract_data_for_render(
     let buff_store = world.read_resource::<BuffStore>();
     let is_building_storage = world.read_storage::<IsBuilding>();
     let inventory_storage = world.read_storage::<Inventory>();
+    let tower_upgrade_registry = world.read_resource::<TowerUpgradeRegistry>();
     drop(storage_span);
 
     let mut out = Vec::new();
@@ -1347,6 +1500,8 @@ pub fn extract_data_for_render(
             .get(entity)
             .map(|t| t.target_priority.as_str().to_string())
             .unwrap_or_default();
+        let tower_active_ability =
+            tower_active_ability_snapshot(tower_storage.get(entity), hp, &tower_upgrade_registry);
         let hero_command = hero_command_snapshot(
             command_queue_storage.get(entity),
             move_target_storage.get(entity),
@@ -1356,6 +1511,10 @@ pub fn extract_data_for_render(
         out.push(EntityRenderData {
             entity_id: entity.id(),
             entity_gen: entity.gen().id() as u32,
+            spawn_order: tower_spawn_order_storage
+                .get(entity)
+                .map(|order| order.0)
+                .unwrap_or(u64::MAX),
             kind,
             pos_x: px,
             pos_y: py,
@@ -1383,6 +1542,7 @@ pub fn extract_data_for_render(
             tower_atk,
             tower_asd,
             tower_target_priority,
+            tower_active_ability,
             hero_command,
             buffs: entity_buffs,
             attack_range,
@@ -1481,6 +1641,8 @@ pub fn extract_data_for_render(
             .flatten()
             .unwrap_or_default(),
         dev_lua_reload_error: None,
+        latest_tower_ability_cast_result: latest_tower_ability_cast_result(world),
+        tower_ability_cast_results: tower_ability_cast_results(world),
     };
     drop(assemble_span);
     drop(snapshot_span);

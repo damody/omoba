@@ -6,8 +6,6 @@
 //! - Path2: always_crit, mega_crit (crit 時 60dmg splash 60)
 //! - Stat: crit_chance, crit_bonus, damage_bonus, range_bonus (透過 get_final_*)
 //!
-//! TODO: attack_speed_multiplier 目前不會影響腳本層 ASD（見 Task 14/15 plan）。
-
 use omb_script_abi::prelude::*;
 use omb_script_abi::stat_keys::StatKey;
 

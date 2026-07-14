@@ -6,7 +6,7 @@ pub mod parallel_world_adapter;
 pub mod registry;
 pub mod tag;
 
-pub use dispatch::run_script_dispatch;
+pub use dispatch::{drain_pending_tower_ability_callbacks, run_script_dispatch};
 pub use event::{
     ScriptEvent, ScriptEventQueue, ScriptVisualEvent, ScriptVisualEventKind,
     ScriptVisualEventQueue, SkillTarget,

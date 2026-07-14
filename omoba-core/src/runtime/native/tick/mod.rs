@@ -16,10 +16,11 @@ pub mod player_tick;
 pub mod projectile_tick;
 pub mod regen_tick;
 pub mod summon_tick;
+pub mod tower_ability_tick;
 pub mod tower_tick;
 
 pub use self::{
     creep_tick::*, creep_wave::*, damage_tick::*, death_tick::*, hero_command_tick::*,
     hero_move_tick::*, hero_tick::*, item_tick::*, nearby_tick::*, player_tick::*,
-    projectile_tick::*, tower_tick::*,
+    projectile_tick::*, tower_ability_tick::*, tower_tick::*,
 };

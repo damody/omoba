@@ -41,6 +41,12 @@ pub enum ScriptEvent {
         attacker: Entity,
         victim: Entity,
     },
+    ProjectileHit {
+        attacker: Entity,
+        victim: Entity,
+        kind_id: u16,
+        generation: u8,
+    },
     /// 攻擊動作準備發射（target 可能為 None，例如 orb 技能無目標）。
     AttackStart {
         attacker: Entity,

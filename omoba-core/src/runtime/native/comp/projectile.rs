@@ -28,6 +28,11 @@ pub struct Projectile {
     /// 由 handle_projectile 在發射時擲骰決定（例：matchlock_gun 的 attack_stun_chance）。
     #[serde(default)]
     pub stun_duration: Fixed64,
+    /// Script-visible projectile kind and bounded child generation.
+    #[serde(default)]
+    pub kind_id: u16,
+    #[serde(default)]
+    pub generation: u8,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -26,7 +26,12 @@ pub mod prelude {
     pub use crate::script::{UnitScript, UnitScript_TO};
     pub use crate::stat_keys;
     pub use crate::types::*;
-    pub use crate::world::{GameWorld, GameWorldDyn, GameWorld_TO};
+    pub use crate::world::ProjectileQuery;
+    pub use crate::world::{
+        GameWorld, GameWorldDyn, GameWorld_TO, TowerActiveAbilityAccess,
+        TowerActiveAbilityAccessDyn, TowerActiveAbilityAccess_TO, TowerCooldownAccess,
+        TowerCooldownAccessDyn, TowerCooldownAccess_TO,
+    };
     pub use abi_stable::{
         rstr,
         sabi_trait::prelude::*,
@@ -35,8 +40,8 @@ pub mod prelude {
 
     // 讓腳本可以方便建這些常用型別不用自己 import
     pub use crate::types::{
-        Angle, DamageInfo, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileSpec, Target,
-        TowerMetadata, Vec2,
+        Angle, DamageInfo, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileHitContext,
+        ProjectileSpec, Target, TowerMetadata, Vec2,
     };
 
     // 模板 ids — 由 omoba-template-ids build.rs 產生的 newtype + const。

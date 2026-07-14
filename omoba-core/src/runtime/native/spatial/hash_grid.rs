@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use vek::Vec2;
 
-use super::{Bounds, Entry, SpatialIndex};
+use super::{BoundedQueryResult, Bounds, Entry, SpatialIndex};
 
 type Cell = (i32, i32);
 
@@ -131,6 +131,45 @@ where
             }
         }
         results
+    }
+
+    fn query_in_range_bounded(
+        &self,
+        center: Vec2<f32>,
+        radius: f32,
+        visit_budget: usize,
+    ) -> BoundedQueryResult<Id, Item> {
+        let qmin = Vec2::new(center.x - radius, center.y - radius);
+        let qmax = Vec2::new(center.x + radius, center.y + radius);
+        let cells = self.cells_for_aabb(qmin, qmax);
+        let mut seen = BTreeSet::new();
+        let mut entries = Vec::new();
+        let mut visited_candidates = 0;
+
+        'cells: for cell in cells {
+            let Some(bucket) = self.cells.get(&cell) else {
+                continue;
+            };
+            for entry in bucket {
+                if seen.contains(&entry.id) {
+                    continue;
+                }
+                if visited_candidates == visit_budget {
+                    break 'cells;
+                }
+                seen.insert(entry.id.clone());
+                visited_candidates += 1;
+                let extended = radius + entry.bounding_radius.max(0.0);
+                if entry.position.distance(center) <= extended {
+                    entries.push(entry.clone());
+                }
+            }
+        }
+
+        BoundedQueryResult {
+            entries,
+            visited_candidates,
+        }
     }
 
     fn count_nodes(&self) -> usize {

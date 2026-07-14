@@ -446,6 +446,11 @@ message TowerUpgradeInput {
   uint32 level = 3;      // 升級後的目標 level
 }
 
+message TowerAbilityCastInput {
+  uint32 tower_entity_id = 1;
+  string ability_id = 2;
+}
+
 message TowerSell {
   uint32 tower_entity_id = 1;
 }
@@ -485,6 +490,7 @@ message PlayerInput {
     TogglePause toggle_pause = 13;
     ToggleGameSpeed toggle_game_speed = 14;
     DebugSpawnCreep debug_spawn_creep = 15;
+    TowerAbilityCastInput tower_ability_cast = 16;
   }
 }
 
