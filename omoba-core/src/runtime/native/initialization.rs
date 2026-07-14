@@ -16,6 +16,7 @@ pub struct StateInitializer;
 
 const DOTA_UNITS_PER_MAP_UNIT: i64 = 100;
 const TD_DIFFICULTY_ENV: &str = "OMB_DIFFICULTY";
+const TD_STARTING_GOLD_ENV: &str = "OMB_TD_STARTING_GOLD";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TdDifficultyConfig {
@@ -36,10 +37,13 @@ impl TdDifficultyConfig {
     };
 
     pub fn from_env() -> Self {
-        std::env::var(TD_DIFFICULTY_ENV)
+        let config = std::env::var(TD_DIFFICULTY_ENV)
             .ok()
             .map(|value| Self::from_config_value(&value))
-            .unwrap_or(Self::EXPERT)
+            .unwrap_or(Self::EXPERT);
+        let starting_gold_override = std::env::var(TD_STARTING_GOLD_ENV).ok();
+
+        apply_starting_gold_override(config, starting_gold_override.as_deref())
     }
 
     pub fn from_config_value(value: &str) -> Self {
@@ -69,6 +73,20 @@ impl TdDifficultyConfig {
             _ => Self::EXPERT,
         }
     }
+}
+
+fn apply_starting_gold_override(
+    mut config: TdDifficultyConfig,
+    override_value: Option<&str>,
+) -> TdDifficultyConfig {
+    if let Some(starting_gold) = override_value
+        .and_then(|value| value.trim().parse::<i32>().ok())
+        .filter(|value| *value >= 0)
+    {
+        config.starting_gold = starting_gold;
+    }
+
+    config
 }
 
 fn dota_units_f32_to_map_units(value: f32) -> f32 {
@@ -2004,6 +2022,30 @@ mod tests {
         assert_eq!(expert.starting_gold, 650);
         assert_eq!(expert.round_count, 100);
         assert_eq!(expert.tower_cost_multiplier, 1.0);
+    }
+
+    #[test]
+    fn td_starting_gold_override_applies_to_every_difficulty() {
+        for difficulty in ["novice", "intermediate", "advanced", "expert"] {
+            let config = apply_starting_gold_override(
+                TdDifficultyConfig::from_config_value(difficulty),
+                Some("10000"),
+            );
+
+            assert_eq!(config.starting_gold, 10_000, "{difficulty}");
+        }
+    }
+
+    #[test]
+    fn invalid_td_starting_gold_override_preserves_profile_default() {
+        for value in [None, Some(""), Some("not-a-number"), Some("-1")] {
+            let config = apply_starting_gold_override(
+                TdDifficultyConfig::from_config_value("novice"),
+                value,
+            );
+
+            assert_eq!(config.starting_gold, 650, "{value:?}");
+        }
     }
 
     #[test]
