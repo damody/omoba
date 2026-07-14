@@ -66,43 +66,12 @@ if not exist "%EXECUTOR%" (
     goto :fail_pause
 )
 
-echo [4/5] Starting backend...
-call :start_backend
-if errorlevel 1 goto :fail_pause
-
-echo [5/5] Running frontend...
+echo [4/4] Running frontend...
+echo   -^> frontend session launcher will start backend: %OMFX_BACKEND_EXE%
 "%EXECUTOR%"
 set "RUN_ERR=%errorlevel%"
-call :stop_backend
 popd
 exit /b %RUN_ERR%
-
-:start_backend
-set "BACKEND_PID="
-set "BACKEND_PID_FILE=omb\log\launcher_backend.pid"
-if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
-call powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_backend.ps1 -Exe "%BACKEND%" -WorkingDirectory "omb" -PidFile "%BACKEND_PID_FILE%"
-if errorlevel 1 (
-    echo Backend start failed!
-    exit /b 1
-)
-if exist "%BACKEND_PID_FILE%" set /p BACKEND_PID=<"%BACKEND_PID_FILE%"
-if not defined BACKEND_PID (
-    echo Backend start failed!
-    exit /b 1
-)
-echo   -^> backend PID %BACKEND_PID%
-powershell -NoProfile -Command "Start-Sleep -Milliseconds 500"
-exit /b 0
-
-:stop_backend
-if defined BACKEND_PID (
-    echo Stopping backend PID %BACKEND_PID%...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Id %BACKEND_PID% -Force -ErrorAction SilentlyContinue"
-    if defined BACKEND_PID_FILE if exist "%BACKEND_PID_FILE%" del "%BACKEND_PID_FILE%" >nul 2>&1
-    set "BACKEND_PID="
-)
-exit /b 0
 
 :ensure_fresh
 set "ARTIFACT=%~1"
@@ -158,6 +127,5 @@ exit /b 1
 pause
 
 :fail
-call :stop_backend
 popd
 exit /b 1
