@@ -210,65 +210,88 @@ mod tests {
     }
 
     #[test]
-    fn all_seven_towers_have_exactly_one_valid_active_ability() {
+    fn all_nine_active_upgrades_match_authored_routes() {
         let reg = TowerUpgradeRegistry::new();
-        let expected = [
+        let expected = BTreeSet::from([
             (
                 TOWER_DART.as_str(),
-                "dart_heavy_burst",
-                Fixed64::from_i32(12),
                 2,
+                4,
+                "dart_heavy_burst",
+                Fixed64::from_i32(12).raw(),
             ),
             (
                 TOWER_BOMB.as_str(),
-                "bomb_cluster_overload",
-                Fixed64::from_i32(12),
                 2,
+                4,
+                "bomb_cluster_overload",
+                Fixed64::from_i32(12).raw(),
             ),
             (
                 TOWER_ICE.as_str(),
-                "ice_crystal_nova",
-                Fixed64::from_i32(12),
                 2,
+                4,
+                "ice_crystal_nova",
+                Fixed64::from_i32(12).raw(),
             ),
             (
                 TOWER_TACK.as_str(),
-                "tack_blade_maelstrom",
-                Fixed64::from_i32(12),
                 2,
+                4,
+                "tack_blade_maelstrom",
+                Fixed64::from_i32(12).raw(),
             ),
             (
                 TOWER_ARTY.as_str(),
-                "arty_fire_at_will",
-                Fixed64::from_i32(10),
                 2,
+                4,
+                "arty_fire_at_will",
+                Fixed64::from_i32(10).raw(),
             ),
             (
                 TOWER_CAKE_SPLASH.as_str(),
-                "cake_dessert_party",
-                Fixed64::from_i32(10),
                 1,
+                4,
+                "cake_dessert_party",
+                Fixed64::from_i32(10).raw(),
+            ),
+            (
+                TOWER_CAKE_SPLASH.as_str(),
+                2,
+                4,
+                "cake_frosting_lockdown",
+                Fixed64::from_i32(12).raw(),
             ),
             (
                 TOWER_BOOMERANG.as_str(),
-                "boomerang_turbo_charge",
-                Fixed64::from_i32(10),
                 1,
+                4,
+                "boomerang_turbo_charge",
+                Fixed64::from_i32(10).raw(),
             ),
-        ];
-
-        for (kind, ability_id, cooldown, expected_path) in expected {
-            let matches: Vec<_> = reg
-                .iter_all()
-                .filter(|def| def.tower_kind == kind && def.active_ability.is_some())
-                .collect();
-            assert_eq!(matches.len(), 1, "{kind}");
-            let def = matches[0];
-            assert_eq!((def.path, def.level), (expected_path, 4), "{kind}");
-            let active = def.active_ability.as_ref().unwrap();
-            assert_eq!(active.ability_id, ability_id);
-            assert_eq!(active.cooldown, cooldown);
-        }
+            (
+                TOWER_BOOMERANG.as_str(),
+                2,
+                4,
+                "boomerang_shuriken_storm",
+                Fixed64::from_i32(12).raw(),
+            ),
+        ]);
+        let actual = reg
+            .iter_all()
+            .filter_map(|def| {
+                def.active_ability.as_ref().map(|active| {
+                    (
+                        def.tower_kind.as_str(),
+                        def.path,
+                        def.level,
+                        active.ability_id.as_str(),
+                        active.cooldown.raw(),
+                    )
+                })
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected);
     }
 
     #[test]
@@ -669,14 +692,21 @@ mod tests {
             *active_counts.entry(def.tower_kind.as_str()).or_default() += 1;
         }
 
-        assert_eq!(ability_ids.len(), scoped_towers.len());
+        assert_eq!(
+            ability_ids.len(),
+            9,
+            "expected nine unique tower active abilities"
+        );
         for tower_kind in scoped_towers {
-            assert_eq!(
-                active_counts.get(tower_kind),
-                Some(&1),
-                "{tower_kind}: expected exactly one active ability"
+            assert!(
+                active_counts
+                    .get(tower_kind)
+                    .is_some_and(|count| *count >= 1),
+                "{tower_kind}: expected at least one active ability"
             );
         }
+        assert_eq!(active_counts.get(TOWER_CAKE_SPLASH.as_str()), Some(&2));
+        assert_eq!(active_counts.get(TOWER_BOOMERANG.as_str()), Some(&2));
     }
 
     fn supported_behavior_flags(tower_kind: &str) -> &'static [&'static str] {

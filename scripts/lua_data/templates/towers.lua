@@ -1424,6 +1424,12 @@ return function(ctx)
             effects = {
               { type = "behavior_flag", flag = "cake_frost_50_vulnerability_25" },
             },
+            active_ability = {
+              ability_id = "cake_frosting_lockdown", display_name = "糖霜封鎖",
+              description = "凍結範圍內敵人，並延長極寒糖霜效果",
+              icon = "assets/ui/abilities/cake_frosting_lockdown.png",
+              cooldown = 12.0, duration = 0.0,
+            },
           },
         },
       },
@@ -1581,6 +1587,12 @@ return function(ctx)
             effects = {
               { type = "behavior_flag", flag = "storm_shuriken" },
               { type = "stat_mod", key = "AttackSpeedMultiplier", value = 1.3, op = "mul" },
+            },
+            active_ability = {
+              ability_id = "boomerang_shuriken_storm", display_name = "手裡劍風暴",
+              description = "0.6 秒內發射 3 圈可彈射手裡劍",
+              icon = "assets/ui/abilities/boomerang_shuriken_storm.png",
+              cooldown = 12.0, duration = 0.601, pulse_interval = 0.2, pulse_count = 3,
             },
           },
         },
