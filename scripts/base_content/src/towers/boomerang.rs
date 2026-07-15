@@ -24,6 +24,10 @@ const MOAB_PRESS_SLOW_DUR: Fixed64 = Fixed64::from_raw(512);
 const TURBO_INTERVAL_MULTIPLIER: Fixed64 = Fixed64::from_raw(358);
 const TURBO_ACTIVE_BUFF: &str = "boomerang_turbo_charge_active";
 const TURBO_ABILITY_ID: &str = "boomerang_turbo_charge";
+const SHURIKEN_STORM_ABILITY_ID: &str = "boomerang_shuriken_storm";
+const SHURIKEN_STORM_PULSES: u16 = 3;
+const SHURIKEN_STORM_PROJECTILES: u32 = 12;
+const SHURIKEN_STORM_PHASE_DEGREES: i32 = 10;
 
 fn turbo_interval(base_final_interval: Fixed64) -> Fixed64 {
     base_final_interval * TURBO_INTERVAL_MULTIPLIER
@@ -208,6 +212,53 @@ impl UnitScript for BoomerangTower {
         access.reset_attack_backswing(tower);
     }
 
+    fn on_tower_ability_pulse_with_access(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        pulse_index: u16,
+        _access: &TowerActiveAbilityAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) -> bool {
+        if ability_id.as_str() != SHURIKEN_STORM_ABILITY_ID || pulse_index >= SHURIKEN_STORM_PULSES
+        {
+            return false;
+        }
+        let pos = match w.get_pos(tower) {
+            RSome(pos) => pos,
+            RNone => return false,
+        };
+        let range = w.get_final_attack_range(tower);
+        let speed = if w.has_tower_flag(tower, RStr::from_str("faster_rangs")) {
+            STATS.bullet_speed * Fixed64::from_raw(1536)
+        } else {
+            STATS.bullet_speed
+        };
+        let damage = w.get_final_atk(tower);
+        for i in 0..SHURIKEN_STORM_PROJECTILES {
+            let degrees = i as i32 * 30 + pulse_index as i32 * SHURIKEN_STORM_PHASE_DEGREES;
+            let angle = omoba_sim::trig::Angle::from_degrees_i32(degrees);
+            let end = Vec2 {
+                x: pos.x + omoba_sim::trig::cos(angle) * range,
+                y: pos.y + omoba_sim::trig::sin(angle) * range,
+            };
+            w.spawn_projectile_ex(ProjectileSpec {
+                from: pos,
+                owner: tower,
+                path: PathSpec::Straight { end_pos: end },
+                speed,
+                damage,
+                hit_radius: Fixed64::from_i32(90),
+                splash_radius: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
+                kind_id: PROJECTILE_SHURIKEN.0,
+            });
+        }
+        true
+    }
+
     fn on_projectile_hit(
         &self,
         attacker: EntityHandle,
@@ -282,7 +333,7 @@ impl UnitScript for BoomerangTower {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::towers::projectile_test_support::{fixture, invoke};
+    use crate::towers::projectile_test_support::{fixture, invoke, invoke_pulse};
     use abi_stable::{sabi_trait::prelude::TD_Opaque, RMut, RRef};
     use omb_script_abi::world::{GameWorld_TO, TowerActiveAbilityAccess_TO};
     use omoba_core::scripting::parallel_world_adapter::{
@@ -461,5 +512,103 @@ mod tests {
             );
             assert_eq!(projectile_generations(&outcomes), expected);
         }
+    }
+
+    #[test]
+    fn shuriken_storm_emits_three_rotated_rings_of_twelve_shuriken() {
+        let fixture = fixture(&["storm_shuriken"], &[]);
+        let mut endpoints = Vec::new();
+        for pulse_index in 0..3 {
+            let (consumed, outcomes) = invoke_pulse(
+                &fixture.world,
+                &BoomerangTower,
+                fixture.tower,
+                "boomerang_shuriken_storm",
+                pulse_index,
+            );
+            assert!(consumed);
+            let shots: Vec<_> = outcomes
+                .iter()
+                .filter_map(|outcome| match outcome {
+                    Outcome::ScriptProjectile {
+                        tpos,
+                        msd,
+                        damage_phys,
+                        hit_radius,
+                        kind_id,
+                        generation,
+                        ..
+                    } if *kind_id == PROJECTILE_SHURIKEN.0 => {
+                        assert_eq!(*msd, Fixed64::from_i32(1500));
+                        assert_eq!(*damage_phys, Fixed64::from_i32(10));
+                        assert_eq!(*hit_radius, Fixed64::from_i32(90));
+                        assert_eq!(*generation, 0);
+                        Some(*tpos)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(shots.len(), 12);
+            endpoints.push(shots);
+        }
+        assert_ne!(endpoints[0], endpoints[1]);
+        assert_ne!(endpoints[1], endpoints[2]);
+    }
+
+    #[test]
+    fn shuriken_storm_rejects_unknown_id_and_out_of_range_pulse() {
+        let fixture = fixture(&["storm_shuriken"], &[]);
+        for (ability_id, pulse_index) in [("wrong", 0), ("boomerang_shuriken_storm", 3)] {
+            let (consumed, outcomes) = invoke_pulse(
+                &fixture.world,
+                &BoomerangTower,
+                fixture.tower,
+                ability_id,
+                pulse_index,
+            );
+            assert!(!consumed);
+            assert!(outcomes.is_empty());
+        }
+    }
+
+    #[test]
+    fn shuriken_storm_inherits_faster_rangs_and_existing_ricochet_bound() {
+        let fixture = fixture(
+            &["storm_shuriken", "faster_rangs"],
+            &[
+                Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+                Vec2::new(Fixed64::from_i32(20), Fixed64::ZERO),
+            ],
+        );
+        let (_, outcomes) = invoke_pulse(
+            &fixture.world,
+            &BoomerangTower,
+            fixture.tower,
+            "boomerang_shuriken_storm",
+            0,
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| matches!(outcome,
+                    Outcome::ScriptProjectile { msd, kind_id, .. }
+                        if *kind_id == PROJECTILE_SHURIKEN.0
+                            && *msd == Fixed64::from_i32(2250)
+                ))
+                .count(),
+            12
+        );
+
+        let generation_two = invoke(
+            &fixture.world,
+            &BoomerangTower,
+            fixture.tower,
+            fixture.enemies[0],
+            ProjectileHitContext {
+                kind_id: PROJECTILE_SHURIKEN.0,
+                generation: 2,
+            },
+        );
+        assert!(generation_two.is_empty());
     }
 }
