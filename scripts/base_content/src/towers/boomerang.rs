@@ -517,7 +517,21 @@ mod tests {
     #[test]
     fn shuriken_storm_emits_three_rotated_rings_of_twelve_shuriken() {
         let fixture = fixture(&["storm_shuriken"], &[]);
-        let mut endpoints = Vec::new();
+        let final_range = Fixed64::from_i32(623);
+        let final_damage = Fixed64::from_i32(17);
+        fixture
+            .world
+            .write_resource::<omoba_core::runtime::BuffStore>()
+            .add(
+                fixture.tower,
+                "shuriken_storm_final_stats_test",
+                Fixed64::from_i32(5),
+                serde_json::json!({
+                    "attack_range_bonus": Fixed64::from_i32(123).raw(),
+                    "preattack_bonus_damage": Fixed64::from_i32(7).raw(),
+                }),
+            );
+
         for pulse_index in 0..3 {
             let (consumed, outcomes) = invoke_pulse(
                 &fixture.world,
@@ -540,7 +554,7 @@ mod tests {
                         ..
                     } if *kind_id == PROJECTILE_SHURIKEN.0 => {
                         assert_eq!(*msd, Fixed64::from_i32(1500));
-                        assert_eq!(*damage_phys, Fixed64::from_i32(10));
+                        assert_eq!(*damage_phys, final_damage);
                         assert_eq!(*hit_radius, Fixed64::from_i32(90));
                         assert_eq!(*generation, 0);
                         Some(*tpos)
@@ -549,10 +563,19 @@ mod tests {
                 })
                 .collect();
             assert_eq!(shots.len(), 12);
-            endpoints.push(shots);
+            for (i, endpoint) in shots.iter().enumerate() {
+                let degrees = i as i32 * 30 + pulse_index as i32 * 10;
+                let angle = omoba_sim::trig::Angle::from_degrees_i32(degrees);
+                let expected = Vec2 {
+                    x: omoba_sim::trig::cos(angle) * final_range,
+                    y: omoba_sim::trig::sin(angle) * final_range,
+                };
+                assert_eq!(
+                    *endpoint, expected,
+                    "pulse {pulse_index}, projectile {i}, angle {degrees} degrees"
+                );
+            }
         }
-        assert_ne!(endpoints[0], endpoints[1]);
-        assert_ne!(endpoints[1], endpoints[2]);
     }
 
     #[test]
