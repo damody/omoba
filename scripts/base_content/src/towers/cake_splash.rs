@@ -7,6 +7,10 @@ pub struct CakeSplashTower;
 const STATS: &TowerStats = &TOWER_CAKE_SPLASH_STATS;
 
 const CAKE_PARTY_ABILITY_ID: &str = "cake_dessert_party";
+const FROSTING_LOCKDOWN_ABILITY_ID: &str = "cake_frosting_lockdown";
+const FROSTING_LOCKDOWN_DAMAGE_FACTOR: Fixed64 = Fixed64::from_i32(2);
+const FROSTING_LOCKDOWN_STUN: Fixed64 = Fixed64::from_raw(1536);
+const FROSTING_LOCKDOWN_FROST_DURATION: Fixed64 = Fixed64::from_i32(5);
 const CAKE_PARTY_PULSES: u16 = 10;
 const CAKE_PARTY_DAMAGE_FACTOR: Fixed64 = Fixed64::from_raw(512);
 const CAKE_PARTY_HASTE_DURATION: Fixed64 = Fixed64::from_raw(614);
@@ -32,6 +36,15 @@ fn stronger_frosting(left: Fixed64, right: Fixed64) -> Fixed64 {
 
 fn source_buff_id(prefix: &str, source: EntityHandle) -> String {
     format!("{prefix}:{}:{}", source.id, source.gen)
+}
+
+fn frosting_lockdown_payload() -> String {
+    serde_json::json!({
+        "__aggregation_family": "cake_frosting",
+        "movespeed_bonus_percentage": FROST_50.raw(),
+        "incoming_damage_percentage": VULNERABILITY_25.raw(),
+    })
+    .to_string()
 }
 
 fn apply_hit_effects(
@@ -200,12 +213,45 @@ impl UnitScript for CakeSplashTower {
         }
         true
     }
+
+    fn on_tower_ability_activate_with_access(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        _access: &TowerActiveAbilityAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        if ability_id.as_str() != FROSTING_LOCKDOWN_ABILITY_ID {
+            return;
+        }
+        let pos = match w.get_pos(tower) {
+            RSome(pos) => pos,
+            RNone => return,
+        };
+        let range = w.get_final_attack_range(tower);
+        let victims: Vec<EntityHandle> = w.query_enemies_in_range(pos, range, tower).into();
+        let damage = w.get_final_atk(tower) * FROSTING_LOCKDOWN_DAMAGE_FACTOR;
+        w.deal_damage_splash(pos, range, damage, DamageKind::Magical, RSome(tower));
+        w.emit_explosion(pos, range, Fixed64::from_raw(512));
+
+        let frost_id = source_buff_id("cake_frosting_lockdown", tower);
+        let frost_payload = frosting_lockdown_payload();
+        for victim in victims {
+            w.add_buff(victim, RStr::from_str("stun"), FROSTING_LOCKDOWN_STUN);
+            w.add_stat_buff(
+                victim,
+                RStr::from_str(&frost_id),
+                FROSTING_LOCKDOWN_FROST_DURATION,
+                RStr::from_str(&frost_payload),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::towers::projectile_test_support::{fixture, invoke_tick};
+    use crate::towers::projectile_test_support::{fixture, invoke_activation, invoke_tick};
     use abi_stable::{sabi_trait::prelude::TD_Opaque, RMut, RRef};
     use omb_script_abi::world::{GameWorld_TO, TowerActiveAbilityAccess_TO};
     use omoba_core::scripting::parallel_world_adapter::{
@@ -319,6 +365,62 @@ mod tests {
                     && payload.get("movespeed_bonus_percentage").and_then(|v| v.as_i64()) == Some(-512)
                     && payload.get("incoming_damage_percentage").and_then(|v| v.as_i64()) == Some(256)
         )));
+    }
+
+    #[test]
+    fn frosting_lockdown_damages_stuns_and_applies_five_second_max_frosting() {
+        let fixture = fixture(
+            &["cake_frost_50_vulnerability_25"],
+            &[
+                Vec2::new(Fixed64::from_i32(100), Fixed64::ZERO),
+                Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO),
+            ],
+        );
+        let outcomes = invoke_activation(
+            &fixture.world,
+            &CakeSplashTower,
+            fixture.tower,
+            "cake_frosting_lockdown",
+        );
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::ScriptDirectDamage { target, amount }
+                if *target == fixture.enemies[0] && *amount == Fixed64::from_i32(20)
+        )));
+        assert!(!outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::ScriptDirectDamage { target, .. } if *target == fixture.enemies[1]
+        )));
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { target, buff_id, duration, .. }
+                if *target == fixture.enemies[0]
+                    && buff_id == "stun"
+                    && *duration == Fixed64::from_raw(1536)
+        )));
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { target, buff_id, duration, payload }
+                if *target == fixture.enemies[0]
+                    && buff_id.starts_with("cake_frosting_lockdown:")
+                    && *duration == Fixed64::from_i32(5)
+                    && payload["__aggregation_family"] == "cake_frosting"
+                    && payload["movespeed_bonus_percentage"] == -512
+                    && payload["incoming_damage_percentage"] == 256
+        )));
+    }
+
+    #[test]
+    fn frosting_lockdown_emits_without_enemies_and_ignores_other_ids() {
+        let fixture = fixture(&["cake_frost_50_vulnerability_25"], &[]);
+        let valid = invoke_activation(
+            &fixture.world,
+            &CakeSplashTower,
+            fixture.tower,
+            "cake_frosting_lockdown",
+        );
+        assert!(valid
+            .iter()
+            .any(|outcome| matches!(outcome, Outcome::Explosion { .. })));
+        assert!(
+            invoke_activation(&fixture.world, &CakeSplashTower, fixture.tower, "wrong",).is_empty()
+        );
     }
 
     #[test]
