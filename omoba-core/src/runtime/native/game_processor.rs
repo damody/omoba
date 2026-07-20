@@ -19,9 +19,9 @@ use crate::runtime::comp::{
     PendingTowerAbilityCastQueue, PendingTowerSellQueue, PendingTowerSpawnQueue,
     PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, PlayerOwner, Pos, Projectile,
     RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerAbilityCastResult,
-    TowerAbilityCastResults, TowerData, TowerFireFxQueue, TowerSpawnOrderCounter,
-    TowerTargetPriority, TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed,
-    Unit, INVENTORY_SLOTS,
+    TowerAbilityCastResults, TowerActiveAbilityState, TowerData, TowerFireFxQueue,
+    TowerSpawnOrderCounter, TowerTargetPriority, TowerTemplate, TowerTemplateRegistry,
+    TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -1015,6 +1015,11 @@ pub fn handle_tower_upgrade_from_input(
                 }
             }
             tower.upgrade_levels[path as usize] = next_level;
+            if let Some(active_ability) = &def.active_ability {
+                tower.active_ability = Some(TowerActiveAbilityState::ready(
+                    active_ability.ability_id.clone(),
+                ));
+            }
         }
     }
 
@@ -2523,6 +2528,35 @@ mod tests {
             .final_attack_range(attack.get(tower).unwrap().range.v, tower)
             .to_f32_for_render();
         assert_eq!(range, 400.0);
+    }
+
+    #[test]
+    fn boomerang_path_two_level_four_unlocks_active_ability() {
+        let mut world = world_for_owner_tests();
+        world.insert(TowerUpgradeRegistry::new());
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        world.write_storage::<Gold>().get_mut(hero).unwrap().0 = 10_000;
+        let tower = world
+            .create_entity()
+            .with(Tower::new())
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(1))
+            .with(ScriptUnitTag {
+                unit_id: "tower_boomerang".to_string(),
+            })
+            .build();
+
+        for _ in 0..4 {
+            handle_tower_upgrade_from_input(&mut world, tower.id(), 1, 1, 1)
+                .expect("owner can finish boomerang path two");
+        }
+
+        let towers = world.read_storage::<Tower>();
+        let active = towers
+            .get(tower)
+            .and_then(|tower| tower.active_ability.as_ref())
+            .expect("boomerang path two level four should unlock its active ability");
+        assert_eq!(active.ability_id, "boomerang_turbo_charge");
     }
 
     #[test]
