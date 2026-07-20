@@ -94,6 +94,7 @@ pub struct TowerActiveAbilitySnapshot {
     pub description: String,
     pub icon: String,
     pub cooldown_total: f32,
+    pub duration_total: f32,
     pub cooldown_remaining: f32,
     pub active_remaining: f32,
     pub activation_serial: u32,
@@ -304,6 +305,7 @@ fn tower_active_ability_snapshot(
         description: def.description.clone(),
         icon: def.icon.clone(),
         cooldown_total: def.cooldown.to_f32_for_render(),
+        duration_total: def.duration.to_f32_for_render(),
         cooldown_remaining: state.cooldown_remaining.to_f32_for_render(),
         active_remaining: state.active_remaining.to_f32_for_render(),
         activation_serial: state.activation_serial,
@@ -404,7 +406,7 @@ fn hero_command_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::super::comp::{HeroCommand, TowerAbilityCastResults};
+    use super::super::comp::{HeroCommand, TowerAbilityCastResults, TowerActiveAbilityState};
     use super::*;
     use omoba_sim::Fixed64;
 
@@ -426,6 +428,18 @@ mod tests {
         assert_eq!(active.duration, Fixed64::from_i32(3));
         assert_eq!(active.pulse_interval, Fixed64::from_raw(512));
         assert_eq!(active.pulse_count, 6);
+    }
+
+    #[test]
+    fn tower_active_ability_snapshot_exposes_total_duration() {
+        let registry = TowerUpgradeRegistry::new();
+        let mut tower = Tower::new();
+        tower.active_ability = Some(TowerActiveAbilityState::ready("arty_fire_at_will"));
+
+        let snapshot = tower_active_ability_snapshot(Some(&tower), 1, &registry)
+            .expect("live tower with unlocked ability should be rendered");
+
+        assert_eq!(snapshot.duration_total, 3.0);
     }
 
     #[test]
