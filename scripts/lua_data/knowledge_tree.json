@@ -1,0 +1,155 @@
+[
+  {
+    "id": "dart_pierce_1",
+    "category": "tower_dart",
+    "kp_cost": 3,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 50 }
+    ]
+  },
+  {
+    "id": "dart_atk_1",
+    "category": "tower_dart",
+    "kp_cost": 4,
+    "requires": ["dart_pierce_1"],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 5 }
+    ]
+  },
+  {
+    "id": "dart_speed_1",
+    "category": "tower_dart",
+    "kp_cost": 5,
+    "requires": ["dart_atk_1"],
+    "bonuses": [
+      { "stat_key": "attack_speed_multiplier", "multiply": 0.05 }
+    ]
+  },
+  {
+    "id": "bomb_splash_1",
+    "category": "tower_bomb",
+    "kp_cost": 4,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 10 }
+    ]
+  },
+  {
+    "id": "bomb_range_1",
+    "category": "tower_bomb",
+    "kp_cost": 3,
+    "requires": ["bomb_splash_1"],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 30 }
+    ]
+  },
+  {
+    "id": "bomb_atk_1",
+    "category": "tower_bomb",
+    "kp_cost": 5,
+    "requires": ["bomb_range_1"],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 15 }
+    ]
+  },
+  {
+    "id": "ice_slow_1",
+    "category": "tower_ice",
+    "kp_cost": 3,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 20 }
+    ]
+  },
+  {
+    "id": "ice_range_1",
+    "category": "tower_ice",
+    "kp_cost": 3,
+    "requires": ["ice_slow_1"],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 40 }
+    ]
+  },
+  {
+    "id": "tack_atk_1",
+    "category": "tower_tack",
+    "kp_cost": 3,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 3 }
+    ]
+  },
+  {
+    "id": "tack_range_1",
+    "category": "tower_tack",
+    "kp_cost": 3,
+    "requires": ["tack_atk_1"],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 20 }
+    ]
+  },
+  {
+    "id": "boomerang_atk_1",
+    "category": "tower_boomerang",
+    "kp_cost": 4,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 8 }
+    ]
+  },
+  {
+    "id": "boomerang_range_1",
+    "category": "tower_boomerang",
+    "kp_cost": 3,
+    "requires": ["boomerang_atk_1"],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 30 }
+    ]
+  },
+  {
+    "id": "arty_atk_1",
+    "category": "tower_arty",
+    "kp_cost": 5,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 20 }
+    ]
+  },
+  {
+    "id": "arty_range_1",
+    "category": "tower_arty",
+    "kp_cost": 4,
+    "requires": ["arty_atk_1"],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 50 }
+    ]
+  },
+  {
+    "id": "hero_start_atk",
+    "category": "hero",
+    "kp_cost": 5,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 10 }
+    ]
+  },
+  {
+    "id": "global_tower_atk_1",
+    "category": "global",
+    "kp_cost": 8,
+    "requires": [],
+    "bonuses": [
+      { "stat_key": "bonus_damage", "add": 2 }
+    ]
+  },
+  {
+    "id": "global_tower_range_1",
+    "category": "global",
+    "kp_cost": 8,
+    "requires": ["global_tower_atk_1"],
+    "bonuses": [
+      { "stat_key": "range_bonus", "add": 15 }
+    ]
+  }
+]
