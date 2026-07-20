@@ -5,8 +5,10 @@
     "kp_cost": 3,
     "requires": [],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 50 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 50 }
+    ],
+    "label": "射程強化 I",
+    "description": "擴大飛鏢塔攻擊範圍 +50"
   },
   {
     "id": "dart_atk_1",
@@ -14,8 +16,10 @@
     "kp_cost": 4,
     "requires": ["dart_pierce_1"],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 5 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 5 }
+    ],
+    "label": "攻擊強化 I",
+    "description": "提升飛鏢塔攻擊傷害 +5"
   },
   {
     "id": "dart_speed_1",
@@ -23,8 +27,10 @@
     "kp_cost": 5,
     "requires": ["dart_atk_1"],
     "bonuses": [
-      { "stat_key": "attack_speed_multiplier", "multiply": 0.05 }
-    ]
+      { "stat_key": "attack_speed_multiplier", "multiply": 1.05 }
+    ],
+    "label": "攻速強化 I",
+    "description": "飛鏢塔攻擊間隔縮短 5%"
   },
   {
     "id": "bomb_splash_1",
@@ -32,8 +38,10 @@
     "kp_cost": 4,
     "requires": [],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 10 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 10 }
+    ],
+    "label": "爆炸強化 I",
+    "description": "提升炸彈塔爆炸傷害 +10"
   },
   {
     "id": "bomb_range_1",
@@ -41,8 +49,10 @@
     "kp_cost": 3,
     "requires": ["bomb_splash_1"],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 30 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 30 }
+    ],
+    "label": "爆炸範圍 I",
+    "description": "擴大炸彈塔攻擊範圍 +30"
   },
   {
     "id": "bomb_atk_1",
@@ -50,8 +60,10 @@
     "kp_cost": 5,
     "requires": ["bomb_range_1"],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 15 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 15 }
+    ],
+    "label": "爆炸強化 II",
+    "description": "進一步提升炸彈塔爆炸傷害 +15"
   },
   {
     "id": "ice_slow_1",
@@ -59,8 +71,10 @@
     "kp_cost": 3,
     "requires": [],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 20 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 20 }
+    ],
+    "label": "冰域強化 I",
+    "description": "擴大冰晶塔冰凍範圍 +20"
   },
   {
     "id": "ice_range_1",
@@ -68,8 +82,10 @@
     "kp_cost": 3,
     "requires": ["ice_slow_1"],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 40 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 40 }
+    ],
+    "label": "冰域強化 II",
+    "description": "大幅擴大冰晶塔冰凍範圍 +40"
   },
   {
     "id": "tack_atk_1",
@@ -77,8 +93,10 @@
     "kp_cost": 3,
     "requires": [],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 3 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 3 }
+    ],
+    "label": "釘刺強化 I",
+    "description": "提升圖釘塔攻擊傷害 +3"
   },
   {
     "id": "tack_range_1",
@@ -86,8 +104,10 @@
     "kp_cost": 3,
     "requires": ["tack_atk_1"],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 20 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 20 }
+    ],
+    "label": "釘刺範圍 I",
+    "description": "擴大圖釘塔攻擊範圍 +20"
   },
   {
     "id": "boomerang_atk_1",
@@ -95,8 +115,10 @@
     "kp_cost": 4,
     "requires": [],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 8 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 8 }
+    ],
+    "label": "迴旋強化 I",
+    "description": "提升迴旋鏢塔攻擊傷害 +8"
   },
   {
     "id": "boomerang_range_1",
@@ -104,8 +126,10 @@
     "kp_cost": 3,
     "requires": ["boomerang_atk_1"],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 30 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 30 }
+    ],
+    "label": "迴旋範圍 I",
+    "description": "擴大迴旋鏢塔攻擊範圍 +30"
   },
   {
     "id": "arty_atk_1",
@@ -113,8 +137,10 @@
     "kp_cost": 5,
     "requires": [],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 20 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 20 }
+    ],
+    "label": "砲擊強化 I",
+    "description": "提升砲兵塔攻擊傷害 +20"
   },
   {
     "id": "arty_range_1",
@@ -122,8 +148,10 @@
     "kp_cost": 4,
     "requires": ["arty_atk_1"],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 50 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 50 }
+    ],
+    "label": "砲擊範圍 I",
+    "description": "擴大砲兵塔攻擊範圍 +50"
   },
   {
     "id": "hero_start_atk",
@@ -131,8 +159,10 @@
     "kp_cost": 5,
     "requires": [],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 10 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 10 }
+    ],
+    "label": "英雄出擊",
+    "description": "英雄初始攻擊傷害提升 +10"
   },
   {
     "id": "global_tower_atk_1",
@@ -140,8 +170,10 @@
     "kp_cost": 8,
     "requires": [],
     "bonuses": [
-      { "stat_key": "bonus_damage", "add": 2 }
-    ]
+      { "stat_key": "preattack_bonus_damage", "add": 2 }
+    ],
+    "label": "全域攻擊 I",
+    "description": "所有塔攻擊傷害提升 +2"
   },
   {
     "id": "global_tower_range_1",
@@ -149,7 +181,9 @@
     "kp_cost": 8,
     "requires": ["global_tower_atk_1"],
     "bonuses": [
-      { "stat_key": "range_bonus", "add": 15 }
-    ]
+      { "stat_key": "attack_range_bonus", "add": 15 }
+    ],
+    "label": "全域射程 I",
+    "description": "所有塔攻擊範圍擴大 +15"
   }
 ]
