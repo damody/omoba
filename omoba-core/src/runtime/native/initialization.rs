@@ -942,6 +942,7 @@ impl StateInitializer {
         // 透過共享「Arc<Mutex<SnapshotStore>>」的 SnapshotResp 處理程序。
         // 為空（`tick=0`、`bytes=[]`），直到第一次儲存觸發。
         ecs.insert(crate::comp::SnapshotStore::default());
+        ecs.insert(crate::comp::KnowledgeBonusResource::default());
 
         // 初始化集合資源
         ecs.insert(BTreeMap::<String, CheckPoint>::new());
