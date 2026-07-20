@@ -1,19 +1,21 @@
 use crate::lua_content::{
-    load_content, AbilityEntry, AttackTimingEntry, CreepEntry, HeroEntry, HeroRenderEntry,
-    Manifest, StoryBundle, SummonEntry, TowerEntry, UpgradeEffectEntry,
+    load_content, validate_active_ability_quantization, AbilityEntry, AttackTimingEntry,
+    CreepEntry, HeroEntry, HeroRenderEntry, Manifest, StoryBundle, SummonEntry, TowerEntry,
+    UpgradeEffectEntry,
 };
 use crate::{
     ability_by_name, ability_id_str, creep_id_str, hero_id_str, summon_id_str, tower_id_str,
-    AbilityConst, AbilityId, AbilityLevelDataConst, AbilityTypeC, AttackTimingConst, CastTypeC,
-    CreepId, CreepStats, Fixed64, GeneratedStory, HeroAnimationBindingConst,
-    HeroAnimationSourceConst, HeroId, HeroRenderMetadataConst, HeroRenderModeC, HeroStats,
-    LevelGrowth, StatOpC, StoryValue, SummonId, SummonStats, TargetTypeC, TowerBarrelLayoutC,
-    TowerBarrelVariantConst, TowerId, TowerRecoilConst, TowerRecoilModeC,
-    TowerRenderAnimationConst, TowerRenderMetadataConst, TowerRenderModeC, TowerRenderPointConst,
-    TowerRotationModeC, TowerStats, UpgradeDefConst, UpgradeEffectConst, UpgradeEffectKindC,
+    AbilityConst, AbilityId, AbilityLevelDataConst, AbilityTypeC, ActiveAbilityConst,
+    AttackTimingConst, CastTypeC, CreepId, CreepStats, Fixed64, GeneratedStory,
+    HeroAnimationBindingConst, HeroAnimationSourceConst, HeroId, HeroRenderMetadataConst,
+    HeroRenderModeC, HeroStats, LevelGrowth, StatOpC, StoryValue, SummonId, SummonStats,
+    TargetTypeC, TowerBarrelLayoutC, TowerBarrelVariantConst, TowerId, TowerRecoilConst,
+    TowerRecoilModeC, TowerRenderAnimationConst, TowerRenderMetadataConst, TowerRenderModeC,
+    TowerRenderPointConst, TowerRotationModeC, TowerStats, UpgradeDefConst, UpgradeEffectConst,
+    UpgradeEffectKindC,
 };
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{OnceLock, RwLock};
 
@@ -288,6 +290,7 @@ fn content_root() -> PathBuf {
 
 impl RuntimeContent {
     fn from_manifest(manifest: Manifest, stories: Vec<StoryBundle>) -> Result<Self, String> {
+        validate_active_abilities(&manifest.towers)?;
         let tower_stats = build_indexed(&manifest.towers, "tower", |raw, entry| {
             ensure_id("tower", raw, &entry.id, tower_id_str(TowerId(raw)))?;
             Ok(Some(leak(TowerStats {
@@ -1136,11 +1139,60 @@ fn build_tower_upgrades(
                 description: leak_str(upgrade.description.clone()),
                 cost: upgrade.cost,
                 effects,
+                active_ability: upgrade.active_ability.as_ref().map(|ability| {
+                    let raw = validate_active_ability_quantization(ability)
+                        .expect("active ability was validated before runtime conversion");
+                    ActiveAbilityConst {
+                        ability_id: leak_str(ability.ability_id.clone()),
+                        display_name: leak_str(ability.display_name.clone()),
+                        description: leak_str(ability.description.clone()),
+                        icon: leak_str(ability.icon.clone()),
+                        cooldown: Fixed64::from_raw(raw.cooldown),
+                        duration: Fixed64::from_raw(raw.duration),
+                        pulse_interval: Fixed64::from_raw(raw.pulse_interval),
+                        pulse_count: ability.pulse_count,
+                    }
+                }),
             });
         }
         paths.push(leak_slice(defs));
     }
     Ok(leak_slice(paths))
+}
+
+fn validate_active_abilities(entries: &[TowerEntry]) -> Result<(), String> {
+    let mut seen = HashSet::new();
+    for entry in entries {
+        for (path_idx, path) in entry.upgrades.iter().enumerate() {
+            for (level_idx, upgrade) in path.iter().enumerate() {
+                let Some(ability) = &upgrade.active_ability else {
+                    continue;
+                };
+                if level_idx != 3 {
+                    return Err(format!(
+                        "tower '{}' path {} L{} active ability must be on level 4",
+                        entry.id,
+                        path_idx,
+                        level_idx + 1
+                    ));
+                }
+                if ability.ability_id.trim().is_empty() {
+                    return Err(format!(
+                        "tower '{}' active ability id must be non-empty",
+                        entry.id
+                    ));
+                }
+                if !seen.insert(ability.ability_id.as_str()) {
+                    return Err(format!(
+                        "duplicate active ability id: {}",
+                        ability.ability_id
+                    ));
+                }
+                validate_active_ability_quantization(ability)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn upgrade_cost(base_cost: i32, level: u8) -> i32 {

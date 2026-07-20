@@ -6,8 +6,6 @@
 //! - Path2: always_crit, mega_crit (crit 時 60dmg splash 60)
 //! - Stat: crit_chance, crit_bonus, damage_bonus, range_bonus (透過 get_final_*)
 //!
-//! TODO: attack_speed_multiplier 目前不會影響腳本層 ASD（見 Task 14/15 plan）。
-
 use omb_script_abi::prelude::*;
 use omb_script_abi::stat_keys::StatKey;
 
@@ -22,6 +20,8 @@ const STATS: &TowerStats = &TOWER_DART_STATS;
 const BONUS_PROC_CHANCE: Fixed64 = Fixed64::from_raw(256);
 // 30.0 * 1024 = 30720
 const BONUS_DAMAGE: Fixed64 = Fixed64::from_raw(30720);
+const HEAVY_BURST_ABILITY_ID: &str = "dart_heavy_burst";
+const HEAVY_BURST_ACTIVE_BUFF: &str = "dart_heavy_burst_active";
 
 impl UnitScript for DartTower {
     fn unit_id(&self) -> RStr<'_> {
@@ -174,6 +174,22 @@ impl UnitScript for DartTower {
         }
     }
 
+    fn on_tower_ability_activate_with_access(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        access: &TowerActiveAbilityAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        if ability_id.as_str() != HEAVY_BURST_ABILITY_ID {
+            return;
+        }
+        let remaining = access.get_tower_ability_active_remaining(tower, ability_id);
+        if remaining > Fixed64::ZERO {
+            w.add_buff(tower, RStr::from_str(HEAVY_BURST_ACTIVE_BUFF), remaining);
+        }
+    }
+
     fn on_attack_hit(
         &self,
         attacker: EntityHandle,
@@ -213,15 +229,116 @@ impl UnitScript for DartTower {
         // mega_crit：crit 時額外 AoE 爆炸
         if w.has_tower_flag(attacker, RStr::from_str("mega_crit")) {
             if let RSome(at) = w.get_pos(victim) {
+                let heavy_burst = w
+                    .get_buff_remaining(attacker, RStr::from_str(HEAVY_BURST_ACTIVE_BUFF))
+                    > Fixed64::ZERO;
+                let (radius, damage) = if heavy_burst {
+                    (Fixed64::from_i32(120), Fixed64::from_i32(120))
+                } else {
+                    (Fixed64::from_i32(60), Fixed64::from_i32(60))
+                };
                 w.play_vfx(RStr::from_str("vfx_explosion"), at);
-                w.deal_damage_splash(
-                    at,
-                    Fixed64::from_i32(60),
-                    Fixed64::from_i32(60),
-                    DamageKind::Physical,
-                    RSome(attacker),
-                );
+                w.deal_damage_splash(at, radius, damage, DamageKind::Physical, RSome(attacker));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::towers::projectile_test_support::{fixture, invoke_activation, invoke_attack_hit};
+    use omoba_core::runtime::BuffStore;
+    use omoba_core::{Outcome, Tower, TowerActiveAbilityState};
+    use specs::WorldExt;
+
+    #[test]
+    fn heavy_burst_marks_five_second_window() {
+        let mut fixture = fixture(&["always_crit", "mega_crit"], &[]);
+        fixture
+            .world
+            .write_storage::<Tower>()
+            .get_mut(fixture.tower)
+            .unwrap()
+            .active_ability = Some(TowerActiveAbilityState {
+            ability_id: "dart_heavy_burst".to_string(),
+            active_remaining: Fixed64::from_i32(5),
+            activation_serial: 1,
+            ..Default::default()
+        });
+
+        let outcomes = invoke_activation(
+            &fixture.world,
+            &DartTower,
+            fixture.tower,
+            "dart_heavy_burst",
+        );
+
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { buff_id, duration, .. }
+                if buff_id == "dart_heavy_burst_active" && *duration == Fixed64::from_i32(5)
+        )));
+    }
+
+    #[test]
+    fn heavy_burst_doubles_mega_crit_damage_and_radius() {
+        let mut fixture = fixture(
+            &["always_crit", "mega_crit"],
+            &[
+                Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+                Vec2::new(Fixed64::from_i32(90), Fixed64::ZERO),
+            ],
+        );
+        fixture.world.write_resource::<BuffStore>().add(
+            fixture.tower,
+            "dart_heavy_burst_active",
+            Fixed64::from_i32(5),
+            serde_json::Value::Null,
+        );
+
+        let outcomes = invoke_attack_hit(
+            &fixture.world,
+            &DartTower,
+            fixture.tower,
+            fixture.enemies[0],
+        );
+        let active_splash_hits = outcomes
+            .iter()
+            .filter(|outcome| {
+                matches!(outcome,
+                    Outcome::ScriptDirectDamage { amount, .. }
+                        if *amount == Fixed64::from_i32(120)
+                )
+            })
+            .count();
+
+        assert_eq!(active_splash_hits, 2);
+
+        fixture
+            .world
+            .write_resource::<BuffStore>()
+            .remove(fixture.tower, "dart_heavy_burst_active");
+        let inactive = invoke_attack_hit(
+            &fixture.world,
+            &DartTower,
+            fixture.tower,
+            fixture.enemies[0],
+        );
+        let normal_splash_hits = inactive
+            .iter()
+            .filter(|outcome| {
+                matches!(outcome,
+                    Outcome::ScriptDirectDamage { amount, .. }
+                        if *amount == Fixed64::from_i32(60)
+                )
+            })
+            .count();
+        assert_eq!(normal_splash_hits, 1);
+    }
+
+    #[test]
+    fn heavy_burst_ignores_unknown_ability_id() {
+        let fixture = fixture(&["always_crit", "mega_crit"], &[]);
+        assert!(invoke_activation(&fixture.world, &DartTower, fixture.tower, "wrong").is_empty());
     }
 }

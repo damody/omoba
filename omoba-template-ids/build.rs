@@ -1481,6 +1481,23 @@ fn emit_attack_timing(
 fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
     use omoba_core_dummy::upgrade_cost; // local helper, see bottom
 
+    let mut active_ability_ids = HashSet::new();
+    for entry in entries {
+        for (path_idx, path) in entry.upgrades.iter().enumerate() {
+            for (level_idx, upgrade) in path.iter().enumerate() {
+                if let Some(ability) = &upgrade.active_ability {
+                    validate_active_ability(
+                        &entry.id,
+                        path_idx,
+                        level_idx,
+                        ability,
+                        &mut active_ability_ids,
+                    );
+                }
+            }
+        }
+    }
+
     for e in entries {
         if e.tombstone || e.upgrades.is_empty() {
             continue;
@@ -1554,12 +1571,31 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
             for (lvl_idx, u) in path.iter().enumerate() {
                 let effects_const =
                     format!("{}_UPGRADE_P{}_L{}_EFFECTS", cname, path_idx, lvl_idx + 1);
+                let active_ability = match &u.active_ability {
+                    Some(ability) => {
+                        let raw = validate_active_ability_quantization(ability)
+                            .unwrap_or_else(|error| panic!("{}", error));
+                        format!(
+                        "Some(ActiveAbilityConst {{ ability_id: \"{}\", display_name: \"{}\", description: \"{}\", icon: \"{}\", cooldown: {}, duration: {}, pulse_interval: {}, pulse_count: {}u16 }})",
+                        escape_str_literal(&ability.ability_id),
+                        escape_str_literal(&ability.display_name),
+                        escape_str_literal(&ability.description),
+                        escape_str_literal(&ability.icon),
+                        format!("Fixed64::from_raw({})", raw.cooldown),
+                        format!("Fixed64::from_raw({})", raw.duration),
+                        format!("Fixed64::from_raw({})", raw.pulse_interval),
+                        ability.pulse_count,
+                    )
+                    }
+                    None => "None".to_string(),
+                };
                 out.push_str(&format!(
-                    "\tUpgradeDefConst {{ name: \"{}\", description: \"{}\", cost: {}i32, effects: {} }},\n",
+                    "\tUpgradeDefConst {{ name: \"{}\", description: \"{}\", cost: {}i32, effects: {}, active_ability: {} }},\n",
                     escape_str_literal(&u.name),
                     escape_str_literal(&u.description),
                     u.cost,
                     effects_const,
+                    active_ability,
                 ));
             }
             out.push_str("];\n");
@@ -1593,6 +1629,30 @@ fn emit_tower_upgrades(out: &mut String, entries: &[TowerEntry]) {
         next += 1;
     }
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
+}
+
+fn validate_active_ability<'a>(
+    tower_id: &str,
+    path_idx: usize,
+    level_idx: usize,
+    ability: &'a ActiveAbilityEntry,
+    seen: &mut HashSet<&'a str>,
+) {
+    if level_idx != 3 {
+        panic!(
+            "tower '{}' path {} L{} active ability must be on level 4",
+            tower_id,
+            path_idx,
+            level_idx + 1
+        );
+    }
+    if ability.ability_id.trim().is_empty() {
+        panic!("tower '{}' active ability id must be non-empty", tower_id);
+    }
+    if !seen.insert(&ability.ability_id) {
+        panic!("duplicate active ability id: {}", ability.ability_id);
+    }
+    validate_active_ability_quantization(ability).unwrap_or_else(|error| panic!("{}", error));
 }
 
 mod omoba_core_dummy {

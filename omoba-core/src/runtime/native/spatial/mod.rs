@@ -45,6 +45,12 @@ impl<Id, Item> Entry<Id, Item> {
 }
 
 #[derive(Debug, Clone)]
+pub struct BoundedQueryResult<Id, Item> {
+    pub entries: Vec<Entry<Id, Item>>,
+    pub visited_candidates: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct Bounds {
     pub min: Vec2<f32>,
     pub max: Vec2<f32>,
@@ -100,6 +106,13 @@ where
     fn remove(&mut self, id: &Id) -> bool;
     fn update(&mut self, entry: Entry<Id, Item>);
     fn query_in_range(&self, center: Vec2<f32>, radius: f32) -> Vec<Entry<Id, Item>>;
+
+    fn query_in_range_bounded(
+        &self,
+        center: Vec2<f32>,
+        radius: f32,
+        visit_budget: usize,
+    ) -> BoundedQueryResult<Id, Item>;
 
     fn query_with_distance(&self, center: Vec2<f32>, radius: f32) -> Vec<(Entry<Id, Item>, f32)> {
         let mut out: Vec<_> = self
@@ -185,6 +198,39 @@ pub fn build_entity_index(
                 other
             );
             build_spatial_index("sap", params)
+        }
+    }
+}
+
+#[cfg(test)]
+mod bounded_query_tests {
+    use super::*;
+
+    #[test]
+    fn every_backend_bounds_dense_candidate_visitation() {
+        let budget = 7;
+        for kind in ["bvh", "hash_grid", "quadtree", "sap"] {
+            let mut index = build_spatial_index::<u32, ()>(kind, SpatialIndexParams::default());
+            let entries = (0..256)
+                .map(|id| Entry::point(id, (), Vec2::new(1.0, 1.0)))
+                .collect();
+            index.initialize(
+                Bounds::new(Vec2::new(-100.0, -100.0), Vec2::new(100.0, 100.0)),
+                entries,
+            );
+
+            let result = index.query_in_range_bounded(Vec2::new(0.0, 0.0), 50.0, budget);
+
+            assert!(
+                result.visited_candidates <= budget,
+                "{kind} visited too many"
+            );
+            assert!(result.entries.len() <= budget, "{kind} returned too many");
+            assert_eq!(
+                result.visited_candidates, budget,
+                "{kind} did not use budget"
+            );
+            assert_eq!(result.entries.len(), budget, "{kind} lost dense hits");
         }
     }
 }

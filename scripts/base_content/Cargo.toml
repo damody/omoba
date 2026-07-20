@@ -25,3 +25,6 @@ vek = "0.17"
 [features]
 default = []
 runtime-lua-content = ["omoba-template-ids/runtime-lua-content"]
+
+[dev-dependencies]
+specs = { path = "../../specs" }

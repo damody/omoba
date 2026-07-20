@@ -1,4 +1,4 @@
-//! Server-side 48 個 tower upgrade 配表，存為 ECS resource。
+//! Server-side 84 個 tower upgrade 配表，存為 ECS resource。
 //! 在 state/core.rs 初始化時 insert。
 //!
 //! 數值來源：`scripts/lua_data/templates.lua` 的 `towers[].upgrades`，由
@@ -6,10 +6,10 @@
 //! `tower_upgrades(id)` lookup。本檔案只負責把 const POD 轉成 runtime
 //! `TowerUpgradeDef`（含 String / Vec）並塞入 HashMap 供查詢。
 
-use crate::tower_meta::{StatOp, TowerUpgradeDef, UpgradeEffect};
+use crate::tower_meta::{StatOp, TowerActiveAbilityDef, TowerUpgradeDef, UpgradeEffect};
 use omoba_template_ids::{
-    active_tower_upgrades, StatOpC, UpgradeEffectConst, UpgradeEffectKindC, TOWER_BOMB, TOWER_DART,
-    TOWER_ICE, TOWER_TACK,
+    active_tower_upgrades, ActiveAbilityConst, StatOpC, UpgradeEffectConst, UpgradeEffectKindC,
+    TOWER_ARTY, TOWER_BOMB, TOWER_BOOMERANG, TOWER_CAKE_SPLASH, TOWER_DART, TOWER_ICE, TOWER_TACK,
 };
 use std::collections::HashMap;
 
@@ -25,7 +25,15 @@ impl TowerUpgradeRegistry {
 
     pub fn new_with_cost_multiplier(cost_multiplier: f32) -> Self {
         let mut defs = HashMap::new();
-        for &tid in &[TOWER_DART, TOWER_TACK, TOWER_BOMB, TOWER_ICE] {
+        for &tid in &[
+            TOWER_DART,
+            TOWER_TACK,
+            TOWER_BOMB,
+            TOWER_ICE,
+            TOWER_ARTY,
+            TOWER_CAKE_SPLASH,
+            TOWER_BOOMERANG,
+        ] {
             let kind = tid.as_str();
             let Some(paths) = active_tower_upgrades(tid) else {
                 continue;
@@ -41,6 +49,7 @@ impl TowerUpgradeRegistry {
                         description: c.description.into(),
                         cost: scaled_cost(c.cost, cost_multiplier),
                         effects: c.effects.iter().map(upgrade_effect_from_const).collect(),
+                        active_ability: c.active_ability.map(active_ability_from_const),
                     };
                     let prev = defs.insert((kind.into(), path_idx as u8, lvl), def);
                     debug_assert!(
@@ -83,13 +92,29 @@ fn upgrade_effect_from_const(c: &UpgradeEffectConst) -> UpgradeEffect {
     }
 }
 
+fn active_ability_from_const(c: ActiveAbilityConst) -> TowerActiveAbilityDef {
+    TowerActiveAbilityDef {
+        ability_id: c.ability_id.into(),
+        display_name: c.display_name.into(),
+        description: c.description.into(),
+        icon: c.icon.into(),
+        cooldown: c.cooldown,
+        duration: c.duration,
+        pulse_interval: c.pulse_interval,
+        pulse_count: c.pulse_count,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tower_meta::{upgrade_cost, StatOp, UpgradeEffect};
     use omb_script_abi::stat_keys::{Aggregation, StatKey, ALL as ALL_STAT_KEYS};
+    use omoba_sim::Fixed64;
     use omoba_template_ids::{
-        TOWER_BOMB_STATS, TOWER_DART_STATS, TOWER_ICE_STATS, TOWER_TACK_STATS,
+        TOWER_ARTY, TOWER_ARTY_STATS, TOWER_BOMB_STATS, TOWER_BOOMERANG, TOWER_BOOMERANG_STATS,
+        TOWER_CAKE_SPLASH, TOWER_CAKE_SPLASH_STATS, TOWER_DART_STATS, TOWER_ICE_STATS,
+        TOWER_TACK_STATS,
     };
     use std::collections::BTreeSet;
 
@@ -109,13 +134,16 @@ mod tests {
     }
 
     #[test]
-    fn all_four_towers_have_12_upgrades_each() {
+    fn all_seven_towers_have_12_upgrades_each() {
         let reg = TowerUpgradeRegistry::new();
         for kind in &[
             TOWER_DART.as_str(),
             TOWER_BOMB.as_str(),
             TOWER_TACK.as_str(),
             TOWER_ICE.as_str(),
+            TOWER_ARTY.as_str(),
+            TOWER_CAKE_SPLASH.as_str(),
+            TOWER_BOOMERANG.as_str(),
         ] {
             for path in 0..3 {
                 for level in 1..=4 {
@@ -172,7 +200,7 @@ mod tests {
     #[test]
     fn no_duplicate_keys() {
         let reg = TowerUpgradeRegistry::new();
-        assert_eq!(reg.defs.len(), 48);
+        assert_eq!(reg.defs.len(), 84);
     }
 
     #[test]
@@ -181,27 +209,206 @@ mod tests {
         validate_all_upgrade_metadata(&reg);
     }
 
+    #[test]
+    fn all_nine_active_upgrades_match_authored_routes() {
+        let reg = TowerUpgradeRegistry::new();
+        let expected = BTreeSet::from([
+            (
+                TOWER_DART.as_str(),
+                2,
+                4,
+                "dart_heavy_burst",
+                Fixed64::from_i32(12).raw(),
+            ),
+            (
+                TOWER_BOMB.as_str(),
+                2,
+                4,
+                "bomb_cluster_overload",
+                Fixed64::from_i32(12).raw(),
+            ),
+            (
+                TOWER_ICE.as_str(),
+                2,
+                4,
+                "ice_crystal_nova",
+                Fixed64::from_i32(12).raw(),
+            ),
+            (
+                TOWER_TACK.as_str(),
+                2,
+                4,
+                "tack_blade_maelstrom",
+                Fixed64::from_i32(12).raw(),
+            ),
+            (
+                TOWER_ARTY.as_str(),
+                2,
+                4,
+                "arty_fire_at_will",
+                Fixed64::from_i32(10).raw(),
+            ),
+            (
+                TOWER_CAKE_SPLASH.as_str(),
+                1,
+                4,
+                "cake_dessert_party",
+                Fixed64::from_i32(10).raw(),
+            ),
+            (
+                TOWER_CAKE_SPLASH.as_str(),
+                2,
+                4,
+                "cake_frosting_lockdown",
+                Fixed64::from_i32(12).raw(),
+            ),
+            (
+                TOWER_BOOMERANG.as_str(),
+                1,
+                4,
+                "boomerang_turbo_charge",
+                Fixed64::from_i32(10).raw(),
+            ),
+            (
+                TOWER_BOOMERANG.as_str(),
+                2,
+                4,
+                "boomerang_shuriken_storm",
+                Fixed64::from_i32(12).raw(),
+            ),
+        ]);
+        let actual = reg
+            .iter_all()
+            .filter_map(|def| {
+                def.active_ability.as_ref().map(|active| {
+                    (
+                        def.tower_kind.as_str(),
+                        def.path,
+                        def.level,
+                        active.ability_id.as_str(),
+                        active.cooldown.raw(),
+                    )
+                })
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn arty_attack_speed_path_stops_adding_permanent_speed_at_level_four() {
+        let reg = TowerUpgradeRegistry::new();
+        let expected = [1.25_f32, 1.5, 2.0];
+        let mut cumulative = 1.0_f32;
+
+        for (level, expected_total) in (1..=3).zip(expected) {
+            let def = reg
+                .get(TOWER_ARTY.as_str(), 2, level)
+                .expect("Arty attack-speed upgrade");
+            let multiplier = def
+                .effects
+                .iter()
+                .find_map(|effect| match effect {
+                    UpgradeEffect::StatMod { key, value, op } if key == "AttackSpeedMultiplier" => {
+                        assert_eq!(*op, StatOp::Mul);
+                        Some(*value)
+                    }
+                    _ => None,
+                })
+                .expect("Arty attack-speed level has multiplier");
+            cumulative *= multiplier;
+
+            assert!(
+                (cumulative - expected_total).abs() < 0.003,
+                "Arty path 2 level {level}: expected cumulative {expected_total}, got {cumulative}"
+            );
+        }
+
+        let active_upgrade = reg
+            .get(TOWER_ARTY.as_str(), 2, 4)
+            .expect("Arty active upgrade");
+        assert!(active_upgrade.active_ability.is_some());
+        assert!(!active_upgrade.effects.iter().any(|effect| matches!(
+            effect,
+            UpgradeEffect::StatMod { key, .. } if key == "AttackSpeedMultiplier"
+        )));
+    }
+
+    #[test]
+    fn arty_heavy_ordnance_path_reaches_authored_final_stats_at_every_level() {
+        let reg = TowerUpgradeRegistry::new();
+        let expected = [
+            (50.0_f32, 200.0_f32, 700.0_f32),
+            (75.0, 250.0, 700.0),
+            (100.0, 300.0, 700.0),
+            (150.0, 400.0, 800.0),
+        ];
+        let mut damage_bonus = 0.0_f32;
+        let mut splash_bonus = 0.0_f32;
+        let mut range_bonus = 0.0_f32;
+
+        for (level, (expected_attack, expected_splash, expected_range)) in (1..=4).zip(expected) {
+            let def = reg
+                .get(TOWER_ARTY.as_str(), 0, level)
+                .expect("Arty heavy-ordnance upgrade");
+            for effect in &def.effects {
+                if let UpgradeEffect::StatMod { key, value, op } = effect {
+                    assert_eq!(*op, StatOp::Add);
+                    match key.as_str() {
+                        "BaseDamageOutgoingPercentage" => damage_bonus += value,
+                        "SplashBonus" => splash_bonus += value,
+                        "AttackRangeBonus" => range_bonus += value,
+                        _ => {}
+                    }
+                }
+            }
+
+            let final_attack = 50.0 * (1.0 + damage_bonus);
+            let final_splash = 200.0 + splash_bonus;
+            let final_range = 600.0 + range_bonus;
+            assert_eq!(
+                (final_attack, final_splash, final_range),
+                (expected_attack, expected_splash, expected_range),
+                "Arty path 1 level {level} final stats"
+            );
+        }
+    }
+
+    #[test]
+    fn arty_level_four_control_metadata_authors_a_finite_five_second_slow() {
+        let reg = TowerUpgradeRegistry::new();
+        let def = reg
+            .get(TOWER_ARTY.as_str(), 1, 4)
+            .expect("Arty level-four control upgrade");
+
+        assert_eq!(def.name, "深度凍結");
+        assert_eq!(def.description, "暈眩時間→3 秒，附加 5 秒 50% 減速");
+    }
+
     fn validate_all_upgrade_metadata(reg: &TowerUpgradeRegistry) {
         validate_registry_shape(reg);
         validate_text_and_costs(reg);
         validate_stat_effects(reg);
         validate_behavior_flags(reg);
+        validate_active_abilities(reg);
     }
 
-    fn expected_towers() -> [(&'static str, i32); 4] {
+    fn expected_towers() -> [(&'static str, i32); 7] {
         [
             (TOWER_DART.as_str(), TOWER_DART_STATS.cost),
             (TOWER_TACK.as_str(), TOWER_TACK_STATS.cost),
             (TOWER_BOMB.as_str(), TOWER_BOMB_STATS.cost),
             (TOWER_ICE.as_str(), TOWER_ICE_STATS.cost),
+            (TOWER_ARTY.as_str(), TOWER_ARTY_STATS.cost),
+            (TOWER_CAKE_SPLASH.as_str(), TOWER_CAKE_SPLASH_STATS.cost),
+            (TOWER_BOOMERANG.as_str(), TOWER_BOOMERANG_STATS.cost),
         ]
     }
 
     fn validate_registry_shape(reg: &TowerUpgradeRegistry) {
         assert_eq!(
             reg.defs.len(),
-            48,
-            "tower upgrade registry must contain exactly 4 towers * 3 paths * 4 levels"
+            84,
+            "tower upgrade registry must contain exactly 7 towers * 3 paths * 4 levels"
         );
 
         let expected_tower_ids: BTreeSet<&str> = expected_towers()
@@ -291,8 +498,8 @@ mod tests {
                         "{label}: cost must match upgrade_cost(base_cost, level)"
                     );
                     assert!(
-                        !def.effects.is_empty(),
-                        "{label}: upgrade must contain at least one effect"
+                        !def.effects.is_empty() || def.active_ability.is_some(),
+                        "{label}: upgrade must contain an effect or active ability"
                     );
                 }
             }
@@ -319,6 +526,17 @@ mod tests {
                     *value, 0.0,
                     "{label}: stat key {key} value must not be zero"
                 );
+                if key == "AttackSpeedMultiplier" {
+                    assert_eq!(
+                        *op,
+                        StatOp::Mul,
+                        "{label}: AttackSpeedMultiplier must use StatOp::Mul"
+                    );
+                    assert!(
+                        *value > 1.0,
+                        "{label}: AttackSpeedMultiplier must be greater than 1.0, got {value}"
+                    );
+                }
 
                 validate_stat_op_matches_key(&label, key, *op);
             }
@@ -413,6 +631,84 @@ mod tests {
         }
     }
 
+    fn validate_active_abilities(reg: &TowerUpgradeRegistry) {
+        let scoped_towers = [
+            TOWER_DART.as_str(),
+            TOWER_BOMB.as_str(),
+            TOWER_ICE.as_str(),
+            TOWER_TACK.as_str(),
+            TOWER_ARTY.as_str(),
+            TOWER_CAKE_SPLASH.as_str(),
+            TOWER_BOOMERANG.as_str(),
+        ];
+        let mut active_counts = HashMap::<&str, usize>::new();
+        let mut ability_ids = BTreeSet::new();
+
+        for def in reg.iter_all() {
+            let Some(ability) = def.active_ability.as_ref() else {
+                continue;
+            };
+            let label = upgrade_label(&def.tower_kind, def.path, def.level);
+
+            assert_eq!(
+                def.level, 4,
+                "{label}: active ability must be declared at level 4"
+            );
+            assert!(
+                scoped_towers.contains(&def.tower_kind.as_str()),
+                "{label}: active ability is not scoped to this tower kind"
+            );
+            assert!(
+                !ability.ability_id.trim().is_empty(),
+                "{label}: active ability id must not be empty"
+            );
+            assert!(
+                ability_ids.insert(ability.ability_id.as_str()),
+                "{label}: duplicate active ability id `{}`",
+                ability.ability_id
+            );
+            assert!(
+                ability.cooldown > Fixed64::ZERO,
+                "{label}: active ability cooldown must be positive"
+            );
+            assert!(
+                ability.duration >= Fixed64::ZERO,
+                "{label}: active ability duration must not be negative"
+            );
+            let pulses_absent = ability.pulse_interval == Fixed64::ZERO && ability.pulse_count == 0;
+            let pulses_present = ability.pulse_interval > Fixed64::ZERO && ability.pulse_count > 0;
+            assert!(
+                pulses_absent || pulses_present,
+                "{label}: pulse interval and count must both be positive or both be zero"
+            );
+            if pulses_present {
+                assert!(
+                    ability.duration
+                        >= ability.pulse_interval * Fixed64::from_i32(ability.pulse_count as i32),
+                    "{label}: active duration must cover every authored pulse"
+                );
+            }
+
+            *active_counts.entry(def.tower_kind.as_str()).or_default() += 1;
+        }
+
+        assert_eq!(
+            ability_ids.len(),
+            9,
+            "expected nine unique tower active abilities"
+        );
+        for tower_kind in scoped_towers {
+            assert!(
+                active_counts
+                    .get(tower_kind)
+                    .is_some_and(|count| *count >= 1),
+                "{tower_kind}: expected at least one active ability"
+            );
+        }
+        assert_eq!(active_counts.get(TOWER_CAKE_SPLASH.as_str()), Some(&2));
+        assert_eq!(active_counts.get(TOWER_BOOMERANG.as_str()), Some(&2));
+    }
+
     fn supported_behavior_flags(tower_kind: &str) -> &'static [&'static str] {
         match tower_kind {
             "tower_dart" => &[
@@ -426,6 +722,7 @@ mod tests {
             "tower_bomb" => &[
                 "bomb_stun",
                 "missile",
+                "missile_speed_tier2",
                 "moab_assassin",
                 "frag_8",
                 "frag_12",
@@ -452,6 +749,29 @@ mod tests {
                 "refreeze",
                 "embrittle_25",
                 "icicle_impale",
+            ],
+            "tower_arty" => &["arty_stun", "arty_stun_2", "arty_stun_3", "arty_slow_50"],
+            "tower_cake_splash" => &[
+                "cake_burn_20",
+                "cake_burn_40",
+                "cake_secondary_pulse_1",
+                "cake_secondary_pulse_2",
+                "cake_dessert_party",
+                "cake_frost_20",
+                "cake_frost_35",
+                "cake_frost_vulnerability_15",
+                "cake_frost_50_vulnerability_25",
+            ],
+            "tower_boomerang" => &[
+                "glaive_ricochet",
+                "glaive_lord",
+                "moab_press",
+                "faster_rangs",
+                "bionic_burst",
+                "turbo_charge",
+                "shuriken",
+                "double_shuriken",
+                "storm_shuriken",
             ],
             _ => &[],
         }

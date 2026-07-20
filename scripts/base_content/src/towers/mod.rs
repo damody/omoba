@@ -243,3 +243,254 @@ mod tests {
         assert_eq!(half_windup + half_backswing, half_interval);
     }
 }
+
+#[cfg(test)]
+pub(crate) mod projectile_test_support {
+    use super::*;
+    use abi_stable::{sabi_trait::prelude::TD_Opaque, RMut, RRef};
+    use omb_script_abi::{
+        script::UnitScript,
+        types::{EntityHandle, ProjectileHitContext},
+        world::{
+            GameWorld_TO, ProjectileQuery_TO, TowerActiveAbilityAccess_TO, TowerCooldownAccess_TO,
+        },
+    };
+    use omoba_core::runtime::BuffStore;
+    use omoba_core::scripting::ScriptUnitTag;
+    use omoba_core::{
+        scripting::parallel_world_adapter::{
+            ParallelAdapterCache, ParallelProjectileQuery, ParallelTowerActiveAbilityAccess,
+            ParallelTowerCooldownAccess, ParallelWorldAdapter,
+        },
+        BlockedRegions, CProperty, CollisionRadius, Creep, Facing, Faction, Hero, IsBuilding,
+        Outcome, PlayerOwner, Pos, Searcher, TAttack, Tick, Tower, Unit,
+    };
+    use specs::{Builder, World, WorldExt};
+
+    pub struct Fixture {
+        pub world: World,
+        pub tower: specs::Entity,
+        pub enemies: Vec<specs::Entity>,
+    }
+
+    pub fn fixture(flags: &[&str], enemy_positions: &[Vec2]) -> Fixture {
+        let mut world = World::new();
+        world.register::<TAttack>();
+        world.register::<Pos>();
+        world.register::<Facing>();
+        world.register::<CProperty>();
+        world.register::<Unit>();
+        world.register::<Hero>();
+        world.register::<Faction>();
+        world.register::<Creep>();
+        world.register::<Tower>();
+        world.register::<IsBuilding>();
+        world.register::<CollisionRadius>();
+        world.register::<ScriptUnitTag>();
+        world.register::<PlayerOwner>();
+        world.insert(BuffStore::default());
+        world.insert(Searcher::default());
+        world.insert(BlockedRegions::default());
+        world.insert(Tick(1));
+
+        let mut tower_data = Tower::new();
+        tower_data.upgrade_flags = flags.iter().map(|flag| (*flag).to_string()).collect();
+        let tower = world
+            .create_entity()
+            .with(Pos(Vec2::ZERO))
+            .with(Facing(Angle::ZERO))
+            .with(Faction::new(omoba_core::FactionType::Player, 0))
+            .with(tower_data)
+            .with(TAttack::new(
+                Fixed64::from_i32(10),
+                Fixed64::ONE,
+                Fixed64::from_i32(500),
+                Fixed64::from_i32(1000),
+            ))
+            .build();
+        let enemies: Vec<_> = enemy_positions
+            .iter()
+            .copied()
+            .map(|pos| {
+                world
+                    .create_entity()
+                    .with(Pos(pos))
+                    .with(Faction::new(omoba_core::FactionType::Enemy, 1))
+                    .with(Creep {
+                        name: "test".to_string(),
+                        label: None,
+                        path: "test".to_string(),
+                        pidx: 0,
+                        path_remaining_distance: Fixed64::ZERO,
+                        block_tower: None,
+                        status: omoba_core::CreepStatus::Walk,
+                    })
+                    .with(CProperty {
+                        hp: Fixed64::from_i32(100),
+                        mhp: Fixed64::from_i32(100),
+                        msd: Fixed64::ZERO,
+                        def_physic: Fixed64::ZERO,
+                        def_magic: Fixed64::ZERO,
+                    })
+                    .build()
+            })
+            .collect();
+        let creep_index = enemies
+            .iter()
+            .zip(enemy_positions.iter())
+            .map(|(entity, pos)| {
+                (
+                    *entity,
+                    vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render()),
+                )
+            })
+            .collect::<Vec<_>>();
+        world
+            .write_resource::<Searcher>()
+            .creep
+            .rebuild_from(creep_index);
+        Fixture {
+            world,
+            tower,
+            enemies,
+        }
+    }
+
+    pub fn invoke(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        victim: specs::Entity,
+        context: ProjectileHitContext,
+    ) -> Vec<Outcome> {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        adapter.set_projectile_hit_generation(context.generation);
+        let query_adapter = ParallelProjectileQuery::new(&cache);
+        let query_dyn = ProjectileQuery_TO::from_ptr(RRef::new(&query_adapter), TD_Opaque);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        script.on_projectile_hit(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            EntityHandle {
+                id: victim.id(),
+                gen: victim.gen().id() as u32,
+            },
+            context,
+            &query_dyn,
+            &mut world_dyn,
+        );
+        drop(world_dyn);
+        adapter.finish()
+    }
+
+    pub fn invoke_attack_hit(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        victim: specs::Entity,
+    ) -> Vec<Outcome> {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        script.on_attack_hit(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            EntityHandle {
+                id: victim.id(),
+                gen: victim.gen().id() as u32,
+            },
+            &mut world_dyn,
+        );
+        drop(world_dyn);
+        adapter.finish()
+    }
+
+    pub fn invoke_activation(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        ability_id: &str,
+    ) -> Vec<Outcome> {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        let access_dyn =
+            TowerActiveAbilityAccess_TO::from_ptr(RRef::new(&access_adapter), TD_Opaque);
+        script.on_tower_ability_activate_with_access(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            RStr::from_str(ability_id),
+            &access_dyn,
+            &mut world_dyn,
+        );
+        drop(access_dyn);
+        drop(world_dyn);
+        let mut outcomes = adapter.finish();
+        outcomes.extend(access_adapter.finish());
+        outcomes
+    }
+
+    pub fn invoke_pulse(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        ability_id: &str,
+        pulse_index: u16,
+    ) -> (bool, Vec<Outcome>) {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        let access_dyn =
+            TowerActiveAbilityAccess_TO::from_ptr(RRef::new(&access_adapter), TD_Opaque);
+        let consumed = script.on_tower_ability_pulse_with_access(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            RStr::from_str(ability_id),
+            pulse_index,
+            &access_dyn,
+            &mut world_dyn,
+        );
+        drop(access_dyn);
+        drop(world_dyn);
+        (consumed, adapter.finish())
+    }
+
+    pub fn invoke_tick(
+        fixture: &World,
+        script: &impl UnitScript,
+        tower: specs::Entity,
+        dt: Fixed64,
+    ) -> Vec<Outcome> {
+        let cache = ParallelAdapterCache::new(fixture, 1);
+        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
+        let mut cooldown_adapter = ParallelTowerCooldownAccess::new(&cache);
+        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
+        let mut cooldown_dyn =
+            TowerCooldownAccess_TO::from_ptr(RMut::new(&mut cooldown_adapter), TD_Opaque);
+        script.on_tower_tick(
+            EntityHandle {
+                id: tower.id(),
+                gen: tower.gen().id() as u32,
+            },
+            dt,
+            &mut cooldown_dyn,
+            &mut world_dyn,
+        );
+        drop(cooldown_dyn);
+        drop(world_dyn);
+        let mut outcomes = adapter.finish();
+        outcomes.extend(cooldown_adapter.finish());
+        outcomes
+    }
+}

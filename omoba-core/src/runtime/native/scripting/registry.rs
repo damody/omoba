@@ -106,6 +106,19 @@ impl ScriptRegistry {
         self.scripts.get(unit_id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn insert_unit_for_test(
+        &mut self,
+        unit_id: impl Into<String>,
+        script: UnitScript_TO<'static, RBox<()>>,
+    ) {
+        let unit_id = unit_id.into();
+        if !self.scripts.contains_key(&unit_id) {
+            self.order.push(unit_id.clone());
+        }
+        self.scripts.insert(unit_id, script);
+    }
+
     pub fn len(&self) -> usize {
         self.scripts.len()
     }

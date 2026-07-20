@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use vek::Vec2;
 
-use super::{Bounds, Entry, SpatialIndex};
+use super::{BoundedQueryResult, Bounds, Entry, SpatialIndex};
 
 #[derive(Debug, Clone)]
 pub struct QuadTreeNode<Id, Item> {
@@ -188,6 +188,54 @@ where
             }
         }
     }
+
+    fn query_node_bounded(
+        node: &QuadTreeNode<Id, Item>,
+        query_bounds: &Bounds,
+        center: Vec2<f32>,
+        radius: f32,
+        visit_budget: usize,
+        results: &mut Vec<Entry<Id, Item>>,
+        seen: &mut BTreeSet<Id>,
+        visited_candidates: &mut usize,
+    ) -> bool {
+        if !Self::bounds_intersect(&node.bounds, query_bounds) {
+            return false;
+        }
+
+        for entry in &node.entries {
+            if seen.contains(&entry.id) {
+                continue;
+            }
+            if *visited_candidates == visit_budget {
+                return true;
+            }
+            seen.insert(entry.id.clone());
+            *visited_candidates += 1;
+            let extended = radius + entry.bounding_radius.max(0.0);
+            if entry.position.distance(center) <= extended {
+                results.push(entry.clone());
+            }
+        }
+
+        if let Some(ref children) = node.children {
+            for child in children.iter() {
+                if Self::query_node_bounded(
+                    child,
+                    query_bounds,
+                    center,
+                    radius,
+                    visit_budget,
+                    results,
+                    seen,
+                    visited_candidates,
+                ) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 impl<Id, Item> SpatialIndex<Id, Item> for QuadTree<Id, Item>
@@ -245,6 +293,37 @@ where
             );
         }
         results
+    }
+
+    fn query_in_range_bounded(
+        &self,
+        center: Vec2<f32>,
+        radius: f32,
+        visit_budget: usize,
+    ) -> BoundedQueryResult<Id, Item> {
+        let mut entries = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut visited_candidates = 0;
+        if let Some(ref tree) = self.root {
+            let query_bounds = Bounds {
+                min: center - Vec2::new(radius, radius),
+                max: center + Vec2::new(radius, radius),
+            };
+            Self::query_node_bounded(
+                tree,
+                &query_bounds,
+                center,
+                radius,
+                visit_budget,
+                &mut entries,
+                &mut seen,
+                &mut visited_candidates,
+            );
+        }
+        BoundedQueryResult {
+            entries,
+            visited_candidates,
+        }
     }
 
     fn count_nodes(&self) -> usize {

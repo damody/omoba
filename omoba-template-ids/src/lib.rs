@@ -324,6 +324,19 @@ pub struct UpgradeEffectConst {
     pub op: StatOpC,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct ActiveAbilityConst {
+    pub ability_id: &'static str,
+    pub display_name: &'static str,
+    pub description: &'static str,
+    pub icon: &'static str,
+    pub cooldown: Fixed64,
+    pub duration: Fixed64,
+    pub pulse_interval: Fixed64,
+    pub pulse_count: u16,
+}
+
 /// 一個 upgrade 等級（per tower / per path / per level）。
 /// `cost` 必須符合 `omoba_core::tower_meta::upgrade_cost(base, level)` 公式；
 /// build.rs 編譯期驗證。
@@ -334,6 +347,7 @@ pub struct UpgradeDefConst {
     pub description: &'static str,
     pub cost: i32,
     pub effects: &'static [UpgradeEffectConst],
+    pub active_ability: Option<ActiveAbilityConst>,
 }
 
 /// shipped story content 的 dependency-light generated data tree。
@@ -672,4 +686,43 @@ pub fn reload_runtime_lua_content_dev(_expected_hash: Option<&str>) -> Result<Op
 #[cfg(not(feature = "runtime-lua-content"))]
 pub fn validate_runtime_lua_content_dev() -> Result<Option<()>, String> {
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seven_towers_publish_active_ability_metadata() {
+        let cases = [
+            (TOWER_DART, 2, "dart_heavy_burst", 12, 5120, 0, 0),
+            (TOWER_BOMB, 2, "bomb_cluster_overload", 12, 5120, 0, 0),
+            (TOWER_ICE, 2, "ice_crystal_nova", 12, 0, 0, 0),
+            (TOWER_TACK, 2, "tack_blade_maelstrom", 12, 410, 102, 4),
+            (TOWER_BOOMERANG, 1, "boomerang_turbo_charge", 10, 5120, 0, 0),
+            (TOWER_ARTY, 2, "arty_fire_at_will", 10, 3072, 512, 6),
+            (
+                TOWER_CAKE_SPLASH,
+                1,
+                "cake_dessert_party",
+                10,
+                5120,
+                512,
+                10,
+            ),
+        ];
+        for (tower, path, id, cooldown, duration_raw, pulse_raw, pulse_count) in cases {
+            let def = active_tower_upgrades(tower).unwrap()[path][3];
+            let ability = def.active_ability.expect("active ability");
+            assert_eq!(ability.ability_id, id);
+            assert_eq!(ability.cooldown, Fixed64::from_i32(cooldown));
+            assert_eq!(ability.duration, Fixed64::from_raw(duration_raw));
+            assert_eq!(ability.pulse_interval, Fixed64::from_raw(pulse_raw));
+            assert_eq!(ability.pulse_count, pulse_count);
+        }
+
+        assert!(active_tower_upgrades(TOWER_BOOMERANG).unwrap()[0][0]
+            .active_ability
+            .is_none());
+    }
 }

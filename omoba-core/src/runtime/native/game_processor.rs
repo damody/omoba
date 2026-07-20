@@ -15,10 +15,13 @@ use crate::runtime::comp::{
     FactionType, Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBase, IsBuilding,
     MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
     PendingHeroCommandClearQueue, PendingHeroCommandKind, PendingItemUseQueue, PendingMoveQueue,
-    PendingTowerSellQueue, PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue,
-    PendingTowerUpgradeQueue, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, Searcher,
-    TAttack, TProperty, Tick, Tower, TowerData, TowerFireFxQueue, TowerTargetPriority,
-    TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
+    PendingTowerAbilityActivation, PendingTowerAbilityActivationQueue,
+    PendingTowerAbilityCastQueue, PendingTowerSellQueue, PendingTowerSpawnQueue,
+    PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, PlayerOwner, Pos, Projectile,
+    RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerAbilityCastResult,
+    TowerAbilityCastResults, TowerActiveAbilityState, TowerData, TowerFireFxQueue,
+    TowerSpawnOrderCounter, TowerTargetPriority, TowerTemplate, TowerTemplateRegistry,
+    TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -534,10 +537,12 @@ pub fn spawn_td_tower_with_owner(
         def_magic: Fixed64::ZERO,
     };
 
+    let spawn_order = world.write_resource::<TowerSpawnOrderCounter>().allocate();
     let entity = world
         .create_entity()
         .with(Pos::from_xy_f32(pos.x, pos.y))
         .with(Tower::new())
+        .with(spawn_order)
         .with(IsBuilding)
         .with(tprop)
         .with(cprop)
@@ -1010,6 +1015,11 @@ pub fn handle_tower_upgrade_from_input(
                 }
             }
             tower.upgrade_levels[path as usize] = next_level;
+            if let Some(active_ability) = &def.active_ability {
+                tower.active_ability = Some(TowerActiveAbilityState::ready(
+                    active_ability.ability_id.clone(),
+                ));
+            }
         }
     }
 
@@ -1317,6 +1327,7 @@ pub fn drain_pending_item_uses(world: &mut World) {
 fn outcome_kind(outcome: &Outcome) -> &'static str {
     match outcome {
         Outcome::Damage { .. } => "Damage",
+        Outcome::ProjectileHit { .. } => "ProjectileHit",
         Outcome::ProjectileLine2 { .. } => "ProjectileLine2",
         Outcome::Death { .. } => "Death",
         Outcome::Creep { .. } => "Creep",
@@ -1340,6 +1351,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptSetTowerAtk { .. } => "ScriptSetTowerAtk",
         Outcome::ScriptSetTowerRange { .. } => "ScriptSetTowerRange",
         Outcome::ScriptSetAsdInterval { .. } => "ScriptSetAsdInterval",
+        Outcome::ScriptSetTowerInternalCooldown { .. } => "ScriptSetTowerInternalCooldown",
         Outcome::ScriptDirectDamage { .. } => "ScriptDirectDamage",
         Outcome::ScriptHeal { .. } => "ScriptHeal",
         Outcome::ScriptRemoveBuff { .. } => "ScriptRemoveBuff",
@@ -1438,6 +1450,19 @@ pub fn process_outcomes(
                 target,
                 predeclared,
             )?,
+            Outcome::ProjectileHit {
+                source,
+                target,
+                kind_id,
+                generation,
+            } => world
+                .write_resource::<ScriptEventQueue>()
+                .push(ScriptEvent::ProjectileHit {
+                    attacker: source,
+                    victim: target,
+                    kind_id,
+                    generation,
+                }),
             Outcome::Heal { target, amount, .. } => handle_heal(world, target, amount)?,
             Outcome::UpdateAttack {
                 target,
@@ -1499,6 +1524,11 @@ pub fn process_outcomes(
             Outcome::ScriptSetAsdInterval { entity, value } => {
                 handle_script_set_asd_interval(world, entity, value)
             }
+            Outcome::ScriptSetTowerInternalCooldown { entity, duration } => {
+                if let Some(tower) = world.write_storage::<Tower>().get_mut(entity) {
+                    tower.ultimate_cooldown = duration.max(Fixed64::ZERO);
+                }
+            }
             Outcome::ScriptDirectDamage { target, amount } => {
                 handle_script_direct_damage(world, target, amount)
             }
@@ -1520,6 +1550,8 @@ pub fn process_outcomes(
                 slow_duration,
                 hit_radius,
                 stun_duration,
+                kind_id,
+                generation,
             } => handle_script_projectile(
                 world,
                 pos,
@@ -1535,6 +1567,8 @@ pub fn process_outcomes(
                 slow_duration,
                 hit_radius,
                 stun_duration,
+                kind_id,
+                generation,
             ),
             Outcome::ScriptTowerFireFx { entity, dir_rad } => {
                 handle_script_tower_fire_fx(world, entity, dir_rad)
@@ -1880,6 +1914,8 @@ fn handle_projectile(
                 } else {
                     Fixed64::ZERO
                 },
+                kind_id: 0,
+                generation: 0,
             })
             .build();
     }
@@ -2022,6 +2058,8 @@ fn handle_script_projectile(
     slow_duration: Fixed64,
     hit_radius: Fixed64,
     stun_duration: Fixed64,
+    kind_id: u16,
+    generation: u8,
 ) {
     let initial_dist = (tpos - pos).length();
     let speed_f = msd.to_f32_for_render();
@@ -2050,6 +2088,8 @@ fn handle_script_projectile(
             slow_duration,
             hit_radius,
             stun_duration,
+            kind_id,
+            generation,
         })
         .build();
 }
@@ -2119,6 +2159,10 @@ fn handle_script_start_cooldown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::comp::{
+        GameMode, PendingTowerAbilityActivationQueue, PendingTowerAbilityCastQueue, PlayerLives,
+        TowerAbilityCastResult, TowerAbilityCastResults, TowerActiveAbilityState,
+    };
     use crate::runtime::UnitStats;
     use omoba_template_ids::{active_creep_stats, creep_id_str, CreepId};
     use specs::Join;
@@ -2149,6 +2193,7 @@ mod tests {
         world.insert(ExplosionFxQueue::default());
         world.insert(RemovedEntitiesQueue::default());
         world.insert(BuffStore::default());
+        world.insert(ScriptEventQueue::default());
 
         let entity = world
             .create_entity()
@@ -2486,6 +2531,35 @@ mod tests {
     }
 
     #[test]
+    fn boomerang_path_two_level_four_unlocks_active_ability() {
+        let mut world = world_for_owner_tests();
+        world.insert(TowerUpgradeRegistry::new());
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        world.write_storage::<Gold>().get_mut(hero).unwrap().0 = 10_000;
+        let tower = world
+            .create_entity()
+            .with(Tower::new())
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(1))
+            .with(ScriptUnitTag {
+                unit_id: "tower_boomerang".to_string(),
+            })
+            .build();
+
+        for _ in 0..4 {
+            handle_tower_upgrade_from_input(&mut world, tower.id(), 1, 1, 1)
+                .expect("owner can finish boomerang path two");
+        }
+
+        let towers = world.read_storage::<Tower>();
+        let active = towers
+            .get(tower)
+            .and_then(|tower| tower.active_ability.as_ref())
+            .expect("boomerang path two level four should unlock its active ability");
+        assert_eq!(active.ability_id, "boomerang_turbo_charge");
+    }
+
+    #[test]
     fn script_outcomes_apply_in_order() {
         let (mut world, entity) = world_for_script_outcome_tests();
         let pos = omoba_sim::Vec2::new(Fixed64::from_i32(5), Fixed64::from_i32(6));
@@ -2519,6 +2593,8 @@ mod tests {
                 slow_duration: Fixed64::ZERO,
                 hit_radius: Fixed64::ZERO,
                 stun_duration: Fixed64::ZERO,
+                kind_id: 0,
+                generation: 0,
             },
         ]);
 
@@ -2583,6 +2659,387 @@ mod tests {
             Fixed64::from_i32(15)
         );
     }
+
+    fn world_for_tower_ability_cast_tests() -> (World, Entity) {
+        let mut world = world_for_owner_tests();
+        world.insert(TowerUpgradeRegistry::new());
+        world.insert(GameMode::TowerDefense);
+        world.insert(PlayerLives(100));
+        world.insert(PendingTowerAbilityCastQueue::default());
+        world.insert(PendingTowerAbilityActivationQueue::default());
+        world.insert(TowerAbilityCastResult::default());
+        world.insert(TowerAbilityCastResults::default());
+
+        let tower = world
+            .create_entity()
+            .with(Tower {
+                upgrade_levels: [0, 4, 0],
+                active_ability: Some(TowerActiveAbilityState::ready("boomerang_turbo_charge")),
+                ..Tower::new()
+            })
+            .with(Faction::new(FactionType::Player, 0))
+            .with(PlayerOwner::new(7))
+            .with(ScriptUnitTag {
+                unit_id: "tower_boomerang".to_string(),
+            })
+            .build();
+        (world, tower)
+    }
+
+    fn tower_ability_state_snapshot(world: &World, tower: Entity) -> serde_json::Value {
+        serde_json::to_value(
+            world
+                .read_storage::<Tower>()
+                .get(tower)
+                .unwrap()
+                .active_ability
+                .as_ref()
+                .unwrap(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn tower_ability_cast_accepts_owned_unlocked_ready_tower() {
+        let (mut world, tower) = world_for_tower_ability_cast_tests();
+
+        assert!(handle_tower_ability_cast_from_input(
+            &mut world,
+            tower.id(),
+            "boomerang_turbo_charge",
+            7,
+        )
+        .is_ok());
+
+        let towers = world.read_storage::<Tower>();
+        let state = towers.get(tower).unwrap().active_ability.as_ref().unwrap();
+        assert_eq!(state.cooldown_remaining, Fixed64::from_i32(10));
+        assert_eq!(state.active_remaining, Fixed64::from_i32(5));
+        assert_eq!(state.activation_serial, 1);
+        drop(towers);
+        let callbacks = world.read_resource::<PendingTowerAbilityActivationQueue>();
+        assert_eq!(callbacks.requests.len(), 1);
+        assert_eq!(callbacks.requests[0].entity, tower);
+    }
+
+    #[test]
+    fn tower_ability_cast_rejections_preserve_state() {
+        for expected in ["not_owner", "tower_missing", "ability_mismatch"] {
+            let (mut world, tower) = world_for_tower_ability_cast_tests();
+            let (tower_id, ability_id, requester) = match expected {
+                "not_owner" => (tower.id(), "boomerang_turbo_charge", 8),
+                "tower_missing" => (u32::MAX, "boomerang_turbo_charge", 7),
+                "ability_mismatch" => (tower.id(), "wrong_ability", 7),
+                _ => unreachable!(),
+            };
+            let before = tower_ability_state_snapshot(&world, tower);
+            let error =
+                handle_tower_ability_cast_from_input(&mut world, tower_id, ability_id, requester)
+                    .unwrap_err();
+            assert_eq!(error.to_string(), expected);
+            assert_eq!(tower_ability_state_snapshot(&world, tower), before);
+        }
+    }
+
+    #[test]
+    fn tower_ability_cast_locked_cooldown_and_game_ended_preserve_state() {
+        for expected in ["ability_locked", "cooldown_active", "game_ended"] {
+            let (mut world, tower) = world_for_tower_ability_cast_tests();
+            match expected {
+                "ability_locked" => {
+                    world
+                        .write_storage::<Tower>()
+                        .get_mut(tower)
+                        .unwrap()
+                        .upgrade_levels = [0; 3];
+                }
+                "cooldown_active" => {
+                    world
+                        .write_storage::<Tower>()
+                        .get_mut(tower)
+                        .unwrap()
+                        .active_ability
+                        .as_mut()
+                        .unwrap()
+                        .cooldown_remaining = Fixed64::ONE;
+                }
+                "game_ended" => *world.write_resource::<PlayerLives>() = PlayerLives(0),
+                _ => unreachable!(),
+            }
+            let before = tower_ability_state_snapshot(&world, tower);
+            let error = handle_tower_ability_cast_from_input(
+                &mut world,
+                tower.id(),
+                "boomerang_turbo_charge",
+                7,
+            )
+            .unwrap_err();
+            assert_eq!(error.to_string(), expected);
+            assert_eq!(tower_ability_state_snapshot(&world, tower), before);
+        }
+    }
+
+    #[test]
+    fn tower_ability_cast_drain_records_every_processed_result_serial() {
+        let (mut world, tower) = world_for_tower_ability_cast_tests();
+        {
+            let mut queue = world.write_resource::<PendingTowerAbilityCastQueue>();
+            queue.requests.push(crate::comp::PendingTowerAbilityCast {
+                tower_entity_id: u32::MAX,
+                ability_id: "boomerang_turbo_charge".to_string(),
+                owner_pid: 7,
+            });
+            queue.requests.push(crate::comp::PendingTowerAbilityCast {
+                tower_entity_id: tower.id(),
+                ability_id: "boomerang_turbo_charge".to_string(),
+                owner_pid: 7,
+            });
+        }
+
+        drain_pending_tower_ability_casts(&mut world);
+
+        let result = world.read_resource::<TowerAbilityCastResult>();
+        assert_eq!(result.result_serial, 2);
+        assert!(result.accepted);
+        assert_eq!(result.player_id, 7);
+        assert_eq!(result.tower_entity_id, tower.id());
+        assert_eq!(result.reason, "");
+    }
+
+    #[test]
+    fn tower_ability_cast_drain_retains_latest_result_for_each_player() {
+        let (mut world, _) = world_for_tower_ability_cast_tests();
+        {
+            let mut queue = world.write_resource::<PendingTowerAbilityCastQueue>();
+            queue.requests.push(crate::comp::PendingTowerAbilityCast {
+                tower_entity_id: u32::MAX,
+                ability_id: "ability_seven".to_string(),
+                owner_pid: 7,
+            });
+            queue.requests.push(crate::comp::PendingTowerAbilityCast {
+                tower_entity_id: u32::MAX - 1,
+                ability_id: "ability_eight".to_string(),
+                owner_pid: 8,
+            });
+        }
+
+        drain_pending_tower_ability_casts(&mut world);
+
+        let results = world.read_resource::<TowerAbilityCastResults>();
+        assert_eq!(results.latest_by_player.len(), 2);
+        assert_eq!(results.latest_by_player[&7].ability_id, "ability_seven");
+        assert_eq!(results.latest_by_player[&7].result_serial, 1);
+        assert_eq!(results.latest_by_player[&8].ability_id, "ability_eight");
+        assert_eq!(results.latest_by_player[&8].result_serial, 2);
+    }
+
+    #[test]
+    fn projectile_hit_outcome_queues_provenance_aware_script_event() {
+        let (mut world, source) = world_for_script_outcome_tests();
+        let target = world.create_entity().build();
+        world
+            .write_resource::<Vec<Outcome>>()
+            .push(Outcome::ProjectileHit {
+                source,
+                target,
+                kind_id: 41,
+                generation: 2,
+            });
+
+        let mut sink = crate::runtime::RuntimeEventVecSink::default();
+        process_outcomes(&mut world, &mut sink).expect("projectile hit outcome applies");
+
+        let events = world.write_resource::<ScriptEventQueue>().drain();
+        assert!(matches!(
+            events.as_slice(),
+            [ScriptEvent::ProjectileHit {
+                attacker,
+                victim,
+                kind_id: 41,
+                generation: 2,
+            }] if *attacker == source && *victim == target
+        ));
+    }
+}
+
+pub fn handle_tower_ability_cast_from_input(
+    world: &mut World,
+    tower_entity_id: u32,
+    ability_id: &str,
+    owner_pid: u32,
+) -> Result<(), failure::Error> {
+    let target = {
+        let entities = world.entities();
+        let towers = world.read_storage::<Tower>();
+        let tags = world.read_storage::<ScriptUnitTag>();
+        (&entities, &towers)
+            .join()
+            .find(|(entity, _)| entity.id() == tower_entity_id)
+            .map(|(entity, tower)| {
+                (
+                    entity,
+                    tower.upgrade_levels,
+                    tags.get(entity).map(|tag| tag.unit_id.clone()),
+                )
+            })
+    }
+    .ok_or_else(|| failure::err_msg("tower_missing"))?;
+    let (target_entity, levels, unit_id) = target;
+
+    let owns_tower = world
+        .read_storage::<PlayerOwner>()
+        .get(target_entity)
+        .is_some_and(|owner| owner.player_id == owner_pid);
+    if !owns_tower {
+        return Err(failure::err_msg("not_owner"));
+    }
+
+    let unlocked = unit_id.as_deref().and_then(|unit_id| {
+        let registry = world.read_resource::<TowerUpgradeRegistry>();
+        levels
+            .iter()
+            .enumerate()
+            .filter(|(_, level)| **level >= 4)
+            .find_map(|(path, _)| {
+                registry
+                    .get(unit_id, path as u8, 4)
+                    .and_then(|def| def.active_ability.clone())
+            })
+    });
+    let def = unlocked.ok_or_else(|| failure::err_msg("ability_locked"))?;
+
+    let state_snapshot = world
+        .read_storage::<Tower>()
+        .get(target_entity)
+        .and_then(|tower| tower.active_ability.as_ref())
+        .map(|state| (state.ability_id.clone(), state.cooldown_remaining));
+    let Some((state_ability_id, cooldown_remaining)) = state_snapshot else {
+        return Err(failure::err_msg("ability_locked"));
+    };
+    if def.ability_id != ability_id || state_ability_id != ability_id {
+        return Err(failure::err_msg("ability_mismatch"));
+    }
+    if cooldown_remaining > Fixed64::ZERO {
+        return Err(failure::err_msg("cooldown_active"));
+    }
+
+    let game_ended = world.read_resource::<crate::comp::GameMode>().is_td()
+        && world.read_resource::<crate::comp::PlayerLives>().0 <= 0;
+    if game_ended {
+        return Err(failure::err_msg("game_ended"));
+    }
+
+    let activation_serial = {
+        let mut towers = world.write_storage::<Tower>();
+        let state = towers
+            .get_mut(target_entity)
+            .and_then(|tower| tower.active_ability.as_mut())
+            .ok_or_else(|| failure::err_msg("ability_locked"))?;
+        state
+            .activate(
+                def.cooldown,
+                def.duration,
+                def.pulse_interval,
+                def.pulse_count,
+            )
+            .map_err(|_| failure::err_msg("cooldown_active"))?;
+        state.activation_serial
+    };
+    world
+        .write_resource::<PendingTowerAbilityActivationQueue>()
+        .requests
+        .push(PendingTowerAbilityActivation {
+            entity: target_entity,
+            ability_id: ability_id.to_string(),
+            activation_serial,
+        });
+    Ok(())
+}
+
+pub fn drain_pending_tower_ability_casts(world: &mut World) {
+    let drained = {
+        let mut queue = world.write_resource::<PendingTowerAbilityCastQueue>();
+        std::mem::take(&mut queue.requests)
+    };
+    for request in drained {
+        let outcome = handle_tower_ability_cast_from_input(
+            world,
+            request.tower_entity_id,
+            &request.ability_id,
+            request.owner_pid,
+        );
+        let reason = outcome
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let next_serial = world
+            .read_resource::<TowerAbilityCastResult>()
+            .result_serial
+            .wrapping_add(1);
+        let next_result = TowerAbilityCastResult {
+            player_id: request.owner_pid,
+            tower_entity_id: request.tower_entity_id,
+            ability_id: request.ability_id,
+            accepted: outcome.is_ok(),
+            reason,
+            result_serial: next_serial,
+        };
+        *world.write_resource::<TowerAbilityCastResult>() = next_result.clone();
+        world
+            .write_resource::<TowerAbilityCastResults>()
+            .latest_by_player
+            .insert(next_result.player_id, next_result);
+    }
+}
+
+pub(crate) fn acknowledge_tower_ability_pulse(
+    world: &mut World,
+    entity: Entity,
+    ability_id: &str,
+    activation_serial: u32,
+    consumed: bool,
+) -> bool {
+    let mut towers = world.write_storage::<Tower>();
+    let Some(state) = towers
+        .get_mut(entity)
+        .and_then(|tower| tower.active_ability.as_mut())
+        .filter(|state| {
+            state.ability_id == ability_id && state.activation_serial == activation_serial
+        })
+    else {
+        return false;
+    };
+    state.acknowledge_pulse(consumed);
+    true
+}
+
+pub(crate) fn cancel_tower_active_ability(
+    world: &mut World,
+    entity: Entity,
+    ability_id: &str,
+    activation_serial: u32,
+) -> bool {
+    let mut towers = world.write_storage::<Tower>();
+    let Some(state) = towers
+        .get_mut(entity)
+        .and_then(|tower| tower.active_ability.as_mut())
+        .filter(|state| {
+            state.ability_id == ability_id && state.activation_serial == activation_serial
+        })
+    else {
+        return false;
+    };
+    let was_active = state.active_remaining > Fixed64::ZERO
+        || state.pulses_remaining > 0
+        || state.pending_due > 0
+        || state.opportunity_outstanding;
+    state.active_remaining = Fixed64::ZERO;
+    state.pulse_accumulator = Fixed64::ZERO;
+    state.pulses_remaining = 0;
+    state.pending_due = 0;
+    state.opportunity_outstanding = false;
+    was_active
 }
 
 fn handle_add_buff(
@@ -2666,6 +3123,8 @@ fn handle_projectile_directional(
             slow_duration: Fixed64::ZERO,
             hit_radius: Fixed64::ZERO,
             stun_duration: Fixed64::ZERO,
+            kind_id: 0,
+            generation: 0,
         })
         .build();
     Ok(())
@@ -2676,10 +3135,12 @@ fn handle_tower_spawn(
     pos: omoba_sim::Vec2,
     td: TowerData,
 ) -> Result<(), failure::Error> {
+    let spawn_order = world.write_resource::<TowerSpawnOrderCounter>().allocate();
     world
         .create_entity()
         .with(Pos(pos))
         .with(Tower::new())
+        .with(spawn_order)
         .with(td.tpty)
         .with(td.tatk)
         .build();

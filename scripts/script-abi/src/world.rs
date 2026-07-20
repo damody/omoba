@@ -11,13 +11,61 @@ pub use crate::types::{PathSpec, ProjectileSpec};
 use abi_stable::{
     sabi_trait,
     std_types::{ROption, RStr, RVec},
-    RMut,
+    RMut, RRef,
 };
 
 /// “GameWorld” 的借用可變動態形式的類型別名 - 這是
 /// 鉤子收到什麼。統一使用這個可以避免指針被淋濕
 /// 每個鉤子簽名都是通用的。
 pub type GameWorldDyn<'a> = GameWorld_TO<'a, RMut<'a, ()>>;
+
+pub type ProjectileQueryDyn<'a> = ProjectileQuery_TO<'a, RRef<'a, ()>>;
+
+pub type TowerCooldownAccessDyn<'a> = TowerCooldownAccess_TO<'a, RMut<'a, ()>>;
+
+pub type TowerActiveAbilityAccessDyn<'a> = TowerActiveAbilityAccess_TO<'a, RRef<'a, ()>>;
+
+#[sabi_trait]
+pub trait TowerCooldownAccess: Send {
+    fn get_tower_internal_cooldown(&self, e: EntityHandle) -> Fixed64;
+    fn start_tower_internal_cooldown(&mut self, e: EntityHandle, duration: Fixed64);
+}
+
+/// Narrow, ABI-independent spatial query surface used only by projectile-hit hooks.
+#[sabi_trait]
+pub trait ProjectileQuery: Send + Sync {
+    fn enemy_candidates_bounded(
+        &self,
+        center: Vec2,
+        radius: Fixed64,
+        of: EntityHandle,
+        exclude: ROption<EntityHandle>,
+        cap: u16,
+    ) -> RVec<EntityHandle>;
+}
+
+/// Narrow ABI extension for tower active-ability callbacks. This remains
+/// separate from `GameWorld`, whose stable trait-object method table is full.
+#[sabi_trait]
+pub trait TowerActiveAbilityAccess: Send {
+    fn get_tower_ability_active_remaining(&self, e: EntityHandle, ability_id: RStr<'_>) -> Fixed64;
+    fn get_tower_ability_activation_serial(&self, e: EntityHandle, ability_id: RStr<'_>) -> u32;
+    fn reset_attack_backswing(&self, e: EntityHandle);
+    fn query_friendly_towers_in_range(
+        &self,
+        center: Vec2,
+        radius: Fixed64,
+        exclude: EntityHandle,
+    ) -> RVec<EntityHandle>;
+    /// Selects an enemy using the authoritative `TowerTargetPriority::First`
+    /// route-progress metric, independent of the tower's player-selected priority.
+    fn query_first_enemy_in_range(
+        &self,
+        center: Vec2,
+        radius: Fixed64,
+        of: EntityHandle,
+    ) -> ROption<EntityHandle>;
+}
 
 #[sabi_trait]
 pub trait GameWorld: Send {

@@ -16,6 +16,7 @@ pub struct StateInitializer;
 
 const DOTA_UNITS_PER_MAP_UNIT: i64 = 100;
 const TD_DIFFICULTY_ENV: &str = "OMB_DIFFICULTY";
+const TD_STARTING_GOLD_ENV: &str = "OMB_TD_STARTING_GOLD";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TdDifficultyConfig {
@@ -36,10 +37,13 @@ impl TdDifficultyConfig {
     };
 
     pub fn from_env() -> Self {
-        std::env::var(TD_DIFFICULTY_ENV)
+        let config = std::env::var(TD_DIFFICULTY_ENV)
             .ok()
             .map(|value| Self::from_config_value(&value))
-            .unwrap_or(Self::EXPERT)
+            .unwrap_or(Self::EXPERT);
+        let starting_gold_override = std::env::var(TD_STARTING_GOLD_ENV).ok();
+
+        apply_starting_gold_override(config, starting_gold_override.as_deref())
     }
 
     pub fn from_config_value(value: &str) -> Self {
@@ -71,6 +75,20 @@ impl TdDifficultyConfig {
     }
 }
 
+fn apply_starting_gold_override(
+    mut config: TdDifficultyConfig,
+    override_value: Option<&str>,
+) -> TdDifficultyConfig {
+    if let Some(starting_gold) = override_value
+        .and_then(|value| value.trim().parse::<i32>().ok())
+        .filter(|value| *value >= 0)
+    {
+        config.starting_gold = starting_gold;
+    }
+
+    config
+}
+
 fn dota_units_f32_to_map_units(value: f32) -> f32 {
     value / DOTA_UNITS_PER_MAP_UNIT as f32
 }
@@ -85,13 +103,13 @@ const BTD_SPAWN_INTERVAL_SECS: f32 = 0.18;
 const BTD_EASY_ROUND_INCOME_CASH: [f32; 100] = [
     121.0, 137.0, 138.0, 175.0, 164.0, 163.0, 182.0, 200.0, 199.0, 314.0, 189.0, 192.0, 282.0,
     259.0, 266.0, 268.0, 165.0, 358.0, 260.0, 186.0, 351.0, 298.0, 277.0, 167.0, 335.0, 333.0,
-    662.0, 266.0, 389.0, 337.0, 537.0, 627.0, 205.0, 912.0, 1150.0, 896.0, 1339.0, 1277.0,
-    1759.0, 521.0, 2181.0, 659.0, 1278.0, 1294.0, 2422.0, 716.0, 1637.0, 2843.0, 4758.0, 3016.0,
-    1098.5, 1595.5, 924.5, 2197.5, 2483.0, 1286.5, 1859.0, 2298.0, 2159.0, 922.5, 1232.0,
-    1386.4, 2826.0, 849.8, 3071.6, 1004.2, 1023.6, 777.8, 1391.0, 2618.8, 1503.0, 1504.0,
-    1392.6, 3044.0, 2667.4, 1316.0, 2540.2, 4862.0, 6709.0, 1400.2, 5366.0, 4757.0, 4749.0,
-    7044.0, 2625.4, 948.5, 2627.4, 3314.0, 2171.0, 339.3, 4191.0, 4537.4, 1946.6, 7667.1,
-    3718.0, 9955.6, 1417.2, 9653.8, 2827.9, 1534.6,
+    662.0, 266.0, 389.0, 337.0, 537.0, 627.0, 205.0, 912.0, 1150.0, 896.0, 1339.0, 1277.0, 1759.0,
+    521.0, 2181.0, 659.0, 1278.0, 1294.0, 2422.0, 716.0, 1637.0, 2843.0, 4758.0, 3016.0, 1098.5,
+    1595.5, 924.5, 2197.5, 2483.0, 1286.5, 1859.0, 2298.0, 2159.0, 922.5, 1232.0, 1386.4, 2826.0,
+    849.8, 3071.6, 1004.2, 1023.6, 777.8, 1391.0, 2618.8, 1503.0, 1504.0, 1392.6, 3044.0, 2667.4,
+    1316.0, 2540.2, 4862.0, 6709.0, 1400.2, 5366.0, 4757.0, 4749.0, 7044.0, 2625.4, 948.5, 2627.4,
+    3314.0, 2171.0, 339.3, 4191.0, 4537.4, 1946.6, 7667.1, 3718.0, 9955.6, 1417.2, 9653.8, 2827.9,
+    1534.6,
 ];
 
 pub(crate) fn btd_easy_round_income_cash(round: usize) -> Option<f32> {
@@ -810,6 +828,7 @@ impl StateInitializer {
         ecs.register::<CProperty>();
         ecs.register::<TAttack>();
         ecs.register::<Tower>();
+        ecs.register::<TowerSpawnOrder>();
         ecs.register::<Creep>();
         ecs.register::<Projectile>();
         ecs.register::<Hero>();
@@ -857,6 +876,7 @@ impl StateInitializer {
         ecs.insert(DeltaTime(omoba_sim::Fixed64::ZERO));
         ecs.insert(crate::comp::GamePause::default());
         ecs.insert(crate::comp::GameSpeed::default());
+        ecs.insert(crate::comp::TowerSpawnOrderCounter::default());
         // 階段 1c.3：確定性 SimRng 流的主種子。第二階段將
         // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());
@@ -896,6 +916,14 @@ impl StateInitializer {
         // 延遲來自 lockstep CastAbility inputs 的 hero ability cast requests。
         // 在 script dispatch 前 drain，讓 SkillCast 在同一 tick 執行。
         ecs.insert(crate::comp::PendingAbilityCastQueue::default());
+
+        // Tower active-ability pulse opportunities are produced by the
+        // deterministic scheduler and drained by script dispatch.
+        ecs.insert(crate::comp::PendingTowerAbilityPulseQueue::default());
+        ecs.insert(crate::comp::PendingTowerAbilityCastQueue::default());
+        ecs.insert(crate::comp::PendingTowerAbilityActivationQueue::default());
+        ecs.insert(crate::comp::TowerAbilityCastResult::default());
+        ecs.insert(crate::comp::TowerAbilityCastResults::default());
 
         // MoveTo (右鍵移動): deferred hero MoveTarget writes from lockstep
         // 移至輸入。之後在 dispatcher 後由 `GameProcessor::drain_pending_moves`
@@ -1335,10 +1363,12 @@ impl StateInitializer {
             }
         };
 
+        let spawn_order = ecs.write_resource::<TowerSpawnOrderCounter>().allocate();
         let mut builder = ecs
             .create_entity()
             .with(Pos::from_xy_f32(pos.x, pos.y))
             .with(Tower::new())
+            .with(spawn_order)
             .with(prop)
             .with(cprop)
             .with(atk_c)
@@ -1992,6 +2022,30 @@ mod tests {
         assert_eq!(expert.starting_gold, 650);
         assert_eq!(expert.round_count, 100);
         assert_eq!(expert.tower_cost_multiplier, 1.0);
+    }
+
+    #[test]
+    fn td_starting_gold_override_applies_to_every_difficulty() {
+        for difficulty in ["novice", "intermediate", "advanced", "expert"] {
+            let config = apply_starting_gold_override(
+                TdDifficultyConfig::from_config_value(difficulty),
+                Some("10000"),
+            );
+
+            assert_eq!(config.starting_gold, 10_000, "{difficulty}");
+        }
+    }
+
+    #[test]
+    fn invalid_td_starting_gold_override_preserves_profile_default() {
+        for value in [None, Some(""), Some("not-a-number"), Some("-1")] {
+            let config = apply_starting_gold_override(
+                TdDifficultyConfig::from_config_value("novice"),
+                value,
+            );
+
+            assert_eq!(config.starting_gold, 650, "{value:?}");
+        }
     }
 
     #[test]

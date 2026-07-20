@@ -6,8 +6,12 @@
 //! / `on_heal_received` / `on_state_changed` / `on_modifier_added` /
 //! `on_modifier_removed`。所有 hook 皆為 no-op default，腳本只覆寫需要的。
 
-use crate::types::{DamageInfo, EntityHandle, Fixed64, Target, TowerMetadata};
-use crate::world::GameWorldDyn;
+use crate::types::{
+    DamageInfo, EntityHandle, Fixed64, ProjectileHitContext, Target, TowerMetadata,
+};
+use crate::world::{
+    GameWorldDyn, ProjectileQueryDyn, TowerActiveAbilityAccessDyn, TowerCooldownAccessDyn,
+};
 use abi_stable::{
     sabi_trait,
     std_types::{RNone, ROption, RStr},
@@ -196,4 +200,72 @@ pub trait UnitScript: Send + Sync {
 
     /// 對應 `MODIFIER_EVENT_ON_RESPAWN`：英雄復活完成。
     fn on_respawn(&self, _e: EntityHandle, _w: &mut GameWorldDyn<'_>) {}
+
+    /// Projectile-only impact hook. Generic melee/non-projectile hits continue to use
+    /// `on_attack_hit`; tower projectile chains use this provenance-aware hook.
+    fn on_projectile_hit(
+        &self,
+        _attacker: EntityHandle,
+        _victim: EntityHandle,
+        _context: ProjectileHitContext,
+        _query: &ProjectileQueryDyn<'_>,
+        _w: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// Tower tick extension with deterministic internal-cooldown access.
+    /// The default preserves every existing script's `on_tick` implementation.
+    fn on_tower_tick(
+        &self,
+        e: EntityHandle,
+        dt: Fixed64,
+        _cooldowns: &mut TowerCooldownAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        self.on_tick(e, dt, w);
+    }
+
+    /// Called once after a tower active cast is accepted.
+    fn on_tower_ability_activate(
+        &self,
+        _tower: EntityHandle,
+        _ability_id: RStr<'_>,
+        _w: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// Called once for each scheduled pulse. Returning true consumes a charge.
+    fn on_tower_ability_pulse(
+        &self,
+        _tower: EntityHandle,
+        _ability_id: RStr<'_>,
+        _pulse_index: u16,
+        _w: &mut GameWorldDyn<'_>,
+    ) -> bool {
+        true
+    }
+
+    /// Extension-aware activation hook. Existing scripts only implementing the
+    /// exact public hook above continue to work through this default delegate.
+    fn on_tower_ability_activate_with_access(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        _access: &TowerActiveAbilityAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) {
+        self.on_tower_ability_activate(tower, ability_id, w);
+    }
+
+    /// Extension-aware pulse hook with the same compatibility delegation.
+    fn on_tower_ability_pulse_with_access(
+        &self,
+        tower: EntityHandle,
+        ability_id: RStr<'_>,
+        pulse_index: u16,
+        _access: &TowerActiveAbilityAccessDyn<'_>,
+        w: &mut GameWorldDyn<'_>,
+    ) -> bool {
+        self.on_tower_ability_pulse(tower, ability_id, pulse_index, w)
+    }
 }

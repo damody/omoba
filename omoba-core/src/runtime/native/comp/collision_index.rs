@@ -54,6 +54,14 @@ pub struct CollisionIndex {
     item_count: usize,
 }
 
+fn compare_hits(a: &DisIndex, b: &DisIndex) -> Ordering {
+    a.dis
+        .partial_cmp(&b.dis)
+        .unwrap_or(Ordering::Equal)
+        .then_with(|| a.e.id().cmp(&b.e.id()))
+        .then_with(|| a.e.gen().id().cmp(&b.e.gen().id()))
+}
+
 impl CollisionIndex {
     pub fn new(kind: &str, params: SpatialIndexParams) -> Self {
         let bounds = Bounds::new(
@@ -117,20 +125,37 @@ impl CollisionIndex {
                 } else if let Some((max_i, max)) = out
                     .iter()
                     .enumerate()
-                    .max_by(|(_, a), (_, b)| a.dis.partial_cmp(&b.dis).unwrap_or(Ordering::Equal))
+                    .max_by(|(_, a), (_, b)| compare_hits(a, b))
                 {
-                    if hit.dis < max.dis {
+                    if compare_hits(&hit, max) == Ordering::Less {
                         out[max_i] = hit;
                     }
                 }
             }
         }
-        out.sort_by(|a, b| {
-            a.dis
-                .partial_cmp(&b.dis)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        out.sort_by(compare_hits);
         out.truncate(n);
+        out
+    }
+
+    pub fn search_nn_bounded(
+        &self,
+        pos: Vec2<f32>,
+        radius: f32,
+        visit_budget: usize,
+    ) -> Vec<DisIndex> {
+        let r2 = radius * radius;
+        let mut out: Vec<_> = self
+            .index
+            .query_in_range_bounded(pos, radius, visit_budget)
+            .entries
+            .into_iter()
+            .filter_map(|entry| {
+                let dis = entry.position.distance_squared(pos);
+                (dis < r2).then_some(DisIndex { e: entry.id, dis })
+            })
+            .collect();
+        out.sort_by(compare_hits);
         out
     }
 

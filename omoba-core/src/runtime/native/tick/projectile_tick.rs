@@ -44,7 +44,7 @@ impl<'a> System<'a> for Sys {
                 .collect()
         };
 
-        let mut outcomes = (&tr.entities, &mut tw.projs, &mut tw.pos)
+        let outcome_batches = (&tr.entities, &mut tw.projs, &mut tw.pos)
             .par_join()
             .filter(|(_e, proj, _p)| proj.time_left > Fixed64::ZERO)
             .map_init(
@@ -115,7 +115,7 @@ impl<'a> System<'a> for Sys {
                                 pos: hit_pos,
                                 ent: e.clone(),
                             });
-                            return outcomes;
+                            return (e, outcomes);
                         }
                     }
 
@@ -180,28 +180,45 @@ impl<'a> System<'a> for Sys {
                             });
                         }
                     }
-                    outcomes
+                    (e, outcomes)
                 },
             )
             .fold(
                 || Vec::new(),
-                |mut all_outcomes, mut outcomes| {
-                    all_outcomes.append(&mut outcomes);
-                    all_outcomes
+                |mut all_batches, batch| {
+                    all_batches.push(batch);
+                    all_batches
                 },
             )
             .reduce(
                 || Vec::new(),
-                |mut outcomes_a, mut outcomes_b| {
-                    outcomes_a.append(&mut outcomes_b);
-                    outcomes_a
+                |mut batches_a, mut batches_b| {
+                    batches_a.append(&mut batches_b);
+                    batches_a
                 },
             );
+        let mut outcomes = stable_projectile_outcomes(outcome_batches);
         tw.outcomes.append(&mut outcomes);
 
         // 前端已自管子彈動畫（收 C 時拿 target_id + flight_time_ms 後本地 pursuit lerp），
         // 不再廣播 projectile 每 tick 位置。
     }
+}
+
+fn stable_projectile_outcomes(batches: Vec<(specs::Entity, Vec<Outcome>)>) -> Vec<Outcome> {
+    let mut keyed: Vec<_> = batches
+        .into_iter()
+        .flat_map(|(projectile, outcomes)| {
+            let entity_id = projectile.id();
+            let entity_generation = projectile.gen().id();
+            outcomes
+                .into_iter()
+                .enumerate()
+                .map(move |(ordinal, outcome)| ((entity_id, entity_generation, ordinal), outcome))
+        })
+        .collect();
+    keyed.sort_by_key(|(key, _)| *key);
+    keyed.into_iter().map(|(_, outcome)| outcome).collect()
 }
 
 fn swept_creep_hit(
@@ -280,6 +297,12 @@ fn create_projectile_damage(
         source: proj.owner,
         target: target,
         predeclared,
+    });
+    outcomes.push(Outcome::ProjectileHit {
+        source: proj.owner,
+        target,
+        kind_id: proj.kind_id,
+        generation: proj.generation,
     });
 
     // Ice 塔：附加減速 debuff 到目標
@@ -397,6 +420,8 @@ mod tests {
                 slow_duration: Fixed64::ZERO,
                 hit_radius: Fixed64::from_i32(50),
                 stun_duration: Fixed64::ZERO,
+                kind_id: 0,
+                generation: 0,
             })
             .build();
 
@@ -424,5 +449,117 @@ mod tests {
             1,
             "projectile entity is marked for Death outcome and removed by outcome processing"
         );
+    }
+
+    #[test]
+    fn homing_projectile_hit_emits_damage_death_and_script_provenance() {
+        let mut world = projectile_world();
+        let owner = world.create_entity().build();
+        let creep = world
+            .create_entity()
+            .with(Pos(SimVec2::new(Fixed64::from_i32(10), Fixed64::ZERO)))
+            .with(test_creep("target"))
+            .build();
+
+        world
+            .create_entity()
+            .with(Pos(SimVec2::ZERO))
+            .with(Projectile {
+                time_left: Fixed64::from_i32(10),
+                owner,
+                target: Some(creep),
+                tpos: SimVec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+                radius: Fixed64::ZERO,
+                msd: Fixed64::from_i32(1000),
+                damage_phys: Fixed64::from_i32(10),
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
+                kind_id: 77,
+                generation: 2,
+            })
+            .build();
+
+        run_now::<Sys>(&world);
+
+        let outcomes = world.read_resource::<Vec<Outcome>>();
+        assert_eq!(
+            outcomes.len(),
+            3,
+            "a real projectile hit must preserve one script provenance event beside damage and death"
+        );
+        assert!(outcomes.iter().any(|outcome| matches!(
+            outcome,
+            Outcome::ProjectileHit {
+                source,
+                target,
+                kind_id: 77,
+                generation: 2,
+            } if *source == owner && *target == creep
+        )));
+    }
+
+    #[test]
+    fn multiple_projectile_outcomes_follow_stable_entity_and_ordinal_order() {
+        let mut world = projectile_world();
+        let owner_a = world.create_entity().build();
+        let owner_b = world.create_entity().build();
+        let target = world.create_entity().build();
+        let projectile_a = world.create_entity().build();
+        let projectile_b = world.create_entity().build();
+        let damage = |source| Outcome::Damage {
+            pos: SimVec2::ZERO,
+            phys: Fixed64::ONE,
+            magi: Fixed64::ZERO,
+            real: Fixed64::ZERO,
+            source,
+            target,
+            predeclared: false,
+        };
+        let hit = |source| Outcome::ProjectileHit {
+            source,
+            target,
+            kind_id: 1,
+            generation: 0,
+        };
+
+        let outcomes = stable_projectile_outcomes(vec![
+            (
+                projectile_b,
+                vec![
+                    damage(owner_b),
+                    hit(owner_b),
+                    Outcome::Death {
+                        pos: SimVec2::ZERO,
+                        ent: projectile_b,
+                    },
+                ],
+            ),
+            (
+                projectile_a,
+                vec![
+                    damage(owner_a),
+                    hit(owner_a),
+                    Outcome::Death {
+                        pos: SimVec2::ZERO,
+                        ent: projectile_a,
+                    },
+                ],
+            ),
+        ]);
+
+        assert!(matches!(&outcomes[0], Outcome::Damage { source, .. } if *source == owner_a));
+        assert!(
+            matches!(&outcomes[1], Outcome::ProjectileHit { source, .. } if *source == owner_a)
+        );
+        assert!(matches!(&outcomes[2], Outcome::Death { ent, .. } if *ent == projectile_a));
+        assert!(matches!(&outcomes[3], Outcome::Damage { source, .. } if *source == owner_b));
+        assert!(
+            matches!(&outcomes[4], Outcome::ProjectileHit { source, .. } if *source == owner_b)
+        );
+        assert!(matches!(&outcomes[5], Outcome::Death { ent, .. } if *ent == projectile_b));
     }
 }

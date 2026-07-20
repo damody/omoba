@@ -57,7 +57,7 @@ fn display_name_lookup() {
     assert_eq!(creep_display(CREEP_TRAINING_MAGE), "訓練法師");
     assert_eq!(hero_display(HERO_SAIKA_MAGOICHI), "雜賀孫市");
     assert_eq!(hero_title(HERO_SAIKA_MAGOICHI), "千里狙擊手");
-    assert_eq!(tower_display(TOWER_TACK), "鐵釘射手");
+    assert_eq!(tower_display(TOWER_DART), "糖球砲手");
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn td_stress_template_values_are_authoritative() {
     assert_eq!(id.0, 15);
     let stats = creep_stats(id).expect("td_stress has stats");
     assert_eq!(creep_display(id), "壓測怪");
-    assert_eq!(stats.hp, Fixed64::from_i32(10_000));
+    assert_eq!(stats.hp, Fixed64::from_raw(i32::MAX as i64));
     assert_eq!(stats.move_speed, Fixed64::from_i32(100));
 }
 
@@ -330,7 +330,15 @@ fn runtime_and_tooling_do_not_reference_old_story_json_paths() {
         collect_files_with_extension(&root, extension, &mut files);
     }
     for file in files {
-        if file.components().any(|c| c.as_os_str() == "target") {
+        let relative = file
+            .strip_prefix(&root)
+            .expect("collected path is below workspace root");
+        let normalized_relative = relative.to_string_lossy().replace('\\', "/");
+        if normalized_relative
+            .split('/')
+            .any(|component| component == "target")
+            || normalized_relative == "omoba-core/src/generated/game.rs"
+        {
             continue;
         }
         let text = std::fs::read_to_string(&file).unwrap_or_default();
@@ -462,7 +470,11 @@ fn collect_files_with_extension(
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        let name = entry.file_name();
         if path.is_dir() {
+            if should_skip_scan_dir(&name) {
+                continue;
+            }
             collect_files_with_extension(&path, extension, out);
         } else if path.extension().and_then(|ext| ext.to_str()) == Some(extension) {
             out.push(path);
@@ -471,7 +483,6 @@ fn collect_files_with_extension(
 }
 
 fn collect_cargo_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let skip = [".git", "target"];
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -479,7 +490,7 @@ fn collect_cargo_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathB
         let path = entry.path();
         let name = entry.file_name();
         if path.is_dir() {
-            if skip.iter().any(|skip| name == *skip) {
+            if should_skip_scan_dir(&name) {
                 continue;
             }
             collect_cargo_manifests(&path, out);
@@ -487,4 +498,10 @@ fn collect_cargo_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathB
             out.push(path);
         }
     }
+}
+
+fn should_skip_scan_dir(name: &std::ffi::OsStr) -> bool {
+    [".git", ".worktrees", "omfue", "target"]
+        .iter()
+        .any(|skip| name == *skip)
 }

@@ -175,6 +175,7 @@ dependencies = [
  "omoba-template-ids",
  "serde",
  "serde_json",
+ "specs",
  "vek",
 ]
 
