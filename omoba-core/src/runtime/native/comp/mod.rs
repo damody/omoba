@@ -35,6 +35,7 @@ pub use self::{
     blocked_region::*, bounty::*, building::*, check_point::*, circular_vision::*,
     collision_index::*, creep::*, creep_move_broadcast::*, damage::*, facing::*, fx_queues::*,
     game_mode::*, gold::*, heightmap::*, hero::*, inventory::*, is_base::*, item_effects::*,
-    knowledge::*, last::*, lockstep_resources::*, outcome::*, phys::*, projectile::*, resources::*,
-    tower::*, tower_registry::*, tower_upgrade_registry::*, tower_upgrade_rules::*, unit::*,
+    knowledge::*, last::*, lockstep_resources::*, outcome::*, phys::*, projectile::*,
+    resources::*, tower::*, tower_registry::*, tower_upgrade_registry::*, tower_upgrade_rules::*,
+    unit::*,
 };

@@ -936,6 +936,10 @@ impl StateInitializer {
         // 由 creep_wave::Sys 每 tick 開頭 drain。
         ecs.insert(crate::comp::PendingDebugCreepSpawnQueue::default());
 
+        // 將軍知識加成：host 端唯讀 resource，由 omb 在初始化時填入
+        // 已解鎖知識節點對應的加成，供各系統於 tick 中查詢。
+        ecs.insert(crate::comp::KnowledgeBonusResource::default());
+
         // 階段 5.3：觀察者重新加入的最新序列化世界快照。
         // 每 SNAPSHOT_INTERVAL_TICKS (= 30 s @ 120 Hz) 刷新一次
         // 調度程序滴答循環；由 KCP 傳輸的 0x16 消耗
