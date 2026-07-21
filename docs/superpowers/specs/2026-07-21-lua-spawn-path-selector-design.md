@@ -40,7 +40,7 @@ The callback contract is:
 
 - `round_index` is the one-based effective TD round number.
 - `balloon_index` is the one-based index in that round after expanding grouped round descriptions.
-- `balloon` is a new table with `id`, `label`, `base`, `camo`, `regrow`, and `fortified` fields.
+- `balloon` is a new table with `id`, `label`, `base`, `hp`, `camo`, `regrow`, and `fortified` fields. `hp` is the effective integer HP after fortified scaling and matches the runtime emitter value.
 - The return value is an integer in `1..#Path`, using the declaration order of the map's `Path` array.
 - The callback is an authoring-time pure function. It must not depend on random numbers, clocks, I/O, mutable external state, or call order beyond the three arguments.
 
@@ -96,6 +96,38 @@ end
 
 Thus every round distributes balloons A, B, C, A, B, C, with counts differing by at most one.
 
+## Player Map Policies
+
+Every map exposed by the nine-map player catalog must define its own `SelectSpawnPath` function. This is enforced by a generated-content catalog test rather than by rejecting development, stress, or legacy TD maps in the generic loader.
+
+The six single-path player maps explicitly return path 1:
+
+```lua
+SelectSpawnPath = function(_, _, _)
+  return 1
+end
+```
+
+Twin Gate Outpost distributes individual balloons evenly, as described above.
+
+Molten Fork assigns each entire round to one branch and rotates branches between rounds:
+
+```lua
+SelectSpawnPath = function(round_index, _, _)
+  return ((round_index - 1) % 3) + 1
+end
+```
+
+Frozen Bridge assigns balloons from their effective HP:
+
+```lua
+SelectSpawnPath = function(_, _, balloon)
+  return ((balloon.hp - 1) % 3) + 1
+end
+```
+
+This makes the three multi-path maps intentionally distinct: per-balloon balancing, per-round lane pressure, and stat-derived routing. The formulas remain local to each map so content authors can change one map without altering loader or runtime code.
+
 ## Tower Placement Feedback
 
 Placement validation will return a structured result instead of a boolean. The initial rejection reasons are:
@@ -125,6 +157,7 @@ Path geometry used by validation must come from the same path snapshot used to r
 Automated tests will cover:
 
 - the three callback arguments are one-based and contain the documented balloon fields;
+- effective `hp` matches the runtime emitter value, including fortified doubling;
 - the modulo selector returns `1, 2, 3, 1, 2, 3`;
 - ten balloons distribute as `4, 3, 3` without changing global spawn times;
 - selectors can branch on round number and balloon flags such as `camo`;
@@ -133,6 +166,10 @@ Automated tests will cover:
 - shipped generation and runtime Lua-content loading produce identical selections;
 - single-path TD maps retain their existing wave output;
 - Twin Gate has exactly three spawn checkpoints and one shared base, and all three paths terminate at that base;
+- all nine player-catalog maps contain compiled selector output;
+- every single-path player map selects path 1;
+- Molten Fork sends one complete round to one path and rotates paths by round;
+- Frozen Bridge selects paths from effective balloon HP;
 - the reported green-space placement coordinate is accepted with sufficient gold;
 - road, region, overlap, metadata, and gold placement failures return the correct reason.
 
