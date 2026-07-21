@@ -16,6 +16,7 @@ pub use omoba_sim::Fixed64;
 pub(crate) mod lua_content;
 #[cfg(feature = "runtime-lua-content")]
 pub mod runtime_content;
+pub mod td_rounds;
 
 /// Tower numerical stats, single source of truth — `scripts/lua_data/templates.lua` 的
 /// `towers[].{atk, asd_interval, ...}` 透過 build.rs 編譯期生成 `TOWER_*_STATS`

@@ -7,6 +7,8 @@
 
 #[path = "src/lua_content.rs"]
 mod lua_content;
+#[path = "src/td_rounds.rs"]
+mod td_rounds;
 
 use lua_content::*;
 use std::collections::HashSet;

@@ -97,7 +97,6 @@ fn scaled_td_cost(base_cost: i32, multiplier: f32) -> i32 {
     ((base_cost as f32) * multiplier).round() as i32
 }
 
-const BTD_SPAWN_INTERVAL_SECS: f32 = 0.18;
 // Topper64 BTD6 income table, Easy / Standard:
 // https://topper64.co.uk/nk/btd6/income/easy
 const BTD_EASY_ROUND_INCOME_CASH: [f32; 100] = [
@@ -123,109 +122,6 @@ pub(crate) fn btd_easy_round_income_gold(round: usize) -> Option<i32> {
     btd_easy_round_income_cash(round).map(|cash| cash.round() as i32)
 }
 
-const BTD_ROUND_DESCRIPTIONS: [&str; 100] = [
-    "20 Reds",
-    "35 Reds",
-    "25 Reds, 5 Blues",
-    "35 Reds, 18 Blues",
-    "5 Reds, 27 Blues",
-    "15 Reds, 15 Blues, 4 Greens",
-    "20 Reds, 20 Blues, 5 Greens",
-    "10 Reds, 20 Blues, 14 Greens",
-    "30 Greens",
-    "102 Blues",
-    "10 Reds, 10 Blues, 12 Greens, 3 Yellows",
-    "15 Blues, 10 Greens, 5 Yellows",
-    "50 Blues, 23 Greens",
-    "49 Reds, 15 Blues, 10 Greens, 9 Yellows",
-    "20 Reds, 15 Blues, 12 Greens, 10 Yellows, 5 Pinks",
-    "40 Greens, 8 Yellows",
-    "12 Regrow Yellows",
-    "80 Greens",
-    "10 Greens, 4 Yellows, 5 Regrow Yellows, 15 Pinks",
-    "6 Blacks",
-    "40 Yellows, 14 Pinks",
-    "16 Whites",
-    "7 Blacks, 7 Whites",
-    "20 Blues, Camo Green",
-    "25 Regrow Yellows, 10 Purples",
-    "23 Pinks, 4 Zebras",
-    "100 Reds, 60 Blues, 45 Greens, 45 Yellows",
-    "6 Leads",
-    "50 Yellows, 15 Regrow Yellows",
-    "9 Leads",
-    "8 Blacks, 8 Whites, 8 Zebras, 2 Regrow Zebras",
-    "15 Blacks, 20 Whites, 10 Purples",
-    "20 Camo Reds, 13 Camo Yellows",
-    "160 Yellows, 6 Zebras",
-    "35 Pinks, 30 Blacks, 25 Whites, 5 Rainbows",
-    "140 Pinks, 20 Camo Regrow Greens",
-    "25 Blacks, 25 Whites, 7 Camo Whites, 10 Zebras, 15 Leads",
-    "42 Pinks, 17 Whites, 10 Zebras, 14 Leads, 2 Ceramics",
-    "10 Blacks, 10 Whites, 20 Zebras, 18 Rainbows, 2 Regrow Rainbows",
-    "MOAB",
-    "60 Blacks, 60 Zebras",
-    "6 Regrow Rainbows, 5 Camo Rainbows",
-    "10 Rainbows, 7 Ceramics",
-    "50 Zebras",
-    "180 Pinks, 10 Camo Purples, 4 Fortified Leads, 25 Rainbows",
-    "6 Fortified Ceramics",
-    "70 Camo Pinks, 12 Ceramics",
-    "40 Regrow Pinks, 30 Camo Regrow Purples, 40 Rainbows, 3 Fortified Ceramics",
-    "343 Greens, 20 Zebras, 20 Rainbows, 10 Regrow Rainbows, 18 Ceramics",
-    "20 Reds, 8 Fortified Leads, 20 Ceramics, 2 MOABs",
-    "10 Regrow Rainbows, 15 Camo Ceramics",
-    "25 Rainbows, 10 Ceramics, 2 MOABs",
-    "80 Camo Pinks, 3 MOABs",
-    "35 Ceramics, 2 MOABs",
-    "45 Ceramics, MOAB",
-    "40 Camo Rainbows, MOAB",
-    "40 Rainbows, 4 MOABs",
-    "15 Ceramics, 10 Fortified Ceramics, 5 MOABs",
-    "50 Camo Leads, 20 Ceramics, 10 Regrow Ceramics",
-    "BFB",
-    "150 Regrow Zebras, 5 MOABs",
-    "250 Purples, 15 Camo Regrow Rainbows, 5 MOABs, 2 Fortified MOABs",
-    "75 Leads, 122 Ceramics",
-    "6 MOABs, 3 Fortified MOABs",
-    "100 Zebras, 70 Rainbows, 50 Ceramics, 3 MOABs, 2 BFBs",
-    "8 MOABs, 3 Fortified MOABs",
-    "13 Camo Regrow Fortified Ceramics, 8 MOABs",
-    "4 MOABs, BFB",
-    "40 Regrow Blacks, 40 Fortified Leads, 50 Ceramics",
-    "120 Camo Regrow Whites, 200 Rainbows, 4 MOABs",
-    "30 Ceramics, 10 MOABs",
-    "38 Regrow Ceramics, 2 BFBs",
-    "8 MOABs, 2 BFBs",
-    "50 Ceramics, 60 Fortified Ceramics, 25 Camo Regrow Fortified Ceramics, BFB",
-    "14 Leads, 14 Fortified Leads, 3 Fortified MOABs, 7 BFBs",
-    "60 Regrow Ceramics",
-    "11 MOABs, 5 BFBs",
-    "80 Purples, 150 Rainbows, 75 Ceramics, 72 Camo Ceramics, BFB",
-    "500 Regrow Rainbows, 4 BFBs, 2 Fortified BFBs",
-    "ZOMG",
-    "17 BFBs",
-    "10 BFBs, 5 Fortified BFBs",
-    "40 Ceramics, 40 Regrow Ceramics, 40 Fortified Ceramics, 30 MOABs",
-    "50 MOABs, 10 BFBs",
-    "2 ZOMGs",
-    "5 Fortified BFBs",
-    "4 ZOMGs",
-    "18 MOABs, 8 BFBs, 2 ZOMGs",
-    "20 Fortified MOABs, 8 Fortified BFBs",
-    "50 Camo Regrow Fortified Leads, 3 DDTs",
-    "100 Fortified Ceramics, 20 BFBs",
-    "50 Fortified MOABs, 4 ZOMGs",
-    "10 Fortified BFBs, 6 DDTs",
-    "25 BFBs, 6 ZOMGs",
-    "500 Camo Regrow Purples, 250 Camo Regrow Fortified Leads, 50 Fortified MOABs, 30 DDTs",
-    "40 Fortified MOABs, 30 BFBs, 6 ZOMGs",
-    "2 Fortified ZOMGs",
-    "30 Fortified BFBs, 8 ZOMGs",
-    "60 MOABs, 9 Fortified DDTs",
-    "BAD",
-];
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BtdCreepSpec {
     id: String,
@@ -236,156 +132,99 @@ struct BtdCreepSpec {
     fortified: bool,
 }
 
-fn btd_creep_key(base: &str, camo: bool, regrow: bool, fortified: bool) -> String {
-    let mut key = String::from("td_btd");
-    if camo {
-        key.push_str("_camo");
-    }
-    if regrow {
-        key.push_str("_regrow");
-    }
-    if fortified {
-        key.push_str("_fortified");
-    }
-    key.push('_');
-    key.push_str(base);
-    key
-}
-
 fn btd_creep_stats(base: &str, fortified: bool) -> Option<(f32, f32, f32, f32)> {
-    let (hp, speed, armor, magic_resistance) = match base {
-        "red" => (1.0, 120.0, 0.0, 0.0),
-        "blue" => (2.0, 140.0, 0.0, 0.0),
-        "green" => (3.0, 160.0, 0.0, 0.0),
-        "yellow" => (4.0, 185.0, 0.0, 0.0),
-        "pink" => (5.0, 220.0, 0.0, 0.0),
-        "black" | "white" | "purple" => (11.0, 180.0, 0.0, 0.0),
-        "zebra" | "lead" => (23.0, 120.0, 1.0, 0.0),
-        "rainbow" => (47.0, 195.0, 0.0, 0.0),
-        "ceramic" => (104.0, 210.0, 2.0, 0.0),
-        "moab" => (616.0, 80.0, 4.0, 0.0),
-        "bfb" => (3164.0, 60.0, 5.0, 0.0),
-        "zomg" => (16656.0, 45.0, 6.0, 0.0),
-        "ddt" => (152.0, 260.0, 5.0, 0.0),
-        "bad" => (67200.0, 35.0, 8.0, 0.0),
+    let hp = omoba_template_ids::td_rounds::effective_hp(base, fortified)? as f32;
+    let (speed, armor, magic_resistance) = match base {
+        "red" => (120.0, 0.0, 0.0),
+        "blue" => (140.0, 0.0, 0.0),
+        "green" => (160.0, 0.0, 0.0),
+        "yellow" => (185.0, 0.0, 0.0),
+        "pink" => (220.0, 0.0, 0.0),
+        "black" | "white" | "purple" => (180.0, 0.0, 0.0),
+        "zebra" | "lead" => (120.0, 1.0, 0.0),
+        "rainbow" => (195.0, 0.0, 0.0),
+        "ceramic" => (210.0, 2.0, 0.0),
+        "moab" => (80.0, 4.0, 0.0),
+        "bfb" => (60.0, 5.0, 0.0),
+        "zomg" => (45.0, 6.0, 0.0),
+        "ddt" => (260.0, 5.0, 0.0),
+        "bad" => (35.0, 8.0, 0.0),
         _ => return None,
     };
-    let hp = if fortified { hp * 2.0 } else { hp };
     Some((hp, speed, armor, magic_resistance))
 }
 
-fn normalize_btd_base(token: &str) -> Option<&'static str> {
-    match token.trim().to_ascii_lowercase().as_str() {
-        "red" | "reds" => Some("red"),
-        "blue" | "blues" => Some("blue"),
-        "green" | "greens" => Some("green"),
-        "yellow" | "yellows" => Some("yellow"),
-        "pink" | "pinks" => Some("pink"),
-        "black" | "blacks" => Some("black"),
-        "white" | "whites" => Some("white"),
-        "purple" | "purples" => Some("purple"),
-        "zebra" | "zebras" => Some("zebra"),
-        "lead" | "leads" => Some("lead"),
-        "rainbow" | "rainbows" => Some("rainbow"),
-        "ceramic" | "ceramics" => Some("ceramic"),
-        "moab" | "moabs" => Some("moab"),
-        "bfb" | "bfbs" => Some("bfb"),
-        "zomg" | "zomgs" => Some("zomg"),
-        "ddt" | "ddts" => Some("ddt"),
-        "bad" | "bads" => Some("bad"),
-        _ => None,
-    }
-}
-
-fn parse_btd_wave_part(part: &str) -> Option<(usize, BtdCreepSpec)> {
-    let cleaned = part
-        .split('(')
-        .next()
-        .unwrap_or(part)
-        .replace('\u{2002}', " ");
-    let mut count = 1usize;
-    let mut words: Vec<&str> = cleaned.split_whitespace().collect();
-    if words.is_empty() {
-        return None;
-    }
-    if let Ok(parsed) = words[0].parse::<usize>() {
-        count = parsed;
-        words.remove(0);
-    }
-    let camo = words.iter().any(|word| word.eq_ignore_ascii_case("camo"));
-    let regrow = words.iter().any(|word| word.eq_ignore_ascii_case("regrow"));
-    let fortified = words
-        .iter()
-        .any(|word| word.eq_ignore_ascii_case("fortified"));
-    let base = words
-        .iter()
-        .rev()
-        .find_map(|word| normalize_btd_base(word))?;
-    let id = btd_creep_key(base, camo, regrow, fortified);
-    let mut label_parts = Vec::new();
-    if camo {
-        label_parts.push("Camo");
-    }
-    if regrow {
-        label_parts.push("Regrow");
-    }
-    if fortified {
-        label_parts.push("Fortified");
-    }
-    label_parts.push(match base {
-        "moab" => "MOAB",
-        "bfb" => "BFB",
-        "zomg" => "ZOMG",
-        "ddt" => "DDT",
-        "bad" => "BAD",
-        other => other,
-    });
-    Some((
-        count,
-        BtdCreepSpec {
-            id,
-            label: label_parts.join(" "),
-            base,
-            camo,
-            regrow,
-            fortified,
-        },
-    ))
-}
-
 fn btd_round_specs(round_idx: usize) -> Vec<(usize, BtdCreepSpec)> {
-    let Some(description) = BTD_ROUND_DESCRIPTIONS.get(round_idx) else {
-        return Vec::new();
-    };
-    description
-        .split(',')
-        .filter_map(parse_btd_wave_part)
+    omoba_template_ids::td_rounds::grouped_round(round_idx)
+        .into_iter()
+        .map(|(count, spec)| {
+            (
+                count,
+                BtdCreepSpec {
+                    id: spec.id,
+                    label: spec.label,
+                    base: spec.base,
+                    camo: spec.camo,
+                    regrow: spec.regrow,
+                    fortified: spec.fortified,
+                },
+            )
+        })
         .collect()
 }
 
-fn btd_round_waves(path_name: &str, round_count: usize) -> Vec<CreepWave> {
-    BTD_ROUND_DESCRIPTIONS
-        .iter()
-        .take(round_count.min(BTD_ROUND_DESCRIPTIONS.len()))
-        .enumerate()
-        .map(|(idx, _)| {
-            let mut creeps = Vec::new();
-            for (count, spec) in btd_round_specs(idx) {
-                for _ in 0..count {
-                    let time = creeps.len() as f32 * BTD_SPAWN_INTERVAL_SECS;
-                    creeps.push(CreepEmit {
-                        time,
-                        name: spec.id.clone(),
-                    });
+fn btd_round_waves(
+    path_names: &[String],
+    selections: &[Vec<usize>],
+    round_count: usize,
+) -> Result<Vec<CreepWave>, String> {
+    if path_names.is_empty() {
+        return Err("TD map has no paths".into());
+    }
+    (0..round_count.min(omoba_template_ids::td_rounds::round_count()))
+        .map(|round_idx| {
+            let balloons = omoba_template_ids::td_rounds::round(round_idx);
+            let selected_paths = selections.get(round_idx);
+            if let Some(selected_paths) = selected_paths {
+                if selected_paths.len() != balloons.len() {
+                    return Err(format!(
+                        "round {} has {} spawn path selections for {} balloons",
+                        round_idx + 1,
+                        selected_paths.len(),
+                        balloons.len()
+                    ));
                 }
             }
-            CreepWave {
-                time: 0.0,
-                path_creeps: vec![PathCreeps {
-                    creeps,
-                    path_name: path_name.to_string(),
-                }],
+            let mut path_creeps: Vec<PathCreeps> = path_names
+                .iter()
+                .map(|path_name| PathCreeps {
+                    creeps: Vec::new(),
+                    path_name: path_name.clone(),
+                })
+                .collect();
+            for (balloon_idx, balloon) in balloons.into_iter().enumerate() {
+                let selected = selected_paths.map(|paths| paths[balloon_idx]).unwrap_or(1);
+                let Some(path) = selected
+                    .checked_sub(1)
+                    .and_then(|path_idx| path_creeps.get_mut(path_idx))
+                else {
+                    return Err(format!(
+                        "round {} balloon {} selects path {}; valid range is 1..={}",
+                        round_idx + 1,
+                        balloon_idx + 1,
+                        selected,
+                        path_names.len()
+                    ));
+                };
+                path.creeps.push(CreepEmit {
+                    time: balloon_idx as f32 * omoba_template_ids::td_rounds::SPAWN_INTERVAL_SECS,
+                    name: balloon.id,
+                });
             }
+            Ok(CreepWave {
+                time: 0.0,
+                path_creeps,
+            })
         })
         .collect()
 }
@@ -394,7 +233,7 @@ fn ensure_btd_creep_emitters(ecs: &mut World) {
     use std::collections::BTreeMap;
 
     let mut emitters = ecs.get_mut::<BTreeMap<String, CreepEmiter>>().unwrap();
-    for round_idx in 0..BTD_ROUND_DESCRIPTIONS.len() {
+    for round_idx in 0..omoba_template_ids::td_rounds::round_count() {
         for (_count, spec) in btd_round_specs(round_idx) {
             if emitters.contains_key(&spec.id) {
                 continue;
@@ -727,15 +566,15 @@ impl StateInitializer {
         }
         let mode = *ecs.read_resource::<GameMode>();
         if mode.is_td() {
-            let path_name = cw
-                .Path
-                .first()
-                .map(|path| path.Name.as_str())
-                .unwrap_or("td_main");
+            let path_names: Vec<String> = cw.Path.iter().map(|path| path.Name.clone()).collect();
             {
                 let mut cws = ecs.get_mut::<Vec<CreepWave>>().unwrap();
                 cws.clear();
-                *cws = btd_round_waves(path_name, difficulty.round_count);
+                *cws =
+                    btd_round_waves(&path_names, &cw.SpawnPathSelections, difficulty.round_count)
+                        .unwrap_or_else(|error| {
+                            panic!("invalid TD spawn path selections: {error}")
+                        });
             }
             ensure_btd_creep_emitters(ecs);
             let cws = ecs.read_resource::<Vec<CreepWave>>();
@@ -2098,6 +1937,40 @@ mod tests {
             .creeps
             .iter()
             .any(|creep| creep.name == "td_btd_bfb"));
+    }
+
+    #[test]
+    fn generated_td_round_preserves_global_cadence_across_selected_paths() {
+        let paths = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let first_round: Vec<usize> = (0..20).map(|index| (index % 3) + 1).collect();
+        let waves = btd_round_waves(&paths, &[first_round], 1).expect("valid selections");
+
+        assert_eq!(waves.len(), 1);
+        assert_eq!(
+            waves[0]
+                .path_creeps
+                .iter()
+                .map(|path| path.creeps.len())
+                .collect::<Vec<_>>(),
+            [7, 7, 6]
+        );
+        assert_eq!(waves[0].path_creeps[0].creeps[0].time, 0.0);
+        assert_eq!(
+            waves[0].path_creeps[1].creeps[0].time,
+            omoba_template_ids::td_rounds::SPAWN_INTERVAL_SECS
+        );
+        assert_eq!(
+            waves[0].path_creeps[2].creeps[0].time,
+            omoba_template_ids::td_rounds::SPAWN_INTERVAL_SECS * 2.0
+        );
+    }
+
+    #[test]
+    fn generated_td_round_rejects_out_of_range_path_selection() {
+        let selections = vec![vec![2; 20]];
+        let error = btd_round_waves(&["only".to_string()], &selections, 1)
+            .expect_err("path 2 must be rejected");
+        assert!(error.contains("valid range is 1..=1"), "{error}");
     }
 
     #[test]
