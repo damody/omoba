@@ -619,17 +619,28 @@ fn validate_tower_place_from_input(
     const PATH_HALF_WIDTH: f32 = 64.0;
     {
         let paths = world.read_resource::<BTreeMap<String, Path>>();
-        let clear = placement_radius + PATH_HALF_WIDTH;
+        let clear = tower_path_clearance(tpl.placement_radius, PATH_HALF_WIDTH);
         let clear_sq = clear * clear;
         for (name, path) in paths.iter() {
             let cps = &path.check_points;
             for i in 0..cps.len().saturating_sub(1) {
                 let a = cps[i].pos;
                 let b = cps[i + 1].pos;
-                if point_segment_dist_sq(pos, a, b) < clear_sq {
+                let distance_sq = point_segment_dist_sq(pos, a, b);
+                if distance_sq < clear_sq {
                     return Err(failure::err_msg(format!(
-                        "TowerPlace: blocked by path '{}' pid={} unit_id='{}'",
-                        name, owner_pid, tpl.unit_id
+                        "TowerPlace: blocked by path '{}' segment={} pid={} unit_id='{}' pos=({:.1},{:.1}) distance={:.2} road_half_width={:.2} footprint={:.2} placement_radius={:.2} required_clearance={:.2}",
+                        name,
+                        i + 1,
+                        owner_pid,
+                        tpl.unit_id,
+                        pos.x,
+                        pos.y,
+                        distance_sq.sqrt(),
+                        PATH_HALF_WIDTH,
+                        tpl.footprint,
+                        tpl.placement_radius,
+                        clear,
                     )));
                 }
             }
@@ -667,6 +678,11 @@ fn validate_tower_place_from_input(
     }
 
     Ok(hero_entity)
+}
+
+#[inline]
+fn tower_path_clearance(placement_radius: f32, path_half_width: f32) -> f32 {
+    placement_radius + path_half_width
 }
 
 pub fn handle_tower_spawn_from_input(
@@ -2176,6 +2192,22 @@ mod tests {
         let bounty = creep_bounty_from_template(name);
         assert_eq!(bounty.gold, stats.gold_reward);
         assert_eq!(bounty.exp, stats.exp_reward);
+    }
+
+    #[test]
+    fn authoritative_road_clearance_uses_visual_placement_radius() {
+        let clear = tower_path_clearance(90.0, 64.0);
+        let clear_sq = clear * clear;
+        let road_start = Vec2::new(-500.0, 0.0);
+        let road_end = Vec2::new(500.0, 0.0);
+
+        assert_eq!(clear, 154.0);
+        assert!(
+            point_segment_dist_sq(Vec2::new(0.0, 153.0), road_start, road_end) < clear_sq
+        );
+        assert!(
+            point_segment_dist_sq(Vec2::new(0.0, 155.0), road_start, road_end) >= clear_sq
+        );
     }
 
     fn world_for_script_outcome_tests() -> (World, Entity) {

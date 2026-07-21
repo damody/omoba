@@ -14,22 +14,23 @@ road half-width + tower placement_radius
 
 Tower `placement_radius` values are currently `80` to `96`, so the effective road exclusion half-width is `144` to `160`. This creates a large invisible margin beyond the visible road.
 
-## Selected design
+## Corrected design after runtime coordinate diagnostics
 
-Use the tower runtime `footprint` for road clearance, while preserving `placement_radius` for tower-to-tower and blocked-region checks.
+Use `placement_radius` for road clearance, tower-to-tower spacing, and blocked-region checks. Runtime diagnostics showed that `footprint` is only the small combat collision radius and does not represent the rendered tower body.
 
 ```text
-road clearance = road half-width 64 + tower footprint
+road clearance = road half-width 64 + tower placement_radius
 tower overlap = new tower placement_radius + existing tower placement_radius
 blocked region = tower placement_radius intersects polygon
 ```
 
-Current tower footprints are `10` to `12.5`, producing an effective road exclusion half-width of approximately `74` to `76.5`.
+The apparent excessive clearance was caused by frontend path collision coordinates being mirrored on X twice. Mouse picking had already converted scene coordinates back to logical coordinates, but cached path and blocked-region points were still scene-mirrored. Keeping collision data in backend logical coordinates makes frontend and backend distances match.
 
 ## Scope
 
 - Apply the rule globally to all TD maps.
-- Change both the omfx local placement preview and omoba-core authoritative placement validation.
+- Keep both omfx local placement preview and omoba-core authoritative placement validation on `placement_radius`.
+- Store frontend path and blocked-region collision points in logical, non-scene-mirrored coordinates.
 - Keep the road rendering width unchanged.
 - Keep Lua tower metadata unchanged.
 - Keep tower-to-tower spacing and blocked-region behavior unchanged.
@@ -38,15 +39,16 @@ Current tower footprints are `10` to `12.5`, producing an effective road exclusi
 
 Frontend and backend must calculate road clearance from the same semantic inputs:
 
-- frontend: `tpl.footprint_backend + TD_PATH_HALF_WIDTH_BACKEND`
-- backend: `tpl.footprint + PATH_HALF_WIDTH`
+- frontend: `tpl.placement_radius_backend + TD_PATH_HALF_WIDTH_BACKEND`
+- backend: `tpl.placement_radius + PATH_HALF_WIDTH`
 
 The backend remains authoritative if a client submits an invalid placement.
 
 ## Tests
 
-- A position outside the visible road plus footprint margin is accepted.
-- A position inside the road plus footprint margin is rejected as too close to the road.
+- A position outside the visible road plus tower placement radius is accepted.
+- A position whose rendered tower body overlaps the road is rejected as too close to the road.
+- A reported Twin Gate point produces the same nearest-road distance in frontend and backend coordinates.
 - Tower-to-tower overlap still uses `placement_radius`.
 - Frontend and backend tests use the same representative tower metadata and boundary distances.
 - Existing Twin Gate green-gap regression remains passing.
