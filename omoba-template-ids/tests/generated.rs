@@ -253,7 +253,9 @@ fn generated_td_stories_are_available_without_json_sources() {
 
     let root = workspace_root().join("scripts/lua_data");
     let mut json_files = Vec::new();
-    collect_files_with_extension(&root, "json", &mut json_files);
+    for story_id in story_ids() {
+        collect_files_with_extension(&root.join(story_id), "json", &mut json_files);
+    }
     assert!(
         json_files.is_empty(),
         "shipped JSON sources remain: {json_files:?}"
