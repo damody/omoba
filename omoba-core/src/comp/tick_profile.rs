@@ -120,7 +120,7 @@ impl TickProfile {
             u32::MAX
         };
 
-        log::info!(
+        log::debug!(
             "tick_profile window={} avg(ms) run={:.3} dispatch={:.3} outcomes={:.3} total={:.3} (max_tps={}, out={:.0}%)",
             Self::WINDOW,
             run_avg_ms,
@@ -148,7 +148,7 @@ impl TickProfile {
                 } else {
                     0.0
                 };
-                log::info!(
+                log::debug!(
                     "  system  {:<22} ms/frame={:>7.3} ({:>4.0}% of run)  avg_ms={:>7.4}",
                     name,
                     per_frame_ms,
@@ -168,7 +168,7 @@ impl TickProfile {
             } else {
                 0.0
             };
-            log::info!(
+            log::debug!(
                 "  outcome {:<22} per_frame={:>7.1} ms/frame={:>7.3} avg_ms={:>7.4}",
                 name,
                 per_frame_count,
@@ -189,7 +189,7 @@ impl TickProfile {
             } else {
                 0.0
             };
-            log::info!(
+            log::debug!(
                 "  script  events                per_frame={:>7.1} ms/frame={:>7.3} avg_us={:>7.2}",
                 events_per_frame,
                 events_ms_per_frame,
@@ -198,7 +198,7 @@ impl TickProfile {
             let ready_per_frame = self.script_ready_count as f64 / window;
             let compute_ms_per_frame = self.script_compute_ns as f64 / window / 1_000_000.0;
             let outcomes_per_frame = self.script_outcome_count as f64 / window;
-            log::info!(
+            log::debug!(
                 "  script  on_tick_compute       ready/frame={:>7.1} ms/frame={:>7.3} outcomes/frame={:>7.1}",
                 ready_per_frame,
                 compute_ms_per_frame,
@@ -214,7 +214,7 @@ impl TickProfile {
                 } else {
                     0.0
                 };
-                log::info!(
+                log::debug!(
                     "  script  {:<22} per_frame={:>7.1} ms/frame={:>7.3} avg_us={:>7.2}",
                     name,
                     per_frame_count,
