@@ -8,9 +8,7 @@ return function(ctx)
           "td_spawn_a",
           "td_a1",
           "td_merge",
-          "td_cp1",
-          "td_cp2",
-          "td_exit",
+          "td_base",
         },
       },
       {
@@ -19,12 +17,22 @@ return function(ctx)
           "td_spawn_b",
           "td_b1",
           "td_merge",
-          "td_cp1",
-          "td_cp2",
-          "td_exit",
+          "td_base",
+        },
+      },
+      {
+        Name = "td_main_c",
+        Points = {
+          "td_spawn_c",
+          "td_c1",
+          "td_merge",
+          "td_base",
         },
       },
     },
+    SelectSpawnPath = function(_, balloon_index, _)
+      return ((balloon_index - 1) % 3) + 1
+    end,
     Creep = {
       {
         Name = "td_basic",
@@ -38,13 +46,13 @@ return function(ctx)
         Name = "td_spawn_a",
         Class = "Spawn",
         X = -1400.0,
-        Y = -650.0,
+        Y = 700.0,
       },
       {
         Name = "td_a1",
         Class = "Path",
-        X = -500.0,
-        Y = -650.0,
+        X = -350.0,
+        Y = 520.0,
       },
       {
         Name = "td_spawn_b",
@@ -59,208 +67,32 @@ return function(ctx)
         Y = 100.0,
       },
       {
+        Name = "td_spawn_c",
+        Class = "Spawn",
+        X = -1400.0,
+        Y = -650.0,
+      },
+      {
+        Name = "td_c1",
+        Class = "Path",
+        X = -500.0,
+        Y = -650.0,
+      },
+      {
         Name = "td_merge",
         Class = "Path",
-        X = 0.0,
+        X = 850.0,
         Y = -200.0,
       },
       {
-        Name = "td_cp1",
-        Class = "Path",
-        X = 900.0,
-        Y = -200.0,
-      },
-      {
-        Name = "td_cp2",
-        Class = "Path",
-        X = 1400.0,
-        Y = 250.0,
-      },
-      {
-        Name = "td_exit",
+        Name = "td_base",
         Class = "Base",
-        X = -1400.0,
-        Y = 700.0,
+        X = 1400.0,
+        Y = 100.0,
       },
     },
     Tower = {},
-    CreepWave = {
-      {
-        Name = "W01",
-        StartTime = 0.0,
-        Detail = {
-          {
-            Path = "td_main_a",
-            Creeps = {
-              {
-                Time = 0.0,
-                Creep = "td_basic",
-              },
-              {
-                Time = 1.2,
-                Creep = "td_basic",
-              },
-              {
-                Time = 2.4,
-                Creep = "td_basic",
-              },
-              {
-                Time = 3.6,
-                Creep = "td_tough",
-              },
-              {
-                Time = 4.8,
-                Creep = "td_basic",
-              },
-              {
-                Time = 6.0,
-                Creep = "td_tough",
-              },
-            },
-          },
-        },
-      },
-      {
-        Name = "W02",
-        StartTime = 0.0,
-        Detail = {
-          {
-            Path = "td_main_b",
-            Creeps = {
-              {
-                Time = 0.0,
-                Creep = "td_basic",
-              },
-              {
-                Time = 1.2,
-                Creep = "td_basic",
-              },
-              {
-                Time = 2.4,
-                Creep = "td_basic",
-              },
-              {
-                Time = 3.6,
-                Creep = "td_tough",
-              },
-              {
-                Time = 4.8,
-                Creep = "td_basic",
-              },
-              {
-                Time = 6.0,
-                Creep = "td_tough",
-              },
-            },
-          },
-        },
-      },
-      {
-        Name = "W03",
-        StartTime = 0.0,
-        Detail = {
-          {
-            Path = "td_main_a",
-            Creeps = {
-              {
-                Time = 0.0,
-                Creep = "td_basic",
-              },
-              {
-                Time = 1.2,
-                Creep = "td_basic",
-              },
-              {
-                Time = 2.4,
-                Creep = "td_basic",
-              },
-              {
-                Time = 3.6,
-                Creep = "td_tough",
-              },
-              {
-                Time = 4.8,
-                Creep = "td_basic",
-              },
-              {
-                Time = 6.0,
-                Creep = "td_tough",
-              },
-            },
-          },
-        },
-      },
-      {
-        Name = "W04",
-        StartTime = 0.0,
-        Detail = {
-          {
-            Path = "td_main_b",
-            Creeps = {
-              {
-                Time = 0.0,
-                Creep = "td_basic",
-              },
-              {
-                Time = 1.2,
-                Creep = "td_basic",
-              },
-              {
-                Time = 2.4,
-                Creep = "td_basic",
-              },
-              {
-                Time = 3.6,
-                Creep = "td_tough",
-              },
-              {
-                Time = 4.8,
-                Creep = "td_basic",
-              },
-              {
-                Time = 6.0,
-                Creep = "td_tough",
-              },
-            },
-          },
-        },
-      },
-      {
-        Name = "W05",
-        StartTime = 0.0,
-        Detail = {
-          {
-            Path = "td_main_a",
-            Creeps = {
-              {
-                Time = 0.0,
-                Creep = "td_basic",
-              },
-              {
-                Time = 1.2,
-                Creep = "td_basic",
-              },
-              {
-                Time = 2.4,
-                Creep = "td_basic",
-              },
-              {
-                Time = 3.6,
-                Creep = "td_tough",
-              },
-              {
-                Time = 4.8,
-                Creep = "td_basic",
-              },
-              {
-                Time = 6.0,
-                Creep = "td_tough",
-              },
-            },
-          },
-        },
-      },
-    },
+    CreepWave = {},
     Structures = {},
     BlockedRegions = {},
   }
