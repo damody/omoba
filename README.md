@@ -2,7 +2,7 @@
 
 `omoba` 是以 Rust 實作的 MOBA / TD 雙模式遊戲專案。整體採 monorepo 管理，但主要子系統分成多個 Cargo workspace 與 git submodule：後端 server (`omb`)、Fyrox 前端 renderer (`omfx`)、script DLL (`scripts/base_content.dll`)、共用 schema/client (`omoba-core`) 與 deterministic sim / template id codegen 等支援 crate。
 
-這份 README 是給新開發者快速理解整體架構與常用流程使用；更細的 agent / 維護注意事項可參考 [`CLAUDE.md`](CLAUDE.md)，設計紀錄可參考 [`docs/plans/`](docs/plans/)。
+這份 README 是給新開發者快速理解整體架構與常用流程使用；更細的 agent / 維護注意事項可參考 [`AGENTS.md`](AGENTS.md)，設計紀錄可參考 [`docs/plans/`](docs/plans/)。
 
 ## Quick Start
 
@@ -12,10 +12,9 @@
 |---|---|---|
 | 第一次 clone 後拉 submodule | `git submodule update --init --recursive` | `omb`、`omfx`、`specs`、`log4rs` 等是獨立 repo |
 | 一般開發啟動 | `run.bat` | debug build script DLL + backend + frontend，frontend 會 spawn backend child |
-| 自動 smoke run | `run_smoke.bat` | 2 秒自動 Start Round，10 秒自動退出 |
-| 較長 smoke run | `run_smoke_long.bat` | 2 秒自動 Start Round，60 秒自動退出 |
-| TD stress 壓測 | `run_stress.bat` | release build，產生 stress map，暫時切 `omb/game.toml` 到 stress variant，結束後還原 |
-| 產生 unit / script API catalog | `gen_docs.bat` | 產出並開啟 `omb/target/docs/index.html` |
+| 10000 entity run | `run_10000.bat` | high-load local TD run |
+| 2-player run | `run_2player.bat` | launch local two-player flow |
+| UE run | `run_ue.bat` | launch Unreal frontend flow |
 | 後端測試 | `cargo test --manifest-path omb/Cargo.toml -p omobab` | 測 `omb` workspace |
 | Script ABI 測試 | `cargo test --manifest-path scripts/Cargo.toml -p omb-script-abi` | 測 host / DLL 共用的 ABI crate |
 | base_content 測試 | `cargo test --manifest-path scripts/Cargo.toml -p base_content` | 測 script workspace |
@@ -117,7 +116,7 @@ player input
 | `export-cli/` | asset / scene export 工具 |
 | `executor-wasm/`、`executor-android/` | 其他平台 executor |
 
-目前 `omfx` spawn backend 的路徑 hard-coded 到 debug backend。`run_stress.bat` 為了確保壓測使用 release backend，會在 release build 後把 release `omobab.exe` stage 到 debug spawn path。
+目前 `omfx` spawn backend 的路徑 hard-coded 到 debug backend。`run_10000.bat` 為了確保壓測使用 release backend，會在 release build 後把 release `omobab.exe` stage 到 debug spawn path。
 
 ## Script ABI And Content
 
@@ -213,14 +212,14 @@ cargo build --release --manifest-path omb\Cargo.toml -p omobab
 cargo build --release --manifest-path omfx\Cargo.toml -p executor
 ```
 
-實務上優先使用 `run.bat`、`run_stress.bat` 與 `gen_docs.bat`，因為它們會做 freshness check、DLL staging、process cleanup 與 stress config restore。
+實務上優先使用 `run.bat`、`run_10000.bat`、`run_2player.bat` 與 `run_ue.bat`，因為它們會做 freshness check、DLL staging、process cleanup 與 stress config restore。
 
 ## Unit And Script API Catalog
 
 想看目前 `base_content` 有哪些 towers / heroes / creeps / abilities、script API 長什麼樣、哪些 hook 有 override，使用：
 
 ```bat
-gen_docs.bat
+cargo run -p omobab --bin gen-docs --features gen-docs --release
 ```
 
 產物：`omb/target/docs/index.html`。
@@ -256,7 +255,7 @@ Stress 場景已驗證過 1000 towers x 1000 creeps 的熱路徑。新增高頻 
 - `omfx` collision ring 預設以 `COLLISION_RING_ENABLED: bool` 關閉，避免 24 segments x 1000 entities 形成大量 scene nodes。
 - name label 的 `ui.send` 有 diff 節流，位置差小於 1 px 且文字未變時不送 UI update。
 - 高頻 event 應使用 typed prost payload 與 quantized scalar，少走 JSON。
-- `run_stress.bat` 會使用 release build 並產生 `TD_STRESS` map，適合檢查 CPU / render / network 熱點。
+- `run_10000.bat` 會使用 release build 並產生 `TD_STRESS` map，適合檢查 CPU / render / network 熱點。
 
 ## Logs And Debugging
 
@@ -267,7 +266,6 @@ Stress 場景已驗證過 1000 towers x 1000 creeps 的熱路徑。新增高頻 
 | `omfx_app.log` | omfx / sim_runner 側 log |
 | `omfx.log` | Fyrox / frontend 相關 log |
 | `omb/log/requests.log` | omb host side request / event log，可能很大 |
-| `omb/target/docs/index.html` | `gen_docs.bat` 產生的 catalog |
 
 `omb/game.toml` 支援 debug speed multiplier：`SPEED_MULT = 1`。執行中可在 `omb` stdin 輸入 `:speed 4`、`:speed 1` 等指令切換 1..=16 倍模擬速度；硬體跟不上時有效速度會低於設定值。
 
