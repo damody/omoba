@@ -585,6 +585,107 @@ impl LuaContentLoader {
         self.load(lua, rel_path)
     }
 
+    pub(crate) fn load_map_json_value(
+        &self,
+        lua: &Lua,
+        rel_path: &str,
+        story_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        let value = self
+            .load_value(lua, rel_path)
+            .map_err(|e| format!("load Lua builder {rel_path}: {e}"))?;
+        let LuaValue::Table(map) = value else {
+            return Err(format!("map builder {rel_path} must return a table"));
+        };
+
+        let selector_value: LuaValue = map
+            .get("SelectSpawnPath")
+            .map_err(|e| format!("read {story_id}.SelectSpawnPath: {e}"))?;
+        map.set("SelectSpawnPath", LuaValue::Nil)
+            .map_err(|e| format!("remove {story_id}.SelectSpawnPath before serialization: {e}"))?;
+
+        if let LuaValue::Function(selector) = selector_value {
+            let paths: mlua::Table = map
+                .get("Path")
+                .map_err(|e| format!("read {story_id}.Path for SelectSpawnPath: {e}"))?;
+            let path_count = paths.raw_len();
+            if path_count == 0 {
+                return Err(format!(
+                    "story {story_id} defines SelectSpawnPath but has no paths"
+                ));
+            }
+
+            let rounds = lua
+                .create_table()
+                .map_err(|e| format!("create {story_id} spawn path selection table: {e}"))?;
+            for round_index in 0..crate::td_rounds::round_count() {
+                let round = lua.create_table().map_err(|e| {
+                    format!(
+                        "create {story_id} round {} selection table: {e}",
+                        round_index + 1
+                    )
+                })?;
+                for (balloon_index, balloon) in
+                    crate::td_rounds::round(round_index).into_iter().enumerate()
+                {
+                    let params = lua.create_table().map_err(|e| {
+                        format!(
+                            "create {story_id} round {} balloon {} params: {e}",
+                            round_index + 1,
+                            balloon_index + 1
+                        )
+                    })?;
+                    params.set("id", balloon.id).map_err(|e| e.to_string())?;
+                    params
+                        .set("label", balloon.label)
+                        .map_err(|e| e.to_string())?;
+                    params
+                        .set("base", balloon.base)
+                        .map_err(|e| e.to_string())?;
+                    params.set("hp", balloon.hp).map_err(|e| e.to_string())?;
+                    params
+                        .set("camo", balloon.camo)
+                        .map_err(|e| e.to_string())?;
+                    params
+                        .set("regrow", balloon.regrow)
+                        .map_err(|e| e.to_string())?;
+                    params
+                        .set("fortified", balloon.fortified)
+                        .map_err(|e| e.to_string())?;
+
+                    let context = || {
+                        format!(
+                            "story {story_id} SelectSpawnPath round {} balloon {}",
+                            round_index + 1,
+                            balloon_index + 1
+                        )
+                    };
+                    let selected: LuaValue = selector
+                        .call((round_index + 1, balloon_index + 1, params))
+                        .map_err(|e| format!("{} failed: {e}", context()))?;
+                    let selected = valid_path_index(selected, path_count)
+                        .map_err(|reason| format!("{} {reason}", context()))?;
+                    round
+                        .set(balloon_index + 1, selected)
+                        .map_err(|e| format!("store {} result: {e}", context()))?;
+                }
+                rounds.set(round_index + 1, round).map_err(|e| {
+                    format!("store {story_id} round {} selections: {e}", round_index + 1)
+                })?;
+            }
+            map.set("SpawnPathSelections", rounds)
+                .map_err(|e| format!("store {story_id}.SpawnPathSelections: {e}"))?;
+        } else if !matches!(selector_value, LuaValue::Nil) {
+            return Err(format!(
+                "story {story_id} SelectSpawnPath must be a function, got {}",
+                selector_value.type_name()
+            ));
+        }
+
+        lua.from_value(LuaValue::Table(map))
+            .map_err(|e| format!("convert Lua builder {rel_path} output: {e}"))
+    }
+
     fn load_value(&self, lua: &Lua, rel_path: &str) -> mlua::Result<LuaValue> {
         let full_path = self.resolve_existing(rel_path)?;
         {
@@ -699,6 +800,41 @@ impl LuaContentLoader {
     }
 }
 
+fn valid_path_index(value: LuaValue, path_count: usize) -> Result<usize, String> {
+    let index = match value {
+        LuaValue::Integer(index) => usize::try_from(index).ok(),
+        LuaValue::Number(index) if index.is_finite() && index.fract() == 0.0 => {
+            if index >= 1.0 && index <= usize::MAX as f64 {
+                Some(index as usize)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+    match index {
+        Some(index) if (1..=path_count).contains(&index) => Ok(index),
+        Some(index) => Err(format!(
+            "returned path index {index}; expected an integer in 1..={path_count}"
+        )),
+        None => Err(format!(
+            "returned {}; expected an integer in 1..={path_count}",
+            lua_value_description(&value)
+        )),
+    }
+}
+
+fn lua_value_description(value: &LuaValue) -> String {
+    match value {
+        LuaValue::Nil => "nil".into(),
+        LuaValue::Boolean(value) => value.to_string(),
+        LuaValue::Integer(value) => value.to_string(),
+        LuaValue::Number(value) => value.to_string(),
+        LuaValue::String(value) => format!("string {:?}", value.to_string_lossy()),
+        _ => value.type_name().to_string(),
+    }
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub(crate) struct StoryBundle {
     pub(crate) id: String,
@@ -756,7 +892,7 @@ fn load_stories(
             let entity = loader.load_json_value(lua, &format!("{}/entity.lua", id))?;
             let ability = loader.load_json_value(lua, &format!("{}/ability.lua", id))?;
             let mission = loader.load_json_value(lua, &format!("{}/mission.lua", id))?;
-            let map = loader.load_json_value(lua, &format!("{}/map.lua", id))?;
+            let map = loader.load_map_json_value(lua, &format!("{}/map.lua", id), &id)?;
             validate_map_creep_references(&id, &map, &active_creeps)?;
             Ok(StoryBundle {
                 id,
@@ -902,6 +1038,65 @@ mod tests {
                 creep
             ),
         );
+    }
+
+    #[test]
+    fn spawn_path_selector_receives_one_based_indices_and_balloon_fields() {
+        let root = temp_root("spawn_path_selector_args");
+        write(
+            &root.join("templates.lua"),
+            "return function(ctx) return { creeps = { { id = 'known_creep' } } } end\n",
+        );
+        minimal_story(&root, "S", "known_creep");
+        write(
+            &root.join("S/map.lua"),
+            r#"return function(ctx)
+  return {
+    Path = { { Name = 'a' }, { Name = 'b' }, { Name = 'c' } },
+    Creep = { { Name = 'known_creep' } },
+    SelectSpawnPath = function(round_index, balloon_index, balloon)
+      if round_index < 1 or balloon_index < 1 then error('indices must be one-based') end
+      for _, key in ipairs({ 'id', 'label', 'base', 'hp', 'camo', 'regrow', 'fortified' }) do
+        if balloon[key] == nil then error('missing balloon field ' .. key) end
+      end
+      return ((balloon_index - 1) % 3) + 1
+    end,
+  }
+end
+"#,
+        );
+
+        let content = load_content(root.clone()).expect("valid selector content");
+        let first_round = content.stories[0].map["SpawnPathSelections"][0]
+            .as_array()
+            .expect("round selections");
+        assert_eq!(
+            &first_round[..6],
+            serde_json::json!([1, 2, 3, 1, 2, 3]).as_array().unwrap()
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn spawn_path_selector_rejects_out_of_range_result_with_context() {
+        let root = temp_root("spawn_path_selector_range");
+        write(
+            &root.join("templates.lua"),
+            "return function(ctx) return { creeps = { { id = 'known_creep' } } } end\n",
+        );
+        minimal_story(&root, "S", "known_creep");
+        write(
+            &root.join("S/map.lua"),
+            "return function(ctx) return { Path = { { Name = 'only' } }, Creep = { { Name = 'known_creep' } }, SelectSpawnPath = function() return 2 end } end\n",
+        );
+
+        let error = load_content(root.clone()).expect_err("path 2 must be rejected");
+        assert!(
+            error.contains("story S SelectSpawnPath round 1 balloon 1"),
+            "{error}"
+        );
+        assert!(error.contains("expected an integer in 1..=1"), "{error}");
+        fs::remove_dir_all(root).ok();
     }
 
     #[test]

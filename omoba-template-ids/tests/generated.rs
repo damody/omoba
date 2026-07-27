@@ -253,7 +253,9 @@ fn generated_td_stories_are_available_without_json_sources() {
 
     let root = workspace_root().join("scripts/lua_data");
     let mut json_files = Vec::new();
-    collect_files_with_extension(&root, "json", &mut json_files);
+    for story_id in story_ids() {
+        collect_files_with_extension(&root.join(story_id), "json", &mut json_files);
+    }
     assert!(
         json_files.is_empty(),
         "shipped JSON sources remain: {json_files:?}"
@@ -300,6 +302,121 @@ fn generated_map_creep_references_resolve_and_are_slim() {
             }
         }
     }
+}
+
+#[test]
+fn twin_gate_spawn_selector_is_compiled_for_every_balloon() {
+    let story = story_by_name("TD_TWIN_GATE_OUTPOST").expect("Twin Gate story");
+    let paths = object_field(&story.map, "Path")
+        .and_then(StoryValueExt::as_array)
+        .expect("Path[]");
+    assert_eq!(paths.len(), 3);
+    for path in paths {
+        let points = object_field(path, "Points")
+            .and_then(StoryValueExt::as_array)
+            .expect("path Points[]");
+        assert_eq!(
+            points.last().and_then(StoryValueExt::as_str),
+            Some("td_base")
+        );
+    }
+
+    let checkpoints = object_field(&story.map, "CheckPoint")
+        .and_then(StoryValueExt::as_array)
+        .expect("CheckPoint[]");
+    let class_count = |class: &str| {
+        checkpoints
+            .iter()
+            .filter(|checkpoint| {
+                object_field(checkpoint, "Class").and_then(StoryValueExt::as_str) == Some(class)
+            })
+            .count()
+    };
+    assert_eq!(class_count("Spawn"), 3);
+    assert_eq!(class_count("Base"), 1);
+
+    let rounds = object_field(&story.map, "SpawnPathSelections")
+        .and_then(StoryValueExt::as_array)
+        .expect("compiled spawn path selections");
+    assert_eq!(rounds.len(), td_rounds::round_count());
+    let first_round = rounds[0].as_array().expect("round 1 selections");
+    assert_eq!(first_round.len(), 20);
+    let selected: Vec<usize> = first_round
+        .iter()
+        .take(6)
+        .map(|value| value.as_usize().expect("integer path index"))
+        .collect();
+    assert_eq!(selected, [1, 2, 3, 1, 2, 3]);
+}
+
+#[test]
+fn every_player_td_map_compiles_its_own_spawn_selector() {
+    let player_maps = [
+        "TD_GREEN_CROSSROADS",
+        "TD_RIVERSIDE_PATH",
+        "TD_FARMSTEAD_BENDS",
+        "TD_TWIN_GATE_OUTPOST",
+        "TD_TIDAL_HARBOR",
+        "TD_MINE_CORRIDOR",
+        "TD_MOLTEN_FORK",
+        "TD_TWILIGHT_MAZE",
+        "TD_FROZEN_BRIDGE",
+    ];
+
+    for story_id in player_maps {
+        let story = story_by_name(story_id).expect("player TD story");
+        let rounds = object_field(&story.map, "SpawnPathSelections")
+            .and_then(StoryValueExt::as_array)
+            .unwrap_or_else(|| panic!("{story_id} must define SelectSpawnPath"));
+        assert_eq!(rounds.len(), td_rounds::round_count(), "{story_id}");
+        let path_count = object_field(&story.map, "Path")
+            .and_then(StoryValueExt::as_array)
+            .map_or(0, <[StoryValue]>::len);
+        if path_count == 1 {
+            assert!(rounds.iter().all(|round| {
+                round.as_array().is_some_and(|selections| {
+                    selections.iter().all(|value| value.as_usize() == Some(1))
+                })
+            }));
+        }
+    }
+}
+
+#[test]
+fn molten_fork_rotates_one_complete_lane_per_round() {
+    let story = story_by_name("TD_MOLTEN_FORK").expect("Molten Fork story");
+    let rounds = object_field(&story.map, "SpawnPathSelections")
+        .and_then(StoryValueExt::as_array)
+        .expect("compiled selections");
+
+    for (round_index, expected_path) in [1usize, 2, 3].into_iter().enumerate() {
+        let selections = rounds[round_index].as_array().expect("round selections");
+        assert!(
+            selections
+                .iter()
+                .all(|value| value.as_usize() == Some(expected_path)),
+            "round {} should use path {}",
+            round_index + 1,
+            expected_path
+        );
+    }
+}
+
+#[test]
+fn frozen_bridge_routes_by_effective_balloon_hp() {
+    let story = story_by_name("TD_FROZEN_BRIDGE").expect("Frozen Bridge story");
+    let rounds = object_field(&story.map, "SpawnPathSelections")
+        .and_then(StoryValueExt::as_array)
+        .expect("compiled selections");
+
+    let round_three = rounds[2].as_array().expect("round 3 selections");
+    assert_eq!(round_three.len(), 30);
+    assert!(round_three[..25]
+        .iter()
+        .all(|value| value.as_usize() == Some(1)));
+    assert!(round_three[25..]
+        .iter()
+        .all(|value| value.as_usize() == Some(2)));
 }
 
 #[test]
@@ -372,6 +489,7 @@ fn runtime_and_tooling_do_not_reference_old_story_json_paths() {
 trait StoryValueExt {
     fn as_array(&self) -> Option<&'static [StoryValue]>;
     fn as_str(&self) -> Option<&'static str>;
+    fn as_usize(&self) -> Option<usize>;
 }
 
 impl StoryValueExt for StoryValue {
@@ -385,6 +503,15 @@ impl StoryValueExt for StoryValue {
     fn as_str(&self) -> Option<&'static str> {
         match self {
             StoryValue::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn as_usize(&self) -> Option<usize> {
+        match self {
+            StoryValue::Number(value) if value.fract() == 0.0 && *value >= 0.0 => {
+                Some(*value as usize)
+            }
             _ => None,
         }
     }

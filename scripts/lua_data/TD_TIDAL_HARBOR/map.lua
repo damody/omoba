@@ -17,6 +17,9 @@ return function(ctx)
         },
       },
     },
+    SelectSpawnPath = function(_, _, _)
+      return 1
+    end,
     Creep = {
       {
         Name = "td_basic",
