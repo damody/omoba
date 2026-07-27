@@ -276,12 +276,20 @@ impl UnitScript for IceTower {
         }
     }
 
-    fn on_attack_hit(
+    fn on_projectile_hit(
         &self,
         attacker: EntityHandle,
         victim: EntityHandle,
+        context: ProjectileHitContext,
+        _query: &omb_script_abi::world::ProjectileQueryDyn<'_>,
         w: &mut GameWorldDyn<'_>,
     ) {
+        if context.generation != 0
+            || (context.kind_id != PROJECTILE_ICE.0 && context.kind_id != PROJECTILE_ICICLE.0)
+        {
+            return;
+        }
+
         // ── Path3：embrittle — 命中時對目標施加受傷增幅 debuff ─────────
         // embrittle_25 優先（升級覆蓋 embrittle_15）
         let has_embrittle_25 = w.has_tower_flag(attacker, RStr::from_str("embrittle_25"));
@@ -313,7 +321,9 @@ impl UnitScript for IceTower {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::towers::projectile_test_support::{fixture, invoke_activation, invoke_tick};
+    use crate::towers::projectile_test_support::{
+        fixture, invoke, invoke_activation, invoke_projectile_pipeline, invoke_tick,
+    };
     use omoba_core::Outcome;
     use specs::WorldExt;
 
@@ -337,6 +347,69 @@ mod tests {
             fixture.tower,
             Fixed64::from_raw(1),
         )
+    }
+
+    #[test]
+    fn projectile_hit_applies_strongest_embrittle_and_refreeze() {
+        let mut fixture = fixture(
+            &["embrittle_15", "embrittle_25", "refreeze"],
+            &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)],
+        );
+
+        let tower = fixture.tower;
+        let victim = fixture.enemies[0];
+        let outcomes = invoke_projectile_pipeline(
+            &mut fixture.world,
+            TOWER_ICE.as_str(),
+            tower,
+            victim,
+            ProjectileHitContext {
+                kind_id: PROJECTILE_ICE.0,
+                generation: 0,
+            },
+        );
+
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { buff_id, duration, payload, .. }
+                if buff_id == "ice_embrittle"
+                    && *duration == EMBRITTLE_DUR
+                    && payload["incoming_damage_percentage"] == 0.25
+        )));
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::ScriptRemoveBuff { buff_id, .. } if buff_id == "stun"
+        )));
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::AddBuff { buff_id, duration, .. }
+                if buff_id == "stun" && *duration == REFREEZE_DUR
+        )));
+    }
+
+    #[test]
+    fn on_hit_upgrades_ignore_unrelated_or_child_projectiles() {
+        let fixture = fixture(
+            &["embrittle_25", "refreeze"],
+            &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)],
+        );
+
+        for context in [
+            ProjectileHitContext {
+                kind_id: PROJECTILE_BOMB_FRAG.0,
+                generation: 0,
+            },
+            ProjectileHitContext {
+                kind_id: PROJECTILE_ICICLE.0,
+                generation: 1,
+            },
+        ] {
+            assert!(invoke(
+                &fixture.world,
+                &IceTower,
+                fixture.tower,
+                fixture.enemies[0],
+                context,
+            )
+            .is_empty());
+        }
     }
 
     #[test]

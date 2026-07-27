@@ -190,17 +190,26 @@ impl UnitScript for DartTower {
         }
     }
 
-    fn on_attack_hit(
+    fn on_projectile_hit(
         &self,
         attacker: EntityHandle,
         victim: EntityHandle,
+        context: ProjectileHitContext,
+        _query: &omb_script_abi::world::ProjectileQueryDyn<'_>,
         w: &mut GameWorldDyn<'_>,
     ) {
+        if context.generation != 0
+            || (context.kind_id != PROJECTILE_DART.0 && context.kind_id != PROJECTILE_SPIKE_OPULT.0)
+        {
+            return;
+        }
+
         // always_crit：必爆
         let always = w.has_tower_flag(attacker, RStr::from_str("always_crit"));
 
-        // crit_chance override：upgrade buff 寫入 crit_chance 就用那個；否則回 BONUS_PROC_CHANCE (0.25)
-        let crit_chance_bonus = w.get_stat_bonus(attacker, StatKey::CritChance);
+        // Upgrade metadata writes the authored preattack critical-strike chance.
+        // Fall back to the base 25% proc only when no path-three chance exists.
+        let crit_chance_bonus = w.get_stat_bonus(attacker, StatKey::PreattackCriticalStrike);
         let effective_chance = if crit_chance_bonus > Fixed64::ZERO {
             crit_chance_bonus
         } else {
@@ -247,7 +256,9 @@ impl UnitScript for DartTower {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::towers::projectile_test_support::{fixture, invoke_activation, invoke_attack_hit};
+    use crate::towers::projectile_test_support::{
+        fixture, invoke, invoke_activation, invoke_projectile_pipeline,
+    };
     use omoba_core::runtime::BuffStore;
     use omoba_core::{Outcome, Tower, TowerActiveAbilityState};
     use specs::WorldExt;
@@ -296,11 +307,17 @@ mod tests {
             serde_json::Value::Null,
         );
 
-        let outcomes = invoke_attack_hit(
-            &fixture.world,
-            &DartTower,
-            fixture.tower,
-            fixture.enemies[0],
+        let tower = fixture.tower;
+        let victim = fixture.enemies[0];
+        let outcomes = invoke_projectile_pipeline(
+            &mut fixture.world,
+            TOWER_DART.as_str(),
+            tower,
+            victim,
+            ProjectileHitContext {
+                kind_id: PROJECTILE_DART.0,
+                generation: 0,
+            },
         );
         let active_splash_hits = outcomes
             .iter()
@@ -318,11 +335,15 @@ mod tests {
             .world
             .write_resource::<BuffStore>()
             .remove(fixture.tower, "dart_heavy_burst_active");
-        let inactive = invoke_attack_hit(
-            &fixture.world,
-            &DartTower,
-            fixture.tower,
-            fixture.enemies[0],
+        let inactive = invoke_projectile_pipeline(
+            &mut fixture.world,
+            TOWER_DART.as_str(),
+            tower,
+            victim,
+            ProjectileHitContext {
+                kind_id: PROJECTILE_DART.0,
+                generation: 0,
+            },
         );
         let normal_splash_hits = inactive
             .iter()
@@ -334,6 +355,66 @@ mod tests {
             })
             .count();
         assert_eq!(normal_splash_hits, 1);
+    }
+
+    #[test]
+    fn authored_critical_strike_key_controls_projectile_proc_chance() {
+        let mut fixture = fixture(
+            &["mega_crit"],
+            &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)],
+        );
+        fixture.world.write_resource::<BuffStore>().add(
+            fixture.tower,
+            "upgrade_2_1_0",
+            Fixed64::from_raw(i64::MAX),
+            serde_json::json!({"preattack_criticalstrike": 1.0}),
+        );
+
+        let tower = fixture.tower;
+        let victim = fixture.enemies[0];
+        let outcomes = invoke_projectile_pipeline(
+            &mut fixture.world,
+            TOWER_DART.as_str(),
+            tower,
+            victim,
+            ProjectileHitContext {
+                kind_id: PROJECTILE_DART.0,
+                generation: 0,
+            },
+        );
+
+        assert!(outcomes.iter().any(|outcome| matches!(outcome,
+            Outcome::ScriptDirectDamage { amount, .. }
+                if *amount == Fixed64::from_i32(60)
+        )));
+    }
+
+    #[test]
+    fn critical_effect_ignores_unrelated_or_child_projectiles() {
+        let fixture = fixture(
+            &["always_crit", "mega_crit"],
+            &[Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO)],
+        );
+
+        for context in [
+            ProjectileHitContext {
+                kind_id: PROJECTILE_BOMB_FRAG.0,
+                generation: 0,
+            },
+            ProjectileHitContext {
+                kind_id: PROJECTILE_DART.0,
+                generation: 1,
+            },
+        ] {
+            assert!(invoke(
+                &fixture.world,
+                &DartTower,
+                fixture.tower,
+                fixture.enemies[0],
+                context,
+            )
+            .is_empty());
+        }
     }
 
     #[test]
