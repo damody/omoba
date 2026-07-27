@@ -936,7 +936,7 @@ impl StateInitializer {
         // 由 creep_wave::Sys 每 tick 開頭 drain。
         ecs.insert(crate::comp::PendingDebugCreepSpawnQueue::default());
 
-        // 將軍知識加成：host 端唯讀 resource，由 omb 在初始化時填入
+        // 英雄知識加成：host 端唯讀 resource，由 omb 在初始化時填入
         // 已解鎖知識節點對應的加成，供各系統於 tick 中查詢。
         ecs.insert(crate::comp::KnowledgeBonusResource::default());
 

@@ -1,4 +1,4 @@
-//! 將軍知識（General Knowledge）節點的 abi_stable 型別。
+//! 英雄知識（Hero Knowledge）節點的 abi_stable 型別。
 //! 供 script 側透過 `GameWorld::get_unlocked_knowledge_nodes()` 查詢用。
 //! 只暴露腳本需要的最小介面；資料載入與解鎖邏輯在 host 端。
 
