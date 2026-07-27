@@ -13,8 +13,9 @@ use crate::runtime::comp::{
     AttackSequencePhase, BlockedRegions, Bounty, CProperty, CircularVision, CollisionRadius, Creep,
     CreepData, CreepStatus, ExplosionFx, ExplosionFxQueue, Facing, FacingBroadcast, Faction,
     FactionType, Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBase, IsBuilding,
-    MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
-    PendingHeroCommandClearQueue, PendingHeroCommandKind, PendingItemUseQueue, PendingMoveQueue,
+    KnowledgeBonusResource, MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue,
+    PendingAbilityUpgradeQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
+    PendingItemUseQueue, PendingMoveQueue,
     PendingTowerAbilityActivation, PendingTowerAbilityActivationQueue,
     PendingTowerAbilityCastQueue, PendingTowerSellQueue, PendingTowerSpawnQueue,
     PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, PlayerOwner, Pos, Projectile,
@@ -499,6 +500,18 @@ pub fn drain_pending_ability_casts(world: &mut World) {
     drop(drain_span);
 }
 
+fn unit_id_to_hero_knowledge_category(unit_id: &str) -> &'static str {
+    match unit_id {
+        "tower_dart"      => "tower_dart",
+        "tower_bomb"      => "tower_bomb",
+        "tower_ice"       => "tower_ice",
+        "tower_tack"      => "tower_tack",
+        "tower_boomerang" => "tower_boomerang",
+        "tower_arty"      => "tower_arty",
+        _                 => "",
+    }
+}
+
 pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Option<Entity> {
     spawn_td_tower_with_owner(world, pos, unit_id, None)
 }
@@ -561,6 +574,31 @@ pub fn spawn_td_tower_with_owner(
             unit_id: unit_id.to_string(),
         })
         .build();
+
+    // 套用英雄知識 buff（enabled + category 有對應才套用）
+    {
+        let category = unit_id_to_hero_knowledge_category(unit_id);
+        let gk_buffs: Vec<(String, String)> = {
+            let gk = world.read_resource::<KnowledgeBonusResource>();
+            if gk.enabled && !category.is_empty() {
+                gk.bonuses_for(category)
+                    .iter()
+                    .chain(gk.global_bonuses().iter())
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        };
+        if !gk_buffs.is_empty() {
+            let mut buff_store = world.write_resource::<BuffStore>();
+            for (buff_id, payload_str) in &gk_buffs {
+                let payload: serde_json::Value = serde_json::from_str(payload_str)
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                buff_store.add(entity, buff_id, Fixed64::from_raw(i64::MAX), payload);
+            }
+        }
+    }
 
     if let Some(player_id) = owner_pid {
         if let Err(e) = world
