@@ -255,15 +255,18 @@ pub(crate) mod projectile_test_support {
             GameWorld_TO, ProjectileQuery_TO, TowerActiveAbilityAccess_TO, TowerCooldownAccess_TO,
         },
     };
-    use omoba_core::runtime::BuffStore;
-    use omoba_core::scripting::ScriptUnitTag;
+    use omoba_core::runtime::{BuffStore, RuntimeEventVecSink};
+    use omoba_core::scripting::{
+        run_script_dispatch, ScriptEventQueue, ScriptRegistry, ScriptUnitTag,
+        ScriptVisualEventQueue,
+    };
     use omoba_core::{
         scripting::parallel_world_adapter::{
             ParallelAdapterCache, ParallelProjectileQuery, ParallelTowerActiveAbilityAccess,
             ParallelTowerCooldownAccess, ParallelWorldAdapter,
         },
-        BlockedRegions, CProperty, CollisionRadius, Creep, Facing, Faction, Hero, IsBuilding,
-        Outcome, PlayerOwner, Pos, Searcher, TAttack, Tick, Tower, Unit,
+        BlockedRegions, CProperty, CollisionRadius, Creep, Facing, Faction, GamePause, Hero,
+        IsBuilding, Outcome, PlayerOwner, Pos, Searcher, TAttack, Tick, TickProfile, Tower, Unit,
     };
     use specs::{Builder, World, WorldExt};
 
@@ -386,28 +389,42 @@ pub(crate) mod projectile_test_support {
         adapter.finish()
     }
 
-    pub fn invoke_attack_hit(
-        fixture: &World,
-        script: &impl UnitScript,
+    pub fn invoke_projectile_pipeline(
+        fixture: &mut World,
+        unit_id: &str,
         tower: specs::Entity,
         victim: specs::Entity,
+        context: ProjectileHitContext,
     ) -> Vec<Outcome> {
-        let cache = ParallelAdapterCache::new(fixture, 1);
-        let mut adapter = ParallelWorldAdapter::new(&cache, tower);
-        let mut world_dyn = GameWorld_TO::from_ptr(RMut::new(&mut adapter), TD_Opaque);
-        script.on_attack_hit(
-            EntityHandle {
-                id: tower.id(),
-                gen: tower.gen().id() as u32,
-            },
-            EntityHandle {
-                id: victim.id(),
-                gen: victim.gen().id() as u32,
-            },
-            &mut world_dyn,
-        );
-        drop(world_dyn);
-        adapter.finish()
+        fixture
+            .write_storage::<ScriptUnitTag>()
+            .insert(
+                tower,
+                ScriptUnitTag {
+                    unit_id: unit_id.to_string(),
+                },
+            )
+            .unwrap();
+        fixture.insert(Vec::<Outcome>::from([Outcome::ProjectileHit {
+            source: tower,
+            target: victim,
+            kind_id: context.kind_id,
+            generation: context.generation,
+        }]));
+        fixture.insert(ScriptEventQueue::default());
+        fixture.insert(ScriptVisualEventQueue::default());
+        fixture.insert(GamePause { is_paused: true });
+        fixture.insert(TickProfile::default());
+
+        let mut sink = RuntimeEventVecSink::default();
+        omoba_core::runtime::process_outcomes(fixture, &mut sink)
+            .expect("projectile outcome must enter the script event queue");
+
+        let mut registry = ScriptRegistry::new();
+        registry.insert_manifest(crate::get_manifest());
+        run_script_dispatch(fixture, &registry, 1, Fixed64::ZERO);
+
+        std::mem::take(&mut *fixture.write_resource::<Vec<Outcome>>())
     }
 
     pub fn invoke_activation(
