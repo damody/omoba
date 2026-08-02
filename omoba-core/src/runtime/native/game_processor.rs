@@ -580,6 +580,15 @@ pub fn spawn_td_tower_with_owner(
         let category = unit_id_to_hero_knowledge_category(unit_id);
         let gk_buffs: Vec<(String, String)> = {
             let gk = world.read_resource::<KnowledgeBonusResource>();
+            log::info!(
+                "[gk_spawn] unit={} category='{}' enabled={} unlocked_nodes={} category_buffs={} global_buffs={}",
+                unit_id,
+                category,
+                gk.enabled,
+                gk.unlocked_nodes.len(),
+                gk.bonuses_for(category).len(),
+                gk.global_bonuses().len(),
+            );
             if gk.enabled && !category.is_empty() {
                 gk.bonuses_for(category)
                     .iter()
@@ -593,6 +602,7 @@ pub fn spawn_td_tower_with_owner(
         if !gk_buffs.is_empty() {
             let mut buff_store = world.write_resource::<BuffStore>();
             for (buff_id, payload_str) in &gk_buffs {
+                log::info!("[gk_spawn] applying buff_id='{}' payload={}", buff_id, payload_str);
                 let payload: serde_json::Value = serde_json::from_str(payload_str)
                     .unwrap_or(serde_json::Value::Object(Default::default()));
                 buff_store.add(entity, buff_id, Fixed64::from_raw(i64::MAX), payload);
