@@ -50,6 +50,12 @@ impl GameSpeed {
     }
 }
 
+/// 本局擊殺計數（僅計玩家擊殺的小兵，不計小兵漏過終點）。
+/// 隨每局新開的 ECS World 重新初始化為 0（見 `initialization.rs`），
+/// 對局結束時由 `award_kp_on_game_end` 讀出寫入 `PlayerProfile.total_kills`。
+#[derive(Copy, Clone, Debug, Default)]
+pub struct MatchKillCounter(pub u32);
+
 // 刻度開始，用於指標
 #[derive(Copy, Clone)]
 pub struct TickStart(pub Instant);

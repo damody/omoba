@@ -318,6 +318,14 @@ impl StateInitializer {
         if mode.is_td() {
             let difficulty = TdDifficultyConfig::from_env();
             *ecs.write_resource::<PlayerLives>() = PlayerLives(difficulty.player_lives);
+            // 測試鉤子：OMB_FORCE_LIVES 強制覆寫初始生命，方便快速輸掉一局來驗證
+            // 對局結束流程（KP/戰績記錄）。未設定時完全不影響正常遊戲。
+            if let Some(n) =
+                std::env::var("OMB_FORCE_LIVES").ok().and_then(|v| v.parse::<i32>().ok())
+            {
+                *ecs.write_resource::<PlayerLives>() = PlayerLives(n);
+                log::warn!("⚠ OMB_FORCE_LIVES={}：初始生命已強制覆寫（測試用）", n);
+            }
             log::info!(
                 "TD 模式啟用，difficulty='{}' 玩家生命初始 {}",
                 difficulty.id,
@@ -716,6 +724,8 @@ impl StateInitializer {
         ecs.insert(crate::comp::GamePause::default());
         ecs.insert(crate::comp::GameSpeed::default());
         ecs.insert(crate::comp::TowerSpawnOrderCounter::default());
+        // 戰績記錄：本局擊殺計數，每局新開 World 時重置為 0。
+        ecs.insert(crate::comp::MatchKillCounter::default());
         // 階段 1c.3：確定性 SimRng 流的主種子。第二階段將
         // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());
@@ -909,6 +919,13 @@ impl StateInitializer {
         let Some(first_hero_data) = campaign_data.entity.heroes.first() else {
             return;
         };
+        // 測試鉤子：OMB_NO_HERO=1 時本局不生成英雄，讓怪能一路漏到終點，
+        // 使後端能真正觸發失敗（用於驗證對局結束→KP/戰績存檔的完整流程）。
+        // 沒有英雄也就沒有英雄移動指令，可避開移動不同步造成的 desync。未設定時完全不影響。
+        if std::env::var("OMB_NO_HERO").as_deref() == Ok("1") {
+            log::warn!("⚠ OMB_NO_HERO=1：本局不生成英雄（測試用）");
+            return;
+        }
         let hero_count = if ecs.read_resource::<GameMode>().is_td() {
             2usize
         } else {

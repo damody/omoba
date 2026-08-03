@@ -1735,6 +1735,16 @@ fn handle_death(
 
     distribute_bounty(world, entity);
 
+    // 戰績記錄：Outcome::Death 只會在小兵 hp<=0（玩家擊殺）時產生（見
+    // creep_tick.rs）；小兵「漏過終點」走的是完全不同的 Outcome::CreepLeaked
+    // 路徑，不會進到這裡，因此這裡判定「是小兵」即可視為玩家擊殺，不會誤計漏怪。
+    let is_creep_kill = world.read_storage::<Creep>().get(entity).is_some();
+    if is_creep_kill {
+        world
+            .write_resource::<crate::comp::MatchKillCounter>()
+            .0 += 1;
+    }
+
     {
         let mut creeps = world.write_storage::<Creep>();
         let mut towers = world.write_storage::<Tower>();
