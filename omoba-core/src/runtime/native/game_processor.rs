@@ -502,13 +502,14 @@ pub fn drain_pending_ability_casts(world: &mut World) {
 
 fn unit_id_to_hero_knowledge_category(unit_id: &str) -> &'static str {
     match unit_id {
-        "tower_dart"      => "tower_dart",
-        "tower_bomb"      => "tower_bomb",
-        "tower_ice"       => "tower_ice",
-        "tower_tack"      => "tower_tack",
+        "tower_dart" => "tower_dart",
+        "tower_bomb" => "tower_bomb",
+        "tower_ice" => "tower_ice",
+        "tower_tack" => "tower_tack",
+        "tower_cake_splash" => "tower_cake_splash",
         "tower_boomerang" => "tower_boomerang",
-        "tower_arty"      => "tower_arty",
-        _                 => "",
+        "tower_arty" => "tower_arty",
+        _ => "",
     }
 }
 
@@ -2312,6 +2313,14 @@ mod tests {
         world.insert(BuffStore::default());
         world.insert(Vec::<Outcome>::new());
         world
+    }
+
+    #[test]
+    fn cake_splash_has_hero_knowledge_category() {
+        assert_eq!(
+            unit_id_to_hero_knowledge_category("tower_cake_splash"),
+            "tower_cake_splash"
+        );
     }
 
     fn add_owned_hero(world: &mut World, player_id: u32, name: &str) -> Entity {
