@@ -500,7 +500,7 @@ pub fn drain_pending_ability_casts(world: &mut World) {
     drop(drain_span);
 }
 
-fn unit_id_to_hero_knowledge_category(unit_id: &str) -> &'static str {
+pub fn hero_knowledge_category_for_unit_id(unit_id: &str) -> &'static str {
     match unit_id {
         "tower_dart" => "tower_dart",
         "tower_bomb" => "tower_bomb",
@@ -578,7 +578,7 @@ pub fn spawn_td_tower_with_owner(
 
     // 套用英雄知識 buff（enabled + category 有對應才套用）
     {
-        let category = unit_id_to_hero_knowledge_category(unit_id);
+        let category = hero_knowledge_category_for_unit_id(unit_id);
         let gk_buffs: Vec<(String, String)> = {
             let gk = world.read_resource::<KnowledgeBonusResource>();
             log::info!(
@@ -2318,7 +2318,7 @@ mod tests {
     #[test]
     fn cake_splash_has_hero_knowledge_category() {
         assert_eq!(
-            unit_id_to_hero_knowledge_category("tower_cake_splash"),
+            hero_knowledge_category_for_unit_id("tower_cake_splash"),
             "tower_cake_splash"
         );
     }
