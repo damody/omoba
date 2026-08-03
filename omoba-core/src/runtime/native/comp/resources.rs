@@ -17,6 +17,16 @@ pub struct GamePause {
     pub is_paused: bool,
 }
 
+/// Authoritative, backend-enforced gate for debug/sandbox-only inputs (e.g.
+/// `PlayerInputEnum::DebugSpawnCreep`, the BTD6-style "send balloon" tool).
+/// Defaults to `false` (off) and is only flipped on by the host process
+/// reading `OMFX_SANDBOX=1` at startup (see `initialization.rs`). This is a
+/// security control: a real multiplayer match must never honor debug-spawn
+/// input from any client, so the check lives here on the authoritative
+/// backend rather than trusting the client to withhold the request.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct SandboxMode(pub bool);
+
 /// Authoritative lockstep simulation speed. Stored as a small integer so every
 /// replica applies the same deterministic time scale.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

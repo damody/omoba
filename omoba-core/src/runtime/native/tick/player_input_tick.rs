@@ -20,8 +20,8 @@ use crate::comp::{
     CurrentCreepWave, GamePause, GameSpeed, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
     PendingDebugCreepSpawnQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
     PendingItemUseQueue, PendingMoveQueue, PendingTowerAbilityCastQueue, PendingTowerSellQueue,
-    PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, Time,
-    TowerTargetPriority,
+    PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue,
+    SandboxMode, Time, TowerTargetPriority,
 };
 
 #[derive(Default)]
@@ -46,6 +46,7 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingTowerTargetPriorityQueue>,
         Write<'a, PendingDebugCreepSpawnQueue>,
         Write<'a, PendingTowerAbilityCastQueue>,
+        Read<'a, SandboxMode>,
     );
 
     const NAME: &'static str = "player_input";
@@ -69,6 +70,7 @@ impl<'a> System<'a> for Sys {
             mut target_priority_q,
             mut debug_spawn_q,
             mut tower_ability_cast_q,
+            sandbox_mode,
         ): Self::SystemData,
     ) {
         if pending.inputs.is_empty() {
@@ -102,6 +104,7 @@ impl<'a> System<'a> for Sys {
                 &mut target_priority_q,
                 &mut debug_spawn_q,
                 &mut tower_ability_cast_q,
+                sandbox_mode.0,
             );
         }
     }
@@ -137,6 +140,7 @@ fn route_input(
     target_priority_q: &mut PendingTowerTargetPriorityQueue,
     debug_spawn_q: &mut PendingDebugCreepSpawnQueue,
     tower_ability_cast_q: &mut PendingTowerAbilityCastQueue,
+    sandbox_mode: bool,
 ) {
     use omoba_core::runtime::PlayerInputEnum;
 
@@ -425,12 +429,24 @@ fn route_input(
                 d.emitter_index,
                 d.count,
             );
-            // 沙箱測試生怪：creep_wave::Sys 每 tick 開頭 drain（該系統
-            // 已有 creep_emiters / paths / outcomes 存取權限）。
-            debug_spawn_q.requests.push(crate::comp::PendingDebugCreepSpawn {
-                emitter_index: d.emitter_index,
-                count: d.count.max(1),
-            });
+            // 安全性閘門：DebugSpawnCreep 是 BTD6 風格沙箱「發送氣球」除錯
+            // 工具，絕不能在正式對戰生效（否則任何 client 都能無限生怪）。
+            // 這裡是權威後端，唯一能真正擋下惡意/被竄改 client 的地方——
+            // 前端隱藏按鈕只是體驗優化，不是安全邊界。
+            if sandbox_mode {
+                // 沙箱測試生怪：creep_wave::Sys 每 tick 開頭 drain（該系統
+                // 已有 creep_emiters / paths / outcomes 存取權限）。
+                debug_spawn_q.requests.push(crate::comp::PendingDebugCreepSpawn {
+                    emitter_index: d.emitter_index,
+                    count: d.count.max(1),
+                });
+            } else {
+                log::warn!(
+                    "DebugSpawnCreep rejected: not a sandbox session (pid={} tick={})",
+                    player_id,
+                    tick
+                );
+            }
         }
         None => {
             log::warn!(
@@ -459,8 +475,9 @@ fn map_target_priority(raw: i32) -> Option<TowerTargetPriority> {
 mod tests {
     use super::*;
     use omoba_core::runtime::{
-        AttackMove, AttackTarget, PlayerInput, PlayerInputEnum, SetTowerTargetPriority,
-        TargetPriority, ToggleGameSpeed, TogglePause, TowerAbilityCastInput, Vec2I,
+        AttackMove, AttackTarget, DebugSpawnCreep, PlayerInput, PlayerInputEnum,
+        SetTowerTargetPriority, TargetPriority, ToggleGameSpeed, TogglePause,
+        TowerAbilityCastInput, Vec2I,
     };
 
     #[test]
@@ -504,6 +521,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut tower_ability_cast_q,
+            true,
         );
 
         assert_eq!(tower_ability_cast_q.requests.len(), 1);
@@ -550,6 +568,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut PendingTowerAbilityCastQueue::default(),
+            true,
         );
         assert!(pause.is_paused);
 
@@ -574,6 +593,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut PendingTowerAbilityCastQueue::default(),
+            true,
         );
         assert!(!pause.is_paused);
     }
@@ -615,6 +635,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut PendingTowerAbilityCastQueue::default(),
+            true,
         );
         assert_eq!(speed.multiplier(), 2);
 
@@ -639,6 +660,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut PendingTowerAbilityCastQueue::default(),
+            true,
         );
         assert_eq!(speed.multiplier(), 1);
     }
@@ -683,6 +705,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut PendingTowerAbilityCastQueue::default(),
+            true,
         );
         route_input(
             7,
@@ -708,6 +731,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut PendingTowerAbilityCastQueue::default(),
+            true,
         );
         route_input(
             7,
@@ -735,6 +759,7 @@ mod tests {
             &mut target_priority_q,
             &mut debug_spawn_q,
             &mut PendingTowerAbilityCastQueue::default(),
+            true,
         );
 
         assert_eq!(move_q.requests.len(), 2);
@@ -754,5 +779,105 @@ mod tests {
             target_priority_q.requests[0].priority,
             TowerTargetPriority::Farthest
         );
+    }
+
+    /// 安全性迴歸測試：非沙箱 session（真實對戰）必須擋下
+    /// DebugSpawnCreep，絕不能讓任意 client 無限生怪。
+    #[test]
+    fn debug_spawn_creep_rejected_when_not_sandbox() {
+        let mut cw = CurrentCreepWave::default();
+        let mut pause = GamePause::default();
+        let mut speed = GameSpeed::default();
+        let mut tower_q = PendingTowerSpawnQueue::default();
+        let mut sell_q = PendingTowerSellQueue::default();
+        let mut upgrade_q = PendingTowerUpgradeQueue::default();
+        let mut ability_q = PendingAbilityUpgradeQueue::default();
+        let mut cast_q = PendingAbilityCastQueue::default();
+        let mut item_q = PendingItemUseQueue::default();
+        let mut move_q = PendingMoveQueue::default();
+        let mut clear_q = PendingHeroCommandClearQueue::default();
+        let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+        let mut debug_spawn_q = PendingDebugCreepSpawnQueue::default();
+
+        route_input(
+            7,
+            42,
+            PlayerInput {
+                action: Some(PlayerInputEnum::DebugSpawnCreep(DebugSpawnCreep {
+                    emitter_index: 0,
+                    count: 5,
+                })),
+            },
+            &mut cw,
+            &mut pause,
+            &mut speed,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+            &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
+            false, // sandbox_mode = off: this is what a real match looks like
+        );
+
+        assert!(
+            debug_spawn_q.requests.is_empty(),
+            "DebugSpawnCreep must be dropped by the authoritative backend when SandboxMode is off"
+        );
+    }
+
+    /// Sandbox session（沙箱測試/開發環境）仍應允許 DebugSpawnCreep 正常運作。
+    #[test]
+    fn debug_spawn_creep_allowed_when_sandbox() {
+        let mut cw = CurrentCreepWave::default();
+        let mut pause = GamePause::default();
+        let mut speed = GameSpeed::default();
+        let mut tower_q = PendingTowerSpawnQueue::default();
+        let mut sell_q = PendingTowerSellQueue::default();
+        let mut upgrade_q = PendingTowerUpgradeQueue::default();
+        let mut ability_q = PendingAbilityUpgradeQueue::default();
+        let mut cast_q = PendingAbilityCastQueue::default();
+        let mut item_q = PendingItemUseQueue::default();
+        let mut move_q = PendingMoveQueue::default();
+        let mut clear_q = PendingHeroCommandClearQueue::default();
+        let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+        let mut debug_spawn_q = PendingDebugCreepSpawnQueue::default();
+
+        route_input(
+            7,
+            42,
+            PlayerInput {
+                action: Some(PlayerInputEnum::DebugSpawnCreep(DebugSpawnCreep {
+                    emitter_index: 2,
+                    count: 5,
+                })),
+            },
+            &mut cw,
+            &mut pause,
+            &mut speed,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+            &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
+            true, // sandbox_mode = on
+        );
+
+        assert_eq!(debug_spawn_q.requests.len(), 1);
+        assert_eq!(debug_spawn_q.requests[0].emitter_index, 2);
+        assert_eq!(debug_spawn_q.requests[0].count, 5);
     }
 }

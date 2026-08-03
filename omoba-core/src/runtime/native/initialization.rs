@@ -720,6 +720,16 @@ impl StateInitializer {
         // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());
 
+        // 安全性：沙箱模式閘門（後端強制執行）。預設關閉，只能透過
+        // OMFX_SANDBOX=1 環境變數開啟。任何 client 都可能被竄改，因此
+        // debug-only 輸入（例如 DebugSpawnCreep）的准駁一律由這個
+        // 權威後端 resource 決定，不能只靠前端隱藏按鈕。
+        let sandbox = std::env::var("OMFX_SANDBOX").ok().as_deref() == Some("1");
+        if sandbox {
+            log::warn!("⚠ OMFX_SANDBOX=1：沙箱模式已啟用，DebugSpawnCreep 等除錯輸入將被允許");
+        }
+        ecs.insert(crate::comp::SandboxMode(sandbox));
+
         // 階段 3.4：等待同步玩家輸入。由 lockstep runtime consumer
         // 從每個 TickBatch 填入（或由 authoritative-side tests 注入），
         // 並在每個 dispatcher tick 由 `tick::player_input_tick::Sys` drain。
