@@ -12,9 +12,9 @@ use super::comp::hero::AttributeType;
 use super::comp::{
     BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, GamePause, GameSpeed,
     Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MoveTarget,
-    Path as CreepPath, PlayerLives, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, TAttack,
-    Tower, TowerAbilityCastResult, TowerAbilityCastResults, TowerSpawnOrder, TowerTemplateRegistry,
-    TowerUpgradeRegistry,
+    Path as CreepPath, PlayerEconomy, PlayerLives, PlayerOwner, Pos, Projectile,
+    RemovedEntitiesQueue, TAttack, Tower, TowerAbilityCastResult, TowerAbilityCastResults,
+    TowerSpawnOrder, TowerTemplateRegistry, TowerUpgradeRegistry,
 };
 use super::scripting::{ScriptUnitTag, ScriptVisualEventKind, ScriptVisualEventQueue};
 
@@ -38,6 +38,7 @@ pub struct AppliedInputMeta {
 pub struct SimWorldSnapshot {
     pub tick: u32,
     pub entities: Vec<EntityRenderData>,
+    pub player_gold: BTreeMap<u32, i32>,
     pub paths: Vec<Vec<(f32, f32)>>,
     pub removed_entity_ids: Vec<u32>,
     pub round: u32,
@@ -333,6 +334,13 @@ fn tower_ability_cast_results(world: &World) -> Vec<TowerAbilityCastResultSnapsh
         .unwrap_or_default()
 }
 
+fn snapshot_player_gold(world: &World) -> BTreeMap<u32, i32> {
+    world
+        .try_fetch::<PlayerEconomy>()
+        .map(|economy| economy.balances().clone())
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct HeroCommandSnapshot {
     pub command_type: String,
@@ -409,6 +417,25 @@ mod tests {
     use super::super::comp::{HeroCommand, TowerAbilityCastResults, TowerActiveAbilityState};
     use super::*;
     use omoba_sim::Fixed64;
+
+    #[test]
+    fn player_gold_snapshot_is_entity_independent_and_read_only() {
+        let mut world = World::new();
+        let mut economy = PlayerEconomy::default();
+        economy.initialize(2, 10_000);
+        economy.initialize(1, 650);
+        world.insert(economy);
+
+        let first = snapshot_player_gold(&world);
+        let second = snapshot_player_gold(&world);
+
+        assert_eq!(first, BTreeMap::from([(1, 650), (2, 10_000)]));
+        assert_eq!(second, first);
+        assert_eq!(
+            world.read_resource::<PlayerEconomy>().balances(),
+            &BTreeMap::from([(1, 650), (2, 10_000)])
+        );
+    }
 
     #[test]
     fn tower_upgrade_snapshot_exposes_active_ability_metadata() {
@@ -1215,9 +1242,11 @@ pub fn extract_snapshot(
     };
     let script_visual_events = drain_script_visual_events(world);
 
+    let player_gold = snapshot_player_gold(world);
     let snapshot = SimWorldSnapshot {
         tick,
         entities: out,
+        player_gold,
         paths,
         removed_entity_ids,
         round,
@@ -1624,9 +1653,11 @@ pub fn extract_data_for_render(
         attack_cancel_fx = attack_cancel_fx.len(),
     )
     .entered();
+    let player_gold = snapshot_player_gold(world);
     let snapshot = SimWorldSnapshot {
         tick,
         entities: out,
+        player_gold,
         paths: Vec::new(),
         removed_entity_ids,
         round,

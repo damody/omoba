@@ -18,11 +18,11 @@ use crate::runtime::comp::{
     PendingItemUseQueue, PendingMoveQueue,
     PendingTowerAbilityActivation, PendingTowerAbilityActivationQueue,
     PendingTowerAbilityCastQueue, PendingTowerSellQueue, PendingTowerSpawnQueue,
-    PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, PlayerOwner, Pos, Projectile,
-    RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower, TowerAbilityCastResult,
-    TowerAbilityCastResults, TowerActiveAbilityState, TowerData, TowerFireFxQueue,
-    TowerSpawnOrderCounter, TowerTargetPriority, TowerTemplate, TowerTemplateRegistry,
-    TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
+    PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, PlayerEconomy, PlayerOwner, Pos,
+    Projectile, RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower,
+    TowerAbilityCastResult, TowerAbilityCastResults, TowerActiveAbilityState, TowerData,
+    TowerFireFxQueue, TowerSpawnOrderCounter, TowerTargetPriority, TowerTemplate,
+    TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -513,6 +513,49 @@ pub fn hero_knowledge_category_for_unit_id(unit_id: &str) -> &'static str {
     }
 }
 
+fn player_economy_balance(
+    world: &World,
+    context: &str,
+    player_id: u32,
+) -> Result<i32, failure::Error> {
+    let economy = world
+        .try_fetch::<PlayerEconomy>()
+        .ok_or_else(|| failure::err_msg(format!("{context}: PlayerEconomy resource is missing")))?;
+    economy.balance(player_id).ok_or_else(|| {
+        failure::err_msg(format!(
+            "{context}: missing player economy account for player_id={player_id}"
+        ))
+    })
+}
+
+fn debit_player_economy(
+    world: &mut World,
+    context: &str,
+    player_id: u32,
+    cost: i32,
+) -> Result<i32, failure::Error> {
+    let mut economy = world
+        .try_fetch_mut::<PlayerEconomy>()
+        .ok_or_else(|| failure::err_msg(format!("{context}: PlayerEconomy resource is missing")))?;
+    economy
+        .try_debit(player_id, cost)
+        .map_err(|error| failure::err_msg(format!("{context}: {error}")))
+}
+
+fn credit_player_economy(
+    world: &mut World,
+    context: &str,
+    player_id: u32,
+    amount: i32,
+) -> Result<i32, failure::Error> {
+    let mut economy = world
+        .try_fetch_mut::<PlayerEconomy>()
+        .ok_or_else(|| failure::err_msg(format!("{context}: PlayerEconomy resource is missing")))?;
+    economy
+        .credit_saturating(player_id, amount)
+        .map_err(|error| failure::err_msg(format!("{context}: {error}")))
+}
+
 pub fn spawn_td_tower(world: &mut World, pos: Vec2<f32>, unit_id: &str) -> Option<Entity> {
     spawn_td_tower_with_owner(world, pos, unit_id, None)
 }
@@ -638,14 +681,8 @@ fn validate_tower_place_from_input(
     tpl: &TowerTemplate,
     pos: Vec2<f32>,
     owner_pid: u32,
-) -> Result<Entity, failure::Error> {
-    let hero_entity = player_hero_entity(world, "TowerPlace", owner_pid)?;
-
-    let has_gold = {
-        let golds = world.read_storage::<Gold>();
-        golds.get(hero_entity).map(|gold| gold.0).unwrap_or(0) >= tpl.cost
-    };
-    if !has_gold {
+) -> Result<(), failure::Error> {
+    if player_economy_balance(world, "TowerPlace", owner_pid)? < tpl.cost {
         return Err(failure::err_msg(format!(
             "TowerPlace: insufficient gold pid={} unit_id='{}' cost={}",
             owner_pid, tpl.unit_id, tpl.cost
@@ -726,7 +763,7 @@ fn validate_tower_place_from_input(
         }
     }
 
-    Ok(hero_entity)
+    Ok(())
 }
 
 #[inline]
@@ -756,7 +793,7 @@ pub fn handle_tower_spawn_from_input(
             .cloned()
             .ok_or_else(|| failure::err_msg(format!("TowerPlace: unknown unit_id '{}'", unit_id)))?
     };
-    let hero_entity = validate_tower_place_from_input(world, &tpl, pos_f32, owner_pid)?;
+    validate_tower_place_from_input(world, &tpl, pos_f32, owner_pid)?;
     let entity =
         spawn_td_tower_with_owner(world, pos_f32, unit_id, Some(owner_pid)).ok_or_else(|| {
             failure::err_msg(format!(
@@ -764,13 +801,7 @@ pub fn handle_tower_spawn_from_input(
                 unit_id
             ))
         })?;
-    {
-        let mut golds = world.write_storage::<Gold>();
-        if let Some(gold) = golds.get_mut(hero_entity) {
-            gold.0 -= tpl.cost;
-        }
-    }
-    clear_hero_command_queue(world, hero_entity);
+    debit_player_economy(world, "TowerPlace", owner_pid, tpl.cost)?;
     log::info!(
         "TowerPlace ok pid={} kind_id={} unit_id='{}' cost={} pos=({:.1},{:.1}) entity={:?}",
         owner_pid,
@@ -893,14 +924,7 @@ pub fn handle_tower_sell_from_input(
         base_refund + upgrade_refund
     };
 
-    let hero_entity = player_hero_entity(world, "TowerSell", owner_pid)?;
-    {
-        let mut golds = world.write_storage::<Gold>();
-        if let Some(gold) = golds.get_mut(hero_entity) {
-            gold.0 += refund;
-        }
-    }
-    clear_hero_command_queue(world, hero_entity);
+    credit_player_economy(world, "TowerSell", owner_pid, refund)?;
 
     world
         .write_resource::<BuffStore>()
@@ -1030,25 +1054,14 @@ pub fn handle_tower_upgrade_from_input(
         ))
     })?;
 
-    let hero_entity = player_hero_entity(world, "TowerUpgrade", owner_pid)?;
-    let has_gold = {
-        let golds = world.read_storage::<Gold>();
-        golds.get(hero_entity).map(|gold| gold.0).unwrap_or(0) >= def.cost
-    };
-    if !has_gold {
+    if player_economy_balance(world, "TowerUpgrade", owner_pid)? < def.cost {
         return Err(failure::err_msg(format!(
             "TowerUpgrade: insufficient gold (need {}) for kind={} path={} level={} (pid={})",
             def.cost, unit_id, path, next_level, owner_pid
         )));
     }
 
-    {
-        let mut golds = world.write_storage::<Gold>();
-        if let Some(gold) = golds.get_mut(hero_entity) {
-            gold.0 -= def.cost;
-        }
-    }
-    clear_hero_command_queue(world, hero_entity);
+    debit_player_economy(world, "TowerUpgrade", owner_pid, def.cost)?;
 
     let mut flags_to_add = Vec::new();
     let mut stat_mods = Vec::new();
@@ -1153,8 +1166,6 @@ pub fn handle_tower_target_priority_from_input(
             }
         }
     }
-    let hero_entity = player_hero_entity(world, "SetTowerTargetPriority", owner_pid)?;
-
     {
         let mut towers = world.write_storage::<Tower>();
         let Some(tower) = towers.get_mut(target_entity) else {
@@ -1165,7 +1176,6 @@ pub fn handle_tower_target_priority_from_input(
         };
         tower.target_priority = priority;
     }
-    clear_hero_command_queue(world, hero_entity);
     log::info!(
         "SetTowerTargetPriority ok pid={} eid={} priority={}",
         owner_pid,
@@ -1779,6 +1789,9 @@ fn handle_death(
 }
 
 fn distribute_bounty(world: &mut World, dead: Entity) {
+    if world.read_resource::<crate::comp::GameMode>().is_td() {
+        return;
+    }
     let bounty = match world.read_storage::<Bounty>().get(dead).copied() {
         Some(bounty) => bounty,
         None => return,
@@ -1837,6 +1850,29 @@ fn distribute_bounty(world: &mut World, dead: Entity) {
     if leveled_up {
         log::info!("hero entity {:?} leveled up", hero_entity);
     }
+}
+
+fn credit_td_bounty_for_source(
+    world: &mut World,
+    source: Entity,
+    target: Entity,
+) -> Result<bool, failure::Error> {
+    if !world.read_resource::<crate::comp::GameMode>().is_td() {
+        return Ok(false);
+    }
+    let player_id = world
+        .read_storage::<PlayerOwner>()
+        .get(source)
+        .map(|owner| owner.player_id);
+    let bounty = world.read_storage::<Bounty>().get(target).copied();
+    let (Some(player_id), Some(bounty)) = (player_id, bounty) else {
+        return Ok(false);
+    };
+    if bounty.gold <= 0 {
+        return Ok(false);
+    }
+    credit_player_economy(world, "TDCreepBounty", player_id, bounty.gold)?;
+    Ok(true)
 }
 
 fn handle_projectile(
@@ -2253,6 +2289,61 @@ mod tests {
         assert_eq!(bounty.exp, stats.exp_reward);
     }
 
+    fn world_for_td_bounty_test(mode: GameMode) -> World {
+        let mut world = World::new();
+        world.register::<PlayerOwner>();
+        world.register::<Bounty>();
+        world.insert(mode);
+        let mut economy = PlayerEconomy::default();
+        economy.initialize(1, 650);
+        economy.initialize(2, 650);
+        world.insert(economy);
+        world
+    }
+
+    #[test]
+    fn td_bounty_credits_owned_source_without_heroes() {
+        let mut world = world_for_td_bounty_test(GameMode::TowerDefense);
+        let source = world.create_entity().with(PlayerOwner::new(2)).build();
+        let target = world
+            .create_entity()
+            .with(Bounty { gold: 25, exp: 7 })
+            .build();
+
+        assert!(credit_td_bounty_for_source(&mut world, source, target).unwrap());
+        let economy = world.read_resource::<PlayerEconomy>();
+        assert_eq!(economy.balance(1), Some(650));
+        assert_eq!(economy.balance(2), Some(675));
+    }
+
+    #[test]
+    fn td_bounty_without_owned_source_does_not_guess_player() {
+        let mut world = world_for_td_bounty_test(GameMode::TowerDefense);
+        let source = world.create_entity().build();
+        let target = world
+            .create_entity()
+            .with(Bounty { gold: 25, exp: 7 })
+            .build();
+
+        assert!(!credit_td_bounty_for_source(&mut world, source, target).unwrap());
+        let economy = world.read_resource::<PlayerEconomy>();
+        assert_eq!(economy.balance(1), Some(650));
+        assert_eq!(economy.balance(2), Some(650));
+    }
+
+    #[test]
+    fn moba_bounty_does_not_use_td_player_economy() {
+        let mut world = world_for_td_bounty_test(GameMode::Moba);
+        let source = world.create_entity().with(PlayerOwner::new(1)).build();
+        let target = world
+            .create_entity()
+            .with(Bounty { gold: 25, exp: 7 })
+            .build();
+
+        assert!(!credit_td_bounty_for_source(&mut world, source, target).unwrap());
+        assert_eq!(world.read_resource::<PlayerEconomy>().balance(1), Some(650));
+    }
+
     #[test]
     fn authoritative_road_clearance_uses_visual_placement_radius() {
         let clear = tower_path_clearance(90.0, 64.0);
@@ -2322,7 +2413,142 @@ mod tests {
         world.insert(Tick(0));
         world.insert(BuffStore::default());
         world.insert(Vec::<Outcome>::new());
+        let mut economy = PlayerEconomy::default();
+        economy.initialize(1, 1_000);
+        economy.initialize(2, 1_000);
+        world.insert(economy);
         world
+    }
+
+    fn test_tower_template(cost: i32) -> TowerTemplate {
+        use crate::runtime::comp::tower_registry::{
+            AttackTimingMetadata, TowerRecoil, TowerRenderAnimation, TowerRenderMetadata,
+            TowerRenderPoint,
+        };
+        TowerTemplate {
+            unit_id: "tower_dart".to_string(),
+            label: "Dart".to_string(),
+            atk: 10.0,
+            asd_interval: 1.0,
+            range: 350.0,
+            bullet_speed: 900.0,
+            splash_radius: 0.0,
+            hit_radius: 0.0,
+            slow_factor: 0.0,
+            slow_duration: 0.0,
+            cost,
+            footprint: 30.0,
+            placement_radius: 90.0,
+            hp: 100.0,
+            turn_speed_deg: 360.0,
+            render: TowerRenderMetadata {
+                render_mode: "base_barrel".to_string(),
+                base: String::new(),
+                barrel: String::new(),
+                visual_size: 180.0,
+                barrel_frames: Vec::new(),
+                body_frames: Vec::new(),
+                barrel_animation: TowerRenderAnimation {
+                    fps: 0.0,
+                    loop_animation: false,
+                    fire_fps: 0.0,
+                    fire_once: false,
+                },
+                body_animation: TowerRenderAnimation {
+                    fps: 0.0,
+                    loop_animation: false,
+                    fire_fps: 0.0,
+                    fire_once: false,
+                },
+                rotation_mode: "targeted".to_string(),
+                barrel_layout: "single".to_string(),
+                barrel_variants: Vec::new(),
+                barrel_offset: TowerRenderPoint { x: 0.0, y: 0.0 },
+                barrel_pivot: TowerRenderPoint { x: 0.5, y: 0.5 },
+                muzzle_offset: TowerRenderPoint { x: 0.0, y: 0.0 },
+                default_angle_deg: 0.0,
+                recoil: TowerRecoil {
+                    mode: String::new(),
+                    distance: 0.0,
+                    scale: 1.0,
+                    duration_ms: 0,
+                    return_ms: 0,
+                },
+            },
+            attack_timing: AttackTimingMetadata {
+                windup: 0,
+                backswing: 0,
+            },
+        }
+    }
+
+    fn hero_free_tower_spawn_world(player_1_gold: i32, include_player_2: bool) -> World {
+        let thread_pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&thread_pool);
+        *world.write_resource::<GameMode>() = GameMode::TowerDefense;
+        let mut economy = PlayerEconomy::default();
+        economy.initialize(1, player_1_gold);
+        if include_player_2 {
+            economy.initialize(2, 650);
+        }
+        world.insert(economy);
+        let mut registry = TowerTemplateRegistry::default();
+        registry.insert(test_tower_template(200));
+        world.insert(registry);
+        world
+    }
+
+    #[test]
+    fn hero_free_tower_spawn_debits_only_requesting_player() {
+        let mut world = hero_free_tower_spawn_world(650, true);
+        let kind_id = omoba_template_ids::tower_by_name("tower_dart")
+            .expect("tower_dart id")
+            .0 as u32;
+
+        let tower = handle_tower_spawn_from_input(
+            &mut world,
+            kind_id,
+            omoba_sim::Vec2::new(Fixed64::from_i32(500), Fixed64::from_i32(500)),
+            1,
+        )
+        .expect("hero-free player can place tower");
+
+        assert!(world.read_storage::<Hero>().join().next().is_none());
+        assert_eq!(
+            world
+                .read_storage::<PlayerOwner>()
+                .get(tower)
+                .unwrap()
+                .player_id,
+            1
+        );
+        let economy = world.read_resource::<PlayerEconomy>();
+        assert_eq!(economy.balance(1), Some(450));
+        assert_eq!(economy.balance(2), Some(650));
+    }
+
+    #[test]
+    fn hero_free_tower_spawn_rejections_do_not_mutate_world() {
+        let kind_id = omoba_template_ids::tower_by_name("tower_dart")
+            .expect("tower_dart id")
+            .0 as u32;
+        for (mut world, player_id) in [
+            (hero_free_tower_spawn_world(199, true), 1),
+            (hero_free_tower_spawn_world(650, false), 2),
+        ] {
+            assert!(handle_tower_spawn_from_input(
+                &mut world,
+                kind_id,
+                omoba_sim::Vec2::new(Fixed64::from_i32(500), Fixed64::from_i32(500)),
+                player_id,
+            )
+            .is_err());
+            assert_eq!(world.read_storage::<Tower>().join().count(), 0);
+            assert_eq!(
+                world.read_resource::<PlayerEconomy>().balance(1),
+                Some(if player_id == 1 { 199 } else { 650 })
+            );
+        }
     }
 
     #[test]
@@ -2581,8 +2807,6 @@ mod tests {
     #[test]
     fn tower_sell_and_upgrade_reject_non_owner_before_state_change() {
         let mut world = world_for_owner_tests();
-        add_owned_hero(&mut world, 1, "Hero");
-        add_owned_hero(&mut world, 2, "Hero");
         let tower = add_owned_tower(&mut world, 2);
 
         assert!(handle_tower_sell_from_input(&mut world, tower.id(), 1).is_err());
@@ -2596,13 +2820,49 @@ mod tests {
                 .upgrade_levels,
             [0; 3]
         );
+        let economy = world.read_resource::<PlayerEconomy>();
+        assert_eq!(economy.balance(1), Some(1_000));
+        assert_eq!(economy.balance(2), Some(1_000));
+    }
+
+    #[test]
+    fn hero_free_upgrade_and_sell_use_owner_economy() {
+        let mut world = world_for_owner_tests();
+        let upgrades = TowerUpgradeRegistry::new();
+        let upgrade_cost = upgrades.get("tower_dart", 0, 1).unwrap().cost;
+        world.insert(upgrades);
+        let mut templates = TowerTemplateRegistry::default();
+        templates.insert(test_tower_template(200));
+        world.insert(templates);
+        let tower = add_owned_tower(&mut world, 1);
+
+        handle_tower_upgrade_from_input(&mut world, tower.id(), 0, 1, 1)
+            .expect("hero-free owner can upgrade");
+        assert_eq!(
+            world.read_resource::<PlayerEconomy>().balance(1),
+            Some(1_000 - upgrade_cost)
+        );
+
+        handle_tower_sell_from_input(&mut world, tower.id(), 1).expect("hero-free owner can sell");
+        let expected_refund = (200.0 * 0.85) as i32 + (upgrade_cost as f32 * 0.75) as i32;
+        assert_eq!(
+            world.read_resource::<PlayerEconomy>().balance(1),
+            Some(1_000 - upgrade_cost + expected_refund)
+        );
+        assert_eq!(
+            world.read_resource::<PlayerEconomy>().balance(2),
+            Some(1_000)
+        );
+        assert!(world.read_resource::<Vec<Outcome>>().iter().any(
+            |outcome| matches!(outcome, Outcome::EntityRemoved { entity } if *entity == tower)
+        ));
     }
 
     #[test]
     fn dart_range_upgrade_updates_effective_attack_range() {
         let mut world = world_for_owner_tests();
         world.insert(TowerUpgradeRegistry::new());
-        add_owned_hero(&mut world, 1, "Hero");
+        let hero = add_owned_hero(&mut world, 1, "Hero");
         let tower = add_owned_tower(&mut world, 1);
         world
             .write_storage::<TAttack>()
@@ -2627,14 +2887,18 @@ mod tests {
             .final_attack_range(attack.get(tower).unwrap().range.v, tower)
             .to_f32_for_render();
         assert_eq!(range, 400.0);
+        assert_eq!(world.read_storage::<Gold>().get(hero).unwrap().0, 1_000);
+        assert!(world.read_resource::<PlayerEconomy>().balance(1).unwrap() < 1_000);
     }
 
     #[test]
     fn boomerang_path_two_level_four_unlocks_active_ability() {
         let mut world = world_for_owner_tests();
         world.insert(TowerUpgradeRegistry::new());
-        let hero = add_owned_hero(&mut world, 1, "Hero");
-        world.write_storage::<Gold>().get_mut(hero).unwrap().0 = 10_000;
+        add_owned_hero(&mut world, 1, "Hero");
+        world
+            .write_resource::<PlayerEconomy>()
+            .initialize(1, 10_000);
         let tower = world
             .create_entity()
             .with(Tower::new())
@@ -3353,6 +3617,9 @@ fn handle_damage(
             tower.pops = tower.pops.saturating_add(1);
         }
         drop(towers);
+        if let Err(error) = credit_td_bounty_for_source(world, source, target) {
+            log::warn!("TDCreepBounty: failed to credit source={source:?}: {error}");
+        }
         next_outcomes.push(Outcome::Death { pos, ent: target });
     }
     Ok(())

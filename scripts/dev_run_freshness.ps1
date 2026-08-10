@@ -266,15 +266,13 @@ $sim = New-InputSet -Files @(
 )
 
 $specs = New-InputSet -Files @(
-    'specs/Cargo.toml',
-    'specs/Cargo.lock'
+    'specs/Cargo.toml'
 ) -Directories @(
     'specs/src'
 )
 
 $log4rs = New-InputSet -Files @(
-    'log4rs/Cargo.toml',
-    'log4rs/Cargo.lock'
+    'log4rs/Cargo.toml'
 ) -Directories @(
     'log4rs/src'
 )
