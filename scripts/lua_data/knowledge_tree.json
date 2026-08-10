@@ -16,10 +16,10 @@
     "kp_cost": 4,
     "requires": ["dart_pierce_1"],
     "bonuses": [
-      { "stat_key": "preattack_bonus_damage", "add": 5 }
+      { "stat_key": "totaldamageoutgoing_percentage", "add": 0.15 }
     ],
     "label": "攻擊強化 I",
-    "description": "提升飛鏢塔攻擊傷害 +5"
+    "description": "飛鏢塔造成的傷害提高 15%"
   },
   {
     "id": "dart_speed_1",
@@ -38,10 +38,10 @@
     "kp_cost": 4,
     "requires": [],
     "bonuses": [
-      { "stat_key": "preattack_bonus_damage", "add": 10 }
+      { "stat_key": "preattack_bonus_damage", "add": 6 }
     ],
     "label": "爆炸強化 I",
-    "description": "提升炸彈塔爆炸傷害 +10"
+    "description": "提升炸彈塔爆炸傷害 +6"
   },
   {
     "id": "bomb_range_1",
@@ -60,10 +60,10 @@
     "kp_cost": 5,
     "requires": ["bomb_range_1"],
     "bonuses": [
-      { "stat_key": "preattack_bonus_damage", "add": 15 }
+      { "stat_key": "preattack_bonus_damage", "add": 9 }
     ],
     "label": "爆炸強化 II",
-    "description": "進一步提升炸彈塔爆炸傷害 +15"
+    "description": "進一步提升炸彈塔爆炸傷害 +9"
   },
   {
     "id": "ice_slow_1",
@@ -93,10 +93,10 @@
     "kp_cost": 3,
     "requires": [],
     "bonuses": [
-      { "stat_key": "preattack_bonus_damage", "add": 3 }
+      { "stat_key": "totaldamageoutgoing_percentage", "add": 0.1 }
     ],
     "label": "釘刺強化 I",
-    "description": "提升圖釘塔攻擊傷害 +3"
+    "description": "圖釘塔造成的傷害提高 10%"
   },
   {
     "id": "tack_range_1",
@@ -115,10 +115,10 @@
     "kp_cost": 4,
     "requires": [],
     "bonuses": [
-      { "stat_key": "preattack_bonus_damage", "add": 8 }
+      { "stat_key": "totaldamageoutgoing_percentage", "add": 0.18 }
     ],
     "label": "迴旋強化 I",
-    "description": "提升迴旋鏢塔攻擊傷害 +8"
+    "description": "迴旋鏢塔造成的傷害提高 18%"
   },
   {
     "id": "boomerang_range_1",
@@ -170,10 +170,10 @@
     "kp_cost": 8,
     "requires": [],
     "bonuses": [
-      { "stat_key": "preattack_bonus_damage", "add": 2 }
+      { "stat_key": "totaldamageoutgoing_percentage", "add": 0.05 }
     ],
     "label": "全域攻擊 I",
-    "description": "所有塔攻擊傷害提升 +2"
+    "description": "所有塔造成的傷害提高 5%"
   },
   {
     "id": "global_tower_range_1",

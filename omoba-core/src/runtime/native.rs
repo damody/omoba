@@ -31,6 +31,7 @@ pub use game_processor::{
     drain_pending_tower_upgrades, handle_ability_cast_from_input,
     handle_ability_upgrade_from_input, handle_item_use_from_input,
     handle_tower_ability_cast_from_input, handle_tower_sell_from_input,
+    hero_knowledge_category_for_unit_id,
     handle_tower_spawn_from_input, handle_tower_target_priority_from_input,
     handle_tower_upgrade_from_input, interrupt_attack_for_accepted_command, process_outcomes,
     spawn_td_tower,
