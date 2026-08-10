@@ -17,6 +17,26 @@ pub struct StateInitializer;
 const DOTA_UNITS_PER_MAP_UNIT: i64 = 100;
 const TD_DIFFICULTY_ENV: &str = "OMB_DIFFICULTY";
 const TD_STARTING_GOLD_ENV: &str = "OMB_TD_STARTING_GOLD";
+const NO_HEROES_ENV: &str = "OMB_NO_HEROES";
+const TD_PLAYER_IDS: [u32; 2] = [1, 2];
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct CampaignHeroPolicy {
+    disabled: bool,
+}
+
+impl CampaignHeroPolicy {
+    fn from_env_value(value: Option<&str>) -> Self {
+        Self {
+            disabled: value == Some("1"),
+        }
+    }
+
+    fn from_env() -> Self {
+        let value = std::env::var(NO_HEROES_ENV).ok();
+        Self::from_env_value(value.as_deref())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TdDifficultyConfig {
@@ -318,6 +338,7 @@ impl StateInitializer {
         if mode.is_td() {
             let difficulty = TdDifficultyConfig::from_env();
             *ecs.write_resource::<PlayerLives>() = PlayerLives(difficulty.player_lives);
+            Self::initialize_td_player_economy(ecs, difficulty);
             log::info!(
                 "TD 模式啟用，difficulty='{}' 玩家生命初始 {}",
                 difficulty.id,
@@ -354,6 +375,18 @@ impl StateInitializer {
 
         // 設置不可通行多邊形
         Self::setup_blocked_regions(ecs, cw);
+    }
+
+    fn initialize_td_player_economy(ecs: &mut World, difficulty: TdDifficultyConfig) {
+        let mut economy = ecs.write_resource::<PlayerEconomy>();
+        for player_id in TD_PLAYER_IDS {
+            economy.initialize(player_id, difficulty.starting_gold);
+        }
+        log::info!(
+            "TD player economy initialized: players={:?} starting_gold={}",
+            TD_PLAYER_IDS,
+            difficulty.starting_gold
+        );
     }
 
     /// 把 generated map data 的 BlockedRegions 載入成 ECS resource 供移動 tick 查詢。
@@ -716,6 +749,7 @@ impl StateInitializer {
         ecs.insert(crate::comp::GamePause::default());
         ecs.insert(crate::comp::GameSpeed::default());
         ecs.insert(crate::comp::TowerSpawnOrderCounter::default());
+        ecs.insert(crate::comp::PlayerEconomy::default());
         // 階段 1c.3：確定性 SimRng 流的主種子。第二階段將
         // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());
@@ -895,6 +929,23 @@ impl StateInitializer {
     }
 
     fn create_campaign_heroes(ecs: &mut World, campaign_data: &CampaignData) {
+        Self::create_campaign_heroes_with_policy(
+            ecs,
+            campaign_data,
+            CampaignHeroPolicy::from_env(),
+        );
+    }
+
+    fn create_campaign_heroes_with_policy(
+        ecs: &mut World,
+        campaign_data: &CampaignData,
+        policy: CampaignHeroPolicy,
+    ) {
+        if policy.disabled {
+            log::info!("OMB_NO_HEROES=1: skipping campaign hero creation");
+            return;
+        }
+
         // 從戰役資料創建英雄
         let Some(first_hero_data) = campaign_data.entity.heroes.first() else {
             return;
@@ -1746,6 +1797,95 @@ pub fn populate_ability_registry(ecs: &mut World, registry: &crate::scripting::S
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn campaign_hero_policy_requires_exact_enabled_value() {
+        assert!(CampaignHeroPolicy::from_env_value(Some("1")).disabled);
+        for value in [None, Some(""), Some("0"), Some("true"), Some(" 1 ")] {
+            assert!(
+                !CampaignHeroPolicy::from_env_value(value).disabled,
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn td_player_economy_initializes_without_heroes() {
+        let thread_pool = StateInitializer::create_thread_pool();
+        let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+
+        StateInitializer::initialize_td_player_economy(&mut ecs, TdDifficultyConfig::EXPERT);
+
+        let economy = ecs.read_resource::<PlayerEconomy>();
+        assert_eq!(economy.balance(1), Some(650));
+        assert_eq!(economy.balance(2), Some(650));
+        drop(economy);
+        assert_eq!(
+            (&ecs.entities(), &ecs.read_storage::<Hero>())
+                .join()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn td_player_economy_uses_resolved_starting_gold_override() {
+        let thread_pool = StateInitializer::create_thread_pool();
+        let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+        let config = apply_starting_gold_override(TdDifficultyConfig::EXPERT, Some("10000"));
+
+        StateInitializer::initialize_td_player_economy(&mut ecs, config);
+
+        let economy = ecs.read_resource::<PlayerEconomy>();
+        assert_eq!(economy.balance(1), Some(10_000));
+        assert_eq!(economy.balance(2), Some(10_000));
+    }
+
+    #[test]
+    fn disabled_campaign_heroes_create_no_entities_or_spawn_events() {
+        let campaign = crate::ue4::import_campaign::load_generated("TD_1").expect("generated TD_1");
+        let thread_pool = StateInitializer::create_thread_pool();
+        let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+        *ecs.write_resource::<GameMode>() = GameMode::TowerDefense;
+
+        StateInitializer::create_campaign_heroes_with_policy(
+            &mut ecs,
+            &campaign,
+            CampaignHeroPolicy { disabled: true },
+        );
+
+        let hero_count = (&ecs.entities(), &ecs.read_storage::<Hero>())
+            .join()
+            .count();
+        assert_eq!(hero_count, 0);
+        assert!(ecs
+            .read_resource::<crate::scripting::ScriptEventQueue>()
+            .is_empty());
+    }
+
+    #[test]
+    fn default_campaign_hero_policy_preserves_td_hero_creation() {
+        let campaign = crate::ue4::import_campaign::load_generated("TD_1").expect("generated TD_1");
+        let thread_pool = StateInitializer::create_thread_pool();
+        let mut ecs = StateInitializer::setup_campaign_ecs_world(&thread_pool);
+        *ecs.write_resource::<GameMode>() = GameMode::TowerDefense;
+
+        StateInitializer::create_campaign_heroes_with_policy(
+            &mut ecs,
+            &campaign,
+            CampaignHeroPolicy::default(),
+        );
+
+        let hero_count = (&ecs.entities(), &ecs.read_storage::<Hero>())
+            .join()
+            .count();
+        assert_eq!(hero_count, 2);
+        assert_eq!(
+            ecs.read_resource::<crate::scripting::ScriptEventQueue>()
+                .len(),
+            2
+        );
+    }
 
     #[test]
     fn td_stress_emitter_uses_generated_template_stats() {

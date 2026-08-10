@@ -3,19 +3,17 @@ use crate::runtime::native::initialization::btd_easy_round_income_gold;
 use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent, RuntimeEvents};
 use omoba_sim::Fixed64;
 use serde_json::json;
-use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write};
+use specs::{shred, Join, Read, ReadStorage, SystemData, Write};
 use std::collections::BTreeMap;
 
 #[derive(SystemData)]
 pub struct CreepWaveRead<'a> {
-    entities: Entities<'a>,
     time: Read<'a, Time>,
     dt: Read<'a, DeltaTime>,
     creep_emiters: Read<'a, BTreeMap<String, CreepEmiter>>,
     paths: Read<'a, BTreeMap<String, Path>>,
     check_points: Read<'a, BTreeMap<String, CheckPoint>>,
     creeps: ReadStorage<'a, Creep>,
-    heroes: ReadStorage<'a, Hero>,
     game_mode: Read<'a, GameMode>,
 }
 
@@ -26,6 +24,7 @@ pub struct CreepWaveWrite<'a> {
     creep_waves: Write<'a, Vec<CreepWave>>,
     runtime_events: Write<'a, RuntimeEvents>,
     debug_spawns: Write<'a, PendingDebugCreepSpawnQueue>,
+    player_economy: Write<'a, PlayerEconomy>,
 }
 
 #[derive(Default)]
@@ -161,12 +160,7 @@ impl<'a> System<'a> for Sys {
                 let finished = cw.wave; // 已完成的波數（從 1 開始給前端看）
                 let total = tw.creep_waves.len();
                 if let Some(amount) = btd_easy_round_income_gold(finished) {
-                    for (hero_entity, _) in (&tr.entities, &tr.heroes).join() {
-                        tw.outcomes.push(Outcome::GainGold {
-                            target: hero_entity,
-                            amount,
-                        });
-                    }
+                    tw.player_economy.credit_all_saturating(amount);
                 }
                 let payload = json!({
                     "round": finished,
@@ -204,13 +198,12 @@ impl<'a> System<'a> for Sys {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use specs::{Builder, World, WorldExt};
+    use specs::{World, WorldExt};
 
     #[test]
-    fn td_wave_clear_awards_btd_easy_round_income_to_heroes() {
+    fn td_wave_clear_awards_btd_easy_round_income_without_heroes() {
         let mut world = World::new();
         world.register::<Creep>();
-        world.register::<Hero>();
 
         world.insert(Time(1.0));
         world.insert(DeltaTime(omoba_sim::Fixed64::ZERO));
@@ -223,6 +216,10 @@ mod tests {
         world.insert(crate::comp::PendingDebugCreepSpawnQueue::default());
         world.insert(crate::comp::SysMetrics::default());
         world.insert(crate::comp::TickProfile::default());
+        let mut economy = PlayerEconomy::default();
+        economy.initialize(1, 650);
+        economy.initialize(2, 650);
+        world.insert(economy);
         world.insert(CurrentCreepWave {
             wave: 0,
             path: Vec::new(),
@@ -237,15 +234,12 @@ mod tests {
             }],
         }]);
 
-        let hero = world.create_entity().with(Hero::default()).build();
-
         crate::comp::run_now::<Sys>(&world);
         world.maintain();
 
-        let outcomes = world.read_resource::<Vec<Outcome>>();
-        assert!(outcomes.iter().any(|outcome| matches!(
-            outcome,
-            Outcome::GainGold { target, amount } if *target == hero && *amount == 121
-        )));
+        let economy = world.read_resource::<PlayerEconomy>();
+        assert_eq!(economy.balance(1), Some(771));
+        assert_eq!(economy.balance(2), Some(771));
+        assert!(world.read_resource::<Vec<Outcome>>().is_empty());
     }
 }

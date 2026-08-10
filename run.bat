@@ -1,10 +1,11 @@
 @echo off
 setlocal
 pushd "%~dp0"
+set "OMB_NO_HEROES=1"
 
 REM Options:
-REM   --trace  啟用 omfx Perfetto trace（輸出預設由 executor 決定；可先設定
-REM            OMFX_PERFETTO_PATH / OMFX_PERFETTO_DETAIL / OMFX_PERFETTO_MAX_SECONDS）
+REM   --trace  Enable omfx Perfetto tracing. Optional settings:
+REM            OMFX_PERFETTO_PATH / OMFX_PERFETTO_DETAIL / OMFX_PERFETTO_MAX_SECONDS
 
 set "FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_run_freshness.ps1"
 set "EXECUTOR=omfx\target\debug\executor.exe"
