@@ -233,6 +233,24 @@ pub struct CreepStats {
     pub gold_reward: i32,
 }
 
+/// Generated authoritative TD layer graph. Strings remain stable content ids;
+/// runtime state stores them directly so snapshots and diagnostics are readable.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct TdLayerMetadataConst {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub hp: u32,
+    pub move_speed: u32,
+    pub children: &'static [&'static str],
+    pub cash: u32,
+    pub leak_value: u32,
+    pub properties: u32,
+    pub accepted_damage: u32,
+    pub regrow_eligible: bool,
+    pub fortified_eligible: bool,
+}
+
 /// Summon intrinsic stats — 對應 templates.lua summons[i]。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -526,6 +544,36 @@ pub fn active_creep_attack_timing(id: CreepId) -> Option<AttackTimingConst> {
     creep_attack_timing(id)
 }
 
+pub fn active_td_layer_catalog() -> &'static [TdLayerMetadataConst] {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::td_layer_catalog() {
+            return value;
+        }
+    }
+    td_layer_catalog()
+}
+
+pub fn active_td_layer_by_name(id: &str) -> Option<&'static TdLayerMetadataConst> {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::td_layer_by_name(id) {
+            return Some(value);
+        }
+    }
+    td_layer_by_name(id)
+}
+
+pub fn active_td_layer_catalog_digest() -> u64 {
+    #[cfg(feature = "runtime-lua-content")]
+    {
+        if let Some(value) = runtime_content::td_layer_digest() {
+            return value;
+        }
+    }
+    TD_LAYER_CATALOG_DIGEST
+}
+
 pub fn active_summon_stats(id: SummonId) -> Option<&'static SummonStats> {
     #[cfg(feature = "runtime-lua-content")]
     {
@@ -725,5 +773,36 @@ mod tests {
         assert!(active_tower_upgrades(TOWER_BOOMERANG).unwrap()[0][0]
             .active_ability
             .is_none());
+    }
+
+    #[test]
+    fn generated_td_layer_catalog_covers_all_shipped_rounds() {
+        let catalog = td_layer_catalog();
+        assert_eq!(catalog.len(), 17);
+        assert_ne!(TD_LAYER_CATALOG_DIGEST, 0);
+        for round_index in 0..td_rounds::round_count() {
+            for balloon in td_rounds::round(round_index) {
+                let layer = td_layer_by_name(balloon.base).unwrap_or_else(|| {
+                    panic!(
+                        "round {} missing TD layer {}",
+                        round_index + 1,
+                        balloon.base
+                    )
+                });
+                assert!(layer.hp > 0);
+                assert!(layer.move_speed > 0);
+                assert!(layer.accepted_damage & !td_rounds::damage_profile::KNOWN == 0);
+                for child in layer.children {
+                    assert!(
+                        td_layer_by_name(child).is_some(),
+                        "{} child {}",
+                        layer.id,
+                        child
+                    );
+                }
+            }
+        }
+        assert_eq!(td_layer_by_name("moab").unwrap().children.len(), 4);
+        assert_eq!(td_layer_by_name("ceramic").unwrap().leak_value, 104);
     }
 }

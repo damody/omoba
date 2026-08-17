@@ -32,6 +32,32 @@ pub(crate) struct Manifest {
     pub(crate) creeps: Vec<CreepEntry>,
     #[serde(default)]
     pub(crate) projectile_kinds: Vec<ProjKind>,
+    #[serde(default)]
+    pub(crate) td_layers: Vec<TdLayerEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub(crate) struct TdLayerEntry {
+    pub(crate) id: String,
+    #[serde(default)]
+    pub(crate) label: String,
+    pub(crate) hp: u32,
+    pub(crate) move_speed: u32,
+    #[serde(default)]
+    pub(crate) children: Vec<String>,
+    pub(crate) cash: u32,
+    pub(crate) leak_value: u32,
+    #[serde(default)]
+    pub(crate) properties: u32,
+    pub(crate) accepted_damage: u32,
+    #[serde(default = "default_true")]
+    pub(crate) regrow_eligible: bool,
+    #[serde(default = "default_true")]
+    pub(crate) fortified_eligible: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -642,7 +668,9 @@ impl LuaContentLoader {
                     params
                         .set("base", balloon.base)
                         .map_err(|e| e.to_string())?;
-                    params.set("hp", balloon.hp).map_err(|e| e.to_string())?;
+                    params
+                        .set("hp", balloon.selector_hp)
+                        .map_err(|e| e.to_string())?;
                     params
                         .set("camo", balloon.camo)
                         .map_err(|e| e.to_string())?;
@@ -848,12 +876,157 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     let lua = Lua::new();
     let loader = LuaContentLoader::new(content_root.clone())?;
     let manifest: Manifest = loader.load(&lua, "templates.lua")?;
+    validate_td_layers(&manifest.td_layers)?;
     let stories = load_stories(&loader, &lua, &content_root, &manifest)?;
+    if stories.iter().any(|story| {
+        story
+            .map
+            .get("GameMode")
+            .and_then(serde_json::Value::as_str)
+            == Some("TowerDefense")
+    }) {
+        validate_td_round_references(&manifest.td_layers)?;
+    }
     Ok(LuaContent {
         manifest,
         stories,
         read_files: loader.read_files(),
     })
+}
+
+pub(crate) fn validate_td_layers(entries: &[TdLayerEntry]) -> Result<(), String> {
+    const KNOWN_PROPERTIES: u32 = 0b1111;
+    const KNOWN_DAMAGE: u32 = 0xff;
+    let by_id: BTreeMap<&str, &TdLayerEntry> = entries
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
+    if by_id.len() != entries.len() {
+        return Err("TD layer catalog contains duplicate ids".into());
+    }
+    for entry in entries {
+        if entry.id.is_empty() {
+            return Err("TD layer id must not be empty".into());
+        }
+        if entry.hp == 0 {
+            return Err(format!("TD layer '{}' hp must be positive", entry.id));
+        }
+        if entry.move_speed == 0 {
+            return Err(format!(
+                "TD layer '{}' move_speed must be positive",
+                entry.id
+            ));
+        }
+        if entry.accepted_damage == 0 || entry.accepted_damage & !KNOWN_DAMAGE != 0 {
+            return Err(format!(
+                "TD layer '{}' has invalid accepted_damage mask {:#x}",
+                entry.id, entry.accepted_damage
+            ));
+        }
+        if entry.properties & !KNOWN_PROPERTIES != 0 {
+            return Err(format!(
+                "TD layer '{}' has invalid properties mask {:#x}",
+                entry.id, entry.properties
+            ));
+        }
+        if entry.properties & 0b0110 != 0 {
+            return Err(format!(
+                "TD layer '{}' must author Regrow/Fortified as round modifiers, not base properties",
+                entry.id
+            ));
+        }
+        for child in &entry.children {
+            if !by_id.contains_key(child.as_str()) {
+                return Err(format!(
+                    "TD layer '{}' field children references unknown layer '{}'",
+                    entry.id, child
+                ));
+            }
+        }
+    }
+
+    fn visit<'a>(
+        id: &'a str,
+        by_id: &BTreeMap<&'a str, &'a TdLayerEntry>,
+        visiting: &mut Vec<&'a str>,
+        done: &mut BTreeSet<&'a str>,
+    ) -> Result<(), String> {
+        if let Some(start) = visiting.iter().position(|candidate| *candidate == id) {
+            let mut cycle = visiting[start..].to_vec();
+            cycle.push(id);
+            return Err(format!("TD layer cycle: {}", cycle.join(" -> ")));
+        }
+        if done.contains(id) {
+            return Ok(());
+        }
+        visiting.push(id);
+        let entry = by_id[id];
+        for child in &entry.children {
+            visit(child, by_id, visiting, done)?;
+        }
+        visiting.pop();
+        done.insert(id);
+        Ok(())
+    }
+
+    let mut done = BTreeSet::new();
+    for entry in entries {
+        visit(&entry.id, &by_id, &mut Vec::new(), &mut done)?;
+    }
+    for entry in entries {
+        let child_leak = entry.children.iter().try_fold(0u32, |total, child| {
+            total
+                .checked_add(by_id[child.as_str()].leak_value)
+                .ok_or_else(|| format!("TD layer '{}' child leak_value overflow", entry.id))
+        })?;
+        let expected_leak = entry
+            .hp
+            .checked_add(child_leak)
+            .ok_or_else(|| format!("TD layer '{}' leak_value overflow", entry.id))?;
+        if entry.leak_value != expected_leak {
+            return Err(format!(
+                "TD layer '{}' leak_value={} does not equal hp+children={}",
+                entry.id, entry.leak_value, expected_leak
+            ));
+        }
+    }
+    if !entries.is_empty() {
+        validate_td_round_references(entries)?;
+    }
+    Ok(())
+}
+
+fn validate_td_round_references(entries: &[TdLayerEntry]) -> Result<(), String> {
+    let by_id: BTreeMap<&str, &TdLayerEntry> = entries
+        .iter()
+        .map(|entry| (entry.id.as_str(), entry))
+        .collect();
+    for round_index in 0..crate::td_rounds::round_count() {
+        for balloon in crate::td_rounds::round(round_index) {
+            let entry = by_id.get(balloon.base).ok_or_else(|| {
+                format!(
+                    "TD round {} references unknown layer '{}'",
+                    round_index + 1,
+                    balloon.base
+                )
+            })?;
+            if balloon.regrow && !entry.regrow_eligible {
+                return Err(format!(
+                    "TD round {} layer '{}' is not Regrow eligible",
+                    round_index + 1,
+                    balloon.base
+                ));
+            }
+            if balloon.fortified && !entry.fortified_eligible {
+                return Err(format!(
+                    "TD round {} layer '{}' is not Fortified eligible",
+                    round_index + 1,
+                    balloon.base
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn load_stories(
@@ -963,6 +1136,53 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("omoba_lua_content_{name}_{stamp}"))
+    }
+
+    fn td_layer(id: &str, children: &[&str]) -> TdLayerEntry {
+        TdLayerEntry {
+            id: id.into(),
+            label: id.into(),
+            hp: 1,
+            move_speed: 100,
+            children: children.iter().map(|child| (*child).into()).collect(),
+            cash: 1,
+            leak_value: 1,
+            properties: 0,
+            accepted_damage: 0xff,
+            regrow_eligible: true,
+            fortified_eligible: true,
+        }
+    }
+
+    #[test]
+    fn td_layer_validation_reports_unknown_child_and_cycle_paths() {
+        let unknown = validate_td_layers(&[td_layer("red", &["missing"])]).unwrap_err();
+        assert!(unknown.contains("red"), "{unknown}");
+        assert!(unknown.contains("missing"), "{unknown}");
+        assert!(unknown.contains("children"), "{unknown}");
+
+        let cyclic = validate_td_layers(&[
+            td_layer("red", &["blue"]),
+            td_layer("blue", &["green"]),
+            td_layer("green", &["red"]),
+        ])
+        .unwrap_err();
+        assert!(cyclic.contains("red -> blue -> green -> red"), "{cyclic}");
+    }
+
+    #[test]
+    fn td_layer_validation_rejects_invalid_masks_and_stats() {
+        let mut invalid_mask = td_layer("red", &[]);
+        invalid_mask.accepted_damage = 1 << 12;
+        let error = validate_td_layers(&[invalid_mask]).unwrap_err();
+        assert!(error.contains("red"), "{error}");
+        assert!(error.contains("accepted_damage"), "{error}");
+
+        let mut invalid_hp = td_layer("red", &[]);
+        invalid_hp.hp = 0;
+        let error = validate_td_layers(&[invalid_hp]).unwrap_err();
+        assert!(error.contains("red"), "{error}");
+        assert!(error.contains("hp"), "{error}");
     }
 
     fn write(path: &Path, text: &str) {
@@ -1191,6 +1411,27 @@ end
         minimal_story(&root, "S", "missing_creep_template");
         let err = load_content(root.clone()).unwrap_err();
         assert!(err.contains("missing_creep_template"), "{err}");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tower_defense_story_requires_complete_layer_catalog() {
+        let root = temp_root("td_requires_layers");
+        write(
+            &root.join("templates.lua"),
+            "return function(ctx) return { creeps = { { id = 'known_creep' } } } end\n",
+        );
+        minimal_story(&root, "TD", "known_creep");
+        write(
+            &root.join("TD/map.lua"),
+            "return function(ctx) return { GameMode = 'TowerDefense', Creep = { { Name = 'known_creep' } } } end\n",
+        );
+
+        let error = load_content(root.clone()).expect_err("TD content needs layer catalog");
+        assert!(
+            error.contains("TD round 1 references unknown layer 'red'"),
+            "{error}"
+        );
         fs::remove_dir_all(root).ok();
     }
 }

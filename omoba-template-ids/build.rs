@@ -78,6 +78,7 @@ fn main() {
         .collect();
     emit_namespace(&mut out, "Creep", "creep", &creep_ids, true);
     emit_projectile_kinds(&mut out, &m.projectile_kinds);
+    emit_td_layers(&mut out, &m.td_layers);
 
     // Hero → abilities lookup（必須在 abilities namespace emit 後做，因為 AbilityId 才存在）。
     // build.rs 自己 build 一個 ability id map，把字串 abilities 翻成 raw u16。
@@ -111,6 +112,63 @@ fn main() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let out_path = format!("{}/template_ids_gen.rs", out_dir);
     fs::write(&out_path, out).unwrap();
+}
+
+fn emit_td_layers(out: &mut String, entries: &[TdLayerEntry]) {
+    out.push_str("\n// ===== Generated authoritative TD layer catalog =====\n");
+    for entry in entries {
+        let name = format!("TD_LAYER_{}", sanitize_const_ident(&entry.id));
+        let children_name = format!("{}_CHILDREN", name);
+        out.push_str(&format!("pub static {}: &[&str] = &[", children_name));
+        for child in &entry.children {
+            out.push_str(&format!("\"{}\",", escape_str_literal(child)));
+        }
+        out.push_str("];\n");
+        out.push_str(&format!(
+            "pub static {name}: TdLayerMetadataConst = TdLayerMetadataConst {{ id: \"{id}\", label: \"{label}\", hp: {hp}, move_speed: {speed}, children: {children}, cash: {cash}, leak_value: {leak}, properties: {properties}, accepted_damage: {accepted}, regrow_eligible: {regrow}, fortified_eligible: {fortified} }};\n",
+            id = escape_str_literal(&entry.id),
+            label = escape_str_literal(&entry.label),
+            hp = entry.hp,
+            speed = entry.move_speed,
+            children = children_name,
+            cash = entry.cash,
+            leak = entry.leak_value,
+            properties = entry.properties,
+            accepted = entry.accepted_damage,
+            regrow = entry.regrow_eligible,
+            fortified = entry.fortified_eligible,
+        ));
+    }
+    out.push_str("pub static TD_LAYER_CATALOG_GENERATED: &[TdLayerMetadataConst] = &[\n");
+    for entry in entries {
+        out.push_str(&format!(
+            "    TD_LAYER_{},\n",
+            sanitize_const_ident(&entry.id)
+        ));
+    }
+    out.push_str("];\n");
+    out.push_str("pub fn td_layer_catalog() -> &'static [TdLayerMetadataConst] { TD_LAYER_CATALOG_GENERATED }\n");
+    out.push_str(
+        "pub fn td_layer_by_name(id: &str) -> Option<&'static TdLayerMetadataConst> { match id {\n",
+    );
+    for (index, entry) in entries.iter().enumerate() {
+        out.push_str(&format!(
+            "    \"{}\" => Some(&TD_LAYER_CATALOG_GENERATED[{}]),\n",
+            escape_str_literal(&entry.id),
+            index
+        ));
+    }
+    out.push_str("    _ => None,\n} }\n");
+
+    let bytes = serde_json::to_vec(entries).expect("serialize TD layer catalog");
+    let mut digest = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        digest ^= u64::from(byte);
+        digest = digest.wrapping_mul(0x100000001b3);
+    }
+    out.push_str(&format!(
+        "pub const TD_LAYER_CATALOG_DIGEST: u64 = {digest}u64;\n"
+    ));
 }
 
 fn escape_str_literal(s: &str) -> String {

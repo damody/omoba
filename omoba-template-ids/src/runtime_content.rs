@@ -1,7 +1,7 @@
 use crate::lua_content::{
     load_content, validate_active_ability_quantization, AbilityEntry, AttackTimingEntry,
-    CreepEntry, HeroEntry, HeroRenderEntry, Manifest, StoryBundle, SummonEntry, TowerEntry,
-    UpgradeEffectEntry,
+    CreepEntry, HeroEntry, HeroRenderEntry, Manifest, StoryBundle, SummonEntry, TdLayerEntry,
+    TowerEntry, UpgradeEffectEntry,
 };
 use crate::{
     ability_by_name, ability_id_str, creep_id_str, hero_id_str, summon_id_str, tower_id_str,
@@ -9,10 +9,10 @@ use crate::{
     AttackTimingConst, CastTypeC, CreepId, CreepStats, Fixed64, GeneratedStory,
     HeroAnimationBindingConst, HeroAnimationSourceConst, HeroId, HeroRenderMetadataConst,
     HeroRenderModeC, HeroStats, LevelGrowth, StatOpC, StoryValue, SummonId, SummonStats,
-    TargetTypeC, TowerBarrelLayoutC, TowerBarrelVariantConst, TowerId, TowerRecoilConst,
-    TowerRecoilModeC, TowerRenderAnimationConst, TowerRenderMetadataConst, TowerRenderModeC,
-    TowerRenderPointConst, TowerRotationModeC, TowerStats, UpgradeDefConst, UpgradeEffectConst,
-    UpgradeEffectKindC,
+    TargetTypeC, TdLayerMetadataConst, TowerBarrelLayoutC, TowerBarrelVariantConst, TowerId,
+    TowerRecoilConst, TowerRecoilModeC, TowerRenderAnimationConst, TowerRenderMetadataConst,
+    TowerRenderModeC, TowerRenderPointConst, TowerRotationModeC, TowerStats, UpgradeDefConst,
+    UpgradeEffectConst, UpgradeEffectKindC,
 };
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
@@ -68,6 +68,9 @@ pub struct RuntimeContent {
     ability_const: Vec<Option<&'static AbilityConst>>,
     ability_display: Vec<Option<&'static str>>,
     ability_description: Vec<Option<&'static str>>,
+    td_layer_catalog: &'static [TdLayerMetadataConst],
+    td_layers: HashMap<&'static str, &'static TdLayerMetadataConst>,
+    td_layer_digest: u64,
     story_ids: &'static [&'static str],
     stories: HashMap<&'static str, &'static GeneratedStory>,
 }
@@ -417,6 +420,22 @@ impl RuntimeContent {
             Ok(Some(leak_str(entry.description.clone())))
         })?;
 
+        let td_layer_digest = fnv1a64(
+            &serde_json::to_vec(&manifest.td_layers)
+                .map_err(|error| format!("serialize runtime TD layer catalog: {error}"))?,
+        );
+        let td_layer_catalog = leak_slice(
+            manifest
+                .td_layers
+                .iter()
+                .map(build_td_layer)
+                .collect::<Vec<_>>(),
+        );
+        let td_layers = td_layer_catalog
+            .iter()
+            .map(|entry| (entry.id, entry))
+            .collect();
+
         let mut story_map = HashMap::new();
         let mut story_id_vec = Vec::new();
         for story in stories {
@@ -454,6 +473,9 @@ impl RuntimeContent {
             ability_const,
             ability_display,
             ability_description,
+            td_layer_catalog,
+            td_layers,
+            td_layer_digest,
             story_ids: leak_slice(story_id_vec),
             stories: story_map,
         })
@@ -469,6 +491,7 @@ struct ContentShape {
     summons: Vec<Option<String>>,
     creeps: Vec<Option<String>>,
     projectile_kinds: Vec<Option<String>>,
+    td_layers: Vec<String>,
     stories: Vec<StoryShape>,
 }
 
@@ -501,6 +524,11 @@ impl ContentShape {
             summons: entry_shape(&manifest.summons),
             creeps: entry_shape(&manifest.creeps),
             projectile_kinds: entry_shape(&manifest.projectile_kinds),
+            td_layers: manifest
+                .td_layers
+                .iter()
+                .map(|entry| entry.id.clone())
+                .collect(),
             stories: stories
                 .iter()
                 .map(|story| StoryShape {
@@ -526,6 +554,9 @@ impl ContentShape {
             &self.projectile_kinds,
             &previous.projectile_kinds,
         )?;
+        if self.td_layers != previous.td_layers {
+            return Err("runtime Lua content TD layer ids changed; restart gameplay".into());
+        }
         if self.stories != previous.stories {
             return Err(
                 "runtime Lua content story topology changed; restart gameplay to apply structural changes"
@@ -533,6 +564,22 @@ impl ContentShape {
             );
         }
         Ok(())
+    }
+}
+
+fn build_td_layer(entry: &TdLayerEntry) -> TdLayerMetadataConst {
+    TdLayerMetadataConst {
+        id: leak_str(entry.id.clone()),
+        label: leak_str(entry.label.clone()),
+        hp: entry.hp,
+        move_speed: entry.move_speed,
+        children: leak_slice(entry.children.iter().cloned().map(leak_str).collect()),
+        cash: entry.cash,
+        leak_value: entry.leak_value,
+        properties: entry.properties,
+        accepted_damage: entry.accepted_damage,
+        regrow_eligible: entry.regrow_eligible,
+        fortified_eligible: entry.fortified_eligible,
     }
 }
 
@@ -1320,6 +1367,18 @@ pub fn ability_description(id: AbilityId) -> Option<&'static str> {
     active_content().and_then(|content| get_index(&content.ability_description, id.0))
 }
 
+pub fn td_layer_catalog() -> Option<&'static [TdLayerMetadataConst]> {
+    active_content().map(|content| content.td_layer_catalog)
+}
+
+pub fn td_layer_by_name(id: &str) -> Option<&'static TdLayerMetadataConst> {
+    active_content().and_then(|content| content.td_layers.get(id).copied())
+}
+
+pub fn td_layer_digest() -> Option<u64> {
+    active_content().map(|content| content.td_layer_digest)
+}
+
 pub fn story_by_name(name: &str) -> Option<&'static GeneratedStory> {
     active_content().and_then(|content| content.stories.get(name).copied())
 }
@@ -1348,6 +1407,28 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("omoba_runtime_content_{name}_{stamp}"))
+    }
+
+    #[test]
+    fn shipped_runtime_lua_td_layers_match_generated_catalog_and_digest() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("scripts/lua_data");
+        let content = load_content(root).expect("load shipped Lua content");
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories)
+            .expect("build runtime content");
+
+        assert_eq!(runtime.td_layer_digest, crate::TD_LAYER_CATALOG_DIGEST);
+        assert_eq!(runtime.td_layer_catalog, crate::td_layer_catalog());
+        for generated in crate::td_layer_catalog() {
+            assert_eq!(
+                runtime.td_layers.get(generated.id).copied(),
+                Some(generated),
+                "{}",
+                generated.id
+            );
+        }
     }
 
     fn write(path: &Path, text: &str) {

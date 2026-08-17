@@ -26,5 +26,6 @@ return function(ctx)
     summons = ctx.include("templates/summons.lua"),
     creeps = ctx.include("templates/creeps.lua"),
     projectile_kinds = ctx.include("templates/projectile_kinds.lua"),
+    td_layers = ctx.include("templates/td_layers.lua"),
   }
 end

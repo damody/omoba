@@ -3,6 +3,313 @@
 #[allow(dead_code)] // build.rs compiles this module but only runtime setup uses the cadence.
 pub const SPAWN_INTERVAL_SECS: f32 = 0.18;
 
+/// Stable TD damage-profile bits.  These values are shared with the script ABI;
+/// never renumber an existing bit.
+pub mod damage_profile {
+    pub const SHARP: u32 = 1 << 0;
+    pub const EXPLOSIVE: u32 = 1 << 1;
+    pub const ENERGY: u32 = 1 << 2;
+    pub const FIRE: u32 = 1 << 3;
+    pub const COLD: u32 = 1 << 4;
+    pub const NORMAL: u32 = 1 << 5;
+    pub const CRUSHING: u32 = 1 << 6;
+    pub const TRUE: u32 = 1 << 7;
+    pub const KNOWN: u32 = SHARP | EXPLOSIVE | ENERGY | FIRE | COLD | NORMAL | CRUSHING | TRUE;
+}
+
+pub mod layer_property {
+    pub const CAMO: u32 = 1 << 0;
+    pub const REGROW: u32 = 1 << 1;
+    pub const FORTIFIED: u32 = 1 << 2;
+    pub const MOAB_CLASS: u32 = 1 << 3;
+}
+
+/// Dependency-light, authoritative data for one layer in the TD graph.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct TdLayerMetadata {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub hp: u32,
+    pub move_speed: u32,
+    pub children: &'static [&'static str],
+    /// Cash credited when this layer is removed. Multi-HP shells intentionally
+    /// carry more than one cash so the authored total remains pop-equivalent.
+    pub cash: u32,
+    /// Life damage if this complete layer graph reaches the exit.
+    pub leak_value: u32,
+    pub properties: u32,
+    /// Tags which may damage this layer. `TRUE` is included unless a future
+    /// content entry explicitly declares an invulnerable layer.
+    pub accepted_damage: u32,
+}
+
+const ALL_DAMAGE: u32 = damage_profile::KNOWN;
+const WITHOUT_EXPLOSIVE: u32 = ALL_DAMAGE & !damage_profile::EXPLOSIVE;
+const WITHOUT_COLD: u32 = ALL_DAMAGE & !damage_profile::COLD;
+const WITHOUT_ENERGY_FIRE: u32 = ALL_DAMAGE & !damage_profile::ENERGY & !damage_profile::FIRE;
+const WITHOUT_SHARP: u32 = ALL_DAMAGE & !damage_profile::SHARP;
+const WITHOUT_EXPLOSIVE_COLD: u32 = ALL_DAMAGE & !damage_profile::EXPLOSIVE & !damage_profile::COLD;
+
+const PINK_CHILDREN: &[&str] = &["pink", "pink"];
+const ZEBRA_CHILDREN: &[&str] = &["black", "white"];
+const LEAD_CHILDREN: &[&str] = &["black", "black"];
+const RAINBOW_CHILDREN: &[&str] = &["zebra", "zebra"];
+const CERAMIC_CHILDREN: &[&str] = &["rainbow", "rainbow"];
+const MOAB_CHILDREN: &[&str] = &["ceramic", "ceramic", "ceramic", "ceramic"];
+const BFB_CHILDREN: &[&str] = &["moab", "moab", "moab", "moab"];
+const ZOMG_CHILDREN: &[&str] = &["bfb", "bfb", "bfb", "bfb"];
+
+pub const TD_LAYER_CATALOG: &[TdLayerMetadata] = &[
+    TdLayerMetadata {
+        id: "red",
+        label: "Red",
+        hp: 1,
+        move_speed: 120,
+        children: &[],
+        cash: 1,
+        leak_value: 1,
+        properties: 0,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "blue",
+        label: "Blue",
+        hp: 1,
+        move_speed: 140,
+        children: &["red"],
+        cash: 1,
+        leak_value: 2,
+        properties: 0,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "green",
+        label: "Green",
+        hp: 1,
+        move_speed: 160,
+        children: &["blue"],
+        cash: 1,
+        leak_value: 3,
+        properties: 0,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "yellow",
+        label: "Yellow",
+        hp: 1,
+        move_speed: 185,
+        children: &["green"],
+        cash: 1,
+        leak_value: 4,
+        properties: 0,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "pink",
+        label: "Pink",
+        hp: 1,
+        move_speed: 220,
+        children: &["yellow"],
+        cash: 1,
+        leak_value: 5,
+        properties: 0,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "black",
+        label: "Black",
+        hp: 1,
+        move_speed: 180,
+        children: PINK_CHILDREN,
+        cash: 1,
+        leak_value: 11,
+        properties: 0,
+        accepted_damage: WITHOUT_EXPLOSIVE,
+    },
+    TdLayerMetadata {
+        id: "white",
+        label: "White",
+        hp: 1,
+        move_speed: 180,
+        children: PINK_CHILDREN,
+        cash: 1,
+        leak_value: 11,
+        properties: 0,
+        accepted_damage: WITHOUT_COLD,
+    },
+    TdLayerMetadata {
+        id: "purple",
+        label: "Purple",
+        hp: 1,
+        move_speed: 180,
+        children: PINK_CHILDREN,
+        cash: 1,
+        leak_value: 11,
+        properties: 0,
+        accepted_damage: WITHOUT_ENERGY_FIRE,
+    },
+    TdLayerMetadata {
+        id: "zebra",
+        label: "Zebra",
+        hp: 1,
+        move_speed: 120,
+        children: ZEBRA_CHILDREN,
+        cash: 1,
+        leak_value: 23,
+        properties: 0,
+        accepted_damage: WITHOUT_EXPLOSIVE_COLD,
+    },
+    TdLayerMetadata {
+        id: "lead",
+        label: "Lead",
+        hp: 1,
+        move_speed: 120,
+        children: LEAD_CHILDREN,
+        cash: 1,
+        leak_value: 23,
+        properties: 0,
+        accepted_damage: WITHOUT_SHARP,
+    },
+    TdLayerMetadata {
+        id: "rainbow",
+        label: "Rainbow",
+        hp: 1,
+        move_speed: 195,
+        children: RAINBOW_CHILDREN,
+        cash: 1,
+        leak_value: 47,
+        properties: 0,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "ceramic",
+        label: "Ceramic",
+        hp: 10,
+        move_speed: 210,
+        children: CERAMIC_CHILDREN,
+        cash: 10,
+        leak_value: 104,
+        properties: 0,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "moab",
+        label: "MOAB",
+        hp: 200,
+        move_speed: 80,
+        children: MOAB_CHILDREN,
+        cash: 200,
+        leak_value: 616,
+        properties: layer_property::MOAB_CLASS,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "bfb",
+        label: "BFB",
+        hp: 700,
+        move_speed: 60,
+        children: BFB_CHILDREN,
+        cash: 700,
+        leak_value: 3164,
+        properties: layer_property::MOAB_CLASS,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "zomg",
+        label: "ZOMG",
+        hp: 4000,
+        move_speed: 45,
+        children: ZOMG_CHILDREN,
+        cash: 4000,
+        leak_value: 16656,
+        properties: layer_property::MOAB_CLASS,
+        accepted_damage: ALL_DAMAGE,
+    },
+    TdLayerMetadata {
+        id: "ddt",
+        label: "DDT",
+        hp: 152,
+        move_speed: 260,
+        children: &[],
+        cash: 152,
+        leak_value: 152,
+        properties: layer_property::MOAB_CLASS | layer_property::CAMO,
+        accepted_damage: WITHOUT_SHARP,
+    },
+    TdLayerMetadata {
+        id: "bad",
+        label: "BAD",
+        hp: 67200,
+        move_speed: 35,
+        children: &[],
+        cash: 67200,
+        leak_value: 67200,
+        properties: layer_property::MOAB_CLASS,
+        accepted_damage: ALL_DAMAGE,
+    },
+];
+
+pub fn layer(base: &str) -> Option<&'static TdLayerMetadata> {
+    TD_LAYER_CATALOG.iter().find(|entry| entry.id == base)
+}
+
+pub fn validate_layer_catalog() -> Result<(), String> {
+    use std::collections::BTreeSet;
+
+    let ids: BTreeSet<&str> = TD_LAYER_CATALOG.iter().map(|entry| entry.id).collect();
+    if ids.len() != TD_LAYER_CATALOG.len() {
+        return Err("TD layer catalog contains duplicate ids".into());
+    }
+    for entry in TD_LAYER_CATALOG {
+        if entry.hp == 0 {
+            return Err(format!("TD layer '{}' hp must be positive", entry.id));
+        }
+        if entry.accepted_damage == 0 || entry.accepted_damage & !damage_profile::KNOWN != 0 {
+            return Err(format!(
+                "TD layer '{}' has invalid accepted_damage mask",
+                entry.id
+            ));
+        }
+        for child in entry.children {
+            if !ids.contains(child) {
+                return Err(format!(
+                    "TD layer '{}' children references unknown layer '{}'",
+                    entry.id, child
+                ));
+            }
+        }
+    }
+
+    fn visit(
+        id: &'static str,
+        visiting: &mut Vec<&'static str>,
+        done: &mut BTreeSet<&'static str>,
+    ) -> Result<(), String> {
+        if let Some(start) = visiting.iter().position(|candidate| *candidate == id) {
+            let mut cycle = visiting[start..].to_vec();
+            cycle.push(id);
+            return Err(format!("TD layer cycle: {}", cycle.join(" -> ")));
+        }
+        if done.contains(id) {
+            return Ok(());
+        }
+        visiting.push(id);
+        let entry = layer(id).ok_or_else(|| format!("TD layer '{}' is missing", id))?;
+        for child in entry.children {
+            visit(child, visiting, done)?;
+        }
+        visiting.pop();
+        done.insert(id);
+        Ok(())
+    }
+
+    let mut done = BTreeSet::new();
+    for entry in TD_LAYER_CATALOG {
+        visit(entry.id, &mut Vec::new(), &mut done)?;
+    }
+    Ok(())
+}
+
 const ROUND_DESCRIPTIONS: [&str; 100] = [
     "20 Reds",
     "35 Reds",
@@ -111,7 +418,11 @@ pub struct BalloonSpec {
     pub id: String,
     pub label: String,
     pub base: &'static str,
+    /// Authoritative current-layer HP used to initialize runtime `CProperty`.
     pub hp: u32,
+    /// Read-only graph HP exposed to authored `SelectSpawnPath` callbacks.
+    /// This compatibility value is never used to construct or flatten a creep.
+    pub selector_hp: u32,
     pub camo: bool,
     pub regrow: bool,
     pub fortified: bool,
@@ -156,7 +467,13 @@ fn parse_part(part: &str) -> Option<(usize, BalloonSpec)> {
         .iter()
         .any(|word| word.eq_ignore_ascii_case("fortified"));
     let base = words.iter().rev().find_map(|word| normalize_base(word))?;
-    let hp = effective_hp(base, fortified)?;
+    let layer_hp = layer(base)?.hp;
+    let hp = if fortified {
+        layer_hp.saturating_mul(2)
+    } else {
+        layer_hp
+    };
+    let selector_hp = selector_graph_hp(base, fortified)?;
     let id = creep_key(base, camo, regrow, fortified);
     let mut label_parts = Vec::new();
     if camo {
@@ -183,6 +500,7 @@ fn parse_part(part: &str) -> Option<(usize, BalloonSpec)> {
             label: label_parts.join(" "),
             base,
             hp,
+            selector_hp,
             camo,
             regrow,
             fortified,
@@ -190,25 +508,14 @@ fn parse_part(part: &str) -> Option<(usize, BalloonSpec)> {
     ))
 }
 
-pub fn effective_hp(base: &str, fortified: bool) -> Option<u32> {
-    let base_hp = match base {
-        "red" => 1,
-        "blue" => 2,
-        "green" => 3,
-        "yellow" => 4,
-        "pink" => 5,
-        "black" | "white" | "purple" => 11,
-        "zebra" | "lead" => 23,
-        "rainbow" => 47,
-        "ceramic" => 104,
-        "moab" => 616,
-        "bfb" => 3164,
-        "zomg" => 16656,
-        "ddt" => 152,
-        "bad" => 67200,
-        _ => return None,
-    };
-    Some(if fortified { base_hp * 2 } else { base_hp })
+fn selector_graph_hp(base: &str, fortified: bool) -> Option<u32> {
+    let metadata = layer(base)?;
+    let multiplier = if fortified { 2 } else { 1 };
+    let mut total = metadata.hp.saturating_mul(multiplier);
+    for child in metadata.children {
+        total = total.saturating_add(selector_graph_hp(child, fortified)?);
+    }
+    Some(total)
 }
 
 fn creep_key(base: &str, camo: bool, regrow: bool, fortified: bool) -> String {
@@ -273,8 +580,44 @@ mod tests {
     }
 
     #[test]
-    fn effective_hp_includes_fortified_scaling() {
-        assert_eq!(effective_hp("ceramic", false), Some(104));
-        assert_eq!(effective_hp("ceramic", true), Some(208));
+    fn layer_catalog_is_valid_and_covers_every_round_reference() {
+        validate_layer_catalog().unwrap();
+        for round_index in 0..round_count() {
+            for balloon in round(round_index) {
+                assert!(
+                    layer(balloon.base).is_some(),
+                    "round {} missing {}",
+                    round_index + 1,
+                    balloon.base
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn representative_layer_graphs_have_expected_leak_value() {
+        for (id, hp) in [
+            ("black", 11),
+            ("zebra", 23),
+            ("ceramic", 104),
+            ("moab", 616),
+            ("bfb", 3164),
+            ("zomg", 16656),
+        ] {
+            assert_eq!(layer(id).unwrap().leak_value, hp, "{id}");
+        }
+    }
+
+    #[test]
+    fn spawn_path_selector_hp_is_derived_from_the_layer_graph() {
+        assert_eq!(selector_graph_hp("red", false), Some(1));
+        assert_eq!(selector_graph_hp("blue", false), Some(2));
+        assert_eq!(selector_graph_hp("ceramic", false), Some(104));
+        assert_eq!(selector_graph_hp("ceramic", true), Some(208));
+
+        let blue = round(2).pop().expect("round 3 has blue balloons");
+        assert_eq!(blue.base, "blue");
+        assert_eq!(blue.hp, 1, "runtime receives current-layer HP");
+        assert_eq!(blue.selector_hp, 2, "map selector receives graph HP");
     }
 }
