@@ -88,7 +88,11 @@ pub fn lockstep_dt_fixed_raw_for_tick(tick: u64) -> i64 {
     fixed_raw_for_tick_at_fps(tick, LOCKSTEP_TPS_U64)
 }
 
-fn fixed_raw_for_tick_at_fps(tick: u64, tps: u64) -> i64 {
+/// Returns the deterministic Q10 delta for an arbitrary fixed-step profile.
+///
+/// This is public for headless simulation profiles. Production networking still
+/// validates its rates through [`LockstepTiming`].
+pub fn fixed_raw_for_tick_at_fps(tick: u64, tps: u64) -> i64 {
     if tick == 0 {
         return 0;
     }
