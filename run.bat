@@ -20,13 +20,21 @@ set "CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG=false"
 set "RUSTFLAGS=-C debuginfo=0"
 
 set "RUN_TRACE="
+set "RUN_AUTOPLAY_100="
 :parse_args
 if "%~1"=="" goto :args_done
 if /I "%~1"=="--trace" set "RUN_TRACE=1"
+if /I "%~1"=="--autoplay-100" set "RUN_AUTOPLAY_100=1"
 shift
 goto :parse_args
 
 :args_done
+set "OMFX_AUTOPLAY_100="
+if defined RUN_AUTOPLAY_100 (
+    set "OMFX_AUTOPLAY_100=1"
+    set "OMB_NO_HEROES=1"
+    echo Visual TD rounds 1-100 autoplay enabled.
+)
 if defined RUN_TRACE (
     set "OMFX_PERFETTO_TRACE=1"
     if not defined OMFX_PERFETTO_DETAIL set "OMFX_PERFETTO_DETAIL=frame"
