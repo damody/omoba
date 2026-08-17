@@ -4,6 +4,7 @@ use omoba_sim::fixed::SCALE;
 use specs::{Join, World, WorldExt};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::comp::{
@@ -73,9 +74,162 @@ impl TdAutoplayRunReport {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TdAutoplayRunStatus {
+    #[default]
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TdAutoplayObserverControl {
+    Continue,
+    Cancel,
+}
+
+#[derive(Clone, Debug)]
+pub struct TdAutoplayFrame {
+    pub snapshot: crate::runtime::SimWorldSnapshot,
+    pub status: TdAutoplayRunStatus,
+    pub round: u32,
+    pub total_rounds: u32,
+    pub completion_percent: u8,
+    pub tick: u64,
+    pub cash: i32,
+    pub lives: i32,
+    pub tower_count: usize,
+    pub enemy_count: usize,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TdAutoplayObservedOutcome {
+    Completed(TdAutoplayRunReport),
+    Cancelled,
+}
+
 pub fn run_td_autoplay_1_to_100(
     config: &TdAutoplayRunConfig,
 ) -> Result<TdAutoplayRunReport, String> {
+    match run_td_autoplay_internal(config, Duration::ZERO, None)? {
+        TdAutoplayObservedOutcome::Completed(report) => Ok(report),
+        TdAutoplayObservedOutcome::Cancelled => {
+            Err("headless TD autoplay was unexpectedly cancelled".to_string())
+        }
+    }
+}
+
+pub fn run_td_autoplay_1_to_100_observed<F>(
+    config: &TdAutoplayRunConfig,
+    publish_interval: Duration,
+    mut observer: F,
+) -> Result<TdAutoplayObservedOutcome, String>
+where
+    F: FnMut(&TdAutoplayFrame) -> TdAutoplayObserverControl,
+{
+    run_td_autoplay_internal(config, publish_interval, Some(&mut observer))
+}
+
+type AutoplayObserver<'a> = &'a mut dyn FnMut(&TdAutoplayFrame) -> TdAutoplayObserverControl;
+type AutoplayRenderMetadata = (
+    Arc<Vec<crate::runtime::AbilityDefSnapshot>>,
+    Arc<Vec<crate::runtime::TowerTemplateSnapshot>>,
+    Arc<Vec<crate::runtime::TowerUpgradeDefSnapshot>>,
+);
+
+fn autoplay_render_metadata(world: &World) -> AutoplayRenderMetadata {
+    let abilities = world.read_resource::<crate::runtime::AbilityRegistry>();
+    let tower_templates = world.read_resource::<TowerTemplateRegistry>();
+    let tower_upgrades = world.read_resource::<TowerUpgradeRegistry>();
+    (
+        Arc::new(crate::runtime::build_ability_def_snapshots(&abilities)),
+        Arc::new(crate::runtime::build_tower_template_snapshots(
+            &tower_templates,
+        )),
+        Arc::new(crate::runtime::build_tower_upgrade_def_snapshots(
+            &tower_upgrades,
+        )),
+    )
+}
+
+fn autoplay_frame(
+    world: &mut World,
+    tick: u64,
+    status: TdAutoplayRunStatus,
+    error: Option<String>,
+    metadata: &AutoplayRenderMetadata,
+) -> TdAutoplayFrame {
+    let snapshot = crate::runtime::extract_snapshot(
+        world,
+        u32::try_from(tick).unwrap_or(u32::MAX),
+        metadata.0.clone(),
+        metadata.1.clone(),
+        metadata.2.clone(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let tower_count = snapshot
+        .entities
+        .iter()
+        .filter(|entity| matches!(entity.kind, crate::runtime::EntityKind::Tower))
+        .count();
+    let enemy_count = snapshot
+        .entities
+        .iter()
+        .filter(|entity| matches!(entity.kind, crate::runtime::EntityKind::Creep))
+        .count();
+    let total_rounds = snapshot.total_rounds.max(100);
+    let round = if status == TdAutoplayRunStatus::Completed {
+        100
+    } else {
+        snapshot.round.saturating_add(1).min(total_rounds)
+    };
+    let completion_percent = ((u64::from(round) * 100) / u64::from(total_rounds.max(1))) as u8;
+    let cash = snapshot
+        .player_gold
+        .get(&AUTOPLAY_PLAYER_ID)
+        .copied()
+        .unwrap_or(0);
+    let lives = snapshot.lives;
+    TdAutoplayFrame {
+        snapshot,
+        status,
+        round,
+        total_rounds,
+        completion_percent,
+        tick,
+        cash,
+        lives,
+        tower_count,
+        enemy_count,
+        error,
+    }
+}
+
+fn publish_autoplay_frame(
+    observer: &mut Option<AutoplayObserver<'_>>,
+    world: &mut World,
+    tick: u64,
+    status: TdAutoplayRunStatus,
+    error: Option<String>,
+    metadata: &AutoplayRenderMetadata,
+) -> TdAutoplayObserverControl {
+    let Some(observer) = observer.as_deref_mut() else {
+        return TdAutoplayObserverControl::Continue;
+    };
+    let frame = autoplay_frame(world, tick, status, error, metadata);
+    let control = observer(&frame);
+    std::thread::yield_now();
+    control
+}
+
+fn run_td_autoplay_internal(
+    config: &TdAutoplayRunConfig,
+    publish_interval: Duration,
+    mut observer: Option<AutoplayObserver<'_>>,
+) -> Result<TdAutoplayObservedOutcome, String> {
     let campaign = crate::ue4::import_campaign::load_generated("TD_GREEN_CROSSROADS")
         .map_err(|error| format!("load TD_GREEN_CROSSROADS: {error}"))?;
     let scripts = crate::scripting::loader::load_scripts_dir(&config.scripts_dir);
@@ -115,6 +269,28 @@ pub fn run_td_autoplay_1_to_100(
         .write_resource::<crate::runtime::TdEconomyLedger>()
         .enable_full_observer();
 
+    let render_metadata = autoplay_render_metadata(&world);
+    if publish_autoplay_frame(
+        &mut observer,
+        &mut world,
+        0,
+        TdAutoplayRunStatus::Running,
+        None,
+        &render_metadata,
+    ) == TdAutoplayObserverControl::Cancel
+    {
+        let _ = publish_autoplay_frame(
+            &mut observer,
+            &mut world,
+            0,
+            TdAutoplayRunStatus::Cancelled,
+            None,
+            &render_metadata,
+        );
+        return Ok(TdAutoplayObservedOutcome::Cancelled);
+    }
+
+    let run_result = (|| -> Result<Option<TdAutoplayRunReport>, String> {
     let mut driver = crate::runtime::SimulationDriver::from_world(&mut world, config.profile)
         .map_err(|error| format!("create simulation driver: {error}"))?;
     let mut controller = AutoplayController::default();
@@ -126,6 +302,8 @@ pub fn run_td_autoplay_1_to_100(
     let mut recent_outcomes = VecDeque::<String>::with_capacity(64);
     let mut recent_rejected_inputs = VecDeque::<String>::with_capacity(32);
     let started = Instant::now();
+    let mut last_published_at = Instant::now();
+    let mut last_published_round = 0usize;
 
     loop {
         let observation = AutoplayController::observe(&world);
@@ -224,6 +402,23 @@ pub fn run_td_autoplay_1_to_100(
             }
             last_round = round;
             last_round_progress_tick = driver.tick();
+        }
+        if observer.is_some()
+            && (round != last_published_round || last_published_at.elapsed() >= publish_interval)
+        {
+            let control = publish_autoplay_frame(
+                &mut observer,
+                &mut world,
+                driver.tick(),
+                TdAutoplayRunStatus::Running,
+                None,
+                &render_metadata,
+            );
+            last_published_at = Instant::now();
+            last_published_round = round;
+            if control == TdAutoplayObserverControl::Cancel {
+                return Ok(None);
+            }
         }
         let entity_count = world.entities().join().count();
         entity_peak = entity_peak.max(entity_count);
@@ -343,7 +538,7 @@ pub fn run_td_autoplay_1_to_100(
     let seed = world.read_resource::<crate::comp::MasterSeed>().0;
     let lives = world.read_resource::<PlayerLives>().0;
     let state_hash = autoplay_state_hash(&world);
-    Ok(TdAutoplayRunReport {
+    Ok(Some(TdAutoplayRunReport {
         seed,
         profile: config.profile,
         ticks: driver.tick(),
@@ -357,7 +552,46 @@ pub fn run_td_autoplay_1_to_100(
         rejected_placements: controller.rejected_placements,
         round_end_ticks,
         branch_counts,
-    })
+    }))
+    })();
+
+    match run_result {
+        Ok(Some(report)) => {
+            let _ = publish_autoplay_frame(
+                &mut observer,
+                &mut world,
+                report.ticks,
+                TdAutoplayRunStatus::Completed,
+                None,
+                &render_metadata,
+            );
+            Ok(TdAutoplayObservedOutcome::Completed(report))
+        }
+        Ok(None) => {
+            let tick = world.read_resource::<crate::comp::Tick>().0;
+            let _ = publish_autoplay_frame(
+                &mut observer,
+                &mut world,
+                tick,
+                TdAutoplayRunStatus::Cancelled,
+                None,
+                &render_metadata,
+            );
+            Ok(TdAutoplayObservedOutcome::Cancelled)
+        }
+        Err(error) => {
+            let tick = world.read_resource::<crate::comp::Tick>().0;
+            let _ = publish_autoplay_frame(
+                &mut observer,
+                &mut world,
+                tick,
+                TdAutoplayRunStatus::Failed,
+                Some(error.clone()),
+                &render_metadata,
+            );
+            Err(error)
+        }
+    }
 }
 
 fn autoplay_failure<T>(
