@@ -13,6 +13,9 @@ pub enum Outcome {
         real: Fixed64,
         source: Entity,
         target: Entity,
+        /// Explicit compatibility mask for TD layered enemies.
+        #[serde(default)]
+        damage_profile: u32,
         #[serde(default)]
         predeclared: bool,
     },
@@ -159,6 +162,7 @@ pub enum Outcome {
         damage_phys: Fixed64,
         damage_magi: Fixed64,
         damage_real: Fixed64,
+        damage_profile: u32,
         slow_factor: Fixed64,
         slow_duration: Fixed64,
         hit_radius: Fixed64,

@@ -712,6 +712,7 @@ mod tests {
     fn supported_behavior_flags(tower_kind: &str) -> &'static [&'static str] {
         match tower_kind {
             "tower_dart" => &[
+                "camo_detection",
                 "sharp_pierce",
                 "spike_o_pult",
                 "triple_shot",

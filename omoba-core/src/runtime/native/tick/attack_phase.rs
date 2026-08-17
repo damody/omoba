@@ -63,6 +63,28 @@ pub fn fixed_secs_to_ms(value: Fixed64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::SimulationTickProfile;
+
+    fn attack_order_for_profile(profile: SimulationTickProfile) -> Vec<AttackPhaseStep> {
+        let interval = Fixed64::from_raw(819);
+        let mut asd_count = interval;
+        let mut events = Vec::new();
+        for tick in 1..=u64::from(profile.ticks_per_game_second()) * 10 {
+            match advance_attack_phase(
+                &mut asd_count,
+                Fixed64::from_raw(profile.fixed_raw_for_tick(tick)),
+                interval,
+            ) {
+                AttackPhaseStep::Ready => {
+                    events.push(AttackPhaseStep::Ready);
+                    start_attack_windup(&mut asd_count, interval);
+                }
+                AttackPhaseStep::Impact => events.push(AttackPhaseStep::Impact),
+                AttackPhaseStep::Charging => {}
+            }
+        }
+        events
+    }
 
     #[test]
     fn windup_and_backswing_sum_to_interval() {
@@ -86,5 +108,17 @@ mod tests {
             AttackPhaseStep::Impact
         );
         assert_eq!(asd_count, windup);
+    }
+
+    #[test]
+    fn repeated_attack_order_matches_at_fifteen_and_one_twenty_hz() {
+        let coarse = attack_order_for_profile(SimulationTickProfile::Coarse15Hz);
+        let fine = attack_order_for_profile(SimulationTickProfile::Production120Hz);
+
+        assert_eq!(coarse, fine);
+        assert!(!coarse.is_empty());
+        assert!(coarse
+            .chunks_exact(2)
+            .all(|pair| pair == [AttackPhaseStep::Ready, AttackPhaseStep::Impact]));
     }
 }

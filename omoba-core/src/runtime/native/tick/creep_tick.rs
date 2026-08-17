@@ -431,6 +431,7 @@ impl<'a> System<'a> for Sys {
                         real: Fixed64::ZERO,
                         source: td.source, // 使用正確的攻擊者
                         target: td.ent,
+                        damage_profile: omb_script_abi::types::DamageProfile::NORMAL.bits(),
                         predeclared: false, // melee / on-touch damage — never pre-declared
                     });
                 } else if td.phys > Fixed64::ZERO || td.magi > Fixed64::ZERO {
@@ -460,4 +461,121 @@ fn path_remaining_distance(path: &Path, pos: SimVec2, pidx: usize) -> Fixed64 {
         remaining += (cps[i + 1] - cps[i]).length();
     }
     remaining
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::comp::{run_now, SysMetrics, TickProfile};
+    use crate::runtime::ability_runtime::BuffStore;
+    use crate::runtime::SimulationTickProfile;
+    use specs::{Builder, World, WorldExt};
+
+    fn path_end_order_for_profile(profile: SimulationTickProfile) -> Vec<&'static str> {
+        let mut world = World::new();
+        world.register::<Creep>();
+        world.register::<CProperty>();
+        world.register::<Pos>();
+        world.register::<Facing>();
+        world.register::<FacingBroadcast>();
+        world.register::<CreepMoveBroadcast>();
+        world.register::<TurnSpeed>();
+        world.register::<CollisionRadius>();
+        world.register::<IsBuilding>();
+        world.insert(Time(0.0));
+        world.insert(DeltaTime(Fixed64::ZERO));
+        world.insert(Tick(0));
+        world.insert(BTreeMap::from([(
+            "test".to_string(),
+            Path::new(vec![CheckPoint {
+                name: "end".to_string(),
+                class: String::new(),
+                pos: vek::Vec2::new(5.0, 0.0),
+            }]),
+        )]));
+        world.insert(BTreeMap::<String, CheckPoint>::new());
+        world.insert(Searcher::default());
+        world.insert(BuffStore::default());
+        world.insert(Vec::<Outcome>::new());
+        world.insert(Vec::<TakenDamage>::new());
+        world.insert(SysMetrics::default());
+        world.insert(TickProfile::default());
+        let entity = world
+            .create_entity()
+            .with(Creep {
+                name: "path-test".to_string(),
+                label: None,
+                path: "test".to_string(),
+                pidx: 0,
+                path_remaining_distance: Fixed64::from_i32(5),
+                block_tower: None,
+                status: CreepStatus::Walk,
+                td_layer: None,
+            })
+            .with(CProperty {
+                hp: Fixed64::ONE,
+                mhp: Fixed64::ONE,
+                msd: Fixed64::from_i32(120),
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .with(Pos(SimVec2::ZERO))
+            .with(Facing::default())
+            .with(FacingBroadcast::default())
+            .build();
+
+        let mut order = Vec::new();
+        for tick in 1..=u64::from(profile.ticks_per_game_second()) {
+            world.write_resource::<Tick>().0 = tick;
+            world.write_resource::<Time>().0 += profile.seconds_per_tick();
+            world.write_resource::<DeltaTime>().0 =
+                Fixed64::from_raw(profile.fixed_raw_for_tick(tick));
+            run_now::<Sys>(&world);
+            let batch = std::mem::take(&mut *world.write_resource::<Vec<Outcome>>());
+            for outcome in batch {
+                match outcome {
+                    Outcome::CreepUpdate {
+                        entity: updated,
+                        pos,
+                        status,
+                        pidx,
+                        path_remaining_distance,
+                        facing,
+                        facing_broadcast,
+                    } if updated == entity => {
+                        if pidx == 1 && !order.contains(&"checkpoint") {
+                            order.push("checkpoint");
+                        }
+                        world.write_storage::<Pos>().get_mut(entity).unwrap().0 = pos;
+                        let mut creeps = world.write_storage::<Creep>();
+                        let creep = creeps.get_mut(entity).unwrap();
+                        creep.status = status;
+                        creep.pidx = pidx;
+                        creep.path_remaining_distance = path_remaining_distance;
+                        world.write_storage::<Facing>().get_mut(entity).unwrap().0 = facing;
+                        world
+                            .write_storage::<FacingBroadcast>()
+                            .get_mut(entity)
+                            .unwrap()
+                            .0 = facing_broadcast;
+                    }
+                    Outcome::CreepLeaked { ent } if ent == entity => {
+                        order.push("leak");
+                        return order;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        order
+    }
+
+    #[test]
+    fn path_end_order_matches_at_fifteen_and_one_twenty_hz() {
+        let coarse = path_end_order_for_profile(SimulationTickProfile::Coarse15Hz);
+        let production = path_end_order_for_profile(SimulationTickProfile::Production120Hz);
+
+        assert_eq!(coarse, vec!["checkpoint", "leak"]);
+        assert_eq!(production, coarse);
+    }
 }

@@ -231,10 +231,18 @@ fn decide_tower_tick(
             let my_faction = tr.factions.get(e);
             let hostile_creeps: Vec<_> = creeps
                 .iter()
-                .filter(|ci| match (my_faction, tr.factions.get(ci.e)) {
-                    (Some(mf), Some(tf)) => mf.is_hostile_to(tf),
-                    (None, _) => true,
-                    (_, None) => true,
+                .filter(|ci| {
+                    let hostile = match (my_faction, tr.factions.get(ci.e)) {
+                        (Some(mf), Some(tf)) => mf.is_hostile_to(tf),
+                        (None, _) => true,
+                        (_, None) => true,
+                    };
+                    hostile
+                        && tr
+                            .creeps
+                            .get(ci.e)
+                            .map(|creep| tower_can_target_creep(&tower, creep))
+                            .unwrap_or(true)
                 })
                 .collect();
 
@@ -427,7 +435,12 @@ mod tests {
             .create_entity()
             .with(tower)
             .with(TProperty::new(Fixed64::ONE, 0, Fixed64::ONE))
-            .with(TAttack::new(Fixed64::ONE, Fixed64::ONE, Fixed64::ONE, Fixed64::ONE))
+            .with(TAttack::new(
+                Fixed64::ONE,
+                Fixed64::ONE,
+                Fixed64::ONE,
+                Fixed64::ONE,
+            ))
             .with(Pos(omoba_sim::Vec2::ZERO))
             .with(Facing::default())
             .with(FacingBroadcast::default())
@@ -436,7 +449,11 @@ mod tests {
         crate::comp::run_now::<Sys>(&world);
 
         assert_eq!(
-            world.read_storage::<Tower>().get(entity).unwrap().ultimate_cooldown,
+            world
+                .read_storage::<Tower>()
+                .get(entity)
+                .unwrap()
+                .ultimate_cooldown,
             Fixed64::from_raw(1536)
         );
     }
@@ -452,6 +469,7 @@ mod tests {
                 path_remaining_distance: Fixed64::from_i32(remaining),
                 block_tower: None,
                 status: CreepStatus::Walk,
+                td_layer: None,
             })
             .with(CProperty {
                 hp: Fixed64::from_i32(hp),

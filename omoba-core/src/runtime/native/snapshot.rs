@@ -284,6 +284,32 @@ pub struct EntityRenderData {
     pub hero_command: Option<Box<HeroCommandSnapshot>>,
     pub buffs: Vec<BuffSnapshot>,
     pub attack_range: f32,
+    pub td_layer: Option<TdLayerRenderSnapshot>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TdLayerRenderSnapshot {
+    pub current_layer_id: String,
+    pub properties: u32,
+    pub current_hp: i32,
+    pub max_hp: i32,
+    pub remaining_leak_value: u32,
+}
+
+fn td_layer_render_snapshot(
+    creep: Option<&Creep>,
+    current_hp: i32,
+    max_hp: i32,
+) -> Option<TdLayerRenderSnapshot> {
+    creep
+        .and_then(|creep| creep.td_layer.as_ref())
+        .map(|state| TdLayerRenderSnapshot {
+            current_layer_id: state.current_layer.clone(),
+            properties: state.properties,
+            current_hp,
+            max_hp,
+            remaining_leak_value: state.remaining_leak_value,
+        })
 }
 
 fn tower_active_ability_snapshot(
@@ -435,6 +461,42 @@ mod tests {
             world.read_resource::<PlayerEconomy>().balances(),
             &BTreeMap::from([(1, 650), (2, 10_000)])
         );
+    }
+
+    #[test]
+    fn td_layer_snapshot_exposes_variant_without_mutating_creep() {
+        let properties = omoba_template_ids::td_rounds::layer_property::CAMO
+            | omoba_template_ids::td_rounds::layer_property::FORTIFIED;
+        let creep = Creep {
+            name: "td_btd_moab".to_string(),
+            label: Some("MOAB".to_string()),
+            path: "main".to_string(),
+            pidx: 0,
+            path_remaining_distance: Fixed64::from_i32(500),
+            block_tower: None,
+            status: super::super::comp::CreepStatus::Walk,
+            td_layer: Some(super::super::comp::TdLayerState {
+                base_archetype: "moab".to_string(),
+                current_layer: "moab".to_string(),
+                properties,
+                regrow_ceiling: "moab".to_string(),
+                regrow_elapsed: Fixed64::ZERO,
+                remaining_leak_value: 1232,
+                spawn_lineage: 8,
+            }),
+        };
+        let before = creep.clone();
+        let snapshot = td_layer_render_snapshot(Some(&creep), 300, 400).unwrap();
+        assert_eq!(snapshot.current_layer_id, "moab");
+        assert_eq!(snapshot.properties, properties);
+        assert_eq!(snapshot.current_hp, 300);
+        assert_eq!(snapshot.max_hp, 400);
+        assert_eq!(snapshot.remaining_leak_value, 1232);
+        assert_eq!(creep.td_layer, before.td_layer);
+
+        let mut non_td = creep;
+        non_td.td_layer = None;
+        assert!(td_layer_render_snapshot(Some(&non_td), 1, 1).is_none());
     }
 
     #[test]
@@ -1134,6 +1196,7 @@ pub fn extract_snapshot(
             move_target_storage.get(entity),
             &pos_storage,
         );
+        let td_layer = td_layer_render_snapshot(creep_storage.get(entity), hp, max_hp);
 
         out.push(EntityRenderData {
             entity_id: entity.id(),
@@ -1173,6 +1236,7 @@ pub fn extract_snapshot(
             hero_command,
             buffs: entity_buffs,
             attack_range,
+            td_layer,
         });
         drop(push_span);
         drop(entity_span);
@@ -1550,6 +1614,7 @@ pub fn extract_data_for_render(
             move_target_storage.get(entity),
             &pos_storage,
         );
+        let td_layer = td_layer_render_snapshot(creep_storage.get(entity), hp, max_hp);
 
         out.push(EntityRenderData {
             entity_id: entity.id(),
@@ -1589,6 +1654,7 @@ pub fn extract_data_for_render(
             hero_command,
             buffs: entity_buffs,
             attack_range,
+            td_layer,
         });
     }
     drop(entities_span);

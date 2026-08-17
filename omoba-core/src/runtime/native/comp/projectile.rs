@@ -15,6 +15,8 @@ pub struct Projectile {
     pub damage_phys: Fixed64, // 物理傷害
     pub damage_magi: Fixed64, // 魔法傷害
     pub damage_real: Fixed64, // 真實傷害
+    #[serde(default)]
+    pub damage_profile: u32,
     /// 命中後套用的減速乘數（0.0 表不減速，0.5 表減速到 50%）
     #[serde(default)]
     pub slow_factor: Fixed64,

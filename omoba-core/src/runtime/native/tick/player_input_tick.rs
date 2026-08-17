@@ -20,8 +20,8 @@ use crate::comp::{
     CurrentCreepWave, GamePause, GameSpeed, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
     PendingDebugCreepSpawnQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
     PendingItemUseQueue, PendingMoveQueue, PendingTowerAbilityCastQueue, PendingTowerSellQueue,
-    PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue,
-    SandboxMode, Time, TowerTargetPriority,
+    PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, SandboxMode,
+    Time, TowerTargetPriority,
 };
 
 #[derive(Default)]
@@ -436,10 +436,12 @@ fn route_input(
             if sandbox_mode {
                 // 沙箱測試生怪：creep_wave::Sys 每 tick 開頭 drain（該系統
                 // 已有 creep_emiters / paths / outcomes 存取權限）。
-                debug_spawn_q.requests.push(crate::comp::PendingDebugCreepSpawn {
-                    emitter_index: d.emitter_index,
-                    count: d.count.max(1),
-                });
+                debug_spawn_q
+                    .requests
+                    .push(crate::comp::PendingDebugCreepSpawn {
+                        emitter_index: d.emitter_index,
+                        count: d.count.max(1),
+                    });
             } else {
                 log::warn!(
                     "DebugSpawnCreep rejected: not a sandbox session (pid={} tick={})",

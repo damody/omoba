@@ -14,6 +14,19 @@ pub enum CreepStatus {
     Leaked,
 }
 
+/// Authoritative state carried only by generated TD round enemies.
+/// Non-TD creeps keep this as `None` and continue through the legacy combat path.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct TdLayerState {
+    pub base_archetype: String,
+    pub current_layer: String,
+    pub properties: u32,
+    pub regrow_ceiling: String,
+    pub regrow_elapsed: Fixed64,
+    pub remaining_leak_value: u32,
+    pub spawn_lineage: u64,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Creep {
     /// 內部識別碼（與 CreepEmiter 鍵匹配，例如“practice_dummy”）。
@@ -29,6 +42,8 @@ pub struct Creep {
     pub path_remaining_distance: Fixed64,
     pub block_tower: Option<Entity>,
     pub status: CreepStatus,
+    #[serde(default)]
+    pub td_layer: Option<TdLayerState>,
 }
 
 impl Component for Creep {
@@ -100,6 +115,8 @@ pub struct PathCreeps {
 pub struct CreepEmit {
     pub time: f32,
     pub name: String,
+    #[serde(default)]
+    pub spawn_lineage: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

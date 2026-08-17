@@ -1,7 +1,10 @@
 use abi_stable::std_types::{RNone, ROption, RSome, RStr, RVec};
 use omb_script_abi::{
     stat_keys::StatKey,
-    types::{Angle, DamageKind, EntityHandle, Fixed64, PathSpec, ProjectileSpec, Target, Vec2},
+    types::{
+        Angle, DamageKind, DamageProfile as AbiDamageProfile, EntityHandle, Fixed64, PathSpec,
+        ProjectileSpec, Target, Vec2,
+    },
     world::{GameWorld, ProjectileQuery, TowerActiveAbilityAccess, TowerCooldownAccess},
 };
 use specs::world::Generation;
@@ -365,7 +368,12 @@ fn query_script_tower_enemy(
         let Some(faction) = cache.faction.get(candidate.e) else {
             continue;
         };
-        if faction.team_id != my_team && cache.creep.get(candidate.e).is_some() {
+        let target_creep = cache.creep.get(candidate.e);
+        let camo_visible = match (cache.tower.get(of_ent), target_creep) {
+            (Some(tower), Some(creep)) => tower_can_target_creep(tower, creep),
+            _ => true,
+        };
+        if faction.team_id != my_team && target_creep.is_some() && camo_visible {
             candidates.push(candidate);
         }
     }
@@ -561,9 +569,14 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             None => return RVec::new(),
         };
         let r2 = radius * radius;
+        let source_tower = self.cache.tower.get(of_ent);
         let mut out = RVec::new();
         for (ent, pos, fac) in (&self.cache.entities, &self.cache.pos, &self.cache.faction).join() {
-            if fac.team_id != my_team && pos.0.distance_squared(center) <= r2 {
+            let camo_visible = match (source_tower, self.cache.creep.get(ent)) {
+                (Some(tower), Some(creep)) => tower_can_target_creep(tower, creep),
+                _ => true,
+            };
+            if fac.team_id != my_team && pos.0.distance_squared(center) <= r2 && camo_visible {
                 out.push(Self::entity_to_handle(ent));
             }
         }
@@ -617,15 +630,55 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         &mut self,
         target: EntityHandle,
         amount: Fixed64,
-        _kind: DamageKind,
-        _source: ROption<EntityHandle>,
+        kind: DamageKind,
+        profile: AbiDamageProfile,
+        source: ROption<EntityHandle>,
     ) {
-        if let Some(ent) = Self::handle_to_entity(target) {
-            self.outcomes.push(Outcome::ScriptDirectDamage {
-                target: ent,
-                amount,
-            });
-        }
+        let source = match source {
+            ROption::RSome(source) => source,
+            ROption::RNone => {
+                log::error!(
+                    "reject direct damage without source identity mask={:#x}",
+                    profile.bits()
+                );
+                return;
+            }
+        };
+        let Some(valid_profile) = AbiDamageProfile::from_bits(profile.bits()) else {
+            log::error!(
+                "reject direct damage from source={} with unknown damage profile mask={:#x}",
+                source.id,
+                profile.bits()
+            );
+            return;
+        };
+        let (Some(target), Some(source)) = (
+            Self::handle_to_entity(target),
+            Self::handle_to_entity(source),
+        ) else {
+            return;
+        };
+        let pos = self
+            .cache
+            .pos
+            .get(target)
+            .map(|pos| pos.0)
+            .unwrap_or_default();
+        let (phys, magi, real) = match kind {
+            DamageKind::Physical => (amount, Fixed64::ZERO, Fixed64::ZERO),
+            DamageKind::Magical => (Fixed64::ZERO, amount, Fixed64::ZERO),
+            DamageKind::Pure => (Fixed64::ZERO, Fixed64::ZERO, amount),
+        };
+        self.outcomes.push(Outcome::Damage {
+            pos,
+            phys,
+            magi,
+            real,
+            source,
+            target,
+            damage_profile: valid_profile.bits(),
+            predeclared: false,
+        });
     }
 
     fn heal(&mut self, target: EntityHandle, amount: Fixed64) {
@@ -693,6 +746,14 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle {
+        let Some(profile) = AbiDamageProfile::from_bits(spec.damage_profile.bits()) else {
+            log::error!(
+                "reject projectile from source={} with unknown damage profile mask={:#x}",
+                spec.owner.id,
+                spec.damage_profile.bits()
+            );
+            return EntityHandle::INVALID;
+        };
         let Some(owner_ent) = Self::handle_to_entity(spec.owner) else {
             return EntityHandle::INVALID;
         };
@@ -724,6 +785,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             damage_phys: spec.damage,
             damage_magi: Fixed64::ZERO,
             damage_real: Fixed64::ZERO,
+            damage_profile: profile.bits(),
             slow_factor: spec.slow_factor,
             slow_duration: spec.slow_duration,
             hit_radius: spec.hit_radius,
@@ -1148,6 +1210,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         radius: Fixed64,
         damage: Fixed64,
         kind: DamageKind,
+        profile: AbiDamageProfile,
         source: ROption<EntityHandle>,
     ) {
         let of = match source {
@@ -1160,7 +1223,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         }
         let targets = self.query_enemies_in_range(at, radius, of);
         for th in targets.iter() {
-            self.deal_damage(*th, damage, kind, source);
+            self.deal_damage(*th, damage, kind, profile, source);
         }
     }
 
@@ -1652,6 +1715,7 @@ mod tests {
                 path_remaining_distance: Fixed64::from_i32(remaining),
                 block_tower: None,
                 status: CreepStatus::Walk,
+                td_layer: None,
             })
             .with(CProperty {
                 hp: Fixed64::from_i32(hp),
@@ -1806,6 +1870,7 @@ mod tests {
                 path_remaining_distance: Fixed64::from_i32(1_000_000),
                 block_tower: None,
                 status: CreepStatus::Walk,
+                td_layer: None,
             })
             .build();
         let cache = ParallelAdapterCache::new(&world, 123);
@@ -1816,6 +1881,7 @@ mod tests {
             Fixed64::from_i32(100),
             Fixed64::from_i32(7),
             DamageKind::Physical,
+            AbiDamageProfile::NORMAL,
             RSome(ParallelWorldAdapter::entity_to_handle(tower)),
         );
 
@@ -1824,7 +1890,10 @@ mod tests {
             matches!(outcomes[0], Outcome::ScriptTowerFireFx { entity, .. } if entity == tower)
         );
         assert!(
-            matches!(outcomes[1], Outcome::ScriptDirectDamage { target, amount } if target == enemy && amount == Fixed64::from_i32(7))
+            matches!(outcomes[1], Outcome::Damage { target, phys, damage_profile, .. }
+                if target == enemy
+                    && phys == Fixed64::from_i32(7)
+                    && damage_profile == AbiDamageProfile::NORMAL.bits())
         );
     }
 

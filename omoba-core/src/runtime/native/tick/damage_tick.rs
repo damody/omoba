@@ -96,6 +96,11 @@ impl<'a> System<'a> for Sys {
                     real: result.actual_damage.pure,
                     source: damage_inst.source.source_entity,
                     target: damage_inst.target,
+                    damage_profile: if result.actual_damage.pure > Fixed64::ZERO {
+                        omb_script_abi::types::DamageProfile::TRUE.bits()
+                    } else {
+                        omb_script_abi::types::DamageProfile::NORMAL.bits()
+                    },
                     predeclared: false, // ability-driven damage path — authoritative
                 });
 
@@ -251,4 +256,75 @@ fn calculate_damage(
     }
 
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn moba_physical_magic_and_pure_damage_keep_legacy_defense_rules() {
+        let mut world = World::new();
+        let source = world.create_entity().build();
+        let target = world.create_entity().build();
+        let mut stats = HashMap::new();
+        stats.insert(
+            target,
+            (
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(25),
+                Fixed64::ZERO,
+                Fixed64::ZERO,
+            ),
+        );
+        let instance = DamageInstance::new_ability(
+            source,
+            target,
+            DamageTypes::new(
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(100),
+                Fixed64::from_i32(100),
+            ),
+            "moba_regression".into(),
+        );
+
+        let result = calculate_damage(&instance, &stats, 7, 11);
+
+        assert_eq!(result.actual_damage.physical, Fixed64::from_i32(50));
+        assert_eq!(result.actual_damage.magical, Fixed64::from_i32(75));
+        assert_eq!(result.actual_damage.pure, Fixed64::from_i32(100));
+        assert_eq!(result.total_damage, Fixed64::from_i32(225));
+        assert_eq!(result.absorbed, Fixed64::from_i32(75));
+    }
+
+    #[test]
+    fn moba_true_damage_flags_still_bypass_both_defenses() {
+        let mut world = World::new();
+        let source = world.create_entity().build();
+        let target = world.create_entity().build();
+        let mut stats = HashMap::new();
+        stats.insert(
+            target,
+            (
+                Fixed64::from_i32(500),
+                Fixed64::from_i32(75),
+                Fixed64::ZERO,
+                Fixed64::ZERO,
+            ),
+        );
+        let mut instance = DamageInstance::new_ability(
+            source,
+            target,
+            DamageTypes::new(Fixed64::from_i32(40), Fixed64::from_i32(60), Fixed64::ZERO),
+            "moba_true_regression".into(),
+        );
+        instance.damage_flags = DamageFlags::true_damage();
+
+        let result = calculate_damage(&instance, &stats, 7, 11);
+
+        assert_eq!(result.actual_damage.physical, Fixed64::from_i32(40));
+        assert_eq!(result.actual_damage.magical, Fixed64::from_i32(60));
+        assert_eq!(result.absorbed, Fixed64::ZERO);
+    }
 }

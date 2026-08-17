@@ -33,8 +33,37 @@ mod tests {
     use specs::{Builder, World, WorldExt};
 
     use crate::runtime::comp::{PendingTowerAbilityPulseQueue, Tower, TowerActiveAbilityState};
+    use crate::runtime::SimulationTickProfile;
 
     use super::tick_tower_abilities;
+
+    fn pulse_and_cooldown_for_profile(
+        profile: SimulationTickProfile,
+    ) -> (Vec<u16>, Fixed64, Fixed64, u16) {
+        let mut state = TowerActiveAbilityState::ready("arty_fire_at_will");
+        state
+            .activate(
+                Fixed64::from_i32(10),
+                Fixed64::from_i32(3),
+                Fixed64::from_raw(512),
+                6,
+            )
+            .unwrap();
+        let mut pulses = Vec::new();
+        for tick in 1..=u64::from(profile.ticks_per_game_second()) * 10 {
+            let opportunity = state.advance(Fixed64::from_raw(profile.fixed_raw_for_tick(tick)));
+            if opportunity.pulse_due {
+                pulses.push(opportunity.pulse_index);
+                state.acknowledge_pulse(true);
+            }
+        }
+        (
+            pulses,
+            state.cooldown_remaining,
+            state.active_remaining,
+            state.pulses_remaining,
+        )
+    }
 
     #[test]
     fn new_state_is_ready() {
@@ -383,6 +412,18 @@ mod tests {
         state.advance(Fixed64::from_i32(11));
 
         assert_eq!(state.cooldown_remaining, Fixed64::ZERO);
+    }
+
+    #[test]
+    fn multi_pulse_and_cooldown_match_at_fifteen_and_one_twenty_hz() {
+        let coarse = pulse_and_cooldown_for_profile(SimulationTickProfile::Coarse15Hz);
+        let fine = pulse_and_cooldown_for_profile(SimulationTickProfile::Production120Hz);
+
+        assert_eq!(coarse, fine);
+        assert_eq!(coarse.0, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(coarse.1, Fixed64::ZERO);
+        assert_eq!(coarse.2, Fixed64::ZERO);
+        assert_eq!(coarse.3, 0);
     }
 
     #[test]

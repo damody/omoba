@@ -16,6 +16,7 @@ pub mod player_tick;
 pub mod projectile_tick;
 pub mod regen_tick;
 pub mod summon_tick;
+pub mod td_regrow_tick;
 pub mod tower_ability_tick;
 pub mod tower_tick;
 

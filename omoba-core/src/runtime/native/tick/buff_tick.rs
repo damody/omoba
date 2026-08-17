@@ -10,7 +10,8 @@
 //! 以 1 秒累計槽 (`dot_accum: f32`) 控制頻率，累積到 1s 時觸發一次整批 dot。
 
 use omb_script_abi::stat_keys::StatKey;
-use specs::{shred, Read, ReadStorage, SystemData, Write};
+use specs::world::Generation;
+use specs::{shred, Entity, Read, ReadStorage, SystemData, Write};
 
 use crate::comp::*;
 use crate::scripting::{ScriptEvent, ScriptEventQueue};
@@ -37,9 +38,11 @@ pub struct BuffTickData<'a> {
     dt: Read<'a, DeltaTime>,
     buffs: Write<'a, BuffStore>,
     creeps: ReadStorage<'a, Creep>,
-    cpropertys: specs::WriteStorage<'a, CProperty>,
+    cpropertys: ReadStorage<'a, CProperty>,
+    positions: ReadStorage<'a, Pos>,
     is_buildings: ReadStorage<'a, IsBuilding>,
     script_events: Write<'a, ScriptEventQueue>,
+    outcomes: Write<'a, Vec<Outcome>>,
 }
 
 #[derive(Default)]
@@ -58,26 +61,68 @@ impl<'a> System<'a> for Sys {
         // DoT (Task 15)：連續扣血，每 tick dot_damage * dt，達 dot/s 持續傷害
         // 累積到單次廣播避免每 tick 刷 creep/H。
         // 用 entities_by_key 反向索引取候選，避免對全表 entity 都呼 sum_add。
-        let dot_targets: Vec<(specs::Entity, omoba_sim::Fixed64)> = data
+        let dot_targets: Vec<specs::Entity> = data
             .buffs
             .entities_with_key(StatKey::DotDamage.as_str())
-            .filter_map(|e| {
-                let d = data.buffs.sum_add(e, StatKey::DotDamage);
-                if d > omoba_sim::Fixed64::ZERO {
-                    Some((e, d))
-                } else {
-                    None
-                }
-            })
             .collect();
-        for (entity, dot) in dot_targets {
-            if let Some(cp) = data.cpropertys.get_mut(entity) {
-                let new_hp = cp.hp - dot * dt;
-                cp.hp = if new_hp < omoba_sim::Fixed64::ZERO {
-                    omoba_sim::Fixed64::ZERO
-                } else {
-                    new_hp
+        for entity in dot_targets {
+            for (buff_id, entry) in data.buffs.iter_for(entity) {
+                let Some(dot_raw) = entry.payload.get("dot_damage").and_then(|v| v.as_i64()) else {
+                    continue;
                 };
+                let profile = entry
+                    .payload
+                    .get("damage_profile")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value as u32);
+                let source_id = entry
+                    .payload
+                    .get("source_entity_id")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value as u32);
+                let source_gen = entry
+                    .payload
+                    .get("source_entity_gen")
+                    .and_then(|value| value.as_u64())
+                    .map(|value| value as i32);
+                let (Some(profile), Some(source_id), Some(source_gen)) =
+                    (profile, source_id, source_gen)
+                else {
+                    log::error!(
+                        "reject DoT buff={} target={} without explicit profile/source",
+                        buff_id,
+                        entity.id()
+                    );
+                    continue;
+                };
+                if omb_script_abi::types::DamageProfile::from_bits(profile).is_none() {
+                    log::error!(
+                        "reject DoT buff={} target={} source={} unknown mask={:#x}",
+                        buff_id,
+                        entity.id(),
+                        source_id,
+                        profile
+                    );
+                    continue;
+                }
+                let damage = omoba_sim::Fixed64::from_raw(dot_raw) * dt;
+                if damage <= omoba_sim::Fixed64::ZERO {
+                    continue;
+                }
+                data.outcomes.push(Outcome::Damage {
+                    pos: data
+                        .positions
+                        .get(entity)
+                        .map(|position| position.0)
+                        .unwrap_or_default(),
+                    phys: omoba_sim::Fixed64::ZERO,
+                    magi: damage,
+                    real: omoba_sim::Fixed64::ZERO,
+                    source: Entity::new(source_id, Generation::new(source_gen)),
+                    target: entity,
+                    damage_profile: profile,
+                    predeclared: false,
+                });
             }
         }
 
@@ -107,5 +152,92 @@ impl<'a> System<'a> for Sys {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::comp::{run_now, SysMetrics, TickProfile};
+    use crate::runtime::{BuffStore, SimulationTickProfile};
+    use omoba_sim::Fixed64;
+    use serde_json::json;
+    use specs::{Builder, World, WorldExt};
+
+    fn dot_total_for_profile(profile: SimulationTickProfile) -> (i64, Vec<i64>) {
+        let mut world = World::new();
+        world.register::<Creep>();
+        world.register::<CProperty>();
+        world.register::<Pos>();
+        world.register::<IsBuilding>();
+        world.insert(DeltaTime(Fixed64::ZERO));
+        world.insert(BuffStore::default());
+        world.insert(ScriptEventQueue::default());
+        world.insert(Vec::<Outcome>::new());
+        world.insert(SysMetrics::default());
+        world.insert(TickProfile::default());
+        let source = world.create_entity().build();
+        let target = world
+            .create_entity()
+            .with(Creep {
+                name: "dot-target".to_string(),
+                label: None,
+                path: String::new(),
+                pidx: 0,
+                path_remaining_distance: Fixed64::ZERO,
+                block_tower: None,
+                status: CreepStatus::Walk,
+                td_layer: None,
+            })
+            .with(CProperty {
+                hp: Fixed64::from_i32(100),
+                mhp: Fixed64::from_i32(100),
+                msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .with(Pos(omoba_sim::Vec2::ZERO))
+            .build();
+        world.write_resource::<BuffStore>().add(
+            target,
+            "rate-dot",
+            Fixed64::from_i32(2),
+            json!({
+                "dot_damage": Fixed64::from_i32(12).raw(),
+                "damage_profile": omb_script_abi::types::DamageProfile::FIRE.bits(),
+                "source_entity_id": source.id(),
+                "source_entity_gen": source.gen().id(),
+            }),
+        );
+
+        let mut per_tick = Vec::new();
+        for tick in 1..=u64::from(profile.ticks_per_game_second()) {
+            world.write_resource::<DeltaTime>().0 =
+                Fixed64::from_raw(profile.fixed_raw_for_tick(tick));
+            run_now::<Sys>(&world);
+            let batch = std::mem::take(&mut *world.write_resource::<Vec<Outcome>>());
+            let tick_damage = batch
+                .into_iter()
+                .filter_map(|outcome| match outcome {
+                    Outcome::Damage {
+                        magi, target: hit, ..
+                    } if hit == target => Some(magi.raw()),
+                    _ => None,
+                })
+                .sum::<i64>();
+            per_tick.push(tick_damage);
+        }
+        (per_tick.iter().sum(), per_tick)
+    }
+
+    #[test]
+    fn dot_integrates_same_damage_at_fifteen_and_one_twenty_hz() {
+        let (coarse_total, coarse_order) = dot_total_for_profile(SimulationTickProfile::Coarse15Hz);
+        let (production_total, production_order) =
+            dot_total_for_profile(SimulationTickProfile::Production120Hz);
+        assert_eq!(coarse_total, Fixed64::from_i32(12).raw());
+        assert_eq!(production_total, coarse_total);
+        assert!(coarse_order.iter().all(|damage| *damage > 0));
+        assert!(production_order.iter().all(|damage| *damage > 0));
     }
 }

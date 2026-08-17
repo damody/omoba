@@ -117,31 +117,6 @@ fn scaled_td_cost(base_cost: i32, multiplier: f32) -> i32 {
     ((base_cost as f32) * multiplier).round() as i32
 }
 
-// Topper64 BTD6 income table, Easy / Standard:
-// https://topper64.co.uk/nk/btd6/income/easy
-const BTD_EASY_ROUND_INCOME_CASH: [f32; 100] = [
-    121.0, 137.0, 138.0, 175.0, 164.0, 163.0, 182.0, 200.0, 199.0, 314.0, 189.0, 192.0, 282.0,
-    259.0, 266.0, 268.0, 165.0, 358.0, 260.0, 186.0, 351.0, 298.0, 277.0, 167.0, 335.0, 333.0,
-    662.0, 266.0, 389.0, 337.0, 537.0, 627.0, 205.0, 912.0, 1150.0, 896.0, 1339.0, 1277.0, 1759.0,
-    521.0, 2181.0, 659.0, 1278.0, 1294.0, 2422.0, 716.0, 1637.0, 2843.0, 4758.0, 3016.0, 1098.5,
-    1595.5, 924.5, 2197.5, 2483.0, 1286.5, 1859.0, 2298.0, 2159.0, 922.5, 1232.0, 1386.4, 2826.0,
-    849.8, 3071.6, 1004.2, 1023.6, 777.8, 1391.0, 2618.8, 1503.0, 1504.0, 1392.6, 3044.0, 2667.4,
-    1316.0, 2540.2, 4862.0, 6709.0, 1400.2, 5366.0, 4757.0, 4749.0, 7044.0, 2625.4, 948.5, 2627.4,
-    3314.0, 2171.0, 339.3, 4191.0, 4537.4, 1946.6, 7667.1, 3718.0, 9955.6, 1417.2, 9653.8, 2827.9,
-    1534.6,
-];
-
-pub(crate) fn btd_easy_round_income_cash(round: usize) -> Option<f32> {
-    round
-        .checked_sub(1)
-        .and_then(|idx| BTD_EASY_ROUND_INCOME_CASH.get(idx))
-        .copied()
-}
-
-pub(crate) fn btd_easy_round_income_gold(round: usize) -> Option<i32> {
-    btd_easy_round_income_cash(round).map(|cash| cash.round() as i32)
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct BtdCreepSpec {
     id: String,
@@ -150,28 +125,6 @@ struct BtdCreepSpec {
     camo: bool,
     regrow: bool,
     fortified: bool,
-}
-
-fn btd_creep_stats(base: &str, fortified: bool) -> Option<(f32, f32, f32, f32)> {
-    let hp = omoba_template_ids::td_rounds::effective_hp(base, fortified)? as f32;
-    let (speed, armor, magic_resistance) = match base {
-        "red" => (120.0, 0.0, 0.0),
-        "blue" => (140.0, 0.0, 0.0),
-        "green" => (160.0, 0.0, 0.0),
-        "yellow" => (185.0, 0.0, 0.0),
-        "pink" => (220.0, 0.0, 0.0),
-        "black" | "white" | "purple" => (180.0, 0.0, 0.0),
-        "zebra" | "lead" => (120.0, 1.0, 0.0),
-        "rainbow" => (195.0, 0.0, 0.0),
-        "ceramic" => (210.0, 2.0, 0.0),
-        "moab" => (80.0, 4.0, 0.0),
-        "bfb" => (60.0, 5.0, 0.0),
-        "zomg" => (45.0, 6.0, 0.0),
-        "ddt" => (260.0, 5.0, 0.0),
-        "bad" => (35.0, 8.0, 0.0),
-        _ => return None,
-    };
-    Some((hp, speed, armor, magic_resistance))
 }
 
 fn btd_round_specs(round_idx: usize) -> Vec<(usize, BtdCreepSpec)> {
@@ -239,6 +192,7 @@ fn btd_round_waves(
                 path.creeps.push(CreepEmit {
                     time: balloon_idx as f32 * omoba_template_ids::td_rounds::SPAWN_INTERVAL_SECS,
                     name: balloon.id,
+                    spawn_lineage: ((round_idx as u64 + 1) << 32) | (balloon_idx as u64 + 1),
                 });
             }
             Ok(CreepWave {
@@ -258,12 +212,33 @@ fn ensure_btd_creep_emitters(ecs: &mut World) {
             if emitters.contains_key(&spec.id) {
                 continue;
             }
-            let Some((hp, speed, armor, magic_resistance)) =
-                btd_creep_stats(spec.base, spec.fortified)
-            else {
-                continue;
-            };
+            let layer = omoba_template_ids::active_td_layer_by_name(spec.base)
+                .unwrap_or_else(|| panic!("TD round references missing layer '{}'", spec.base));
+            let hp = layer.hp as f32 * if spec.fortified { 2.0 } else { 1.0 };
             let hp = Fixed64::from_raw((hp * omoba_sim::fixed::SCALE as f32) as i64);
+            let mut properties = layer.properties;
+            if spec.camo {
+                properties |= omoba_template_ids::td_rounds::layer_property::CAMO;
+            }
+            if spec.regrow {
+                properties |= omoba_template_ids::td_rounds::layer_property::REGROW;
+            }
+            if spec.fortified {
+                properties |= omoba_template_ids::td_rounds::layer_property::FORTIFIED;
+            }
+            let td_layer = Some(TdLayerState {
+                base_archetype: spec.base.to_string(),
+                current_layer: spec.base.to_string(),
+                properties,
+                regrow_ceiling: spec.base.to_string(),
+                regrow_elapsed: Fixed64::ZERO,
+                remaining_leak_value: layer.leak_value.saturating_mul(if spec.fortified {
+                    2
+                } else {
+                    1
+                }),
+                spawn_lineage: 0,
+            });
             emitters.insert(
                 spec.id.clone(),
                 CreepEmiter {
@@ -275,17 +250,14 @@ fn ensure_btd_creep_emitters(ecs: &mut World) {
                         path_remaining_distance: Fixed64::from_i32(1_000_000),
                         block_tower: None,
                         status: CreepStatus::Walk,
+                        td_layer,
                     },
                     property: CProperty {
                         hp,
                         mhp: hp,
-                        msd: Fixed64::from_raw((speed * omoba_sim::fixed::SCALE as f32) as i64),
-                        def_physic: Fixed64::from_raw(
-                            (armor * omoba_sim::fixed::SCALE as f32) as i64,
-                        ),
-                        def_magic: Fixed64::from_raw(
-                            (magic_resistance * omoba_sim::fixed::SCALE as f32) as i64,
-                        ),
+                        msd: Fixed64::from_i32(layer.move_speed as i32),
+                        def_physic: Fixed64::ZERO,
+                        def_magic: Fixed64::ZERO,
                     },
                     faction_name: String::new(),
                     turn_speed_deg: 90.0,
@@ -341,8 +313,9 @@ impl StateInitializer {
             Self::initialize_td_player_economy(ecs, difficulty);
             // 測試鉤子：OMB_FORCE_LIVES 強制覆寫初始生命，方便快速輸掉一局來驗證
             // 對局結束流程（KP/戰績記錄）。未設定時完全不影響正常遊戲。
-            if let Some(n) =
-                std::env::var("OMB_FORCE_LIVES").ok().and_then(|v| v.parse::<i32>().ok())
+            if let Some(n) = std::env::var("OMB_FORCE_LIVES")
+                .ok()
+                .and_then(|v| v.parse::<i32>().ok())
             {
                 *ecs.write_resource::<PlayerLives>() = PlayerLives(n);
                 log::warn!("⚠ OMB_FORCE_LIVES={}：初始生命已強制覆寫（測試用）", n);
@@ -386,9 +359,24 @@ impl StateInitializer {
     }
 
     fn initialize_td_player_economy(ecs: &mut World, difficulty: TdDifficultyConfig) {
+        ecs.write_resource::<crate::runtime::TdEconomyRules>()
+            .starting_cash = difficulty.starting_gold;
+        let starting_cash = ecs
+            .read_resource::<crate::runtime::TdEconomyRules>()
+            .starting_cash;
+        let mut ledger = ecs.write_resource::<crate::runtime::TdEconomyLedger>();
         let mut economy = ecs.write_resource::<PlayerEconomy>();
         for player_id in TD_PLAYER_IDS {
-            economy.initialize(player_id, difficulty.starting_gold);
+            ledger
+                .apply(
+                    &mut economy,
+                    0,
+                    Some(player_id),
+                    crate::runtime::TdEconomyCategory::Initialize,
+                    starting_cash,
+                    difficulty.id,
+                )
+                .expect("valid TD economy initialization");
         }
         log::info!(
             "TD player economy initialized: players={:?} starting_gold={}",
@@ -549,6 +537,7 @@ impl StateInitializer {
                         path_remaining_distance: Fixed64::from_i32(1_000_000),
                         block_tower: None,
                         status: CreepStatus::Walk,
+                        td_layer: None,
                     },
                     property: CProperty {
                         hp: stats.hp,
@@ -643,6 +632,7 @@ impl StateInitializer {
                     es.push(CreepEmit {
                         time: cjd.Time,
                         name: cjd.Creep.clone(),
+                        spawn_lineage: 0,
                     });
                     total_creeps += 1;
                 }
@@ -760,6 +750,8 @@ impl StateInitializer {
         // 戰績記錄：本局擊殺計數，每局新開 World 時重置為 0。
         ecs.insert(crate::comp::MatchKillCounter::default());
         ecs.insert(crate::comp::PlayerEconomy::default());
+        ecs.insert(crate::runtime::TdEconomyRules::default());
+        ecs.insert(crate::runtime::TdEconomyLedger::default());
         // 階段 1c.3：確定性 SimRng 流的主種子。第二階段將
         // 從 GameStart 訊息中覆寫它；現在使用固定的預設值。
         ecs.insert(crate::comp::MasterSeed::default());
@@ -880,6 +872,7 @@ impl StateInitializer {
         ecs.insert(Vec::<crate::Outcome>::new());
         ecs.insert(Vec::<omoba_core::runtime::RuntimeEvent>::new());
         ecs.insert(Vec::<TakenDamage>::new());
+        ecs.insert(crate::runtime::TdLayerCommitSerial::default());
         ecs.insert(SysMetrics::default());
         ecs.insert(crate::comp::TickProfile::default());
 
@@ -1933,6 +1926,37 @@ mod tests {
         assert_eq!(emitter.property.msd, stats.move_speed);
         assert_eq!(emitter.property.def_physic, stats.armor);
         assert_eq!(emitter.property.def_magic, stats.magic_resistance);
+        assert!(emitter.root.td_layer.is_none());
+    }
+
+    #[test]
+    fn layered_td_emitter_keeps_current_layer_hp_and_variant_properties() {
+        let mut ecs = World::new();
+        ecs.insert(BTreeMap::<String, CreepEmiter>::new());
+
+        ensure_btd_creep_emitters(&mut ecs);
+
+        let emitters = ecs.read_resource::<BTreeMap<String, CreepEmiter>>();
+        let camo_green = emitters
+            .get("td_btd_camo_green")
+            .expect("round 24 Camo Green emitter");
+        assert_eq!(camo_green.property.hp, Fixed64::from_i32(1));
+        assert_eq!(camo_green.property.mhp, Fixed64::from_i32(1));
+        let state = camo_green.root.td_layer.as_ref().expect("layer state");
+        assert_eq!(state.base_archetype, "green");
+        assert_eq!(state.current_layer, "green");
+        assert_ne!(
+            state.properties & omoba_template_ids::td_rounds::layer_property::CAMO,
+            0
+        );
+        assert_eq!(
+            state.properties & omoba_template_ids::td_rounds::layer_property::REGROW,
+            0
+        );
+        assert_eq!(state.remaining_leak_value, 3);
+
+        let green = emitters.get("td_btd_green").expect("base Green emitter");
+        assert_eq!(green.property.hp, Fixed64::from_i32(1));
     }
 
     #[test]
@@ -2060,13 +2084,105 @@ mod tests {
     }
 
     #[test]
-    fn btd_easy_round_cash_matches_topper64_income_table() {
-        assert_eq!(btd_easy_round_income_cash(1), Some(121.0));
-        assert_eq!(btd_easy_round_income_cash(2), Some(137.0));
-        assert_eq!(btd_easy_round_income_cash(40), Some(521.0));
-        assert_eq!(btd_easy_round_income_cash(51), Some(1098.5));
-        assert_eq!(btd_easy_round_income_cash(100), Some(1534.6));
-        assert_eq!(btd_easy_round_income_gold(51), Some(1099));
+    fn legacy_td_balance_fixture_matches_current_content() {
+        let fixture: toml::Value = toml::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/td_legacy_baseline.toml"
+        )))
+        .expect("valid TD legacy baseline fixture");
+
+        let spawn_counts = fixture["round_spawn_counts"]
+            .as_array()
+            .expect("round_spawn_counts array");
+        let incomes = fixture["legacy_round_income_cash"]
+            .as_array()
+            .expect("legacy_round_income_cash array");
+        assert_eq!(
+            spawn_counts.len(),
+            omoba_template_ids::td_rounds::round_count()
+        );
+        assert_eq!(incomes.len(), omoba_template_ids::td_rounds::round_count());
+        for round_index in 0..omoba_template_ids::td_rounds::round_count() {
+            assert_eq!(
+                spawn_counts[round_index].as_integer().unwrap() as usize,
+                omoba_template_ids::td_rounds::round(round_index).len(),
+                "round {} spawn count",
+                round_index + 1
+            );
+            assert!(
+                incomes[round_index].as_float().is_some(),
+                "round {} legacy income fixture",
+                round_index + 1
+            );
+        }
+
+        for (name, config) in [
+            ("novice", TdDifficultyConfig::from_config_value("novice")),
+            (
+                "intermediate",
+                TdDifficultyConfig::from_config_value("intermediate"),
+            ),
+            (
+                "advanced",
+                TdDifficultyConfig::from_config_value("advanced"),
+            ),
+            ("expert", TdDifficultyConfig::from_config_value("expert")),
+        ] {
+            let expected = &fixture["difficulty"][name];
+            assert_eq!(
+                expected["lives"].as_integer(),
+                Some(config.player_lives as i64)
+            );
+            assert_eq!(
+                expected["starting_cash"].as_integer(),
+                Some(config.starting_gold as i64)
+            );
+            assert_eq!(
+                expected["rounds"].as_integer(),
+                Some(config.round_count as i64)
+            );
+            let expected_multiplier = expected["tower_cost_multiplier"].as_float().unwrap();
+            assert!(
+                (expected_multiplier - config.tower_cost_multiplier as f64).abs() < 0.000_001,
+                "{name} tower cost multiplier"
+            );
+        }
+
+        let towers = [
+            ("tower_dart", omoba_template_ids::TOWER_DART),
+            ("tower_tack", omoba_template_ids::TOWER_TACK),
+            ("tower_bomb", omoba_template_ids::TOWER_BOMB),
+            ("tower_ice", omoba_template_ids::TOWER_ICE),
+            ("tower_arty", omoba_template_ids::TOWER_ARTY),
+            ("tower_cake_splash", omoba_template_ids::TOWER_CAKE_SPLASH),
+            ("tower_boomerang", omoba_template_ids::TOWER_BOOMERANG),
+        ];
+        for (name, id) in towers {
+            let expected = &fixture["tower"][name];
+            assert_eq!(
+                expected["base_cost"].as_integer(),
+                Some(omoba_template_ids::active_tower_stats(id).unwrap().cost as i64),
+                "{name} base cost"
+            );
+            let upgrades = omoba_template_ids::active_tower_upgrades(id).unwrap();
+            let expected_paths = expected["upgrade_costs"].as_array().unwrap();
+            for (path_index, path) in upgrades.iter().enumerate() {
+                let expected_levels = expected_paths[path_index].as_array().unwrap();
+                assert_eq!(
+                    path.len(),
+                    expected_levels.len(),
+                    "{name} path {path_index}"
+                );
+                for (level_index, definition) in path.iter().enumerate() {
+                    assert_eq!(
+                        expected_levels[level_index].as_integer(),
+                        Some(definition.cost as i64),
+                        "{name} path {path_index} level {}",
+                        level_index + 1
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -2122,6 +2238,10 @@ mod tests {
             [7, 7, 6]
         );
         assert_eq!(waves[0].path_creeps[0].creeps[0].time, 0.0);
+        assert_eq!(
+            waves[0].path_creeps[0].creeps[0].spawn_lineage,
+            (1u64 << 32) | 1
+        );
         assert_eq!(
             waves[0].path_creeps[1].creeps[0].time,
             omoba_template_ids::td_rounds::SPAWN_INTERVAL_SECS

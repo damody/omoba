@@ -274,12 +274,14 @@ mod tests {
         let b = world.create_entity().build();
         let mut index = CollisionIndex::new("hash_grid", SpatialIndexParams::default());
 
-        index.rebuild_from([
-            (a, Vec2::new(10.0, 0.0)),
-            (b, Vec2::new(90.0, 0.0)),
-        ]);
+        index.rebuild_from([(a, Vec2::new(10.0, 0.0)), (b, Vec2::new(90.0, 0.0))]);
 
         assert_eq!(index.count(), 2);
-        assert_eq!(index.search_nn(Vec2::new(0.0, 0.0), 100.0, index.count()).len(), 2);
+        assert_eq!(
+            index
+                .search_nn(Vec2::new(0.0, 0.0), 100.0, index.count())
+                .len(),
+            2
+        );
     }
 }

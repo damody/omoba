@@ -4,6 +4,8 @@ use specs::storage::VecStorage;
 use specs::{Component, Entity};
 use std::collections::BTreeMap;
 
+use super::Creep;
+
 #[derive(Copy, Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub enum TowerTargetPriority {
     #[default]
@@ -59,6 +61,62 @@ impl Tower {
             target_priority: TowerTargetPriority::First,
             pops: 0,
         }
+    }
+}
+
+pub fn tower_detects_camo(tower: &Tower) -> bool {
+    tower
+        .upgrade_flags
+        .iter()
+        .any(|flag| flag == "camo_detection")
+}
+
+pub fn tower_can_target_creep(tower: &Tower, creep: &Creep) -> bool {
+    let is_camo = creep
+        .td_layer
+        .as_ref()
+        .map(|state| state.properties & omoba_template_ids::td_rounds::layer_property::CAMO != 0)
+        .unwrap_or(false);
+    !is_camo || tower_detects_camo(tower)
+}
+
+#[cfg(test)]
+mod camo_tests {
+    use super::*;
+    use crate::runtime::{CreepStatus, TdLayerState};
+
+    fn camo_creep() -> Creep {
+        Creep {
+            name: "td_btd_camo_green".to_string(),
+            label: None,
+            path: "main".to_string(),
+            pidx: 0,
+            path_remaining_distance: Fixed64::ZERO,
+            block_tower: None,
+            status: CreepStatus::Walk,
+            td_layer: Some(TdLayerState {
+                base_archetype: "green".to_string(),
+                current_layer: "green".to_string(),
+                properties: omoba_template_ids::td_rounds::layer_property::CAMO,
+                regrow_ceiling: "green".to_string(),
+                regrow_elapsed: Fixed64::ZERO,
+                remaining_leak_value: 3,
+                spawn_lineage: 1,
+            }),
+        }
+    }
+
+    #[test]
+    fn camo_requires_explicit_detection_flag() {
+        let mut tower = Tower::new();
+        assert!(!tower_can_target_creep(&tower, &camo_creep()));
+        tower.upgrade_flags.push("camo_detection".to_string());
+        assert!(tower_can_target_creep(&tower, &camo_creep()));
+
+        let mut normal = camo_creep();
+        normal.td_layer.as_mut().unwrap().properties = 0;
+        tower.upgrade_flags.clear();
+        assert!(tower_can_target_creep(&tower, &normal));
     }
 }
 

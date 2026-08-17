@@ -98,7 +98,8 @@ impl SystemDispatcher {
         dispatch::<hero_tick::Sys>(dispatch_builder, &["tower_sys", "hero_move_sys"]);
         dispatch::<item_tick::Sys>(dispatch_builder, &["hero_sys"]);
         dispatch::<buff_tick::Sys>(dispatch_builder, &["item_sys"]);
-        dispatch::<regen_tick::Sys>(dispatch_builder, &["buff_sys"]);
+        dispatch::<td_regrow_tick::Sys>(dispatch_builder, &["buff_sys"]);
+        dispatch::<regen_tick::Sys>(dispatch_builder, &["td_regrow_sys"]);
         dispatch::<summon_tick::Sys>(dispatch_builder, &["regen_sys"]);
         dispatch::<creep_tick::Sys>(dispatch_builder, &["summon_sys"]);
         dispatch::<creep_wave::Sys>(dispatch_builder, &["creep_sys"]);
@@ -241,7 +242,8 @@ pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> 
     dispatch::<hero_tick::Sys>(&mut builder, &["tower_sys", "hero_move_sys"]);
     dispatch::<item_tick::Sys>(&mut builder, &["hero_sys"]);
     dispatch::<buff_tick::Sys>(&mut builder, &["item_sys"]);
-    dispatch::<regen_tick::Sys>(&mut builder, &["buff_sys"]);
+    dispatch::<td_regrow_tick::Sys>(&mut builder, &["buff_sys"]);
+    dispatch::<regen_tick::Sys>(&mut builder, &["td_regrow_sys"]);
     dispatch::<summon_tick::Sys>(&mut builder, &["regen_sys"]);
     dispatch::<creep_tick::Sys>(&mut builder, &["summon_sys"]);
     dispatch::<creep_wave::Sys>(&mut builder, &["creep_sys"]);

@@ -3,13 +3,15 @@ use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
 use omoba_sim::{Fixed64, Vec2 as SimVec2};
 use specs::prelude::ParallelIterator;
-use specs::{shred, Entities, ParJoin, Read, SystemData, Write, WriteStorage};
+use specs::{shred, Entities, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
 
 #[derive(SystemData)]
 pub struct ProjectileRead<'a> {
     entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     searcher: Read<'a, Searcher>,
+    creeps: ReadStorage<'a, Creep>,
+    towers: ReadStorage<'a, Tower>,
 }
 
 #[derive(SystemData)]
@@ -101,6 +103,8 @@ impl<'a> System<'a> for Sys {
                                         target_info.e,
                                         &mut outcomes,
                                         hit_pos,
+                                        &tr.towers,
+                                        &tr.creeps,
                                     );
                                 }
                                 outcomes.push(Outcome::Explosion {
@@ -109,7 +113,14 @@ impl<'a> System<'a> for Sys {
                                     duration: Fixed64::from_raw(512),
                                 });
                             } else {
-                                create_projectile_damage(&proj, hit_ent, &mut outcomes, hit_pos);
+                                create_projectile_damage(
+                                    &proj,
+                                    hit_ent,
+                                    &mut outcomes,
+                                    hit_pos,
+                                    &tr.towers,
+                                    &tr.creeps,
+                                );
                             }
                             outcomes.push(Outcome::Death {
                                 pos: hit_pos,
@@ -145,6 +156,8 @@ impl<'a> System<'a> for Sys {
                                     target_info.e,
                                     &mut outcomes,
                                     hit_pos,
+                                    &tr.towers,
+                                    &tr.creeps,
                                 );
                             }
                             // Phase 4.2: 把爆炸 VFX 走 Outcome::Explosion → ExplosionFxQueue
@@ -159,7 +172,14 @@ impl<'a> System<'a> for Sys {
                             });
                         } else if let Some(target) = proj.target {
                             // 單體攻擊
-                            create_projectile_damage(&proj, target, &mut outcomes, hit_pos);
+                            create_projectile_damage(
+                                &proj,
+                                target,
+                                &mut outcomes,
+                                hit_pos,
+                                &tr.towers,
+                                &tr.creeps,
+                            );
                         }
                         // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失
                         outcomes.push(Outcome::Death {
@@ -275,7 +295,19 @@ fn create_projectile_damage(
     target: specs::Entity,
     outcomes: &mut Vec<Outcome>,
     pos: SimVec2,
+    towers: &ReadStorage<'_, Tower>,
+    creeps: &ReadStorage<'_, Creep>,
 ) {
+    if let (Some(tower), Some(creep)) = (towers.get(proj.owner), creeps.get(target)) {
+        if !tower_can_target_creep(tower, creep) {
+            log::debug!(
+                "projectile impact rejected stale Camo target source={} target={}",
+                proj.owner.id(),
+                target.id()
+            );
+            return;
+        }
+    }
     log::debug!(
         "彈道命中目標 {}，物理傷害: {:.1}，魔法傷害: {:.1}，真實傷害: {:.1}",
         target.id(),
@@ -296,6 +328,7 @@ fn create_projectile_damage(
         real: proj.damage_real,
         source: proj.owner,
         target: target,
+        damage_profile: proj.damage_profile,
         predeclared,
     });
     outcomes.push(Outcome::ProjectileHit {
@@ -344,7 +377,67 @@ fn create_projectile_damage(
 mod tests {
     use super::*;
     use crate::comp::{run_now, SysMetrics, TickProfile};
+    use omb_script_abi::types::DamageProfile as AbiDamageProfile;
     use specs::{Builder, Join, World, WorldExt};
+
+    fn crossing_order_for_profile(
+        profile: crate::runtime::SimulationTickProfile,
+    ) -> Vec<&'static str> {
+        let mut world = projectile_world();
+        let owner = world.create_entity().build();
+        let creep = world
+            .create_entity()
+            .with(Pos(SimVec2::new(
+                Fixed64::from_i32(300),
+                Fixed64::from_i32(40),
+            )))
+            .with(test_creep("crossing-target"))
+            .build();
+        rebuild_creep_index(&mut world);
+        world
+            .create_entity()
+            .with(Pos(SimVec2::ZERO))
+            .with(Projectile {
+                time_left: Fixed64::from_i32(10),
+                owner,
+                target: None,
+                tpos: SimVec2::new(Fixed64::from_i32(1000), Fixed64::ZERO),
+                radius: Fixed64::ZERO,
+                msd: Fixed64::from_i32(1000),
+                damage_phys: Fixed64::from_i32(40),
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                damage_profile: AbiDamageProfile::NORMAL.bits(),
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::from_i32(50),
+                stun_duration: Fixed64::ZERO,
+                kind_id: 7,
+                generation: 3,
+            })
+            .build();
+
+        for tick in 1..=u64::from(profile.ticks_per_game_second()) * 2 {
+            world.write_resource::<DeltaTime>().0 =
+                Fixed64::from_raw(profile.fixed_raw_for_tick(tick));
+            run_now::<Sys>(&world);
+            let batch = std::mem::take(&mut *world.write_resource::<Vec<Outcome>>());
+            if batch.iter().any(
+                |outcome| matches!(outcome, Outcome::Damage { target, .. } if *target == creep),
+            ) {
+                return batch
+                    .iter()
+                    .filter_map(|outcome| match outcome {
+                        Outcome::Damage { target, .. } if *target == creep => Some("damage"),
+                        Outcome::ProjectileHit { target, .. } if *target == creep => Some("hit"),
+                        Outcome::Death { .. } => Some("death"),
+                        _ => None,
+                    })
+                    .collect();
+            }
+        }
+        Vec::new()
+    }
 
     fn test_creep(name: &str) -> Creep {
         Creep {
@@ -355,6 +448,7 @@ mod tests {
             path_remaining_distance: Fixed64::ZERO,
             block_tower: None,
             status: CreepStatus::Walk,
+            td_layer: None,
         }
     }
 
@@ -363,6 +457,7 @@ mod tests {
         world.register::<Pos>();
         world.register::<Projectile>();
         world.register::<Creep>();
+        world.register::<Tower>();
         world.insert(DeltaTime(Fixed64::from_raw(512)));
         world.insert(Searcher::default());
         world.insert(Vec::<Outcome>::new());
@@ -416,6 +511,7 @@ mod tests {
                 damage_phys: Fixed64::from_i32(40),
                 damage_magi: Fixed64::ZERO,
                 damage_real: Fixed64::ZERO,
+                damage_profile: AbiDamageProfile::NORMAL.bits(),
                 slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO,
                 hit_radius: Fixed64::from_i32(50),
@@ -452,6 +548,16 @@ mod tests {
     }
 
     #[test]
+    fn projectile_crossing_order_matches_at_fifteen_and_one_twenty_hz() {
+        let coarse = crossing_order_for_profile(crate::runtime::SimulationTickProfile::Coarse15Hz);
+        let production =
+            crossing_order_for_profile(crate::runtime::SimulationTickProfile::Production120Hz);
+
+        assert_eq!(coarse, vec!["damage", "hit", "death"]);
+        assert_eq!(production, coarse);
+    }
+
+    #[test]
     fn homing_projectile_hit_emits_damage_death_and_script_provenance() {
         let mut world = projectile_world();
         let owner = world.create_entity().build();
@@ -474,6 +580,7 @@ mod tests {
                 damage_phys: Fixed64::from_i32(10),
                 damage_magi: Fixed64::ZERO,
                 damage_real: Fixed64::ZERO,
+                damage_profile: AbiDamageProfile::NORMAL.bits(),
                 slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO,
                 hit_radius: Fixed64::ZERO,
@@ -503,6 +610,58 @@ mod tests {
     }
 
     #[test]
+    fn projectile_revalidates_camo_detection_at_impact() {
+        let mut world = projectile_world();
+        let owner = world.create_entity().with(Tower::new()).build();
+        let mut camo = test_creep("td_btd_camo_green");
+        camo.td_layer = Some(TdLayerState {
+            base_archetype: "green".to_string(),
+            current_layer: "green".to_string(),
+            properties: omoba_template_ids::td_rounds::layer_property::CAMO,
+            regrow_ceiling: "green".to_string(),
+            regrow_elapsed: Fixed64::ZERO,
+            remaining_leak_value: 3,
+            spawn_lineage: 5,
+        });
+        let target = world
+            .create_entity()
+            .with(Pos(SimVec2::new(Fixed64::ONE, Fixed64::ZERO)))
+            .with(camo)
+            .build();
+        world
+            .create_entity()
+            .with(Pos(SimVec2::ZERO))
+            .with(Projectile {
+                time_left: Fixed64::ONE,
+                owner,
+                target: Some(target),
+                tpos: SimVec2::new(Fixed64::ONE, Fixed64::ZERO),
+                radius: Fixed64::ZERO,
+                msd: Fixed64::from_i32(100),
+                damage_phys: Fixed64::from_i32(10),
+                damage_magi: Fixed64::ZERO,
+                damage_real: Fixed64::ZERO,
+                damage_profile: AbiDamageProfile::SHARP.bits(),
+                slow_factor: Fixed64::ZERO,
+                slow_duration: Fixed64::ZERO,
+                hit_radius: Fixed64::ZERO,
+                stun_duration: Fixed64::ZERO,
+                kind_id: 0,
+                generation: 0,
+            })
+            .build();
+        run_now::<Sys>(&world);
+        let outcomes = world.read_resource::<Vec<Outcome>>();
+        assert!(!outcomes.iter().any(|outcome| matches!(
+            outcome,
+            Outcome::Damage { target: hit, .. } if *hit == target
+        )));
+        assert!(outcomes
+            .iter()
+            .any(|outcome| matches!(outcome, Outcome::Death { .. })));
+    }
+
+    #[test]
     fn multiple_projectile_outcomes_follow_stable_entity_and_ordinal_order() {
         let mut world = projectile_world();
         let owner_a = world.create_entity().build();
@@ -517,6 +676,7 @@ mod tests {
             real: Fixed64::ZERO,
             source,
             target,
+            damage_profile: AbiDamageProfile::NORMAL.bits(),
             predeclared: false,
         };
         let hit = |source| Outcome::ProjectileHit {

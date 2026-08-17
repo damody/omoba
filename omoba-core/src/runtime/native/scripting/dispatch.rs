@@ -11,7 +11,7 @@ use abi_stable::{
     RMut, RRef,
 };
 use omb_script_abi::{
-    types::{DamageInfo, EntityHandle, Fixed64, ProjectileHitContext, Target, Vec2},
+    types::{DamageInfo, DamageProfile, EntityHandle, Fixed64, ProjectileHitContext, Target, Vec2},
     world::{
         GameWorld, GameWorldDyn, GameWorld_TO, ProjectileQuery_TO, TowerActiveAbilityAccessDyn,
         TowerActiveAbilityAccess_TO, TowerCooldownAccessDyn, TowerCooldownAccess_TO,
@@ -207,9 +207,11 @@ fn filter_ready_on_ticks(
     tagged: Vec<(Entity, String)>,
     dt: Fixed64,
 ) -> Vec<(Entity, String)> {
-    use crate::comp::{TAttack, Tower};
+    use crate::comp::{IsBuilding, TAttack, Tower};
 
     let towers = world.read_storage::<Tower>();
+    let buildings = world.read_storage::<IsBuilding>();
+    let buffs = world.read_resource::<crate::runtime::BuffStore>();
     let mut attacks = world.write_storage::<TAttack>();
     tagged
         .into_iter()
@@ -220,9 +222,19 @@ fn filter_ready_on_ticks(
             let Some(atk) = attacks.get_mut(*ent) else {
                 return true;
             };
-            let interval = atk.asd.val();
+            let speed =
+                crate::runtime::UnitStats::from_refs(&*buffs, buildings.get(*ent).is_some())
+                    .final_attack_speed_mult(*ent);
+            let interval = (atk.asd.v / speed).max(Fixed64::from_raw(1));
             if interval <= Fixed64::ZERO {
                 return true;
+            }
+            // An attack-speed upgrade may shorten the interval while the old
+            // base cooldown is already accumulated. Clamp it so script windup
+            // receives at most one effective interval; otherwise the excess
+            // can exceed windup and repeatedly re-enter Ready without Impact.
+            if atk.asd_count > interval {
+                atk.asd_count = interval;
             }
             if atk.asd_count < Fixed64::ZERO {
                 let next = atk.asd_count + dt;
@@ -463,6 +475,7 @@ fn dispatch_one(
                 // 階段 1c.3：金額已固定64（ScriptEvent::Damage 已遷移 1c.2）。
                 amount,
                 kind,
+                profile: DamageProfile::NORMAL,
             };
 
             // 1）victim.on_damage_taken（可能會改變info.amount）
@@ -519,6 +532,7 @@ fn dispatch_one(
                 victim_handle,
                 info.amount,
                 info.kind,
+                info.profile,
                 attacker_handle_opt.map_or(RNone, RSome),
             );
         }

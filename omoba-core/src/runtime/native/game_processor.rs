@@ -15,14 +15,14 @@ use crate::runtime::comp::{
     FactionType, Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBase, IsBuilding,
     KnowledgeBonusResource, MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue,
     PendingAbilityUpgradeQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
-    PendingItemUseQueue, PendingMoveQueue,
-    PendingTowerAbilityActivation, PendingTowerAbilityActivationQueue,
-    PendingTowerAbilityCastQueue, PendingTowerSellQueue, PendingTowerSpawnQueue,
-    PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, PlayerEconomy, PlayerOwner, Pos,
-    Projectile, RemovedEntitiesQueue, Searcher, TAttack, TProperty, Tick, Tower,
-    TowerAbilityCastResult, TowerAbilityCastResults, TowerActiveAbilityState, TowerData,
-    TowerFireFxQueue, TowerSpawnOrderCounter, TowerTargetPriority, TowerTemplate,
-    TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed, Unit, INVENTORY_SLOTS,
+    PendingItemUseQueue, PendingMoveQueue, PendingTowerAbilityActivation,
+    PendingTowerAbilityActivationQueue, PendingTowerAbilityCastQueue, PendingTowerSellQueue,
+    PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue,
+    PlayerEconomy, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, Searcher, TAttack,
+    TProperty, Tick, Tower, TowerAbilityCastResult, TowerAbilityCastResults,
+    TowerActiveAbilityState, TowerData, TowerFireFxQueue, TowerSpawnOrderCounter,
+    TowerTargetPriority, TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed,
+    Unit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -30,6 +30,7 @@ use crate::runtime::item::{ActiveEffect, ItemRegistry};
 use crate::runtime::scripting::{ScriptEvent, ScriptEventQueue, ScriptUnitTag, SkillTarget};
 use crate::tower_meta::UpgradeEffect;
 use omb_script_abi::stat_keys::StatKey;
+use omb_script_abi::types::DamageProfile as AbiDamageProfile;
 
 const OP_PROJECTILE_ACCURACY: u32 = 20;
 const OP_PROJECTILE_STUN_ROLL: u32 = 21;
@@ -534,6 +535,35 @@ fn debit_player_economy(
     player_id: u32,
     cost: i32,
 ) -> Result<i32, failure::Error> {
+    let is_td = world
+        .try_fetch::<crate::runtime::GameMode>()
+        .map(|mode| mode.is_td())
+        .unwrap_or(false);
+    if is_td {
+        let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
+        let category = match context {
+            "TowerPlace" => crate::runtime::TdEconomyCategory::TowerPlace,
+            "TowerUpgrade" => crate::runtime::TdEconomyCategory::TowerUpgrade,
+            _ => {
+                return Err(failure::err_msg(format!(
+                    "unknown TD debit context={context}"
+                )))
+            }
+        };
+        let mut ledger = world.write_resource::<crate::runtime::TdEconomyLedger>();
+        let mut economy = world.write_resource::<PlayerEconomy>();
+        return ledger
+            .apply(
+                &mut economy,
+                tick,
+                Some(player_id),
+                category,
+                cost.saturating_neg(),
+                context,
+            )
+            .map(|balance| balance.unwrap_or_default())
+            .map_err(|error| failure::err_msg(format!("{context}: {error}")));
+    }
     let mut economy = world
         .try_fetch_mut::<PlayerEconomy>()
         .ok_or_else(|| failure::err_msg(format!("{context}: PlayerEconomy resource is missing")))?;
@@ -548,6 +578,35 @@ fn credit_player_economy(
     player_id: u32,
     amount: i32,
 ) -> Result<i32, failure::Error> {
+    let is_td = world
+        .try_fetch::<crate::runtime::GameMode>()
+        .map(|mode| mode.is_td())
+        .unwrap_or(false);
+    if is_td {
+        let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
+        let category = match context {
+            "TowerSell" => crate::runtime::TdEconomyCategory::TowerSell,
+            "TDCreepBounty" => crate::runtime::TdEconomyCategory::LayerIncome,
+            _ => {
+                return Err(failure::err_msg(format!(
+                    "unknown TD credit context={context}"
+                )))
+            }
+        };
+        let mut ledger = world.write_resource::<crate::runtime::TdEconomyLedger>();
+        let mut economy = world.write_resource::<PlayerEconomy>();
+        return ledger
+            .apply(
+                &mut economy,
+                tick,
+                Some(player_id),
+                category,
+                amount,
+                context,
+            )
+            .map(|balance| balance.unwrap_or_default())
+            .map_err(|error| failure::err_msg(format!("{context}: {error}")));
+    }
     let mut economy = world
         .try_fetch_mut::<PlayerEconomy>()
         .ok_or_else(|| failure::err_msg(format!("{context}: PlayerEconomy resource is missing")))?;
@@ -646,7 +705,11 @@ pub fn spawn_td_tower_with_owner(
         if !gk_buffs.is_empty() {
             let mut buff_store = world.write_resource::<BuffStore>();
             for (buff_id, payload_str) in &gk_buffs {
-                log::info!("[gk_spawn] applying buff_id='{}' payload={}", buff_id, payload_str);
+                log::info!(
+                    "[gk_spawn] applying buff_id='{}' payload={}",
+                    buff_id,
+                    payload_str
+                );
                 let payload: serde_json::Value = serde_json::from_str(payload_str)
                     .unwrap_or(serde_json::Value::Object(Default::default()));
                 buff_store.add(entity, buff_id, Fixed64::from_raw(i64::MAX), payload);
@@ -901,19 +964,19 @@ pub fn handle_tower_sell_from_input(
         let reg = world.read_resource::<TowerTemplateRegistry>();
         let towers = world.read_storage::<Tower>();
         let ureg = world.read_resource::<TowerUpgradeRegistry>();
-        let base_refund = tags
+        let base_spend = tags
             .get(target_entity)
             .and_then(|tag| reg.get(&tag.unit_id))
-            .map(|tpl| (tpl.cost as f32 * 0.85) as i32)
+            .map(|tpl| tpl.cost)
             .unwrap_or(0);
-        let upgrade_refund = if let (Some(tower), Some(tag)) =
+        let upgrade_spend = if let (Some(tower), Some(tag)) =
             (towers.get(target_entity), tags.get(target_entity))
         {
             let mut total = 0i32;
             for path in 0..3u8 {
                 for level in 1..=tower.upgrade_levels[path as usize] {
                     if let Some(def) = ureg.get(&tag.unit_id, path, level) {
-                        total += (def.cost as f32 * 0.75) as i32;
+                        total = total.saturating_add(def.cost);
                     }
                 }
             }
@@ -921,7 +984,13 @@ pub fn handle_tower_sell_from_input(
         } else {
             0
         };
-        base_refund + upgrade_refund
+        world
+            .try_fetch::<crate::runtime::TdEconomyRules>()
+            .map(|rules| rules.sell_refund(base_spend.saturating_add(upgrade_spend)))
+            .unwrap_or_else(|| {
+                // Non-TD compatibility path; TD worlds always install TdEconomyRules.
+                base_spend.saturating_mul(3) / 4 + upgrade_spend.saturating_mul(3) / 4
+            })
     };
 
     credit_player_economy(world, "TowerSell", owner_pid, refund)?;
@@ -1513,6 +1582,7 @@ pub fn process_outcomes(
                 real,
                 source,
                 target,
+                damage_profile,
                 predeclared,
             } => handle_damage(
                 world,
@@ -1523,6 +1593,7 @@ pub fn process_outcomes(
                 real,
                 source,
                 target,
+                damage_profile,
                 predeclared,
             )?,
             Outcome::ProjectileHit {
@@ -1621,6 +1692,7 @@ pub fn process_outcomes(
                 damage_phys,
                 damage_magi,
                 damage_real,
+                damage_profile,
                 slow_factor,
                 slow_duration,
                 hit_radius,
@@ -1638,6 +1710,7 @@ pub fn process_outcomes(
                 damage_phys,
                 damage_magi,
                 damage_real,
+                damage_profile,
                 slow_factor,
                 slow_duration,
                 hit_radius,
@@ -1692,7 +1765,7 @@ pub fn process_outcomes(
 }
 
 fn merge_damage_outcomes(raw: Vec<Outcome>) -> Vec<Outcome> {
-    let mut first_dmg_idx: std::collections::HashMap<Entity, usize> =
+    let mut first_dmg_idx: std::collections::HashMap<(Entity, Entity, u32), usize> =
         std::collections::HashMap::new();
     let mut aggregated = Vec::with_capacity(raw.len());
     for outcome in raw {
@@ -1700,20 +1773,25 @@ fn merge_damage_outcomes(raw: Vec<Outcome>) -> Vec<Outcome> {
             phys,
             magi,
             real,
+            source,
             target,
+            damage_profile,
             predeclared,
             ..
         } = &outcome
         {
-            if let Some(&idx) = first_dmg_idx.get(target) {
+            let key = (*target, *source, *damage_profile);
+            if let Some(&idx) = first_dmg_idx.get(&key) {
                 if let Outcome::Damage {
                     phys: acc_phys,
                     magi: acc_magi,
                     real: acc_real,
+                    damage_profile: acc_profile,
                     predeclared: acc_predeclared,
                     ..
                 } = &mut aggregated[idx]
                 {
+                    debug_assert_eq!(*acc_profile, *damage_profile);
                     *acc_phys += *phys;
                     *acc_magi += *magi;
                     *acc_real += *real;
@@ -1721,7 +1799,7 @@ fn merge_damage_outcomes(raw: Vec<Outcome>) -> Vec<Outcome> {
                     continue;
                 }
             }
-            first_dmg_idx.insert(*target, aggregated.len());
+            first_dmg_idx.insert(key, aggregated.len());
         }
         aggregated.push(outcome);
     }
@@ -1751,9 +1829,7 @@ fn handle_death(
     // 路徑，不會進到這裡，因此這裡判定「是小兵」即可視為玩家擊殺，不會誤計漏怪。
     let is_creep_kill = world.read_storage::<Creep>().get(entity).is_some();
     if is_creep_kill {
-        world
-            .write_resource::<crate::comp::MatchKillCounter>()
-            .0 += 1;
+        world.write_resource::<crate::comp::MatchKillCounter>().0 += 1;
     }
 
     {
@@ -2017,6 +2093,7 @@ fn handle_projectile(
                 damage_phys: if is_real { atk_phys } else { Fixed64::ZERO },
                 damage_magi: Fixed64::ZERO,
                 damage_real: Fixed64::ZERO,
+                damage_profile: AbiDamageProfile::NORMAL.bits(),
                 slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO,
                 hit_radius: Fixed64::ZERO,
@@ -2069,7 +2146,7 @@ fn handle_creep_spawn(world: &mut World, cd: CreepData) -> Result<(), failure::E
 }
 
 fn creep_bounty_from_template(creep_name: &str) -> Bounty {
-    if creep_name.starts_with("ally_") {
+    if creep_name.starts_with("ally_") || creep_name.starts_with("td_btd_") {
         return Bounty { gold: 0, exp: 0 };
     }
     if let Some(stats) = omoba_template_ids::creep_by_name(creep_name)
@@ -2165,6 +2242,7 @@ fn handle_script_projectile(
     damage_phys: Fixed64,
     damage_magi: Fixed64,
     damage_real: Fixed64,
+    damage_profile: u32,
     slow_factor: Fixed64,
     slow_duration: Fixed64,
     hit_radius: Fixed64,
@@ -2195,6 +2273,7 @@ fn handle_script_projectile(
             damage_phys,
             damage_magi,
             damage_real,
+            damage_profile,
             slow_factor,
             slow_duration,
             hit_radius,
@@ -2279,6 +2358,108 @@ mod tests {
     use specs::Join;
 
     #[test]
+    fn td_layer_commit_materializes_only_ordered_survivors() {
+        let mut world = World::new();
+        world.register::<Creep>();
+        world.register::<CProperty>();
+        world.register::<Pos>();
+        world.register::<Faction>();
+        world.register::<Bounty>();
+        world.register::<Facing>();
+        world.register::<FacingBroadcast>();
+        world.register::<TurnSpeed>();
+        world.register::<ScriptUnitTag>();
+        world.insert(ScriptEventQueue::default());
+        world.insert(BuffStore::default());
+
+        let state = crate::runtime::TdLayerState {
+            base_archetype: "ceramic".to_string(),
+            current_layer: "ceramic".to_string(),
+            properties: 0,
+            regrow_ceiling: "ceramic".to_string(),
+            regrow_elapsed: Fixed64::ZERO,
+            remaining_leak_value: 104,
+            spawn_lineage: 77,
+        };
+        let target = world
+            .create_entity()
+            .with(Creep {
+                name: "td_btd_ceramic".to_string(),
+                label: Some("Ceramic".to_string()),
+                path: "main".to_string(),
+                pidx: 2,
+                path_remaining_distance: Fixed64::from_i32(500),
+                block_tower: None,
+                status: CreepStatus::Walk,
+                td_layer: Some(state.clone()),
+            })
+            .with(CProperty {
+                hp: Fixed64::from_i32(10),
+                mhp: Fixed64::from_i32(10),
+                msd: Fixed64::from_i32(210),
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            })
+            .with(Pos(omoba_sim::Vec2::ZERO))
+            .with(Faction::new(FactionType::Enemy, 1))
+            .with(Bounty::default())
+            .with(Facing::default())
+            .with(FacingBroadcast::default())
+            .with(TurnSpeed::default())
+            .build();
+        let plan = crate::runtime::resolve_td_layer_damage(
+            omoba_template_ids::active_td_layer_catalog(),
+            &state,
+            Fixed64::from_i32(10),
+            Fixed64::from_i32(10),
+            crate::runtime::DamageProfile::new(AbiDamageProfile::TRUE.bits()).unwrap(),
+            crate::runtime::HitProvenance {
+                source_entity_id: 1,
+                owner_player_id: Some(1),
+                hit_serial: 1,
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.pop_count(), 1);
+        assert_eq!(
+            plan.original.as_ref().unwrap().state.current_layer,
+            "rainbow"
+        );
+        assert_eq!(plan.children.len(), 1);
+
+        assert!(
+            !commit_td_layer_plan(&mut world, target, &state, Fixed64::from_i32(10), &plan,)
+                .unwrap()
+        );
+        world.maintain();
+        let creeps = world.read_storage::<Creep>();
+        let entities = world.entities();
+        let layers: Vec<_> = (&entities, &creeps)
+            .join()
+            .map(|(entity, creep)| {
+                (
+                    entity.id(),
+                    creep.td_layer.as_ref().unwrap().current_layer.clone(),
+                    creep.td_layer.as_ref().unwrap().spawn_lineage,
+                )
+            })
+            .collect();
+        assert_eq!(layers.len(), 2, "no transient intermediate layer entities");
+        assert_eq!(layers[0].0, target.id(), "first survivor reuses original");
+        assert_eq!(layers[0].1, "rainbow");
+        assert_eq!(layers[1].1, "rainbow");
+        assert_ne!(layers[0].2, layers[1].2, "child lineage stays unique");
+    }
+
+    #[test]
+    fn td_leak_value_saturates_lives_at_zero() {
+        assert_eq!(apply_td_life_loss(100, 47), 53);
+        assert_eq!(apply_td_life_loss(50, 616), 0);
+        assert_eq!(apply_td_life_loss(0, i32::MAX), 0);
+        assert_eq!(apply_td_life_loss(10, -1), 10);
+    }
+
+    #[test]
     fn creep_bounty_uses_active_template_rewards() {
         let id = CreepId(1);
         let name = creep_id_str(id);
@@ -2287,6 +2468,21 @@ mod tests {
         let bounty = creep_bounty_from_template(name);
         assert_eq!(bounty.gold, stats.gold_reward);
         assert_eq!(bounty.exp, stats.exp_reward);
+        let td_bounty = creep_bounty_from_template("td_btd_red");
+        assert_eq!(td_bounty.gold, 0);
+        assert_eq!(td_bounty.exp, 0);
+    }
+
+    #[test]
+    fn legacy_moba_minion_bounty_and_experience_stay_unchanged() {
+        for name in ["melee_minion", "ranged_minion", "siege_minion"] {
+            let id = omoba_template_ids::creep_by_name(name).expect("generated MOBA creep id");
+            let stats =
+                omoba_template_ids::active_creep_stats(id).expect("generated MOBA creep rewards");
+            let bounty = creep_bounty_from_template(name);
+            assert_eq!(bounty.gold, stats.gold_reward, "{name} gold");
+            assert_eq!(bounty.exp, stats.exp_reward, "{name} exp");
+        }
     }
 
     fn world_for_td_bounty_test(mode: GameMode) -> World {
@@ -2294,6 +2490,9 @@ mod tests {
         world.register::<PlayerOwner>();
         world.register::<Bounty>();
         world.insert(mode);
+        world.insert(Tick(0));
+        world.insert(crate::runtime::TdEconomyRules::default());
+        world.insert(crate::runtime::TdEconomyLedger::default());
         let mut economy = PlayerEconomy::default();
         economy.initialize(1, 650);
         economy.initialize(2, 650);
@@ -2352,12 +2551,8 @@ mod tests {
         let road_end = Vec2::new(500.0, 0.0);
 
         assert_eq!(clear, 154.0);
-        assert!(
-            point_segment_dist_sq(Vec2::new(0.0, 153.0), road_start, road_end) < clear_sq
-        );
-        assert!(
-            point_segment_dist_sq(Vec2::new(0.0, 155.0), road_start, road_end) >= clear_sq
-        );
+        assert!(point_segment_dist_sq(Vec2::new(0.0, 153.0), road_start, road_end) < clear_sq);
+        assert!(point_segment_dist_sq(Vec2::new(0.0, 155.0), road_start, road_end) >= clear_sq);
     }
 
     fn world_for_script_outcome_tests() -> (World, Entity) {
@@ -2844,7 +3039,8 @@ mod tests {
         );
 
         handle_tower_sell_from_input(&mut world, tower.id(), 1).expect("hero-free owner can sell");
-        let expected_refund = (200.0 * 0.85) as i32 + (upgrade_cost as f32 * 0.75) as i32;
+        let expected_refund =
+            crate::runtime::TdEconomyRules::default().sell_refund(200 + upgrade_cost);
         assert_eq!(
             world.read_resource::<PlayerEconomy>().balance(1),
             Some(1_000 - upgrade_cost + expected_refund)
@@ -2952,6 +3148,7 @@ mod tests {
                 damage_phys: Fixed64::from_i32(10),
                 damage_magi: Fixed64::ZERO,
                 damage_real: Fixed64::ZERO,
+                damage_profile: AbiDamageProfile::NORMAL.bits(),
                 slow_factor: Fixed64::ZERO,
                 slow_duration: Fixed64::ZERO,
                 hit_radius: Fixed64::ZERO,
@@ -3423,13 +3620,25 @@ fn handle_creep_leaked(
     events: &mut impl RuntimeEventSink,
     entity: Entity,
 ) -> Result<(), failure::Error> {
+    let leak_value = world
+        .read_storage::<Creep>()
+        .get(entity)
+        .and_then(|creep| creep.td_layer.as_ref())
+        .map(|state| state.remaining_leak_value.min(i32::MAX as u32) as i32)
+        .unwrap_or(1)
+        .max(0);
     let (previous, remaining) = {
         let mut lives = world.write_resource::<crate::runtime::comp::PlayerLives>();
         let previous = lives.0;
-        lives.0 = (lives.0 - 1).max(0);
+        lives.0 = apply_td_life_loss(lives.0, leak_value);
         (previous, lives.0)
     };
-    log::debug!("creep leaked; lives={} entity={:?}", remaining, entity);
+    log::debug!(
+        "creep leaked; leak_value={} lives={} entity={:?}",
+        leak_value,
+        remaining,
+        entity
+    );
     if previous <= 0 {
         return Ok(());
     }
@@ -3442,6 +3651,10 @@ fn handle_creep_leaked(
         log::warn!("TD mode: player lives depleted");
     }
     Ok(())
+}
+
+fn apply_td_life_loss(lives: i32, leak_value: i32) -> i32 {
+    lives.saturating_sub(leak_value.max(0)).max(0)
 }
 
 fn handle_projectile_directional(
@@ -3482,6 +3695,7 @@ fn handle_projectile_directional(
             damage_phys: atk_phys,
             damage_magi: Fixed64::ZERO,
             damage_real: Fixed64::ZERO,
+            damage_profile: AbiDamageProfile::NORMAL.bits(),
             slow_factor: Fixed64::ZERO,
             slow_duration: Fixed64::ZERO,
             hit_radius: Fixed64::ZERO,
@@ -3562,6 +3776,137 @@ fn handle_creep_update(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn commit_td_layer_plan(
+    world: &mut World,
+    target: Entity,
+    expected_state: &crate::runtime::TdLayerState,
+    expected_hp: Fixed64,
+    plan: &crate::runtime::TdLayerResolutionPlan,
+) -> Result<bool, failure::Error> {
+    let snapshot = {
+        let creeps = world.read_storage::<Creep>();
+        let properties = world.read_storage::<CProperty>();
+        let positions = world.read_storage::<Pos>();
+        let factions = world.read_storage::<Faction>();
+        let bounties = world.read_storage::<Bounty>();
+        let facings = world.read_storage::<Facing>();
+        let facing_broadcasts = world.read_storage::<FacingBroadcast>();
+        let turn_speeds = world.read_storage::<TurnSpeed>();
+        let tags = world.read_storage::<ScriptUnitTag>();
+        let creep = creeps
+            .get(target)
+            .cloned()
+            .ok_or_else(|| failure::err_msg("TD layer commit target lost Creep"))?;
+        let property = properties
+            .get(target)
+            .cloned()
+            .ok_or_else(|| failure::err_msg("TD layer commit target lost CProperty"))?;
+        if creep.td_layer.as_ref() != Some(expected_state) || property.hp != expected_hp {
+            return Err(failure::err_msg(format!(
+                "TD layer commit stale target={} expected={}:{:?} actual={:?}:{:?}",
+                target.id(),
+                expected_state.current_layer,
+                expected_hp,
+                creep
+                    .td_layer
+                    .as_ref()
+                    .map(|state| state.current_layer.as_str()),
+                property.hp
+            )));
+        }
+        (
+            creep,
+            property,
+            *positions
+                .get(target)
+                .ok_or_else(|| failure::err_msg("TD layer commit target lost Pos"))?,
+            factions
+                .get(target)
+                .cloned()
+                .ok_or_else(|| failure::err_msg("TD layer commit target lost Faction"))?,
+            bounties.get(target).copied().unwrap_or_default(),
+            facings.get(target).copied().unwrap_or_default(),
+            facing_broadcasts.get(target).copied().unwrap_or_default(),
+            turn_speeds.get(target).copied().unwrap_or_default(),
+            tags.get(target).cloned(),
+        )
+    };
+
+    let (
+        base_creep,
+        base_property,
+        pos,
+        faction,
+        _bounty,
+        facing,
+        facing_broadcast,
+        turn_speed,
+        tag,
+    ) = snapshot;
+    if let Some(original) = &plan.original {
+        let layer = omoba_template_ids::active_td_layer_by_name(&original.state.current_layer)
+            .ok_or_else(|| failure::err_msg("TD layer commit missing original metadata"))?;
+        let mut creeps = world.write_storage::<Creep>();
+        let mut properties = world.write_storage::<CProperty>();
+        let creep = creeps
+            .get_mut(target)
+            .ok_or_else(|| failure::err_msg("TD layer commit original Creep disappeared"))?;
+        creep.name = format!("td_btd_{}", original.state.current_layer);
+        creep.label = Some(layer.label.to_string());
+        creep.td_layer = Some(original.state.clone());
+        let property = properties
+            .get_mut(target)
+            .ok_or_else(|| failure::err_msg("TD layer commit original CProperty disappeared"))?;
+        property.hp = original.hp;
+        property.mhp = original.max_hp;
+        property.msd = Fixed64::from_i32(layer.move_speed as i32);
+    } else if let Some(property) = world.write_storage::<CProperty>().get_mut(target) {
+        property.hp = Fixed64::ZERO;
+    }
+
+    for child in &plan.children {
+        let layer = omoba_template_ids::active_td_layer_by_name(&child.state.current_layer)
+            .ok_or_else(|| failure::err_msg("TD layer commit missing child metadata"))?;
+        let mut creep = base_creep.clone();
+        creep.name = format!("td_btd_{}", child.state.current_layer);
+        creep.label = Some(layer.label.to_string());
+        creep.block_tower = None;
+        creep.td_layer = Some(child.state.clone());
+        let mut property = base_property.clone();
+        property.hp = child.hp;
+        property.mhp = child.max_hp;
+        property.msd = Fixed64::from_i32(layer.move_speed as i32);
+        let mut builder = world
+            .create_entity()
+            .with(pos)
+            .with(creep)
+            .with(property)
+            .with(faction.clone())
+            // Layer cash is credited at pop time; generic final-death bounty must stay disabled.
+            .with(Bounty::default())
+            .with(facing)
+            .with(facing_broadcast)
+            .with(turn_speed);
+        if let Some(mut child_tag) = tag.clone() {
+            child_tag.unit_id = format!("creep_td_btd_{}", child.state.current_layer);
+            builder = builder.with(child_tag);
+        }
+        let entity = builder.build();
+        world
+            .write_resource::<ScriptEventQueue>()
+            .push(ScriptEvent::Spawn { e: entity });
+        world.write_resource::<BuffStore>().add(
+            entity,
+            "creep_min_speed_floor",
+            Fixed64::from_raw(i64::MAX),
+            json!({ "movespeed_absolute_min": 10.0 }),
+        );
+    }
+
+    Ok(plan.original.is_none())
+}
+
+#[allow(clippy::too_many_arguments)]
 fn handle_damage(
     world: &mut World,
     next_outcomes: &mut Vec<Outcome>,
@@ -3571,12 +3916,128 @@ fn handle_damage(
     real: Fixed64,
     source: Entity,
     target: Entity,
+    damage_profile: u32,
     _predeclared: bool,
 ) -> Result<(), failure::Error> {
     let dmg_taken_bonus = world
         .read_resource::<BuffStore>()
         .sum_add(target, StatKey::DamageTakenBonus);
     let dmg_multiplier = (Fixed64::ONE + dmg_taken_bonus).max(Fixed64::ZERO);
+    let td_snapshot = {
+        let creeps = world.read_storage::<Creep>();
+        let properties = world.read_storage::<CProperty>();
+        creeps.get(target).and_then(|creep| {
+            creep
+                .td_layer
+                .clone()
+                .zip(properties.get(target).map(|property| property.hp))
+        })
+    };
+    if let Some((state, current_hp)) = td_snapshot {
+        // Multiple same-tick outcomes (for example projectile damage followed
+        // by an on-hit critical bonus) can target a layer already reduced to
+        // zero earlier in this outcome batch. Its Death is committed after the
+        // batch, so treat the later hit as stale overkill: no duplicate pop,
+        // cash, or children.
+        if current_hp <= Fixed64::ZERO {
+            log::debug!(
+                "ignoring stale TD damage source={} target={} layer={} hp_raw={}",
+                source.id(),
+                target.id(),
+                state.current_layer,
+                current_hp.raw(),
+            );
+            return Ok(());
+        }
+        let profile = crate::runtime::DamageProfile::new(damage_profile).map_err(|error| {
+            failure::err_msg(format!(
+                "invalid TD damage profile source={} target={} mask={:#x}: {:?}",
+                source.id(),
+                target.id(),
+                damage_profile,
+                error
+            ))
+        })?;
+        let hit_serial = {
+            let mut serial = world.write_resource::<crate::runtime::TdLayerCommitSerial>();
+            serial.0 = serial.0.wrapping_add(1);
+            serial.0
+        };
+        let owner_player_id = world
+            .read_storage::<PlayerOwner>()
+            .get(source)
+            .map(|owner| owner.player_id);
+        let total_damage = (phys + magi + real) * dmg_multiplier;
+        let plan = crate::runtime::resolve_td_layer_damage(
+            omoba_template_ids::active_td_layer_catalog(),
+            &state,
+            current_hp,
+            total_damage,
+            profile,
+            crate::runtime::HitProvenance {
+                source_entity_id: source.id(),
+                owner_player_id,
+                hit_serial,
+            },
+        )
+        .map_err(|error| {
+            failure::err_msg(format!(
+                "TD layer resolve failed source={} target={} hit={} mask={:#x}: {:?}",
+                source.id(),
+                target.id(),
+                hit_serial,
+                damage_profile,
+                error
+            ))
+        })?;
+        let died = commit_td_layer_plan(world, target, &state, current_hp, &plan)?;
+        if let Some(tower) = world.write_storage::<Tower>().get_mut(source) {
+            tower.pops = tower.pops.saturating_add(plan.pop_count());
+        }
+        if plan.pop_count() > 0 {
+            let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
+            let source_layers = plan
+                .popped
+                .iter()
+                .map(|layer| layer.layer_id.as_str())
+                .collect::<Vec<_>>()
+                .join("+");
+            let mut ledger = world.write_resource::<crate::runtime::TdEconomyLedger>();
+            let mut economy = world.write_resource::<PlayerEconomy>();
+            ledger
+                .apply(
+                    &mut economy,
+                    tick,
+                    owner_player_id,
+                    crate::runtime::TdEconomyCategory::LayerIncome,
+                    plan.cash().min(i32::MAX as u32) as i32,
+                    source_layers,
+                )
+                .map_err(|error| {
+                    failure::err_msg(format!(
+                        "TD layer economy commit failed hit={} source={}: {}",
+                        hit_serial,
+                        source.id(),
+                        error
+                    ))
+                })?;
+        }
+        log::debug!(
+            "TD layer commit hit={} source={} target={} popped={} cash={} children={} immune={:?}",
+            hit_serial,
+            source.id(),
+            target.id(),
+            plan.pop_count(),
+            plan.cash(),
+            plan.children.len(),
+            plan.immune_layer
+        );
+        if died {
+            next_outcomes.push(Outcome::Death { pos, ent: target });
+        }
+        return Ok(());
+    }
+
     let mut died = false;
     {
         let mut properties = world.write_storage::<CProperty>();

@@ -378,6 +378,7 @@ mod tests {
     #[test]
     fn lockstep_move_input_advances_on_following_tick() {
         let (mut world, hero) = movement_world();
+        world.insert(crate::comp::SandboxMode(false));
         world.insert(PendingPlayerInputs {
             tick: 1,
             inputs: vec![(
