@@ -160,6 +160,7 @@ impl UnitScript for DartTower {
                 path: path_spec,
                 speed: bullet_speed,
                 damage,
+                damage_profile: DamageProfile::SHARP,
                 hit_radius,
                 splash_radius,
                 slow_factor: Fixed64::ZERO,
@@ -230,7 +231,13 @@ impl UnitScript for DartTower {
         };
 
         w.log_info(RStr::from_str("[tower_dart] crit!"));
-        w.deal_damage(victim, bonus_damage, DamageKind::Physical, RSome(attacker));
+        w.deal_damage(
+            victim,
+            bonus_damage,
+            DamageKind::Physical,
+            DamageProfile::SHARP,
+            RSome(attacker),
+        );
         if let RSome(at) = w.get_pos(victim) {
             w.play_vfx(RStr::from_str("vfx_dart_crit"), at);
         }
@@ -247,7 +254,14 @@ impl UnitScript for DartTower {
                     (Fixed64::from_i32(60), Fixed64::from_i32(60))
                 };
                 w.play_vfx(RStr::from_str("vfx_explosion"), at);
-                w.deal_damage_splash(at, radius, damage, DamageKind::Physical, RSome(attacker));
+                w.deal_damage_splash(
+                    at,
+                    radius,
+                    damage,
+                    DamageKind::Physical,
+                    DamageProfile::SHARP.union(DamageProfile::EXPLOSIVE),
+                    RSome(attacker),
+                );
             }
         }
     }
@@ -323,8 +337,8 @@ mod tests {
             .iter()
             .filter(|outcome| {
                 matches!(outcome,
-                    Outcome::ScriptDirectDamage { amount, .. }
-                        if *amount == Fixed64::from_i32(120)
+                    Outcome::Damage { phys, .. }
+                        if *phys == Fixed64::from_i32(120)
                 )
             })
             .count();
@@ -349,8 +363,8 @@ mod tests {
             .iter()
             .filter(|outcome| {
                 matches!(outcome,
-                    Outcome::ScriptDirectDamage { amount, .. }
-                        if *amount == Fixed64::from_i32(60)
+                    Outcome::Damage { phys, .. }
+                        if *phys == Fixed64::from_i32(60)
                 )
             })
             .count();
@@ -384,8 +398,8 @@ mod tests {
         );
 
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
-            Outcome::ScriptDirectDamage { amount, .. }
-                if *amount == Fixed64::from_i32(60)
+            Outcome::Damage { phys, .. }
+                if *phys == Fixed64::from_i32(60)
         )));
     }
 

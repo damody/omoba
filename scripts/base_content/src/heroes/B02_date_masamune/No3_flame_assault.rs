@@ -1,10 +1,10 @@
 //! 火焰強襲（flame_assault）— 伊達政宗的 R 大招：範圍傷害 + 暈眩。
 
-use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
+use abi_stable::std_types::{RNone, ROk, RResult, RSome, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     buff_ids::BuffId,
-    types::{DamageKind, EntityHandle, Fixed64, Target},
+    types::{DamageKind, DamageProfile, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
@@ -66,7 +66,13 @@ impl AbilityScript for FlameAssaultHandler {
         let enemies = world.query_enemies_in_range(center, radius, caster);
         let stun_buff = BuffId::Stun.as_rstr();
         for victim in enemies.iter().copied() {
-            world.deal_damage(victim, damage, DamageKind::Magical, RNone);
+            world.deal_damage(
+                victim,
+                damage,
+                DamageKind::Magical,
+                DamageProfile::FIRE,
+                RSome(caster),
+            );
             world.add_buff(victim, stun_buff, stun_duration);
         }
         ROk(())

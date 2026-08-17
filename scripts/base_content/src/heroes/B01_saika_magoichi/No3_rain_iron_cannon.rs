@@ -7,7 +7,7 @@
 use abi_stable::std_types::{ROk, RResult, RSome, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Fixed64, Target},
+    types::{DamageKind, DamageProfile, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_template_ids::ABILITY_RAIN_IRON_CANNON;
@@ -130,7 +130,13 @@ impl AbilityScript for RainIronCannonHandler {
                 diff += TAU_TICKS;
             }
             if diff.abs() <= arc_half_ticks {
-                world.deal_damage(enemy_h, true_damage, DamageKind::Pure, RSome(attacker));
+                world.deal_damage(
+                    enemy_h,
+                    true_damage,
+                    DamageKind::Pure,
+                    DamageProfile::TRUE,
+                    RSome(attacker),
+                );
             }
         }
     }

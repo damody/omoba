@@ -62,6 +62,7 @@ impl UnitScript for SaikaGunner {
                     path: PathSpec::Homing { target },
                     speed: BULLET_SPEED,
                     damage: atk,
+                    damage_profile: DamageProfile::NORMAL,
                     hit_radius: Fixed64::ZERO,
                     splash_radius: Fixed64::ZERO,
                     slow_factor: Fixed64::ZERO,

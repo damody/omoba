@@ -152,6 +152,10 @@ return function(ctx)
                 value = 0.5,
                 op = "add",
               },
+              {
+                type = "behavior_flag",
+                flag = "camo_detection",
+              },
             },
           },
           {

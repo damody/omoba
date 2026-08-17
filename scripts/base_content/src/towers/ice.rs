@@ -129,6 +129,7 @@ impl UnitScript for IceTower {
                             CRYO_CANNON_RADIUS,
                             atk,
                             DamageKind::Magical,
+                            DamageProfile::COLD,
                             RSome(e),
                         );
                         let cryo_targets = w.query_enemies_in_range(t_pos, CRYO_CANNON_RADIUS, e);
@@ -229,6 +230,7 @@ impl UnitScript for IceTower {
             path: path_spec,
             speed: stats.bullet_speed,
             damage: final_damage,
+            damage_profile: DamageProfile::COLD,
             hit_radius: Fixed64::ZERO,
             splash_radius: final_splash,
             slow_factor,
@@ -266,6 +268,7 @@ impl UnitScript for IceTower {
                 path: PathSpec::Straight { end_pos: end },
                 speed: stats.bullet_speed,
                 damage,
+                damage_profile: DamageProfile::COLD,
                 hit_radius: Fixed64::ZERO,
                 splash_radius: CRYSTAL_NOVA_SPLASH,
                 slow_factor: Fixed64::ZERO,
@@ -494,7 +497,7 @@ mod tests {
         assert_eq!(
             ready
                 .iter()
-                .filter(|outcome| matches!(outcome, Outcome::ScriptDirectDamage { .. }))
+                .filter(|outcome| matches!(outcome, Outcome::Damage { .. }))
                 .count(),
             1
         );
@@ -507,7 +510,7 @@ mod tests {
         assert_eq!(
             cooling_down
                 .iter()
-                .filter(|outcome| matches!(outcome, Outcome::ScriptDirectDamage { .. }))
+                .filter(|outcome| matches!(outcome, Outcome::Damage { .. }))
                 .count(),
             0
         );

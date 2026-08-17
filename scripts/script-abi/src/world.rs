@@ -95,6 +95,7 @@ pub trait GameWorld: Send {
         target: EntityHandle,
         amount: Fixed64,
         kind: DamageKind,
+        profile: DamageProfile,
         source: ROption<EntityHandle>,
     );
     fn heal(&mut self, target: EntityHandle, amount: Fixed64);
@@ -276,6 +277,7 @@ pub trait GameWorld: Send {
         radius: Fixed64,
         damage: Fixed64,
         kind: DamageKind,
+        profile: DamageProfile,
         source: ROption<EntityHandle>,
     );
 

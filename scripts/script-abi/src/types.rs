@@ -36,6 +36,45 @@ pub enum DamageKind {
     Pure,
 }
 
+pub const DAMAGE_PROFILE_ABI_VERSION: u16 = 1;
+
+/// Stable TD damage compatibility mask. Bit assignments are append-only ABI.
+#[repr(transparent)]
+#[derive(StableAbi, Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DamageProfile(pub u32);
+
+impl DamageProfile {
+    pub const SHARP: Self = Self(1 << 0);
+    pub const EXPLOSIVE: Self = Self(1 << 1);
+    pub const ENERGY: Self = Self(1 << 2);
+    pub const FIRE: Self = Self(1 << 3);
+    pub const COLD: Self = Self(1 << 4);
+    pub const NORMAL: Self = Self(1 << 5);
+    pub const CRUSHING: Self = Self(1 << 6);
+    pub const TRUE: Self = Self(1 << 7);
+    pub const KNOWN_BITS: u32 = (1 << 8) - 1;
+
+    pub const fn from_bits(bits: u32) -> Option<Self> {
+        if bits != 0 && bits & !Self::KNOWN_BITS == 0 {
+            Some(Self(bits))
+        } else {
+            None
+        }
+    }
+
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+}
+
 /// 作為“&mut”傳遞給“on_damage_taken”——腳本可以修改“amount”
 /// （例如護盾、傷害減免、反射）。
 #[repr(C)]
@@ -44,6 +83,7 @@ pub struct DamageInfo {
     pub attacker: ROption<EntityHandle>,
     pub amount: Fixed64,
     pub kind: DamageKind,
+    pub profile: DamageProfile,
 }
 
 #[repr(C)]
@@ -240,6 +280,8 @@ pub struct ProjectileSpec {
     pub speed: Fixed64,
     /// 基礎傷害（物理）
     pub damage: Fixed64,
+    /// Explicit TD compatibility tags; host rejects zero or unknown bits.
+    pub damage_profile: DamageProfile,
     /// 沿路 hit-test 半徑
     pub hit_radius: Fixed64,
     /// 命中後 AoE 半徑
@@ -252,4 +294,37 @@ pub struct ProjectileSpec {
     pub stun_duration: Fixed64,
     /// 前端渲染 kind id
     pub kind_id: u16,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn damage_profile_bits_are_stable_and_round_trip() {
+        assert_eq!(DAMAGE_PROFILE_ABI_VERSION, 1);
+        assert_eq!(DamageProfile::SHARP.bits(), 1);
+        assert_eq!(DamageProfile::EXPLOSIVE.bits(), 2);
+        assert_eq!(DamageProfile::ENERGY.bits(), 4);
+        assert_eq!(DamageProfile::FIRE.bits(), 8);
+        assert_eq!(DamageProfile::COLD.bits(), 16);
+        assert_eq!(DamageProfile::NORMAL.bits(), 32);
+        assert_eq!(DamageProfile::CRUSHING.bits(), 64);
+        assert_eq!(DamageProfile::TRUE.bits(), 128);
+
+        let combined = DamageProfile::FIRE.union(DamageProfile::EXPLOSIVE);
+        assert_eq!(DamageProfile::from_bits(combined.bits()), Some(combined));
+        assert!(combined.intersects(DamageProfile::FIRE));
+        assert!(combined.intersects(DamageProfile::EXPLOSIVE));
+    }
+
+    #[test]
+    fn damage_profile_rejects_zero_and_unknown_bits() {
+        assert_eq!(DamageProfile::from_bits(0), None);
+        assert_eq!(DamageProfile::from_bits(1 << 8), None);
+        assert_eq!(
+            DamageProfile::from_bits(DamageProfile::KNOWN_BITS | (1 << 31)),
+            None
+        );
+    }
 }

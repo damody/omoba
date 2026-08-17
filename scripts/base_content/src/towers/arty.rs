@@ -48,6 +48,7 @@ fn fire_shell(e: EntityHandle, target: EntityHandle, w: &mut GameWorldDyn<'_>) -
         path: PathSpec::Homing { target },
         speed: stats.bullet_speed,
         damage: w.get_final_atk(e),
+        damage_profile: DamageProfile::EXPLOSIVE.union(DamageProfile::FIRE),
         hit_radius: Fixed64::ZERO,
         splash_radius: splash,
         slow_factor,

@@ -20,23 +20,30 @@ const BLADE_MAELSTROM_PULSES: u16 = 4;
 const BLADE_MAELSTROM_BLADES: u32 = 16;
 const BLADE_MAELSTROM_RANGE: Fixed64 = Fixed64::from_i32(600);
 
-fn burn_spec(e: EntityHandle, w: &GameWorldDyn<'_>) -> Option<(Fixed64, &'static str)> {
+fn burn_spec(e: EntityHandle, w: &GameWorldDyn<'_>) -> Option<(Fixed64, Fixed64)> {
     if w.has_tower_flag(e, RStr::from_str("burn_tier2")) {
-        Some((Fixed64::from_i32(3), r#"{"dot_damage":10}"#))
+        Some((Fixed64::from_i32(3), Fixed64::from_i32(10)))
     } else if w.has_tower_flag(e, RStr::from_str("burn_tier1")) {
-        Some((Fixed64::from_i32(2), r#"{"dot_damage":5}"#))
+        Some((Fixed64::from_i32(2), Fixed64::from_i32(5)))
     } else {
         None
     }
 }
 
 fn apply_burn(e: EntityHandle, victim: EntityHandle, w: &mut GameWorldDyn<'_>) {
-    if let Some((duration, payload)) = burn_spec(e, w) {
+    if let Some((duration, dps)) = burn_spec(e, w) {
+        let payload = serde_json::json!({
+            "dot_damage": dps.raw(),
+            "damage_profile": DamageProfile::FIRE.bits(),
+            "source_entity_id": e.id,
+            "source_entity_gen": e.gen,
+        })
+        .to_string();
         w.add_stat_buff(
             victim,
             RStr::from_str("tack_burn"),
             duration,
-            RStr::from_str(payload),
+            RStr::from_str(&payload),
         );
     }
 }
@@ -125,6 +132,7 @@ impl UnitScript for TackTower {
                 path: PathSpec::Straight { end_pos: end },
                 speed: stats.bullet_speed,
                 damage,
+                damage_profile: DamageProfile::SHARP,
                 hit_radius,
                 splash_radius: Fixed64::ZERO,
                 slow_factor: Fixed64::ZERO,
@@ -147,7 +155,14 @@ impl UnitScript for TackTower {
             } else {
                 (Fixed64::from_i32(200), Fixed64::from_i32(20))
             };
-            w.deal_damage_splash(pos, r, dmg, DamageKind::Magical, RSome(e));
+            w.deal_damage_splash(
+                pos,
+                r,
+                dmg,
+                DamageKind::Magical,
+                DamageProfile::FIRE,
+                RSome(e),
+            );
             if inferno {
                 for victim in w.query_enemies_in_range(pos, r, e).iter().copied() {
                     apply_burn(e, victim, w);
@@ -188,6 +203,7 @@ impl UnitScript for TackTower {
                 path: PathSpec::Straight { end_pos: end },
                 speed: stats.bullet_speed,
                 damage,
+                damage_profile: DamageProfile::SHARP,
                 hit_radius: Fixed64::from_i32(110),
                 splash_radius: Fixed64::ZERO,
                 slow_factor: Fixed64::ZERO,
@@ -268,7 +284,8 @@ mod tests {
             },
         );
         assert!(burn.iter().any(|outcome| matches!(outcome,
-            Outcome::AddBuff { payload, .. } if payload["dot_damage"] == 10
+            Outcome::AddBuff { payload, .. }
+                if payload["dot_damage"] == Fixed64::from_i32(10).raw()
         )));
     }
 
@@ -327,7 +344,8 @@ mod tests {
                 },
             );
             assert!(hit.iter().any(|outcome| matches!(outcome,
-                Outcome::AddBuff { payload, .. } if payload["dot_damage"] == expected_dps
+                Outcome::AddBuff { payload, .. }
+                    if payload["dot_damage"] == Fixed64::from_i32(expected_dps).raw()
             )));
         }
     }
@@ -357,7 +375,8 @@ mod tests {
             .iter()
             .filter(|outcome| {
                 matches!(outcome,
-                    Outcome::AddBuff { payload, .. } if payload["dot_damage"] == 10
+                    Outcome::AddBuff { payload, .. }
+                        if payload["dot_damage"] == Fixed64::from_i32(10).raw()
                 )
             })
             .count();

@@ -1,9 +1,9 @@
 //! 火焰刀（flame_blade）— 伊達政宗的 W：對單體目標或目標點範圍造成火焰傷害。
 
-use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
+use abi_stable::std_types::{RNone, ROk, RResult, RSome, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Fixed64, Target},
+    types::{DamageKind, DamageProfile, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
@@ -45,13 +45,25 @@ impl AbilityScript for FlameBladeHandler {
 
         match target {
             Target::Entity(victim) => {
-                world.deal_damage(victim, damage, DamageKind::Magical, RNone);
+                world.deal_damage(
+                    victim,
+                    damage,
+                    DamageKind::Magical,
+                    DamageProfile::FIRE,
+                    RSome(caster),
+                );
             }
             Target::Point(p) => {
                 world.emit_explosion(p, swipe_radius, Fixed64::from_raw(204) /* 0.2 */);
                 let enemies = world.query_enemies_in_range(p, swipe_radius, caster);
                 for victim in enemies.iter().copied() {
-                    world.deal_damage(victim, damage, DamageKind::Magical, RNone);
+                    world.deal_damage(
+                        victim,
+                        damage,
+                        DamageKind::Magical,
+                        DamageProfile::FIRE,
+                        RSome(caster),
+                    );
                 }
             }
             Target::None => {

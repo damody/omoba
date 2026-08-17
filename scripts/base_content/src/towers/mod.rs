@@ -327,6 +327,7 @@ pub(crate) mod projectile_test_support {
                         path_remaining_distance: Fixed64::ZERO,
                         block_tower: None,
                         status: omoba_core::CreepStatus::Walk,
+                        td_layer: None,
                     })
                     .with(CProperty {
                         hp: Fixed64::from_i32(100),

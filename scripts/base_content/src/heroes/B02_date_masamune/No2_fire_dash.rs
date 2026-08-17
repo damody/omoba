@@ -1,9 +1,9 @@
 //! 踏火無痕（fire_dash）— 伊達政宗的 E：往目標點衝刺，沿路對敵人造成持續傷害。
 
-use abi_stable::std_types::{RNone, ROk, RResult, RStr, RString};
+use abi_stable::std_types::{RNone, ROk, RResult, RSome, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, EntityHandle, Fixed64, Target},
+    types::{DamageKind, DamageProfile, EntityHandle, Fixed64, Target},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{AbilityLevelData, DamageType, EffectSpec, TargetSelector};
@@ -66,7 +66,13 @@ impl AbilityScript for FireDashHandler {
         let half_width = dash_width / Fixed64::from_i32(2);
         let enemies = world.query_enemies_in_range(dest, half_width, caster);
         for victim in enemies.iter().copied() {
-            world.deal_damage(victim, total_damage, DamageKind::Magical, RNone);
+            world.deal_damage(
+                victim,
+                total_damage,
+                DamageKind::Magical,
+                DamageProfile::FIRE,
+                RSome(caster),
+            );
         }
         ROk(())
     }

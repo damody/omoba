@@ -75,6 +75,9 @@ fn apply_hit_effects(
     let burn_id = source_buff_id("cake_burn", source);
     let burn_payload = serde_json::json!({
         "dot_damage": (triggering_damage * burn_factor).raw(),
+        "damage_profile": DamageProfile::FIRE.bits(),
+        "source_entity_id": source.id,
+        "source_entity_gen": source.gen,
     })
     .to_string();
     let frost_id = source_buff_id("cake_frosting", source);
@@ -156,7 +159,14 @@ impl UnitScript for CakeSplashTower {
         let radius = range;
         let victims: Vec<EntityHandle> = w.query_enemies_in_range(pos, radius, e).into();
         w.log_info(RStr::from_str("[tower_cake_splash] splash!"));
-        w.deal_damage_splash(pos, radius, damage, DamageKind::Magical, RSome(e));
+        w.deal_damage_splash(
+            pos,
+            radius,
+            damage,
+            DamageKind::Magical,
+            DamageProfile::NORMAL,
+            RSome(e),
+        );
         let secondary_pulses = if w.has_tower_flag(e, RStr::from_str("cake_secondary_pulse_2")) {
             2
         } else if w.has_tower_flag(e, RStr::from_str("cake_secondary_pulse_1")) {
@@ -166,7 +176,14 @@ impl UnitScript for CakeSplashTower {
         };
         let secondary_damage = damage * SECONDARY_PULSE_DAMAGE_FACTOR;
         for _ in 0..secondary_pulses {
-            w.deal_damage_splash(pos, radius, secondary_damage, DamageKind::Magical, RSome(e));
+            w.deal_damage_splash(
+                pos,
+                radius,
+                secondary_damage,
+                DamageKind::Magical,
+                DamageProfile::NORMAL,
+                RSome(e),
+            );
         }
         apply_hit_effects(e, &victims, damage, w);
         w.emit_explosion(pos, radius, Fixed64::from_raw(512));
@@ -191,7 +208,14 @@ impl UnitScript for CakeSplashTower {
         let damage = w.get_final_atk(tower) * CAKE_PARTY_DAMAGE_FACTOR;
 
         // An area pulse is an emitted opportunity even when it catches no enemies.
-        w.deal_damage_splash(pos, range, damage, DamageKind::Magical, RSome(tower));
+        w.deal_damage_splash(
+            pos,
+            range,
+            damage,
+            DamageKind::Magical,
+            DamageProfile::NORMAL,
+            RSome(tower),
+        );
 
         let haste_id = source_buff_id("cake_party_haste", tower);
         let haste_payload = serde_json::json!({
@@ -231,7 +255,14 @@ impl UnitScript for CakeSplashTower {
         let range = w.get_final_attack_range(tower);
         let victims: Vec<EntityHandle> = w.query_enemies_in_range(pos, range, tower).into();
         let damage = w.get_final_atk(tower) * FROSTING_LOCKDOWN_DAMAGE_FACTOR;
-        w.deal_damage_splash(pos, range, damage, DamageKind::Magical, RSome(tower));
+        w.deal_damage_splash(
+            pos,
+            range,
+            damage,
+            DamageKind::Magical,
+            DamageProfile::COLD,
+            RSome(tower),
+        );
         w.emit_explosion(pos, range, Fixed64::from_raw(512));
 
         let frost_id = source_buff_id("cake_frosting_lockdown", tower);
@@ -318,7 +349,7 @@ mod tests {
         let damage: Vec<Fixed64> = outcomes
             .iter()
             .filter_map(|outcome| match outcome {
-                Outcome::ScriptDirectDamage { amount, .. } => Some(*amount),
+                Outcome::Damage { magi, .. } => Some(*magi),
                 _ => None,
             })
             .collect();
@@ -383,11 +414,11 @@ mod tests {
             "cake_frosting_lockdown",
         );
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
-            Outcome::ScriptDirectDamage { target, amount }
-                if *target == fixture.enemies[0] && *amount == Fixed64::from_i32(20)
+            Outcome::Damage { target, magi, .. }
+                if *target == fixture.enemies[0] && *magi == Fixed64::from_i32(20)
         )));
         assert!(!outcomes.iter().any(|outcome| matches!(outcome,
-            Outcome::ScriptDirectDamage { target, .. } if *target == fixture.enemies[1]
+            Outcome::Damage { target, .. } if *target == fixture.enemies[1]
         )));
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
             Outcome::AddBuff { target, buff_id, duration, .. }
