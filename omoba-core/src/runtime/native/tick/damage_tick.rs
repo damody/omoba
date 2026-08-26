@@ -105,8 +105,8 @@ impl<'a> System<'a> for Sys {
                     predeclared: false, // ability-driven damage path — authoritative
                 });
 
-                let source = u64::from(damage_inst.source.source_entity.id());
-                let target = u64::from(damage_inst.target.id());
+                let source = crate::runtime::canonical_entity_id(damage_inst.source.source_entity);
+                let target = crate::runtime::canonical_entity_id(damage_inst.target);
                 let _ = tr.facts.emit(crate::runtime::OrderedFact {
                     key: crate::runtime::FactOrderingKey {
                         tick: u64::from(tick),

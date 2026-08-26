@@ -242,7 +242,7 @@ impl<'a> System<'a> for Sys {
                     let out_y = pos.0.y.to_f32_for_render();
                     let out_facing = angle_to_rad_f32(facing.0);
                     if pos.0 != position_before {
-                        let source = u64::from(entity.id());
+                        let source = crate::runtime::canonical_entity_id(entity);
                         let _ = tr.facts.emit(crate::runtime::OrderedFact {
                             key: crate::runtime::FactOrderingKey {
                                 tick: tr.tick.0,

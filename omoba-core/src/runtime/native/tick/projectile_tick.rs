@@ -195,7 +195,7 @@ impl<'a> System<'a> for Sys {
                         let vel = (delta.normalized()) * step;
                         let new_pos = pos.0 + vel;
                         pos.0 = new_pos;
-                        let source = u64::from(e.id());
+                        let source = crate::runtime::canonical_entity_id(e);
                         let _ = tr.facts.emit(crate::runtime::OrderedFact {
                             key: crate::runtime::FactOrderingKey {
                                 tick: tr.tick.0,
@@ -249,7 +249,7 @@ impl<'a> System<'a> for Sys {
 }
 
 fn emit_projectile_removal(tr: &ProjectileRead<'_>, entity: specs::Entity, projectile: &Projectile) {
-    let source = u64::from(entity.id());
+    let source = crate::runtime::canonical_entity_id(entity);
     let _ = tr.facts.emit(crate::runtime::OrderedFact {
         key: crate::runtime::FactOrderingKey {
             tick: tr.tick.0,
@@ -263,7 +263,7 @@ fn emit_projectile_removal(tr: &ProjectileRead<'_>, entity: specs::Entity, proje
         ),
         fact: crate::runtime::ObservableFact::Projectile {
             source,
-            target: projectile.target.map(|target| u64::from(target.id())),
+            target: projectile.target.map(crate::runtime::canonical_entity_id),
             effect_id: u64::from(projectile.kind_id),
             active: false,
         },

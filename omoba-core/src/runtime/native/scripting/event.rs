@@ -237,8 +237,8 @@ pub fn script_visual_event_to_observable_fact(
     })?;
     let mut checked = registry.clone();
     checked.register_script_policy(policy, source_module_path)?;
-    let source = u64::from(event.primary.id());
-    let target = event.secondary.map(|entity| u64::from(entity.id()));
+    let source = crate::runtime::canonical_entity_id(event.primary);
+    let target = event.secondary.map(crate::runtime::canonical_entity_id);
     let (fact_kind, fact) = match event.kind {
         ScriptVisualEventKind::Spawn | ScriptVisualEventKind::Respawn => (
             FactKind::Spawn,

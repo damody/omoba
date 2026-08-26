@@ -18,6 +18,8 @@ pub mod projection_policy;
 pub mod stable_fact;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod visibility;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod team_projector;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
@@ -34,6 +36,8 @@ pub use projection_policy::*;
 pub use stable_fact::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use visibility::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use team_projector::*;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {

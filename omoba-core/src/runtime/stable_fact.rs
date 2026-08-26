@@ -9,6 +9,10 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+pub fn canonical_entity_id(entity: specs::Entity) -> u64 {
+    ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id())
+}
+
 /// Reserved maximum values are rejected so accidental sentinel/uninitialised
 /// keys fail closed instead of being silently placed at the end of a tick.
 pub const MAX_CANONICAL_SOURCE_ORDER: u64 = u64::MAX - 1;

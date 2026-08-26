@@ -366,28 +366,28 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-TEAM-PROJECTION`、`G-NONINTERFERENCE-READY`。
 **完成門檻：** Projector 不輸出 forbidden state；同 logical payload canonical bytes 穩定；hidden dependency 轉成 sanitized outcome。
 
-- [ ] 3.4.1 在 `TeamViewProjector` 實作 fact audience filter。
-- [ ] 3.4.2 實作 hidden-attacker damage sanitizer。
-- [ ] 3.4.3 實作 `PreStep` canonical frame assembly。
-- [ ] 3.4.4 實作 fixed-cadence empty frame assembly。
-- [ ] 3.4.5 實作 authoritative expected team hash projection。
-- [ ] 3.4.6 在 `TeamViewProjector` 實作 component field redaction。
-- [ ] 3.4.7 實作 disclosed dependency closure traversal。
-- [ ] 3.4.8 實作 dependency closure 的 `ServerOnly` fail-closed guard。
-- [ ] 3.4.9 實作 hidden-source buff sanitizer。
-- [ ] 3.4.10 實作 hidden-source debuff sanitizer。
-- [ ] 3.4.11 實作 hidden projectile external effect sanitizer。
-- [ ] 3.4.12 實作 hidden AOE external effect sanitizer。
-- [ ] 3.4.13 實作 `Step` canonical frame assembly。
-- [ ] 3.4.14 實作 `PostStep` canonical frame assembly。
-- [ ] 3.4.15 實作 phase 內 event-kind ordering。
-- [ ] 3.4.16 實作 phase 內 replica-ID ordering。
-- [ ] 3.4.17 實作 phase 內 stable sub-index ordering。
-- [ ] 3.4.18 實作 steady-state size bucket selection。
-- [ ] 3.4.19 實作 frame padding bytes generation。
-- [ ] 3.4.20 實作 mass reveal chunk policy。
-- [ ] 3.4.21 實作 rebase chunk rate-limit policy。
-- [ ] 3.4.22 實作不含 hidden source 的 mismatch metadata。
+- [x] 3.4.1 在 `TeamViewProjector` 實作 fact audience filter。
+- [x] 3.4.2 實作 hidden-attacker damage sanitizer。
+- [x] 3.4.3 實作 `PreStep` canonical frame assembly。
+- [x] 3.4.4 實作 fixed-cadence empty frame assembly。
+- [x] 3.4.5 實作 authoritative expected team hash projection。
+- [x] 3.4.6 在 `TeamViewProjector` 實作 component field redaction。
+- [x] 3.4.7 實作 disclosed dependency closure traversal。
+- [x] 3.4.8 實作 dependency closure 的 `ServerOnly` fail-closed guard。
+- [x] 3.4.9 實作 hidden-source buff sanitizer。
+- [x] 3.4.10 實作 hidden-source debuff sanitizer。
+- [x] 3.4.11 實作 hidden projectile external effect sanitizer。
+- [x] 3.4.12 實作 hidden AOE external effect sanitizer。
+- [x] 3.4.13 實作 `Step` canonical frame assembly。
+- [x] 3.4.14 實作 `PostStep` canonical frame assembly。
+- [x] 3.4.15 實作 phase 內 event-kind ordering。
+- [x] 3.4.16 實作 phase 內 replica-ID ordering。
+- [x] 3.4.17 實作 phase 內 stable sub-index ordering。
+- [x] 3.4.18 實作 steady-state size bucket selection。
+- [x] 3.4.19 實作 frame padding bytes generation。
+- [x] 3.4.20 實作 mass reveal chunk policy。
+- [x] 3.4.21 實作 rebase chunk rate-limit policy。
+- [x] 3.4.22 實作不含 hidden source 的 mismatch metadata。
 
 ### 3.5 Phase 3 最低限度 integration build
 

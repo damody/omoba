@@ -745,7 +745,7 @@ pub fn spawn_td_tower_with_owner(
                 e
             );
         } else {
-            let source = u64::from(entity.id());
+            let source = crate::runtime::canonical_entity_id(entity);
             let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
             let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(
                 crate::runtime::OrderedFact {
@@ -1836,7 +1836,7 @@ fn observable_fact_from_outcome(
 ) -> Option<crate::runtime::OrderedFact> {
     use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
     use omb_script_abi::types::projection_policy_ids as policy;
-    let entity_id = |entity: Entity| u64::from(entity.id());
+    let entity_id = crate::runtime::canonical_entity_id;
     let text_id = |text: &str| text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
         (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
     });
