@@ -291,225 +291,232 @@ fn run_td_autoplay_internal(
     }
 
     let run_result = (|| -> Result<Option<TdAutoplayRunReport>, String> {
-    let mut driver = crate::runtime::SimulationDriver::from_world(&mut world, config.profile)
-        .map_err(|error| format!("create simulation driver: {error}"))?;
-    let mut controller = AutoplayController::default();
-    let mut entity_peak = world.entities().join().count();
-    let mut last_round = 0usize;
-    let mut last_round_progress_tick = 0u64;
-    let mut round_end_ticks = Vec::with_capacity(100);
-    let mut branch_counts = BTreeMap::<String, u64>::new();
-    let mut recent_outcomes = VecDeque::<String>::with_capacity(64);
-    let mut recent_rejected_inputs = VecDeque::<String>::with_capacity(32);
-    let started = Instant::now();
-    let mut last_published_at = Instant::now();
-    let mut last_published_round = 0usize;
+        let mut driver = crate::runtime::SimulationDriver::from_world(&mut world, config.profile)
+            .map_err(|error| format!("create simulation driver: {error}"))?;
+        let mut controller = AutoplayController::default();
+        let mut entity_peak = world.entities().join().count();
+        let mut last_round = 0usize;
+        let mut last_round_progress_tick = 0u64;
+        let mut round_end_ticks = Vec::with_capacity(100);
+        let mut branch_counts = BTreeMap::<String, u64>::new();
+        let mut recent_outcomes = VecDeque::<String>::with_capacity(64);
+        let mut recent_rejected_inputs = VecDeque::<String>::with_capacity(32);
+        let started = Instant::now();
+        let mut last_published_at = Instant::now();
+        let mut last_published_round = 0usize;
 
-    loop {
-        let observation = AutoplayController::observe(&world);
-        if observation.round >= 100 {
-            break;
-        }
-        if observation.lives <= 0 {
-            return autoplay_failure(
-                &world,
-                config,
-                driver.tick(),
-                entity_peak,
-                "player lives reached zero",
-                &recent_outcomes,
-                &recent_rejected_inputs,
-            );
-        }
-        if driver.tick() >= config.max_ticks {
-            return autoplay_failure(
-                &world,
-                config,
-                driver.tick(),
-                entity_peak,
-                "maximum tick budget exceeded",
-                &recent_outcomes,
-                &recent_rejected_inputs,
-            );
-        }
-        if driver.tick().saturating_sub(last_round_progress_tick) > config.round_watchdog_ticks {
-            return autoplay_failure(
-                &world,
-                config,
-                driver.tick(),
-                entity_peak,
-                "round-progress watchdog expired",
-                &recent_outcomes,
-                &recent_rejected_inputs,
-            );
-        }
-
-        let decision = controller.decide(&world, &observation);
-        let submitted_actions = decision
-            .inputs
-            .iter()
-            .filter_map(|input| input.action.clone())
-            .collect::<Vec<_>>();
-        *branch_counts
-            .entry(format!("{:?}", decision.branch))
-            .or_default() += 1;
-        let inputs = decision
-            .inputs
-            .into_iter()
-            .map(|input| (AUTOPLAY_PLAYER_ID, input));
-        let tick_result = driver
-            .step(&mut world, inputs)
-            .map_err(|error| format!("tick {} failed: {error}", driver.tick() + 1))?;
-        for event in tick_result.events {
-            if recent_outcomes.len() == 64 {
-                recent_outcomes.pop_front();
+        loop {
+            let observation = AutoplayController::observe(&world);
+            if observation.round >= 100 {
+                break;
             }
-            recent_outcomes.push_back(format!(
-                "tick={} topic={} kind={} action={}",
-                tick_result.tick, event.topic, event.kind, event.action
-            ));
-        }
-        for action in &submitted_actions {
-            if !autoplay_action_applied(&world, &observation, action) {
-                if matches!(action, PlayerInputEnum::TowerPlace(_)) {
-                    if recent_rejected_inputs.len() == 32 {
-                        recent_rejected_inputs.pop_front();
-                    }
-                    recent_rejected_inputs
-                        .push_back(format!("tick={} action={action:?}", driver.tick()));
-                    controller.record_rejected_placement();
-                    *branch_counts
-                        .entry("RejectedPlacementRetry".to_string())
-                        .or_default() += 1;
-                    continue;
-                }
+            if observation.lives <= 0 {
                 return autoplay_failure(
                     &world,
                     config,
                     driver.tick(),
                     entity_peak,
-                    &format!("formal PlayerInput was rejected: {action:?}"),
+                    "player lives reached zero",
+                    &recent_outcomes,
+                    &recent_rejected_inputs,
+                );
+            }
+            if driver.tick() >= config.max_ticks {
+                return autoplay_failure(
+                    &world,
+                    config,
+                    driver.tick(),
+                    entity_peak,
+                    "maximum tick budget exceeded",
+                    &recent_outcomes,
+                    &recent_rejected_inputs,
+                );
+            }
+            if driver.tick().saturating_sub(last_round_progress_tick) > config.round_watchdog_ticks
+            {
+                return autoplay_failure(
+                    &world,
+                    config,
+                    driver.tick(),
+                    entity_peak,
+                    "round-progress watchdog expired",
+                    &recent_outcomes,
+                    &recent_rejected_inputs,
+                );
+            }
+
+            let decision = controller.decide(&world, &observation);
+            let submitted_actions = decision
+                .inputs
+                .iter()
+                .filter_map(|input| input.action.clone())
+                .collect::<Vec<_>>();
+            *branch_counts
+                .entry(format!("{:?}", decision.branch))
+                .or_default() += 1;
+            let inputs = decision
+                .inputs
+                .into_iter()
+                .map(|input| (AUTOPLAY_PLAYER_ID, input));
+            let tick_result = driver
+                .step(&mut world, inputs)
+                .map_err(|error| format!("tick {} failed: {error}", driver.tick() + 1))?;
+            for event in tick_result.events {
+                if recent_outcomes.len() == 64 {
+                    recent_outcomes.pop_front();
+                }
+                recent_outcomes.push_back(format!(
+                    "tick={} topic={} kind={} action={}",
+                    tick_result.tick, event.topic, event.kind, event.action
+                ));
+            }
+            for action in &submitted_actions {
+                if !autoplay_action_applied(&world, &observation, action) {
+                    if matches!(action, PlayerInputEnum::TowerPlace(_)) {
+                        if recent_rejected_inputs.len() == 32 {
+                            recent_rejected_inputs.pop_front();
+                        }
+                        recent_rejected_inputs
+                            .push_back(format!("tick={} action={action:?}", driver.tick()));
+                        controller.record_rejected_placement();
+                        *branch_counts
+                            .entry("RejectedPlacementRetry".to_string())
+                            .or_default() += 1;
+                        continue;
+                    }
+                    return autoplay_failure(
+                        &world,
+                        config,
+                        driver.tick(),
+                        entity_peak,
+                        &format!("formal PlayerInput was rejected: {action:?}"),
+                        &recent_outcomes,
+                        &recent_rejected_inputs,
+                    );
+                }
+            }
+
+            let round = world.read_resource::<CurrentCreepWave>().wave;
+            if round > last_round {
+                for _ in last_round..round {
+                    round_end_ticks.push(driver.tick());
+                }
+                last_round = round;
+                last_round_progress_tick = driver.tick();
+            }
+            if observer.is_some()
+                && (round != last_published_round
+                    || last_published_at.elapsed() >= publish_interval)
+            {
+                let control = publish_autoplay_frame(
+                    &mut observer,
+                    &mut world,
+                    driver.tick(),
+                    TdAutoplayRunStatus::Running,
+                    None,
+                    &render_metadata,
+                );
+                last_published_at = Instant::now();
+                last_published_round = round;
+                if control == TdAutoplayObserverControl::Cancel {
+                    return Ok(None);
+                }
+            }
+            let entity_count = world.entities().join().count();
+            entity_peak = entity_peak.max(entity_count);
+            if entity_peak > config.entity_peak_limit {
+                return autoplay_failure(
+                    &world,
+                    config,
+                    driver.tick(),
+                    entity_peak,
+                    "entity peak guard exceeded",
                     &recent_outcomes,
                     &recent_rejected_inputs,
                 );
             }
         }
 
-        let round = world.read_resource::<CurrentCreepWave>().wave;
-        if round > last_round {
-            for _ in last_round..round {
-                round_end_ticks.push(driver.tick());
+        // Victory may be committed in the same phase that leaves a final impact
+        // projectile queued for normal cleanup. Drain the real pipeline without
+        // inputs so the final hash represents a quiescent authoritative world.
+        let quiescence_limit = u64::from(config.profile.ticks_per_game_second()) * 5;
+        for _ in 0..quiescence_limit {
+            let active_combat_entities = {
+                let entities = world.entities();
+                let creeps = world.read_storage::<crate::comp::Creep>();
+                let projectiles = world.read_storage::<crate::comp::Projectile>();
+                (&entities, &creeps).join().count() + (&entities, &projectiles).join().count()
+            };
+            if active_combat_entities == 0 {
+                break;
             }
-            last_round = round;
-            last_round_progress_tick = driver.tick();
-        }
-        if observer.is_some()
-            && (round != last_published_round || last_published_at.elapsed() >= publish_interval)
-        {
-            let control = publish_autoplay_frame(
-                &mut observer,
-                &mut world,
-                driver.tick(),
-                TdAutoplayRunStatus::Running,
-                None,
-                &render_metadata,
-            );
-            last_published_at = Instant::now();
-            last_published_round = round;
-            if control == TdAutoplayObserverControl::Cancel {
-                return Ok(None);
+            let tick_result = driver
+                .step(&mut world, std::iter::empty())
+                .map_err(|error| {
+                    format!("quiescence tick {} failed: {error}", driver.tick() + 1)
+                })?;
+            for event in tick_result.events {
+                if recent_outcomes.len() == 64 {
+                    recent_outcomes.pop_front();
+                }
+                recent_outcomes.push_back(format!(
+                    "tick={} topic={} kind={} action={}",
+                    tick_result.tick, event.topic, event.kind, event.action
+                ));
             }
+            entity_peak = entity_peak.max(world.entities().join().count());
         }
-        let entity_count = world.entities().join().count();
-        entity_peak = entity_peak.max(entity_count);
-        if entity_peak > config.entity_peak_limit {
+
+        let elapsed = started.elapsed();
+        let ticks_per_wall_second = driver.tick() as f64 / elapsed.as_secs_f64().max(f64::EPSILON);
+        let cash = world
+            .read_resource::<PlayerEconomy>()
+            .balance(AUTOPLAY_PLAYER_ID)
+            .unwrap_or(0);
+        let remaining_creeps = {
+            let entities = world.entities();
+            let creeps = world.read_storage::<crate::comp::Creep>();
+            (&entities, &creeps).join().count()
+        };
+        let remaining_projectiles = {
+            let entities = world.entities();
+            let projectiles = world.read_storage::<crate::comp::Projectile>();
+            (&entities, &projectiles).join().count()
+        };
+        let ledger = world.read_resource::<crate::runtime::TdEconomyLedger>();
+        let ledger_sum: i64 = ledger
+            .totals()
+            .iter()
+            .filter(|((player, _), _)| *player == Some(AUTOPLAY_PLAYER_ID))
+            .map(|(_, amount)| *amount)
+            .sum();
+        let ledger_serials_valid = ledger.observed().is_some_and(|entries| {
+            entries
+                .iter()
+                .enumerate()
+                .all(|(index, entry)| entry.serial == index as u64 + 1)
+                && entries.windows(2).all(|pair| pair[0].tick <= pair[1].tick)
+        });
+        if ledger_sum != i64::from(cash) {
+            drop(ledger);
             return autoplay_failure(
                 &world,
                 config,
                 driver.tick(),
                 entity_peak,
-                "entity peak guard exceeded",
+                &format!("cash conservation failed: ledger sum={ledger_sum} ending cash={cash}"),
                 &recent_outcomes,
                 &recent_rejected_inputs,
             );
         }
-    }
-
-    // Victory may be committed in the same phase that leaves a final impact
-    // projectile queued for normal cleanup. Drain the real pipeline without
-    // inputs so the final hash represents a quiescent authoritative world.
-    let quiescence_limit = u64::from(config.profile.ticks_per_game_second()) * 5;
-    for _ in 0..quiescence_limit {
-        let active_combat_entities = {
-            let entities = world.entities();
-            let creeps = world.read_storage::<crate::comp::Creep>();
-            let projectiles = world.read_storage::<crate::comp::Projectile>();
-            (&entities, &creeps).join().count() + (&entities, &projectiles).join().count()
-        };
-        if active_combat_entities == 0 {
-            break;
-        }
-        let tick_result = driver
-            .step(&mut world, std::iter::empty())
-            .map_err(|error| format!("quiescence tick {} failed: {error}", driver.tick() + 1))?;
-        for event in tick_result.events {
-            if recent_outcomes.len() == 64 {
-                recent_outcomes.pop_front();
-            }
-            recent_outcomes.push_back(format!(
-                "tick={} topic={} kind={} action={}",
-                tick_result.tick, event.topic, event.kind, event.action
-            ));
-        }
-        entity_peak = entity_peak.max(world.entities().join().count());
-    }
-
-    let elapsed = started.elapsed();
-    let ticks_per_wall_second = driver.tick() as f64 / elapsed.as_secs_f64().max(f64::EPSILON);
-    let cash = world
-        .read_resource::<PlayerEconomy>()
-        .balance(AUTOPLAY_PLAYER_ID)
-        .unwrap_or(0);
-    let remaining_creeps = {
-        let entities = world.entities();
-        let creeps = world.read_storage::<crate::comp::Creep>();
-        (&entities, &creeps).join().count()
-    };
-    let remaining_projectiles = {
-        let entities = world.entities();
-        let projectiles = world.read_storage::<crate::comp::Projectile>();
-        (&entities, &projectiles).join().count()
-    };
-    let ledger = world.read_resource::<crate::runtime::TdEconomyLedger>();
-    let ledger_sum: i64 = ledger
-        .totals()
-        .iter()
-        .filter(|((player, _), _)| *player == Some(AUTOPLAY_PLAYER_ID))
-        .map(|(_, amount)| *amount)
-        .sum();
-    let ledger_serials_valid = ledger.observed().is_some_and(|entries| {
-        entries
-            .iter()
-            .enumerate()
-            .all(|(index, entry)| entry.serial == index as u64 + 1)
-            && entries.windows(2).all(|pair| pair[0].tick <= pair[1].tick)
-    });
-    if ledger_sum != i64::from(cash) {
-        drop(ledger);
-        return autoplay_failure(
-            &world,
-            config,
-            driver.tick(),
-            entity_peak,
-            &format!("cash conservation failed: ledger sum={ledger_sum} ending cash={cash}"),
-            &recent_outcomes,
-            &recent_rejected_inputs,
-        );
-    }
-    if remaining_creeps != 0 || remaining_projectiles != 0 || ledger.unattributed_layer_cash != 0 {
-        let unattributed = ledger.unattributed_layer_cash;
-        drop(ledger);
-        return autoplay_failure(
+        if remaining_creeps != 0
+            || remaining_projectiles != 0
+            || ledger.unattributed_layer_cash != 0
+        {
+            let unattributed = ledger.unattributed_layer_cash;
+            drop(ledger);
+            return autoplay_failure(
             &world,
             config,
             driver.tick(),
@@ -520,39 +527,39 @@ fn run_td_autoplay_internal(
             &recent_outcomes,
             &recent_rejected_inputs,
         );
-    }
-    if !ledger_serials_valid {
+        }
+        if !ledger_serials_valid {
+            drop(ledger);
+            return autoplay_failure(
+                &world,
+                config,
+                driver.tick(),
+                entity_peak,
+                "ledger serial/tick ordering is not contiguous",
+                &recent_outcomes,
+                &recent_rejected_inputs,
+            );
+        }
+        let ledger_digest = ledger.digest();
         drop(ledger);
-        return autoplay_failure(
-            &world,
-            config,
-            driver.tick(),
+        let seed = world.read_resource::<crate::comp::MasterSeed>().0;
+        let lives = world.read_resource::<PlayerLives>().0;
+        let state_hash = autoplay_state_hash(&world);
+        Ok(Some(TdAutoplayRunReport {
+            seed,
+            profile: config.profile,
+            ticks: driver.tick(),
+            elapsed,
+            ticks_per_wall_second,
+            lives,
+            cash,
+            ledger_digest,
+            state_hash,
             entity_peak,
-            "ledger serial/tick ordering is not contiguous",
-            &recent_outcomes,
-            &recent_rejected_inputs,
-        );
-    }
-    let ledger_digest = ledger.digest();
-    drop(ledger);
-    let seed = world.read_resource::<crate::comp::MasterSeed>().0;
-    let lives = world.read_resource::<PlayerLives>().0;
-    let state_hash = autoplay_state_hash(&world);
-    Ok(Some(TdAutoplayRunReport {
-        seed,
-        profile: config.profile,
-        ticks: driver.tick(),
-        elapsed,
-        ticks_per_wall_second,
-        lives,
-        cash,
-        ledger_digest,
-        state_hash,
-        entity_peak,
-        rejected_placements: controller.rejected_placements,
-        round_end_ticks,
-        branch_counts,
-    }))
+            rejected_placements: controller.rejected_placements,
+            round_end_ticks,
+            branch_counts,
+        }))
     })();
 
     match run_result {

@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use omoba_core::runtime::{
-    run_td_autoplay_1_to_100, run_td_autoplay_1_to_100_observed,
-    TdAutoplayObservedOutcome, TdAutoplayObserverControl, TdAutoplayRunConfig,
-    TdAutoplayRunStatus,
+    run_td_autoplay_1_to_100, run_td_autoplay_1_to_100_observed, TdAutoplayObservedOutcome,
+    TdAutoplayObserverControl, TdAutoplayRunConfig, TdAutoplayRunStatus,
 };
 
 #[test]
@@ -24,10 +23,8 @@ fn layered_td_coarse_autoplay_completes_rounds_1_to_100() {
 
     let mut statuses = Vec::new();
     let mut final_frame = None;
-    let observed = run_td_autoplay_1_to_100_observed(
-        &config,
-        Duration::from_secs(60 * 60),
-        |frame| {
+    let observed =
+        run_td_autoplay_1_to_100_observed(&config, Duration::from_secs(60 * 60), |frame| {
             statuses.push(frame.status);
             final_frame = Some((
                 frame.round,
@@ -37,9 +34,8 @@ fn layered_td_coarse_autoplay_completes_rounds_1_to_100() {
                 frame.tick,
             ));
             TdAutoplayObserverControl::Continue
-        },
-    )
-    .expect("observed 1-100 autoplay run");
+        })
+        .expect("observed 1-100 autoplay run");
     let TdAutoplayObservedOutcome::Completed(observed) = observed else {
         panic!("observed autoplay unexpectedly cancelled");
     };
