@@ -26,6 +26,8 @@ pub mod team_stream;
 pub mod observer_validation;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod authority_recovery;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod anti_probing;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
@@ -50,6 +52,8 @@ pub use team_stream::*;
 pub use observer_validation::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use authority_recovery::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use anti_probing::*;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {

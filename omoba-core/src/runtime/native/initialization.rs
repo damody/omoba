@@ -882,6 +882,7 @@ impl StateInitializer {
         ecs.insert(crate::runtime::OrderedRuntimeEventBuffer::default());
         ecs.insert(crate::runtime::TeamProjectionRuntime::default());
         ecs.insert(crate::runtime::AuthorityRepairCoordinator::configured());
+        ecs.insert(crate::runtime::SelectiveSecurityMetrics::default());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(crate::runtime::TdLayerCommitSerial::default());
         ecs.insert(SysMetrics::default());

@@ -1257,6 +1257,45 @@ pub struct TeamRebaseAck {
     #[prost(message, optional, tag = "4")]
     pub view_epoch: ::core::option::Option<ViewEpoch>,
 }
+/// Secure player input references only identities already disclosed in the
+/// authenticated team's replica namespace. Canonical ECS identifiers never
+/// cross this boundary.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SecureReplicaTarget {
+    #[prost(message, optional, tag = "1")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "2")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(message, optional, tag = "3")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SecureTargetInput {
+    #[prost(uint64, tag = "1")]
+    pub request_id: u64,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub input_tick: u64,
+    #[prost(message, optional, tag = "4")]
+    pub actor: ::core::option::Option<SecureReplicaTarget>,
+    #[prost(message, optional, tag = "5")]
+    pub target: ::core::option::Option<SecureReplicaTarget>,
+    #[prost(uint32, tag = "6")]
+    pub action_kind: u32,
+    #[prost(bytes = "vec", tag = "7")]
+    pub sanitized_payload: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SecureTargetInputResult {
+    #[prost(uint64, tag = "1")]
+    pub request_id: u64,
+    #[prost(bool, tag = "2")]
+    pub accepted: bool,
+    /// Empty on success; every validation failure uses exactly INVALID_TARGET.
+    #[prost(string, tag = "3")]
+    pub rejection_class: ::prost::alloc::string::String,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TeamViewRebaseChunk {
     #[prost(uint32, tag = "1")]

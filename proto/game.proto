@@ -839,6 +839,32 @@ message TeamRebaseAck {
   ViewEpoch view_epoch = 4;
 }
 
+// Secure player input references only identities already disclosed in the
+// authenticated team's replica namespace. Canonical ECS identifiers never
+// cross this boundary.
+message SecureReplicaTarget {
+  ReplicaEntityId replica_entity_id = 1;
+  ViewEpoch view_epoch = 2;
+  DisclosureEpoch disclosure_epoch = 3;
+}
+
+message SecureTargetInput {
+  uint64 request_id = 1;
+  uint32 player_id = 2;
+  uint64 input_tick = 3;
+  SecureReplicaTarget actor = 4;
+  SecureReplicaTarget target = 5;
+  uint32 action_kind = 6;
+  bytes sanitized_payload = 7;
+}
+
+message SecureTargetInputResult {
+  uint64 request_id = 1;
+  bool accepted = 2;
+  // Empty on success; every validation failure uses exactly INVALID_TARGET.
+  string rejection_class = 3;
+}
+
 message TeamViewRebaseChunk {
   uint32 protocol_version = 1;
   uint32 snapshot_schema_version = 2;

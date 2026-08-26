@@ -138,6 +138,7 @@ pub struct TeamProjectionRuntime {
     pub pending_filtered_rebases: BTreeMap<u32, (u64, u64)>,
     pub safe_terminations: Vec<crate::runtime::SafeTerminationDiagnostic>,
     pub latest_rebases: BTreeMap<u32, RecoveryRebaseBundle>,
+    pending_rebase_outbound: BTreeMap<u32, PendingRebaseOutbound>,
 }
 
 #[derive(Clone, Debug)]
@@ -146,7 +147,28 @@ pub struct RecoveryRebaseBundle {
     pub manifest: TeamViewRebase,
 }
 
+#[derive(Clone, Debug)]
+struct PendingRebaseOutbound {
+    chunks: VecDeque<Vec<u8>>,
+    manifest: Option<Vec<u8>>,
+}
+
 impl TeamProjectionRuntime {
+    pub fn take_rate_limited_rebase_outbound(&mut self) -> Vec<(u32, Vec<Vec<u8>>, Option<Vec<u8>>)> {
+        let teams: Vec<_> = self.pending_rebase_outbound.keys().copied().collect();
+        let mut result = Vec::new();
+        for team_id in teams {
+            let limit = self.projectors.get(&team_id)
+                .map_or(1, |projector| projector.config.rebase_chunks_per_tick.max(1));
+            let pending = self.pending_rebase_outbound.get_mut(&team_id).expect("known pending rebase");
+            let chunks = (0..limit).filter_map(|_| pending.chunks.pop_front()).collect::<Vec<_>>();
+            let manifest = pending.chunks.is_empty().then(|| pending.manifest.take()).flatten();
+            let finished = pending.chunks.is_empty() && pending.manifest.is_none();
+            result.push((team_id, chunks, manifest));
+            if finished { self.pending_rebase_outbound.remove(&team_id); }
+        }
+        result
+    }
     pub fn apply_recovery_actions(&mut self, coordinator: &mut crate::runtime::AuthorityRepairCoordinator) {
         let teams: Vec<_> = self.projectors.keys().copied().collect();
         for team in teams {
@@ -171,6 +193,30 @@ impl TeamProjectionRuntime {
         self.projectors.iter_mut().map(|(team, projector)| {
             (*team, projector.build_team_game_start(server_tick, tick_rate_hz))
         }).collect()
+    }
+
+    pub fn build_input_validation_snapshot(
+        &self,
+        visibility: &crate::runtime::TeamVisibilityRuntime,
+    ) -> crate::runtime::SecureInputValidationSnapshot {
+        let mut snapshot = crate::runtime::SecureInputValidationSnapshot::default();
+        for (team_id, projector) in &self.projectors {
+            let Some(team_visibility) = visibility.teams.get(team_id) else { continue; };
+            let replicas = projector.identity.disclosed_mappings().into_iter().map(|(canonical, mapping)| {
+                let canonical_id = ((canonical.generation as u64) << 32) | u64::from(canonical.id);
+                (mapping.replica_id.get(), crate::runtime::ReplicaValidationRecord {
+                    canonical_id,
+                    disclosure_epoch: mapping.disclosure_epoch,
+                    owner_team: visibility.latest_owner_by_canonical.get(&canonical_id).copied().flatten(),
+                })
+            }).collect();
+            snapshot.teams.insert(*team_id, crate::runtime::TeamInputValidationView {
+                view_epoch: projector.view_epoch,
+                replicas,
+                visible_by_tick: team_visibility.history.snapshot(),
+            });
+        }
+        snapshot
     }
 }
 
@@ -213,6 +259,12 @@ pub fn run_team_projection_after_wave_b(world: &mut World, server_tick: u64) -> 
         frames.insert(*team, frame);
     }
     runtime.latest_frames = frames;
+    for (team_id, bundle) in &rebases {
+        runtime.pending_rebase_outbound.insert(*team_id, PendingRebaseOutbound {
+            chunks: bundle.chunks.iter().map(Message::encode_to_vec).collect(),
+            manifest: Some(bundle.manifest.encode_to_vec()),
+        });
+    }
     runtime.latest_rebases = rebases;
     Ok(())
 }

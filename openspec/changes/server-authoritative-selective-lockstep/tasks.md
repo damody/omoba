@@ -505,32 +505,32 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-ANTI-PROBING-READY`、`G-REDACTION-READY`。
 **完成門檻：** Player-visible outputs 不含 forbidden fields；invalid target 不形成 existence oracle；admin diagnostic boundary 明確隔離。
 
-- [ ] 4.4.1 將 target input wire field 改為 team-scoped replica ID。
-- [ ] 4.4.2 實作 invalid target 的 generalized rejection class。
-- [ ] 4.4.3 在 player log sink 套用 team redaction。
-- [ ] 4.4.4 實作 visibility transition count metric。
-- [ ] 4.4.5 實作 steady-state padding byte metric。
-- [ ] 4.4.6 在 target input 加入 view epoch field。
-- [ ] 4.4.7 在 target input 加入 disclosure epoch field。
-- [ ] 4.4.8 依 session team binding 驗證 target input。
-- [ ] 4.4.9 依 input tick visibility history 驗證 target input。
-- [ ] 4.4.10 依 ownership rule 驗證 target input。
-- [ ] 4.4.11 實作 invalid target 的 uniform timing bucket。
-- [ ] 4.4.12 實作 invalid replica reference rate limit。
-- [ ] 4.4.13 在 player replay sink 套用 team redaction。
-- [ ] 4.4.14 在 player crash bundle 套用 team redaction。
-- [ ] 4.4.15 在 player trace sink 套用 team redaction。
-- [ ] 4.4.16 建立 server-admin diagnostic capability check。
-- [ ] 4.4.17 將 full diagnostic transport 與 player session transport 分離。
-- [ ] 4.4.18 實作 encoded frame byte metric。
-- [ ] 4.4.19 實作 outbound queue depth metric。
-- [ ] 4.4.20 實作 observer audit lag metric export。
-- [ ] 4.4.21 實作 coverage gap metric export。
-- [ ] 4.4.22 實作 authority repair count metric。
-- [ ] 4.4.23 實作 authority rebase count metric。
-- [ ] 4.4.24 實作 redaction violation counter。
-- [ ] 4.4.25 實作 reveal burst byte accounting。
-- [ ] 4.4.26 實作 rebase burst byte accounting。
+- [x] 4.4.1 將 target input wire field 改為 team-scoped replica ID。
+- [x] 4.4.2 實作 invalid target 的 generalized rejection class。
+- [x] 4.4.3 在 player log sink 套用 team redaction。
+- [x] 4.4.4 實作 visibility transition count metric。
+- [x] 4.4.5 實作 steady-state padding byte metric。
+- [x] 4.4.6 在 target input 加入 view epoch field。
+- [x] 4.4.7 在 target input 加入 disclosure epoch field。
+- [x] 4.4.8 依 session team binding 驗證 target input。
+- [x] 4.4.9 依 input tick visibility history 驗證 target input。
+- [x] 4.4.10 依 ownership rule 驗證 target input。
+- [x] 4.4.11 實作 invalid target 的 uniform timing bucket。
+- [x] 4.4.12 實作 invalid replica reference rate limit。
+- [x] 4.4.13 在 player replay sink 套用 team redaction。
+- [x] 4.4.14 在 player crash bundle 套用 team redaction。
+- [x] 4.4.15 在 player trace sink 套用 team redaction。
+- [x] 4.4.16 建立 server-admin diagnostic capability check。
+- [x] 4.4.17 將 full diagnostic transport 與 player session transport 分離。
+- [x] 4.4.18 實作 encoded frame byte metric。
+- [x] 4.4.19 實作 outbound queue depth metric。
+- [x] 4.4.20 實作 observer audit lag metric export。
+- [x] 4.4.21 實作 coverage gap metric export。
+- [x] 4.4.22 實作 authority repair count metric。
+- [x] 4.4.23 實作 authority rebase count metric。
+- [x] 4.4.24 實作 redaction violation counter。
+- [x] 4.4.25 實作 reveal burst byte accounting。
+- [x] 4.4.26 實作 rebase burst byte accounting。
 
 ### 4.5 Phase 4 最低限度 server build
 

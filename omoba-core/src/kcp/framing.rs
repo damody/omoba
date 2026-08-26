@@ -27,6 +27,11 @@ pub const TAG_TEAM_GAME_START_V2: u8 = 0x20; // S→C unicast bootstrap
 pub const TAG_TEAM_TICK_FRAME_V2: u8 = 0x21; // S→C team stream
 pub const TAG_TEAM_REBASE_CHUNK_V2: u8 = 0x22; // S→C rebase chunk
 pub const TAG_TEAM_REBASE_MANIFEST_V2: u8 = 0x23; // S→C verified manifest
+pub const TAG_TEAM_REPLAY_REQUEST_V2: u8 = 0x24; // C→S
+pub const TAG_CLIENT_TEAM_HASH_MISMATCH_V2: u8 = 0x25; // C→S
+pub const TAG_TEAM_REBASE_ACK_V2: u8 = 0x26; // C→S
+pub const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27; // C→S
+pub const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28; // S→C
 
 pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 2;
 pub const SELECTIVE_FRAME_SCHEMA_VERSION: u32 = 1;

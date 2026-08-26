@@ -87,6 +87,9 @@ impl TeamVisibilityHistory {
         self.entries.iter().rev().find(|entry| entry.tick <= tick)
             .is_some_and(|entry| entry.visible.contains(&entity))
     }
+    pub fn snapshot(&self) -> BTreeMap<u64, BTreeSet<u64>> {
+        self.entries.iter().map(|entry| (entry.tick, entry.visible.clone())).collect()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +194,7 @@ pub fn run_team_wave_b_parallel(
 pub struct TeamVisibilityRuntime {
     pub teams: BTreeMap<u32, TeamVisibilityState>,
     pub last_transitions: BTreeMap<u32, Vec<VisibilityTransition>>,
+    pub latest_owner_by_canonical: BTreeMap<u64, Option<u32>>,
 }
 
 impl TeamVisibilityRuntime {
@@ -259,6 +263,8 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
     let discovered_teams: BTreeSet<_> = view.entities.iter().map(|entity| entity.team)
         .chain(view.vision_sources.iter().map(|source| source.team)).collect();
     let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
+    runtime.latest_owner_by_canonical = view.entities.iter()
+        .map(|entity| (entity.canonical_id, entity.owner_team)).collect();
     for team in discovered_teams { runtime.ensure_team(team); }
     let mut states: Vec<_> = std::mem::take(&mut runtime.teams).into_values().collect();
     let results = run_team_wave_b_parallel(&view, &mut states, delay);
