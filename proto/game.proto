@@ -565,6 +565,10 @@ message JoinRequest {
   // Client-declared player id. Player clients must provide a non-zero id
   // before connecting; server validates and echoes it in GameStart.
   uint32 player_id = 3;
+  uint32 requested_protocol = 4;
+  repeated uint32 supported_protocols = 5;
+  bool secure_fog_capability = 6;
+  uint64 view_epoch = 7;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -812,6 +816,12 @@ message TeamTickFrame {
   Step step = 11;
   PostStep post_step = 12;
   bytes padding = 13;
+}
+
+message TeamReplayRequest {
+  uint64 request_id = 1;
+  uint64 from_team_sequence = 2;
+  ViewEpoch view_epoch = 3;
 }
 
 message TeamViewRebaseChunk {

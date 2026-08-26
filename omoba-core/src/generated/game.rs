@@ -796,6 +796,14 @@ pub struct JoinRequest {
     /// before connecting; server validates and echoes it in GameStart.
     #[prost(uint32, tag = "3")]
     pub player_id: u32,
+    #[prost(uint32, tag = "4")]
+    pub requested_protocol: u32,
+    #[prost(uint32, repeated, tag = "5")]
+    pub supported_protocols: ::prost::alloc::vec::Vec<u32>,
+    #[prost(bool, tag = "6")]
+    pub secure_fog_capability: bool,
+    #[prost(uint64, tag = "7")]
+    pub view_epoch: u64,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -1215,6 +1223,15 @@ pub struct TeamTickFrame {
     pub post_step: ::core::option::Option<PostStep>,
     #[prost(bytes = "vec", tag = "13")]
     pub padding: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TeamReplayRequest {
+    #[prost(uint64, tag = "1")]
+    pub request_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub from_team_sequence: u64,
+    #[prost(message, optional, tag = "3")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TeamViewRebaseChunk {

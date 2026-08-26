@@ -676,6 +676,10 @@ impl KcpClient {
             player_name: player_name.clone(),
             role: role as i32,
             player_id,
+            requested_protocol: 1,
+            supported_protocols: vec![1],
+            secure_fog_capability: false,
+            view_epoch: 0,
         };
         {
             let mut w = self.writer.lock().await;

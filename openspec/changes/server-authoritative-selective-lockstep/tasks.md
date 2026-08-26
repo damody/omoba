@@ -417,22 +417,22 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-TEAM-ROUTING`。
 **完成門檻：** Secure session 只收自身 team frame；encoded frame 立即 enqueue；gap 可由 ring/rebase 路由恢復。
 
-- [ ] 4.1.1 在 join state 綁定 negotiated protocol version。
-- [ ] 4.1.2 將 encoded `TeamTickFrame` 直接 enqueue 給同 team sessions。
-- [ ] 4.1.3 實作 bounded per-team encoded-frame replay ring insert。
-- [ ] 4.1.4 實作 ring expiry 後 filtered rebase routing。
-- [ ] 4.1.5 在 join handler 拒絕 V1 client 加入 secure match。
-- [ ] 4.1.6 在 join state 綁定 authenticated team ID。
-- [ ] 4.1.7 在 session state 綁定 current view epoch。
-- [ ] 4.1.8 在 session state 綁定 secure-match capability。
-- [ ] 4.1.9 在 `omb/src/transport/kcp_transport.rs` 將 team frame 路由到相同 team session set。
-- [ ] 4.1.10 從 secure path 移除 global `TickBatch` fan-out call。
-- [ ] 4.1.11 從 secure path 移除 global `StateHash` fan-out call。
-- [ ] 4.1.12 實作 replay ring sequence lookup。
-- [ ] 4.1.13 實作 replay ring exact encoded-byte resend。
-- [ ] 4.1.14 實作 duplicate replay request 的 idempotent response。
-- [ ] 4.1.15 實作 filtered rebase 完成後的 catch-up frame routing。
-- [ ] 4.1.16 在 active secure match control path 拒絕 runtime downgrade。
+- [x] 4.1.1 在 join state 綁定 negotiated protocol version。
+- [x] 4.1.2 將 encoded `TeamTickFrame` 直接 enqueue 給同 team sessions。
+- [x] 4.1.3 實作 bounded per-team encoded-frame replay ring insert。
+- [x] 4.1.4 實作 ring expiry 後 filtered rebase routing。
+- [x] 4.1.5 在 join handler 拒絕 V1 client 加入 secure match。
+- [x] 4.1.6 在 join state 綁定 authenticated team ID。
+- [x] 4.1.7 在 session state 綁定 current view epoch。
+- [x] 4.1.8 在 session state 綁定 secure-match capability。
+- [x] 4.1.9 在 `omb/src/transport/kcp_transport.rs` 將 team frame 路由到相同 team session set。
+- [x] 4.1.10 從 secure path 移除 global `TickBatch` fan-out call。
+- [x] 4.1.11 從 secure path 移除 global `StateHash` fan-out call。
+- [x] 4.1.12 實作 replay ring sequence lookup。
+- [x] 4.1.13 實作 replay ring exact encoded-byte resend。
+- [x] 4.1.14 實作 duplicate replay request 的 idempotent response。
+- [x] 4.1.15 實作 filtered rebase 完成後的 catch-up frame routing。
+- [x] 4.1.16 在 active secure match control path 拒絕 runtime downgrade。
 
 ### 4.2 實作非阻塞 observer validation worker
 
