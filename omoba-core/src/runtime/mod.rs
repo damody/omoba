@@ -16,6 +16,8 @@ pub mod selective_replica;
 pub mod projection_policy;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stable_fact;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod visibility;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
@@ -30,6 +32,8 @@ pub use selective_replica::*;
 pub use projection_policy::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use stable_fact::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use visibility::*;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {

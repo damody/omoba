@@ -43,6 +43,19 @@ impl SystemDispatcher {
         Ok(())
     }
 
+    /// Dynamically registered post-commit Specs lane. Team count is match
+    /// state, so individual Wave B jobs are materialized after Wave A rather
+    /// than frozen into the gameplay DispatcherBuilder; the jobs themselves
+    /// execute in parallel over the same dispatcher-owned rayon pool model.
+    pub fn run_post_commit_visibility(
+        &self,
+        world: &mut World,
+        tick: u64,
+        transition_delay_ticks: u64,
+    ) {
+        crate::runtime::run_committed_visibility_wave_b(world, tick, transition_delay_ticks);
+    }
+
     /// 運行特定系統組
     pub fn run_system_group(&self, world: &World, group: SystemGroup) -> Result<(), Error> {
         let mut dispatch_builder =

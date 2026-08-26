@@ -726,6 +726,11 @@ impl StateInitializer {
         ecs.register::<Facing>();
         ecs.register::<FacingBroadcast>();
         ecs.register::<TurnSpeed>();
+        ecs.register::<ReplicationScope>();
+        ecs.register::<VisionSource>();
+        ecs.register::<StealthProfile>();
+        ecs.register::<VisibilityOverride>();
+        ecs.register::<RememberPolicy>();
         ecs.register::<CollisionRadius>();
         ecs.register::<RegionBlocker>();
         // SlowBuff component 已移除，slow 走 ability_runtime::BuffStore resource
@@ -872,6 +877,9 @@ impl StateInitializer {
         ecs.insert(Vec::<crate::Outcome>::new());
         ecs.insert(Vec::<omoba_core::runtime::RuntimeEvent>::new());
         ecs.insert(crate::runtime::ObservableFactBuffer::default());
+        ecs.insert(crate::runtime::TeamVisibilityRuntime::default());
+        ecs.insert(crate::runtime::CommittedProjectionBatch::default());
+        ecs.insert(crate::runtime::OrderedRuntimeEventBuffer::default());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(crate::runtime::TdLayerCommitSerial::default());
         ecs.insert(SysMetrics::default());

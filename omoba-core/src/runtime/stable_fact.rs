@@ -101,6 +101,11 @@ pub struct OrderedOutput<T> {
     pub value: T,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct OrderedRuntimeEventBuffer {
+    pub events: Vec<OrderedOutput<crate::runtime::RuntimeEvent>>,
+}
+
 pub trait StableKeyed {
     fn stable_key(&self) -> FactOrderingKey;
 }

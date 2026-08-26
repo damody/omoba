@@ -327,34 +327,34 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-TWO-WAVE-PIPELINE`。
 **完成門檻：** `State[T+1]` 只在 deterministic commit 後可見；team jobs 讀 committed state 並可平行執行。
 
-- [ ] 3.3.1 將 stable outcome reduce 插入 authoritative tick commit input。
-- [ ] 3.3.2 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `ReplicationScope` component。
-- [ ] 3.3.3 實作 team-shared geometry visibility resolve。
-- [ ] 3.3.4 實作 reveal candidate creation。
-- [ ] 3.3.5 實作 `TeamVisibilityIndex` current-view storage。
-- [ ] 3.3.6 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `VisionSource` component。
-- [ ] 3.3.7 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `StealthProfile` component。
-- [ ] 3.3.8 在 `omoba-core/src/runtime/native/comp/` 定義 `VisibilityOverride` component。
-- [ ] 3.3.9 在 `omoba-core/src/runtime/native/comp/` 定義 `RememberPolicy` component。
-- [ ] 3.3.10 實作 team vision source aggregation。
-- [ ] 3.3.11 實作 stealth 與 detection level comparison。
-- [ ] 3.3.12 實作 `ServerOnly` deny precedence。
-- [ ] 3.3.13 實作 force-hide precedence。
-- [ ] 3.3.14 實作 `Public` 與 force-show precedence。
-- [ ] 3.3.15 實作 `OwnerTeam` precedence。
-- [ ] 3.3.16 實作同 priority override 的 stable rule ID tie-break。
-- [ ] 3.3.17 實作 hide candidate creation。
-- [ ] 3.3.18 實作 candidate commitment tick calculation。
-- [ ] 3.3.19 實作 reveal candidate cancellation。
-- [ ] 3.3.20 實作 hide candidate cancellation。
-- [ ] 3.3.21 在 reveal effective tick 擷取 fresh authoritative baseline。
-- [ ] 3.3.22 在 hide effective tick 產生 remembered-policy disposition。
-- [ ] 3.3.23 實作 per-team visibility history ring。
-- [ ] 3.3.24 在 commit barrier 後建立 Wave B read-only state view。
-- [ ] 3.3.25 在 Specs dispatcher 註冊 per-team Wave B jobs。
-- [ ] 3.3.26 將不同 team 的 Wave B job 設為可平行排程。
-- [ ] 3.3.27 將 stable fact reduce 插入 authoritative tick commit input。
-- [ ] 3.3.28 在 outcome/fact reduce 完成後設置 deterministic commit barrier。
+- [x] 3.3.1 將 stable outcome reduce 插入 authoritative tick commit input。
+- [x] 3.3.2 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `ReplicationScope` component。
+- [x] 3.3.3 實作 team-shared geometry visibility resolve。
+- [x] 3.3.4 實作 reveal candidate creation。
+- [x] 3.3.5 實作 `TeamVisibilityIndex` current-view storage。
+- [x] 3.3.6 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `VisionSource` component。
+- [x] 3.3.7 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `StealthProfile` component。
+- [x] 3.3.8 在 `omoba-core/src/runtime/native/comp/` 定義 `VisibilityOverride` component。
+- [x] 3.3.9 在 `omoba-core/src/runtime/native/comp/` 定義 `RememberPolicy` component。
+- [x] 3.3.10 實作 team vision source aggregation。
+- [x] 3.3.11 實作 stealth 與 detection level comparison。
+- [x] 3.3.12 實作 `ServerOnly` deny precedence。
+- [x] 3.3.13 實作 force-hide precedence。
+- [x] 3.3.14 實作 `Public` 與 force-show precedence。
+- [x] 3.3.15 實作 `OwnerTeam` precedence。
+- [x] 3.3.16 實作同 priority override 的 stable rule ID tie-break。
+- [x] 3.3.17 實作 hide candidate creation。
+- [x] 3.3.18 實作 candidate commitment tick calculation。
+- [x] 3.3.19 實作 reveal candidate cancellation。
+- [x] 3.3.20 實作 hide candidate cancellation。
+- [x] 3.3.21 在 reveal effective tick 擷取 fresh authoritative baseline。
+- [x] 3.3.22 在 hide effective tick 產生 remembered-policy disposition。
+- [x] 3.3.23 實作 per-team visibility history ring。
+- [x] 3.3.24 在 commit barrier 後建立 Wave B read-only state view。
+- [x] 3.3.25 在 Specs dispatcher 註冊 per-team Wave B jobs。
+- [x] 3.3.26 將不同 team 的 Wave B job 設為可平行排程。
+- [x] 3.3.27 將 stable fact reduce 插入 authoritative tick commit input。
+- [x] 3.3.28 在 outcome/fact reduce 完成後設置 deterministic commit barrier。
 
 ### 3.4 實作 `TeamViewProjector` 與 frame builder
 

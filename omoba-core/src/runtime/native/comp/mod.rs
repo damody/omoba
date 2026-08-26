@@ -26,6 +26,7 @@ pub mod phys;
 pub mod player_economy;
 pub mod projectile;
 pub mod resources;
+pub mod selective_visibility;
 pub mod tower;
 pub mod tower_registry;
 pub mod tower_upgrade_registry;
@@ -37,6 +38,6 @@ pub use self::{
     collision_index::*, creep::*, creep_move_broadcast::*, damage::*, facing::*, fx_queues::*,
     game_mode::*, gold::*, heightmap::*, hero::*, inventory::*, is_base::*, item_effects::*,
     knowledge::*, last::*, lockstep_resources::*, outcome::*, phys::*, player_economy::*,
-    projectile::*, resources::*, tower::*, tower_registry::*, tower_upgrade_registry::*,
+    projectile::*, resources::*, selective_visibility::*, tower::*, tower_registry::*, tower_upgrade_registry::*,
     tower_upgrade_rules::*, unit::*,
 };
