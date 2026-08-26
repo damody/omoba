@@ -34,31 +34,31 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 - [x] 1.1.7 為 deterministic component inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
 - [x] 1.1.8 為 deterministic resource inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
 - [x] 1.1.9 為 input inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
-- [ ] 1.1.10 為 outcome/script event inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
-- [ ] 1.1.11 盤點 `PlayerInput` variant，記錄 producer、consumer 與 authoritative phase。
-- [ ] 1.1.12 盤點 `Outcome` variant，記錄 producer、consumer 與 authoritative phase。
-- [ ] 1.1.13 盤點 render cue，記錄 producer、consumer 與 retention rule。
-- [ ] 1.1.14 為 spawn action 填寫四象限 projection policy。
-- [ ] 1.1.15 為 death action 填寫四象限 projection policy。
-- [ ] 1.1.16 為 ownership action 填寫四象限 projection policy。
-- [ ] 1.1.17 為 direct combat action 填寫四象限 projection policy。
-- [ ] 1.1.18 為 projectile action 填寫四象限 projection policy。
-- [ ] 1.1.19 為 AOE action 填寫四象限 projection policy。
-- [ ] 1.1.20 為 buff/debuff action 填寫四象限 projection policy。
-- [ ] 1.1.21 為 hero ability action 填寫四象限 projection policy。
-- [ ] 1.1.22 為 tower action 填寫四象限 projection policy。
-- [ ] 1.1.23 為 item action 填寫四象限 projection policy。
-- [ ] 1.1.24 將重複分類的 inventory item 寫入 blocking migration list。
-- [ ] 1.1.25 將缺少 projection policy 的 action 寫入 blocking migration list。
-- [ ] 1.1.26 盤點 script event variant，記錄 producer、consumer 與 authoritative phase。
-- [ ] 1.1.27 盤點 retained network event，記錄 producer、consumer 與 retention rule。
-- [ ] 1.1.28 對 deterministic component inventory 套用 disclosure classification。
-- [ ] 1.1.29 對 deterministic resource inventory 套用 disclosure classification。
-- [ ] 1.1.30 對 input inventory 套用 disclosure classification。
-- [ ] 1.1.31 對 outcome/script event inventory 套用 disclosure classification。
-- [ ] 1.1.32 對 render/network event inventory 套用 disclosure classification。
-- [ ] 1.1.33 確認每個 inventory row 恰有一個 disclosure classification。
-- [ ] 1.1.34 為 render/network event inventory 補齊 owner、retention、hash 與 snapshot 欄位。
+- [x] 1.1.10 為 outcome/script event inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
+- [x] 1.1.11 盤點 `PlayerInput` variant，記錄 producer、consumer 與 authoritative phase。
+- [x] 1.1.12 盤點 `Outcome` variant，記錄 producer、consumer 與 authoritative phase。
+- [x] 1.1.13 盤點 render cue，記錄 producer、consumer 與 retention rule。
+- [x] 1.1.14 為 spawn action 填寫四象限 projection policy。
+- [x] 1.1.15 為 death action 填寫四象限 projection policy。
+- [x] 1.1.16 為 ownership action 填寫四象限 projection policy。
+- [x] 1.1.17 為 direct combat action 填寫四象限 projection policy。
+- [x] 1.1.18 為 projectile action 填寫四象限 projection policy。
+- [x] 1.1.19 為 AOE action 填寫四象限 projection policy。
+- [x] 1.1.20 為 buff/debuff action 填寫四象限 projection policy。
+- [x] 1.1.21 為 hero ability action 填寫四象限 projection policy。
+- [x] 1.1.22 為 tower action 填寫四象限 projection policy。
+- [x] 1.1.23 為 item action 填寫四象限 projection policy。
+- [x] 1.1.24 將重複分類的 inventory item 寫入 blocking migration list。
+- [x] 1.1.25 將缺少 projection policy 的 action 寫入 blocking migration list。
+- [x] 1.1.26 盤點 script event variant，記錄 producer、consumer 與 authoritative phase。
+- [x] 1.1.27 盤點 retained network event，記錄 producer、consumer 與 retention rule。
+- [x] 1.1.28 對 deterministic component inventory 套用 disclosure classification。
+- [x] 1.1.29 對 deterministic resource inventory 套用 disclosure classification。
+- [x] 1.1.30 對 input inventory 套用 disclosure classification。
+- [x] 1.1.31 對 outcome/script event inventory 套用 disclosure classification。
+- [x] 1.1.32 對 render/network event inventory 套用 disclosure classification。
+- [x] 1.1.33 確認每個 inventory row 恰有一個 disclosure classification。
+- [x] 1.1.34 為 render/network event inventory 補齊 owner、retention、hash 與 snapshot 欄位。
 
 ### 1.2 固定 protocol、schema、gate 與 evidence contract
 
