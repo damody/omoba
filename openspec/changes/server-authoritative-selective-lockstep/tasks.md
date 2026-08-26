@@ -399,11 +399,11 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PHASE3-BUILDABLE`，非 acceptance gate。
 **完成門檻：** Authoritative tick 可產生 synthetic team frames，相關 workspaces 可編譯。
 
-- [ ] 3.5.1 執行一次 `omoba-core` 最低限度 compile check，保存 non-acceptance log。
-- [ ] 3.5.2 以單一 synthetic tick focused smoke 確認 Wave A output 抵達 commit buffer。
-- [ ] 3.5.3 執行一次 omb 最低限度 compile check，保存 non-acceptance log。
-- [ ] 3.5.4 在同一 synthetic smoke 確認 commit 後才建立 Wave B read view。
-- [ ] 3.5.5 在同一 synthetic smoke 確認 Wave B 產生一個 encoded team frame。
+- [x] 3.5.1 執行一次 `omoba-core` 最低限度 compile check，保存 non-acceptance log。
+- [x] 3.5.2 以單一 synthetic tick focused smoke 確認 Wave A output 抵達 commit buffer。
+- [x] 3.5.3 執行一次 omb 最低限度 compile check，保存 non-acceptance log。
+- [x] 3.5.4 在同一 synthetic smoke 確認 commit 後才建立 Wave B read view。
+- [x] 3.5.5 在同一 synthetic smoke 確認 Wave B 產生一個 encoded team frame。
 
 ## 4. Server team stream、recovery 與 observer sidecar
 

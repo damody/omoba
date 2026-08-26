@@ -1,0 +1,24 @@
+{
+  "evidence_kind": "non-acceptance-focused-smoke",
+  "phase": 3,
+  "timestamp": "2026-08-27T01:20:00+08:00",
+  "commands": [
+    {
+      "command": "cargo check --manifest-path omb/Cargo.toml -p omobab --features kcp",
+      "exit_status": 0,
+      "result": "omoba-core and omb compiled"
+    },
+    {
+      "command": "cargo run --manifest-path omoba-core/Cargo.toml --example phase3_selective_smoke --features kcp",
+      "exit_status": 0,
+      "result": "phase3-smoke ok barrier=true visible=1 frame_bytes=256 padding=138"
+    }
+  ],
+  "scope": [
+    "Wave A ordered fact reaches committed buffer",
+    "Wave B reads committed state only after barrier",
+    "Wave B produces one decodable padded TeamTickFrame"
+  ],
+  "acceptance_gate": false,
+  "note": "依計畫僅執行 Phase 3 最低限度整合 smoke；完整測試矩陣保留至 Phase 6。"
+}
