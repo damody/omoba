@@ -559,27 +559,27 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OMFX-SELECTIVE-RUNTIME`。
 **完成門檻：** omfx 不建立 global world、不讀 `master_seed`/raw ECS ID，並以 negotiated barrier 推進。
 
-- [ ] 5.1.1 在 `omfx/game/src/lockstep_client.rs` decode `TeamGameStart`。
-- [ ] 5.1.2 在 `omfx/game/src/sim_runner.rs` 新增 `SelectiveReplicaRuntime` owner field。
-- [ ] 5.1.3 在 omfx client 建立 negotiated barrier buffer。
-- [ ] 5.1.4 將 accepted input 導入 shared runtime。
-- [ ] 5.1.5 在 replica stall 時保留最後一份 disclosed render snapshot。
-- [ ] 5.1.6 在 `omfx/game/src/lockstep_client.rs` decode `TeamTickFrame`。
-- [ ] 5.1.7 在 omfx client decode replay response control。
-- [ ] 5.1.8 在 omfx client decode rebase manifest control。
-- [ ] 5.1.9 在 omfx client decode rebase chunk control。
-- [ ] 5.1.10 將 `TeamGameStart` filtered snapshot 傳入 `SelectiveReplicaRuntime` bootstrap。
-- [ ] 5.1.11 從 secure client path 移除 global world bootstrap call。
-- [ ] 5.1.12 將 barrier buffer default 設為 negotiated 12 ticks。
-- [ ] 5.1.13 在 barrier buffer 追蹤 expected team sequence。
-- [ ] 5.1.14 在 expected frame 未到時回報 deterministic stall state。
-- [ ] 5.1.15 將 public event 導入 shared runtime。
-- [ ] 5.1.16 將 sanitized external effect 導入 shared runtime。
-- [ ] 5.1.17 將 visibility transition 導入 shared runtime。
-- [ ] 5.1.18 將 authority correction 導入 shared runtime。
-- [ ] 5.1.19 在 replica stall 時維持 network receive loop 運作。
-- [ ] 5.1.20 在 replica stall 時維持 input collection loop 運作。
-- [ ] 5.1.21 在 replica stall 時維持 UI loop 運作。
+- [x] 5.1.1 在 `omfx/game/src/lockstep_client.rs` decode `TeamGameStart`。
+- [x] 5.1.2 在 `omfx/game/src/sim_runner.rs` 新增 `SelectiveReplicaRuntime` owner field。
+- [x] 5.1.3 在 omfx client 建立 negotiated barrier buffer。
+- [x] 5.1.4 將 accepted input 導入 shared runtime。
+- [x] 5.1.5 在 replica stall 時保留最後一份 disclosed render snapshot。
+- [x] 5.1.6 在 `omfx/game/src/lockstep_client.rs` decode `TeamTickFrame`。
+- [x] 5.1.7 在 omfx client decode replay response control。
+- [x] 5.1.8 在 omfx client decode rebase manifest control。
+- [x] 5.1.9 在 omfx client decode rebase chunk control。
+- [x] 5.1.10 將 `TeamGameStart` filtered snapshot 傳入 `SelectiveReplicaRuntime` bootstrap。
+- [x] 5.1.11 從 secure client path 移除 global world bootstrap call。
+- [x] 5.1.12 將 barrier buffer default 設為 negotiated 12 ticks。
+- [x] 5.1.13 在 barrier buffer 追蹤 expected team sequence。
+- [x] 5.1.14 在 expected frame 未到時回報 deterministic stall state。
+- [x] 5.1.15 將 public event 導入 shared runtime。
+- [x] 5.1.16 將 sanitized external effect 導入 shared runtime。
+- [x] 5.1.17 將 visibility transition 導入 shared runtime。
+- [x] 5.1.18 將 authority correction 導入 shared runtime。
+- [x] 5.1.19 在 replica stall 時維持 network receive loop 運作。
+- [x] 5.1.20 在 replica stall 時維持 input collection loop 運作。
+- [x] 5.1.21 在 replica stall 時維持 UI loop 運作。
 
 ### 5.2 實作 filtered rendering 與 remembered cache
 

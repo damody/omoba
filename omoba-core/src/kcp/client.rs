@@ -128,6 +128,27 @@ pub struct KcpClient {
 /// 每個事件的廣播可以量化。
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
+    TeamGameStart {
+        msg: TeamGameStart,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
+    TeamTickFrame {
+        msg: TeamTickFrame,
+        encoded: Arc<[u8]>,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
+    TeamViewRebaseChunk {
+        msg: TeamViewRebaseChunk,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
+    TeamViewRebaseManifest {
+        msg: TeamViewRebase,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
     TickBatch {
         msg: TickBatch,
         wire_bytes: usize,
@@ -555,6 +576,43 @@ impl KcpClient {
                                     Err(e) => warn!("Failed to decode SnapshotResp: {}", e),
                                 }
                             }
+                            TAG_TEAM_GAME_START_V2 => {
+                                let logical_bytes = payload.len();
+                                match TeamGameStart::decode(payload.as_slice()) {
+                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamGameStart {
+                                        msg, wire_bytes: wire_compressed_bytes, logical_bytes,
+                                    }).await.is_err() { break; },
+                                    Err(error) => warn!("Failed to decode TeamGameStart: {}", error),
+                                }
+                            }
+                            TAG_TEAM_TICK_FRAME_V2 => {
+                                let logical_bytes = payload.len();
+                                match TeamTickFrame::decode(payload.as_slice()) {
+                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamTickFrame {
+                                        msg, encoded: Arc::from(payload.into_boxed_slice()),
+                                        wire_bytes: wire_compressed_bytes, logical_bytes,
+                                    }).await.is_err() { break; },
+                                    Err(error) => warn!("Failed to decode TeamTickFrame: {}", error),
+                                }
+                            }
+                            TAG_TEAM_REBASE_CHUNK_V2 => {
+                                let logical_bytes = payload.len();
+                                match TeamViewRebaseChunk::decode(payload.as_slice()) {
+                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamViewRebaseChunk {
+                                        msg, wire_bytes: wire_compressed_bytes, logical_bytes,
+                                    }).await.is_err() { break; },
+                                    Err(error) => warn!("Failed to decode TeamViewRebaseChunk: {}", error),
+                                }
+                            }
+                            TAG_TEAM_REBASE_MANIFEST_V2 => {
+                                let logical_bytes = payload.len();
+                                match TeamViewRebase::decode(payload.as_slice()) {
+                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamViewRebaseManifest {
+                                        msg, wire_bytes: wire_compressed_bytes, logical_bytes,
+                                    }).await.is_err() { break; },
+                                    Err(error) => warn!("Failed to decode TeamViewRebase: {}", error),
+                                }
+                            }
                             TAG_PING_RESP => {
                                 let logical_bytes = payload.len();
                                 match PingResponse::decode(payload.as_slice()) {
@@ -717,6 +775,66 @@ impl KcpClient {
                 }
             }
         }
+    }
+
+    pub async fn join_selective_lockstep(
+        &mut self,
+        player_name: String,
+        player_id: u32,
+    ) -> Result<TeamGameStart> {
+        if player_id == 0 { anyhow::bail!("player join requires non-zero player_id"); }
+        let req = JoinRequest {
+            player_name,
+            role: JoinRole::RolePlayer as i32,
+            player_id,
+            requested_protocol: SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+            supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
+            secure_fog_capability: true,
+            view_epoch: 0,
+        };
+        {
+            let mut writer = self.writer.lock().await;
+            write_framed_msg(&mut *writer, TAG_JOIN_REQUEST, &req).await?;
+        }
+        let rx = self.lockstep_rx.as_mut().ok_or_else(|| anyhow::anyhow!("lockstep_rx already taken"))?;
+        loop {
+            match rx.recv().await {
+                Some(LockstepInbound::TeamGameStart { msg, .. }) => {
+                    if msg.player_id != player_id { anyhow::bail!("secure bootstrap player mismatch"); }
+                    if msg.protocol_version != SELECTIVE_LOCKSTEP_PROTOCOL_VERSION {
+                        anyhow::bail!("secure bootstrap protocol mismatch");
+                    }
+                    self.last_player_id = Some(msg.player_id);
+                    self.last_step_fps = Some(msg.tick_rate_hz);
+                    return Ok(msg);
+                }
+                Some(_) => continue,
+                None => anyhow::bail!("lockstep stream closed before TeamGameStart"),
+            }
+        }
+    }
+
+    pub async fn request_team_replay(&self, request_id: u64, from_sequence: u64, view_epoch: u64) -> Result<()> {
+        let request = TeamReplayRequest {
+            request_id,
+            from_team_sequence: from_sequence,
+            view_epoch: Some(ViewEpoch { value: view_epoch }),
+        };
+        let mut writer = self.writer.lock().await;
+        write_framed_msg(&mut *writer, TAG_TEAM_REPLAY_REQUEST_V2, &request).await?;
+        Ok(())
+    }
+
+    pub async fn acknowledge_team_rebase(&self, team_id: u32, resume_sequence: u64, view_epoch: u64) -> Result<()> {
+        let ack = TeamRebaseAck {
+            team_id,
+            resume_team_sequence: resume_sequence,
+            manifest_verified: true,
+            view_epoch: Some(ViewEpoch { value: view_epoch }),
+        };
+        let mut writer = self.writer.lock().await;
+        write_framed_msg(&mut *writer, TAG_TEAM_REBASE_ACK_V2, &ack).await?;
+        Ok(())
     }
 
     /// 提交針對「target_tick」的玩家輸入。呼叫者必須有

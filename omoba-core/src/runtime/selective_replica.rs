@@ -642,6 +642,10 @@ impl SelectiveReplicaRuntime {
         }
     }
 
+    pub fn take_accepted_inputs(&mut self) -> Vec<TeamAcceptedInput> {
+        std::mem::take(&mut self.last_injections.accepted_inputs)
+    }
+
     pub fn apply_verified_rebase(
         &mut self,
         snapshot: &FilteredTeamSnapshot,
