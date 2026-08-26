@@ -260,21 +260,21 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OBSERVABLE-FACT-CONTRACT`。
 **完成門檻：** 每筆 outcome/fact 有 stable key，commit 不依賴 insertion/arrival order，沒有 post-hoc full-world effect scan。
 
-- [ ] 3.1.1 在 shared runtime 定義 `ObservableFact` enum shell。
-- [ ] 3.1.2 實作 Specs-safe sharded/thread-local output buffers。
-- [ ] 3.1.3 實作 sharded fact buffer 的 deterministic merge。
-- [ ] 3.1.4 從既有 runtime event bridge 移除 unordered direct emit path。
-- [ ] 3.1.5 為每個 `ObservableFact` variant 定義 safe metadata payload。
-- [ ] 3.1.6 定義 fact ordering key 的 `tick` 欄位。
-- [ ] 3.1.7 定義 fact ordering key 的 `phase` 欄位。
-- [ ] 3.1.8 定義 fact ordering key 的 `canonical_source_order` 欄位。
-- [ ] 3.1.9 定義 fact ordering key 的 `local_ordinal` 欄位。
-- [ ] 3.1.10 定義 fact ordering key 的 `fact_kind` 欄位。
-- [ ] 3.1.11 實作 merged fact buffer 的 stable sort。
-- [ ] 3.1.12 實作 exact duplicate fact 的 deterministic dedupe。
-- [ ] 3.1.13 實作 malformed ordering key 的 fail-closed rejection。
-- [ ] 3.1.14 將 ordered `Outcome` 輸入既有 runtime event bridge。
-- [ ] 3.1.15 將 ordered `ObservableFact` 輸入新的 team projection bridge。
+- [x] 3.1.1 在 shared runtime 定義 `ObservableFact` enum shell。
+- [x] 3.1.2 實作 Specs-safe sharded/thread-local output buffers。
+- [x] 3.1.3 實作 sharded fact buffer 的 deterministic merge。
+- [x] 3.1.4 從既有 runtime event bridge 移除 unordered direct emit path。
+- [x] 3.1.5 為每個 `ObservableFact` variant 定義 safe metadata payload。
+- [x] 3.1.6 定義 fact ordering key 的 `tick` 欄位。
+- [x] 3.1.7 定義 fact ordering key 的 `phase` 欄位。
+- [x] 3.1.8 定義 fact ordering key 的 `canonical_source_order` 欄位。
+- [x] 3.1.9 定義 fact ordering key 的 `local_ordinal` 欄位。
+- [x] 3.1.10 定義 fact ordering key 的 `fact_kind` 欄位。
+- [x] 3.1.11 實作 merged fact buffer 的 stable sort。
+- [x] 3.1.12 實作 exact duplicate fact 的 deterministic dedupe。
+- [x] 3.1.13 實作 malformed ordering key 的 fail-closed rejection。
+- [x] 3.1.14 將 ordered `Outcome` 輸入既有 runtime event bridge。
+- [x] 3.1.15 將 ordered `ObservableFact` 輸入新的 team projection bridge。
 
 ### 3.2 遷移 gameplay 與 script projection policy
 
