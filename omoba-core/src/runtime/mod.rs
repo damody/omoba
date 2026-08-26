@@ -6,10 +6,14 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod selective;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
 pub use native::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use selective::*;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {

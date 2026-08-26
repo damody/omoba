@@ -172,26 +172,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-IDENTITY-ISOLATION`、`G-FILTERED-SNAPSHOT`。
 **完成門檻：** 每隊 mapping 獨立、ID 不重用、stale epoch 可拒絕；snapshot 只含 classified safe state。
 
-- [ ] 2.2.1 在 `omoba-core/src/runtime/` 新增 monotonic non-reused `ReplicaEntityId` allocator。
-- [ ] 2.2.2 在 team identity state 實作 disclosure epoch increment。
-- [ ] 2.2.3 建立 filtered snapshot builder 的輸入與輸出 shell。
-- [ ] 2.2.4 實作 snapshot ID allocator。
-- [ ] 2.2.5 實作 filtered snapshot schema-version compatibility guard。
-- [ ] 2.2.6 實作每個 team 獨立的 canonical-to-replica mapping。
-- [ ] 2.2.7 實作每個 team 獨立的 replica-to-canonical server lookup。
-- [ ] 2.2.8 實作 replica ID retire set，阻止同 match 內重用。
-- [ ] 2.2.9 實作 remembered interval 的 replica ID retention。
-- [ ] 2.2.10 實作 authoritative forget 的 replica ID retirement。
-- [ ] 2.2.11 實作 stale disclosure epoch lookup rejection。
-- [ ] 2.2.12 將 filtered snapshot builder 的 component 來源限制為 classification allowlist。
-- [ ] 2.2.13 將 filtered snapshot builder 的 entity 來源限制為 resolved team view。
-- [ ] 2.2.14 實作 snapshot chunk encoder。
-- [ ] 2.2.15 實作單一 chunk hash 計算。
-- [ ] 2.2.16 實作 snapshot manifest encoder。
-- [ ] 2.2.17 實作 manifest hash 驗證。
-- [ ] 2.2.18 實作 incomplete snapshot staging area discard。
-- [ ] 2.2.19 將 V2 filtered snapshot type 與 global `SnapshotStore` type 分離。
-- [ ] 2.2.20 在 V2 player encoder 拒絕 global `SnapshotStore` type。
+- [x] 2.2.1 在 `omoba-core/src/runtime/` 新增 monotonic non-reused `ReplicaEntityId` allocator。
+- [x] 2.2.2 在 team identity state 實作 disclosure epoch increment。
+- [x] 2.2.3 建立 filtered snapshot builder 的輸入與輸出 shell。
+- [x] 2.2.4 實作 snapshot ID allocator。
+- [x] 2.2.5 實作 filtered snapshot schema-version compatibility guard。
+- [x] 2.2.6 實作每個 team 獨立的 canonical-to-replica mapping。
+- [x] 2.2.7 實作每個 team 獨立的 replica-to-canonical server lookup。
+- [x] 2.2.8 實作 replica ID retire set，阻止同 match 內重用。
+- [x] 2.2.9 實作 remembered interval 的 replica ID retention。
+- [x] 2.2.10 實作 authoritative forget 的 replica ID retirement。
+- [x] 2.2.11 實作 stale disclosure epoch lookup rejection。
+- [x] 2.2.12 將 filtered snapshot builder 的 component 來源限制為 classification allowlist。
+- [x] 2.2.13 將 filtered snapshot builder 的 entity 來源限制為 resolved team view。
+- [x] 2.2.14 實作 snapshot chunk encoder。
+- [x] 2.2.15 實作單一 chunk hash 計算。
+- [x] 2.2.16 實作 snapshot manifest encoder。
+- [x] 2.2.17 實作 manifest hash 驗證。
+- [x] 2.2.18 實作 incomplete snapshot staging area discard。
+- [x] 2.2.19 將 V2 filtered snapshot type 與 global `SnapshotStore` type 分離。
+- [x] 2.2.20 在 V2 player encoder 拒絕 global `SnapshotStore` type。
 
 ### 2.3 實作 `SelectiveReplicaRuntime`
 
