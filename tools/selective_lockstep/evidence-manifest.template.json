@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "phase": 6,
+  "acceptance_status": "not-run",
+  "phase_1_to_5_smoke_is_acceptance": false,
+  "frozen_binary_hashes": {},
+  "frozen_config_hash": null,
+  "groups": [],
+  "blocking_gates": [],
+  "raw_evidence": []
+}

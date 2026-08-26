@@ -107,22 +107,22 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-BASELINE-RECORDED`；raw logs/hash index。
 **完成門檻：** 現況 CPU/memory/bandwidth 有可重現 baseline；final harness 有明確 entrypoint 與 fixture schema，但未被誤標為 acceptance pass。
 
-- [ ] 1.3.1 以既有 `run_10000.bat` 執行一次未改造的 10,000 entity baseline run。
-- [ ] 1.3.2 建立 non-interference paired-world fixture schema。
-- [ ] 1.3.3 在 `tools/selective_lockstep/` 建立 packet capture scan 入口。
-- [ ] 1.3.4 建立 final-verification evidence manifest template。
+- [ ] 1.3.1 以 `TD_STRESS` 與 frozen 10,000-entity headless fixture 執行一次未改造 baseline run（A-20260826-001：`run_10000.bat` 現況只設定 10,000 gold，不能作為 entity-count evidence）。
+- [x] 1.3.2 建立 non-interference paired-world fixture schema。
+- [x] 1.3.3 在 `tools/selective_lockstep/` 建立 packet capture scan 入口。
+- [x] 1.3.4 建立 final-verification evidence manifest template。
 - [ ] 1.3.5 將 1.3.1 的 exact command 與 config 寫入 baseline metadata。
 - [ ] 1.3.6 將 1.3.1 的 raw log 路徑與 content hash 寫入 baseline metadata。
 - [ ] 1.3.7 將 baseline machine profile 寫入 baseline metadata。
 - [ ] 1.3.8 從 baseline raw log 擷取 CPU 指標。
 - [ ] 1.3.9 從 baseline raw log 擷取 memory 指標。
 - [ ] 1.3.10 從 baseline raw log 擷取 per-player bandwidth 指標。
-- [ ] 1.3.11 在 `tools/selective_lockstep/` 建立 paired-world fixture generator 入口。
-- [ ] 1.3.12 在 `tools/selective_lockstep/` 建立 redaction scan 入口。
-- [ ] 1.3.13 在 `tools/selective_lockstep/` 建立 network fault injection 入口。
-- [ ] 1.3.14 在 `tools/selective_lockstep/` 建立 observer slowdown 入口。
-- [ ] 1.3.15 在 `tools/selective_lockstep/` 建立 stress report 入口。
-- [ ] 1.3.16 在 manifest template 標示 Phase 1–5 smoke evidence 不可滿足 acceptance gate。
+- [x] 1.3.11 在 `tools/selective_lockstep/` 建立 paired-world fixture generator 入口。
+- [x] 1.3.12 在 `tools/selective_lockstep/` 建立 redaction scan 入口。
+- [x] 1.3.13 在 `tools/selective_lockstep/` 建立 network fault injection 入口。
+- [x] 1.3.14 在 `tools/selective_lockstep/` 建立 observer slowdown 入口。
+- [x] 1.3.15 在 `tools/selective_lockstep/` 建立 stress report 入口。
+- [x] 1.3.16 在 manifest template 標示 Phase 1–5 smoke evidence 不可滿足 acceptance gate。
 
 ## 2. Protocol V2 與 shared selective replica foundation
 

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "omoba://selective-lockstep/non-interference-fixture-v1",
+  "title": "Selective lockstep paired-world fixture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "seed", "ticks", "team_under_test", "shared", "world_a", "world_b"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "seed": { "type": "integer", "minimum": 0 },
+    "ticks": { "type": "integer", "minimum": 1 },
+    "team_under_test": { "type": "integer", "minimum": 1 },
+    "shared": { "$ref": "#/$defs/worldFragment" },
+    "world_a": { "$ref": "#/$defs/worldFragment" },
+    "world_b": { "$ref": "#/$defs/worldFragment" }
+  },
+  "$defs": {
+    "worldFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entities", "inputs"],
+      "properties": {
+        "entities": { "type": "array", "items": { "type": "object" } },
+        "inputs": { "type": "array", "items": { "type": "object" } }
+      }
+    }
+  }
+}
