@@ -203,30 +203,30 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-SHARED-REPLICA-RUNTIME`。
 **完成門檻：** Runtime 可從 filtered snapshot bootstrap，依 phase 推進、停在 gap barrier、套用 authority revision 並輸出 filtered render snapshot/hash。
 
-- [ ] 2.3.1 在 `SelectiveReplicaRuntime` 實作 `RevealEntity` application。
-- [ ] 2.3.2 在 `SelectiveReplicaRuntime` 實作 accepted input injection。
-- [ ] 2.3.3 在 `SelectiveReplicaRuntime` 執行一個 disclosed-world fixed tick。
-- [ ] 2.3.4 在 `SelectiveReplicaRuntime` 實作 `ComponentRepair` application。
-- [ ] 2.3.5 實作 expected `team_sequence` barrier。
-- [ ] 2.3.6 實作 canonical team hash。
-- [ ] 2.3.7 在 `SelectiveReplicaRuntime` 實作 `HideEntity` application。
-- [ ] 2.3.8 在 `SelectiveReplicaRuntime` 實作 `ForgetEntity` application。
-- [ ] 2.3.9 為 transition application 實作 revision-based idempotence guard。
-- [ ] 2.3.10 在 `SelectiveReplicaRuntime` 實作 public event injection。
-- [ ] 2.3.11 在 `SelectiveReplicaRuntime` 實作 sanitized external effect injection。
-- [ ] 2.3.12 在 `SelectiveReplicaRuntime` 實作 bounded random tape injection。
-- [ ] 2.3.13 將 fixed tick 的 component/resource access 限制為 disclosed-world allowlist。
-- [ ] 2.3.14 將 remembered presentation cache 排除於 runtime resource set。
-- [ ] 2.3.15 在 `SelectiveReplicaRuntime` 實作 `EntityReplace` application。
-- [ ] 2.3.16 在 `SelectiveReplicaRuntime` 實作 complete `TeamViewRebase` swap。
-- [ ] 2.3.17 在所有 `PostStep` correction 套用 monotonic authority revision check。
-- [ ] 2.3.18 在 revision conflict 時實作 server-wins overwrite。
-- [ ] 2.3.19 實作 expected replica tick barrier。
-- [ ] 2.3.20 實作 missing frame 的 deterministic stall state。
-- [ ] 2.3.21 實作 replay frame 抵達後的 resume transition。
-- [ ] 2.3.22 實作 verified rebase swap 後的 resume transition。
-- [ ] 2.3.23 實作 filtered render snapshot extraction。
-- [ ] 2.3.24 將 remembered presentation 排除於 canonical team hash。
+- [x] 2.3.1 在 `SelectiveReplicaRuntime` 實作 `RevealEntity` application。
+- [x] 2.3.2 在 `SelectiveReplicaRuntime` 實作 accepted input injection。
+- [x] 2.3.3 在 `SelectiveReplicaRuntime` 執行一個 disclosed-world fixed tick。
+- [x] 2.3.4 在 `SelectiveReplicaRuntime` 實作 `ComponentRepair` application。
+- [x] 2.3.5 實作 expected `team_sequence` barrier。
+- [x] 2.3.6 實作 canonical team hash。
+- [x] 2.3.7 在 `SelectiveReplicaRuntime` 實作 `HideEntity` application。
+- [x] 2.3.8 在 `SelectiveReplicaRuntime` 實作 `ForgetEntity` application。
+- [x] 2.3.9 為 transition application 實作 revision-based idempotence guard。
+- [x] 2.3.10 在 `SelectiveReplicaRuntime` 實作 public event injection。
+- [x] 2.3.11 在 `SelectiveReplicaRuntime` 實作 sanitized external effect injection。
+- [x] 2.3.12 在 `SelectiveReplicaRuntime` 實作 bounded random tape injection。
+- [x] 2.3.13 將 fixed tick 的 component/resource access 限制為 disclosed-world allowlist。
+- [x] 2.3.14 將 remembered presentation cache 排除於 runtime resource set。
+- [x] 2.3.15 在 `SelectiveReplicaRuntime` 實作 `EntityReplace` application。
+- [x] 2.3.16 在 `SelectiveReplicaRuntime` 實作 complete `TeamViewRebase` swap。
+- [x] 2.3.17 在所有 `PostStep` correction 套用 monotonic authority revision check。
+- [x] 2.3.18 在 revision conflict 時實作 server-wins overwrite。
+- [x] 2.3.19 實作 expected replica tick barrier。
+- [x] 2.3.20 實作 missing frame 的 deterministic stall state。
+- [x] 2.3.21 實作 replay frame 抵達後的 resume transition。
+- [x] 2.3.22 實作 verified rebase swap 後的 resume transition。
+- [x] 2.3.23 實作 filtered render snapshot extraction。
+- [x] 2.3.24 將 remembered presentation 排除於 canonical team hash。
 
 ### 2.4 準備 synthetic fixtures 與最低限度 build
 
