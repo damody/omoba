@@ -107,16 +107,16 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-BASELINE-RECORDED`；raw logs/hash index。
 **完成門檻：** 現況 CPU/memory/bandwidth 有可重現 baseline；final harness 有明確 entrypoint 與 fixture schema，但未被誤標為 acceptance pass。
 
-- [ ] 1.3.1 以 `TD_STRESS` 與 frozen 10,000-entity headless fixture 執行一次未改造 baseline run（A-20260826-001：`run_10000.bat` 現況只設定 10,000 gold，不能作為 entity-count evidence）。
+- [x] 1.3.1 以 `TD_STRESS` 與 frozen 10,000-entity headless fixture 執行一次未改造 baseline run（A-20260826-001：`run_10000.bat` 現況只設定 10,000 gold，不能作為 entity-count evidence）。
 - [x] 1.3.2 建立 non-interference paired-world fixture schema。
 - [x] 1.3.3 在 `tools/selective_lockstep/` 建立 packet capture scan 入口。
 - [x] 1.3.4 建立 final-verification evidence manifest template。
-- [ ] 1.3.5 將 1.3.1 的 exact command 與 config 寫入 baseline metadata。
-- [ ] 1.3.6 將 1.3.1 的 raw log 路徑與 content hash 寫入 baseline metadata。
-- [ ] 1.3.7 將 baseline machine profile 寫入 baseline metadata。
-- [ ] 1.3.8 從 baseline raw log 擷取 CPU 指標。
-- [ ] 1.3.9 從 baseline raw log 擷取 memory 指標。
-- [ ] 1.3.10 從 baseline raw log 擷取 per-player bandwidth 指標。
+- [x] 1.3.5 將 1.3.1 的 exact command 與 config 寫入 baseline metadata。
+- [x] 1.3.6 將 1.3.1 的 raw log 路徑與 content hash 寫入 baseline metadata。
+- [x] 1.3.7 將 baseline machine profile 寫入 baseline metadata。
+- [x] 1.3.8 從 baseline raw log 擷取 CPU 指標。
+- [x] 1.3.9 從 baseline raw log 擷取 memory 指標。
+- [x] 1.3.10 從 baseline raw log 擷取 per-player bandwidth 指標。
 - [x] 1.3.11 在 `tools/selective_lockstep/` 建立 paired-world fixture generator 入口。
 - [x] 1.3.12 在 `tools/selective_lockstep/` 建立 redaction scan 入口。
 - [x] 1.3.13 在 `tools/selective_lockstep/` 建立 network fault injection 入口。
@@ -871,34 +871,34 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-TICK-BUDGET`、`G-FINAL-BANDWIDTH`、`G-FINAL-SOAK`。
 **完成門檻：** p99 tick+commit ≤ 80% period、steady-state <5 KB/s/player、零 authoritative deadline miss、零 unintended rebase、memory stable、observer coverage 完整。
 
-- [ ] 6.6.1 將 frozen stress config 的 entity count 設為 10,000。
-- [ ] 6.6.2 擷取 authoritative tick p50/p95/p99 raw trace。
-- [ ] 6.6.3 擷取 per-player steady-state bandwidth distribution。
-- [ ] 6.6.4 執行 repeated mass reveal/hide memory case。
-- [ ] 6.6.5 執行 30 分鐘 production-config soak。
-- [ ] 6.6.6 將 final authoritative tick 指標與 Phase 1 baseline 比較。
-- [ ] 6.6.7 在 6.6.1 run 啟用 2 teams。
-- [ ] 6.6.8 在 6.6.1 run 啟用每隊 1 個 observer replica。
-- [ ] 6.6.9 在 6.6.1 run 啟用 deterministic visibility churn workload。
-- [ ] 6.6.10 擷取 deterministic commit p50/p95/p99 raw trace。
-- [ ] 6.6.11 擷取 Wave B visibility/project p50/p95/p99 raw trace。
-- [ ] 6.6.12 擷取 team-frame encode p50/p95/p99 raw trace。
-- [ ] 6.6.13 擷取 outbound enqueue p50/p95/p99 raw trace。
-- [ ] 6.6.14 擷取 observer step p50/p95/p99 raw trace。
-- [ ] 6.6.15 判定 authoritative tick+commit p99 是否小於 tick period 80%。
-- [ ] 6.6.16 擷取 reveal burst bandwidth distribution。
-- [ ] 6.6.17 擷取 rebase burst bandwidth distribution。
-- [ ] 6.6.18 判定 steady-state bandwidth 是否低於 5 KB/s/player。
-- [ ] 6.6.19 執行 projectile boundary-churn memory case。
-- [ ] 6.6.20 執行 AOE boundary-churn memory case。
-- [ ] 6.6.21 執行 observer rebootstrap memory case。
-- [ ] 6.6.22 從 soak log 判定 authoritative deadline miss count。
-- [ ] 6.6.23 從 soak log 判定 unintended rebase count。
-- [ ] 6.6.24 從 soak log 判定 disconnect count。
-- [ ] 6.6.25 從 soak log 判定 validation coverage-gap count。
-- [ ] 6.6.26 從 soak trace 計算 process memory slope。
-- [ ] 6.6.27 產生含 raw evidence hash 的 immutable performance verdict。
-- [ ] 6.6.28 以 6.6.1、6.6.7–6.6.9 的 frozen config 啟動 production-cadence stress run。
+- [x] 6.6.1 將 frozen stress config 的 entity count 設為 10,000。
+- [x] 6.6.2 擷取 authoritative tick p50/p95/p99 raw trace。
+- [x] 6.6.3 擷取 per-player steady-state bandwidth distribution。
+- [x] 6.6.4 執行 repeated mass reveal/hide memory case。
+- [x] 6.6.5 執行 30 分鐘 production-config soak。
+- [x] 6.6.6 將 final authoritative tick 指標與 Phase 1 baseline 比較。
+- [x] 6.6.7 在 6.6.1 run 啟用 2 teams。
+- [x] 6.6.8 在 6.6.1 run 啟用每隊 1 個 observer replica。
+- [x] 6.6.9 在 6.6.1 run 啟用 deterministic visibility churn workload。
+- [x] 6.6.10 擷取 deterministic commit p50/p95/p99 raw trace。
+- [x] 6.6.11 擷取 Wave B visibility/project p50/p95/p99 raw trace。
+- [x] 6.6.12 擷取 team-frame encode p50/p95/p99 raw trace。
+- [x] 6.6.13 擷取 outbound enqueue p50/p95/p99 raw trace。
+- [x] 6.6.14 擷取 observer step p50/p95/p99 raw trace。
+- [x] 6.6.15 判定 authoritative tick+commit p99 是否小於 tick period 80%。
+- [x] 6.6.16 擷取 reveal burst bandwidth distribution。
+- [x] 6.6.17 擷取 rebase burst bandwidth distribution。
+- [x] 6.6.18 判定 steady-state bandwidth 是否低於 5 KB/s/player。
+- [x] 6.6.19 執行 projectile boundary-churn memory case。
+- [x] 6.6.20 執行 AOE boundary-churn memory case。
+- [x] 6.6.21 執行 observer rebootstrap memory case。
+- [x] 6.6.22 從 soak log 判定 authoritative deadline miss count。
+- [x] 6.6.23 從 soak log 判定 unintended rebase count。
+- [x] 6.6.24 從 soak log 判定 disconnect count。
+- [x] 6.6.25 從 soak log 判定 validation coverage-gap count。
+- [x] 6.6.26 從 soak trace 計算 process memory slope。
+- [x] 6.6.27 產生含 raw evidence hash 的 immutable performance verdict。
+- [x] 6.6.28 以 6.6.1、6.6.7–6.6.9 的 frozen config 啟動 production-cadence stress run。
 
 ### 6.7 收斂 failure、更新 evidence lineage 與重跑受影響 group
 

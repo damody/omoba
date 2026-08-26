@@ -1,0 +1,11 @@
+{
+  "adjustment_id":"A-20260826-001",
+  "fixture":"TD_STRESS explicit 10,000 deterministic entity headless baseline",
+  "command":"cargo run --release --manifest-path omoba-core/Cargo.toml --example phase1_baseline",
+  "exit":0,
+  "raw_artifact":"omoba-core/examples/phase1_baseline.rs",
+  "raw_artifact_sha256":"3b73ff7284f10fc5d6da88ca88e22811374caa24dce69c39958056ff4667781d",
+  "config":{"entities":10000,"ticks":1200,"tick_hz":120,"legacy_protocol":"TickBatch"},
+  "machine":{"os":"Windows x86_64","cpu":"AMD Ryzen 9 9950X3D 16-Core Processor","cores":16,"logical_processors":32,"memory_bytes":134874873856,"rustc":"1.95.0 (59807616e 2026-04-14)","llvm":"22.1.2"},
+  "metrics":{"cpu_tick_p50_us":3,"cpu_tick_p95_us":3,"cpu_tick_p99_us":3,"deterministic_entity_bytes":160000,"legacy_wire_bytes":7,"legacy_bytes_per_player_second":840.0}
+}

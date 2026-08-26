@@ -43,7 +43,7 @@ pub const COMPRESSION_FLAG: u8 = 0x80;
 
 /// 嘗試壓縮之前的最小有效負載大小。下面這個，LZ4
 /// 幀開銷在所有節省中占主導地位，因此我們跳過。
-pub const LZ4_THRESHOLD: usize = 128;
+pub const LZ4_THRESHOLD: usize = 64;
 
 /// 嘗試壓縮線路的有效負載。回傳 `Some((out_tag, Vec<u8>))`
 /// 當壓縮位元組時，與壓縮標誌或“base_tag”

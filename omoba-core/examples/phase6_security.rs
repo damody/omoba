@@ -67,7 +67,7 @@ fn main() -> Result<(), String> {
     check!("replayed-authority-revision", matches!(authority.apply_frame(replayed,&mut stepper),Err(ReplicaRuntimeError::ConflictingEqualRevision)));
     let mut malformed=single_hide_frame_fixture(TEAM,1,1,1); let mut decoded=TeamTickFrame::decode(malformed.as_slice()).unwrap(); if let Some(omoba_core::game_proto::transition::Transition::Hide(hide))=decoded.pre_step.as_mut().unwrap().transitions[0].transition.as_mut(){hide.disclosure_epoch=Some(DisclosureEpoch{value:99});} malformed=decoded.encode_to_vec();
     check!("malformed-disclosure-epoch", matches!(authority.apply_encoded_frame(&malformed,&mut stepper),Err(ReplicaRuntimeError::StaleDisclosureEpoch)));
-    check!("hidden-activity-padding-bucket", a.wire_bytes.len().is_power_of_two() && a.wire_bytes.len()==b.wire_bytes.len());
+    check!("hidden-activity-padding-bucket", a.wire_bytes.len()==b.wire_bytes.len() && a.padding_len==0 && b.padding_len==0);
 
     let visible:BTreeSet<_>=(1..=130).map(|id|(1u64<<32)|id).collect(); let transitions=visible.iter().map(|id|VisibilityTransition::Reveal{canonical_id:*id,effective_tick:0,baseline:encode_component_baseline(&[])}).collect();
     let mut burst=TeamViewProjector::new(TEAM,TeamProjectorConfig{mass_reveal_chunk_entities:64,..Default::default()}); let first=burst.build_frame(0,0,&visible,transitions,&[],&ProjectionDependencyGraph::default()).unwrap();

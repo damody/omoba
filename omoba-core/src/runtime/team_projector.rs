@@ -84,6 +84,7 @@ pub struct TeamProjectorConfig {
     pub size_buckets: Vec<usize>,
     pub mass_reveal_chunk_entities: usize,
     pub rebase_chunks_per_tick: usize,
+    pub hash_checkpoint_interval_ticks: u64,
 }
 
 impl Default for TeamProjectorConfig {
@@ -93,6 +94,7 @@ impl Default for TeamProjectorConfig {
             size_buckets: vec![256, 512, 1024, 2048, 4096, 8192, 16384],
             mass_reveal_chunk_entities: 64,
             rebase_chunks_per_tick: 2,
+            hash_checkpoint_interval_ticks: 120,
         }
     }
 }
@@ -411,13 +413,13 @@ impl TeamViewProjector {
         graph: &ProjectionDependencyGraph,
     ) -> Result<PaddedTeamFrame, ProjectionError> {
         self.pending_reveals.extend(transitions);
-        let pre_step = self.build_pre_step(visible, graph)?;
+        let pre_step = self.build_pre_step(replica_tick, visible, graph)?;
         let step = self.build_step(visible, facts);
         let hash = expected_team_hash(self.team_id, replica_tick.saturating_add(1), &self.hash_entities);
         let post_step = PostStep {
             component_repairs: self.pending_component_repairs.drain(..).collect(),
             entity_replaces: self.pending_entity_replaces.drain(..).collect(),
-            hash_checkpoint: Some(TeamHashCheckpoint {
+            hash_checkpoint: (replica_tick % self.config.hash_checkpoint_interval_ticks.max(1) == 0).then_some(TeamHashCheckpoint {
                 replica_tick,
                 canonical_team_hash: hash.to_vec(),
                 authority_revision: Some(AuthorityRevision { value: self.authority_revision }),
@@ -446,6 +448,7 @@ impl TeamViewProjector {
 
     fn build_pre_step(
         &mut self,
+        replica_tick: u64,
         visible: &BTreeSet<u64>,
         graph: &ProjectionDependencyGraph,
     ) -> Result<PreStep, ProjectionError> {
@@ -460,6 +463,7 @@ impl TeamViewProjector {
             }
             match item {
                 VisibilityTransition::Reveal { canonical_id, effective_tick, baseline } => {
+                    let effective_tick = effective_tick.max(replica_tick);
                     let key = unpack_canonical(canonical_id);
                     let mapping = self.identity.disclose(key)?;
                     let dependencies = disclosed_dependency_closure(canonical_id, visible, graph)?
@@ -483,6 +487,7 @@ impl TeamViewProjector {
                     reveal_count += 1;
                 }
                 VisibilityTransition::Hide { canonical_id, effective_tick, disposition } => {
+                    let effective_tick = effective_tick.max(replica_tick);
                     let key = unpack_canonical(canonical_id);
                     let mapping = self.identity.replica_for(key).ok_or(TeamIdentityError::UnknownCanonical)?;
                     let transition = match disposition {
@@ -658,6 +663,24 @@ fn decode_safe_components_for_hash(bytes: &[u8]) -> BTreeMap<u32, Vec<u8>> {
 fn pad_frame(mut frame: TeamTickFrame, buckets: &[usize]) -> Result<PaddedTeamFrame, ProjectionError> {
     if buckets.is_empty() { return Err(ProjectionError::EmptyPaddingBuckets); }
     let canonical_bytes = frame.encode_to_vec();
+    let steady_empty = frame.pre_step.as_ref().is_none_or(|pre| pre.transitions.is_empty())
+        && frame.step.as_ref().is_none_or(|step| step.accepted_inputs.is_empty()
+            && step.public_events.is_empty() && step.random_tapes.is_empty()
+            && step.external_effects.is_empty())
+        && frame.post_step.as_ref().is_none_or(|post| post.component_repairs.is_empty()
+            && post.entity_replaces.is_empty() && post.hash_checkpoint.is_none()
+            && post.rebase_notice.is_none());
+    // Hidden-only activity has already been filtered before this point, so an
+    // empty heartbeat has one canonical shape and carries no activity oracle.
+    // Avoiding padding here keeps 120 Hz steady-state traffic within budget.
+    if steady_empty {
+        return Ok(PaddedTeamFrame {
+            frame,
+            canonical_bytes: canonical_bytes.clone(),
+            wire_bytes: canonical_bytes,
+            padding_len: 0,
+        });
+    }
     for bucket in buckets.iter().copied().filter(|size| *size >= canonical_bytes.len()) {
         let mut low = 0usize;
         let mut high = bucket - canonical_bytes.len();

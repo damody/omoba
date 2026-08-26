@@ -18,6 +18,7 @@ fn config() -> TeamProjectorConfig {
         size_buckets: vec![512, 1024, 2048],
         mass_reveal_chunk_entities: 64,
         rebase_chunks_per_tick: 2,
+        hash_checkpoint_interval_ticks: 1,
     }
 }
 

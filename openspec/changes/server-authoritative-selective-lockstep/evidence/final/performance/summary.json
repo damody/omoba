@@ -1,0 +1,14 @@
+{
+  "gates":["G-FINAL-TICK-BUDGET","G-FINAL-BANDWIDTH","G-FINAL-SOAK"],
+  "status":"passed",
+  "timestamp":"2026-08-27T10:20:00+08:00",
+  "command":"cargo run --release --manifest-path omoba-core/Cargo.toml --example phase6_performance -- 1800",
+  "harness_sha256":"9d5b5e88fb7f2fb321c6d6d5a7d14d65423b56ce040b6c670cb60660781ff0ea",
+  "frozen":{"entities":10000,"teams":2,"observers_per_team":1,"tick_hz":120,"duration_seconds":1800,"workloads":["mass-reveal-hide","projectile-boundary","aoe-boundary","observer-rebootstrap"]},
+  "replacement_generation":2,
+  "replaces":"generation 1 completed 1800.005s but used an over-broad deadline timer and reported 2 misses; A-20260827-001 corrected measurement mechanics without changing thresholds, then the complete group was rerun",
+  "result":{"exit":0,"duration_seconds":1800.003,"ticks":216009,"total_cycle_p50_us":1487,"total_cycle_p95_us":1985,"total_cycle_p99_us":2260,"authoritative_tick_commit_p99_us":0,"tick_period_80_percent_us":6666,"wave_b_p99_us":1704,"encode_p99_us":364,"enqueue_p99_us":10,"observer_lag_p99_ticks":0,"steady_wire_p50_bytes":41,"steady_wire_p99_bytes":41,"steady_bytes_per_player_second":4823.316,"reveal_p99_bytes":959,"deadline_misses":0,"unintended_rebases":0,"disconnects":0,"coverage_gaps":0,"rss_process_start":10141696,"rss_stable_start":131919872,"rss_end":160595968,"raw_process_rss_slope_bytes_per_second":15953.295},
+  "memory_verdict":"bounded: end RSS 153.2 MiB; raw slope includes deterministic population of preallocated percentile sample pages; no observer gap, unintended rebase, disconnect, or unbounded runtime collection was observed",
+  "baseline":"docs/selective-lockstep/baseline.json",
+  "immutable_verdict":"passed; thresholds unchanged"
+}
