@@ -1,0 +1,22 @@
+{
+  "gates":["G-FINAL-PARITY","G-FINAL-NONINTERFERENCE"],
+  "status":"passed",
+  "timestamp":"2026-08-27T08:25:00+08:00",
+  "harness":"omoba-core/examples/phase6_differential.rs",
+  "harness_sha256":"698e4cf19a21bf82366c8ff8934a283bdd1d27c696c54f9806f21cec474f40dc",
+  "windows":{"rustc":"1.95.0 (59807616e 2026-04-14)","host":"x86_64-pc-windows-msvc","llvm":"22.1.2","exit":0},
+  "linux":{"distribution":"Ubuntu-24.04 on WSL2","rustc":"1.95.0 (59807616e 2026-04-14)","host":"x86_64-unknown-linux-gnu","llvm":"22.1.2","exit":0},
+  "hashes":{
+    "checkpoint":"4a275a93b908db5d7c7ffe5312bedc791a2c68fb5be1a5c452ad737c42ba8297",
+    "initial_frame":"7ab65703523d406ece550073fa34f29b4700b25f9f96088d4327a136da27de63",
+    "hidden_movement":"1303bc711699ba76f2783c3be62ccf386de7d2dc95e6c83a1a7b8a3c6fae9d67",
+    "hidden_component":"1303bc711699ba76f2783c3be62ccf386de7d2dc95e6c83a1a7b8a3c6fae9d67",
+    "hidden_rng":"1303bc711699ba76f2783c3be62ccf386de7d2dc95e6c83a1a7b8a3c6fae9d67",
+    "hidden_death":"1303bc711699ba76f2783c3be62ccf386de7d2dc95e6c83a1a7b8a3c6fae9d67",
+    "completion_permutation":"46b765dbd983a1c081d369ba232f233bd72d5d4188d0de2cf5ab7dad5bf09a16"
+  },
+  "parity":"authoritative checkpoint equals server observer and synthetic/client SelectiveReplicaRuntime; omfx phase5 smoke independently stepped the same shared runtime and render bridge",
+  "cross_platform":"all emitted checkpoint/frame hashes identical on Windows and Linux",
+  "failure_lineage":"Linux generation 1 lacked cc; build-essential installed. Generation 2 used an accidentally truncated PATH; generation 3 used an explicit standard PATH and passed. Only generation 3 is terminal evidence.",
+  "public_causal_boundary":"paired hidden-only changes produced identical encoded bytes; no public causal effect was introduced in these fixtures"
+}

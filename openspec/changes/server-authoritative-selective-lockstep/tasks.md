@@ -730,21 +730,21 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-PARITY`、`G-FINAL-NONINTERFERENCE`。
 **完成門檻：** 三方 hash parity 全通過；Windows/Linux pins 相同；所有 hidden-only paired frames byte-identical 到 public causal effect。
 
-- [ ] 6.2.1 執行 authoritative projector 對 server observer 的 checkpoint hash differential suite。
-- [ ] 6.2.2 在 Windows Rust 1.95.0 執行 pinned determinism suite。
-- [ ] 6.2.3 在 Linux Rust 1.95.0 執行相同 pinned determinism suite。
-- [ ] 6.2.4 執行 hidden movement paired-world non-interference case。
-- [ ] 6.2.5 執行 parallel completion-order permutation suite，確認 canonical encoded bytes 不變。
-- [ ] 6.2.6 執行 authoritative projector 對 synthetic replica 的 checkpoint hash differential suite。
-- [ ] 6.2.7 執行 authoritative projector 對 omfx replica 的 checkpoint hash differential suite。
-- [ ] 6.2.8 保存 6.2.2 的 exact Windows toolchain 與 platform metadata。
-- [ ] 6.2.9 保存 6.2.3 的 exact Linux toolchain 與 platform metadata。
-- [ ] 6.2.10 比較 Windows 與 Linux checkpoint hashes。
-- [ ] 6.2.11 執行 hidden component state paired-world non-interference case。
-- [ ] 6.2.12 執行 hidden RNG paired-world non-interference case。
-- [ ] 6.2.13 執行 hidden death paired-world non-interference case。
-- [ ] 6.2.14 為每個 paired-world case 保存 encoded frame byte hash。
-- [ ] 6.2.15 確認 non-interference case 在 public causal effect 前 byte-identical。
+- [x] 6.2.1 執行 authoritative projector 對 server observer 的 checkpoint hash differential suite。
+- [x] 6.2.2 在 Windows Rust 1.95.0 執行 pinned determinism suite。
+- [x] 6.2.3 在 Linux Rust 1.95.0 執行相同 pinned determinism suite。
+- [x] 6.2.4 執行 hidden movement paired-world non-interference case。
+- [x] 6.2.5 執行 parallel completion-order permutation suite，確認 canonical encoded bytes 不變。
+- [x] 6.2.6 執行 authoritative projector 對 synthetic replica 的 checkpoint hash differential suite。
+- [x] 6.2.7 執行 authoritative projector 對 omfx replica 的 checkpoint hash differential suite。
+- [x] 6.2.8 保存 6.2.2 的 exact Windows toolchain 與 platform metadata。
+- [x] 6.2.9 保存 6.2.3 的 exact Linux toolchain 與 platform metadata。
+- [x] 6.2.10 比較 Windows 與 Linux checkpoint hashes。
+- [x] 6.2.11 執行 hidden component state paired-world non-interference case。
+- [x] 6.2.12 執行 hidden RNG paired-world non-interference case。
+- [x] 6.2.13 執行 hidden death paired-world non-interference case。
+- [x] 6.2.14 為每個 paired-world case 保存 encoded frame byte hash。
+- [x] 6.2.15 確認 non-interference case 在 public causal effect 前 byte-identical。
 
 ### 6.3 執行 visibility boundary 與 gameplay integration matrix
 
