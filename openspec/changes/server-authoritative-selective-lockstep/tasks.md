@@ -474,26 +474,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-AUTHORITY-RECOVERY`。
 **完成門檻：** First divergence 可定位；repair/rebase 在 later frame 發出；無法恢復時 secure match fail closed。
 
-- [ ] 4.3.1 定義 observer mismatch control message。
-- [ ] 4.3.2 實作 component-level repair selection。
-- [ ] 4.3.3 實作 entity replace selection。
-- [ ] 4.3.4 實作 player rejoin 的 filtered snapshot routing。
-- [ ] 4.3.5 實作持續 recovery failure 的 secure match safe termination。
-- [ ] 4.3.6 定義 client hash mismatch control message。
-- [ ] 4.3.7 定義 safe first-divergence record schema。
-- [ ] 4.3.8 在 first-divergence record 寫入 team 與 frame sequence。
-- [ ] 4.3.9 在 first-divergence record 寫入 safe component path。
-- [ ] 4.3.10 實作 monotonic authority revision allocation。
-- [ ] 4.3.11 將 `ComponentRepair` 排入後續 `PostStep` frame。
-- [ ] 4.3.12 將 `EntityReplace` 排入後續 `PostStep` frame。
-- [ ] 4.3.13 實作 full filtered `TeamViewRebase` selection threshold。
-- [ ] 4.3.14 將 selected `TeamViewRebase` 排入後續 authority stream。
-- [ ] 4.3.15 實作 observer coverage-gap rebootstrap request handler。
-- [ ] 4.3.16 實作 interrupted rebase 的 staging discard。
-- [ ] 4.3.17 實作 rebase manifest 驗證失敗的 retry disposition。
-- [ ] 4.3.18 在 retry 上限耗盡時進入 safe termination path。
-- [ ] 4.3.19 在 safe termination diagnostic 中套用 team redaction。
-- [ ] 4.3.20 在 safe termination path 禁止 global protocol fallback。
+- [x] 4.3.1 定義 observer mismatch control message。
+- [x] 4.3.2 實作 component-level repair selection。
+- [x] 4.3.3 實作 entity replace selection。
+- [x] 4.3.4 實作 player rejoin 的 filtered snapshot routing。
+- [x] 4.3.5 實作持續 recovery failure 的 secure match safe termination。
+- [x] 4.3.6 定義 client hash mismatch control message。
+- [x] 4.3.7 定義 safe first-divergence record schema。
+- [x] 4.3.8 在 first-divergence record 寫入 team 與 frame sequence。
+- [x] 4.3.9 在 first-divergence record 寫入 safe component path。
+- [x] 4.3.10 實作 monotonic authority revision allocation。
+- [x] 4.3.11 將 `ComponentRepair` 排入後續 `PostStep` frame。
+- [x] 4.3.12 將 `EntityReplace` 排入後續 `PostStep` frame。
+- [x] 4.3.13 實作 full filtered `TeamViewRebase` selection threshold。
+- [x] 4.3.14 將 selected `TeamViewRebase` 排入後續 authority stream。
+- [x] 4.3.15 實作 observer coverage-gap rebootstrap request handler。
+- [x] 4.3.16 實作 interrupted rebase 的 staging discard。
+- [x] 4.3.17 實作 rebase manifest 驗證失敗的 retry disposition。
+- [x] 4.3.18 在 retry 上限耗盡時進入 safe termination path。
+- [x] 4.3.19 在 safe termination diagnostic 中套用 team redaction。
+- [x] 4.3.20 在 safe termination path 禁止 global protocol fallback。
 
 ### 4.4 實作 anti-probing、redaction 與 observability
 

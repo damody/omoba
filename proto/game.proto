@@ -824,6 +824,21 @@ message TeamReplayRequest {
   ViewEpoch view_epoch = 3;
 }
 
+message ClientTeamHashMismatch {
+  uint32 team_id = 1;
+  uint64 frame_sequence = 2;
+  uint64 replica_tick = 3;
+  bytes received_hash = 4;
+  ViewEpoch view_epoch = 5;
+}
+
+message TeamRebaseAck {
+  uint32 team_id = 1;
+  uint64 resume_team_sequence = 2;
+  bool manifest_verified = 3;
+  ViewEpoch view_epoch = 4;
+}
+
 message TeamViewRebaseChunk {
   uint32 protocol_version = 1;
   uint32 snapshot_schema_version = 2;

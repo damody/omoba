@@ -8,14 +8,16 @@ use sha2::{Digest, Sha256};
 use crate::game_proto::{
     transition, AuthorityRevision, DisclosureEpoch, ForgetEntity, HideEntity, PostStep, PreStep,
     ReplicaEntityId as ProtoReplicaEntityId, RevealEntity, SanitizedExternalEffect, Step,
-    TeamHashCheckpoint, TeamPublicEvent, TeamTickFrame, Transition, ViewEpoch,
+    ComponentRepair, EntityReplace, TeamHashCheckpoint, TeamPublicEvent, TeamTickFrame,
+    TeamViewRebaseNotice, Transition, ViewEpoch,
+    FilteredTeamSnapshot, SnapshotId, TeamGameStart, TeamViewRebase, TeamViewRebaseChunk,
 };
 use crate::runtime::{
     CanonicalEntityKey, ClassifiedComponentRecord, DisclosureClass, FactAudience,
     MappingVisibility, ObservableFact, OrderedFact, RememberDisposition, TeamIdentityError,
     TeamIdentityState, VisibilityTransition,
 };
-use specs::{World, WorldExt};
+use specs::{SystemData, World, WorldExt, Write};
 
 pub const TEAM_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const CONTENT_SCHEMA_VERSION: u32 = 1;
@@ -122,6 +124,10 @@ pub struct TeamViewProjector {
     pending_reveals: VecDeque<VisibilityTransition>,
     pending_rebase_chunks: VecDeque<Vec<u8>>,
     hash_entities: BTreeMap<u64, (u64, u32, BTreeMap<u32, Vec<u8>>)>,
+    pending_component_repairs: VecDeque<ComponentRepair>,
+    pending_entity_replaces: VecDeque<EntityReplace>,
+    pending_rebase_notice: Option<TeamViewRebaseNotice>,
+    next_snapshot_ordinal: u64,
 }
 
 #[derive(Default)]
@@ -129,19 +135,73 @@ pub struct TeamProjectionRuntime {
     projectors: BTreeMap<u32, TeamViewProjector>,
     pub latest_frames: BTreeMap<u32, PaddedTeamFrame>,
     pub dependency_graph: ProjectionDependencyGraph,
+    pub pending_filtered_rebases: BTreeMap<u32, (u64, u64)>,
+    pub safe_terminations: Vec<crate::runtime::SafeTerminationDiagnostic>,
+    pub latest_rebases: BTreeMap<u32, RecoveryRebaseBundle>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecoveryRebaseBundle {
+    pub chunks: Vec<TeamViewRebaseChunk>,
+    pub manifest: TeamViewRebase,
+}
+
+impl TeamProjectionRuntime {
+    pub fn apply_recovery_actions(&mut self, coordinator: &mut crate::runtime::AuthorityRepairCoordinator) {
+        let teams: Vec<_> = self.projectors.keys().copied().collect();
+        for team in teams {
+            for action in coordinator.drain_actions(team) {
+                match action {
+                    crate::runtime::RecoveryAction::ComponentRepair(repair) => {
+                        if let Some(projector) = self.projectors.get_mut(&team) { projector.enqueue_component_repair(repair); }
+                    }
+                    crate::runtime::RecoveryAction::EntityReplace(replace) => {
+                        if let Some(projector) = self.projectors.get_mut(&team) { projector.enqueue_entity_replace(replace); }
+                    }
+                    crate::runtime::RecoveryAction::FilteredRebase { resume_sequence, view_epoch, .. } => {
+                        self.pending_filtered_rebases.insert(team, (resume_sequence, view_epoch));
+                    }
+                    crate::runtime::RecoveryAction::SafeTerminate(diagnostic) => self.safe_terminations.push(diagnostic),
+                }
+            }
+        }
+    }
+
+    pub fn build_team_bootstraps(&mut self, server_tick: u64, tick_rate_hz: u32) -> BTreeMap<u32, TeamGameStart> {
+        self.projectors.iter_mut().map(|(team, projector)| {
+            (*team, projector.build_team_game_start(server_tick, tick_rate_hz))
+        }).collect()
+    }
 }
 
 pub fn run_team_projection_after_wave_b(world: &mut World, server_tick: u64) -> Result<(), ProjectionError> {
     let visibility = world.read_resource::<crate::runtime::TeamVisibilityRuntime>().clone();
     let committed = world.read_resource::<crate::runtime::CommittedProjectionBatch>().clone();
     if !committed.barrier_reached { return Ok(()); }
-    let mut runtime = world.write_resource::<TeamProjectionRuntime>();
+    let (mut runtime, mut coordinator) = <(
+        Write<TeamProjectionRuntime>,
+        Write<crate::runtime::AuthorityRepairCoordinator>,
+    )>::fetch(world);
+    runtime.apply_recovery_actions(&mut coordinator);
     let graph = runtime.dependency_graph.clone();
     let mut frames = BTreeMap::new();
+    let pending_rebases = std::mem::take(&mut runtime.pending_filtered_rebases);
+    let mut rebases = BTreeMap::new();
     for (team, state) in &visibility.teams {
         let transitions = visibility.last_transitions.get(team).cloned().unwrap_or_default();
         let projector = runtime.projectors.entry(*team)
             .or_insert_with(|| TeamViewProjector::new(*team, TeamProjectorConfig::default()));
+        if let Some((resume_sequence, view_epoch)) = pending_rebases.get(team) {
+            let bundle = projector.build_filtered_rebase(server_tick, *resume_sequence, *view_epoch)?;
+            projector.enqueue_rebase_notice(crate::runtime::rebase_notice(
+                bundle.manifest.snapshot_id.clone().expect("rebase snapshot id"),
+                bundle.manifest.manifest_hash.clone(),
+                *resume_sequence,
+                *view_epoch,
+                bundle.manifest.authority_revision.as_ref().map_or(0, |revision| revision.value),
+            ));
+            rebases.insert(*team, bundle);
+        }
         let frame = projector.build_frame(
             server_tick,
             committed.tick,
@@ -153,6 +213,7 @@ pub fn run_team_projection_after_wave_b(world: &mut World, server_tick: u64) -> 
         frames.insert(*team, frame);
     }
     runtime.latest_frames = frames;
+    runtime.latest_rebases = rebases;
     Ok(())
 }
 
@@ -168,6 +229,10 @@ impl TeamViewProjector {
             pending_reveals: VecDeque::new(),
             pending_rebase_chunks: VecDeque::new(),
             hash_entities: BTreeMap::new(),
+            pending_component_repairs: VecDeque::new(),
+            pending_entity_replaces: VecDeque::new(),
+            pending_rebase_notice: None,
+            next_snapshot_ordinal: 1,
         }
     }
 
@@ -178,6 +243,110 @@ impl TeamViewProjector {
     pub fn take_rate_limited_rebase_chunks(&mut self) -> Vec<Vec<u8>> {
         (0..self.config.rebase_chunks_per_tick.max(1))
             .filter_map(|_| self.pending_rebase_chunks.pop_front()).collect()
+    }
+
+    pub fn enqueue_component_repair(&mut self, repair: ComponentRepair) {
+        self.pending_component_repairs.push_back(repair);
+    }
+
+    pub fn enqueue_entity_replace(&mut self, replace: EntityReplace) {
+        self.pending_entity_replaces.push_back(replace);
+    }
+
+    pub fn enqueue_rebase_notice(&mut self, notice: TeamViewRebaseNotice) {
+        self.pending_rebase_notice = Some(notice);
+    }
+
+    pub fn build_filtered_rebase(
+        &mut self,
+        authoritative_tick: u64,
+        resume_sequence: u64,
+        view_epoch: u64,
+    ) -> Result<RecoveryRebaseBundle, ProjectionError> {
+        let disclosed_world = self.encode_disclosed_world();
+        let snapshot_id = SnapshotId {
+            snapshot_schema_version: 1,
+            match_instance_id: vec![0; 16],
+            team_id: self.team_id,
+            view_epoch: Some(ViewEpoch { value: view_epoch }),
+            authoritative_tick,
+            monotonic_snapshot_ordinal: self.next_snapshot_ordinal,
+        };
+        self.next_snapshot_ordinal = self.next_snapshot_ordinal.saturating_add(1);
+        let chunks = crate::runtime::encode_snapshot_chunks(&snapshot_id, &disclosed_world, 16 * 1024)
+            .map_err(|_| ProjectionError::FrameTooLarge)?;
+        let manifest = crate::runtime::build_snapshot_manifest(
+            snapshot_id,
+            self.team_id,
+            view_epoch,
+            authoritative_tick,
+            resume_sequence,
+            self.authority_revision,
+            &disclosed_world,
+            &chunks,
+        );
+        Ok(RecoveryRebaseBundle { chunks, manifest })
+    }
+
+
+    pub fn build_team_game_start(&mut self, server_tick: u64, tick_rate_hz: u32) -> TeamGameStart {
+        let disclosed_world = self.encode_disclosed_world();
+        let filtered_snapshot_hash: [u8; 32] = Sha256::digest(&disclosed_world).into();
+        let snapshot_id = SnapshotId {
+            snapshot_schema_version: 1,
+            match_instance_id: vec![0; 16],
+            team_id: self.team_id,
+            view_epoch: Some(ViewEpoch { value: self.view_epoch }),
+            authoritative_tick: server_tick,
+            monotonic_snapshot_ordinal: self.next_snapshot_ordinal,
+        };
+        self.next_snapshot_ordinal = self.next_snapshot_ordinal.saturating_add(1);
+        let snapshot = FilteredTeamSnapshot {
+            snapshot_schema_version: 1,
+            snapshot_id: Some(snapshot_id.clone()),
+            team_id: self.team_id,
+            view_epoch: Some(ViewEpoch { value: self.view_epoch }),
+            authoritative_tick: server_tick,
+            disclosed_world,
+            public_metadata: Vec::new(),
+            team_private_metadata: Vec::new(),
+            filtered_snapshot_hash: filtered_snapshot_hash.to_vec(),
+        };
+        TeamGameStart {
+            protocol_version: 2,
+            snapshot_schema_version: 1,
+            content_schema_version: CONTENT_SCHEMA_VERSION,
+            player_id: 0,
+            team_id: self.team_id,
+            server_tick,
+            replica_start_tick: server_tick,
+            tick_rate_hz,
+            visibility_commit_delay_ticks: 1,
+            replica_buffer_ticks: 2,
+            view_epoch: Some(ViewEpoch { value: self.view_epoch }),
+            next_team_sequence: self.sequence,
+            snapshot_id: Some(snapshot_id),
+            snapshot_manifest_hash: filtered_snapshot_hash.to_vec(),
+            filtered_snapshot: Some(snapshot),
+            public_metadata: Vec::new(),
+            team_private_metadata: Vec::new(),
+        }
+    }
+
+    fn encode_disclosed_world(&self) -> Vec<u8> {
+        let mut disclosed_world = Vec::new();
+        for (replica_id, (epoch, entity_kind, components)) in &self.hash_entities {
+            disclosed_world.extend_from_slice(&replica_id.to_be_bytes());
+            disclosed_world.extend_from_slice(&epoch.to_be_bytes());
+            disclosed_world.extend_from_slice(&entity_kind.to_be_bytes());
+            disclosed_world.extend_from_slice(&(components.len() as u32).to_be_bytes());
+            for (schema_id, bytes) in components {
+                disclosed_world.extend_from_slice(&schema_id.to_be_bytes());
+                disclosed_world.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+                disclosed_world.extend_from_slice(bytes);
+            }
+        }
+        disclosed_world
     }
 
     pub fn build_frame(
@@ -194,14 +363,14 @@ impl TeamViewProjector {
         let step = self.build_step(visible, facts);
         let hash = expected_team_hash(self.team_id, replica_tick.saturating_add(1), &self.hash_entities);
         let post_step = PostStep {
-            component_repairs: Vec::new(),
-            entity_replaces: Vec::new(),
+            component_repairs: self.pending_component_repairs.drain(..).collect(),
+            entity_replaces: self.pending_entity_replaces.drain(..).collect(),
             hash_checkpoint: Some(TeamHashCheckpoint {
                 replica_tick,
                 canonical_team_hash: hash.to_vec(),
                 authority_revision: Some(AuthorityRevision { value: self.authority_revision }),
             }),
-            rebase_notice: None,
+            rebase_notice: self.pending_rebase_notice.take(),
         };
         let frame = TeamTickFrame {
             protocol_version: 2,

@@ -24,6 +24,8 @@ pub mod team_projector;
 pub mod team_stream;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod observer_validation;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod authority_recovery;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
@@ -46,6 +48,8 @@ pub use team_projector::*;
 pub use team_stream::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use observer_validation::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use authority_recovery::*;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {

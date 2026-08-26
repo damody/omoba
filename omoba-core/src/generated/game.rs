@@ -1234,6 +1234,30 @@ pub struct TeamReplayRequest {
     pub view_epoch: ::core::option::Option<ViewEpoch>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientTeamHashMismatch {
+    #[prost(uint32, tag = "1")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub frame_sequence: u64,
+    #[prost(uint64, tag = "3")]
+    pub replica_tick: u64,
+    #[prost(bytes = "vec", tag = "4")]
+    pub received_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "5")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TeamRebaseAck {
+    #[prost(uint32, tag = "1")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub resume_team_sequence: u64,
+    #[prost(bool, tag = "3")]
+    pub manifest_verified: bool,
+    #[prost(message, optional, tag = "4")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TeamViewRebaseChunk {
     #[prost(uint32, tag = "1")]
     pub protocol_version: u32,

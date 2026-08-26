@@ -85,6 +85,10 @@ impl ObserverValidationTap {
     pub fn coverage_gaps(&self) -> Vec<CoverageGap> {
         self.gaps.lock().expect("coverage gap mutex poisoned").clone()
     }
+
+    pub fn take_coverage_gaps(&self) -> Vec<CoverageGap> {
+        std::mem::take(&mut *self.gaps.lock().expect("coverage gap mutex poisoned"))
+    }
 }
 
 pub struct ObserverValidationWorker {

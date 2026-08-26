@@ -133,6 +133,13 @@ impl TeamStreamRouter {
             .map(|route| route.session_id.clone()).collect()
     }
 
+    pub fn session_ids_for_team(&self, team_id: u32) -> Vec<String> {
+        self.sessions.values().filter(|route| route.binding.active
+            && route.binding.protocol == MatchProtocol::SelectiveV2
+            && route.binding.authenticated_team_id == team_id)
+            .map(|route| route.session_id.clone()).collect()
+    }
+
     pub fn replay(&mut self, team: u32, request_id: u64, from_sequence: u64) -> ReplayLookup {
         self.rings.entry(team).or_insert_with(|| TeamReplayRing::new(self.ring_capacity))
             .lookup(request_id, from_sequence)
