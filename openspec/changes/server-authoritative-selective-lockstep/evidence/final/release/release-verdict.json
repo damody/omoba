@@ -1,0 +1,48 @@
+{
+  "status": "release-ready",
+  "timestamp": "2026-08-27T12:05:00+08:00",
+  "toolchain": "rustc 1.95.0 (59807616e 2026-04-14), x86_64-pc-windows-msvc, LLVM 22.1.2",
+  "revisions": {
+    "main_before_final_evidence": "bb4c10b4b0a5988974a45e57b59fb6c41ae4116e",
+    "omb": "f502a13bd86970d5ea851cc87933f09354ee5c94",
+    "omfx": "00d8ffe4b3759a5cf47529ea24722a2a02666990"
+  },
+  "binary_hashes": {
+    "omb_target_release_omobab_exe": "aa926b7c892f55a52cc7f729733c03a6e46bef542a02860e0e9f5de2c63703e0",
+    "omfx_target_release_executor_exe": "8076efc70552c5bdd22dab0e9504d880fcab86d8d15ba3a25c7a83f3cc9d154e"
+  },
+  "config_hashes": {
+    "omb_game_toml": "d164a64761255d6170f38766e002f18f241e032546dcd0506b3964fbb8851336"
+  },
+  "content_hashes": {
+    "omb_scripts_base_content_dll": "a73756fa6bcd86333df965d8cba06d6e26eb0cee5f8d26b55cfea844d60804f8",
+    "proto_game_proto": "5970214b72c71f35503f46bcd954f734d5d5571ad1cc4753ef1a20cf7b749d6f"
+  },
+  "blocking_gates": {
+    "unit_property": "passed",
+    "cross_platform_parity": "passed",
+    "boundary_matrix": "passed: 30 scenarios",
+    "fault_recovery": "passed",
+    "hidden_data_anti_probing_redaction": "passed: 28 scenarios, 743 fuzz cases, 0 findings",
+    "performance_bandwidth_soak": "passed: 1800.003 seconds, 10000 entities, 0 deadline misses, 0 coverage gaps",
+    "shadow_dogfood_secure_default": "passed",
+    "traceability": "passed",
+    "openspec_strict_validation": "passed"
+  },
+  "test_summary": {
+    "omoba_core": "234 passed, 1 ignored",
+    "omb": "129 passed, 1 ignored",
+    "omb_script_abi": "13 passed",
+    "base_content": "45 passed",
+    "omfx": "123 passed",
+    "failures": 0
+  },
+  "rollback_boundary": "Active secure match 禁止 runtime downgrade；只能在 match 建立前明確選擇 non-secure Legacy，否則終止並保留去敏感診斷。",
+  "unresolved_p0": 0,
+  "unresolved_p1": 0,
+  "unresolved_placeholders": 0,
+  "contradictions": 0,
+  "stale_terminal_records": 0,
+  "task_evidence_expected": 631,
+  "decision": "GO"
+}

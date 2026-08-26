@@ -975,26 +975,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-TRACEABILITY`、`G-RELEASE-READY`。
 **完成門檻：** 每個 blocking requirement/scenario 有 task/evidence；無 placeholder、contradiction、unresolved P0/P1 或 incomplete apply-required artifact。
 
-- [ ] 6.9.1 建立 proposal commitment 到 design decision 的 traceability column。
-- [ ] 6.9.2 掃描 artifacts 的未解決 placeholder。
-- [ ] 6.9.3 審查每個 L2 是否具備完整 metadata 欄位。
-- [ ] 6.9.4 確認 conditional leaf 只有有效 terminal status。
-- [ ] 6.9.5 建立 final release verdict shell。
-- [ ] 6.9.6 建立 design decision 到 requirement/scenario 的 traceability column。
-- [ ] 6.9.7 建立 requirement/scenario 到 permanent task ID 的 traceability column。
-- [ ] 6.9.8 建立 task ID 到 evidence record 的 traceability column。
-- [ ] 6.9.9 掃描 code 的 forbidden global disclosure reference。
-- [ ] 6.9.10 掃描 evidence 的 contradiction marker 與 stale terminal record。
-- [ ] 6.9.11 審查 Phase 1 L3 是否符合 Luna 原子化契約。
-- [ ] 6.9.12 確認 superseded leaf 都有 replacement task/evidence link。
-- [ ] 6.9.13 將 exact binary hashes 寫入 final release verdict。
-- [ ] 6.9.14 將 exact config hash 寫入 final release verdict。
-- [ ] 6.9.15 將 exact content hashes 寫入 final release verdict。
-- [ ] 6.9.16 將 blocking gate summary 寫入 final release verdict。
-- [ ] 6.9.17 將 rollback boundary 寫入 final release verdict。
-- [ ] 6.9.18 確認 final release verdict 無 unresolved P0/P1。
-- [ ] 6.9.19 審查 Phase 2 L3 是否符合 Luna 原子化契約。
-- [ ] 6.9.20 審查 Phase 3 L3 是否符合 Luna 原子化契約。
-- [ ] 6.9.21 審查 Phase 4 L3 是否符合 Luna 原子化契約。
-- [ ] 6.9.22 審查 Phase 5 L3 是否符合 Luna 原子化契約。
-- [ ] 6.9.23 審查 Phase 6 L3 是否符合 Luna 原子化契約。
+- [x] 6.9.1 建立 proposal commitment 到 design decision 的 traceability column。
+- [x] 6.9.2 掃描 artifacts 的未解決 placeholder。
+- [x] 6.9.3 審查每個 L2 是否具備完整 metadata 欄位。
+- [x] 6.9.4 確認 conditional leaf 只有有效 terminal status。
+- [x] 6.9.5 建立 final release verdict shell。
+- [x] 6.9.6 建立 design decision 到 requirement/scenario 的 traceability column。
+- [x] 6.9.7 建立 requirement/scenario 到 permanent task ID 的 traceability column。
+- [x] 6.9.8 建立 task ID 到 evidence record 的 traceability column。
+- [x] 6.9.9 掃描 code 的 forbidden global disclosure reference。
+- [x] 6.9.10 掃描 evidence 的 contradiction marker 與 stale terminal record。
+- [x] 6.9.11 審查 Phase 1 L3 是否符合 Luna 原子化契約。
+- [x] 6.9.12 確認 superseded leaf 都有 replacement task/evidence link。
+- [x] 6.9.13 將 exact binary hashes 寫入 final release verdict。
+- [x] 6.9.14 將 exact config hash 寫入 final release verdict。
+- [x] 6.9.15 將 exact content hashes 寫入 final release verdict。
+- [x] 6.9.16 將 blocking gate summary 寫入 final release verdict。
+- [x] 6.9.17 將 rollback boundary 寫入 final release verdict。
+- [x] 6.9.18 確認 final release verdict 無 unresolved P0/P1。
+- [x] 6.9.19 審查 Phase 2 L3 是否符合 Luna 原子化契約。
+- [x] 6.9.20 審查 Phase 3 L3 是否符合 Luna 原子化契約。
+- [x] 6.9.21 審查 Phase 4 L3 是否符合 Luna 原子化契約。
+- [x] 6.9.22 審查 Phase 5 L3 是否符合 Luna 原子化契約。
+- [x] 6.9.23 審查 Phase 6 L3 是否符合 Luna 原子化契約。
