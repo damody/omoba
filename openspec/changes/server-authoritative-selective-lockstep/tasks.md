@@ -797,30 +797,30 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-RECOVERY`、`G-FINAL-NONBLOCKING`。
 **完成門檻：** 每種 fault 有 deterministic terminal disposition；validator slowdown/overflow 不阻塞 outbound；coverage gap 不被誤標 pass。
 
-- [ ] 6.4.1 執行 duplicate frame scenario。
-- [ ] 6.4.2 執行 replay-ring hit scenario。
-- [ ] 6.4.3 執行 component repair recovery scenario。
-- [ ] 6.4.4 故意放慢 validation worker 並擷取 outbound latency trace。
-- [ ] 6.4.5 觸發 validation queue overflow 並確認建立 coverage-gap record。
-- [ ] 6.4.6 執行 reordered frame scenario。
-- [ ] 6.4.7 執行 late frame barrier-stall scenario。
-- [ ] 6.4.8 執行 missing frame gap-detection scenario。
-- [ ] 6.4.9 執行 corrupt frame rejection scenario。
-- [ ] 6.4.10 執行 oversized frame rejection scenario。
-- [ ] 6.4.11 執行 replay-ring expiry scenario。
-- [ ] 6.4.12 執行 filtered rebase bootstrap scenario。
-- [ ] 6.4.13 執行 interrupted rebase discard scenario。
-- [ ] 6.4.14 執行 player rejoin filtered-bootstrap scenario。
-- [ ] 6.4.15 執行 entity replace recovery scenario。
-- [ ] 6.4.16 執行 team-view rebase recovery scenario。
-- [ ] 6.4.17 執行 persistent mismatch safe-termination scenario。
-- [ ] 6.4.18 由 6.4.4 trace 判定 outbound enqueue 未等待 observer step。
-- [ ] 6.4.19 由 6.4.4 trace 判定 player stream latency 未受 validator slowdown 阻塞。
-- [ ] 6.4.20 在 queue overflow 後確認 outbound frame sequence 持續前進。
-- [ ] 6.4.21 在 queue overflow 後確認 stale observer 被 discard。
-- [ ] 6.4.22 在 queue overflow 後確認 observer 使用 filtered snapshot rebootstrap。
-- [ ] 6.4.23 在 queue overflow evidence 將 gap range 標記為 unverified。
-- [ ] 6.4.24 確認 coverage-gap range 未被 validation summary 計為 pass。
+- [x] 6.4.1 執行 duplicate frame scenario。
+- [x] 6.4.2 執行 replay-ring hit scenario。
+- [x] 6.4.3 執行 component repair recovery scenario。
+- [x] 6.4.4 故意放慢 validation worker 並擷取 outbound latency trace。
+- [x] 6.4.5 觸發 validation queue overflow 並確認建立 coverage-gap record。
+- [x] 6.4.6 執行 reordered frame scenario。
+- [x] 6.4.7 執行 late frame barrier-stall scenario。
+- [x] 6.4.8 執行 missing frame gap-detection scenario。
+- [x] 6.4.9 執行 corrupt frame rejection scenario。
+- [x] 6.4.10 執行 oversized frame rejection scenario。
+- [x] 6.4.11 執行 replay-ring expiry scenario。
+- [x] 6.4.12 執行 filtered rebase bootstrap scenario。
+- [x] 6.4.13 執行 interrupted rebase discard scenario。
+- [x] 6.4.14 執行 player rejoin filtered-bootstrap scenario。
+- [x] 6.4.15 執行 entity replace recovery scenario。
+- [x] 6.4.16 執行 team-view rebase recovery scenario。
+- [x] 6.4.17 執行 persistent mismatch safe-termination scenario。
+- [x] 6.4.18 由 6.4.4 trace 判定 outbound enqueue 未等待 observer step。
+- [x] 6.4.19 由 6.4.4 trace 判定 player stream latency 未受 validator slowdown 阻塞。
+- [x] 6.4.20 在 queue overflow 後確認 outbound frame sequence 持續前進。
+- [x] 6.4.21 在 queue overflow 後確認 stale observer 被 discard。
+- [x] 6.4.22 在 queue overflow 後確認 observer 使用 filtered snapshot rebootstrap。
+- [x] 6.4.23 在 queue overflow evidence 將 gap range 標記為 unverified。
+- [x] 6.4.24 確認 coverage-gap range 未被 validation summary 計為 pass。
 
 ### 6.5 執行 security、anti-probing 與 side-channel inspection
 

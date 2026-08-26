@@ -1,0 +1,11 @@
+{
+  "gates":["G-FINAL-RECOVERY","G-FINAL-NONBLOCKING"],
+  "status":"passed",
+  "timestamp":"2026-08-27T08:55:00+08:00",
+  "command":"cargo run --manifest-path omoba-core/Cargo.toml --example phase6_fault_recovery",
+  "exit":0,
+  "harness_sha256":"2b99f3bd4560730eb20e7ffedf73cc7aabed77d487f3c7cbeeda0d30f7463cee",
+  "enqueue_trace":{"attempted_frames":20000,"elapsed_us":2166,"coverage_gaps":19999,"enqueue_waited_for_observer":false},
+  "coverage":{"gap_ranges_marked_unverified":true,"gap_ranges_counted_as_pass":false,"outbound_sequence_continued":true,"stale_observer_rebootstrap_action":"FilteredRebase"},
+  "terminal_dispositions":{"duplicate":"idempotent duplicate","reorder_late_missing":"deterministic stall","corrupt":"decode rejection","oversized":"FrameTooLarge","ring_expiry":"FilteredRebaseRequired","persistent_mismatch":"SafeTerminate without protocol fallback"}
+}
