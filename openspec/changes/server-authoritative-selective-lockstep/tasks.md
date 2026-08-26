@@ -648,22 +648,22 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-CUTOVER-PREPARED`。
 **完成門檻：** V2 可 opt-in；legacy 僅限 non-secure match；global path cleanup 已準備但未在 final evidence 前啟用。
 
-- [ ] 5.4.1 在 match config 定義 `secure_v2` mode 欄位。
-- [ ] 5.4.2 實作 server shadow generation switch。
-- [ ] 5.4.3 準備移除 player global `TickBatch` fan-out 的 patch。
-- [ ] 5.4.4 準備移除 dead `client_visibility` field 的 patch。
-- [ ] 5.4.5 建立 cutover/rollback manifest，明確禁止 active secure match downgrade。
-- [ ] 5.4.6 在 match config 加入 secure V2 opt-in mode。
-- [ ] 5.4.7 在 match negotiation 拒絕 secure match 混用 V1/V2 client。
-- [ ] 5.4.8 實作 internal dogfood enable switch。
-- [ ] 5.4.9 準備移除 player global `StateHash` fan-out 的 patch。
-- [ ] 5.4.10 準備移除 player global `WorldSnapshot` bootstrap 的 patch。
-- [ ] 5.4.11 準備移除 player `master_seed` delivery 的 patch。
-- [ ] 5.4.12 準備移除 player raw ECS ID serialization 的 patch。
-- [ ] 5.4.13 準備移除 dead `last_visibility_tick` field 的 patch。
-- [ ] 5.4.14 準備 quarantine legacy viewport authority 的 patch。
-- [ ] 5.4.15 準備 quarantine nondeterministic vision authority path 的 patch。
-- [ ] 5.4.16 在 rollback manifest 限定 rollback 只能發生於 match 建立前。
+- [x] 5.4.1 在 match config 定義 `secure_v2` mode 欄位。
+- [x] 5.4.2 實作 server shadow generation switch。
+- [x] 5.4.3 準備移除 player global `TickBatch` fan-out 的 patch。
+- [x] 5.4.4 準備移除 dead `client_visibility` field 的 patch。
+- [x] 5.4.5 建立 cutover/rollback manifest，明確禁止 active secure match downgrade。
+- [x] 5.4.6 在 match config 加入 secure V2 opt-in mode。
+- [x] 5.4.7 在 match negotiation 拒絕 secure match 混用 V1/V2 client。
+- [x] 5.4.8 實作 internal dogfood enable switch。
+- [x] 5.4.9 準備移除 player global `StateHash` fan-out 的 patch。
+- [x] 5.4.10 準備移除 player global `WorldSnapshot` bootstrap 的 patch。
+- [x] 5.4.11 準備移除 player `master_seed` delivery 的 patch。
+- [x] 5.4.12 準備移除 player raw ECS ID serialization 的 patch。
+- [x] 5.4.13 準備移除 dead `last_visibility_tick` field 的 patch。
+- [x] 5.4.14 準備 quarantine legacy viewport authority 的 patch。
+- [x] 5.4.15 準備 quarantine nondeterministic vision authority path 的 patch。
+- [x] 5.4.16 在 rollback manifest 限定 rollback 只能發生於 match 建立前。
 
 ### 5.5 End-to-end 最低限度 build/smoke
 
