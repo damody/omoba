@@ -1,0 +1,11 @@
+{
+  "gate":"G-FINAL-BOUNDARY",
+  "status":"passed",
+  "timestamp":"2026-08-27T08:40:00+08:00",
+  "command":"cargo run --manifest-path omoba-core/Cargo.toml --example phase6_boundary",
+  "exit":0,
+  "scenario_count":30,
+  "blocking_unclassified":0,
+  "harness_sha256":"9091f9054dcaed87a4e47baddf3a55c6ac3d6ad28b72f5f7752777c6b88bd2b7",
+  "scenarios":["team-shared-vision","hidden-attacker-damage","remembered-ghost","owner-only-resource","input-tick-visibility-history","force-hide-precedence","stable-rule-tiebreak","override-expiry-boundary","reveal-candidate-cancellation","hide-candidate-cancellation","scheduled-reveal-fresh-baseline","scheduled-hide","rereveal-identity-association","authoritative-forget-retirement","hidden-source-buff","hidden-source-debuff","projectile-enter-visibility","projectile-leave-visibility","aoe-cross-boundary","remembered-fog-death-nondisclosure","custom-remember-policy","remembered-target-rejection","team-private-resource","public-resource","server-only-resource-nondisclosure","retained-event-audience","stale-disclosure-epoch-input","ownership-invalid-input","accepted-disclosed-target","rejected-hidden-target"]
+}

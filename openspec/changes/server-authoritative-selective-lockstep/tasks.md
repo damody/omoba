@@ -756,36 +756,36 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-BOUNDARY`。
 **完成門檻：** 每個 projection matrix scenario 有 passed evidence，無未分類/未執行 blocking case。
 
-- [ ] 6.3.1 執行 team-shared vision scenario。
-- [ ] 6.3.2 執行 hidden attacker damage cross-boundary scenario。
-- [ ] 6.3.3 執行 remembered ghost presentation scenario。
-- [ ] 6.3.4 執行 owner-only resource audience scenario。
-- [ ] 6.3.5 執行 input-tick visibility-history scenario。
-- [ ] 6.3.6 執行 force-hide 對 force-show precedence scenario。
-- [ ] 6.3.7 執行同 priority stable rule ID tie-break scenario。
-- [ ] 6.3.8 執行 override expiry boundary scenario。
-- [ ] 6.3.9 執行 reveal candidate cancellation scenario。
-- [ ] 6.3.10 執行 hide candidate cancellation scenario。
-- [ ] 6.3.11 執行 scheduled reveal fresh-baseline scenario。
-- [ ] 6.3.12 執行 scheduled hide scenario。
-- [ ] 6.3.13 執行 re-reveal identity association scenario。
-- [ ] 6.3.14 執行 authoritative forget ID retirement scenario。
-- [ ] 6.3.15 執行 hidden-source buff scenario。
-- [ ] 6.3.16 執行 hidden-source debuff scenario。
-- [ ] 6.3.17 執行 projectile enter-visibility scenario。
-- [ ] 6.3.18 執行 projectile leave-visibility scenario。
-- [ ] 6.3.19 執行 AOE cross-boundary scenario。
-- [ ] 6.3.20 執行 remembered entity fog-death non-disclosure scenario。
-- [ ] 6.3.21 執行 custom remember policy scenario。
-- [ ] 6.3.22 執行 remembered record target rejection scenario。
-- [ ] 6.3.23 執行 team-private resource audience scenario。
-- [ ] 6.3.24 執行 public resource audience scenario。
-- [ ] 6.3.25 執行 server-only resource non-disclosure scenario。
-- [ ] 6.3.26 執行 retained event audience scenario。
-- [ ] 6.3.27 執行 stale disclosure epoch input scenario。
-- [ ] 6.3.28 執行 ownership-invalid input scenario。
-- [ ] 6.3.29 執行 accepted disclosed-target action scenario。
-- [ ] 6.3.30 執行 rejected hidden-target action scenario。
+- [x] 6.3.1 執行 team-shared vision scenario。
+- [x] 6.3.2 執行 hidden attacker damage cross-boundary scenario。
+- [x] 6.3.3 執行 remembered ghost presentation scenario。
+- [x] 6.3.4 執行 owner-only resource audience scenario。
+- [x] 6.3.5 執行 input-tick visibility-history scenario。
+- [x] 6.3.6 執行 force-hide 對 force-show precedence scenario。
+- [x] 6.3.7 執行同 priority stable rule ID tie-break scenario。
+- [x] 6.3.8 執行 override expiry boundary scenario。
+- [x] 6.3.9 執行 reveal candidate cancellation scenario。
+- [x] 6.3.10 執行 hide candidate cancellation scenario。
+- [x] 6.3.11 執行 scheduled reveal fresh-baseline scenario。
+- [x] 6.3.12 執行 scheduled hide scenario。
+- [x] 6.3.13 執行 re-reveal identity association scenario。
+- [x] 6.3.14 執行 authoritative forget ID retirement scenario。
+- [x] 6.3.15 執行 hidden-source buff scenario。
+- [x] 6.3.16 執行 hidden-source debuff scenario。
+- [x] 6.3.17 執行 projectile enter-visibility scenario。
+- [x] 6.3.18 執行 projectile leave-visibility scenario。
+- [x] 6.3.19 執行 AOE cross-boundary scenario。
+- [x] 6.3.20 執行 remembered entity fog-death non-disclosure scenario。
+- [x] 6.3.21 執行 custom remember policy scenario。
+- [x] 6.3.22 執行 remembered record target rejection scenario。
+- [x] 6.3.23 執行 team-private resource audience scenario。
+- [x] 6.3.24 執行 public resource audience scenario。
+- [x] 6.3.25 執行 server-only resource non-disclosure scenario。
+- [x] 6.3.26 執行 retained event audience scenario。
+- [x] 6.3.27 執行 stale disclosure epoch input scenario。
+- [x] 6.3.28 執行 ownership-invalid input scenario。
+- [x] 6.3.29 執行 accepted disclosed-target action scenario。
+- [x] 6.3.30 執行 rejected hidden-target action scenario。
 
 ### 6.4 執行 network fault、recovery 與 validator suite
 
