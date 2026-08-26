@@ -871,6 +871,7 @@ impl StateInitializer {
         });
         ecs.insert(Vec::<crate::Outcome>::new());
         ecs.insert(Vec::<omoba_core::runtime::RuntimeEvent>::new());
+        ecs.insert(crate::runtime::ObservableFactBuffer::default());
         ecs.insert(Vec::<TakenDamage>::new());
         ecs.insert(crate::runtime::TdLayerCommitSerial::default());
         ecs.insert(SysMetrics::default());
@@ -1631,6 +1632,14 @@ pub fn create_world_from_loaded_content(
     populate_tower_upgrade_registry(&mut ecs);
     populate_ability_registry(&mut ecs, &script_registry);
     ecs.insert(script_registry);
+
+    // Secure matches never start with an incomplete projection catalogue.
+    // Producers own these registrations in code; script-provided IDs are
+    // additionally checked by the host adapter before insertion.
+    let projection_policies = crate::runtime::ProjectionPolicyRegistry::secure_defaults();
+    crate::runtime::validate_secure_match_startup(&projection_policies)
+        .map_err(err_msg)?;
+    ecs.insert(projection_policies);
 
     // 應用戰役/地圖資料。
     StateInitializer::init_campaign_data(&mut ecs, &campaign_data);

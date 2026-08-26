@@ -21,6 +21,7 @@ pub struct DamageRead<'a> {
     factions: ReadStorage<'a, Faction>,
     properties: ReadStorage<'a, CProperty>,
     positions: ReadStorage<'a, Pos>,
+    facts: Read<'a, crate::runtime::ObservableFactBuffer>,
 }
 
 #[derive(SystemData)]
@@ -76,7 +77,7 @@ impl<'a> System<'a> for Sys {
         let mut damage_results = Vec::new();
         let mut outcomes = Vec::new();
 
-        for damage_inst in tw.damage_instances.drain(..) {
+        for (local_ordinal, damage_inst) in tw.damage_instances.drain(..).enumerate() {
             let result = calculate_damage(&damage_inst, &unit_stats, master_seed, tick);
 
             // 生成傷害事件而不是直接修改組件
@@ -102,6 +103,26 @@ impl<'a> System<'a> for Sys {
                         omb_script_abi::types::DamageProfile::NORMAL.bits()
                     },
                     predeclared: false, // ability-driven damage path — authoritative
+                });
+
+                let source = u64::from(damage_inst.source.source_entity.id());
+                let target = u64::from(damage_inst.target.id());
+                let _ = tr.facts.emit(crate::runtime::OrderedFact {
+                    key: crate::runtime::FactOrderingKey {
+                        tick: u64::from(tick),
+                        phase: crate::runtime::FactPhase::Step,
+                        canonical_source_order: (source << 32) | target,
+                        local_ordinal: local_ordinal as u32,
+                        fact_kind: crate::runtime::FactKind::DirectCombat,
+                    },
+                    audience: crate::runtime::FactAudience::VisibilityPolicy(
+                        omb_script_abi::types::projection_policy_ids::DIRECT_COMBAT.to_owned(),
+                    ),
+                    fact: crate::runtime::ObservableFact::DirectCombat {
+                        source,
+                        target,
+                        amount_milli: result.total_damage.raw(),
+                    },
                 });
 
                 log::info!(

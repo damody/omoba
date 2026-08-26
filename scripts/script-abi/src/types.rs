@@ -10,6 +10,37 @@ use abi_stable::{
 /// omoba-sim 的「abi-stable」功能。
 pub use omoba_sim::{Angle, Fixed64, Vec2};
 
+/// Append-only identifier carried across the script DLL boundary. The host
+/// owns interpretation and rejects unknown/missing IDs before a secure match.
+#[repr(C)]
+#[derive(StableAbi, Clone, Debug, PartialEq, Eq)]
+pub struct ProjectionPolicyId {
+    pub abi_version: u16,
+    pub value: RString,
+}
+
+impl ProjectionPolicyId {
+    pub const ABI_VERSION: u16 = 1;
+
+    pub fn new(value: impl Into<RString>) -> Self {
+        Self { abi_version: Self::ABI_VERSION, value: value.into() }
+    }
+}
+
+pub mod projection_policy_ids {
+    pub const MOVEMENT: &str = "movement.v1";
+    pub const SPAWN: &str = "spawn.v1";
+    pub const DEATH: &str = "death.v1";
+    pub const OWNERSHIP: &str = "ownership.v1";
+    pub const DIRECT_COMBAT: &str = "direct-combat.v1";
+    pub const PROJECTILE: &str = "projectile.v1";
+    pub const AOE: &str = "aoe.v1";
+    pub const BUFF_DEBUFF: &str = "buff-debuff.v1";
+    pub const HERO_ABILITY: &str = "hero-ability.v1";
+    pub const TOWER: &str = "tower.v1";
+    pub const ITEM: &str = "item.v1";
+}
+
 /// 遊戲實體的不透明句柄。主機與“specs::Entity”之間進行轉換。
 #[repr(C)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]

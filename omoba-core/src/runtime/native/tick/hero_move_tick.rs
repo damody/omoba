@@ -13,6 +13,8 @@ static TICK_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub struct HeroMoveRead<'a> {
     entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
+    tick: Read<'a, Tick>,
+    facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     heroes: ReadStorage<'a, Hero>,
     propertys: ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
@@ -160,6 +162,7 @@ impl<'a> System<'a> for Sys {
                     guard
                 },
                 |_guard, (entity, _hero, property, pos, move_target, facing)| {
+                    let position_before = pos.0;
                     // 廣播值（傳統 f32 有線格式）。
                     let pos_x_f = pos.0.x.to_f32_for_render();
                     let pos_y_f = pos.0.y.to_f32_for_render();
@@ -238,6 +241,26 @@ impl<'a> System<'a> for Sys {
                     let out_x = pos.0.x.to_f32_for_render();
                     let out_y = pos.0.y.to_f32_for_render();
                     let out_facing = angle_to_rad_f32(facing.0);
+                    if pos.0 != position_before {
+                        let source = u64::from(entity.id());
+                        let _ = tr.facts.emit(crate::runtime::OrderedFact {
+                            key: crate::runtime::FactOrderingKey {
+                                tick: tr.tick.0,
+                                phase: crate::runtime::FactPhase::Step,
+                                canonical_source_order: source,
+                                local_ordinal: 0,
+                                fact_kind: crate::runtime::FactKind::Movement,
+                            },
+                            audience: crate::runtime::FactAudience::VisibilityPolicy(
+                                omb_script_abi::types::projection_policy_ids::MOVEMENT.to_owned(),
+                            ),
+                            fact: crate::runtime::ObservableFact::Movement {
+                                source,
+                                x_mm: pos.0.x.raw(),
+                                y_mm: pos.0.y.raw(),
+                            },
+                        });
+                    }
                     (arrived_entity, (entity.id(), out_x, out_y, out_facing))
                 },
             )
@@ -281,6 +304,7 @@ mod tests {
         world.register::<TurnSpeed>();
         world.insert(DeltaTime(Fixed64::from_raw(1024 / 30)));
         world.insert(Tick(0));
+        world.insert(crate::runtime::ObservableFactBuffer::default());
         world.insert(Time::default());
         world.insert(GamePause::default());
         world.insert(GameSpeed::default());

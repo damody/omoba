@@ -190,6 +190,7 @@ pub struct ScriptVisualEvent {
     pub latest_tick: u64,
     pub hook_count: u32,
     pub accumulated_dt: Fixed64,
+    pub projection_policy_id: Option<omb_script_abi::types::ProjectionPolicyId>,
 }
 
 impl ScriptVisualEvent {
@@ -209,8 +210,80 @@ impl ScriptVisualEvent {
             latest_tick: tick,
             hook_count: 1,
             accumulated_dt: Fixed64::ZERO,
+            projection_policy_id: None,
         }
     }
+
+    pub fn with_projection_policy(
+        mut self,
+        policy_id: omb_script_abi::types::ProjectionPolicyId,
+    ) -> Self {
+        self.projection_policy_id = Some(policy_id);
+        self
+    }
+}
+
+pub fn script_visual_event_to_observable_fact(
+    event: &ScriptVisualEvent,
+    registry: &crate::runtime::ProjectionPolicyRegistry,
+    source_module_path: &str,
+) -> Result<crate::runtime::OrderedFact, crate::runtime::MissingProjectionPolicy> {
+    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+    let policy = event.projection_policy_id.as_ref().ok_or_else(|| {
+        crate::runtime::MissingProjectionPolicy {
+            action_id: format!("script::{:?}", event.kind),
+            source_module_path: source_module_path.to_owned(),
+        }
+    })?;
+    let mut checked = registry.clone();
+    checked.register_script_policy(policy, source_module_path)?;
+    let source = u64::from(event.primary.id());
+    let target = event.secondary.map(|entity| u64::from(entity.id()));
+    let (fact_kind, fact) = match event.kind {
+        ScriptVisualEventKind::Spawn | ScriptVisualEventKind::Respawn => (
+            FactKind::Spawn,
+            ObservableFact::Spawn { source, template_id: stable_text_id(event.state_id.as_deref()), team: 0 },
+        ),
+        ScriptVisualEventKind::Death => (FactKind::Death, ObservableFact::Death { source, killer: target }),
+        ScriptVisualEventKind::ModifierAdded | ScriptVisualEventKind::ModifierRemoved => (
+            FactKind::Buff,
+            ObservableFact::Buff {
+                source,
+                target: target.unwrap_or(source),
+                effect_id: stable_text_id(event.modifier_id.as_deref()),
+                active: event.kind == ScriptVisualEventKind::ModifierAdded,
+            },
+        ),
+        ScriptVisualEventKind::SkillCast => (
+            FactKind::Ability,
+            ObservableFact::Ability { source, ability_id: stable_text_id(event.skill_id.as_deref()), target },
+        ),
+        _ => (
+            FactKind::DirectCombat,
+            ObservableFact::DirectCombat {
+                source,
+                target: target.unwrap_or(source),
+                amount_milli: if event.damage != Fixed64::ZERO { event.damage.raw() } else { event.amount.raw() },
+            },
+        ),
+    };
+    Ok(OrderedFact {
+        key: FactOrderingKey {
+            tick: event.latest_tick,
+            phase: FactPhase::PostStep,
+            canonical_source_order: source,
+            local_ordinal: event.hook_count.saturating_sub(1),
+            fact_kind,
+        },
+        audience: FactAudience::VisibilityPolicy(policy.value.as_str().to_owned()),
+        fact,
+    })
+}
+
+fn stable_text_id(text: Option<&str>) -> u64 {
+    text.unwrap_or_default().bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    })
 }
 
 #[derive(Default)]

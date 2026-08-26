@@ -83,7 +83,15 @@ pub enum ObservableFact {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct OrderedFact {
     pub key: FactOrderingKey,
+    pub audience: FactAudience,
     pub fact: ObservableFact,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub enum FactAudience {
+    VisibilityPolicy(String),
+    Team(u32),
+    AllPlayers,
 }
 
 /// Existing outcomes/events use this wrapper while they are migrated to facts.
@@ -132,6 +140,8 @@ impl<T> ShardedStableBuffer<T> {
         slot.lock().map_err(|_| StableOutputError::PoisonedShard)?.push(value);
         Ok(())
     }
+
+    pub fn shard_count(&self) -> usize { self.shards.len() }
 }
 
 impl<T: StableKeyed> ShardedStableBuffer<T> {
@@ -158,4 +168,26 @@ impl ShardedStableBuffer<OrderedFact> {
 pub trait TeamProjectionBridge {
     type Error;
     fn project_ordered_facts(&mut self, facts: &[OrderedFact]) -> Result<(), Self::Error>;
+}
+
+#[derive(Clone)]
+pub struct ObservableFactBuffer {
+    inner: ShardedStableBuffer<OrderedFact>,
+}
+
+impl Default for ObservableFactBuffer {
+    fn default() -> Self {
+        Self { inner: ShardedStableBuffer::new(64).expect("fixed non-zero fact shard count") }
+    }
+}
+
+impl ObservableFactBuffer {
+    pub fn emit(&self, fact: OrderedFact) -> Result<(), StableOutputError> {
+        let shard = (fact.key.canonical_source_order as usize) % self.inner.shard_count();
+        self.inner.push(shard, fact)
+    }
+
+    pub fn drain_ordered(&self) -> Result<Vec<OrderedFact>, StableOutputError> {
+        self.inner.drain_sorted_deduped()
+    }
 }

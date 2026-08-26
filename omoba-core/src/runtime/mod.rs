@@ -13,6 +13,8 @@ pub mod selective_fixtures;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective_replica;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod projection_policy;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod stable_fact;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -24,6 +26,8 @@ pub use selective::*;
 pub use selective_fixtures::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use selective_replica::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use projection_policy::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use stable_fact::*;
 

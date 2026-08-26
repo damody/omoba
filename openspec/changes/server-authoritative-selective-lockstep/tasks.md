@@ -286,11 +286,11 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PROJECTION-POLICY-COMPLETE`。
 **完成門檻：** Inventory 中每個 action 都有 code-owned policy；缺少 policy 時 secure startup/content validation fail closed。
 
-- [ ] 3.2.1 在 movement tick producer 產生 movement `ObservableFact`。
-- [ ] 3.2.2 在 direct damage producer 產生 combat projection fact。
+- [x] 3.2.1 在 movement tick producer 產生 movement `ObservableFact`。
+- [x] 3.2.2 在 direct damage producer 產生 combat projection fact。
 - [ ] 3.2.3 在 hero action producer 註冊 projection policy ID。
-- [ ] 3.2.4 在 `scripts/script-abi` 定義 abi-stable projection policy ID 型別。
-- [ ] 3.2.5 實作 projection policy registry 的 missing-ID detection。
+- [x] 3.2.4 在 `scripts/script-abi` 定義 abi-stable projection policy ID 型別。
+- [x] 3.2.5 實作 projection policy registry 的 missing-ID detection。
 - [ ] 3.2.6 在 entity creation producer 產生 spawn `ObservableFact`。
 - [ ] 3.2.7 在 death producer 產生 death `ObservableFact`。
 - [ ] 3.2.8 在 ownership mutation producer 產生 ownership `ObservableFact`。
@@ -306,16 +306,16 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 - [ ] 3.2.18 在 tower upgrade producer 註冊 projection policy ID。
 - [ ] 3.2.19 在 item use producer 註冊 projection policy ID。
 - [ ] 3.2.20 在 ability activation producer 註冊 projection policy ID。
-- [ ] 3.2.21 將 retained HUD event 轉成明確 audience 的 projection fact。
-- [ ] 3.2.22 將 retained terminal event 轉成明確 audience 的 projection fact。
-- [ ] 3.2.23 在 script host adapter 接收 abi-stable projection policy ID。
-- [ ] 3.2.24 在 script host adapter 將 script outcome 轉成 host `ObservableFact`。
-- [ ] 3.2.25 確認 `scripts/script-abi` 未新增 `specs` dependency。
-- [ ] 3.2.26 確認 `scripts/script-abi` 未新增 runtime-heavy serialization dependency。
-- [ ] 3.2.27 為 missing policy error 加入 action ID。
-- [ ] 3.2.28 為 missing policy error 加入 source module/path。
-- [ ] 3.2.29 在 secure match startup 執行 policy registry completeness check。
-- [ ] 3.2.30 在 completeness check 失敗時阻止 secure match 啟動。
+- [x] 3.2.21 將 retained HUD event 轉成明確 audience 的 projection fact。
+- [x] 3.2.22 將 retained terminal event 轉成明確 audience 的 projection fact。
+- [x] 3.2.23 在 script host adapter 接收 abi-stable projection policy ID。
+- [x] 3.2.24 在 script host adapter 將 script outcome 轉成 host `ObservableFact`。
+- [x] 3.2.25 確認 `scripts/script-abi` 未新增 `specs` dependency。
+- [x] 3.2.26 確認 `scripts/script-abi` 未新增 runtime-heavy serialization dependency。
+- [x] 3.2.27 為 missing policy error 加入 action ID。
+- [x] 3.2.28 為 missing policy error 加入 source module/path。
+- [x] 3.2.29 在 secure match startup 執行 policy registry completeness check。
+- [x] 3.2.30 在 completeness check 失敗時阻止 secure match 啟動。
 
 ### 3.3 實作 Wave A commit 與 Wave B visibility
 
