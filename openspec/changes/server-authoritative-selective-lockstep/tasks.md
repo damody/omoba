@@ -542,10 +542,10 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PHASE4-BUILDABLE`，非 acceptance gate。
 **完成門檻：** omb V2 path 可編譯，synthetic client 可完成一次 filtered join 與一個 frame receive。
 
-- [ ] 4.5.1 執行一次 omb 最低限度 compile check，保存 non-acceptance log。
-- [ ] 4.5.2 執行一次 synthetic filtered join focused smoke。
-- [ ] 4.5.3 在相同 synthetic session 接收一個 team frame。
-- [ ] 4.5.4 確認 4.5.2–4.5.3 evidence 未標記為 recovery/security acceptance。
+- [x] 4.5.1 執行一次 omb 最低限度 compile check，保存 non-acceptance log。
+- [x] 4.5.2 執行一次 synthetic filtered join focused smoke。
+- [x] 4.5.3 在相同 synthetic session 接收一個 team frame。
+- [x] 4.5.4 確認 4.5.2–4.5.3 evidence 未標記為 recovery/security acceptance。
 
 ## 5. omfx selective replica 與 cutover preparation
 

@@ -1,0 +1,20 @@
+{
+  "phase": 4,
+  "acceptance_evidence": false,
+  "scope": "最低限度 server build 與 synthetic filtered session smoke；不得替代 Phase 6 recovery/security/stress gates",
+  "compile": {
+    "command": "cargo check --manifest-path omb/Cargo.toml -p omobab",
+    "exit_status": 0,
+    "result": "Finished dev profile; protoc fallback generated schema present"
+  },
+  "synthetic_session": {
+    "command": "cargo run --manifest-path omoba-core/Cargo.toml --example phase4_filtered_join_smoke",
+    "exit_status": 0,
+    "result": "phase4-filtered-join-smoke ok team=7 join_tick=41 frame_sequence=1 disclosed_entities=1 acceptance=false",
+    "checks": [
+      "TeamGameStart filtered snapshot bootstrap accepted",
+      "same synthetic client applied team frame sequence 1",
+      "client disclosed world contains exactly one revealed entity"
+    ]
+  }
+}
