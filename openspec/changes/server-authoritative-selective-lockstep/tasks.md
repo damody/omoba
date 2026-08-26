@@ -31,9 +31,9 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 - [x] 1.1.4 為 movement action 填寫四象限 projection policy。
 - [x] 1.1.5 將未分類的 inventory item 寫入 blocking migration list。
 - [x] 1.1.6 盤點 `omb/src/comp/**` 的 server-only component/resource，將 type 與來源檔寫入 state inventory。
-- [ ] 1.1.7 為 deterministic component inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
-- [ ] 1.1.8 為 deterministic resource inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
-- [ ] 1.1.9 為 input inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
+- [x] 1.1.7 為 deterministic component inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
+- [x] 1.1.8 為 deterministic resource inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
+- [x] 1.1.9 為 input inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
 - [ ] 1.1.10 為 outcome/script event inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
 - [ ] 1.1.11 盤點 `PlayerInput` variant，記錄 producer、consumer 與 authoritative phase。
 - [ ] 1.1.12 盤點 `Outcome` variant，記錄 producer、consumer 與 authoritative phase。

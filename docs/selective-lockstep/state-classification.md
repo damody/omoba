@@ -19,7 +19,7 @@
 
 | Blocking ID | Selector | Affected rows | Resolution tasks | Gate |
 |---|---|---:|---|---|
-| `BLK-STATE-UNCLASSIFIED` | 本文件中 `classification == —` 的 row | 116 | `1.1.28`–`1.1.33` | `G-CONTRACT-STATE` |
+| `BLK-STATE-UNCLASSIFIED` | 本文件中 `classification == —` 的 row | 119 | `1.1.28`–`1.1.33` | `G-CONTRACT-STATE` |
 
 此 view 是 blocking list，不是預設分類。只要 selector 仍匹配任何 row，secure-match contract 就不得視為完成。
 
@@ -27,118 +27,128 @@
 
 下列 component 由 `Component` implementation／derive 或 authoritative world registration 確認。
 
-| Type | Source | classification |
-|---|---|---|
-| `RegionBlocker` | `omoba-core/src/runtime/native/comp/blocked_region.rs` | — |
-| `Bounty` | `omoba-core/src/runtime/native/comp/bounty.rs` | — |
-| `IsBuilding` | `omoba-core/src/runtime/native/comp/building.rs` | — |
-| `CircularVision` | `omoba-core/src/runtime/native/comp/circular_vision.rs` | — |
-| `Creep` | `omoba-core/src/runtime/native/comp/creep.rs` | — |
-| `CProperty` | `omoba-core/src/runtime/native/comp/creep.rs` | — |
-| `CreepMoveBroadcast` | `omoba-core/src/runtime/native/comp/creep_move_broadcast.rs` | — |
-| `DamageInstance` | `omoba-core/src/runtime/native/comp/damage.rs` | — |
-| `DamageResult` | `omoba-core/src/runtime/native/comp/damage.rs` | — |
-| `Facing` | `omoba-core/src/runtime/native/comp/facing.rs` | — |
-| `FacingBroadcast` | `omoba-core/src/runtime/native/comp/facing.rs` | — |
-| `TurnSpeed` | `omoba-core/src/runtime/native/comp/facing.rs` | — |
-| `Gold` | `omoba-core/src/runtime/native/comp/gold.rs` | — |
-| `Hero` | `omoba-core/src/runtime/native/comp/hero.rs` | — |
-| `Inventory` | `omoba-core/src/runtime/native/comp/inventory.rs` | — |
-| `IsBase` | `omoba-core/src/runtime/native/comp/is_base.rs` | — |
-| `ItemEffects` | `omoba-core/src/runtime/native/comp/item_effects.rs` | — |
-| `Pos` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `Rot` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `Vel` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `MoveTarget` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `HeroCommandQueue` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `PosVelOriDefer` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `PreviousPhysCache` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `Scale` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `Mass` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `Sticky` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `Immovable` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `ForceUpdate` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `CollisionRadius` | `omoba-core/src/runtime/native/comp/phys.rs` | — |
-| `Projectile` | `omoba-core/src/runtime/native/comp/projectile.rs` | — |
-| `Tower` | `omoba-core/src/runtime/native/comp/tower.rs` | — |
-| `TowerSpawnOrder` | `omoba-core/src/runtime/native/comp/tower.rs` | — |
-| `TAttack` | `omoba-core/src/runtime/native/comp/tower.rs` | — |
-| `TProperty` | `omoba-core/src/runtime/native/comp/tower.rs` | — |
-| `Unit` | `omoba-core/src/runtime/native/comp/unit.rs` | — |
-| `Faction` | `omoba-core/src/runtime/native/comp/unit.rs` | — |
-| `PlayerOwner` | `omoba-core/src/runtime/native/comp/unit.rs` | — |
-| `SummonedUnit` | `omoba-core/src/runtime/native/comp/unit.rs` | — |
-| `Last<Pos>` | `omoba-core/src/runtime/native/comp/last.rs` | — |
-| `Last<Vel>` | `omoba-core/src/runtime/native/comp/last.rs` | — |
+| Type | Source | Owner | Mutation phase | Current global hash | Current snapshot | classification |
+|---|---|---|---|---|---|---|
+| `RegionBlocker` | `omoba-core/src/runtime/native/comp/blocked_region.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Bounty` | `omoba-core/src/runtime/native/comp/bounty.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `IsBuilding` | `omoba-core/src/runtime/native/comp/building.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `CircularVision` | `omoba-core/src/runtime/native/comp/circular_vision.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Creep` | `omoba-core/src/runtime/native/comp/creep.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `CProperty` | `omoba-core/src/runtime/native/comp/creep.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 是（legacy global hash） | 是（legacy lockstep、global render） | — |
+| `CreepMoveBroadcast` | `omoba-core/src/runtime/native/comp/creep_move_broadcast.rs` | Authoritative ECS | Wave A 後段衍生／legacy projection cache | 否（目前 legacy global hash） | 否 | — |
+| `DamageInstance` | `omoba-core/src/runtime/native/comp/damage.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `DamageResult` | `omoba-core/src/runtime/native/comp/damage.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Facing` | `omoba-core/src/runtime/native/comp/facing.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 是（legacy global hash） | 是（legacy lockstep、global render） | — |
+| `FacingBroadcast` | `omoba-core/src/runtime/native/comp/facing.rs` | Authoritative ECS | Wave A 後段衍生／legacy projection cache | 否（目前 legacy global hash） | 否 | — |
+| `TurnSpeed` | `omoba-core/src/runtime/native/comp/facing.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Gold` | `omoba-core/src/runtime/native/comp/gold.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `Hero` | `omoba-core/src/runtime/native/comp/hero.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（legacy lockstep、global render） | — |
+| `Inventory` | `omoba-core/src/runtime/native/comp/inventory.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `IsBase` | `omoba-core/src/runtime/native/comp/is_base.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `ItemEffects` | `omoba-core/src/runtime/native/comp/item_effects.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Pos` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 是（legacy global hash） | 是（legacy lockstep、global render） | — |
+| `Rot` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Vel` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 是（legacy global hash） | 是（legacy lockstep） | — |
+| `MoveTarget` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `HeroCommandQueue` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `PosVelOriDefer` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | Wave A 後段衍生／legacy projection cache | 否（目前 legacy global hash） | 否 | — |
+| `PreviousPhysCache` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | Wave A 後段衍生／legacy projection cache | 否（目前 legacy global hash） | 否 | — |
+| `Scale` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Mass` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Sticky` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Immovable` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `ForceUpdate` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `CollisionRadius` | `omoba-core/src/runtime/native/comp/phys.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Projectile` | `omoba-core/src/runtime/native/comp/projectile.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（legacy lockstep、global render） | — |
+| `Tower` | `omoba-core/src/runtime/native/comp/tower.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（legacy lockstep、global render） | — |
+| `TowerSpawnOrder` | `omoba-core/src/runtime/native/comp/tower.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `TAttack` | `omoba-core/src/runtime/native/comp/tower.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `TProperty` | `omoba-core/src/runtime/native/comp/tower.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Unit` | `omoba-core/src/runtime/native/comp/unit.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Faction` | `omoba-core/src/runtime/native/comp/unit.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `PlayerOwner` | `omoba-core/src/runtime/native/comp/unit.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `SummonedUnit` | `omoba-core/src/runtime/native/comp/unit.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Last<Pos>` | `omoba-core/src/runtime/native/comp/last.rs` | Authoritative ECS | Wave A 後段衍生／legacy projection cache | 否（目前 legacy global hash） | 否 | — |
+| `Last<Vel>` | `omoba-core/src/runtime/native/comp/last.rs` | Authoritative ECS | Wave A 後段衍生／legacy projection cache | 否（目前 legacy global hash） | 否 | — |
 
 ## Registered Shared Components
 
 這些 type 不定義於 `native/comp/**`，但由 `runtime/native/initialization.rs` 註冊進相同 authoritative world，因此後續分類不得遺漏。
 
-| Type | Source | classification |
-|---|---|---|
-| `Enemy` | `omoba-core/src/comp/enemy.rs` | — |
-| `Campaign` | `omoba-core/src/comp/campaign.rs` | — |
-| `Stage` | `omoba-core/src/comp/campaign.rs` | — |
-| `Player` | `omoba-core/src/comp/player.rs` | — |
-| `ScriptUnitTag` | `omoba-core/src/runtime/native/scripting/tag.rs` | — |
+| Type | Source | Owner | Mutation phase | Current global hash | Current snapshot | classification |
+|---|---|---|---|---|---|---|
+| `Enemy` | `omoba-core/src/comp/enemy.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Campaign` | `omoba-core/src/comp/campaign.rs` | Authoritative ECS | 初始化；match progression deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Stage` | `omoba-core/src/comp/campaign.rs` | Authoritative ECS | 初始化；match progression deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Player` | `omoba-core/src/comp/player.rs` | Authoritative ECS | 初始化；match progression deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `ScriptUnitTag` | `omoba-core/src/runtime/native/scripting/tag.rs` | Authoritative ECS | 初始化；Wave A evaluation／deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
 
 ## Deterministic Resources
 
 下列 resource 由 `runtime/native/initialization.rs` 的 world insertion、SystemData access 或 snapshot extraction 確認。Queue payload type 不另列為 resource；它由 owning queue row 覆蓋。
 
-| Type | Source | classification |
-|---|---|---|
-| `Time` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `DeltaTime` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `GamePause` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `SandboxMode` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `GameSpeed` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `MatchKillCounter` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `TickStart` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `Tick` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `MasterSeed` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `TimeOfDay` | `omoba-core/src/runtime/native/comp/resources.rs` | — |
-| `TowerSpawnOrderCounter` | `omoba-core/src/runtime/native/comp/tower.rs` | — |
-| `PlayerEconomy` | `omoba-core/src/runtime/native/comp/player_economy.rs` | — |
-| `BlockedRegions` | `omoba-core/src/runtime/native/comp/blocked_region.rs` | — |
-| `CurrentCreepWave` | `omoba-core/src/runtime/native/comp/creep.rs` | — |
-| `Vec<CreepWave>` | `omoba-core/src/runtime/native/comp/creep.rs` | — |
-| `Vec<TakenDamage>` | `omoba-core/src/runtime/native/comp/creep.rs` | — |
-| `Vec<Outcome>` | `omoba-core/src/runtime/native/comp/outcome.rs` | — |
-| `KnowledgeBonusResource` | `omoba-core/src/runtime/native/comp/knowledge.rs` | — |
-| `PendingPlayerInputs` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingTowerSpawnQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingTowerSellQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingDebugCreepSpawnQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingTowerUpgradeQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingAbilityUpgradeQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingAbilityCastQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingTowerAbilityPulseQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingTowerAbilityCastQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingTowerAbilityActivationQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `TowerAbilityCastResult` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `TowerAbilityCastResults` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingItemUseQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingMoveQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingHeroCommandClearQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `PendingTowerTargetPriorityQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `SnapshotStore` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | — |
-| `ExplosionFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | — |
-| `TowerFireFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | — |
-| `AttackPhaseFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | — |
-| `AttackCancelFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | — |
-| `RemovedEntitiesQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | — |
-| `GameMode` | `omoba-core/src/runtime/native/comp/game_mode.rs` | — |
-| `PlayerLives` | `omoba-core/src/runtime/native/comp/game_mode.rs` | — |
-| `CollisionIndex` | `omoba-core/src/runtime/native/comp/collision_index.rs` | — |
-| `Searcher` | `omoba-core/src/runtime/native/comp/collision_index.rs` | — |
-| `TerrainHeightMap` | `omoba-core/src/runtime/native/comp/heightmap.rs` | — |
-| `TerrainConfig` | `omoba-core/src/runtime/native/comp/heightmap.rs` | — |
-| `TowerTemplateRegistry` | `omoba-core/src/runtime/native/comp/tower_registry.rs` | — |
-| `TowerUpgradeRegistry` | `omoba-core/src/runtime/native/comp/tower_upgrade_registry.rs` | — |
-| `BTreeMap<String, CheckPoint>` | `omoba-core/src/runtime/native/comp/check_point.rs` | — |
-| `BTreeMap<String, Path>` | `omoba-core/src/runtime/native/comp/check_point.rs` | — |
+| Type | Source | Owner | Mutation phase | Current global hash | Current snapshot | classification |
+|---|---|---|---|---|---|---|
+| `Time` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `DeltaTime` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `GamePause` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `SandboxMode` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `GameSpeed` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `MatchKillCounter` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `TickStart` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Tick` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（legacy lockstep） | — |
+| `MasterSeed` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（legacy lockstep） | — |
+| `TimeOfDay` | `omoba-core/src/runtime/native/comp/resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `TowerSpawnOrderCounter` | `omoba-core/src/runtime/native/comp/tower.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `PlayerEconomy` | `omoba-core/src/runtime/native/comp/player_economy.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 是（legacy global hash） | 是（global render） | — |
+| `BlockedRegions` | `omoba-core/src/runtime/native/comp/blocked_region.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `CurrentCreepWave` | `omoba-core/src/runtime/native/comp/creep.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `Vec<CreepWave>` | `omoba-core/src/runtime/native/comp/creep.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `Vec<TakenDamage>` | `omoba-core/src/runtime/native/comp/creep.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Vec<Outcome>` | `omoba-core/src/runtime/native/comp/outcome.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `KnowledgeBonusResource` | `omoba-core/src/runtime/native/comp/knowledge.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingPlayerInputs` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingTowerSpawnQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingTowerSellQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingDebugCreepSpawnQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingTowerUpgradeQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingAbilityUpgradeQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingAbilityCastQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingTowerAbilityPulseQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingTowerAbilityCastQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingTowerAbilityActivationQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `TowerAbilityCastResult` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `TowerAbilityCastResults` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `PendingItemUseQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingMoveQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingHeroCommandClearQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `PendingTowerTargetPriorityQueue` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `SnapshotStore` | `omoba-core/src/runtime/native/comp/lockstep_resources.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `ExplosionFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `TowerFireFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `AttackPhaseFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `AttackCancelFxQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `RemovedEntitiesQueue` | `omoba-core/src/runtime/native/comp/fx_queues.rs` | Authoritative resource | Wave A transient buffer；barrier drain／commit | 否（目前 legacy global hash） | 否 | — |
+| `GameMode` | `omoba-core/src/runtime/native/comp/game_mode.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `PlayerLives` | `omoba-core/src/runtime/native/comp/game_mode.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `CollisionIndex` | `omoba-core/src/runtime/native/comp/collision_index.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `Searcher` | `omoba-core/src/runtime/native/comp/collision_index.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `TerrainHeightMap` | `omoba-core/src/runtime/native/comp/heightmap.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `TerrainConfig` | `omoba-core/src/runtime/native/comp/heightmap.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `TowerTemplateRegistry` | `omoba-core/src/runtime/native/comp/tower_registry.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `TowerUpgradeRegistry` | `omoba-core/src/runtime/native/comp/tower_upgrade_registry.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 是（global render） | — |
+| `BTreeMap<String, CheckPoint>` | `omoba-core/src/runtime/native/comp/check_point.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+| `BTreeMap<String, Path>` | `omoba-core/src/runtime/native/comp/check_point.rs` | Authoritative resource | 初始化；Wave A deterministic commit | 否（目前 legacy global hash） | 否 | — |
+
+## Input Inventory
+
+此處先固定 input envelope 的權責與生命週期；各 `PlayerInput::Action` variant 的 producer／consumer 由 1.1.11 逐項展開。
+
+| Type | Source | Owner | Authoritative phase | Current global hash | Current snapshot | classification |
+|---|---|---|---|---|---|---|
+| `InputSubmit` | `proto/game.proto` | Client request；server validation authority | ingest／validate；accepted input 進入 Wave A | 否；只透過造成的 committed state 間接反映 | 否 | — |
+| `InputForPlayer` | `proto/game.proto` | Server accepted-input envelope | Wave A input drain；V2 預定投影至 `Step` | 否；transport timing metadata 不納入 gameplay hash | 否 | — |
+| `PlayerInput` | `proto/game.proto` | Server accepted-input action | Wave A `player_input_tick` evaluation／deterministic commit | 否；只透過造成的 committed state 間接反映 | 否 | — |
 
 ## omb Server-owned Component／Resource Inventory
 
