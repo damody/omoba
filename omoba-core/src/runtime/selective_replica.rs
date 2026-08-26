@@ -114,6 +114,7 @@ pub enum RenderMemoryDirective {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FilteredRenderEntity {
     pub replica_id: u64,
+    pub disclosure_epoch: u64,
     pub entity_kind: u32,
     pub components: BTreeMap<u32, Vec<u8>>,
 }
@@ -632,6 +633,7 @@ impl SelectiveReplicaRuntime {
                 .values()
                 .map(|entity| FilteredRenderEntity {
                     replica_id: entity.replica_id,
+                    disclosure_epoch: entity.disclosure_epoch,
                     entity_kind: entity.entity_kind,
                     components: entity.components.clone(),
                 })

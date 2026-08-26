@@ -591,21 +591,21 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FILTERED-RENDERING`。
 **完成門檻：** Hidden entity 不在 deterministic snapshot/render cache；remembered data 不可 target/hash；reveal 可關聯 prior remembered ID。
 
-- [ ] 5.2.1 將 render bridge identity 改為 team-scoped replica ID。
-- [ ] 5.2.2 將 hide/forget transition 路由到 render scene cleanup handler。
-- [ ] 5.2.3 實作 `LastKnown` remembered presentation cache insert。
-- [ ] 5.2.4 阻止 remembered cache 進入 target lookup。
-- [ ] 5.2.5 定義 re-reveal 對 remembered presentation 的 association key。
-- [ ] 5.2.6 在 hide transition 從 deterministic scene 移除 entity node。
-- [ ] 5.2.7 在 forget transition retire deterministic scene identity。
-- [ ] 5.2.8 實作 custom remembered presentation registry lookup。
-- [ ] 5.2.9 實作 remembered presentation cache expiry rule。
-- [ ] 5.2.10 實作 remembered presentation cache explicit removal。
-- [ ] 5.2.11 阻止 remembered cache 進入 collision query。
-- [ ] 5.2.12 阻止 remembered cache 進入 simulation resource。
-- [ ] 5.2.13 阻止 remembered cache 進入 team hash input。
-- [ ] 5.2.14 在 re-reveal 時查找可沿用的 remembered replica ID。
-- [ ] 5.2.15 在 re-reveal baseline 套用後替換 remembered presentation。
+- [x] 5.2.1 將 render bridge identity 改為 team-scoped replica ID。
+- [x] 5.2.2 將 hide/forget transition 路由到 render scene cleanup handler。
+- [x] 5.2.3 實作 `LastKnown` remembered presentation cache insert。
+- [x] 5.2.4 阻止 remembered cache 進入 target lookup。
+- [x] 5.2.5 定義 re-reveal 對 remembered presentation 的 association key。
+- [x] 5.2.6 在 hide transition 從 deterministic scene 移除 entity node。
+- [x] 5.2.7 在 forget transition retire deterministic scene identity。
+- [x] 5.2.8 實作 custom remembered presentation registry lookup。
+- [x] 5.2.9 實作 remembered presentation cache expiry rule。
+- [x] 5.2.10 實作 remembered presentation cache explicit removal。
+- [x] 5.2.11 阻止 remembered cache 進入 collision query。
+- [x] 5.2.12 阻止 remembered cache 進入 simulation resource。
+- [x] 5.2.13 阻止 remembered cache 進入 team hash input。
+- [x] 5.2.14 在 re-reveal 時查找可沿用的 remembered replica ID。
+- [x] 5.2.15 在 re-reveal baseline 套用後替換 remembered presentation。
 
 ### 5.3 實作 client recovery、authority 與 diagnostics
 
