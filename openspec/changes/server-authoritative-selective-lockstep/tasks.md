@@ -444,25 +444,25 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OBSERVER-SIDECAR`、`G-OUTBOUND-NONBLOCKING`。
 **完成門檻：** Observer 只消費 filtered bootstrap/actual bytes；validator backpressure 不影響 outbound；每隊 lifecycle 隔離。
 
-- [ ] 4.2.1 建立 bounded validation channel。
-- [ ] 4.2.2 建立獨立 validation worker thread lifecycle。
-- [ ] 4.2.3 讓 observer 經 V2 filtered bootstrap path 初始化。
-- [ ] 4.2.4 實作 observer current tick tracking。
-- [ ] 4.2.5 在 validation channel overflow 時建立 coverage-gap record。
-- [ ] 4.2.6 建立 active-team 到 observer replica 的 map。
-- [ ] 4.2.7 在 team 啟用時建立 observer replica。
-- [ ] 4.2.8 在 team 結束時釋放 observer replica。
-- [ ] 4.2.9 讓 observer decode outbound 使用的實際 encoded frame bytes。
-- [ ] 4.2.10 阻止 observer 讀取 authoritative Specs world handle。
-- [ ] 4.2.11 阻止 observer 讀取 canonical ID mapping。
-- [ ] 4.2.12 實作 observer team hash 計算。
-- [ ] 4.2.13 實作 validation audit lag metric。
-- [ ] 4.2.14 實作 validation queue depth metric。
-- [ ] 4.2.15 實作 per-team verified sequence coverage tracking。
-- [ ] 4.2.16 在 coverage gap 後 discard stale observer。
-- [ ] 4.2.17 以 filtered snapshot rebootstrap discarded observer。
-- [ ] 4.2.18 從 retained frame 恢復 rebootstrap observer 的 sequence。
-- [ ] 4.2.19 將 outbound 使用的 encoded `Arc<[u8]>` clone 到 validation channel。
+- [x] 4.2.1 建立 bounded validation channel。
+- [x] 4.2.2 建立獨立 validation worker thread lifecycle。
+- [x] 4.2.3 讓 observer 經 V2 filtered bootstrap path 初始化。
+- [x] 4.2.4 實作 observer current tick tracking。
+- [x] 4.2.5 在 validation channel overflow 時建立 coverage-gap record。
+- [x] 4.2.6 建立 active-team 到 observer replica 的 map。
+- [x] 4.2.7 在 team 啟用時建立 observer replica。
+- [x] 4.2.8 在 team 結束時釋放 observer replica。
+- [x] 4.2.9 讓 observer decode outbound 使用的實際 encoded frame bytes。
+- [x] 4.2.10 阻止 observer 讀取 authoritative Specs world handle。
+- [x] 4.2.11 阻止 observer 讀取 canonical ID mapping。
+- [x] 4.2.12 實作 observer team hash 計算。
+- [x] 4.2.13 實作 validation audit lag metric。
+- [x] 4.2.14 實作 validation queue depth metric。
+- [x] 4.2.15 實作 per-team verified sequence coverage tracking。
+- [x] 4.2.16 在 coverage gap 後 discard stale observer。
+- [x] 4.2.17 以 filtered snapshot rebootstrap discarded observer。
+- [x] 4.2.18 從 retained frame 恢復 rebootstrap observer 的 sequence。
+- [x] 4.2.19 將 outbound 使用的 encoded `Arc<[u8]>` clone 到 validation channel。
 
 ### 4.3 實作 mismatch control 與 authority recovery
 

@@ -121,6 +121,7 @@ pub struct TeamViewProjector {
     config: TeamProjectorConfig,
     pending_reveals: VecDeque<VisibilityTransition>,
     pending_rebase_chunks: VecDeque<Vec<u8>>,
+    hash_entities: BTreeMap<u64, (u64, u32, BTreeMap<u32, Vec<u8>>)>,
 }
 
 #[derive(Default)]
@@ -166,6 +167,7 @@ impl TeamViewProjector {
             config,
             pending_reveals: VecDeque::new(),
             pending_rebase_chunks: VecDeque::new(),
+            hash_entities: BTreeMap::new(),
         }
     }
 
@@ -190,7 +192,7 @@ impl TeamViewProjector {
         self.pending_reveals.extend(transitions);
         let pre_step = self.build_pre_step(visible, graph)?;
         let step = self.build_step(visible, facts);
-        let hash = expected_team_hash(self.team_id, replica_tick, visible, &pre_step, &step);
+        let hash = expected_team_hash(self.team_id, replica_tick.saturating_add(1), &self.hash_entities);
         let post_step = PostStep {
             component_repairs: Vec::new(),
             entity_replaces: Vec::new(),
@@ -249,10 +251,14 @@ impl TeamViewProjector {
                         disclosure_epoch: Some(DisclosureEpoch { value: mapping.disclosure_epoch }),
                         effective_tick,
                         entity_kind: 0,
-                        safe_baseline: baseline,
+                        safe_baseline: baseline.clone(),
                         disclosed_dependencies: dependencies,
                         stable_sub_index: reveal_count as u32,
                     })) });
+                    self.hash_entities.insert(
+                        mapping.replica_id.get(),
+                        (mapping.disclosure_epoch, 0, decode_safe_components_for_hash(&baseline)),
+                    );
                     reveal_count += 1;
                 }
                 VisibilityTransition::Hide { canonical_id, effective_tick, disposition } => {
@@ -281,6 +287,7 @@ impl TeamViewProjector {
                             })
                         }
                     };
+                    self.hash_entities.remove(&mapping.replica_id.get());
                     transitions.push(Transition { transition: Some(transition) });
                 }
             }
@@ -385,14 +392,46 @@ fn transition_sort_key(value: &Transition) -> (u8, u64, u32) {
     }
 }
 
-fn expected_team_hash(team: u32, tick: u64, visible: &BTreeSet<u64>, pre: &PreStep, step: &Step) -> [u8; 32] {
+fn expected_team_hash(
+    team: u32,
+    tick: u64,
+    entities: &BTreeMap<u64, (u64, u32, BTreeMap<u32, Vec<u8>>)>,
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(team.to_le_bytes());
-    hasher.update(tick.to_le_bytes());
-    for id in visible { hasher.update(id.to_le_bytes()); }
-    hasher.update(pre.encode_to_vec());
-    hasher.update(step.encode_to_vec());
+    hasher.update(b"omoba-canonical-team-view-v1\0");
+    hasher.update(team.to_be_bytes());
+    hasher.update(tick.to_be_bytes());
+    for (replica_id, (epoch, entity_kind, components)) in entities {
+        hasher.update(replica_id.to_be_bytes());
+        hasher.update(epoch.to_be_bytes());
+        hasher.update(entity_kind.to_be_bytes());
+        for (schema_id, bytes) in components {
+            hasher.update(schema_id.to_be_bytes());
+            hasher.update((bytes.len() as u64).to_be_bytes());
+            hasher.update(bytes);
+        }
+    }
     hasher.finalize().into()
+}
+
+fn decode_safe_components_for_hash(bytes: &[u8]) -> BTreeMap<u32, Vec<u8>> {
+    let mut result = BTreeMap::new();
+    let Some(count) = bytes.get(..4).map(|value| u32::from_be_bytes(value.try_into().unwrap())) else {
+        return result;
+    };
+    let mut cursor = 4usize;
+    for _ in 0..count {
+        let Some(schema) = bytes.get(cursor..cursor + 4) else { return BTreeMap::new(); };
+        cursor += 4;
+        let Some(len) = bytes.get(cursor..cursor + 4) else { return BTreeMap::new(); };
+        cursor += 4;
+        let schema = u32::from_be_bytes(schema.try_into().unwrap());
+        let len = u32::from_be_bytes(len.try_into().unwrap()) as usize;
+        let Some(value) = bytes.get(cursor..cursor + len) else { return BTreeMap::new(); };
+        cursor += len;
+        result.insert(schema, value.to_vec());
+    }
+    if cursor == bytes.len() { result } else { BTreeMap::new() }
 }
 
 fn pad_frame(mut frame: TeamTickFrame, buckets: &[usize]) -> Result<PaddedTeamFrame, ProjectionError> {

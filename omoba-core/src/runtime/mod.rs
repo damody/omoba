@@ -22,6 +22,8 @@ pub mod visibility;
 pub mod team_projector;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_stream;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod observer_validation;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
@@ -42,6 +44,8 @@ pub use visibility::*;
 pub use team_projector::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use team_stream::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use observer_validation::*;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {

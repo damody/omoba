@@ -217,11 +217,10 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             kind: ReplicationScopeKind::Vision,
             owner_team: Some(team),
         });
-        let mut baseline = Vec::with_capacity(28);
-        baseline.extend_from_slice(&canonical_id.to_le_bytes());
-        baseline.extend_from_slice(&position.0.x.raw().to_le_bytes());
-        baseline.extend_from_slice(&position.0.y.raw().to_le_bytes());
-        baseline.extend_from_slice(&team.to_le_bytes());
+        // V2 component baseline format begins with a big-endian component
+        // count. Field allowlisting will populate this in later schema passes;
+        // an empty baseline is valid and cannot expose canonical identity.
+        let baseline = 0u32.to_be_bytes().to_vec();
         CommittedEntityView {
             canonical_id,
             team,

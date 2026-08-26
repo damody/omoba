@@ -175,6 +175,36 @@ impl SelectiveReplicaRuntime {
         &self.stall
     }
 
+    pub fn bootstrap_from_team_game_start(
+        start: &game_proto::TeamGameStart,
+        component_allowlist: BTreeSet<u32>,
+        resource_allowlist: BTreeSet<u32>,
+    ) -> Result<Self, ReplicaRuntimeError> {
+        if start.protocol_version != 2 { return Err(ReplicaRuntimeError::WrongProtocol); }
+        let snapshot = start.filtered_snapshot.as_ref().ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+        if snapshot.team_id != start.team_id
+            || snapshot.filtered_snapshot_hash != Sha256::digest(&snapshot.disclosed_world).as_slice()
+        {
+            return Err(ReplicaRuntimeError::UnverifiedRebase);
+        }
+        let entities = decode_disclosed_world(&snapshot.disclosed_world, &component_allowlist)?;
+        let mut runtime = Self::new(
+            start.team_id,
+            start.replica_start_tick,
+            start.next_team_sequence,
+            start.view_epoch.as_ref().map_or(0, |epoch| epoch.value),
+            component_allowlist,
+            resource_allowlist,
+        );
+        runtime.world = DisclosedReplicaWorld {
+            tick: snapshot.authoritative_tick,
+            entities,
+            resources: BTreeMap::new(),
+        };
+        runtime.expected_replica_tick = start.replica_start_tick;
+        Ok(runtime)
+    }
+
     pub fn world(&self) -> &DisclosedReplicaWorld {
         &self.world
     }
