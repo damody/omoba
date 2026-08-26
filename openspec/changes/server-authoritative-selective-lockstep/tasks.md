@@ -70,32 +70,32 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-CONTRACT-PROTOCOL`、`G-EVIDENCE-SCHEMA`。
 **完成門檻：** V2 message/phase/version/bounds、security invariant、A/B/C adjustment 與 evidence lineage 均有無歧義定義。
 
-- [ ] 1.2.1 在 protocol contract 固定 `TeamGameStart` 欄位與 canonical order。
-- [ ] 1.2.2 在 timing contract 固定 `visibility_commit_delay_ticks` 的 default 3 與 bounds 2–4。
-- [ ] 1.2.3 在 identity contract 固定 team-scoped `ReplicaEntityId` 的配置與 retire 規則。
-- [ ] 1.2.4 定義 append-only evidence JSONL 的必填欄位與型別。
-- [ ] 1.2.5 在 evidence contract 定義 A-level refinement 的允許範圍。
-- [ ] 1.2.6 在 protocol contract 固定 `TeamTickFrame` envelope 欄位。
-- [ ] 1.2.7 在 protocol contract 固定 `PreStep` payload 與 canonical order。
-- [ ] 1.2.8 在 protocol contract 固定 `Step` payload 與 canonical order。
-- [ ] 1.2.9 在 protocol contract 固定 `PostStep` payload 與 canonical order。
-- [ ] 1.2.10 在 protocol contract 固定 transition message 欄位。
-- [ ] 1.2.11 在 protocol contract 固定 bounded random tape 欄位與 lifetime。
-- [ ] 1.2.12 在 protocol contract 固定 repair message 欄位與 revision rule。
-- [ ] 1.2.13 在 protocol contract 固定 rebase manifest 欄位與 version rule。
-- [ ] 1.2.14 在 timing contract 固定 `replica_buffer_ticks` 的 default 12 與 bounds 3–24。
-- [ ] 1.2.15 在 timing contract 固定 tick window 到 shared 120Hz helper 的換算規則。
-- [ ] 1.2.16 在 identity contract 固定 disclosure/view epoch 的遞增與 stale rejection 規則。
-- [ ] 1.2.17 在 authority contract 固定 server revision precedence 與 monotonic allocation 規則。
-- [ ] 1.2.18 定義 snapshot ID 的版本與唯一性規則。
-- [ ] 1.2.19 定義 chunk hash 的算法與輸入範圍。
-- [ ] 1.2.20 定義 evidence artifact hash 的算法與 canonical path 規則。
-- [ ] 1.2.21 定義 evidence `stale` 到 replacement record 的 lineage 欄位。
-- [ ] 1.2.22 建立 requirement/scenario、task ID、gate ID 與 evidence record 的 mapping schema。
-- [ ] 1.2.23 在 evidence contract 定義 B-level correction 的 pause、reopen 與 stale 流程。
-- [ ] 1.2.24 在 evidence contract 定義 C-level change 的使用者核准欄位與停止條件。
-- [ ] 1.2.25 在 protocol contract 固定 rebase chunk 欄位與 version rule。
-- [ ] 1.2.26 定義 manifest hash 的算法與輸入範圍。
+- [x] 1.2.1 在 protocol contract 固定 `TeamGameStart` 欄位與 canonical order。
+- [x] 1.2.2 在 timing contract 固定 `visibility_commit_delay_ticks` 的 default 3 與 bounds 2–4。
+- [x] 1.2.3 在 identity contract 固定 team-scoped `ReplicaEntityId` 的配置與 retire 規則。
+- [x] 1.2.4 定義 append-only evidence JSONL 的必填欄位與型別。
+- [x] 1.2.5 在 evidence contract 定義 A-level refinement 的允許範圍。
+- [x] 1.2.6 在 protocol contract 固定 `TeamTickFrame` envelope 欄位。
+- [x] 1.2.7 在 protocol contract 固定 `PreStep` payload 與 canonical order。
+- [x] 1.2.8 在 protocol contract 固定 `Step` payload 與 canonical order。
+- [x] 1.2.9 在 protocol contract 固定 `PostStep` payload 與 canonical order。
+- [x] 1.2.10 在 protocol contract 固定 transition message 欄位。
+- [x] 1.2.11 在 protocol contract 固定 bounded random tape 欄位與 lifetime。
+- [x] 1.2.12 在 protocol contract 固定 repair message 欄位與 revision rule。
+- [x] 1.2.13 在 protocol contract 固定 rebase manifest 欄位與 version rule。
+- [x] 1.2.14 在 timing contract 固定 `replica_buffer_ticks` 的 default 12 與 bounds 3–24。
+- [x] 1.2.15 在 timing contract 固定 tick window 到 shared 120Hz helper 的換算規則。
+- [x] 1.2.16 在 identity contract 固定 disclosure/view epoch 的遞增與 stale rejection 規則。
+- [x] 1.2.17 在 authority contract 固定 server revision precedence 與 monotonic allocation 規則。
+- [x] 1.2.18 定義 snapshot ID 的版本與唯一性規則。
+- [x] 1.2.19 定義 chunk hash 的算法與輸入範圍。
+- [x] 1.2.20 定義 evidence artifact hash 的算法與 canonical path 規則。
+- [x] 1.2.21 定義 evidence `stale` 到 replacement record 的 lineage 欄位。
+- [x] 1.2.22 建立 requirement/scenario、task ID、gate ID 與 evidence record 的 mapping schema。
+- [x] 1.2.23 在 evidence contract 定義 B-level correction 的 pause、reopen 與 stale 流程。
+- [x] 1.2.24 在 evidence contract 定義 C-level change 的使用者核准欄位與停止條件。
+- [x] 1.2.25 在 protocol contract 固定 rebase chunk 欄位與 version rule。
+- [x] 1.2.26 定義 manifest hash 的算法與輸入範圍。
 
 ### 1.3 建立 baseline 與 final-verification harness 骨架
 
