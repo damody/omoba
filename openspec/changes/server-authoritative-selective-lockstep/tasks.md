@@ -942,28 +942,28 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-RELEASE-SHADOW`、`G-RELEASE-DOGFOOD`、`G-SECURE-DEFAULT`。
 **完成門檻：** Shadow/dogfood 無 blocker；secure default 啟用；player global snapshot/hash/seed/raw-ID path 移除；rollback 只允許 pre-match non-secure mode。
 
-- [ ] 6.8.1 以 frozen binaries/config 執行 server shadow run。
-- [ ] 6.8.2 執行一場標準 2-team internal dogfood secure match。
-- [ ] 6.8.3 將 secure V2 設為新 secure match 的 default mode。
-- [ ] 6.8.4 套用移除 player global `TickBatch` fan-out 的 cleanup patch。
-- [ ] 6.8.5 移除 dead viewport/`VisSet` gameplay authority path。
-- [ ] 6.8.6 執行 active secure match runtime-downgrade rejection case。
-- [ ] 6.8.7 從 shadow run 產生 parity evidence。
-- [ ] 6.8.8 從 shadow run 產生 latency evidence。
-- [ ] 6.8.9 從 shadow run 產生 observer coverage evidence。
-- [ ] 6.8.10 從 dogfood run 產生 player-visible acceptance record。
-- [ ] 6.8.11 從 dogfood run 產生 redacted diagnostic acceptance record。
-- [ ] 6.8.12 保留明確 non-secure legacy pre-match selection。
-- [ ] 6.8.13 套用移除 player global `StateHash` fan-out 的 cleanup patch。
-- [ ] 6.8.14 套用移除 player global `WorldSnapshot` bootstrap 的 cleanup patch。
-- [ ] 6.8.15 套用移除 player `master_seed` delivery 的 cleanup patch。
-- [ ] 6.8.16 套用移除 player raw ECS ID serialization 的 cleanup patch。
-- [ ] 6.8.17 移除 dead `client_visibility` storage path。
-- [ ] 6.8.18 移除 dead `last_visibility_tick` storage path。
-- [ ] 6.8.19 Quarantine superseded nondeterministic vision authority path。
-- [ ] 6.8.20 產生只允許 pre-match legacy selection 的 final rollback manifest。
-- [ ] 6.8.21 執行一場含 player reconnect 的 internal dogfood secure match。
-- [ ] 6.8.22 執行一場含高 visibility churn 的 internal dogfood secure match。
+- [x] 6.8.1 以 frozen binaries/config 執行 server shadow run。
+- [x] 6.8.2 執行一場標準 2-team internal dogfood secure match。
+- [x] 6.8.3 將 secure V2 設為新 secure match 的 default mode。
+- [x] 6.8.4 套用移除 player global `TickBatch` fan-out 的 cleanup patch。
+- [x] 6.8.5 移除 dead viewport/`VisSet` gameplay authority path。
+- [x] 6.8.6 執行 active secure match runtime-downgrade rejection case。
+- [x] 6.8.7 從 shadow run 產生 parity evidence。
+- [x] 6.8.8 從 shadow run 產生 latency evidence。
+- [x] 6.8.9 從 shadow run 產生 observer coverage evidence。
+- [x] 6.8.10 從 dogfood run 產生 player-visible acceptance record。
+- [x] 6.8.11 從 dogfood run 產生 redacted diagnostic acceptance record。
+- [x] 6.8.12 保留明確 non-secure legacy pre-match selection。
+- [x] 6.8.13 套用移除 player global `StateHash` fan-out 的 cleanup patch。
+- [x] 6.8.14 套用移除 player global `WorldSnapshot` bootstrap 的 cleanup patch。
+- [x] 6.8.15 套用移除 player `master_seed` delivery 的 cleanup patch。
+- [x] 6.8.16 套用移除 player raw ECS ID serialization 的 cleanup patch。
+- [x] 6.8.17 移除 dead `client_visibility` storage path。
+- [x] 6.8.18 移除 dead `last_visibility_tick` storage path。
+- [x] 6.8.19 Quarantine superseded nondeterministic vision authority path。
+- [x] 6.8.20 產生只允許 pre-match legacy selection 的 final rollback manifest。
+- [x] 6.8.21 執行一場含 player reconnect 的 internal dogfood secure match。
+- [x] 6.8.22 執行一場含高 visibility churn 的 internal dogfood secure match。
 
 ### 6.9 最終 traceability 與 release review
 

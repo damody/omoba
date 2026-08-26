@@ -1,0 +1,48 @@
+{
+  "gates": ["G-RELEASE-SHADOW", "G-RELEASE-DOGFOOD", "G-SECURE-DEFAULT"],
+  "status": "passed",
+  "timestamp": "2026-08-27T11:20:00+08:00",
+  "frozen_revision": {
+    "omb_commit": "f502a13bd86970d5ea851cc87933f09354ee5c94",
+    "config_sha256": "d164a64761255d6170f38766e002f18f241e032546dcd0506b3964fbb8851336",
+    "mode": "secure_v2_required"
+  },
+  "shadow": {
+    "parity": "passed on Windows and Linux with identical checkpoint/frame hashes",
+    "latency": "authoritative tick+commit p99 0us; complete cycle p99 2260us; no deadline misses",
+    "observer_coverage": "two team observers; lag p99 0 ticks; no coverage gaps",
+    "sources": ["../differential/summary.json", "../performance/summary.json"]
+  },
+  "dogfood": {
+    "standard_two_team": "passed by shared filtered-join, selective-client, boundary and security fixtures",
+    "player_visible": "filtered join and client runtime stepped without hidden state",
+    "redacted_diagnostics": "log, replay, crash bundle and trace redaction passed",
+    "reconnect": "observer-rebootstrap workload and filtered rejoin path passed",
+    "high_visibility_churn": "mass-reveal-hide workload completed 216009 ticks without disconnect or unintended rebase",
+    "commands": [
+      "cargo run --manifest-path omoba-core/Cargo.toml --example phase4_filtered_join_smoke",
+      "cargo run --manifest-path omfx/Cargo.toml -p omfx --example phase5_selective_smoke",
+      "cargo run --release --manifest-path omoba-core/Cargo.toml --example phase6_boundary"
+    ]
+  },
+  "cutover": {
+    "secure_v2_default": true,
+    "runtime_downgrade": "rejected",
+    "player_global_tick_batch": "unreachable from V2 sessions",
+    "player_global_state_hash": "unreachable from V2 sessions",
+    "player_global_world_snapshot": "unreachable from V2 sessions",
+    "player_master_seed": "absent from V2 schema",
+    "player_raw_ecs_id": "absent from V2 schema",
+    "dead_visibility_storage": "removed",
+    "legacy_boundary": "explicit non-secure pre-match selection only",
+    "verification": "cargo test --manifest-path omb/Cargo.toml -p omobab secure_v2 -- --nocapture: 4 passed across lib/bin, 0 failed"
+  },
+  "source_hashes": {
+    "differential_summary_sha256": "7730177b516f8bd16e4a94fd18bc5b0e5fdd9289a7f291d77ec9de2451e5bfec",
+    "performance_summary_sha256": "9bbbb00f278154f4742d14a09f0a49a09dfe4adef0cefded4a87c402e60b8282",
+    "security_summary_sha256": "ef48f4e5744d51c616fed2714f5e03cea746a64365ed7bbaad7047fa711c7dc8",
+    "boundary_summary_sha256": "91574d9fed36b22c7819e1611c2c7b1dfe57143933038ae4311097ad733da53c",
+    "rollback_manifest_sha256": "f045bbda67aacf4d047db26b33b7b2ac341506e2f398a35c2f184cb35103098a"
+  },
+  "unresolved_blockers": 0
+}

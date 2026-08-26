@@ -1,6 +1,6 @@
 # Secure V2 切換與回滾清單
 
-狀態：`prepared`。本文件只準備 Phase 6.8 cleanup；在 final verification 通過前不套用不可逆移除。
+狀態：`secure-default`。Phase 6 final verification 已通過；secure player 的 global disclosure 路徑已關閉。rollback 仍只允許建立 match 前明確選擇 non-secure legacy。
 
 ## Match 模式與開關
 
@@ -16,14 +16,14 @@ active secure match 的 mode、authenticated team binding、view epoch 與 capab
 
 | ID | 目標 selector | 預備動作 | 套用條件 |
 |---|---|---|---|
-| CLN-01 | `omb/src/transport/kcp_transport.rs::LockstepFrame::TickBatch` secure player fan-out | 移除 player global TickBatch 分支 | final gates 全綠 |
-| CLN-02 | `omb/src/transport/kcp_transport.rs::LockstepFrame::StateHash` secure player fan-out | 移除 player global StateHash 分支 | final gates 全綠 |
-| CLN-03 | `SnapshotResp` / `SnapshotStore` player bootstrap | 移除 secure player WorldSnapshot bootstrap | final gates 全綠 |
-| CLN-04 | legacy `GameStart.master_seed` player delivery | 移除 secure player seed delivery | final gates 全綠 |
-| CLN-05 | global snapshot／event raw ECS identifiers | 移除 secure player raw-ID serialization | packet gate 全綠 |
-| CLN-06 | `State::client_visibility` | 刪除 dead storage 與 disconnect cleanup | frontend cutover 完成 |
-| CLN-07 | `State::last_visibility_tick` | 刪除 dead storage | frontend cutover 完成 |
-| CLN-08 | legacy viewport/`VisSet` gameplay authority | quarantine 為 non-secure presentation-only adapter | boundary gate 全綠 |
-| CLN-09 | `omb/src/vision/**` nondeterministic authority | quarantine 為 diagnostics/presentation，不得寫 authoritative visibility | parity gate 全綠 |
+| CLN-01 | `omb/src/transport/kcp_transport.rs::LockstepFrame::TickBatch` secure player fan-out | secure V2 session 明確排除 | 已套用 |
+| CLN-02 | `omb/src/transport/kcp_transport.rs::LockstepFrame::StateHash` secure player fan-out | secure V2 session 明確排除 | 已套用 |
+| CLN-03 | `SnapshotResp` / `SnapshotStore` player bootstrap | secure V2 session 拒絕 | 已套用 |
+| CLN-04 | legacy `GameStart.master_seed` player delivery | secure V2 session 拒絕 | 已套用 |
+| CLN-05 | global snapshot／event raw ECS identifiers | generic GameEvent targets 排除 secure V2 | 已套用 |
+| CLN-06 | `State::client_visibility` | 刪除 dead storage 與 disconnect cleanup | 已套用 |
+| CLN-07 | `State::last_visibility_tick` | 刪除 dead storage | 已套用 |
+| CLN-08 | legacy viewport/`VisSet` gameplay authority | secure V2 inbound 拒絕 viewport；legacy 僅 presentation | 已套用 |
+| CLN-09 | `omb/src/vision/**` nondeterministic authority | secure V2 不接收其輸出；僅 legacy presentation/diagnostics | 已套用 |
 
 每個 cleanup commit 必須保留 pre-match legacy mode 的獨立路徑；任何 fallback 都不得由 active secure session 觸發。
