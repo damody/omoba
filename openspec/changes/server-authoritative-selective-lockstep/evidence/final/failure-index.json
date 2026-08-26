@@ -1,0 +1,16 @@
+{
+  "status":"all-resolved",
+  "timestamp":"2026-08-27T10:35:00+08:00",
+  "failures":[
+    {"id":"F-6.1-fixtures","level":"A","cause":"legacy unit fixtures lacked newly mandatory Tick/ObservableFactBuffer resources","resolution":"fixtures updated; full omoba-core suite replacement passed","replacement":"6.1.7@1"},
+    {"id":"F-6.2-linux-env","level":"A","cause":"WSL lacked cc then inherited truncated PATH","resolution":"build-essential installed and explicit standard PATH used","replacement":"6.2.3@3"},
+    {"id":"F-6.6-measurement","level":"A","cause":"generation 1 mixed Wave B/encode/enqueue into authoritative deadline and sample Vec page commitment into memory","resolution":"A-20260827-001; complete 1800.003s replacement passed","replacement":"6.6.1@2 through 6.6.28@2"}
+  ],
+  "b_level_items":[],
+  "c_level_items":[],
+  "rerun_groups":["unit-property","differential-security-after-wire-adjustment","performance-complete-1800s"],
+  "terminal_gates":{"G-FINAL-UNIT":"passed","G-FINAL-SCHEMA":"passed","G-FINAL-PARITY":"passed","G-FINAL-NONINTERFERENCE":"passed","G-FINAL-BOUNDARY":"passed","G-FINAL-RECOVERY":"passed","G-FINAL-NONBLOCKING":"passed","G-FINAL-HIDDEN-DATA":"passed","G-FINAL-ANTI-PROBING":"passed","G-FINAL-REDACTION":"passed","G-FINAL-TICK-BUDGET":"passed","G-FINAL-BANDWIDTH":"passed","G-FINAL-SOAK":"passed"},
+  "thresholds_lowered":false,
+  "required_evidence_removed":false,
+  "stale_terminal_records":0
+}

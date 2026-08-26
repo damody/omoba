@@ -912,25 +912,25 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 
 6.7 的 conditional leaf 每次只處理一個 pending item；額外 item 必須以 A-level refinement 增加同型 leaf，沒有對應 item 時以 evidence-backed `not-applicable` 結案。
 
-- [ ] 6.7.1 將 Phase 6 failed gate 彙整成 failure index；沒有 failure 時建立 immutable no-failure record。
-- [ ] 6.7.2 對第一個 pending A-level item 更新 task mechanics。
-- [ ] 6.7.3 對第一個 pending B-level item 暫停 affected branch。
-- [ ] 6.7.4 對第一個 pending C-level item 停止 affected work。
-- [ ] 6.7.5 為每個 affected final-verification group 建立 rerun manifest。
-- [ ] 6.7.6 確認每個 blocking gate 的 terminal status 為 passed。
-- [ ] 6.7.7 為第一個尚未分類的 failure 指派 A、B 或 C disposition；其他 failure 以 A-level refinement 增加 leaf。
-- [ ] 6.7.8 對 A-level item 將受影響 evidence 標記 stale。
-- [ ] 6.7.9 對 B-level item 更新 authoritative design section。
-- [ ] 6.7.10 對 B-level item 更新受影響 delta requirement/scenario。
-- [ ] 6.7.11 對 B-level item 更新受影響 task leaf。
-- [ ] 6.7.12 對 B-level item 將 dependent evidence 標記 stale。
-- [ ] 6.7.13 為 C-level item 建立使用者核准請求與 affected scope。
-- [ ] 6.7.14 在 C-level 使用者核准前保持 affected work 未執行。
-- [ ] 6.7.15 執行 rerun manifest 中的一個 affected verification group；每個額外 group 以 A-level refinement 增加相同格式 leaf。
-- [ ] 6.7.16 為 rerun result 建立 replacement evidence link。
-- [ ] 6.7.17 確認所有 stale blocking evidence 都有 passed replacement。
-- [ ] 6.7.18 比對 final gate threshold 與核准 design，確認沒有降低。
-- [ ] 6.7.19 比對 required evidence set 與核准 design，確認沒有刪減。
+- [x] 6.7.1 將 Phase 6 failed gate 彙整成 failure index；沒有 failure 時建立 immutable no-failure record。
+- [x] 6.7.2 對第一個 pending A-level item 更新 task mechanics。
+- [x] 6.7.3 對第一個 pending B-level item 暫停 affected branch。
+- [x] 6.7.4 對第一個 pending C-level item 停止 affected work。
+- [x] 6.7.5 為每個 affected final-verification group 建立 rerun manifest。
+- [x] 6.7.6 確認每個 blocking gate 的 terminal status 為 passed。
+- [x] 6.7.7 為第一個尚未分類的 failure 指派 A、B 或 C disposition；其他 failure 以 A-level refinement 增加 leaf。
+- [x] 6.7.8 對 A-level item 將受影響 evidence 標記 stale。
+- [x] 6.7.9 對 B-level item 更新 authoritative design section。
+- [x] 6.7.10 對 B-level item 更新受影響 delta requirement/scenario。
+- [x] 6.7.11 對 B-level item 更新受影響 task leaf。
+- [x] 6.7.12 對 B-level item 將 dependent evidence 標記 stale。
+- [x] 6.7.13 為 C-level item 建立使用者核准請求與 affected scope。
+- [x] 6.7.14 在 C-level 使用者核准前保持 affected work 未執行。
+- [x] 6.7.15 執行 rerun manifest 中的一個 affected verification group；每個額外 group 以 A-level refinement 增加相同格式 leaf。
+- [x] 6.7.16 為 rerun result 建立 replacement evidence link。
+- [x] 6.7.17 確認所有 stale blocking evidence 都有 passed replacement。
+- [x] 6.7.18 比對 final gate threshold 與核准 design，確認沒有降低。
+- [x] 6.7.19 比對 required evidence set 與核准 design，確認沒有刪減。
 
 ### 6.8 Shadow、dogfood、secure cutover 與 legacy cleanup
 
