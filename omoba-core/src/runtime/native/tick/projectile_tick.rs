@@ -508,6 +508,8 @@ mod tests {
         world.insert(Vec::<Outcome>::new());
         world.insert(SysMetrics::default());
         world.insert(TickProfile::default());
+        world.insert(Tick(0));
+        world.insert(crate::runtime::ObservableFactBuffer::default());
         world
     }
 

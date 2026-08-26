@@ -2492,6 +2492,7 @@ mod tests {
         world.register::<TurnSpeed>();
         world.register::<ScriptUnitTag>();
         world.insert(ScriptEventQueue::default());
+        world.insert(crate::runtime::ObservableFactBuffer::default());
         world.insert(BuffStore::default());
 
         let state = crate::runtime::TdLayerState {
@@ -2693,6 +2694,7 @@ mod tests {
         world.insert(RemovedEntitiesQueue::default());
         world.insert(BuffStore::default());
         world.insert(ScriptEventQueue::default());
+        world.insert(crate::runtime::ObservableFactBuffer::default());
 
         let entity = world
             .create_entity()

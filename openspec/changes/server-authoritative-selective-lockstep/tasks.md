@@ -699,26 +699,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-UNIT`、`G-FINAL-SCHEMA`。
 **完成門檻：** 所有 required unit/property/schema tests exit 0，無 skip blocking scenario。
 
-- [ ] 6.1.1 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab --lib` 並保存完整 log。
-- [ ] 6.1.2 執行 `cargo test --manifest-path scripts/Cargo.toml -p omb-script-abi` 並保存完整 log。
-- [ ] 6.1.3 執行 omoba-sim determinism property suite。
-- [ ] 6.1.4 執行 protocol encode suite。
-- [ ] 6.1.5 執行 projection-policy completeness suite。
-- [ ] 6.1.6 執行 `cargo test --manifest-path scripts/Cargo.toml -p base_content` 並保存完整 log。
-- [ ] 6.1.7 執行 omoba-core determinism property suite。
-- [ ] 6.1.8 執行 visibility resolution property suite。
-- [ ] 6.1.9 執行 team-scoped identity property suite。
-- [ ] 6.1.10 執行 scheduled transition property suite。
-- [ ] 6.1.11 執行 authority repair property suite。
-- [ ] 6.1.12 執行 bounded random-tape property suite。
-- [ ] 6.1.13 執行 protocol decode suite。
-- [ ] 6.1.14 執行 schema version compatibility suite。
-- [ ] 6.1.15 執行 canonical ordering suite。
-- [ ] 6.1.16 執行 malformed transition rejection suite。
-- [ ] 6.1.17 執行 malformed rebase rejection suite。
-- [ ] 6.1.18 執行 remembered-state simulation exclusion suite。
-- [ ] 6.1.19 執行 remembered-state hash exclusion suite。
-- [ ] 6.1.20 彙整 6.1 required suite 的 exit status，確認沒有 skip blocking scenario。
+- [x] 6.1.1 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab --lib` 並保存完整 log。
+- [x] 6.1.2 執行 `cargo test --manifest-path scripts/Cargo.toml -p omb-script-abi` 並保存完整 log。
+- [x] 6.1.3 執行 omoba-sim determinism property suite。
+- [x] 6.1.4 執行 protocol encode suite。
+- [x] 6.1.5 執行 projection-policy completeness suite。
+- [x] 6.1.6 執行 `cargo test --manifest-path scripts/Cargo.toml -p base_content` 並保存完整 log。
+- [x] 6.1.7 執行 omoba-core determinism property suite。
+- [x] 6.1.8 執行 visibility resolution property suite。
+- [x] 6.1.9 執行 team-scoped identity property suite。
+- [x] 6.1.10 執行 scheduled transition property suite。
+- [x] 6.1.11 執行 authority repair property suite。
+- [x] 6.1.12 執行 bounded random-tape property suite。
+- [x] 6.1.13 執行 protocol decode suite。
+- [x] 6.1.14 執行 schema version compatibility suite。
+- [x] 6.1.15 執行 canonical ordering suite。
+- [x] 6.1.16 執行 malformed transition rejection suite。
+- [x] 6.1.17 執行 malformed rebase rejection suite。
+- [x] 6.1.18 執行 remembered-state simulation exclusion suite。
+- [x] 6.1.19 執行 remembered-state hash exclusion suite。
+- [x] 6.1.20 彙整 6.1 required suite 的 exit status，確認沒有 skip blocking scenario。
 
 ### 6.2 執行 differential、cross-platform 與 non-interference suite
 

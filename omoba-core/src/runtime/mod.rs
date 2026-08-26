@@ -28,6 +28,8 @@ pub mod observer_validation;
 pub mod authority_recovery;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod anti_probing;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod selective_contract_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]

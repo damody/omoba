@@ -1,0 +1,28 @@
+{
+  "gate": ["G-FINAL-UNIT", "G-FINAL-SCHEMA"],
+  "status": "passed",
+  "timestamp": "2026-08-27T08:10:00+08:00",
+  "suites": [
+    {"command":"cargo test --manifest-path omb/Cargo.toml -p omobab --lib","exit":0,"result":"127 passed, 0 failed, 1 ignored (non-blocking benchmark)"},
+    {"command":"cargo test --manifest-path scripts/Cargo.toml -p omb-script-abi","exit":0,"result":"13 passed, 0 failed, 0 ignored"},
+    {"command":"cargo test --manifest-path omoba-sim/Cargo.toml","exit":0,"result":"69 passed, 0 failed, 0 ignored"},
+    {"command":"cargo test --manifest-path scripts/Cargo.toml -p base_content","exit":0,"result":"45 passed, 0 failed, 0 ignored"},
+    {"command":"cargo test --manifest-path omoba-core/Cargo.toml","exit":0,"result":"230 unit/contract + 3 integration + 1 doctest passed; 0 failed; 1 non-blocking doc example ignored"},
+    {"command":"cargo test --manifest-path omoba-core/Cargo.toml selective_contract_tests -- --nocapture","exit":0,"result":"9 passed, 0 failed, 0 ignored"}
+  ],
+  "replacement_lineage": {
+    "failed_generation": "首次 omoba-core run 暴露舊 fixture 缺 ObservableFactBuffer/Tick；修正 fixture 後由本摘要所列完整 passing run 取代。",
+    "contract_adjustment": "專用測試首次編譯失敗為測試 API 名稱校正；修正後 9/9 並由完整套件再次驗證。"
+  },
+  "blocking_skips": 0,
+  "ignored_rationale": [
+    "omb bench_four_impls 是效能 benchmark，非 required unit/schema scenario。",
+    "comp::ecs::System doctest 是文件示例且標記 ignore，非 secure selective lockstep blocking scenario。"
+  ],
+  "source_hashes": {
+    "selective_contract_tests.rs":"7297fa76bcebf1384050b5a303d903d5a501931f98421b733c9816a65b61b6e0",
+    "selective_replica.rs":"8e17c56f6d7ed94b8d3ac1b6901698975eb7e8eb84bdfca496550ca1eb229943",
+    "game_processor.rs":"037e33a9eba28f4c7e1d9ad677af0c3e74c4f5db46fd9b39839f667acc133cb4",
+    "projectile_tick.rs":"b163a0c0b3426885678187055660be4e3c5bb37de3ac6a0cb4ac701e3a7abcb0"
+  }
+}

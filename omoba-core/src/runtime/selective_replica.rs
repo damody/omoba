@@ -83,6 +83,8 @@ pub enum ReplicaRuntimeError {
     ComponentNotAllowlisted,
     ResourceNotAllowlisted,
     MalformedBaseline,
+    MalformedTransition,
+    MalformedRandomTape,
     UnverifiedRebase,
 }
 
@@ -294,6 +296,9 @@ impl SelectiveReplicaRuntime {
         for transition in &pre_step.transitions {
             match transition.transition.as_ref() {
                 Some(transition::Transition::Reveal(reveal)) => {
+                    if reveal.effective_tick != self.expected_replica_tick {
+                        return Err(ReplicaRuntimeError::MalformedTransition);
+                    }
                     let replica_id = reveal.replica_entity_id.as_ref().map_or(0, |id| id.value);
                     let disclosure_epoch = epoch_value(&reveal.disclosure_epoch);
                     if self.transition_already_applied(
@@ -327,6 +332,9 @@ impl SelectiveReplicaRuntime {
                     self.record_transition(0, replica_id, disclosure_epoch, frame_revision);
                 }
                 Some(transition::Transition::Replace(replace)) => {
+                    if replace.effective_tick != self.expected_replica_tick {
+                        return Err(ReplicaRuntimeError::MalformedTransition);
+                    }
                     let replica_id = replace.replica_entity_id.as_ref().map_or(0, |id| id.value);
                     let revision = revision_value(&replace.authority_revision);
                     let disclosure_epoch = epoch_value(&replace.disclosure_epoch);
@@ -350,6 +358,9 @@ impl SelectiveReplicaRuntime {
                     self.record_transition(1, replica_id, disclosure_epoch, revision);
                 }
                 Some(transition::Transition::Hide(hide)) => {
+                    if hide.effective_tick != self.expected_replica_tick {
+                        return Err(ReplicaRuntimeError::MalformedTransition);
+                    }
                     let replica_id = hide.replica_entity_id.as_ref().map_or(0, |id| id.value);
                     let disclosure_epoch = epoch_value(&hide.disclosure_epoch);
                     if self.transition_already_applied(
@@ -370,6 +381,9 @@ impl SelectiveReplicaRuntime {
                     self.record_transition(2, replica_id, disclosure_epoch, frame_revision);
                 }
                 Some(transition::Transition::Forget(forget)) => {
+                    if forget.effective_tick != self.expected_replica_tick {
+                        return Err(ReplicaRuntimeError::MalformedTransition);
+                    }
                     let replica_id = forget.replica_entity_id.as_ref().map_or(0, |id| id.value);
                     let disclosure_epoch = epoch_value(&forget.disclosure_epoch);
                     if self.transition_already_applied(
@@ -426,11 +440,12 @@ impl SelectiveReplicaRuntime {
                 .get(&replica_id)
                 .ok_or(ReplicaRuntimeError::UnknownEntity)?;
             if tape.tick_count == 0
+                || tape.values.len() < tape.tick_count as usize
                 || self.expected_replica_tick < tape.first_tick
                 || self.expected_replica_tick >= tape_end
                 || entity.disclosure_epoch != epoch_value(&tape.disclosure_epoch)
             {
-                return Err(ReplicaRuntimeError::StaleDisclosureEpoch);
+                return Err(ReplicaRuntimeError::MalformedRandomTape);
             }
         }
         Ok(StepInjections {
@@ -497,9 +512,15 @@ impl SelectiveReplicaRuntime {
             return Ok(());
         };
         for repair in &post_step.component_repairs {
+            if repair.effective_tick != self.expected_replica_tick {
+                return Err(ReplicaRuntimeError::MalformedTransition);
+            }
             self.apply_component_repair(repair)?;
         }
         for replace in &post_step.entity_replaces {
+            if replace.effective_tick != self.expected_replica_tick {
+                return Err(ReplicaRuntimeError::MalformedTransition);
+            }
             self.apply_entity_replace(replace)?;
         }
         self.authority_revision = self.authority_revision.max(frame_revision);
