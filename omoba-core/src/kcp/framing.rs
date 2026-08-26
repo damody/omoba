@@ -21,6 +21,17 @@ pub const TAG_SNAPSHOT_RESP: u8 = 0x16; // S→C unicast
 pub const TAG_PING_REQ: u8 = 0x17; // C→S RTT probe
 pub const TAG_PING_RESP: u8 = 0x18; // S→C echo
 
+// Secure selective-lockstep V2. V1 and V2 are negotiated per match and must
+// never be mixed within one player session.
+pub const TAG_TEAM_GAME_START_V2: u8 = 0x20; // S→C unicast bootstrap
+pub const TAG_TEAM_TICK_FRAME_V2: u8 = 0x21; // S→C team stream
+pub const TAG_TEAM_REBASE_CHUNK_V2: u8 = 0x22; // S→C rebase chunk
+pub const TAG_TEAM_REBASE_MANIFEST_V2: u8 = 0x23; // S→C verified manifest
+
+pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 2;
+pub const SELECTIVE_FRAME_SCHEMA_VERSION: u32 = 1;
+pub const FILTERED_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+
 /// 標籤位元組的高位元 — 當幀有效負載經過 LZ4 壓縮時設定。
 /// 基本標籤 0x01~0x07 從不使用該位，因此它始終可以作為標誌自由使用。
 pub const COMPRESSION_FLAG: u8 = 0x80;

@@ -612,6 +612,239 @@ message SimSnapshot {
   uint32 schema_version = 2; // for forward compatibility
 }
 
+// ===== Secure selective lockstep V2 =====
+// V2 player messages intentionally have no global seed or canonical/raw ECS id.
+
+message ReplicaEntityId { uint64 value = 1; }
+message ViewEpoch { uint64 value = 1; }
+message DisclosureEpoch { uint64 value = 1; }
+message AuthorityRevision { uint64 value = 1; }
+
+message SnapshotId {
+  uint32 snapshot_schema_version = 1;
+  bytes match_instance_id = 2; // exactly 16 opaque bytes
+  uint32 team_id = 3;
+  ViewEpoch view_epoch = 4;
+  uint64 authoritative_tick = 5;
+  uint64 monotonic_snapshot_ordinal = 6;
+}
+
+message DeterministicMetadata {
+  string namespace = 1;
+  string key = 2;
+  uint32 schema_version = 3;
+  bytes value = 4;
+}
+
+message FilteredTeamSnapshot {
+  uint32 snapshot_schema_version = 1;
+  SnapshotId snapshot_id = 2;
+  uint32 team_id = 3;
+  ViewEpoch view_epoch = 4;
+  uint64 authoritative_tick = 5;
+  bytes disclosed_world = 6;
+  repeated DeterministicMetadata public_metadata = 7;
+  repeated DeterministicMetadata team_private_metadata = 8;
+  bytes filtered_snapshot_hash = 9; // SHA-256, exactly 32 bytes
+}
+
+message TeamGameStart {
+  uint32 protocol_version = 1;
+  uint32 snapshot_schema_version = 2;
+  uint32 content_schema_version = 3;
+  uint32 player_id = 4;
+  uint32 team_id = 5;
+  uint64 server_tick = 6;
+  uint64 replica_start_tick = 7;
+  uint32 tick_rate_hz = 8;
+  uint32 visibility_commit_delay_ticks = 9;
+  uint32 replica_buffer_ticks = 10;
+  ViewEpoch view_epoch = 11;
+  uint64 next_team_sequence = 12;
+  SnapshotId snapshot_id = 13;
+  bytes snapshot_manifest_hash = 14;
+  FilteredTeamSnapshot filtered_snapshot = 15;
+  repeated DeterministicMetadata public_metadata = 16;
+  repeated DeterministicMetadata team_private_metadata = 17;
+}
+
+message RevealEntity {
+  ReplicaEntityId replica_entity_id = 1;
+  DisclosureEpoch disclosure_epoch = 2;
+  uint64 effective_tick = 3;
+  uint32 entity_kind = 4;
+  bytes safe_baseline = 5;
+  repeated ReplicaEntityId disclosed_dependencies = 6;
+  uint32 stable_sub_index = 7;
+}
+
+message ReplaceEntity {
+  ReplicaEntityId replica_entity_id = 1;
+  DisclosureEpoch disclosure_epoch = 2;
+  uint64 effective_tick = 3;
+  AuthorityRevision authority_revision = 4;
+  bytes safe_baseline = 5;
+  repeated ReplicaEntityId disclosed_dependencies = 6;
+  uint32 stable_sub_index = 7;
+}
+
+message HideEntity {
+  ReplicaEntityId replica_entity_id = 1;
+  DisclosureEpoch disclosure_epoch = 2;
+  uint64 effective_tick = 3;
+  uint32 remember_policy = 4;
+  bytes sanitized_remembered_presentation = 5;
+  uint32 stable_sub_index = 6;
+}
+
+message ForgetEntity {
+  ReplicaEntityId replica_entity_id = 1;
+  DisclosureEpoch disclosure_epoch = 2;
+  uint64 effective_tick = 3;
+  uint32 retire_reason = 4;
+  uint32 stable_sub_index = 5;
+}
+
+message Transition {
+  oneof transition {
+    RevealEntity reveal = 1;
+    ReplaceEntity replace = 2;
+    HideEntity hide = 3;
+    ForgetEntity forget = 4;
+  }
+}
+
+message PreStep { repeated Transition transitions = 1; }
+
+message TeamAcceptedInput {
+  uint32 player_id = 1;
+  uint64 input_id = 2;
+  uint32 action_kind = 3;
+  ReplicaEntityId actor = 4;
+  ReplicaEntityId target = 5;
+  bytes sanitized_payload = 6;
+  uint32 stable_sub_index = 7;
+}
+
+message TeamPublicEvent {
+  uint32 event_kind = 1;
+  ReplicaEntityId subject = 2;
+  bytes sanitized_payload = 3;
+  uint32 stable_sub_index = 4;
+}
+
+message BoundedRandomTape {
+  uint64 tape_id = 1;
+  DisclosureEpoch disclosure_epoch = 2;
+  uint64 first_tick = 3;
+  uint32 tick_count = 4;
+  uint32 algorithm_id = 5;
+  repeated uint64 values = 6;
+  uint32 consumer_kind = 7;
+  ReplicaEntityId replica_entity_id = 8;
+  uint32 stable_sub_index = 9;
+}
+
+message SanitizedExternalEffect {
+  uint32 effect_kind = 1;
+  ReplicaEntityId visible_target = 2;
+  bytes sanitized_payload = 3;
+  uint32 stable_sub_index = 4;
+}
+
+message Step {
+  repeated TeamAcceptedInput accepted_inputs = 1;
+  repeated TeamPublicEvent public_events = 2;
+  repeated BoundedRandomTape random_tapes = 3;
+  repeated SanitizedExternalEffect external_effects = 4;
+}
+
+message ComponentRepair {
+  ReplicaEntityId replica_entity_id = 1;
+  DisclosureEpoch disclosure_epoch = 2;
+  uint32 component_schema_id = 3;
+  bytes field_mask = 4;
+  bytes replacement_fields = 5;
+  AuthorityRevision authority_revision = 6;
+  uint64 effective_tick = 7;
+}
+
+message EntityReplace {
+  ReplicaEntityId replica_entity_id = 1;
+  DisclosureEpoch disclosure_epoch = 2;
+  bytes safe_baseline = 3;
+  AuthorityRevision authority_revision = 4;
+  uint64 effective_tick = 5;
+}
+
+message TeamHashCheckpoint {
+  uint64 replica_tick = 1;
+  bytes canonical_team_hash = 2; // SHA-256, exactly 32 bytes
+  AuthorityRevision authority_revision = 3;
+}
+
+message TeamViewRebaseNotice {
+  SnapshotId snapshot_id = 1;
+  bytes manifest_hash = 2;
+  uint64 resume_team_sequence = 3;
+  ViewEpoch view_epoch = 4;
+  AuthorityRevision authority_revision = 5;
+}
+
+message PostStep {
+  repeated ComponentRepair component_repairs = 1;
+  repeated EntityReplace entity_replaces = 2;
+  TeamHashCheckpoint hash_checkpoint = 3;
+  TeamViewRebaseNotice rebase_notice = 4;
+}
+
+message TeamTickFrame {
+  uint32 protocol_version = 1;
+  uint32 frame_schema_version = 2;
+  uint32 content_schema_version = 3;
+  uint32 team_id = 4;
+  uint64 server_tick = 5;
+  uint64 replica_tick = 6;
+  uint64 team_sequence = 7;
+  ViewEpoch view_epoch = 8;
+  AuthorityRevision authority_revision = 9;
+  PreStep pre_step = 10;
+  Step step = 11;
+  PostStep post_step = 12;
+  bytes padding = 13;
+}
+
+message TeamViewRebaseChunk {
+  uint32 protocol_version = 1;
+  uint32 snapshot_schema_version = 2;
+  SnapshotId snapshot_id = 3;
+  uint32 chunk_index = 4;
+  uint32 chunk_count = 5;
+  uint64 uncompressed_offset = 6;
+  uint32 uncompressed_len = 7;
+  uint32 compression_id = 8;
+  bytes payload = 9;
+  bytes chunk_hash = 10;
+}
+
+message TeamViewRebase {
+  uint32 manifest_version = 1;
+  uint32 protocol_version = 2;
+  uint32 snapshot_schema_version = 3;
+  SnapshotId snapshot_id = 4;
+  uint32 team_id = 5;
+  ViewEpoch view_epoch = 6;
+  uint64 authoritative_tick = 7;
+  uint64 resume_team_sequence = 8;
+  AuthorityRevision authority_revision = 9;
+  uint64 total_uncompressed_len = 10;
+  uint32 compression_id = 11;
+  uint32 chunk_count = 12;
+  repeated bytes ordered_chunk_hashes = 13;
+  bytes filtered_snapshot_hash = 14;
+  bytes manifest_hash = 15;
+}
+
 message TestCommandRequest {
   string command_json = 1;
 }

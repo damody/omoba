@@ -136,31 +136,31 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-V2-SCHEMA`；proto/generated hashes。
 **完成門檻：** 所有 proposal-listed V2 message 可 encode/decode，V1/V2 match negotiation 有明確拒絕路徑，player V2 type 不含 global seed/raw ECS ID。
 
-- [ ] 2.1.1 在 `proto/game.proto` 定義 `TeamGameStart` message。
-- [ ] 2.1.2 在 `proto/game.proto` 定義 `RevealEntity` message。
-- [ ] 2.1.3 在 `proto/game.proto` 定義 `ReplicaEntityId` 欄位型別。
-- [ ] 2.1.4 在 `omoba-core/src/kcp/framing.rs` 新增 V2 framing tag。
-- [ ] 2.1.5 以既有 code generation 流程更新 `omoba-core/src/generated/game.rs`，不手改 generated output。
-- [ ] 2.1.6 在 `proto/game.proto` 定義 `TeamTickFrame` envelope。
-- [ ] 2.1.7 在 `proto/game.proto` 定義 `PreStep` payload。
-- [ ] 2.1.8 在 `proto/game.proto` 定義 `Step` payload。
-- [ ] 2.1.9 在 `proto/game.proto` 定義 `PostStep` payload。
-- [ ] 2.1.10 在 `proto/game.proto` 定義 `HideEntity` message。
-- [ ] 2.1.11 在 `proto/game.proto` 定義 `ForgetEntity` message。
-- [ ] 2.1.12 在 `proto/game.proto` 定義 `ComponentRepair` message。
-- [ ] 2.1.13 在 `proto/game.proto` 定義 `EntityReplace` message。
-- [ ] 2.1.14 在 `proto/game.proto` 定義 `TeamViewRebase` manifest message。
-- [ ] 2.1.15 在 `proto/game.proto` 定義 `TeamViewRebase` chunk message。
-- [ ] 2.1.16 在 `proto/game.proto` 定義 view epoch 欄位型別。
-- [ ] 2.1.17 在 `proto/game.proto` 定義 authority revision 欄位型別。
-- [ ] 2.1.18 在 `proto/game.proto` 定義 bounded random tape message。
-- [ ] 2.1.19 在 `proto/game.proto` 定義 sanitized external effect message。
-- [ ] 2.1.20 在 `proto/game.proto` 定義 filtered snapshot message。
-- [ ] 2.1.21 在 `omoba-core/src/kcp/framing.rs` 新增 protocol/schema version constants。
-- [ ] 2.1.22 在 `omoba-core/src/transport.rs` 定義 match capability negotiation type。
-- [ ] 2.1.23 在 V2 player schema allowlist 中排除 global seed 欄位。
-- [ ] 2.1.24 在 V2 player schema allowlist 中排除 raw ECS ID 欄位。
-- [ ] 2.1.25 在 `proto/game.proto` 定義 disclosure epoch 欄位型別。
+- [x] 2.1.1 在 `proto/game.proto` 定義 `TeamGameStart` message。
+- [x] 2.1.2 在 `proto/game.proto` 定義 `RevealEntity` message。
+- [x] 2.1.3 在 `proto/game.proto` 定義 `ReplicaEntityId` 欄位型別。
+- [x] 2.1.4 在 `omoba-core/src/kcp/framing.rs` 新增 V2 framing tag。
+- [x] 2.1.5 以既有 code generation 流程更新 `omoba-core/src/generated/game.rs`，不手改 generated output。
+- [x] 2.1.6 在 `proto/game.proto` 定義 `TeamTickFrame` envelope。
+- [x] 2.1.7 在 `proto/game.proto` 定義 `PreStep` payload。
+- [x] 2.1.8 在 `proto/game.proto` 定義 `Step` payload。
+- [x] 2.1.9 在 `proto/game.proto` 定義 `PostStep` payload。
+- [x] 2.1.10 在 `proto/game.proto` 定義 `HideEntity` message。
+- [x] 2.1.11 在 `proto/game.proto` 定義 `ForgetEntity` message。
+- [x] 2.1.12 在 `proto/game.proto` 定義 `ComponentRepair` message。
+- [x] 2.1.13 在 `proto/game.proto` 定義 `EntityReplace` message。
+- [x] 2.1.14 在 `proto/game.proto` 定義 `TeamViewRebase` manifest message。
+- [x] 2.1.15 在 `proto/game.proto` 定義 `TeamViewRebase` chunk message。
+- [x] 2.1.16 在 `proto/game.proto` 定義 view epoch 欄位型別。
+- [x] 2.1.17 在 `proto/game.proto` 定義 authority revision 欄位型別。
+- [x] 2.1.18 在 `proto/game.proto` 定義 bounded random tape message。
+- [x] 2.1.19 在 `proto/game.proto` 定義 sanitized external effect message。
+- [x] 2.1.20 在 `proto/game.proto` 定義 filtered snapshot message。
+- [x] 2.1.21 在 `omoba-core/src/kcp/framing.rs` 新增 protocol/schema version constants。
+- [x] 2.1.22 在 `omoba-core/src/transport.rs` 定義 match capability negotiation type。
+- [x] 2.1.23 在 V2 player schema allowlist 中排除 global seed 欄位。
+- [x] 2.1.24 在 V2 player schema allowlist 中排除 raw ECS ID 欄位。
+- [x] 2.1.25 在 `proto/game.proto` 定義 disclosure epoch 欄位型別。
 
 ### 2.2 實作 team identity 與 filtered snapshot primitives
 

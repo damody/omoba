@@ -860,6 +860,418 @@ pub struct SimSnapshot {
     #[prost(uint32, tag = "2")]
     pub schema_version: u32,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ReplicaEntityId {
+    #[prost(uint64, tag = "1")]
+    pub value: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ViewEpoch {
+    #[prost(uint64, tag = "1")]
+    pub value: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct DisclosureEpoch {
+    #[prost(uint64, tag = "1")]
+    pub value: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AuthorityRevision {
+    #[prost(uint64, tag = "1")]
+    pub value: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SnapshotId {
+    #[prost(uint32, tag = "1")]
+    pub snapshot_schema_version: u32,
+    /// exactly 16 opaque bytes
+    #[prost(bytes = "vec", tag = "2")]
+    pub match_instance_id: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "3")]
+    pub team_id: u32,
+    #[prost(message, optional, tag = "4")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(uint64, tag = "5")]
+    pub authoritative_tick: u64,
+    #[prost(uint64, tag = "6")]
+    pub monotonic_snapshot_ordinal: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DeterministicMetadata {
+    #[prost(string, tag = "1")]
+    pub namespace: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub key: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub schema_version: u32,
+    #[prost(bytes = "vec", tag = "4")]
+    pub value: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FilteredTeamSnapshot {
+    #[prost(uint32, tag = "1")]
+    pub snapshot_schema_version: u32,
+    #[prost(message, optional, tag = "2")]
+    pub snapshot_id: ::core::option::Option<SnapshotId>,
+    #[prost(uint32, tag = "3")]
+    pub team_id: u32,
+    #[prost(message, optional, tag = "4")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(uint64, tag = "5")]
+    pub authoritative_tick: u64,
+    #[prost(bytes = "vec", tag = "6")]
+    pub disclosed_world: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "7")]
+    pub public_metadata: ::prost::alloc::vec::Vec<DeterministicMetadata>,
+    #[prost(message, repeated, tag = "8")]
+    pub team_private_metadata: ::prost::alloc::vec::Vec<DeterministicMetadata>,
+    /// SHA-256, exactly 32 bytes
+    #[prost(bytes = "vec", tag = "9")]
+    pub filtered_snapshot_hash: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamGameStart {
+    #[prost(uint32, tag = "1")]
+    pub protocol_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub snapshot_schema_version: u32,
+    #[prost(uint32, tag = "3")]
+    pub content_schema_version: u32,
+    #[prost(uint32, tag = "4")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "5")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "6")]
+    pub server_tick: u64,
+    #[prost(uint64, tag = "7")]
+    pub replica_start_tick: u64,
+    #[prost(uint32, tag = "8")]
+    pub tick_rate_hz: u32,
+    #[prost(uint32, tag = "9")]
+    pub visibility_commit_delay_ticks: u32,
+    #[prost(uint32, tag = "10")]
+    pub replica_buffer_ticks: u32,
+    #[prost(message, optional, tag = "11")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(uint64, tag = "12")]
+    pub next_team_sequence: u64,
+    #[prost(message, optional, tag = "13")]
+    pub snapshot_id: ::core::option::Option<SnapshotId>,
+    #[prost(bytes = "vec", tag = "14")]
+    pub snapshot_manifest_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "15")]
+    pub filtered_snapshot: ::core::option::Option<FilteredTeamSnapshot>,
+    #[prost(message, repeated, tag = "16")]
+    pub public_metadata: ::prost::alloc::vec::Vec<DeterministicMetadata>,
+    #[prost(message, repeated, tag = "17")]
+    pub team_private_metadata: ::prost::alloc::vec::Vec<DeterministicMetadata>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RevealEntity {
+    #[prost(message, optional, tag = "1")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "2")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+    #[prost(uint64, tag = "3")]
+    pub effective_tick: u64,
+    #[prost(uint32, tag = "4")]
+    pub entity_kind: u32,
+    #[prost(bytes = "vec", tag = "5")]
+    pub safe_baseline: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "6")]
+    pub disclosed_dependencies: ::prost::alloc::vec::Vec<ReplicaEntityId>,
+    #[prost(uint32, tag = "7")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReplaceEntity {
+    #[prost(message, optional, tag = "1")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "2")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+    #[prost(uint64, tag = "3")]
+    pub effective_tick: u64,
+    #[prost(message, optional, tag = "4")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+    #[prost(bytes = "vec", tag = "5")]
+    pub safe_baseline: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "6")]
+    pub disclosed_dependencies: ::prost::alloc::vec::Vec<ReplicaEntityId>,
+    #[prost(uint32, tag = "7")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct HideEntity {
+    #[prost(message, optional, tag = "1")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "2")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+    #[prost(uint64, tag = "3")]
+    pub effective_tick: u64,
+    #[prost(uint32, tag = "4")]
+    pub remember_policy: u32,
+    #[prost(bytes = "vec", tag = "5")]
+    pub sanitized_remembered_presentation: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "6")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ForgetEntity {
+    #[prost(message, optional, tag = "1")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "2")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+    #[prost(uint64, tag = "3")]
+    pub effective_tick: u64,
+    #[prost(uint32, tag = "4")]
+    pub retire_reason: u32,
+    #[prost(uint32, tag = "5")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Transition {
+    #[prost(oneof = "transition::Transition", tags = "1, 2, 3, 4")]
+    pub transition: ::core::option::Option<transition::Transition>,
+}
+/// Nested message and enum types in `Transition`.
+pub mod transition {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Transition {
+        #[prost(message, tag = "1")]
+        Reveal(super::RevealEntity),
+        #[prost(message, tag = "2")]
+        Replace(super::ReplaceEntity),
+        #[prost(message, tag = "3")]
+        Hide(super::HideEntity),
+        #[prost(message, tag = "4")]
+        Forget(super::ForgetEntity),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PreStep {
+    #[prost(message, repeated, tag = "1")]
+    pub transitions: ::prost::alloc::vec::Vec<Transition>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamAcceptedInput {
+    #[prost(uint32, tag = "1")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub input_id: u64,
+    #[prost(uint32, tag = "3")]
+    pub action_kind: u32,
+    #[prost(message, optional, tag = "4")]
+    pub actor: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "5")]
+    pub target: ::core::option::Option<ReplicaEntityId>,
+    #[prost(bytes = "vec", tag = "6")]
+    pub sanitized_payload: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "7")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamPublicEvent {
+    #[prost(uint32, tag = "1")]
+    pub event_kind: u32,
+    #[prost(message, optional, tag = "2")]
+    pub subject: ::core::option::Option<ReplicaEntityId>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub sanitized_payload: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "4")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct BoundedRandomTape {
+    #[prost(uint64, tag = "1")]
+    pub tape_id: u64,
+    #[prost(message, optional, tag = "2")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+    #[prost(uint64, tag = "3")]
+    pub first_tick: u64,
+    #[prost(uint32, tag = "4")]
+    pub tick_count: u32,
+    #[prost(uint32, tag = "5")]
+    pub algorithm_id: u32,
+    #[prost(uint64, repeated, tag = "6")]
+    pub values: ::prost::alloc::vec::Vec<u64>,
+    #[prost(uint32, tag = "7")]
+    pub consumer_kind: u32,
+    #[prost(message, optional, tag = "8")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(uint32, tag = "9")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SanitizedExternalEffect {
+    #[prost(uint32, tag = "1")]
+    pub effect_kind: u32,
+    #[prost(message, optional, tag = "2")]
+    pub visible_target: ::core::option::Option<ReplicaEntityId>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub sanitized_payload: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint32, tag = "4")]
+    pub stable_sub_index: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Step {
+    #[prost(message, repeated, tag = "1")]
+    pub accepted_inputs: ::prost::alloc::vec::Vec<TeamAcceptedInput>,
+    #[prost(message, repeated, tag = "2")]
+    pub public_events: ::prost::alloc::vec::Vec<TeamPublicEvent>,
+    #[prost(message, repeated, tag = "3")]
+    pub random_tapes: ::prost::alloc::vec::Vec<BoundedRandomTape>,
+    #[prost(message, repeated, tag = "4")]
+    pub external_effects: ::prost::alloc::vec::Vec<SanitizedExternalEffect>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ComponentRepair {
+    #[prost(message, optional, tag = "1")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "2")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+    #[prost(uint32, tag = "3")]
+    pub component_schema_id: u32,
+    #[prost(bytes = "vec", tag = "4")]
+    pub field_mask: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "5")]
+    pub replacement_fields: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "6")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+    #[prost(uint64, tag = "7")]
+    pub effective_tick: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EntityReplace {
+    #[prost(message, optional, tag = "1")]
+    pub replica_entity_id: ::core::option::Option<ReplicaEntityId>,
+    #[prost(message, optional, tag = "2")]
+    pub disclosure_epoch: ::core::option::Option<DisclosureEpoch>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub safe_baseline: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "4")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+    #[prost(uint64, tag = "5")]
+    pub effective_tick: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamHashCheckpoint {
+    #[prost(uint64, tag = "1")]
+    pub replica_tick: u64,
+    /// SHA-256, exactly 32 bytes
+    #[prost(bytes = "vec", tag = "2")]
+    pub canonical_team_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, optional, tag = "3")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamViewRebaseNotice {
+    #[prost(message, optional, tag = "1")]
+    pub snapshot_id: ::core::option::Option<SnapshotId>,
+    #[prost(bytes = "vec", tag = "2")]
+    pub manifest_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(uint64, tag = "3")]
+    pub resume_team_sequence: u64,
+    #[prost(message, optional, tag = "4")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(message, optional, tag = "5")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PostStep {
+    #[prost(message, repeated, tag = "1")]
+    pub component_repairs: ::prost::alloc::vec::Vec<ComponentRepair>,
+    #[prost(message, repeated, tag = "2")]
+    pub entity_replaces: ::prost::alloc::vec::Vec<EntityReplace>,
+    #[prost(message, optional, tag = "3")]
+    pub hash_checkpoint: ::core::option::Option<TeamHashCheckpoint>,
+    #[prost(message, optional, tag = "4")]
+    pub rebase_notice: ::core::option::Option<TeamViewRebaseNotice>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamTickFrame {
+    #[prost(uint32, tag = "1")]
+    pub protocol_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub frame_schema_version: u32,
+    #[prost(uint32, tag = "3")]
+    pub content_schema_version: u32,
+    #[prost(uint32, tag = "4")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "5")]
+    pub server_tick: u64,
+    #[prost(uint64, tag = "6")]
+    pub replica_tick: u64,
+    #[prost(uint64, tag = "7")]
+    pub team_sequence: u64,
+    #[prost(message, optional, tag = "8")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(message, optional, tag = "9")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+    #[prost(message, optional, tag = "10")]
+    pub pre_step: ::core::option::Option<PreStep>,
+    #[prost(message, optional, tag = "11")]
+    pub step: ::core::option::Option<Step>,
+    #[prost(message, optional, tag = "12")]
+    pub post_step: ::core::option::Option<PostStep>,
+    #[prost(bytes = "vec", tag = "13")]
+    pub padding: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamViewRebaseChunk {
+    #[prost(uint32, tag = "1")]
+    pub protocol_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub snapshot_schema_version: u32,
+    #[prost(message, optional, tag = "3")]
+    pub snapshot_id: ::core::option::Option<SnapshotId>,
+    #[prost(uint32, tag = "4")]
+    pub chunk_index: u32,
+    #[prost(uint32, tag = "5")]
+    pub chunk_count: u32,
+    #[prost(uint64, tag = "6")]
+    pub uncompressed_offset: u64,
+    #[prost(uint32, tag = "7")]
+    pub uncompressed_len: u32,
+    #[prost(uint32, tag = "8")]
+    pub compression_id: u32,
+    #[prost(bytes = "vec", tag = "9")]
+    pub payload: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "10")]
+    pub chunk_hash: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamViewRebase {
+    #[prost(uint32, tag = "1")]
+    pub manifest_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub protocol_version: u32,
+    #[prost(uint32, tag = "3")]
+    pub snapshot_schema_version: u32,
+    #[prost(message, optional, tag = "4")]
+    pub snapshot_id: ::core::option::Option<SnapshotId>,
+    #[prost(uint32, tag = "5")]
+    pub team_id: u32,
+    #[prost(message, optional, tag = "6")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(uint64, tag = "7")]
+    pub authoritative_tick: u64,
+    #[prost(uint64, tag = "8")]
+    pub resume_team_sequence: u64,
+    #[prost(message, optional, tag = "9")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+    #[prost(uint64, tag = "10")]
+    pub total_uncompressed_len: u64,
+    #[prost(uint32, tag = "11")]
+    pub compression_id: u32,
+    #[prost(uint32, tag = "12")]
+    pub chunk_count: u32,
+    #[prost(bytes = "vec", repeated, tag = "13")]
+    pub ordered_chunk_hashes: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+    #[prost(bytes = "vec", tag = "14")]
+    pub filtered_snapshot_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "15")]
+    pub manifest_hash: ::prost::alloc::vec::Vec<u8>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TestCommandRequest {
     #[prost(string, tag = "1")]

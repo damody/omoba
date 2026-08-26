@@ -1,27 +1,21 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=../proto/game.proto");
     println!("cargo:rerun-if-changed=src/generated/game.rs");
+    println!("cargo:rerun-if-env-changed=OMOBA_UPDATE_PROTO_FALLBACK");
 
-    if protoc_available() {
-        compile_with_protoc();
-    } else {
+    let protoc = protoc_bin_vendored::protoc_bin_path().expect("vendored protoc unavailable");
+    env::set_var("PROTOC", protoc);
+    compile_with_protoc();
+
+    if env::var_os("OMOBA_UPDATE_PROTO_FALLBACK").as_deref() == Some(std::ffi::OsStr::new("1")) {
         let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR not set"));
-        fs::copy("src/generated/game.rs", out_dir.join("game.rs"))
-            .expect("Failed to copy checked-in generated proto fallback");
-        println!("cargo:warning=protoc not found; using src/generated/game.rs fallback");
+        fs::copy(out_dir.join("game.rs"), "src/generated/game.rs")
+            .expect("failed to update checked-in generated proto fallback");
     }
-}
-
-fn protoc_available() -> bool {
-    if let Some(path) = env::var_os("PROTOC") {
-        return Command::new(path).arg("--version").output().is_ok();
-    }
-    Command::new("protoc").arg("--version").output().is_ok()
 }
 
 fn compile_with_protoc() {
