@@ -1,0 +1,16 @@
+{
+  "gates":["G-FINAL-HIDDEN-DATA","G-FINAL-ANTI-PROBING","G-FINAL-REDACTION"],
+  "status":"passed",
+  "timestamp":"2026-08-27T09:10:00+08:00",
+  "command":"cargo run --manifest-path omoba-core/Cargo.toml --example phase6_security",
+  "exit":0,
+  "harness_sha256":"b608cd531c96644fe5a13edb7e4225cd43b7953160012c08628dd99e873116b1",
+  "scenario_count":28,
+  "fuzz_cases":743,
+  "packet_findings":0,
+  "memory_findings":0,
+  "unresolved_p0_p1":0,
+  "anti_probing":{"response_class":"InvalidTarget","timing_bucket_ms":8,"rate_limit_verified":true},
+  "redaction":{"log":true,"replay":true,"crash_bundle":true,"trace":true,"violations_detected_and_removed":4},
+  "burst_controls":{"mass_reveal_entities_per_frame":64,"rebase_chunks_per_tick":2}
+}

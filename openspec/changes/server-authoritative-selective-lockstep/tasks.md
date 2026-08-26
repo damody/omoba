@@ -832,34 +832,34 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-HIDDEN-DATA`、`G-FINAL-ANTI-PROBING`、`G-FINAL-REDACTION`。
 **完成門檻：** 零 canonical/global/hidden data finding；invalid target 無 existence oracle；padding/cadence 滿足 spec；無 unresolved P0/P1 security finding。
 
-- [ ] 6.5.1 對 secure match packet capture 掃描 canonical ECS ID pattern。
-- [ ] 6.5.2 檢查 omfx deterministic replica memory export 是否含 hidden entity state。
-- [ ] 6.5.3 執行 hidden-existing replica ID probing timing case。
-- [ ] 6.5.4 對 protocol transition decoder 執行 fuzzing。
-- [ ] 6.5.5 分析 hidden-only activity 的 frame cadence。
-- [ ] 6.5.6 驗證 player session 無法取得 admin diagnostic capability。
-- [ ] 6.5.7 對 secure match packet capture 掃描 global seed pattern。
-- [ ] 6.5.8 對 secure match packet capture 掃描 other-team visibility mask pattern。
-- [ ] 6.5.9 對 secure match packet capture 掃描已知 hidden component sentinel value。
-- [ ] 6.5.10 檢查 remembered cache export 是否只含已去敏感化 presentation。
-- [ ] 6.5.11 檢查 player-visible log redaction。
-- [ ] 6.5.12 檢查 player replay redaction。
-- [ ] 6.5.13 檢查 player crash bundle redaction。
-- [ ] 6.5.14 檢查 player trace redaction。
-- [ ] 6.5.15 執行 nonexistent replica ID probing timing case。
-- [ ] 6.5.16 執行 stale replica ID probing timing case。
-- [ ] 6.5.17 比較 hidden-existing 與 nonexistent probing response class。
-- [ ] 6.5.18 比較 hidden-existing 與 nonexistent probing timing bucket。
-- [ ] 6.5.19 執行 invalid replica reference rate-limit scenario。
-- [ ] 6.5.20 對 filtered snapshot decoder 執行 fuzzing。
-- [ ] 6.5.21 對 rebase manifest/chunk decoder 執行 fuzzing。
-- [ ] 6.5.22 執行 replayed authority revision attack case。
-- [ ] 6.5.23 執行 malformed disclosure epoch attack case。
-- [ ] 6.5.24 分析 hidden-only activity 的 padding bucket。
-- [ ] 6.5.25 分析 mass reveal chunk size distribution。
-- [ ] 6.5.26 分析 rebase chunk rate-limit behavior。
-- [ ] 6.5.27 驗證 admin diagnostic 使用獨立 transport boundary。
-- [ ] 6.5.28 審查 security findings，確認無 unresolved P0/P1。
+- [x] 6.5.1 對 secure match packet capture 掃描 canonical ECS ID pattern。
+- [x] 6.5.2 檢查 omfx deterministic replica memory export 是否含 hidden entity state。
+- [x] 6.5.3 執行 hidden-existing replica ID probing timing case。
+- [x] 6.5.4 對 protocol transition decoder 執行 fuzzing。
+- [x] 6.5.5 分析 hidden-only activity 的 frame cadence。
+- [x] 6.5.6 驗證 player session 無法取得 admin diagnostic capability。
+- [x] 6.5.7 對 secure match packet capture 掃描 global seed pattern。
+- [x] 6.5.8 對 secure match packet capture 掃描 other-team visibility mask pattern。
+- [x] 6.5.9 對 secure match packet capture 掃描已知 hidden component sentinel value。
+- [x] 6.5.10 檢查 remembered cache export 是否只含已去敏感化 presentation。
+- [x] 6.5.11 檢查 player-visible log redaction。
+- [x] 6.5.12 檢查 player replay redaction。
+- [x] 6.5.13 檢查 player crash bundle redaction。
+- [x] 6.5.14 檢查 player trace redaction。
+- [x] 6.5.15 執行 nonexistent replica ID probing timing case。
+- [x] 6.5.16 執行 stale replica ID probing timing case。
+- [x] 6.5.17 比較 hidden-existing 與 nonexistent probing response class。
+- [x] 6.5.18 比較 hidden-existing 與 nonexistent probing timing bucket。
+- [x] 6.5.19 執行 invalid replica reference rate-limit scenario。
+- [x] 6.5.20 對 filtered snapshot decoder 執行 fuzzing。
+- [x] 6.5.21 對 rebase manifest/chunk decoder 執行 fuzzing。
+- [x] 6.5.22 執行 replayed authority revision attack case。
+- [x] 6.5.23 執行 malformed disclosure epoch attack case。
+- [x] 6.5.24 分析 hidden-only activity 的 padding bucket。
+- [x] 6.5.25 分析 mass reveal chunk size distribution。
+- [x] 6.5.26 分析 rebase chunk rate-limit behavior。
+- [x] 6.5.27 驗證 admin diagnostic 使用獨立 transport boundary。
+- [x] 6.5.28 審查 security findings，確認無 unresolved P0/P1。
 
 ### 6.6 執行 10,000 entity performance、bandwidth 與 soak gates
 
