@@ -356,7 +356,7 @@ Blocking stress target 是既有 10,000-entity scenario，並以 production tick
 
 工作拆成數個 implementation phase，最後才執行一次 consolidated final verification。完整 testing、security inspection、stress testing 與 release check 不在每個 phase 重複執行。
 
-### Phase 0：contract、threat model 與 baseline
+### Phase 1：contract、threat model 與 baseline
 
 - inventory deterministic component、resource、input、event、script outcome、snapshot/hash field；
 - 分類為 `Public`、`TeamPrivate`、`VisibilityBound` 或 `ServerOnly`；
@@ -367,7 +367,7 @@ Blocking stress target 是既有 10,000-entity scenario，並以 production tick
 
 產出：inventory、classification、schema、harness 與 baseline data。
 
-### Phase 1：shared selective replica foundation
+### Phase 2：shared selective replica foundation
 
 - 將 `SelectiveReplicaRuntime` 與 canonical team hash 抽入 `omoba-core`；
 - 加入 team-scoped identity、transition application、random tape、repair/rebase primitive；
@@ -375,9 +375,9 @@ Blocking stress target 是既有 10,000-entity scenario，並以 production tick
 - 建立 filtered snapshot encode/decode 與 compatibility guard；
 - 提供消費相同 encoded frame 的 synthetic server-observer/client fixture。
 
-產出：server 與 omfx 可整合、可編譯的 shared runtime/protocol；完整 determinism 與 fault validation 延後到 Phase 5。
+產出：server 與 omfx 可整合、可編譯的 shared runtime/protocol；完整 determinism 與 fault validation 延後到 Phase 6。
 
-### Phase 2：deterministic ECS projection pipeline
+### Phase 3：deterministic ECS projection pipeline
 
 - 加入 Outcome/ObservableFact stable buffer contract；
 - 遷移 gameplay system 與 script 以產生完整 projection fact；
@@ -386,9 +386,9 @@ Blocking stress target 是既有 10,000-entity scenario，並以 production tick
 - 實作 Wave B parallel per-team projection/frame encoding；
 - 拒絕缺少 cross-boundary projection policy 的內容。
 
-產出：authoritative gameplay 可產生完整 projection fact 與 deterministic team frame；完整 non-interference/boundary validation 延後到 Phase 5。
+產出：authoritative gameplay 可產生完整 projection fact 與 deterministic team frame；完整 non-interference/boundary validation 延後到 Phase 6。
 
-### Phase 3：server team stream 與 observer validator
+### Phase 4：server team stream 與 observer validator
 
 - Session 綁定 team-specific V2 stream；
 - encoded team frame 立即 enqueue 並保留 bounded replay ring；
@@ -397,9 +397,9 @@ Blocking stress target 是既有 10,000-entity scenario，並以 production tick
 - 實作 filtered join/rejoin 與 coverage-gap rebootstrap；
 - 加入 redacted metric、trace、replay evidence、packet audit。
 
-產出：server team stream、recovery 與 asynchronous observer validation；完整 parity/fault validation 延後到 Phase 5。
+產出：server team stream、recovery 與 asynchronous observer validation；完整 parity/fault validation 延後到 Phase 6。
 
-### Phase 4：omfx integration 與 cutover preparation
+### Phase 5：omfx integration 與 cutover preparation
 
 - 以 team `SelectiveReplicaRuntime` 取代 global local replica；
 - 加入 barrier buffer、remembered render cache、transition presentation、repair/rebase handling；
@@ -409,9 +409,9 @@ Blocking stress target 是既有 10,000-entity scenario，並以 production tick
 
 產出：可接受 consolidated verification 的 end-to-end V2 implementation。
 
-### Phase 5：consolidated final verification 與 cutover
+### Phase 6：consolidated final verification 與 cutover
 
-Phase 0 至 4 全部整合後才執行：
+Phase 1 至 5 全部整合後才執行：
 
 - 完整 unit/property suite；
 - authoritative/server observer/omfx differential test；
