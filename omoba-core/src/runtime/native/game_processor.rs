@@ -32,6 +32,12 @@ use crate::tower_meta::UpgradeEffect;
 use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageProfile as AbiDamageProfile;
 
+fn register_projection_policy(world: &World, action_id: &str, source_module_path: &str) {
+    if let Some(mut registry) = world.try_fetch_mut::<crate::runtime::ProjectionPolicyRegistry>() {
+        registry.register_str(action_id, source_module_path);
+    }
+}
+
 const OP_PROJECTILE_ACCURACY: u32 = 20;
 const OP_PROJECTILE_STUN_ROLL: u32 = 21;
 
@@ -165,6 +171,11 @@ fn validate_attack_target(
 }
 
 pub fn drain_pending_moves(world: &mut World) {
+    register_projection_policy(
+        world,
+        omb_script_abi::types::projection_policy_ids::MOVEMENT,
+        "runtime/native/game_processor/drain_pending_moves",
+    );
     let drained = {
         let mut q = world.write_resource::<PendingMoveQueue>();
         std::mem::take(&mut q.requests)
@@ -383,6 +394,11 @@ pub fn handle_ability_cast_from_input(
     target_entity: Option<u32>,
     owner_pid: u32,
 ) -> Result<(), failure::Error> {
+    register_projection_policy(
+        world,
+        omb_script_abi::types::projection_policy_ids::HERO_ABILITY,
+        "runtime/native/game_processor/handle_ability_cast_from_input",
+    );
     if ability_index >= 4 {
         return Err(failure::err_msg(format!(
             "AbilityCast: invalid ability_index={} (must be 0..=3) pid={}",
@@ -718,15 +734,36 @@ pub fn spawn_td_tower_with_owner(
     }
 
     if let Some(player_id) = owner_pid {
-        if let Err(e) = world
+        let inserted = world
             .write_storage::<PlayerOwner>()
-            .insert(entity, PlayerOwner::new(player_id))
-        {
+            .insert(entity, PlayerOwner::new(player_id));
+        if let Err(e) = inserted {
             log::warn!(
                 "spawn_td_tower: failed to attach PlayerOwner({}) to {:?}: {}",
                 player_id,
                 entity,
                 e
+            );
+        } else {
+            let source = u64::from(entity.id());
+            let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
+            let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(
+                crate::runtime::OrderedFact {
+                    key: crate::runtime::FactOrderingKey {
+                        tick,
+                        phase: crate::runtime::FactPhase::PreStep,
+                        canonical_source_order: source,
+                        local_ordinal: 0,
+                        fact_kind: crate::runtime::FactKind::Ownership,
+                    },
+                    audience: crate::runtime::FactAudience::VisibilityPolicy(
+                        omb_script_abi::types::projection_policy_ids::OWNERSHIP.to_owned(),
+                    ),
+                    fact: crate::runtime::ObservableFact::Ownership {
+                        source,
+                        team: player_id,
+                    },
+                },
             );
         }
     }
@@ -840,6 +877,11 @@ pub fn handle_tower_spawn_from_input(
     pos: omoba_sim::Vec2,
     owner_pid: u32,
 ) -> Result<Entity, failure::Error> {
+    register_projection_policy(
+        world,
+        omb_script_abi::types::projection_policy_ids::TOWER,
+        "runtime/native/game_processor/handle_tower_spawn_from_input",
+    );
     let tid = omoba_template_ids::TowerId(kind_id as u16);
     let unit_id = omoba_template_ids::tower_id_str(tid);
     if unit_id.is_empty() || unit_id == "?" {
@@ -907,6 +949,11 @@ pub fn handle_tower_sell_from_input(
     tower_entity_id: u32,
     owner_pid: u32,
 ) -> Result<(), failure::Error> {
+    register_projection_policy(
+        world,
+        omb_script_abi::types::projection_policy_ids::TOWER,
+        "runtime/native/game_processor/handle_tower_sell_from_input",
+    );
     let target_entity = {
         let entities = world.entities();
         let towers = world.read_storage::<Tower>();
@@ -1044,6 +1091,11 @@ pub fn handle_tower_upgrade_from_input(
     _level_hint: u8,
     owner_pid: u32,
 ) -> Result<(), failure::Error> {
+    register_projection_policy(
+        world,
+        omb_script_abi::types::projection_policy_ids::TOWER,
+        "runtime/native/game_processor/handle_tower_upgrade_from_input",
+    );
     if path >= 3 {
         return Err(failure::err_msg(format!(
             "TowerUpgrade: invalid path={} (must be 0..=2) pid={}",
@@ -1322,6 +1374,11 @@ pub fn handle_item_use_from_input(
     _target_entity: Option<u32>,
     owner_pid: u32,
 ) -> Result<(), failure::Error> {
+    register_projection_policy(
+        world,
+        omb_script_abi::types::projection_policy_ids::ITEM,
+        "runtime/native/game_processor/handle_item_use_from_input",
+    );
     let slot_i = item_slot as usize;
     if slot_i >= INVENTORY_SLOTS {
         return Err(failure::err_msg(format!(
@@ -1536,7 +1593,15 @@ pub fn process_outcomes(
     )
     .entered();
 
-    for outcome in outcomes {
+    let projection_tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
+    for (outcome_ordinal, outcome) in outcomes.into_iter().enumerate() {
+        if let Some(fact) = observable_fact_from_outcome(
+            &outcome,
+            projection_tick,
+            outcome_ordinal as u32,
+        ) {
+            let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(fact);
+        }
         let kind = outcome_kind(&outcome);
         match outcome {
             Outcome::Death { ent, .. } => {
@@ -1762,6 +1827,63 @@ pub fn process_outcomes(
     drop(outcomes_span);
 
     Ok(())
+}
+
+fn observable_fact_from_outcome(
+    outcome: &Outcome,
+    tick: u64,
+    local_ordinal: u32,
+) -> Option<crate::runtime::OrderedFact> {
+    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+    use omb_script_abi::types::projection_policy_ids as policy;
+    let entity_id = |entity: Entity| u64::from(entity.id());
+    let text_id = |text: &str| text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+    });
+    let (source_order, fact_kind, policy_id, fact) = match outcome {
+        Outcome::Creep { .. } => (local_ordinal as u64, FactKind::Spawn, policy::SPAWN,
+            ObservableFact::Spawn { source: None, template_id: text_id("creep"), team: 0 }),
+        Outcome::Tower { .. } => (local_ordinal as u64, FactKind::Spawn, policy::TOWER,
+            ObservableFact::Spawn { source: None, template_id: text_id("tower"), team: 0 }),
+        Outcome::SpawnUnit { faction, .. } => (local_ordinal as u64, FactKind::Spawn, policy::SPAWN,
+            ObservableFact::Spawn { source: None, template_id: text_id("unit"), team: faction.team_id.max(0) as u32 }),
+        Outcome::Death { ent, .. } => (entity_id(*ent), FactKind::Death, policy::DEATH,
+            ObservableFact::Death { source: entity_id(*ent), killer: None }),
+        Outcome::ProjectileLine2 { source, target, .. } => {
+            let source = source.map(entity_id).unwrap_or(local_ordinal as u64);
+            (source, FactKind::Projectile, policy::PROJECTILE,
+             ObservableFact::Projectile { source, target: target.map(entity_id), effect_id: 0, active: true })
+        }
+        Outcome::ProjectileDirectional { source, .. } => {
+            let source = source.map(entity_id).unwrap_or(local_ordinal as u64);
+            (source, FactKind::Projectile, policy::PROJECTILE,
+             ObservableFact::Projectile { source, target: None, effect_id: 0, active: true })
+        }
+        Outcome::ScriptProjectile { owner, target, kind_id, .. } => {
+            let source = entity_id(*owner);
+            (source, FactKind::Projectile, policy::PROJECTILE,
+             ObservableFact::Projectile { source, target: target.map(entity_id), effect_id: u64::from(*kind_id), active: true })
+        }
+        Outcome::Explosion { pos, radius, .. } => (local_ordinal as u64, FactKind::AreaEffect, policy::AOE,
+            ObservableFact::AreaEffect { source: local_ordinal as u64, x_mm: pos.x.raw(), y_mm: pos.y.raw(), radius_mm: radius.raw().max(0) as u64 }),
+        Outcome::AddBuff { target, buff_id, .. } => {
+            let target = entity_id(*target);
+            (target, FactKind::Buff, policy::BUFF_DEBUFF,
+             ObservableFact::Buff { source: target, target, effect_id: text_id(buff_id), active: true })
+        }
+        Outcome::ScriptRemoveBuff { target, buff_id } => {
+            let target = entity_id(*target);
+            (target, FactKind::Buff, policy::BUFF_DEBUFF,
+             ObservableFact::Buff { source: target, target, effect_id: text_id(buff_id), active: false })
+        }
+        _ => return None,
+    };
+    Some(OrderedFact {
+        key: FactOrderingKey { tick, phase: FactPhase::PostStep, canonical_source_order: source_order,
+            local_ordinal, fact_kind },
+        audience: FactAudience::VisibilityPolicy(policy_id.to_owned()),
+        fact,
+    })
 }
 
 fn merge_damage_outcomes(raw: Vec<Outcome>) -> Vec<Outcome> {

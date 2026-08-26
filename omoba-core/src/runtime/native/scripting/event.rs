@@ -242,7 +242,7 @@ pub fn script_visual_event_to_observable_fact(
     let (fact_kind, fact) = match event.kind {
         ScriptVisualEventKind::Spawn | ScriptVisualEventKind::Respawn => (
             FactKind::Spawn,
-            ObservableFact::Spawn { source, template_id: stable_text_id(event.state_id.as_deref()), team: 0 },
+            ObservableFact::Spawn { source: Some(source), template_id: stable_text_id(event.state_id.as_deref()), team: 0 },
         ),
         ScriptVisualEventKind::Death => (FactKind::Death, ObservableFact::Death { source, killer: target }),
         ScriptVisualEventKind::ModifierAdded | ScriptVisualEventKind::ModifierRemoved => (

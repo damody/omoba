@@ -66,11 +66,11 @@ impl FactOrderingKey {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum ObservableFact {
     Movement { source: u64, x_mm: i64, y_mm: i64 },
-    Spawn { source: u64, template_id: u64, team: u32 },
+    Spawn { source: Option<u64>, template_id: u64, team: u32 },
     Death { source: u64, killer: Option<u64> },
     Ownership { source: u64, team: u32 },
     DirectCombat { source: u64, target: u64, amount_milli: i64 },
-    Projectile { source: u64, target: Option<u64>, effect_id: u64 },
+    Projectile { source: u64, target: Option<u64>, effect_id: u64, active: bool },
     AreaEffect { source: u64, x_mm: i64, y_mm: i64, radius_mm: u64 },
     Buff { source: u64, target: u64, effect_id: u64, active: bool },
     Ability { source: u64, ability_id: u64, target: Option<u64> },

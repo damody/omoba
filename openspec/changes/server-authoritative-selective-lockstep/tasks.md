@@ -288,24 +288,24 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 
 - [x] 3.2.1 在 movement tick producer 產生 movement `ObservableFact`。
 - [x] 3.2.2 在 direct damage producer 產生 combat projection fact。
-- [ ] 3.2.3 在 hero action producer 註冊 projection policy ID。
+- [x] 3.2.3 在 hero action producer 註冊 projection policy ID。
 - [x] 3.2.4 在 `scripts/script-abi` 定義 abi-stable projection policy ID 型別。
 - [x] 3.2.5 實作 projection policy registry 的 missing-ID detection。
-- [ ] 3.2.6 在 entity creation producer 產生 spawn `ObservableFact`。
-- [ ] 3.2.7 在 death producer 產生 death `ObservableFact`。
-- [ ] 3.2.8 在 ownership mutation producer 產生 ownership `ObservableFact`。
-- [ ] 3.2.9 在 projectile spawn producer 產生 projectile creation fact。
-- [ ] 3.2.10 在 projectile movement producer 產生 projectile movement fact。
-- [ ] 3.2.11 在 projectile removal producer 產生 projectile removal fact。
-- [ ] 3.2.12 在 AOE resolution producer 產生 AOE projection fact。
-- [ ] 3.2.13 在 buff apply producer 產生 buff projection fact。
-- [ ] 3.2.14 在 buff removal producer 產生 buff removal fact。
-- [ ] 3.2.15 在 debuff apply producer 產生 debuff projection fact。
-- [ ] 3.2.16 在 tower place producer 註冊 projection policy ID。
-- [ ] 3.2.17 在 tower sell producer 註冊 projection policy ID。
-- [ ] 3.2.18 在 tower upgrade producer 註冊 projection policy ID。
-- [ ] 3.2.19 在 item use producer 註冊 projection policy ID。
-- [ ] 3.2.20 在 ability activation producer 註冊 projection policy ID。
+- [x] 3.2.6 在 entity creation producer 產生 spawn `ObservableFact`。
+- [x] 3.2.7 在 death producer 產生 death `ObservableFact`。
+- [x] 3.2.8 在 ownership mutation producer 產生 ownership `ObservableFact`。
+- [x] 3.2.9 在 projectile spawn producer 產生 projectile creation fact。
+- [x] 3.2.10 在 projectile movement producer 產生 projectile movement fact。
+- [x] 3.2.11 在 projectile removal producer 產生 projectile removal fact。
+- [x] 3.2.12 在 AOE resolution producer 產生 AOE projection fact。
+- [x] 3.2.13 在 buff apply producer 產生 buff projection fact。
+- [x] 3.2.14 在 buff removal producer 產生 buff removal fact。
+- [x] 3.2.15 在 debuff apply producer 產生 debuff projection fact。
+- [x] 3.2.16 在 tower place producer 註冊 projection policy ID。
+- [x] 3.2.17 在 tower sell producer 註冊 projection policy ID。
+- [x] 3.2.18 在 tower upgrade producer 註冊 projection policy ID。
+- [x] 3.2.19 在 item use producer 註冊 projection policy ID。
+- [x] 3.2.20 在 ability activation producer 註冊 projection policy ID。
 - [x] 3.2.21 將 retained HUD event 轉成明確 audience 的 projection fact。
 - [x] 3.2.22 將 retained terminal event 轉成明確 audience 的 projection fact。
 - [x] 3.2.23 在 script host adapter 接收 abi-stable projection policy ID。

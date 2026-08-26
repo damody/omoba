@@ -9,6 +9,8 @@ use specs::{shred, Entities, ParJoin, Read, ReadStorage, SystemData, Write, Writ
 pub struct ProjectileRead<'a> {
     entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
+    tick: Read<'a, Tick>,
+    facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     searcher: Read<'a, Searcher>,
     creeps: ReadStorage<'a, Creep>,
     towers: ReadStorage<'a, Tower>,
@@ -126,6 +128,7 @@ impl<'a> System<'a> for Sys {
                                 pos: hit_pos,
                                 ent: e.clone(),
                             });
+                            emit_projectile_removal(&tr, e, proj);
                             return (e, outcomes);
                         }
                     }
@@ -186,11 +189,30 @@ impl<'a> System<'a> for Sys {
                             pos: hit_pos,
                             ent: e.clone(),
                         });
+                        emit_projectile_removal(&tr, e, proj);
                     } else {
                         // 還沒抵達：往目標方向前進一個 step
                         let vel = (delta.normalized()) * step;
                         let new_pos = pos.0 + vel;
                         pos.0 = new_pos;
+                        let source = u64::from(e.id());
+                        let _ = tr.facts.emit(crate::runtime::OrderedFact {
+                            key: crate::runtime::FactOrderingKey {
+                                tick: tr.tick.0,
+                                phase: crate::runtime::FactPhase::Step,
+                                canonical_source_order: source,
+                                local_ordinal: 0,
+                                fact_kind: crate::runtime::FactKind::Movement,
+                            },
+                            audience: crate::runtime::FactAudience::VisibilityPolicy(
+                                omb_script_abi::types::projection_policy_ids::PROJECTILE.to_owned(),
+                            ),
+                            fact: crate::runtime::ObservableFact::Movement {
+                                source,
+                                x_mm: new_pos.x.raw(),
+                                y_mm: new_pos.y.raw(),
+                            },
+                        });
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
                         proj.time_left = proj.time_left - dt;
                         if proj.time_left <= Fixed64::ZERO {
@@ -198,6 +220,7 @@ impl<'a> System<'a> for Sys {
                                 pos: new_pos,
                                 ent: e.clone(),
                             });
+                            emit_projectile_removal(&tr, e, proj);
                         }
                     }
                     (e, outcomes)
@@ -223,6 +246,28 @@ impl<'a> System<'a> for Sys {
         // 前端已自管子彈動畫（收 C 時拿 target_id + flight_time_ms 後本地 pursuit lerp），
         // 不再廣播 projectile 每 tick 位置。
     }
+}
+
+fn emit_projectile_removal(tr: &ProjectileRead<'_>, entity: specs::Entity, projectile: &Projectile) {
+    let source = u64::from(entity.id());
+    let _ = tr.facts.emit(crate::runtime::OrderedFact {
+        key: crate::runtime::FactOrderingKey {
+            tick: tr.tick.0,
+            phase: crate::runtime::FactPhase::PostStep,
+            canonical_source_order: source,
+            local_ordinal: 0,
+            fact_kind: crate::runtime::FactKind::Projectile,
+        },
+        audience: crate::runtime::FactAudience::VisibilityPolicy(
+            omb_script_abi::types::projection_policy_ids::PROJECTILE.to_owned(),
+        ),
+        fact: crate::runtime::ObservableFact::Projectile {
+            source,
+            target: projectile.target.map(|target| u64::from(target.id())),
+            effect_id: u64::from(projectile.kind_id),
+            active: false,
+        },
+    });
 }
 
 fn stable_projectile_outcomes(batches: Vec<(specs::Entity, Vec<Outcome>)>) -> Vec<Outcome> {
