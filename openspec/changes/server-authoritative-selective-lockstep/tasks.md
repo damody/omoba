@@ -238,15 +238,15 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PHASE2-BUILDABLE`，非 acceptance gate。
 **完成門檻：** Shared crates 與 fixture code 可編譯；完整測試明確 deferred 到 Phase 6。
 
-- [ ] 2.4.1 建立從 encoded bytes 初始化 synthetic client fixture 的 constructor。
-- [ ] 2.4.2 建立單一 reveal frame fixture。
-- [ ] 2.4.3 執行一次最低限度 `omoba-core` compile check，將 log 標記為 non-acceptance evidence。
-- [ ] 2.4.4 建立從相同 encoded bytes 初始化 observer fixture 的 constructor。
-- [ ] 2.4.5 建立單一 hide frame fixture。
-- [ ] 2.4.6 建立單一 component repair frame fixture。
-- [ ] 2.4.7 建立單一 entity replace frame fixture。
-- [ ] 2.4.8 建立單一 rebase manifest/chunk fixture。
-- [ ] 2.4.9 執行一次最低限度 protocol codegen compile check，將 log 標記為 non-acceptance evidence。
+- [x] 2.4.1 建立從 encoded bytes 初始化 synthetic client fixture 的 constructor。
+- [x] 2.4.2 建立單一 reveal frame fixture。
+- [x] 2.4.3 執行一次最低限度 `omoba-core` compile check，將 log 標記為 non-acceptance evidence。
+- [x] 2.4.4 建立從相同 encoded bytes 初始化 observer fixture 的 constructor。
+- [x] 2.4.5 建立單一 hide frame fixture。
+- [x] 2.4.6 建立單一 component repair frame fixture。
+- [x] 2.4.7 建立單一 entity replace frame fixture。
+- [x] 2.4.8 建立單一 rebase manifest/chunk fixture。
+- [x] 2.4.9 執行一次最低限度 protocol codegen compile check，將 log 標記為 non-acceptance evidence。
 
 ## 3. Deterministic Specs projection pipeline
 

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "phase": 2,
+  "acceptance": false,
+  "purpose": "最低限度 shared runtime 與 protocol codegen compile smoke；不得滿足 Phase 6 acceptance gate",
+  "command": "cargo check --manifest-path omoba-core/Cargo.toml --features kcp",
+  "exit_status": 0,
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+  "warnings": [
+    "omoba-template-ids existing dead_code warnings: validate_layer_catalog, REGROW, FORTIFIED"
+  ],
+  "hashes": {
+    "proto/game.proto": "54119ac42b0df494957e41c786f36c33b4f8d881c2b696fff4df5dce895c2094",
+    "omoba-core/src/generated/game.rs": "c5c719cffe6fbf5eaa01f61f92c1ba07ff62bf51f2a6a765d073faf0e6ef84f3",
+    "omoba-core/src/runtime/selective_replica.rs": "6cf855c5b51397ee7dc869128b44ddef09cd07a9972508210f65b1e69ed2e6d9",
+    "omoba-core/src/runtime/selective_fixtures.rs": "852ff6bb35915eacbafb05928c0793d61ac4524c3cc9c1b9c839bc402db7cf65"
+  },
+  "timestamp": "2026-08-26T22:53:24.8503962+08:00"
+}

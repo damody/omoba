@@ -9,6 +9,8 @@ pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod selective_fixtures;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod selective_replica;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -16,6 +18,8 @@ pub mod selective_replica;
 pub use native::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use selective::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use selective_fixtures::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use selective_replica::*;
 
