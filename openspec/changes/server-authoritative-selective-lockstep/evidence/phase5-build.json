@@ -1,0 +1,31 @@
+{
+  "phase": 5,
+  "acceptance_evidence": false,
+  "scope": "最低限度 workspace build 與單一 secure V2 join/step/render smoke；完整驗證保留至 Phase 6",
+  "builds": [
+    { "command": "cargo build --manifest-path scripts/Cargo.toml -p omb-script-abi -p base_content", "exit_status": 0 },
+    { "command": "cargo build --manifest-path omb/Cargo.toml -p omobab", "exit_status": 0 },
+    { "command": "cargo build --manifest-path omfx/Cargo.toml -p omfx --example phase5_selective_smoke", "exit_status": 0 }
+  ],
+  "smoke": {
+    "command": "cargo run --manifest-path omfx/Cargo.toml -p omfx --example phase5_selective_smoke",
+    "exit_status": 0,
+    "result": "phase5-selective-smoke ok team=2 joined=true stepped=true render_actions=1 acceptance=false"
+  },
+  "frozen": {
+    "runtime_config": { "omb/game.toml": "f4ef3dd63fdc7c88c518c91803633beb069a6aa568fdad6bd8f41f33b75241a5" },
+    "binaries": {
+      "omb/target/debug/omobab.exe": "9caf51990e93ea3e189839b7cc53e833e2d4b6124478e7fc10d578795649f23c",
+      "omfx/target/debug/examples/phase5_selective_smoke.exe": "0222a690cf8d8b704bd2b16fb5f1c37108aa9a5637453689d7575ddc6d0f7b92",
+      "scripts/target/debug/base_content.dll": "bd93feca5450d60901df8f032cab24089874c1629260f6398dcc3ee1fd1cab88"
+    },
+    "content": {
+      "proto/game.proto": "5970214b72c71f35503f46bcd954f734d5d5571ad1cc4753ef1a20cf7b749d6f",
+      "scripts/lua_data aggregate (73 tracked files, canonical path + file SHA-256)": "7e51dc17d77118c4ebafcfbbe23fc05daa19648032ad7d98cc09c1ce995230b4"
+    },
+    "evidence_manifest": {
+      "tools/selective_lockstep/evidence-manifest.template.json": "8fde229aa04b350ca3806cf3fdc6eba2a728d59805e66af78a87689ab128e986"
+    }
+  },
+  "correction_lineage": "任何 B-level design/spec correction 或 C-level approved scope change 都必須將上述 frozen evidence 標記 stale，建立 replacement generation 後才能繼續受影響的 Phase 6 gate。"
+}

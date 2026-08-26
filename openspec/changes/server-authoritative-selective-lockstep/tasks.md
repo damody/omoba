@@ -675,17 +675,17 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-E2E-BUILDABLE`，非 acceptance gate。
 **完成門檻：** Required workspaces build，單一 secure V2 session 可 join/step/render；所有完整驗證仍未標 pass。
 
-- [ ] 5.5.1 執行 scripts workspace 最低限度 build，保存 non-acceptance log。
-- [ ] 5.5.2 執行一次單一 V2 filtered join focused smoke。
-- [ ] 5.5.3 Freeze Phase 6 runtime config hash。
-- [ ] 5.5.4 執行 omb workspace 最低限度 build，保存 non-acceptance log。
-- [ ] 5.5.5 執行 omfx workspace 最低限度 build，保存 non-acceptance log。
-- [ ] 5.5.6 在 5.5.2 session 執行 one-frame replica step。
-- [ ] 5.5.7 從 5.5.6 replica snapshot 執行一次 render handoff。
-- [ ] 5.5.8 Freeze Phase 6 binary hashes。
-- [ ] 5.5.9 Freeze Phase 6 content hashes。
-- [ ] 5.5.10 Freeze Phase 6 evidence manifest hash。
-- [ ] 5.5.11 在 adjustment contract 標明 B/C correction 會使 frozen evidence stale。
+- [x] 5.5.1 執行 scripts workspace 最低限度 build，保存 non-acceptance log。
+- [x] 5.5.2 執行一次單一 V2 filtered join focused smoke。
+- [x] 5.5.3 Freeze Phase 6 runtime config hash。
+- [x] 5.5.4 執行 omb workspace 最低限度 build，保存 non-acceptance log。
+- [x] 5.5.5 執行 omfx workspace 最低限度 build，保存 non-acceptance log。
+- [x] 5.5.6 在 5.5.2 session 執行 one-frame replica step。
+- [x] 5.5.7 從 5.5.6 replica snapshot 執行一次 render handoff。
+- [x] 5.5.8 Freeze Phase 6 binary hashes。
+- [x] 5.5.9 Freeze Phase 6 content hashes。
+- [x] 5.5.10 Freeze Phase 6 evidence manifest hash。
+- [x] 5.5.11 在 adjustment contract 標明 B/C correction 會使 frozen evidence stale。
 
 ## 6. 集中式 Final Verification、cutover 與 cleanup
 
