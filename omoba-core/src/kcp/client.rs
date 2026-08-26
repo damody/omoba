@@ -837,6 +837,12 @@ impl KcpClient {
         Ok(())
     }
 
+    pub async fn report_team_hash_mismatch(&self, report: &ClientTeamHashMismatch) -> Result<()> {
+        let mut writer = self.writer.lock().await;
+        write_framed_msg(&mut *writer, TAG_CLIENT_TEAM_HASH_MISMATCH_V2, report).await?;
+        Ok(())
+    }
+
     /// 提交針對「target_tick」的玩家輸入。呼叫者必須有
     /// 先呼叫 `join_lockstep` （否則不知道 `player_id`）。
     ///

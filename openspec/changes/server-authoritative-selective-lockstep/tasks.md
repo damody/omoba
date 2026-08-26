@@ -617,26 +617,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OMFX-RECOVERY`。
 **完成門檻：** Duplicate/gap/late/correction/rebase 有 deterministic terminal path；client 不嘗試 global snapshot fallback。
 
-- [ ] 5.3.1 實作 duplicate team sequence detection。
-- [ ] 5.3.2 在 client barrier 套用 `ComponentRepair`。
-- [ ] 5.3.3 實作 rebase chunk hash verification。
-- [ ] 5.3.4 實作 client team hash report。
-- [ ] 5.3.5 在 secure client recovery dispatcher 加入 global-fallback denial guard。
-- [ ] 5.3.6 實作 missing team sequence gap detection。
-- [ ] 5.3.7 在 gap detection 後送出 replay request。
-- [ ] 5.3.8 對 duplicate frame 執行 idempotent ignore。
-- [ ] 5.3.9 在 client barrier 套用 `EntityReplace`。
-- [ ] 5.3.10 將完整 `TeamViewRebase` staging swap 排在指定 barrier。
-- [ ] 5.3.11 實作 rebase manifest hash verification。
-- [ ] 5.3.12 實作 rebase chunk completeness check。
-- [ ] 5.3.13 在 rebase 中斷時 discard staging snapshot。
-- [ ] 5.3.14 實作 barrier stall metric。
-- [ ] 5.3.15 實作 client gap metric。
-- [ ] 5.3.16 實作 client rebase metric。
-- [ ] 5.3.17 實作 team-redacted client diagnostic bundle。
-- [ ] 5.3.18 從 secure client path 移除 global snapshot fallback。
-- [ ] 5.3.19 從 secure client path 移除 global state-hash fallback。
-- [ ] 5.3.20 從 secure client path 移除 master-seed fallback。
+- [x] 5.3.1 實作 duplicate team sequence detection。
+- [x] 5.3.2 在 client barrier 套用 `ComponentRepair`。
+- [x] 5.3.3 實作 rebase chunk hash verification。
+- [x] 5.3.4 實作 client team hash report。
+- [x] 5.3.5 在 secure client recovery dispatcher 加入 global-fallback denial guard。
+- [x] 5.3.6 實作 missing team sequence gap detection。
+- [x] 5.3.7 在 gap detection 後送出 replay request。
+- [x] 5.3.8 對 duplicate frame 執行 idempotent ignore。
+- [x] 5.3.9 在 client barrier 套用 `EntityReplace`。
+- [x] 5.3.10 將完整 `TeamViewRebase` staging swap 排在指定 barrier。
+- [x] 5.3.11 實作 rebase manifest hash verification。
+- [x] 5.3.12 實作 rebase chunk completeness check。
+- [x] 5.3.13 在 rebase 中斷時 discard staging snapshot。
+- [x] 5.3.14 實作 barrier stall metric。
+- [x] 5.3.15 實作 client gap metric。
+- [x] 5.3.16 實作 client rebase metric。
+- [x] 5.3.17 實作 team-redacted client diagnostic bundle。
+- [x] 5.3.18 從 secure client path 移除 global snapshot fallback。
+- [x] 5.3.19 從 secure client path 移除 global state-hash fallback。
+- [x] 5.3.20 從 secure client path 移除 master-seed fallback。
 
 ### 5.4 準備 match negotiation、shadow 與 cleanup
 
