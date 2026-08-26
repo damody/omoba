@@ -25,12 +25,12 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-CONTRACT-STATE`；`evidence/index.jsonl` task records。
 **完成門檻：** 所有 deterministic component/resource/input/event/script outcome/snapshot/hash field 都有唯一分類與四象限 projection policy disposition。
 
-- [ ] 1.1.1 盤點 `omoba-core/src/runtime/native/comp/**` 的 deterministic component，將 type 與來源檔寫入 state inventory。
-- [ ] 1.1.2 盤點 `omoba-core/src/runtime/native/comp/**` 的 deterministic resource，將 type 與來源檔寫入 state inventory。
-- [ ] 1.1.3 在 state inventory 定義唯一 classification 欄位與四個允許值。
-- [ ] 1.1.4 為 movement action 填寫四象限 projection policy。
-- [ ] 1.1.5 將未分類的 inventory item 寫入 blocking migration list。
-- [ ] 1.1.6 盤點 `omb/src/comp/**` 的 server-only component/resource，將 type 與來源檔寫入 state inventory。
+- [x] 1.1.1 盤點 `omoba-core/src/runtime/native/comp/**` 的 deterministic component，將 type 與來源檔寫入 state inventory。
+- [x] 1.1.2 盤點 `omoba-core/src/runtime/native/comp/**` 的 deterministic resource，將 type 與來源檔寫入 state inventory。
+- [x] 1.1.3 在 state inventory 定義唯一 classification 欄位與四個允許值。
+- [x] 1.1.4 為 movement action 填寫四象限 projection policy。
+- [x] 1.1.5 將未分類的 inventory item 寫入 blocking migration list。
+- [x] 1.1.6 盤點 `omb/src/comp/**` 的 server-only component/resource，將 type 與來源檔寫入 state inventory。
 - [ ] 1.1.7 為 deterministic component inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
 - [ ] 1.1.8 為 deterministic resource inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
 - [ ] 1.1.9 為 input inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
