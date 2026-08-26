@@ -11,7 +11,7 @@ use super::ability_runtime::{AbilityRegistry, BuffStore, UnitStats};
 use super::comp::hero::AttributeType;
 use super::comp::{
     BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, GamePause, GameSpeed,
-    Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MoveTarget,
+    Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MatchKillCounter, MoveTarget,
     Path as CreepPath, PlayerEconomy, PlayerLives, PlayerOwner, Pos, Projectile,
     RemovedEntitiesQueue, TAttack, Tower, TowerAbilityCastResult, TowerAbilityCastResults,
     TowerSpawnOrder, TowerTemplateRegistry, TowerUpgradeRegistry,
@@ -45,6 +45,7 @@ pub struct SimWorldSnapshot {
     pub total_rounds: u32,
     pub lives: i32,
     pub round_is_running: bool,
+    pub match_kills: u32,
     pub is_paused: bool,
     pub game_speed_multiplier: u32,
     pub blocked_regions: Vec<BlockedRegionSnapshot>,
@@ -367,6 +368,13 @@ fn snapshot_player_gold(world: &World) -> BTreeMap<u32, i32> {
         .unwrap_or_default()
 }
 
+fn snapshot_match_kills(world: &World) -> u32 {
+    world
+        .try_fetch::<MatchKillCounter>()
+        .map(|counter| counter.0)
+        .unwrap_or(0)
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct HeroCommandSnapshot {
     pub command_type: String,
@@ -461,6 +469,15 @@ mod tests {
             world.read_resource::<PlayerEconomy>().balances(),
             &BTreeMap::from([(1, 650), (2, 10_000)])
         );
+    }
+
+    #[test]
+    fn match_kill_snapshot_is_read_only() {
+        let mut world = World::new();
+        world.insert(MatchKillCounter(47));
+
+        assert_eq!(snapshot_match_kills(&world), 47);
+        assert_eq!(world.read_resource::<MatchKillCounter>().0, 47);
     }
 
     #[test]
@@ -1282,6 +1299,7 @@ pub fn extract_snapshot(
         total_rounds = waves.len() as u32;
     }
     let lives = world.read_resource::<PlayerLives>().0;
+    let match_kills = snapshot_match_kills(world);
     let is_paused = world.read_resource::<GamePause>().is_paused;
     let game_speed_multiplier = world
         .try_fetch::<GameSpeed>()
@@ -1317,6 +1335,7 @@ pub fn extract_snapshot(
         total_rounds,
         lives,
         round_is_running,
+        match_kills,
         is_paused,
         game_speed_multiplier,
         blocked_regions,
@@ -1683,6 +1702,7 @@ pub fn extract_data_for_render(
         total_rounds = waves.len() as u32;
     }
     let lives = world.read_resource::<PlayerLives>().0;
+    let match_kills = snapshot_match_kills(world);
     let is_paused = world.read_resource::<GamePause>().is_paused;
     let game_speed_multiplier = world
         .try_fetch::<GameSpeed>()
@@ -1730,6 +1750,7 @@ pub fn extract_data_for_render(
         total_rounds,
         lives,
         round_is_running,
+        match_kills,
         is_paused,
         game_speed_multiplier,
         blocked_regions: Vec::new(),
