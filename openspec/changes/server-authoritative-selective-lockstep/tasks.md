@@ -4,6 +4,15 @@
 
 Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke，不執行完整 acceptance suite。完整 unit/property、differential、cross-platform、fault、security、packet/client-memory inspection、10,000 entity 與 30 分鐘 soak 全部集中在 Phase 6。
 
+## Luna 原子化執行契約
+
+- 每個 L3 leaf 只允許一個主要行為、一個可獨立失敗的驗證，或一份明確 artifact；不得自行合併相鄰 leaf。
+- Implementation leaf 原則上只修改 1–3 個緊密相關檔案。若實際影響超出此範圍，先以 A-level refinement 增加 leaf，不得在單一 leaf 內擴張。
+- Leaf 中列出的型別、欄位、路徑、規則與 threshold 都是已核准輸入；執行者不得自行改 architecture、wire contract、authority policy 或 gate。
+- 每次只領取一個 L3 task。完成時必須寫入該 task 的唯一 evidence record，再領取下一項。
+- Phase 1–5 的 compile/focused smoke 只證明整合可繼續；不得提前執行或宣稱 Phase 6 acceptance suite 通過。
+- 驗證 leaf 一律一條主要 command、一個平台或一個 fault/scenario；共享啟動成本可重用 immutable run，但每個 leaf 仍要有 unique `subcheck`。
+
 ## 1. Contract、分類與證據基礎
 
 ### 1.1 建立 state、event 與 projection inventory
@@ -16,11 +25,40 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-CONTRACT-STATE`；`evidence/index.jsonl` task records。
 **完成門檻：** 所有 deterministic component/resource/input/event/script outcome/snapshot/hash field 都有唯一分類與四象限 projection policy disposition。
 
-- [ ] 1.1.1 盤點 `omoba-core::runtime` 與 omb ECS 的 deterministic components/resources，記錄 owner、mutation phase 與 hash/snapshot usage。
-- [ ] 1.1.2 盤點 `PlayerInput`、`Outcome`、script event、render cue 與 retained network event，記錄 producer/consumer 與 authoritative phase。
-- [ ] 1.1.3 將每個 inventory item 分類為 `Public`、`TeamPrivate`、`VisibilityBound` 或 `ServerOnly`。
-- [ ] 1.1.4 為每個 gameplay/script action 填寫 visible-visible、hidden-visible、visible-hidden、hidden-hidden projection policy。
-- [ ] 1.1.5 將未分類、重複分類與缺少 projection policy 的項目整理成 blocking migration list。
+- [ ] 1.1.1 盤點 `omoba-core/src/runtime/native/comp/**` 的 deterministic component，將 type 與來源檔寫入 state inventory。
+- [ ] 1.1.2 盤點 `omoba-core/src/runtime/native/comp/**` 的 deterministic resource，將 type 與來源檔寫入 state inventory。
+- [ ] 1.1.3 在 state inventory 定義唯一 classification 欄位與四個允許值。
+- [ ] 1.1.4 為 movement action 填寫四象限 projection policy。
+- [ ] 1.1.5 將未分類的 inventory item 寫入 blocking migration list。
+- [ ] 1.1.6 盤點 `omb/src/comp/**` 的 server-only component/resource，將 type 與來源檔寫入 state inventory。
+- [ ] 1.1.7 為 deterministic component inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
+- [ ] 1.1.8 為 deterministic resource inventory 補齊 owner、mutation phase、hash 與 snapshot 欄位。
+- [ ] 1.1.9 為 input inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
+- [ ] 1.1.10 為 outcome/script event inventory 補齊 owner、authoritative phase、hash 與 snapshot 欄位。
+- [ ] 1.1.11 盤點 `PlayerInput` variant，記錄 producer、consumer 與 authoritative phase。
+- [ ] 1.1.12 盤點 `Outcome` variant，記錄 producer、consumer 與 authoritative phase。
+- [ ] 1.1.13 盤點 render cue，記錄 producer、consumer 與 retention rule。
+- [ ] 1.1.14 為 spawn action 填寫四象限 projection policy。
+- [ ] 1.1.15 為 death action 填寫四象限 projection policy。
+- [ ] 1.1.16 為 ownership action 填寫四象限 projection policy。
+- [ ] 1.1.17 為 direct combat action 填寫四象限 projection policy。
+- [ ] 1.1.18 為 projectile action 填寫四象限 projection policy。
+- [ ] 1.1.19 為 AOE action 填寫四象限 projection policy。
+- [ ] 1.1.20 為 buff/debuff action 填寫四象限 projection policy。
+- [ ] 1.1.21 為 hero ability action 填寫四象限 projection policy。
+- [ ] 1.1.22 為 tower action 填寫四象限 projection policy。
+- [ ] 1.1.23 為 item action 填寫四象限 projection policy。
+- [ ] 1.1.24 將重複分類的 inventory item 寫入 blocking migration list。
+- [ ] 1.1.25 將缺少 projection policy 的 action 寫入 blocking migration list。
+- [ ] 1.1.26 盤點 script event variant，記錄 producer、consumer 與 authoritative phase。
+- [ ] 1.1.27 盤點 retained network event，記錄 producer、consumer 與 retention rule。
+- [ ] 1.1.28 對 deterministic component inventory 套用 disclosure classification。
+- [ ] 1.1.29 對 deterministic resource inventory 套用 disclosure classification。
+- [ ] 1.1.30 對 input inventory 套用 disclosure classification。
+- [ ] 1.1.31 對 outcome/script event inventory 套用 disclosure classification。
+- [ ] 1.1.32 對 render/network event inventory 套用 disclosure classification。
+- [ ] 1.1.33 確認每個 inventory row 恰有一個 disclosure classification。
+- [ ] 1.1.34 為 render/network event inventory 補齊 owner、retention、hash 與 snapshot 欄位。
 
 ### 1.2 固定 protocol、schema、gate 與 evidence contract
 
@@ -32,11 +70,32 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-CONTRACT-PROTOCOL`、`G-EVIDENCE-SCHEMA`。
 **完成門檻：** V2 message/phase/version/bounds、security invariant、A/B/C adjustment 與 evidence lineage 均有無歧義定義。
 
-- [ ] 1.2.1 固定 `TeamGameStart`、`TeamTickFrame`、transition、random tape、repair/rebase 欄位與 canonical order。
-- [ ] 1.2.2 固定 `visibility_commit_delay_ticks` default/bounds、`replica_buffer_ticks` default/bounds 與 120Hz 換算規則。
-- [ ] 1.2.3 固定 team-scoped ID、disclosure epoch、authority revision、snapshot/chunk/manifest versioning 規則。
-- [ ] 1.2.4 建立 append-only evidence JSONL schema、hash 規則、stale/superseded lineage 與 gate mapping。
-- [ ] 1.2.5 寫入 A/B/C adjustment 流程，確保 B-level correction 重開 affected task/evidence，C-level change 要求使用者核准。
+- [ ] 1.2.1 在 protocol contract 固定 `TeamGameStart` 欄位與 canonical order。
+- [ ] 1.2.2 在 timing contract 固定 `visibility_commit_delay_ticks` 的 default 3 與 bounds 2–4。
+- [ ] 1.2.3 在 identity contract 固定 team-scoped `ReplicaEntityId` 的配置與 retire 規則。
+- [ ] 1.2.4 定義 append-only evidence JSONL 的必填欄位與型別。
+- [ ] 1.2.5 在 evidence contract 定義 A-level refinement 的允許範圍。
+- [ ] 1.2.6 在 protocol contract 固定 `TeamTickFrame` envelope 欄位。
+- [ ] 1.2.7 在 protocol contract 固定 `PreStep` payload 與 canonical order。
+- [ ] 1.2.8 在 protocol contract 固定 `Step` payload 與 canonical order。
+- [ ] 1.2.9 在 protocol contract 固定 `PostStep` payload 與 canonical order。
+- [ ] 1.2.10 在 protocol contract 固定 transition message 欄位。
+- [ ] 1.2.11 在 protocol contract 固定 bounded random tape 欄位與 lifetime。
+- [ ] 1.2.12 在 protocol contract 固定 repair message 欄位與 revision rule。
+- [ ] 1.2.13 在 protocol contract 固定 rebase manifest 欄位與 version rule。
+- [ ] 1.2.14 在 timing contract 固定 `replica_buffer_ticks` 的 default 12 與 bounds 3–24。
+- [ ] 1.2.15 在 timing contract 固定 tick window 到 shared 120Hz helper 的換算規則。
+- [ ] 1.2.16 在 identity contract 固定 disclosure/view epoch 的遞增與 stale rejection 規則。
+- [ ] 1.2.17 在 authority contract 固定 server revision precedence 與 monotonic allocation 規則。
+- [ ] 1.2.18 定義 snapshot ID 的版本與唯一性規則。
+- [ ] 1.2.19 定義 chunk hash 的算法與輸入範圍。
+- [ ] 1.2.20 定義 evidence artifact hash 的算法與 canonical path 規則。
+- [ ] 1.2.21 定義 evidence `stale` 到 replacement record 的 lineage 欄位。
+- [ ] 1.2.22 建立 requirement/scenario、task ID、gate ID 與 evidence record 的 mapping schema。
+- [ ] 1.2.23 在 evidence contract 定義 B-level correction 的 pause、reopen 與 stale 流程。
+- [ ] 1.2.24 在 evidence contract 定義 C-level change 的使用者核准欄位與停止條件。
+- [ ] 1.2.25 在 protocol contract 固定 rebase chunk 欄位與 version rule。
+- [ ] 1.2.26 定義 manifest hash 的算法與輸入範圍。
 
 ### 1.3 建立 baseline 與 final-verification harness 骨架
 
@@ -48,10 +107,22 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-BASELINE-RECORDED`；raw logs/hash index。
 **完成門檻：** 現況 CPU/memory/bandwidth 有可重現 baseline；final harness 有明確 entrypoint 與 fixture schema，但未被誤標為 acceptance pass。
 
-- [ ] 1.3.1 執行一次現況 10,000 entity baseline capture，保存 command、config、raw log、machine profile 與 content hash。
-- [ ] 1.3.2 建立 non-interference paired-world fixture schema 與 fixture generator entrypoint。
-- [ ] 1.3.3 建立 packet/redaction scan、fault injection、observer slowdown 與 stress report harness skeleton。
-- [ ] 1.3.4 建立 final-verification evidence manifest template，明確標示 Phase 1–5 smoke 不屬於 acceptance evidence。
+- [ ] 1.3.1 以既有 `run_10000.bat` 執行一次未改造的 10,000 entity baseline run。
+- [ ] 1.3.2 建立 non-interference paired-world fixture schema。
+- [ ] 1.3.3 在 `tools/selective_lockstep/` 建立 packet capture scan 入口。
+- [ ] 1.3.4 建立 final-verification evidence manifest template。
+- [ ] 1.3.5 將 1.3.1 的 exact command 與 config 寫入 baseline metadata。
+- [ ] 1.3.6 將 1.3.1 的 raw log 路徑與 content hash 寫入 baseline metadata。
+- [ ] 1.3.7 將 baseline machine profile 寫入 baseline metadata。
+- [ ] 1.3.8 從 baseline raw log 擷取 CPU 指標。
+- [ ] 1.3.9 從 baseline raw log 擷取 memory 指標。
+- [ ] 1.3.10 從 baseline raw log 擷取 per-player bandwidth 指標。
+- [ ] 1.3.11 在 `tools/selective_lockstep/` 建立 paired-world fixture generator 入口。
+- [ ] 1.3.12 在 `tools/selective_lockstep/` 建立 redaction scan 入口。
+- [ ] 1.3.13 在 `tools/selective_lockstep/` 建立 network fault injection 入口。
+- [ ] 1.3.14 在 `tools/selective_lockstep/` 建立 observer slowdown 入口。
+- [ ] 1.3.15 在 `tools/selective_lockstep/` 建立 stress report 入口。
+- [ ] 1.3.16 在 manifest template 標示 Phase 1–5 smoke evidence 不可滿足 acceptance gate。
 
 ## 2. Protocol V2 與 shared selective replica foundation
 
@@ -65,11 +136,31 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-V2-SCHEMA`；proto/generated hashes。
 **完成門檻：** 所有 proposal-listed V2 message 可 encode/decode，V1/V2 match negotiation 有明確拒絕路徑，player V2 type 不含 global seed/raw ECS ID。
 
-- [ ] 2.1.1 在 `proto/game.proto` 定義 `TeamGameStart`、`TeamTickFrame` 與 `PreStep`/`Step`/`PostStep` payload。
-- [ ] 2.1.2 定義 `RevealEntity`、`HideEntity`、`ForgetEntity`、`ComponentRepair`、`EntityReplace` 與 `TeamViewRebase` schema。
-- [ ] 2.1.3 定義 replica ID、disclosure/view epoch、authority revision、random tape、external effect 與 filtered snapshot schema。
-- [ ] 2.1.4 新增 V2 framing tags、protocol/schema version constants 與 match capability negotiation types。
+- [ ] 2.1.1 在 `proto/game.proto` 定義 `TeamGameStart` message。
+- [ ] 2.1.2 在 `proto/game.proto` 定義 `RevealEntity` message。
+- [ ] 2.1.3 在 `proto/game.proto` 定義 `ReplicaEntityId` 欄位型別。
+- [ ] 2.1.4 在 `omoba-core/src/kcp/framing.rs` 新增 V2 framing tag。
 - [ ] 2.1.5 以既有 code generation 流程更新 `omoba-core/src/generated/game.rs`，不手改 generated output。
+- [ ] 2.1.6 在 `proto/game.proto` 定義 `TeamTickFrame` envelope。
+- [ ] 2.1.7 在 `proto/game.proto` 定義 `PreStep` payload。
+- [ ] 2.1.8 在 `proto/game.proto` 定義 `Step` payload。
+- [ ] 2.1.9 在 `proto/game.proto` 定義 `PostStep` payload。
+- [ ] 2.1.10 在 `proto/game.proto` 定義 `HideEntity` message。
+- [ ] 2.1.11 在 `proto/game.proto` 定義 `ForgetEntity` message。
+- [ ] 2.1.12 在 `proto/game.proto` 定義 `ComponentRepair` message。
+- [ ] 2.1.13 在 `proto/game.proto` 定義 `EntityReplace` message。
+- [ ] 2.1.14 在 `proto/game.proto` 定義 `TeamViewRebase` manifest message。
+- [ ] 2.1.15 在 `proto/game.proto` 定義 `TeamViewRebase` chunk message。
+- [ ] 2.1.16 在 `proto/game.proto` 定義 view epoch 欄位型別。
+- [ ] 2.1.17 在 `proto/game.proto` 定義 authority revision 欄位型別。
+- [ ] 2.1.18 在 `proto/game.proto` 定義 bounded random tape message。
+- [ ] 2.1.19 在 `proto/game.proto` 定義 sanitized external effect message。
+- [ ] 2.1.20 在 `proto/game.proto` 定義 filtered snapshot message。
+- [ ] 2.1.21 在 `omoba-core/src/kcp/framing.rs` 新增 protocol/schema version constants。
+- [ ] 2.1.22 在 `omoba-core/src/transport.rs` 定義 match capability negotiation type。
+- [ ] 2.1.23 在 V2 player schema allowlist 中排除 global seed 欄位。
+- [ ] 2.1.24 在 V2 player schema allowlist 中排除 raw ECS ID 欄位。
+- [ ] 2.1.25 在 `proto/game.proto` 定義 disclosure epoch 欄位型別。
 
 ### 2.2 實作 team identity 與 filtered snapshot primitives
 
@@ -81,11 +172,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-IDENTITY-ISOLATION`、`G-FILTERED-SNAPSHOT`。
 **完成門檻：** 每隊 mapping 獨立、ID 不重用、stale epoch 可拒絕；snapshot 只含 classified safe state。
 
-- [ ] 2.2.1 實作 monotonic non-reused `ReplicaEntityId` 與 per-team canonical mapping。
-- [ ] 2.2.2 實作 disclosure epoch、remembered interval ID retention 與 authoritative forget retirement。
-- [ ] 2.2.3 實作 filtered snapshot builder，只讀取 classification allowlist 與 team view。
-- [ ] 2.2.4 實作 snapshot ID、chunk hash、manifest 與 interrupted rebase discard contract。
-- [ ] 2.2.5 實作 snapshot/schema compatibility guard，拒絕 global `SnapshotStore` bytes 進入 V2 player path。
+- [ ] 2.2.1 在 `omoba-core/src/runtime/` 新增 monotonic non-reused `ReplicaEntityId` allocator。
+- [ ] 2.2.2 在 team identity state 實作 disclosure epoch increment。
+- [ ] 2.2.3 建立 filtered snapshot builder 的輸入與輸出 shell。
+- [ ] 2.2.4 實作 snapshot ID allocator。
+- [ ] 2.2.5 實作 filtered snapshot schema-version compatibility guard。
+- [ ] 2.2.6 實作每個 team 獨立的 canonical-to-replica mapping。
+- [ ] 2.2.7 實作每個 team 獨立的 replica-to-canonical server lookup。
+- [ ] 2.2.8 實作 replica ID retire set，阻止同 match 內重用。
+- [ ] 2.2.9 實作 remembered interval 的 replica ID retention。
+- [ ] 2.2.10 實作 authoritative forget 的 replica ID retirement。
+- [ ] 2.2.11 實作 stale disclosure epoch lookup rejection。
+- [ ] 2.2.12 將 filtered snapshot builder 的 component 來源限制為 classification allowlist。
+- [ ] 2.2.13 將 filtered snapshot builder 的 entity 來源限制為 resolved team view。
+- [ ] 2.2.14 實作 snapshot chunk encoder。
+- [ ] 2.2.15 實作單一 chunk hash 計算。
+- [ ] 2.2.16 實作 snapshot manifest encoder。
+- [ ] 2.2.17 實作 manifest hash 驗證。
+- [ ] 2.2.18 實作 incomplete snapshot staging area discard。
+- [ ] 2.2.19 將 V2 filtered snapshot type 與 global `SnapshotStore` type 分離。
+- [ ] 2.2.20 在 V2 player encoder 拒絕 global `SnapshotStore` type。
 
 ### 2.3 實作 `SelectiveReplicaRuntime`
 
@@ -97,12 +203,30 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-SHARED-REPLICA-RUNTIME`。
 **完成門檻：** Runtime 可從 filtered snapshot bootstrap，依 phase 推進、停在 gap barrier、套用 authority revision 並輸出 filtered render snapshot/hash。
 
-- [ ] 2.3.1 實作 `PreStep` reveal/hide/forget transition application 與 idempotence。
-- [ ] 2.3.2 實作 `Step` accepted input、public event、external effect 與 bounded random tape injection。
-- [ ] 2.3.3 實作一個 disclosed-world fixed tick，確保不讀 server-only 或 remembered cache。
-- [ ] 2.3.4 實作 `PostStep` component/entity/rebase authority revision 與 server-wins conflict resolution。
-- [ ] 2.3.5 實作 expected sequence/tick barrier、late-frame stall 與 replay/rebase resume。
-- [ ] 2.3.6 實作 canonical team hash 與 filtered render snapshot extraction。
+- [ ] 2.3.1 在 `SelectiveReplicaRuntime` 實作 `RevealEntity` application。
+- [ ] 2.3.2 在 `SelectiveReplicaRuntime` 實作 accepted input injection。
+- [ ] 2.3.3 在 `SelectiveReplicaRuntime` 執行一個 disclosed-world fixed tick。
+- [ ] 2.3.4 在 `SelectiveReplicaRuntime` 實作 `ComponentRepair` application。
+- [ ] 2.3.5 實作 expected `team_sequence` barrier。
+- [ ] 2.3.6 實作 canonical team hash。
+- [ ] 2.3.7 在 `SelectiveReplicaRuntime` 實作 `HideEntity` application。
+- [ ] 2.3.8 在 `SelectiveReplicaRuntime` 實作 `ForgetEntity` application。
+- [ ] 2.3.9 為 transition application 實作 revision-based idempotence guard。
+- [ ] 2.3.10 在 `SelectiveReplicaRuntime` 實作 public event injection。
+- [ ] 2.3.11 在 `SelectiveReplicaRuntime` 實作 sanitized external effect injection。
+- [ ] 2.3.12 在 `SelectiveReplicaRuntime` 實作 bounded random tape injection。
+- [ ] 2.3.13 將 fixed tick 的 component/resource access 限制為 disclosed-world allowlist。
+- [ ] 2.3.14 將 remembered presentation cache 排除於 runtime resource set。
+- [ ] 2.3.15 在 `SelectiveReplicaRuntime` 實作 `EntityReplace` application。
+- [ ] 2.3.16 在 `SelectiveReplicaRuntime` 實作 complete `TeamViewRebase` swap。
+- [ ] 2.3.17 在所有 `PostStep` correction 套用 monotonic authority revision check。
+- [ ] 2.3.18 在 revision conflict 時實作 server-wins overwrite。
+- [ ] 2.3.19 實作 expected replica tick barrier。
+- [ ] 2.3.20 實作 missing frame 的 deterministic stall state。
+- [ ] 2.3.21 實作 replay frame 抵達後的 resume transition。
+- [ ] 2.3.22 實作 verified rebase swap 後的 resume transition。
+- [ ] 2.3.23 實作 filtered render snapshot extraction。
+- [ ] 2.3.24 將 remembered presentation 排除於 canonical team hash。
 
 ### 2.4 準備 synthetic fixtures 與最低限度 build
 
@@ -114,9 +238,15 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PHASE2-BUILDABLE`，非 acceptance gate。
 **完成門檻：** Shared crates 與 fixture code 可編譯；完整測試明確 deferred 到 Phase 6。
 
-- [ ] 2.4.1 建立消費相同 encoded bytes 的 synthetic client/observer fixture constructors。
-- [ ] 2.4.2 建立 reveal/hide/repair/rebase fixture data，僅供 Phase 6 suite 使用。
-- [ ] 2.4.3 執行一次最低限度 `omoba-core`/protocol compile check 並記錄為非 acceptance evidence。
+- [ ] 2.4.1 建立從 encoded bytes 初始化 synthetic client fixture 的 constructor。
+- [ ] 2.4.2 建立單一 reveal frame fixture。
+- [ ] 2.4.3 執行一次最低限度 `omoba-core` compile check，將 log 標記為 non-acceptance evidence。
+- [ ] 2.4.4 建立從相同 encoded bytes 初始化 observer fixture 的 constructor。
+- [ ] 2.4.5 建立單一 hide frame fixture。
+- [ ] 2.4.6 建立單一 component repair frame fixture。
+- [ ] 2.4.7 建立單一 entity replace frame fixture。
+- [ ] 2.4.8 建立單一 rebase manifest/chunk fixture。
+- [ ] 2.4.9 執行一次最低限度 protocol codegen compile check，將 log 標記為 non-acceptance evidence。
 
 ## 3. Deterministic Specs projection pipeline
 
@@ -130,10 +260,21 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OBSERVABLE-FACT-CONTRACT`。
 **完成門檻：** 每筆 outcome/fact 有 stable key，commit 不依賴 insertion/arrival order，沒有 post-hoc full-world effect scan。
 
-- [ ] 3.1.1 定義 `ObservableFact` variant、safe metadata 與 stable ordering key。
+- [ ] 3.1.1 在 shared runtime 定義 `ObservableFact` enum shell。
 - [ ] 3.1.2 實作 Specs-safe sharded/thread-local output buffers。
-- [ ] 3.1.3 實作 deterministic merge、sort、dedupe 與 malformed key rejection。
-- [ ] 3.1.4 將既有 runtime event bridge 改為由 ordered facts/outcomes 驅動。
+- [ ] 3.1.3 實作 sharded fact buffer 的 deterministic merge。
+- [ ] 3.1.4 從既有 runtime event bridge 移除 unordered direct emit path。
+- [ ] 3.1.5 為每個 `ObservableFact` variant 定義 safe metadata payload。
+- [ ] 3.1.6 定義 fact ordering key 的 `tick` 欄位。
+- [ ] 3.1.7 定義 fact ordering key 的 `phase` 欄位。
+- [ ] 3.1.8 定義 fact ordering key 的 `canonical_source_order` 欄位。
+- [ ] 3.1.9 定義 fact ordering key 的 `local_ordinal` 欄位。
+- [ ] 3.1.10 定義 fact ordering key 的 `fact_kind` 欄位。
+- [ ] 3.1.11 實作 merged fact buffer 的 stable sort。
+- [ ] 3.1.12 實作 exact duplicate fact 的 deterministic dedupe。
+- [ ] 3.1.13 實作 malformed ordering key 的 fail-closed rejection。
+- [ ] 3.1.14 將 ordered `Outcome` 輸入既有 runtime event bridge。
+- [ ] 3.1.15 將 ordered `ObservableFact` 輸入新的 team projection bridge。
 
 ### 3.2 遷移 gameplay 與 script projection policy
 
@@ -145,11 +286,36 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PROJECTION-POLICY-COMPLETE`。
 **完成門檻：** Inventory 中每個 action 都有 code-owned policy；缺少 policy 時 secure startup/content validation fail closed。
 
-- [ ] 3.2.1 遷移 movement、spawn、death 與 ownership actions 產生 `ObservableFact`。
-- [ ] 3.2.2 遷移 combat、projectile、AOE、buff/debuff actions 產生 projection facts/external-effect inputs。
-- [ ] 3.2.3 遷移 hero/tower/item/ability actions 與 retained HUD/terminal events。
-- [ ] 3.2.4 擴充 script host boundary，讓 `base_content` 透過 Outcome/fact contract 聲明 policy，不把 runtime-heavy type 放入 `script-abi`。
-- [ ] 3.2.5 實作 projection policy registry completeness check 與 actionable error report。
+- [ ] 3.2.1 在 movement tick producer 產生 movement `ObservableFact`。
+- [ ] 3.2.2 在 direct damage producer 產生 combat projection fact。
+- [ ] 3.2.3 在 hero action producer 註冊 projection policy ID。
+- [ ] 3.2.4 在 `scripts/script-abi` 定義 abi-stable projection policy ID 型別。
+- [ ] 3.2.5 實作 projection policy registry 的 missing-ID detection。
+- [ ] 3.2.6 在 entity creation producer 產生 spawn `ObservableFact`。
+- [ ] 3.2.7 在 death producer 產生 death `ObservableFact`。
+- [ ] 3.2.8 在 ownership mutation producer 產生 ownership `ObservableFact`。
+- [ ] 3.2.9 在 projectile spawn producer 產生 projectile creation fact。
+- [ ] 3.2.10 在 projectile movement producer 產生 projectile movement fact。
+- [ ] 3.2.11 在 projectile removal producer 產生 projectile removal fact。
+- [ ] 3.2.12 在 AOE resolution producer 產生 AOE projection fact。
+- [ ] 3.2.13 在 buff apply producer 產生 buff projection fact。
+- [ ] 3.2.14 在 buff removal producer 產生 buff removal fact。
+- [ ] 3.2.15 在 debuff apply producer 產生 debuff projection fact。
+- [ ] 3.2.16 在 tower place producer 註冊 projection policy ID。
+- [ ] 3.2.17 在 tower sell producer 註冊 projection policy ID。
+- [ ] 3.2.18 在 tower upgrade producer 註冊 projection policy ID。
+- [ ] 3.2.19 在 item use producer 註冊 projection policy ID。
+- [ ] 3.2.20 在 ability activation producer 註冊 projection policy ID。
+- [ ] 3.2.21 將 retained HUD event 轉成明確 audience 的 projection fact。
+- [ ] 3.2.22 將 retained terminal event 轉成明確 audience 的 projection fact。
+- [ ] 3.2.23 在 script host adapter 接收 abi-stable projection policy ID。
+- [ ] 3.2.24 在 script host adapter 將 script outcome 轉成 host `ObservableFact`。
+- [ ] 3.2.25 確認 `scripts/script-abi` 未新增 `specs` dependency。
+- [ ] 3.2.26 確認 `scripts/script-abi` 未新增 runtime-heavy serialization dependency。
+- [ ] 3.2.27 為 missing policy error 加入 action ID。
+- [ ] 3.2.28 為 missing policy error 加入 source module/path。
+- [ ] 3.2.29 在 secure match startup 執行 policy registry completeness check。
+- [ ] 3.2.30 在 completeness check 失敗時阻止 secure match 啟動。
 
 ### 3.3 實作 Wave A commit 與 Wave B visibility
 
@@ -161,11 +327,34 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-TWO-WAVE-PIPELINE`。
 **完成門檻：** `State[T+1]` 只在 deterministic commit 後可見；team jobs 讀 committed state 並可平行執行。
 
-- [ ] 3.3.1 將 stable outcome/fact reduce 插入 authoritative tick 的 deterministic commit barrier。
-- [ ] 3.3.2 實作 fixed-point `ReplicationScope`、`VisionSource`、`StealthProfile`、`VisibilityOverride`、`RememberPolicy` ECS types。
-- [ ] 3.3.3 實作 team-shared geometry/detection resolve 與 stable override precedence。
-- [ ] 3.3.4 實作 reveal/hide candidate、2–4 tick commitment delay、cancellation 與 fresh baseline capture。
-- [ ] 3.3.5 實作 `TeamVisibilityIndex`、visibility history 與 per-team read-only Wave B scheduling。
+- [ ] 3.3.1 將 stable outcome reduce 插入 authoritative tick commit input。
+- [ ] 3.3.2 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `ReplicationScope` component。
+- [ ] 3.3.3 實作 team-shared geometry visibility resolve。
+- [ ] 3.3.4 實作 reveal candidate creation。
+- [ ] 3.3.5 實作 `TeamVisibilityIndex` current-view storage。
+- [ ] 3.3.6 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `VisionSource` component。
+- [ ] 3.3.7 在 `omoba-core/src/runtime/native/comp/` 定義 fixed-point `StealthProfile` component。
+- [ ] 3.3.8 在 `omoba-core/src/runtime/native/comp/` 定義 `VisibilityOverride` component。
+- [ ] 3.3.9 在 `omoba-core/src/runtime/native/comp/` 定義 `RememberPolicy` component。
+- [ ] 3.3.10 實作 team vision source aggregation。
+- [ ] 3.3.11 實作 stealth 與 detection level comparison。
+- [ ] 3.3.12 實作 `ServerOnly` deny precedence。
+- [ ] 3.3.13 實作 force-hide precedence。
+- [ ] 3.3.14 實作 `Public` 與 force-show precedence。
+- [ ] 3.3.15 實作 `OwnerTeam` precedence。
+- [ ] 3.3.16 實作同 priority override 的 stable rule ID tie-break。
+- [ ] 3.3.17 實作 hide candidate creation。
+- [ ] 3.3.18 實作 candidate commitment tick calculation。
+- [ ] 3.3.19 實作 reveal candidate cancellation。
+- [ ] 3.3.20 實作 hide candidate cancellation。
+- [ ] 3.3.21 在 reveal effective tick 擷取 fresh authoritative baseline。
+- [ ] 3.3.22 在 hide effective tick 產生 remembered-policy disposition。
+- [ ] 3.3.23 實作 per-team visibility history ring。
+- [ ] 3.3.24 在 commit barrier 後建立 Wave B read-only state view。
+- [ ] 3.3.25 在 Specs dispatcher 註冊 per-team Wave B jobs。
+- [ ] 3.3.26 將不同 team 的 Wave B job 設為可平行排程。
+- [ ] 3.3.27 將 stable fact reduce 插入 authoritative tick commit input。
+- [ ] 3.3.28 在 outcome/fact reduce 完成後設置 deterministic commit barrier。
 
 ### 3.4 實作 `TeamViewProjector` 與 frame builder
 
@@ -177,11 +366,28 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-TEAM-PROJECTION`、`G-NONINTERFERENCE-READY`。
 **完成門檻：** Projector 不輸出 forbidden state；同 logical payload canonical bytes 穩定；hidden dependency 轉成 sanitized outcome。
 
-- [ ] 3.4.1 實作 per-team fact audience/redaction 與 disclosed dependency closure。
-- [ ] 3.4.2 實作 hidden-visible external damage/buff/projectile/AOE sanitizer。
-- [ ] 3.4.3 實作 `PreStep`/`Step`/`PostStep` canonical frame assembly。
-- [ ] 3.4.4 實作 fixed cadence empty frame、size bucket/padding 與 mass reveal/rebase chunk policy。
-- [ ] 3.4.5 實作 authoritative expected team hash projection 與 safe mismatch metadata。
+- [ ] 3.4.1 在 `TeamViewProjector` 實作 fact audience filter。
+- [ ] 3.4.2 實作 hidden-attacker damage sanitizer。
+- [ ] 3.4.3 實作 `PreStep` canonical frame assembly。
+- [ ] 3.4.4 實作 fixed-cadence empty frame assembly。
+- [ ] 3.4.5 實作 authoritative expected team hash projection。
+- [ ] 3.4.6 在 `TeamViewProjector` 實作 component field redaction。
+- [ ] 3.4.7 實作 disclosed dependency closure traversal。
+- [ ] 3.4.8 實作 dependency closure 的 `ServerOnly` fail-closed guard。
+- [ ] 3.4.9 實作 hidden-source buff sanitizer。
+- [ ] 3.4.10 實作 hidden-source debuff sanitizer。
+- [ ] 3.4.11 實作 hidden projectile external effect sanitizer。
+- [ ] 3.4.12 實作 hidden AOE external effect sanitizer。
+- [ ] 3.4.13 實作 `Step` canonical frame assembly。
+- [ ] 3.4.14 實作 `PostStep` canonical frame assembly。
+- [ ] 3.4.15 實作 phase 內 event-kind ordering。
+- [ ] 3.4.16 實作 phase 內 replica-ID ordering。
+- [ ] 3.4.17 實作 phase 內 stable sub-index ordering。
+- [ ] 3.4.18 實作 steady-state size bucket selection。
+- [ ] 3.4.19 實作 frame padding bytes generation。
+- [ ] 3.4.20 實作 mass reveal chunk policy。
+- [ ] 3.4.21 實作 rebase chunk rate-limit policy。
+- [ ] 3.4.22 實作不含 hidden source 的 mismatch metadata。
 
 ### 3.5 Phase 3 最低限度 integration build
 
@@ -193,8 +399,11 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PHASE3-BUILDABLE`，非 acceptance gate。
 **完成門檻：** Authoritative tick 可產生 synthetic team frames，相關 workspaces 可編譯。
 
-- [ ] 3.5.1 執行一次 omb/omoba-core 最低限度 compile check 並保存 non-acceptance log。
-- [ ] 3.5.2 以單一 synthetic tick focused smoke 確認 Wave A/commit/Wave B data plumbing，不跑完整 scenarios。
+- [ ] 3.5.1 執行一次 `omoba-core` 最低限度 compile check，保存 non-acceptance log。
+- [ ] 3.5.2 以單一 synthetic tick focused smoke 確認 Wave A output 抵達 commit buffer。
+- [ ] 3.5.3 執行一次 omb 最低限度 compile check，保存 non-acceptance log。
+- [ ] 3.5.4 在同一 synthetic smoke 確認 commit 後才建立 Wave B read view。
+- [ ] 3.5.5 在同一 synthetic smoke 確認 Wave B 產生一個 encoded team frame。
 
 ## 4. Server team stream、recovery 與 observer sidecar
 
@@ -208,11 +417,22 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-TEAM-ROUTING`。
 **完成門檻：** Secure session 只收自身 team frame；encoded frame 立即 enqueue；gap 可由 ring/rebase 路由恢復。
 
-- [ ] 4.1.1 擴充 join/session state，綁定 protocol version、team、view epoch 與 secure-match capability。
-- [ ] 4.1.2 將 `TeamTickFrame` 直接 enqueue 給同 team sessions，移除 secure path global fan-out。
-- [ ] 4.1.3 實作 bounded per-team encoded-frame replay ring 與 idempotent resend。
-- [ ] 4.1.4 實作 ring expiry 後 filtered rebase/catch-up routing。
-- [ ] 4.1.5 拒絕 V1 client 加入 secure match，且拒絕 active match runtime downgrade。
+- [ ] 4.1.1 在 join state 綁定 negotiated protocol version。
+- [ ] 4.1.2 將 encoded `TeamTickFrame` 直接 enqueue 給同 team sessions。
+- [ ] 4.1.3 實作 bounded per-team encoded-frame replay ring insert。
+- [ ] 4.1.4 實作 ring expiry 後 filtered rebase routing。
+- [ ] 4.1.5 在 join handler 拒絕 V1 client 加入 secure match。
+- [ ] 4.1.6 在 join state 綁定 authenticated team ID。
+- [ ] 4.1.7 在 session state 綁定 current view epoch。
+- [ ] 4.1.8 在 session state 綁定 secure-match capability。
+- [ ] 4.1.9 在 `omb/src/transport/kcp_transport.rs` 將 team frame 路由到相同 team session set。
+- [ ] 4.1.10 從 secure path 移除 global `TickBatch` fan-out call。
+- [ ] 4.1.11 從 secure path 移除 global `StateHash` fan-out call。
+- [ ] 4.1.12 實作 replay ring sequence lookup。
+- [ ] 4.1.13 實作 replay ring exact encoded-byte resend。
+- [ ] 4.1.14 實作 duplicate replay request 的 idempotent response。
+- [ ] 4.1.15 實作 filtered rebase 完成後的 catch-up frame routing。
+- [ ] 4.1.16 在 active secure match control path 拒絕 runtime downgrade。
 
 ### 4.2 實作非阻塞 observer validation worker
 
@@ -224,11 +444,25 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OBSERVER-SIDECAR`、`G-OUTBOUND-NONBLOCKING`。
 **完成門檻：** Observer 只消費 filtered bootstrap/actual bytes；validator backpressure 不影響 outbound；每隊 lifecycle 隔離。
 
-- [ ] 4.2.1 建立 bounded validation channel，tap 與 outbound 相同的 encoded `Arc<[u8]>`。
-- [ ] 4.2.2 建立獨立 worker thread 與每個 active team observer replica map。
-- [ ] 4.2.3 讓 observer 經 V2 filtered bootstrap path 初始化並 decode 實際 frame bytes。
-- [ ] 4.2.4 實作 observer tick/hash、audit lag、queue depth 與 coverage tracking。
-- [ ] 4.2.5 實作 channel overflow coverage gap、stale observer discard 與 filtered rebootstrap。
+- [ ] 4.2.1 建立 bounded validation channel。
+- [ ] 4.2.2 建立獨立 validation worker thread lifecycle。
+- [ ] 4.2.3 讓 observer 經 V2 filtered bootstrap path 初始化。
+- [ ] 4.2.4 實作 observer current tick tracking。
+- [ ] 4.2.5 在 validation channel overflow 時建立 coverage-gap record。
+- [ ] 4.2.6 建立 active-team 到 observer replica 的 map。
+- [ ] 4.2.7 在 team 啟用時建立 observer replica。
+- [ ] 4.2.8 在 team 結束時釋放 observer replica。
+- [ ] 4.2.9 讓 observer decode outbound 使用的實際 encoded frame bytes。
+- [ ] 4.2.10 阻止 observer 讀取 authoritative Specs world handle。
+- [ ] 4.2.11 阻止 observer 讀取 canonical ID mapping。
+- [ ] 4.2.12 實作 observer team hash 計算。
+- [ ] 4.2.13 實作 validation audit lag metric。
+- [ ] 4.2.14 實作 validation queue depth metric。
+- [ ] 4.2.15 實作 per-team verified sequence coverage tracking。
+- [ ] 4.2.16 在 coverage gap 後 discard stale observer。
+- [ ] 4.2.17 以 filtered snapshot rebootstrap discarded observer。
+- [ ] 4.2.18 從 retained frame 恢復 rebootstrap observer 的 sequence。
+- [ ] 4.2.19 將 outbound 使用的 encoded `Arc<[u8]>` clone 到 validation channel。
 
 ### 4.3 實作 mismatch control 與 authority recovery
 
@@ -240,11 +474,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-AUTHORITY-RECOVERY`。
 **完成門檻：** First divergence 可定位；repair/rebase 在 later frame 發出；無法恢復時 secure match fail closed。
 
-- [ ] 4.3.1 定義 observer/client mismatch control message 與 safe first-divergence record。
-- [ ] 4.3.2 實作 component-level repair selection 與 authority revision allocation。
-- [ ] 4.3.3 實作 entity replace 與 full filtered `TeamViewRebase` selection。
-- [ ] 4.3.4 實作 join/rejoin、observer rebootstrap 與 interrupted rebase recovery。
-- [ ] 4.3.5 實作持續 recovery failure 的 secure match safe termination，不送 global fallback。
+- [ ] 4.3.1 定義 observer mismatch control message。
+- [ ] 4.3.2 實作 component-level repair selection。
+- [ ] 4.3.3 實作 entity replace selection。
+- [ ] 4.3.4 實作 player rejoin 的 filtered snapshot routing。
+- [ ] 4.3.5 實作持續 recovery failure 的 secure match safe termination。
+- [ ] 4.3.6 定義 client hash mismatch control message。
+- [ ] 4.3.7 定義 safe first-divergence record schema。
+- [ ] 4.3.8 在 first-divergence record 寫入 team 與 frame sequence。
+- [ ] 4.3.9 在 first-divergence record 寫入 safe component path。
+- [ ] 4.3.10 實作 monotonic authority revision allocation。
+- [ ] 4.3.11 將 `ComponentRepair` 排入後續 `PostStep` frame。
+- [ ] 4.3.12 將 `EntityReplace` 排入後續 `PostStep` frame。
+- [ ] 4.3.13 實作 full filtered `TeamViewRebase` selection threshold。
+- [ ] 4.3.14 將 selected `TeamViewRebase` 排入後續 authority stream。
+- [ ] 4.3.15 實作 observer coverage-gap rebootstrap request handler。
+- [ ] 4.3.16 實作 interrupted rebase 的 staging discard。
+- [ ] 4.3.17 實作 rebase manifest 驗證失敗的 retry disposition。
+- [ ] 4.3.18 在 retry 上限耗盡時進入 safe termination path。
+- [ ] 4.3.19 在 safe termination diagnostic 中套用 team redaction。
+- [ ] 4.3.20 在 safe termination path 禁止 global protocol fallback。
 
 ### 4.4 實作 anti-probing、redaction 與 observability
 
@@ -256,11 +505,32 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-ANTI-PROBING-READY`、`G-REDACTION-READY`。
 **完成門檻：** Player-visible outputs 不含 forbidden fields；invalid target 不形成 existence oracle；admin diagnostic boundary 明確隔離。
 
-- [ ] 4.4.1 將 target input 改為 replica ID/view/disclosure epoch，依 input tick visibility history 驗證。
-- [ ] 4.4.2 實作 generalized rejection、uniform timing bucket 與 invalid reference rate limit。
-- [ ] 4.4.3 實作 player log/replay/crash/trace redaction 與 server-admin capability boundary。
-- [ ] 4.4.4 實作 transition/frame/queue/audit lag/coverage gap/repair/rebase/security metrics。
-- [ ] 4.4.5 實作 packet padding diagnostics，分開 steady-state 與 reveal/rebase burst accounting。
+- [ ] 4.4.1 將 target input wire field 改為 team-scoped replica ID。
+- [ ] 4.4.2 實作 invalid target 的 generalized rejection class。
+- [ ] 4.4.3 在 player log sink 套用 team redaction。
+- [ ] 4.4.4 實作 visibility transition count metric。
+- [ ] 4.4.5 實作 steady-state padding byte metric。
+- [ ] 4.4.6 在 target input 加入 view epoch field。
+- [ ] 4.4.7 在 target input 加入 disclosure epoch field。
+- [ ] 4.4.8 依 session team binding 驗證 target input。
+- [ ] 4.4.9 依 input tick visibility history 驗證 target input。
+- [ ] 4.4.10 依 ownership rule 驗證 target input。
+- [ ] 4.4.11 實作 invalid target 的 uniform timing bucket。
+- [ ] 4.4.12 實作 invalid replica reference rate limit。
+- [ ] 4.4.13 在 player replay sink 套用 team redaction。
+- [ ] 4.4.14 在 player crash bundle 套用 team redaction。
+- [ ] 4.4.15 在 player trace sink 套用 team redaction。
+- [ ] 4.4.16 建立 server-admin diagnostic capability check。
+- [ ] 4.4.17 將 full diagnostic transport 與 player session transport 分離。
+- [ ] 4.4.18 實作 encoded frame byte metric。
+- [ ] 4.4.19 實作 outbound queue depth metric。
+- [ ] 4.4.20 實作 observer audit lag metric export。
+- [ ] 4.4.21 實作 coverage gap metric export。
+- [ ] 4.4.22 實作 authority repair count metric。
+- [ ] 4.4.23 實作 authority rebase count metric。
+- [ ] 4.4.24 實作 redaction violation counter。
+- [ ] 4.4.25 實作 reveal burst byte accounting。
+- [ ] 4.4.26 實作 rebase burst byte accounting。
 
 ### 4.5 Phase 4 最低限度 server build
 
@@ -272,8 +542,10 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-PHASE4-BUILDABLE`，非 acceptance gate。
 **完成門檻：** omb V2 path 可編譯，synthetic client 可完成一次 filtered join 與一個 frame receive。
 
-- [ ] 4.5.1 執行一次 omb 最低限度 compile check 並保存 non-acceptance log。
-- [ ] 4.5.2 執行一次 synthetic filtered join/frame receive focused smoke，不跑完整 recovery/security matrix。
+- [ ] 4.5.1 執行一次 omb 最低限度 compile check，保存 non-acceptance log。
+- [ ] 4.5.2 執行一次 synthetic filtered join focused smoke。
+- [ ] 4.5.3 在相同 synthetic session 接收一個 team frame。
+- [ ] 4.5.4 確認 4.5.2–4.5.3 evidence 未標記為 recovery/security acceptance。
 
 ## 5. omfx selective replica 與 cutover preparation
 
@@ -287,11 +559,27 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OMFX-SELECTIVE-RUNTIME`。
 **完成門檻：** omfx 不建立 global world、不讀 `master_seed`/raw ECS ID，並以 negotiated barrier 推進。
 
-- [ ] 5.1.1 擴充 omfx KCP client decode `TeamGameStart`、`TeamTickFrame`、replay/rebase control。
-- [ ] 5.1.2 以 filtered snapshot bootstrap `SelectiveReplicaRuntime`，移除 secure path global world bootstrap。
-- [ ] 5.1.3 實作 12-tick default barrier buffer、expected sequence 與 late-frame stall。
-- [ ] 5.1.4 將 accepted input/external effect/transition/authority correction 導入 shared runtime。
-- [ ] 5.1.5 確保 UI/network/input handling 在 replica stall 時保持 responsive。
+- [ ] 5.1.1 在 `omfx/game/src/lockstep_client.rs` decode `TeamGameStart`。
+- [ ] 5.1.2 在 `omfx/game/src/sim_runner.rs` 新增 `SelectiveReplicaRuntime` owner field。
+- [ ] 5.1.3 在 omfx client 建立 negotiated barrier buffer。
+- [ ] 5.1.4 將 accepted input 導入 shared runtime。
+- [ ] 5.1.5 在 replica stall 時保留最後一份 disclosed render snapshot。
+- [ ] 5.1.6 在 `omfx/game/src/lockstep_client.rs` decode `TeamTickFrame`。
+- [ ] 5.1.7 在 omfx client decode replay response control。
+- [ ] 5.1.8 在 omfx client decode rebase manifest control。
+- [ ] 5.1.9 在 omfx client decode rebase chunk control。
+- [ ] 5.1.10 將 `TeamGameStart` filtered snapshot 傳入 `SelectiveReplicaRuntime` bootstrap。
+- [ ] 5.1.11 從 secure client path 移除 global world bootstrap call。
+- [ ] 5.1.12 將 barrier buffer default 設為 negotiated 12 ticks。
+- [ ] 5.1.13 在 barrier buffer 追蹤 expected team sequence。
+- [ ] 5.1.14 在 expected frame 未到時回報 deterministic stall state。
+- [ ] 5.1.15 將 public event 導入 shared runtime。
+- [ ] 5.1.16 將 sanitized external effect 導入 shared runtime。
+- [ ] 5.1.17 將 visibility transition 導入 shared runtime。
+- [ ] 5.1.18 將 authority correction 導入 shared runtime。
+- [ ] 5.1.19 在 replica stall 時維持 network receive loop 運作。
+- [ ] 5.1.20 在 replica stall 時維持 input collection loop 運作。
+- [ ] 5.1.21 在 replica stall 時維持 UI loop 運作。
 
 ### 5.2 實作 filtered rendering 與 remembered cache
 
@@ -304,10 +592,20 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **完成門檻：** Hidden entity 不在 deterministic snapshot/render cache；remembered data 不可 target/hash；reveal 可關聯 prior remembered ID。
 
 - [ ] 5.2.1 將 render bridge identity 改為 team-scoped replica ID。
-- [ ] 5.2.2 實作 hide/forget 時 deterministic scene cleanup。
-- [ ] 5.2.3 實作 `LastKnown`/custom remembered presentation cache 與 lifecycle。
-- [ ] 5.2.4 阻止 remembered cache 進入 target lookup、collision、simulation 與 team hash。
-- [ ] 5.2.5 實作 re-reveal 與 remembered presentation 的安全關聯／替換。
+- [ ] 5.2.2 將 hide/forget transition 路由到 render scene cleanup handler。
+- [ ] 5.2.3 實作 `LastKnown` remembered presentation cache insert。
+- [ ] 5.2.4 阻止 remembered cache 進入 target lookup。
+- [ ] 5.2.5 定義 re-reveal 對 remembered presentation 的 association key。
+- [ ] 5.2.6 在 hide transition 從 deterministic scene 移除 entity node。
+- [ ] 5.2.7 在 forget transition retire deterministic scene identity。
+- [ ] 5.2.8 實作 custom remembered presentation registry lookup。
+- [ ] 5.2.9 實作 remembered presentation cache expiry rule。
+- [ ] 5.2.10 實作 remembered presentation cache explicit removal。
+- [ ] 5.2.11 阻止 remembered cache 進入 collision query。
+- [ ] 5.2.12 阻止 remembered cache 進入 simulation resource。
+- [ ] 5.2.13 阻止 remembered cache 進入 team hash input。
+- [ ] 5.2.14 在 re-reveal 時查找可沿用的 remembered replica ID。
+- [ ] 5.2.15 在 re-reveal baseline 套用後替換 remembered presentation。
 
 ### 5.3 實作 client recovery、authority 與 diagnostics
 
@@ -319,11 +617,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-OMFX-RECOVERY`。
 **完成門檻：** Duplicate/gap/late/correction/rebase 有 deterministic terminal path；client 不嘗試 global snapshot fallback。
 
-- [ ] 5.3.1 實作 duplicate/gap detection 與 replay request。
-- [ ] 5.3.2 實作 `ComponentRepair`、`EntityReplace` 與 `TeamViewRebase` barrier application。
-- [ ] 5.3.3 實作 rebase chunk/manifest verification 與 interrupted rebase discard。
-- [ ] 5.3.4 實作 client team hash report、barrier stall、gap/rebase metrics 與 redacted diagnostic bundle。
-- [ ] 5.3.5 移除 secure client path 的 global snapshot/hash/master-seed fallback。
+- [ ] 5.3.1 實作 duplicate team sequence detection。
+- [ ] 5.3.2 在 client barrier 套用 `ComponentRepair`。
+- [ ] 5.3.3 實作 rebase chunk hash verification。
+- [ ] 5.3.4 實作 client team hash report。
+- [ ] 5.3.5 在 secure client recovery dispatcher 加入 global-fallback denial guard。
+- [ ] 5.3.6 實作 missing team sequence gap detection。
+- [ ] 5.3.7 在 gap detection 後送出 replay request。
+- [ ] 5.3.8 對 duplicate frame 執行 idempotent ignore。
+- [ ] 5.3.9 在 client barrier 套用 `EntityReplace`。
+- [ ] 5.3.10 將完整 `TeamViewRebase` staging swap 排在指定 barrier。
+- [ ] 5.3.11 實作 rebase manifest hash verification。
+- [ ] 5.3.12 實作 rebase chunk completeness check。
+- [ ] 5.3.13 在 rebase 中斷時 discard staging snapshot。
+- [ ] 5.3.14 實作 barrier stall metric。
+- [ ] 5.3.15 實作 client gap metric。
+- [ ] 5.3.16 實作 client rebase metric。
+- [ ] 5.3.17 實作 team-redacted client diagnostic bundle。
+- [ ] 5.3.18 從 secure client path 移除 global snapshot fallback。
+- [ ] 5.3.19 從 secure client path 移除 global state-hash fallback。
+- [ ] 5.3.20 從 secure client path 移除 master-seed fallback。
 
 ### 5.4 準備 match negotiation、shadow 與 cleanup
 
@@ -335,11 +648,22 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-CUTOVER-PREPARED`。
 **完成門檻：** V2 可 opt-in；legacy 僅限 non-secure match；global path cleanup 已準備但未在 final evidence 前啟用。
 
-- [ ] 5.4.1 實作 match-level `secure_v2` negotiation/config 與 V1/V2 isolation。
-- [ ] 5.4.2 實作 server shadow generation 與 internal dogfood switches。
-- [ ] 5.4.3 準備移除 player global `TickBatch`、`StateHash`、`WorldSnapshot`、`master_seed` fan-out 的 patch set。
-- [ ] 5.4.4 準備移除 dead `client_visibility`/`last_visibility_tick`、legacy viewport authority 與 nondeterministic vision path 的 patch set。
+- [ ] 5.4.1 在 match config 定義 `secure_v2` mode 欄位。
+- [ ] 5.4.2 實作 server shadow generation switch。
+- [ ] 5.4.3 準備移除 player global `TickBatch` fan-out 的 patch。
+- [ ] 5.4.4 準備移除 dead `client_visibility` field 的 patch。
 - [ ] 5.4.5 建立 cutover/rollback manifest，明確禁止 active secure match downgrade。
+- [ ] 5.4.6 在 match config 加入 secure V2 opt-in mode。
+- [ ] 5.4.7 在 match negotiation 拒絕 secure match 混用 V1/V2 client。
+- [ ] 5.4.8 實作 internal dogfood enable switch。
+- [ ] 5.4.9 準備移除 player global `StateHash` fan-out 的 patch。
+- [ ] 5.4.10 準備移除 player global `WorldSnapshot` bootstrap 的 patch。
+- [ ] 5.4.11 準備移除 player `master_seed` delivery 的 patch。
+- [ ] 5.4.12 準備移除 player raw ECS ID serialization 的 patch。
+- [ ] 5.4.13 準備移除 dead `last_visibility_tick` field 的 patch。
+- [ ] 5.4.14 準備 quarantine legacy viewport authority 的 patch。
+- [ ] 5.4.15 準備 quarantine nondeterministic vision authority path 的 patch。
+- [ ] 5.4.16 在 rollback manifest 限定 rollback 只能發生於 match 建立前。
 
 ### 5.5 End-to-end 最低限度 build/smoke
 
@@ -351,9 +675,17 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-E2E-BUILDABLE`，非 acceptance gate。
 **完成門檻：** Required workspaces build，單一 secure V2 session 可 join/step/render；所有完整驗證仍未標 pass。
 
-- [ ] 5.5.1 執行 scripts、omb、omfx required workspace compile/build commands 並保存 non-acceptance logs。
-- [ ] 5.5.2 執行一次單一 V2 filtered join、one-frame step、render focused smoke。
-- [ ] 5.5.3 Freeze Phase 6 config、binary/content hashes 與 evidence manifest；之後 B/C correction 需標記 affected evidence stale。
+- [ ] 5.5.1 執行 scripts workspace 最低限度 build，保存 non-acceptance log。
+- [ ] 5.5.2 執行一次單一 V2 filtered join focused smoke。
+- [ ] 5.5.3 Freeze Phase 6 runtime config hash。
+- [ ] 5.5.4 執行 omb workspace 最低限度 build，保存 non-acceptance log。
+- [ ] 5.5.5 執行 omfx workspace 最低限度 build，保存 non-acceptance log。
+- [ ] 5.5.6 在 5.5.2 session 執行 one-frame replica step。
+- [ ] 5.5.7 從 5.5.6 replica snapshot 執行一次 render handoff。
+- [ ] 5.5.8 Freeze Phase 6 binary hashes。
+- [ ] 5.5.9 Freeze Phase 6 content hashes。
+- [ ] 5.5.10 Freeze Phase 6 evidence manifest hash。
+- [ ] 5.5.11 在 adjustment contract 標明 B/C correction 會使 frozen evidence stale。
 
 ## 6. 集中式 Final Verification、cutover 與 cleanup
 
@@ -368,10 +700,25 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **完成門檻：** 所有 required unit/property/schema tests exit 0，無 skip blocking scenario。
 
 - [ ] 6.1.1 執行 `cargo test --manifest-path omb/Cargo.toml -p omobab --lib` 並保存完整 log。
-- [ ] 6.1.2 執行 `cargo test --manifest-path scripts/Cargo.toml -p omb-script-abi` 與 `-p base_content` 並保存完整 log。
-- [ ] 6.1.3 執行 omoba-sim/omoba-core determinism、visibility、identity、transition、repair、random-tape property suites。
-- [ ] 6.1.4 執行 protocol encode/decode、schema version、canonical ordering、malformed transition/rebase suites。
-- [ ] 6.1.5 執行 projection-policy completeness 與 remembered-state exclusion suites。
+- [ ] 6.1.2 執行 `cargo test --manifest-path scripts/Cargo.toml -p omb-script-abi` 並保存完整 log。
+- [ ] 6.1.3 執行 omoba-sim determinism property suite。
+- [ ] 6.1.4 執行 protocol encode suite。
+- [ ] 6.1.5 執行 projection-policy completeness suite。
+- [ ] 6.1.6 執行 `cargo test --manifest-path scripts/Cargo.toml -p base_content` 並保存完整 log。
+- [ ] 6.1.7 執行 omoba-core determinism property suite。
+- [ ] 6.1.8 執行 visibility resolution property suite。
+- [ ] 6.1.9 執行 team-scoped identity property suite。
+- [ ] 6.1.10 執行 scheduled transition property suite。
+- [ ] 6.1.11 執行 authority repair property suite。
+- [ ] 6.1.12 執行 bounded random-tape property suite。
+- [ ] 6.1.13 執行 protocol decode suite。
+- [ ] 6.1.14 執行 schema version compatibility suite。
+- [ ] 6.1.15 執行 canonical ordering suite。
+- [ ] 6.1.16 執行 malformed transition rejection suite。
+- [ ] 6.1.17 執行 malformed rebase rejection suite。
+- [ ] 6.1.18 執行 remembered-state simulation exclusion suite。
+- [ ] 6.1.19 執行 remembered-state hash exclusion suite。
+- [ ] 6.1.20 彙整 6.1 required suite 的 exit status，確認沒有 skip blocking scenario。
 
 ### 6.2 執行 differential、cross-platform 與 non-interference suite
 
@@ -383,11 +730,21 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-PARITY`、`G-FINAL-NONINTERFERENCE`。
 **完成門檻：** 三方 hash parity 全通過；Windows/Linux pins 相同；所有 hidden-only paired frames byte-identical 到 public causal effect。
 
-- [ ] 6.2.1 執行 authoritative projector vs server observer vs synthetic/omfx replica checkpoint hash differential suite。
-- [ ] 6.2.2 在 Windows Rust 1.95.0 執行 pinned determinism suite並保存 toolchain/platform metadata。
-- [ ] 6.2.3 在 Linux Rust 1.95.0 執行相同 pinned determinism suite並比較 hashes。
-- [ ] 6.2.4 執行 hidden movement/state/RNG/death paired-world non-interference suite並保存 frame byte hashes。
+- [ ] 6.2.1 執行 authoritative projector 對 server observer 的 checkpoint hash differential suite。
+- [ ] 6.2.2 在 Windows Rust 1.95.0 執行 pinned determinism suite。
+- [ ] 6.2.3 在 Linux Rust 1.95.0 執行相同 pinned determinism suite。
+- [ ] 6.2.4 執行 hidden movement paired-world non-interference case。
 - [ ] 6.2.5 執行 parallel completion-order permutation suite，確認 canonical encoded bytes 不變。
+- [ ] 6.2.6 執行 authoritative projector 對 synthetic replica 的 checkpoint hash differential suite。
+- [ ] 6.2.7 執行 authoritative projector 對 omfx replica 的 checkpoint hash differential suite。
+- [ ] 6.2.8 保存 6.2.2 的 exact Windows toolchain 與 platform metadata。
+- [ ] 6.2.9 保存 6.2.3 的 exact Linux toolchain 與 platform metadata。
+- [ ] 6.2.10 比較 Windows 與 Linux checkpoint hashes。
+- [ ] 6.2.11 執行 hidden component state paired-world non-interference case。
+- [ ] 6.2.12 執行 hidden RNG paired-world non-interference case。
+- [ ] 6.2.13 執行 hidden death paired-world non-interference case。
+- [ ] 6.2.14 為每個 paired-world case 保存 encoded frame byte hash。
+- [ ] 6.2.15 確認 non-interference case 在 public causal effect 前 byte-identical。
 
 ### 6.3 執行 visibility boundary 與 gameplay integration matrix
 
@@ -399,11 +756,36 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-BOUNDARY`。
 **完成門檻：** 每個 projection matrix scenario 有 passed evidence，無未分類/未執行 blocking case。
 
-- [ ] 6.3.1 執行 team-shared vision、override precedence、expiry、candidate cancel、reveal/hide/re-reveal/forget scenarios。
-- [ ] 6.3.2 執行 hidden attacker damage、buff/debuff、projectile enter/leave、AOE cross-boundary scenarios。
-- [ ] 6.3.3 執行 remembered ghost、fog death、custom remember policy 與 target rejection scenarios。
-- [ ] 6.3.4 執行 owner/team/public/server-only resource 與 event audience scenarios。
-- [ ] 6.3.5 執行 input tick visibility-history、stale epoch、ownership 與 accepted/rejected action scenarios。
+- [ ] 6.3.1 執行 team-shared vision scenario。
+- [ ] 6.3.2 執行 hidden attacker damage cross-boundary scenario。
+- [ ] 6.3.3 執行 remembered ghost presentation scenario。
+- [ ] 6.3.4 執行 owner-only resource audience scenario。
+- [ ] 6.3.5 執行 input-tick visibility-history scenario。
+- [ ] 6.3.6 執行 force-hide 對 force-show precedence scenario。
+- [ ] 6.3.7 執行同 priority stable rule ID tie-break scenario。
+- [ ] 6.3.8 執行 override expiry boundary scenario。
+- [ ] 6.3.9 執行 reveal candidate cancellation scenario。
+- [ ] 6.3.10 執行 hide candidate cancellation scenario。
+- [ ] 6.3.11 執行 scheduled reveal fresh-baseline scenario。
+- [ ] 6.3.12 執行 scheduled hide scenario。
+- [ ] 6.3.13 執行 re-reveal identity association scenario。
+- [ ] 6.3.14 執行 authoritative forget ID retirement scenario。
+- [ ] 6.3.15 執行 hidden-source buff scenario。
+- [ ] 6.3.16 執行 hidden-source debuff scenario。
+- [ ] 6.3.17 執行 projectile enter-visibility scenario。
+- [ ] 6.3.18 執行 projectile leave-visibility scenario。
+- [ ] 6.3.19 執行 AOE cross-boundary scenario。
+- [ ] 6.3.20 執行 remembered entity fog-death non-disclosure scenario。
+- [ ] 6.3.21 執行 custom remember policy scenario。
+- [ ] 6.3.22 執行 remembered record target rejection scenario。
+- [ ] 6.3.23 執行 team-private resource audience scenario。
+- [ ] 6.3.24 執行 public resource audience scenario。
+- [ ] 6.3.25 執行 server-only resource non-disclosure scenario。
+- [ ] 6.3.26 執行 retained event audience scenario。
+- [ ] 6.3.27 執行 stale disclosure epoch input scenario。
+- [ ] 6.3.28 執行 ownership-invalid input scenario。
+- [ ] 6.3.29 執行 accepted disclosed-target action scenario。
+- [ ] 6.3.30 執行 rejected hidden-target action scenario。
 
 ### 6.4 執行 network fault、recovery 與 validator suite
 
@@ -415,11 +797,30 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-RECOVERY`、`G-FINAL-NONBLOCKING`。
 **完成門檻：** 每種 fault 有 deterministic terminal disposition；validator slowdown/overflow 不阻塞 outbound；coverage gap 不被誤標 pass。
 
-- [ ] 6.4.1 執行 duplicate、reorder、late、missing、corrupt、oversized frame scenarios。
-- [ ] 6.4.2 執行 replay-ring hit、ring expiry、filtered rebase、interrupted rebase、rejoin scenarios。
-- [ ] 6.4.3 執行 component repair、entity replace、team rebase 與 persistent mismatch safe termination scenarios。
-- [ ] 6.4.4 故意放慢 validation worker，量測 outbound latency 並證明不等待 observer。
-- [ ] 6.4.5 觸發 validation queue overflow，驗證 coverage gap、observer discard/rebootstrap 與 evidence disposition。
+- [ ] 6.4.1 執行 duplicate frame scenario。
+- [ ] 6.4.2 執行 replay-ring hit scenario。
+- [ ] 6.4.3 執行 component repair recovery scenario。
+- [ ] 6.4.4 故意放慢 validation worker 並擷取 outbound latency trace。
+- [ ] 6.4.5 觸發 validation queue overflow 並確認建立 coverage-gap record。
+- [ ] 6.4.6 執行 reordered frame scenario。
+- [ ] 6.4.7 執行 late frame barrier-stall scenario。
+- [ ] 6.4.8 執行 missing frame gap-detection scenario。
+- [ ] 6.4.9 執行 corrupt frame rejection scenario。
+- [ ] 6.4.10 執行 oversized frame rejection scenario。
+- [ ] 6.4.11 執行 replay-ring expiry scenario。
+- [ ] 6.4.12 執行 filtered rebase bootstrap scenario。
+- [ ] 6.4.13 執行 interrupted rebase discard scenario。
+- [ ] 6.4.14 執行 player rejoin filtered-bootstrap scenario。
+- [ ] 6.4.15 執行 entity replace recovery scenario。
+- [ ] 6.4.16 執行 team-view rebase recovery scenario。
+- [ ] 6.4.17 執行 persistent mismatch safe-termination scenario。
+- [ ] 6.4.18 由 6.4.4 trace 判定 outbound enqueue 未等待 observer step。
+- [ ] 6.4.19 由 6.4.4 trace 判定 player stream latency 未受 validator slowdown 阻塞。
+- [ ] 6.4.20 在 queue overflow 後確認 outbound frame sequence 持續前進。
+- [ ] 6.4.21 在 queue overflow 後確認 stale observer 被 discard。
+- [ ] 6.4.22 在 queue overflow 後確認 observer 使用 filtered snapshot rebootstrap。
+- [ ] 6.4.23 在 queue overflow evidence 將 gap range 標記為 unverified。
+- [ ] 6.4.24 確認 coverage-gap range 未被 validation summary 計為 pass。
 
 ### 6.5 執行 security、anti-probing 與 side-channel inspection
 
@@ -431,12 +832,34 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-HIDDEN-DATA`、`G-FINAL-ANTI-PROBING`、`G-FINAL-REDACTION`。
 **完成門檻：** 零 canonical/global/hidden data finding；invalid target 無 existence oracle；padding/cadence 滿足 spec；無 unresolved P0/P1 security finding。
 
-- [ ] 6.5.1 對 secure match packet capture 掃描 canonical ID、global seed、other-team mask、hidden component value。
-- [ ] 6.5.2 檢查 omfx replica memory/export、remembered cache、log、replay、crash bundle 與 trace redaction。
-- [ ] 6.5.3 執行 hidden-existing/nonexistent/stale replica ID anti-probing timing/shape comparison與 rate-limit scenarios。
-- [ ] 6.5.4 執行 protocol transition/snapshot/rebase fuzzing 與 replay/malformed epoch attacks。
-- [ ] 6.5.5 分析 fixed cadence、padding buckets、hidden-only payload sizes 與 mass reveal/rebase chunk behavior。
-- [ ] 6.5.6 驗證 admin diagnostic capability/transport 與 player session 完全隔離。
+- [ ] 6.5.1 對 secure match packet capture 掃描 canonical ECS ID pattern。
+- [ ] 6.5.2 檢查 omfx deterministic replica memory export 是否含 hidden entity state。
+- [ ] 6.5.3 執行 hidden-existing replica ID probing timing case。
+- [ ] 6.5.4 對 protocol transition decoder 執行 fuzzing。
+- [ ] 6.5.5 分析 hidden-only activity 的 frame cadence。
+- [ ] 6.5.6 驗證 player session 無法取得 admin diagnostic capability。
+- [ ] 6.5.7 對 secure match packet capture 掃描 global seed pattern。
+- [ ] 6.5.8 對 secure match packet capture 掃描 other-team visibility mask pattern。
+- [ ] 6.5.9 對 secure match packet capture 掃描已知 hidden component sentinel value。
+- [ ] 6.5.10 檢查 remembered cache export 是否只含已去敏感化 presentation。
+- [ ] 6.5.11 檢查 player-visible log redaction。
+- [ ] 6.5.12 檢查 player replay redaction。
+- [ ] 6.5.13 檢查 player crash bundle redaction。
+- [ ] 6.5.14 檢查 player trace redaction。
+- [ ] 6.5.15 執行 nonexistent replica ID probing timing case。
+- [ ] 6.5.16 執行 stale replica ID probing timing case。
+- [ ] 6.5.17 比較 hidden-existing 與 nonexistent probing response class。
+- [ ] 6.5.18 比較 hidden-existing 與 nonexistent probing timing bucket。
+- [ ] 6.5.19 執行 invalid replica reference rate-limit scenario。
+- [ ] 6.5.20 對 filtered snapshot decoder 執行 fuzzing。
+- [ ] 6.5.21 對 rebase manifest/chunk decoder 執行 fuzzing。
+- [ ] 6.5.22 執行 replayed authority revision attack case。
+- [ ] 6.5.23 執行 malformed disclosure epoch attack case。
+- [ ] 6.5.24 分析 hidden-only activity 的 padding bucket。
+- [ ] 6.5.25 分析 mass reveal chunk size distribution。
+- [ ] 6.5.26 分析 rebase chunk rate-limit behavior。
+- [ ] 6.5.27 驗證 admin diagnostic 使用獨立 transport boundary。
+- [ ] 6.5.28 審查 security findings，確認無 unresolved P0/P1。
 
 ### 6.6 執行 10,000 entity performance、bandwidth 與 soak gates
 
@@ -448,12 +871,34 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-TICK-BUDGET`、`G-FINAL-BANDWIDTH`、`G-FINAL-SOAK`。
 **完成門檻：** p99 tick+commit ≤ 80% period、steady-state <5 KB/s/player、零 authoritative deadline miss、零 unintended rebase、memory stable、observer coverage 完整。
 
-- [ ] 6.6.1 以 10,000 entities、2 teams、2 observer replicas、visibility churn 啟動 production-cadence stress run。
-- [ ] 6.6.2 擷取 authoritative tick/commit、Wave B projection/encode/enqueue 與 observer step p50/p95/p99 raw traces。
-- [ ] 6.6.3 擷取 per-player steady-state bandwidth 與 reveal/rebase burst 分布，判定 5 KB/s gate。
-- [ ] 6.6.4 執行 repeated mass reveal/hide、projectile/AOE boundary churn 與 observer rebootstrap memory test。
-- [ ] 6.6.5 執行 30 分鐘 soak，判定 deadline miss、unintended rebase、disconnect、coverage gap 與 memory slope。
-- [ ] 6.6.6 將結果與 Phase 1 baseline 比較並產生 immutable performance verdict。
+- [ ] 6.6.1 將 frozen stress config 的 entity count 設為 10,000。
+- [ ] 6.6.2 擷取 authoritative tick p50/p95/p99 raw trace。
+- [ ] 6.6.3 擷取 per-player steady-state bandwidth distribution。
+- [ ] 6.6.4 執行 repeated mass reveal/hide memory case。
+- [ ] 6.6.5 執行 30 分鐘 production-config soak。
+- [ ] 6.6.6 將 final authoritative tick 指標與 Phase 1 baseline 比較。
+- [ ] 6.6.7 在 6.6.1 run 啟用 2 teams。
+- [ ] 6.6.8 在 6.6.1 run 啟用每隊 1 個 observer replica。
+- [ ] 6.6.9 在 6.6.1 run 啟用 deterministic visibility churn workload。
+- [ ] 6.6.10 擷取 deterministic commit p50/p95/p99 raw trace。
+- [ ] 6.6.11 擷取 Wave B visibility/project p50/p95/p99 raw trace。
+- [ ] 6.6.12 擷取 team-frame encode p50/p95/p99 raw trace。
+- [ ] 6.6.13 擷取 outbound enqueue p50/p95/p99 raw trace。
+- [ ] 6.6.14 擷取 observer step p50/p95/p99 raw trace。
+- [ ] 6.6.15 判定 authoritative tick+commit p99 是否小於 tick period 80%。
+- [ ] 6.6.16 擷取 reveal burst bandwidth distribution。
+- [ ] 6.6.17 擷取 rebase burst bandwidth distribution。
+- [ ] 6.6.18 判定 steady-state bandwidth 是否低於 5 KB/s/player。
+- [ ] 6.6.19 執行 projectile boundary-churn memory case。
+- [ ] 6.6.20 執行 AOE boundary-churn memory case。
+- [ ] 6.6.21 執行 observer rebootstrap memory case。
+- [ ] 6.6.22 從 soak log 判定 authoritative deadline miss count。
+- [ ] 6.6.23 從 soak log 判定 unintended rebase count。
+- [ ] 6.6.24 從 soak log 判定 disconnect count。
+- [ ] 6.6.25 從 soak log 判定 validation coverage-gap count。
+- [ ] 6.6.26 從 soak trace 計算 process memory slope。
+- [ ] 6.6.27 產生含 raw evidence hash 的 immutable performance verdict。
+- [ ] 6.6.28 以 6.6.1、6.6.7–6.6.9 的 frozen config 啟動 production-cadence stress run。
 
 ### 6.7 收斂 failure、更新 evidence lineage 與重跑受影響 group
 
@@ -465,12 +910,27 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** 所有 final gates。
 **完成門檻：** 每個 failure 有 A/B/C disposition；affected evidence 已 stale/replaced；所有 blocking gate 最終 passed，無 failed/blocked/stale terminal record。
 
-- [ ] 6.7.1 彙整 Phase 6 failures，為每項建立 A/B/C adjustment record；沒有 failure 時以 shared immutable no-failure record 加 unique subcheck 結案。
-- [ ] 6.7.2 對 A-level refinement 修正 task mechanics/artifact，保留 scope/gate 並標記 affected evidence stale。
-- [ ] 6.7.3 對 B-level correction 暫停 affected branch、同步更新 design/spec/tasks/code 並標記 dependent evidence stale。
-- [ ] 6.7.4 對 C-level material change 停止 affected work並取得使用者核准；若無 C-level item，以 evidence-backed `not-applicable` 結案。
-- [ ] 6.7.5 只重跑受影響的 final-verification groups，建立 replacement evidence 與 lineage links。
-- [ ] 6.7.6 確認所有 blocking gates 最終 passed，且 threshold/required evidence 未被靜默降低。
+6.7 的 conditional leaf 每次只處理一個 pending item；額外 item 必須以 A-level refinement 增加同型 leaf，沒有對應 item 時以 evidence-backed `not-applicable` 結案。
+
+- [ ] 6.7.1 將 Phase 6 failed gate 彙整成 failure index；沒有 failure 時建立 immutable no-failure record。
+- [ ] 6.7.2 對第一個 pending A-level item 更新 task mechanics。
+- [ ] 6.7.3 對第一個 pending B-level item 暫停 affected branch。
+- [ ] 6.7.4 對第一個 pending C-level item 停止 affected work。
+- [ ] 6.7.5 為每個 affected final-verification group 建立 rerun manifest。
+- [ ] 6.7.6 確認每個 blocking gate 的 terminal status 為 passed。
+- [ ] 6.7.7 為第一個尚未分類的 failure 指派 A、B 或 C disposition；其他 failure 以 A-level refinement 增加 leaf。
+- [ ] 6.7.8 對 A-level item 將受影響 evidence 標記 stale。
+- [ ] 6.7.9 對 B-level item 更新 authoritative design section。
+- [ ] 6.7.10 對 B-level item 更新受影響 delta requirement/scenario。
+- [ ] 6.7.11 對 B-level item 更新受影響 task leaf。
+- [ ] 6.7.12 對 B-level item 將 dependent evidence 標記 stale。
+- [ ] 6.7.13 為 C-level item 建立使用者核准請求與 affected scope。
+- [ ] 6.7.14 在 C-level 使用者核准前保持 affected work 未執行。
+- [ ] 6.7.15 執行 rerun manifest 中的一個 affected verification group；每個額外 group 以 A-level refinement 增加相同格式 leaf。
+- [ ] 6.7.16 為 rerun result 建立 replacement evidence link。
+- [ ] 6.7.17 確認所有 stale blocking evidence 都有 passed replacement。
+- [ ] 6.7.18 比對 final gate threshold 與核准 design，確認沒有降低。
+- [ ] 6.7.19 比對 required evidence set 與核准 design，確認沒有刪減。
 
 ### 6.8 Shadow、dogfood、secure cutover 與 legacy cleanup
 
@@ -482,12 +942,28 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-RELEASE-SHADOW`、`G-RELEASE-DOGFOOD`、`G-SECURE-DEFAULT`。
 **完成門檻：** Shadow/dogfood 無 blocker；secure default 啟用；player global snapshot/hash/seed/raw-ID path 移除；rollback 只允許 pre-match non-secure mode。
 
-- [ ] 6.8.1 以 frozen binaries/config 執行 server shadow acceptance並保存 parity/latency/coverage evidence。
-- [ ] 6.8.2 執行 internal dogfood secure matches並保存 player-visible與 diagnostic acceptance。
-- [ ] 6.8.3 啟用 match-level secure V2 default，保留明確 non-secure legacy pre-match selection。
-- [ ] 6.8.4 套用移除 player global `TickBatch`、`StateHash`、`WorldSnapshot`、`master_seed`、raw ECS ID 的 cleanup。
-- [ ] 6.8.5 移除／quarantine dead viewport/`VisSet` authority 與 superseded nondeterministic vision path。
-- [ ] 6.8.6 驗證 active secure match 無 runtime downgrade path，並保存 final rollback manifest。
+- [ ] 6.8.1 以 frozen binaries/config 執行 server shadow run。
+- [ ] 6.8.2 執行一場標準 2-team internal dogfood secure match。
+- [ ] 6.8.3 將 secure V2 設為新 secure match 的 default mode。
+- [ ] 6.8.4 套用移除 player global `TickBatch` fan-out 的 cleanup patch。
+- [ ] 6.8.5 移除 dead viewport/`VisSet` gameplay authority path。
+- [ ] 6.8.6 執行 active secure match runtime-downgrade rejection case。
+- [ ] 6.8.7 從 shadow run 產生 parity evidence。
+- [ ] 6.8.8 從 shadow run 產生 latency evidence。
+- [ ] 6.8.9 從 shadow run 產生 observer coverage evidence。
+- [ ] 6.8.10 從 dogfood run 產生 player-visible acceptance record。
+- [ ] 6.8.11 從 dogfood run 產生 redacted diagnostic acceptance record。
+- [ ] 6.8.12 保留明確 non-secure legacy pre-match selection。
+- [ ] 6.8.13 套用移除 player global `StateHash` fan-out 的 cleanup patch。
+- [ ] 6.8.14 套用移除 player global `WorldSnapshot` bootstrap 的 cleanup patch。
+- [ ] 6.8.15 套用移除 player `master_seed` delivery 的 cleanup patch。
+- [ ] 6.8.16 套用移除 player raw ECS ID serialization 的 cleanup patch。
+- [ ] 6.8.17 移除 dead `client_visibility` storage path。
+- [ ] 6.8.18 移除 dead `last_visibility_tick` storage path。
+- [ ] 6.8.19 Quarantine superseded nondeterministic vision authority path。
+- [ ] 6.8.20 產生只允許 pre-match legacy selection 的 final rollback manifest。
+- [ ] 6.8.21 執行一場含 player reconnect 的 internal dogfood secure match。
+- [ ] 6.8.22 執行一場含高 visibility churn 的 internal dogfood secure match。
 
 ### 6.9 最終 traceability 與 release review
 
@@ -499,8 +975,26 @@ Phase 1–5 只做實作、artifact review、最低限度 compile/focused smoke�
 **Gate／Evidence：** `G-FINAL-TRACEABILITY`、`G-RELEASE-READY`。
 **完成門檻：** 每個 blocking requirement/scenario 有 task/evidence；無 placeholder、contradiction、unresolved P0/P1 或 incomplete apply-required artifact。
 
-- [ ] 6.9.1 建立 proposal/design/spec requirement/scenario 到 permanent task ID 與 evidence record 的 traceability matrix。
-- [ ] 6.9.2 掃描 artifacts/code/evidence 的 `TODO`、`TBD`、`待補`、contradiction 與 forbidden global disclosure reference。
-- [ ] 6.9.3 審查每個 L2 input/output/dependency/owner/gate/evidence/completion threshold 與每個 L3 atomicity。
-- [ ] 6.9.4 確認 conditional path 皆以 passed、evidence-backed `not-applicable` 或 superseded replacement 結案。
-- [ ] 6.9.5 產生 final release verdict，列出 exact binary/config/content hashes、gate summary 與 rollback boundary。
+- [ ] 6.9.1 建立 proposal commitment 到 design decision 的 traceability column。
+- [ ] 6.9.2 掃描 artifacts 的未解決 placeholder。
+- [ ] 6.9.3 審查每個 L2 是否具備完整 metadata 欄位。
+- [ ] 6.9.4 確認 conditional leaf 只有有效 terminal status。
+- [ ] 6.9.5 建立 final release verdict shell。
+- [ ] 6.9.6 建立 design decision 到 requirement/scenario 的 traceability column。
+- [ ] 6.9.7 建立 requirement/scenario 到 permanent task ID 的 traceability column。
+- [ ] 6.9.8 建立 task ID 到 evidence record 的 traceability column。
+- [ ] 6.9.9 掃描 code 的 forbidden global disclosure reference。
+- [ ] 6.9.10 掃描 evidence 的 contradiction marker 與 stale terminal record。
+- [ ] 6.9.11 審查 Phase 1 L3 是否符合 Luna 原子化契約。
+- [ ] 6.9.12 確認 superseded leaf 都有 replacement task/evidence link。
+- [ ] 6.9.13 將 exact binary hashes 寫入 final release verdict。
+- [ ] 6.9.14 將 exact config hash 寫入 final release verdict。
+- [ ] 6.9.15 將 exact content hashes 寫入 final release verdict。
+- [ ] 6.9.16 將 blocking gate summary 寫入 final release verdict。
+- [ ] 6.9.17 將 rollback boundary 寫入 final release verdict。
+- [ ] 6.9.18 確認 final release verdict 無 unresolved P0/P1。
+- [ ] 6.9.19 審查 Phase 2 L3 是否符合 Luna 原子化契約。
+- [ ] 6.9.20 審查 Phase 3 L3 是否符合 Luna 原子化契約。
+- [ ] 6.9.21 審查 Phase 4 L3 是否符合 Luna 原子化契約。
+- [ ] 6.9.22 審查 Phase 5 L3 是否符合 Luna 原子化契約。
+- [ ] 6.9.23 審查 Phase 6 L3 是否符合 Luna 原子化契約。
