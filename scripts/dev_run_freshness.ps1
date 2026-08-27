@@ -96,9 +96,23 @@ function Test-SameFileHash {
     if (-not (Test-Path -LiteralPath $LeftPath -PathType Leaf)) { return $false }
     if (-not (Test-Path -LiteralPath $RightPath -PathType Leaf)) { return $false }
 
-    $left = Get-FileHash -Algorithm SHA256 -LiteralPath $LeftPath
-    $right = Get-FileHash -Algorithm SHA256 -LiteralPath $RightPath
-    return $left.Hash -eq $right.Hash
+    # Windows PowerShell 2 沒有 Get-FileHash；launcher 仍需能在舊版內建
+    # PowerShell 執行，因此直接使用 .NET SHA256，並確實釋放檔案 handle。
+    $sha = $null
+    try {
+        $sha = New-Object System.Security.Cryptography.SHA256Managed
+        $leftStream = [System.IO.File]::OpenRead($LeftPath)
+        try { $left = [System.BitConverter]::ToString($sha.ComputeHash($leftStream)) }
+        finally { $leftStream.Dispose() }
+
+        $rightStream = [System.IO.File]::OpenRead($RightPath)
+        try { $right = [System.BitConverter]::ToString($sha.ComputeHash($rightStream)) }
+        finally { $rightStream.Dispose() }
+    }
+    finally {
+        if ($null -ne $sha) { $sha.Dispose() }
+    }
+    return $left -eq $right
 }
 
 function Test-ArtifactFresh {

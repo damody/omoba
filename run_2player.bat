@@ -7,8 +7,13 @@ set "EXECUTOR=omfx\target\debug\executor.exe"
 set "BACKEND=omb\target\debug\omobab.exe"
 set "OMB_GAME_TOML=%CD%\omb\game.toml"
 set "OMFX_GAME_TOML=%CD%\omfx\game.toml"
-set "OMB_STORY=TD_1"
+set "OMB_STORY=FOG_2TEAM_DEMO"
 set "OMB_SCENE_PATH="
+
+if not exist "scripts\lua_data\FOG_2TEAM_DEMO\map.lua" (
+    echo Demo package missing: scripts\lua_data\FOG_2TEAM_DEMO
+    goto :fail_pause
+)
 
 if not defined PROTOC (
     if exist "D:\MProfiler\profiler-core\tools\protoc\bin\protoc.exe" (
@@ -16,9 +21,7 @@ if not defined PROTOC (
     )
 )
 
-echo [0/6] Killing stale processes (if any)...
-taskkill /f /im omobab.exe >nul 2>&1
-taskkill /f /im executor.exe >nul 2>&1
+echo [0/6] Preparing isolated fog demo launcher...
 
 echo [1/6] Checking script DLL (scripts\base_content)...
 call :ensure_fresh script-dll "script DLL" "cargo build --manifest-path scripts\Cargo.toml -p base_content --features runtime-lua-content" "Script DLL build failed!"
@@ -53,9 +56,9 @@ call :start_backend
 if errorlevel 1 goto :fail
 
 echo [5/6] Starting two frontends...
-call :start_frontend 1 player1 player1_lockstep P1
+call :start_frontend 1 1 player1 20
 if errorlevel 1 goto :fail
-call :start_frontend 2 player2 player2_lockstep P2
+call :start_frontend 2 2 player2 980
 if errorlevel 1 goto :fail
 
 echo [6/6] Waiting for frontends...
@@ -85,29 +88,31 @@ exit /b 0
 
 :start_frontend
 set "PLAYER_ID=%~1"
-set "PLAYER_NAME=%~2"
-set "LOCKSTEP_NAME=%~3"
-set "TITLE_SUFFIX=%~4"
-set "DONE_FILE=%CD%\omfx\target\frontend_%PLAYER_ID%.done"
-if exist "%DONE_FILE%" del "%DONE_FILE%" >nul 2>&1
-set "FRONTEND_DONE_%PLAYER_ID%=%DONE_FILE%"
-start "omfx %TITLE_SUFFIX%" cmd /c call "%CD%\run_2player_client.bat" "%PLAYER_ID%" "%PLAYER_NAME%" "%LOCKSTEP_NAME%" "%TITLE_SUFFIX%" "%DONE_FILE%"
+set "TEAM_ID=%~2"
+set "PLAYER_NAME=%~3"
+set "WINDOW_X=%~4"
+set "FRONTEND_PID_FILE=omfx\target\frontend_%PLAYER_ID%.pid"
+if exist "%FRONTEND_PID_FILE%" del "%FRONTEND_PID_FILE%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_fog_demo_frontend.ps1 -Exe "%EXECUTOR%" -WorkingDirectory "omfx" -PidFile "%FRONTEND_PID_FILE%" -PlayerId %PLAYER_ID% -TeamId %TEAM_ID% -PlayerName "%PLAYER_NAME%" -WindowX %WINDOW_X%
 if errorlevel 1 (
     echo Frontend %PLAYER_ID% start failed!
     exit /b 1
 )
-echo   -^> frontend %PLAYER_ID% window started
+set /p FRONTEND_PID_%PLAYER_ID%=<"%FRONTEND_PID_FILE%"
+echo   -^> frontend %PLAYER_ID% team %TEAM_ID% PID !FRONTEND_PID_%PLAYER_ID%!
 exit /b 0
 
 :wait_frontends
 set "RUN_ERR=0"
 :wait_loop
-if exist "%FRONTEND_DONE_1%" if exist "%FRONTEND_DONE_2%" goto :frontends_done
+set "FRONTEND_ALIVE=0"
+for %%P in (!FRONTEND_PID_1! !FRONTEND_PID_2!) do powershell -NoProfile -Command "if (Get-Process -Id %%P -ErrorAction SilentlyContinue) { exit 0 } exit 1" && set "FRONTEND_ALIVE=1"
+if "%FRONTEND_ALIVE%"=="0" goto :frontends_done
 if defined BACKEND_PID (
     powershell -NoProfile -ExecutionPolicy Bypass -Command "if (Get-Process -Id %BACKEND_PID% -ErrorAction SilentlyContinue) { exit 0 } exit 1"
     if errorlevel 1 (
         echo Backend exited; stopping frontend clients...
-        taskkill /f /im executor.exe >nul 2>&1
+        call :stop_frontends
         exit /b 1
     )
 )
@@ -115,15 +120,11 @@ powershell -NoProfile -Command "Start-Sleep -Milliseconds 500"
 goto :wait_loop
 
 :frontends_done
-if exist "%FRONTEND_DONE_1%" (
-    set /p FRONTEND_ERR_1=<"%FRONTEND_DONE_1%"
-    if not "%FRONTEND_ERR_1%"=="0" set "RUN_ERR=%FRONTEND_ERR_1%"
-)
-if exist "%FRONTEND_DONE_2%" (
-    set /p FRONTEND_ERR_2=<"%FRONTEND_DONE_2%"
-    if not "%FRONTEND_ERR_2%"=="0" set "RUN_ERR=%FRONTEND_ERR_2%"
-)
 exit /b %RUN_ERR%
+
+:stop_frontends
+for %%P in (!FRONTEND_PID_1! !FRONTEND_PID_2!) do powershell -NoProfile -Command "Stop-Process -Id %%P -Force -ErrorAction SilentlyContinue"
+exit /b 0
 
 :stop_backend
 if defined BACKEND_PID (
