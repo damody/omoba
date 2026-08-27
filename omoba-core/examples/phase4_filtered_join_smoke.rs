@@ -30,6 +30,7 @@ fn main() -> Result<(), String> {
             remember: RememberDisposition::Forget,
             disclosed_baseline: 0u32.to_be_bytes().to_vec(),
         }]),
+        vision_occluders: Arc::from([]),
         vision_sources: Arc::from([]),
     };
     let mut visibility = TeamVisibilityState::new(team_id, 16);

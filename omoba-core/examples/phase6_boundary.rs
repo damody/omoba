@@ -44,6 +44,7 @@ fn view(tick: u64, value: CommittedEntityView, source: bool) -> WaveBReadView {
         } else {
             Arc::from([])
         },
+        vision_occluders: Arc::from([]),
     }
 }
 

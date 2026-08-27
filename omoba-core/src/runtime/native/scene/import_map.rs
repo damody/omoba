@@ -22,6 +22,12 @@ pub struct CreepWaveData {
     /// 不可通行多邊形區域（英雄與單位會被擋住；不影響視野/投射物）
     #[serde(default)]
     pub BlockedRegions: Vec<BlockedRegionJD>,
+    /// 只阻擋 server 視線的圓形樹木；不影響移動碰撞。
+    #[serde(default)]
+    pub VisionTrees: Vec<VisionTreeJD>,
+    /// 只阻擋 server 視線的簡單多邊形；不影響移動碰撞。
+    #[serde(default)]
+    pub VisionOccluderPolygons: Vec<VisionOccluderPolygonJD>,
     /// 遊戲模式。未指定視為 "Moba"（MVP_1 沿用行為）。
     /// 可選值："Moba" 或 "TowerDefense"。由 `state/initialization.rs::init_creep_wave`
     /// 轉為 `GameMode` resource 供各 system 查詢。
@@ -271,4 +277,20 @@ pub struct BlockedRegionJD {
 pub struct PointJD {
     pub X: f32,
     pub Y: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct VisionTreeJD {
+    pub StableId: u64,
+    pub X: f32,
+    pub Y: f32,
+    pub Radius: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct VisionOccluderPolygonJD {
+    pub StableId: u64,
+    #[serde(default)]
+    pub Name: String,
+    pub Points: Vec<PointJD>,
 }

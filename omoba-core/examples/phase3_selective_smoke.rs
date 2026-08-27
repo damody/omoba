@@ -40,6 +40,7 @@ fn main() -> Result<(), String> {
             remember: RememberDisposition::Forget,
             disclosed_baseline: vec![1, 2, 3],
         }]),
+        vision_occluders: Arc::from([]),
         vision_sources: Arc::from([]),
     };
     let mut visibility = TeamVisibilityState::new(1, 16);

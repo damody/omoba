@@ -33,6 +33,7 @@ pub mod tower_registry;
 pub mod tower_upgrade_registry;
 pub mod tower_upgrade_rules;
 pub mod unit;
+pub mod vision_occluder;
 
 pub use self::{
     blocked_region::*, bounty::*, building::*, check_point::*, circular_vision::*,
@@ -41,4 +42,5 @@ pub use self::{
     item_effects::*, knowledge::*, last::*, lockstep_resources::*, outcome::*, phys::*,
     player_economy::*, projectile::*, resources::*, selective_visibility::*, tower::*,
     tower_registry::*, tower_upgrade_registry::*, tower_upgrade_rules::*, unit::*,
+    vision_occluder::*,
 };

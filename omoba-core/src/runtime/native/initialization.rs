@@ -356,6 +356,7 @@ impl StateInitializer {
 
         // 設置不可通行多邊形
         Self::setup_blocked_regions(ecs, cw);
+        Self::setup_vision_occluders(ecs, cw);
     }
 
     fn initialize_td_player_economy(ecs: &mut World, difficulty: TdDifficultyConfig) {
@@ -400,6 +401,18 @@ impl StateInitializer {
         *ecs.write_resource::<BlockedRegions>() = BlockedRegions(regions);
         if n > 0 {
             log::info!("載入 {} 個不可通行多邊形區域", n);
+        }
+    }
+
+    /// 載入只影響 server disclosure 的確定性視野遮蔽物。
+    fn setup_vision_occluders(ecs: &mut World, cw: &CreepWaveData) {
+        let occluders =
+            VisionOccluderSet::from_descriptors(&cw.VisionTrees, &cw.VisionOccluderPolygons)
+                .unwrap_or_else(|error| panic!("invalid vision occluders: {error}"));
+        let count = occluders.0.len();
+        *ecs.write_resource::<VisionOccluderSet>() = occluders;
+        if count > 0 {
+            log::info!("載入 {count} 個 server-authoritative 視野遮蔽物");
         }
     }
 
@@ -1073,6 +1086,7 @@ impl StateInitializer {
 
         // 初始化不可通行多邊形區域（由 init_creep_wave 載入 generated map data 時填入）
         ecs.insert(BlockedRegions::default());
+        ecs.insert(VisionOccluderSet::default());
 
         // Phase 4.2: 爆炸 FX queue — process_outcomes 推入，sim_runner snapshot
         // 抽取器每 tick drain 給前端渲染。非 sim 狀態，不影響 determinism hash。

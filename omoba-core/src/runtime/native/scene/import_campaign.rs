@@ -337,6 +337,8 @@ fn normalize_map_value(value: &mut serde_json::Value) {
         "CreepWave",
         "Structures",
         "BlockedRegions",
+        "VisionTrees",
+        "VisionOccluderPolygons",
     ] {
         ensure_array_field(value, key);
     }
@@ -358,6 +360,14 @@ fn normalize_map_value(value: &mut serde_json::Value) {
     }
     if let Some(regions) = value
         .get_mut("BlockedRegions")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for region in regions {
+            ensure_array_field(region, "Points");
+        }
+    }
+    if let Some(regions) = value
+        .get_mut("VisionOccluderPolygons")
         .and_then(serde_json::Value::as_array_mut)
     {
         for region in regions {

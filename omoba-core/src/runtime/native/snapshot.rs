@@ -49,6 +49,7 @@ pub struct SimWorldSnapshot {
     pub is_paused: bool,
     pub game_speed_multiplier: u32,
     pub blocked_regions: Vec<BlockedRegionSnapshot>,
+    pub vision_occluders: Vec<BlockedRegionSnapshot>,
     pub abilities: Arc<Vec<AbilityDefSnapshot>>,
     pub tower_templates: Arc<Vec<TowerTemplateSnapshot>>,
     pub tower_upgrades: Arc<Vec<TowerUpgradeDefSnapshot>>,
@@ -1285,6 +1286,31 @@ pub fn extract_snapshot(
             circle: None,
         })
         .collect();
+    let vision_occluders: Vec<BlockedRegionSnapshot> = world
+        .read_resource::<super::comp::VisionOccluderSet>()
+        .0
+        .iter()
+        .map(|occluder| match occluder {
+            super::comp::VisionOccluder::Tree(tree) => BlockedRegionSnapshot {
+                points: Vec::new(),
+                circle: Some((
+                    (
+                        tree.center.x.to_f32_for_render(),
+                        tree.center.y.to_f32_for_render(),
+                    ),
+                    tree.radius.to_f32_for_render(),
+                )),
+            },
+            super::comp::VisionOccluder::Terrain(polygon) => BlockedRegionSnapshot {
+                points: polygon
+                    .vertices
+                    .iter()
+                    .map(|point| (point.x.to_f32_for_render(), point.y.to_f32_for_render()))
+                    .collect(),
+                circle: None,
+            },
+        })
+        .collect();
 
     let round: u32;
     let total_rounds: u32;
@@ -1339,6 +1365,7 @@ pub fn extract_snapshot(
         is_paused,
         game_speed_multiplier,
         blocked_regions,
+        vision_occluders,
         abilities: abilities_arc,
         tower_templates: tower_templates_arc,
         tower_upgrades: tower_upgrades_arc,
@@ -1754,6 +1781,7 @@ pub fn extract_data_for_render(
         is_paused,
         game_speed_multiplier,
         blocked_regions: Vec::new(),
+        vision_occluders: Vec::new(),
         abilities: Arc::new(Vec::new()),
         tower_templates: Arc::new(Vec::new()),
         tower_upgrades: Arc::new(Vec::new()),

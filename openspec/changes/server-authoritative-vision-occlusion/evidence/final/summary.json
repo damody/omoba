@@ -1,0 +1,23 @@
+{
+  "change": "server-authoritative-vision-occlusion",
+  "date": "2026-08-27",
+  "scene": { "ordinary_units": 100, "heroes": 2, "trees": 64, "polygons": 3, "teams": [1, 2], "step_fps": 120 },
+  "tests": {
+    "omoba_core": "240 unit tests + 3 integration tests + doc tests passed",
+    "omb": "131 passed per lib target; integration/doc tests passed; timing tests passed on unloaded rerun",
+    "script_abi": "13 passed",
+    "base_content": "45 passed",
+    "omfx": "123 passed",
+    "openspec_strict": "passed"
+  },
+  "performance": { "samples": 4000, "baseline_p99_ns": 31700, "occluded_p99_ns": 32400, "ratio": 1.022, "limit_ratio": 2.0, "tick_budget_ns": 8333333, "passed": true },
+  "manual": {
+    "server_loaded_occluders": 67,
+    "frontend_render_log": "16 polygon segments + 64 circle markers per frontend",
+    "team_1_move": "pid=1 routed to hero Entity(100, Generation(1))",
+    "team_2_move": "pid=2 routed to hero Entity(101, Generation(1))",
+    "forget_observation": "team 2 moved from multiple visible units to own hero only; HUD remembered count stayed zero",
+    "replica_status": "both clients remained connected to their own team-filtered streams; no mismatch diagnostic",
+    "screenshots": ["dual-team-occlusion-final.png", "dual-team-after-move.png"]
+  }
+}

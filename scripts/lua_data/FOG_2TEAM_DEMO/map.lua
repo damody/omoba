@@ -1,4 +1,16 @@
 return function(ctx)
+  local visionTrees = {}
+  for row = 0, 7 do
+    for column = 0, 7 do
+      local id = row * 8 + column + 1
+      visionTrees[#visionTrees + 1] = {
+        StableId = id,
+        X = -875.0 + column * 250.0,
+        Y = -875.0 + row * 250.0,
+        Radius = (id % 3 == 0) and 82.0 or 62.0,
+      }
+    end
+  end
   return {
     GameMode = "Moba",
     Path = ctx.array({}),
@@ -9,6 +21,43 @@ return function(ctx)
     InitialCreeps = ctx.array({}),
     Structures = ctx.array({}),
     BlockedRegions = ctx.array({}),
+    VisionTrees = visionTrees,
+    VisionOccluderPolygons = {
+      {
+        StableId = 1001,
+        Name = "central_rock",
+        Points = {
+          { X = -170.0, Y = -150.0 },
+          { X = 190.0, Y = -150.0 },
+          { X = 190.0, Y = 130.0 },
+          { X = -170.0, Y = 130.0 },
+        },
+      },
+      {
+        StableId = 1002,
+        Name = "west_crescent",
+        Points = {
+          { X = -980.0, Y = 180.0 },
+          { X = -560.0, Y = 180.0 },
+          { X = -560.0, Y = 520.0 },
+          { X = -720.0, Y = 520.0 },
+          { X = -720.0, Y = 340.0 },
+          { X = -980.0, Y = 340.0 },
+        },
+      },
+      {
+        StableId = 1003,
+        Name = "east_hook",
+        Points = {
+          { X = 520.0, Y = -560.0 },
+          { X = 980.0, Y = -560.0 },
+          { X = 980.0, Y = -360.0 },
+          { X = 700.0, Y = -360.0 },
+          { X = 700.0, Y = -160.0 },
+          { X = 520.0, Y = -160.0 },
+        },
+      },
+    },
     FogDemo = {
       Rows = 10,
       Columns = 10,

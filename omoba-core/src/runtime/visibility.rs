@@ -10,7 +10,8 @@ use omoba_sim::{Fixed64, Vec2};
 use rayon::prelude::*;
 
 use crate::runtime::native::comp::{
-    RememberDisposition, ReplicationScopeKind, VisibilityOverrideKind,
+    line_of_sight, LosResult, RememberDisposition, ReplicationScopeKind, VisibilityOverrideKind,
+    VisionOccluder,
 };
 use crate::runtime::{OrderedFact, OrderedOutput, StableOutputError};
 use specs::{Join, World, WorldExt};
@@ -89,11 +90,15 @@ pub struct CommittedVisionSource {
     pub detection_level: u16,
 }
 
+/// Immutable, stable-sorted Wave B copy of the validated map occluder.
+pub type CommittedVisionOccluder = VisionOccluder;
+
 #[derive(Clone, Debug)]
 pub struct WaveBReadView {
     pub tick: u64,
     pub entities: Arc<[CommittedEntityView]>,
     pub vision_sources: Arc<[CommittedVisionSource]>,
+    pub vision_occluders: Arc<[CommittedVisionOccluder]>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -194,7 +199,8 @@ impl TeamVisibilityState {
             .collect();
         let mut transitions = Vec::new();
         for entity in view.entities.iter() {
-            let desired = entity_visible_to_team(entity, self.team, &sources);
+            let desired =
+                entity_visible_to_team(entity, self.team, &sources, &view.vision_occluders);
             let current = self.index.current.contains(&entity.canonical_id);
             if desired == current {
                 self.index.candidates.remove(&entity.canonical_id);
@@ -248,6 +254,7 @@ fn entity_visible_to_team(
     entity: &CommittedEntityView,
     team: u32,
     sources: &[CommittedVisionSource],
+    occluders: &[CommittedVisionOccluder],
 ) -> bool {
     // Deny rules have absolute precedence.
     if entity.scope == ReplicationScopeKind::ServerOnly {
@@ -276,6 +283,7 @@ fn entity_visible_to_team(
         }
         let delta = entity.position - source.position;
         delta.length_squared() <= source.radius * source.radius
+            && line_of_sight(occluders, source.position, entity.position) == LosResult::Clear
     })
 }
 
@@ -310,20 +318,111 @@ mod tests {
     #[test]
     fn same_team_vision_entity_outside_radius_is_hidden() {
         let target = entity(ReplicationScopeKind::Vision, Some(1), 100);
-        assert!(!entity_visible_to_team(&target, 1, &[source(1, 20)]));
+        assert!(!entity_visible_to_team(&target, 1, &[source(1, 20)], &[]));
     }
 
     #[test]
     fn owner_team_hero_is_visible_to_owner_outside_radius() {
         let target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 100);
-        assert!(entity_visible_to_team(&target, 1, &[source(1, 20)]));
+        assert!(entity_visible_to_team(&target, 1, &[source(1, 20)], &[]));
     }
 
     #[test]
     fn owner_team_entity_can_be_revealed_to_enemy_by_geometry() {
         let target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 10);
-        assert!(entity_visible_to_team(&target, 2, &[source(2, 20)]));
-        assert!(!entity_visible_to_team(&target, 2, &[source(2, 5)]));
+        assert!(entity_visible_to_team(&target, 2, &[source(2, 20)], &[]));
+        assert!(!entity_visible_to_team(&target, 2, &[source(2, 5)], &[]));
+    }
+
+    #[test]
+    fn one_clear_source_reveals_target_while_all_blocked_sources_hide_it() {
+        use crate::runtime::native::comp::{VisionAabb, VisionTreeCircle};
+        let target = entity(ReplicationScopeKind::Vision, Some(2), 10);
+        let radius = Fixed64::from_i32(2);
+        let center = Vec2::new(Fixed64::from_i32(5), Fixed64::ZERO);
+        let extent = Vec2::new(radius, radius);
+        let tree = VisionOccluder::Tree(VisionTreeCircle {
+            stable_id: 1,
+            center,
+            radius,
+            aabb: VisionAabb {
+                min: center - extent,
+                max: center + extent,
+            },
+        });
+        assert!(!entity_visible_to_team(
+            &target,
+            1,
+            &[source(1, 20)],
+            &[tree.clone()]
+        ));
+        let mut second = source(1, 20);
+        second.canonical_id = 2;
+        second.position = Vec2::new(Fixed64::ZERO, Fixed64::from_i32(10));
+        assert!(entity_visible_to_team(
+            &target,
+            1,
+            &[source(1, 20), second],
+            &[tree]
+        ));
+    }
+
+    #[test]
+    fn occlusion_changes_emit_canonical_forget_then_fresh_reveal() {
+        use crate::runtime::native::comp::{VisionAabb, VisionTreeCircle};
+        let target = entity(ReplicationScopeKind::Vision, Some(2), 10);
+        let source = source(1, 20);
+        let mut state = TeamVisibilityState::new(1, 8);
+        let clear = WaveBReadView {
+            tick: 1,
+            entities: vec![target.clone()].into(),
+            vision_sources: vec![source].into(),
+            vision_occluders: Vec::new().into(),
+        };
+        assert!(state.resolve(&clear, 0).iter().any(|value| matches!(
+            value,
+            VisibilityTransition::Reveal {
+                canonical_id: 7,
+                ..
+            }
+        )));
+
+        let radius = Fixed64::from_i32(2);
+        let center = Vec2::new(Fixed64::from_i32(5), Fixed64::ZERO);
+        let extent = Vec2::new(radius, radius);
+        let blocked = WaveBReadView {
+            tick: 2,
+            entities: vec![target.clone()].into(),
+            vision_sources: vec![source].into(),
+            vision_occluders: vec![VisionOccluder::Tree(VisionTreeCircle {
+                stable_id: 1,
+                center,
+                radius,
+                aabb: VisionAabb {
+                    min: center - extent,
+                    max: center + extent,
+                },
+            })]
+            .into(),
+        };
+        assert_eq!(
+            state.resolve(&blocked, 0),
+            vec![VisibilityTransition::Hide {
+                canonical_id: 7,
+                effective_tick: 2,
+                disposition: RememberDisposition::Forget,
+            }]
+        );
+
+        let clear_again = WaveBReadView { tick: 3, ..clear };
+        assert!(state.resolve(&clear_again, 0).iter().any(|value| matches!(
+            value,
+            VisibilityTransition::Reveal {
+                canonical_id: 7,
+                effective_tick: 3,
+                ..
+            }
+        )));
     }
 }
 
@@ -470,10 +569,13 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
         })
         .collect();
     vision_sources.sort_by_key(|source| (source.team, source.canonical_id));
+    let vision_occluders: Arc<[CommittedVisionOccluder]> =
+        world.read_resource::<VisionOccluderSet>().0.clone().into();
     WaveBReadView {
         tick,
         entities: committed_entities.into(),
         vision_sources: vision_sources.into(),
+        vision_occluders,
     }
 }
 
