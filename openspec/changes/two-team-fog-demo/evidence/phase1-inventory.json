@@ -1,0 +1,34 @@
+{
+  "story": "FOG_2TEAM_DEMO",
+  "content_files": [
+    "entity.lua",
+    "ability.lua",
+    "mission.lua",
+    "map.lua"
+  ],
+  "runtime_boundaries": [
+    "LuaContentLoader",
+    "CreepWaveData.FogDemo",
+    "GameInit::create_fog_demo_scene",
+    "run_committed_visibility_wave_b",
+    "TeamViewProjector",
+    "SelectiveReplicaOwner",
+    "FilteredRenderBridge"
+  ],
+  "forbidden_paths": [
+    "legacy global player stream",
+    "viewport AOI authority"
+  ],
+  "constants": {
+    "heroes": 2,
+    "team2": 33,
+    "rows": 10,
+    "patrols": 16,
+    "spacing": 220,
+    "columns": 10,
+    "grid_units": 100,
+    "team1": 33,
+    "vision_radius": 700,
+    "neutral": 34
+  }
+}

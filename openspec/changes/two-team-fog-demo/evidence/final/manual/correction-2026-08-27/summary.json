@@ -1,0 +1,36 @@
+{
+  "verdict": "passed",
+  "date": "2026-08-27",
+  "processes": {
+    "server_pid": 47068,
+    "team_1_frontend_pid": 62928,
+    "team_2_frontend_pid": 41032
+  },
+  "visibility": {
+    "ordinary_units_require_geometry": true,
+    "local_hero_always_visible": true,
+    "team_views_are_independent": true,
+    "remember_policy": "Forget",
+    "team_1_remembered_count": 0,
+    "team_2_remembered_count": 0
+  },
+  "movement": {
+    "secure_v2_coordinate_input_allowed": true,
+    "joined_player_binding_required": true,
+    "entity_targeting_still_requires_secure_replica_reference": true,
+    "observed_server_move_to": "pid=1 MoveTo target_raw=(0, 0)",
+    "observed_disclosed_count_change": "team 1: 6 -> 52; team 2 remained 6"
+  },
+  "screenshots": [
+    "team1-forget.png",
+    "team2-forget.png"
+  ],
+  "tests": {
+    "omoba_core": "234 passed",
+    "omobab": "131 passed; 1 ignored",
+    "omfx": "123 passed",
+    "omb_script_abi": "13 passed",
+    "base_content": "45 passed",
+    "openspec_strict": "valid"
+  }
+}

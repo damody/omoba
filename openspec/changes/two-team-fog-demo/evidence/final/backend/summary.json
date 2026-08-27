@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "story_load": "passed",
+  "cardinality": {
+    "grid": 100,
+    "heroes": 2,
+    "team1": 33,
+    "team2": 33,
+    "neutral": 34,
+    "total": 102
+  },
+  "patrols": 16,
+  "vision_radius": 700,
+  "observer": "same-process observer worker active; no mismatch emitted",
+  "tests": {
+    "omoba_core": "231 unit + 3 integration + docs passed",
+    "base_content": "45 passed",
+    "omb": "258 unit executions + integration passed",
+    "script_abi": "13 passed"
+  }
+}

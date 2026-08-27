@@ -1,0 +1,26 @@
+{
+  "status": "passed",
+  "topology": {
+    "p2_pid": 49920,
+    "distinct": true,
+    "p1_pid": 47716,
+    "server_pid": 55968
+  },
+  "handshakes": {
+    "p2_team": 2,
+    "p1_team": 1
+  },
+  "visible_counts": {
+    "p2": 37,
+    "p1": 37
+  },
+  "window_titles": [
+    "P1 / Team 1 / FOG",
+    "P2 / Team 2 / FOG"
+  ],
+  "logs": [
+    "omfx_app_fog_p1.log",
+    "omfx_app_fog_p2.log"
+  ],
+  "batch_crlf": true
+}

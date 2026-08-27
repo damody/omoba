@@ -1,0 +1,7 @@
+{
+  "status": "passed",
+  "screenshot": "dual-window-final.png",
+  "observed": "兩個獨立視窗同時顯示不同隊伍顏色與各隊 37 個 disclosed entity；Team 1 視野圈內可見敵隊單位；未見 canonical ID 或 hidden payload",
+  "unresolved_p0_p1": 0,
+  "processes_left_running": true
+}
