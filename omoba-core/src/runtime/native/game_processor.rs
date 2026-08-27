@@ -747,8 +747,9 @@ pub fn spawn_td_tower_with_owner(
         } else {
             let source = crate::runtime::canonical_entity_id(entity);
             let tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
-            let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(
-                crate::runtime::OrderedFact {
+            let _ = world
+                .read_resource::<crate::runtime::ObservableFactBuffer>()
+                .emit(crate::runtime::OrderedFact {
                     key: crate::runtime::FactOrderingKey {
                         tick,
                         phase: crate::runtime::FactPhase::PreStep,
@@ -763,8 +764,7 @@ pub fn spawn_td_tower_with_owner(
                         source,
                         team: player_id,
                     },
-                },
-            );
+                });
         }
     }
 
@@ -1595,12 +1595,12 @@ pub fn process_outcomes(
 
     let projection_tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
     for (outcome_ordinal, outcome) in outcomes.into_iter().enumerate() {
-        if let Some(fact) = observable_fact_from_outcome(
-            &outcome,
-            projection_tick,
-            outcome_ordinal as u32,
-        ) {
-            let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(fact);
+        if let Some(fact) =
+            observable_fact_from_outcome(&outcome, projection_tick, outcome_ordinal as u32)
+        {
+            let _ = world
+                .read_resource::<crate::runtime::ObservableFactBuffer>()
+                .emit(fact);
         }
         let kind = outcome_kind(&outcome);
         match outcome {
@@ -1834,53 +1834,154 @@ fn observable_fact_from_outcome(
     tick: u64,
     local_ordinal: u32,
 ) -> Option<crate::runtime::OrderedFact> {
-    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+    use crate::runtime::{
+        FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact,
+    };
     use omb_script_abi::types::projection_policy_ids as policy;
     let entity_id = crate::runtime::canonical_entity_id;
-    let text_id = |text: &str| text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-    });
+    let text_id = |text: &str| {
+        text.bytes().fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+        })
+    };
     let (source_order, fact_kind, policy_id, fact) = match outcome {
-        Outcome::Creep { .. } => (local_ordinal as u64, FactKind::Spawn, policy::SPAWN,
-            ObservableFact::Spawn { source: None, template_id: text_id("creep"), team: 0 }),
-        Outcome::Tower { .. } => (local_ordinal as u64, FactKind::Spawn, policy::TOWER,
-            ObservableFact::Spawn { source: None, template_id: text_id("tower"), team: 0 }),
-        Outcome::SpawnUnit { faction, .. } => (local_ordinal as u64, FactKind::Spawn, policy::SPAWN,
-            ObservableFact::Spawn { source: None, template_id: text_id("unit"), team: faction.team_id.max(0) as u32 }),
-        Outcome::Death { ent, .. } => (entity_id(*ent), FactKind::Death, policy::DEATH,
-            ObservableFact::Death { source: entity_id(*ent), killer: None }),
+        Outcome::Creep { .. } => (
+            local_ordinal as u64,
+            FactKind::Spawn,
+            policy::SPAWN,
+            ObservableFact::Spawn {
+                source: None,
+                template_id: text_id("creep"),
+                team: 0,
+            },
+        ),
+        Outcome::Tower { .. } => (
+            local_ordinal as u64,
+            FactKind::Spawn,
+            policy::TOWER,
+            ObservableFact::Spawn {
+                source: None,
+                template_id: text_id("tower"),
+                team: 0,
+            },
+        ),
+        Outcome::SpawnUnit { faction, .. } => (
+            local_ordinal as u64,
+            FactKind::Spawn,
+            policy::SPAWN,
+            ObservableFact::Spawn {
+                source: None,
+                template_id: text_id("unit"),
+                team: faction.team_id.max(0) as u32,
+            },
+        ),
+        Outcome::Death { ent, .. } => (
+            entity_id(*ent),
+            FactKind::Death,
+            policy::DEATH,
+            ObservableFact::Death {
+                source: entity_id(*ent),
+                killer: None,
+            },
+        ),
         Outcome::ProjectileLine2 { source, target, .. } => {
             let source = source.map(entity_id).unwrap_or(local_ordinal as u64);
-            (source, FactKind::Projectile, policy::PROJECTILE,
-             ObservableFact::Projectile { source, target: target.map(entity_id), effect_id: 0, active: true })
+            (
+                source,
+                FactKind::Projectile,
+                policy::PROJECTILE,
+                ObservableFact::Projectile {
+                    source,
+                    target: target.map(entity_id),
+                    effect_id: 0,
+                    active: true,
+                },
+            )
         }
         Outcome::ProjectileDirectional { source, .. } => {
             let source = source.map(entity_id).unwrap_or(local_ordinal as u64);
-            (source, FactKind::Projectile, policy::PROJECTILE,
-             ObservableFact::Projectile { source, target: None, effect_id: 0, active: true })
+            (
+                source,
+                FactKind::Projectile,
+                policy::PROJECTILE,
+                ObservableFact::Projectile {
+                    source,
+                    target: None,
+                    effect_id: 0,
+                    active: true,
+                },
+            )
         }
-        Outcome::ScriptProjectile { owner, target, kind_id, .. } => {
+        Outcome::ScriptProjectile {
+            owner,
+            target,
+            kind_id,
+            ..
+        } => {
             let source = entity_id(*owner);
-            (source, FactKind::Projectile, policy::PROJECTILE,
-             ObservableFact::Projectile { source, target: target.map(entity_id), effect_id: u64::from(*kind_id), active: true })
+            (
+                source,
+                FactKind::Projectile,
+                policy::PROJECTILE,
+                ObservableFact::Projectile {
+                    source,
+                    target: target.map(entity_id),
+                    effect_id: u64::from(*kind_id),
+                    active: true,
+                },
+            )
         }
-        Outcome::Explosion { pos, radius, .. } => (local_ordinal as u64, FactKind::AreaEffect, policy::AOE,
-            ObservableFact::AreaEffect { source: local_ordinal as u64, x_mm: pos.x.raw(), y_mm: pos.y.raw(), radius_mm: radius.raw().max(0) as u64 }),
-        Outcome::AddBuff { target, buff_id, .. } => {
+        Outcome::Explosion { pos, radius, .. } => (
+            local_ordinal as u64,
+            FactKind::AreaEffect,
+            policy::AOE,
+            ObservableFact::AreaEffect {
+                source: local_ordinal as u64,
+                x_mm: pos.x.raw(),
+                y_mm: pos.y.raw(),
+                radius_mm: radius.raw().max(0) as u64,
+            },
+        ),
+        Outcome::AddBuff {
+            target, buff_id, ..
+        } => {
             let target = entity_id(*target);
-            (target, FactKind::Buff, policy::BUFF_DEBUFF,
-             ObservableFact::Buff { source: target, target, effect_id: text_id(buff_id), active: true })
+            (
+                target,
+                FactKind::Buff,
+                policy::BUFF_DEBUFF,
+                ObservableFact::Buff {
+                    source: target,
+                    target,
+                    effect_id: text_id(buff_id),
+                    active: true,
+                },
+            )
         }
         Outcome::ScriptRemoveBuff { target, buff_id } => {
             let target = entity_id(*target);
-            (target, FactKind::Buff, policy::BUFF_DEBUFF,
-             ObservableFact::Buff { source: target, target, effect_id: text_id(buff_id), active: false })
+            (
+                target,
+                FactKind::Buff,
+                policy::BUFF_DEBUFF,
+                ObservableFact::Buff {
+                    source: target,
+                    target,
+                    effect_id: text_id(buff_id),
+                    active: false,
+                },
+            )
         }
         _ => return None,
     };
     Some(OrderedFact {
-        key: FactOrderingKey { tick, phase: FactPhase::PostStep, canonical_source_order: source_order,
-            local_ordinal, fact_kind },
+        key: FactOrderingKey {
+            tick,
+            phase: FactPhase::PostStep,
+            canonical_source_order: source_order,
+            local_ordinal,
+            fact_kind,
+        },
         audience: FactAudience::VisibilityPolicy(policy_id.to_owned()),
         fact,
     })

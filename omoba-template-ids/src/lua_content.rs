@@ -753,6 +753,16 @@ impl LuaContentLoader {
     fn create_context(&self, lua: &Lua) -> mlua::Result<mlua::Table> {
         let ctx = lua.create_table()?;
 
+        // Lua 的空 table 預設會被 serde 視為 map。Content descriptor 經常需要
+        // 明確的空 sequence，因此提供 ctx.array({})，避免用假資料佔位。
+        ctx.set(
+            "array",
+            lua.create_function(|lua, table: mlua::Table| {
+                table.set_metatable(Some(lua.array_metatable()));
+                Ok(table)
+            })?,
+        )?;
+
         let include_loader = self.clone();
         ctx.set(
             "include",

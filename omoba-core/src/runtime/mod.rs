@@ -5,35 +5,43 @@
 //! without adding another library boundary.
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod anti_probing;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod authority_recovery;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod observer_validation;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod projection_policy;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod selective;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod selective_contract_tests;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective_fixtures;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective_replica;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod projection_policy;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod stable_fact;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod visibility;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_projector;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_stream;
 #[cfg(not(target_arch = "wasm32"))]
-pub mod observer_validation;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod authority_recovery;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod anti_probing;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod selective_contract_tests;
+pub mod visibility;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub use anti_probing::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use authority_recovery::*;
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
 pub use native::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use observer_validation::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use projection_policy::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use selective::*;
 #[cfg(not(target_arch = "wasm32"))]
@@ -41,21 +49,13 @@ pub use selective_fixtures::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use selective_replica::*;
 #[cfg(not(target_arch = "wasm32"))]
-pub use projection_policy::*;
-#[cfg(not(target_arch = "wasm32"))]
 pub use stable_fact::*;
-#[cfg(not(target_arch = "wasm32"))]
-pub use visibility::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use team_projector::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use team_stream::*;
 #[cfg(not(target_arch = "wasm32"))]
-pub use observer_validation::*;
-#[cfg(not(target_arch = "wasm32"))]
-pub use authority_recovery::*;
-#[cfg(not(target_arch = "wasm32"))]
-pub use anti_probing::*;
+pub use visibility::*;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm {

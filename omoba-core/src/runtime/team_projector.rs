@@ -6,11 +6,11 @@ use prost::Message;
 use sha2::{Digest, Sha256};
 
 use crate::game_proto::{
-    transition, AuthorityRevision, DisclosureEpoch, ForgetEntity, HideEntity, PostStep, PreStep,
-    ReplicaEntityId as ProtoReplicaEntityId, RevealEntity, SanitizedExternalEffect, Step,
-    ComponentRepair, EntityReplace, TeamHashCheckpoint, TeamPublicEvent, TeamTickFrame,
-    TeamViewRebaseNotice, Transition, ViewEpoch,
-    FilteredTeamSnapshot, SnapshotId, TeamGameStart, TeamViewRebase, TeamViewRebaseChunk,
+    transition, AuthorityRevision, ComponentRepair, DisclosureEpoch, EntityReplace,
+    FilteredTeamSnapshot, ForgetEntity, HideEntity, PostStep, PreStep,
+    ReplicaEntityId as ProtoReplicaEntityId, RevealEntity, SanitizedExternalEffect, SnapshotId,
+    Step, TeamGameStart, TeamHashCheckpoint, TeamPublicEvent, TeamTickFrame, TeamViewRebase,
+    TeamViewRebaseChunk, TeamViewRebaseNotice, Transition, ViewEpoch,
 };
 use crate::runtime::{
     CanonicalEntityKey, ClassifiedComponentRecord, DisclosureClass, FactAudience,
@@ -39,7 +39,9 @@ pub enum ProjectionError {
 }
 
 impl From<TeamIdentityError> for ProjectionError {
-    fn from(value: TeamIdentityError) -> Self { Self::Identity(value) }
+    fn from(value: TeamIdentityError) -> Self {
+        Self::Identity(value)
+    }
 }
 
 pub fn redact_component_fields(
@@ -67,9 +69,15 @@ pub fn disclosed_dependency_closure(
     let mut pending = vec![root];
     let mut visited = BTreeSet::new();
     while let Some(entity) = pending.pop() {
-        if !visited.insert(entity) { continue; }
-        if graph.server_only.contains(&entity) { return Err(ProjectionError::ServerOnlyDependency(entity)); }
-        if entity != root && !visible.contains(&entity) { return Err(ProjectionError::HiddenDependency(entity)); }
+        if !visited.insert(entity) {
+            continue;
+        }
+        if graph.server_only.contains(&entity) {
+            return Err(ProjectionError::ServerOnlyDependency(entity));
+        }
+        if entity != root && !visible.contains(&entity) {
+            return Err(ProjectionError::HiddenDependency(entity));
+        }
         if let Some(dependencies) = graph.edges.get(&entity) {
             pending.extend(dependencies.iter().rev().copied());
         }
@@ -89,8 +97,10 @@ pub struct TeamProjectorConfig {
 
 impl Default for TeamProjectorConfig {
     fn default() -> Self {
+        let mut component_allowlist = BTreeSet::new();
+        component_allowlist.insert(crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID);
         Self {
-            component_allowlist: BTreeSet::new(),
+            component_allowlist,
             size_buckets: vec![256, 512, 1024, 2048, 4096, 8192, 16384],
             mass_reveal_chunk_entities: 64,
             rebase_chunks_per_tick: 2,
@@ -156,45 +166,83 @@ struct PendingRebaseOutbound {
 }
 
 impl TeamProjectionRuntime {
-    pub fn take_rate_limited_rebase_outbound(&mut self) -> Vec<(u32, Vec<Vec<u8>>, Option<Vec<u8>>)> {
+    pub fn take_rate_limited_rebase_outbound(
+        &mut self,
+    ) -> Vec<(u32, Vec<Vec<u8>>, Option<Vec<u8>>)> {
         let teams: Vec<_> = self.pending_rebase_outbound.keys().copied().collect();
         let mut result = Vec::new();
         for team_id in teams {
-            let limit = self.projectors.get(&team_id)
-                .map_or(1, |projector| projector.config.rebase_chunks_per_tick.max(1));
-            let pending = self.pending_rebase_outbound.get_mut(&team_id).expect("known pending rebase");
-            let chunks = (0..limit).filter_map(|_| pending.chunks.pop_front()).collect::<Vec<_>>();
-            let manifest = pending.chunks.is_empty().then(|| pending.manifest.take()).flatten();
+            let limit = self.projectors.get(&team_id).map_or(1, |projector| {
+                projector.config.rebase_chunks_per_tick.max(1)
+            });
+            let pending = self
+                .pending_rebase_outbound
+                .get_mut(&team_id)
+                .expect("known pending rebase");
+            let chunks = (0..limit)
+                .filter_map(|_| pending.chunks.pop_front())
+                .collect::<Vec<_>>();
+            let manifest = pending
+                .chunks
+                .is_empty()
+                .then(|| pending.manifest.take())
+                .flatten();
             let finished = pending.chunks.is_empty() && pending.manifest.is_none();
             result.push((team_id, chunks, manifest));
-            if finished { self.pending_rebase_outbound.remove(&team_id); }
+            if finished {
+                self.pending_rebase_outbound.remove(&team_id);
+            }
         }
         result
     }
-    pub fn apply_recovery_actions(&mut self, coordinator: &mut crate::runtime::AuthorityRepairCoordinator) {
+    pub fn apply_recovery_actions(
+        &mut self,
+        coordinator: &mut crate::runtime::AuthorityRepairCoordinator,
+    ) {
         let teams: Vec<_> = self.projectors.keys().copied().collect();
         for team in teams {
             for action in coordinator.drain_actions(team) {
                 match action {
                     crate::runtime::RecoveryAction::ComponentRepair(repair) => {
-                        if let Some(projector) = self.projectors.get_mut(&team) { projector.enqueue_component_repair(repair); }
+                        if let Some(projector) = self.projectors.get_mut(&team) {
+                            projector.enqueue_component_repair(repair);
+                        }
                     }
                     crate::runtime::RecoveryAction::EntityReplace(replace) => {
-                        if let Some(projector) = self.projectors.get_mut(&team) { projector.enqueue_entity_replace(replace); }
+                        if let Some(projector) = self.projectors.get_mut(&team) {
+                            projector.enqueue_entity_replace(replace);
+                        }
                     }
-                    crate::runtime::RecoveryAction::FilteredRebase { resume_sequence, view_epoch, .. } => {
-                        self.pending_filtered_rebases.insert(team, (resume_sequence, view_epoch));
+                    crate::runtime::RecoveryAction::FilteredRebase {
+                        resume_sequence,
+                        view_epoch,
+                        ..
+                    } => {
+                        self.pending_filtered_rebases
+                            .insert(team, (resume_sequence, view_epoch));
                     }
-                    crate::runtime::RecoveryAction::SafeTerminate(diagnostic) => self.safe_terminations.push(diagnostic),
+                    crate::runtime::RecoveryAction::SafeTerminate(diagnostic) => {
+                        self.safe_terminations.push(diagnostic)
+                    }
                 }
             }
         }
     }
 
-    pub fn build_team_bootstraps(&mut self, server_tick: u64, tick_rate_hz: u32) -> BTreeMap<u32, TeamGameStart> {
-        self.projectors.iter_mut().map(|(team, projector)| {
-            (*team, projector.build_team_game_start(server_tick, tick_rate_hz))
-        }).collect()
+    pub fn build_team_bootstraps(
+        &mut self,
+        server_tick: u64,
+        tick_rate_hz: u32,
+    ) -> BTreeMap<u32, TeamGameStart> {
+        self.projectors
+            .iter_mut()
+            .map(|(team, projector)| {
+                (
+                    *team,
+                    projector.build_team_game_start(server_tick, tick_rate_hz),
+                )
+            })
+            .collect()
     }
 
     pub fn build_input_validation_snapshot(
@@ -203,29 +251,56 @@ impl TeamProjectionRuntime {
     ) -> crate::runtime::SecureInputValidationSnapshot {
         let mut snapshot = crate::runtime::SecureInputValidationSnapshot::default();
         for (team_id, projector) in &self.projectors {
-            let Some(team_visibility) = visibility.teams.get(team_id) else { continue; };
-            let replicas = projector.identity.disclosed_mappings().into_iter().map(|(canonical, mapping)| {
-                let canonical_id = ((canonical.generation as u64) << 32) | u64::from(canonical.id);
-                (mapping.replica_id.get(), crate::runtime::ReplicaValidationRecord {
-                    canonical_id,
-                    disclosure_epoch: mapping.disclosure_epoch,
-                    owner_team: visibility.latest_owner_by_canonical.get(&canonical_id).copied().flatten(),
+            let Some(team_visibility) = visibility.teams.get(team_id) else {
+                continue;
+            };
+            let replicas = projector
+                .identity
+                .disclosed_mappings()
+                .into_iter()
+                .map(|(canonical, mapping)| {
+                    let canonical_id =
+                        ((canonical.generation as u64) << 32) | u64::from(canonical.id);
+                    (
+                        mapping.replica_id.get(),
+                        crate::runtime::ReplicaValidationRecord {
+                            canonical_id,
+                            disclosure_epoch: mapping.disclosure_epoch,
+                            owner_team: visibility
+                                .latest_owner_by_canonical
+                                .get(&canonical_id)
+                                .copied()
+                                .flatten(),
+                        },
+                    )
                 })
-            }).collect();
-            snapshot.teams.insert(*team_id, crate::runtime::TeamInputValidationView {
-                view_epoch: projector.view_epoch,
-                replicas,
-                visible_by_tick: team_visibility.history.snapshot(),
-            });
+                .collect();
+            snapshot.teams.insert(
+                *team_id,
+                crate::runtime::TeamInputValidationView {
+                    view_epoch: projector.view_epoch,
+                    replicas,
+                    visible_by_tick: team_visibility.history.snapshot(),
+                },
+            );
         }
         snapshot
     }
 }
 
-pub fn run_team_projection_after_wave_b(world: &mut World, server_tick: u64) -> Result<(), ProjectionError> {
-    let visibility = world.read_resource::<crate::runtime::TeamVisibilityRuntime>().clone();
-    let committed = world.read_resource::<crate::runtime::CommittedProjectionBatch>().clone();
-    if !committed.barrier_reached { return Ok(()); }
+pub fn run_team_projection_after_wave_b(
+    world: &mut World,
+    server_tick: u64,
+) -> Result<(), ProjectionError> {
+    let visibility = world
+        .read_resource::<crate::runtime::TeamVisibilityRuntime>()
+        .clone();
+    let committed = world
+        .read_resource::<crate::runtime::CommittedProjectionBatch>()
+        .clone();
+    if !committed.barrier_reached {
+        return Ok(());
+    }
     let (mut runtime, mut coordinator) = <(
         Write<TeamProjectionRuntime>,
         Write<crate::runtime::AuthorityRepairCoordinator>,
@@ -236,17 +311,37 @@ pub fn run_team_projection_after_wave_b(world: &mut World, server_tick: u64) -> 
     let pending_rebases = std::mem::take(&mut runtime.pending_filtered_rebases);
     let mut rebases = BTreeMap::new();
     for (team, state) in &visibility.teams {
-        let transitions = visibility.last_transitions.get(team).cloned().unwrap_or_default();
-        let projector = runtime.projectors.entry(*team)
+        let transitions = visibility
+            .last_transitions
+            .get(team)
+            .cloned()
+            .unwrap_or_default();
+        let projector = runtime
+            .projectors
+            .entry(*team)
             .or_insert_with(|| TeamViewProjector::new(*team, TeamProjectorConfig::default()));
+        projector.enqueue_visible_demo_repairs(
+            committed.tick,
+            &state.index.current,
+            &visibility.latest_demo_render_by_canonical,
+        );
         if let Some((resume_sequence, view_epoch)) = pending_rebases.get(team) {
-            let bundle = projector.build_filtered_rebase(server_tick, *resume_sequence, *view_epoch)?;
+            let bundle =
+                projector.build_filtered_rebase(server_tick, *resume_sequence, *view_epoch)?;
             projector.enqueue_rebase_notice(crate::runtime::rebase_notice(
-                bundle.manifest.snapshot_id.clone().expect("rebase snapshot id"),
+                bundle
+                    .manifest
+                    .snapshot_id
+                    .clone()
+                    .expect("rebase snapshot id"),
                 bundle.manifest.manifest_hash.clone(),
                 *resume_sequence,
                 *view_epoch,
-                bundle.manifest.authority_revision.as_ref().map_or(0, |revision| revision.value),
+                bundle
+                    .manifest
+                    .authority_revision
+                    .as_ref()
+                    .map_or(0, |revision| revision.value),
             ));
             rebases.insert(*team, bundle);
         }
@@ -262,10 +357,13 @@ pub fn run_team_projection_after_wave_b(world: &mut World, server_tick: u64) -> 
     }
     runtime.latest_frames = frames;
     for (team_id, bundle) in &rebases {
-        runtime.pending_rebase_outbound.insert(*team_id, PendingRebaseOutbound {
-            chunks: bundle.chunks.iter().map(Message::encode_to_vec).collect(),
-            manifest: Some(bundle.manifest.encode_to_vec()),
-        });
+        runtime.pending_rebase_outbound.insert(
+            *team_id,
+            PendingRebaseOutbound {
+                chunks: bundle.chunks.iter().map(Message::encode_to_vec).collect(),
+                manifest: Some(bundle.manifest.encode_to_vec()),
+            },
+        );
     }
     runtime.latest_rebases = rebases;
     Ok(())
@@ -296,11 +394,58 @@ impl TeamViewProjector {
 
     pub fn take_rate_limited_rebase_chunks(&mut self) -> Vec<Vec<u8>> {
         (0..self.config.rebase_chunks_per_tick.max(1))
-            .filter_map(|_| self.pending_rebase_chunks.pop_front()).collect()
+            .filter_map(|_| self.pending_rebase_chunks.pop_front())
+            .collect()
     }
 
     pub fn enqueue_component_repair(&mut self, repair: ComponentRepair) {
         self.pending_component_repairs.push_back(repair);
+    }
+
+    pub fn enqueue_visible_demo_repairs(
+        &mut self,
+        effective_tick: u64,
+        visible: &BTreeSet<u64>,
+        components: &BTreeMap<u64, Vec<u8>>,
+    ) {
+        for canonical_id in visible {
+            let Some(mapping) = self.identity.replica_for(unpack_canonical(*canonical_id)) else {
+                continue;
+            };
+            let Some(value) = components.get(canonical_id) else {
+                continue;
+            };
+            let current =
+                self.hash_entities
+                    .get(&mapping.replica_id.get())
+                    .and_then(|(_, _, values)| {
+                        values.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                    });
+            if current == Some(value) {
+                continue;
+            }
+            self.pending_component_repairs.push_back(ComponentRepair {
+                replica_entity_id: Some(ProtoReplicaEntityId {
+                    value: mapping.replica_id.get(),
+                }),
+                disclosure_epoch: Some(DisclosureEpoch {
+                    value: mapping.disclosure_epoch,
+                }),
+                component_schema_id: crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,
+                field_mask: vec![0xff],
+                replacement_fields: value.clone(),
+                authority_revision: Some(AuthorityRevision {
+                    value: self.authority_revision,
+                }),
+                effective_tick,
+            });
+            if let Some((_, _, stored)) = self.hash_entities.get_mut(&mapping.replica_id.get()) {
+                stored.insert(
+                    crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,
+                    value.clone(),
+                );
+            }
+        }
     }
 
     pub fn enqueue_entity_replace(&mut self, replace: EntityReplace) {
@@ -327,8 +472,9 @@ impl TeamViewProjector {
             monotonic_snapshot_ordinal: self.next_snapshot_ordinal,
         };
         self.next_snapshot_ordinal = self.next_snapshot_ordinal.saturating_add(1);
-        let chunks = crate::runtime::encode_snapshot_chunks(&snapshot_id, &disclosed_world, 16 * 1024)
-            .map_err(|_| ProjectionError::FrameTooLarge)?;
+        let chunks =
+            crate::runtime::encode_snapshot_chunks(&snapshot_id, &disclosed_world, 16 * 1024)
+                .map_err(|_| ProjectionError::FrameTooLarge)?;
         let manifest = crate::runtime::build_snapshot_manifest(
             snapshot_id,
             self.team_id,
@@ -342,7 +488,6 @@ impl TeamViewProjector {
         Ok(RecoveryRebaseBundle { chunks, manifest })
     }
 
-
     pub fn build_team_game_start(&mut self, server_tick: u64, tick_rate_hz: u32) -> TeamGameStart {
         let disclosed_world = self.encode_disclosed_world();
         let filtered_snapshot_hash: [u8; 32] = Sha256::digest(&disclosed_world).into();
@@ -350,7 +495,9 @@ impl TeamViewProjector {
             snapshot_schema_version: 1,
             match_instance_id: vec![0; 16],
             team_id: self.team_id,
-            view_epoch: Some(ViewEpoch { value: self.view_epoch }),
+            view_epoch: Some(ViewEpoch {
+                value: self.view_epoch,
+            }),
             authoritative_tick: server_tick,
             monotonic_snapshot_ordinal: self.next_snapshot_ordinal,
         };
@@ -359,7 +506,9 @@ impl TeamViewProjector {
             snapshot_schema_version: 1,
             snapshot_id: Some(snapshot_id.clone()),
             team_id: self.team_id,
-            view_epoch: Some(ViewEpoch { value: self.view_epoch }),
+            view_epoch: Some(ViewEpoch {
+                value: self.view_epoch,
+            }),
             authoritative_tick: server_tick,
             disclosed_world,
             public_metadata: Vec::new(),
@@ -377,7 +526,9 @@ impl TeamViewProjector {
             tick_rate_hz,
             visibility_commit_delay_ticks: 1,
             replica_buffer_ticks: 2,
-            view_epoch: Some(ViewEpoch { value: self.view_epoch }),
+            view_epoch: Some(ViewEpoch {
+                value: self.view_epoch,
+            }),
             next_team_sequence: self.sequence,
             snapshot_id: Some(snapshot_id),
             snapshot_manifest_hash: filtered_snapshot_hash.to_vec(),
@@ -415,15 +566,23 @@ impl TeamViewProjector {
         self.pending_reveals.extend(transitions);
         let pre_step = self.build_pre_step(replica_tick, visible, graph)?;
         let step = self.build_step(visible, facts);
-        let hash = expected_team_hash(self.team_id, replica_tick.saturating_add(1), &self.hash_entities);
+        let hash = expected_team_hash(
+            self.team_id,
+            replica_tick.saturating_add(1),
+            &self.hash_entities,
+        );
         let post_step = PostStep {
             component_repairs: self.pending_component_repairs.drain(..).collect(),
             entity_replaces: self.pending_entity_replaces.drain(..).collect(),
-            hash_checkpoint: (replica_tick % self.config.hash_checkpoint_interval_ticks.max(1) == 0).then_some(TeamHashCheckpoint {
-                replica_tick,
-                canonical_team_hash: hash.to_vec(),
-                authority_revision: Some(AuthorityRevision { value: self.authority_revision }),
-            }),
+            hash_checkpoint: (replica_tick % self.config.hash_checkpoint_interval_ticks.max(1)
+                == 0)
+                .then_some(TeamHashCheckpoint {
+                    replica_tick,
+                    canonical_team_hash: hash.to_vec(),
+                    authority_revision: Some(AuthorityRevision {
+                        value: self.authority_revision,
+                    }),
+                }),
             rebase_notice: self.pending_rebase_notice.take(),
         };
         let frame = TeamTickFrame {
@@ -434,8 +593,12 @@ impl TeamViewProjector {
             server_tick,
             replica_tick,
             team_sequence: self.sequence,
-            view_epoch: Some(ViewEpoch { value: self.view_epoch }),
-            authority_revision: Some(AuthorityRevision { value: self.authority_revision }),
+            view_epoch: Some(ViewEpoch {
+                value: self.view_epoch,
+            }),
+            authority_revision: Some(AuthorityRevision {
+                value: self.authority_revision,
+            }),
             pre_step: Some(pre_step),
             step: Some(step),
             post_step: Some(post_step),
@@ -462,40 +625,70 @@ impl TeamViewProjector {
                 continue;
             }
             match item {
-                VisibilityTransition::Reveal { canonical_id, effective_tick, baseline } => {
+                VisibilityTransition::Reveal {
+                    canonical_id,
+                    effective_tick,
+                    baseline,
+                } => {
                     let effective_tick = effective_tick.max(replica_tick);
                     let key = unpack_canonical(canonical_id);
                     let mapping = self.identity.disclose(key)?;
                     let dependencies = disclosed_dependency_closure(canonical_id, visible, graph)?
-                        .into_iter().filter_map(|dependency| {
-                            self.identity.replica_for(unpack_canonical(dependency))
-                                .map(|mapping| ProtoReplicaEntityId { value: mapping.replica_id.get() })
-                        }).collect();
-                    transitions.push(Transition { transition: Some(transition::Transition::Reveal(RevealEntity {
-                        replica_entity_id: Some(ProtoReplicaEntityId { value: mapping.replica_id.get() }),
-                        disclosure_epoch: Some(DisclosureEpoch { value: mapping.disclosure_epoch }),
-                        effective_tick,
-                        entity_kind: 0,
-                        safe_baseline: baseline.clone(),
-                        disclosed_dependencies: dependencies,
-                        stable_sub_index: reveal_count as u32,
-                    })) });
+                        .into_iter()
+                        .filter_map(|dependency| {
+                            self.identity
+                                .replica_for(unpack_canonical(dependency))
+                                .map(|mapping| ProtoReplicaEntityId {
+                                    value: mapping.replica_id.get(),
+                                })
+                        })
+                        .collect();
+                    transitions.push(Transition {
+                        transition: Some(transition::Transition::Reveal(RevealEntity {
+                            replica_entity_id: Some(ProtoReplicaEntityId {
+                                value: mapping.replica_id.get(),
+                            }),
+                            disclosure_epoch: Some(DisclosureEpoch {
+                                value: mapping.disclosure_epoch,
+                            }),
+                            effective_tick,
+                            entity_kind: 0,
+                            safe_baseline: baseline.clone(),
+                            disclosed_dependencies: dependencies,
+                            stable_sub_index: reveal_count as u32,
+                        })),
+                    });
                     self.hash_entities.insert(
                         mapping.replica_id.get(),
-                        (mapping.disclosure_epoch, 0, decode_safe_components_for_hash(&baseline)),
+                        (
+                            mapping.disclosure_epoch,
+                            0,
+                            decode_safe_components_for_hash(&baseline),
+                        ),
                     );
                     reveal_count += 1;
                 }
-                VisibilityTransition::Hide { canonical_id, effective_tick, disposition } => {
+                VisibilityTransition::Hide {
+                    canonical_id,
+                    effective_tick,
+                    disposition,
+                } => {
                     let effective_tick = effective_tick.max(replica_tick);
                     let key = unpack_canonical(canonical_id);
-                    let mapping = self.identity.replica_for(key).ok_or(TeamIdentityError::UnknownCanonical)?;
+                    let mapping = self
+                        .identity
+                        .replica_for(key)
+                        .ok_or(TeamIdentityError::UnknownCanonical)?;
                     let transition = match disposition {
                         RememberDisposition::Forget => {
                             self.identity.forget(key)?;
                             transition::Transition::Forget(ForgetEntity {
-                                replica_entity_id: Some(ProtoReplicaEntityId { value: mapping.replica_id.get() }),
-                                disclosure_epoch: Some(DisclosureEpoch { value: mapping.disclosure_epoch }),
+                                replica_entity_id: Some(ProtoReplicaEntityId {
+                                    value: mapping.replica_id.get(),
+                                }),
+                                disclosure_epoch: Some(DisclosureEpoch {
+                                    value: mapping.disclosure_epoch,
+                                }),
                                 effective_tick,
                                 retire_reason: 1,
                                 stable_sub_index: transitions.len() as u32,
@@ -503,18 +696,36 @@ impl TeamViewProjector {
                         }
                         RememberDisposition::LastKnown | RememberDisposition::Silhouette => {
                             self.identity.remember(key)?;
+                            let sanitized = self
+                                .hash_entities
+                                .get(&mapping.replica_id.get())
+                                .and_then(|(_, _, components)| {
+                                    components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                                })
+                                .cloned()
+                                .unwrap_or_default();
                             transition::Transition::Hide(HideEntity {
-                                replica_entity_id: Some(ProtoReplicaEntityId { value: mapping.replica_id.get() }),
-                                disclosure_epoch: Some(DisclosureEpoch { value: mapping.disclosure_epoch }),
+                                replica_entity_id: Some(ProtoReplicaEntityId {
+                                    value: mapping.replica_id.get(),
+                                }),
+                                disclosure_epoch: Some(DisclosureEpoch {
+                                    value: mapping.disclosure_epoch,
+                                }),
                                 effective_tick,
-                                remember_policy: if disposition == RememberDisposition::LastKnown { 1 } else { 2 },
-                                sanitized_remembered_presentation: Vec::new(),
+                                remember_policy: if disposition == RememberDisposition::LastKnown {
+                                    1
+                                } else {
+                                    2
+                                },
+                                sanitized_remembered_presentation: sanitized,
                                 stable_sub_index: transitions.len() as u32,
                             })
                         }
                     };
                     self.hash_entities.remove(&mapping.replica_id.get());
-                    transitions.push(Transition { transition: Some(transition) });
+                    transitions.push(Transition {
+                        transition: Some(transition),
+                    });
                 }
             }
         }
@@ -526,14 +737,46 @@ impl TeamViewProjector {
     fn build_step(&self, visible: &BTreeSet<u64>, facts: &[OrderedFact]) -> Step {
         let mut public_events = Vec::new();
         let mut external_effects = Vec::new();
-        let mut ordered: Vec<_> = facts.iter().filter(|fact| audience_allows(&fact.audience, self.team_id)).collect();
-        ordered.sort_by_key(|fact| (fact.key.fact_kind, fact_subject_replica(fact, &self.identity), fact.key.local_ordinal));
+        let mut ordered: Vec<_> = facts
+            .iter()
+            .filter(|fact| audience_allows(&fact.audience, self.team_id))
+            .collect();
+        ordered.sort_by_key(|fact| {
+            (
+                fact.key.fact_kind,
+                fact_subject_replica(fact, &self.identity),
+                fact.key.local_ordinal,
+            )
+        });
         for fact in ordered {
-            project_fact(fact, visible, &self.identity, &mut public_events, &mut external_effects);
+            project_fact(
+                fact,
+                visible,
+                &self.identity,
+                &mut public_events,
+                &mut external_effects,
+            );
         }
-        public_events.sort_by_key(|event| (event.event_kind, event.subject.as_ref().map_or(0, |id| id.value), event.stable_sub_index));
-        external_effects.sort_by_key(|effect| (effect.effect_kind, effect.visible_target.as_ref().map_or(0, |id| id.value), effect.stable_sub_index));
-        Step { accepted_inputs: Vec::new(), public_events, random_tapes: Vec::new(), external_effects }
+        public_events.sort_by_key(|event| {
+            (
+                event.event_kind,
+                event.subject.as_ref().map_or(0, |id| id.value),
+                event.stable_sub_index,
+            )
+        });
+        external_effects.sort_by_key(|effect| {
+            (
+                effect.effect_kind,
+                effect.visible_target.as_ref().map_or(0, |id| id.value),
+                effect.stable_sub_index,
+            )
+        });
+        Step {
+            accepted_inputs: Vec::new(),
+            public_events,
+            random_tapes: Vec::new(),
+            external_effects,
+        }
     }
 }
 
@@ -554,11 +797,15 @@ fn project_fact(
     let source_visible = source.is_some_and(|id| visible.contains(&id));
     let target_visible = target.is_some_and(|id| visible.contains(&id));
     let target_replica = target.and_then(|id| replica_proto(identity, id));
-    let hidden_source_requires_sanitizing = !source_visible && target_visible && matches!(
-        ordered.fact,
-        ObservableFact::DirectCombat { .. } | ObservableFact::Buff { .. }
-            | ObservableFact::Projectile { .. } | ObservableFact::AreaEffect { .. }
-    );
+    let hidden_source_requires_sanitizing = !source_visible
+        && target_visible
+        && matches!(
+            ordered.fact,
+            ObservableFact::DirectCombat { .. }
+                | ObservableFact::Buff { .. }
+                | ObservableFact::Projectile { .. }
+                | ObservableFact::AreaEffect { .. }
+        );
     if hidden_source_requires_sanitizing {
         external.push(SanitizedExternalEffect {
             effect_kind: ordered.key.fact_kind as u32,
@@ -569,7 +816,9 @@ fn project_fact(
     } else if source_visible || target_visible || source.is_none() {
         public.push(TeamPublicEvent {
             event_kind: ordered.key.fact_kind as u32,
-            subject: source.and_then(|id| replica_proto(identity, id)).or(target_replica),
+            subject: source
+                .and_then(|id| replica_proto(identity, id))
+                .or(target_replica),
             sanitized_payload: payload,
             stable_sub_index: ordered.key.local_ordinal,
         });
@@ -579,41 +828,152 @@ fn project_fact(
 fn fact_entities_and_payload(fact: &ObservableFact) -> (Option<u64>, Option<u64>, Vec<u8>) {
     let mut payload = Vec::new();
     match fact {
-        ObservableFact::Movement { source, x_mm, y_mm } => { payload.extend(x_mm.to_le_bytes()); payload.extend(y_mm.to_le_bytes()); (Some(*source), None, payload) }
-        ObservableFact::Spawn { source, template_id, team } => { payload.extend(template_id.to_le_bytes()); payload.extend(team.to_le_bytes()); (*source, None, payload) }
+        ObservableFact::Movement { source, x_mm, y_mm } => {
+            payload.extend(x_mm.to_le_bytes());
+            payload.extend(y_mm.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::Spawn {
+            source,
+            template_id,
+            team,
+        } => {
+            payload.extend(template_id.to_le_bytes());
+            payload.extend(team.to_le_bytes());
+            (*source, None, payload)
+        }
         ObservableFact::Death { source, killer } => (Some(*source), *killer, payload),
-        ObservableFact::Ownership { source, team } => { payload.extend(team.to_le_bytes()); (Some(*source), None, payload) }
-        ObservableFact::DirectCombat { source, target, amount_milli } => { payload.extend(amount_milli.to_le_bytes()); (Some(*source), Some(*target), payload) }
-        ObservableFact::Projectile { source, target, effect_id, active } => { payload.extend(effect_id.to_le_bytes()); payload.push(u8::from(*active)); (Some(*source), *target, payload) }
-        ObservableFact::AreaEffect { source, x_mm, y_mm, radius_mm } => { payload.extend(x_mm.to_le_bytes()); payload.extend(y_mm.to_le_bytes()); payload.extend(radius_mm.to_le_bytes()); (Some(*source), None, payload) }
-        ObservableFact::Buff { source, target, effect_id, active } => { payload.extend(effect_id.to_le_bytes()); payload.push(u8::from(*active)); (Some(*source), Some(*target), payload) }
-        ObservableFact::Ability { source, ability_id, target } => { payload.extend(ability_id.to_le_bytes()); (Some(*source), *target, payload) }
-        ObservableFact::Tower { source, action_id } => { payload.extend(action_id.to_le_bytes()); (Some(*source), None, payload) }
-        ObservableFact::Item { source, item_id, target } => { payload.extend(item_id.to_le_bytes()); (Some(*source), *target, payload) }
-        ObservableFact::Hud { team, metric_id, value } => { payload.extend(team.to_le_bytes()); payload.extend(metric_id.to_le_bytes()); payload.extend(value.to_le_bytes()); (None, None, payload) }
-        ObservableFact::Terminal { result_code, winning_team } => { payload.extend(result_code.to_le_bytes()); if let Some(team) = winning_team { payload.extend(team.to_le_bytes()); } (None, None, payload) }
+        ObservableFact::Ownership { source, team } => {
+            payload.extend(team.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::DirectCombat {
+            source,
+            target,
+            amount_milli,
+        } => {
+            payload.extend(amount_milli.to_le_bytes());
+            (Some(*source), Some(*target), payload)
+        }
+        ObservableFact::Projectile {
+            source,
+            target,
+            effect_id,
+            active,
+        } => {
+            payload.extend(effect_id.to_le_bytes());
+            payload.push(u8::from(*active));
+            (Some(*source), *target, payload)
+        }
+        ObservableFact::AreaEffect {
+            source,
+            x_mm,
+            y_mm,
+            radius_mm,
+        } => {
+            payload.extend(x_mm.to_le_bytes());
+            payload.extend(y_mm.to_le_bytes());
+            payload.extend(radius_mm.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::Buff {
+            source,
+            target,
+            effect_id,
+            active,
+        } => {
+            payload.extend(effect_id.to_le_bytes());
+            payload.push(u8::from(*active));
+            (Some(*source), Some(*target), payload)
+        }
+        ObservableFact::Ability {
+            source,
+            ability_id,
+            target,
+        } => {
+            payload.extend(ability_id.to_le_bytes());
+            (Some(*source), *target, payload)
+        }
+        ObservableFact::Tower { source, action_id } => {
+            payload.extend(action_id.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::Item {
+            source,
+            item_id,
+            target,
+        } => {
+            payload.extend(item_id.to_le_bytes());
+            (Some(*source), *target, payload)
+        }
+        ObservableFact::Hud {
+            team,
+            metric_id,
+            value,
+        } => {
+            payload.extend(team.to_le_bytes());
+            payload.extend(metric_id.to_le_bytes());
+            payload.extend(value.to_le_bytes());
+            (None, None, payload)
+        }
+        ObservableFact::Terminal {
+            result_code,
+            winning_team,
+        } => {
+            payload.extend(result_code.to_le_bytes());
+            if let Some(team) = winning_team {
+                payload.extend(team.to_le_bytes());
+            }
+            (None, None, payload)
+        }
     }
 }
 
 fn fact_subject_replica(fact: &OrderedFact, identity: &TeamIdentityState) -> u64 {
-    fact_entities_and_payload(&fact.fact).0.and_then(|id| replica_proto(identity, id)).map_or(0, |id| id.value)
+    fact_entities_and_payload(&fact.fact)
+        .0
+        .and_then(|id| replica_proto(identity, id))
+        .map_or(0, |id| id.value)
 }
 
 fn replica_proto(identity: &TeamIdentityState, canonical: u64) -> Option<ProtoReplicaEntityId> {
-    identity.replica_for(unpack_canonical(canonical)).filter(|mapping| mapping.visibility == MappingVisibility::Disclosed)
-        .map(|mapping| ProtoReplicaEntityId { value: mapping.replica_id.get() })
+    identity
+        .replica_for(unpack_canonical(canonical))
+        .filter(|mapping| mapping.visibility == MappingVisibility::Disclosed)
+        .map(|mapping| ProtoReplicaEntityId {
+            value: mapping.replica_id.get(),
+        })
 }
 
 fn unpack_canonical(value: u64) -> CanonicalEntityKey {
-    CanonicalEntityKey { id: value as u32, generation: (value >> 32) as u32 }
+    CanonicalEntityKey {
+        id: value as u32,
+        generation: (value >> 32) as u32,
+    }
 }
 
 fn transition_sort_key(value: &Transition) -> (u8, u64, u32) {
     match value.transition.as_ref() {
-        Some(transition::Transition::Reveal(item)) => (0, item.replica_entity_id.as_ref().map_or(0, |id| id.value), item.stable_sub_index),
-        Some(transition::Transition::Replace(item)) => (1, item.replica_entity_id.as_ref().map_or(0, |id| id.value), item.stable_sub_index),
-        Some(transition::Transition::Hide(item)) => (2, item.replica_entity_id.as_ref().map_or(0, |id| id.value), item.stable_sub_index),
-        Some(transition::Transition::Forget(item)) => (3, item.replica_entity_id.as_ref().map_or(0, |id| id.value), item.stable_sub_index),
+        Some(transition::Transition::Reveal(item)) => (
+            0,
+            item.replica_entity_id.as_ref().map_or(0, |id| id.value),
+            item.stable_sub_index,
+        ),
+        Some(transition::Transition::Replace(item)) => (
+            1,
+            item.replica_entity_id.as_ref().map_or(0, |id| id.value),
+            item.stable_sub_index,
+        ),
+        Some(transition::Transition::Hide(item)) => (
+            2,
+            item.replica_entity_id.as_ref().map_or(0, |id| id.value),
+            item.stable_sub_index,
+        ),
+        Some(transition::Transition::Forget(item)) => (
+            3,
+            item.replica_entity_id.as_ref().map_or(0, |id| id.value),
+            item.stable_sub_index,
+        ),
         None => (u8::MAX, 0, 0),
     }
 }
@@ -642,34 +1002,61 @@ fn expected_team_hash(
 
 fn decode_safe_components_for_hash(bytes: &[u8]) -> BTreeMap<u32, Vec<u8>> {
     let mut result = BTreeMap::new();
-    let Some(count) = bytes.get(..4).map(|value| u32::from_be_bytes(value.try_into().unwrap())) else {
+    let Some(count) = bytes
+        .get(..4)
+        .map(|value| u32::from_be_bytes(value.try_into().unwrap()))
+    else {
         return result;
     };
     let mut cursor = 4usize;
     for _ in 0..count {
-        let Some(schema) = bytes.get(cursor..cursor + 4) else { return BTreeMap::new(); };
+        let Some(schema) = bytes.get(cursor..cursor + 4) else {
+            return BTreeMap::new();
+        };
         cursor += 4;
-        let Some(len) = bytes.get(cursor..cursor + 4) else { return BTreeMap::new(); };
+        let Some(len) = bytes.get(cursor..cursor + 4) else {
+            return BTreeMap::new();
+        };
         cursor += 4;
         let schema = u32::from_be_bytes(schema.try_into().unwrap());
         let len = u32::from_be_bytes(len.try_into().unwrap()) as usize;
-        let Some(value) = bytes.get(cursor..cursor + len) else { return BTreeMap::new(); };
+        let Some(value) = bytes.get(cursor..cursor + len) else {
+            return BTreeMap::new();
+        };
         cursor += len;
         result.insert(schema, value.to_vec());
     }
-    if cursor == bytes.len() { result } else { BTreeMap::new() }
+    if cursor == bytes.len() {
+        result
+    } else {
+        BTreeMap::new()
+    }
 }
 
-fn pad_frame(mut frame: TeamTickFrame, buckets: &[usize]) -> Result<PaddedTeamFrame, ProjectionError> {
-    if buckets.is_empty() { return Err(ProjectionError::EmptyPaddingBuckets); }
+fn pad_frame(
+    mut frame: TeamTickFrame,
+    buckets: &[usize],
+) -> Result<PaddedTeamFrame, ProjectionError> {
+    if buckets.is_empty() {
+        return Err(ProjectionError::EmptyPaddingBuckets);
+    }
     let canonical_bytes = frame.encode_to_vec();
-    let steady_empty = frame.pre_step.as_ref().is_none_or(|pre| pre.transitions.is_empty())
-        && frame.step.as_ref().is_none_or(|step| step.accepted_inputs.is_empty()
-            && step.public_events.is_empty() && step.random_tapes.is_empty()
-            && step.external_effects.is_empty())
-        && frame.post_step.as_ref().is_none_or(|post| post.component_repairs.is_empty()
-            && post.entity_replaces.is_empty() && post.hash_checkpoint.is_none()
-            && post.rebase_notice.is_none());
+    let steady_empty = frame
+        .pre_step
+        .as_ref()
+        .is_none_or(|pre| pre.transitions.is_empty())
+        && frame.step.as_ref().is_none_or(|step| {
+            step.accepted_inputs.is_empty()
+                && step.public_events.is_empty()
+                && step.random_tapes.is_empty()
+                && step.external_effects.is_empty()
+        })
+        && frame.post_step.as_ref().is_none_or(|post| {
+            post.component_repairs.is_empty()
+                && post.entity_replaces.is_empty()
+                && post.hash_checkpoint.is_none()
+                && post.rebase_notice.is_none()
+        });
     // Hidden-only activity has already been filtered before this point, so an
     // empty heartbeat has one canonical shape and carries no activity oracle.
     // Avoiding padding here keeps 120 Hz steady-state traffic within budget.
@@ -681,7 +1068,11 @@ fn pad_frame(mut frame: TeamTickFrame, buckets: &[usize]) -> Result<PaddedTeamFr
             padding_len: 0,
         });
     }
-    for bucket in buckets.iter().copied().filter(|size| *size >= canonical_bytes.len()) {
+    for bucket in buckets
+        .iter()
+        .copied()
+        .filter(|size| *size >= canonical_bytes.len())
+    {
         let mut low = 0usize;
         let mut high = bucket - canonical_bytes.len();
         while low <= high {
@@ -689,11 +1080,20 @@ fn pad_frame(mut frame: TeamTickFrame, buckets: &[usize]) -> Result<PaddedTeamFr
             frame.padding.resize(padding_len, 0);
             let wire_bytes = frame.encode_to_vec();
             if wire_bytes.len() == bucket {
-                return Ok(PaddedTeamFrame { frame, canonical_bytes, wire_bytes, padding_len });
+                return Ok(PaddedTeamFrame {
+                    frame,
+                    canonical_bytes,
+                    wire_bytes,
+                    padding_len,
+                });
             }
-            if wire_bytes.len() < bucket { low = padding_len.saturating_add(1); }
-            else if padding_len == 0 { break; }
-            else { high = padding_len - 1; }
+            if wire_bytes.len() < bucket {
+                low = padding_len.saturating_add(1);
+            } else if padding_len == 0 {
+                break;
+            } else {
+                high = padding_len - 1;
+            }
         }
     }
     Err(ProjectionError::FrameTooLarge)
@@ -729,7 +1129,9 @@ pub fn sanitize_hidden_aoe_effect(
 ) -> SanitizedExternalEffect {
     SanitizedExternalEffect {
         effect_kind: crate::runtime::FactKind::AreaEffect as u32,
-        visible_target: Some(ProtoReplicaEntityId { value: visible_target }),
+        visible_target: Some(ProtoReplicaEntityId {
+            value: visible_target,
+        }),
         sanitized_payload: amount_milli.to_le_bytes().to_vec(),
         stable_sub_index,
     }

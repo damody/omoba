@@ -170,9 +170,11 @@ impl TeamIdentityState {
     }
 
     pub fn disclosed_mappings(&self) -> Vec<(CanonicalEntityKey, TeamEntityMapping)> {
-        self.canonical_to_replica.iter()
+        self.canonical_to_replica
+            .iter()
             .filter(|(_, mapping)| mapping.visibility == MappingVisibility::Disclosed)
-            .map(|(canonical, mapping)| (*canonical, *mapping)).collect()
+            .map(|(canonical, mapping)| (*canonical, *mapping))
+            .collect()
     }
 }
 

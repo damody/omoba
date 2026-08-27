@@ -10,7 +10,10 @@ use crate::runtime::{ObserverMismatch, SafeMismatchMetadata};
 pub enum MismatchControl {
     Observer(ObserverMismatch),
     Client(ClientHashMismatch),
-    CoverageGapRebootstrap { team_id: u32, first_missing_sequence: u64 },
+    CoverageGapRebootstrap {
+        team_id: u32,
+        first_missing_sequence: u64,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,7 +54,11 @@ pub struct ComponentDifference {
 pub enum RecoveryAction {
     ComponentRepair(ComponentRepair),
     EntityReplace(EntityReplace),
-    FilteredRebase { team_id: u32, resume_sequence: u64, view_epoch: u64 },
+    FilteredRebase {
+        team_id: u32,
+        resume_sequence: u64,
+        view_epoch: u64,
+    },
     SafeTerminate(SafeTerminationDiagnostic),
 }
 
@@ -65,7 +72,10 @@ pub struct SafeTerminationDiagnostic {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RebaseRetryDisposition { Retry, Terminate }
+pub enum RebaseRetryDisposition {
+    Retry,
+    Terminate,
+}
 
 #[derive(Clone, Debug)]
 struct TeamRecoveryState {
@@ -79,8 +89,14 @@ struct TeamRecoveryState {
 
 impl Default for TeamRecoveryState {
     fn default() -> Self {
-        Self { next_revision: 1, consecutive_failures: 0, retry_count: 0,
-            first_divergence: None, pending: VecDeque::new(), staging_active: false }
+        Self {
+            next_revision: 1,
+            consecutive_failures: 0,
+            retry_count: 0,
+            first_divergence: None,
+            pending: VecDeque::new(),
+            staging_active: false,
+        }
     }
 }
 
@@ -97,7 +113,12 @@ pub struct AuthorityRepairCoordinator {
 
 impl AuthorityRepairCoordinator {
     pub fn configured() -> Self {
-        Self { replace_threshold: 2, rebase_threshold: 8, max_retries: 3, ..Self::default() }
+        Self {
+            replace_threshold: 2,
+            rebase_threshold: 8,
+            max_retries: 3,
+            ..Self::default()
+        }
     }
 
     fn allocate_revision(state: &mut TeamRecoveryState) -> u64 {
@@ -117,15 +138,21 @@ impl AuthorityRepairCoordinator {
         let state = self.teams.entry(team_id).or_default();
         if state.first_divergence.is_none() {
             state.first_divergence = Some(FirstDivergenceRecord {
-                team_id, frame_sequence, replica_tick,
-                safe_component_path: differences.first().map(|difference| difference.safe_component_path.clone()),
+                team_id,
+                frame_sequence,
+                replica_tick,
+                safe_component_path: differences
+                    .first()
+                    .map(|difference| difference.safe_component_path.clone()),
                 metadata,
             });
         }
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         if differences.len() >= self.rebase_threshold.max(1) {
             state.pending.push_back(RecoveryAction::FilteredRebase {
-                team_id, resume_sequence: frame_sequence.saturating_add(1), view_epoch: 1,
+                team_id,
+                resume_sequence: frame_sequence.saturating_add(1),
+                view_epoch: 1,
             });
             state.staging_active = true;
             self.rebase_count = self.rebase_count.saturating_add(1);
@@ -134,25 +161,37 @@ impl AuthorityRepairCoordinator {
         if differences.len() >= self.replace_threshold.max(1) {
             if let Some(difference) = differences.first() {
                 let revision = Self::allocate_revision(state);
-                state.pending.push_back(RecoveryAction::EntityReplace(EntityReplace {
-                    replica_entity_id: Some(ReplicaEntityId { value: difference.replica_id }),
-                    disclosure_epoch: Some(DisclosureEpoch { value: difference.disclosure_epoch }),
-                    safe_baseline: difference.safe_entity_baseline.clone(),
-                    authority_revision: Some(AuthorityRevision { value: revision }),
-                    effective_tick: replica_tick.saturating_add(1),
-                }));
+                state
+                    .pending
+                    .push_back(RecoveryAction::EntityReplace(EntityReplace {
+                        replica_entity_id: Some(ReplicaEntityId {
+                            value: difference.replica_id,
+                        }),
+                        disclosure_epoch: Some(DisclosureEpoch {
+                            value: difference.disclosure_epoch,
+                        }),
+                        safe_baseline: difference.safe_entity_baseline.clone(),
+                        authority_revision: Some(AuthorityRevision { value: revision }),
+                        effective_tick: replica_tick.saturating_add(1),
+                    }));
             }
         } else if let Some(difference) = differences.first() {
             let revision = Self::allocate_revision(state);
-            state.pending.push_back(RecoveryAction::ComponentRepair(ComponentRepair {
-                replica_entity_id: Some(ReplicaEntityId { value: difference.replica_id }),
-                disclosure_epoch: Some(DisclosureEpoch { value: difference.disclosure_epoch }),
-                component_schema_id: difference.component_schema_id,
-                field_mask: difference.field_mask.clone(),
-                replacement_fields: difference.replacement_fields.clone(),
-                authority_revision: Some(AuthorityRevision { value: revision }),
-                effective_tick: replica_tick.saturating_add(1),
-            }));
+            state
+                .pending
+                .push_back(RecoveryAction::ComponentRepair(ComponentRepair {
+                    replica_entity_id: Some(ReplicaEntityId {
+                        value: difference.replica_id,
+                    }),
+                    disclosure_epoch: Some(DisclosureEpoch {
+                        value: difference.disclosure_epoch,
+                    }),
+                    component_schema_id: difference.component_schema_id,
+                    field_mask: difference.field_mask.clone(),
+                    replacement_fields: difference.replacement_fields.clone(),
+                    authority_revision: Some(AuthorityRevision { value: revision }),
+                    effective_tick: replica_tick.saturating_add(1),
+                }));
         }
         self.repair_count = self.repair_count.saturating_add(1);
     }
@@ -184,14 +223,18 @@ impl AuthorityRepairCoordinator {
     pub fn report_coverage_gap(&mut self, team_id: u32, first_missing_sequence: u64) {
         let state = self.teams.entry(team_id).or_default();
         state.pending.push_back(RecoveryAction::FilteredRebase {
-            team_id, resume_sequence: first_missing_sequence, view_epoch: 1,
+            team_id,
+            resume_sequence: first_missing_sequence,
+            view_epoch: 1,
         });
         state.staging_active = true;
         self.rebase_count = self.rebase_count.saturating_add(1);
     }
 
     pub fn discard_interrupted_rebase(&mut self, team_id: u32) {
-        if let Some(state) = self.teams.get_mut(&team_id) { state.staging_active = false; }
+        if let Some(state) = self.teams.get_mut(&team_id) {
+            state.staging_active = false;
+        }
     }
 
     pub fn manifest_verification_failed(
@@ -204,28 +247,40 @@ impl AuthorityRepairCoordinator {
         state.retry_count = state.retry_count.saturating_add(1);
         if state.retry_count <= self.max_retries {
             state.pending.push_back(RecoveryAction::FilteredRebase {
-                team_id, resume_sequence: last_safe_sequence.saturating_add(1), view_epoch: 1,
+                team_id,
+                resume_sequence: last_safe_sequence.saturating_add(1),
+                view_epoch: 1,
             });
             RebaseRetryDisposition::Retry
         } else {
-            state.pending.push_back(RecoveryAction::SafeTerminate(SafeTerminationDiagnostic {
-                team_id,
-                last_safe_sequence,
-                reason_class: "authority-recovery-exhausted".to_owned(),
-                safe_component_path: state.first_divergence.as_ref().and_then(|record| record.safe_component_path.clone()),
-                protocol_fallback_allowed: false,
-            }));
+            state
+                .pending
+                .push_back(RecoveryAction::SafeTerminate(SafeTerminationDiagnostic {
+                    team_id,
+                    last_safe_sequence,
+                    reason_class: "authority-recovery-exhausted".to_owned(),
+                    safe_component_path: state
+                        .first_divergence
+                        .as_ref()
+                        .and_then(|record| record.safe_component_path.clone()),
+                    protocol_fallback_allowed: false,
+                }));
             self.termination_count = self.termination_count.saturating_add(1);
             RebaseRetryDisposition::Terminate
         }
     }
 
     pub fn drain_actions(&mut self, team_id: u32) -> Vec<RecoveryAction> {
-        self.teams.get_mut(&team_id).map(|state| state.pending.drain(..).collect()).unwrap_or_default()
+        self.teams
+            .get_mut(&team_id)
+            .map(|state| state.pending.drain(..).collect())
+            .unwrap_or_default()
     }
 
     pub fn first_divergence(&self, team_id: u32) -> Option<&FirstDivergenceRecord> {
-        self.teams.get(&team_id).and_then(|state| state.first_divergence.as_ref())
+        self.teams
+            .get(&team_id)
+            .and_then(|state| state.first_divergence.as_ref())
     }
 }
 
@@ -237,8 +292,12 @@ pub fn rebase_notice(
     authority_revision: u64,
 ) -> TeamViewRebaseNotice {
     TeamViewRebaseNotice {
-        snapshot_id: Some(snapshot_id), manifest_hash, resume_team_sequence: resume_sequence,
+        snapshot_id: Some(snapshot_id),
+        manifest_hash,
+        resume_team_sequence: resume_sequence,
         view_epoch: Some(ViewEpoch { value: view_epoch }),
-        authority_revision: Some(AuthorityRevision { value: authority_revision }),
+        authority_revision: Some(AuthorityRevision {
+            value: authority_revision,
+        }),
     }
 }

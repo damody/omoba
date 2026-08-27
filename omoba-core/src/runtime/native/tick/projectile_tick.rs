@@ -248,7 +248,11 @@ impl<'a> System<'a> for Sys {
     }
 }
 
-fn emit_projectile_removal(tr: &ProjectileRead<'_>, entity: specs::Entity, projectile: &Projectile) {
+fn emit_projectile_removal(
+    tr: &ProjectileRead<'_>,
+    entity: specs::Entity,
+    projectile: &Projectile,
+) {
     let source = crate::runtime::canonical_entity_id(entity);
     let _ = tr.facts.emit(crate::runtime::OrderedFact {
         key: crate::runtime::FactOrderingKey {

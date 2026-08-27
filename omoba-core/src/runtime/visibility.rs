@@ -15,6 +15,49 @@ use crate::runtime::native::comp::{
 use crate::runtime::{OrderedFact, OrderedOutput, StableOutputError};
 use specs::{Join, World, WorldExt};
 
+pub const DEMO_RENDER_COMPONENT_SCHEMA_ID: u32 = 0x464f4701;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DemoRenderState {
+    pub x_raw: i64,
+    pub y_raw: i64,
+    pub team_id: u32,
+    pub kind: u8,
+    pub owner_player_id: u32,
+}
+
+pub fn encode_demo_render_state(state: DemoRenderState) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(25);
+    bytes.extend_from_slice(&state.x_raw.to_be_bytes());
+    bytes.extend_from_slice(&state.y_raw.to_be_bytes());
+    bytes.extend_from_slice(&state.team_id.to_be_bytes());
+    bytes.push(state.kind);
+    bytes.extend_from_slice(&state.owner_player_id.to_be_bytes());
+    bytes
+}
+
+pub fn decode_demo_render_state(bytes: &[u8]) -> Option<DemoRenderState> {
+    if bytes.len() != 25 {
+        return None;
+    }
+    Some(DemoRenderState {
+        x_raw: i64::from_be_bytes(bytes[0..8].try_into().ok()?),
+        y_raw: i64::from_be_bytes(bytes[8..16].try_into().ok()?),
+        team_id: u32::from_be_bytes(bytes[16..20].try_into().ok()?),
+        kind: bytes[20],
+        owner_player_id: u32::from_be_bytes(bytes[21..25].try_into().ok()?),
+    })
+}
+
+fn encode_component_baseline(schema_id: u32, value: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(12 + value.len());
+    bytes.extend_from_slice(&1u32.to_be_bytes());
+    bytes.extend_from_slice(&schema_id.to_be_bytes());
+    bytes.extend_from_slice(&(value.len() as u32).to_be_bytes());
+    bytes.extend_from_slice(value);
+    bytes
+}
+
 #[derive(Clone, Debug)]
 pub struct CommittedEntityView {
     pub canonical_id: u64,
@@ -55,12 +98,23 @@ pub struct WaveBReadView {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum VisibilityTransition {
-    Reveal { canonical_id: u64, effective_tick: u64, baseline: Vec<u8> },
-    Hide { canonical_id: u64, effective_tick: u64, disposition: RememberDisposition },
+    Reveal {
+        canonical_id: u64,
+        effective_tick: u64,
+        baseline: Vec<u8>,
+    },
+    Hide {
+        canonical_id: u64,
+        effective_tick: u64,
+        disposition: RememberDisposition,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct VisibilityCandidate { desired_visible: bool, effective_tick: u64 }
+struct VisibilityCandidate {
+    desired_visible: bool,
+    effective_tick: u64,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct TeamVisibilityIndex {
@@ -69,7 +123,10 @@ pub struct TeamVisibilityIndex {
 }
 
 #[derive(Clone, Debug)]
-pub struct VisibilityHistoryEntry { pub tick: u64, pub visible: BTreeSet<u64> }
+pub struct VisibilityHistoryEntry {
+    pub tick: u64,
+    pub visible: BTreeSet<u64>,
+}
 
 #[derive(Clone, Debug)]
 pub struct TeamVisibilityHistory {
@@ -78,17 +135,33 @@ pub struct TeamVisibilityHistory {
 }
 
 impl TeamVisibilityHistory {
-    pub fn new(capacity: usize) -> Self { Self { capacity: capacity.max(1), entries: VecDeque::new() } }
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            entries: VecDeque::new(),
+        }
+    }
     pub fn push(&mut self, tick: u64, visible: &BTreeSet<u64>) {
-        self.entries.push_back(VisibilityHistoryEntry { tick, visible: visible.clone() });
-        while self.entries.len() > self.capacity { self.entries.pop_front(); }
+        self.entries.push_back(VisibilityHistoryEntry {
+            tick,
+            visible: visible.clone(),
+        });
+        while self.entries.len() > self.capacity {
+            self.entries.pop_front();
+        }
     }
     pub fn was_visible(&self, tick: u64, entity: u64) -> bool {
-        self.entries.iter().rev().find(|entry| entry.tick <= tick)
+        self.entries
+            .iter()
+            .rev()
+            .find(|entry| entry.tick <= tick)
             .is_some_and(|entry| entry.visible.contains(&entity))
     }
     pub fn snapshot(&self) -> BTreeMap<u64, BTreeSet<u64>> {
-        self.entries.iter().map(|entry| (entry.tick, entry.visible.clone())).collect()
+        self.entries
+            .iter()
+            .map(|entry| (entry.tick, entry.visible.clone()))
+            .collect()
     }
 }
 
@@ -101,11 +174,24 @@ pub struct TeamVisibilityState {
 
 impl TeamVisibilityState {
     pub fn new(team: u32, history_capacity: usize) -> Self {
-        Self { team, index: TeamVisibilityIndex::default(), history: TeamVisibilityHistory::new(history_capacity) }
+        Self {
+            team,
+            index: TeamVisibilityIndex::default(),
+            history: TeamVisibilityHistory::new(history_capacity),
+        }
     }
 
-    pub fn resolve(&mut self, view: &WaveBReadView, transition_delay_ticks: u64) -> Vec<VisibilityTransition> {
-        let sources: Vec<_> = view.vision_sources.iter().filter(|source| source.team == self.team).copied().collect();
+    pub fn resolve(
+        &mut self,
+        view: &WaveBReadView,
+        transition_delay_ticks: u64,
+    ) -> Vec<VisibilityTransition> {
+        let sources: Vec<_> = view
+            .vision_sources
+            .iter()
+            .filter(|source| source.team == self.team)
+            .copied()
+            .collect();
         let mut transitions = Vec::new();
         for entity in view.entities.iter() {
             let desired = entity_visible_to_team(entity, self.team, &sources);
@@ -115,14 +201,23 @@ impl TeamVisibilityState {
                 continue;
             }
             let effective_tick = view.tick.saturating_add(transition_delay_ticks);
-            let candidate = self.index.candidates.entry(entity.canonical_id).or_insert(VisibilityCandidate {
-                desired_visible: desired,
-                effective_tick,
-            });
+            let candidate =
+                self.index
+                    .candidates
+                    .entry(entity.canonical_id)
+                    .or_insert(VisibilityCandidate {
+                        desired_visible: desired,
+                        effective_tick,
+                    });
             if candidate.desired_visible != desired {
-                *candidate = VisibilityCandidate { desired_visible: desired, effective_tick };
+                *candidate = VisibilityCandidate {
+                    desired_visible: desired,
+                    effective_tick,
+                };
             }
-            if view.tick < candidate.effective_tick { continue; }
+            if view.tick < candidate.effective_tick {
+                continue;
+            }
             if desired {
                 self.index.current.insert(entity.canonical_id);
                 transitions.push(VisibilityTransition::Reveal {
@@ -141,39 +236,122 @@ impl TeamVisibilityState {
             self.index.candidates.remove(&entity.canonical_id);
         }
         transitions.sort_by_key(|transition| match transition {
-            VisibilityTransition::Reveal { canonical_id, .. } | VisibilityTransition::Hide { canonical_id, .. } => *canonical_id,
+            VisibilityTransition::Reveal { canonical_id, .. }
+            | VisibilityTransition::Hide { canonical_id, .. } => *canonical_id,
         });
         self.history.push(view.tick, &self.index.current);
         transitions
     }
 }
 
-fn entity_visible_to_team(entity: &CommittedEntityView, team: u32, sources: &[CommittedVisionSource]) -> bool {
+fn entity_visible_to_team(
+    entity: &CommittedEntityView,
+    team: u32,
+    sources: &[CommittedVisionSource],
+) -> bool {
     // Deny rules have absolute precedence.
-    if entity.scope == ReplicationScopeKind::ServerOnly { return false; }
-    if resolve_override(&entity.overrides, team) == Some(VisibilityOverrideKind::ForceHide) { return false; }
+    if entity.scope == ReplicationScopeKind::ServerOnly {
+        return false;
+    }
+    if resolve_override(&entity.overrides, team) == Some(VisibilityOverrideKind::ForceHide) {
+        return false;
+    }
     // Explicit/public grants precede owner and geometry checks.
     if entity.scope == ReplicationScopeKind::Public
-        || resolve_override(&entity.overrides, team) == Some(VisibilityOverrideKind::ForceShow) { return true; }
-    if entity.scope == ReplicationScopeKind::OwnerTeam && entity.owner_team == Some(team) { return true; }
+        || resolve_override(&entity.overrides, team) == Some(VisibilityOverrideKind::ForceShow)
+    {
+        return true;
+    }
+    // 只有 OwnerTeam scope 才能讓擁有者無條件看見。Vision scope 即使是
+    // 同隊單位也必須通過幾何視野，否則兩隊會各自直接取得整張地圖的同隊單位。
+    if entity.scope == ReplicationScopeKind::OwnerTeam && entity.owner_team == Some(team) {
+        return true;
+    }
     sources.iter().any(|source| {
-        if source.detection_level < entity.stealth_level { return false; }
+        if source.team != team {
+            return false;
+        }
+        if source.detection_level < entity.stealth_level {
+            return false;
+        }
         let delta = entity.position - source.position;
         delta.length_squared() <= source.radius * source.radius
     })
 }
 
-fn resolve_override(overrides: &[CommittedVisibilityOverride], team: u32) -> Option<VisibilityOverrideKind> {
-    let matching: Vec<_> = overrides.iter()
-        .filter(|rule| rule.team.is_none() || rule.team == Some(team)).copied().collect();
-    let kind = if matching.iter().any(|rule| rule.kind == VisibilityOverrideKind::ForceHide) {
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entity(scope: ReplicationScopeKind, owner_team: Option<u32>, x: i32) -> CommittedEntityView {
+        CommittedEntityView {
+            canonical_id: 7,
+            team: owner_team.unwrap_or_default(),
+            position: Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO),
+            scope,
+            owner_team,
+            stealth_level: 0,
+            overrides: Vec::new(),
+            remember: RememberDisposition::Forget,
+            disclosed_baseline: Vec::new(),
+        }
+    }
+
+    fn source(team: u32, radius: i32) -> CommittedVisionSource {
+        CommittedVisionSource {
+            canonical_id: 1,
+            team,
+            position: Vec2::new(Fixed64::ZERO, Fixed64::ZERO),
+            radius: Fixed64::from_i32(radius),
+            detection_level: 0,
+        }
+    }
+
+    #[test]
+    fn same_team_vision_entity_outside_radius_is_hidden() {
+        let target = entity(ReplicationScopeKind::Vision, Some(1), 100);
+        assert!(!entity_visible_to_team(&target, 1, &[source(1, 20)]));
+    }
+
+    #[test]
+    fn owner_team_hero_is_visible_to_owner_outside_radius() {
+        let target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 100);
+        assert!(entity_visible_to_team(&target, 1, &[source(1, 20)]));
+    }
+
+    #[test]
+    fn owner_team_entity_can_be_revealed_to_enemy_by_geometry() {
+        let target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 10);
+        assert!(entity_visible_to_team(&target, 2, &[source(2, 20)]));
+        assert!(!entity_visible_to_team(&target, 2, &[source(2, 5)]));
+    }
+}
+
+fn resolve_override(
+    overrides: &[CommittedVisibilityOverride],
+    team: u32,
+) -> Option<VisibilityOverrideKind> {
+    let matching: Vec<_> = overrides
+        .iter()
+        .filter(|rule| rule.team.is_none() || rule.team == Some(team))
+        .copied()
+        .collect();
+    let kind = if matching
+        .iter()
+        .any(|rule| rule.kind == VisibilityOverrideKind::ForceHide)
+    {
         VisibilityOverrideKind::ForceHide
-    } else if matching.iter().any(|rule| rule.kind == VisibilityOverrideKind::ForceShow) {
+    } else if matching
+        .iter()
+        .any(|rule| rule.kind == VisibilityOverrideKind::ForceShow)
+    {
         VisibilityOverrideKind::ForceShow
     } else {
         return None;
     };
-    matching.into_iter().filter(|rule| rule.kind == kind)
+    matching
+        .into_iter()
+        .filter(|rule| rule.kind == kind)
         .min_by_key(|rule| (-i32::from(rule.priority), rule.stable_rule_id))
         .map(|rule| rule.kind)
 }
@@ -183,9 +361,10 @@ pub fn run_team_wave_b_parallel(
     teams: &mut [TeamVisibilityState],
     transition_delay_ticks: u64,
 ) -> Vec<(u32, Vec<VisibilityTransition>)> {
-    let mut results: Vec<_> = teams.par_iter_mut().map(|state| {
-        (state.team, state.resolve(view, transition_delay_ticks))
-    }).collect();
+    let mut results: Vec<_> = teams
+        .par_iter_mut()
+        .map(|state| (state.team, state.resolve(view, transition_delay_ticks)))
+        .collect();
     results.sort_by_key(|(team, _)| *team);
     results
 }
@@ -195,11 +374,14 @@ pub struct TeamVisibilityRuntime {
     pub teams: BTreeMap<u32, TeamVisibilityState>,
     pub last_transitions: BTreeMap<u32, Vec<VisibilityTransition>>,
     pub latest_owner_by_canonical: BTreeMap<u64, Option<u32>>,
+    pub latest_demo_render_by_canonical: BTreeMap<u64, Vec<u8>>,
 }
 
 impl TeamVisibilityRuntime {
     pub fn ensure_team(&mut self, team: u32) {
-        self.teams.entry(team).or_insert_with(|| TeamVisibilityState::new(team, 512));
+        self.teams
+            .entry(team)
+            .or_insert_with(|| TeamVisibilityState::new(team, 512));
     }
 }
 
@@ -213,62 +395,124 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let overrides = world.read_storage::<VisibilityOverride>();
     let remembers = world.read_storage::<RememberPolicy>();
     let vision = world.read_storage::<VisionSource>();
+    let units = world.read_storage::<Unit>();
+    let heroes = world.read_storage::<Hero>();
+    let owners = world.read_storage::<PlayerOwner>();
 
-    let mut committed_entities: Vec<_> = (&entities, &positions).join().map(|(entity, position)| {
-        let canonical_id = ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id());
-        let team = factions.get(entity).map(|faction| faction.team_id.max(0) as u32).unwrap_or(0);
-        let scope = scopes.get(entity).copied().unwrap_or(ReplicationScope {
-            kind: ReplicationScopeKind::Vision,
-            owner_team: Some(team),
-        });
-        // V2 component baseline format begins with a big-endian component
-        // count. Field allowlisting will populate this in later schema passes;
-        // an empty baseline is valid and cannot expose canonical identity.
-        let baseline = 0u32.to_be_bytes().to_vec();
-        CommittedEntityView {
-            canonical_id,
-            team,
-            position: position.0,
-            scope: scope.kind,
-            owner_team: scope.owner_team,
-            stealth_level: stealth.get(entity).map(|value| value.stealth_level).unwrap_or(0),
-            overrides: overrides.get(entity).map(|rule| vec![CommittedVisibilityOverride {
-                team: rule.team,
-                kind: rule.kind,
-                priority: rule.priority,
-                stable_rule_id: rule.stable_rule_id,
-            }]).unwrap_or_default(),
-            remember: remembers.get(entity).map(|value| value.disposition).unwrap_or(RememberDisposition::Forget),
-            disclosed_baseline: baseline,
-        }
-    }).collect();
+    let mut committed_entities: Vec<_> = (&entities, &positions)
+        .join()
+        .map(|(entity, position)| {
+            let canonical_id = ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id());
+            let team = factions
+                .get(entity)
+                .map(|faction| faction.team_id.max(0) as u32)
+                .unwrap_or(0);
+            let scope = scopes.get(entity).copied().unwrap_or(ReplicationScope {
+                kind: ReplicationScopeKind::Vision,
+                owner_team: Some(team),
+            });
+            let render_state = DemoRenderState {
+                x_raw: position.0.x.raw(),
+                y_raw: position.0.y.raw(),
+                team_id: team,
+                kind: if heroes.get(entity).is_some() {
+                    1
+                } else if units.get(entity).is_some() {
+                    2
+                } else {
+                    0
+                },
+                owner_player_id: owners.get(entity).map_or(0, |owner| owner.player_id),
+            };
+            let baseline = encode_component_baseline(
+                DEMO_RENDER_COMPONENT_SCHEMA_ID,
+                &encode_demo_render_state(render_state),
+            );
+            CommittedEntityView {
+                canonical_id,
+                team,
+                position: position.0,
+                scope: scope.kind,
+                owner_team: scope.owner_team,
+                stealth_level: stealth
+                    .get(entity)
+                    .map(|value| value.stealth_level)
+                    .unwrap_or(0),
+                overrides: overrides
+                    .get(entity)
+                    .map(|rule| {
+                        vec![CommittedVisibilityOverride {
+                            team: rule.team,
+                            kind: rule.kind,
+                            priority: rule.priority,
+                            stable_rule_id: rule.stable_rule_id,
+                        }]
+                    })
+                    .unwrap_or_default(),
+                remember: remembers
+                    .get(entity)
+                    .map(|value| value.disposition)
+                    .unwrap_or(RememberDisposition::Forget),
+                disclosed_baseline: baseline,
+            }
+        })
+        .collect();
     committed_entities.sort_by_key(|entity| entity.canonical_id);
 
-    let mut vision_sources: Vec<_> = (&entities, &positions, &vision).join().map(|(entity, position, source)| {
-        CommittedVisionSource {
+    let mut vision_sources: Vec<_> = (&entities, &positions, &vision)
+        .join()
+        .map(|(entity, position, source)| CommittedVisionSource {
             canonical_id: ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id()),
             team: source.team,
             position: position.0,
             radius: source.radius,
             detection_level: source.detection_level,
-        }
-    }).collect();
+        })
+        .collect();
     vision_sources.sort_by_key(|source| (source.team, source.canonical_id));
-    WaveBReadView { tick, entities: committed_entities.into(), vision_sources: vision_sources.into() }
+    WaveBReadView {
+        tick,
+        entities: committed_entities.into(),
+        vision_sources: vision_sources.into(),
+    }
 }
 
 /// Called only after Wave A outcome/fact reduction and `World::maintain`.
 pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64) {
     let view = build_wave_b_read_view(world, tick);
-    let discovered_teams: BTreeSet<_> = view.entities.iter().map(|entity| entity.team)
-        .chain(view.vision_sources.iter().map(|source| source.team)).collect();
+    let discovered_teams: BTreeSet<_> = view
+        .entities
+        .iter()
+        .map(|entity| entity.team)
+        .chain(view.vision_sources.iter().map(|source| source.team))
+        .collect();
     let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
-    runtime.latest_owner_by_canonical = view.entities.iter()
-        .map(|entity| (entity.canonical_id, entity.owner_team)).collect();
-    for team in discovered_teams { runtime.ensure_team(team); }
+    runtime.latest_owner_by_canonical = view
+        .entities
+        .iter()
+        .map(|entity| (entity.canonical_id, entity.owner_team))
+        .collect();
+    runtime.latest_demo_render_by_canonical = view
+        .entities
+        .iter()
+        .filter_map(|entity| {
+            (entity.disclosed_baseline.len() >= 12).then(|| {
+                (
+                    entity.canonical_id,
+                    entity.disclosed_baseline[12..].to_vec(),
+                )
+            })
+        })
+        .collect();
+    for team in discovered_teams {
+        runtime.ensure_team(team);
+    }
     let mut states: Vec<_> = std::mem::take(&mut runtime.teams).into_values().collect();
     let results = run_team_wave_b_parallel(&view, &mut states, delay);
-    runtime.teams = states.into_iter().map(|state| (state.team, state)).collect();
+    runtime.teams = states
+        .into_iter()
+        .map(|state| (state.team, state))
+        .collect();
     runtime.last_transitions = results.into_iter().collect();
 }
 
@@ -293,10 +537,19 @@ pub fn commit_wave_a<T>(
     mut outcomes: Vec<OrderedOutput<T>>,
     mut facts: Vec<OrderedFact>,
 ) -> Result<WaveACommit<T>, StableOutputError> {
-    for outcome in &outcomes { outcome.key.validate()?; }
-    for fact in &facts { fact.key.validate()?; }
+    for outcome in &outcomes {
+        outcome.key.validate()?;
+    }
+    for fact in &facts {
+        fact.key.validate()?;
+    }
     outcomes.sort_by_key(|outcome| outcome.key);
     facts.sort();
     facts.dedup();
-    Ok(WaveACommit { tick, ordered_outcomes: outcomes, ordered_facts: facts, barrier_reached: true })
+    Ok(WaveACommit {
+        tick,
+        ordered_outcomes: outcomes,
+        ordered_facts: facts,
+        barrier_reached: true,
+    })
 }

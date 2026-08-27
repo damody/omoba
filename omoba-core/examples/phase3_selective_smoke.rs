@@ -14,11 +14,17 @@ fn main() -> Result<(), String> {
             fact_kind: FactKind::Hud,
         },
         audience: FactAudience::AllPlayers,
-        fact: ObservableFact::Hud { team: 1, metric_id: 9, value: 42 },
+        fact: ObservableFact::Hud {
+            team: 1,
+            metric_id: 9,
+            value: 42,
+        },
     };
     let committed = commit_wave_a::<()>(7, Vec::new(), vec![fact])
         .map_err(|error| format!("Wave A failed: {error:?}"))?;
-    if !committed.barrier_reached { return Err("commit barrier missing".into()); }
+    if !committed.barrier_reached {
+        return Err("commit barrier missing".into());
+    }
 
     let canonical_id = (1u64 << 32) | 17;
     let view = WaveBReadView {
@@ -43,18 +49,24 @@ fn main() -> Result<(), String> {
     }
 
     let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
-    let padded = projector.build_frame(
-        7,
-        7,
-        &visibility.index.current,
-        transitions,
-        &committed.ordered_facts,
-        &ProjectionDependencyGraph::default(),
-    ).map_err(|error| format!("projection failed: {error:?}"))?;
+    let padded = projector
+        .build_frame(
+            7,
+            7,
+            &visibility.index.current,
+            transitions,
+            &committed.ordered_facts,
+            &ProjectionDependencyGraph::default(),
+        )
+        .map_err(|error| format!("projection failed: {error:?}"))?;
     let decoded = omoba_core::game_proto::TeamTickFrame::decode(padded.wire_bytes.as_slice())
         .map_err(|error| format!("encoded frame invalid: {error}"))?;
-    if decoded.team_id != 1 || decoded.replica_tick != 7 || decoded.pre_step.is_none()
-        || decoded.step.is_none() || decoded.post_step.is_none() {
+    if decoded.team_id != 1
+        || decoded.replica_tick != 7
+        || decoded.pre_step.is_none()
+        || decoded.step.is_none()
+        || decoded.post_step.is_none()
+    {
         return Err("encoded frame fields incomplete".into());
     }
     println!(

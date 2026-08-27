@@ -6,6 +6,7 @@ pub mod creep_tick;
 pub mod creep_wave;
 pub mod damage_tick;
 pub mod death_tick;
+pub mod demo_patrol_tick;
 pub mod hero_command_tick;
 pub mod hero_move_tick;
 pub mod hero_tick;

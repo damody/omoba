@@ -14,7 +14,8 @@ fn main() -> Result<(), String> {
         &start,
         BTreeSet::new(),
         BTreeSet::new(),
-    ).map_err(|error| format!("filtered join failed: {error:?}"))?;
+    )
+    .map_err(|error| format!("filtered join failed: {error:?}"))?;
 
     let view = WaveBReadView {
         tick,
@@ -33,15 +34,18 @@ fn main() -> Result<(), String> {
     };
     let mut visibility = TeamVisibilityState::new(team_id, 16);
     let transitions = visibility.resolve(&view, 0);
-    let frame = projector.build_frame(
-        tick,
-        tick,
-        &visibility.index.current,
-        transitions,
-        &[],
-        &ProjectionDependencyGraph::default(),
-    ).map_err(|error| format!("team frame projection failed: {error:?}"))?;
-    let result = client.apply_encoded_frame(&frame.wire_bytes, &mut NoopDisclosedWorldStepper)
+    let frame = projector
+        .build_frame(
+            tick,
+            tick,
+            &visibility.index.current,
+            transitions,
+            &[],
+            &ProjectionDependencyGraph::default(),
+        )
+        .map_err(|error| format!("team frame projection failed: {error:?}"))?;
+    let result = client
+        .apply_encoded_frame(&frame.wire_bytes, &mut NoopDisclosedWorldStepper)
         .map_err(|error| format!("team frame receive failed: {error:?}"))?;
     if !matches!(result, FrameApplyResult::Applied { .. }) || client.world().entities.len() != 1 {
         return Err("synthetic client did not apply the first filtered team frame".into());

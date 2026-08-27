@@ -183,10 +183,16 @@ impl SelectiveReplicaRuntime {
         component_allowlist: BTreeSet<u32>,
         resource_allowlist: BTreeSet<u32>,
     ) -> Result<Self, ReplicaRuntimeError> {
-        if start.protocol_version != 2 { return Err(ReplicaRuntimeError::WrongProtocol); }
-        let snapshot = start.filtered_snapshot.as_ref().ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+        if start.protocol_version != 2 {
+            return Err(ReplicaRuntimeError::WrongProtocol);
+        }
+        let snapshot = start
+            .filtered_snapshot
+            .as_ref()
+            .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
         if snapshot.team_id != start.team_id
-            || snapshot.filtered_snapshot_hash != Sha256::digest(&snapshot.disclosed_world).as_slice()
+            || snapshot.filtered_snapshot_hash
+                != Sha256::digest(&snapshot.disclosed_world).as_slice()
         {
             return Err(ReplicaRuntimeError::UnverifiedRebase);
         }

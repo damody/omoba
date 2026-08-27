@@ -579,38 +579,86 @@ impl KcpClient {
                             TAG_TEAM_GAME_START_V2 => {
                                 let logical_bytes = payload.len();
                                 match TeamGameStart::decode(payload.as_slice()) {
-                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamGameStart {
-                                        msg, wire_bytes: wire_compressed_bytes, logical_bytes,
-                                    }).await.is_err() { break; },
-                                    Err(error) => warn!("Failed to decode TeamGameStart: {}", error),
+                                    Ok(msg) => {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::TeamGameStart {
+                                                msg,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!("Failed to decode TeamGameStart: {}", error)
+                                    }
                                 }
                             }
                             TAG_TEAM_TICK_FRAME_V2 => {
                                 let logical_bytes = payload.len();
                                 match TeamTickFrame::decode(payload.as_slice()) {
-                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamTickFrame {
-                                        msg, encoded: Arc::from(payload.into_boxed_slice()),
-                                        wire_bytes: wire_compressed_bytes, logical_bytes,
-                                    }).await.is_err() { break; },
-                                    Err(error) => warn!("Failed to decode TeamTickFrame: {}", error),
+                                    Ok(msg) => {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::TeamTickFrame {
+                                                msg,
+                                                encoded: Arc::from(payload.into_boxed_slice()),
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!("Failed to decode TeamTickFrame: {}", error)
+                                    }
                                 }
                             }
                             TAG_TEAM_REBASE_CHUNK_V2 => {
                                 let logical_bytes = payload.len();
                                 match TeamViewRebaseChunk::decode(payload.as_slice()) {
-                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamViewRebaseChunk {
-                                        msg, wire_bytes: wire_compressed_bytes, logical_bytes,
-                                    }).await.is_err() { break; },
-                                    Err(error) => warn!("Failed to decode TeamViewRebaseChunk: {}", error),
+                                    Ok(msg) => {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::TeamViewRebaseChunk {
+                                                msg,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!("Failed to decode TeamViewRebaseChunk: {}", error)
+                                    }
                                 }
                             }
                             TAG_TEAM_REBASE_MANIFEST_V2 => {
                                 let logical_bytes = payload.len();
                                 match TeamViewRebase::decode(payload.as_slice()) {
-                                    Ok(msg) => if lockstep_tx.send(LockstepInbound::TeamViewRebaseManifest {
-                                        msg, wire_bytes: wire_compressed_bytes, logical_bytes,
-                                    }).await.is_err() { break; },
-                                    Err(error) => warn!("Failed to decode TeamViewRebase: {}", error),
+                                    Ok(msg) => {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::TeamViewRebaseManifest {
+                                                msg,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!("Failed to decode TeamViewRebase: {}", error)
+                                    }
                                 }
                             }
                             TAG_PING_RESP => {
@@ -782,7 +830,9 @@ impl KcpClient {
         player_name: String,
         player_id: u32,
     ) -> Result<TeamGameStart> {
-        if player_id == 0 { anyhow::bail!("player join requires non-zero player_id"); }
+        if player_id == 0 {
+            anyhow::bail!("player join requires non-zero player_id");
+        }
         let req = JoinRequest {
             player_name,
             role: JoinRole::RolePlayer as i32,
@@ -796,11 +846,16 @@ impl KcpClient {
             let mut writer = self.writer.lock().await;
             write_framed_msg(&mut *writer, TAG_JOIN_REQUEST, &req).await?;
         }
-        let rx = self.lockstep_rx.as_mut().ok_or_else(|| anyhow::anyhow!("lockstep_rx already taken"))?;
+        let rx = self
+            .lockstep_rx
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("lockstep_rx already taken"))?;
         loop {
             match rx.recv().await {
                 Some(LockstepInbound::TeamGameStart { msg, .. }) => {
-                    if msg.player_id != player_id { anyhow::bail!("secure bootstrap player mismatch"); }
+                    if msg.player_id != player_id {
+                        anyhow::bail!("secure bootstrap player mismatch");
+                    }
                     if msg.protocol_version != SELECTIVE_LOCKSTEP_PROTOCOL_VERSION {
                         anyhow::bail!("secure bootstrap protocol mismatch");
                     }
@@ -814,7 +869,12 @@ impl KcpClient {
         }
     }
 
-    pub async fn request_team_replay(&self, request_id: u64, from_sequence: u64, view_epoch: u64) -> Result<()> {
+    pub async fn request_team_replay(
+        &self,
+        request_id: u64,
+        from_sequence: u64,
+        view_epoch: u64,
+    ) -> Result<()> {
         let request = TeamReplayRequest {
             request_id,
             from_team_sequence: from_sequence,
@@ -825,7 +885,12 @@ impl KcpClient {
         Ok(())
     }
 
-    pub async fn acknowledge_team_rebase(&self, team_id: u32, resume_sequence: u64, view_epoch: u64) -> Result<()> {
+    pub async fn acknowledge_team_rebase(
+        &self,
+        team_id: u32,
+        resume_sequence: u64,
+        view_epoch: u64,
+    ) -> Result<()> {
         let ack = TeamRebaseAck {
             team_id,
             resume_team_sequence: resume_sequence,

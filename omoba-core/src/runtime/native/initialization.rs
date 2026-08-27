@@ -674,6 +674,16 @@ impl StateInitializer {
 
     /// 創建戰役場景
     pub fn create_campaign_scene(ecs: &mut World, campaign_data: &CampaignData) {
+        if let Some(demo) = campaign_data.map.FogDemo.as_ref() {
+            demo.validate()
+                .unwrap_or_else(|error| panic!("invalid FOG_2TEAM_DEMO descriptor: {error}"));
+            Self::create_fog_demo_scene(ecs, campaign_data, demo);
+            log::info!(
+                "創建雙隊戰爭迷霧展示場景完成: {}",
+                campaign_data.mission.campaign.name
+            );
+            return;
+        }
         Self::create_campaign_heroes(ecs, campaign_data);
         // 優先：generated map data 的 Structures（script 驅動塔/基地放置）
         let is_td = ecs.read_resource::<GameMode>().is_td();
@@ -713,6 +723,7 @@ impl StateInitializer {
         ecs.register::<Stage>();
         ecs.register::<DamageInstance>();
         ecs.register::<DamageResult>();
+        ecs.register::<DemoPatrol>();
         ecs.register::<MoveTarget>();
         ecs.register::<HeroCommandQueue>();
         ecs.register::<Player>();
@@ -737,6 +748,170 @@ impl StateInitializer {
         ecs.register::<crate::scripting::ScriptUnitTag>();
         ecs.register::<IsBuilding>();
         ecs.register::<CreepMoveBroadcast>();
+    }
+
+    fn create_fog_demo_scene(
+        ecs: &mut World,
+        campaign_data: &CampaignData,
+        demo: &crate::runtime::scene::import_map::FogDemoJD,
+    ) {
+        use omoba_sim::{Fixed64, Vec2};
+        use std::collections::BTreeSet;
+
+        let grid_template = campaign_data
+            .entity
+            .creeps
+            .iter()
+            .find(|entry| entry.id == demo.GridUnitTemplate)
+            .unwrap_or_else(|| {
+                panic!(
+                    "FogDemo unknown grid unit template '{}'",
+                    demo.GridUnitTemplate
+                )
+            });
+        let hero_template = campaign_data
+            .entity
+            .heroes
+            .iter()
+            .find(|entry| entry.id == demo.HeroTemplate)
+            .unwrap_or_else(|| panic!("FogDemo unknown hero template '{}'", demo.HeroTemplate));
+        let patrols: BTreeSet<_> = demo.PatrolIndexes.iter().copied().collect();
+        let speed_per_tick = Fixed64::from_raw(
+            (demo.PatrolSpeed * omoba_sim::fixed::SCALE as f32
+                / crate::lockstep_timing::LOCKSTEP_TPS as f32) as i64,
+        );
+
+        let mut team_counts = [0usize; 3];
+        for index in 0..(demo.Rows * demo.Columns) {
+            let row = index / demo.Columns;
+            let column = index % demo.Columns;
+            let x = demo.OriginX + column as f32 * demo.Spacing;
+            let y = demo.OriginY + row as f32 * demo.Spacing;
+            let team_id = match index % 3 {
+                0 => 0,
+                1 => 1,
+                _ => 2,
+            };
+            team_counts[team_id as usize] += 1;
+            let faction_type = match team_id {
+                1 => FactionType::Player,
+                2 => FactionType::Enemy,
+                _ => FactionType::Neutral,
+            };
+            let mut unit = Unit::from_creep_data(grid_template);
+            unit.id = format!("fog_grid_{index:03}");
+            unit.name = format!("Grid {index:03}");
+            unit.ai_type = if patrols.contains(&index) {
+                unit::AiType::Patrol
+            } else {
+                unit::AiType::None
+            };
+            unit.spawn_position = (x, y);
+            let pos = Pos::from_xy_f32(x, y);
+            let cprop = CProperty {
+                hp: Fixed64::from_i32(unit.current_hp),
+                mhp: Fixed64::from_i32(unit.max_hp),
+                msd: unit.move_speed,
+                def_physic: unit.base_armor,
+                def_magic: unit.magic_resistance,
+            };
+            let mut builder = ecs
+                .create_entity()
+                .with(pos)
+                .with(Vel::zero())
+                .with(unit)
+                .with(Faction::new(faction_type, team_id))
+                .with(cprop)
+                .with(Facing(omoba_sim::Angle::ZERO))
+                .with(ReplicationScope {
+                    kind: ReplicationScopeKind::Vision,
+                    owner_team: (team_id != 0).then_some(team_id as u32),
+                })
+                .with(RememberPolicy {
+                    disposition: if demo.RememberPolicy == "Forget" {
+                        RememberDisposition::Forget
+                    } else {
+                        RememberDisposition::LastKnown
+                    },
+                })
+                .with(CollisionRadius(Fixed64::from_i32(20)));
+            if patrols.contains(&index) {
+                let center = pos.0;
+                builder = builder.with(DemoPatrol {
+                    stable_index: index as u32,
+                    endpoint_a: center
+                        - Vec2::new(
+                            Fixed64::from_raw(
+                                (demo.PatrolOffset * omoba_sim::fixed::SCALE as f32) as i64,
+                            ),
+                            Fixed64::ZERO,
+                        ),
+                    endpoint_b: center
+                        + Vec2::new(
+                            Fixed64::from_raw(
+                                (demo.PatrolOffset * omoba_sim::fixed::SCALE as f32) as i64,
+                            ),
+                            Fixed64::ZERO,
+                        ),
+                    target_b: true,
+                    speed_per_tick,
+                });
+            }
+            builder.build();
+        }
+
+        for spawn in &demo.HeroSpawns {
+            let mut hero = Hero::from_campaign_data(hero_template);
+            hero.id = format!("fog_player_{}_hero", spawn.PlayerId);
+            hero.name = format!(
+                "[P{} / Team {}] {}",
+                spawn.PlayerId, spawn.TeamId, hero.name
+            );
+            let pos = Pos::from_xy_f32(spawn.X, spawn.Y);
+            let mut unit = Unit::new(hero.id.clone(), hero.name.clone(), UnitType::Hero);
+            unit.spawn_position = (spawn.X, spawn.Y);
+            let cprop = CProperty {
+                hp: Fixed64::from_i32(1000),
+                mhp: Fixed64::from_i32(1000),
+                msd: Fixed64::from_i32(300),
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            };
+            ecs.create_entity()
+                .with(pos)
+                .with(Vel::zero())
+                .with(hero)
+                .with(unit)
+                .with(Faction::new(FactionType::Player, spawn.TeamId as i32))
+                .with(PlayerOwner::new(spawn.PlayerId))
+                .with(cprop)
+                .with(Facing(omoba_sim::Angle::ZERO))
+                .with(FacingBroadcast(None))
+                .with(TurnSpeed(Fixed64::from_i32(3)))
+                .with(CollisionRadius(Fixed64::from_i32(30)))
+                .with(ReplicationScope {
+                    // 自己的英雄永遠要存在於自己的 replica，才能顯示、跟鏡頭及接收
+                    // 操作；敵方仍可在進入圓形視野後透過幾何判定被揭露。
+                    kind: ReplicationScopeKind::OwnerTeam,
+                    owner_team: Some(spawn.TeamId),
+                })
+                .with(VisionSource {
+                    team: spawn.TeamId,
+                    radius: Fixed64::from_raw(
+                        (demo.VisionRadius * omoba_sim::fixed::SCALE as f32) as i64,
+                    ),
+                    detection_level: 0,
+                })
+                .with(RememberPolicy {
+                    disposition: RememberDisposition::Forget,
+                })
+                .build();
+        }
+        assert_eq!(team_counts, [34, 33, 33]);
+        log::info!(
+            "FOG_2TEAM_DEMO ready grid=100 heroes=2 teams=33/33/34 patrols=16 vision_radius={}",
+            demo.VisionRadius
+        );
     }
 
     fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
@@ -1648,8 +1823,7 @@ pub fn create_world_from_loaded_content(
     // Producers own these registrations in code; script-provided IDs are
     // additionally checked by the host adapter before insertion.
     let projection_policies = crate::runtime::ProjectionPolicyRegistry::secure_defaults();
-    crate::runtime::validate_secure_match_startup(&projection_policies)
-        .map_err(err_msg)?;
+    crate::runtime::validate_secure_match_startup(&projection_policies).map_err(err_msg)?;
     ecs.insert(projection_policies);
 
     // 應用戰役/地圖資料。

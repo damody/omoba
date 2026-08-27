@@ -27,6 +27,129 @@ pub struct CreepWaveData {
     /// 轉為 `GameMode` resource 供各 system 查詢。
     #[serde(default)]
     pub GameMode: Option<String>,
+    /// Opt-in secure selective-lockstep visual demo descriptor.
+    #[serde(default)]
+    pub FogDemo: Option<FogDemoJD>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FogDemoJD {
+    pub Rows: usize,
+    pub Columns: usize,
+    pub Spacing: f32,
+    pub OriginX: f32,
+    pub OriginY: f32,
+    pub VisionRadius: f32,
+    pub RememberPolicy: String,
+    pub GridUnitTemplate: String,
+    pub HeroTemplate: String,
+    pub HeroSpawns: Vec<FogDemoHeroSpawnJD>,
+    pub PatrolIndexes: Vec<usize>,
+    pub PatrolOffset: f32,
+    pub PatrolSpeed: f32,
+}
+
+impl Default for FogDemoJD {
+    fn default() -> Self {
+        Self {
+            Rows: 0,
+            Columns: 0,
+            Spacing: 0.0,
+            OriginX: 0.0,
+            OriginY: 0.0,
+            VisionRadius: 0.0,
+            RememberPolicy: String::new(),
+            GridUnitTemplate: String::new(),
+            HeroTemplate: String::new(),
+            HeroSpawns: Vec::new(),
+            PatrolIndexes: Vec::new(),
+            PatrolOffset: 0.0,
+            PatrolSpeed: 0.0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct FogDemoHeroSpawnJD {
+    pub PlayerId: u32,
+    pub TeamId: u32,
+    pub X: f32,
+    pub Y: f32,
+}
+
+impl FogDemoJD {
+    pub fn validate(&self) -> Result<(), String> {
+        const GRID_UNITS: usize = 100;
+        const HEROES: usize = 2;
+        const PATROLS: usize = 16;
+        if self.Rows.checked_mul(self.Columns) != Some(GRID_UNITS) {
+            return Err(format!(
+                "FogDemo Rows*Columns must equal {GRID_UNITS}, got {}*{}",
+                self.Rows, self.Columns
+            ));
+        }
+        if self.HeroSpawns.len() != HEROES {
+            return Err(format!(
+                "FogDemo HeroSpawns must contain {HEROES}, got {}",
+                self.HeroSpawns.len()
+            ));
+        }
+        if self.PatrolIndexes.len() != PATROLS {
+            return Err(format!(
+                "FogDemo PatrolIndexes must contain {PATROLS}, got {}",
+                self.PatrolIndexes.len()
+            ));
+        }
+        for (name, value) in [
+            ("Spacing", self.Spacing),
+            ("OriginX", self.OriginX),
+            ("OriginY", self.OriginY),
+            ("VisionRadius", self.VisionRadius),
+            ("PatrolOffset", self.PatrolOffset),
+            ("PatrolSpeed", self.PatrolSpeed),
+        ] {
+            if !value.is_finite() {
+                return Err(format!("FogDemo {name} must be finite, got {value}"));
+            }
+        }
+        if self.Spacing <= 0.0 || self.VisionRadius <= 0.0 || self.PatrolSpeed < 0.0 {
+            return Err(
+                "FogDemo spacing/radius must be positive and patrol speed non-negative".into(),
+            );
+        }
+        if !matches!(self.RememberPolicy.as_str(), "LastKnown" | "Forget") {
+            return Err(format!(
+                "FogDemo RememberPolicy must be LastKnown or Forget, got {}",
+                self.RememberPolicy
+            ));
+        }
+        let mut players = std::collections::BTreeSet::new();
+        let mut teams = std::collections::BTreeSet::new();
+        for hero in &self.HeroSpawns {
+            if !hero.X.is_finite() || !hero.Y.is_finite() {
+                return Err(format!(
+                    "FogDemo hero {} coordinate must be finite",
+                    hero.PlayerId
+                ));
+            }
+            players.insert(hero.PlayerId);
+            teams.insert(hero.TeamId);
+        }
+        if players != [1, 2].into_iter().collect() || teams != [1, 2].into_iter().collect() {
+            return Err(format!("FogDemo hero bindings must be players/teams 1 and 2, got players={players:?} teams={teams:?}"));
+        }
+        let unique: std::collections::BTreeSet<_> = self.PatrolIndexes.iter().copied().collect();
+        if unique.len() != PATROLS || unique.iter().any(|index| *index >= GRID_UNITS) {
+            return Err(format!(
+                "FogDemo PatrolIndexes must be 16 unique values in 0..100, got {:?}",
+                self.PatrolIndexes
+            ));
+        }
+        if self.GridUnitTemplate.trim().is_empty() || self.HeroTemplate.trim().is_empty() {
+            return Err("FogDemo template names must not be empty".into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

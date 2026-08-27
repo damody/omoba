@@ -11,7 +11,9 @@ pub struct SecureTargetReference {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GeneralizedInputRejection { InvalidTarget }
+pub enum GeneralizedInputRejection {
+    InvalidTarget,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct TargetValidationFacts {
@@ -56,24 +58,36 @@ impl SecureInputValidationSnapshot {
         let actor_record = team.and_then(|view| view.replicas.get(&actor.replica_id));
         let target_record = team.and_then(|view| view.replicas.get(&target.replica_id));
         let visible = |record: Option<&ReplicaValidationRecord>, tick: u64| {
-            team.and_then(|view| view.visible_by_tick.range(..=tick).next_back().map(|(_, set)| set))
-                .zip(record).is_some_and(|(set, record)| set.contains(&record.canonical_id))
+            team.and_then(|view| {
+                view.visible_by_tick
+                    .range(..=tick)
+                    .next_back()
+                    .map(|(_, set)| set)
+            })
+            .zip(record)
+            .is_some_and(|(set, record)| set.contains(&record.canonical_id))
         };
         validate_secure_target(TargetValidationFacts {
             session_team_matches: team.is_some(),
             view_epoch_matches: team.is_some_and(|view| {
                 actor.view_epoch == view.view_epoch && target.view_epoch == view.view_epoch
             }),
-            disclosure_epoch_matches: actor_record.is_some_and(|record| record.disclosure_epoch == actor.disclosure_epoch)
-                && target_record.is_some_and(|record| record.disclosure_epoch == target.disclosure_epoch),
-            visible_at_input_tick: visible(actor_record, input_tick) && visible(target_record, input_tick),
-            actor_owned_by_session: actor_record.is_some_and(|record| record.owner_team == Some(authenticated_team)),
+            disclosure_epoch_matches: actor_record
+                .is_some_and(|record| record.disclosure_epoch == actor.disclosure_epoch)
+                && target_record
+                    .is_some_and(|record| record.disclosure_epoch == target.disclosure_epoch),
+            visible_at_input_tick: visible(actor_record, input_tick)
+                && visible(target_record, input_tick),
+            actor_owned_by_session: actor_record
+                .is_some_and(|record| record.owner_team == Some(authenticated_team)),
             replica_mapping_exists: actor_record.is_some() && target_record.is_some(),
         })
     }
 }
 
-pub fn validate_secure_target(facts: TargetValidationFacts) -> Result<(), GeneralizedInputRejection> {
+pub fn validate_secure_target(
+    facts: TargetValidationFacts,
+) -> Result<(), GeneralizedInputRejection> {
     (facts.session_team_matches
         && facts.view_epoch_matches
         && facts.disclosure_epoch_matches
@@ -95,28 +109,49 @@ pub struct InvalidReferenceRateLimiter {
 
 impl InvalidReferenceRateLimiter {
     pub fn new(max_events: usize, window_ticks: u64) -> Self {
-        Self { max_events: max_events.max(1), window_ticks: window_ticks.max(1), events: BTreeMap::new() }
+        Self {
+            max_events: max_events.max(1),
+            window_ticks: window_ticks.max(1),
+            events: BTreeMap::new(),
+        }
     }
     pub fn admit(&mut self, session_id: &str, tick: u64) -> bool {
         let events = self.events.entry(session_id.to_owned()).or_default();
-        while events.front().is_some_and(|old| tick.saturating_sub(*old) >= self.window_ticks) {
+        while events
+            .front()
+            .is_some_and(|old| tick.saturating_sub(*old) >= self.window_ticks)
+        {
             events.pop_front();
         }
-        if events.len() >= self.max_events { return false; }
+        if events.len() >= self.max_events {
+            return false;
+        }
         events.push_back(tick);
         true
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PlayerSinkKind { Log, Replay, CrashBundle, Trace }
+pub enum PlayerSinkKind {
+    Log,
+    Replay,
+    CrashBundle,
+    Trace,
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct DiagnosticRecord { pub fields: BTreeMap<String, String> }
+pub struct DiagnosticRecord {
+    pub fields: BTreeMap<String, String>,
+}
 
 pub const PLAYER_SAFE_DIAGNOSTIC_FIELDS: &[&str] = &[
-    "team_id", "frame_sequence", "replica_tick", "reason_class", "safe_component_path",
-    "queue_depth", "audit_lag_ticks",
+    "team_id",
+    "frame_sequence",
+    "replica_tick",
+    "reason_class",
+    "safe_component_path",
+    "queue_depth",
+    "audit_lag_ticks",
 ];
 
 pub fn redact_player_diagnostic(
@@ -129,7 +164,9 @@ pub fn redact_player_diagnostic(
         if PLAYER_SAFE_DIAGNOSTIC_FIELDS.contains(&key.as_str()) {
             redacted.fields.insert(key, value);
         } else {
-            metrics.redaction_violation_count.fetch_add(1, Ordering::Relaxed);
+            metrics
+                .redaction_violation_count
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
     redacted
@@ -147,7 +184,12 @@ pub struct PlayerDiagnosticSinks {
 }
 
 impl PlayerDiagnosticSinks {
-    pub fn emit(&mut self, sink: PlayerSinkKind, record: DiagnosticRecord, metrics: &SelectiveSecurityMetrics) {
+    pub fn emit(
+        &mut self,
+        sink: PlayerSinkKind,
+        record: DiagnosticRecord,
+        metrics: &SelectiveSecurityMetrics,
+    ) {
         let record = redact_player_diagnostic(sink, record, metrics);
         match sink {
             PlayerSinkKind::Log => self.log.push(record),
@@ -162,18 +204,21 @@ impl PlayerDiagnosticSinks {
 pub struct ServerAdminDiagnosticCapability([u8; 32]);
 
 impl ServerAdminDiagnosticCapability {
-    pub fn from_server_secret(secret: [u8; 32]) -> Self { Self(secret) }
+    pub fn from_server_secret(secret: [u8; 32]) -> Self {
+        Self(secret)
+    }
 }
 
 pub struct AdminDiagnosticTransport {
     capability: ServerAdminDiagnosticCapability,
 }
 
-
 /// Deliberately distinct from `PlayerDiagnosticSinks`: full records can only
 /// be emitted after possession of a server-created capability is proven.
 #[derive(Default)]
-pub struct FullAdminDiagnosticSink { records: Vec<DiagnosticRecord> }
+pub struct FullAdminDiagnosticSink {
+    records: Vec<DiagnosticRecord>,
+}
 
 impl FullAdminDiagnosticSink {
     pub fn emit(
@@ -182,7 +227,9 @@ impl FullAdminDiagnosticSink {
         presented: &ServerAdminDiagnosticCapability,
         record: DiagnosticRecord,
     ) -> bool {
-        if !transport.authorize(presented) { return false; }
+        if !transport.authorize(presented) {
+            return false;
+        }
         self.records.push(record);
         true
     }
@@ -192,19 +239,26 @@ impl FullAdminDiagnosticSink {
         transport: &AdminDiagnosticTransport,
         presented: &ServerAdminDiagnosticCapability,
     ) -> Option<&[DiagnosticRecord]> {
-        transport.authorize(presented).then_some(self.records.as_slice())
+        transport
+            .authorize(presented)
+            .then_some(self.records.as_slice())
     }
 }
 
 impl AdminDiagnosticTransport {
-    pub fn new(capability: ServerAdminDiagnosticCapability) -> Self { Self { capability } }
+    pub fn new(capability: ServerAdminDiagnosticCapability) -> Self {
+        Self { capability }
+    }
     pub fn authorize(&self, presented: &ServerAdminDiagnosticCapability) -> bool {
         constant_time_eq(&self.capability.0, &presented.0)
     }
 }
 
 fn constant_time_eq(left: &[u8; 32], right: &[u8; 32]) -> bool {
-    left.iter().zip(right).fold(0u8, |diff, (a, b)| diff | (a ^ b)) == 0
+    left.iter()
+        .zip(right)
+        .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
 }
 
 #[derive(Default)]

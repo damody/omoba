@@ -2,7 +2,12 @@ use omoba_sim::Fixed64;
 use specs::{Component, VecStorage};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReplicationScopeKind { ServerOnly, Public, OwnerTeam, Vision }
+pub enum ReplicationScopeKind {
+    ServerOnly,
+    Public,
+    OwnerTeam,
+    Vision,
+}
 
 #[derive(Component, Clone, Copy, Debug)]
 #[storage(VecStorage)]
@@ -21,10 +26,15 @@ pub struct VisionSource {
 
 #[derive(Component, Clone, Copy, Debug, Default)]
 #[storage(VecStorage)]
-pub struct StealthProfile { pub stealth_level: u16 }
+pub struct StealthProfile {
+    pub stealth_level: u16,
+}
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum VisibilityOverrideKind { ForceHide, ForceShow }
+pub enum VisibilityOverrideKind {
+    ForceHide,
+    ForceShow,
+}
 
 #[derive(Component, Clone, Copy, Debug)]
 #[storage(VecStorage)]
@@ -36,8 +46,14 @@ pub struct VisibilityOverride {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RememberDisposition { Forget, LastKnown, Silhouette }
+pub enum RememberDisposition {
+    Forget,
+    LastKnown,
+    Silhouette,
+}
 
 #[derive(Component, Clone, Copy, Debug)]
 #[storage(VecStorage)]
-pub struct RememberPolicy { pub disposition: RememberDisposition }
+pub struct RememberPolicy {
+    pub disposition: RememberDisposition,
+}

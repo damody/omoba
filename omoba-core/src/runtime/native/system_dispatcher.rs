@@ -99,12 +99,16 @@ impl SystemDispatcher {
         // 第一階段：不需要 Vec<Outcome> 的系統，可以並行執行
         dispatch::<nearby_tick::Sys>(dispatch_builder, &[]);
         dispatch::<player_tick::Sys>(dispatch_builder, &[]);
+        dispatch::<demo_patrol_tick::Sys>(dispatch_builder, &[]);
 
         // 視野系統：在遊戲邏輯之前更新（暫時註解掉）
         // 調度::<VisionSystem>(dispatch_builder, &["nearby_sys", "player_sys"]);
 
         // 第二階段：需要 Vec<Outcome> 的系統，按依賴順序執行
-        dispatch::<projectile_tick::Sys>(dispatch_builder, &["nearby_sys", "player_sys"]);
+        dispatch::<projectile_tick::Sys>(
+            dispatch_builder,
+            &["nearby_sys", "player_sys", "demo_patrol_sys"],
+        );
         dispatch::<tower_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<hero_command_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<hero_move_tick::Sys>(dispatch_builder, &["hero_command_sys"]);

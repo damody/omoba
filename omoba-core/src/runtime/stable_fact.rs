@@ -69,19 +69,70 @@ impl FactOrderingKey {
 /// ECS entity handle, pointer, arbitrary JSON value, or server-only component.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum ObservableFact {
-    Movement { source: u64, x_mm: i64, y_mm: i64 },
-    Spawn { source: Option<u64>, template_id: u64, team: u32 },
-    Death { source: u64, killer: Option<u64> },
-    Ownership { source: u64, team: u32 },
-    DirectCombat { source: u64, target: u64, amount_milli: i64 },
-    Projectile { source: u64, target: Option<u64>, effect_id: u64, active: bool },
-    AreaEffect { source: u64, x_mm: i64, y_mm: i64, radius_mm: u64 },
-    Buff { source: u64, target: u64, effect_id: u64, active: bool },
-    Ability { source: u64, ability_id: u64, target: Option<u64> },
-    Tower { source: u64, action_id: u64 },
-    Item { source: u64, item_id: u64, target: Option<u64> },
-    Hud { team: u32, metric_id: u64, value: i64 },
-    Terminal { result_code: u32, winning_team: Option<u32> },
+    Movement {
+        source: u64,
+        x_mm: i64,
+        y_mm: i64,
+    },
+    Spawn {
+        source: Option<u64>,
+        template_id: u64,
+        team: u32,
+    },
+    Death {
+        source: u64,
+        killer: Option<u64>,
+    },
+    Ownership {
+        source: u64,
+        team: u32,
+    },
+    DirectCombat {
+        source: u64,
+        target: u64,
+        amount_milli: i64,
+    },
+    Projectile {
+        source: u64,
+        target: Option<u64>,
+        effect_id: u64,
+        active: bool,
+    },
+    AreaEffect {
+        source: u64,
+        x_mm: i64,
+        y_mm: i64,
+        radius_mm: u64,
+    },
+    Buff {
+        source: u64,
+        target: u64,
+        effect_id: u64,
+        active: bool,
+    },
+    Ability {
+        source: u64,
+        ability_id: u64,
+        target: Option<u64>,
+    },
+    Tower {
+        source: u64,
+        action_id: u64,
+    },
+    Item {
+        source: u64,
+        item_id: u64,
+        target: Option<u64>,
+    },
+    Hud {
+        team: u32,
+        metric_id: u64,
+        value: i64,
+    },
+    Terminal {
+        result_code: u32,
+        winning_team: Option<u32>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -115,11 +166,15 @@ pub trait StableKeyed {
 }
 
 impl StableKeyed for OrderedFact {
-    fn stable_key(&self) -> FactOrderingKey { self.key }
+    fn stable_key(&self) -> FactOrderingKey {
+        self.key
+    }
 }
 
 impl<T> StableKeyed for OrderedOutput<T> {
-    fn stable_key(&self) -> FactOrderingKey { self.key }
+    fn stable_key(&self) -> FactOrderingKey {
+        self.key
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,17 +195,28 @@ pub struct ShardedStableBuffer<T> {
 
 impl<T> ShardedStableBuffer<T> {
     pub fn new(shard_count: usize) -> Result<Self, StableOutputError> {
-        if shard_count == 0 { return Err(StableOutputError::NoShards); }
-        Ok(Self { shards: Arc::new((0..shard_count).map(|_| Mutex::new(Vec::new())).collect()) })
+        if shard_count == 0 {
+            return Err(StableOutputError::NoShards);
+        }
+        Ok(Self {
+            shards: Arc::new((0..shard_count).map(|_| Mutex::new(Vec::new())).collect()),
+        })
     }
 
     pub fn push(&self, shard: usize, value: T) -> Result<(), StableOutputError> {
-        let slot = self.shards.get(shard).ok_or(StableOutputError::InvalidShard)?;
-        slot.lock().map_err(|_| StableOutputError::PoisonedShard)?.push(value);
+        let slot = self
+            .shards
+            .get(shard)
+            .ok_or(StableOutputError::InvalidShard)?;
+        slot.lock()
+            .map_err(|_| StableOutputError::PoisonedShard)?
+            .push(value);
         Ok(())
     }
 
-    pub fn shard_count(&self) -> usize { self.shards.len() }
+    pub fn shard_count(&self) -> usize {
+        self.shards.len()
+    }
 }
 
 impl<T: StableKeyed> ShardedStableBuffer<T> {
@@ -159,7 +225,9 @@ impl<T: StableKeyed> ShardedStableBuffer<T> {
         for shard in self.shards.iter() {
             merged.append(&mut *shard.lock().map_err(|_| StableOutputError::PoisonedShard)?);
         }
-        for value in &merged { value.stable_key().validate()?; }
+        for value in &merged {
+            value.stable_key().validate()?;
+        }
         merged.sort_by_key(StableKeyed::stable_key);
         Ok(merged)
     }
@@ -186,7 +254,9 @@ pub struct ObservableFactBuffer {
 
 impl Default for ObservableFactBuffer {
     fn default() -> Self {
-        Self { inner: ShardedStableBuffer::new(64).expect("fixed non-zero fact shard count") }
+        Self {
+            inner: ShardedStableBuffer::new(64).expect("fixed non-zero fact shard count"),
+        }
     }
 }
 

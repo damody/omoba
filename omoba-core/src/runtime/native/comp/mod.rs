@@ -9,6 +9,7 @@ pub mod collision_index;
 pub mod creep;
 pub mod creep_move_broadcast;
 pub mod damage;
+pub mod demo_patrol;
 pub mod facing;
 pub mod fx_queues;
 pub mod game_mode;
@@ -35,9 +36,9 @@ pub mod unit;
 
 pub use self::{
     blocked_region::*, bounty::*, building::*, check_point::*, circular_vision::*,
-    collision_index::*, creep::*, creep_move_broadcast::*, damage::*, facing::*, fx_queues::*,
-    game_mode::*, gold::*, heightmap::*, hero::*, inventory::*, is_base::*, item_effects::*,
-    knowledge::*, last::*, lockstep_resources::*, outcome::*, phys::*, player_economy::*,
-    projectile::*, resources::*, selective_visibility::*, tower::*, tower_registry::*, tower_upgrade_registry::*,
-    tower_upgrade_rules::*, unit::*,
+    collision_index::*, creep::*, creep_move_broadcast::*, damage::*, demo_patrol::*, facing::*,
+    fx_queues::*, game_mode::*, gold::*, heightmap::*, hero::*, inventory::*, is_base::*,
+    item_effects::*, knowledge::*, last::*, lockstep_resources::*, outcome::*, phys::*,
+    player_economy::*, projectile::*, resources::*, selective_visibility::*, tower::*,
+    tower_registry::*, tower_upgrade_registry::*, tower_upgrade_rules::*, unit::*,
 };

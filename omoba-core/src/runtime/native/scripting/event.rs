@@ -228,7 +228,9 @@ pub fn script_visual_event_to_observable_fact(
     registry: &crate::runtime::ProjectionPolicyRegistry,
     source_module_path: &str,
 ) -> Result<crate::runtime::OrderedFact, crate::runtime::MissingProjectionPolicy> {
-    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+    use crate::runtime::{
+        FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact,
+    };
     let policy = event.projection_policy_id.as_ref().ok_or_else(|| {
         crate::runtime::MissingProjectionPolicy {
             action_id: format!("script::{:?}", event.kind),
@@ -242,9 +244,19 @@ pub fn script_visual_event_to_observable_fact(
     let (fact_kind, fact) = match event.kind {
         ScriptVisualEventKind::Spawn | ScriptVisualEventKind::Respawn => (
             FactKind::Spawn,
-            ObservableFact::Spawn { source: Some(source), template_id: stable_text_id(event.state_id.as_deref()), team: 0 },
+            ObservableFact::Spawn {
+                source: Some(source),
+                template_id: stable_text_id(event.state_id.as_deref()),
+                team: 0,
+            },
         ),
-        ScriptVisualEventKind::Death => (FactKind::Death, ObservableFact::Death { source, killer: target }),
+        ScriptVisualEventKind::Death => (
+            FactKind::Death,
+            ObservableFact::Death {
+                source,
+                killer: target,
+            },
+        ),
         ScriptVisualEventKind::ModifierAdded | ScriptVisualEventKind::ModifierRemoved => (
             FactKind::Buff,
             ObservableFact::Buff {
@@ -256,14 +268,22 @@ pub fn script_visual_event_to_observable_fact(
         ),
         ScriptVisualEventKind::SkillCast => (
             FactKind::Ability,
-            ObservableFact::Ability { source, ability_id: stable_text_id(event.skill_id.as_deref()), target },
+            ObservableFact::Ability {
+                source,
+                ability_id: stable_text_id(event.skill_id.as_deref()),
+                target,
+            },
         ),
         _ => (
             FactKind::DirectCombat,
             ObservableFact::DirectCombat {
                 source,
                 target: target.unwrap_or(source),
-                amount_milli: if event.damage != Fixed64::ZERO { event.damage.raw() } else { event.amount.raw() },
+                amount_milli: if event.damage != Fixed64::ZERO {
+                    event.damage.raw()
+                } else {
+                    event.amount.raw()
+                },
             },
         ),
     };
@@ -281,9 +301,11 @@ pub fn script_visual_event_to_observable_fact(
 }
 
 fn stable_text_id(text: Option<&str>) -> u64 {
-    text.unwrap_or_default().bytes().fold(0xcbf29ce484222325, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-    })
+    text.unwrap_or_default()
+        .bytes()
+        .fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
+        })
 }
 
 #[derive(Default)]
