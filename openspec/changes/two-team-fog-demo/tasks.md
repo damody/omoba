@@ -605,3 +605,18 @@
 - [x] 11.2.3 執行 OpenSpec strict validation。
 - [x] 11.2.4 重建並啟動雙玩家 demo。
 - [x] 11.2.5 確認視野邊界細化且前端約 60 FPS。
+
+## 12. 修正迷霧遮住可見英雄
+
+- [x] 12.1 找出 alpha 0 迷霧 quad 仍寫入 depth buffer 的問題。
+- [x] 12.2 將可見格改成零尺寸退化 quad。
+- [x] 12.3 保持不可見格的灰黑半透明遮罩。
+- [x] 12.4 新增可見格不產生覆蓋幾何的回歸測試。
+- [x] 12.5 找出相機跟隨錯誤依賴 team event 順序的問題。
+- [x] 12.6 以 filtered local hero 作為最高優先相機依據。
+- [x] 12.7 新增英雄位置到相機位置的座標回歸測試。
+- [x] 12.8 找出 Windows 高 DPI 虛擬化造成 framebuffer 與視窗座標不一致。
+- [x] 12.9 在建立 EventLoop 前固定 legacy renderer 使用 DPI unaware 座標。
+- [x] 12.10 將自己的英雄改成實心隊色本體、白色外圈與旗標。
+- [x] 12.11 執行 omfx 128 項完整測試與 OpenSpec strict validation。
+- [x] 12.12 重建雙玩家 demo，確認英雄位於視野中心且完整顯示。
