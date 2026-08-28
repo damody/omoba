@@ -1,7 +1,3 @@
 @echo off
-setlocal
-set "OMB_NO_HEROES=1"
-set "OMB_TD_STARTING_GOLD=10000"
-call "%~dp0run.bat" %*
-set "RUN_ERR=%errorlevel%"
-exit /b %RUN_ERR%
+"D:\code\omoba\tools\lua\lua.exe" "%~dp0scripts\run_10000.lua" %*
+exit /b %errorlevel%

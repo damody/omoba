@@ -1,0 +1,2 @@
+local dir=debug.getinfo(1,'S').source:sub(2):match('^(.*)[/\\]');package.path=dir..'/?.lua;'..package.path
+local c=require('common');local o=c.options(arg);local f=c.load_json(assert(o.positional[1],'input required'));local result={schema_version=f.schema_version,seed=f.seed,ticks=f.ticks,team_under_test=f.team_under_test,world_a={shared=f.shared,private=f.world_a},world_b={shared=f.shared,private=f.world_b},assertion='team_under_test projected bytes and hashes must remain identical'};c.write_result(o.output,result)

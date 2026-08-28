@@ -1,0 +1,2 @@
+local script=debug.getinfo(1,'S').source:sub(2);local dir=script:match('^(.*)[/\\]');package.path=dir..'/?.lua;'..package.path
+local b=require('_bootstrap');local process=b.lib('process');local argv={dir..'/run.lua'};for _,v in ipairs(arg)do table.insert(argv,v)end;local r=process.run(b.lib('platform').lua_executable,argv,{cwd=b.root,env={OMB_NO_HEROES='1',OMB_TD_STARTING_GOLD='10000'},check=false});io.write(r.stdout);io.stderr:write(r.stderr);os.exit(r.exit_code)
