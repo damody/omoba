@@ -1,3 +1,0 @@
-param([string]$ControlAddr='127.0.0.1:63200',[ValidateSet('profile','shutdown')][string]$Action,[int]$TeamId=0,[string]$Profile='',[UInt64]$AuthoritativeTick=0,[string]$WeightsJson='')
-$ErrorActionPreference='Stop';$parts=$ControlAddr.Split(':');$payload=[ordered]@{version=1;action=$Action};if($Action-eq'profile'){$payload.team_id=$TeamId;$payload.profile=$Profile;$payload.authoritative_tick=$AuthoritativeTick;if($WeightsJson){$payload.weights=@(Get-Content -Raw $WeightsJson|ConvertFrom-Json).weights}}
-$bytes=[Text.Encoding]::UTF8.GetBytes(($payload|ConvertTo-Json -Compress -Depth 5));$udp=[Net.Sockets.UdpClient]::new();try{$null=$udp.Send($bytes,$bytes.Length,$parts[0],[int]$parts[1])}finally{$udp.Dispose()}
