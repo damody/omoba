@@ -28,6 +28,7 @@ $arguments = @(
     '--presentation-hz', '60',
     '--protocol-version', '2',
     '--scripted-move-tick', '300',
+    '--scripted-hidden-target-tick', '420',
     '--screenshot-tick', '600'
 )
 if (-not [string]::IsNullOrWhiteSpace($EvidenceDir)) {

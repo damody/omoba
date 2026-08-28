@@ -1,0 +1,16 @@
+[package]
+name = "omoba-netem-proxy"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic loopback UDP delay proxy for OMOBA validation"
+
+[dependencies]
+rand = "0.9"
+rand_chacha = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "signal", "time"] }
+
+[workspace]

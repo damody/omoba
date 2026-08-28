@@ -227,6 +227,21 @@ impl ReplicaHost {
                 })
         })
     }
+
+    pub fn owned_hero_position(&self, player_id: u32) -> Option<(i64, i64)> {
+        self.runtime.world().entities.values().find_map(|entity| {
+            entity
+                .components
+                .get(&omoba_core::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                .and_then(|bytes| omoba_core::runtime::decode_demo_render_state(bytes))
+                .filter(|render| {
+                    render.team_id == self.team_id
+                        && render.owner_player_id == player_id
+                        && render.kind == 1
+                })
+                .map(|render| (render.x_raw, render.y_raw))
+        })
+    }
     pub fn inject_test_only_fault(&mut self) -> bool {
         self.stepper.inject_test_only_position_fault()
     }

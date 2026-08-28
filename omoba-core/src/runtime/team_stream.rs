@@ -193,6 +193,7 @@ impl TeamStreamRouter {
                 route.binding.active
                     && route.binding.protocol == MatchProtocol::SelectiveV2
                     && route.binding.authenticated_team_id == frame.team_id
+                    && route.rebase_resume_sequence.is_none()
             })
             .map(|route| route.session_id.clone())
             .collect()
@@ -232,7 +233,48 @@ impl TeamStreamRouter {
         };
         self.rings
             .get(&route.binding.authenticated_team_id)
-            .map(|ring| ring.frames_after(sequence))
+            .map(|ring| ring.frames_after(sequence.saturating_sub(1)))
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod rebase_resume_tests {
+    use super::*;
+
+    #[test]
+    fn completed_rebase_replays_the_resume_sequence_inclusively() {
+        let mut router = TeamStreamRouter::new(8);
+        router.bind_session(
+            "team-1".into(),
+            SecureSessionBinding {
+                protocol: MatchProtocol::SelectiveV2,
+                authenticated_team_id: 1,
+                current_view_epoch: 1,
+                secure_match_capability: true,
+                active: true,
+            },
+        );
+        for sequence in 10..=12 {
+            router.route_frame(EncodedTeamFrame {
+                team_id: 1,
+                sequence,
+                replica_tick: sequence,
+                bytes: Arc::from(vec![sequence as u8].into_boxed_slice()),
+            });
+        }
+        router.begin_filtered_rebase("team-1", 11);
+        let routed_while_staging = router.route_frame(EncodedTeamFrame {
+            team_id: 1,
+            sequence: 13,
+            replica_tick: 13,
+            bytes: Arc::from(vec![13].into_boxed_slice()),
+        });
+        assert!(routed_while_staging.is_empty());
+        let replay = router.complete_filtered_rebase("team-1");
+        assert_eq!(
+            replay.iter().map(|bytes| bytes[0]).collect::<Vec<_>>(),
+            [11, 12, 13]
+        );
     }
 }

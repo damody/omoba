@@ -140,7 +140,7 @@ async fn serve_renderer(
     input_tx: mpsc::Sender<RendererInput>,
 ) -> Result<(), ClientRuntimeError> {
     let (mut reader, mut writer) = stream.into_split();
-    let initial = { latest_rx.borrow().clone() };
+    let initial = { latest_rx.borrow_and_update().clone() };
     if let Some(latest) = initial {
         write_envelope(&mut writer, &latest).await?;
     }

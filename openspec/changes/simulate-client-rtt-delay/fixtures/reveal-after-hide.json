@@ -1,0 +1,9 @@
+{
+  "description": "natural-reorder 下，較舊 Reveal 封包晚於較新 Hide 抵達；client 必須依 team_sequence 排序後套用。",
+  "arrival_order": [2, 1],
+  "frames": [
+    { "team_sequence": 1, "transition": "Reveal" },
+    { "team_sequence": 2, "transition": "Hide" }
+  ],
+  "expected_final_state": "hidden"
+}

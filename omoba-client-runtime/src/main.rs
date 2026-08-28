@@ -37,6 +37,9 @@ async fn main() -> anyhow::Result<()> {
     let mut input_bridge = InputBridge::default();
     let mut presentation_sequence = 1_u64;
     let mut scripted_move_sent = false;
+    let mut scripted_move_origin = None;
+    let mut scripted_move_applied = false;
+    let mut scripted_hidden_target_sent = false;
     let mut screenshot_marked = false;
     let mut fault_injected = false;
     let mut pending_frames = BTreeMap::new();
@@ -66,19 +69,24 @@ async fn main() -> anyhow::Result<()> {
         tokio::select! {
             changed = shutdown_rx.changed() => {
                 if changed.is_err() || shutdown_rx.borrow().is_some() {
+                    if let Some(evidence) = &evidence { evidence.record_network_event("session-stopped", replica.expected_team_sequence(), replica.next_replica_tick(), "SHUTDOWN")?; }
                     log::error!("client-runtime stopping: {:?}", shutdown_rx.borrow().clone());
                     break;
                 }
             },
             inbound = session.inbound.recv() => match inbound {
                 Some(LockstepInbound::TeamTickFrame { msg, encoded, .. }) => {
+                    if let Some(evidence) = &evidence { evidence.record_network_event("frame-received", msg.team_sequence, msg.replica_tick, "OK")?; }
                     if msg.team_id != config.team_id {
+                        if let Some(evidence) = &evidence { evidence.record_network_event("wrong-team-rejected", msg.team_sequence, msg.replica_tick, "WRONG_TEAM")?; }
                         shutdown.cancel(ShutdownReason::UnsafeSession("wrong team frame".into()));
                         continue;
                     }
                     if let Some(evidence) = &evidence { evidence.record_wire_frame(&encoded)?; }
                     if msg.team_sequence >= replica.expected_team_sequence() {
                         pending_frames.entry(msg.team_sequence).or_insert((msg, encoded));
+                    } else if let Some(evidence) = &evidence {
+                        evidence.record_network_event("duplicate-rejected", msg.team_sequence, msg.replica_tick, "DUPLICATE")?;
                     }
                     while let Some((ready_msg, ready_encoded)) = pending_frames.remove(&replica.expected_team_sequence()) {
                         replay_requested_from = None;
@@ -86,8 +94,11 @@ async fn main() -> anyhow::Result<()> {
                         if let Err(error) = apply_ready_frame(
                             &config, &mut session, &mut replica, &mut presentation, &evidence,
                             &shutdown, &mut presentation_sequence, &mut scripted_move_sent,
+                            &mut scripted_move_origin, &mut scripted_move_applied,
+                            &mut scripted_hidden_target_sent,
                             &mut screenshot_marked, &mut fault_injected, ready_msg, ready_encoded,
                         ).await {
+                            if let Some(evidence) = &evidence { evidence.record_network_event("frame-rejected", ready_sequence, replica.next_replica_tick(), "UNSAFE_FRAME")?; }
                             log::error!("ordered team frame rejected at sequence {ready_sequence}: {error}");
                             shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string()));
                             break;
@@ -98,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
                         && replay_requested_from != Some(expected)
                     {
                         log::warn!("team frame gap; requesting replay from sequence {expected}");
+                        if let Some(evidence) = &evidence { evidence.record_network_event("replay-requested", expected, replica.next_replica_tick(), "SEQUENCE_GAP")?; }
                         replay_request_id = replay_request_id.saturating_add(1);
                         if let Err(error) = session.client.request_team_replay(replay_request_id, expected, replica.view_epoch()).await {
                             shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string()));
@@ -114,17 +126,31 @@ async fn main() -> anyhow::Result<()> {
                 Some(LockstepInbound::TeamViewRebaseManifest { msg, .. }) => {
                     match replica.receive_rebase_manifest(&msg) {
                         Ok(()) => {
+                            if let Some(evidence) = &evidence { evidence.record_network_event("rebase-applied", msg.resume_team_sequence, msg.authoritative_tick, "VERIFIED")?; }
+                            pending_frames.clear();
+                            replay_requested_from = None;
                             let view_epoch = msg.view_epoch.as_ref().map_or(0, |value| value.value);
                             if let Err(error) = session.client.acknowledge_team_rebase(
                                 msg.team_id, msg.resume_team_sequence, view_epoch,
                             ).await {
                                 shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string()));
+                            } else {
+                                replay_request_id = replay_request_id.saturating_add(1);
+                                if let Some(evidence) = &evidence { evidence.record_network_event("replay-requested", msg.resume_team_sequence, msg.authoritative_tick, "POST_REBASE")?; }
+                                if let Err(error) = session.client.request_team_replay(
+                                    replay_request_id, msg.resume_team_sequence, view_epoch,
+                                ).await {
+                                    shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string()));
+                                } else {
+                                    replay_requested_from = Some(msg.resume_team_sequence);
+                                }
                             }
                         }
                         Err(error) => shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string())),
                     }
                 }
                 Some(LockstepInbound::SecureTargetInputResult { msg, .. }) => {
+                    if let Some(evidence) = &evidence { evidence.record_network_event("secure-input-result", 0, replica.next_replica_tick(), if msg.accepted { "SERVER_ACCEPTED" } else { "SERVER_INVALID_TARGET" })?; }
                     presentation_sequence = presentation_sequence.saturating_add(1);
                     presentation.publish_critical(critical_result(
                         presentation_sequence,
@@ -143,7 +169,8 @@ async fn main() -> anyhow::Result<()> {
                 let request_id = renderer_input.request_id;
                 match input_bridge.validate(renderer_input, config.player_id, &replica) {
                     InputDecision::Accepted { input_id, input, secure_target } => {
-                        let target_tick = u32::try_from(replica.next_replica_tick().saturating_add(3)).unwrap_or(u32::MAX);
+                        let network_lead_ticks = u64::from(session.start.tick_rate_hz.max(1));
+                        let target_tick = u32::try_from(replica.next_replica_tick().saturating_add(network_lead_ticks)).unwrap_or(u32::MAX);
                         let result = if let Some(target) = secure_target {
                             let Some(actor) = replica.owned_hero_reference(config.player_id) else {
                                 presentation_sequence = presentation_sequence.saturating_add(1);
@@ -158,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
                         } else {
                             session.client.submit_input(target_tick, input, input_id).await
                         };
+                        if let Some(evidence) = &evidence { evidence.record_network_event("input-forwarded", 0, u64::from(target_tick), if result.is_ok() { "FORWARDED" } else { "SERVER_TRANSPORT_ERROR" })?; }
                         presentation_sequence = presentation_sequence.saturating_add(1);
                         presentation.publish_critical(critical_result(
                             presentation_sequence, request_id, input_id, result.is_ok(),
@@ -166,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
                         )).await?;
                     }
                     InputDecision::Rejected { request_id, code } => {
+                        if let Some(evidence) = &evidence { evidence.record_network_event("input-local-rejection", 0, replica.next_replica_tick(), code)?; }
                         presentation_sequence = presentation_sequence.saturating_add(1);
                         presentation.publish_critical(critical_result(
                             presentation_sequence, request_id, 0, false, code, replica.next_replica_tick(),
@@ -188,6 +217,9 @@ async fn apply_ready_frame(
     shutdown: &ShutdownToken,
     presentation_sequence: &mut u64,
     scripted_move_sent: &mut bool,
+    scripted_move_origin: &mut Option<(i64, i64)>,
+    scripted_move_applied: &mut bool,
+    scripted_hidden_target_sent: &mut bool,
     screenshot_marked: &mut bool,
     fault_injected: &mut bool,
     msg: omoba_core::game_proto::TeamTickFrame,
@@ -211,11 +243,25 @@ async fn apply_ready_frame(
             }
         }
     }
+    let step_started = std::time::Instant::now();
     let Some(report) = replica.apply_encoded_frame(&encoded, revision)? else {
         return Ok(());
     };
     if let Some(evidence) = evidence {
         evidence.record_checkpoint(&report)?;
+        evidence.record_network_event(
+            "frame-applied",
+            report.team_sequence,
+            report.replica_tick,
+            "POST_REPAIR",
+        )?;
+        let timing = format!("STEP_US_{}", step_started.elapsed().as_micros());
+        evidence.record_network_event(
+            "replica-step-timing",
+            report.team_sequence,
+            report.replica_tick,
+            &timing,
+        )?;
     }
     if !*scripted_move_sent
         && config
@@ -223,6 +269,7 @@ async fn apply_ready_frame(
             .is_some_and(|tick| report.replica_tick >= tick)
     {
         *scripted_move_sent = true;
+        *scripted_move_origin = replica.owned_hero_position(config.player_id);
         let destination = if config.team_id == 1 {
             (900 * 1024, 700 * 1024)
         } else {
@@ -241,6 +288,53 @@ async fn apply_ready_frame(
         })?;
         if let Some(evidence) = evidence {
             evidence.record_marker("scripted-move", report.replica_tick)?;
+        }
+    }
+    if *scripted_move_sent && !*scripted_move_applied {
+        if let (Some(origin), Some(current)) = (
+            *scripted_move_origin,
+            replica.owned_hero_position(config.player_id),
+        ) {
+            if current != origin {
+                *scripted_move_applied = true;
+                if let Some(evidence) = evidence {
+                    evidence.record_marker("scripted-move-applied", report.replica_tick)?;
+                }
+            }
+        }
+    }
+    if !*scripted_hidden_target_sent
+        && config.test_mode
+        && config
+            .scripted_hidden_target_tick
+            .is_some_and(|tick| report.replica_tick >= tick)
+    {
+        *scripted_hidden_target_sent = true;
+        if let Some(actor) = replica.owned_hero_reference(config.player_id) {
+            let invalid_target = omoba_core::game_proto::SecureReplicaTarget {
+                replica_entity_id: Some(omoba_core::game_proto::ReplicaEntityId {
+                    value: u64::MAX - u64::from(config.team_id),
+                }),
+                view_epoch: Some(omoba_core::game_proto::ViewEpoch {
+                    value: replica.view_epoch(),
+                }),
+                disclosure_epoch: Some(omoba_core::game_proto::DisclosureEpoch { value: 1 }),
+            };
+            session
+                .client
+                .submit_secure_target(&omoba_core::game_proto::SecureTargetInput {
+                    request_id: 0xE000_0000 + u64::from(config.team_id),
+                    player_id: config.player_id,
+                    input_tick: replica.next_replica_tick().saturating_add(3),
+                    actor: Some(actor),
+                    target: Some(invalid_target),
+                    action_kind: 0,
+                    sanitized_payload: Vec::new(),
+                })
+                .await?;
+            if let Some(evidence) = evidence {
+                evidence.record_marker("scripted-hidden-target-submitted", report.replica_tick)?;
+            }
         }
     }
     if !*screenshot_marked

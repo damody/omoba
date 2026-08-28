@@ -134,3 +134,37 @@ fn evidence_tools_fail_closed_and_never_kill_by_image_name() {
     assert!(!launcher.to_ascii_lowercase().contains("taskkill"));
     assert!(launcher.contains("Get-Process -Id"));
 }
+
+#[test]
+fn netem_proxy_is_transport_only_and_launcher_termination_is_pid_scoped() {
+    let manifest = include_str!("../../../omoba-netem-proxy/Cargo.toml");
+    let source = [
+        include_str!("../../../omoba-netem-proxy/src/lib.rs"),
+        include_str!("../../../omoba-netem-proxy/src/route.rs"),
+        include_str!("../../../omoba-netem-proxy/src/runtime.rs"),
+    ]
+    .join("\n");
+    for forbidden in ["specs", "fyrox", "base_content", "omoba-core", "script-abi"] {
+        assert!(
+            !manifest.to_ascii_lowercase().contains(forbidden),
+            "netem manifest contains gameplay dependency {forbidden}"
+        );
+        assert!(
+            !source.to_ascii_lowercase().contains(forbidden),
+            "netem source contains gameplay dependency {forbidden}"
+        );
+    }
+    let stop = include_str!("../../../scripts/stop_netem_proxy.ps1");
+    assert!(!stop.to_ascii_lowercase().contains("taskkill"));
+    assert!(stop.contains("Get-Process -Id"));
+    assert!(stop.contains("ExpectedExe"));
+    let reveal_after_hide = include_str!(
+        "../../../openspec/changes/simulate-client-rtt-delay/fixtures/reveal-after-hide.json"
+    );
+    let reveal_after_forget = include_str!(
+        "../../../openspec/changes/simulate-client-rtt-delay/fixtures/reveal-after-forget.json"
+    );
+    assert!(reveal_after_hide.contains("\"arrival_order\": [2, 1]"));
+    assert!(reveal_after_hide.contains("\"expected_final_state\": \"hidden\""));
+    assert!(reveal_after_forget.contains("\"expected_final_state\": \"retired\""));
+}

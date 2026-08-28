@@ -6,16 +6,31 @@ set "FRESHNESS=powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev_r
 set "EXECUTOR=omfx\target\debug\executor.exe"
 set "BACKEND=omb\target\debug\omobab.exe"
 set "CLIENT_RUNTIME=omoba-client-runtime\target\debug\omoba-client-runtime.exe"
+set "NETEM_PROXY=omoba-netem-proxy\target\debug\omoba-netem-proxy.exe"
 set "RUN_MODE=%~1"
 if not defined RUN_MODE set "RUN_MODE=visual"
 set "FRONTEND_PID_1=0"
 set "FRONTEND_PID_2=0"
 set "SERVER_ADDR=127.0.0.1:50061"
+set "RUNTIME_SERVER_1=%SERVER_ADDR%"
+set "RUNTIME_SERVER_2=%SERVER_ADDR%"
+set "NETEM_PID=0"
+set "NETEM_CONTROL=127.0.0.1:63200"
+set "NETEM_TEAM1=127.0.0.1:63001"
+set "NETEM_TEAM2=127.0.0.1:63002"
+set "NETEM_UPSTREAM1=127.0.0.1:63101"
+set "NETEM_UPSTREAM2=127.0.0.1:63102"
+if not defined OMOBA_NETEM_MODE set "OMOBA_NETEM_MODE=ordered-delay"
+if not defined OMOBA_NETEM_SEED set "OMOBA_NETEM_SEED=88442211"
+if not defined OMOBA_NETEM_TEAM1_PROFILE set "OMOBA_NETEM_TEAM1_PROFILE=uniform-20-100"
+if not defined OMOBA_NETEM_TEAM2_PROFILE set "OMOBA_NETEM_TEAM2_PROFILE=uniform-20-100"
+set "NETEM_MANIFEST_MODE=direct"
 set "PRESENTATION_1=127.0.0.1:62001"
 set "PRESENTATION_2=127.0.0.1:62002"
 if not defined OMOBA_RUN_ID set "OMOBA_RUN_ID=run-%RANDOM%-%RANDOM%"
 set "OMOBA_RUN_ID=%OMOBA_RUN_ID: =0%"
 set "EVIDENCE_DIR=%CD%\openspec\changes\extract-client-runtime-three-process-fog-validation\evidence\three-process-fog\runs\%OMOBA_RUN_ID%"
+if "%OMOBA_NETEM%"=="1" set "EVIDENCE_DIR=%CD%\openspec\changes\simulate-client-rtt-delay\evidence\runs\%OMOBA_RUN_ID%"
 set "OMOBA_FOG_EVIDENCE_DIR=%EVIDENCE_DIR%"
 set "OMB_GAME_TOML=%CD%\omb\game.toml"
 set "OMFX_GAME_TOML=%CD%\omfx\game.toml"
@@ -34,7 +49,7 @@ if not defined PROTOC (
 )
 
 echo [0/8] Preparing isolated fog demo launcher mode=%RUN_MODE%...
-powershell -NoProfile -Command "$ports=50061,62001,62002; foreach($port in $ports){if(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue){Write-Error ('port already in use: '+$port);exit 1}}"
+powershell -NoProfile -Command "$tcp=@(62001,62002);foreach($port in $tcp){if(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue){Write-Error ('TCP port already in use: '+$port);exit 1}};$udp=@(50061);if('%OMOBA_NETEM%'-eq'1'){$udp+=@(63001,63002,63101,63102,63200)};foreach($port in $udp){if(Get-NetUDPEndpoint -LocalPort $port -ErrorAction SilentlyContinue){Write-Error ('UDP port already in use: '+$port);exit 1}}"
 if errorlevel 1 goto :fail
 
 echo [1/8] Checking script DLL (scripts\base_content)...
@@ -50,9 +65,13 @@ if errorlevel 1 (
 echo [2/8] Checking backend (omb)...
 call :ensure_fresh backend "backend" "cargo build --manifest-path omb\Cargo.toml --features runtime-lua-content" "Backend build failed!"
 if errorlevel 1 goto :fail
+if "%OMOBA_NETEM%"=="1" cargo build --manifest-path omb\Cargo.toml -p omobab --features runtime-lua-content
+if errorlevel 1 goto :fail
 
 echo [3/8] Checking external client runtime...
 cargo build --manifest-path omoba-client-runtime\Cargo.toml
+if errorlevel 1 goto :fail
+if "%OMOBA_NETEM%"=="1" cargo build --manifest-path omoba-netem-proxy\Cargo.toml
 if errorlevel 1 goto :fail
 
 if /I "%RUN_MODE%"=="headless" goto :skip_frontend_build
@@ -79,11 +98,13 @@ if not exist "%CLIENT_RUNTIME%" (
 echo [5/8] Starting backend...
 call :start_backend
 if errorlevel 1 goto :fail
+if "%OMOBA_NETEM%"=="1" call :start_netem
+if errorlevel 1 goto :fail
 
 echo [6/8] Starting Team 1 and Team 2 runtime processes...
-call :start_runtime 1 1 player1 "%PRESENTATION_1%"
+call :start_runtime 1 1 player1 "%PRESENTATION_1%" "%RUNTIME_SERVER_1%"
 if errorlevel 1 goto :fail
-call :start_runtime 2 2 player2 "%PRESENTATION_2%"
+call :start_runtime 2 2 player2 "%PRESENTATION_2%" "%RUNTIME_SERVER_2%"
 if errorlevel 1 goto :fail
 
 if /I "%RUN_MODE%"=="headless" goto :headless_wait
@@ -109,6 +130,7 @@ echo [8/8] Waiting for frontends...
 call :wait_frontends
 set "RUN_ERR=%errorlevel%"
 call :stop_runtimes
+call :stop_netem
 call :stop_backend
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\compare_fog_evidence.ps1 -EvidenceDir "%EVIDENCE_DIR%"
 if errorlevel 1 set "RUN_ERR=%errorlevel%"
@@ -120,11 +142,12 @@ echo [7/8] Headless three-process mode ready.
 call :write_manifest headless
 if errorlevel 1 goto :fail
 if not defined OMOBA_HEADLESS_SECONDS set "OMOBA_HEADLESS_SECONDS=30"
-powershell -NoProfile -Command "Start-Sleep -Seconds %OMOBA_HEADLESS_SECONDS%"
+powershell -NoProfile -Command "Start-Sleep -Seconds !OMOBA_HEADLESS_SECONDS!"
 echo [8/8] Collecting headless result and stopping this run...
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dump_process_memory.ps1 -ProcessId !RUNTIME_PID_1! -ExpectedExe "%CLIENT_RUNTIME%" -OutputPath "%EVIDENCE_DIR%\team-1-runtime.dmp" -Role runtime
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dump_process_memory.ps1 -ProcessId !RUNTIME_PID_2! -ExpectedExe "%CLIENT_RUNTIME%" -OutputPath "%EVIDENCE_DIR%\team-2-runtime.dmp" -Role runtime
 call :stop_runtimes
+call :stop_netem
 call :stop_backend
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\compare_fog_evidence.ps1 -EvidenceDir "%EVIDENCE_DIR%"
 set "RUN_ERR=%errorlevel%"
@@ -133,8 +156,20 @@ exit /b %RUN_ERR%
 
 :write_manifest
 set "MANIFEST_MODE=%~1"
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write_fog_run_manifest.ps1 -EvidenceDir "%EVIDENCE_DIR%" -ServerPid !BACKEND_PID! -Team1RuntimePid !RUNTIME_PID_1! -Team2RuntimePid !RUNTIME_PID_2! -Team1RendererPid !FRONTEND_PID_1! -Team2RendererPid !FRONTEND_PID_2! -ServerExe "%BACKEND%" -RuntimeExe "%CLIENT_RUNTIME%" -RendererExe "%EXECUTOR%" -Mode !MANIFEST_MODE!
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\write_fog_run_manifest.ps1 -EvidenceDir "%EVIDENCE_DIR%" -ServerPid !BACKEND_PID! -Team1RuntimePid !RUNTIME_PID_1! -Team2RuntimePid !RUNTIME_PID_2! -Team1RendererPid !FRONTEND_PID_1! -Team2RendererPid !FRONTEND_PID_2! -ServerExe "%BACKEND%" -RuntimeExe "%CLIENT_RUNTIME%" -RendererExe "%EXECUTOR%" -Mode !MANIFEST_MODE! -ProxyPid !NETEM_PID! -ProxyExe "%NETEM_PROXY%" -NetemMode "!NETEM_MANIFEST_MODE!" -NetemSeed %OMOBA_NETEM_SEED% -Team1Route "%NETEM_TEAM1%" -Team2Route "%NETEM_TEAM2%" -Team1Profile "%OMOBA_NETEM_TEAM1_PROFILE%" -Team2Profile "%OMOBA_NETEM_TEAM2_PROFILE%"
 exit /b %errorlevel%
+
+:start_netem
+set "NETEM_MANIFEST_MODE=%OMOBA_NETEM_MODE%"
+set "NETEM_PID_FILE=omoba-netem-proxy\target\netem.pid"
+if exist "%NETEM_PID_FILE%" del "%NETEM_PID_FILE%" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_netem_proxy.ps1 -Exe "%NETEM_PROXY%" -PidFile "%NETEM_PID_FILE%" -EvidenceDir "%EVIDENCE_DIR%" -ServerAddr "%SERVER_ADDR%" -Team1ClientBind "%NETEM_TEAM1%" -Team2ClientBind "%NETEM_TEAM2%" -Team1UpstreamBind "%NETEM_UPSTREAM1%" -Team2UpstreamBind "%NETEM_UPSTREAM2%" -ControlBind "%NETEM_CONTROL%" -DelayMode "%OMOBA_NETEM_MODE%" -Team1Profile "%OMOBA_NETEM_TEAM1_PROFILE%" -Team2Profile "%OMOBA_NETEM_TEAM2_PROFILE%" -Team1Custom "%OMOBA_NETEM_TEAM1_CUSTOM%" -Team2Custom "%OMOBA_NETEM_TEAM2_CUSTOM%" -Seed %OMOBA_NETEM_SEED%
+if errorlevel 1 exit /b 1
+set /p NETEM_PID=<"%NETEM_PID_FILE%"
+set "RUNTIME_SERVER_1=%NETEM_TEAM1%"
+set "RUNTIME_SERVER_2=%NETEM_TEAM2%"
+echo   -^> netem proxy PID !NETEM_PID!
+exit /b 0
 
 :start_backend
 set "BACKEND_PID="
@@ -176,9 +211,10 @@ set "PLAYER_ID=%~1"
 set "TEAM_ID=%~2"
 set "PLAYER_NAME=%~3"
 set "PRESENTATION_ADDR=%~4"
+set "RUNTIME_SERVER_ADDR=%~5"
 set "RUNTIME_PID_FILE=omoba-client-runtime\target\team_%TEAM_ID%.pid"
 if exist "%RUNTIME_PID_FILE%" del "%RUNTIME_PID_FILE%" >nul 2>&1
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_client_runtime.ps1 -Exe "%CLIENT_RUNTIME%" -WorkingDirectory "." -PidFile "%RUNTIME_PID_FILE%" -PlayerId %PLAYER_ID% -TeamId %TEAM_ID% -PlayerName "%PLAYER_NAME%" -ServerAddr "%SERVER_ADDR%" -PresentationAddr "%PRESENTATION_ADDR%" -EvidenceDir "%EVIDENCE_DIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_client_runtime.ps1 -Exe "%CLIENT_RUNTIME%" -WorkingDirectory "." -PidFile "%RUNTIME_PID_FILE%" -PlayerId %PLAYER_ID% -TeamId %TEAM_ID% -PlayerName "%PLAYER_NAME%" -ServerAddr "%RUNTIME_SERVER_ADDR%" -PresentationAddr "%PRESENTATION_ADDR%" -EvidenceDir "%EVIDENCE_DIR%"
 if errorlevel 1 exit /b 1
 set /p RUNTIME_PID_%TEAM_ID%=<"%RUNTIME_PID_FILE%"
 echo   -^> runtime team %TEAM_ID% PID !RUNTIME_PID_%TEAM_ID%!
@@ -210,6 +246,11 @@ exit /b 0
 
 :stop_runtimes
 for %%P in (!RUNTIME_PID_1! !RUNTIME_PID_2!) do powershell -NoProfile -Command "$p=Get-Process -Id %%P -ErrorAction SilentlyContinue; if ($p -and $p.Path -eq (Resolve-Path '%CLIENT_RUNTIME%').Path) { Stop-Process -Id %%P -Force -ErrorAction SilentlyContinue }"
+exit /b 0
+
+:stop_netem
+if not "!NETEM_PID!"=="0" powershell -NoProfile -ExecutionPolicy Bypass -File scripts\stop_netem_proxy.ps1 -ProcessId !NETEM_PID! -ExpectedExe "%NETEM_PROXY%" -ControlAddr "%NETEM_CONTROL%"
+set "NETEM_PID=0"
 exit /b 0
 
 :stop_backend
@@ -254,6 +295,7 @@ pause
 :fail
 call :stop_frontends
 call :stop_runtimes
+call :stop_netem
 call :stop_backend
 popd
 exit /b 1

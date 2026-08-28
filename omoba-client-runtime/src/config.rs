@@ -15,6 +15,7 @@ pub struct ClientRuntimeConfig {
     pub protocol_version: u32,
     pub content_hash: String,
     pub scripted_move_tick: Option<u64>,
+    pub scripted_hidden_target_tick: Option<u64>,
     pub screenshot_tick: Option<u64>,
     pub fault_tick: Option<u64>,
 }
@@ -36,6 +37,7 @@ impl ClientRuntimeConfig {
         let mut protocol_version = 2;
         let mut content_hash = String::new();
         let mut scripted_move_tick = None;
+        let mut scripted_hidden_target_tick = None;
         let mut screenshot_tick = None;
         let mut fault_tick = None;
         let mut args = args.into_iter();
@@ -60,6 +62,11 @@ impl ClientRuntimeConfig {
                 "--scripted-move-tick" => {
                     scripted_move_tick = Some(value(&mut args)?.parse().map_err(|_| {
                         ClientRuntimeError::Config("invalid scripted move tick".into())
+                    })?)
+                }
+                "--scripted-hidden-target-tick" => {
+                    scripted_hidden_target_tick = Some(value(&mut args)?.parse().map_err(|_| {
+                        ClientRuntimeError::Config("invalid scripted hidden target tick".into())
                     })?)
                 }
                 "--screenshot-tick" => {
@@ -123,6 +130,7 @@ impl ClientRuntimeConfig {
             protocol_version,
             content_hash,
             scripted_move_tick,
+            scripted_hidden_target_tick,
             screenshot_tick,
             fault_tick,
         })

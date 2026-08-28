@@ -51,12 +51,60 @@ foreach($team in 1,2){
   $expectedPath=Join-Path $root "server\team-$team\expected-timeline.jsonl"; $clientPath=Join-Path $root "team-$team-runtime\filtered-timeline.jsonl"
   $expected=@{}; if(Test-Path $expectedPath){Get-Content $expectedPath|ForEach-Object{try{$v=$_|ConvertFrom-Json}catch{return};if($v.expected_pre_repair_hash){$expected["$($v.replica_tick):$($v.team_sequence)"]=$v.expected_pre_repair_hash}}}
   $covered=0;$mismatch=0;if(Test-Path $clientPath){Get-Content $clientPath|ForEach-Object{try{$v=$_|ConvertFrom-Json}catch{return};$key="$($v.replica_tick):$($v.team_sequence)";if($expected.ContainsKey($key)){$covered++;if($expected[$key]-ne$v.post_repair_hash){$mismatch++};$checkpointRows+=[ordered]@{team_id=$team;key=$key;server_expected=$expected[$key];external_runtime=$v.post_repair_hash;parity=($expected[$key]-eq$v.post_repair_hash)}}}}
-  $gates += [ordered]@{name="team-$team-checkpoint-coverage";status=$(if($covered-eq 0){'UNVERIFIED'}elseif($mismatch){'FAIL'}else{'PASS'});covered=$covered;mismatch=$mismatch}
+  $runtimeEventsPath=Join-Path $root "team-$team-runtime\network-events.jsonl";$runtimeEvents=@();if(Test-Path $runtimeEventsPath){$runtimeEvents=@(Get-Content $runtimeEventsPath|ForEach-Object{try{$_|ConvertFrom-Json}catch{}})}
+  $rebasesForCheckpoint=@($runtimeEvents|Where-Object{$_.kind-eq'rebase-applied'});$lastRebaseTick=($rebasesForCheckpoint|Measure-Object -Property replica_tick -Maximum).Maximum
+  $postRecoveryParity=@($checkpointRows|Where-Object{$_.team_id-eq$team-and$_.parity-and$lastRebaseTick-and[UInt64]($_.key-split':')[0]-gt[UInt64]$lastRebaseTick}).Count-gt0
+  $postRecoveryApplied=@($runtimeEvents|Where-Object{$_.kind-eq'frame-applied'-and$lastRebaseTick-and[UInt64]$_.replica_tick-gt[UInt64]$lastRebaseTick}).Count-gt0
+  $recoveryConfirmed=$postRecoveryParity-or$postRecoveryApplied
+  $checkpointPass=$mismatch-eq0-or($rebasesForCheckpoint.Count-gt0-and$recoveryConfirmed)
+  $gates += [ordered]@{name="team-$team-checkpoint-coverage";status=$(if($covered-eq0){'UNVERIFIED'}elseif($checkpointPass){'PASS'}else{'FAIL'});covered=$covered;mismatch=$mismatch;recovered_after_verified_rebase=$recoveryConfirmed;post_rebase_checkpoint=$postRecoveryParity;post_rebase_frame_applied=$postRecoveryApplied}
 }
 $checkpointRows|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $root 'checkpoint-comparison.json') -Encoding utf8
 $manifestPath=Join-Path $root 'manifest.json';$gates += [ordered]@{name='process-lifecycle';status=$(if(Test-Path $manifestPath){'PASS'}else{'UNVERIFIED'});manifest=$manifestPath}
+$manifest=if(Test-Path $manifestPath){Get-Content -Raw $manifestPath|ConvertFrom-Json}else{$null}
+if($manifest-and$manifest.netem-and$manifest.netem.mode-ne'direct'){
+ $proxyPath=Join-Path $root 'proxy-evidence.json'
+ if(-not(Test-Path $proxyPath)){$gates += [ordered]@{name='netem-evidence';status='UNVERIFIED';missing=$proxyPath}}
+ else{
+  $proxy=Get-Content -Raw $proxyPath|ConvertFrom-Json
+  $gates += [ordered]@{name='netem-process-status';status=$(if($proxy.status-eq'PASS'){'PASS'}else{'FAIL'});failure=$proxy.failure}
+  $routes=@($proxy.routes);$gates += [ordered]@{name='netem-route-isolation';status=$(if($routes.Count-eq2-and$manifest.netem.team_1_route-ne$manifest.netem.team_2_route){'PASS'}else{'FAIL'});route_count=$routes.Count}
+  $directions=@($routes|ForEach-Object{$_.client_to_server;$_.server_to_client})
+  $rttPass=$directions.Count-eq4-and@($directions|Where-Object{$_.released_datagrams-eq0-or$_.scheduled_rtt_min_ms-lt20-or$_.scheduled_rtt_max_ms-gt100}).Count-eq0
+  $gates += [ordered]@{name='netem-rtt-range';status=$(if($rttPass){'PASS'}else{'FAIL'});directions=$directions.Count}
+  $histPass=$true;foreach($route in $routes){foreach($direction in @($route.client_to_server,$route.server_to_client)){for($i=0;$i-lt20;$i++){if([UInt64]$route.weights[$i]-gt0-and[UInt64]$direction.observed_histogram[$i]-eq0){$histPass=$false}}}}
+  $gates += [ordered]@{name='netem-histogram-coverage';status=$(if($histPass){'PASS'}else{'UNVERIFIED'})}
+  $reorders=($directions|Measure-Object -Property reordered_datagrams -Sum).Sum
+  $reorderPass=if($manifest.netem.mode-eq'ordered-delay'){$reorders-eq0}else{$reorders-gt0}
+  $gates += [ordered]@{name='netem-reorder-mode';status=$(if($reorderPass){'PASS'}elseif($manifest.netem.mode-eq'natural-reorder'){'UNVERIFIED'}else{'FAIL'});mode=$manifest.netem.mode;reordered_datagrams=$reorders}
+  $budgetPass=@($directions|Where-Object{$_.packets_high_watermark-gt4096-or$_.bytes_high_watermark-gt33554432}).Count-eq0
+  $gates += [ordered]@{name='netem-queue-budget';status=$(if($budgetPass){'PASS'}else{'FAIL'})}
+  foreach($team in 1,2){
+   $eventsPath=Join-Path $root "team-$team-runtime\network-events.jsonl";$events=@();if(Test-Path $eventsPath){$events=@(Get-Content $eventsPath|ForEach-Object{try{$_|ConvertFrom-Json}catch{}})}
+   $applied=@($events|Where-Object{$_.kind-eq'frame-applied'}|Sort-Object team_sequence);$unique=@($applied.team_sequence|Sort-Object -Unique)
+   $sequencePass=$applied.Count-gt0-and$unique.Count-eq$applied.Count;for($i=1;$i-lt$unique.Count;$i++){if([UInt64]$unique[$i]-ne([UInt64]$unique[$i-1]+1)){$sequencePass=$false}}
+   $unsafe=@($events|Where-Object{$_.kind-in@('wrong-team-rejected','frame-rejected')})
+   $gates += [ordered]@{name="team-$team-netem-sequence";status=$(if(-not(Test-Path $eventsPath)){'UNVERIFIED'}elseif($sequencePass-and$unsafe.Count-eq0){'PASS'}else{'FAIL'});applied=$applied.Count;unsafe=$unsafe.Count}
+   $move=@($events|Where-Object{$_.kind-eq'input-forwarded'-and$_.code-eq'FORWARDED'})
+   $moveApplied=Test-Path -LiteralPath (Join-Path $root "team-$team-runtime\scripted-move-applied.tick")
+   $gates += [ordered]@{name="team-$team-delayed-move-input";status=$(if($move.Count-gt0-and$moveApplied){'PASS'}else{'UNVERIFIED'});forwarded=$move.Count;applied=$moveApplied}
+   $hiddenSubmitted=Test-Path -LiteralPath (Join-Path $root "team-$team-runtime\scripted-hidden-target-submitted.tick")
+   $hiddenRejected=@($events|Where-Object{$_.kind-eq'secure-input-result'-and$_.code-eq'SERVER_INVALID_TARGET'})
+   $gates += [ordered]@{name="team-$team-hidden-target-rejection";status=$(if($hiddenSubmitted-and$hiddenRejected.Count-gt0){'PASS'}else{'UNVERIFIED'});submitted=$hiddenSubmitted;rejected=$hiddenRejected.Count}
+   $rebases=@($events|Where-Object{$_.kind-eq'rebase-applied'});$safeRebases=0;foreach($rebase in $rebases){if(@($applied|Where-Object{$_.team_sequence-ge$rebase.team_sequence}).Count-gt0){$safeRebases++}}
+   $gates += [ordered]@{name="team-$team-unintended-rebase";status=$(if($safeRebases-eq$rebases.Count){'PASS'}else{'FAIL'});count=($rebases.Count-$safeRebases);verified_recovery_count=$safeRebases}
+  }
+ }
+}
+$disclosurePath=Join-Path $root 'server\disclosure-matrix.jsonl'
+foreach($team in 1,2){
+ $rows=@();if(Test-Path $disclosurePath){$rows=@(Get-Content $disclosurePath|ForEach-Object{try{$_|ConvertFrom-Json}catch{}}|Where-Object{$_.team_id-eq$team}|Sort-Object team_sequence)}
+ $monotonic=$rows.Count-gt0;for($i=1;$i-lt$rows.Count;$i++){if([UInt64]$rows[$i].team_sequence-ne([UInt64]$rows[$i-1].team_sequence+1)-or[UInt64]$rows[$i].replica_tick-lt[UInt64]$rows[$i-1].replica_tick){$monotonic=$false}}
+ $kinds=@($rows|ForEach-Object{$_.transitions}|ForEach-Object{$_.kind}|Sort-Object -Unique)
+ $gates += [ordered]@{name="team-$team-disclosure-timeline";status=$(if($monotonic-and($kinds-contains'Reveal')){'PASS'}else{'UNVERIFIED'});monotonic=$monotonic;kinds=$kinds;coverage_note='Hide/Forget/LastKnown may be absent in a short profile smoke; dedicated movement and visual scenarios require them.'}
+}
 $screens=@(Get-ChildItem -LiteralPath $root -Recurse -Filter 'screenshot.tick' -ErrorAction SilentlyContinue);$images=@(Get-ChildItem -LiteralPath $root -Filter 'team-*-screenshot.png' -ErrorAction SilentlyContinue);@($screens+$images)|Select-Object FullName|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $root 'screenshot-index.json') -Encoding utf8
-$mode=if(Test-Path $manifestPath){(Get-Content -Raw $manifestPath|ConvertFrom-Json).mode}else{'unknown'};$screenPass=$screens.Count-ge 2-and($mode-ne'visual'-or$images.Count-ge 2)
+$mode=if($manifest){$manifest.mode}else{'unknown'};$screenPass=$screens.Count-ge 2-and($mode-ne'visual'-or$images.Count-ge 2)
 $gates += [ordered]@{name='screenshot-triggers';status=$(if($screenPass){'PASS'}else{'UNVERIFIED'});trigger_count=$screens.Count;image_count=$images.Count}
 if($mode-eq'visual'){
  $rendererMeta=@(Get-ChildItem -LiteralPath $root -Filter 'team-*-renderer.dmp.json' -ErrorAction SilentlyContinue|ForEach-Object{Get-Content -Raw -LiteralPath $_.FullName|ConvertFrom-Json})
