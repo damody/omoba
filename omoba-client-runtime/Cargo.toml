@@ -1,0 +1,19 @@
+[package]
+name = "omoba-client-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "External team-filtered Specs replica and renderer IPC host"
+
+[dependencies]
+anyhow = "1.0"
+env_logger = "0.11"
+log = "0.4"
+omoba-core = { path = "../omoba-core", features = ["kcp"] }
+prost = "0.13"
+sha2 = "0.10"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "signal", "time"] }
+
+[workspace]
