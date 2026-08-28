@@ -35,7 +35,6 @@ pub enum ReplicaIdAllocationError {
 #[derive(Clone, Debug, Default)]
 pub struct ReplicaEntityIdAllocator {
     next: u64,
-    retired: BTreeSet<u64>,
 }
 
 impl ReplicaEntityIdAllocator {
@@ -44,16 +43,17 @@ impl ReplicaEntityIdAllocator {
         self.next = value
             .checked_add(1)
             .ok_or(ReplicaIdAllocationError::Exhausted)?;
-        debug_assert!(!self.retired.contains(&value));
         Ok(ReplicaEntityId(value))
     }
 
-    pub fn retire(&mut self, id: ReplicaEntityId) {
-        self.retired.insert(id.get());
+    pub fn retire(&mut self, _id: ReplicaEntityId) {
+        // IDs are monotonically allocated and never reused. Keeping every
+        // retired value would leak memory in long matches with repeated fog
+        // Forget/Reveal transitions.
     }
 
-    pub fn is_retired(&self, id: ReplicaEntityId) -> bool {
-        self.retired.contains(&id.get())
+    pub fn was_allocated(&self, id: ReplicaEntityId) -> bool {
+        id.get() != 0 && id.get() < self.next
     }
 }
 
@@ -155,13 +155,13 @@ impl TeamIdentityState {
         replica_id: ReplicaEntityId,
         disclosure_epoch: u64,
     ) -> Result<CanonicalEntityKey, TeamIdentityError> {
-        if self.allocator.is_retired(replica_id) {
-            return Err(TeamIdentityError::RetiredReplica);
-        }
-        let canonical = *self
-            .replica_to_canonical
-            .get(&replica_id)
-            .ok_or(TeamIdentityError::UnknownReplica)?;
+        let canonical = match self.replica_to_canonical.get(&replica_id) {
+            Some(canonical) => *canonical,
+            None if self.allocator.was_allocated(replica_id) => {
+                return Err(TeamIdentityError::RetiredReplica);
+            }
+            None => return Err(TeamIdentityError::UnknownReplica),
+        };
         let mapping = self.canonical_to_replica[&canonical];
         if disclosure_epoch != mapping.disclosure_epoch {
             return Err(TeamIdentityError::StaleDisclosureEpoch);

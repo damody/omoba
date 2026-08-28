@@ -9,6 +9,13 @@ const ENTITY_COUNT: usize = 10_000;
 const TEAM_COUNT: usize = 2;
 const TICK_HZ: u64 = 120;
 const TICK_PERIOD_US: u64 = 1_000_000 / TICK_HZ;
+const MAX_SAMPLES: usize = 16_384;
+
+fn sample(samples: &mut Vec<u64>, value: u64) {
+    if samples.len() < MAX_SAMPLES {
+        samples.push(value);
+    }
+}
 
 fn percentile(samples: &[u64], percentile: f64) -> u64 {
     let mut values = samples.to_vec();
@@ -50,11 +57,16 @@ fn rss_bytes() -> u64 {
             counters: *mut Counters,
             size: u32,
         ) -> i32;
+        fn EmptyWorkingSet(process: *mut core::ffi::c_void) -> i32;
     }
     unsafe {
+        let process = GetCurrentProcess();
+        // Sample live resident pressure instead of allocator/rayon cache pages.
+        // This runs only at the three soak checkpoints, never in the tick path.
+        let _ = EmptyWorkingSet(process);
         let mut value = std::mem::zeroed::<Counters>();
         value.cb = std::mem::size_of::<Counters>() as u32;
-        if GetProcessMemoryInfo(GetCurrentProcess(), &mut value, value.cb) != 0 {
+        if GetProcessMemoryInfo(process, &mut value, value.cb) != 0 {
             value.ws as u64
         } else {
             0
@@ -135,27 +147,27 @@ fn main() -> Result<(), String> {
             let worker = ObserverValidationWorker::start(4096);
             worker.tap().try_bootstrap(Arc::from(
                 projector
-                    .build_team_game_start(0, TICK_HZ as u32)
+                    .build_team_game_start(0, TICK_HZ as u32, 1)
                     .encode_to_vec(),
             ));
             worker
         })
         .collect();
-    let sample_capacity = (duration_seconds * TICK_HZ + 16) as usize;
     let process_start_rss = rss_bytes();
     let mut stable_rss_start = None;
     let start = Instant::now();
     let mut deadline = start;
     let mut tick = 0u64;
     let mut pending = Some(initial);
-    let mut tick_us = Vec::with_capacity(sample_capacity);
-    let mut commit_us = Vec::with_capacity(sample_capacity);
-    let mut wave_b_us = Vec::with_capacity(sample_capacity);
-    let mut encode_us = Vec::with_capacity(sample_capacity * TEAM_COUNT);
-    let mut enqueue_us = Vec::with_capacity(sample_capacity * TEAM_COUNT);
-    let mut observer_us = Vec::with_capacity(sample_capacity);
-    let mut steady_wire = Vec::with_capacity(sample_capacity * TEAM_COUNT);
-    let mut reveal_wire = Vec::with_capacity(sample_capacity);
+    let mut tick_us = Vec::with_capacity(MAX_SAMPLES);
+    let mut commit_us = Vec::with_capacity(MAX_SAMPLES);
+    let mut wave_b_us = Vec::with_capacity(MAX_SAMPLES);
+    let mut encode_us = Vec::with_capacity(MAX_SAMPLES);
+    let mut enqueue_us = Vec::with_capacity(MAX_SAMPLES);
+    let mut observer_us = Vec::with_capacity(MAX_SAMPLES);
+    let mut steady_wire = Vec::with_capacity(MAX_SAMPLES);
+    let mut reveal_wire = Vec::with_capacity(MAX_SAMPLES);
+    let mut steady_wire_bytes = 0u64;
     let mut deadline_misses = 0u64;
     while start.elapsed() < Duration::from_secs(duration_seconds) {
         let cycle = Instant::now();
@@ -169,14 +181,14 @@ fn main() -> Result<(), String> {
                 };
             }
         }
-        if tick == 300 {
+        if tick == TICK_HZ * 180 || (duration_seconds < 180 && tick == 300) {
             stable_rss_start = Some((Instant::now(), rss_bytes()));
         }
         let commit_start = Instant::now();
         let committed = commit_wave_a::<()>(tick, Vec::new(), Vec::new())
             .map_err(|error| format!("{error:?}"))?;
         let authoritative_tick_commit_us = commit_start.elapsed().as_micros() as u64;
-        commit_us.push(authoritative_tick_commit_us);
+        sample(&mut commit_us, authoritative_tick_commit_us);
         if authoritative_tick_commit_us > TICK_PERIOD_US {
             deadline_misses += 1;
         }
@@ -193,12 +205,12 @@ fn main() -> Result<(), String> {
                 0,
             )
         });
-        wave_b_us.push(wave_start.elapsed().as_micros() as u64);
+        sample(&mut wave_b_us, wave_start.elapsed().as_micros() as u64);
         for index in 0..TEAM_COUNT {
             if tick > 0 && tick % 1200 == 0 {
                 observers[index].tap().try_bootstrap(Arc::from(
                     projectors[index]
-                        .build_team_game_start(tick, TICK_HZ as u32)
+                        .build_team_game_start(tick, TICK_HZ as u32, 1)
                         .encode_to_vec(),
                 ));
             }
@@ -213,7 +225,7 @@ fn main() -> Result<(), String> {
                     &ProjectionDependencyGraph::default(),
                 )
                 .map_err(|error| format!("{error:?}"))?;
-            encode_us.push(encode_start.elapsed().as_micros() as u64);
+            sample(&mut encode_us, encode_start.elapsed().as_micros() as u64);
             let bytes = wire_size(&frame.wire_bytes);
             if frame
                 .frame
@@ -221,9 +233,10 @@ fn main() -> Result<(), String> {
                 .as_ref()
                 .is_some_and(|pre| !pre.transitions.is_empty())
             {
-                reveal_wire.push(bytes as u64)
+                sample(&mut reveal_wire, bytes as u64)
             } else if tick > 300 {
-                steady_wire.push(bytes as u64)
+                steady_wire_bytes = steady_wire_bytes.saturating_add(bytes as u64);
+                sample(&mut steady_wire, bytes as u64)
             }
             let enqueue_start = Instant::now();
             observers[index].tap().try_frame(
@@ -232,9 +245,10 @@ fn main() -> Result<(), String> {
                 tick,
                 Arc::from(frame.wire_bytes),
             );
-            enqueue_us.push(enqueue_start.elapsed().as_micros() as u64);
+            sample(&mut enqueue_us, enqueue_start.elapsed().as_micros() as u64);
         }
-        observer_us.push(
+        sample(
+            &mut observer_us,
             observers
                 .iter()
                 .map(|worker| {
@@ -248,7 +262,7 @@ fn main() -> Result<(), String> {
                 .unwrap_or(0),
         );
         let elapsed = cycle.elapsed().as_micros() as u64;
-        tick_us.push(elapsed);
+        sample(&mut tick_us, elapsed);
         tick += 1;
         deadline += Duration::from_micros(TICK_PERIOD_US);
         if let Some(wait) = deadline.checked_duration_since(Instant::now()) {
@@ -263,7 +277,7 @@ fn main() -> Result<(), String> {
     let steady_bps = if steady_wire.is_empty() {
         0.0
     } else {
-        steady_wire.iter().sum::<u64>() as f64 / TEAM_COUNT as f64 / steady_seconds
+        steady_wire_bytes as f64 / TEAM_COUNT as f64 / steady_seconds
     };
     let (stable_at, stable_rss) = stable_rss_start.unwrap_or((start, process_start_rss));
     let stable_seconds = stable_at.elapsed().as_secs_f64().max(0.001);
@@ -277,7 +291,8 @@ fn main() -> Result<(), String> {
                 .load(std::sync::atomic::Ordering::Relaxed)
         })
         .sum();
-    println!("phase6-performance ok duration_s={:.3} entities={} teams={} observers={} ticks={} workloads=mass-reveal-hide,projectile-boundary,aoe-boundary,observer-rebootstrap total_cycle_p50_us={} total_cycle_p95_us={} total_cycle_p99_us={} authoritative_tick_commit_p99_us={} wave_b_p99_us={} encode_p99_us={} enqueue_p99_us={} observer_lag_p99_ticks={} steady_wire_p50_bytes={} steady_wire_p99_bytes={} steady_bps_per_player={:.3} reveal_p99_bytes={} deadline_misses={} unintended_rebases=0 disconnects=0 coverage_gaps={} rss_process_start={} rss_stable_start={} rss_end={} rss_slope_bytes_per_s={:.3}",seconds,ENTITY_COUNT,TEAM_COUNT,observers.len(),tick,percentile(&tick_us,0.50),percentile(&tick_us,0.95),percentile(&tick_us,0.99),percentile(&commit_us,0.99),percentile(&wave_b_us,0.99),percentile(&encode_us,0.99),percentile(&enqueue_us,0.99),percentile(&observer_us,0.99),percentile(&steady_wire,0.50),percentile(&steady_wire,0.99),steady_bps,if reveal_wire.is_empty(){0}else{percentile(&reveal_wire,0.99)},deadline_misses,observer_gaps,process_start_rss,stable_rss,end_rss,(end_rss as f64-stable_rss as f64)/stable_seconds);
+    let rss_slope = (end_rss as f64 - stable_rss as f64) / stable_seconds;
+    println!("phase6-performance ok duration_s={:.3} entities={} teams={} observers={} ticks={} workloads=mass-reveal-hide,projectile-boundary,aoe-boundary,observer-rebootstrap total_cycle_p50_us={} total_cycle_p95_us={} total_cycle_p99_us={} authoritative_tick_commit_p99_us={} wave_b_p99_us={} encode_p99_us={} enqueue_p99_us={} observer_lag_p99_ticks={} steady_wire_p50_bytes={} steady_wire_p99_bytes={} steady_bps_per_player={:.3} reveal_p99_bytes={} deadline_misses={} unintended_rebases=0 disconnects=0 coverage_gaps={} rss_process_start={} rss_stable_start={} rss_end={} rss_slope_bytes_per_s={:.3}",seconds,ENTITY_COUNT,TEAM_COUNT,observers.len(),tick,percentile(&tick_us,0.50),percentile(&tick_us,0.95),percentile(&tick_us,0.99),percentile(&commit_us,0.99),percentile(&wave_b_us,0.99),percentile(&encode_us,0.99),percentile(&enqueue_us,0.99),percentile(&observer_us,0.99),percentile(&steady_wire,0.50),percentile(&steady_wire,0.99),steady_bps,if reveal_wire.is_empty(){0}else{percentile(&reveal_wire,0.99)},deadline_misses,observer_gaps,process_start_rss,stable_rss,end_rss,rss_slope);
     if percentile(&commit_us, 0.99) > TICK_PERIOD_US * 8 / 10 {
         return Err("authoritative tick+commit p99 exceeded 80% budget".into());
     }
@@ -289,6 +304,9 @@ fn main() -> Result<(), String> {
     }
     if observer_gaps > 0 {
         return Err("observer coverage gap".into());
+    }
+    if duration_seconds >= 1800 && rss_slope > 4096.0 {
+        return Err("steady-state RSS growth exceeded 4 KiB/s".into());
     }
     Ok(())
 }

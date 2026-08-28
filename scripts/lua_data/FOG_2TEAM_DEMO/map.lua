@@ -65,9 +65,10 @@ return function(ctx)
       OriginX = -990.0,
       OriginY = -990.0,
       VisionRadius = 700.0,
-      -- 此 demo 用來直接驗收兩隊的即時圓形視野；離開視野後完全移除，
-      -- 不保留 LastKnown 灰色殘影，避免被誤認為仍同步中的單位。
+      -- 預設離開視野後Forget；指定索引保留sanitized LastKnown，
+      -- 讓同一場景可同時驗收兩種transition。
       RememberPolicy = "Forget",
+      LastKnownIndexes = { 14, 34, 54, 74 },
       GridUnitTemplate = "practice_dummy",
       HeroTemplate = "saika_magoichi",
       HeroSpawns = {

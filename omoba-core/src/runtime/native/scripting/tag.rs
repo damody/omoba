@@ -4,7 +4,7 @@
 use specs::storage::VecStorage;
 use specs::Component;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ScriptUnitTag {
     pub unit_id: String,
 }

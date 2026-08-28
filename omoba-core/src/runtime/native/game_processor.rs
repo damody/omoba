@@ -2211,13 +2211,14 @@ fn handle_projectile(
         let accuracy_bonus = buff_store.sum_add(source_entity, StatKey::AccuracyBonus);
         let accuracy = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
         if accuracy < Fixed64::ONE {
-            let mut rng = omoba_sim::SimRng::from_master_entity(
-                master_seed,
-                tick,
-                attacker_id,
-                OP_PROJECTILE_ACCURACY,
+            let roll = Fixed64::from_raw(
+                (crate::runtime::tick_random_u64(
+                    master_seed,
+                    u64::from(tick),
+                    (u64::from(attacker_id) << 16) | u64::from(OP_PROJECTILE_ACCURACY),
+                ) % omoba_sim::fixed::SCALE as u64) as i64,
             );
-            if rng.gen_fixed64_unit() >= accuracy {
+            if roll >= accuracy {
                 final_atk = Fixed64::ZERO;
             }
         }
@@ -2241,13 +2242,12 @@ fn handle_projectile(
             }
         }
         let stun_duration_roll = if stun_chance > 0.0 && stun_duration > 0.0 {
-            let mut rng = omoba_sim::SimRng::from_master_entity(
+            let roll = crate::runtime::tick_random_u64(
                 master_seed,
-                tick,
-                attacker_id,
-                OP_PROJECTILE_STUN_ROLL,
-            );
-            if rng.gen_fixed64_unit().to_f32_for_render() < stun_chance {
+                u64::from(tick),
+                (u64::from(attacker_id) << 16) | u64::from(OP_PROJECTILE_STUN_ROLL),
+            ) % omoba_sim::fixed::SCALE as u64;
+            if roll as f32 / (omoba_sim::fixed::SCALE as f32) < stun_chance {
                 Fixed64::from_raw((stun_duration * omoba_sim::fixed::SCALE as f32) as i64)
             } else {
                 Fixed64::ZERO

@@ -8,6 +8,7 @@ pub mod ability_runtime;
 pub mod comp;
 pub mod events;
 pub mod game_processor;
+pub mod gameplay_phases;
 pub mod geometry;
 pub mod initialization;
 pub mod input;
@@ -23,6 +24,7 @@ pub mod system_dispatcher;
 pub mod td_autoplay;
 pub mod td_economy;
 pub mod td_layer;
+pub mod team_replica_rng;
 pub mod tick;
 
 pub use ability_runtime::{armor_to_mult, AbilityRegistry, BuffEntry, BuffStore, UnitStats};
@@ -41,6 +43,7 @@ pub use game_processor::{
     handle_tower_upgrade_from_input, hero_knowledge_category_for_unit_id,
     interrupt_attack_for_accepted_command, process_outcomes, spawn_td_tower,
 };
+pub use gameplay_phases::*;
 pub use initialization::{
     create_world_for_scene, create_world_for_scene_with_content, create_world_from_loaded_content,
     populate_ability_registry, populate_tower_template_registry, populate_tower_upgrade_registry,
@@ -63,4 +66,5 @@ pub use system_dispatcher::{build_phase3_dispatcher, SystemDispatcher};
 pub use td_autoplay::*;
 pub use td_economy::*;
 pub use td_layer::*;
+pub use team_replica_rng::*;
 pub use tick::tick_tower_abilities;

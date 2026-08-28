@@ -67,8 +67,8 @@ impl<'a> ParallelAdapterCache<'a> {
 
 pub struct ParallelWorldAdapter<'a> {
     pub cache: &'a ParallelAdapterCache<'a>,
-    invocation_entity: Entity,
     invocation_rng_op: u32,
+    random_request_base: u64,
     outcomes: Vec<Outcome>,
     overlay_pos: HashMap<Entity, Vec2>,
     overlay_facing: HashMap<Entity, Angle>,
@@ -431,10 +431,18 @@ fn compare_script_tower_targets(
 
 impl<'a> ParallelWorldAdapter<'a> {
     pub fn new(cache: &'a ParallelAdapterCache<'a>, invocation_entity: Entity) -> Self {
+        Self::new_with_random_ordinal(cache, invocation_entity, 0)
+    }
+
+    pub fn new_with_random_ordinal(
+        cache: &'a ParallelAdapterCache<'a>,
+        _invocation_entity: Entity,
+        stable_invocation_ordinal: u64,
+    ) -> Self {
         Self {
             cache,
-            invocation_entity,
             invocation_rng_op: 0,
+            random_request_base: stable_invocation_ordinal.saturating_mul(1024),
             outcomes: Vec::new(),
             overlay_pos: HashMap::new(),
             overlay_facing: HashMap::new(),
@@ -944,15 +952,17 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn rand_unit(&mut self) -> Fixed64 {
-        let op_kind = 1_000u32.wrapping_add(self.invocation_rng_op);
+        let request_ordinal = self
+            .random_request_base
+            .saturating_add(u64::from(self.invocation_rng_op));
         self.invocation_rng_op = self.invocation_rng_op.wrapping_add(1);
-        let mut rng = omoba_sim::SimRng::from_master_entity(
-            self.cache.rng_seed,
-            self.cache.tick.0 as u32,
-            self.invocation_entity.id(),
-            op_kind,
-        );
-        rng.gen_fixed64_unit()
+        Fixed64::from_raw(
+            (crate::runtime::tick_random_u64(
+                self.cache.rng_seed,
+                self.cache.tick.0,
+                request_ordinal,
+            ) % 1024) as i64,
+        )
     }
 
     fn log_info(&self, msg: RStr<'_>) {
@@ -1821,20 +1831,20 @@ mod tests {
     }
 
     #[test]
-    fn parallel_adapter_rng_depends_on_entity_not_schedule_order() {
+    fn parallel_adapter_rng_uses_stable_request_order_not_completion_order() {
         let mut world = world_for_adapter_tests();
         let a = world.create_entity().build();
         let b = world.create_entity().build();
         let cache = ParallelAdapterCache::new(&world, 98765);
 
-        let mut first_a = ParallelWorldAdapter::new(&cache, a);
+        let mut first_a = ParallelWorldAdapter::new_with_random_ordinal(&cache, a, 0);
         let a_rolls = (first_a.rand_unit(), first_a.rand_unit());
-        let mut first_b = ParallelWorldAdapter::new(&cache, b);
+        let mut first_b = ParallelWorldAdapter::new_with_random_ordinal(&cache, b, 1);
         let b_rolls = (first_b.rand_unit(), first_b.rand_unit());
 
-        let mut second_b = ParallelWorldAdapter::new(&cache, b);
+        let mut second_b = ParallelWorldAdapter::new_with_random_ordinal(&cache, b, 1);
         let b_rolls_again = (second_b.rand_unit(), second_b.rand_unit());
-        let mut second_a = ParallelWorldAdapter::new(&cache, a);
+        let mut second_a = ParallelWorldAdapter::new_with_random_ordinal(&cache, a, 0);
         let a_rolls_again = (second_a.rand_unit(), second_a.rand_unit());
 
         assert_eq!(a_rolls, a_rolls_again);

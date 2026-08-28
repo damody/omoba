@@ -272,10 +272,15 @@ impl<'a> System<'a> for Sys {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
                                 // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
                                 // 階段 1de.2：透過 SimRng 確定性每（英雄、刻度）抖動。
-                                let mut rng = omoba_sim::SimRng::from_master_entity(
-                                    master_seed, tick, e.id(), OP_HERO_NO_TARGET_JITTER,
+                                let ordinal = (u64::from(e.id()) << 16)
+                                    | u64::from(OP_HERO_NO_TARGET_JITTER);
+                                let jitter = Fixed64::from_raw(
+                                    (crate::runtime::tick_random_u64(
+                                        master_seed,
+                                        u64::from(tick),
+                                        ordinal,
+                                    ) % 256) as i64,
                                 );
-                                let jitter = Fixed64::from_raw((rng.next_u32() % 256) as i64);
                                 atk.asd_count = effective_interval - Fixed64::from_raw(307) - jitter;
                                 log::trace!("{} 沒有找到有效目標，減少攻擊冷卻時間: {:.3}",
                                     hero_name, atk.asd_count.to_f32_for_render());

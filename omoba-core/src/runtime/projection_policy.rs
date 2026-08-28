@@ -116,6 +116,10 @@ impl ProjectionPolicyRegistry {
             Err(missing)
         }
     }
+
+    pub fn contains(&self, action_id: &str) -> bool {
+        self.registrations.contains_key(action_id)
+    }
 }
 
 pub fn validate_secure_match_startup(registry: &ProjectionPolicyRegistry) -> Result<(), String> {

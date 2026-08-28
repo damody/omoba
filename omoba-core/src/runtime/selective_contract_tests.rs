@@ -155,7 +155,9 @@ fn authority_repair_selection_is_monotonic_and_server_authoritative() {
     let revisions: Vec<_> = actions
         .into_iter()
         .filter_map(|action| match action {
-            RecoveryAction::ComponentRepair(value) => value.authority_revision.map(|r| r.value),
+            RecoveryAction::ComponentRepair { repair, .. } => {
+                repair.authority_revision.map(|r| r.value)
+            }
             _ => None,
         })
         .collect();

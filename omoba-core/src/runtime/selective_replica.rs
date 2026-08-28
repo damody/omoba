@@ -86,6 +86,7 @@ pub enum ReplicaRuntimeError {
     MalformedTransition,
     MalformedRandomTape,
     UnverifiedRebase,
+    GameplayStep,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -93,6 +94,9 @@ pub enum FrameApplyResult {
     Applied {
         replica_tick: u64,
         team_sequence: u64,
+        pre_repair_observed_hash: [u8; 32],
+        post_repair_hash: [u8; 32],
+        /// Compatibility alias. Always equals `pre_repair_observed_hash`.
         team_hash: [u8; 32],
     },
     Duplicate,
@@ -137,13 +141,16 @@ pub struct SelectiveReplicaRuntime {
     expected_replica_tick: u64,
     view_epoch: u64,
     authority_revision: u64,
+    global_seed: u64,
     stall: ReplicaStallState,
     world: DisclosedReplicaWorld,
     component_allowlist: BTreeSet<u32>,
     resource_allowlist: BTreeSet<u32>,
     last_injections: StepInjections,
     memory_directives: Vec<RenderMemoryDirective>,
+    remembered_presentations: BTreeMap<(u64, u64), Vec<u8>>,
     applied_transition_revisions: BTreeMap<(u8, u64, u64), u64>,
+    retired_replica_filter: Box<[u64]>,
 }
 
 impl SelectiveReplicaRuntime {
@@ -161,6 +168,7 @@ impl SelectiveReplicaRuntime {
             expected_replica_tick: replica_start_tick,
             view_epoch,
             authority_revision: 0,
+            global_seed: 0,
             stall: ReplicaStallState::Running,
             world: DisclosedReplicaWorld {
                 tick: replica_start_tick,
@@ -170,7 +178,9 @@ impl SelectiveReplicaRuntime {
             resource_allowlist,
             last_injections: StepInjections::default(),
             memory_directives: Vec::new(),
+            remembered_presentations: BTreeMap::new(),
             applied_transition_revisions: BTreeMap::new(),
+            retired_replica_filter: vec![0; 131_072].into_boxed_slice(),
         }
     }
 
@@ -211,7 +221,20 @@ impl SelectiveReplicaRuntime {
             resources: BTreeMap::new(),
         };
         runtime.expected_replica_tick = start.replica_start_tick;
+        runtime.global_seed = start.global_seed;
         Ok(runtime)
+    }
+
+    pub fn global_seed(&self) -> u64 {
+        self.global_seed
+    }
+
+    pub fn view_epoch(&self) -> u64 {
+        self.view_epoch
+    }
+
+    pub fn next_replica_tick(&self) -> u64 {
+        self.expected_replica_tick
     }
 
     pub fn world(&self) -> &DisclosedReplicaWorld {
@@ -232,6 +255,8 @@ impl SelectiveReplicaRuntime {
         frame: TeamTickFrame,
         stepper: &mut impl DisclosedWorldStepper,
     ) -> Result<FrameApplyResult, ReplicaRuntimeError> {
+        self.memory_directives.clear();
+        self.applied_transition_revisions.clear();
         if frame.protocol_version != 2 {
             return Err(ReplicaRuntimeError::WrongProtocol);
         }
@@ -277,17 +302,19 @@ impl SelectiveReplicaRuntime {
             &self.resource_allowlist,
         )?;
         self.validate_world_allowlist()?;
-        self.apply_post_step(frame.post_step.as_ref(), frame_revision)?;
-
         self.world.tick = self.expected_replica_tick + 1;
+        let pre_repair_observed_hash = self.canonical_team_hash();
+        self.apply_post_step(frame.post_step.as_ref(), frame_revision)?;
+        let post_repair_hash = self.canonical_team_hash();
         self.expected_replica_tick += 1;
         self.expected_team_sequence += 1;
         self.stall = ReplicaStallState::Running;
-        let team_hash = self.canonical_team_hash();
         Ok(FrameApplyResult::Applied {
             replica_tick: frame.replica_tick,
             team_sequence: frame.team_sequence,
-            team_hash,
+            pre_repair_observed_hash,
+            post_repair_hash,
+            team_hash: pre_repair_observed_hash,
         })
     }
 
@@ -307,6 +334,16 @@ impl SelectiveReplicaRuntime {
                     }
                     let replica_id = reveal.replica_entity_id.as_ref().map_or(0, |id| id.value);
                     let disclosure_epoch = epoch_value(&reveal.disclosure_epoch);
+                    if self.retired_filter_contains(replica_id) {
+                        return Err(ReplicaRuntimeError::StaleDisclosureEpoch);
+                    }
+                    if reveal
+                        .disclosed_dependencies
+                        .iter()
+                        .any(|dependency| !self.world.entities.contains_key(&dependency.value))
+                    {
+                        return Err(ReplicaRuntimeError::UnknownEntity);
+                    }
                     if self.transition_already_applied(
                         0,
                         replica_id,
@@ -335,6 +372,8 @@ impl SelectiveReplicaRuntime {
                             components,
                         },
                     );
+                    self.remembered_presentations
+                        .retain(|(remembered_id, _), _| *remembered_id != replica_id);
                     self.record_transition(0, replica_id, disclosure_epoch, frame_revision);
                 }
                 Some(transition::Transition::Replace(replace)) => {
@@ -384,6 +423,10 @@ impl SelectiveReplicaRuntime {
                         remember_policy: hide.remember_policy,
                         sanitized_presentation: hide.sanitized_remembered_presentation.clone(),
                     });
+                    self.remembered_presentations.insert(
+                        (replica_id, disclosure_epoch),
+                        hide.sanitized_remembered_presentation.clone(),
+                    );
                     self.record_transition(2, replica_id, disclosure_epoch, frame_revision);
                 }
                 Some(transition::Transition::Forget(forget)) => {
@@ -401,6 +444,9 @@ impl SelectiveReplicaRuntime {
                         continue;
                     }
                     self.remove_with_epoch(replica_id, disclosure_epoch)?;
+                    self.retired_filter_insert(replica_id);
+                    self.remembered_presentations
+                        .remove(&(replica_id, disclosure_epoch));
                     self.memory_directives.push(RenderMemoryDirective::Forget {
                         replica_id,
                         disclosure_epoch,
@@ -430,10 +476,56 @@ impl SelectiveReplicaRuntime {
         Ok(())
     }
 
+    fn retired_filter_indices(&self, replica_id: u64) -> [usize; 4] {
+        let bits = self.retired_replica_filter.len() * 64;
+        let mix = |mut value: u64| {
+            value ^= value >> 30;
+            value = value.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            value ^= value >> 27;
+            value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
+            value ^ (value >> 31)
+        };
+        [
+            mix(replica_id) as usize % bits,
+            mix(replica_id ^ 0x9e37_79b9_7f4a_7c15) as usize % bits,
+            mix(replica_id ^ 0xd1b5_4a32_d192_ed03) as usize % bits,
+            mix(replica_id ^ 0x94d0_49bb_1331_11eb) as usize % bits,
+        ]
+    }
+
+    fn retired_filter_contains(&self, replica_id: u64) -> bool {
+        self.retired_filter_indices(replica_id)
+            .into_iter()
+            .all(|bit| self.retired_replica_filter[bit / 64] & (1u64 << (bit % 64)) != 0)
+    }
+
+    fn retired_filter_insert(&mut self, replica_id: u64) {
+        for bit in self.retired_filter_indices(replica_id) {
+            self.retired_replica_filter[bit / 64] |= 1u64 << (bit % 64);
+        }
+    }
+
     fn inject_step(&self, step: Option<&Step>) -> Result<StepInjections, ReplicaRuntimeError> {
         let Some(step) = step else {
             return Ok(StepInjections::default());
         };
+        for input in &step.accepted_inputs {
+            let actor = input.actor.as_ref().map_or(0, |id| id.value);
+            if actor == 0 || !self.world.entities.contains_key(&actor) {
+                return Err(ReplicaRuntimeError::UnknownEntity);
+            }
+            if let Some(target) = input.target.as_ref() {
+                if target.value != 0 && !self.world.entities.contains_key(&target.value) {
+                    return Err(ReplicaRuntimeError::UnknownEntity);
+                }
+            }
+        }
+        for effect in &step.external_effects {
+            let target = effect.visible_target.as_ref().map_or(0, |id| id.value);
+            if target == 0 || !self.world.entities.contains_key(&target) {
+                return Err(ReplicaRuntimeError::UnknownEntity);
+            }
+        }
         for tape in &step.random_tapes {
             let tape_end = tape
                 .first_tick
@@ -562,7 +654,14 @@ impl SelectiveReplicaRuntime {
             {
                 return Ok(());
             }
-            return Err(ReplicaRuntimeError::ConflictingEqualRevision);
+            // One authoritative post-step may repair several schemas on the
+            // same entity under one revision. Frame ordering and disclosure
+            // epoch validation already prevent stale cross-frame rewrites.
+            entity.components.insert(
+                repair.component_schema_id,
+                repair.replacement_fields.clone(),
+            );
+            return Ok(());
         }
         entity.components.insert(
             repair.component_schema_id,
@@ -671,6 +770,10 @@ impl SelectiveReplicaRuntime {
         }
     }
 
+    pub fn remembered_presentations(&self) -> &BTreeMap<(u64, u64), Vec<u8>> {
+        &self.remembered_presentations
+    }
+
     pub fn take_accepted_inputs(&mut self) -> Vec<TeamAcceptedInput> {
         std::mem::take(&mut self.last_injections.accepted_inputs)
     }
@@ -701,7 +804,9 @@ impl SelectiveReplicaRuntime {
         self.expected_team_sequence = manifest.resume_team_sequence;
         self.last_injections = StepInjections::default();
         self.memory_directives.clear();
+        self.remembered_presentations.clear();
         self.applied_transition_revisions.clear();
+        self.retired_replica_filter.fill(0);
         self.stall = ReplicaStallState::Running;
         Ok(())
     }

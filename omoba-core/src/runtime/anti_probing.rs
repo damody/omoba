@@ -83,6 +83,33 @@ impl SecureInputValidationSnapshot {
             replica_mapping_exists: actor_record.is_some() && target_record.is_some(),
         })
     }
+
+    /// Validates the opaque replica references and only then resolves them at
+    /// the authoritative edge. Canonical IDs never cross back to the client.
+    pub fn validate_and_resolve(
+        &self,
+        authenticated_team: u32,
+        input_tick: u64,
+        actor: SecureTargetReference,
+        target: SecureTargetReference,
+    ) -> Result<(u64, u64), GeneralizedInputRejection> {
+        self.validate(authenticated_team, input_tick, actor, target)?;
+        let view = self
+            .teams
+            .get(&authenticated_team)
+            .ok_or(GeneralizedInputRejection::InvalidTarget)?;
+        let actor = view
+            .replicas
+            .get(&actor.replica_id)
+            .ok_or(GeneralizedInputRejection::InvalidTarget)?
+            .canonical_id;
+        let target = view
+            .replicas
+            .get(&target.replica_id)
+            .ok_or(GeneralizedInputRejection::InvalidTarget)?
+            .canonical_id;
+        Ok((actor, target))
+    }
 }
 
 pub fn validate_secure_target(
@@ -149,7 +176,6 @@ pub const PLAYER_SAFE_DIAGNOSTIC_FIELDS: &[&str] = &[
     "frame_sequence",
     "replica_tick",
     "reason_class",
-    "safe_component_path",
     "queue_depth",
     "audit_lag_ticks",
 ];
@@ -254,6 +280,19 @@ impl AdminDiagnosticTransport {
     }
 }
 
+pub fn opaque_match_team_id(match_instance_id: &[u8], team_id: u32) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(b"omoba/admin-diagnostic/v1");
+    digest.update(match_instance_id);
+    digest.update(team_id.to_be_bytes());
+    let value = digest.finalize();
+    value[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 fn constant_time_eq(left: &[u8; 32], right: &[u8; 32]) -> bool {
     left.iter()
         .zip(right)
@@ -274,6 +313,9 @@ pub struct SelectiveSecurityMetrics {
     pub redaction_violation_count: AtomicU64,
     pub reveal_burst_bytes: AtomicU64,
     pub rebase_burst_bytes: AtomicU64,
+    pub outbound_blocking_wait_ns: AtomicU64,
+    pub outbound_deadline_miss_count: AtomicU64,
+    pub outbound_watchdog_timeout_count: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -289,6 +331,9 @@ pub struct SelectiveSecurityMetricsSnapshot {
     pub redaction_violation_count: u64,
     pub reveal_burst_bytes: u64,
     pub rebase_burst_bytes: u64,
+    pub outbound_blocking_wait_ns: u64,
+    pub outbound_deadline_miss_count: u64,
+    pub outbound_watchdog_timeout_count: u64,
 }
 
 impl SelectiveSecurityMetrics {
@@ -306,6 +351,9 @@ impl SelectiveSecurityMetrics {
             redaction_violation_count: load(&self.redaction_violation_count),
             reveal_burst_bytes: load(&self.reveal_burst_bytes),
             rebase_burst_bytes: load(&self.rebase_burst_bytes),
+            outbound_blocking_wait_ns: load(&self.outbound_blocking_wait_ns),
+            outbound_deadline_miss_count: load(&self.outbound_deadline_miss_count),
+            outbound_watchdog_timeout_count: load(&self.outbound_watchdog_timeout_count),
         }
     }
 }

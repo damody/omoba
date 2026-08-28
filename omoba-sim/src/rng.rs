@@ -43,6 +43,21 @@ impl SimRng {
         self.0.next_u64()
     }
 
+    /// Selects a value from the single `master_seed + tick` stream using a
+    /// stable request ordinal. The ordinal is a cursor, never seed material.
+    pub fn from_master_ordinal(master_seed: u64, tick: u32, ordinal: u64) -> Self {
+        let mut rng = Self::from_master(master_seed, tick);
+        rng.advance(u128::from(ordinal));
+        rng
+    }
+
+    /// Moves within the stream derived only from `master_seed + tick`.
+    /// Callers use a stable request ordinal instead of adding entity/system
+    /// identifiers to the seed.
+    pub fn advance(&mut self, delta: u128) {
+        self.0.advance(delta);
+    }
+
     /// Returns an integer in `[low, high)`, biased slightly toward lower values when
     /// `(high-low)` is not a power of 2 (modulo bias). Acceptable for game math —
     /// upgrade to widening multiply if pure uniformity is ever needed.

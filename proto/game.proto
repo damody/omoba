@@ -670,6 +670,7 @@ message TeamGameStart {
   FilteredTeamSnapshot filtered_snapshot = 15;
   repeated DeterministicMetadata public_metadata = 16;
   repeated DeterministicMetadata team_private_metadata = 17;
+  uint64 global_seed = 18;
 }
 
 message RevealEntity {
@@ -832,6 +833,16 @@ message ClientTeamHashMismatch {
   ViewEpoch view_epoch = 5;
 }
 
+message ClientReplicaCheckpointReport {
+  uint32 team_id = 1;
+  uint64 frame_sequence = 2;
+  uint64 replica_tick = 3;
+  AuthorityRevision authority_revision = 4;
+  ViewEpoch view_epoch = 5;
+  bytes pre_repair_hash = 6;
+  bytes post_repair_hash = 7;
+}
+
 message TeamRebaseAck {
   uint32 team_id = 1;
   uint64 resume_team_sequence = 2;
@@ -864,6 +875,142 @@ message SecureTargetInputResult {
   // Empty on success; every validation failure uses exactly INVALID_TARGET.
   string rejection_class = 3;
 }
+
+// Loopback-only renderer IPC. These messages deliberately use replica-safe
+// render IDs and never expose canonical Specs entity IDs.
+message RendererIpcEnvelope {
+  fixed32 magic = 1;
+  uint32 protocol_version = 2;
+  uint64 sequence = 3;
+  oneof payload {
+    RuntimeReadyPresentation runtime_ready = 10;
+    TeamPresentationSnapshot snapshot = 11;
+    CriticalInputResult critical_input_result = 12;
+    RuntimeSessionState session_state = 13;
+    RendererInput renderer_input = 20;
+    RendererReady renderer_ready = 21;
+    RendererConsumed renderer_consumed = 22;
+    RendererShutdown renderer_shutdown = 23;
+  }
+}
+
+message RuntimeReadyPresentation {
+  uint32 player_id = 1;
+  uint32 team_id = 2;
+  uint64 authoritative_tick = 3;
+  uint64 replica_tick = 4;
+  string content_hash = 5;
+}
+
+message PresentationComponent {
+  uint32 schema_id = 1;
+  bytes safe_payload = 2;
+}
+
+message PresentationRenderEntity {
+  uint64 render_id = 1;
+  uint64 disclosure_epoch = 2;
+  uint32 entity_kind = 3;
+  repeated PresentationComponent components = 4;
+}
+
+message RememberedGhostPresentation {
+  uint64 render_id = 1;
+  uint64 disclosure_epoch = 2;
+  bytes sanitized_presentation = 3;
+}
+
+message FogTilePresentation {
+  sint32 column = 1;
+  sint32 row = 2;
+  bool visible = 3;
+}
+
+message VisionCirclePresentation {
+  sint64 x_raw = 1;
+  sint64 y_raw = 2;
+  sint64 radius_raw = 3;
+}
+
+message TreeOccluderPresentation {
+  sint64 x_raw = 1;
+  sint64 y_raw = 2;
+  sint64 radius_raw = 3;
+}
+
+message PolygonPointPresentation {
+  sint64 x_raw = 1;
+  sint64 y_raw = 2;
+}
+
+message PolygonOccluderPresentation {
+  repeated PolygonPointPresentation points = 1;
+}
+
+message PresentationEffect {
+  uint64 effect_id = 1;
+  bytes safe_payload = 2;
+}
+
+message TeamPresentationSnapshot {
+  uint32 team_id = 1;
+  uint64 authoritative_tick = 2;
+  uint64 replica_tick = 3;
+  uint64 visibility_digest = 4;
+  repeated PresentationRenderEntity entities = 5;
+  repeated uint64 removed_render_ids = 6;
+  repeated RememberedGhostPresentation remembered_ghosts = 7;
+  repeated FogTilePresentation fog_tiles = 8;
+  repeated VisionCirclePresentation vision_circles = 9;
+  repeated TreeOccluderPresentation tree_occluders = 10;
+  repeated PolygonOccluderPresentation polygon_occluders = 11;
+  repeated PresentationEffect effects = 12;
+  repeated PresentationEffect audio_cues = 13;
+  uint64 view_epoch = 14;
+}
+
+message CriticalInputResult {
+  uint64 request_id = 1;
+  uint32 input_id = 2;
+  bool accepted = 3;
+  string result_code = 4;
+  uint64 authoritative_tick = 5;
+}
+
+message RuntimeSessionState {
+  enum State {
+    STARTING = 0;
+    READY = 1;
+    STALLED = 2;
+    SERVER_DISCONNECTED = 3;
+    TERMINATED = 4;
+  }
+  State state = 1;
+  string safe_reason = 2;
+}
+
+message MoveToIntent { sint64 x_raw = 1; sint64 y_raw = 2; }
+message AttackMoveIntent { sint64 x_raw = 1; sint64 y_raw = 2; }
+message AbilityCastIntent { uint32 ability_index = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
+message ItemUseIntent { uint32 item_slot = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
+message TowerActionIntent { uint32 action_kind = 1; uint64 tower_render_id = 2; uint32 tower_kind_id = 3; uint32 path = 4; uint32 level = 5; sint64 x_raw = 6; sint64 y_raw = 7; }
+
+message RendererInput {
+  uint64 request_id = 1;
+  uint32 player_id = 2;
+  uint64 disclosure_epoch = 3;
+  oneof intent {
+    MoveToIntent move_to = 10;
+    AttackMoveIntent attack_move = 11;
+    AbilityCastIntent ability_cast = 12;
+    ItemUseIntent item_use = 13;
+    TowerActionIntent tower_action = 14;
+  }
+}
+
+message RendererReady { uint64 latest_snapshot_sequence = 1; }
+message RendererConsumed { uint64 snapshot_sequence = 1; }
+message RendererShutdown { bool graceful = 1; }
 
 message TeamViewRebaseChunk {
   uint32 protocol_version = 1;

@@ -5,11 +5,11 @@ use omoba_core::runtime::*;
 use omoba_sim::{Fixed64, Vec2};
 
 fn main() -> Result<(), String> {
-    let team_id = 7;
+    let team_id = 1;
     let tick = 41;
     let canonical_id = (3u64 << 32) | 19;
     let mut projector = TeamViewProjector::new(team_id, TeamProjectorConfig::default());
-    let start = projector.build_team_game_start(tick, 120);
+    let start = projector.build_team_game_start(tick, 120, 1);
     let mut client = SelectiveReplicaRuntime::bootstrap_from_team_game_start(
         &start,
         BTreeSet::new(),
@@ -51,12 +51,18 @@ fn main() -> Result<(), String> {
     if !matches!(result, FrameApplyResult::Applied { .. }) || client.world().entities.len() != 1 {
         return Err("synthetic client did not apply the first filtered team frame".into());
     }
+    let checkpoint_hash: String = client
+        .canonical_team_hash()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     println!(
-        "phase4-filtered-join-smoke ok team={} join_tick={} frame_sequence={} disclosed_entities={} acceptance=false",
+        "phase4-filtered-join-smoke ok team={} join_tick={} frame_sequence={} disclosed_entities={} checkpoint_hash={} acceptance=false",
         team_id,
         start.replica_start_tick,
         frame.frame.team_sequence,
         client.world().entities.len(),
+        checkpoint_hash,
     );
     Ok(())
 }

@@ -1,16 +1,15 @@
-//! Non-blocking in-process observer replicas. This module intentionally has no
-//! Specs `World` or canonical identity type in its API.
-
-use std::collections::{BTreeMap, BTreeSet};
+//! Match-owned Team 1 and Team 2 observer replicas.
+use crate::game_proto::{TeamGameStart, TeamTickFrame};
+use crate::runtime::{FrameApplyResult, SelectiveReplicaRuntime, SpecsDisclosedWorldStepper};
+use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
+use prost::Message;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
-use crossbeam_channel::{bounded, Receiver, Sender, TrySendError};
-use prost::Message;
-
-use crate::game_proto::{TeamGameStart, TeamTickFrame};
-use crate::runtime::{FrameApplyResult, NoopDisclosedWorldStepper, SelectiveReplicaRuntime};
+pub const SUPPORTED_REPLICA_TEAMS: [u32; 2] = [1, 2];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CoverageGap {
@@ -24,28 +23,109 @@ pub struct ObserverMismatch {
     pub team_id: u32,
     pub frame_sequence: u64,
     pub replica_tick: u64,
+    pub authority_revision: u64,
+    pub first_divergent_tick: u64,
     pub expected_hash: [u8; 32],
     pub observed_hash: [u8; 32],
+    pub post_repair_hash: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ReplicaCheckpointKey {
+    pub team_id: u32,
+    pub replica_tick: u64,
+    pub team_sequence: u64,
+    pub authority_revision: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ObserverCheckpointReport {
+    pub key: ReplicaCheckpointKey,
+    pub expected_hash: [u8; 32],
+    pub observer_pre_repair_hash: [u8; 32],
+    pub observer_post_repair_hash: [u8; 32],
 }
 
 enum ValidationMessage {
-    Bootstrap {
-        encoded: Arc<[u8]>,
-    },
+    Bootstrap(Arc<[u8]>),
     Frame {
-        team_id: u32,
         sequence: u64,
         replica_tick: u64,
         encoded: Arc<[u8]>,
     },
-    EndTeam {
-        team_id: u32,
-    },
+    EndTeam,
     Shutdown,
 }
 
 #[derive(Default)]
+pub struct TeamObserverMetrics {
+    pub current_replica_tick: AtomicU64,
+    pub queue_depth: AtomicUsize,
+    pub lag_ticks: AtomicU64,
+    pub coverage_gap_count: AtomicU64,
+    pub verified_frame_count: AtomicU64,
+    pub verified_through_sequence: AtomicU64,
+    pub pre_repair_mismatch_count: AtomicU64,
+    pub step_samples_ns: Mutex<Vec<u64>>,
+    pub script_phase_samples_ns: Mutex<Vec<u64>>,
+    pub rebootstrap_count: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DurationPercentilesNs {
+    pub p50: u64,
+    pub p95: u64,
+    pub p99: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValidationCoverageStatus {
+    VerifiedThrough(u64),
+    UnverifiedGap { first_sequence: u64 },
+}
+
+impl TeamObserverMetrics {
+    pub fn step_percentiles(&self) -> DurationPercentilesNs {
+        percentiles(&self.step_samples_ns.lock().expect("samples mutex"))
+    }
+
+    pub fn script_percentiles(&self) -> DurationPercentilesNs {
+        percentiles(
+            &self
+                .script_phase_samples_ns
+                .lock()
+                .expect("script samples mutex"),
+        )
+    }
+}
+
+const MAX_DURATION_SAMPLES: usize = 4096;
+
+fn record_duration(samples: &Mutex<Vec<u64>>, value: u64) {
+    let mut samples = samples.lock().expect("duration samples mutex");
+    if samples.len() == MAX_DURATION_SAMPLES {
+        samples.drain(..MAX_DURATION_SAMPLES / 2);
+    }
+    samples.push(value);
+}
+
+fn percentiles(samples: &[u64]) -> DurationPercentilesNs {
+    if samples.is_empty() {
+        return DurationPercentilesNs::default();
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let at = |percent: usize| sorted[((sorted.len() - 1) * percent) / 100];
+    DurationPercentilesNs {
+        p50: at(50),
+        p95: at(95),
+        p99: at(99),
+    }
+}
+
+#[derive(Default)]
 pub struct ObserverValidationMetrics {
+    pub teams: BTreeMap<u32, Arc<TeamObserverMetrics>>,
     pub queue_depth: AtomicUsize,
     pub audit_lag_ticks: AtomicU64,
     pub coverage_gap_count: AtomicU64,
@@ -55,193 +135,353 @@ pub struct ObserverValidationMetrics {
 
 #[derive(Clone)]
 pub struct ObserverValidationTap {
-    tx: Sender<ValidationMessage>,
+    senders: Arc<BTreeMap<u32, Sender<ValidationMessage>>>,
     pub metrics: Arc<ObserverValidationMetrics>,
     gaps: Arc<Mutex<Vec<CoverageGap>>>,
 }
 
 impl ObserverValidationTap {
     pub fn try_bootstrap(&self, encoded: Arc<[u8]>) {
-        self.try_send(ValidationMessage::Bootstrap { encoded }, None);
+        if let Ok(start) = TeamGameStart::decode(encoded.as_ref()) {
+            self.try_send(start.team_id, ValidationMessage::Bootstrap(encoded), None);
+        }
     }
-
     pub fn try_frame(&self, team_id: u32, sequence: u64, replica_tick: u64, encoded: Arc<[u8]>) {
         self.try_send(
+            team_id,
             ValidationMessage::Frame {
-                team_id,
                 sequence,
                 replica_tick,
                 encoded,
             },
-            Some((team_id, sequence)),
+            Some(sequence),
         );
     }
-
     pub fn end_team(&self, team_id: u32) {
-        self.try_send(ValidationMessage::EndTeam { team_id }, None);
+        self.try_send(team_id, ValidationMessage::EndTeam, None);
     }
-
-    fn try_send(&self, message: ValidationMessage, frame: Option<(u32, u64)>) {
-        match self.tx.try_send(message) {
-            Ok(()) => {
+    fn try_send(&self, team_id: u32, message: ValidationMessage, sequence: Option<u64>) {
+        let result = self.senders.get(&team_id).map(|tx| tx.try_send(message));
+        match result {
+            Some(Ok(())) => {
                 self.metrics.queue_depth.fetch_add(1, Ordering::Relaxed);
-            }
-            Err(TrySendError::Full(_)) => {
-                self.metrics
-                    .coverage_gap_count
-                    .fetch_add(1, Ordering::Relaxed);
-                if let Some((team_id, sequence)) = frame {
-                    self.gaps
-                        .lock()
-                        .expect("coverage gap mutex poisoned")
-                        .push(CoverageGap {
-                            team_id,
-                            first_unverified_sequence: sequence,
-                            observed_sequence: sequence,
-                        });
+                if let Some(team) = self.metrics.teams.get(&team_id) {
+                    team.queue_depth.fetch_add(1, Ordering::Relaxed);
                 }
             }
-            Err(TrySendError::Disconnected(_)) => {}
+            Some(Err(TrySendError::Full(_))) | Some(Err(TrySendError::Disconnected(_))) | None => {
+                record_gap(
+                    &self.gaps,
+                    &self.metrics,
+                    team_id,
+                    sequence.unwrap_or_default(),
+                )
+            }
         }
     }
-
     pub fn coverage_gaps(&self) -> Vec<CoverageGap> {
-        self.gaps
-            .lock()
-            .expect("coverage gap mutex poisoned")
-            .clone()
+        self.gaps.lock().expect("gap mutex").clone()
+    }
+    pub fn take_coverage_gaps(&self) -> Vec<CoverageGap> {
+        std::mem::take(&mut *self.gaps.lock().expect("gap mutex"))
     }
 
-    pub fn take_coverage_gaps(&self) -> Vec<CoverageGap> {
-        std::mem::take(&mut *self.gaps.lock().expect("coverage gap mutex poisoned"))
+    pub fn coverage_status(&self, team_id: u32) -> ValidationCoverageStatus {
+        if let Some(first) = self
+            .gaps
+            .lock()
+            .expect("gap mutex")
+            .iter()
+            .filter(|gap| gap.team_id == team_id)
+            .map(|gap| gap.first_unverified_sequence)
+            .min()
+        {
+            return ValidationCoverageStatus::UnverifiedGap {
+                first_sequence: first,
+            };
+        }
+        let verified = self.metrics.teams.get(&team_id).map_or(0, |team| {
+            team.verified_through_sequence.load(Ordering::Relaxed)
+        });
+        ValidationCoverageStatus::VerifiedThrough(verified)
     }
 }
 
+struct TeamWorkerHandle {
+    team_id: u32,
+    tx: Sender<ValidationMessage>,
+    handle: Option<JoinHandle<()>>,
+}
 pub struct ObserverValidationWorker {
     tap: ObserverValidationTap,
     mismatch_rx: Receiver<ObserverMismatch>,
-    handle: Option<JoinHandle<()>>,
+    checkpoint_rx: Receiver<ObserverCheckpointReport>,
+    workers: Vec<TeamWorkerHandle>,
 }
 
 impl ObserverValidationWorker {
     pub fn start(capacity: usize) -> Self {
-        let (tx, rx) = bounded(capacity.max(1));
         let (mismatch_tx, mismatch_rx) = bounded(capacity.max(1));
-        let metrics = Arc::new(ObserverValidationMetrics::default());
+        let (checkpoint_tx, checkpoint_rx) = bounded(capacity.max(1));
         let gaps = Arc::new(Mutex::new(Vec::new()));
-        let tap = ObserverValidationTap {
-            tx,
-            metrics: Arc::clone(&metrics),
-            gaps: Arc::clone(&gaps),
-        };
-        let handle = thread::Builder::new()
-            .name("selective-observer-validation".into())
-            .spawn(move || run_worker(rx, mismatch_tx, metrics, gaps))
-            .expect("observer validation worker spawn");
+        let mut value = ObserverValidationMetrics::default();
+        for id in SUPPORTED_REPLICA_TEAMS {
+            value
+                .teams
+                .insert(id, Arc::new(TeamObserverMetrics::default()));
+        }
+        let metrics = Arc::new(value);
+        let mut senders = BTreeMap::new();
+        let mut workers = Vec::new();
+        for team_id in SUPPORTED_REPLICA_TEAMS {
+            let (tx, rx) = bounded(capacity.max(1));
+            senders.insert(team_id, tx.clone());
+            let (mm, cp, met, gp) = (
+                mismatch_tx.clone(),
+                checkpoint_tx.clone(),
+                metrics.clone(),
+                gaps.clone(),
+            );
+            let handle = thread::Builder::new()
+                .name(format!("team-replica-{team_id}"))
+                .spawn(move || run_team_worker(team_id, rx, mm, cp, met, gp))
+                .expect("team worker spawn");
+            workers.push(TeamWorkerHandle {
+                team_id,
+                tx,
+                handle: Some(handle),
+            });
+        }
         Self {
-            tap,
+            tap: ObserverValidationTap {
+                senders: Arc::new(senders),
+                metrics,
+                gaps,
+            },
             mismatch_rx,
-            handle: Some(handle),
+            checkpoint_rx,
+            workers,
         }
     }
-
     pub fn tap(&self) -> ObserverValidationTap {
         self.tap.clone()
     }
     pub fn try_recv_mismatch(&self) -> Option<ObserverMismatch> {
         self.mismatch_rx.try_recv().ok()
     }
+    pub fn try_recv_checkpoint(&self) -> Option<ObserverCheckpointReport> {
+        self.checkpoint_rx.try_recv().ok()
+    }
+    pub fn unverified_worker_teams(&self) -> Vec<u32> {
+        self.workers
+            .iter()
+            .filter_map(|worker| {
+                worker
+                    .handle
+                    .as_ref()
+                    .is_some_and(JoinHandle::is_finished)
+                    .then_some(worker.team_id)
+            })
+            .collect()
+    }
 }
 
 impl Drop for ObserverValidationWorker {
     fn drop(&mut self) {
-        let _ = self.tap.tx.send(ValidationMessage::Shutdown);
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+        for worker in &self.workers {
+            let _ = worker.tx.send(ValidationMessage::Shutdown);
+        }
+        for worker in &mut self.workers {
+            if let Some(handle) = worker.handle.take() {
+                if handle.join().is_err() {
+                    log::error!("team-replica-{} panicked", worker.team_id);
+                }
+            }
         }
     }
 }
 
-fn run_worker(
+fn run_team_worker(
+    team_id: u32,
     rx: Receiver<ValidationMessage>,
     mismatch_tx: Sender<ObserverMismatch>,
+    checkpoint_tx: Sender<ObserverCheckpointReport>,
     metrics: Arc<ObserverValidationMetrics>,
     gaps: Arc<Mutex<Vec<CoverageGap>>>,
 ) {
-    let mut observers: BTreeMap<u32, SelectiveReplicaRuntime> = BTreeMap::new();
-    let mut latest_seen_tick = 0u64;
+    let mut runtime = None;
+    let mut stepper: Option<SpecsDisclosedWorldStepper> = None;
+    let mut latest_tick = 0;
     while let Ok(message) = rx.recv() {
-        let _ = metrics
+        metrics
             .queue_depth
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |depth| {
-                Some(depth.saturating_sub(1))
-            });
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                Some(v.saturating_sub(1))
+            })
+            .ok();
+        if let Some(team) = metrics.teams.get(&team_id) {
+            team.queue_depth
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                    Some(v.saturating_sub(1))
+                })
+                .ok();
+        }
         match message {
             ValidationMessage::Shutdown => break,
-            ValidationMessage::EndTeam { team_id } => {
-                observers.remove(&team_id);
+            ValidationMessage::EndTeam => {
+                runtime = None;
+                stepper = None;
             }
-            ValidationMessage::Bootstrap { encoded } => {
+            ValidationMessage::Bootstrap(encoded) => {
                 let Ok(start) = TeamGameStart::decode(encoded.as_ref()) else {
                     continue;
                 };
-                if let Ok(runtime) = SelectiveReplicaRuntime::bootstrap_from_team_game_start(
+                if start.team_id != team_id {
+                    record_gap(&gaps, &metrics, team_id, 0);
+                    continue;
+                }
+                let allow = crate::runtime::secure_replica_component_allowlist();
+                let replacing_existing = runtime.is_some();
+                if let Ok(next) = SelectiveReplicaRuntime::bootstrap_from_team_game_start(
                     &start,
-                    BTreeSet::from([crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID]),
-                    BTreeSet::new(),
+                    allow.clone(),
+                    crate::runtime::secure_replica_resource_allowlist(),
                 ) {
-                    observers.insert(start.team_id, runtime);
+                    let specs_result = if let Some(mut existing) = stepper.take() {
+                        existing
+                            .rebootstrap(
+                                &start,
+                                allow,
+                                crate::runtime::secure_replica_resource_allowlist(),
+                                next.world(),
+                            )
+                            .map(|_| existing)
+                    } else {
+                        let mut created = SpecsDisclosedWorldStepper::from_start(
+                            &start,
+                            allow,
+                            crate::runtime::secure_replica_resource_allowlist(),
+                        );
+                        created.bootstrap_membership(next.world()).map(|_| created)
+                    };
+                    let Ok(specs) = specs_result else {
+                        record_gap(&gaps, &metrics, team_id, 0);
+                        continue;
+                    };
+                    stepper = Some(specs);
+                    runtime = Some(next);
+                    if replacing_existing {
+                        if let Some(team) = metrics.teams.get(&team_id) {
+                            team.rebootstrap_count.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
                 }
             }
             ValidationMessage::Frame {
-                team_id,
                 sequence,
                 replica_tick,
                 encoded,
             } => {
-                latest_seen_tick = latest_seen_tick.max(replica_tick);
-                let Some(observer) = observers.get_mut(&team_id) else {
-                    record_gap(&gaps, &metrics, team_id, sequence, sequence);
+                latest_tick = latest_tick.max(replica_tick);
+                let (Some(replica), Some(specs)) = (runtime.as_mut(), stepper.as_mut()) else {
+                    record_gap(&gaps, &metrics, team_id, sequence);
                     continue;
                 };
                 let Ok(frame) = TeamTickFrame::decode(encoded.as_ref()) else {
-                    observers.remove(&team_id);
-                    record_gap(&gaps, &metrics, team_id, sequence, sequence);
+                    runtime = None;
+                    stepper = None;
+                    record_gap(&gaps, &metrics, team_id, sequence);
                     continue;
                 };
+                if frame.team_id != team_id {
+                    record_gap(&gaps, &metrics, team_id, sequence);
+                    continue;
+                }
                 let expected = frame
                     .post_step
                     .as_ref()
-                    .and_then(|post| post.hash_checkpoint.as_ref())
-                    .and_then(|checkpoint| {
-                        <[u8; 32]>::try_from(checkpoint.canonical_team_hash.as_slice()).ok()
-                    });
-                let mut stepper = NoopDisclosedWorldStepper;
-                match observer.apply_frame(frame, &mut stepper) {
-                    Ok(FrameApplyResult::Applied { team_hash, .. }) => {
+                    .and_then(|p| p.hash_checkpoint.as_ref())
+                    .and_then(|h| <[u8; 32]>::try_from(h.canonical_team_hash.as_slice()).ok());
+                let revision = frame.authority_revision.as_ref().map_or(0, |r| r.value);
+                let started = Instant::now();
+                match replica.apply_frame(frame, specs) {
+                    Ok(FrameApplyResult::Applied {
+                        pre_repair_observed_hash,
+                        post_repair_hash,
+                        ..
+                    }) => {
                         metrics.verified_frame_count.fetch_add(1, Ordering::Relaxed);
                         metrics
                             .verified_through_sequence
                             .lock()
-                            .expect("coverage mutex poisoned")
+                            .expect("verified mutex")
                             .insert(team_id, sequence);
-                        metrics.audit_lag_ticks.store(
-                            latest_seen_tick.saturating_sub(replica_tick),
-                            Ordering::Relaxed,
-                        );
-                        if let Some(expected_hash) = expected.filter(|hash| hash != &team_hash) {
+                        metrics
+                            .audit_lag_ticks
+                            .store(latest_tick.saturating_sub(replica_tick), Ordering::Relaxed);
+                        if let Some(team) = metrics.teams.get(&team_id) {
+                            team.current_replica_tick
+                                .store(replica_tick, Ordering::Relaxed);
+                            team.verified_frame_count.fetch_add(1, Ordering::Relaxed);
+                            team.verified_through_sequence
+                                .store(sequence, Ordering::Relaxed);
+                            team.lag_ticks
+                                .store(latest_tick.saturating_sub(replica_tick), Ordering::Relaxed);
+                            record_duration(
+                                &team.step_samples_ns,
+                                started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
+                            );
+                            record_duration(
+                                &team.script_phase_samples_ns,
+                                specs.last_script_phase_ns,
+                            );
+                        }
+                        if let Some(expected_hash) = expected {
+                            let _ = checkpoint_tx.try_send(ObserverCheckpointReport {
+                                key: ReplicaCheckpointKey {
+                                    team_id,
+                                    replica_tick,
+                                    team_sequence: sequence,
+                                    authority_revision: revision,
+                                },
+                                expected_hash,
+                                observer_pre_repair_hash: pre_repair_observed_hash,
+                                observer_post_repair_hash: post_repair_hash,
+                            });
+                            if expected_hash == post_repair_hash {
+                                continue;
+                            }
+                            if let Some(team) = metrics.teams.get(&team_id) {
+                                team.pre_repair_mismatch_count
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
                             let _ = mismatch_tx.try_send(ObserverMismatch {
                                 team_id,
                                 frame_sequence: sequence,
                                 replica_tick,
+                                authority_revision: revision,
+                                first_divergent_tick: replica_tick,
                                 expected_hash,
-                                observed_hash: team_hash,
+                                observed_hash: post_repair_hash,
+                                post_repair_hash,
                             });
                         }
                     }
-                    _ => {
-                        observers.remove(&team_id);
-                        record_gap(&gaps, &metrics, team_id, sequence, sequence);
+                    Ok(FrameApplyResult::Duplicate) => {
+                        // A bootstrap and the concurrently queued live frame may
+                        // cover the same committed sequence. This is benign and
+                        // must not trigger authority recovery/rebootstrap.
+                    }
+                    other => {
+                        log::warn!(
+                            "team replica validation stopped team={} sequence={} result={:?}",
+                            team_id,
+                            sequence,
+                            other
+                        );
+                        runtime = None;
+                        stepper = None;
+                        record_gap(&gaps, &metrics, team_id, sequence);
                     }
                 }
             }
@@ -253,15 +493,145 @@ fn record_gap(
     gaps: &Mutex<Vec<CoverageGap>>,
     metrics: &ObserverValidationMetrics,
     team_id: u32,
-    first: u64,
-    observed: u64,
+    sequence: u64,
 ) {
     metrics.coverage_gap_count.fetch_add(1, Ordering::Relaxed);
-    gaps.lock()
-        .expect("coverage gap mutex poisoned")
-        .push(CoverageGap {
-            team_id,
-            first_unverified_sequence: first,
-            observed_sequence: observed,
+    if let Some(team) = metrics.teams.get(&team_id) {
+        team.coverage_gap_count.fetch_add(1, Ordering::Relaxed);
+    }
+    gaps.lock().expect("gap mutex").push(CoverageGap {
+        team_id,
+        first_unverified_sequence: sequence,
+        observed_sequence: sequence,
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::{ProjectionDependencyGraph, TeamProjectorConfig, TeamViewProjector};
+    use std::collections::BTreeSet;
+    use std::time::{Duration, Instant};
+
+    fn wait_until(mut predicate: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !predicate() {
+            assert!(Instant::now() < deadline, "observer fixture timed out");
+            std::thread::yield_now();
+        }
+    }
+
+    fn bootstrap_and_frame(team_id: u32, tick: u64) -> (Arc<[u8]>, Arc<[u8]>) {
+        let mut projector = TeamViewProjector::new(team_id, TeamProjectorConfig::default());
+        let start: Arc<[u8]> =
+            Arc::from(projector.build_team_game_start(0, 120, 77).encode_to_vec());
+        let frame: Arc<[u8]> = Arc::from(
+            projector
+                .build_frame(
+                    tick,
+                    tick,
+                    &BTreeSet::new(),
+                    Vec::new(),
+                    &[],
+                    &ProjectionDependencyGraph::default(),
+                )
+                .unwrap()
+                .wire_bytes,
+        );
+        (start, frame)
+    }
+
+    #[test]
+    fn one_team_rebootstrap_does_not_reset_other_team_progress() {
+        let worker = ObserverValidationWorker::start(16);
+        let tap = worker.tap();
+        let (start1, frame1) = bootstrap_and_frame(1, 0);
+        let (start2, frame2) = bootstrap_and_frame(2, 0);
+        tap.try_bootstrap(start1.clone());
+        tap.try_bootstrap(start2);
+        tap.try_frame(1, 0, 0, frame1);
+        tap.try_frame(2, 0, 0, frame2);
+        wait_until(|| tap.metrics.verified_frame_count.load(Ordering::Relaxed) >= 2);
+        let team2_before = tap.metrics.teams[&2]
+            .verified_through_sequence
+            .load(Ordering::Relaxed);
+        tap.try_bootstrap(start1);
+        wait_until(|| {
+            tap.metrics.teams[&1]
+                .rebootstrap_count
+                .load(Ordering::Relaxed)
+                == 1
         });
+        assert_eq!(
+            tap.metrics.teams[&2]
+                .verified_through_sequence
+                .load(Ordering::Relaxed),
+            team2_before
+        );
+        assert_eq!(
+            tap.metrics.teams[&2]
+                .rebootstrap_count
+                .load(Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[test]
+    fn corrupt_team_one_frame_marks_only_team_one_unverified() {
+        let worker = ObserverValidationWorker::start(8);
+        let tap = worker.tap();
+        let (start1, _) = bootstrap_and_frame(1, 0);
+        let (start2, frame2) = bootstrap_and_frame(2, 0);
+        tap.try_bootstrap(start1);
+        tap.try_bootstrap(start2);
+        tap.try_frame(1, 0, 0, Arc::from(&b"corrupt"[..]));
+        tap.try_frame(2, 0, 0, frame2);
+        wait_until(|| !tap.coverage_gaps().is_empty());
+        wait_until(|| {
+            tap.metrics.teams[&2]
+                .verified_frame_count
+                .load(Ordering::Relaxed)
+                == 1
+        });
+        assert!(matches!(
+            tap.coverage_status(1),
+            ValidationCoverageStatus::UnverifiedGap { .. }
+        ));
+        assert_eq!(
+            tap.coverage_status(2),
+            ValidationCoverageStatus::VerifiedThrough(0)
+        );
+    }
+
+    #[test]
+    fn full_team_queue_records_exact_unverified_sequence() {
+        let (tx, _rx) = bounded(1);
+        let mut senders = BTreeMap::new();
+        senders.insert(1, tx);
+        let mut metrics = ObserverValidationMetrics::default();
+        metrics
+            .teams
+            .insert(1, Arc::new(TeamObserverMetrics::default()));
+        let tap = ObserverValidationTap {
+            senders: Arc::new(senders),
+            metrics: Arc::new(metrics),
+            gaps: Arc::new(Mutex::new(Vec::new())),
+        };
+        tap.try_frame(1, 10, 10, Arc::from(&b"first"[..]));
+        tap.try_frame(1, 11, 11, Arc::from(&b"overflow"[..]));
+        assert_eq!(
+            tap.coverage_gaps(),
+            vec![CoverageGap {
+                team_id: 1,
+                first_unverified_sequence: 11,
+                observed_sequence: 11,
+            }]
+        );
+        assert_eq!(
+            tap.metrics.teams[&1]
+                .verified_frame_count
+                .load(Ordering::Relaxed),
+            0
+        );
+    }
 }

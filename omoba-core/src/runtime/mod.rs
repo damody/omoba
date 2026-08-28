@@ -9,11 +9,17 @@ pub mod anti_probing;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod authority_recovery;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod filtered_specs;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod observer_validation;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod production_guards;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod projection_policy;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod secure_replica_contract;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -26,6 +32,8 @@ pub mod selective_replica;
 pub mod stable_fact;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_projector;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod team_replica_contract_tests;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_stream;
 #[cfg(not(target_arch = "wasm32"))]
@@ -36,12 +44,16 @@ pub use anti_probing::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use authority_recovery::*;
 #[cfg(not(target_arch = "wasm32"))]
+pub use filtered_specs::*;
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(unused_imports)]
 pub use native::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use observer_validation::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use projection_policy::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use secure_replica_contract::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use selective::*;
 #[cfg(not(target_arch = "wasm32"))]

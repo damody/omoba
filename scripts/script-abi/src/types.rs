@@ -23,7 +23,10 @@ impl ProjectionPolicyId {
     pub const ABI_VERSION: u16 = 1;
 
     pub fn new(value: impl Into<RString>) -> Self {
-        Self { abi_version: Self::ABI_VERSION, value: value.into() }
+        Self {
+            abi_version: Self::ABI_VERSION,
+            value: value.into(),
+        }
     }
 }
 

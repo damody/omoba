@@ -973,6 +973,8 @@ pub struct TeamGameStart {
     pub public_metadata: ::prost::alloc::vec::Vec<DeterministicMetadata>,
     #[prost(message, repeated, tag = "17")]
     pub team_private_metadata: ::prost::alloc::vec::Vec<DeterministicMetadata>,
+    #[prost(uint64, tag = "18")]
+    pub global_seed: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevealEntity {
@@ -1246,6 +1248,23 @@ pub struct ClientTeamHashMismatch {
     #[prost(message, optional, tag = "5")]
     pub view_epoch: ::core::option::Option<ViewEpoch>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ClientReplicaCheckpointReport {
+    #[prost(uint32, tag = "1")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub frame_sequence: u64,
+    #[prost(uint64, tag = "3")]
+    pub replica_tick: u64,
+    #[prost(message, optional, tag = "4")]
+    pub authority_revision: ::core::option::Option<AuthorityRevision>,
+    #[prost(message, optional, tag = "5")]
+    pub view_epoch: ::core::option::Option<ViewEpoch>,
+    #[prost(bytes = "vec", tag = "6")]
+    pub pre_repair_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "7")]
+    pub post_repair_hash: ::prost::alloc::vec::Vec<u8>,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TeamRebaseAck {
     #[prost(uint32, tag = "1")]
@@ -1295,6 +1314,324 @@ pub struct SecureTargetInputResult {
     /// Empty on success; every validation failure uses exactly INVALID_TARGET.
     #[prost(string, tag = "3")]
     pub rejection_class: ::prost::alloc::string::String,
+}
+/// Loopback-only renderer IPC. These messages deliberately use replica-safe
+/// render IDs and never expose canonical Specs entity IDs.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RendererIpcEnvelope {
+    #[prost(fixed32, tag = "1")]
+    pub magic: u32,
+    #[prost(uint32, tag = "2")]
+    pub protocol_version: u32,
+    #[prost(uint64, tag = "3")]
+    pub sequence: u64,
+    #[prost(
+        oneof = "renderer_ipc_envelope::Payload",
+        tags = "10, 11, 12, 13, 20, 21, 22, 23"
+    )]
+    pub payload: ::core::option::Option<renderer_ipc_envelope::Payload>,
+}
+/// Nested message and enum types in `RendererIpcEnvelope`.
+pub mod renderer_ipc_envelope {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Payload {
+        #[prost(message, tag = "10")]
+        RuntimeReady(super::RuntimeReadyPresentation),
+        #[prost(message, tag = "11")]
+        Snapshot(super::TeamPresentationSnapshot),
+        #[prost(message, tag = "12")]
+        CriticalInputResult(super::CriticalInputResult),
+        #[prost(message, tag = "13")]
+        SessionState(super::RuntimeSessionState),
+        #[prost(message, tag = "20")]
+        RendererInput(super::RendererInput),
+        #[prost(message, tag = "21")]
+        RendererReady(super::RendererReady),
+        #[prost(message, tag = "22")]
+        RendererConsumed(super::RendererConsumed),
+        #[prost(message, tag = "23")]
+        RendererShutdown(super::RendererShutdown),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RuntimeReadyPresentation {
+    #[prost(uint32, tag = "1")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "2")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub authoritative_tick: u64,
+    #[prost(uint64, tag = "4")]
+    pub replica_tick: u64,
+    #[prost(string, tag = "5")]
+    pub content_hash: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresentationComponent {
+    #[prost(uint32, tag = "1")]
+    pub schema_id: u32,
+    #[prost(bytes = "vec", tag = "2")]
+    pub safe_payload: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresentationRenderEntity {
+    #[prost(uint64, tag = "1")]
+    pub render_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub disclosure_epoch: u64,
+    #[prost(uint32, tag = "3")]
+    pub entity_kind: u32,
+    #[prost(message, repeated, tag = "4")]
+    pub components: ::prost::alloc::vec::Vec<PresentationComponent>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RememberedGhostPresentation {
+    #[prost(uint64, tag = "1")]
+    pub render_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub disclosure_epoch: u64,
+    #[prost(bytes = "vec", tag = "3")]
+    pub sanitized_presentation: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct FogTilePresentation {
+    #[prost(sint32, tag = "1")]
+    pub column: i32,
+    #[prost(sint32, tag = "2")]
+    pub row: i32,
+    #[prost(bool, tag = "3")]
+    pub visible: bool,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct VisionCirclePresentation {
+    #[prost(sint64, tag = "1")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "2")]
+    pub y_raw: i64,
+    #[prost(sint64, tag = "3")]
+    pub radius_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TreeOccluderPresentation {
+    #[prost(sint64, tag = "1")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "2")]
+    pub y_raw: i64,
+    #[prost(sint64, tag = "3")]
+    pub radius_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct PolygonPointPresentation {
+    #[prost(sint64, tag = "1")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "2")]
+    pub y_raw: i64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PolygonOccluderPresentation {
+    #[prost(message, repeated, tag = "1")]
+    pub points: ::prost::alloc::vec::Vec<PolygonPointPresentation>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PresentationEffect {
+    #[prost(uint64, tag = "1")]
+    pub effect_id: u64,
+    #[prost(bytes = "vec", tag = "2")]
+    pub safe_payload: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TeamPresentationSnapshot {
+    #[prost(uint32, tag = "1")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub authoritative_tick: u64,
+    #[prost(uint64, tag = "3")]
+    pub replica_tick: u64,
+    #[prost(uint64, tag = "4")]
+    pub visibility_digest: u64,
+    #[prost(message, repeated, tag = "5")]
+    pub entities: ::prost::alloc::vec::Vec<PresentationRenderEntity>,
+    #[prost(uint64, repeated, tag = "6")]
+    pub removed_render_ids: ::prost::alloc::vec::Vec<u64>,
+    #[prost(message, repeated, tag = "7")]
+    pub remembered_ghosts: ::prost::alloc::vec::Vec<RememberedGhostPresentation>,
+    #[prost(message, repeated, tag = "8")]
+    pub fog_tiles: ::prost::alloc::vec::Vec<FogTilePresentation>,
+    #[prost(message, repeated, tag = "9")]
+    pub vision_circles: ::prost::alloc::vec::Vec<VisionCirclePresentation>,
+    #[prost(message, repeated, tag = "10")]
+    pub tree_occluders: ::prost::alloc::vec::Vec<TreeOccluderPresentation>,
+    #[prost(message, repeated, tag = "11")]
+    pub polygon_occluders: ::prost::alloc::vec::Vec<PolygonOccluderPresentation>,
+    #[prost(message, repeated, tag = "12")]
+    pub effects: ::prost::alloc::vec::Vec<PresentationEffect>,
+    #[prost(message, repeated, tag = "13")]
+    pub audio_cues: ::prost::alloc::vec::Vec<PresentationEffect>,
+    #[prost(uint64, tag = "14")]
+    pub view_epoch: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CriticalInputResult {
+    #[prost(uint64, tag = "1")]
+    pub request_id: u64,
+    #[prost(uint32, tag = "2")]
+    pub input_id: u32,
+    #[prost(bool, tag = "3")]
+    pub accepted: bool,
+    #[prost(string, tag = "4")]
+    pub result_code: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "5")]
+    pub authoritative_tick: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RuntimeSessionState {
+    #[prost(enumeration = "runtime_session_state::State", tag = "1")]
+    pub state: i32,
+    #[prost(string, tag = "2")]
+    pub safe_reason: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `RuntimeSessionState`.
+pub mod runtime_session_state {
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        PartialEq,
+        Eq,
+        Hash,
+        PartialOrd,
+        Ord,
+        ::prost::Enumeration
+    )]
+    #[repr(i32)]
+    pub enum State {
+        Starting = 0,
+        Ready = 1,
+        Stalled = 2,
+        ServerDisconnected = 3,
+        Terminated = 4,
+    }
+    impl State {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Self::Starting => "STARTING",
+                Self::Ready => "READY",
+                Self::Stalled => "STALLED",
+                Self::ServerDisconnected => "SERVER_DISCONNECTED",
+                Self::Terminated => "TERMINATED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "STARTING" => Some(Self::Starting),
+                "READY" => Some(Self::Ready),
+                "STALLED" => Some(Self::Stalled),
+                "SERVER_DISCONNECTED" => Some(Self::ServerDisconnected),
+                "TERMINATED" => Some(Self::Terminated),
+                _ => None,
+            }
+        }
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct MoveToIntent {
+    #[prost(sint64, tag = "1")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "2")]
+    pub y_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AttackMoveIntent {
+    #[prost(sint64, tag = "1")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "2")]
+    pub y_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AbilityCastIntent {
+    #[prost(uint32, tag = "1")]
+    pub ability_index: u32,
+    #[prost(uint64, tag = "2")]
+    pub target_render_id: u64,
+    #[prost(sint64, tag = "3")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "4")]
+    pub y_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ItemUseIntent {
+    #[prost(uint32, tag = "1")]
+    pub item_slot: u32,
+    #[prost(uint64, tag = "2")]
+    pub target_render_id: u64,
+    #[prost(sint64, tag = "3")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "4")]
+    pub y_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct TowerActionIntent {
+    #[prost(uint32, tag = "1")]
+    pub action_kind: u32,
+    #[prost(uint64, tag = "2")]
+    pub tower_render_id: u64,
+    #[prost(uint32, tag = "3")]
+    pub tower_kind_id: u32,
+    #[prost(uint32, tag = "4")]
+    pub path: u32,
+    #[prost(uint32, tag = "5")]
+    pub level: u32,
+    #[prost(sint64, tag = "6")]
+    pub x_raw: i64,
+    #[prost(sint64, tag = "7")]
+    pub y_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RendererInput {
+    #[prost(uint64, tag = "1")]
+    pub request_id: u64,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub disclosure_epoch: u64,
+    #[prost(oneof = "renderer_input::Intent", tags = "10, 11, 12, 13, 14")]
+    pub intent: ::core::option::Option<renderer_input::Intent>,
+}
+/// Nested message and enum types in `RendererInput`.
+pub mod renderer_input {
+    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    pub enum Intent {
+        #[prost(message, tag = "10")]
+        MoveTo(super::MoveToIntent),
+        #[prost(message, tag = "11")]
+        AttackMove(super::AttackMoveIntent),
+        #[prost(message, tag = "12")]
+        AbilityCast(super::AbilityCastIntent),
+        #[prost(message, tag = "13")]
+        ItemUse(super::ItemUseIntent),
+        #[prost(message, tag = "14")]
+        TowerAction(super::TowerActionIntent),
+    }
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RendererReady {
+    #[prost(uint64, tag = "1")]
+    pub latest_snapshot_sequence: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RendererConsumed {
+    #[prost(uint64, tag = "1")]
+    pub snapshot_sequence: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RendererShutdown {
+    #[prost(bool, tag = "1")]
+    pub graceful: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TeamViewRebaseChunk {

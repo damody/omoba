@@ -96,9 +96,13 @@ pub fn run_script_dispatch(
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let mut event_outcomes = Vec::new();
         let mut visual_events = Vec::new();
-        for ev in events {
+        for (event_ordinal, ev) in events.into_iter().enumerate() {
             let invocation_entity = event_invocation_entity(&ev);
-            let mut adapter = ParallelWorldAdapter::new(&cache, invocation_entity);
+            let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
+                &cache,
+                invocation_entity,
+                event_ordinal as u64,
+            );
             dispatch_one(&mut adapter, registry, ev, rng_seed, &mut visual_events);
             event_outcomes.extend(adapter.finish());
         }
@@ -133,13 +137,18 @@ pub fn run_script_dispatch(
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let results: Vec<_> = tagged
             .par_iter()
-            .map(|(ent, uid)| {
+            .enumerate()
+            .map(|(tagged_ordinal, (ent, uid))| {
                 let Some(script) = registry.get(uid) else {
                     return None;
                 };
                 let handle = ParallelWorldAdapter::entity_to_handle(*ent);
                 let t = Instant::now();
-                let mut adapter = ParallelWorldAdapter::new(&cache, *ent);
+                let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
+                    &cache,
+                    *ent,
+                    event_count as u64 + tagged_ordinal as u64,
+                );
                 let mut cooldown_adapter = ParallelTowerCooldownAccess::new(&cache);
                 let mut world_dyn = world_dyn_of(&mut adapter);
                 let mut cooldown_dyn = cooldown_dyn_of(&mut cooldown_adapter);
@@ -969,7 +978,8 @@ pub fn drain_pending_tower_ability_callbacks(
     let mut cancellations = Vec::new();
     let mut missing_towers = Vec::new();
 
-    for activation in activations {
+    let pulse_random_base = activations.len() as u64;
+    for (activation_ordinal, activation) in activations.into_iter().enumerate() {
         match tower_ability_record_status(
             cache.tower.get(activation.entity),
             &activation.ability_id,
@@ -997,7 +1007,11 @@ pub fn drain_pending_tower_ability_callbacks(
             continue;
         };
         let (unit_id, script) = script;
-        let mut adapter = ParallelWorldAdapter::new(&cache, activation.entity);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
+            &cache,
+            activation.entity,
+            activation_ordinal as u64,
+        );
         let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
         let handle = ParallelWorldAdapter::entity_to_handle(activation.entity);
         let mut world_dyn = world_dyn_of(&mut adapter);
@@ -1022,7 +1036,7 @@ pub fn drain_pending_tower_ability_callbacks(
         reset_outcomes.extend(access_adapter.finish());
     }
 
-    for pulse in pulses {
+    for (pulse_ordinal, pulse) in pulses.into_iter().enumerate() {
         match tower_ability_record_status(
             cache.tower.get(pulse.entity),
             &pulse.ability_id,
@@ -1042,7 +1056,11 @@ pub fn drain_pending_tower_ability_callbacks(
             continue;
         };
         let (unit_id, script) = script;
-        let mut adapter = ParallelWorldAdapter::new(&cache, pulse.entity);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
+            &cache,
+            pulse.entity,
+            pulse_random_base + pulse_ordinal as u64,
+        );
         let access_adapter = ParallelTowerActiveAbilityAccess::new(&cache);
         let handle = ParallelWorldAdapter::entity_to_handle(pulse.entity);
         let mut world_dyn = world_dyn_of(&mut adapter);

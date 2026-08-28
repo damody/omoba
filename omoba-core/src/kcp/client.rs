@@ -128,6 +128,11 @@ pub struct KcpClient {
 /// 每個事件的廣播可以量化。
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
+    SecureTargetInputResult {
+        msg: SecureTargetInputResult,
+        wire_bytes: usize,
+        logical_bytes: usize,
+    },
     TeamGameStart {
         msg: TeamGameStart,
         wire_bytes: usize,
@@ -661,6 +666,27 @@ impl KcpClient {
                                     }
                                 }
                             }
+                            TAG_SECURE_TARGET_INPUT_RESULT_V2 => {
+                                let logical_bytes = payload.len();
+                                match SecureTargetInputResult::decode(payload.as_slice()) {
+                                    Ok(msg) => {
+                                        if lockstep_tx
+                                            .send(LockstepInbound::SecureTargetInputResult {
+                                                msg,
+                                                wire_bytes: wire_compressed_bytes,
+                                                logical_bytes,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
+                                            break;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        warn!("Failed to decode SecureTargetInputResult: {}", error)
+                                    }
+                                }
+                            }
                             TAG_PING_RESP => {
                                 let logical_bytes = payload.len();
                                 match PingResponse::decode(payload.as_slice()) {
@@ -905,6 +931,21 @@ impl KcpClient {
     pub async fn report_team_hash_mismatch(&self, report: &ClientTeamHashMismatch) -> Result<()> {
         let mut writer = self.writer.lock().await;
         write_framed_msg(&mut *writer, TAG_CLIENT_TEAM_HASH_MISMATCH_V2, report).await?;
+        Ok(())
+    }
+
+    pub async fn report_replica_checkpoint(
+        &self,
+        report: &ClientReplicaCheckpointReport,
+    ) -> Result<()> {
+        let mut writer = self.writer.lock().await;
+        write_framed_msg(&mut *writer, TAG_CLIENT_REPLICA_CHECKPOINT_V2, report).await?;
+        Ok(())
+    }
+
+    pub async fn submit_secure_target(&self, request: &SecureTargetInput) -> Result<()> {
+        let mut writer = self.writer.lock().await;
+        write_framed_msg(&mut *writer, TAG_SECURE_TARGET_INPUT_V2, request).await?;
         Ok(())
     }
 

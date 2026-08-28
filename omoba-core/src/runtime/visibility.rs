@@ -17,6 +17,16 @@ use crate::runtime::{OrderedFact, OrderedOutput, StableOutputError};
 use specs::{Join, World, WorldExt};
 
 pub const DEMO_RENDER_COMPONENT_SCHEMA_ID: u32 = 0x464f4701;
+pub const DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID: u32 = 0x464f4702;
+pub const DISCLOSED_DEMO_PATROL_COMPONENT_SCHEMA_ID: u32 = 0x464f4704;
+pub const DISCLOSED_HERO_COMPONENT_SCHEMA_ID: u32 = 0x464f4705;
+pub const DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID: u32 = 0x464f4706;
+pub const DISCLOSED_FACING_COMPONENT_SCHEMA_ID: u32 = 0x464f4707;
+pub const DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID: u32 = 0x464f4708;
+pub const DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID: u32 = 0x464f4709;
+pub const DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID: u32 = 0x464f470a;
+pub const DISCLOSED_TOWER_COMPONENT_SCHEMA_ID: u32 = 0x464f470b;
+pub const DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID: u32 = 0x464f470c;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DemoRenderState {
@@ -50,12 +60,39 @@ pub fn decode_demo_render_state(bytes: &[u8]) -> Option<DemoRenderState> {
     })
 }
 
-fn encode_component_baseline(schema_id: u32, value: &[u8]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(12 + value.len());
-    bytes.extend_from_slice(&1u32.to_be_bytes());
-    bytes.extend_from_slice(&schema_id.to_be_bytes());
-    bytes.extend_from_slice(&(value.len() as u32).to_be_bytes());
-    bytes.extend_from_slice(value);
+fn encode_disclosed_baseline(components: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&(components.len() as u32).to_be_bytes());
+    for (schema_id, value) in components {
+        bytes.extend_from_slice(&schema_id.to_be_bytes());
+        bytes.extend_from_slice(&(value.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(value);
+    }
+    bytes
+}
+
+pub fn encode_disclosed_property(property: &crate::runtime::CProperty) -> Vec<u8> {
+    [
+        property.hp.raw(),
+        property.mhp.raw(),
+        property.msd.raw(),
+        property.def_physic.raw(),
+        property.def_magic.raw(),
+    ]
+    .into_iter()
+    .flat_map(i64::to_be_bytes)
+    .collect()
+}
+
+pub fn encode_disclosed_demo_patrol(patrol: &crate::runtime::DemoPatrol) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(45);
+    bytes.extend_from_slice(&patrol.stable_index.to_be_bytes());
+    bytes.extend_from_slice(&patrol.endpoint_a.x.raw().to_be_bytes());
+    bytes.extend_from_slice(&patrol.endpoint_a.y.raw().to_be_bytes());
+    bytes.extend_from_slice(&patrol.endpoint_b.x.raw().to_be_bytes());
+    bytes.extend_from_slice(&patrol.endpoint_b.y.raw().to_be_bytes());
+    bytes.push(u8::from(patrol.target_b));
+    bytes.extend_from_slice(&patrol.speed_per_tick.raw().to_be_bytes());
     bytes
 }
 
@@ -474,6 +511,7 @@ pub struct TeamVisibilityRuntime {
     pub last_transitions: BTreeMap<u32, Vec<VisibilityTransition>>,
     pub latest_owner_by_canonical: BTreeMap<u64, Option<u32>>,
     pub latest_demo_render_by_canonical: BTreeMap<u64, Vec<u8>>,
+    pub latest_disclosed_baseline_by_canonical: BTreeMap<u64, Vec<u8>>,
 }
 
 impl TeamVisibilityRuntime {
@@ -497,6 +535,15 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let units = world.read_storage::<Unit>();
     let heroes = world.read_storage::<Hero>();
     let owners = world.read_storage::<PlayerOwner>();
+    let properties = world.read_storage::<CProperty>();
+    let patrols = world.read_storage::<DemoPatrol>();
+    let attacks = world.read_storage::<crate::runtime::TAttack>();
+    let facings = world.read_storage::<crate::runtime::Facing>();
+    let turn_speeds = world.read_storage::<crate::runtime::TurnSpeed>();
+    let collision_radii = world.read_storage::<crate::runtime::CollisionRadius>();
+    let inventories = world.read_storage::<crate::runtime::Inventory>();
+    let towers = world.read_storage::<crate::runtime::Tower>();
+    let script_tags = world.read_storage::<crate::runtime::ScriptUnitTag>();
 
     let mut committed_entities: Vec<_> = (&entities, &positions)
         .join()
@@ -523,10 +570,52 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 },
                 owner_player_id: owners.get(entity).map_or(0, |owner| owner.player_id),
             };
-            let baseline = encode_component_baseline(
+            let mut disclosed = vec![(
                 DEMO_RENDER_COMPONENT_SCHEMA_ID,
-                &encode_demo_render_state(render_state),
+                encode_demo_render_state(render_state),
+            )];
+            if let Some(property) = properties.get(entity) {
+                disclosed.push((
+                    DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,
+                    encode_disclosed_property(property),
+                ));
+            }
+            if let Some(patrol) = patrols.get(entity) {
+                disclosed.push((
+                    DISCLOSED_DEMO_PATROL_COMPONENT_SCHEMA_ID,
+                    encode_disclosed_demo_patrol(patrol),
+                ));
+            }
+            macro_rules! disclose_json {
+                ($storage:expr, $schema:expr) => {
+                    if let Some(value) = $storage.get(entity) {
+                        disclosed.push((
+                            $schema,
+                            serde_json::to_vec(value).expect("safe disclosed component"),
+                        ));
+                    }
+                };
+            }
+            disclose_json!(heroes, DISCLOSED_HERO_COMPONENT_SCHEMA_ID);
+            disclose_json!(attacks, DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID);
+            disclose_json!(facings, DISCLOSED_FACING_COMPONENT_SCHEMA_ID);
+            disclose_json!(turn_speeds, DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID);
+            disclose_json!(
+                collision_radii,
+                DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID
             );
+            disclose_json!(inventories, DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID);
+            disclose_json!(script_tags, DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID);
+            if let Some(tower) = towers.get(entity) {
+                let mut safe = tower.clone();
+                safe.nearby_creeps.clear();
+                safe.block_creeps.clear();
+                disclosed.push((
+                    DISCLOSED_TOWER_COMPONENT_SCHEMA_ID,
+                    serde_json::to_vec(&safe).expect("safe tower component"),
+                ));
+            }
+            let baseline = encode_disclosed_baseline(&disclosed);
             CommittedEntityView {
                 canonical_id,
                 team,
@@ -582,12 +671,6 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
 /// Called only after Wave A outcome/fact reduction and `World::maintain`.
 pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64) {
     let view = build_wave_b_read_view(world, tick);
-    let discovered_teams: BTreeSet<_> = view
-        .entities
-        .iter()
-        .map(|entity| entity.team)
-        .chain(view.vision_sources.iter().map(|source| source.team))
-        .collect();
     let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
     runtime.latest_owner_by_canonical = view
         .entities
@@ -599,14 +682,23 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
         .iter()
         .filter_map(|entity| {
             (entity.disclosed_baseline.len() >= 12).then(|| {
+                let len = u32::from_be_bytes(entity.disclosed_baseline[8..12].try_into().unwrap())
+                    as usize;
                 (
                     entity.canonical_id,
-                    entity.disclosed_baseline[12..].to_vec(),
+                    entity.disclosed_baseline[12..12 + len].to_vec(),
                 )
             })
         })
         .collect();
-    for team in discovered_teams {
+    runtime.latest_disclosed_baseline_by_canonical = view
+        .entities
+        .iter()
+        .map(|entity| (entity.canonical_id, entity.disclosed_baseline.clone()))
+        .collect();
+    // This game mode is intentionally fixed to the two opposing LoL-style
+    // teams. Neutral faction 0 never receives a disclosure stream.
+    for team in crate::runtime::SUPPORTED_REPLICA_TEAMS {
         runtime.ensure_team(team);
     }
     let mut states: Vec<_> = std::mem::take(&mut runtime.teams).into_values().collect();

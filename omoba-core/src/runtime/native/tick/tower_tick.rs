@@ -318,13 +318,11 @@ fn decide_tower_tick(
                     }
                 }
             } else if matches!(attack_phase, AttackPhaseStep::Ready) && near_creeps.is_empty() {
-                let mut rng = omoba_sim::SimRng::from_master_entity(
-                    tr.master_seed,
-                    tr.tick,
-                    e.id(),
-                    OP_TOWER_NO_TARGET_JITTER,
+                let ordinal = (u64::from(e.id()) << 16) | u64::from(OP_TOWER_NO_TARGET_JITTER);
+                let jitter = Fixed64::from_raw(
+                    (crate::runtime::tick_random_u64(tr.master_seed, u64::from(tr.tick), ordinal)
+                        % 256) as i64,
                 );
-                let jitter = Fixed64::from_raw((rng.next_u32() % 256) as i64);
                 atk.asd_count = atk.asd.val() - Fixed64::from_raw(307) - jitter;
             }
         }

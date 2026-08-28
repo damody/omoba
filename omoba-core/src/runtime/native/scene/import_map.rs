@@ -47,6 +47,8 @@ pub struct FogDemoJD {
     pub OriginY: f32,
     pub VisionRadius: f32,
     pub RememberPolicy: String,
+    #[serde(default)]
+    pub LastKnownIndexes: Vec<usize>,
     pub GridUnitTemplate: String,
     pub HeroTemplate: String,
     pub HeroSpawns: Vec<FogDemoHeroSpawnJD>,
@@ -65,6 +67,7 @@ impl Default for FogDemoJD {
             OriginY: 0.0,
             VisionRadius: 0.0,
             RememberPolicy: String::new(),
+            LastKnownIndexes: Vec::new(),
             GridUnitTemplate: String::new(),
             HeroTemplate: String::new(),
             HeroSpawns: Vec::new(),
@@ -149,6 +152,16 @@ impl FogDemoJD {
             return Err(format!(
                 "FogDemo PatrolIndexes must be 16 unique values in 0..100, got {:?}",
                 self.PatrolIndexes
+            ));
+        }
+        let last_known: std::collections::BTreeSet<_> =
+            self.LastKnownIndexes.iter().copied().collect();
+        if last_known.len() != self.LastKnownIndexes.len()
+            || last_known.iter().any(|index| *index >= GRID_UNITS)
+        {
+            return Err(format!(
+                "FogDemo LastKnownIndexes must be unique values in 0..100, got {:?}",
+                self.LastKnownIndexes
             ));
         }
         if self.GridUnitTemplate.trim().is_empty() || self.HeroTemplate.trim().is_empty() {

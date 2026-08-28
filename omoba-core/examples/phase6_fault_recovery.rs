@@ -135,7 +135,7 @@ fn main() -> Result<(), String> {
     );
 
     let mut projector = TeamViewProjector::new(TEAM, TeamProjectorConfig::default());
-    let start = projector.build_team_game_start(10, 120);
+    let start = projector.build_team_game_start(10, 120, 1);
     check!(
         "player-rejoin-filtered-bootstrap",
         SelectiveReplicaRuntime::bootstrap_from_team_game_start(
@@ -163,7 +163,7 @@ fn main() -> Result<(), String> {
         "component-repair-recovery",
         matches!(
             repair.drain_actions(TEAM).first(),
-            Some(RecoveryAction::ComponentRepair(_))
+            Some(RecoveryAction::ComponentRepair { .. })
         )
     );
     repair.report_component_divergence(

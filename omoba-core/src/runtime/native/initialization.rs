@@ -789,6 +789,7 @@ impl StateInitializer {
             .find(|entry| entry.id == demo.HeroTemplate)
             .unwrap_or_else(|| panic!("FogDemo unknown hero template '{}'", demo.HeroTemplate));
         let patrols: BTreeSet<_> = demo.PatrolIndexes.iter().copied().collect();
+        let last_known: BTreeSet<_> = demo.LastKnownIndexes.iter().copied().collect();
         let speed_per_tick = Fixed64::from_raw(
             (demo.PatrolSpeed * omoba_sim::fixed::SCALE as f32
                 / crate::lockstep_timing::LOCKSTEP_TPS as f32) as i64,
@@ -841,7 +842,9 @@ impl StateInitializer {
                     owner_team: (team_id != 0).then_some(team_id as u32),
                 })
                 .with(RememberPolicy {
-                    disposition: if demo.RememberPolicy == "Forget" {
+                    disposition: if last_known.contains(&index) {
+                        RememberDisposition::LastKnown
+                    } else if demo.RememberPolicy == "Forget" {
                         RememberDisposition::Forget
                     } else {
                         RememberDisposition::LastKnown
@@ -922,8 +925,8 @@ impl StateInitializer {
         }
         assert_eq!(team_counts, [34, 33, 33]);
         log::info!(
-            "FOG_2TEAM_DEMO ready grid=100 heroes=2 teams=33/33/34 patrols=16 vision_radius={}",
-            demo.VisionRadius
+            "FOG_2TEAM_DEMO ready grid=100 heroes=2 teams=33/33/34 patrols=16 last_known={} vision_radius={}",
+            last_known.len(), demo.VisionRadius
         );
     }
 

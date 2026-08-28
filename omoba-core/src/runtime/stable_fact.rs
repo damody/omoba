@@ -42,6 +42,8 @@ pub enum FactKind {
     Item = 10,
     Hud = 11,
     Terminal = 12,
+    Collision = 13,
+    Random = 14,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -132,6 +134,17 @@ pub enum ObservableFact {
     Terminal {
         result_code: u32,
         winning_team: Option<u32>,
+    },
+    Collision {
+        source: u64,
+        target: u64,
+        x_raw: i64,
+        y_raw: i64,
+    },
+    RandomOutcome {
+        source: u64,
+        target: u64,
+        value: u64,
     },
 }
 

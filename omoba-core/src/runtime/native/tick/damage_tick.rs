@@ -198,10 +198,13 @@ fn calculate_damage(
 
     // 檢查閃避 — Phase 1c.3: deterministic SimRng stream per (victim, OP_DODGE)
     if damage_inst.damage_flags.can_dodge && dodge_chance > Fixed64::ZERO {
-        let mut dodge_rng =
-            omoba_sim::SimRng::from_master_entity(master_seed, tick, victim_id, OP_DODGE);
-        // gen_fixed64_unit 在 [0, 1) 中傳回固定64，在 [0, 1024) 中傳回原始資料。
-        let dodge_roll: Fixed64 = dodge_rng.gen_fixed64_unit();
+        let dodge_roll = Fixed64::from_raw(
+            (crate::runtime::tick_random_u64(
+                master_seed,
+                u64::from(tick),
+                (u64::from(victim_id) << 16) | u64::from(OP_DODGE),
+            ) % omoba_sim::fixed::SCALE as u64) as i64,
+        );
         if dodge_roll < dodge_chance {
             result.is_dodged = true;
             return result;
@@ -210,9 +213,13 @@ fn calculate_damage(
 
     // 檢查暴擊 — Phase 1c.3: deterministic SimRng stream per (attacker, OP_CRIT)
     if damage_inst.damage_flags.can_crit && crit_chance > Fixed64::ZERO {
-        let mut crit_rng =
-            omoba_sim::SimRng::from_master_entity(master_seed, tick, attacker_id, OP_CRIT);
-        let crit_roll: Fixed64 = crit_rng.gen_fixed64_unit();
+        let crit_roll = Fixed64::from_raw(
+            (crate::runtime::tick_random_u64(
+                master_seed,
+                u64::from(tick),
+                (u64::from(attacker_id) << 16) | u64::from(OP_CRIT),
+            ) % omoba_sim::fixed::SCALE as u64) as i64,
+        );
         if crit_roll < crit_chance {
             result.is_critical = true;
         }

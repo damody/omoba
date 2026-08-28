@@ -4,7 +4,54 @@ use crate::game_proto::{
     AuthorityRevision, ComponentRepair, DisclosureEpoch, EntityReplace, ReplicaEntityId,
     TeamViewRebaseNotice, ViewEpoch,
 };
-use crate::runtime::{ObserverMismatch, SafeMismatchMetadata};
+use crate::runtime::{
+    ObserverCheckpointReport, ObserverMismatch, ReplicaCheckpointKey, SafeMismatchMetadata,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientCheckpointReport {
+    pub key: ReplicaCheckpointKey,
+    pub pre_repair_hash: [u8; 32],
+    pub post_repair_hash: [u8; 32],
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ThreeWayCheckpoint {
+    pub expected_hash: Option<[u8; 32]>,
+    pub observer_hash: Option<[u8; 32]>,
+    pub client_hash: Option<[u8; 32]>,
+    pub parity: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CheckpointVerdict {
+    Pass,
+    Fail,
+    Unverified,
+}
+
+impl ThreeWayCheckpoint {
+    pub fn verdict(&self) -> CheckpointVerdict {
+        match self.parity {
+            Some(true) => CheckpointVerdict::Pass,
+            Some(false) => CheckpointVerdict::Fail,
+            None => CheckpointVerdict::Unverified,
+        }
+    }
+}
+
+fn update_three_way_parity(checkpoint: &mut ThreeWayCheckpoint) {
+    checkpoint.parity = match (
+        checkpoint.expected_hash,
+        checkpoint.observer_hash,
+        checkpoint.client_hash,
+    ) {
+        (Some(expected), Some(observer), Some(client)) => {
+            Some(expected == observer && expected == client)
+        }
+        _ => None,
+    };
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MismatchControl {
@@ -52,7 +99,10 @@ pub struct ComponentDifference {
 
 #[derive(Clone, Debug)]
 pub enum RecoveryAction {
-    ComponentRepair(ComponentRepair),
+    ComponentRepair {
+        repair: ComponentRepair,
+        reason: AuthorityCorrectionReason,
+    },
     EntityReplace(EntityReplace),
     FilteredRebase {
         team_id: u32,
@@ -60,6 +110,11 @@ pub enum RecoveryAction {
         view_epoch: u64,
     },
     SafeTerminate(SafeTerminationDiagnostic),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AuthorityCorrectionReason {
+    MismatchRepair,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,16 +164,44 @@ pub struct AuthorityRepairCoordinator {
     pub replace_threshold: usize,
     pub rebase_threshold: usize,
     pub max_retries: u32,
+    pub max_consecutive_component_repairs: u32,
+    pub component_repair_count_by_team: BTreeMap<u32, u64>,
+    pub entity_replace_count_by_team: BTreeMap<u32, u64>,
+    pub filtered_rebase_count_by_team: BTreeMap<u32, u64>,
+    pub three_way_checkpoints: BTreeMap<ReplicaCheckpointKey, ThreeWayCheckpoint>,
 }
 
 impl AuthorityRepairCoordinator {
+    pub fn checkpoint_verdicts(&self) -> BTreeMap<ReplicaCheckpointKey, CheckpointVerdict> {
+        self.three_way_checkpoints
+            .iter()
+            .map(|(key, value)| (*key, value.verdict()))
+            .collect()
+    }
     pub fn configured() -> Self {
         Self {
             replace_threshold: 2,
             rebase_threshold: 8,
             max_retries: 3,
+            max_consecutive_component_repairs: 3,
+            component_repair_count_by_team: BTreeMap::new(),
+            entity_replace_count_by_team: BTreeMap::new(),
+            filtered_rebase_count_by_team: BTreeMap::new(),
             ..Self::default()
         }
+    }
+
+    pub fn report_observer_checkpoint(&mut self, report: ObserverCheckpointReport) {
+        let checkpoint = self.three_way_checkpoints.entry(report.key).or_default();
+        checkpoint.expected_hash = Some(report.expected_hash);
+        checkpoint.observer_hash = Some(report.observer_post_repair_hash);
+        update_three_way_parity(checkpoint);
+    }
+
+    pub fn report_client_checkpoint(&mut self, report: ClientCheckpointReport) {
+        let checkpoint = self.three_way_checkpoints.entry(report.key).or_default();
+        checkpoint.client_hash = Some(report.post_repair_hash);
+        update_three_way_parity(checkpoint);
     }
 
     fn allocate_revision(state: &mut TeamRecoveryState) -> u64 {
@@ -148,6 +231,20 @@ impl AuthorityRepairCoordinator {
             });
         }
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
+        if state.consecutive_failures > self.max_consecutive_component_repairs.max(1) {
+            state.pending.push_back(RecoveryAction::FilteredRebase {
+                team_id,
+                resume_sequence: frame_sequence.saturating_add(1),
+                view_epoch: 1,
+            });
+            state.staging_active = true;
+            self.rebase_count = self.rebase_count.saturating_add(1);
+            *self
+                .filtered_rebase_count_by_team
+                .entry(team_id)
+                .or_default() += 1;
+            return;
+        }
         if differences.len() >= self.rebase_threshold.max(1) {
             state.pending.push_back(RecoveryAction::FilteredRebase {
                 team_id,
@@ -156,6 +253,10 @@ impl AuthorityRepairCoordinator {
             });
             state.staging_active = true;
             self.rebase_count = self.rebase_count.saturating_add(1);
+            *self
+                .filtered_rebase_count_by_team
+                .entry(team_id)
+                .or_default() += 1;
             return;
         }
         if differences.len() >= self.replace_threshold.max(1) {
@@ -174,12 +275,16 @@ impl AuthorityRepairCoordinator {
                         authority_revision: Some(AuthorityRevision { value: revision }),
                         effective_tick: replica_tick.saturating_add(1),
                     }));
+                *self
+                    .entity_replace_count_by_team
+                    .entry(team_id)
+                    .or_default() += 1;
             }
         } else if let Some(difference) = differences.first() {
             let revision = Self::allocate_revision(state);
-            state
-                .pending
-                .push_back(RecoveryAction::ComponentRepair(ComponentRepair {
+            state.pending.push_back(RecoveryAction::ComponentRepair {
+                reason: AuthorityCorrectionReason::MismatchRepair,
+                repair: ComponentRepair {
                     replica_entity_id: Some(ReplicaEntityId {
                         value: difference.replica_id,
                     }),
@@ -191,13 +296,31 @@ impl AuthorityRepairCoordinator {
                     replacement_fields: difference.replacement_fields.clone(),
                     authority_revision: Some(AuthorityRevision { value: revision }),
                     effective_tick: replica_tick.saturating_add(1),
-                }));
+                },
+            });
+            *self
+                .component_repair_count_by_team
+                .entry(team_id)
+                .or_default() += 1;
         }
         self.repair_count = self.repair_count.saturating_add(1);
     }
 
     pub fn report_observer_mismatch(&mut self, mismatch: ObserverMismatch) {
         let state = self.teams.entry(mismatch.team_id).or_default();
+        if state.staging_active && state.consecutive_failures >= self.max_retries.max(1) {
+            state
+                .pending
+                .push_back(RecoveryAction::SafeTerminate(SafeTerminationDiagnostic {
+                    team_id: mismatch.team_id,
+                    last_safe_sequence: mismatch.frame_sequence.saturating_sub(1),
+                    reason_class: "observer-mismatch-after-rebase".to_owned(),
+                    safe_component_path: None,
+                    protocol_fallback_allowed: false,
+                }));
+            self.termination_count = self.termination_count.saturating_add(1);
+            return;
+        }
         state.pending.push_back(RecoveryAction::FilteredRebase {
             team_id: mismatch.team_id,
             resume_sequence: mismatch.frame_sequence.saturating_add(1),
@@ -206,6 +329,10 @@ impl AuthorityRepairCoordinator {
         state.staging_active = true;
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         self.rebase_count = self.rebase_count.saturating_add(1);
+        *self
+            .filtered_rebase_count_by_team
+            .entry(mismatch.team_id)
+            .or_default() += 1;
     }
 
     pub fn report_client_mismatch(&mut self, mismatch: ClientHashMismatch) {
@@ -218,6 +345,10 @@ impl AuthorityRepairCoordinator {
         state.staging_active = true;
         state.consecutive_failures = state.consecutive_failures.saturating_add(1);
         self.rebase_count = self.rebase_count.saturating_add(1);
+        *self
+            .filtered_rebase_count_by_team
+            .entry(mismatch.team_id)
+            .or_default() += 1;
     }
 
     pub fn report_coverage_gap(&mut self, team_id: u32, first_missing_sequence: u64) {
@@ -229,6 +360,10 @@ impl AuthorityRepairCoordinator {
         });
         state.staging_active = true;
         self.rebase_count = self.rebase_count.saturating_add(1);
+        *self
+            .filtered_rebase_count_by_team
+            .entry(team_id)
+            .or_default() += 1;
     }
 
     pub fn discard_interrupted_rebase(&mut self, team_id: u32) {
