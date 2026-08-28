@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: 批次檔可從任意工作目錄執行
-系統 SHALL 提供 `scripts/test_td_1_to_100.bat`，並以批次檔自身位置解析 repository 根目錄，不依賴呼叫端目前目錄。
+系統 SHALL 提供 `scripts/test_td_1_to_100.lua`，並以腳本自身位置解析 repository 根目錄，不依賴呼叫端目前目錄，且固定由 repository Lua 5.4 runtime 執行。
 
 #### Scenario: 從 repository 外部啟動
 - **WHEN** 使用者以完整或相對路徑從其他工作目錄呼叫批次檔

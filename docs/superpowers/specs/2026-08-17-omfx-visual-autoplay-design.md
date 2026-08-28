@@ -9,7 +9,7 @@
 - 不新增第五個根目錄 `.bat`。
 - 不修改正式 KCP 120 Hz cadence 或網路 protocol。
 - 不要求每個 simulation tick 都渲染，也不保證動畫連續無跳幀。
-- 不取代 `scripts/test_td_1_to_100.bat` 的自動 pass/fail 測試用途。
+- 不取代 `scripts/test_td_1_to_100.lua` 的自動 pass/fail 測試用途。
 - 不在可視化模式自動關閉視窗；完成或失敗後保留最終畫面供檢查。
 
 ## 啟動介面

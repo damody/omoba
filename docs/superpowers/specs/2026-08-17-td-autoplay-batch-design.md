@@ -6,7 +6,7 @@
 
 ## 位置與介面
 
-- 檔案位置：`scripts/test_td_1_to_100.bat`
+- 檔案位置：`scripts/test_td_1_to_100.lua`
 - 呼叫方式：從任意工作目錄執行該批次檔，不接受額外參數。
 - 不新增根目錄 `.bat`，維持根目錄保留腳本限制。
 - 批次檔使用 CRLF 行尾。
@@ -28,6 +28,6 @@
 ## 驗證
 
 - 檢查檔案為 CRLF。
-- 從 repository 根目錄以 `cmd /c scripts\test_td_1_to_100.bat` 執行。
+- 從 repository 根目錄以 `D:\code\omoba\tools\lua\lua.exe scripts\test_td_1_to_100.lua` 執行。
 - 確認完整 1–100 關測試通過且批次檔回傳 exit code 0。
 - 確認沒有將 DLL、`target/`、log 或 failure report 加入版本控制。

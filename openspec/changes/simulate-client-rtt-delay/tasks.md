@@ -207,7 +207,7 @@
 
 ## 11. 建立delay scenario控制腳本
 
-目的：用PowerShell組合profile smoke、矩陣與soak，不新增根目錄`.sh`或`.bat`。主要檔案：`scripts/run_client_delay_scenario.ps1`。前置依賴：第8、10章。
+目的：用Lua組合profile smoke、矩陣與soak，不新增根目錄`.sh`或`.bat`。主要檔案：`scripts/run_client_delay_scenario.lua`。前置依賴：第8、10章。
 
 - [x] 11.1 新增scenario參數與合法值驗證
 - [x] 11.2 支援指定ordered或natural-reorder模式
@@ -230,7 +230,7 @@
 
 ## 12. 擴充整合evidence與verdict
 
-目的：把delay結果加入既有三程序安全verdict。主要檔案：`scripts/write_fog_run_manifest.ps1`、`scripts/compare_fog_evidence.ps1`。前置依賴：第9至11章。
+目的：把delay結果加入既有三程序安全verdict。主要檔案：`scripts/write_fog_run_manifest.lua`、`scripts/compare_fog_evidence.lua`。前置依賴：第9至11章。
 
 - [x] 12.1 在manifest新增可選proxy PID欄位
 - [x] 12.2 在manifest新增proxy binary path與SHA-256
