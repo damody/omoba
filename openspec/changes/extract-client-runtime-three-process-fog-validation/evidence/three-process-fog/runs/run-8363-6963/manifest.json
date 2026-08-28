@@ -1,0 +1,53 @@
+﻿{
+    "schema_version":  1,
+    "mode":  "visual",
+    "created_utc":  "2026-08-27T18:18:58.0387134Z",
+    "rustc":  "rustc 1.95.0 (59807616e 2026-04-14)",
+    "ports":  {
+                  "team_2_presentation":  "127.0.0.1:62002",
+                  "server":  "127.0.0.1:50061",
+                  "team_1_presentation":  "127.0.0.1:62001"
+              },
+    "processes":  [
+                      {
+                          "role":  "authoritative-server",
+                          "pid":  49608,
+                          "path":  "D:\\code\\omoba\\omb\\target\\debug\\omobab.exe",
+                          "sha256":  "be6fc9befeee6c42459b7a0d167208f16dda4683409d08332f514c5dfaea20a3",
+                          "team_id":  0,
+                          "player_id":  0
+                      },
+                      {
+                          "role":  "team-runtime",
+                          "pid":  31200,
+                          "path":  "D:\\code\\omoba\\omoba-client-runtime\\target\\debug\\omoba-client-runtime.exe",
+                          "sha256":  "d593a9fcfc5c1a09240c6f892c5339edaa1d4c29427baa07cff90a7f14f68a6a",
+                          "team_id":  1,
+                          "player_id":  1
+                      },
+                      {
+                          "role":  "team-runtime",
+                          "pid":  46040,
+                          "path":  "D:\\code\\omoba\\omoba-client-runtime\\target\\debug\\omoba-client-runtime.exe",
+                          "sha256":  "d593a9fcfc5c1a09240c6f892c5339edaa1d4c29427baa07cff90a7f14f68a6a",
+                          "team_id":  2,
+                          "player_id":  2
+                      },
+                      {
+                          "role":  "renderer",
+                          "pid":  62556,
+                          "path":  "D:\\code\\omoba\\omfx\\target\\debug\\executor.exe",
+                          "sha256":  "b3e87652703491c377b6aa1b72c0bfac4b3e405dc2e77fca19241d0bc02679a6",
+                          "team_id":  1,
+                          "player_id":  1
+                      },
+                      {
+                          "role":  "renderer",
+                          "pid":  34116,
+                          "path":  "D:\\code\\omoba\\omfx\\target\\debug\\executor.exe",
+                          "sha256":  "b3e87652703491c377b6aa1b72c0bfac4b3e405dc2e77fca19241d0bc02679a6",
+                          "team_id":  2,
+                          "player_id":  2
+                      }
+                  ]
+}

@@ -1,0 +1,29 @@
+   Compiling omoba-sim v0.1.0 (D:\code\omoba\omoba-sim)
+warning: function `validate_layer_catalog` is never used
+   --> D:\code\omoba\omoba-template-ids\src\td_rounds.rs:256:8
+    |
+256 | pub fn validate_layer_catalog() -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `REGROW` is never used
+  --> D:\code\omoba\omoba-template-ids\src\td_rounds.rs:22:15
+   |
+22 |     pub const REGROW: u32 = 1 << 1;
+   |               ^^^^^^
+
+warning: constant `FORTIFIED` is never used
+  --> D:\code\omoba\omoba-template-ids\src\td_rounds.rs:23:15
+   |
+23 |     pub const FORTIFIED: u32 = 1 << 2;
+   |               ^^^^^^^^^
+
+warning: `omoba-template-ids` (build script) generated 3 warnings
+   Compiling omoba-template-ids v0.1.0 (D:\code\omoba\omoba-template-ids)
+   Compiling omb-script-abi v0.1.0 (D:\code\omoba\scripts\script-abi)
+   Compiling omoba-core v0.1.0 (D:\code\omoba\omoba-core)
+    Finished `release` profile [optimized] target(s) in 29.94s
+     Running `omoba-core\target\release\examples\phase6_performance.exe --duration-seconds 1800 --entities 10000 --tick-rate 120`
+Error: "steady-state RSS growth exceeded 4 KiB/s"
+error: process didn't exit successfully: `omoba-core\target\release\examples\phase6_performance.exe --duration-seconds 1800 --entities 10000 --tick-rate 120` (exit code: 1)

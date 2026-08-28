@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "fixture": "omoba-core/examples/team_replica_fixture_hash.rs",
+  "rust_version": "1.95.0",
+  "windows": "38b64d9d6f472b6d1d1db7b80d4116bad9b3996569dfacfee5ded97f48669567",
+  "linux_wsl2_ubuntu_24_04": "38b64d9d6f472b6d1d1db7b80d4116bad9b3996569dfacfee5ded97f48669567",
+  "match": true
+}

@@ -1,0 +1,21 @@
+warning: function `validate_layer_catalog` is never used
+   --> D:\code\omoba\omoba-template-ids\src\td_rounds.rs:256:8
+    |
+256 | pub fn validate_layer_catalog() -> Result<(), String> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `REGROW` is never used
+  --> D:\code\omoba\omoba-template-ids\src\td_rounds.rs:22:15
+   |
+22 |     pub const REGROW: u32 = 1 << 1;
+   |               ^^^^^^
+
+warning: constant `FORTIFIED` is never used
+  --> D:\code\omoba\omoba-template-ids\src\td_rounds.rs:23:15
+   |
+23 |     pub const FORTIFIED: u32 = 1 << 2;
+   |               ^^^^^^^^^
+
+phase4-filtered-join-smoke ok team=1 join_tick=41 frame_sequence=1 disclosed_entities=1 checkpoint_hash=869ff527d094f3803a189f06d4293b8afcd6f1e94a6443259d37e12568d6a0e1 acceptance=false

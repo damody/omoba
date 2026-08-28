@@ -1,0 +1,170 @@
+﻿[
+    {
+        "team_id":  1,
+        "key":  "240:240",
+        "server_expected":  "d92a6d9dfe8799255587a0f14c9925c83ad55aaa201f0447faf2ca6a6abe33a5",
+        "external_runtime":  "d92a6d9dfe8799255587a0f14c9925c83ad55aaa201f0447faf2ca6a6abe33a5",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "360:360",
+        "server_expected":  "aca6168603636177991e207a77c2cc23df64e66eebdd8ac7a2716f26c90686b6",
+        "external_runtime":  "aca6168603636177991e207a77c2cc23df64e66eebdd8ac7a2716f26c90686b6",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "480:480",
+        "server_expected":  "d3c580148ea3cb77692f278d98bc4079cc9141b035147048132c25163b0c1564",
+        "external_runtime":  "d3c580148ea3cb77692f278d98bc4079cc9141b035147048132c25163b0c1564",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "600:600",
+        "server_expected":  "8fb3368bbde45218d7834a1e3daedbcc7f3978e9afd9f280facc940ae5d8ce5d",
+        "external_runtime":  "8fb3368bbde45218d7834a1e3daedbcc7f3978e9afd9f280facc940ae5d8ce5d",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "720:720",
+        "server_expected":  "e81dd06ddc0e3d18c48094b3c59790b9c7de18c7f67f941f7bc4c960b7224aea",
+        "external_runtime":  "e81dd06ddc0e3d18c48094b3c59790b9c7de18c7f67f941f7bc4c960b7224aea",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "840:840",
+        "server_expected":  "bb32fdd854b104842d9309c6f61eb76f08faec0a50d72eb4112a4676e8a14973",
+        "external_runtime":  "bb32fdd854b104842d9309c6f61eb76f08faec0a50d72eb4112a4676e8a14973",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "960:960",
+        "server_expected":  "7b0d3bcb038499f5a53fa6378d7cdbb7ca622d169a338c6433eded9e8ef9a205",
+        "external_runtime":  "7b0d3bcb038499f5a53fa6378d7cdbb7ca622d169a338c6433eded9e8ef9a205",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "1080:1080",
+        "server_expected":  "227aa7fb20a28c478b5730a8022ac2daa815df68bdb30ad38964959d418c1419",
+        "external_runtime":  "227aa7fb20a28c478b5730a8022ac2daa815df68bdb30ad38964959d418c1419",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "1200:1200",
+        "server_expected":  "ca8021e5fac2cae84df4307f9abb76360eb2f4967b90469c4c4f7fe3b2cfa433",
+        "external_runtime":  "ca8021e5fac2cae84df4307f9abb76360eb2f4967b90469c4c4f7fe3b2cfa433",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "1320:1320",
+        "server_expected":  "7ab95d74ff72e438986f93569d0eccc761c9d15a9caae20434396f70712e2c5f",
+        "external_runtime":  "7ab95d74ff72e438986f93569d0eccc761c9d15a9caae20434396f70712e2c5f",
+        "parity":  true
+    },
+    {
+        "team_id":  1,
+        "key":  "1440:1440",
+        "server_expected":  "6ba42591fa4f940652add6f1622799b9a7ea40a87e43d7ffa750d3f712bb8442",
+        "external_runtime":  "6ba42591fa4f940652add6f1622799b9a7ea40a87e43d7ffa750d3f712bb8442",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "360:360",
+        "server_expected":  "e4841f5dd32081cf72c41791624683ac950eb4401cf9b8f7ba2a7d96b81d122b",
+        "external_runtime":  "e4841f5dd32081cf72c41791624683ac950eb4401cf9b8f7ba2a7d96b81d122b",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "480:480",
+        "server_expected":  "0c9e167a06f6211912a3764d03e872dd77b1c7e24793653e7edb534dffcbf070",
+        "external_runtime":  "0c9e167a06f6211912a3764d03e872dd77b1c7e24793653e7edb534dffcbf070",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "600:600",
+        "server_expected":  "5e3423c8e2bab81c406259d00b88230183ed5937e343b987447e052fdd117139",
+        "external_runtime":  "5e3423c8e2bab81c406259d00b88230183ed5937e343b987447e052fdd117139",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "720:720",
+        "server_expected":  "95d795e1f93002bfa4acdeaaae31cae290745bead62a5e858d454e457d86be63",
+        "external_runtime":  "95d795e1f93002bfa4acdeaaae31cae290745bead62a5e858d454e457d86be63",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "840:840",
+        "server_expected":  "f0af2587c8f41a14723b9eed900cd7ddf13d01d8863a67f3060002151136ef34",
+        "external_runtime":  "f0af2587c8f41a14723b9eed900cd7ddf13d01d8863a67f3060002151136ef34",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "960:960",
+        "server_expected":  "f19faf2b8e627b85848e5d167173248a4672e38f304bc59109459c01ebf7a921",
+        "external_runtime":  "f19faf2b8e627b85848e5d167173248a4672e38f304bc59109459c01ebf7a921",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "1080:1080",
+        "server_expected":  "26675b4d4f555c48059dfc317ffeab240c7a626a8d53746f47c0164d75aeb0d5",
+        "external_runtime":  "26675b4d4f555c48059dfc317ffeab240c7a626a8d53746f47c0164d75aeb0d5",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "1200:1200",
+        "server_expected":  "e53f12352c412fe70f45bd713d7ac529e6102ce4879c9f1a14c272ca3060b7f9",
+        "external_runtime":  "e53f12352c412fe70f45bd713d7ac529e6102ce4879c9f1a14c272ca3060b7f9",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "1320:1320",
+        "server_expected":  "78450d4e3c648f00600867930840b36d89cb9c3092735068d948aa5dd210dc49",
+        "external_runtime":  "78450d4e3c648f00600867930840b36d89cb9c3092735068d948aa5dd210dc49",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "1440:1440",
+        "server_expected":  "47f7d8bb87cb403cfa813f33dfe712d3f3d4fb7bb166c2b1ed29e1f2f725fdd5",
+        "external_runtime":  "47f7d8bb87cb403cfa813f33dfe712d3f3d4fb7bb166c2b1ed29e1f2f725fdd5",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "1560:1560",
+        "server_expected":  "33668507bf1dcbdf00dffe81293ac9607870cdf1301e26a8b71bcd7f6be27310",
+        "external_runtime":  "33668507bf1dcbdf00dffe81293ac9607870cdf1301e26a8b71bcd7f6be27310",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "1680:1680",
+        "server_expected":  "8db0ffe1cc29631e34abe3b9e59b6bfbd649839e71e73bbe488f18f27349a62a",
+        "external_runtime":  "8db0ffe1cc29631e34abe3b9e59b6bfbd649839e71e73bbe488f18f27349a62a",
+        "parity":  true
+    },
+    {
+        "team_id":  2,
+        "key":  "1800:1800",
+        "server_expected":  "8b7022ff09ad884f197d4f9ed873f3aba86699b0f274cdbc16a854be7657386e",
+        "external_runtime":  "8b7022ff09ad884f197d4f9ed873f3aba86699b0f274cdbc16a854be7657386e",
+        "parity":  true
+    }
+]
