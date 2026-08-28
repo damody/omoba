@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory = $true)][int]$PlayerId,
     [Parameter(Mandatory = $true)][int]$TeamId,
     [Parameter(Mandatory = $true)][string]$PlayerName,
-    [Parameter(Mandatory = $true)][int]$WindowX
+    [Parameter(Mandatory = $true)][int]$WindowX,
+    [Parameter(Mandatory = $true)][string]$PresentationAddr
 )
 
 $resolvedExe = (Resolve-Path -LiteralPath $Exe).Path
@@ -22,6 +23,8 @@ $start.Environment['OMB_PLAYER_NAME'] = $PlayerName
 $start.Environment['OMB_LOCKSTEP_PLAYER_NAME'] = "fog_demo_player_$PlayerId"
 $start.Environment['OMB_TEAM_ID'] = [string]$TeamId
 $start.Environment['OMB_STORY'] = 'FOG_2TEAM_DEMO'
+$start.Environment['OMFX_RENDERER_ONLY'] = '1'
+$start.Environment['OMFX_PRESENTATION_ADDR'] = $PresentationAddr
 $start.Environment['OMFX_LEGACY_AUTOSTART'] = '1'
 $start.Environment['OMFX_EXTERNAL_BACKEND'] = '1'
 $start.Environment['OMFX_WINDOW_TITLE_SUFFIX'] = "P$PlayerId / Team $TeamId / FOG"

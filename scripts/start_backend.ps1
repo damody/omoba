@@ -78,6 +78,14 @@ if ($process.HasExited) {
     }
     throw "Backend process exited during startup with code $($process.ExitCode). See '$stdoutPath' and '$stderrPath'."
 }
+$deadline=[DateTime]::UtcNow.AddSeconds(20)
+while([DateTime]::UtcNow-lt$deadline){
+    if($process.HasExited){throw "Backend exited before KCP ready"}
+    $logs=((Get-Content -Raw -LiteralPath $stdoutPath -ErrorAction SilentlyContinue)+(Get-Content -Raw -LiteralPath $stderrPath -ErrorAction SilentlyContinue))
+    if($logs-match 'Starting KCP server on'){break}
+    Start-Sleep -Milliseconds 100
+}
+if($logs-notmatch 'Starting KCP server on'){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue;throw "Backend KCP ready timeout"}
 
 if ($pidFilePath) {
     [System.IO.File]::WriteAllText($pidFilePath, "$($process.Id)`r`n", (New-Object System.Text.UTF8Encoding $false))
