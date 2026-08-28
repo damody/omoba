@@ -127,12 +127,13 @@ fn fog_demo_contract_assets_are_explicit() {
 
 #[test]
 fn evidence_tools_fail_closed_and_never_kill_by_image_name() {
-    let compare = include_str!("../../../scripts/compare_fog_evidence.ps1");
+    let compare = include_str!("../../../scripts/compare_fog_evidence.lua");
     assert!(compare.contains("UNVERIFIED"));
     assert!(compare.contains("opponent-sentinel-absence"));
     let launcher = include_str!("../../../run_2player.bat");
     assert!(!launcher.to_ascii_lowercase().contains("taskkill"));
-    assert!(launcher.contains("Get-Process -Id"));
+    let process = include_str!("../../../tools/lua/lib/process.lua");
+    assert!(process.contains("assert_identity"));
 }
 
 #[test]
@@ -154,10 +155,10 @@ fn netem_proxy_is_transport_only_and_launcher_termination_is_pid_scoped() {
             "netem source contains gameplay dependency {forbidden}"
         );
     }
-    let stop = include_str!("../../../scripts/stop_netem_proxy.ps1");
+    let stop = include_str!("../../../scripts/stop_netem_proxy.lua");
     assert!(!stop.to_ascii_lowercase().contains("taskkill"));
-    assert!(stop.contains("Get-Process -Id"));
-    assert!(stop.contains("ExpectedExe"));
+    assert!(stop.contains("assert_identity"));
+    assert!(stop.contains("expected-exe"));
     let reveal_after_hide = include_str!(
         "../../../openspec/changes/simulate-client-rtt-delay/fixtures/reveal-after-hide.json"
     );

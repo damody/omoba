@@ -14,7 +14,7 @@
 //! 2. **NonBuilding**：僅非建築物
 //! 3. **Visual**：純視覺 / 前端 pass-through
 //!
-//! 此檔由 `docs/tools/gen_stat_keys.py` 產生；請勿手改。
+//! 此檔由 `docs/tools/gen_stat_keys.lua` 驗證；請勿手改。
 //! 新增 variant 請改 generator 後重跑並 commit 兩個檔案。
 
 use abi_stable::StableAbi;

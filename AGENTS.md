@@ -6,7 +6,7 @@ This file provides guidance to Codex when working with code in this repository.
 
 `omoba` 是 MOBA / TD 雙模式 Rust 遊戲。主要分成後端 server `omb` 與前端 renderer `omfx` 兩個 submodule；場景、英雄、塔與技能行為由 `scripts/base_content.dll` 透過 `abi_stable` FFI 載入。
 
-一次完整建置通常會涉及兩個 Cargo workspace：`scripts/` 與 `omb/`/`omfx/`。常用入口以根目錄 `.bat` 腳本維護。
+一次完整建置通常會涉及兩個 Cargo workspace：`scripts/` 與 `omb/`/`omfx/`。所有工作流邏輯使用 Lua 5.4，固定由 `D:\code\omoba\tools\lua\lua.exe` 執行；常用入口保留根目錄薄 `.bat` wrapper。
 
 ## Toolchain
 
@@ -24,13 +24,9 @@ This file provides guidance to Codex when working with code in this repository.
 | 本機雙玩家 run | `run_2player.bat` |
 | Unreal frontend run | `run_ue.bat` |
 
-不要新增根目錄 `.sh`。若新增或修改 `.bat`，必須維持 CRLF 行尾，否則 Windows `cmd.exe` 可能會把每行首字吃掉並出現類似 `'M' is not recognized` 的錯誤。
+不要新增根目錄 `.sh` 或其他 `.bat`。四個 `.bat` 只能定位並呼叫對應 Lua、轉送 `%*`、回傳 exit code，不得包含建置或程序邏輯。若修改 `.bat`，必須維持 CRLF 行尾與 UTF-8 無 BOM。
 
-PowerShell 轉 CRLF 範例：
-
-```powershell
-$p = 'D:\omoba\xxx.bat'; $c = (Get-Content -Raw $p) -replace "(?<!`r)`n","`r`n"; [System.IO.File]::WriteAllText($p, $c, (New-Object System.Text.UTF8Encoding $false))
-```
+一般工具入口使用 `D:\code\omoba\tools\lua\lua.exe scripts\<tool>.lua`。不得新增 PowerShell、Python 或 shell fallback；Lua 標準庫缺少的平台能力由 `tools/lua-host` 提供。
 
 ## 常用手動指令
 
