@@ -201,7 +201,7 @@ Reserved -> Accepted -> Ready -> Running -> Finished
 
 `MatchmakingService` 提供：
 
-- `Connect`
+- `OpenSession`（SDK 對外方法可命名為 `connect()`，proto RPC 避免與 tonic constructor 衝突）
 - `CreateParty`、`CreateInvite`、`JoinParty`、`LeaveParty`、`KickMember`、`RenameParty`
 - `Enqueue`、`CancelQueue`
 - `AcceptMatch`、`RejectMatch`
