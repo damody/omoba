@@ -19,3 +19,6 @@
 [submodule "omfue"]
 	path = omfue
 	url = git@github.com:damody/omfue.git
+[submodule "erps"]
+	path = erps
+	url = https://github.com/damody/Elo-Ranking-Pairing-System.git
