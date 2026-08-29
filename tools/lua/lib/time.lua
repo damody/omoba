@@ -1,4 +1,3 @@
-local platform = require("tools.lua.lib.platform")
 local M = {}
 
 function M.utc_timestamp()
@@ -11,10 +10,7 @@ end
 
 function M.sleep_ms(ms)
   assert(ms >= 0)
-  local command = platform.is_windows
-    and ("ping -n 1 -w " .. math.max(1, math.floor(ms)) .. " 127.0.0.1 >nul")
-    or ("sleep " .. string.format("%.3f", ms / 1000))
-  os.execute(command)
+  require("tools.lua.lib.host").call("sleep", { milliseconds = math.floor(ms) })
 end
 
 function M.poll(timeout_ms, interval_ms, predicate)

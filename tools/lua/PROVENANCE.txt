@@ -12,7 +12,7 @@ Component: LuaFileSystem 1.9.0 with Windows UTF-8 path support
 Upstream source: https://github.com/lunarmodules/luafilesystem tag v1_9_0
 Unicode fork: https://github.com/damody/luafilesystem-unicode
 Unicode commit: 625a36c0eb4dd289cb8075dbb86be79cbed936ef
-Build script: scripts/build_luafilesystem_utf8.ps1
+Build recipe: built from the pinned Unicode fork commit above with MinGW-w64 GCC x64; the repository consumes the vendored binary and does not require a build-time script
 Compiler: MinGW-w64 GCC x64, optimized shared library
 lfs.dll SHA-256: 36EC676FA4EA89F0A82C9EA1125EAA4B0E717C40390A1565ED3F8556BC02A80A
 License: MIT; see LUAFILESYSTEM_LICENSE.txt.

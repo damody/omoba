@@ -1,2 +1,2 @@
-local source=debug.getinfo(1,'S').source:sub(2);local root=source:gsub('[/\\]scripts[/\\]_bootstrap.lua$','');package.path=root..'/?.lua;'..root..'/?/init.lua;'..package.path
+package.cpath=[[D:\code\omoba\tools\lua\?.dll;]]..package.cpath;local lfs=require('lfs');local source=debug.getinfo(1,'S').source:sub(2);if not source:match('^%a:[/\\]')and source:sub(1,1)~='/'then source=lfs.currentdir()..'/'..source end;local root=source:gsub('[/\\]scripts[/\\]_bootstrap.lua$','');package.path=root..'/?.lua;'..root..'/?/init.lua;'..package.path
 return {root=root,lib=function(name)return require('tools.lua.lib.'..name)end}
