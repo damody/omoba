@@ -49,8 +49,8 @@ Run the safe toolchain diagnostic before generating packages.
 
 Use:
 
-```bash
-python3 docs/character_pipeline/tools/bootstrap.py --diagnose
+```text
+D:\code\omoba\tools\lua\lua.exe docs\character_pipeline\tools\bootstrap.lua --diagnose
 ```
 
 The diagnostic checks:
@@ -99,14 +99,8 @@ Rules:
 
 Validate and review the package:
 
-```bash
-lua5.4 docs/character_pipeline/tools/validate_package.lua docs/character_pipeline/packages/<hero_id>
-```
-
-If `lua5.4` is not installed system-wide, use the user-local bootstrap fallback:
-
-```bash
-~/.cache/omoba-character-pipeline/bin/lua5.4 docs/character_pipeline/tools/validate_package.lua docs/character_pipeline/packages/<hero_id>
+```text
+D:\code\omoba\tools\lua\lua.exe docs\character_pipeline\tools\validate_package.lua docs\character_pipeline\packages\<hero_id>
 ```
 
 Then read all package files and update `review.md` with:
