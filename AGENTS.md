@@ -88,5 +88,5 @@ submodule 內有實際變更時，先在該 submodule repo commit/push，再回�
 
 ## 清理原則
 
-- 不提交 `target/`、DLL、EXE、PDB、log、trace、cache 等建置或執行暫存檔。
+- 不提交 `target/`、DLL、EXE、PDB、log、trace、cache 等建置或執行暫存檔；唯一例外是固定 Lua runtime 的 `tools/lua/lua.exe`、`tools/lua/lua54.dll` 與 `tools/lua/lfs.dll`，它們是有 provenance 與 SHA-256 的受版控工具鏈輸入。
 - `omfue/` 目前按使用者要求不納入一般 cleanup/commit，除非明確要求處理 Unreal project。

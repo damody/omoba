@@ -1,15 +1,24 @@
 /target
 nul
 *.log
+*.dmp
+*.pdb
+*.perfetto-trace
+*.trace
 omfx_tmp/
 omoba-core/target/
 omoba-sim/target/
+omoba-client-runtime/target/
+omoba-netem-proxy/target/
+tools/lua-host/target/
 eui/target/
 map_editor/target/
 omb-ws-bridge/target/
 scripts/target/
 # Native build/runtime artifacts
 *.dll
+!tools/lua/lua54.dll
+!tools/lua/lfs.dll
 scripts/*.so
 scripts/*.dylib
 .run-local/

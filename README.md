@@ -24,13 +24,7 @@
 - Rust 版本固定在 `rust-toolchain.toml` 的 Rust `1.95.0`。
 - `abi_stable` 要求 host (`omb`) 與 script DLL (`scripts/base_content.dll`) 使用同一個 rustc，不能只在其中一個 workspace 升級 toolchain。
 - 一次完整啟動通常會碰到三個 Cargo workspace：`scripts/Cargo.toml` 先編 `base_content.dll`，再編 `omb/Cargo.toml` 與 `omfx/Cargo.toml`。
-- `.bat` 檔必須使用 CRLF 行尾。LF-only 會讓 Windows `cmd.exe` 把每行首字吃掉，常見錯誤是 `'M' is not recognized`。
-
-若新建或重寫 `.bat`，可用以下 PowerShell 轉 CRLF：
-
-```powershell
-$p = 'D:\omoba\xxx.bat'; $c = (Get-Content -Raw $p) -replace "(?<!`r)`n","`r`n"; [System.IO.File]::WriteAllText($p, $c, (New-Object System.Text.UTF8Encoding $false))
-```
+- `.bat` 檔必須使用 CRLF 行尾。Repository 的 `.gitattributes` 已固定 `*.bat text eol=crlf`；請勿覆寫這項規則，否則 Windows `cmd.exe` 可能把每行首字吃掉並出現 `'M' is not recognized`。
 
 ## Repository Layout
 
