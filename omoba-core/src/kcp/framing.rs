@@ -33,6 +33,7 @@ pub const TAG_TEAM_REBASE_ACK_V2: u8 = 0x26; // C→S
 pub const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27; // C→S
 pub const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28; // S→C
 pub const TAG_CLIENT_REPLICA_CHECKPOINT_V2: u8 = 0x29; // C→S
+pub const TAG_SESSION_CLOSE: u8 = 0x2A; // C→S graceful session teardown
 
 pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 2;
 pub const SELECTIVE_FRAME_SCHEMA_VERSION: u32 = 1;
@@ -144,6 +145,12 @@ pub async fn read_framed<R: AsyncReadExt + Unpin>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn graceful_session_close_tag_is_pinned_and_not_compressed() {
+        assert_eq!(TAG_SESSION_CLOSE, 0x2A);
+        assert_eq!(TAG_SESSION_CLOSE & COMPRESSION_FLAG, 0);
+    }
     use tokio::io::{duplex, AsyncWriteExt};
 
     #[tokio::test]

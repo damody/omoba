@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "External team-filtered Specs replica and renderer IPC host"
 
+[features]
+default = []
+runtime-lua-content = ["omoba-core/runtime-lua-content"]
+
 [dependencies]
 anyhow = "1.0"
 env_logger = "0.11"

@@ -211,6 +211,7 @@ impl<'a> System<'a> for Sys {
                                 source,
                                 x_mm: new_pos.x.raw(),
                                 y_mm: new_pos.y.raw(),
+                                facing_ticks: None,
                             },
                         });
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失

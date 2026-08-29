@@ -1264,6 +1264,8 @@ pub struct ClientReplicaCheckpointReport {
     pub pre_repair_hash: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "7")]
     pub post_repair_hash: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "8")]
+    pub encoded_frame_hash: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TeamRebaseAck {

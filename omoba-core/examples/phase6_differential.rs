@@ -40,6 +40,7 @@ fn fact(kind: FactKind, source: u64, value: i64, ordinal: u32) -> OrderedFact {
                 source,
                 x_mm: value,
                 y_mm: value,
+                facing_ticks: None,
             },
             FactKind::Death => ObservableFact::Death {
                 source,

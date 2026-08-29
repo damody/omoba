@@ -4,7 +4,7 @@ use prost::Message;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::io::{ReadHalf, WriteHalf};
+use tokio::io::{AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
@@ -252,6 +252,15 @@ pub struct GameEventData {
 }
 
 impl KcpClient {
+    pub async fn shutdown(&self) -> Result<()> {
+        let mut writer = self.writer.lock().await;
+        writer.write_all(&[TAG_SESSION_CLOSE]).await?;
+        writer.write_all(&0_u32.to_be_bytes()).await?;
+        writer.flush().await?;
+        writer.shutdown().await?;
+        Ok(())
+    }
+
     /// 連接到KCP遊戲伺服器。
     #[tracing::instrument(skip_all, fields(perfetto = true, addr = %addr))]
     pub async fn connect(addr: &str, player_name: String) -> Result<Self> {

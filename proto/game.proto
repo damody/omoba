@@ -841,6 +841,7 @@ message ClientReplicaCheckpointReport {
   ViewEpoch view_epoch = 5;
   bytes pre_repair_hash = 6;
   bytes post_repair_hash = 7;
+  bytes encoded_frame_hash = 8;
 }
 
 message TeamRebaseAck {

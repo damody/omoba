@@ -132,7 +132,7 @@ impl DisclosedWorldStepper for MembershipRecordingStepper {
 }
 
 #[test]
-fn reveal_is_present_before_gameplay_of_the_same_tick() {
+fn reveal_baseline_is_merged_after_gameplay_of_the_same_tick() {
     let mut runtime = SelectiveReplicaRuntime::new(
         1,
         0,
@@ -148,7 +148,8 @@ fn reveal_is_present_before_gameplay_of_the_same_tick() {
             &mut stepper,
         )
         .unwrap();
-    assert!(stepper.saw_entity_during_step);
+    assert!(!stepper.saw_entity_during_step);
+    assert!(runtime.world().entities.contains_key(&1));
 }
 
 #[test]
@@ -719,6 +720,97 @@ fn server_observer_and_client_replica_have_the_same_pre_repair_hash() {
     let client_hash = hash(client_result);
     assert_eq!(observer_hash, client_hash);
     assert_eq!(observer_hash, expected, "expected hash contract changed");
+}
+
+#[test]
+fn revealed_post_tick_baseline_is_not_stepped_twice() {
+    struct IncrementVisibleBytes;
+    impl DisclosedWorldStepper for IncrementVisibleBytes {
+        fn fixed_step(
+            &mut self,
+            world: &mut DisclosedReplicaWorld,
+            _injections: &StepInjections,
+            _component_allowlist: &BTreeSet<u32>,
+            _resource_allowlist: &BTreeSet<u32>,
+        ) -> Result<(), ReplicaRuntimeError> {
+            for entity in world.entities.values_mut() {
+                for bytes in entity.components.values_mut() {
+                    if let Some(first) = bytes.first_mut() {
+                        *first = first.wrapping_add(1);
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    let mut runtime = SelectiveReplicaRuntime::new(
+        1,
+        0,
+        0,
+        1,
+        BTreeSet::from([DEMO_RENDER_COMPONENT_SCHEMA_ID]),
+        BTreeSet::new(),
+    );
+    let reveal = TeamTickFrame::decode(
+        single_reveal_frame_fixture(1, 0, 0, 1, DEMO_RENDER_COMPONENT_SCHEMA_ID).as_slice(),
+    )
+    .unwrap();
+    let baseline = match reveal.pre_step.as_ref().unwrap().transitions[0]
+        .transition
+        .as_ref()
+        .unwrap()
+    {
+        transition::Transition::Reveal(value) => value.safe_baseline.clone(),
+        _ => unreachable!(),
+    };
+    let expected = decode_component_baseline_for_test(&baseline);
+    let mut stepper = IncrementVisibleBytes;
+    runtime.apply_frame(reveal, &mut stepper).unwrap();
+    assert_eq!(
+        runtime.world().entities[&1].components,
+        expected,
+        "reveal baseline already represents the completed authoritative tick"
+    );
+
+    runtime
+        .apply_frame(empty_wire_frame(1, 1), &mut stepper)
+        .unwrap();
+    assert_ne!(runtime.world().entities[&1].components, expected);
+}
+
+#[test]
+fn filtered_rebase_resumes_after_the_committed_tick() {
+    assert_eq!(next_tick_after_committed(360), 361);
+    assert_eq!(next_tick_after_committed(u64::MAX), u64::MAX);
+
+    let mut projector = disclosed_projector(1, 77);
+    let bundle = projector.build_filtered_rebase(361, 42, 1).unwrap();
+    assert_eq!(bundle.manifest.authoritative_tick, 361);
+    assert_eq!(bundle.manifest.resume_team_sequence, 42);
+}
+
+#[test]
+fn filtered_rebase_resume_sequence_skips_the_frame_included_in_its_baseline() {
+    let projector_sequence = 406_u64;
+    let requested_resume = 361_u64;
+    let actual_resume = resume_sequence_after_committed(requested_resume, projector_sequence);
+    assert_eq!(actual_resume, 407);
+}
+
+fn decode_component_baseline_for_test(bytes: &[u8]) -> BTreeMap<u32, Vec<u8>> {
+    let count = u32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
+    let mut cursor = 4;
+    let mut result = BTreeMap::new();
+    for _ in 0..count {
+        let schema = u32::from_be_bytes(bytes[cursor..cursor + 4].try_into().unwrap());
+        cursor += 4;
+        let len = u32::from_be_bytes(bytes[cursor..cursor + 4].try_into().unwrap()) as usize;
+        cursor += 4;
+        result.insert(schema, bytes[cursor..cursor + len].to_vec());
+        cursor += len;
+    }
+    result
 }
 
 #[test]

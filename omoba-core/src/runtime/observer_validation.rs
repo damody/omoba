@@ -41,9 +41,10 @@ pub struct ReplicaCheckpointKey {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ObserverCheckpointReport {
     pub key: ReplicaCheckpointKey,
-    pub expected_hash: [u8; 32],
+    pub expected_hash: Option<[u8; 32]>,
     pub observer_pre_repair_hash: [u8; 32],
     pub observer_post_repair_hash: [u8; 32],
+    pub encoded_frame_hash: [u8; 32],
 }
 
 enum ValidationMessage {
@@ -347,27 +348,35 @@ fn run_team_worker(
                     allow.clone(),
                     crate::runtime::secure_replica_resource_allowlist(),
                 ) {
-                    let specs_result = if let Some(mut existing) = stepper.take() {
-                        existing
-                            .rebootstrap(
-                                &start,
-                                allow,
-                                crate::runtime::secure_replica_resource_allowlist(),
-                                next.world(),
-                            )
-                            .map(|_| existing)
-                    } else {
-                        let mut created = SpecsDisclosedWorldStepper::from_start(
-                            &start,
-                            allow,
-                            crate::runtime::secure_replica_resource_allowlist(),
-                        );
-                        created.bootstrap_membership(next.world()).map(|_| created)
-                    };
+                    // A session bootstrap is a complete lockstep boundary.
+                    // Reusing a prior stepper would retain script/dispatcher
+                    // state that a newly joined external runtime never had.
+                    let mut created = SpecsDisclosedWorldStepper::from_start(
+                        &start,
+                        allow,
+                        crate::runtime::secure_replica_resource_allowlist(),
+                    );
+                    let specs_result = created.bootstrap_membership(next.world()).map(|_| created);
                     let Ok(specs) = specs_result else {
                         record_gap(&gaps, &metrics, team_id, 0);
                         continue;
                     };
+                    let bootstrap_hash = next.canonical_team_hash();
+                    let _ = checkpoint_tx.try_send(ObserverCheckpointReport {
+                        key: ReplicaCheckpointKey {
+                            team_id,
+                            replica_tick: start.replica_start_tick,
+                            team_sequence: start.next_team_sequence.saturating_sub(1),
+                            authority_revision: 0,
+                        },
+                        expected_hash: None,
+                        observer_pre_repair_hash: bootstrap_hash,
+                        observer_post_repair_hash: bootstrap_hash,
+                        encoded_frame_hash: <sha2::Sha256 as sha2::Digest>::digest(
+                            encoded.as_ref(),
+                        )
+                        .into(),
+                    });
                     stepper = Some(specs);
                     runtime = Some(next);
                     if replacing_existing {
@@ -436,18 +445,22 @@ fn run_team_worker(
                                 specs.last_script_phase_ns,
                             );
                         }
+                        let _ = checkpoint_tx.try_send(ObserverCheckpointReport {
+                            key: ReplicaCheckpointKey {
+                                team_id,
+                                replica_tick,
+                                team_sequence: sequence,
+                                authority_revision: revision,
+                            },
+                            expected_hash: expected,
+                            observer_pre_repair_hash: pre_repair_observed_hash,
+                            observer_post_repair_hash: post_repair_hash,
+                            encoded_frame_hash: <sha2::Sha256 as sha2::Digest>::digest(
+                                encoded.as_ref(),
+                            )
+                            .into(),
+                        });
                         if let Some(expected_hash) = expected {
-                            let _ = checkpoint_tx.try_send(ObserverCheckpointReport {
-                                key: ReplicaCheckpointKey {
-                                    team_id,
-                                    replica_tick,
-                                    team_sequence: sequence,
-                                    authority_revision: revision,
-                                },
-                                expected_hash,
-                                observer_pre_repair_hash: pre_repair_observed_hash,
-                                observer_post_repair_hash: post_repair_hash,
-                            });
                             if expected_hash == post_repair_hash {
                                 continue;
                             }

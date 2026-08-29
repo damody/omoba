@@ -277,4 +277,46 @@ mod rebase_resume_tests {
             [11, 12, 13]
         );
     }
+
+    #[test]
+    fn same_team_players_share_frames_without_cross_team_delivery() {
+        let mut router = TeamStreamRouter::new(8);
+        let binding = |team_id| SecureSessionBinding {
+            protocol: MatchProtocol::SelectiveV2,
+            authenticated_team_id: team_id,
+            current_view_epoch: 1,
+            secure_match_capability: true,
+            active: true,
+        };
+        router.bind_session("team-1-player-1".into(), binding(1));
+        router.bind_session("team-1-player-3".into(), binding(1));
+        router.bind_session("team-2-player-2".into(), binding(2));
+
+        let targets = router.route_frame(EncodedTeamFrame {
+            team_id: 1,
+            sequence: 1,
+            replica_tick: 10,
+            bytes: Arc::from([1_u8, 2, 3]),
+        });
+
+        assert_eq!(targets, vec!["team-1-player-1", "team-1-player-3"]);
+        assert!(!targets.iter().any(|id| id == "team-2-player-2"));
+    }
+
+    #[test]
+    fn disconnecting_one_same_team_player_preserves_the_other_route() {
+        let mut router = TeamStreamRouter::new(8);
+        let binding = SecureSessionBinding {
+            protocol: MatchProtocol::SelectiveV2,
+            authenticated_team_id: 1,
+            current_view_epoch: 1,
+            secure_match_capability: true,
+            active: true,
+        };
+        router.bind_session("player-1".into(), binding.clone());
+        router.bind_session("player-3".into(), binding);
+        router.unbind_session("player-1");
+
+        assert_eq!(router.session_ids_for_team(1), vec!["player-3"]);
+    }
 }

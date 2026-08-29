@@ -18,6 +18,8 @@ pub struct ClientRuntimeConfig {
     pub scripted_hidden_target_tick: Option<u64>,
     pub screenshot_tick: Option<u64>,
     pub fault_tick: Option<u64>,
+    pub rebase_probe_tick: Option<u64>,
+    pub shutdown_file: Option<PathBuf>,
 }
 
 impl ClientRuntimeConfig {
@@ -40,6 +42,8 @@ impl ClientRuntimeConfig {
         let mut scripted_hidden_target_tick = None;
         let mut screenshot_tick = None;
         let mut fault_tick = None;
+        let mut rebase_probe_tick = None;
+        let mut shutdown_file = None;
         let mut args = args.into_iter();
         while let Some(flag) = args.next() {
             let value = |args: &mut dyn Iterator<Item = String>| {
@@ -81,6 +85,12 @@ impl ClientRuntimeConfig {
                             .map_err(|_| ClientRuntimeError::Config("invalid fault tick".into()))?,
                     )
                 }
+                "--rebase-probe-tick" => {
+                    rebase_probe_tick = Some(value(&mut args)?.parse().map_err(|_| {
+                        ClientRuntimeError::Config("invalid rebase probe tick".into())
+                    })?)
+                }
+                "--shutdown-file" => shutdown_file = Some(PathBuf::from(value(&mut args)?)),
                 _ => {
                     return Err(ClientRuntimeError::Config(format!(
                         "unknown argument {flag}"
@@ -133,6 +143,8 @@ impl ClientRuntimeConfig {
             scripted_hidden_target_tick,
             screenshot_tick,
             fault_tick,
+            rebase_probe_tick,
+            shutdown_file,
         })
     }
 }
@@ -174,5 +186,32 @@ mod tests {
         assert!(ClientRuntimeConfig::parse(base("3", "127.0.0.1:62001", "2")).is_err());
         assert!(ClientRuntimeConfig::parse(base("1", "10.0.0.2:62001", "2")).is_err());
         assert!(ClientRuntimeConfig::parse(base("1", "127.0.0.1:62001", "1")).is_err());
+    }
+
+    #[test]
+    fn parses_test_shutdown_file() {
+        let args = vec![
+            "--player-id",
+            "1",
+            "--team",
+            "1",
+            "--server",
+            "127.0.0.1:50061",
+            "--presentation-bind",
+            "127.0.0.1:62001",
+            "--protocol-version",
+            "2",
+            "--test-mode",
+            "--evidence-dir",
+            "evidence",
+            "--shutdown-file",
+            "shutdown.signal",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+        let config = ClientRuntimeConfig::parse(args).expect("shutdown-file config should parse");
+        assert_eq!(config.shutdown_file, Some(PathBuf::from("shutdown.signal")));
+        assert!(config.test_mode);
     }
 }

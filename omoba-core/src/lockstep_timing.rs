@@ -3,6 +3,9 @@
 /// 權威 lockstep tick rate。2-tick input lookahead 約為 16.7 ms。
 pub const LOCKSTEP_TPS: u32 = 120;
 pub const LOCKSTEP_TPS_U64: u64 = LOCKSTEP_TPS as u64;
+/// 玩家輸入預設排到目前估計的 authoritative tick 後兩格。
+/// 120Hz 時約 16.7ms；高 RTT 的晚到輸入由 server late grace 安全重排。
+pub const LOCKSTEP_INPUT_LOOKAHEAD_TICKS: u32 = 2;
 pub const SUPPORTED_LOCKSTEP_FPS: [u32; 3] = [120, 90, 60];
 
 /// tokio intervals 使用的截斷 microsecond period。

@@ -75,6 +75,23 @@ impl FilteredReplicaWorldBuilder {
         world.insert(AcceptedInputInjectionQueue::default());
         world.insert(ExternalEffectInjectionQueue::default());
         world.insert(ReplicaPhaseTrace::default());
+        world.write_resource::<crate::runtime::Tick>().0 = start.replica_start_tick;
+        world.write_resource::<crate::runtime::Time>().0 =
+            start.replica_start_tick as f64 / f64::from(start.tick_rate_hz.max(1));
+        world.write_resource::<crate::runtime::DeltaTime>().0 =
+            omoba_sim::Fixed64::from_raw(crate::lockstep_timing::fixed_raw_for_tick_at_fps(
+                start.replica_start_tick,
+                u64::from(start.tick_rate_hz.max(1)),
+            ));
+        if let Some(metadata) = start.public_metadata.iter().find(|metadata| {
+            metadata.namespace == crate::runtime::PUBLIC_BLOCKED_REGIONS_NAMESPACE
+                && metadata.key == crate::runtime::PUBLIC_BLOCKED_REGIONS_KEY
+                && metadata.schema_version == 1
+        }) {
+            if let Some(regions) = crate::runtime::decode_public_blocked_regions(&metadata.value) {
+                *world.write_resource::<crate::runtime::BlockedRegions>() = regions;
+            }
+        }
         // The shared dispatcher always schedules damage processing. Campaign
         // initialization normally installs this queue, but a filtered world
         // intentionally skips campaign/story spawning and must install the
@@ -473,8 +490,7 @@ impl SpecsDisclosedWorldStepper {
                     if let Some(value) = $storage.get(mapping.entity) {
                         state.components.insert(
                             $schema,
-                            serde_json::to_vec(value)
-                                .map_err(|_| ReplicaRuntimeError::GameplayStep)?,
+                            crate::runtime::visibility::canonical_disclosed_json(value),
                         );
                     }
                 };
@@ -510,7 +526,7 @@ impl SpecsDisclosedWorldStepper {
                 safe.block_creeps.clear();
                 state.components.insert(
                     crate::runtime::DISCLOSED_TOWER_COMPONENT_SCHEMA_ID,
-                    serde_json::to_vec(&safe).map_err(|_| ReplicaRuntimeError::GameplayStep)?,
+                    crate::runtime::visibility::canonical_disclosed_json(&safe),
                 );
             }
         }
@@ -756,10 +772,61 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
             .write_resource::<ExternalEffectInjectionQueue>()
             .0
             .clear();
+        apply_authoritative_movement_outcomes(self, injections)?;
         self.export_gameplay_components(world)?;
         apply_disclosed_events(world, injections)?;
         self.synchronize_specs_membership(world)
     }
+}
+
+/// Movement is a visible, post-step authoritative outcome. Applying it to the
+/// Specs world (not only the presentation map) keeps the next tick and hashes
+/// correct without disclosing an opponent's private destination or command queue.
+fn apply_authoritative_movement_outcomes(
+    stepper: &mut SpecsDisclosedWorldStepper,
+    injections: &StepInjections,
+) -> Result<(), ReplicaRuntimeError> {
+    for event in &injections.public_events {
+        if event.event_kind != crate::runtime::FactKind::Movement as u32
+            || event.sanitized_payload.len() < 16
+        {
+            continue;
+        }
+        let replica_id = event.subject.as_ref().map_or(0, |id| id.value);
+        let mapping = stepper
+            .filtered
+            .entities
+            .0
+            .get(&replica_id)
+            .ok_or(ReplicaRuntimeError::UnknownEntity)?;
+        let x = i64::from_le_bytes(event.sanitized_payload[0..8].try_into().unwrap());
+        let y = i64::from_le_bytes(event.sanitized_payload[8..16].try_into().unwrap());
+        stepper
+            .filtered
+            .world
+            .write_storage::<crate::runtime::Pos>()
+            .insert(
+                mapping.entity,
+                crate::runtime::Pos(omoba_sim::Vec2::new(
+                    omoba_sim::Fixed64::from_raw(x),
+                    omoba_sim::Fixed64::from_raw(y),
+                )),
+            )
+            .map_err(|_| ReplicaRuntimeError::GameplayStep)?;
+        if event.sanitized_payload.len() >= 20 {
+            let ticks = i32::from_le_bytes(event.sanitized_payload[16..20].try_into().unwrap());
+            stepper
+                .filtered
+                .world
+                .write_storage::<crate::runtime::Facing>()
+                .insert(
+                    mapping.entity,
+                    crate::runtime::Facing(omoba_sim::Angle::from_ticks(ticks)),
+                )
+                .map_err(|_| ReplicaRuntimeError::GameplayStep)?;
+        }
+    }
+    Ok(())
 }
 
 fn apply_disclosed_events(
@@ -768,7 +835,7 @@ fn apply_disclosed_events(
 ) -> Result<(), ReplicaRuntimeError> {
     for event in &injections.public_events {
         if event.event_kind == crate::runtime::FactKind::Movement as u32
-            && event.sanitized_payload.len() == 16
+            && event.sanitized_payload.len() >= 16
         {
             let target = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world
@@ -803,4 +870,91 @@ fn apply_disclosed_events(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod canonical_json_tests {
+    use crate::runtime::visibility::canonical_disclosed_json;
+    use std::collections::HashMap;
+
+    #[test]
+    fn nested_hash_maps_are_encoded_in_key_order() {
+        let mut nested = HashMap::new();
+        nested.insert("z", 1_u32);
+        nested.insert("a", 2_u32);
+        let mut root = HashMap::new();
+        root.insert("outer", nested);
+
+        let encoded = canonical_disclosed_json(&root);
+        assert_eq!(encoded, br#"{"outer":{"a":2,"z":1}}"#);
+    }
+
+    #[test]
+    fn visible_movement_outcome_updates_specs_position_and_facing() {
+        use crate::game_proto::{ReplicaEntityId, TeamPublicEvent};
+        use crate::runtime::*;
+        use specs::WorldExt;
+
+        let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+        let render = encode_demo_render_state(DemoRenderState {
+            x_raw: 0,
+            y_raw: 0,
+            team_id: 1,
+            kind: 1,
+            owner_player_id: 1,
+        });
+        projector
+            .build_frame(
+                0,
+                0,
+                &std::collections::BTreeSet::from([7]),
+                vec![VisibilityTransition::Reveal {
+                    canonical_id: 7,
+                    effective_tick: 0,
+                    baseline: encode_component_baseline(&[(
+                        DEMO_RENDER_COMPONENT_SCHEMA_ID,
+                        &render,
+                    )]),
+                }],
+                &[],
+                &ProjectionDependencyGraph::default(),
+            )
+            .unwrap();
+        let start = projector.build_team_game_start(1, 120, 9);
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let disclosed = SelectiveReplicaRuntime::bootstrap_from_team_game_start(
+            &start,
+            allow.clone(),
+            std::collections::BTreeSet::new(),
+        )
+        .unwrap();
+        let replica_id = *disclosed.world().entities.keys().next().unwrap();
+        let mut stepper = SpecsDisclosedWorldStepper::from_start(
+            &start,
+            allow,
+            std::collections::BTreeSet::new(),
+        );
+        stepper.bootstrap_membership(disclosed.world()).unwrap();
+        let mut payload = 123_i64.to_le_bytes().to_vec();
+        payload.extend_from_slice(&(-456_i64).to_le_bytes());
+        payload.extend_from_slice(&1024_i32.to_le_bytes());
+        let injections = StepInjections {
+            public_events: vec![TeamPublicEvent {
+                event_kind: FactKind::Movement as u32,
+                subject: Some(ReplicaEntityId { value: replica_id }),
+                sanitized_payload: payload,
+                stable_sub_index: 0,
+            }],
+            ..StepInjections::default()
+        };
+
+        super::apply_authoritative_movement_outcomes(&mut stepper, &injections).unwrap();
+
+        let entity = stepper.filtered.entities.0[&replica_id].entity;
+        let positions = stepper.filtered.world.read_storage::<Pos>();
+        let facings = stepper.filtered.world.read_storage::<Facing>();
+        assert_eq!(positions.get(entity).unwrap().0.x.raw(), 123);
+        assert_eq!(positions.get(entity).unwrap().0.y.raw(), -456);
+        assert_eq!(facings.get(entity).unwrap().0.ticks(), 1024);
+    }
 }

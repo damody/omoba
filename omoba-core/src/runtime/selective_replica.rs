@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use prost::Message;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use crate::game_proto::{
@@ -23,6 +24,49 @@ pub struct DisclosedReplicaWorld {
     pub tick: u64,
     pub entities: BTreeMap<u64, ReplicaEntityState>,
     pub resources: BTreeMap<u32, Vec<u8>>,
+}
+
+/// Test-evidence description of one disclosed component. It contains only
+/// per-team disclosed state; hidden canonical ids and component bytes are not
+/// exposed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct DisclosedComponentDigest {
+    pub replica_id: u64,
+    pub disclosure_epoch: u64,
+    pub entity_kind: u32,
+    pub component_schema_id: u32,
+    pub byte_len: usize,
+    pub sha256: String,
+    pub disclosed_value_hex: String,
+}
+
+fn evidence_hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(&mut encoded, "{byte:02x}");
+    }
+    encoded
+}
+
+pub fn disclosed_component_digests(
+    entities: &BTreeMap<u64, ReplicaEntityState>,
+) -> Vec<DisclosedComponentDigest> {
+    let mut rows = Vec::new();
+    for state in entities.values() {
+        for (schema_id, bytes) in &state.components {
+            rows.push(DisclosedComponentDigest {
+                replica_id: state.replica_id,
+                disclosure_epoch: state.disclosure_epoch,
+                entity_kind: state.entity_kind,
+                component_schema_id: *schema_id,
+                byte_len: bytes.len(),
+                sha256: evidence_hex(&Sha256::digest(bytes)),
+                disclosed_value_hex: evidence_hex(bytes),
+            });
+        }
+    }
+    rows
 }
 
 #[derive(Clone, Debug, Default)]
@@ -241,6 +285,32 @@ impl SelectiveReplicaRuntime {
         &self.world
     }
 
+    pub fn disclosed_component_digests(&self) -> Vec<DisclosedComponentDigest> {
+        disclosed_component_digests(&self.world.entities)
+    }
+
+    /// Test-mode corruption hook used by the three-process recovery gate.
+    /// Mutating the disclosed source of truth (rather than only the Specs
+    /// mirror) guarantees the fault survives the next membership sync and is
+    /// observable in the pre-repair hash.
+    pub fn inject_test_only_disclosed_position_fault(&mut self) -> bool {
+        for entity in self.world.entities.values_mut() {
+            let Some(bytes) = entity
+                .components
+                .get_mut(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+            else {
+                continue;
+            };
+            let Some(mut render) = crate::runtime::decode_demo_render_state(bytes) else {
+                continue;
+            };
+            render.x_raw = render.x_raw.saturating_add(1 << 10);
+            *bytes = crate::runtime::encode_demo_render_state(render);
+            return true;
+        }
+        false
+    }
+
     pub fn apply_encoded_frame(
         &mut self,
         bytes: &[u8],
@@ -295,12 +365,36 @@ impl SelectiveReplicaRuntime {
             .map_or(0, |revision| revision.value);
         self.apply_pre_step(frame.pre_step.as_ref(), frame_revision)?;
         self.last_injections = self.inject_step(frame.step.as_ref())?;
+        // Reveal/Replace baselines are captured from the authoritative world
+        // after this replica tick has already executed. Keep them out of the
+        // local step for this frame, then merge them back as the tick result.
+        // Otherwise a newly visible moving entity advances twice on its reveal
+        // tick and immediately breaks player-view lockstep.
+        let baseline_ids = post_tick_baseline_ids(frame.pre_step.as_ref());
+        let staged_baselines: Vec<_> = baseline_ids
+            .iter()
+            .filter_map(|id| self.world.entities.remove_entry(id))
+            .collect();
+        self.last_injections.accepted_inputs.retain(|input| {
+            let actor = input.actor.as_ref().map_or(0, |id| id.value);
+            let target = input.target.as_ref().map_or(0, |id| id.value);
+            !baseline_ids.contains(&actor) && !baseline_ids.contains(&target)
+        });
+        self.last_injections.external_effects.retain(|effect| {
+            let target = effect.visible_target.as_ref().map_or(0, |id| id.value);
+            !baseline_ids.contains(&target)
+        });
+        self.last_injections.random_tapes.retain(|tape| {
+            let entity = tape.replica_entity_id.as_ref().map_or(0, |id| id.value);
+            !baseline_ids.contains(&entity)
+        });
         stepper.fixed_step(
             &mut self.world,
             &self.last_injections,
             &self.component_allowlist,
             &self.resource_allowlist,
         )?;
+        self.world.entities.extend(staged_baselines);
         self.validate_world_allowlist()?;
         self.world.tick = self.expected_replica_tick + 1;
         let pre_repair_observed_hash = self.canonical_team_hash();
@@ -810,6 +904,22 @@ impl SelectiveReplicaRuntime {
         self.stall = ReplicaStallState::Running;
         Ok(())
     }
+}
+
+fn post_tick_baseline_ids(pre_step: Option<&PreStep>) -> BTreeSet<u64> {
+    pre_step
+        .into_iter()
+        .flat_map(|pre| &pre.transitions)
+        .filter_map(|transition| match transition.transition.as_ref() {
+            Some(transition::Transition::Reveal(reveal)) => {
+                reveal.replica_entity_id.as_ref().map(|id| id.value)
+            }
+            Some(transition::Transition::Replace(replace)) => {
+                replace.replica_entity_id.as_ref().map(|id| id.value)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn epoch_value(epoch: &Option<game_proto::DisclosureEpoch>) -> u64 {

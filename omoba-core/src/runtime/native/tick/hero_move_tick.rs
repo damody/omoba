@@ -3,7 +3,6 @@ use omoba_sim::{Angle, Fixed64, Vec2 as SimVec2};
 use specs::prelude::ParallelIterator;
 use specs::{shred, Entities, ParJoin, Read, ReadStorage, SystemData, WriteStorage};
 
-use crate::comp::phys::MAX_COLLISION_RADIUS;
 use crate::comp::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -41,30 +40,29 @@ pub struct Sys;
 pub(crate) fn hits_any(
     new_center: SimVec2,
     radius: Fixed64,
-    searcher: &Searcher,
-    radii: &ReadStorage<CollisionRadius>,
-    self_entity: specs::Entity,
-    _regions: &BlockedRegions,
+    _searcher: &Searcher,
+    _radii: &ReadStorage<CollisionRadius>,
+    _self_entity: specs::Entity,
+    regions: &BlockedRegions,
 ) -> bool {
-    // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
-    let radius_f = radius.to_f32_for_render();
-    let q_r = radius_f + MAX_COLLISION_RADIUS;
-    let center_vek = vek::Vec2::new(
+    // Hidden dynamic units cannot participate in player-view lockstep path
+    // prediction. MOBA hero navigation therefore collides with public static
+    // map geometry only; combat/targeting still uses the disclosed Searcher.
+    let center = vek::Vec2::new(
         new_center.x.to_f32_for_render(),
         new_center.y.to_f32_for_render(),
     );
-    for di in searcher.search_collidable(center_vek, q_r, 16) {
-        if di.e == self_entity {
-            continue;
-        }
-        let Some(other_r) = radii.get(di.e).map(|cr| cr.0) else {
-            continue;
-        };
-        // touch = radius + other_r — 保持固定64 以便與呼叫者保持一致。
-        let touch = radius + other_r;
-        let touch_f = touch.to_f32_for_render();
-        if di.dis < touch_f * touch_f {
+    let radius_sq = radius.to_f32_for_render().powi(2);
+    for region in &regions.0 {
+        if crate::runtime::geometry::point_in_polygon(center, &region.points) {
             return true;
+        }
+        for index in 0..region.points.len() {
+            let a = region.points[index];
+            let b = region.points[(index + 1) % region.points.len()];
+            if crate::runtime::geometry::point_segment_dist_sq(center, a, b) <= radius_sq {
+                return true;
+            }
         }
     }
     false
@@ -258,6 +256,7 @@ impl<'a> System<'a> for Sys {
                                 source,
                                 x_mm: pos.0.x.raw(),
                                 y_mm: pos.0.y.raw(),
+                                facing_ticks: Some(facing.0.ticks()),
                             },
                         });
                     }

@@ -146,6 +146,14 @@ async fn serve_renderer(
     }
     loop {
         tokio::select! {
+            biased;
+            // Critical frames are assigned their sequence before later watch
+            // snapshots. Drain them first so a coalesced newer snapshot cannot
+            // overtake an input result and make the renderer reject the stream.
+            critical = async { critical_rx.lock().await.recv().await } => {
+                let Some(critical) = critical else { return Ok(()); };
+                write_envelope(&mut writer, &critical).await?;
+            }
             read = read_envelope(&mut reader) => {
                 let envelope = read?;
                 match envelope.payload {
@@ -162,10 +170,6 @@ async fn serve_renderer(
                 changed.map_err(|_| ClientRuntimeError::Ipc("presentation source closed".into()))?;
                 let latest = latest_rx.borrow().clone();
                 if let Some(latest) = latest { write_envelope(&mut writer, &latest).await?; }
-            }
-            critical = async { critical_rx.lock().await.recv().await } => {
-                let Some(critical) = critical else { return Ok(()); };
-                write_envelope(&mut writer, &critical).await?;
             }
         }
     }

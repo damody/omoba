@@ -19,6 +19,11 @@ const TD_DIFFICULTY_ENV: &str = "OMB_DIFFICULTY";
 const TD_STARTING_GOLD_ENV: &str = "OMB_TD_STARTING_GOLD";
 const NO_HEROES_ENV: &str = "OMB_NO_HEROES";
 const TD_PLAYER_IDS: [u32; 2] = [1, 2];
+const FOG_DEMO_HERO_TURN_SPEED_RAD_PER_SEC: i32 = 300;
+
+fn fog_demo_hero_turn_speed() -> TurnSpeed {
+    TurnSpeed(Fixed64::from_i32(FOG_DEMO_HERO_TURN_SPEED_RAD_PER_SEC))
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct CampaignHeroPolicy {
@@ -903,7 +908,7 @@ impl StateInitializer {
                 .with(cprop)
                 .with(Facing(omoba_sim::Angle::ZERO))
                 .with(FacingBroadcast(None))
-                .with(TurnSpeed(Fixed64::from_i32(3)))
+                .with(fog_demo_hero_turn_speed())
                 .with(CollisionRadius(Fixed64::from_i32(30)))
                 .with(ReplicationScope {
                     // 自己的英雄永遠要存在於自己的 replica，才能顯示、跟鏡頭及接收
@@ -2028,6 +2033,14 @@ pub fn populate_ability_registry(ecs: &mut World, registry: &crate::scripting::S
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn fog_demo_hero_turn_speed_is_300_radians_per_second() {
+        assert_eq!(
+            fog_demo_hero_turn_speed().0,
+            Fixed64::from_i32(300)
+        );
+    }
 
     #[test]
     fn campaign_hero_policy_requires_exact_enabled_value() {

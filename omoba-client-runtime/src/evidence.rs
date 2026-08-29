@@ -114,6 +114,17 @@ impl EvidenceRecorder {
         write_json_line(&mut file, &line)
     }
 
+    pub fn record_component_digests(
+        &self,
+        replica_tick: u64,
+        rows: &[omoba_core::runtime::DisclosedComponentDigest],
+    ) -> Result<(), ClientRuntimeError> {
+        write_json(
+            self.root.join(format!("components-{replica_tick}.json")),
+            rows,
+        )
+    }
+
     pub fn record_filtered_world(
         &self,
         snapshot: &FilteredRenderSnapshot,
@@ -151,6 +162,31 @@ impl EvidenceRecorder {
     pub fn record_marker(&self, name: &str, tick: u64) -> Result<(), ClientRuntimeError> {
         fs::write(self.root.join(format!("{name}.tick")), tick.to_string()).map_err(io_error)
     }
+    pub fn record_move_evidence(
+        &self,
+        replica_tick: u64,
+        origin: (i64, i64),
+        current: (i64, i64),
+    ) -> Result<(), ClientRuntimeError> {
+        #[derive(Serialize)]
+        struct MoveEvidence {
+            replica_tick: u64,
+            origin_x_raw: i64,
+            origin_y_raw: i64,
+            current_x_raw: i64,
+            current_y_raw: i64,
+        }
+        write_json(
+            self.root.join("scripted-move-evidence.json"),
+            &MoveEvidence {
+                replica_tick,
+                origin_x_raw: origin.0,
+                origin_y_raw: origin.1,
+                current_x_raw: current.0,
+                current_y_raw: current.1,
+            },
+        )
+    }
     pub fn record_network_event(
         &self,
         kind: &str,
@@ -180,7 +216,7 @@ impl EvidenceRecorder {
     }
 }
 
-fn write_json(path: PathBuf, value: &impl Serialize) -> Result<(), ClientRuntimeError> {
+fn write_json(path: PathBuf, value: &(impl Serialize + ?Sized)) -> Result<(), ClientRuntimeError> {
     let bytes =
         serde_json::to_vec_pretty(value).map_err(|e| ClientRuntimeError::Ipc(e.to_string()))?;
     fs::write(path, bytes).map_err(io_error)

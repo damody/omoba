@@ -18,10 +18,13 @@ pub struct ReplicaApplyReport {
     pub authority_revision: u64,
     pub pre_repair_hash: [u8; 32],
     pub post_repair_hash: [u8; 32],
+    pub encoded_frame_hash: [u8; 32],
 }
 
 pub struct ReplicaHost {
     team_id: u32,
+    tick_rate_hz: u32,
+    public_metadata: Vec<omoba_core::game_proto::DeterministicMetadata>,
     runtime: SelectiveReplicaRuntime,
     stepper: SpecsDisclosedWorldStepper,
     pre_repair_reports: BTreeMap<(u64, u64, u64), ReplicaApplyReport>,
@@ -40,11 +43,18 @@ impl ReplicaHost {
         )
         .map_err(|error| ClientRuntimeError::Replica(format!("bootstrap: {error:?}")))?;
         let mut stepper = SpecsDisclosedWorldStepper::from_start(start, components, resources);
+        if stepper.script_registry.is_empty() {
+            return Err(ClientRuntimeError::Replica(
+                "no gameplay scripts loaded; set OMB_SCRIPTS_DIR to the directory containing base_content".into(),
+            ));
+        }
         stepper
             .bootstrap_membership(runtime.world())
             .map_err(|error| ClientRuntimeError::Replica(format!("Specs bootstrap: {error:?}")))?;
         Ok(Self {
             team_id: start.team_id,
+            tick_rate_hz: start.tick_rate_hz.max(1),
+            public_metadata: start.public_metadata.clone(),
             runtime,
             stepper,
             pre_repair_reports: BTreeMap::new(),
@@ -72,6 +82,7 @@ impl ReplicaHost {
                     authority_revision,
                     pre_repair_hash: pre_repair_observed_hash,
                     post_repair_hash,
+                    encoded_frame_hash: <sha2::Sha256 as sha2::Digest>::digest(encoded).into(),
                 };
                 self.pre_repair_reports.insert(
                     (replica_tick, team_sequence, authority_revision),
@@ -100,6 +111,16 @@ impl ReplicaHost {
 
     pub fn global_seed(&self) -> u64 {
         self.runtime.global_seed()
+    }
+
+    pub fn current_team_hash(&self) -> [u8; 32] {
+        self.runtime.canonical_team_hash()
+    }
+
+    pub fn disclosed_component_digests(
+        &self,
+    ) -> Vec<omoba_core::runtime::DisclosedComponentDigest> {
+        self.runtime.disclosed_component_digests()
     }
 
     pub fn view_epoch(&self) -> u64 {
@@ -154,7 +175,8 @@ impl ReplicaHost {
                     team_id: self.team_id,
                     replica_start_tick: snapshot.authoritative_tick,
                     global_seed: self.runtime.global_seed(),
-                    tick_rate_hz: 120,
+                    tick_rate_hz: self.tick_rate_hz,
+                    public_metadata: self.public_metadata.clone(),
                     ..TeamGameStart::default()
                 },
                 secure_replica_component_allowlist(),
@@ -243,6 +265,6 @@ impl ReplicaHost {
         })
     }
     pub fn inject_test_only_fault(&mut self) -> bool {
-        self.stepper.inject_test_only_position_fault()
+        self.runtime.inject_test_only_disclosed_position_fault()
     }
 }

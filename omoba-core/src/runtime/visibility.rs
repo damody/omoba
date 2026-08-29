@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use omoba_sim::{Fixed64, Vec2};
 use rayon::prelude::*;
+use serde::Serialize;
 
 use crate::runtime::native::comp::{
     line_of_sight, LosResult, RememberDisposition, ReplicationScopeKind, VisibilityOverrideKind,
@@ -27,6 +28,29 @@ pub const DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID: u32 = 0x464f4709;
 pub const DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID: u32 = 0x464f470a;
 pub const DISCLOSED_TOWER_COMPONENT_SCHEMA_ID: u32 = 0x464f470b;
 pub const DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID: u32 = 0x464f470c;
+
+pub(crate) fn canonical_disclosed_json<T: Serialize>(value: &T) -> Vec<u8> {
+    fn sort_objects(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(values) => {
+                serde_json::Value::Array(values.into_iter().map(sort_objects).collect())
+            }
+            serde_json::Value::Object(values) => {
+                let mut entries: Vec<_> = values.into_iter().collect();
+                entries.sort_by(|left, right| left.0.cmp(&right.0));
+                let mut sorted = serde_json::Map::new();
+                for (key, value) in entries {
+                    sorted.insert(key, sort_objects(value));
+                }
+                serde_json::Value::Object(sorted)
+            }
+            scalar => scalar,
+        }
+    }
+
+    let value = serde_json::to_value(value).expect("safe disclosed component");
+    serde_json::to_vec(&sort_objects(value)).expect("safe disclosed component")
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DemoRenderState {
@@ -589,10 +613,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             macro_rules! disclose_json {
                 ($storage:expr, $schema:expr) => {
                     if let Some(value) = $storage.get(entity) {
-                        disclosed.push((
-                            $schema,
-                            serde_json::to_vec(value).expect("safe disclosed component"),
-                        ));
+                        disclosed.push(($schema, canonical_disclosed_json(value)));
                     }
                 };
             }
@@ -612,7 +633,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 safe.block_creeps.clear();
                 disclosed.push((
                     DISCLOSED_TOWER_COMPONENT_SCHEMA_ID,
-                    serde_json::to_vec(&safe).expect("safe tower component"),
+                    canonical_disclosed_json(&safe),
                 ));
             }
             let baseline = encode_disclosed_baseline(&disclosed);

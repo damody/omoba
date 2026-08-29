@@ -51,6 +51,23 @@ fn broadcaster_fans_out_the_same_encoded_payload_to_network_and_observer() {
 }
 
 #[test]
+fn initial_observer_bootstrap_has_only_the_actual_session_outbound_source() {
+    let transport = include_str!("../../../omb/src/transport/kcp_transport.rs");
+    let state = include_str!("../../../omb/src/state/core.rs");
+    let enqueue = transport
+        .find("session.event_tx.try_send(frame_arc)")
+        .expect("secure TeamGameStart enqueue");
+    let tap = transport
+        .find("observer_tap_broadcast.try_bootstrap")
+        .expect("observer bootstrap tap");
+    assert!(
+        enqueue < tap,
+        "observer may not bootstrap before player enqueue"
+    );
+    assert!(!state.contains("first_bootstrap || observer_rebootstrap_teams"));
+}
+
+#[test]
 fn world_maintain_is_limited_to_the_two_outcome_boundaries() {
     for source in [
         include_str!("../../../omb/src/state/core.rs"),

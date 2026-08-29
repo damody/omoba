@@ -75,6 +75,8 @@ pub enum ObservableFact {
         source: u64,
         x_mm: i64,
         y_mm: i64,
+        /// `None` is used by entities such as projectiles that have no Facing component.
+        facing_ticks: Option<i32>,
     },
     Spawn {
         source: Option<u64>,

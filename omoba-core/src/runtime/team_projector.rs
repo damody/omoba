@@ -22,6 +22,17 @@ use specs::{SystemData, World, WorldExt, Write};
 pub const TEAM_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const CONTENT_SCHEMA_VERSION: u32 = 1;
 
+pub(crate) fn next_tick_after_committed(committed_tick: u64) -> u64 {
+    committed_tick.saturating_add(1)
+}
+
+pub(crate) fn resume_sequence_after_committed(
+    requested_resume: u64,
+    committed_frame_sequence: u64,
+) -> u64 {
+    requested_resume.max(committed_frame_sequence.saturating_add(1))
+}
+
 fn evidence_sentinel_metadata(team_id: u32) -> Vec<DeterministicMetadata> {
     let name = format!("OMOBA_TEAM_{team_id}_SENTINEL_HEX");
     let Some(value) = std::env::var(name).ok().and_then(|hex| decode_hex_16(&hex)) else {
@@ -401,8 +412,24 @@ pub fn run_team_projection_after_wave_b(
             &visibility.latest_disclosed_baseline_by_canonical,
         );
         if let Some((resume_sequence, view_epoch)) = pending_rebases.get(team) {
-            let bundle =
-                projector.build_filtered_rebase(server_tick, *resume_sequence, *view_epoch)?;
+            // Recovery requests may refer to the frame where divergence was
+            // detected.  A rebase snapshot represents the current world, so
+            // replay must resume at the projector's next sequence, never at
+            // an older sequence whose replica tick predates the snapshot.
+            // The rebase baseline already contains the committed result for
+            // the frame about to be emitted at projector.sequence. Resume at
+            // the following sequence; replaying the current frame would also
+            // replay its replica tick from the completed baseline.
+            let resume_sequence =
+                resume_sequence_after_committed(*resume_sequence, projector.sequence);
+            // hash_entities is the committed result of replica tick T. A
+            // rebase consumer must resume by executing T+1, not execute T a
+            // second time from an already-completed baseline.
+            let bundle = projector.build_filtered_rebase(
+                next_tick_after_committed(committed.tick),
+                resume_sequence,
+                *view_epoch,
+            )?;
             projector.enqueue_rebase_notice(crate::runtime::rebase_notice(
                 bundle
                     .manifest
@@ -410,7 +437,7 @@ pub fn run_team_projection_after_wave_b(
                     .clone()
                     .expect("rebase snapshot id"),
                 bundle.manifest.manifest_hash.clone(),
-                *resume_sequence,
+                resume_sequence,
                 *view_epoch,
                 bundle
                     .manifest
@@ -433,6 +460,13 @@ pub fn run_team_projection_after_wave_b(
                 .cloned()
                 .collect(),
         )?;
+        if committed.tick % projector.config.hash_checkpoint_interval_ticks.max(1) == 0 {
+            record_expected_component_evidence(
+                *team,
+                committed.tick,
+                &projector.expected_component_digests(),
+            );
+        }
         frames.insert(*team, frame);
     }
     runtime.latest_frames = frames;
@@ -449,7 +483,47 @@ pub fn run_team_projection_after_wave_b(
     Ok(())
 }
 
+fn record_expected_component_evidence(
+    team_id: u32,
+    replica_tick: u64,
+    rows: &[crate::runtime::DisclosedComponentDigest],
+) {
+    let Ok(root) = std::env::var("OMOBA_FOG_EVIDENCE_DIR") else {
+        return;
+    };
+    let dir = std::path::Path::new(&root)
+        .join("server")
+        .join(format!("team-{team_id}"));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join(format!("expected-components-{replica_tick}.json"));
+    if let Ok(bytes) = serde_json::to_vec_pretty(rows) {
+        let _ = std::fs::write(path, bytes);
+    }
+}
+
 impl TeamViewProjector {
+    pub fn expected_component_digests(&self) -> Vec<crate::runtime::DisclosedComponentDigest> {
+        let mut rows = Vec::new();
+        for (replica_id, (epoch, entity_kind, components)) in &self.hash_entities {
+            for (schema_id, bytes) in components {
+                rows.push(crate::runtime::DisclosedComponentDigest {
+                    replica_id: *replica_id,
+                    disclosure_epoch: *epoch,
+                    entity_kind: *entity_kind,
+                    component_schema_id: *schema_id,
+                    byte_len: bytes.len(),
+                    sha256: {
+                        let digest = Sha256::digest(bytes);
+                        digest.iter().map(|byte| format!("{byte:02x}")).collect()
+                    },
+                    disclosed_value_hex: bytes.iter().map(|byte| format!("{byte:02x}")).collect(),
+                });
+            }
+        }
+        rows
+    }
     pub fn new(team_id: u32, config: TeamProjectorConfig) -> Self {
         Self {
             team_id,
@@ -485,7 +559,7 @@ impl TeamViewProjector {
 
     pub fn refresh_expected_visible_components(
         &mut self,
-        effective_tick: u64,
+        _effective_tick: u64,
         visible: &BTreeSet<u64>,
         baselines: &BTreeMap<u64, Vec<u8>>,
     ) {
@@ -500,23 +574,10 @@ impl TeamViewProjector {
                 self.hash_entities.get_mut(&mapping.replica_id.get())
             {
                 let next_components = decode_safe_components_for_hash(baseline);
-                for (schema_id, value) in &next_components {
-                    self.pending_component_repairs.push_back(ComponentRepair {
-                        replica_entity_id: Some(ProtoReplicaEntityId {
-                            value: mapping.replica_id.get(),
-                        }),
-                        disclosure_epoch: Some(DisclosureEpoch {
-                            value: mapping.disclosure_epoch,
-                        }),
-                        component_schema_id: *schema_id,
-                        field_mask: vec![0xff],
-                        replacement_fields: value.clone(),
-                        authority_revision: Some(AuthorityRevision {
-                            value: self.authority_revision.saturating_add(1),
-                        }),
-                        effective_tick,
-                    });
-                }
+                // This is the server-side expected view used by checkpoint
+                // validation, not a per-tick state replication path. Visible
+                // entities continue through player-view lockstep; only an
+                // explicit recovery decision may enqueue ComponentRepair.
                 *epoch = mapping.disclosure_epoch;
                 *kind = 0;
                 *components = next_components;
@@ -1032,9 +1093,17 @@ fn project_fact(
 fn fact_entities_and_payload(fact: &ObservableFact) -> (Option<u64>, Option<u64>, Vec<u8>) {
     let mut payload = Vec::new();
     match fact {
-        ObservableFact::Movement { source, x_mm, y_mm } => {
+        ObservableFact::Movement {
+            source,
+            x_mm,
+            y_mm,
+            facing_ticks,
+        } => {
             payload.extend(x_mm.to_le_bytes());
             payload.extend(y_mm.to_le_bytes());
+            if let Some(ticks) = facing_ticks {
+                payload.extend(ticks.to_le_bytes());
+            }
             (Some(*source), None, payload)
         }
         ObservableFact::Spawn {

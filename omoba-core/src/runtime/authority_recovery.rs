@@ -13,13 +13,21 @@ pub struct ClientCheckpointReport {
     pub key: ReplicaCheckpointKey,
     pub pre_repair_hash: [u8; 32],
     pub post_repair_hash: [u8; 32],
+    pub encoded_frame_hash: [u8; 32],
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ThreeWayCheckpoint {
     pub expected_hash: Option<[u8; 32]>,
-    pub observer_hash: Option<[u8; 32]>,
-    pub client_hash: Option<[u8; 32]>,
+    pub observer_pre_repair_hash: Option<[u8; 32]>,
+    pub observer_post_repair_hash: Option<[u8; 32]>,
+    pub client_pre_repair_hash: Option<[u8; 32]>,
+    pub client_post_repair_hash: Option<[u8; 32]>,
+    pub pre_repair_parity: Option<bool>,
+    pub observer_frame_hash: Option<[u8; 32]>,
+    pub client_frame_hash: Option<[u8; 32]>,
+    /// Blocking convergence verdict. This intentionally describes post-repair
+    /// parity; pre-repair parity is retained separately as divergence evidence.
     pub parity: Option<bool>,
 }
 
@@ -41,10 +49,20 @@ impl ThreeWayCheckpoint {
 }
 
 fn update_three_way_parity(checkpoint: &mut ThreeWayCheckpoint) {
+    checkpoint.pre_repair_parity = match (
+        checkpoint.expected_hash,
+        checkpoint.observer_pre_repair_hash,
+        checkpoint.client_pre_repair_hash,
+    ) {
+        (Some(expected), Some(observer), Some(client)) => {
+            Some(expected == observer && expected == client)
+        }
+        _ => None,
+    };
     checkpoint.parity = match (
         checkpoint.expected_hash,
-        checkpoint.observer_hash,
-        checkpoint.client_hash,
+        checkpoint.observer_post_repair_hash,
+        checkpoint.client_post_repair_hash,
     ) {
         (Some(expected), Some(observer), Some(client)) => {
             Some(expected == observer && expected == client)
@@ -75,6 +93,7 @@ pub struct ClientHashMismatch {
 pub struct RebaseFailureSignal {
     pub team_id: u32,
     pub last_safe_sequence: u64,
+    pub replay_coverage_gap: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -193,14 +212,20 @@ impl AuthorityRepairCoordinator {
 
     pub fn report_observer_checkpoint(&mut self, report: ObserverCheckpointReport) {
         let checkpoint = self.three_way_checkpoints.entry(report.key).or_default();
-        checkpoint.expected_hash = Some(report.expected_hash);
-        checkpoint.observer_hash = Some(report.observer_post_repair_hash);
+        if let Some(expected_hash) = report.expected_hash {
+            checkpoint.expected_hash = Some(expected_hash);
+        }
+        checkpoint.observer_pre_repair_hash = Some(report.observer_pre_repair_hash);
+        checkpoint.observer_post_repair_hash = Some(report.observer_post_repair_hash);
+        checkpoint.observer_frame_hash = Some(report.encoded_frame_hash);
         update_three_way_parity(checkpoint);
     }
 
     pub fn report_client_checkpoint(&mut self, report: ClientCheckpointReport) {
         let checkpoint = self.three_way_checkpoints.entry(report.key).or_default();
-        checkpoint.client_hash = Some(report.post_repair_hash);
+        checkpoint.client_pre_repair_hash = Some(report.pre_repair_hash);
+        checkpoint.client_post_repair_hash = Some(report.post_repair_hash);
+        checkpoint.client_frame_hash = Some(report.encoded_frame_hash);
         update_three_way_parity(checkpoint);
     }
 
@@ -434,5 +459,63 @@ pub fn rebase_notice(
         authority_revision: Some(AuthorityRevision {
             value: authority_revision,
         }),
+    }
+}
+
+#[cfg(test)]
+mod checkpoint_tests {
+    use super::*;
+
+    fn key() -> ReplicaCheckpointKey {
+        ReplicaCheckpointKey {
+            team_id: 1,
+            replica_tick: 120,
+            team_sequence: 120,
+            authority_revision: 239,
+        }
+    }
+
+    #[test]
+    fn preserves_three_way_pre_and_post_repair_evidence() {
+        let expected = [7; 32];
+        let divergent = [9; 32];
+        let mut coordinator = AuthorityRepairCoordinator::configured();
+        coordinator.report_observer_checkpoint(ObserverCheckpointReport {
+            key: key(),
+            expected_hash: Some(expected),
+            observer_pre_repair_hash: expected,
+            observer_post_repair_hash: expected,
+            encoded_frame_hash: [4; 32],
+        });
+        coordinator.report_client_checkpoint(ClientCheckpointReport {
+            key: key(),
+            pre_repair_hash: divergent,
+            post_repair_hash: expected,
+            encoded_frame_hash: [4; 32],
+        });
+
+        let checkpoint = &coordinator.three_way_checkpoints[&key()];
+        assert_eq!(checkpoint.observer_pre_repair_hash, Some(expected));
+        assert_eq!(checkpoint.observer_post_repair_hash, Some(expected));
+        assert_eq!(checkpoint.client_pre_repair_hash, Some(divergent));
+        assert_eq!(checkpoint.client_post_repair_hash, Some(expected));
+        assert_eq!(checkpoint.pre_repair_parity, Some(false));
+        assert_eq!(checkpoint.verdict(), CheckpointVerdict::Pass);
+    }
+
+    #[test]
+    fn incomplete_three_way_report_is_unverified() {
+        let expected = [3; 32];
+        let mut coordinator = AuthorityRepairCoordinator::configured();
+        coordinator.report_client_checkpoint(ClientCheckpointReport {
+            key: key(),
+            pre_repair_hash: expected,
+            post_repair_hash: expected,
+            encoded_frame_hash: [4; 32],
+        });
+
+        let checkpoint = &coordinator.three_way_checkpoints[&key()];
+        assert_eq!(checkpoint.pre_repair_parity, None);
+        assert_eq!(checkpoint.verdict(), CheckpointVerdict::Unverified);
     }
 }

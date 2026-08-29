@@ -11,11 +11,18 @@ use omoba_client_runtime::{
     shutdown::{ShutdownReason, ShutdownToken},
 };
 use omoba_core::{
-    game_proto::{renderer_ipc_envelope, CriticalInputResult, RendererIpcEnvelope},
+    game_proto::{
+        renderer_ipc_envelope, ClientTeamHashMismatch, CriticalInputResult, RendererIpcEnvelope,
+        ViewEpoch,
+    },
     kcp::client::LockstepInbound,
 };
 use prost::Message;
 use std::{collections::BTreeMap, sync::Arc};
+
+fn input_lookahead_ticks() -> u64 {
+    u64::from(omoba_core::lockstep_timing::LOCKSTEP_INPUT_LOOKAHEAD_TICKS)
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -32,6 +39,23 @@ async fn main() -> anyhow::Result<()> {
     );
     let mut session = SelectiveSession::connect(&config).await?;
     let mut replica = ReplicaHost::bootstrap(&session.start)?;
+    let bootstrap_hash = replica.current_team_hash();
+    session
+        .client
+        .report_replica_checkpoint(&omoba_core::game_proto::ClientReplicaCheckpointReport {
+            team_id: config.team_id,
+            frame_sequence: session.start.next_team_sequence.saturating_sub(1),
+            replica_tick: session.start.replica_start_tick,
+            authority_revision: Some(omoba_core::game_proto::AuthorityRevision { value: 0 }),
+            view_epoch: session.start.view_epoch.clone(),
+            pre_repair_hash: bootstrap_hash.to_vec(),
+            post_repair_hash: bootstrap_hash.to_vec(),
+            encoded_frame_hash: <sha2::Sha256 as sha2::Digest>::digest(
+                session.start.encode_to_vec(),
+            )
+            .to_vec(),
+        })
+        .await?;
     let evidence = EvidenceRecorder::create(&config, replica.global_seed())?;
     let mut presentation = PresentationHub::bind(&config).await?;
     let mut input_bridge = InputBridge::default();
@@ -42,9 +66,12 @@ async fn main() -> anyhow::Result<()> {
     let mut scripted_hidden_target_sent = false;
     let mut screenshot_marked = false;
     let mut fault_injected = false;
+    let mut rebase_probe_sent = false;
     let mut pending_frames = BTreeMap::new();
+    let mut pending_input_requests = BTreeMap::<u32, u64>::new();
     let mut replay_requested_from = None;
     let mut replay_request_id = 1_u64;
+    let mut latest_server_tick = session.start.server_tick;
     presentation.publish_latest(ready_envelope(
         presentation_sequence,
         &config,
@@ -58,6 +85,18 @@ async fn main() -> anyhow::Result<()> {
             ctrl_c.cancel(ShutdownReason::Requested);
         }
     });
+    if let Some(shutdown_file) = config.shutdown_file.clone() {
+        let file_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            loop {
+                if shutdown_file.exists() {
+                    file_shutdown.cancel(ShutdownReason::Requested);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        });
+    }
     log::info!(
         "client-runtime ready player_id={} team_id={} replica_tick={} presentation={}",
         config.player_id,
@@ -70,13 +109,33 @@ async fn main() -> anyhow::Result<()> {
             changed = shutdown_rx.changed() => {
                 if changed.is_err() || shutdown_rx.borrow().is_some() {
                     if let Some(evidence) = &evidence { evidence.record_network_event("session-stopped", replica.expected_team_sequence(), replica.next_replica_tick(), "SHUTDOWN")?; }
+                    if let Err(error) = session.client.shutdown().await { log::warn!("client-runtime KCP shutdown failed: {error}"); }
                     log::error!("client-runtime stopping: {:?}", shutdown_rx.borrow().clone());
                     break;
                 }
             },
             inbound = session.inbound.recv() => match inbound {
                 Some(LockstepInbound::TeamTickFrame { msg, encoded, .. }) => {
+                    latest_server_tick = latest_server_tick.max(msg.server_tick);
                     if let Some(evidence) = &evidence { evidence.record_network_event("frame-received", msg.team_sequence, msg.replica_tick, "OK")?; }
+                    if !rebase_probe_sent
+                        && config.test_mode
+                        && config.team_id == 1
+                        && config.rebase_probe_tick.is_some_and(|tick| msg.replica_tick >= tick)
+                    {
+                        replay_request_id = replay_request_id.saturating_add(1);
+                        if let Some(evidence) = &evidence {
+                            evidence.record_network_event("rebase-probe-requested", msg.team_sequence, msg.replica_tick, "TEST_HASH_MISMATCH")?;
+                        }
+                        session.client.report_team_hash_mismatch(&ClientTeamHashMismatch {
+                            team_id: config.team_id,
+                            frame_sequence: msg.team_sequence,
+                            replica_tick: msg.replica_tick,
+                            received_hash: vec![0; 32],
+                            view_epoch: Some(ViewEpoch { value: replica.view_epoch() }),
+                        }).await?;
+                        rebase_probe_sent = true;
+                    }
                     if msg.team_id != config.team_id {
                         if let Some(evidence) = &evidence { evidence.record_network_event("wrong-team-rejected", msg.team_sequence, msg.replica_tick, "WRONG_TEAM")?; }
                         shutdown.cancel(ShutdownReason::UnsafeSession("wrong team frame".into()));
@@ -96,7 +155,8 @@ async fn main() -> anyhow::Result<()> {
                             &shutdown, &mut presentation_sequence, &mut scripted_move_sent,
                             &mut scripted_move_origin, &mut scripted_move_applied,
                             &mut scripted_hidden_target_sent,
-                            &mut screenshot_marked, &mut fault_injected, ready_msg, ready_encoded,
+                            &mut screenshot_marked, &mut fault_injected,
+                            &mut pending_input_requests, ready_msg, ready_encoded,
                         ).await {
                             if let Some(evidence) = &evidence { evidence.record_network_event("frame-rejected", ready_sequence, replica.next_replica_tick(), "UNSAFE_FRAME")?; }
                             log::error!("ordered team frame rejected at sequence {ready_sequence}: {error}");
@@ -169,8 +229,22 @@ async fn main() -> anyhow::Result<()> {
                 let request_id = renderer_input.request_id;
                 match input_bridge.validate(renderer_input, config.player_id, &replica) {
                     InputDecision::Accepted { input_id, input, secure_target } => {
-                        let network_lead_ticks = u64::from(session.start.tick_rate_hz.max(1));
-                        let target_tick = u32::try_from(replica.next_replica_tick().saturating_add(network_lead_ticks)).unwrap_or(u32::MAX);
+                        if matches!(
+                            &input.action,
+                            Some(omoba_core::game_proto::player_input::Action::MoveTo(_))
+                        ) {
+                            scripted_move_sent = true;
+                            if scripted_move_origin.is_none() {
+                                scripted_move_origin =
+                                    replica.owned_hero_position(config.player_id);
+                            }
+                        }
+                        let network_lead_ticks = input_lookahead_ticks();
+                        let target_tick = u32::try_from(
+                            latest_server_tick
+                                .saturating_add(network_lead_ticks),
+                        )
+                        .unwrap_or(u32::MAX);
                         let result = if let Some(target) = secure_target {
                             let Some(actor) = replica.owned_hero_reference(config.player_id) else {
                                 presentation_sequence = presentation_sequence.saturating_add(1);
@@ -185,6 +259,9 @@ async fn main() -> anyhow::Result<()> {
                         } else {
                             session.client.submit_input(target_tick, input, input_id).await
                         };
+                        if result.is_ok() {
+                            pending_input_requests.insert(input_id, request_id);
+                        }
                         if let Some(evidence) = &evidence { evidence.record_network_event("input-forwarded", 0, u64::from(target_tick), if result.is_ok() { "FORWARDED" } else { "SERVER_TRANSPORT_ERROR" })?; }
                         presentation_sequence = presentation_sequence.saturating_add(1);
                         presentation.publish_critical(critical_result(
@@ -222,6 +299,7 @@ async fn apply_ready_frame(
     scripted_hidden_target_sent: &mut bool,
     screenshot_marked: &mut bool,
     fault_injected: &mut bool,
+    pending_input_requests: &mut BTreeMap<u32, u64>,
     msg: omoba_core::game_proto::TeamTickFrame,
     encoded: Arc<[u8]>,
 ) -> anyhow::Result<()> {
@@ -249,6 +327,12 @@ async fn apply_ready_frame(
     };
     if let Some(evidence) = evidence {
         evidence.record_checkpoint(&report)?;
+        if report.replica_tick % 120 == 0 {
+            evidence.record_component_digests(
+                report.replica_tick,
+                &replica.disclosed_component_digests(),
+            )?;
+        }
         evidence.record_network_event(
             "frame-applied",
             report.team_sequence,
@@ -290,16 +374,19 @@ async fn apply_ready_frame(
             evidence.record_marker("scripted-move", report.replica_tick)?;
         }
     }
-    if *scripted_move_sent && !*scripted_move_applied {
+    if *scripted_move_sent {
         if let (Some(origin), Some(current)) = (
             *scripted_move_origin,
             replica.owned_hero_position(config.player_id),
         ) {
             if current != origin {
-                *scripted_move_applied = true;
                 if let Some(evidence) = evidence {
-                    evidence.record_marker("scripted-move-applied", report.replica_tick)?;
+                    evidence.record_move_evidence(report.replica_tick, origin, current)?;
+                    if !*scripted_move_applied {
+                        evidence.record_marker("scripted-move-applied", report.replica_tick)?;
+                    }
                 }
+                *scripted_move_applied = true;
             }
         }
     }
@@ -325,7 +412,10 @@ async fn apply_ready_frame(
                 .submit_secure_target(&omoba_core::game_proto::SecureTargetInput {
                     request_id: 0xE000_0000 + u64::from(config.team_id),
                     player_id: config.player_id,
-                    input_tick: replica.next_replica_tick().saturating_add(3),
+                    input_tick: msg
+                        .server_tick
+                        .max(replica.next_replica_tick())
+                        .saturating_add(u64::from(session.start.tick_rate_hz.max(1))),
                     actor: Some(actor),
                     target: Some(invalid_target),
                     action_kind: 0,
@@ -359,6 +449,7 @@ async fn apply_ready_frame(
         }),
         pre_repair_hash: report.pre_repair_hash.to_vec(),
         post_repair_hash: report.post_repair_hash.to_vec(),
+        encoded_frame_hash: report.encoded_frame_hash.to_vec(),
     };
     if let Err(error) = session.client.report_replica_checkpoint(&checkpoint).await {
         shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string()));
@@ -384,6 +475,14 @@ async fn apply_ready_frame(
         }
     }
     let divisor = (session.start.tick_rate_hz.max(1) / config.presentation_hz).max(1);
+    let applied_local_inputs = msg
+        .step
+        .as_ref()
+        .into_iter()
+        .flat_map(|step| step.accepted_inputs.iter())
+        .filter(|input| input.player_id == config.player_id)
+        .filter_map(|input| u32::try_from(input.input_id).ok())
+        .collect::<Vec<_>>();
     if report.team_sequence % u64::from(divisor) == 0 && presentation.presentation_enabled() {
         *presentation_sequence = presentation_sequence.saturating_add(1);
         let snapshot = replica.extract_presentation_source();
@@ -399,7 +498,29 @@ async fn apply_ready_frame(
         if let Some(evidence) = evidence {
             evidence.record_presentation(&envelope)?;
         }
-        presentation.publish_latest(envelope);
+        if applied_local_inputs.is_empty() {
+            presentation.publish_latest(envelope);
+        } else {
+            // Input-bearing snapshot and its APPLIED result must remain FIFO so
+            // renderer timing means "state available to draw", not merely ACK.
+            presentation.publish_critical(envelope).await?;
+        }
+    }
+    for input_id in applied_local_inputs {
+        let Some(request_id) = pending_input_requests.remove(&input_id) else {
+            continue;
+        };
+        *presentation_sequence = presentation_sequence.saturating_add(1);
+        presentation
+            .publish_critical(critical_result(
+                *presentation_sequence,
+                request_id,
+                input_id,
+                true,
+                "APPLIED_TO_PRESENTATION",
+                msg.server_tick,
+            ))
+            .await?;
     }
     Ok(())
 }
@@ -425,5 +546,16 @@ fn critical_result(
                 authoritative_tick,
             },
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn external_runtime_uses_low_latency_two_tick_input_lookahead() {
+        assert_eq!(input_lookahead_ticks(), 2);
+        assert_ne!(input_lookahead_ticks(), 120);
     }
 }

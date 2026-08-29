@@ -517,47 +517,26 @@ mod tests {
         (world, hero)
     }
 
-    fn add_region_blocker(world: &mut World, x: i32, y: i32) -> specs::Entity {
+    fn add_public_blocked_square(world: &mut World, x: i32, y: i32) {
+        let half = 30.0;
         world
-            .create_entity()
-            .with(Pos(SimVec2::new(
-                Fixed64::from_i32(x),
-                Fixed64::from_i32(y),
-            )))
-            .with(CollisionRadius(Fixed64::from_i32(40)))
-            .with(RegionBlocker)
-            .build()
-    }
-
-    fn rebuild_region_index(world: &mut World, blockers: &[specs::Entity]) {
-        let items: Vec<_> = {
-            let positions = world.read_storage::<Pos>();
-            blockers
-                .iter()
-                .filter_map(|entity| {
-                    positions.get(*entity).map(|pos| {
-                        (
-                            *entity,
-                            vek::Vec2::new(
-                                pos.0.x.to_f32_for_render(),
-                                pos.0.y.to_f32_for_render(),
-                            ),
-                        )
-                    })
-                })
-                .collect()
-        };
-        world
-            .write_resource::<Searcher>()
-            .region
-            .rebuild_from(items);
+            .write_resource::<BlockedRegions>()
+            .0
+            .push(BlockedRegion {
+                name: format!("test-{x}-{y}"),
+                points: vec![
+                    vek::Vec2::new(x as f32 - half, y as f32 - half),
+                    vek::Vec2::new(x as f32 + half, y as f32 - half),
+                    vek::Vec2::new(x as f32 + half, y as f32 + half),
+                    vek::Vec2::new(x as f32 - half, y as f32 + half),
+                ],
+            });
     }
 
     #[test]
     fn path_planner_routes_around_blocked_grid_cell() {
         let (mut world, hero) = planner_world();
-        let blocker = add_region_blocker(&mut world, 64, 0);
-        rebuild_region_index(&mut world, &[blocker]);
+        add_public_blocked_square(&mut world, 64, 0);
 
         let pos = world.read_storage::<Pos>();
         let factions = world.read_storage::<Faction>();
@@ -593,17 +572,18 @@ mod tests {
     #[test]
     fn path_planner_rejects_when_start_is_fully_surrounded() {
         let (mut world, hero) = planner_world();
-        let blockers = [
-            add_region_blocker(&mut world, 64, 0),
-            add_region_blocker(&mut world, 0, 64),
-            add_region_blocker(&mut world, -64, 0),
-            add_region_blocker(&mut world, 0, -64),
-            add_region_blocker(&mut world, 64, 64),
-            add_region_blocker(&mut world, -64, 64),
-            add_region_blocker(&mut world, -64, -64),
-            add_region_blocker(&mut world, 64, -64),
-        ];
-        rebuild_region_index(&mut world, &blockers);
+        for (x, y) in [
+            (64, 0),
+            (0, 64),
+            (-64, 0),
+            (0, -64),
+            (64, 64),
+            (-64, 64),
+            (-64, -64),
+            (64, -64),
+        ] {
+            add_public_blocked_square(&mut world, x, y);
+        }
 
         let pos = world.read_storage::<Pos>();
         let factions = world.read_storage::<Faction>();

@@ -231,6 +231,7 @@ fn canonical_merge_is_independent_of_shard_completion_order() {
             source: ordinal,
             x_mm: ordinal as i64,
             y_mm: 0,
+            facing_ticks: None,
         },
     };
     let buffer = ShardedStableBuffer::new(4).unwrap();
