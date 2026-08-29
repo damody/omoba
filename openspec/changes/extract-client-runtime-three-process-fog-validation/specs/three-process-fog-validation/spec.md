@@ -44,3 +44,19 @@ Server SHALL以兩條獨立observer thread同時處理兩隊，並以`(team_id, 
 - **WHEN** 預定tick的任一隊同步截圖不存在
 - **THEN** comparison輸出非PASS verdict
 - **AND** 明確列出缺少的artifact
+
+#### Scenario: Visual MoveTo必須來自renderer
+- **WHEN** 執行五process visual驗收
+- **THEN** omfx在指定presentation tick送出與右鍵相同的MoveTo IPC
+- **AND** evidence保存renderer送出tick及英雄不同的前後座標
+- **AND** runtime直接注入的MoveTo不得滿足此gate
+
+#### Scenario: 同步截圖必須是同一replica tick
+- **WHEN** 擷取Team 1與Team 2畫面
+- **THEN** 兩個renderer先凍結在完全相同的replica tick
+- **AND** 任一tick marker缺失或不同時不得產生PASS
+
+#### Scenario: Memory scan必須讀取實際dump
+- **WHEN** sentinel gate驗證玩家process隔離
+- **THEN** runtime與visual renderer的full-memory dump檔必須存在、非空且被逐byte掃描
+- **AND** 只有dump metadata但沒有實際dump時結果為UNVERIFIED

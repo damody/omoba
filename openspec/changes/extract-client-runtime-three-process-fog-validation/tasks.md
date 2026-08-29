@@ -398,3 +398,108 @@
 - [x] 16.28 檢查manifest、timeline、scan、hash、lifecycle與screenshots完整
 - [x] 16.29 確認`verdict.json`只有在全部blocking gate通過時為PASS
 - [x] 16.30 執行`openspec validate extract-client-runtime-three-process-fog-validation --strict`
+
+## 17. 玩家視角常識補充驗收
+
+目的：補足原本一隊一人的 demo 無法證明同隊多玩家連線隔離的缺口。主要檔案：`omoba-core/src/runtime/team_stream.rs`、`omb/src/lockstep/state.rs`。完成門檻：同隊玩家共享同一份 filtered team frame、敵隊不會收到，且單一同隊玩家斷線不影響其他 session。
+
+- [x] 17.1 新增同隊兩個 session 都收到相同 team frame 的 router test
+- [x] 17.2 在 router test 確認敵隊 session 不會收到 Team 1 frame
+- [x] 17.3 新增單一同隊 session 斷線後保留另一個 route 的 test
+- [x] 17.4 新增多個 player ID 可由server authentication綁定同一team的 test
+- [x] 17.5 執行新增的同隊多玩家 tests
+- [x] 17.6 重跑玩家視角三程序、sentinel、MoveTo與OpenSpec final gate
+
+## 18. 玩家 replica lockstep 證明鏈修正
+
+目的：避免只證明戰爭迷霧資料過濾，卻沒有證明玩家程序真的自行執行 lockstep。主要檔案：`omoba-core/src/runtime/authority_recovery.rs`、`omb/src/state/core.rs`、`scripts/compare_fog_evidence.lua`。完成門檻：每個正式 checkpoint 都能以相同 key 配對 Server expected、Server observer pre/post、玩家 runtime pre/post；缺任一方不得 PASS。
+
+- [x] 18.1 讓 Server coordinator 保存 observer 的 pre-repair 與 post-repair hash
+- [x] 18.2 讓 Server coordinator 保存玩家 runtime 的 pre-repair 與 post-repair hash
+- [x] 18.3 分開計算三方 pre-repair parity 與 post-repair parity
+- [x] 18.4 將五個 hash、兩種 parity 與 checkpoint key 寫入 evidence
+- [x] 18.5 修改 comparison，要求每個預定 checkpoint 都有完整三方資料
+- [x] 18.6 無 fault 時要求三方 pre/post 全部保存，並以三方 post 一致作為 blocking parity
+- [x] 18.7 有 fault 時要求先出現 pre-repair divergence，再由 Server 修成 post-repair 一致
+- [x] 18.8 新增 coordinator 完整報告與缺報告 fail-closed 測試
+- [x] 18.9 找出玩家 runtime 未載入 gameplay script，導致 pre-repair 永久分歧
+- [x] 18.10 Launcher 明確傳入與 Server 相同的 `OMB_SCRIPTS_DIR`
+- [x] 18.11 玩家 runtime 未載入任何 gameplay script 時 fail closed
+- [x] 18.12 最後執行格式、單元、三程序 lockstep、fault recovery 與 strict validation
+
+## 19. 玩家視角 lockstep 可重現性
+
+目的：Server observer 與外部玩家 runtime 消費相同 filtered frame 時，必須在套用 Server correction 前得到相同結果。主要檔案：`omoba-core/src/runtime/filtered_specs.rs`、`omoba-core/src/runtime/observer_validation.rs`、`omoba-client-runtime`、`scripts/compare_fog_evidence.lua`。完成門檻：無 fault 時每個 checkpoint 都符合 `observer_pre == client_pre`；故障注入時先分歧，再符合三方 post-repair 收斂。
+
+- [x] 19.1 將無 fault 的 observer/client pre-repair parity 設為 blocking gate
+- [x] 19.2 找出兩個 filtered replica 使用相同 frame 仍產生不同 pre hash 的第一個 tick
+- [x] 19.3 固定 dispatcher 的跨系統讀寫順序，排除合法但不固定的排程順序
+- [x] 19.4 修正 late-join filtered bootstrap 把 Specs `Time` 錯誤重設為 0
+- [x] 19.5 修正 Server 與玩家 runtime 使用不同 `runtime-lua-content` feature set
+- [x] 19.6 證明 bootstrap TeamGameStart 的 observer/client bytes 與初始 team hash 相同
+- [x] 19.7 證明共同 checkpoint 的 observer/client encoded frame bytes 相同
+- [x] 19.8 移除 initial bootstrap 在 state thread 與 KCP outbound thread 的重複 observer tap
+- [x] 19.9 讓 observer rebase reset 與玩家收到的 rebase 保持相同先後順序
+- [x] 19.10 將 filtered component 的 HashMap JSON 改成跨 process 固定 key 順序
+- [x] 19.11 新增巢狀 HashMap canonical JSON regression test
+- [x] 19.12 新增 initial bootstrap 不得重複重設 observer 的 regression test
+- [x] 19.13 新增 late-join 後連續執行下一 tick 必須一致的 regression test
+- [x] 19.14 修正 fault harness 必須修改 disclosed source，避免下一 step 開始前被 Specs 同步覆蓋
+- [x] 19.15 最後重跑正常與故障三程序、完整 regression 及 strict validation
+
+## 20. 玩家視角 lockstep 不得退化成逐 tick state sync
+
+目的：正常遊戲必須由玩家 filtered world 自行執行相同 step，而不是每 tick 依賴 Server component repair。主要檔案：`omoba-core/src/runtime/visibility.rs`、`omoba-core/src/runtime/team_projector.rs`、`scripts/compare_fog_evidence.lua`。完成門檻：正常模式所有 checkpoint 皆符合 `Server expected == observer pre == player pre == post`，且整段 run 的 repair 次數為零；故障模式則必須先分歧、之後才收斂。
+
+- [x] 20.1 找出正常模式從 tick 3 開始每 tick 都套 Server repair 的問題
+- [x] 20.2 停止 `refresh_expected_visible_components` 主動排入所有可見 component repair
+- [x] 20.3 讓 Server projection baseline 與玩家 export 共用 canonical JSON key 順序
+- [x] 20.4 讓舊的逐 tick repair evidence 在新 comparator 中判定 FAIL
+- [x] 20.5 正常模式要求 expected、observer pre、player pre 與 post 全部一致
+- [x] 20.6 故障模式要求先記錄分歧，再於後續 frame 證明收斂
+- [x] 20.7 加入只含該隊已公開 component 的逐 schema 診斷證據
+- [x] 20.8 找出 Team 1 tick 600 的第一個 entity 與 component 差異
+- [x] 20.9 證明差異是剛 Reveal 的巡邏單位被玩家多執行一個 step
+- [x] 20.10 將 Reveal 與 Replace baseline 視為該 tick 已完成的 authoritative 結果
+- [x] 20.11 同一 tick 不重播作用在新 baseline entity 上的 input、effect 與 random tape
+- [x] 20.12 新增 Reveal 當 tick 不得重複 step、下一 tick 才開始 step 的 regression test
+- [x] 20.13 重跑正常三程序，要求兩隊五個 checkpoint 全部 pre/post 一致且零 repair
+- [x] 20.14 最後執行故障復原、網路延遲、完整單元測試與 strict validation
+
+## 21. 常識審核：故障復原必須真的回到Server expected
+
+目的：防止故障模式只因observer與client彼此相等就誤判成功；復原後必須重新等於Server expected。主要檔案：`omoba-core/src/runtime/team_projector.rs`、`scripts/compare_fog_evidence.lua`。完成門檻：注入fault後先分歧，後續完整checkpoint重新三方一致，且rebase不重播已完成tick。
+
+- [x] 21.1 檢查既有fault evidence中的每個checkpoint而非只看總verdict
+- [x] 21.2 找出tick 360後observer與client相等但仍不等於Server expected的假PASS
+- [x] 21.3 修正rebase snapshot的下一個replica tick為authoritative完成tick加一
+- [x] 21.4 修改fault comparator，只有expected、observer post與client post三方一致才算recovered
+- [x] 21.5 更新Reveal、Replace與rebase baseline的tick邊界規格
+- [x] 21.6 新增rebase不重播已完成tick的regression test
+- [x] 21.7 修正rebase時必須保留初始公開地形metadata與實際tick rate
+- [x] 21.8 重跑fault三程序並證明後續checkpoint重新三方一致
+- [x] 21.9 最後重跑正常三程序、延遲、完整測試與strict validation
+- [x] 21.10 將可見單位的Server post-step位置與面向包成消毒後公開結果，不傳送敵方目的地或指令佇列
+- [x] 21.11 在玩家Specs world與disclosed hash狀態同時套用可見移動結果，避免只修畫面
+- [x] 21.12 修正sequence gate：只允許已驗證rebase明確宣告的resume sequence跳號
+- [x] 21.13 新增可見移動結果更新Specs位置與面向的regression test
+
+## 22. 玩家實際操作與證據可信度常識審核
+
+目的：不能只證明runtime hash一致；玩家必須在renderer看到自己的英雄、正確HUD與遠端tick，visual MoveTo必須真的從omfx送出，安全gate必須掃描實際process memory。主要檔案：`omfx/game/src/presentation_client.rs`、`omfx/game/src/native.rs`、`omfx/game/src/filtered_render_bridge.rs`、`omoba-client-runtime/src/evidence.rs`、`scripts/capture_fog_screenshots.lua`、`scripts/compare_fog_evidence.lua`。完成門檻：兩隊renderer凍結在相同tick截圖、renderer-origin MoveTo造成英雄座標改變、HUD不是全零、實際runtime/renderer dump存在且另一隊sentinel零命中。
+
+- [x] 22.1 找出舊visual scripted MoveTo繞過omfx、直接由runtime注入的假證明
+- [x] 22.2 visual模式停用runtime內建MoveTo，改由omfx在指定presentation tick送出相同PlayerInput IPC
+- [x] 22.3 保存每隊renderer送出MoveTo的tick marker
+- [x] 22.4 保存英雄移動前後raw座標與套用tick，不再只保存布林marker
+- [x] 22.5 讓comparison要求renderer marker與非零英雄位移同時成立
+- [x] 22.6 renderer-only使用presentation authoritative/replica tick更新狀態列與simulation rate
+- [x] 22.7 從安全disclosed Hero、CProperty與TAttack component更新己方英雄HUD
+- [x] 22.8 截圖前讓兩個renderer各自在目標tick凍結presentation
+- [x] 22.9 capture helper要求兩隊renderer tick完全相同才截圖
+- [x] 22.10 memory dump helper確認實際dump檔存在且非空後才能標示CAPTURED
+- [x] 22.11 comparison遞迴掃描team packet、runtime evidence、presentation、log及實際runtime memory dump
+- [x] 22.12 visual模式額外掃描實際renderer memory dump
+- [x] 22.13 新增renderer HUD、遠端tick、renderer-origin MoveTo與memory dump fail-closed regression tests
+- [x] 22.14 執行新的五process visual run並人工檢視兩隊同tick截圖
+- [x] 22.15 最後集中重跑正常／fault／20～100ms RTT、完整workspace測試與strict validation

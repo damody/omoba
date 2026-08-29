@@ -20,13 +20,23 @@ Runtime SHALL 綁定固定player/team並以共用allowlist建立空filtered worl
 
 ### Requirement: Runtime使用共用deterministic pipeline
 
-Runtime SHALL 在PreStep套用Reveal、Hide、Forget與dependency closure，再注入accepted input/effect，以`global_seed + tick`建立tick-local RNG，執行共用phases並計算pre-repair hash。Server correction SHALL 擁有最終權威，但runtime MUST 先記錄原始divergence才套repair/replace/rebase。
+Runtime SHALL 在PreStep套用Hide、Forget與dependency closure，再注入accepted input/effect，以`global_seed + tick`建立tick-local RNG並執行共用phases。Reveal、Replace與rebase baseline代表該effective tick已完成的authoritative結果，因此新baseline entity SHALL 在該tick gameplay後合併，MUST NOT 再執行同一tick；下一tick才參與正常lockstep。Runtime接著計算pre-repair hash。Server correction SHALL 擁有最終權威，但runtime MUST 先記錄原始divergence才套repair/replace/rebase。
 
 #### Scenario: 故意修改後由server修復
 - **WHEN** test-only fault修改Team 1已揭露component
 - **THEN** Team 1 pre-repair hash先回報mismatch
 - **AND** server correction使Team 1重新收斂
 - **AND** 該checkpoint不被記為原始parity pass
+
+#### Scenario: Rebase不會重播已完成tick
+- **WHEN** server以tick T完成後的filtered world建立rebase
+- **THEN** manifest的下一個replica tick為T+1
+- **AND** runtime套用baseline後不再執行tick T
+
+#### Scenario: 可見移動不洩漏敵方指令
+- **WHEN** 可見敵方單位因敵方私密MoveTo、AttackMove或AttackTarget指令而移動
+- **THEN** Server只送出該tick已完成的消毒後位置與面向結果，不得送出目的地、目標或指令佇列
+- **AND** 玩家runtime必須在本地Specs step後將結果套用到Specs world與disclosed hash狀態
 
 ### Requirement: Renderer生命週期不擁有replica
 

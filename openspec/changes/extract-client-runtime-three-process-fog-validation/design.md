@@ -45,7 +45,7 @@
 
 ### 4. Server-authoritative selective tick pipeline
 
-每 tick 依序執行 frame barrier、PreStep disclosure transition、accepted input/effect 注入、以 `global_seed + tick` 建立 tick-local RNG、共用 deterministic phases、pre-repair hash、checkpoint 比較、記錄 divergence、最後才套 repair/replace/rebase。兩隊同時處理，completion order 不得影響 authority。
+每 tick 依序執行 frame barrier、PreStep 的 Hide／Forget disclosure transition、accepted input/effect 注入、以 `global_seed + tick` 建立 tick-local RNG、共用 deterministic phases，再合併代表該 tick 已完成結果的 Reveal／Replace baseline，最後計算 pre-repair hash、checkpoint 比較、記錄 divergence並套用必要 correction。Rebase snapshot同樣代表 authoritative tick T 的完成結果，consumer只能從T+1繼續。兩隊同時處理，completion order 不得影響 authority。
 
 不採用長期 client prediction；server 沒送新資訊時 client 無法準確推算未揭露戰場。hash 衝突時一律以 server correction 為準，但原始 mismatch 不得被修復後的 hash 掩蓋。
 
@@ -89,6 +89,12 @@ Server 每次 run 產生不同 128-bit Team 1/2 sentinel，注入 test-only hidd
 6. 接通demo、三方hash、sentinel與evidence pipeline。
 7. 修改launcher建立三process安全模式與五process視覺模式。
 8. production與測試資產完成後，最後一次集中執行所有unit、integration、security、fault、跨平台、performance與soak gate。
+
+可見單位的移動具有跨戰爭迷霧邊界的私密因果：玩家不得取得敵方目的地、追擊目標或指令佇列，但必須看見該tick已發生的移動。Server因此在step後送出已消毒的位置與面向結果；玩家filtered Specs仍執行相同步驟，之後以這份可見結果覆蓋Specs狀態與disclosed hash狀態。這也保證rebase不需要攜帶敵方私密延續狀態，且衝突時以Server為主。
+
+玩家視角驗收不得由runtime直接注入input冒充renderer操作。Visual情境由omfx在指定presentation tick建立與右鍵相同的`PlayerInput::MoveTo`並經loopback IPC送runtime；證據同時保存renderer送出tick、runtime轉送結果及英雄前後座標。同步截圖前，兩個renderer各自在相同replica tick凍結test presentation，tick不同則不截圖。Renderer-only HUD從己方已揭露的Hero、CProperty與TAttack建立，不得顯示legacy heartbeat的零值。
+
+Sentinel gate必須掃描實際邊界資料而不是只確認dump metadata：team frame/presentation capture、玩家可見log、runtime full-memory dump，以及visual模式的renderer full-memory dump都要逐byte搜尋對方sentinel。Dump檔不存在、空檔、metadata與實體不一致或無法讀取時一律`UNVERIFIED`，不得PASS。
 
 Rollback時讓secure launcher暫時回到既有embedded模式；protocol capability與binary保留版本隔離，不允許同一session混用兩種模式。資料格式 migration失敗時終止該session，不降級到global snapshot或legacy tick。
 
