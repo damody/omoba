@@ -1,6 +1,0 @@
-{
-  "raw_sentinels_are_server_only": true,
-  "schema_version": 1,
-  "team_1_sentinel_sha256": "f37db18a2a5b77f51493df1e184b235335cf6cd3484565f3c7763d69d1f4007b",
-  "team_2_sentinel_sha256": "1b22cbe56c83c22a5570cf6672f403cdb3d1cbe2ea44f87e9b22217cd4436eac"
-}
