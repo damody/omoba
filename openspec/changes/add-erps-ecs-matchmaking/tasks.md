@@ -97,15 +97,15 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 
 **完成門檻：** leader／revision／freeze／mode-size／region／credit 規則皆有 negative tests；相同 `request_id` 不重複 mutation；30 秒 grace 使用可注入 logical clock 測試。
 
-- [ ] 4.1 實作 session-authenticated player command envelope、`request_id` cache 與 deterministic apply order
+- [x] 4.1 實作 session-authenticated player command envelope、`request_id` cache 與 deterministic apply order
 - [x] 4.2 實作 Unicode NFC party name normalization 與只允許 1～24 個 Unicode letter／number 的 validator
 - [x] 4.3 新增 CJK 合法、空白／標點／emoji／控制／零寬／combining-only 非法的名稱測試
 - [x] 4.4 實作短效不可猜 invite token、到期與使用次數 policy
 - [x] 4.5 實作 create／invite／join／leave／kick／rename party commands 與 leader authorization
 - [x] 4.6 實作 party revision optimistic concurrency 與 stale revision tests
 - [x] 4.7 實作排隊／proposal／match 期間 roster 與 rename freeze
-- [ ] 4.8 實作各模式 party size、全員在線、credit eligibility、region intersection 與 single-active-state enqueue validation
-- [ ] 4.9 實作 cancel 與 client 斷線 30 秒 grace period lifecycle
+- [x] 4.8 實作各模式 party size、全員在線、credit eligibility、region intersection 與 single-active-state enqueue validation
+- [x] 4.9 實作 cancel 與 client 斷線 30 秒 grace period lifecycle
 
 ## 5. Queue 分桶與 deterministic 平行管線
 
@@ -121,9 +121,9 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 - [x] 5.2 實作階梯式搜尋範圍擴張與最大上限，使用 logical time 而非 wall-clock iteration timing
 - [x] 5.3 實作 party effective rating、party size adjustment、internal spread adjustment 與 `max_party_rating_spread`
 - [x] 5.4 建立不可變 candidate snapshot，使平行 worker 不持有 ECS mutable storage
-- [ ] 5.5 實作 Specs dispatcher／Rayon shard candidate system 與固定 per-shard search budget
+- [x] 5.5 實作 Specs dispatcher／Rayon shard candidate system 與固定 per-shard search budget
 - [x] 5.6 在 `matching/dispatcher.rs` 將每個 worker 的 candidate 收集為局部 `Vec<Candidate>`，以 `(oldest_enqueued_at, quality_key, owner_shard, stable_ticket_ids)` 明確排序後再合併；不得以 `HashMap` iteration 或 channel 到達順序決定 winner，並加入反轉 worker 完成順序仍同結果的 test
-- [ ] 5.7 實作單一 claim／commit system，原子重驗 ticket、party revision、player 與 proposal state
+- [x] 5.7 實作單一 claim／commit system，原子重驗 ticket、party revision、player 與 proposal state
 - [x] 5.8 新增不同 worker thread 數與相同 seed 產生完全相同結果的 replay tests
 - [x] 5.9 新增跨 bucket halo duplicate-claim 與 cancel／commit race integration tests
 
