@@ -76,7 +76,6 @@ local exe = {
   runtime = path.join(b.root, "omoba-client-runtime", "target", "release", "omoba-client-runtime.exe"),
   renderer = path.join(b.root, "omfx", "target", "release", "executor.exe"),
 }
-for role, file in pairs(exe) do assert(path.is_file(file), "missing release " .. role .. ": " .. file) end
 
 local base_env = {
   OMB_GAME_TOML = server_game,
@@ -87,6 +86,9 @@ local base_env = {
   OMB_SCRIPTS_DIR = path.join(b.root, "scripts", "target", "release"),
   OMB_LUA_CONTENT = "1",
   OMB_LUA_CONTENT_ROOT = path.join(b.root, "scripts", "lua_data"),
+  -- 每 frame 的 presentation trace 成本很高，只在明確 debug 時開啟。
+  OMOBA_PRESENTATION_TRACE = os.getenv("OMOBA_PRESENTATION_TRACE") or "0",
+  RUST_LOG = "info",
 }
 
 local cleanup = process.cleanup_stack()
@@ -109,7 +111,29 @@ local function spawn(role, executable, args, cwd, env)
   return pid
 end
 
+local function build(manifest, extra)
+  local args = { "build", "--release", "--manifest-path", manifest }
+  for _, value in ipairs(extra or {}) do table.insert(args, value) end
+  io.stderr:write("Building " .. manifest .. " (release)...\n")
+  io.stderr:flush()
+  local result = process.run("cargo", args, { cwd = b.root, env = base_env, check = false, label = "build " .. manifest })
+  io.write(result.stdout or "")
+  io.stderr:write(result.stderr or "")
+  assert(result.exit_code == 0, "release build failed: " .. manifest)
+end
+
 local ok, result = xpcall(function()
+  if os.getenv("OMOBA_SKIP_BUILD") ~= "1" then
+    build("scripts/Cargo.toml", { "-p", "base_content", "--features", "runtime-lua-content" })
+    build("omb/Cargo.toml", { "-p", "omobab", "--features", "runtime-lua-content" })
+    build("omoba-client-runtime/Cargo.toml", { "--features", "runtime-lua-content" })
+    build("omfx/Cargo.toml", { "-p", "executor", "--features", "runtime-lua-content" })
+  end
+  for role, file in pairs(exe) do
+    assert(path.is_file(file), "missing release " .. role .. ": " .. file)
+  end
+  assert(path.is_file(base_env.OMB_DLL_PATH), "missing release script DLL: " .. base_env.OMB_DLL_PATH)
+
   local server = spawn("server", exe.server, {}, path.join(b.root, "omb"), base_env)
   time.sleep_ms(1500)
   assert(process.inspect(server), "release server exited during startup")

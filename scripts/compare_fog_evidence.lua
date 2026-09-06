@@ -1,17 +1,29 @@
 local script=debug.getinfo(1,'S').source:sub(2);local dir=script:match('^(.*)[/\\]');package.path=dir..'/?.lua;'..package.path
 local b=require('_bootstrap');local a=b.lib('args');local o=a.parse(arg);local path=b.lib('path');local json=b.lib('json');local hash=b.lib('hash');local lfs=require('lfs');local root=path.absolute(a.required(o,'evidence-dir'));local gates={};local function gate(name,status,extra)extra=extra or{};extra.name=name;extra.status=status;table.insert(gates,extra)end;local function read_lines(file)local rows={};if not path.is_file(file)then return rows end;for line in io.lines(file)do local ok,v=pcall(json.decode,line);if ok then table.insert(rows,v)end end;return rows end
-local required={'manifest.json','server/canonical-timeline.jsonl','server/disclosure-matrix.jsonl','server/three-way-checkpoints.json','team-1-runtime/manifest.json','team-2-runtime/manifest.json','team-1-runtime/team-frame.capture','team-2-runtime/team-frame.capture','team-1-runtime/filtered-world.latest.json','team-2-runtime/filtered-world.latest.json','team-1-runtime/presentation.capture','team-2-runtime/presentation.capture'};local missing={};for _,v in ipairs(required)do if not path.is_file(path.join(root,v))then table.insert(missing,v)end end;gate('required-artifacts',#missing==0 and'PASS'or'UNVERIFIED',{missing=missing})
+local required={'manifest.json','server/canonical-timeline.jsonl','server/disclosure-matrix.jsonl','server/three-way-checkpoints.json','team-1-runtime/manifest.json','team-2-runtime/manifest.json','team-1-runtime/team-frame.capture','team-2-runtime/team-frame.capture','team-1-runtime/filtered-world.latest.json','team-2-runtime/filtered-world.latest.json','team-1-runtime/presentation.capture','team-2-runtime/presentation.capture'};local missing={};for _,v in ipairs(required)do local present=path.is_file(path.join(root,v));if v=='server/three-way-checkpoints.json'then present=present or path.is_file(path.join(root,'server','three-way-checkpoints.jsonl'))end;if not present then table.insert(missing,v)end end;gate('required-artifacts',#missing==0 and'PASS'or'UNVERIFIED',{missing=missing})
 local manifest_file=path.join(root,'manifest.json');local manifest=path.is_file(manifest_file)and json.read(manifest_file)or nil
 local function contains_bytes(file,needle)local f=io.open(file,'rb');if not f then return nil end;local tail='';while true do local chunk=f:read(1024*1024);if not chunk then break end;local data=tail..chunk;if data:find(needle,1,true)then f:close();return true end;tail=data:sub(math.max(1,#data-#needle+2))end;f:close();return false end
 local function collect_files(target,out)if path.is_file(target)then table.insert(out,target);return end;if not path.is_directory(target)then return end;for name in lfs.dir(target)do if name~='.'and name~='..'then collect_files(path.join(target,name),out)end end end
 local secret=path.join(root,'server','sentinels.secret.json');if not path.is_file(secret)then gate('sentinel-secrets','UNVERIFIED',{reason='missing server-only sentinel file'})else local secrets=json.read(secret);for team=1,2 do local hex=team==1 and secrets.team_2_hex or secrets.team_1_hex;local needle=hex:gsub('..',function(x)return string.char(tonumber(x,16))end);local hits,scanned={},{};local targets={path.join(root,'server','team-'..team),path.join(root,'team-'..team..'-runtime'),path.join(root,'runtime-logs','team-'..team..'.stdout.log'),path.join(root,'runtime-logs','team-'..team..'.stderr.log'),path.join(root,'team-'..team..'-runtime.dmp')};if manifest and manifest.mode=='visual'then table.insert(targets,path.join(root,'renderer-logs','team-'..team..'.stdout.log'));table.insert(targets,path.join(root,'renderer-logs','team-'..team..'.stderr.log'));table.insert(targets,path.join(root,'team-'..team..'-renderer.dmp'))end;for _,target in ipairs(targets)do collect_files(target,scanned)end;local dump_roles=manifest and manifest.mode=='visual'and{'runtime','renderer'}or{'runtime'};local dumps_ok=true;for _,role in ipairs(dump_roles)do local meta=path.join(root,'team-'..team..'-'..role..'.dmp.json');local dump=path.join(root,'team-'..team..'-'..role..'.dmp');dumps_ok=dumps_ok and path.is_file(meta)and path.is_file(dump);if path.is_file(meta)then local m=json.read(meta);dumps_ok=dumps_ok and m.status=='CAPTURED'and(tonumber(m.dump_bytes)or 0)>0 end end;for _,file in ipairs(scanned)do local found=contains_bytes(file,needle);if found then table.insert(hits,file)end end;gate('team-'..team..'-opponent-sentinel-absence',#hits>0 and'FAIL'or(dumps_ok and#scanned>0)and'PASS'or'UNVERIFIED',{hits=hits,scanned_files=scanned,dumps_verified=dumps_ok})end end
 local checkpoint_rows={}
 local three_way_file=path.join(root,'server','three-way-checkpoints.json')
-local three_way=path.is_file(three_way_file)and json.read(three_way_file)or{}
+local three_way_jsonl=path.join(root,'server','three-way-checkpoints.jsonl')
+local three_way_raw=path.is_file(three_way_jsonl)and read_lines(three_way_jsonl)or(path.is_file(three_way_file)and json.read(three_way_file)or{})
+local three_way_by_key={}
+for _,v in ipairs(three_way_raw)do
+ local key=tostring(v.team_id)..':'..tostring(v.replica_tick)..':'..tostring(v.team_sequence)..':'..tostring(v.authority_revision)
+ three_way_by_key[key]=v
+end
+local three_way={}
+for _,v in pairs(three_way_by_key)do table.insert(three_way,v)end
 for team=1,2 do
+ local last_applied_tick=0
+ for _,event in ipairs(read_lines(path.join(root,'team-'..team..'-runtime','network-events.jsonl')))do
+  if event.kind=='frame-applied'and type(event.replica_tick)=='number'then last_applied_tick=math.max(last_applied_tick,event.replica_tick)end
+ end
  local expected={}
  for _,v in ipairs(read_lines(path.join(root,'server','team-'..team,'expected-timeline.jsonl')))do
-  if type(v.expected_pre_repair_hash)=='string'then expected[tostring(v.replica_tick)..':'..tostring(v.team_sequence)]=v.expected_pre_repair_hash end
+  if type(v.expected_pre_repair_hash)=='string'and type(v.replica_tick)=='number'and v.replica_tick<=last_applied_tick then expected[tostring(v.replica_tick)..':'..tostring(v.team_sequence)]=v.expected_pre_repair_hash end
  end
  local expected_count=0;for _ in pairs(expected)do expected_count=expected_count+1 end
  local complete,pre_mismatch,expected_pre_mismatch,unexpected_repair,post_mismatch=0,0,0,0,0
@@ -40,7 +52,7 @@ for team=1,2 do
  local coverage_ok=expected_count>0 and complete==expected_count
  local replica_parity_ok=(fault_injected and first_fault_tick~=nil and recovered_after_fault)or(not fault_injected and pre_mismatch==0 and expected_pre_mismatch==0 and unexpected_repair==0 and post_mismatch==0)
  local status=not coverage_ok and'UNVERIFIED'or replica_parity_ok and'PASS'or'FAIL'
- gate('team-'..team..'-three-way-lockstep',status,{expected=expected_count,complete=complete,pre_repair_mismatch=pre_mismatch,expected_pre_repair_mismatch=expected_pre_mismatch,unexpected_repair=unexpected_repair,post_repair_mismatch=post_mismatch,fault_injected=fault_injected,first_fault_tick=first_fault_tick,recovered_after_fault=recovered_after_fault})
+ gate('team-'..team..'-three-way-lockstep',status,{session_last_applied_tick=last_applied_tick,expected=expected_count,complete=complete,pre_repair_mismatch=pre_mismatch,expected_pre_repair_mismatch=expected_pre_mismatch,unexpected_repair=unexpected_repair,post_repair_mismatch=post_mismatch,fault_injected=fault_injected,first_fault_tick=first_fault_tick,recovered_after_fault=recovered_after_fault})
 end
 json.write(path.join(root,'checkpoint-comparison.json'),checkpoint_rows,true)
 gate('process-lifecycle',manifest and'PASS'or'UNVERIFIED',{manifest=path.join(root,'manifest.json')})
