@@ -95,9 +95,12 @@ impl ReplicaHost {
             Ok(FrameApplyResult::Stalled(state)) => Err(ClientRuntimeError::Replica(format!(
                 "frame barrier stalled: {state:?}"
             ))),
-            Err(error) => Err(ClientRuntimeError::Replica(format!(
-                "frame rejected: {error:?}"
-            ))),
+            Err(error) => {
+                let fault = self.runtime.last_apply_fault().cloned();
+                Err(ClientRuntimeError::Replica(format!(
+                    "frame rejected: {error:?} fault={fault:?}"
+                )))
+            }
         }
     }
 

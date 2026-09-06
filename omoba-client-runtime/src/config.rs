@@ -15,6 +15,9 @@ pub struct ClientRuntimeConfig {
     pub protocol_version: u32,
     pub content_hash: String,
     pub scripted_move_tick: Option<u64>,
+    pub scripted_move_interval_ticks: Option<u64>,
+    pub scripted_stall_tick: Option<u64>,
+    pub scripted_stall_ms: Option<u64>,
     pub scripted_hidden_target_tick: Option<u64>,
     pub screenshot_tick: Option<u64>,
     pub fault_tick: Option<u64>,
@@ -39,6 +42,9 @@ impl ClientRuntimeConfig {
         let mut protocol_version = 2;
         let mut content_hash = String::new();
         let mut scripted_move_tick = None;
+        let mut scripted_move_interval_ticks = None;
+        let mut scripted_stall_tick = None;
+        let mut scripted_stall_ms = None;
         let mut scripted_hidden_target_tick = None;
         let mut screenshot_tick = None;
         let mut fault_tick = None;
@@ -66,6 +72,24 @@ impl ClientRuntimeConfig {
                 "--scripted-move-tick" => {
                     scripted_move_tick = Some(value(&mut args)?.parse().map_err(|_| {
                         ClientRuntimeError::Config("invalid scripted move tick".into())
+                    })?)
+                }
+                "--scripted-move-interval-ticks" => {
+                    scripted_move_interval_ticks =
+                        Some(value(&mut args)?.parse().map_err(|_| {
+                            ClientRuntimeError::Config(
+                                "invalid scripted move interval ticks".into(),
+                            )
+                        })?)
+                }
+                "--scripted-stall-tick" => {
+                    scripted_stall_tick = Some(value(&mut args)?.parse().map_err(|_| {
+                        ClientRuntimeError::Config("invalid scripted stall tick".into())
+                    })?)
+                }
+                "--scripted-stall-ms" => {
+                    scripted_stall_ms = Some(value(&mut args)?.parse().map_err(|_| {
+                        ClientRuntimeError::Config("invalid scripted stall milliseconds".into())
                     })?)
                 }
                 "--scripted-hidden-target-tick" => {
@@ -120,6 +144,16 @@ impl ClientRuntimeConfig {
                 "secure runtime requires protocol version 2".into(),
             ));
         }
+        if scripted_move_interval_ticks == Some(0) {
+            return Err(ClientRuntimeError::Config(
+                "--scripted-move-interval-ticks must be non-zero".into(),
+            ));
+        }
+        if scripted_stall_ms.is_some() != scripted_stall_tick.is_some() {
+            return Err(ClientRuntimeError::Config(
+                "--scripted-stall-tick and --scripted-stall-ms must be used together".into(),
+            ));
+        }
         let presentation_bind = presentation_bind
             .ok_or_else(|| ClientRuntimeError::Config("--presentation-bind is required".into()))?;
         if !presentation_bind.ip().is_loopback() {
@@ -140,6 +174,9 @@ impl ClientRuntimeConfig {
             protocol_version,
             content_hash,
             scripted_move_tick,
+            scripted_move_interval_ticks,
+            scripted_stall_tick,
+            scripted_stall_ms,
             scripted_hidden_target_tick,
             screenshot_tick,
             fault_tick,

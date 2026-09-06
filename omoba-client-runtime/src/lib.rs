@@ -1,3 +1,5 @@
+pub mod catchup;
+pub mod checkpoint_writer;
 pub mod config;
 pub mod evidence;
 pub mod input_bridge;
