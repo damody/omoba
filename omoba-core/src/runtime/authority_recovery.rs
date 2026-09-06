@@ -188,7 +188,12 @@ pub struct AuthorityRepairCoordinator {
     pub entity_replace_count_by_team: BTreeMap<u32, u64>,
     pub filtered_rebase_count_by_team: BTreeMap<u32, u64>,
     pub three_way_checkpoints: BTreeMap<ReplicaCheckpointKey, ThreeWayCheckpoint>,
+    pending_evidence: Vec<ReplicaCheckpointKey>,
 }
+
+/// Keep a few seconds of in-memory three-way rows so observer/client lag can
+/// still pair. Older rows are written to evidence jsonl before prune.
+pub const THREE_WAY_CHECKPOINT_RETENTION_TICKS: u64 = 120 * 8;
 
 impl AuthorityRepairCoordinator {
     pub fn checkpoint_verdicts(&self) -> BTreeMap<ReplicaCheckpointKey, CheckpointVerdict> {
@@ -206,6 +211,7 @@ impl AuthorityRepairCoordinator {
             component_repair_count_by_team: BTreeMap::new(),
             entity_replace_count_by_team: BTreeMap::new(),
             filtered_rebase_count_by_team: BTreeMap::new(),
+            pending_evidence: Vec::new(),
             ..Self::default()
         }
     }
@@ -219,6 +225,7 @@ impl AuthorityRepairCoordinator {
         checkpoint.observer_post_repair_hash = Some(report.observer_post_repair_hash);
         checkpoint.observer_frame_hash = Some(report.encoded_frame_hash);
         update_three_way_parity(checkpoint);
+        self.pending_evidence.push(report.key);
     }
 
     pub fn report_client_checkpoint(&mut self, report: ClientCheckpointReport) {
@@ -227,6 +234,17 @@ impl AuthorityRepairCoordinator {
         checkpoint.client_post_repair_hash = Some(report.post_repair_hash);
         checkpoint.client_frame_hash = Some(report.encoded_frame_hash);
         update_three_way_parity(checkpoint);
+        self.pending_evidence.push(report.key);
+    }
+
+    pub fn drain_pending_evidence_keys(&mut self) -> Vec<ReplicaCheckpointKey> {
+        std::mem::take(&mut self.pending_evidence)
+    }
+
+    pub fn prune_three_way_checkpoints(&mut self, latest_replica_tick: u64) {
+        let min_tick = latest_replica_tick.saturating_sub(THREE_WAY_CHECKPOINT_RETENTION_TICKS);
+        self.three_way_checkpoints
+            .retain(|key, _| key.replica_tick >= min_tick);
     }
 
     fn allocate_revision(state: &mut TeamRecoveryState) -> u64 {
@@ -517,5 +535,39 @@ mod checkpoint_tests {
         let checkpoint = &coordinator.three_way_checkpoints[&key()];
         assert_eq!(checkpoint.pre_repair_parity, None);
         assert_eq!(checkpoint.verdict(), CheckpointVerdict::Unverified);
+    }
+
+    #[test]
+    fn prune_drops_checkpoints_older_than_retention_window() {
+        let mut coordinator = AuthorityRepairCoordinator::configured();
+        let old = ReplicaCheckpointKey {
+            team_id: 1,
+            replica_tick: 10,
+            team_sequence: 10,
+            authority_revision: 0,
+        };
+        let recent = ReplicaCheckpointKey {
+            team_id: 1,
+            replica_tick: 10 + THREE_WAY_CHECKPOINT_RETENTION_TICKS + 50,
+            team_sequence: 10 + THREE_WAY_CHECKPOINT_RETENTION_TICKS + 50,
+            authority_revision: 0,
+        };
+        coordinator.report_client_checkpoint(ClientCheckpointReport {
+            key: old,
+            pre_repair_hash: [1; 32],
+            post_repair_hash: [1; 32],
+            encoded_frame_hash: [1; 32],
+        });
+        coordinator.report_client_checkpoint(ClientCheckpointReport {
+            key: recent,
+            pre_repair_hash: [2; 32],
+            post_repair_hash: [2; 32],
+            encoded_frame_hash: [2; 32],
+        });
+        assert_eq!(coordinator.drain_pending_evidence_keys().len(), 2);
+
+        coordinator.prune_three_way_checkpoints(recent.replica_tick);
+        assert!(!coordinator.three_way_checkpoints.contains_key(&old));
+        assert!(coordinator.three_way_checkpoints.contains_key(&recent));
     }
 }

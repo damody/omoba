@@ -133,6 +133,34 @@ pub enum ReplicaRuntimeError {
     GameplayStep,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplicaApplyPhase {
+    PreStep,
+    Step,
+    PostStep,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReplicaApplyOperation {
+    RevealDependency,
+    Hide,
+    Forget,
+    AcceptedInputActor,
+    AcceptedInputTarget,
+    ExternalEffectTarget,
+    RandomTapeEntity,
+    ComponentRepair,
+    EntityReplace,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplicaApplyFault {
+    pub phase: ReplicaApplyPhase,
+    pub operation: ReplicaApplyOperation,
+    pub replica_id: u64,
+    pub disclosure_epoch: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FrameApplyResult {
     Applied {
@@ -195,6 +223,7 @@ pub struct SelectiveReplicaRuntime {
     remembered_presentations: BTreeMap<(u64, u64), Vec<u8>>,
     applied_transition_revisions: BTreeMap<(u8, u64, u64), u64>,
     retired_replica_filter: Box<[u64]>,
+    last_apply_fault: Option<ReplicaApplyFault>,
 }
 
 impl SelectiveReplicaRuntime {
@@ -225,6 +254,7 @@ impl SelectiveReplicaRuntime {
             remembered_presentations: BTreeMap::new(),
             applied_transition_revisions: BTreeMap::new(),
             retired_replica_filter: vec![0; 131_072].into_boxed_slice(),
+            last_apply_fault: None,
         }
     }
 
@@ -285,6 +315,10 @@ impl SelectiveReplicaRuntime {
         &self.world
     }
 
+    pub fn last_apply_fault(&self) -> Option<&ReplicaApplyFault> {
+        self.last_apply_fault.as_ref()
+    }
+
     pub fn disclosed_component_digests(&self) -> Vec<DisclosedComponentDigest> {
         disclosed_component_digests(&self.world.entities)
     }
@@ -325,6 +359,7 @@ impl SelectiveReplicaRuntime {
         frame: TeamTickFrame,
         stepper: &mut impl DisclosedWorldStepper,
     ) -> Result<FrameApplyResult, ReplicaRuntimeError> {
+        self.last_apply_fault = None;
         self.memory_directives.clear();
         self.applied_transition_revisions.clear();
         if frame.protocol_version != 2 {
@@ -363,6 +398,7 @@ impl SelectiveReplicaRuntime {
             .authority_revision
             .as_ref()
             .map_or(0, |revision| revision.value);
+        self.preflight_entity_references(&frame)?;
         self.apply_pre_step(frame.pre_step.as_ref(), frame_revision)?;
         self.last_injections = self.inject_step(frame.step.as_ref())?;
         // Reveal/Replace baselines are captured from the authoritative world
@@ -383,6 +419,10 @@ impl SelectiveReplicaRuntime {
         self.last_injections.external_effects.retain(|effect| {
             let target = effect.visible_target.as_ref().map_or(0, |id| id.value);
             !baseline_ids.contains(&target)
+        });
+        self.last_injections.public_events.retain(|event| {
+            let subject = event.subject.as_ref().map_or(0, |id| id.value);
+            !baseline_ids.contains(&subject)
         });
         self.last_injections.random_tapes.retain(|tape| {
             let entity = tape.replica_entity_id.as_ref().map_or(0, |id| id.value);
@@ -412,6 +452,144 @@ impl SelectiveReplicaRuntime {
         })
     }
 
+    /// Validate entity lifecycle references before mutating either the
+    /// disclosed world or the Specs mirror.  This keeps an invalid server frame
+    /// from becoming a half-applied client state while authoritative recovery
+    /// is requested.
+    fn preflight_entity_references(
+        &mut self,
+        frame: &TeamTickFrame,
+    ) -> Result<(), ReplicaRuntimeError> {
+        let mut entities: BTreeSet<u64> = self.world.entities.keys().copied().collect();
+        if let Some(pre_step) = &frame.pre_step {
+            for transition in &pre_step.transitions {
+                match transition.transition.as_ref() {
+                    Some(transition::Transition::Reveal(reveal)) => {
+                        if let Some(dependency) = reveal
+                            .disclosed_dependencies
+                            .iter()
+                            .find(|dependency| !entities.contains(&dependency.value))
+                        {
+                            self.last_apply_fault = Some(ReplicaApplyFault {
+                                phase: ReplicaApplyPhase::PreStep,
+                                operation: ReplicaApplyOperation::RevealDependency,
+                                replica_id: dependency.value,
+                                disclosure_epoch: 0,
+                            });
+                            return Err(ReplicaRuntimeError::UnknownEntity);
+                        }
+                        entities.insert(reveal.replica_entity_id.as_ref().map_or(0, |id| id.value));
+                    }
+                    Some(transition::Transition::Replace(replace)) => {
+                        entities
+                            .insert(replace.replica_entity_id.as_ref().map_or(0, |id| id.value));
+                    }
+                    Some(transition::Transition::Hide(hide)) => {
+                        let replica_id = hide.replica_entity_id.as_ref().map_or(0, |id| id.value);
+                        if !entities.remove(&replica_id) {
+                            self.last_apply_fault = Some(ReplicaApplyFault {
+                                phase: ReplicaApplyPhase::PreStep,
+                                operation: ReplicaApplyOperation::Hide,
+                                replica_id,
+                                disclosure_epoch: epoch_value(&hide.disclosure_epoch),
+                            });
+                            return Err(ReplicaRuntimeError::UnknownEntity);
+                        }
+                    }
+                    Some(transition::Transition::Forget(forget)) => {
+                        let replica_id = forget.replica_entity_id.as_ref().map_or(0, |id| id.value);
+                        if !entities.remove(&replica_id) {
+                            self.last_apply_fault = Some(ReplicaApplyFault {
+                                phase: ReplicaApplyPhase::PreStep,
+                                operation: ReplicaApplyOperation::Forget,
+                                replica_id,
+                                disclosure_epoch: epoch_value(&forget.disclosure_epoch),
+                            });
+                            return Err(ReplicaRuntimeError::UnknownEntity);
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+        if let Some(step) = &frame.step {
+            for input in &step.accepted_inputs {
+                let actor = input.actor.as_ref().map_or(0, |id| id.value);
+                if actor == 0 || !entities.contains(&actor) {
+                    self.last_apply_fault = Some(ReplicaApplyFault {
+                        phase: ReplicaApplyPhase::Step,
+                        operation: ReplicaApplyOperation::AcceptedInputActor,
+                        replica_id: actor,
+                        disclosure_epoch: 0,
+                    });
+                    return Err(ReplicaRuntimeError::UnknownEntity);
+                }
+                if let Some(target) = input.target.as_ref() {
+                    if target.value != 0 && !entities.contains(&target.value) {
+                        self.last_apply_fault = Some(ReplicaApplyFault {
+                            phase: ReplicaApplyPhase::Step,
+                            operation: ReplicaApplyOperation::AcceptedInputTarget,
+                            replica_id: target.value,
+                            disclosure_epoch: 0,
+                        });
+                        return Err(ReplicaRuntimeError::UnknownEntity);
+                    }
+                }
+            }
+            for effect in &step.external_effects {
+                let target = effect.visible_target.as_ref().map_or(0, |id| id.value);
+                if target == 0 || !entities.contains(&target) {
+                    self.last_apply_fault = Some(ReplicaApplyFault {
+                        phase: ReplicaApplyPhase::Step,
+                        operation: ReplicaApplyOperation::ExternalEffectTarget,
+                        replica_id: target,
+                        disclosure_epoch: 0,
+                    });
+                    return Err(ReplicaRuntimeError::UnknownEntity);
+                }
+            }
+            for tape in &step.random_tapes {
+                let replica_id = tape.replica_entity_id.as_ref().map_or(0, |id| id.value);
+                if !entities.contains(&replica_id) {
+                    self.last_apply_fault = Some(ReplicaApplyFault {
+                        phase: ReplicaApplyPhase::Step,
+                        operation: ReplicaApplyOperation::RandomTapeEntity,
+                        replica_id,
+                        disclosure_epoch: epoch_value(&tape.disclosure_epoch),
+                    });
+                    return Err(ReplicaRuntimeError::UnknownEntity);
+                }
+            }
+        }
+        if let Some(post_step) = &frame.post_step {
+            for repair in &post_step.component_repairs {
+                let replica_id = repair.replica_entity_id.as_ref().map_or(0, |id| id.value);
+                if !entities.contains(&replica_id) {
+                    self.last_apply_fault = Some(ReplicaApplyFault {
+                        phase: ReplicaApplyPhase::PostStep,
+                        operation: ReplicaApplyOperation::ComponentRepair,
+                        replica_id,
+                        disclosure_epoch: epoch_value(&repair.disclosure_epoch),
+                    });
+                    return Err(ReplicaRuntimeError::UnknownEntity);
+                }
+            }
+            for replace in &post_step.entity_replaces {
+                let replica_id = replace.replica_entity_id.as_ref().map_or(0, |id| id.value);
+                if !entities.contains(&replica_id) {
+                    self.last_apply_fault = Some(ReplicaApplyFault {
+                        phase: ReplicaApplyPhase::PostStep,
+                        operation: ReplicaApplyOperation::EntityReplace,
+                        replica_id,
+                        disclosure_epoch: epoch_value(&replace.disclosure_epoch),
+                    });
+                    return Err(ReplicaRuntimeError::UnknownEntity);
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn apply_pre_step(
         &mut self,
         pre_step: Option<&PreStep>,
@@ -436,6 +614,18 @@ impl SelectiveReplicaRuntime {
                         .iter()
                         .any(|dependency| !self.world.entities.contains_key(&dependency.value))
                     {
+                        if let Some(dependency) = reveal
+                            .disclosed_dependencies
+                            .iter()
+                            .find(|dependency| !self.world.entities.contains_key(&dependency.value))
+                        {
+                            self.last_apply_fault = Some(ReplicaApplyFault {
+                                phase: ReplicaApplyPhase::PreStep,
+                                operation: ReplicaApplyOperation::RevealDependency,
+                                replica_id: dependency.value,
+                                disclosure_epoch: 0,
+                            });
+                        }
                         return Err(ReplicaRuntimeError::UnknownEntity);
                     }
                     if self.transition_already_applied(
@@ -510,7 +700,15 @@ impl SelectiveReplicaRuntime {
                     ) {
                         continue;
                     }
-                    self.remove_with_epoch(replica_id, disclosure_epoch)?;
+                    if let Err(error) = self.remove_with_epoch(replica_id, disclosure_epoch) {
+                        self.last_apply_fault = Some(ReplicaApplyFault {
+                            phase: ReplicaApplyPhase::PreStep,
+                            operation: ReplicaApplyOperation::Hide,
+                            replica_id,
+                            disclosure_epoch,
+                        });
+                        return Err(error);
+                    }
                     self.memory_directives.push(RenderMemoryDirective::Hide {
                         replica_id,
                         disclosure_epoch,
@@ -537,7 +735,15 @@ impl SelectiveReplicaRuntime {
                     ) {
                         continue;
                     }
-                    self.remove_with_epoch(replica_id, disclosure_epoch)?;
+                    if let Err(error) = self.remove_with_epoch(replica_id, disclosure_epoch) {
+                        self.last_apply_fault = Some(ReplicaApplyFault {
+                            phase: ReplicaApplyPhase::PreStep,
+                            operation: ReplicaApplyOperation::Forget,
+                            replica_id,
+                            disclosure_epoch,
+                        });
+                        return Err(error);
+                    }
                     self.retired_filter_insert(replica_id);
                     self.remembered_presentations
                         .remove(&(replica_id, disclosure_epoch));
@@ -599,17 +805,29 @@ impl SelectiveReplicaRuntime {
         }
     }
 
-    fn inject_step(&self, step: Option<&Step>) -> Result<StepInjections, ReplicaRuntimeError> {
+    fn inject_step(&mut self, step: Option<&Step>) -> Result<StepInjections, ReplicaRuntimeError> {
         let Some(step) = step else {
             return Ok(StepInjections::default());
         };
         for input in &step.accepted_inputs {
             let actor = input.actor.as_ref().map_or(0, |id| id.value);
             if actor == 0 || !self.world.entities.contains_key(&actor) {
+                self.last_apply_fault = Some(ReplicaApplyFault {
+                    phase: ReplicaApplyPhase::Step,
+                    operation: ReplicaApplyOperation::AcceptedInputActor,
+                    replica_id: actor,
+                    disclosure_epoch: 0,
+                });
                 return Err(ReplicaRuntimeError::UnknownEntity);
             }
             if let Some(target) = input.target.as_ref() {
                 if target.value != 0 && !self.world.entities.contains_key(&target.value) {
+                    self.last_apply_fault = Some(ReplicaApplyFault {
+                        phase: ReplicaApplyPhase::Step,
+                        operation: ReplicaApplyOperation::AcceptedInputTarget,
+                        replica_id: target.value,
+                        disclosure_epoch: 0,
+                    });
                     return Err(ReplicaRuntimeError::UnknownEntity);
                 }
             }
@@ -617,6 +835,12 @@ impl SelectiveReplicaRuntime {
         for effect in &step.external_effects {
             let target = effect.visible_target.as_ref().map_or(0, |id| id.value);
             if target == 0 || !self.world.entities.contains_key(&target) {
+                self.last_apply_fault = Some(ReplicaApplyFault {
+                    phase: ReplicaApplyPhase::Step,
+                    operation: ReplicaApplyOperation::ExternalEffectTarget,
+                    replica_id: target,
+                    disclosure_epoch: 0,
+                });
                 return Err(ReplicaRuntimeError::UnknownEntity);
             }
         }
@@ -626,11 +850,15 @@ impl SelectiveReplicaRuntime {
                 .checked_add(u64::from(tape.tick_count))
                 .ok_or(ReplicaRuntimeError::StaleDisclosureEpoch)?;
             let replica_id = tape.replica_entity_id.as_ref().map_or(0, |id| id.value);
-            let entity = self
-                .world
-                .entities
-                .get(&replica_id)
-                .ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let Some(entity) = self.world.entities.get(&replica_id) else {
+                self.last_apply_fault = Some(ReplicaApplyFault {
+                    phase: ReplicaApplyPhase::Step,
+                    operation: ReplicaApplyOperation::RandomTapeEntity,
+                    replica_id,
+                    disclosure_epoch: epoch_value(&tape.disclosure_epoch),
+                });
+                return Err(ReplicaRuntimeError::UnknownEntity);
+            };
             if tape.tick_count == 0
                 || tape.values.len() < tape.tick_count as usize
                 || self.expected_replica_tick < tape.first_tick
@@ -731,11 +959,15 @@ impl SelectiveReplicaRuntime {
         }
         let replica_id = repair.replica_entity_id.as_ref().map_or(0, |id| id.value);
         let revision = revision_value(&repair.authority_revision);
-        let entity = self
-            .world
-            .entities
-            .get_mut(&replica_id)
-            .ok_or(ReplicaRuntimeError::UnknownEntity)?;
+        let Some(entity) = self.world.entities.get_mut(&replica_id) else {
+            self.last_apply_fault = Some(ReplicaApplyFault {
+                phase: ReplicaApplyPhase::PostStep,
+                operation: ReplicaApplyOperation::ComponentRepair,
+                replica_id,
+                disclosure_epoch: epoch_value(&repair.disclosure_epoch),
+            });
+            return Err(ReplicaRuntimeError::UnknownEntity);
+        };
         if entity.disclosure_epoch != epoch_value(&repair.disclosure_epoch) {
             return Err(ReplicaRuntimeError::StaleDisclosureEpoch);
         }
@@ -767,12 +999,16 @@ impl SelectiveReplicaRuntime {
 
     fn apply_entity_replace(&mut self, replace: &EntityReplace) -> Result<(), ReplicaRuntimeError> {
         let replica_id = replace.replica_entity_id.as_ref().map_or(0, |id| id.value);
-        let current_kind = self
-            .world
-            .entities
-            .get(&replica_id)
-            .ok_or(ReplicaRuntimeError::UnknownEntity)?
-            .entity_kind;
+        let Some(current) = self.world.entities.get(&replica_id) else {
+            self.last_apply_fault = Some(ReplicaApplyFault {
+                phase: ReplicaApplyPhase::PostStep,
+                operation: ReplicaApplyOperation::EntityReplace,
+                replica_id,
+                disclosure_epoch: epoch_value(&replace.disclosure_epoch),
+            });
+            return Err(ReplicaRuntimeError::UnknownEntity);
+        };
+        let current_kind = current.entity_kind;
         let components = decode_components(&replace.safe_baseline, &self.component_allowlist)?;
         self.server_wins_replace(
             replica_id,

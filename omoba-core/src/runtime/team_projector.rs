@@ -503,6 +503,12 @@ fn record_expected_component_evidence(
     }
 }
 
+fn presentation_trace_enabled() -> bool {
+    std::env::var("OMOBA_PRESENTATION_TRACE")
+        .ok()
+        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+}
+
 impl TeamViewProjector {
     pub fn expected_component_digests(&self) -> Vec<crate::runtime::DisclosedComponentDigest> {
         let mut rows = Vec::new();
@@ -783,6 +789,21 @@ impl TeamViewProjector {
         self.pending_reveals.extend(transitions);
         let pre_step = self.build_pre_step(replica_tick, visible, graph)?;
         let step = self.build_step(visible, facts, accepted_inputs)?;
+        // Recovery actions are queued before visibility transitions are
+        // projected.  A unit can leave vision in that same frame; never emit a
+        // post-step repair/replace for an entity pre-step just removed.
+        self.pending_component_repairs.retain(|repair| {
+            repair
+                .replica_entity_id
+                .as_ref()
+                .is_some_and(|id| self.hash_entities.contains_key(&id.value))
+        });
+        self.pending_entity_replaces.retain(|replace| {
+            replace
+                .replica_entity_id
+                .as_ref()
+                .is_some_and(|id| self.hash_entities.contains_key(&id.value))
+        });
         let hash = expected_team_hash(
             self.team_id,
             replica_tick.saturating_add(1),
@@ -851,6 +872,27 @@ impl TeamViewProjector {
                     let effective_tick = effective_tick.max(replica_tick);
                     let key = unpack_canonical(canonical_id);
                     let mapping = self.identity.disclose(key)?;
+                    if presentation_trace_enabled() {
+                        let components = decode_safe_components_for_hash(&baseline);
+                        if let Some(state) = components
+                            .get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                            .and_then(|payload| crate::runtime::decode_demo_render_state(payload))
+                            .filter(|state| state.kind == 1)
+                        {
+                            log::warn!(
+                                "presentation_trace stage=server_projector team={} transition=Reveal canonical_id={} replica_id={} disclosure_epoch={} effective_tick={} player={} entity_team={} pos=({}, {})",
+                                self.team_id,
+                                canonical_id,
+                                mapping.replica_id.get(),
+                                mapping.disclosure_epoch,
+                                effective_tick,
+                                state.owner_player_id,
+                                state.team_id,
+                                state.x_raw,
+                                state.y_raw,
+                            );
+                        }
+                    }
                     let dependencies = disclosed_dependency_closure(canonical_id, visible, graph)?
                         .into_iter()
                         .filter_map(|dependency| {
@@ -897,6 +939,31 @@ impl TeamViewProjector {
                         .identity
                         .replica_for(key)
                         .ok_or(TeamIdentityError::UnknownCanonical)?;
+                    if presentation_trace_enabled() {
+                        if let Some(state) = self
+                            .hash_entities
+                            .get(&mapping.replica_id.get())
+                            .and_then(|(_, _, components)| {
+                                components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                            })
+                            .and_then(|payload| crate::runtime::decode_demo_render_state(payload))
+                            .filter(|state| state.kind == 1)
+                        {
+                            log::warn!(
+                                "presentation_trace stage=server_projector team={} transition={:?} canonical_id={} replica_id={} disclosure_epoch={} effective_tick={} player={} entity_team={} pos=({}, {})",
+                                self.team_id,
+                                disposition,
+                                canonical_id,
+                                mapping.replica_id.get(),
+                                mapping.disclosure_epoch,
+                                effective_tick,
+                                state.owner_player_id,
+                                state.team_id,
+                                state.x_raw,
+                                state.y_raw,
+                            );
+                        }
+                    }
                     let transition = match disposition {
                         RememberDisposition::Forget => {
                             self.identity.forget(key)?;
