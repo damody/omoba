@@ -1329,7 +1329,7 @@ pub struct RendererIpcEnvelope {
     pub sequence: u64,
     #[prost(
         oneof = "renderer_ipc_envelope::Payload",
-        tags = "10, 11, 12, 13, 20, 21, 22, 23"
+        tags = "10, 11, 12, 13, 14, 20, 21, 22, 23"
     )]
     pub payload: ::core::option::Option<renderer_ipc_envelope::Payload>,
 }
@@ -1345,6 +1345,8 @@ pub mod renderer_ipc_envelope {
         CriticalInputResult(super::CriticalInputResult),
         #[prost(message, tag = "13")]
         SessionState(super::RuntimeSessionState),
+        #[prost(message, tag = "14")]
+        Lifecycle(super::RenderLifecycleBatch),
         #[prost(message, tag = "20")]
         RendererInput(super::RendererInput),
         #[prost(message, tag = "21")]
@@ -1355,6 +1357,51 @@ pub mod renderer_ipc_envelope {
         RendererShutdown(super::RendererShutdown),
     }
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RenderLifecycleBatch {
+    #[prost(uint32, tag = "1")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub authoritative_tick: u64,
+    #[prost(uint64, tag = "3")]
+    pub replica_tick: u64,
+    #[prost(uint64, tag = "4")]
+    pub view_epoch: u64,
+    #[prost(message, repeated, tag = "5")]
+    pub events: ::prost::alloc::vec::Vec<RenderLifecycleEvent>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RenderLifecycleEvent {
+    #[prost(uint64, tag = "1")]
+    pub replica_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub disclosure_epoch: u64,
+    #[prost(oneof = "render_lifecycle_event::Action", tags = "10, 11, 12")]
+    pub action: ::core::option::Option<render_lifecycle_event::Action>,
+}
+/// Nested message and enum types in `RenderLifecycleEvent`.
+pub mod render_lifecycle_event {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Action {
+        #[prost(message, tag = "10")]
+        Hide(super::RenderLifecycleHide),
+        #[prost(message, tag = "11")]
+        Forget(super::RenderLifecycleForget),
+        #[prost(message, tag = "12")]
+        ResetView(super::RenderLifecycleResetView),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RenderLifecycleHide {
+    #[prost(uint32, tag = "1")]
+    pub remember_policy: u32,
+    #[prost(bytes = "vec", tag = "2")]
+    pub sanitized_presentation: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RenderLifecycleForget {}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RenderLifecycleResetView {}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RuntimeReadyPresentation {
     #[prost(uint32, tag = "1")]
@@ -1471,6 +1518,8 @@ pub struct TeamPresentationSnapshot {
     pub audio_cues: ::prost::alloc::vec::Vec<PresentationEffect>,
     #[prost(uint64, tag = "14")]
     pub view_epoch: u64,
+    #[prost(uint64, tag = "15")]
+    pub runtime_rtt_us: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CriticalInputResult {

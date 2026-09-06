@@ -888,12 +888,40 @@ message RendererIpcEnvelope {
     TeamPresentationSnapshot snapshot = 11;
     CriticalInputResult critical_input_result = 12;
     RuntimeSessionState session_state = 13;
+    RenderLifecycleBatch lifecycle = 14;
     RendererInput renderer_input = 20;
     RendererReady renderer_ready = 21;
     RendererConsumed renderer_consumed = 22;
     RendererShutdown renderer_shutdown = 23;
   }
 }
+
+message RenderLifecycleBatch {
+  uint32 team_id = 1;
+  uint64 authoritative_tick = 2;
+  uint64 replica_tick = 3;
+  uint64 view_epoch = 4;
+  repeated RenderLifecycleEvent events = 5;
+}
+
+message RenderLifecycleEvent {
+  uint64 replica_id = 1;
+  uint64 disclosure_epoch = 2;
+  oneof action {
+    RenderLifecycleHide hide = 10;
+    RenderLifecycleForget forget = 11;
+    RenderLifecycleResetView reset_view = 12;
+  }
+}
+
+message RenderLifecycleHide {
+  uint32 remember_policy = 1;
+  bytes sanitized_presentation = 2;
+}
+
+message RenderLifecycleForget {}
+
+message RenderLifecycleResetView {}
 
 message RuntimeReadyPresentation {
   uint32 player_id = 1;
@@ -968,6 +996,8 @@ message TeamPresentationSnapshot {
   repeated PresentationEffect effects = 12;
   repeated PresentationEffect audio_cues = 13;
   uint64 view_epoch = 14;
+  // Client-runtime measured KCP RTT. 0 means no sample yet.
+  uint64 runtime_rtt_us = 15;
 }
 
 message CriticalInputResult {
