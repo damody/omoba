@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeSet,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -9,10 +8,12 @@ use std::{
 
 use omoba_core::{
     game_proto::{
-        renderer_ipc_envelope, FogTilePresentation, PolygonOccluderPresentation,
-        PolygonPointPresentation, PresentationComponent, PresentationRenderEntity,
-        RememberedGhostPresentation, RendererInput, RendererIpcEnvelope, RuntimeReadyPresentation,
-        TeamPresentationSnapshot, TreeOccluderPresentation, VisionCirclePresentation,
+        render_lifecycle_event, renderer_ipc_envelope, FogTilePresentation,
+        PolygonOccluderPresentation, PolygonPointPresentation, PresentationComponent,
+        PresentationRenderEntity, RenderLifecycleBatch, RenderLifecycleEvent,
+        RenderLifecycleForget, RenderLifecycleHide, RenderLifecycleResetView, RendererInput,
+        RendererIpcEnvelope, RuntimeReadyPresentation, TeamPresentationSnapshot,
+        TreeOccluderPresentation, VisionCirclePresentation,
     },
     runtime::{decode_demo_render_state, FilteredRenderSnapshot, RenderMemoryDirective},
 };
@@ -27,7 +28,7 @@ use tokio::{
 use crate::{config::ClientRuntimeConfig, ClientRuntimeError};
 
 pub const PRESENTATION_MAGIC: u32 = 0x4f4d_5254;
-pub const PRESENTATION_PROTOCOL_VERSION: u32 = 1;
+pub const PRESENTATION_PROTOCOL_VERSION: u32 = 2;
 pub const MAX_PRESENTATION_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 pub struct PresentationHub {
@@ -84,6 +85,9 @@ impl PresentationHub {
     pub async fn recv_input(&mut self) -> Option<RendererInput> {
         self.input_rx.recv().await
     }
+    pub fn has_pending_input(&self) -> bool {
+        !self.input_rx.is_empty()
+    }
     pub fn inject_test_input(&self, input: RendererInput) -> Result<(), ClientRuntimeError> {
         self.input_tx
             .try_send(input)
@@ -110,6 +114,7 @@ async fn serve_connections(
         if !peer.ip().is_loopback() {
             continue;
         }
+        let _ = stream.set_nodelay(true);
         let latest = latest_rx.clone();
         let critical = Arc::clone(&critical_rx);
         let inputs = input_tx.clone();
@@ -222,10 +227,7 @@ pub async fn write_envelope(
         .write_all(&bytes)
         .await
         .map_err(|error| ClientRuntimeError::Ipc(error.to_string()))?;
-    writer
-        .flush()
-        .await
-        .map_err(|error| ClientRuntimeError::Ipc(error.to_string()))
+    Ok(())
 }
 
 pub fn ready_envelope(
@@ -251,31 +253,8 @@ pub fn snapshot_envelope(
     authoritative_tick: u64,
     view_epoch: u64,
     snapshot: FilteredRenderSnapshot,
+    runtime_rtt_us: u64,
 ) -> RendererIpcEnvelope {
-    let mut removed = BTreeSet::new();
-    let mut ghosts = Vec::new();
-    for directive in snapshot.memory_directives {
-        match directive {
-            RenderMemoryDirective::Forget { replica_id, .. } => {
-                removed.insert(replica_id);
-            }
-            RenderMemoryDirective::Hide {
-                replica_id,
-                disclosure_epoch,
-                remember_policy,
-                sanitized_presentation,
-            } => {
-                removed.insert(replica_id);
-                if remember_policy != 0 && !sanitized_presentation.is_empty() {
-                    ghosts.push(RememberedGhostPresentation {
-                        render_id: replica_id,
-                        disclosure_epoch,
-                        sanitized_presentation,
-                    });
-                }
-            }
-        }
-    }
     let entities: Vec<_> = snapshot
         .entities
         .into_iter()
@@ -310,8 +289,8 @@ pub fn snapshot_envelope(
             replica_tick: snapshot.replica_tick,
             visibility_digest,
             entities,
-            removed_render_ids: removed.into_iter().collect(),
-            remembered_ghosts: ghosts,
+            removed_render_ids: Vec::new(),
+            remembered_ghosts: Vec::new(),
             fog_tiles,
             vision_circles,
             tree_occluders,
@@ -319,8 +298,88 @@ pub fn snapshot_envelope(
             effects: Vec::new(),
             audio_cues: Vec::new(),
             view_epoch,
+            runtime_rtt_us,
         }),
     )
+}
+
+pub fn lifecycle_envelope(
+    sequence: u64,
+    team_id: u32,
+    authoritative_tick: u64,
+    replica_tick: u64,
+    view_epoch: u64,
+    directives: Vec<RenderMemoryDirective>,
+) -> Option<RendererIpcEnvelope> {
+    let events = directives
+        .into_iter()
+        .map(render_lifecycle_event)
+        .collect::<Vec<_>>();
+    (!events.is_empty()).then(|| {
+        envelope(
+            sequence,
+            renderer_ipc_envelope::Payload::Lifecycle(RenderLifecycleBatch {
+                team_id,
+                authoritative_tick,
+                replica_tick,
+                view_epoch,
+                events,
+            }),
+        )
+    })
+}
+
+pub fn reset_view_envelope(
+    sequence: u64,
+    team_id: u32,
+    authoritative_tick: u64,
+    replica_tick: u64,
+    view_epoch: u64,
+) -> RendererIpcEnvelope {
+    envelope(
+        sequence,
+        renderer_ipc_envelope::Payload::Lifecycle(RenderLifecycleBatch {
+            team_id,
+            authoritative_tick,
+            replica_tick,
+            view_epoch,
+            events: vec![RenderLifecycleEvent {
+                replica_id: 0,
+                disclosure_epoch: 0,
+                action: Some(render_lifecycle_event::Action::ResetView(
+                    RenderLifecycleResetView {},
+                )),
+            }],
+        }),
+    )
+}
+
+fn render_lifecycle_event(directive: RenderMemoryDirective) -> RenderLifecycleEvent {
+    match directive {
+        RenderMemoryDirective::Hide {
+            replica_id,
+            disclosure_epoch,
+            remember_policy,
+            sanitized_presentation,
+        } => RenderLifecycleEvent {
+            replica_id,
+            disclosure_epoch,
+            action: Some(render_lifecycle_event::Action::Hide(RenderLifecycleHide {
+                remember_policy,
+                sanitized_presentation,
+            })),
+        },
+        RenderMemoryDirective::Forget {
+            replica_id,
+            disclosure_epoch,
+        } => RenderLifecycleEvent {
+            replica_id,
+            disclosure_epoch,
+            action: Some(render_lifecycle_event::Action::Forget(
+                RenderLifecycleForget {},
+            )),
+        },
+    }
 }
 
 fn derive_demo_fog(
@@ -552,9 +611,84 @@ mod tests {
             external_effects: Vec::new(),
             memory_directives: Vec::new(),
         };
-        let bytes = snapshot_envelope(1, 2, 1, snapshot).encode_to_vec();
+        let bytes = snapshot_envelope(1, 2, 1, snapshot, 0).encode_to_vec();
         let decoded = RendererIpcEnvelope::decode(bytes.as_slice()).unwrap();
         assert_eq!(decoded.magic, PRESENTATION_MAGIC);
+    }
+
+    #[test]
+    fn lifecycle_round_trip_preserves_disclosure_epoch() {
+        let envelope = lifecycle_envelope(
+            9,
+            2,
+            100,
+            99,
+            7,
+            vec![RenderMemoryDirective::Forget {
+                replica_id: 148,
+                disclosure_epoch: 23,
+            }],
+        )
+        .unwrap();
+        let decoded = RendererIpcEnvelope::decode(envelope.encode_to_vec().as_slice()).unwrap();
+        let Some(renderer_ipc_envelope::Payload::Lifecycle(batch)) = decoded.payload else {
+            panic!("expected lifecycle payload");
+        };
+        assert_eq!(batch.view_epoch, 7);
+        assert_eq!(batch.events[0].replica_id, 148);
+        assert_eq!(batch.events[0].disclosure_epoch, 23);
+        assert!(matches!(
+            batch.events[0].action,
+            Some(render_lifecycle_event::Action::Forget(_))
+        ));
+    }
+
+    #[test]
+    fn state_snapshot_does_not_carry_lifecycle_edges() {
+        let snapshot = FilteredRenderSnapshot {
+            team_id: 1,
+            replica_tick: 2,
+            entities: Vec::new(),
+            public_events: Vec::new(),
+            external_effects: Vec::new(),
+            memory_directives: vec![RenderMemoryDirective::Forget {
+                replica_id: 9,
+                disclosure_epoch: 4,
+            }],
+        };
+        let decoded = RendererIpcEnvelope::decode(
+            snapshot_envelope(1, 2, 1, snapshot, 0)
+                .encode_to_vec()
+                .as_slice(),
+        )
+        .unwrap();
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = decoded.payload else {
+            panic!("expected snapshot payload");
+        };
+        assert!(snapshot.removed_render_ids.is_empty());
+        assert!(snapshot.remembered_ghosts.is_empty());
+    }
+
+    #[test]
+    fn snapshot_envelope_carries_runtime_rtt() {
+        let snapshot = FilteredRenderSnapshot {
+            team_id: 1,
+            replica_tick: 2,
+            entities: Vec::new(),
+            public_events: Vec::new(),
+            external_effects: Vec::new(),
+            memory_directives: Vec::new(),
+        };
+        let decoded = RendererIpcEnvelope::decode(
+            snapshot_envelope(1, 2, 1, snapshot, 1_500)
+                .encode_to_vec()
+                .as_slice(),
+        )
+        .unwrap();
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = decoded.payload else {
+            panic!("expected snapshot payload");
+        };
+        assert_eq!(snapshot.runtime_rtt_us, 1_500);
     }
 
     #[tokio::test]
