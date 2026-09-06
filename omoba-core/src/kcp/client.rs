@@ -3,6 +3,7 @@ use log::*;
 use prost::Message;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, ReadHalf, WriteHalf};
 use tokio::sync::mpsc;
@@ -116,6 +117,28 @@ pub struct KcpClient {
     last_master_seed: Option<u64>,
     /// Server-authoritative cadence announced by GameStart.
     last_step_fps: Option<u32>,
+    /// Reader 已解碼、但 runtime 可能尚未套用的最新 authoritative tick。
+    /// 玩家 input 用它選 target tick，避免 replica backlog 讓輸入帶著舊 tick。
+    latest_team_server_tick: Arc<AtomicU64>,
+    /// 最近一次 KCP ping/pong RTT。`u64::MAX` 表示尚未收到樣本。
+    latest_rtt_us: Arc<AtomicU64>,
+}
+
+/// 僅允許背景工作依序送出 replica checkpoint 的可複製 handle。
+///
+/// 它與 `KcpClient` 共用同一把 KCP writer lock，因此 checkpoint、玩家
+/// input 與控制訊息仍由 framing 層完整序列化，不會交錯寫壞封包。
+#[derive(Clone)]
+pub struct ReplicaCheckpointReporter {
+    writer: Arc<Mutex<WriteHalf<KcpStream>>>,
+}
+
+impl ReplicaCheckpointReporter {
+    pub async fn report(&self, report: &ClientReplicaCheckpointReport) -> Result<()> {
+        let mut writer = self.writer.lock().await;
+        write_framed_msg(&mut *writer, TAG_CLIENT_REPLICA_CHECKPOINT_V2, report).await?;
+        Ok(())
+    }
 }
 
 /// 階段 2 鎖定步入站幀從 kcp 讀取器顯示客戶端
@@ -299,6 +322,8 @@ impl KcpClient {
         // 產生後台閱讀器任務
         let (event_tx, event_rx) = mpsc::channel(10000);
         let (lockstep_tx, lockstep_rx) = mpsc::channel(1024);
+        let latest_team_server_tick = Arc::new(AtomicU64::new(0));
+        let latest_rtt_us = Arc::new(AtomicU64::new(u64::MAX));
         Self::spawn_reader(
             reader,
             event_tx,
@@ -306,6 +331,8 @@ impl KcpClient {
             writer.clone(),
             player_name.clone(),
             epoch,
+            Arc::clone(&latest_team_server_tick),
+            Arc::clone(&latest_rtt_us),
         );
 
         // 產生 ping 循環 — 每 1 秒發送一次 TAG_PING_REQ。讀者處理
@@ -320,6 +347,8 @@ impl KcpClient {
             last_player_id: None,
             last_master_seed: None,
             last_step_fps: None,
+            latest_team_server_tick,
+            latest_rtt_us,
         })
     }
 
@@ -355,6 +384,8 @@ impl KcpClient {
         writer_for_resync: Arc<Mutex<WriteHalf<KcpStream>>>,
         player_name_for_resync: String,
         epoch: std::time::Instant,
+        latest_team_server_tick: Arc<AtomicU64>,
+        latest_rtt_us: Arc<AtomicU64>,
     ) {
         tokio::spawn(async move {
             // P3：本機快取位於讀取器任務中，因此不需要鎖定。
@@ -615,6 +646,8 @@ impl KcpClient {
                                 let logical_bytes = payload.len();
                                 match TeamTickFrame::decode(payload.as_slice()) {
                                     Ok(msg) => {
+                                        latest_team_server_tick
+                                            .fetch_max(msg.server_tick, Ordering::Relaxed);
                                         if lockstep_tx
                                             .send(LockstepInbound::TeamTickFrame {
                                                 msg,
@@ -702,6 +735,7 @@ impl KcpClient {
                                     Ok(resp) => {
                                         let now_us = epoch.elapsed().as_micros() as i64;
                                         let rtt_us = (now_us - resp.client_send_us).max(0) as u64;
+                                        latest_rtt_us.store(rtt_us, Ordering::Relaxed);
                                         if lockstep_tx
                                             .send(LockstepInbound::Pong {
                                                 rtt_us,
@@ -947,9 +981,24 @@ impl KcpClient {
         &self,
         report: &ClientReplicaCheckpointReport,
     ) -> Result<()> {
-        let mut writer = self.writer.lock().await;
-        write_framed_msg(&mut *writer, TAG_CLIENT_REPLICA_CHECKPOINT_V2, report).await?;
-        Ok(())
+        self.replica_checkpoint_reporter().report(report).await
+    }
+
+    pub fn replica_checkpoint_reporter(&self) -> ReplicaCheckpointReporter {
+        ReplicaCheckpointReporter {
+            writer: Arc::clone(&self.writer),
+        }
+    }
+
+    pub fn latest_team_server_tick(&self) -> u64 {
+        self.latest_team_server_tick.load(Ordering::Relaxed)
+    }
+
+    pub fn latest_rtt_us(&self) -> Option<u64> {
+        match self.latest_rtt_us.load(Ordering::Relaxed) {
+            u64::MAX => None,
+            rtt_us => Some(rtt_us),
+        }
     }
 
     pub async fn submit_secure_target(&self, request: &SecureTargetInput) -> Result<()> {
