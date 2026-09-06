@@ -277,6 +277,54 @@ fn malformed_transition_and_rebase_are_rejected() {
 }
 
 #[test]
+fn stale_post_step_repair_is_rejected_before_hide_mutates_world() {
+    let mut replica = runtime(0, 0);
+    let mut stepper = NoopDisclosedWorldStepper;
+    replica
+        .apply_encoded_frame(
+            &single_reveal_frame_fixture(TEAM, 0, 0, 1, COMPONENT),
+            &mut stepper,
+        )
+        .unwrap();
+
+    let mut invalid =
+        TeamTickFrame::decode(single_hide_frame_fixture(TEAM, 1, 1, 1).as_slice()).unwrap();
+    invalid.post_step.as_mut().unwrap().component_repairs.push(
+        crate::game_proto::ComponentRepair {
+            replica_entity_id: Some(WireReplicaEntityId { value: 1 }),
+            disclosure_epoch: Some(DisclosureEpoch { value: 1 }),
+            component_schema_id: COMPONENT,
+            field_mask: vec![0xff],
+            replacement_fields: vec![9],
+            authority_revision: Some(AuthorityRevision { value: 2 }),
+            effective_tick: 1,
+        },
+    );
+
+    assert_eq!(
+        replica.apply_frame(invalid, &mut stepper),
+        Err(ReplicaRuntimeError::UnknownEntity)
+    );
+    assert!(replica.world().entities.contains_key(&1));
+    assert_eq!(
+        replica.last_apply_fault(),
+        Some(&ReplicaApplyFault {
+            phase: ReplicaApplyPhase::PostStep,
+            operation: ReplicaApplyOperation::ComponentRepair,
+            replica_id: 1,
+            disclosure_epoch: 1,
+        })
+    );
+
+    // The same sequence remains usable because preflight rejected the bad
+    // frame before applying its Hide transition.
+    replica
+        .apply_encoded_frame(&single_hide_frame_fixture(TEAM, 1, 1, 1), &mut stepper)
+        .unwrap();
+    assert!(replica.world().entities.is_empty());
+}
+
+#[test]
 fn remembered_presentation_is_excluded_from_simulation_and_hash() {
     let mut with_memory = runtime(0, 0);
     let mut stepper = NoopDisclosedWorldStepper;

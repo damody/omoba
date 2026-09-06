@@ -2036,10 +2036,7 @@ mod tests {
 
     #[test]
     fn fog_demo_hero_turn_speed_is_300_radians_per_second() {
-        assert_eq!(
-            fog_demo_hero_turn_speed().0,
-            Fixed64::from_i32(300)
-        );
+        assert_eq!(fog_demo_hero_turn_speed().0, Fixed64::from_i32(300));
     }
 
     #[test]

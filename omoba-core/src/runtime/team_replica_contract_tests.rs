@@ -4,8 +4,8 @@ use prost::Message;
 
 use super::*;
 use crate::game_proto::{
-    transition, AuthorityRevision, DisclosureEpoch, ForgetEntity, PostStep, PreStep,
-    ReplicaEntityId, Step, TeamTickFrame, Transition, ViewEpoch,
+    transition, AuthorityRevision, DisclosureEpoch, FilteredTeamSnapshot, ForgetEntity, PostStep,
+    PreStep, ReplicaEntityId, Step, TeamGameStart, TeamTickFrame, Transition, ViewEpoch,
 };
 
 fn demo_baseline(team: u32, marker: u32) -> Vec<u8> {
@@ -441,6 +441,43 @@ fn steady_state_frame_has_no_proactive_component_repair() {
 }
 
 #[test]
+fn hide_drops_a_queued_repair_for_the_same_replica() {
+    let mut projector = disclosed_projector(1, 77);
+    projector.enqueue_component_repair(crate::game_proto::ComponentRepair {
+        replica_entity_id: Some(ReplicaEntityId { value: 1 }),
+        disclosure_epoch: Some(DisclosureEpoch { value: 1 }),
+        component_schema_id: DEMO_RENDER_COMPONENT_SCHEMA_ID,
+        field_mask: vec![0xff],
+        replacement_fields: encode_demo_render_state(DemoRenderState {
+            x_raw: 99,
+            y_raw: 0,
+            team_id: 1,
+            kind: 2,
+            owner_player_id: 0,
+        }),
+        authority_revision: Some(AuthorityRevision { value: 3 }),
+        effective_tick: 1,
+    });
+
+    let frame = projector
+        .build_frame(
+            1,
+            1,
+            &BTreeSet::new(),
+            vec![VisibilityTransition::Hide {
+                canonical_id: 77,
+                effective_tick: 1,
+                disposition: RememberDisposition::Forget,
+            }],
+            &[],
+            &ProjectionDependencyGraph::default(),
+        )
+        .unwrap();
+
+    assert!(frame.frame.post_step.unwrap().component_repairs.is_empty());
+}
+
+#[test]
 fn recovery_escalates_repair_replace_rebase_and_termination() {
     let difference = |id| ComponentDifference {
         replica_id: id,
@@ -777,6 +814,76 @@ fn revealed_post_tick_baseline_is_not_stepped_twice() {
         .apply_frame(empty_wire_frame(1, 1), &mut stepper)
         .unwrap();
     assert_ne!(runtime.world().entities[&1].components, expected);
+}
+
+#[test]
+fn reveal_post_tick_baseline_drops_same_tick_movement_event() {
+    let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+    let frame = projector
+        .build_frame(
+            1,
+            1,
+            &BTreeSet::from([77]),
+            vec![VisibilityTransition::Reveal {
+                canonical_id: 77,
+                effective_tick: 1,
+                baseline: demo_baseline(1, 77),
+            }],
+            &[OrderedFact {
+                key: FactOrderingKey {
+                    tick: 1,
+                    phase: FactPhase::Step,
+                    canonical_source_order: 77,
+                    local_ordinal: 0,
+                    fact_kind: FactKind::Movement,
+                },
+                audience: FactAudience::AllPlayers,
+                fact: ObservableFact::Movement {
+                    source: 77,
+                    x_mm: 999,
+                    y_mm: 123,
+                    facing_ticks: None,
+                },
+            }],
+            &ProjectionDependencyGraph::default(),
+        )
+        .unwrap();
+    let encoded = frame.frame.encode_to_vec();
+    let start = TeamGameStart {
+        protocol_version: 2,
+        team_id: 1,
+        replica_start_tick: 1,
+        next_team_sequence: 1,
+        global_seed: 7,
+        tick_rate_hz: 120,
+        view_epoch: Some(ViewEpoch { value: 1 }),
+        filtered_snapshot: Some(FilteredTeamSnapshot {
+            team_id: 1,
+            authoritative_tick: 1,
+            disclosed_world: Vec::new(),
+            filtered_snapshot_hash: <sha2::Sha256 as sha2::Digest>::digest([]).to_vec(),
+            ..FilteredTeamSnapshot::default()
+        }),
+        ..TeamGameStart::default()
+    };
+    let mut replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(
+        &start,
+        secure_replica_component_allowlist(),
+        secure_replica_resource_allowlist(),
+    )
+    .unwrap();
+    let mut stepper = SpecsDisclosedWorldStepper::from_start(
+        &start,
+        secure_replica_component_allowlist(),
+        secure_replica_resource_allowlist(),
+    );
+    stepper.bootstrap_membership(replica.world()).unwrap();
+
+    assert!(matches!(
+        replica.apply_encoded_frame(&encoded, &mut stepper),
+        Ok(FrameApplyResult::Applied { .. })
+    ));
+    assert_eq!(replica.world().entities.len(), 1);
 }
 
 #[test]
