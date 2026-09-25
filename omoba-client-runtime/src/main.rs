@@ -72,6 +72,10 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     let evidence = EvidenceRecorder::create(&config, replica.global_seed())?;
     let mut presentation = PresentationHub::bind(&config).await?;
+    log::info!(
+        "client-runtime presentation listening on {}",
+        config.presentation_bind
+    );
     let mut input_bridge = InputBridge::default();
     let mut presentation_sequence = 1_u64;
     let mut scripted_move_sent = false;
