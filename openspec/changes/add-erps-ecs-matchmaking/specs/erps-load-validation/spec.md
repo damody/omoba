@@ -32,6 +32,10 @@ ERPS SHALL 測試跨 shard claim、party revision、cancel／accept 競爭、pro
 - **WHEN** 固定 seed 產生 1000 名具有不同初始 Elo 的單人玩家，依模擬秒每秒入列最多 17 人，雙方同意配對並在配對後第 10 個模擬秒回報勝負
 - **THEN** 所有玩家恰好完成一場 1v1、對手 Elo 差不超過設定搜尋範圍、勝負雙方依 Elo 公式更新分數，且結算後的 ECS ticket 使用新 rating 建立搜尋範圍與分桶
 
+#### Scenario: 10000 玩家持續 12000 秒的 5v5 組隊與 Elo 結算模擬
+- **WHEN** 固定 seed 建立 10000 名玩家，連續 12000 個模擬秒每秒從可用玩家池入列 17 人，以隨機且兩隊鏡像的 1～5 人 party 組合配成 5v5，並在開戰滿 10 個模擬秒後隨機決定勝隊
+- **THEN** 測試完成 204000 次入列、20400 場配對與結算，所有 party 保持完整、每位玩家可在結算後再次入列、後續配對使用更新後的 Elo，且逐人分數與獨立 Elo 公式一致；測試以邏輯時鐘加速，不等待真實秒數，並輸出隊伍 Elo 差與執行時間
+
 ### Requirement: Load test 同時提供核心與完整 gRPC 模式
 Load test SHALL 預設提供 in-process core 模式，並 SHALL 以 `--grpc` 提供完整序列化、網路與 SDK 路徑。兩種模式 MUST 使用相同 scenario seed 與 invariant checker 語意。
 

@@ -1,6 +1,6 @@
 # ERPS capability-to-test evidence
 
-以下 44 個 OpenSpec scenario 均對應到可重跑的自動化測試或固定負載證據。測試名稱以 `cargo test --workspace --all-features` 的輸出為準。
+以下 46 個 OpenSpec scenario 均對應到可重跑的自動化測試或固定負載證據。測試名稱以 `cargo test --workspace --all-features` 的輸出為準。
 
 ## erps-party-ready-credit（9）
 
@@ -16,7 +16,7 @@
 | Party 失敗成員阻止自動重排 | `ready_check::mixed_party_failure_preserves_unaffected_solo` |
 | Grace period 內重連恢復狀態 | `grpc::runtime_disconnect_grace_preserves_then_cancels_queue`；ready-timeout lifecycle test 另驗證 `GetState` 還原 profile、queue mode、region、proposal ID 與 authoritative deadline |
 
-## erps-matchmaking-core（9）
+## erps-matchmaking-core（10）
 
 | Scenario | Evidence |
 |---|---|
@@ -28,9 +28,10 @@
 | 長時間等待擴大候選範圍 | `matching::bucket::tests::expansion_clamps` |
 | 60 秒內只配對相同 5v5 結構 | `mode_properties::five_v_five_mirrors_four_plus_one_and_two_plus_two_plus_one_before_sixty_seconds`、`mode_properties::random_five_v_five_partitions_never_cross_structure_before_sixty_seconds` |
 | 60 秒後跨結構需補足組隊優勢 | `mode_properties::five_v_five_cross_structure_waits_sixty_seconds_and_requires_compensating_elo`、`mode_properties::five_v_five_party_advantage_uses_exact_size_schedule`、`grpc::paced_rating_test::five_v_five_live_queue_releases_structure_after_sixty_seconds` |
+| 5v5 依每位玩家已完成場次選擇 K-factor | `rating::tests::team_provisional_k_uses_each_players_completed_games`、`grpc::paced_rating_test::five_v_five_live_queue_releases_structure_after_sixty_seconds` 的混合場次實際結算、`paced_party_12000` 的逐人獨立公式核對 |
 | 八人同名次視為平手 | `rating::tests::ffa_ties_are_draws_and_clamped` |
 
-## erps-load-validation（8）
+## erps-load-validation（9）
 
 | Scenario | Evidence |
 |---|---|
@@ -39,6 +40,7 @@
 | C client 收到 ready match | Windows clang 與 Linux gcc `tests/c_smoke/e2e.c`：`C_E2E_PASS` |
 | 預設大規模測試完成 | `docs/erps/load-test.md` 固定 100,000-player PASS |
 | 每秒 17 人的 1000 玩家 Elo 結算模擬 | `grpc::paced_rating_test::paced_1000_players_match_nearby_elo_and_settle_after_ten_seconds`：1000 玩家、500 場、10 個模擬秒後結算、最大 Elo 差 10、獨立公式逐場驗證 |
+| 10000 玩家持續 12000 秒的 5v5 組隊與 Elo 結算模擬 | `paced_party_12000::ten_thousand_players_arrive_seventeen_per_second_for_twelve_thousand_seconds`：204000 次入列、20400 場、10 秒後結算、逐人獨立 Elo 公式、每人 13～36 場、更新後 Elo 再配對、最大隊伍平均 Elo 差 24 |
 | gRPC 模式納入傳輸成本 | 舊版 1,000 clients／669 parties／225 matches 的 `transport.path=grpc-loopback` PASS；新版 runner 逐場檢查 launch mode、無遺漏／重複／外來玩家、team shape、5v5 party 不拆及鏡像結構與 MatchResult ACK，負向測試 `load_test::grpc_launch_checker_rejects_split_party_and_foreign_roster`、`load_test::grpc_launch_checker_rejects_fresh_mismatched_party_structures` 證明錯誤 roster／結構會讓 run 失敗；`grpc_transport_uses_heterogeneous_servers_in_every_region` 以 `tw`／`us`／`eu` 九台不同 capacity／cost／instance limit 的 server，證明三個 region 都由真實 control stream 承接 match |
 | 超配立即使測試失敗 | `load_test::over_capacity_checker_returns_minimal_server_diagnostic`、`placement_properties.rs` |
 | Baseline 比較具有環境資訊 | `load_test::baseline_comparison_rejects_different_environment_or_settings` 與 CLI `--output/--baseline` 實測 |

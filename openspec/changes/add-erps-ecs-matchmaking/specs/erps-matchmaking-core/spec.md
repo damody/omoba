@@ -50,6 +50,10 @@ ERPS SHALL 對每種模式使用獨立 Elo，預設起始值為 1000，並 SHALL
 ### Requirement: 每模式更新 Elo rating
 ERPS SHALL 以可設定 K-factor 更新 1v1 與 5v5 rating。八人自由混戰 SHALL 將每名玩家與其他七名玩家依最終名次做 pairwise 勝、平、負比較，彙總後 MUST 套用單場最大變動限制；原 party MUST NOT 共享自由混戰結果。
 
+#### Scenario: 5v5 依每位玩家已完成場次選擇 K-factor
+- **WHEN** 同一場 5v5 同時包含未滿新手場次門檻與已達門檻的玩家，game server 回報合法的全隊勝負
+- **THEN** 每位玩家皆以對手隊伍原始平均 Elo 計算期望分數，但分別使用自己所屬的新手或已定級 K-factor 更新分數；結算後各自的完成場次加一
+
 #### Scenario: 八人同名次視為平手
 - **WHEN** 八人自由混戰結果包含兩名同名次玩家
 - **THEN** 兩人的相互 pairwise 結果為平手，且每人的最終 rating delta 不超過設定上限

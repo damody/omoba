@@ -86,6 +86,7 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 - [x] 3.5 實作八人名次 pairwise 勝／平／負彙總與原 party 無關的 rating 更新
 - [x] 3.6 實作信用分 0～100 clamp、拒絕／逾時 penalty、完成場次恢復與遞增停權 policy
 - [x] 3.7 新增 property tests，驗證 rating／credit 永不 overflow、NaN 或超過設定邊界
+- [x] 3.8 修正 5v5 結算依每名玩家已完成場次使用新手期／已定級 K-factor，並以混合場次單元測試與真實 authority 結算測試驗證
 
 ## 4. Party、命令套用與名稱驗證
 
@@ -301,6 +302,7 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 - [x] 14.10 執行固定 seed 100,000 玩家 core run，保存可重現報告並確認所有硬性 invariant
 - [x] 14.11 執行縮小但完整的 `--grpc` Rust／C／game-server run，保存傳輸路徑報告
 - [x] 14.12 新增固定 seed 的 1000 人逐秒入列整合測試：每秒 17 人、1v1 配對後第 10 個模擬秒回報結果，驗證 Elo 差距、逐人 rating 更新、容量釋放及結算後 ECS 搜尋範圍
+- [x] 14.13 新增 10000 人、每秒 17 人、持續 12000 模擬秒的 5v5 隨機組隊測試；10 秒後隨機勝負、逐人核對 Elo、重排與隊伍分數品質，並實際執行完整情境
 
 ## 15. 最終驗證與交付
 
@@ -310,7 +312,7 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 
 **前置依賴：** 1～14 全部完成。
 
-**完成門檻：** ERPS workspace fmt／clippy／tests、`omb` adapter tests、C SDK platform smoke、OpenSpec strict validation 全部成功；六個 capability 的 44 個 scenarios 皆能指向 test 或明確 evidence。
+**完成門檻：** ERPS workspace fmt／clippy／tests、`omb` adapter tests、C SDK platform smoke、OpenSpec strict validation 全部成功；六個 capability 的 46 個 scenarios 皆能指向 test 或明確 evidence。
 
 - [x] 15.1 執行 `cargo fmt` 與所有 ERPS crates 的 clippy／unit／property tests
 - [x] 15.2 執行 ERPS ECS／gRPC／`omb` adapter integration suites

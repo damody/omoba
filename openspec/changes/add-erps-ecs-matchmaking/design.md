@@ -49,6 +49,8 @@ RPC 不暴露 Specs `Entity`。所有 domain object 使用 stable opaque ID；ow
 
 Rating 與信用分透過 `PlayerProfileProvider` 隔離。Memory provider 供第一版與測試；production 可在不改 ECS／RPC lifecycle 的情況下接外部 profile service。
 
+1v1 與 5v5 依每名玩家在該模式已完成的場次，個別選擇新手期或已定級 K-factor；5v5 只共用對手隊伍平均 Elo，不共用完成場次或 rating delta。長跑測試以固定玩家池反覆配對，才能驗證 K-factor 門檻與更新後分數確實用於後續配對。
+
 ### 獨立 ERPS process 與雙服務面
 
 Client 直接使用 `MatchmakingService`；建立 session 的 RPC 命名為 `OpenSession`，避免與 tonic generated client 的 `connect()` constructor 衝突，SDK 對外仍可提供 `connect()`。`omb` 使用 `GameServerService`。另有唯讀 admin service。Proto envelope 帶 major／minor，mutation 帶 `request_id`；所有 queues 有界，關鍵事件不可靜默丟棄。正式環境預設 TLS 與 token validator，明文只允許 loopback 或明確 development 設定。
