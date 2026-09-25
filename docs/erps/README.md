@@ -26,7 +26,7 @@ cargo run --manifest-path erps/Cargo.toml -p erps --bin erps-server --release --
 
 `erps-server --help` 會列出部署參數。Binary 最多接受一個 config path，並將兩個 auth token map 視為原子設定；只設定其中一個或傳入多餘參數會在綁定 socket 前以非零狀態拒絕，避免看似啟動卻使用錯誤 identity policy。
 
-Matching 設定另包含 `deterministic_seed`、`party_size_rating_adjustment`、`party_spread_rating_adjustment`、`max_party_rating_spread` 與 `credit_suspension_base_seconds`。Domain ID 與排序使用 seed／logical command time；session、invite 與 connection token 仍使用不可猜的安全隨機值。低信用停權時間依近期違規次數遞增，期限結束後可重新參賽並依完成場次逐步恢復信用。
+Matching 設定另包含 `deterministic_seed`、`party_size_rating_adjustment`、`party_spread_rating_adjustment`、`max_party_rating_spread` 與 `credit_suspension_base_seconds`。5v5 使用固定組隊優勢：2 人 +5、3 人 +10、4 人 +20、5 人 +30；`party_size_rating_adjustment` 保留供其他模式使用。5v5 入列未滿 60 秒時，兩隊的 party 人數組合必須相同（例如 `4+1` 對 `4+1`）；任一參與 party 等待滿 60 秒後才允許跨組合，且組隊優勢較少的一隊，原始平均 Elo 必須比對手高出依成員數加權後的優勢差。例如 `4+1` 對 `2+2+1` 時，後者至少高 12 分。Domain ID 與排序使用 seed／logical command time；session、invite 與 connection token 仍使用不可猜的安全隨機值。低信用停權時間依近期違規次數遞增，期限結束後可重新參賽並依完成場次逐步恢復信用。
 
 ## omb game server
 

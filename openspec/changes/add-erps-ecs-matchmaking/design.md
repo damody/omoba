@@ -35,7 +35,7 @@ RPC 不暴露 Specs `Entity`。所有 domain object 使用 stable opaque ID；ow
 
 ### Bounded matching 而非全域最佳化
 
-1v1 使用相容搜尋範圍內的最近 Elo。5v5 對 1～5 人 party 做 bounded 5+5 bin-packing；八人模式對 1～4 人 party 做 bounded sum-to-eight。評分兼顧等待時間、Elo 差／離散、party 結構與 stable tie-break。全域最佳解在 100,000 玩家下成本不可控，因此不採用。
+1v1 使用相容搜尋範圍內的最近 Elo。5v5 對 1～5 人 party 做 bounded 5+5 bin-packing；八人模式對 1～4 人 party 做 bounded sum-to-eight。5v5 前 60 秒只接受兩隊 party 人數多重集合完全相同的組合，例如 `4+1` 對 `4+1`、`2+2+1` 對 `2+2+1`。任一參與 ticket 已等待至少 60 秒後，才允許不同結構；2／3／4／5 人 party 的優勢分別為 +5／+10／+20／+30，依成員人數加權到隊伍 effective Elo。結構不同時，優勢較低隊伍的原始平均 Elo 必須至少高出雙方優勢加權差。其餘評分兼顧等待時間、Elo 差／離散與 stable tie-break。全域最佳解在 100,000 玩家下成本不可控，因此不採用。
 
 ### Proposal 與 placement 分離
 

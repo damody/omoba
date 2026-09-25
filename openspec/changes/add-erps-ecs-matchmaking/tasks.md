@@ -140,11 +140,14 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 - [x] 6.1 實作 1v1 最近 Elo、等待優先與 stable tie-break candidate builder
 - [x] 6.2 實作 5v5 party sum-to-five bounded bin-packing primitive
 - [x] 6.3 實作 5v5 兩隊 5+5 組合與 party 不拆 invariant checker
-- [x] 6.4 實作 5v5 等待、兩隊 Elo 差、隊內離散與 party 結構軟性懲罰 scorer
+- [x] 6.4 實作 5v5 等待、兩隊 Elo 差、隊內離散與 party 結構差異 scorer
 - [x] 6.5 實作八人模式 1～4 人 party sum-to-eight bounded search
 - [x] 6.6 實作八人全場 Elo range／離散／等待 scorer 與八個單人 team roster builder
 - [x] 6.7 新增三種模式的 table-driven tests，涵蓋不可行組合、邊界 Elo、長等待與 tie-break
 - [x] 6.8 新增隨機 party 組合 property tests，驗證成功 roster 人數、team 數、成員唯一與 party 不拆
+- [x] 6.9 5v5 前 60 秒只允許相同 party 人數多重集合配對，等待滿 60 秒後才允許跨結構
+- [x] 6.10 將 5v5 的 2／3／4／5 人 party 優勢分別設為 +5／+10／+20／+30，跨結構時要求低優勢隊伍有足夠較高的原始 Elo
+- [x] 6.11 新增固定案例與隨機組隊測試，覆蓋 `4+1`、`2+2+1`、60 秒邊界、優勢分差、party 不拆及 live ECS wait age
 
 ## 7. Ready check、重新排隊與信用處分
 
@@ -297,6 +300,7 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 - [x] 14.9 記錄硬體、worker threads、seed 與所有 matching 設定，實作同環境 baseline compare
 - [x] 14.10 執行固定 seed 100,000 玩家 core run，保存可重現報告並確認所有硬性 invariant
 - [x] 14.11 執行縮小但完整的 `--grpc` Rust／C／game-server run，保存傳輸路徑報告
+- [x] 14.12 新增固定 seed 的 1000 人逐秒入列整合測試：每秒 17 人、1v1 配對後第 10 個模擬秒回報結果，驗證 Elo 差距、逐人 rating 更新、容量釋放及結算後 ECS 搜尋範圍
 
 ## 15. 最終驗證與交付
 
@@ -306,7 +310,7 @@ openspec validate add-erps-ecs-matchmaking --type change --strict
 
 **前置依賴：** 1～14 全部完成。
 
-**完成門檻：** ERPS workspace fmt／clippy／tests、`omb` adapter tests、C SDK platform smoke、OpenSpec strict validation 全部成功；六個 capability 的 42 個 scenarios 皆能指向 test 或明確 evidence。
+**完成門檻：** ERPS workspace fmt／clippy／tests、`omb` adapter tests、C SDK platform smoke、OpenSpec strict validation 全部成功；六個 capability 的 44 個 scenarios 皆能指向 test 或明確 evidence。
 
 - [x] 15.1 執行 `cargo fmt` 與所有 ERPS crates 的 clippy／unit／property tests
 - [x] 15.2 執行 ERPS ECS／gRPC／`omb` adapter integration suites

@@ -37,11 +37,15 @@ ERPS SHALL 對每種模式使用獨立 Elo，預設起始值為 1000，並 SHALL
 - **THEN** 下一次候選 snapshot 使用擴張後的 Elo 範圍且不超過最大值
 
 ### Requirement: 匹配品質兼顧等待與平衡
-1v1 SHALL 優先相容範圍內 Elo 差最小的雙方。5v5 SHALL 以 bounded search 評分最久等待、兩隊 effective Elo 差、隊內離散與 party 結構差異。八人模式 SHALL 評分全場 Elo range、離散與最久等待。所有同分情況 MUST 使用 stable ID tie-break。
+1v1 SHALL 優先相容範圍內 Elo 差最小的雙方。5v5 SHALL 以 bounded search 評分最久等待、兩隊 effective Elo 差與隊內離散；前 60 秒兩隊 party 人數多重集合 MUST 完全相同。任一參與 ticket 等待至少 60 秒後 MAY 接受不同結構，但 2／3／4／5 人 party MUST 分別加上 +5／+10／+20／+30 優勢 Elo，1 人 party 加 0；結構不同時，優勢較低隊伍的原始平均 Elo MUST 至少高出兩隊依成員人數加權的優勢差。八人模式 SHALL 評分全場 Elo range、離散與最久等待。所有同分情況 MUST 使用 stable ID tie-break。
 
-#### Scenario: Party 結構限制隨等待放寬
-- **WHEN** 5v5 候選 Elo 品質合法但兩隊 party 結構不同
-- **THEN** ERPS 將結構差異作為可隨等待放寬的軟性懲罰，而不是永久拒絕該候選
+#### Scenario: 60 秒內只配對相同 5v5 結構
+- **WHEN** 5v5 候選所有 ticket 等待未滿 60 秒，且隊伍由 `4+1` 或 `2+2+1` 組成
+- **THEN** `4+1` 只能對上 `4+1`，`2+2+1` 只能對上 `2+2+1`；party 順序不影響判定
+
+#### Scenario: 60 秒後跨結構需補足組隊優勢
+- **WHEN** 任一 ticket 等待至少 60 秒，`4+1` 與 `2+2+1` 可組成 5v5 候選
+- **THEN** `2+2+1` 隊伍的原始平均 Elo 至少比 `4+1` 高 12 分，且兩隊 effective Elo 仍符合搜尋範圍
 
 ### Requirement: 每模式更新 Elo rating
 ERPS SHALL 以可設定 K-factor 更新 1v1 與 5v5 rating。八人自由混戰 SHALL 將每名玩家與其他七名玩家依最終名次做 pairwise 勝、平、負比較，彙總後 MUST 套用單場最大變動限制；原 party MUST NOT 共享自由混戰結果。
@@ -49,4 +53,3 @@ ERPS SHALL 以可設定 K-factor 更新 1v1 與 5v5 rating。八人自由混戰 
 #### Scenario: 八人同名次視為平手
 - **WHEN** 八人自由混戰結果包含兩名同名次玩家
 - **THEN** 兩人的相互 pairwise 結果為平手，且每人的最終 rating delta 不超過設定上限
-

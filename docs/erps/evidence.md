@@ -1,6 +1,6 @@
 # ERPS capability-to-test evidence
 
-以下 42 個 OpenSpec scenario 均對應到可重跑的自動化測試或固定負載證據。測試名稱以 `cargo test --workspace --all-features` 的輸出為準。
+以下 44 個 OpenSpec scenario 均對應到可重跑的自動化測試或固定負載證據。測試名稱以 `cargo test --workspace --all-features` 的輸出為準。
 
 ## erps-party-ready-credit（9）
 
@@ -16,7 +16,7 @@
 | Party 失敗成員阻止自動重排 | `ready_check::mixed_party_failure_preserves_unaffected_solo` |
 | Grace period 內重連恢復狀態 | `grpc::runtime_disconnect_grace_preserves_then_cancels_queue`；ready-timeout lifecycle test 另驗證 `GetState` 還原 profile、queue mode、region、proposal ID 與 authoritative deadline |
 
-## erps-matchmaking-core（8）
+## erps-matchmaking-core（9）
 
 | Scenario | Evidence |
 |---|---|
@@ -26,10 +26,11 @@
 | 5v5 party 不拆分 | `mode_properties::modes_build_exact_rosters` |
 | 八人 party 一起入場但各自成隊 | `mode_properties::ffa_never_emits_wrong_team_count` |
 | 長時間等待擴大候選範圍 | `matching::bucket::tests::expansion_clamps` |
-| Party 結構限制隨等待放寬 | `matching::dispatcher::older_candidate_can_outrank_soft_party_structure_penalty` |
+| 60 秒內只配對相同 5v5 結構 | `mode_properties::five_v_five_mirrors_four_plus_one_and_two_plus_two_plus_one_before_sixty_seconds`、`mode_properties::random_five_v_five_partitions_never_cross_structure_before_sixty_seconds` |
+| 60 秒後跨結構需補足組隊優勢 | `mode_properties::five_v_five_cross_structure_waits_sixty_seconds_and_requires_compensating_elo`、`mode_properties::five_v_five_party_advantage_uses_exact_size_schedule`、`grpc::paced_rating_test::five_v_five_live_queue_releases_structure_after_sixty_seconds` |
 | 八人同名次視為平手 | `rating::tests::ffa_ties_are_draws_and_clamped` |
 
-## erps-load-validation（7）
+## erps-load-validation（8）
 
 | Scenario | Evidence |
 |---|---|
@@ -37,7 +38,8 @@
 | Cancel 與 candidate commit 競爭 | `claim_races::cancellation_wins_revalidation_race` |
 | C client 收到 ready match | Windows clang 與 Linux gcc `tests/c_smoke/e2e.c`：`C_E2E_PASS` |
 | 預設大規模測試完成 | `docs/erps/load-test.md` 固定 100,000-player PASS |
-| gRPC 模式納入傳輸成本 | 1,000 clients／669 parties／225 matches 的 `transport.path=grpc-loopback` PASS；runner 逐場檢查 launch mode、無遺漏／重複／外來玩家、team shape、5v5 party 不拆與 MatchResult ACK，負向測試 `load_test::grpc_launch_checker_rejects_split_party_and_foreign_roster` 證明錯誤 roster 會讓 run 失敗；`grpc_transport_uses_heterogeneous_servers_in_every_region` 以 `tw`／`us`／`eu` 九台不同 capacity／cost／instance limit 的 server，證明三個 region 都由真實 control stream 承接 match |
+| 每秒 17 人的 1000 玩家 Elo 結算模擬 | `grpc::paced_rating_test::paced_1000_players_match_nearby_elo_and_settle_after_ten_seconds`：1000 玩家、500 場、10 個模擬秒後結算、最大 Elo 差 10、獨立公式逐場驗證 |
+| gRPC 模式納入傳輸成本 | 舊版 1,000 clients／669 parties／225 matches 的 `transport.path=grpc-loopback` PASS；新版 runner 逐場檢查 launch mode、無遺漏／重複／外來玩家、team shape、5v5 party 不拆及鏡像結構與 MatchResult ACK，負向測試 `load_test::grpc_launch_checker_rejects_split_party_and_foreign_roster`、`load_test::grpc_launch_checker_rejects_fresh_mismatched_party_structures` 證明錯誤 roster／結構會讓 run 失敗；`grpc_transport_uses_heterogeneous_servers_in_every_region` 以 `tw`／`us`／`eu` 九台不同 capacity／cost／instance limit 的 server，證明三個 region 都由真實 control stream 承接 match |
 | 超配立即使測試失敗 | `load_test::over_capacity_checker_returns_minimal_server_diagnostic`、`placement_properties.rs` |
 | Baseline 比較具有環境資訊 | `load_test::baseline_comparison_rejects_different_environment_or_settings` 與 CLI `--output/--baseline` 實測 |
 
@@ -77,3 +79,5 @@
 | 真實 C compiler 連結 SDK | Windows x64 clang DLL/import library 與 WSL Linux x86_64 gcc shared-object 均以平台隔離 target 依 `client-ffi/README.md` 重建並執行 smoke；完整網路 E2E 均為 `C_E2E_PASS` |
 
 所有 generated/network 邊界只傳 stable opaque IDs，不暴露 Specs `Entity`。敏感欄位 redaction、queue high-watermark 與 observability independence 由 metrics tests 驗證；`grpc::admin_metrics_exposes_counters_high_watermarks_and_latency` 驗證 standalone admin API 可讀取 counters、high-watermark、Elo quality 與 bounded latency percentiles；`load_test::memory_high_watermark_comes_from_the_operating_system` 驗證 load report 記憶體高水位取自 OS process RSS 取樣，而非 entity `size_of` 推估；`placement::releasing_finished_instance_does_not_charge_another_match` 防止 Finished/MatchResult 雙重釋放錯扣其他 instance 容量。Repository artifact 檢查不追蹤 `target`、DLL、EXE、PDB、SO、log 或 trace。低信用玩家的有限期停權邊界由 `grpc::credit_suspension_expires_at_a_defined_deadline` 驗證，期限後可重新排隊並透過完成對局恢復信用。
+
+`grpc::paced_rating_test::paced_1000_players_match_nearby_elo_and_settle_after_ten_seconds` 使用模擬秒每秒入列 17 名玩家、10 秒後結算。1000 名玩家完成 500 場，最大 Elo 差 10、平均 2.70；逐場與獨立 Elo 公式比對，並檢查更新後的 rating、profile、ECS ticket bucket、搜尋範圍和容量釋放。這個測試曾抓出 ECS ticket 將分桶固定為 1000 分的問題，現已修正。

@@ -28,6 +28,10 @@ ERPS SHALL 測試跨 shard claim、party revision、cancel／accept 競爭、pro
 - **WHEN** 使用固定 seed 執行預設 load test
 - **THEN** 工具完成 100,000 玩家 scenario，輸出設定、硬體、worker 數、throughput、latency、Elo quality、容量利用率與記憶體高水位
 
+#### Scenario: 每秒 17 人的 1000 玩家 Elo 結算模擬
+- **WHEN** 固定 seed 產生 1000 名具有不同初始 Elo 的單人玩家，依模擬秒每秒入列最多 17 人，雙方同意配對並在配對後第 10 個模擬秒回報勝負
+- **THEN** 所有玩家恰好完成一場 1v1、對手 Elo 差不超過設定搜尋範圍、勝負雙方依 Elo 公式更新分數，且結算後的 ECS ticket 使用新 rating 建立搜尋範圍與分桶
+
 ### Requirement: Load test 同時提供核心與完整 gRPC 模式
 Load test SHALL 預設提供 in-process core 模式，並 SHALL 以 `--grpc` 提供完整序列化、網路與 SDK 路徑。兩種模式 MUST 使用相同 scenario seed 與 invariant checker 語意。
 
@@ -48,4 +52,3 @@ Load report SHALL 記錄硬體、worker threads、seed 與全部影響匹配的�
 #### Scenario: Baseline 比較具有環境資訊
 - **WHEN** 操作者要求比較目前 run 與 baseline
 - **THEN** 報告同時顯示兩次執行環境與設定差異，避免把不可比結果宣告為 regression
-
