@@ -386,6 +386,9 @@ pub fn run_team_projection_after_wave_b(
     if !committed.barrier_reached {
         return Ok(());
     }
+    let settlements = std::mem::take(
+        &mut world.write_resource::<crate::runtime::PendingItemUseQueue>().settlements,
+    );
     let (mut runtime, mut coordinator) = <(
         Write<TeamProjectionRuntime>,
         Write<crate::runtime::AuthorityRepairCoordinator>,
@@ -447,7 +450,7 @@ pub fn run_team_projection_after_wave_b(
             ));
             rebases.insert(*team, bundle);
         }
-        let frame = projector.build_frame_with_inputs(
+        let frame = projector.build_frame_with_settlements(
             server_tick,
             committed.tick,
             &state.index.current,
@@ -459,6 +462,7 @@ pub fn run_team_projection_after_wave_b(
                 .filter(|input| input.team_id == *team)
                 .cloned()
                 .collect(),
+            &settlements,
         )?;
         if committed.tick % projector.config.hash_checkpoint_interval_ticks.max(1) == 0 {
             record_expected_component_evidence(
@@ -579,7 +583,7 @@ impl TeamViewProjector {
             if let Some((epoch, kind, components)) =
                 self.hash_entities.get_mut(&mapping.replica_id.get())
             {
-                let next_components = decode_safe_components_for_hash(baseline);
+                let next_components = team_safe_components(baseline, self.team_id);
                 // This is the server-side expected view used by checkpoint
                 // validation, not a per-tick state replication path. Visible
                 // entities continue through player-view lockstep; only an
@@ -737,6 +741,14 @@ impl TeamViewProjector {
             public_metadata: Vec::new(),
             team_private_metadata,
             global_seed,
+            shop_catalog_version: 0,
+            shop_catalog_hash: String::new(),
+            input_allocator_version: 0,
+            last_seen_input_id: 0,
+            shop_protocol_version: 0,
+            shop_rules_hash: String::new(),
+            recall_protocol_version: 0,
+            recall_rules_hash: String::new(),
         }
     }
 
@@ -786,9 +798,24 @@ impl TeamViewProjector {
         graph: &ProjectionDependencyGraph,
         accepted_inputs: Vec<CanonicalAcceptedInput>,
     ) -> Result<PaddedTeamFrame, ProjectionError> {
+        self.build_frame_with_settlements(server_tick, replica_tick, visible,
+            transitions, facts, graph, accepted_inputs, &[])
+    }
+
+    pub fn build_frame_with_settlements(
+        &mut self,
+        server_tick: u64,
+        replica_tick: u64,
+        visible: &BTreeSet<u64>,
+        transitions: Vec<VisibilityTransition>,
+        facts: &[OrderedFact],
+        graph: &ProjectionDependencyGraph,
+        accepted_inputs: Vec<CanonicalAcceptedInput>,
+        settlements: &[crate::runtime::shop::ShopSettlement],
+    ) -> Result<PaddedTeamFrame, ProjectionError> {
         self.pending_reveals.extend(transitions);
         let pre_step = self.build_pre_step(replica_tick, visible, graph)?;
-        let step = self.build_step(visible, facts, accepted_inputs)?;
+        let step = self.build_step(replica_tick, visible, facts, accepted_inputs, settlements)?;
         // Recovery actions are queued before visibility transitions are
         // projected.  A unit can leave vision in that same frame; never emit a
         // post-step repair/replace for an entity pre-step just removed.
@@ -869,6 +896,12 @@ impl TeamViewProjector {
                     effective_tick,
                     baseline,
                 } => {
+                    let baseline = if decode_safe_components_for_hash(&baseline)
+                        .contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID)
+                    {
+                        crate::runtime::visibility::encode_disclosed_baseline(
+                            &team_safe_components(&baseline, self.team_id).into_iter().collect::<Vec<_>>())
+                    } else { baseline };
                     let effective_tick = effective_tick.max(replica_tick);
                     let key = unpack_canonical(canonical_id);
                     let mapping = self.identity.disclose(key)?;
@@ -1021,11 +1054,15 @@ impl TeamViewProjector {
 
     fn build_step(
         &mut self,
+        replica_tick: u64,
         visible: &BTreeSet<u64>,
         facts: &[OrderedFact],
         accepted: Vec<CanonicalAcceptedInput>,
+        settlements: &[crate::runtime::shop::ShopSettlement],
     ) -> Result<Step, ProjectionError> {
-        let mut public_events = Vec::new();
+        let mut public_events = crate::runtime::shop_receipt::project_shop_receipts(
+            self.team_id, replica_tick, &accepted, settlements,
+        )?;
         let mut external_effects = Vec::new();
         let policies = crate::runtime::ProjectionPolicyRegistry::secure_defaults();
         if let Some(id) = facts.iter().find_map(|fact| match &fact.audience {
@@ -1046,6 +1083,30 @@ impl TeamViewProjector {
             )
         });
         for fact in ordered {
+            if let ObservableFact::OwnerEconomy { team, .. } = &fact.fact {
+                if *team != self.team_id || !matches!(fact.audience, FactAudience::Team(value) if value == self.team_id) {
+                    continue;
+                }
+            }
+            if let ObservableFact::CommittedEconomy { source, .. } = &fact.fact {
+                let owns_economy = self.identity.replica_for(unpack_canonical(*source))
+                    .and_then(|mapping| self.hash_entities.get(&mapping.replica_id.get()))
+                    .is_some_and(|(_, _, components)| components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID));
+                if !owns_economy || !matches!(fact.audience, FactAudience::Team(team) if team == self.team_id) {
+                    continue;
+                }
+            }
+            // Our team's cooldowns remain deterministic gameplay from its
+            // accepted inputs. Only disclosed opponents need settled state.
+            if let ObservableFact::CommittedCooldown { source, .. } = &fact.fact {
+                if self.identity.replica_for(unpack_canonical(*source))
+                    .and_then(|mapping| self.hash_entities.get(&mapping.replica_id.get()))
+                    .and_then(|(_, _, components)| components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID))
+                    .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
+                    .is_some_and(|render| render.team_id == self.team_id) {
+                    continue;
+                }
+            }
             project_fact(
                 fact,
                 visible,
@@ -1061,13 +1122,25 @@ impl TeamViewProjector {
                 event.stable_sub_index,
             )
         });
-        external_effects.sort_by_key(|effect| {
+        external_effects.sort_by(|left, right| {
             (
-                effect.effect_kind,
-                effect.visible_target.as_ref().map_or(0, |id| id.value),
-                effect.stable_sub_index,
+                left.effect_kind,
+                left.visible_target.as_ref().map_or(0, |id| id.value),
+                left.stable_sub_index,
+                &left.sanitized_payload,
             )
+                .cmp(&(
+                    right.effect_kind,
+                    right.visible_target.as_ref().map_or(0, |id| id.value),
+                    right.stable_sub_index,
+                    &right.sanitized_payload,
+                ))
         });
+        // local_ordinal is only unique per producer. Assign a team-safe ordinal
+        // after sorting sanitized facts, without exposing the hidden producer.
+        for (index, effect) in external_effects.iter_mut().enumerate() {
+            effect.stable_sub_index = u32::try_from(index).expect("bounded team frame effects");
+        }
         for effect in &mut external_effects {
             let replica_id = effect.visible_target.as_ref().map_or(0, |id| id.value);
             if let Some(property) = self.latest_external_property_by_replica.get(&replica_id) {
@@ -1127,7 +1200,10 @@ fn project_fact(
     let source_visible = source.is_some_and(|id| visible.contains(&id));
     let target_visible = target.is_some_and(|id| visible.contains(&id));
     let target_replica = target.and_then(|id| replica_proto(identity, id));
-    let hidden_source_requires_sanitizing = !source_visible
+    let authority_owned_combat = matches!(&ordered.audience,
+        FactAudience::VisibilityPolicy(id)
+            if id == omb_script_abi::types::projection_policy_ids::EXTERNAL_DIRECT_COMBAT);
+    let hidden_source_requires_sanitizing = (!source_visible || authority_owned_combat)
         && target_visible
         && matches!(
             ordered.fact,
@@ -1145,7 +1221,7 @@ fn project_fact(
             sanitized_payload: payload,
             stable_sub_index: ordered.key.local_ordinal,
         });
-    } else if source_visible || target_visible || source.is_none() {
+    } else if !authority_owned_combat && (source_visible || target_visible || source.is_none()) {
         public.push(TeamPublicEvent {
             event_kind: ordered.key.fact_kind as u32,
             subject: source
@@ -1160,6 +1236,40 @@ fn project_fact(
 fn fact_entities_and_payload(fact: &ObservableFact) -> (Option<u64>, Option<u64>, Vec<u8>) {
     let mut payload = Vec::new();
     match fact {
+        ObservableFact::CommittedAbilityRanks { source, ranks } => {
+            for rank in ranks { payload.extend(rank.to_le_bytes()); }
+            (Some(*source), None, payload)
+        }
+        ObservableFact::OwnerEconomy { state, .. } => (None, None, state.encode()),
+        ObservableFact::CommittedEconomy { source, state } => (Some(*source), None, state.encode()),
+        ObservableFact::CommittedEquipmentStats { source, hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw } => {
+            for value in [hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw] { payload.extend(value.to_le_bytes()); }
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedProgression { source, level, experience, experience_to_next, skill_points } => {
+            for value in [level, experience, experience_to_next, skill_points] { payload.extend(value.to_le_bytes()); }
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedAttack { source, elapsed_raw, sequence, phase } => {
+            payload.extend(elapsed_raw.to_le_bytes());
+            payload.extend(sequence.to_le_bytes());
+            payload.push(*phase);
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedVitals { source, hp_raw, max_hp_raw } => {
+            payload.extend(hp_raw.to_le_bytes());
+            payload.extend(max_hp_raw.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedCooldown { source, slot, remaining_raw } => {
+            payload.extend(slot.to_le_bytes());
+            payload.extend(remaining_raw.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::MovementPriority { source, active } => {
+            payload.push(u8::from(*active));
+            (Some(*source), None, payload)
+        }
         ObservableFact::Movement {
             source,
             x_mm,
@@ -1356,6 +1466,23 @@ fn expected_team_hash(
         }
     }
     hasher.finalize().into()
+}
+
+fn team_safe_components(bytes: &[u8], team: u32) -> BTreeMap<u32, Vec<u8>> {
+    let mut components = decode_safe_components_for_hash(bytes);
+    if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID) {
+        let owned = components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+            .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
+            .is_some_and(|state| state.team_id == team && state.owner_player_id != 0);
+        if !owned {
+            for schema in [crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID,
+                crate::runtime::DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID,
+                crate::runtime::DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID] {
+                components.remove(&schema);
+            }
+        }
+    }
+    components
 }
 
 fn decode_safe_components_for_hash(bytes: &[u8]) -> BTreeMap<u32, Vec<u8>> {

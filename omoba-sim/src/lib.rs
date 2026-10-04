@@ -4,6 +4,7 @@
 //! Shared between server (omb) and client (omfx) for lockstep networking.
 
 pub mod fixed;
+pub mod navigation;
 pub mod rng;
 pub mod snapshot;
 pub mod state_hash;

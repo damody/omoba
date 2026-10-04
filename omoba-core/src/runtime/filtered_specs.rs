@@ -20,6 +20,16 @@ pub struct ExternalEffectInjectionQueue(pub Vec<crate::game_proto::SanitizedExte
 #[derive(Default)]
 pub struct ReplicaPhaseTrace(pub Vec<DeterministicGameplayPhase>);
 
+/// Visible movement priority only; never contains an enemy destination/input.
+#[derive(Default)]
+pub struct DisclosedMovementPriority(pub BTreeMap<Entity, bool>);
+
+/// Single-lane combat settles on authority: private opponent targets and
+/// projectile lifetimes are not mirrored. Visible vitals apply after gameplay.
+#[derive(Default)]
+pub(crate) struct DisclosedAuthorityCombatTargets(pub BTreeSet<Entity>);
+struct GeneratedMobaEconomyCatalogInstalled;
+
 #[derive(Clone, Debug, Component)]
 #[storage(DenseVecStorage)]
 pub struct ReplicaIdentity {
@@ -72,9 +82,11 @@ impl FilteredReplicaWorldBuilder {
         world.register::<ReplicaIdentity>();
         world.register::<FilteredComponents>();
         world.insert(TickDeterministicRng::new(start.global_seed));
+        world.insert(crate::runtime::MasterSeed(start.global_seed));
         world.insert(AcceptedInputInjectionQueue::default());
         world.insert(ExternalEffectInjectionQueue::default());
         world.insert(ReplicaPhaseTrace::default());
+        world.insert(DisclosedMovementPriority::default());
         world.write_resource::<crate::runtime::Tick>().0 = start.replica_start_tick;
         world.write_resource::<crate::runtime::Time>().0 =
             start.replica_start_tick as f64 / f64::from(start.tick_rate_hz.max(1));
@@ -97,6 +109,7 @@ impl FilteredReplicaWorldBuilder {
         // intentionally skips campaign/story spawning and must install the
         // deterministic runtime resource explicitly.
         world.insert(Vec::<crate::runtime::DamageInstance>::new());
+        install_disclosed_content(&mut world, &ScriptRegistry::default());
         FilteredReplicaWorld {
             world,
             entities: ReplicaEntityMap::default(),
@@ -106,6 +119,14 @@ impl FilteredReplicaWorldBuilder {
             team_private_metadata: start.team_private_metadata.clone(),
         }
     }
+}
+
+// Static script metadata is shared content, not authority entity state. Install
+// the same registries for initial bootstrap and repair without spawning a story.
+fn install_disclosed_content(world: &mut World, registry: &ScriptRegistry) {
+    crate::runtime::populate_tower_template_registry(world, registry);
+    crate::runtime::populate_tower_upgrade_registry(world);
+    crate::runtime::populate_ability_registry(world, registry);
 }
 
 pub struct SpecsDisclosedWorldStepper {
@@ -138,9 +159,11 @@ impl SpecsDisclosedWorldStepper {
         let scripts_dir = std::env::var("OMB_SCRIPTS_DIR").unwrap_or_else(|_| "./scripts".into());
         let script_registry =
             crate::scripting::loader::load_scripts_dir(std::path::Path::new(&scripts_dir));
+        let mut filtered =
+            FilteredReplicaWorldBuilder::new(component_allowlist, resource_allowlist).empty(start);
+        install_disclosed_content(&mut filtered.world, &script_registry);
         Self {
-            filtered: FilteredReplicaWorldBuilder::new(component_allowlist, resource_allowlist)
-                .empty(start),
+            filtered,
             global_seed: start.global_seed,
             replica_tick: start.replica_start_tick,
             script_registry,
@@ -169,6 +192,7 @@ impl SpecsDisclosedWorldStepper {
     ) -> Result<(), ReplicaRuntimeError> {
         self.filtered =
             FilteredReplicaWorldBuilder::new(component_allowlist, resource_allowlist).empty(start);
+        install_disclosed_content(&mut self.filtered.world, &self.script_registry);
         self.global_seed = start.global_seed;
         self.replica_tick = start.replica_start_tick;
         self.last_script_phase_ns = 0;
@@ -259,6 +283,16 @@ impl SpecsDisclosedWorldStepper {
             PlayerOwner, Pos, TurnSpeed, Unit,
         };
         let entity = self.filtered.entities.0[&state.replica_id].entity;
+        // Losing a disclosed capability must also retire its Specs storage;
+        // otherwise a later export could reintroduce private bytes after rebase.
+        if self.filtered.world.try_fetch::<GeneratedMobaEconomyCatalogInstalled>().is_some()
+            && !state.components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID) {
+            self.filtered.world.write_storage::<crate::runtime::Gold>().remove(entity);
+            self.filtered.world.write_storage::<crate::runtime::ItemEffects>().remove(entity);
+        }
+        if !state.components.contains_key(&crate::runtime::DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID) {
+            self.filtered.world.write_storage::<crate::runtime::Inventory>().remove(entity);
+        }
         if let Some(render_bytes) = state
             .components
             .get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
@@ -317,6 +351,7 @@ impl SpecsDisclosedWorldStepper {
                 insert_default_if_missing!(Hero);
                 insert_default_if_missing!(HeroCommandQueue);
                 insert_default_if_missing!(Facing);
+                insert_default_if_missing!(crate::runtime::FacingBroadcast);
                 insert_default_if_missing!(TurnSpeed);
                 insert_default_if_missing!(CollisionRadius);
             } else if render.kind == 2 {
@@ -394,6 +429,23 @@ impl SpecsDisclosedWorldStepper {
             };
         }
         restore_json_component!(crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID, Hero);
+        if let Some(hero) = self
+            .filtered
+            .world
+            .read_storage::<Hero>()
+            .get(entity)
+            .cloned()
+        {
+            let mut units = self.filtered.world.write_storage::<Unit>();
+            if units.get(entity).is_none() {
+                units
+                    .insert(
+                        entity,
+                        Unit::new(hero.id, hero.name, crate::runtime::UnitType::Hero),
+                    )
+                    .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            }
+        }
         restore_json_component!(
             crate::runtime::DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID,
             crate::runtime::TAttack
@@ -411,6 +463,8 @@ impl SpecsDisclosedWorldStepper {
             crate::runtime::DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID,
             crate::runtime::Inventory
         );
+        restore_json_component!(crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID, crate::runtime::Gold);
+        restore_json_component!(crate::runtime::DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID, crate::runtime::ItemEffects);
         restore_json_component!(
             crate::runtime::DISCLOSED_TOWER_COMPONENT_SCHEMA_ID,
             crate::runtime::Tower
@@ -434,6 +488,8 @@ impl SpecsDisclosedWorldStepper {
             .world
             .read_storage::<crate::runtime::DemoPatrol>();
         let heroes = self.filtered.world.read_storage::<crate::runtime::Hero>();
+        let gold = self.filtered.world.read_storage::<crate::runtime::Gold>();
+        let effects = self.filtered.world.read_storage::<crate::runtime::ItemEffects>();
         let attacks = self
             .filtered
             .world
@@ -496,6 +552,8 @@ impl SpecsDisclosedWorldStepper {
                 };
             }
             export_json_component!(heroes, crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID);
+            export_json_component!(gold, crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID);
+            export_json_component!(effects, crate::runtime::DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
             export_json_component!(
                 attacks,
                 crate::runtime::DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID
@@ -600,6 +658,11 @@ impl SpecsDisclosedWorldStepper {
                 Some(_) => {}
                 None => return Err(ReplicaRuntimeError::Decode),
             }
+            // A shop input is acknowledged as accepted, but its actual result
+            // is settled once by authority. Never buy/sell in this replica.
+            if matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_))) {
+                continue;
+            }
             decoded.push((accepted.player_id, input));
         }
         #[cfg(feature = "kcp")]
@@ -638,15 +701,89 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
             self.replica_tick,
             u64::from(self.tick_rate_hz),
         );
+        let lane_delta = injections.public_events.iter().find_map(|event| {
+            let bytes = &event.sanitized_payload;
+            (event.event_kind == crate::runtime::FactKind::Hud as u32
+                && bytes.len() == 20
+                && bytes[0..4] == 0_u32.to_le_bytes()
+                && bytes[4..12] == crate::runtime::SINGLE_LANE_DELTA_METRIC_ID.to_le_bytes())
+            .then(|| i64::from_le_bytes(bytes[12..20].try_into().unwrap()))
+        });
+        if lane_delta.is_some_and(|raw| raw < 0) {
+            return Err(ReplicaRuntimeError::MalformedBaseline);
+        }
+        let fixed_raw = lane_delta.unwrap_or(fixed_raw);
+        let gameplay_active = fixed_raw != 0;
         self.filtered
             .world
             .write_resource::<crate::runtime::DeltaTime>()
             .0 = omoba_sim::Fixed64::from_raw(fixed_raw);
+        let elapsed = injections.public_events.iter().find_map(|event| {
+            let bytes = &event.sanitized_payload;
+            (event.event_kind == crate::runtime::FactKind::Hud as u32
+                && bytes.len() == 20
+                && bytes[0..4] == 0_u32.to_le_bytes()
+                && bytes[4..12] == crate::runtime::SINGLE_LANE_ELAPSED_METRIC_ID.to_le_bytes())
+            .then(|| i64::from_le_bytes(bytes[12..20].try_into().unwrap()))
+        });
+        let mut time = self.filtered.world.write_resource::<crate::runtime::Time>();
+        if let Some(raw) = elapsed {
+            if raw < 0 {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            time.0 = raw as f64 / omoba_sim::fixed::SCALE as f64;
+        } else {
+            time.0 += 1.0 / f64::from(self.tick_rate_hz);
+        }
+        drop(time);
+        self.synchronize_specs_membership(world)?;
+        let authority_targets = if lane_delta.is_some() {
+            world.entities.values().map(|entity|
+                self.filtered.entities.0[&entity.replica_id].entity).collect()
+        } else { BTreeSet::new() };
+        self.filtered.world.insert(DisclosedAuthorityCombatTargets(authority_targets));
+        if lane_delta.is_some() && self.filtered.world.try_fetch::<GeneratedMobaEconomyCatalogInstalled>().is_none() {
+            self.filtered.world.insert(crate::runtime::ItemRegistry::generated_moba());
+            self.filtered.world.insert(GeneratedMobaEconomyCatalogInstalled);
+        }
+        let pre_step = StepInjections {
+            public_events: injections
+                .public_events
+                .iter()
+                .filter(|event| {
+                    event.event_kind == crate::runtime::FactKind::PreStepMovement as u32
+                })
+                .cloned()
+                .collect(),
+            ..StepInjections::default()
+        };
+        apply_authoritative_movement_outcomes(self, &pre_step)?;
+        let mut priorities = BTreeMap::new();
+        for event in &injections.public_events {
+            if event.event_kind != crate::runtime::FactKind::MovementPriority as u32 {
+                continue;
+            }
+            if event.sanitized_payload.len() != 1 || event.sanitized_payload[0] > 1 {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            let id = event
+                .subject
+                .as_ref()
+                .ok_or(ReplicaRuntimeError::UnknownEntity)?
+                .value;
+            let entity = self
+                .filtered
+                .entities
+                .0
+                .get(&id)
+                .ok_or(ReplicaRuntimeError::UnknownEntity)?
+                .entity;
+            priorities.insert(entity, event.sanitized_payload[0] == 1);
+        }
         self.filtered
             .world
-            .write_resource::<crate::runtime::Time>()
-            .0 += 1.0 / f64::from(self.tick_rate_hz);
-        self.synchronize_specs_membership(world)?;
+            .write_resource::<DisclosedMovementPriority>()
+            .0 = priorities;
         self.filtered
             .world
             .write_resource::<AcceptedInputInjectionQueue>()
@@ -666,6 +803,31 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
             .begin_tick(self.replica_tick);
         self.inject_accepted_inputs(injections)?;
 
+        // Only an authoritative active-channel fact clears old commands. An
+        // accepted Recall alone may be rejected by phase or same-batch movement.
+        // These HUD facts are team-private; never infer enemy channel state.
+        let recalling_owners: std::collections::BTreeSet<(u32, u32)> = injections.public_events.iter()
+            .filter_map(|event| {
+                let p = &event.sanitized_payload;
+                if event.event_kind != crate::runtime::FactKind::Hud as u32 || p.len() != 20
+                    || p[12..20] != 1_i64.to_le_bytes() { return None; }
+                let metric = u64::from_le_bytes(p[4..12].try_into().unwrap());
+                crate::runtime::single_lane_metric_player(metric, crate::runtime::SINGLE_LANE_RECALL_ACTIVE_METRIC_ID)
+                    .map(|player| (u32::from_le_bytes(p[0..4].try_into().unwrap()), player))
+            }).collect();
+        let owners: Vec<u32> = {
+            use specs::Join;
+            let entities = self.filtered.world.entities();
+            let factions = self.filtered.world.read_storage::<crate::runtime::Faction>();
+            let owners = self.filtered.world.read_storage::<crate::runtime::PlayerOwner>();
+            let heroes = self.filtered.world.read_storage::<crate::runtime::Hero>();
+            (&entities, &factions, &owners, &heroes).join()
+                .filter(|(_, faction, owner, _)| recalling_owners.contains(&(faction.team_id as u32, owner.player_id)))
+                .map(|(_, _, owner, _)| owner.player_id).collect()
+        };
+        self.filtered.world.write_resource::<crate::runtime::PendingHeroCommandClearQueue>()
+            .requests.extend(owners);
+
         run_deterministic_gameplay_phases(&mut |phase| -> Result<(), ReplicaRuntimeError> {
             let phase_started = Instant::now();
             self.filtered
@@ -674,6 +836,9 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
                 .0
                 .push(phase);
             use DeterministicGameplayPhase as P;
+            if !gameplay_active && phase != P::RuntimeEventBoundary {
+                return Ok(());
+            }
             match phase {
                 P::Dispatcher => self
                     .dispatcher
@@ -779,15 +944,68 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
     }
 }
 
-/// Movement is a visible, post-step authoritative outcome. Applying it to the
-/// Specs world (not only the presentation map) keeps the next tick and hashes
-/// correct without disclosing an opponent's private destination or command queue.
+fn apply_committed_economy_and_equipment(
+    world: &mut DisclosedReplicaWorld,
+    injections: &StepInjections,
+) -> Result<(), ReplicaRuntimeError> {
+    for event in &injections.public_events {
+        if event.event_kind == crate::runtime::FactKind::CommittedEconomy as u32 {
+            let state = crate::runtime::native::economy_projection::CommittedEconomyState::decode(&event.sanitized_payload)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            let (gold, inventory, effects) = state.components().map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let schemas = [crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID,
+                crate::runtime::DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID,
+                crate::runtime::DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID];
+            if schemas.iter().any(|schema| !entity.components.contains_key(schema)) {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            // Validate the whole payload and capability before any write.
+            let values = [crate::runtime::visibility::canonical_disclosed_json(&gold),
+                crate::runtime::visibility::canonical_disclosed_json(&inventory),
+                crate::runtime::visibility::canonical_disclosed_json(&effects)];
+            for (schema, bytes) in schemas.into_iter().zip(values) { entity.components.insert(schema, bytes); }
+        }
+        if event.event_kind == crate::runtime::FactKind::CommittedEquipmentStats as u32 {
+            let bytes = &event.sanitized_payload;
+            if bytes.len() != 40 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let raw = |offset| i64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            let (hp, max_hp, speed, armor, attack) = (raw(0), raw(8), raw(16), raw(24), raw(32));
+            if hp < 0 || max_hp <= 0 || hp > max_hp || speed < 0 || armor < 0 || attack < 0 {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let property = entity.components.get(&crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            if property.len() != 40 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let mut property = property.clone();
+            let mut atk: crate::runtime::TAttack = serde_json::from_slice(entity.components
+                .get(&crate::runtime::DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID).ok_or(ReplicaRuntimeError::MalformedBaseline)?)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            property[..8].copy_from_slice(&hp.to_be_bytes());
+            property[8..16].copy_from_slice(&max_hp.to_be_bytes());
+            property[16..24].copy_from_slice(&speed.to_be_bytes());
+            property[24..32].copy_from_slice(&armor.to_be_bytes());
+            atk.atk_physic = crate::runtime::Vf32::new(omoba_sim::Fixed64::from_raw(attack));
+            let atk_bytes = crate::runtime::visibility::canonical_disclosed_json(&atk);
+            entity.components.insert(crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property);
+            entity.components.insert(crate::runtime::DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID, atk_bytes);
+        }
+    }
+    Ok(())
+}
+
+/// Movement settles into Specs before component export. Economy/equipment
+/// settles into the disclosed map after export, then membership is refreshed.
 fn apply_authoritative_movement_outcomes(
     stepper: &mut SpecsDisclosedWorldStepper,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
     for event in &injections.public_events {
-        if event.event_kind != crate::runtime::FactKind::Movement as u32
+        if (event.event_kind != crate::runtime::FactKind::Movement as u32
+            && event.event_kind != crate::runtime::FactKind::PreStepMovement as u32)
             || event.sanitized_payload.len() < 16
         {
             continue;
@@ -833,8 +1051,99 @@ fn apply_disclosed_events(
     world: &mut DisclosedReplicaWorld,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
+    apply_committed_economy_and_equipment(world, injections)?;
     for event in &injections.public_events {
-        if event.event_kind == crate::runtime::FactKind::Movement as u32
+        if event.event_kind == crate::runtime::FactKind::CommittedAbilityRanks as u32 {
+            let payload=&event.sanitized_payload;
+            if payload.len()!=16 {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            let id=event.subject.as_ref().map_or(0,|id|id.value);
+            let entity=world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes=entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero:crate::runtime::Hero=serde_json::from_slice(bytes)
+                .map_err(|_|ReplicaRuntimeError::MalformedBaseline)?;
+            let ranks:[i32;4]=std::array::from_fn(|slot|
+                i32::from_le_bytes(payload[slot*4..slot*4+4].try_into().unwrap()));
+            for (slot,rank) in ranks.iter().enumerate() {
+                if let Some(ability)=hero.abilities.get(slot) {
+                    let def=omoba_template_ids::ability_by_name(ability)
+                        .and_then(omoba_template_ids::active_ability_const)
+                        .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+                    if *rank<0 || *rank>i32::from(def.max_level) {return Err(ReplicaRuntimeError::MalformedBaseline);}
+                } else if *rank!=0 {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            }
+            for (slot,rank) in ranks.iter().enumerate() {
+                if let Some(ability)=hero.abilities.get(slot) {
+                    hero.ability_levels.insert(ability.clone(),*rank);
+                }
+            }
+            *bytes=crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
+        if event.event_kind == crate::runtime::FactKind::CommittedProgression as u32 {
+            let payload = &event.sanitized_payload;
+            if payload.len() != 16 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let value = |offset| i32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+            let (level, experience, experience_to_next, skill_points) = (value(0), value(4), value(8), value(12));
+            if !(1..=25).contains(&level) || experience < 0 || experience_to_next <= 0 || skill_points < 0 {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            hero.level = level;
+            hero.experience = experience;
+            hero.experience_to_next = experience_to_next;
+            hero.skill_points = skill_points;
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
+        if event.event_kind == crate::runtime::FactKind::CommittedAttack as u32 {
+            let payload = &event.sanitized_payload;
+            if payload.len() != 13 || payload[12] > 2 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut attack: crate::runtime::TAttack = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            attack.asd_count = omoba_sim::Fixed64::from_raw(i64::from_le_bytes(payload[..8].try_into().unwrap()));
+            attack.attack_seq = u32::from_le_bytes(payload[8..12].try_into().unwrap());
+            attack.attack_phase = match payload[12] {
+                0 => crate::runtime::AttackSequencePhase::Idle,
+                1 => crate::runtime::AttackSequencePhase::Windup,
+                _ => crate::runtime::AttackSequencePhase::Backswing,
+            };
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&attack);
+        }
+        if event.event_kind == crate::runtime::FactKind::CommittedVitals as u32 {
+            if event.sanitized_payload.len() != 16 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            if i64::from_le_bytes(event.sanitized_payload[8..16].try_into().unwrap()) < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let property = entity.components.get_mut(&crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            if property.len() != 40 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            for offset in [0, 8] {
+                let raw = i64::from_le_bytes(event.sanitized_payload[offset..offset + 8].try_into().unwrap());
+                property[offset..offset + 8].copy_from_slice(&raw.to_be_bytes());
+            }
+        }
+        if event.event_kind == crate::runtime::FactKind::CommittedCooldown as u32 {
+            if event.sanitized_payload.len() != 12 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let slot = u32::from_le_bytes(event.sanitized_payload[0..4].try_into().unwrap()) as usize;
+            let raw = i64::from_le_bytes(event.sanitized_payload[4..12].try_into().unwrap());
+            if slot > 3 || raw < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
+            hero.start_cooldown(&ability, omoba_sim::Fixed64::from_raw(raw));
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
+        if (event.event_kind == crate::runtime::FactKind::Movement as u32
+            || event.event_kind == crate::runtime::FactKind::PreStepMovement as u32)
             && event.sanitized_payload.len() >= 16
         {
             let target = event.subject.as_ref().map_or(0, |id| id.value);
@@ -873,9 +1182,207 @@ fn apply_disclosed_events(
 }
 
 #[cfg(test)]
+mod committed_actor_state_tests {
+    use super::*;
+    use crate::runtime::*;
+    use crate::game_proto::{ReplicaEntityId, TeamPublicEvent};
+
+    fn world() -> DisclosedReplicaWorld {
+        let mut hero = Hero::new("training_luminary".into(), "".into(), "".into());
+        hero.abilities = vec!["lumen_bolt".into()];
+        let mut property = vec![0; 40];
+        property[8..16].copy_from_slice(&(100i64 * 1024).to_be_bytes());
+        DisclosedReplicaWorld { entities: BTreeMap::from([(1, ReplicaEntityState {
+            replica_id: 1, disclosure_epoch: 1, entity_kind: 1, authority_revision: 1,
+            components: BTreeMap::from([
+                (DISCLOSED_HERO_COMPONENT_SCHEMA_ID, crate::runtime::visibility::canonical_disclosed_json(&hero)),
+                (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property),
+                (DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID, crate::runtime::visibility::canonical_disclosed_json(&TAttack::new(
+                    omoba_sim::Fixed64::from_i32(45), omoba_sim::Fixed64::ONE,
+                    omoba_sim::Fixed64::from_i32(550), omoba_sim::Fixed64::from_i32(1200)))),
+            ]),
+        })]), ..Default::default() }
+    }
+    fn event(kind: FactKind, payload: Vec<u8>) -> StepInjections {
+        StepInjections { public_events: vec![TeamPublicEvent {
+            event_kind: kind as u32, subject: Some(ReplicaEntityId { value: 1 }), sanitized_payload: payload,
+            ..Default::default()
+        }], ..Default::default() }
+    }
+    #[test]
+    fn committed_state_replay_is_absolute_and_preserves_other_property_fields() {
+        let mut world = world();
+        let vitals = event(FactKind::CommittedVitals, [40960i64.to_le_bytes(), 102400i64.to_le_bytes()].concat());
+        apply_disclosed_events(&mut world, &vitals).unwrap();
+        let once = world.clone();
+        apply_disclosed_events(&mut world, &vitals).unwrap();
+        assert_eq!(once, world);
+        let property = &world.entities[&1].components[&DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID];
+        assert_eq!(i64::from_be_bytes(property[..8].try_into().unwrap()), 40960);
+        assert_eq!(property[16..], [0; 24]);
+        let cooldown = event(FactKind::CommittedCooldown, [0u32.to_le_bytes().as_slice(), 7168i64.to_le_bytes().as_slice()].concat());
+        apply_disclosed_events(&mut world, &cooldown).unwrap();
+        let hero: Hero = serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.get_cooldown("lumen_bolt").raw(), 7168);
+    }
+    #[test]
+    fn committed_attack_preserves_stats_and_is_idempotent() {
+        let mut world = world();
+        let injection = event(FactKind::CommittedAttack, [(-306i64).to_le_bytes().as_slice(),
+            5u32.to_le_bytes().as_slice(), &[2]].concat());
+        apply_disclosed_events(&mut world, &injection).unwrap();
+        let once = world.clone();
+        apply_disclosed_events(&mut world, &injection).unwrap();
+        assert_eq!(once, world);
+        let attack: TAttack = serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(attack.asd_count.raw(), -306);
+        assert_eq!(attack.attack_seq, 5);
+        assert_eq!(attack.attack_phase, AttackSequencePhase::Backswing);
+        assert_eq!(attack.atk_physic.v, omoba_sim::Fixed64::from_i32(45));
+    }
+    #[test]
+    fn committed_progression_is_idempotent_and_does_not_override_cooldown() {
+        let mut world = world();
+        apply_disclosed_events(&mut world, &event(FactKind::CommittedCooldown,
+            [0u32.to_le_bytes().as_slice(), 7168i64.to_le_bytes().as_slice()].concat())).unwrap();
+        let injection = event(FactKind::CommittedProgression,
+            [2i32, 25, 120, 1].into_iter().flat_map(i32::to_le_bytes).collect());
+        apply_disclosed_events(&mut world, &injection).unwrap();
+        let once = world.clone();
+        apply_disclosed_events(&mut world, &injection).unwrap();
+        assert_eq!(once, world);
+        let hero: Hero = serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!((hero.level, hero.experience, hero.experience_to_next, hero.skill_points), (2, 25, 120, 1));
+        assert_eq!(hero.get_cooldown("lumen_bolt").raw(), 7168);
+        assert_eq!(hero.abilities, vec!["lumen_bolt"]);
+        for fields in [[0i32, 25, 120, 1], [26, 25, 120, 1], [2, -1, 120, 1], [2, 25, 0, 1], [2, 25, 120, -1]] {
+            let before = world.clone();
+            assert!(apply_disclosed_events(&mut world, &event(FactKind::CommittedProgression,
+                fields.into_iter().flat_map(i32::to_le_bytes).collect())).is_err());
+            assert_eq!(world, before);
+        }
+    }
+
+    #[test]
+    fn committed_unlearned_ranks_are_valid_and_first_learning_does_not_charge_twice() {
+        let mut world=world();
+        for rank in [0i32,1] {
+            apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+                [rank,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect())).unwrap();
+            let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+            assert_eq!(hero.get_ability_level("lumen_bolt"),rank);
+            assert_eq!(hero.skill_points,0);
+        }
+    }
+
+    #[test]
+    fn committed_ability_ranks_are_absolute_atomic_and_preserve_points_and_cooldowns() {
+        let mut world=world();
+        apply_disclosed_events(&mut world,&event(FactKind::CommittedCooldown,
+            [0u32.to_le_bytes().as_slice(),7168i64.to_le_bytes().as_slice()].concat())).unwrap();
+        let ranks=event(FactKind::CommittedAbilityRanks,[2i32,0,0,0].into_iter().flat_map(i32::to_le_bytes).collect());
+        apply_disclosed_events(&mut world,&ranks).unwrap();
+        let once=world.clone();
+        apply_disclosed_events(&mut world,&ranks).unwrap();
+        assert_eq!(world,once);
+        let hero:Hero=serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.get_ability_level("lumen_bolt"),2);
+        assert_eq!(hero.skill_points,0,"rank fact is not a second SP charge");
+        assert_eq!(hero.get_cooldown("lumen_bolt").raw(),7168);
+        for values in [[-1i32,0,0,0],[5,0,0,0],[2,1,0,0]] {
+            let before=world.clone();
+            assert!(apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,
+                values.into_iter().flat_map(i32::to_le_bytes).collect())).is_err());
+            assert_eq!(world,before);
+        }
+        for len in [0,15,17] {
+            assert!(apply_disclosed_events(&mut world,&event(FactKind::CommittedAbilityRanks,vec![0;len])).is_err());
+            assert_eq!(world,once);
+        }
+    }
+
+    #[test]
+    fn committed_economy_requires_private_capability_and_is_atomic_and_idempotent() {
+        use crate::runtime::native::economy_projection::CommittedEconomyState;
+        use crate::runtime::*;
+        let state = CommittedEconomyState::capture(Gold(500), &Inventory::default(), ItemEffects::default()).unwrap();
+        let injection = event(FactKind::CommittedEconomy, state.encode());
+        let mut denied = world();
+        let before = denied.clone();
+        assert!(apply_disclosed_events(&mut denied, &injection).is_err());
+        assert_eq!(denied, before, "must not create private state on an enemy");
+        let mut owned = world();
+        let components = &mut owned.entities.get_mut(&1).unwrap().components;
+        components.insert(DISCLOSED_GOLD_COMPONENT_SCHEMA_ID, visibility::canonical_disclosed_json(&Gold(1000)));
+        components.insert(DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID, visibility::canonical_disclosed_json(&Inventory::default()));
+        components.insert(DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID, visibility::canonical_disclosed_json(&ItemEffects::default()));
+        apply_disclosed_events(&mut owned, &injection).unwrap();
+        let once = owned.clone();
+        apply_disclosed_events(&mut owned, &injection).unwrap();
+        assert_eq!(owned, once, "duplicate settlement must not double charge");
+        for case in 0..3 {
+            let mut bytes = state.encode();
+            match case {
+                0 => bytes[4..6].copy_from_slice(&u16::MAX.to_le_bytes()),
+                1 => bytes[40..44].copy_from_slice(&f32::NAN.to_bits().to_le_bytes()),
+                _ => bytes[..4].copy_from_slice(&(-1i32).to_le_bytes()),
+            }
+            assert!(apply_disclosed_events(&mut owned, &event(FactKind::CommittedEconomy, bytes)).is_err());
+            assert_eq!(owned, once);
+        }
+    }
+
+    #[test]
+    fn committed_equipment_stats_reject_malformed_records_before_writing() {
+        for values in [[10, 100, -1, 5, 10], [101, 100, 300, 5, 10], [10, 0, 300, 5, 10], [10, 100, 300, -1, 10]] {
+            let mut world = world();
+            let before = world.clone();
+            let bytes = values.into_iter().flat_map(i64::to_le_bytes).collect();
+            assert!(apply_disclosed_events(&mut world, &event(FactKind::CommittedEquipmentStats, bytes)).is_err());
+            assert_eq!(world, before);
+        }
+    }
+    #[test]
+    fn malformed_state_is_rejected_without_partial_component_mutation() {
+        for injection in [
+            event(FactKind::CommittedProgression, vec![0; 15]),
+            event(FactKind::CommittedAttack, vec![0; 12]),
+            event(FactKind::CommittedAttack, vec![3; 13]),
+            event(FactKind::CommittedVitals, vec![0; 15]),
+            event(FactKind::CommittedVitals, [40i64.to_le_bytes(), (-1i64).to_le_bytes()].concat()),
+            event(FactKind::CommittedCooldown, [4u32.to_le_bytes().as_slice(), 7168i64.to_le_bytes().as_slice()].concat()),
+            event(FactKind::CommittedCooldown, [0u32.to_le_bytes().as_slice(), (-1i64).to_le_bytes().as_slice()].concat()),
+        ] {
+            let mut world = world();
+            let before = world.clone();
+            assert!(apply_disclosed_events(&mut world, &injection).is_err());
+            assert_eq!(world, before);
+        }
+        let mut world = world();
+        world.entities.clear();
+        assert!(apply_disclosed_events(&mut world, &event(FactKind::CommittedVitals, vec![0; 16])).is_err());
+    }
+}
+
+#[cfg(test)]
 mod canonical_json_tests {
     use crate::runtime::visibility::canonical_disclosed_json;
     use std::collections::HashMap;
+
+    #[test]
+    fn empty_filtered_world_has_combat_registries_without_authority_entities() {
+        use crate::runtime::*;
+        use specs::{Join, WorldExt};
+        let filtered = super::FilteredReplicaWorldBuilder::new(
+            std::collections::BTreeSet::new(),
+            std::collections::BTreeSet::new(),
+        )
+        .empty(&crate::game_proto::TeamGameStart::default());
+        let _ = filtered.world.read_resource::<TowerTemplateRegistry>();
+        let _ = filtered.world.read_resource::<TowerUpgradeRegistry>();
+        let _ = filtered.world.read_resource::<AbilityRegistry>();
+        assert_eq!(filtered.world.entities().join().count(), 0);
+    }
 
     #[test]
     fn nested_hash_maps_are_encoded_in_key_order() {

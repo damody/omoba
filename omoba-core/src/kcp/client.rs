@@ -151,6 +151,7 @@ impl ReplicaCheckpointReporter {
 /// 每個事件的廣播可以量化。
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
+    ShopReceiptReplay { msg: ShopReceiptReplay },
     SecureTargetInputResult {
         msg: SecureTargetInputResult,
         wire_bytes: usize,
@@ -275,6 +276,14 @@ pub struct GameEventData {
 }
 
 impl KcpClient {
+    /// Read-only recovery; neither allocates an input ID nor submits gameplay.
+    pub async fn query_shop_receipt(&self, request_id: u64, input_id: u32) -> Result<()> {
+        if request_id == 0 || input_id == 0 { anyhow::bail!("invalid shop receipt query identity"); }
+        let msg = ShopReceiptQuery { request_id, input_id };
+        let mut writer = self.writer.lock().await;
+        write_framed(&mut *writer, TAG_SHOP_RECEIPT_QUERY, &msg.encode_to_vec()).await?;
+        Ok(())
+    }
     pub async fn shutdown(&self) -> Result<()> {
         let mut writer = self.writer.lock().await;
         writer.write_all(&[TAG_SESSION_CLOSE]).await?;
@@ -666,6 +675,14 @@ impl KcpClient {
                                     }
                                 }
                             }
+                            TAG_SHOP_RECEIPT_REPLAY => {
+                                match ShopReceiptReplay::decode(payload.as_slice()) {
+                                    Ok(msg) => {
+                                        if lockstep_tx.send(LockstepInbound::ShopReceiptReplay { msg }).await.is_err() { break; }
+                                    },
+                                    Err(error) => warn!("Failed to decode ShopReceiptReplay: {}", error),
+                                }
+                            }
                             TAG_TEAM_REBASE_CHUNK_V2 => {
                                 let logical_bytes = payload.len();
                                 match TeamViewRebaseChunk::decode(payload.as_slice()) {
@@ -855,6 +872,12 @@ impl KcpClient {
             supported_protocols: vec![1],
             secure_fog_capability: false,
             view_epoch: 0,
+            shop_catalog_version: 0,
+            shop_catalog_hash: String::new(),
+            shop_protocol_version: 0,
+            shop_rules_hash: String::new(),
+            recall_protocol_version: 0,
+            recall_rules_hash: String::new(),
         };
         {
             let mut w = self.writer.lock().await;
@@ -910,6 +933,12 @@ impl KcpClient {
             supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
             secure_fog_capability: true,
             view_epoch: 0,
+            shop_catalog_version: crate::runtime::shop_transport::SHOP_CATALOG_VERSION,
+            shop_catalog_hash: omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned(),
+            shop_protocol_version: crate::runtime::shop_transport::SHOP_PROTOCOL_VERSION,
+            shop_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+            recall_protocol_version: crate::runtime::recall_transport::RECALL_PROTOCOL_VERSION,
+            recall_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
         };
         {
             let mut writer = self.writer.lock().await;
@@ -928,6 +957,22 @@ impl KcpClient {
                     if msg.protocol_version != SELECTIVE_LOCKSTEP_PROTOCOL_VERSION {
                         anyhow::bail!("secure bootstrap protocol mismatch");
                     }
+                    if crate::runtime::shop_transport::negotiate_shop_catalog(msg.shop_catalog_version, &msg.shop_catalog_hash) != Ok(true) {
+                        anyhow::bail!("secure bootstrap shop catalog agreement missing or mismatched");
+                    }
+                    info!("secure shop catalog agreed player={} version={} hash={} (transaction capability remains separate)",
+                        player_id, msg.shop_catalog_version, msg.shop_catalog_hash);
+                    if msg.input_allocator_version != 1 {
+                        anyhow::bail!("secure bootstrap input allocator agreement missing or mismatched");
+                    }
+                    let shop = crate::runtime::shop_transport::negotiate_shop_protocol(
+                        msg.shop_protocol_version, &msg.shop_rules_hash, true)
+                        .map_err(|reason| anyhow::anyhow!(reason))?;
+                    info!("secure shop protocol player={} enabled={}", player_id, shop);
+                    let recall = crate::runtime::recall_transport::negotiate_recall_protocol(
+                        msg.recall_protocol_version, &msg.recall_rules_hash)
+                        .map_err(|reason| anyhow::anyhow!(reason))?;
+                    info!("secure recall protocol player={} enabled={}", player_id, recall);
                     self.last_player_id = Some(msg.player_id);
                     self.last_step_fps = Some(msg.tick_rate_hz);
                     return Ok(msg);

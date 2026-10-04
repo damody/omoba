@@ -461,6 +461,11 @@ message ItemUse {
   optional uint32 target_entity = 3;
 }
 
+// Authoritative MOBA shop commands. No client-supplied price or balance.
+message ItemBuy { string item_id = 1; }
+message ItemSell { uint32 item_slot = 1; }
+message Recall {}
+
 // TD：client 請求開始下一波 creep wave（legacy "Start Round"）。
 // Server 會切換 `CurrentCreepWave.is_running = true` 並寫入 wave_start_time。
 message StartRound {}
@@ -491,6 +496,9 @@ message PlayerInput {
     ToggleGameSpeed toggle_game_speed = 14;
     DebugSpawnCreep debug_spawn_creep = 15;
     TowerAbilityCastInput tower_ability_cast = 16;
+    ItemBuy item_buy = 17;
+    ItemSell item_sell = 18;
+    Recall recall = 19;
   }
 }
 
@@ -569,6 +577,13 @@ message JoinRequest {
   repeated uint32 supported_protocols = 5;
   bool secure_fog_capability = 6;
   uint64 view_epoch = 7;
+  // Catalog agreement only; this does NOT enable transaction transport.
+  uint32 shop_catalog_version = 8;
+  string shop_catalog_hash = 9;
+  uint32 shop_protocol_version = 10;
+  string shop_rules_hash = 11;
+  uint32 recall_protocol_version = 12;
+  string recall_rules_hash = 13;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -671,6 +686,15 @@ message TeamGameStart {
   repeated DeterministicMetadata public_metadata = 16;
   repeated DeterministicMetadata team_private_metadata = 17;
   uint64 global_seed = 18;
+  uint32 shop_catalog_version = 19;
+  string shop_catalog_hash = 20;
+  // Match/player-scoped admission high-water mark; not a settlement receipt.
+  uint32 input_allocator_version = 21;
+  uint32 last_seen_input_id = 22;
+  uint32 shop_protocol_version = 23;
+  string shop_rules_hash = 24;
+  uint32 recall_protocol_version = 25;
+  string recall_rules_hash = 26;
 }
 
 message RevealEntity {
@@ -736,6 +760,21 @@ message TeamPublicEvent {
   ReplicaEntityId subject = 2;
   bytes sanitized_payload = 3;
   uint32 stable_sub_index = 4;
+}
+
+// Read-only, authenticated-session scoped. Never submits gameplay.
+message ShopReceiptQuery {
+  uint64 request_id = 1;
+  uint32 input_id = 2;
+}
+message ShopReceiptReplay {
+  uint32 schema_version = 1;
+  uint64 request_id = 2;
+  uint32 player_id = 3;
+  uint32 input_id = 4;
+  // 0 unknown, 1 pending, 2 terminal, 3 expired, 4 admission rejected late.
+  uint32 status = 5;
+  bytes receipt = 6; // Original typed 40-byte receipt, only for status 2.
 }
 
 message BoundedRandomTape {
@@ -929,6 +968,7 @@ message RuntimeReadyPresentation {
   uint64 authoritative_tick = 3;
   uint64 replica_tick = 4;
   string content_hash = 5;
+  uint32 tick_rate_hz = 6; // authoritative bootstrap rate, never presentation FPS
 }
 
 message PresentationComponent {
@@ -998,6 +1038,90 @@ message TeamPresentationSnapshot {
   uint64 view_epoch = 14;
   // Client-runtime measured KCP RTT. 0 means no sample yet.
   uint64 runtime_rtt_us = 15;
+  // Persistent state, not a one-shot cue; scoped to the configured player.
+  MobaHudPresentation moba_hud = 16;
+  OwnerEconomyPresentation owner_economy = 17;
+  // Bounded persistent recent result history, not an APPLIED input ACK.
+  repeated ShopTransactionReceipt shop_receipts = 18;
+}
+
+message InventorySlotPresentation {
+  uint32 slot = 1;
+  uint32 catalog_id = 2; // zero is empty; stable Lua numeric ID
+  float cooldown_seconds = 3;
+}
+message OwnerEconomyPresentation {
+  uint32 schema_version = 1;
+  uint32 player_id = 2;
+  sint32 gold = 3;
+  repeated InventorySlotPresentation slots = 4; // exactly six, including empty
+  bool shop_available = 5; // authority phase/alive/proximity, not affordability
+  bool shop_protocol_enabled = 6; // negotiated transport capability; defaults closed
+}
+message ShopTransactionReceipt {
+  uint32 schema_version = 1;
+  uint32 player_id = 2;
+  uint64 input_id = 3;
+  uint64 settled_tick = 4;
+  uint32 action_kind = 5; // 17 buy, 18 sell
+  uint32 catalog_id = 6;
+  uint32 item_slot = 7;
+  uint32 result_code = 8; // 0 settled successfully, 1..13 stable ShopError codes
+}
+
+message AbilityHudPresentation {
+  uint32 slot = 1;
+  string ability_id = 2;
+  uint32 level = 3;
+  sint64 cooldown_raw = 4;
+  sint64 total_cooldown_raw = 5;
+}
+message HeroHudPresentation {
+  uint64 render_id = 1;
+  uint64 disclosure_epoch = 2;
+  string content_id = 3;
+  sint64 hp_raw = 4;
+  sint64 max_hp_raw = 5;
+  uint32 level = 6;
+  uint32 experience = 7;
+  uint32 skill_points = 8;
+  repeated AbilityHudPresentation abilities = 9;
+  // Current mana gameplay is not yet implemented; false must display unknown.
+  bool mana_supported = 10;
+}
+message MobaHudPresentation {
+  uint32 schema_version = 1;
+  uint32 player_id = 2;
+  uint32 phase = 3; // 0 Warmup, 1 Playing, 2 Finished
+  sint64 elapsed_raw = 4;
+  uint32 winner_team = 5; // 0 none/draw; never a lane array index
+  sint64 respawn_remaining_raw = 6;
+  HeroHudPresentation hero = 7; // absent means no live disclosed owned hero
+  // Public static single-lane geometry, Q10 backend units. 0 = unavailable.
+  sint64 lane_length_raw = 8;
+  sint64 recall_remaining_raw = 9;
+  bool recall_protocol_enabled = 10;
+  OwnerScorePresentation score = 11; // absent = unsupported, not a fabricated 0/0/0
+  ScoreboardPresentation scoreboard = 12; // public persistent rows, independent of vision
+}
+
+message ScoreboardPresentation {
+  uint32 schema_version = 1;
+  repeated ScoreboardRowPresentation rows = 2; // sorted by team then player; max 5 per team
+}
+message ScoreboardRowPresentation {
+  uint32 player_id = 1;
+  uint32 team_id = 2;
+  uint32 kills = 3;
+  uint32 deaths = 4;
+  uint32 assists = 5;
+}
+
+message OwnerScorePresentation {
+  uint32 player_id = 1;
+  uint32 kills = 2;
+  uint32 deaths = 3;
+  uint32 assists = 4;
 }
 
 message CriticalInputResult {
@@ -1024,7 +1148,13 @@ message MoveToIntent { sint64 x_raw = 1; sint64 y_raw = 2; }
 message AttackMoveIntent { sint64 x_raw = 1; sint64 y_raw = 2; }
 message AbilityCastIntent { uint32 ability_index = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
 message ItemUseIntent { uint32 item_slot = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
+message ItemBuyIntent { uint32 catalog_id = 1; }
+message ItemSellIntent { uint32 item_slot = 1; }
+message RecallIntent {}
+message AbilityUpgradeIntent { uint32 ability_index = 1; }
 message TowerActionIntent { uint32 action_kind = 1; uint64 tower_render_id = 2; uint32 tower_kind_id = 3; uint32 path = 4; uint32 level = 5; sint64 x_raw = 6; sint64 y_raw = 7; }
+
+message AttackTargetIntent { uint64 target_render_id = 1; bool queued = 2; }
 
 message RendererInput {
   uint64 request_id = 1;
@@ -1036,10 +1166,20 @@ message RendererInput {
     AbilityCastIntent ability_cast = 12;
     ItemUseIntent item_use = 13;
     TowerActionIntent tower_action = 14;
+    ItemBuyIntent item_buy = 15;
+    ItemSellIntent item_sell = 16;
+    AttackTargetIntent attack_target = 17;
+    RecallIntent recall = 18;
+    AbilityUpgradeIntent ability_upgrade = 19;
   }
 }
 
-message RendererReady { uint64 latest_snapshot_sequence = 1; }
+message RendererReady {
+  uint64 latest_snapshot_sequence = 1;
+  // Mandatory loopback session binding before the runtime discloses a frame.
+  uint32 player_id = 2;
+  uint32 team_id = 3;
+}
 message RendererConsumed { uint64 snapshot_sequence = 1; }
 message RendererShutdown { bool graceful = 1; }
 

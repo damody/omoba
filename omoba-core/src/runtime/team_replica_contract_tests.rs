@@ -68,6 +68,49 @@ fn hero_baseline(team: u32, owner: u32) -> Vec<u8> {
 }
 
 #[test]
+fn committed_actor_state_is_visible_only_and_has_no_canonical_identity_payload() {
+    let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+    projector.build_frame(0, 0, &BTreeSet::from([10]), vec![VisibilityTransition::Reveal {
+        canonical_id: 10, effective_tick: 0, baseline: demo_baseline(2, 10),
+    }], &[], &ProjectionDependencyGraph::default()).unwrap();
+    let facts: Vec<_> = [10, 999].into_iter().flat_map(|source| [
+        OrderedFact { key: FactOrderingKey { tick: 1, phase: FactPhase::PostStep, canonical_source_order: source, local_ordinal: 0, fact_kind: FactKind::CommittedVitals },
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
+            fact: ObservableFact::CommittedVitals { source, hp_raw: 40 * 1024, max_hp_raw: 100 * 1024 } },
+        OrderedFact { key: FactOrderingKey { tick: 1, phase: FactPhase::PostStep, canonical_source_order: source, local_ordinal: 1, fact_kind: FactKind::CommittedCooldown },
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
+            fact: ObservableFact::CommittedCooldown { source, slot: 2, remaining_raw: 80 * 1024 } },
+        OrderedFact { key: FactOrderingKey { tick: 1, phase: FactPhase::PostStep, canonical_source_order: source, local_ordinal: 2, fact_kind: FactKind::CommittedAttack },
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
+            fact: ObservableFact::CommittedAttack { source, elapsed_raw: -306, sequence: 5, phase: 2 } },
+        OrderedFact { key: FactOrderingKey { tick: 1, phase: FactPhase::PostStep, canonical_source_order: source, local_ordinal: 3, fact_kind: FactKind::CommittedProgression },
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
+            fact: ObservableFact::CommittedProgression { source, level: 2, experience: 25, experience_to_next: 120, skill_points: 1 } },
+        OrderedFact { key: FactOrderingKey {tick:1,phase:FactPhase::PostStep,canonical_source_order:source,local_ordinal:4,fact_kind:FactKind::CommittedAbilityRanks},
+            audience:FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
+            fact:ObservableFact::CommittedAbilityRanks {source,ranks:[2,1,1,1]} },
+    ]).collect();
+    let frame = projector.build_frame(1, 1, &BTreeSet::from([10]), vec![], &facts, &ProjectionDependencyGraph::default()).unwrap().frame;
+    let events = frame.step.unwrap().public_events;
+    assert_eq!(events.len(), 5, "hidden actor state must not cross the projection");
+    assert_eq!(events[0].sanitized_payload.len(), 16);
+    assert_eq!(events[1].sanitized_payload.len(), 12);
+    assert_eq!(events[2].sanitized_payload.len(), 13);
+    assert_eq!(events[3].sanitized_payload.len(), 16);
+    assert_eq!(events[4].sanitized_payload.len(),16);
+    assert_eq!(events[4].sanitized_payload,[2i32,1,1,1].into_iter().flat_map(i32::to_le_bytes).collect::<Vec<_>>());
+    assert_eq!(events[1].sanitized_payload[..4], 2u32.to_le_bytes());
+    assert_eq!(events[0].subject, events[1].subject);
+    assert_ne!(events[0].subject.as_ref().unwrap().value, 10);
+    assert!(frame.post_step.unwrap().component_repairs.is_empty());
+    let own = disclosed_projector(2, 10).build_frame(1, 1, &BTreeSet::from([10]), vec![], &facts, &ProjectionDependencyGraph::default()).unwrap().frame;
+    let own_events = own.step.unwrap().public_events;
+    assert_eq!(own_events.len(), 4);
+    assert!(!own_events.iter().any(|event| event.event_kind == FactKind::CommittedCooldown as u32),
+        "owner cooldown stays deterministic, not overwritten");
+}
+
+#[test]
 fn phase_fixture_records_the_complete_shared_order() {
     let mut trace = Vec::new();
     run_deterministic_gameplay_phases(&mut |phase| -> Result<(), ()> {
@@ -302,6 +345,63 @@ fn random_request_completion_order_is_irrelevant() {
 }
 
 #[test]
+fn hidden_memory_survives_extraction_and_forget_checks_epoch() {
+    for forget_epoch in [1, 2] {
+        let mut runtime = SelectiveReplicaRuntime::new(
+            1,
+            0,
+            0,
+            1,
+            BTreeSet::from([DEMO_RENDER_COMPONENT_SCHEMA_ID]),
+            BTreeSet::new(),
+        );
+        let mut noop = NoopDisclosedWorldStepper;
+        runtime
+            .apply_encoded_frame(
+                &single_reveal_frame_fixture(1, 0, 0, 1, DEMO_RENDER_COMPONENT_SCHEMA_ID),
+                &mut noop,
+            )
+            .unwrap();
+        runtime
+            .apply_encoded_frame(&single_hide_frame_fixture(1, 1, 1, 1), &mut noop)
+            .unwrap();
+        let first = runtime.extract_filtered_render_snapshot();
+        assert!(first.entities.is_empty());
+        assert_eq!(first.memory_directives.len(), 1);
+        assert_eq!(first.remembered_presentations[&(1, 1)], b"last-known");
+        let second = runtime.extract_filtered_render_snapshot();
+        assert!(second.memory_directives.is_empty());
+        assert_eq!(
+            second.remembered_presentations,
+            first.remembered_presentations
+        );
+        let mut forget =
+            TeamTickFrame::decode(single_hide_frame_fixture(1, 2, 2, 1).as_slice()).unwrap();
+        forget.authority_revision = Some(AuthorityRevision { value: 3 });
+        forget.pre_step.as_mut().unwrap().transitions[0].transition =
+            Some(transition::Transition::Forget(ForgetEntity {
+                replica_entity_id: Some(ReplicaEntityId { value: 1 }),
+                disclosure_epoch: Some(DisclosureEpoch {
+                    value: forget_epoch,
+                }),
+                effective_tick: 2,
+                retire_reason: 1,
+                stable_sub_index: 0,
+            }));
+        if forget_epoch == 1 {
+            runtime.apply_frame(forget, &mut noop).unwrap();
+            let forgotten = runtime.extract_filtered_render_snapshot();
+            assert!(forgotten.entities.is_empty());
+            assert!(forgotten.remembered_presentations.is_empty());
+            assert_eq!(forgotten.memory_directives.len(), 1);
+        } else {
+            assert!(runtime.apply_frame(forget, &mut noop).is_err());
+            assert_eq!(runtime.remembered_presentations()[&(1, 1)], b"last-known");
+        }
+    }
+}
+
+#[test]
 fn hidden_external_effect_contains_no_canonical_source() {
     let mut projector = disclosed_projector(1, 77);
     let fact = OrderedFact {
@@ -327,7 +427,7 @@ fn hidden_external_effect_contains_no_canonical_source() {
             1,
             &BTreeSet::from([77]),
             vec![],
-            &[fact],
+            &[fact.clone()],
             &ProjectionDependencyGraph::default(),
         )
         .unwrap();
@@ -337,6 +437,149 @@ fn hidden_external_effect_contains_no_canonical_source() {
         .sanitized_payload
         .windows(8)
         .any(|value| value == 999u64.to_be_bytes()));
+    let mut other = fact.clone();
+    other.key.canonical_source_order = 1000;
+    other.fact = ObservableFact::DirectCombat {
+        source: 1000,
+        target: 77,
+        amount_milli: 10,
+    };
+    let pair = [fact.clone(), other.clone()];
+    let reverse = [other, fact];
+    let mut effects_by_order = Vec::new();
+    for facts in [&pair, &reverse] {
+        let mut projector = disclosed_projector(1, 77);
+        let frame = projector
+            .build_frame(
+                1,
+                1,
+                &BTreeSet::from([77]),
+                vec![],
+                facts,
+                &ProjectionDependencyGraph::default(),
+            )
+            .unwrap();
+        let effects = frame.frame.step.unwrap().external_effects;
+        assert_eq!(effects.len(), 2);
+        assert_ne!(
+            effects[0].stable_sub_index, effects[1].stable_sub_index,
+            "two hidden producers with local ordinal zero must not collide"
+        );
+        effects_by_order.push(effects);
+    }
+    assert_eq!(effects_by_order[0], effects_by_order[1]);
+}
+
+#[test]
+fn reveal_and_verified_rebase_clear_frozen_memory() {
+    for rebase in [false, true] {
+        let mut runtime = SelectiveReplicaRuntime::new(
+            1,
+            0,
+            0,
+            1,
+            BTreeSet::from([DEMO_RENDER_COMPONENT_SCHEMA_ID]),
+            BTreeSet::new(),
+        );
+        let mut noop = NoopDisclosedWorldStepper;
+        runtime
+            .apply_encoded_frame(
+                &single_reveal_frame_fixture(1, 0, 0, 1, DEMO_RENDER_COMPONENT_SCHEMA_ID),
+                &mut noop,
+            )
+            .unwrap();
+        runtime
+            .apply_encoded_frame(&single_hide_frame_fixture(1, 1, 1, 1), &mut noop)
+            .unwrap();
+        assert_eq!(
+            runtime
+                .extract_filtered_render_snapshot()
+                .remembered_presentations
+                .len(),
+            1
+        );
+        if rebase {
+            let disclosed = disclosed_projector(1, 77)
+                .build_team_game_start(5, 120, 1)
+                .filtered_snapshot
+                .unwrap()
+                .disclosed_world;
+            let fixture = single_rebase_fixture([9; 16], 1, 5, 6, disclosed.clone()).unwrap();
+            runtime
+                .apply_verified_rebase(&fixture.filtered_snapshot, &fixture.manifest, &disclosed)
+                .unwrap();
+        } else {
+            let mut frame = TeamTickFrame::decode(
+                single_reveal_frame_fixture(1, 2, 2, 1, DEMO_RENDER_COMPONENT_SCHEMA_ID).as_slice(),
+            )
+            .unwrap();
+            frame.authority_revision = Some(AuthorityRevision { value: 3 });
+            if let Some(transition::Transition::Reveal(reveal)) =
+                frame.pre_step.as_mut().unwrap().transitions[0]
+                    .transition
+                    .as_mut()
+            {
+                reveal.disclosure_epoch = Some(DisclosureEpoch { value: 2 });
+            }
+            runtime.apply_frame(frame, &mut noop).unwrap();
+            let mut stale_forget =
+                TeamTickFrame::decode(single_hide_frame_fixture(1, 3, 3, 1).as_slice()).unwrap();
+            stale_forget.authority_revision = Some(AuthorityRevision { value: 4 });
+            stale_forget.pre_step.as_mut().unwrap().transitions[0].transition =
+                Some(transition::Transition::Forget(ForgetEntity {
+                    replica_entity_id: Some(ReplicaEntityId { value: 1 }),
+                    disclosure_epoch: Some(DisclosureEpoch { value: 1 }),
+                    effective_tick: 3,
+                    retire_reason: 1,
+                    stable_sub_index: 0,
+                }));
+            assert!(runtime.apply_frame(stale_forget, &mut noop).is_err());
+            assert_eq!(runtime.world().entities[&1].disclosure_epoch, 2);
+        }
+        let snapshot = runtime.extract_filtered_render_snapshot();
+        assert!(snapshot.remembered_presentations.is_empty());
+        assert_eq!(snapshot.entities.len(), 1);
+    }
+}
+
+#[test]
+fn same_frame_hide_then_forget_is_preflighted_without_live_memory() {
+    let mut runtime = SelectiveReplicaRuntime::new(
+        1,
+        0,
+        0,
+        1,
+        BTreeSet::from([DEMO_RENDER_COMPONENT_SCHEMA_ID]),
+        BTreeSet::new(),
+    );
+    let mut noop = NoopDisclosedWorldStepper;
+    runtime
+        .apply_encoded_frame(
+            &single_reveal_frame_fixture(1, 0, 0, 1, DEMO_RENDER_COMPONENT_SCHEMA_ID),
+            &mut noop,
+        )
+        .unwrap();
+    let mut frame =
+        TeamTickFrame::decode(single_hide_frame_fixture(1, 1, 1, 1).as_slice()).unwrap();
+    frame
+        .pre_step
+        .as_mut()
+        .unwrap()
+        .transitions
+        .push(Transition {
+            transition: Some(transition::Transition::Forget(ForgetEntity {
+                replica_entity_id: Some(ReplicaEntityId { value: 1 }),
+                disclosure_epoch: Some(DisclosureEpoch { value: 1 }),
+                effective_tick: 1,
+                retire_reason: 1,
+                stable_sub_index: 1,
+            })),
+        });
+    runtime.apply_frame(frame, &mut noop).unwrap();
+    let snapshot = runtime.extract_filtered_render_snapshot();
+    assert!(snapshot.entities.is_empty());
+    assert!(snapshot.remembered_presentations.is_empty());
+    assert_eq!(snapshot.memory_directives.len(), 2);
 }
 
 #[test]
@@ -884,6 +1127,64 @@ fn reveal_post_tick_baseline_drops_same_tick_movement_event() {
         Ok(FrameApplyResult::Applied { .. })
     ));
     assert_eq!(replica.world().entities.len(), 1);
+}
+
+#[test]
+fn movement_priority_discloses_only_visible_boolean_without_enemy_input() {
+    let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+    projector
+        .build_frame(
+            1,
+            1,
+            &BTreeSet::from([77]),
+            vec![VisibilityTransition::Reveal {
+                canonical_id: 77,
+                effective_tick: 1,
+                baseline: demo_baseline(1, 77),
+            }],
+            &[],
+            &ProjectionDependencyGraph::default(),
+        )
+        .unwrap();
+    let facts: Vec<_> = [77, 999]
+        .into_iter()
+        .map(|source| OrderedFact {
+            key: FactOrderingKey {
+                tick: 2,
+                phase: FactPhase::Step,
+                canonical_source_order: source,
+                local_ordinal: 0,
+                fact_kind: FactKind::MovementPriority,
+            },
+            audience: FactAudience::VisibilityPolicy(
+                omb_script_abi::types::projection_policy_ids::MOVEMENT.to_owned(),
+            ),
+            fact: ObservableFact::MovementPriority {
+                source,
+                active: true,
+            },
+        })
+        .collect();
+    let frame = projector
+        .build_frame(
+            2,
+            2,
+            &BTreeSet::from([77]),
+            vec![],
+            &facts,
+            &ProjectionDependencyGraph::default(),
+        )
+        .unwrap()
+        .frame;
+    let events: Vec<_> = frame
+        .step
+        .iter()
+        .flat_map(|step| &step.public_events)
+        .collect();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_kind, FactKind::MovementPriority as u32);
+    assert_eq!(events[0].sanitized_payload, vec![1]);
+    assert!(events[0].subject.is_some());
 }
 
 #[test]

@@ -5,7 +5,6 @@ use crate::tick::attack_phase::{
 use omoba_sim::Fixed64;
 use specs::prelude::ParallelIterator;
 use specs::{shred, Entities, Join, ParJoin, Read, ReadStorage, SystemData, Write, WriteStorage};
-use std::time::Instant;
 
 /// MOBA 鏡頭下肉眼無感的 facing 變化量（~15°）。舊值 0.05 (~3°) 造成過多 F event。
 const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
@@ -14,6 +13,22 @@ const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 /// 無目標攻擊冷卻時間抖動。重新排序或重複使用該常數
 /// 跨系統將使重播決定論無效。
 const OP_HERO_NO_TARGET_JITTER: u32 = 10;
+
+// Explicit attacks must not lose their target merely because the bounded
+// nearest-neighbour auto-attack query contains ten closer creeps. The caller
+// supplies only a live target's current position; normal range/faction/HP gates
+// below still apply, including in a filtered replica.
+fn include_explicit_attack_candidate(
+    candidates: &mut Vec<DisIndex>, target: Option<specs::Entity>,
+    target_pos: Option<vek::Vec2<f32>>, origin: vek::Vec2<f32>, range: f32,
+) {
+    let (Some(target), Some(position)) = (target, target_pos) else { return; };
+    let distance = position.distance_squared(origin);
+    if distance.is_finite() && range.is_finite() && range > 0.0
+        && distance <= range * range && !candidates.iter().any(|hit| hit.e == target) {
+        candidates.push(DisIndex { e: target, dis: distance });
+    }
+}
 
 #[derive(SystemData)]
 pub struct HeroRead<'a> {
@@ -25,6 +40,10 @@ pub struct HeroRead<'a> {
     pos: ReadStorage<'a, Pos>,
     searcher: Read<'a, Searcher>,
     factions: ReadStorage<'a, Faction>,
+    owners: ReadStorage<'a, PlayerOwner>,
+    disclosed_priority: Option<Read<'a, crate::runtime::filtered_specs::DisclosedMovementPriority>>,
+    moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     propertys: ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
     move_targets: ReadStorage<'a, MoveTarget>,
@@ -60,7 +79,29 @@ impl<'a> System<'a> for Sys {
         // （讀<'_，_>在人造絲上不是同步安全的，但裸露的u64/u32是複製的）。
         let master_seed: u64 = tr.master_seed.0;
         let tick: u32 = tr.tick.0 as u32;
-        let time1 = Instant::now();
+        if tr.moba.is_some() {
+            for (entity, _) in (&tr.entities, &tw.heroes).join() {
+                let source = crate::runtime::canonical_entity_id(entity);
+                tr.facts
+                    .emit(crate::runtime::OrderedFact {
+                        key: crate::runtime::FactOrderingKey {
+                            tick: tr.tick.0,
+                            phase: crate::runtime::FactPhase::Step,
+                            canonical_source_order: source,
+                            local_ordinal: 0,
+                            fact_kind: crate::runtime::FactKind::MovementPriority,
+                        },
+                        audience: crate::runtime::FactAudience::VisibilityPolicy(
+                            omb_script_abi::types::projection_policy_ids::MOVEMENT.to_owned(),
+                        ),
+                        fact: crate::runtime::ObservableFact::MovementPriority {
+                            source,
+                            active: tr.move_targets.get(entity).is_some() || tr.moba.as_ref().is_some_and(|m| m.is_recalling(entity)),
+                        },
+                    })
+                    .expect("valid visible movement priority");
+            }
+        }
 
         // 獲取英雄的陣營信息和名稱用於敵友判斷和日誌記錄
         let hero_faction_map: std::collections::HashMap<specs::Entity, Faction> =
@@ -82,7 +123,7 @@ impl<'a> System<'a> for Sys {
             hero.tick_cooldowns(dt);
         }
 
-        let mut outcomes = (
+        let mut decisions = (
             &tr.entities,
             &mut tw.heroes,
             &tr.propertys,
@@ -106,7 +147,7 @@ impl<'a> System<'a> for Sys {
 
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
                     if tr.buff_store.is_stunned(e) {
-                        return outcomes;
+                        return (e.id(), outcomes);
                     }
 
                     // 用 UnitStats 聚合攻速（Dota ATTACKSPEED_BONUS_CONSTANT 100 → 1 + 100/100 = 2× AS）
@@ -128,17 +169,17 @@ impl<'a> System<'a> for Sys {
 
                     // 移動優先於自動攻擊：有 MoveTarget 時不自動攻擊
                     // （否則 hero 會一直想轉向敵人，與移動轉向互相拉扯卡住）
-                    if tr.move_targets.get(e).is_some() {
-                        return outcomes;
+                    let moving = tr.disclosed_priority.as_ref()
+                        .and_then(|priority| priority.0.get(&e).copied())
+                        .unwrap_or_else(|| tr.move_targets.get(e).is_some());
+                    if moving || tr.moba.as_ref().is_some_and(|m| m.is_recalling(e)) {
+                        return (e.id(), outcomes);
                     }
 
                     // 當攻擊前搖完成或冷卻就緒時，嘗試攻擊。
                     if !matches!(attack_phase, AttackPhaseStep::Charging) {
-                        let time2 = Instant::now();
-                        let elpsed = time2.duration_since(time1);
-
-                        // 防止過度計算
-                        if elpsed.as_secs_f32() < 0.05 {
+                        // Wall time is never a deterministic gameplay gate.
+                        if dt > Fixed64::ZERO {
                             // 搜尋攻擊範圍內的所有單位
                             let search_n = 10; // 搜尋最近的 10 個目標
                             // 攻擊範圍：UnitStats 聚合（Dota ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，MAX_ATTACK_RANGE clamp）
@@ -156,7 +197,17 @@ impl<'a> System<'a> for Sys {
                             let mut potential_targets = Vec::with_capacity(creep_targets.len() + tower_targets.len());
                             potential_targets.extend(creep_targets);
                             potential_targets.extend(tower_targets);
-                            potential_targets.sort_by(|a, b| a.dis.partial_cmp(&b.dis).unwrap_or(std::cmp::Ordering::Equal));
+                            potential_targets.sort_by(|a, b| a.dis.total_cmp(&b.dis)
+                                .then_with(|| a.e.id().cmp(&b.e.id()))
+                                .then_with(|| a.e.gen().id().cmp(&b.e.gen().id())));
+                            let explicit_target = tr.command_queues.get(e).and_then(|queue| match queue.active {
+                                Some(HeroCommand::AttackTarget { target, .. }) if tr.entities.is_alive(target) => Some(target),
+                                _ => None,
+                            });
+                            include_explicit_attack_candidate(&mut potential_targets, explicit_target,
+                                explicit_target.and_then(|target| tr.pos.get(target).map(|pos| {
+                                    let (x, y) = pos.xy_f32(); vek::Vec2::new(x, y)
+                                })), pos_vek, attack_range_f);
 
                             // 偵錯：顯示搜尋結果
                             // 獲取英雄名稱
@@ -185,7 +236,9 @@ impl<'a> System<'a> for Sys {
                                     if target_info.dis <= attack_range_squared {
                                         if let Some(target_faction) = tr.factions.get(target_info.e) {
                                             // 嚴格敵友判定：只有 is_hostile_to = true 才算敵對
-                                            if hero_faction.is_hostile_to(target_faction) {
+                                            if hero_faction.is_hostile_to(target_faction)
+                                                && tr.propertys.get(target_info.e)
+                                                    .is_some_and(|p| p.hp > Fixed64::ZERO) {
                                                 valid_targets.push(target_info);
                                             }
                                         }
@@ -218,8 +271,11 @@ impl<'a> System<'a> for Sys {
                                     .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                                     .unwrap_or(pos_vek);
                                 let diff = target_pos - pos_vek;
-                                if diff.magnitude_squared() > 0.01 {
-                                    let desired = diff.y.atan2(diff.x);
+                                {
+                                    // Co-located live targets remain legal attacks.
+                                    // Keep facing when there is no meaningful direction,
+                                    // rather than suppressing windup and impact forever.
+                                    let desired = attack_direction(diff, facing.rad_f32());
                                     let turn = tr.turn_speeds.get(e).map(|t| t.0.to_f32_for_render())
                                         .unwrap_or(std::f32::consts::FRAC_PI_2);
                                     let cur_rad = facing.rad_f32();
@@ -272,7 +328,11 @@ impl<'a> System<'a> for Sys {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
                                 // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
                                 // 階段 1de.2：透過 SimRng 確定性每（英雄、刻度）抖動。
-                                let ordinal = (u64::from(e.id()) << 16)
+                                // Owned heroes are remapped into team-local ECS
+                                // IDs. Use the disclosed player identity, never
+                                // an authority-only entity index, for idle RNG.
+                                let rng_actor = tr.owners.get(e).map_or(e.id(), |owner| owner.player_id);
+                                let ordinal = (u64::from(rng_actor) << 16)
                                     | u64::from(OP_HERO_NO_TARGET_JITTER);
                                 let jitter = Fixed64::from_raw(
                                     (crate::runtime::tick_random_u64(
@@ -288,13 +348,13 @@ impl<'a> System<'a> for Sys {
                         }
                     }
 
-                    outcomes
+                    (e.id(), outcomes)
                 },
             )
             .fold(
                 || Vec::new(),
-                |mut all_outcomes, mut outcomes| {
-                    all_outcomes.append(&mut outcomes);
+                |mut all_outcomes, decision| {
+                    all_outcomes.push(decision);
                     all_outcomes
                 },
             )
@@ -306,6 +366,50 @@ impl<'a> System<'a> for Sys {
                 },
             );
 
-        tw.outcomes.append(&mut outcomes);
+        decisions.sort_by_key(|(entity_id, _)| *entity_id);
+        for (_, mut outcomes) in decisions {
+            tw.outcomes.append(&mut outcomes);
+        }
+    }
+}
+
+fn attack_direction(delta: vek::Vec2<f32>, current: f32) -> f32 {
+    if delta.magnitude_squared() > 0.01 { delta.y.atan2(delta.x) } else { current }
+}
+
+#[cfg(test)]
+mod explicit_target_tests {
+    use super::*;
+    use specs::{Builder, World, WorldExt};
+    #[test]
+    fn overlapping_attack_target_preserves_facing_without_blocking_attack() {
+        for delta in [vek::Vec2::zero(), vek::Vec2::new(0.01, -0.01)] {
+            assert_eq!(attack_direction(delta, 1.25), 1.25);
+        }
+        assert_eq!(attack_direction(vek::Vec2::new(0.0, 5.0), 1.25), std::f32::consts::FRAC_PI_2);
+    }
+    #[test]
+    fn explicit_target_is_not_limited_by_ten_closer_auto_attack_candidates() {
+        let mut world = World::new();
+        let target = world.create_entity().build();
+        let mut candidates: Vec<_> = (0..10).map(|i| DisIndex {
+            e: world.create_entity().build(), dis: (i + 1) as f32,
+        }).collect();
+        let origin = vek::Vec2::new(0.0, 0.0);
+        include_explicit_attack_candidate(&mut candidates, Some(target), Some(vek::Vec2::new(400.0, 0.0)), origin, 550.0);
+        assert_eq!(candidates.len(), 11);
+        assert_eq!(candidates[10].e, target);
+        include_explicit_attack_candidate(&mut candidates, Some(target), Some(vek::Vec2::new(400.0, 0.0)), origin, 550.0);
+        assert_eq!(candidates.len(), 11);
+        for (position, range) in [(vek::Vec2::new(600.0, 0.0), 550.0),
+            (vek::Vec2::new(f32::NAN, 0.0), 550.0), (origin, 0.0)] {
+            let mut empty = Vec::new();
+            include_explicit_attack_candidate(&mut empty, Some(target), Some(position), origin, range);
+            assert!(empty.is_empty());
+        }
+        let mut empty = Vec::new();
+        include_explicit_attack_candidate(&mut empty, Some(target), None, origin, 550.0);
+        include_explicit_attack_candidate(&mut empty, None, Some(origin), origin, 550.0);
+        assert!(empty.is_empty());
     }
 }

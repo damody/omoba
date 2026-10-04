@@ -34,6 +34,8 @@ pub const TAG_SECURE_TARGET_INPUT_V2: u8 = 0x27; // C→S
 pub const TAG_SECURE_TARGET_INPUT_RESULT_V2: u8 = 0x28; // S→C
 pub const TAG_CLIENT_REPLICA_CHECKPOINT_V2: u8 = 0x29; // C→S
 pub const TAG_SESSION_CLOSE: u8 = 0x2A; // C→S graceful session teardown
+pub const TAG_SHOP_RECEIPT_QUERY: u8 = 0x2B; // C→S read-only owner result query
+pub const TAG_SHOP_RECEIPT_REPLAY: u8 = 0x2C; // S→C original result, no gameplay replay
 
 pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 2;
 pub const SELECTIVE_FRAME_SCHEMA_VERSION: u32 = 1;

@@ -44,6 +44,18 @@ pub enum FactKind {
     Terminal = 12,
     Collision = 13,
     Random = 14,
+    MovementPriority = 15,
+    /// Authority NPC motion happens before player gameplay, not after it.
+    PreStepMovement = 16,
+    CommittedVitals = 17,
+    CommittedCooldown = 18,
+    CommittedAttack = 19,
+    CommittedProgression = 20,
+    CommittedEconomy = 21,
+    CommittedEquipmentStats = 22,
+    ShopReceipt = 23,
+    OwnerEconomy = 24,
+    CommittedAbilityRanks = 25,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -71,6 +83,21 @@ impl FactOrderingKey {
 /// ECS entity handle, pointer, arbitrary JSON value, or server-only component.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum ObservableFact {
+    OwnerEconomy { team: u32, state: crate::runtime::native::economy_projection::OwnerEconomyState },
+    CommittedEconomy { source: u64, state: crate::runtime::native::economy_projection::CommittedEconomyState },
+    CommittedEquipmentStats { source: u64, hp_raw: i64, max_hp_raw: i64, speed_raw: i64, armor_raw: i64, attack_raw: i64 },
+    /// Final, already-disclosable state after an authority-owned settlement.
+    CommittedVitals { source: u64, hp_raw: i64, max_hp_raw: i64 },
+    CommittedCooldown { source: u64, slot: u32, remaining_raw: i64 },
+    CommittedAttack { source: u64, elapsed_raw: i64, sequence: u32, phase: u8 },
+    CommittedProgression { source: u64, level: i32, experience: i32, experience_to_next: i32, skill_points: i32 },
+    CommittedAbilityRanks { source: u64, ranks: [i32; 4] },
+    /// A visible actor is prioritizing movement, without disclosing its
+    /// destination, input, or any entity target.
+    MovementPriority {
+        source: u64,
+        active: bool,
+    },
     Movement {
         source: u64,
         x_mm: i64,

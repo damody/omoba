@@ -19,6 +19,8 @@ mod production_guards;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod projection_policy;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod presentation_cue;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod secure_replica_contract;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective;
@@ -30,6 +32,12 @@ pub mod selective_fixtures;
 pub mod selective_replica;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stable_fact;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shop_receipt;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shop_transport;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod recall_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_projector;
 #[cfg(all(test, not(target_arch = "wasm32")))]

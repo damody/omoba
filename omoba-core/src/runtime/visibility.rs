@@ -28,6 +28,8 @@ pub const DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID: u32 = 0x464f4709;
 pub const DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID: u32 = 0x464f470a;
 pub const DISCLOSED_TOWER_COMPONENT_SCHEMA_ID: u32 = 0x464f470b;
 pub const DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID: u32 = 0x464f470c;
+pub const DISCLOSED_GOLD_COMPONENT_SCHEMA_ID: u32 = 0x464f470d;
+pub const DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID: u32 = 0x464f470e;
 
 pub(crate) fn canonical_disclosed_json<T: Serialize>(value: &T) -> Vec<u8> {
     fn sort_objects(value: serde_json::Value) -> serde_json::Value {
@@ -84,7 +86,7 @@ pub fn decode_demo_render_state(bytes: &[u8]) -> Option<DemoRenderState> {
     })
 }
 
-fn encode_disclosed_baseline(components: &[(u32, Vec<u8>)]) -> Vec<u8> {
+pub(crate) fn encode_disclosed_baseline(components: &[(u32, Vec<u8>)]) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&(components.len() as u32).to_be_bytes());
     for (schema_id, value) in components {
@@ -236,6 +238,7 @@ pub struct TeamVisibilityState {
     pub team: u32,
     pub index: TeamVisibilityIndex,
     pub history: TeamVisibilityHistory,
+    last_remember: BTreeMap<u64, RememberDisposition>,
 }
 
 impl TeamVisibilityState {
@@ -244,6 +247,7 @@ impl TeamVisibilityState {
             team,
             index: TeamVisibilityIndex::default(),
             history: TeamVisibilityHistory::new(history_capacity),
+            last_remember: BTreeMap::new(),
         }
     }
 
@@ -259,6 +263,27 @@ impl TeamVisibilityState {
             .copied()
             .collect();
         let mut transitions = Vec::new();
+        let existing: BTreeSet<_> = view
+            .entities
+            .iter()
+            .map(|entity| entity.canonical_id)
+            .collect();
+        // Deleted/generation-replaced entities no longer occur in the view loop.
+        // Retire only a previously disclosed identity, using its existing memory
+        // policy; absence must not disclose a hidden death or hidden coordinates.
+        let absent: Vec<_> = self.index.current.difference(&existing).copied().collect();
+        for canonical_id in absent {
+            self.index.current.remove(&canonical_id);
+            self.index.candidates.remove(&canonical_id);
+            transitions.push(VisibilityTransition::Hide {
+                canonical_id,
+                effective_tick: view.tick,
+                disposition: self
+                    .last_remember
+                    .remove(&canonical_id)
+                    .unwrap_or(RememberDisposition::Forget),
+            });
+        }
         for entity in view.entities.iter() {
             let desired =
                 entity_visible_to_team(entity, self.team, &sources, &view.vision_occluders);
@@ -287,6 +312,8 @@ impl TeamVisibilityState {
             }
             if desired {
                 self.index.current.insert(entity.canonical_id);
+                self.last_remember
+                    .insert(entity.canonical_id, entity.remember);
                 transitions.push(VisibilityTransition::Reveal {
                     canonical_id: entity.canonical_id,
                     effective_tick: view.tick,
@@ -294,6 +321,7 @@ impl TeamVisibilityState {
                 });
             } else {
                 self.index.current.remove(&entity.canonical_id);
+                self.last_remember.remove(&entity.canonical_id);
                 transitions.push(VisibilityTransition::Hide {
                     canonical_id: entity.canonical_id,
                     effective_tick: view.tick,
@@ -386,6 +414,21 @@ mod tests {
     fn owner_team_hero_is_visible_to_owner_outside_radius() {
         let target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 100);
         assert!(entity_visible_to_team(&target, 1, &[source(1, 20)], &[]));
+    }
+
+    #[test]
+    fn missing_disclosed_entity_keeps_its_existing_last_known_policy() {
+        let mut target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 100);
+        target.remember = RememberDisposition::LastKnown;
+        let mut state = TeamVisibilityState::new(1, 4);
+        let mut view = WaveBReadView { tick: 1, entities: vec![target].into(),
+            vision_sources: vec![].into(), vision_occluders: vec![].into() };
+        assert_eq!(state.resolve(&view, 0).len(), 1);
+        view.tick = 2; view.entities = vec![].into();
+        assert!(matches!(state.resolve(&view, 0).as_slice(),
+            [VisibilityTransition::Hide { canonical_id: 7, disposition: RememberDisposition::LastKnown, .. }]));
+        assert!(state.index.current.is_empty());
+        assert!(state.resolve(&view, 0).is_empty());
     }
 
     #[test]
@@ -566,6 +609,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let turn_speeds = world.read_storage::<crate::runtime::TurnSpeed>();
     let collision_radii = world.read_storage::<crate::runtime::CollisionRadius>();
     let inventories = world.read_storage::<crate::runtime::Inventory>();
+    let gold = world.read_storage::<crate::runtime::Gold>();
+    let item_effects = world.read_storage::<crate::runtime::ItemEffects>();
+    let moba = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
     let towers = world.read_storage::<crate::runtime::Tower>();
     let script_tags = world.read_storage::<crate::runtime::ScriptUnitTag>();
 
@@ -626,6 +672,10 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID
             );
             disclose_json!(inventories, DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID);
+            if moba && heroes.get(entity).is_some() {
+                disclose_json!(gold, DISCLOSED_GOLD_COMPONENT_SCHEMA_ID);
+                disclose_json!(item_effects, DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
+            }
             disclose_json!(script_tags, DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID);
             if let Some(tower) = towers.get(entity) {
                 let mut safe = tower.clone();

@@ -2,7 +2,7 @@
 
 pub use crate::game_proto::{
     AngleI, AttackMove, AttackTarget, CastAbility, DebugSpawnCreep, FixedI, InputForPlayer,
-    InputSubmit, ItemUse, MoveTo, NoOp, PlayerInput, SetTowerTargetPriority, StartRound,
+    InputSubmit, ItemBuy, ItemSell, ItemUse, MoveTo, NoOp, PlayerInput, SetTowerTargetPriority, StartRound,
     TargetPriority, TickBatch, ToggleGameSpeed, TogglePause, TowerAbilityCastInput, TowerPlace,
     TowerSell, TowerUpgradeInput, UpgradeAbility, Vec2I,
 };

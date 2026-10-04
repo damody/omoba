@@ -22,6 +22,7 @@ pub struct DamageRead<'a> {
     properties: ReadStorage<'a, CProperty>,
     positions: ReadStorage<'a, Pos>,
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
+    moba: Option<Read<'a, crate::runtime::MobaMatch>>,
 }
 
 #[derive(SystemData)]
@@ -116,7 +117,14 @@ impl<'a> System<'a> for Sys {
                         fact_kind: crate::runtime::FactKind::DirectCombat,
                     },
                     audience: crate::runtime::FactAudience::VisibilityPolicy(
-                        omb_script_abi::types::projection_policy_ids::DIRECT_COMBAT.to_owned(),
+                        if tr.moba.as_ref().is_some_and(|state| {
+                            state.owns_npc_combat(damage_inst.source.source_entity)
+                        }) {
+                            omb_script_abi::types::projection_policy_ids::EXTERNAL_DIRECT_COMBAT
+                        } else {
+                            omb_script_abi::types::projection_policy_ids::DIRECT_COMBAT
+                        }
+                        .to_owned(),
                     ),
                     fact: crate::runtime::ObservableFact::DirectCombat {
                         source,

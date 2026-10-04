@@ -7,12 +7,16 @@
 pub mod ability_runtime;
 pub mod comp;
 pub mod events;
+pub mod economy_projection;
 pub mod game_processor;
 pub mod gameplay_phases;
 pub mod geometry;
 pub mod initialization;
 pub mod input;
 pub mod item;
+pub mod shop;
+pub mod moba_match;
+pub mod moba_assist;
 pub mod scene;
 pub mod scripting;
 #[cfg(feature = "kcp")]
@@ -50,6 +54,7 @@ pub use initialization::{
     StateInitializer,
 };
 pub use input::*;
+pub use moba_match::*;
 pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
 pub use scene::*;
 pub use scripting::{

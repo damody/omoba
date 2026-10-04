@@ -234,6 +234,24 @@ impl Hero {
     }
 
     /// 增加經驗值
+    /// MOBA authority rewards use bounded integer progression; legacy TD is unchanged.
+    pub fn add_moba_experience(&mut self, exp: u32) -> bool {
+        if exp == 0 || self.level >= 25 { return false; }
+        self.experience = self.experience.max(0).saturating_add(exp.min(i32::MAX as u32) as i32);
+        let before = self.level;
+        // At most 24 iterations, even for a saturated reward. Never use floats.
+        while self.level < 25 && self.experience >= self.experience_to_next.max(1) {
+            self.experience -= self.experience_to_next.max(1);
+            self.level += 1;
+            self.skill_points = self.skill_points.saturating_add(1);
+            let exponent = (self.level - 1).clamp(0, 24) as u32;
+            self.experience_to_next = (100u128 * 6u128.pow(exponent) / 5u128.pow(exponent)) as i32;
+        }
+        if self.level == 25 { self.experience = 0; }
+        self.level != before
+    }
+
+    /// Legacy progression retained for existing TD/script callers.
     pub fn add_experience(&mut self, exp: i32) -> bool {
         self.experience += exp;
 
@@ -358,5 +376,32 @@ impl Default for Hero {
             "Unknown Hero".to_string(),
             "The Nameless".to_string(),
         )
+    }
+}
+
+#[cfg(test)]
+mod moba_progression_tests {
+    use super::Hero;
+
+    #[test]
+    fn integer_moba_xp_crosses_multiple_levels_and_caps_without_overflow() {
+        let mut hero = Hero::default();
+        assert!(!hero.add_moba_experience(99));
+        assert_eq!((hero.level, hero.experience, hero.skill_points), (1, 99, 0));
+        assert!(hero.add_moba_experience(266)); // 100 + 120 + 144; one XP remains.
+        assert_eq!((hero.level, hero.experience, hero.experience_to_next, hero.skill_points), (4, 1, 172, 3));
+        assert!(hero.add_moba_experience(u32::MAX));
+        assert_eq!((hero.level, hero.experience, hero.skill_points), (25, 0, 24));
+        assert!(!hero.add_moba_experience(u32::MAX));
+        assert_eq!((hero.level, hero.experience, hero.skill_points), (25, 0, 24));
+    }
+
+    #[test]
+    fn zero_xp_does_not_change_progression_and_legacy_remains_single_level() {
+        let mut hero = Hero::default();
+        assert!(!hero.add_moba_experience(0));
+        assert_eq!((hero.level, hero.experience), (1, 0));
+        assert!(hero.add_experience(365));
+        assert_eq!((hero.level, hero.experience), (2, 265));
     }
 }

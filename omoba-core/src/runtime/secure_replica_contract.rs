@@ -68,6 +68,8 @@ pub fn secure_replica_component_allowlist() -> BTreeSet<u32> {
         crate::runtime::DISCLOSED_INVENTORY_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_TOWER_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID,
     ])
 }
 

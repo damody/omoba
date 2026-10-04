@@ -93,10 +93,20 @@ pub fn run_script_dispatch(
     {
         // Event hooks stay serial in queue order, but use the same outcome-backed
         // adapter as parallel on_tick so script mutations have one code path.
+        let enforce_learned_ranks = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let mut event_outcomes = Vec::new();
         let mut visual_events = Vec::new();
         for (event_ordinal, ev) in events.into_iter().enumerate() {
+            // Internal queued casts must obey the same unlearned gate as
+            // PlayerInput. Preserve legacy Story and TD script fallback behavior.
+            if enforce_learned_ranks {
+                if let ScriptEvent::SkillCast { caster, skill_id, .. } = &ev {
+                    if cache.hero.get(*caster).is_some_and(|hero| hero.get_ability_level(skill_id) <= 0) {
+                        continue;
+                    }
+                }
+            }
             let invocation_entity = event_invocation_entity(&ev);
             let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
                 &cache,

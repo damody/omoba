@@ -24,6 +24,10 @@ pub const REQUIRED_PROJECTION_POLICIES: &[(&str, &str)] = &[
         "runtime/native/tick/damage",
     ),
     (
+        projection_policy_ids::EXTERNAL_DIRECT_COMBAT,
+        "runtime/native/moba_match/combat",
+    ),
+    (
         projection_policy_ids::PROJECTILE,
         "runtime/native/tick/projectile",
     ),

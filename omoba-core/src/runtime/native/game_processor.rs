@@ -49,9 +49,11 @@ fn player_hero_entity(
     let entities = world.entities();
     let heroes = world.read_storage::<Hero>();
     let owners = world.read_storage::<PlayerOwner>();
+    let properties = world.read_storage::<CProperty>();
     (&entities, &heroes, &owners)
         .join()
-        .find(|(_, _, owner)| owner.player_id == owner_pid)
+        .find(|(entity, _, owner)| owner.player_id == owner_pid
+            && properties.get(*entity).is_none_or(|p| p.hp > Fixed64::ZERO))
         .map(|(e, _, _)| e)
         .ok_or_else(|| {
             failure::err_msg(format!(
@@ -288,6 +290,19 @@ pub fn handle_ability_upgrade_from_input(
 
     let hero_entity = player_hero_entity(world, "AbilityUpgrade", owner_pid)?;
 
+    let lane = world.try_fetch::<crate::runtime::MobaMatch>();
+    let is_lane = lane.is_some();
+    if let Some(state) = lane.as_ref() {
+        if state.phase != crate::runtime::MobaMatchPhase::Playing
+            || world.read_resource::<crate::runtime::GamePause>().is_paused
+            || !state.heroes.iter().any(|slot| slot.player_id == owner_pid && slot.entity == Some(hero_entity))
+            || world.read_storage::<CProperty>().get(hero_entity).is_none_or(|p| p.hp <= Fixed64::ZERO)
+        {
+            return Err(failure::err_msg("AbilityUpgrade: inactive or invalid lane hero"));
+        }
+    }
+    drop(lane);
+
     let ability_id = {
         let heroes = world.read_storage::<Hero>();
         let hero = heroes.get(hero_entity).ok_or_else(|| {
@@ -310,10 +325,11 @@ pub fn handle_ability_upgrade_from_input(
 
     let max_level = {
         let registry = world.read_resource::<AbilityRegistry>();
-        registry
-            .get(&ability_id)
-            .map(|def| i32::from(def.max_level).max(1))
-            .unwrap_or(5)
+        let definition = registry.get(&ability_id);
+        if is_lane && definition.is_none() {
+            return Err(failure::err_msg("AbilityUpgrade: missing lane ability metadata"));
+        }
+        definition.map(|def| i32::from(def.max_level).max(1)).unwrap_or(5)
     };
 
     let new_level = {
@@ -331,6 +347,9 @@ pub fn handle_ability_upgrade_from_input(
             )));
         }
         let current = hero.ability_levels.get(&ability_id).copied().unwrap_or(0);
+        if is_lane && current < 0 {
+            return Err(failure::err_msg("AbilityUpgrade: invalid lane ability rank"));
+        }
         if current >= max_level {
             return Err(failure::err_msg(format!(
                 "AbilityUpgrade: slot={} ability='{}' already maxed ({}/{}) pid={}",
@@ -338,6 +357,16 @@ pub fn handle_ability_upgrade_from_input(
             )));
         }
         let next = current + 1;
+        if is_lane {
+            let required = omoba_template_ids::ability_by_name(&ability_id)
+                .and_then(omoba_template_ids::active_ability_const)
+                .and_then(|definition| definition.levels.get(current as usize))
+                .ok_or_else(|| failure::err_msg("AbilityUpgrade: missing lane rank requirements"))?
+                .required_hero_level;
+            if hero.level < i32::from(required) {
+                return Err(failure::err_msg(format!("AbilityUpgrade: requires hero level {}", required)));
+            }
+        }
         hero.ability_levels.insert(ability_id.clone(), next);
         hero.skill_points -= 1;
         next
@@ -1507,6 +1536,19 @@ pub fn drain_pending_item_uses(world: &mut World) {
     )
     .entered();
     for req in drained {
+        let req = match req {
+            crate::comp::PendingItemAction::Use(req) => req,
+            crate::comp::PendingItemAction::Shop { owner_pid, command } => {
+                let result = crate::runtime::shop::transact_moba_shop(world, owner_pid, command.clone());
+                if let Err(error) = &result {
+                    log::warn!("Shop input rejected pid={}: {:?}", owner_pid, error);
+                }
+                world.write_resource::<PendingItemUseQueue>().settlements.push(
+                    crate::runtime::shop::ShopSettlement { player_id: owner_pid, command, result }
+                );
+                continue;
+            }
+        };
         if let Err(e) = handle_item_use_from_input(
             world,
             req.item_slot,
@@ -1579,6 +1621,8 @@ pub fn process_outcomes(
 ) -> Result<(), failure::Error> {
     let mut remove_uids = Vec::new();
     let mut next_outcomes = Vec::new();
+    let mut committed_vitals = BTreeMap::new();
+    let mut committed_cooldowns = BTreeMap::new();
 
     let outcomes = {
         let mut outcomes = world.write_resource::<Vec<Outcome>>();
@@ -1595,6 +1639,21 @@ pub fn process_outcomes(
 
     let projection_tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
     for (outcome_ordinal, outcome) in outcomes.into_iter().enumerate() {
+        if world.try_fetch::<crate::runtime::MobaMatch>().is_some() {
+            match &outcome {
+                Outcome::Damage { target, .. } | Outcome::Heal { target, .. }
+                | Outcome::ScriptDirectDamage { target, .. } | Outcome::ScriptHeal { target, .. } => {
+                    committed_vitals.insert(crate::runtime::canonical_entity_id(*target), *target);
+                }
+                Outcome::ScriptStartCooldown { entity, ability_id, .. } => {
+                    if let Some(slot) = world.read_storage::<Hero>().get(*entity)
+                        .and_then(|hero| hero.abilities.iter().position(|id| id == ability_id)) {
+                        committed_cooldowns.insert((crate::runtime::canonical_entity_id(*entity), slot as u32), (*entity, ability_id.clone()));
+                    }
+                }
+                _ => {}
+            }
+        }
         if let Some(fact) =
             observable_fact_from_outcome(&outcome, projection_tick, outcome_ordinal as u32)
         {
@@ -1605,6 +1664,9 @@ pub fn process_outcomes(
         let kind = outcome_kind(&outcome);
         match outcome {
             Outcome::Death { ent, .. } => {
+                if remove_uids.contains(&ent) || !world.entities().is_alive(ent) {
+                    continue;
+                }
                 remove_uids.push(ent);
                 handle_death(world, &mut next_outcomes, events, ent)?;
             }
@@ -1819,6 +1881,8 @@ pub fn process_outcomes(
         log::trace!("processed outcome {}", kind);
     }
 
+    emit_committed_actor_state(world, projection_tick, committed_vitals, committed_cooldowns);
+
     let _ = world.delete_entities(&remove_uids[..]);
     world.write_resource::<Vec<Outcome>>().clear();
     world
@@ -1827,6 +1891,48 @@ pub fn process_outcomes(
     drop(outcomes_span);
 
     Ok(())
+}
+
+/// Serial outcome reduction order, separate from gameplay and script ABI state.
+#[derive(Default)]
+struct CommittedActorStateOrder { tick: u64, ordinal: u32 }
+
+fn emit_committed_actor_state(world: &mut World, tick: u64,
+    vitals: BTreeMap<u64, Entity>, cooldowns: BTreeMap<(u64, u32), (Entity, String)>) {
+    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+    if vitals.is_empty() && cooldowns.is_empty() { return; }
+    if world.try_fetch::<CommittedActorStateOrder>().is_none() {
+        world.insert(CommittedActorStateOrder::default());
+    }
+    let mut facts = Vec::new();
+    {
+        let properties = world.read_storage::<CProperty>();
+        let heroes = world.read_storage::<Hero>();
+        for (source, entity) in vitals {
+            if let Some(property) = properties.get(entity) {
+                facts.push((source, FactKind::CommittedVitals, ObservableFact::CommittedVitals {
+                    source, hp_raw: property.hp.raw(), max_hp_raw: property.mhp.raw(),
+                }));
+            }
+        }
+        for ((source, slot), (entity, ability_id)) in cooldowns {
+            if let Some(hero) = heroes.get(entity) {
+                facts.push((source, FactKind::CommittedCooldown, ObservableFact::CommittedCooldown {
+                    source, slot, remaining_raw: hero.get_cooldown(&ability_id).raw().max(0),
+                }));
+            }
+        }
+    }
+    let mut order = world.write_resource::<CommittedActorStateOrder>();
+    if order.tick != tick { order.tick = tick; order.ordinal = 0; }
+    for (source, fact_kind, fact) in facts {
+        let local_ordinal = order.ordinal;
+        order.ordinal = order.ordinal.checked_add(1).expect("bounded committed outcomes");
+        world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(OrderedFact {
+            key: FactOrderingKey { tick, phase: FactPhase::PostStep, canonical_source_order: source, local_ordinal, fact_kind },
+            audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()), fact,
+        }).expect("valid committed actor state");
+    }
 }
 
 fn observable_fact_from_outcome(
@@ -2035,6 +2141,8 @@ fn handle_death(
     events: &mut impl RuntimeEventSink,
     entity: Entity,
 ) -> Result<(), failure::Error> {
+    let is_lane_match = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
+    crate::runtime::record_moba_death(world, entity);
     let is_enemy_base = {
         let bases = world.read_storage::<IsBase>();
         let factions = world.read_storage::<Faction>();
@@ -2077,7 +2185,7 @@ fn handle_death(
         }
     }
 
-    if is_enemy_base {
+    if is_enemy_base && !is_lane_match {
         log::info!("enemy base entity {:?} destroyed", entity);
         events.emit(game_end_event(
             "player",
@@ -2088,7 +2196,10 @@ fn handle_death(
 }
 
 fn distribute_bounty(world: &mut World, dead: Entity) {
-    if world.read_resource::<crate::comp::GameMode>().is_td() {
+    // Opt-in lane rules own all rewards, including duplicate death gating.
+    // Legacy (non-lane) MOBA and TD retain their original settlement paths.
+    if world.try_fetch::<crate::runtime::MobaMatch>().is_some()
+        || world.read_resource::<crate::comp::GameMode>().is_td() {
         return;
     }
     let bounty = match world.read_storage::<Bounty>().get(dead).copied() {
@@ -2428,8 +2539,23 @@ fn handle_script_set_asd_interval(world: &mut World, entity: Entity, value: Fixe
 }
 
 fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed64) {
-    if let Some(prop) = world.write_storage::<CProperty>().get_mut(target) {
-        prop.hp = (prop.hp - amount).max(Fixed64::ZERO);
+    let before = world.read_storage::<CProperty>().get(target).map(|p| p.hp);
+    let took_damage = amount > Fixed64::ZERO && before.is_some_and(|hp| hp > Fixed64::ZERO);
+    if took_damage {
+        crate::runtime::native::moba_match::interrupt_moba_recall(world, target);
+    }
+    let applied = {
+        let mut properties = world.write_storage::<CProperty>();
+        if let Some(prop) = properties.get_mut(target) {
+            prop.hp = (prop.hp - amount).max(Fixed64::ZERO);
+            true
+        } else { false }
+    };
+    if applied {
+        if took_damage {
+            crate::runtime::native::moba_match::record_moba_hero_damage(world, None, target,
+                before.is_some_and(|hp| amount >= hp));
+        }
         return;
     }
     if let Some(unit) = world.write_storage::<Unit>().get_mut(target) {
@@ -4144,6 +4270,13 @@ fn handle_damage(
     damage_profile: u32,
     _predeclared: bool,
 ) -> Result<(), failure::Error> {
+    if !crate::runtime::moba_damage_allowed(world, target) {
+        return Ok(());
+    }
+    if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>()
+        .is_some_and(|targets| targets.0.contains(&target)) {
+        return Ok(());
+    }
     let dmg_taken_bonus = world
         .read_resource::<BuffStore>()
         .sum_add(target, StatKey::DamageTakenBonus);
@@ -4264,12 +4397,15 @@ fn handle_damage(
     }
 
     let mut died = false;
+    let mut first_lethal_hit = false;
+    let mut took_damage = false;
     {
         let mut properties = world.write_storage::<CProperty>();
         if let Some(target_props) = properties.get_mut(target) {
             let hp_before = target_props.hp;
             let total_damage = (phys + magi + real) * dmg_multiplier;
             target_props.hp = target_props.hp - total_damage;
+            took_damage = hp_before > Fixed64::ZERO && total_damage > Fixed64::ZERO;
             let (source_name, target_name) = get_entity_names(world, source, target);
             log::debug!(
                 "{} attacked {} | damage {:.1} | HP {:.1} -> {:.1}/{:.1}",
@@ -4283,6 +4419,7 @@ fn handle_damage(
             if target_props.hp <= Fixed64::ZERO {
                 target_props.hp = Fixed64::ZERO;
                 died = true;
+                first_lethal_hit = hp_before > Fixed64::ZERO && total_damage > Fixed64::ZERO;
                 if target_props.mhp > Fixed64::from_i32(100) {
                     log::info!(
                         "{} died | max_hp={} hp_before={} dmg={:.1} source={}",
@@ -4297,6 +4434,12 @@ fn handle_damage(
         }
     }
 
+    if took_damage {
+        crate::runtime::native::moba_match::interrupt_moba_recall(world, target);
+    }
+    if took_damage {
+        crate::runtime::native::moba_match::record_moba_hero_damage(world, Some(source), target, first_lethal_hit);
+    }
     if died {
         let mut towers = world.write_storage::<Tower>();
         if let Some(tower) = towers.get_mut(source) {

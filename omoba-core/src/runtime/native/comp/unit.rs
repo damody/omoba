@@ -453,6 +453,9 @@ impl Faction {
         }
 
         match (&self.faction_id, &other.faction_id) {
+            // Opposing authenticated player teams are hostile even when both
+            // filtered worlds classify their disclosed actors as Player.
+            (FactionType::Player, FactionType::Player) => true,
             (FactionType::Player, FactionType::Enemy) => true,
             (FactionType::Enemy, FactionType::Player) => true,
             (FactionType::Player, FactionType::Ally) => false,

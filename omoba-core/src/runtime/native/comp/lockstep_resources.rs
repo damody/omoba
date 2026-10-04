@@ -231,8 +231,8 @@ pub struct TowerAbilityCastResults {
     pub latest_by_player: BTreeMap<u32, TowerAbilityCastResult>,
 }
 
-/// 階段 2.4：延遲的物品使用請求源自
-/// `PlayerInputEnum::ItemUse`。與其他待處理隊列的基本原理相同：
+/// ItemUse / ItemBuy / ItemSell share one ordered item-processing phase.
+/// 與其他待處理隊列的基本原理相同：
 /// `use_item` 讀取 `ItemRegistry` 資源 + 寫入 `Inventory` + 寫入
 /// `CProperty` + 查詢 `Hero`/`Faction` 存儲，其中沒有一個
 /// 可從規格“System”SystemData 存取。
@@ -241,7 +241,19 @@ pub struct TowerAbilityCastResults {
 /// `comp::GameProcessor::drain_pending_item_uses`。
 #[derive(Default)]
 pub struct PendingItemUseQueue {
-    pub requests: Vec<PendingItemUse>,
+    /// Preserve uses and shop transactions in formal input order.
+    pub requests: Vec<PendingItemAction>,
+    /// Tick-local authority results, consumed by the team projector.
+    pub settlements: Vec<crate::runtime::shop::ShopSettlement>,
+}
+
+#[derive(Clone, Debug)]
+pub enum PendingItemAction {
+    Use(PendingItemUse),
+    Shop {
+        owner_pid: u32,
+        command: crate::runtime::shop::ShopCommand,
+    },
 }
 
 #[derive(Clone, Debug)]

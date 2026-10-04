@@ -56,6 +56,20 @@ pub struct ItemRegistry {
 }
 
 impl ItemRegistry {
+    /// No runtime file IO or independent JSON authoring for MOBA equipment.
+    pub fn generated_moba() -> Self {
+        Self::from_configs(omoba_template_ids::MOBA_ITEM_CATALOG.iter().map(|item| ItemConfig {
+            id: item.id.into(), name: item.name.into(), cost: item.cost,
+            bonus: ItemBonus {
+                atk: item.atk.to_f32_for_render(), hp: item.hp.to_f32_for_render(),
+                ms: item.ms.to_f32_for_render(), armor: item.armor.to_f32_for_render(),
+                ..ItemBonus::default()
+            },
+            active: None, cooldown: 0.0,
+            recipe: item.recipe.iter().map(|id| (*id).into()).collect(),
+        }).collect())
+    }
+
     pub fn from_configs(list: Vec<ItemConfig>) -> Self {
         let mut items = HashMap::new();
         for cfg in list {

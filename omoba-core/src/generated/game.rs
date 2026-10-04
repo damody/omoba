@@ -626,6 +626,19 @@ pub struct ItemUse {
     #[prost(uint32, optional, tag = "3")]
     pub target_entity: ::core::option::Option<u32>,
 }
+/// Authoritative MOBA shop commands. No client-supplied price or balance.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ItemBuy {
+    #[prost(string, tag = "1")]
+    pub item_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ItemSell {
+    #[prost(uint32, tag = "1")]
+    pub item_slot: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Recall {}
 /// TD：client 請求開始下一波 creep wave（legacy "Start Round"）。
 /// Server 會切換 `CurrentCreepWave.is_running = true` 並寫入 wave_start_time。
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
@@ -642,7 +655,7 @@ pub struct ToggleGameSpeed {}
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -682,6 +695,12 @@ pub mod player_input {
         DebugSpawnCreep(super::DebugSpawnCreep),
         #[prost(message, tag = "16")]
         TowerAbilityCast(super::TowerAbilityCastInput),
+        #[prost(message, tag = "17")]
+        ItemBuy(super::ItemBuy),
+        #[prost(message, tag = "18")]
+        ItemSell(super::ItemSell),
+        #[prost(message, tag = "19")]
+        Recall(super::Recall),
     }
 }
 /// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
@@ -804,6 +823,19 @@ pub struct JoinRequest {
     pub secure_fog_capability: bool,
     #[prost(uint64, tag = "7")]
     pub view_epoch: u64,
+    /// Catalog agreement only; this does NOT enable transaction transport.
+    #[prost(uint32, tag = "8")]
+    pub shop_catalog_version: u32,
+    #[prost(string, tag = "9")]
+    pub shop_catalog_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "10")]
+    pub shop_protocol_version: u32,
+    #[prost(string, tag = "11")]
+    pub shop_rules_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "12")]
+    pub recall_protocol_version: u32,
+    #[prost(string, tag = "13")]
+    pub recall_rules_hash: ::prost::alloc::string::String,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -975,6 +1007,23 @@ pub struct TeamGameStart {
     pub team_private_metadata: ::prost::alloc::vec::Vec<DeterministicMetadata>,
     #[prost(uint64, tag = "18")]
     pub global_seed: u64,
+    #[prost(uint32, tag = "19")]
+    pub shop_catalog_version: u32,
+    #[prost(string, tag = "20")]
+    pub shop_catalog_hash: ::prost::alloc::string::String,
+    /// Match/player-scoped admission high-water mark; not a settlement receipt.
+    #[prost(uint32, tag = "21")]
+    pub input_allocator_version: u32,
+    #[prost(uint32, tag = "22")]
+    pub last_seen_input_id: u32,
+    #[prost(uint32, tag = "23")]
+    pub shop_protocol_version: u32,
+    #[prost(string, tag = "24")]
+    pub shop_rules_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "25")]
+    pub recall_protocol_version: u32,
+    #[prost(string, tag = "26")]
+    pub recall_rules_hash: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevealEntity {
@@ -1089,6 +1138,31 @@ pub struct TeamPublicEvent {
     pub sanitized_payload: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag = "4")]
     pub stable_sub_index: u32,
+}
+/// Read-only, authenticated-session scoped. Never submits gameplay.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShopReceiptQuery {
+    #[prost(uint64, tag = "1")]
+    pub request_id: u64,
+    #[prost(uint32, tag = "2")]
+    pub input_id: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShopReceiptReplay {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub request_id: u64,
+    #[prost(uint32, tag = "3")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "4")]
+    pub input_id: u32,
+    /// 0 unknown, 1 pending, 2 terminal, 3 expired, 4 admission rejected late.
+    #[prost(uint32, tag = "5")]
+    pub status: u32,
+    /// Original typed 40-byte receipt, only for status 2.
+    #[prost(bytes = "vec", tag = "6")]
+    pub receipt: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BoundedRandomTape {
@@ -1414,6 +1488,9 @@ pub struct RuntimeReadyPresentation {
     pub replica_tick: u64,
     #[prost(string, tag = "5")]
     pub content_hash: ::prost::alloc::string::String,
+    /// authoritative bootstrap rate, never presentation FPS
+    #[prost(uint32, tag = "6")]
+    pub tick_rate_hz: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PresentationComponent {
@@ -1518,8 +1595,168 @@ pub struct TeamPresentationSnapshot {
     pub audio_cues: ::prost::alloc::vec::Vec<PresentationEffect>,
     #[prost(uint64, tag = "14")]
     pub view_epoch: u64,
+    /// Client-runtime measured KCP RTT. 0 means no sample yet.
     #[prost(uint64, tag = "15")]
     pub runtime_rtt_us: u64,
+    /// Persistent state, not a one-shot cue; scoped to the configured player.
+    #[prost(message, optional, tag = "16")]
+    pub moba_hud: ::core::option::Option<MobaHudPresentation>,
+    #[prost(message, optional, tag = "17")]
+    pub owner_economy: ::core::option::Option<OwnerEconomyPresentation>,
+    /// Bounded persistent recent result history, not an APPLIED input ACK.
+    #[prost(message, repeated, tag = "18")]
+    pub shop_receipts: ::prost::alloc::vec::Vec<ShopTransactionReceipt>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct InventorySlotPresentation {
+    #[prost(uint32, tag = "1")]
+    pub slot: u32,
+    /// zero is empty; stable Lua numeric ID
+    #[prost(uint32, tag = "2")]
+    pub catalog_id: u32,
+    #[prost(float, tag = "3")]
+    pub cooldown_seconds: f32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OwnerEconomyPresentation {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(sint32, tag = "3")]
+    pub gold: i32,
+    /// exactly six, including empty
+    #[prost(message, repeated, tag = "4")]
+    pub slots: ::prost::alloc::vec::Vec<InventorySlotPresentation>,
+    /// authority phase/alive/proximity, not affordability
+    #[prost(bool, tag = "5")]
+    pub shop_available: bool,
+    /// negotiated transport capability; defaults closed
+    #[prost(bool, tag = "6")]
+    pub shop_protocol_enabled: bool,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShopTransactionReceipt {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub input_id: u64,
+    #[prost(uint64, tag = "4")]
+    pub settled_tick: u64,
+    /// 17 buy, 18 sell
+    #[prost(uint32, tag = "5")]
+    pub action_kind: u32,
+    #[prost(uint32, tag = "6")]
+    pub catalog_id: u32,
+    #[prost(uint32, tag = "7")]
+    pub item_slot: u32,
+    /// 0 settled successfully, 1..13 stable ShopError codes
+    #[prost(uint32, tag = "8")]
+    pub result_code: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AbilityHudPresentation {
+    #[prost(uint32, tag = "1")]
+    pub slot: u32,
+    #[prost(string, tag = "2")]
+    pub ability_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "3")]
+    pub level: u32,
+    #[prost(sint64, tag = "4")]
+    pub cooldown_raw: i64,
+    #[prost(sint64, tag = "5")]
+    pub total_cooldown_raw: i64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct HeroHudPresentation {
+    #[prost(uint64, tag = "1")]
+    pub render_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub disclosure_epoch: u64,
+    #[prost(string, tag = "3")]
+    pub content_id: ::prost::alloc::string::String,
+    #[prost(sint64, tag = "4")]
+    pub hp_raw: i64,
+    #[prost(sint64, tag = "5")]
+    pub max_hp_raw: i64,
+    #[prost(uint32, tag = "6")]
+    pub level: u32,
+    #[prost(uint32, tag = "7")]
+    pub experience: u32,
+    #[prost(uint32, tag = "8")]
+    pub skill_points: u32,
+    #[prost(message, repeated, tag = "9")]
+    pub abilities: ::prost::alloc::vec::Vec<AbilityHudPresentation>,
+    /// Current mana gameplay is not yet implemented; false must display unknown.
+    #[prost(bool, tag = "10")]
+    pub mana_supported: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MobaHudPresentation {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    /// 0 Warmup, 1 Playing, 2 Finished
+    #[prost(uint32, tag = "3")]
+    pub phase: u32,
+    #[prost(sint64, tag = "4")]
+    pub elapsed_raw: i64,
+    /// 0 none/draw; never a lane array index
+    #[prost(uint32, tag = "5")]
+    pub winner_team: u32,
+    #[prost(sint64, tag = "6")]
+    pub respawn_remaining_raw: i64,
+    /// absent means no live disclosed owned hero
+    #[prost(message, optional, tag = "7")]
+    pub hero: ::core::option::Option<HeroHudPresentation>,
+    /// Public static single-lane geometry, Q10 backend units. 0 = unavailable.
+    #[prost(sint64, tag = "8")]
+    pub lane_length_raw: i64,
+    #[prost(sint64, tag = "9")]
+    pub recall_remaining_raw: i64,
+    #[prost(bool, tag = "10")]
+    pub recall_protocol_enabled: bool,
+    /// absent = unsupported, not a fabricated 0/0/0
+    #[prost(message, optional, tag = "11")]
+    pub score: ::core::option::Option<OwnerScorePresentation>,
+    /// public persistent rows, independent of vision
+    #[prost(message, optional, tag = "12")]
+    pub scoreboard: ::core::option::Option<ScoreboardPresentation>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ScoreboardPresentation {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    /// sorted by team then player; max 5 per team
+    #[prost(message, repeated, tag = "2")]
+    pub rows: ::prost::alloc::vec::Vec<ScoreboardRowPresentation>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ScoreboardRowPresentation {
+    #[prost(uint32, tag = "1")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "2")]
+    pub team_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub kills: u32,
+    #[prost(uint32, tag = "4")]
+    pub deaths: u32,
+    #[prost(uint32, tag = "5")]
+    pub assists: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct OwnerScorePresentation {
+    #[prost(uint32, tag = "1")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "2")]
+    pub kills: u32,
+    #[prost(uint32, tag = "3")]
+    pub deaths: u32,
+    #[prost(uint32, tag = "4")]
+    pub assists: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CriticalInputResult {
@@ -1626,6 +1863,23 @@ pub struct ItemUseIntent {
     pub y_raw: i64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ItemBuyIntent {
+    #[prost(uint32, tag = "1")]
+    pub catalog_id: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ItemSellIntent {
+    #[prost(uint32, tag = "1")]
+    pub item_slot: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RecallIntent {}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AbilityUpgradeIntent {
+    #[prost(uint32, tag = "1")]
+    pub ability_index: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TowerActionIntent {
     #[prost(uint32, tag = "1")]
     pub action_kind: u32,
@@ -1643,6 +1897,13 @@ pub struct TowerActionIntent {
     pub y_raw: i64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AttackTargetIntent {
+    #[prost(uint64, tag = "1")]
+    pub target_render_id: u64,
+    #[prost(bool, tag = "2")]
+    pub queued: bool,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RendererInput {
     #[prost(uint64, tag = "1")]
     pub request_id: u64,
@@ -1650,7 +1911,10 @@ pub struct RendererInput {
     pub player_id: u32,
     #[prost(uint64, tag = "3")]
     pub disclosure_epoch: u64,
-    #[prost(oneof = "renderer_input::Intent", tags = "10, 11, 12, 13, 14")]
+    #[prost(
+        oneof = "renderer_input::Intent",
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19"
+    )]
     pub intent: ::core::option::Option<renderer_input::Intent>,
 }
 /// Nested message and enum types in `RendererInput`.
@@ -1667,12 +1931,27 @@ pub mod renderer_input {
         ItemUse(super::ItemUseIntent),
         #[prost(message, tag = "14")]
         TowerAction(super::TowerActionIntent),
+        #[prost(message, tag = "15")]
+        ItemBuy(super::ItemBuyIntent),
+        #[prost(message, tag = "16")]
+        ItemSell(super::ItemSellIntent),
+        #[prost(message, tag = "17")]
+        AttackTarget(super::AttackTargetIntent),
+        #[prost(message, tag = "18")]
+        Recall(super::RecallIntent),
+        #[prost(message, tag = "19")]
+        AbilityUpgrade(super::AbilityUpgradeIntent),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RendererReady {
     #[prost(uint64, tag = "1")]
     pub latest_snapshot_sequence: u64,
+    /// Mandatory loopback session binding before the runtime discloses a frame.
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub team_id: u32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RendererConsumed {

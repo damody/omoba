@@ -10,6 +10,22 @@ use crate::game_proto::{
     TeamTickFrame, TeamViewRebase,
 };
 
+#[cfg(test)]
+mod damage_drain_tests {
+    use super::*;
+
+    #[test]
+    fn damage_drain_preserves_other_effects_and_is_one_shot() {
+        let mut runtime = SelectiveReplicaRuntime::new(1, 0, 1, 7, BTreeSet::new(), BTreeSet::new());
+        let damage = SanitizedExternalEffect {effect_kind: super::super::FactKind::DirectCombat as u32, ..Default::default()};
+        let state = SanitizedExternalEffect {effect_kind: u32::MAX, ..Default::default()};
+        runtime.last_injections.external_effects = vec![damage.clone(), state.clone()];
+        assert_eq!(runtime.take_damage_presentation_effects(), vec![damage]);
+        assert!(runtime.take_damage_presentation_effects().is_empty());
+        assert_eq!(runtime.last_injections.external_effects, vec![state]);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplicaEntityState {
     pub replica_id: u64,
@@ -205,6 +221,8 @@ pub struct FilteredRenderSnapshot {
     pub public_events: Vec<TeamPublicEvent>,
     pub external_effects: Vec<SanitizedExternalEffect>,
     pub memory_directives: Vec<RenderMemoryDirective>,
+    /// Frozen, server-sanitized presentation; never part of the gameplay world.
+    pub remembered_presentations: BTreeMap<(u64, u64), Vec<u8>>,
 }
 
 pub struct SelectiveReplicaRuntime {
@@ -461,6 +479,7 @@ impl SelectiveReplicaRuntime {
         frame: &TeamTickFrame,
     ) -> Result<(), ReplicaRuntimeError> {
         let mut entities: BTreeSet<u64> = self.world.entities.keys().copied().collect();
+        let mut remembered: BTreeSet<(u64, u64)> = self.remembered_presentations.keys().copied().collect();
         if let Some(pre_step) = &frame.pre_step {
             for transition in &pre_step.transitions {
                 match transition.transition.as_ref() {
@@ -478,7 +497,9 @@ impl SelectiveReplicaRuntime {
                             });
                             return Err(ReplicaRuntimeError::UnknownEntity);
                         }
-                        entities.insert(reveal.replica_entity_id.as_ref().map_or(0, |id| id.value));
+                        let replica_id = reveal.replica_entity_id.as_ref().map_or(0, |id| id.value);
+                        entities.insert(replica_id);
+                        remembered.retain(|(id, _)| *id != replica_id);
                     }
                     Some(transition::Transition::Replace(replace)) => {
                         entities
@@ -495,17 +516,23 @@ impl SelectiveReplicaRuntime {
                             });
                             return Err(ReplicaRuntimeError::UnknownEntity);
                         }
+                        remembered.insert((replica_id, epoch_value(&hide.disclosure_epoch)));
                     }
                     Some(transition::Transition::Forget(forget)) => {
                         let replica_id = forget.replica_entity_id.as_ref().map_or(0, |id| id.value);
-                        if !entities.remove(&replica_id) {
+                        let epoch = epoch_value(&forget.disclosure_epoch);
+                        if !entities.remove(&replica_id) && !remembered.remove(&(replica_id, epoch)) {
                             self.last_apply_fault = Some(ReplicaApplyFault {
                                 phase: ReplicaApplyPhase::PreStep,
                                 operation: ReplicaApplyOperation::Forget,
                                 replica_id,
                                 disclosure_epoch: epoch_value(&forget.disclosure_epoch),
                             });
-                            return Err(ReplicaRuntimeError::UnknownEntity);
+                            return Err(if remembered.iter().any(|(id, _)| *id == replica_id) {
+                                ReplicaRuntimeError::StaleDisclosureEpoch
+                            } else {
+                                ReplicaRuntimeError::UnknownEntity
+                            });
                         }
                     }
                     None => {}
@@ -735,7 +762,7 @@ impl SelectiveReplicaRuntime {
                     ) {
                         continue;
                     }
-                    if let Err(error) = self.remove_with_epoch(replica_id, disclosure_epoch) {
+                    if let Err(error) = self.forget_with_epoch(replica_id, disclosure_epoch) {
                         self.last_apply_fault = Some(ReplicaApplyFault {
                             phase: ReplicaApplyPhase::PreStep,
                             operation: ReplicaApplyOperation::Forget,
@@ -757,6 +784,19 @@ impl SelectiveReplicaRuntime {
             }
         }
         Ok(())
+    }
+
+    fn forget_with_epoch(&mut self, replica_id: u64, disclosure_epoch: u64) -> Result<(), ReplicaRuntimeError> {
+        if self.world.entities.contains_key(&replica_id) {
+            return self.remove_with_epoch(replica_id, disclosure_epoch);
+        }
+        if self.remembered_presentations.contains_key(&(replica_id, disclosure_epoch)) {
+            return Ok(());
+        }
+        if self.remembered_presentations.keys().any(|(id, _)| *id == replica_id) {
+            return Err(ReplicaRuntimeError::StaleDisclosureEpoch);
+        }
+        Err(ReplicaRuntimeError::UnknownEntity)
     }
 
     fn remove_with_epoch(
@@ -1097,6 +1137,10 @@ impl SelectiveReplicaRuntime {
             public_events: std::mem::take(&mut self.last_injections.public_events),
             external_effects: std::mem::take(&mut self.last_injections.external_effects),
             memory_directives: std::mem::take(&mut self.memory_directives),
+            remembered_presentations: self.remembered_presentations.iter()
+                .filter(|(_, presentation)| !presentation.is_empty())
+                .map(|(key, presentation)| (*key, presentation.clone()))
+                .collect(),
         }
     }
 
@@ -1106,6 +1150,14 @@ impl SelectiveReplicaRuntime {
 
     pub fn take_accepted_inputs(&mut self) -> Vec<TeamAcceptedInput> {
         std::mem::take(&mut self.last_injections.accepted_inputs)
+    }
+
+    /// Drain only one-shot damage after stepping, without cloning the disclosed world.
+    pub fn take_damage_presentation_effects(&mut self) -> Vec<SanitizedExternalEffect> {
+        let (damage, other) = std::mem::take(&mut self.last_injections.external_effects)
+            .into_iter().partition(|effect| effect.effect_kind == super::FactKind::DirectCombat as u32);
+        self.last_injections.external_effects = other;
+        damage
     }
 
     pub fn apply_verified_rebase(

@@ -414,11 +414,25 @@ fn route_input(
                     omoba_sim::Fixed64::from_raw(v.y as i64),
                 )
             });
-            item_q.requests.push(crate::comp::PendingItemUse {
-                item_slot: i.item_slot,
-                target_pos,
-                target_entity: i.target_entity,
+            item_q.requests.push(crate::comp::PendingItemAction::Use(
+                crate::comp::PendingItemUse {
+                    item_slot: i.item_slot,
+                    target_pos,
+                    target_entity: i.target_entity,
+                    owner_pid: player_id,
+                },
+            ));
+        }
+        Some(PlayerInputEnum::ItemBuy(i)) => {
+            item_q.requests.push(crate::comp::PendingItemAction::Shop {
                 owner_pid: player_id,
+                command: crate::runtime::shop::ShopCommand::Buy(i.item_id),
+            });
+        }
+        Some(PlayerInputEnum::ItemSell(i)) => {
+            item_q.requests.push(crate::comp::PendingItemAction::Shop {
+                owner_pid: player_id,
+                command: crate::runtime::shop::ShopCommand::Sell(i.item_slot as usize),
             });
         }
         Some(PlayerInputEnum::DebugSpawnCreep(d)) => {
@@ -450,6 +464,8 @@ fn route_input(
                 );
             }
         }
+        // Authority MobaMatch consumes Recall before dispatch; other modes do not support it.
+        Some(PlayerInputEnum::Recall(_)) => {}
         None => {
             log::warn!(
                 "player_input_tick: pid={} tick={} input action is None (malformed proto?)",

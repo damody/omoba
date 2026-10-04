@@ -1,6 +1,6 @@
 //! Shared, uncapped deterministic simulation driver.
 //!
-//! Both profiles execute the same authoritative ECS phases. The coarse profile
+//! All profiles execute the same authoritative ECS phases. The coarse profile
 //! changes only elapsed simulation time per tick; it never skips systems and it
 //! never sleeps. Consequently 240 ticks/wall-second is an informational
 //! throughput measurement, not a pass condition or a 240 Hz simulation clock.
@@ -21,6 +21,7 @@ use crate::runtime::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SimulationTickProfile {
+    Production60Hz,
     Production120Hz,
     Coarse15Hz,
 }
@@ -28,6 +29,7 @@ pub enum SimulationTickProfile {
 impl SimulationTickProfile {
     pub const fn ticks_per_game_second(self) -> u32 {
         match self {
+            Self::Production60Hz => 60,
             Self::Production120Hz => 120,
             Self::Coarse15Hz => 15,
         }
@@ -46,6 +48,7 @@ impl SimulationTickProfile {
 pub struct SimulationTickResult {
     pub tick: u64,
     pub events: RuntimeEvents,
+    pub facts: Vec<crate::runtime::OrderedFact>,
 }
 
 pub struct SimulationDriver {
@@ -107,6 +110,17 @@ impl SimulationDriver {
             );
         }
 
+        if !crate::runtime::begin_moba_match_tick(world) {
+            world.write_resource::<PendingPlayerInputs>().inputs.clear();
+            return Ok(SimulationTickResult {
+                tick: self.tick,
+                events: Vec::new(),
+                facts: world
+                    .read_resource::<crate::runtime::ObservableFactBuffer>()
+                    .drain_ordered()
+                    .map_err(|error| err_msg(format!("inactive fact reduce failed: {error:?}")))?,
+            });
+        }
         self.dispatcher.dispatch(world);
         world.maintain();
 
@@ -140,17 +154,27 @@ impl SimulationDriver {
         drain_pending_tower_ability_casts(world);
         let scaled_dt = world.read_resource::<DeltaTime>().0;
         tick_tower_abilities(world, scaled_dt);
-        drain_pending_tower_ability_callbacks(world, &self.scripts, self.tick);
-        run_script_dispatch(world, &self.scripts, self.tick, scaled_dt);
+        let master_seed = world.read_resource::<crate::comp::MasterSeed>().0;
+        drain_pending_tower_ability_callbacks(world, &self.scripts, master_seed);
+        run_script_dispatch(world, &self.scripts, master_seed, scaled_dt);
 
         let mut sink = RuntimeEventVecSink::default();
         process_outcomes(world, &mut sink)?;
         world.maintain();
         events.append(&mut sink.events);
 
+        crate::runtime::finish_moba_match_tick(world);
+        events.extend(std::mem::take(
+            &mut *world.write_resource::<RuntimeEvents>(),
+        ));
+        let facts = world
+            .read_resource::<crate::runtime::ObservableFactBuffer>()
+            .drain_ordered()
+            .map_err(|error| err_msg(format!("headless fact reduce: {error:?}")))?;
         Ok(SimulationTickResult {
             tick: self.tick,
             events,
+            facts,
         })
     }
 }
@@ -162,6 +186,7 @@ mod tests {
     #[test]
     fn fixed_profiles_sum_to_exactly_one_game_second() {
         for profile in [
+            SimulationTickProfile::Production60Hz,
             SimulationTickProfile::Production120Hz,
             SimulationTickProfile::Coarse15Hz,
         ] {
@@ -197,6 +222,11 @@ mod tests {
 
         // Representative attack, DoT, pulse/cooldown and spawn intervals.
         for interval_raw in [51i64, 128, 205, 341] {
+            assert_eq!(
+                drain_one_second(SimulationTickProfile::Production60Hz, interval_raw),
+                drain_one_second(SimulationTickProfile::Production120Hz, interval_raw),
+                "60Hz interval_raw={interval_raw}"
+            );
             assert_eq!(
                 drain_one_second(SimulationTickProfile::Coarse15Hz, interval_raw),
                 drain_one_second(SimulationTickProfile::Production120Hz, interval_raw),
