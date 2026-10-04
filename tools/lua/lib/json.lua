@@ -65,9 +65,14 @@ local function quote(value)
 end
 
 local function is_array(value)
+  if getmetatable(value) and getmetatable(value).__json_object then return false end
   local max,count=0,0
   for key in pairs(value) do if type(key)~='number' or key<1 or key%1~=0 then return false end; max=math.max(max,key);count=count+1 end
   return max==count,max
+end
+
+function M.object(value)
+  return setmetatable(value or {}, {__json_object = true})
 end
 
 function M.encode(value)

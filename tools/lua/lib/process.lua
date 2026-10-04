@@ -19,7 +19,17 @@ function M.assert_identity(pid,expected)
 end
 function M.wait(pid,timeout_ms) return host.call('wait',{pid=pid,timeout_ms=timeout_ms or 5000}).exited end
 function M.stop(pid,expected) if not M.inspect(pid) then return false end;host.call('stop',{pid=pid,expected_exe=path.absolute(expected)});return true end
-function M.graceful_stop(pid,expected,timeout_ms)if not M.inspect(pid)then return false end;M.assert_identity(pid,expected);host.call('close_window',{pid=pid});if not M.wait(pid,timeout_ms or 5000)then M.stop(pid,expected)end;return true end
+function M.graceful_stop(pid,expected,timeout_ms)
+  if not M.inspect(pid) then return false end
+  M.assert_identity(pid,expected)
+  host.call('close_window',{pid=pid})
+  local deadline=timeout_ms or 5000
+  if not M.wait(pid,deadline) then
+    M.stop(pid,expected)
+    assert(M.wait(pid,deadline),'process remained after stop: '..pid)
+  end
+  return true
+end
 function M.poll_ready(pid,timeout_ms,predicate,label)
   local value=time.poll(timeout_ms,100,function() assert(M.inspect(pid),(label or 'process')..' exited before ready');return predicate() end)
   assert(value,(label or 'process')..' ready timeout');return value

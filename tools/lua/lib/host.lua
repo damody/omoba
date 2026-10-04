@@ -1,6 +1,7 @@
 local json = require("tools.lua.lib.json")
 local path = require("tools.lua.lib.path")
 local platform = require("tools.lua.lib.platform")
+local lfs = require("lfs")
 local M = {}
 
 local root = path.repo_root()
@@ -32,15 +33,29 @@ end
 
 function M.call(operation, params)
   ensure()
-  local temporary = path.join(os.getenv("TEMP") or os.getenv("TMP") or root,
-    string.format("omoba-lua-host-%d-%06d.json", os.time(), math.random(0,999999)))
+  -- Nested Lua processes can repeat time/random values. Reserve an exclusive
+  -- directory atomically, not a check-then-write request filename.
+  local prefix = path.join(os.getenv("TEMP") or os.getenv("TMP") or root,
+    string.format("omoba-lua-host-%d-%06d", os.time(), math.random(0,999999)))
+  local reserved
+  for attempt = 1, 1000 do
+    local candidate = prefix .. '-' .. attempt
+    local made, err = lfs.mkdir(candidate)
+    if made then reserved = candidate; break end
+    assert(path.exists(candidate), 'cannot reserve Lua host directory: ' .. tostring(err))
+  end
+  assert(reserved, 'Lua host temporary directory reservation exhausted')
+  local temporary = path.join(reserved, 'request.json')
   local response_file = temporary .. ".response"
   path.write(temporary, json.encode({version=1,operation=operation,params=params or {}}), false)
   local ok, _, code = os.execute(path.quote(executable) .. " " .. path.quote(temporary)
     .. " " .. path.quote(response_file))
   local output = path.is_file(response_file) and path.read(response_file) or ""
   assert(os.remove(temporary), "failed to remove Lua host request: " .. temporary)
-  assert(os.remove(response_file), "failed to remove Lua host response: " .. response_file)
+  if path.exists(response_file) then
+    assert(os.remove(response_file), "failed to remove Lua host response: " .. response_file)
+  end
+  assert(lfs.rmdir(reserved), 'failed to remove owned Lua host directory: ' .. reserved)
   local decoded_ok, response = pcall(json.decode, output)
   assert(decoded_ok, "invalid omoba-lua-host response: " .. output)
   assert(ok and code == 0 and response.ok, response.error or ("omoba-lua-host " .. operation .. " failed"))
