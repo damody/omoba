@@ -24,6 +24,30 @@ pub struct MobaMapConst {
     pub lane_length: i32,
     pub tower_offset: i32,
     pub lanes: &'static [MobaLaneConst],
+    pub jungle_camps: &'static [MobaJungleConst],
+    pub terrain: &'static [MobaTerrainConst],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaTerrainConst {
+    pub id: &'static str,
+    pub min: (i32, i32),
+    pub max: (i32, i32),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaJungleConst {
+    pub id: &'static str,
+    pub position: (i32, i32),
+    pub hp: i32,
+    pub damage: i32,
+    pub move_speed: i32,
+    pub attack_range: i32,
+    pub leash_radius: i32,
+    pub attack_interval_seconds: i32,
+    pub respawn_seconds: i32,
+    pub gold: u32,
+    pub xp: u32,
 }
 
 /// Shared passive MOBA catalog compiled from Lua. Full price includes recipe

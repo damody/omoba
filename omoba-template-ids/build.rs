@@ -171,6 +171,16 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
             for [x,y] in &lane.waypoints { out.push_str(&format!("({x},{y}),")); }
             out.push_str("] },\n");
         }
+        out.push_str("], jungle_camps: &[\n");
+        for c in &map.jungle_camps {
+            out.push_str(&format!("MobaJungleConst {{ id: {:?}, position: ({},{}), hp: {}, damage: {}, move_speed: {}, attack_range: {}, leash_radius: {}, attack_interval_seconds: {}, respawn_seconds: {}, gold: {}, xp: {} }},\n",
+                c.id,c.position[0],c.position[1],c.hp,c.damage,c.move_speed,c.attack_range,c.leash_radius,c.attack_interval_seconds,c.respawn_seconds,c.gold,c.xp));
+        }
+        out.push_str("], terrain: &[\n");
+        for terrain in &map.terrain {
+            out.push_str(&format!("MobaTerrainConst {{ id: {:?}, min: ({},{}), max: ({},{}) }},\n",
+                terrain.id,terrain.min[0],terrain.min[1],terrain.max[0],terrain.max[1]));
+        }
         out.push_str("] },\n");
     }
     out.push_str("];\npub fn moba_map_by_name(id: &str) -> Option<&'static MobaMapConst> { MOBA_MAPS.iter().find(|map| map.id == id) }\n");

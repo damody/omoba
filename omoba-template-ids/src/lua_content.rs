@@ -65,6 +65,34 @@ pub(crate) struct MobaMapEntry {
     pub(crate) tower_offset: i32,
     pub(crate) base_unlock: String,
     pub(crate) lanes: Vec<MobaLaneEntry>,
+    #[serde(default)]
+    pub(crate) jungle_camps: Vec<MobaJungleEntry>,
+    #[serde(default)]
+    pub(crate) terrain: Vec<MobaTerrainEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaTerrainEntry {
+    pub(crate) id: String,
+    pub(crate) min: [i32; 2],
+    pub(crate) max: [i32; 2],
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaJungleEntry {
+    pub(crate) id: String,
+    pub(crate) position: [i32; 2],
+    pub(crate) hp: i32,
+    pub(crate) damage: i32,
+    pub(crate) move_speed: i32,
+    pub(crate) attack_range: i32,
+    pub(crate) leash_radius: i32,
+    pub(crate) attack_interval_seconds: i32,
+    pub(crate) respawn_seconds: i32,
+    pub(crate) gold: u32,
+    pub(crate) xp: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -86,6 +114,18 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
             || map.base_unlock != "all_lane_towers" || map.lanes.len() != 3
         { return Err(format!("invalid MOBA map '{}'", map.id)); }
         let mut lanes = BTreeSet::new();
+        let mut camps = BTreeSet::new();
+        if map.jungle_camps.len() > 32 { return Err("MOBA map exceeds 32 jungle camps".into()); }
+        for camp in &map.jungle_camps {
+            if !valid_id(&camp.id) || !camps.insert(&camp.id)
+                || camp.position.iter().any(|v| !(-100_000..=100_000).contains(v))
+                || !(1..=100_000).contains(&camp.hp) || !(1..=10_000).contains(&camp.damage)
+                || !(1..=2000).contains(&camp.move_speed) || !(1..=1000).contains(&camp.attack_range)
+                || !(100..=5000).contains(&camp.leash_radius) || camp.attack_range >= camp.leash_radius
+                || !(1..=10).contains(&camp.attack_interval_seconds) || !(1..=3600).contains(&camp.respawn_seconds)
+                || camp.gold > 10_000 || camp.xp > 10_000
+            { return Err(format!("invalid MOBA jungle camp '{}' in '{}'", camp.id, map.id)); }
+        }
         for lane in &map.lanes {
             if !valid_id(&lane.id) || !lanes.insert(&lane.id)
                 || !(2..=16).contains(&lane.waypoints.len())
@@ -94,6 +134,40 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                 || lane.waypoints.iter().flatten().any(|v| !(-100_000..=100_000).contains(v))
                 || lane.waypoints.windows(2).any(|p| p[0] == p[1])
             { return Err(format!("invalid MOBA lane '{}' in '{}'", lane.id, map.id)); }
+        }
+        let mut terrain_ids = BTreeSet::new();
+        if map.terrain.len() > 32 { return Err(format!("MOBA map '{}' exceeds 32 terrain rectangles",map.id)); }
+        for terrain in &map.terrain {
+            if !valid_id(&terrain.id) || !terrain_ids.insert(&terrain.id)
+                || terrain.min.iter().chain(&terrain.max).any(|v| !(-100_000..=100_000).contains(v))
+                || terrain.min[0]>=terrain.max[0] || terrain.min[1]>=terrain.max[1] {
+                return Err(format!("invalid MOBA terrain '{}' in '{}'",terrain.id,map.id));
+            }
+            use omoba_sim::{Fixed64,Vec2};
+            let p=|[x,y]:[i32;2]| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+            let polygon=[p(terrain.min),p([terrain.max[0],terrain.min[1]]),p(terrain.max),p([terrain.min[0],terrain.max[1]])];
+            for x in [120,map.lane_length-120] {
+                for rank in 0..5 {
+                    let spawn=p([x,rank*60]);
+                    if omoba_sim::terrain::swept_circle_hits_polygon(spawn,spawn,Fixed64::from_i32(20),&polygon) {
+                        return Err(format!("MOBA terrain '{}' blocks hero spawn in '{}'",terrain.id,map.id));
+                    }
+                }
+            }
+            // Until NPC detours are integrated, authored routes and the whole
+            // camp leash must remain clear. Includes base/tower/spawn corridors.
+            for lane in &map.lanes {
+                if lane.waypoints.windows(2).any(|edge| omoba_sim::terrain::swept_circle_hits_polygon(
+                    p(edge[0]),p(edge[1]),Fixed64::from_i32(100),&polygon)) {
+                    return Err(format!("MOBA terrain '{}' blocks lane '{}' in '{}'",terrain.id,lane.id,map.id));
+                }
+            }
+            for camp in &map.jungle_camps {
+                if omoba_sim::terrain::swept_circle_hits_polygon(p(camp.position),p(camp.position),
+                    Fixed64::from_i32(camp.leash_radius+100),&polygon) {
+                    return Err(format!("MOBA terrain '{}' blocks jungle leash '{}' in '{}'",terrain.id,camp.id,map.id));
+                }
+            }
         }
     }
     Ok(())
@@ -1154,6 +1228,76 @@ fn validate_map_creep_references(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn terrain_catalog_validates_corridors_leashes_and_hash() {
+        use super::*;
+        use omoba_content_model::canonical_template_hash;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let maps=load_content(root).unwrap().manifest.moba_maps;
+        assert_eq!(maps[0].terrain.len(),2);
+        for case in 0..11 {
+            let mut bad=maps.clone();
+            match case {
+                0=>bad[0].terrain[0].id="BAD".into(),
+                1=>bad[0].terrain[1].id=bad[0].terrain[0].id.clone(),
+                2=>bad[0].terrain[0].min[0]=i32::MIN,
+                3=>bad[0].terrain[0].max[0]=bad[0].terrain[0].min[0],
+                4=>bad[0].terrain[0].max[1]=bad[0].terrain[0].min[1]-1,
+                5=>{ bad[0].terrain[0].min=[1100,-1];bad[0].terrain[0].max=[1200,1]; },
+                6=>{ bad[0].terrain[0].min=[1100,1300];bad[0].terrain[0].max=[1200,1310]; },
+                7=>{ bad[0].terrain[0].min=[800,700];bad[0].terrain[0].max=[810,710]; },
+                8=>{ bad[0].terrain[0].min=[1300,700];bad[0].terrain[0].max=[1310,710]; },
+                9=>bad[0].terrain=vec![bad[0].terrain[0].clone();33],
+                10=>{
+                    for lane in &mut bad[0].lanes { lane.waypoints=vec![[0,0],[2400,0]]; }
+                    bad[0].terrain=vec![MobaTerrainEntry { id:"spawn_wall".into(),min:[110,230],max:[130,250] }];
+                },
+                _=>unreachable!(),
+            }
+            assert!(validate_moba_maps(&bad).is_err(),"terrain case {case}");
+        }
+        let before=canonical_template_hash(&serde_json::to_value(&maps).unwrap()).unwrap();
+        let mut changed=maps.clone();changed[0].terrain[0].max[0]+=1;
+        assert!(validate_moba_maps(&changed).is_ok());
+        assert_ne!(before,canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
+        let raw=serde_json::to_value(&maps[0].terrain[0]).unwrap();
+        for (key,value) in [("min",serde_json::json!([1.5,2])),("max",serde_json::json!([1,2,3])),("typo",serde_json::json!(1))] {
+            let mut bad=raw.clone();bad[key]=value;
+            assert!(serde_json::from_value::<MobaTerrainEntry>(bad).is_err());
+        }
+        let mut legacy=serde_json::to_value(&maps[0]).unwrap();legacy.as_object_mut().unwrap().remove("terrain");
+        assert!(serde_json::from_value::<MobaMapEntry>(legacy).unwrap().terrain.is_empty());
+    }
+    #[test]
+    fn jungle_catalog_rejects_bad_values_and_hashes_every_rule() {
+        use super::*;
+        use omoba_content_model::canonical_template_hash;
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let maps = load_content(root).unwrap().manifest.moba_maps;
+        assert_eq!(maps[0].jungle_camps.len(), 2);
+        for case in 0..13 {
+            let mut bad = maps.clone();
+            let c = &mut bad[0].jungle_camps[0];
+            match case {
+                0 => c.id = "BAD".into(), 1 => c.hp = 0, 2 => c.damage = -1,
+                3 => c.move_speed = 0, 4 => c.attack_range = 5000, 5 => c.leash_radius = 0,
+                6 => c.attack_interval_seconds = 0, 7 => c.respawn_seconds = 0,
+                8 => c.gold = 10_001, 9 => c.xp = 10_001, 10 => c.position[0] = i32::MAX,
+                11 => { bad[0].jungle_camps[1].id = bad[0].jungle_camps[0].id.clone(); },
+                12 => { bad[0].jungle_camps = vec![bad[0].jungle_camps[0].clone();33]; },
+                _ => unreachable!(),
+            }
+            assert!(validate_moba_maps(&bad).is_err(), "camp case {case}");
+        }
+        let before = canonical_template_hash(&serde_json::to_value(&maps).unwrap()).unwrap();
+        let mut changed = maps.clone(); changed[0].jungle_camps[0].gold += 1;
+        assert_ne!(before, canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
+        let raw = serde_json::to_value(&maps[0].jungle_camps[0]).unwrap();
+        for (key,value) in [("hp",serde_json::json!(1.5)),("typo",serde_json::json!(1)),("gold",serde_json::json!(-1))] {
+            let mut bad = raw.clone(); bad[key] = value;
+            assert!(serde_json::from_value::<MobaJungleEntry>(bad).is_err());
+        }
+    }
     #[test]
     fn moba_map_validation_rejects_bad_routes_before_generation() {
         use super::*;

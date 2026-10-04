@@ -21,11 +21,13 @@ return function(ctx)
           attach_policy = "AttachToOwner",
           attach_socket = "spine_03",
           effect_path = "/Game/Effects/Buffs/VFX_SniperMode.VFX_SniperMode",
+          ability_binding = { ability_id = "sniper_mode", mode = "toggle" },
           lifecycle_events = { "added", "removed", "refreshed", "updated" },
         },
         animation_overlay = {
           overlay = "sniper_mode",
           priority = 100,
+          locomotion_variant_id = 2,
           locomotion = {
             walk = "sniper_walk",
           },
@@ -41,6 +43,7 @@ return function(ctx)
           attach_policy = "AttachToOwner",
           attach_socket = "weapon_r",
           effect_path = "/Game/Effects/Buffs/VFX_ThreeStage.VFX_ThreeStage",
+          ability_binding = { ability_id = "three_stage_technique", mode = "transform", multi_shot_count = 3 },
         },
         animation_overlay = {
           overlay = "three_stage",
