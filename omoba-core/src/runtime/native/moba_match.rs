@@ -8,6 +8,9 @@ use omoba_sim::{Fixed64, Vec2};
 use specs::{Builder, Entity, World, WorldExt};
 
 use crate::comp::*;
+mod jungle;
+pub use jungle::MobaJungleCamp;
+pub(crate) use jungle::record_moba_jungle_damage;
 
 /// Global public HUD metric, not an entity reference or private match resource.
 pub const SINGLE_LANE_DELTA_METRIC_ID: u64 = 0x4d4f424144543031;
@@ -368,6 +371,7 @@ pub struct MobaMatch {
     pub lane_towers: Vec<[Option<Entity>; 2]>,
     routes: Vec<[Vec<Vec2>; 2]>,
     pub bases: [Option<Entity>; 2],
+    pub jungle_camps: Vec<MobaJungleCamp>,
     assist_ledger: super::moba_assist::AssistLedger,
     next_wave_at: Fixed64,
     units: BTreeMap<u64, LaneUnit>,
@@ -387,7 +391,7 @@ impl MobaMatch {
     }
 
     pub fn owns_npc_combat(&self, entity: Entity) -> bool {
-        self.units
+        self.jungle_camps.iter().any(|camp| camp.entity == Some(entity)) || self.units
             .get(&entity_key(entity))
             .is_some_and(|unit| matches!(unit.role, LaneRole::Creep | LaneRole::Tower))
     }
@@ -598,10 +602,19 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         lane_towers: vec![[None;2]; routes.len()],
         routes,
         bases: [None; 2],
+        jungle_camps: Vec::new(),
         assist_ledger: super::moba_assist::AssistLedger::default(),
         next_wave_at: Fixed64::ZERO,
         units: BTreeMap::new(),
     };
+    if let Some(map) = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name) {
+        *world.write_resource::<BlockedRegions>() =
+            crate::runtime::moba_map_layout::compiled_blocked_regions(map);
+    }
+    world.write_resource::<crate::runtime::TeamVisibilityRuntime>().fog_geometry =
+        state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
+            .map(crate::runtime::fog_grid::FogGridGeometry::from_map)
+            .transpose().map_err(err_msg)?;
     for team in 0..2 {
         state.spawn_hero(world, team);
         for lane in 0..state.routes.len() {
@@ -612,6 +625,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         state.bases[team] = Some(state.spawn_structure(world, team, LaneRole::Base, 0));
     }
     for index in 2..state.heroes.len() { state.spawn_hero(world, index); }
+    jungle::setup(world, &mut state);
     *world.write_resource::<GameMode>() = GameMode::Moba;
     world.write_resource::<MasterSeed>().0 = state.config.seed;
     world.write_resource::<CurrentCreepWave>().is_running = false;
@@ -926,9 +940,11 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         state.spawn_wave(world);
         state.next_wave_at += state.config.wave_interval;
     }
+    jungle::tick(world, &mut state, dt);
     // Units and decisions are always reduced in (entity ID, generation) order.
     let positions = world.read_storage::<Pos>();
     let properties = world.read_storage::<CProperty>();
+    let regions = world.read_resource::<BlockedRegions>();
     let mut movement = Vec::new();
     let mut damage = Vec::new();
     let units: Vec<_> = state.units.values().cloned().collect();
@@ -1003,7 +1019,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                     let distance = diff.length();
                     if distance > Fixed64::ZERO { source_pos + diff * (step.min(distance) / distance) }
                     else { source_pos }
-                } else { omoba_sim::navigation::step_toward(source_pos,destination,step) }
+                } else { crate::tick::hero_command_tick::static_step_toward(source_pos,destination,step,
+                    Fixed64::from_i32(20), &regions) }
             } else if state.config.map_id.is_none() {
                 // Preserve the previously verified straight-lane integration.
                 let destination = position(&state.config,1 - unit.team as usize,Fixed64::ZERO);
@@ -1012,14 +1029,15 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                 if distance > Fixed64::ZERO { source_pos + diff * (step.min(distance) / distance) }
                 else { source_pos }
             } else {
-                omoba_sim::navigation::advance_route(&state.routes[unit.lane][unit.team as usize],
-                    &mut tracked.next_waypoint,source_pos,step)
+                crate::tick::hero_command_tick::static_advance_route(&state.routes[unit.lane][unit.team as usize],
+                    &mut tracked.next_waypoint,source_pos,step,Fixed64::from_i32(20), &regions)
             };
             if pos != source_pos { movement.push((unit.entity,pos)); }
         }
     }
     drop(properties);
     drop(positions);
+    drop(regions);
     for (entity, pos) in movement {
         if let Some(current) = world.write_storage::<Pos>().get_mut(entity) {
             current.0 = pos;
@@ -1160,6 +1178,7 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
     let Some(mut state) = world.remove::<MobaMatch>() else {
         return;
     };
+    jungle::death(world, &mut state, entity);
     if let Some(unit) = state.units.remove(&entity_key(entity)) {
         state.assist_ledger.retire(crate::runtime::canonical_entity_id(entity));
         let team = unit.team as usize;
@@ -1226,6 +1245,7 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
 pub fn moba_damage_allowed(world: &World, target: Entity) -> bool {
     world.try_fetch::<MobaMatch>().is_none_or(|state| {
         state.phase == MobaMatchPhase::Playing
+            && !state.jungle_camps.iter().any(|camp| camp.entity == Some(target) && camp.returning)
             && state.units.get(&entity_key(target)).is_none_or(|unit| {
                 unit.role != LaneRole::Base || state.base_unlocked(unit.team as usize)
             })
@@ -1493,6 +1513,13 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     use sha2::{Digest, Sha256};
     let state = world.read_resource::<MobaMatch>();
     let mut hash = Sha256::new();
+    hash.update(format!("|jungle:{:?}", state.jungle_camps));
+    for camp in &state.jungle_camps {
+        if let Some(entity) = camp.entity {
+            hash_json(&mut hash, &serde_json::to_value((world.read_storage::<Pos>().get(entity),
+                world.read_storage::<CProperty>().get(entity))).expect("jungle replay JSON"));
+        }
+    }
     hash.update(format!("|map:{:?}|routes:{:?}|towers:{:?}",state.config.map_id,state.routes,state.lane_towers));
     hash.update(format!(
         "{:?}|{}|{}|{}|{}",

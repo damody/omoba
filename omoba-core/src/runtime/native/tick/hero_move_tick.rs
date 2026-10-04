@@ -35,8 +35,7 @@ pub struct HeroMoveWrite<'a> {
 #[derive(Default)]
 pub struct Sys;
 
-/// 檢查若單位移動到 `new_center` 是否會撞進任何其他有 CollisionRadius 的實體。
-/// Region 阻擋透過 blocker entities 一起走 Searcher 查詢，不再需要 polygon 測試。
+/// Check a stationary circle against public terrain, never hidden dynamic units.
 pub(crate) fn hits_any(
     new_center: SimVec2,
     radius: Fixed64,
@@ -45,47 +44,55 @@ pub(crate) fn hits_any(
     _self_entity: specs::Entity,
     regions: &BlockedRegions,
 ) -> bool {
+    path_hits_regions(new_center, new_center, radius, regions)
+}
+
+/// Public geometry only; hidden dynamic entities must not alter prediction.
+pub(crate) fn path_hits_regions(
+    from: SimVec2, to: SimVec2, radius: Fixed64, regions: &BlockedRegions,
+) -> bool {
     // Hidden dynamic units cannot participate in player-view lockstep path
     // prediction. MOBA hero navigation therefore collides with public static
     // map geometry only; combat/targeting still uses the disclosed Searcher.
-    let center = vek::Vec2::new(
-        new_center.x.to_f32_for_render(),
-        new_center.y.to_f32_for_render(),
-    );
-    let radius_sq = radius.to_f32_for_render().powi(2);
     for region in &regions.0 {
-        if crate::runtime::geometry::point_in_polygon(center, &region.points) {
-            return true;
+        if region.points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { return true; }
+        // Legacy map/metadata floats are quantized at the static data boundary.
+        // All subsequent geometry and radius comparisons use shared integer math.
+        let quantize = |p: &vek::Vec2<f32>| SimVec2::new(
+            Fixed64::from_raw((f64::from(p.x) * 1024.0).round() as i64),
+            Fixed64::from_raw((f64::from(p.y) * 1024.0).round() as i64),
+        );
+        // Generated rectangles (and legacy quads) need no per-edge heap allocation.
+        if let [a,b,c,d] = region.points.as_slice() {
+            if omoba_sim::terrain::swept_circle_hits_polygon(from,to,radius,
+                &[quantize(a),quantize(b),quantize(c),quantize(d)]) { return true; }
+            continue;
         }
-        for index in 0..region.points.len() {
-            let a = region.points[index];
-            let b = region.points[(index + 1) % region.points.len()];
-            if crate::runtime::geometry::point_segment_dist_sq(center, a, b) <= radius_sq {
-                return true;
-            }
-        }
+        let polygon: Vec<_> = region.points.iter().map(quantize).collect();
+        if omoba_sim::terrain::swept_circle_hits_polygon(from,to,radius,&polygon) { return true; }
     }
     false
 }
 
-/// 計算避開其他單位的下一步位置：嘗試直接走 → 只走 X → 只走 Y → 停。
+/// Sweep public terrain: try direct movement, X, Y, then stop.
 /// 回傳 (新位置, 是否抵達目標範圍)。
 pub fn advance_with_collision(
     pos: SimVec2,
     target: SimVec2,
     step: Fixed64,
     radius: Fixed64,
-    searcher: &Searcher,
-    radii: &ReadStorage<CollisionRadius>,
-    self_entity: specs::Entity,
+    _searcher: &Searcher,
+    _radii: &ReadStorage<CollisionRadius>,
+    _self_entity: specs::Entity,
     regions: &BlockedRegions,
 ) -> (SimVec2, bool) {
+    if step <= Fixed64::ZERO { return (pos, false); }
     let diff = target - pos;
     let distance = diff.length();
     // 0.5 = 固定64::from_raw(512)
     let arrived_eps = Fixed64::from_raw(512);
     if distance < arrived_eps {
-        return (target, true);
+        return if !path_hits_regions(pos,target,radius,regions) { (target,true) } else { (pos,false) };
     }
     // Normalized() 在內部處理零—但我們已經提前確定了距離 < 0.5。
     let direction = diff.normalized();
@@ -93,21 +100,21 @@ pub fn advance_with_collision(
     let one = Fixed64::ONE;
     let snap_threshold = if step > one { step } else { one };
     if distance <= snap_threshold {
-        if !hits_any(target, radius, searcher, radii, self_entity, regions) {
+        if !path_hits_regions(pos, target, radius, regions) {
             return (target, true);
         }
         return (pos, false);
     }
     let full = pos + direction * step;
-    if !hits_any(full, radius, searcher, radii, self_entity, regions) {
+    if !path_hits_regions(pos, full, radius, regions) {
         return (full, false);
     }
     let only_x = SimVec2::new(pos.x + direction.x * step, pos.y);
-    if !hits_any(only_x, radius, searcher, radii, self_entity, regions) {
+    if only_x != pos && !path_hits_regions(pos, only_x, radius, regions) {
         return (only_x, false);
     }
     let only_y = SimVec2::new(pos.x, pos.y + direction.y * step);
-    if !hits_any(only_y, radius, searcher, radii, self_entity, regions) {
+    if only_y != pos && !path_hits_regions(pos, only_y, radius, regions) {
         return (only_y, false);
     }
     (pos, false)
@@ -344,6 +351,58 @@ mod tests {
             .build();
 
         (world, hero)
+    }
+
+    fn thin_wall(world: &mut World) {
+        world.write_resource::<BlockedRegions>().0.push(BlockedRegion {
+            name: "thin-wall".into(),
+            points: vec![vek::Vec2::new(50.0,-30.0),vek::Vec2::new(51.0,-30.0),
+                vek::Vec2::new(51.0,30.0),vek::Vec2::new(50.0,30.0)],
+        });
+    }
+
+    #[test]
+    fn collision_sweeps_large_steps_and_never_moves_on_zero_budget() {
+        let (mut world, hero)=movement_world();
+        thin_wall(&mut world);
+        let searcher=world.read_resource::<Searcher>();
+        let radii=world.read_storage::<CollisionRadius>();
+        let regions=world.read_resource::<BlockedRegions>();
+        let target=SimVec2::new(Fixed64::from_i32(100),Fixed64::ZERO);
+        for step in [Fixed64::from_i32(100),Fixed64::ZERO,-Fixed64::ONE] {
+            assert_eq!(advance_with_collision(SimVec2::ZERO,target,step,Fixed64::from_i32(10),
+                &searcher,&radii,hero,&regions),(SimVec2::ZERO,false));
+        }
+        let near=SimVec2::new(Fixed64::from_i32(1),Fixed64::ZERO);
+        assert_eq!(advance_with_collision(SimVec2::ZERO,near,Fixed64::ZERO,Fixed64::ONE,
+            &searcher,&radii,hero,&regions),(SimVec2::ZERO,false));
+    }
+
+    #[test]
+    fn public_terrain_move_routes_around_thin_wall_at_60hz() {
+        let run=|| {
+            let (mut world,hero)=movement_world();
+            thin_wall(&mut world);
+            world.write_resource::<DeltaTime>().0=Fixed64::from_raw(1024/60);
+            let target=SimVec2::new(Fixed64::from_i32(128),Fixed64::ZERO);
+            world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+                owner_pid:1,queued:false,kind:PendingHeroCommandKind::MoveTo { pos:target },
+            });
+            crate::runtime::drain_pending_moves(&mut world);
+            let mut trace=Vec::new();
+            for tick in 1..=600 {
+                world.write_resource::<Tick>().0=tick;
+                crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&world);
+                crate::comp::run_now::<Sys>(&world);
+                world.maintain();
+                let pos=world.read_storage::<Pos>().get(hero).unwrap().0;
+                assert!(!path_hits_regions(pos,pos,Fixed64::from_i32(10),&world.read_resource::<BlockedRegions>()));
+                trace.push(pos);
+            }
+            assert!((trace.last().unwrap().to_owned()-target).length()<Fixed64::ONE,"route did not finish: {:?}",trace.last());
+            trace
+        };
+        assert_eq!(run(),run(),"every-tick movement replay");
     }
 
     #[test]

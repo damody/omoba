@@ -1,5 +1,5 @@
 use crate::comp::*;
-use crate::tick::hero_move_tick::hits_any;
+use crate::tick::hero_move_tick::path_hits_regions;
 use omoba_core::runtime::ability_runtime::BuffStore;
 use omoba_sim::{fixed::SCALE, Fixed64, Vec2 as SimVec2};
 use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, WriteStorage};
@@ -308,16 +308,28 @@ fn plan_next_waypoint(
     from: SimVec2,
     target: SimVec2,
 ) -> Option<SimVec2> {
+    let radius = data.radii.get(entity).map(|r| r.0).unwrap_or_else(|| Fixed64::from_i32(20));
+    static_next_waypoint(from, target, radius, data.regions)
+}
+
+/// Shared bounded, deterministically ordered search over public terrain only.
+/// Heroes preserve their existing grid behavior; NPCs try a clear direct path first.
+pub(crate) fn static_next_waypoint(
+    from: SimVec2,
+    target: SimVec2,
+    radius: Fixed64,
+    regions: &BlockedRegions,
+) -> Option<SimVec2> {
     let start = grid_key(from);
     let goal = grid_key(target);
     if start == goal {
-        return (!position_blocked(data, entity, target)).then_some(target);
+        return (!path_hits_regions(from, target, radius, regions)).then_some(target);
     }
 
     let dx = (goal.x - start.x).abs();
     let dy = (goal.y - start.y).abs();
     if dx > MAX_PATH_GRID_SPAN || dy > MAX_PATH_GRID_SPAN {
-        return Some(target);
+        return (!path_hits_regions(from, target, radius, regions)).then_some(target);
     }
 
     let min_x = start.x.min(goal.x) - PATH_GRID_MARGIN;
@@ -344,12 +356,15 @@ fn plan_next_waypoint(
             if parent.contains_key(&next) {
                 continue;
             }
-            if next != goal && grid_key_blocked(data, entity, next) {
+            if next != goal && path_hits_regions(grid_pos(next), grid_pos(next), radius, regions) {
                 continue;
             }
-            if next == goal && position_blocked(data, entity, target) {
+            if next == goal && path_hits_regions(target, target, radius, regions) {
                 continue;
             }
+            let edge_from = if cur == start { from } else { grid_pos(cur) };
+            let edge_to = if next == goal { target } else { grid_pos(next) };
+            if path_hits_regions(edge_from, edge_to, radius, regions) { continue; }
             parent.insert(next, cur);
             let score = key_target_distance_sq(next, target);
             if score < best_score || (score == best_score && next < best) {
@@ -377,17 +392,37 @@ fn plan_next_waypoint(
     None
 }
 
-fn position_blocked(data: &HeroCommandRead<'_, '_>, entity: specs::Entity, pos: SimVec2) -> bool {
-    let radius = data
-        .radii
-        .get(entity)
-        .map(|r| r.0)
-        .unwrap_or_else(|| Fixed64::from_i32(20));
-    hits_any(pos, radius, data.searcher, data.radii, entity, data.regions)
+/// Never teleport through a blocked edge, including a near-target snap.
+pub(crate) fn static_step_toward(from: SimVec2, target: SimVec2, budget: Fixed64,
+    radius: Fixed64, regions: &BlockedRegions) -> SimVec2 {
+    if budget <= Fixed64::ZERO { return from; }
+    let waypoint = if !path_hits_regions(from, target, radius, regions) { Some(target) }
+        else { static_next_waypoint(from, target, radius, regions) };
+    let Some(waypoint) = waypoint else { return from; };
+    let next = omoba_sim::navigation::step_toward(from, waypoint, budget);
+    if path_hits_regions(from, next, radius, regions) { from } else { next }
 }
 
-fn grid_key_blocked(data: &HeroCommandRead<'_, '_>, entity: specs::Entity, key: GridKey) -> bool {
-    position_blocked(data, entity, grid_pos(key))
+pub(crate) fn static_advance_route(route: &[SimVec2], cursor: &mut usize,
+    from: SimVec2, budget: Fixed64, radius: Fixed64, regions: &BlockedRegions) -> SimVec2 {
+    if budget <= Fixed64::ZERO { return from; }
+    let Some(&target) = route.get(*cursor).or_else(|| route.last()) else { return from; };
+    // Looking only at this tick's tiny proposed step would alternate between
+    // detouring and walking back toward the wall. Keep the full waypoint query.
+    if path_hits_regions(from, target, radius, regions) {
+        let next = static_step_toward(from, target, budget, radius, regions);
+        if next == target && *cursor < route.len() { *cursor += 1; }
+        return next;
+    }
+    let mut proposed_cursor = *cursor;
+    let proposed = omoba_sim::navigation::advance_route(route, &mut proposed_cursor, from, budget);
+    if !path_hits_regions(from, proposed, radius, regions) {
+        *cursor = proposed_cursor;
+        return proposed;
+    }
+    let next = static_step_toward(from, target, budget, radius, regions);
+    if next == target && *cursor < route.len() { *cursor += 1; }
+    next
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -471,6 +506,47 @@ mod tests {
     use specs::{Builder, World, WorldExt};
 
     #[test]
+    fn npc_static_navigation_detours_and_returns_at_60hz() {
+        let from = SimVec2::new(Fixed64::ZERO, Fixed64::ZERO);
+        let target = SimVec2::new(Fixed64::from_i32(192), Fixed64::ZERO);
+        let regions = BlockedRegions(vec![BlockedRegion { name: "thin-npc-wall".into(),
+            points: vec![vek::Vec2::new(80.0,-30.0),vek::Vec2::new(81.0,-30.0),
+                vek::Vec2::new(81.0,30.0),vek::Vec2::new(80.0,30.0)] }]);
+        let radius = Fixed64::from_i32(20);
+        let budget = Fixed64::from_i32(240)*Fixed64::from_raw(17);
+        let trace = || {
+            let mut current = from;
+            let mut trace = Vec::new();
+            let mut detoured = false;
+            for destination in [target,from] {
+                for _ in 0..180 {
+                    let next = static_step_toward(current,destination,budget,radius,&regions);
+                    assert!(!path_hits_regions(current,next,radius,&regions));
+                    detoured |= next.y != Fixed64::ZERO;
+                    trace.push(next);
+                    current = next;
+                }
+                assert_eq!(current,destination);
+            }
+            assert!(detoured);
+            trace
+        };
+        assert_eq!(trace(),trace());
+        let mut cursor = 1;
+        let mut current = from;
+        for _ in 0..180 { current = static_advance_route(&[from,target],&mut cursor,current,budget,radius,&regions); }
+        assert_eq!(current,target);
+        assert_eq!(cursor,2);
+        assert_eq!(static_step_toward(from,target,Fixed64::ZERO,radius,&regions),from);
+        assert_eq!(static_step_toward(from,target,-budget,radius,&regions),from);
+        // An enclosed/blocked endpoint is never snapped into, even with excess budget.
+        let inside = SimVec2::new(Fixed64::from_i32(80),Fixed64::ZERO);
+        let next = static_step_toward(from,inside,Fixed64::from_i32(1000),radius,&regions);
+        assert!(!path_hits_regions(from,next,radius,&regions));
+        assert_ne!(next,inside);
+    }
+
+    #[test]
     fn grid_rounding_is_deterministic_for_negative_values() {
         assert_eq!(round_fixed_to_grid(0), 0);
         assert_eq!(round_fixed_to_grid(PATH_GRID_RAW / 2 - 1), 0);
@@ -531,6 +607,38 @@ mod tests {
                     vek::Vec2::new(x as f32 - half, y as f32 + half),
                 ],
             });
+    }
+
+    fn plan_in_world(world: &World, hero: specs::Entity, from: SimVec2, target: SimVec2) -> Option<SimVec2> {
+        let pos=world.read_storage::<Pos>();
+        let factions=world.read_storage::<Faction>();
+        let attacks=world.read_storage::<TAttack>();
+        let radii=world.read_storage::<CollisionRadius>();
+        let searcher=world.read_resource::<Searcher>();
+        let regions=world.read_resource::<BlockedRegions>();
+        let buff_store=world.read_resource::<BuffStore>();
+        let is_buildings=world.read_storage::<IsBuilding>();
+        plan_next_waypoint(&HeroCommandRead { pos:&pos,factions:&factions,attacks:&attacks,
+            radii:&radii,searcher:&searcher,regions:&regions,buff_store:&buff_store,is_buildings:&is_buildings },hero,from,target)
+    }
+
+    #[test]
+    fn planner_checks_edges_not_only_grid_destinations() {
+        let (world,hero)=planner_world();
+        world.write_storage::<CollisionRadius>().insert(hero,CollisionRadius(Fixed64::ONE)).unwrap();
+        world.write_resource::<BlockedRegions>().0.push(BlockedRegion {
+            name:"between-grid-cells".into(),
+            points:vec![vek::Vec2::new(20.0,-5.0),vek::Vec2::new(21.0,-5.0),
+                vek::Vec2::new(21.0,5.0),vek::Vec2::new(20.0,5.0)],
+        });
+        let target=SimVec2::new(Fixed64::from_i32(64),Fixed64::ZERO);
+        let waypoint=plan_in_world(&world,hero,SimVec2::ZERO,target).expect("detour");
+        assert_ne!(waypoint,target);
+        assert!(waypoint.y!=Fixed64::ZERO);
+        assert!(!path_hits_regions(SimVec2::ZERO,waypoint,Fixed64::ONE,&world.read_resource::<BlockedRegions>()));
+        // Same-cell and out-of-grid-budget fallbacks must not bypass terrain.
+        assert!(plan_in_world(&world,hero,SimVec2::ZERO,SimVec2::new(Fixed64::from_i32(30),Fixed64::ZERO)).is_none());
+        assert!(plan_in_world(&world,hero,SimVec2::ZERO,SimVec2::new(Fixed64::from_i32(10000),Fixed64::ZERO)).is_none());
     }
 
     #[test]

@@ -2539,6 +2539,11 @@ fn handle_script_set_asd_interval(world: &mut World, entity: Entity, value: Fixe
 }
 
 fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed64) {
+    if !crate::runtime::moba_damage_allowed(world, target) { return; }
+    // Same authority-settlement boundary as regular Damage. A disclosed MOBA
+    // actor must not locally redo Lua damage (including immune returners).
+    if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>()
+        .is_some_and(|targets| targets.0.contains(&target)) { return; }
     let before = world.read_storage::<CProperty>().get(target).map(|p| p.hp);
     let took_damage = amount > Fixed64::ZERO && before.is_some_and(|hp| hp > Fixed64::ZERO);
     if took_damage {
@@ -2554,6 +2559,8 @@ fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed6
     if applied {
         if took_damage {
             crate::runtime::native::moba_match::record_moba_hero_damage(world, None, target,
+                before.is_some_and(|hp| amount >= hp));
+            crate::runtime::native::moba_match::record_moba_jungle_damage(world, None, target,
                 before.is_some_and(|hp| amount >= hp));
         }
         return;
@@ -2698,6 +2705,22 @@ fn handle_script_start_cooldown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn disclosed_authority_targets_do_not_reapply_lua_direct_damage() {
+        let mut world = World::new();
+        world.register::<CProperty>();
+        let entity = world.create_entity().with(CProperty {
+            hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,
+            def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO,
+        }).build();
+        world.insert(crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets(
+            std::collections::BTreeSet::from([entity])));
+        handle_script_direct_damage(&mut world,entity,Fixed64::from_i32(1000));
+        assert_eq!(world.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(100));
+        world.remove::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>();
+        handle_script_direct_damage(&mut world,entity,Fixed64::from_i32(10));
+        assert_eq!(world.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(90));
+    }
     use crate::runtime::comp::{
         GameMode, PendingTowerAbilityActivationQueue, PendingTowerAbilityCastQueue, PlayerLives,
         TowerAbilityCastResult, TowerAbilityCastResults, TowerActiveAbilityState,
@@ -4439,6 +4462,7 @@ fn handle_damage(
     }
     if took_damage {
         crate::runtime::native::moba_match::record_moba_hero_damage(world, Some(source), target, first_lethal_hit);
+        crate::runtime::native::moba_match::record_moba_jungle_damage(world, Some(source), target, first_lethal_hit);
     }
     if died {
         let mut towers = world.write_storage::<Tower>();

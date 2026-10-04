@@ -83,6 +83,7 @@ pub enum FactionType {
     Enemy,   // 敵對陣營
     Neutral, // 中立陣營
     Ally,    // 友軍陣營
+    HostileNeutral, // MOBA jungle; legacy Neutral remains non-combatant.
 }
 
 /// 賞金類型
@@ -453,6 +454,8 @@ impl Faction {
         }
 
         match (&self.faction_id, &other.faction_id) {
+            (FactionType::HostileNeutral, FactionType::Player | FactionType::Enemy)
+            | (FactionType::Player | FactionType::Enemy, FactionType::HostileNeutral) => true,
             // Opposing authenticated player teams are hostile even when both
             // filtered worlds classify their disclosed actors as Player.
             (FactionType::Player, FactionType::Player) => true,

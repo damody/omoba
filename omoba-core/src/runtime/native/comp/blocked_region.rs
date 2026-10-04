@@ -5,9 +5,11 @@
 //! 碰撞路徑：啟動時用 `blocker_circles_for_polygon` 把每個 polygon 近似成
 //! **大圓填內部 + 小圓貼邊界** 的一組 (中心, 半徑) pair，建成靜態 blocker ECS
 //! entities（含 `Pos + CollisionRadius + RegionBlocker`），推進 Searcher 的 `region`
-//! 索引。移動 tick 透過 `search_collidable` 做圓對圓查詢，統一成單一空間索引路徑。
+//! 索引，供既有場景／空間查詢使用。英雄導航與移動只查公開 polygon，
+//! 使用 omoba-sim 的固定點 swept-circle 檢查整段路徑；不查隱藏動態單位。
 //!
-//! Polygon 原始資料仍留作前端視覺 payload（`("map","regions")` 事件）。
+//! Polygon 原始資料也是 selective replica 的公開靜態 metadata，
+//! 並保留供前端視覺 payload（`("map","regions")` 事件）使用。
 
 use specs::{Component, NullStorage};
 use vek::Vec2;

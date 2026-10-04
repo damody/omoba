@@ -35,6 +35,347 @@ fn three_lane_config() -> SingleLaneConfig {
 }
 
 #[test]
+fn public_terrain_60hz_formal_move_dual_replica_replay() {
+    terrain_formal_move_dual_replica_replay(false);
+}
+
+#[test]
+fn npc_terrain_60hz_lane_and_camp_dual_replica_replay() {
+    use std::collections::BTreeSet;
+    use prost::Message;
+    for seed in [1,42,0x20261004] {
+        let config=SingleLaneConfig { seed,creeps_per_wave:1,wave_interval:Fixed64::from_i32(10_000),..three_lane_config() };
+        let (mut a,mut ad)=world(config.clone(),SimulationTickProfile::Production60Hz);
+        let (mut b,mut bd)=world(config,SimulationTickProfile::Production60Hz);
+        // Explicit geometry/placement fixture, not a generated Lua map acceptance.
+        let rect=|name:&str,x:f32,y:f32| BlockedRegion { name:name.into(),points:vec![
+            vek::Vec2::new(x,y-30.0),vek::Vec2::new(x+1.0,y-30.0),
+            vek::Vec2::new(x+1.0,y+30.0),vek::Vec2::new(x,y+30.0)] };
+        let regions=BlockedRegions(vec![rect("lane-wall",400.0,0.0),rect("camp-wall",750.0,700.0)]);
+        for w in [&mut a,&mut b] {
+            *w.write_resource::<BlockedRegions>()=regions.clone();
+            let hero=hero_pair(w)[0];
+            w.write_storage::<Pos>().get_mut(hero).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(600),Fixed64::from_i32(700));
+            let camp=w.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
+            let mut hit=lethal(hero,camp);
+            if let Outcome::Damage { real,.. }=&mut hit { *real=Fixed64::ONE; }
+            w.write_resource::<Vec<Outcome>>().push(hit);
+            process_outcomes(w,&mut RuntimeEventVecSink::default()).unwrap();
+        }
+        let first=ad.step(&mut a,[]).unwrap(); bd.step(&mut b,[]).unwrap(); project_tick(&mut a,first);
+        let creep=(&a.entities(),&a.read_storage::<Unit>(),&a.read_storage::<Pos>()).join()
+            .find(|(_,u,p)| u.id=="single_lane_creep" && p.0.y==Fixed64::ZERO && p.0.x<Fixed64::from_i32(500)).unwrap().0;
+        let camp=a.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
+        let home=a.read_storage::<Pos>().get(camp).unwrap().0;
+        let allow=TeamProjectorConfig::default().component_allowlist;
+        let mut starts=a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+        for start in starts.values_mut() { start.public_metadata.push(omoba_core::game_proto::DeterministicMetadata {
+            namespace:PUBLIC_BLOCKED_REGIONS_NAMESPACE.into(),key:PUBLIC_BLOCKED_REGIONS_KEY.into(),schema_version:1,
+            value:encode_public_blocked_regions(&regions) }); }
+        let mut replicas:Vec<_>=starts.into_iter().map(|(team,start)| {
+            let replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),BTreeSet::new()).unwrap();
+            let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow.clone(),BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world,&stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team,replica,stepper)
+        }).collect();
+        let (mut lane_detour,mut lane_crossed,mut camp_detour,mut camp_crossed,mut returning)=(false,false,false,false,false);
+        let polygons:Vec<Vec<_>>=regions.0.iter().map(|r|r.points.iter().map(|p|omoba_sim::Vec2::new(
+            Fixed64::from_i32(p.x as i32),Fixed64::from_i32(p.y as i32))).collect()).collect();
+        for index in 0..900 {
+            let inputs=if index==180 { vec![(1,PlayerInput { action:Some(PlayerInputEnum::MoveTo(MoveTo {
+                target:Some(Vec2I {x:120*1024,y:0}),queued:false })) })] } else {vec![]};
+            let accepted=inputs.iter().map(|(player,input)|CanonicalAcceptedInput::from_authoritative_acceptance(
+                1,*player,ad.tick()+1,1,canonical_entity_id(hero_pair(&a)[0]),None,input.encode_to_vec())).collect::<Vec<_>>();
+            let result=ad.step(&mut a,inputs.clone()).unwrap(); bd.step(&mut b,inputs).unwrap();
+            assert_eq!(single_lane_replay_digest(&a),single_lane_replay_digest(&b));
+            let positions=a.read_storage::<Pos>();
+            if let Some(p)=positions.get(creep) { lane_detour |= p.0.y!=Fixed64::ZERO; lane_crossed |= p.0.x>Fixed64::from_i32(450); }
+            let pos=positions.get(camp).unwrap().0;
+            camp_detour |= pos.y!=home.y;
+            camp_crossed |= pos.x<Fixed64::from_i32(730);
+            for entity in [creep,camp] { if let Some(p)=positions.get(entity) { for polygon in &polygons {
+                assert!(!omoba_sim::terrain::swept_circle_hits_polygon(p.0,p.0,Fixed64::from_i32(20),polygon));
+            } } }
+            drop(positions);
+            returning |= a.read_resource::<MobaMatch>().jungle_camps[0].returning;
+            a.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut a,result);
+            let frames=a.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected=a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+            for (team,replica,stepper) in &mut replicas {
+                let frame=frames[team].frame.clone();
+                assert!(frame.post_step.as_ref().unwrap().component_repairs.is_empty());
+                assert!(frame.step.as_ref().unwrap().accepted_inputs.iter().all(|input|input.player_id==*team));
+                assert!(matches!(replica.apply_frame(frame,stepper).unwrap(),FrameApplyResult::Applied {..}));
+                let fresh=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team],allow.clone(),BTreeSet::new()).unwrap();
+                assert_eq!(replica.canonical_team_hash(),fresh.canonical_team_hash(),"NPC seed={seed} team={team} index={index}");
+                assert!(stepper.filtered.world.try_fetch::<MobaMatch>().is_none());
+            }
+        }
+        assert!(lane_detour && lane_crossed && camp_detour && camp_crossed && returning,
+            "seed={seed} lane={lane_detour}/{lane_crossed} camp={camp_detour}/{camp_crossed} return={returning}");
+        assert_eq!(a.read_storage::<Pos>().get(camp).unwrap().0,home);
+        assert_eq!(a.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(450));
+        assert!(!a.read_resource::<MobaMatch>().jungle_camps[0].returning);
+        println!("NPC terrain seed={seed} ticks=900 dual_steps=1800 lane/camp detour and healed return passed");
+    }
+}
+
+#[test]
+fn lua_terrain_60hz_formal_move_dual_replica_replay() {
+    terrain_formal_move_dual_replica_replay(true);
+}
+
+fn terrain_formal_move_dual_replica_replay(compiled: bool) {
+    use std::collections::BTreeSet;
+    use prost::Message;
+    for seed in [1,42,0x20261004] {
+        let config=SingleLaneConfig { seed,creeps_per_wave:1,wave_interval:Fixed64::from_i32(10_000),..three_lane_config() };
+        let (mut a,mut ad)=world(config.clone(),SimulationTickProfile::Production60Hz);
+        let (mut b,mut bd)=world(config,SimulationTickProfile::Production60Hz);
+        // Public terrain fixture; does not inject gameplay position or movement.
+        let start=a.read_storage::<Pos>().get(hero_pair(&a)[0]).unwrap().0;
+        let offset=start.x.raw()/1024;
+        let regions=if compiled { (*a.read_resource::<BlockedRegions>()).clone() } else { BlockedRegions(vec![BlockedRegion { name:"thin-wall".into(),
+            points:vec![vek::Vec2::new((offset+50) as f32,-30.0),vek::Vec2::new((offset+51) as f32,-30.0),
+                vek::Vec2::new((offset+51) as f32,30.0),vek::Vec2::new((offset+50) as f32,30.0)] }]) };
+        *a.write_resource::<BlockedRegions>()=regions.clone();
+        *b.write_resource::<BlockedRegions>()=regions.clone();
+        let first=ad.step(&mut a,[]).unwrap(); bd.step(&mut b,[]).unwrap(); project_tick(&mut a,first);
+        let allow=TeamProjectorConfig::default().component_allowlist;
+        let mut starts=a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+        for start in starts.values_mut() {
+            start.public_metadata.push(omoba_core::game_proto::DeterministicMetadata {
+                namespace:PUBLIC_BLOCKED_REGIONS_NAMESPACE.into(),key:PUBLIC_BLOCKED_REGIONS_KEY.into(),
+                schema_version:1,value:encode_public_blocked_regions(&regions),
+            });
+        }
+        let mut replicas:Vec<_>=starts.into_iter().map(|(team,start)| {
+            let replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),BTreeSet::new()).unwrap();
+            let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow.clone(),BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world,&stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            assert_eq!(stepper.filtered.world.read_resource::<BlockedRegions>().0.len(),regions.0.len());
+            (team,replica,stepper)
+        }).collect();
+        let target=if compiled { omoba_sim::Vec2::new(Fixed64::from_i32(1350),Fixed64::from_i32(1225)) }
+            else { start+omoba_sim::Vec2::new(Fixed64::from_i32(192),Fixed64::ZERO) };
+        let approach=omoba_sim::Vec2::new(Fixed64::from_i32(1050),target.y);
+        let mut detoured=false;
+        for index in 0..if compiled {1200} else {600} {
+            let destination=if compiled && index==0 {approach} else {target};
+            let inputs=if index==0 || (compiled && index==600) { vec![(1,PlayerInput { action:Some(PlayerInputEnum::MoveTo(MoveTo {
+                target:Some(Vec2I { x:destination.x.raw() as i32,y:destination.y.raw() as i32 }),queued:false })) })] } else { vec![] };
+            let accepted=inputs.iter().map(|(player,input)| CanonicalAcceptedInput::from_authoritative_acceptance(
+                1,*player,ad.tick()+1,1,canonical_entity_id(hero_pair(&a)[0]),None,input.encode_to_vec())).collect::<Vec<_>>();
+            let result=ad.step(&mut a,inputs.clone()).unwrap(); bd.step(&mut b,inputs).unwrap();
+            assert_eq!(single_lane_replay_digest(&a),single_lane_replay_digest(&b));
+            let pos=a.read_storage::<Pos>().get(hero_pair(&a)[0]).unwrap().0;
+            if !compiled || index>600 { detoured |= pos.y!=if compiled {target.y} else {start.y}; }
+            if compiled && index==599 { assert!((pos-approach).length()<Fixed64::ONE,"did not approach Lua wall: {pos:?}"); }
+            let radius=a.read_storage::<CollisionRadius>().get(hero_pair(&a)[0]).unwrap().0;
+            for region in &regions.0 {
+            let polygon:Vec<_>=region.points.iter().map(|p|omoba_sim::Vec2::new(
+                Fixed64::from_i32(p.x as i32),Fixed64::from_i32(p.y as i32))).collect();
+            assert!(!omoba_sim::terrain::swept_circle_hits_polygon(pos,pos,radius,&polygon));
+            }
+            a.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut a,result);
+            let frames=a.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected=a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+            for (team,replica,stepper) in &mut replicas {
+                let frame=frames[team].frame.clone();
+                assert!(frame.post_step.as_ref().unwrap().component_repairs.is_empty());
+                assert!(frame.step.as_ref().unwrap().accepted_inputs.iter().all(|input|input.player_id==*team));
+                assert!(matches!(replica.apply_frame(frame,stepper).unwrap(),FrameApplyResult::Applied {..}));
+                let fresh=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team],allow.clone(),BTreeSet::new()).unwrap();
+                assert_eq!(replica.canonical_team_hash(),fresh.canonical_team_hash(),"terrain seed={seed} team={team} index={index}");
+                assert!(stepper.filtered.world.try_fetch::<MobaMatch>().is_none());
+            }
+        }
+        let final_pos=a.read_storage::<Pos>().get(hero_pair(&a)[0]).unwrap().0;
+        assert!(detoured && (final_pos-target).length()<Fixed64::ONE,"terrain route unfinished: {final_pos:?}");
+    }
+}
+
+#[test]
+fn jungle_60hz_aggro_leash_immunity_reward_and_respawn() {
+    let run = || {
+        let (mut w,mut driver) = world(SingleLaneConfig { wave_interval:Fixed64::from_i32(10_000),
+            ..three_lane_config() },SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let hero = hero_pair(&w)[0];
+        let camp = w.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
+        let home = w.read_storage::<Pos>().get(camp).unwrap().0;
+        assert!(w.read_storage::<VisionSource>().get(camp).is_none());
+        let f = w.read_storage::<Faction>().get(camp).unwrap().clone();
+        assert!(f.is_hostile_to(w.read_storage::<Faction>().get(hero).unwrap()));
+        assert!(!Faction::new(FactionType::Neutral,0).is_hostile_to(w.read_storage::<Faction>().get(hero).unwrap()));
+        // Fixture placement only. Combat uses the actual damage/outcome pipeline.
+        w.write_storage::<Pos>().get_mut(hero).unwrap().0 = home + omoba_sim::Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO);
+        let mut hit = lethal(hero,camp);
+        if let Outcome::Damage { real,.. } = &mut hit { *real = Fixed64::from_i32(10); }
+        w.write_resource::<Vec<Outcome>>().push(hit);
+        process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();
+        for _ in 0..20 { driver.step(&mut w,[]).unwrap(); }
+        assert_ne!(w.read_storage::<Pos>().get(camp).unwrap().0,home);
+        w.write_storage::<Pos>().get_mut(hero).unwrap().0 = omoba_sim::Vec2::ZERO;
+        driver.step(&mut w,[]).unwrap();
+        assert!(w.read_resource::<MobaMatch>().jungle_camps[0].returning);
+        assert!(!moba_damage_allowed(&w,camp));
+        let hp = w.read_storage::<CProperty>().get(camp).unwrap().hp;
+        w.write_resource::<Vec<Outcome>>().extend([lethal(hero,camp),Outcome::ScriptDirectDamage { target:camp,amount:Fixed64::from_i32(10_000) }]);
+        process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();
+        assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,hp);
+        for _ in 0..30 { driver.step(&mut w,[]).unwrap(); }
+        assert_eq!(w.read_storage::<Pos>().get(camp).unwrap().0,home);
+        assert_eq!(w.read_storage::<CProperty>().get(camp).unwrap().hp,Fixed64::from_i32(450));
+        let before = w.read_storage::<Gold>().get(hero).unwrap().0;
+        let xp = w.read_storage::<Hero>().get(hero).unwrap().experience;
+        w.write_resource::<Vec<Outcome>>().extend([lethal(hero,camp),lethal(hero,camp)]);
+        process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap();
+        process_outcomes(&mut w,&mut RuntimeEventVecSink::default()).unwrap(); w.maintain();
+        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,before+60);
+        assert_eq!(w.read_storage::<Hero>().get(hero).unwrap().experience,xp+90);
+        assert_eq!(w.read_resource::<MobaMatch>().heroes[0].kills,0);
+        assert!(w.read_resource::<MobaMatch>().jungle_camps[0].entity.is_none());
+        let elapsed = w.read_resource::<MobaMatch>().elapsed;
+        w.write_resource::<GamePause>().is_paused = true;
+        for _ in 0..60 { driver.step(&mut w,[]).unwrap(); }
+        assert_eq!(w.read_resource::<MobaMatch>().elapsed,elapsed);
+        w.write_resource::<GamePause>().is_paused = false;
+        for _ in 0..960 { driver.step(&mut w,[]).unwrap(); }
+        let next = w.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
+        assert_ne!(next,camp); assert_eq!(w.read_resource::<MobaMatch>().jungle_camps[0].respawns,1);
+        assert_eq!(w.read_storage::<CProperty>().get(next).unwrap().hp,Fixed64::from_i32(450));
+        single_lane_replay_digest(&w)
+    };
+    assert_eq!(run(),run());
+}
+
+#[test]
+fn jungle_60hz_formal_inputs_dual_replica_and_every_tick_replay() {
+    use std::collections::BTreeSet;
+    use prost::Message;
+    for seed in [1,42,0x20261004] {
+        let config = SingleLaneConfig { seed,wave_interval:Fixed64::from_i32(10_000),..three_lane_config() };
+        let (mut a,mut ad) = world(config.clone(),SimulationTickProfile::Production60Hz);
+        let (mut b,mut bd) = world(config,SimulationTickProfile::Production60Hz);
+        for w in [&mut a,&mut b] {
+            let hero = hero_pair(w)[0];
+            w.write_storage::<Pos>().get_mut(hero).unwrap().0 = omoba_sim::Vec2::new(Fixed64::from_i32(600),Fixed64::from_i32(700));
+        }
+        let first = ad.step(&mut a,[]).unwrap(); bd.step(&mut b,[]).unwrap(); project_tick(&mut a,first);
+        let allow = TeamProjectorConfig::default().component_allowlist;
+        let starts = a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+        let mut replicas: Vec<_> = starts.into_iter().map(|(team,start)| {
+            let replica = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),BTreeSet::new()).unwrap();
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start,allow.clone(),BTreeSet::new());
+            stepper.script_registry.insert_manifest(crate::get_manifest());
+            populate_ability_registry(&mut stepper.filtered.world,&stepper.script_registry);
+            stepper.bootstrap_membership(replica.world()).unwrap();
+            (team,replica,stepper)
+        }).collect();
+        let original = a.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
+        let mut died = false;
+        let mut returned = false;
+        let mut damage_facts = 0;
+        let mut applied_steps = 0;
+        let mut withdrew_after_kill = false;
+        for index in 0..3000 {
+            let camp = a.read_resource::<MobaMatch>().jungle_camps[0].entity;
+            died |= camp != Some(original);
+            returned |= a.read_resource::<MobaMatch>().jungle_camps[0].returning;
+            let mut inputs = Vec::new();
+            if died && !withdrew_after_kill {
+                withdrew_after_kill = true;
+                inputs.push((1,PlayerInput { action:Some(PlayerInputEnum::MoveTo(MoveTo {
+                    target:Some(Vec2I {x:0,y:0}),queued:false })) }));
+            } else if index == 90 || index == 300 {
+                inputs.push((1,PlayerInput { action:Some(PlayerInputEnum::MoveTo(MoveTo {
+                    target:Some(if index == 90 { Vec2I {x:0,y:0} } else { Vec2I {x:600*1024,y:700*1024} }),queued:false })) }));
+            } else if !died && (index == 0 || index >= 300) && camp.is_some_and(|entity|
+                a.read_resource::<TeamVisibilityRuntime>().teams[&1].index.current.contains(&canonical_entity_id(entity))
+                && (a.read_storage::<Pos>().get(entity).unwrap().0-a.read_storage::<Pos>().get(hero_pair(&a)[0]).unwrap().0).length_squared()
+                    <= Fixed64::from_i32(250)*Fixed64::from_i32(250))
+                && !matches!(a.read_storage::<HeroCommandQueue>().get(hero_pair(&a)[0]).and_then(|q|q.active.as_ref()),
+                    Some(HeroCommand::AttackTarget { target,.. }) if *target == original) {
+                inputs.push((1,PlayerInput { action:Some(PlayerInputEnum::AttackTarget(omoba_core::game_proto::AttackTarget {
+                    target_id:original.id(),queued:false })) }));
+            }
+            let accepted = inputs.iter().map(|(player,input)| {
+                let actor = hero_pair(&a)[0]; let mut safe = input.clone();
+                let (kind,target) = match safe.action.as_mut().unwrap() {
+                    PlayerInputEnum::AttackTarget(attack) => { attack.target_id = 0; (3,Some(canonical_entity_id(original))) },
+                    PlayerInputEnum::MoveTo(_) => (1,None), _ => unreachable!(),
+                };
+                CanonicalAcceptedInput::from_authoritative_acceptance(1,*player,ad.tick()+1,kind,
+                    canonical_entity_id(actor),target,safe.encode_to_vec())
+            }).collect::<Vec<_>>();
+            let result = ad.step(&mut a,inputs.clone()).unwrap(); bd.step(&mut b,inputs).unwrap();
+            assert_eq!(single_lane_replay_digest(&a),single_lane_replay_digest(&b),"seed={seed} index={index}");
+            a.write_resource::<TeamProjectionRuntime>().pending_accepted_inputs.extend(accepted);
+            project_tick(&mut a,result);
+            let frames = a.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
+            let expected = a.write_resource::<TeamProjectionRuntime>().build_team_bootstraps(ad.tick()+1,60,seed);
+            for (team,replica,stepper) in &mut replicas {
+                let frame = frames[team].frame.clone();
+                assert!(frame.post_step.as_ref().unwrap().component_repairs.is_empty());
+                damage_facts += frame.step.as_ref().unwrap().external_effects.len();
+                assert!(frame.step.as_ref().unwrap().accepted_inputs.iter().all(|input|input.player_id == *team));
+                assert!(matches!(replica.apply_frame(frame,stepper).unwrap(),FrameApplyResult::Applied {..}));
+                let view = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&expected[team],allow.clone(),BTreeSet::new()).unwrap();
+                assert_eq!(replica.canonical_team_hash(),view.canonical_team_hash(),"camp team={team} seed={seed} index={index}");
+                assert!(stepper.filtered.world.try_fetch::<MobaMatch>().is_none());
+                applied_steps += 1;
+            }
+        }
+        let state = a.read_resource::<MobaMatch>();
+        assert!(died && returned && damage_facts > 0,"seed={seed} died={died} returned={returned} damage={damage_facts} camp={:?} hp={:?} hero={:?}",state.jungle_camps[0],state.jungle_camps[0].entity.and_then(|e|a.read_storage::<CProperty>().get(e).cloned()),a.read_storage::<Hero>().get(hero_pair(&a)[0]));
+        assert_eq!(state.jungle_camps[0].respawns,1);
+        assert_eq!(state.heroes[0].kills,0);
+        let hero = state.heroes[0].entity.unwrap();
+        assert!(a.read_storage::<Gold>().get(hero).unwrap().0 >= 60);
+        println!("jungle seed={seed} ticks=3000 dual_steps={applied_steps} external_damage={damage_facts} returned={returned} respawns=1");
+    }
+}
+
+#[test]
+fn jungle_rewards_require_lethal_hero_provenance_and_survive_death() {
+    for mode in 0..3 {
+        let (mut w,mut driver) = world(three_lane_config(),SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let camp = w.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
+        let other = w.read_resource::<MobaMatch>().jungle_camps[1].entity.unwrap();
+        let outcome = match mode {
+            0 => Outcome::ScriptDirectDamage { target:camp,amount:Fixed64::from_i32(10_000) },
+            1 => lethal(other,camp),
+            _ => Outcome::Death { pos:omoba_sim::Vec2::ZERO,ent:camp },
+        };
+        w.write_resource::<Vec<Outcome>>().push(outcome);
+        for _ in 0..3 { driver.step(&mut w,[]).unwrap(); }
+        assert!(w.read_resource::<MobaMatch>().jungle_camps[0].entity.is_none(),"mode={mode}");
+        for hero in hero_pair(&w) { assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0,0); }
+        assert!(w.read_resource::<MobaMatch>().heroes.iter().all(|s|s.kills==0));
+    }
+    let (mut w,mut driver) = world(three_lane_config(),SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let [hero,enemy] = hero_pair(&w);
+    let camp = w.read_resource::<MobaMatch>().jungle_camps[0].entity.unwrap();
+    w.write_resource::<Vec<Outcome>>().extend([lethal(hero,camp),lethal(enemy,hero)]);
+    for _ in 0..3 { driver.step(&mut w,[]).unwrap(); }
+    assert!(w.read_resource::<MobaMatch>().heroes[0].entity.is_none());
+    for _ in 0..130 { driver.step(&mut w,[]).unwrap(); }
+    let reborn = w.read_resource::<MobaMatch>().heroes[0].entity.unwrap();
+    assert_eq!(w.read_storage::<Gold>().get(reborn).unwrap().0,60);
+    assert_eq!(w.read_storage::<Hero>().get(reborn).unwrap().experience,90);
+    assert_eq!(w.read_resource::<MobaMatch>().heroes[0].kills,0);
+}
+
+#[test]
 fn three_lane_lua_map_spawns_each_route_and_replays_at_60hz() {
     for seed in [1,42,0x20261004] {
         let config = SingleLaneConfig { seed, creeps_per_wave: 1, ..three_lane_config() };

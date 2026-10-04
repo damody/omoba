@@ -8,6 +8,7 @@ pub mod navigation;
 pub mod rng;
 pub mod snapshot;
 pub mod state_hash;
+pub mod terrain;
 pub mod trig;
 pub mod vec2;
 
