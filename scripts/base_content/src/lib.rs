@@ -25,9 +25,16 @@ use omb_script_abi::{
 };
 
 pub mod ability_builder;
+mod generic_effects;
 mod heroes;
 mod summons;
 mod towers;
+
+#[cfg(test)]
+mod headless_hero_cast_tests;
+
+#[cfg(test)]
+mod single_lane_match_tests;
 
 #[export_root_module]
 fn get_manifest() -> Manifest_Ref {
@@ -85,19 +92,7 @@ fn units() -> RVec<UnitDef> {
 #[sabi_extern_fn]
 fn abilities() -> RVec<AbilityDefFFI> {
     let mut v: RVec<AbilityDefFFI> = RVec::new();
-
-    // 齋香孫市 (B01)
-    v.push(heroes::B01_saika_magoichi::sniper_mode_ffi());
-    v.push(heroes::B01_saika_magoichi::saika_reinforcements_ffi());
-    v.push(heroes::B01_saika_magoichi::rain_iron_cannon_ffi());
-    v.push(heroes::B01_saika_magoichi::three_stage_ffi());
-
-    // 伊達政宗 (B02)
-    v.push(heroes::B02_date_masamune::flame_blade_ffi());
-    v.push(heroes::B02_date_masamune::fire_dash_ffi());
-    v.push(heroes::B02_date_masamune::flame_assault_ffi());
-    v.push(heroes::B02_date_masamune::matchlock_gun_ffi());
-
+    include!(concat!(env!("OUT_DIR"), "/hero_ability_registry.rs"));
     v
 }
 
@@ -130,4 +125,37 @@ fn dev_reload_runtime_lua_content_impl(_expected_hash: RStr<'_>) -> RuntimeLuaRe
     RErr(RString::from(
         "base_content.dll was built without runtime-lua-content",
     ))
+}
+
+#[cfg(test)]
+mod generated_registry_tests {
+    use super::*;
+
+    const EXPECTED_IDS: &[&str] = include!(concat!(env!("OUT_DIR"), "/hero_ability_ids.rs"));
+
+    #[test]
+    fn lua_generated_registry_matches_exported_script_ids() {
+        let definitions = abilities();
+        let actual = definitions
+            .iter()
+            .map(|definition| definition.script.ability_id().as_str().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(actual, EXPECTED_IDS);
+        for (definition, expected_id) in definitions.iter().zip(EXPECTED_IDS) {
+            let metadata: serde_json::Value =
+                serde_json::from_str(definition.def_json.as_str()).expect("ability metadata JSON");
+            assert_eq!(metadata["id"], *expected_id);
+        }
+        assert_eq!(actual.iter().collect::<std::collections::BTreeSet<_>>().len(),actual.len(),"one registration per ability ID");
+        for id in ["lumen_bolt", "lumen_touch", "lumen_lance", "lumen_mend",
+            "apprentice_bolt", "apprentice_touch", "apprentice_lance", "apprentice_mend"] {
+            let definition = definitions
+                .iter()
+                .find(|definition| definition.script.ability_id().as_str() == id)
+                .expect("Lua-declared ability is registered");
+            let metadata: serde_json::Value =
+                serde_json::from_str(definition.def_json.as_str()).unwrap();
+            assert_eq!(metadata["effects_preview"].as_array().unwrap().len(), 1);
+        }
+    }
 }

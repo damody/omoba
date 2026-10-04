@@ -12,12 +12,19 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub(crate) struct LuaContent {
     pub(crate) manifest: Manifest,
+    pub(crate) manifest_value: serde_json::Value,
     pub(crate) stories: Vec<StoryBundle>,
     pub(crate) read_files: Vec<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct Manifest {
+    #[serde(default)]
+    pub(crate) moba_maps: Vec<MobaMapEntry>,
+    #[serde(default)]
+    pub(crate) moba_economy: MobaEconomyRules,
+    #[serde(default)]
+    pub(crate) moba_items: Vec<MobaItemEntry>,
     #[serde(default)]
     pub(crate) towers: Vec<TowerEntry>,
     #[serde(default)]
@@ -34,6 +41,125 @@ pub(crate) struct Manifest {
     pub(crate) projectile_kinds: Vec<ProjKind>,
     #[serde(default)]
     pub(crate) td_layers: Vec<TdLayerEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaEconomyRules {
+    pub(crate) passive_gold_per_second: u32,
+    pub(crate) hero_kill_gold: u32,
+    pub(crate) recall_channel_seconds: u32,
+    pub(crate) hero_assist_gold: u32,
+    pub(crate) assist_window_seconds: u32,
+    pub(crate) hero_kill_xp: u32,
+    pub(crate) hero_assist_xp: u32,
+    pub(crate) lane_creep_xp: u32,
+    pub(crate) lane_xp_radius: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaMapEntry {
+    pub(crate) id: String,
+    pub(crate) lane_length: i32,
+    pub(crate) tower_offset: i32,
+    pub(crate) base_unlock: String,
+    pub(crate) lanes: Vec<MobaLaneEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaLaneEntry {
+    pub(crate) id: String,
+    pub(crate) waypoints: Vec<[i32; 2]>,
+}
+
+pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
+    let valid_id = |id: &str| !id.is_empty() && id.len() <= 64
+        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+    let mut ids = BTreeSet::new();
+    if maps.len() > 32 { return Err("MOBA map catalog exceeds 32 maps".into()); }
+    for map in maps {
+        if !valid_id(&map.id) || !ids.insert(&map.id)
+            || !(2000..=100_000).contains(&map.lane_length)
+            || map.tower_offset < 300 || i64::from(map.tower_offset) * 2 >= i64::from(map.lane_length)
+            || map.base_unlock != "all_lane_towers" || map.lanes.len() != 3
+        { return Err(format!("invalid MOBA map '{}'", map.id)); }
+        let mut lanes = BTreeSet::new();
+        for lane in &map.lanes {
+            if !valid_id(&lane.id) || !lanes.insert(&lane.id)
+                || !(2..=16).contains(&lane.waypoints.len())
+                || lane.waypoints.first() != Some(&[0, 0])
+                || lane.waypoints.last() != Some(&[map.lane_length, 0])
+                || lane.waypoints.iter().flatten().any(|v| !(-100_000..=100_000).contains(v))
+                || lane.waypoints.windows(2).any(|p| p[0] == p[1])
+            { return Err(format!("invalid MOBA lane '{}' in '{}'", lane.id, map.id)); }
+        }
+    }
+    Ok(())
+}
+
+impl Default for MobaEconomyRules {
+    fn default() -> Self {
+        // Legacy TD-only manifests omit the entire MOBA rules section.
+        Self { passive_gold_per_second: 0, hero_kill_gold: 0, recall_channel_seconds: 8,
+            hero_assist_gold: 0, assist_window_seconds: 10, hero_kill_xp: 0, hero_assist_xp: 0,
+            lane_creep_xp: 0, lane_xp_radius: 1200 }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaItemEntry {
+    pub(crate) catalog_id: u16,
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) cost: i32,
+    #[serde(default)]
+    pub(crate) atk: f32,
+    #[serde(default)]
+    pub(crate) hp: f32,
+    #[serde(default)]
+    pub(crate) ms: f32,
+    #[serde(default)]
+    pub(crate) armor: f32,
+    #[serde(default)]
+    pub(crate) recipe: Vec<String>,
+}
+
+pub(crate) fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
+    let by_id: BTreeMap<_, _> = items.iter().map(|item| (item.id.as_str(), item)).collect();
+    let numeric: BTreeSet<_> = items.iter().map(|item| item.catalog_id).collect();
+    if by_id.len() != items.len() || numeric.len() != items.len() || numeric.contains(&0) {
+        return Err("MOBA items contain duplicate ids".into());
+    }
+    for item in items {
+        if item.id.is_empty() || item.id.len() > 64
+            || !item.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+            || item.name.is_empty() || item.name.len() > 128 || item.cost <= 0
+            || item.recipe.len() > 6
+            || [item.atk, item.hp, item.ms, item.armor].iter()
+                .any(|v| !v.is_finite() || *v < 0.0 || *v > 100_000.0
+                    || (*v > 0.0 && (*v * 1024.0).round() == 0.0))
+        {
+            return Err(format!("invalid MOBA item '{}'", item.id));
+        }
+        let mut materials = 0i32;
+        for id in &item.recipe {
+            let component = by_id.get(id.as_str())
+                .ok_or_else(|| format!("MOBA item '{}' has unknown component '{id}'", item.id))?;
+            // Strictly increasing full price also prevents recipe cycles.
+            if component.cost <= 0 || component.cost >= item.cost {
+                return Err(format!("MOBA item '{}' has non-increasing recipe price", item.id));
+            }
+            materials = materials.checked_add(component.cost)
+                .ok_or_else(|| format!("MOBA item '{}' recipe cost overflow", item.id))?;
+        }
+        if materials > item.cost {
+            return Err(format!("MOBA item '{}' recipe exceeds full price", item.id));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -353,121 +479,21 @@ fn default_stat_op() -> String {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct HeroEntry {
-    pub(crate) id: String,
-    #[serde(default)]
-    pub(crate) display_name: String,
-    #[serde(default)]
-    pub(crate) title: String,
-    #[serde(default)]
-    pub(crate) portrait: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    pub(crate) background: String,
-    #[serde(default)]
-    pub(crate) tombstone: bool,
-    #[serde(default)]
-    pub(crate) abilities: Vec<String>,
-    #[serde(default)]
-    pub(crate) strength: i32,
-    #[serde(default)]
-    pub(crate) agility: i32,
-    #[serde(default)]
-    pub(crate) intelligence: i32,
-    #[serde(default)]
-    pub(crate) primary_attribute: String,
-    #[serde(default)]
-    pub(crate) attack_range: f32,
-    #[serde(default)]
-    pub(crate) base_damage: i32,
-    #[serde(default)]
-    pub(crate) base_armor: f32,
-    #[serde(default)]
-    pub(crate) base_hp: i32,
-    #[serde(default)]
-    pub(crate) base_mana: i32,
-    #[serde(default)]
-    pub(crate) move_speed: f32,
-    #[serde(default)]
-    pub(crate) turn_speed: f32,
+    #[serde(flatten)]
+    pub(crate) common: omoba_content_model::HeroDefinition,
     #[serde(default = "default_attack_timing")]
     pub(crate) attack_timing: AttackTimingEntry,
-    #[serde(default)]
-    pub(crate) render: Option<HeroRenderEntry>,
-    #[serde(default)]
-    pub(crate) level_growth: HeroLevelGrowthEntry,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub(crate) struct HeroRenderEntry {
-    #[serde(default)]
-    pub(crate) render_mode: String,
-    #[serde(default)]
-    pub(crate) model: String,
-    #[serde(default)]
-    pub(crate) texture: String,
-    #[serde(default)]
-    pub(crate) scale: f32,
-    #[serde(default)]
-    pub(crate) pitch_offset_deg: f32,
-    #[serde(default)]
-    pub(crate) roll_offset_deg: f32,
-    #[serde(default)]
-    pub(crate) yaw_offset_deg: f32,
-    #[serde(default)]
-    pub(crate) z_offset: f32,
-    #[serde(default)]
-    pub(crate) muzzle_bone: String,
-    #[serde(default)]
-    pub(crate) animation_sources: BTreeMap<String, HeroAnimationSourceEntry>,
-    #[serde(default)]
-    pub(crate) animations: BTreeMap<String, HeroAnimationBindingEntry>,
+impl std::ops::Deref for HeroEntry {
+    type Target = omoba_content_model::HeroDefinition;
+
+    fn deref(&self) -> &Self::Target {
+        &self.common
+    }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub(crate) struct HeroAnimationSourceEntry {
-    #[serde(default)]
-    pub(crate) model: String,
-    #[serde(default)]
-    pub(crate) animation: String,
-    #[serde(default)]
-    pub(crate) duration_ticks: f32,
-    #[serde(default)]
-    pub(crate) ticks_per_second: f32,
-    #[serde(default)]
-    pub(crate) timeline_offset_ticks: f32,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub(crate) struct HeroAnimationBindingEntry {
-    #[serde(default)]
-    pub(crate) source: String,
-    #[serde(default)]
-    pub(crate) start_tick: f32,
-    #[serde(default)]
-    pub(crate) repeat_start_tick: f32,
-    #[serde(default)]
-    pub(crate) impact_tick: Option<f32>,
-    #[serde(default)]
-    pub(crate) end_tick: f32,
-    #[serde(default, rename = "loop")]
-    pub(crate) loop_animation: bool,
-}
-
-#[derive(Debug, Deserialize, Serialize, Default, Clone)]
-pub(crate) struct HeroLevelGrowthEntry {
-    #[serde(default)]
-    pub(crate) strength_per_level: f32,
-    #[serde(default)]
-    pub(crate) agility_per_level: f32,
-    #[serde(default)]
-    pub(crate) intelligence_per_level: f32,
-    #[serde(default)]
-    pub(crate) damage_per_level: f32,
-    #[serde(default)]
-    pub(crate) hp_per_level: f32,
-    #[serde(default)]
-    pub(crate) mana_per_level: f32,
-}
+pub(crate) use omoba_content_model::HeroRender as HeroRenderEntry;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct CreepEntry {
@@ -519,46 +545,7 @@ pub(crate) struct SummonEntry {
     pub(crate) attack_timing: AttackTimingEntry,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub(crate) struct AbilityEntry {
-    pub(crate) id: String,
-    #[serde(default)]
-    pub(crate) display_name: String,
-    #[serde(default)]
-    pub(crate) tombstone: bool,
-    #[serde(default)]
-    pub(crate) icon: String,
-    #[serde(default)]
-    pub(crate) description: String,
-    #[serde(default)]
-    pub(crate) ability_type: String,
-    #[serde(default)]
-    pub(crate) cast_type: String,
-    #[serde(default)]
-    pub(crate) target_type: String,
-    #[serde(default = "default_max_level")]
-    pub(crate) max_level: u8,
-    #[serde(default)]
-    pub(crate) levels: Vec<AbilityLevelEntry>,
-    #[serde(default)]
-    pub(crate) extras: BTreeMap<String, Vec<f32>>,
-}
-
-fn default_max_level() -> u8 {
-    4
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub(crate) struct AbilityLevelEntry {
-    #[serde(default)]
-    pub(crate) cooldown: f32,
-    #[serde(default)]
-    pub(crate) mana_cost: f32,
-    #[serde(default)]
-    pub(crate) cast_time: f32,
-    #[serde(default)]
-    pub(crate) range: f32,
-}
+pub(crate) use omoba_content_model::AbilityDefinition as AbilityEntry;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct ProjKind {
@@ -885,8 +872,39 @@ pub(crate) struct StoryBundle {
 pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> {
     let lua = Lua::new();
     let loader = LuaContentLoader::new(content_root.clone())?;
-    let manifest: Manifest = loader.load(&lua, "templates.lua")?;
+    let template_value = loader
+        .load_value(&lua, "templates.lua")
+        .map_err(|e| format!("load Lua builder templates.lua: {e}"))?;
+    let manifest_value: serde_json::Value = lua
+        .from_value(template_value.clone())
+        .map_err(|e| format!("convert Lua builder templates.lua JSON value: {e}"))?;
+    let manifest: Manifest = lua
+        .from_value(template_value)
+        .map_err(|e| format!("convert Lua builder templates.lua output: {e}"))?;
     validate_td_layers(&manifest.td_layers)?;
+    validate_moba_items(&manifest.moba_items)?;
+    validate_moba_maps(&manifest.moba_maps)?;
+    for hero in &manifest.heroes {
+        omoba_content_model::validate_moba_loadout(&hero.common,manifest.abilities.iter())?;
+    }
+    if manifest.moba_economy.passive_gold_per_second > 10_000 {
+        return Err("MOBA passive gold rate exceeds 10000 per second".into());
+    }
+    if manifest.moba_economy.hero_kill_gold > 1_000_000 {
+        return Err("MOBA hero kill gold exceeds 1000000".into());
+    }
+    if manifest.moba_economy.hero_kill_xp > 1_000_000 || manifest.moba_economy.hero_assist_xp > 1_000_000 {
+        return Err("MOBA hero XP reward must be <=1000000".into());
+    }
+    if manifest.moba_economy.lane_creep_xp > 1_000_000 || !(1..=10_000).contains(&manifest.moba_economy.lane_xp_radius) {
+        return Err("MOBA lane XP must be <=1000000 and radius 1..10000".into());
+    }
+    if !(1..=60).contains(&manifest.moba_economy.recall_channel_seconds) {
+        return Err("MOBA recall channel must be 1..60 seconds".into());
+    }
+    if manifest.moba_economy.hero_assist_gold > 1_000_000 || !(1..=60).contains(&manifest.moba_economy.assist_window_seconds) {
+        return Err("MOBA assist gold must be <=1000000 and window 1..60 seconds".into());
+    }
     let stories = load_stories(&loader, &lua, &content_root, &manifest)?;
     if stories.iter().any(|story| {
         story
@@ -899,6 +917,7 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     }
     Ok(LuaContent {
         manifest,
+        manifest_value,
         stories,
         read_files: loader.read_files(),
     })
@@ -1135,6 +1154,71 @@ fn validate_map_creep_references(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn moba_map_validation_rejects_bad_routes_before_generation() {
+        use super::*;
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let maps = load_content(root).unwrap().manifest.moba_maps;
+        assert!(validate_moba_maps(&maps).is_ok());
+        for case in 0..11 {
+            let mut maps = maps.clone();
+            match case {
+                0 => maps.push(maps[0].clone()),
+                1 => maps[0].id = "BAD".into(),
+                2 => maps[0].base_unlock = "unknown".into(),
+                3 => maps[0].tower_offset = i32::MAX,
+                4 => { maps[0].lanes.pop(); },
+                5 => maps[0].lanes[1].id = maps[0].lanes[0].id.clone(),
+                6 => maps[0].lanes[0].waypoints[0] = [1,0],
+                7 => maps[0].lanes[0].waypoints.last_mut().unwrap()[0] += 1,
+                8 => maps[0].lanes[0].waypoints[1][1] = 100_001,
+                9 => maps[0].lanes[0].waypoints[1] = [0,0],
+                10 => maps[0].lanes[0].waypoints = vec![[0,0];17],
+                _ => unreachable!(),
+            }
+            assert!(validate_moba_maps(&maps).is_err(),"invalid map accepted: case {case}");
+        }
+        let raw = serde_json::to_value(&maps[0]).unwrap();
+        for (field,value) in [("lane_length",serde_json::json!(2400.5)),
+            ("tower_offset",serde_json::json!("700")),("typo",serde_json::json!(1))] {
+            let mut bad = raw.clone(); bad[field] = value;
+            assert!(serde_json::from_value::<MobaMapEntry>(bad).is_err());
+        }
+    }
+    #[test]
+    fn moba_item_validation_rejects_bad_ids_values_recipes_and_unknown_fields() {
+        use super::*;
+        let item = |id: &str, cost: i32, recipe: &[&str]| MobaItemEntry {
+            catalog_id: if id == "sword" || id == "a" { 1 } else { 2 },
+            id: id.into(), name: id.into(), cost, atk: 10.0, hp: 0.0, ms: 0.0, armor: 0.0,
+            recipe: recipe.iter().map(|id| (*id).into()).collect(),
+        };
+        let sword = item("sword", 100, &[]);
+        let upgrade = item("upgrade", 250, &["sword", "sword"]);
+        assert!(validate_moba_items(&[sword.clone(), upgrade.clone()]).is_ok());
+        let mut invalid_id = upgrade.clone();
+        invalid_id.catalog_id = 0;
+        assert!(validate_moba_items(&[invalid_id]).is_err());
+        invalid_id = upgrade.clone();
+        invalid_id.catalog_id = sword.catalog_id;
+        assert!(validate_moba_items(&[sword.clone(), invalid_id]).is_err());
+        assert!(validate_moba_items(&[upgrade.clone(), sword.clone()]).is_ok(), "declaration order must not define numeric identity");
+        for entries in [
+            vec![sword.clone(), sword.clone()], vec![item("UPPER", 100, &[])],
+            vec![item("negative", -1, &[])], vec![item("unknown", 100, &["missing"])],
+            vec![item("self_cycle", 100, &["self_cycle"])],
+            vec![item("a", 100, &["b"]), item("b", 100, &["a"])],
+            vec![sword.clone(), item("upgrade", 150, &["sword", "sword"])],
+            vec![sword.clone(), item("upgrade", 800, &["sword"; 7])],
+        ] { assert!(validate_moba_items(&entries).is_err()); }
+        for value in [f32::NAN, f32::INFINITY, -1.0, 100_001.0, 0.0001] {
+            let mut invalid = sword.clone(); invalid.atk = value;
+            assert!(validate_moba_items(&[invalid]).is_err());
+        }
+        assert!(serde_json::from_value::<MobaItemEntry>(serde_json::json!({
+            "id": "bad", "name": "Bad", "cost": 1, "mp": 100
+        })).is_err(), "unsupported mana must not be silently ignored");
+    }
     use super::*;
     use std::fs;
     use std::path::Path;

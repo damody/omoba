@@ -6,12 +6,14 @@ rust-version = "1.91"
 description = "Build-time generated template ids and story data from Lua content sources"
 
 [build-dependencies]
+omoba-content-model = { path = "../omoba-content-model" }
 mlua = { version = "0.10", features = ["lua54", "vendored", "serialize"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
 
 [dependencies]
+omoba-content-model = { path = "../omoba-content-model", optional = true }
 # Fixed32 用於 deterministic lockstep — 透過 abi-stable feature 取得 #[repr(transparent)]
 # + StableAbi derive，generated const 透過 Fixed32::from_raw(...) 編譯期 build。
 omoba-sim = { path = "../omoba-sim", features = ["abi-stable"] }
@@ -22,4 +24,4 @@ toml = { version = "0.8", optional = true }
 
 [features]
 default = []
-runtime-lua-content = ["dep:mlua", "dep:serde", "dep:serde_json", "dep:toml"]
+runtime-lua-content = ["dep:omoba-content-model", "dep:mlua", "dep:serde", "dep:serde_json", "dep:toml"]

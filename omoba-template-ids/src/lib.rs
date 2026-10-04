@@ -12,6 +12,35 @@
 
 pub use omoba_sim::Fixed64;
 
+#[derive(Clone, Copy, Debug)]
+pub struct MobaLaneConst {
+    pub id: &'static str,
+    pub waypoints: &'static [(i32, i32)],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaMapConst {
+    pub id: &'static str,
+    pub lane_length: i32,
+    pub tower_offset: i32,
+    pub lanes: &'static [MobaLaneConst],
+}
+
+/// Shared passive MOBA catalog compiled from Lua. Full price includes recipe
+/// materials. Bonuses are quantized once by codegen, not separately per host.
+#[derive(Clone, Copy, Debug)]
+pub struct MobaItemConst {
+    pub catalog_id: u16,
+    pub id: &'static str,
+    pub name: &'static str,
+    pub cost: i32,
+    pub atk: Fixed64,
+    pub hp: Fixed64,
+    pub ms: Fixed64,
+    pub armor: Fixed64,
+    pub recipe: &'static [&'static str],
+}
+
 #[cfg(feature = "runtime-lua-content")]
 pub(crate) mod lua_content;
 #[cfg(feature = "runtime-lua-content")]
@@ -155,6 +184,7 @@ pub struct LevelGrowth {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct HeroStats {
+    pub moba_loadout: MobaLoadoutConst,
     pub strength: i32,
     pub agility: i32,
     pub intelligence: i32,
@@ -173,6 +203,13 @@ pub struct HeroStats {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum HeroRenderModeC {
     Model3d = 1,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct MobaLoadoutConst {
+    pub ranks: [u8; 4],
+    pub skill_points: u8,
 }
 
 #[repr(C)]
@@ -293,6 +330,7 @@ pub enum TargetTypeC {
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct AbilityLevelDataConst {
+    pub required_hero_level: u8,
     pub cooldown: Fixed64,
     pub mana_cost: Fixed64,
     pub cast_time: Fixed64,

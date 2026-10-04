@@ -36,6 +36,8 @@ pub mod projection_policy_ids {
     pub const DEATH: &str = "death.v1";
     pub const OWNERSHIP: &str = "ownership.v1";
     pub const DIRECT_COMBAT: &str = "direct-combat.v1";
+    /// Authority-owned NPC combat: disclose target result, never source identity.
+    pub const EXTERNAL_DIRECT_COMBAT: &str = "external-direct-combat.v1";
     pub const PROJECTILE: &str = "projectile.v1";
     pub const AOE: &str = "aoe.v1";
     pub const BUFF_DEBUFF: &str = "buff-debuff.v1";

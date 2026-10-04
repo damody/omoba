@@ -27,4 +27,6 @@ default = []
 runtime-lua-content = ["omoba-template-ids/runtime-lua-content"]
 
 [dev-dependencies]
+prost = "0.13"
 specs = { path = "../../specs" }
+omoba-core = { path = "../../omoba-core", default-features = false, features = ["kcp"] }

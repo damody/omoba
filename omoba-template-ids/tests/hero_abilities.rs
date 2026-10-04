@@ -24,6 +24,15 @@ fn date_masamune_has_4_abilities() {
 }
 
 #[test]
+fn lua_only_training_luminary_has_4_generated_abilities() {
+    let abilities = hero_abilities(HERO_TRAINING_LUMINARY);
+    assert_eq!(abilities, [ABILITY_LUMEN_BOLT, ABILITY_LUMEN_TOUCH, ABILITY_LUMEN_LANCE, ABILITY_LUMEN_MEND]);
+    let stats = hero_stats(HERO_TRAINING_LUMINARY).expect("training hero stats");
+    assert_eq!(stats.base_hp, 550);
+    assert_eq!(stats.intelligence, 25);
+}
+
+#[test]
 fn unknown_hero_has_no_abilities() {
     let abs = hero_abilities(HeroId::UNSPECIFIED);
     assert_eq!(abs.len(), 0);

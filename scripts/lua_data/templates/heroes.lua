@@ -1,7 +1,8 @@
 return function(ctx)
-  return {
+  local heroes = {
     {
       id = "saika_magoichi",
+      rust_module = "B01_saika_magoichi",
       display_name = "雜賀孫市",
       title = "千里狙擊手",
       portrait = "data/hero_portraits/hero_saika_magoichi_portrait.png",
@@ -184,6 +185,7 @@ return function(ctx)
     },
     {
       id = "date_masamune",
+      rust_module = "B02_date_masamune",
       display_name = "伊達政宗",
       title = "獨眼龍",
       portrait = "data/hero_portraits/hero_date_masamune_portrait.png",
@@ -214,5 +216,45 @@ return function(ctx)
         mana_per_level = 22.0,
       },
     },
+    {
+      id = "training_luminary",
+      ue = { native_only = true },
+      display_name = "晨光導師",
+      title = "技能範本英雄",
+      background = "測試宣告式技能與通用 Unreal 呈現的原創訓練英雄。",
+      abilities = { "lumen_bolt", "lumen_touch", "lumen_lance", "lumen_mend" },
+      strength = 18,
+      agility = 18,
+      intelligence = 25,
+      primary_attribute = "intelligence",
+      attack_range = 550.0,
+      base_damage = 45,
+      base_armor = 1.0,
+      base_hp = 550,
+      base_mana = 400,
+      move_speed = 310.0,
+      turn_speed = 540.0,
+      level_growth = {
+        strength_per_level = 2.0,
+        agility_per_level = 1.8,
+        intelligence_per_level = 3.0,
+        damage_per_level = 2.4,
+        hp_per_level = 52.0,
+        mana_per_level = 36.0,
+      },
+    },
   }
+  -- Opt-in teaching loadout; append-only ID, no character-specific native code.
+  local source
+  for _, hero in ipairs(heroes) do if hero.id == "training_luminary" then source = hero end end
+  assert(source, "training apprentice requires the luminary template")
+  local apprentice = {}
+  for key, value in pairs(source) do apprentice[key] = value end
+  apprentice.id = "training_apprentice"
+  apprentice.display_name = "晨光學徒"
+  apprentice.background = "驗證未學習技能、首次學習與等級解鎖的訓練英雄。"
+  apprentice.abilities = { "apprentice_bolt", "apprentice_touch", "apprentice_lance", "apprentice_mend" }
+  apprentice.moba_loadout = { ranks = { 0, 0, 0, 0 }, skill_points = 1 }
+  heroes[#heroes + 1] = apprentice
+  return heroes
 end

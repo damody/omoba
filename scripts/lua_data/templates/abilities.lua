@@ -1,5 +1,5 @@
 return function(ctx)
-  return {
+  local abilities = {
     {
       id = "sniper_mode",
       display_name = "狙擊模式",
@@ -491,5 +491,94 @@ return function(ctx)
         },
       },
     },
+    {
+      id = "lumen_bolt",
+      ue = { native_only = true },
+      display_name = "光束",
+      description = "對指定敵人造成法術傷害。",
+      ability_type = "active",
+      target_type = "unit",
+      cast_type = "instant",
+      max_level = 4,
+      levels = {
+        { cooldown = 7.0, mana_cost = 45.0, range = 600.0 },
+        { cooldown = 6.5, mana_cost = 50.0, range = 600.0 },
+        { cooldown = 6.0, mana_cost = 55.0, range = 600.0 },
+        { cooldown = 5.5, mana_cost = 60.0, range = 600.0 },
+      },
+      extras = { damage = { 80.0, 125.0, 170.0, 215.0 } },
+      effects = { { kind = "damage", amount_key = "damage", damage_kind = "magical" } },
+    },
+    {
+      id = "lumen_touch",
+      ue = { native_only = true },
+      display_name = "回春",
+      description = "治療自身。",
+      ability_type = "active",
+      target_type = "none",
+      cast_type = "instant",
+      max_level = 4,
+      levels = {
+        { cooldown = 12.0, mana_cost = 55.0 },
+        { cooldown = 11.0, mana_cost = 60.0 },
+        { cooldown = 10.0, mana_cost = 65.0 },
+        { cooldown = 9.0, mana_cost = 70.0 },
+      },
+      extras = { heal = { 70.0, 110.0, 150.0, 190.0 } },
+      effects = { { kind = "heal_self", amount_key = "heal" } },
+    },
+    {
+      id = "lumen_lance",
+      ue = { native_only = true },
+      display_name = "光槍",
+      description = "對指定敵人造成高額法術傷害。",
+      ability_type = "ultimate",
+      target_type = "unit",
+      cast_type = "instant",
+      max_level = 4,
+      levels = {
+        { required_hero_level = 1, cooldown = 80.0, mana_cost = 120.0, range = 700.0 },
+        { required_hero_level = 6, cooldown = 70.0, mana_cost = 140.0, range = 700.0 },
+        { required_hero_level = 11, cooldown = 60.0, mana_cost = 160.0, range = 700.0 },
+        { required_hero_level = 16, cooldown = 50.0, mana_cost = 180.0, range = 700.0 },
+      },
+      extras = { damage = { 180.0, 280.0, 380.0, 480.0 } },
+      effects = { { kind = "damage", amount_key = "damage", damage_kind = "magical" } },
+    },
+    {
+      id = "lumen_mend",
+      ue = { native_only = true },
+      display_name = "晨光再生",
+      description = "大量治療自身。",
+      ability_type = "active",
+      target_type = "none",
+      cast_type = "instant",
+      max_level = 4,
+      levels = {
+        { cooldown = 25.0, mana_cost = 90.0 },
+        { cooldown = 23.0, mana_cost = 100.0 },
+        { cooldown = 21.0, mana_cost = 110.0 },
+        { cooldown = 19.0, mana_cost = 120.0 },
+      },
+      extras = { heal = { 140.0, 220.0, 300.0, 380.0 } },
+      effects = { { kind = "heal_self", amount_key = "heal" } },
+    },
   }
+  local function copy(value)
+    if type(value) ~= "table" then return value end
+    local result = {}
+    for key, child in pairs(value) do result[key] = copy(child) end
+    return result
+  end
+  -- Separate append-only skills avoid duplicate FFI handler registrations.
+  for index = 1, #abilities do
+    local source = abilities[index]
+    if source.id:match("^lumen_") then
+      local ability = copy(source)
+      ability.id = source.id:gsub("^lumen_", "apprentice_")
+      if ability.id == "apprentice_lance" then ability.levels[1].required_hero_level = 6 end
+      abilities[#abilities + 1] = ability
+    end
+  end
+  return abilities
 end

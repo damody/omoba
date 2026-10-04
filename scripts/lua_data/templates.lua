@@ -27,5 +27,8 @@ return function(ctx)
     creeps = ctx.include("templates/creeps.lua"),
     projectile_kinds = ctx.include("templates/projectile_kinds.lua"),
     td_layers = ctx.include("templates/td_layers.lua"),
+    moba_items = ctx.include("templates/moba_items.lua"),
+    moba_economy = ctx.include("templates/moba_economy.lua"),
+    moba_maps = ctx.include("templates/moba_maps.lua"),
   }
 end

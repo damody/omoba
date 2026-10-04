@@ -47,6 +47,17 @@ struct RuntimeSnapshot {
 }
 
 pub struct RuntimeContent {
+    hero_kill_xp: u32,
+    hero_assist_xp: u32,
+    lane_creep_xp: u32,
+    lane_xp_radius: u32,
+    passive_gold_per_second: u32,
+    hero_kill_gold: u32,
+    recall_channel_seconds: u32,
+    hero_assist_gold: u32,
+    assist_window_seconds: u32,
+    moba_item_catalog_json: String,
+    moba_map_catalog_json: String,
     tower_stats: Vec<Option<&'static TowerStats>>,
     tower_display: Vec<Option<&'static str>>,
     tower_render: Vec<Option<&'static TowerRenderMetadataConst>>,
@@ -86,6 +97,14 @@ fn active_content() -> Option<&'static RuntimeContent> {
         Ok(content) => content,
         Err(err) => panic!("runtime Lua content load failed: {}", err),
     }
+}
+
+/// Equipment is compiled/shared, unlike dev hot-reloaded tower stats.
+pub fn validate_compiled_moba_catalog() -> Result<(), String> {
+    if let Some(content) = ensure_loaded()? {
+        content.validate_moba_catalog()?;
+    }
+    Ok(())
 }
 
 pub fn reload_runtime_lua_content_dev(
@@ -292,6 +311,51 @@ fn content_root() -> PathBuf {
 }
 
 impl RuntimeContent {
+    fn validate_moba_catalog(&self) -> Result<(), String> {
+        for (index, runtime) in self.hero_stats.iter().enumerate() {
+            if let Some(runtime) = runtime {
+                let compiled = crate::hero_stats(HeroId(index as u16)).ok_or("missing compiled hero loadout")?;
+                if runtime.moba_loadout != compiled.moba_loadout {
+                    return Err("MOBA hero loadout differs from compiled content; rebuild all peers".into());
+                }
+            }
+        }
+        for (index, runtime) in self.ability_const.iter().enumerate() {
+            if let Some(runtime) = runtime {
+                let compiled = crate::ability_const(AbilityId(index as u16)).ok_or("missing compiled ability progression")?;
+                if runtime.levels.iter().map(|v| v.required_hero_level).collect::<Vec<_>>()
+                    != compiled.levels.iter().map(|v| v.required_hero_level).collect::<Vec<_>>() {
+                    return Err("MOBA ability progression differs from compiled content; rebuild all peers".into());
+                }
+            }
+        }
+        if self.lane_creep_xp != crate::MOBA_LANE_CREEP_XP || self.lane_xp_radius != crate::MOBA_LANE_XP_RADIUS {
+            return Err("MOBA lane XP rules differ from compiled content; rebuild all peers".into());
+        }
+        if self.hero_kill_xp != crate::MOBA_HERO_KILL_XP || self.hero_assist_xp != crate::MOBA_HERO_ASSIST_XP {
+            return Err("MOBA XP rules differ from compiled content; rebuild all peers".into());
+        }
+        if self.hero_assist_gold != crate::MOBA_HERO_ASSIST_GOLD || self.assist_window_seconds != crate::MOBA_ASSIST_WINDOW_SECONDS {
+            return Err("MOBA assist rules differ from compiled content; rebuild all peers".into());
+        }
+        if self.recall_channel_seconds != crate::MOBA_RECALL_CHANNEL_SECONDS {
+            return Err("MOBA recall rules differ from compiled content; rebuild all peers".into());
+        }
+        if self.hero_kill_gold != crate::MOBA_HERO_KILL_GOLD {
+            return Err("MOBA kill rules differ from compiled content; rebuild all peers".into());
+        }
+        if self.passive_gold_per_second != crate::MOBA_PASSIVE_GOLD_PER_SECOND {
+            return Err("MOBA income rules differ from compiled content; rebuild all peers".into());
+        }
+        if self.moba_item_catalog_json != crate::MOBA_ITEM_CATALOG_JSON {
+            return Err("MOBA item catalog differs from compiled content; rebuild all peers".into());
+        }
+        if self.moba_map_catalog_json != crate::MOBA_MAP_CATALOG_JSON {
+            return Err("MOBA map catalog differs from compiled content; rebuild all peers".into());
+        }
+        Ok(())
+    }
+
     fn from_manifest(manifest: Manifest, stories: Vec<StoryBundle>) -> Result<Self, String> {
         validate_active_abilities(&manifest.towers)?;
         let tower_stats = build_indexed(&manifest.towers, "tower", |raw, entry| {
@@ -452,6 +516,19 @@ impl RuntimeContent {
         }
 
         Ok(Self {
+            moba_map_catalog_json: serde_json::to_string(&manifest.moba_maps)
+                .map_err(|error| format!("serialize MOBA maps: {error}"))?,
+            moba_item_catalog_json: serde_json::to_string(&manifest.moba_items)
+                .map_err(|error| format!("serialize MOBA items: {error}"))?,
+            passive_gold_per_second: manifest.moba_economy.passive_gold_per_second,
+            hero_kill_xp: manifest.moba_economy.hero_kill_xp,
+            hero_assist_xp: manifest.moba_economy.hero_assist_xp,
+            lane_creep_xp: manifest.moba_economy.lane_creep_xp,
+            lane_xp_radius: manifest.moba_economy.lane_xp_radius,
+            hero_kill_gold: manifest.moba_economy.hero_kill_gold,
+            recall_channel_seconds: manifest.moba_economy.recall_channel_seconds,
+            hero_assist_gold: manifest.moba_economy.hero_assist_gold,
+            assist_window_seconds: manifest.moba_economy.assist_window_seconds,
             tower_stats,
             tower_display,
             tower_render,
@@ -484,6 +561,19 @@ impl RuntimeContent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ContentShape {
+    moba_map_catalog_json: String,
+    hero_moba_loadouts: Vec<(String, [u8; 4], u8)>,
+    ability_rank_requirements: Vec<(String, Vec<u8>)>,
+    hero_kill_xp: u32,
+    hero_assist_xp: u32,
+    lane_creep_xp: u32,
+    lane_xp_radius: u32,
+    passive_gold_per_second: u32,
+    hero_kill_gold: u32,
+    recall_channel_seconds: u32,
+    hero_assist_gold: u32,
+    assist_window_seconds: u32,
+    moba_item_catalog_json: String,
     towers: Vec<Option<String>>,
     heroes: Vec<Option<String>>,
     abilities: Vec<Option<String>>,
@@ -517,6 +607,23 @@ enum JsonShape {
 impl ContentShape {
     fn from_manifest(manifest: &Manifest, stories: &[StoryBundle]) -> Self {
         Self {
+            moba_map_catalog_json: serde_json::to_string(&manifest.moba_maps)
+                .expect("validated MOBA map catalog"),
+            hero_moba_loadouts: manifest.heroes.iter().filter(|entry| !entry.tombstone)
+                .map(|entry| (entry.id.clone(), entry.moba_loadout.ranks, entry.moba_loadout.skill_points)).collect(),
+            ability_rank_requirements: manifest.abilities.iter().filter(|entry| !entry.tombstone)
+                .map(|entry| (entry.id.clone(), entry.levels.iter().map(|level| level.required_hero_level).collect())).collect(),
+            moba_item_catalog_json: serde_json::to_string(&manifest.moba_items)
+                .expect("validated MOBA item catalog"),
+            passive_gold_per_second: manifest.moba_economy.passive_gold_per_second,
+            hero_kill_xp: manifest.moba_economy.hero_kill_xp,
+            hero_assist_xp: manifest.moba_economy.hero_assist_xp,
+            lane_creep_xp: manifest.moba_economy.lane_creep_xp,
+            lane_xp_radius: manifest.moba_economy.lane_xp_radius,
+            hero_kill_gold: manifest.moba_economy.hero_kill_gold,
+            recall_channel_seconds: manifest.moba_economy.recall_channel_seconds,
+            hero_assist_gold: manifest.moba_economy.hero_assist_gold,
+            assist_window_seconds: manifest.moba_economy.assist_window_seconds,
             towers: entry_shape(&manifest.towers),
             heroes: entry_shape(&manifest.heroes),
             abilities: entry_shape(&manifest.abilities),
@@ -543,6 +650,36 @@ impl ContentShape {
     }
 
     fn ensure_compatible_with(&self, previous: &Self) -> Result<(), String> {
+        if self.hero_moba_loadouts != previous.hero_moba_loadouts {
+            return Err("MOBA hero loadout changed; rebuild all peers".into());
+        }
+        if self.ability_rank_requirements != previous.ability_rank_requirements {
+            return Err("MOBA ability progression changed; rebuild all peers, not hot reload".into());
+        }
+        if self.lane_creep_xp != previous.lane_creep_xp || self.lane_xp_radius != previous.lane_xp_radius {
+            return Err("MOBA lane XP rules changed; rebuild all peers, not hot reload".into());
+        }
+        if self.hero_kill_xp != previous.hero_kill_xp || self.hero_assist_xp != previous.hero_assist_xp {
+            return Err("MOBA XP rules changed; rebuild all peers, not hot reload".into());
+        }
+        if self.recall_channel_seconds != previous.recall_channel_seconds {
+            return Err("MOBA recall rules changed; rebuild all peers, not hot reload".into());
+        }
+        if self.hero_assist_gold != previous.hero_assist_gold || self.assist_window_seconds != previous.assist_window_seconds {
+            return Err("MOBA assist rules changed; rebuild all peers, not hot reload".into());
+        }
+        if self.hero_kill_gold != previous.hero_kill_gold {
+            return Err("MOBA kill rules changed; rebuild all peers, not hot reload".into());
+        }
+        if self.passive_gold_per_second != previous.passive_gold_per_second {
+            return Err("MOBA income rules changed; rebuild all peers, not hot reload".into());
+        }
+        if self.moba_item_catalog_json != previous.moba_item_catalog_json {
+            return Err("MOBA item catalog changed; rebuild all peers, not hot reload".into());
+        }
+        if self.moba_map_catalog_json != previous.moba_map_catalog_json {
+            return Err("MOBA map catalog changed; rebuild all peers, not hot reload".into());
+        }
         compare_shape("tower ids", &self.towers, &previous.towers)?;
         compare_shape("hero ids", &self.heroes, &previous.heroes)?;
         compare_shape("ability ids", &self.abilities, &previous.abilities)?;
@@ -923,6 +1060,7 @@ fn tower_recoil_mode(value: &str) -> Result<TowerRecoilModeC, String> {
 
 fn build_hero_stats(entry: &HeroEntry) -> Result<HeroStats, String> {
     Ok(HeroStats {
+        moba_loadout: crate::MobaLoadoutConst { ranks: entry.moba_loadout.ranks, skill_points: entry.moba_loadout.skill_points },
         strength: entry.strength,
         agility: entry.agility,
         intelligence: entry.intelligence,
@@ -1056,6 +1194,7 @@ fn build_creep_stats(entry: &CreepEntry) -> Result<CreepStats, String> {
 }
 
 fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String> {
+    omoba_content_model::validate_ability_progression(entry)?;
     if entry.levels.len() != entry.max_level as usize {
         return Err(format!(
             "ability '{}': levels.len()={} but max_level={}",
@@ -1069,6 +1208,7 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
             .levels
             .iter()
             .map(|level| AbilityLevelDataConst {
+                required_hero_level: level.required_hero_level,
                 cooldown: fixed64(level.cooldown),
                 mana_cost: fixed64(level.mana_cost),
                 cast_time: fixed64(level.cast_time),
@@ -1420,6 +1560,8 @@ mod tests {
             .expect("build runtime content");
 
         assert_eq!(runtime.td_layer_digest, crate::TD_LAYER_CATALOG_DIGEST);
+        assert_eq!(runtime.moba_item_catalog_json, crate::MOBA_ITEM_CATALOG_JSON);
+        runtime.validate_moba_catalog().expect("compiled MOBA catalog agrees with Lua");
         assert_eq!(runtime.td_layer_catalog, crate::td_layer_catalog());
         for generated in crate::td_layer_catalog() {
             assert_eq!(
@@ -1428,6 +1570,193 @@ mod tests {
                 "{}",
                 generated.id
             );
+        }
+    }
+
+    #[test]
+    fn moba_catalog_changes_require_rebuild_not_dev_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+        let original_hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_items"][0]["cost"] = serde_json::json!(351);
+        assert_ne!(original_hash, omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_items[0].cost += 1;
+        let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA item catalog changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("rebuild all peers"));
+    }
+
+    #[test]
+    fn moba_loadout_changes_require_rebuild_not_dev_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+        content.manifest.heroes.iter_mut().find(|hero| hero.id == "training_luminary").unwrap()
+            .common.moba_loadout = omoba_content_model::MobaLoadout { ranks: [0;4], skill_points: 1 };
+        let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA hero loadout changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        let id = crate::hero_by_name("training_luminary").unwrap();
+        let loadout = runtime.hero_stats[usize::from(id.0)].unwrap().moba_loadout;
+        assert_eq!((loadout.ranks,loadout.skill_points),([0;4],1));
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("hero loadout differs"));
+    }
+
+    #[test]
+    fn ability_progression_changes_require_rebuild_not_dev_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+        let ability = content.manifest.abilities.iter_mut().find(|entry| entry.id == "lumen_lance").unwrap();
+        ability.levels[1].required_hero_level = 7;
+        let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("ability progression changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("ability progression differs"));
+    }
+
+    #[test]
+    fn moba_map_changes_require_rebuild_not_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_maps"][0]["lanes"][0]["waypoints"][1][1] = serde_json::json!(1500);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_maps[0].lanes[0].waypoints[1][1] = 1500;
+        let after = ContentShape::from_manifest(&content.manifest,&content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA map catalog changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA map catalog differs"));
+    }
+
+    #[test]
+    fn moba_income_changes_require_rebuild_not_dev_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+        let hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["passive_gold_per_second"] = serde_json::json!(3);
+        assert_ne!(hash, omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.passive_gold_per_second += 1;
+        let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA income rules changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA income rules differ"));
+        for invalid in [serde_json::json!(-1), serde_json::json!(0.5), serde_json::json!("2")] {
+            assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(
+                serde_json::json!({"passive_gold_per_second": invalid})).is_err());
+        }
+    }
+
+    #[test]
+    fn moba_kill_gold_changes_require_rebuild_not_dev_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+        let hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["hero_kill_gold"] = serde_json::json!(301);
+        assert_ne!(hash, omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.hero_kill_gold += 1;
+        let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA kill rules changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA kill rules differ"));
+        for invalid in [serde_json::json!(-1), serde_json::json!(0.5), serde_json::json!("300")] {
+            assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(
+                serde_json::json!({"passive_gold_per_second": 2, "hero_kill_gold": invalid})).is_err());
+        }
+    }
+
+    #[test]
+    fn moba_recall_changes_require_rebuild_not_dev_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+        let hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["recall_channel_seconds"] = serde_json::json!(9);
+        assert_ne!(hash, omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.recall_channel_seconds += 1;
+        let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA recall rules changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA recall rules differ"));
+    }
+
+    #[test]
+    fn moba_assist_rules_require_rebuild_and_validate_types() {
+        for window in [false, true] {
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+            let mut content = load_content(root).unwrap();
+            let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+            let hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+            let field = if window { "assist_window_seconds" } else { "hero_assist_gold" };
+            content.manifest_value["moba_economy"][field] = serde_json::json!(if window { 11 } else { 101 });
+            assert_ne!(hash, omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+            if window { content.manifest.moba_economy.assist_window_seconds += 1; }
+            else { content.manifest.moba_economy.hero_assist_gold += 1; }
+            let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+            assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA assist rules changed"));
+            let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+            assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA assist rules differ"));
+            for invalid in [serde_json::json!(-1), serde_json::json!(0.5), serde_json::json!("10")] {
+                let mut rules = serde_json::json!({"passive_gold_per_second":2,"hero_kill_gold":300,
+                    "recall_channel_seconds":8,"hero_assist_gold":100,"assist_window_seconds":10});
+                rules[field] = invalid;
+                assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn moba_xp_changes_require_rebuild_and_validate_complete_rules() {
+        for assist in [false, true] {
+            let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+            let mut content = load_content(root).unwrap();
+            let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+            let hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+            let field = if assist {"hero_assist_xp"} else {"hero_kill_xp"};
+            content.manifest_value["moba_economy"][field] = serde_json::json!(101);
+            assert_ne!(hash, omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+            if assist { content.manifest.moba_economy.hero_assist_xp += 1; }
+            else { content.manifest.moba_economy.hero_kill_xp += 1; }
+            let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+            assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA XP rules changed"));
+            let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+            assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA XP rules differ"));
+            for invalid in [serde_json::json!(-1),serde_json::json!(0.5),serde_json::json!("100")] {
+                let mut rules = serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+                rules[field] = invalid;
+                assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn moba_lane_xp_rules_change_hash_reject_hot_reload_and_invalid_types() {
+        for field in ["lane_creep_xp","lane_xp_radius"] {
+            let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+            let mut content=load_content(root).unwrap();
+            let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+            let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+            content.manifest_value["moba_economy"][field]=serde_json::json!(101);
+            assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+            if field=="lane_creep_xp" {content.manifest.moba_economy.lane_creep_xp+=1;}
+            else {content.manifest.moba_economy.lane_xp_radius+=1;}
+            let after=ContentShape::from_manifest(&content.manifest,&content.stories);
+            assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA lane XP rules changed"));
+            let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+            assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA lane XP rules differ"));
+            for invalid in [serde_json::json!(-1),serde_json::json!(0.5),serde_json::json!("25")] {
+                let mut rules=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+                rules[field]=invalid;
+                assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules).is_err());
+            }
+            let mut missing=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(missing).is_err());
         }
     }
 

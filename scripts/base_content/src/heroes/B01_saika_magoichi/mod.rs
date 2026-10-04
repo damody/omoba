@@ -15,3 +15,4 @@ pub use No1_sniper_mode::sniper_mode_ffi;
 pub use No2_saika_reinforcements::saika_reinforcements_ffi;
 pub use No3_rain_iron_cannon::rain_iron_cannon_ffi;
 pub use No4_three_stage_technique::three_stage_ffi;
+pub use No4_three_stage_technique::three_stage_ffi as three_stage_technique_ffi;
