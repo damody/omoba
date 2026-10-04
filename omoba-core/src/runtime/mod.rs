@@ -21,6 +21,8 @@ pub mod projection_policy;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod presentation_cue;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod moba_map_layout;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod secure_replica_contract;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective;
@@ -46,6 +48,8 @@ mod team_replica_contract_tests;
 pub mod team_stream;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod visibility;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod fog_grid;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use anti_probing::*;

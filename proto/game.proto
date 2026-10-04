@@ -969,6 +969,8 @@ message RuntimeReadyPresentation {
   uint64 replica_tick = 4;
   string content_hash = 5;
   uint32 tick_rate_hz = 6; // authoritative bootstrap rate, never presentation FPS
+  string moba_map_id = 7; // public compiled layout, empty for legacy/TD
+  string moba_map_catalog_hash = 8;
 }
 
 message PresentationComponent {
@@ -993,6 +995,20 @@ message FogTilePresentation {
   sint32 column = 1;
   sint32 row = 2;
   bool visible = 3;
+}
+
+// Authority-sampled, team-private presentation grid; not an entity/target gate.
+message FogGridPresentation {
+  uint32 schema_version = 1;
+  uint32 team_id = 2;
+  uint64 view_epoch = 3;
+  uint64 sample_tick = 4;
+  sint64 origin_x_raw = 5; // Q10 world coordinates
+  sint64 origin_y_raw = 6;
+  sint64 cell_size_raw = 7;
+  uint32 columns = 8;
+  uint32 rows = 9;
+  bytes cells = 10; // row-major: 0 unseen, 1 explored, 2 visible; <=4096
 }
 
 message VisionCirclePresentation {
@@ -1043,6 +1059,8 @@ message TeamPresentationSnapshot {
   OwnerEconomyPresentation owner_economy = 17;
   // Bounded persistent recent result history, not an APPLIED input ACK.
   repeated ShopTransactionReceipt shop_receipts = 18;
+  // Absence means unavailable, never full visibility or demo fallback.
+  FogGridPresentation fog_grid = 19;
 }
 
 message InventorySlotPresentation {
@@ -1212,6 +1230,8 @@ message TeamViewRebase {
   repeated bytes ordered_chunk_hashes = 13;
   bytes filtered_snapshot_hash = 14;
   bytes manifest_hash = 15;
+  // Version 2 manifest binds this team-private presentation to its hash.
+  FogGridPresentation fog_grid = 16;
 }
 
 message TestCommandRequest {

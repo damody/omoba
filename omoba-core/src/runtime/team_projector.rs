@@ -87,6 +87,7 @@ pub enum ProjectionError {
     FrameTooLarge,
     MalformedDisclosedState,
     MissingProjectionPolicy(String),
+    InvalidFog(&'static str),
 }
 
 impl From<TeamIdentityError> for ProjectionError {
@@ -144,6 +145,7 @@ pub struct TeamProjectorConfig {
     pub mass_reveal_chunk_entities: usize,
     pub rebase_chunks_per_tick: usize,
     pub hash_checkpoint_interval_ticks: u64,
+    pub fog_sample_interval_ticks: u64,
 }
 
 impl Default for TeamProjectorConfig {
@@ -154,6 +156,7 @@ impl Default for TeamProjectorConfig {
             mass_reveal_chunk_entities: 64,
             rebase_chunks_per_tick: 2,
             hash_checkpoint_interval_ticks: 120,
+            fog_sample_interval_ticks: 6,
         }
     }
 }
@@ -190,6 +193,8 @@ pub struct TeamViewProjector {
     pending_rebase_notice: Option<TeamViewRebaseNotice>,
     next_snapshot_ordinal: u64,
     latest_external_property_by_replica: BTreeMap<u64, Vec<u8>>,
+    fog_grid: Option<crate::runtime::fog_grid::AuthorityFogGrid>,
+    pending_fog_event: Option<TeamPublicEvent>,
 }
 
 #[derive(Default)]
@@ -414,7 +419,12 @@ pub fn run_team_projection_after_wave_b(
             &state.index.current,
             &visibility.latest_disclosed_baseline_by_canonical,
         );
+        if let (Some(geometry), Some(view)) = (visibility.fog_geometry, &visibility.latest_read_view) {
+            if view.tick != committed.tick { return Err(ProjectionError::InvalidFog("fog barrier tick mismatch")); }
+            projector.sample_authority_fog(geometry, view)?;
+        }
         if let Some((resume_sequence, view_epoch)) = pending_rebases.get(team) {
+            let view_epoch = (*view_epoch).max(projector.view_epoch);
             // Recovery requests may refer to the frame where divergence was
             // detected.  A rebase snapshot represents the current world, so
             // replay must resume at the projector's next sequence, never at
@@ -431,7 +441,7 @@ pub fn run_team_projection_after_wave_b(
             let bundle = projector.build_filtered_rebase(
                 next_tick_after_committed(committed.tick),
                 resume_sequence,
-                *view_epoch,
+                view_epoch,
             )?;
             projector.enqueue_rebase_notice(crate::runtime::rebase_notice(
                 bundle
@@ -441,7 +451,7 @@ pub fn run_team_projection_after_wave_b(
                     .expect("rebase snapshot id"),
                 bundle.manifest.manifest_hash.clone(),
                 resume_sequence,
-                *view_epoch,
+                view_epoch,
                 bundle
                     .manifest
                     .authority_revision
@@ -550,7 +560,41 @@ impl TeamViewProjector {
             pending_rebase_notice: None,
             next_snapshot_ordinal: 1,
             latest_external_property_by_replica: BTreeMap::new(),
+            fog_grid: None,
+            pending_fog_event: None,
         }
+    }
+
+    pub fn sample_authority_fog(
+        &mut self,
+        geometry: crate::runtime::fog_grid::FogGridGeometry,
+        view: &crate::runtime::visibility::WaveBReadView,
+    ) -> Result<(), ProjectionError> {
+        use crate::runtime::fog_grid::{AuthorityFogGrid, FOG_GRID_EVENT_KIND};
+        if let Some(latest) = self.fog_grid.as_ref().and_then(|grid| grid.latest()) {
+            if latest.view_epoch != self.view_epoch {
+                self.fog_grid = None;
+            } else if latest.geometry != geometry {
+                return Err(ProjectionError::InvalidFog("fog geometry changed within view"));
+            }
+        }
+        if self.fog_grid.is_none() {
+            self.fog_grid = Some(AuthorityFogGrid::new(self.team_id, self.view_epoch, geometry)
+                .map_err(ProjectionError::InvalidFog)?);
+        }
+        let grid = self.fog_grid.as_mut().unwrap();
+        if let Some(latest) = grid.latest() {
+            if view.tick < latest.tick { return Err(ProjectionError::InvalidFog("stale fog view")); }
+            if view.tick - latest.tick < self.config.fog_sample_interval_ticks.max(1) { return Ok(()); }
+        }
+        let snapshot = grid.sample(view).map_err(ProjectionError::InvalidFog)?;
+        self.pending_fog_event = Some(TeamPublicEvent {
+            event_kind: FOG_GRID_EVENT_KIND,
+            subject: None,
+            sanitized_payload: snapshot.encode().map_err(ProjectionError::InvalidFog)?,
+            stable_sub_index: 0,
+        });
+        Ok(())
     }
 
     pub fn enqueue_rebase_chunks(&mut self, chunks: impl IntoIterator<Item = Vec<u8>>) {
@@ -661,6 +705,9 @@ impl TeamViewProjector {
         resume_sequence: u64,
         view_epoch: u64,
     ) -> Result<RecoveryRebaseBundle, ProjectionError> {
+        if view_epoch == 0 || view_epoch < self.view_epoch { return Err(ProjectionError::InvalidFog("stale projector rebase epoch")); }
+        let mut recovered_fog = self.fog_grid.clone();
+        if let Some(grid) = &mut recovered_fog { grid.rebase_epoch(view_epoch).map_err(ProjectionError::InvalidFog)?; }
         let disclosed_world = self.encode_disclosed_world();
         let snapshot_id = SnapshotId {
             snapshot_schema_version: 1,
@@ -674,7 +721,7 @@ impl TeamViewProjector {
         let chunks =
             crate::runtime::encode_snapshot_chunks(&snapshot_id, &disclosed_world, 16 * 1024)
                 .map_err(|_| ProjectionError::FrameTooLarge)?;
-        let manifest = crate::runtime::build_snapshot_manifest(
+        let mut manifest = crate::runtime::build_snapshot_manifest(
             snapshot_id,
             self.team_id,
             view_epoch,
@@ -684,6 +731,18 @@ impl TeamViewProjector {
             &disclosed_world,
             &chunks,
         );
+        if let Some(grid) = recovered_fog.as_ref().and_then(|grid| grid.latest()) {
+            if grid.tick > authoritative_tick { return Err(ProjectionError::InvalidFog("future fog rebase")); }
+            manifest.manifest_version = 2;
+            manifest.fog_grid = Some(grid.to_presentation());
+            manifest.manifest_hash = crate::runtime::selective::manifest_hash(&manifest).to_vec();
+        }
+        if view_epoch != self.view_epoch {
+            self.pending_fog_event = recovered_fog.as_ref().and_then(|grid| grid.latest())
+                .map(|grid| grid.presentation_event()).transpose().map_err(ProjectionError::InvalidFog)?;
+        }
+        self.view_epoch = view_epoch;
+        self.fog_grid = recovered_fog;
         Ok(RecoveryRebaseBundle { chunks, manifest })
     }
 
@@ -706,7 +765,15 @@ impl TeamViewProjector {
             monotonic_snapshot_ordinal: self.next_snapshot_ordinal,
         };
         self.next_snapshot_ordinal = self.next_snapshot_ordinal.saturating_add(1);
-        let team_private_metadata = evidence_sentinel_metadata(self.team_id);
+        let mut team_private_metadata = evidence_sentinel_metadata(self.team_id);
+        if let Some(snapshot) = self.fog_grid.as_ref().and_then(|grid| grid.latest()) {
+            team_private_metadata.push(DeterministicMetadata {
+                namespace: crate::runtime::fog_grid::FOG_GRID_NAMESPACE.into(),
+                key: crate::runtime::fog_grid::FOG_GRID_KEY.into(),
+                schema_version: 1,
+                value: snapshot.encode().expect("validated authority fog snapshot"),
+            });
+        }
         let snapshot = FilteredTeamSnapshot {
             snapshot_schema_version: 1,
             snapshot_id: Some(snapshot_id.clone()),
@@ -1115,6 +1182,7 @@ impl TeamViewProjector {
                 &mut external_effects,
             );
         }
+        if let Some(event) = self.pending_fog_event.take() { public_events.push(event); }
         public_events.sort_by_key(|event| {
             (
                 event.event_kind,

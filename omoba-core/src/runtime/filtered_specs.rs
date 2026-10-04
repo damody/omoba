@@ -316,7 +316,9 @@ impl SpecsDisclosedWorldStepper {
                 .insert(
                     entity,
                     Faction {
-                        faction_id: if render.team_id == 0 {
+                        faction_id: if render.kind == 3 && render.team_id == 0 {
+                            FactionType::HostileNeutral
+                        } else if render.team_id == 0 {
                             FactionType::Neutral
                         } else {
                             FactionType::Player
@@ -354,7 +356,7 @@ impl SpecsDisclosedWorldStepper {
                 insert_default_if_missing!(crate::runtime::FacingBroadcast);
                 insert_default_if_missing!(TurnSpeed);
                 insert_default_if_missing!(CollisionRadius);
-            } else if render.kind == 2 {
+            } else if render.kind == 2 || render.kind == 3 {
                 let mut units = self.filtered.world.write_storage::<Unit>();
                 if units.get(entity).is_none() {
                     units

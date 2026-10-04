@@ -574,6 +574,10 @@ pub fn run_team_wave_b_parallel(
 
 #[derive(Clone, Debug, Default)]
 pub struct TeamVisibilityRuntime {
+    /// Authority-only immutable view, reused by presentation sampling after
+    /// the barrier. Never serialized as client metadata.
+    pub latest_read_view: Option<Arc<WaveBReadView>>,
+    pub fog_geometry: Option<crate::runtime::fog_grid::FogGridGeometry>,
     pub teams: BTreeMap<u32, TeamVisibilityState>,
     pub last_transitions: BTreeMap<u32, Vec<VisibilityTransition>>,
     pub latest_owner_by_canonical: BTreeMap<u64, Option<u32>>,
@@ -634,7 +638,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 kind: if heroes.get(entity).is_some() {
                     1
                 } else if units.get(entity).is_some() {
-                    2
+                    if factions.get(entity).is_some_and(|f| f.faction_id == FactionType::HostileNeutral) { 3 } else { 2 }
                 } else {
                     0
                 },
@@ -779,6 +783,7 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
         .map(|state| (state.team, state))
         .collect();
     runtime.last_transitions = results.into_iter().collect();
+    runtime.latest_read_view = Some(Arc::new(view));
 }
 
 #[derive(Clone, Debug)]

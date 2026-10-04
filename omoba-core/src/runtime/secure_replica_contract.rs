@@ -32,6 +32,11 @@ pub fn decode_public_blocked_regions(bytes: &[u8]) -> Option<crate::runtime::Blo
     }
     let mut cursor = 0;
     let count = usize::try_from(u32_at(bytes, &mut cursor)?).ok()?;
+    // Each region needs at least its two length fields. Never reserve capacity
+    // from an unchecked wire count, including legacy non-compiled map data.
+    if count > bytes.len().saturating_sub(cursor) / 8 {
+        return None;
+    }
     let mut regions = Vec::with_capacity(count);
     for _ in 0..count {
         let name_len = usize::try_from(u32_at(bytes, &mut cursor)?).ok()?;
@@ -40,6 +45,9 @@ pub fn decode_public_blocked_regions(bytes: &[u8]) -> Option<crate::runtime::Blo
             .to_owned();
         cursor += name_len;
         let point_count = usize::try_from(u32_at(bytes, &mut cursor)?).ok()?;
+        if point_count > bytes.len().saturating_sub(cursor) / 8 {
+            return None;
+        }
         let mut points = Vec::with_capacity(point_count);
         for _ in 0..point_count {
             let x = f32::from_bits(u32_at(bytes, &mut cursor)?);
@@ -52,6 +60,22 @@ pub fn decode_public_blocked_regions(bytes: &[u8]) -> Option<crate::runtime::Blo
         regions.push(crate::runtime::BlockedRegion { name, points });
     }
     (cursor == bytes.len()).then_some(crate::runtime::BlockedRegions(regions))
+}
+
+#[cfg(test)]
+mod terrain_decode_tests {
+    use super::*;
+
+    #[test]
+    fn wire_counts_are_bounded_before_allocation() {
+        assert!(decode_public_blocked_regions(&u32::MAX.to_be_bytes()).is_none());
+        let mut bytes = 1u32.to_be_bytes().to_vec();
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.extend_from_slice(&u32::MAX.to_be_bytes());
+        assert!(decode_public_blocked_regions(&bytes).is_none());
+        let empty = crate::runtime::BlockedRegions(Vec::new());
+        assert!(decode_public_blocked_regions(&encode_public_blocked_regions(&empty)).unwrap().0.is_empty());
+    }
 }
 
 /// Component schemas that are safe to materialize in a team-filtered replica.

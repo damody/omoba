@@ -388,7 +388,7 @@ pub fn encode_snapshot_chunks(
 
 pub fn manifest_hash(manifest: &TeamViewRebase) -> [u8; 32] {
     let mut digest = Sha256::new();
-    digest.update(b"omoba-team-rebase-manifest-v1\0");
+    digest.update(if manifest.manifest_version == 2 { b"omoba-team-rebase-manifest-v2\0" } else { b"omoba-team-rebase-manifest-v1\0" });
     digest.update(manifest.manifest_version.to_be_bytes());
     digest.update(manifest.protocol_version.to_be_bytes());
     digest.update(manifest.snapshot_schema_version.to_be_bytes());
@@ -420,6 +420,13 @@ pub fn manifest_hash(manifest: &TeamViewRebase) -> [u8; 32] {
         digest.update(hash);
     }
     digest.update(&manifest.filtered_snapshot_hash);
+    if manifest.manifest_version == 2 {
+        if let Some(grid) = &manifest.fog_grid {
+            let bytes = prost::Message::encode_to_vec(grid);
+            digest.update((bytes.len() as u32).to_be_bytes());
+            digest.update(bytes);
+        }
+    }
     digest.finalize().into()
 }
 
@@ -454,13 +461,21 @@ pub fn build_snapshot_manifest(
             .collect(),
         filtered_snapshot_hash: Sha256::digest(snapshot_bytes).to_vec(),
         manifest_hash: Vec::new(),
+        fog_grid: None,
     };
     manifest.manifest_hash = manifest_hash(&manifest).to_vec();
     manifest
 }
 
 pub fn verify_snapshot_manifest(manifest: &TeamViewRebase) -> bool {
-    manifest.manifest_hash == manifest_hash(manifest).as_slice()
+    let valid_presentation = match manifest.manifest_version {
+        1 => manifest.fog_grid.is_none(),
+        2 => manifest.fog_grid.as_ref().is_some_and(|grid|
+            crate::runtime::fog_grid::FogGridSnapshot::from_presentation(grid, manifest.team_id,
+                manifest.view_epoch.as_ref().map_or(0, |epoch| epoch.value), manifest.authoritative_tick).is_ok()),
+        _ => false,
+    };
+    valid_presentation && manifest.manifest_hash == manifest_hash(manifest).as_slice()
         && manifest.chunk_count as usize == manifest.ordered_chunk_hashes.len()
 }
 

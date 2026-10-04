@@ -1119,6 +1119,12 @@ impl SelectiveReplicaRuntime {
         digest.finalize().into()
     }
 
+    /// Borrow presentation events immediately after a successful apply, before
+    /// catch-up can replace the injection batch or rendering can drain it.
+    pub fn applied_public_events(&self) -> &[TeamPublicEvent] {
+        &self.last_injections.public_events
+    }
+
     pub fn extract_filtered_render_snapshot(&mut self) -> FilteredRenderSnapshot {
         FilteredRenderSnapshot {
             team_id: self.team_id,
@@ -1171,6 +1177,11 @@ impl SelectiveReplicaRuntime {
             || manifest.filtered_snapshot_hash != Sha256::digest(verified_snapshot_bytes).as_slice()
             || snapshot.team_id != self.team_id
             || snapshot.disclosed_world != verified_snapshot_bytes
+            || snapshot.view_epoch != manifest.view_epoch
+            || snapshot.authoritative_tick != manifest.authoritative_tick
+            || snapshot.snapshot_id != manifest.snapshot_id
+            || manifest.view_epoch.as_ref().map_or(0, |epoch| epoch.value) == 0
+            || manifest.view_epoch.as_ref().map_or(0, |epoch| epoch.value) < self.view_epoch
         {
             return Err(ReplicaRuntimeError::UnverifiedRebase);
         }

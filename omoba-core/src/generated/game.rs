@@ -1491,6 +1491,11 @@ pub struct RuntimeReadyPresentation {
     /// authoritative bootstrap rate, never presentation FPS
     #[prost(uint32, tag = "6")]
     pub tick_rate_hz: u32,
+    /// public compiled layout, empty for legacy/TD
+    #[prost(string, tag = "7")]
+    pub moba_map_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "8")]
+    pub moba_map_catalog_hash: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PresentationComponent {
@@ -1527,6 +1532,32 @@ pub struct FogTilePresentation {
     pub row: i32,
     #[prost(bool, tag = "3")]
     pub visible: bool,
+}
+/// Authority-sampled, team-private presentation grid; not an entity/target gate.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FogGridPresentation {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub view_epoch: u64,
+    #[prost(uint64, tag = "4")]
+    pub sample_tick: u64,
+    /// Q10 world coordinates
+    #[prost(sint64, tag = "5")]
+    pub origin_x_raw: i64,
+    #[prost(sint64, tag = "6")]
+    pub origin_y_raw: i64,
+    #[prost(sint64, tag = "7")]
+    pub cell_size_raw: i64,
+    #[prost(uint32, tag = "8")]
+    pub columns: u32,
+    #[prost(uint32, tag = "9")]
+    pub rows: u32,
+    /// row-major: 0 unseen, 1 explored, 2 visible; <=4096
+    #[prost(bytes = "vec", tag = "10")]
+    pub cells: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct VisionCirclePresentation {
@@ -1606,6 +1637,9 @@ pub struct TeamPresentationSnapshot {
     /// Bounded persistent recent result history, not an APPLIED input ACK.
     #[prost(message, repeated, tag = "18")]
     pub shop_receipts: ::prost::alloc::vec::Vec<ShopTransactionReceipt>,
+    /// Absence means unavailable, never full visibility or demo fallback.
+    #[prost(message, optional, tag = "19")]
+    pub fog_grid: ::core::option::Option<FogGridPresentation>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct InventorySlotPresentation {
@@ -2018,6 +2052,9 @@ pub struct TeamViewRebase {
     pub filtered_snapshot_hash: ::prost::alloc::vec::Vec<u8>,
     #[prost(bytes = "vec", tag = "15")]
     pub manifest_hash: ::prost::alloc::vec::Vec<u8>,
+    /// Version 2 manifest binds this team-private presentation to its hash.
+    #[prost(message, optional, tag = "16")]
+    pub fog_grid: ::core::option::Option<FogGridPresentation>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TestCommandRequest {
