@@ -1,6 +1,221 @@
 # Unreal MOBA 防錯紀錄
 
+## E151：Lua reserved key 與既有工具 API 必須先確認（2026-10-04）
+
+- 新 planner 初次使用 node.detail.function，Lua 的 function 是保留字，載入即語法錯誤；改為 detail['function']，無資產修改。往後 JSON 的 reserved key 一律用 bracket access。
+- 備份 hash 一度寫成不存在的 sha256_file，查現有 hash.lua 後在 apply 前改為 sha256；不要從其他語言的 helper 名稱猜 API。
+- 查參考腳本時猜了不存在的 ue_art_replacement_smoke.lua；改以 rg --files 找實際 scripts/tests/ue_art_swap_editor_test.lua。不得把缺檔讀取當已取得依據。
+
+## E150：MCP ok=true 的 graph preview 仍可能含拒絕項目（2026-10-04）
+
+- 首次 preview 六個刪除項目，MCP ok=true 但 evtSaikaAction 被拒絕：cannot delete a structural/entry-point node。初版工具只檢查外層 ok，錯誤回報 success=true；該次只有 preview，沒有修改資產。保留原 report1791123876 與 raw 回覆，不能當成功驗收。
+- 增加逐項 gate：preview 全部 would_apply=true、數量一致；apply 必須 applied=true 且無 rejected，之後完整 snapshot 核對。負向 CAS／未套用回歸測試保留。
+- 普通五個節點用 CAS，入口則先核對 isolated exact event，再由 documented delete_nodes allow_destructive=true 精確刪一個；備份／raw 操作／部分失敗報告保留，不自動重送整批。
+- 最後真實遷移1791124011成功，保留25nodes完整內容／接線一致、compile/save成功；重跑無改動。13個直接測試與動畫派發單輪通過，詳見 Blueprint generic event migration 進度檔。
+
+## E149：Editor 初始化時間不能與 MCP 等待期限混為程式錯誤（2026-10-04）
+
+- Editor 101752 首次 wait-mcp 45 秒 exit 6；專案 om.log 顯示 Engine Initialization 實際 46.06 秒後完成，process 身分仍是本專案，沒有 crash 或 modal 證據。
+- 初始化完成後再做一次相同有界 readiness 檢查即 HTTP30000 成功；GenericAnimationOverlay 一次1/1通過。沒有反覆重啟 Editor、調高完整驗收 deadline 或停其他程序。
+- 防重犯：先讀本專案啟動階段與 process 狀態，區分尚在初始化、服務故障與功能失敗；保存首次失敗，不把二次成功改寫成首次成功。
+
+## E148：stage SHA 一致不代表最後 source 已建置（2026-10-04）
+
+- 本批 build-only 進行時追加 unknown hero fallback 修正；初次 bridge DLL 22:14:06 早於 projection.rs 最後修改 22:14:40，雖然 --verify-staged-only SHA 一致仍不能當最新實作證據。
+- 決定：停止本專案新開的 Editor 47420，再以既有 Lua build-only 補增量建置；此後不再同時修改程式。原 Editor 83404 已先核對完整 project command line 再由 project-scoped restart 停止，沒有停止其他專案。
+- 防重犯：最後程式修改完成才建置；staging 一致與來源建置成功分別核對。不能讓讀取 hash 的成功掩蓋建置／編輯競態。最後 build-only 27886 exit0、DLL 22:16:58 晚於最後 source 22:14:40，stage c31089…一致；詳見 generic-animation-overlay 進度檔。
+- 另有工具輸出合併過大被截斷；改按檔案／範圍拆讀。截斷不能作完整日誌證據，建置以該工作 session 的 exit 與本功能 Editor 報告確認，不讀其他專案可能覆寫的全域 UBT log。
+
+## E147：非零 overlay 不等於 Saika 狙擊動畫（2026-10-04）
+
+- bridge 寫死兩個 buff 名稱，Unreal 又將全部非零 overlay 指向 sniper_mode／sniper_walk；新 buff 即使有 metadata 仍會被誤解。
+- 共用 Lua metadata parser → bridge priority／stable ID 選擇 → 生成 native OverlayName／Walk／Stand 欄位 → 共用 Unreal model。實際 buff 決定適用，缺映射回普通動畫，不使用角色旗標猜名稱。
+- 同時移除未知 hero 冒充 Saika catalog 的回退；新增直接回歸。負向與新英雄任意名稱測試保留，仍不刪有資產引用的 Blueprint 相容介面。
+
+## E146：新增直接測試仍須遵守 fixture 與 CLI 契約（2026-10-04）
+
+- 新增 codegen 測試第一次從兄弟 test module 使用 private helpers，編譯 E0603；只將 cfg(test) helpers 可見度調整為 pub(super)，不擴大正式 API。
+- 第二次 fixture 的 ability 少了 max_level／levels，先被既有內容驗證拒絕。補齊 max_level=1、levels={{}} 後兩個新測試通過。負向測試必須從合法基線改一個目標欄位，不把無關 schema 錯誤當目標驗證成功。
+- codegen CLI 曾誤用 --out-dir，exit 1；讀實際 main.rs，改用 --out 後生成及 --check 成功。呼叫前先查既有入口參數，不能從 Rust CodegenOptions 欄位猜 CLI。
+- 初次查讀輸出再度截斷；改以已知函式／明確行數拆讀並提高對應輸出額度。不得把截斷輸出當完整內容證據。延伸調查另猜測不存在的 OmNativeVisualActor.cpp；該次搜尋不是取得原生動畫處理證據，後續必須先 rg --files 確認實際檔名。
+
+## E145：通用英雄事件 API 底下不能仍靠角色名稱生成事件（2026-10-04）
+
+- bridge 只有 sniper_mode／three_stage 的 hardcoded buff→ability 轉換；任意新英雄無法沿用該事件來源。
+- 改由 Lua buff_visual.ability_binding → 型別化生成 manifest → numeric buff 索引，名稱不參與投影分支。未知引用／模式／欄位／重複綁定與不一致 ID fail closed，未宣告綁定不猜測。
+- 任意 custom ID 的八種 lifecycle 組合、非法 metadata／catalog 與既有快照回歸直接測試通過；沒有因此宣稱 Blueprint 相容介面與動畫分支全數遷移。細節見 generic-buff-ability-binding 進度檔。
+
+## E144：即時proto與受版控fallback可能不同，即使server check通過（2026-10-04）
+
+- 收尾查核發現core用vendored protoc即時生成，但omb無protoc時讀src/generated/game.rs；先前新增fog_grid後尚未同步該受版控fallback。初次server check成功不能證明fallback含新欄位。
+- 使用既有core build.rs的OMOBA_UPDATE_PROTO_FALLBACK=1生成選項刷新，還原呼叫前環境值；不手寫generated structs、不安裝protoc或新增fallback。之後查明兩個fog_grid欄位，重新server check。
+- 同輪曾猜測不存在的src/game_proto.rs；以實際build.rs與generated路徑定位。不把缺檔或rg無match當資料已取得。
+- 收尾：既有生成選項及server重新check均exit0；fallback含FogGridPresentation、snapshot fog_grid及rebase fog_grid。後續修改proto必須同步受版控fallback，再檢查無protoc的server路徑；單查cargo check不是一致性證據。
+
+## E143：rebase缺少已綁定迷霧與立即恢復快照（2026-10-04）
+
+- 現況：恢復manifest只帶world，runtime清空fog；主／catch-up分支只送ResetView後等下一個gameplay frame，不能當完整迷霧恢復。
+- 決定：manifest v2以新hash domain綁typed grid；v1無grid保留原hash，v1夾帶grid／v2缺grid／未知版本拒絕。恢復保留同隊同場探索，active epoch與後續frame／bootstrap一致；明確新view reset仍清探索。
+- 主／catch-up改用同一helper，critical reset→恢復snapshot，另保留latest供renderer重連；不增加玩法world。core兩個新rebase測試、兩個原tick／sequence測試與runtime check通過，完整實戰驗收仍未執行。
+- 操作錯誤：Select-Object -First誤填sixty，且同錯誤重複一次；數字參數必須直接填65，修正後讀取，不聲稱先前讀取成功。沒有新增PS／Python fallback或變動外部程序。
+
+## E142：小地圖fog不能保留lease指標或把網格外當可見（2026-10-04）
+
+- 通用模型綁定expected team、ABI11完整frame後驗全部geometry／三態／audience／tick，複製cells，不保留租約指標。control先返回保留狀態，full reset／Stop清空；同epoch幾何變動、同tick衝突、倒退拒絕。
+- 三態row-run mask在公開路線／地形之上，memory／live在其上；網格外與schematic padding明確遮罩。不能用取樣fog替代entity target gate或在UE生成隱藏位置。
+- 操作紀錄：建置輸出仍截斷；共用Engine Log.txt已被另一專案覆寫，不能當omfue證據。本次build task exit0／staged SHA及專屬Editor test report才是依據；未修改外部專案或停止其程序。
+- E141外部lock已解除，本批正常build-only成功、owned Editor83404，本功能MinimapFogGrid一次1/1 passed；未跑全套MCP／PIE／雙UE60Hz。詳見unreal-minimap-fog-grid進度檔，完整rebase／整合仍待完成。
+
+## E141：共用引擎 DLL 被其他專案 commandlet 鎖住（2026-10-04）
+
+- ABI11 build-only 中 OmEditor／OmGenerated／OmRuntime compile/link 成功；完整 target 的 NetCore.dll link 失敗 UBA9001／LNK1104，build_ue_moba 依規則非零退出。不能把局部模組成功当完整建置。
+- 讀取 actual UnrealEditor-Cmd.exe PID68548 command line：C:/portable/OpenKoikatsu/Saved/Tests/PaintSpray396/FrameFollowProject/OpenKoikatsu.uproject，執行 ok.PaintGalleryAudit。不是 omfue，不在停止範圍；保留其程序，不把停所有 Unreal 當一般修正。
+- 決定：記錄外部 shared engine lock，停止重複整體 UBT；本專案 bridge 以既有 build_bridge.bat 收尾並驗 built/staged SHA，完整 Unreal build 等外部檔案鎖解除後才重跑。未新增 PS／Python fallback、修改引擎 link 設定或隱藏失敗。
+- tool 結果含重複長 build logs 再次截斷；關鍵失敗來自可見明確 link 訊息，另以 actual process command line 檢查原因，不推測程序歸屬。
+
+## E140：正式 fog 不可沿用無 geometry 的 legacy tiles／過期 ABI smoke（2026-10-04）
+
+- 決定：增加 typed FogGridPresentation schema 1 與 ABI 11 OmFogGrid，保留 Q10 座標、三態與 audience；舊 tiles 不改意義，正式資料存在時非法也不退回 demo。
+- lease 自有 metadata／cells；busy ring retry 保留結果，不覆寫仍有 reader 的舊槽。4 個本功能指定 Rust 測試成功，Unreal 建置結果見 authority-fog-ipc-bridge 進度檔。
+- 發現 C++ header smoke 尚固定 ABI 7；更新到 11 並實際引用新 grid 成員，後續 ABI 改動須一起修改，不只改 Rust constant。原 terrain 測試改用 OM_ABI_VERSION。
+- 操作錯誤：初次廣泛 rg 指定不存在的 scripts/build_ue.lua，且多段讀取再發生截斷；後續改讀實際 build_ue_moba.lua 與縮小區段，不以未取得全文當驗證完成。
+- 建置前查核先前 owned Editor PID102392 的 exact project command line，僅停止該 project scope；restart 回報 force_terminated=true，另查 PID 已退出後才 staging。沒有停止其他應用、操作資產或跑完整 MCP 驗收。
+
+## E139：fog 發布與快取必須同時約束 audience、封包及生命週期（2026-10-04）
+
+- 決定：從 compiled Lua map 產生 bounded geometry，重用正式 Wave B read view；每隊 projector 在編碼／padding 前發布 FG01，私人 bootstrap 保留同一資料，不傳 source／hidden IDs、不加入 gameplay hash。
+- runtime 先驗 bootstrap／event envelope、team／epoch／tick／geometry／衝突，再保留最新合法結果；失敗不猜全可見，production 清空 cache。缺更新保留，verified rebase 清空後等待合法新 epoch 資料；完整 rebase／IPC／UE 尚未串接完成。
+- 追趕略過 intermediate 呈現：修正成每個成功 Applied 後立即借用 public events 留存，不能只在 extract_presentation_source 時更新；Duplicate／Rejected 不收。再查詢时曾猜測不存在的 team_wire_validation.rs，改用已知目錄搭配 --glob，不把缺檔當完成檢查。
+- 操作錯誤：PowerShell 的 `{design,tasks}` 路徑展開造成 ParserError；直接交給 rg 的 `src/*.rs` 造成 error 123；猜測根 Cargo.toml 造成 error 2；多檔廣泛查詢再次截斷。後續明確列已知檔案，目錄搜尋使用 --glob，逐區段讀取。這些失敗不是成功讀取或實作證據。
+- 確認：6 個指定核心測試、另 1 個真實 selective replica 追趕留存測試及 client runtime cargo check 通過；不重跑 MCP／Unreal／雙玩家／完整核心 suite。詳見 authority-fog-publication 進度檔，不勾選完整 6.1／6.2。
+
+## E138：正式fog核心不可重算另一份玩法視野（2026-10-04）
+
+- 權威已有WaveBReadView及共用line_of_sight，新增grid只從正式source／occluders取樣；不能從safe hero位置再猜700半徑，更不能拿碰撞地形當遮蔽。
+- grid geometry先checked乘加／容量4096，wire FG01包含team／epoch／tick；decoder先驗全部size／states才配置，拒絕錯team／epoch／truncated／未知version／trailing bytes。
+- sources radius<=0不平方成正半徑；raw差值用i128，平方距離用u128 saturating處理極端值，不沿用可能overflow的Fixed64運算。
+- explored保存在每隊AuthorityFogGrid，reset必須epochadvance；同tickimmutable／倒退tick拒絕。不以呈現網格取代原entity disclosure／stealth／input gate。
+- 多檔查詢輸出仍發生截斷；本批只以完整取到的signature／資料結構實作，縮小後續輸出。成功確認與未接網路／UE的限制見authority-fog-grid進度檔。
+- 本功能3個指定測試通過，含shared LOS tree blocking與極端座標，沒有重新執行343個其他核心測試或UE全套；網路／Unreal尚未接上，不能宣稱正式fog呈現完成。
+
+## E137：DemoFog不可直接當正式MOBA戰爭迷霧（2026-10-04）
+
+- 實際fog_cache.derive對所有safe entities套DemoFogCache；其10-unit tiles／700半徑不是版本化權威視野或explored資料。ABI也缺grid geometry／provenance，不能憑固定尺寸畫正式小地圖，更不能從empty列表猜全可見。
+- 改在production envelope辨識權威safe phase HUD metric後永久停用該session的demo fog／circles／trees／polygons，清cache；reset／缺HUD不回落demo。legacy/demo保留原路徑。這不更改真正authority visibility或safe披露，只禁止假呈現。
+- 小地圖明確VISION N/A，公開geometry／live與memory仍保留；完整fog底色尚未實作，需後續正式契約，不以邊界修正勾選完整任務。
+- 初次patch又使用不完整MarkerColor簽名導致整批拒絕；以完整函式行重新套用，新增runtime／UI確認，禁止把patch error當已寫入。
+- 本批停止先前owned Editor106460並另查PID退出後建置，未操作資產或擴停止範圍。結果見formal-fog-boundary進度檔。
+- Rust指定測試1 passed／runtime executable build exit0，OmGameEditor Succeeded，MinimapFogBoundary單輪success=true。ABI10未改但bridge dependency重建，stage改c66b56…，不能沿用前批554332…報告；沒有實作正式fog底色或全套驗收。
+
+## E136：小地圖不能把owner當team（2026-10-04）
+
+- OmFrameEntity.owner是player ID，owner>0不表示敵人；以前所有其他玩家被画紅。同隊映射改用權威公开scoreboard roster，先完整原子驗證再使用，缺值／重複／不合法時未知。
+- roster只補已披露live marker的team，不用公開player清單新增位置；記憶仍不帶owner／team。NPC無owner保持灰色，不以spawn或位置猜隊伍。
+- owner i32保留Rust u32 bit pattern，roster查詢轉回u32；high-bit fixture驗證。不解釋-1哨兵為u32::MAX合法owner，這個既有ABI歧義須另行schema遷移，不能偷偷猜。
+- 查找再次猜OmScoreboardModel.cpp不存在；改rg --files確認目前只有MinimapModel。patch首次使用不完整Project函式行導致拒絕，確認實際完整簽名後重套，不將失敗視為寫入。
+- 本批Editor由前批啟動、無資產修改；restart stop回報force_terminated，另驗原PID107948已退出才建置，不擴大停止其他專案。
+- 確認結果記入minimap-teams進度檔，完整套件與雙UE長測不在本批執行。
+- 本批build-only exit0、OmGameEditor Succeeded；MinimapTeams單輪1 passed／0 failed／error_count0，独立report已保存。未把十人fixture稱為十人網路實戰或像素驗收。
+
+## E135：小地圖安全記憶不能混入live與目標資料（2026-10-04）
+
+- entities pointer 為空時的早退會漏 ghost-only 完整view；改成兩個獨立迴圈，live與remembered型別分開。memory不含entity reference／owner、不猜team、不自行TTL或更新hidden位置。
+- 以render_id排除已有live／重複ghost，epoch0／非有限／範圍外拒絕。公開route／terrain決定bounds，memory不能擴張地圖或clamp到邊缘形成假目標。
+- restart從根目錄執行stop導致誤找根目錄om.uproject，工具正確拒絕且未停止任何程序；修正cwd到omfue，停止本批先前啟動的Editor並另核對PID91152已不存在。後續restart命令一律指定project cwd，不使用root預設。
+- 此次專案stop回報force_terminated=true；僅本批已啟動的本專案Editor，沒有執行資產編輯或對局。不能把stop dispatch當退出，建置前另查原PID。
+- 成功確認與限制記入minimap-memory進度檔；全套完整驗收留最後。
+- build-only exit0、OmGameEditor Succeeded；MinimapMemory單輪1 passed／0 failed／error_count0，包含正式WorldBridge整合，独立report已保存。不跑完整套件或雙UE長測，不以此勾選完整6.1／6.2。
+
+## E134：小地圖漏掉公开地形與功能確認範圍（2026-10-04）
+
+- 原小地圖缺route pointer就提早返回，範圍也只從兵線取得，無法顯示獨立公開地形。改route＋terrain共同計算示意範圍，geometry自有複製，不拿live entities或vision polygons補資料。
+- terrain批次最多32；空指標／非有限／min>=max拒絕並清空完整view，不保留前一個有效矩形造成部分地圖。control不清、full empty清空。
+- 初次patch的MakeLines context漏同一行後半段，整批未套用；先rg確認實際檔案未變，再使用完整行套用，不能把工具失敗當作已實作。
+- OpenSpec文件多次合併輸出超量；以分段補讀截斷範圍。後續單次輸出應控制總量，避免在多個命令間累積截斷。
+- 全套兩輪驗收不再每批執行；工具支援單一已知功能單輪與獨立報告，不以功能確認覆寫完整驗收證據。結果記入minimap-terrain進度檔。
+- 本批build-only／OmGameEditor編譯成功；MinimapTerrain單輪exit0／success=true，獨立報告已保存。未執行全套／PIE／雙UE／60Hz長測，不宣稱完整UI或框架已完成。
+
+## E133：獨立碰撞地形呈現與ABI10（2026-10-04）
+
+- 共用PresentationExtras保留validated compiled map，full/lifecycle同一路徑；新增frame-owned terrain_rects與獨立UE ISMC，絕不能塞進blocked_regions／polygon_occluders而意外改fog。Unreal物理／overlap／navigation全部關閉，Rust仍持唯一collision rules。
+- 首次編譯E0063：原PresentationExtras完整literal漏public_map；E0596測試extras未mutable；E0277新增OmTerrainRect不必要derive Debug／Default而OmVec2不支援。補明確None／mut，僅保留所需Clone／Copy，不為方便fixture擴大基礎型別改動。
+- frame結構增加欄位必須升ABI10並同步cbindgen staging與Unreal建置，不能沿用9。empty header／slot初始化與publish均需帶新Vec與null pointer，不能讓frame pointer引用臨時data。
+- 查找再猜scripts/ue_bridge_stage.lua不存在；改用rg --files定位。合併讀取過量截斷後補讀所需片段，不以截斷尾部猜函式。
+- build-only exit0：ABI10 header／bridge同步stage、OmGameEditor Succeeded；bridge55＋1ignore／integration2＋1ignore與Lua terrain13斷言已過。依使用者最新指示，MCP／雙UE／60Hz完整驗收集中到最後，不再每個增量重跑；不是地形美術／完整地圖或60FPS完成。
+- 建置後查header又誤用OmRuntime/Public路徑；實際產物在Source/ThirdParty/OmBridge/include/om_bridge.h，建置輸出已明列。查找須先使用實際輸出或rg --files，不再猜目錄。
+
+## E132：編譯地圖幾何單一來源與開局驗證（2026-10-04）
+
+- 發現權威MobaMatch與初始KCP bootstrap各自組装相同矩形corner；抽compiled_blocked_regions為唯一轉換，後续Lua地圖不需新增角色／map專屬C++或BP。
+- 只驗map id／hash不能確保client收到相同碰撞。validate_metadata要求compiled map同時有唯一schema1 blocked-regions及canonical bytes一致，runtime bootstrap與正式ready都拒絕缺失／重複／錯配，legacy無compiled identity保留。不用預設地圖或空碰撞fallback掩蓋錯配。
+- decode_public_blocked_regions原先在檢查內容前依wire count配置Vec；加入剩餘bytes上限後再配置region與point capacity，u32::MAX攻擊輸入測試不可觸發巨大配置。
+- 本輪大段合併讀檔再截斷，已分檔／分段補讀完整OpenSpec。patch fixture空白context不符導致整批未套用，讀實際行後重新套用；禁止猜格式或把失敗當已寫入。
+- 查active-session再次猜不存在路徑；改從實際run目錄與報告processes讀取，不拿缺檔當程序退出證據。大量列檔輸出仍須縮小到具體suffix／子目錄。
+- 最後core343／base108（227.93秒）／server156＋1ignore／runtime62＋8ignore＋3integration／bridge54＋1ignore＋2integration／1ignore全過；codegen11／16與OpenSpec strict／diff通過。format後重新build／stage，OmGameEditor Succeeded，bridge2d2e19…／script三份719264…獨立一致。
+- 真實新版雙UE60Hz1791116233 success：双route4-2-4／minimap3／普通移動；保存三方team1 41 PASS rows／27 unique ticks、team2 43／27至3240，零FAIL且所有已驗parity=true。報告SHAf45237…，五owned PID另驗皆退出，post-run stage仍一致。沒有PNG／LAN／稳定60FPS／地形營地美術驗收，整項仍未完成，完整紀錄見compiled-map-contract進度檔。
+
+## E131：公開三路地圖身分與 Unreal 路線（2026-10-04）
+
+- 缺口：Unreal共用route actor已存在，但IPC只傳lane_length，bridge把三路畫成一條直線。決定用public bootstrap map/moba-layout schema1發compiled map id／catalog hash，runtime bootstrap與bridge握手都嚴格驗證，使用同一Lua生成常數恢復完整route。不傳aggro／camp timer，不把collision terrain冒充vision occluder，不新增角色C++／BP。
+- 新增RuntimeReady protobuf7／8後，舊fixture literal漏新欄位E0063；補Default並將production ready封裝成ready_envelope_for_start，真實TCP晚連線／重連測試沿用此函式。同步更新proto與checked-in prost fallback，不只改其中一份。
+- Windows字面presentation*、猜render_projection.rs／codegen/templates／ue_minimap_observation.lua／scripts/lib失敗。實際列檔後定位；沿E128規則先rg --files再查內容。本輪大段exec合併输出再截斷，已分開讀完缺漏context，後續不能靠提高單command上限忽略exec總上限。
+- 暫只封關public identity／三路route流程；營地／地形美術仍待下一段，不放寬Lua導航安全限制，不把CPU actor同步log當PNG／60FPS證據。
+- 最後core340／base108（214.43秒）／server156＋1ignore／runtime61＋8ignore＋3integration／bridge54＋1ignore＋2integration／1ignore、Lua觀測器通過。重新OmGameEditor Succeeded，stage90bfc4…與script三份65d6e1…獨立一致。真實雙UE60Hz1791115215 success／雙隊route4-2-4與native minimap3／正式snapshot移動；三方team1 62 PASS rows／46 unique ticks至5520、team2 70／45至5400，零FAIL／全部已驗parity=true。報告SHA6fe606…，五owned PID另查皆退出。不是PNG／LAN／60FPS／完整三路UI驗收；全項5.4／6.1／6.2保持未完成，完整數據見三路layout進度檔。
+- 最後文件patch附帶不存在的design heading導致整批驗證失敗；移除無意義hunk再套用，沒有猜heading或忽略失敗。大段讀檔再次截斷後改用rg精確行定位。
+- 第一輪雙UE1791114846失敗：team1單路，team2第三條route fatal Cannot generate unique name。初始KCP空bootstrap另有producer，public_metadata=空，第一名加入玩家永遠缺map；補相同compiled id／hash與terrain到外／內bootstrap，不只修改tick producer。初始碰撞也須在第一個MoveTo之前安裝。
+- route actor MakeUniqueObjectName使用World當outer，但SpawnActor實際outer是PersistentLevel。多路名稱的數字suffix衝突，改同一PersistentLevel作unique outer與OverrideLevel；只修共用框架，不增加每map BP。原失敗report保存，五owned PID已另查皆退出。修正後必須重新build／stage／双UE，不調高timeout冒充修復。
+
+## E130：共用 NPC 靜態避障（2026-10-04）
+
+- 決定：抽出英雄既有 static_next_waypoint，三路 creep 追擊／回兵線與野怪追擊／回位使用同一公開地形 swept-circle；直線可通不做 BFS。單路 None／TD 保留既有行為；Lua 兵線與 camp leash 的生成限制暫不放寬。
+- 首次 route 測試失敗：只看每 tick 的短 proposed step，繞障後下一 tick 又走回牆邊，最後卡在 x=55.78。修正為先檢查到完整當前 waypoint 的路徑，受阻就持續共用尋路；不能只證明每步沒有碰撞，還必須證明抵達與來回返回。修正後 shared NPC 60Hz 往返／route cursor／零負預算／blocked endpoint 測試通過。
+- 第一次 patch context 太寬，把 regions resource 插入另一個同名 properties 區塊；編譯前以 rg 查實際插入位置，改用唯一註解定位到 NPC tick。後續 patch 必須帶足夠唯一上下文。
+- 本輪 OpenSpec 大段讀取再次截斷；分段補讀全部缺漏，不把截斷輸出當作完整 context。查 export 時誤猜 runtime.rs（實際module分檔），沿E128規則只用rg --files定位，不再推測檔名。
+- 最後驗證：core339／base108（204.58秒）／server156＋1ignore／runtime61＋8ignore＋3integration／bridge53＋1ignore＋2integration／1ignore通過，新NPC fixture5400雙隊steps每tickhash零repair、兵與camp越牆／回位Heal通過。真實三路KCP60Hz1791114001保存證據雙隊9／9 unique checkpoints至1080、零FAIL／parity全true，三PID另驗退出；不是KCP現場NPC跨牆。最後OmGameEditor Succeeded、獨立stage d6f3e…／script三份4305…一致、codegen與OpenSpec strict／diff check通過。無Editor／PIE／UE地圖或60FPS驗收；完整5.4仍不勾選，不沿用E129 SHA。完整矩陣見NPC terrain進度檔。
+
+## E129：Lua 地形編譯／公開地圖接入（2026-10-04）
+
+- 決定：Lua map 新增最多32個整數矩形 terrain（id／min／max），編譯產生 MobaTerrainConst、納入既有完整 map catalog hash／compiled agreement。選定 compiled map 才取代 BlockedRegions；None 保留原單路／TD 地形，不增加英雄 C++ 或 Blueprint graph。
+- NPC 尚無通用避障；生成器先以相同 i128 swept-circle 驗證所有兵線100-unit corridor與野怪完整 leash＋100 margin 不被地形擋住。不得把這個安全限制冒充NPC已會繞障，也不允許為通過測試而關掉碰撞。
+- 新測試初次編譯 E0308：Specs read_resource 的 `.clone()` 複製 Fetch 而非底層 BlockedRegions。改 `(*read_resource::<BlockedRegions>()).clone()`，避免保留 read borrow 時再 write_resource。
+- 同一 scripts workspace 完整測試仍執行時重新編譯新增測試，Windows linker LNK1104 無法覆寫正在執行的 base_content test EXE。等待原 session 正常完成再串行重跑；不刪 target、不 kill 不明程序，不把 Cargo build lock 當成執行中 EXE 的保護。不同 target workspace 可以平行，但同一 test binary 必須串行。
+- 啟用真實 Lua 地形後，舊完整 base106 回歸仍全部通過，但耗時301.43秒（之前無地形185.07秒）。先補 integer broad phase 與四點矩形 stack buffer，減少遠處牆的 narrow-phase／heap allocation；不用移除碰撞換測試速度，不把總測試耗時當成 server tick wall-clock 基線，最後版本需重新驗證。
+- 查找測試入口又誤猜 verify_2player_ue.lua／lib/runtime_smoke.lua／run_3process* 路徑；改以 rg --files 得到實際 scripts/run_moba_runtime_smoke.lua。沿用E128防錯規則：先列已存在檔名，glob只用rg -g參數。
+- 最後驗證：真實Lua地形7200雙隊steps逐tick零repair／hash／正式MoveTo detour抵達、base107（271.10秒）／core338／sim69＋8／template39＋23＋8＋2／server156＋1ignore／runtime61＋8ignore＋3integration／bridge53＋1ignore＋2integration／1ignore通過。三路KCP60Hz1791112988成功、9／8 unique checkpoint至1080、零FAIL、三owned PID另驗退出；KCP未現場跨island，不混稱。最後build-only Succeeded、獨立stage094de…與script三份c5c4…一致、codegen11／16與OpenSpec strict／diff check通過。完整5.4／UE地圖／60FPS仍未完成；不能沿用E128 SHA。
+
+## E128：公開地形整段碰撞與 60Hz 尋路前置（2026-10-04）
+
+- 問題：hero planner 僅檢查格點、同格／超過 96 格時直接回傳目標；移動只查終點。兩端合法不代表路段合法，薄牆／對角切角可能穿透。決定以 omoba-sim 共用 i128 固定點 swept-circle polygon 檢查每条 BFS edge、fallback 與移動／axis slide／near snap；零或負預算不移動。只查公開靜態地形，不把隱藏單位加入導航。
+- legacy polygon f32 僅在資料邊界 round 成 raw Fixed64；幾何不轉回 render float。raw 座標／半徑限制 2^29（約 524288 world units），超界／非有限資料 fail closed，防止 i128 平方溢位。這不是完整 Lua 地形或 NPC navmesh。
+- 初次正式雙隊地形 fixture 未發生繞路但已抵達目標；原因是 MOBA 英雄出生不是 (0,0)，牆被放在出生點後方。改從實際出生位置設置公開牆與目標，不 teleport 英雄、不修改 gameplay 繞過。必須同時驗證實際 detour、抵達、每 tick 雙隊 hash 與零 repair。
+- 本輪讀取過大造成工具輸出截斷；改分段讀完 OpenSpec context。再次誤用 Windows 字面 fixed*／runtime/*.rs 與推測 team_projection_runtime.rs 路徑；改用已確認目錄配合 rg -g '*.rs'，禁止把 glob 拼入 Windows path 或猜檔名。
+- 最後驗證：sim69＋8、core338、base106（185.07秒）、server156＋1ignore、runtime61＋8ignore＋3integration、bridge53＋1ignore＋2integration／1ignore全部通過；三seed地形3600雙隊steps每tickhash一致／無repair／實際detour抵達。build-only OmGameEditor Result:Succeeded、獨立stage79533…與script三份c6c6…一致。codegen11files／16inputs與OpenSpec strict／diff check通過；沒啟動Editor或宣稱UE地圖／60FPS完成，5.4仍不勾選。不沿用 E127 的 DLL／stage SHA。
+- codegen --check 預設 content-root 是 scripts/lua_data、out 是 Plugins/OmRuntime/Source/OmGenerated，兩者不在同一個 cwd。先後只換 cwd 皆失敗；讀 main.rs CLI 後明確傳兩個絕對路徑：`cargo run --manifest-path omfue/codegen/Cargo.toml -- --content-root D:/code/omoba/scripts/lua_data --out D:/code/omoba/omfue/Plugins/OmRuntime/Source/OmGenerated --check`。不改生成檔、不把參數／cwd 錯誤判成 stale codegen，之後優先使用既有 Lua 建置入口。
+
+## E127：Lua 野區營地與 60Hz 正式傷害整合（2026-10-04）
+
+- 最後封關本輪單怪野區原型：base105／core335／server156／runtime61／bridge53及template38＋23＋8＋2全部通過；三seed野區18000與三路41400雙隊steps逐tick零repair一致。最後release DLL45ea50…透過真實DLL headless seed42勝利22745／四槽46-6-5-4／全tick replay／end1；stage7d934…再次獨立核對、兩headless PID退出。詳見野區進度檔；沒有LAN／UE野區畫面／60FPS證據，5.4仍不勾選。
+
+- 初次編譯 `AiType::None` 命中 legacy enemy 的同名 enum，E0599。改成明確匯入 `runtime::native::comp::unit::AiType`，不用 glob 推測型別。
+- 測試對 `Outcome::Damage` 使用 `..lethal(...)`，E0436；enum variant 不支援 struct update。改以 pattern 修改 fixture 的傷害值。
+- 查找再次誤猜 native/visibility.rs、native/filtered_specs.rs、native/outcome.rs、native/mod.rs 與字面 `comp/*` 路徑失敗。已以 `rg --files` 定位；後續禁止自行拼猜路徑與將 Windows glob 當目錄。
+- 設計：新增 HostileNeutral 而不修改既有 Neutral；kind=3 只披露可交戰分類，野怪沒有 VisionSource，AI 仇恨／回位／重生 timer 不傳客戶端。所有正規及 Lua direct damage 均檢查回位免傷；獎勵僅實際 first-lethal 的 roster 英雄領取，重複 Death 不得重複付款。
+- 執行過程中的 compile／局部生成成功不算野區／5.4 完成；本輪最後驗證見上方摘要，僅單怪野區原型封關。
+- 正式輸入／雙隊重播 fixture 首次不發生第二次擊殺：撤退到基地後營地距離 1063 超過英雄視野 1000，合法目標篩選一直拒絕 AttackTarget。不是 AI 卡住；改成先 MoveTo 回野區、可見後才攻擊，保留迷霧合法性，禁止測試用未知目標繞過。
+- 第二次仍不擊殺，實際 trace 顯示 attack_seq 每 tick 增長但沒有命中：fixture 每 tick 重送非 queued AttackTarget，正式新命令會重啟 attack windup。改成在可見且接近營地後送一次，已有相同 active target 不重送；不改 production 命令取消契約，也不以直接傷害代替此正式輸入測試。
+- 擊殺已成功但原 1800 tick 視窗不足以覆蓋完整撤退／回位／重返／擊殺＋15 秒重生，改為 3000 tick，擊殺後正式 MoveTo 撤離避免空閒普攻再次刷營地。三 seed 最後局部驗證均 6000 雙隊 steps、230 external effects、一次重生，hash 零 repair。
+- template default features 僅跑 7 unit，不涵蓋 runtime Lua 驗證。補 `--features runtime-lua-content` 才發現新測試少匯入 content-model hash 函式（E0425）；已補明確 import。不可用 default 子集宣稱完整 authoring validation 通過。
+- build-only 後又跑 bridge 測試，新建置目錄 DLL 與 Unreal stage SHA 不同，獨立 verify-staged-only 如預期拒絕。等全部 Cargo 測試結束，重新 build-only 並再獨立 verify，最後 stage `2223060b2ce8ab712ccb64dd45eedab9f208f5ba0cee2d34cc7a0df75f8b40c6`；不能混用先前 stage 當最後驗收。多個 PowerShell 診斷命令的最終 exit 0 不代表前面的 Lua 已成功，逐條讀取結果。
+- 誤把 `omb/scripts/base_content.dll` 當 debug stage 目標；實際 Lua freshness 工具 stage 到根 `scripts/base_content.dll`，與 debug build／Unreal stage 三份皆 `26c588…54d8` 一致。legacy omb/scripts 檔未覆蓋，release headless 明確 `--scripts-dir scripts/target/release`，不拿錯 DLL 的 SHA 當 stale runtime。
+- 三路完整測試加入營地後 seed42／539365380勝利tick改為7930／7776；記錄最後程式結果，不沿用上一版7870／7767。完整 base105 全過、野區三seed18000雙隊steps與三路41400雙隊steps零repair，並不等於LAN／UE野區畫面／60FPS驗收。
+- 最後 review 發現 ScriptDirectDamage 沒沿 filtered authority-combat settlement 保護，可能在客戶端重扣 HP／回位免傷分歧。補與 regular Damage 相同的 DisclosedAuthorityCombatTargets gate、針對性 core 回歸；重跑受影響 suites 與最後 stage。此前222306…是修正前階段值，最終SHA與數字以野區進度檔最後更新為準。
+- UE5.8 engine共用UBT Log.txt 顯示Failed但實際target是 `C:/portable/OpenKoikatsu/OpenKoikatsu.uproject`，已被其他工作覆蓋。不得把別的專案log當OmGame失敗；本輪restart明確檢查UBT exitstatus後exit0，不修改／終止外部專案。最後stage7d934…、script ae61…三份相符；補強後base105／core335／server156／runtime61／bridge53全部通過。
+
 ## E126：Lua 三路地圖與固定點數導航（2026-10-04）
+
+- 最後版本base102全部通過；三seed1／42／539365380勝利4955／7870／7767，雙隊41262 steps逐tickhash無repair。實際release DLL三路60Hz headless seed42勝利12808、四招26／11／3／7、全12808tick重放。最後fullbuild stage127176…／MCP11BP／Editor67136兩輪19/19＋串行PIE通過，owned正常退出獨立確認；core334／server156＋1ignore／runtime61＋8ignore／bridge52＋1ignore／template37＋23＋8＋2／sim65＋8、codegen check／OpenSpec strict／diff check通過。5.4只完成三路原型，野區／地形通用避障／完整建築層次／Unreal map仍未勾選。
+- Review發現cursor已complete後，若NPC被aggro拉離終點，原helper返回origin會永久停在追擊點；修改advance_route完成狀態仍朝最後點前進，新增回歸斷言。此變更讓seed42勝利tick由7920變7870；重跑全套及最後stage，不混用舊數字。
+- 原生PIE煙霧fixture截圖仍是合成120Hz／3FPS且HUD空owner，僅能證明原生mesh／ghost與UI surface；不把它當本輪三路、完整HUD或60FPS的驗收。最終PNG已檢視、限制寫入進度檔。
 
 - 新基地解鎖測試在第三座塔 HP 歸零後立刻期待 unlock，失敗。正式 outcome 是 Damage 排入 Death、下一次 drain 才 retire；修正測試按正式順序排空，不把 HP 歸零當實體已拆除，不修改 production 傷害門檻。
 - 新測試 patch 猜測 `mod tests` 已有頂層 `use super::*`，anchor 不符而原子拒絕；讀實際 module 後使用既有模式的函式內 import。猜測 headless 檔名用連字號失敗，實際檔名 `moba_headless.rs` 已由 rg 定位。

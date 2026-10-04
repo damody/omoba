@@ -1,3 +1,15 @@
+## 執行節奏（使用者最新指示）
+
+2026-10-04 本批：fog rebase manifest v2／hash綁定、同隊探索保留／epoch同步、runtime採用及主／catch-up立即恢復snapshot已實作；兩個新測試與兩個原rebase邊界測試通過，runtime check成功。完整KCP／Specs／雙UE與最後效能驗收仍待完成，4.3／6.1不勾選。詳見 `docs/plans/2026-10-04-authority-fog-rebase-progress.md` 與E143。
+
+2026-10-04 本批：Unreal共用小地圖三態fog／grid外遮罩／lease複製與生命週期已接ABI11，正常build-only及MinimapFogGrid一次1/1成功；無英雄專屬C++／BP graph。完整rebase與最後整合／效能尚待完成，6.1／6.2不勾選。詳見 `docs/plans/2026-10-04-unreal-minimap-fog-grid-progress.md` 與E142。
+
+2026-10-04 本批：typed FogGridPresentation 與 ABI11 OmFogGrid 接入 runtime／bridge，正式／legacy 隔離，四個直接相關 Rust 測試通過；Unreal 建置結果見 `docs/plans/2026-10-04-authority-fog-ipc-bridge-progress.md`。三態小地圖繪製與完整 rebase 仍待實作，6.1／6.2 不勾選，20/30 不變。
+
+2026-10-04 本批：權威 grid 已接 compiled-map geometry／Wave B 共用 view／每隊 frame 發布與私人 TeamGameStart；runtime 驗證並保留最新合法資料。6 個指定測試及 runtime check 通過；完整 rebase 迷霧恢復、typed IPC／bridge／UE 三態繪製尚未完成，因此 6.1／6.2 仍未勾選，20/30 不變。詳見 `docs/plans/2026-10-04-authority-fog-publication-progress.md` 與 E139。
+
+功能實作優先；每批只做必要的編譯與直接相關成功確認，不反覆跑完整驗收。全套 MCP、双 UE 60Hz 長測、跨系統回歸與效能驗收集中到最後整合階段。局部功能實作／建置成功與完整任務驗收分別記錄，不以延後驗收當作全部完成。
+
 ## 1. 建置基線與工具入口
 
 - [x] 1.1 記錄現有工作樹與 `omfue`/Rust/Unreal 建置基線，確認已知錯誤是否仍存在，並保存可重現指令與結果。
@@ -12,6 +24,9 @@
 - [x] 2.1c 擴充共用型別化模型至數值、視覺與技能資料，讓兩邊生成器使用同一內容解析結果並消除重複 schema。
 - [x] 2.2a 為每個英雄與其技能生成相同的 Blueprint 可讀 C++ metadata API，驗證新英雄不需手寫專屬 C++、OmGame 可編譯及 PIE 可啟動。
 - [ ] 2.2b 將英雄 Unreal C++ 事件改為通用模板，移除 Saika 專屬分支並驗證既有英雄無功能回退。
+  - 2026-10-04：新增 declarative Lua isolated-event 遷移工具；MCP 備份／CAS preview／逐項 gate／精確入口刪除／compile-save，Saika BP 31→25 nodes，只保留通用動畫／攻擊與原 tracer。13 個工具測試、真實保存 graph 的25nodes內容／接線一致、重跑SHA不變、動畫派發單輪1/1通過。typed API 與完整其他資產引用盤點尚未完成，不勾選；詳見 `docs/plans/2026-10-04-blueprint-generic-event-migration-progress.md`，完整驗收留最後。
+  - 2026-10-04：動畫 overlay 改 Lua priority／穩定 catalog ID 選擇，walk／stand／overlay 名稱生成 native registry，Unreal 不再把全部非零 ID 當 sniper；未知 hero 不回退 Saika。codegen 2／bridge 2／原快照 1 個直接測試、最後增量建置／stage及 GenericAnimationOverlay 單輪1/1通過；見 `docs/plans/2026-10-04-generic-animation-overlay-progress.md`。saved Blueprint／typed 相容介面尚未遷移，不勾選全項，不跑完整驗收。
+  - 2026-10-04：bridge buff→ability lifecycle 改由 Lua ability_binding／型別化 manifest 索引，任意英雄 ID 不需新增 Rust／C++ 分支；codegen 2、bridge 2 與既有快照 1 個直接測試通過，正式來源生成／--check 通過。C ABI 相容欄位、動畫 overlay 分支及 saved Blueprint graph 尚未全數遷移，不勾選；詳見 `docs/plans/2026-10-04-generic-buff-ability-binding-progress.md`。本批不重跑完整驗收。
   - 相容隔離：Saika typed metadata／payload／派發移至 `codegen/src/legacy_hero_compat.rs`，通用事件模板不再含角色 ID 判斷；新增 exact gating／共用 hook／禁止回填角色分支測試。生成器 24 tests 與 shipped --check 通過，生成 bytes 不變。真正 Blueprint／ABI typed projection 遷移未完成，仍不勾選；詳見 `docs/plans/2026-10-03-unreal-generic-event-adapter-progress.md`。
 - [x] 2.3a 由 Lua 英雄／技能宣告生成 Rust handler 註冊清單，驗證現有 8 個技能的匯出 ID 與定義一致。
 - [x] 2.3b 建立技能 effect 宣告與通用執行器，驗證四技能測試英雄可在 headless 對局施放。
@@ -82,13 +97,28 @@
   - 經濟結算新增 owner-team Gold／Inventory／ItemEffects 安全 baseline、typed CommittedEconomy／可見 EquipmentStats；客戶端不重放交易，完整 hash 覆蓋合成／拒絕／出售／fresh bootstrap／裝備死亡重生。數值 ID 不依宣告順序；core 314／base_content 70 通過，15Hz／120Hz 完整 filtered 對局不回退。receipt／IPC／UE 商店及收入／回城仍未完成，secure shop 仍關閉。詳見 `docs/plans/2026-10-03-moba-economy-projection-progress.md`。
   - 部分實作：共用 Rust 原子交易、重複材料／合成差價、六格／整數退款、phase／pause／alive／自己基地距離檢查；item_tick 套用裝備，重生保留裝備／Gold 不加倍。新增 ItemBuy／ItemSell 正式權威 tick 路由與 ordered item queue；Lua passive catalog 編譯生成／完整 data hash／配方檢查，拒絕不同 compiled 值與物品 hot reload。secure V2 shop 仍 fail closed；owner 經濟結算／receipt／IPC／UE、擊殺助攻與回城未完成。詳見 `docs/plans/2026-10-03-moba-shop-formal-input-progress.md`，不勾選。
 - [ ] 5.4 建立三路、野區、地形、導航與建築解鎖規則，驗證固定種子批次對局無卡住。
+  - 共用地圖契約增量：權威／初始bootstrap單一compiled_blocked_regions，runtime bootstrap／ready驗map與唯一canonical terrain一致，decoder拒絕無內容支撐的wire count再配置。core343／base108／runtime62與server／bridge回歸、build／stage通過；新版雙UE60Hz1791116233雙route4-2-4／minimap3／普通移動、雙27 unique checkpoints零FAIL與五PID退出另驗。最後結果見 `docs/plans/2026-10-04-compiled-map-contract-progress.md` 與 E132，非PNG／LAN／60FPS，地形美術與完整建築仍缺，整項仍未完成。
+  - 本輪最後真實雙UE60Hz1791115215雙隊route4-2-4／minimap3／正式移動通過；修初始空bootstrap漏metadata與route actor unique-name outer。三方46／45 unique checkpoints零FAIL、五PID另驗退出；base108／core340／server156／runtime61／bridge54與build／stage通過。不是PNG／LAN／60FPS，完整數據見下列layout進度檔，整項仍未完成。
+  - 2026-10-04 Unreal三路layout增量：public bootstrap map id／catalog hash→runtime嚴格驗證／持久ready→bridge相同Lua compiled三路waypoints→既有route actor／minimap，不查私有AI。full／lifecycle共用、長度錯配拒絕／缺HUD清除／legacy保留；新增--three-lane60Hz獨立基礎驗收。最後實際結果見 `docs/plans/2026-10-04-unreal-three-lane-layout-60hz-progress.md` 與 E131，營地／地形美術與完整建築未完成，不勾選全項。
+  - 2026-10-04 NPC地形增量：共用英雄bounded static planner、三路creep chase／route與野怪追擊／回位整段碰撞；修正短步可通導致繞障後回牆的卡住。三seed各900tick、5400雙隊steps every-tick digest／hash零repair與實際繞障／越牆／回位Heal通過；Lua corridor／leash限制不放寬，None單路／TD不改。base108／core339／server156／runtime61／bridge53與整合回歸通過；真實KCP60Hz1791114001雙隊9 unique checkpoints零FAIL／三PID另驗退出，最後OmGameEditor Succeeded、stage d6f3e…／script三份4305…一致。不是KCP障礙fixture或UE畫面驗收；完整結果見 `docs/plans/2026-10-04-npc-terrain-60hz-progress.md` 與 E130；UE layout／完整建築未完成，不勾選。
+  - 2026-10-04 Lua地形接入：整數矩形terrain→MobaTerrainConst／map hash與compiled agreement、公開BlockedRegions；生成時拒絕擋兵線／五人出生／野怪完整leash。矩形stack buffer＋fixed broad phase，三seed共7200雙隊steps每tickhash零repair／正式MoveTo繞牆抵達通過；base107／core338／sim69＋8／template39＋23＋8＋2及server／runtime／bridge回歸通過。三路KCP60Hz1791112988雙隊9／8 unique checkpoint至1080零FAIL／三PID另驗退出；不是KCP現場跨island。最後build-only Succeeded／獨立stage094de…／script三份c5c4…一致，無Editor／PIE。NPCdetour／UE三路layout／完整建築未完成，不勾選；詳見 `docs/plans/2026-10-04-lua-terrain-60hz-progress.md` 與 E129。
+  - 2026-10-04 公開地形前置：共用 Rust i128 swept-circle polygon，hero grid edge／同格與超跨度 fallback／實際移動均不只查落點，零／負預算不移動。三 seed 各600tick、3600雙隊 steps 每tick零repair／hash／重播／實際繞牆抵達通過；sim69＋8、core338、base106／server156／runtime61／bridge53及整合回歸通過。最後build-only OmGameEditor Succeeded、獨立stage79533…／script三份c6c6…一致；沒有Editor／PIE／UE地圖驗收。Lua terrain／NPC避障／UE地圖未完成，不勾選；詳見 `docs/plans/2026-10-04-public-terrain-sweep-60hz-progress.md` 與 E128。
+  - 野區最後release DLL45ea50…／seed42／三路60Hz headless勝利22745 tick、四槽46／6／5／4、全部22745tick replay一致、end1、己方3塔存活敵方3塔retired；報告SHA5daf5a…與兩owned PID正常退出獨立確認。僅headless（debug host＋release DLL），不是UE野區／LAN／60FPS驗收；詳見 `docs/plans/2026-10-04-moba-jungle-60hz-progress.md` 與E127。
+  - 2026-10-04 野區增量：Lua 兩個單怪營地→compiled constants／map hash，HostileNeutral 不改 legacy Neutral，正式受擊仇恨／回位免傷／Heal／first-lethal Gold-XP／15 秒新 generation 重生。60Hz 三 seed 各3000 tick、共18000雙隊 steps 零repair每tickhash一致；匿名／NPC／forced Death 零獎勵、英雄同tick死亡後保存獎勵通過。最後Lua filtered settlement補強後base105／core335／server156＋1ignore／runtime61＋8ignore／bridge53＋1ignore（另整合2＋1ignore）／template38＋23＋8＋2通過。最後build-only／stage7d934…已獨立SHA核對；三路完整lifecycle含營地勝利4955／7930／7776，共41400雙隊steps一致。release headless最後結果與限制見野區進度檔；地形／UE地圖／完整建築仍未完成，不勾選整項。
+  - 最後導航版本三seed1／42／539365380完整60Hz lifecycle4955／7870／7767 tick勝利、雙隊41,262 filtered steps逐tick零repair一致，base102全過；實際release DLL三路seed42 headless12,808tick逐tick replay／四招26／11／3／7通過。最後UEfullbuild／stage127176…、MCP11BP、owned Editor67136兩輪19/19與串行PIE通過並獨立確認退出。不是LAN／三路UE畫面／60FPS；野區、地形與完整建築層次仍缺，不勾选。
   - 2026-10-04：第一段三路原型沿正式共用 ECS，Lua整數waypoint→Rust編譯constants與map hash、三路各自出兵／一座塔、all_lane_towers傷害邊界解鎖；保留單路預設、三路 opt-in，headless新增60Hz與map參數、shop／Recall安全協商接受三路。首場完整雙隊filtered lifecycle4955 tick結束／9936 steps無repair／15 frozen ticks，三種種子批次與最後DLL／stage驗證見 `docs/plans/2026-10-04-three-lane-navigation-60hz-progress.md`。野區、地形通用避障、建築多層解鎖與Unreal三路layout尚未完成，不勾選整項。
 - [ ] 5.5 實作五位置 Bot 與三種完整英雄原型，驗證 100 場 headless 對局無越權輸入、死局或非法目標。
 
 ## 6. Unreal 完整對局與驗收
 
 - [ ] 6.1 完成通用動畫、技能 cue、視野與地圖呈現，驗證缺少非必要美術時 fallback 可用。
+  - 權威fog網格核心：WaveBReadView正式sources／LOS→bounded Q10三態grid→FG01版本化team／epoch／tick／geometry payload，decoder先驗再配置。不改entity disclosure或60Hz熱路徑；server安全發布／runtime／ABI／UE繪製仍未串接，見 `docs/plans/2026-10-04-authority-fog-grid-progress.md` 與 E138，不勾選全項。
+  - 正式fog前置：發現IPC仍使用DemoFogCache，缺geometry／provenance／explored；正式safe phase marker停用示範投影且reset不回落，小地圖標示VISION N/A。尚未畫正式fog底色，不勾選；決策與必要確認見 `docs/plans/2026-10-04-unreal-formal-fog-boundary-progress.md` 與 E137。
+  - 通用靜態地形呈現增量：Lua compiled geometry→獨立C ABI10 terrain_rects→共用ISMC，與視野polygon分離、UE collision／nav關閉；完整結果見 `docs/plans/2026-10-04-unreal-collision-terrain-progress.md` 與 E133，不勾選全項。
 - [ ] 6.2 完成選角、HUD、商店、小地圖、計分板與勝負 UI，驗證 PIE 可從選角玩到結算。
+  - 小地圖隊伍辨識：權威公開roster原子驗證→已披露live owner映射；共用自己／隊友／敵方／未知顏色，記憶不猜team，不從roster新增hidden單位。不變ABI或玩法，詳見 `docs/plans/2026-10-04-unreal-minimap-teams-progress.md` 與 E136；只做當前功能確認，全項仍未完成。
+  - 小地圖記憶增量：獨立server-sanitized ghost位置／kind陣列，不含live target reference，render ID去重／live優先、公共geometry bounds不受記憶影響；空心暗色共用Slate呈現、完整快照替換与control保留。只做本功能單輪確認，見 `docs/plans/2026-10-04-unreal-minimap-memory-progress.md` 與 E135；完整UI仍未完成。
+  - 小地圖公開地形增量：同一ABI10 geometry自有複製、route＋terrain共用示意範圍與Slate圖層，control保留／full reset清除／非法batch清空。只做編譯與MinimapTerrain單輪功能確認，完整驗收留到最後；詳見 `docs/plans/2026-10-04-unreal-minimap-terrain-progress.md` 與 E134，整項尚未完成。
   - 2026-10-04學後施法增量：新獨立UE_FIRST_LEARN_CAST opt-in沿server-owned Lua apprentice／CtrlR→普通R正式delegate，1791105946雙隊upgrade2／cast3各一次，raw施法tick2524／2838 HP550→690與compiled Lua140 exact、正CD、5,883快照／每隊25unique三方checkpoint至3000／post-cast4與2、五PID退出與保存SHA皆通過。control-only ACK缺HUD不能先return、稀疏Vitals不能冒充每tickfinal EquipmentStats、舊PID重用需只讀exe身分檢查均已修正／記E125。fullbuild／11BP／同Editor兩輪19/19與PIE通過，兩after學習PNG仍有E121，不勾選完整UI；詳見docs/plans/2026-10-04-unreal-first-learning-cast-60hz-progress.md。
   - 2026-10-04：雙Unreal首次學習獨立opt-in／server-owned apprentice／CtrlQ真實60Hz1791104682封關：修cast ID清零卻被learning重用，正式input2各一次、rank0→1／SP各扣一、5932 raw/IPC snapshots與UI exact tick通過；各25 unique三方checkpoint至3000／post-upgrade6與2、五PID另驗退出、保存SHA不變。新長名共用adaptive width讓layout門檻通過，四backbuffer PNG仍有E121局部文字截短；fullbuild／stagef84a14…／11BP gate／两輪19/19與runtime61+8ignored通過。不是OS按鍵、學後cast或完整UI，不勾選全項；詳見docs/plans/2026-10-04-unreal-first-learning-60hz-progress.md與E124。
   - 2026-10-04：60Hz診斷／清理增量：修stop後未wait的競態與mock回歸；真正已呈現backbuffer取證、RHI白名單及實際RHI驗證。最新1791100233／1791100483各7113／5903筆raw snapshots、原input2各一次、三方58/57至3600／50/50至3000與五PID退出；full build／11BP MCP／同Editor兩輪19/19／PIE通過。layout／字形有效／完整batch clip／合法索引皆已排除，八backbuffer PNG仍有截字，不宣稱GPU根因或UI完成；19/30維持。詳見docs/plans/2026-10-04-unreal-text-paint-60hz-progress.md與E121，後續功能工作不被顯示重試無限阻擋。

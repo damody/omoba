@@ -1,5 +1,35 @@
 ## Context
 
+2026-10-04 fog rebase：manifest v2以新hash domain綁typed grid，v1只允許無grid並保留舊hash契約；恢復保留同隊同場探索，projector與後續frame／bootstrap同步epoch。runtime先驗grid與完整chunk／baseline，再採用恢復retention；主／catch-up共用critical reset→恢復snapshot與latest保留，避免等下一個gameplay frame。四個指定core測試及runtime check成功，尚未做Specs完整對局／KCP／雙UE恢復整合驗收，不勾選4.3／6.1全項。詳見authority-fog-rebase與E143，20/30不變。
+
+2026-10-04 Unreal三態小地圖：共用MinimapModel驗證ABI11／綁定team／epoch／tick／checked Q10 geometry與4096三態後複製lease資料；control保留、full reset清空。row-run overlay覆蓋公開背景與grid外／padding，live／memory仍按安全披露畫在上層，不改target gate。正常build-only與本功能Editor一次1/1通過；未做PIE像素／雙UE／完整rebase／效能整合，不勾選6.1／6.2全項。詳見unreal-minimap-fog-grid與E142，20/30不變。
+
+2026-10-04 正式 fog typed IPC／bridge：protobuf optional FogGridPresentation schema1 傳 team／epoch／sample tick／Q10 geometry／row-major 三態，core 共用驗證後轉換，不擴 gameplay hash 或 hidden 身分。runtime 鎖定 formal session；bridge 正式欄位存在時不回退 legacy overlay。C ABI11 的 optional OmFogGrid／cells 由 frame lease 自有，busy retry／reset／舊 lease 測試通過。typed IPC 是增量，Unreal 三態绘製與完整 rebase 尚未完成；詳見 authority-fog-ipc-bridge 與 E140，20/30 不變。
+
+2026-10-04 權威 fog 發布：compiled Lua map 的公開路線／camp／terrain 產生最多 4096 格 Q10 包圍盒，Wave B 保存 immutable view，team projector 預設每 6 ticks 取樣。專用非 gameplay event 在 padding 前加入，私人 bootstrap 保存最新 FG01；runtime 嚴格 audience／tick／geometry／重複與衝突驗證後保留，缺更新不猜視野，verified rebase 清空等待新 epoch。這是正常更新與 TeamGameStart 的接軌，不宣稱 rebase manifest／typed IPC／ABI／UE 已完成。詳見 authority-fog-publication 進度與 E139，20/30 不變。
+
+2026-10-04 權威fog核心：新AuthorityFogGrid從immutable WaveBReadView正式本隊source／共用LOS取樣，geometry Q10負座標／4096容量／checked spans，三態exploration與advancing epoch reset。FG01傳team／epoch／tick／geometry／row-major cells、不傳source或hidden entities；先驗wire再配置。同tick冪等／倒退拒絕，不替代entity stealth／delay或target gate，不塞每60Hz hot path。網路發布與UE尚未串接，詳見authority-fog-grid與E138。
+
+2026-10-04 正式fog邊界：既有IPC fog來自DemoFogCache，不是正式grid／explored契約。production envelope以safe phase marker識別正式MOBA並停用整組demo投影，session保留界線避免缺HUD／reset回落。小地圖VISION N/A不冒充已探索或全可見，authority披露不變；真正fog須後續geometry／provenance／explored契約。详見formal-fog-boundary與E137，不勾選6.1／6.2。
+
+2026-10-04 小地圖隊伍辨識：owner為player ID，不是team。已披露live marker以公開scoreboard roster原子驗證後映射，configured player須一致才能用local team；缺值／非法／未知顯示灰色，不猜敵我或新增位置。自己／隊友／敵方共用native顏色，frozen memory仍不帶team。high-bit owner保留既有u32位元模式，-1哨兵歧義不擅自改ABI；詳見minimap-teams進度與E136。
+
+2026-10-04 小地圖安全記憶：既有ABI10 frozen ghost獨立複製為UI記憶型別，不含live entity reference／owner，不猜team。render ID去重／live優先、epoch與finite bounds gate；公共route／terrain定範圍，記憶不能擴張範圍。Slate空心暗色／不同圖層，完整快照取代、control保留、Stop清空，不新增前端TTL或hidden motion。只做本功能單輪確認，完整驗收留最後；詳見minimap-memory進度與E135。
+
+2026-10-04 小地圖公開地形層：沿ABI10 terrain_rects複製至UI自有矩形，與route共同建立等比例示意範圍；Slate地形／路線／可見單位分層，不查actor或vision polygon，不自行判定可走性。terrain-only view也可呈現，非法batch全清／control保留／full reset清空。依使用者新指示，完整驗收集中最後；新增指定已知功能單輪與獨立報告入口避免反覆全套驗收。詳見minimap-terrain進度與E134，6.1／6.2仍未全項完成。
+
+2026-10-04 通用地形呈現：validated compiled public map保留到bridge PresentationExtras，C ABI10新增frame-owned terrain_rects與ID；不混入vision polygons。共用UE ISMC依mesh bounds生成footprint／center，visual height可配置，關掉collision／overlap／nav；相同geometry不重建，control保留／full empty與Stop清除／fresh view重建。新內容只改Lua地圖／美術，不新增map專屬graph或C++；最後驗收見unreal-collision-terrain進度與E133，完整5.4／6.1仍未完成。
+
+2026-10-04 共用地圖契約：compiled_blocked_regions統一權威初始化與初始bootstrap的碰撞轉換；runtime bootstrap與RuntimeReady要求map id／hash伴隨唯一schema1且canonical bytes一致的地形，缺失／重複／異動拒絕，不fallback空碰撞。legacy無compiled identity不改；公開地形decoder依剩餘bytes檢查count再配置。這是地形呈現前提，不是視野遮蔽物或完整5.4，詳見compiled-map-contract進度與E132。
+
+2026-10-04 Unreal三路layout決策：既有MapRouteActor／Slate只因bridge依lane_length產生單路而缺三路。public bootstrap map/moba-layout schema1指定compiled map id／catalog hash，runtime bootstrap與bridge RuntimeReady additive7／8嚴格驗同catalog，恢復Lua完整lane waypoints；full與lifecycle共用、缺HUD清route、None legacy保持。沿既有C ABI route列表／共用C++，不新增角色graph或第二份AI，不把terrain當vision occluder。新增--three-lane60Hz基礎map／minimap與Move驗收，不沿用商店／升級等singlelane劇本。營地地形美術／完整建築仍未完成，最後結果見Unreal three-lane layout進度與E131。
+
+2026-10-04 NPC地形決策：英雄既有bounded static_next_waypoint抽為共用，三路creep追擊／回兵線與jungle追擊／回位接直線優先static_step_toward與完整waypoint檢查static_advance_route。每次位移皆swept-circle，20-unit NPC envelope；只查public BlockedRegions，不傳私有aggro／route cursor，不改None單路／TD。短步檢查曾導致繞障後走回牆邊，改查完整waypoint並要求抵達／回位／Heal證據。Lua兵線與camp leash生成限制不放寬；新900tick三seed fixture共5400雙隊steps每tickhash零repair通過，不是任意地形navmesh或UE layout完成。詳見NPC terrain進度與E130。
+
+2026-10-04 Lua地形接入：moba_maps.terrain 使用最多32個整數矩形 id／min／max，共用驗證產生MobaTerrainConst並進入map catalog hash／compiled agreement／hot reload拒絕。compiled map在所有配置／roster驗證通過後安裝公開BlockedRegions，None不改TD／既有單路。沿server既有public bootstrap metadata與filtered builder，不傳私有AI狀態；不假設碰撞同時遮蔽視野。NPC通用detour尚未完成，先禁止擋住100-unit兵線corridor、五人出生點和野怪leash＋100；矩形stack buffer與fixed broad phase減少熱路徑成本，不宣稱60FPS。真實Lua地形三seed各1200tick共7200雙隊steps逐tick零repair／hash／正式輸入detour抵達通過；完整回歸／KCP／stage以Lua terrain進度與E129最終結果為準。5.4仍未完成。
+
+2026-10-04 野區增量決策：Lua moba_maps.jungle_camps 提供整數座標、HP、攻擊、移速、攻擊範圍／間隔、leash、重生秒數、Gold／XP；build-time 驗證並生成 MobaJungleConst，沿既有 compiled map catalog hash／hot reload 拒絕。MobaMatch 另持營地狀態，不偽造第三支玩家隊伍、不混入 lane tower index。新增 HostileNeutral，保留 legacy Neutral 的不可交戰行為；安全 render kind=3 將中立可交戰性帶入 filtered ECS，bridge 通用 Creep fallback，不新增角色 C++／藍圖 graph。仇恨受正傷害的 roster 英雄觸發、超距／死亡清仇恨回位、回位免傷與到家正式 Heal、first-lethal 記帳一次獎勵與新 generation 重生。所有 AI／timer 留權威 resource，沒有 VisionSource；可見 motion／vitals 沿現有 ordered facts，filtered 不重演私有 AI。這是每營地單隻的原型，非大型野怪 Buff、完整野区美術或整項 5.4；詳見 docs/plans/2026-10-04-moba-jungle-60hz-progress.md 與 E127。
+
 2026-10-04 三路第一段決策：SingleLaneConfig保留None預設，map_id選compiled Lua three_lane_training；地圖宣告三路整數waypoints與tower_offset，Rust validates／codegen constants、shared catalog hash與hot reload拒絕。MobaMatch持有每路每隊tower和route cursor，legacy towers欄位只是第一存活塔的HUD／Bot相容摘要，base unlock只信lane_towers全部retired。AI跨路creep／tower不搶線，英雄仍可被附近NPC攻擊；第三座塔正式Death retire才解除傷害入口gate。這是折線導航與單層塔原型，不是地形navmesh或完整5.4，public map layout／UE小地圖與野區後續繼續。詳見docs/plans/2026-10-04-three-lane-navigation-60hz-progress.md與E126。
 
 2026-10-04 數值規則收斂：首次學R後普通R正式delegate與原input3、Lua140HP權威exact治療、5,883 raw/IPC snapshots及post-cast三方hash完成，control-only輸入結果需先於HUD gate讀取；hero每tickfinal HP來自kind22 EquipmentStats，不假設稀疏kind17 Vitals每tick存在。saved-run PID可被Windows重用，只讀核對原role／pid／exe，異exe證明非原程序、同exe或無identity保守拒絕、不stop無關程序。重新跑core334／base98／server155、舊kill-assist XP／lane XP／UE商店／B回城保存verifier後，以5.3合法／非法數值規則條件封關20/30；三路／LAN／完整UI／mana／全部cue／效能仍獨立未完成，下一優先5.4。不再因歷史進度文件的當時缺項永久不勾選；證據矩陣見docs/plans/2026-10-04-moba-rules-60hz-acceptance.md。
@@ -80,6 +110,12 @@
 
 ## Migration Plan
 
+2026-10-04：既有 Blueprint 事件遷移採 declarative isolated-component planner，要求已存在通用替代事件與 exact field→sink 綁定；shared／unknown side effect／缺內容拒絕。MCP 備份後 CAS 刪普通節點，入口另以精確 ID 刪除前再次核對隔離性；前後保存的其他節點內容與接線精確不變。Saika BP 舊重複 action 分支已遷移且重跑冪等，typed API 尚保留、2.2b未封關，詳見 Blueprint generic event migration 進度檔。
+
+2026-10-04：動畫 overlay 以共用 parser 讀 Lua priority／locomotion 綁定，bridge 只從實際 buff 選最高優先序、同分最小穩定 catalog ID；生成 native 名稱常數供 Unreal 共用 model 使用，無每幀 JSON 與角色名稱分支。衍生 sniper flag 不覆蓋 buff 清單；未知 hero 不偽裝 Saika。C ABI11 與 saved Blueprint 相容 API 保留，完整 2.2b 尚未封關，見 generic-animation-overlay 進度檔。
+
+2026-10-04：buff lifecycle → ability 呈現事件來源改由 Lua `ue.buff_visual.ability_binding` 宣告，生成 manifest 與 bridge 共用型別，numeric buff 索引選擇 toggle／transform；未知引用與非法模式拒絕。事件投影不再比較角色／技能 ID。既有 C ABI typed 欄位與 saved Blueprint 仍保留相容；動畫 overlay 與 graph 遷移完成前不封關 2.2b，詳見 `docs/plans/2026-10-04-generic-buff-ability-binding-progress.md`。
+
 英雄事件模板先隔離 legacy_hero_compat adapter：通用 C++ 生成迴圈不直接判斷角色／技能 ID，既有 Saika typed API 只在相容模組中產生。保持生成 bytes、manifest shape 與 reflected 名稱，避免破壞已保存 Blueprint；新英雄不得在該模組擴充。待資產 graph 與 bridge typed projection 明確遷移後，才能真正移除相容介面並封關 2.2b。實作與證據見 `docs/plans/2026-10-03-unreal-generic-event-adapter-progress.md`。
 
 2026-10-03 的實作決定、驗證與剩餘問題補充於 `docs/plans/2026-10-03-unreal-moba-ipc-editor-progress.md`；Editor MCP 最小驗收詳見本 change 的 `evidence/editor-mcp-smoke-2026-10-03.md`。
@@ -112,6 +148,8 @@ runtime 節流補強詳見 `docs/plans/2026-10-03-unreal-damage-retention-progre
 回退方式為保留既有 TD 模式與其啟動參數；新 MOBA 模式在版本或資產驗證失敗時不啟動對局。
 
 ## 實作修正（2026-09-25）
+
+- 2026-10-04 公開地形導航前置：既有 grid planner 原只驗格點、movement只驗終點，薄牆／斜角可能穿透；改共用 omoba-sim i128 fixed-point swept-circle polygon，每條 edge、fallback與位移一致。沿既有公開BlockedRegions metadata，不披露隱藏動態障礙／MobaMatch。legacy float只在靜態資料邊界量化、超界fail closed；三seed60Hz共3600雙隊step每tickhash零repair與實際detour抵達通過。不是完整Lua地形／NPC導航／UE map或60FPS驗收，5.4保持未完成；詳見公開地形sweep進度與E128。
 
 - 2026-10-04 rank0出生：英雄Lua可選moba_loadout四槽rank＋初始點數，預設保留舊四招rank1／SP0；shared validator供雙生成器使用，Rust輕量常數與runtime compiled agreement／hotreload gate同步。權威先驗證再套用，respawn不重發點；首次學習沿用正式UpgradeAbility，queued ScriptCast在MobaMatch禁止未學rank的legacy fallback。不以GameMode::Moba當新規則opt-in（舊Story也預設Moba）。60Hz權威／雙隊filtered／owner HUD回歸通過，尚無真實KCP／雙UE rank0出生驗收，詳見rank-zero進度與E122。
 
