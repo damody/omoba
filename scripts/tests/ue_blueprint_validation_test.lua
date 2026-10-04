@@ -1,0 +1,28 @@
+local source = debug.getinfo(1,'S').source:sub(2)
+package.path = source:match('^(.*)[/\\]tests[/\\]') .. '/?.lua;' .. package.path
+local v = require('ue_blueprint_validation')
+local j = require('tools.lua.lib.json')
+local asset = '/Game/OmAutomation/BP_Test'
+local function check(detail,exit,is_error)
+  return v.result(asset,exit or 0,{isError=is_error,content={{type='text',text=j.encode(detail)}}})
+end
+local good = {blueprint_path=asset,ok=true,error_count=0,errors={}}
+assert(check(good).success)
+assert(not check(good,1).success)
+assert(not check(good,0,true).success)
+assert(not v.result(asset,0,{content={}}).success)
+assert(not v.result(asset,1,nil).success)
+assert(not check({blueprint_path=asset,ok=true}).success)
+assert(not check({blueprint_path='/Game/Other',ok=true,error_count=0}).success)
+local bad = check({blueprint_path=asset,ok=false,error_count=1,errors={'Target required'}},1,true)
+assert(not bad.success and bad.status=='pending' and bad.diagnostics[1]=='Target required')
+assert(not check({blueprint_path=asset,ok=true,error_count=0,errors={'contradiction'}}).success)
+assert(not check({blueprint_path=asset,ok=true,error_count=0,health_issues={{kind='orphan'}}}).success)
+assert(not check({blueprint_path=asset,ok=true,error_count=0,action_required=true}).success)
+assert(not check({blueprint_path=asset,ok=true,success=false,error_count=0}).success)
+assert(v.package_path(asset..'.BP_Test_C')==asset)
+assert(not pcall(v.package_path,asset..'.BP_Other_C'))
+assert(not pcall(v.package_path,'/Game/../BP_Test'))
+assert(not pcall(v.package_path,'/Game//BP_Test'))
+assert(not pcall(v.package_path,'D:/code/omoba/BP_Test'))
+print('Blueprint compile boundary: 17 scenarios passed')
