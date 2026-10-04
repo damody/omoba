@@ -1,5 +1,18 @@
 # Unreal MOBA 防錯紀錄
 
+## E153：跨專案共用 Editor executable 的 Live Coding 鎖（2026-10-05）
+
+- 本專案 Editor 101752 已退出，但建置 90267 exit 1／UBT OtherCompilationError：Unable to build while Live Coding is active。另一專案 PID96936 使用相同 UE5.8 executable，未停止該程序。
+- 讀引擎 HotReload.cs 確认鎖由 executable 路徑命名，不包含 project；BuildConfiguration.cs 提供 -NoHotReloadFromIDE。
+- restart 所有 offline build 先驗本專案 Editor 不存在，再帶 -NoHotReloadFromIDE 與 -NoEngineChanges，避免跨專案鎖阻擋，同時禁止覆寫共用引擎產物；不是刪鎖、停止其他專案或修改引擎。
+- 保留首次失敗；只在修正後重建本功能，不重跑完整驗收。若引擎產物真的需要改動，應由 guard 明確拒絕，不移除保護繼續建置。
+
+## E152：相容宣告不能繼續隱含專屬派發（2026-10-04）
+
+- 舊實作把 Saika 分支移出通用模板後，仍由三個 generic hook 自動呼叫 legacy adapter，包含四個技能 ID 判斷與 payload fallback；僅確認模板內沒有英雄名稱不足以證明正常路徑通用化。
+- 先 MCP 查唯一子 Blueprint 已只用通用事件，再刪除自動派發與轉換器，保留 reflected API 的顯式相容呼叫；測試必須同時證明通用欄位保留與舊回呼不觸發，不以「舊回呼收到」當正常成功條件。
+- 本批讀取累積過大的 OpenSpec 文件時仍遇到工具輸出截斷；應按小段讀取並分別限制輸出，不把 truncated 當完整讀取或證據。歷史文件目前包含大量逐批紀錄，不能依總任務數猜完成狀態。
+
 ## E151：Lua reserved key 與既有工具 API 必須先確認（2026-10-04）
 
 - 新 planner 初次使用 node.detail.function，Lua 的 function 是保留字，載入即語法錯誤；改為 detail['function']，無資產修改。往後 JSON 的 reserved key 一律用 bracket access。

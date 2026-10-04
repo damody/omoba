@@ -24,6 +24,7 @@
 - [x] 2.1c 擴充共用型別化模型至數值、視覺與技能資料，讓兩邊生成器使用同一內容解析結果並消除重複 schema。
 - [x] 2.2a 為每個英雄與其技能生成相同的 Blueprint 可讀 C++ metadata API，驗證新英雄不需手寫專屬 C++、OmGame 可編譯及 PIE 可啟動。
 - [ ] 2.2b 將英雄 Unreal C++ 事件改為通用模板，移除 Saika 專屬分支並驗證既有英雄無功能回退。
+  - 2026-10-04：MCP 確認唯一 Saika 子 BP 已只用通用事件；移除 generic hook→legacy 自動派發／四技能 ID 分支及未使用轉換器生成，typed API 只保留顯式相容呼叫。兩個 codegen 指定測試通過，C++ 功能確認結果見 `docs/plans/2026-10-04-generic-native-event-dispatch-progress.md`。完整無功能回退與 typed 引用移除留最後，不勾選。
   - 2026-10-04：新增 declarative Lua isolated-event 遷移工具；MCP 備份／CAS preview／逐項 gate／精確入口刪除／compile-save，Saika BP 31→25 nodes，只保留通用動畫／攻擊與原 tracer。13 個工具測試、真實保存 graph 的25nodes內容／接線一致、重跑SHA不變、動畫派發單輪1/1通過。typed API 與完整其他資產引用盤點尚未完成，不勾選；詳見 `docs/plans/2026-10-04-blueprint-generic-event-migration-progress.md`，完整驗收留最後。
   - 2026-10-04：動畫 overlay 改 Lua priority／穩定 catalog ID 選擇，walk／stand／overlay 名稱生成 native registry，Unreal 不再把全部非零 ID 當 sniper；未知 hero 不回退 Saika。codegen 2／bridge 2／原快照 1 個直接測試、最後增量建置／stage及 GenericAnimationOverlay 單輪1/1通過；見 `docs/plans/2026-10-04-generic-animation-overlay-progress.md`。saved Blueprint／typed 相容介面尚未遷移，不勾選全項，不跑完整驗收。
   - 2026-10-04：bridge buff→ability lifecycle 改由 Lua ability_binding／型別化 manifest 索引，任意英雄 ID 不需新增 Rust／C++ 分支；codegen 2、bridge 2 與既有快照 1 個直接測試通過，正式來源生成／--check 通過。C ABI 相容欄位、動畫 overlay 分支及 saved Blueprint graph 尚未全數遷移，不勾選；詳見 `docs/plans/2026-10-04-generic-buff-ability-binding-progress.md`。本批不重跑完整驗收。

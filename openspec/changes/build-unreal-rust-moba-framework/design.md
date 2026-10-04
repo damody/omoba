@@ -110,6 +110,8 @@
 
 ## Migration Plan
 
+2026-10-04：保存 Saika 子 BP 已只實作 generic 動畫／攻擊事件後，移除三個 hook 的 legacy 自動轉派及專屬 payload maker／fallback；normal dispatch 不再看四技能 ID。reflected typed API／metadata 保留供明確相容呼叫，不新增 legacy enable 旗標、不擴充新英雄特例。probe 分開確認 generic 欄位、零舊回呼與 explicit compatibility；完整品質驗收留最後，詳見 generic-native-event-dispatch 進度檔。
+
 2026-10-04：既有 Blueprint 事件遷移採 declarative isolated-component planner，要求已存在通用替代事件與 exact field→sink 綁定；shared／unknown side effect／缺內容拒絕。MCP 備份後 CAS 刪普通節點，入口另以精確 ID 刪除前再次核對隔離性；前後保存的其他節點內容與接線精確不變。Saika BP 舊重複 action 分支已遷移且重跑冪等，typed API 尚保留、2.2b未封關，詳見 Blueprint generic event migration 進度檔。
 
 2026-10-04：動畫 overlay 以共用 parser 讀 Lua priority／locomotion 綁定，bridge 只從實際 buff 選最高優先序、同分最小穩定 catalog ID；生成 native 名稱常數供 Unreal 共用 model 使用，無每幀 JSON 與角色名稱分支。衍生 sniper flag 不覆蓋 buff 清單；未知 hero 不偽裝 Saika。C ABI11 與 saved Blueprint 相容 API 保留，完整 2.2b 尚未封關，見 generic-animation-overlay 進度檔。
