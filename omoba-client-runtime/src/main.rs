@@ -5,7 +5,7 @@ use omoba_client_runtime::{
     evidence::EvidenceRecorder,
     input_bridge::{InputBridge, InputDecision},
     presentation_bridge::{
-        lifecycle_envelope, ready_envelope, reset_view_envelope, snapshot_envelope,
+        lifecycle_envelope, ready_envelope, reset_view_envelope,
         PresentationHub, PRESENTATION_MAGIC, PRESENTATION_PROTOCOL_VERSION,
     },
     replica_host::ReplicaHost,
@@ -76,7 +76,18 @@ async fn main() -> anyhow::Result<()> {
         "client-runtime presentation listening on {}",
         config.presentation_bind
     );
-    let mut input_bridge = InputBridge::default();
+    let mut input_bridge = InputBridge::resume_after(session.start.last_seen_input_id);
+    input_bridge.set_shop_enabled(session.start.shop_protocol_version == omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION);
+    presentation.set_shop_protocol_enabled(session.start.shop_protocol_version == omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION);
+    let recall_enabled = session.start.recall_protocol_version == omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION;
+    input_bridge.set_recall_enabled(recall_enabled);
+    presentation.set_recall_protocol_enabled(recall_enabled);
+    if config.test_mode && std::env::var("OMOBA_SHOP_QUERY_SMOKE").as_deref() == Ok("1") {
+        // No transaction fixture: query a missing shop result only.
+        session.client.query_shop_receipt(0x5348_4f50, u32::MAX).await?;
+    }
+    log::info!("input allocator resumed player={} after_id={}",
+        config.player_id, session.start.last_seen_input_id);
     let mut presentation_sequence = 1_u64;
     let mut scripted_move_sent = false;
     let mut next_scripted_move_tick = config.scripted_move_tick;
@@ -101,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
         &config,
         session.start.server_tick,
         session.start.replica_start_tick,
+        session.start.tick_rate_hz,
     ));
     presentation_sequence = presentation_sequence.saturating_add(1);
     presentation
@@ -138,9 +150,15 @@ async fn main() -> anyhow::Result<()> {
         session.start.replica_start_tick,
         config.presentation_bind
     );
+    let mut shop_query_interval = tokio::time::interval(std::time::Duration::from_secs(1));
     loop {
         tokio::select! {
             biased;
+            _ = shop_query_interval.tick() => {
+                for id in presentation.due_shop_queries() {
+                    session.client.query_shop_receipt(u64::from(id), id).await?;
+                }
+            }
             changed = shutdown_rx.changed() => {
                 if changed.is_err() || shutdown_rx.borrow().is_some() {
                     if let Some(evidence) = &evidence { evidence.record_network_event("session-stopped", replica.expected_team_sequence(), replica.next_replica_tick(), "SHUTDOWN")?; }
@@ -325,12 +343,23 @@ async fn main() -> anyhow::Result<()> {
                         Err(error) => shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string())),
                     }
                 }
+                Some(LockstepInbound::ShopReceiptReplay { msg }) => {
+                    match presentation.retain_shop_replay(replica.view_epoch(), &msg) {
+                        Ok(terminal) => {
+                            publish_shop_replay_outcome(&mut presentation, &mut pending_input_requests,
+                                &mut presentation_sequence, &msg).await?;
+                            log::info!("shop receipt recovery input_id={} status={} terminal={}", msg.input_id, msg.status, terminal);
+                        },
+                        Err(code) => shutdown.cancel(ShutdownReason::UnsafeSession(code.into())),
+                    }
+                }
                 Some(LockstepInbound::SecureTargetInputResult { msg, .. }) => {
                     if let Some(evidence) = &evidence { evidence.record_network_event("secure-input-result", 0, replica.next_replica_tick(), if msg.accepted { "SERVER_ACCEPTED" } else { "SERVER_INVALID_TARGET" })?; }
                     presentation_sequence = presentation_sequence.saturating_add(1);
+                    let renderer_request = secure_result_request_id(&mut pending_input_requests, msg.request_id, msg.accepted);
                     presentation.publish_critical(critical_result(
                         presentation_sequence,
-                        msg.request_id,
+                        renderer_request,
                         u32::try_from(msg.request_id).unwrap_or(0),
                         msg.accepted,
                         if msg.accepted { "SERVER_ACCEPTED" } else { "SERVER_INVALID_TARGET" },
@@ -352,6 +381,29 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn publish_shop_replay_outcome(
+    presentation: &mut PresentationHub,
+    pending: &mut BTreeMap<u32, u64>,
+    sequence: &mut u64,
+    reply: &omoba_core::game_proto::ShopReceiptReplay,
+) -> anyhow::Result<()> {
+    let (accepted, code, tick) = match reply.status {
+        2 => {
+            let receipt = omoba_core::runtime::shop_receipt::ShopReceipt::decode(&reply.receipt)
+                .ok_or_else(|| anyhow::anyhow!("invalid validated shop receipt"))?;
+            (receipt.result_code == 0, omoba_client_runtime::shop_presentation::receipt_result_name(receipt.result_code), receipt.tick)
+        }
+        3 => (false, "SHOP_RESULT_EXPIRED_UNCERTAIN", 0),
+        4 => (false, "SHOP_ADMISSION_REJECTED_LATE", 0),
+        _ => return Ok(()),
+    };
+    if let Some(request_id) = pending.remove(&reply.input_id) {
+        *sequence = sequence.saturating_add(1);
+        presentation.publish_critical(critical_result(*sequence, request_id, reply.input_id, accepted, code, tick)).await?;
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_renderer_input(
     config: &ClientRuntimeConfig,
@@ -368,7 +420,20 @@ async fn handle_renderer_input(
     renderer_input: RendererInput,
 ) -> anyhow::Result<()> {
     let request_id = renderer_input.request_id;
+    let is_shop = matches!(renderer_input.intent, Some(omoba_core::game_proto::renderer_input::Intent::ItemBuy(_)) | Some(omoba_core::game_proto::renderer_input::Intent::ItemSell(_)));
+    if is_shop && !presentation.can_track_shop() {
+        *presentation_sequence = presentation_sequence.saturating_add(1);
+        presentation.publish_critical(critical_result(*presentation_sequence, request_id, 0, false, "SHOP_PENDING_CAPACITY", replica.next_replica_tick())).await?;
+        return Ok(());
+    }
     match input_bridge.validate(renderer_input, config.player_id, replica) {
+        InputDecision::RepeatedShop { request_id, input_id } => {
+            presentation.track_shop(input_id);
+            pending_input_requests.insert(input_id, request_id);
+            *presentation_sequence = presentation_sequence.saturating_add(1);
+            presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id,
+                true, "SHOP_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
+        }
         InputDecision::Accepted {
             input_id,
             input,
@@ -388,6 +453,12 @@ async fn handle_renderer_input(
             let target_tick =
                 u32::try_from(freshest_server_tick.saturating_add(network_lead_ticks))
                     .unwrap_or(u32::MAX);
+            // A failed write may have reached the server. Retain the original
+            // identity for read-only recovery, never assume no transaction ran.
+            if is_shop {
+                presentation.track_shop(input_id);
+                pending_input_requests.insert(input_id, request_id);
+            }
             let result = if let Some(target) = secure_target {
                 let Some(actor) = replica.owned_hero_reference(config.player_id) else {
                     *presentation_sequence = presentation_sequence.saturating_add(1);
@@ -417,13 +488,21 @@ async fn handle_renderer_input(
                     .await
                     .map(|_| (0, 0))
             } else {
-                session
+                let original = input.clone();
+                let result = session
                     .client
                     .submit_input(target_tick, input, input_id)
-                    .await
+                    .await;
+                if is_shop && result.is_ok() && config.test_mode && std::env::var("OMOBA_SHOP_TRANSACTION_SMOKE").as_deref() == Ok("1") {
+                    for _ in 0..5 { session.client.submit_input(target_tick, original.clone(), input_id).await?; }
+                    log::info!("shop smoke exact retries player={} input_id={} count=5", config.player_id, input_id);
+                }
+                result
             };
             if result.is_ok() {
                 pending_input_requests.insert(input_id, request_id);
+                log::info!("input forwarded player={} input_id={} target_tick={}",
+                    config.player_id, input_id, target_tick);
             }
             if let Some(evidence) = evidence {
                 evidence.record_network_event(
@@ -432,6 +511,8 @@ async fn handle_renderer_input(
                     u64::from(target_tick),
                     if result.is_ok() {
                         "FORWARDED"
+                    } else if is_shop {
+                        "SHOP_TRANSPORT_UNCERTAIN"
                     } else {
                         "SERVER_TRANSPORT_ERROR"
                     },
@@ -446,6 +527,8 @@ async fn handle_renderer_input(
                     result.is_ok(),
                     if result.is_ok() {
                         "FORWARDED"
+                    } else if is_shop {
+                        "SHOP_TRANSPORT_UNCERTAIN"
                     } else {
                         "SERVER_TRANSPORT_ERROR"
                     },
@@ -662,6 +745,17 @@ async fn catch_up_available_frames(
                     }
                     return Ok(());
                 }
+                Ok(LockstepInbound::ShopReceiptReplay { msg }) => {
+                    match presentation.retain_shop_replay(replica.view_epoch(), &msg) {
+                        Ok(terminal) => {
+                            publish_shop_replay_outcome(presentation, pending_input_requests,
+                                presentation_sequence, &msg).await?;
+                            log::info!("shop receipt recovery input_id={} status={} terminal={}", msg.input_id, msg.status, terminal);
+                        },
+                        Err(code) => shutdown.cancel(ShutdownReason::UnsafeSession(code.into())),
+                    }
+                    continue;
+                }
                 Ok(LockstepInbound::SecureTargetInputResult { msg, .. }) => {
                     if let Some(evidence) = evidence {
                         evidence.record_network_event(
@@ -676,10 +770,11 @@ async fn catch_up_available_frames(
                         )?;
                     }
                     *presentation_sequence = presentation_sequence.saturating_add(1);
+                    let renderer_request = secure_result_request_id(pending_input_requests, msg.request_id, msg.accepted);
                     presentation
                         .publish_critical(critical_result(
                             *presentation_sequence,
-                            msg.request_id,
+                            renderer_request,
                             u32::try_from(msg.request_id).unwrap_or(0),
                             msg.accepted,
                             if msg.accepted {
@@ -909,7 +1004,10 @@ async fn apply_ready_frame(
             *scripted_move_origin = replica.owned_hero_position(config.player_id);
         }
         let toward_enemy_side = *scripted_move_ordinal % 2 == 0;
-        let destination = if (config.team_id == 1) == toward_enemy_side {
+        let destination = if config.test_mode && std::env::var("OMOBA_RECALL_SMOKE").as_deref() == Ok("1") {
+            let origin = scripted_move_origin.unwrap_or((0, 0));
+            (origin.0 + if config.team_id == 1 { -300 * 1024 } else { 300 * 1024 }, 700 * 1024)
+        } else if (config.team_id == 1) == toward_enemy_side {
             (900 * 1024, 700 * 1024)
         } else {
             (-900 * 1024, -700 * 1024)
@@ -1031,16 +1129,39 @@ async fn apply_ready_frame(
         }
     }
     let divisor = (session.start.tick_rate_hz.max(1) / config.presentation_hz).max(1);
-    let applied_local_inputs = msg
-        .step
-        .as_ref()
-        .into_iter()
-        .flat_map(|step| step.accepted_inputs.iter())
-        .filter(|input| input.player_id == config.player_id)
-        .filter_map(|input| u32::try_from(input.input_id).ok())
-        .collect::<Vec<_>>();
-    if report.team_sequence % u64::from(divisor) == 0 && presentation.presentation_enabled() {
+    if let Some(step) = &msg.step {
+        presentation.retain_shop_receipts(replica.view_epoch(), msg.replica_tick, &step.public_events);
+    }
+    // Capture one-shots every applied step, before the presentation-rate divisor
+    // and before catch-up coalesces the latest watch snapshot.
+    presentation.retain_damage(replica.view_epoch(), report.replica_tick,
+        replica.take_damage_presentation(report.replica_tick));
+    let settled_inputs = omoba_client_runtime::shop_presentation::settled_inputs(&msg, config.player_id);
+    let applied_local_inputs: Vec<_> = settled_inputs.iter().map(|(id, _, _)| *id).collect();
+    if (report.team_sequence % u64::from(divisor) == 0 || !applied_local_inputs.is_empty()) && (presentation.presentation_enabled()
+        || config.test_mode && (std::env::var("OMOBA_SHOP_TRANSACTION_SMOKE").as_deref() == Ok("1")
+            || std::env::var("OMOBA_RECALL_SMOKE").as_deref() == Ok("1")
+            || std::env::var("OMOBA_COMBAT_SMOKE").as_deref() == Ok("1")
+            || std::env::var("OMOBA_FIRST_LEARN_SMOKE").as_deref() == Ok("1"))) {
         let mut snapshot = replica.extract_presentation_source();
+        if config.test_mode && std::env::var("OMOBA_FIRST_LEARN_SMOKE").as_deref() == Ok("1") {
+            presentation.inject_first_learn_smoke(&snapshot,replica.view_epoch())?;
+        }
+        if config.test_mode && std::env::var("OMOBA_COMBAT_SMOKE").as_deref() == Ok("1") {
+            presentation.inject_combat_smoke(&snapshot, replica.view_epoch())?;
+            if std::env::var("OMOBA_UPGRADE_SMOKE").as_deref() == Ok("1") {
+                presentation.inject_upgrade_smoke(&snapshot, replica.view_epoch())?;
+            }
+        }
+        if config.test_mode && std::env::var("OMOBA_RECALL_SMOKE").as_deref() == Ok("1") {
+            presentation.inject_recall_smoke(&snapshot, replica.view_epoch(), config.scripted_move_tick.unwrap_or(360) + 120)?;
+        }
+        if config.test_mode && std::env::var("OMOBA_SHOP_TRANSACTION_SMOKE").as_deref() == Ok("1") {
+            presentation.inject_shop_smoke(&snapshot, replica.view_epoch())?;
+            if let Some(id) = presentation.take_shop_smoke_query() {
+                session.client.query_shop_receipt(u64::from(id), id).await?;
+            }
+        }
         if let Some(evidence) = evidence {
             evidence.record_filtered_world(&snapshot)?;
         }
@@ -1089,26 +1210,33 @@ async fn apply_ready_frame(
             }
             presentation.publish_critical(envelope).await?;
         }
-        *presentation_sequence = presentation_sequence.saturating_add(1);
-        let envelope = snapshot_envelope(
-            *presentation_sequence,
-            msg.server_tick,
-            replica.view_epoch(),
-            snapshot,
-            session.client.latest_rtt_us().unwrap_or(0),
-        );
-        if let Some(evidence) = evidence {
-            evidence.record_presentation(&envelope)?;
-        }
-        if applied_local_inputs.is_empty() && publish_latest_snapshot {
-            presentation.publish_latest(envelope);
-        } else if !applied_local_inputs.is_empty() {
-            // Input-bearing snapshot and its APPLIED result must remain FIFO so
-            // renderer timing means "state available to draw", not merely ACK.
-            presentation.publish_critical(envelope).await?;
+        // Catch-up discards intermediate latest state. Do not compute its large
+        // fog projection only to throw it away: that work prolongs the backlog.
+        // Lifecycle above and input-bearing snapshots remain on the critical path.
+        if let Some(route) =
+            presentation_snapshot_route(publish_latest_snapshot, &applied_local_inputs)
+        {
+            *presentation_sequence = presentation_sequence.saturating_add(1);
+            let envelope = presentation.snapshot_envelope(
+                *presentation_sequence,
+                msg.server_tick,
+                replica.view_epoch(),
+                snapshot,
+                session.client.latest_rtt_us().unwrap_or(0),
+            );
+            if let Some(evidence) = evidence {
+                evidence.record_presentation(&envelope)?;
+            }
+            match route {
+                PresentationSnapshotRoute::Latest => presentation.publish_latest(envelope),
+                // State and APPLIED result remain FIFO, not merely an ACK.
+                PresentationSnapshotRoute::Critical => {
+                    presentation.publish_critical(envelope).await?
+                }
+            }
         }
     }
-    for input_id in applied_local_inputs {
+    for (input_id, accepted, result_code) in settled_inputs {
         let Some(request_id) = pending_input_requests.remove(&input_id) else {
             continue;
         };
@@ -1118,8 +1246,8 @@ async fn apply_ready_frame(
                 *presentation_sequence,
                 request_id,
                 input_id,
-                true,
-                "APPLIED_TO_PRESENTATION",
+                accepted,
+                result_code,
                 msg.server_tick,
             ))
             .await?;
@@ -1225,6 +1353,25 @@ fn snapshot_hero_identity_labels(
         .collect()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PresentationSnapshotRoute {
+    Latest,
+    Critical,
+}
+
+fn presentation_snapshot_route(
+    publish_latest: bool,
+    applied_local_inputs: &[u32],
+) -> Option<PresentationSnapshotRoute> {
+    if !applied_local_inputs.is_empty() {
+        Some(PresentationSnapshotRoute::Critical)
+    } else if publish_latest {
+        Some(PresentationSnapshotRoute::Latest)
+    } else {
+        None
+    }
+}
+
 fn critical_result(
     sequence: u64,
     request_id: u64,
@@ -1249,13 +1396,45 @@ fn critical_result(
     }
 }
 
+fn secure_result_request_id(
+    pending: &mut BTreeMap<u32, u64>,
+    server_request_id: u64,
+    accepted: bool,
+) -> u64 {
+    let Ok(input_id) = u32::try_from(server_request_id) else { return server_request_id; };
+    if accepted {
+        pending.get(&input_id).copied().unwrap_or(server_request_id)
+    } else {
+        pending.remove(&input_id).unwrap_or(server_request_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn catchup_skips_unpublishable_projection_but_never_applied_state() {
+        assert_eq!(presentation_snapshot_route(false, &[]), None);
+        assert_eq!(presentation_snapshot_route(true, &[]), Some(PresentationSnapshotRoute::Latest));
+        assert_eq!(presentation_snapshot_route(false, &[7]), Some(PresentationSnapshotRoute::Critical));
+        assert_eq!(presentation_snapshot_route(true, &[7]), Some(PresentationSnapshotRoute::Critical));
+    }
+
+    #[test]
     fn external_runtime_uses_low_latency_two_tick_input_lookahead() {
         assert_eq!(input_lookahead_ticks(), 2);
         assert_ne!(input_lookahead_ticks(), 120);
+    }
+
+    #[test]
+    fn secure_result_retains_renderer_id_until_application_or_rejection() {
+        let mut pending = BTreeMap::from([(3, 9001), (4, 9002)]);
+        assert_eq!(secure_result_request_id(&mut pending, 3, true), 9001);
+        assert_eq!(pending.get(&3), Some(&9001));
+        assert_eq!(secure_result_request_id(&mut pending, 4, false), 9002);
+        assert!(!pending.contains_key(&4));
+        assert_eq!(secure_result_request_id(&mut pending, u64::MAX, false), u64::MAX);
+        assert_eq!(pending.len(), 1);
     }
 }

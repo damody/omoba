@@ -1,12 +1,17 @@
 pub mod catchup;
 pub mod checkpoint_writer;
 pub mod config;
+mod damage_retention;
 pub mod evidence;
 pub mod input_bridge;
+pub mod moba_hud;
+pub mod scoreboard;
 pub mod presentation_bridge;
 pub mod replica_host;
 pub mod session;
 pub mod shutdown;
+pub mod shop_presentation;
+pub mod shop_recovery;
 
 use std::fmt;
 

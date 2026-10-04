@@ -108,6 +108,20 @@ impl ReplicaHost {
         self.runtime.extract_filtered_render_snapshot()
     }
 
+    pub fn take_damage_presentation(&mut self, tick: u64) -> Vec<omoba_core::game_proto::PresentationEffect> {
+        use omoba_core::runtime::presentation_cue::{DamagePresentationCue, presentation_effect_id};
+        self.runtime.take_damage_presentation_effects().into_iter().filter_map(|effect| {
+            let target_id = effect.visible_target?.value;
+            let target = self.runtime.world().entities.get(&target_id)?;
+            let amount_milli = i64::from_le_bytes(effect.sanitized_payload.get(..8)?.try_into().ok()?);
+            if amount_milli <= 0 || target.disclosure_epoch == 0 { return None; }
+            Some(omoba_core::game_proto::PresentationEffect {
+                effect_id: presentation_effect_id(tick, effect.stable_sub_index)?,
+                safe_payload: DamagePresentationCue {tick, target_id, disclosure_epoch: target.disclosure_epoch, amount_milli}.encode(),
+            })
+        }).collect()
+    }
+
     pub fn team_id(&self) -> u32 {
         self.team_id
     }
