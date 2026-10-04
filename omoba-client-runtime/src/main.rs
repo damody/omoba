@@ -5,7 +5,7 @@ use omoba_client_runtime::{
     evidence::EvidenceRecorder,
     input_bridge::{InputBridge, InputDecision},
     presentation_bridge::{
-        lifecycle_envelope, ready_envelope, reset_view_envelope,
+        lifecycle_envelope, ready_envelope_for_start, reset_view_envelope,
         PresentationHub, PRESENTATION_MAGIC, PRESENTATION_PROTOCOL_VERSION,
     },
     replica_host::ReplicaHost,
@@ -107,13 +107,7 @@ async fn main() -> anyhow::Result<()> {
     let mut latest_server_tick = session.start.server_tick;
     let mut replica_lag = ReplicaLagTracker::new(session.start.replica_start_tick);
     let mut last_presentation_heroes = Vec::<String>::new();
-    presentation.publish_latest(ready_envelope(
-        presentation_sequence,
-        &config,
-        session.start.server_tick,
-        session.start.replica_start_tick,
-        session.start.tick_rate_hz,
-    ));
+    presentation.publish_latest(ready_envelope_for_start(presentation_sequence,&config,&session.start)?);
     presentation_sequence = presentation_sequence.saturating_add(1);
     presentation
         .publish_critical(reset_view_envelope(
@@ -316,14 +310,9 @@ async fn main() -> anyhow::Result<()> {
                             awaiting_authoritative_rebase = false;
                             replay_requested_from = None;
                             let view_epoch = msg.view_epoch.as_ref().map_or(0, |value| value.value);
-                            presentation_sequence = presentation_sequence.saturating_add(1);
-                            presentation.publish_critical(reset_view_envelope(
-                                presentation_sequence,
-                                config.team_id,
-                                msg.authoritative_tick,
-                                replica.next_replica_tick(),
-                                view_epoch,
-                            )).await?;
+                            publish_rebased_presentation(&mut presentation, &mut replica,
+                                &mut presentation_sequence, msg.authoritative_tick,
+                                session.client.latest_rtt_us().unwrap_or(0)).await?;
                             if let Err(error) = session.client.acknowledge_team_rebase(
                                 msg.team_id, msg.resume_team_sequence, view_epoch,
                             ).await {
@@ -378,6 +367,26 @@ async fn main() -> anyhow::Result<()> {
     if let Err(error) = session.client.shutdown().await {
         log::warn!("client-runtime KCP shutdown failed: {error}");
     }
+    Ok(())
+}
+
+async fn publish_rebased_presentation(
+    presentation: &mut PresentationHub,
+    replica: &mut ReplicaHost,
+    sequence: &mut u64,
+    authoritative_tick: u64,
+    rtt_us: u64,
+) -> anyhow::Result<()> {
+    *sequence = sequence.saturating_add(1);
+    presentation.publish_critical(reset_view_envelope(*sequence, replica.team_id(),
+        authoritative_tick, replica.next_replica_tick(), replica.view_epoch())).await?;
+    *sequence = sequence.saturating_add(1);
+    let source = replica.extract_presentation_source();
+    let snapshot = presentation.snapshot_envelope(*sequence, authoritative_tick,
+        replica.view_epoch(), source, rtt_us);
+    // Ordered live recovery and retained baseline for a renderer reconnect.
+    presentation.publish_critical(snapshot.clone()).await?;
+    presentation.publish_latest(snapshot);
     Ok(())
 }
 
@@ -693,16 +702,9 @@ async fn catch_up_available_frames(
                             *replay_requested_from = None;
                             let view_epoch =
                                 msg.view_epoch.as_ref().map_or(0, |value| value.value);
-                            *presentation_sequence = presentation_sequence.saturating_add(1);
-                            presentation
-                                .publish_critical(reset_view_envelope(
-                                    *presentation_sequence,
-                                    config.team_id,
-                                    msg.authoritative_tick,
-                                    replica.next_replica_tick(),
-                                    view_epoch,
-                                ))
-                                .await?;
+                            publish_rebased_presentation(presentation, replica,
+                                presentation_sequence, msg.authoritative_tick,
+                                session.client.latest_rtt_us().unwrap_or(0)).await?;
                             if let Err(error) = session
                                 .client
                                 .acknowledge_team_rebase(

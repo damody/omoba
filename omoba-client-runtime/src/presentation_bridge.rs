@@ -767,8 +767,23 @@ pub fn ready_envelope(
             replica_tick,
             content_hash: config.content_hash.clone(),
             tick_rate_hz,
+            ..Default::default()
         }),
     )
+}
+
+pub fn ready_envelope_for_start(sequence: u64, config: &ClientRuntimeConfig,
+    start: &omoba_core::game_proto::TeamGameStart) -> Result<RendererIpcEnvelope, ClientRuntimeError> {
+    let map = omoba_core::runtime::moba_map_layout::validate_metadata(&start.public_metadata)
+        .map_err(|error| ClientRuntimeError::Replica(error.into()))?;
+    let mut ready = ready_envelope(sequence,config,start.server_tick,start.replica_start_tick,start.tick_rate_hz);
+    if let Some(map) = map {
+        if let Some(renderer_ipc_envelope::Payload::RuntimeReady(metadata)) = &mut ready.payload {
+            metadata.moba_map_id = map.id.into();
+            metadata.moba_map_catalog_hash = omoba_template_ids::MOBA_MAP_CATALOG_HASH.into();
+        }
+    }
+    Ok(ready)
 }
 
 pub fn snapshot_envelope(
@@ -796,6 +811,16 @@ fn snapshot_envelope_cached(
     runtime_rtt_us: u64,
     fog_cache: &mut DemoFogCache,
 ) -> RendererIpcEnvelope {
+    let mut fog = omoba_core::runtime::fog_grid::FogGridRetention::default();
+    let fog_grid = fog.ingest_events(&snapshot.public_events, snapshot.team_id, view_epoch, snapshot.replica_tick)
+        .ok().and_then(|_| fog.latest().map(|grid| grid.to_presentation()));
+    let formal_moba = snapshot.public_events.iter().any(|event| {
+        let p = &event.sanitized_payload;
+        event.event_kind == omoba_core::runtime::fog_grid::FOG_GRID_EVENT_KIND
+            || (event.event_kind == omoba_core::runtime::FactKind::Hud as u32 && p.len() == 20
+            && p[..4] == 0_u32.to_le_bytes()
+            && p[4..12] == omoba_core::runtime::SINGLE_LANE_PHASE_METRIC_ID.to_le_bytes())
+    });
     let effects = snapshot.external_effects.iter().filter_map(|effect| {
         use omoba_core::runtime::presentation_cue::{DamagePresentationCue, presentation_effect_id};
         if effect.effect_kind != omoba_core::runtime::FactKind::DirectCombat as u32 { return None; }
@@ -835,7 +860,7 @@ fn snapshot_envelope_cached(
     let visibility_digest =
         u64::from_be_bytes(digest.finalize()[..8].try_into().expect("digest prefix"));
     let (fog_tiles, vision_circles, tree_occluders, polygon_occluders) =
-        fog_cache.derive(&entities, snapshot.team_id);
+        fog_cache.derive_for_mode(&entities, snapshot.team_id, formal_moba);
     envelope(
         sequence,
         renderer_ipc_envelope::Payload::Snapshot(TeamPresentationSnapshot {
@@ -868,6 +893,7 @@ fn snapshot_envelope_cached(
             moba_hud: None,
             owner_economy: None,
             shop_receipts: Vec::new(),
+            fog_grid,
         }),
     )
 }
@@ -960,12 +986,23 @@ type DemoFog = (
 
 #[derive(Default)]
 struct DemoFogCache {
+    formal_moba_seen: bool,
     latest: Option<(u32, Vec<(i64, i64)>, DemoFog)>,
     #[cfg(test)]
     rebuilds: usize,
 }
 
 impl DemoFogCache {
+    fn derive_for_mode(&mut self, entities: &[PresentationRenderEntity], team_id: u32, formal_moba: bool) -> DemoFog {
+        self.formal_moba_seen |= formal_moba;
+        if self.formal_moba_seen {
+            // No authority grid/exploration contract yet: never substitute demo
+            // visibility for formal gameplay fog, including after view reset.
+            self.latest = None;
+            return Default::default();
+        }
+        self.derive(entities, team_id)
+    }
     fn derive(&mut self, entities: &[PresentationRenderEntity], team_id: u32) -> DemoFog {
         let centers = demo_visible_centers(entities, team_id);
         if let Some((cached_team, cached_centers, fog)) = &self.latest {
@@ -1199,7 +1236,11 @@ mod tests {
                 "--presentation-bind".to_owned(), address.to_string(),
             ]).unwrap();
             let hub = PresentationHub::bind(&config).await.unwrap();
-            let ready = ready_envelope(1, &config, 10, 10, 60);
+            let map = omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
+            let ready = ready_envelope_for_start(1,&config,&omoba_core::game_proto::TeamGameStart {
+                server_tick:10,replica_start_tick:10,tick_rate_hz:60,
+                public_metadata:omoba_core::runtime::moba_map_layout::bootstrap_metadata(map),..Default::default()
+            }).unwrap();
             hub.publish_latest(ready.clone());
             let latest = envelope(10, renderer_ipc_envelope::Payload::Snapshot(TeamPresentationSnapshot {
                 team_id: 2, replica_tick: 20, ..Default::default()
@@ -1272,6 +1313,57 @@ mod tests {
             cache.rebuilds, 4,
             "team change and reset must invalidate fog"
         );
+    }
+
+    #[test]
+    fn formal_moba_never_falls_back_to_demo_fog() {
+        let mut cache = DemoFogCache::default();
+        let entities = vec![hero()];
+        assert!(!cache.derive_for_mode(&entities, 1, false).0.is_empty());
+        let rebuilds = cache.rebuilds;
+        let formal = cache.derive_for_mode(&entities, 1, true);
+        assert!(formal.0.is_empty() && formal.1.is_empty() && formal.2.is_empty() && formal.3.is_empty());
+        assert!(cache.latest.is_none());
+        assert!(cache.derive_for_mode(&entities, 1, false).0.is_empty(), "missing HUD after reset cannot restore demo fog");
+        assert_eq!(cache.rebuilds, rebuilds);
+        let mut payload = Vec::new();
+        payload.extend(0_u32.to_le_bytes());
+        payload.extend(omoba_core::runtime::SINGLE_LANE_PHASE_METRIC_ID.to_le_bytes());
+        payload.extend(1_i64.to_le_bytes());
+        let source = FilteredRenderSnapshot { team_id: 1, replica_tick: 5, entities: vec![],
+            public_events: vec![omoba_core::game_proto::TeamPublicEvent {
+                event_kind: omoba_core::runtime::FactKind::Hud as u32,
+                sanitized_payload: payload, ..Default::default()
+            }], external_effects: vec![], memory_directives: vec![], remembered_presentations: Default::default() };
+        let mut fresh = DemoFogCache::default();
+        snapshot_envelope_cached(1, 5, 1, source, 0, &mut fresh);
+        assert!(fresh.formal_moba_seen, "production envelope uses authority phase marker");
+    }
+
+    #[test]
+    fn authority_fog_ipc_is_typed_bound_and_never_demo() {
+        use omoba_core::runtime::fog_grid::{FogGridSnapshot, FogGridGeometry};
+        let grid = FogGridSnapshot { team: 1, view_epoch: 7, tick: 10,
+            geometry: FogGridGeometry { origin_x_raw: -2048, origin_y_raw: 1024,
+                cell_size_raw: 1024, columns: 3, rows: 1 }, cells: vec![0,1,2] };
+        let source = |events| FilteredRenderSnapshot { team_id: 1, replica_tick: 11,
+            entities: vec![], public_events: events, external_effects: vec![],
+            memory_directives: vec![], remembered_presentations: Default::default() };
+        let mut cache = DemoFogCache::default();
+        let good = snapshot_envelope_cached(1, 10, 7, source(vec![grid.presentation_event().unwrap()]), 0, &mut cache);
+        let decoded = RendererIpcEnvelope::decode(good.encode_to_vec().as_slice()).unwrap();
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = decoded.payload else { panic!("snapshot"); };
+        assert_eq!(snapshot.fog_grid, Some(grid.to_presentation()));
+        assert!(snapshot.fog_tiles.is_empty() && snapshot.vision_circles.is_empty());
+        assert!(snapshot.tree_occluders.is_empty() && snapshot.polygon_occluders.is_empty());
+        assert!(cache.formal_moba_seen);
+        let bad = snapshot_envelope_cached(2, 10, 8, source(vec![grid.presentation_event().unwrap()]), 0, &mut cache);
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = bad.payload else { panic!("snapshot"); };
+        assert!(snapshot.fog_grid.is_none());
+        assert!(snapshot.fog_tiles.is_empty());
+        let absent = snapshot_envelope_cached(3, 11, 8, source(vec![]), 0, &mut cache);
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = absent.payload else { panic!("snapshot"); };
+        assert!(snapshot.fog_grid.is_none() && snapshot.vision_circles.is_empty());
     }
 
     #[test]
@@ -1471,6 +1563,7 @@ mod tests {
                 replica_tick: 1,
                 content_hash: "private-team-state".into(),
                 tick_rate_hz: 60,
+                ..Default::default()
             }),
         ))));
         let (_critical_tx, critical_rx) = mpsc::channel(1);

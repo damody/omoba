@@ -21,6 +21,24 @@ pub struct ReplicaApplyReport {
     pub encoded_frame_hash: [u8; 32],
 }
 
+#[cfg(test)]
+mod map_contract_tests {
+    use super::*;
+
+    #[test]
+    fn bootstrap_rejects_geometry_mismatch_before_loading_scripts() {
+        let map = omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
+        let mut metadata = omoba_core::runtime::moba_map_layout::bootstrap_metadata(map);
+        metadata[1].value.clear();
+        let result = ReplicaHost::bootstrap(&TeamGameStart {
+            public_metadata: metadata,
+            ..Default::default()
+        });
+        assert!(matches!(result, Err(ClientRuntimeError::Replica(error))
+            if error == "compiled MOBA terrain mismatch"));
+    }
+}
+
 pub struct ReplicaHost {
     team_id: u32,
     tick_rate_hz: u32,
@@ -30,10 +48,15 @@ pub struct ReplicaHost {
     pre_repair_reports: BTreeMap<(u64, u64, u64), ReplicaApplyReport>,
     staging: IncompleteSnapshotStaging,
     expected_team_sequence: u64,
+    fog: omoba_core::runtime::fog_grid::FogGridRetention,
 }
 
 impl ReplicaHost {
     pub fn bootstrap(start: &TeamGameStart) -> Result<Self, ClientRuntimeError> {
+        omoba_core::runtime::moba_map_layout::validate_metadata(&start.public_metadata)
+            .map_err(|error| ClientRuntimeError::Replica(error.into()))?;
+        let fog = omoba_core::runtime::fog_grid::FogGridRetention::bootstrap(start)
+            .map_err(|error| ClientRuntimeError::Replica(error.into()))?;
         let components = secure_replica_component_allowlist();
         let resources = secure_replica_resource_allowlist();
         let runtime = SelectiveReplicaRuntime::bootstrap_from_team_game_start(
@@ -60,6 +83,7 @@ impl ReplicaHost {
             pre_repair_reports: BTreeMap::new(),
             staging: IncompleteSnapshotStaging::default(),
             expected_team_sequence: start.next_team_sequence,
+            fog,
         })
     }
 
@@ -76,6 +100,12 @@ impl ReplicaHost {
                 post_repair_hash,
                 ..
             }) => {
+                let epoch = self.runtime.view_epoch();
+                if self.fog.latest().is_some_and(|grid| grid.view_epoch != epoch) { self.fog.clear(); }
+                if let Err(error) = self.fog.ingest_events(self.runtime.applied_public_events(), self.team_id, epoch, replica_tick) {
+                    self.fog.clear();
+                    log::warn!("fog presentation rejected: {error}");
+                }
                 let report = ReplicaApplyReport {
                     replica_tick,
                     team_sequence,
@@ -105,7 +135,14 @@ impl ReplicaHost {
     }
 
     pub fn extract_presentation_source(&mut self) -> FilteredRenderSnapshot {
-        self.runtime.extract_filtered_render_snapshot()
+        let mut source = self.runtime.extract_filtered_render_snapshot();
+        let epoch = self.runtime.view_epoch();
+        if self.fog.latest().is_some_and(|grid| grid.view_epoch != epoch) { self.fog.clear(); }
+        source.public_events.retain(|event| event.event_kind != omoba_core::runtime::fog_grid::FOG_GRID_EVENT_KIND);
+        if let Some(grid) = self.fog.latest() {
+            source.public_events.push(grid.presentation_event().expect("validated retained fog"));
+        }
+        source
     }
 
     pub fn take_damage_presentation(&mut self, tick: u64) -> Vec<omoba_core::game_proto::PresentationEffect> {
@@ -168,6 +205,8 @@ impl ReplicaHost {
         if manifest.team_id != self.team_id {
             return Err(ClientRuntimeError::Replica("wrong team rebase".into()));
         }
+        let recovered_fog = omoba_core::runtime::fog_grid::FogGridRetention::from_rebase(manifest)
+            .map_err(|error| ClientRuntimeError::Replica(error.into()))?;
         let bytes = self
             .staging
             .finish(manifest)
@@ -202,6 +241,7 @@ impl ReplicaHost {
             )
             .map_err(|error| ClientRuntimeError::Replica(format!("Specs rebase: {error:?}")))?;
         self.expected_team_sequence = manifest.resume_team_sequence;
+        self.fog = recovered_fog;
         Ok(())
     }
 
