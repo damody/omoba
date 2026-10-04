@@ -12,7 +12,8 @@ local smoke_report = {success = false, kind = "two-team-unreal-ipc", teams = {}}
 local graphics_rhi = os.getenv('OMOBA_UE_RHI') or 'd3d11'
 assert(graphics_rhi == 'd3d11' or graphics_rhi == 'd3d12', 'OMOBA_UE_RHI must be d3d11 or d3d12')
 smoke_report.graphics_rhi = graphics_rhi
-local single_lane = arg[1] == "--single-lane"
+local three_lane = arg[1] == "--three-lane"
+local single_lane = arg[1] == "--single-lane" or three_lane -- shared MOBA launch path
 local ability_smoke = os.getenv("OMOBA_UE_ABILITY_SMOKE") == "1"
 local match_smoke = os.getenv("OMOBA_UE_MATCH_SMOKE") == "1"
 local result_ui_smoke = os.getenv("OMOBA_UE_RESULT_UI_SMOKE") == "1"
@@ -67,8 +68,11 @@ assert(not match_smoke or ability_smoke, "match smoke requires OMOBA_UE_ABILITY_
 assert(not ability_smoke or (single_lane and smoke_seconds and smoke_seconds > 0),
   "ability smoke requires --single-lane and positive OMOBA_UE_SMOKE_SECONDS")
 assert(#arg == 0 or (single_lane and #arg == 1),
-  "Usage: tools/lua/lua.exe scripts/run_2player_ue.lua [--single-lane]")
-smoke_report.gameplay_mode = single_lane and "single_lane" or "story"
+  "Usage: tools/lua/lua.exe scripts/run_2player_ue.lua [--single-lane|--three-lane]")
+assert(not three_lane or (tick_rate == 60 and not ability_smoke and not match_smoke and not shop_smoke
+  and not minimap_move_smoke and not recall_smoke and not upgrade_smoke and not reconnect_smoke and not scoreboard_smoke),
+  "three-lane currently supports 60Hz basic movement/map observation only")
+smoke_report.gameplay_mode = three_lane and "three_lane" or (single_lane and "single_lane" or "story")
 
 local observed_team_presentation = require("ue_two_team_observation").observe
 local observed_abilities = require("ue_two_team_observation").observe_abilities
@@ -132,9 +136,9 @@ assert(count >= 1, "expected STORY in game.toml")
 if single_lane then
   if replaced:find("MATCH_GAMEPLAY_MODE%s*=") then
     replaced = replaced:gsub('MATCH_GAMEPLAY_MODE%s*=%s*"[^"]+"',
-      'MATCH_GAMEPLAY_MODE = "single_lane"', 1)
+      'MATCH_GAMEPLAY_MODE = "' .. smoke_report.gameplay_mode .. '"', 1)
   else
-    replaced = replaced:gsub('%[server%]', '[server]\nMATCH_GAMEPLAY_MODE = "single_lane"', 1)
+    replaced = replaced:gsub('%[server%]', '[server]\nMATCH_GAMEPLAY_MODE = "' .. smoke_report.gameplay_mode .. '"', 1)
   end
 end
 replaced, count = replaced:gsub('STEP_FPS%s*=%s*%d+', 'STEP_FPS = ' .. tick_rate, 1)
@@ -503,7 +507,9 @@ local ok, result = xpcall(function()
             if not path.is_file(path.join(evidence, 'scoreboard-ui', 'team-' .. team .. '-dead.png')) then return false end
           end
         end
-        if minimap_smoke and not text:match("OM_MINIMAP player=" .. team .. " available=1 routes=1 markers=%d+ owned=[1-9]%d*") then return false end
+        if three_lane and not require('ue_two_team_observation').observe_three_lane_map(text).complete then return false end
+        if three_lane and not require('ue_two_team_observation').observe_collision_terrain(text).complete then return false end
+        if minimap_smoke and not text:match("OM_MINIMAP player=" .. team .. " available=1 routes=" .. (three_lane and "3" or "1") .. " markers=%d+ owned=[1-9]%d*") then return false end
         if minimap_move_smoke and not require('ue_two_team_observation').observe_minimap_move(text, team).complete then return false end
         if shop_smoke and not require('ue_two_team_observation').observe_shop(text, team).complete then return false end
         if recall_smoke then
@@ -626,7 +632,9 @@ local ok, result = xpcall(function()
         scoreboard_dead_ui = scoreboard_death_smoke and require('ue_two_team_observation').observe_scoreboard(text, team, team, true) or nil,
         owner_moba_hud_observed = single_lane and text:find("OM_MOBA_HUD player=" .. team .. " phase=1 alive=1", 1, true) ~= nil or false,
         owner_economy_observed = single_lane and text:find("OM_OWNER_ECONOMY player=" .. team .. " gold=", 1, true) ~= nil or false,
-        native_minimap_observed = minimap_smoke and text:match("OM_MINIMAP player=" .. team .. " available=1 routes=1 markers=%d+ owned=[1-9]%d*") ~= nil or false,
+        native_minimap_observed = minimap_smoke and text:match("OM_MINIMAP player=" .. team .. " available=1 routes=" .. (three_lane and "3" or "1") .. " markers=%d+ owned=[1-9]%d*") ~= nil or false,
+        three_lane_map = three_lane and require('ue_two_team_observation').observe_three_lane_map(text) or nil,
+        collision_terrain = three_lane and require('ue_two_team_observation').observe_collision_terrain(text) or nil,
         minimap_move = minimap_move_smoke and require('ue_two_team_observation').observe_minimap_move(text, team) or nil,
         recall = recall_smoke and require('ue_two_team_observation').observe_recall(text, team) or nil,
         upgrade = upgrade_smoke and require('ue_two_team_observation').observe_upgrade(text, team, first_learn_smoke, learn_slot) or nil,

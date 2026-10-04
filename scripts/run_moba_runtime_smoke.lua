@@ -10,6 +10,11 @@ local roster_smoke = os.getenv('OMOBA_ROSTER_SMOKE') == '1'
 local combat_smoke = os.getenv('OMOBA_COMBAT_SMOKE') == '1'
 local upgrade_smoke = os.getenv('OMOBA_UPGRADE_SMOKE') == '1'
 local first_learn_smoke = os.getenv('OMOBA_FIRST_LEARN_SMOKE') == '1'
+local gameplay_mode = os.getenv('OMOBA_MOBA_SMOKE_MODE') or 'single_lane'
+assert(gameplay_mode == 'single_lane' or gameplay_mode == 'three_lane', 'unsupported MOBA smoke mode')
+assert(gameplay_mode ~= 'three_lane' or not (shop_smoke or recall_smoke or roster_smoke or combat_smoke
+  or upgrade_smoke or first_learn_smoke or os.getenv('OMOBA_RUNTIME_RECONNECT_SMOKE') == '1'
+  or os.getenv('OMOBA_SHOP_QUERY_SMOKE') == '1'), 'three-lane smoke must run independently')
 assert(not first_learn_smoke or not (shop_smoke or recall_smoke or roster_smoke or combat_smoke or upgrade_smoke
   or os.getenv('OMOBA_RUNTIME_RECONNECT_SMOKE') == '1'), 'first learning smoke must run independently')
 assert(not upgrade_smoke or combat_smoke, 'upgrade smoke requires combat earned points')
@@ -21,6 +26,7 @@ local shop_fps = tonumber(os.getenv('OMOBA_MOBA_SMOKE_FPS') or os.getenv('OMOBA_
 assert(shop_fps == 60 or shop_fps == 90 or shop_fps == 120, 'unsupported network shop smoke profile')
 assert(not combat_smoke or shop_fps == 60, 'combat fixture is validated at 60Hz only')
 assert(not first_learn_smoke or shop_fps == 60, 'first learning fixture is validated at 60Hz only')
+assert(gameplay_mode ~= 'three_lane' or shop_fps == 60, 'three-lane fixture is validated at 60Hz only')
 local evidence = path.join(b.root, 'target', 'interactive-runs', run_id)
 assert(not path.exists(evidence), 'evidence directory already exists')
 path.mkdir_p(path.join(evidence, 'logs'))
@@ -32,9 +38,9 @@ config, fps_replacements = config:gsub('STEP_FPS%s*=%s*%d+', 'STEP_FPS = ' .. sh
 assert(fps_replacements == 1, 'server config must contain STEP_FPS')
 config = config:gsub('SERVER_PORT%s*=%s*"[^"]+"', 'SERVER_PORT = "' .. port .. '"', 1)
 if config:find('MATCH_GAMEPLAY_MODE%s*=') then
-  config = config:gsub('MATCH_GAMEPLAY_MODE%s*=%s*"[^"]+"', 'MATCH_GAMEPLAY_MODE = "single_lane"', 1)
+  config = config:gsub('MATCH_GAMEPLAY_MODE%s*=%s*"[^"]+"', 'MATCH_GAMEPLAY_MODE = "' .. gameplay_mode .. '"', 1)
 else
-  config = config:gsub('%[server%]', '[server]\nMATCH_GAMEPLAY_MODE = "single_lane"', 1)
+  config = config:gsub('%[server%]', '[server]\nMATCH_GAMEPLAY_MODE = "' .. gameplay_mode .. '"', 1)
 end
 local game_file = path.join(evidence, 'server-game.toml')
 if first_learn_smoke then
@@ -61,7 +67,9 @@ local env = {OMB_GAME_TOML = game_file, OMB_SCRIPTS_DIR = scripts_dir,
   OMOBA_UPGRADE_SMOKE = upgrade_smoke and '1' or '0',
   OMOBA_FIRST_LEARN_SMOKE = first_learn_smoke and '1' or '0'}
 local cleanup = process.cleanup_stack()
-local report = {kind = roster_smoke and 'single-lane-kcp-three-runtime' or 'single-lane-kcp-two-runtime', tick_rate_hz = shop_fps, success = false, evidence = evidence, teams = {}}
+local report = {kind = gameplay_mode == 'three_lane' and 'three-lane-kcp-two-runtime'
+  or roster_smoke and 'single-lane-kcp-three-runtime' or 'single-lane-kcp-two-runtime',
+  gameplay_mode = gameplay_mode, tick_rate_hz = shop_fps, success = false, evidence = evidence, teams = {}}
 local processes = {}
 local function spawn(role, executable, args, cwd, child_env)
   local pid = process.spawn(executable, args, {cwd = cwd, env = child_env or env,

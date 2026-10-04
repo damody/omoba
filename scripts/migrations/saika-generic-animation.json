@@ -1,0 +1,24 @@
+{
+  "blueprint_path": "/Game/RustBP/Heroes/BP_SaikaMagoichi",
+  "graph_name": "EventGraph",
+  "legacy_event": "HandleSaikaActionEvent",
+  "legacy_payload": "SaikaActionEvent",
+  "replacement_event": "OnAnimationState",
+  "replacement_payload": "OmAnimationStatePayload",
+  "sink_function": "ApplySaikaAnimSnapshot",
+  "required_fields": ["LocomotionState", "LocomotionVariant", "AnimationOverlay", "ActionState", "AttackPhase", "PhaseProgress", "IdleVariant", "ActionInstanceId", "PlayRate"],
+  "field_bindings": {
+    "LocomotionState": {"sink_pin": "InLocomotion"},
+    "LocomotionVariant": {"sink_pin": "InLocomotionVariant"},
+    "AnimationOverlay": {"sink_pin": "InAnimationOverlay"},
+    "ActionState": {"sink_pin": "InActionState"},
+    "AttackPhase": {"sink_pin": "InAttackPhase"},
+    "PhaseProgress": {"sink_pin": "InPhaseProgress"},
+    "IdleVariant": {"sink_pin": "InIdleVariant"},
+    "ActionInstanceId": {"sink_pin": "InActionInstanceId", "via": "Conv_Int64ToInt"},
+    "PlayRate": {"sink_pin": "InPlayRate"}
+  },
+  "allowed_calls": ["GetAnimInstance", "ApplySaikaAnimSnapshot"],
+  "allowed_ops": ["event", "break_struct", "prop_get", "call", "cast"],
+  "max_removed_nodes": 6
+}

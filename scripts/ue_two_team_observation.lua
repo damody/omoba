@@ -1,5 +1,17 @@
 -- Pure log observation: game startup and control-only frames are not movement.
 local M = {}
+function M.observe_three_lane_map(text)
+  local routes = {}
+  for line in text:gmatch('[^\r\n]+') do
+    local id, count = line:match('Synced map route ([%w_]+) with (%d+) point%(s%)')
+    if id then routes[id] = tonumber(count) end
+  end
+  local counts = {}
+  for _, count in pairs(routes) do counts[#counts + 1] = count end
+  table.sort(counts)
+  return {complete = #counts == 3 and counts[1] == 2 and counts[2] == 4 and counts[3] == 4,
+    routes = routes, route_count = #counts}
+end
 function M.observe_scoreboard(text, player, team, dead)
   for line in text:gmatch('[^\r\n]+') do
     local label = dead and 'OM_SCOREBOARD_DEAD_UI' or 'OM_SCOREBOARD_UI'
@@ -331,6 +343,20 @@ function M.observe_first_learn_cast(text, player)
       and a.slot==3 and z.slot==3 and a.hp>0 and a.hp<a.max_hp and z.hp>a.hp and z.hp<=z.max_hp
       and a.cooldown==0 and z.cooldown>0 and k.tick>=a.tick and z.tick>=k.tick and z.tick>a.tick
   end
+  return r
+end
+function M.observe_collision_terrain(text)
+  local r = {complete=false}
+  for line in text:gmatch('[^\r\n]+') do
+    local expected,instances,rebuild,collision,navigation = line:match('OM_TERRAIN expected=(%d+) instances=(%d+) rebuild=(%d+) collision=(%d+) navigation=(%d+)')
+    if expected then
+      r.expected,r.instances,r.rebuild=tonumber(expected),tonumber(instances),tonumber(rebuild)
+      r.complete=r.expected>0 and r.expected<=32 and r.instances==r.expected and r.rebuild>0
+        and tonumber(collision)==0 and tonumber(navigation)==0
+    end
+    if line:find('Invalid collision terrain presentation',1,true) then r.failed=true end
+  end
+  if r.failed then r.complete=false end
   return r
 end
 return M
