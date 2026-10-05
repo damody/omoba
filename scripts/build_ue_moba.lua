@@ -6,7 +6,7 @@ local bootstrap = require('_bootstrap')
 local path = bootstrap.lib('path')
 local process = bootstrap.lib('process')
 local platform = bootstrap.lib('platform')
-local hash = bootstrap.lib('hash')
+local stage_contract = require('moba_stage_contract')
 
 local root = bootstrap.root
 local omfue = path.join(root, 'omfue')
@@ -35,15 +35,14 @@ while i <= #arg do
   i = i + 1
 end
 
-local function verify_bridge_stage()
-  local built = path.join(omfue, 'bridge', 'target', 'debug', 'om_bridge.dll')
-  local staged = path.join(omfue, 'Plugins', 'OmRuntime', 'Binaries', 'Win64', 'om_bridge.dll')
-  local expected, actual = hash.sha256(built), hash.sha256(staged)
-  assert(expected == actual, 'staged bridge DLL differs from current build; rebuild/stage before Unreal acceptance: ' .. staged)
-  print('[moba-ue] bridge stage SHA-256 verified: ' .. actual)
+local function verify_stage_consistency()
+  local report=stage_contract.verify(stage_contract.bindings(root))
+  for _,artifact in ipairs(report.artifacts) do
+    print('[moba-ue] '..artifact.role..' stage SHA-256 verified: '..artifact.sha256)
+  end
 end
 
-if mode == 'verify' then verify_bridge_stage(); return end
+if mode == 'verify' then verify_stage_consistency(); return end
 
 local function run_stage(label, exe, args, cwd, env)
   print('[moba-ue] ' .. label)
@@ -101,7 +100,7 @@ end
 
 run_stage('build base_content.dll', 'cargo', {
   'build', '--manifest-path', path.join(root, 'scripts', 'Cargo.toml'),
-  '-p', 'base_content', '--features', 'runtime-lua-content',
+  '-p', 'base_content', '--features', 'compiled-content-only',
 }, root)
 
 run_stage('stage current base_content.dll', platform.lua_executable, {
@@ -109,7 +108,7 @@ run_stage('stage current base_content.dll', platform.lua_executable, {
 }, root)
 
 run_restart('generate bridge and compile OmGame', 'build')
-verify_bridge_stage()
+verify_stage_consistency()
 if mode == 'full' then
   start_editor()
   run_restart('verify BpGeneratorUltimate MCP readiness', 'wait-mcp')

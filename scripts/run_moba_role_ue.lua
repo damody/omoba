@@ -3,8 +3,11 @@ package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local b=require('_bootstrap')
 local path,process,time,platform=b.lib('path'),b.lib('process'),b.lib('time'),b.lib('platform')
 local launch=require('moba_role_launch')
+local workflow=require('moba_launch_workflow')
 if arg[1]=='--help' then
-  print('Usage: tools/lua/lua.exe scripts/run_moba_role_ue.lua [--prepare-only] [--recipe FILE.lua] [--config FILE.toml] [--output NEW_DIRECTORY] [--port 57061] [--profile release|debug] [--ue-root PATH] [--graphics d3d11|d3d12] [--story FOG_2TEAM_DEMO] [--no-build]')
+  print('Usage: tools/lua/lua.exe scripts/run_moba_role_ue.lua [--prepare-only | --interactive-selection] [--recipe FILE.lua|FILE.json] [--hero PLAYER_ID=HERO (repeatable)] [--config FILE.toml] [--output NEW_DIRECTORY] [--port 57061] [--profile release|debug] [--ue-root PATH] [--graphics d3d11|d3d12] [--story FOG_2TEAM_DEMO] [--no-build]')
+  print('Interactive selection: 1..10 human seats from the recipe; multiple humans share one local host and each receive an Unreal window. Any cancellation aborts before gameplay.')
+  print('LAN host: --server-bind UNICAST_IPV4 [--local-player ID (repeatable)]. Remote client: --connect HOST_IPV4 --recipe HOST_FINAL.json --local-player ID (repeatable). IPC stays loopback; no firewall changes.')
   return
 end
 local options=launch.options(arg)
@@ -21,29 +24,43 @@ end
 local output=path.absolute(options.output,b.root)
 local owns_output=not path.exists(output)
 local ok,err=xpcall(function()
-local plan=launch.prepare(options,process)
-print(('Prepared %d human(s), %d Bot(s), %d Hz: %s'):format(plan.human_count,plan.bot_count,plan.tick_rate_hz,plan.config))
-if options.prepare_only then return end
-assert(plan.human_count>0,'interactive launch requires a human; use run_moba_headless.lua for all-Bot matches')
-local editor,ue_root=launch.editor(options)
+assert(owns_output,'output must be a new directory: '..output)
+if options.interactive_selection then
+  assert(not path.exists(output..'-selection'),'selection output must be a new directory: '..output..'-selection')
+end
+local editor,ue_root
 local function stage(mode)
   local result=process.run(platform.lua_executable,{path.join(b.root,'scripts','build_ue_moba.lua'),mode,'--ue-root',ue_root},{cwd=b.root})
   print(result.stdout)
 end
-if not options.no_build then
-  stage('--build-only')
-  for _,build in ipairs({
-    {'--manifest-path',path.join(b.root,'omb','Cargo.toml'),'-p','omobab','--bin','omobab','--features','runtime-lua-content'},
-    {'--manifest-path',path.join(b.root,'omoba-client-runtime','Cargo.toml'),'--features','runtime-lua-content'},
-  }) do
+workflow.execute(options,{
+resolve_editor=function() editor,ue_root=launch.editor(options) end,
+build_frontend=function() stage('--build-only') end,
+build_runtime=function()
+  local builds={
+    {'--manifest-path',path.join(b.root,'omb','Cargo.toml'),'-p','omobab','--bin','moba-config','--features','compiled-content-only'},
+    {'--manifest-path',path.join(b.root,'omoba-client-runtime','Cargo.toml'),'--features','compiled-content-only'},
+  }
+  if not options.connect then
+    table.insert(builds,2,{'--manifest-path',path.join(b.root,'omb','Cargo.toml'),'-p','omobab','--bin','omobab','--features','compiled-content-only'})
+  end
+  for _,build in ipairs(builds) do
     table.insert(build,1,'build')
     if options.profile=='release' then build[#build+1]='--release' end
     local result=process.run('cargo',build,{cwd=b.root})
     print(result.stdout)
   end
-end
-stage('--verify-staged-only')
-launch.launch(plan,editor,process,time)
+end,
+verify_stage=function() stage('--verify-staged-only') end,
+select=function() launch.interactive_select(options,editor,process,time) end,
+prepare=function()
+  local plan=launch.prepare(options,process)
+  print(('Prepared %s: %d local / %d total human(s), %d Bot(s), %d Hz, server %s: %s'):format(
+    plan.mode,plan.local_human_count,plan.human_count,plan.bot_count,plan.tick_rate_hz,plan.server_address,plan.config))
+  return plan
+end,
+launch=function(plan) launch.launch(plan,editor,process,time) end,
+})
 end,debug.traceback)
 if not ok then
   -- Never write a failure record into a refused pre-existing output directory.
