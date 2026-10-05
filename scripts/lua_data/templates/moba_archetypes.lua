@@ -12,7 +12,7 @@ return function(ctx)
         {id='vanguard_strike',name='破岩擊',kind='damage',amounts={65,100,135,170},
           cooldowns={6,5.5,5,4.5},range=300,damage_kind='physical'},
         {id='vanguard_recover',name='整備',kind='heal_self',amounts={110,165,220,275},
-          cooldowns={14,13,12,11}},
+          cooldowns={14,13,12,11},mana_buff={stat='mana_bonus',values={60,90,120,150},durations={6,7,8,9}}},
         {id='vanguard_crush',name='磐岩重擊',kind='damage',amounts={155,240,325,410},
           cooldowns={65,60,55,50},range=330,damage_kind='physical',ultimate=true},
         {id='vanguard_resolve',name='磐岩突進',kind='dash_to_point',range=450,
@@ -30,7 +30,7 @@ return function(ctx)
           slows={0.25,0.30,0.35,0.40},slow_durations={2,2.25,2.5,2.75},
           cooldowns={5,4.5,4,3.5},range=750,damage_kind='physical'},
         {id='ranger_patch',name='野外包紮',kind='heal_self',amounts={55,85,115,145},
-          cooldowns={20,18,16,14}},
+          cooldowns={20,18,16,14},mana_buff={stat='mana_regen_constant',values={2,3,4,5},durations={6,7,8,9}}},
         {id='ranger_volley',name='箭雨',kind='area_damage',amounts={110,160,210,260},
           radii={220,240,260,280},cooldowns={11,10,9,8},range=700,damage_kind='physical'},
         {id='ranger_finisher',name='逐風終箭',kind='damage',amounts={210,310,410,510},
@@ -58,6 +58,14 @@ return function(ctx)
         cast_type='instant',max_level=4,levels={},extras={[amount_key]=skill.amounts},
         effects={{kind=skill.kind,amount_key=amount_key,damage_kind=skill.damage_kind}}}
       if dash_skill then ability.extras={};ability.effects={{kind='dash_to_point'}} end
+      if skill.mana_buff then
+        ability.extras.mana_buff_value=skill.mana_buff.values
+        ability.extras.mana_buff_duration=skill.mana_buff.durations
+        ability.effects[#ability.effects+1]={kind='mana_buff_self',stat=skill.mana_buff.stat,
+          value_key='mana_buff_value',duration_key='mana_buff_duration'}
+        ability.description=ability.description..(skill.mana_buff.stat=='mana_bonus'
+          and ' 暫時提高魔力容量，不會立即補魔。' or ' 短時間提高自然回魔速率。')
+      end
       if skill.slows then
         ability.extras.slow_reduction=skill.slows;ability.extras.slow_duration=skill.slow_durations
         ability.effects[#ability.effects+1]={kind='slow_enemy',reduction_key='slow_reduction',duration_key='slow_duration'}

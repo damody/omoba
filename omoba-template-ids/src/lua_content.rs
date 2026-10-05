@@ -61,6 +61,8 @@ pub(crate) struct MobaEconomyRules {
     pub(crate) base_recovery_radius: u32,
     #[serde(default)]
     pub(crate) mana_regen_per_second: u32,
+    #[serde(default)]
+    pub(crate) base_recovery_mana_per_second: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -196,7 +198,8 @@ impl Default for MobaEconomyRules {
         Self { passive_gold_per_second: 0, hero_kill_gold: 0, recall_channel_seconds: 8,
             hero_assist_gold: 0, assist_window_seconds: 10, hero_kill_xp: 0, hero_assist_xp: 0,
             lane_creep_xp: 0, lane_xp_radius: 1200,
-            base_recovery_hp_per_second: 0, base_recovery_radius: 0, mana_regen_per_second: 0 }
+            base_recovery_hp_per_second: 0, base_recovery_radius: 0, mana_regen_per_second: 0,
+            base_recovery_mana_per_second: 0 }
     }
 }
 
@@ -995,8 +998,10 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
         return Err("MOBA recall channel must be 1..60 seconds".into());
     }
     if manifest.moba_economy.base_recovery_hp_per_second>10_000
+        || manifest.moba_economy.base_recovery_mana_per_second>10_000
         || manifest.moba_economy.base_recovery_radius>10_000
-        || (manifest.moba_economy.base_recovery_hp_per_second>0 && manifest.moba_economy.base_recovery_radius==0) {
+        || ((manifest.moba_economy.base_recovery_hp_per_second>0
+            || manifest.moba_economy.base_recovery_mana_per_second>0) && manifest.moba_economy.base_recovery_radius==0) {
         return Err("MOBA base recovery rate/radius must be <=10000 with a positive enabled radius".into());
     }
     if manifest.moba_economy.hero_assist_gold > 1_000_000 || !(1..=60).contains(&manifest.moba_economy.assist_window_seconds) {

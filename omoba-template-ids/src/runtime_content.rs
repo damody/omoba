@@ -50,6 +50,7 @@ pub struct RuntimeContent {
     base_recovery_hp_per_second: u32,
     base_recovery_radius: u32,
     mana_regen_per_second: u32,
+    base_recovery_mana_per_second: u32,
     hero_kill_xp: u32,
     hero_assist_xp: u32,
     lane_creep_xp: u32,
@@ -342,6 +343,7 @@ impl RuntimeContent {
             return Err("MOBA assist rules differ from compiled content; rebuild all peers".into());
         }
         if self.base_recovery_hp_per_second != crate::MOBA_BASE_RECOVERY_HP_PER_SECOND
+            || self.base_recovery_mana_per_second != crate::MOBA_BASE_RECOVERY_MANA_PER_SECOND
             || self.base_recovery_radius != crate::MOBA_BASE_RECOVERY_RADIUS {
             return Err("MOBA base recovery rules differ from compiled content; rebuild all peers".into());
         }
@@ -534,6 +536,7 @@ impl RuntimeContent {
             base_recovery_hp_per_second: manifest.moba_economy.base_recovery_hp_per_second,
             base_recovery_radius: manifest.moba_economy.base_recovery_radius,
             mana_regen_per_second: manifest.moba_economy.mana_regen_per_second,
+            base_recovery_mana_per_second: manifest.moba_economy.base_recovery_mana_per_second,
             hero_kill_xp: manifest.moba_economy.hero_kill_xp,
             hero_assist_xp: manifest.moba_economy.hero_assist_xp,
             lane_creep_xp: manifest.moba_economy.lane_creep_xp,
@@ -577,6 +580,7 @@ struct ContentShape {
     base_recovery_hp_per_second: u32,
     base_recovery_radius: u32,
     mana_regen_per_second: u32,
+    base_recovery_mana_per_second: u32,
     moba_map_catalog_json: String,
     hero_moba_loadouts: Vec<(String, [u8; 4], u8)>,
     ability_rank_requirements: Vec<(String, Vec<u8>)>,
@@ -635,6 +639,7 @@ impl ContentShape {
             base_recovery_hp_per_second: manifest.moba_economy.base_recovery_hp_per_second,
             base_recovery_radius: manifest.moba_economy.base_recovery_radius,
             mana_regen_per_second: manifest.moba_economy.mana_regen_per_second,
+            base_recovery_mana_per_second: manifest.moba_economy.base_recovery_mana_per_second,
             hero_kill_xp: manifest.moba_economy.hero_kill_xp,
             hero_assist_xp: manifest.moba_economy.hero_assist_xp,
             lane_creep_xp: manifest.moba_economy.lane_creep_xp,
@@ -673,6 +678,7 @@ impl ContentShape {
             return Err("MOBA mana regeneration rules changed; rebuild all peers, not hot reload".into());
         }
         if self.base_recovery_hp_per_second != previous.base_recovery_hp_per_second
+            || self.base_recovery_mana_per_second != previous.base_recovery_mana_per_second
             || self.base_recovery_radius != previous.base_recovery_radius {
             return Err("MOBA base recovery rules changed; rebuild all peers, not hot reload".into());
         }
@@ -1727,6 +1733,28 @@ mod tests {
             assert!(after.ensure_compatible_with(&before).unwrap_err().contains("base recovery rules changed"));
             let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
             assert!(runtime.validate_moba_catalog().unwrap_err().contains("base recovery rules differ"));
+        }
+    }
+
+    #[test]
+    fn mana_sustain_base_rate_requires_rebuild_and_checked_legacy_type() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["base_recovery_mana_per_second"]=serde_json::json!(61);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.base_recovery_mana_per_second+=1;
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories)
+            .ensure_compatible_with(&before).unwrap_err().contains("base recovery rules changed"));
+        assert!(RuntimeContent::from_manifest(content.manifest,content.stories).unwrap()
+            .validate_moba_catalog().unwrap_err().contains("base recovery rules differ"));
+        let mut rules=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+        rules.as_object_mut().unwrap().remove("base_recovery_mana_per_second");
+        assert_eq!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules.clone()).unwrap().base_recovery_mana_per_second,0);
+        for invalid in [serde_json::json!(-1),serde_json::json!(0.5),serde_json::json!("60")] {
+            rules["base_recovery_mana_per_second"]=invalid;
+            assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules.clone()).is_err());
         }
     }
 

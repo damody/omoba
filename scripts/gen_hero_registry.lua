@@ -79,6 +79,24 @@ for _, ability in ipairs(abilities) do
 end
 
 local function effect_code(ability, effect)
+  if effect.kind=='mana_buff_self' then
+    local stats={base_mana_regen={'BaseManaRegen',0,1000000},mana_regen_constant={'ManaRegenConstant',-1000000,1000000},
+      mana_regen_constant_unique={'ManaRegenConstantUnique',-1000000,1000000},mana_regen_percentage={'ManaRegenPercentage',-1,16},
+      mana_regen_total_percentage={'ManaRegenTotalPercentage',-1,16},mana_bonus={'ManaBonus',-1000000,1000000},extra_mana_bonus={'ExtraManaBonus',-1000000,1000000}}
+    local stat=assert(stats[effect.stat],ability.id..' invalid mana buff stat')
+    local value=identifier(effect.value_key,ability.id..' mana buff value_key')
+    local duration=identifier(effect.duration_key,ability.id..' mana buff duration_key')
+    for _,spec in ipairs({{value,stat[2],stat[3],false},{duration,1/1024,60,true}}) do
+      local entries=ability.extras and ability.extras[spec[1]]
+      assert(type(entries)=='table' and #entries==ability.max_level,ability.id..' mana buff requires per-rank '..spec[1])
+      for _,number in ipairs(entries) do
+        number=authored_number(number)
+        assert(number and number>=spec[2] and number<=spec[3] and (number==0 or math.abs(number)>=1/1024),
+          ability.id..' invalid mana buff '..spec[1])
+      end
+    end
+    return string.format('crate::generic_effects::EffectOp::ManaBuffSelf { stat: omoba_content_model::ManaBuffStat::%s, value_key: "%s", duration_key: "%s" }',stat[1],value,duration)
+  end
   if effect.kind=='slow_enemy' then
     local reduction=identifier(effect.reduction_key,ability.id..' reduction_key')
     local duration=identifier(effect.duration_key,ability.id..' duration_key')
@@ -138,8 +156,10 @@ local function effect_code(ability, effect)
     end
     return string.format('crate::generic_effects::EffectOp::Damage { amount_key: "%s", kind: omb_script_abi::types::DamageKind::%s }', key, kind)
   end
-  assert(effect.kind == 'heal_self', ability.id .. ' effect has unknown kind: ' .. tostring(effect.kind))
-  return string.format('crate::generic_effects::EffectOp::HealSelf { amount_key: "%s" }', key)
+  local self_ops={heal_self='HealSelf',restore_mana_self='RestoreManaSelf',spend_mana_self='SpendManaSelf'}
+  local op=self_ops[effect.kind]
+  assert(op, ability.id .. ' effect has unknown kind: ' .. tostring(effect.kind))
+  return string.format('crate::generic_effects::EffectOp::%s { amount_key: "%s" }', op, key)
 end
 
 local entries = {}
@@ -165,12 +185,18 @@ for _, hero in ipairs(heroes) do
           ability_id .. ' declarative effects require instant cast_type')
         assert(#ability.effects<=32,ability_id..' exceeds 32 effects')
         local effects = {}
+        local mana_stats={}
         for _, effect in ipairs(ability.effects) do
+          if effect.kind=='mana_buff_self' then
+            assert(type(effect.stat)=='string' and not mana_stats[effect.stat],ability_id..' duplicate/invalid mana buff stat')
+            mana_stats[effect.stat]=true
+          end
           assert((effect.kind == 'damage' and ability.target_type == 'unit') or
             (effect.kind == 'slow_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'area_damage' and ability.target_type == 'point') or
             (effect.kind == 'dash_to_point' and ability.target_type == 'point') or
-            (effect.kind == 'heal_self' and ability.target_type == 'none'),
+            ((effect.kind == 'heal_self' or effect.kind == 'restore_mana_self' or effect.kind == 'spend_mana_self' or effect.kind=='mana_buff_self')
+              and ability.target_type == 'none'),
             ability_id .. ' effect kind does not match target_type')
           effects[#effects + 1] = effect_code(ability, effect)
         end

@@ -35,6 +35,7 @@ pub struct AbilityDefinition {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AbilityEffect {
+    ManaBuffSelf { stat: ManaBuffStat, value_key:String, duration_key:String },
     SlowEnemy { reduction_key:String, duration_key:String },
     /// Instant relocation with the normal swept-terrain collision contract.
     /// Deliberately exclusive until ordered movement/effect semantics exist.
@@ -46,6 +47,9 @@ pub enum AbilityEffect {
     HealSelf {
         amount_key: String,
     },
+    RestoreManaSelf { amount_key: String },
+    /// Additional script cost, not the host's metadata mana_cost reservation.
+    SpendManaSelf { amount_key: String },
     AreaDamage {
         amount_key: String,
         radius_key: String,
@@ -59,6 +63,29 @@ pub enum EffectDamageKind {
     Physical,
     Magical,
     Pure,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all="snake_case")]
+pub enum ManaBuffStat {
+    BaseManaRegen, ManaRegenConstant, ManaRegenConstantUnique,
+    ManaRegenPercentage, ManaRegenTotalPercentage, ManaBonus, ExtraManaBonus,
+}
+impl ManaBuffStat {
+    pub fn as_str(self)->&'static str {
+        match self {
+            Self::BaseManaRegen=>"base_mana_regen",Self::ManaRegenConstant=>"mana_regen_constant",
+            Self::ManaRegenConstantUnique=>"mana_regen_constant_unique",Self::ManaRegenPercentage=>"mana_regen_percentage",
+            Self::ManaRegenTotalPercentage=>"mana_regen_total_percentage",Self::ManaBonus=>"mana_bonus",Self::ExtraManaBonus=>"extra_mana_bonus",
+        }
+    }
+    pub fn bounds(self)->(i32,i32) {
+        match self {
+            Self::BaseManaRegen=>(0,1_000_000),
+            Self::ManaRegenPercentage|Self::ManaRegenTotalPercentage=>(-1,16),
+            _=>(-1_000_000,1_000_000),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -137,8 +164,26 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
         }
         Ok(())
     };
+    let mut mana_stats=BTreeSet::new();
     for effect in &ability.effects {
         let (amount,target)=match effect {
+            AbilityEffect::ManaBuffSelf {stat,value_key,duration_key}=>{
+                if ability.target_type!="none" || !mana_stats.insert(*stat) {
+                    return Err(format!("ability '{}': mana_buff_self requires none target and unique stat",ability.id));
+                }
+                values(duration_key,false)?;
+                if ability.extras[duration_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>60.0) {
+                    return Err(format!("ability '{}': mana buff duration must be in [1/1024,60]",ability.id));
+                }
+                let entries=ability.extras.get(value_key).ok_or_else(||format!("ability '{}': missing mana buff value '{value_key}'",ability.id))?;
+                let (minimum,maximum)=stat.bounds();
+                if value_key.is_empty() || entries.len()!=usize::from(ability.max_level)
+                    || entries.iter().any(|v|!v.is_finite() || *v<minimum as f32 || *v>maximum as f32
+                        || (*v!=0.0 && v.abs()<MIN_ABILITY_SCALAR)) {
+                    return Err(format!("ability '{}': invalid mana buff value '{value_key}'",ability.id));
+                }
+                continue;
+            },
             AbilityEffect::DashToPoint=>unreachable!("exclusive movement checked above"),
             AbilityEffect::Damage {amount_key,..}=>(amount_key,"unit"),
             AbilityEffect::SlowEnemy {reduction_key,duration_key}=>{
@@ -149,7 +194,9 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
                 }
                 (reduction_key,"unit")
             },
-            AbilityEffect::HealSelf {amount_key}=>(amount_key,"none"),
+            AbilityEffect::HealSelf {amount_key}
+            | AbilityEffect::RestoreManaSelf {amount_key}
+            | AbilityEffect::SpendManaSelf {amount_key}=>(amount_key,"none"),
             AbilityEffect::AreaDamage {amount_key,radius_key,..}=>{
                 values(radius_key,true)?;
                 (amount_key,"point")
@@ -686,6 +733,55 @@ mod tests {
         heal.effects=vec![AbilityEffect::HealSelf {amount_key:"damage".into()}];
         for rank in &mut heal.levels {rank.range=0.0;}
         assert!(validate_ability_progression(&heal).is_ok());
+    }
+
+    #[test]
+    fn mana_buff_declaration_validates_whitelist_signed_values_duration_and_duplicate_stats() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"buff_fixture","ability_type":"active","cast_type":"instant","target_type":"none","max_level":2,
+            "levels":[{},{}],"extras":{"value":[-1,16],"duration":[1.0/1024.0,60]},
+            "effects":[{"kind":"mana_buff_self","stat":"mana_regen_percentage","value_key":"value","duration_key":"duration"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for value in [-1.1,16.1,0.0001,f32::INFINITY,f32::NAN] {
+            let mut bad=valid.clone();bad.extras.insert("value".into(),vec![value;2]);
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        for duration in [0.0,-1.0,60.1,0.0001] {
+            let mut bad=valid.clone();bad.extras.insert("duration".into(),vec![duration;2]);
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut bad=valid.clone();bad.effects.push(bad.effects[0].clone());assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.extras.remove("duration");assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.target_type="unit".into();assert!(validate_ability_progression(&bad).is_err());
+        assert!(serde_json::from_value::<AbilityEffect>(serde_json::json!({"kind":"mana_buff_self","stat":"damage",
+            "value_key":"value","duration_key":"duration"})).is_err());
+    }
+
+    #[test]
+    fn mana_effect_schema_validates_both_resource_ops_and_rank_envelope() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"mana_fixture","ability_type":"active","cast_type":"instant","target_type":"none","max_level":2,
+            "levels":[{},{}],"extras":{"resource":[0,1000000]},
+            "effects":[{"kind":"restore_mana_self","amount_key":"resource"},
+                {"kind":"spend_mana_self","amount_key":"resource"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        assert!(matches!(valid.effects[0],AbilityEffect::RestoreManaSelf {..}));
+        assert!(matches!(valid.effects[1],AbilityEffect::SpendManaSelf {..}));
+        let mut minimum=valid.clone();minimum.extras.insert("resource".into(),vec![1.0/1024.0;2]);
+        assert!(validate_ability_progression(&minimum).is_ok());
+        for value in [-1.0,0.0001,1000001.0,f32::INFINITY,f32::NAN] {
+            let mut bad=valid.clone();bad.extras.insert("resource".into(),vec![0.0,value]);
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut bad=valid.clone();bad.extras.remove("resource");assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.extras.insert("resource".into(),vec![1.0]);assert!(validate_ability_progression(&bad).is_err());
+        for target in ["unit","point"] {
+            let mut bad=valid.clone();bad.target_type=target.into();assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut bad=valid.clone();bad.cast_type="channel".into();assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.effects.push(AbilityEffect::DashToPoint);assert!(validate_ability_progression(&bad).is_err());
     }
 
     #[test]
