@@ -79,6 +79,146 @@ fn mana_cast_formal_60hz_success_debits_and_rejection_preserves_balance_and_cool
 }
 
 #[test]
+fn mana_archetype_content_60hz_uses_generated_handlers_for_three_resource_identities() {
+    for (hero_id,skill,heal,cost,restore,bonus,rate) in [
+        ("training_vanguard","vanguard_recover",110,45,0,60,5),
+        ("training_ranger","ranger_patch",55,45,0,0,7),
+        ("training_luminary","lumen_touch",70,55,20,0,5),
+    ] {
+        let (mut w,mut driver)=world(SingleLaneConfig {
+            mana_enabled:true,base_recovery_enabled:false,
+            heroes:[hero_id.into(),"training_luminary".into()],
+            wave_interval:Fixed64::from_i32(10_000),..fast_config()
+        },SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let caster=hero_pair(&w)[0];
+        let base=w.read_storage::<Hero>().get(caster).unwrap().moba_mana_capacity().unwrap();
+        w.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool=Some(
+            ability_runtime::ManaPool::new(Fixed64::from_i32(90),base).unwrap());
+        {let mut props=w.write_storage::<CProperty>();let health=props.get_mut(caster).unwrap();
+            health.hp=Fixed64::from_i32(100);health.mhp=Fixed64::from_i32(10_000);}
+        let before=w.read_resource::<MobaMatch>().elapsed;
+        driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {
+            ability_index:1,target_entity:None,target_pos:None}))})]).unwrap();
+        let delta=w.read_resource::<MobaMatch>().elapsed-before;
+        let mut expected=ability_runtime::ManaPool::new(Fixed64::from_i32(90-cost+restore),base+Fixed64::from_i32(bonus)).unwrap();
+        expected.regenerate(Fixed64::from_i32(rate),delta).unwrap();
+        assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected,"{hero_id}");
+        assert!(w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown(skill));
+        assert_eq!(w.read_storage::<CProperty>().get(caster).unwrap().hp,Fixed64::from_i32(100+heal));
+        if bonus>0 || rate>5 {
+            let stat=if bonus>0 {"mana_bonus"} else {"mana_regen_constant"};
+            let key=format!("generic_mana:{skill}:{stat}:{}:{}",caster.id(),caster.gen().id());
+            let buffs=w.read_resource::<BuffStore>();let buff=buffs.get(caster,&key).unwrap();
+            assert_eq!(buff.payload[stat],if bonus>0 {60*1024} else {2*1024});
+            assert_eq!(buff.remaining,Fixed64::from_i32(6));
+        }
+        let events=w.write_resource::<ScriptEventQueue>().drain();
+        let costs:Vec<_>=events.iter().filter_map(|event|match event {
+            ScriptEvent::SpentMana {caster:e,cost,..} if *e==caster=>Some(cost.raw()),_=>None}).collect();
+        assert_eq!(costs,vec![i64::from(cost)*1024]);
+        if restore>0 {assert!(events.iter().any(|event|matches!(event,
+            ScriptEvent::ManaGained {e,amount} if *e==caster && *amount==Fixed64::from_i32(restore))));}
+    }
+}
+
+#[test]
+fn mana_capacity_60hz_growth_expiry_precedes_cast_and_invalid_bonus_fails_closed() {
+    let (mut w,mut driver)=world(SingleLaneConfig {
+        mana_enabled:true,base_recovery_enabled:false,
+        heroes:["training_ranger".into(),"training_luminary".into()],
+        wave_interval:Fixed64::from_i32(10_000),..fast_config()
+    },SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let caster=hero_pair(&w)[0];
+    w.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool.as_mut().unwrap().spend(Fixed64::from_i32(80)).unwrap();
+    {
+        let mut buffs=w.write_resource::<BuffStore>();
+        buffs.add(caster,"no_regen",Fixed64::from_i32(100),serde_json::json!({"mana_regen_percentage":-1024}));
+        buffs.add(caster,"capacity",Fixed64::from_i32(10),serde_json::json!({"mana_bonus":100*1024,"extra_mana_bonus":20*1024}));
+    }
+    driver.step(&mut w,[]).unwrap();
+    let pool=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone().unwrap();
+    assert_eq!(pool.raw_state(),(200*1024,400*1024,0),"capacity growth must not refill");
+    w.write_resource::<GamePause>().is_paused=true;
+    driver.step(&mut w,[]).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&pool);
+    w.write_resource::<GamePause>().is_paused=false;
+    w.write_storage::<Hero>().get_mut(caster).unwrap().level=2;
+    let base=w.read_storage::<Hero>().get(caster).unwrap().moba_mana_capacity().unwrap();
+    driver.step(&mut w,[]).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().raw_state(),(200*1024,base.raw()+120*1024,0));
+    w.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool=Some(
+        ability_runtime::ManaPool::new(base+Fixed64::from_i32(100),base+Fixed64::from_i32(120)).unwrap());
+    {
+        let mut buffs=w.write_resource::<BuffStore>();
+        buffs.remove(caster,"capacity");
+        buffs.add(caster,"expiring_capacity",Fixed64::from_raw(1),serde_json::json!({"mana_bonus":120*1024}));
+    }
+    driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::CastAbility(CastAbility {
+        ability_index:1,target_entity:None,target_pos:None}))})]).unwrap();
+    assert!(!w.read_resource::<BuffStore>().has(caster,"expiring_capacity"));
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().raw_state(),
+        (base.raw()-45*1024,base.raw(),0),"expiry clamps before admission, not after spending old excess");
+    w.write_resource::<BuffStore>().add(caster,"negative_capacity",Fixed64::from_i32(10),serde_json::json!({"mana_bonus":-1_000_000*1024i64}));
+    driver.step(&mut w,[]).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().raw_state(),(0,0,0));
+    {
+        let mut buffs=w.write_resource::<BuffStore>();
+        buffs.remove(caster,"negative_capacity");
+        buffs.add(caster,"invalid_capacity",Fixed64::from_i32(10),serde_json::json!({"mana_bonus":i64::MAX}));
+    }
+    driver.step(&mut w,[]).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().raw_state(),(0,base.raw(),0));
+}
+
+#[test]
+fn mana_buff_formal_60hz_recovery_expiration_pause_and_home_bonus_share_one_pool() {
+    let (mut w,mut driver)=world(SingleLaneConfig {
+        mana_enabled:true,base_recovery_enabled:true,
+        heroes:["training_ranger".into(),"training_luminary".into()],
+        wave_interval:Fixed64::from_i32(10_000),..fast_config()
+    },SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let caster=hero_pair(&w)[0];
+    let home=w.read_resource::<MobaMatch>().bases[0].unwrap();
+    let position=w.read_storage::<Pos>().get(home).unwrap().0;
+    w.write_storage::<Pos>().get_mut(caster).unwrap().0=position;
+    w.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool.as_mut().unwrap()
+        .spend(Fixed64::from_i32(100)).unwrap();
+    w.write_resource::<BuffStore>().add(caster,"mana_recovery",Fixed64::from_i32(10),serde_json::json!({
+        "mana_regen_constant":3*1024,"mana_regen_percentage":512,"mana_regen_total_percentage":1024,
+    }));
+    let mut expected=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone().unwrap();
+    let before=w.read_resource::<MobaMatch>().elapsed;
+    driver.step(&mut w,[]).unwrap();
+    let delta=w.read_resource::<MobaMatch>().elapsed-before;
+    let home_rate=Fixed64::from_i32(omoba_template_ids::MOBA_BASE_RECOVERY_MANA_PER_SECOND as i32);
+    expected.regenerate(Fixed64::from_i32(24)+home_rate,delta).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
+    w.write_resource::<GamePause>().is_paused=true;
+    driver.step(&mut w,[]).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
+    w.write_resource::<GamePause>().is_paused=false;
+    // A duration shorter than the next tick expires in the normal buff system.
+    w.write_resource::<BuffStore>().remove(caster,"mana_recovery");
+    w.write_resource::<BuffStore>().add(caster,"expiring",Fixed64::from_raw(1),serde_json::json!({"mana_regen_constant":100*1024}));
+    let before=w.read_resource::<MobaMatch>().elapsed;
+    driver.step(&mut w,[]).unwrap();
+    let delta=w.read_resource::<MobaMatch>().elapsed-before;
+    assert!(!w.read_resource::<BuffStore>().has(caster,"expiring"));
+    expected.regenerate(Fixed64::from_i32(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND as i32)+home_rate,delta).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
+    w.write_resource::<BuffStore>().add(caster,"invalid",Fixed64::from_i32(10),serde_json::json!({
+        "mana_regen_constant":i64::MAX,"mana_regen_percentage":i64::MAX,"mana_regen_total_percentage":i64::MAX,
+    }));
+    let before=w.read_resource::<MobaMatch>().elapsed;
+    driver.step(&mut w,[]).unwrap();
+    expected.regenerate(home_rate,w.read_resource::<MobaMatch>().elapsed-before).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
+}
+
+#[test]
 fn mana_lifecycle_60hz_birth_active_regeneration_pause_growth_and_finished_freeze() {
     let (mut w, mut driver) = world(SingleLaneConfig {
         mana_enabled: true, heroes: ["training_ranger".into(), "training_luminary".into()],
@@ -520,7 +660,7 @@ fn role_bot_sustain_recall_and_authoritative_base_recovery_at_60hz() {
     w.write_storage::<CProperty>().get_mut(caster).unwrap().hp=Fixed64::from_i32(100);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Mid,lane:1,escort_player_id:None}],
         think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),item_builds:Vec::new(),
-        sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000})};
+        sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None})};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::Recall(_))));
@@ -564,6 +704,89 @@ fn role_bot_sustain_recall_and_authoritative_base_recovery_at_60hz() {
 }
 
 #[test]
+fn mana_sustain_bot_formal_recall_recovery_hold_and_leave_at_60hz() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::ability_runtime::ManaPool;
+    let (mut w,mut driver)=world(SingleLaneConfig {mana_enabled:true,base_recovery_enabled:true,
+        wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
+    let mut result=driver.step(&mut w,[]).unwrap();
+    let [caster,_]=hero_pair(&w);
+    let source=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
+    w.write_storage::<Pos>().get_mut(caster).unwrap().0=source;
+    {let mut heroes=w.write_storage::<Hero>();let own=heroes.get_mut(caster).unwrap();
+        own.mana_pool=Some(ManaPool::new(Fixed64::ZERO,own.moba_mana_capacity().unwrap()).unwrap());}
+    let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Mid,lane:1,escort_player_id:None}],
+        think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),item_builds:Vec::new(),
+        sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,
+            mana:Some(BotManaSustainPolicy {recall_below_per_mille:200,leave_base_at_per_mille:850})})};
+    run_committed_visibility_wave_b(&mut w,result.tick,0);
+    let inputs=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::Recall(_))));
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().current(),Fixed64::ZERO);
+    result=driver.step(&mut w,inputs).unwrap();
+    assert!(w.read_resource::<MobaMatch>().is_recalling(caster));
+    for _ in 0..600 {
+        run_committed_visibility_wave_b(&mut w,result.tick,0);
+        assert!(role_bot_inputs(&w,&bots).unwrap().is_empty());
+        result=driver.step(&mut w,[]).unwrap();
+        if !w.read_resource::<MobaMatch>().is_recalling(caster) {break;}
+    }
+    assert!(!w.read_resource::<MobaMatch>().is_recalling(caster));
+    let base=w.read_resource::<MobaMatch>().bases[0].unwrap();
+    let home=w.read_storage::<Pos>().get(base).unwrap().0;
+    assert_eq!(w.read_storage::<Pos>().get(caster).unwrap().0,home);
+    run_committed_visibility_wave_b(&mut w,result.tick,0);
+    assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"low mana holds even with full HP");
+    let mut expected=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone().unwrap();
+    w.write_resource::<GamePause>().is_paused=true;
+    driver.step(&mut w,[]).unwrap();
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
+    w.write_resource::<GamePause>().is_paused=false;
+    let rate=Fixed64::from_i32((omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND
+        +omoba_template_ids::MOBA_BASE_RECOVERY_MANA_PER_SECOND) as i32);
+    for _ in 0..1000 {
+        let before=w.read_resource::<MobaMatch>().elapsed;
+        result=driver.step(&mut w,[]).unwrap();
+        expected.regenerate(rate,w.read_resource::<MobaMatch>().elapsed-before).unwrap();
+        assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
+        if i128::from(expected.current().raw())*1000>=i128::from(expected.maximum().raw())*850 {break;}
+    }
+    assert!(i128::from(expected.current().raw())*1000>=i128::from(expected.maximum().raw())*850);
+    run_committed_visibility_wave_b(&mut w,result.tick,0);
+    assert!(role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(input.action,Some(PlayerInputEnum::AttackMove(_)))));
+}
+
+#[test]
+fn mana_sustain_base_bonus_is_opt_in_own_home_only_and_caps_at_maximum() {
+    use omoba_core::runtime::ability_runtime::ManaPool;
+    for (enabled,location) in [(false,0),(true,0),(true,1),(true,2)] {
+        let (mut w,mut driver)=world(SingleLaneConfig {mana_enabled:true,base_recovery_enabled:enabled,
+            wave_interval:Fixed64::from_i32(10_000),..fast_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let [caster,_]=hero_pair(&w);
+        let bases=w.read_resource::<MobaMatch>().bases;
+        if location!=0 {w.write_storage::<Pos>().get_mut(caster).unwrap().0=if location==1 {
+            w.read_storage::<Pos>().get(bases[1].unwrap()).unwrap().0
+        } else {omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500))};}
+        let maximum=w.read_storage::<Hero>().get(caster).unwrap().moba_mana_capacity().unwrap();
+        let mut expected=ManaPool::new(Fixed64::ZERO,maximum).unwrap();
+        w.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool=Some(expected.clone());
+        let before=w.read_resource::<MobaMatch>().elapsed;
+        driver.step(&mut w,[]).unwrap();
+        let rate=omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND
+            +if enabled && location==0 {omoba_template_ids::MOBA_BASE_RECOVERY_MANA_PER_SECOND} else {0};
+        expected.regenerate(Fixed64::from_i32(rate as i32),w.read_resource::<MobaMatch>().elapsed-before).unwrap();
+        assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
+        if enabled && location==0 {
+            w.write_storage::<Hero>().get_mut(caster).unwrap().mana_pool=
+                Some(ManaPool::new(maximum-Fixed64::from_raw(1),maximum).unwrap());
+            driver.step(&mut w,[]).unwrap();
+            assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().raw_state(),(maximum.raw(),maximum.raw(),0));
+        }
+    }
+}
+
+#[test]
 fn role_bot_items_formal_shop_at_60hz_is_owner_only_and_non_mutating() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let (mut w,mut driver)=world(SingleLaneConfig {base_recovery_enabled:true,
@@ -578,7 +801,7 @@ fn role_bot_items_formal_shop_at_60hz_is_owner_only_and_non_mutating() {
     w.write_storage::<CProperty>().get_mut(buyer).unwrap().hp=Fixed64::from_i32(100);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:2,escort_player_id:None}],
         think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),
-        sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000}),
+        sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None}),
         item_builds:vec![BotItemBuild {role:BotRole::Carry,items:vec!["moba_greatsword".into(),"moba_boots".into()],return_to_shop:None}]};
     let enemy_gold=w.read_storage::<Gold>().get(enemy).unwrap().0;
     let enemy_items=serde_json::to_value(w.read_storage::<Inventory>().get(enemy).unwrap()).unwrap();
@@ -831,12 +1054,16 @@ fn mana_budget_bot_uses_script_cost_and_formal_60hz_debit_without_reservation() 
     let mut expected=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone().unwrap();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
-    assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==1 && cast.target_entity.is_none()),"budget decision: {:?}; hero {:?}",inputs,w.read_storage::<Hero>().get(caster));
+    assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==1 && cast.target_entity.is_none()),"budget decision: {:?}",inputs);
     assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
     expected.spend(Fixed64::from_i32(45)).unwrap();
     let before=w.read_resource::<MobaMatch>().elapsed;
     let result=driver.step(&mut w,inputs).unwrap();
-    expected.regenerate(Fixed64::from_i32(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND as i32),
+    // Patch now installs its authored regen buff through the generated handler.
+    let rate=UnitStats::from_refs(&w.read_resource::<BuffStore>(),false).mana_regen(
+        Fixed64::from_i32(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND as i32),caster);
+    assert_eq!(rate,Fixed64::from_i32(7));
+    expected.regenerate(rate,
         w.read_resource::<MobaMatch>().elapsed-before).unwrap();
     assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
     assert!(w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("ranger_patch"));
@@ -850,7 +1077,7 @@ fn mana_budget_bot_uses_script_cost_and_formal_60hz_debit_without_reservation() 
     assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==2 && cast.target_pos.is_some()));
     let before=w.read_resource::<MobaMatch>().elapsed;
     driver.step(&mut w,inputs).unwrap();
-    expected.regenerate(Fixed64::from_i32(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND as i32),
+    expected.regenerate(rate,
         w.read_resource::<MobaMatch>().elapsed-before).unwrap();
     assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
     assert!(w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("ranger_volley"));
@@ -861,7 +1088,7 @@ fn role_bots_support_escorts_human_using_committed_position_at_60hz() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let player=|player_id,team_id,role,bot| RoleBotPlayerPlan {player_id,team_id,role,bot,
         hero:"training_luminary".into(),lane:"bottom".into()};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
         players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)]};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
@@ -927,7 +1154,7 @@ fn role_bot_plan_nine_bots_leave_human_control_untouched_at_60hz() {
                 role,lane:lane.into(),bot:player_id != 1});
         }
     }
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);

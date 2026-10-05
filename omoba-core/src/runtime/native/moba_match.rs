@@ -1,7 +1,7 @@
 //! Opt-in single-lane MOBA rules over the production ECS and outcome pipeline.
 //! No renderer, wall clock, network, or script-DLL dependency is needed here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap,HashSet};
 
 use failure::{err_msg, Error};
 use omoba_sim::{Fixed64, Vec2};
@@ -1294,6 +1294,32 @@ pub fn moba_damage_allowed(world: &World, target: Entity) -> bool {
     })
 }
 
+/// Synchronize settled buffs before script admission, including their expiry.
+/// Both server and headless drivers use the shared script dispatcher. Never
+/// invent a managed pool, apply to unrelated heroes, or mutate inactive matches.
+pub fn refresh_moba_mana_capacities(world:&mut World) {
+    let Some(state)=world.try_fetch::<MobaMatch>() else {return;};
+    if !state.config.mana_enabled || state.phase!=MobaMatchPhase::Playing
+        || state.pending_income_delta_raw<=0 || world.read_resource::<GamePause>().is_paused {return;}
+    let properties=world.read_storage::<CProperty>();
+    let buffs=world.read_resource::<crate::runtime::BuffStore>();
+    let mut heroes=world.write_storage::<Hero>();
+    for slot in &state.heroes {
+        let Some(entity)=slot.entity.filter(|_|!slot.lethal_pending) else {continue;};
+        if !properties.get(entity).is_some_and(|p|p.hp>Fixed64::ZERO) {continue;}
+        if let Some(hero)=heroes.get_mut(entity) {refresh_managed_moba_capacity(hero,&buffs,entity);}
+    }
+}
+
+fn refresh_managed_moba_capacity(hero:&mut Hero,buffs:&crate::runtime::BuffStore,entity:Entity) {
+    let base=hero.moba_mana_capacity().expect("validated MOBA mana capacity");
+    let maximum=crate::runtime::UnitStats::from_refs(buffs,false)
+        .checked_mana_capacity(base,entity).unwrap_or(base);
+    if let Some(pool)=&mut hero.mana_pool {
+        pool.set_maximum(maximum).expect("checked MOBA mana capacity");
+    }
+}
+
 /// Commit hook. Both destroyed bases in the same tick produce a draw.
 pub fn finish_moba_match_tick(world: &mut World) {
     let tick = world.read_resource::<Tick>().0;
@@ -1324,34 +1350,53 @@ pub fn finish_moba_match_tick(world: &mut World) {
     // Commit once, after gameplay; replicas receive the settled owner economy
     // rather than independently predicting income or mutating private timers.
     let delta = std::mem::take(&mut state.pending_income_delta_raw);
+    // Public home geometry and living authority state; shared by HP and mana.
+    // Compute once after combat/recall, never inside the owner-side planner.
+    let mut home_recovery = HashSet::new();
+    if state.config.base_recovery_enabled && delta > 0 {
+        let positions=world.read_storage::<Pos>();
+        let properties=world.read_storage::<CProperty>();
+        let radius=Fixed64::from_i32(omoba_template_ids::MOBA_BASE_RECOVERY_RADIUS as i32);
+        for slot in &state.heroes {
+            let Some(entity)=slot.entity.filter(|_|!slot.lethal_pending) else {continue;};
+            let Some(base)=state.bases[slot.side] else {continue;};
+            if !properties.get(base).is_some_and(|p|p.hp>Fixed64::ZERO)
+                || !properties.get(entity).is_some_and(|p|p.hp>Fixed64::ZERO) {continue;}
+            let (Some(own),Some(home))=(positions.get(entity),positions.get(base)) else {continue;};
+            if (own.0-home.0).length_squared()<=radius*radius {home_recovery.insert(entity);}
+        }
+    }
     if state.config.mana_enabled && delta > 0 {
         let properties = world.read_storage::<CProperty>();
+        let buffs = world.read_resource::<crate::runtime::BuffStore>();
         let mut heroes = world.write_storage::<Hero>();
         let rate = Fixed64::from_i32(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND as i32);
         for slot in &state.heroes {
             let Some(entity) = slot.entity.filter(|_| !slot.lethal_pending) else { continue; };
             if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO) { continue; }
             let Some(hero) = heroes.get_mut(entity) else { continue; };
-            let maximum = hero.moba_mana_capacity().expect("validated MOBA mana capacity");
+            refresh_managed_moba_capacity(hero,&buffs,entity);
             if let Some(pool) = &mut hero.mana_pool {
-                pool.set_maximum(maximum).expect("validated MOBA mana capacity");
-                pool.regenerate(rate, Fixed64::from_raw(delta)).expect("nonnegative active time and rate");
+                let base_rate=if home_recovery.contains(&entity) {
+                    Fixed64::from_i32(omoba_template_ids::MOBA_BASE_RECOVERY_MANA_PER_SECOND as i32)
+                } else {Fixed64::ZERO};
+                // Combine rates before applying dt so one remainder carries
+                // both contributions and a full pool cannot retain stale credit.
+                let natural=crate::runtime::UnitStats::from_refs(&buffs,false).mana_regen(rate,entity);
+                let combined=i128::from(natural.raw())+i128::from(base_rate.raw());
+                // Buff overflow cannot panic or wrap into a giant refill.
+                let combined=i64::try_from(combined).map(Fixed64::from_raw).unwrap_or(base_rate);
+                pool.regenerate(combined, Fixed64::from_raw(delta)).expect("nonnegative active time and rate");
             }
         }
     }
     // Authoritative post-combat settlement, never executed by a Bot or replica.
     // Use the same active-time delta as income; warmup/pause cannot heal.
     if state.config.base_recovery_enabled && delta>0 {
-        let positions=world.read_storage::<Pos>();
         let mut properties=world.write_storage::<CProperty>();
-        let radius=Fixed64::from_i32(omoba_template_ids::MOBA_BASE_RECOVERY_RADIUS as i32);
         let amount=i128::from(delta)*i128::from(omoba_template_ids::MOBA_BASE_RECOVERY_HP_PER_SECOND);
         for slot in &state.heroes {
-            let Some(entity)=slot.entity.filter(|_|!slot.lethal_pending) else {continue;};
-            let Some(base)=state.bases[slot.side] else {continue;};
-            if !properties.get(base).is_some_and(|p|p.hp>Fixed64::ZERO) {continue;}
-            let (Some(own),Some(home))=(positions.get(entity),positions.get(base)) else {continue;};
-            if (own.0-home.0).length_squared()>radius*radius {continue;}
+            let Some(entity)=slot.entity.filter(|entity|home_recovery.contains(entity)) else {continue;};
             let Some(health)=properties.get_mut(entity).filter(|p|p.hp>Fixed64::ZERO && p.mhp>Fixed64::ZERO) else {continue;};
             health.hp=Fixed64::from_raw((i128::from(health.hp.raw())+amount)
                 .min(i128::from(health.mhp.raw())) as i64);

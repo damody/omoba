@@ -75,6 +75,7 @@ function M.prepare(options,process)
   local plan={schema_version=1,scope='prepared-not-launched',config=generated,output=output,
     profile=options.profile,story=report.story,map_id=report.map_id,tick_rate_hz=60,
     base_recovery_enabled=report.base_recovery_enabled,
+    mana_enabled=report.mana_enabled,
     human_count=#report.humans,bot_count=#report.bot_player_ids,clients={}}
   local env={OMB_GAME_TOML=generated,OMB_STORY=report.story,OMB_SCENE_PATH='',
     OMB_DLL_PATH=path.join(scripts,'base_content.dll'),OMB_SCRIPTS_DIR=scripts,

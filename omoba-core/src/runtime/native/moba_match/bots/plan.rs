@@ -22,6 +22,8 @@ pub struct RoleBotMatchPlan {
     pub schema_version: u32,
     pub map_id: String,
     pub think_hz: u32,
+    #[serde(default)]
+    pub mana_enabled: bool,
     pub players: Vec<RoleBotPlayerPlan>,
     #[serde(default)]
     pub ability_policies: Vec<BotAbilityPolicy>,
@@ -48,9 +50,15 @@ impl RoleBotMatchPlan {
     {
         if self.schema_version != 1 { return Err("unsupported role bot plan schema".into()); }
         abilities::validate_policies(&self.ability_policies).map_err(str::to_owned)?;
+        if abilities::requires_mana(&self.ability_policies) && !self.mana_enabled {
+            return Err("bot recovery intent requires explicit mana_enabled".into());
+        }
         abilities::validate_learning(&self.ability_learning).map_err(str::to_owned)?;
         items::validate_feasible(&self.item_builds).map_err(str::to_owned)?;
         if let Some(policy)=self.sustain {policy.validate().map_err(str::to_owned)?;}
+        if self.sustain.is_some_and(|policy|policy.mana.is_some()) && !self.mana_enabled {
+            return Err("bot mana sustain requires explicit mana_enabled".into());
+        }
         if self.think_hz == 0 || self.think_hz > fps {
             return Err("bot think_hz must be between 1 and simulation Hz".into());
         }
@@ -97,6 +105,7 @@ impl RoleBotMatchPlan {
             seed,map_id:Some(map.id.into()),lane_length:Fixed64::from_i32(map.lane_length),
             players:[left.player_id,right.player_id],heroes:[left.hero,right.hero],additional_players:additional,
             base_recovery_enabled:self.sustain.is_some(),
+            mana_enabled:self.mana_enabled,
             ..Default::default()
         },RoleBotConfig { assignments,think_interval_ticks:u64::from(fps.div_ceil(self.think_hz)),
             ability_policies:self.ability_policies.clone(),ability_learning:self.ability_learning.clone(),sustain:self.sustain,
@@ -116,7 +125,7 @@ mod tests {
                     hero:"training_luminary".into(),role,lane:lane.into(),bot:team != 1 || index != 0 });
             }
         }
-        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new() }
+        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new() }
     }
     #[test]
     fn role_bot_plan_compiles_human_and_nine_bots_by_named_lane() {
@@ -160,11 +169,26 @@ mod tests {
         let mut p=plan();
         let (legacy,bots)=p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
         assert!(!legacy.base_recovery_enabled && bots.sustain.is_none());
-        p.sustain=Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000});
+        p.sustain=Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None});
         let (config,bots)=p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
         assert!(config.base_recovery_enabled && bots.sustain.is_some());
         p.sustain.as_mut().unwrap().leave_base_at_hp_per_mille=1001;
         assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_err());
+    }
+
+    #[test]
+    fn mana_sustain_plan_requires_explicit_rules_and_preserves_legacy() {
+        let mut p=plan();
+        assert!(!p.compile(1,SimulationTickProfile::Production60Hz).unwrap().0.mana_enabled);
+        p.sustain=Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,
+            threat_radius:1000,mana:Some(BotManaSustainPolicy {recall_below_per_mille:200,leave_base_at_per_mille:850})});
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_err());
+        p.mana_enabled=true;
+        let (config,_)=p.compile(1,SimulationTickProfile::Production60Hz).unwrap();
+        assert!(config.mana_enabled && config.base_recovery_enabled);
+        let mut json=serde_json::to_value(plan()).unwrap();
+        json.as_object_mut().unwrap().remove("mana_enabled");
+        assert!(!serde_json::from_value::<RoleBotMatchPlan>(json).unwrap().mana_enabled);
     }
 
     #[test]

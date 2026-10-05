@@ -43,6 +43,7 @@ function M.server_fields(value)
   return table.concat({
     'MATCH_GAMEPLAY_MODE="three_lane"',
     'MATCH_LOCKSTEP_MODE="secure_v2_required"',
+    'MATCH_MANA_ENABLED='..tostring(value.mana_enabled==true),
     'MATCH_MAP_ID='..json.encode(assert(value.map_id,'role recipe requires map_id')),
     'MATCH_ROLE_PLAN_JSON='..json.encode(json.encode(value)),
     'AUTHENTICATED_TEAM_BINDINGS={'..table.concat(bindings,',')..'}',

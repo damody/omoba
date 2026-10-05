@@ -15,7 +15,7 @@ pub use plan::{RoleBotMatchPlan, RoleBotPlayerPlan};
 mod abilities;
 pub use abilities::{BotAbilityIntent, BotAbilityPolicy, BotAbilityLearningStep};
 mod sustain;
-pub use sustain::BotSustainPolicy;
+pub use sustain::{BotSustainPolicy,BotManaSustainPolicy};
 mod items;
 pub use items::{BotItemBuild,BotShopReturnPolicy};
 
@@ -43,10 +43,14 @@ impl RoleBotConfig {
     pub fn validate(&self, state: &MobaMatch) -> Result<(), &'static str> {
         if self.think_interval_ticks == 0 { return Err("bot interval must be positive"); }
         abilities::validate_policies(&self.ability_policies)?;
+        if abilities::requires_mana(&self.ability_policies) && !state.config.mana_enabled {
+            return Err("bot recovery intent requires match mana");
+        }
         abilities::validate_learning(&self.ability_learning)?;
         items::validate(&self.item_builds)?;
         if let Some(policy)=self.sustain {
             policy.validate()?;
+            if policy.mana.is_some() && !state.config.mana_enabled {return Err("bot mana sustain requires match mana");}
             if !state.config.base_recovery_enabled {return Err("bot sustain requires match base recovery");}
         }
         let mut players = std::collections::BTreeSet::new();
@@ -169,7 +173,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
     let inventories = world.read_storage::<Inventory>();
     let gold = world.read_storage::<Gold>();
     let registry = world.try_fetch::<ItemRegistry>();
-    let scripts = world.try_fetch::<crate::runtime::scripting::ScriptRegistry>();
+    let abilities = world.try_fetch::<crate::runtime::ability_runtime::AbilityRegistry>();
     let buffs = world.try_fetch::<crate::runtime::ability_runtime::BuffStore>();
     // Decode a team perception once per think, not once per hero.
     let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team));
@@ -196,7 +200,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             }
         }
         if let Some(policy)=&config.sustain {
-            if let Some(recovery)=sustain::decide(policy,properties.get(entity).expect("owner health"),
+            if let Some(recovery)=sustain::decide_with_mana(policy,properties.get(entity).expect("owner health"),
+                heroes.get(entity).and_then(|hero|hero.mana_pool.as_ref()),
                 own.position,home,team,seen) {
                 let action=match recovery {
                     sustain::Recovery::Recall=>Some(PlayerInputEnum::Recall(crate::game_proto::Recall {})),
@@ -221,7 +226,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 properties.get(entity).expect("validated owner health"),seen,&config.ability_policies,|id,rank| {
                     // Only this authorized owner's resources; targets still come
                     // exclusively from the committed team disclosure above.
-                    let (definition,_)=scripts.as_ref()?.get_ability(id)?;
+                    let definition=abilities.as_ref()?.get(id)?;
                     let multiplier=crate::runtime::ability_runtime::UnitStats::from_refs(
                         buffs.as_ref()?,false).mana_cost_mult(entity);
                     crate::runtime::ability_runtime::checked_mana_cost(
