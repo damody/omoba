@@ -10,10 +10,12 @@ return function(ctx)
         damage_per_level=3.0,hp_per_level=80.0,mana_per_level=22.0},
       skills={
         {id='vanguard_strike',name='破岩擊',kind='damage',amounts={65,100,135,170},
+          stun_durations={0.75,1,1.25,1.5},
           cooldowns={6,5.5,5,4.5},range=300,damage_kind='physical'},
         {id='vanguard_recover',name='整備',kind='heal_self',amounts={110,165,220,275},
           cooldowns={14,13,12,11},mana_buff={stat='mana_bonus',values={60,90,120,150},durations={6,7,8,9}}},
         {id='vanguard_crush',name='磐岩重擊',kind='damage',amounts={155,240,325,410},
+          control='root',control_durations={1,1.25,1.5,1.75},
           cooldowns={65,60,55,50},range=330,damage_kind='physical',ultimate=true},
         {id='vanguard_resolve',name='磐岩突進',kind='dash_to_point',range=450,
           cooldowns={28,26,24,22}},
@@ -34,6 +36,7 @@ return function(ctx)
         {id='ranger_volley',name='箭雨',kind='area_damage',amounts={110,160,210,260},
           radii={220,240,260,280},cooldowns={11,10,9,8},range=700,damage_kind='physical'},
         {id='ranger_finisher',name='逐風終箭',kind='damage',amounts={210,310,410,510},
+          control='silence',control_durations={1,1.25,1.5,1.75},
           cooldowns={75,65,55,45},range=850,damage_kind='physical',ultimate=true},
       },
     },
@@ -65,6 +68,16 @@ return function(ctx)
           value_key='mana_buff_value',duration_key='mana_buff_duration'}
         ability.description=ability.description..(skill.mana_buff.stat=='mana_bonus'
           and ' 暫時提高魔力容量，不會立即補魔。' or ' 短時間提高自然回魔速率。')
+      end
+      if skill.stun_durations then
+        ability.extras.stun_duration=skill.stun_durations
+        ability.effects[#ability.effects+1]={kind='stun_enemy',duration_key='stun_duration'}
+        ability.description=ability.description..' 命中附加短暫暈眩。'
+      end
+      if skill.control then
+        ability.extras.control_duration=skill.control_durations
+        ability.effects[#ability.effects+1]={kind='control_enemy',control=skill.control,duration_key='control_duration'}
+        ability.description=ability.description..(skill.control=='root' and ' 命中使敵人短暫定身。' or ' 命中使敵人短暫沉默。')
       end
       if skill.slows then
         ability.extras.slow_reduction=skill.slows;ability.extras.slow_duration=skill.slow_durations

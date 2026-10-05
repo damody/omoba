@@ -7,6 +7,7 @@ return function(ctx)
     {
       id = "slow",
       display_name = "減速",
+      ue = { buff_visual = { sources = {{ability_id = "ranger_shot", kind = "slow_enemy"}} } },
     },
     {
       id = "burn",
@@ -54,5 +55,15 @@ return function(ctx)
         },
       },
     },
+    {
+      id = "mana_regeneration", display_name = "回魔",
+      ue = { buff_visual = { sources = {{ability_id = "ranger_patch", kind = "mana_buff_self", stat = "mana_regen_constant"}} } },
+    },
+    {
+      id = "mana_capacity", display_name = "魔力容量",
+      ue = { buff_visual = { sources = {{ability_id = "vanguard_recover", kind = "mana_buff_self", stat = "mana_bonus"}} } },
+    },
+    { id = "root", display_name = "定身", ue = { native_only = true } },
+    { id = "silence", display_name = "沉默", ue = { native_only = true } },
   }
 end

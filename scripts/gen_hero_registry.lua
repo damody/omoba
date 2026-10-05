@@ -97,6 +97,26 @@ local function effect_code(ability, effect)
     end
     return string.format('crate::generic_effects::EffectOp::ManaBuffSelf { stat: omoba_content_model::ManaBuffStat::%s, value_key: "%s", duration_key: "%s" }',stat[1],value,duration)
   end
+  if effect.kind=='stun_enemy' or effect.kind=='control_enemy' then
+    local control=effect.kind=='stun_enemy' and 'stun' or effect.control
+    local controls={stun='Stun',root='Root',silence='Silence'}
+    assert(type(control)=='string' and controls[control],ability.id..' invalid control_enemy control')
+    local duration=identifier(effect.duration_key,ability.id..' duration_key')
+    local entries=ability.extras and ability.extras[duration]
+    assert(type(entries)=='table' and #entries==ability.max_level,ability.id..' '..effect.kind..' requires per-rank duration')
+    for _,value in ipairs(entries) do
+      value=authored_number(value)
+      assert(value~=nil and value>=1/1024 and value<=60,ability.id..' invalid '..effect.kind..' duration')
+    end
+    for _,rank in ipairs(ability.levels) do
+      local range=authored_number(rank.range)
+      assert(range~=nil and range>=1/1024 and range<=10000,ability.id..' '..effect.kind..' requires bounded range')
+    end
+    if effect.kind=='stun_enemy' then
+      return string.format('crate::generic_effects::EffectOp::StunEnemy { duration_key: "%s" }',duration)
+    end
+    return string.format('crate::generic_effects::EffectOp::ControlEnemy { control: omoba_content_model::ControlEffectKind::%s, duration_key: "%s" }',controls[control],duration)
+  end
   if effect.kind=='slow_enemy' then
     local reduction=identifier(effect.reduction_key,ability.id..' reduction_key')
     local duration=identifier(effect.duration_key,ability.id..' duration_key')
@@ -156,6 +176,13 @@ local function effect_code(ability, effect)
     end
     return string.format('crate::generic_effects::EffectOp::Damage { amount_key: "%s", kind: omb_script_abi::types::DamageKind::%s }', key, kind)
   end
+  if effect.kind=='heal_ally' then
+    for _,rank in ipairs(ability.levels) do
+      local range=authored_number(rank.range)
+      assert(range and range>=1/1024 and range<=10000,ability.id..' heal_ally requires bounded range')
+    end
+    return string.format('crate::generic_effects::EffectOp::HealAlly { amount_key: "%s" }',key)
+  end
   local self_ops={heal_self='HealSelf',restore_mana_self='RestoreManaSelf',spend_mana_self='SpendManaSelf'}
   local op=self_ops[effect.kind]
   assert(op, ability.id .. ' effect has unknown kind: ' .. tostring(effect.kind))
@@ -163,6 +190,7 @@ local function effect_code(ability, effect)
 end
 
 local entries = {}
+local registered = {}
 for _, hero in ipairs(heroes) do
   if not hero.tombstone then
     local hero_id = identifier(hero.id, 'hero id')
@@ -174,6 +202,11 @@ for _, hero in ipairs(heroes) do
       assert(ability and not ability.tombstone, hero_id .. ' references missing or tombstoned ability ' .. ability_id)
       assert(not seen[ability_id], hero_id .. ' lists ability twice: ' .. ability_id)
       seen[ability_id] = true
+      local implementation=rust_module or '@generic'
+      if registered[ability_id] then
+        assert(registered[ability_id]==implementation,ability_id..' has conflicting hero handler implementations')
+      else
+      registered[ability_id]=implementation
       if rust_module then
         entries[#entries + 1] = {module = rust_module, ability = ability_id}
       else
@@ -186,13 +219,24 @@ for _, hero in ipairs(heroes) do
         assert(#ability.effects<=32,ability_id..' exceeds 32 effects')
         local effects = {}
         local mana_stats={}
+        local unit_allegiance
         for _, effect in ipairs(ability.effects) do
+          local allegiance=effect.kind=='heal_ally' and 'ally'
+            or ((effect.kind=='damage' or effect.kind=='slow_enemy' or effect.kind=='stun_enemy' or effect.kind=='control_enemy') and 'enemy')
+          if allegiance then
+            assert(not unit_allegiance or unit_allegiance==allegiance,
+              ability_id..' conflicting unit target allegiance')
+            unit_allegiance=allegiance
+          end
           if effect.kind=='mana_buff_self' then
             assert(type(effect.stat)=='string' and not mana_stats[effect.stat],ability_id..' duplicate/invalid mana buff stat')
             mana_stats[effect.stat]=true
           end
           assert((effect.kind == 'damage' and ability.target_type == 'unit') or
+            (effect.kind == 'heal_ally' and ability.target_type == 'unit') or
             (effect.kind == 'slow_enemy' and ability.target_type == 'unit') or
+            (effect.kind == 'stun_enemy' and ability.target_type == 'unit') or
+            (effect.kind == 'control_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'area_damage' and ability.target_type == 'point') or
             (effect.kind == 'dash_to_point' and ability.target_type == 'point') or
             ((effect.kind == 'heal_self' or effect.kind == 'restore_mana_self' or effect.kind == 'spend_mana_self' or effect.kind=='mana_buff_self')
@@ -201,6 +245,7 @@ for _, hero in ipairs(heroes) do
           effects[#effects + 1] = effect_code(ability, effect)
         end
         entries[#entries + 1] = {ability = ability_id, effects = effects}
+      end
       end
     end
   end

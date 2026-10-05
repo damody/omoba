@@ -10,6 +10,9 @@
 
 #![allow(clippy::too_many_lines)]
 
+#[cfg(all(feature = "compiled-content-only", feature = "runtime-lua-content"))]
+compile_error!("compiled-content-only forbids runtime-lua-content; Lua is build-time authoring only");
+
 pub use omoba_sim::Fixed64;
 
 #[derive(Clone, Copy, Debug)]
@@ -51,7 +54,7 @@ pub struct MobaJungleConst {
     pub xp: u32,
 }
 
-/// Shared passive MOBA catalog compiled from Lua. Full price includes recipe
+/// Shared MOBA catalog compiled from Lua. Full price includes recipe
 /// materials. Bonuses are quantized once by codegen, not separately per host.
 #[derive(Clone, Copy, Debug)]
 pub struct MobaItemConst {
@@ -63,7 +66,19 @@ pub struct MobaItemConst {
     pub hp: Fixed64,
     pub ms: Fixed64,
     pub armor: Fixed64,
+    pub active: Option<MobaItemActiveConst>,
+    pub cooldown: Fixed64,
     pub recipe: &'static [&'static str],
+}
+
+/// Build-time authored effects, executed by the native shared item executor.
+#[derive(Clone, Copy, Debug)]
+pub enum MobaItemActiveConst {
+    Shield { amount: Fixed64, duration: Fixed64 },
+    SprintBuff { ms_bonus: Fixed64, duration: Fixed64 },
+    RestoreMana { amount: Fixed64 },
+    DamageReduce { percent: Fixed64, duration: Fixed64 },
+    HeadshotNext { bonus_damage: Fixed64 },
 }
 
 #[cfg(feature = "runtime-lua-content")]

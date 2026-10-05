@@ -1,5 +1,7 @@
--- Passive equipment only. Active items and mana bonuses are not yet supported
--- by the MOBA slice; do not author placeholder effects that claim otherwise.
+-- Build-time equipment source. Optional active = { kind = "shield", amount = 100,
+-- duration = 3 }, cooldown = 10 compiles to native Rust; no runtime Lua.
+-- Supported kinds: shield, sprint_buff, restore_mana, damage_reduce, headshot_next.
+-- Mana passive bonuses remain unsupported. Current catalog retains its balance.
 return function(ctx)
   return {
     { catalog_id = 1, id = "moba_sword", name = "Sword", cost = 350, atk = 10 },

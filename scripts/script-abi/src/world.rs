@@ -74,6 +74,8 @@ pub trait GameWorld: Send {
     fn get_hp(&self, e: EntityHandle) -> ROption<Fixed64>;
     fn get_max_hp(&self, e: EntityHandle) -> ROption<Fixed64>;
     fn is_alive(&self, e: EntityHandle) -> bool;
+    /// Opaque combat-team identity, not a faction-type label. Compare equality;
+    /// missing/stale entities have no identity. The backing host owns the string.
     fn faction_of(&self, e: EntityHandle) -> ROption<RStr<'_>>;
     fn unit_id_of(&self, e: EntityHandle) -> ROption<RStr<'_>>;
     fn query_enemies_in_range(

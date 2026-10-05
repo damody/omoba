@@ -2,6 +2,7 @@ return function(ctx)
   local abilities = {
     {
       id = "sniper_mode",
+      ue = { ability_cue = { shape = "toggle", color_rgb = {40,240,255}, radius_cm = 900, duration_seconds = 1.25, range_cm = 900, payload_distance_scale = 100 } },
       display_name = "狙擊模式",
       icon = "data/hero1_1.png",
       description = "切換到狙擊模式，增加射程和傷害，但降低攻擊速度和移動速度。",
@@ -70,6 +71,7 @@ return function(ctx)
     },
     {
       id = "saika_reinforcements",
+      ue = { ability_cue = { shape = "formation", color_rgb = {25,115,255}, radius_cm = 260, duration_seconds = 1.5, payload_distance_scale = 100 } },
       display_name = "雜賀援軍",
       icon = "data/hero1_2.png",
       description = "在目標位置召喚雜賀鐵炮兵協助作戰。",
@@ -156,6 +158,7 @@ return function(ctx)
     },
     {
       id = "rain_iron_cannon",
+      ue = { ability_cue = { shape = "cone", color_rgb = {255,55,20}, duration_seconds = 1.25, payload_distance_scale = 100 } },
       display_name = "雨鐵砲",
       icon = "data/hero1_3.png",
       description = "被動：普攻命中時以受擊點為中心、朝攻擊方向 90° 扇形 150 半徑對範圍內所有單位造成 15/25/35/45% 攻擊力的真實傷害。",
@@ -212,6 +215,7 @@ return function(ctx)
     },
     {
       id = "three_stage_technique",
+      ue = { ability_cue = { shape = "fan", color_rgb = {255,25,190}, duration_seconds = 1.2, spacing_cm = 120, payload_distance_scale = 100 } },
       display_name = "三段擊",
       icon = "data/hero1_4.png",
       description = "變身 5 秒：攻擊力 +200%，普攻特效改為連發 3 發子彈（只判定 1 次傷害），身上有紅色變身特效。",
@@ -585,5 +589,12 @@ return function(ctx)
   for _,ability in ipairs(ctx.include('templates/moba_archetypes.lua').abilities) do
     abilities[#abilities+1]=ability
   end
+  local aid
+  for _,ability in ipairs(abilities) do if ability.id=='lumen_mend' then aid=copy(ability) end end
+  assert(aid)
+  aid.id='lumen_aid';aid.display_name='晨光援護';aid.description='治療指定存活隊友，也可治療自身。'
+  aid.target_type='unit';aid.effects={{kind='heal_ally',amount_key='heal'}}
+  for _,level in ipairs(aid.levels) do level.range=600 end
+  abilities[#abilities+1]=aid
   return abilities
 end

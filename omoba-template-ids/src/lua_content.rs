@@ -54,6 +54,8 @@ pub(crate) struct MobaEconomyRules {
     pub(crate) hero_kill_xp: u32,
     pub(crate) hero_assist_xp: u32,
     pub(crate) lane_creep_xp: u32,
+    #[serde(default)]
+    pub(crate) lane_creep_gold: u32,
     pub(crate) lane_xp_radius: u32,
     #[serde(default)]
     pub(crate) base_recovery_hp_per_second: u32,
@@ -197,7 +199,7 @@ impl Default for MobaEconomyRules {
         // Legacy TD-only manifests omit the entire MOBA rules section.
         Self { passive_gold_per_second: 0, hero_kill_gold: 0, recall_channel_seconds: 8,
             hero_assist_gold: 0, assist_window_seconds: 10, hero_kill_xp: 0, hero_assist_xp: 0,
-            lane_creep_xp: 0, lane_xp_radius: 1200,
+            lane_creep_xp: 0, lane_creep_gold: 0, lane_xp_radius: 1200,
             base_recovery_hp_per_second: 0, base_recovery_radius: 0, mana_regen_per_second: 0,
             base_recovery_mana_per_second: 0 }
     }
@@ -218,6 +220,10 @@ pub(crate) struct MobaItemEntry {
     pub(crate) ms: f32,
     #[serde(default)]
     pub(crate) armor: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) active: Option<MobaItemActiveEntry>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(crate) cooldown: f32,
     #[serde(default)]
     pub(crate) recipe: Vec<String>,
 }
@@ -229,6 +235,14 @@ pub(crate) fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String>
         return Err("MOBA items contain duplicate ids".into());
     }
     for item in items {
+        if !item.cooldown.is_finite() || !(0.0..=3600.0).contains(&item.cooldown)
+            || (item.cooldown > 0.0 && item.cooldown < 1.0 / 1024.0)
+            || (item.active.is_none() && item.cooldown != 0.0) {
+            return Err(format!("invalid MOBA item '{}' cooldown", item.id));
+        }
+        if let Some(active) = &item.active {
+            active.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
+        }
         if item.id.is_empty() || item.id.len() > 64
             || !item.id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
             || item.name.is_empty() || item.name.len() > 128 || item.cost <= 0
@@ -255,6 +269,43 @@ pub(crate) fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String>
         }
     }
     Ok(())
+}
+
+fn is_zero(value: &f32) -> bool { *value == 0.0 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum MobaItemActiveEntry {
+    Shield { amount: f32, duration: f32 },
+    SprintBuff { ms_bonus: f32, duration: f32 },
+    RestoreMana { amount: f32 },
+    DamageReduce { percent: f32, duration: f32 },
+    HeadshotNext { bonus_damage: f32 },
+}
+
+impl MobaItemActiveEntry {
+    fn validate(&self) -> Result<(), String> {
+        let positive = |value: f32, maximum: f32| value.is_finite() && (1.0 / 1024.0..=maximum).contains(&value);
+        let valid = match self {
+            Self::Shield { amount, duration } => positive(*amount, 1_000_000.0) && positive(*duration, 60.0),
+            Self::SprintBuff { ms_bonus, duration } => positive(*ms_bonus, 10_000.0) && positive(*duration, 60.0),
+            Self::RestoreMana { amount } => positive(*amount, 1_000_000.0),
+            Self::DamageReduce { percent, duration } => positive(*percent, 1.0) && positive(*duration, 60.0),
+            Self::HeadshotNext { bonus_damage } => positive(*bonus_damage, 1_000_000.0),
+        };
+        if valid { Ok(()) } else { Err("invalid active effect amount or duration".into()) }
+    }
+
+    pub(crate) fn rust_literal(&self) -> String {
+        let fixed = |v: f32| format!("Fixed64::from_raw({})", (f64::from(v) * 1024.0).round() as i64);
+        match self {
+            Self::Shield { amount, duration } => format!("MobaItemActiveConst::Shield {{ amount: {}, duration: {} }}", fixed(*amount), fixed(*duration)),
+            Self::SprintBuff { ms_bonus, duration } => format!("MobaItemActiveConst::SprintBuff {{ ms_bonus: {}, duration: {} }}", fixed(*ms_bonus), fixed(*duration)),
+            Self::RestoreMana { amount } => format!("MobaItemActiveConst::RestoreMana {{ amount: {} }}", fixed(*amount)),
+            Self::DamageReduce { percent, duration } => format!("MobaItemActiveConst::DamageReduce {{ percent: {}, duration: {} }}", fixed(*percent), fixed(*duration)),
+            Self::HeadshotNext { bonus_damage } => format!("MobaItemActiveConst::HeadshotNext {{ bonus_damage: {} }}", fixed(*bonus_damage)),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -976,10 +1027,12 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     let manifest: Manifest = lua
         .from_value(template_value)
         .map_err(|e| format!("convert Lua builder templates.lua output: {e}"))?;
+    omoba_content_model::animation_metadata::validate_animation_catalog(&manifest_value)?;
     validate_td_layers(&manifest.td_layers)?;
     validate_moba_items(&manifest.moba_items)?;
     validate_moba_maps(&manifest.moba_maps)?;
     for hero in &manifest.heroes {
+        omoba_content_model::validate_hero_animation_clips(&hero.common)?;
         omoba_content_model::validate_moba_loadout(&hero.common,manifest.abilities.iter())?;
     }
     if manifest.moba_economy.passive_gold_per_second > 10_000 {
@@ -990,6 +1043,9 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     }
     if manifest.moba_economy.hero_kill_xp > 1_000_000 || manifest.moba_economy.hero_assist_xp > 1_000_000 {
         return Err("MOBA hero XP reward must be <=1000000".into());
+    }
+    if manifest.moba_economy.lane_creep_gold > 1_000_000 {
+        return Err("MOBA lane creep gold must be in 0..=1000000".into());
     }
     if manifest.moba_economy.lane_creep_xp > 1_000_000 || !(1..=10_000).contains(&manifest.moba_economy.lane_xp_radius) {
         return Err("MOBA lane XP must be <=1000000 and radius 1..10000".into());
@@ -1383,11 +1439,71 @@ mod tests {
         }
     }
     #[test]
+    fn moba_item_active_authoring_validates_and_emits_all_native_variants() {
+        use omoba_content_model::canonical_template_hash;
+        let lua = Lua::new();
+        let authored: LuaValue = lua.load("return { catalog_id = 1, id = 'fixture', name = 'Fixture', cost = 100, active = { kind = 'shield', amount = 100, duration = 3 }, cooldown = 5 }").eval().unwrap();
+        let authored: MobaItemEntry = lua.from_value(authored).unwrap();
+        validate_moba_items(&[authored.clone()]).unwrap();
+        assert_eq!(authored.active.unwrap().rust_literal(),
+            "MobaItemActiveConst::Shield { amount: Fixed64::from_raw(102400), duration: Fixed64::from_raw(3072) }");
+        let base = serde_json::json!({ "catalog_id": 1, "id": "fixture", "name": "Fixture", "cost": 100,
+            "atk": 0.0, "hp": 0.0, "ms": 0.0, "armor": 0.0, "recipe": [] });
+        let passive: MobaItemEntry = serde_json::from_value(base.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&passive).unwrap(), base, "passive canonical catalog must not change");
+        for (effect, variant, first_raw) in [
+            (serde_json::json!({"kind":"shield","amount":100,"duration":3}), "Shield", 102400),
+            (serde_json::json!({"kind":"sprint_buff","ms_bonus":60,"duration":1}), "SprintBuff", 61440),
+            (serde_json::json!({"kind":"restore_mana","amount":20}), "RestoreMana", 20480),
+            (serde_json::json!({"kind":"damage_reduce","percent":0.5,"duration":1}), "DamageReduce", 512),
+            (serde_json::json!({"kind":"headshot_next","bonus_damage":60}), "HeadshotNext", 61440),
+        ] {
+            let mut value = base.clone(); value["active"] = effect.clone(); value["cooldown"] = serde_json::json!(5);
+            let item: MobaItemEntry = serde_json::from_value(value).unwrap();
+            validate_moba_items(&[item.clone()]).unwrap();
+            let literal = item.active.as_ref().unwrap().rust_literal();
+            assert!(literal.starts_with(&format!("MobaItemActiveConst::{variant}")));
+            assert!(literal.contains(&format!("Fixed64::from_raw({first_raw})")));
+            assert_ne!(canonical_template_hash(&serde_json::to_value(&item).unwrap()).unwrap(),
+                canonical_template_hash(&base).unwrap());
+            let mut unknown = effect.clone(); unknown["typo"] = serde_json::json!(1);
+            assert!(serde_json::from_value::<MobaItemActiveEntry>(unknown).is_err());
+            for invalid in [0.0, -1.0, 0.0001, f32::INFINITY, f32::NAN, 1_000_001.0] {
+                let mut bad = item.clone();
+                bad.active = Some(match variant {
+                    "Shield" => MobaItemActiveEntry::Shield { amount: invalid, duration: 1.0 },
+                    "SprintBuff" => MobaItemActiveEntry::SprintBuff { ms_bonus: invalid, duration: 1.0 },
+                    "RestoreMana" => MobaItemActiveEntry::RestoreMana { amount: invalid },
+                    "DamageReduce" => MobaItemActiveEntry::DamageReduce { percent: invalid, duration: 1.0 },
+                    _ => MobaItemActiveEntry::HeadshotNext { bonus_damage: invalid },
+                });
+                assert!(validate_moba_items(&[bad]).is_err());
+            }
+            for cooldown in [-1.0, 0.0001, 3601.0, f32::INFINITY, f32::NAN] {
+                let mut bad = item.clone(); bad.cooldown = cooldown;
+                assert!(validate_moba_items(&[bad]).is_err());
+            }
+        }
+        for duration in [0.0, -1.0, 0.0001, 61.0, f32::INFINITY, f32::NAN] {
+            for active in [MobaItemActiveEntry::Shield { amount: 100.0, duration },
+                MobaItemActiveEntry::SprintBuff { ms_bonus: 60.0, duration },
+                MobaItemActiveEntry::DamageReduce { percent: 0.5, duration }] {
+                let mut bad = passive.clone(); bad.active = Some(active);
+                assert!(validate_moba_items(&[bad]).is_err());
+            }
+        }
+        let mut bad = passive; bad.cooldown = 1.0;
+        assert!(validate_moba_items(&[bad]).is_err());
+        assert!(serde_json::from_value::<MobaItemActiveEntry>(serde_json::json!({"kind":"unknown"})).is_err());
+    }
+
+    #[test]
     fn moba_item_validation_rejects_bad_ids_values_recipes_and_unknown_fields() {
         use super::*;
         let item = |id: &str, cost: i32, recipe: &[&str]| MobaItemEntry {
             catalog_id: if id == "sword" || id == "a" { 1 } else { 2 },
             id: id.into(), name: id.into(), cost, atk: 10.0, hp: 0.0, ms: 0.0, armor: 0.0,
+            active: None, cooldown: 0.0,
             recipe: recipe.iter().map(|id| (*id).into()).collect(),
         };
         let sword = item("sword", 100, &[]);

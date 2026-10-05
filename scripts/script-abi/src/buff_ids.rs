@@ -10,6 +10,32 @@
 
 use abi_stable::{std_types::RStr, StableAbi};
 
+/// Shared identity for declarative mana buffs, scoped to one caster life.
+/// Pure formatting helper; does not change the FFI layout or add runtime deps.
+pub fn generic_mana_buff_id(ability:&str,stat:&str,caster:crate::types::EntityHandle) -> String {
+    format!("generic_mana:{ability}:{stat}:{}:{}",caster.id,caster.gen)
+}
+
+pub fn generic_slow_buff_id(ability: &str, caster: crate::types::EntityHandle) -> String {
+    format!("generic_slow:{ability}:{}:{}", caster.id, caster.gen)
+}
+
+/// Host-local source parsing, never a wire identity. Reject ambiguous keys.
+pub fn declarative_buff_source(key: &str) -> Option<(&str, Option<&str>)> {
+    let parts: Vec<_> = key.split(':').collect();
+    let (ability, stat, id, generation) = match parts.as_slice() {
+        ["generic_slow", ability, id, generation] => (*ability, None, *id, *generation),
+        ["generic_mana", ability, stat, id, generation] if !stat.is_empty() => (*ability, Some(*stat), *id, *generation),
+        _ => return None,
+    };
+    if ability.is_empty() { return None; }
+    for value in [id, generation] {
+        let number: u32 = value.parse().ok()?;
+        if number.to_string() != value { return None; }
+    }
+    Some((ability, stat))
+}
+
 /// 標準狀態 buff 識別字（stun / root / silence / invisible / invulnerable）。
 ///
 /// ＃ 安全
@@ -58,6 +84,26 @@ impl BuffId {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn declarative_buff_source_identity_is_strict_and_shared() {
+        let caster = crate::types::EntityHandle { id: 12, gen: 3 };
+        assert_eq!(super::declarative_buff_source(&super::generic_slow_buff_id("a", caster)), Some(("a", None)));
+        assert_eq!(super::declarative_buff_source(&super::generic_mana_buff_id("a", "mana_bonus", caster)), Some(("a", Some("mana_bonus"))));
+        for key in ["generic_slow:a:12:3:extra", "generic_slow::12:3", "generic_slow:a:012:3",
+            "generic_slow:a:-1:3", "generic_slow:a:4294967296:3", "generic_mana:a::12:3", "unknown:a:12:3"] {
+            assert!(super::declarative_buff_source(key).is_none(), "{key}");
+        }
+    }
+    #[test]
+    fn generic_mana_buff_identity_is_shared_and_life_scoped() {
+        let caster=crate::types::EntityHandle {id:12,gen:3};
+        let id=super::generic_mana_buff_id("ranger_patch","mana_regen_constant",caster);
+        assert_eq!(id,"generic_mana:ranger_patch:mana_regen_constant:12:3");
+        assert_ne!(id,super::generic_mana_buff_id("ranger_patch","mana_regen_constant",
+            crate::types::EntityHandle {gen:4,..caster}));
+        assert_ne!(id,super::generic_mana_buff_id("other","mana_regen_constant",caster));
+        assert_ne!(id,super::generic_mana_buff_id("ranger_patch","mana_bonus",caster));
+    }
     use super::BuffId;
 
     const ALL: &[BuffId] = &[

@@ -54,6 +54,7 @@ pub struct RuntimeContent {
     hero_kill_xp: u32,
     hero_assist_xp: u32,
     lane_creep_xp: u32,
+    lane_creep_gold: u32,
     lane_xp_radius: u32,
     passive_gold_per_second: u32,
     hero_kill_gold: u32,
@@ -336,6 +337,9 @@ impl RuntimeContent {
         if self.lane_creep_xp != crate::MOBA_LANE_CREEP_XP || self.lane_xp_radius != crate::MOBA_LANE_XP_RADIUS {
             return Err("MOBA lane XP rules differ from compiled content; rebuild all peers".into());
         }
+        if self.lane_creep_gold != crate::MOBA_LANE_CREEP_GOLD {
+            return Err("MOBA lane gold rules differ from compiled content; rebuild all peers".into());
+        }
         if self.hero_kill_xp != crate::MOBA_HERO_KILL_XP || self.hero_assist_xp != crate::MOBA_HERO_ASSIST_XP {
             return Err("MOBA XP rules differ from compiled content; rebuild all peers".into());
         }
@@ -540,6 +544,7 @@ impl RuntimeContent {
             hero_kill_xp: manifest.moba_economy.hero_kill_xp,
             hero_assist_xp: manifest.moba_economy.hero_assist_xp,
             lane_creep_xp: manifest.moba_economy.lane_creep_xp,
+            lane_creep_gold: manifest.moba_economy.lane_creep_gold,
             lane_xp_radius: manifest.moba_economy.lane_xp_radius,
             hero_kill_gold: manifest.moba_economy.hero_kill_gold,
             recall_channel_seconds: manifest.moba_economy.recall_channel_seconds,
@@ -587,6 +592,7 @@ struct ContentShape {
     hero_kill_xp: u32,
     hero_assist_xp: u32,
     lane_creep_xp: u32,
+    lane_creep_gold: u32,
     lane_xp_radius: u32,
     passive_gold_per_second: u32,
     hero_kill_gold: u32,
@@ -643,6 +649,7 @@ impl ContentShape {
             hero_kill_xp: manifest.moba_economy.hero_kill_xp,
             hero_assist_xp: manifest.moba_economy.hero_assist_xp,
             lane_creep_xp: manifest.moba_economy.lane_creep_xp,
+            lane_creep_gold: manifest.moba_economy.lane_creep_gold,
             lane_xp_radius: manifest.moba_economy.lane_xp_radius,
             hero_kill_gold: manifest.moba_economy.hero_kill_gold,
             recall_channel_seconds: manifest.moba_economy.recall_channel_seconds,
@@ -690,6 +697,9 @@ impl ContentShape {
         }
         if self.lane_creep_xp != previous.lane_creep_xp || self.lane_xp_radius != previous.lane_xp_radius {
             return Err("MOBA lane XP rules changed; rebuild all peers, not hot reload".into());
+        }
+        if self.lane_creep_gold != previous.lane_creep_gold {
+            return Err("MOBA lane gold rules changed; rebuild all peers, not hot reload".into());
         }
         if self.hero_kill_xp != previous.hero_kill_xp || self.hero_assist_xp != previous.hero_assist_xp {
             return Err("MOBA XP rules changed; rebuild all peers, not hot reload".into());
@@ -1858,6 +1868,30 @@ mod tests {
             missing.as_object_mut().unwrap().remove(field);
             assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(missing).is_err());
         }
+    }
+
+    #[test]
+    fn moba_lane_gold_rules_require_rebuild_and_preserve_legacy_zero() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();
+        assert_eq!(content.manifest.moba_economy.lane_creep_gold,crate::MOBA_LANE_CREEP_GOLD);
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["lane_creep_gold"]=serde_json::json!(21);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.lane_creep_gold+=1;
+        let after=ContentShape::from_manifest(&content.manifest,&content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA lane gold rules changed"));
+        let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("MOBA lane gold rules differ"));
+        for invalid in [serde_json::json!(-1),serde_json::json!(0.5),serde_json::json!("20")] {
+            let mut rules=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+            rules["lane_creep_gold"]=invalid;
+            assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules).is_err());
+        }
+        let mut legacy=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("lane_creep_gold");
+        assert_eq!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(legacy).unwrap().lane_creep_gold,0);
     }
 
     fn write(path: &Path, text: &str) {

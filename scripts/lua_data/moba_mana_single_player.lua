@@ -10,6 +10,9 @@ for _,policy in ipairs(plan.ability_policies) do
     if policy.ability=='lumen_touch' then
         policy.intent={kind='self_recovery',below_hp_per_mille=600,
             below_mana_per_mille=500,restore_key='mana_restore'}
+    elseif policy.ability=='ranger_patch' then
+        policy.intent={kind='self_mana_regeneration',below_hp_per_mille=600,
+            below_mana_per_mille=500,rate_key='mana_buff_value',duration_key='mana_buff_duration'}
     end
 end
 return plan

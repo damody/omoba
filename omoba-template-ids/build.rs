@@ -32,6 +32,8 @@ fn main() {
     println!("cargo:rerun-if-changed={}", content_root.display());
 
     let content = load_content(content_root.clone()).unwrap_or_else(|e| panic!("{}", e));
+    let buff_visual_bindings = omoba_content_model::buff_visual_sources::collect_buff_visual_sources(&content.manifest_value)
+        .unwrap_or_else(|err| panic!("{err}"));
     let catalog_data_hash = canonical_template_hash(&content.manifest_value)
         .unwrap_or_else(|err| panic!("invalid Lua template catalog: {err}"));
     let m = content.manifest;
@@ -88,6 +90,13 @@ fn main() {
         .collect();
     emit_namespace(&mut out, "Ability", "ability", &ability_ids_for_ns, true);
     emit_namespace(&mut out, "Buff", "buff", &m.buffs, true);
+    out.push_str("pub fn declarative_buff_visual_id(ability: &str, stat: Option<&str>) -> Option<BuffId> { match (ability, stat) {\n");
+    for binding in buff_visual_bindings {
+        let index = m.buffs.iter().position(|buff| !buff.tombstone && buff.id == binding.buff_id).expect("validated buff identity");
+        let stat = binding.source.stat.map(|stat| format!("Some({:?})", stat.as_str())).unwrap_or_else(|| "None".into());
+        out.push_str(&format!("({:?}, {stat}) => Some(BuffId({})),\n", binding.source.ability_id, index + 1));
+    }
+    out.push_str("_ => None, } }\n");
     let summon_ids: Vec<Entry> = m
         .summons
         .iter()
@@ -117,6 +126,7 @@ fn main() {
     out.push_str(&format!("pub const MOBA_HERO_KILL_XP: u32 = {};\n", m.moba_economy.hero_kill_xp));
     out.push_str(&format!("pub const MOBA_HERO_ASSIST_XP: u32 = {};\n", m.moba_economy.hero_assist_xp));
     out.push_str(&format!("pub const MOBA_LANE_CREEP_XP: u32 = {};\n", m.moba_economy.lane_creep_xp));
+    out.push_str(&format!("pub const MOBA_LANE_CREEP_GOLD: u32 = {};\n", m.moba_economy.lane_creep_gold));
     out.push_str(&format!("pub const MOBA_LANE_XP_RADIUS: u32 = {};\n", m.moba_economy.lane_xp_radius));
     out.push_str(&format!("pub const MOBA_HERO_ASSIST_GOLD: u32 = {};\n", m.moba_economy.hero_assist_gold));
     out.push_str(&format!("pub const MOBA_ASSIST_WINDOW_SECONDS: u32 = {};\n", m.moba_economy.assist_window_seconds));
@@ -201,10 +211,13 @@ fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
     for item in items {
         let recipe = item.recipe.iter().map(|id| format!("\"{}\"", escape_str_literal(id)))
             .collect::<Vec<_>>().join(",");
+        let active = item.active.as_ref().map(|effect| format!("Some({})", effect.rust_literal()))
+            .unwrap_or_else(|| "None".into());
         out.push_str(&format!(
-            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, recipe: &[{}] }},\n",
+            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, active: {}, cooldown: {}, recipe: &[{}] }},\n",
             item.catalog_id, item.id, item.name, item.cost,
-            fixed64_lit(item.atk), fixed64_lit(item.hp), fixed64_lit(item.ms), fixed64_lit(item.armor), recipe,
+            fixed64_lit(item.atk), fixed64_lit(item.hp), fixed64_lit(item.ms), fixed64_lit(item.armor),
+            active, fixed64_lit(item.cooldown), recipe,
         ));
     }
     out.push_str("];\n");
@@ -483,6 +496,14 @@ fn emit_namespace(
     );
 
     // 若適用則產生 display lookup。
+    // Network decoders need a checked reverse lookup, never a debug panic or '?'.
+    out.push_str(&format!("pub fn try_{}_id_str(id: {}Id) -> Option<&'static str> {{\n\tmatch id.0 {{\n",ns_lower,ty));
+    for (index,entry) in entries.iter().enumerate() {
+        if !entry.tombstone {
+            out.push_str(&format!("\t\t{} => Some(\"{}\"),\n",index+1,escape_str_literal(&entry.id)));
+        }
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n\n");
     if has_display {
         out.push_str(&format!(
             "pub fn {}_display(id: {}Id) -> &'static str {{\n\tmatch id.0 {{\n\t\t0 => \"\",\n",
@@ -816,6 +837,13 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
         })
         .collect();
     emit_namespace(out, "Hero", "hero", &converted, true);
+    out.push_str("pub const HERO_CATALOG_IDS: &[HeroId] = &[\n");
+    for (index, hero) in entries.iter().enumerate() {
+        if !hero.tombstone {
+            out.push_str(&format!("HeroId({}),\n", index + 1));
+        }
+    }
+    out.push_str("];\n");
 
     out.push_str(
         "pub fn hero_title(id: HeroId) -> &'static str {\n\tmatch id.0 {\n\t\t0 => \"\",\n",

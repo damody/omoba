@@ -135,6 +135,9 @@ return function(ctx)
         },
       },
       ue = {
+        native_visual = {
+          state_slots = { sniper_mode = "sniper", sniper_walk = "move" },
+        },
         animation = {
           idle_variants = { "stand_1", "stand_2", "stand_3" },
           locomotion_variants = {
@@ -260,5 +263,11 @@ return function(ctx)
   for _,hero in ipairs(ctx.include('templates/moba_archetypes.lua').heroes) do
     heroes[#heroes+1]=hero
   end
+  local support={}
+  for key,value in pairs(source) do support[key]=value end
+  support.id='training_support';support.display_name='晨光援護者'
+  support.background='晨光術士的隊友治療配裝變體，沿用共用技能與原生呈現。'
+  support.abilities={'lumen_bolt','lumen_touch','lumen_lance','lumen_aid'}
+  heroes[#heroes+1]=support
   return heroes
 end

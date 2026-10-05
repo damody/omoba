@@ -1,4 +1,6 @@
 use std::collections::BTreeSet;
+pub mod buff_visual_sources;
+pub mod animation_metadata;
 use serde::{Deserialize, Serialize};
 
 /// Shared gameplay and presentation-facing ability data parsed from Lua.
@@ -37,6 +39,8 @@ pub struct AbilityDefinition {
 pub enum AbilityEffect {
     ManaBuffSelf { stat: ManaBuffStat, value_key:String, duration_key:String },
     SlowEnemy { reduction_key:String, duration_key:String },
+    StunEnemy { duration_key:String },
+    ControlEnemy { control:ControlEffectKind, duration_key:String },
     /// Instant relocation with the normal swept-terrain collision contract.
     /// Deliberately exclusive until ordered movement/effect semantics exist.
     DashToPoint,
@@ -47,6 +51,7 @@ pub enum AbilityEffect {
     HealSelf {
         amount_key: String,
     },
+    HealAlly { amount_key:String },
     RestoreManaSelf { amount_key: String },
     /// Additional script cost, not the host's metadata mana_cost reservation.
     SpendManaSelf { amount_key: String },
@@ -55,6 +60,17 @@ pub enum AbilityEffect {
         radius_key: String,
         damage_kind: EffectDamageKind,
     },
+}
+
+/// Closed gameplay status set; never accept an arbitrary authored Buff ID.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ControlEffectKind { Stun, Root, Silence }
+
+impl ControlEffectKind {
+    pub const fn as_str(self)->&'static str {
+        match self { Self::Stun=>"stun",Self::Root=>"root",Self::Silence=>"silence" }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
@@ -146,6 +162,13 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
     if ability.tombstone || ability.effects.is_empty() {return Ok(());}
     if ability.effects.len()>32 || !matches!(ability.ability_type.as_str(),"active"|"ultimate")
         || ability.cast_type!="instant" {return Err(format!("ability '{}': effects require bounded instant active/ultimate",ability.id));}
+    // All unit effects share one target; it cannot be both an ally and enemy.
+    if ability.effects.iter().any(|effect| matches!(effect, AbilityEffect::HealAlly {..}))
+        && ability.effects.iter().any(|effect| matches!(effect,
+            AbilityEffect::Damage {..} | AbilityEffect::SlowEnemy {..} | AbilityEffect::StunEnemy {..}
+                | AbilityEffect::ControlEnemy {..})) {
+        return Err(format!("ability '{}': conflicting unit target allegiance", ability.id));
+    }
     if ability.effects.iter().any(|effect|matches!(effect,AbilityEffect::DashToPoint)) {
         if ability.effects.len()!=1 || ability.target_type!="point" {
             return Err(format!("ability '{}': dash_to_point requires one exclusive point effect",ability.id));
@@ -186,6 +209,14 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
             },
             AbilityEffect::DashToPoint=>unreachable!("exclusive movement checked above"),
             AbilityEffect::Damage {amount_key,..}=>(amount_key,"unit"),
+            AbilityEffect::HealAlly {amount_key}=>(amount_key,"unit"),
+            AbilityEffect::StunEnemy {duration_key} | AbilityEffect::ControlEnemy {duration_key,..}=>{
+                values(duration_key,false)?;
+                if ability.extras[duration_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>60.0) {
+                    return Err(format!("ability '{}': control duration must be in [1/1024,60]",ability.id));
+                }
+                (duration_key,"unit")
+            },
             AbilityEffect::SlowEnemy {reduction_key,duration_key}=>{
                 values(reduction_key,false)?;values(duration_key,false)?;
                 if ability.extras[reduction_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>1.0)
@@ -366,6 +397,53 @@ pub struct HeroAnimationBinding {
     pub loop_animation: bool,
 }
 
+/// Validated authoring ticks converted once; runtimes never evaluate Lua.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HeroAnimationClipTiming {
+    pub start_seconds: f32,
+    pub end_seconds: f32,
+    pub impact_seconds: Option<f32>,
+}
+
+impl HeroAnimationBinding {
+    pub fn clip_timing(&self, source: &HeroAnimationSource) -> Result<HeroAnimationClipTiming, String> {
+        if !source.ticks_per_second.is_finite() || source.ticks_per_second <= 0.0
+            || !self.start_tick.is_finite() || !self.end_tick.is_finite()
+            || self.start_tick < 0.0 || self.end_tick <= self.start_tick {
+            return Err("invalid clip timing".into());
+        }
+        if let Some(impact) = self.impact_tick {
+            if !impact.is_finite() || impact <= self.start_tick || impact >= self.end_tick || self.loop_animation {
+                return Err("impact_tick requires a non-looping clip and must be strictly inside its bounds".into());
+            }
+        }
+        let timing = HeroAnimationClipTiming {
+            start_seconds: self.start_tick / source.ticks_per_second,
+            end_seconds: self.end_tick / source.ticks_per_second,
+            impact_seconds: self.impact_tick.map(|tick| tick / source.ticks_per_second),
+        };
+        if !timing.start_seconds.is_finite() || !timing.end_seconds.is_finite()
+            || timing.end_seconds <= timing.start_seconds
+            || timing.impact_seconds.is_some_and(|impact| !impact.is_finite()
+                || impact <= timing.start_seconds || impact >= timing.end_seconds) {
+            return Err("clip timing cannot be represented as seconds".into());
+        }
+        Ok(timing)
+    }
+}
+
+pub fn validate_hero_animation_clips(hero: &HeroDefinition) -> Result<(), String> {
+    if hero.tombstone { return Ok(()); }
+    if let Some(render) = &hero.render {
+        for (slot, binding) in &render.animations {
+            let source = render.animation_sources.get(&binding.source)
+                .ok_or_else(|| format!("hero '{}' animation '{}' references missing source '{}'", hero.id, slot, binding.source))?;
+            binding.clip_timing(source).map_err(|error| format!("hero '{}' animation '{}': {error}", hero.id, slot))?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ContentId {
     pub id: String,
@@ -490,6 +568,40 @@ pub fn canonical_template_hash(value: &serde_json::Value) -> Result<String, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn animation_clip_timing_preserves_impact_and_rejects_invalid_authoring() {
+        let source = HeroAnimationSource { ticks_per_second: 30.0, ..Default::default() };
+        let binding = HeroAnimationBinding { source: "strike".into(), start_tick: 3.0,
+            impact_tick: Some(9.0), end_tick: 24.0, ..Default::default() };
+        let timing = binding.clip_timing(&source).unwrap();
+        assert_eq!(timing.start_seconds, 0.1);
+        assert_eq!(timing.impact_seconds, Some(0.3));
+        assert_eq!(timing.end_seconds, 0.8);
+        let mut optional = binding.clone();
+        optional.impact_tick = None;
+        optional.loop_animation = true;
+        assert_eq!(optional.clip_timing(&source).unwrap().impact_seconds, None);
+        for impact in [f32::NAN, f32::INFINITY, -1.0, 3.0, 24.0, 25.0] {
+            let mut invalid = binding.clone();
+            invalid.impact_tick = Some(impact);
+            assert!(invalid.clip_timing(&source).is_err());
+        }
+        let mut invalid = binding.clone();
+        invalid.loop_animation = true;
+        assert!(invalid.clip_timing(&source).is_err());
+        for fps in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::MIN_POSITIVE / 100.0] {
+            assert!(binding.clip_timing(&HeroAnimationSource { ticks_per_second: fps, ..Default::default() }).is_err());
+        }
+        let mut hero: HeroDefinition = serde_json::from_value(serde_json::json!({"id":"arbitrary",
+            "render":{"animation_sources":{"strike":{"ticks_per_second":30}},
+                "animations":{"attack":{"source":"strike","start_tick":3,"end_tick":24,"impact_tick":9}}}})).unwrap();
+        validate_hero_animation_clips(&hero).unwrap();
+        hero.render.as_mut().unwrap().animations.get_mut("attack").unwrap().source = "missing".into();
+        assert!(validate_hero_animation_clips(&hero).unwrap_err().contains("arbitrary"));
+        hero.tombstone = true;
+        validate_hero_animation_clips(&hero).unwrap();
+    }
 
     fn catalog() -> ContentCatalog {
         ContentCatalog {
@@ -659,6 +771,55 @@ mod tests {
     }
 
     #[test]
+    fn control_effect_validates_closed_status_and_rank_contract() {
+        for control in ["stun","root","silence"] {
+            let source=serde_json::json!({"id":"control", "max_level":2,
+                "ability_type":"active","cast_type":"instant","target_type":"unit",
+                "levels":[{"range":300},{"range":350}],"extras":{"duration":[0.75,1.5]},
+                "effects":[{"kind":"control_enemy","control":control,"duration_key":"duration"}]});
+            let valid:AbilityDefinition=serde_json::from_value(source.clone()).unwrap();
+            assert!(validate_ability_progression(&valid).is_ok());
+            for value in [0.0,-1.0,0.0001,60.1,f32::NAN,f32::INFINITY] {
+                let mut bad=valid.clone();bad.extras.get_mut("duration").unwrap()[1]=value;
+                assert!(validate_ability_progression(&bad).is_err());
+            }
+            let mut bad=valid.clone();bad.extras.get_mut("duration").unwrap().pop();
+            assert!(validate_ability_progression(&bad).is_err());
+            let mut bad=valid.clone();bad.levels[1].range=0.0;
+            assert!(validate_ability_progression(&bad).is_err());
+            for target in ["none","point"] {
+                let mut bad=valid.clone();bad.target_type=target.into();
+                assert!(validate_ability_progression(&bad).is_err());
+            }
+            for control in [serde_json::json!("burn"),serde_json::json!("Root"),serde_json::json!(0),serde_json::Value::Null] {
+                let mut bad=source.clone();bad["effects"][0]["control"]=control;
+                assert!(serde_json::from_value::<AbilityDefinition>(bad).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn stun_effect_validates_duration_range_and_enemy_allegiance() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"control", "max_level":2,"ability_type":"active","cast_type":"instant",
+            "target_type":"unit","levels":[{"range":300},{"range":350}],
+            "extras":{"duration":[0.75,1.5]},
+            "effects":[{"kind":"stun_enemy","duration_key":"duration"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for value in [0.0,-1.0,0.0001,60.1,f32::NAN,f32::INFINITY] {
+            let mut bad=valid.clone();bad.extras.get_mut("duration").unwrap()[1]=value;
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut bad=valid.clone();bad.extras.get_mut("duration").unwrap().pop();
+        assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.levels[1].range=0.0;
+        assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid;bad.target_type="point".into();
+        assert!(validate_ability_progression(&bad).is_err());
+    }
+
+    #[test]
     fn slow_effect_validates_rank_reduction_duration_range_and_target() {
         let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
             "id":"slow", "max_level":2,"ability_type":"active","cast_type":"instant",
@@ -679,6 +840,30 @@ mod tests {
         assert!(validate_ability_progression(&bad).is_err());
         let mut bad=valid;bad.target_type="point".into();
         assert!(validate_ability_progression(&bad).is_err());
+    }
+
+    #[test]
+    fn unit_effects_reject_conflicting_target_allegiance_in_either_order() {
+        let valid: AbilityDefinition = serde_json::from_value(serde_json::json!({
+            "id":"ally_aid", "max_level":1,"ability_type":"active","cast_type":"instant",
+            "target_type":"unit","levels":[{"range":600}],
+            "extras":{"heal":[140],"damage":[20],"reduction":[0.25],"duration":[2]},
+            "effects":[{"kind":"heal_ally","amount_key":"heal"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for hostile in [
+            AbilityEffect::Damage {amount_key:"damage".into(),damage_kind:EffectDamageKind::Physical},
+            AbilityEffect::SlowEnemy {reduction_key:"reduction".into(),duration_key:"duration".into()},
+            AbilityEffect::StunEnemy {duration_key:"duration".into()},
+            AbilityEffect::ControlEnemy {control:ControlEffectKind::Root,duration_key:"duration".into()},
+            AbilityEffect::ControlEnemy {control:ControlEffectKind::Silence,duration_key:"duration".into()},
+        ] {
+            let mut bad=valid.clone();bad.effects.push(hostile);
+            for _ in 0..2 {
+                assert!(validate_ability_progression(&bad).unwrap_err().contains("conflicting unit target allegiance"));
+                bad.effects.reverse();
+            }
+        }
     }
 
     #[test]
