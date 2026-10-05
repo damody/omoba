@@ -4,9 +4,12 @@
 
 ## What Changes
 
+- 前端維護與驗收只涵蓋 `omfue`。`omfx`／Fyrox 保留歷史程式但不再維護，不要求其跟隨共用 Rust schema／API 變更；不刪除舊 submodule 或檔案。
+
 - 建立三路 MOBA 的權威對局規則、內容、Bot 與單機／區網執行流程。
 - Unreal 透過 `omoba-client-runtime` 的 localhost IPC 接收安全呈現資料並送出輸入，正式 MOBA 模式不再持有第二份遊戲世界。
 - 整合 Lua 內容模型、Rust 規則資料與 `base_content.dll`，生成通用 Unreal C++ 類別、註冊與資產配方。
+- Lua 僅用於建置／生成與開局設定工具；正式 MOBA server、client runtime、腳本 DLL 與 Unreal bridge 不啟用 Lua VM，不在遊戲執行期求值 Lua 原始檔。技能由生成／手寫 Rust 編譯執行，呈現由生成 C++ 執行。
 - 使用 `BpGeneratorUltimate` MCP 與 Unreal Editor 溝通，完成資產匯入、必要的 Blueprint/UMG 建立、編譯驗證與 PIE 測試。
 - 建立可重複的建置、版本檢查、headless 測試及端到端驗收流程。
 

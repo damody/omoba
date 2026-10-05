@@ -4,9 +4,11 @@ This file provides guidance to Codex when working with code in this repository.
 
 ## 專案概觀
 
-`omoba` 是 MOBA / TD 雙模式 Rust 遊戲。主要分成後端 server `omb` 與前端 renderer `omfx` 兩個 submodule；場景、英雄、塔與技能行為由 `scripts/base_content.dll` 透過 `abi_stable` FFI 載入。
+`omoba` 是 MOBA / TD 雙模式 Rust 遊戲。正式維護範圍是後端 `omb`、共用 Rust／內容生成與 Unreal 前端 `omfue`；場景、英雄、塔與技能行為由 `scripts/base_content.dll` 透過 `abi_stable` FFI 載入。
 
-一次完整建置通常會涉及兩個 Cargo workspace：`scripts/` 與 `omb/`/`omfx/`。所有工作流邏輯使用 Lua 5.4，固定由 `D:\code\omoba\tools\lua\lua.exe` 執行；常用入口保留根目錄薄 `.bat` wrapper。
+依使用者 2026-10-05 指示，`omfue` 是唯一需要維護的前端。`omfx`／Fyrox 保留為歷史程式，不再新增功能、修復相容問題、編譯驗證或納入驗收。共用 schema／Rust API 變更只維護正式後端與 Unreal 消費端，不為 `omfx` 補接線；此決定不授權刪除其檔案或 submodule。
+
+正式建置涉及 `scripts/`、`omb/`、`omoba-client-runtime/` 與 `omfue` 的 Rust／Unreal 元件，不包含歷史 `omfx` workspace。所有工作流邏輯使用 Lua 5.4，固定由 `D:\code\omoba\tools\lua\lua.exe` 執行；常用入口保留根目錄薄 `.bat` wrapper。
 
 ## Toolchain
 
