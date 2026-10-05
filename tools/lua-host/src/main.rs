@@ -43,6 +43,30 @@ fn required_u32(value: &Value, name: &str) -> Result<u32, String> {
         .ok_or_else(|| format!("missing u32 {name}"))
 }
 
+/// Replace complete fields inside explicitly named sections, not a recursive
+/// merge of authorization maps. No files or processes are touched here.
+fn toml_update_sections(params:&Value) -> Result<Value,String> {
+    let mut document:toml::Table=toml::from_str(required_str(params,"source")?)
+        .map_err(|error|format!("invalid source TOML: {error}"))?;
+    let updates=params.get("updates").and_then(Value::as_array).ok_or("missing updates array")?;
+    if updates.len()>64 {return Err("too many TOML section updates".into());}
+    for update in updates {
+        let path=update.get("path").and_then(Value::as_array).ok_or("missing section path")?;
+        if path.is_empty() || path.len()>16 {return Err("section path requires 1..16 keys".into());}
+        let fields:toml::Table=toml::from_str(required_str(update,"fields")?)
+            .map_err(|error|format!("invalid replacement TOML: {error}"))?;
+        let mut table=&mut document;
+        for part in path {
+            let key=part.as_str().filter(|key|!key.is_empty()).ok_or("section path keys must be nonempty strings")?;
+            table=table.entry(key.to_owned()).or_insert_with(||toml::Value::Table(toml::Table::new()))
+                .as_table_mut().ok_or_else(||format!("section path collides with non-table '{key}'"))?;
+        }
+        table.extend(fields);
+    }
+    let text=toml::to_string(&document).map_err(|error|error.to_string())?;
+    Ok(json!({"text":text}))
+}
+
 fn run_command(params: &Value) -> Result<Value, String> {
     let exe = required_str(params, "exe")?;
     let args = params
@@ -225,6 +249,37 @@ fn udp(params: &Value) -> Result<Value, String> {
 mod tests {
     use super::*;
     use std::net::UdpSocket;
+
+    #[test]
+    fn toml_sections_preserve_types_and_replace_authorization_tables() {
+        let source=r#"title='unchanged'
+[server]
+AUTHENTICATED_TEAM_BINDINGS={"1"=1,"2"=2}
+quoted="a # value"
+array=[1,2,3]
+[other]
+multiline="""first
+second"""
+"#;
+        let result=toml_update_sections(&json!({"source":source,"updates":[{"path":["server"],
+            "fields":"AUTHENTICATED_TEAM_BINDINGS={\"7\"=2}\nSTEP_FPS=60\n"}]})).unwrap();
+        let parsed:toml::Value=toml::from_str(result["text"].as_str().unwrap()).unwrap();
+        assert_eq!(parsed["title"].as_str(),Some("unchanged"));
+        assert_eq!(parsed["server"]["quoted"].as_str(),Some("a # value"));
+        assert_eq!(parsed["server"]["array"].as_array().unwrap().len(),3);
+        assert_eq!(parsed["other"]["multiline"].as_str(),Some("first\nsecond"));
+        let auth=parsed["server"]["AUTHENTICATED_TEAM_BINDINGS"].as_table().unwrap();
+        assert_eq!(auth.len(),1);assert_eq!(auth["7"].as_integer(),Some(2));
+    }
+    #[test]
+    fn toml_sections_reject_malformed_updates_and_path_collisions() {
+        for params in [json!({"source":"a=1\na=2","updates":[]}),
+            json!({"source":"server=1","updates":[{"path":["server"],"fields":"a=1"}]}),
+            json!({"source":"","updates":[{"path":[],"fields":"a=1"}]}),
+            json!({"source":"","updates":[{"path":["server"],"fields":"a=1\na=2"}]})] {
+            assert!(toml_update_sections(&params).is_err());
+        }
+    }
 
     #[test]
     fn command_protocol_reports_exit_and_output() {
@@ -526,6 +581,7 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "sleep" => sleep(&request.params),
         "memory_dump" => memory_dump(&request.params),
         "screenshot" => screenshot(&request.params),
+        "toml_update_sections" => toml_update_sections(&request.params),
         other => Err(format!("unknown operation {other}")),
     }
 }
