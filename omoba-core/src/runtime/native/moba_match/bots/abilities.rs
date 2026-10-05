@@ -12,6 +12,9 @@ pub enum BotAbilityIntent {
     /// Author explicitly opts a point skill into closing on disclosed enemies.
     ApproachEnemyPoint {min_distance:u32},
     SelfHeal { below_hp_per_mille:u16 },
+    /// Explicit immediate-recovery hint. HP is optional (zero disables it);
+    /// the mana branch must improve the owner's balance after host cost.
+    SelfRecovery { below_hp_per_mille:u16, below_mana_per_mille:u16, restore_key:String },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -75,6 +78,17 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                 && def.levels.iter().all(|level|level.range>Fixed64::from_i32(*min_distance as i32))=>{},
             BotAbilityIntent::SelfHeal {below_hp_per_mille} if def.target_type==TargetTypeC::None
                 && *below_hp_per_mille>0 && *below_hp_per_mille<=1000 => {},
+            BotAbilityIntent::SelfRecovery {below_hp_per_mille,below_mana_per_mille,restore_key}
+                if def.target_type==TargetTypeC::None && *below_hp_per_mille<=1000
+                    && (1..=1000).contains(below_mana_per_mille)=>{
+                let Some((_,amounts))=def.extras.iter().find(|(key,_)|*key==restore_key) else {
+                    return Err("bot recovery intent requires compiled restore extras");
+                };
+                if amounts.len()!=def.levels.len() || amounts.iter().any(|amount|
+                    *amount<Fixed64::ZERO || *amount>Fixed64::from_i32(1_000_000)) {
+                    return Err("bot restore amounts must be nonnegative bounded per-rank data");
+                }
+            },
             BotAbilityIntent::EnemyPoint {radius_key,min_targets} if def.target_type==TargetTypeC::Point
                 && (1..=128).contains(min_targets)=>{
                 let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {return Err("bot point intent requires compiled radius extras");};
@@ -86,6 +100,10 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
         }
     }
     Ok(())
+}
+
+pub(super) fn requires_mana(policies:&[BotAbilityPolicy]) -> bool {
+    policies.iter().any(|policy|matches!(policy.intent,BotAbilityIntent::SelfRecovery {..}))
 }
 
 #[cfg(test)]
@@ -109,15 +127,30 @@ pub(super) fn choose_cast_with_mana_budget(hero:&Hero,role:BotRole,team:u32,own:
         let rank=(owner_rank-1) as usize;
         let Some(def)=omoba_template_ids::ability_by_name(&policy.ability).and_then(omoba_template_ids::active_ability_const) else {continue;};
         let Some(level)=def.levels.get(rank) else {continue;};
-        if let Some(pool)=&hero.mana_pool {
+        let required_cost=if let Some(pool)=&hero.mana_pool {
             let Some(required)=cost(&policy.ability,owner_rank as u8) else {continue;};
             if required<Fixed64::ZERO || required>pool.current() {continue;}
-        }
+            Some(required)
+        } else {None};
         let mut target_pos=None;
         let target=match &policy.intent {
             BotAbilityIntent::SelfHeal {below_hp_per_mille} => {
                 if health.hp<=Fixed64::ZERO || health.mhp<=Fixed64::ZERO
                     || i128::from(health.hp.raw())*1000 >= i128::from(health.mhp.raw())*i128::from(*below_hp_per_mille) {continue;}
+                None
+            }
+            BotAbilityIntent::SelfRecovery {below_hp_per_mille,below_mana_per_mille,restore_key}=>{
+                if health.hp<=Fixed64::ZERO || health.mhp<=Fixed64::ZERO {continue;}
+                let needs_hp=i128::from(health.hp.raw())*1000
+                    <i128::from(health.mhp.raw())*i128::from(*below_hp_per_mille);
+                let needs_mana=hero.mana_pool.as_ref().zip(required_cost).is_some_and(|(pool,required)|{
+                    pool.maximum()>Fixed64::ZERO
+                        && i128::from(pool.current().raw())*1000
+                            <i128::from(pool.maximum().raw())*i128::from(*below_mana_per_mille)
+                        && def.extras.iter().find(|(key,_)|*key==restore_key)
+                            .and_then(|(_,amounts)|amounts.get(rank)).is_some_and(|amount|*amount>required)
+                });
+                if !needs_hp && !needs_mana {continue;}
                 None
             }
             BotAbilityIntent::EnemyUnit => {
