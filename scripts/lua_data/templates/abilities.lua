@@ -580,5 +580,9 @@ return function(ctx)
       abilities[#abilities + 1] = ability
     end
   end
+  -- Append after apprentice skills to preserve every previously exported ID.
+  for _,ability in ipairs(ctx.include('templates/moba_archetypes.lua').abilities) do
+    abilities[#abilities+1]=ability
+  end
   return abilities
 end

@@ -121,6 +121,9 @@ fn main() {
     out.push_str(&format!("pub const MOBA_HERO_ASSIST_GOLD: u32 = {};\n", m.moba_economy.hero_assist_gold));
     out.push_str(&format!("pub const MOBA_ASSIST_WINDOW_SECONDS: u32 = {};\n", m.moba_economy.assist_window_seconds));
     out.push_str(&format!("pub const MOBA_RECALL_CHANNEL_SECONDS: u32 = {};\n", m.moba_economy.recall_channel_seconds));
+    out.push_str(&format!("pub const MOBA_BASE_RECOVERY_HP_PER_SECOND: u32 = {};\n", m.moba_economy.base_recovery_hp_per_second));
+    out.push_str(&format!("pub const MOBA_BASE_RECOVERY_RADIUS: u32 = {};\n", m.moba_economy.base_recovery_radius));
+    out.push_str(&format!("pub const MOBA_MANA_REGEN_PER_SECOND: u32 = {};\n", m.moba_economy.mana_regen_per_second));
 
     // Hero → abilities lookup（必須在 abilities namespace emit 後做，因為 AbilityId 才存在）。
     // build.rs 自己 build 一個 ability id map，把字串 abilities 翻成 raw u16。
@@ -164,8 +167,9 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
     out.push_str(&format!("pub const MOBA_MAP_CATALOG_JSON: &str = {:?};\n", json));
     out.push_str("pub const MOBA_MAPS: &[MobaMapConst] = &[\n");
     for map in maps {
-        out.push_str(&format!("MobaMapConst {{ id: {:?}, lane_length: {}, tower_offset: {}, lanes: &[\n",
-            map.id, map.lane_length, map.tower_offset));
+        let layers = map.tower_layers.clone().unwrap_or_else(|| vec![map.tower_offset]);
+        out.push_str(&format!("MobaMapConst {{ id: {:?}, lane_length: {}, tower_offset: {}, tower_layers: &{:?}, lanes: &[\n",
+            map.id, map.lane_length, map.tower_offset, layers));
         for lane in &map.lanes {
             out.push_str(&format!("MobaLaneConst {{ id: {:?}, waypoints: &[", lane.id));
             for [x,y] in &lane.waypoints { out.push_str(&format!("({x},{y}),")); }

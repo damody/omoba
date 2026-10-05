@@ -256,5 +256,9 @@ return function(ctx)
   apprentice.abilities = { "apprentice_bolt", "apprentice_touch", "apprentice_lance", "apprentice_mend" }
   apprentice.moba_loadout = { ranks = { 0, 0, 0, 0 }, skill_points = 1 }
   heroes[#heroes + 1] = apprentice
+  -- Append after existing heroes: numeric IDs and tombstones remain stable.
+  for _,hero in ipairs(ctx.include('templates/moba_archetypes.lua').heroes) do
+    heroes[#heroes+1]=hero
+  end
   return heroes
 end

@@ -38,6 +38,31 @@ fn unknown_hero_has_no_abilities() {
     assert_eq!(abs.len(), 0);
 }
 
+#[test]
+fn moba_archetypes_append_ids_and_generate_distinct_four_skill_loadouts() {
+    assert_eq!(HERO_TRAINING_APPRENTICE.raw(), 4);
+    assert_eq!(HERO_TRAINING_VANGUARD.raw(), 5);
+    assert_eq!(HERO_TRAINING_RANGER.raw(), 6);
+    let vanguard=hero_stats(HERO_TRAINING_VANGUARD).unwrap();
+    let ranger=hero_stats(HERO_TRAINING_RANGER).unwrap();
+    let mage=hero_stats(HERO_TRAINING_LUMINARY).unwrap();
+    assert!(vanguard.base_hp>mage.base_hp && vanguard.base_hp>ranger.base_hp);
+    assert!(vanguard.attack_range< mage.attack_range && mage.attack_range<ranger.attack_range);
+    assert_eq!((vanguard.primary_attribute,ranger.primary_attribute,mage.primary_attribute),(0,1,2));
+    assert_eq!(hero_abilities(HERO_TRAINING_VANGUARD),
+        [ABILITY_VANGUARD_STRIKE,ABILITY_VANGUARD_RECOVER,ABILITY_VANGUARD_CRUSH,ABILITY_VANGUARD_RESOLVE]);
+    assert_eq!(hero_abilities(HERO_TRAINING_RANGER),
+        [ABILITY_RANGER_SHOT,ABILITY_RANGER_PATCH,ABILITY_RANGER_VOLLEY,ABILITY_RANGER_FINISHER]);
+    for hero in [HERO_TRAINING_VANGUARD,HERO_TRAINING_RANGER,HERO_TRAINING_LUMINARY] {
+        for &id in hero_abilities(hero) {
+            let ability=active_ability_const(id).unwrap();
+            assert_eq!(ability.max_level,4);
+            assert_eq!(ability.levels.len(),4);
+            assert!(ability.levels.iter().all(|rank|rank.cooldown>omoba_sim::Fixed64::ZERO));
+        }
+    }
+}
+
 // ===== Phase B: hero / creep / summon stats lookup =====
 
 #[test]

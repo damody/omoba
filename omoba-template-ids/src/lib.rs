@@ -23,6 +23,7 @@ pub struct MobaMapConst {
     pub id: &'static str,
     pub lane_length: i32,
     pub tower_offset: i32,
+    pub tower_layers: &'static [i32],
     pub lanes: &'static [MobaLaneConst],
     pub jungle_camps: &'static [MobaJungleConst],
     pub terrain: &'static [MobaTerrainConst],

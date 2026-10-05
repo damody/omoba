@@ -55,6 +55,12 @@ pub(crate) struct MobaEconomyRules {
     pub(crate) hero_assist_xp: u32,
     pub(crate) lane_creep_xp: u32,
     pub(crate) lane_xp_radius: u32,
+    #[serde(default)]
+    pub(crate) base_recovery_hp_per_second: u32,
+    #[serde(default)]
+    pub(crate) base_recovery_radius: u32,
+    #[serde(default)]
+    pub(crate) mana_regen_per_second: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -63,6 +69,9 @@ pub(crate) struct MobaMapEntry {
     pub(crate) id: String,
     pub(crate) lane_length: i32,
     pub(crate) tower_offset: i32,
+    /// Optional outer-to-inner offsets; absent preserves the single-tower map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) tower_layers: Option<Vec<i32>>,
     pub(crate) base_unlock: String,
     pub(crate) lanes: Vec<MobaLaneEntry>,
     #[serde(default)]
@@ -113,6 +122,14 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
             || map.tower_offset < 300 || i64::from(map.tower_offset) * 2 >= i64::from(map.lane_length)
             || map.base_unlock != "all_lane_towers" || map.lanes.len() != 3
         { return Err(format!("invalid MOBA map '{}'", map.id)); }
+        if let Some(layers) = &map.tower_layers {
+            if layers.is_empty() || layers.len() > 8
+                || layers.iter().any(|offset| *offset < 300 || i64::from(*offset) * 2 >= i64::from(map.lane_length))
+                || layers.windows(2).any(|pair| i64::from(pair[0]) - i64::from(pair[1]) < 200)
+            {
+                return Err(format!("invalid outer-to-inner tower layers in MOBA map '{}'", map.id));
+            }
+        }
         let mut lanes = BTreeSet::new();
         let mut camps = BTreeSet::new();
         if map.jungle_camps.len() > 32 { return Err("MOBA map exceeds 32 jungle camps".into()); }
@@ -178,7 +195,8 @@ impl Default for MobaEconomyRules {
         // Legacy TD-only manifests omit the entire MOBA rules section.
         Self { passive_gold_per_second: 0, hero_kill_gold: 0, recall_channel_seconds: 8,
             hero_assist_gold: 0, assist_window_seconds: 10, hero_kill_xp: 0, hero_assist_xp: 0,
-            lane_creep_xp: 0, lane_xp_radius: 1200 }
+            lane_creep_xp: 0, lane_xp_radius: 1200,
+            base_recovery_hp_per_second: 0, base_recovery_radius: 0, mana_regen_per_second: 0 }
     }
 }
 
@@ -976,8 +994,16 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     if !(1..=60).contains(&manifest.moba_economy.recall_channel_seconds) {
         return Err("MOBA recall channel must be 1..60 seconds".into());
     }
+    if manifest.moba_economy.base_recovery_hp_per_second>10_000
+        || manifest.moba_economy.base_recovery_radius>10_000
+        || (manifest.moba_economy.base_recovery_hp_per_second>0 && manifest.moba_economy.base_recovery_radius==0) {
+        return Err("MOBA base recovery rate/radius must be <=10000 with a positive enabled radius".into());
+    }
     if manifest.moba_economy.hero_assist_gold > 1_000_000 || !(1..=60).contains(&manifest.moba_economy.assist_window_seconds) {
         return Err("MOBA assist gold must be <=1000000 and window 1..60 seconds".into());
+    }
+    if manifest.moba_economy.mana_regen_per_second > 10_000 {
+        return Err("MOBA mana regeneration rate must be <=10000".into());
     }
     let stories = load_stories(&loader, &lua, &content_root, &manifest)?;
     if stories.iter().any(|story| {
@@ -1326,6 +1352,28 @@ mod tests {
         for (field,value) in [("lane_length",serde_json::json!(2400.5)),
             ("tower_offset",serde_json::json!("700")),("typo",serde_json::json!(1))] {
             let mut bad = raw.clone(); bad[field] = value;
+            assert!(serde_json::from_value::<MobaMapEntry>(bad).is_err());
+        }
+    }
+
+    #[test]
+    fn moba_tower_layers_are_bounded_ordered_and_catalog_bound() {
+        use super::*;
+        use omoba_content_model::canonical_template_hash;
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let maps = load_content(root).unwrap().manifest.moba_maps;
+        let map = maps.iter().find(|map| map.id == "three_lane_layered_training").unwrap();
+        assert_eq!(map.tower_layers.as_deref(), Some([1000, 700, 400].as_slice()));
+        for offsets in [vec![], vec![1000; 9], vec![300,700], vec![700,700], vec![700,600], vec![1200], vec![299], vec![i32::MAX]] {
+            let mut bad = map.clone(); bad.tower_layers = Some(offsets);
+            assert!(validate_moba_maps(&[bad]).is_err());
+        }
+        let raw = serde_json::to_value(map).unwrap();
+        let mut changed = map.clone(); changed.tower_layers = Some(vec![1000,600,400]);
+        assert!(validate_moba_maps(&[changed.clone()]).is_ok());
+        assert_ne!(canonical_template_hash(&raw).unwrap(), canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
+        for value in [serde_json::json!([700.5]), serde_json::json!(["700"])] {
+            let mut bad = raw.clone(); bad["tower_layers"] = value;
             assert!(serde_json::from_value::<MobaMapEntry>(bad).is_err());
         }
     }

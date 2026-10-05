@@ -1,7 +1,7 @@
 -- Authoring coordinates are integer world units; Rust generates fixed-point routes.
 -- Prototype rule: the base opens only after all three lane towers are destroyed.
 return function(ctx)
-return {
+local maps = {
   {
     id = "three_lane_training",
     lane_length = 2400,
@@ -28,4 +28,10 @@ return {
     },
   },
 }
+local layered = {}
+for key, value in pairs(maps[1]) do layered[key] = value end
+layered.id = "three_lane_layered_training"
+layered.tower_layers = {1000, 700, 400}
+maps[#maps + 1] = layered
+return maps
 end

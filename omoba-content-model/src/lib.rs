@@ -30,17 +30,26 @@ pub struct AbilityDefinition {
     pub effects: Vec<AbilityEffect>,
 }
 
-/// Executable subset of Lua-authored effects. `amount_key` resolves a
-/// per-level value from `extras`; special skills still use a Rust handler.
+/// Executable subset of Lua-authored effects. Amount-bearing effects resolve
+/// `amount_key` from per-level `extras`; special skills still use a Rust handler.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AbilityEffect {
+    SlowEnemy { reduction_key:String, duration_key:String },
+    /// Instant relocation with the normal swept-terrain collision contract.
+    /// Deliberately exclusive until ordered movement/effect semantics exist.
+    DashToPoint,
     Damage {
         amount_key: String,
         damage_kind: EffectDamageKind,
     },
     HealSelf {
         amount_key: String,
+    },
+    AreaDamage {
+        amount_key: String,
+        radius_key: String,
+        damage_kind: EffectDamageKind,
     },
 }
 
@@ -68,6 +77,16 @@ pub struct AbilityLevel {
 
 fn default_required_hero_level() -> u8 { 1 }
 
+/// Authored numeric envelope, not a balance rule. Positive values must survive
+/// Q10 quantization; the upper bound leaves headroom for composed effects.
+/// Keep the fixed Lua FFI generator's envelope in sync with these constants.
+pub const MIN_ABILITY_SCALAR: f32 = 1.0 / 1024.0;
+pub const MAX_ABILITY_SCALAR: f32 = 1_000_000.0;
+
+fn valid_ability_scalar(value: f32) -> bool {
+    value.is_finite() && (value == 0.0 || (MIN_ABILITY_SCALAR..=MAX_ABILITY_SCALAR).contains(&value))
+}
+
 impl Default for AbilityLevel {
     fn default() -> Self {
         Self { required_hero_level: 1, cooldown: 0.0, mana_cost: 0.0, cast_time: 0.0, range: 0.0 }
@@ -81,10 +100,66 @@ pub fn validate_ability_progression(ability: &AbilityDefinition) -> Result<(), S
     }
     let mut previous = 1;
     for (rank, level) in ability.levels.iter().enumerate() {
+        for (field, value) in [("cooldown", level.cooldown), ("mana_cost", level.mana_cost),
+            ("cast_time", level.cast_time), ("range", level.range)] {
+            if !valid_ability_scalar(value) {
+                return Err(format!("ability '{}': rank {} {field} must be zero or finite in [1/1024,1000000]", ability.id, rank + 1));
+            }
+        }
         if !(1..=25).contains(&level.required_hero_level) || level.required_hero_level < previous {
             return Err(format!("ability '{}': rank {} required_hero_level must be monotonic in 1..=25", ability.id, rank + 1));
         }
         previous = level.required_hero_level;
+    }
+    validate_ability_effects(ability)
+}
+
+/// Shared by template IDs, runtime content and Unreal codegen.
+pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), String> {
+    if ability.tombstone || ability.effects.is_empty() {return Ok(());}
+    if ability.effects.len()>32 || !matches!(ability.ability_type.as_str(),"active"|"ultimate")
+        || ability.cast_type!="instant" {return Err(format!("ability '{}': effects require bounded instant active/ultimate",ability.id));}
+    if ability.effects.iter().any(|effect|matches!(effect,AbilityEffect::DashToPoint)) {
+        if ability.effects.len()!=1 || ability.target_type!="point" {
+            return Err(format!("ability '{}': dash_to_point requires one exclusive point effect",ability.id));
+        }
+        if ability.levels.len()!=usize::from(ability.max_level) || ability.levels.iter()
+            .any(|l|!l.range.is_finite() || l.range<MIN_ABILITY_SCALAR || l.range>10_000.0) {
+            return Err(format!("ability '{}': dash_to_point requires positive bounded per-rank range",ability.id));
+        }
+        return Ok(());
+    }
+    let values=|key:&str,radius:bool| -> Result<(),String> {
+        let entries=ability.extras.get(key).ok_or_else(||format!("ability '{}': missing effect extras '{key}'",ability.id))?;
+        if key.is_empty() || entries.len()!=usize::from(ability.max_level)
+            || entries.iter().any(|v|!valid_ability_scalar(*v) || (radius && (*v<1.0/1024.0 || *v>10_000.0))) {
+            return Err(format!("ability '{}': invalid per-rank effect extras '{key}'",ability.id));
+        }
+        Ok(())
+    };
+    for effect in &ability.effects {
+        let (amount,target)=match effect {
+            AbilityEffect::DashToPoint=>unreachable!("exclusive movement checked above"),
+            AbilityEffect::Damage {amount_key,..}=>(amount_key,"unit"),
+            AbilityEffect::SlowEnemy {reduction_key,duration_key}=>{
+                values(reduction_key,false)?;values(duration_key,false)?;
+                if ability.extras[reduction_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>1.0)
+                    || ability.extras[duration_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>60.0) {
+                    return Err(format!("ability '{}': slow_enemy requires reduction in [1/1024,1] and duration in [1/1024,60]",ability.id));
+                }
+                (reduction_key,"unit")
+            },
+            AbilityEffect::HealSelf {amount_key}=>(amount_key,"none"),
+            AbilityEffect::AreaDamage {amount_key,radius_key,..}=>{
+                values(radius_key,true)?;
+                (amount_key,"point")
+            }
+        };
+        if ability.target_type!=target {return Err(format!("ability '{}': effect does not match target_type",ability.id));}
+        if target!="none" && ability.levels.iter().any(|l|!l.range.is_finite() || l.range<1.0/1024.0 || l.range>10_000.0) {
+            return Err(format!("ability '{}': targeted effects require positive bounded cast range",ability.id));
+        }
+        values(amount,false)?;
     }
     Ok(())
 }
@@ -483,6 +558,134 @@ mod tests {
         for values in [vec![],vec![0],vec![26],vec![6,5]] { assert!(validate_ability_progression(&make(&values)).is_err()); }
         let mut incomplete = make(&[1,2]); incomplete.levels.pop();
         assert!(validate_ability_progression(&incomplete).is_err());
+    }
+
+    #[test]
+    fn authored_numeric_envelope_checks_every_rank_and_field() {
+        let valid: AbilityDefinition = serde_json::from_value(serde_json::json!({
+            "id":"numeric", "max_level":2, "levels":[{},{}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for field in ["cooldown", "mana_cost", "cast_time", "range"] {
+            for value in [-1.0, 0.0001, 1_000_001.0, f32::INFINITY, f32::NEG_INFINITY, f32::NAN] {
+                let mut bad=valid.clone();
+                let level=&mut bad.levels[1];
+                match field {"cooldown"=>level.cooldown=value,"mana_cost"=>level.mana_cost=value,
+                    "cast_time"=>level.cast_time=value,_=>level.range=value}
+                let error=validate_ability_progression(&bad).unwrap_err();
+                assert!(error.contains("numeric") && error.contains("rank 2") && error.contains(field),"{error}");
+            }
+        }
+        let mut boundaries=valid.clone();
+        boundaries.levels[0].cooldown=MIN_ABILITY_SCALAR;
+        boundaries.levels[1].mana_cost=MAX_ABILITY_SCALAR;
+        assert!(validate_ability_progression(&boundaries).is_ok());
+        let rounded: AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"rounded", "max_level":1,
+            "levels":[{"cooldown":0.00097656249,"mana_cost":1000000.01,"range":10000.0001}]
+        })).unwrap();
+        assert!(validate_ability_progression(&rounded).is_ok());
+        // Deleted content does not need valid runtime data.
+        boundaries.tombstone=true;boundaries.levels[1].range=f32::NAN;
+        assert!(validate_ability_progression(&boundaries).is_ok());
+    }
+
+    #[test]
+    fn dash_effect_requires_exclusive_point_and_all_rank_ranges() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"dash", "max_level":2,"ability_type":"active","cast_type":"instant",
+            "target_type":"point","levels":[{"range":450},{"range":600}],
+            "effects":[{"kind":"dash_to_point"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for range in [0.0,0.0001,10_001.0,f32::INFINITY,f32::NAN] {
+            let mut bad=valid.clone();bad.levels[1].range=range;
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut bad=valid.clone();bad.target_type="none".into();
+        assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.effects.push(AbilityEffect::DashToPoint);
+        assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid;bad.effects.push(AbilityEffect::AreaDamage {
+            amount_key:"damage".into(),radius_key:"radius".into(),damage_kind:EffectDamageKind::Physical});
+        assert!(validate_ability_progression(&bad).unwrap_err().contains("exclusive"));
+    }
+
+    #[test]
+    fn slow_effect_validates_rank_reduction_duration_range_and_target() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"slow", "max_level":2,"ability_type":"active","cast_type":"instant",
+            "target_type":"unit","levels":[{"range":450},{"range":600}],
+            "extras":{"reduction":[0.25,0.5],"duration":[2,3]},
+            "effects":[{"kind":"slow_enemy","reduction_key":"reduction","duration_key":"duration"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for (key,values) in [("reduction",vec![0.0,1.01,f32::NAN]),("duration",vec![0.0,60.1,f32::INFINITY])] {
+            for value in values {
+                let mut bad=valid.clone();bad.extras.get_mut(key).unwrap()[1]=value;
+                assert!(validate_ability_progression(&bad).is_err());
+            }
+        }
+        let mut bad=valid.clone();bad.levels[1].range=0.0;
+        assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.extras.remove("duration");
+        assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid;bad.target_type="point".into();
+        assert!(validate_ability_progression(&bad).is_err());
+    }
+
+    #[test]
+    fn authored_numeric_envelope_bounds_only_executable_effect_extras() {
+        let mut ability: AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"numeric_heal","max_level":1,"ability_type":"active","cast_type":"instant",
+            "target_type":"none","levels":[{}],"extras":{"heal":[0],"unused":[-5]},
+            "effects":[{"kind":"heal_self","amount_key":"heal"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&ability).is_ok());
+        for value in [MIN_ABILITY_SCALAR,MAX_ABILITY_SCALAR] {
+            ability.extras.get_mut("heal").unwrap()[0]=value;
+            assert!(validate_ability_progression(&ability).is_ok());
+        }
+        for value in [0.0001,1_000_001.0,f32::INFINITY,f32::NAN] {
+            ability.extras.get_mut("heal").unwrap()[0]=value;
+            assert!(validate_ability_progression(&ability).unwrap_err().contains("heal"));
+        }
+    }
+
+    #[test]
+    fn area_effects_validate_shared_target_rank_data_and_limits() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"area_fixture","ability_type":"active","cast_type":"instant","target_type":"point","max_level":1,
+            "levels":[{"range":700}],"extras":{"damage":[110],"radius":[220]},
+            "effects":[{"kind":"area_damage","amount_key":"damage","radius_key":"radius","damage_kind":"physical"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for radius in [0.0,-1.0,0.0001,10_001.0,f32::NAN] {
+            let mut bad=valid.clone();bad.extras.insert("radius".into(),vec![radius]);
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut bad=valid.clone();bad.target_type="unit".into();assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.extras.remove("damage");assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.levels[0].range=0.0;assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.effects=vec![bad.effects[0].clone();33];assert!(validate_ability_progression(&bad).is_err());
+    }
+
+    #[test]
+    fn cast_preflight_unit_effects_require_representable_per_rank_range() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"range_fixture","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":2,
+            "levels":[{"range":600},{"range":700}],"extras":{"damage":[80,125]},
+            "effects":[{"kind":"damage","amount_key":"damage","damage_kind":"magical"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        for range in [0.0,-1.0,0.0001,10_001.0,f32::INFINITY,f32::NAN] {
+            let mut bad=valid.clone();bad.levels[1].range=range;
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut heal=valid;heal.target_type="none".into();
+        heal.effects=vec![AbilityEffect::HealSelf {amount_key:"damage".into()}];
+        for rank in &mut heal.levels {rank.range=0.0;}
+        assert!(validate_ability_progression(&heal).is_ok());
     }
 
     #[test]
