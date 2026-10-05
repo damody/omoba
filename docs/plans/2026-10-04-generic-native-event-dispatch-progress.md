@@ -12,7 +12,13 @@
 
 - codegen 的 exact legacy API／全英雄通用 hook 測試與防角色分支回填測試各 1/1 通過（其他測試 filtered，不重跑整套）。
 - 已結束本專案 Editor 101752，restart 回報 project scope／matching_editors=1／force_terminated=true，另查原 PID 已不存在；沒有停止其他專案。
-- C++／生成檔增量建置與指定 Editor 測試結果待本次執行完成後補記。
+- 2026-10-05 首次建置 90267 失敗於跨專案 Live Coding 鎖（E153）；不是 C++ 編譯錯誤。本專案已退出，但其他專案共用 executable mutex。
+- 修正 restart 的 offline build：包含不帶 bridge 的建置也先拒絕本專案仍在執行；UBT 固定帶 WaitMutex／NoHotReloadFromIDE／NoEngineChanges。保留 bridge stage 前的第二次 guard，不能藉略過 IDE hot reload 覆寫正在執行的本專案或共用引擎。
+- restart 新指定測試 1/1 通過；修正後 build-only 25170 exit 0，OmGameEditor 55 actions／Succeeded，包含 OmContentClasses、probe 與 automation C++。目前 stage bridge SHA `cb9f7fadd35c5d5f4c02a15169c4461910857f4691b292c371623508e0b573b1` 已由既有入口核對。
+- codegen --check：11 files／16 inputs、content_hash `4243c8ad19f1f607` 通過；生成的 C++ 不含 OmMakeSaika／OmSaikaAbilityExtra 或 typed 自動轉派。內容 hash 描述 Lua 來源，不表示生成器 C++ bytes 未變。
+- 新 Editor 102680 啟動成功，初次 readiness timeout／一次錯誤 cwd 已記 E154；正確 cwd 的相同有界檢查 HTTP30000 成功，不重啟。
+- `Om.Generated.AnimationStateSmoke` 與 `Om.Generated.SaikaEventDispatch` 單輪 2/2 passed、failed=0、not_run=0，各 error_count=0／warning_count=0。報告 `omfue/Saved/McpAutomation/GenericNativeDispatch-20261005/report.json`；這是 native probe 直接功能確認，不冒充保存 Blueprint 的動畫像素或完整 PIE 對局。
+- Editor102680 保留開啟。未修改額外 Blueprint、美術、C ABI、玩法規則或提交版本。
 
 ## 剩餘範圍
 

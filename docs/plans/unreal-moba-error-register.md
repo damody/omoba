@@ -1,5 +1,210 @@
 # Unreal MOBA 防錯紀錄
 
+## E178：Mana 協商必須先於註冊；停用對局不能洩漏新事件版本（2026-10-05）
+
+- 發現：既有 finish hook 無論啟用與否都發 CommittedMana26／None，可能讓未宣告新能力的舊端收到未知事件。改為明確啟用或已存在 managed pool 才發；短60Hz兩種配置確認停用0／啟用2 pools每tick。
+- 決定：獨立 version1＋full data hash；server opt-in 預設false、secure MOBA限定，註冊前驗證加入者支援與 selective-player條件，再於 initial／rejoin bootstrap回覆。新client宣告能力不代表server開啟；無共享引擎修改或直接啟用launcher。
+- 操作錯誤：首次新增fact條件的多檔patch附带猜測不存在的測試函式，整份驗證拒絕；移除無關hunk後依實際來源重套。再次猜simulation_driver／observable／match_plan路徑；以rg --files定位native/simulation_driver與bots/plan，確認 result.facts後才寫回歸。
+- 編譯界線：server仍使用checked-in proto fallback（protoc warning），本輪以core vendored protoc正式同步生成，server編譯成功。將來新增proto需先同步fallback，避免多workspace建置讀取舊fallback；不以zero tests或單獨core成功代表server成功。
+- 確認：core1／server2／base1（正式60Hz）成功；root／omb／omfx whitespace通過，無測試或編譯失敗。沒有真實KCP、renderer重連、UE／LAN或全套驗收；E177引擎阻礙仍待。
+
+## E177：Mana HUD 版本界線與共享引擎建置阻礙（2026-10-05）
+
+- 實作：本人 disclosed Mana→HUD schema2→受驗 IPC→C ABI12→共用 UE payload／MP文字與法力條；legacy schema1 只允許未支援且數值零，None 不等於零池。新 Rust 測試2＋bridge3 passed（1capture ignored）。UHT 已成功，但 native C++ 未成功，不能冒充 UI 驗收。
+- 編輯錯誤：多檔 patch 留空 update hunk，整份拒絕；移除空 hunk 後重套，檢查新測試確實存在。第一次runtime測試在新增test前執行，8tests只是原回歸；之後新Mana2tests單獨確認。
+- 操作錯誤：再次猜 `build_ue.lua`／smoke／TargetDescriptor 路徑並傳 literal restart glob給rg；改 `rg --files` 查實際 `build_ue_moba.lua`／`ue_native_visual_smoke.lua`／Configuration/Descriptors。restart executable 相對路徑配錯 cwd、誤用不存在的 OmGame.uproject；實際 project 是 `omfue/om.uproject`，後續採絕對路徑。
+- 程序錯誤：在 stop session 尚未完成時提前重跑build，被Editor gate再次拒絕；必須 await stop完成，再建置。MCP dirty content／maps皆空，但既有restart超時自動force terminate71024，回報force_terminated=true；不得宣稱graceful。未刪檔／修改未儲存資產。
+- 真正阻礙：UBT `FailedDueToEngineChange`，引擎現有三個 Skeletal*來源修改造成Engine unity cache／link產物待重建。保留 `-NoEngineChanges`、不還原或建置使用者的共享引擎修改。bridge12已stage，舊native ABI11必須fail closed；完整native驗證需可用引擎基線。
+- 防再犯：辨識 project scope與engine scope；不得藉舊DLL、移除安全旗標、只看UHT或禁用版本檢查，把功能宣稱成功。長UBT輸出要改讀具體log摘要，不能依截斷末端推論原因。
+- 收尾：Editor91188重新啟動，HTTP MCP30000 ready；root／omfue whitespace檢查通過。不宣稱new native module／NativeManaHud／PIE成功，完整引擎基線問題仍待。
+
+## E176：Mana 生命週期不能使用舊智力公式；測試不可跨私有邊界（2026-10-05）
+
+- 決定：正式 opt-in 由 Lua base_mana／growth 取得上限，i128 與開局所有等級檢查；新生命滿池、升級不補滿、有效時間 post-combat 再生。共用 Lua rate 進 full data hash／compiled agreement／no hot reload，既有模式預設停用。
+- 實際編輯問題：第一次多檔 patch 假設 Lua 欄位獨立一行，與實際 compact table 不符，整份 patch 驗證失敗；確認無部分落地後依實際行重套。編輯時另移除誤留的 duplicate doc comment 與多餘 dead branch，未帶入測試版本。
+- 實際編譯問題：fixture 把 `Finished` 當 unit variant（缺 winner／tick），並直接讀 private `MobaHeroSlot.hero`。改正 struct variant，使用公開新生命身分／等級／滿池結果與 pause 不重生斷言，不為測試公開內部快照。
+- 實際工具問題：對 workspace 外 template-id 直接 `--features runtime-lua-content` 被 Cargo 拒絕。依既有模式同選 base_content／template-id，使用 `--features base_content/runtime-lua-content`；不能把 package filter 執行零 tests 當成功。另誤讀不存在的根 Cargo.toml；先定位真實 workspace，不猜根 manifest。
+- 輸出問題：多檔讀取再次超過 cap；需要精確內容時分段限行，不依截斷部分推論。
+- 確認：base3／core1／template2 通過（含欄位型別與省略預設），雙隊短60Hz完整hash零repair；UE生成與--check、來源diff whitespace檢查通過。最後template篩選的伴隨base0 tests只算編譯；沒有一般網路啟用、buff再生、script restore、HUD或完整Unreal驗收。
+
+## E175：Mana相同仍可能缺owner輸入；再生餘數不能漏投影（2026-10-05）
+
+- 決策：append CommittedMana26／binary v1 disabled2或enabled20bytes；current／maximum／Q10再生餘數同傳，checked decode先驗再寫，沿既有Hero baseline與visibility gate，不傳hidden來源或canonical身份payload。零Mana不等於None。
+- 實際失敗：新短60Hz filtered fixture team1 tick3 hash不符；加入逐component診斷再次重現，Mana三欄完全一致，只有owner ranger_patch cooldown {} 對權威20480。漏pending_accepted_inputs使owner未重演施法；project_tick本身不替SimulationDriver建立server accepted projection。
+- 修正與防再犯：fixture沿正式 CanonicalAcceptedInput／normal PlayerInput接線，原ID、team1-only及其他隊零accepted數量明確断言，兩隊每tick完整hash通過。不得覆寫owner cooldown、只比Mana小雜湊或加入ComponentRepair來讓fixture通過。
+- 操作問題：多檔合併輸出再度截斷；精確小段補讀producer、decoder及既有正常accepted-input fixture，不把截斷當全讀或猜hash原因。
+- 確認：core4／base1（12ticks雙隊24steps）通過、無repair，保留mismatch診斷；不等於網路／UE或整場驗收。正式協商／規則啟用／再生／生命週期／完整script API與HUD仍待，不開一般對局Mana。
+
+## E174：法力與冷卻都不能讀同 tick 舊 cache；0 tests 不是驗證（2026-10-05）
+
+- 決定：managed SkillCast 以 serial queue 私有 ledger 預約候選 Hero、當級合法成本與既有倍率，成功才提交 Mana outcome與CD，失败丟棄該 invocation outcomes／overlay／visual。同tick不同招餘額、同招CD都讀更新後帳本，不用平行鎖搶先順序。既有未啟用模式保持相容。
+- 防再犯：execute成功不代表unit pre-hook沒有panic；已捕捉的hook panic另記flag，managed cast不得提交。只保证延後adapter效果，不宣稱ABI abort／crash／外部I/O可回滾。host扣metadata一次，enabled explicit script spend明確拒絕，不沿旧stub虛報或雙扣；restore等仍待ordered接線。
+- 操作誤判風險：初次 cargo test filter mana_cast 還沒有測試，只得到 running 0 tests；僅可記編譯成功。加入實際測試後base2與adapter1均執行通過，最後核心修改後base2再通過。
+- 輸出問題：合併多檔限行仍超過內層token cap截斷；後續精確讀需要的段落，不把截斷當完整檢查。本輪沒有編譯或測試失敗，不虛構修復案例。
+- 邊界：正常網路對局尚未啟用新池；Mana committed投影／hash／規則版本、再生／生命週期／HUD與完整script API仍待完成，不能因fixture60Hz成功開一般扣費或勾完整5.5。
+
+## E173：最大法力不能冒充餘額；延後提交不可直接各自扣費（2026-10-05）
+
+- 發現：adapter current_mana 回最大值、spend_mana 永遠成功、restore_mana 空實作；不宣稱新 pool 已讓既有腳本 API 生效。共用 event cache 與延後 outcomes 使同 tick 舊餘額有超支風險，平行 Mutex 的競速順序也不等於 deterministic gameplay。
+- 決策：先實作具私有狀態／checked serde 的 Q10 ManaPool 與 Hero optional 保存欄位；成本不足／负值原子拒絕、恢復與容量邊界、i128 再生餘數。正常對局不先開扣費，下一階段必須完成 ordered commit／失敗不扣／雙扣排除與安全投影。
+- 防再犯：不能逐英雄特殊扣費、只 authority 改卻漏 replica hash 或以 input ACK 當扣費成功；GameMode::Moba 也不能代表新規則 opt-in，舊 Story 同樣使用它。初始化必須冪等，不藉 repeated spawn/setup call 補滿既有池。
+- 操作問題：長 OpenSpec 合併輸出仍截斷（含外層 tool aggregate token cap）；改為單次單檔限行補讀，不能以 nested command token cap 足夠就認定模型已收到全檔。
+- 確認：核心 5/5、Hero 2/2 通過，沒有編譯或測試失敗；既有 td_rounds warnings 不相關。未做正常施法／60Hz對局／網路／Unreal驗收，完整Mana未完成。
+
+## E172：減速必須走正式統計；測試須使用編譯數值與導航實際路點（2026-10-05）
+
+- 決定：slow_enemy 共用 model／Lua FFI／Rust effects；全序列 preflight 後用既有 BuffStore 整數 Q10 move_speed_bonus、獨立來源 key 與 generic_ability_slow strongest-family，不使用 legacy float slow_factor，也不寫英雄特殊 UE 程式。家族只覆蓋新通用減速，不宣稱所有 legacy 慢速已統一。
+- 實際測試錯誤：40% 編譯為 Q10 raw410，fixture 卻假定 floor409，導致速度預期不符。改讀正式 compiled rank extra，保留正式 round-nearest 行為，不為測試改 gameplay。
+- 實際導航預期錯誤：先用單軸 speed×dt，再用最終目的地 normalized vector，都與實際位移不符；正式導航使用局部 MoveTarget，位移帶 y 分量。改讀同 tick 實際 waypoint、用同 Fixed64 normalized 計算精確向量；不加寬容差或跳過導航。
+- 生成器檢視：以 extras key 作 Lua map 會在 reduction_key==duration_key 時覆蓋其中一個上界。改 ordered list 驗兩次，新增同 key 1.01 必須拒絕的回歸。
+- 操作錯誤：猜不存在 native/ability_runtime.rs 與 docs/plans/implementation-errors.md；用 rg --files 確認實際模組與本紀錄檔。合併長輸出再度截斷，後續改限行小段；不把截斷輸出稱完整檢查。
+- 確認：model1／base2（正式60Hz移動、strongest、TTL）／十二招1／Lua14 通過，UE正式生成及--check成功。未編譯／stage最新OmGame，未做網路／UE／100場驗收，完整5.5不勾選。
+
+## E171：即時位移不可只寫終點；新增effect要補所有enum比對（2026-10-05）
+
+- 發現：既有fire_dash直接set_pos到要求位置；本批不把該特殊handler當通用安全模板，也不改其既有語意。新增dash_to_point使用既有權威swept-terrain計算，要求整段可通且精確終點，生成／runtime皆拒絕混合效果；不宣稱沿路傷害、動態碰撞或持續衝刺。
+- 實際編譯失敗E0004：新增EffectOp／ResolvedEffect::DashToPoint後，舊四個Luminary技能測試的兩個match未涵蓋新variant。補明確非該fixture效果的分支後base編譯與新功能測試成功；不得以萬用分支改掉正式runtime語意。
+- 操作錯誤：先猜heroes/date/fire_dash.rs不存在，rg --files確認實際B02_date_masamune/No2_fire_dash.rs後才讀取。幾次合併source/status token cap截斷；正式修改依精確小段補讀，不把截斷稱完整檢查。先尋路徑、再讀已存在檔案。
+- 決策與防再犯：advance_with_collision只計算位置、set_pos才提交；point超距／原地／受阻不部分移動或啟CD。Bot只看disclosed living target、實際rank range與明確策略，用正常CastAbility；舊vanguard_resolve的ID保留但target／語意變更必須重建與hash gate，不沿用舊SelfHeal策略。
+- 確認：model1／base2含正式60Hz薄牆與Bot位移／core1／Lua7、新三原型十二招1通過；正式生成與--check、新一真人九Bot60Hz配方預檢成功。原dead-code warnings保留；最新OmGame／DLL stage、filtered／UE全套未驗收。
+
+## E170：有限非負不等於可執行數值；Lua double 與 Rust f32 需同值驗證（2026-10-05）
+
+- 問題：rank資料原只驗數量／解鎖門檻，負cooldown或非有限成本可進入生成；效果量缺上界，小於Q10的正值可能變零。共同model與Lua FFI補零或有限[1/1024,1000000]；range／radius仍維持原較小限制，非法內容拒絕而非clamp。
+- 決定：這是內容安全範圍，不是完整Mana功能、平衡門檻或全部組合運算安全證明。特殊Rust handler也驗共用rank欄位，無關extras保留；deleted tombstone可不具執行資料。
+- 生成器差異：直接比較Lua double會讓1000000.01／10000.0001等邊界只在FFI拒絕，Rust f32卻合法。Lua標準pack／unpack先转相同f32，並加兩邊邊界案例；不藉此修改正式Lua數值或hash。
+- 操作錯誤：又猜不存在 native/component/hero.rs，實際是 native/comp/hero.rs；已用rg --files確認後讀取。合併長文件輸出也截斷，已用明確行數補讀OpenSpec design與tasks；後續先找實際路徑、控制單次輸出，不把截斷當完整閱讀。
+- 確認：新model2、Lua numeric34、原include5、正式24項FFI IDs與base cast_preflight2（含60Hz）成功；UE生成--check內容hash不變。既有td_rounds dead-code warnings未改，不冒充Mana／盟友／網路／完整Unreal驗收。
+
+## E169：Bot 篩選距離不能取代權威執行器；單體與範圍距離不可混用（2026-10-05）
+
+- 發現：Generic Damage preflight 原只驗 alive／enemy，沒有依目前 rank 的 range 檢查 caster／victim 位置；HealSelf 原接受任意 Target，且純執行器沒有統一 caster 存活 gate。不能因正常 Bot 會篩選距離而宣稱非法玩家施法也被攔住。
+- 決定：shared model＋固定 Lua 生成器要求有目標效果的合法可量化 per-rank range。單體 resolved Damage 帶 Some(range)，area 展開帶 None；共用全序列 preflight 先驗有效／正 HP caster，再驗單體兩端位置／精確距離，SelfHeal 強制 None。全部驗完才輸出效果，失敗沿原 dispatch 不啟 CD，不使用前端或 Bot 修補。
+- 重要邊界：AoE 限制中心而非每個 victim；更新正式 fixture 的 x790 victim（cast700／center590／radius220）確認仍受傷，x1000不受傷。不能重用「所有傷害 victim 都須在 cast range內」造成範圍技能回退。
+- 相依決策：GameWorld::faction_of 仍未實作，不能以「非敵人」推成「盟友」，本批未擅自新增友軍治療或 ABI 方法。输入 admission／queued 不是效果生效；未宣稱拒絕效果會還原 input handler 清掉的命令。
+- 操作錯誤：再次猜 omb/src/input_buffer.rs，實際是 lockstep/input_buffer.rs；已先用 rg --files 列實際路徑。合併來源／git status 輸出也截斷，必須縮小每次輸出、以明確行數補讀，而不是將工具呼叫當作已讀完。
+- 防再犯與確認：新 base cast_preflight2＋model1、更新正式AoE1，邊界／一 raw 超界／死 caster／錯 heal target／rank資料與 HP-CD 全數通過；同批原 generic3與固定Lua include5通過，UE生成--check通過。沒有 OmGame／stage／網路／全套驗收。
+
+## E168：單體名稱不等於 AoE；群聚中心會改變測試範圍（2026-10-05）
+
+- 發現與決定：三原型只用 Damage／HealSelf，即使名為 volley 仍只有單體。新增通用 area_damage point／per-rank amount-radius 與共用 model／Lua FFI 驗證、Rust host query／穩定去重／全序列 preflight；不加角色分支、不修改 GameWorld ABI。radius／range 必須至少 1/1024，不能接受量化後為 0 的「正數」。
+- 實際測試失敗：正式五人 fixture 將 player5 放在 x900，誤認必在範圍外。Bot 正確選 x690，涵蓋三名敵人；900−690=210，小於 radius220，因此 player5 HP1000→890，測試預期1000錯誤。修 fixture 為 x1000，保留最大覆蓋與正式傷害；不得為通過測試降低 Bot 策略或忽略第三名受害者。
+- 複雜度決定：不得對所有披露單位執行無界平方級群聚。先穩定排序最近512可用單位，最多32候選中心，最多16384次覆蓋檢查；超額 gameplay resolved effects128則全招拒絕，不任意丟棄傷害。這是工作量限制，不是穩定60FPS或全圖最優聲明。
+- 操作錯誤：PowerShell 下把帶 *.rs 的路徑直接交 rg 導致 OS error123，應傳實際目錄搭配 -g '*.rs'；也猜不存在 native/systems/player_input.rs／native/systems 與 OmGenerated/manifest.json，再次造成 error2／3。已用 rg --files 確認 game_processor.rs、scripting/dispatch.rs 與 om_codegen_manifest.json。不得以檔名印象取代實際清單。
+- 輸出截斷：合併 context 的大輸出與單檔 token cap 截斷。已以 bounded line ranges 補讀缺段；後續不要把一次 Get-Content 稱為已讀完，必须檢查工具是否截斷。
+- 當前確認：model1、base area2、core area1、原三英雄十二招1，共五项指定測試成功；正式 codegen 與 Lua 一真人九Bot60Hz preflight成功。新 generated metadata 仍須最後 OmGame／DLL stage／網路及UE整合，沒有把預檢當畫面或100場通過。
+
+## E167：購裝游標不等於終局背包；正式交易規則不可在 Bot 重寫（2026-10-05）
+
+- 問題與決定：若固定依「劍、劍、大劍」游標或看是否還有材料，合成後容易重新買材料，死亡也容易丟失階段。改宣告終局物品 multiset，先保留所有完成目標、遞迴推導第一個缺項；只看 owner 背包／金錢與公開 catalog。沒有 Bot 金錢或 Inventory mutation。
+- 問題與決定：只看空格會錯拒滿格合成，另寫補差額也可能忽略重複材料。read-only preview 直接複製資料呼叫正式 buy_item，authority 仍重新驗身份／存活／範圍。六格與 goal 順序造成的無法組裝，正式 plan compile 有界預檢拒絕，不留靜默卡住配方。
+- 實際編譯錯誤 E0425：moba_match 父層未匯入 ItemRegistry，新增 Bot resource lookup 後編譯失敗。已明確匯入 native::item::ItemRegistry，並用 try_fetch 讓缺少 resource 保守不購買，不破壞省略策略的既有行為。
+- 操作錯誤：多檔 patch 中重複的 think_interval_ticks 行有不同後綴，預期 context 不符，整個 patch 拒絕且未修改。先讀精確 constructor 行，再以完整唯一 context 重做；不可猜測部分 patch 已成功。多檔讀取輸出也再次截斷，之後應分檔限行，不把截斷當完整閱讀。
+- 防再犯：核心測試涵蓋重複／二階材料、完成不重買、保留終局目標、滿格合成、餘額／容量／循環、非法配置及 preflight 死局；正式 60Hz 測試涵蓋只送 ItemBuy、非直接修改、精確扣款、對手不變與 phase／死亡／範圍 gate。補 return_to_shop 的金錢門檻、披露威脅／中立、共用 threat helper；正式 Recall→完整 channel→home→大劍購裝，完成後不因金錢回城。最終指定 core 4＋base 2 成功，Lua 一真人九 Bot 新配置預檢成功；不是完整網路／Unreal／100 場驗收。
+
+## E166：回城傳送不等於續航；恢復不可復活死亡英雄（2026-10-05）
+
+- 發現：既有 Recall 只傳送，不恢復HP。若僅新增低血回城，Bot會在基地反覆Recall。決定新增可選權威基地恢復，Lua compiled rate／radius、Playing active delta、己方存活基地／存活英雄／非lethal生命／距離檢查；在post-combat及recall完成後、final EquipmentStats投影前結算。Bot不改HP或位置。
+- 決定：配方sustain嚴格門檻與安全距離，當隊committed披露威脅→正式MoveTo撤退，無附近威脅→正式Recall；讀條不打斷，基地未恢復至離開門檻不送推線。省略policy保持既有行為，Policy啟用match的恢復旗標，真人也共用相同恢復規則。
+- 操作錯誤：本輪仍猜不存在的events/outcome*、runtime/simulation_driver.rs、runtime/driver.rs、native/mod.rs、runtime.rs及game_proto*；已改用rg列出實際native/simulation_driver.rs／game_processor.rs／generated/game.rs。不要以既有檔名印象代替實際清單。
+- 測試錯誤：先在base_content用只有core才有的篩選得到0tests，僅屬編譯證據；之後分別執行真正core決策與base ECS測試。ECS先存取private routes造成E0616，改由公開bases與Pos核對實際傳送目標；CProperty不是Copy，E0507修為只複製HP／maxHP欄位，不新增公開介面或Clone熱路徑。
+- 大型範圍組合讀取仍有截斷，後續補讀必要區段；不能把被截斷的歷史或程式碼当作完整證據。
+- Cargo指定scripts workspace之外的依賴package再加該package的--features被拒絕；改以workspace內base_content/runtime-lua-content啟用相依feature並選兩package，只計真正執行的template-id測試，不計base篩選0tests。
+- 最後功能確認：core2/2、base3/3（含雙隊20ticks／40steps完整hash零repair）、template-id恢復規則1/1、新混合Lua配方正式Rust預檢成功；root／omb／omfue空白檢查通過。恢復資料改變的是完整catalog_data_hash，不要求僅呈現model的generated content_hash也改變。未stage或做完整Unreal對局，詳見bot-sustain-base-recovery進度檔。
+
+## E165：共用 Lua 模板 include 必須涵蓋 FFI 產生器與建置相依（2026-10-05）
+
+- 首次原型 ID 測試編譯失敗：猜測 HeroId 有 as_u16，實際公開方法為 raw。讀取生成器方法後改用 raw，不新增多餘轉換 API。
+- 正式 base_content 建置失敗：gen_hero_registry.lua 原本只呼叫 builder({})，新增共用 Lua 模板後 ctx.include=nil；Rust／Unreal 完整內容 loader 能 include，不代表 FFI 產生器也能。
+- 決定：FFI 產生器提供一般化 content-relative include，拒絕絕對路徑／父目錄逃逸／循環，所有 builder 共用 context；base_content build.rs 監看完整 templates 目錄，避免只改新 include 檔卻留舊註冊。保留 append-only 英雄／技能顺序，不複製共用模板或新增角色專屬 handler。
+- 本輪大型歷史 context／來源搜尋輸出再次截斷；改分段補讀缺少部分。後續搜尋需限定來源目錄與輸出範圍，不能讓資產清單或合併多份長檔耗盡預算。
+- 原型目前使用真正已支援的敵人單體傷害與自身治療，遠程連射不是 AoE，前排恢復不是護盾；mana 為內容 metadata，未支援消耗前不得宣稱有 mana 規則。完整三原型平衡／美術／100場留最後，不以新增名稱封關5.5。
+- 修正後：附加ID與loadout指定1/1、三英雄十二次正式60Hz施法指定1/1、include正負向5/5、新混合配方正式Rust prepare-only成功；codegen隔離生成／check與正式來源生成成功。未編譯OmGame／stage新DLL，不將舊產物視為新內容證據，詳見moba-archetypes進度檔。
+
+## E164：完整 TOML 不可用簡易讀取器重寫；監聽就緒不等於真人入局（2026-10-05）
+
+- 發現：既有 Lua scalar reader 不支援完整 TOML 結構，拿來合併會破壞 inline table／array／multiline。對真人 AUTH 做遞迴合併還會殘留原玩家；換輸出目錄後相對 content path 也會失效。
+- 決定：固定 lua-host 新增完整 TOML section-field replacement；指定欄位整個取代，其他值保留，所有 content path 絕對化，不修改來源。設定预檢由正式 Rust Setting／role compiler 執行，不載 DLL／World／socket。
+- 發現：runtime presentation listener 在 KCP admission／replica 就緒之前輸出；同隊玩家共用以 team 算的 IPC 埠會衝突。
+- 決定：只接受精確 player_id／team_id ready 行；IPC 埠依真人順序分配，Bot 不啟 client。Unreal 明確 presentation-only；準備或程序啟動都不宣稱 renderer／60FPS／完整對局通過。
+- 決定：每次 spawn 立即存 own PID manifest；cleanup 身分檢查、反向 stop＋wait，錯誤不能被 cleanup_stack 的 pcall 吞掉。失敗記在 run/errors.md 並傳出；mock stop failure 是預期測試，不是真實 PID 清理故障。
+- 本輪兩次組合讀取輸出仍超過預算而截斷；後續以窄範圍重讀必要欄位，不能把截斷視為已閱讀全檔。舊 E163 的閱讀習慣提醒仍有效。
+- omb Cargo.toml 的 index／worktree 原本皆 mixed 換行，新增bin段落CRLF導致預設diff --check報cr尾隨空白；保留原文件，不大範圍改換行或autocrlf，以core.whitespace=cr-at-eol檢查真正空白，root／omb均exit0。
+- 當前功能：host TOML 2/2、固定 Lua 配方／正式 Rust 預檢／readiness／mock lifecycle 5/5 passed；一真人九Bot60Hz prepare-only 成功，沒有實際 Unreal 對局验收。
+
+## E163：Bot 對局名冊不是 KCP 真人認證；正式 tick fixture 必須保留接收端（2026-10-05）
+
+- Bot roster不能塞進AUTHENTICATED_TEAM_BINDINGS補canonical projection。新增server-owned控制名冊，真人認證必須等於配方bot=false玩家；外部輸入先排除Bot／未知ID，內部Bot再經既有MobaMatch gate／canonical accepted projection／PendingPlayerInputs／phase dispatcher。KCP仍只授權真人。
+- 第一次正式State::tick測試失敗「secure team outbound queue disconnected」：fixture helper把出站receiver丟棄，正式可靠隊伍發送正確回報斷線。修正helper回傳receiver並由測試保留；不得關閉可靠send gate、忽略錯誤或只改成SimulationDriver測試假裝正式server成功。最後正式server相關3/3 passed，安全兩隊輸入frame與九Bot實際位移亦驗證。
+- 第二次fixture預期11輸入但只有2真人輸入：正式server的Wave B用一tick披露延遲，不同於舊headless delay0；第一tick缺owner disclosure，Bot正確fail closed。改先正常跑兩tick建立正式披露，不把delay改0或取消owner gate。
+- 第三次已正常披露但只有9而非11：兩個Support初始在Carry跟隨半徑內、無在途命令，正確hold不發輸入。改驗精確controller ID序列（2真人命令＋7Bot命令），而非要求每位Bot每tick必發命令；後續正式60tick仍要求九Bot皆有實際移動。沒有修改AI政策迎合測試。
+- 一真人Lua配方測試首次失敗：toml::Value直接try_into對字串map key "1" 拒絕u32（十Bot空認證表沒有暴露）。改以正式read_setting同路徑的TOML文字序列化→toml::from_str核對，不以十Bot配置掩蓋真人入口。
+- 最後指定Lua配方測試1/1 passed，十Bot與一真人九Bot皆由固定Lua匯出／正式TOML讀入並驗證，並未修改正式AUTH型別。主server binary check exit0；無DLL stage／實際socket或Unreal完整驗收，詳見role-bot-server-control進度檔。
+- 嘗試以core.autocrlf=false抑制diff warnings，反使既有CRLF module檔的CR被diff --check當成全檔行尾空白。恢復正常換行轉換並只設core.safecrlf=false後check exit0；沒有為了checker重寫全檔行尾。
+- 初次role_server篩選未寫測試時0 tests，只算編譯確認，不能宣稱功能通過。一個running編譯呼叫只印output漏session ID；之後保留完整工具回傳，避免失去poll handle。
+- 一次合併OpenSpec讀取與多次來源合併輸出截斷，後拆小段補讀；又猜scene/import_map.rs、runtime/team_projection.rs而不存在，已用rg --files／實際識別字定位。不得從猜測路徑或截斷輸出推定完成。
+
+## E162：技能學習不能繞過權威扣點；Bot roster不等於真人認證（2026-10-05）
+
+- 新學習政策只提出正式UpgradeAbility，owner點數／rank／等級門檻由原handler重新驗證與扣點／SkillLearn。僅有rank0施法策略會永遠跳過未學技能；採獨立有序學習步驟，等級blocked不阻塞其他合法步驟。異常rank以checked_add防溢位，不能直接改Hero假裝學習成功。
+- 查核正式server canonical accepted input team取自AUTHENTICATED_TEAM_BINDINGS，而main同表提供KCP authorization。未來不能把Bot加進真人auth表來補projection，須分開server-owned match/controller roster與外部認證身分；本批沒有改這些邊界或宣稱KCP Bot已完成。
+- PowerShell命令帶`{tasks,design}.md`觸發ParserError/Missing argument，整個讀取沒有執行；修為兩個明確路徑再讀。不得在PowerShell假設bash brace expansion。
+- 合併輸出多次被max tokens截斷，已用明確小段另查upgrade handler／server tick／canonical accepted input；來源仍應縮小讀取範圍，不把截斷讀取當作完整證據。
+- 本批core學習2/2、plan2/2、正式60Hz ECS1/1與固定Lua配置入口均成功，沒有功能測試失敗；不是完整框架／Unreal／LAN／100場驗收，詳見role-bot-learning進度檔。
+
+## E161：tooltip preview不是AI執行語義；HP總差額不是單一技能傷害（2026-10-05）
+
+- 已查明effects_preview僅預覽，改以Lua配方explicit intent與compiled target/rank/range建立通用政策，不以preview／slot猜用途。
+- core測試首次E0382：CProperty非Copy，low=health後再次借用health；改測試clone後2/2通過。
+- ECS期望80卻得169.121，移除TAttack後仍失敗，證明非一般attack元件能隔離。正式MOBA塔攻擊有私有NPC state，原fixture仍在650塔距離內；還原元件、改公開位置fixture離塔／camp範圍，最後80傷害與70自療精確通過。不得調低assert或改實際技能平衡來掩蓋混入來源。
+- 又猜ability_runtime.rs不存在；後以rg --files確認為ability_runtime/registry.rs。來源路徑先列實際清單。部分合併輸出截斷後另依明確技能cast／NPC spawn實作定位，不能以截斷內容確認完整實作。
+- 本批只有core2／正式ECS1／Lua配置入口確認；Mana未實作完整current值，不宣稱資源驗證、任意handler語義或完整對局已通過。
+
+## E160：MoveTo admission 不代表該 tick 即時停止（2026-10-05）
+
+- 新Support停止追逐測試首次失敗：提交到committed自身位置後，位置仍多移動約5.1units。原因是共用Dispatcher先執行既有移動，Moves才接收替換命令，不能拿headless ACK或接入當作即時停住。
+- 修正Support對近距離在途MoveTo的去重，等待正式命令完成，不每tick追新pose替換造成來回修正；不改global phase、不直接清ECS queue。新測試驗admitted target精確／下一tick回到目標／不再重送，最後base相關3/3通過。
+- 初稿曾引用queue.pending，讀實際HeroCommandQueue後確認欄位是queued，編譯前已修正；未捏造編譯失敗或測試通過。大段讀取一度截斷，時序結論依明確phase表及個別command實作，不採截斷文字推斷。
+- 感知使用同baseline的public HP与render；缺健康資料不回讀敵方CProperty。Support配對來自完整role roster，不能只在Bot名單找Carry，否則漏真人。core相關8/8與最後ECS3/3通過，不代表完整Bot／網路驗收。
+
+## E159：已列出入口後仍猜名稱／工具路徑（2026-10-05）
+
+- 本批讀取 omfue/rust、scripts/moba_headless.lua、scripts/lib/common.lua 時遇到不存在路徑；其中已列出 run_moba_headless.lua 卻仍猜舊名稱。改以 scripts/_bootstrap.lua 取得 tools/lua/lib 的既有 JSON／path／process，不新增平台 fallback。
+- 合併大量規劃讀取造成截斷，後續分段補讀；大型歷史 MD 應單檔、小段，不能以 command exit0 當全部內容已讀。
+- 設計檢查發現單把 Bot 指令推入網路 ECS 會漏 controller ownership／正式 acceptance。決定先接共用配方與 headless 正式 driver；KCP 接線保留待辦，不以 headless 通過宣稱網路九 Bot 完成。
+- 本批新 Rust 測試2/2與九 Bot ECS1/1、headless check與Lua配置入口通過；沒有新編譯或功能測試失敗。protoc fallback／td_rounds warnings 是既有建置診斷，不當作已修復。
+
+## E158：MOBA-local key 不能當正式視野 canonical ID（2026-10-05）
+
+- 第一版 Bot 整合測試取得0個輸入而非10個；舊 entity_key 是 id<<32|generation，Wave B canonical 是 generation<<32|id，兩者 namespace 不同。沒有放寬視野白名單，改用正式排列匹配自己／拆 target ID，並驗完整 generation。
+- 修正後五位置10人60Hz正式 driver 功能測試1/1、core視野與身分3/3通過。新增 identity layout regression，不能只以純 planner 測試代替 ECS adapter。
+- 本批又出現猜 native/mod.rs、native/visibility.rs 等不存在路徑，以及 PowerShell rg wildcard 路徑；已改用實際檔案與根目錄 -g，這些是重複操作失誤，不宣稱已永久杜絕。
+- 數次合併讀取仍截斷；功能結論只採獨立小輸出的實際測試數／exit。本批不以截斷的整份 tasks 或文件內容當新的完整閱讀證據。
+
+## E157：無內容 patch hunk 與重複猜 staging 入口（2026-10-05）
+
+- server 設定 patch 兩次留下只有 context、沒有新增／刪除的空 hunk，被 apply_patch 拒絕，沒有部分修改；改成有實際替換／插入內容的 hunk 後成功。送出前應刪掉空 hunk，不重送相同錯誤。
+- 猜 scripts/stage_base_content.lua 不存在；實際 build_ue_moba 呼叫 dev_run_freshness.lua --action stage-dll。應從呼叫者或rg --files -g '*.lua' 找入口，不因DLL名稱猜檔名。
+- 本批 root scripts／UE 以現行debug DLL staging；omb/scripts 是不同舊副本，未被本build入口使用，不能拿三者混比宣稱全部host已更新。正式launch需沿既有配置指向當前scripts/base_content.dll，所有 peers同catalog重建；尚未做正式網路啟動。
+
+## E156：feature-gated 測試零案例不是成功證據（2026-10-05）
+
+- 新 Lua 層次驗證測試首次未帶 runtime-lua-content，cargo exit0但 running0；不計入通過。開feature後出現缺少 canonical_template_hash 匯入的編譯錯誤，補正確 omoba_content_model import，最後實際1/1通過。
+- 同批 PowerShell 直接傳 omoba*／runtime_peer*.lua 作rg路徑被視為非法名稱；應用明確根目錄＋-g選擇檔案，或rg --files找入口，不能重複猜 shell glob。
+- 多段輸出仍可能截斷，測試結論以實際命中的case／完成exit及獨立小輸出確認，不以總exit0或truncated當完整證据。
+
+## E155：IPC 模式不能由位址有無推測（2026-10-05）
+
+- 發現 PRESENTATION_IPC flag 雖指定，bridge 仍以空位址選路；若 legacy DLL／Story 完整，缺 endpoint 可能回落舊 gameplay。修正為保存 explicit intent，create 與 driver 雙 gate 缺位址拒絕，不建立 runtime／legacy threads。
+- Unreal 同時新增明確 PresentationIpc 配置與 launcher flag；缺位址不借用 ServerAddress。測試須用有效 legacy inputs 證明不能 fallback，也以真實 localhost IPC 確認兩種 local mode 都 sim_thread=None。
+- 盤點時猜錯 OmWorldBridgeActor.cpp 所在 module 與 runtime_driver.rs 檔名，rg 回報缺檔；改先 rg --files 定位 OmGenerated/Private 與 driver.rs。缺檔不代表該機制不存在，不能據此新增重複實作。
+
+## E154：restart 相對 project 定位與 readiness 的證據界線（2026-10-05）
+
+- Editor102680 第一次 wait-mcp45 秒逾時；日誌顯示 Engine Initialization 32.94秒、HTTP30000 已綁定，但初次 health I/O timeout 原因未確認，不能直接照 E149 稱為初始化超時。
+- 再次檢查時誤在 monorepo 根目錄呼叫 restart，因預設相對 om.uproject 而 exit2。正確入口 cwd=omfue，或明確 --project 絕對路徑；修正 cwd 後同樣45秒 readiness立即成功，未重啟Editor或調高期限。
+- 保留兩個失敗，不把 port bound 當 health成功，也不把 cwd錯誤當 MCP服務故障。
+
 ## E153：跨專案共用 Editor executable 的 Live Coding 鎖（2026-10-05）
 
 - 本專案 Editor 101752 已退出，但建置 90267 exit 1／UBT OtherCompilationError：Unable to build while Live Coding is active。另一專案 PID96936 使用相同 UE5.8 executable，未停止該程序。

@@ -1,5 +1,47 @@
 ## Context
 
+2026-10-05 Mana規則協商：JoinRequest14／15、TeamGameStart27／28追加獨立version1與full data hash；server MATCH_MANA_ENABLED預設false且限secure MOBA，一般與role-plan轉入mana_enabled。註冊前拒絕不支援／錯hash／非selective player，initial／rejoin bootstrap回覆實際啟用協商；legacy request保持zero。修正停用對局不發fact26。core1／server2／短60Hz base1成功；未做真實網路或UE驗收、不啟用實際launcher，20/30不變。詳見mana-agreement進度與E178。
+
+2026-10-05 通用Mana HUD：本人disclosed pool→schema2 Q10 raw→bridge範圍與身分檢查→C ABI12→共用UE payload／native MP文字與藍色法力條；legacy schema1只允許unsupported canonical zero。runtime新2與bridge3成功；UHT成功，但共享D:/UE5.8已有Skeletal引擎修改觸發NoEngineChanges，native C++未完成且不繞過版本／引擎閘門。一般規則協商與完整UI仍待，20/30不變。詳見mana-hud進度與E177。
+
+2026-10-05 Mana生命週期：明確 `SingleLaneConfig::mana_enabled` 預設停用；正式上限使用 Lua base_mana＋每級成長，不沿用舊智力公式，開局檢查1–25級。出生／新身分復活滿池、升級只增容量，Lua mana_regen_per_second編譯常數與full data hash／compiled agreement／no hot reload接線；有效時間post-combat結算排除暖機／暫停／死亡／結束，沿CommittedMana安全投影。base3／core1／template規則測試與短60Hz雙隊24steps逐tickhash零repair；一般網路協商／Buff及script資源操作／Mana HUD仍待，不改20/30。詳見mana-lifecycle進度與E176。
+
+2026-10-05 Mana投影：append CommittedMana26／binary v1 disabled2與enabled20bytes，current／maximum／再生餘數均以checked pool invariant驗證，沿可見Hero post-step facts、team projector與filtered絕對結算；既有Hero baseline／fresh bootstrap與digest涵蓋所有欄位。core4、短正式60Hz12ticks雙隊24steps每tickhash零repair成功；fixture漏owner accepted input導致CD缺失已正常接線而非override。正常協商／規則啟用／生命週期／再生／script API／HUD仍待，20/30不變，見mana-projection進度與E175。
+
+2026-10-05 managed施法Mana：serial SkillCast ledger按事件順序驗當级成本／倍率、餘額與CD；handler成功才提交ScriptSetMana，失敗丟棄本次adapter deferred effects／overlay／visual，已捕捉pre-hook panic也禁止提交。managed current_mana讀真實本批餘額，explicit script spend拒絕避免假成功或雙扣；其餘script資源變動仍待。正式60Hz輸入與同batch超支／重複CD base2、adapter1通過；正常網路池未啟用，規則／再生／生命週期／安全投影／HUD仍缺，20/30不變，詳見mana-cast進度與E174。
+
+2026-10-05 法力池第一階段：shared Rust ManaPool 私有Q10餘額／容量與i128再生餘數、checked serde、合法扣除與有界恢復；Hero optional且明確冪等初始化，增加容量不補魔、舊JSON仍None。核心5／Hero2成功；adapter假實作尚未取代，正式規則啟用／ordered cast commit／Mana安全facts與HUD仍待接線，正常對局不先扣費，避免同tick cache超支或replica hash錯配。20/30不變，詳見mana-pool進度與E173，不把資料核心稱完整Mana。
+
+2026-10-05 通用減速：Lua slow_enemy per-rank比例／時間→shared model／FFI→Rust全部敵對／存活／距離 preflight後提交；既有BuffStore整數Q10 move_speed_bonus、來源ability/caster/generation key與generic_ability_slow strongest-family，正式UnitStats／導航移動／TTL使用相同統計。ranger_shot資料附加減速，不加英雄C++或BP；model1／base2含正式60Hz／十二招1／Lua14、生成與--check通過。不是全legacy減速統一、cue／Mana／OmGame或100場驗收，20/30不變，見generic-slow進度與E172。
+
+2026-10-05 即時位移：Lua dash_to_point exclusive point/rank range→共用model／FFI→Rust正HP caster、原地／距離驗證／既有Fixed64 swept-terrain query→精確合法終點才set_pos；拒絕不啟CD，不新增ABI／角色C++。vanguard_resolve保留ID改磐岩突進；Bot explicit approach_enemy_point只用披露living位置、minimum/compiled range與正常技能輸入，不寫Pos。model1／base2含60Hz薄牆／core1／Lua7與三原型十二招1成功、生成與一真人九Bot60Hz預檢通過；不代表持續衝刺／動態推擠／Mana／filtered或UE驗收，20/30不變，見generic-dash與E171。
+
+2026-10-05 技能數值契約：shared model對非tombstone全部rank cooldown／mana_cost／cast_time／range與宣告式amount要求零或有限[1/1024,1000000]；target range／radius保留[1/1024,10000]。Lua FFI同步驗完整rank／門檻與特殊handler，先轉f32避免double邊界單邊拒絕，不clamp或改正式內容。model2／Lua34／原include5／24項正式註冊、base2含60Hz與codegen--check成功；Mana adapter仍假實作、faction_of未實作，本批不是Mana／盟友功能，20/30不變，詳見ability-numeric-contract與E170。
+
+2026-10-05 宣告式施法驗證：單體 Damage 原缺權威距離檢查，新增 shared model／固定Lua per-rank bounded range，共用執行器有效／正HP caster與單體兩端位置／精確距離、HealSelf強制None。整個序列preflight後才輸出，原dispatch僅成功啟CD；AoE只限中心，展開victim不套單體range。新base2／model1、更新AoE正式60Hz1、原generic3與Lua5、UE生成--check成功；無新角色C++／ABI或OmGame-stage，不將局部确认當完整驗收，20/30不變，見generic-cast-preflight與E169。
+
+2026-10-05 通用範圍傷害：shared AbilityEffect／Lua FFI 新增 area_damage 的 point、amount_key／radius_key與rank資料驗證；Rust host query展開、(id,generation)去重、HP0排除、caster range與全序列原子preflight，最多128 resolved effects，不改script ABI。Bot explicit enemy_point只用同隊披露，512單位／32中心预算，正常CastAbility target_pos；ranger_volley保留ID改為箭雨，metadata與全內容hash更新。model1／base2／core1／原三原型十二招1、codegen與一真人九Bot設定預檢成功；未stage／OmGame／100場／最後整合，20/30不變，詳見generic-area-damage與E168。
+
+2026-10-05 Bot通用購裝：Lua可選角色item_builds宣告最多六件終局目標，owner背包multiset先保留全部完成目標、遞迴推缺材料，不使用生命期游標；read-only preview重用正式buy_item kernel，正常ItemBuy再經authority admission與settlement。共用shop半徑、基地購裝優先於低血等待，非法ID／角色／無法在六格依宣告順序組裝的配方在compile拒絕；不查敵方背包或直接改經濟。可選return_to_shop金錢／披露威脅門檻，低血撤退優先，正常Recall完整channel後購裝；完成目標不再經濟回城，不保證隱藏敵人無法攻擊。core4與正式60Hz ECS2成功，Lua混合配方預檢成功；100場／最後UE整合仍待完成，20/30不變，見role-bot-item-builds與E167。
+
+2026-10-05 Bot回城續航：Recall原只傳送，新增Lua compiled基地rate／radius＋SingleLaneConfig明確opt-in，authority post-combat active delta／己方活體基地／正HP非lethal生命／range／maxHP結算，真人Bot共用；最終HP走既有filtered投影，不再由Bot或replica補血。可選sustain精確低血／離開／披露威脅距離，正常MoveTo撤退或Recall、讀條不打斷／基地等待。core2、正式60Hz ECS及短雙隊filtered3、compiled/hot-reload1、新混合配方預檢皆成功；尚未stage／完整對局／100場，20/30不變，見bot-sustain-base-recovery與E166。
+
+2026-10-05 三原型內容：共用Lua moba_archetypes builder附加training_vanguard／training_ranger及八招，舊ID不變，與luminary組成近戰前排／遠程物理／法術型；明確只用單體Damage／HealSelf，不冒充控場或mana。模板、FFI與混合role配方共用資料，FFI補相對include／循環與路徑檢查、templates建置監看。ID指定1/1、三英雄十二招正式60Hz输入／精確HP-CD指定1/1、include5/5、新配方一真人九Bot預檢與Unreal生成成功；尚未OmGame編譯／新DLL stage／完整對局與100場，20/30不變，見moba-archetypes進度與E165。
+
+2026-10-05 配方Unreal launcher：固定Lua＋完整TOML section-field replacement＋正式Rust moba-config預檢，獨立run_moba_role_ue從配方真人集合產生server／逐真人runtime／presentation-only UE；Bot只留server，IPC按真人順序分埠，runtime exact player/team ready才啟UE。保留來源、絕對content路徑、明確profile不fallback，owned PID逐次保存／反向stop與wait／errors.md。host2/2、Lua當前功能5/5（真實設定預檢＋mock生命周期）與一真人九Bot60Hz prepare成功；normal Unreal流程尚未執行，三原型／100場／完整驗收仍未完成，見role-unreal-launch進度與E164，20/30不變。
+
+2026-10-05 正式server Bot控制權：Lua匯出server欄位，MATCH_ROLE_PLAN_JSON嚴格驗完整配方，真人AUTH必須等於bot=false集合；Bot不取得KCP授權。main在開局前安裝獨立controllers，外部Bot／未知ID剔除，內部Bot沿既有MobaMatch gate／canonical accepted projection／PendingPlayerInputs／phase dispatcher，team取match controller roster、audience不放寬。正式State::tick60Hz＋delay1／安全兩隊frame與九Bot位移測試、真人Join成功與九BotJoin拒絕、Lua十Bot及一真人九BotTOML設定皆通過，main check成功。新一真人Unreal launcher與完整filtered／socket／技能／100場驗收尚待完成，見role-bot-server-control及E163，5.5仍未勾選。
+
+2026-10-05 Bot技能學習：Lua獨立ability_learning有序ID／rank步驟，最多64、逐技能從1連續且受compiled上限限制；用owner當前loadout／點數／rank／下一級required_hero_level選一個正式UpgradeAbility，不改ECS。blocked步驟跳過並在門檻達成後回補，省略保持舊配方。core learning2＋plan2、正式60Hz rank0學習→重排slot3施法80傷害ECS1與Lua配置入口通過；server Bot控制權需與真人AUTH分離且同正式projection／dispatch接線，未實作、不勾選5.5，詳見role-bot-learning進度與E162。
+
+2026-10-05 Bot技能意圖：effects_preview不是執行語義，採Lua對局配方explicit EnemyUnit／SelfHeal與宣告priority，驗compiled ID／Active-Ultimate Instant／target型別；按當前owner loadout／rank／CD與Fixed64 range只選disclosed living target，走正式CastAbility與權威handler，不改HP／CD或猜slot。core2／正式60Hz ECS1與Lua配置入口成功；Mana／其他技能／網路接線／三原型／100場未完成，5.5仍未勾選，見ability-intents進度與E161。
+
+2026-10-05 Bot角色策略：公開HP／render由同committed baseline完整framing驗證後取用，死亡／非法資料不選取，每隊每think共用一次。Carry優先低HP兵，Support从完整role roster配對同隊Carry（含真人），只依disclosed living位置用正式MoveTo跟隨；停止等待正常Moves→下一Dispatcher完成，近距離在途命令去重避免新pose振盪，不改共用phase。功能core8與ECS3通過，非精準補刀／完整保護／技能或100場驗收，5.5保持未勾選，詳見lane-strategies及E160。
+
+2026-10-05 Bot 配方：共用嚴格 schema1 對局計畫由固定Lua匯出，以compiled map／hero／named lane驗證，排序後生成真人與Bot共用roster／控制指派及profile相依思考間隔。headless opt-in使用正式driver與每步Wave B，保留舊fixture且禁止混用；plan-only不建World／載DLL，不能冒充完整對局。KCP控制權／admission與技能策略尚待接線，5.5不勾選，詳見role-bot-match-plan與E159。
+
+2026-10-05 Bot 增量：新增獨立五位置 opt-in planner 與正式輸入 adapter，保留舊 Push/Guard fixture。只使用同隊 committed disclosure 白名單／公開compiled routes及camp位置，缺／stale snapshot fail closed；local entity_key 不可混用 generation-high canonical ID。10人60Hz正式driver功能確認成功，非production九Bot launcher或100場驗收；策略與技能仍待實作，5.5保持未勾選，詳見role-bot-perception進度及E158。
+
 2026-10-04 fog rebase：manifest v2以新hash domain綁typed grid，v1只允許無grid並保留舊hash契約；恢復保留同隊同場探索，projector與後續frame／bootstrap同步epoch。runtime先驗grid與完整chunk／baseline，再採用恢復retention；主／catch-up共用critical reset→恢復snapshot與latest保留，避免等下一個gameplay frame。四個指定core測試及runtime check成功，尚未做Specs完整對局／KCP／雙UE恢復整合驗收，不勾選4.3／6.1全項。詳見authority-fog-rebase與E143，20/30不變。
 
 2026-10-04 Unreal三態小地圖：共用MinimapModel驗證ABI11／綁定team／epoch／tick／checked Q10 geometry與4096三態後複製lease資料；control保留、full reset清空。row-run overlay覆蓋公開背景與grid外／padding，live／memory仍按安全披露畫在上層，不改target gate。正常build-only與本功能Editor一次1/1通過；未做PIE像素／雙UE／完整rebase／效能整合，不勾選6.1／6.2全項。詳見unreal-minimap-fog-grid與E142，20/30不變。
@@ -72,6 +114,10 @@
 - 不把 Editor MCP 當成遊戲執行期依賴。
 
 ## Decisions
+
+2026-10-05：map可選tower_layers以沿路己方起點距離外→內遞減，未提供保持舊tower_offset單層；最多8、相鄰200與基地距離邊界生成時驗證，規則進map catalog hash。lane_tower_layers保存真實退役，摘要只指第一存活；共用structure_unlocked約束AI與Damage，HP0不能提早解鎖。新增opt-in layered map不改舊預設、不新增前端玩法；完整對局驗收留最後，詳見layered-lane-buildings與E156。
+
+2026-10-05：renderer 的 explicit PresentationIpc intent 優先於 legacy flags，不由 endpoint 是否存在推測 gameplay 模式；缺位址在 create／driver 拒絕，Unreal 不代入 KCP endpoint。新 enum append 保留旧值、CLI／env／settings 共用位址設定；正式launcher宣告presentation-only，runtime simulation 留外部。保留TD與既有有效IPC位址相容，完整單機／LAN驗收留最後，詳見 explicit-presentation-mode 進度檔及E155。
 
 - 2026-10-04 Unreal升級綁定：普通QWER與Ctrl+QWER分開註冊FInputChord，Ctrl升級走通用反射／正式IPC／KCP，不以測試旗標覆寫Ctrl狀態。非Shipping opt-in只執行唯一正式delegate一次，等兵線XP取得SP再操作；queued與ACK不足以封關，需原始rank／SP／XP、實際native文字／PNG與操作後120tick三方hash。技能格固定128×128、內寬116；ASCII content ID／rank-CD／Ctrl提示拆三個SimpleTextMode單行block，不使用AutoWrap與shaping cache。此前固定wrap與三frame等待未完整解決，保留PNG反例，不推定引擎根因；未來localized display name不能直接套用ASCII布局限制。此共用框架變更不新增英雄C++／Blueprint graph。完整驗收與限制見docs/plans/2026-10-04-unreal-ability-upgrade-key-60hz-progress.md及E120。
 
