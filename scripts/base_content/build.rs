@@ -12,6 +12,9 @@ fn main() {
     let lua = repo_root.join("tools/lua/lua.exe");
     for path in [
         &generator,
+        // Includes may add arbitrary shared template files. Watching the full
+        // template directory prevents stale FFI registrations after edits.
+        &content_root.join("templates"),
         &content_root.join("templates/heroes.lua"),
         &content_root.join("templates/abilities.lua"),
     ] {

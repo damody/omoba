@@ -187,6 +187,10 @@ pub enum Outcome {
         ability_id: String,
         duration: Fixed64,
     },
+    ScriptSetMana {
+        entity: Entity,
+        pool: crate::runtime::ability_runtime::ManaPool,
+    },
     EntityRemoved {
         entity: Entity,
     },

@@ -71,6 +71,9 @@ pub struct ParallelWorldAdapter<'a> {
     random_request_base: u64,
     outcomes: Vec<Outcome>,
     overlay_pos: HashMap<Entity, Vec2>,
+    cast_succeeded: bool,
+    hook_panicked: bool,
+    cast_mana_view: Option<(Entity, Fixed64)>,
     overlay_facing: HashMap<Entity, Angle>,
     overlay_asd_count: HashMap<Entity, Fixed64>,
     projectile_hit_generation: Option<u8>,
@@ -445,6 +448,9 @@ impl<'a> ParallelWorldAdapter<'a> {
             random_request_base: stable_invocation_ordinal.saturating_mul(1024),
             outcomes: Vec::new(),
             overlay_pos: HashMap::new(),
+            cast_succeeded: false,
+            hook_panicked: false,
+            cast_mana_view: None,
             overlay_facing: HashMap::new(),
             overlay_asd_count: HashMap::new(),
             projectile_hit_generation: None,
@@ -453,6 +459,29 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     pub fn finish(self) -> Vec<Outcome> {
         self.outcomes
+    }
+
+    pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
+    pub fn cast_succeeded(&self) -> bool { self.cast_succeeded && !self.hook_panicked }
+    pub fn mark_hook_panicked(&mut self) { self.hook_panicked = true; }
+    pub fn set_cast_mana_view(&mut self, entity: Entity, current: Fixed64) {
+        self.cast_mana_view = Some((entity, current));
+    }
+
+    /// Each queued event owns a fresh adapter. Failed managed casts discard
+    /// both unit pre-hooks and ability outcomes, including their local overlays.
+    pub fn discard_cast(&mut self) {
+        self.outcomes.clear();
+        self.overlay_pos.clear();
+        self.overlay_facing.clear();
+        self.overlay_asd_count.clear();
+        self.cast_succeeded = false;
+        self.hook_panicked = false;
+        self.cast_mana_view = None;
+    }
+
+    pub fn commit_mana(&mut self, entity: Entity, pool: crate::runtime::ability_runtime::ManaPool) {
+        self.outcomes.push(Outcome::ScriptSetMana { entity, pool });
     }
 
     pub fn start_cooldown(&mut self, entity: Entity, ability_id: String, duration: Fixed64) {
@@ -1077,12 +1106,22 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn current_mana(&self, e: EntityHandle) -> Fixed64 {
         Self::handle_to_entity(e)
-            .and_then(|ent| self.cache.hero.get(ent).map(|h| h.get_max_mana()))
+            .and_then(|ent| {
+                if let Some((caster, current)) = self.cast_mana_view {
+                    if caster == ent { return Some(current); }
+                }
+                self.cache.hero.get(ent).map(|hero| hero.mana_pool.as_ref()
+                    .map(|pool| pool.current()).unwrap_or_else(|| hero.get_max_mana()))
+            })
             .unwrap_or(Fixed64::ZERO)
     }
 
-    fn spend_mana(&mut self, _e: EntityHandle, _amount: Fixed64, _ability_id: RStr<'_>) -> bool {
-        true
+    fn spend_mana(&mut self, e: EntityHandle, _amount: Fixed64, _ability_id: RStr<'_>) -> bool {
+        // Managed casts are charged once by the host, not again by a handler.
+        // Explicit script resource mutations require ordered settlement support;
+        // reject rather than reporting the old stub's fictitious success.
+        !Self::handle_to_entity(e).and_then(|ent| self.cache.hero.get(ent))
+            .is_some_and(|hero| hero.mana_pool.is_some())
     }
 
     fn restore_mana(&mut self, _e: EntityHandle, _amount: Fixed64) {}
@@ -1776,6 +1815,31 @@ mod tests {
         assert!(
             matches!(outcomes[2], Outcome::ScriptSetAsdCount { entity: e, asd_count } if e == entity && asd_count == Fixed64::from_raw(321))
         );
+    }
+
+    #[test]
+    fn mana_cast_discard_restores_local_views_and_drops_all_deferred_mutations() {
+        let mut world = world_for_adapter_tests();
+        let original = Vec2::new(Fixed64::from_i32(1), Fixed64::from_i32(2));
+        let mut hero = Hero::default();
+        hero.initialize_mana_pool().unwrap();
+        let balance = hero.mana_pool.as_ref().unwrap().current();
+        let entity = world.create_entity().with(Pos(original)).with(hero).build();
+        let handle = ParallelWorldAdapter::entity_to_handle(entity);
+        let cache = ParallelAdapterCache::new(&world, 123);
+        let mut adapter = ParallelWorldAdapter::new(&cache, entity);
+        adapter.set_cast_mana_view(entity, Fixed64::from_i32(10));
+        assert_eq!(adapter.current_mana(handle), Fixed64::from_i32(10));
+        assert!(!adapter.spend_mana(handle, Fixed64::from_i32(1), "test".into()));
+        adapter.set_pos(handle, Vec2::new(Fixed64::from_i32(9), Fixed64::ZERO));
+        adapter.start_cooldown(entity, "test".into(), Fixed64::from_i32(5));
+        adapter.commit_mana(entity, crate::runtime::ability_runtime::ManaPool::full(Fixed64::from_i32(10)).unwrap());
+        adapter.mark_cast_succeeded();
+        adapter.discard_cast();
+        assert!(!adapter.cast_succeeded());
+        assert_eq!(adapter.get_pos(handle), RSome(original));
+        assert_eq!(adapter.current_mana(handle), balance);
+        assert!(adapter.finish().is_empty());
     }
 
     #[test]

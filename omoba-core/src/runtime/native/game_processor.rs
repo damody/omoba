@@ -1602,6 +1602,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
         Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
         Outcome::ScriptStartCooldown { .. } => "ScriptStartCooldown",
+        Outcome::ScriptSetMana { .. } => "ScriptSetMana",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -1869,6 +1870,11 @@ pub fn process_outcomes(
                 ability_id,
                 duration,
             } => handle_script_start_cooldown(world, entity, ability_id, duration),
+            Outcome::ScriptSetMana { entity, pool } => {
+                if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
+                    if hero.mana_pool.is_some() { hero.mana_pool = Some(pool); }
+                }
+            }
             Outcome::EntityRemoved { entity } => {
                 world
                     .write_resource::<RemovedEntitiesQueue>()

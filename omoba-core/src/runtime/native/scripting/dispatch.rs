@@ -20,6 +20,7 @@ use omb_script_abi::{
 use rayon::prelude::*;
 use specs::{Entity, Join, World, WorldExt};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::collections::HashMap;
 
 use std::time::Instant;
 
@@ -97,6 +98,9 @@ pub fn run_script_dispatch(
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let mut event_outcomes = Vec::new();
         let mut visual_events = Vec::new();
+        // Only serial queue order may advance managed mana/CD state. Never use
+        // parallel hook scheduling or the immutable ECS cache as a balance ledger.
+        let mut cast_heroes = HashMap::new();
         for (event_ordinal, ev) in events.into_iter().enumerate() {
             // Internal queued casts must obey the same unlearned gate as
             // PlayerInput. Preserve legacy Story and TD script fallback behavior.
@@ -108,12 +112,30 @@ pub fn run_script_dispatch(
                 }
             }
             let invocation_entity = event_invocation_entity(&ev);
+            let reservation = match prepare_mana_cast(&cache, registry, &ev, &mut cast_heroes) {
+                Ok(value) => value,
+                Err(()) => continue,
+            };
             let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
                 &cache,
                 invocation_entity,
                 event_ordinal as u64,
             );
+            let visual_checkpoint = visual_events.len();
+            if let Some((caster, _)) = &reservation {
+                adapter.set_cast_mana_view(*caster, cast_heroes[caster].mana_pool.as_ref()
+                    .expect("managed ledger").current());
+            }
             dispatch_one(&mut adapter, registry, ev, rng_seed, &mut visual_events);
+            if let Some((caster, next_hero)) = reservation {
+                if adapter.cast_succeeded() {
+                    adapter.commit_mana(caster, next_hero.mana_pool.clone().expect("reserved pool"));
+                    cast_heroes.insert(caster, next_hero);
+                } else {
+                    adapter.discard_cast();
+                    visual_events.truncate(visual_checkpoint);
+                }
+            }
             event_outcomes.extend(adapter.finish());
         }
         drop(cache);
@@ -444,6 +466,37 @@ fn action_instance_id(entity: Entity, tick: u64) -> u64 {
     (u64::from(entity.id()) << 32) | tick
 }
 
+/// Reserve against the ordered event ledger without mutating ECS. The candidate
+/// state is committed only after the handler succeeds; rejected casts leave no debit.
+fn prepare_mana_cast(
+    cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, event: &ScriptEvent,
+    ledger: &mut HashMap<Entity, crate::comp::Hero>,
+) -> Result<Option<(Entity, crate::comp::Hero)>, ()> {
+    let ScriptEvent::SkillCast { caster, skill_id, .. } = event else { return Ok(None); };
+    let Some(original) = cache.hero.get(*caster) else { return Ok(None); };
+    if original.mana_pool.is_none() { return Ok(None); }
+    let hero = ledger.entry(*caster).or_insert_with(|| original.clone());
+    if !cache.entities.is_alive(*caster)
+        || !cache.cprop.get(*caster).is_some_and(|prop| prop.hp > Fixed64::ZERO)
+        || hero.is_on_cooldown(skill_id)
+    { return Err(()); }
+    let rank = hero.get_ability_level(skill_id);
+    if !(1..=255).contains(&rank) { return Err(()); }
+    let (definition, _) = registry.get_ability(skill_id).ok_or(())?;
+    if definition.ability_type == AbilityType::Passive { return Err(()); }
+    let data = definition.get_level_data(rank as u8).ok_or(())?;
+    if !data.cooldown.is_finite() || !(0.0..=1_000_000.0).contains(&data.cooldown)
+    { return Err(()); }
+    let multiplier = crate::runtime::ability_runtime::UnitStats::from_refs(
+        &cache.buffs, cache.is_building.get(*caster).is_some()).mana_cost_mult(*caster);
+    let adjusted = crate::runtime::ability_runtime::checked_mana_cost(data.mana_cost, multiplier)
+        .map_err(|_| ())?;
+    let mut next = hero.clone();
+    next.mana_pool.as_mut().ok_or(())?.spend(adjusted).map_err(|_| ())?;
+    next.start_cooldown(skill_id, Fixed64::from_raw((data.cooldown * 1024.0) as i64));
+    Ok(Some((*caster, next)))
+}
+
 fn dispatch_one(
     adapter: &mut ParallelWorldAdapter<'_>,
     registry: &ScriptRegistry,
@@ -669,6 +722,7 @@ fn dispatch_one(
                 };
 
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
+                if exec_ok { adapter.mark_cast_succeeded(); }
                 if exec_ok && cd_seconds > 0.0 {
                     adapter.start_cooldown(
                         caster,
@@ -950,7 +1004,9 @@ fn with_script<F>(
     let r = catch_unwind(AssertUnwindSafe(|| {
         f(script, handle, &mut world_dyn);
     }));
+    drop(world_dyn);
     if let Err(_) = r {
+        adapter.mark_hook_panicked();
         log::error!("[scripting] panic in hook of unit {}", uid);
     }
 }

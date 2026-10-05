@@ -9,6 +9,8 @@ use specs::{Builder, Entity, World, WorldExt};
 
 use crate::comp::*;
 mod jungle;
+#[cfg(feature = "kcp")]
+pub mod bots;
 pub use jungle::MobaJungleCamp;
 pub(crate) use jungle::record_moba_jungle_damage;
 
@@ -290,6 +292,10 @@ pub struct SingleLaneConfig {
     pub lane_creep_xp: u32,
     pub lane_xp_radius: u32,
     pub assist_window_seconds: u32,
+    /// Explicit opt-in; legacy TD/straight-lane fixtures remain unchanged.
+    pub base_recovery_enabled: bool,
+    /// Explicit opt-in; never inferred from legacy GameMode::Moba stories.
+    pub mana_enabled: bool,
 }
 
 impl Default for SingleLaneConfig {
@@ -316,6 +322,8 @@ impl Default for SingleLaneConfig {
             lane_creep_xp: omoba_template_ids::MOBA_LANE_CREEP_XP,
             lane_xp_radius: omoba_template_ids::MOBA_LANE_XP_RADIUS,
             assist_window_seconds: omoba_template_ids::MOBA_ASSIST_WINDOW_SECONDS,
+            base_recovery_enabled: false,
+            mana_enabled: false,
         }
     }
 }
@@ -369,6 +377,8 @@ pub struct MobaMatch {
     /// One tower per side per lane. `towers` remains the first surviving tower
     /// for legacy HUD/bot callers, never the base-unlock authority.
     pub lane_towers: Vec<[Option<Entity>; 2]>,
+    /// Per-lane outer-to-inner authoritative retirement state.
+    pub lane_tower_layers: Vec<Vec<[Option<Entity>; 2]>>,
     routes: Vec<[Vec<Vec2>; 2]>,
     pub bases: [Option<Entity>; 2],
     pub jungle_camps: Vec<MobaJungleCamp>,
@@ -379,7 +389,16 @@ pub struct MobaMatch {
 
 impl MobaMatch {
     pub fn base_unlocked(&self, side: usize) -> bool {
-        self.lane_towers.iter().all(|lane| lane[side].is_none())
+        side < 2 && self.lane_tower_layers.iter().all(|lane| lane.iter().all(|layer| layer[side].is_none()))
+    }
+
+    fn structure_unlocked(&self, unit: &LaneUnit) -> bool {
+        match unit.role {
+            LaneRole::Base => self.base_unlocked(unit.team as usize),
+            LaneRole::Tower => self.lane_towers.get(unit.lane)
+                .is_some_and(|lane| lane[unit.team as usize] == Some(unit.entity)),
+            _ => true,
+        }
     }
     pub fn is_recalling(&self, entity: Entity) -> bool {
         self.heroes.iter().any(|s| s.entity == Some(entity) && s.recall.is_some())
@@ -573,6 +592,14 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         });
         let loadout = omoba_template_ids::active_hero_stats(hero_id).unwrap().moba_loadout;
         apply_moba_birth_loadout(&mut hero, loadout)?;
+        if config.mana_enabled {
+            let mut future = hero.clone();
+            for level in 1..=25 {
+                future.level = level;
+                future.moba_mana_capacity().map_err(|error|
+                    err_msg(format!("invalid MOBA mana capacity: {id} level {level}: {error:?}")))?;
+            }
+        }
         definitions.push(hero);
     }
     let heroes = roster.iter().enumerate().map(|(index, (player_id, side, _))| MobaHeroSlot {
@@ -600,6 +627,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         heroes,
         towers: [None; 2],
         lane_towers: vec![[None;2]; routes.len()],
+        lane_tower_layers: vec![Vec::new(); routes.len()],
         routes,
         bases: [None; 2],
         jungle_camps: Vec::new(),
@@ -615,14 +643,20 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
             .map(crate::runtime::fog_grid::FogGridGeometry::from_map)
             .transpose().map_err(err_msg)?;
+    let tower_offsets = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
+        .map_or_else(|| vec![700], |map| map.tower_layers.to_vec());
+    for lane in &mut state.lane_tower_layers { *lane = vec![[None; 2]; tower_offsets.len()]; }
     for team in 0..2 {
         state.spawn_hero(world, team);
         for lane in 0..state.routes.len() {
-            let tower = state.spawn_structure(world, team, LaneRole::Tower, lane);
-            state.lane_towers[lane][team] = Some(tower);
+            for (layer, offset) in tower_offsets.iter().enumerate() {
+                let tower = state.spawn_structure(world, team, LaneRole::Tower, lane, Fixed64::from_i32(*offset));
+                state.lane_tower_layers[lane][layer][team] = Some(tower);
+            }
+            state.lane_towers[lane][team] = state.lane_tower_layers[lane][0][team];
         }
         state.towers[team] = state.lane_towers[0][team];
-        state.bases[team] = Some(state.spawn_structure(world, team, LaneRole::Base, 0));
+        state.bases[team] = Some(state.spawn_structure(world, team, LaneRole::Base, 0, Fixed64::ZERO));
     }
     for index in 2..state.heroes.len() { state.spawn_hero(world, index); }
     jungle::setup(world, &mut state);
@@ -682,6 +716,13 @@ impl MobaMatch {
 
     fn spawn_hero(&mut self, world: &mut World, index: usize) {
         let slot = &self.heroes[index];
+        let mut hero = slot.hero.clone();
+        if self.config.mana_enabled {
+            // A new life starts full; do not reuse the saved death balance.
+            hero.mana_pool = Some(crate::runtime::ability_runtime::ManaPool::full(
+                hero.moba_mana_capacity().expect("validated MOBA mana capacity"))
+                .expect("validated MOBA mana pool"));
+        }
         let team = slot.side;
         let rank = self.heroes[..index].iter().filter(|s| s.side == team).count();
         let mut spawn = position(&self.config, team, Fixed64::from_i32(120));
@@ -705,7 +746,7 @@ impl MobaMatch {
         props.def_physic = stats.base_armor;
         let entity = world
             .create_entity()
-            .with(slot.hero.clone())
+            .with(hero)
             .with(unit)
             .with(PlayerOwner::new(slot.player_id))
             .with(faction(team as u8, self.config.teams[team]))
@@ -749,15 +790,13 @@ impl MobaMatch {
         self.track(entity, team, LaneRole::Hero);
     }
 
-    fn spawn_structure(&mut self, world: &mut World, team: usize, role: LaneRole, lane: usize) -> Entity {
-        let (id, hp, offset) = match role {
+    fn spawn_structure(&mut self, world: &mut World, team: usize, role: LaneRole, lane: usize, offset: Fixed64) -> Entity {
+        let (id, hp) = match role {
             LaneRole::Tower => (
                 "single_lane_tower",
                 self.config.tower_hp,
-                self.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
-                    .map_or(Fixed64::from_i32(700), |map| Fixed64::from_i32(map.tower_offset)),
             ),
-            LaneRole::Base => ("single_lane_base", self.config.base_hp, Fixed64::ZERO),
+            LaneRole::Base => ("single_lane_base", self.config.base_hp),
             _ => unreachable!(),
         };
         let mut unit = Unit::new(id.into(), id.into(), UnitType::Neutral);
@@ -976,7 +1015,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                     .is_some_and(|p| p.hp > Fixed64::ZERO)
             })
             .filter(|other| {
-                other.role != LaneRole::Base || state.base_unlocked(other.team as usize)
+                state.structure_unlocked(other)
             })
             .filter(|other| matches!(other.role,LaneRole::Hero | LaneRole::Base) || other.lane == unit.lane)
             .filter_map(|other| {
@@ -1209,7 +1248,10 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                     .remove_all_for(entity);
             }
             LaneRole::Tower => {
-                state.lane_towers[unit.lane][team] = None;
+                for layer in &mut state.lane_tower_layers[unit.lane] {
+                    if layer[team] == Some(entity) { layer[team] = None; }
+                }
+                state.lane_towers[unit.lane][team] = state.lane_tower_layers[unit.lane].iter().find_map(|layer| layer[team]);
                 state.towers[team] = state.lane_towers.iter().find_map(|lane| lane[team]);
             }
             LaneRole::Base => state.bases[team] = None,
@@ -1247,7 +1289,7 @@ pub fn moba_damage_allowed(world: &World, target: Entity) -> bool {
         state.phase == MobaMatchPhase::Playing
             && !state.jungle_camps.iter().any(|camp| camp.entity == Some(target) && camp.returning)
             && state.units.get(&entity_key(target)).is_none_or(|unit| {
-                unit.role != LaneRole::Base || state.base_unlocked(unit.team as usize)
+                state.structure_unlocked(unit)
             })
     })
 }
@@ -1282,6 +1324,39 @@ pub fn finish_moba_match_tick(world: &mut World) {
     // Commit once, after gameplay; replicas receive the settled owner economy
     // rather than independently predicting income or mutating private timers.
     let delta = std::mem::take(&mut state.pending_income_delta_raw);
+    if state.config.mana_enabled && delta > 0 {
+        let properties = world.read_storage::<CProperty>();
+        let mut heroes = world.write_storage::<Hero>();
+        let rate = Fixed64::from_i32(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND as i32);
+        for slot in &state.heroes {
+            let Some(entity) = slot.entity.filter(|_| !slot.lethal_pending) else { continue; };
+            if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO) { continue; }
+            let Some(hero) = heroes.get_mut(entity) else { continue; };
+            let maximum = hero.moba_mana_capacity().expect("validated MOBA mana capacity");
+            if let Some(pool) = &mut hero.mana_pool {
+                pool.set_maximum(maximum).expect("validated MOBA mana capacity");
+                pool.regenerate(rate, Fixed64::from_raw(delta)).expect("nonnegative active time and rate");
+            }
+        }
+    }
+    // Authoritative post-combat settlement, never executed by a Bot or replica.
+    // Use the same active-time delta as income; warmup/pause cannot heal.
+    if state.config.base_recovery_enabled && delta>0 {
+        let positions=world.read_storage::<Pos>();
+        let mut properties=world.write_storage::<CProperty>();
+        let radius=Fixed64::from_i32(omoba_template_ids::MOBA_BASE_RECOVERY_RADIUS as i32);
+        let amount=i128::from(delta)*i128::from(omoba_template_ids::MOBA_BASE_RECOVERY_HP_PER_SECOND);
+        for slot in &state.heroes {
+            let Some(entity)=slot.entity.filter(|_|!slot.lethal_pending) else {continue;};
+            let Some(base)=state.bases[slot.side] else {continue;};
+            if !properties.get(base).is_some_and(|p|p.hp>Fixed64::ZERO) {continue;}
+            let (Some(own),Some(home))=(positions.get(entity),positions.get(base)) else {continue;};
+            if (own.0-home.0).length_squared()>radius*radius {continue;}
+            let Some(health)=properties.get_mut(entity).filter(|p|p.hp>Fixed64::ZERO && p.mhp>Fixed64::ZERO) else {continue;};
+            health.hp=Fixed64::from_raw((i128::from(health.hp.raw())+amount)
+                .min(i128::from(health.mhp.raw())) as i64);
+        }
+    }
     let accrued = i128::from(state.income_remainder_raw) + i128::from(delta);
     let seconds = accrued / i128::from(omoba_sim::fixed::SCALE);
     state.income_remainder_raw = (accrued % i128::from(omoba_sim::fixed::SCALE)) as i64;
@@ -1402,6 +1477,19 @@ pub fn finish_moba_match_tick(world: &mut World) {
                             omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
                         fact:crate::runtime::ObservableFact::CommittedAbilityRanks {source,ranks},
                     }).expect("valid disclosed ability ranks");
+                // Legacy matches must not receive unknown committed fact 26.
+                if state.config.mana_enabled || progression.mana_pool.is_some() {
+                    world.read_resource::<crate::runtime::ObservableFactBuffer>()
+                        .emit(crate::runtime::OrderedFact {
+                            key: crate::runtime::FactOrderingKey { tick,
+                                phase: crate::runtime::FactPhase::PostStep, canonical_source_order: source,
+                                local_ordinal: 0, fact_kind: crate::runtime::FactKind::CommittedMana },
+                            audience: crate::runtime::FactAudience::VisibilityPolicy(
+                                omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+                            fact: crate::runtime::ObservableFact::CommittedMana { source,
+                                state: crate::runtime::ability_runtime::CommittedManaState(progression.mana_pool.clone()) },
+                        }).expect("valid disclosed mana state");
+                }
             }
             if let Some(attack) = attacks.get(entity) {
                 let source = crate::runtime::canonical_entity_id(entity);
@@ -1520,7 +1608,7 @@ pub fn single_lane_replay_digest(world: &World) -> String {
                 world.read_storage::<CProperty>().get(entity))).expect("jungle replay JSON"));
         }
     }
-    hash.update(format!("|map:{:?}|routes:{:?}|towers:{:?}",state.config.map_id,state.routes,state.lane_towers));
+    hash.update(format!("|map:{:?}|routes:{:?}|towers:{:?}|layers:{:?}",state.config.map_id,state.routes,state.lane_towers,state.lane_tower_layers));
     hash.update(format!(
         "{:?}|{}|{}|{}|{}",
         state.phase,
@@ -1699,7 +1787,7 @@ pub fn single_lane_bot_inputs(
             .units
             .values()
             .filter(|u| u.team as usize != team)
-            .filter(|u| u.role != LaneRole::Base || state.base_unlocked(u.team as usize))
+            .filter(|u| state.structure_unlocked(u))
             .filter(|u| {
                 properties
                     .get(u.entity)

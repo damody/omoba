@@ -1,3 +1,4 @@
+use crate::runtime::ability_runtime::{ManaPool, ManaPoolError};
 use omoba_sim::Fixed64;
 use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
@@ -31,6 +32,10 @@ pub struct Hero {
     /// 不寫進 serde 預設值時自動補空 map，相容舊 savegame。
     #[serde(default)]
     pub ability_cooldowns: HashMap<String, Fixed64>,
+    /// Explicitly enabled by the authoritative ruleset. Legacy heroes/savegames
+    /// remain unsupported rather than silently acquiring a full mana balance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mana_pool: Option<ManaPool>,
 
     // 升級數據
     pub level_growth: LevelGrowth,
@@ -76,6 +81,7 @@ impl Hero {
             ability_levels: HashMap::new(),
             skill_points: 0,
             ability_cooldowns: HashMap::new(),
+            mana_pool: None,
             level_growth: LevelGrowth::default(),
         }
     }
@@ -129,6 +135,7 @@ impl Hero {
             ability_levels,
             skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
             ability_cooldowns: HashMap::new(),
+            mana_pool: None,
             level_growth: LevelGrowth {
                 strength_per_level: s.level_growth.strength_per_level,
                 agility_per_level: s.level_growth.agility_per_level,
@@ -182,6 +189,40 @@ impl Hero {
         let int_bonus = self.get_total_intelligence() * Fixed64::from_i32(13); // 每點智力 +13 MP
         let level_bonus = self.level_growth.mana_per_level * (self.level - 1);
         Fixed64::from_i32(75) + int_bonus + level_bonus // 基礎 75 MP
+    }
+
+    /// Authored MOBA capacity, independent of the legacy intelligence formula.
+    pub fn moba_mana_capacity(&self) -> Result<Fixed64, ManaPoolError> {
+        let stats = omoba_template_ids::hero_by_name(&self.id)
+            .and_then(omoba_template_ids::active_hero_stats)
+            .ok_or(ManaPoolError::InvalidState)?;
+        if !(1..=25).contains(&self.level) {
+            return Err(ManaPoolError::InvalidState);
+        }
+        let raw = i128::from(stats.base_mana) * 1024
+            + i128::from(self.level_growth.mana_per_level.raw()) * i128::from(self.level - 1);
+        if !(0..=1_000_000 * 1024).contains(&raw) {
+            return Err(ManaPoolError::InvalidState);
+        }
+        Ok(Fixed64::from_raw(raw as i64))
+    }
+
+    /// Initialize once; repeated initialization must never refill a spent pool.
+    /// Activation is not implicit in GameMode::Moba (legacy stories use it too).
+    pub fn initialize_mana_pool(&mut self) -> Result<(), ManaPoolError> {
+        if self.mana_pool.is_none() {
+            self.mana_pool = Some(ManaPool::full(self.get_max_mana())?);
+        }
+        Ok(())
+    }
+
+    /// Recompute capacity after authoritative stat changes without restoring mana.
+    pub fn refresh_mana_capacity(&mut self) -> Result<(), ManaPoolError> {
+        let maximum = self.get_max_mana();
+        if let Some(pool) = &mut self.mana_pool {
+            pool.set_maximum(maximum)?;
+        }
+        Ok(())
     }
 
     /// 計算攻擊速度倍數
@@ -403,5 +444,58 @@ mod moba_progression_tests {
         assert_eq!((hero.level, hero.experience), (1, 0));
         assert!(hero.add_experience(365));
         assert_eq!((hero.level, hero.experience), (2, 265));
+    }
+}
+
+#[cfg(test)]
+mod mana_pool_tests {
+    use super::*;
+
+    #[test]
+    fn mana_lifecycle_capacity_uses_authored_base_and_checked_growth() {
+        let mut hero = Hero::from_campaign_data(&crate::runtime::scene::import_campaign::HeroJD {
+            id: "training_ranger".into(), abilities: Vec::new(),
+        });
+        assert_eq!(hero.moba_mana_capacity().unwrap(), Fixed64::from_i32(280));
+        hero.intelligence = i32::MAX;
+        assert_eq!(hero.moba_mana_capacity().unwrap(), Fixed64::from_i32(280));
+        hero.level = 25;
+        assert_eq!(hero.moba_mana_capacity().unwrap(), Fixed64::from_i32(280)
+            + hero.level_growth.mana_per_level * 24);
+        hero.level_growth.mana_per_level = Fixed64::from_raw(i64::MAX);
+        assert!(hero.moba_mana_capacity().is_err());
+        hero.level = 0;
+        assert!(hero.moba_mana_capacity().is_err());
+        hero.level = 26;
+        assert!(hero.moba_mana_capacity().is_err());
+        hero.level = 1;
+        hero.id = "unknown".into();
+        assert!(hero.moba_mana_capacity().is_err());
+    }
+
+    #[test]
+    fn mana_pool_hero_initialization_is_opt_in_idempotent_and_growth_preserves_balance() {
+        let mut hero = Hero::default();
+        assert!(hero.mana_pool.is_none());
+        hero.initialize_mana_pool().unwrap();
+        let maximum = hero.get_max_mana();
+        hero.mana_pool.as_mut().unwrap().spend(Fixed64::from_i32(20)).unwrap();
+        hero.initialize_mana_pool().unwrap();
+        assert_eq!(hero.mana_pool.as_ref().unwrap().current(), maximum - Fixed64::from_i32(20));
+        hero.level = 2;
+        hero.refresh_mana_capacity().unwrap();
+        assert_eq!(hero.mana_pool.as_ref().unwrap().maximum(), hero.get_max_mana());
+        assert_eq!(hero.mana_pool.as_ref().unwrap().current(), maximum - Fixed64::from_i32(20));
+        let restored: Hero = serde_json::from_str(&serde_json::to_string(&hero).unwrap()).unwrap();
+        assert_eq!(restored.mana_pool, hero.mana_pool);
+    }
+
+    #[test]
+    fn mana_pool_legacy_save_does_not_invent_balance() {
+        let hero = Hero::default();
+        let value = serde_json::to_value(&hero).unwrap();
+        assert!(value.get("mana_pool").is_none());
+        let restored: Hero = serde_json::from_value(value).unwrap();
+        assert!(restored.mana_pool.is_none());
     }
 }

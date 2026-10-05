@@ -3,6 +3,19 @@
 use super::comp::{Gold, Inventory, ItemInstance};
 use super::item::ItemRegistry;
 
+/// Shared admission radius for authority transactions and owner-side planning.
+pub const MOBA_SHOP_RADIUS: i32 = 300;
+
+/// Read-only preview using the exact atomic transaction kernel. This is not
+/// authority admission: phase, owner identity and proximity are rechecked there.
+pub fn preview_buy_item(registry: &ItemRegistry, inventory: &Inventory, gold: &Gold,
+    item_id: &str) -> Result<usize, ShopError>
+{
+    let mut next_inventory=inventory.clone();
+    let mut next_gold=*gold;
+    buy_item(registry, &mut next_inventory, &mut next_gold, item_id)
+}
+
 fn valid_item(item: &super::item::ItemConfig) -> bool {
     item.cost > 0
         && item.cooldown.is_finite()
@@ -130,7 +143,7 @@ pub fn transact_moba_shop(
         let positions = world.read_storage::<Pos>();
         let hero_pos = positions.get(hero).ok_or(ShopError::HeroUnavailable)?.0;
         let base_pos = positions.get(base).ok_or(ShopError::MatchUnavailable)?.0;
-        let radius = Fixed64::from_i32(300);
+    let radius = Fixed64::from_i32(MOBA_SHOP_RADIUS);
         if (hero_pos - base_pos).length_squared() > radius * radius {
             return Err(ShopError::OutsideShop);
         }
