@@ -20,7 +20,7 @@ fn allowlist() -> BTreeSet<u32> {
 
 fn empty_frame(tick: u64, sequence: u64, revision: u64) -> TeamTickFrame {
     TeamTickFrame {
-        protocol_version: 2,
+        protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
         frame_schema_version: 1,
         content_schema_version: 1,
         team_id: TEAM,
@@ -46,7 +46,7 @@ fn protocol_encode_decode_round_trip_is_schema_stable() {
     let bytes = encode_v2_player_payload(&frame);
     let decoded = TeamTickFrame::decode(bytes.as_slice()).unwrap();
     assert_eq!(decoded, frame);
-    assert_eq!(decoded.protocol_version, 2);
+    assert_eq!(decoded.protocol_version, crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION);
     assert_eq!(decoded.frame_schema_version, 1);
     assert!(ensure_filtered_snapshot_schema(FILTERED_SNAPSHOT_SCHEMA_VERSION).is_ok());
     assert!(ensure_filtered_snapshot_schema(FILTERED_SNAPSHOT_SCHEMA_VERSION + 1).is_err());

@@ -37,7 +37,7 @@ pub const TAG_SESSION_CLOSE: u8 = 0x2A; // C→S graceful session teardown
 pub const TAG_SHOP_RECEIPT_QUERY: u8 = 0x2B; // C→S read-only owner result query
 pub const TAG_SHOP_RECEIPT_REPLAY: u8 = 0x2C; // S→C original result, no gameplay replay
 
-pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 2;
+pub use crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
 pub const SELECTIVE_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const FILTERED_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 

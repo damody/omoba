@@ -369,7 +369,7 @@ pub fn encode_snapshot_chunks(
         let end = (start + chunk_size).min(snapshot_bytes.len());
         let payload = snapshot_bytes[start..end].to_vec();
         let mut chunk = TeamViewRebaseChunk {
-            protocol_version: 2,
+            protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
             snapshot_schema_version: FILTERED_SNAPSHOT_SCHEMA_VERSION,
             snapshot_id: Some(snapshot_id.clone()),
             chunk_index: index as u32,
@@ -442,7 +442,7 @@ pub fn build_snapshot_manifest(
 ) -> TeamViewRebase {
     let mut manifest = TeamViewRebase {
         manifest_version: REBASE_MANIFEST_VERSION,
-        protocol_version: 2,
+        protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
         snapshot_schema_version: FILTERED_SNAPSHOT_SCHEMA_VERSION,
         snapshot_id: Some(snapshot_id),
         team_id,

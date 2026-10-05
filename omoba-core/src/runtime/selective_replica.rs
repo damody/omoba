@@ -285,7 +285,7 @@ impl SelectiveReplicaRuntime {
         component_allowlist: BTreeSet<u32>,
         resource_allowlist: BTreeSet<u32>,
     ) -> Result<Self, ReplicaRuntimeError> {
-        if start.protocol_version != 2 {
+        if start.protocol_version != crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION {
             return Err(ReplicaRuntimeError::WrongProtocol);
         }
         let snapshot = start
@@ -380,7 +380,7 @@ impl SelectiveReplicaRuntime {
         self.last_apply_fault = None;
         self.memory_directives.clear();
         self.applied_transition_revisions.clear();
-        if frame.protocol_version != 2 {
+        if frame.protocol_version != crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION {
             return Err(ReplicaRuntimeError::WrongProtocol);
         }
         if frame.team_id != self.team_id {

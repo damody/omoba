@@ -112,7 +112,7 @@ local ok, error_message = xpcall(function()
     local pid = spawn('runtime-p' .. team, runtime_exe, {
       '--player-id', tostring(team), '--team', tostring(team), '--player-name', 'player' .. team,
       '--server', '127.0.0.1:' .. port, '--presentation-bind', '127.0.0.1:' .. (port + team),
-      '--presentation-hz', shop_smoke and '30' or '60', '--protocol-version', '2', '--test-mode', '--evidence-dir', evidence,
+      '--presentation-hz', shop_smoke and '30' or '60',  '--test-mode', '--evidence-dir', evidence,
       '--scripted-move-tick', (shop_smoke or combat_smoke) and '24000' or '360',
       '--scripted-hidden-target-tick', (shop_smoke or recall_smoke or combat_smoke) and '24060' or '420',
       '--shutdown-file', path.join(evidence, 'shutdown-p' .. team .. '.signal'),
@@ -130,7 +130,7 @@ local ok, error_message = xpcall(function()
     local pid = spawn('runtime-p3', path.join(b.root, 'omoba-client-runtime', 'target', 'debug', 'omoba-client-runtime.exe'), {
       '--player-id','3','--team','1','--player-name','player3',
       '--server','127.0.0.1:' .. port,'--presentation-bind','127.0.0.1:' .. (port+3),
-      '--presentation-hz','60','--protocol-version','2','--test-mode','--evidence-dir',extra_root,
+      '--presentation-hz','60','--test-mode','--evidence-dir',extra_root,
       '--scripted-move-tick',combat_smoke and '24000' or '480','--scripted-hidden-target-tick','24060',
       '--shutdown-file',path.join(extra_root,'shutdown-p3.signal'),
     }, path.join(b.root,'omoba-client-runtime'), extra_env)
@@ -243,7 +243,7 @@ local ok, error_message = xpcall(function()
     local pid = spawn('runtime-p1-resumed', old.executable, {
       '--player-id', '1', '--team', '1', '--player-name', 'player1',
       '--server', '127.0.0.1:' .. port, '--presentation-bind', '127.0.0.1:' .. (port + 1),
-      '--presentation-hz', '60', '--protocol-version', '2', '--test-mode',
+      '--presentation-hz', '60',  '--test-mode',
       '--evidence-dir', resume_root, '--scripted-move-tick', tostring(resume_tick),
       '--scripted-move-interval-ticks', '120',
     }, path.join(b.root, 'omoba-client-runtime'))

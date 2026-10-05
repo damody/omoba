@@ -81,6 +81,9 @@ async fn main() -> anyhow::Result<()> {
     presentation.set_shop_protocol_enabled(session.start.shop_protocol_version == omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION);
     let recall_enabled = session.start.recall_protocol_version == omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION;
     input_bridge.set_recall_enabled(recall_enabled);
+    input_bridge.set_commands_enabled(omoba_core::runtime::command_transport::negotiate_command_protocol(
+        session.start.command_protocol_version, &session.start.command_rules_hash)
+        .map_err(|reason| anyhow::anyhow!("command capability: {reason}"))?);
     presentation.set_recall_protocol_enabled(recall_enabled);
     if config.test_mode && std::env::var("OMOBA_SHOP_QUERY_SMOKE").as_deref() == Ok("1") {
         // No transaction fixture: query a missing shop result only.
@@ -1022,6 +1025,7 @@ async fn apply_ready_frame(
                 omoba_core::game_proto::MoveToIntent {
                     x_raw: destination.0,
                     y_raw: destination.1,
+                    queued: false,
                 },
             )),
         })?;
@@ -1136,8 +1140,9 @@ async fn apply_ready_frame(
     }
     // Capture one-shots every applied step, before the presentation-rate divisor
     // and before catch-up coalesces the latest watch snapshot.
-    presentation.retain_damage(replica.view_epoch(), report.replica_tick,
-        replica.take_damage_presentation(report.replica_tick));
+    let mut cues = replica.take_damage_presentation(report.replica_tick);
+    cues.extend(replica.ability_presentation(report.replica_tick));
+    presentation.retain_effects(replica.view_epoch(), report.replica_tick, cues);
     let settled_inputs = omoba_client_runtime::shop_presentation::settled_inputs(&msg, config.player_id);
     let applied_local_inputs: Vec<_> = settled_inputs.iter().map(|(id, _, _)| *id).collect();
     if (report.team_sequence % u64::from(divisor) == 0 || !applied_local_inputs.is_empty()) && (presentation.presentation_enabled()

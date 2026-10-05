@@ -30,6 +30,9 @@ path.mkdir_p(work)
 local report = {success = false, results = {}, runs = {}, tests = {
   'Om.Generated.NativeHeroPresentation', 'Om.Generated.AnimationStateSmoke',
   'Om.Generated.GenericAnimationOverlay',
+  'Om.Generated.ProjectileCueStyle',
+  'Om.Generated.AbilityCueStyle',
+  'Om.Generated.AbilityCastCue',
   'Om.Generated.SaikaEventDispatch', 'Om.Generated.BlueprintSurface',
   'Om.Generated.ProjectileCueHistory', 'Om.Generated.WorldBridgeSyntheticFrameSmoke',
   'Om.Generated.RememberedGhostPresentation',

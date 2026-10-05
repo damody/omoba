@@ -21,6 +21,9 @@ pub mod projection_policy;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod presentation_cue;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod buff_visual_state;
+pub mod attack_visual_state;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod moba_map_layout;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod secure_replica_contract;
@@ -40,6 +43,7 @@ pub mod shop_receipt;
 pub mod shop_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod recall_transport;
+pub mod command_transport;
 pub mod mana_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_projector;

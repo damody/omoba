@@ -27,17 +27,17 @@ use tokio::{
 
 use crate::{config::ClientRuntimeConfig, ClientRuntimeError};
 
-pub const PRESENTATION_MAGIC: u32 = 0x4f4d_5254;
-pub const PRESENTATION_PROTOCOL_VERSION: u32 = 3;
-pub const MAX_PRESENTATION_FRAME_BYTES: usize = 8 * 1024 * 1024;
-type SharedDamage = Arc<std::sync::Mutex<crate::damage_retention::DamageRetention>>;
+pub use omoba_core::renderer_protocol::{
+    PRESENTATION_MAGIC, PRESENTATION_PROTOCOL_VERSION, MAX_PRESENTATION_FRAME_BYTES,
+};
+type SharedCues = Arc<std::sync::Mutex<crate::cue_retention::CueRetention>>;
 type SharedReady = Arc<std::sync::Mutex<Option<Arc<RendererIpcEnvelope>>>>;
 static RENDERER_CONNECTION: AtomicU64 = AtomicU64::new(1);
 
 pub struct PresentationHub {
     player_id: u32,
     ready: SharedReady,
-    damage: SharedDamage,
+    damage: SharedCues,
     shop_receipts: crate::shop_presentation::ShopReceiptHistory,
     shop_pending: crate::shop_recovery::PendingShopQueries,
     shop_clock: std::time::Instant,
@@ -70,7 +70,7 @@ impl PresentationHub {
         let (input_tx, input_rx) = mpsc::channel(256);
         let connected = Arc::new(AtomicBool::new(false));
         let disconnected_at_ms = Arc::new(AtomicU64::new(now_ms()));
-        let damage = Arc::new(std::sync::Mutex::new(crate::damage_retention::DamageRetention::default()));
+        let damage = Arc::new(std::sync::Mutex::new(crate::cue_retention::CueRetention::default()));
         let ready = Arc::new(std::sync::Mutex::new(None));
         tokio::spawn(serve_connections(
             listener,
@@ -149,7 +149,7 @@ impl PresentationHub {
         envelope
     }
 
-    pub fn retain_damage(&self, view_epoch: u64, tick: u64, effects: Vec<omoba_core::game_proto::PresentationEffect>) {
+    pub fn retain_effects(&self, view_epoch: u64, tick: u64, effects: Vec<omoba_core::game_proto::PresentationEffect>) {
         self.damage.lock().expect("damage retention poisoned").capture(view_epoch, tick, effects);
     }
 
@@ -195,7 +195,7 @@ impl PresentationHub {
             else { return Ok(()); };
         let intent = match self.combat_smoke_stage {
             0 => Some(Intent::MoveTo(MoveToIntent { x_raw: hud.lane_length_raw / 2,
-                y_raw: 900 * 1024 })),
+                y_raw: 900 * 1024, queued: false })),
             1 if self.player_id != 2 && (pose.x_raw-hud.lane_length_raw/2).abs() <= 75*1024
                 && (pose.y_raw-900*1024).abs() <= 75*1024 => {
                 snapshot.entities.iter().find(|e| decode(e).is_some_and(|target|
@@ -415,7 +415,7 @@ async fn serve_connections(
     input_tx: mpsc::Sender<RendererInput>,
     connected: Arc<AtomicBool>,
     disconnected_at_ms: Arc<AtomicU64>,
-    damage: SharedDamage,
+    damage: SharedCues,
     ready: SharedReady,
 ) {
     loop {
@@ -495,7 +495,7 @@ async fn serve_renderer_retained(
     mut latest_rx: watch::Receiver<Option<Arc<RendererIpcEnvelope>>>,
     critical_rx: Arc<Mutex<mpsc::Receiver<RendererIpcEnvelope>>>,
     input_tx: mpsc::Sender<RendererInput>, connected: Arc<AtomicBool>,
-    disconnected_at_ms: Arc<AtomicU64>, damage: Option<SharedDamage>,
+    disconnected_at_ms: Arc<AtomicU64>, damage: Option<SharedCues>,
     ready_metadata: Option<SharedReady>,
 ) -> Result<(), ClientRuntimeError> {
     let connection = RENDERER_CONNECTION.fetch_add(1, Ordering::Relaxed);
@@ -654,11 +654,11 @@ fn renderer_baseline(envelope: &RendererIpcEnvelope) -> RendererIpcEnvelope {
     baseline
 }
 
-fn renderer_retained_frame<'a>(envelope: &'a RendererIpcEnvelope, baseline_tick: u64, damage: Option<&SharedDamage>) -> std::borrow::Cow<'a, RendererIpcEnvelope> {
-    use omoba_core::runtime::presentation_cue::DamagePresentationCue;
+fn renderer_retained_frame<'a>(envelope: &'a RendererIpcEnvelope, baseline_tick: u64, damage: Option<&SharedCues>) -> std::borrow::Cow<'a, RendererIpcEnvelope> {
+    use omoba_core::runtime::presentation_cue::PresentationCue;
     let retained = damage.map(|damage| damage.lock().expect("damage retention poisoned"));
     let old_damage = |effect: &omoba_core::game_proto::PresentationEffect| {
-        DamagePresentationCue::decode(&effect.safe_payload).is_some_and(|cue| cue.tick <= baseline_tick
+        PresentationCue::decode(&effect.safe_payload).is_some_and(|cue| cue.tick() <= baseline_tick
             || retained.as_ref().is_some_and(|retained| !retained.contains(effect.effect_id)))
     };
     if let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = &envelope.payload {
@@ -673,7 +673,7 @@ fn renderer_retained_frame<'a>(envelope: &'a RendererIpcEnvelope, baseline_tick:
     std::borrow::Cow::Borrowed(envelope)
 }
 
-fn record_damage_sent(damage: Option<&SharedDamage>, connection: u64, envelope: &RendererIpcEnvelope) {
+fn record_damage_sent(damage: Option<&SharedCues>, connection: u64, envelope: &RendererIpcEnvelope) {
     if let (Some(damage), Some(renderer_ipc_envelope::Payload::Snapshot(snapshot))) = (damage, &envelope.payload) {
         damage.lock().expect("damage retention poisoned").sent(connection, envelope.sequence, snapshot);
     }
@@ -834,7 +834,13 @@ fn snapshot_envelope_cached(
             safe_payload: DamagePresentationCue {tick: snapshot.replica_tick, target_id,
                 disclosure_epoch: target.disclosure_epoch, amount_milli}.encode(),
         })
-    }).collect();
+    }).chain(snapshot.public_events.iter().filter_map(|event| {
+        use omoba_core::runtime::presentation_cue::PresentationCue;
+        let (effect_id, cue) = PresentationCue::from_public_event(snapshot.replica_tick, event, |id| {
+            snapshot.entities.iter().find(|entity| entity.replica_id == id).map(|entity| entity.disclosure_epoch)
+        })?;
+        Some(omoba_core::game_proto::PresentationEffect {effect_id, safe_payload: cue.encode()})
+    })).collect();
     let entities: Vec<_> = snapshot
         .entities
         .into_iter()
@@ -1426,6 +1432,52 @@ mod tests {
     }
 
     #[test]
+    fn ability_cues_project_only_live_casters_and_share_stream_identity() {
+        use omoba_core::game_proto::{TeamPublicEvent, ReplicaEntityId, SanitizedExternalEffect};
+        use omoba_core::runtime::presentation_cue::{AbilityPresentationCue, DamagePresentationCue, ProjectileImpactPresentationCue};
+        let mut source = FilteredRenderSnapshot {
+            team_id: 1, replica_tick: 17,
+            entities: vec![omoba_core::runtime::FilteredRenderEntity {
+                replica_id: 4, disclosure_epoch: 3, entity_kind: 1, components: Default::default(),
+            }],
+            public_events: vec![], external_effects: vec![SanitizedExternalEffect {
+                effect_kind: omoba_core::runtime::FactKind::DirectCombat as u32,
+                visible_target: Some(ReplicaEntityId {value: 4}),
+                sanitized_payload: 1000_i64.to_le_bytes().to_vec(), stable_sub_index: 0,
+            }], memory_directives: vec![], remembered_presentations: Default::default(),
+        };
+        for (kind, caster, index, payload) in [
+            (8, 4, 1, AbilityPresentationCue::public_payload(123, 3)),
+            (8, 99, 2, 123_u64.to_le_bytes().to_vec()),
+            (8, 4, 3, vec![0; 9]),
+            (7, 4, 4, 123_u64.to_le_bytes().to_vec()),
+            (omoba_core::runtime::FactKind::ProjectileImpact as u32, 4, 5, b"HIT1".to_vec()),
+            (omoba_core::runtime::FactKind::ProjectileImpact as u32, 99, 6, b"HIT1".to_vec()),
+        ] {
+            source.public_events.push(TeamPublicEvent {
+                event_kind: kind, subject: Some(ReplicaEntityId {value: caster}),
+                stable_sub_index: index, sanitized_payload: payload,
+            });
+        }
+        let render = |source| {
+            let envelope = snapshot_envelope(1, 17, 7, source, 0);
+            let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = envelope.payload else {panic!()};
+            snapshot
+        };
+        let snapshot = render(source.clone());
+        assert_eq!(snapshot.effects.len(), 3);
+        assert_ne!(snapshot.effects[0].effect_id, snapshot.effects[1].effect_id);
+        assert!(DamagePresentationCue::decode(&snapshot.effects[0].safe_payload).is_some());
+        assert_eq!(AbilityPresentationCue::decode(&snapshot.effects[1].safe_payload), Some(AbilityPresentationCue {
+            tick: 17, caster_id: 4, disclosure_epoch: 3, ability_id: 123, rank: 3, caster_relocation: None,
+        }));
+        assert_eq!(ProjectileImpactPresentationCue::decode(&snapshot.effects[2].safe_payload),
+            Some(ProjectileImpactPresentationCue {tick:17,target_id:4,disclosure_epoch:3}));
+        source.entities.clear();
+        assert!(render(source).effects.is_empty());
+    }
+
+    #[test]
     fn lifecycle_round_trip_preserves_disclosure_epoch() {
         let envelope = lifecycle_envelope(
             9,
@@ -1548,6 +1600,24 @@ mod tests {
         writer.write_u32(bytes.len() as u32).await.unwrap();
         writer.write_all(&bytes).await.unwrap();
         assert!(read_envelope(&mut reader).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn point_queue_rejects_version_three_before_admitting_input() {
+        let old = RendererIpcEnvelope {
+            magic: PRESENTATION_MAGIC, protocol_version: 3, sequence: 1,
+            payload: Some(renderer_ipc_envelope::Payload::RendererInput(RendererInput {
+                request_id: 1, player_id: 7, disclosure_epoch: 1,
+                intent: Some(omoba_core::game_proto::renderer_input::Intent::MoveTo(
+                    omoba_core::game_proto::MoveToIntent { x_raw: 1, y_raw: 2, queued: true })),
+            })),
+        };
+        let bytes = old.encode_to_vec();
+        let (mut writer, mut reader) = tokio::io::duplex(256);
+        writer.write_u32(bytes.len() as u32).await.unwrap();
+        writer.write_all(&bytes).await.unwrap();
+        assert!(read_envelope(&mut reader).await.is_err());
+        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 4);
     }
 
     #[tokio::test]
@@ -1807,12 +1877,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retained_damage_survives_watch_overwrite_and_ack_filters_already_prepared_frames() {
-        use crate::damage_retention::{DamageRetention, tests::{effect, snapshot}};
+    async fn retained_cues_survive_watch_overwrite_and_ack_filter_already_prepared_frames() {
+        use crate::cue_retention::{CueRetention, tests::{effect, ability_effect, ranked_ability_effect, relocation_effect, area_effect, impact_effect, snapshot}};
         tokio::time::timeout(Duration::from_secs(3), async {
+            let variants: [fn(u64, u32) -> omoba_core::game_proto::PresentationEffect; 6] = [effect, ability_effect, ranked_ability_effect, relocation_effect, area_effect, impact_effect];
+            for effect in variants {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
-            let ledger = Arc::new(std::sync::Mutex::new(DamageRetention::default()));
+            let ledger = Arc::new(std::sync::Mutex::new(CueRetention::default()));
             ledger.lock().unwrap().capture(7, 2, vec![effect(2, 0)]);
             let first = envelope(1, renderer_ipc_envelope::Payload::Snapshot(snapshot(1)));
             let (latest_tx, latest_rx) = watch::channel(Some(Arc::new(first.clone())));
@@ -1846,13 +1918,26 @@ mod tests {
                 tokio::task::yield_now().await;
             }
             assert!(!ledger.lock().unwrap().contains(effect(4, 0).effect_id));
+            // Recollecting a successfully consumed event cannot make a
+            // previously prepared frame eligible for delivery again.
+            ledger.lock().unwrap().capture(7,4,vec![effect(3,0),effect(4,0)]);
+            assert!(!ledger.lock().unwrap().contains(effect(3,0).effect_id));
+            assert!(!ledger.lock().unwrap().contains(effect(4,0).effect_id));
             prepared.sequence = 4; // Created before ACK, delivered after ACK.
             latest_tx.send_replace(Some(Arc::new(prepared)));
             let received = read_envelope(&mut client).await.unwrap();
             let Some(renderer_ipc_envelope::Payload::Snapshot(view)) = received.payload else {panic!("expected snapshot")};
             assert!(view.effects.is_empty());
+            ledger.lock().unwrap().capture(7,5,vec![effect(5,0)]);
+            let mut fresh=snapshot(5);
+            ledger.lock().unwrap().project(&mut fresh);
+            assert_eq!(fresh.effects,vec![effect(5,0)]);
+            latest_tx.send_replace(Some(Arc::new(envelope(5,renderer_ipc_envelope::Payload::Snapshot(fresh.clone())))));
+            assert_eq!(read_envelope(&mut client).await.unwrap(),
+                envelope(5,renderer_ipc_envelope::Payload::Snapshot(fresh)));
             write_envelope(&mut client, &envelope(0, renderer_ipc_envelope::Payload::RendererShutdown(Default::default()))).await.unwrap();
             assert!(server.await.unwrap().is_ok());
+            }
         }).await.unwrap();
     }
 

@@ -90,7 +90,7 @@ pub fn encode_component_baseline(components: &[(u32, &[u8])]) -> Vec<u8> {
 
 fn base_frame(team_id: u32, tick: u64, sequence: u64, revision: u64) -> TeamTickFrame {
     TeamTickFrame {
-        protocol_version: 2,
+        protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
         frame_schema_version: 1,
         content_schema_version: 1,
         team_id,

@@ -651,11 +651,17 @@ pub struct TogglePause {}
 /// The input is lockstep-driven so all replicas apply the speed on the same tick.
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ToggleGameSpeed {}
+/// Persistent hold, replaced by a new immediate gameplay command.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct HoldPosition {
+    #[prost(bool, tag = "1")]
+    pub queued: bool,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -701,6 +707,8 @@ pub mod player_input {
         ItemSell(super::ItemSell),
         #[prost(message, tag = "19")]
         Recall(super::Recall),
+        #[prost(message, tag = "20")]
+        HoldPosition(super::HoldPosition),
     }
 }
 /// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
@@ -840,6 +848,10 @@ pub struct JoinRequest {
     pub mana_protocol_version: u32,
     #[prost(string, tag = "15")]
     pub mana_rules_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "16")]
+    pub command_protocol_version: u32,
+    #[prost(string, tag = "17")]
+    pub command_rules_hash: ::prost::alloc::string::String,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -1032,6 +1044,10 @@ pub struct TeamGameStart {
     pub mana_protocol_version: u32,
     #[prost(string, tag = "28")]
     pub mana_rules_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "29")]
+    pub command_protocol_version: u32,
+    #[prost(string, tag = "30")]
+    pub command_rules_hash: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevealEntity {
@@ -1878,6 +1894,8 @@ pub struct MoveToIntent {
     pub x_raw: i64,
     #[prost(sint64, tag = "2")]
     pub y_raw: i64,
+    #[prost(bool, tag = "3")]
+    pub queued: bool,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AttackMoveIntent {
@@ -1885,6 +1903,8 @@ pub struct AttackMoveIntent {
     pub x_raw: i64,
     #[prost(sint64, tag = "2")]
     pub y_raw: i64,
+    #[prost(bool, tag = "3")]
+    pub queued: bool,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AbilityCastIntent {
@@ -1959,7 +1979,7 @@ pub struct RendererInput {
     pub disclosure_epoch: u64,
     #[prost(
         oneof = "renderer_input::Intent",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
     )]
     pub intent: ::core::option::Option<renderer_input::Intent>,
 }
@@ -1987,6 +2007,8 @@ pub mod renderer_input {
         Recall(super::RecallIntent),
         #[prost(message, tag = "19")]
         AbilityUpgrade(super::AbilityUpgradeIntent),
+        #[prost(message, tag = "20")]
+        HoldPosition(super::HoldPosition),
     }
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]

@@ -83,6 +83,10 @@ pub fn secure_replica_component_allowlist() -> BTreeSet<u32> {
     BTreeSet::from([
         crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID,
+        crate::runtime::buff_visual_state::SCHEMA_ID,
+        crate::runtime::attack_visual_state::SCHEMA_ID,
         crate::runtime::DISCLOSED_DEMO_PATROL_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID,

@@ -30,6 +30,21 @@ pub const DISCLOSED_TOWER_COMPONENT_SCHEMA_ID: u32 = 0x464f470b;
 pub const DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID: u32 = 0x464f470c;
 pub const DISCLOSED_GOLD_COMPONENT_SCHEMA_ID: u32 = 0x464f470d;
 pub const DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID: u32 = 0x464f470e;
+/// Version 1: one signed Q10 incoming damage bonus, big endian.
+pub const DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID: u32 = 0x464f470f;
+/// Version 1: role (1 tower, 2 base), current damage admission (0 or 1).
+pub const DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID: u32 = 0x464f4710;
+
+pub(crate) fn decode_disclosed_structure(bytes: &[u8]) -> Option<(u8,bool)> {
+    if bytes.len()!=2 || !matches!(bytes[0],1|2) || bytes[1]>1 {return None;}
+    Some((bytes[0],bytes[1]==1))
+}
+
+pub(crate) fn decode_disclosed_incoming_damage(bytes: &[u8]) -> Option<Fixed64> {
+    let raw = i64::from_be_bytes(bytes.try_into().ok()?);
+    raw.checked_add(Fixed64::ONE.raw())?;
+    Some(Fixed64::from_raw(raw))
+}
 
 pub(crate) fn canonical_disclosed_json<T: Serialize>(value: &T) -> Vec<u8> {
     fn sort_objects(value: serde_json::Value) -> serde_json::Value {
@@ -641,6 +656,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let gold = world.read_storage::<crate::runtime::Gold>();
     let item_effects = world.read_storage::<crate::runtime::ItemEffects>();
     let moba = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
+    let structures = world.try_fetch::<crate::runtime::MobaMatch>()
+        .map(|state|state.disclosed_structure_states()).unwrap_or_default();
+    let buffs = world.try_fetch::<crate::runtime::BuffStore>();
     let towers = world.read_storage::<crate::runtime::Tower>();
     let script_tags = world.read_storage::<crate::runtime::ScriptUnitTag>();
 
@@ -673,11 +691,21 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 DEMO_RENDER_COMPONENT_SCHEMA_ID,
                 encode_demo_render_state(render_state),
             )];
+            if let Some(state)=structures.get(&canonical_id) {
+                disclosed.push((DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID,state.to_vec()));
+            }
             if let Some(property) = properties.get(entity) {
                 disclosed.push((
                     DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,
                     encode_disclosed_property(property),
                 ));
+                if moba {
+                    if let Some(buffs) = &buffs {
+                        let bonus = buffs.sum_add(entity, omb_script_abi::stat_keys::StatKey::DamageTakenBonus);
+                        disclosed.push((DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID,
+                            bonus.raw().to_be_bytes().to_vec()));
+                    }
+                }
             }
             if let Some(patrol) = patrols.get(entity) {
                 disclosed.push((
@@ -706,6 +734,15 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 disclose_json!(item_effects, DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
             }
             disclose_json!(script_tags, DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID);
+            if moba && heroes.get(entity).is_some() {
+                let state = attacks.get(entity).map(crate::runtime::attack_visual_state::AttackVisualState::from_attack).unwrap_or_default();
+                disclosed.push((crate::runtime::attack_visual_state::SCHEMA_ID, state.encode().expect("bounded resolved attack timing")));
+            }
+            if moba && heroes.get(entity).is_some() && owners.get(entity).is_some() && team != 0 {
+                let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualState::from_store(store,entity))
+                    .unwrap_or(crate::runtime::buff_visual_state::BuffVisualState(vec![]));
+                disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
+            }
             if let Some(tower) = towers.get(entity) {
                 let mut safe = tower.clone();
                 safe.nearby_creeps.clear();

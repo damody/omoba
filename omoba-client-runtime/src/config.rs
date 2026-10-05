@@ -39,7 +39,7 @@ impl ClientRuntimeConfig {
         let mut presentation_hz = 60;
         let mut evidence_dir = None;
         let mut test_mode = false;
-        let mut protocol_version = 2;
+        let mut protocol_version = omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
         let mut content_hash = String::new();
         let mut scripted_move_tick = None;
         let mut scripted_move_interval_ticks = None;
@@ -139,9 +139,9 @@ impl ClientRuntimeConfig {
                 "--presentation-hz must be 30, 60, or 120".into(),
             ));
         }
-        if protocol_version != 2 {
+        if protocol_version != omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION {
             return Err(ClientRuntimeError::Config(
-                "secure runtime requires protocol version 2".into(),
+                "secure runtime requires current selective protocol version".into(),
             ));
         }
         if scripted_move_interval_ticks == Some(0) {
@@ -220,8 +220,11 @@ mod tests {
             .map(str::to_owned)
             .collect::<Vec<_>>()
         };
-        assert!(ClientRuntimeConfig::parse(base("3", "127.0.0.1:62001", "2")).is_err());
-        assert!(ClientRuntimeConfig::parse(base("1", "10.0.0.2:62001", "2")).is_err());
+        let version = omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION.to_string();
+        assert!(ClientRuntimeConfig::parse(base("3", "127.0.0.1:62001", &version)).is_err());
+        assert!(ClientRuntimeConfig::parse(base("1", "10.0.0.2:62001", &version)).is_err());
+        assert!(ClientRuntimeConfig::parse(base("1", "127.0.0.1:62001", "2")).is_err());
+        assert!(ClientRuntimeConfig::parse(base("1", "127.0.0.1:62001", &version)).is_ok());
         assert!(ClientRuntimeConfig::parse(base("1", "127.0.0.1:62001", "1")).is_err());
     }
 
@@ -236,8 +239,6 @@ mod tests {
             "127.0.0.1:50061",
             "--presentation-bind",
             "127.0.0.1:62001",
-            "--protocol-version",
-            "2",
             "--test-mode",
             "--evidence-dir",
             "evidence",

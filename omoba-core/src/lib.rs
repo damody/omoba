@@ -15,6 +15,7 @@ pub mod config;
 pub mod item;
 pub mod lockstep_timing;
 pub mod quant;
+pub mod renderer_protocol;
 pub mod runtime;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod scripting;

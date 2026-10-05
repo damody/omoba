@@ -146,7 +146,7 @@ local ok, result = xpcall(function()
       "--player-name", "player" .. team,
       "--server", "127.0.0.1:" .. port,
       "--presentation-bind", "127.0.0.1:" .. (port + team),
-      "--presentation-hz", "120", "--protocol-version", "2",
+      "--presentation-hz", "120",
     }, path.join(b.root, "omoba-client-runtime"), base_env)
   end
   time.sleep_ms(1500)

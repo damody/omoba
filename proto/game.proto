@@ -477,6 +477,8 @@ message TogglePause {}
 // Client requests toggling authoritative simulation speed between 1x and 2x.
 // The input is lockstep-driven so all replicas apply the speed on the same tick.
 message ToggleGameSpeed {}
+// Persistent hold, replaced by a new immediate gameplay command.
+message HoldPosition { bool queued = 1; }
 
 message PlayerInput {
   oneof action {
@@ -499,6 +501,7 @@ message PlayerInput {
     ItemBuy item_buy = 17;
     ItemSell item_sell = 18;
     Recall recall = 19;
+    HoldPosition hold_position = 20;
   }
 }
 
@@ -586,6 +589,8 @@ message JoinRequest {
   string recall_rules_hash = 13;
   uint32 mana_protocol_version = 14;
   string mana_rules_hash = 15;
+  uint32 command_protocol_version = 16;
+  string command_rules_hash = 17;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -699,6 +704,8 @@ message TeamGameStart {
   string recall_rules_hash = 26;
   uint32 mana_protocol_version = 27;
   string mana_rules_hash = 28;
+  uint32 command_protocol_version = 29;
+  string command_rules_hash = 30;
 }
 
 message RevealEntity {
@@ -1168,8 +1175,8 @@ message RuntimeSessionState {
   string safe_reason = 2;
 }
 
-message MoveToIntent { sint64 x_raw = 1; sint64 y_raw = 2; }
-message AttackMoveIntent { sint64 x_raw = 1; sint64 y_raw = 2; }
+message MoveToIntent { sint64 x_raw = 1; sint64 y_raw = 2; bool queued = 3; }
+message AttackMoveIntent { sint64 x_raw = 1; sint64 y_raw = 2; bool queued = 3; }
 message AbilityCastIntent { uint32 ability_index = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
 message ItemUseIntent { uint32 item_slot = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
 message ItemBuyIntent { uint32 catalog_id = 1; }
@@ -1195,6 +1202,7 @@ message RendererInput {
     AttackTargetIntent attack_target = 17;
     RecallIntent recall = 18;
     AbilityUpgradeIntent ability_upgrade = 19;
+    HoldPosition hold_position = 20;
   }
 }
 

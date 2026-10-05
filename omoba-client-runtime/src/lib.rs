@@ -1,7 +1,7 @@
 pub mod catchup;
 pub mod checkpoint_writer;
 pub mod config;
-mod damage_retention;
+mod cue_retention;
 pub mod evidence;
 pub mod input_bridge;
 pub mod moba_hud;

@@ -57,6 +57,11 @@ pub enum FactKind {
     OwnerEconomy = 24,
     CommittedAbilityRanks = 25,
     CommittedMana = 26,
+    CommittedIncomingDamage = 27,
+    CommittedStructure = 28,
+    ProjectileImpact = 29,
+    OwnerBuffVisual = 30,
+    AttackVisual = 31,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -84,6 +89,11 @@ impl FactOrderingKey {
 /// ECS entity handle, pointer, arbitrary JSON value, or server-only component.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub enum ObservableFact {
+    /// Actual projectile contact, with no attacker, kind or trajectory disclosure.
+    ProjectileImpact { target: u64 },
+    CommittedStructure { source: u64, state: [u8;2] },
+    /// Public aggregate only; never buff identity, caster or expiry.
+    CommittedIncomingDamage { source: u64, bonus_raw: i64 },
     OwnerEconomy { team: u32, state: crate::runtime::native::economy_projection::OwnerEconomyState },
     CommittedEconomy { source: u64, state: crate::runtime::native::economy_projection::CommittedEconomyState },
     CommittedEquipmentStats { source: u64, hp_raw: i64, max_hp_raw: i64, speed_raw: i64, armor_raw: i64, attack_raw: i64 },
@@ -146,7 +156,15 @@ pub enum ObservableFact {
     Ability {
         source: u64,
         ability_id: u64,
+        /// Successful invocation rank; zero means unavailable in legacy hooks.
+        rank: u32,
+        /// Only this team may receive the successful caster's relocation point.
+        caster_relocation: Option<(u32, i64, i64)>,
         target: Option<u64>,
+    },
+    AbilityArea {
+        source:u64, team:u32, ability_id:u64, rank:u32,
+        x_raw:i64, y_raw:i64, radius_raw:i64, duration_raw:i64,
     },
     Tower {
         source: u64,

@@ -63,7 +63,7 @@ path.mkdir_p(runtime_logs)
 os.remove(shutdown_file)
 local restarted_runtime_pid = process.spawn(runtime_exe, {
     "--player-id", "1", "--team", "1", "--player-name", "player1", "--server", server_addr,
-    "--presentation-bind", presentation_addr, "--presentation-hz", "60", "--protocol-version", "2",
+    "--presentation-bind", presentation_addr, "--presentation-hz", "60",
     "--scripted-move-tick", "300", "--scripted-hidden-target-tick", "420", "--screenshot-tick", "600",
     "--test-mode", "--evidence-dir", evidence_dir,
 }, {

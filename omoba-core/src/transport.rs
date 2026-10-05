@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-pub const SELECTIVE_LOCKSTEP_PROTOCOL_V2: u32 = 2;
+/// 共用的 selective 線路版本；V2 名稱仍表示模式，不表示目前線路版本。
+pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 5;
+pub const SELECTIVE_LOCKSTEP_PROTOCOL_V2: u32 = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
 
 /// Only these protobuf message types may cross the secure V2 player boundary.
 /// Legacy `GameStart`, `SnapshotResp`, `TickBatch`, and `StateHash` are
@@ -56,7 +58,7 @@ impl MatchCapabilityNegotiation {
         }
         let selected = match self.requested_protocol {
             1 if !self.secure_fog_required => MatchProtocol::LegacyV1,
-            SELECTIVE_LOCKSTEP_PROTOCOL_V2 => MatchProtocol::SelectiveV2,
+            SELECTIVE_LOCKSTEP_PROTOCOL_VERSION => MatchProtocol::SelectiveV2,
             1 => return Err(NegotiationError::V2Required),
             _ => return Err(NegotiationError::UnsupportedProtocol),
         };
@@ -73,6 +75,28 @@ pub struct OutboundMsg {
     pub msg: String,
     #[serde(skip)]
     pub entity_pos: Option<(f32, f32)>,
+}
+
+#[cfg(test)]
+mod selective_version_tests {
+    use super::*;
+
+    #[test]
+    fn attack_visual_state_protocol_rejects_old_selective_version() {
+        let mut request = MatchCapabilityNegotiation {
+            requested_protocol: SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+            supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
+            secure_fog_required: true,
+        };
+        assert_eq!(request.resolve(None), Ok(MatchProtocol::SelectiveV2));
+        request.requested_protocol = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION - 1;
+        request.supported_protocols = vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION - 1];
+        assert_eq!(request.resolve(None), Err(NegotiationError::UnsupportedProtocol));
+        request.requested_protocol = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
+        assert_eq!(request.resolve(None), Err(NegotiationError::UnsupportedProtocol));
+        request.supported_protocols = vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION];
+        assert_eq!(request.resolve(Some(MatchProtocol::LegacyV1)), Err(NegotiationError::MixedMatchProtocol));
+    }
 }
 
 impl OutboundMsg {

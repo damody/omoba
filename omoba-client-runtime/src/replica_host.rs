@@ -163,6 +163,16 @@ impl ReplicaHost {
         self.team_id
     }
 
+    pub fn ability_presentation(&self, tick: u64) -> Vec<omoba_core::game_proto::PresentationEffect> {
+        use omoba_core::runtime::presentation_cue::PresentationCue;
+        self.runtime.applied_public_events().iter().filter_map(|event| {
+            let (effect_id, cue) = PresentationCue::from_public_event(tick, event, |id| {
+                self.runtime.world().entities.get(&id).map(|entity| entity.disclosure_epoch)
+            })?;
+            Some(omoba_core::game_proto::PresentationEffect {effect_id, safe_payload: cue.encode()})
+        }).collect()
+    }
+
     pub fn global_seed(&self) -> u64 {
         self.runtime.global_seed()
     }

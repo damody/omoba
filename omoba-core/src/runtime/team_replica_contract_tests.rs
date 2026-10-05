@@ -318,7 +318,7 @@ fn forget_removes_entity_before_same_tick_gameplay() {
         )
         .unwrap();
     let frame = TeamTickFrame {
-        protocol_version: 2,
+        protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
         frame_schema_version: 1,
         content_schema_version: 1,
         team_id: 1,
@@ -933,7 +933,7 @@ fn duplicate_reorder_missing_and_corrupt_frames_fail_safely() {
 
 fn empty_wire_frame(tick: u64, sequence: u64) -> TeamTickFrame {
     TeamTickFrame {
-        protocol_version: 2,
+        protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
         frame_schema_version: 1,
         content_schema_version: 1,
         team_id: 1,
@@ -1114,7 +1114,7 @@ fn reveal_post_tick_baseline_drops_same_tick_movement_event() {
         .unwrap();
     let encoded = frame.frame.encode_to_vec();
     let start = TeamGameStart {
-        protocol_version: 2,
+        protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
         team_id: 1,
         replica_start_tick: 1,
         next_team_sequence: 1,

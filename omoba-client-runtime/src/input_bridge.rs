@@ -48,6 +48,7 @@ pub struct InputBridge {
     next_input_id: u32,
     shop_enabled: bool,
     recall_enabled: bool,
+    commands_enabled: bool,
     shop_requests: std::collections::BTreeMap<u64, (RendererInput, u32)>,
     upgrade_requests: std::collections::BTreeMap<u64, RendererInput>,
 }
@@ -58,6 +59,7 @@ impl InputBridge {
             next_input_id: last_seen_input_id,
             shop_enabled: false,
             recall_enabled: false,
+            commands_enabled: false,
             shop_requests: Default::default(),
             upgrade_requests: Default::default(),
         }
@@ -65,6 +67,7 @@ impl InputBridge {
 
     pub fn set_shop_enabled(&mut self, enabled: bool) { self.shop_enabled = enabled; }
     pub fn set_recall_enabled(&mut self, enabled: bool) { self.recall_enabled = enabled; }
+    pub fn set_commands_enabled(&mut self, enabled: bool) { self.commands_enabled = enabled; }
 
     pub fn allocate_input_id(&mut self) -> Result<u32, &'static str> {
         self.next_input_id = self
@@ -102,6 +105,8 @@ impl InputBridge {
             return reject(renderer_input.request_id, code);
         }
         let mut secure_target = None;
+        if matches!(renderer_input.intent, Some(renderer_input::Intent::HoldPosition(_)))
+            && !self.commands_enabled { return reject(renderer_input.request_id, "COMMAND_PROTOCOL_UNAVAILABLE"); }
         let is_upgrade = matches!(renderer_input.intent, Some(renderer_input::Intent::AbilityUpgrade(_)));
         if is_upgrade {
             if renderer_input.request_id == 0 { return reject(0, "INVALID_UPGRADE_REQUEST_ID"); }
@@ -133,6 +138,7 @@ impl InputBridge {
             Some(renderer_input::Intent::AbilityUpgrade(value)) => player_input::Action::UpgradeAbility(
                 omoba_core::game_proto::UpgradeAbility {ability_index:value.ability_index}),
             Some(renderer_input::Intent::Recall(_)) => player_input::Action::Recall(omoba_core::game_proto::Recall {}),
+            Some(renderer_input::Intent::HoldPosition(value)) => player_input::Action::HoldPosition(value.clone()),
             Some(renderer_input::Intent::ItemBuy(intent)) => {
                 let Some(id) = omoba_core::runtime::shop_transport::item_id_for_catalog(intent.catalog_id) else {
                     return reject(renderer_input.request_id, "INVALID_ITEM_CATALOG_ID");
@@ -144,13 +150,13 @@ impl InputBridge {
             Some(renderer_input::Intent::MoveTo(intent)) => {
                 player_input::Action::MoveTo(omoba_core::game_proto::MoveTo {
                     target: fixed_vec(intent.x_raw, intent.y_raw),
-                    queued: false,
+                    queued: intent.queued,
                 })
             }
             Some(renderer_input::Intent::AttackMove(intent)) => {
                 player_input::Action::AttackMove(AttackMove {
                     target: fixed_vec(intent.x_raw, intent.y_raw),
-                    queued: false,
+                    queued: intent.queued,
                 })
             }
             Some(renderer_input::Intent::AbilityCast(intent)) => {
@@ -263,6 +269,7 @@ fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), 
         Some(renderer_input::Intent::AbilityUpgrade(value)) => return
             if value.ability_index<4 {Ok(())} else {Err("INVALID_ABILITY_SLOT")},
         Some(renderer_input::Intent::Recall(_)) => return Ok(()),
+        Some(renderer_input::Intent::HoldPosition(_)) => return Ok(()),
         Some(renderer_input::Intent::ItemBuy(value)) => return
             omoba_core::runtime::shop_transport::item_id_for_catalog(value.catalog_id)
                 .map(|_| ()).ok_or("INVALID_ITEM_CATALOG_ID"),
@@ -306,6 +313,104 @@ fn reject(request_id: u64, code: &'static str) -> InputDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shared_renderer_codec_still_requires_disclosed_target_and_owner() {
+        use omoba_core::renderer_protocol::player_input_to_renderer_intent;
+        use prost::Message;
+        let view = view(1);
+        let id = *view.runtime.world().entities.keys().next().unwrap();
+        let mut bridge = InputBridge::default();
+        bridge.set_commands_enabled(true);
+        for action in [
+            player_input::Action::MoveTo(omoba_core::game_proto::MoveTo {
+                target: Some(Vec2I { x: -123, y: 456 }), queued: true }),
+            player_input::Action::AttackMove(AttackMove {
+                target: Some(Vec2I { x: -123, y: 456 }), queued: true }),
+            player_input::Action::HoldPosition(omoba_core::game_proto::HoldPosition { queued: true }),
+            player_input::Action::AttackTarget(AttackTarget { target_id: id as u32, queued: true }),
+        ] {
+            let formal = PlayerInput { action: Some(action) };
+            let encoded = request(&view, player_input_to_renderer_intent(&formal).unwrap());
+            let encoded = RendererInput::decode(encoded.encode_to_vec().as_slice()).unwrap();
+            let before = bridge.next_input_id;
+            assert_rejected(bridge.validate_view(encoded.clone(), 8, &view), "INVALID_OWNER");
+            assert_eq!(bridge.next_input_id, before);
+            let InputDecision::Accepted { input, .. } = bridge.validate_view(encoded, 7, &view)
+                else { panic!("shared encoded input rejected"); };
+            assert_eq!(input, formal);
+        }
+        let hidden = PlayerInput { action: Some(player_input::Action::AttackTarget(
+            AttackTarget { target_id: u32::MAX, queued: true })) };
+        let encoded = request(&view, player_input_to_renderer_intent(&hidden).unwrap());
+        let before = bridge.next_input_id;
+        assert_rejected(bridge.validate_view(encoded, 7, &view), "INVALID_TARGET");
+        assert_eq!(bridge.next_input_id, before);
+    }
+
+    #[test]
+    fn point_queue_roundtrips_without_bypassing_owner_epoch_or_position_validation() {
+        use prost::Message;
+        let view = view(1);
+        let mut bridge = InputBridge::default();
+        for queued in [false, true] {
+            for intent in [
+                renderer_input::Intent::MoveTo(MoveToIntent { x_raw: -123, y_raw: 456, queued }),
+                renderer_input::Intent::AttackMove(AttackMoveIntent { x_raw: -123, y_raw: 456, queued }),
+            ] {
+                let is_move = matches!(intent, renderer_input::Intent::MoveTo(_));
+                let original = request(&view, intent);
+                let original = RendererInput::decode(original.encode_to_vec().as_slice()).unwrap();
+                let before = bridge.next_input_id;
+                let mut wrong = original.clone(); wrong.player_id = 8;
+                assert_rejected(bridge.validate_view(wrong, 7, &view), "INVALID_OWNER");
+                let mut stale = original.clone(); stale.disclosure_epoch += 1;
+                assert_rejected(bridge.validate_view(stale, 7, &view), "STALE_DISCLOSURE_EPOCH");
+                assert_eq!(bridge.next_input_id, before);
+                let InputDecision::Accepted { input, input_id, secure_target, .. } = bridge.validate_view(original, 7, &view)
+                    else { panic!("valid point command rejected"); };
+                assert_eq!(input_id, before + 1);
+                assert!(secure_target.is_none());
+                let (point, actual_queue) = match input.action.unwrap() {
+                    player_input::Action::MoveTo(value) if is_move => (value.target, value.queued),
+                    player_input::Action::AttackMove(value) if !is_move => (value.target, value.queued),
+                    _ => panic!("point action changed"),
+                };
+                assert_eq!(point, Some(Vec2I { x: -123, y: 456 }));
+                assert_eq!(actual_queue, queued);
+            }
+        }
+    }
+
+    #[test]
+    fn hold_position_preserves_queue_flag_and_rejects_wrong_owner_or_epoch() {
+        use prost::Message;
+        let view=view(1);let mut bridge=InputBridge::default();
+        bridge.set_commands_enabled(true);
+        let input=request(&view,renderer_input::Intent::HoldPosition(omoba_core::game_proto::HoldPosition {queued:true}));
+        let input=RendererInput::decode(input.encode_to_vec().as_slice()).unwrap();
+        assert_rejected(bridge.validate_view(input.clone(),8,&view),"INVALID_OWNER");
+        let mut stale=input.clone();stale.disclosure_epoch+=1;
+        assert_rejected(bridge.validate_view(stale,7,&view),"STALE_DISCLOSURE_EPOCH");
+        assert!(matches!(bridge.validate_view(input,7,&view),InputDecision::Accepted {
+            input,secure_target:None,..} if matches!(input.action,Some(player_input::Action::HoldPosition(value)) if value.queued)));
+    }
+    #[test]
+    fn command_capability_is_required_before_allocating_hold_input_id() {
+        let view = view(1);
+        let hold = request(&view, renderer_input::Intent::HoldPosition(
+            omoba_core::game_proto::HoldPosition { queued: false }));
+        let mut bridge = InputBridge::resume_after(42);
+        assert_rejected(bridge.validate_view(hold.clone(), 7, &view), "COMMAND_PROTOCOL_UNAVAILABLE");
+        assert_eq!(bridge.next_input_id, 42);
+        bridge.set_commands_enabled(true);
+        assert!(matches!(bridge.validate_view(hold.clone(), 7, &view), InputDecision::Accepted { input_id: 43, .. }));
+        bridge.set_commands_enabled(false);
+        assert_rejected(bridge.validate_view(hold, 7, &view), "COMMAND_PROTOCOL_UNAVAILABLE");
+        let movement = request(&view, renderer_input::Intent::MoveTo(
+            omoba_core::game_proto::MoveToIntent { x_raw: 123, y_raw: 456, queued: false }));
+        assert!(matches!(bridge.validate_view(movement, 7, &view), InputDecision::Accepted { input_id: 44, .. }));
+    }
+
     #[test]
     fn upgrade_roundtrips_and_rejects_invalid_owner_epoch_slot_and_id() {
         use prost::Message;
@@ -415,7 +520,7 @@ mod tests {
             bridge.validate_view(
                 request(
                     &view,
-                    renderer_input::Intent::MoveTo(MoveToIntent { x_raw: 1, y_raw: 2 }),
+                    renderer_input::Intent::MoveTo(MoveToIntent { x_raw: 1, y_raw: 2, queued: false }),
                 ),
                 7,
                 &view,
@@ -436,8 +541,6 @@ mod tests {
             TeamViewProjector, VisibilityTransition, DEMO_RENDER_COMPONENT_SCHEMA_ID,
         },
     };
-    use std::collections::BTreeSet;
-
     struct DisclosedView {
         runtime: SelectiveReplicaRuntime,
         team: u32,
@@ -475,27 +578,28 @@ mod tests {
     }
 
     fn view(team: u32) -> DisclosedView {
+        view_with_heroes(team, &[(10, 7)])
+    }
+
+    fn view_with_heroes(team: u32, heroes: &[(u64, u32)]) -> DisclosedView {
         let mut projector = TeamViewProjector::new(team, TeamProjectorConfig::default());
-        let render = encode_demo_render_state(DemoRenderState {
+        let transitions=heroes.iter().map(|&(canonical_id,owner_player_id)| {
+            let render = encode_demo_render_state(DemoRenderState {
             x_raw: 0,
             y_raw: 0,
             team_id: team,
             kind: 1,
-            owner_player_id: 7,
-        });
+            owner_player_id,
+            });
+            VisibilityTransition::Reveal { canonical_id, effective_tick:0,
+                baseline:encode_component_baseline(&[(DEMO_RENDER_COMPONENT_SCHEMA_ID,&render)]) }
+        }).collect();
         projector
             .build_frame(
                 0,
                 0,
-                &BTreeSet::from([10]),
-                vec![VisibilityTransition::Reveal {
-                    canonical_id: 10,
-                    effective_tick: 0,
-                    baseline: encode_component_baseline(&[(
-                        DEMO_RENDER_COMPONENT_SCHEMA_ID,
-                        &render,
-                    )]),
-                }],
+                &heroes.iter().map(|&(id,_)| id).collect(),
+                transitions,
                 &[],
                 &ProjectionDependencyGraph::default(),
             )
@@ -537,7 +641,7 @@ mod tests {
         let mut bridge = InputBridge::default();
         let input = request(
             &view,
-            renderer_input::Intent::MoveTo(MoveToIntent { x_raw: 1, y_raw: 2 }),
+            renderer_input::Intent::MoveTo(MoveToIntent { x_raw: 1, y_raw: 2, queued: false }),
         );
         let mut wrong = input.clone();
         wrong.player_id = 8;
@@ -601,6 +705,32 @@ mod tests {
     }
 
     #[test]
+    fn ally_cast_keeps_teammate_disclosure_identity_not_caster_identity() {
+        let view=view_with_heroes(1,&[(10,7),(20,8)]);
+        let ally_id=*view.runtime.world().entities.iter().find(|(_,entity)| {
+            entity.components.get(&DEMO_RENDER_COMPONENT_SCHEMA_ID)
+                .and_then(|bytes|decode_demo_render_state(bytes))
+                .is_some_and(|render|render.owner_player_id==8)
+        }).unwrap().0;
+        let mut bridge=InputBridge::default();
+        let cast=|target|request(&view,renderer_input::Intent::AbilityCast(AbilityCastIntent {
+            ability_index:3,target_render_id:target,x_raw:0,y_raw:0,
+        }));
+        match bridge.validate_view(cast(ally_id),7,&view) {
+            InputDecision::Accepted {input_id:1,input,secure_target:Some(reference)}=>{
+                assert_eq!(Some(reference),view.secure_reference(ally_id));
+                assert!(matches!(input.action,Some(player_input::Action::CastAbility(value))
+                    if value.ability_index==3 && value.target_entity==Some(ally_id as u32)));
+            },
+            other=>panic!("disclosed ally cast rejected: {other:?}"),
+        }
+        assert_rejected(bridge.validate_view(cast(9999),7,&view),"INVALID_TARGET");
+        let mut stale=cast(ally_id);stale.disclosure_epoch+=1;
+        assert_rejected(bridge.validate_view(stale,7,&view),"STALE_DISCLOSURE_EPOCH");
+        assert_eq!(bridge.next_input_id,1,"rejected casts must not allocate input IDs");
+    }
+
+    #[test]
     fn rejects_slot_and_position_overflow_without_consuming_input_ids() {
         let view = view(1);
         let mut bridge = InputBridge::default();
@@ -623,6 +753,7 @@ mod tests {
                 renderer_input::Intent::MoveTo(MoveToIntent {
                     x_raw: i64::MAX,
                     y_raw: 0,
+                    queued: true,
                 }),
                 "INVALID_POSITION",
             ),
@@ -630,6 +761,7 @@ mod tests {
                 renderer_input::Intent::AttackMove(AttackMoveIntent {
                     x_raw: 0,
                     y_raw: i64::MIN,
+                    queued: true,
                 }),
                 "INVALID_POSITION",
             ),
