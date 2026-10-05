@@ -819,6 +819,9 @@ fn mana_budget_bot_uses_script_cost_and_formal_60hz_debit_without_reservation() 
     {let mut props=w.write_storage::<CProperty>();let own=props.get_mut(caster).unwrap();
         own.mhp=Fixed64::from_i32(1000);own.hp=Fixed64::from_i32(100);}
     {let mut heroes=w.write_storage::<Hero>();let own=heroes.get_mut(caster).unwrap();
+        // Existing archetypes share rank-one cost 45; the higher learned rank
+        // supplies an actual authored cost 60 without changing game content.
+        own.ability_levels.insert("ranger_volley".into(),4);
         own.mana_pool=Some(ManaPool::new(Fixed64::from_i32(45),own.moba_mana_capacity().unwrap()).unwrap());}
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:1,escort_player_id:None}],
@@ -828,7 +831,7 @@ fn mana_budget_bot_uses_script_cost_and_formal_60hz_debit_without_reservation() 
     let mut expected=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone().unwrap();
     let inputs=role_bot_inputs(&w,&bots).unwrap();
     assert_eq!(inputs.len(),1);
-    assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==1 && cast.target_entity.is_none()));
+    assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::CastAbility(cast)) if cast.ability_index==1 && cast.target_entity.is_none()),"budget decision: {:?}; hero {:?}",inputs,w.read_storage::<Hero>().get(caster));
     assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap(),&expected);
     expected.spend(Fixed64::from_i32(45)).unwrap();
     let before=w.read_resource::<MobaMatch>().elapsed;
