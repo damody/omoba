@@ -363,7 +363,7 @@ local ok, result = xpcall(function()
     local team = window.team
     local client_env = {}
     for key, value in pairs(base_env) do client_env[key] = value end
-    client_env.OM_RUNTIME_MODE = "networked"
+    client_env.OM_RUNTIME_MODE = "presentation-ipc"
     client_env.OM_PLAYER_ID = tostring(team)
     client_env.OM_PLAYER_NAME = "player" .. team
     client_env.OM_STORY = story
@@ -384,6 +384,7 @@ local ok, result = xpcall(function()
       "/Game/Map/Main",
       "-game",
       "-om-networked",
+      "-om-presentation-only",
       "-om-native-content",
       "-om-player=" .. team,
       "-om-team=" .. team,

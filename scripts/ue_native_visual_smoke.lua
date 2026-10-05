@@ -49,6 +49,7 @@ local report = {success = false, results = {}, runs = {}, tests = {
   'Om.Runtime.NativeMinimapInput',
   'Om.Runtime.NativeMatchResult',
   'Om.Runtime.NativeOwnerScore',
+  'Om.Runtime.NativeManaHud',
   'Om.Runtime.NativeScoreboard',
   'Om.Runtime.MatchSmokeObjective',
 }}
