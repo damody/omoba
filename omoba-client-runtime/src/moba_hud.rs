@@ -4,6 +4,18 @@ use omoba_core::{
     runtime::*,
 };
 
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// Version 1 never carried mana; disabled values must remain canonical zero.
+pub fn valid_mana(schema: u32, hero: &HeroHudPresentation) -> bool {
+    if hero.mana_supported {
+        schema == SCHEMA_VERSION && (0..=1_000_000 * 1024).contains(&hero.max_mana_raw)
+            && (0..=hero.max_mana_raw).contains(&hero.mana_raw)
+    } else {
+        hero.mana_raw == 0 && hero.max_mana_raw == 0
+    }
+}
+
 pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<MobaHudPresentation> {
     let metric = |team: u32, id: u64| {
         snapshot.public_events.iter().find_map(|event| {
@@ -67,6 +79,8 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
                 }
             })
             .collect();
+        let (mana_supported, mana_raw, max_mana_raw) = hero.mana_pool.as_ref()
+            .map_or((false, 0, 0), |pool| (true, pool.current().raw(), pool.maximum().raw()));
         Some(HeroHudPresentation {
             render_id: entity.replica_id,
             disclosure_epoch: entity.disclosure_epoch,
@@ -77,11 +91,13 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
             experience: hero.experience.max(0) as u32,
             skill_points: hero.skill_points.max(0) as u32,
             abilities,
-            mana_supported: false,
+            mana_supported,
+            mana_raw,
+            max_mana_raw,
         })
     });
     Some(MobaHudPresentation {
-        schema_version: 1,
+        schema_version: SCHEMA_VERSION,
         player_id,
         phase: phase as u32,
         elapsed_raw: elapsed,
@@ -111,6 +127,44 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mana_hud_is_owner_scoped_and_distinguishes_disabled_from_empty() {
+        use omoba_core::runtime::ability_runtime::ManaPool;
+        let mut s = snapshot();
+        let mut owner = entity(3, 1, 7);
+        let mut hero: Hero = serde_json::from_slice(&owner.components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        for pool in [None, Some(ManaPool::new(Fixed64::ZERO, Fixed64::from_i32(280)).unwrap()),
+            Some(ManaPool::from_raw_state(45123, 280 * 1024, 17).unwrap())] {
+            hero.mana_pool = pool.clone();
+            owner.components.insert(DISCLOSED_HERO_COMPONENT_SCHEMA_ID, serde_json::to_vec(&hero).unwrap());
+            s.entities = vec![entity(1, 2, 7), entity(2, 1, 8), owner.clone()];
+            let hud = project(&s, 7).unwrap();
+            assert_eq!(hud.schema_version, SCHEMA_VERSION);
+            let projected = hud.hero.unwrap();
+            assert_eq!(projected.render_id, 3);
+            assert_eq!(projected.mana_supported, pool.is_some());
+            assert_eq!((projected.mana_raw, projected.max_mana_raw),
+                pool.as_ref().map_or((0,0), |p| (p.current().raw(), p.maximum().raw())));
+            assert!(valid_mana(SCHEMA_VERSION, &projected));
+        }
+        s.entities.retain(|e| e.replica_id != 3);
+        assert!(project(&s, 7).unwrap().hero.is_none(), "no stale dead/hidden owner mana");
+    }
+
+    #[test]
+    fn mana_hud_rejects_invalid_ranges_and_legacy_managed_payloads() {
+        let mut hero = HeroHudPresentation {mana_supported: true, mana_raw: 0, max_mana_raw: 280*1024, ..Default::default()};
+        assert!(valid_mana(SCHEMA_VERSION, &hero));
+        assert!(!valid_mana(1, &hero));
+        for (current, maximum) in [(-1,280*1024),(280*1024+1,280*1024),(0,-1),(0,1_000_000*1024+1)] {
+            hero.mana_raw = current; hero.max_mana_raw = maximum;
+            assert!(!valid_mana(SCHEMA_VERSION, &hero));
+        }
+        hero.mana_supported = false; hero.mana_raw = 0; hero.max_mana_raw = 0;
+        assert!(valid_mana(1, &hero));
+        hero.max_mana_raw = 1;
+        assert!(!valid_mana(SCHEMA_VERSION, &hero));
+    }
     #[test]
     fn recall_projection_is_owner_team_only_and_legacy_capability_stays_closed() {
         let mut s = snapshot();

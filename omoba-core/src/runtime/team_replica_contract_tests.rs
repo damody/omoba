@@ -111,6 +111,27 @@ fn committed_actor_state_is_visible_only_and_has_no_canonical_identity_payload()
 }
 
 #[test]
+fn mana_projection_only_visible_sources_receive_absolute_state_without_identity_payload() {
+    use crate::runtime::ability_runtime::{CommittedManaState, ManaPool};
+    let mut projector = disclosed_projector(1, 10);
+    let state = CommittedManaState(Some(ManaPool::from_raw_state(20, 100, 17).unwrap()));
+    let facts: Vec<_> = [10, 999].into_iter().map(|source| OrderedFact {
+        key: FactOrderingKey { tick: 1, phase: FactPhase::PostStep,
+            canonical_source_order: source, local_ordinal: 0, fact_kind: FactKind::CommittedMana },
+        audience: FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
+        fact: ObservableFact::CommittedMana { source, state: state.clone() },
+    }).collect();
+    let frame = projector.build_frame(1, 1, &BTreeSet::from([10]), vec![], &facts,
+        &ProjectionDependencyGraph::default()).unwrap().frame;
+    let events = frame.step.unwrap().public_events;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_kind, FactKind::CommittedMana as u32);
+    assert_eq!(events[0].sanitized_payload, state.encode());
+    assert_eq!(events[0].sanitized_payload.len(), 20);
+    assert!(events[0].subject.is_some());
+}
+
+#[test]
 fn phase_fixture_records_the_complete_shared_order() {
     let mut trace = Vec::new();
     run_deterministic_gameplay_phases(&mut |phase| -> Result<(), ()> {

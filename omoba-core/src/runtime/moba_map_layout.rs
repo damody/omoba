@@ -115,6 +115,7 @@ mod tests {
             id: "not_a_shipped_map",
             lane_length: 900,
             tower_offset: 100,
+            tower_layers: &[100],
             lanes: &[],
             jungle_camps: &[],
             terrain: &[

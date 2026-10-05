@@ -40,6 +40,7 @@ pub mod shop_receipt;
 pub mod shop_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod recall_transport;
+pub mod mana_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_projector;
 #[cfg(all(test, not(target_arch = "wasm32")))]

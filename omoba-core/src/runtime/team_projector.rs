@@ -816,6 +816,8 @@ impl TeamViewProjector {
             shop_rules_hash: String::new(),
             recall_protocol_version: 0,
             recall_rules_hash: String::new(),
+            mana_protocol_version: 0,
+            mana_rules_hash: String::new(),
         }
     }
 
@@ -1304,6 +1306,7 @@ fn project_fact(
 fn fact_entities_and_payload(fact: &ObservableFact) -> (Option<u64>, Option<u64>, Vec<u8>) {
     let mut payload = Vec::new();
     match fact {
+        ObservableFact::CommittedMana { source, state } => (Some(*source), None, state.encode()),
         ObservableFact::CommittedAbilityRanks { source, ranks } => {
             for rank in ranks { payload.extend(rank.to_le_bytes()); }
             (Some(*source), None, payload)

@@ -56,6 +56,7 @@ pub enum FactKind {
     ShopReceipt = 23,
     OwnerEconomy = 24,
     CommittedAbilityRanks = 25,
+    CommittedMana = 26,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -92,6 +93,7 @@ pub enum ObservableFact {
     CommittedAttack { source: u64, elapsed_raw: i64, sequence: u32, phase: u8 },
     CommittedProgression { source: u64, level: i32, experience: i32, experience_to_next: i32, skill_points: i32 },
     CommittedAbilityRanks { source: u64, ranks: [i32; 4] },
+    CommittedMana { source: u64, state: crate::runtime::ability_runtime::CommittedManaState },
     /// A visible actor is prioritizing movement, without disclosing its
     /// destination, input, or any entity target.
     MovementPriority {

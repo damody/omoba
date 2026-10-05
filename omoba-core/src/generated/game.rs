@@ -836,6 +836,10 @@ pub struct JoinRequest {
     pub recall_protocol_version: u32,
     #[prost(string, tag = "13")]
     pub recall_rules_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "14")]
+    pub mana_protocol_version: u32,
+    #[prost(string, tag = "15")]
+    pub mana_rules_hash: ::prost::alloc::string::String,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -1024,6 +1028,10 @@ pub struct TeamGameStart {
     pub recall_protocol_version: u32,
     #[prost(string, tag = "26")]
     pub recall_rules_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "27")]
+    pub mana_protocol_version: u32,
+    #[prost(string, tag = "28")]
+    pub mana_rules_hash: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevealEntity {
@@ -1723,9 +1731,13 @@ pub struct HeroHudPresentation {
     pub skill_points: u32,
     #[prost(message, repeated, tag = "9")]
     pub abilities: ::prost::alloc::vec::Vec<AbilityHudPresentation>,
-    /// Current mana gameplay is not yet implemented; false must display unknown.
+    /// false means unsupported, not an empty pool. Values are absolute Q10.
     #[prost(bool, tag = "10")]
     pub mana_supported: bool,
+    #[prost(sint64, tag = "11")]
+    pub mana_raw: i64,
+    #[prost(sint64, tag = "12")]
+    pub max_mana_raw: i64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MobaHudPresentation {

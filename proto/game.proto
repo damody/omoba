@@ -584,6 +584,8 @@ message JoinRequest {
   string shop_rules_hash = 11;
   uint32 recall_protocol_version = 12;
   string recall_rules_hash = 13;
+  uint32 mana_protocol_version = 14;
+  string mana_rules_hash = 15;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -695,6 +697,8 @@ message TeamGameStart {
   string shop_rules_hash = 24;
   uint32 recall_protocol_version = 25;
   string recall_rules_hash = 26;
+  uint32 mana_protocol_version = 27;
+  string mana_rules_hash = 28;
 }
 
 message RevealEntity {
@@ -1104,8 +1108,10 @@ message HeroHudPresentation {
   uint32 experience = 7;
   uint32 skill_points = 8;
   repeated AbilityHudPresentation abilities = 9;
-  // Current mana gameplay is not yet implemented; false must display unknown.
+  // false means unsupported, not an empty pool. Values are absolute Q10.
   bool mana_supported = 10;
+  sint64 mana_raw = 11;
+  sint64 max_mana_raw = 12;
 }
 message MobaHudPresentation {
   uint32 schema_version = 1;

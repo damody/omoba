@@ -1055,6 +1055,18 @@ fn apply_disclosed_events(
 ) -> Result<(), ReplicaRuntimeError> {
     apply_committed_economy_and_equipment(world, injections)?;
     for event in &injections.public_events {
+        if event.event_kind == crate::runtime::FactKind::CommittedMana as u32 {
+            let state = crate::runtime::ability_runtime::CommittedManaState::decode(&event.sanitized_payload)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            hero.mana_pool = state.0;
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
         if event.event_kind == crate::runtime::FactKind::CommittedAbilityRanks as u32 {
             let payload=&event.sanitized_payload;
             if payload.len()!=16 {return Err(ReplicaRuntimeError::MalformedBaseline);}
@@ -1226,6 +1238,28 @@ mod committed_actor_state_tests {
         apply_disclosed_events(&mut world, &cooldown).unwrap();
         let hero: Hero = serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
         assert_eq!(hero.get_cooldown("lumen_bolt").raw(), 7168);
+    }
+
+    #[test]
+    fn mana_projection_filtered_state_is_absolute_and_invalid_payload_is_atomic() {
+        use crate::runtime::ability_runtime::{CommittedManaState, ManaPool};
+        let mut world = world();
+        let state = CommittedManaState(Some(ManaPool::from_raw_state(20, 100, 17).unwrap()));
+        let injected = event(FactKind::CommittedMana, state.encode());
+        apply_disclosed_events(&mut world, &injected).unwrap();
+        let once = world.clone();
+        apply_disclosed_events(&mut world, &injected).unwrap();
+        assert_eq!(world, once);
+        let hero: Hero = serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert_eq!(hero.mana_pool, state.0);
+        assert_eq!(hero.abilities, ["lumen_bolt"]);
+        for invalid in [vec![1, 1], vec![1, 0, 0], vec![2, 0]] {
+            assert!(apply_disclosed_events(&mut world, &event(FactKind::CommittedMana, invalid)).is_err());
+            assert_eq!(world, once);
+        }
+        apply_disclosed_events(&mut world, &event(FactKind::CommittedMana, CommittedManaState(None).encode())).unwrap();
+        let hero: Hero = serde_json::from_slice(&world.entities[&1].components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        assert!(hero.mana_pool.is_none());
     }
     #[test]
     fn committed_attack_preserves_stats_and_is_idempotent() {

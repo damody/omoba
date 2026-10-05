@@ -97,6 +97,31 @@ pub(crate) fn encode_disclosed_baseline(components: &[(u32, Vec<u8>)]) -> Vec<u8
     bytes
 }
 
+/// Borrowed, bounded decoder for the committed baseline component framing.
+/// Validate the entire frame before any caller uses a partial component.
+pub(crate) fn decode_disclosed_components(bytes: &[u8]) -> Option<BTreeMap<u32, &[u8]>> {
+    let count = u32::from_be_bytes(bytes.get(..4)?.try_into().ok()?) as usize;
+    let mut rest = bytes.get(4..)?;
+    if count > rest.len() / 8 { return None; }
+    let mut result = BTreeMap::new();
+    for _ in 0..count {
+        let schema = u32::from_be_bytes(rest.get(..4)?.try_into().ok()?);
+        let len = u32::from_be_bytes(rest.get(4..8)?.try_into().ok()?) as usize;
+        rest = rest.get(8..)?;
+        let value = rest.get(..len)?;
+        if result.insert(schema,value).is_some() { return None; }
+        rest = rest.get(len..)?;
+    }
+    rest.is_empty().then_some(result)
+}
+
+pub(crate) fn decode_disclosed_health(bytes: &[u8]) -> Option<(i64,i64)> {
+    if bytes.len() != 40 { return None; }
+    let hp = i64::from_be_bytes(bytes[..8].try_into().ok()?);
+    let max_hp = i64::from_be_bytes(bytes[8..16].try_into().ok()?);
+    (hp >= 0 && max_hp > 0 && hp <= max_hp).then_some((hp,max_hp))
+}
+
 pub fn encode_disclosed_property(property: &crate::runtime::CProperty) -> Vec<u8> {
     [
         property.hp.raw(),

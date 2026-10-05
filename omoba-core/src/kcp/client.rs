@@ -878,6 +878,8 @@ impl KcpClient {
             shop_rules_hash: String::new(),
             recall_protocol_version: 0,
             recall_rules_hash: String::new(),
+            mana_protocol_version: 0,
+            mana_rules_hash: String::new(),
         };
         {
             let mut w = self.writer.lock().await;
@@ -939,6 +941,8 @@ impl KcpClient {
             shop_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
             recall_protocol_version: crate::runtime::recall_transport::RECALL_PROTOCOL_VERSION,
             recall_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+            mana_protocol_version: crate::runtime::mana_transport::MANA_PROTOCOL_VERSION,
+            mana_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
         };
         {
             let mut writer = self.writer.lock().await;
@@ -973,6 +977,10 @@ impl KcpClient {
                         msg.recall_protocol_version, &msg.recall_rules_hash)
                         .map_err(|reason| anyhow::anyhow!(reason))?;
                     info!("secure recall protocol player={} enabled={}", player_id, recall);
+                    let mana = crate::runtime::mana_transport::negotiate_mana_protocol(
+                        msg.mana_protocol_version, &msg.mana_rules_hash)
+                        .map_err(|reason| anyhow::anyhow!(reason))?;
+                    info!("secure mana protocol player={} enabled={}", player_id, mana);
                     self.last_player_id = Some(msg.player_id);
                     self.last_step_fps = Some(msg.tick_rate_hz);
                     return Ok(msg);
