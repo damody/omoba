@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 pub mod buff_visual_sources;
 pub mod animation_metadata;
+pub mod moba_items;
 use serde::{Deserialize, Serialize};
 
 /// Shared gameplay and presentation-facing ability data parsed from Lua.
