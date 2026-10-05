@@ -1,5 +1,17 @@
 ## 執行節奏（使用者最新指示）
 
+2026-10-05 本批：三原型實際Lua接魔力：先鋒整備capacity、遊俠包紮regen、共享術士回春restore，無專屬handler／C++／BP。新正式60Hz case1覆蓋三者與Bot相關1、codegen生成／check、單人九Bot60Hz mana prepare成功；沒有full suite／stage／UE／100場，20/30保持。詳見 `docs/plans/2026-10-05-mana-archetype-content-progress.md` 與E186。
+
+2026-10-05 本批：Lua mana_buff_self→shared typed七stat／duration-value驗證→fixed Lua Rust生成→generic deferred Buff接線；same生命技能stat固定一筆max-duration刷新、不同技能可疊加、失敗不刷Buff。新model1／正式60Hz base1／generic1、Lua34與codegen --check成功，未跑全套／UE，20/30保持。詳見 `docs/plans/2026-10-05-lua-mana-buff-declarations-progress.md` 與E185。
+
+2026-10-05 本批：checked ManaBonus／ExtraManaBonus容量→共用派發前同步／Outcome後finish再同步，增加不補滿、到期先截限再cast，非法modifier退Lua base。新core1／正式60Hz base1／既有lifecycle3通過，未跑全套／UE，20/30保持；Lua持續Buff作者介面仍待。詳見 `docs/plans/2026-10-05-mana-capacity-buffs-progress.md` 與E184。
+
+2026-10-05 本批：UnitStats自然回魔Buff接正式MOBA finish，保護性基地加成獨立、合併一次pool remainder；checked資源聚合／負factor截限防溢位與雙負反正。新core2／正式60Hz base1與既有sustain2通過，未跑全套／UE，20/30保持，容量Buff／Lua持續Buff／100場仍待。詳見 `docs/plans/2026-10-05-mana-buff-recovery-progress.md` 與E183。
+
+2026-10-05 本批：Lua self Mana宣告→shared schema／fixed Lua Rust生成／generic executor已接線；host transaction處理容量截限、額外成本與失敗全回滾，不偽造HP preview。9個不同Rust tests／Lua13案例與UE codegen --check通過，未跑全套／stage／UE。5.5／6.2與20/30保持，Buff／跨目標resource／100場仍待；詳見 `docs/plans/2026-10-05-declarative-mana-effects-progress.md` 與E182。
+
+2026-10-05 本批：腳本spend／restore→正式ManaPool交易、post-metadata視圖、serial event／managed tick共用ledger、成功通知與跨角色失敗回滾已實作；core Mana篩選19／base新60Hz交易3／既有cast2通過。只確認當前功能，5.5／6.2與20/30保持，未跑全套或UE；詳見 `docs/plans/2026-10-05-script-mana-transactions-progress.md` 與E181。
+
 2026-10-05 本批：Mana獨立協商／server安全opt-in／一般與role-plan配置／initial-rejoin bootstrap接線，停用對局不發新fact26；core1／server2／正式60Hz base1成功。只做當前功能確認，真實網路／launcher啟用／UE引擎基線仍待，20/30與4.1／5.5／6.2／6.4狀態不變。詳見 `docs/plans/2026-10-05-mana-agreement-progress.md` 與E178。
 
 2026-10-05 本批：通用Mana HUD Rust／IPC／C ABI12與UE資料／法力條程式已接線；runtime2／bridge3成功，UHT成功。Unreal native C++因共享引擎既有修改而被NoEngineChanges擋住，未執行新的UI測試，不勾選6.2；協商與一般規則啟用尚待。詳見 `docs/plans/2026-10-05-mana-hud-progress.md` 與E177。
@@ -117,6 +129,8 @@
   - 最後導航版本三seed1／42／539365380完整60Hz lifecycle4955／7870／7767 tick勝利、雙隊41,262 filtered steps逐tick零repair一致，base102全過；實際release DLL三路seed42 headless12,808tick逐tick replay／四招26／11／3／7通過。最後UEfullbuild／stage127176…、MCP11BP、owned Editor67136兩輪19/19與串行PIE通過並獨立確認退出。不是LAN／三路UE畫面／60FPS；野區、地形與完整建築層次仍缺，不勾选。
   - 2026-10-04：第一段三路原型沿正式共用 ECS，Lua整數waypoint→Rust編譯constants與map hash、三路各自出兵／一座塔、all_lane_towers傷害邊界解鎖；保留單路預設、三路 opt-in，headless新增60Hz與map參數、shop／Recall安全協商接受三路。首場完整雙隊filtered lifecycle4955 tick結束／9936 steps無repair／15 frozen ticks，三種種子批次與最後DLL／stage驗證見 `docs/plans/2026-10-04-three-lane-navigation-60hz-progress.md`。野區、地形通用避障、建築多層解鎖與Unreal三路layout尚未完成，不勾選整項。
 - [ ] 5.5 實作五位置 Bot 與三種完整英雄原型，驗證 100 場 headless 對局無越權輸入、死局或非法目標。
+  - 2026-10-05：通用mana sustain千分比門檻／明確配方規則flag、本人資源與披露威脅→正常Recall／MoveTo／基地等待；Lua基地速率60與自然5合併Q10餘數、權威有效時間／活本人基地／存活結算。core2／正式60Hz base2／template1／server1及舊HP1、新一真人九Bot60Hz prepare與生成check成功；未stage／UE／100場，詳見 `docs/plans/2026-10-05-bot-mana-sustain-progress.md` 與E180，不勾選。
+  - 2026-10-05：Bot Mana預算按本人pool／Buff倍率、同腳本metadata與共用checked成本跳過負擔不起技能，後續候選正常選取；不預扣、只正式CastAbility，None保留legacy。core2／短正式60Hz base1／managed cast回歸base2成功。補魔策略、UE與100場仍待，詳見 `docs/plans/2026-10-05-bot-mana-budget-progress.md` 與E179，不勾選。
   - 2026-10-05：Mana committed26／版本化絕對狀態含Q10餘數、checked decode／visibility gate／baseline與filtered hash接線完成；core4、短60Hz12ticks雙隊24steps零repair每tickhash一致。fixture漏owner accepted input的CD差異已修正常投影；正式規則／協商／再生／生命週期／HUD與完整script API未完成，見 `docs/plans/2026-10-05-mana-projection-progress.md` 與E175，不勾選。
   - 2026-10-05：managed Mana cast serial ledger／當級成本倍率與更新後CD、成功提交／失敗丟棄效果與visual，read view真實餘額且explicit script spend拒絕雙扣。base2含正式60Hz與同batch超支／重複CD、adapter1通過；正式規則啟用／安全投影／再生／HUD及任意script資源變動仍缺，見 `docs/plans/2026-10-05-mana-cast-progress.md` 與E174，不勾選。
   - 2026-10-05：Mana第一階段共用Q10數值核心／i128低速再生餘數／checked保存、Hero optional冪等初始化與不補魔容量更新；core5／Hero2通過。正式施法ordered扣費、adapter假實作替換、規則啟用／安全投影／HUD未完成，不先改正常對局。詳見 `docs/plans/2026-10-05-mana-pool-progress.md` 與E173，不勾選。

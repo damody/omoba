@@ -1,5 +1,68 @@
 # Unreal MOBA 防錯紀錄
 
+## E186：實際原型接線要看生成 handler 與 full data hash；raw 期望型別別混用（2026-10-05）
+
+- 決定：先鋒整備＋temporary capacity、遊俠包紮＋自然regen、共享術士回春＋立即Mana，全部Lua effects／extras，不改技能ID／原cost／HP或角色程式。三原型正式PlayerInput→正常生成manifest→outcome／finish確認，不手換handler。
+- 編譯錯誤：成本通知Vec<i64>與期望Vec<i32>比較E0277；明確i64::from(cost)*1024後新正式case成功。世界單位與Q10 raw需要同時核對scale與寬度。
+- 規則影響：遊俠rank1回魔現在5＋2=7；既有Bot預算期望改讀UnitStats並assert7，不讓stale固定5被誤認runtime錯誤。仍只走正式input。
+- 工具問題：rg單行launch-plan輸出截斷，改唯讀JSON欄位；猜tick_hz缺值不當成功證據，60Hz以prepare真實回報。content_hash不變而catalog_data_hash更新14ef1dea84790afb，不能混舊DLL冒充stage。
+- 確認：新三原型case1／Bot相關1、codegen生成＋check、固定Lua單人九Bot60Hz prepare成功；沒有100場／DLL載入／UE驗收，20/30與E177保持。詳見mana-archetype-content進度。
+
+## E185：Lua Buff 必須型別化與固定刷新身分；測試別猜 CD 欄位（2026-10-05）
+
+- 決定：mana_buff_self用shared七stat白名單、signed value／正duration envelope、每技能unique stat；固定Lua生成typed EffectOp，generic preflight後deferred add_stat_buff，ROk才提交。Buff ID含ability／stat／entity／generation，同來源max duration刷新不增層，不同技能疊加。
+- 編譯錯誤：fixture猜hero.cooldowns造成E0609；查實際ability_cooldowns後改公開start_cooldown目標技能ZERO。最終新model1／base2成功，不為測試擴大API。
+- 證據界線：原fixture mana_enabled=false只能證明payload，改正式初始化明確true與隔離回魔後確認90－45=45、容量280→335不補滿、重施不再加55、失敗留舊Buff正常倒數。不用後置切flag冒充正常啟用。
+- 確認：新Rust3／Lua34（其中新21）與codegen --check通過；既有Mana2相關案例曾成功。沒有完整新英雄DLL／UE驗收，20/30與E177維持。詳見lua-mana-buff-declarations進度。
+
+## E184：容量 Buff 必須在施法前同步；只看結尾不越界不夠（2026-10-05）
+
+- 決定：UnitStats原始Lua capacity＋checked ManaBonus／ExtraManaBonus，合法負值截0，非法／overflow／超百萬退base；ManaPool增容量不補滿、縮小截限並清滿池餘數。
+- 邊界風險：只在finish同步會讓已到期Buff的超額魔力被當輪cast消費。共用dispatch建立cache前同步，效果outcome後finish再同步；同hook新Buff維持deferred可見性。只處理active mana match living slots，不創建None池／TD不變。
+- 操作／編輯問題：猜native/mod.rs搜尋失敗，rg找到native.rs re-export；helper插入暫移接了finish的commit comment，diff檢查後修回。
+- 確認：新core1／正式60Hz base1與既有lifecycle3共5 passed，沒有compile／test failure；Lua持續Buff與完整框架仍未完成。詳見mana-capacity-buffs進度，20/30及E177狀態不變。
+
+## E183：有回魔 helper 不等於已接線；負倍率與固定數值溢位（2026-10-05）
+
+- 發現：UnitStats.mana_regen已存在，但MOBA finish仍用固定Lua rate。已接自然Buff與独立基地加成，合併一次Q10 remainder，保留有效時間／死亡／暫停等既有gate。
+- 數值風險：原式只截最後结果，兩個負倍率可變成正回魔；fixed加法／abs／乘法可溢位。新增checked_sum_add以i128與unsigned_abs保留family聚合，checked_mana_regen逐factor截0與checked產品；非法自然rate fail closed但不禁用合法基地恢復，沒有全面改其他stat。
+- 操作／編輯問題：buff_tick輸出被小cap截斷，改以正式到期與pool確認而不猜；新增測試把舊移速comment暫留到Mana測試前，diff檢查後修正。
+- 確認：新core2／正式60Hz base1與既有sustain2共5 passed，沒有編譯或測試失敗；非Lua持續Buff作者流程／上限Buff／完整UE驗收。詳見mana-buff-recovery進度，20/30維持，E177未解除。
+
+## E182：宣告式資源效果依賴 host 交易；外部 build-dependency 不要混選測試（2026-10-05）
+
+- 決定：共享schema／固定Lua生成器／generic handler支援restore_mana_self與spend_mana_self。全plan preflight後按實際池與作者順序准入資源，再emit其他效果；額外成本不足由host回滾，不能用猜容量或把helper當成自帶rollback。魔力不是HP，不偽造Heal preview。
+- Cargo錯誤：scripts workspace同選外部僅build-dependency的omoba-content-model，Rust1.95 Cargo resolver在NormalOrDev features panic；拆成各自manifest後新model1與base2成功，不動工具鏈／lockfile。
+- 編譯錯誤：漏補既有ResolvedEffect fixture exhaustive match造成E0004；補兩個明確variant分支後成功。新增enum必須檢查production與test matches，不用wildcard掩蓋。
+- 操作錯誤：一次context-only patch沒有改動；改具名test插入並檢查實際執行。literal buff*／猜unit_stats路徑搜尋失敗，改rg --files定位，不改未讀懂的Buff架構。
+- 確認：9個不同Rust tests與Lua13案例passed、UE codegen --check沒有diff；不是新Lua英雄端到端或完整UE驗收。20/30保持，詳見declarative-mana-effects進度，E177未解除。
+
+## E181：腳本魔力要共用帳本；tick fixture 必須實際註冊（2026-10-05）
+
+- 決定：host metadata 扣一次，腳本讀 post-cost 餘額並可額外 spend／restore；serial event＋managed tick 共用 ledger、成功才提交狀態與通知，非 managed TD 保留平行。移除舊 cast view；ABI 只補語義文件，不增加方法。
+- 實際失敗：兩項正式60Hz測試得到55／20而非54／19，因 fixture 嘗試替換 manifest 不存在的英雄 unit；只補 tag 仍不執行。檢查 units() 後明確 append UnitDef＋tag，最後3/3通過。不修改預期或正式英雄生命週期迎合測試。
+- 邊界：legacy caster 也可能修改 managed recipient，不能只用施法者 reservation 決定 rollback；失敗 cast 有 dirty pool 也丟棄交易，新跨角色案例證明 recipient／通知／CD皆不變。
+- 編輯／操作錯誤：過寬 patch 將 mana view 暫插到 buff remaining，編譯前移正；再次猜檔名與 literal glob 路徑失敗、多檔輸出截斷。使用 rg 定位、獨特上下文與逐段讀取，shell最後exit0不代表前面的搜尋成功。
+- 確認：core mana篩選19／base新交易3／既有cast2通過；沒有全套驗收、UE或100場，20/30維持，E177未解除。詳見script-mana-transactions進度檔。
+
+## E180：補魔策略必須有正式恢復與明確規則；feature 測試零項不是成功（2026-10-05）
+
+- 決策：sustain 可選mana門檻＋配方明確mana_enabled，server旗標必須一致；None／零容量不等候。基地速率來自Lua，權威有效時間、活本人基地、存活／非lethal才加成；合併自然與基地速率後一次Q10餘數結算，AI只正式Recall／MoveTo。
+- 設定風險：若只補AI門檻而没有基地資源恢復，會長時間等待自然回魔；若server覆寫配方flag而不驗一致性，會產生已宣告策略卻沒有法力池。兩者已用共用正式恢復與啟用衝突拒絕修正，未修改一般啟動預設。
+- 編輯錯誤：插入server測試時提交空update hunk，apply_patch整份拒絕；改用實際完整函式上下文插入，沒有部分落地。
+- 操作錯誤：多來源／OpenSpec輸出再次超過外層輸出上限，改分段補讀。猜 moba_role_config／moba_role_match_config／filtered_match_tests／plan.json 路徑失敗；以rg --files與現有launcher定位，實際產物為launch-plan.json。不得因錯誤在非最後一個shell指令而exit0就忽略。
+- 測試錯誤：template預設未啟用runtime-lua-content，初次指定測試回報0；直接給workspace外package features又被Cargo拒絕。最後透過workspace內omobab/runtime-lua-content啟用依賴，再確認template新測試實際1/1，不拿零項或server成功代替。
+- 確認：本功能新core2／正式60Hz base2／template1／server1與舊HP功能1共7個不同測試通過；固定Lua新一真人九Bot60Hz prepare與codegen生成／check通過。沒有全套驗收、stage或Unreal執行，詳見bot-mana-sustain進度。
+
+## E179：Bot 預算必須讀正確 metadata 資源；fixture 不得猜成本（2026-10-05）
+
+- 實作決定：共用 checked_mana_cost 給 Bot／authority，原始 f32→Q10與倍率進位完全相同；AI只有本人讀取權，不預扣，跳過不夠／缺資料技能並保留後續候選。
+- 實際接線錯誤：首次 Bot 讀 World 的 ScriptRegistry，純 planner 通過但正式60Hz沒有選到施法；SimulationDriver::from_world 已 remove 並持有 registry，診斷直接 fetch 證明不存在。改讀初始化直接 clone 同一 AbilityDef 的 AbilityRegistry，不複製執行器或放寬缺資料的 fail-closed。
+- Fixture 錯誤：property(20,0) 同時設 hp／mhp=20，不符合自療門檻；改 mhp100／hp20。另誤認現有箭雨一級70，實際 Lua builder 全部一級45；正式案例使用合法 rank4成本60對比rank1成本45，不改遊戲資料迎合測試。
+- 操作錯誤：多來源輸出超過 max_output_tokens 再次截斷；後續改具體片段。猜 parallel_adapter／state_initializer 檔名搜尋失敗，改 rg 目錄與 rg --files 定位 parallel_world_adapter／initialization。一次診斷 patch 命中相同舊assert，已立即還原；之後使用獨特 expected-pool 上下文。
+- 防再犯：先追查資源生命週期與來源建立點，再選 ECS 查詢；讀實際 Lua rank 成本和 fixture helper 實作。診斷不能變成 production fallback，不以純函式通過代表正式接線成功。
+- 確認：core2／正式60Hz base1／既有 managed施法base2 passed；完整框架、補魔策略、UE與100場未驗收，見 bot-mana-budget 進度。
+
 ## E178：Mana 協商必須先於註冊；停用對局不能洩漏新事件版本（2026-10-05）
 
 - 發現：既有 finish hook 無論啟用與否都發 CommittedMana26／None，可能讓未宣告新能力的舊端收到未知事件。改為明確啟用或已存在 managed pool 才發；短60Hz兩種配置確認停用0／啟用2 pools每tick。

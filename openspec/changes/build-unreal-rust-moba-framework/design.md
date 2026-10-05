@@ -1,5 +1,21 @@
 ## Context
 
+2026-10-05 三原型Mana內容：Lua先鋒整備capacity60–150／6–9秒、遊俠包紮自然regen2–5／6–9秒、共享術士回春restore20–35，原cost／HP／ID維持、無角色runtime分支。正常generated manifest正式60Hz驗三者cost／HP／pool／Buff，Bot預算仍正式input並按新regen7結算。case1（三subcases）／Bot1、codegen生成＋check、mana單人九Botprepare成功；full data hash14ef1dea84790afb，不混舊DLL宣稱部署；100場與mana-only Bot意圖仍待，20/30保持，詳見mana-archetype-content進度與E186。
+
+2026-10-05 Lua持續Mana Buff：shared ManaBuffStat白名單與bounds、mana_buff_self(value_key,duration_key)，每技能unique stat；fixed Lua生成typed EffectOp，generic全preflight／資源准入後deferred add_stat_buff，Buff ID固定ability／stat／entity／generation，max-duration最新payload刷新、不增同來源層，跨技能可疊加。mana-enabled正式60Hz證明cost45／current45／capacity335不補满、重施一筆與失敗留旧Buff；新Rust3／Lua34／codegen --check成功。UI preview／十人100場仍待，20/30不變，詳見lua-mana-buff-declarations進度與E185。
+
+2026-10-05 Mana容量Buff：UnitStats checked原始MOBA Lua容量＋ManaBonus／ExtraManaBonus、family語義重用；負值截0、invalid／overflow／超envelope退base，ManaPool set_maximum增容量不補滿、縮小截限。shared script dispatch建立快取前同步，Outcome後finish再同步，修正到期仍能cast消耗超額餘額；同hook新Buff保持deferred、None／inactive／legacy不改。新core1／正式60Hz base1／舊lifecycle3通過，不勾選整項，Lua持續Buff仍待。詳見mana-capacity-buffs進度與E184。
+
+2026-10-05 Mana Buff回魔：MOBA自然rate經既有UnitStats keys聚合，基地恢復獨立保護且合併一次Q10 remainder；checked_sum_add用i128加總／unsigned_abs family最強，checked_mana_regen對flat與每factor截0、溢位／非法payload使自然0，不全面改其他stat。正式60Hz確認pause／expiry／基地與invalid恢復，core2／base新1／舊sustain2成功；容量Buff與Lua持續Buff仍待，20/30不變。詳見mana-buff-recovery進度與E183。
+
+2026-10-05 Lua魔力effects：新增restore_mana_self／spend_mana_self，instant active／ultimate none-target沿每級extras與共用scalar envelope；固定Lua生成EffectOp、GenericEffectHandler全plan preflight後依作者順序使用真實pool准入資源，再emit heal等效果，RErr由正式host回滾。額外成本不是metadata成本且不重套其倍率；legacy不建立池、Mana沒有EffectSpec preview不冒充HP heal。model1／正式60Hz host1／generic7共9個不同Rust測試、Lua13與codegen --check成功，不新增角色C++或Blueprint graph、不勾選整項。詳見declarative-mana-effects進度與E182。
+
+2026-10-05 腳本資源：沿既有 GameWorld ABI 實作 checked spend／capped restore，metadata由host預留一次、handler讀post-cost餘額；每hook transaction成功才commit絕對pool與下一dispatch通知。serial queued events與固定順序managed tick共享ledger，無managed的TD仍平行；legacy caster修改managed recipient失敗同樣rollback，移除舊cast view。新正式60Hz交易3／既有cast2與core Mana篩選19通過；不改英雄unit掛載、不新增角色C++，宣告式Mana effect／Buff與完整UI／100場仍待，20/30維持。詳見script-mana-transactions進度與E181。
+
+2026-10-05 Bot補魔：sustain可選mana門檻／None及零容量不等待，配方明確mana_enabled與server MATCH_MANA_ENABLED一致才啟用；正常Recall／MoveTo與本人資源、披露威脅。Lua基地Mana速率60進full rules hash／agreement／no hot reload，authority post-combat共享活本人基地eligibility，與自然速率5合併一次Q10餘數結算。新core2／正式60Hz base2／template1／server1與舊HP1成功，新opt-in一真人九Bot60Hz Lua prepare、生成與check成功；一般預設不變、未stage／UE／100場，20/30不變。詳見bot-mana-sustain進度與E180。
+
+2026-10-05 Bot Mana預算：shared checked_mana_cost原始f32→Q10與倍率進位由AI／authority共用；本人Hero／Buff與初始化同腳本metadata的AbilityRegistry，不讀已由SimulationDriver接管的ScriptRegistry。按作者priority跳過不夠／非法／缺資料成本，None保留legacy，AI不預扣且只發正式CastAbility。core2／短60Hz正式base1（rank4成本60跳過→rank1成本45、免耗Buff與精確扣費再生）／既有managed cast base2成功；補魔策略、script操作、UE／100場未完成，20/30不變。詳見bot-mana-budget進度與E179。
+
 2026-10-05 Mana規則協商：JoinRequest14／15、TeamGameStart27／28追加獨立version1與full data hash；server MATCH_MANA_ENABLED預設false且限secure MOBA，一般與role-plan轉入mana_enabled。註冊前拒絕不支援／錯hash／非selective player，initial／rejoin bootstrap回覆實際啟用協商；legacy request保持zero。修正停用對局不發fact26。core1／server2／短60Hz base1成功；未做真實網路或UE驗收、不啟用實際launcher，20/30不變。詳見mana-agreement進度與E178。
 
 2026-10-05 通用Mana HUD：本人disclosed pool→schema2 Q10 raw→bridge範圍與身分檢查→C ABI12→共用UE payload／native MP文字與藍色法力條；legacy schema1只允許unsupported canonical zero。runtime新2與bridge3成功；UHT成功，但共享D:/UE5.8已有Skeletal引擎修改觸發NoEngineChanges，native C++未完成且不繞過版本／引擎閘門。一般規則協商與完整UI仍待，20/30不變。詳見mana-hud進度與E177。
