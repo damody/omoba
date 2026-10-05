@@ -1603,6 +1603,8 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
         Outcome::ScriptStartCooldown { .. } => "ScriptStartCooldown",
         Outcome::ScriptSetMana { .. } => "ScriptSetMana",
+        Outcome::ScriptManaGained { .. } => "ScriptManaGained",
+        Outcome::ScriptManaSpent { .. } => "ScriptManaSpent",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
     }
 }
@@ -1874,6 +1876,12 @@ pub fn process_outcomes(
                 if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
                     if hero.mana_pool.is_some() { hero.mana_pool = Some(pool); }
                 }
+            }
+            Outcome::ScriptManaGained { entity, amount } => {
+                world.write_resource::<ScriptEventQueue>().push(ScriptEvent::ManaGained { e: entity, amount });
+            }
+            Outcome::ScriptManaSpent { entity, amount, ability_id } => {
+                world.write_resource::<ScriptEventQueue>().push(ScriptEvent::SpentMana { caster: entity, cost: amount, ability_id });
             }
             Outcome::EntityRemoved { entity } => {
                 world

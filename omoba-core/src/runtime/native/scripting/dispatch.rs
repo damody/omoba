@@ -40,14 +40,15 @@ const SCRIPT_ON_TICK_PARALLEL: bool = true;
 /// 主入口點 - 在所有平行報價系統之後，每個報價調用一次
 /// 已經完成並且在 `world.maintain()` 之前。
 ///
-/// 每 tick 先對所有有 `ScriptUnitTag` 的 entity 派發 `on_tick`，然後 drain
-/// `ScriptEventQueue` 處理其他 hooks（`AttackHit`, `Death` 等）。
+/// 每 tick 先 drain `ScriptEventQueue` 處理 hooks，再對有 `ScriptUnitTag`
+/// 的 entity 派發 `on_tick`；managed 資源帳本跨兩段維持固定順序。
 pub fn run_script_dispatch(
     world: &mut World,
     registry: &ScriptRegistry,
     rng_seed: u64,
     dt: Fixed64,
 ) {
+    crate::runtime::refresh_moba_mana_capacities(world);
     // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
     let tagged: Vec<(Entity, String)> = {
         let entities = world.entities();
@@ -91,6 +92,9 @@ pub fn run_script_dispatch(
         event_count,
     )
     .entered();
+    // Retain the serial resource ledger across queued events and tick hooks;
+    // the immutable ECS cache does not yet contain deferred outcomes.
+    let mut cast_heroes = HashMap::new();
     {
         // Event hooks stay serial in queue order, but use the same outcome-backed
         // adapter as parallel on_tick so script mutations have one code path.
@@ -100,7 +104,6 @@ pub fn run_script_dispatch(
         let mut visual_events = Vec::new();
         // Only serial queue order may advance managed mana/CD state. Never use
         // parallel hook scheduling or the immutable ECS cache as a balance ledger.
-        let mut cast_heroes = HashMap::new();
         for (event_ordinal, ev) in events.into_iter().enumerate() {
             // Internal queued casts must obey the same unlearned gate as
             // PlayerInput. Preserve legacy Story and TD script fallback behavior.
@@ -112,6 +115,7 @@ pub fn run_script_dispatch(
                 }
             }
             let invocation_entity = event_invocation_entity(&ev);
+            let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
             let reservation = match prepare_mana_cast(&cache, registry, &ev, &mut cast_heroes) {
                 Ok(value) => value,
                 Err(()) => continue,
@@ -122,20 +126,28 @@ pub fn run_script_dispatch(
                 event_ordinal as u64,
             );
             let visual_checkpoint = visual_events.len();
-            if let Some((caster, _)) = &reservation {
-                adapter.set_cast_mana_view(*caster, cast_heroes[caster].mana_pool.as_ref()
-                    .expect("managed ledger").current());
+            adapter.begin_mana_transaction(&cast_heroes);
+            if let Some((caster, next)) = &reservation {
+                let previous=cast_heroes[caster].mana_pool.as_ref().expect("managed ledger").current();
+                let pool=next.mana_pool.clone().expect("reserved pool");
+                let ScriptEvent::SkillCast {skill_id,..}=&ev else {unreachable!()};
+                adapter.stage_mana_spent(*caster,previous-pool.current(),skill_id.clone());
+                adapter.stage_mana_pool(*caster,pool);
             }
             dispatch_one(&mut adapter, registry, ev, rng_seed, &mut visual_events);
             if let Some((caster, next_hero)) = reservation {
                 if adapter.cast_succeeded() {
-                    adapter.commit_mana(caster, next_hero.mana_pool.clone().expect("reserved pool"));
                     cast_heroes.insert(caster, next_hero);
                 } else {
                     adapter.discard_cast();
                     visual_events.truncate(visual_checkpoint);
                 }
+            } else if adapter.hook_panicked()
+                || (is_cast && adapter.has_mana_changes() && !adapter.cast_succeeded()) {
+                adapter.discard_cast();
+                visual_events.truncate(visual_checkpoint);
             }
+            commit_script_mana(&mut adapter,&cache,&mut cast_heroes);
             event_outcomes.extend(adapter.finish());
         }
         drop(cache);
@@ -167,38 +179,18 @@ pub fn run_script_dispatch(
     .entered();
     if SCRIPT_ON_TICK_PARALLEL {
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
-        let results: Vec<_> = tagged
-            .par_iter()
-            .enumerate()
-            .map(|(tagged_ordinal, (ent, uid))| {
-                let Some(script) = registry.get(uid) else {
-                    return None;
-                };
-                let handle = ParallelWorldAdapter::entity_to_handle(*ent);
-                let t = Instant::now();
-                let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
-                    &cache,
-                    *ent,
-                    event_count as u64 + tagged_ordinal as u64,
-                );
-                let mut cooldown_adapter = ParallelTowerCooldownAccess::new(&cache);
-                let mut world_dyn = world_dyn_of(&mut adapter);
-                let mut cooldown_dyn = cooldown_dyn_of(&mut cooldown_adapter);
-                let r = catch_unwind(AssertUnwindSafe(|| {
-                    script.on_tower_tick(handle, dt, &mut cooldown_dyn, &mut world_dyn);
-                }));
-                drop(cooldown_dyn);
-                drop(world_dyn);
-                let ns = t.elapsed().as_nanos();
-                if r.is_err() {
-                    log::error!("[scripting] panic in on_tower_tick of {}", uid);
-                }
-                let visual = ScriptVisualEvent::new(ScriptVisualEventKind::Tick, *ent, rng_seed);
-                let mut outcomes = adapter.finish();
-                outcomes.extend(cooldown_adapter.finish());
-                Some((uid.clone(), ns, outcomes, visual))
-            })
-            .collect();
+        let managed=(&cache.hero).join().any(|hero|hero.mana_pool.is_some());
+        let results: Vec<_> = if managed {
+            // Cross-entity spends cannot return a truthful success from parallel
+            // snapshots. Managed batches use the canonical sorted hook order.
+            tagged.iter().enumerate().map(|(ordinal,(ent,uid))|
+                dispatch_tick(&cache,registry,*ent,uid,dt,event_count as u64+ordinal as u64,
+                    rng_seed,Some(&mut cast_heroes))).collect()
+        } else {
+            tagged.par_iter().enumerate().map(|(ordinal,(ent,uid))|
+                dispatch_tick(&cache,registry,*ent,uid,dt,event_count as u64+ordinal as u64,
+                    rng_seed,None)).collect()
+        };
         drop(cache);
         let mut global_outcomes = world.write_resource::<Vec<crate::comp::Outcome>>();
         let mut tick_visuals = Vec::new();
@@ -241,6 +233,38 @@ pub fn run_script_dispatch(
         );
     }
     drop(dispatch_span);
+}
+
+fn commit_script_mana(adapter:&mut ParallelWorldAdapter<'_>,cache:&ParallelAdapterCache<'_>,
+    ledger:&mut HashMap<Entity,crate::comp::Hero>) {
+    for (entity,pool) in adapter.commit_mana_transaction() {
+        let hero=ledger.entry(entity).or_insert_with(||cache.hero.get(entity).expect("managed hero").clone());
+        hero.mana_pool=Some(pool);
+    }
+}
+
+fn dispatch_tick(cache:&ParallelAdapterCache<'_>,registry:&ScriptRegistry,entity:Entity,uid:&str,
+    dt:Fixed64,ordinal:u64,tick:u64,mut ledger:Option<&mut HashMap<Entity,crate::comp::Hero>>)
+    -> Option<(String,u128,Vec<crate::comp::Outcome>,ScriptVisualEvent)> {
+    let script=registry.get(uid)?;
+    let handle=ParallelWorldAdapter::entity_to_handle(entity);
+    let start=Instant::now();
+    let mut adapter=ParallelWorldAdapter::new_with_random_ordinal(cache,entity,ordinal);
+    if let Some(ledger)=ledger.as_deref() {adapter.begin_mana_transaction(ledger);}
+    let mut cooldown_adapter=ParallelTowerCooldownAccess::new(cache);
+    let mut world_dyn=world_dyn_of(&mut adapter);
+    let mut cooldown_dyn=cooldown_dyn_of(&mut cooldown_adapter);
+    let result=catch_unwind(AssertUnwindSafe(||script.on_tower_tick(handle,dt,&mut cooldown_dyn,&mut world_dyn)));
+    drop(cooldown_dyn);drop(world_dyn);
+    if result.is_err() {
+        log::error!("[scripting] panic in on_tower_tick of {}",uid);
+        if ledger.is_some() {return Some((uid.into(),start.elapsed().as_nanos(),Vec::new(),
+            ScriptVisualEvent::new(ScriptVisualEventKind::Tick,entity,tick)));}
+    }
+    if let Some(ledger)=ledger.as_deref_mut() {commit_script_mana(&mut adapter,cache,ledger);}
+    let mut outcomes=adapter.finish();outcomes.extend(cooldown_adapter.finish());
+    Some((uid.into(),start.elapsed().as_nanos(),outcomes,
+        ScriptVisualEvent::new(ScriptVisualEventKind::Tick,entity,tick)))
 }
 
 fn filter_ready_on_ticks(

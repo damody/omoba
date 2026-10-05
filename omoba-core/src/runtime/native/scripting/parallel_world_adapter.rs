@@ -73,7 +73,9 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_pos: HashMap<Entity, Vec2>,
     cast_succeeded: bool,
     hook_panicked: bool,
-    cast_mana_view: Option<(Entity, Fixed64)>,
+    mana_transaction: bool,
+    mana_views: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
+    mana_dirty: Vec<Entity>,
     overlay_facing: HashMap<Entity, Angle>,
     overlay_asd_count: HashMap<Entity, Fixed64>,
     projectile_hit_generation: Option<u8>,
@@ -450,7 +452,9 @@ impl<'a> ParallelWorldAdapter<'a> {
             overlay_pos: HashMap::new(),
             cast_succeeded: false,
             hook_panicked: false,
-            cast_mana_view: None,
+            mana_transaction: false,
+            mana_views: HashMap::new(),
+            mana_dirty: Vec::new(),
             overlay_facing: HashMap::new(),
             overlay_asd_count: HashMap::new(),
             projectile_hit_generation: None,
@@ -464,8 +468,40 @@ impl<'a> ParallelWorldAdapter<'a> {
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
     pub fn cast_succeeded(&self) -> bool { self.cast_succeeded && !self.hook_panicked }
     pub fn mark_hook_panicked(&mut self) { self.hook_panicked = true; }
-    pub fn set_cast_mana_view(&mut self, entity: Entity, current: Fixed64) {
-        self.cast_mana_view = Some((entity, current));
+    pub fn hook_panicked(&self) -> bool { self.hook_panicked }
+    pub fn has_mana_changes(&self) -> bool { !self.mana_dirty.is_empty() }
+    /// Only the serial dispatcher can enable read/modify/write resource admission.
+    pub fn begin_mana_transaction(&mut self, ledger: &HashMap<Entity, Hero>) {
+        self.mana_transaction = true;
+        self.mana_views = ledger.iter().filter_map(|(entity,hero)|
+            hero.mana_pool.clone().map(|pool|(*entity,pool))).collect();
+    }
+    pub fn stage_mana_pool(&mut self, entity: Entity, pool: crate::runtime::ability_runtime::ManaPool) {
+        self.mana_views.insert(entity,pool);
+        if !self.mana_dirty.contains(&entity) { self.mana_dirty.push(entity); }
+    }
+    pub fn stage_mana_spent(&mut self, entity:Entity, amount:Fixed64, ability_id:String) {
+        if amount>Fixed64::ZERO {
+            self.outcomes.push(Outcome::ScriptManaSpent {entity,amount,ability_id});
+        }
+    }
+    /// Deterministic absolute commits; notifications are deferred until outcomes
+    /// settle, and their callbacks run in a later dispatch (never recursively).
+    pub fn commit_mana_transaction(&mut self) -> Vec<(Entity,crate::runtime::ability_runtime::ManaPool)> {
+        self.mana_dirty.sort_by_key(|e|(e.id(),e.gen().id()));
+        let dirty=std::mem::take(&mut self.mana_dirty);
+        dirty.into_iter().map(|entity| {
+            let pool=self.mana_views[&entity].clone();
+            self.commit_mana(entity,pool.clone());
+            (entity,pool)
+        }).collect()
+    }
+    fn managed_mana_entity(&self, e:EntityHandle) -> Option<Entity> {
+        let entity=Self::handle_to_entity(e)?;
+        if !self.cache.entities.is_alive(entity)
+            || !self.cache.cprop.get(entity).is_some_and(|health|health.hp>Fixed64::ZERO)
+            || self.cache.hero.get(entity)?.mana_pool.is_none() {return None;}
+        Some(entity)
     }
 
     /// Each queued event owns a fresh adapter. Failed managed casts discard
@@ -477,7 +513,9 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.overlay_asd_count.clear();
         self.cast_succeeded = false;
         self.hook_panicked = false;
-        self.cast_mana_view = None;
+        self.mana_transaction = false;
+        self.mana_views.clear();
+        self.mana_dirty.clear();
     }
 
     pub fn commit_mana(&mut self, entity: Entity, pool: crate::runtime::ability_runtime::ManaPool) {
@@ -1107,24 +1145,40 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     fn current_mana(&self, e: EntityHandle) -> Fixed64 {
         Self::handle_to_entity(e)
             .and_then(|ent| {
-                if let Some((caster, current)) = self.cast_mana_view {
-                    if caster == ent { return Some(current); }
-                }
+                if let Some(pool)=self.mana_views.get(&ent) {return Some(pool.current());}
                 self.cache.hero.get(ent).map(|hero| hero.mana_pool.as_ref()
                     .map(|pool| pool.current()).unwrap_or_else(|| hero.get_max_mana()))
             })
             .unwrap_or(Fixed64::ZERO)
     }
 
-    fn spend_mana(&mut self, e: EntityHandle, _amount: Fixed64, _ability_id: RStr<'_>) -> bool {
-        // Managed casts are charged once by the host, not again by a handler.
-        // Explicit script resource mutations require ordered settlement support;
-        // reject rather than reporting the old stub's fictitious success.
-        !Self::handle_to_entity(e).and_then(|ent| self.cache.hero.get(ent))
-            .is_some_and(|hero| hero.mana_pool.is_some())
+    fn spend_mana(&mut self, e: EntityHandle, amount: Fixed64, ability_id: RStr<'_>) -> bool {
+        let Some(entity)=Self::handle_to_entity(e) else {return false;};
+        if !self.cache.entities.is_alive(entity) {return false;}
+        let Some(hero)=self.cache.hero.get(entity) else {return false;};
+        if hero.mana_pool.is_none() {return amount>=Fixed64::ZERO;}
+        if !self.mana_transaction || self.managed_mana_entity(e).is_none()
+            || ability_id.len()>256 {return false;}
+        let mut pool=self.mana_views.get(&entity).cloned().unwrap_or_else(||hero.mana_pool.clone().unwrap());
+        if pool.spend(amount).is_err() {return false;}
+        if amount>Fixed64::ZERO {
+            self.stage_mana_pool(entity,pool);
+            self.stage_mana_spent(entity,amount,ability_id.as_str().to_owned());
+        }
+        true
     }
 
-    fn restore_mana(&mut self, _e: EntityHandle, _amount: Fixed64) {}
+    fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64) {
+        if !self.mana_transaction {return;}
+        let Some(entity)=self.managed_mana_entity(e) else {return;};
+        let mut pool=self.mana_views.get(&entity).cloned()
+            .unwrap_or_else(||self.cache.hero.get(entity).unwrap().mana_pool.clone().unwrap());
+        let Ok(restored)=pool.restore(amount) else {return;};
+        if restored>Fixed64::ZERO {
+            self.stage_mana_pool(entity,pool);
+            self.outcomes.push(Outcome::ScriptManaGained {entity,amount:restored});
+        }
+    }
 
     fn trigger_state_changed(&mut self, _e: EntityHandle, _state_id: RStr<'_>, _active: bool) {}
 
@@ -1828,7 +1882,8 @@ mod tests {
         let handle = ParallelWorldAdapter::entity_to_handle(entity);
         let cache = ParallelAdapterCache::new(&world, 123);
         let mut adapter = ParallelWorldAdapter::new(&cache, entity);
-        adapter.set_cast_mana_view(entity, Fixed64::from_i32(10));
+        adapter.begin_mana_transaction(&HashMap::new());
+        adapter.stage_mana_pool(entity, crate::runtime::ability_runtime::ManaPool::full(Fixed64::from_i32(10)).unwrap());
         assert_eq!(adapter.current_mana(handle), Fixed64::from_i32(10));
         assert!(!adapter.spend_mana(handle, Fixed64::from_i32(1), "test".into()));
         adapter.set_pos(handle, Vec2::new(Fixed64::from_i32(9), Fixed64::ZERO));
@@ -1839,6 +1894,49 @@ mod tests {
         assert!(!adapter.cast_succeeded());
         assert_eq!(adapter.get_pos(handle), RSome(original));
         assert_eq!(adapter.current_mana(handle), balance);
+        assert!(adapter.finish().is_empty());
+    }
+
+    #[test]
+    fn mana_script_transaction_checks_amount_life_identity_capacity_and_rollback() {
+        use crate::runtime::ability_runtime::ManaPool;
+        let mut world=world_for_adapter_tests();
+        let mut hero=Hero::default();
+        hero.mana_pool=Some(ManaPool::new(Fixed64::from_i32(50),Fixed64::from_i32(100)).unwrap());
+        let health=CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let entity=world.create_entity().with(hero.clone()).with(health.clone()).build();
+        let dead=world.create_entity().with(hero).with(CProperty {hp:Fixed64::ZERO,..health}).build();
+        let handle=ParallelWorldAdapter::entity_to_handle(entity);
+        let cache=ParallelAdapterCache::new(&world,123);
+        let mut adapter=ParallelWorldAdapter::new(&cache,entity);
+        assert!(!adapter.spend_mana(handle,Fixed64::ONE,"extra".into()),"parallel snapshot cannot admit a spend");
+        adapter.begin_mana_transaction(&HashMap::new());
+        assert!(!adapter.spend_mana(handle,Fixed64::from_raw(-1),"extra".into()));
+        assert!(!adapter.spend_mana(EntityHandle {gen:handle.gen+1,..handle},Fixed64::ONE,"extra".into()));
+        assert!(!adapter.spend_mana(ParallelWorldAdapter::entity_to_handle(dead),Fixed64::ONE,"extra".into()));
+        adapter.restore_mana(ParallelWorldAdapter::entity_to_handle(dead),Fixed64::ONE);
+        assert!(adapter.spend_mana(handle,Fixed64::from_i32(30),"extra".into()));
+        assert!(!adapter.spend_mana(handle,Fixed64::from_i32(30),"extra".into()));
+        assert_eq!(adapter.current_mana(handle),Fixed64::from_i32(20));
+        adapter.restore_mana(handle,Fixed64::from_raw(-1));
+        adapter.restore_mana(handle,Fixed64::from_raw(i64::MAX));
+        adapter.restore_mana(handle,Fixed64::ONE);
+        assert_eq!(adapter.current_mana(handle),Fixed64::from_i32(100));
+        let changes=adapter.commit_mana_transaction();
+        assert_eq!(changes.len(),1);
+        assert_eq!(changes[0].1.raw_state(),(100*1024,100*1024,0));
+        assert_eq!(cache.hero.get(entity).unwrap().mana_pool.as_ref().unwrap().current(),Fixed64::from_i32(50));
+        let outcomes=adapter.finish();
+        assert_eq!(outcomes.len(),3);
+        assert!(matches!(&outcomes[0],Outcome::ScriptManaSpent {amount,..} if *amount==Fixed64::from_i32(30)));
+        assert!(matches!(&outcomes[1],Outcome::ScriptManaGained {amount,..} if *amount==Fixed64::from_i32(80)));
+        let mut adapter=ParallelWorldAdapter::new(&cache,entity);
+        adapter.begin_mana_transaction(&HashMap::new());
+        adapter.restore_mana(handle,Fixed64::from_i32(10));
+        assert!(adapter.spend_mana(handle,Fixed64::from_i32(60),"extra".into()));
+        adapter.discard_cast();
+        assert_eq!(adapter.current_mana(handle),Fixed64::from_i32(50));
+        assert!(adapter.commit_mana_transaction().is_empty());
         assert!(adapter.finish().is_empty());
     }
 

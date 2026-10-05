@@ -218,11 +218,12 @@ pub trait GameWorld: Send {
     /// 讀取當前 mana（英雄/可施法單位）。無法取得時回 0。
     fn current_mana(&self, e: EntityHandle) -> Fixed64;
 
-    /// 扣 mana；足夠時扣除並回傳 true，不足回 false。
-    /// 會自動 push `SpentMana` 事件供腳本 hook。
+    /// 額外消耗 mana；足夠才扣除並回傳 true。managed 技能的 metadata
+    /// 成本由 host 自動扣一次，execute 不應重複以此 API 支付該成本。
+    /// 成功交易提交後才排入 `SpentMana`；失敗／panic 不留下扣費或通知。
     fn spend_mana(&mut self, e: EntityHandle, amount: Fixed64, ability_id: RStr<'_>) -> bool;
 
-    /// 補 mana，自動 push `ManaGained` 事件。
+    /// 補 mana，上限截限；成功交易提交後才通知實際增加量，無效／零量不通知。
     fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64);
 
     /// 從腳本端主動 push `StateChanged` 事件。

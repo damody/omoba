@@ -293,22 +293,27 @@ impl<'a> UnitStats<'a> {
     }
 
     pub fn mana_regen(&self, base: Fixed64, e: Entity) -> Fixed64 {
-        let base_override = self.buffs.sum_add(e, StatKey::BaseManaRegen);
-        let base_eff = if base_override > Fixed64::ZERO {
+        self.checked_mana_regen(base,e).unwrap_or(Fixed64::ZERO)
+    }
+
+    /// Natural recovery only; protected home recovery is added by the match.
+    /// Clamp each factor before multiplication: two negative percentages must
+    /// never produce positive recovery. Overflow rejects, never wraps/refills.
+    pub fn checked_mana_regen(&self, base: Fixed64, e: Entity) -> Option<Fixed64> {
+        if base<Fixed64::ZERO {return None;}
+        let sum=|key|self.buffs.checked_sum_add(e,key).map(|v|i128::from(v.raw()));
+        let base_override = sum(StatKey::BaseManaRegen)?;
+        let base_eff = if base_override > 0 {
             base_override
         } else {
-            base
+            i128::from(base.raw())
         };
-        let bonus = self.buffs.sum_add(e, StatKey::ManaRegenConstant)
-            + self.buffs.sum_add(e, StatKey::ManaRegenConstantUnique);
-        let pct = self.buffs.sum_add(e, StatKey::ManaRegenPercentage);
-        let total_pct = self.buffs.sum_add(e, StatKey::ManaRegenTotalPercentage);
-        let v = ((base_eff + bonus) * (Fixed64::ONE + pct)) * (Fixed64::ONE + total_pct);
-        if v < Fixed64::ZERO {
-            Fixed64::ZERO
-        } else {
-            v
-        }
+        let flat=(base_eff+sum(StatKey::ManaRegenConstant)?+sum(StatKey::ManaRegenConstantUnique)?).max(0);
+        let pct=(1024+sum(StatKey::ManaRegenPercentage)?).max(0);
+        let total_pct=(1024+sum(StatKey::ManaRegenTotalPercentage)?).max(0);
+        let first=flat.checked_mul(pct)?/1024;
+        let raw=first.checked_mul(total_pct)?/1024;
+        Some(Fixed64::from_raw(i64::try_from(raw).ok()?))
     }
 
     // ================= HP / Mana 上限 =================
@@ -320,6 +325,19 @@ impl<'a> UnitStats<'a> {
 
     pub fn max_mp_bonus(&self, e: Entity) -> Fixed64 {
         self.buffs.sum_add(e, StatKey::ManaBonus) + self.buffs.sum_add(e, StatKey::ExtraManaBonus)
+    }
+
+    /// Authored managed capacity plus flat buffs. Growth does not restore mana;
+    /// the pool applies that rule. Invalid modifiers reject instead of granting
+    /// an enormous capacity. Negative modifiers may reduce capacity to zero.
+    pub fn checked_mana_capacity(&self, base:Fixed64, e:Entity) -> Option<Fixed64> {
+        let limit=1_000_000i128*1024;
+        if base<Fixed64::ZERO || i128::from(base.raw())>limit {return None;}
+        let raw=i128::from(base.raw())
+            + i128::from(self.buffs.checked_sum_add(e,StatKey::ManaBonus)?.raw())
+            + i128::from(self.buffs.checked_sum_add(e,StatKey::ExtraManaBonus)?.raw());
+        if raw>limit {return None;}
+        Some(Fixed64::from_raw(raw.max(0) as i64))
     }
 
     // ================= Damage pipeline 入口 =================
@@ -465,10 +483,72 @@ mod tests {
         Fixed64::from_i32(1_000_000)
     }
 
-    // Regression: ice tower 寫入 payload key `move_speed_bonus`（StatKey::MoveSpeedBonus），
-    // 必須被 `final_move_speed` 當 percentage slow 聚合，否則 creep_tick 算出的有效移速會
-    // 是 base 全速 → 前端視覺有減速但後端權威位置瞬移。
     #[test]
+    fn mana_capacity_buffs_are_checked_family_aware_and_never_invent_a_balance() {
+        let mut world=World::new();let entity=world.create_entity().build();
+        let base=Fixed64::from_i32(280);
+        let mut buffs=BuffStore::new();
+        buffs.add(entity,"first",fx_huge(),json!({"mana_bonus":100*1024,"__aggregation_family":"capacity"}));
+        buffs.add(entity,"second",fx_huge(),json!({"mana_bonus":50*1024,"__aggregation_family":"capacity"}));
+        buffs.add(entity,"extra",fx_huge(),json!({"extra_mana_bonus":20*1024}));
+        assert_eq!(UnitStats::from_refs(&buffs,false).checked_mana_capacity(base,entity),Some(Fixed64::from_i32(400)));
+        buffs.remove(entity,"first");
+        assert_eq!(UnitStats::from_refs(&buffs,false).checked_mana_capacity(base,entity),Some(Fixed64::from_i32(350)));
+        buffs.add(entity,"negative",fx_huge(),json!({"mana_bonus":-1_000_000*1024i64}));
+        assert_eq!(UnitStats::from_refs(&buffs,false).checked_mana_capacity(base,entity),Some(Fixed64::ZERO));
+        buffs.remove(entity,"negative");
+        for invalid in [json!(i64::MAX),json!("invalid"),json!(1_000_001*1024i64)] {
+            buffs.add(entity,"invalid",fx_huge(),json!({"mana_bonus":invalid}));
+            assert!(UnitStats::from_refs(&buffs,false).checked_mana_capacity(base,entity).is_none());
+        }
+    }
+
+    #[test]
+    fn mana_buff_recovery_composes_and_clamps_each_factor_without_overflow() {
+        let mut world=World::new();let entity=world.create_entity().build();
+        let mut buffs=BuffStore::new();
+        buffs.add(entity,"regen",fx_huge(),json!({
+            "base_mana_regen":10*1024,"mana_regen_constant":3*1024,
+            "mana_regen_constant_unique":2*1024,"mana_regen_percentage":512,
+            "mana_regen_total_percentage":1024,
+        }));
+        assert_eq!(UnitStats::from_refs(&buffs,false).checked_mana_regen(Fixed64::from_i32(5),entity),Some(Fixed64::from_i32(45)));
+        buffs.add(entity,"regen",fx_huge(),json!({
+            "mana_regen_percentage":-2*1024,"mana_regen_total_percentage":-2*1024,
+        }));
+        assert_eq!(UnitStats::from_refs(&buffs,false).mana_regen(Fixed64::from_i32(5),entity),Fixed64::ZERO);
+        buffs.add(entity,"regen",fx_huge(),json!({"mana_regen_constant":i64::MAX,"mana_regen_percentage":i64::MAX,
+            "mana_regen_total_percentage":i64::MAX}));
+        assert!(UnitStats::from_refs(&buffs,false).checked_mana_regen(Fixed64::from_i32(5),entity).is_none());
+        assert_eq!(UnitStats::from_refs(&buffs,false).mana_regen(Fixed64::from_i32(5),entity),Fixed64::ZERO);
+        buffs.add(entity,"regen",fx_huge(),json!({"mana_regen_constant":"invalid"}));
+        assert!(UnitStats::from_refs(&buffs,false).checked_mana_regen(Fixed64::from_i32(5),entity).is_none());
+    }
+
+    #[test]
+    fn mana_buff_checked_aggregation_preserves_family_and_order_independent_cancellation() {
+        let mut world=World::new();let entity=world.create_entity().build();
+        for reversed in [false,true] {
+            let mut buffs=BuffStore::new();
+            let mut values=vec![i64::MAX,i64::MAX,-i64::MAX];
+            if reversed {values.reverse();}
+            for (index,value) in values.into_iter().enumerate() {
+                buffs.add(entity,&format!("source{index}"),fx_huge(),json!({"mana_regen_constant":value}));
+            }
+            assert_eq!(buffs.checked_sum_add(entity,StatKey::ManaRegenConstant),Some(Fixed64::from_raw(i64::MAX)));
+        }
+        let mut buffs=BuffStore::new();
+        buffs.add(entity,"weak",fx_huge(),json!({"__aggregation_family":"mana","mana_regen_constant":3*1024}));
+        buffs.add(entity,"strong",fx_huge(),json!({"__aggregation_family":"mana","mana_regen_constant":7*1024}));
+        assert_eq!(UnitStats::from_refs(&buffs,false).mana_regen(Fixed64::from_i32(5),entity),Fixed64::from_i32(12));
+        buffs.remove(entity,"strong");
+        assert_eq!(UnitStats::from_refs(&buffs,false).mana_regen(Fixed64::from_i32(5),entity),Fixed64::from_i32(8));
+        buffs.add(entity,"min",fx_huge(),json!({"__aggregation_family":"mana","mana_regen_constant":i64::MIN}));
+        assert_eq!(buffs.checked_sum_add(entity,StatKey::ManaRegenConstant),Some(Fixed64::from_raw(i64::MIN)));
+    }
+
+    #[test]
+    // Regression: ice tower percentage slow must affect authoritative movement.
     fn move_speed_bonus_applies_as_percentage_slow() {
         let mut world = World::new();
         let e = world.create_entity().build();

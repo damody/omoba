@@ -191,6 +191,8 @@ pub enum Outcome {
         entity: Entity,
         pool: crate::runtime::ability_runtime::ManaPool,
     },
+    ScriptManaGained { entity: Entity, amount: Fixed64 },
+    ScriptManaSpent { entity: Entity, amount: Fixed64, ability_id: String },
     EntityRemoved {
         entity: Entity,
     },

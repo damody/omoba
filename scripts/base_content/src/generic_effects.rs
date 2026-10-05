@@ -10,11 +10,13 @@ use omb_script_abi::{
 };
 use omoba_core::ability_meta::{DamageType, EffectSpec, TargetSelector};
 use omoba_template_ids::{active_ability_const, AbilityId};
+use omoba_content_model::ManaBuffStat;
 
 use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_id_f32};
 
 #[derive(Clone, Copy, Debug)]
 pub enum EffectOp {
+    ManaBuffSelf {stat:ManaBuffStat,value_key:&'static str,duration_key:&'static str},
     SlowEnemy { reduction_key:&'static str, duration_key:&'static str },
     DashToPoint,
     Damage {
@@ -24,11 +26,14 @@ pub enum EffectOp {
     HealSelf {
         amount_key: &'static str,
     },
+    RestoreManaSelf { amount_key: &'static str },
+    SpendManaSelf { amount_key: &'static str },
     AreaDamage { amount_key: &'static str, radius_key: &'static str, kind: DamageKind },
 }
 
 #[derive(Debug)]
 enum ResolvedEffect {
+    ManaBuffSelf {stat:ManaBuffStat,value:Fixed64,duration:Fixed64},
     SlowEnemy { victim:EntityHandle, reduction:Fixed64, duration:Fixed64, cast_range:Option<Fixed64> },
     DashToPoint { target:Vec2, cast_range:Fixed64 },
     Damage {
@@ -41,6 +46,8 @@ enum ResolvedEffect {
     HealSelf {
         amount: Fixed64,
     },
+    RestoreManaSelf { amount: Fixed64 },
+    SpendManaSelf { amount: Fixed64 },
     AreaDamage { center: Vec2, radius: Fixed64, cast_range: Fixed64, amount: Fixed64, kind: DamageKind },
 }
 
@@ -50,6 +57,9 @@ pub struct GenericEffectHandler {
 }
 
 trait EffectSink {
+    fn mana_buff(&mut self,caster:EntityHandle,ability:AbilityId,stat:ManaBuffStat,value:Fixed64,duration:Fixed64);
+    fn restore_mana(&mut self, caster:EntityHandle, amount:Fixed64);
+    fn spend_mana(&mut self, caster:EntityHandle, amount:Fixed64, ability:AbilityId)->bool;
     fn slow(&mut self, caster:EntityHandle, victim:EntityHandle, ability:AbilityId, reduction:Fixed64, duration:Fixed64);
     fn collision_destination(&mut self, caster:EntityHandle, target:Vec2, range:Fixed64) -> Vec2;
     fn relocate(&mut self, caster:EntityHandle, destination:Vec2);
@@ -68,6 +78,17 @@ trait EffectSink {
 }
 
 impl EffectSink for GameWorldDyn<'_> {
+    fn mana_buff(&mut self,caster:EntityHandle,ability:AbilityId,stat:ManaBuffStat,value:Fixed64,duration:Fixed64) {
+        let key=format!("generic_mana:{}:{}:{}:{}",ability.as_str(),stat.as_str(),caster.id,caster.gen);
+        let payload=serde_json::json!({stat.as_str():value.raw()}).to_string();
+        self.add_stat_buff(caster,(&*key).into(),duration,(&*payload).into());
+    }
+    fn restore_mana(&mut self,caster:EntityHandle,amount:Fixed64) {
+        GameWorldDyn::restore_mana(self,caster,amount);
+    }
+    fn spend_mana(&mut self,caster:EntityHandle,amount:Fixed64,ability:AbilityId)->bool {
+        GameWorldDyn::spend_mana(self,caster,amount,ability.as_str().into())
+    }
     fn slow(&mut self,caster:EntityHandle,victim:EntityHandle,ability:AbilityId,reduction:Fixed64,duration:Fixed64) {
         let key=format!("generic_slow:{}:{}:{}",ability.as_str(),caster.id,caster.gen);
         let payload=serde_json::json!({"move_speed_bonus":-reduction.raw(),"__aggregation_family":"generic_ability_slow"}).to_string();
@@ -162,6 +183,18 @@ fn apply_effects(
     }
     // Validate the entire plan before any world mutation.
     for effect in &expanded {
+        if let ResolvedEffect::ManaBuffSelf {stat,value,duration}=effect {
+            let (minimum,maximum)=stat.bounds();
+            if *value<Fixed64::from_i32(minimum) || *value>Fixed64::from_i32(maximum)
+                || *duration<=Fixed64::ZERO || *duration>Fixed64::from_i32(60) {
+                return Err(format!("ability '{}': invalid mana buff data",id.as_str()));
+            }
+        }
+        if let ResolvedEffect::RestoreManaSelf {amount} | ResolvedEffect::SpendManaSelf {amount}=effect {
+            if *amount<Fixed64::ZERO || *amount>Fixed64::from_i32(1_000_000) {
+                return Err(format!("ability '{}': invalid mana amount",id.as_str()));
+            }
+        }
         if let ResolvedEffect::Damage { victim, cast_range, .. } | ResolvedEffect::SlowEnemy {victim,cast_range,..} = effect {
             if !sink.is_alive(*victim) {
                 return Err(format!("ability '{}' target is not alive", id.as_str()));
@@ -178,8 +211,24 @@ fn apply_effects(
             }
         }
     }
+    // The host owns the transaction: on RErr it discards the resource overlay
+    // and all other deferred outcomes, including its metadata reservation.
+    // Keep authored resource order, using the actual capacity-limited balance,
+    // and admit every extra spend before emitting any heal/damage/buff outcome.
+    for effect in &expanded {
+        match effect {
+            ResolvedEffect::RestoreManaSelf {amount}=>sink.restore_mana(caster,*amount),
+            ResolvedEffect::SpendManaSelf {amount}=>{
+                if !sink.spend_mana(caster,*amount,id) {
+                    return Err(format!("ability '{}': additional mana cost rejected",id.as_str()));
+                }
+            },
+            _=>{},
+        }
+    }
     for effect in expanded {
         match effect {
+            ResolvedEffect::ManaBuffSelf {stat,value,duration}=>sink.mana_buff(caster,id,stat,value,duration),
             ResolvedEffect::Damage {
                 victim,
                 amount,
@@ -187,6 +236,7 @@ fn apply_effects(
                 ..
             } => sink.damage(caster, victim, amount, kind),
             ResolvedEffect::HealSelf { amount } => sink.heal(caster, amount),
+            ResolvedEffect::RestoreManaSelf {..}|ResolvedEffect::SpendManaSelf {..}=>{},
             ResolvedEffect::SlowEnemy {victim,reduction,duration,..}=>sink.slow(caster,victim,id,reduction,duration),
             ResolvedEffect::AreaDamage {..}=>unreachable!("expanded before commit"),
             ResolvedEffect::DashToPoint {..}=>unreachable!("exclusive movement handled before commit"),
@@ -207,8 +257,18 @@ fn resolve_effects(
         return Err(format!("ability '{}' invalid level {level}", id.as_str()));
     }
     let mut resolved = Vec::with_capacity(effects.len());
+    let mut mana_stats=std::collections::BTreeSet::new();
     for effect in effects {
         match effect {
+            EffectOp::ManaBuffSelf {stat,value_key,duration_key}=>{
+                if !matches!(target,Target::None) || !mana_stats.insert(*stat) {
+                    return Err(format!("ability '{}': mana buff requires none target and unique stat",id.as_str()));
+                }
+                let lookup=|key:&&str|ability.extras.iter().find(|(name,_)|name==key)
+                    .and_then(|(_,values)|values.get(usize::from(level-1))).copied()
+                    .ok_or_else(||format!("ability '{}': missing mana buff extras '{key}'",id.as_str()));
+                resolved.push(ResolvedEffect::ManaBuffSelf {stat:*stat,value:lookup(value_key)?,duration:lookup(duration_key)?});
+            },
             EffectOp::SlowEnemy {reduction_key,duration_key}=>{
                 let Target::Entity(victim)=target else {return Err(format!("ability '{}': slow requires entity target",id.as_str()));};
                 let reduction=extra_at(ability,reduction_key,level);let duration=extra_at(ability,duration_key,level);
@@ -259,6 +319,17 @@ fn resolve_effects(
                 if !matches!(target,Target::None) {return Err(format!("ability '{}': self heal requires no target",id.as_str()));}
                 resolved.push(ResolvedEffect::HealSelf {amount:extra_at(ability,amount_key,level)});
             },
+            EffectOp::RestoreManaSelf {amount_key}|EffectOp::SpendManaSelf {amount_key}=>{
+                if !matches!(target,Target::None) {
+                    return Err(format!("ability '{}': self mana effect requires no target",id.as_str()));
+                }
+                let amount=ability.extras.iter().find(|(key,_)|key==amount_key)
+                    .and_then(|(_,values)|values.get(usize::from(level-1))).copied()
+                    .ok_or_else(||format!("ability '{}': missing mana effect extras '{amount_key}'",id.as_str()))?;
+                resolved.push(if matches!(effect,EffectOp::RestoreManaSelf {..}) {
+                    ResolvedEffect::RestoreManaSelf {amount}
+                } else {ResolvedEffect::SpendManaSelf {amount}});
+            },
             EffectOp::AreaDamage {amount_key,radius_key,kind}=>{
                 let Target::Point(center)=target else {return Err(format!("ability '{}' requires a point target",id.as_str()));};
                 let radius=extra_at(ability,radius_key,level);
@@ -300,15 +371,15 @@ impl AbilityScript for GenericEffectHandler {
 pub fn generic_effect_ffi(id: AbilityId, effects: &'static [EffectOp]) -> AbilityDefFFI {
     let preview = effects
         .iter()
-        // Movement currently has no tooltip EffectSpec. Do not fabricate a
-        // damage, buff or status effect; point target/range remain in metadata.
-        .filter(|effect|!matches!(effect,EffectOp::DashToPoint))
+        // Movement and mana have no matching tooltip EffectSpec. Never pretend
+        // mana is HP healing or damage. Lua description/extras remain available.
+        .filter(|effect|!matches!(effect,EffectOp::DashToPoint|EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}))
         .map(|effect| match effect {
             EffectOp::SlowEnemy {reduction_key,duration_key}=>EffectSpec::StatusModifier {
                 target:TargetSelector::Target,modifier_type:"slow".into(),
                 value:extra_at_id_f32(id,reduction_key,1),duration:Some(extra_at_id_f32(id,duration_key,1)),
             },
-            EffectOp::DashToPoint=>unreachable!("movement has no effect preview"),
+            EffectOp::DashToPoint|EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}=>unreachable!("effect has no matching preview schema"),
             EffectOp::Damage { amount_key, kind } => EffectSpec::Damage {
                 target: TargetSelector::Target,
                 amount: extra_at_id_f32(id, amount_key, 1),
@@ -339,6 +410,8 @@ mod tests {
 
     #[derive(Default)]
     struct HeadlessWorld {
+        mana_buffs:Vec<(ManaBuffStat,i64,i64)>,
+        mana:Option<omoba_core::runtime::ability_runtime::ManaPool>,
         damage: Vec<(u32, i64)>,
         heals: Vec<i64>,
         alive: bool,
@@ -350,6 +423,15 @@ mod tests {
     }
 
     impl EffectSink for HeadlessWorld {
+        fn mana_buff(&mut self,_caster:EntityHandle,_ability:AbilityId,stat:ManaBuffStat,value:Fixed64,duration:Fixed64) {
+            self.mana_buffs.push((stat,value.raw(),duration.raw()));
+        }
+        fn restore_mana(&mut self,_caster:EntityHandle,amount:Fixed64) {
+            if let Some(pool)=&mut self.mana {let _=pool.restore(amount);}
+        }
+        fn spend_mana(&mut self,_caster:EntityHandle,amount:Fixed64,_ability:AbilityId)->bool {
+            self.mana.as_mut().is_none_or(|pool|pool.spend(amount).is_ok())
+        }
         fn slow(&mut self,_caster:EntityHandle,victim:EntityHandle,_ability:AbilityId,reduction:Fixed64,duration:Fixed64) {
             self.slows.push((victim.id,reduction.raw(),duration.raw()));
         }
@@ -377,6 +459,51 @@ mod tests {
         fn heal(&mut self, _caster: EntityHandle, amount: Fixed64) {
             self.heals.push(amount.raw());
         }
+    }
+
+    #[test]
+    fn mana_buff_declaration_preflight_rejects_duplicate_missing_and_invalid_before_commit() {
+        let id=omoba_template_ids::ability_by_name("ranger_patch").unwrap();
+        let op=EffectOp::ManaBuffSelf {stat:ManaBuffStat::ManaBonus,value_key:"heal",duration_key:"heal"};
+        assert!(resolve_effects(id,&[op,op],&Target::None,1).is_err());
+        assert!(resolve_effects(id,&[op],&Target::Point(Vec2::ZERO),1).is_err());
+        assert!(resolve_effects(id,&[EffectOp::ManaBuffSelf {stat:ManaBuffStat::ManaBonus,
+            value_key:"missing",duration_key:"heal"}],&Target::None,1).is_err());
+        let caster=EntityHandle {id:1,gen:1};let mut sink=HeadlessWorld {alive:true,..Default::default()};
+        apply_effects(id,caster,resolve_effects(id,&[op],&Target::None,1).unwrap(),&mut sink).unwrap();
+        assert_eq!(sink.mana_buffs,vec![(ManaBuffStat::ManaBonus,55*1024,55*1024)]);
+        let invalid=resolve_effects(id,&[op],&Target::None,2).unwrap(); // rank2 duration85>60
+        assert!(apply_effects(id,caster,invalid,&mut sink).is_err());
+        assert_eq!(sink.mana_buffs.len(),1);
+    }
+
+    #[test]
+    fn mana_effect_preflight_rejects_wrong_targets_missing_data_and_invalid_amounts() {
+        let id=omoba_template_ids::ability_by_name("ranger_patch").unwrap();
+        for op in [EffectOp::RestoreManaSelf {amount_key:"heal"},EffectOp::SpendManaSelf {amount_key:"heal"}] {
+            for target in [Target::Entity(EntityHandle {id:2,gen:1}),Target::Point(Vec2::ZERO)] {
+                assert!(resolve_effects(id,&[op],&target,1).is_err());
+            }
+            assert!(resolve_effects(id,&[op],&Target::None,0).is_err());
+        }
+        assert!(resolve_effects(id,&[EffectOp::RestoreManaSelf {amount_key:"missing"}],&Target::None,1).is_err());
+        let caster=EntityHandle {id:1,gen:1};
+        let mut sink=HeadlessWorld {alive:true,mana:Some(
+            omoba_core::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(20),Fixed64::from_i32(100)).unwrap()),..Default::default()};
+        for amount in [Fixed64::from_raw(-1),Fixed64::from_i32(1_000_001)] {
+            assert!(apply_effects(id,caster,vec![
+                ResolvedEffect::RestoreManaSelf {amount:Fixed64::ONE},
+                ResolvedEffect::HealSelf {amount:Fixed64::ONE},
+                ResolvedEffect::SpendManaSelf {amount},
+            ],&mut sink).is_err());
+            assert_eq!(sink.mana.as_ref().unwrap().current(),Fixed64::from_i32(20));
+            assert!(sink.heals.is_empty());
+        }
+        // No new resource pool is invented for legacy rules.
+        sink.mana=None;
+        apply_effects(id,caster,vec![ResolvedEffect::RestoreManaSelf {amount:Fixed64::ONE},
+            ResolvedEffect::SpendManaSelf {amount:Fixed64::ONE}],&mut sink).unwrap();
+        assert!(sink.mana.is_none());assert!(sink.heals.is_empty());
     }
 
     #[test]
@@ -531,14 +658,16 @@ mod tests {
             let target = match effect {
                 EffectOp::Damage { .. } => Target::Entity(victim),
                 EffectOp::HealSelf { .. } => Target::None,
-                EffectOp::AreaDamage {..}|EffectOp::DashToPoint|EffectOp::SlowEnemy {..}=>unreachable!("fixture only lists damage/heal"),
+                EffectOp::AreaDamage {..}|EffectOp::DashToPoint|EffectOp::SlowEnemy {..}
+                    |EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}=>unreachable!("fixture only lists damage/heal"),
             };
             let resolved = resolve_effects(ability, &[effect], &target, 1).unwrap();
             match &resolved[0] {
                 ResolvedEffect::Damage { amount, .. } | ResolvedEffect::HealSelf { amount } => {
                     assert_eq!(*amount, Fixed64::from_i32(expected));
                 }
-                ResolvedEffect::AreaDamage {..}|ResolvedEffect::DashToPoint {..}|ResolvedEffect::SlowEnemy {..}=>unreachable!("fixture only lists damage/heal"),
+                ResolvedEffect::AreaDamage {..}|ResolvedEffect::DashToPoint {..}|ResolvedEffect::SlowEnemy {..}
+                    |ResolvedEffect::RestoreManaSelf {..}|ResolvedEffect::SpendManaSelf {..}|ResolvedEffect::ManaBuffSelf {..}=>unreachable!("fixture only lists damage/heal"),
             }
             apply_effects(ability, caster, resolved, &mut world).unwrap();
         }

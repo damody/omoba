@@ -270,6 +270,31 @@ impl BuffStore {
         self.sum_add_key(entity, stat.as_str())
     }
 
+    /// Checked aggregation for resource accounting. Preserve family strongest
+    /// selection, but sum raw values in i128 so HashMap order cannot overflow.
+    /// Invalid values or an unrepresentable final sum fail closed.
+    pub fn checked_sum_add(&self, entity: Entity, stat: StatKey) -> Option<Fixed64> {
+        let mut total=0i128;
+        let mut families:BTreeMap<&str,i64>=BTreeMap::new();
+        for (_,entry) in self.iter_for(entity) {
+            let Some(value)=entry.payload.get(stat.as_str()) else {continue;};
+            let raw=if let Some(raw)=value.as_i64() {raw} else {
+                let scaled=value.as_f64()?*1024.0;
+                // The upper bound is exclusive: f64 rounds i64::MAX to 2^63.
+                if !scaled.is_finite() || scaled< i64::MIN as f64 || scaled>=9223372036854775808.0 {return None;}
+                scaled as i64
+            };
+            if let Some(family)=entry.payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str) {
+                families.entry(family).and_modify(|current| {
+                    if raw.unsigned_abs()>current.unsigned_abs()
+                        || (raw.unsigned_abs()==current.unsigned_abs() && raw>*current) {*current=raw;}
+                }).or_insert(raw);
+            } else {total=total.checked_add(i128::from(raw))?;}
+        }
+        for raw in families.into_values() {total=total.checked_add(i128::from(raw))?;}
+        Some(Fixed64::from_raw(i64::try_from(total).ok()?))
+    }
+
     fn sum_add_key(&self, entity: Entity, key: &str) -> Fixed64 {
         let mut total = Fixed64::ZERO;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();

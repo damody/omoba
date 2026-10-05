@@ -38,8 +38,8 @@ pub trait AbilityScript: Send + Sync {
     /// 序列化為 JSON。處理程序在進入時反序列化以讀取
     /// `冷卻時間`、`法力消耗`、`範圍`、`額外[...]`等。
     ///
-    /// 失敗時返回「RErr(msg)」（呼叫者日誌）；樓主還在
-    /// 只有當處理程序選擇時，才會扣除「RErr」的冷卻時間/費用。
+    /// managed 模式進入時的 current_mana 已保留 metadata 成本；host
+    /// 只在 ROk 時提交成本／冷卻／額外資源操作。RErr 或 panic 全部回滾。
     #[sabi(last_prefix_field)]
     fn execute(
         &self,

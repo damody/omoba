@@ -170,6 +170,7 @@ version = "0.1.0"
 dependencies = [
  "abi_stable",
  "omb-script-abi",
+ "omoba-content-model",
  "omoba-core",
  "omoba-sim",
  "omoba-template-ids",
