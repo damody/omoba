@@ -1,6 +1,6 @@
 use crate::comp::*;
 use crate::tick::attack_phase::{
-    advance_attack_phase, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
+    advance_attack_phase, attack_phase_durations, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
 };
 use omoba_sim::Fixed64;
 use specs::prelude::ParallelIterator;
@@ -96,7 +96,9 @@ impl<'a> System<'a> for Sys {
                         ),
                         fact: crate::runtime::ObservableFact::MovementPriority {
                             source,
-                            active: tr.move_targets.get(entity).is_some() || tr.moba.as_ref().is_some_and(|m| m.is_recalling(entity)),
+                            active: tr.move_targets.get(entity).is_some()
+                                || tr.command_queues.get(entity).is_some_and(|q|q.active==Some(HeroCommand::HoldPosition))
+                                || tr.moba.as_ref().is_some_and(|m| m.is_recalling(entity)),
                         },
                     })
                     .expect("valid visible movement priority");
@@ -147,8 +149,10 @@ impl<'a> System<'a> for Sys {
 
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
                     if tr.buff_store.is_stunned(e) {
+                        if let Some(timing) = atk.animation_timing.as_mut() { timing.paused = true; }
                         return (e.id(), outcomes);
                     }
+                    if let Some(timing) = atk.animation_timing.as_mut() { timing.paused = dt <= Fixed64::ZERO; }
 
                     // 用 UnitStats 聚合攻速（Dota ATTACKSPEED_BONUS_CONSTANT 100 → 1 + 100/100 = 2× AS）
                     let stats = omoba_core::runtime::ability_runtime::UnitStats::from_refs(
@@ -160,6 +164,9 @@ impl<'a> System<'a> for Sys {
                     let min_asd_mult = Fixed64::from_raw(10);
                     let asd_mult = if asd_mult_raw < min_asd_mult { min_asd_mult } else { asd_mult_raw };
                     let effective_interval: Fixed64 = atk.asd.v / asd_mult;
+                    if atk.attack_phase == AttackSequencePhase::Backswing && atk.animation_timing.is_some() {
+                        atk.animation_timing = Some(AttackAnimationTiming::new(attack_phase_durations(effective_interval), dt <= Fixed64::ZERO));
+                    }
 
                     let attack_phase =
                         advance_attack_phase(&mut atk.asd_count, dt, effective_interval);
@@ -171,7 +178,8 @@ impl<'a> System<'a> for Sys {
                     // （否則 hero 會一直想轉向敵人，與移動轉向互相拉扯卡住）
                     let moving = tr.disclosed_priority.as_ref()
                         .and_then(|priority| priority.0.get(&e).copied())
-                        .unwrap_or_else(|| tr.move_targets.get(e).is_some());
+                        .unwrap_or_else(|| tr.move_targets.get(e).is_some()
+                            || tr.command_queues.get(e).is_some_and(|q|q.active==Some(HeroCommand::HoldPosition)));
                     if moving || tr.moba.as_ref().is_some_and(|m| m.is_recalling(e)) {
                         return (e.id(), outcomes);
                     }
@@ -299,6 +307,7 @@ impl<'a> System<'a> for Sys {
                                                 effective_interval,
                                             );
                                             let attack_seq = atk.begin_attack_windup();
+                                            atk.animation_timing = Some(AttackAnimationTiming::new((windup, backswing), false));
                                             outcomes.push(Outcome::AttackPhaseCue {
                                                 entity: e,
                                                 attack_seq,
@@ -311,6 +320,7 @@ impl<'a> System<'a> for Sys {
                                             });
                                         } else {
                                             atk.mark_attack_impact();
+                                            atk.animation_timing = Some(AttackAnimationTiming::new(attack_phase_durations(effective_interval), false));
                                             outcomes.push(Outcome::ProjectileLine2 {
                                                 pos: pos.0,
                                                 source: Some(e.clone()),

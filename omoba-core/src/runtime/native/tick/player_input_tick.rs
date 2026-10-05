@@ -235,6 +235,11 @@ fn route_input(
                 kind: PendingHeroCommandKind::AttackMove { pos },
             });
         }
+        Some(PlayerInputEnum::HoldPosition(a)) => {
+            move_q.requests.push(crate::comp::PendingHeroCommand {
+                owner_pid:player_id,queued:a.queued,kind:PendingHeroCommandKind::HoldPosition,
+            });
+        }
         Some(PlayerInputEnum::AttackTarget(a)) => {
             log::info!(
                 "player_input_tick: pid={} tick={} AttackTarget target_id={} queued={}",

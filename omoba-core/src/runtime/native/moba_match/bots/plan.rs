@@ -192,6 +192,23 @@ mod tests {
     }
 
     #[test]
+    fn mana_recovery_plan_requires_explicit_rules() {
+        let mut p=plan();
+        p.ability_policies=vec![BotAbilityPolicy {ability:"lumen_touch".into(),
+            intent:BotAbilityIntent::SelfRecovery {below_hp_per_mille:600,
+                below_mana_per_mille:500,restore_key:"mana_restore".into()}}];
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).unwrap_err().contains("explicit mana_enabled"));
+        p.mana_enabled=true;
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_ok());
+        p.ability_policies[0]=BotAbilityPolicy {ability:"ranger_patch".into(),
+            intent:BotAbilityIntent::SelfManaRegeneration {below_hp_per_mille:600,below_mana_per_mille:500,
+                rate_key:"mana_buff_value".into(),duration_key:"mana_buff_duration".into()}};
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_ok());
+        p.mana_enabled=false;
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_err());
+    }
+
+    #[test]
     fn role_bot_items_plan_defaults_and_compiled_validation() {
         let mut p=plan();
         let mut json=serde_json::to_value(&p).unwrap();json.as_object_mut().unwrap().remove("item_builds");

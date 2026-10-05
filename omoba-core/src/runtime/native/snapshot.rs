@@ -285,6 +285,7 @@ pub struct EntityRenderData {
     pub tower_active_ability: Option<TowerActiveAbilitySnapshot>,
     pub hero_command: Option<Box<HeroCommandSnapshot>>,
     pub buffs: Vec<BuffSnapshot>,
+    pub attack_visual_state: Option<crate::runtime::attack_visual_state::AttackVisualState>,
     pub attack_range: f32,
     pub td_layer: Option<TdLayerRenderSnapshot>,
 }
@@ -1253,6 +1254,7 @@ pub fn extract_snapshot(
             tower_active_ability,
             hero_command,
             buffs: entity_buffs,
+            attack_visual_state: None,
             attack_range,
             td_layer,
         });
@@ -1699,6 +1701,7 @@ pub fn extract_data_for_render(
             tower_active_ability,
             hero_command,
             buffs: entity_buffs,
+            attack_visual_state: None,
             attack_range,
             td_layer,
         });

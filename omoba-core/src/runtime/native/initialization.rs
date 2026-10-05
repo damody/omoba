@@ -1073,6 +1073,7 @@ impl StateInitializer {
         ecs.insert(Vec::<crate::Outcome>::new());
         ecs.insert(Vec::<omoba_core::runtime::RuntimeEvent>::new());
         ecs.insert(crate::runtime::ObservableFactBuffer::default());
+        ecs.insert(crate::runtime::ProjectionPolicyRegistry::secure_defaults());
         ecs.insert(crate::runtime::TeamVisibilityRuntime::default());
         ecs.insert(crate::runtime::CommittedProjectionBatch::default());
         ecs.insert(crate::runtime::OrderedRuntimeEventBuffer::default());
@@ -1121,6 +1122,7 @@ impl StateInitializer {
         // 腳本事件佇列（由 tick 系統推入、ScriptDispatchSystem 於本 tick 尾端抽乾）
         ecs.insert(crate::scripting::ScriptEventQueue::default());
         ecs.insert(crate::scripting::ScriptVisualEventQueue::default());
+        ecs.insert(crate::scripting::dispatch::ScriptCastFactOrder::default());
 
         // Buff 系統資源（取代舊的 SlowBuff component）— creep_tick / buff_tick 都會讀
         ecs.insert(omoba_core::runtime::ability_runtime::BuffStore::new());
@@ -1226,6 +1228,7 @@ impl StateInitializer {
                 bullet_speed: Fixed64::from_i32(1000),
                 attack_seq: 0,
                 attack_phase: AttackSequencePhase::Idle,
+                animation_timing: None,
             };
 
             // 創建英雄圓形視野組件
@@ -1562,6 +1565,7 @@ impl StateInitializer {
                     bullet_speed: omoba_sim::Fixed64::from_i32(800),
                     attack_seq: 0,
                     attack_phase: AttackSequencePhase::Idle,
+                    animation_timing: None,
                 };
 
                 let enemy_vision = CircularVision::new(

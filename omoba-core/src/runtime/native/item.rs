@@ -18,20 +18,34 @@ pub struct ItemBonus {
     pub mp_regen: f32,
 }
 
-/// 主動效果類型（MVP 簡化版）
+/// Native active-effect schema. Timed and one-shot modifiers use BuffStore;
+/// RestoreMana uses the managed pool. Shield absorbs settled damage, not healing.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActiveEffect {
-    /// 下次普攻附加額外傷害
+    /// Arm a one-shot flat physical bonus consumed by the next normal attack launch.
     HeadshotNext { bonus_damage: f32 },
-    /// 立即為自身施加護盾（以血量吸收形式 - 暫以瞬回 HP 代替）
+    /// Timed damage absorption; remaining capacity is distinct from HP.
     Shield { amount: f32, duration: f32 },
-    /// 立即回復魔力
+    /// Restore managed mana, clamped to the current checked capacity.
     RestoreMana { amount: f32 },
     /// 短時間增加移速
     SprintBuff { ms_bonus: f32, duration: f32 },
-    /// 短時間傷害減免
+    /// Timed all-packet reduction through the shared incoming damage modifier.
     DamageReduce { percent: f32, duration: f32 },
+}
+
+impl From<omoba_template_ids::MobaItemActiveConst> for ActiveEffect {
+    fn from(value: omoba_template_ids::MobaItemActiveConst) -> Self {
+        use omoba_template_ids::MobaItemActiveConst as Generated;
+        match value {
+            Generated::Shield { amount, duration } => Self::Shield { amount: amount.to_f32_for_render(), duration: duration.to_f32_for_render() },
+            Generated::SprintBuff { ms_bonus, duration } => Self::SprintBuff { ms_bonus: ms_bonus.to_f32_for_render(), duration: duration.to_f32_for_render() },
+            Generated::RestoreMana { amount } => Self::RestoreMana { amount: amount.to_f32_for_render() },
+            Generated::DamageReduce { percent, duration } => Self::DamageReduce { percent: percent.to_f32_for_render(), duration: duration.to_f32_for_render() },
+            Generated::HeadshotNext { bonus_damage } => Self::HeadshotNext { bonus_damage: bonus_damage.to_f32_for_render() },
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -65,7 +79,7 @@ impl ItemRegistry {
                 ms: item.ms.to_f32_for_render(), armor: item.armor.to_f32_for_render(),
                 ..ItemBonus::default()
             },
-            active: None, cooldown: 0.0,
+            active: item.active.map(ActiveEffect::from), cooldown: item.cooldown.to_f32_for_render(),
             recipe: item.recipe.iter().map(|id| (*id).into()).collect(),
         }).collect())
     }

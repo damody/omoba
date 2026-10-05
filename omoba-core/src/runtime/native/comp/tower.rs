@@ -301,6 +301,16 @@ pub enum AttackSequencePhase {
     Backswing,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct AttackAnimationTiming {
+    pub windup: Fixed64,
+    pub backswing: Fixed64,
+    pub paused: bool,
+}
+impl AttackAnimationTiming {
+    pub fn new((windup, backswing): (Fixed64, Fixed64), paused: bool) -> Self { Self { windup, backswing, paused } }
+}
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct TAttack {
     pub atk_physic: Vf32, // 物攻
@@ -312,6 +322,9 @@ pub struct TAttack {
     pub attack_seq: u32,
     #[serde(default)]
     pub attack_phase: AttackSequencePhase,
+    // Host-local resolved presentation timing, not gameplay or private wire state.
+    #[serde(skip)]
+    pub animation_timing: Option<AttackAnimationTiming>,
 }
 
 impl TAttack {
@@ -324,12 +337,14 @@ impl TAttack {
             bullet_speed,
             attack_seq: 0,
             attack_phase: AttackSequencePhase::Idle,
+            animation_timing: None,
         }
     }
 
     pub fn begin_attack_windup(&mut self) -> u32 {
         self.attack_seq = self.attack_seq.wrapping_add(1);
         self.attack_phase = AttackSequencePhase::Windup;
+        self.animation_timing = None;
         self.attack_seq
     }
 
@@ -339,6 +354,7 @@ impl TAttack {
 
     pub fn clear_attack_sequence(&mut self) {
         self.attack_phase = AttackSequencePhase::Idle;
+        self.animation_timing = None;
     }
 }
 

@@ -37,6 +37,59 @@ use super::tag::ScriptUnitTag;
 
 const SCRIPT_ON_TICK_PARALLEL: bool = true;
 
+/// Producer-local ordering survives multiple dispatcher drains in one tick.
+/// It is not renderer identity; team projection assigns the final safe ordinal.
+#[derive(Default)]
+pub struct ScriptCastFactOrder {
+    tick: u64,
+    ordinal: u32,
+}
+
+/// One checked rank feeds admission, Mana metadata, handler execution and the
+/// successful presentation fact. Legacy rank-one fallback remains explicitly
+/// unknown to the renderer; positive out-of-range ranks never wrap to u8.
+fn resolve_cast_rank(
+    raw: Option<i32>, definition: Option<&crate::ability_meta::AbilityDef>, formal: bool,
+) -> Result<(u8, u32), ()> {
+    let known = raw.is_some_and(|rank| rank > 0);
+    if formal && raw.is_some_and(|rank| rank <= 0) { return Err(()); }
+    let rank = if known { u8::try_from(raw.unwrap()).map_err(|_| ())? } else { 1 };
+    if let Some(definition) = definition {
+        if rank > definition.max_level || (formal && definition.get_level_data(rank).is_none()) {
+            return Err(());
+        }
+    }
+    Ok((rank, if known { u32::from(rank) } else { 0 }))
+}
+
+fn publish_successful_cast_facts(world: &World, visuals: &mut [ScriptVisualEvent]) {
+    if !visuals.iter().any(|event| matches!(event.kind, ScriptVisualEventKind::SkillCast | ScriptVisualEventKind::SkillArea)) {
+        return;
+    }
+    // Bare legacy hook harnesses have no observable projection infrastructure.
+    // Production worlds install all three resources in StateInitializer.
+    let Some(buffer) = world.try_fetch::<crate::runtime::ObservableFactBuffer>() else {return};
+    let policy = omb_script_abi::types::ProjectionPolicyId::new(
+        omb_script_abi::types::projection_policy_ids::HERO_ABILITY);
+    let mut registry = world.write_resource::<crate::runtime::ProjectionPolicyRegistry>();
+    registry.register_script_policy(&policy, "runtime/native/scripting/successful_cast")
+        .expect("known native ability projection policy");
+    let mut order = world.write_resource::<ScriptCastFactOrder>();
+    for event in visuals.iter_mut().filter(|event| matches!(event.kind, ScriptVisualEventKind::SkillCast | ScriptVisualEventKind::SkillArea)) {
+        event.projection_policy_id = Some(policy.clone());
+        let mut fact = super::event::script_visual_event_to_observable_fact(
+            event, &registry, "runtime/native/scripting/successful_cast")
+            .expect("explicit successful cast projection policy");
+        if let crate::runtime::ObservableFact::AbilityArea {team, ..} = fact.fact {
+            fact.audience = crate::runtime::FactAudience::Team(team);
+        }
+        if order.tick != fact.key.tick {order.tick = fact.key.tick; order.ordinal = 0;}
+        fact.key.local_ordinal = order.ordinal;
+        order.ordinal = order.ordinal.checked_add(1).expect("bounded successful casts per tick");
+        buffer.emit(fact).expect("valid successful cast fact");
+    }
+}
+
 /// 主入口點 - 在所有平行報價系統之後，每個報價調用一次
 /// 已經完成並且在 `world.maintain()` 之前。
 ///
@@ -105,18 +158,24 @@ pub fn run_script_dispatch(
         // Only serial queue order may advance managed mana/CD state. Never use
         // parallel hook scheduling or the immutable ECS cache as a balance ledger.
         for (event_ordinal, ev) in events.into_iter().enumerate() {
-            // Internal queued casts must obey the same unlearned gate as
-            // PlayerInput. Preserve legacy Story and TD script fallback behavior.
-            if enforce_learned_ranks {
-                if let ScriptEvent::SkillCast { caster, skill_id, .. } = &ev {
-                    if cache.hero.get(*caster).is_some_and(|hero| hero.get_ability_level(skill_id) <= 0) {
-                        continue;
-                    }
-                }
-            }
             let invocation_entity = event_invocation_entity(&ev);
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
-            let reservation = match prepare_mana_cast(&cache, registry, &ev, &mut cast_heroes) {
+            // Capture before handler mutation, from the same serial ledger as
+            // gameplay admission. Never sample a later HUD/snapshot level.
+            let (cast_level, cast_rank) = match &ev {
+                ScriptEvent::SkillCast {caster, skill_id, ..} => {
+                    let hero = cast_heroes.get(caster).or_else(|| cache.hero.get(*caster));
+                    let raw = hero.map(|hero| hero.get_ability_level(skill_id));
+                    let require_learned = enforce_learned_ranks || hero.is_some_and(|hero| hero.mana_pool.is_some());
+                    let definition = registry.get_ability(skill_id).map(|(definition, _)| definition);
+                    match resolve_cast_rank(raw, definition, require_learned) {
+                        Ok((level, rank)) => (Some(level), rank),
+                        Err(()) => continue,
+                    }
+                },
+                _ => (None, 0),
+            };
+            let reservation = match prepare_mana_cast(&cache, registry, &ev, cast_level, &mut cast_heroes) {
                 Ok(value) => value,
                 Err(()) => continue,
             };
@@ -127,6 +186,7 @@ pub fn run_script_dispatch(
             );
             let visual_checkpoint = visual_events.len();
             adapter.begin_mana_transaction(&cast_heroes);
+            if is_cast && enforce_learned_ranks { adapter.capture_formal_cast_areas(); }
             if let Some((caster, next)) = &reservation {
                 let previous=cast_heroes[caster].mana_pool.as_ref().expect("managed ledger").current();
                 let pool=next.mana_pool.clone().expect("reserved pool");
@@ -134,7 +194,36 @@ pub fn run_script_dispatch(
                 adapter.stage_mana_spent(*caster,previous-pool.current(),skill_id.clone());
                 adapter.stage_mana_pool(*caster,pool);
             }
-            dispatch_one(&mut adapter, registry, ev, rng_seed, &mut visual_events);
+            dispatch_one(&mut adapter, registry, ev, cast_level, rng_seed, &mut visual_events);
+            // SkillCast is provisional until the actual handler succeeds.
+            // This gate applies to legacy casts too, not only managed Mana.
+            // Keep earlier events in the batch; never publish a rejected cast.
+            if is_cast && !adapter.cast_succeeded() {
+                visual_events.truncate(visual_checkpoint);
+            }
+            if is_cast && adapter.cast_succeeded() {
+                for visual in &mut visual_events[visual_checkpoint..] {
+                    if visual.kind == ScriptVisualEventKind::SkillCast {
+                        visual.ability_rank = cast_rank;
+                        visual.caster_relocation = adapter.successful_caster_relocation(visual.primary)
+                            .and_then(|point| cache.faction.get(visual.primary)
+                                .and_then(|faction| u32::try_from(faction.team_id).ok())
+                                .filter(|team| *team != 0)
+                                .map(|team| (team, point.x.raw(), point.y.raw())));
+                    }
+                }
+                if let Some(team) = cache.faction.get(invocation_entity)
+                    .and_then(|faction| u32::try_from(faction.team_id).ok()).filter(|team| *team != 0) {
+                    let skill_id = visual_events[visual_checkpoint..].iter()
+                        .find(|event| event.kind == ScriptVisualEventKind::SkillCast).and_then(|event| event.skill_id.clone());
+                    for &(point, radius, duration) in adapter.successful_cast_areas() {
+                        let mut area = ScriptVisualEvent::new(ScriptVisualEventKind::SkillArea, invocation_entity, rng_seed);
+                        area.skill_id = skill_id.clone(); area.ability_rank = cast_rank;
+                        area.ability_area = Some((team, point.x.raw(), point.y.raw(), radius.raw(), duration.raw()));
+                        visual_events.push(area);
+                    }
+                }
+            }
             if let Some((caster, next_hero)) = reservation {
                 if adapter.cast_succeeded() {
                     cast_heroes.insert(caster, next_hero);
@@ -151,6 +240,7 @@ pub fn run_script_dispatch(
             event_outcomes.extend(adapter.finish());
         }
         drop(cache);
+        publish_successful_cast_facts(world, &mut visual_events);
         if !event_outcomes.is_empty() {
             world
                 .write_resource::<Vec<crate::comp::Outcome>>()
@@ -494,6 +584,7 @@ fn action_instance_id(entity: Entity, tick: u64) -> u64 {
 /// state is committed only after the handler succeeds; rejected casts leave no debit.
 fn prepare_mana_cast(
     cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, event: &ScriptEvent,
+    cast_level: Option<u8>,
     ledger: &mut HashMap<Entity, crate::comp::Hero>,
 ) -> Result<Option<(Entity, crate::comp::Hero)>, ()> {
     let ScriptEvent::SkillCast { caster, skill_id, .. } = event else { return Ok(None); };
@@ -504,11 +595,10 @@ fn prepare_mana_cast(
         || !cache.cprop.get(*caster).is_some_and(|prop| prop.hp > Fixed64::ZERO)
         || hero.is_on_cooldown(skill_id)
     { return Err(()); }
-    let rank = hero.get_ability_level(skill_id);
-    if !(1..=255).contains(&rank) { return Err(()); }
+    let rank = cast_level.ok_or(())?;
     let (definition, _) = registry.get_ability(skill_id).ok_or(())?;
     if definition.ability_type == AbilityType::Passive { return Err(()); }
-    let data = definition.get_level_data(rank as u8).ok_or(())?;
+    let data = definition.get_level_data(rank).ok_or(())?;
     if !data.cooldown.is_finite() || !(0.0..=1_000_000.0).contains(&data.cooldown)
     { return Err(()); }
     let multiplier = crate::runtime::ability_runtime::UnitStats::from_refs(
@@ -525,6 +615,7 @@ fn dispatch_one(
     adapter: &mut ParallelWorldAdapter<'_>,
     registry: &ScriptRegistry,
     ev: ScriptEvent,
+    cast_level: Option<u8>,
     tick: u64,
     visual_events: &mut Vec<ScriptVisualEvent>,
 ) {
@@ -680,14 +771,8 @@ fn dispatch_one(
                 SkillTarget::None => Target::None,
             };
 
-            // 取 caster 英雄身上該技能的等級（未習得則預設 1 讓腳本至少 fire）
-            let level: u8 = adapter
-                .cache
-                .hero
-                .get(caster)
-                .and_then(|h| h.ability_levels.get(&skill_id).copied())
-                .map(|lv| lv.max(1) as u8)
-                .unwrap_or(1);
+            // Already checked once before any handler or Mana mutation.
+            let level = cast_level.expect("SkillCast rank resolved before dispatch");
 
             // 1) 先呼叫 caster unit 本身的 on_skill_cast（pre-processing 機會）
             {

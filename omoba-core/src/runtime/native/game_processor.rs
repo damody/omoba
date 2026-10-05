@@ -202,6 +202,7 @@ pub fn drain_pending_moves(world: &mut World) {
             }
         };
         let command = match req.kind {
+            PendingHeroCommandKind::HoldPosition => HeroCommand::HoldPosition,
             PendingHeroCommandKind::MoveTo { pos } => HeroCommand::MoveTo { pos },
             PendingHeroCommandKind::AttackMove { pos } => HeroCommand::AttackMove { pos },
             PendingHeroCommandKind::AttackTarget { target_entity_id } => {
@@ -1458,49 +1459,124 @@ pub fn handle_item_use_from_input(
         }
     };
 
-    {
-        let mut props = world.write_storage::<CProperty>();
-        if let Some(p) = props.get_mut(hero_entity) {
-            match &active {
-                ActiveEffect::Shield { amount, .. } => {
-                    let amt_fx = omoba_sim::Fixed64::from_raw((*amount * 1024.0) as i64);
-                    let summed = p.hp + amt_fx;
-                    p.hp = if summed > p.mhp { p.mhp } else { summed };
-                    log::info!("ItemUse Shield +{} HP pid={}", amount, owner_pid);
-                }
-                ActiveEffect::RestoreMana { amount } => {
-                    log::info!(
-                        "ItemUse RestoreMana +{} MP pid={} (mp not wired in MVP)",
-                        amount,
-                        owner_pid
-                    );
-                }
-                ActiveEffect::SprintBuff { ms_bonus, duration } => {
-                    let bonus_fx = omoba_sim::Fixed64::from_raw((*ms_bonus * 1024.0) as i64);
-                    p.msd += bonus_fx;
-                    log::info!(
-                        "ItemUse SprintBuff +{} ms {}s pid={} (MVP no expiry)",
-                        ms_bonus,
-                        duration,
-                        owner_pid
-                    );
-                }
-                ActiveEffect::DamageReduce { percent, duration } => {
-                    log::info!(
-                        "ItemUse DamageReduce {}% {}s pid={} (buff pipeline TBD)",
-                        percent * 100.0,
-                        duration,
-                        owner_pid
-                    );
-                }
-                ActiveEffect::HeadshotNext { bonus_damage } => {
-                    log::info!(
-                        "ItemUse HeadshotNext +{} dmg pid={} (projectile hook TBD)",
-                        bonus_damage,
-                        owner_pid
-                    );
-                }
+    // Validate the complete supported effect before changing cooldown or commands.
+    if !cfg.cooldown.is_finite() || cfg.cooldown < 0.0 || cfg.cooldown > 3600.0 {
+        return Err(failure::err_msg("ItemUse: invalid cooldown"));
+    }
+    let mut prepared_mana = None;
+    match &active {
+        ActiveEffect::RestoreMana { amount } => {
+            let amount = crate::runtime::ability_runtime::checked_mana_cost(*amount, Fixed64::ONE)
+                .map_err(|_| failure::err_msg("ItemUse: invalid mana restore amount"))?;
+            if amount <= Fixed64::ZERO {
+                return Err(failure::err_msg("ItemUse: mana restore amount must be positive"));
             }
+            let heroes = world.read_storage::<Hero>();
+            let hero = heroes.get(hero_entity).ok_or_else(|| failure::err_msg("ItemUse: hero unavailable"))?;
+            let mut pool = hero.mana_pool.clone()
+                .ok_or_else(|| failure::err_msg("ItemUse: managed mana pool unavailable"))?;
+            if world.try_fetch::<crate::runtime::MobaMatch>().is_some_and(|state| state.config.mana_enabled) {
+                let base = hero.moba_mana_capacity()
+                    .map_err(|_| failure::err_msg("ItemUse: invalid base mana capacity"))?;
+                let buffs = world.try_fetch::<BuffStore>()
+                    .ok_or_else(|| failure::err_msg("ItemUse: mana modifiers unavailable"))?;
+                let maximum = crate::runtime::UnitStats::from_refs(&buffs, false)
+                    .checked_mana_capacity(base, hero_entity)
+                    .ok_or_else(|| failure::err_msg("ItemUse: invalid mana capacity modifiers"))?;
+                pool.set_maximum(maximum)
+                    .map_err(|_| failure::err_msg("ItemUse: invalid mana capacity"))?;
+            }
+            let restored = pool.restore(amount)
+                .map_err(|_| failure::err_msg("ItemUse: invalid mana restore"))?;
+            if restored > Fixed64::ZERO && world.try_fetch::<ScriptEventQueue>().is_none() {
+                return Err(failure::err_msg("ItemUse: mana event queue unavailable"));
+            }
+            prepared_mana = Some((pool, restored));
+        }
+        ActiveEffect::SprintBuff { ms_bonus, duration } => {
+            if !ms_bonus.is_finite() || *ms_bonus < 1.0 / 1024.0 || *ms_bonus > 10_000.0
+                || !duration.is_finite() || *duration < 1.0 / 1024.0 || *duration > 60.0 {
+                return Err(failure::err_msg("ItemUse: invalid sprint bonus or duration"));
+            }
+            if world.read_storage::<CProperty>().get(hero_entity).is_none()
+                || world.try_fetch::<BuffStore>().is_none() {
+                return Err(failure::err_msg("ItemUse: sprint stats or buff store unavailable"));
+            }
+        }
+        ActiveEffect::DamageReduce { percent, duration } => {
+            if !percent.is_finite() || !(1.0 / 1024.0..=1.0).contains(percent)
+                || !duration.is_finite() || !(1.0 / 1024.0..=60.0).contains(duration) {
+                return Err(failure::err_msg("ItemUse: invalid damage reduction or duration"));
+            }
+            if world.read_storage::<CProperty>().get(hero_entity).is_none()
+                || world.try_fetch::<BuffStore>().is_none() {
+                return Err(failure::err_msg("ItemUse: reduction stats or buff store unavailable"));
+            }
+        }
+        ActiveEffect::HeadshotNext { bonus_damage } => {
+            let amount = crate::runtime::ability_runtime::checked_mana_cost(*bonus_damage, Fixed64::ONE)
+                .map_err(|_| failure::err_msg("ItemUse: invalid next attack bonus"))?;
+            if amount <= Fixed64::ZERO || world.read_storage::<TAttack>().get(hero_entity).is_none()
+                || world.try_fetch::<BuffStore>().is_none() {
+                return Err(failure::err_msg("ItemUse: next attack bonus or attack resources unavailable"));
+            }
+        }
+        ActiveEffect::Shield { amount, duration } => {
+            let amount = crate::runtime::ability_runtime::checked_mana_cost(*amount, Fixed64::ONE)
+                .map_err(|_| failure::err_msg("ItemUse: invalid shield amount"))?;
+            if amount <= Fixed64::ZERO || !duration.is_finite()
+                || !(1.0 / 1024.0..=60.0).contains(duration)
+                || world.read_storage::<CProperty>().get(hero_entity).is_none()
+                || world.try_fetch::<BuffStore>().is_none() {
+                return Err(failure::err_msg("ItemUse: invalid shield duration or resources"));
+            }
+        }
+    }
+
+    match &active {
+        ActiveEffect::HeadshotNext { bonus_damage } => {
+            let amount = crate::runtime::ability_runtime::checked_mana_cost(*bonus_damage, Fixed64::ONE)
+                .expect("next attack bonus was preflighted");
+            let armed = world.write_resource::<BuffStore>().arm_next_attack_bonus(hero_entity, amount);
+            debug_assert!(armed);
+        }
+        ActiveEffect::DamageReduce { percent, duration } => {
+            world.write_resource::<BuffStore>().add(
+                hero_entity, &format!("item_damage_reduce:{}", cfg.id),
+                Fixed64::from_raw((*duration * 1024.0) as i64),
+                json!({
+                    StatKey::DamageTakenBonus.as_str(): -(f64::from(*percent) * 1024.0).round() as i64,
+                    "__aggregation_family": "item_damage_reduce",
+                }),
+            );
+        }
+        ActiveEffect::RestoreMana { .. } => {
+            let (pool, restored) = prepared_mana.expect("mana effect was preflighted");
+            world.write_storage::<Hero>().get_mut(hero_entity)
+                .expect("preflighted hero remains live within item transaction").mana_pool = Some(pool);
+            if restored > Fixed64::ZERO {
+                world.write_resource::<ScriptEventQueue>()
+                    .push(ScriptEvent::ManaGained { e: hero_entity, amount: restored });
+            }
+        }
+        ActiveEffect::SprintBuff { ms_bonus, duration } => {
+            // A stable item source refreshes instead of permanently modifying base MSD.
+            // Different sprint sources share the existing strongest-family aggregation.
+            world.write_resource::<BuffStore>().add(
+                hero_entity, &format!("item_sprint:{}", cfg.id),
+                Fixed64::from_raw((*duration * 1024.0) as i64),
+                json!({
+                    StatKey::MoveSpeedBonusBuff.as_str(): (*ms_bonus * 1024.0) as i64,
+                    "__aggregation_family": "item_sprint",
+                }),
+            );
+        }
+        ActiveEffect::Shield { amount, duration } => {
+            let amount = crate::runtime::ability_runtime::checked_mana_cost(*amount, Fixed64::ONE)
+                .expect("shield amount was preflighted");
+            let granted = world.write_resource::<BuffStore>().grant_damage_shield(
+                hero_entity, amount, Fixed64::from_raw((*duration * 1024.0) as i64));
+            debug_assert!(granted);
         }
     }
 
@@ -2051,6 +2127,12 @@ fn observable_fact_from_outcome(
                 },
             )
         }
+        Outcome::ProjectileHit { target, .. } => (
+            entity_id(*target),
+            FactKind::ProjectileImpact,
+            policy::PROJECTILE,
+            ObservableFact::ProjectileImpact { target: entity_id(*target) },
+        ),
         Outcome::Explosion { pos, radius, .. } => (
             local_ordinal as u64,
             FactKind::AreaEffect,
@@ -2331,7 +2413,8 @@ fn handle_projectile(
         let is_building = buildings.get(source_entity).is_some();
         let stats =
             crate::runtime::ability_runtime::UnitStats::from_refs(&*buff_store, is_building);
-        let mut final_atk = stats.final_atk(attack.atk_physic.v, source_entity);
+        let mut final_atk = stats.final_atk(attack.atk_physic.v, source_entity)
+            + buff_store.next_attack_bonus(source_entity);
 
         let accuracy_bonus = buff_store.sum_add(source_entity, StatKey::AccuracyBonus);
         let accuracy = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
@@ -2399,6 +2482,9 @@ fn handle_projectile(
         )
     };
 
+    // All launch prerequisites were resolved above. Consume once, including misses,
+    // before creating the one real projectile and any zero-damage visual copies.
+    world.write_resource::<BuffStore>().consume_next_attack_bonus(source_entity);
     let initial_dist = (target_pos - pos).length();
     let flight_time_s = if msd.to_f32_for_render() > 0.0 {
         (initial_dist.to_f32_for_render() / msd.to_f32_for_render()).max(0.01)
@@ -2563,6 +2649,9 @@ fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed6
     if took_damage {
         crate::runtime::native::moba_match::interrupt_moba_recall(world, target);
     }
+    let amount = if took_damage {
+        world.write_resource::<BuffStore>().absorb_damage_with_shield(target, amount)
+    } else { amount };
     let applied = {
         let mut properties = world.write_storage::<CProperty>();
         if let Some(prop) = properties.get_mut(target) {
@@ -2571,10 +2660,12 @@ fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed6
         } else { false }
     };
     if applied {
-        if took_damage {
+        if took_damage && amount > Fixed64::ZERO {
             crate::runtime::native::moba_match::record_moba_hero_damage(world, None, target,
                 before.is_some_and(|hp| amount >= hp));
             crate::runtime::native::moba_match::record_moba_jungle_damage(world, None, target,
+                before.is_some_and(|hp| amount >= hp));
+            crate::runtime::native::moba_match::record_moba_lane_damage(world, None, target,
                 before.is_some_and(|hp| amount >= hp));
         }
         return;
@@ -2976,6 +3067,45 @@ mod tests {
             ))
             .build();
         (world, entity)
+    }
+
+    #[test]
+    fn next_attack_bonus_consumes_only_valid_launch_and_never_visual_copies() {
+        let (mut w, source) = world_for_script_outcome_tests();
+        w.register::<IsBuilding>();
+        w.insert(MasterSeed(42));
+        let invalid_target = w.create_entity().build();
+        let target = w.create_entity().with(Pos(omoba_sim::Vec2::ZERO)).build();
+        {
+            let mut buffs = w.write_resource::<BuffStore>();
+            assert!(buffs.arm_next_attack_bonus(source, Fixed64::from_i32(60)));
+            assert!(buffs.arm_next_attack_bonus(source, Fixed64::from_i32(20)));
+            assert!(!buffs.arm_next_attack_bonus(source, Fixed64::ZERO));
+            assert_eq!(buffs.next_attack_bonus(source), Fixed64::from_i32(60));
+            buffs.add(source, "fixture_visual_copies", Fixed64::from_i32(10),
+                json!({ StatKey::MultiShotVisual.as_str(): 3 * 1024 }));
+        }
+        assert!(handle_projectile(&mut w, omoba_sim::Vec2::ZERO, Some(source), Some(invalid_target)).is_err());
+        assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(source), Fixed64::from_i32(60));
+        handle_projectile(&mut w, omoba_sim::Vec2::ZERO, Some(source), Some(target)).unwrap();
+        assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(source), Fixed64::ZERO);
+        let damages: Vec<_> = w.read_storage::<Projectile>().join().map(|p| (p.target, p.damage_phys)).collect();
+        assert_eq!(damages.iter().filter(|(t, d)| *t == Some(target) && *d == Fixed64::from_i32(70)).count(), 1);
+        assert_eq!(damages.iter().filter(|(t, d)| t.is_none() && *d == Fixed64::ZERO).count(), 2);
+        handle_projectile(&mut w, omoba_sim::Vec2::ZERO, Some(source), Some(target)).unwrap();
+        assert_eq!(w.read_storage::<Projectile>().join().filter(|p| p.target == Some(target) && p.damage_phys == Fixed64::from_i32(10)).count(), 1);
+        {
+            let mut buffs = w.write_resource::<BuffStore>();
+            buffs.arm_next_attack_bonus(source, Fixed64::from_i32(60));
+            buffs.add(source, "fixture_miss", Fixed64::from_i32(10),
+                json!({ StatKey::AccuracyBonus.as_str(): -1024 }));
+        }
+        handle_projectile(&mut w, omoba_sim::Vec2::ZERO, Some(source), Some(target)).unwrap();
+        assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(source), Fixed64::ZERO);
+        assert_eq!(w.read_storage::<Projectile>().join().filter(|p| p.target == Some(target) && p.damage_phys == Fixed64::ZERO).count(), 1);
+        w.write_resource::<BuffStore>().arm_next_attack_bonus(source, Fixed64::from_i32(60));
+        w.write_resource::<BuffStore>().remove_all_for(source);
+        assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(source), Fixed64::ZERO);
     }
 
     fn world_for_owner_tests() -> World {
@@ -3785,6 +3915,14 @@ mod tests {
     fn projectile_hit_outcome_queues_provenance_aware_script_event() {
         let (mut world, source) = world_for_script_outcome_tests();
         let target = world.create_entity().build();
+        let hit = Outcome::ProjectileHit {source,target,kind_id:41,generation:2};
+        let fact = observable_fact_from_outcome(&hit,17,3).unwrap();
+        assert_eq!(fact.key.fact_kind,crate::runtime::FactKind::ProjectileImpact);
+        assert_eq!(fact.fact,crate::runtime::ObservableFact::ProjectileImpact {
+            target:crate::runtime::canonical_entity_id(target)});
+        let removed = Outcome::Death {ent:source, pos:Default::default()};
+        assert!(!matches!(observable_fact_from_outcome(&removed,17,4).unwrap().fact,
+            crate::runtime::ObservableFact::ProjectileImpact {..}));
         world
             .write_resource::<Vec<Outcome>>()
             .push(Outcome::ProjectileHit {
@@ -3796,6 +3934,12 @@ mod tests {
 
         let mut sink = crate::runtime::RuntimeEventVecSink::default();
         process_outcomes(&mut world, &mut sink).expect("projectile hit outcome applies");
+
+        let facts = world.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap();
+        assert_eq!(facts.len(),1);
+        assert_eq!(facts[0].key.tick,7);
+        assert_eq!(facts[0].fact,crate::runtime::ObservableFact::ProjectileImpact {
+            target:crate::runtime::canonical_entity_id(target)});
 
         let events = world.write_resource::<ScriptEventQueue>().drain();
         assert!(matches!(
@@ -4314,10 +4458,9 @@ fn handle_damage(
         .is_some_and(|targets| targets.0.contains(&target)) {
         return Ok(());
     }
-    let dmg_taken_bonus = world
-        .read_resource::<BuffStore>()
-        .sum_add(target, StatKey::DamageTakenBonus);
-    let dmg_multiplier = (Fixed64::ONE + dmg_taken_bonus).max(Fixed64::ZERO);
+    let total_damage = crate::runtime::ability_runtime::UnitStats::from_refs(
+        &world.read_resource::<BuffStore>(), false,
+    ).incoming_damage_packet(phys, magi, real, target);
     let td_snapshot = {
         let creeps = world.read_storage::<Creep>();
         let properties = world.read_storage::<CProperty>();
@@ -4362,7 +4505,6 @@ fn handle_damage(
             .read_storage::<PlayerOwner>()
             .get(source)
             .map(|owner| owner.player_id);
-        let total_damage = (phys + magi + real) * dmg_multiplier;
         let plan = crate::runtime::resolve_td_layer_damage(
             omoba_template_ids::active_td_layer_catalog(),
             &state,
@@ -4433,6 +4575,11 @@ fn handle_damage(
         return Ok(());
     }
 
+    let was_hit = total_damage > Fixed64::ZERO
+        && world.read_storage::<CProperty>().get(target).is_some_and(|p| p.hp > Fixed64::ZERO);
+    let total_damage = if was_hit {
+        world.write_resource::<BuffStore>().absorb_damage_with_shield(target, total_damage)
+    } else { total_damage };
     let mut died = false;
     let mut first_lethal_hit = false;
     let mut took_damage = false;
@@ -4440,7 +4587,6 @@ fn handle_damage(
         let mut properties = world.write_storage::<CProperty>();
         if let Some(target_props) = properties.get_mut(target) {
             let hp_before = target_props.hp;
-            let total_damage = (phys + magi + real) * dmg_multiplier;
             target_props.hp = target_props.hp - total_damage;
             took_damage = hp_before > Fixed64::ZERO && total_damage > Fixed64::ZERO;
             let (source_name, target_name) = get_entity_names(world, source, target);
@@ -4471,12 +4617,13 @@ fn handle_damage(
         }
     }
 
-    if took_damage {
+    if was_hit {
         crate::runtime::native::moba_match::interrupt_moba_recall(world, target);
     }
     if took_damage {
         crate::runtime::native::moba_match::record_moba_hero_damage(world, Some(source), target, first_lethal_hit);
         crate::runtime::native::moba_match::record_moba_jungle_damage(world, Some(source), target, first_lethal_hit);
+        crate::runtime::native::moba_match::record_moba_lane_damage(world, Some(source), target, first_lethal_hit);
     }
     if died {
         let mut towers = world.write_storage::<Tower>();

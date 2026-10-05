@@ -158,6 +158,7 @@ pub enum ScriptVisualEventKind {
     DamageTaken,
     DamageDealt,
     SkillCast,
+    SkillArea,
     AttackHit,
     AttackStart,
     AttackLanded,
@@ -180,6 +181,10 @@ pub struct ScriptVisualEvent {
     pub primary: Entity,
     pub secondary: Option<Entity>,
     pub skill_id: Option<String>,
+    pub ability_rank: u32,
+    /// Team-scoped caster relocation: team, x raw Fixed64, y raw Fixed64.
+    pub caster_relocation: Option<(u32, i64, i64)>,
+    pub ability_area: Option<(u32, i64, i64, i64, i64)>,
     pub state_id: Option<String>,
     pub modifier_id: Option<String>,
     pub order_id: Option<String>,
@@ -200,6 +205,9 @@ impl ScriptVisualEvent {
             primary,
             secondary: None,
             skill_id: None,
+            ability_rank: 0,
+            caster_relocation: None,
+            ability_area: None,
             state_id: None,
             modifier_id: None,
             order_id: None,
@@ -266,11 +274,19 @@ pub fn script_visual_event_to_observable_fact(
                 active: event.kind == ScriptVisualEventKind::ModifierAdded,
             },
         ),
+        ScriptVisualEventKind::SkillArea => {
+            let (team,x,y,radius,duration) = event.ability_area.expect("resolved area visual metadata");
+            (FactKind::Ability, ObservableFact::AbilityArea {source, team,
+                ability_id: stable_text_id(event.skill_id.as_deref()), rank: event.ability_rank,
+                x_raw:x, y_raw:y, radius_raw:radius, duration_raw:duration})
+        },
         ScriptVisualEventKind::SkillCast => (
             FactKind::Ability,
             ObservableFact::Ability {
                 source,
                 ability_id: stable_text_id(event.skill_id.as_deref()),
+                rank: event.ability_rank,
+                caster_relocation: event.caster_relocation,
                 target,
             },
         ),
@@ -301,11 +317,7 @@ pub fn script_visual_event_to_observable_fact(
 }
 
 fn stable_text_id(text: Option<&str>) -> u64 {
-    text.unwrap_or_default()
-        .bytes()
-        .fold(0xcbf29ce484222325, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-        })
+    crate::runtime::presentation_cue::stable_content_fact_id(text.unwrap_or_default())
 }
 
 #[derive(Default)]

@@ -107,6 +107,7 @@ impl Component for MoveTarget {
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum HeroCommand {
+    HoldPosition,
     MoveTo {
         pos: SimVec2,
     },
@@ -123,6 +124,7 @@ pub enum HeroCommand {
 impl HeroCommand {
     pub fn command_type(self) -> &'static str {
         match self {
+            HeroCommand::HoldPosition => "hold_position",
             HeroCommand::MoveTo { .. } => "move_to",
             HeroCommand::AttackMove { .. } => "attack_move",
             HeroCommand::AttackTarget { .. } => "attack_target",
@@ -132,7 +134,7 @@ impl HeroCommand {
     pub fn destination(self) -> Option<SimVec2> {
         match self {
             HeroCommand::MoveTo { pos } | HeroCommand::AttackMove { pos } => Some(pos),
-            HeroCommand::AttackTarget { .. } => None,
+            HeroCommand::AttackTarget { .. } | HeroCommand::HoldPosition => None,
         }
     }
 

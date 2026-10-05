@@ -11,8 +11,16 @@ use crate::comp::*;
 mod jungle;
 #[cfg(feature = "kcp")]
 pub mod bots;
+#[cfg(feature = "kcp")]
+pub mod selection;
 pub use jungle::MobaJungleCamp;
 pub(crate) use jungle::record_moba_jungle_damage;
+
+/// Recall is a stationary channel: immobilization and silence both interrupt it.
+/// Owner-side AI and authority settlement must use the same control policy.
+pub(super) fn recall_control_blocked(buffs:&crate::runtime::ability_runtime::BuffStore,entity:Entity)->bool {
+    buffs.is_rooted(entity) || buffs.is_silenced(entity)
+}
 
 /// Global public HUD metric, not an entity reference or private match resource.
 pub const SINGLE_LANE_DELTA_METRIC_ID: u64 = 0x4d4f424144543031;
@@ -290,6 +298,8 @@ pub struct SingleLaneConfig {
     pub hero_kill_xp: u32,
     pub hero_assist_xp: u32,
     pub lane_creep_xp: u32,
+    /// Last hit only; nearby XP recipients do not share this reward.
+    pub lane_creep_gold: u32,
     pub lane_xp_radius: u32,
     pub assist_window_seconds: u32,
     /// Explicit opt-in; legacy TD/straight-lane fixtures remain unchanged.
@@ -320,6 +330,7 @@ impl Default for SingleLaneConfig {
             hero_kill_xp: omoba_template_ids::MOBA_HERO_KILL_XP,
             hero_assist_xp: omoba_template_ids::MOBA_HERO_ASSIST_XP,
             lane_creep_xp: omoba_template_ids::MOBA_LANE_CREEP_XP,
+            lane_creep_gold: omoba_template_ids::MOBA_LANE_CREEP_GOLD,
             lane_xp_radius: omoba_template_ids::MOBA_LANE_XP_RADIUS,
             assist_window_seconds: omoba_template_ids::MOBA_ASSIST_WINDOW_SECONDS,
             base_recovery_enabled: false,
@@ -344,6 +355,7 @@ struct LaneUnit {
     attack_remaining: Fixed64,
     lane: usize,
     next_waypoint: usize,
+    last_hit_retired: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -388,6 +400,14 @@ pub struct MobaMatch {
 }
 
 impl MobaMatch {
+    /// Aggregate admission only, not prerequisite identities or hidden HP.
+    pub(crate) fn disclosed_structure_states(&self)->BTreeMap<u64,[u8;2]> {
+        self.units.values().filter_map(|unit| {
+            let role=match unit.role {LaneRole::Tower=>1,LaneRole::Base=>2,_=>return None};
+            Some((crate::runtime::canonical_entity_id(unit.entity),
+                [role,u8::from(self.phase==MobaMatchPhase::Playing && self.structure_unlocked(unit))]))
+        }).collect()
+    }
     pub fn base_unlocked(&self, side: usize) -> bool {
         side < 2 && self.lane_tower_layers.iter().all(|lane| lane.iter().all(|layer| layer[side].is_none()))
     }
@@ -426,6 +446,7 @@ pub fn single_lane_input_action_allowed(input: &crate::runtime::PlayerInput) -> 
                 | I::MoveTo(_)
                 | I::AttackMove(_)
                 | I::AttackTarget(_)
+                | I::HoldPosition(_)
                 | I::CastAbility(_)
                 | I::UpgradeAbility(_)
                 | I::ItemUse(_)
@@ -542,6 +563,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         || config.hero_kill_xp > 1_000_000
         || config.hero_assist_xp > 1_000_000
         || config.lane_creep_xp > 1_000_000
+        || config.lane_creep_gold > 1_000_000
         || !(1..=10_000).contains(&config.lane_xp_radius)
         || !(1..=60).contains(&config.assist_window_seconds)
     {
@@ -710,6 +732,7 @@ impl MobaMatch {
                 attack_remaining: Fixed64::ZERO,
                 lane: 0,
                 next_waypoint: 1,
+                last_hit_retired: false,
             },
         );
     }
@@ -939,7 +962,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         // Gameplay commands win over Recall within the same input batch,
         // independent of ordering; none may be deferred behind a channel.
         let interrupted: std::collections::BTreeSet<u32> = world.read_resource::<PendingPlayerInputs>().inputs.iter()
-            .filter_map(|(player, input)| matches!(input.action, Some(I::MoveTo(_) | I::AttackMove(_) | I::AttackTarget(_) | I::CastAbility(_) | I::ItemUse(_))).then_some(*player)).collect();
+            .filter_map(|(player, input)| matches!(input.action, Some(I::MoveTo(_) | I::AttackMove(_) | I::AttackTarget(_) | I::HoldPosition(_) | I::CastAbility(_) | I::ItemUse(_))).then_some(*player)).collect();
         world.write_resource::<PendingPlayerInputs>().inputs.retain(|(player, input)| {
             let side = state.heroes.iter().position(|s| s.player_id == *player).expect("roster filtered");
             let team = state.heroes[side].side;
@@ -947,6 +970,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                 if interrupted.contains(player) { state.heroes[side].recall = None; return false; }
                 if let Some(entity) = state.heroes[side].entity {
                     if world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
+                        && !recall_control_blocked(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>(),entity)
                         && state.bases[team].is_some() && state.heroes[side].recall.is_none() {
                         let origin = world.read_storage::<Pos>().get(entity).expect("hero position").0;
                         state.heroes[side].recall = Some((origin, previous_elapsed.max(state.config.warmup) + Fixed64::from_i32(omoba_template_ids::MOBA_RECALL_CHANNEL_SECONDS as i32)));
@@ -956,7 +980,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                 }
                 return false;
             }
-            if matches!(input.action, Some(I::MoveTo(_) | I::AttackMove(_) | I::AttackTarget(_) | I::CastAbility(_) | I::ItemUse(_))) {
+            if matches!(input.action, Some(I::MoveTo(_) | I::AttackMove(_) | I::AttackTarget(_) | I::HoldPosition(_) | I::CastAbility(_) | I::ItemUse(_))) {
                 state.heroes[side].recall = None;
             }
             true
@@ -1159,6 +1183,26 @@ fn award_live_moba_xp(world: &World, entity: Entity, amount: u32) {
     }
 }
 
+/// All positive damage paths retire a creep's first lethal hit, even when it
+/// has no credited hero. Forced Death and a later Heal cannot manufacture gold.
+pub(crate) fn record_moba_lane_damage(world:&World,source:Option<Entity>,target:Entity,lethal:bool) {
+    let Some(mut state)=world.try_fetch_mut::<MobaMatch>() else {return;};
+    if !lethal || state.phase!=MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused {return;}
+    let victim_side={
+        let Some(unit)=state.units.get_mut(&entity_key(target)) else {return;};
+        if unit.role!=LaneRole::Creep || unit.last_hit_retired {return;}
+        unit.last_hit_retired=true;
+        usize::from(unit.team)
+    };
+    let Some(source)=source else {return;};
+    if !state.heroes.iter().any(|slot|slot.entity==Some(source) && slot.side!=victim_side) {return;}
+    // The source may also die later in this outcome batch; normal death capture
+    // saves its Gold. Do not require positive source HP after the hit lands.
+    if let Some(balance)=world.write_storage::<Gold>().get_mut(source) {
+        balance.0=balance.0.saturating_add(state.config.lane_creep_gold as i32);
+    }
+}
+
 /// Called after actual positive damage to a live target, not after an input ACK.
 /// Anonymous script damage can retire a life but cannot claim participation.
 pub(crate) fn record_moba_hero_damage(world: &World, source: Option<Entity>, target: Entity, lethal: bool) {
@@ -1323,10 +1367,15 @@ fn refresh_managed_moba_capacity(hero:&mut Hero,buffs:&crate::runtime::BuffStore
 /// Commit hook. Both destroyed bases in the same tick produce a draw.
 pub fn finish_moba_match_tick(world: &mut World) {
     let tick = world.read_resource::<Tick>().0;
+    if world.try_fetch::<MobaMatch>().is_some() {
+        emit_incoming_damage_observations(world, tick);
+    }
     let Some(mut state) = world.try_fetch_mut::<MobaMatch>() else {
         return;
     };
     if state.phase != MobaMatchPhase::Playing {
+        drop(state);
+        emit_structure_observations(world,tick);
         return;
     }
     if !world.read_resource::<GamePause>().is_paused {
@@ -1336,6 +1385,9 @@ pub fn finish_moba_match_tick(world: &mut World) {
             let valid = state.heroes[side].entity.filter(|entity| {
                 world.read_storage::<CProperty>().get(*entity).is_some_and(|p| p.hp > Fixed64::ZERO)
                     && world.read_storage::<Pos>().get(*entity).is_some_and(|p| p.0 == origin)
+                    // Check after outcomes, before testing the completion deadline.
+                    // Damage-free control arriving on the final tick must still cancel.
+                    && !recall_control_blocked(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>(),*entity)
             });
             if valid.is_none() || state.bases[team].is_none() {
                 state.heroes[side].recall = None;
@@ -1637,7 +1689,66 @@ pub fn finish_moba_match_tick(world: &mut World) {
                 )
                 .with_broadcast(crate::runtime::RuntimeBroadcast::All),
             );
+    } else {
+        drop(state);
     }
+    emit_structure_observations(world,tick);
+}
+
+/// Absolute, change-only public aggregate. Capture after gameplay, before the
+/// fact barrier; visibility policy owns disclosure and hide/reveal handling.
+#[derive(Default)]
+struct IncomingDamageObservationCache(BTreeMap<u64, i64>);
+
+#[derive(Default)]
+struct StructureObservationCache(BTreeMap<u64,[u8;2]>);
+
+fn emit_structure_observations(world:&mut World,tick:u64) {
+    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+    if world.try_fetch::<StructureObservationCache>().is_none() {
+        world.insert(StructureObservationCache::default());
+    }
+    let next=world.read_resource::<MobaMatch>().disclosed_structure_states();
+    let mut cache=world.write_resource::<StructureObservationCache>();
+    for (&source,&state) in &next {
+        if cache.0.get(&source)==Some(&state) {continue;}
+        world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(OrderedFact {
+            key:FactOrderingKey {tick,phase:FactPhase::PostStep,canonical_source_order:source,
+                local_ordinal:0,fact_kind:FactKind::CommittedStructure},
+            audience:FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+            fact:ObservableFact::CommittedStructure {source,state},
+        }).expect("valid structure observation");
+    }
+    cache.0=next;
+}
+
+fn emit_incoming_damage_observations(world: &mut World, tick: u64) {
+    use specs::Join;
+    use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+    if world.try_fetch::<IncomingDamageObservationCache>().is_none() {
+        world.insert(IncomingDamageObservationCache::default());
+    }
+    let next: BTreeMap<_,_> = {
+        let entities = world.entities();
+        let properties = world.read_storage::<CProperty>();
+        let positions = world.read_storage::<Pos>();
+        let buffs = world.read_resource::<crate::runtime::BuffStore>();
+        (&entities,&properties,&positions).join().map(|(entity,_,_)| {
+            (crate::runtime::canonical_entity_id(entity),
+                buffs.sum_add(entity,omb_script_abi::stat_keys::StatKey::DamageTakenBonus).raw())
+        }).collect()
+    };
+    let mut cache = world.write_resource::<IncomingDamageObservationCache>();
+    for (&source,&bonus_raw) in &next {
+        if cache.0.get(&source)==Some(&bonus_raw) {continue;}
+        world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(OrderedFact {
+            key:FactOrderingKey {tick,phase:FactPhase::PostStep,canonical_source_order:source,
+                local_ordinal:0,fact_kind:FactKind::CommittedIncomingDamage},
+            audience:FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.to_owned()),
+            fact:ObservableFact::CommittedIncomingDamage {source,bonus_raw},
+        }).expect("valid incoming damage observation");
+    }
+    cache.0=next;
 }
 
 /// Canonical trace digest for the lane rules and their live ECS combat state.
@@ -1694,6 +1805,7 @@ pub fn single_lane_replay_digest(world: &World) -> String {
         state.config.assist_window_seconds, state.assist_ledger));
     hash.update(format!("|xp-rules:{}:{}", state.config.hero_kill_xp, state.config.hero_assist_xp));
     hash.update(format!("|lane-xp-rules:{}:{}", state.config.lane_creep_xp, state.config.lane_xp_radius));
+    hash.update(format!("|lane-gold-rules:{}", state.config.lane_creep_gold));
     let positions = world.read_storage::<Pos>();
     let properties = world.read_storage::<CProperty>();
     let heroes = world.read_storage::<Hero>();
@@ -1701,6 +1813,7 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     let attacks = world.read_storage::<TAttack>();
     for (key, unit) in &state.units {
         hash.update(format!("|lane:{}|waypoint:{}",unit.lane,unit.next_waypoint));
+        hash.update(format!("|last-hit-retired:{}",unit.last_hit_retired));
         let pos = positions.get(unit.entity).expect("lane position");
         let hp = properties.get(unit.entity).expect("lane hp");
         hash_json(

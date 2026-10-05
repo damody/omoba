@@ -284,6 +284,7 @@ pub struct PendingHeroCommand {
 
 #[derive(Clone, Debug)]
 pub enum PendingHeroCommandKind {
+    HoldPosition,
     MoveTo { pos: SimVec2 },
     AttackMove { pos: SimVec2 },
     AttackTarget { target_entity_id: u32 },

@@ -84,7 +84,7 @@ mod tests {
         let home=Vec2::ZERO;let own=Vec2::new(Fixed64::from_i32(2000),Fixed64::ZERO);
         let mut pool=ManaPool::new(Fixed64::from_raw(200*1024-1),Fixed64::from_i32(1000)).unwrap();
         assert_eq!(decide_with_mana(&policy,&hp,Some(&pool),own,home,1,&[]),Some(Recovery::Recall));
-        let enemy=SeenUnit {canonical_id:1,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1};
+        let enemy=SeenUnit {canonical_id:1,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100};
         assert_eq!(decide_with_mana(&policy,&hp,Some(&pool),own,home,1,&[enemy]),Some(Recovery::Retreat(home)));
         pool.restore(Fixed64::from_raw(1)).unwrap();
         assert_eq!(decide_with_mana(&policy,&hp,Some(&pool),own,home,1,&[]),None);
@@ -109,7 +109,7 @@ mod tests {
         let mut hp=CProperty {hp:Fixed64::from_i32(349),mhp:Fixed64::from_i32(1000),
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         assert_eq!(decide(&policy,&hp,own,home,1,&[]),Some(Recovery::Recall));
-        let enemy=SeenUnit {canonical_id:1,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1};
+        let enemy=SeenUnit {canonical_id:1,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100};
         assert_eq!(decide(&policy,&hp,own,home,1,&[enemy]),Some(Recovery::Retreat(home)));
         assert_eq!(decide(&policy,&hp,own,home,1,&[SeenUnit {hp_raw:0,..enemy}]),Some(Recovery::Recall));
         assert_eq!(decide(&policy,&hp,own,home,1,&[SeenUnit {team:1,..enemy}]),Some(Recovery::Recall));

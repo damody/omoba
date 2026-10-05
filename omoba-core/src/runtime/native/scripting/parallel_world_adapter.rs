@@ -18,6 +18,7 @@ use crate::runtime::ability_runtime::{BuffStore, UnitStats};
 use super::tag::ScriptUnitTag;
 
 pub struct ParallelAdapterCache<'a> {
+    team_keys:HashMap<i32,String>,
     pub entities: Entities<'a>,
     pub tattack: ReadStorage<'a, TAttack>,
     pub pos: ReadStorage<'a, Pos>,
@@ -41,7 +42,11 @@ pub struct ParallelAdapterCache<'a> {
 
 impl<'a> ParallelAdapterCache<'a> {
     pub fn new(world: &'a World, rng_seed: u64) -> Self {
+        let faction=world.read_storage::<Faction>();
+        let mut team_keys=HashMap::new();
+        for f in (&faction).join() {team_keys.entry(f.team_id).or_insert_with(||format!("team:{}",f.team_id));}
         Self {
+            team_keys,
             entities: world.entities(),
             tattack: world.read_storage::<TAttack>(),
             pos: world.read_storage::<Pos>(),
@@ -49,7 +54,7 @@ impl<'a> ParallelAdapterCache<'a> {
             cprop: world.read_storage::<CProperty>(),
             unit: world.read_storage::<Unit>(),
             hero: world.read_storage::<Hero>(),
-            faction: world.read_storage::<Faction>(),
+            faction,
             creep: world.read_storage::<Creep>(),
             tower: world.read_storage::<Tower>(),
             is_building: world.read_storage::<IsBuilding>(),
@@ -79,6 +84,8 @@ pub struct ParallelWorldAdapter<'a> {
     overlay_facing: HashMap<Entity, Angle>,
     overlay_asd_count: HashMap<Entity, Fixed64>,
     projectile_hit_generation: Option<u8>,
+    capture_cast_areas: bool,
+    cast_areas: Vec<(Vec2, Fixed64, Fixed64)>,
 }
 
 pub struct ParallelProjectileQuery<'a> {
@@ -458,6 +465,8 @@ impl<'a> ParallelWorldAdapter<'a> {
             overlay_facing: HashMap::new(),
             overlay_asd_count: HashMap::new(),
             projectile_hit_generation: None,
+            capture_cast_areas: false,
+            cast_areas: Vec::new(),
         }
     }
 
@@ -467,6 +476,18 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
     pub fn cast_succeeded(&self) -> bool { self.cast_succeeded && !self.hook_panicked }
+    pub fn capture_formal_cast_areas(&mut self) { self.capture_cast_areas = true; }
+    pub fn successful_cast_areas(&self) -> &[(Vec2, Fixed64, Fixed64)] {
+        if self.cast_succeeded() { &self.cast_areas } else { &[] }
+    }
+
+    /// A relocation submitted by this successful invocation, not its requested
+    /// target or a later world snapshot. Other entities' movement is excluded.
+    pub fn successful_caster_relocation(&self, caster: Entity) -> Option<Vec2> {
+        if !self.cast_succeeded() { return None; }
+        let point = *self.overlay_pos.get(&caster)?;
+        (self.cache.pos.get(caster).is_some_and(|origin| origin.0 != point)).then_some(point)
+    }
     pub fn mark_hook_panicked(&mut self) { self.hook_panicked = true; }
     pub fn hook_panicked(&self) -> bool { self.hook_panicked }
     pub fn has_mana_changes(&self) -> bool { !self.mana_dirty.is_empty() }
@@ -622,8 +643,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             .unwrap_or(false)
     }
 
-    fn faction_of(&self, _e: EntityHandle) -> ROption<RStr<'_>> {
-        RNone
+    fn faction_of(&self, e: EntityHandle) -> ROption<RStr<'_>> {
+        let Some(entity)=Self::handle_to_entity(e).filter(|entity|self.cache.entities.is_alive(*entity)) else {return RNone;};
+        self.cache.faction.get(entity).and_then(|f|self.cache.team_keys.get(&f.team_id))
+            .map_or(RNone,|key|RSome(RStr::from_str(key)))
     }
 
     fn unit_id_of(&self, _e: EntityHandle) -> ROption<RStr<'_>> {
@@ -682,6 +705,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             Some(p) => p,
             None => return target,
         };
+        // Voluntary collision-aware movement obeys the same owner control
+        // state as ordinary hero movement. Direct set_pos remains available
+        // for explicit authority/forced relocation; do not silently drop it.
+        if self.cache.buffs.is_rooted(ent) { return pos; }
         let radius = self
             .cache
             .collision
@@ -875,6 +902,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn emit_explosion(&mut self, pos: Vec2, radius: Fixed64, duration: Fixed64) {
+        if self.capture_cast_areas {
+            // Formal casts use a caster-attributed, team-safe cue instead of
+            // an anonymous legacy Explosion whose source is only an ordinal.
+            if self.cast_areas.len() < 128 { self.cast_areas.push((pos, radius, duration)); }
+            return;
+        }
         self.outcomes.push(Outcome::Explosion {
             pos,
             radius,
@@ -1828,6 +1861,25 @@ mod tests {
                 def_magic: Fixed64::ZERO,
             })
             .build()
+    }
+
+    #[test]
+    fn parallel_adapter_root_blocks_voluntary_advance_but_not_explicit_position() {
+        let mut world=world_for_adapter_tests();
+        let origin=Vec2::new(Fixed64::from_i32(1),Fixed64::from_i32(2));
+        let target=Vec2::new(Fixed64::from_i32(20),Fixed64::from_i32(2));
+        let entity=world.create_entity().with(Pos(origin)).build();
+        world.write_resource::<BuffStore>().add(entity,"root",Fixed64::ONE,serde_json::json!({}));
+        let handle=ParallelWorldAdapter::entity_to_handle(entity);
+        let cache=ParallelAdapterCache::new(&world,123);
+        let mut adapter=ParallelWorldAdapter::new(&cache,entity);
+        assert_eq!(adapter.advance_with_collision(handle,target,Fixed64::from_i32(100)),origin);
+        adapter.set_pos(handle,target);
+        assert_eq!(adapter.get_pos(handle),RSome(target));
+        assert_eq!(adapter.advance_with_collision(handle,origin,Fixed64::from_i32(100)),target,
+            "blocked movement returns current overlay position, not stale cache");
+        assert!(matches!(adapter.finish().as_slice(),[Outcome::ScriptSetPos {entity:actual,pos}]
+            if *actual==entity && *pos==target));
     }
 
     #[test]

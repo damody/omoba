@@ -19,6 +19,22 @@ use specs::Entity;
 
 use super::BuffStore;
 
+/// Settlement for an already-authored `Outcome::Damage` packet. Outgoing
+/// attack modifiers and accuracy belong to packet creation, not settlement.
+/// Keep the fixed-point sum-before-multiply order used by authority; this is
+/// deliberately not the separate armor/block `DamageInstance` pipeline.
+/// Prediction callers must supply a legitimately disclosed incoming bonus;
+/// absence of that observation does not mean a zero bonus.
+pub fn settle_damage_packet(
+    physical: Fixed64,
+    magical: Fixed64,
+    pure: Fixed64,
+    damage_taken_bonus: Fixed64,
+) -> Fixed64 {
+    (physical + magical + pure)
+        * (Fixed64::ONE + damage_taken_bonus).max(Fixed64::ZERO)
+}
+
 /// 單位統計聚合上下文的每個刻度快照。
 /// 建置一次，查詢 N 次－便宜（僅儲存引用）。
 pub struct UnitStats<'a> {
@@ -300,6 +316,12 @@ impl<'a> UnitStats<'a> {
     /// Clamp each factor before multiplication: two negative percentages must
     /// never produce positive recovery. Overflow rejects, never wraps/refills.
     pub fn checked_mana_regen(&self, base: Fixed64, e: Entity) -> Option<Fixed64> {
+        self.checked_mana_regen_with_flat_bonus(base,e,Fixed64::ZERO)
+    }
+
+    /// Read-only prediction for a new, additive, non-family flat regen buff.
+    /// Same clamping and rounding as authority recovery; no mutation or refill.
+    pub fn checked_mana_regen_with_flat_bonus(&self,base:Fixed64,e:Entity,bonus:Fixed64) -> Option<Fixed64> {
         if base<Fixed64::ZERO {return None;}
         let sum=|key|self.buffs.checked_sum_add(e,key).map(|v|i128::from(v.raw()));
         let base_override = sum(StatKey::BaseManaRegen)?;
@@ -308,7 +330,8 @@ impl<'a> UnitStats<'a> {
         } else {
             i128::from(base.raw())
         };
-        let flat=(base_eff+sum(StatKey::ManaRegenConstant)?+sum(StatKey::ManaRegenConstantUnique)?).max(0);
+        let flat=(base_eff+sum(StatKey::ManaRegenConstant)?+sum(StatKey::ManaRegenConstantUnique)?
+            +i128::from(bonus.raw())).max(0);
         let pct=(1024+sum(StatKey::ManaRegenPercentage)?).max(0);
         let total_pct=(1024+sum(StatKey::ManaRegenTotalPercentage)?).max(0);
         let first=flat.checked_mul(pct)?/1024;
@@ -341,6 +364,18 @@ impl<'a> UnitStats<'a> {
     }
 
     // ================= Damage pipeline 入口 =================
+
+    /// Exact authority packet settlement, shared by normal HP and TD layers.
+    pub fn incoming_damage_packet(
+        &self,
+        physical: Fixed64,
+        magical: Fixed64,
+        pure: Fixed64,
+        victim: Entity,
+    ) -> Fixed64 {
+        settle_damage_packet(physical, magical, pure,
+            self.buffs.sum_add(victim, StatKey::DamageTakenBonus))
+    }
 
     /// 計算 `e`（victim）承受 `raw` damage 後的 final 值（含 block / armor / resist / prevention）。
     /// NOTE: evasion / miss 由呼叫端先 roll，此函式假設攻擊已命中。
@@ -474,6 +509,31 @@ mod tests {
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
 
+    #[test]
+    fn damage_packet_settlement_preserves_sum_rounding_and_incoming_bonus() {
+        for (packet, bonus, expected) in [
+            ([1024, 2048, 3072], 0, 6144),
+            ([1024, 2048, 3072], 512, 9216),
+            ([1024, 2048, 3072], -512, 3072),
+            ([1024, 2048, 3072], -1024, 0),
+            ([1024, 2048, 3072], -2048, 0),
+            // Rounding each channel first would incorrectly produce zero.
+            ([1, 1, 1], -512, 1),
+            ([0, 0, 0], 1024, 0),
+        ] {
+            assert_eq!(settle_damage_packet(
+                Fixed64::from_raw(packet[0]), Fixed64::from_raw(packet[1]),
+                Fixed64::from_raw(packet[2]), Fixed64::from_raw(bonus)).raw(), expected);
+        }
+        let mut world = World::new();
+        let victim = world.create_entity().build();
+        let mut buffs = BuffStore::new();
+        buffs.add(victim, "incoming", fx_huge(), json!({"damage_taken_bonus":512}));
+        let stats = UnitStats::from_refs(&buffs, false);
+        assert_eq!(stats.incoming_damage_packet(Fixed64::from_i32(80),
+            Fixed64::ZERO, Fixed64::ZERO, victim), Fixed64::from_i32(120));
+    }
+
     fn fx_secs(seconds: f32) -> Fixed64 {
         Fixed64::from_raw((seconds * 1024.0) as i64)
     }
@@ -481,6 +541,22 @@ mod tests {
     fn fx_huge() -> Fixed64 {
         // 代表「無窮大」——足夠大，以至於測試視窗中的蜱蟲衰減不會達到 0。
         Fixed64::from_i32(1_000_000)
+    }
+
+    #[test]
+    fn mana_regeneration_prediction_reuses_clamping_multipliers_and_does_not_mutate() {
+        let mut world=World::new();let entity=world.create_entity().build();let mut buffs=BuffStore::new();
+        buffs.add(entity,"fixture",fx_huge(),json!({"mana_regen_constant":-6*1024,
+            "mana_regen_percentage":512,"mana_regen_total_percentage":1024}));
+        let stats=UnitStats::from_refs(&buffs,false);
+        assert_eq!(stats.checked_mana_regen(Fixed64::from_i32(5),entity),Some(Fixed64::ZERO));
+        assert_eq!(stats.checked_mana_regen_with_flat_bonus(Fixed64::from_i32(5),entity,Fixed64::from_i32(2)),
+            Some(Fixed64::from_i32(3)),"flat clamp must happen after the hypothetical additive bonus");
+        assert_eq!(stats.checked_mana_regen(Fixed64::from_i32(5),entity),Some(Fixed64::ZERO));
+        assert_eq!(buffs.len(),1);
+        buffs.add(entity,"broken",fx_huge(),json!({"mana_regen_constant":"invalid"}));
+        assert!(UnitStats::from_refs(&buffs,false).checked_mana_regen_with_flat_bonus(
+            Fixed64::from_i32(5),entity,Fixed64::from_i32(2)).is_none());
     }
 
     #[test]

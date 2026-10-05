@@ -94,6 +94,7 @@ fn decide_hero_command(
             break;
         };
         match command {
+            HeroCommand::HoldPosition => break,
             HeroCommand::MoveTo { pos: target } => {
                 if (target - pos).length() <= arrive_eps {
                     queue.advance();

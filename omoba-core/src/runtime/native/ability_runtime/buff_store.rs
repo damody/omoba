@@ -93,6 +93,58 @@ impl Default for MoveSpeedSums {
 }
 
 impl BuffStore {
+    pub fn shield_remaining(&self, entity: Entity) -> Fixed64 {
+        self.get(entity, "__damage_shield")
+            .and_then(|entry| entry.payload.get("shield_remaining_raw"))
+            .and_then(Value::as_i64).map(Fixed64::from_raw)
+            .filter(|amount| *amount > Fixed64::ZERO && *amount <= Fixed64::from_i32(1_000_000))
+            .unwrap_or(Fixed64::ZERO)
+    }
+
+    pub fn grant_damage_shield(&mut self, entity: Entity, amount: Fixed64, duration: Fixed64) -> bool {
+        if amount <= Fixed64::ZERO || amount > Fixed64::from_i32(1_000_000)
+            || duration <= Fixed64::ZERO || duration > Fixed64::from_i32(60) { return false; }
+        self.add(entity, "__damage_shield", duration,
+            serde_json::json!({ "shield_remaining_raw": amount.max(self.shield_remaining(entity)).raw() }));
+        true
+    }
+
+    /// Consume only positive settled damage; return the unabsorbed remainder.
+    pub fn absorb_damage_with_shield(&mut self, entity: Entity, damage: Fixed64) -> Fixed64 {
+        if damage <= Fixed64::ZERO { return damage; }
+        let shield = self.shield_remaining(entity);
+        if shield == Fixed64::ZERO { return damage; }
+        let absorbed = damage.min(shield);
+        let remaining = shield - absorbed;
+        if remaining == Fixed64::ZERO { self.remove(entity, "__damage_shield"); }
+        else if let Some(entry) = self.buffs.get_mut(&entity).and_then(|entries| entries.get_mut("__damage_shield")) {
+            entry.payload["shield_remaining_raw"] = serde_json::json!(remaining.raw());
+        }
+        damage - absorbed
+    }
+
+    /// Private, one-shot flat bonus. Not a permanent attack stat or public buff ID.
+    /// Re-arming retains the strongest pending bonus, independent of item identity.
+    pub fn arm_next_attack_bonus(&mut self, entity: Entity, amount: Fixed64) -> bool {
+        if amount <= Fixed64::ZERO || amount > Fixed64::from_i32(1_000_000) { return false; }
+        let amount = amount.max(self.next_attack_bonus(entity));
+        self.add(entity, "__next_attack_bonus", Fixed64::from_raw(i64::MAX),
+            serde_json::json!({ "next_attack_bonus_raw": amount.raw() }));
+        true
+    }
+
+    pub fn next_attack_bonus(&self, entity: Entity) -> Fixed64 {
+        self.get(entity, "__next_attack_bonus")
+            .and_then(|entry| entry.payload.get("next_attack_bonus_raw"))
+            .and_then(Value::as_i64).map(Fixed64::from_raw)
+            .filter(|amount| *amount > Fixed64::ZERO && *amount <= Fixed64::from_i32(1_000_000))
+            .unwrap_or(Fixed64::ZERO)
+    }
+
+    pub fn consume_next_attack_bonus(&mut self, entity: Entity) {
+        self.remove(entity, "__next_attack_bonus");
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
