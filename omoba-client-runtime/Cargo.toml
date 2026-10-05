@@ -7,6 +7,7 @@ description = "External team-filtered Specs replica and renderer IPC host"
 [features]
 default = []
 runtime-lua-content = ["omoba-core/runtime-lua-content"]
+compiled-content-only = ["omoba-core/compiled-content-only", "omoba-template-ids/compiled-content-only"]
 
 [dependencies]
 anyhow = "1.0"

@@ -26,6 +26,7 @@ vek = "0.17"
 [features]
 default = []
 runtime-lua-content = ["omoba-template-ids/runtime-lua-content"]
+compiled-content-only = ["omoba-template-ids/compiled-content-only", "omoba-core/compiled-content-only"]
 
 [dev-dependencies]
 prost = "0.13"

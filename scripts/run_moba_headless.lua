@@ -27,17 +27,17 @@ while index <= #arg do
 end
 local function run(label, args)
   print('[moba-headless] ' .. label)
-  local result = process.run('cargo', args, {cwd = root, check = false})
+  local result = process.run('cargo', args, {cwd = root, env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'}, check = false})
   io.write(result.stdout or '')
   io.stderr:write(result.stderr or '')
   if result.exit_code ~= 0 then os.exit(result.exit_code) end
 end
 if not plan_only then
   run('build generated script DLL', {'build', '--manifest-path', path.join(root, 'scripts/Cargo.toml'),
-    '-p', 'base_content', '--release'})
+    '-p', 'base_content', '--features', 'compiled-content-only', '--release'})
 end
 local args = {'run', '--manifest-path', path.join(root, 'omb/Cargo.toml'),
-  '-p', 'omobab', '--bin', 'moba-headless', '--',
+  '-p', 'omobab', '--bin', 'moba-headless', '--features', 'compiled-content-only', '--',
   '--scripts-dir', path.join(root, 'scripts/target/release'),
   '--report', path.join(root, 'omb/target/moba-headless/report.json')}
 for _, value in ipairs(forwarded) do args[#args + 1] = value end

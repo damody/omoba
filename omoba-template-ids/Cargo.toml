@@ -25,4 +25,5 @@ toml = { version = "0.8", optional = true }
 
 [features]
 default = []
+compiled-content-only = []
 runtime-lua-content = ["dep:omoba-content-model", "dep:mlua", "dep:serde", "dep:serde_json", "dep:toml"]

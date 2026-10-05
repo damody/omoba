@@ -205,9 +205,10 @@ local base_env = {
   OMB_SCENE_PATH = "",
   OMB_DLL_PATH = content_dll,
   OMB_SCRIPTS_DIR = path.join(b.root, "scripts", "target", profile),
-  OMB_LUA_CONTENT = "1",
-  OMB_LUA_CONTENT_ROOT = path.join(b.root, "scripts", "lua_data"),
-  OMB_STORY_DATA_DIR = path.join(b.root, "scripts", "lua_data"),
+  OMB_LUA_CONTENT = "0",
+  OMB_LUA_HOT_RELOAD = "0",
+  OMB_LUA_CONTENT_ROOT = "",
+  OMB_STORY_DATA_DIR = "",
   RUST_LOG = "info",
 }
 if smoke_seconds then base_env.OMOBA_FOG_EVIDENCE_DIR = evidence end
@@ -248,11 +249,11 @@ local function build_crate(label, args)
 end
 
 local function build_server()
-  build_crate("omobab", { "build", "--manifest-path", "omb/Cargo.toml", "-p", "omobab", "--features", "runtime-lua-content" })
+  build_crate("omobab", { "build", "--manifest-path", "omb/Cargo.toml", "-p", "omobab", "--features", "compiled-content-only" })
 end
 
 local function build_runtime()
-  build_crate("omoba-client-runtime", { "build", "--manifest-path", "omoba-client-runtime/Cargo.toml", "--features", "runtime-lua-content" })
+  build_crate("omoba-client-runtime", { "build", "--manifest-path", "omoba-client-runtime/Cargo.toml", "--features", "compiled-content-only" })
 end
 
 local function build_ue()
@@ -297,7 +298,7 @@ local windows = {
 
 local ok, result = xpcall(function()
   if not skip_build then
-    build_crate("base_content", { "build", "--manifest-path", "scripts/Cargo.toml", "-p", "base_content", "--features", "runtime-lua-content" })
+    build_crate("base_content", { "build", "--manifest-path", "scripts/Cargo.toml", "-p", "base_content", "--features", "compiled-content-only" })
     build_server()
     build_runtime()
   end
@@ -340,7 +341,7 @@ local ok, result = xpcall(function()
       "--server", "127.0.0.1:" .. port,
       "--presentation-bind", presentation,
       "--presentation-hz", shop_smoke and "30" or "60",
-      "--protocol-version", "2",
+
     }
     if smoke_seconds then
       runtime_args[#runtime_args + 1] = "--test-mode"
