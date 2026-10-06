@@ -1,11 +1,64 @@
 # Unreal MOBA 防錯紀錄
 
+## E306：驗收fixture須接真實共用契約，不能凍結舊英雄數（2026-10-06）
+
+- stage fixture只允許require _bootstrap，正式入口已使用moba_stage_contract，初次exit1。改在同isolated environment載入真實stage模組，按路徑對應五artifact digests；bridge錯配／缺檔與base兩copy缺失／錯配均fail closed，六case成功。
+- asset recipe fixture期待3heroes，正式catalog7heroes，初次exit1。改一對一完整目錄與unique ID，明確驗五training fallback；10jobs與Saika動畫共用斷言維持，成功。不改production容錯或資產。
+- 工具預防：不要再以同patch Delete+Add同檔（被拒且沒有寫入），改Update。Windows rg用真實目錄配-g，不literal glob或猜文件名。
+- 真實UE選角exit1另由E305 engine/plugin BuildId mismatch解釋，保留target/unreal-selection-tests/1791253029-1/error與原始log，不以mock通過替代。詳細全部結果見2026-10-06-final-acceptance-progress.md。
+
+## E305：完整UE build與project-only成功不可混稱（2026-10-06）
+
+- build_ue_moba --full已建置並stage compiled-only DLL及bridge，但完整UBT FailedDueToEngineChange exit4，列出共用引擎.modules待修改。沒有啟動Editor；與scoped project模組11actions成功分開記錄。
+- 決定：保留-NoEngineChanges與使用者共享引擎修改；不手改BuildId、不將stage視為整體成功。唯讀核對實際engine/project module manifest與Editor啟動結果，不重複完整build撞相同閘門。
+
+## E304：正式十Bot第一場逾時，100場尚未通過（2026-10-06）
+
+- seed1、正式60Hz、moba_archetype_match配方、compiled-only DLL，36000 ticks仍Playing而exit1。batch completed_matches=0，逐場log及errors.md保留於omb/target/moba-headless-batches/1791252707-1。
+- 決定：派Grok查真實失敗狀態與通用Bot決策，不延長600秒、不用withdraw／plan-only替代、不弱化replay。先精準確認seed1修正成功後再100場。完整5.5不勾。
+
+## E302：正式 smoke 不可啟用 runtime Lua，批次報告不可覆蓋（2026-10-06）
+
+- 問題：舊runtime smoke仍啟用Lua runtime與hot reload，雙UE商店30Hz未沿正式profile；逐次headless共用report會覆蓋證據。
+- 決定：共用compiled-content-only建置／environment／TOML helper，兩個launchers關閉Lua runtime，shop presentation跟隨tick profile。新增build-once逐seed批次，每場獨立JSON/log，exact60Hz、十Bot、正式終局與replay一致才計成功；不允許重用既有output目錄，失敗保留已完成證據並寫errors.md。
+- 局部結果：batch/helper6/6通過。TOML literal空白期待改為解碼值；bootstrap測試先用正規scripts path；PS不可用最後一個command exit掩蓋前者失敗。Windows rg不傳literal glob，不猜scripts/lib/ue_mcp.lua不存在路徑，先rg --files。一次含錯誤MD標題的多檔patch整批拒絕，核對原標題後重新apply，沒有部分寫入。
+- 完整100場已啟動，未完成前不勾5.5。詳見2026-10-06-compiled-smoke-batch-progress.md。
+
+## E303：跨玩家 capture、空 baseline 與整數邊界不能算成功（2026-10-06）
+
+- 問題：同一份 capture 的 runtime 是 player 7/team 2、UE 是 player 4/team 1，收集器仍回 success。`muldiv_floor` 的中間 room 會拒絕合法速率 `floor(20000000 * 1000000000 / 9007199254740991) = 2`。`comparisons` 為空時 `threshold_result` 仍是 pass。`limit` 接受負數與小數。視窗沒有拒絕 `sum > samples * max`。`OmPresentationPerfSecondsToNs` 用 `Scaled > double(MAX_uint64)`；`double` 會把 `MAX_uint64` 進位到 `2^64`，等於 `2^64` 的值會通過後再越界轉成 `uint64`。本機 UE 5.8 的 `TestTrue`／`TestFalse` 只有 `(What, Value)`，三個單參數呼叫無法編譯。
+- 決定：client、IPC send/receive 與兩個 UE 指標的 player/team 必須一致；各 component 的啟用契約必須與該段摘要一致；每條有樣本的 IPC connection 必須有相同身分的 enable。同一玩家重連多條 connection 合法，server 不參與。速率改為有界整數二元除法，至多約 53 步，有效結果仍 exact；不改 rate 定義、不用浮點、不提高 JSON 精度宣稱。空或非 array 的 `comparisons` 是 error，`threshold_result` 為 fail。`limit` 必須是非負精確整數。視窗用 `ceil(sum/samples)` 拒絕超過上界，避免 `samples * max` 溢位。秒轉奈秒在 cast 前以 `>= 2^64` 拒絕。三個斷言補上 label，數值用 `uint64` literal。不寫正式門檻數字。
+- 預防：Lua `scripts/tests/moba_performance_report_test.lua`。C++ 只改轉換邊界與雙參數斷言，本輪不跑 UBT。
+- 結果：Lua collector 84 checks passed。C++ 未編譯。沒有門檻數字。完整 6.5 不勾。
+- 主agent後續獨立確認：Lua84 checks passed；scoped UE11 actions編譯成功，新增native斷言仍待Editor實際執行，完整6.5不勾。
+
+## E301：正式量測不能把局部階段、證據 IO、KCP 或幀間隔冒充完整指標（2026-10-06）
+
+- 問題：info 路徑沒有可彙總的正式 MOBA 量測。TickProfile 的 run/dispatch/outcomes 只在 debug 印出，而且那是局部階段和，不是 State::tick。註解裡的 30 TPS 不能當門檻。STEP_US_ 只在 test-mode evidence 寫入，且包含 evidence IO。localhost presentation 的 write_envelope 先前不計長度前綴與 payload。KCP inbound wire_bytes 被丟掉，不能拿來冒充這段 IPC。UE Tick 沒有把 game-thread DeltaSeconds 和 actor 呈現工作分開。缺段、空窗、NaN 或錯 scope 也沒有收集器擋下。
+- 決定：60 筆視窗。server 只在已有 MobaMatch 且 gameplay active 的 State::tick 成功結束前記錄，減去每一次成功的 reliable_send_with_watchdog；scope 是 state_tick_excluding_transport_send，hash_input false，不含 scheduler sleep。client 在 apply_encoded_frame 返回後立刻停表，STEP_US_ 語意不變。IPC 以單一連線 sender/reader 成功邊界計數，失敗與截斷不計，不新增 KCP feature，測試端 write_envelope 不寫進 server meter。UE 只用 FPlatformTime；runtime 未啟動、catalog 失敗、未連線或暫停不入窗；gap 後第一個 DeltaSeconds 不記；Reset/Stop/新 handle 清窗。約 60 筆才 log 一筆 OM_PERF JSON。收集器缺段或零時長速率為 unverified，非法值、錯 scope、p95，以及把 mean 當百分位為 error。門檻只接受外部 baseline 的 mean 或 max。
+- 預防：Rust filter formal_perf、Lua scripts/tests/moba_performance_report_test.lua、C++ Om.Generated.PresentationPerfWindow。本批不跑 UBT／PIE／一場正式對局，不寫門檻數字。完整 6.5 不勾。
+- 結果：omoba-core formal_perf 4 passed；client-runtime formal_perf 2 passed；Lua collector 60 checks passed；omobab compiled-content-only check exit 0。C++ automation 只新增、未執行。
+
+## E299：協作期間HEAD可被其他工作移動，不能以舊diff當本批結果（2026-10-06）
+
+- 問題：Grok本批期間，另一提交工作收錄既有dirty變更，root／omfue HEAD移動，diff從大量歷史增量變為5個C++檔；另有其他Codex啟動Editor。未核對就reset、kill或再dispatch會破壞使用者工作。
+- 決定：暫停下一寫入dispatch，讀git log/stat與聊天「分批提交並整合所有改動」狀態／任務，確認是限定提交工作且已idle；保留新HEAD cb0a5600／2098776，審查当前Grok增量。未發消息、未commit／push／reset，不關非本輪Editor。獨立scoped UE13 actions成功，native只編譯。
+- 交接準備錯誤：同patch同target Delete＋Add被apply_patch拒，改單一Update；猜OmGenerated插件根導致rg os error2，改rg --files定位真實OmRuntime/Source目錄。Node bridge DEP0190警告記錄為工具警告，不宣稱遭利用。
+- Grok job run-muvyl79j-i29ns7完成，13m18s；下一批以核對後baseline派發，不繞bridge conflict guard。本輪不啟動全驗收／stage，見grok-completion-plan與grok-owned-ui-progress。
+
+## E298：斷線清HUD漏掉Buff列表，物品與商店／小地圖失敗未通知畫面（2026-10-06）
+
+- 問題：InvalidateOwnedHud已清Hero／四技能／六物品／Economy，BuffListSnapshot仍留在bridge與command bar。SubmitOwnedItemUse斷線只清物品baseline。施法在游標失敗時還沒做連線檢查。商店按鈕、買賣與小地圖斷線只拒絕輸入，畫面要等下一Tick。
+- 決定：同一InvalidateOwnedHud抑制owned HUD並發布空BuffListSnapshot；只有非空列表拉起dirty latch，publishing guard避免清除重入或每tick洪泛。物品、游標施法、升級、回城與bridge買賣在未Connected時走這個入口。Command bar商店／小地圖只在runtime未連線時反射NotifyOwnedGameplayUnavailable；仍連線但超出商店或投影非法不清除。control-only與被抑制的retained frame不能恢復已清ready。不重啟後端，不改ABI。
+- 預防：DisconnectedHud補Buff清除、去重與Stop只通知一次。新OwnedInputUnavailableHud涵蓋八個入口各通知一次、第二次不洪泛，並把空snapshot套回command bar。native斷言未執行。
+- 不跑UBT／Cargo／PIE／stage。版本hash與21/31保持，完整6.2／6.4不勾。見grok-owned-ui-progress。
+
 ## E297：拒絕追擊後須改選可達候選，不可移除警戒披露（2026-10-06）
 
 - 問題：正式命令會拒絕不可達AttackTarget追擊，但Bot下一think可能再選同一目標。
 - 決定：共用combat決策依原角色優先及focus，最多8個候選；失敗ID只在本次決策排除，保留完整披露供兵線／塔前警戒，改選其他合法候選，全失敗正式Hold去重。射程內普通攻擊不查路或新增LOS；技能選擇不套追擊導航。不建立永久黑名單、不讀敵方私有ECS、不以partial path放行。
 - 編譯錯誤：新fixture地形閉包參數未標型別，推斷f64運算不符合Vec2<f32>，E0271；明確標x:f32，不改正式BlockedRegion型別或取消測試。
-- 共用core2已通過，60Hz與相鄰結果待本輪填入；完整100場／PIE／LAN／stage留最後，21/31與完整5.5未勾。
+- 局部結果：core2與base4通過，新正式60Hz1內含四兵線位置、相鄰Carry前搖／Jungle farm focus／Support guard各1。完整100場／PIE／LAN／stage留最後，21/31與完整5.5未勾；見bot-combat-navigation-progress。
 
 ## E296：護送也須導航准入，已驗攻城不能在提交時重查（2026-10-06）
 

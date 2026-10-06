@@ -227,6 +227,7 @@
   - 最後導航版本三seed1／42／539365380完整60Hz lifecycle4955／7870／7767 tick勝利、雙隊41,262 filtered steps逐tick零repair一致，base102全過；實際release DLL三路seed42 headless12,808tick逐tick replay／四招26／11／3／7通過。最後UEfullbuild／stage127176…、MCP11BP、owned Editor67136兩輪19/19與串行PIE通過並獨立確認退出。不是LAN／三路UE畫面／60FPS；野區、地形與完整建築層次仍缺，不勾选。
   - 2026-10-04：第一段三路原型沿正式共用 ECS，Lua整數waypoint→Rust編譯constants與map hash、三路各自出兵／一座塔、all_lane_towers傷害邊界解鎖；保留單路預設、三路 opt-in，headless新增60Hz與map參數、shop／Recall安全協商接受三路。首場完整雙隊filtered lifecycle4955 tick結束／9936 steps無repair／15 frozen ticks，三種種子批次與最後DLL／stage驗證見 `docs/plans/2026-10-04-three-lane-navigation-60hz-progress.md`。野區、地形通用避障、建築多層解鎖與Unreal三路layout尚未完成，不勾選整項。
 - [ ] 5.5 實作五位置 Bot 與三種完整英雄原型，驗證 100 場 headless 對局無越權輸入、死局或非法目標。
+  - 2026-10-06：新增可重用正式60Hz批次工具，release建置／作者配方凍結各一次，每種子獨立JSON與log，失敗停止並保留已完成證據。局部Lua6項通過；不是正式100場、沒有獨立越權counter，完整5.5仍待最後。見compiled-smoke-batch-progress。
   - 2026-10-06：普通攻擊追擊共用導航候選准入，最多8攻擊候選、只查out-of-range，失敗ID本次排除但保留完整披露警戒；選其他可達目標，全失敗Hold去重，恢復重選，射程內不加LOS、技能不套追擊導航。core2＋base4正式60Hz通過（新1含四角色），見bot-combat-navigation-progress／E297；100場與完整5.5留最後。
   - 2026-10-06：Support最終Escort查本人半徑／公開地形完整路徑，受阻正式Hold且去重，不猜未披露队友位置，地形恢复普通MoveTo；ApproachStructure不重查以維持8次budget。新及相鄰正式60Hz3通過，見bot-escort-navigation-progress／E296，完整100場與5.5留最後。
   - 2026-10-06：兵線Advance與Jungle巡邏共用有界候選迭代／8次完整路徑查詢／抵達跳過，四兵線位置只preferred向前、不環狀回頭，全失敗Hold且去重，地形恢复重選；戰鬥／塔前等待／護送保持。core2＋base3（正式60Hz）通過，見bot-lane-navigation-progress／E295，完整100場與5.5留最後。
@@ -302,6 +303,7 @@
   - 正式fog前置：發現IPC仍使用DemoFogCache，缺geometry／provenance／explored；正式safe phase marker停用示範投影且reset不回落，小地圖標示VISION N/A。尚未畫正式fog底色，不勾選；決策與必要確認見 `docs/plans/2026-10-04-unreal-formal-fog-boundary-progress.md` 與 E137。
   - 通用靜態地形呈現增量：Lua compiled geometry→獨立C ABI10 terrain_rects→共用ISMC，與視野polygon分離、UE collision／nav關閉；完整結果見 `docs/plans/2026-10-04-unreal-collision-terrain-progress.md` 與 E133，不勾選全項。
 - [ ] 6.2 完成選角、HUD、商店、小地圖、計分板與勝負 UI，驗證 PIE 可從選角玩到結算。
+  - 2026-10-06：Grok第1批補齊owned失效清Buff snapshot及物品／游標技能／商店／小地圖入口同源通知，去重與抑制retained frame，不把仍連線的非法單次操作當斷線。Codex審閱增量、限定UE13actions成功；新OwnedInputUnavailableHud及擴充DisconnectedHud僅編譯未執行，完整PIE留最後。見grok-owned-ui-progress／E298–299，21/31保持。
   - 2026-10-05：通用 owner Buff HUD batch／完整列表／合法 ID與generation／倒數與永久效果、空baseline／Stop清除、control保留已接線；舊單筆不再自動覆寫。新增原生 OwnedBuffListSnapshot 斷言已編譯，scoped 14 actions 首次通過；未執行 native automation／PIE（E224），不勾完整6.2。詳見 owned-buff-list-hud-progress／E231，21/31 保持。
   - 開局交接增量：共用 workflow 所有執行元件在選角前建置，前後部署 guard；共用契約檢查 bridge 一份與 base_content 兩份 copy。fixture SHA／mock 階段局部8/8，不是完整對局或 ABI／feature 證明，6.2 仍待；詳見 `docs/plans/2026-10-05-moba-launch-stage-contract-progress.md` 與 E214。
   - 最新原生選角已確認：-NoEngineChanges build 成功，修 C4458／獨立不載入 bridge／PreciseTap；真實 run1791181633-1 三次按鈕 pointer 回呼→Rust request1／2／3→final配方成功，未開對局。更新先前 C++ 未編譯狀態，不勾完整6.2，詳見 `docs/plans/2026-10-05-unreal-selection-native-confirmation-progress.md` 與 E213。後續不維護 omfx。
@@ -344,3 +346,4 @@
   - 2026-10-06：共用frame完整shape gate在任何actor／HUD／效果更新之前查size／ABI／flag／21配對與nested fog，拒收release、不ACK／推進，合法後繼frame可恢復。fixtures使用正式header，UE限定8actions成功、Lua語法與whitespace通過；scoped Cmd啟動exit1無log，native矩陣尚未執行，未PIE／stage，不勾全項。見unreal-frame-contract-progress／E285。
   - 2026-10-06：Unreal啟動與每次catalog取得嚴格核对compiled hash／surface／ABI／generation／string refs；空值不放行，錯配停止本地bridge、不處理／ACK frame、不重啟後端，catalog／frame游標重設。UE限定8actions成功，新native矩陣僅編譯，Lua scoped runner語法確認；執行斷言與真實同局留最後，不勾全項。見unreal-compiled-catalog-gate-progress／E284。
 - [ ] 6.5 建立完整建置與效能基線報告，驗證 server tick、client step、IPC 與 UE frame time 符合基線後固定的門檻。
+  - 2026-10-06：Grok契約稽核確認正式路徑缺四段可彙總量測，已交接第3批實作，主agent審查／限定確認後才最後實測及固定門檻；不以現有debug或test-mode數字勾選。主agent同步修正runtime smoke的runtime Lua及雙UE商店30Hz入口，局部Lua6項通過，不代表完整遊戲驗收。見moba-completion-gaps／compiled-smoke-batch-progress。
