@@ -3,6 +3,26 @@ local path = require("tools.lua.lib.path")
 local time = require("tools.lua.lib.time")
 local M = {}
 
+-- Explicit CLI entry only. A marker alone cannot skip supervision: the native
+-- helper verifies the actual fixed Lua owner belongs to the named private job.
+function M.supervise_workflow(script,args)
+  local forwarded={}
+  -- Lua's global arg also contains script/interpreter keys 0 and -1.
+  for i,value in ipairs(args or {}) do
+    assert(type(value)=='string','workflow arguments must be strings')
+    forwarded[i]=value
+  end
+  local marker=os.getenv('_OMOBA_PRIVATE_WORKFLOW_JOB')
+  if marker then
+    assert(host.call('workflow_member',{job_name=marker}).supervised==true,'workflow membership rejected')
+    return false
+  end
+  local result=host.call('workflow_supervise',{script=path.absolute(script),args=forwarded,cwd=path.absolute('.')})
+  assert(result.retired==true,'workflow descendants were not retired')
+  assert(math.type(result.exit_code)=='integer' and result.exit_code>=0,'invalid workflow exit code')
+  os.exit(result.exit_code,true)
+end
+
 function M.run(exe, args, options)
   options=options or {};local resolved=exe:find('[/\\]')and path.absolute(exe)or exe;local result=host.call('run',{exe=resolved,args=args or {},cwd=options.cwd and path.absolute(options.cwd) or nil,env=options.env or {}})
   if options.check ~= false then assert(result.exit_code==0,(options.label or exe)..' failed ('..result.exit_code..'): '..result.stderr) end

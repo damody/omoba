@@ -13,12 +13,24 @@ local function newest_source_time()
   for _, candidate in ipairs({
     manifest,
     path.join(root, "tools", "lua-host", "Cargo.lock"),
-    path.join(root, "tools", "lua-host", "src", "main.rs"),
   }) do
     if path.is_file(candidate) then
       newest = math.max(newest, path.attributes(candidate).modification or 0)
     end
   end
+  local function visit(directory)
+    for name in lfs.dir(directory) do
+      if name~='.' and name~='..' then
+        local file=path.join(directory,name)
+        local attributes=assert(lfs.symlinkattributes(file),'cannot inspect Lua host source: '..file)
+        if attributes.mode=='directory' then visit(file)
+        elseif attributes.mode=='file' and name:match('%.rs$') then
+          newest=math.max(newest,attributes.modification or 0)
+        end
+      end
+    end
+  end
+  visit(path.join(root,'tools','lua-host','src'))
   return newest
 end
 
@@ -57,7 +69,7 @@ function M.call(operation, params)
   end
   assert(lfs.rmdir(reserved), 'failed to remove owned Lua host directory: ' .. reserved)
   local decoded_ok, response = pcall(json.decode, output)
-  assert(decoded_ok, "invalid omoba-lua-host response: " .. output)
+  assert(decoded_ok, "invalid omoba-lua-host response (exit " .. tostring(code) .. "): " .. output)
   assert(ok and code == 0 and response.ok, response.error or ("omoba-lua-host " .. operation .. " failed"))
   return response.result
 end

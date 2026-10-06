@@ -12,6 +12,7 @@ use std::{
 };
 
 const VERSION: u32 = 1;
+mod workflow_supervisor;
 
 #[cfg(windows)]
 fn monotonic_ms() -> Result<Value, String> {
@@ -234,7 +235,25 @@ fn inspect_owned(params: &Value) -> Result<Value, String> {
     let pid = required_u32(params, "pid")?;
     let Some(handle) = open_owned_process(pid, false)? else { return Ok(json!({"pid":pid,"alive":false})); };
     if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"alive":false})); }
-    owned_identity_from_handle(handle.0, pid)
+    Ok(live_owned_identity(handle.0,pid)?.unwrap_or_else(||json!({"pid":pid,"alive":false})))
+}
+
+// A process can finish after a successful zero-duration wait but before the
+// image/time query. Access denied is not proof of retirement: only a signalled
+// wait on the very same retained process object can settle that race.
+fn settle_owned_query<T>(query:Result<T,String>, alive:impl FnOnce()->Result<bool,String>) -> Result<Option<T>,String> {
+    match query {
+        Ok(value)=>Ok(Some(value)),
+        Err(error)=>match alive() {
+            Ok(false)=>Ok(None),
+            Ok(true)=>Err(error),
+            Err(wait_error)=>Err(format!("{error}; cannot settle lifetime: {wait_error}")),
+        },
+    }
+}
+#[cfg(windows)]
+fn live_owned_identity(handle:windows_sys::Win32::Foundation::HANDLE,pid:u32)->Result<Option<Value>,String> {
+    settle_owned_query(owned_identity_from_handle(handle,pid),||owned_handle_alive(handle))
 }
 
 #[cfg(windows)]
@@ -244,13 +263,14 @@ fn stop_owned(params: &Value) -> Result<Value, String> {
     let expected = fs::canonicalize(required_str(params, "expected_exe")?).map_err(|e| e.to_string())?;
     let Some(handle) = open_owned_process(pid, true)? else { return Ok(json!({"pid":pid,"stopped":false})); };
     if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"stopped":false})); }
-    let identity = owned_identity_from_handle(handle.0, pid)?;
+    let Some(identity) = live_owned_identity(handle.0,pid)? else { return Ok(json!({"pid":pid,"stopped":false})); };
     let actual = fs::canonicalize(required_str(&identity, "path")?).map_err(|e| e.to_string())?;
     if actual != expected || creation_token(&identity)? != token {
         return Err("owned process lifetime or executable mismatch; nothing stopped".into());
     }
     // Keep the verified handle alive across verification, termination and wait.
     if unsafe { windows_sys::Win32::System::Threading::TerminateProcess(handle.0, 1) } == 0 {
+        if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"stopped":false})); }
         return Err(format!("owned termination failed: {}", io::Error::last_os_error()));
     }
     if unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(handle.0, 15000) } != 0 {
@@ -271,7 +291,7 @@ fn close_window_owned(params: &Value) -> Result<Value, String> {
     let expected = fs::canonicalize(required_str(params, "expected_exe")?).map_err(|e| e.to_string())?;
     let handle = open_owned_process(pid, false)?.ok_or("owned window process is not alive")?;
     if !owned_handle_alive(handle.0)? { return Err("owned window process is not alive".into()); }
-    let identity = owned_identity_from_handle(handle.0, pid)?;
+    let identity = live_owned_identity(handle.0,pid)?.ok_or("owned window process already retired")?;
     let actual = fs::canonicalize(required_str(&identity, "path")?).map_err(|e| e.to_string())?;
     if actual != expected || creation_token(&identity)? != token {
         return Err("owned process lifetime or executable mismatch; no window closed".into());
@@ -802,6 +822,8 @@ fn close_window(params: &Value) -> Result<Value, String> {
 
 fn dispatch(request: &Request) -> Result<Value, String> {
     match request.operation.as_str() {
+        "workflow_supervise" => workflow_supervisor::supervise(&request.params),
+        "workflow_member" => workflow_supervisor::member(&request.params),
         "run" => run_command(&request.params),
         "spawn" => spawn(&request.params),
         "inspect" => inspect(&request.params),

@@ -5,11 +5,13 @@ if arg[1]=='--help' then
   print('Requires a prebuilt profile-matched moba-config and Unreal. The invitation is private to this seat; do not publish it. Selection only; no server/client runtime/gameplay is started. Cancellation never auto-locks or stops the remote host.')
   print('After finalized selection, the host-authored recipe is compiled-validated and saved as OUTPUT/match-plan.json. Use it with run_moba_role_ue.lua --connect HOST_IPV4 --local-player ID --recipe FILE.json. No second recipe transfer is needed; no automatic gameplay launch.')
   print('Optional --selection-cancel-file PATH: create it to cancel and retire only the original local selection renderer, never the remote host. The signal is not read/deleted; forced-termination supervision is separate.')
+  print('The executing CLI is separately supervised by a private Windows Job; outer Lua exit/crash retires only this local workflow tree, never the remote host.')
   return
 end
 local b=require('_bootstrap')
 local join=require('moba_selection_join')
 local options=join.options(arg)
+b.lib('process').supervise_workflow(source,arg)
 local path=b.lib('path')
 local output=path.absolute(options.output,b.root)
 local owns_output=not path.exists(output)

@@ -14,9 +14,11 @@ if arg[1]=='--help' then
   print('Read-only bounded result capture: --finish-timeout-seconds 1..7200. Optional selection automation: --interactive-selection --selection-smoke-hero HERO (requires bounded result capture). Does not force a winner or validate the full match.')
   print('Selection completion: --selection-timeout-seconds 1..7200; covers service startup through final handoff, shared across all local seats. Automation defaults to 120 seconds; manual selection remains unbounded unless specified. Timeout cancels, never auto-locks.')
   print('Cooperative selection cancellation: --selection-cancel-file PATH. Create that path to abort selection and retire only this session\'s original local processes. It is never read or removed; this is not crash/forced-termination supervision.')
+  print('Actual execution (not help/prepare-only) is separately supervised by a private Windows Job: an outer Lua exit/crash retires this workflow\'s descendants. No name/PID-only cleanup or remote-host termination.')
   return
 end
 local options=launch.options(arg)
+if not options.prepare_only then process.supervise_workflow(source,arg) end
 if not options.output then
   -- Exclusive mkdir, no reuse/deletion of a previous session directory.
   local lfs=require('lfs')
