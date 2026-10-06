@@ -277,7 +277,10 @@ impl FogGridRetention {
             .iter()
             .filter(|event| event.event_kind == FOG_GRID_EVENT_KIND);
         if let Some(event) = matching.next() {
-            if matching.next().is_some() || event.subject.is_some() || event.stable_sub_index != 0 {
+            // The projector assigns global presentation ordinals after sorting
+            // public events and external effects. Fog is not necessarily first;
+            // a producer-local zero is not its final wire identity.
+            if matching.next().is_some() || event.subject.is_some() || event.stable_sub_index == u32::MAX {
                 return Err("invalid fog event envelope");
             }
             self.ingest(&event.sanitized_payload, team, epoch, tick)?;
@@ -448,6 +451,36 @@ mod tests {
             .into(),
         }
     }
+    #[test]
+    fn fog_retention_accepts_projector_global_ordinal_in_mixed_frame() {
+        use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
+        use crate::runtime::team_projector::{ProjectionDependencyGraph, TeamProjectorConfig, TeamViewProjector};
+        use std::collections::BTreeSet;
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig::default());
+        projector.sample_authority_fog(geometry(),&view(10,1)).unwrap();
+        let hud=OrderedFact {
+            key:FactOrderingKey {tick:10,phase:FactPhase::PostStep,canonical_source_order:0,
+                local_ordinal:0,fact_kind:FactKind::Hud},
+            audience:FactAudience::Team(1),
+            fact:ObservableFact::Hud {team:1,metric_id:1,value:7},
+        };
+        let frame=projector.build_frame(10,10,&BTreeSet::new(),vec![],&[hud],
+            &ProjectionDependencyGraph::default()).unwrap();
+        let events=&frame.frame.step.as_ref().unwrap().public_events;
+        assert_eq!(events.len(),2);
+        let fog=events.iter().find(|event|event.event_kind==FOG_GRID_EVENT_KIND).unwrap();
+        assert_eq!(fog.stable_sub_index,1,"fog wire identity follows the public HUD event");
+        let mut retained=FogGridRetention::default();
+        retained.ingest_events(events,1,1,10).unwrap();
+        assert_eq!(retained.latest().unwrap().cells[0],2);
+        let mut bad=fog.clone();
+        bad.subject=Some(crate::game_proto::ReplicaEntityId {value:1});
+        assert!(FogGridRetention::default().ingest_events(&[bad],1,1,10).is_err());
+        assert!(FogGridRetention::default().ingest_events(&[fog.clone(),fog.clone()],1,1,10).is_err());
+        let mut bad=fog.clone();bad.stable_sub_index=u32::MAX;
+        assert!(FogGridRetention::default().ingest_events(&[bad],1,1,10).is_err());
+    }
+
     #[test]
     fn authority_fog_publication_padding_bootstrap_and_retention() {
         use crate::runtime::team_projector::{
