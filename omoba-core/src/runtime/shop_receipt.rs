@@ -111,6 +111,13 @@ pub fn project_shop_receipts(
         if command(input).as_ref() != Some(&result.command) {
             return Err(ProjectionError::MalformedDisclosedState);
         }
+        // Authority-local inputs (bots/trusted host) have no renderer request
+        // correlation. Consume and verify their settlement above to preserve
+        // FIFO alignment, but never manufacture a UI receipt with ID zero.
+        // Their accepted gameplay input and settled economy remain unchanged.
+        if input.input_id == 0 {
+            continue;
+        }
         let (catalog_id, slot) = match &result.command {
             ShopCommand::Buy(id) => (
                 omoba_template_ids::MOBA_ITEM_CATALOG
@@ -175,6 +182,40 @@ mod tests {
             result,
         }
     }
+    #[test]
+    fn uncorrelated_shop_settlement_preserves_same_player_fifo() {
+        let inputs = [input(1, 7, 0, "moba_sword"), input(1, 7, 92, "moba_armor")];
+        let results = [result(7, "moba_sword", Ok(())), result(7, "moba_armor", Ok(()))];
+        let events = project_shop_receipts(1, 42, &inputs, &results).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(ShopReceipt::decode(&events[0].sanitized_payload).unwrap().input_id, 92);
+        assert_eq!(events[0].stable_sub_index, 0);
+        assert!(project_shop_receipts(1, 42, &inputs[..1], &results[..1]).unwrap().is_empty());
+        assert!(project_shop_receipts(1, 42, &inputs[..1], &[result(7, "moba_armor", Ok(()))]).is_err());
+    }
+
+    #[test]
+    fn uncorrelated_shop_rejection_does_not_abort_or_create_a_fake_receipt() {
+        let events = project_shop_receipts(1, 42, &[input(1, 7, 0, "missing")],
+            &[result(7, "missing", Err(ShopError::UnknownItem))]).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn uncorrelated_shop_does_not_drop_a_projected_tick() {
+        use crate::runtime::{ProjectionDependencyGraph, TeamProjectorConfig, TeamViewProjector};
+        let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+        let first = projector.build_frame_with_settlements(0, 0, &Default::default(), vec![],
+            &[], &ProjectionDependencyGraph::default(), vec![input(1, 7, 0, "moba_sword")],
+            &[result(7, "moba_sword", Ok(()))]).unwrap();
+        let second = projector.build_frame(1, 1, &Default::default(), vec![], &[],
+            &ProjectionDependencyGraph::default()).unwrap();
+        assert_eq!(second.frame.team_sequence, first.frame.team_sequence + 1);
+        assert_eq!(second.frame.replica_tick, first.frame.replica_tick + 1);
+        assert!(!first.frame.step.unwrap().public_events.iter()
+            .any(|event| event.event_kind == FactKind::ShopReceipt as u32));
+    }
+
     #[test]
     fn ordered_results_correlate_exactly_without_cross_team_or_player_receipts() {
         let inputs = [
