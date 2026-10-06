@@ -8,6 +8,8 @@ if arg[1]=='--help' then
   print('Usage: tools/lua/lua.exe scripts/run_moba_role_ue.lua [--prepare-only | --interactive-selection] [--recipe FILE.lua|FILE.json] [--hero PLAYER_ID=HERO (repeatable)] [--config FILE.toml] [--output NEW_DIRECTORY] [--port 57061] [--profile release|debug] [--ue-root PATH] [--graphics d3d11|d3d12] [--story FOG_2TEAM_DEMO] [--no-build]')
   print('Interactive selection: 1..10 human seats from the recipe; multiple humans share one local host and each receive an Unreal window. Any cancellation aborts before gameplay.')
   print('LAN host: --server-bind UNICAST_IPV4 [--local-player ID (repeatable)]. Remote client: --connect HOST_IPV4 --recipe HOST_FINAL.json --local-player ID (repeatable). IPC stays loopback; no firewall changes.')
+  print('Read-only bounded result capture: --finish-timeout-seconds 1..7200. Optional selection automation: --interactive-selection --selection-smoke-hero HERO (requires bounded result capture). Does not force a winner or validate the full match.')
+  print('Selection completion: --selection-timeout-seconds 1..7200; covers service startup through final handoff, shared across all local seats. Automation defaults to 120 seconds; manual selection remains unbounded unless specified. Timeout cancels, never auto-locks.')
   return
 end
 local options=launch.options(arg)
@@ -51,7 +53,10 @@ build_runtime=function()
     print(result.stdout)
   end
 end,
-verify_stage=function() stage('--verify-staged-only') end,
+verify_stage=function()
+  require('ue_binary_preflight').require_ready(ue_root,path.join(b.root,'omfue','om.uproject'))
+  stage('--verify-staged-only')
+end,
 select=function() launch.interactive_select(options,editor,process,time) end,
 prepare=function()
   local plan=launch.prepare(options,process)

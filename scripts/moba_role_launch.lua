@@ -11,7 +11,9 @@ function M.options(args)
   local options={port=57061,profile='release',graphics='d3d11',story='FOG_2TEAM_DEMO',hero_selections={},local_players={}}
   local values={['--recipe']='recipe',['--config']='config',['--output']='output',
     ['--port']='port',['--profile']='profile',['--ue-root']='ue_root',
-    ['--graphics']='graphics',['--story']='story',['--server-bind']='server_bind',['--connect']='connect'}
+    ['--graphics']='graphics',['--story']='story',['--server-bind']='server_bind',['--connect']='connect',
+    ['--finish-timeout-seconds']='finish_timeout_seconds',['--selection-smoke-hero']='selection_smoke_hero',
+    ['--selection-timeout-seconds']='selection_timeout_seconds'}
   local i=1
   while i<=#args do
     local key=args[i]
@@ -42,6 +44,25 @@ function M.options(args)
   assert(options.profile=='release' or options.profile=='debug','profile must be release or debug')
   assert(options.graphics=='d3d11' or options.graphics=='d3d12','graphics must be d3d11 or d3d12')
   assert(not (options.prepare_only and options.interactive_selection),'interactive selection cannot be prepare-only')
+  if options.finish_timeout_seconds then
+    local raw = options.finish_timeout_seconds
+    local seconds = raw:match('^%d+$') and math.tointeger(tonumber(raw))
+    assert(seconds and seconds >= 1 and seconds <= 7200, 'finish timeout must be 1..7200 whole seconds')
+    assert(not options.prepare_only, 'finish observation cannot be prepare-only')
+    options.finish_timeout_seconds = seconds
+  end
+  if options.selection_smoke_hero then
+    assert(options.interactive_selection and options.finish_timeout_seconds,
+      'selection automation requires interactive selection and a bounded finish observer')
+    assert(options.selection_smoke_hero:match('^[%w_]+$'), 'invalid selection smoke hero')
+  end
+  if options.selection_timeout_seconds then
+    local raw=options.selection_timeout_seconds
+    local seconds=raw:match('^%d+$') and math.tointeger(tonumber(raw))
+    assert(seconds and seconds>=1 and seconds<=7200,'selection timeout must be 1..7200 whole seconds')
+    assert(options.interactive_selection,'selection timeout requires interactive selection')
+    options.selection_timeout_seconds=seconds
+  end
   network.validate(options)
   return options
 end
@@ -142,6 +163,8 @@ function M.interactive_select(options,editor,process,time)
   end
   local pid
   local ok,err=xpcall(function()
+    local budget=require('moba_selection_deadline')
+    local completion_deadline=budget.start(options,time)
     pid=process.spawn(editor,args,{cwd=path.join(b.root,'omfue'),
       env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'},
       stdout=path.join(output,'ue.stdout.log'),stderr=path.join(output,'ue.stderr.log')})
@@ -155,14 +178,17 @@ function M.interactive_select(options,editor,process,time)
         ('OM_SELECTION_READY player=%d protocol=1'):format(humans[1]),1,true)~=nil
     end
     while process.inspect(pid) do
+      budget.check(completion_deadline,time)
       ready=ready or read_ready()
       assert(ready or time.monotonic_ms()<deadline,'selection UI/service did not become ready; do not use an old Unreal binary')
       time.sleep_ms(250)
     end
-    assert(process.wait(pid,5000),'selection renderer has not exited')
+    assert(process.wait(pid,budget.wait_ms(completion_deadline,time,5000)),'selection renderer has not exited')
+    budget.check(completion_deadline,time)
     assert(ready or read_ready(),'selection renderer exited without the bound service handshake')
     assert(path.is_file(result),'selection cancelled or renderer failed; no match started')
     local final=M.selection_result(json.read(result),preflight.plan,humans[1],preflight.selection.catalog_data_hash)
+    budget.check(completion_deadline,time)
     local final_path=path.join(output,'match-plan.json')
     path.write(final_path,json.encode(final))
     options.recipe=final_path
@@ -228,9 +254,12 @@ function M.prepare(options,process)
   local report=json.decode(checked.stdout)
   assert(report.scope=='configuration-only' and report.tick_rate_hz==60,'unexpected preflight report')
   local local_humans=network.local_humans(report.humans,options.local_players)
+  local worker_budget=require('moba_host_budget').local_budget(#local_humans+(options.connect and 0 or 1),#local_humans)
   local server_address=(options.connect or options.server_bind)..':'..options.port
   path.write(recipe_json,json.encode(value))
   local plan={schema_version=1,scope='prepared-not-launched',config=generated,output=output,
+    worker_budget=worker_budget,
+    finish_timeout_seconds=options.finish_timeout_seconds,
     mode=options.connect and 'remote-client' or 'host',server_address=server_address,
     local_human_count=#local_humans,
     profile=options.profile,content_mode='compiled-content-only',recipe_json=recipe_json,selection_report=selection_report,
@@ -248,6 +277,7 @@ function M.prepare(options,process)
   local env={OMB_GAME_TOML=generated,OMB_STORY=report.story,OMB_SCENE_PATH='',
     OMB_DLL_PATH=path.join(scripts,'base_content.dll'),OMB_SCRIPTS_DIR=scripts,
     OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0',OMB_LUA_CONTENT_ROOT='',OMB_STORY_DATA_DIR='',RUST_LOG='info'}
+  for key,value in pairs(worker_budget.env) do env[key]=value end
   if not options.connect then
     plan.server={exe=path.join(b.root,'omb','target',options.profile,'omobab.exe'),args={},cwd=path.join(b.root,'omb'),env=env}
   end
@@ -275,6 +305,12 @@ function M.prepare(options,process)
       '-sessionname=omfue-role-p'..id,'-UserDir='..path.join(output,'ue-p'..id),
       '-abslog='..path.join(output,'ue-p'..id..'.log'),'-stdout','-FullStdOutLogOutput',
       '-ExecCmds=t.MaxFPS 60'}}
+    if options.finish_timeout_seconds then
+      -- Only logs an actually visible Finished panel and requests a screenshot.
+      -- Unlike -om-match-smoke, this does not issue gameplay inputs.
+      ue.args[#ue.args+1]='-om-result-ui-smoke'
+      ue.args[#ue.args+1]='-om-result-ui-screenshot='..path.join(output,'result-p'..id..'.png')
+    end
     plan.clients[#plan.clients+1]={player_id=human.player_id,team_id=human.team_id,
       presentation=address,runtime=runtime,unreal=ue}
   end
@@ -316,13 +352,39 @@ function M.launch(plan,editor,process,time)
       editors[#editors+1]=spawn('unreal-p'..client.player_id,client.unreal)
     end
     print('Humans admitted; Unreal processes started. This is not renderer/full-match acceptance.')
+    local finish_deadline = plan.finish_timeout_seconds and time.monotonic_ms() + plan.finish_timeout_seconds * 1000
+    local finish_seen_at, finish_observation
+    local finish_reader=finish_deadline and require('moba_role_finish_observer').reader(plan.clients)
+    local finish_logs={}
+    for _,client in ipairs(plan.clients) do
+      finish_logs[client.player_id]=path.join(plan.output,'unreal-p'..client.player_id..'.stdout.log')
+    end
     while true do
       local active=false
       for _,pid in ipairs(editors) do if process.inspect(pid) then active=true end end
-      if not active then break end
+      if not active then
+        assert(not finish_deadline, 'renderers exited before the bounded result observation completed')
+        break
+      end
       assert(not server or process.inspect(server),'server exited during interactive match')
       for _,entry in ipairs(owned) do
         if entry.label:match('^runtime') then assert(process.inspect(entry.pid),entry.label..' exited during match') end
+      end
+      if finish_deadline then
+        local observation = finish_reader:poll(finish_logs)
+        if observation.complete then
+          finish_seen_at = finish_seen_at or time.monotonic_ms()
+          finish_observation = observation
+          local screenshots = true
+          for _, client in ipairs(plan.clients) do
+            screenshots = screenshots and path.is_file(path.join(plan.output,'result-p'..client.player_id..'.png'))
+          end
+          if screenshots and time.monotonic_ms() >= finish_seen_at + 2000 then
+            path.write(path.join(plan.output,'native-result-observation.json'),json.encode(finish_observation))
+            break
+          end
+        end
+        assert(time.monotonic_ms() < finish_deadline, 'bounded match result observation timed out; no forced winner')
       end
       time.sleep_ms(500)
     end

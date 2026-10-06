@@ -82,27 +82,14 @@ local observed_match = require("ue_two_team_observation").observe_match
 local interactive_root = path.join(b.root, "target", "interactive-runs")
 path.mkdir_p(interactive_root)
 local active_session_file = path.join(interactive_root, "active-ue-session.json")
+local session_identity = require('ue_session_identity')
 
 local function clean_previous_session()
   if not path.is_file(active_session_file) then return end
   local ok, state = pcall(json.read, active_session_file)
-  if not ok or type(state) ~= "table" or type(state.processes) ~= "table" then
-    os.remove(active_session_file)
-    return
-  end
-  for index = #state.processes, 1, -1 do
-    local record = state.processes[index]
-    local pid = type(record) == "table" and math.tointeger(record.pid) or nil
-    local executable = type(record) == "table" and record.executable or nil
-    if pid and type(executable) == "string" and process.inspect(pid) then
-      local identity_ok = pcall(process.assert_identity, pid, executable)
-      if identity_ok then
-        pcall(process.stop, pid, executable)
-        if process.inspect(pid) then pcall(process.wait, pid, 5000) end
-      end
-    end
-  end
-  os.remove(active_session_file)
+  assert(ok, 'unreadable active UE session; preserved without stopping: '..tostring(state))
+  session_identity.clean(state,process)
+  assert(os.remove(active_session_file))
 end
 
 clean_previous_session()
@@ -214,29 +201,36 @@ local base_env = {
   RUST_LOG = "info",
 }
 if smoke_seconds then base_env.OMOBA_FOG_EVIDENCE_DIR = evidence end
+local worker_budget = require('moba_host_budget').local_budget(3,2)
+for key,value in pairs(worker_budget.env) do base_env[key]=value end
+smoke_report.worker_budget=worker_budget
+json.write(path.join(evidence,'worker-budget.json'),worker_budget)
 
 local cleanup = process.cleanup_stack()
 cleanup:push(function()
   if not path.is_file(active_session_file) then return end
   local ok, state = pcall(json.read, active_session_file)
   if ok and type(state) == "table" and state.session_id == run_id then
+    for _,record in ipairs(smoke_report.processes or {}) do
+      assert(not process.owned_alive(record),'owned process still alive; preserve active session')
+    end
     os.remove(active_session_file)
   end
 end)
 
 local function spawn(role, executable, args, cwd, env)
-  local pid = process.spawn(executable, args, {
+  local pid, identity = process.spawn_owned(executable, args, {
     cwd = cwd,
     env = env,
     stdout = path.join(evidence, "logs", role .. ".stdout.log"),
     stderr = path.join(evidence, "logs", role .. ".stderr.log"),
   })
   cleanup:push(function()
-    process.stop(pid, executable)
-    assert(process.wait(pid,15000), role .. ' owned process stop timed out')
+    process.stop_owned(identity)
   end)
   smoke_report.processes = smoke_report.processes or {}
-  smoke_report.processes[#smoke_report.processes + 1] = {role = role, pid = pid, executable = path.absolute(executable)}
+  identity.role=role
+  smoke_report.processes[#smoke_report.processes + 1] = identity
   path.write(path.join(evidence, role .. ".pid"), tostring(pid) .. "\r\n", true)
   return pid
 end
@@ -309,6 +303,7 @@ local ok, result = xpcall(function()
   end
   -- Cargo tests/builds after staging may regenerate the cdylib. Never launch
   -- against a known-stale bridge, including explicitly skipped UE builds.
+  require('ue_binary_preflight').require_ready(ue, project)
   process.run(b.lib('platform').lua_executable, {
     path.join(b.root, 'scripts', 'build_ue_moba.lua'), '--verify-staged-only',
   }, {cwd = b.root})
@@ -469,14 +464,9 @@ local ok, result = xpcall(function()
   end
 
   json.write(active_session_file, {
+    identity_version = 1,
     session_id = run_id,
-    processes = {
-      { role = "authoritative-server", pid = server, executable = path.absolute(server_exe) },
-      { role = "runtime-p1", pid = runtimes[1], executable = path.absolute(runtime_exe) },
-      { role = "runtime-p2", pid = runtimes[2], executable = path.absolute(runtime_exe) },
-      { role = "ue-p1", pid = clients[1], executable = path.absolute(editor) },
-      { role = "ue-p2", pid = clients[2], executable = path.absolute(editor) },
-    },
+    processes = smoke_report.processes,
   }, true)
 
   io.stderr:write("omfue 2-player running: story=" .. story .. " server=127.0.0.1:" .. port .. " runtimes=2 presentation IPC\n")
@@ -563,9 +553,22 @@ local ok, result = xpcall(function()
         evidence = evidence, editor = editor, cwd = omfue, spawn = spawn,
         server = server, server_exe = server_exe, runtimes = runtimes, runtime_exe = runtime_exe,
         clients = clients, launch = client_launches[1], tick_rate = tick_rate,
+        owned_identity = function(pid)
+          for index=#smoke_report.processes,1,-1 do
+            local record=smoke_report.processes[index]
+            if record.pid==pid then return record end
+          end
+          error('owned spawn identity not found: '..tostring(pid))
+        end,
         on_spawn = function(pid)
           local active = json.read(active_session_file)
-          active.processes[4].pid = pid
+          local replacement
+          for index=#smoke_report.processes,1,-1 do
+            local record=smoke_report.processes[index]
+            if record.pid==pid then replacement=record;break end
+          end
+          assert(replacement,'replacement renderer spawn identity missing')
+          active.processes[4] = replacement
           json.write(active_session_file, active, true)
         end,
       })
@@ -672,7 +675,8 @@ end, debug.traceback)
 cleanup.run()
 smoke_report.cleanup_verified = true
 for _, owned in ipairs(smoke_report.processes or {}) do
-  if process.inspect(owned.pid) then smoke_report.cleanup_verified = false end
+  local inspected,current=pcall(process.owned_alive,owned)
+  if not inspected or current then smoke_report.cleanup_verified = false end
 end
 if smoke_seconds then
   if not ok then smoke_report.error = tostring(result) end
