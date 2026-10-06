@@ -190,6 +190,10 @@ Unreal 前端 SHALL 只顯示分配給本地玩家隊伍的資料，並將玩家
 ### Requirement: 完整對局介面
 Unreal 前端 SHALL 提供選角、移動、普攻、四技能、商店、裝備、HUD、小地圖、計分板與勝負畫面所需的操作與呈現。
 
+#### Scenario: 原生介面退役後的晚到操作
+- **WHEN** Controller退場或原生command bar銷毀，且舊widget／Slate callback仍被保留或收到晚到狀態
+- **THEN** widget SHALL 在查詢runtime或全域HUD失效通知前拒絕商店／小地圖操作，清自己的baseline與舊提交身分，重複退役及Slate重建不得恢复該instance輸入；新的HUD建立新widget，不清其他controller介面或停止共用Rust對局
+
 #### Scenario: 原生守住與佇列語意
 - **WHEN** configured owner 在 HUD／選角未攔截且 runtime 已啟動並連線時按 H 或 Shift+H
 - **THEN** 原生 controller SHALL 從精確 chord 取得立即／佇列參數，共用 NoTarget HoldPosition 正式輸入，不從實體 Shift 取樣、不使用 player-one fallback；非法 owner 或不可用 runtime 不送出，queued 提交不當作權威已執行

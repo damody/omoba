@@ -1,5 +1,15 @@
 ## 執行節奏（使用者最新指示）
 
+2026-10-06 遠端配方分發：Rust唯一房間finalized後對已准入玩家回覆immutable plan，host take仍一次；read/stale/rebind不補開局ticket。遠端核對全locked roster／本人／hash，compiled原生再驗完全相同才存match-plan.json，不需額外人工傳配方、不自動開game。core11／join17（含真debug canonical驗證）／shared25局部53通過，未UE／LAN／game或整套驗收，host exe需正式重建；Grok只讀329s无完整結果取消且確認原退出，不宣稱Grok產碼。見selection-final-plan-distribution-progress／E335，25/31保持。
+
+2026-10-06 前端啟動檢查共用化：遠端邀請選角原漏BuildId／staged DLL gate，新增共用moba_frontend_preflight並接正常對局兩次verify與遠端mkdir／spawn前。固定Lua唯讀verify-only／exit0、不自動repair或fallback；dedicated仍不需要UE。局部53組通過，沒有真UE／game／LAN或完整驗收；Grok128秒讀取後無code取消，確認原退出後primary完成，見frontend-preflight-progress／E334，25/31保持。
+
+2026-10-06 LAN選角實際缺口：shared遵守local-player只開本機席位，不刪遠端roster；selection-bind明確opt-in/ready exact與單真人shared接線；新增private invitation remote selection-only入口，terminal receipt／原local renderer生命週期／MD錯誤與不洩token。placement7/join9/shared25/single13局部54通過，全table/injected、未network/UE/game/sim；Grok tool-restricted249s無輸出取消，確認原退出後primary完成，根因未知。見lan-selection-progress／E333，不冒稱兩台LAN或全自動遠端game handoff，25/31保持。
+
+2026-10-06 原生設定工具：prepare／interactive selection共用selected-profile moba-config.exe，不再cargo run隱含debug建置；缺檔在mkdir前拒絕，no-build／prepare-only不fallback，exit0才解析JSON。helper5／integration3（真實debug／release、missing no-output）及相關13／22／8／7／7局部共65組通過。Grok119s無code取消、terminal／original退出確認後primary接手；E332与compiled-config-tool-progress保存。無Cargo build／game／UE／simulation／LAN驗收，25/31與完整六项保持。
+
+2026-10-06 專用主機角色：server-only沿同一recipe／Rust選角鎖定／compiled-only／60Hz，零本機client保留完整roster、後端profile一致build／stage与SHA；無Unreal／client runtime前置、只等待原authority退出，互斥旗標與original-token清理接線。局部4＋7＋7＋8共26組通過（Rust設定真實／程序注入），Grok2分18秒無code取消確認退出後primary接手，詳dedicated-server-progress／E331。未跑game／UE／兩台LAN／完整效能，不勾4.4／6.4，25/31保持。
+
 2026-10-06新限制：後續場次模擬每次最多10場，不拆批规避；batch預設與執行上限均10。歷史100場證據保持，不再作未來重跑要求。當前功能局部確認、最後完整驗收原則不變。
 
 2026-10-06後續：新engine1323cea4基線下-NoEngineChanges正式build/stage成功、Editor啟動；補binary preflight及project-bound MCP避免30000誤連別的專案，BP11/11通過。native全套首次因兩處NewObject未Initialize的fixture崩潰，已修共同問題，後續必要確認待更新。舊engine阻塞註記是歷史；仍23/31，不把build/啟動當完整功能驗收。見project-bound-unreal-progress／E313–E315。
@@ -316,6 +326,8 @@
   - 正式fog前置：發現IPC仍使用DemoFogCache，缺geometry／provenance／explored；正式safe phase marker停用示範投影且reset不回落，小地圖標示VISION N/A。尚未畫正式fog底色，不勾選；決策與必要確認見 `docs/plans/2026-10-04-unreal-formal-fog-boundary-progress.md` 與 E137。
   - 通用靜態地形呈現增量：Lua compiled geometry→獨立C ABI10 terrain_rects→共用ISMC，與視野polygon分離、UE collision／nav關閉；完整結果見 `docs/plans/2026-10-04-unreal-collision-terrain-progress.md` 與 E133，不勾選全項。
 - [ ] 6.2 完成選角、HUD、商店、小地圖、計分板與勝負 UI，驗證 PIE 可從選角玩到結算。
+  - 2026-10-06 Widget輸入退役：RetireGameplayInput同源接NativeDestruct／Controller EndPlay、商店／小地圖入口在runtime query／全域invalidation前拒絕，late setter／Slate construction不復活instance，正常路徑不增整份陣列copy。限定compile11/3/3成功；project-bound MCP實際ControllerOwnedHudLifetime＋WidgetInputLifetime單輪2/2 passed，原Editor78512退出另驗。修absolute out-dir與漏Initialize fixture；Grok3m35s無code取消後primary接手。只局部native、無完整PIE／對局；見widget-input-lifetime-progress／E330，不勾完整6.2、25/31保持。
+  - 2026-10-06 Controller退場：通用 EndPlay 清理自己的 bridge listener／selection service／HUD widgets，ending guard 阻擋 late input／Tick／rebind／HUD重建，不停共享Rust runtime或他人UI。原生OwnedHudLifetime斷言加入既有runner；11 actions scoped NoEngineChanges compile成功13.88s，斷言未執行，不冒稱真viewport或Actor Destroy。Grok3m59s無修改取消、確認退出後primary接手；見controller-lifecycle-progress／E329，不勾完整6.2、25/31保持。
   - 2026-10-06 結算觀察整合：選角與結果共用128KiB poll／64KiB line bounded log primitive，IO error／short read／close failure不可轉空EOF沿用complete。勝負marker完整行／canonical ID、winner及tick；每player只存一筆結果且持續檢查矛盾，原deadline在poll前後及publication前檢查late screenshot。primary8/14/11/13/22通過，Grok tool-free6m43s無回覆取消後接手；mock launcher不等於真UE，不勾完整6.2。見bounded-log-progress／E328。
   - 2026-10-06 選角握手：single/shared 接共用 exact player/protocol/room parser 與 128KiB incremental poll／64KiB line，停止全日誌重讀；verified original retirement 後期限內 drain backlog／final EOF，shared 已發布 artifact 快速路徑同樣驗證，不以 artifact 取代 receipt。primary 局部11/13/22通過，Grok3m22s未產碼取消後接手，無真對局／UI驗收，不勾6.2；見selection-readiness-progress／E327。
   - 2026-10-06 啟動整合：單人/shared選角及role正式對局全面接original Child token／canonical exe，bounded owned wait/ready、ready前後核對與predicate耗時期限、PID重用不等／不停止新程序，partial startup清理其餘original children；primary局部9/17/8/10通過。第二Grok讀取未產碼取消後主agent接手，未實際再開UE或完整自然結算，不勾6.2。見selection-lifetime-progress／E326。

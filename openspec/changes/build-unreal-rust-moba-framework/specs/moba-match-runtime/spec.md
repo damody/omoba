@@ -113,6 +113,30 @@
 ### Requirement: 單機與區網一致
 系統 SHALL 讓單機與區網模式共用權威玩法規則及輸入驗證。
 
+#### Scenario: 區網選角區分本機與遠端席位
+- **WHEN** 主機以interactive-selection、明確selection-bind與local-player啟動共享選角
+- **THEN** 工作流 SHALL 只為本機已宣告真人席位開renderer，保留全體席位於同一Rust房間；預設仍loopback，服務ready地址必須精確符合選定interface與合法port，遠端使用自己的private invitation而不得替其他席位鎖定
+- **AND** 遠端選角入口 SHALL 只啟動本機選角renderer，取得shared-room／owner／catalog一致的terminal receipt後結束；取消／逾時不得自動lock或啟動gameplay、不得停止remote host或洩露invitation token，正式對局仍使用host發布的final plan
+
+#### Scenario: 選角與對局共用前端部署檢查
+- **WHEN** 正式對局或私人邀請選角需要啟動本機 Unreal 前端
+- **THEN** 工作流 SHALL 共用指定引擎的本專案 BuildId／模組 DLL 與既有 staged 副本雜湊檢查；選角檢查必須在建立該入口輸出與開 renderer 前完成，唯讀子程序必須明確 exit_code=0，不以成功文字取代成功狀態，不自動重建／stage／改 BuildId 或切換 profile
+- **AND** 不需要本機前端的 dedicated server-only SHALL 保持不依賴 Unreal 檢查
+
+#### Scenario: 已准入玩家取得主機完成後配方
+- **WHEN** 唯一選角房間已由全部真人鎖定並明確finalize
+- **THEN** Rust SHALL 在已綁定玩家的回覆提供同一份只讀final plan，尚未finalized不得提早分發；host的一次性take與成功finalize mutation仍各一次，read／EOF／stale／rebind不得重建開局權限或修改revision
+- **AND** 遠端 SHALL 在terminal receipt的身分／catalog／locked roster與本人真人席位核對後，以指定profile compiled工具驗證完全相同plan才保存本機match-plan.json；缺plan或變動拒絕，不由seats拼接、不自動鎖定房間或啟動遊戲，正式對局沿既有明確connect入口
+
+#### Scenario: 無本機 renderer 的專用權威主機
+- **WHEN** 部署者明確選擇 server-only 角色
+- **THEN** 工作流 SHALL 沿同一 recipe、Rust 選角鎖定、compiled-content-only 內容與60Hz設定，只建置／部署並啟動 Rust 主機，不要求 Unreal／bridge／client runtime；完整真人席位保留供遠端加入，本機 client 數為零
+- **AND** server-only SHALL 拒絕 connect、本機席位、互動選角與原生結算畫面擷取；生命週期等待原始主機程序退役，不因沒有 renderer 而立刻關閉主機，只清理本次原始 executable／creation-token 身分的程序
+
+#### Scenario: 啟動工具 profile 與禁止隱含建置
+- **WHEN** 主機、遠端client、專用主機或prepare-only需要Rust選角鎖定與設定預檢
+- **THEN** 工具 SHALL 執行指定debug／release的已編譯moba-config.exe，不以cargo run暗中建置或切換profile；缺檔應在建立輸出前拒絕並提供明確建置指令，程序失敗或缺exit code不得靠stdout通過JSON驗證
+
 #### Scenario: 單機開局
 - **WHEN** 玩家啟動單機對局
 - **THEN** 玩家與九名 Bot 進入同一套權威對局流程

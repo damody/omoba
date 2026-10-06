@@ -1,5 +1,90 @@
 # Unreal MOBA 防錯紀錄
 
+## E338：選角取消必須共用，且不能冒稱強制終止監督（2026-10-06）
+
+- 決定：明確 `--selection-cancel-file` 進入共用 budget，無期限／deadline 均可取消；單機、共享、headless 與 remote join 使用同一判斷，保留原始 owned cleanup、真人 consent 與 final 配方驗證。訊號只查存在、不讀／不刪，已存在則不 spawn；交付前晚到訊號仍拒絕。remote 不停止遠端主機。
+- 真實邊界：native Child 未持續監督父程序，Lua 強制終止不執行 xpcall cleanup。合作式取消不是 crash supervision 修復；沒有實際強制終止測試、也不宣稱 orphan 已重現或已解決。有界 native wait 不是即時可中斷。
+- 重複操作錯誤：Windows `rg` 的具體路徑再次含 `*.rs`／測試檔 glob 而出現 os123；改先 `rg --files` 找檔，再用實際路徑或 `-g`。既有 register 已警告，這次仍犯錯，後續不可把 wildcard 當 LiteralPath。remote fixture patch 猜 `execute(mode)`，實際為 `lifecycle(mode)`，首次 patch 未修改；讀取真實函式再重套，避免依猜名修補。
+- Grok 自足無工具 patch-only job `run-muwk0gcn-9bt5vq`／thread `594ec77e-0668-4f6e-aff1-4de345e01cf6` 201 秒 starting 無結果，由 primary 取消。follower cancelled／三 tracked PID null／OS 原92460及85644不存在確認後接手；stop128非唯一證據，generic「Stopped by user」不是人類要求取消。成本／根因未知，不改全域設定，不接受或冒稱 Grok 產碼。
+- 當前 budget assertions、headless12／join19／single13／shared25 共69組通過；join早先17組不重複計數。config 部分真 compiled binary，程序與renderer注入。沒有Rust／UE建置、game／sim／LAN／完整驗收，25/31保持。詳見 selection-cancellation-progress。
+
+## E337：專用部署仍需可無畫面提供遠端選角（2026-10-06）
+
+- 缺口：server-only 不需要 Unreal，但原共享選角一定取得至少一個本機真人席位，因此無法在沒有 Editor 的專用主機提供選角房間。
+- 通用決定：新增獨立 run_moba_selection_host.lua／moba_selection_host，明確 selection-bind 與新 output；不放寬原 server-only／interactive-selection 互斥，不偷偷將空 local-player 改成另一種意思。共用 run_room 以空本機 renderer 清單支援全遠端，同一 Rust 房間與私人邀請、ready hash／interface、baseline roster／規則、original-owned cleanup／deadline／final recipe 保持。
+- 原單人／共享選角與新入口共用 moba_selection_prepare。--lock-plan 只驗證本機配方副本，不當作遠端玩家 consent；作者 Lua 只在開局工具求值，正式遊戲仍 Rust／C++ compiled-only。選角完成不自動啟動任何 gameplay。
+- Grok job run-muwjqv3n-r3f1lo／thread 6d137eeb-495c-41f3-b13c-ef8debade675 有讀取階段文字，但246秒無修改；primary取消，follower terminal cancelled／三 tracked PID null／OS 原85836及100776不存在確認後接手。stop exit1/taskkill128不是單獨退役證據，不宣稱Grok產碼、原因或成本，也不改全域設定。
+- 新入口9組（真 release native config，host lifecycle注入）、既有單人13及共享25組通過，共47組；help與diff check成功。沒有Rust／UE建置、遊戲、場次模擬或實機LAN；完整25/31保持，未將功能存在或fixture當最終驗收。詳見headless-selection-host-progress。
+
+
+## E336：選角配方必須確認正式 TCP 邊界與實際主機建置（2026-10-06）
+
+- 證據缺口：E335 的服務測試／注入 renderer 不能證明正式 TCP admission worker；主機 executable 也尚未重新編譯。
+- 決定：正式 compiled-content-only release moba-config 建置成功；新增測試直接呼叫 production connection，以真實 ephemeral loopback socket、私人 Invitation、JSON-line command 驗證兩真人各自 lock／finalize、一次 host take 後 follower read 與重新 admission 得到相同不可變配方。拒絕錯 token 無回覆、無席位占用、無 revision 變更；退出釋放席位。不新增正式協定、測試專用 production fallback 或 gameplay Lua。
+- 測試生命週期：client connect／read／write 有界，RAII 先關閉 socket 再 join worker，包括 assertion unwind；production 的真人思考無期限保持，不為測試改短。
+- 操作錯誤：首次讀取猜測的 moba-framework-error-register.md 不存在；rg --files docs 找到真正 unreal-moba-error-register.md。不要依猜名新增第二份 register。大型 OpenSpec 歷史讀取輸出截斷不能當完整內容，以精確區段核對當前任務。
+- Grok write job run-muwjfkw0-w21bq7／thread 5a874ee0-7ee6-431f-b063-f63944a18868 在讀取階段 203 秒無修改，primary 取消；follower terminal cancelled、tracked 三 PID null、OS 原 101476／43324 均不存在後才接手。stop exit1／taskkill128 不當作唯一退役證據；原因與成本未知，沒有改全域 MCP／auth／Grok 設定，沒有接受 Grok 補丁。
+- 當前選角網路 3 項通過（新增真 TCP 1 項＋既有 framing／publication 2 項），修改後格式化再確認不重複計數。release build 成功不是一致部署全部遊戲元件；worker 測試不是 host accept loop／proxy executable／Unreal renderer、實機 LAN 或完整遊戲驗收。未跑場次模擬，完整 25/31 保持。
+
+
+## E335：遠端選角缺少主機最終配方分發（2026-10-06）
+
+- 實際缺口：只有finalize成功提交者取得plan，其餘read/stale回覆雖finalized卻無配方，遠端完成選角後仍需再次人工傳檔。
+- 通用決定：Rust session的finalized plan只讀副本供所有已綁定玩家取得；host take仍一次領取、read／EOF／rebind／競爭失敗不重建authority handoff。Lua核對全部locked seats／自己真人／catalog及原生compiled validator的完全相同plan後才保存，不從seats補造、不同結果不normalize接受、不啟動gameplay。
+- 已拒絕的方向：不以所有DLL副本一致冒稱source provenance，不用mtime／作者Lua存在性作runtime啟動要求，以免破壞compiled部署。
+- 指令錯誤：core不是omb workspace member，cargo test --manifest-path omb/Cargo.toml -p omoba-core --features...失敗；改core自己manifest並保留compiled-content-only/kcp成功。rg的Windows具體路徑含glob與猜不存在Cargo.toml／moba_role_result.lua失敗，後續先rg --files找實際檔名，不新造入口。
+- Grok只讀job run-muwich4j-mnzbqf／thread d652d9ec-5663-4b93-a258-cb4c29ae3d11 329秒無完整稽核結果取消；follower cancelled／三tracked PIDnull／原47028與68152不存在另驗，stop exit1/taskkill128不是單獨成功證據。成本與根因未知，primary實作，沒有冒稱Grok產碼或調全域設定。
+- 當前Rust選角11／Lua join17（含真實debug compiled config canonical roundtrip）／shared25共53通過；renderer與網路仍注入，沒有game／sim／LAN／UE／UBT或全验收。主機moba-config需正式指定profile重建才能分發新plan，旧版缺plan明確拒絕，不fallback。完整25/31維持，見selection-final-plan-distribution-progress。
+
+## E334：遠端選角漏接正式前端部署檢查（2026-10-06）
+
+- 問題：私人邀請入口只找到Editor就spawn，漏用正式對局的BuildId／模組binary與staged DLL副本SHA檢查。
+- 通用修正：共用moba_frontend_preflight，兩個入口沿同一唯讀gate。遠端在mkdir／spawn之前檢查；固定Lua的verify-only指令exit0才通過，失敗不build／stage／改BuildId或切換profile。這不是完整ABI／runtime內容相容性驗收，dedicated不引入UE。
+- 操作失誤：讀取猜測的test_moba_launch_workflow.lua不存在；以rg找到實際test_moba_launch_contract.lua，往後先搜尋檔名。接線改具名local function variable，避免Lua換行括號黏接前一呼叫。
+- Grok run-muwi643t-m7crhy／thread84673de8-6bbb-45f6-95ee-ca6cd221d050有讀取階段文字但128秒未產碼取消。stop exit1／taskkill128不是清理證明；follower cancelled／三PIDnull與OS原42964／45864不存在確認後primary實作。原因與成本未知，不宣稱Grok修碼或變更全域設定。
+- 局部53組通過：gate5／join10／workflow8／binary15／role8／dedicated7；設定工具部分為真Rust，renderer／build均注入。沒有game／UE／LAN／sim／Cargo／UBT或完整驗收，25/31保持。詳見frontend-preflight-progress。
+
+## E333：共享選角必須區分本機席位與遠端玩家（2026-10-06）
+
+- 真缺口：moba_shared_selection為全部真人開本機Unreal，未使用local-player；raw Rust選角服務已支援具體bind與private invitation，但正式Lua入口只允許loopback且缺remote join入口。不是缺新的Rust選角規則，也不重做已存在的遊戲connect。
+- 決定：共用placement驗證／排序本機席位，不刪遠端roster；selection-bind明確opt-in且獨立於game bind，Rust分配實際port，ready地址精確核對requested interface／canonical port。原預設仍loopback，不改防火牆。
+- 遠端入口僅啟動選角renderer，compiled-profile工具沿原生Rust proxy驗席位／token／catalog；讀取邀請時size cap及generic parser錯誤，token不回傳、不進arguments／logs／result。只清理original local renderer，不停止remote host、不自動lock／開局。
+- 一個fixture首次失敗：錯把「valid terminal receipt之後PID重用」預期為失敗。對齊既有original-lifetime契約：合法回條可完成，replacement不能被stop或wait；另加沒有回條的reused-cancel必須拒絕，沒有放寬receipt／shared handshake。
+- Grok run-muwhr9w2-0c8cqj／threaddbcb543e-12bb-442a-b32f-8b78f4eb5d8b 使用本次child env限制tools空、disable-web/no-subagents，4分9秒仍無文字／補丁，primary取消；terminal cancelled、tracked3PIDnull与original84364／13104不存在確認。這個結果不能支持「file tool為根因」；成本、API時間及根因仍未知，沒有全域MCP／憑證／插件設定變更。
+- primary實作placement7／join9／shared25／single13共54組局部通過，都是table／injected renderer，不啟動network／Unreal／game或simulation。完整兩台LAN与UI自然終局仍未驗收；25/31保持。
+
+## E332：啟動預檢不可用 cargo run 偷換建置 profile（2026-10-06）
+
+- 問題：正常工作流已建置所選profile，prepare卻呼叫cargo run（隱含debug），造成release／no-build仍需要Rust工具鏈並可能重新編譯，不是可部署的原生工具工作流。
+- 決定：正式host／remote／dedicated與prepare-only、interactive selection共享指定profile的moba-config.exe入口；缺檔在輸出mkdir之前拒絕並給明確建置指令，不自動切profile或cargo fallback。真正建置仍由明確build流程負責。
+- 非零或缺失exit_code必須先拒絕，再解析JSON；不讓失敗程序附帶的舊stdout通過。舊selection fixture補真實exit_code=0，不弱化正式檢查。
+- 操作錯誤：本批rg猜不存在的moba_hero_selection.lua；實際選角在moba_role_launch／moba_shared_selection。沿rg --files清單定位，不把歷史猜名當已存在。
+- Grok run-muwhfuzt-dx1moz／thread84646d8f-5f9f-4e80-8c8f-95633f5c75b4 1分59秒仍停讀取，未產生修改；primary取消。stop exit128不當退出證據；follower cancelled、三tracked PID null與original agent20828／bridge60604不存在確認後接手，成本/API時間／卡住原因未知。
+- 測試操作再犯E327類型：nested tests以未折疊../載入_bootstrap，使其lexical root含_bootstrap.lua；真實integration mkdir失敗，不是主機執行失敗。測試入口明確取tests的scripts父目錄，避免傳入../；兩個新測試一致修正後通過，不修改遊戲路徑fallback。
+- 局部helper5／integration3／selection13／shared22／role8／network7／dedicated7，共65組通過；integration含真實debug、release設定／lock-plan與缺工具不建立輸出。無Cargo建置／simulation／game／Unreal／LAN完整驗收，25/31保持。
+
+## E330：退場輸入邊界必須包含 Widget 的獨立提交入口（2026-10-06）
+
+- Controller EndPlay 阻擋 controller input，不能取代商店／小地圖自己入口的 lifetime gate。retained widget／Slate callback 可能持有舊baseline但查到仍存活的shared runtime；加入widget-local terminal退役，不以全域Stop修此缺口。
+- 退役 gate 必須早於 bridge query／NotifyOwnedGameplayUnavailable：舊widget不能因late callback清掉新HUD。NativeDestruct和controller顯式退役共用入口，late setter／Slate rebuild不可復活instance輸入；新HUD用新widget。
+- 技能目錄初次猜在專案 `.agents/skills/grok-build` 而不存在；依技能 catalog 改讀 `C:/Users/Damody/.agents/skills/grok-build/SKILL.md`。不把技能缺檔當Grok CLI故障。
+- 搜尋初次猜 `OmWorldBridge.h` 不存在，改 `rg --files ... -g '*WorldBridge*'` 找 `OmWorldBridgeActor.h`／Subsystem 真實檔案。大型設計／task歷史輸出被截斷時，改讀所需實際區段，不把截斷當完整讀取。
+- Grok本次3m35s只回啟動文字、無code delta；取消後follower terminal／三PIDnull／原agent與bridge不存在確認才primary接手，不將stop128單獨當退出證據。成本與停滯根因未知。
+- 第一版late-setter gate用值型temporary會額外複製整份minimap／economy陣列；review改空baseline＋const reference選擇，保留既有單次cache copy，避免防護增加每frame配置。
+- 局部Editor已ready但native runner的out-dir用了path.join(root, absolute)，組成D:/code/omoba/D:而未執行斷言；原Editor32884原lifetime已退出。正式入口改path.absolute並對正規化後default路徑檢查，支援相對／絕對輸出，不為fixture退回只支援相對路徑。嘗試讀預期editor.log不存在並非Editor未启动證據，真正ready與original退休由owned token／MCP核對。
+- 第二次Editor78528在新fixture TakeWidget時crash，MCP回Recv failure不可當暫時網路問題重試。CrashContext BBD5FA0B... 經已安装llvm-symbolizer／真正PDB對到FOmWidgetInputLifetimeTest:2287與UUserWidget::OnWidgetRebuilt／WidgetTree::ForEachWidget；NewObject後漏Initialize。沿既有fixture先Initialize再TakeWidget，修測試不改正式UMG或放寬退役gate。兩測試started不等於passed；該原Editor已退出。取證啟動用abslog而非把log旗標當絕對檔名。
+- 最後原Editor78512單輪兩native實際2/2 passed、零error／skipped／not_run，沒有真對局／完整PIE。cleanup在退出期間exact identity query access denied，不能宣稱其精確Windows根因或直接當dead。保持第一report失敗與原錯誤，再獨立成功original-token liveness回false／OS原PID不存在，另存retirement-confirmation成功。不是重跑或改寫舊失敗report，不能為這次錯誤放寬正式process inspector。
+
+## E329：Controller 退役必須清自有 UI，不能停止整個對局（2026-10-06）
+
+- AOmPlayerController 沒有 EndPlay override，只在 bridge rebind 時解除 listener。Controller 退役必須阻擋 late input／HUD重建、解除自己 listener、明確 StopSelection 並移除自己的 widget；不使用 RemoveAllWidgets，不停其他玩家、全域runtime或後端。
+- 初次 restart status 從 monorepo cwd 執行，工具找 D:/code/omoba/om.uproject 而失敗；改用明確 omfue cwd 後 success／matching_editors=0。所有此工具呼叫須綁定實際專案，不把找錯路徑當引擎問題。
+- 又一次 PowerShell literal `tools/lua/lib/*.lua` 造成 rg 路徑錯誤，改 rg 對真實目錄加 `-g '*.lua'`。不得用 Bash-style filename expansion；本次不新增 fallback。
+- HEAD 已由使用者 damody 改為02757d51、正式上一批修改已提交；只保留和接續，不 reset／覆寫使用者commit。既有omfue未追蹤assets／slnx不屬此次清理範圍。
+- Grok run-muwg4oay-dtia3c 3m59s 無 code delta，primary 取消後確認 follower cancelled／三tracked PID null／原agent和bridge不存在才接手。stop128不能當唯一退出證據；成本與確切停滯原因未知，不擅改全域MCP或認證設定。Primary限定三Unreal檔實作，11-action NoEngineChanges compile 成功（13.88s）。
+- Native fixture 用 explicit EndPlay／EditorPreview parent attachment，不能宣稱測到真 Actor destruction 或 viewport；只編譯不能宣稱斷言通過。新測試加入既有 Lua runner 清單，完整驗收最後執行。
+- 本次後續搜尋又對 literal scripts/moba*／docs/plans/2026-10-06* 出錯；正式搜尋改真實目錄搭配 -g，避免猜測路徑／shell expansion。此類錯誤不改遊戲實作也不新增 shell fallback。
+
 ## E328：結算讀取失敗不得沿用舊結果；共用 reader 必須保留消費端語意（2026-10-06）
 
 - `moba_role_finish_observer` 曾把 `file:read(...)` 的 nil／IO error 轉為 `''`，使讀取錯誤與 EOF 混淆並可能沿用舊 complete result。決定與選角共用 bounded IO primitive，read／seek／close／short read 必須 propagate，opened handle 在 callback 前關閉；不提交失敗 IO offset、不用額外輪詢掩蓋。
@@ -2849,3 +2934,11 @@ E018 本輪再次出現一次猜測來源名稱（team_replica_specs.rs）造成
 - 當前結果：正式 generated 商品 60Hz 100→60→0／到期／死亡與另一 owner 零值測試、bridge 邊界／owner／舊 schema 拒絕通過；限定 UE 模組 14 actions 編譯成功，不代表 PIE。
 - 操作錯誤：Windows 字面路徑 transport* 觸發 rg os error 123，改已知目錄加檔案 glob；大段工具輸出截斷後不宣稱完整審閱。等待未知既有 Build.bat 自然結束，不終止外部程序。
 - 詳見 `2026-10-06-owner-shield-projection-progress.md`；完整驗收留最後。
+## E331：專用主機不可沿用「空選擇代表全部本機玩家」與 Unreal 建置前置
+
+- 問題：既有遠端加入入口已存在，但本機 host 的空 local-player 集合代表全部 human，且工作流固定先解析／建置 Unreal。純 Rust host 無法部署到沒有 Unreal 的機器。
+- 決定：新增明確 server-only 角色；沿同一正式 recipe／Rust 選角鎖定／compiled-content-only／60Hz 設定，零本機 client 不代表刪除 human roster。不另建 gameplay，也不擴大為防火牆／憑證設定。
+- 建置：獨立 Lua 模組依選定 debug／release 同步建置 base_content、moba-config、omobab，再沿既有 stage-dll 工具部署；SHA-256 比對該 profile 的來源 DLL 與正式 scripts/base_content.dll，無 Unreal／bridge／client runtime 前置。
+- 本批操作錯誤：猜測不存在的 build_backend.lua／workflow 測試／match-lifecycle spec 路徑；應先 rg --files 或使用 OpenSpec 回傳實際路徑。DLL mismatch fixture 只認斜線而 Windows path.join 回傳反斜線，致 expected rejection 失敗；正規化 fixture 路徑後四組局部測試通過，不變更正式 hash 判斷。
+- Grok run-muwh76hh-6y910g／thread 5fef2d53-a4e0-4d7a-950e-f689b4ccf650 在讀取階段2分18秒無程式變更，主agent取消；stop command報taskkill128不當退出證據，follower terminal cancelled、三個tracked PID為null且原agent52244／bridge21276皆不存在後才接手。原因、成本及API時間未知，不改憑證或全域MCP設定。
+- 正式整合完成：server-only零本機client／完整roster、互斥旗標、後端獨立build／stage、只等待original authority與既有身分清理；原remote PID-only fixture改用既有owned adapter，已退出renderer不要求stop、PID reuse不碰replacement。局部server build4／dedicated7／network7／role8全部通過，共26組；Rust設定預檢是真實，程序生命週期是注入fixture，未跑對局／Unreal／兩台LAN，完整6項仍保留。
