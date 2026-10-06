@@ -18,7 +18,7 @@
 	url = https://github.com/damody/mqtt_log_viewer.git
 [submodule "omfue"]
 	path = omfue
-	url = git@github.com:damody/omfue.git
+	url = https://github.com/damody/omfue.git
 [submodule "erps"]
 	path = erps
 	url = https://github.com/damody/Elo-Ranking-Pairing-System.git

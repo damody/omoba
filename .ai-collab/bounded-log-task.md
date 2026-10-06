@@ -1,0 +1,18 @@
+# Produce a bounded Lua log-reader patch (no tools)
+
+You are Grok Build, a coding subagent. Output implementation code as one unified apply_patch patch in your final response. DO NOT CALL ANY TOOLS: all required context is below; no reads, shell, MCP, discovery, network, credentials or user questions. Primary applies your patch and runs tests. Do not claim tests passed. Do not include reasoning/transcripts. This task is intentionally tool-free after previous tool stalls. Do not modify/commit/push/install/delete anything.
+
+Repo D:/code/omoba. Formal frontend only omfue, gameplay native Rust/C++ with no runtime Lua; this Lua module is launch/workflow orchestration only. Lua5.4 fixed tools/lua/lua.exe. No Python/PowerShell/shell fallback. Existing dirty work preserved; primary owns launchers/tests/docs. No simulated matches. Generate ONLY new file `scripts/moba_bounded_log.lua`. No dependencies except Lua stdlib. Existing producer logs are LF/CRLF, preserve CR in callback line if present.
+
+Outcome/API:
+`local L=require('moba_bounded_log'); local reader=L.reader(); local caught_up=reader:poll(log_path,final,on_line)`
+- log_path nonempty string; final nil/boolean default false; on_line required function. Constructor stores offset=0,pending='',had_data=false.
+- Read incrementally <=131072 bytes/poll, line <=65536 bytes (complete and pending). No full rereads/history/row arrays. Deliver each LF-terminated line (excluding LF, retaining optional CR) to callback. Empty lines allowed. Pending incomplete line retained. At final=true AND caught_up, flush final unterminated nonempty pending once. Primary calls final only after original producer verified retired. Return caught_up true iff consumed offset equals size snapshot.
+- io.open(path,'rb'); missing file code2 before any data -> return true no callback. Other open errors or disappearance after data must raise. Zero-byte file followed missing may remain ordinary startup.
+- Seek end and seek set offset, explicitly check returned values, size integer >=offset (truncation raises). Read exactly min(131072,size-offset), skip read when count0. nil/error/short read must raise, NEVER `file:read(...) or ''`; a failed read must not reuse older result history. Close on every opened poll, including seek/read throws. Close failure propagates. Do not leak handle if callback throws (close before callback).
+- Guard against oversized complete lines and pending >64KiB in bounded linear parsing. Keep state unchanged when IO read/seek/close fails. Callback exceptions propagate (reader need not support recovery after callback failure since caller cancels). No arbitrary sleeps or timeouts inside module; parent enforces deadlines before/after poll and between final-drain chunks.
+- Use local constants, private reader state; no configurable unbounded limits, global mutations, fallback commands, logging, game policy or marker parsing.
+
+Existing concrete defect: moba_role_finish_observer reader currently does `file:read(131072) or ''`, then observes old canonical result history, so IO failure is indistinguishable from EOF and may report complete. Selection reader already uses strict IO but duplicates bounded logic. Primary will refactor both onto your generic reader and keep their result/readiness semantics. This patch is a general IO primitive, not another mode-specific workaround.
+
+Acceptance primary will run fixed Lua tests: synthetic missing/empty, multi-chunk/tail/CRLF, bounds, truncate/disappear, seek/read/short/throw/close failures with close-count assertions, callback throw after close; then existing selection and finish observer tests. Your report: concise code scope and any limitations, no fabricated validation or costs.

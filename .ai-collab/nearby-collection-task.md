@@ -1,0 +1,15 @@
+# Bounded Grok implementation, iteration 11
+
+Root D:/code/omoba master ca34c786a523967d4eb0251b7480c4d3824b0ac2. Preserve all current dirty changes. Read root AGENTS.md, omoba-core/src/runtime/native/tick/nearby_tick.rs and relevant local collision-index APIs/tests only. Do not read huge historical plans/transcripts. If read_file stalls, use a bounded terminal source read instead of retrying the failing reader.
+
+Implement a general allocation fix ONLY in nearby_tick.rs and docs/plans/2026-10-06-nearby-collection-progress.md. Four par_join pipelines currently map every row into (vec![ent], vec![*pos]), then append those two allocated one-element vectors to per-worker accumulators. Replace row allocation with direct (Entity, Pos) values pushed into per-worker vectors. Share a small helper if it materially avoids duplicate mistakes, not an unrelated redesign. Keep existing Rayon parallel execution, profiling spans, Unit+Creep multiset (including entities in both categories), entity/position pairing, sorting by (entity.id, generation), index rebuild and tower-dirty behavior EXACTLY unchanged. Do not deduplicate or change f32 conversion/collision/gameplay order.
+
+Add targeted pure regression tests named nearby_collection covering empty data, parallel many rows pairing versus serial reference, and duplicate/entity-generation ordering/index behavior using existing APIs if useful. Test actual shared production accumulation logic rather than duplicate test-only implementation. Do NOT run any game/simulation/Unreal process.
+
+Exact validation: cargo test --manifest-path omoba-core/Cargo.toml nearby_collection --lib. No full suites. Report nonzero real selected count, exact files/diff and warnings. Codex independently reviews/runs declared filter after your terminal event. Do not claim tests passed without running them.
+
+Evidence boundary: last actual60Hz paired run each50windows/3000steps, p1outer93.7459ms / dispatcher93.0694ms; p2outer102.1183ms / dispatcher101.7626ms. ProcessCPUdelta valid0. This proves dispatcher wall bucket, NOT that these allocations cause the spikes. Accept this fix only as removal of statically demonstrable O(entity-count) transient allocations; NO50ms pass/root-cause claim. Do not blindly replace dispatch with dispatch_seq, change worker counts/priorities/thresholds, or disable diagnostics/hash gates.
+
+Also in the same short MD report (read-only review, no other code edits): inspect SystemDispatcher + comp/ecs Job run timing + actual local shred0.16.1 dispatch internals; identify concrete next blocking/scheduling boundary. No speculative root-cause assertion. Reading these files does not authorize edits outside allowed two files.
+
+No commit/push/rebase/reset/clean/restore/branch switch, no credentials/installations/process termination/network mutations, no engine/omfx edits. Use apply_patch for local code edits. Bounded coding and one targeted test only; if blocked return the concrete blocker and any partial edits. Leave worktree ready for independent primary review.

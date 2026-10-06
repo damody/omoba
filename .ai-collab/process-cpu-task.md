@@ -1,0 +1,7 @@
+# Tiny independent Rust module only
+
+Create ONLY omoba-core/src/comp/process_cpu.rs and docs/plans/2026-10-06-process-cpu-progress.md. Codex edits all integration files concurrently, so do NOT edit any other file. Read root AGENTS.md and this module if it exists. No broad repository scan or historical plans. No commit/push/git reset/clean/restore/credentials/installation/process termination/Unreal/simulations/omfx.
+
+Required API: pub fn process_cpu_ns() -> Option<u128>; pub fn process_cpu_delta(start: Option<u128>, end: Option<u128>) -> Option<u128>. Native Windows GetProcessTimes on GetCurrentProcess pseudo-handle; sum kernel and user FILETIME as u64 counters then u128 *100. Minimal target-gated documented raw kernel32 FFI, no new deps. BOOL failure => None; checked delta counter regression/missing => None. Other platforms => None, no fallback. CPU is process aggregate across all threads and may exceed wall, no subtraction from wall or wait-time claim. Add 3+ pure tests for delta positive/zero/regression/missing and large counters plus Windows-only read-only current-process query sanity. No world/hash/ABI/wire changes.
+
+Use apply_patch for source edits. Codex adds pub mod process_cpu and independently runs tests after your terminal event. You need not compile an unreferenced module, and must not claim tests passed if not executed. Report exact API, files, platform limitations and errors in MD. Finish promptly; this is one small self-contained file.

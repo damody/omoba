@@ -1,0 +1,17 @@
+# Bounded strict selection readiness
+
+Implement as Grok Build subagent. Read AGENTS.md. Use bounded terminal file reads (not read_file/MCP tools); no unrelated MCP, credentials, network, install, commit, push, deletion or game/Unreal launches. Preserve dirty files. Use apply_patch. Only write these new files:
+- scripts/moba_selection_readiness.lua
+- scripts/tests/moba_selection_readiness_test.lua
+
+Primary agent owns integration in existing selection launchers, existing tests and project docs. Do not edit them.
+
+Problem: launchers currently substring-match readiness, accidentally accepting protocol=10/shared_room=10. They repeatedly read entire logs. Actual Unreal producer OmHeroSelectionWidget.cpp emits `OM_SELECTION_READY player=%u protocol=1 shared_room=%d` with shared_room ALWAYS 0 (single) or 1 (shared). Prefix is normal UE logging, e.g. `LogTemp: Display: `.
+
+API module:
+- M.matches(line, player_id, shared): boolean. Validate caller player id canonical nonzero u32 integer and shared boolean. Exact marker field order/suffix, canonical numeric tokens, protocol exactly 1, room exactly expected 0/1, player exactly expected. Allow UE prefix ending in whitespace before OM_SELECTION_READY, leading whitespace, trailing whitespace/CR. Reject token-prefix XOM_SELECTION_READY, extra/duplicate fields, missing room, malformed/leading-zero ids, protocol10/room10. No unanchored suffix matching.
+- M.reader(player_id, shared) returns object with reader:poll(log_path, final) => ready, caught_up. final optional boolean default false; only primary calls true after original producer is verified retired. ready latches valid complete marker. Per poll read at most 131072 bytes; pending line at most 65536 bytes and complete lines same bound. Open rb, seek incremental offset, close every call even on failure; bounded incremental parsing linear, do not retain whole log or history. Missing file before any data is false,true; subsequent disappearance/read failure/truncation fail closed. Check seek/read errors; distinguish EOF from I/O errors. Before readiness, parse only newline-complete lines when live; at final EOF permit last unterminated line. Return caught_up when consumed offset equals file size snapshot. Never read whole file at once or loop unbounded over growing input. No dependencies besides Lua stdlib (or existing bootstrap/path for existence if required). Latching readiness may stop further reads; readiness should not permit an unterminated live line. Input validation must not permit unsafe numeric ids.
+
+Primary bounded-drains after verified retirement while not ready and not caught_up, using existing handshake and completion deadlines. Thus logs with marker beyond first chunk remain valid even if process exits before first poll.
+
+Tests execute using fixed `D:/code/omoba/tools/lua/lua.exe scripts/tests/moba_selection_readiness_test.lua`; fixture files only under unique target test directory. Use repository bootstrap/path and apply_patch for code. Cover valid modes/prefix/CRLF, all malformed versions/identities/modes, live partial vs final EOF, split marker across 128KiB read boundary, >one chunk backlog, line bounds, missing-before-data and disappearance/truncation after read. Can use mock io for read/seek/close failures if necessary; restore globals. No game simulations. Run only new targeted test once, report exact results and changed files. Keep implementation small and general.

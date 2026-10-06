@@ -29,3 +29,6 @@ scripts/*.dylib
 settings.ron
 .claude/settings.local.json
 data/resources.registry
+# Raw local fog-validation captures/dumps contain machine state and private fixtures.
+# Keep curated summaries outside this run-output directory.
+/openspec/changes/extract-client-runtime-three-process-fog-validation/evidence/three-process-fog/

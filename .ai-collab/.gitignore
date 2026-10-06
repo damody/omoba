@@ -1,0 +1,5 @@
+runs/
+.bridge-data/
+*.tmp
+# Historical ad-hoc local confirmation drivers; formal tools live in scripts/.
+*.lua
