@@ -71,6 +71,9 @@ local function run_restart(label, command)
 end
 
 local function start_editor()
+  require('ue_binary_preflight').require_ready(
+    ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or os.getenv('UE_5_7_ROOT') or 'D:/UE5.8',
+    path.join(omfue, 'om.uproject'))
   local stdout = path.join(omfue, 'Saved', 'Logs', 'moba_restart_start_stdout.log')
   local stderr = path.join(omfue, 'Saved', 'Logs', 'moba_restart_start_stderr.log')
   local args = {'start', '--output', 'json'}
@@ -111,7 +114,9 @@ run_restart('generate bridge and compile OmGame', 'build')
 verify_stage_consistency()
 if mode == 'full' then
   start_editor()
-  run_restart('verify BpGeneratorUltimate MCP readiness', 'wait-mcp')
+  run_stage('verify project-bound BpGeneratorUltimate MCP readiness', platform.lua_executable, {
+    path.join(root, 'scripts', 'ue_mcp.lua'), '--wait-ready', '--tool', 'get_pie_status',
+  }, root)
   run_stage('validate generated hero Blueprints through Editor MCP', platform.lua_executable, {
     path.join(root, 'scripts', 'ue_validate_blueprints.lua'), '--create-missing',
   }, root)

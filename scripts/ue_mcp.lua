@@ -10,10 +10,12 @@ local json = bootstrap.lib('json')
 
 local tool, arguments, output, filter
 local list = false
+local wait_ready = false
 local i = 1
 while i <= #arg do
   local value = arg[i]
-  if value == '--list' then list = true
+  if value == '--wait-ready' then wait_ready = true
+  elseif value == '--list' then list = true
   elseif value == '--tool' or value == '--arguments' or value == '--out' or value == '--filter' then
     i = i + 1
     local next_value = assert(arg[i], value .. ' requires a value')
@@ -33,6 +35,9 @@ local request_file, headers_file = stem .. '.json', stem .. '.headers'
 local auth_file = stem .. '.auth'
 local session_id
 local ordinal = 0
+local endpoint_api = require('ue_mcp_endpoint')
+local project_file = path.join(bootstrap.root,'omfue','om.uproject')
+local endpoint = wait_ready and endpoint_api.wait_ready(project_file,30000) or endpoint_api.resolve(project_file)
 
 local function decode_response(body)
   local ok, decoded = pcall(json.decode, body)
@@ -51,6 +56,8 @@ local function decode_response(body)
 end
 
 local function request(method, params, notification)
+  local current = require('ue_mcp_endpoint').resolve(path.join(bootstrap.root,'omfue','om.uproject'))
+  assert(current.pid == endpoint.pid and current.port == endpoint.port, 'MCP Editor identity changed during session')
   ordinal = ordinal + 1
   local payload = {jsonrpc = '2.0', method = method, params = json.object(params)}
   if not notification then payload.id = ordinal end
@@ -58,7 +65,7 @@ local function request(method, params, notification)
   local args = {'--silent', '--show-error', '--fail-with-body', '--max-time', '20',
     '--header', 'Content-Type: application/json', '--header', 'Accept: application/json, text/event-stream',
     '--dump-header', headers_file, '--data-binary', '@' .. request_file,
-    'http://127.0.0.1:30000/mcp'}
+    'http://127.0.0.1:' .. endpoint.port .. '/mcp'}
   if path.is_file(auth_file) then table.insert(args, 1, '@' .. auth_file); table.insert(args, 1, '--header') end
   if session_id then table.insert(args, 1, 'Mcp-Session-Id: ' .. session_id); table.insert(args, 1, '--header') end
   local result = process.run('curl.exe', args, {cwd = bootstrap.root, check = false})
