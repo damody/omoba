@@ -175,7 +175,8 @@
 
 ## 4. Rust client runtime 與 Unreal 接軌
 
-- [ ] 4.1 擴充 localhost IPC 為 MOBA 輸入與安全投影，驗證版本握手、輸入結果與視野隔離。
+- [x] 4.1 擴充 localhost IPC 為 MOBA 輸入與安全投影，驗證版本握手、輸入結果與視野隔離。
+  - 2026-10-06 契約封關：當前compiled-content-only IPC合併27/27，正式版本／身分拒絕、安全fog／owner投影、terminal輸入結果與真TCP通道通過；搭配已有實際雙UE四技能／shop／視野capture。效能、LAN、全UI屬各自條目，不再加入本項。詳見 ipc-reconnect-contract-closure；歷史當時缺口保留，不代表目前重開。
   - 60Hz release UE 封關證據：run1791053894 雙隊原始拒絕→買→賣、pending0、出售後三方hash170／162 PASS；capture5457／5443逐snapshot核對，五程序清理。launcher JSON 保存失敗已修正並新增回歸，獨立保存證據 verifier exit0／success=true，不重交易。debug效能／跨runtime pending持久化仍待驗收，完整4.1保持未勾選。
   - 2026-10-04 Unreal 商店：C ABI 6 提供 generic buy／sell、compiled Lua catalog、owner-only capability；native Slate buttons 不新增角色C++／BP graph。unknown catalog／越界slot／legacy拒絕，成交／不確定／busy-ring pending回歸；single_lane network預設60Hz。最新建置／實跑與限制見 `docs/plans/2026-10-04-unreal-shop-input-60hz-progress.md`；不勾選完整4.1。
   - 2026-10-04 正式60Hz商店：獨立protocol1／完整rules hash、bound player single_lane gate、query每秒8次；IPC新增catalog buy／slot sell，原renderer request重送只查原ID，pending有界／公平read-only恢復。真實run1791051305兩隊拒絕→收入購買→出售，每wireinput五次重送，原terminal query成功、三方hash各89PASS，三程序清理；capture5554／5518 snapshots逐筆Gold／inventory／immutable receipts通過。Unreal操作與跨runtime恢復未完成，不勾選；詳見60Hz商店網路進度檔。120Hz依使用者指示延後。
@@ -188,7 +189,8 @@
   - 正式單路 server／兩個外部 filtered runtime 部分驗收：secure V2 roster、Warmup／Pause clock、NPC PreStepMovement／external damage、visible enemy movement priority／最終姿態、缺席實體退休；run 1791026421 三方 pre/post hashes 通過，2400-tick 回歸通過。`run_2player_ue.lua --single-lane` 已接配置；完整四技能／重生／終局與 Unreal HUD 尚待驗證，故不勾選。詳見 `docs/plans/2026-10-03-single-lane-runtime-progress.md`。
 - [x] 4.2 在 `omfue/bridge` 與 `OmRuntime` 實作 IPC adapter，驗證 Unreal 可顯示兩隊各自的 filtered world 並送出移動。
   - 真實 5-process runs 1791013831／1791014362 通過，C ABI v3 明確 player/team 身分、UE 日誌與 replica 皆位移；full build 3355 exit 0、同一 Editor 兩輪各 7/7、PIE native/memory 渲染與清理通過。詳見 `docs/plans/2026-10-03-unreal-two-team-ipc-progress.md`。
-- [ ] 4.3 實作 Hide/Forget/ResetView、cue 去重與 renderer reconnect，驗證重連不重啟對局或重播一次性效果。
+- [x] 4.3 實作 Hide/Forget/ResetView、cue 去重與 renderer reconnect，驗證重連不重啟對局或重播一次性效果。
+  - 2026-10-06 契約封關：27/27合併包含六类cue真TCP重連歷史去重、lifecycle／memory／baseline／exclusive socket；已有原生42項兩輪與真實60Hz renderer替換維持原server／雙runtime／對側renderer、新輸入ACK與雙隊hash、精確cleanup。互補證據詳見 ipc-reconnect-contract-closure；不冒稱真LAN／完整效能通過，後面保留歷史當時狀態。
   - 2026-10-06 最新局部增量：同 ledger／runtime 通道兩段真實 TCP 連線，同時六類 typed cue，已 ACK／初始／離線歷史不重播、fresh 六類送達及退休，1/1 通過；舊 overwrite/ACK 六類案例1/1仍通過。尚不代表所有 Unreal 效果/audio 畫面或兩台LAN，不勾整項。restart wait-mcp/auto-resume 同時改 project-bound lifetime gate、無掃埠fallback，readiness19/endpoint12/Rust9與真正無本專案Editor拒絕通過；見 restart-readiness-and-cue-reconnect-progress／E321。
   - 2026-10-04 真實60Hz renderer重連增量：run1791068322正常退出team1 UE42712再開43836，原server／雙runtime／對側UE PID不變；freshHUD实际rate60／own economy／Playing tick4859／Consumed4901、新minimap原ACK6511與authority新input2／Point raw吻合。兩隊post-input各兩個不同PASS ticks、gate114／113 rows至6840、零FAIL，六程序清理；17個正負向測試／fullbuild／同Editor兩輪13/13／串行PIE／保存verifier通過。所有一次性cue與兩台LAN仍待驗收，不勾選整項；详見docs/plans/2026-10-04-unreal-renderer-reconnect-60hz-progress.md、E103。
   - 部分驗收：獨立 frozen ghost C ABI v2／不可碰撞 marker、完整／控制 frame 區分、局部 lifecycle、ghost-only TCP 重連、忙碌重試與 PIE fixture 渲染；詳見 `docs/plans/2026-10-03-unreal-remembered-ghost-progress.md`。跨新 renderer instance／所有一次性 cue 契約仍待完成，故不勾選。
