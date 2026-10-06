@@ -2807,6 +2807,7 @@ mod tests {
     fn disclosed_authority_targets_do_not_reapply_lua_direct_damage() {
         let mut world = World::new();
         world.register::<CProperty>();
+        world.insert(BuffStore::default());
         let entity = world.create_entity().with(CProperty {
             hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,
             def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO,

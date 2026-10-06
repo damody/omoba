@@ -414,6 +414,7 @@ pub(crate) mod projectile_test_support {
         }]));
         fixture.insert(ScriptEventQueue::default());
         fixture.insert(ScriptVisualEventQueue::default());
+        fixture.insert(omoba_core::runtime::ObservableFactBuffer::default());
         fixture.insert(GamePause { is_paused: true });
         fixture.insert(TickProfile::default());
 
