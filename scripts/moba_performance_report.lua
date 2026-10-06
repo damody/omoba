@@ -97,6 +97,11 @@ local function json_at(line, marker)
   local at = line:find(marker, 1, true)
   if not at then return nil end
   local body = line:sub(at + #marker):gsub('%s+$', '')
+  -- log4rs appends the source module and line after the complete JSON object.
+  -- Remove only its recognized metadata suffix, never arbitrary trailing text.
+  body = body:gsub('%s*\27%[[%d;]*m%s*$', '')
+  body = body:gsub('%s+%([%w_:]+%s+%d+%)$', '')
+  body = body:gsub('%s*\27%[[%d;]*m%s*$', '')
   local ok, value = pcall(json.decode, body)
   if not ok or type(value) ~= 'table' then return nil, 'invalid JSON after ' .. marker end
   return value

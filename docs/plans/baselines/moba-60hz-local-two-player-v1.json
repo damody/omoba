@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "moba-60hz-local-two-player-v1",
+  "frozen_on": "2026-10-06",
+  "capture_run": "final-reconnect-20261006-project-bound",
+  "workload": {
+    "gameplay_mode": "single_lane",
+    "tick_rate_hz": 60,
+    "profile": "release",
+    "content_mode": "compiled-content-only",
+    "human_players": 2,
+    "client_runtimes": 2,
+    "renderers": 2,
+    "renderer_reconnects": 1,
+    "graphics_rhi": "d3d11",
+    "viewport": "1280x720 per renderer",
+    "frame_cap": 60,
+    "scope": "one development Windows machine; not isolated hardware, LAN, ten-bot stress or GPU certification"
+  },
+  "semantics": {
+    "mean": "integer floor of aggregated sum / successful samples, not percentile",
+    "server": "State tick excluding scheduler sleep, transport send waits, warmup, paused and finished ticks",
+    "client": "successful replica apply only, excluding evidence IO and presentation",
+    "ipc": "successful messages' bytes including length prefix; not latency",
+    "unreal_frame": "game-thread DeltaSeconds, not GPU/render-thread time",
+    "unreal_work": "world-bridge presentation Tick body",
+    "limits": "fixed development regression ceilings with jitter headroom; NOT a hard 16.67ms deadline guarantee"
+  },
+  "comparisons": [
+    {"component":"server","metric":"tick_compute","statistic":"mean","op":"lte","limit":5000000,"unit":"ns"},
+    {"component":"server","metric":"tick_compute","statistic":"max","op":"lte","limit":100000000,"unit":"ns"},
+    {"component":"client_runtime","metric":"replica_step","statistic":"mean","op":"lte","limit":2000000,"unit":"ns"},
+    {"component":"client_runtime","metric":"replica_step","statistic":"max","op":"lte","limit":50000000,"unit":"ns"},
+    {"component":"presentation_ipc","metric":"wire_bytes","direction":"send","statistic":"mean","op":"lte","limit":4096,"unit":"byte"},
+    {"component":"presentation_ipc","metric":"wire_bytes","direction":"send","statistic":"max","op":"lte","limit":8192,"unit":"byte"},
+    {"component":"presentation_ipc","metric":"wire_bytes","direction":"receive","statistic":"mean","op":"lte","limit":64,"unit":"byte"},
+    {"component":"presentation_ipc","metric":"wire_bytes","direction":"receive","statistic":"max","op":"lte","limit":512,"unit":"byte"},
+    {"component":"unreal","metric":"game_frame_interval","statistic":"mean","op":"lte","limit":18500000,"unit":"ns"},
+    {"component":"unreal","metric":"game_frame_interval","statistic":"max","op":"lte","limit":80000000,"unit":"ns"},
+    {"component":"unreal","metric":"presentation_work","statistic":"mean","op":"lte","limit":2000000,"unit":"ns"},
+    {"component":"unreal","metric":"presentation_work","statistic":"max","op":"lte","limit":15000000,"unit":"ns"}
+  ]
+}
