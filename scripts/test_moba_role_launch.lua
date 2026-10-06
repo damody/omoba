@@ -42,6 +42,9 @@ test('fixed Lua + full TOML + production Rust configuration preflight',function(
   assert(plan.scope=='prepared-not-launched' and plan.profile=='release')
   assert(path.read(base,true)==original,'source config changed')
   assert(contains(plan.clients[1].unreal.args,'-om-presentation-only'))
+  assert(math.type(plan.worker_budget.unreal_cores_per_renderer)=='integer'
+    and plan.worker_budget.unreal_cores_per_renderer>=1)
+  assert(contains(plan.clients[1].unreal.args,'-corelimit='..plan.worker_budget.unreal_cores_per_renderer))
   assert(not contains(plan.clients[1].runtime.args,'--test-mode'))
   assert(plan.server.env.OMB_LUA_HOT_RELOAD=='0')
   assert(plan.content_mode=='compiled-content-only' and plan.server.env.OMB_LUA_CONTENT=='0')

@@ -313,6 +313,7 @@ function M.prepare(options,process)
       '-sessionname=omfue-role-p'..id,'-UserDir='..path.join(output,'ue-p'..id),
       '-abslog='..path.join(output,'ue-p'..id..'.log'),'-stdout','-FullStdOutLogOutput',
       '-ExecCmds=t.MaxFPS 60'}}
+    for _,hint in ipairs(worker_budget.unreal_args or {}) do ue.args[#ue.args+1]=hint end
     if options.finish_timeout_seconds then
       -- Only logs an actually visible Finished panel and requests a screenshot.
       -- Unlike -om-match-smoke, this does not issue gameplay inputs.

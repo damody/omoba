@@ -3,7 +3,8 @@ local source=debug.getinfo(1,'S').source:sub(2)
 package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local b=require('_bootstrap')
 local process,path,json,platform=b.lib('process'),b.lib('path'),b.lib('json'),b.lib('platform')
-assert(#arg==1 and arg[1]:match('^[%w_-]+$'),'usage: tools/lua/lua.exe scripts/verify_moba_local_baseline.lua UNIQUE_RUN_ID')
+assert((#arg==1 or (#arg==2 and arg[2]=='--reuse-built')) and arg[1]:match('^[%w_-]+$'),
+  'usage: tools/lua/lua.exe scripts/verify_moba_local_baseline.lua UNIQUE_RUN_ID [--reuse-built]')
 process.supervise_workflow(source,arg)
 local id=arg[1]
 local output=path.join(b.root,'target','local-baseline-verification',id)
@@ -23,12 +24,18 @@ local function command(label,exe,argv,environment)
 end
 local ok,err=xpcall(function()
   local editor,ue_root=require('moba_role_launch').editor({})
-  command('frontend-build',platform.lua_executable,{path.join(b.root,'scripts/build_ue_moba.lua'),'--build-only','--ue-root',ue_root})
+  command('frontend-build',platform.lua_executable,{path.join(b.root,'scripts/build_ue_moba.lua'),
+    arg[2]=='--reuse-built' and '--verify-staged-only' or '--build-only','--ue-root',ue_root})
+  require('ue_binary_preflight').require_ready(ue_root,path.join(b.root,'omfue','om.uproject'))
+  if arg[2]~='--reuse-built' then
   for _,build in ipairs({
     {label='content',args={'build','--release','--manifest-path','scripts/Cargo.toml','-p','base_content','--features','compiled-content-only'}},
     {label='server',args={'build','--release','--manifest-path','omb/Cargo.toml','-p','omobab','--features','compiled-content-only'}},
     {label='client-runtime',args={'build','--release','--manifest-path','omoba-client-runtime/Cargo.toml','--features','compiled-content-only'}},
   }) do command('build-'..build.label, 'cargo',build.args) end
+  end
+  for _,file in ipairs({'omb/target/release/omobab.exe','omoba-client-runtime/target/release/omoba-client-runtime.exe',
+    'scripts/target/release/base_content.dll'}) do assert(path.is_file(path.join(b.root,file)),'missing release artifact: '..file) end
   local env={OMOBA_RUN_ID=id,OMOBA_UE_SMOKE_SECONDS='120',OMOBA_UE_STEP_FPS='60',
     OMOBA_SKIP_BUILD='1',OMOBA_SKIP_UE_BUILD='1',OMOBA_UE_RECONNECT_SMOKE='1',
     OMOBA_UE_RHI='d3d11',UE_ROOT=ue_root,UE_5_8_ROOT=ue_root,OMOBA_RELEASE='1',
@@ -42,6 +49,20 @@ local ok,err=xpcall(function()
   local live=json.read(path.join(run,'unreal-ipc-smoke-report.json'))
   assert(live.profile=='release' and live.tick_rate_hz==60 and live.content_mode=='compiled-content-only',
     'final capture switched profile/rate/content mode')
+  local budget=json.read(path.join(run,'worker-budget.json'))
+  assert(math.type(budget.unreal_cores_per_renderer)=='integer' and budget.unreal_cores_per_renderer>=1,
+    'renderer worker hint was not allocated')
+  local renderer_limits={}
+  for _,role in ipairs({'ue-p1','ue-p2','ue-p1-reconnect'}) do
+    local text=path.read(path.join(run,'logs',role..'.stdout.log'))
+    local cores=tonumber(text:match('LogInit: CPU Page size=%d+, Cores=(%d+)'))
+    assert(cores and cores>=1 and cores<=budget.unreal_cores_per_renderer,
+      'Unreal did not report the configured physical core limit: '..role)
+    assert(text:find('-corelimit='..budget.unreal_cores_per_renderer,1,true),
+      'Unreal command line omitted the worker hint: '..role)
+    renderer_limits[#renderer_limits+1]={role=role,configured_physical_and_logical_cap=budget.unreal_cores_per_renderer,
+      reported_physical_cores=cores,scope='reported-core-count-not-OS-affinity-or-thread-count'}
+  end
   local baseline=path.join(b.root,'docs/plans/baselines/moba-60hz-local-two-player-v1.json')
   local results,passed={},true
   local server_log=path.join(output,'server-combined.log')
@@ -62,7 +83,8 @@ local ok,err=xpcall(function()
     passed=passed and code==0 and report.threshold_result=='pass' and #report.thresholds==12
   end
   json.write(path.join(output,'report.json'),{success=passed,scope='fixed-local-two-player-60hz-reconnect-baseline',
-    run=run,baseline=baseline,simulations_executed=1,full_ui_or_lan=false,players=results})
+    run=run,baseline=baseline,simulations_executed=1,full_ui_or_lan=false,
+    renderer_limits=renderer_limits,players=results})
   assert(passed,'fixed baseline failed; retain both complete captures, never relax limits or retry for a passing sample')
 end,debug.traceback)
 if not ok then path.append(path.join(output,'errors.md'),'# Final baseline failure\n\n'..tostring(err)..'\n');error(err,0) end

@@ -408,6 +408,7 @@ local ok, result = xpcall(function()
       "-FullStdOutLogOutput",
       "-ExecCmds=t.MaxFPS 60",
     }
+    for _,hint in ipairs(worker_budget.unreal_args or {}) do argv[#argv+1]=hint end
     if smoke_seconds and smoke_seconds > 0 then argv[#argv + 1] = "-om-presentation-smoke" end
     if ability_smoke then argv[#argv + 1] = "-om-ability-smoke" end
     if scoreboard_smoke then
