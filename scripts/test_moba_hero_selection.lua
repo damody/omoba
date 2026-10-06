@@ -46,7 +46,7 @@ local function execute(name,mode)
     assert(args[1]=='--lock-plan')
     local candidate=json.read(args[2])
     assert(candidate.players[1].hero=='training_vanguard')
-    return {stdout=json.encode({scope='host-prepared-selection',plan=candidate,
+    return {exit_code=0,stdout=json.encode({scope='host-prepared-selection',plan=candidate,
       selection={catalog_data_hash='testhash'}})}
   end,spawn=function(_,args)
     spawned=true

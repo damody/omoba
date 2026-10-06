@@ -71,7 +71,7 @@ local function lifecycle(mode)
     assert(exe==platform.lua_executable and not contains(args,'--selection-host'))
     states[pid]=true
     path.write(options.stdout,'client-runtime ready player_id=6 team_id=2 replica_tick=1')
-    if pid==102 and mode~='runtime-exit' then states[pid]=false end
+    if pid==102 and mode=='success' then states[pid]=false end
     return pid
   end
   fake.inspect=function(pid) assert(pid~=nil and states[pid]~=nil,'inspected unowned server');return states[pid] end
@@ -90,15 +90,17 @@ local function lifecycle(mode)
     local inspect=fake.inspect
     fake.inspect=function(pid) if pid==101 and #spawned==2 then return false end;return inspect(pid) end
   end
-  local ok,err=pcall(launch.launch,plan,platform.lua_executable,fake,
-    {sleep_ms=function() error('unexpected sleep') end})
+  local owned_api,fixture=require('tests/selection_owned_fixture').wrap(fake)
+  local ok,err=pcall(launch.launch,plan,platform.lua_executable,owned_api,
+    {sleep_ms=function() error('injected match interruption') end})
   assert(#spawned==(mode=='admission-failure' and 1 or 2),'remote launcher spawned a server')
   assert(ok==(mode=='success'),tostring(err))
   if mode=='admission-failure' then
     assert(tostring(err):find('injected admission failure',1,true) and table.concat(stopped,',')=='101')
   else
-    assert(table.concat(stopped,',')=='102,101')
-    assert(table.concat(waited,',')==(mode=='cleanup-failure' and '101' or '102,101'))
+    local expected=mode=='success' and '101' or (mode=='runtime-exit' and '102' or '102,101')
+    assert(table.concat(stopped,',')==expected)
+    assert(table.concat(fixture.waited,',')==(mode=='cleanup-failure' and '101' or '102,101'))
   end
   if mode=='runtime-exit' then assert(tostring(err):find('runtime-p6 exited during match',1,true)) end
   if mode=='cleanup-failure' then

@@ -12,12 +12,15 @@ function M.options(args)
   local values={['--recipe']='recipe',['--config']='config',['--output']='output',
     ['--port']='port',['--profile']='profile',['--ue-root']='ue_root',
     ['--graphics']='graphics',['--story']='story',['--server-bind']='server_bind',['--connect']='connect',
+    ['--selection-bind']='selection_bind',
     ['--finish-timeout-seconds']='finish_timeout_seconds',['--selection-smoke-hero']='selection_smoke_hero',
-    ['--selection-timeout-seconds']='selection_timeout_seconds'}
+    ['--selection-timeout-seconds']='selection_timeout_seconds',
+    ['--selection-cancel-file']='selection_cancel_file'}
   local i=1
   while i<=#args do
     local key=args[i]
     if key=='--prepare-only' then options.prepare_only=true
+    elseif key=='--server-only' then options.server_only=true
     elseif key=='--interactive-selection' then options.interactive_selection=true
     elseif key=='--no-build' then options.no_build=true
     elseif key=='--local-player' then
@@ -62,6 +65,12 @@ function M.options(args)
     assert(seconds and seconds>=1 and seconds<=7200,'selection timeout must be 1..7200 whole seconds')
     assert(options.interactive_selection,'selection timeout requires interactive selection')
     options.selection_timeout_seconds=seconds
+  end
+  if options.selection_cancel_file then
+    assert(options.interactive_selection,'selection cancel file requires interactive selection')
+    assert(type(options.selection_cancel_file)=='string' and options.selection_cancel_file~='',
+      'selection cancel file must be a nonempty path')
+    options.selection_cancel_file=path.absolute(options.selection_cancel_file,b.root)
   end
   network.validate(options)
   return options
@@ -134,21 +143,13 @@ end
 function M.interactive_select(options,editor,process,time)
   local output=path.absolute(assert(options.output),b.root)..'-selection'
   assert(not path.exists(output),'selection output must be a new directory: '..output)
-  local value=M.load_recipe(options)
-  local humans={}
-  for _,p in ipairs(value.players) do if p.bot==false then humans[#humans+1]=p.player_id end end
-  assert(#humans>=1 and #humans<=10,'interactive selection requires 1..10 human seats')
-  table.sort(humans)
-  local exe=path.join(b.root,'omb','target',options.profile,'moba-config.exe')
-  assert(path.is_file(exe),'selection executable missing: '..exe)
-  path.mkdir_p(output)
-  local candidate=path.join(output,'candidate.json')
-  path.write(candidate,json.encode(value))
-  -- This validates a copy only; it is not used as consent or the UI state.
-  local preflight=json.decode(process.run(exe,{'--lock-plan',candidate},
-    {cwd=b.root,env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'}}).stdout)
-  assert(preflight.scope=='host-prepared-selection','invalid selection preflight')
-  if #humans>1 then
+  local preparation=require('moba_selection_prepare')
+  local inspected=preparation.inspect(options)
+  local humans=inspected.humans
+  require('moba_selection_placement').local_players(options,humans) -- Validate seats before single/shared dispatch.
+  local exe=inspected.exe
+  local candidate,preflight=preparation.prepare(options,process,output,inspected)
+  if #humans>1 or options.selection_bind then
     return require('moba_shared_selection').run(options,editor,process,time,output,candidate,exe,humans,preflight)
   end
   local result=path.join(output,'finalized-reply.json')
@@ -221,14 +222,14 @@ function M.prepare(options,process)
   local config=path.absolute(options.config or 'omb/game.toml',b.root)
   local output=path.absolute(assert(options.output,'unique output directory required'),b.root)
   assert(not path.exists(output),'output must be a new directory: '..output)
+  local config_command=require('moba_config_command')
+  config_command.resolve(options) -- Fail before creating artifacts; never build or switch profiles.
   local value=M.load_recipe(options)
   path.mkdir_p(output)
   local recipe_json=path.join(output,'match-plan.json')
   local candidate_json=path.join(output,'selection-candidate.json')
   path.write(candidate_json,json.encode(value))
-  local prepared=process.run('cargo',{'run','--quiet','--manifest-path',path.join(b.root,'omb','Cargo.toml'),
-    '-p','omobab','--bin','moba-config','--features','compiled-content-only','--','--lock-plan',candidate_json},
-    {cwd=b.root,env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'},label='host hero selection lock'})
+  local prepared=config_command.run(options,{'--lock-plan',candidate_json},process)
   local locked=json.decode(prepared.stdout)
   assert(locked.scope=='host-prepared-selection' and locked.selection.finalized and locked.selection.ready,
     'unexpected hero selection lock report')
@@ -257,19 +258,17 @@ function M.prepare(options,process)
   })
   local generated=path.join(output,'game.toml')
   path.write(generated,text)
-  local checked=process.run('cargo',{'run','--quiet','--manifest-path',path.join(b.root,'omb','Cargo.toml'),
-    '-p','omobab','--bin','moba-config','--features','compiled-content-only','--','--config',generated},
-    {cwd=b.root,env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'},label='role configuration preflight'})
+  local checked=config_command.run(options,{'--config',generated},process)
   local report=json.decode(checked.stdout)
   assert(report.scope=='configuration-only' and report.tick_rate_hz==60,'unexpected preflight report')
-  local local_humans=network.local_humans(report.humans,options.local_players)
+  local local_humans=options.server_only and {} or network.local_humans(report.humans,options.local_players)
   local worker_budget=require('moba_host_budget').local_budget(#local_humans+(options.connect and 0 or 1),#local_humans)
   local server_address=(options.connect or options.server_bind)..':'..options.port
   path.write(recipe_json,json.encode(value))
   local plan={schema_version=1,scope='prepared-not-launched',config=generated,output=output,
     worker_budget=worker_budget,
     finish_timeout_seconds=options.finish_timeout_seconds,
-    mode=options.connect and 'remote-client' or 'host',server_address=server_address,
+    mode=options.server_only and 'dedicated-server' or (options.connect and 'remote-client' or 'host'),server_address=server_address,
     local_human_count=#local_humans,
     profile=options.profile,content_mode='compiled-content-only',recipe_json=recipe_json,selection_report=selection_report,
     hero_catalog=hero_catalog,
@@ -333,7 +332,14 @@ function M.runtime_ready(text,client)
 end
 
 function M.launch(plan,editor,process,time)
-  assert(#plan.clients>0,'interactive launch requires at least one human; use headless for all-Bot recipes')
+  local dedicated=plan.mode=='dedicated-server'
+  assert(plan.mode=='host' or plan.mode=='remote-client' or dedicated,'unknown launch mode')
+  if dedicated then
+    assert(#plan.clients==0 and plan.local_human_count==0 and plan.server~=nil
+      and not plan.finish_timeout_seconds,'invalid dedicated-server plan')
+  else
+    assert(#plan.clients>0,'interactive launch requires at least one human; use headless for all-Bot recipes')
+  end
   assert((plan.mode=='remote-client' and plan.server==nil)
     or (plan.mode~='remote-client' and plan.server~=nil),'launch mode/server ownership mismatch')
   local owned={}
@@ -352,6 +358,11 @@ function M.launch(plan,editor,process,time)
   end
   local ok,err=xpcall(function()
     local server=plan.server and spawn('server',plan.server) or nil
+    if dedicated then
+      print('Dedicated Rust authority started; no local renderer. This is not LAN/full-match acceptance.')
+      while process.owned_alive(server) do time.sleep_ms(500) end
+      return
+    end
     local editors={}
     for _,client in ipairs(plan.clients) do
       local runtime,out,errors=spawn('runtime-p'..client.player_id,client.runtime)

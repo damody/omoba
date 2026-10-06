@@ -61,6 +61,8 @@ local function execute(name,mode)
   local options=launch.options({'--interactive-selection','--profile','debug','--recipe',recipe,
     '--hero','1=training_vanguard','--output',path.join(directory,'match')})
   if mode=='completion-timeout' then options.selection_timeout_seconds=1 end
+  if mode=='subset' or mode=='lan' or mode=='wrong-address' then options.local_players={[1]=true} end
+  if mode=='lan' or mode=='wrong-address' then options.selection_bind='192.0.2.10' end
   local now,host_dir,plan=0,nil,nil
   local peers,states,stopped={},{},{}
   local publish,fixture
@@ -69,16 +71,19 @@ local function execute(name,mode)
     assert(args[1]=='--lock-plan')
     plan=json.read(args[2])
     assert(plan.players[1].hero=='training_vanguard')
-    return {stdout=json.encode({scope='host-prepared-selection',plan=plan,
+    return {exit_code=0,stdout=json.encode({scope='host-prepared-selection',plan=plan,
       selection={catalog_data_hash=hash}})}
   end
   fake.spawn=function(exe,args)
     if args[1]=='--selection-host' then
-      host_dir=args[3]
+      host_dir=args[#args]
+      if options.selection_bind then assert(args[3]=='192.0.2.10:0' and #args==4)
+      else assert(#args==3) end
       assert(not path.exists(host_dir))
       path.mkdir_p(host_dir)
       path.write(path.join(host_dir,'ready.json'),json.encode({schema_version=1,
-        scope='shared-selection-host-ready',tick_rate_hz=60,address='127.0.0.1:12345',
+        scope='shared-selection-host-ready',tick_rate_hz=60,
+        address=mode=='lan' and '192.0.2.10:12345' or '127.0.0.1:12345',
         catalog_data_hash=mode=='bad-ready' and 'wrong' or hash}))
       for _,id in ipairs({1,2}) do
         path.write(path.join(host_dir,'player-'..id..'.json'),'INVITATION_MUST_NOT_BE_READ_BY_LUA')
@@ -151,15 +156,21 @@ local function execute(name,mode)
   local ok,err=pcall(launch.interactive_select,options,'mock-editor.exe',fake,clock)
   assert(path.read(recipe)==original,'source recipe was modified')
   assert(not path.exists(options.output),'gameplay configuration was created during selection')
-  if mode=='success' or mode=='delayed-publication' or mode=='fast-backlog' or mode=='fast-tail' then
+  if mode=='success' or mode=='delayed-publication' or mode=='fast-backlog' or mode=='fast-tail'
+    or mode=='subset' or mode=='lan' then
     assert(ok,tostring(err))
-    for ordinal,pid in ipairs({101,201,202}) do
+    local expected=(mode=='subset' or mode=='lan') and {101,201} or {101,201,202}
+    for ordinal,pid in ipairs(expected) do
       local entry=json.read(path.join(options.output..'-selection','owned-process-'..ordinal..'.json'))
       assert(entry.pid==pid and entry.executable==path.absolute(states[pid].exe)
         and type(entry.creation_token)=='string','ownership evidence missing')
     end
     assert(next(options.hero_selections)==nil and options.recipe~=recipe)
     assert(json.read(options.recipe).players[1].hero=='training_ranger')
+    if mode=='subset' or mode=='lan' then
+      assert(states[202]==nil and peers[2]==nil,'remote seat must not get a local renderer')
+      assert(#json.read(options.recipe).players==10 and json.read(options.recipe).players[2].bot==false)
+    end
     assert(next(stopped)==nil,'successful exited process was stopped')
   else
     assert(not ok,'failure bypassed')
@@ -170,7 +181,8 @@ local function execute(name,mode)
       ['cleanup-error']='selection cancelled',['completion-timeout']='selection completion timed out',
       ['partial-spawn']='injected renderer spawn failure',['reused-host']='host exited without a final artifact',
       ['reused-renderer']='selection cancelled',['protocol-prefix']='shared-room handshake',
-      ['room-prefix']='shared-room handshake',['fast-protocol-prefix']='shared-room handshake'}
+      ['room-prefix']='shared-room handshake',['fast-protocol-prefix']='shared-room handshake',
+      ['wrong-address']='selection readiness address'}
     assert(tostring(err):find(assert(reasons[mode]),1,true),'unexpected failure: '..tostring(err))
     assert(options.recipe==recipe and options.hero_selections[1]=='training_vanguard')
     local errors=path.read(options.output..'-selection/errors.md')
@@ -191,7 +203,7 @@ end
 for _,mode in ipairs({'success','delayed-publication','cancel','host-exit','old','bad-ready',
   'tamper','bad-receipt','missing-receipt','publication-timeout','cleanup-error','completion-timeout',
   'partial-spawn','reused-host','reused-renderer','protocol-prefix','room-prefix',
-  'fast-backlog','fast-tail','fast-protocol-prefix'}) do
+  'fast-backlog','fast-tail','fast-protocol-prefix','subset','lan','wrong-address'}) do
   test('shared launch '..mode,function() execute(mode,mode) end)
 end
 print(('shared selection launcher: %d/%d passed; mocked processes, no gameplay/Unreal acceptance'):format(total,total))

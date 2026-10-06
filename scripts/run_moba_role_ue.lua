@@ -5,11 +5,15 @@ local path,process,time,platform=b.lib('path'),b.lib('process'),b.lib('time'),b.
 local launch=require('moba_role_launch')
 local workflow=require('moba_launch_workflow')
 if arg[1]=='--help' then
-  print('Usage: tools/lua/lua.exe scripts/run_moba_role_ue.lua [--prepare-only | --interactive-selection] [--recipe FILE.lua|FILE.json] [--hero PLAYER_ID=HERO (repeatable)] [--config FILE.toml] [--output NEW_DIRECTORY] [--port 57061] [--profile release|debug] [--ue-root PATH] [--graphics d3d11|d3d12] [--story FOG_2TEAM_DEMO] [--no-build]')
+  print('Usage: tools/lua/lua.exe scripts/run_moba_role_ue.lua [--prepare-only] [--interactive-selection | --server-only] [--recipe FILE.lua|FILE.json] [--hero PLAYER_ID=HERO (repeatable)] [--config FILE.toml] [--output NEW_DIRECTORY] [--port 57061] [--profile release|debug] [--ue-root PATH] [--graphics d3d11|d3d12] [--story FOG_2TEAM_DEMO] [--no-build]')
   print('Interactive selection: 1..10 human seats from the recipe; multiple humans share one local host and each receive an Unreal window. Any cancellation aborts before gameplay.')
   print('LAN host: --server-bind UNICAST_IPV4 [--local-player ID (repeatable)]. Remote client: --connect HOST_IPV4 --recipe HOST_FINAL.json --local-player ID (repeatable). IPC stays loopback; no firewall changes.')
+  print('Dedicated Rust host: --server-only [--server-bind UNICAST_IPV4]; zero local clients, no Unreal build/install required. Share the generated match-plan.json with remote clients. Incompatible with --connect, --local-player, interactive selection and native result capture.')
+  print('Configuration preflight always uses the selected profile\'s compiled moba-config.exe, never cargo run. --prepare-only and --no-build require prebuilt artifacts; missing tools fail without building or switching profiles.')
+  print('LAN selection: --interactive-selection --selection-bind HOST_IPV4 --local-player ID. Only local seats receive windows; send each other seat its private invitation and use scripts/run_moba_selection_join.lua on that machine. Final match-plan.json remains host-owned; do not share the invitation folder.')
   print('Read-only bounded result capture: --finish-timeout-seconds 1..7200. Optional selection automation: --interactive-selection --selection-smoke-hero HERO (requires bounded result capture). Does not force a winner or validate the full match.')
   print('Selection completion: --selection-timeout-seconds 1..7200; covers service startup through final handoff, shared across all local seats. Automation defaults to 120 seconds; manual selection remains unbounded unless specified. Timeout cancels, never auto-locks.')
+  print('Cooperative selection cancellation: --selection-cancel-file PATH. Create that path to abort selection and retire only this session\'s original local processes. It is never read or removed; this is not crash/forced-termination supervision.')
   return
 end
 local options=launch.options(arg)
@@ -36,6 +40,8 @@ local function stage(mode)
   print(result.stdout)
 end
 workflow.execute(options,{
+build_server=function() require('moba_server_build').build(options,process) end,
+verify_server=function() require('moba_server_build').verify(options) end,
 resolve_editor=function() editor,ue_root=launch.editor(options) end,
 build_frontend=function() stage('--build-only') end,
 build_runtime=function()
@@ -54,8 +60,7 @@ build_runtime=function()
   end
 end,
 verify_stage=function()
-  require('ue_binary_preflight').require_ready(ue_root,path.join(b.root,'omfue','om.uproject'))
-  stage('--verify-staged-only')
+  require('moba_frontend_preflight').verify(ue_root,process)
 end,
 select=function() launch.interactive_select(options,editor,process,time) end,
 prepare=function()

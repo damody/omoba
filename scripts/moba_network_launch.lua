@@ -13,6 +13,17 @@ function M.ipv4(value)
 end
 function M.validate(options)
   options.server_bind=M.ipv4(options.server_bind or '127.0.0.1')
+  if options.selection_bind then
+    options.selection_bind=M.ipv4(options.selection_bind)
+    assert(options.interactive_selection,'selection-bind requires interactive selection')
+    assert(not options.connect,'remote gameplay clients must use the separate invitation selection entry')
+  end
+  if options.server_only then
+    assert(not options.connect,'server-only cannot connect to another host')
+    assert(next(options.local_players)==nil,'server-only cannot select local players')
+    assert(not options.interactive_selection,'server-only cannot run interactive selection')
+    assert(not options.finish_timeout_seconds,'server-only cannot capture native renderer results')
+  end
   if options.connect then
     options.connect=M.ipv4(options.connect)
     assert(options.server_bind=='127.0.0.1','remote client cannot configure a server bind')

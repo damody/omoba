@@ -1,4 +1,4 @@
--- Local multi-human orchestration only. Rust owns admission, selection and the final plan.
+-- Local/remote seat placement only. Rust owns admission, selection and the final plan.
 local b=require('_bootstrap')
 local path,json=b.lib('path'),b.lib('json')
 local M={}
@@ -49,7 +49,8 @@ function M.receipt(reply,player,hash)
   return state
 end
 
-function M.run(options,editor,process,time,output,candidate,exe,humans,preflight)
+local function run_room(options,editor,process,time,output,candidate,exe,local_players,preflight)
+  local placement=require('moba_selection_placement')
   local owned,renderers={},{}
   local hash=assert(preflight.selection.catalog_data_hash)
   local host_dir=path.join(output,'host')
@@ -80,7 +81,7 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
   local ok,err=xpcall(function()
     local budget=require('moba_selection_deadline')
     local completion_deadline=budget.start(options,time)
-    local host=spawn(exe,{'--selection-host',candidate,host_dir},b.root,'host')
+    local host=spawn(exe,placement.host_args(options,candidate,host_dir),b.root,'host')
     local deadline=time.monotonic_ms()+45000
     local ready_path=path.join(host_dir,'ready.json')
     while not path.is_file(ready_path) do
@@ -92,9 +93,9 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
     local ready=json.read(ready_path)
     assert(ready.schema_version==1 and ready.scope=='shared-selection-host-ready'
       and ready.tick_rate_hz==60 and ready.catalog_data_hash==hash,'shared host readiness mismatch')
-    local port=type(ready.address)=='string' and ready.address:match('^127%.0%.0%.1:(%d+)$')
-    assert(port and tonumber(port)>=1 and tonumber(port)<=65535,'local selection host is not loopback-bound')
-    for _,id in ipairs(humans) do
+    placement.ready_address(options,ready.address)
+    print('Selection invitations available in '..host_dir..'; share only each remote seat\'s invitation file. Never share the whole host folder.')
+    for _,id in ipairs(local_players) do
       budget.check(completion_deadline,time)
       local directory=path.join(output,'player-'..id)
       assert(not path.exists(directory),'renderer output already exists')
@@ -173,5 +174,16 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
       '\n\nDecision: no gameplay launch or automatic locking; retain only this session artifacts.\n')
     error(message,0)
   end
+end
+function M.run(options,editor,process,time,output,candidate,exe,humans,preflight)
+  local local_players=require('moba_selection_placement').local_players(options,humans)
+  return run_room(options,editor,process,time,output,candidate,exe,local_players,preflight)
+end
+function M.run_headless(options,process,time,output,candidate,exe,humans,preflight)
+  require('moba_network_launch').ipv4(assert(options.selection_bind,'headless selection requires explicit bind'))
+  assert(#humans>=1 and #humans<=10,'headless selection requires 1..10 human seats')
+  assert(not options.selection_smoke_hero and next(options.local_players or {})==nil,
+    'headless selection cannot spawn a local renderer')
+  return run_room(options,nil,process,time,output,candidate,exe,{},preflight)
 end
 return M

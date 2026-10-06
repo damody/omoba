@@ -2,6 +2,16 @@
 local M={}
 function M.execute(options,steps)
   if options.prepare_only then return steps.prepare() end
+  if options.server_only then
+    if not options.no_build then steps.build_server() end
+    steps.verify_server()
+    local plan=steps.prepare()
+    assert(plan.mode=='dedicated-server' and #plan.clients==0 and plan.server,
+      'server-only workflow requires a dedicated authority plan')
+    steps.verify_server()
+    steps.launch(plan)
+    return plan
+  end
   steps.resolve_editor()
   if not options.no_build then
     steps.build_frontend()
