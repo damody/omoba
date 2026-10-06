@@ -312,6 +312,7 @@ mod tests {
                         )
                         .unwrap(),
                         shop_available: false,
+                        shield_remaining_raw: 0,
                     },
                 },
             };

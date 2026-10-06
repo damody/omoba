@@ -1086,6 +1086,7 @@ message OwnerEconomyPresentation {
   repeated InventorySlotPresentation slots = 4; // exactly six, including empty
   bool shop_available = 5; // authority phase/alive/proximity, not affordability
   bool shop_protocol_enabled = 6; // negotiated transport capability; defaults closed
+  sint64 shield_remaining_raw = 7; // Q10 authority absorption, owner-scoped, 0..1024000000
 }
 message ShopTransactionReceipt {
   uint32 schema_version = 1;

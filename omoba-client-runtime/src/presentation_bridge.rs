@@ -1617,7 +1617,7 @@ mod tests {
         writer.write_u32(bytes.len() as u32).await.unwrap();
         writer.write_all(&bytes).await.unwrap();
         assert!(read_envelope(&mut reader).await.is_err());
-        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 4);
+        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 5);
     }
 
     #[tokio::test]
@@ -1701,7 +1701,7 @@ mod tests {
                         safe_payload: b"consumed-vfx".to_vec(),
                     });
                 snapshot.owner_economy = Some(omoba_core::game_proto::OwnerEconomyPresentation {
-                    schema_version: 1, player_id: 7, gold: 550,
+                    schema_version: 2, player_id: 7, gold: 550, shield_remaining_raw: 102400,
                     slots: (0..6).map(|slot| omoba_core::game_proto::InventorySlotPresentation {
                         slot, catalog_id: if slot == 1 { 3 } else { 0 }, cooldown_seconds: 0.0 }).collect(),
                     shop_available: false,
@@ -1851,7 +1851,7 @@ mod tests {
         let mut wrong = replay.clone(); wrong.player_id = 8;
         assert!(hub.retain_shop_replay(4, &wrong).is_err());
         hub.retain_shop_receipts(4, 90, &[]); // discarded intermediate presentation
-        let owner = OwnerEconomyState { player_id: 7, shop_available: false,
+        let owner = OwnerEconomyState { player_id: 7, shop_available: false, shield_remaining_raw: 0,
             economy: CommittedEconomyState { gold: 550, item_ids: [0, 3, 0, 0, 0, 0],
                 cooldown_bits: [0; 6], effect_bits: [0; 10], dirty: false } };
         let source = FilteredRenderSnapshot { team_id: 2, replica_tick: 91, entities: vec![],

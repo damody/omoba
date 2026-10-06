@@ -10,15 +10,18 @@ pub struct OwnerEconomyState {
     pub player_id: u32,
     pub economy: CommittedEconomyState,
     pub shop_available: bool,
+    /// Q10 remaining absorption only; no buff identity, source or payload.
+    pub shield_remaining_raw: i64,
 }
 
 impl OwnerEconomyState {
-    pub const PAYLOAD_LEN: usize = 86;
+    pub const PAYLOAD_LEN: usize = 94;
     pub fn encode(&self) -> Vec<u8> {
         [
             self.player_id.to_le_bytes().as_slice(),
             self.economy.encode().as_slice(),
             &[u8::from(self.shop_available)],
+            self.shield_remaining_raw.to_le_bytes().as_slice(),
         ]
         .concat()
     }
@@ -30,10 +33,13 @@ impl OwnerEconomyState {
         if player_id == 0 {
             return None;
         }
+        let shield_remaining_raw = i64::from_le_bytes(bytes[86..94].try_into().ok()?);
+        if !(0..=1_024_000_000).contains(&shield_remaining_raw) { return None; }
         Some(Self {
             player_id,
             economy: CommittedEconomyState::decode(&bytes[4..85]).ok()?,
             shop_available: bytes[85] == 1,
+            shield_remaining_raw,
         })
     }
 }
@@ -183,6 +189,7 @@ mod tests {
         let state = OwnerEconomyState {
             player_id: 7,
             shop_available: true,
+            shield_remaining_raw: 102400,
             economy: CommittedEconomyState::capture(
                 Gold(5),
                 &Inventory::default(),
@@ -198,6 +205,12 @@ mod tests {
         let mut bytes = state.encode();
         bytes[85] = 2;
         assert!(OwnerEconomyState::decode(&bytes).is_none());
+        for raw in [-1i64, 1_024_000_001, i64::MAX] {
+            let mut bytes = state.encode();
+            bytes[86..94].copy_from_slice(&raw.to_le_bytes());
+            assert!(OwnerEconomyState::decode(&bytes).is_none());
+        }
+        assert!(OwnerEconomyState::decode(&state.encode()[..86]).is_none());
         let mut bytes = state.encode();
         bytes[..4].fill(0);
         assert!(OwnerEconomyState::decode(&bytes).is_none());

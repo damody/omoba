@@ -253,6 +253,11 @@ fn emit_owner_economy(world: &World, state: &MobaMatch, phase: crate::runtime::F
                         player_id: slot.player_id,
                         economy,
                         shop_available,
+                        shield_remaining_raw: slot.entity
+                            .filter(|entity| properties.get(*entity).is_some_and(|p| p.hp > Fixed64::ZERO))
+                            .and_then(|entity| world.try_fetch::<crate::runtime::native::ability_runtime::buff_store::BuffStore>()
+                                .map(|store| store.shield_remaining(entity).raw()))
+                            .unwrap_or(0),
                     },
                 },
             })

@@ -5,8 +5,8 @@
 use crate::game_proto::{self as proto, player_input::Action, renderer_input::Intent, PlayerInput};
 
 pub const PRESENTATION_MAGIC: u32 = 0x4f4d_5254;
-/// Point-command queued semantics require v4; v3 silently discards the flag.
-pub const PRESENTATION_PROTOCOL_VERSION: u32 = 4;
+/// v5 requires the owner shield baseline; v4 also added queued point commands.
+pub const PRESENTATION_PROTOCOL_VERSION: u32 = 5;
 pub const MAX_PRESENTATION_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 /// Convert an existing formal command into a renderer intent. Entity IDs must

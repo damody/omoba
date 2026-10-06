@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 /// 共用的 selective 線路版本；V2 名稱仍表示模式，不表示目前線路版本。
-pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 5;
+pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 6;
 pub const SELECTIVE_LOCKSTEP_PROTOCOL_V2: u32 = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
 
 /// Only these protobuf message types may cross the secure V2 player boundary.

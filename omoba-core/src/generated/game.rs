@@ -1692,6 +1692,9 @@ pub struct OwnerEconomyPresentation {
     /// negotiated transport capability; defaults closed
     #[prost(bool, tag = "6")]
     pub shop_protocol_enabled: bool,
+    /// Q10 authority absorption, owner-scoped, 0..1024000000
+    #[prost(sint64, tag = "7")]
+    pub shield_remaining_raw: i64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ShopTransactionReceipt {

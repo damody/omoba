@@ -30,7 +30,7 @@ pub fn economy(
         .sanitized_payload;
     let state = OwnerEconomyState::decode(bytes)?;
     Some(OwnerEconomyPresentation {
-        schema_version: 1,
+        schema_version: 2,
         player_id,
         gold: state.economy.gold,
         slots: (0..6)
@@ -42,6 +42,7 @@ pub fn economy(
             .collect(),
         shop_available: state.shop_available,
         shop_protocol_enabled: false,
+        shield_remaining_raw: state.shield_remaining_raw,
     })
 }
 
@@ -214,6 +215,7 @@ mod tests {
         let state = OwnerEconomyState {
             player_id: 7,
             shop_available: false,
+            shield_remaining_raw: 0,
             economy: CommittedEconomyState {
                 gold: 550,
                 item_ids: [0, 3, 0, 0, 0, 0],
@@ -240,6 +242,12 @@ mod tests {
         assert_eq!(value.slots.len(), 6);
         assert_eq!(value.slots[1].catalog_id, 3);
         assert!(!value.shop_available);
+        assert_eq!(value.schema_version, 2);
+        assert_eq!(value.shield_remaining_raw, 0);
+        let mut shield = state.clone();
+        shield.shield_remaining_raw = 60 * 1024;
+        snapshot.public_events[0].sanitized_payload = shield.encode();
+        assert_eq!(economy(&snapshot, 7).unwrap().shield_remaining_raw, 60 * 1024);
         assert!(economy(&snapshot, 8).is_none());
         snapshot.public_events[0].sanitized_payload[4..8].copy_from_slice(&(-1i32).to_le_bytes());
         assert!(economy(&snapshot, 7).is_none());
