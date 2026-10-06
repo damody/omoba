@@ -2,6 +2,7 @@
 local script = debug.getinfo(1, 'S').source:sub(2)
 package.path = script:match('^(.*)[/\\]') .. '/?.lua;' .. package.path
 local b = require('_bootstrap')
+local compiled = require('moba_compiled_content')
 local path, process, time, json = b.lib('path'), b.lib('process'), b.lib('time'), b.lib('json')
 local run_id = 'moba-runtime-' .. os.time()
 local shop_smoke = os.getenv('OMOBA_SHOP_TRANSACTION_SMOKE') == '1'
@@ -33,6 +34,7 @@ path.mkdir_p(path.join(evidence, 'logs'))
 local port = tonumber(os.getenv('OMOBA_TEST_PORT_BASE') or '58161')
 assert(port and port >= 1024 and port <= 65532, 'invalid test port')
 local config = path.read(path.join(b.root, 'omb', 'game.toml'))
+config = compiled.configuration(config, b.lib('toml'))
 local fps_replacements
 config, fps_replacements = config:gsub('STEP_FPS%s*=%s*%d+', 'STEP_FPS = ' .. shop_fps, 1)
 assert(fps_replacements == 1, 'server config must contain STEP_FPS')
@@ -55,21 +57,20 @@ if roster_smoke then
 end
 path.write(game_file, config)
 local scripts_dir = path.join(b.root, 'scripts', 'target', 'debug')
-local env = {OMB_GAME_TOML = game_file, OMB_SCRIPTS_DIR = scripts_dir,
-  OMB_DLL_PATH = path.join(scripts_dir, 'base_content.dll'), OMB_LUA_CONTENT = '1',
-  OMB_LUA_CONTENT_ROOT = path.join(b.root, 'scripts', 'lua_data'),
-  OMB_STORY_DATA_DIR = path.join(b.root, 'scripts', 'lua_data'),
+local env = compiled.environment({OMB_GAME_TOML = game_file, OMB_SCRIPTS_DIR = scripts_dir,
+  OMB_DLL_PATH = path.join(scripts_dir, 'base_content.dll'),
   OMOBA_FOG_EVIDENCE_DIR = evidence, RUST_LOG = 'info',
   OMOBA_SHOP_QUERY_SMOKE = os.getenv('OMOBA_SHOP_QUERY_SMOKE') or '0',
   OMOBA_SHOP_TRANSACTION_SMOKE = shop_smoke and '1' or '0',
   OMOBA_RECALL_SMOKE = recall_smoke and '1' or '0',
   OMOBA_COMBAT_SMOKE = combat_smoke and '1' or '0',
   OMOBA_UPGRADE_SMOKE = upgrade_smoke and '1' or '0',
-  OMOBA_FIRST_LEARN_SMOKE = first_learn_smoke and '1' or '0'}
+  OMOBA_FIRST_LEARN_SMOKE = first_learn_smoke and '1' or '0'})
 local cleanup = process.cleanup_stack()
 local report = {kind = gameplay_mode == 'three_lane' and 'three-lane-kcp-two-runtime'
   or roster_smoke and 'single-lane-kcp-three-runtime' or 'single-lane-kcp-two-runtime',
-  gameplay_mode = gameplay_mode, tick_rate_hz = shop_fps, success = false, evidence = evidence, teams = {}}
+  gameplay_mode = gameplay_mode, tick_rate_hz = shop_fps, content_mode = compiled.feature,
+  success = false, evidence = evidence, teams = {}}
 local processes = {}
 local function spawn(role, executable, args, cwd, child_env)
   local pid = process.spawn(executable, args, {cwd = cwd, env = child_env or env,
@@ -95,7 +96,7 @@ local ok, error_message = xpcall(function()
   }) do
     local args = {'build', '--manifest-path'}
     for _, value in ipairs(build) do args[#args + 1] = value end
-    args[#args + 1] = '--features'; args[#args + 1] = 'runtime-lua-content'
+    args[#args + 1] = '--features'; args[#args + 1] = compiled.feature
     local result = process.run('cargo', args, {cwd = b.root, env = env, check = false})
     io.write(result.stdout or ''); io.stderr:write(result.stderr or '')
     assert(result.exit_code == 0, 'build failed: ' .. build[1])
@@ -112,7 +113,7 @@ local ok, error_message = xpcall(function()
     local pid = spawn('runtime-p' .. team, runtime_exe, {
       '--player-id', tostring(team), '--team', tostring(team), '--player-name', 'player' .. team,
       '--server', '127.0.0.1:' .. port, '--presentation-bind', '127.0.0.1:' .. (port + team),
-      '--presentation-hz', shop_smoke and '30' or '60',  '--test-mode', '--evidence-dir', evidence,
+      '--presentation-hz', tostring(shop_fps),  '--test-mode', '--evidence-dir', evidence,
       '--scripted-move-tick', (shop_smoke or combat_smoke) and '24000' or '360',
       '--scripted-hidden-target-tick', (shop_smoke or recall_smoke or combat_smoke) and '24060' or '420',
       '--shutdown-file', path.join(evidence, 'shutdown-p' .. team .. '.signal'),

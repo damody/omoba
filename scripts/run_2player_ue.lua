@@ -3,12 +3,13 @@ local dir = script:match("^(.*)[/\\]")
 package.path = dir .. "/?.lua;" .. package.path
 
 local b = require("_bootstrap")
+local compiled = require('moba_compiled_content')
 local path = b.lib("path")
 local process = b.lib("process")
 local time = b.lib("time")
 local json = b.lib("json")
 local smoke_seconds = tonumber(os.getenv("OMOBA_UE_SMOKE_SECONDS") or "")
-local smoke_report = {success = false, kind = "two-team-unreal-ipc", teams = {}}
+local smoke_report = {success = false, kind = "two-team-unreal-ipc", content_mode=compiled.feature, teams = {}}
 local graphics_rhi = os.getenv('OMOBA_UE_RHI') or 'd3d11'
 assert(graphics_rhi == 'd3d11' or graphics_rhi == 'd3d12', 'OMOBA_UE_RHI must be d3d11 or d3d12')
 smoke_report.graphics_rhi = graphics_rhi
@@ -126,6 +127,7 @@ assert(port >= 1024 and port <= 65000, "invalid port")
 local story = os.getenv("OMB_STORY") or "FOG_2TEAM_DEMO"
 local server_game = path.join(evidence, "server-game.toml")
 local game = path.read(path.join(b.root, "omb", "game.toml"))
+game = compiled.configuration(game, b.lib('toml'))
 local replaced, count = game:gsub('(SERVER_PORT%s*=%s*")[^"]+(" )', "%1" .. port .. "%2")
 if count == 0 then
   replaced, count = game:gsub('(SERVER_PORT%s*=%s*")[^"]+(")', "%1" .. port .. "%2")
@@ -340,7 +342,7 @@ local ok, result = xpcall(function()
       "--player-name", "player" .. team,
       "--server", "127.0.0.1:" .. port,
       "--presentation-bind", presentation,
-      "--presentation-hz", shop_smoke and "30" or "60",
+      "--presentation-hz", tostring(tick_rate),
 
     }
     if smoke_seconds then
