@@ -63,7 +63,7 @@ local function execute(name,mode)
   if mode=='completion-timeout' then options.selection_timeout_seconds=1 end
   local now,host_dir,plan=0,nil,nil
   local peers,states,stopped={},{},{}
-  local publish
+  local publish,fixture
   local fake={}
   fake.run=function(_,args)
     assert(args[1]=='--lock-plan')
@@ -95,11 +95,16 @@ local function execute(name,mode)
       invite=invite or arg:match('^%-om%-selection%-plan=(.*)$')
     end
     assert(id and log and result and invite==path.join(host_dir,'player-'..id..'.json'))
+    if mode=='partial-spawn' and id==2 then error('injected renderer spawn failure') end
     assert(args[4]=='-om-hero-selection' and exe=='mock-editor.exe')
-    path.write(log,('OM_SELECTION_READY player=%d protocol=1 shared_room=%d\n'):format(id,
-      mode=='old' and id==2 and 0 or 1))
+    local protocol=(mode=='protocol-prefix' or mode=='fast-protocol-prefix') and '10' or '1'
+    local room=mode=='room-prefix' and '10' or (mode=='old' and id==2 and '0' or '1')
+    local prefix=(mode=='fast-backlog') and string.rep('startup\n',40000) or ''
+    local tail=mode=='fast-tail' and '' or '\n'
+    path.write(log,prefix..('OM_SELECTION_READY player=%d protocol=%s shared_room=%s'):format(id,protocol,room)..tail)
     peers[id]={result=result,pid=200+id}
     states[200+id]={alive=true,exe=exe}
+    if id==2 and (mode=='fast-backlog' or mode=='fast-tail' or mode=='fast-protocol-prefix') then publish() end
     return 200+id
   end
   fake.inspect=function(pid) return states[pid] and states[pid].alive and {path=states[pid].exe} or nil end
@@ -133,21 +138,25 @@ local function execute(name,mode)
   end
   local clock={monotonic_ms=function() return now end,sleep_ms=function(ms)
     assert(ms==250);now=now+ms
-    if mode=='cancel' or mode=='cleanup-error' then states[202].alive=false
+    if mode=='reused-host' then fixture.reuse(101)
+    elseif mode=='reused-renderer' then fixture.reuse(202)
+    elseif mode=='cancel' or mode=='cleanup-error' then states[202].alive=false
     elseif mode=='host-exit' then states[101].alive=false
     elseif mode=='old' or mode=='completion-timeout' then -- No timeout fallback or synthetic consent.
     elseif mode=='publication-timeout' then receipts(record(plan),2)
     elseif mode=='delayed-publication' and now==250 then receipts(record(plan),2)
     else publish() end
   end}
+  fake,fixture=require('tests.selection_owned_fixture').wrap(fake)
   local ok,err=pcall(launch.interactive_select,options,'mock-editor.exe',fake,clock)
   assert(path.read(recipe)==original,'source recipe was modified')
   assert(not path.exists(options.output),'gameplay configuration was created during selection')
-  if mode=='success' or mode=='delayed-publication' then
+  if mode=='success' or mode=='delayed-publication' or mode=='fast-backlog' or mode=='fast-tail' then
     assert(ok,tostring(err))
     for ordinal,pid in ipairs({101,201,202}) do
       local entry=json.read(path.join(options.output..'-selection','owned-process-'..ordinal..'.json'))
-      assert(entry.pid==pid and entry.exe==states[pid].exe,'ownership evidence missing')
+      assert(entry.pid==pid and entry.executable==path.absolute(states[pid].exe)
+        and type(entry.creation_token)=='string','ownership evidence missing')
     end
     assert(next(options.hero_selections)==nil and options.recipe~=recipe)
     assert(json.read(options.recipe).players[1].hero=='training_ranger')
@@ -158,7 +167,10 @@ local function execute(name,mode)
       old='shared renderer handshake timeout', ['bad-ready']='host readiness mismatch',
       tamper='selection changed host-owned rules', ['bad-receipt']='bound shared-room receipt',
       ['missing-receipt']='terminal receipt', ['publication-timeout']='publication timeout',
-      ['cleanup-error']='selection cancelled',['completion-timeout']='selection completion timed out'}
+      ['cleanup-error']='selection cancelled',['completion-timeout']='selection completion timed out',
+      ['partial-spawn']='injected renderer spawn failure',['reused-host']='host exited without a final artifact',
+      ['reused-renderer']='selection cancelled',['protocol-prefix']='shared-room handshake',
+      ['room-prefix']='shared-room handshake',['fast-protocol-prefix']='shared-room handshake'}
     assert(tostring(err):find(assert(reasons[mode]),1,true),'unexpected failure: '..tostring(err))
     assert(options.recipe==recipe and options.hero_selections[1]=='training_vanguard')
     local errors=path.read(options.output..'-selection/errors.md')
@@ -168,12 +180,18 @@ local function execute(name,mode)
       assert(errors:find('Cleanup errors:',1,true) and errors:find('injected cleanup failure',1,true))
     end
     for pid,state in pairs(states) do
-      assert(not state.alive or (mode=='cleanup-error' and pid==201),'owned process was missed')
+      assert(not state.alive or (mode=='cleanup-error' and pid==201)
+        or (mode=='reused-host' and pid==101) or (mode=='reused-renderer' and pid==202),'owned process was missed')
     end
+    if mode=='reused-host' then assert(not stopped[101] and stopped[201] and stopped[202]) end
+    if mode=='reused-renderer' then assert(not stopped[202] and stopped[101] and stopped[201]) end
+    if mode=='partial-spawn' then assert(stopped[101] and stopped[201] and not stopped[202]) end
   end
 end
 for _,mode in ipairs({'success','delayed-publication','cancel','host-exit','old','bad-ready',
-  'tamper','bad-receipt','missing-receipt','publication-timeout','cleanup-error','completion-timeout'}) do
+  'tamper','bad-receipt','missing-receipt','publication-timeout','cleanup-error','completion-timeout',
+  'partial-spawn','reused-host','reused-renderer','protocol-prefix','room-prefix',
+  'fast-backlog','fast-tail','fast-protocol-prefix'}) do
   test('shared launch '..mode,function() execute(mode,mode) end)
 end
 print(('shared selection launcher: %d/%d passed; mocked processes, no gameplay/Unreal acceptance'):format(total,total))

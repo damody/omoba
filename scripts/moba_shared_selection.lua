@@ -54,21 +54,24 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
   local hash=assert(preflight.selection.catalog_data_hash)
   local host_dir=path.join(output,'host')
   local function spawn(executable,args,directory,label)
-    local pid=process.spawn(executable,args,{cwd=directory,
+    local pid,record=process.spawn_owned(executable,args,{cwd=directory,
       env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'},
       stdout=path.join(output,label..'.stdout.log'),stderr=path.join(output,label..'.stderr.log')})
-    owned[#owned+1]={pid=pid,exe=executable,label=label}
+    record=process.validate_owned(record)
+    assert(record.pid==pid,'shared selection spawn identity mismatch')
+    record.label=label
+    owned[#owned+1]=record
     -- Immutable per-process records preserve prior ownership evidence on partial failure.
     path.write(path.join(output,'owned-process-'..#owned..'.json'),json.encode(owned[#owned]))
-    return pid
+    return record
   end
   local function cleanup()
     local errors={}
     for i=#owned,1,-1 do
       local entry=owned[i]
       local ok,err=pcall(function()
-        if process.inspect(entry.pid) then process.stop(entry.pid,entry.exe) end
-        assert(process.wait(entry.pid,5000),'owned selection process remained: '..entry.label)
+        if process.owned_alive(entry) then process.stop_owned(entry) end
+        assert(process.wait_owned(entry,5000),'owned selection process remained: '..entry.label)
       end)
       if not ok then errors[#errors+1]=entry.label..': '..tostring(err) end
     end
@@ -82,7 +85,7 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
     local ready_path=path.join(host_dir,'ready.json')
     while not path.is_file(ready_path) do
       budget.check(completion_deadline,time)
-      assert(process.inspect(host),'shared selection host exited before readiness')
+      assert(process.owned_alive(host),'shared selection host exited before readiness')
       assert(time.monotonic_ms()<deadline,'shared selection host readiness timeout')
       time.sleep_ms(250)
     end
@@ -107,25 +110,38 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
         '-nosplash','-nop4','-NoLiveCoding','-AllowMultipleInstances',
         '-UserDir='..path.join(directory,'ue-user'),'-abslog='..log}
       if options.selection_smoke_hero then args[#args+1]='-om-selection-smoke-hero='..options.selection_smoke_hero end
-      renderers[#renderers+1]={id=id,pid=spawn(editor,args,path.join(b.root,'omfue'),'player-'..id),
-        receipt=receipt,log=log,deadline=time.monotonic_ms()+45000}
+      renderers[#renderers+1]={id=id,owned=spawn(editor,args,path.join(b.root,'omfue'),'player-'..id),
+        receipt=receipt,log=log,deadline=time.monotonic_ms()+45000,
+        readiness=require('moba_selection_readiness').reader(id,true)}
+    end
+    local function read_ready(renderer,final)
+      if renderer.ready then return true end
+      local caught_up
+      repeat
+        budget.check(completion_deadline,time)
+        assert(time.monotonic_ms()<renderer.deadline,'shared renderer handshake timeout')
+        renderer.ready,caught_up=renderer.readiness:poll(renderer.log,final)
+        budget.check(completion_deadline,time)
+        assert(time.monotonic_ms()<renderer.deadline,'shared renderer handshake timeout')
+      until not final or renderer.ready or caught_up
+      return renderer.ready
     end
     local final_path=path.join(host_dir,'finalized-plan.json')
     local publication_deadline
     while not path.is_file(final_path) do
       budget.check(completion_deadline,time)
       for _,renderer in ipairs(renderers) do
-        renderer.ready=renderer.ready or (path.is_file(renderer.log) and path.read(renderer.log):find(
-          ('OM_SELECTION_READY player=%d protocol=1 shared_room=1'):format(renderer.id),1,true)~=nil)
+        local alive=process.owned_alive(renderer.owned)
+        read_ready(renderer,not alive)
         assert(renderer.ready or time.monotonic_ms()<renderer.deadline,'shared renderer handshake timeout')
-        if not process.inspect(renderer.pid) then
+        if not alive then
           assert(renderer.ready,'renderer exited without shared-room handshake')
           assert(path.is_file(renderer.receipt),'selection cancelled; no match started')
           M.receipt(json.read(renderer.receipt),renderer.id,hash)
           publication_deadline=publication_deadline or time.monotonic_ms()+5000
         end
       end
-      assert(path.is_file(final_path) or process.inspect(host),'shared host exited without a final artifact')
+      assert(path.is_file(final_path) or process.owned_alive(host),'shared host exited without a final artifact')
       assert(not publication_deadline or time.monotonic_ms()<publication_deadline,'host final artifact publication timeout')
       time.sleep_ms(250)
     end
@@ -134,16 +150,15 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
     local final=M.result(record,preflight.plan,hash)
     -- Do not start gameplay while any selection renderer/host still owns the session.
     for _,renderer in ipairs(renderers) do
-      assert(process.wait(renderer.pid,budget.wait_ms(completion_deadline,time,15000)),
+      assert(process.wait_owned(renderer.owned,budget.wait_ms(completion_deadline,time,15000)),
         'shared renderer did not exit after finalization')
-      local log=path.is_file(renderer.log) and path.read(renderer.log) or ''
-      assert(log:find(('OM_SELECTION_READY player=%d protocol=1 shared_room=1'):format(renderer.id),1,true),
+      assert(read_ready(renderer,true),
         'renderer lacks shared-room handshake')
       assert(path.is_file(renderer.receipt),'renderer exited without terminal receipt; selection cancelled')
       local state=M.receipt(json.read(renderer.receipt),renderer.id,hash)
       assert(json.encode(state)==json.encode(record.selection),'renderer terminal state differs from host')
     end
-    assert(process.wait(host,budget.wait_ms(completion_deadline,time,5000)),'selection host did not retire')
+    assert(process.wait_owned(host,budget.wait_ms(completion_deadline,time,5000)),'selection host did not retire')
     budget.check(completion_deadline,time)
     local selected=path.join(output,'match-plan.json')
     assert(not path.exists(selected),'selected match plan already exists')

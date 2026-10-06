@@ -93,7 +93,7 @@ test('runtime readiness requires exact admitted identity, not listener or other 
   assert(not launch.runtime_ready('client-runtime ready player_id=11 team_id=1 replica_tick=1',client))
   assert(launch.runtime_ready('client-runtime ready player_id=1 team_id=1 replica_tick=1',client))
 end)
-test('owned PID cleanup is reverse order, waited, and failures propagated',function()
+test('original child cleanup is reverse order, waited, and failures propagated',function()
   local function execute(fail_stop)
     local copied=json.decode(json.encode(plan))
     copied.output=path.mkdir_p(path.join(root,fail_stop and 'cleanup-failure' or 'cleanup-success'))
@@ -107,16 +107,61 @@ test('owned PID cleanup is reverse order, waited, and failures propagated',funct
     end,inspect=function(pid) return pid~=3 end,poll_ready=function(_,_,predicate) assert(predicate()) end,
       stop=function(pid) stopped[#stopped+1]=pid;if fail_stop and pid==2 then error('simulated stop failure') end end,
       wait=function(pid) waited[#waited+1]=pid;return true end}
+    local fixture
+    fake,fixture=require('tests.selection_owned_fixture').wrap(fake)
     local ok=pcall(launch.launch,copied,copied.server.exe,fake,{sleep_ms=function() error('unexpected wait') end})
     assert(ok~=fail_stop)
-    assert(table.concat(stopped,',')=='3,2,1')
-    assert(table.concat(waited,',')==(fail_stop and '3,1' or '3,2,1'))
+    assert(table.concat(stopped,',')=='2,1') -- renderer 3 already exited, never stop its reused PID.
+    assert(table.concat(fixture.waited,',')==(fail_stop and '3,1' or '3,2,1'))
+    assert(#waited==0) -- all original lifetimes already retired; no PID-only wait.
     local result=json.read(path.join(copied.output,'lifecycle.json'))
     assert(result.cleanup_succeeded~=fail_stop)
     if fail_stop then assert(path.read(path.join(copied.output,'errors.md')):find('simulated stop failure',1,true)) end
   end
   execute(false);execute(true)
 end)
+test('reused server/runtime/renderer and partial startup retain exact ownership',function()
+  for _,mode in ipairs({'server-reused','runtime-reused','renderer-reused','partial-spawn'}) do
+    local copied=json.decode(json.encode(plan))
+    copied.output=path.mkdir_p(path.join(root,mode))
+    copied.server.exe=b.lib('platform').lua_executable
+    copied.clients[1].runtime.exe=copied.server.exe
+    local serial,live,stops,legacy_waits=0,{},{},{}
+    local fixture
+    local old={spawn=function(_,_,options)
+      serial=serial+1
+      if mode=='partial-spawn' and serial==3 then error('injected renderer spawn failure') end
+      live[serial]=true
+      path.write(options.stdout,'client-runtime ready player_id=1 team_id=1 replica_tick=1',true)
+      return serial
+    end,inspect=function(pid)return live[pid] end,
+      stop=function(pid)stops[#stops+1]=pid;live[pid]=false end,
+      wait=function(pid)legacy_waits[#legacy_waits+1]=pid;return not live[pid] end,
+      poll_ready=function(pid,_,predicate)
+        if mode=='server-reused' then fixture.reuse(1) end
+        if mode=='runtime-reused' then fixture.reuse(pid) end
+        assert(predicate())
+      end}
+    local fake
+    fake,fixture=require('tests.selection_owned_fixture').wrap(old)
+    local ok,err=pcall(launch.launch,copied,copied.server.exe,fake,{sleep_ms=function(ms)
+      assert(mode=='renderer-reused' and ms==500)
+      fixture.reuse(3)
+    end})
+    assert(ok==(mode=='renderer-reused'),tostring(err))
+    local expected=({['server-reused']='2',['runtime-reused']='1',['renderer-reused']='2,1',['partial-spawn']='2,1'})[mode]
+    assert(table.concat(stops,',')==expected,'wrong owned cleanup for '..mode)
+    assert(#legacy_waits==0,'PID-only wait reached new or retired process')
+    local saved=json.read(path.join(copied.output,'owned-processes.json'))
+    assert(#saved==(mode=='partial-spawn' and 2 or serial))
+    local reused=({['server-reused']=1,['runtime-reused']=2,['renderer-reused']=3})[mode]
+    if reused then
+      assert(live[reused],'reused process was stopped')
+      assert(saved[reused].creation_token~=fixture.current[reused].creation_token,'original identity overwritten')
+    end
+  end
+end)
+
 test('arguments fail closed; production Rust rejects invalid recipe',function()
   for _,args in ipairs({{'--port','65526'},{'--profile','fast'},{'--graphics','opengl'},{'--recipe'},{'--unknown'}}) do
     rejects(function() launch.options(args) end)

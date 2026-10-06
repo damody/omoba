@@ -161,31 +161,40 @@ function M.interactive_select(options,editor,process,time)
   if options.selection_smoke_hero then
     args[#args+1]='-om-selection-smoke-hero='..options.selection_smoke_hero
   end
-  local pid
+  local owned
   local ok,err=xpcall(function()
     local budget=require('moba_selection_deadline')
     local completion_deadline=budget.start(options,time)
-    pid=process.spawn(editor,args,{cwd=path.join(b.root,'omfue'),
+    local pid,record=process.spawn_owned(editor,args,{cwd=path.join(b.root,'omfue'),
       env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'},
       stdout=path.join(output,'ue.stdout.log'),stderr=path.join(output,'ue.stderr.log')})
-    path.write(path.join(output,'owned-process.json'),json.encode({pid=pid,exe=editor}))
+    owned=process.validate_owned(record)
+    assert(owned.pid==pid,'selection spawn identity mismatch')
+    path.write(path.join(output,'owned-process.json'),json.encode(owned))
     -- No server/client World exists yet. Closing the window cancels selection.
     local deadline=time.monotonic_ms()+45000
     local ready=false
-    local function read_ready()
-      local log=path.join(output,'ue.log')
-      return path.is_file(log) and path.read(log):find(
-        ('OM_SELECTION_READY player=%d protocol=1'):format(humans[1]),1,true)~=nil
+    local readiness=require('moba_selection_readiness').reader(humans[1],false)
+    local function read_ready(final)
+      local caught_up
+      repeat
+        budget.check(completion_deadline,time)
+        assert(time.monotonic_ms()<deadline,'selection UI/service handshake timeout')
+        ready,caught_up=readiness:poll(path.join(output,'ue.log'),final)
+        budget.check(completion_deadline,time)
+        assert(time.monotonic_ms()<deadline,'selection UI/service handshake timeout')
+      until not final or ready or caught_up
+      return ready
     end
-    while process.inspect(pid) do
+    while process.owned_alive(owned) do
       budget.check(completion_deadline,time)
-      ready=ready or read_ready()
+      ready=ready or read_ready(false)
       assert(ready or time.monotonic_ms()<deadline,'selection UI/service did not become ready; do not use an old Unreal binary')
       time.sleep_ms(250)
     end
-    assert(process.wait(pid,budget.wait_ms(completion_deadline,time,5000)),'selection renderer has not exited')
+    assert(process.wait_owned(owned,budget.wait_ms(completion_deadline,time,5000)),'selection renderer has not exited')
     budget.check(completion_deadline,time)
-    assert(ready or read_ready(),'selection renderer exited without the bound service handshake')
+    assert(ready or read_ready(true),'selection renderer exited without the bound service handshake')
     assert(path.is_file(result),'selection cancelled or renderer failed; no match started')
     local final=M.selection_result(json.read(result),preflight.plan,humans[1],preflight.selection.catalog_data_hash)
     budget.check(completion_deadline,time)
@@ -196,9 +205,9 @@ function M.interactive_select(options,editor,process,time)
   end,debug.traceback)
   if not ok then
     local cleaned,cleanup_err=pcall(function()
-      if pid and process.inspect(pid) then
-        process.stop(pid,editor)
-        assert(process.wait(pid,5000),'selection process remained after stop')
+      if owned then
+        if process.owned_alive(owned) then process.stop_owned(owned) end
+        assert(process.wait_owned(owned,5000),'selection process remained after stop')
       end
     end)
     path.write(path.join(output,'errors.md'),'# Selection handoff error\n\n'..tostring(err)..
@@ -332,19 +341,22 @@ function M.launch(plan,editor,process,time)
     assert(path.is_file(spec.exe),'missing executable: '..spec.exe)
     local stdout=path.join(plan.output,label..'.stdout.log')
     local stderr=path.join(plan.output,label..'.stderr.log')
-    local pid=process.spawn(spec.exe,spec.args,{cwd=spec.cwd,env=spec.env,stdout=stdout,stderr=stderr})
-    owned[#owned+1]={pid=pid,exe=spec.exe,label=label}
+    local pid,record=process.spawn_owned(spec.exe,spec.args,{cwd=spec.cwd,env=spec.env,stdout=stdout,stderr=stderr})
+    record=process.validate_owned(record)
+    assert(record.pid==pid,'match spawn identity mismatch')
+    record.label=label
+    owned[#owned+1]=record
     -- Persist after every spawn, including a partial startup that later fails.
     path.write(path.join(plan.output,'owned-processes.json'),json.encode(owned),true)
-    return pid,stdout,stderr
+    return record,stdout,stderr
   end
   local ok,err=xpcall(function()
     local server=plan.server and spawn('server',plan.server) or nil
     local editors={}
     for _,client in ipairs(plan.clients) do
       local runtime,out,errors=spawn('runtime-p'..client.player_id,client.runtime)
-      process.poll_ready(runtime,45000,function()
-        assert(not server or process.inspect(server),'server exited before runtime ready')
+      process.poll_owned_ready(runtime,45000,function()
+        assert(not server or process.owned_alive(server),'server exited before runtime ready')
         local text=(path.is_file(out) and path.read(out) or '')..(path.is_file(errors) and path.read(errors) or '')
         return M.runtime_ready(text,client)
       end,'runtime-p'..client.player_id)
@@ -361,17 +373,22 @@ function M.launch(plan,editor,process,time)
     end
     while true do
       local active=false
-      for _,pid in ipairs(editors) do if process.inspect(pid) then active=true end end
+      for _,record in ipairs(editors) do if process.owned_alive(record) then active=true end end
       if not active then
         assert(not finish_deadline, 'renderers exited before the bounded result observation completed')
         break
       end
-      assert(not server or process.inspect(server),'server exited during interactive match')
+      assert(not server or process.owned_alive(server),'server exited during interactive match')
       for _,entry in ipairs(owned) do
-        if entry.label:match('^runtime') then assert(process.inspect(entry.pid),entry.label..' exited during match') end
+        if entry.label:match('^runtime') then assert(process.owned_alive(entry),entry.label..' exited during match') end
       end
       if finish_deadline then
+        local function check_finish_deadline()
+          assert(time.monotonic_ms()<finish_deadline,'bounded match result observation timed out; no forced winner')
+        end
+        check_finish_deadline()
         local observation = finish_reader:poll(finish_logs)
+        check_finish_deadline()
         if observation.complete then
           finish_seen_at = finish_seen_at or time.monotonic_ms()
           finish_observation = observation
@@ -380,11 +397,12 @@ function M.launch(plan,editor,process,time)
             screenshots = screenshots and path.is_file(path.join(plan.output,'result-p'..client.player_id..'.png'))
           end
           if screenshots and time.monotonic_ms() >= finish_seen_at + 2000 then
+            check_finish_deadline()
             path.write(path.join(plan.output,'native-result-observation.json'),json.encode(finish_observation))
             break
           end
         end
-        assert(time.monotonic_ms() < finish_deadline, 'bounded match result observation timed out; no forced winner')
+        check_finish_deadline()
       end
       time.sleep_ms(500)
     end
@@ -393,8 +411,8 @@ function M.launch(plan,editor,process,time)
   for i=#owned,1,-1 do
     local entry=owned[i]
     local cleaned,reason=pcall(function()
-      process.stop(entry.pid,entry.exe)
-      assert(process.wait(entry.pid,5000),'PID remained after stop: '..entry.pid)
+      if process.owned_alive(entry) then process.stop_owned(entry) end
+      assert(process.wait_owned(entry,5000),'original child remained after stop: '..entry.pid)
     end)
     if not cleaned then failures[#failures+1]=tostring(reason) end
   end
