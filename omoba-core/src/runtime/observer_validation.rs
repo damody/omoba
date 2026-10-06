@@ -464,6 +464,7 @@ fn run_team_worker(
                             if expected_hash == post_repair_hash {
                                 continue;
                             }
+                            record_mismatch_components(team_id, replica_tick, replica);
                             if let Some(team) = metrics.teams.get(&team_id) {
                                 team.pre_repair_mismatch_count
                                     .fetch_add(1, Ordering::Relaxed);
@@ -499,6 +500,22 @@ fn run_team_worker(
                 }
             }
         }
+    }
+}
+
+// Opt-in evidence contains only already-disclosed component values/digests,
+// never canonical identities or hidden world state. Preserve the original checkpoint
+// failure; diagnostics must not change recovery or authorization policy.
+fn record_mismatch_components(team_id: u32, tick: u64, replica: &SelectiveReplicaRuntime) {
+    let Ok(root) = std::env::var("OMOBA_FOG_EVIDENCE_DIR") else { return; };
+    let dir = std::path::Path::new(&root).join("server").join(format!("team-{team_id}"));
+    let result = (|| -> std::io::Result<()> {
+        std::fs::create_dir_all(&dir)?;
+        let bytes = serde_json::to_vec_pretty(&replica.disclosed_component_digests())?;
+        std::fs::write(dir.join(format!("observer-components-{tick}.json")), bytes)
+    })();
+    if let Err(error) = result {
+        log::warn!("observer mismatch digest evidence failed team={} tick={} error={}", team_id, tick, error);
     }
 }
 
