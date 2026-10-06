@@ -1981,6 +1981,81 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn all_retained_cue_kinds_survive_real_tcp_reconnect_without_history_replay() {
+        use crate::cue_retention::{CueRetention, tests::{effect, ability_effect, ranked_ability_effect, relocation_effect, area_effect, impact_effect, snapshot}};
+        tokio::time::timeout(Duration::from_secs(5), async {
+            let variants: [fn(u64, u32) -> omoba_core::game_proto::PresentationEffect; 6] =
+                [effect, ability_effect, ranked_ability_effect, relocation_effect, area_effect, impact_effect];
+            let cues = |tick| variants.iter().enumerate().map(|(i, make)| make(tick, i as u32)).collect::<Vec<_>>();
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let ledger = Arc::new(std::sync::Mutex::new(CueRetention::default()));
+            let mut initial = snapshot(10);
+            initial.effects = cues(10);
+            ledger.lock().unwrap().capture(7, 10, initial.effects.clone());
+            let (latest_tx, latest_rx) = watch::channel(Some(Arc::new(envelope(10,
+                renderer_ipc_envelope::Payload::Snapshot(initial)))));
+            let (_critical_tx, critical_rx) = mpsc::channel(8);
+            let critical = Arc::new(Mutex::new(critical_rx));
+            let (input_tx, _input_rx) = mpsc::channel(1);
+            let shared = ledger.clone();
+            let (closed_tx, mut closed_rx) = mpsc::channel(2);
+            let server = tokio::spawn(async move {
+                let consumed = Arc::new(AtomicU64::new(0));
+                let shutdown = Arc::new(AtomicBool::new(false));
+                for session in 0..2 {
+                    let (stream, _) = listener.accept().await.unwrap();
+                    serve_renderer_retained(stream, 7, 1, latest_rx.clone(), critical.clone(),
+                        input_tx.clone(), shutdown.clone(), consumed.clone(), Some(shared.clone()), None)
+                        .await.unwrap_or_else(|e| panic!("renderer session {session}: {e}"));
+                    closed_tx.send(session).await.unwrap();
+                }
+            });
+            for (baseline_tick, live_tick) in [(10, 11), (12, 13)] {
+                let mut client = TcpStream::connect(address).await.unwrap();
+                write_envelope(&mut client, &envelope(0, renderer_ipc_envelope::Payload::RendererReady(
+                    omoba_core::game_proto::RendererReady {player_id: 7, team_id: 1, latest_snapshot_sequence: 0})))
+                    .await.unwrap_or_else(|e| panic!("ready at baseline {baseline_tick}: {e}"));
+                let baseline = read_envelope(&mut client).await.unwrap();
+                let Some(renderer_ipc_envelope::Payload::Snapshot(view)) = baseline.payload else {panic!("expected baseline")};
+                assert_eq!(view.replica_tick, baseline_tick);
+                assert!(view.effects.is_empty(), "reconnect baseline must not replay old or offline cues");
+                assert!(cues(baseline_tick).iter().all(|cue| !ledger.lock().unwrap().contains(cue.effect_id)));
+                let fresh = cues(live_tick);
+                ledger.lock().unwrap().capture(7, live_tick, fresh.clone());
+                let mut live = snapshot(live_tick);
+                live.effects = cues(10); // A frame prepared before consumption can retain history.
+                live.effects.extend(cues(12).into_iter().filter(|_| live_tick > 12));
+                ledger.lock().unwrap().project(&mut live);
+                latest_tx.send_replace(Some(Arc::new(envelope(live_tick,
+                    renderer_ipc_envelope::Payload::Snapshot(live)))));
+                let received = read_envelope(&mut client).await.unwrap();
+                let Some(renderer_ipc_envelope::Payload::Snapshot(view)) = received.payload else {panic!("expected live snapshot")};
+                assert_eq!(view.effects, fresh, "all six fresh cue kinds delivered exactly once");
+                write_envelope(&mut client, &envelope(0, renderer_ipc_envelope::Payload::RendererConsumed(
+                    omoba_core::game_proto::RendererConsumed {snapshot_sequence: live_tick}))).await.unwrap();
+                while fresh.iter().any(|cue| ledger.lock().unwrap().contains(cue.effect_id)) {
+                    tokio::task::yield_now().await;
+                }
+                write_envelope(&mut client, &envelope(0,
+                    renderer_ipc_envelope::Payload::RendererShutdown(Default::default()))).await.unwrap();
+                assert_eq!(closed_rx.recv().await, Some(if live_tick == 11 { 0 } else { 1 }));
+                drop(client);
+                if live_tick == 11 {
+                    let offline = cues(12);
+                    ledger.lock().unwrap().capture(7, 12, offline.clone());
+                    let mut view = snapshot(12);
+                    view.effects = fresh;
+                    view.effects.extend(offline);
+                    latest_tx.send_replace(Some(Arc::new(envelope(12,
+                        renderer_ipc_envelope::Payload::Snapshot(view)))));
+                }
+            }
+            server.await.unwrap();
+        }).await.unwrap();
+    }
+
+    #[tokio::test]
     async fn first_snapshot_after_ready_is_baseline_but_new_live_effects_survive() {
         tokio::time::timeout(Duration::from_secs(3), async {
             for first_is_critical in [false, true] {
