@@ -814,8 +814,8 @@ fn dispatch_one(
                         )
                     }));
                     match r {
-                        Ok(res) if res.is_err() => {
-                            log::warn!("[scripting] ability '{}' execute returned error", skill_id);
+                        Ok(abi_stable::std_types::RResult::RErr(error)) => {
+                            log::warn!("[scripting] ability '{}' execute returned error: {}", skill_id, error);
                             false
                         }
                         Ok(_) => true,
