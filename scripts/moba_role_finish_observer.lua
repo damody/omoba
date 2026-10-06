@@ -1,5 +1,6 @@
 -- Read-only native result observation. Never submits input or changes gameplay.
 local M = {}
+local bounded=require('moba_bounded_log')
 function M.observe(clients, logs)
   assert(#clients > 0, 'finish observation requires local humans')
   local results, winner, seen = {}, nil, {}
@@ -9,8 +10,19 @@ function M.observe(clients, logs)
     assert(client.team_id == 1 or client.team_id == 2, 'unsupported result team')
     local result
     for line in (logs[client.player_id] or ''):gmatch('[^\r\n]+') do
-      local p, t, w, outcome, tick = line:match(
-        'OM_MATCH_RESULT_UI player=(%d+) team=(%d+) winner=(%d+) outcome=(%a+) tick=(%d+)')
+      local prefix,p,t,w,outcome,tick=line:match(
+        '^(.-)OM_MATCH_RESULT_UI[ \t]+player=(%d+)[ \t]+team=(%d+)[ \t]+winner=(%d+)[ \t]+outcome=(%a+)[ \t]+tick=(%d+)[ \t]*$')
+      if line:find('OM_MATCH_RESULT_UI',1,true) then
+        assert(prefix and #line<=65536 and (prefix=='' or prefix:match('[ \t]$'))
+          and not prefix:find('OM_MATCH_RESULT_UI',1,true),'malformed result marker')
+        local id=tonumber(p)
+        assert(math.type(id)=='integer' and id>=1 and id<=4294967295 and p==tostring(id),
+          'invalid result player identity')
+        assert((t=='1' or t=='2') and (w=='0' or w=='1' or w=='2'),'result identity/winner mismatch')
+        local parsed_tick=tonumber(tick)
+        assert(math.type(parsed_tick)=='integer' and parsed_tick>0 and parsed_tick<=9007199254740991
+          and tick==tostring(parsed_tick),'invalid result outcome/tick')
+      end
       if tonumber(p) == client.player_id then
         t, w, tick = tonumber(t), tonumber(w), tonumber(tick)
         assert(t == client.team_id and (w == 0 or w == 1 or w == 2), 'result identity/winner mismatch')
@@ -38,46 +50,23 @@ function M.reader(clients)
       and client.player_id<=4294967295 and not seen[client.player_id],'invalid or duplicate observed player')
     assert(client.team_id==1 or client.team_id==2,'unsupported result team')
     seen[client.player_id]=true
-    states[client.player_id]={offset=0,pending='',history=''}
+    states[client.player_id]={log=bounded.reader(),history=''}
   end
   assert(#clients>0,'finish observation requires local humans')
   return {poll=function(_,paths)
     local histories={}
     for _,client in ipairs(clients) do
       local state=states[client.player_id]
-      local file,err,code=io.open(assert(paths[client.player_id],'missing result log path'),'rb')
-      if not file then
-        assert(code==2 and state.offset==0,'cannot read result log or previously observed log disappeared: '..tostring(err))
-      else
-        local ok,chunk=pcall(function()
-          local size=assert(file:seek('end'))
-          assert(size>=state.offset,'result log was truncated; refuse stale completion')
-          assert(file:seek('set',state.offset))
-          return file:read(131072) or ''
-        end)
-        local closed,close_error=file:close()
-        assert(ok,chunk);assert(closed,close_error)
-        state.offset=state.offset+#chunk
-        local text=state.pending..chunk
-        -- Searching a greedy .* pattern without a newline is quadratic.
-        -- Reverse once, then find the first separator in linear bounded work.
-        local from_end=text:reverse():find('[\r\n]')
-        local last_end=from_end and #text-from_end+1
-        local complete=last_end and text:sub(1,last_end) or ''
-        state.pending=last_end and text:sub(last_end+1) or text
-        assert(#state.pending<=65536,'result log line exceeds bounded observation buffer')
-        local rows={state.history}
-        for line in complete:gmatch('[^\r\n]+') do
-          assert(#line<=65536,'result log line exceeds bounded observation buffer')
-          if line:find('OM_MATCH_RESULT_UI ',1,true) then rows[#rows+1]=line..'\n' end
+      state.log:poll(assert(paths[client.player_id],'missing result log path'),false,function(line)
+        if line:find('OM_MATCH_RESULT_UI',1,true) then
+          local result=M.observe({client},{[client.player_id]=state.history..line..'\n'})
+          if result.complete then
+            local p=result.players[1]
+            state.history=('OM_MATCH_RESULT_UI player=%d team=%d winner=%d outcome=%s tick=%d\n')
+              :format(p.player_id,p.team_id,p.winner_team,p.outcome,p.tick)
+          end
         end
-        local result=M.observe({client},{[client.player_id]=table.concat(rows)})
-        if result.complete then
-          local p=result.players[1]
-          state.history=('OM_MATCH_RESULT_UI player=%d team=%d winner=%d outcome=%s tick=%d\n')
-            :format(p.player_id,p.team_id,p.winner_team,p.outcome,p.tick)
-        end
-      end
+      end)
       histories[client.player_id]=state.history
     end
     return M.observe(clients,histories)
