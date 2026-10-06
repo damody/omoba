@@ -4,6 +4,10 @@ use prost::Message;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::comp::replica_stage::{
+    MeasuringReplicaStageClock, NoopReplicaStageClock, ReplicaPhaseGuard, ReplicaStageClock,
+    ReplicaStageDurations, ReplicaStagePhase,
+};
 use crate::game_proto::{
     self, transition, BoundedRandomTape, ComponentRepair, EntityReplace, FilteredTeamSnapshot,
     PostStep, PreStep, SanitizedExternalEffect, Step, TeamAcceptedInput, TeamPublicEvent,
@@ -242,6 +246,9 @@ pub struct SelectiveReplicaRuntime {
     applied_transition_revisions: BTreeMap<(u8, u64, u64), u64>,
     retired_replica_filter: Box<[u64]>,
     last_apply_fault: Option<ReplicaApplyFault>,
+    /// Last measured apply. Cleared on every entry and only set for `Applied`.
+    /// Not part of `world` and not hashed.
+    stage_profile: Option<ReplicaStageDurations>,
 }
 
 impl SelectiveReplicaRuntime {
@@ -273,6 +280,7 @@ impl SelectiveReplicaRuntime {
             applied_transition_revisions: BTreeMap::new(),
             retired_replica_filter: vec![0; 131_072].into_boxed_slice(),
             last_apply_fault: None,
+            stage_profile: None,
         }
     }
 
@@ -368,8 +376,37 @@ impl SelectiveReplicaRuntime {
         bytes: &[u8],
         stepper: &mut impl DisclosedWorldStepper,
     ) -> Result<FrameApplyResult, ReplicaRuntimeError> {
-        let frame = TeamTickFrame::decode(bytes).map_err(|_| ReplicaRuntimeError::Decode)?;
-        self.apply_frame(frame, stepper)
+        self.apply_encoded_frame_with(bytes, stepper, &mut NoopReplicaStageClock)
+    }
+
+    /// Same apply as [`Self::apply_encoded_frame`]. Phase durations are wall-clock
+    /// only and are stored for [`Self::take_stage_profile`] when the result is `Applied`.
+    pub fn apply_encoded_frame_profiled(
+        &mut self,
+        bytes: &[u8],
+        stepper: &mut impl DisclosedWorldStepper,
+    ) -> Result<FrameApplyResult, ReplicaRuntimeError> {
+        self.apply_encoded_frame_with(bytes, stepper, &mut MeasuringReplicaStageClock::new())
+    }
+
+    pub fn take_stage_profile(&mut self) -> Option<ReplicaStageDurations> {
+        self.stage_profile.take()
+    }
+
+    fn apply_encoded_frame_with<C: ReplicaStageClock>(
+        &mut self,
+        bytes: &[u8],
+        stepper: &mut impl DisclosedWorldStepper,
+        clock: &mut C,
+    ) -> Result<FrameApplyResult, ReplicaRuntimeError> {
+        self.stage_profile = None;
+        let frame = {
+            let decode = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::Decode);
+            let frame = TeamTickFrame::decode(bytes).map_err(|_| ReplicaRuntimeError::Decode)?;
+            decode.close();
+            frame
+        };
+        self.apply_frame_with(frame, stepper, clock)
     }
 
     pub fn apply_frame(
@@ -377,6 +414,16 @@ impl SelectiveReplicaRuntime {
         frame: TeamTickFrame,
         stepper: &mut impl DisclosedWorldStepper,
     ) -> Result<FrameApplyResult, ReplicaRuntimeError> {
+        self.apply_frame_with(frame, stepper, &mut NoopReplicaStageClock)
+    }
+
+    fn apply_frame_with<C: ReplicaStageClock>(
+        &mut self,
+        frame: TeamTickFrame,
+        stepper: &mut impl DisclosedWorldStepper,
+        clock: &mut C,
+    ) -> Result<FrameApplyResult, ReplicaRuntimeError> {
+        self.stage_profile = None;
         self.last_apply_fault = None;
         self.memory_directives.clear();
         self.applied_transition_revisions.clear();
@@ -416,51 +463,79 @@ impl SelectiveReplicaRuntime {
             .authority_revision
             .as_ref()
             .map_or(0, |revision| revision.value);
-        self.preflight_entity_references(&frame)?;
-        self.apply_pre_step(frame.pre_step.as_ref(), frame_revision)?;
-        self.last_injections = self.inject_step(frame.step.as_ref())?;
-        // Reveal/Replace baselines are captured from the authoritative world
-        // after this replica tick has already executed. Keep them out of the
-        // local step for this frame, then merge them back as the tick result.
-        // Otherwise a newly visible moving entity advances twice on its reveal
-        // tick and immediately breaks player-view lockstep.
-        let baseline_ids = post_tick_baseline_ids(frame.pre_step.as_ref());
-        let staged_baselines: Vec<_> = baseline_ids
-            .iter()
-            .filter_map(|id| self.world.entities.remove_entry(id))
-            .collect();
-        self.last_injections.accepted_inputs.retain(|input| {
-            let actor = input.actor.as_ref().map_or(0, |id| id.value);
-            let target = input.target.as_ref().map_or(0, |id| id.value);
-            !baseline_ids.contains(&actor) && !baseline_ids.contains(&target)
-        });
-        self.last_injections.external_effects.retain(|effect| {
-            let target = effect.visible_target.as_ref().map_or(0, |id| id.value);
-            !baseline_ids.contains(&target)
-        });
-        self.last_injections.public_events.retain(|event| {
-            let subject = event.subject.as_ref().map_or(0, |id| id.value);
-            !baseline_ids.contains(&subject)
-        });
-        self.last_injections.random_tapes.retain(|tape| {
-            let entity = tape.replica_entity_id.as_ref().map_or(0, |id| id.value);
-            !baseline_ids.contains(&entity)
-        });
-        stepper.fixed_step(
-            &mut self.world,
-            &self.last_injections,
-            &self.component_allowlist,
-            &self.resource_allowlist,
-        )?;
-        self.world.entities.extend(staged_baselines);
-        self.validate_world_allowlist()?;
-        self.world.tick = self.expected_replica_tick + 1;
-        let pre_repair_observed_hash = self.canonical_team_hash();
-        self.apply_post_step(frame.post_step.as_ref(), frame_revision)?;
-        let post_repair_hash = self.canonical_team_hash();
+        let staged_baselines = {
+            let staging = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::Staging);
+            self.preflight_entity_references(&frame)?;
+            self.apply_pre_step(frame.pre_step.as_ref(), frame_revision)?;
+            self.last_injections = self.inject_step(frame.step.as_ref())?;
+            // Reveal/Replace baselines are captured from the authoritative world
+            // after this replica tick has already executed. Keep them out of the
+            // local step for this frame, then merge them back as the tick result.
+            // Otherwise a newly visible moving entity advances twice on its reveal
+            // tick and immediately breaks player-view lockstep.
+            let baseline_ids = post_tick_baseline_ids(frame.pre_step.as_ref());
+            let staged_baselines: Vec<_> = baseline_ids
+                .iter()
+                .filter_map(|id| self.world.entities.remove_entry(id))
+                .collect();
+            self.last_injections.accepted_inputs.retain(|input| {
+                let actor = input.actor.as_ref().map_or(0, |id| id.value);
+                let target = input.target.as_ref().map_or(0, |id| id.value);
+                !baseline_ids.contains(&actor) && !baseline_ids.contains(&target)
+            });
+            self.last_injections.external_effects.retain(|effect| {
+                let target = effect.visible_target.as_ref().map_or(0, |id| id.value);
+                !baseline_ids.contains(&target)
+            });
+            self.last_injections.public_events.retain(|event| {
+                let subject = event.subject.as_ref().map_or(0, |id| id.value);
+                !baseline_ids.contains(&subject)
+            });
+            self.last_injections.random_tapes.retain(|tape| {
+                let entity = tape.replica_entity_id.as_ref().map_or(0, |id| id.value);
+                !baseline_ids.contains(&entity)
+            });
+            staging.close();
+            staged_baselines
+        };
+        let stepped = {
+            let fixed = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::FixedStep);
+            let stepped = stepper.fixed_step(
+                &mut self.world,
+                &self.last_injections,
+                &self.component_allowlist,
+                &self.resource_allowlist,
+            );
+            fixed.close();
+            stepped
+        };
+        stepped?;
+        let pre_repair_observed_hash = {
+            let pre_repair = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::PreRepair);
+            self.world.entities.extend(staged_baselines);
+            self.validate_world_allowlist()?;
+            self.world.tick = self.expected_replica_tick + 1;
+            let hash = self.canonical_team_hash();
+            pre_repair.close();
+            hash
+        };
+        {
+            let post_step = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::PostStepRepair);
+            self.apply_post_step(frame.post_step.as_ref(), frame_revision)?;
+            post_step.close();
+        }
+        let post_repair_hash = {
+            let post_hash = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::PostRepairHash);
+            let hash = self.canonical_team_hash();
+            post_hash.close();
+            hash
+        };
         self.expected_replica_tick += 1;
         self.expected_team_sequence += 1;
         self.stall = ReplicaStallState::Running;
+        if clock.measuring() {
+            self.stage_profile = Some(clock.durations());
+        }
         Ok(FrameApplyResult::Applied {
             replica_tick: frame.replica_tick,
             team_sequence: frame.team_sequence,
@@ -1201,6 +1276,7 @@ impl SelectiveReplicaRuntime {
         self.applied_transition_revisions.clear();
         self.retired_replica_filter.fill(0);
         self.stall = ReplicaStallState::Running;
+        self.stage_profile = None;
         Ok(())
     }
 }
@@ -1304,4 +1380,120 @@ fn decode_disclosed_world(
         );
     }
     Ok(entities)
+}
+
+#[cfg(test)]
+mod replica_stage_tests {
+    use std::collections::BTreeSet;
+
+    use prost::Message;
+
+    use super::{
+        FrameApplyResult, NoopDisclosedWorldStepper, ReplicaRuntimeError, SelectiveReplicaRuntime,
+    };
+    use crate::comp::replica_stage::{ReplicaStagePhase, REPLICA_STAGE_PHASE_COUNT};
+    use crate::game_proto::{AuthorityRevision, PostStep, PreStep, Step, TeamTickFrame, ViewEpoch};
+
+    fn encoded_frame(tick: u64, sequence: u64) -> Vec<u8> {
+        TeamTickFrame {
+            protocol_version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+            frame_schema_version: 1,
+            content_schema_version: 1,
+            team_id: 1,
+            server_tick: tick,
+            replica_tick: tick,
+            team_sequence: sequence,
+            view_epoch: Some(ViewEpoch { value: 1 }),
+            authority_revision: Some(AuthorityRevision { value: 1 }),
+            pre_step: Some(PreStep::default()),
+            step: Some(Step::default()),
+            post_step: Some(PostStep::default()),
+            padding: Vec::new(),
+        }
+        .encode_to_vec()
+    }
+
+    fn runtime() -> SelectiveReplicaRuntime {
+        SelectiveReplicaRuntime::new(1, 0, 0, 1, BTreeSet::new(), BTreeSet::new())
+    }
+
+    #[test]
+    fn replica_stage_measured_and_unmeasured_apply_share_result_and_hash() {
+        let first = encoded_frame(0, 0);
+        let second = encoded_frame(1, 1);
+        let mut plain = runtime();
+        let mut measured = runtime();
+        let mut plain_step = NoopDisclosedWorldStepper;
+        let mut measured_step = NoopDisclosedWorldStepper;
+        let plain_first = plain
+            .apply_encoded_frame(&first, &mut plain_step)
+            .expect("unmeasured apply");
+        let measured_first = measured
+            .apply_encoded_frame_profiled(&first, &mut measured_step)
+            .expect("measured apply");
+        assert_eq!(plain_first, measured_first);
+        assert!(plain.take_stage_profile().is_none());
+        let profile = measured
+            .take_stage_profile()
+            .expect("applied profile");
+        assert_eq!(profile.phases_ns.len(), REPLICA_STAGE_PHASE_COUNT);
+        assert_eq!(profile.phase_ns(ReplicaStagePhase::HostFinalize), 0);
+        let plain_second = plain
+            .apply_encoded_frame(&second, &mut plain_step)
+            .expect("unmeasured second");
+        let measured_second = measured
+            .apply_encoded_frame_profiled(&second, &mut measured_step)
+            .expect("measured second");
+        assert_eq!(plain_second, measured_second);
+        assert_eq!(plain.canonical_team_hash(), measured.canonical_team_hash());
+        assert_eq!(plain.world(), measured.world());
+        assert!(plain.world().resources.is_empty());
+        assert!(measured.take_stage_profile().is_some());
+        assert!(plain.take_stage_profile().is_none());
+    }
+
+    #[test]
+    fn replica_stage_duplicate_stall_and_error_drop_stale_profile() {
+        let mut runtime = runtime();
+        let mut stepper = NoopDisclosedWorldStepper;
+        runtime
+            .apply_encoded_frame_profiled(&encoded_frame(0, 0), &mut stepper)
+            .unwrap();
+        assert!(runtime.take_stage_profile().is_some());
+        runtime
+            .apply_encoded_frame_profiled(&encoded_frame(1, 1), &mut stepper)
+            .unwrap();
+        let after_apply = runtime.canonical_team_hash();
+        assert!(matches!(
+            runtime
+                .apply_encoded_frame_profiled(&encoded_frame(0, 0), &mut stepper)
+                .unwrap(),
+            FrameApplyResult::Duplicate
+        ));
+        assert!(runtime.take_stage_profile().is_none());
+        assert_eq!(runtime.canonical_team_hash(), after_apply);
+
+        runtime
+            .apply_encoded_frame_profiled(&encoded_frame(2, 2), &mut stepper)
+            .unwrap();
+        let after_next = runtime.canonical_team_hash();
+        assert!(matches!(
+            runtime
+                .apply_encoded_frame_profiled(&encoded_frame(9, 9), &mut stepper)
+                .unwrap(),
+            FrameApplyResult::Stalled(_)
+        ));
+        assert!(runtime.take_stage_profile().is_none());
+        assert_eq!(runtime.canonical_team_hash(), after_next);
+
+        runtime
+            .apply_encoded_frame_profiled(&encoded_frame(3, 3), &mut stepper)
+            .unwrap();
+        let after_recovered = runtime.canonical_team_hash();
+        let err = runtime.apply_encoded_frame_profiled(b"\xff\xff", &mut stepper);
+        assert_eq!(err, Err(ReplicaRuntimeError::Decode));
+        assert!(runtime.take_stage_profile().is_none());
+        assert_eq!(runtime.canonical_team_hash(), after_recovered);
+        assert!(runtime.world().resources.is_empty());
+    }
 }

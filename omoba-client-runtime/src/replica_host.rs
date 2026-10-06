@@ -1,6 +1,5 @@
-use std::collections::BTreeMap;
-
 use omoba_core::{
+    comp::replica_stage::{ReplicaStageDurations, ReplicaStagePhase},
     game_proto::{FilteredTeamSnapshot, TeamGameStart, TeamViewRebase, TeamViewRebaseChunk},
     runtime::{
         secure_replica_component_allowlist, secure_replica_resource_allowlist,
@@ -23,6 +22,8 @@ pub struct ReplicaApplyReport {
 
 #[cfg(test)]
 mod map_contract_tests {
+    use omoba_core::comp::replica_stage::{ReplicaStageDurations, ReplicaStagePhase};
+
     use super::*;
 
     #[test]
@@ -37,6 +38,20 @@ mod map_contract_tests {
         assert!(matches!(result, Err(ClientRuntimeError::Replica(error))
             if error == "compiled MOBA terrain mismatch"));
     }
+
+    #[test]
+    fn replica_stage_host_finalize_keeps_only_an_applied_profile() {
+        let mut stale = ReplicaStageDurations::default();
+        stale.set_phase(ReplicaStagePhase::Decode, 12);
+        stale.set_phase(ReplicaStagePhase::FixedStep, 40);
+        assert!(super::commit_stage_profile(true, false, Some(stale), 9).is_none());
+        assert!(super::commit_stage_profile(false, true, Some(stale), 9).is_none());
+        let kept = super::commit_stage_profile(true, true, Some(stale), 7).unwrap();
+        assert_eq!(kept.phase_ns(ReplicaStagePhase::Decode), 12);
+        assert_eq!(kept.phase_ns(ReplicaStagePhase::FixedStep), 40);
+        assert_eq!(kept.phase_ns(ReplicaStagePhase::HostFinalize), 7);
+        assert_eq!(kept.phase_ns(ReplicaStagePhase::Staging), 0);
+    }
 }
 
 pub struct ReplicaHost {
@@ -45,10 +60,25 @@ pub struct ReplicaHost {
     public_metadata: Vec<omoba_core::game_proto::DeterministicMetadata>,
     runtime: SelectiveReplicaRuntime,
     stepper: SpecsDisclosedWorldStepper,
-    pre_repair_reports: BTreeMap<(u64, u64, u64), ReplicaApplyReport>,
     staging: IncompleteSnapshotStaging,
     expected_team_sequence: u64,
     fog: omoba_core::runtime::fog_grid::FogGridRetention,
+    stage_profile: Option<ReplicaStageDurations>,
+}
+
+pub(crate) fn commit_stage_profile(
+    measured: bool,
+    applied: bool,
+    mut core: Option<ReplicaStageDurations>,
+    host_finalize_ns: u128,
+) -> Option<ReplicaStageDurations> {
+    if !measured || !applied {
+        return None;
+    }
+    if let Some(durations) = core.as_mut() {
+        durations.set_phase(ReplicaStagePhase::HostFinalize, host_finalize_ns);
+    }
+    core
 }
 
 impl ReplicaHost {
@@ -80,10 +110,10 @@ impl ReplicaHost {
             public_metadata: start.public_metadata.clone(),
             runtime,
             stepper,
-            pre_repair_reports: BTreeMap::new(),
             staging: IncompleteSnapshotStaging::default(),
             expected_team_sequence: start.next_team_sequence,
             fog,
+            stage_profile: None,
         })
     }
 
@@ -92,7 +122,35 @@ impl ReplicaHost {
         encoded: &[u8],
         authority_revision: u64,
     ) -> Result<Option<ReplicaApplyReport>, ClientRuntimeError> {
-        match self.runtime.apply_encoded_frame(encoded, &mut self.stepper) {
+        self.apply_encoded_frame_inner(encoded, authority_revision, false)
+    }
+
+    pub fn apply_encoded_frame_profiled(
+        &mut self,
+        encoded: &[u8],
+        authority_revision: u64,
+    ) -> Result<Option<ReplicaApplyReport>, ClientRuntimeError> {
+        self.apply_encoded_frame_inner(encoded, authority_revision, true)
+    }
+
+    pub fn take_stage_profile(&mut self) -> Option<ReplicaStageDurations> {
+        self.stage_profile.take()
+    }
+
+    fn apply_encoded_frame_inner(
+        &mut self,
+        encoded: &[u8],
+        authority_revision: u64,
+        measure: bool,
+    ) -> Result<Option<ReplicaApplyReport>, ClientRuntimeError> {
+        self.stage_profile = None;
+        let outcome = if measure {
+            self.runtime
+                .apply_encoded_frame_profiled(encoded, &mut self.stepper)
+        } else {
+            self.runtime.apply_encoded_frame(encoded, &mut self.stepper)
+        };
+        match outcome {
             Ok(FrameApplyResult::Applied {
                 replica_tick,
                 team_sequence,
@@ -100,6 +158,7 @@ impl ReplicaHost {
                 post_repair_hash,
                 ..
             }) => {
+                let host_started = measure.then(std::time::Instant::now);
                 let epoch = self.runtime.view_epoch();
                 if self.fog.latest().is_some_and(|grid| grid.view_epoch != epoch) { self.fog.clear(); }
                 if let Err(error) = self.fog.ingest_events(self.runtime.applied_public_events(), self.team_id, epoch, replica_tick) {
@@ -114,18 +173,43 @@ impl ReplicaHost {
                     post_repair_hash,
                     encoded_frame_hash: <sha2::Sha256 as sha2::Digest>::digest(encoded).into(),
                 };
-                self.pre_repair_reports.insert(
-                    (replica_tick, team_sequence, authority_revision),
-                    report.clone(),
-                );
                 self.expected_team_sequence = team_sequence.saturating_add(1);
+                let host_finalize_ns = host_started.map(|started| started.elapsed().as_nanos()).unwrap_or(0);
+                self.stage_profile = commit_stage_profile(
+                    measure,
+                    true,
+                    self.runtime.take_stage_profile(),
+                    host_finalize_ns,
+                );
                 Ok(Some(report))
             }
-            Ok(FrameApplyResult::Duplicate) => Ok(None),
-            Ok(FrameApplyResult::Stalled(state)) => Err(ClientRuntimeError::Replica(format!(
-                "frame barrier stalled: {state:?}"
-            ))),
+            Ok(FrameApplyResult::Duplicate) => {
+                self.stage_profile = commit_stage_profile(
+                    measure,
+                    false,
+                    self.runtime.take_stage_profile(),
+                    0,
+                );
+                Ok(None)
+            }
+            Ok(FrameApplyResult::Stalled(state)) => {
+                self.stage_profile = commit_stage_profile(
+                    measure,
+                    false,
+                    self.runtime.take_stage_profile(),
+                    0,
+                );
+                Err(ClientRuntimeError::Replica(format!(
+                    "frame barrier stalled: {state:?}"
+                )))
+            }
             Err(error) => {
+                self.stage_profile = commit_stage_profile(
+                    measure,
+                    false,
+                    self.runtime.take_stage_profile(),
+                    0,
+                );
                 let fault = self.runtime.last_apply_fault().cloned();
                 Err(ClientRuntimeError::Replica(format!(
                     "frame rejected: {error:?} fault={fault:?}"

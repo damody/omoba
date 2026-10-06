@@ -114,6 +114,10 @@ async fn main() -> anyhow::Result<()> {
         config.player_id,
         config.team_id,
     );
+    let mut replica_stages = omoba_core::comp::replica_stage::ReplicaStageWindow::new(
+        config.player_id,
+        config.team_id,
+    );
     log::info!("{}", replica_steps.enable_line());
     presentation.publish_latest(ready_envelope_for_start(presentation_sequence,&config,&session.start)?);
     presentation_sequence = presentation_sequence.saturating_add(1);
@@ -198,6 +202,7 @@ async fn main() -> anyhow::Result<()> {
                     &mut presentation,
                     &evidence,
                     &mut replica_steps,
+                    &mut replica_stages,
                     &checkpoint_queue,
                     &mut pending_frames,
                     &mut replica_lag,
@@ -284,6 +289,7 @@ async fn main() -> anyhow::Result<()> {
                         &mut presentation,
                         &evidence,
                         &mut replica_steps,
+                        &mut replica_stages,
                         &checkpoint_queue,
                         &mut pending_frames,
                         &mut replica_lag,
@@ -588,6 +594,7 @@ async fn catch_up_available_frames(
     presentation: &mut PresentationHub,
     evidence: &Option<EvidenceRecorder>,
     replica_steps: &mut omoba_core::comp::perf_window::ReplicaStepWindow,
+    replica_stages: &mut omoba_core::comp::replica_stage::ReplicaStageWindow,
     checkpoint_queue: &CheckpointQueue,
     pending_frames: &mut BTreeMap<u64, (omoba_core::game_proto::TeamTickFrame, Arc<[u8]>)>,
     replica_lag: &mut ReplicaLagTracker,
@@ -824,6 +831,7 @@ async fn catch_up_available_frames(
             presentation,
             evidence,
             replica_steps,
+            replica_stages,
             checkpoint_queue,
             catch_up_plan.publish_latest_snapshot,
             presentation_sequence,
@@ -933,6 +941,7 @@ async fn apply_ready_frame(
     presentation: &mut PresentationHub,
     evidence: &Option<EvidenceRecorder>,
     replica_steps: &mut omoba_core::comp::perf_window::ReplicaStepWindow,
+    replica_stages: &mut omoba_core::comp::replica_stage::ReplicaStageWindow,
     checkpoint_queue: &CheckpointQueue,
     publish_latest_snapshot: bool,
     presentation_sequence: &mut u64,
@@ -987,11 +996,25 @@ async fn apply_ready_frame(
         }
     }
     let step_started = std::time::Instant::now();
-    let applied = replica.apply_encoded_frame(&encoded, revision)?;
+    let applied = replica.apply_encoded_frame_profiled(&encoded, revision)?;
     let step_ns = step_started.elapsed().as_nanos();
     let Some(report) = applied else {
+        let _ = replica.take_stage_profile();
         return Ok(());
     };
+    // Stage formatting stays after the outer clock stops, and outside OM_PERF.
+    if let Some(profile) = replica.take_stage_profile() {
+        if let Ok(sample) = omoba_core::comp::replica_stage::ReplicaStageSample::from_durations(
+            report.replica_tick,
+            report.team_sequence,
+            &profile,
+            step_ns,
+        ) {
+            if let Ok(Some(line)) = replica_stages.record(sample) {
+                log::info!("{line}");
+            }
+        }
+    }
     // Evidence IO and presentation stay outside this sample. STEP_US_ below is unchanged.
     if let Some(line) = replica_steps.observe_completed(step_ns) {
         log::info!("{line}");
