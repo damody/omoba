@@ -251,6 +251,21 @@ fn settle_owned_query<T>(query:Result<T,String>, alive:impl FnOnce()->Result<boo
         },
     }
 }
+#[cfg(test)]
+mod owned_query_race_tests {
+    use super::settle_owned_query;
+    #[test] fn failed_query_requires_exact_handle_retirement() {
+        assert_eq!(settle_owned_query::<u32>(Err("access denied".into()),||Ok(false)).unwrap(),None);
+        assert_eq!(settle_owned_query::<u32>(Err("access denied".into()),||Ok(true)).unwrap_err(),"access denied");
+    }
+    #[test] fn failed_wait_is_not_retirement() {
+        let error=settle_owned_query::<u32>(Err("access denied".into()),||Err("wait failed".into())).unwrap_err();
+        assert!(error.contains("access denied") && error.contains("wait failed"));
+    }
+    #[test] fn successful_identity_needs_no_error_recovery() {
+        assert_eq!(settle_owned_query(Ok(42),||panic!("unexpected recheck")).unwrap(),Some(42));
+    }
+}
 #[cfg(windows)]
 fn live_owned_identity(handle:windows_sys::Win32::Foundation::HANDLE,pid:u32)->Result<Option<Value>,String> {
     settle_owned_query(owned_identity_from_handle(handle,pid),||owned_handle_alive(handle))
@@ -270,8 +285,9 @@ fn stop_owned(params: &Value) -> Result<Value, String> {
     }
     // Keep the verified handle alive across verification, termination and wait.
     if unsafe { windows_sys::Win32::System::Threading::TerminateProcess(handle.0, 1) } == 0 {
+        let error=io::Error::last_os_error();
         if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"stopped":false})); }
-        return Err(format!("owned termination failed: {}", io::Error::last_os_error()));
+        return Err(format!("owned termination failed: {error}"));
     }
     if unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(handle.0, 15000) } != 0 {
         return Err("owned process did not terminate within 15000ms".into());
