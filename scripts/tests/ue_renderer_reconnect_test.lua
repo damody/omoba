@@ -38,4 +38,18 @@ assert(not test.parity_after('1\n2\n3\n4\n3\n4\n', decode, 450)) -- duplicate ti
 assert(not test.parity_after('1\n2\n3\n4\n5\n', decode, 450)) -- both teams required
 rows[6] = row(2,600,'FAIL')
 assert(not pcall(test.parity_after,'3\n4\n5\n6\n',decode,450))
-print('renderer reconnect observation: 17 scenarios passed')
+local function stages(ready_at,parity_at)
+  local now=0
+  local clock={monotonic_ms=function() return now end,sleep_ms=function(ms) now=now+ms end}
+  local result=test.wait_stages(clock,90000,30000,
+    function() return {complete=now>=ready_at} end,
+    function() return now>=parity_at,{{passed=2},{passed=2}} end)
+  return result,now
+end
+local late,elapsed=stages(89000,101000)
+assert(late.success and elapsed==101000, 'slow valid readiness must still receive its separate checkpoint budget')
+local absent,ended=stages(999999,999999)
+assert(not absent.success and absent.failure_phase=='renderer-readiness' and ended==90000)
+local missing,stopped=stages(0,999999)
+assert(not missing.success and missing.failure_phase=='post-input-parity' and stopped==30000)
+print('renderer reconnect observation: 17 scenarios + 3 bounded phase scenarios passed')
