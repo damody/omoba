@@ -5,7 +5,7 @@ local b=require('_bootstrap')
 local path,process,json=b.lib('path'),b.lib('process'),b.lib('json')
 local batch,compiled=require('moba_headless_batch'),require('moba_compiled_content')
 if arg[1]=='--help' then
-  print('Usage: tools/lua/lua.exe scripts/run_moba_headless_batch.lua [--matches 100] [--seed 1] [--recipe ALL_BOT.lua] [--output NEW_DIRECTORY]')
+  print('Usage: tools/lua/lua.exe scripts/run_moba_headless_batch.lua [--matches 1..10 (default 10)] [--seed 1] [--recipe ALL_BOT.lua] [--output NEW_DIRECTORY] [--max-game-seconds 600] [--stall-game-seconds 300]')
   return
 end
 local options=batch.options(arg,b.lib('args'))
@@ -45,7 +45,9 @@ local report=batch.execute(options,{
   end,
   run=function(seed,ordinal)
     local result=process.run(executable,{'--role-plan',recipe_file,'--profile','60','--seed',tostring(seed),
-      '--scripts-dir',scripts_dir,'--report',report_path(ordinal)},{cwd=b.root,env=env,check=false})
+      '--scripts-dir',scripts_dir,'--max-game-seconds',tostring(options.max_game_seconds),
+      '--stall-game-seconds',tostring(options.stall_game_seconds),'--report',report_path(ordinal)},
+      {cwd=b.root,env=env,check=false})
     path.write(path.join(output,('match-%04d.log'):format(ordinal)),
       (result.stdout or '')..(result.stderr or ''))
     assert(result.exit_code==0,'match '..ordinal..' failed: '..tostring(result.exit_code))

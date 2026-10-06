@@ -4,6 +4,7 @@ local dir = assert(script:match('^(.*)[/\\]'))
 package.path = dir .. '/?.lua;' .. package.path
 local bootstrap = require('_bootstrap')
 local path, process = bootstrap.lib('path'), bootstrap.lib('process')
+local batch = require('moba_headless_batch')
 local root = bootstrap.root
 local forwarded = {}
 local plan_only = false
@@ -32,13 +33,21 @@ local function run(label, args)
   io.stderr:write(result.stderr or '')
   if result.exit_code ~= 0 then os.exit(result.exit_code) end
 end
+local function reserve_report_dir()
+  local parent = path.mkdir_p(path.join(root, 'omb', 'target', 'moba-headless-runs'))
+  for suffix = 1, 1000 do
+    local candidate = path.join(parent, tostring(os.time()) .. '-' .. suffix)
+    if require('lfs').mkdir(candidate) then return candidate end
+  end
+end
+local report_args, report = batch.with_single_report(forwarded, reserve_report_dir)
+batch.assert_fresh_output(report, batch.paired_diagnostic_path(report), path.exists)
 if not plan_only then
   run('build generated script DLL', {'build', '--manifest-path', path.join(root, 'scripts/Cargo.toml'),
     '-p', 'base_content', '--features', 'compiled-content-only', '--release'})
 end
 local args = {'run', '--manifest-path', path.join(root, 'omb/Cargo.toml'),
   '-p', 'omobab', '--bin', 'moba-headless', '--features', 'compiled-content-only', '--',
-  '--scripts-dir', path.join(root, 'scripts/target/release'),
-  '--report', path.join(root, 'omb/target/moba-headless/report.json')}
-for _, value in ipairs(forwarded) do args[#args + 1] = value end
-run(plan_only and 'validate match configuration only' or 'play a match and replay every tick', args)
+  '--scripts-dir', path.join(root, 'scripts/target/release')}
+for _, value in ipairs(report_args) do args[#args + 1] = value end
+run((plan_only and 'validate match configuration only' or 'play a match and replay every tick') .. ': ' .. report, args)
