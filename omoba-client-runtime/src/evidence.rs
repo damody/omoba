@@ -50,19 +50,57 @@ struct CheckpointLine {
     post_repair_hash: String,
 }
 
+fn capture_policy(has_directory: bool, test_mode: bool) -> Result<bool, ClientRuntimeError> {
+    if has_directory {
+        Ok(true)
+    } else if test_mode {
+        Err(ClientRuntimeError::Config(
+            "test mode requires evidence directory".into(),
+        ))
+    } else {
+        Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod capture_policy_tests {
+    use super::{capture_policy, ClientRuntimeError};
+
+    #[test]
+    fn directory_with_test_mode_records() {
+        assert!(capture_policy(true, true).unwrap());
+    }
+
+    #[test]
+    fn directory_without_test_mode_records() {
+        assert!(capture_policy(true, false).unwrap());
+    }
+
+    #[test]
+    fn missing_directory_without_test_mode_skips() {
+        assert!(!capture_policy(false, false).unwrap());
+    }
+
+    #[test]
+    fn missing_directory_with_test_mode_errors() {
+        match capture_policy(false, true) {
+            Err(ClientRuntimeError::Config(message)) => {
+                assert_eq!(message, "test mode requires evidence directory");
+            }
+            other => panic!("expected config error, got {other:?}"),
+        }
+    }
+}
+
 impl EvidenceRecorder {
     pub fn create(
         config: &ClientRuntimeConfig,
         global_seed: u64,
     ) -> Result<Option<Self>, ClientRuntimeError> {
-        if !config.test_mode {
+        if !capture_policy(config.evidence_dir.is_some(), config.test_mode)? {
             return Ok(None);
         }
-        let Some(base) = config.evidence_dir.as_ref() else {
-            return Err(ClientRuntimeError::Config(
-                "test mode requires evidence directory".into(),
-            ));
-        };
+        let base = config.evidence_dir.as_ref().expect("validated evidence directory");
         let root = base.join(format!("team-{}-runtime", config.team_id));
         fs::create_dir_all(&root).map_err(io_error)?;
         let executable = std::env::current_exe().map_err(io_error)?;
