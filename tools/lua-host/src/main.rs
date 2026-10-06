@@ -13,6 +13,18 @@ use std::{
 
 const VERSION: u32 = 1;
 
+#[cfg(windows)]
+fn monotonic_ms() -> Result<Value, String> {
+    // Machine uptime keeps one clock domain across separate helper processes.
+    // Wall-clock corrections never extend a workflow deadline.
+    let milliseconds = unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() };
+    Ok(json!({"milliseconds": milliseconds, "clock": "windows_get_tick_count64"}))
+}
+#[cfg(not(windows))]
+fn monotonic_ms() -> Result<Value, String> {
+    Err("monotonic workflow clock is not supported on this platform; no wall-clock fallback".into())
+}
+
 #[derive(Deserialize)]
 struct Request {
     version: u32,
@@ -98,6 +110,9 @@ fn run_command(params: &Value) -> Result<Value, String> {
 }
 
 fn spawn(params: &Value) -> Result<Value, String> {
+    let owned = params.get("owned_identity").and_then(Value::as_bool).unwrap_or(false);
+    #[cfg(not(windows))]
+    if owned { return Err("owned process identity is supported only on Windows".into()); }
     let exe = required_str(params, "exe")?;
     let args = params
         .get("args")
@@ -142,9 +157,132 @@ fn spawn(params: &Value) -> Result<Value, String> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000);
     }
-    let child = command.spawn().map_err(|e| format!("spawn {exe}: {e}"))?;
+    let mut child = command.spawn().map_err(|e| format!("spawn {exe}: {e}"))?;
+    #[cfg(windows)]
+    if owned {
+        use std::os::windows::io::AsRawHandle;
+        // The Child handle, not a reopened PID, proves this spawn's lifetime.
+        let result = owned_identity_from_handle(child.as_raw_handle() as _, child.id());
+        if result.is_err() { let _ = child.kill(); let _ = child.wait(); }
+        return result;
+    }
     Ok(json!({"pid": child.id()}))
 }
+
+fn creation_token(value: &Value) -> Result<u64, String> {
+    let text = required_str(value, "creation_token")?;
+    if text.is_empty() || text.starts_with('0') || !text.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("creation_token must be a canonical nonzero decimal string".into());
+    }
+    text.parse::<u64>().map_err(|_| "creation_token exceeds u64".into())
+}
+
+#[cfg(windows)]
+struct OwnedProcessHandle(windows_sys::Win32::Foundation::HANDLE);
+#[cfg(windows)]
+impl Drop for OwnedProcessHandle {
+    fn drop(&mut self) { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0); } }
+}
+
+#[cfg(windows)]
+fn open_owned_process(pid: u32, terminate_access: bool) -> Result<Option<OwnedProcessHandle>, String> {
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE};
+    // SYNCHRONIZE permits a zero-duration wait on this exact handle.
+    let rights = PROCESS_QUERY_LIMITED_INFORMATION | 0x00100000
+        | if terminate_access { PROCESS_TERMINATE } else { 0 };
+    let handle = unsafe { OpenProcess(rights, 0, pid) };
+    if handle.is_null() {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() == Some(87) { return Ok(None); } // nonexistent PID
+        return Err(format!("cannot open owned PID {pid}: {error}"));
+    }
+    Ok(Some(OwnedProcessHandle(handle)))
+}
+
+#[cfg(windows)]
+fn owned_handle_alive(handle: windows_sys::Win32::Foundation::HANDLE) -> Result<bool, String> {
+    match unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(handle, 0) } {
+        0 => Ok(false),
+        258 => Ok(true),
+        _ => Err(format!("cannot query owned lifetime: {}", io::Error::last_os_error())),
+    }
+}
+
+#[cfg(windows)]
+fn owned_identity_from_handle(handle: windows_sys::Win32::Foundation::HANDLE, pid: u32) -> Result<Value, String> {
+    use windows_sys::Win32::{Foundation::FILETIME,
+        System::Threading::{GetProcessTimes, QueryFullProcessImageNameW}};
+    let mut buffer = vec![0u16; 32768];
+    let mut length = buffer.len() as u32;
+    let mut creation: FILETIME = unsafe { std::mem::zeroed() };
+    let mut exit: FILETIME = unsafe { std::mem::zeroed() };
+    let mut kernel: FILETIME = unsafe { std::mem::zeroed() };
+    let mut user: FILETIME = unsafe { std::mem::zeroed() };
+    if unsafe { QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut length) } == 0
+        || unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) } == 0 {
+        return Err(format!("cannot query exact process identity: {}", io::Error::last_os_error()));
+    }
+    let token = (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
+    let unix_ticks = token.checked_sub(116_444_736_000_000_000).ok_or("invalid process creation time")?;
+    let path = PathBuf::from(String::from_utf16_lossy(&buffer[..length as usize]));
+    Ok(json!({"pid":pid,"path":path,"alive":owned_handle_alive(handle)?,
+        "creation_token":token.to_string(),"created_unix_seconds":unix_ticks / 10_000_000}))
+}
+
+#[cfg(windows)]
+fn inspect_owned(params: &Value) -> Result<Value, String> {
+    let pid = required_u32(params, "pid")?;
+    let Some(handle) = open_owned_process(pid, false)? else { return Ok(json!({"pid":pid,"alive":false})); };
+    if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"alive":false})); }
+    owned_identity_from_handle(handle.0, pid)
+}
+
+#[cfg(windows)]
+fn stop_owned(params: &Value) -> Result<Value, String> {
+    let pid = required_u32(params, "pid")?;
+    let token = creation_token(params)?;
+    let expected = fs::canonicalize(required_str(params, "expected_exe")?).map_err(|e| e.to_string())?;
+    let Some(handle) = open_owned_process(pid, true)? else { return Ok(json!({"pid":pid,"stopped":false})); };
+    if !owned_handle_alive(handle.0)? { return Ok(json!({"pid":pid,"stopped":false})); }
+    let identity = owned_identity_from_handle(handle.0, pid)?;
+    let actual = fs::canonicalize(required_str(&identity, "path")?).map_err(|e| e.to_string())?;
+    if actual != expected || creation_token(&identity)? != token {
+        return Err("owned process lifetime or executable mismatch; nothing stopped".into());
+    }
+    // Keep the verified handle alive across verification, termination and wait.
+    if unsafe { windows_sys::Win32::System::Threading::TerminateProcess(handle.0, 1) } == 0 {
+        return Err(format!("owned termination failed: {}", io::Error::last_os_error()));
+    }
+    if unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(handle.0, 15000) } != 0 {
+        return Err("owned process did not terminate within 15000ms".into());
+    }
+    Ok(json!({"pid":pid,"stopped":true}))
+}
+
+#[cfg(not(windows))]
+fn inspect_owned(_: &Value) -> Result<Value, String> { Err("owned process identity is supported only on Windows".into()) }
+#[cfg(not(windows))]
+fn stop_owned(_: &Value) -> Result<Value, String> { Err("owned process identity is supported only on Windows".into()) }
+
+#[cfg(windows)]
+fn close_window_owned(params: &Value) -> Result<Value, String> {
+    let pid = required_u32(params, "pid")?;
+    let token = creation_token(params)?;
+    let expected = fs::canonicalize(required_str(params, "expected_exe")?).map_err(|e| e.to_string())?;
+    let handle = open_owned_process(pid, false)?.ok_or("owned window process is not alive")?;
+    if !owned_handle_alive(handle.0)? { return Err("owned window process is not alive".into()); }
+    let identity = owned_identity_from_handle(handle.0, pid)?;
+    let actual = fs::canonicalize(required_str(&identity, "path")?).map_err(|e| e.to_string())?;
+    if actual != expected || creation_token(&identity)? != token {
+        return Err("owned process lifetime or executable mismatch; no window closed".into());
+    }
+    // Retain the process object across enumeration: no PID-only reopen or kill.
+    let result = close_window(params);
+    drop(handle);
+    result
+}
+#[cfg(not(windows))]
+fn close_window_owned(_: &Value) -> Result<Value, String> { Err("owned window close is supported only on Windows".into()) }
 
 #[cfg(windows)]
 fn process_path(pid: u32) -> Result<PathBuf, String> {
@@ -185,7 +323,68 @@ fn process_path(pid: u32) -> Result<PathBuf, String> {
 fn inspect(params: &Value) -> Result<Value, String> {
     let pid = required_u32(params, "pid")?;
     let path = process_path(pid)?;
-    Ok(json!({"pid":pid,"path":path,"alive":true}))
+    let mut result = json!({"pid":pid,"path":path,"alive":true});
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::{Foundation::{CloseHandle, FILETIME}, System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, GetProcessTimes}};
+        unsafe {
+            let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if handle.is_null() { return Err("process disappeared during identity query".into()); }
+            let mut creation: FILETIME = std::mem::zeroed();
+            let mut exit: FILETIME = std::mem::zeroed();
+            let mut kernel: FILETIME = std::mem::zeroed();
+            let mut user: FILETIME = std::mem::zeroed();
+            let ok = GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user);
+            CloseHandle(handle);
+            if ok == 0 { return Err("process creation time unavailable".into()); }
+            let ticks = (u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime);
+            let unix_ticks = ticks.checked_sub(116_444_736_000_000_000).ok_or("invalid process creation time")?;
+            result["created_unix_seconds"] = json!(unix_ticks / 10_000_000);
+        }
+    }
+    Ok(result)
+}
+
+// Identify the actual IPv4 loopback listener before any credentialed MCP call.
+#[cfg(windows)]
+fn tcp_listener(params: &Value) -> Result<Value, String> {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{
+        GetExtendedTcpTable, MIB_TCPROW_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
+    };
+    let port = u16::try_from(required_u32(params, "port")?).map_err(|_| "invalid TCP port")?;
+    if port == 0 { return Err("invalid TCP port".into()); }
+    let mut size = 0u32;
+    unsafe { GetExtendedTcpTable(std::ptr::null_mut(), &mut size, 0, 2, TCP_TABLE_OWNER_PID_LISTENER, 0); }
+    for _ in 0..3 {
+        if size < 4 || size > 16 * 1024 * 1024 { return Err("invalid TCP table size".into()); }
+        // u32 storage supplies the alignment required by Windows table structs.
+        let mut storage = vec![0u32; (size as usize + 3) / 4];
+        let capacity = storage.len() * 4;
+        let status = unsafe { GetExtendedTcpTable(storage.as_mut_ptr().cast(), &mut size, 0, 2, TCP_TABLE_OWNER_PID_LISTENER, 0) };
+        if status == 122 { continue; } // ERROR_INSUFFICIENT_BUFFER: bounded resize.
+        if status != 0 { return Err(format!("TCP table query failed: {status}")); }
+        let count = storage[0] as usize;
+        let row_size = std::mem::size_of::<MIB_TCPROW_OWNER_PID>();
+        if count > (capacity - 4) / row_size { return Err("invalid TCP table row count".into()); }
+        let mut owners = std::collections::BTreeSet::new();
+        for index in 0..count {
+            let row = unsafe { std::ptr::read_unaligned(storage.as_ptr().cast::<u8>().add(4 + index * row_size).cast::<MIB_TCPROW_OWNER_PID>()) };
+            // Windows represents the IPv4 address and port in network byte order.
+            if u16::from_be(row.dwLocalPort as u16) == port &&
+                (row.dwLocalAddr == 0 || row.dwLocalAddr.to_ne_bytes() == [127, 0, 0, 1]) {
+                owners.insert(row.dwOwningPid);
+            }
+        }
+        if owners.len() != 1 { return Err(format!("loopback port {port} requires exactly one listener owner, found {}", owners.len())); }
+        let pid = *owners.iter().next().unwrap();
+        return inspect(&json!({"pid":pid}));
+    }
+    Err("TCP listener table changed during bounded query".into())
+}
+
+#[cfg(not(windows))]
+fn tcp_listener(_: &Value) -> Result<Value, String> {
+    Err("TCP listener identity is supported only on Windows".into())
 }
 
 #[cfg(windows)]
@@ -251,6 +450,25 @@ mod tests {
     use std::net::UdpSocket;
 
     #[test]
+    fn owned_creation_token_preserves_exact_filetime_without_float() {
+        assert_eq!(creation_token(&json!({"creation_token":"133000000000000001"})).unwrap(),133000000000000001);
+        assert_eq!(creation_token(&json!({"creation_token":u64::MAX.to_string()})).unwrap(),u64::MAX);
+        for value in [json!(null),json!(1),json!("0"),json!("01"),json!("-1"),json!("1.0"),json!(" 1"),json!("18446744073709551616")] {
+            assert!(creation_token(&json!({"creation_token":value})).is_err());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn monotonic_workflow_clock_uses_uptime_and_advances_across_wait() {
+        let first=monotonic_ms().unwrap();
+        thread::sleep(Duration::from_millis(40));
+        let second=monotonic_ms().unwrap();
+        assert_eq!(first["clock"],"windows_get_tick_count64");
+        assert!(second["milliseconds"].as_u64().unwrap()>first["milliseconds"].as_u64().unwrap());
+    }
+
+    #[test]
     fn toml_sections_preserve_types_and_replace_authorization_tables() {
         let source=r#"title='unchanged'
 [server]
@@ -311,6 +529,20 @@ second"""
         let mut buffer = [0_u8; 16];
         let (size, _) = receiver.recv_from(&mut buffer).unwrap();
         assert_eq!(&buffer[..size], b"hello");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tcp_listener_proves_owner_and_rejects_closed_port() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let owner = tcp_listener(&json!({"port":port})).unwrap();
+        assert_eq!(owner["pid"], std::process::id());
+        assert!(owner["created_unix_seconds"].as_u64().unwrap() > 0);
+        drop(listener);
+        assert!(tcp_listener(&json!({"port":port})).is_err());
+        assert!(tcp_listener(&json!({"port":0})).is_err());
+        assert!(tcp_listener(&json!({"port":65536})).is_err());
     }
 }
 fn sha256(params: &Value) -> Result<Value, String> {
@@ -573,8 +805,15 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "run" => run_command(&request.params),
         "spawn" => spawn(&request.params),
         "inspect" => inspect(&request.params),
+        "inspect_owned" => inspect_owned(&request.params),
+        "tcp_listener" => tcp_listener(&request.params),
+        "cpu_capacity" => Ok(json!({"logical_cpus": std::thread::available_parallelism()
+            .map_err(|e| format!("cannot query CPU capacity: {e}"))?.get()})),
+        "monotonic_ms" => monotonic_ms(),
         "stop" => stop(&request.params),
+        "stop_owned" => stop_owned(&request.params),
         "close_window" => close_window(&request.params),
+        "close_window_owned" => close_window_owned(&request.params),
         "udp_send" => udp(&request.params),
         "sha256" => sha256(&request.params),
         "wait" => wait_for(&request.params),

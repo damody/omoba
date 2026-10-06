@@ -1,11 +1,16 @@
 local M = {}
+local previous_ms
 
 function M.utc_timestamp()
   return os.date("!%Y-%m-%dT%H:%M:%SZ")
 end
 
 function M.monotonic_ms()
-  return os.time() * 1000
+  local value=require("tools.lua.lib.host").call("monotonic_ms",{}).milliseconds
+  assert(math.type(value)=="integer" and value>=0, "invalid monotonic clock result")
+  assert(not previous_ms or value>=previous_ms, "monotonic workflow clock moved backwards")
+  previous_ms=value
+  return value
 end
 
 function M.sleep_ms(ms)

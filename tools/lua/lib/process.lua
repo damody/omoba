@@ -10,8 +10,50 @@ function M.run(exe, args, options)
 end
 function M.spawn(exe,args,options)
   options=options or {};assert(options.stdout and options.stderr,'spawn requires stdout and stderr paths')
-  local resolved=exe:find('[/\\]')and path.absolute(exe)or exe;local result=host.call('spawn',{exe=resolved,args=args or {},cwd=path.absolute(options.cwd or '.'),env=options.env or {},stdout=path.absolute(options.stdout),stderr=path.absolute(options.stderr)})
-  return assert(math.tointeger(result.pid),'spawn returned invalid PID')
+  local resolved=exe:find('[/\\]')and path.absolute(exe)or exe;local result=host.call('spawn',{exe=resolved,args=args or {},cwd=path.absolute(options.cwd or '.'),env=options.env or {},stdout=path.absolute(options.stdout),stderr=path.absolute(options.stderr),owned_identity=options.owned_identity==true})
+  local pid=assert(math.tointeger(result.pid),'spawn returned invalid PID')
+  if options.owned_identity then return pid,M.validate_owned(result) end
+  return pid
+end
+function M.validate_owned(info)
+  assert(type(info)=='table' and math.type(info.pid)=='integer' and info.pid>0 and info.pid<=4294967295,'invalid owned PID')
+  local token=info.creation_token
+  assert(type(token)=='string' and token:match('^[1-9]%d*$') and (#token<20 or (#token==20 and token<='18446744073709551615')),'invalid exact process creation token')
+  local executable=info.executable or info.path
+  assert(type(executable)=='string' and executable~='' and path.is_absolute(executable),'invalid owned executable')
+  return {pid=info.pid,executable=path.absolute(executable),creation_token=token}
+end
+function M.spawn_owned(exe,args,options)
+  local copy={};for k,v in pairs(options or {}) do copy[k]=v end
+  copy.owned_identity=true
+  return M.spawn(exe,args,copy)
+end
+function M.inspect_owned(pid)
+  local result=host.call('inspect_owned',{pid=pid})
+  if result.alive==false then return nil end
+  assert(result.alive==true,'invalid owned liveness response')
+  return M.validate_owned(result)
+end
+function M.assert_owned(record)
+  record=M.validate_owned(record)
+  local current=M.inspect_owned(record.pid)
+  if not current then return nil end
+  assert(current.creation_token==record.creation_token and current.executable:lower()==record.executable:lower(),'owned process lifetime or executable mismatch')
+  return current
+end
+function M.stop_owned(record)
+  record=M.validate_owned(record)
+  return host.call('stop_owned',{pid=record.pid,expected_exe=record.executable,creation_token=record.creation_token}).stopped
+end
+function M.owned_alive(record)
+  record=M.validate_owned(record)
+  local current=M.inspect_owned(record.pid)
+  return current~=nil and current.creation_token==record.creation_token
+    and current.executable:lower()==record.executable:lower()
+end
+function M.close_window_owned(record)
+  record=M.validate_owned(record)
+  return host.call('close_window_owned',{pid=record.pid,expected_exe=record.executable,creation_token=record.creation_token}).posted
 end
 function M.inspect(pid) local ok,result=pcall(host.call,'inspect',{pid=pid});if not ok then return nil end;return result end
 function M.assert_identity(pid,expected)
