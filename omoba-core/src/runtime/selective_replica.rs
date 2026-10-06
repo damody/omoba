@@ -105,6 +105,17 @@ pub trait DisclosedWorldStepper {
         component_allowlist: &BTreeSet<u32>,
         resource_allowlist: &BTreeSet<u32>,
     ) -> Result<(), ReplicaRuntimeError>;
+
+    fn fixed_step_profiled(
+        &mut self,
+        world: &mut DisclosedReplicaWorld,
+        injections: &StepInjections,
+        component_allowlist: &BTreeSet<u32>,
+        resource_allowlist: &BTreeSet<u32>,
+    ) -> Result<Option<crate::comp::fixed_step_detail::FixedStepDetail>, ReplicaRuntimeError> {
+        self.fixed_step(world, injections, component_allowlist, resource_allowlist)?;
+        Ok(None)
+    }
 }
 
 #[derive(Default)]
@@ -498,18 +509,22 @@ impl SelectiveReplicaRuntime {
             staging.close();
             staged_baselines
         };
+        let measuring = clock.measuring();
         let stepped = {
             let fixed = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::FixedStep);
-            let stepped = stepper.fixed_step(
+            let stepped = if measuring { stepper.fixed_step_profiled(
                 &mut self.world,
                 &self.last_injections,
                 &self.component_allowlist,
                 &self.resource_allowlist,
-            );
+            ) } else { stepper.fixed_step(
+                &mut self.world, &self.last_injections,
+                &self.component_allowlist, &self.resource_allowlist,
+            ).map(|()| None) };
             fixed.close();
             stepped
         };
-        stepped?;
+        let fixed_step_detail = stepped?;
         let pre_repair_observed_hash = {
             let pre_repair = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::PreRepair);
             self.world.entities.extend(staged_baselines);
@@ -534,7 +549,9 @@ impl SelectiveReplicaRuntime {
         self.expected_team_sequence += 1;
         self.stall = ReplicaStallState::Running;
         if clock.measuring() {
-            self.stage_profile = Some(clock.durations());
+            let mut durations = clock.durations();
+            durations.fixed_step_detail = fixed_step_detail;
+            self.stage_profile = Some(durations);
         }
         Ok(FrameApplyResult::Applied {
             replica_tick: frame.replica_tick,
@@ -1384,6 +1401,7 @@ fn decode_disclosed_world(
 
 #[cfg(test)]
 mod replica_stage_tests {
+    use super::{DisclosedWorldStepper, DisclosedReplicaWorld, StepInjections};
     use std::collections::BTreeSet;
 
     use prost::Message;
@@ -1415,6 +1433,35 @@ mod replica_stage_tests {
 
     fn runtime() -> SelectiveReplicaRuntime {
         SelectiveReplicaRuntime::new(1, 0, 0, 1, BTreeSet::new(), BTreeSet::new())
+    }
+
+    struct DetailStepper;
+    impl DisclosedWorldStepper for DetailStepper {
+        fn fixed_step(&mut self, _: &mut DisclosedReplicaWorld, _: &StepInjections,
+            _: &BTreeSet<u32>, _: &BTreeSet<u32>) -> Result<(), ReplicaRuntimeError> {
+            Ok(())
+        }
+        fn fixed_step_profiled(&mut self, world: &mut DisclosedReplicaWorld, injections: &StepInjections,
+            components: &BTreeSet<u32>, resources: &BTreeSet<u32>)
+            -> Result<Option<crate::comp::fixed_step_detail::FixedStepDetail>, ReplicaRuntimeError> {
+            self.fixed_step(world, injections, components, resources)?;
+            Ok(Some(crate::comp::fixed_step_detail::FixedStepDetail {
+                process_cpu_ns: Some(999), ..Default::default()
+            }))
+        }
+    }
+
+    #[test]
+    fn replica_stage_detail_is_opt_in_and_does_not_change_hash() {
+        let mut plain = runtime();
+        let mut measured = runtime();
+        let frame = encoded_frame(0, 0);
+        assert_eq!(plain.apply_encoded_frame(&frame, &mut DetailStepper).unwrap(),
+            measured.apply_encoded_frame_profiled(&frame, &mut DetailStepper).unwrap());
+        assert!(plain.take_stage_profile().is_none());
+        assert_eq!(measured.take_stage_profile().unwrap().fixed_step_detail.unwrap().process_cpu_ns,
+            Some(999));
+        assert_eq!(plain.canonical_team_hash(), measured.canonical_team_hash());
     }
 
     #[test]
@@ -1455,7 +1502,7 @@ mod replica_stage_tests {
     #[test]
     fn replica_stage_duplicate_stall_and_error_drop_stale_profile() {
         let mut runtime = runtime();
-        let mut stepper = NoopDisclosedWorldStepper;
+        let mut stepper = DetailStepper;
         runtime
             .apply_encoded_frame_profiled(&encoded_frame(0, 0), &mut stepper)
             .unwrap();

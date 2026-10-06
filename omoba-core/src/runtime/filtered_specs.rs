@@ -707,6 +707,28 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
         _component_allowlist: &BTreeSet<u32>,
         resource_allowlist: &BTreeSet<u32>,
     ) -> Result<(), ReplicaRuntimeError> {
+        self.fixed_step_impl(world, injections, resource_allowlist, false).map(|_| ())
+    }
+
+    fn fixed_step_profiled(
+        &mut self,
+        world: &mut DisclosedReplicaWorld,
+        injections: &StepInjections,
+        _component_allowlist: &BTreeSet<u32>,
+        resource_allowlist: &BTreeSet<u32>,
+    ) -> Result<Option<crate::comp::fixed_step_detail::FixedStepDetail>, ReplicaRuntimeError> {
+        self.fixed_step_impl(world, injections, resource_allowlist, true)
+    }
+}
+
+impl SpecsDisclosedWorldStepper {
+    fn fixed_step_impl(
+        &mut self, world: &mut DisclosedReplicaWorld,
+        injections: &StepInjections, resource_allowlist: &BTreeSet<u32>, profiled: bool,
+    ) -> Result<Option<crate::comp::fixed_step_detail::FixedStepDetail>, ReplicaRuntimeError> {
+        let preparation_started = profiled.then(Instant::now);
+        let cpu_start = if profiled { crate::comp::process_cpu::process_cpu_ns() } else { None };
+        let mut detail = profiled.then(crate::comp::fixed_step_detail::FixedStepDetail::default);
         if world
             .resources
             .keys()
@@ -850,6 +872,9 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
         self.filtered.world.write_resource::<crate::runtime::PendingHeroCommandClearQueue>()
             .requests.extend(owners);
 
+        if let (Some(start), Some(detail)) = (preparation_started, detail.as_mut()) {
+            detail.preparation_ns = start.elapsed().as_nanos();
+        }
         run_deterministic_gameplay_phases(&mut |phase| -> Result<(), ReplicaRuntimeError> {
             let phase_started = Instant::now();
             self.filtered
@@ -859,13 +884,21 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
                 .push(phase);
             use DeterministicGameplayPhase as P;
             if !gameplay_active && phase != P::RuntimeEventBoundary {
+                if let Some(detail) = detail.as_mut() {
+                    detail.phases_ns[phase as usize] = phase_started.elapsed().as_nanos();
+                }
                 return Ok(());
             }
             match phase {
-                P::Dispatcher => self
-                    .dispatcher
-                    .run_systems(&self.filtered.world)
-                    .map_err(|_| ReplicaRuntimeError::GameplayStep)?,
+                P::Dispatcher => {
+                    if let Some(detail) = detail.as_mut() {
+                        detail.dispatcher = self.dispatcher.run_systems_profiled(&self.filtered.world)
+                            .map_err(|_| ReplicaRuntimeError::GameplayStep)?;
+                    } else {
+                        self.dispatcher.run_systems(&self.filtered.world)
+                            .map_err(|_| ReplicaRuntimeError::GameplayStep)?;
+                    }
+                }
                 P::RuntimeEventBoundary => self
                     .filtered
                     .world
@@ -939,8 +972,12 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
                 self.last_script_phase_ns =
                     phase_started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64;
             }
+            if let Some(detail) = detail.as_mut() {
+                detail.phases_ns[phase as usize] = phase_started.elapsed().as_nanos();
+            }
             Ok(())
         })?;
+        let finalization_started = profiled.then(Instant::now);
         self.filtered
             .world
             .write_resource::<TickDeterministicRng>()
@@ -962,7 +999,13 @@ impl DisclosedWorldStepper for SpecsDisclosedWorldStepper {
         apply_authoritative_movement_outcomes(self, injections)?;
         self.export_gameplay_components(world)?;
         apply_disclosed_events(world, injections)?;
-        self.synchronize_specs_membership(world)
+        self.synchronize_specs_membership(world)?;
+        if let (Some(start), Some(detail)) = (finalization_started, detail.as_mut()) {
+            detail.finalization_ns = start.elapsed().as_nanos();
+            detail.process_cpu_ns = crate::comp::process_cpu::process_cpu_delta(
+                cpu_start, crate::comp::process_cpu::process_cpu_ns());
+        }
+        Ok(detail)
     }
 }
 
@@ -1541,6 +1584,36 @@ mod committed_actor_state_tests {
 mod canonical_json_tests {
     use crate::runtime::visibility::canonical_disclosed_json;
     use std::collections::HashMap;
+
+    #[test]
+    fn fixed_step_detail_specs_profile_keeps_world_identical() {
+        use crate::runtime::*;
+        use specs::WorldExt;
+        let start = crate::game_proto::TeamGameStart { tick_rate_hz: 60, ..Default::default() };
+        let allow = std::collections::BTreeSet::new();
+        let mut plain = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), allow.clone());
+        let mut measured = SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), allow.clone());
+        // Tick zero intentionally has zero delta and skips gameplay phases.
+        let mut plain_world = DisclosedReplicaWorld { tick: 1, ..Default::default() };
+        let mut measured_world = plain_world.clone();
+        let injection = StepInjections::default();
+        plain.fixed_step(&mut plain_world, &injection, &allow, &allow).unwrap();
+        let detail = measured.fixed_step_profiled(&mut measured_world, &injection, &allow, &allow)
+            .unwrap().expect("concrete profiled step");
+        assert_eq!(plain_world, measured_world);
+        assert!(detail.preparation_ns > 0);
+        assert!(detail.finalization_ns > 0);
+        let dispatcher = detail.dispatcher.expect("concrete dispatcher profile");
+        assert_eq!(dispatcher.jobs.unwrap().observed_jobs, 18);
+        assert!(dispatcher.residual_ns(detail.phases_ns[DeterministicGameplayPhase::Dispatcher as usize]).is_some());
+        assert_eq!(plain.filtered.world.read_resource::<ReplicaPhaseTrace>().0,
+            measured.filtered.world.read_resource::<ReplicaPhaseTrace>().0);
+        assert!(measured.fixed_step_profiled(&mut measured_world,
+            &StepInjections { public_events: vec![crate::game_proto::TeamPublicEvent {
+                event_kind: FactKind::MovementPriority as u32,
+                sanitized_payload: vec![99], ..Default::default()
+            }], ..Default::default() }, &allow, &allow).is_err());
+    }
 
     #[test]
     fn empty_filtered_world_has_combat_registries_without_authority_entities() {

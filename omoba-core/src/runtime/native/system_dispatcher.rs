@@ -30,17 +30,48 @@ impl SystemDispatcher {
 
     /// 運行所有遊戲系統
     pub fn run_systems(&mut self, world: &World) -> Result<(), Error> {
+        self.run_systems_inner(world, false).map(|_| ())
+    }
+
+    pub fn run_systems_profiled(&mut self, world: &World)
+        -> Result<Option<crate::comp::dispatcher_detail::DispatcherDetail>, Error> {
+        self.run_systems_inner(world, true)
+    }
+
+    fn run_systems_inner(&mut self, world: &World, profiled: bool)
+        -> Result<Option<crate::comp::dispatcher_detail::DispatcherDetail>, Error> {
+        use crate::comp::dispatcher_detail::{DispatcherDetail, JobSnapshot};
+        let before = if profiled { JobSnapshot::capture(world) } else { None };
+        let mut detail = profiled.then(DispatcherDetail::default);
+        let input_started = profiled.then(std::time::Instant::now);
         crate::comp::run_now::<player_input_tick::Sys>(world);
+        if let (Some(start), Some(detail)) = (input_started, detail.as_mut()) {
+            detail.input_ns = start.elapsed().as_nanos();
+        }
         if world.read_resource::<GamePause>().is_paused {
-            return Ok(());
+            if let Some(detail) = detail.as_mut() {
+                detail.jobs = before.and_then(|before| JobSnapshot::capture(world)
+                    .and_then(|after| before.delta(after)));
+            }
+            return Ok(detail);
         }
         if self.dispatcher.is_none() {
+            let build_started = profiled.then(std::time::Instant::now);
             let mut builder = DispatcherBuilder::new().with_pool(Arc::clone(&self.thread_pool));
             self.build_system_dependencies(&mut builder);
             self.dispatcher = Some(builder.build());
+            if let (Some(start), Some(detail)) = (build_started, detail.as_mut()) {
+                detail.build_ns = start.elapsed().as_nanos();
+            }
         }
+        let execute_started = profiled.then(std::time::Instant::now);
         self.dispatcher.as_mut().unwrap().dispatch(world);
-        Ok(())
+        if let (Some(start), Some(detail)) = (execute_started, detail.as_mut()) {
+            detail.execute_ns = start.elapsed().as_nanos();
+            detail.jobs = before.and_then(|before| JobSnapshot::capture(world)
+                .and_then(|after| before.delta(after)));
+        }
+        Ok(detail)
     }
 
     /// Dynamically registered post-commit Specs lane. Team count is match

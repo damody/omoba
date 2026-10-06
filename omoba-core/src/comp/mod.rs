@@ -30,6 +30,9 @@ pub mod enemy;
 pub mod player;
 pub mod perf_window;
 pub mod replica_stage;
+pub mod fixed_step_detail;
+pub mod dispatcher_detail;
+pub mod process_cpu;
 pub mod tick_profile;
 
 pub mod outcome {

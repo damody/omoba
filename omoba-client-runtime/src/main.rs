@@ -1010,8 +1010,10 @@ async fn apply_ready_frame(
             &profile,
             step_ns,
         ) {
-            if let Ok(Some(line)) = replica_stages.record(sample) {
-                log::info!("{line}");
+            if let Ok(Some(lines)) = replica_stages.record_bundle(sample) {
+                log::info!("{}", lines.stage);
+                if let Some(detail) = lines.fixed_step { log::info!("{detail}"); }
+                if let Some(dispatcher) = lines.dispatcher { log::info!("{dispatcher}"); }
             }
         }
     }

@@ -21,6 +21,8 @@ OpenSpec build-unreal-rust-moba-framework 仍為 25/31。先處理 6.5 的 clien
 
 Job run-muwbt1eq-sk1khc，thread 2e98ff85-4aad-4d1d-9640-869df265c7a5。本節啟動時為 running，尚未接受，terminal 後由主 agent 審查補記。代理只處理限定 Rust／自己的 progress MD，主 agent 處理 Lua／中央計畫／錯誤紀錄。
 
+後續：該廣範圍 job 在6m13s沒有code delta，由主 agent取消、確認tracked handles null，cost未知，不接受。主 agent接手接線，小CPU模組job run-muwc1hp7-rqf7ez completed4m55s／reportedUSD0.13307872，primary实际FFI審查＋獨立7 tests接受；其餘stage9／detail2／Lua11+7／compiled-onlycheck与release build通過。一次real60Hz雙UE paired50windows/3000samples與五原始lifetime清理另驗成功，dispatcher wall93/101ms仍超50ms，不勾6.5。詳fixed-step-detail-progress／E324。
+
 ## 證據限制
 
 局部測試通過只證明診斷功能可用，不等於 client 已低於 50 ms。正式 60 Hz 失敗資料不覆寫；原始短程採樣是各 59 完整窗口／3540 成功 sample，不包括最後不足 60 筆窗口。
