@@ -657,6 +657,7 @@ fn check_mana_projection_fixture(regeneration: bool) {
         stepper.bootstrap_membership(replica.world()).unwrap();
         (team, replica, stepper)
     }).collect();
+    let cast_began = authority.read_resource::<MobaMatch>().elapsed;
     for tick in 0..12 {
         let inputs = if tick == 0 { vec![(1, PlayerInput {action: Some(PlayerInputEnum::CastAbility(CastAbility {
             ability_index: 1, target_entity: None, target_pos: None,
@@ -691,8 +692,12 @@ fn check_mana_projection_fixture(regeneration: bool) {
         }
     }
     let regenerated = if regeneration {
-        (authority.read_resource::<MobaMatch>().elapsed - began).raw()
-            * i64::from(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND)
+        let elapsed = authority.read_resource::<MobaMatch>().elapsed;
+        // The authored rank-one ranger_patch adds 2 mana/sec for 6 seconds.
+        // These twelve steps are inside that lifetime; the bootstrap step
+        // before the cast only gets the base regeneration rate.
+        (elapsed - began).raw() * i64::from(omoba_template_ids::MOBA_MANA_REGEN_PER_SECOND)
+            + (elapsed - cast_began).raw() * 2
     } else { 0 };
     assert_eq!(authority.read_storage::<Hero>().get(caster).unwrap().mana_pool.as_ref().unwrap().raw_state(),
         (45 * 1024 + regenerated, 280 * 1024, 17));
@@ -3758,6 +3763,63 @@ fn siege_wave_hold_position_60hz_persists_without_autoattack_and_releases_to_wav
     driver.step(&mut w,attack).unwrap();
     assert!(matches!(w.read_storage::<HeroCommandQueue>().get(caster).unwrap().active,
         Some(HeroCommand::AttackTarget {target,..}) if target==tower));
+}
+
+#[test]
+fn siege_wave_yield_60hz_moves_behind_disclosed_creep_and_holds_without_one() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
+        ..three_lane_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let owner=hero_pair(&w)[0];
+    let tower=w.read_resource::<MobaMatch>().lane_towers[1][1].unwrap();
+    let tower_pos=w.read_storage::<Pos>().get(tower).unwrap().0;
+    let along=|units:i32|tower_pos-omoba_sim::Vec2::new(Fixed64::from_i32(units),Fixed64::ZERO);
+    let hero_pos=along(800);
+    let creep_pos=along(700);
+    let stage=along(1400);
+    w.write_storage::<Pos>().get_mut(owner).unwrap().0=hero_pos;
+    {let mut health=w.write_storage::<CProperty>();let hero=health.get_mut(owner).unwrap();
+        hero.hp=Fixed64::from_i32(10_000);hero.mhp=hero.hp;}
+    let creeps=lane_creeps(&w,1);
+    let wave=creeps[0];
+    for creep in &creeps {
+        w.write_storage::<Pos>().get_mut(*creep).unwrap().0=if *creep==wave {creep_pos} else {along(-4000)};
+        let mut health=w.write_storage::<CProperty>();
+        let vital=health.get_mut(*creep).unwrap();
+        vital.hp=Fixed64::from_i32(10_000);vital.mhp=vital.hp;
+    }
+    let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Mid,lane:1,
+        escort_player_id:None}],think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),
+        sustain:None,item_builds:Vec::new()};
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let yield_input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&yield_input[0].1.action,Some(PlayerInputEnum::MoveTo(m))
+        if !m.queued && m.target.as_ref().is_some_and(|p|
+            i64::from(p.x)==stage.x.raw() && i64::from(p.y)==stage.y.raw())),
+        "ahead of a disclosed nearby wave must MoveTo behind it: {yield_input:?}");
+    assert!(!yield_input.iter().any(|(_,input)|matches!(&input.action,
+        Some(PlayerInputEnum::AttackTarget(_)|PlayerInputEnum::AttackMove(_)))));
+    driver.step(&mut w,yield_input).unwrap();
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,Some(HeroCommand::MoveTo {pos:stage}));
+    w.write_storage::<Pos>().get_mut(owner).unwrap().0=hero_pos;
+    let wave_key=canonical_entity_id(wave);
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&wave_key);
+    let hidden=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&hidden[0].1.action,Some(PlayerInputEnum::HoldPosition(h)) if !h.queued),
+        "a private creep position cannot release the tower alert: {hidden:?}");
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.insert(wave_key);
+    w.write_storage::<Pos>().get_mut(wave).unwrap().0=along(1600);
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let far=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&far[0].1.action,Some(PlayerInputEnum::HoldPosition(_))),
+        "a disclosed creep outside 700 still holds: {far:?}");
+    w.write_storage::<Pos>().get_mut(owner).unwrap().0=along(400);
+    w.write_storage::<Pos>().get_mut(wave).unwrap().0=along(50);
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let attack=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&attack[0].1.action,Some(PlayerInputEnum::AttackTarget(a)) if a.target_id==tower.id()),
+        "attack only after the disclosed creep is inside 650: {attack:?}");
 }
 
 #[test]

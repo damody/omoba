@@ -107,13 +107,39 @@ fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32) -> Vec<SeenUnit> 
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Decision { Attack(u64), Advance(Vec2), Escort(Vec2), ApproachStructure(Vec2), Hold }
+enum Decision { Attack(u64), Advance(Vec2), Escort(Vec2), ApproachStructure(Vec2), YieldBehind(Vec2), Hold }
 
 /// A visible living wave is an opportunity signal, not proof of tower aggro.
 fn disclosed_wave_at_tower(team:u32,tower:&SeenUnit,seen:&[SeenUnit])->bool {
     let radius=Fixed64::from_i32(650);
     seen.iter().any(|u|u.kind==2 && u.team==team && u.hp_raw>0
         && (u.position-tower.position).length_squared()<=radius*radius)
+}
+
+/// A hero inside the tower alert and still within creep aggro of the front
+/// allied creep zones that wave outside tower range. Step one aggro radius
+/// behind the front creep on the public tower-to-creep ray. Missing, dead,
+/// enemy, or distant creeps stay on Hold; the 650 gate still owns Attack.
+fn yield_behind_wave(team:u32,own:Vec2,seen:&[SeenUnit])->Option<Vec2> {
+    let alert=Fixed64::from_i32(1100);
+    let nearby=Fixed64::from_i32(700);
+    let tower=seen.iter().filter(|u|u.kind==4 && u.team!=team && u.team!=0 && u.hp_raw>0
+        && (u.position-own).length_squared()<=alert*alert
+        && !disclosed_wave_at_tower(team,u,seen))
+        .min_by_key(|u|((u.position-own).length_squared().raw(),u.canonical_id))?;
+    let own_dist=(tower.position-own).length();
+    let creep=seen.iter().filter(|u|u.kind==2 && u.team==team && u.hp_raw>0
+        && (u.position-own).length_squared()<=nearby*nearby)
+        .filter(|u|own_dist<(tower.position-u.position).length()+nearby)
+        .min_by_key(|u|((tower.position-u.position).length_squared().raw(),u.canonical_id))?;
+    let away=creep.position-tower.position;
+    let step=away.normalized();
+    if step==Vec2::ZERO {return None;}
+    Some(creep.position+step*nearby)
+}
+
+fn yield_or_hold(team:u32,own:Vec2,seen:&[SeenUnit])->Decision {
+    yield_behind_wave(team,own,seen).map(Decision::YieldBehind).unwrap_or(Decision::Hold)
 }
 
 /// Current-hit farming priority, not a promise about future projectile impact.
@@ -216,7 +242,7 @@ fn decide_excluding(role:BotRole,team:u32,own:Vec2,destination:Vec2,seen:&[SeenU
         (kind_priority,hp_priority,(unit.position - own).length_squared().raw(),unit.canonical_id)
     });
     if let Some(unit)=target {
-        if unit.kind==4 && !disclosed_wave_at_tower(team,unit,seen) {return Decision::Hold;}
+        if unit.kind==4 && !disclosed_wave_at_tower(team,unit,seen) {return yield_or_hold(team,own,seen);}
         return Decision::Attack(unit.canonical_id);
     }
     // Do not fall back to AttackMove into an observed unescorted tower while
@@ -224,7 +250,7 @@ fn decide_excluding(role:BotRole,team:u32,own:Vec2,destination:Vec2,seen:&[SeenU
     let approach=Fixed64::from_i32(1100);
     if seen.iter().any(|u|u.kind==4 && u.team!=team && u.team!=0
         && u.hp_raw>0 && (u.position-own).length_squared()<=approach*approach
-        && !disclosed_wave_at_tower(team,u,seen)) {return Decision::Hold;}
+        && !disclosed_wave_at_tower(team,u,seen)) {return yield_or_hold(team,own,seen);}
     Decision::Advance(destination)
 }
 
@@ -263,9 +289,12 @@ fn role_decision_with_focus(assignment:&BotAssignment,team:u32,own:Vec2,destinat
 }
 
 fn role_decision_excluding(assignment:&BotAssignment,team:u32,own:Vec2,destination:Vec2,
-    seen:&[SeenUnit],focus:Option<u64>,reachable:impl FnMut(Vec2)->bool,excluded:&[u64])->Decision {
+    seen:&[SeenUnit],focus:Option<u64>,mut reachable:impl FnMut(Vec2)->bool,excluded:&[u64])->Decision {
     if let Some(target)=focus.filter(|id|!excluded.contains(id)) {return Decision::Attack(target);}
     let decision = decide_excluding(assignment.role,team,own,destination,seen,excluded);
+    if let Decision::YieldBehind(point)=decision {
+        return if reachable(point) {decision} else {Decision::Hold};
+    }
     if matches!(decision,Decision::Attack(_)|Decision::Hold) { return decision; }
     if !excluded.is_empty() {return Decision::Hold;}
     if assignment.role==BotRole::Jungle {
@@ -646,6 +675,12 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 let Some(action)=action else {continue;};
                 action
             }
+            Decision::YieldBehind(destination) => {
+                // Reachability was already queried. MoveTo must not auto-acquire.
+                if immobilized && destination!=own.position {continue;}
+                let Some(action)=recovery_move(commands.get(entity),destination) else {continue;};
+                action
+            }
         };
         inputs.push((slot.player_id, PlayerInput { action: Some(action) }));
     }
@@ -906,6 +941,59 @@ mod tests {
             SeenUnit {kind:1,..wave},SeenUnit {kind:4,..wave},SeenUnit {position:p(1051),..wave}] {
             assert!(!disclosed_wave_at_tower(1,&tower,&[invalid]));
         }
+    }
+    #[test]
+    fn unescorted_tower_yields_behind_nearby_allied_wave_and_holds_otherwise() {
+        let tower=unit(4,900,2,4,100);
+        let wave=unit(8,-200,1,2,100);
+        let behind=Decision::YieldBehind(p(-900));
+        for role in [BotRole::Top,BotRole::Mid,BotRole::Carry,BotRole::Support,BotRole::Jungle] {
+            assert_eq!(decide(role,1,p(0),p(2000),&[tower,wave]),behind,"{role:?}");
+            assert_eq!(decide(role,1,p(0),p(2000),&[tower]),Decision::Hold,"{role:?}: no creep");
+        }
+        let rear=unit(9,-400,1,2,100);
+        assert_eq!(decide(BotRole::Carry,1,p(0),p(2000),&[rear,wave,tower]),behind,
+            "stage behind the creep closest to the tower");
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(2000),&[tower,unit(8,-800,1,2,100)]),Decision::Hold,
+            "a creep outside 700 is not a nearby wave");
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(2000),&[tower,unit(8,200,1,2,100)]),
+            Decision::YieldBehind(p(-500)),"still inside aggro of the front creep steps back");
+        assert_eq!(decide(BotRole::Mid,1,p(-500),p(2000),&[tower,unit(8,200,1,2,100)]),
+            Decision::Advance(p(2000)),"outside the alert after backing off does not keep yielding");
+        for invalid in [SeenUnit {hp_raw:0,..wave},SeenUnit {team:2,..unit(8,-600,1,2,100)},
+            SeenUnit {kind:1,..wave},SeenUnit {kind:3,..wave}] {
+            assert_eq!(decide(BotRole::Support,1,p(0),p(2000),&[tower,invalid]),Decision::Hold);
+        }
+        assert_eq!(decide(BotRole::Top,1,p(0),p(2000),&[SeenUnit {position:p(1101),..tower},wave]),
+            Decision::Advance(p(2000)),"outside the 1100 alert");
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(2000),&[unit(4,400,2,4,100),unit(8,450,1,2,100)]),
+            Decision::Attack(4),"650 gate still attacks");
+        assert_eq!(decide(BotRole::Carry,1,p(0),p(2000),&[tower,wave,unit(2,100,2,2,80)]),
+            Decision::Attack(2),"a disclosed enemy creep still outranks the yield");
+        let diagonal_tower=SeenUnit {position:Vec2::new(Fixed64::from_i32(600),Fixed64::from_i32(800)),..tower};
+        let diagonal_wave=SeenUnit {position:Vec2::new(Fixed64::from_i32(-120),Fixed64::from_i32(-160)),..wave};
+        let Decision::YieldBehind(point)=decide(BotRole::Jungle,1,Vec2::ZERO,p(2000),&[diagonal_tower,diagonal_wave])
+            else {panic!("diagonal yield")};
+        let tower_gap=(diagonal_tower.position-point).length();
+        assert!(tower_gap>(diagonal_tower.position-diagonal_wave.position).length());
+        assert!(tower_gap>Fixed64::from_i32(650));
+        let dropped=(point-diagonal_wave.position).length();
+        assert!(dropped>Fixed64::from_i32(680) && dropped<=Fixed64::from_i32(700));
+        let assignment=BotAssignment {player_id:1,role:BotRole::Carry,lane:0,escort_player_id:None};
+        let seen=[tower,wave];
+        assert_eq!(role_decision_with_focus(&assignment,1,p(0),p(2000),&seen,None,|_|false),Decision::Hold,
+            "unreachable staging stays on the tower alert");
+        assert_eq!(role_decision_with_focus(&assignment,1,p(0),p(2000),&seen,None,|_|true),behind);
+        let jungle=BotAssignment {role:BotRole::Jungle,..assignment};
+        let base=unit(5,2000,2,5,100);
+        assert_eq!(role_decision(&jungle,1,p(0),p(900),&[tower,wave,base]),behind,
+            "local body-block precedes distant siege");
+        assert_eq!(role_decision(&jungle,1,p(0),p(900),&[tower,base]),Decision::Hold);
+        let support=BotAssignment {player_id:4,role:BotRole::Support,lane:2,escort_player_id:Some(3)};
+        let carry=SeenUnit {owner_player_id:3,..unit(3,400,1,1,100)};
+        assert_eq!(role_decision(&support,1,p(0),p(2000),&[tower,wave,carry]),behind,
+            "escort does not walk through the unescorted tower");
+        assert_eq!(role_decision(&support,1,p(0),p(2000),&[carry]),Decision::Escort(p(400)));
     }
     #[test]
     fn carry_attack_priority_reserves_ready_and_matching_windup_not_backswing() {
