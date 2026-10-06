@@ -214,7 +214,7 @@ mod tests {
         let mut json=serde_json::to_value(&p).unwrap();json.as_object_mut().unwrap().remove("item_builds");
         let legacy:RoleBotMatchPlan=serde_json::from_value(json).unwrap();
         assert!(legacy.compile(1,SimulationTickProfile::Production60Hz).unwrap().1.item_builds.is_empty());
-        p.item_builds=vec![BotItemBuild {role:BotRole::Carry,items:vec!["moba_greatsword".into()],return_to_shop:None}];
+        p.item_builds=vec![BotItemBuild {role:BotRole::Carry,items:vec!["moba_greatsword".into()],return_to_shop:None,active_use:None}];
         assert_eq!(p.compile(1,SimulationTickProfile::Production60Hz).unwrap().1.item_builds[0].items,["moba_greatsword"]);
         p.item_builds[0].items[0]="unknown".into();
         assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_err());

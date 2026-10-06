@@ -16,14 +16,17 @@ end
 -- level-gated steps are skipped; authority still owns point spending.
 local learning = {}
 local item_builds={
-  {role='top',items={'moba_armor','moba_boots','moba_greatsword'}},
-  {role='mid',items={'moba_boots','moba_armor'}},
-  {role='carry',items={'moba_greatsword','moba_boots','moba_armor'}},
-  {role='support',items={'moba_armor','moba_boots'}},
-  {role='jungle',items={'moba_greatsword','moba_armor','moba_boots'}},
+  {role='top',items={'moba_armor','moba_boots','moba_greatsword','moba_guard_charm'}},
+  {role='mid',items={'moba_boots','moba_armor','moba_ward_charm'}},
+  {role='carry',items={'moba_greatsword','moba_boots','moba_armor','moba_strike_charm'}},
+  {role='support',items={'moba_armor','moba_boots','moba_guard_charm','moba_ward_charm'}},
+  {role='jungle',items={'moba_greatsword','moba_armor','moba_boots','moba_stride_charm'}},
 }
 for _,build in ipairs(item_builds) do
   build.return_to_shop={min_gold=950,threat_radius=1000}
+  -- Owner resources and current disclosed threats only. Mana rule stays off
+  -- in this legacy non-mana training recipe; no runtime Lua is involved.
+  build.active_use={combat_radius=700,defend_below_hp_per_mille=500,restore_below_mana_per_mille=0}
 end
 for rank=1,4 do
   for _,ability in ipairs({'lumen_bolt','lumen_touch','lumen_lance','lumen_mend'}) do

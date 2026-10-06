@@ -789,6 +789,51 @@ fn area_effects_bot_formal_60hz_hits_multiple_enemies_not_allies_or_outside_radi
 }
 
 #[test]
+fn dash_bot_public_terrain_60hz_skips_blocked_cast_for_recovery_then_relocates() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let (mut w,mut driver)=world(SingleLaneConfig {heroes:["training_vanguard".into(),"training_luminary".into()],
+        mana_enabled:true,wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let [caster,victim]=hero_pair(&w);
+    let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
+    let destination=origin+omoba_sim::Vec2::new(Fixed64::from_i32(350),Fixed64::ZERO);
+    w.write_storage::<Pos>().get_mut(caster).unwrap().0=origin;
+    w.write_storage::<Pos>().get_mut(victim).unwrap().0=destination;
+    w.write_storage::<CProperty>().get_mut(caster).unwrap().hp=Fixed64::from_i32(100);
+    let original=(*w.read_resource::<BlockedRegions>()).clone();
+    w.write_resource::<BlockedRegions>().0.push(BlockedRegion {name:"bot-dash-fixture".into(),points:vec![
+        vek::Vec2::new(100.0,2400.0),vek::Vec2::new(120.0,2400.0),
+        vek::Vec2::new(120.0,2600.0),vek::Vec2::new(100.0,2600.0)]});
+    let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Top,lane:0,escort_player_id:None}],
+        think_interval_ticks:1,ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),ability_policies:vec![
+            BotAbilityPolicy {ability:"vanguard_resolve".into(),intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}},
+            BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+        ]};
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let mana=w.read_storage::<Hero>().get(caster).unwrap().mana_pool.clone();
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==1));
+    assert_eq!(w.read_storage::<Pos>().get(caster).unwrap().0,origin);
+    assert_eq!(w.read_storage::<Hero>().get(caster).unwrap().mana_pool,mana);
+    assert!(!w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("vanguard_recover"));
+    driver.step(&mut w,input).unwrap();
+    assert_eq!(w.read_storage::<CProperty>().get(caster).unwrap().hp,Fixed64::from_i32(210));
+    assert!(!w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("vanguard_resolve"));
+    *w.write_resource::<BlockedRegions>()=original;
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let key=canonical_entity_id(victim);
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&key);
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,i)|matches!(&i.action,
+        Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==3)),"cached target cannot authorize relocation");
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.insert(key);
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==3));
+    driver.step(&mut w,input).unwrap();
+    assert_eq!(w.read_storage::<Pos>().get(caster).unwrap().0,destination);
+    assert!(w.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown("vanguard_resolve"));
+}
+
+#[test]
 fn dash_effect_root_60hz_rejects_without_cost_then_bot_recovers_and_relocates() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let (mut w,mut driver)=world(SingleLaneConfig {heroes:["training_vanguard".into(),"training_luminary".into()],
@@ -987,6 +1032,76 @@ fn control_effect_root_and_silence_through_formal_60hz_generated_skills() {
             driver.step(&mut w,cast()).unwrap();
             assert_eq!(w.read_storage::<CProperty>().get(victim).unwrap().hp,hp+Fixed64::from_i32(70));
             assert!(w.read_storage::<Hero>().get(victim).unwrap().is_on_cooldown("lumen_touch"));
+        }
+    }
+}
+
+#[test]
+fn role_bot_sustain_navigation_60hz_all_roles_defend_hold_and_resume() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    for role in [BotRole::Top,BotRole::Mid,BotRole::Carry,BotRole::Support,BotRole::Jungle] {
+        for healing in [false,true] {
+            let (mut w,mut driver)=world(SingleLaneConfig {base_recovery_enabled:true,
+                heroes:["training_vanguard".into(),"training_luminary".into()],
+                wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
+            driver.step(&mut w,[]).unwrap();
+            let [bot,enemy]=hero_pair(&w);
+            let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
+            w.write_storage::<Pos>().get_mut(bot).unwrap().0=origin;
+            w.write_storage::<Pos>().get_mut(enemy).unwrap().0=origin+
+                omoba_sim::Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO);
+            w.write_storage::<CProperty>().get_mut(bot).unwrap().hp=Fixed64::from_i32(100);
+            let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role,lane:0,escort_player_id:None}],
+                think_interval_ticks:1,ability_learning:Vec::new(),item_builds:Vec::new(),
+                sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None}),
+                ability_policies:if healing {vec![
+                    BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit},
+                    BotAbilityPolicy {ability:"vanguard_recover".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}},
+                ]} else {Vec::new()}};
+            run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+            let escape=role_bot_inputs(&w,&bots).unwrap();
+            let Some(PlayerInputEnum::MoveTo(m))=&escape[0].1.action else {panic!("{role:?}: reachable escape");};
+            let target=m.target.as_ref().unwrap();
+            let home=omoba_sim::Vec2::new(Fixed64::from_raw(i64::from(target.x)),Fixed64::from_raw(i64::from(target.y)));
+            let original=(*w.read_resource::<BlockedRegions>()).clone();
+            let x=home.x.to_f32_for_render();let y=home.y.to_f32_for_render();
+            w.write_resource::<BlockedRegions>().0.push(BlockedRegion {name:"sustain-home-fixture".into(),points:vec![
+                vek::Vec2::new(x-40.0,y-40.0),vek::Vec2::new(x+40.0,y-40.0),
+                vek::Vec2::new(x+40.0,y+40.0),vek::Vec2::new(x-40.0,y+40.0)]});
+            // An old offensive order must not survive a failed escape forever.
+            w.write_storage::<HeroCommandQueue>().insert(bot,HeroCommandQueue {
+                active:Some(HeroCommand::AttackTarget {target:enemy,chase_origin:None}),
+                queued:vec![HeroCommand::AttackMove {pos:origin}],
+            }).unwrap();
+            if healing {
+                let input=role_bot_inputs(&w,&bots).unwrap();
+                assert_eq!(input.len(),1);
+                assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::CastAbility(c)) if c.ability_index==1),"{role:?}: recovery before hold, never offense");
+                driver.step(&mut w,input).unwrap();
+                assert!(w.read_storage::<CProperty>().get(bot).unwrap().hp>Fixed64::from_i32(100));
+                assert!(!w.read_storage::<Hero>().get(bot).unwrap().is_on_cooldown("vanguard_strike"));
+                run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+            }
+            let input=role_bot_inputs(&w,&bots).unwrap();
+            assert_eq!(input.len(),1);
+            assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::HoldPosition(_))),"{role:?}: unreachable home stops stale aggression");
+            driver.step(&mut w,input).unwrap();
+            let held=w.read_storage::<Pos>().get(bot).unwrap().0;
+            for _ in 0..3 {
+                run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+                assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"{role:?}: hold must not spam");
+                driver.step(&mut w,[]).unwrap();
+                assert_eq!(w.read_storage::<Pos>().get(bot).unwrap().0,held);
+            }
+            *w.write_resource::<BlockedRegions>()=original;
+            run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+            let input=role_bot_inputs(&w,&bots).unwrap();
+            assert_eq!(input.len(),1);
+            assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::MoveTo(m))
+                if m.target.as_ref().is_some_and(|p|i64::from(p.x)==home.x.raw() && i64::from(p.y)==home.y.raw())));
+            driver.step(&mut w,input).unwrap();
+            driver.step(&mut w,[]).unwrap();
+            assert_ne!(w.read_storage::<Pos>().get(bot).unwrap().0,held,"{role:?}: ordinary movement resumes, not teleport");
         }
     }
 }
@@ -1446,7 +1561,7 @@ fn role_bot_items_formal_shop_at_60hz_is_owner_only_and_non_mutating() {
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:2,escort_player_id:None}],
         think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),
         sustain:Some(BotSustainPolicy {recall_below_hp_per_mille:350,leave_base_at_hp_per_mille:850,threat_radius:1000,mana:None}),
-        item_builds:vec![BotItemBuild {role:BotRole::Carry,items:vec!["moba_greatsword".into(),"moba_boots".into()],return_to_shop:None}]};
+        item_builds:vec![BotItemBuild {role:BotRole::Carry,items:vec!["moba_greatsword".into(),"moba_boots".into()],return_to_shop:None,active_use:None}]};
     let enemy_gold=w.read_storage::<Gold>().get(enemy).unwrap().0;
     let enemy_items=serde_json::to_value(w.read_storage::<Inventory>().get(enemy).unwrap()).unwrap();
     for (id,balance) in [("moba_sword",900),("moba_sword",550),("moba_greatsword",300),("moba_boots",0)] {
@@ -1482,6 +1597,126 @@ fn role_bot_items_formal_shop_at_60hz_is_owner_only_and_non_mutating() {
 }
 
 #[test]
+fn role_bot_active_item_priority_60hz_defends_but_defers_mana_during_windup() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::ability_runtime::ManaPool;
+    for with_shield in [false, true] {
+        let (mut w, mut driver) = world(SingleLaneConfig {mana_enabled: true,
+            wave_interval: Fixed64::from_i32(10_000), ..three_lane_config()
+        }, SimulationTickProfile::Production60Hz);
+        driver.step(&mut w, []).unwrap();
+        let [owner, enemy] = hero_pair(&w);
+        w.write_storage::<Gold>().get_mut(owner).unwrap().0 = 2000;
+        let mut ids = vec!["moba_mana_charm"];
+        if with_shield {ids.push("moba_guard_charm");}
+        let mut result = None;
+        for id in &ids {
+            result = Some(driver.step(&mut w, [(1, PlayerInput {action: Some(
+                PlayerInputEnum::ItemBuy(ItemBuy {item_id: (*id).into()})
+            )})]).unwrap());
+        }
+        assert_eq!(w.read_storage::<Inventory>().get(owner).unwrap().items().count(), ids.len());
+        let own = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(2500));
+        w.write_storage::<Pos>().get_mut(owner).unwrap().0 = own;
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0 = own
+            + omoba_sim::Vec2::new(Fixed64::from_i32(300), Fixed64::ZERO);
+        w.write_storage::<CProperty>().get_mut(owner).unwrap().hp = Fixed64::from_i32(100);
+        let capacity = w.read_storage::<Hero>().get(owner).unwrap().moba_mana_capacity().unwrap();
+        w.write_storage::<Hero>().get_mut(owner).unwrap().mana_pool = Some(
+            ManaPool::new(Fixed64::from_i32(10), capacity).unwrap());
+        {
+            let mut attacks = w.write_storage::<TAttack>();
+            let attack = attacks.get_mut(owner).unwrap();
+            attack.range.v = Fixed64::from_i32(550);
+            attack.attack_phase = AttackSequencePhase::Windup;
+            attack.asd_count = Fixed64::from_raw(-100);
+        }
+        let command = HeroCommand::AttackTarget {target: enemy, chase_origin: None};
+        w.write_storage::<HeroCommandQueue>().insert(owner, HeroCommandQueue {
+            active: Some(command), queued: Vec::new(),
+        }).unwrap();
+        let bots = RoleBotConfig {assignments: vec![BotAssignment {
+            player_id: 1, role: BotRole::Carry, lane: 2, escort_player_id: None,
+        }], think_interval_ticks: 1, ability_policies: Vec::new(), ability_learning: Vec::new(),
+            sustain: None, item_builds: vec![BotItemBuild {role: BotRole::Carry,
+                items: ids.iter().map(|id| (*id).into()).collect(), return_to_shop: None,
+                active_use: Some(BotActiveItemPolicy {combat_radius: 700,
+                    defend_below_hp_per_mille: 500, restore_below_mana_per_mille: 300})}]};
+        run_committed_visibility_wave_b(&mut w, result.unwrap().tick, 0);
+        let mut inputs = role_bot_inputs(&w, &bots).unwrap();
+        assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active, Some(command));
+        if with_shield {
+            assert_eq!(inputs.len(), 1);
+            assert!(matches!(&inputs[0].1.action, Some(PlayerInputEnum::ItemUse(i)) if i.item_slot == 1));
+        } else {
+            assert!(inputs.is_empty(), "routine mana recovery must not cancel the existing windup");
+            w.write_storage::<TAttack>().get_mut(owner).unwrap().attack_phase = AttackSequencePhase::Backswing;
+            inputs = role_bot_inputs(&w, &bots).unwrap();
+            assert_eq!(inputs.len(), 1);
+            assert!(matches!(&inputs[0].1.action, Some(PlayerInputEnum::ItemUse(i)) if i.item_slot == 0));
+        }
+        driver.step(&mut w, inputs).unwrap();
+        let inventories = w.read_storage::<Inventory>();
+        let inventory = inventories.get(owner).unwrap();
+        if with_shield {
+            assert!(w.read_resource::<BuffStore>().shield_remaining(owner) > Fixed64::ZERO);
+            assert!(inventory.slots[1].as_ref().unwrap().cooldown_remaining > 0.0);
+            assert_eq!(inventory.slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
+        } else {
+            assert!(w.read_storage::<Hero>().get(owner).unwrap().mana_pool.as_ref().unwrap().current()
+                > Fixed64::from_i32(10));
+            assert!(inventory.slots[0].as_ref().unwrap().cooldown_remaining > 0.0);
+        }
+    }
+}
+
+#[test]
+fn role_bot_active_items_generated_shop_and_formal_use_at_60hz() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    use omoba_core::runtime::ability_runtime::ManaPool;
+    for id in ["moba_guard_charm","moba_stride_charm","moba_mana_charm","moba_ward_charm","moba_strike_charm"] {
+        let (mut w,mut driver)=world(SingleLaneConfig {mana_enabled:true,
+            wave_interval:Fixed64::from_i32(10_000),..three_lane_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let [hero,enemy]=hero_pair(&w);
+        let own=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
+        w.write_storage::<Gold>().get_mut(hero).unwrap().0=2000;
+        w.write_storage::<CProperty>().get_mut(hero).unwrap().hp=Fixed64::from_i32(100);
+        w.write_storage::<TAttack>().get_mut(hero).unwrap().range.v=Fixed64::from_i32(500);
+        let cap=w.read_storage::<Hero>().get(hero).unwrap().moba_mana_capacity().unwrap();
+        w.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool=Some(ManaPool::new(Fixed64::from_i32(10),cap).unwrap());
+        let result=driver.step(&mut w,[(1,PlayerInput {action:Some(PlayerInputEnum::ItemBuy(ItemBuy {item_id:id.into()}))})]).unwrap();
+        assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().items().count(),1,"formal base purchase {id}");
+        w.write_storage::<Pos>().get_mut(hero).unwrap().0=own;
+        w.write_storage::<Pos>().get_mut(enemy).unwrap().0=own+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+        let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:2,escort_player_id:None}],
+            think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,
+            item_builds:vec![BotItemBuild {role:BotRole::Carry,items:vec![id.into()],return_to_shop:None,
+                active_use:Some(BotActiveItemPolicy {combat_radius:700,defend_below_hp_per_mille:500,restore_below_mana_per_mille:300})}]};
+        run_committed_visibility_wave_b(&mut w,result.tick,0);
+        let before=serde_json::to_value(w.read_storage::<Inventory>().get(hero).unwrap()).unwrap();
+        let inputs=role_bot_inputs(&w,&bots).unwrap();
+        assert_eq!(inputs.len(),1,"{id}");
+        assert_eq!(inputs[0].0,1);
+        assert!(matches!(&inputs[0].1.action,Some(PlayerInputEnum::ItemUse(value)) if value.item_slot==0 && value.target_pos.is_none() && value.target_entity.is_none()),"{id}");
+        assert_eq!(serde_json::to_value(w.read_storage::<Inventory>().get(hero).unwrap()).unwrap(),before);
+        let result=driver.step(&mut w,inputs).unwrap();
+        assert!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining>0.0);
+        match id {
+            "moba_guard_charm"=>assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero),Fixed64::from_i32(100)),
+            "moba_stride_charm"=>assert!(w.read_resource::<BuffStore>().sum_add(hero,omb_script_abi::stat_keys::StatKey::MoveSpeedBonusBuff)>Fixed64::ZERO),
+            "moba_mana_charm"=>assert!(w.read_storage::<Hero>().get(hero).unwrap().mana_pool.as_ref().unwrap().current()>=Fixed64::from_i32(110)),
+            "moba_ward_charm"=>assert!(w.read_resource::<BuffStore>().sum_add(hero,omb_script_abi::stat_keys::StatKey::DamageTakenBonus)<Fixed64::ZERO),
+            _=>assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(hero),Fixed64::from_i32(60)),
+        }
+        assert_eq!(w.read_resource::<BuffStore>().shield_remaining(enemy),Fixed64::ZERO);
+        assert_eq!(w.read_storage::<Inventory>().get(enemy).unwrap().items().count(),0);
+        run_committed_visibility_wave_b(&mut w,result.tick,0);
+        assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(input.action,Some(PlayerInputEnum::ItemUse(_)))));
+    }
+}
+
+#[test]
 fn role_bot_items_economic_recall_channel_then_shop_at_60hz() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
@@ -1495,7 +1730,7 @@ fn role_bot_items_economic_recall_channel_then_shop_at_60hz() {
     w.write_storage::<Gold>().get_mut(buyer).unwrap().0=950;
     let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Carry,lane:2,escort_player_id:None}],
         think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,
-        item_builds:vec![BotItemBuild {role:BotRole::Carry,items:vec!["moba_greatsword".into()],
+        item_builds:vec![BotItemBuild {role:BotRole::Carry,items:vec!["moba_greatsword".into()],active_use:None,
             return_to_shop:Some(BotShopReturnPolicy {min_gold:950,threat_radius:1000})}]};
     run_committed_visibility_wave_b(&mut w,result.tick,0);
     let inputs=role_bot_inputs(&w,&bots).unwrap();
@@ -2011,6 +2246,58 @@ fn ally_heal_60hz_generated_support_rejects_enemy_and_heals_disclosed_teammate()
 }
 
 #[test]
+fn support_escort_navigation_60hz_holds_on_blocked_disclosure_and_resumes() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let player=|player_id,team_id,role,bot|RoleBotPlayerPlan {player_id,team_id,role,bot,
+        hero:"training_luminary".into(),lane:"bottom".into()};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
+        ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+        players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)]};
+    let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+    config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
+    let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let slots=w.read_resource::<MobaMatch>().heroes.clone();
+    let carry=slots.iter().find(|s|s.player_id==1).unwrap().entity.unwrap();
+    let support=slots.iter().find(|s|s.player_id==3).unwrap().entity.unwrap();
+    let destination=omoba_sim::Vec2::new(Fixed64::from_i32(600),Fixed64::from_i32(100));
+    w.write_storage::<Pos>().get_mut(carry).unwrap().0=destination;
+    let disclose=|w:&mut World,tick| {
+        run_committed_visibility_wave_b(w,tick,0);
+        w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current
+            .retain(|id|*id==canonical_entity_id(carry) || *id==canonical_entity_id(support));
+    };
+    disclose(&mut w,driver.tick());
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(input.as_slice(),[(3,PlayerInput {action:Some(PlayerInputEnum::MoveTo(_))})]));
+    driver.step(&mut w,input).unwrap();
+    let original=(*w.read_resource::<BlockedRegions>()).clone();
+    w.write_resource::<BlockedRegions>().0.push(BlockedRegion {name:"escort-destination-fixture".into(),points:vec![
+        vek::Vec2::new(560.0,60.0),vek::Vec2::new(640.0,60.0),
+        vek::Vec2::new(640.0,140.0),vek::Vec2::new(560.0,140.0)]});
+    // A private, uncommitted move does not authorize a different escort target.
+    w.write_storage::<Pos>().get_mut(carry).unwrap().0=omoba_sim::Vec2::new(Fixed64::from_i32(900),Fixed64::ZERO);
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(input.as_slice(),[(3,PlayerInput {action:Some(PlayerInputEnum::HoldPosition(_))})]));
+    w.write_storage::<Pos>().get_mut(carry).unwrap().0=destination;
+    driver.step(&mut w,input).unwrap();
+    let held=w.read_storage::<Pos>().get(support).unwrap().0;
+    for _ in 0..3 {
+        disclose(&mut w,driver.tick());
+        assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"blocked escort hold is deduplicated");
+        driver.step(&mut w,[]).unwrap();
+        assert_eq!(w.read_storage::<Pos>().get(support).unwrap().0,held);
+    }
+    *w.write_resource::<BlockedRegions>()=original;
+    disclose(&mut w,driver.tick());
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(input.as_slice(),[(3,PlayerInput {action:Some(PlayerInputEnum::MoveTo(m))})]
+        if m.target.as_ref().is_some_and(|p|i64::from(p.x)==destination.x.raw() && i64::from(p.y)==destination.y.raw())));
+    driver.step(&mut w,input).unwrap();driver.step(&mut w,[]).unwrap();
+    assert_ne!(w.read_storage::<Pos>().get(support).unwrap().0,held,"normal escort movement resumes");
+}
+
+#[test]
 fn role_bots_support_escorts_human_using_committed_position_at_60hz() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let player=|player_id,team_id,role,bot| RoleBotPlayerPlan {player_id,team_id,role,bot,
@@ -2445,6 +2732,126 @@ fn role_bot_jungle_patrol_60hz_keeps_destination_until_disclosed_arrival() {
     driver.step(&mut w,input).unwrap();
     assert!(matches!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active,
         Some(HeroCommand::AttackMove {pos}) if pos==next));
+}
+
+#[test]
+fn combat_navigation_60hz_lane_roles_skip_failed_chases_hold_and_reconsider() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let player=|player_id,team_id,role|RoleBotPlayerPlan {player_id,team_id,role,bot:false,
+        hero:"training_vanguard".into(),lane:"top".into()};
+    for role in [BotRole::Top,BotRole::Mid,BotRole::Carry,BotRole::Support] {
+        let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
+            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+            players:vec![player(1,1,BotRole::Top),player(2,2,BotRole::Mid),player(3,2,BotRole::Support)]};
+        let (mut config,_)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
+        config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
+        let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();
+        let slots=w.read_resource::<MobaMatch>().heroes.clone();
+        let entity=|id|slots.iter().find(|s|s.player_id==id).unwrap().entity.unwrap();
+        let (bot,a,b)=(entity(1),entity(2),entity(3));
+        let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
+        w.write_storage::<Pos>().get_mut(bot).unwrap().0=origin;
+        w.write_storage::<Pos>().get_mut(a).unwrap().0=origin+omoba_sim::Vec2::new(Fixed64::from_i32(300),Fixed64::ZERO);
+        w.write_storage::<Pos>().get_mut(b).unwrap().0=origin+omoba_sim::Vec2::new(Fixed64::from_i32(450),Fixed64::ZERO);
+        let disclose=|w:&mut World,tick| {
+            run_committed_visibility_wave_b(w,tick,0);
+            w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current
+                .retain(|id|[bot,a,b].iter().any(|e|*id==canonical_entity_id(*e)));
+        };
+        let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role,lane:0,escort_player_id:None}],
+            think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
+        let targets=|input:&[(u32,PlayerInput)],target:specs::Entity|matches!(input,
+            [(1,PlayerInput {action:Some(PlayerInputEnum::AttackTarget(t))})] if t.target_id==target.id());
+        disclose(&mut w,driver.tick());
+        assert!(targets(&role_bot_inputs(&w,&bots).unwrap(),a),"{role:?}: original priority");
+        let original=(*w.read_resource::<BlockedRegions>()).clone();
+        let block=|x:f32|BlockedRegion {name:"combat-navigation-fixture".into(),points:vec![
+            vek::Vec2::new(x-40.0,2460.0),vek::Vec2::new(x+40.0,2460.0),
+            vek::Vec2::new(x+40.0,2540.0),vek::Vec2::new(x-40.0,2540.0)]};
+        w.write_resource::<BlockedRegions>().0.push(block(300.0));
+        let input=role_bot_inputs(&w,&bots).unwrap();
+        assert!(targets(&input,b),"{role:?}: select another disclosed reachable target");
+        driver.step(&mut w,input).unwrap();
+        w.write_resource::<BlockedRegions>().0.push(block(450.0));
+        disclose(&mut w,driver.tick());
+        let input=role_bot_inputs(&w,&bots).unwrap();
+        assert!(matches!(input.as_slice(),[(1,PlayerInput {action:Some(PlayerInputEnum::HoldPosition(_))})]));
+        driver.step(&mut w,input).unwrap();
+        let held=w.read_storage::<Pos>().get(bot).unwrap().0;
+        for _ in 0..3 {
+            disclose(&mut w,driver.tick());
+            assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"{role:?}: hold deduplication");
+            driver.step(&mut w,[]).unwrap();
+            assert_eq!(w.read_storage::<Pos>().get(bot).unwrap().0,held);
+        }
+        *w.write_resource::<BlockedRegions>()=original;
+        disclose(&mut w,driver.tick());
+        let input=role_bot_inputs(&w,&bots).unwrap();
+        assert!(targets(&input,a),"{role:?}: failed candidate is not permanently blacklisted");
+        driver.step(&mut w,input).unwrap();driver.step(&mut w,[]).unwrap();
+        assert_ne!(w.read_storage::<Pos>().get(bot).unwrap().0,held);
+    }
+}
+
+#[test]
+fn lane_navigation_60hz_all_lane_roles_skip_blocked_waypoints_hold_and_resume() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let route:Vec<_>=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap()
+        .lanes[0].waypoints.iter().map(|&(x,y)|omoba_sim::Vec2::new(
+            Fixed64::from_i32(x),Fixed64::from_i32(y))).collect();
+    let block=|point:omoba_sim::Vec2| {
+        let x=point.x.to_f32_for_render();let y=point.y.to_f32_for_render();
+        BlockedRegion {name:"lane-navigation-fixture".into(),points:vec![
+            vek::Vec2::new(x-40.0,y-40.0),vek::Vec2::new(x+40.0,y-40.0),
+            vek::Vec2::new(x+40.0,y+40.0),vek::Vec2::new(x-40.0,y+40.0)]}
+    };
+    for role in [BotRole::Top,BotRole::Mid,BotRole::Carry,BotRole::Support] {
+        let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
+            ..three_lane_config()},SimulationTickProfile::Production60Hz);
+        driver.step(&mut w,[]).unwrap();let owner=hero_pair(&w)[0];
+        let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
+        w.write_storage::<Pos>().get_mut(owner).unwrap().0=origin;
+        let disclose=|w:&mut World,tick| {
+            run_committed_visibility_wave_b(w,tick,0);
+            w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current
+                .retain(|id|*id==canonical_entity_id(owner));
+        };
+        let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role,lane:0,escort_player_id:None}],
+            think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
+        let targets=|inputs:&[(u32,PlayerInput)],point:omoba_sim::Vec2|matches!(inputs,
+            [(1,PlayerInput {action:Some(PlayerInputEnum::AttackMove(value))})]
+            if value.target==Some(Vec2I {x:point.x.raw() as i32,y:point.y.raw() as i32}));
+        disclose(&mut w,driver.tick());
+        assert!(targets(&role_bot_inputs(&w,&bots).unwrap(),route[1]),"{role:?}: ordinary bend first");
+        let original=(*w.read_resource::<BlockedRegions>()).clone();
+        w.write_resource::<BlockedRegions>().0.push(block(route[1]));
+        let input=role_bot_inputs(&w,&bots).unwrap();
+        assert!(targets(&input,route[2]),"{role:?}: next reachable forward point");
+        driver.step(&mut w,input).unwrap();
+        disclose(&mut w,driver.tick());
+        assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"{role:?}: retain reachable admitted destination");
+        for point in &route[2..] {w.write_resource::<BlockedRegions>().0.push(block(*point));}
+        let input=role_bot_inputs(&w,&bots).unwrap();
+        assert!(matches!(input.as_slice(),[(1,PlayerInput {action:Some(PlayerInputEnum::HoldPosition(_))})]),"{role:?}: no reachable forward point");
+        driver.step(&mut w,input).unwrap();
+        let held=w.read_storage::<Pos>().get(owner).unwrap().0;
+        for _ in 0..3 {
+            disclose(&mut w,driver.tick());
+            assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"{role:?}: no repeated hold");
+            driver.step(&mut w,[]).unwrap();
+            assert_eq!(w.read_storage::<Pos>().get(owner).unwrap().0,held);
+        }
+        *w.write_resource::<BlockedRegions>()=original;
+        disclose(&mut w,driver.tick());
+        let input=role_bot_inputs(&w,&bots).unwrap();
+        assert!(targets(&input,route[1]),"{role:?}: no permanent blacklist");
+        driver.step(&mut w,input).unwrap();
+        driver.step(&mut w,[]).unwrap();
+        let moved=w.read_storage::<Pos>().get(owner).unwrap().0;
+        assert_ne!(moved,held,"{role:?}: normal movement resumed");
+        assert_ne!(moved,route[1],"{role:?}: no teleport");
+    }
 }
 
 #[test]
@@ -3114,6 +3521,205 @@ fn point_queue_formal_60hz_appends_behind_hold_and_immediate_move_replaces() {
 }
 
 #[test]
+fn jungle_patrol_navigation_60hz_skips_blocked_camp_holds_then_resumes() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
+        ..three_lane_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();let owner=hero_pair(&w)[0];
+    let origin=omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(2500));
+    w.write_storage::<Pos>().get_mut(owner).unwrap().0=origin;
+    let points:Vec<_>=w.read_resource::<MobaMatch>().jungle_camps.iter().map(|camp| {
+        let (x,y)=camp.definition.position;
+        omoba_sim::Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))
+    }).collect();
+    assert_eq!(points.len(),2,"compiled training fixture");
+    let original=(*w.read_resource::<BlockedRegions>()).clone();
+    let block=|point:omoba_sim::Vec2| {
+        let x=point.x.to_f32_for_render();let y=point.y.to_f32_for_render();
+        BlockedRegion {name:"camp-patrol-fixture".into(),points:vec![
+            vek::Vec2::new(x-40.0,y-40.0),vek::Vec2::new(x+40.0,y-40.0),
+            vek::Vec2::new(x+40.0,y+40.0),vek::Vec2::new(x-40.0,y+40.0)]}
+    };
+    w.write_resource::<BlockedRegions>().0.push(block(points[0]));
+    let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:1,
+        escort_player_id:None}],think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),
+        sustain:None,item_builds:Vec::new()};
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::AttackMove(a))
+        if a.target.as_ref().is_some_and(|p|i64::from(p.x)==points[1].x.raw() && i64::from(p.y)==points[1].y.raw())));
+    driver.step(&mut w,input).unwrap();
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,
+        Some(HeroCommand::AttackMove {pos:points[1]}));
+    w.write_resource::<BlockedRegions>().0.push(block(points[1]));
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::HoldPosition(_))));
+    driver.step(&mut w,input).unwrap();
+    let held=w.read_storage::<Pos>().get(owner).unwrap().0;
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"unreachable patrol must not spam commands");
+    driver.step(&mut w,[]).unwrap();
+    assert_eq!(w.read_storage::<Pos>().get(owner).unwrap().0,held);
+    *w.write_resource::<BlockedRegions>()=original;
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let input=role_bot_inputs(&w,&bots).unwrap();
+    assert!(matches!(&input[0].1.action,Some(PlayerInputEnum::AttackMove(a))
+        if a.target.as_ref().is_some_and(|p|i64::from(p.x)==points[0].x.raw() && i64::from(p.y)==points[0].y.raw())));
+    driver.step(&mut w,input).unwrap();
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,
+        Some(HeroCommand::AttackMove {pos:points[0]}));
+    // Acceptance creates the command after the movement phase of this tick.
+    driver.step(&mut w,[]).unwrap();
+    assert_ne!(w.read_storage::<Pos>().get(owner).unwrap().0,held,"normal travel resumes without teleport");
+}
+
+#[test]
+fn jungle_siege_route_60hz_skips_blocked_candidate_and_reconsiders_public_terrain() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
+        ..three_lane_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let owner=hero_pair(&w)[0];
+    let (near,far)={let state=w.read_resource::<MobaMatch>();
+        (state.lane_towers[1][1].unwrap(),state.lane_towers[0][1].unwrap())};
+    let near_pos=w.read_storage::<Pos>().get(near).unwrap().0;
+    let far_pos=w.read_storage::<Pos>().get(far).unwrap().0;
+    w.write_storage::<Pos>().get_mut(owner).unwrap().0=near_pos-
+        omoba_sim::Vec2::new(Fixed64::from_i32(700),Fixed64::ZERO);
+    let waves=lane_creeps(&w,1);
+    for (wave,point) in [(waves[0],near_pos),(waves[1],far_pos)] {
+        w.write_storage::<Pos>().get_mut(wave).unwrap().0=point-
+            omoba_sim::Vec2::new(Fixed64::from_i32(50),Fixed64::ZERO);
+    }
+    let original=(*w.read_resource::<BlockedRegions>()).clone();
+    let x=near_pos.x.to_f32_for_render();let y=near_pos.y.to_f32_for_render();
+    w.write_resource::<BlockedRegions>().0.push(BlockedRegion {name:"siege-route-fixture".into(),
+        points:vec![vek::Vec2::new(x-30.0,y-30.0),vek::Vec2::new(x+30.0,y-30.0),
+            vek::Vec2::new(x+30.0,y+30.0),vek::Vec2::new(x-30.0,y+30.0)]});
+    let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:1,
+        escort_player_id:None}],think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),
+        sustain:None,item_builds:Vec::new()};
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let travel_point=|inputs:Vec<(u32,PlayerInput)>|inputs.into_iter().find_map(|(_,i)|match i.action {
+        Some(PlayerInputEnum::MoveTo(m))=>m.target.map(|p|(i64::from(p.x),i64::from(p.y))),_=>None});
+    assert_eq!(travel_point(role_bot_inputs(&w,&bots).unwrap()),Some((far_pos.x.raw(),far_pos.y.raw())),
+        "nearest disclosed tower is occupied by public terrain; use the next reachable one");
+    let far_key=canonical_entity_id(far);
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&far_key);
+    assert_eq!(travel_point(role_bot_inputs(&w,&bots).unwrap()),None,
+        "hidden reachable target cannot bypass the blocked current candidate");
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.insert(far_key);
+    *w.write_resource::<BlockedRegions>()=original;
+    let travel=role_bot_inputs(&w,&bots).unwrap();
+    assert_eq!(travel_point(travel.clone()),Some((near_pos.x.raw(),near_pos.y.raw())),
+        "no persistent rejection cache after terrain changes");
+    driver.step(&mut w,travel).unwrap();
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,
+        Some(HeroCommand::MoveTo {pos:near_pos}));
+}
+
+#[test]
+fn jungle_siege_travel_60hz_moves_without_autoaggression_then_hands_off_to_attack() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
+        ..three_lane_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let owner=hero_pair(&w)[0];
+    let tower=w.read_resource::<MobaMatch>().lane_towers[1][1].unwrap();
+    let tower_pos=w.read_storage::<Pos>().get(tower).unwrap().0;
+    let own=tower_pos-omoba_sim::Vec2::new(Fixed64::from_i32(700),Fixed64::ZERO);
+    w.write_storage::<Pos>().get_mut(owner).unwrap().0=own;
+    {let mut health=w.write_storage::<CProperty>();let p=health.get_mut(owner).unwrap();
+        p.hp=Fixed64::from_i32(10_000);p.mhp=p.hp;}
+    let wave=lane_creeps(&w,1)[0];
+    w.write_storage::<Pos>().get_mut(wave).unwrap().0=tower_pos-
+        omoba_sim::Vec2::new(Fixed64::from_i32(50),Fixed64::ZERO);
+    let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:1,
+        escort_player_id:None}],think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),
+        sustain:None,item_builds:Vec::new()};
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let tower_key=canonical_entity_id(tower);
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&tower_key);
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,i)|matches!(&i.action,
+        Some(PlayerInputEnum::MoveTo(m)) if m.target.as_ref().is_some_and(|p|
+            i64::from(p.x)==tower_pos.x.raw() && i64::from(p.y)==tower_pos.y.raw()))),
+        "cached hidden tower must not create new siege travel");
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.insert(tower_key);
+    let wave_key=canonical_entity_id(wave);
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&wave_key);
+    assert!(matches!(&role_bot_inputs(&w,&bots).unwrap()[0].1.action,
+        Some(PlayerInputEnum::HoldPosition(_))),"cached hidden wave cannot authorize approach");
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.insert(wave_key);
+    let travel=role_bot_inputs(&w,&bots).unwrap();
+    assert_eq!(travel.len(),1);
+    assert!(matches!(&travel[0].1.action,Some(PlayerInputEnum::MoveTo(m))
+        if !m.queued && m.target.as_ref().is_some_and(|p| i64::from(p.x)==tower_pos.x.raw()
+            && i64::from(p.y)==tower_pos.y.raw())),"siege travel must not auto-acquire lane targets");
+    driver.step(&mut w,travel).unwrap();
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,
+        Some(HeroCommand::MoveTo {pos:tower_pos}));
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"same travel is not resubmitted");
+    let mut handed_off=false;
+    for _ in 0..180 {
+        run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+        let inputs=role_bot_inputs(&w,&bots).unwrap();
+        if inputs.iter().any(|(_,i)|matches!(&i.action,
+            Some(PlayerInputEnum::AttackTarget(a)) if a.target_id==tower.id())) {
+            driver.step(&mut w,inputs).unwrap();handed_off=true;break;
+        }
+        driver.step(&mut w,inputs).unwrap();
+    }
+    assert!(handed_off,"normal movement must reach local siege selection");
+    assert_ne!(w.read_storage::<Pos>().get(owner).unwrap().0,own);
+    assert!(matches!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,
+        Some(HeroCommand::AttackTarget {target,..}) if target==tower));
+}
+
+#[test]
+fn jungle_siege_60hz_waits_for_disclosed_wave_then_submits_formal_attack() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
+        ..three_lane_config()},SimulationTickProfile::Production60Hz);
+    driver.step(&mut w,[]).unwrap();
+    let owner=hero_pair(&w)[0];
+    let tower=w.read_resource::<MobaMatch>().lane_towers[1][1].unwrap();
+    let tower_pos=w.read_storage::<Pos>().get(tower).unwrap().0;
+    let own=tower_pos-omoba_sim::Vec2::new(Fixed64::from_i32(400),Fixed64::ZERO);
+    w.write_storage::<Pos>().get_mut(owner).unwrap().0=own;
+    {let mut health=w.write_storage::<CProperty>();let p=health.get_mut(owner).unwrap();
+        p.hp=Fixed64::from_i32(10_000);p.mhp=p.hp;}
+    let bots=RoleBotConfig {assignments:vec![BotAssignment {player_id:1,role:BotRole::Jungle,lane:1,
+        escort_player_id:None}],think_interval_ticks:1,ability_policies:Vec::new(),ability_learning:Vec::new(),
+        sustain:None,item_builds:Vec::new()};
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let hold=role_bot_inputs(&w,&bots).unwrap();
+    assert_eq!(hold.len(),1);
+    assert!(matches!(&hold[0].1.action,Some(PlayerInputEnum::HoldPosition(h)) if !h.queued));
+    driver.step(&mut w,hold).unwrap();
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,Some(HeroCommand::HoldPosition));
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let wave=lane_creeps(&w,1)[0];
+    w.write_storage::<Pos>().get_mut(wave).unwrap().0=tower_pos-
+        omoba_sim::Vec2::new(Fixed64::from_i32(50),Fixed64::ZERO);
+    assert!(role_bot_inputs(&w,&bots).unwrap().is_empty(),"uncommitted wave cannot release hold");
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    let attack=role_bot_inputs(&w,&bots).unwrap();
+    assert_eq!(attack.len(),1);
+    assert!(matches!(&attack[0].1.action,Some(PlayerInputEnum::AttackTarget(a)) if a.target_id==tower.id()));
+    driver.step(&mut w,attack).unwrap();
+    assert!(matches!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active,
+        Some(HeroCommand::AttackTarget {target,..}) if target==tower));
+    run_committed_visibility_wave_b(&mut w,driver.tick(),0);
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current
+        .remove(&canonical_entity_id(tower));
+    assert!(!role_bot_inputs(&w,&bots).unwrap().iter().any(|(_,input)|matches!(&input.action,
+        Some(PlayerInputEnum::AttackTarget(a)) if a.target_id==tower.id())),
+        "a cached hidden structure cannot supply a siege target");
+}
+
+#[test]
 fn siege_wave_hold_position_60hz_persists_without_autoattack_and_releases_to_wave() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let (mut w,mut driver)=world(SingleLaneConfig {wave_interval:Fixed64::from_i32(10_000),
@@ -3324,6 +3930,73 @@ fn incoming_damage_observation_60hz_filtered_updates_without_component_repair() 
             assert_eq!(replica.canonical_team_hash(),expected.canonical_team_hash(),"team {team} bonus {raw}");
         }
     }
+}
+
+#[test]
+fn carry_armed_attack_bonus_60hz_uses_owner_packet_without_consuming_observation() {
+    use omoba_core::runtime::native::moba_match::bots::*;
+    let (mut w, mut driver) = world(SingleLaneConfig {
+        wave_interval: Fixed64::from_i32(10_000), ..fast_config()
+    }, SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [owner, other] = hero_pair(&w);
+    let creeps = lane_creeps(&w, 2);
+    let (immune, killable) = (creeps[0], creeps[1]);
+    let origin = omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::from_i32(7000));
+    {
+        let mut poses = w.write_storage::<Pos>();
+        poses.get_mut(owner).unwrap().0 = origin;
+        for (entity, x) in [(immune, 50), (killable, 100)] {
+            poses.get_mut(entity).unwrap().0 = origin
+                + omoba_sim::Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO);
+        }
+    }
+    {
+        let mut health = w.write_storage::<CProperty>();
+        health.get_mut(immune).unwrap().hp = Fixed64::ONE;
+        health.get_mut(killable).unwrap().hp = Fixed64::from_i32(80);
+    }
+    {
+        let mut attacks = w.write_storage::<TAttack>();
+        let attack = attacks.get_mut(owner).unwrap();
+        attack.atk_physic.v = Fixed64::from_i32(30);
+        attack.range.v = Fixed64::from_i32(550);
+        attack.asd_count = Fixed64::from_i32(10);
+    }
+    w.write_resource::<BuffStore>().add(immune, "incoming_fixture", Fixed64::from_i32(10),
+        serde_json::json!({"damage_taken_bonus": -1024}));
+    let step = driver.step(&mut w, []).unwrap();
+    run_committed_visibility_wave_b(&mut w, step.tick, 0);
+    let bots = RoleBotConfig {assignments: vec![BotAssignment {
+        player_id: 1, role: BotRole::Carry, lane: 0, escort_player_id: None,
+    }], think_interval_ticks: 1, ability_policies: Vec::new(),
+        ability_learning: Vec::new(), sustain: None, item_builds: Vec::new()};
+    // An opponent's armed bonus cannot make our own packet stronger.
+    w.write_resource::<BuffStore>().arm_next_attack_bonus(other, Fixed64::from_i32(1000));
+    let before = role_bot_inputs(&w, &bots).unwrap();
+    assert!(!before.iter().any(|(_, input)| matches!(&input.action,
+        Some(PlayerInputEnum::AttackTarget(a)) if a.target_id == killable.id())));
+    assert!(w.write_resource::<BuffStore>().arm_next_attack_bonus(owner, Fixed64::from_i32(60)));
+    let inputs = role_bot_inputs(&w, &bots).unwrap();
+    assert_eq!(inputs.len(), 1);
+    assert!(matches!(&inputs[0].1.action,
+        Some(PlayerInputEnum::AttackTarget(a)) if a.target_id == killable.id()));
+    assert_eq!(role_bot_inputs(&w, &bots).unwrap(), inputs);
+    assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(owner), Fixed64::from_i32(60));
+    let canonical = canonical_entity_id(killable);
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.remove(&canonical);
+    assert!(!role_bot_inputs(&w, &bots).unwrap().iter().any(|(_, input)| matches!(&input.action,
+        Some(PlayerInputEnum::AttackTarget(a)) if a.target_id == killable.id())),
+        "armed damage cannot turn a cached hidden target into current perception");
+    w.write_resource::<TeamVisibilityRuntime>().teams.get_mut(&1).unwrap().index.current.insert(canonical);
+    driver.step(&mut w, inputs).unwrap();
+    for _ in 0..120 {
+        if w.read_resource::<BuffStore>().next_attack_bonus(owner) == Fixed64::ZERO {break;}
+        driver.step(&mut w, []).unwrap();
+    }
+    assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(owner), Fixed64::ZERO,
+        "only the actual normal projectile launch consumes the owner's bonus");
+    assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(other), Fixed64::from_i32(1000));
 }
 
 #[test]
@@ -4451,6 +5124,62 @@ fn item_sprint_60hz_uses_timed_buff_without_mutating_base_speed() {
 }
 
 #[test]
+fn generated_active_shop_items_60hz_buy_use_real_catalog_without_effect_overrides() {
+    use ability_runtime::ManaPool;
+    use omb_script_abi::stat_keys::StatKey;
+    let fixed = |value: f32| Fixed64::from_raw((f64::from(value) * 1024.0).round() as i64);
+    for id in ["moba_guard_charm", "moba_stride_charm", "moba_mana_charm", "moba_ward_charm", "moba_strike_charm"] {
+        let (mut w, mut driver) = world(SingleLaneConfig {
+            mana_enabled: true, base_recovery_enabled: false, ..fast_config()
+        }, SimulationTickProfile::Production60Hz);
+        // Use the production-generated registry installed by match setup.
+        // No replacement registry, item instance or effect configuration.
+        let cfg = w.read_resource::<ItemRegistry>().get(id).expect("Lua authored active item");
+        driver.step(&mut w, []).unwrap();
+        let [hero, other] = hero_pair(&w);
+        w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 2000;
+        w.write_storage::<CProperty>().get_mut(hero).unwrap().hp = Fixed64::from_i32(100);
+        let base_speed = w.read_storage::<CProperty>().get(hero).unwrap().msd;
+        let capacity = w.read_storage::<Hero>().get(hero).unwrap().moba_mana_capacity().unwrap();
+        w.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool = Some(ManaPool::new(Fixed64::from_i32(10), capacity).unwrap());
+        let other_mana = w.read_storage::<Hero>().get(other).unwrap().mana_pool.clone();
+        driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: id.into() })) })]).unwrap();
+        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0, 2000 - cfg.cost);
+        assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().item_id, id);
+        driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
+            item_slot: 0, target_pos: None, target_entity: None,
+        })) })]).unwrap();
+        assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, Fixed64::from_i32(100), "shield is not healing");
+        assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().msd, base_speed);
+        assert_eq!(w.read_storage::<Hero>().get(other).unwrap().mana_pool, other_mana);
+        assert_eq!(w.read_resource::<BuffStore>().shield_remaining(other), Fixed64::ZERO);
+        assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(other), Fixed64::ZERO);
+        assert_eq!(w.read_resource::<BuffStore>().sum_add(other, StatKey::MoveSpeedBonusBuff), Fixed64::ZERO);
+        match cfg.active.as_ref().unwrap() {
+            ActiveEffect::Shield { amount, .. } => assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero), fixed(*amount)),
+            ActiveEffect::SprintBuff { ms_bonus, .. } => assert_eq!(w.read_resource::<BuffStore>().sum_add(hero, StatKey::MoveSpeedBonusBuff), fixed(*ms_bonus)),
+            ActiveEffect::RestoreMana { amount } => {
+                // Production ticks also regenerate mana. Verify the item's exact
+                // authority fact rather than pretending regeneration was disabled.
+                let events = w.write_resource::<ScriptVisualEventQueue>().drain();
+                let gained: Vec<_> = events.iter().filter(|event|
+                    event.kind == ScriptVisualEventKind::ManaGained && event.primary == hero)
+                    .map(|event| event.amount).collect();
+                assert_eq!(gained, vec![fixed(*amount)]);
+                let current = w.read_storage::<Hero>().get(hero).unwrap().mana_pool.as_ref().unwrap().current();
+                assert!(current >= Fixed64::from_i32(10) + fixed(*amount) && current <= capacity);
+            },
+            ActiveEffect::DamageReduce { percent, .. } => assert_eq!(w.read_resource::<BuffStore>().sum_add(hero, StatKey::DamageTakenBonus), -fixed(*percent)),
+            ActiveEffect::HeadshotNext { bonus_damage } => assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(hero), fixed(*bonus_damage)),
+        }
+        let cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
+        assert!(cooldown > cfg.cooldown - 1.0 && cooldown <= cfg.cooldown);
+        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err());
+        assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, cooldown);
+    }
+}
+
+#[test]
 fn item_restore_mana_60hz_clamps_owner_pool_and_emits_actual_gain() {
     use ability_runtime::ManaPool;
     use omb_script_abi::stat_keys::StatKey;
@@ -4625,6 +5354,46 @@ fn item_shield_60hz_absorbs_after_reduction_and_expires_without_healing() {
     assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, Fixed64::from_i32(90));
     hit(&mut w, 20);
     assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, Fixed64::from_i32(80));
+}
+
+#[test]
+fn generated_shield_60hz_owner_projection_tracks_absorption_expiry_and_death() {
+    use omoba_core::runtime::native::economy_projection::OwnerEconomyState;
+    let (mut w, mut driver) = world(SingleLaneConfig { base_recovery_enabled: false,
+        ..fast_config() }, SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [hero, _] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 2000;
+    let check = |facts: &[omoba_core::runtime::OrderedFact], raw: i64| {
+        let owner = facts.iter().rev().find_map(|fact| match &fact.fact {
+            ObservableFact::OwnerEconomy { state, .. } if state.player_id == 1 => Some(state), _ => None,
+        }).unwrap();
+        assert_eq!(owner.shield_remaining_raw, raw);
+        assert_eq!(OwnerEconomyState::decode(&owner.encode()).unwrap(), *owner);
+        let other = facts.iter().rev().find_map(|fact| match &fact.fact {
+            ObservableFact::OwnerEconomy { state, .. } if state.player_id == 2 => Some(state), _ => None,
+        }).unwrap();
+        assert_eq!(other.shield_remaining_raw, 0);
+    };
+    let result = driver.step(&mut w, [
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_guard_charm".into() })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None })) }),
+    ]).unwrap();
+    check(&result.facts, 100 * 1024);
+    w.write_resource::<Vec<Outcome>>().push(Outcome::ScriptDirectDamage { target: hero, amount: Fixed64::from_i32(40) });
+    let result = driver.step(&mut w, []).unwrap();
+    check(&result.facts, 60 * 1024);
+    w.write_resource::<Vec<Outcome>>().push(Outcome::ScriptDirectDamage { target: hero, amount: Fixed64::from_i32(60) });
+    let result = driver.step(&mut w, []).unwrap();
+    check(&result.facts, 0);
+    w.write_resource::<BuffStore>().grant_damage_shield(hero, Fixed64::from_i32(20), Fixed64::from_raw(1));
+    let result = driver.step(&mut w, []).unwrap();
+    check(&result.facts, 0);
+    w.write_resource::<BuffStore>().grant_damage_shield(hero, Fixed64::from_i32(20), Fixed64::from_i32(3));
+    let pos = w.read_storage::<Pos>().get(hero).unwrap().0;
+    w.write_resource::<Vec<Outcome>>().push(Outcome::Death { pos, ent: hero });
+    let result = driver.step(&mut w, []).unwrap();
+    check(&result.facts, 0);
 }
 
 #[test]

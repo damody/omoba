@@ -379,6 +379,89 @@ mod tests {
     }
 
     #[test]
+    fn unreachable_route_does_not_walk_partial_path_and_preserves_next_queued_command_at_60hz() {
+        for attack_move in [false,true] {
+            for queue_next in [false,true] {
+                let (mut world,hero)=movement_world();
+                world.write_storage::<CollisionRadius>().insert(hero,CollisionRadius(Fixed64::ONE)).unwrap();
+                for (x0,y0,x1,y1) in [(100,-41,101,41),(160,-41,161,41),
+                    (100,-41,161,-40),(100,40,161,41)] {
+                    world.write_resource::<BlockedRegions>().0.push(BlockedRegion {
+                        name:"enclosed-goal".into(),points:vec![
+                            vek::Vec2::new(x0 as f32,y0 as f32),vek::Vec2::new(x1 as f32,y0 as f32),
+                            vek::Vec2::new(x1 as f32,y1 as f32),vek::Vec2::new(x0 as f32,y1 as f32)],
+                    });
+                }
+                world.write_resource::<DeltaTime>().0=Fixed64::from_raw(1024/60);
+                let target=SimVec2::new(Fixed64::from_i32(128),Fixed64::ZERO);
+                let next=SimVec2::new(Fixed64::ZERO,Fixed64::from_i32(64));
+                world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+                    owner_pid:1,queued:false,kind:if attack_move {
+                        PendingHeroCommandKind::AttackMove {pos:target}
+                    } else {PendingHeroCommandKind::MoveTo {pos:target}},
+                });
+                if queue_next {
+                    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+                        owner_pid:1,queued:true,kind:PendingHeroCommandKind::MoveTo {pos:next},
+                    });
+                }
+                crate::runtime::drain_pending_moves(&mut world);
+                let mut previous=SimVec2::ZERO;
+                for tick in 1..=120 {
+                    world.write_resource::<Tick>().0=tick;
+                    crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&world);
+                    crate::comp::run_now::<Sys>(&world);
+                    world.maintain();
+                    let pos=world.read_storage::<Pos>().get(hero).unwrap().0;
+                    assert!(!path_hits_regions(previous,pos,Fixed64::ONE,&world.read_resource::<BlockedRegions>()));
+                    if !queue_next {assert_eq!(pos,SimVec2::ZERO,"must not approach a dead end");}
+                    previous=pos;
+                }
+                assert!((previous-if queue_next {next} else {SimVec2::ZERO}).length()<Fixed64::ONE);
+                let queues=world.read_storage::<HeroCommandQueue>();
+                let queue=queues.get(hero).unwrap();
+                assert!(queue.active.is_none() && queue.queued.is_empty());
+                assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn same_cell_public_terrain_commands_detour_and_arrive_at_60hz() {
+        let run=|attack_move| {
+            let (mut world,hero)=movement_world();
+            world.write_storage::<CollisionRadius>().insert(hero,CollisionRadius(Fixed64::ONE)).unwrap();
+            world.write_resource::<BlockedRegions>().0.push(BlockedRegion {
+                name:"same-cell-thin-wall".into(),
+                points:vec![vek::Vec2::new(20.0,-5.0),vek::Vec2::new(21.0,-5.0),
+                    vek::Vec2::new(21.0,5.0),vek::Vec2::new(20.0,5.0)],
+            });
+            world.write_resource::<DeltaTime>().0=Fixed64::from_raw(1024/60);
+            let target=SimVec2::new(Fixed64::from_i32(30),Fixed64::ZERO);
+            world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+                owner_pid:1,queued:false,kind:if attack_move {
+                    PendingHeroCommandKind::AttackMove {pos:target}
+                } else {PendingHeroCommandKind::MoveTo {pos:target}},
+            });
+            crate::runtime::drain_pending_moves(&mut world);
+            let mut trace=Vec::new();let mut previous=SimVec2::ZERO;
+            for tick in 1..=240 {
+                world.write_resource::<Tick>().0=tick;
+                crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&world);
+                crate::comp::run_now::<Sys>(&world);
+                world.maintain();
+                let pos=world.read_storage::<Pos>().get(hero).unwrap().0;
+                assert!(!path_hits_regions(previous,pos,Fixed64::ONE,&world.read_resource::<BlockedRegions>()));
+                trace.push(pos);previous=pos;
+            }
+            assert!((previous-target).length()<Fixed64::ONE,"same-cell route failed: {previous:?}");
+            assert!(trace.iter().any(|p|p.y!=Fixed64::ZERO),"must actually detour");
+            trace
+        };
+        for attack_move in [false,true] {assert_eq!(run(attack_move),run(attack_move));}
+    }
+
+    #[test]
     fn public_terrain_move_routes_around_thin_wall_at_60hz() {
         let run=|| {
             let (mut world,hero)=movement_world();

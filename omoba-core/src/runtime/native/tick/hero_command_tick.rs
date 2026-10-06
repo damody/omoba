@@ -323,8 +323,12 @@ pub(crate) fn static_next_waypoint(
 ) -> Option<SimVec2> {
     let start = grid_key(from);
     let goal = grid_key(target);
-    if start == goal {
-        return (!path_hits_regions(from, target, radius, regions)).then_some(target);
+    if path_hits_regions(target, target, radius, regions) { return None; }
+    let same_cell = start == goal;
+    if same_cell {
+        if !path_hits_regions(from, target, radius, regions) { return Some(target); }
+        // The actual endpoints can lie on opposite sides of a thin obstacle
+        // inside one cell. Search outside the cell instead of rejecting them.
     }
 
     let dx = (goal.x - start.x).abs();
@@ -340,14 +344,20 @@ pub(crate) fn static_next_waypoint(
 
     let mut open = VecDeque::new();
     let mut parent: BTreeMap<GridKey, GridKey> = BTreeMap::new();
-    let mut best = start;
-    let mut best_score = key_target_distance_sq(start, target);
+    let mut reached = None;
     parent.insert(start, start);
     open.push_back(start);
 
     while let Some(cur) = open.pop_front() {
-        if cur == goal {
-            best = cur;
+        if !same_cell && cur == goal {
+            reached = Some(cur);
+            break;
+        }
+        // A same-cell goal cannot reuse the already-visited start key. Treat
+        // the precise target as a terminal edge, checked like every other edge.
+        if same_cell && cur != start
+            && !path_hits_regions(grid_pos(cur), target, radius, regions) {
+            reached = Some(cur);
             break;
         }
         for next in neighbors(cur) {
@@ -360,27 +370,17 @@ pub(crate) fn static_next_waypoint(
             if next != goal && path_hits_regions(grid_pos(next), grid_pos(next), radius, regions) {
                 continue;
             }
-            if next == goal && path_hits_regions(target, target, radius, regions) {
-                continue;
-            }
             let edge_from = if cur == start { from } else { grid_pos(cur) };
             let edge_to = if next == goal { target } else { grid_pos(next) };
             if path_hits_regions(edge_from, edge_to, radius, regions) { continue; }
             parent.insert(next, cur);
-            let score = key_target_distance_sq(next, target);
-            if score < best_score || (score == best_score && next < best) {
-                best = next;
-                best_score = score;
-            }
             open.push_back(next);
         }
     }
 
-    if best == start {
-        return None;
-    }
-
-    let mut cur = best;
+    // A closest reachable cell is not proof that the requested destination is
+    // reachable. Never turn an exhausted bounded search into a partial route.
+    let mut cur = reached?;
     while let Some(prev) = parent.get(&cur).copied() {
         if prev == start {
             return Some(if cur == goal { target } else { grid_pos(cur) });
@@ -454,14 +454,6 @@ fn round_fixed_to_grid(raw: i64) -> i64 {
     } else {
         q
     }
-}
-
-fn key_target_distance_sq(key: GridKey, target: SimVec2) -> i128 {
-    let x = i128::from(key.x) * i128::from(PATH_GRID_RAW);
-    let y = i128::from(key.y) * i128::from(PATH_GRID_RAW);
-    let dx = x - i128::from(target.x.raw());
-    let dy = y - i128::from(target.y.raw());
-    dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy))
 }
 
 fn neighbors(key: GridKey) -> [GridKey; 8] {
@@ -637,9 +629,39 @@ mod tests {
         assert_ne!(waypoint,target);
         assert!(waypoint.y!=Fixed64::ZERO);
         assert!(!path_hits_regions(SimVec2::ZERO,waypoint,Fixed64::ONE,&world.read_resource::<BlockedRegions>()));
-        // Same-cell and out-of-grid-budget fallbacks must not bypass terrain.
-        assert!(plan_in_world(&world,hero,SimVec2::ZERO,SimVec2::new(Fixed64::from_i32(30),Fixed64::ZERO)).is_none());
+        // Same-cell targets may detour, but never bypass the swept terrain.
+        let close_target=SimVec2::new(Fixed64::from_i32(30),Fixed64::ZERO);
+        let waypoint=plan_in_world(&world,hero,SimVec2::ZERO,close_target).expect("same-cell detour");
+        assert_ne!(waypoint,close_target);
+        assert!(!path_hits_regions(SimVec2::ZERO,waypoint,Fixed64::ONE,&world.read_resource::<BlockedRegions>()));
+        assert!(plan_in_world(&world,hero,SimVec2::ZERO,SimVec2::new(Fixed64::from_i32(20),Fixed64::ZERO)).is_none(),
+            "an occupied precise target remains unreachable");
+        // Out-of-grid-budget fallback remains fail-closed.
         assert!(plan_in_world(&world,hero,SimVec2::ZERO,SimVec2::new(Fixed64::from_i32(10000),Fixed64::ZERO)).is_none());
+    }
+
+    #[test]
+    fn path_planner_rejects_partial_route_to_enclosed_or_occupied_target() {
+        let (world,hero)=planner_world();
+        let target=SimVec2::new(Fixed64::from_i32(128),Fixed64::ZERO);
+        world.write_storage::<CollisionRadius>().insert(hero,CollisionRadius(Fixed64::ONE)).unwrap();
+        for (x0,y0,x1,y1) in [(100,-41,101,41),(160,-41,161,41),
+            (100,-41,161,-40),(100,40,161,41)] {
+            world.write_resource::<BlockedRegions>().0.push(BlockedRegion {
+                name:"enclosed-target".into(),points:vec![
+                    vek::Vec2::new(x0 as f32,y0 as f32),vek::Vec2::new(x1 as f32,y0 as f32),
+                    vek::Vec2::new(x1 as f32,y1 as f32),vek::Vec2::new(x0 as f32,y1 as f32)],
+            });
+        }
+        assert!(!path_hits_regions(target,target,Fixed64::ONE,&world.read_resource::<BlockedRegions>()));
+        for _ in 0..2 {
+            assert_eq!(plan_in_world(&world,hero,SimVec2::ZERO,target),None,
+                "the reachable x64 cell cannot stand in for the enclosed goal");
+        }
+        let occupied=SimVec2::new(Fixed64::from_i32(100),Fixed64::ZERO);
+        assert_eq!(plan_in_world(&world,hero,SimVec2::ZERO,occupied),None);
+        world.write_resource::<BlockedRegions>().0.clear();
+        assert!(plan_in_world(&world,hero,SimVec2::ZERO,target).is_some());
     }
 
     #[test]

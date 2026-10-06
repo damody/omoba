@@ -146,14 +146,15 @@ pub(super) fn choose_cast_with_mana_budget(hero:&Hero,role:BotRole,team:u32,own:
 pub(super) fn choose_cast_with_resources(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
     seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,cost:impl Fn(&str,u8)->Option<Fixed64>,
     regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>) -> Option<CastAbility> {
-    choose_cast_with_attack_priority(hero,role,team,own,health,seen,policies,focus,false,false,cost,regen)
+    choose_cast_with_attack_priority(hero,role,team,own,health,seen,policies,focus,false,false,cost,regen, |_|true)
 }
 
 /// Defer offensive intentions only; recovery still follows author ordering.
 pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
     seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,defer_offense:bool,immobilized:bool,
     cost:impl Fn(&str,u8)->Option<Fixed64>,
-    regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>) -> Option<CastAbility> {
+    regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
+    relocation_clear:impl Fn(Vec2)->bool) -> Option<CastAbility> {
     let enemy=|unit:&&SeenUnit|unit.hp_raw>0 && unit.team!=team
         && if role==BotRole::Jungle {unit.kind==3
             || (unit.kind==1 && unit.team!=0 && Some(unit.canonical_id)==focus)}
@@ -247,6 +248,9 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
                 let Some(unit)=seen.iter().filter(enemy)
                     .filter(|unit|{let distance=(unit.position-own).length_squared();
                         distance>minimum*minimum && distance<=level.range*level.range})
+                    // Relocation requires a clear swept segment, not a route
+                    // around the obstacle. Do not inspect hidden dynamic units.
+                    .filter(|unit|relocation_clear(unit.position))
                     .min_by_key(|unit|priority(unit)) else {continue;};
                 let (Ok(x),Ok(y))=(i32::try_from(unit.position.x.raw()),i32::try_from(unit.position.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I {x,y});None
@@ -517,6 +521,33 @@ mod tests {
     }
     fn damage() -> BotAbilityPolicy {BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}}
     fn heal() -> BotAbilityPolicy {BotAbilityPolicy {ability:"lumen_touch".into(),intent:BotAbilityIntent::SelfHeal {below_hp_per_mille:600}}}
+    #[test]
+    fn dash_bot_skips_blocked_candidates_and_falls_through_without_blocking_area() {
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+        hero.abilities=vec!["vanguard_resolve".into(),"lumen_touch".into(),"ranger_volley".into()];
+        for ability in hero.abilities.clone() {hero.ability_levels.insert(ability,1);}
+        let mut health=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        health.hp=Fixed64::from_i32(10);
+        let near=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(350),Fixed64::ZERO),
+            team:2,kind:1,owner_player_id:2,hp_raw:100,max_hp_raw:100};
+        let far=SeenUnit {canonical_id:8,position:Vec2::new(Fixed64::ZERO,Fixed64::from_i32(400)),..near};
+        let dash=BotAbilityPolicy {ability:"vanguard_resolve".into(),
+            intent:BotAbilityIntent::ApproachEnemyPoint {min_distance:300}};
+        let policies=[dash.clone(),heal()];
+        let choose=|seen:&[SeenUnit],policies:&[BotAbilityPolicy],clear:fn(Vec2)->bool|
+            choose_cast_with_attack_priority(&hero,BotRole::Top,1,Vec2::ZERO,&health,seen,policies,
+                None,false,false,|_,_|None,|_,_|None,clear);
+        let cast=choose(&[near,far],&policies,|p|p.x==Fixed64::ZERO).unwrap();
+        assert_eq!(cast.ability_index,0);assert_eq!(cast.target_pos.unwrap().y,far.position.y.raw() as i32);
+        assert_eq!(choose(&[near],&policies, |_|false).unwrap().ability_index,1,
+            "blocked relocation must release author priority to recovery");
+        assert!(choose(&[near],&[dash], |_|false).is_none());
+        let area=BotAbilityPolicy {ability:"ranger_volley".into(),
+            intent:BotAbilityIntent::EnemyPoint {radius_key:"radius".into(),min_targets:1}};
+        assert_eq!(choose(&[near],&[area], |_|panic!("area is not relocation")).unwrap().ability_index,2);
+        assert!(hero.ability_cooldowns.is_empty(),"planning must not reserve cooldown");
+    }
+
     #[test]
     fn dash_effect_bot_approaches_only_disclosed_living_enemies_in_band() {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
