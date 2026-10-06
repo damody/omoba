@@ -26,6 +26,22 @@ use std::collections::{BTreeMap, HashMap};
 
 const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
 
+/// Host-local item effect identity; consumers do not parse private source keys.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ItemTimedModifier { Sprint, DamageReduction }
+
+impl ItemTimedModifier {
+    fn family(self) -> &'static str {
+        match self { Self::Sprint => "item_sprint", Self::DamageReduction => "item_damage_reduce" }
+    }
+    fn stat(self) -> StatKey {
+        match self { Self::Sprint => StatKey::MoveSpeedBonusBuff, Self::DamageReduction => StatKey::DamageTakenBonus }
+    }
+    fn maximum(self) -> Fixed64 {
+        match self { Self::Sprint => Fixed64::from_i32(10_000), Self::DamageReduction => Fixed64::ONE }
+    }
+}
+
 /// 從 JSON 負載中讀取固定 64 的數字統計值。
 ///
 /// 階段 1de.2 線路編碼：原始 `Fixed64::raw()` i32 儲存為 JSON 數字
@@ -93,6 +109,33 @@ impl Default for MoveSpeedSums {
 }
 
 impl BuffStore {
+    /// Validates before mutation and preserves the existing strongest family.
+    pub fn grant_item_timed_modifier(&mut self, entity: Entity, item_id: &str,
+        kind: ItemTimedModifier, magnitude: Fixed64, duration: Fixed64) -> bool
+    {
+        if magnitude <= Fixed64::ZERO || magnitude > kind.maximum()
+            || duration <= Fixed64::ZERO || duration > Fixed64::from_i32(60) { return false; }
+        let value = match kind { ItemTimedModifier::Sprint => magnitude, ItemTimedModifier::DamageReduction => -magnitude };
+        self.add(entity, &format!("{}:{}", kind.family(), item_id), duration,
+            serde_json::json!({kind.stat().as_str(): value.raw(), AGGREGATION_FAMILY_KEY: kind.family()}));
+        true
+    }
+
+    /// Presence of an effective family member, not its source spelling or net
+    /// stat after unrelated effects. Entries remain active until tick removes
+    /// them, matching the aggregation lifecycle (including pending zero time).
+    pub fn has_item_timed_modifier(&self, entity: Entity, kind: ItemTimedModifier) -> bool {
+        self.iter_for(entity).any(|(_, entry)| {
+            if entry.payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str) != Some(kind.family()) { return false; }
+            let Some(value) = entry.payload.get(kind.stat().as_str()) else { return false; };
+            let raw = read_fixed_from_payload(value).raw();
+            match kind {
+                ItemTimedModifier::Sprint => (1..=kind.maximum().raw()).contains(&raw),
+                ItemTimedModifier::DamageReduction => (-kind.maximum().raw()..=-1).contains(&raw),
+            }
+        })
+    }
+
     pub fn shield_remaining(&self, entity: Entity) -> Fixed64 {
         self.get(entity, "__damage_shield")
             .and_then(|entry| entry.payload.get("shield_remaining_raw"))
@@ -506,6 +549,40 @@ mod tests {
 
     fn fx(seconds: f32) -> Fixed64 {
         Fixed64::from_raw((seconds * 1024.0) as i64)
+    }
+
+    #[test]
+    fn item_timed_modifier_identity_is_typed_and_independent_of_source_and_net_stat() {
+        let e=ent(1,1);let other=ent(2,1);let mut s=BuffStore::new();
+        for kind in [ItemTimedModifier::Sprint,ItemTimedModifier::DamageReduction] {
+            assert!(!s.has_item_timed_modifier(e,kind));
+            for (amount,time) in [(Fixed64::ZERO,fx(1.0)),(kind.maximum()+Fixed64::ONE,fx(1.0)),
+                (Fixed64::ONE,Fixed64::ZERO),(Fixed64::ONE,fx(61.0))] {
+                assert!(!s.grant_item_timed_modifier(e,"item",kind,amount,time));
+                assert!(!s.has_item_timed_modifier(e,kind));
+            }
+            let amount=if kind==ItemTimedModifier::Sprint {fx(60.0)} else {fx(0.25)};
+            assert!(s.grant_item_timed_modifier(e,"item",kind,amount,fx(1.0)));
+            assert!(s.has_item_timed_modifier(e,kind));
+            assert!(!s.has_item_timed_modifier(other,kind));
+            s.add(e,"unrelated_vulnerability",fx(10.0),json!({StatKey::DamageTakenBonus.as_str():1024}));
+            if kind==ItemTimedModifier::DamageReduction { assert!(s.sum_add(e,kind.stat())>Fixed64::ZERO); }
+            assert!(s.has_item_timed_modifier(e,kind));
+            s.tick(fx(1.0));
+            assert!(!s.has_item_timed_modifier(e,kind));
+            // A source name alone cannot mark an active effect.
+            s.add(e,&format!("{}:fake",kind.family()),fx(1.0),json!({}));
+            assert!(!s.has_item_timed_modifier(e,kind));
+            let value=if kind==ItemTimedModifier::Sprint {amount.raw()} else {-amount.raw()};
+            s.add(e,"arbitrary_source",fx(1.0),json!({AGGREGATION_FAMILY_KEY:kind.family(),kind.stat().as_str():value}));
+            assert!(s.has_item_timed_modifier(e,kind));
+            s.remove_all_for(e);
+            // The query uses the same legacy numeric reader as aggregation.
+            s.add(e,"legacy_source",fx(1.0),json!({AGGREGATION_FAMILY_KEY:kind.family(),kind.stat().as_str():value as f64 / 1024.0}));
+            assert!(s.has_item_timed_modifier(e,kind));
+            s.remove_all_for(e);
+            assert!(!s.has_item_timed_modifier(e,kind));
+        }
     }
 
     #[test]

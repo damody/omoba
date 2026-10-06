@@ -1541,14 +1541,11 @@ pub fn handle_item_use_from_input(
             debug_assert!(armed);
         }
         ActiveEffect::DamageReduce { percent, duration } => {
-            world.write_resource::<BuffStore>().add(
-                hero_entity, &format!("item_damage_reduce:{}", cfg.id),
-                Fixed64::from_raw((*duration * 1024.0) as i64),
-                json!({
-                    StatKey::DamageTakenBonus.as_str(): -(f64::from(*percent) * 1024.0).round() as i64,
-                    "__aggregation_family": "item_damage_reduce",
-                }),
-            );
+            let applied = world.write_resource::<BuffStore>().grant_item_timed_modifier(
+                hero_entity, &cfg.id, crate::runtime::ability_runtime::ItemTimedModifier::DamageReduction,
+                Fixed64::from_raw((f64::from(*percent) * 1024.0).round() as i64),
+                Fixed64::from_raw((*duration * 1024.0) as i64));
+            debug_assert!(applied, "item reduction was preflighted");
         }
         ActiveEffect::RestoreMana { .. } => {
             let (pool, restored) = prepared_mana.expect("mana effect was preflighted");
@@ -1562,14 +1559,11 @@ pub fn handle_item_use_from_input(
         ActiveEffect::SprintBuff { ms_bonus, duration } => {
             // A stable item source refreshes instead of permanently modifying base MSD.
             // Different sprint sources share the existing strongest-family aggregation.
-            world.write_resource::<BuffStore>().add(
-                hero_entity, &format!("item_sprint:{}", cfg.id),
-                Fixed64::from_raw((*duration * 1024.0) as i64),
-                json!({
-                    StatKey::MoveSpeedBonusBuff.as_str(): (*ms_bonus * 1024.0) as i64,
-                    "__aggregation_family": "item_sprint",
-                }),
-            );
+            let applied = world.write_resource::<BuffStore>().grant_item_timed_modifier(
+                hero_entity, &cfg.id, crate::runtime::ability_runtime::ItemTimedModifier::Sprint,
+                Fixed64::from_raw((*ms_bonus * 1024.0) as i64),
+                Fixed64::from_raw((*duration * 1024.0) as i64));
+            debug_assert!(applied, "item sprint was preflighted");
         }
         ActiveEffect::Shield { amount, duration } => {
             let amount = crate::runtime::ability_runtime::checked_mana_cost(*amount, Fixed64::ONE)
@@ -2413,8 +2407,7 @@ fn handle_projectile(
         let is_building = buildings.get(source_entity).is_some();
         let stats =
             crate::runtime::ability_runtime::UnitStats::from_refs(&*buff_store, is_building);
-        let mut final_atk = stats.final_atk(attack.atk_physic.v, source_entity)
-            + buff_store.next_attack_bonus(source_entity);
+        let mut final_atk = stats.normal_attack_physical(attack.atk_physic.v, source_entity);
 
         let accuracy_bonus = buff_store.sum_add(source_entity, StatKey::AccuracyBonus);
         let accuracy = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);

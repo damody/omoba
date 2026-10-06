@@ -134,6 +134,13 @@ impl<'a> UnitStats<'a> {
         }
     }
 
+    /// Physical packet before accuracy and target settlement. The armed bonus
+    /// is added AFTER outgoing modifiers, matching normal projectile launch.
+    /// This is a read-only observation, not consumption or an impact guarantee.
+    pub fn normal_attack_physical(&self, base: Fixed64, e: Entity) -> Fixed64 {
+        self.final_atk(base, e) + self.buffs.next_attack_bonus(e)
+    }
+
     /// 攻速倍數（乘到 base attack interval 上）。
     /// Dota：每秒有效攻擊數 = 基礎 × (1 + as_bonus / 100)
     /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋。
@@ -508,6 +515,30 @@ mod tests {
     use super::*;
     use serde_json::json;
     use specs::{Builder, World, WorldExt};
+
+    #[test]
+    fn normal_attack_physical_includes_armed_bonus_after_modifiers_without_consuming() {
+        let mut world = World::new();
+        let owner = world.create_entity().build();
+        let other = world.create_entity().build();
+        let mut buffs = BuffStore::new();
+        buffs.add(owner, "outgoing", fx_huge(), json!({
+            (StatKey::PreattackBonusDamage.as_str()): 10 * 1024,
+            (StatKey::TotalDamageOutgoingPercentage.as_str()): 512,
+        }));
+        assert!(buffs.arm_next_attack_bonus(owner, Fixed64::from_i32(60)));
+        let stats = UnitStats::from_refs(&buffs, false);
+        for _ in 0..2 {
+            assert_eq!(stats.normal_attack_physical(Fixed64::from_i32(20), owner),
+                Fixed64::from_i32(105));
+            assert_eq!(stats.normal_attack_physical(Fixed64::from_i32(20), other),
+                Fixed64::from_i32(20));
+        }
+        assert_eq!(buffs.next_attack_bonus(owner), Fixed64::from_i32(60));
+        buffs.consume_next_attack_bonus(owner);
+        assert_eq!(UnitStats::from_refs(&buffs, false).normal_attack_physical(
+            Fixed64::from_i32(20), owner), Fixed64::from_i32(45));
+    }
 
     #[test]
     fn damage_packet_settlement_preserves_sum_rounding_and_incoming_bonus() {

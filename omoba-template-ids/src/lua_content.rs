@@ -205,7 +205,9 @@ impl Default for MobaEconomyRules {
     }
 }
 
-pub(crate) use omoba_content_model::moba_items::{MobaItemEntry, MobaItemActiveEntry, validate_moba_items};
+pub(crate) use omoba_content_model::moba_items::{MobaItemEntry, validate_moba_items};
+#[cfg(test)]
+use omoba_content_model::moba_items::MobaItemActiveEntry;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct TdLayerEntry {
