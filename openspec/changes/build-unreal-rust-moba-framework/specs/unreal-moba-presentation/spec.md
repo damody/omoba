@@ -216,7 +216,7 @@ Unreal 前端 SHALL 提供選角、移動、普攻、四技能、商店、裝備
 
 #### Scenario: 斷線 HUD 與輸入一致
 - **WHEN** runtime未啟動或診斷未Connected，且畫面曾取得owned HUD資料
-- **THEN** Unreal SHALL 共用清除baseline並通知Hero／四技能／六物品／Economy為不可用，持續失效不得每tick重複發布，retained frame不得恢復owned HUD；世界呈現與frame消費保持原管線，停止runtime使用相同清除入口且可強制通知，新連線需合法baseline恢復
+- **THEN** Unreal SHALL 共用清除baseline並通知Hero／四技能／六物品／Economy／完整Buff列表為不可用，持續失效不得每tick重複發布，retained frame不得恢復owned HUD；世界呈現與frame消費保持原管線，停止runtime使用相同清除入口且可強制通知，新連線需合法baseline恢復；技能／物品／商店／小地圖即時連線失敗亦通知同入口，仍連線的非法單次操作只拒絕輸入而不清HUD
 
 #### Scenario: 原生攻擊移動操作
 - **WHEN** 玩家在有效遊戲視窗游標位置按 A 或 Shift+A，且 HUD／選角介面未攔截輸入

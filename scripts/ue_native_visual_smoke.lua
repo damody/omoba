@@ -35,6 +35,8 @@ local report = {success = false, results = {}, runs = {}, tests = {
   'Om.Generated.CompiledContentReloadPolicy',
   'Om.Generated.AbilityInputPolicy',
   'Om.Generated.DisconnectedHud',
+  'Om.Generated.OwnedInputUnavailableHud',
+  'Om.Generated.PresentationPerfWindow',
   'Om.Generated.FogGeometryKey',
   'Om.Generated.FrameGeometryRanges',
   'Om.Generated.FrameTextContract',
