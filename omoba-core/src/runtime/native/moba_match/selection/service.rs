@@ -82,7 +82,8 @@ impl SelectionRoom {
     }
 
     /// Host-only, one-time handoff. It survives the finalizing connection dropping.
-    /// A reconnect/read cannot recreate this plan or start a second match.
+    /// A reconnect/read may receive a read-only recipe, never recreate this
+    /// host launch handoff or start a second match.
     pub fn take_finalized_plan(&self) -> Result<Option<RoleBotMatchPlan>, String> {
         self.with_state(|state| state.finalized_plan.take())
     }
@@ -138,7 +139,7 @@ impl SelectionService {
             request_id,
             selection: session.snapshot(),
             error,
-            plan,
+            plan: plan.or_else(|| session.finalized_plan_snapshot()),
             hero_catalog: hero_selection_catalog(),
         }
     }
@@ -361,6 +362,7 @@ mod tests {
         }
         let mut first = room.bind(7).unwrap();
         let mut second = room.bind(8).unwrap();
+        assert!(first.transport_reply(None).unwrap().plan.is_none());
         assert!(room.take_finalized_plan().unwrap().is_none());
         let apply = |service: &mut SelectionService, revision, action| {
             service
@@ -399,6 +401,7 @@ mod tests {
         assert!(apply(&mut second, 3, serde_json::json!({"kind":"lock"}))
             .error
             .is_none());
+        assert!(second.transport_reply(None).unwrap().plan.is_none());
         let final_reply = apply(&mut first, 4, serde_json::json!({"kind":"finalize"}));
         let plan = final_reply.plan.unwrap();
         drop(first); // Host handoff does not depend on the finalizing connection.
@@ -431,7 +434,19 @@ mod tests {
         let reply: serde_json::Value = serde_json::from_slice(&output).unwrap();
         assert_eq!(reply["selection"], frozen);
         assert_eq!(reply["admitted_player_id"], 8);
-        assert!(reply["request_id_token"].is_null() && reply["plan"].is_null());
+        assert!(reply["request_id_token"].is_null());
+        assert_eq!(reply["plan"], serde_json::to_value(&plan).unwrap());
+        assert!(room.take_finalized_plan().unwrap().is_none());
+        // A stale follower read receives the same immutable final recipe without
+        // recreating the launch authority or changing the finalized revision.
+        let stale_read = apply(&mut second, 4, serde_json::json!({"kind":"read"}));
+        assert!(stale_read.error.is_some());
+        assert_eq!(
+            serde_json::to_value(stale_read.plan.unwrap()).unwrap(),
+            reply["plan"]
+        );
+        assert_eq!(serde_json::to_value(snapshot(&second)).unwrap(), frozen);
+        assert!(room.take_finalized_plan().unwrap().is_none());
     }
 
     #[test]
@@ -506,8 +521,13 @@ mod tests {
             .map(|thread| thread.join().unwrap())
             .collect();
         assert_eq!(
-            replies.iter().filter(|reply| reply.plan.is_some()).count(),
+            replies.iter().filter(|reply| reply.error.is_none()).count(),
             1
+        );
+        assert!(replies.iter().all(|reply| reply.plan.is_some()));
+        assert_eq!(
+            serde_json::to_value(replies[0].plan.as_ref().unwrap()).unwrap(),
+            serde_json::to_value(replies[1].plan.as_ref().unwrap()).unwrap()
         );
         assert!(room.take_finalized_plan().unwrap().is_some());
         assert!(room.take_finalized_plan().unwrap().is_none());

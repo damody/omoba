@@ -123,6 +123,11 @@ impl HeroSelectionSession {
         }
     }
 
+    /// Read-only distribution to admitted seats, not the host's one-time launch handoff.
+    fn finalized_plan_snapshot(&self) -> Option<RoleBotMatchPlan> {
+        self.finalized.then(|| self.plan.clone())
+    }
+
     pub fn apply(
         &mut self,
         admitted_player_id: u32,
