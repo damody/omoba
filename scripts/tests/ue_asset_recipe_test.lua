@@ -3,12 +3,20 @@ local json = require('tools.lua.lib.json')
 local planner = require('ue_asset_recipe_plan')
 local recipe = json.read('omfue/Plugins/OmRuntime/Source/OmGenerated/om_asset_recipe.json')
 local plan = planner.build(recipe)
-assert(#plan.heroes == 3 and #plan.jobs == 10)
-local hero = plan.heroes[1]
+assert(#plan.heroes == #recipe.heroes and #plan.jobs == 10)
+local by_id = {}
+for _, entry in ipairs(plan.heroes) do
+  assert(not by_id[entry.id], 'duplicate generated hero binding')
+  by_id[entry.id] = entry
+end
+local hero = assert(by_id.saika_magoichi)
 assert(hero.animations.attack == hero.animations.critical)
 assert(hero.animations.idle_3 == hero.animations.sniper)
-assert(plan.heroes[2].fallback and plan.heroes[3].fallback)
-assert(plan.heroes[3].portrait == nil)
+assert(by_id.date_masamune.fallback)
+for _, id in ipairs({'training_luminary','training_apprentice','training_vanguard','training_ranger','training_support'}) do
+  local fallback = assert(by_id[id], 'missing native hero binding: '..id)
+  assert(fallback.fallback and fallback.portrait == nil)
+end
 assert(json.encode(planner.build(recipe)) == json.encode(plan))
 local function invalid(mutate)
   local copy = json.decode(json.encode(recipe)); mutate(copy)
