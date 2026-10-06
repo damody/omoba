@@ -1,10 +1,151 @@
 # Unreal MOBA 防錯紀錄
 
+## E324：固定步進 wall time 不等於 CPU 根因；新增診斷不得破壞既有契約（2026-10-06）
+
+- 351/475 ms 峰值集中 fixed_step，只能排除外段為主要 wall bucket，不能判定 CPU 或 scheduler。補同 invocation preparation／18 production phases／finalize 與 process CPU，後者跨執行緒、可大於 wall，不做 wall−CPU 偽等待，不改 50 ms／不排除冷啟動。
+- 舊 OM_REPLICA_STAGE v1 reader 拒絕未知欄位；新資訊需另一 linked 記錄並保留同一 outer peak，不能独立挑 phase 最大值。錯誤／stall／duplicate／rebase 必須清 stale，unavailable CPU 不補 0。
+- compact packet 初稿再度錯猜 runtime/native/filtered_specs.rs；rg --files 確認為 runtime/filtered_specs.rs 並修 packet，不因路徑不存在增加重複模組。大段歷史設計讀取截斷，改精確小段來源與 compact apply 狀態，不宣稱截斷輸出已完整新讀。
+- 委派 run-muwbt1eq-sk1khc 的初始狀態只代表已啟動，不代表完工或性能通過；由主 agent 在 terminal 後實際 diff／局部功能確認才決定接受。具體結果見 fixed-step-diagnostic-decisions／fixed-step-detail-progress。
+
+## E323：未使用的無界報告、嚴格診斷與程序生命週期（2026-10-06）
+
+- dispatcher快取綁舊pool，reconfigure_thread_pool不能只換Arc；fresh Grok run-muwbcwhp-fntlwj完成成功換pool後清dispatcher，失敗build?先於欄位寫入原狀保持。primary實際diff/獨立1test／481filtered接受。同count重配置也退役。正式game當前不呼叫此API，不能宣稱這是已確定的351/475ms原因；no fullsuite或第二輪真遊戲。
+
+- fixed_step靜態追蹤先列出實際檔案後仍誤猜specs/src/dispatch/dispatcher.rs、runtime/deterministic_gameplay.rs及native/collision_index.rs；實際是native/gameplay_phases.rs與native/comp/collision_index.rs，dispatcher由shred來源提供，不在猜的specs路徑。找不到時用rg --files/符號定位，未新增fallback或依錯誤路徑修改。
+
+- 真短程stage採樣exit0不能算性能通過：replica-stage-20261006-lifetime-v1雙隊tick227 outer351.1038/475.328ms，99.98%以上是fixed_step wall time。五own lifetime退出／遊戲movement/HUD/consumed成功，功能與性能分開；不推論是CPU或OS scheduler、不調50ms、不排除cold-start尖峰。真log在stderr而非空stdout，以實際目錄確認再collector；59窗口/3540samples不包含最後未滿60筆，限制明示。下一次只定位filtered dispatcher/step內原因，避免又猜JSON/hash/未讀map成本。
+
+- lifetime委派run-muwamhpi-sxwx3k讀來源9m35s仍無本批diff，primary取消／tracked handles null後接手，不無界等待也不冒稱worker完成；cost未知。primary實作原始Child身份、same-handle native stop／close、strict session schema及reconnect完整身份，Rust1／Lua7／本次own fixture實際邊界確認通過，詳session-lifetime-progress。沒有遷移全庫legacy APIs或宣稱純fixture就是完整renderer驗收。
+
+- `pre_repair_reports` 每 Applied clone/insert，但全庫只有 field/init/insert，無讀者或退役；Grok限定刪除後主agent獨立審查及runtime1/check通過。保留returned report/checkpoint，不用任意cap遮問題，也不冒稱50ms已修。
+- 診斷收集器固定60 sample，同一outer peak整筆phases；bounded streaming、未知residual、缺窗口／倒退timeline限制明示。11/11局部確認。初稿read(nil,error)可能被當EOF，提交前修成fail closed並加injected IO regression，不能稱缺資料成功。
+- 清理舊active UE session僅PID/executable，PID重用會誤停同名程序；native舊stop又query與terminate分開handle。新實機採樣暫不執行，先修精確creation FILETIME identity與same-handle操作，保留舊record缺token時拒絕而非猜／刪。
+- 操作曾猜不存在的verify_ue_smoke_report.lua、launch-plan.json、implementation-errors.md，與PowerShell literal glob `docs/plans/2026-10-06-*`；改用rg --files／-g與實際error-register，不新增重複入口。大段讀取截斷改小段。
+- 第二個Grok packet無錨點patch被append到尾，啟動事件仍顯示舊任務；主agent15秒內取消run-muwakryy-5uqrp2，follower confirmed cancelled、bridge pid/agentPid null。stop工具報PID已不存在exit128，不當仍在運作；metrics未知。新packet頂部加唯一有效任務與歷史邊界後才重新派送；Stopped by user為bridge制式文字，實際取消由primary決定。
+
+## E322：選角 ready 不等於 finalized；效能超標須量測而非盲目調參（2026-10-06）
+
+- 原單人／shared 選角的45秒只限制handshake，ready後可能無限等；game finish timeout 尚未生效。共用session completion deadline覆蓋啟動／所有本機席位／terminal receipt與退役／交接；人工預設不限時、自動預設120秒、顯式1..7200。逾時只取消並清owned程序，不合成lock／winner或偷偷開局。純budget、單人7/7、shared14/14通過，非真UE／完整對局。
+- client max仍超固定50ms，不能把worker hint當已證明修復。使用者明確要求Grok子代理，主agent派 `run-muw9jh35-ydrn8m` 做固定窗口／同一尖峰sample分段唯讀wall-time，維持原OM_PERF、hash、ABI、玩法與門檻；終結後實際diff審查及獨立core6/runtime1/compiled-only check均通過，接受診斷，不接受效能已修。未知residual不得直接推論CPU根因；真對局採樣尚未執行。
+- 最新進度原以無錨點patch追加至歷史文件尾且多留空行，git diff --check揭露new blank line at EOF；改置於文件頂部明確區分當前25/31與歷史，清掉本批多餘空行，不還原其他dirty。
+- 為縮短read-only diff-check警告曾錯用一次性core.autocrlf=false，導致原CRLF被當新增trailing whitespace、大量假陽性；不是程式缺陷，不應批次改行尾。改沿repository原設定逐repo執行並分開保留exit code，只在顯示時摘要既有LF→CRLF warnings；未改git設定或檔案行尾。
+- 操作錯誤再次猜 `src/replica.rs`、`scripts/tests/moba_launch_workflow_test.lua`／`moba_role_launch_test.lua`，實際是 `replica_host.rs` 與根scripts的 `test_moba_hero_selection.lua`／`test_moba_shared_selection.lua`；先列目錄再讀，不把rg零結果當檔案不存在或猜下一個名稱。
+- 首次Grok packet patch在同一patch delete/add同一路徑被工具拒絕，未生效、未啟動worker；改Update既有packet加入明確本批唯一任務並把舊指令標歷史。不用shell覆寫或取消既有dirty。
+- 大段OpenSpec/測試讀取曾截斷，不宣稱完整新讀；改讀精確來源與小段。詳見 selection-completion-budget-progress；Grok結果另記診斷progress。
+- 已存PIE結果檔也曾猜為report.json，實際是pie-smoke-report.json；列實際目錄後只抽success／render／counts／pie-after字段，避免再次列完整nested results截斷。原生42x2含warnings，不把零failed當零warning。核對功能證據完成6.1（25/31），不把PIE120fps當正式60Hz效能證據。
+- 共用time.monotonic_ms舊實作是os.time UTC且只有秒粒度，校時可能拉長/縮短deadline；改lua-host Windows machine uptime、跨程序同domain，Lua拒非法/倒退。不影響simulation/hash，不稱CPU/perf修復；非Windows明確unsupported而不fallback。Rust1及真跨helper Lua clock、相鄰selection期限通過。另誤猜lib/log.lua但不存在，未因失敗新增重複logging模块。
+- restart IPv4 listener驗明後send不能再以localhost解析到未驗明IPv6程序；改固定127.0.0.1，移除私有send的多餘config參數。首次patch猜import版型未匹配，工具拒絕／沒有部分套用；依實際獨立use行修正。第一次check發現新增unused config警告即修，不取消檢查、不稱零警告。
+- bounded結算觀測舊每500ms重讀整場日誌，長對局讀取量隨檔案成長；改有界append-reader、跨poll精簡合法歷史且保留矛盾檢查。新增65537-byte無newline測試揭露初版Lua greedy .*回溯平方成本，雖functional11/11最後完成但耗時，不把它當效率成功；改reverse+find線性搜索，不增加timeout。保留file truncate/disappear/IO/overflow fail closed；不是降低正式client50ms門檻或完整對局證據。
+
+## E321：restart 舊 readiness／續作掃埠會選錯 Editor；測試入口與 TCP 關閉也必須嚴格（2026-10-06）
+
+- 通用修正：wait-mcp 使用固定 Lua project/PID/listener gate，health 後再核對 executable 與 process birth，防同 PID 重用；auto-resume 的設定 TCP 埠也必須同一 Editor lifetime 持有，移除所有埠範圍 fallback。readiness 19 案例、endpoint 12、restart Rust 9 案例與真正無本專案 Editor 的拒絕確認通過。沒有命令其他專案、修改引擎或手改 BuildId。
+- 操作錯誤：在 omfue cwd 用根目錄相對 Lua 路徑，並猜測 `--json`，造成找不到入口／CLI 拒絕；改絕對固定 Lua 與實際 `--output json`。另誤讀 `.ai-collab/state`，實際為 `state.json`；先用 rg --files 確認再讀。
+- 新六類 cue TCP 重連測試首次失敗：寫 RendererShutdown 後立即 drop client／發布下一段 snapshot，舊 server 尚未處理關閉而寫入已 reset socket（10053/10054）。用 fixture 完成通道等待 serve 返回，再換 session；不把任意 I/O error 當成功、不修改正式 renderer gate。修後 1/1 通過。
+- 精準 patch 曾匹配到另一個相同 `for _ in 0..2`，導致 session 不在 scope／E0425；回復該非目標 loop，改用相鄰唯一 context。不能只看 patch applied，必須編譯當前功能。
+- 不把這次兩段 TCP 局部測試算兩場遊戲或完整 LAN／UE 視覺驗收。詳見 `2026-10-06-restart-readiness-and-cue-reconnect-progress.md`。
+
+## E320：重連啟動與新輸入後證據不能共用一個耗盡的 deadline（2026-10-06）
+
+- `final-perf-budget-20261006-v1`在新renderer完整HUD/Consumed/真實Point input status0 tick8916後仍逾時；required post-input門檻9036之後須兩個不同checkpoint，90秒包含Editor冷啟動及輸入，最後只剩不足下一個checkpoint的時間。報告success=false、cleanup保留，不把observed.complete=true等同全項成功。
+- 共用wait_stages拆90秒renderer/input readiness與獨立30秒post-input parity，仍需雙隊/至少兩個不同tick/原hash及零repair，不放寬准入。啟動超時或後段超時都明確failure_phase、不能reset deadline無限等。17原觀測＋3時鐘fixture檢查；沒有覆寫舊timeout、沒有追加無限重試場次。
+- 資源budget後server max76.135ms進原100ms門檻；client最大52.654/51.626ms仍超原50ms，全部其他門檻通過。不能說budget已解決所有尖峰，也不能在遊戲run失敗時勾6.5。須後續定量診斷，不挑通過樣本。
+- Grok專案MCP委派run-muw8gwpc-qzt5lj等待13m36s仍無code diff，主agent收回。bridge stop報已不存在PID79120/exit128，但follower確認cancelled、tracked agent105696也不存在，無殘留writer。metadata `Stopped by user`是bridge制式訊息，本次是主agent決定，不冒稱人類要求。cost未知，不估數字；未接受實作，直接restart readiness仍須主agent接續。
+
+## E319：Cargo exit0可能是零個測試（2026-10-06）
+
+- filtered_specs::tests篩選並不存在，Cargo exit0但running0；沒有當成功測試。先定位實際team_replica_contract_tests中的filtered bootstrap/accepted move/rebase fixture，再精準執行。完整剩餘驗收不以filter錯誤縮小範圍。
+- CPU預算功能不是已定因的profiler修復，受控hint不代表OS quota；正式來源已補workers log與launch provenance，維持v1門檻、舊尖峰失敗與單獨啟動原預設，避免調參挑樣本。
+
+## E318：固定門檻後的獨立效能執行必須允許失敗（2026-10-06）
+
+- `final-perf-validation-20261006-v1`正式60Hz重連/清理exit0，但雙玩家比較均exit1：server max133893500ns >100ms；client p1 max58001000ns/p2 max132987300ns >50ms。全部mean、IPC與UE門檻通過。原report/raw保存，不調大v1門檻、不排除這批樣本、不勾6.5。
+- 三個Rust尖峰window同為05:25:15Z（server本地13:25:15），與首次renderer ACK同秒，不是約05:26:14Z的重連ACK；不能誤判成重連專屬問題。32 logical CPU，現shared create_thread_pool每個pool32threads；多程序競爭是一個待確認假說，尚沒有CPU profiler可定因，不以wall time等同pureCPU耗時。
+- 本輪唯讀搜尋仍猜錯presentation_ipc.rs、tests/moba_role_launch_test.lua、OmWorldBridgeActor.cpp；真正IPC為presentation_bridge.rs、測試為scripts/test_moba_role_launch.lua。後續先rg --files盤點，再選實檔；空rg exit1不能算驗證成功。
+
+## E317：正式 logger 的來源尾碼不能當成 JSON（2026-10-06）
+
+- 真實60Hz renderer重連exit0且cleanup_verified，server/雙runtime/對方renderer均保持；第一次彙總讀server.stdout.log失敗，log4rs在JSON後加`(omobab::state::core 1529)`，不只是ANSI。原失敗report/raw logs保留。
+- 通用parser僅剝尾端SGR與明確`(module::path line)`來源格式，再嚴格decode；未知尾碼、連續兩個JSON仍拒收，不截取到最後一個`}`硬吞錯誤。新增四斷言，88checks通過。修正後雙玩家六項完整、errors/missing0；thresholds尚未評估，不能以capture success計基線通過。
+- 固定十二個同負載開發回歸門檻於versioned baseline JSON，再另開新同配置run，不用初次採樣冒充獨立驗證。IPC單位byte，不稱latency；UE DeltaSeconds不稱GPU；已觀測>16.67ms尖峰，不稱穩定60FPS。
+
+## E316：驗證工具仍使用舊的單檔 Lua builder 載入方式（2026-10-06）
+
+- PIE smoke在UI/Editor操作前因heroes.lua新增ctx.include而失敗，沒有啟動PIE；舊程式用空context執行builder。抽出與FFI生成同源的content_builder.lua，共用相對路徑/大小寫cycle/64層/parent escape防護，PIE工具和gen_hero_registry都沿同一loader；base_content build.rs補watch此module，避免loader修改後Rust產物過期。這只屬建置/工具Lua，沒有遊戲runtime VM。
+- include測試8/8通過；新PIE輸出支援--out-dir NEW_DIRECTORY，拒絕覆寫，保留歷史證據。真實PIE新路徑FinalPie-20261006-includes-fixed成功啟動/生成英雄/mesh實際render/記憶marker實際render與1→0清除/截圖/停止。原生全套FinalNative-20261006-fixtures-fixed同Editor兩輪各42/42、failed0/skipped0通過，第一個崩潰report不覆蓋。
+- 工具使用rg時誤把PowerShell檔名glob当實際path、猜不存在的registry/manifest/fixture header；之後先rg --files/--no-ignore取得已存在檔名，再用-g選擇，所有原失敗輸出保留。
+
+## E313：基線變更須重新判斷；大型輸出不能視為完整讀取（2026-10-06）
+
+- engine BuildId 已由上輪 b248… 改為 1323cea4-7408-4662-8321-6abdaf191604，不能沿用「同基線重試無效」結論。確認沒有本專案 Editor 載入後，以既有 Lua build-only / -NoEngineChanges 合法重建成功13 actions，UBT正常更新project與兩本地plugin manifest，沒有手改BuildId或重建共享engine。
+- 新增只讀 ue_binary_preflight / check_ue_binaries，涵蓋missing/invalid manifest、BuildId、模組與DLL存在、unsafe filename、default/disabled plugin；完整build啟動前及role launcher選角前/開局前使用，不阻擋合法重新編譯。15個virtual-filesystem案例通過、真實重建前拒收/後ready。
+- 初次讀plugin descriptor漏了合法UTF-8 BOM，造成誤報；修正僅移除解碼輸入的BOM，不改vendor檔，新增案例。長context/程序清單輸出遭截斷，分小區段補讀，之後只取需用欄位，不宣稱截斷內容已完整讀取。
+
+## E314：固定 MCP 30000 可能是別的 Unreal 專案（2026-10-06）
+
+- 本專案新Editor PID3800實際綁30001，30000為其他專案PID80700。原restart wait-mcp只確認HTTP可用，誤報ready；Blueprint首個唯讀get_pie_status逾時，full workflow exit1，保留target/blueprint-validation-runs/compile-1791262798。尚未執行compile/create等資產操作，不以此失敗歸因內容。
+- 修正：ue_mcp依UECP/instances選精確project path；Lua-host使用Windows GetExtendedTcpTable確認實際IPv4 loopback owner PID及UnrealEditor.exe，GetProcessTimes與registry時間排除PID重用。每則請求再驗pid/port；missing/ambiguous/foreign/invalid owner fail closed，不回退30000。完整build的MCP ready改用同一project-bound get_pie_status。沒有停止其他專案。
+- endpoint12案例、Lua-host6（含真實TcpListener建立/關閉/owner與invalid port）、launch contract8通過；初次stale-time fixture 102-1=101仍在180秒範圍卻預期拒絕，改為-100後確實測到超界。真實omfue get_pie_status成功，Blueprint11/11成功（compile-1791262947）。
+
+## E315：NewObject UUserWidget 測試必須先 Initialize 再 TakeWidget（2026-10-06）
+
+- 第一次project-bound native全套在OwnedInputUnavailableHud崩潰：UWidgetTree::ForEachWidget讀0x38，callstack精確指OmEditorAutomationTests.cpp:293；不是MCP網路失效。FinalNative-20261006-project-bound失敗report及UECC-Windows-E12ECCD5428DB46A8996FCA597DA27A4崩潰保留。
+- 同檔另有Buff HUD fixture缺相同初始化。兩者加Initialize成功斷言再TakeWidget，遵循同檔原NativeMatchResult/Scoreboard做法；不改production UMG、不改共享engine、不略過測試。修復後編譯/必要確認結果待更新。
+- 修復後-NoEngineChanges project build4 actions成功。手動om_restart start首次誤用repo根cwd，預設解析到不存在的D:/code/omoba/om.uproject，exit1未啟動任何Editor；改明確workdir omfue，之後保持既有Lua入口/精確cwd，不猜restart預設project。
+- 重新啟動後尚未註冊就立即跑scoped測試，正確fail closed found0，沒有回退其他Editor；完整流程加入--wait-ready有界30秒等project-bound endpoint，不拿start返回當MCP完成。第一次stop仍running時提前build被工具正確拒絕exit4；等stop完成並確認PID退出才重建，嚴格串行。
+- 動態HUD delegate在EditorPreview未初始化actor world時會被AActor::ProcessEvent拒執行，首個scoped斷言abilities=0不是production漏通知；兩HUD測試使用FEditorScriptExecutionGuard RAII。CompiledContentReloadPolicy把GameInstance subsystem建在transient package，改明確UGameInstance Outer。所有修正只在fixture，不變正式HUD/安全gate。找generated/header須rg --files --no-ignore，不猜Public路徑。
+- endpoint lifetime僅要求registry寫入不早於owner程序出生；移除180秒上限，避免合法延遲載入插件被誤拒。舊101秒fixture與上限修正歷史保留，但現版本以晚PID出生拒絕重用、早出生可合法註冊；不是逾時放寬身份檢查。
+- 最終修復編譯4 actions成功，project-bound --wait-ready成功（Editor PID22632）；三項OwnedInputUnavailableHud/DisconnectedHud/CompiledContentReloadPolicy單輪必要確認3/3、error0通過，report=omfue/Saved/McpAutomation/HudFixtures-20261006-final/report.json。沒有移除斷言，完整native結果另記。
+
+## E312：分層三路需用正式角色配方驗證，舊雙英雄模式不等於十席對局（2026-10-06）
+
+- 主agent額外分層map seed101 legacy Push/Guard在108000ticks/1800秒Playing逾時；last_progress_tick103699，不能稱deadlock或成功。原始失敗report及paired samples保留final-20261006-114908-layered-seed101。
+- 末筆兩英雄105次死亡/0次死亡，仍有外路塔與雙基地；這是舊兩英雄模式觀測，不是五位置十Bot結果。正式五位置100場持續，不將該legacy run計入。
+- 新增可重用moba_layered_archetype_match.lua，繼承原十席mixed archetype所有policies，只選既有compiled layered map；未修改英雄/塔/map stats、解鎖、勝負、防守或runtime source。直接沿用已凍結release binary/DLL匯出配方再跑，避開在DLL載入期間重新Cargo建置。舊失敗不覆蓋；新結果待實跑。
+- 正式十Bot layered-role seed101也在1800預算逾時，last_progress107924距停止108000僅76ticks，不是objective stall。主agent依實際持續進展改用工具既有max3600上限做最後一次分層驗證，stall仍300、自然勝負/replay不變；新fresh report root帶budget3600，舊1800失敗保留，不將操作預算誤寫為遊戲參數或先計成功。
+- 最終分層結果：同一正式十席配方、同一已凍結host/DLL、明示max3600/stall300，自然Finished152648ticks，winner_side1／winner_team2，replay152648ticks、final_digest=1f96829cad6398c943bd023234afe263354a8bc8c1d7ab95f89ce1bd4ee5456c，exit0。主agent另以固定Lua核對60Hz／10Bot／guard／預算、map_id、完整tick_digests數量及末digest通過。證據final-20261006-114908-layered-role-seed101-budget3600/result.json；不計入另行seed1..100批次、不冒稱1800成功或Unreal/filtered/LAN驗收。
+
+## E311：目標存在判斷與 winner_team 把 side 索引誤當隊伍（2026-10-06）
+
+- 問題：`objective_slots_progressed` 用 `entity_id != 0` 認定存活，但 specs Entity 的 ID 0 合法；缺席槽由 collect 編成 dead tuple `(0,0,0)`。成功報告把 `Finished.winner`（`Option<u8>` side 索引）直接寫進 `winner_team`。正式對局 `config.teams` 是 `[1, 2]`，seed1 自然終局卻報 winner team 0。`diagnostic_tests` 用固定 PID／temp 目錄，測試開頭 `remove_dir_all` 可能刪掉先前檔案。
+- 決定：存在改看 generation 非零，不把 ID 0 放寬成缺席。`winner_side` 保留內部 side；`winner_team` 依 `moba_match.rs` game.end 對 `config.teams` 索引，draw 為 null，非法 side fail closed、不寫成功或失敗報告。Lua verify 拒絕 team 0，以及不在 role plan 的 `winner_team`；合法兩隊與真正 draw（`winner_team` 與 `winner_side` 都缺席，含 JSON null）允許。測試目錄改為唯一 `create_dir`，只刪本次已創建的具名檔，再 `remove_dir` 空目錄，不做遞迴刪除。不改 world 勝負，不改、不刪、不覆蓋 `omb/target/moba-headless-budget-seed1/result.json`（該檔仍是 winner_team 0）。
+- 驗證：`cargo test --manifest-path omb/Cargo.toml -p omobab --bin moba-headless --features compiled-content-only -- diagnostic_tests` 7 passed、0 failed，測試 0.02 秒，編譯 5.05 秒。`D:\code\omoba\tools\lua\lua.exe scripts\tests\moba_headless_batch_test.lua` 10 passed，沒有啟動對局。`cargo build --manifest-path omb/Cargo.toml -p omobab --bin moba-headless --features compiled-content-only --release` exit 0，11.01 秒，`rustc 1.95.0`，沒有另建 DLL。沒有重跑 seed1、100 場或 UE。HEAD 未移動。完整 5.5 不勾。
+
+## E307：600秒逾時不是死局，執行預算與目標無進展必須分開（2026-10-06）
+
+- 問題：seed1 在 36000 ticks 仍 Playing 被當成可能死局。attempt2／attempt3 的 failure samples 頂層 `samples` 顯示 tick 28800→32400 仍有塔退休、32400→36000 基地 HP 仍下降。600 秒執行逾時沒有證明目標停止。舊失敗路徑只在既有 JSON `success=true` 時拒絕覆蓋，失敗 JSON 與非法 JSON 不算，而且成功與 plan-only 寫入仍會覆蓋。
+- 決定：`--max-game-seconds` 預設 600、`--stall-game-seconds` 預設 300，兩者都是 60..=3600 的明確整數，stall 不得大於 max，profile 乘法用 checked。這是 headless 診斷預算，不是遊戲規則或勝利條件；逾時與 stall 都不能 success。進展只認公開塔／基地真實 HP 下降、退休或層替換，waves、英雄移動、擊殺、營地 respawn 與私有命令都不算。連續 stall 秒沒有這類進展才是 `objective_stall`，並寫下 `last_progress_tick`。報告與配對診斷用 create_new，既有成功、失敗或非法 JSON 都在開跑前拒絕，不刪歷史。
+- 本批實作錯誤：Lua 測試先用 seed 1 的 fixture 去對請求 seed 4，verify 先因 seed 失敗，預算斷言沒被執行；改成同一 seed、預算仍是 600 後才測到 mismatch。`write_failure` 把借用的 error 字串丟進要求 `'static` 的 `err_msg`，編譯 E0521；改成擁有的 String 後重跑。
+- 真實 seed1（只此一場，預算 1800／300，不是預設 600，也不是 100 場）：自然 Finished，winner team 0，finish_tick=62951（game_seconds 1049.1826171875），end_events=1，committed_combat_facts=10210，replay_verified_ticks=62951，final_digest=`80eede71fccbfd9ebf27d54e91775d11238f68b0a02c08a5ff18fe7a1de6bd94`，last_progress_tick=62951。exit 0，wall 136.10 秒。成功路徑沒有寫 paired diagnostic。這不能拿去充當 600 秒批次成功，完整 5.5 不勾。
+- 預防：批次 verify 必須同時滿足請求的 max／stall、tick 預算與 finish_tick 上限；較長預算的自然終局不能冒充較短預算。不重試退讓，不改 Bot、ABI、地圖或角色數值。
+
+## E309：fog lease fixture殘留舊ABI常數（2026-10-06）
+
+- Bridge compiled-only library初次82通過／1失敗／1略過；authority_fog_grid_lease_owns_cells_busy_ring_and_reset期待11，正式ABI為16。
+- 只改該fixture以OM_ABI_VERSION檢查當前header；不改正式ABI／config拒絕／lease ownership或reset斷言。主agent精準case1通過；不能把初次完整結果寫為通過。
+
+## E310：輸入合併fixture不可凍結Support策略（2026-10-06）
+
+- server compiled-only library初次167通過／1失敗／1略過。九Bot merge fixture寫死Support4/9不輸入；目前共用策略合法輸入包含4/9。
+- 只改cfg(test)：用獨立formal role_bot_inputs輸出作合併預期，核對完整(player,action,request_id)與team投影，而非只放寬ID清單。human77/78順序／Bot request_id0／非法99與外部Bot控制排除／62ticks及真實移動斷言保留。主agent精準case1成功。不改productionmerge或授權。
+
+## E308：統一Rust library驗收揭露fixture未同步（2026-10-06）
+
+- 主agentcore compiled-content-only --lib實跑474：473通過，disclosed_authority_targets_do_not_reapply_lua_direct_damage失敗。fixture僅CProperty；正式direct damage加入護盾吸收，未插BuffStore而panic。保留disclosed authority不重做傷害與一般90HP兩個斷言，需補正式必要resource，不放寬production。
+- base_content --lib210完成206通過／4失敗：三個塔projectile fixture缺ObservableFactBuffer，不是GamePause根因（dispatcher暫停只停on_tick，仍drain事件）。另一mana_lifecycle_60hz_filtered_regeneration_matches_authority_without_repairs不一致，left raw47593／right47185，max286720與tick17相同；需核對fixture與正式Buff/mana投影，不改期待數字掩蓋差異。保存真實錯誤，後續精準修復，不重跑全套直到受影響案例解決。
+- 搜尋誤猜projectile_test_support.rs、scripting/dispatch.rs不存在；實際模組內嵌towers/mod.rs:248，dispatcher位於runtime/native/scripting/dispatch.rs。改目錄rg具體符號定位，不由模組名假定獨立檔案。
+- 查略過測試時又猜omoba-client-runtime/src/ipc.rs不存在；此次不再擴大搜尋或把未列出的ignored算通過。只記實際library結果78passed／8ignored，後續先inventory。
+- 第5批審查又猜moba_match/bots/config.rs、moba_match/mod.rs；rg --files確認主檔runtime/native/moba_match.rs、plan在moba_match/bots/plan.rs。winner side／team不能因名稱猜一致，已定位正式game.end映射再列限定修復。
+- 修正只限cfg(test)：core fixture補BuffStore；塔共用pipeline fixture補ObservableFactBuffer；ranger_patch正式rank1 authored +2 mana/sec/6秒，fixture保留base bootstrap dt與cast後dt分開計算，沒有硬改actual期待raw值。逐tick hash／零repair等原斷言完整保留。主agent精準core1、mana1、dart5、ice1全部成功，不再重跑206秒全套；初次全套失敗與局部修復結果分開記錄。
+
 ## E306：驗收fixture須接真實共用契約，不能凍結舊英雄數（2026-10-06）
 
 - stage fixture只允許require _bootstrap，正式入口已使用moba_stage_contract，初次exit1。改在同isolated environment載入真實stage模組，按路徑對應五artifact digests；bridge錯配／缺檔與base兩copy缺失／錯配均fail closed，六case成功。
 - asset recipe fixture期待3heroes，正式catalog7heroes，初次exit1。改一對一完整目錄與unique ID，明確驗五training fallback；10jobs與Saika動畫共用斷言維持，成功。不改production容錯或資產。
 - 工具預防：不要再以同patch Delete+Add同檔（被拒且沒有寫入），改Update。Windows rg用真實目錄配-g，不literal glob或猜文件名。
+- 續作仍誤猜 scripts/build_bridge.lua，唯讀失敗；實際盤點為 scripts/build_ue_moba.lua 與 omfue/build_bridge.bat。後續 stage 決策先讀已盤點入口，不新增或執行猜測的 workflow。過量歷史搜尋再次截斷，改讀檔首具體 E306 段落。
+- 停止Grok時bridge報PID94148不存在exit128；follower及runs確認cancelled，scoped查詢無相關worker。取消是主agent決定，bridge預設errorMessage為Stopped by user不可當人類指示；未終止其他程序。一次MD patch用未存在的#錨點被原子拒絕，改讀實際檔首後使用確切heading，無部分寫入。
+- 診斷讀取：PowerShell foreach陳述式不能直接接pipe，先指派結果陣列再Format-Table；新配對診斷是object.samples陣列，不可直接把頂層當array。先讀JSON形狀再取末筆，不以空欄位推斷玩法狀態。
 - 真實UE選角exit1另由E305 engine/plugin BuildId mismatch解釋，保留target/unreal-selection-tests/1791253029-1/error與原始log，不以mock通過替代。詳細全部結果見2026-10-06-final-acceptance-progress.md。
 
 ## E305：完整UE build與project-only成功不可混稱（2026-10-06）

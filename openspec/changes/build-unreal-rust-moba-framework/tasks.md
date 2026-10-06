@@ -1,5 +1,13 @@
 ## 執行節奏（使用者最新指示）
 
+2026-10-06新限制：後續場次模擬每次最多10場，不拆批规避；batch預設與執行上限均10。歷史100場證據保持，不再作未來重跑要求。當前功能局部確認、最後完整驗收原則不變。
+
+2026-10-06後續：新engine1323cea4基線下-NoEngineChanges正式build/stage成功、Editor啟動；補binary preflight及project-bound MCP避免30000誤連別的專案，BP11/11通過。native全套首次因兩處NewObject未Initialize的fixture崩潰，已修共同問題，後續必要確認待更新。舊engine阻塞註記是歷史；仍23/31，不把build/啟動當完整功能驗收。見project-bound-unreal-progress／E313–E315。
+
+2026-10-06 最終headless驗收：四組各25場seed1..100全部exit0，主agent逐100份report另核對正式60Hz、10Bot、guard、自然終局/end1、完整replay、每tick digest數量/末digest、winner side/team、預算及batch摘要；共6004657 replay ticks，finish範圍27202..84070，team1/2勝65/35。四份配方與host/DLL SHA起跑後均不變。額外正式layered seed101在max3600/stall300自然終局152648ticks並獨立核對。據既有地形/導航/安全回歸與本次完整批次勾5.4/5.5，23/31；沒有獨立越權counter、不冒稱網路安全/filtered/Unreal/LAN驗收，剩餘8項受相容engine/plugin及實機LAN等完整驗收條件限制。下方未完成/0場註記保留為歷史，最新結果見final-acceptance-progress。
+
+2026-10-06 Grok收斂與統一驗收：owned HUD／四段量測實作及compiled-only smoke／逐seed批次已接；collector84checks、限定UE11actions與codegen17/17通過。100場正式60Hz第一場seed1在36000ticks逾時，completed0；Grok第4批診斷及通用修正續作，不能以入口存在當完成。完整UBT與真實選角因engine/plugin基線不相容失敗，保留NoEngineChanges，不手改BuildId、不以本機雙程序冒充LAN。詳細結果見final-acceptance-progress／E304–E306，完整10項與21/31維持。
+
 2026-10-06 物品狀態API：ItemTimedModifier Sprint／DamageReduction與BuffStore grant／has統一family、stat、合法數值；正式writer與Bot不再共享來源前綴猜測，沿原numeric reader／strongest-family／tick lifecycle，不建第二份計時器。core矩陣與正式60Hz五商品通過，局部結果見typed-item-modifier-progress／E269；完整5.5與21/31維持。
 
 2026-10-06 原生H契約：已有H初版改成H／Shift+H明確false／true共用HoldPosition，不再取樣實體Shift。configured owner／HUD／啟動與Connected gate、失敗owner0、新精確delegate與builder斷言接線，UE限定10actions編譯成功，native斷言未執行；Rust指定結果見native-hold-chord-progress／E268。不勾完整6.2，21/31保持。
@@ -131,7 +139,8 @@
 - [x] 2.1b 對完整 `templates.lua` 求值結果使用共同的 canonical hash，確認 Rust 與 UE 生成器對數值、視覺與技能資料得到相同雜湊。
 - [x] 2.1c 擴充共用型別化模型至數值、視覺與技能資料，讓兩邊生成器使用同一內容解析結果並消除重複 schema。
 - [x] 2.2a 為每個英雄與其技能生成相同的 Blueprint 可讀 C++ metadata API，驗證新英雄不需手寫專屬 C++、OmGame 可編譯及 PIE 可啟動。
-- [ ] 2.2b 將英雄 Unreal C++ 事件改為通用模板，移除 Saika 專屬分支並驗證既有英雄無功能回退。
+- [x] 2.2b 將英雄 Unreal C++ 事件改為通用模板，移除 Saika 專屬分支並驗證既有英雄無功能回退。
+  - 2026-10-06最終確認：codegen --check17/17、content_hash d5553bbb31c459a4；同一Editor全套兩輪各42/42，包含SaikaEventDispatch/BlueprintSurface/NativeHeroPresentation/AnimationStateSmoke/GenericAnimationOverlay/AbilityCastCue。既有typed相容API保留且非第二派發路徑，實際PIE原英雄mesh rendered確認、記憶marker rendered及清除成功。最新fixture修正不改正式事件/角色邏輯。見project-bound-unreal-progress／E313–E316。24/31，完整60Hz UI/LAN/效能仍另驗。
   - 2026-10-06：公開surface改簽全部8個真正生成header，不只類別名稱；資料／美術改動不變介面簽章、每header變更與實際輸出反算有局部防回歸，bridge錯配原子拒絕不替換catalog。generator2／bridge1、17檔check／UE限定3actions成功，新presentation=d5553bbb31c459a4，最後一致部署；見generated-public-surface-signature-progress／E283。typed／saved引用完整確認仍待，不勾全項。
   - 2026-10-06：共用技能projection移除角色專屬C ABI命名，OmAbilityProjection／event.projection同步Rust writer／cbindgen／Unreal dispatch，C ABI16拒絕舊版，事件／披露／換算不變。局部13項及UE限定10actions成功，smoke過期11同步16但未獨立執行；其他typed／saved引用仍待、整項不勾。見generic-ability-projection-abi-progress／E282，最後統一部署。
   - 2026-10-06：通用英雄metadata追加完整作者數值與render清單，GetSaikaMagoichiMetadata僅轉接通用23欄位，移除第二份數值／清單生成。不改native_visual換算或fallback；缺render scale沿共用0。局部15測試、正式17檔生成check、UE限定9actions成功，hash不變；歷史summary／其他typed payload與資產引用仍待、整項不勾，見generic-hero-metadata-adapter-progress／E281。
@@ -170,6 +179,7 @@
 - [x] 4.2 在 `omfue/bridge` 與 `OmRuntime` 實作 IPC adapter，驗證 Unreal 可顯示兩隊各自的 filtered world 並送出移動。
   - 真實 5-process runs 1791013831／1791014362 通過，C ABI v3 明確 player/team 身分、UE 日誌與 replica 皆位移；full build 3355 exit 0、同一 Editor 兩輪各 7/7、PIE native/memory 渲染與清理通過。詳見 `docs/plans/2026-10-03-unreal-two-team-ipc-progress.md`。
 - [ ] 4.3 實作 Hide/Forget/ResetView、cue 去重與 renderer reconnect，驗證重連不重啟對局或重播一次性效果。
+  - 2026-10-06 最新局部增量：同 ledger／runtime 通道兩段真實 TCP 連線，同時六類 typed cue，已 ACK／初始／離線歷史不重播、fresh 六類送達及退休，1/1 通過；舊 overwrite/ACK 六類案例1/1仍通過。尚不代表所有 Unreal 效果/audio 畫面或兩台LAN，不勾整項。restart wait-mcp/auto-resume 同時改 project-bound lifetime gate、無掃埠fallback，readiness19/endpoint12/Rust9與真正無本專案Editor拒絕通過；見 restart-readiness-and-cue-reconnect-progress／E321。
   - 2026-10-04 真實60Hz renderer重連增量：run1791068322正常退出team1 UE42712再開43836，原server／雙runtime／對側UE PID不變；freshHUD实际rate60／own economy／Playing tick4859／Consumed4901、新minimap原ACK6511與authority新input2／Point raw吻合。兩隊post-input各兩個不同PASS ticks、gate114／113 rows至6840、零FAIL，六程序清理；17個正負向測試／fullbuild／同Editor兩輪13/13／串行PIE／保存verifier通過。所有一次性cue與兩台LAN仍待驗收，不勾選整項；详見docs/plans/2026-10-04-unreal-renderer-reconnect-60hz-progress.md、E103。
   - 部分驗收：獨立 frozen ghost C ABI v2／不可碰撞 marker、完整／控制 frame 區分、局部 lifecycle、ghost-only TCP 重連、忙碌重試與 PIE fixture 渲染；詳見 `docs/plans/2026-10-03-unreal-remembered-ghost-progress.md`。跨新 renderer instance／所有一次性 cue 契約仍待完成，故不勾選。
   - 新增部分驗收：新 renderer 首個完整 view 不播放歷史 effects/audio，先 Ready 後首個 snapshot 的 latest/critical 路徑均涵蓋；Consumed 拒絕未送出的未來序號，保留 duplicate/older lease 冪等語意。詳見 `docs/plans/2026-10-03-unreal-renderer-baseline-progress.md`；正式 cue ID／UE 消費序號對應仍未完成。
@@ -212,7 +222,8 @@
   - 2026-10-04：權威 tick-local ShopSettlement 精確對應 correlation，40-byte receipt 區分真正成功／拒絕，不把 input ID 帶入 gameplay；OwnerEconomy 與 hero entity 分離，死亡仍持有 Gold／六格。typed IPC 最近 64 筆結果跨節流／snapshot 覆蓋／TCP 重連保留；core 319、base_content 71、runtime 45＋3 通過。C ABI／UE 商店、收入／回城／重送契約仍未完成，secure shop 維持關閉。詳見 `docs/plans/2026-10-04-moba-shop-receipt-ipc-progress.md`，不勾選完整 5.3。
   - 經濟結算新增 owner-team Gold／Inventory／ItemEffects 安全 baseline、typed CommittedEconomy／可見 EquipmentStats；客戶端不重放交易，完整 hash 覆蓋合成／拒絕／出售／fresh bootstrap／裝備死亡重生。數值 ID 不依宣告順序；core 314／base_content 70 通過，15Hz／120Hz 完整 filtered 對局不回退。receipt／IPC／UE 商店及收入／回城仍未完成，secure shop 仍關閉。詳見 `docs/plans/2026-10-03-moba-economy-projection-progress.md`。
   - 部分實作：共用 Rust 原子交易、重複材料／合成差價、六格／整數退款、phase／pause／alive／自己基地距離檢查；item_tick 套用裝備，重生保留裝備／Gold 不加倍。新增 ItemBuy／ItemSell 正式權威 tick 路由與 ordered item queue；Lua passive catalog 編譯生成／完整 data hash／配方檢查，拒絕不同 compiled 值與物品 hot reload。secure V2 shop 仍 fail closed；owner 經濟結算／receipt／IPC／UE、擊殺助攻與回城未完成。詳見 `docs/plans/2026-10-03-moba-shop-formal-input-progress.md`，不勾選。
-- [ ] 5.4 建立三路、野區、地形、導航與建築解鎖規則，驗證固定種子批次對局無卡住。
+- [x] 5.4 建立三路、野區、地形、導航與建築解鎖規則，驗證固定種子批次對局無卡住。
+  - 最終正式60Hz固定seed1..100三路批次全部自然終局/replay，另完整layered正式十Bot seed101自然Finished152648ticks/replay；既有三seed地形/swept/有界導航與layer解鎖回歸保持。本项是後端地圖/導航/解鎖與headless條件，不代表6.1的地圖美術、最新filtered全對局、PIE或LAN；舊1800layered逾時保留且不算成功。詳final-acceptance-progress與E312。
   - 2026-10-06：共用BFS耗盡不再回傳closest cell的partial路徑，只有goal／安全精確terminal edge才能成功；occupied target前置拒絕。四項core局部確認通過，60Hz不可達命令停留或接合法佇列、同格／NPC正常路徑保持。未做全域navmesh／批次／filtered／最後部署，不勾選；見navigation-complete-path-progress／E274。
   - 2026-10-06：同格端點被薄牆隔開時接既有有界搜尋，精確target作terminal edge，不另做Bot補丁；牆內target／超跨度受阻仍拒絕。三core指定確認通過，含正式MoveTo／AttackMove60Hz抵達與每步sweep／重播一致。完整批次／filtered／最後部署留後，不勾選；見same-cell-navigation-progress／E273。
   - 2026-10-05：Lua bounded outer-to-inner tower_layers→compiled catalog／hash，權威每路多層 retirement／第一存活摘要、NPC／Bot與Damage共用解鎖；新增opt-in layered map，舊單層保留，server.MATCH_MAP_ID精確驗compiled圖與mode。新ECS／validation各1、舊單層1、三seed60Hz540ticks replay、server新測試lib／main各1通過；build-only14378／stage成功。詳見 `docs/plans/2026-10-05-layered-lane-buildings-progress.md`。未做完整多層終局／filtered／KCP／UE與最後批次，不勾選。
@@ -226,7 +237,8 @@
   - 2026-10-04 野區增量：Lua 兩個單怪營地→compiled constants／map hash，HostileNeutral 不改 legacy Neutral，正式受擊仇恨／回位免傷／Heal／first-lethal Gold-XP／15 秒新 generation 重生。60Hz 三 seed 各3000 tick、共18000雙隊 steps 零repair每tickhash一致；匿名／NPC／forced Death 零獎勵、英雄同tick死亡後保存獎勵通過。最後Lua filtered settlement補強後base105／core335／server156＋1ignore／runtime61＋8ignore／bridge53＋1ignore（另整合2＋1ignore）／template38＋23＋8＋2通過。最後build-only／stage7d934…已獨立SHA核對；三路完整lifecycle含營地勝利4955／7930／7776，共41400雙隊steps一致。release headless最後結果與限制見野區進度檔；地形／UE地圖／完整建築仍未完成，不勾選整項。
   - 最後導航版本三seed1／42／539365380完整60Hz lifecycle4955／7870／7767 tick勝利、雙隊41,262 filtered steps逐tick零repair一致，base102全過；實際release DLL三路seed42 headless12,808tick逐tick replay／四招26／11／3／7通過。最後UEfullbuild／stage127176…、MCP11BP、owned Editor67136兩輪19/19與串行PIE通過並獨立確認退出。不是LAN／三路UE畫面／60FPS；野區、地形與完整建築層次仍缺，不勾选。
   - 2026-10-04：第一段三路原型沿正式共用 ECS，Lua整數waypoint→Rust編譯constants與map hash、三路各自出兵／一座塔、all_lane_towers傷害邊界解鎖；保留單路預設、三路 opt-in，headless新增60Hz與map參數、shop／Recall安全協商接受三路。首場完整雙隊filtered lifecycle4955 tick結束／9936 steps無repair／15 frozen ticks，三種種子批次與最後DLL／stage驗證見 `docs/plans/2026-10-04-three-lane-navigation-60hz-progress.md`。野區、地形通用避障、建築多層解鎖與Unreal三路layout尚未完成，不勾選整項。
-- [ ] 5.5 實作五位置 Bot 與三種完整英雄原型，驗證 100 場 headless 對局無越權輸入、死局或非法目標。
+- [x] 5.5 實作五位置 Bot 與三種完整英雄原型，驗證 100 場 headless 對局無越權輸入、死局或非法目標。
+  - 四組25場完整seed1..100，正式mixed archetype十Bot/五位置、committed-role-plan/guard、60Hz/native compiled-only、max1800/stall300；全部自然終局/end1及每tick replay，未出現budget/stall/執行失敗。既有Bot只讀當隊current披露/合法候選/正式輸入的安全矩陣與server merge准入回歸保持。沒有另造拒絕counter或宣稱LAN認證安全；主agent另逐報告核對unique seeds/摘要與最終SHA，實際結果與Grok審查見final-acceptance-progress。
   - 2026-10-06：新增可重用正式60Hz批次工具，release建置／作者配方凍結各一次，每種子獨立JSON與log，失敗停止並保留已完成證據。局部Lua6項通過；不是正式100場、沒有獨立越權counter，完整5.5仍待最後。見compiled-smoke-batch-progress。
   - 2026-10-06：普通攻擊追擊共用導航候選准入，最多8攻擊候選、只查out-of-range，失敗ID本次排除但保留完整披露警戒；選其他可達目標，全失敗Hold去重，恢復重選，射程內不加LOS、技能不套追擊導航。core2＋base4正式60Hz通過（新1含四角色），見bot-combat-navigation-progress／E297；100場與完整5.5留最後。
   - 2026-10-06：Support最終Escort查本人半徑／公開地形完整路徑，受阻正式Hold且去重，不猜未披露队友位置，地形恢复普通MoveTo；ApproachStructure不重查以維持8次budget。新及相鄰正式60Hz3通過，見bot-escort-navigation-progress／E296，完整100場與5.5留最後。
@@ -271,7 +283,8 @@
   - 2026-10-06補強：移除Unreal runtime Lua scanner／watcher／reload flag接線，舊公開reload API統一Disabled且不清呈現cache、不呼叫DLL；舊config名稱保留deprecated且忽略。UE限定14actions成功、Lua syntax／whitespace與零殘留呼叫確認，新native政策矩陣僅編譯未執行，未PIE／stage；見unreal-compiled-reload-policy-progress／E288。
   - 四個 normal dependency gate 4/4、互斥編譯拒絕、bridge／script DLL／server check、新內嵌 catalog 1/1、正常生成 handler 60Hz 1/1、選角設定（含 JSON 重新選角）7/7 成功。不重新 stage／完整 OmGame 或部署验收，E177 保持。詳見 `docs/plans/2026-10-05-compiled-content-only-progress.md` 與 E209；21/31（新增架構修正一項），原十項未完成保持。
 
-- [ ] 6.1 完成通用動畫、技能 cue、視野與地圖呈現，驗證缺少非必要美術時 fallback 可用。
+- [x] 6.1 完成通用動畫、技能 cue、視野與地圖呈現，驗證缺少非必要美術時 fallback 可用。
+  - 2026-10-06 封關：核對已保存FinalNative-fixtures-fixed同Editor兩輪42/42與FinalPie-includes-fixed真正native mesh／記憶render、記憶1→0及停止成功；動畫／技能cue／terrain／fog／minimap與fallback案例不是僅編譯。本輪沒有重跑Editor／PIE／對局。OpenSpec25/31；不等於完整6.2/LAN/60Hz效能或全部素材品質，保留native warnings。詳見presentation-functional-closure。
   - 2026-10-06：route與polygon共享u64 range gate、任何更新前整批拒收越界，不靠單route跳過後ACK；空尾端range合法、不加任意point cap。UE限定9actions与Lua syntax成功，新native真實actor原子拒收／恢復矩陣僅編譯、未PIE／stage，不勾全項；見frame-geometry-ranges-progress／E292。
   - 2026-10-06：完整公開霧幾何精確鍵含多viewer／半徑／遮擋形狀／scale，無viewer與reset清鍵，重建成功顯示才commit；共用frame gate拒絕polygon越界，geometry拒絕NaN／不可表示origin。限定UE9actions成功，native矩陣僅編譯、未PIE／stage／效能驗收、不勾全項；見fog-geometry-key-progress／E291。
   - 2026-10-05：權威攻擊 pause 狀態經 AVS2／安全投影／flags bit2 接入 native 游標，stun不靠前端推測、解除正常恢復。wire5／C ABI14拒絕舊4／13；9項局部（含真實60Hz stun）及native22actions通過，未宣稱Editor／完整畫面驗收，最後部署同步更新。見 authoritative-animation-pause-progress／E241，整項不勾選。
@@ -303,6 +316,7 @@
   - 正式fog前置：發現IPC仍使用DemoFogCache，缺geometry／provenance／explored；正式safe phase marker停用示範投影且reset不回落，小地圖標示VISION N/A。尚未畫正式fog底色，不勾選；決策與必要確認見 `docs/plans/2026-10-04-unreal-formal-fog-boundary-progress.md` 與 E137。
   - 通用靜態地形呈現增量：Lua compiled geometry→獨立C ABI10 terrain_rects→共用ISMC，與視野polygon分離、UE collision／nav關閉；完整結果見 `docs/plans/2026-10-04-unreal-collision-terrain-progress.md` 與 E133，不勾選全項。
 - [ ] 6.2 完成選角、HUD、商店、小地圖、計分板與勝負 UI，驗證 PIE 可從選角玩到結算。
+  - 2026-10-06：單人/shared選角共用完成deadline，ready後不再可能讓自動選角無限等；顯式1..7200秒、自動預設120秒、人工預設不限時，所有席位與退役共用原deadline。逾時清owned程序／不開局／不自動lock；pure期限、單人7/7與shared14/14通過，未真UE或完整對局，不勾整項。見selection-completion-budget-progress／E322。
   - 2026-10-06：Grok第1批補齊owned失效清Buff snapshot及物品／游標技能／商店／小地圖入口同源通知，去重與抑制retained frame，不把仍連線的非法單次操作當斷線。Codex審閱增量、限定UE13actions成功；新OwnedInputUnavailableHud及擴充DisconnectedHud僅編譯未執行，完整PIE留最後。見grok-owned-ui-progress／E298–299，21/31保持。
   - 2026-10-05：通用 owner Buff HUD batch／完整列表／合法 ID與generation／倒數與永久效果、空baseline／Stop清除、control保留已接線；舊單筆不再自動覆寫。新增原生 OwnedBuffListSnapshot 斷言已編譯，scoped 14 actions 首次通過；未執行 native automation／PIE（E224），不勾完整6.2。詳見 owned-buff-list-hud-progress／E231，21/31 保持。
   - 開局交接增量：共用 workflow 所有執行元件在選角前建置，前後部署 guard；共用契約檢查 bridge 一份與 base_content 兩份 copy。fixture SHA／mock 階段局部8/8，不是完整對局或 ABI／feature 證明，6.2 仍待；詳見 `docs/plans/2026-10-05-moba-launch-stage-contract-progress.md` 與 E214。
@@ -346,4 +360,9 @@
   - 2026-10-06：共用frame完整shape gate在任何actor／HUD／效果更新之前查size／ABI／flag／21配對與nested fog，拒收release、不ACK／推進，合法後繼frame可恢復。fixtures使用正式header，UE限定8actions成功、Lua語法與whitespace通過；scoped Cmd啟動exit1無log，native矩陣尚未執行，未PIE／stage，不勾全項。見unreal-frame-contract-progress／E285。
   - 2026-10-06：Unreal啟動與每次catalog取得嚴格核对compiled hash／surface／ABI／generation／string refs；空值不放行，錯配停止本地bridge、不處理／ACK frame、不重啟後端，catalog／frame游標重設。UE限定8actions成功，新native矩陣僅編譯，Lua scoped runner語法確認；執行斷言與真實同局留最後，不勾全項。見unreal-compiled-catalog-gate-progress／E284。
 - [ ] 6.5 建立完整建置與效能基線報告，驗證 server tick、client step、IPC 與 UE frame time 符合基線後固定的門檻。
+  - 2026-10-06：fresh Grok修SystemDispatcher reconfigure成功後退役cached dispatcher，primary獨立1test／481filtered確認；正式game不呼叫此API，非351/475ms根因證明，不重跑UE/場次或勾performance。見dispatcher-reconfigure-progress／E323。
+  - 2026-10-06本批結果：原始Child精確lifetime／native同handle停／关、session/reconnect完整身份已補。一次replica-stage-20261006-lifetime-v1真60Hz双UE短程movement/HUD/consumed与strict五lifetime退出核對通過；各59診斷窗口／3540samples，两队tick227 outer351.1038/475.328ms，幾乎全fixed_step。不是CPU定因或50ms通過，不重跑全驗收／不勾項。見session-lifetime-progress／E323。
+  - 2026-10-06：Grok移除無讀者的逐step report BTreeMap，primary獨立runtime1/check確認，returned checkpoint不變；新增固定窗口同一outer peak唯讀stream collector11/11，錯誤/矛盾/倒退fail closed。不宣稱50ms已修或完整驗收。先修launcher PID lifetime安全才做實機分段採樣，見replica-stage-collector-progress／E323，25/31保持。
+  - 2026-10-06 診斷增量：Grok run-muw9jh35-ydrn8m完成可選7段wall-clock／固定60筆成功step窗口，保留同一outer尖峰完整phase及未知residual，duplicate/stall/error不採樣；主agent審查與獨立core6/runtime1/compiled-only check通過。原OM_PERF/hash/ABI/十二門檻不變，沒有實機stage採樣，52.654/51.626ms超固定50ms尚未修復，不勾6.5。詳replica-stage-diagnostics-progress與E322。
+  - 2026-10-06 最新：六項正式60Hz/release/single_lane/雙renderer採樣成功，十二門檻固定後獨立final-perf-validation-20261006-v1重連/遊戲hash/清理通過，但server max133.894ms與client max132.987ms超標，6.5保持未完成，不調大門檻。已補通用本機worker budget並做968+6配置/純Rust1/host6功能确认，修復後新run尚待結果。詳見moba-performance-baseline/local-worker-budget-progress，E317–E319。
   - 2026-10-06：Grok契約稽核確認正式路徑缺四段可彙總量測，已交接第3批實作，主agent審查／限定確認後才最後實測及固定門檻；不以現有debug或test-mode數字勾選。主agent同步修正runtime smoke的runtime Lua及雙UE商店30Hz入口，局部Lua6項通過，不代表完整遊戲驗收。見moba-completion-gaps／compiled-smoke-batch-progress。

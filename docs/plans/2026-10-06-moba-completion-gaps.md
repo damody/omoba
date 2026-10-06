@@ -1,5 +1,13 @@
 # MOBA 剩餘 10 項契約缺口（2026-10-06）
 
+> 当前25/31，原標題與下方23/31為歷史。剩4.1/4.3/4.4/6.2/6.4/6.5；無界report map刪除與診斷collector已局部確認，不等於效能通過。先修PID/executable-only清理缺口再採樣。最新細節見replica-stage-collector-progress／E323，沒有重跑全驗收或增加模擬場次。
+
+> 後續基線已恢復：正式OmGame建置/stage與Editor成功；project-bound MCP/BP11/11、原生同Editor兩輪各42/42及PIE native mesh/remembered marker實際render成功，新增共用builder修正工具include相容。下列engine無法啟動屬歷史，不再阻擋後續正式60Hz對局驗證；真實LAN仍需實機，不以本機雙程序冒充。詳project-bound-unreal-progress／E313–E316。
+
+> 最新收斂：正式60Hz/10Bot seed1..100四組全部exit0，主agent逐report/摘要/seed/預算/完整tick digest與artifact SHA獨立核對通過；6004657 replay ticks。額外layered十Bot seed101自然終局/replay152648ticks，max3600/stall300明記，不計入100場。5.4/5.5已完成，OpenSpec23/31，現在剩8項（本文10項原始盤點保留歷史）。其餘native/PIE/完整UI/重連/正式效能/LAN仍受不相容engine/plugin或第二台實機限制，不能以實作存在或限定編譯勾完成。最新證據與未部署狀態見final-acceptance-progress/E312。
+
+> 統一驗收最新：正式60Hz十Bot seed1在明示1800/300操作預算自然終局、replay62951ticks；舊600秒逾時不等於已證明死局，預設600保留。Grok第5批限定修復winner side/team報告與entity0監測語意，完整100場仍0/100。量測collector84 checks及UE限定11actions編譯成功，完整UE/真實選角因engine/plugin BuildId mismatch阻塞。下文舊缺口盤點不等於最新失敗，實際進度見final-acceptance-progress及E304–E311；21/31未假勾完成。
+
 > 主agent後續決定：下文保留稽核當下狀態。因既有單場report路徑會覆蓋，已新增通用60Hz批次工具保留逐場證據，不用手動重跑100次；run_moba_runtime_smoke改compiled-only，run_2player_ue商店30Hz已修正為選定tick profile，局部Lua6項通過。詳見compiled-smoke-batch-progress。第3批Grok量測正在實作，未宣稱實测或完整驗收。
 
 本文件只核對 OpenSpec `build-unreal-rust-moba-framework` 尚未勾選的 2.2b、4.1、4.3、4.4、5.4、5.5、6.1、6.2、6.4、6.5。進度註記與 `2026-10-06-moba-functional-readiness.md` 只當索引，完成與否以目前原始碼與 spec 場景為準。本批沒有改程式、沒有改 OpenSpec checkbox、沒有跑 Cargo／UBT／PIE／生成／部署。
