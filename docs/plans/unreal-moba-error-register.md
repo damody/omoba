@@ -1,5 +1,76 @@
 # Unreal MOBA 防錯紀錄
 
+## E348：使用者暫停、同世界真人操作與施法失敗不可冒稱成功（2026-10-06）
+
+- 使用者要求「先停止，等下再繼續」。Primary以原exe／creation token核對後只停止本場authority，原workflow自動停止PIE並清理三個original lifetimes；v5 report cleanup_verified=true、success=false。此false是人工暫停而非新observer failure；自然結果未完成，不勾6.2。本輪實際8場，上限10，恢復時不可重置計數。
+- 原owned Editor最小化造成截圖拒絕。透過本project MCP search_tools查到editor_ui_windows，list取得原窗口ref再restore，未要求使用者操作、未新增OS fallback、未採用外部Editor。實際shop圖已檢視：buy InputId1、sell InputId2，HUD Transaction #2 settled(code0)；attack-move InputId3後出商店範圍，Q upgrade InputId4後L2，真人死亡重生可見。
+- R no-target InputId5被接受不等於效果成功：server tick83725記錄AbilityCast ok後緊接execute returned error。僅本次真人R看到兩條（authority／observer）；尚未定位根因。不可宣稱heal/CD成功，也不能由靜態推測修補。通用diagnostic改為保留ABI RErr文字，未改交易或施法規則；真正四技能headless cast/settlement scoped1項通過，並不重現本場失敗。新log改動未部署至已停止v5。
+- 圖片tick78782／84342顯示simulation60Hz但renderer FPS3；與先前FPS60不同，不混稱畫面效能過關。既有固定十二效能FAIL保留。
+- Grok純幾何lane-review run-muwoiwru-cg0ms8/threadc3e0d4b6-def5-441c-986a-37ec99efceb7在197秒仍starting，因使用者暫停取消，follower terminal cancelled、無提案或修改、成本未知。stop回報原bridge PID36852已不存在（taskkill128）；不把清空追蹤欄位冒稱所有未知原agent身份已驗證退出。
+- 操作錯誤：又猜OmAbilityVisualCatalog.h／expected-checkpoints.jsonl／scripts/lib/process.lua不存在，已改rg --files／目錄listing／bootstrap實際模組；Select-Object -First誤寫英文seventy已改70。禁止重複猜檔名與型別錯誤。
+
+## E347：Bot 零關聯購物回執使整隊 frame 遺失，重同步不能補救遺失的生命週期（2026-10-06）
+
+- Grok上述no-tool job最終277s完成，logic和primary已實作通用規則一致；其測試把四參數回傳Vec API猜成五參數output-parameter，不能編譯，不採用。Primary實際7tests已證明行為，並非Grok跑過測試。成本USD0.05481208，API duration unavailable。第8場v5已建立唯一authority/runtime/原PIE，仍最多10，不更改既有門檻。
+
+- 第7場 v4 原owned cleanup=true，保留原結果false。新增disclosed元件對照191對191，仅enemy replica1903 的Hero冷卻／TAttack差異。原wire capture：14980 Reveal，15120仍有Movement／CommittedAttack／Progression，15238起僅cached AttackVisual；原server tick15132記錄projection MalformedDisclosedState，接著兩observer MissingReplicaTick。不是移除schema、資源hash、迷霧或GPU問題。
+- 實際source唯一MalformedDisclosedState生成在shop_receipt。ServerRoleBotControllers正式Bot input correlation=0，投影回執valid要求input_id非零，造成成功／拒絕的Bot交易均可能令frame生成失败；生命週期transition因此錯過，使對手幽靈繼續進行client tick。
+- 通用決定：零關聯authority-local輸入仍先消耗並驗證同player FIFO settlement，再省略UIreceipt；不能在pop前過濾零ID，不能製造假ID，不改交易、accepted input、真人receipt codec或安全驗證。Primary已實作，scoped shop_receipt 7/7通過，含零ID→非零ID不同商品FIFO、command不匹配仍拒絕、UnknownItem零ID不造成功、兩連續projector tick不遺失；非完整驗收。
+- Grok新no-tool packet run-muwnjopx-ctgbc7/threaddc393f43-da9f-4ef3-af8b-1828edfe300d仍starting；primary不空等已知修正，由primary產碼並待提案作比對，尚不冒稱Grok完成此修正。固定Lua離線capture檢查工具與component比較工具不開新遊戲。禁止印server私密sentinel；比較輸出只打印schema／replica／差異數，payload留本機證據。
+- 又誤把demo*.rs當Windows具體路徑，已改目錄 -g 及rg --files；禁止用猜檔名失敗反覆代替source定位。
+
+## E346：正式模式證據選項被 test-mode 門檻忽略與 Team 2 確定性中斷（2026-10-06）
+
+- Grok read-only調查 run-muwn1qpx-68qy5m/threadb301bf02-265c-4030-b2d3-559461e5c291 在 source/evidence讀取處296s無結論，primary取消，follower terminal及bridge三個追蹤PID清空確認；成本未知。「兩hash包含resources不同」是靜態差異，不等於本場根因，沒有採納成修正。後續改交已取得的具體元件差異／原始碼片段，避免工具讀取停滯。
+
+- PIE v3 同世界選角、60Hz、1真人9Bot與原生HUD成功，但仍在 Team 2 sequence15586 因 observer-mismatch-after-rebase fail closed。首個不一致檢查點 tick15240／sequence15227，Team 1 持續一致；不能宣稱迷霧索引修正已修好此問題。原workflow已自動完成owned cleanup，report success=false、cleanup_verified=true。至此實際6場，最高10場。
+- runtime 原本只在 test_mode=true 建立 EvidenceRecorder，顯式 --evidence-dir 在正式模式被忽略；且先前把 runtime CLI 選項誤當server環境變數。入口改傳真正 CLI；採納 Grok run-muwmuk5g-2mfryn／thread6852d8a5-cc3c-4c3f-884d-039bf88a9c89 的純 capture_policy，primary正規化stream空白、審查並整合，4項測試通過。正常無directory仍不記錄、test-mode缺directory仍原錯誤，不啟用腳本／fault injection。
+- Server／runtime scoped release build39.90s／38.30s成功。observer mismatch 新增既有 opt-in evidence 目錄的 disclosed component值／digest對照，僅含該隊已公開資料，不印出私密sentinel檔；不放寬hash、安全、rebase重試或強制winner。下一場只為取得具體差異，不是無改碼重跑驗收。
+- 操作錯誤：猜測不存在的replica_world.rs和src/bin資料夾，後續先rg --files；MD patch把完整標題誤簡寫為E345導致拒絕，原檔未改，改用實際完整context。
+
+## E345：混合呈現事件的迷霧索引與長局 observer 錯誤不可掩蓋（2026-10-06）
+
+- `final-same-world-20261006-v2` 真實選角三回呼／同一 PIE world 接續／compiled release60Hz／十人 scoreboard 成功，約 replica tick15586 後 authority `observer-mismatch-after-rebase` fail closed。不能把 stale Connected renderer 或自然結果等待時間當成成功；原原因目前未查明，沒有關閉安全檢查、放寬 hash、改成全世界 replication 或強制 winner。
+- primary 核對該場 owned-processes.json 第2筆原 server 的 executable／creation token，透過固定 Lua stop_owned／wait_owned 只退役原 authority，使原workflow走失敗清理；report 同世界 handoff=true、success=false、cleanup_verified=true。至此實際5場（含先前 PIE v1 已開 server），未超10。原Grok review run-muwmfy30-juchdm/thread9828da38-9b8f-4fdc-abd5-245596b88414 290s starting 無輸出取消，terminal與原75212／91084不存在确认；成本未知，未冒稱完成審查。
+- 當前功能修正：FogGridRetention 不再要求 fog stable_sub_index=0；真正 producer 在公共事件／external effects 排序後賦全域 ordinal，HUD／攻擊／buff 等令霧不再排第0。保留唯一霧、無subject、reserved u32::MAX、payload／team／epoch／tick／geometry／conflict全部檢查。新增真正 TeamViewProjector 的 HUD+fog 混合 frame 正向及 subject／duplicate／sentinel 反向回歸；compiled-only fog_grid 11/11 通過。這不是 observer mismatch 根因修復聲明。
+- PIE observer 新增 bounded authority log 失敗偵測；遇 secure termination 即保留原診斷並走原owned cleanup，不再空等勝負。每次 formal PIE 診斷下一步沿既有 OMOBA_FOG_EVIDENCE_DIR 保存實際 filtered frames／checkpoint，不編造證據；下次真場次必須先部署新 runtime。
+- 操作錯誤又把 moba*／observer* 當具體Windows路徑及猜 game.rs／observer.rs，失敗已保留；後續先 rg --files 找檔再搜目錄 -g，不能將讀取失敗当作不存在該功能。
+
+## E344：選角流程不能用關閉 renderer 代替同一 PIE 世界的接續（2026-10-06）
+
+- 新同世界入口 v1 真實 PIE 選角三個 pointer callback／Rust terminal 全部成功，尚未接入 gameplay 就因 owned-processes.json 二次寫入未傳 overwrite=true 拒絕。當前文件只允許更新本次自有 ledger，新增 true；不得放寬全域 path/json overwrite。server 已 spawn，所以保守计入第4場，舊 report 的 simulations_executed=0 是記錄時序錯誤，保留原錯誤檔，改成在成功記錄 server 身分時立即計數。cleanup_verified=true，沒有6.2完成宣稱。
+
+- 新版本正式雙 UE 場次 `final-renderer-budget-baseline-20261006-v2` 重連／60Hz／cleanup 通過，三個 UE log 均實際回報核心提示 8。但十二效能門檻仍 FAIL：server max328.7441ms、p1／p2 replica max197.9532／227.7925ms、UE interval max180.390596／183.081299ms。平均 server4.844195ms、兩隊 replica <0.9ms、UE interval約16.75ms 通過，不把平均當全部峰值通過，也不歸因於已證明的外部建置；保留全樣本，不再無改碼重跑。
+- `final-selection-natural-result-20261006-v1` 在選角 UI/service handshake 前逾時，未 spawn authority／replica、未開局。末日誌停於 TargetPlatform／Turnkey 的 SDK 初始化；僅證明停留位置，不足以證明是哪個子程序鎖住。讀原引擎原始碼後不使用影響其他系統的 `-Multiprocess` 來跳過檢查，也不只拉長原握手逾時。至此實際遊戲3場，另2次開局前拒絕／選角失敗。
+- 原預設選角 terminal receipt 後 RequestExit，不能稱同一 PIE 選角到結算。新增明確 opt-in `-om-selection-in-place`／native saved receipt gate／controller handoff／strict presentation-only subsystem gate；預設舊流程保持。Lua 新入口先等待自己建立的 Editor MCP，再啟動 PIE 選角，validate Rust plan 後才啟動唯一 server／replica，MCP 接續原世界；不修改全域 commandline、不啟動第二份模擬、不使用 gameplay Lua，不強制 winner。
+- Grok write job `run-muwm40c0-vi35dl`／thread `deddf896-09fa-4c3c-b1ca-c74d04ab576b` 在讀取阶段267秒無補丁，primary取消；follower terminal cancelled 且原83056／105444均不存在後 primary接手。stop taskkill128不是退役證據，成本／根因未知，不算 Grok 產碼。
+- 新 MCP 可選 `--owned-editor` metadata gate 每請求確認原始 executable／creation-token 所指 lifetime 與 registry endpoint，相同 project 不等於本工作流所有權；局部原12＋新4 fixture通過，尚非實際 HTTP／PIE proof。
+- 操作錯誤：再次猜錯 test_ue_binary_preflight.lua，實際位於 scripts/tests/ue_binary_preflight_test.lua；正確15項通過。新 Lua 初稿誤猜 path.copy，不執行缺少的 API，改保留原始截圖路徑，不製造多餘副本；編排尚在當前功能確認，6.2不先勾。
+
+
+## E343：共用引擎的外部建置可使已建好的專案失去相容（2026-10-06）
+
+- `final-renderer-budget-baseline-20261006-v1 --reuse-built` 在遊戲 spawn 前被正式 binary gate 拒絕；engine ID 為 `99e98d23-40b5-4b0a-b234-587b1458be0a`，project／BpGeneratorUltimate／OmRuntime 仍為 `cfa68684-c474-4502-9a0a-18f8585e7a6a`。該次未啟動場次，不能算成第三場或核心提示成功證據；前兩場實際遊戲的失敗與結果均保留。
+- 唯讀查詢發現另一專案 `C:/portable/OpenKoikatsu/OpenKoikatsu.uproject` 的 UBT 正使用 UE5.8。保留其程序、不殺未知建置、不手改 BuildId、不移除 `-NoEngineChanges`。只執行既有固定 Lua build-only，以正式 UBT 鎖與專案建置同步自身模組；不對共用引擎做修復。
+- staged-only 原契約只驗證 DLL SHA，不代表 Editor binary 相容。最終工具應在正式 frontend build／verify 之後加既有只讀 binary readiness；不能在 build 之前阻止合法修復，也不能取消真正 spawn 前的再次檢查。Grok 有界提案待 primary 審查，尚未宣稱已修復環境或效能。
+- 本次再次猜 `moba_selection_flow.lua` 不存在；仍使用已存在的檔案清單找入口，不新造同名工作流。大型 engine manifest 不應整份輸出，解析後只列 BuildId／mtime；避免截斷掩蓋診斷。
+
+## E342：renderers預留容量不能只留在JSON、不套用真正啟動參數（2026-10-06）
+
+- v2功能重連通過／cleanup_verified=true，但十二固定效能門檻失敗：server mean5.33744／max106.9183ms；p1 UE interval max87.215498／work max21.523401ms；p2 replica max54.5498／UE interval max88.6259ms。原完整兩隊report與全部樣本保留，無提高／切片／重試挑樣本。
+- 共用Lua已預留一半logical CPU給renderers，卻只傳Rust ECS／Tokio hint，Unreal仍回報physical cores16。原預算沒有約束Unreal數量提示；這是確實接線缺口，不宣稱已證明所有峰值根因。
+- primary讀本機UE5.8 GenericPlatformMisc::GetConfiguredCoreLimits与WindowsPlatformMisc實作，確認-corelimit同時限制reported physical／logical count；只用既有-corelimit，不使用experimental physicalcorelimit、affinity或修改引擎。Grok有界no-tool diff加unreal_cores_per_renderer／args、獨立hint總量與oversubscribed；原Rust配置、schema1、oversubscribed語意不改。最低1造成小機器超預留時明確承認，不把hint當quota。
+- Grok run-muwlkq5l-sk7uzt／threadc9cfc2f1-0ed6-42cb-bf96-47dbf40ce2bd completed133s、1call／1turn，input20386／cache1152／full21538／output13156／reasoning11144／total34694，USD0.04089656，API時間未提供。沒有工具／測試／檔案寫入；其diff串流片段於字串和數字內被空白切開，primary不直接套壞hunk，按原文件context保留語意整理再apply_patch。不能把該傳輸文字當已驗證patch。
+- primary独立968配置＋6拒絕、role8/8通過。兩正式launcher共用hint；reconnect複用原argv因此保持。最終工具加入三個原生log之commandline／Cores回報與configured cap檢查，不只檢JSON。新版本驗證於 spawn 前遭 BuildId gate 拒絕，未宣稱效能通過。本任務目前實際2場、另1次無場次預檢失敗，最多10不拆批。
+
+## E341：正常退出與身分查詢之間仍有原始handle競態（2026-10-06）
+
+- 一次完整 frontend/bridge/stage、release content/server/runtime建置成功後，final-supervised-baseline-20261006-v1進入真60Hz雙UE；舊UE正常WM_CLOSE後inspect_owned在QueryFullProcessImageNameW回access denied5，尚未重開新UE就中止。原五程序cleanup_verified=true；success=false原始報告與全部日誌保留，不把它叫效能通過或真LAN。
+- 原因：alive的零時wait與接下來image/time query並非原子操作。通用修正settle_owned_query：查詢失敗只在**同一個已保留handle**的新wait確認signalled時返回已退休；仍alive、wait本身失败維持原錯誤。不拿PID重查作退出證據、不用延遲掩蓋、不將access denied一律忽略。inspect／stop／close-window沿同源處理，TerminateProcess失敗後亦只接受原handle退出。
+- 當前3個局部回歸全部通過：query失败+dead／alive區分、wait失敗拒絕、成功query不走錯誤恢復。新版本v2明確reuse-built+嚴格stage/readiness，不重建Unreal、不改十二門檻；這是修正新重現功能錯誤後的一次驗證，不是為挑效能樣本重跑。這兩場合計2，不拆批规避最多10場。
+- 工具接線修正：實際server OM_PERF在stdout，stderr為空；最終收集明確合併該場stdout+stderr，runtime仍stderr，player1保留old/new兩份UE窗口。不能沿名稱猜日誌流，不能切掉失敗樣本。首次失敗的reconnect不是完整固定workload，另留原success=false不冒稱完整效能報告。
+- 本批另發現runner content/server build label都叫content（執行前修正），改explicit label避免覆蓋不同建置日誌。reuse-built是明確選項，缺release元件拒絕、profile仍必須release，無debug fallback成功聲明。
+
 ## E340：強制終止監督需原生生命週期，不可只靠 Lua cleanup（2026-10-06）
 
 - Grok job run-muwkcv1b-3wks70／thread333f680f-ae22-435b-926a-df4e179c7431 在Job API讀取階段無補丁，primary於601秒取消。stop回taskkill128不是退出證據；follower terminal cancelled且原bridge36112／agent21776均不存在後才接手。成本、API時間、根因未知；不改全域設定或憑證，不把primary程式算成Grok交付。
