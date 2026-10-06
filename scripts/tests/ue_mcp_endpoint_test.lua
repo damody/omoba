@@ -24,3 +24,16 @@ reject({own,own})
 reject({{project_path=project,pid=42,mcp_http_port=0}})
 reject({{project_path=project,pid={},mcp_http_port=30001}})
 print('Unreal MCP endpoint identity: '..count..' scenarios passed')
+local require_owned=require('ue_mcp_endpoint').require_owned
+local original={pid=42,executable='D:/UE/UnrealEditor.exe',creation_token='fixture'}
+local endpoint={pid=42,process_path='d:/ue/unrealeditor.exe'}
+local alive=true
+local process={validate_owned=function(record) assert(record==original);return record end,
+  owned_alive=function(record) assert(record==original);return alive end}
+assert(require_owned(endpoint,original,process)==endpoint)
+alive=false
+assert(not pcall(require_owned,endpoint,original,process))
+alive=true
+assert(not pcall(require_owned,{pid=43,process_path=endpoint.process_path},original,process))
+assert(not pcall(require_owned,{pid=42,process_path='C:/other/UnrealEditor.exe'},original,process))
+print('Owned MCP Editor binding: 4 scenarios passed; injected process lifetime, no HTTP')

@@ -5,6 +5,15 @@ local host = require('tools.lua.lib.host')
 local lfs = require('lfs')
 local M = {}
 local function normalized(value) return path.absolute(value):gsub('\\','/'):lower() end
+-- Optional workflow binding. A registry match alone must never authorize
+-- mutations in another Editor opened for the same project.
+function M.require_owned(endpoint, owned, process)
+  owned=process.validate_owned(owned)
+  assert(process.owned_alive(owned),'owned MCP Editor has retired; never replace it')
+  assert(endpoint.pid==owned.pid and normalized(endpoint.process_path)==normalized(owned.executable),
+    'MCP endpoint is not this workflow\'s original Editor')
+  return endpoint
+end
 function M.select(records, project, owner_of)
   local found = {}
   for _, record in ipairs(records) do

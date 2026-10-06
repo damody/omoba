@@ -8,7 +8,7 @@ local path = bootstrap.lib('path')
 local process = bootstrap.lib('process')
 local json = bootstrap.lib('json')
 
-local tool, arguments, output, filter
+local tool, arguments, output, filter, owned_editor_file
 local list = false
 local wait_ready = false
 local i = 1
@@ -16,12 +16,13 @@ while i <= #arg do
   local value = arg[i]
   if value == '--wait-ready' then wait_ready = true
   elseif value == '--list' then list = true
-  elseif value == '--tool' or value == '--arguments' or value == '--out' or value == '--filter' then
+  elseif value == '--tool' or value == '--arguments' or value == '--out' or value == '--filter' or value == '--owned-editor' then
     i = i + 1
     local next_value = assert(arg[i], value .. ' requires a value')
     if value == '--tool' then tool = next_value
     elseif value == '--arguments' then arguments = json.decode(next_value)
     elseif value == '--out' then output = path.absolute(next_value, bootstrap.root)
+    elseif value == '--owned-editor' then owned_editor_file = path.absolute(next_value, bootstrap.root)
     else filter = next_value end
   else error('unknown argument: ' .. value) end
   i = i + 1
@@ -38,6 +39,8 @@ local ordinal = 0
 local endpoint_api = require('ue_mcp_endpoint')
 local project_file = path.join(bootstrap.root,'omfue','om.uproject')
 local endpoint = wait_ready and endpoint_api.wait_ready(project_file,30000) or endpoint_api.resolve(project_file)
+local owned_editor=owned_editor_file and process.validate_owned(json.read(owned_editor_file))
+if owned_editor then endpoint_api.require_owned(endpoint,owned_editor,process) end
 
 local function decode_response(body)
   local ok, decoded = pcall(json.decode, body)
@@ -57,6 +60,7 @@ end
 
 local function request(method, params, notification)
   local current = require('ue_mcp_endpoint').resolve(path.join(bootstrap.root,'omfue','om.uproject'))
+  if owned_editor then endpoint_api.require_owned(current,owned_editor,process) end
   assert(current.pid == endpoint.pid and current.port == endpoint.port, 'MCP Editor identity changed during session')
   ordinal = ordinal + 1
   local payload = {jsonrpc = '2.0', method = method, params = json.object(params)}
