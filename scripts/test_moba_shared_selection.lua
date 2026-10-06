@@ -60,6 +60,7 @@ local function execute(name,mode)
   local original=path.read(recipe)
   local options=launch.options({'--interactive-selection','--profile','debug','--recipe',recipe,
     '--hero','1=training_vanguard','--output',path.join(directory,'match')})
+  if mode=='completion-timeout' then options.selection_timeout_seconds=1 end
   local now,host_dir,plan=0,nil,nil
   local peers,states,stopped={},{},{}
   local publish
@@ -134,7 +135,7 @@ local function execute(name,mode)
     assert(ms==250);now=now+ms
     if mode=='cancel' or mode=='cleanup-error' then states[202].alive=false
     elseif mode=='host-exit' then states[101].alive=false
-    elseif mode=='old' then -- No timeout fallback or synthetic consent.
+    elseif mode=='old' or mode=='completion-timeout' then -- No timeout fallback or synthetic consent.
     elseif mode=='publication-timeout' then receipts(record(plan),2)
     elseif mode=='delayed-publication' and now==250 then receipts(record(plan),2)
     else publish() end
@@ -157,7 +158,7 @@ local function execute(name,mode)
       old='shared renderer handshake timeout', ['bad-ready']='host readiness mismatch',
       tamper='selection changed host-owned rules', ['bad-receipt']='bound shared-room receipt',
       ['missing-receipt']='terminal receipt', ['publication-timeout']='publication timeout',
-      ['cleanup-error']='selection cancelled'}
+      ['cleanup-error']='selection cancelled',['completion-timeout']='selection completion timed out'}
     assert(tostring(err):find(assert(reasons[mode]),1,true),'unexpected failure: '..tostring(err))
     assert(options.recipe==recipe and options.hero_selections[1]=='training_vanguard')
     local errors=path.read(options.output..'-selection/errors.md')
@@ -172,7 +173,7 @@ local function execute(name,mode)
   end
 end
 for _,mode in ipairs({'success','delayed-publication','cancel','host-exit','old','bad-ready',
-  'tamper','bad-receipt','missing-receipt','publication-timeout','cleanup-error'}) do
+  'tamper','bad-receipt','missing-receipt','publication-timeout','cleanup-error','completion-timeout'}) do
   test('shared launch '..mode,function() execute(mode,mode) end)
 end
 print(('shared selection launcher: %d/%d passed; mocked processes, no gameplay/Unreal acceptance'):format(total,total))

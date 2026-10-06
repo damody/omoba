@@ -75,10 +75,13 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
     return errors
   end
   local ok,err=xpcall(function()
+    local budget=require('moba_selection_deadline')
+    local completion_deadline=budget.start(options,time)
     local host=spawn(exe,{'--selection-host',candidate,host_dir},b.root,'host')
     local deadline=time.monotonic_ms()+45000
     local ready_path=path.join(host_dir,'ready.json')
     while not path.is_file(ready_path) do
+      budget.check(completion_deadline,time)
       assert(process.inspect(host),'shared selection host exited before readiness')
       assert(time.monotonic_ms()<deadline,'shared selection host readiness timeout')
       time.sleep_ms(250)
@@ -89,6 +92,7 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
     local port=type(ready.address)=='string' and ready.address:match('^127%.0%.0%.1:(%d+)$')
     assert(port and tonumber(port)>=1 and tonumber(port)<=65535,'local selection host is not loopback-bound')
     for _,id in ipairs(humans) do
+      budget.check(completion_deadline,time)
       local directory=path.join(output,'player-'..id)
       assert(not path.exists(directory),'renderer output already exists')
       path.mkdir_p(directory)
@@ -109,6 +113,7 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
     local final_path=path.join(host_dir,'finalized-plan.json')
     local publication_deadline
     while not path.is_file(final_path) do
+      budget.check(completion_deadline,time)
       for _,renderer in ipairs(renderers) do
         renderer.ready=renderer.ready or (path.is_file(renderer.log) and path.read(renderer.log):find(
           ('OM_SELECTION_READY player=%d protocol=1 shared_room=1'):format(renderer.id),1,true)~=nil)
@@ -125,10 +130,12 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
       time.sleep_ms(250)
     end
     local record=json.read(final_path)
+    budget.check(completion_deadline,time)
     local final=M.result(record,preflight.plan,hash)
     -- Do not start gameplay while any selection renderer/host still owns the session.
     for _,renderer in ipairs(renderers) do
-      assert(process.wait(renderer.pid,15000),'shared renderer did not exit after finalization')
+      assert(process.wait(renderer.pid,budget.wait_ms(completion_deadline,time,15000)),
+        'shared renderer did not exit after finalization')
       local log=path.is_file(renderer.log) and path.read(renderer.log) or ''
       assert(log:find(('OM_SELECTION_READY player=%d protocol=1 shared_room=1'):format(renderer.id),1,true),
         'renderer lacks shared-room handshake')
@@ -136,7 +143,8 @@ function M.run(options,editor,process,time,output,candidate,exe,humans,preflight
       local state=M.receipt(json.read(renderer.receipt),renderer.id,hash)
       assert(json.encode(state)==json.encode(record.selection),'renderer terminal state differs from host')
     end
-    assert(process.wait(host,5000),'selection host did not retire')
+    assert(process.wait(host,budget.wait_ms(completion_deadline,time,5000)),'selection host did not retire')
+    budget.check(completion_deadline,time)
     local selected=path.join(output,'match-plan.json')
     assert(not path.exists(selected),'selected match plan already exists')
     path.write(selected,json.encode(final))
