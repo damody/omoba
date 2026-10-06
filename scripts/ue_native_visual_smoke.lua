@@ -28,6 +28,16 @@ end
 local work = path.join(bootstrap.root, output_dir)
 path.mkdir_p(work)
 local report = {success = false, results = {}, runs = {}, tests = {
+  'Om.Generated.CompiledCatalogContract',
+  'Om.Generated.FrameContract',
+  'Om.Generated.FrameConsumption',
+  'Om.Generated.RuntimePresentationReset',
+  'Om.Generated.CompiledContentReloadPolicy',
+  'Om.Generated.AbilityInputPolicy',
+  'Om.Generated.DisconnectedHud',
+  'Om.Generated.FogGeometryKey',
+  'Om.Generated.FrameGeometryRanges',
+  'Om.Generated.FrameTextContract',
   'Om.Generated.NativeHeroPresentation', 'Om.Generated.AnimationStateSmoke',
   'Om.Generated.GenericAnimationOverlay',
   'Om.Generated.ProjectileCueStyle',

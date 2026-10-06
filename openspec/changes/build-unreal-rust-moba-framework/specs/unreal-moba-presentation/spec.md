@@ -42,6 +42,30 @@
 ### Requirement: 安全呈現與輸入
 Unreal 前端 SHALL 只顯示分配給本地玩家隊伍的資料，並將玩家操作交給 Rust client runtime 驗證與轉送。
 
+#### Scenario: 編譯 catalog 缺值或錯配
+- **WHEN** 本地bridge的catalog header／generation非法，或內容／介面雜湊缺值、格式錯誤、越界或不同於編譯registry
+- **THEN** Unreal SHALL 拒絕啟動或停止本地bridge呈現，在frame處理及ACK之前阻擋，不將空signature當相容、不只warning後繼續、不重啟後端對局；新runtime清舊catalog／frame游標，每次成功取得catalog均需驗證
+
+#### Scenario: 非法 frame 不得部分更新或消費
+- **WHEN** frame header尺寸／ABI不相容、snapshot旗標非法，或任一正count沒有storage（含optional fog grid的cells）
+- **THEN** Unreal SHALL 在actor／HUD／地圖／效果變更之前拒收，釋放lease且不得ACK或推進已處理sequence；保留上一份合法呈現，允許後續合法frame恢復，不重啟後端；零count可保留storage，不以任意entity上限限制高負載場景
+
+#### Scenario: 呈現 ACK 可重試而不重播
+- **WHEN** 合法frame已套用，但bridge拒絕本次MarkFrameConsumed
+- **THEN** Unreal SHALL 在下次取得同frame的有效lease時只重試ACK，不重複套用呈現；每次仍驗證shape與frame／lease sequence，非法或未套用成功不得ACK，成功duplicate不重ACK，停止runtime重設消費狀態且每次取得均釋放lease
+
+#### Scenario: 霧幾何改變或恢復
+- **WHEN** 公開視野圓或遮擋幾何改變、scale改變，或無視野後恢复相同origin
+- **THEN** Unreal SHALL 依完整公開幾何精確判斷是否重建，不只比較數量與整格origin；無視野或非法幾何清快取，成功建立並顯示mask後才commit，polygon span越界須在frame更新前拒絕，不以frame sequence強制每次重建
+
+#### Scenario: Route 與 polygon 範圍整批准入
+- **WHEN** 任一公開route或polygon的point start＋count超出各自point storage容量
+- **THEN** Unreal SHALL 以共用寬整數範圍檢查在任何呈現更新前拒收整個frame，不局部跳過後更新其餘資料或ACK；合法尾端空範圍允許，不用任意point上限替代真實storage邊界
+
+#### Scenario: Frame 文字參照越界或長度縮窄
+- **WHEN** 任一非空frame文字ref超出string table，或ref／FX view長度超出Unreal converter表示容量，或非空FX view缺少storage
+- **THEN** Unreal SHALL 在任何呈現更新及ACK前拒收整個frame，以寬整數驗邊界，不以空字串fallback或縮窄轉換放行；零長度保持無文字語意且不要求NUL結尾，lease仍負責storage生命週期
+
 #### Scenario: 隱藏敵人
 - **WHEN** 敵方單位離開本地隊伍視野
 - **THEN** Unreal 清除或更新該單位的即時呈現，且不能取得其隱藏即時狀態
@@ -129,6 +153,10 @@ Unreal 前端 SHALL 只顯示分配給本地玩家隊伍的資料，並將玩家
 ### Requirement: 權威成功施法 metadata
 系統 SHALL 只從成功施法事實產生一次性技能 cue。已知技能等級須捕捉於該次 invocation，不得由稍後 HUD、renderer snapshot 或輸入接受結果推測；只對目前可見且具有有效 replica mapping 的施法者發布。呈現 payload SHALL 使用明確版本與精確長度，未知版本或非法資料不得派發，未提供的等級 SHALL 保持未知。
 
+#### Scenario: 通用技能 C ABI 投影
+- **WHEN** bridge發布通用技能或宣告式Buff生命週期資料供Unreal消費
+- **THEN** producer與consumer SHALL 共用OmAbilityProjection／event.projection，不建立角色專屬副本；C ABI16 SHALL 明確拒絕舊版，原事件身分／等級／披露gate與單位換算保持，通用命名不得恢復legacy自動事件派發
+
 #### Scenario: 施法後等級改變
 - **WHEN** 技能以等級 3 成功施放後，英雄的技能等級變成 4
 - **THEN** 原一次性施法 cue 仍攜帶等級 3，保留與 ACK 不改寫該事件
@@ -162,9 +190,33 @@ Unreal 前端 SHALL 只顯示分配給本地玩家隊伍的資料，並將玩家
 ### Requirement: 完整對局介面
 Unreal 前端 SHALL 提供選角、移動、普攻、四技能、商店、裝備、HUD、小地圖、計分板與勝負畫面所需的操作與呈現。
 
+#### Scenario: 原生守住與佇列語意
+- **WHEN** configured owner 在 HUD／選角未攔截且 runtime 已啟動並連線時按 H 或 Shift+H
+- **THEN** 原生 controller SHALL 從精確 chord 取得立即／佇列參數，共用 NoTarget HoldPosition 正式輸入，不從實體 Shift 取樣、不使用 player-one fallback；非法 owner 或不可用 runtime 不送出，queued 提交不當作權威已執行
+
+#### Scenario: 自己英雄的權威護盾餘量
+- **WHEN** 完整安全快照提供 configured owner 的護盾餘量，之後受傷、耗盡、到期或死亡
+- **THEN** 共用原生 HUD SHALL 使用具名有界 Q10 狀態更新餘量，不讀私人 Buff payload 或從商品初始量猜測；死亡／缺英雄為零，完整缺 owner 或停止清除，control-only 保留，舊線路／IPC／C ABI 版本明確拒絕
+
 #### Scenario: 購買物品
 - **WHEN** 玩家在商店提交購買操作
 - **THEN** Unreal 顯示後端接受或拒絕的結果及更新後的金錢與裝備
+
+#### Scenario: 自己物品的主動狀態與冷卻
+- **WHEN** 完整安全快照提供自己的六格物品與權威冷卻
+- **THEN** 原生 HUD SHALL 結合生成 metadata 顯示主動／被動、剩餘與總冷卻；未知 ID、非法冷卻、死亡或不可用英雄不得標 ready，不能因不在商店就禁止標合法主動物品；完整缺 owner 或停止清空六格，control-only 保留，不從任意 Buff payload 推測盾量
+
+#### Scenario: 原生六格主動物品快捷鍵
+- **WHEN** configured owner 在 HUD／選角未攔截時按1–6，且有完整自己的可用主動物品 baseline
+- **THEN** controller SHALL 沿唯一原生binding與共用入口提交合法槽位 NoTarget ItemUse，不使用player one fallback或要求商店距離；空／被動／未知／冷卻／owner錯配／斷線與不完整baseline不得送出，失敗清除輸入身分，重新連線前不得沿用已清除的ready，queued不得當作效果成功或預扣冷卻
+
+#### Scenario: Owned 技能與回城安全准入
+- **WHEN** 本地玩家要求施法、升級技能或回城
+- **THEN** 通用owned入口 SHALL 驗證runtime已啟動且Connected，失敗清除baseline與舊輸入身分；只有完整owner HUD可建立ready，control-only不得恢復已清ready；施法冷卻必須finite、非負、剩餘不超總量且恰零，不把NaN／負值當ready，回城明確使用configured owner，技能點數／效果仍由Rust權威判定
+
+#### Scenario: 斷線 HUD 與輸入一致
+- **WHEN** runtime未啟動或診斷未Connected，且畫面曾取得owned HUD資料
+- **THEN** Unreal SHALL 共用清除baseline並通知Hero／四技能／六物品／Economy為不可用，持續失效不得每tick重複發布，retained frame不得恢復owned HUD；世界呈現與frame消費保持原管線，停止runtime使用相同清除入口且可強制通知，新連線需合法baseline恢復
 
 #### Scenario: 原生攻擊移動操作
 - **WHEN** 玩家在有效遊戲視窗游標位置按 A 或 Shift+A，且 HUD／選角介面未攔截輸入
@@ -172,6 +224,10 @@ Unreal 前端 SHALL 提供選角、移動、普攻、四技能、商店、裝備
 
 ### Requirement: 畫面重連
 Unreal 前端 SHALL 在 renderer 重新連接時取得最新安全狀態，清理舊 actor 與一次性效果，且不重啟對局。
+
+#### Scenario: 呈現生命週期清理一致
+- **WHEN** 本地runtime停止、WorldBridge結束或建立新的runtime handle
+- **THEN** Unreal SHALL 使用共用重設入口清除技能／回城ready、四技能HUD與槽位資料、runtime／HUD快取、地圖遮擋與fog、actor／route／ghost／terrain、frame消費及cue歷史；同handle重複Start不得視為新生命週期或清除待ACK狀態，清理不得重啟後端對局
 
 #### Scenario: 退役後重複收集一次性事件
 - **WHEN** 同一 view epoch 的事件已被有效 ACK 消費或因披露失效退役，之後又收集到相同 ID

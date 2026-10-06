@@ -15,12 +15,20 @@
 - **WHEN** 使用已建置的正式遊戲元件與生成的對局設定
 - **THEN** 英雄／技能／地圖資料與行為由編譯內容取得，不依賴部署 scripts/lua_data
 
+#### Scenario: 舊 Unreal runtime Lua 設定或 API 引用
+- **WHEN** 舊設定要求runtime Lua reload／watcher，或既有資產呼叫RequestRuntimeLuaReload
+- **THEN** Unreal SHALL 不掃描Lua作者目錄、不送reload啟用旗標、不呼叫DLL reload；公開API回Disabled與生成編譯指引且不得先清呈現快取，保留舊名稱不代表允許遊戲執行Lua
+
 ### Requirement: 單一內容來源
 系統 SHALL 從經驗證的內容定義產生 Rust 與 Unreal 所需的穩定 ID、資料與註冊資訊，並拒絕重複或失效的引用。
 
 #### Scenario: 主動物品編譯資料
 - **WHEN** 作者在 moba_items 宣告合法 active 與 cooldown
 - **THEN** Rust 生成入口 SHALL 驗證五種 native kind 閉集、有限且不低於量化下限的量／時間／比例／冷卻與未知欄位，產生型別化 Fixed64 常數並由共用物品 registry 轉接 native 執行器；被動預設欄位省略不得改動既有 canonical 商品資料，不使用 runtime Lua 或獨立手寫 JSON 效果副本
+
+#### Scenario: 共用主動物品 Unreal 資料
+- **WHEN** 同一 moba_items 來源交給 Rust 或 Unreal 生成入口
+- **THEN** 兩入口 SHALL 使用同一作者型別與驗證規則，Unreal 生成穩定 catalog ID／物品 ID／效果種類／量化參數／總冷卻查詢並納入輸出 freshness 檢查，未知 ID 不冒用另一物品；生成資料不得代替當前權威剩餘冷卻或護盾餘量
 
 #### Scenario: 通用敵方控制效果
 - **WHEN** 作者宣告 control_enemy 與每級 duration_key
@@ -32,6 +40,14 @@
 
 ### Requirement: 英雄模板生成
 系統 SHALL 依英雄內容定義產生所需的 Unreal C++ 類別與資產配方，且重跑相同輸入不得產生差異。
+
+#### Scenario: 舊技能 metadata 相容呼叫
+- **WHEN** 既有資產顯式呼叫保留的 typed 技能 metadata API
+- **THEN** 相容查詢 SHALL 轉接通用技能資料與建置生成的 ExtrasJson，不另生角色技能 ID 或數值分支；未知 ID 保持空結果，保留名稱不代表恢復舊事件自動派發或在遊戲執行 Lua
+
+#### Scenario: 舊英雄 metadata 相容呼叫
+- **WHEN** 既有資產顯式呼叫保留的 typed 英雄 metadata API
+- **THEN** 相容查詢 SHALL 轉接同一通用英雄數值與作者美術／動畫清單，不從角色summary另生副本；作者metadata不得與native_visual換算或實際渲染fallback混用，省略欄位沿共用作者模型預設，動畫來源順序與Pitch／Yaw／Roll語意保持
 
 #### Scenario: 通用動畫宣告與型別驗證
 - **WHEN** 任意英雄提供動畫片段及可選的 Unreal 動畫 metadata
@@ -47,6 +63,10 @@
 
 ### Requirement: 內容版本一致
 系統 SHALL 驗證腳本 DLL、生成資料與 Unreal 內容的版本及內容雜湊，遇到必要內容錯配時拒絕開局。
+
+#### Scenario: 生成公開宣告改變
+- **WHEN** 任一生成公開header的metadata欄位、event宣告或類別介面改變
+- **THEN** 介面簽章 SHALL 涵蓋真正生成的全部公開宣告，不僅類別名称清單；數值initializer及作者美術資料不當作公開介面，錯配拒絕不得替換現有catalog／generation，仍需一致重建部署而非放寬版本gate
 
 #### Scenario: 舊版腳本 DLL
 - **WHEN** 載入的腳本 DLL 與本次生成內容不一致
