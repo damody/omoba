@@ -22,10 +22,11 @@ while i <= #arg do
   else error('unknown argument: ' .. tostring(arg[i])) end
   i = i + 1
 end
+local work = path.absolute(output_dir, bootstrap.root)
 if #selected > 0 then
-  assert(output_dir ~= 'omfue/Saved/McpAutomation/NativeVisual', 'scoped confirmation requires --out-dir; do not overwrite full acceptance')
+  assert(work:lower() ~= path.absolute('omfue/Saved/McpAutomation/NativeVisual', bootstrap.root):lower(),
+    'scoped confirmation requires --out-dir; do not overwrite full acceptance')
 end
-local work = path.join(bootstrap.root, output_dir)
 path.mkdir_p(work)
 local report = {success = false, results = {}, runs = {}, tests = {
   'Om.Generated.CompiledCatalogContract',
@@ -51,6 +52,8 @@ local report = {success = false, results = {}, runs = {}, tests = {
   'Om.Generated.CollisionTerrainPresentation',
   'Om.Runtime.UiOverlaySurface',
   'Om.Runtime.GameplayInputSurface',
+  'Om.Runtime.ControllerOwnedHudLifetime',
+  'Om.Runtime.WidgetInputLifetime',
   'Om.Runtime.NativeAbilityProgression',
   'Om.Runtime.NativeAbilityUpgradeBinding',
   'Om.Runtime.RenderedUiCaptureOptIn',
