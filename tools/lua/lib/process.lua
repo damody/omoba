@@ -51,6 +51,42 @@ function M.owned_alive(record)
   return current~=nil and current.creation_token==record.creation_token
     and current.executable:lower()==record.executable:lower()
 end
+-- Wait for the original lifetime, never a subsequent process reusing its PID.
+-- Query failures propagate; they are not proof of retirement.
+function M.wait_owned(record,timeout_ms)
+  record=M.validate_owned(record)
+  if timeout_ms==nil then timeout_ms=5000 end
+  assert(math.type(timeout_ms)=='integer' and timeout_ms>=0,'invalid owned wait timeout')
+  local started=time.monotonic_ms()
+  while M.owned_alive(record) do
+    local elapsed=time.monotonic_ms()-started
+    assert(elapsed>=0,'owned wait clock moved backwards')
+    local remaining=timeout_ms-elapsed
+    if remaining<=0 then return false end
+    time.sleep_ms(math.min(50,remaining))
+  end
+  return true
+end
+function M.poll_owned_ready(record,timeout_ms,predicate,label)
+  record=M.validate_owned(record)
+  assert(math.type(timeout_ms)=='integer' and timeout_ms>=0,'invalid owned readiness timeout')
+  assert(type(predicate)=='function','invalid owned readiness predicate')
+  local started=time.monotonic_ms()
+  while true do
+    assert(M.owned_alive(record),(label or 'process')..' original lifetime exited before ready')
+    local value=predicate()
+    local elapsed=time.monotonic_ms()-started
+    assert(elapsed>=0,'owned readiness clock moved backwards')
+    if value then
+      assert(elapsed<=timeout_ms,(label or 'process')..' ready timeout')
+      assert(M.owned_alive(record),(label or 'process')..' original lifetime exited during readiness')
+      return value
+    end
+    local remaining=timeout_ms-elapsed
+    assert(remaining>0,(label or 'process')..' ready timeout')
+    time.sleep_ms(math.min(50,remaining))
+  end
+end
 function M.close_window_owned(record)
   record=M.validate_owned(record)
   return host.call('close_window_owned',{pid=record.pid,expected_exe=record.executable,creation_token=record.creation_token}).posted
