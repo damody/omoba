@@ -1,6 +1,6 @@
 # MOBA 完成執行清單（2026-10-06）
 
-本文件是當前執行索引；歷史增量文件保留，不依歷史「當時尚缺」重做已有功能。OpenSpec `build-unreal-rust-moba-framework` 目前25/31。正式60Hz、omfue唯一前端、Lua只在工具／建置生成使用、不新增角色C++或Blueprint graph、最多10場模擬、不拆批規避。
+本文件是當前執行索引；歷史增量文件保留，不依歷史「當時尚缺」重做已有功能。OpenSpec `build-unreal-rust-moba-framework` 目前27/31。正式60Hz、omfue唯一前端、Lua只在工具／建置生成使用、不新增角色C++或Blueprint graph、最多10場模擬、不拆批規避。
 
 ## 計畫
 
@@ -14,9 +14,9 @@
 
 | 項目 | 狀態／所需證據 |
 |---|---|
-| 原生workflow監督 | Grok job `run-muwkcv1b-3wks70`／thread `333f680f-ae22-435b-926a-df4e179c7431` 執行中；未接受補丁或宣稱成功 |
-| 4.1 IPC／輸入／視野 | 程式與多份localhost證據已有；最後核對目前版本完整契約 |
-| 4.3 lifecycle／六類cue／重連 | 程式與真TCP、實際renderer重連分段證據已有；最後核對是否足夠覆蓋整項 |
+| 原生workflow監督 | Grok601秒無補丁取消且原process確認退出；primary通用native實作，host9／真實無遊戲fixture5通過，正式入口整合；見E340 |
+| 4.1 IPC／輸入／視野 | 已封關；當前27/27合併與既有實際UE輸入／shop／視野證據，見ipc-reconnect-contract-closure |
+| 4.3 lifecycle／六類cue／重連 | 已封關；真TCP六類歷史去重、已有native42兩輪與真實renderer替換／新input／hash／cleanup互補證據 |
 | 4.4 單一模擬 | presentation-only mode與拒絕fallback已有；單機／LAN完整證據仍分開 |
 | 6.2 完整UI | 個別UI與選角已有，尚缺同一正式流程到自然結算完整證據 |
 | 6.4 真LAN | 第二台實機環境尚不可用，不以loopback冒充 |
