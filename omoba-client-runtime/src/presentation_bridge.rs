@@ -26,6 +26,7 @@ use tokio::{
 };
 
 use crate::{config::ClientRuntimeConfig, ClientRuntimeError};
+use omoba_core::comp::perf_window::PresentationIpcMeter;
 
 pub use omoba_core::renderer_protocol::{
     PRESENTATION_MAGIC, PRESENTATION_PROTOCOL_VERSION, MAX_PRESENTATION_FRAME_BYTES,
@@ -500,7 +501,7 @@ async fn serve_renderer_retained(
 ) -> Result<(), ClientRuntimeError> {
     let connection = RENDERER_CONNECTION.fetch_add(1, Ordering::Relaxed);
     let (mut reader, mut writer) = stream.into_split();
-    let first = tokio::time::timeout(Duration::from_secs(5), read_envelope(&mut reader))
+    let (first, handshake_wire) = tokio::time::timeout(Duration::from_secs(5), read_envelope_measured(&mut reader))
         .await
         .map_err(|_| ClientRuntimeError::Ipc("renderer handshake timed out".into()))??;
     let Some(renderer_ipc_envelope::Payload::RendererReady(ready)) = first.payload else {
@@ -516,12 +517,17 @@ async fn serve_renderer_retained(
         connected,
         disconnected_at_ms,
     };
+    let meter = Arc::new(Mutex::new(PresentationIpcMeter::new(player_id, team_id, connection)));
+    log::info!("{}", meter.lock().await.enable_line());
+    if let Some(line) = meter.lock().await.observe_receive(handshake_wire) {
+        log::info!("{line}");
+    }
     let initial = { latest_rx.borrow_and_update().clone() };
     // Startup/reconnect metadata is persistent, unlike replaceable snapshots.
     // Send it only after the renderer's player/team handshake is validated.
     let retained_ready = ready_metadata.and_then(|ready| ready.lock().expect("ready retention poisoned").clone());
     if !matches!(initial.as_ref().and_then(|frame| frame.payload.as_ref()), Some(renderer_ipc_envelope::Payload::RuntimeReady(_))) {
-        if let Some(ready) = retained_ready { write_envelope(&mut writer, &ready).await?; }
+        if let Some(ready) = retained_ready { write_measured(&mut writer, &ready, meter.as_ref()).await?; }
     }
     let last_sent_snapshot = AtomicU64::new(0);
     let last_consumed_snapshot = AtomicU64::new(0);
@@ -529,7 +535,7 @@ async fn serve_renderer_retained(
     let mut has_baseline = false;
     let mut baseline_tick = 0;
     if let Some(latest) = initial {
-        write_envelope(&mut writer, &renderer_baseline(&latest)).await?;
+        write_measured(&mut writer, &renderer_baseline(&latest), meter.as_ref()).await?;
         if matches!(
             latest.payload,
             Some(renderer_ipc_envelope::Payload::Snapshot(_))
@@ -543,19 +549,29 @@ async fn serve_renderer_retained(
             }
         }
     }
+    let receive_meter = Arc::clone(&meter);
+    let send_meter = Arc::clone(&meter);
     // Keep the read future alive across every outgoing frame. Cancelling
     // read_envelope after it consumes a prefix would corrupt TCP framing.
     let receive = async {
         loop {
-            let envelope = read_envelope(&mut reader).await?;
+            let (envelope, wire_bytes) = read_envelope_measured(&mut reader).await?;
             match envelope.payload {
                 Some(renderer_ipc_envelope::Payload::RendererInput(input)) => {
+                    if let Some(line) = receive_meter.lock().await.observe_receive(wire_bytes) {
+                        log::info!("{line}");
+                    }
                     input_tx
                         .send(input)
                         .await
                         .map_err(|_| ClientRuntimeError::Ipc("input bridge closed".into()))?;
                 }
-                Some(renderer_ipc_envelope::Payload::RendererShutdown(_)) => return Ok(()),
+                Some(renderer_ipc_envelope::Payload::RendererShutdown(_)) => {
+                    if let Some(line) = receive_meter.lock().await.observe_receive(wire_bytes) {
+                        log::info!("{line}");
+                    }
+                    return Ok(());
+                }
                 Some(renderer_ipc_envelope::Payload::RendererConsumed(consumed)) => {
                     if consumed.snapshot_sequence > last_sent_snapshot.load(Ordering::Acquire) {
                         return Err(ClientRuntimeError::Ipc(
@@ -571,6 +587,9 @@ async fn serve_renderer_retained(
                     if previous == 0 && consumed.snapshot_sequence > 0 {
                         log::info!("renderer first consumed snapshot player={} team={} sequence={}",
                             player_id, team_id, consumed.snapshot_sequence);
+                    }
+                    if let Some(line) = receive_meter.lock().await.observe_receive(wire_bytes) {
+                        log::info!("{line}");
                     }
                 }
                 _ => {
@@ -590,10 +609,10 @@ async fn serve_renderer_retained(
                 let Some(critical) = critical else { return Ok(()); };
                 if state_is_covered(&critical, covered_snapshot) { continue; }
                 if !has_baseline {
-                    write_envelope(&mut writer, &renderer_baseline(&critical)).await?;
+                    write_measured(&mut writer, &renderer_baseline(&critical), send_meter.as_ref()).await?;
                 } else {
                     let outgoing = renderer_retained_frame(&critical, baseline_tick, damage.as_ref());
-                    write_envelope(&mut writer, &outgoing).await?;
+                    write_measured(&mut writer, &outgoing, send_meter.as_ref()).await?;
                     record_damage_sent(damage.as_ref(), connection, &outgoing);
                 }
                 if !has_baseline {
@@ -614,10 +633,10 @@ async fn serve_renderer_retained(
                 if let Some(latest) = latest {
                     if state_is_covered(&latest, covered_snapshot) { continue; }
                     if !has_baseline {
-                        write_envelope(&mut writer, &renderer_baseline(&latest)).await?;
+                        write_measured(&mut writer, &renderer_baseline(&latest), send_meter.as_ref()).await?;
                     } else {
                         let outgoing = renderer_retained_frame(&latest, baseline_tick, damage.as_ref());
-                        write_envelope(&mut writer, &outgoing).await?;
+                        write_measured(&mut writer, &outgoing, send_meter.as_ref()).await?;
                         record_damage_sent(damage.as_ref(), connection, &outgoing);
                     }
                     if !has_baseline {
@@ -704,6 +723,14 @@ fn validate_renderer_ready(
 pub async fn read_envelope(
     reader: &mut (impl AsyncReadExt + Unpin),
 ) -> Result<RendererIpcEnvelope, ClientRuntimeError> {
+    read_envelope_measured(reader)
+        .await
+        .map(|(envelope, _wire_bytes)| envelope)
+}
+
+pub async fn read_envelope_measured(
+    reader: &mut (impl AsyncReadExt + Unpin),
+) -> Result<(RendererIpcEnvelope, u64), ClientRuntimeError> {
     let length = reader
         .read_u32()
         .await
@@ -727,13 +754,13 @@ pub async fn read_envelope(
             "presentation protocol mismatch".into(),
         ));
     }
-    Ok(envelope)
+    Ok((envelope, (length as u64).saturating_add(4)))
 }
 
 pub async fn write_envelope(
     writer: &mut (impl AsyncWriteExt + Unpin),
     envelope: &RendererIpcEnvelope,
-) -> Result<(), ClientRuntimeError> {
+) -> Result<u64, ClientRuntimeError> {
     let bytes = envelope.encode_to_vec();
     if bytes.len() > MAX_PRESENTATION_FRAME_BYTES {
         return Err(ClientRuntimeError::Ipc(
@@ -748,6 +775,18 @@ pub async fn write_envelope(
         .write_all(&bytes)
         .await
         .map_err(|error| ClientRuntimeError::Ipc(error.to_string()))?;
+    Ok((bytes.len() as u64).saturating_add(4))
+}
+
+async fn write_measured(
+    writer: &mut (impl AsyncWriteExt + Unpin),
+    envelope: &RendererIpcEnvelope,
+    meter: &Mutex<PresentationIpcMeter>,
+) -> Result<(), ClientRuntimeError> {
+    let wire_bytes = write_envelope(writer, envelope).await?;
+    if let Some(line) = meter.lock().await.observe_send(wire_bytes) {
+        log::info!("{line}");
+    }
     Ok(())
 }
 
@@ -2317,5 +2356,73 @@ mod tests {
         critical_tx.send(11).await.unwrap();
         assert_eq!(critical_rx.recv().await, Some(10));
         assert_eq!(critical_rx.recv().await, Some(11));
+    }
+
+    #[tokio::test]
+    async fn formal_perf_incomplete_transfer_not_counted() {
+        use std::pin::Pin;
+        use std::task::{Context, Poll};
+        use tokio::io::AsyncWrite;
+
+        struct FailWrite;
+        impl AsyncWrite for FailWrite {
+            fn poll_write(
+                self: Pin<&mut Self>,
+                _: &mut Context<'_>,
+                _: &[u8],
+            ) -> Poll<std::io::Result<usize>> {
+                Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "incomplete",
+                )))
+            }
+            fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+            fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Ok(()))
+            }
+        }
+
+        let envelope = envelope(1, renderer_ipc_envelope::Payload::RendererShutdown(Default::default()));
+        let mut server = PresentationIpcMeter::new(1, 1, 4);
+        let failed = write_envelope(&mut FailWrite, &envelope).await;
+        assert!(failed.is_err());
+        assert!(server.observe_send_result(failed).is_none());
+        assert_eq!(server.send_samples(), 0);
+
+        let (mut reader, writer) = tokio::io::duplex(16);
+        drop(writer);
+        let failed_read = read_envelope_measured(&mut reader).await;
+        assert!(failed_read.is_err());
+        assert!(server.observe_receive_result(failed_read.map(|(_, bytes)| bytes)).is_none());
+        assert_eq!(server.receive_samples(), 0);
+
+        let (mut reader, mut writer) = tokio::io::duplex(16);
+        writer.write_all(&[0x00, 0x01]).await.unwrap();
+        drop(writer);
+        assert!(read_envelope_measured(&mut reader).await.is_err());
+        assert_eq!(server.receive_samples(), 0);
+    }
+
+    #[tokio::test]
+    async fn formal_perf_client_write_does_not_pollute_server_meter() {
+        let (mut client, mut server_reader) = tokio::io::duplex(4096);
+        let envelope = envelope(1, renderer_ipc_envelope::Payload::RendererShutdown(Default::default()));
+        let mut client_meter = PresentationIpcMeter::new(7, 2, 10);
+        let mut server_meter = PresentationIpcMeter::new(7, 2, 11);
+        let wire = write_envelope(&mut client, &envelope).await.unwrap();
+        assert!(wire >= 4);
+        client_meter.observe_send(wire);
+        assert_eq!(client_meter.send_samples(), 1);
+        assert_eq!(server_meter.send_samples(), 0);
+        assert_eq!(server_meter.receive_samples(), 0);
+        let (received, read_wire) = read_envelope_measured(&mut server_reader).await.unwrap();
+        assert_eq!(received.sequence, 1);
+        assert_eq!(read_wire, wire);
+        server_meter.observe_receive(read_wire);
+        assert_eq!(server_meter.receive_samples(), 1);
+        assert_eq!(client_meter.receive_samples(), 0);
+        assert_eq!(server_meter.send_samples(), 0);
     }
 }

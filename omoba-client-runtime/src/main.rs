@@ -110,6 +110,11 @@ async fn main() -> anyhow::Result<()> {
     let mut latest_server_tick = session.start.server_tick;
     let mut replica_lag = ReplicaLagTracker::new(session.start.replica_start_tick);
     let mut last_presentation_heroes = Vec::<String>::new();
+    let mut replica_steps = omoba_core::comp::perf_window::ReplicaStepWindow::new(
+        config.player_id,
+        config.team_id,
+    );
+    log::info!("{}", replica_steps.enable_line());
     presentation.publish_latest(ready_envelope_for_start(presentation_sequence,&config,&session.start)?);
     presentation_sequence = presentation_sequence.saturating_add(1);
     presentation
@@ -192,6 +197,7 @@ async fn main() -> anyhow::Result<()> {
                     &mut replica,
                     &mut presentation,
                     &evidence,
+                    &mut replica_steps,
                     &checkpoint_queue,
                     &mut pending_frames,
                     &mut replica_lag,
@@ -277,6 +283,7 @@ async fn main() -> anyhow::Result<()> {
                         &mut replica,
                         &mut presentation,
                         &evidence,
+                        &mut replica_steps,
                         &checkpoint_queue,
                         &mut pending_frames,
                         &mut replica_lag,
@@ -580,6 +587,7 @@ async fn catch_up_available_frames(
     replica: &mut ReplicaHost,
     presentation: &mut PresentationHub,
     evidence: &Option<EvidenceRecorder>,
+    replica_steps: &mut omoba_core::comp::perf_window::ReplicaStepWindow,
     checkpoint_queue: &CheckpointQueue,
     pending_frames: &mut BTreeMap<u64, (omoba_core::game_proto::TeamTickFrame, Arc<[u8]>)>,
     replica_lag: &mut ReplicaLagTracker,
@@ -815,6 +823,7 @@ async fn catch_up_available_frames(
             replica,
             presentation,
             evidence,
+            replica_steps,
             checkpoint_queue,
             catch_up_plan.publish_latest_snapshot,
             presentation_sequence,
@@ -923,6 +932,7 @@ async fn apply_ready_frame(
     replica: &mut ReplicaHost,
     presentation: &mut PresentationHub,
     evidence: &Option<EvidenceRecorder>,
+    replica_steps: &mut omoba_core::comp::perf_window::ReplicaStepWindow,
     checkpoint_queue: &CheckpointQueue,
     publish_latest_snapshot: bool,
     presentation_sequence: &mut u64,
@@ -977,9 +987,15 @@ async fn apply_ready_frame(
         }
     }
     let step_started = std::time::Instant::now();
-    let Some(report) = replica.apply_encoded_frame(&encoded, revision)? else {
+    let applied = replica.apply_encoded_frame(&encoded, revision)?;
+    let step_ns = step_started.elapsed().as_nanos();
+    let Some(report) = applied else {
         return Ok(());
     };
+    // Evidence IO and presentation stay outside this sample. STEP_US_ below is unchanged.
+    if let Some(line) = replica_steps.observe_completed(step_ns) {
+        log::info!("{line}");
+    }
     if let Some(evidence) = evidence {
         evidence.record_checkpoint(&report)?;
         if report.replica_tick % 120 == 0 {

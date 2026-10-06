@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
+use crate::comp::perf_window::{self, PerfEmit, PerfWindow};
+
 #[derive(Default)]
 pub struct TickProfile {
     pub tick_count: u64,
@@ -23,6 +25,9 @@ pub struct TickProfile {
     /// `ReadExpect<TickProfile>` 取資源（不會 serialize 系統），但寫入仍要避競爭。
     /// 鎖只在系統結束時短暫持有 ~50ns，contention 可忽略。
     pub system_stats: Mutex<BTreeMap<&'static str, VariantStat>>,
+    /// Formal MOBA compute window. Independent of the debug phase counters above.
+    formal_window: PerfWindow,
+    formal_enable_logged: bool,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -86,6 +91,26 @@ impl TickProfile {
             entry.count += 1;
             entry.ns += ns;
         }
+    }
+
+    /// One completed `State::tick` compute sample, already excluding transport send time.
+    /// Does not change the debug phase counters or the deterministic hash inputs.
+    pub fn record_formal_tick_compute(&mut self, compute_ns: u128) -> PerfEmit {
+        let mut emit = PerfEmit::default();
+        if !self.formal_enable_logged {
+            self.formal_enable_logged = true;
+            emit.enable = Some(perf_window::format_tick_compute_enable());
+        }
+        emit.summary = self
+            .formal_window
+            .record(compute_ns)
+            .map(|closed| perf_window::format_tick_compute(&closed));
+        emit
+    }
+
+    pub fn reset_formal_window(&mut self) {
+        self.formal_window.reset();
+        self.formal_enable_logged = false;
     }
 
     pub fn finish_tick_and_maybe_log(&mut self) {
@@ -239,5 +264,70 @@ impl TickProfile {
         if let Ok(mut stats) = self.system_stats.lock() {
             stats.clear();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formal_perf_tick_profile_window_is_independent_of_phase_counters() {
+        let mut profile = TickProfile::default();
+        profile.record_phase(Phase::RunSystems, 7);
+        profile.record_phase(Phase::ScriptDispatch, 8);
+        profile.record_phase(Phase::ProcessOutcomes, 9);
+        let first = profile.record_formal_tick_compute(5);
+        assert!(first.enable.unwrap().contains(perf_window::SCOPE_STATE_TICK));
+        assert!(first.summary.is_none());
+        profile.reset_formal_window();
+        assert_eq!(profile.run_systems_ns, 7);
+        assert_eq!(profile.script_dispatch_ns, 8);
+        assert_eq!(profile.process_outcomes_ns, 9);
+        assert_eq!(profile.tick_count, 0);
+        let mut summary = None;
+        for index in 0..TickProfile::WINDOW {
+            let sample = if index == 3 { 50 } else { 10 };
+            let emit = profile.record_formal_tick_compute(sample);
+            if index == 0 {
+                assert!(emit.enable.is_some());
+            } else {
+                assert!(emit.enable.is_none());
+            }
+            if let Some(line) = emit.summary {
+                assert!(summary.is_none());
+                summary = Some(line);
+                assert_eq!(index, TickProfile::WINDOW - 1);
+            }
+        }
+        let line = summary.expect("window closes on sample 60");
+        let json: serde_json::Value =
+            serde_json::from_str(line.strip_prefix("OM_PERF ").unwrap()).unwrap();
+        assert_eq!(json["scope"], perf_window::SCOPE_STATE_TICK);
+        assert_eq!(json["unit"], "ns");
+        assert_eq!(json["samples"], 60);
+        assert_eq!(json["count"], 60);
+        assert_eq!(json["sum"], 10 * 59 + 50);
+        assert_eq!(json["max"], 50);
+        assert_eq!(json["mean"], (10 * 59 + 50) / 60);
+        assert_eq!(json["mean_definition"], perf_window::MEAN_DEFINITION);
+        assert_eq!(json["not_a_statistic"], perf_window::NOT_A_STATISTIC);
+        assert!(json.get("p95").is_none());
+        assert!(json.get("rate_bytes_per_s").is_none());
+        profile.finish_tick_and_maybe_log();
+        assert_eq!(profile.tick_count, 1);
+        assert_eq!(profile.run_systems_ns, 7);
+        let mut reopened = 0;
+        for _ in 0..TickProfile::WINDOW - 1 {
+            assert!(profile.record_formal_tick_compute(3).summary.is_none());
+            reopened += 1;
+        }
+        let closed = profile.record_formal_tick_compute(3).summary.unwrap();
+        let again: serde_json::Value =
+            serde_json::from_str(closed.strip_prefix("OM_PERF ").unwrap()).unwrap();
+        assert_eq!(again["mean"], 3);
+        assert_eq!(again["max"], 3);
+        assert_eq!(reopened, 59);
+        assert_eq!(profile.run_systems_ns, 7);
     }
 }

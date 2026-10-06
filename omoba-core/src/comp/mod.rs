@@ -28,6 +28,7 @@ pub mod campaign;
 pub mod ecs;
 pub mod enemy;
 pub mod player;
+pub mod perf_window;
 pub mod tick_profile;
 
 pub mod outcome {
