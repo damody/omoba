@@ -2,31 +2,9 @@
 local content_root = assert(arg[1], 'content root is required')
 local output_mode = arg[2] or 'registry'
 assert(output_mode == 'registry' or output_mode == 'ids', 'unknown output mode')
-local context, loading, depth = {}, {}, 0
-function context.include(relative)
-  assert(type(relative)=='string' and relative~='' and not relative:find(':',1,true)
-    and not relative:match('^[/\\]'),'include requires a content-relative path')
-  local segments={}
-  for segment in relative:gmatch('[^/\\]+') do
-    assert(segment~='..','include rejects parent-directory escape')
-    if segment~='.' then segments[#segments+1]=segment end
-  end
-  local canonical=table.concat(segments,'/')
-  -- Fixed Windows Lua runtime: aliases differing only in case are one file.
-  local identity=canonical:lower()
-  assert(canonical~='' and not loading[identity],'include cycle: '..canonical)
-  assert(depth<64,'include nesting exceeds 64')
-  loading[identity]=true;depth=depth+1
-  local ok,entries=xpcall(function()
-    local builder=assert(loadfile(content_root..'/'..canonical))()
-    assert(type(builder)=='function',canonical..' must return a builder function')
-    return builder(context)
-  end,debug.traceback)
-  loading[identity]=nil;depth=depth-1
-  assert(ok,entries)
-  assert(type(entries)=='table',canonical..' builder must return a table')
-  return entries
-end
+local source = debug.getinfo(1,'S').source:sub(2)
+package.path = (source:match('^(.*)[/\\]') or '.') .. '/?.lua;' .. package.path
+local context = require('content_builder').new(content_root)
 local function load_builder(name) return context.include('templates/'..name..'.lua') end
 
 local function identifier(value, label)

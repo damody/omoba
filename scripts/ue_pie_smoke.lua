@@ -8,10 +8,15 @@ local process = bootstrap.lib('process')
 local platform = bootstrap.lib('platform')
 local json = bootstrap.lib('json')
 local work = path.join(bootstrap.root, 'omfue', 'Saved', 'McpAutomation')
+if #arg > 0 then
+  assert(#arg == 2 and arg[1] == '--out-dir', 'usage: ue_pie_smoke.lua [--out-dir NEW_DIRECTORY]')
+  work = path.absolute(arg[2], bootstrap.root)
+  assert(not path.exists(work), 'PIE evidence directory must be new: ' .. work)
+end
 path.mkdir_p(work)
 local report = {kind = 'editor-native-hero-smoke', results = {}, success = false}
 local started = false
-local heroes = assert(loadfile(path.join(bootstrap.root, 'scripts/lua_data/templates/heroes.lua')))()({})
+local heroes = require('content_builder').new(path.join(bootstrap.root,'scripts/lua_data')).include('templates/heroes.lua')
 local native_scale
 for _, hero in ipairs(heroes) do
   if hero.id == 'saika_magoichi' then
