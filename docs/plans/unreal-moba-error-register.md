@@ -1,5 +1,23 @@
 # Unreal MOBA 防錯紀錄
 
+## E340：強制終止監督需原生生命週期，不可只靠 Lua cleanup（2026-10-06）
+
+- Grok job run-muwkcv1b-3wks70／thread333f680f-ae22-435b-926a-df4e179c7431 在Job API讀取階段無補丁，primary於601秒取消。stop回taskkill128不是退出證據；follower terminal cancelled且原bridge36112／agent21776均不存在後才接手。成本、API時間、根因未知；不改全域設定或憑證，不把primary程式算成Grok交付。
+- 通用修正：明確 opt-in 原生 workflow_supervise／workflow_member。固定Lua、helper→cmd→Lua有界原始handle與出生序驗證、private Job KILL_ON_JOB_CLOSE、暫停建立後assign才resume，無breakaway／name-kill／PID-only。標記必須驗證實際Lua加入該named Job，偽造env不能跳過；入口只有正式role（非prepare-only）／headless selection／remote join，沒有全域改寫spawn。正常完成也確認job active0後才交回exit code。
+- 初次compile誤用常數名稱／module：windows-sys0.61為PROCESS_SYNCHRONIZE、JOB_OBJECT_QUERY在SystemServices；依本機鎖定API來源修正，不使用未知數值。
+- fixture v1把Lua global arg的0／-1一起序列化，JSON拒絕非string object key。改只複製連續正索引，保留空字串／雙引號／尾反斜線；不改全域JSON。
+- v2：canonical verbatim path的argv被固定Lua loader破壞。v3／v4：verbatim cwd使cmd拒絕UNC並轉Windows目錄，native response空、exit1。直接固定Lua傳verbatim source亦重現拒絕；只在啟動argv／cwd移除canonical前綴（UNC正規轉換），handle身分比較仍canonical。host無效response診斷加入真exit code，不把空response算成功。
+- normal fixture的ready是退出前durable receipt，不是live-service gate，改只該fixture使用bounded檔案receipt；正式ready保留original lifetime gate。
+- v5：5cases PASS，normal/crash的original子／孫程序皆wait確認退出，fake-marker無spawn、unsafe-helper ancestry拒絕、exit7與空／引號／尾斜線精確保留。證據target/workflow-supervisor-20261006-v5/report.json。host9/9通過；固定入口help均exit0。source freshness改遍歷src所有Rust檔，不再漏新module；不跟隨symlink。
+- 正在做一次完整建置／固定本機效能驗收，未先宣稱通過；不涉及真LAN或UI全流程。本批沒有commit／push／omfx／引擎修改／無關程序清理。
+
+## E339：收尾時不可猜來源路徑或把截斷輸出當作審閱（2026-10-06）
+
+- 本批再次誤猜 scripts/lib、OmController.cpp、moba_runtime_config.lua、moba_server_stage.lua 與獨立 OmGenerated plugin 路徑；實際 Lua library 在 tools/lua/lib，OmGenerated 是 OmRuntime plugin 內的 module。Windows rg 不接受字面 wildcard 路徑。後續先列實際檔案，使用實際目錄配 -g，不假定 module 就是 plugin。
+- 單行 JSON 的 Get-Content -TotalCount 不限制輸出大小，native 報告與歷史 tasks 多次截斷；應解析 JSON 後先確認欄位，僅輸出所需統計。截斷不是完整審閱。本批重新解析 complete result 確認 native42／failed0／skipped0／not_run0；不把歷史報告當成本批執行。
+- 收尾範圍：舊記錄的「當時尚缺」不能變成重做指令，也不能加入原契約外的新封關條件。IPC／cue 合併當前確認使用 compiled-content-only presentation_bridge tests，27 passed、0 failed、0 ignored；沒有遊戲模擬或 LAN。
+- 原生 workflow supervision 仍由 Grok 有界工作處理中；未交付補丁前不宣稱強制終止清理成功。真正兩台 LAN 需要第二台環境，localhost 不替代。
+
 ## E338：選角取消必須共用，且不能冒稱強制終止監督（2026-10-06）
 
 - 決定：明確 `--selection-cancel-file` 進入共用 budget，無期限／deadline 均可取消；單機、共享、headless 與 remote join 使用同一判斷，保留原始 owned cleanup、真人 consent 與 final 配方驗證。訊號只查存在、不讀／不刪，已存在則不 spawn；交付前晚到訊號仍拒絕。remote 不停止遠端主機。
