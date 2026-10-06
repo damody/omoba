@@ -78,7 +78,11 @@ impl FilteredReplicaWorldBuilder {
     /// initialization, so hidden gameplay entities never exist and cannot be queried.
     pub fn empty(self, start: &TeamGameStart) -> FilteredReplicaWorld {
         let thread_pool = crate::runtime::StateInitializer::create_thread_pool();
-        let mut world = crate::runtime::StateInitializer::setup_standard_ecs_world(&thread_pool);
+        self.empty_with_pool(start, &thread_pool)
+    }
+
+    fn empty_with_pool(self, start: &TeamGameStart, thread_pool: &std::sync::Arc<rayon::ThreadPool>) -> FilteredReplicaWorld {
+        let mut world = crate::runtime::StateInitializer::setup_standard_ecs_world(thread_pool);
         world.register::<ReplicaIdentity>();
         world.register::<FilteredComponents>();
         world.insert(TickDeterministicRng::new(start.global_seed));
@@ -160,7 +164,7 @@ impl SpecsDisclosedWorldStepper {
         let script_registry =
             crate::scripting::loader::load_scripts_dir(std::path::Path::new(&scripts_dir));
         let mut filtered =
-            FilteredReplicaWorldBuilder::new(component_allowlist, resource_allowlist).empty(start);
+            FilteredReplicaWorldBuilder::new(component_allowlist, resource_allowlist).empty_with_pool(start, &thread_pool);
         install_disclosed_content(&mut filtered.world, &script_registry);
         Self {
             filtered,

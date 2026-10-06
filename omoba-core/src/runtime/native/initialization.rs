@@ -14,6 +14,36 @@ use omoba_sim::Fixed64;
 /// 狀態初始化器
 pub struct StateInitializer;
 
+/// Explicit host resource budget; not part of deterministic match configuration.
+pub fn ecs_worker_count(available: usize, requested: Option<&str>) -> Result<usize, &'static str> {
+    let available = available.max(1);
+    let Some(raw) = requested else { return Ok(available) };
+    if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("OM_ECS_WORKER_THREADS must be a positive whole number");
+    }
+    let count = raw.parse::<usize>().map_err(|_| "OM_ECS_WORKER_THREADS overflow")?;
+    if count == 0 || count > available {
+        return Err("OM_ECS_WORKER_THREADS must be within available logical CPU capacity");
+    }
+    Ok(count)
+}
+
+#[cfg(test)]
+mod ecs_worker_budget_tests {
+    use super::ecs_worker_count;
+    #[test]
+    fn explicit_ecs_worker_budget_is_bounded_and_default_preserved() {
+        assert_eq!(ecs_worker_count(32, None), Ok(32));
+        assert_eq!(ecs_worker_count(0, None), Ok(1));
+        for raw in ["1", "4", "32", "04"] {
+            assert_eq!(ecs_worker_count(32, Some(raw)), Ok(raw.parse().unwrap()));
+        }
+        for raw in ["", "0", "33", "-1", "+1", " 4", "4 ", "1.5", "NaN", "999999999999999999999999999999"] {
+            assert!(ecs_worker_count(32, Some(raw)).is_err(), "{raw}");
+        }
+    }
+}
+
 const DOTA_UNITS_PER_MAP_UNIT: i64 = 100;
 const TD_DIFFICULTY_ENV: &str = "OMB_DIFFICULTY";
 const TD_STARTING_GOLD_ENV: &str = "OMB_TD_STARTING_GOLD";
@@ -276,9 +306,16 @@ fn ensure_btd_creep_emitters(ecs: &mut World) {
 impl StateInitializer {
     /// 創建執行緒池
     pub fn create_thread_pool() -> Arc<ThreadPool> {
+        let requested = std::env::var("OM_ECS_WORKER_THREADS");
+        let workers = ecs_worker_count(num_cpus::get(), match &requested {
+            Ok(value) => Some(value.as_str()),
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => panic!("OM_ECS_WORKER_THREADS must be Unicode decimal"),
+        }).expect("invalid ECS worker budget");
+        log::info!("OM_ECS_WORKERS threads={workers} logical_cpus={}", num_cpus::get());
         Arc::new(
             ThreadPoolBuilder::new()
-                .num_threads(num_cpus::get())
+                .num_threads(workers)
                 .thread_name(move |i| format!("rayon-{}", i))
                 .build()
                 .expect("Failed to create thread pool"),
