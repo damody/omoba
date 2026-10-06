@@ -1,6 +1,58 @@
 # Unreal MOBA 防錯紀錄
 
+## E328：結算讀取失敗不得沿用舊結果；共用 reader 必須保留消費端語意（2026-10-06）
+
+- `moba_role_finish_observer` 曾把 `file:read(...)` 的 nil／IO error 轉為 `''`，使讀取錯誤與 EOF 混淆並可能沿用舊 complete result。決定與選角共用 bounded IO primitive，read／seek／close／short read 必須 propagate，opened handle 在 callback 前關閉；不提交失敗 IO offset、不用額外輪詢掩蓋。
+- 共用的是 bounded IO，不是 mode policy：選角握手 latch 後免重讀；結算持續觀察以抓矛盾歷史，各玩家只保留一筆 canonical 結果。Result marker 完整行／canonical numeric 欄位，不能讓額外尾欄位或前綴部分匹配作為已結算證據。
+- 新搜尋曾對 PowerShell literal `scripts/moba*` 及猜測 `scripts/test_moba_role_finish.lua` 失敗；用 `rg --files scripts` 定位實際 `scripts/tests/moba_role_finish_observer_test.lua`。不可用 Bash-style 路徑 glob 或猜檔名重複讀取。
+- 找到勝負 launcher fixture 仍是 PID-only fake（沒有 spawn_owned 等），與已修改 production 不相容；接既有 original-child fixture 並從 fixture 取實際 waited records，不放寬 production、不把舊 fixture 失配當成正式 gameplay 回退。
+- 結算 success 分支曾先寫 observation／break 才檢查 deadline，late screenshot predicate 可繞過限時。決定同原 deadline 在 poll 前／後與 publication 前檢查，補 screenshot IO 將 clock 推過期限的回歸；合法 UI 結果不授權逾時成功，不強制指定勝方。
+- 初版 byte-boundary fixture 用 Windows text-mode write，手動CRLF被再次轉換，chunk byte位置亦改變；改既有 `path.write(...,true,true)`／fixture-only binary append。不要為錯 fixture 更改reader的CRLF語意。Prefix反例需把X放在marker前，不是合法UE log prefix前；Lua table最後的gsub需括號避免第二返回count成額外case，修測試而非放寬正式parser。
+- Tool-free Grok run-muwe88iz-sv5due 6m43s沒有回覆或patch，primary取消；follower cancelled／metadata三PIDnull／原agent與bridge不存在確認後接手。stop128不當唯一退休證據；未證明確切停滯根因、成本未知，不因本次無工具就歸咎MCP或把取消算成功。
+
+## E327：握手不能用版本前綴；退役後仍需有界讀完日誌（2026-10-06）
+
+- 選角 launcher 曾用 substring 判斷 `protocol=1`／`shared_room=1`，會接受 `10` 前綴；single 更未驗證實際 producer 固定輸出的 `shared_room=0`。決定共用嚴格完整行 parser，綁定 player、protocol、room，拒绝額外／缺失欄位；不放寬 production 契約去配合過時 fixture。
+- 重複 `path.read` 完整日誌讓成本隨選角時間增長；shared final artifact 快速路徑也會重讀全檔。改為增量、每 poll 至多 128KiB、單行至多 64KiB；有效握手 latch 後不再掃描。原始 producer 退役後可用既有 handshake/completion deadline 分段 drain，避免只讀第一塊而錯拒合法 backlog。
+- 活著的 producer 最後半行不能作為握手；只有 verified original-child retirement 後，EOF 才能接受完整但沒有換行的 marker。Final artifact 本身不取代 renderer 握手、terminal receipt、內容 hash 或原 child 退出證據。
+- 單人歷史 mock 缺 `shared_room`，此次依實際 `OmHeroSelectionWidget.cpp` producer 修正。新增版本前綴、錯誤 room，以及已發布 final artifact 的 backlog／EOF 快速路徑回歸；驗證結果以進度文件實際輸出為準，不當成真 Unreal／LAN 驗收。
+- 新 test 初版以 `scripts/tests/../?.lua` 載入 bootstrap，但 bootstrap 的 lexical root regex 不消去 `..`，使 root 變成 `_bootstrap.lua` 檔案並在 mkdir 失敗；沒有建立錯誤目錄。改從 test source 擷取實際 scripts 父目錄，不引入 shell fallback、不更動 production root 契約。
+- Grok `run-muwdxk9k-vxwgie` 初始讀取後 3m22s 無 code delta，primary 取消並獨立確認 follower cancelled、metadata 三 PID null、原 bridge/agent PID 已不存在才接手。stop exit128 原 bridge PID 已消失，不能單憑該錯誤就宣稱 worker 終止；成本與停滯根因未知，本批實作不得歸功 Grok。
+
+## E326：選角與 role launcher 仍需原始程序生命週期（2026-10-06）
+
+- 發現兩個正式 launcher 還使用 spawn/inspect/stop/wait/poll_ready 的 PID-only API；同 executable PID 重用會誤判，不能因 paired launcher 已修就宣稱全部入口安全。已統一 original Child token、持久 canonical executable，補 bounded wait/readiness（predicate前後與耗時期限），原 child 退役不操作新程序，partial startup只清已知originalchildren。局部9／17／8／10全通過，詳selection-lifetime-progress；不是UI／LAN驗收。
+- 第二Grok run-muwd53b1-fuex10 7m15s 未產碼，primary取消、follower cancelled／metadata三PID null後接手。stop exit128為PID已消失；成本未知。partial metadata記ueCP 30000連線拒絕，未啟動無關Editor／改全域MCP，不把warning直接判為stall根因。純程式委派不應為初始化未使用工具無限等待；無實際delta時按bounded策略接手。
+- primary初版 owned-wait mock回傳非canonical path，已用正式validate_owned修fixture；production不放寬identity。角色launcher測試含既有Cargo配置preflight，不能稱全部純fixture；printed Unreal started來自mock流程，不當真正開過UE。
+- apply_patch一次上下文匹配失敗，重新讀實際尾段並用唯一test名稱錨點成功；沒有假稱失敗patch已套用或同時讓第二writer接手。曾猜不存在OmGamePlayerController.cpp／local_worker_budget.lua，rg確認實際功能來源，budget正式名稱moba_host_budget且role與paired已接線，不重造模組。避免再憑慣例猜路徑。
+- 加入late-predicate期限案例時第一patch多出空@@導致invalid hunk，沒有套用；修合法hunk後實際10/10。Predicate耗時必須計入原deadline，true不能略過時間檢查，否則 bounded readiness 是暫時解。
+
+## E325：dispatcher 本體、排程邊界與局部 fixture（2026-10-06）
+
+- 本次 outer30.7792/24.8499ms 通過單項窗口門檻不能宣稱 Nearby 配置造成舊93/102ms或永久修好；同一步Job本體只有.1316/.0279ms，不相減冒稱CPU或wait。保留歷史失敗，停止追加效能採樣，轉到具體未接齊的選角/對局原始child ownership。
+- 新 owned wait fixture 的 mock 返回 `/` 路徑，但正式 inspect_owned／validate_owned 都返回 canonical Windows路徑，導致 liveness 被 fixture 誤判退出；改fixture用正式 validate_owned，六項通過，不放寬 production identity 比較。新wait詢問失敗要propagate，不能當原child已退出；原child退出後PID被重用則成功退休，不等／停新程序。
+
+- 新 fixture 原用 tick 0，正式語意會跳過 gameplay dispatcher，所以期待 Some 是錯誤測試；改 tick 1 確认執行路徑，保留 tick 0 規則，1 個 concrete Specs equality test 實際通過。
+- PowerShell 不支援 Bash brace path 列表，ParserError 後改為明確檔案；error register 亦一度猜錯名稱，rg --files 後定位既有 unreal-moba-error-register.md，不新增重複文件。
+- 大段歷史 context 輸出截斷不能宣稱全新完整閱讀；使用既有已讀背景、compact OpenSpec 狀態及本批具體來源。不得把截斷當零缺項。
+- Grok Nearby 交付實際是 3 tests，不是進度文字猜的 4；主 agent 實際 diff 與獨立 3 passed 後接受。配置改善不代表 dispatcher 93/102ms 已修。Job sum 可高於 wall，不做相減偽 wait；ProcessCPU 合法 0 不等於根因。
+- 同時編譯 artifact lock 只代表 Cargo 等候，不當 hang；本批限受影響功能測試及一次 bounded 真採樣，不重跑完整驗收或修改效能門檻。
+
 ## E324：固定步進 wall time 不等於 CPU 根因；新增診斷不得破壞既有契約（2026-10-06）
+
+- 最終git核對HEAD從c5211e83變ca34c786；log顯示damody於15:03:24另行提交，末筆只更新omb/omfue gitlinks。主 agent／本批CPU代理沒有commit/push；保持外部提交並實際核對本批剩餘diff，不以舊baseline宣稱HEAD未變或reset他人工作。獨立scanner改動已被外部提交收入，不能再冒稱未提交全是本批未追蹤。
+
+- 真 paired run兩隊各50完整窗口/3000samples，peak dispatcher93.0694/101.7626ms，process CPU delta合法0，不當null、忙碌CPU或精確wait證明；仍client超50ms。讀log時rg目錄被ignore漏查，改指定實際stderr檔後找到新記錄並collector成功，不能因第一次零結果誤判接線未用。
+- 查實際shred可知dispatch_seq不執行thread-local，且gameplay仍有nested par_join；直接替换可能逃到global Rayon pool／破壞thread-local工作，不採未證明的「inline就好」暫時解。rootcause工作限dispatcher/inner jobs，不回猜hash或Lua runtime。
+- CPU原生query fixture不應要求第一total>0：成功API可合法0；修fixture只查Some、100ns encoding與non-regression，不把counter encoding當100ns精確測量保證。
+
+- 實機採樣前 Lua -e guard 誤猜 path.is_dir，不存在而在任何 spawn 前失敗；rg 確認正式 API 為 is_directory／exists，改 exists 拒絕任何既有同名 evidence 才啟動唯一新 run。不是多次遊戲重試，未覆寫證據或操作既有程序。
+
+- 主 agent 新 Rust fixture 首次缺 DisclosedWorldStepper／DisclosedReplicaWorld／StepInjections imports，第二輪缺 specs::WorldExt；依實際 compiler 補 import，第三輪9 stage／2 concrete Specs+reconciliation／7 CPU通過，runtime compiled-only check成功。不是零測試exit0，不忽略編譯錯誤；既有三個 td_rounds dead_code warnings保持標示。
+- 小範圍 CPU Grok run-muwc1hp7-rqf7ez terminal completed，primary實際 module／native FFI diff審查及獨立7 tests接受。全接線由primary完成，不把該代理未跑的tests冒稱已跑，也不把診斷功能當50ms修復。
+
+- 第一輪新 collector fixture 用 `i==1 and nil or 999` 表示 unavailable，Lua 會落入 999；實際第一項通過後 tie 測試失敗，修成明確 json.null 後 7/7。不是正式計時功能失敗，不跳過檢查或用 0 代替 unknown。
+- 六檔 Rust 委派 6m13s 沒有本批程式码，主 agent 取消 run-muwbt1eq-sk1khc，follower cancelled、metadata pid/agentPid/bridgePid null。stop exit128 是追蹤 PID 已消失，未照錯碼猜仍在運作。metadata partialResult 顯示 read_file tool_output_error 與未運作 ueCP 30000 連線拒絕；本批純 Rust 不需 Editor，不去啟動其他專案或掃埠。成本未知。改獨立 CPU 模組委派，主 agent 接手其餘接線。
 
 - 351/475 ms 峰值集中 fixed_step，只能排除外段為主要 wall bucket，不能判定 CPU 或 scheduler。補同 invocation preparation／18 production phases／finalize 與 process CPU，後者跨執行緒、可大於 wall，不做 wall−CPU 偽等待，不改 50 ms／不排除冷啟動。
 - 舊 OM_REPLICA_STAGE v1 reader 拒絕未知欄位；新資訊需另一 linked 記錄並保留同一 outer peak，不能独立挑 phase 最大值。錯誤／stall／duplicate／rebase 必須清 stale，unavailable CPU 不補 0。
