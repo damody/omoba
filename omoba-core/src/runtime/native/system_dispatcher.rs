@@ -194,7 +194,10 @@ impl SystemDispatcher {
                 .build()?,
         );
 
+        // 快取 Dispatcher 綁的是建立當下的 pool。新 pool 成功後必須退役，
+        // 執行緒數相同也要清；build()? 失敗時尚未寫欄位，原狀保持。
         self.thread_pool = new_pool;
+        self.dispatcher = None;
         log::info!("執行緒池重新配置為 {} 個執行緒", new_thread_count);
 
         Ok(())
@@ -307,4 +310,47 @@ pub struct SystemPerformanceAnalysis {
     pub system_bottlenecks: Vec<String>,
     /// 執行緒利用率
     pub thread_utilization: f64,
+}
+
+#[cfg(test)]
+mod reconfigure_retire_cached_dispatcher_tests {
+    use super::SystemDispatcher;
+    use rayon::ThreadPoolBuilder;
+    use specs::DispatcherBuilder;
+    use std::sync::Arc;
+
+    fn empty_cached(pool: &Arc<rayon::ThreadPool>) -> specs::Dispatcher<'static, 'static> {
+        DispatcherBuilder::new()
+            .with_pool(Arc::clone(pool))
+            .build()
+    }
+
+    #[test]
+    fn reconfigure_retire_cached_dispatcher() {
+        let pool = Arc::new(
+            ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .expect("1-thread pool"),
+        );
+        let mut systems = SystemDispatcher {
+            thread_pool: Arc::clone(&pool),
+            dispatcher: Some(empty_cached(&pool)),
+        };
+        assert!(systems.dispatcher.is_some());
+        assert_eq!(systems.thread_pool.current_num_threads(), 1);
+
+        systems
+            .reconfigure_thread_pool(2)
+            .expect("reconfigure to 2 threads");
+        assert!(systems.dispatcher.is_none());
+        assert_eq!(systems.thread_pool.current_num_threads(), 2);
+
+        systems.dispatcher = Some(empty_cached(&systems.thread_pool));
+        systems
+            .reconfigure_thread_pool(2)
+            .expect("reconfigure same thread count");
+        assert!(systems.dispatcher.is_none());
+        assert_eq!(systems.thread_pool.current_num_threads(), 2);
+    }
 }
