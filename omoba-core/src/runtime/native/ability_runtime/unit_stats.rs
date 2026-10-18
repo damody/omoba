@@ -141,6 +141,12 @@ impl<'a> UnitStats<'a> {
         self.final_atk(base, e) + self.buffs.next_attack_bonus(e)
     }
 
+    /// Same fixed-point interval used by the hero attack phase, including its
+    /// minimum divisor. Presentation must not use a separate floating formula.
+    pub fn final_attack_interval(&self, base: Fixed64, e: Entity) -> Fixed64 {
+        base / self.final_attack_speed_mult(e).max(Fixed64::from_raw(10))
+    }
+
     /// 攻速倍數（乘到 base attack interval 上）。
     /// Dota：每秒有效攻擊數 = 基礎 × (1 + as_bonus / 100)
     /// 簡化：以 bonus/100 當 multiplier 加成；fixed_attack_rate 若設則覆蓋。

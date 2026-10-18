@@ -35,7 +35,7 @@ for _, wrapper in ipairs(wrappers) do
         assert(not lower:find(fragment, 1, true), wrapper.batch .. " contains workflow logic: " .. fragment)
     end
 
-    assert(content:find([[D:\code\omoba\tools\lua\lua.exe]], 1, true),
+    assert(content:find([[%~dp0tools\lua\lua.exe]], 1, true),
         wrapper.batch .. " is missing the fixed Lua runtime")
     assert(content:find("%~dp0scripts\\" .. wrapper.launcher, 1, true),
         wrapper.batch .. " is missing its Lua launcher")

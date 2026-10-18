@@ -1,8 +1,15 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-/// 共用的 selective 線路版本；V2 名稱仍表示模式，不表示目前線路版本。
-pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 6;
+/// Selective lockstep wire and hash contract. Version 6 is rejected: it hashed
+/// the canonical team view as v1 and did not commit moba economy or the undo
+/// ledger. Version 8 also commits disclosed channel state; version 7 is rejected.
+/// Presentation layout is unchanged.
+/// The V2 name still means the selective mode, not this version number.
+// Version 10 admits persistent combat preferences and discloses the policy
+// before replica combat runs. Earlier peers cannot predict that selection.
+// Version 11 also hashes the persistent input scheme and stable hero profile identity.
+pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 13;
 pub const SELECTIVE_LOCKSTEP_PROTOCOL_V2: u32 = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
 
 /// Only these protobuf message types may cross the secure V2 player boundary.
@@ -82,14 +89,15 @@ mod selective_version_tests {
     use super::*;
 
     #[test]
-    fn attack_visual_state_protocol_rejects_old_selective_version() {
+    fn channel_visual_state_protocol_rejects_old_selective_versions() {
         let mut request = MatchCapabilityNegotiation {
             requested_protocol: SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
             supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
             secure_fog_required: true,
         };
+        assert_eq!(SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 13);
         assert_eq!(request.resolve(None), Ok(MatchProtocol::SelectiveV2));
-        request.requested_protocol = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION - 1;
+        request.requested_protocol = 7;
         request.supported_protocols = vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION - 1];
         assert_eq!(request.resolve(None), Err(NegotiationError::UnsupportedProtocol));
         request.requested_protocol = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;

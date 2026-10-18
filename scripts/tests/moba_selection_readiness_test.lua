@@ -104,4 +104,22 @@ test('latched readiness does not reopen a growing log',function()
   assert(reader:poll(write('latched.log',single..'\n')))
   mocked(function()error('unexpected reopen')end,function()assert(reader:poll('fixture'))end)
 end)
+test('configured renderer startup deadline and original completion cap',function()
+  local now=1000
+  local clock={monotonic_ms=function()return now end}
+  assert(R.deadline({},nil,clock)==1801000)
+  assert(R.deadline({editor_ready_timeout_seconds=90},nil,clock)==91000)
+  assert(R.deadline({editor_ready_timeout_seconds=90},61000,clock)==61000)
+  now=61000
+  rejects(function()R.deadline({editor_ready_timeout_seconds=90},61000,clock)end)
+end)
+test('renderer startup limits reject malformed values',function()
+  for _,value in ipairs({0,-1,3601,1.5,'90',math.huge,0/0}) do
+    rejects(function()R.deadline({editor_ready_timeout_seconds=value},nil,{monotonic_ms=function()return 0 end})end)
+  end
+end)
+test('renderer startup honors preexisting cancellation',function()
+  local token={cancel_file='cancel',paths={exists=function()return true end}}
+  rejects(function()R.deadline({editor_ready_timeout_seconds=90},token,{monotonic_ms=function()return 0 end})end)
+end)
 print(('selection readiness: %d/%d passed; fixture only, no renderer/game launch'):format(total,total))

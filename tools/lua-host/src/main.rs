@@ -13,6 +13,7 @@ use std::{
 
 const VERSION: u32 = 1;
 mod workflow_supervisor;
+mod owned_run;
 
 #[cfg(windows)]
 fn monotonic_ms() -> Result<Value, String> {
@@ -110,10 +111,7 @@ fn run_command(params: &Value) -> Result<Value, String> {
     )
 }
 
-fn spawn(params: &Value) -> Result<Value, String> {
-    let owned = params.get("owned_identity").and_then(Value::as_bool).unwrap_or(false);
-    #[cfg(not(windows))]
-    if owned { return Err("owned process identity is supported only on Windows".into()); }
+fn spawn_command(params: &Value, exclusive: bool) -> Result<Command, String> {
     let exe = required_str(params, "exe")?;
     let args = params
         .get("args")
@@ -148,17 +146,38 @@ fn spawn(params: &Value) -> Result<Value, String> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::from(
-            fs::File::create(&stdout_path).map_err(|e| e.to_string())?,
+            if exclusive { fs::OpenOptions::new().write(true).create_new(true).open(&stdout_path) }
+            else { fs::File::create(&stdout_path) }.map_err(|e| e.to_string())?,
         ))
         .stderr(Stdio::from(
-            fs::File::create(&stderr_path).map_err(|e| e.to_string())?,
+            if exclusive { fs::OpenOptions::new().write(true).create_new(true).open(&stderr_path) }
+            else { fs::File::create(&stderr_path) }.map_err(|e| e.to_string())?,
         ));
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW. Do not add CREATE_BREAKAWAY_FROM_JOB: a supervised
+        // caller must still own this child through the private job.
         command.creation_flags(0x08000000);
+        // Rust Command::spawn calls CreateProcessW with bInheritHandles=TRUE, so
+        // every inheritable handle is duplicated into the child, not only the
+        // null stdin and log files above. Stable CommandExt::inherit_handles is
+        // unavailable on 1.95. Ancestor process.run uses Command::output, and
+        // os.execute leaves those pipe write ends as this helper's standard
+        // handles. Clear that bit before CreateProcess so the publisher does
+        // not keep them. Command marks the explicit log-file handles
+        // inheritable itself. This one-shot helper does not restore the bit.
+        block_standard_handle_inheritance()?;
     }
-    let mut child = command.spawn().map_err(|e| format!("spawn {exe}: {e}"))?;
+    Ok(command)
+}
+
+fn spawn(params: &Value) -> Result<Value, String> {
+    let owned = params.get("owned_identity").and_then(Value::as_bool).unwrap_or(false);
+    #[cfg(not(windows))]
+    if owned { return Err("owned process identity is supported only on Windows".into()); }
+    let exe = required_str(params, "exe")?;
+    let mut child = spawn_command(params, false)?.spawn().map_err(|e| format!("spawn {exe}: {e}"))?;
     #[cfg(windows)]
     if owned {
         use std::os::windows::io::AsRawHandle;
@@ -170,12 +189,59 @@ fn spawn(params: &Value) -> Result<Value, String> {
     Ok(json!({"pid": child.id()}))
 }
 
+#[cfg(windows)]
+unsafe extern "system" {
+    fn GetStdHandle(nstdhandle: u32) -> windows_sys::Win32::Foundation::HANDLE;
+}
+
+#[cfg(windows)]
+fn block_standard_handle_inheritance() -> Result<(), String> {
+    use windows_sys::Win32::Foundation::{
+        SetHandleInformation, HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE,
+    };
+    // STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE. A missing standard
+    // handle is already safe. A valid handle that stays inheritable is not.
+    const STANDARD_HANDLES: [(u32, &str); 3] = [
+        (0xFFFF_FFF6, "stdin"),
+        (0xFFFF_FFF5, "stdout"),
+        (0xFFFF_FFF4, "stderr"),
+    ];
+    unsafe {
+        for (id, name) in STANDARD_HANDLES {
+            let handle = GetStdHandle(id);
+            if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+                continue;
+            }
+            if SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) == 0 {
+                return Err(format!(
+                    "cannot stop {name} handle inheritance: {}",
+                    io::Error::last_os_error()
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn creation_token(value: &Value) -> Result<u64, String> {
     let text = required_str(value, "creation_token")?;
     if text.is_empty() || text.starts_with('0') || !text.bytes().all(|b| b.is_ascii_digit()) {
         return Err("creation_token must be a canonical nonzero decimal string".into());
     }
     text.parse::<u64>().map_err(|_| "creation_token exceeds u64".into())
+}
+
+fn owned_wait_timeout(params: &Value) -> Result<u32, String> {
+    let Some(value) = params.get("timeout_ms") else {
+        return Ok(5000);
+    };
+    // WaitForSingleObject treats 0xFFFFFFFF as INFINITE. Keep every accepted bound finite.
+    let timeout = value.as_u64().ok_or("invalid owned wait timeout")?;
+    let timeout = u32::try_from(timeout).map_err(|_| "invalid owned wait timeout".to_string())?;
+    if timeout == u32::MAX {
+        return Err("invalid owned wait timeout".into());
+    }
+    Ok(timeout)
 }
 
 #[cfg(windows)]
@@ -188,7 +254,8 @@ impl Drop for OwnedProcessHandle {
 #[cfg(windows)]
 fn open_owned_process(pid: u32, terminate_access: bool) -> Result<Option<OwnedProcessHandle>, String> {
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE};
-    // SYNCHRONIZE permits a zero-duration wait on this exact handle.
+    // SYNCHRONIZE (0x00100000) stays on this exact handle for the zero-duration
+    // liveness gate and the bounded retirement wait after a failed identity query.
     let rights = PROCESS_QUERY_LIMITED_INFORMATION | 0x00100000
         | if terminate_access { PROCESS_TERMINATE } else { 0 };
     let handle = unsafe { OpenProcess(rights, 0, pid) };
@@ -201,12 +268,25 @@ fn open_owned_process(pid: u32, terminate_access: bool) -> Result<Option<OwnedPr
 }
 
 #[cfg(windows)]
-fn owned_handle_alive(handle: windows_sys::Win32::Foundation::HANDLE) -> Result<bool, String> {
-    match unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(handle, 0) } {
+const OWNED_QUERY_RETIREMENT_SETTLE_MS: u32 = 1000;
+
+#[cfg(windows)]
+fn owned_handle_alive_within(
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    timeout_ms: u32,
+) -> Result<bool, String> {
+    // 0 is WAIT_OBJECT_0 (this process object is signalled). 258 is WAIT_TIMEOUT.
+    // WAIT_FAILED and every other code stay errors; they are not retirement.
+    match unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(handle, timeout_ms) } {
         0 => Ok(false),
         258 => Ok(true),
         _ => Err(format!("cannot query owned lifetime: {}", io::Error::last_os_error())),
     }
+}
+
+#[cfg(windows)]
+fn owned_handle_alive(handle: windows_sys::Win32::Foundation::HANDLE) -> Result<bool, String> {
+    owned_handle_alive_within(handle, 0)
 }
 
 #[cfg(windows)]
@@ -241,6 +321,7 @@ fn inspect_owned(params: &Value) -> Result<Value, String> {
 // A process can finish after a successful zero-duration wait but before the
 // image/time query. Access denied is not proof of retirement: only a signalled
 // wait on the very same retained process object can settle that race.
+// The alive probe is the caller's; this helper never opens a process or PID.
 fn settle_owned_query<T>(query:Result<T,String>, alive:impl FnOnce()->Result<bool,String>) -> Result<Option<T>,String> {
     match query {
         Ok(value)=>Ok(Some(value)),
@@ -265,10 +346,331 @@ mod owned_query_race_tests {
     #[test] fn successful_identity_needs_no_error_recovery() {
         assert_eq!(settle_owned_query(Ok(42),||panic!("unexpected recheck")).unwrap(),Some(42));
     }
+
+    #[cfg(windows)]
+    use std::{
+        env,
+        os::windows::process::CommandExt,
+        process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
+    #[cfg(windows)]
+    use serde_json::{Value, json};
+    #[cfg(windows)]
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    #[cfg(windows)]
+    fn system_exe(name: &str) -> std::path::PathBuf {
+        let root = env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        std::path::PathBuf::from(root).join("System32").join(name)
+    }
+
+    #[cfg(windows)]
+    fn spawn_held_child() -> std::process::Child {
+        Command::new(system_exe("findstr.exe"))
+            .arg("x")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .expect("spawn own findstr child")
+    }
+
+    #[cfg(windows)]
+    struct Reap(Option<std::process::Child>);
+    #[cfg(windows)]
+    impl Drop for Reap {
+        fn drop(&mut self) {
+            if let Some(mut child) = self.0.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    fn exact_handle(child: &std::process::Child) -> windows_sys::Win32::Foundation::HANDLE {
+        use std::os::windows::io::AsRawHandle;
+        child.as_raw_handle() as _
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn immediate_exact_handle_signal_settles_failed_query() {
+        let mut child = Command::new(system_exe("cmd.exe"))
+            .args(["/c", "exit", "0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .expect("spawn own cmd child");
+        let handle = exact_handle(&child);
+        let status = child.wait().expect("wait for own cmd child");
+        assert!(status.success());
+        let started = Instant::now();
+        let settled = settle_owned_query::<u32>(Err("access denied".into()), || {
+            super::owned_handle_alive_within(handle, super::OWNED_QUERY_RETIREMENT_SETTLE_MS)
+        })
+        .expect("signalled exact handle");
+        let elapsed = started.elapsed();
+        println!("immediate_exact_handle_signal_elapsed_ms={}", elapsed.as_millis());
+        assert_eq!(settled, None);
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "already-signalled handle consumed the settle budget: {elapsed:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn delayed_exact_handle_signal_settles_failed_query() {
+        let mut child = spawn_held_child();
+        let handle = exact_handle(&child);
+        assert!(child.try_wait().expect("try_wait").is_none(), "child exited before the wait");
+        let stdin = child.stdin.take().expect("piped stdin");
+        let _reap = Reap(Some(child));
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(250));
+            drop(stdin);
+        });
+        let started = Instant::now();
+        let settled = settle_owned_query::<u32>(Err("access denied".into()), || {
+            super::owned_handle_alive_within(handle, super::OWNED_QUERY_RETIREMENT_SETTLE_MS)
+        });
+        let elapsed = started.elapsed();
+        println!("delayed_exact_handle_signal_elapsed_ms={} result={settled:?}", elapsed.as_millis());
+        assert_eq!(settled.expect("delayed signal"), None);
+        assert!(elapsed >= Duration::from_millis(100), "wait returned before the child exit delay: {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_millis(u64::from(super::OWNED_QUERY_RETIREMENT_SETTLE_MS) + 300),
+            "delayed signal overran the settle bound: {elapsed:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn live_exact_handle_timeout_keeps_access_denied() {
+        let mut reap = Reap(Some(spawn_held_child()));
+        let child = reap.0.as_mut().expect("child");
+        let handle = exact_handle(child);
+        assert!(child.try_wait().expect("try_wait").is_none());
+        let query_error = "cannot query exact process identity: Access is denied. (os error 5)";
+        let started = Instant::now();
+        let error = settle_owned_query::<u32>(Err(query_error.into()), || {
+            super::owned_handle_alive_within(handle, super::OWNED_QUERY_RETIREMENT_SETTLE_MS)
+        })
+        .expect_err("live process must stay a query failure");
+        let elapsed = started.elapsed();
+        println!("live_timeout_elapsed_ms={} error={error}", elapsed.as_millis());
+        assert_eq!(error, query_error);
+        let bound = u64::from(super::OWNED_QUERY_RETIREMENT_SETTLE_MS);
+        assert!(elapsed >= Duration::from_millis(bound - 50), "timeout returned early: {elapsed:?}");
+        assert!(elapsed < Duration::from_millis(bound + 750), "timeout waited too long: {elapsed:?}");
+        assert!(child.try_wait().expect("try_wait").is_none(), "live rejection killed or lost the child");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn exact_handle_wait_failure_is_not_retirement() {
+        let started = Instant::now();
+        let error = settle_owned_query::<u32>(Err("access denied".into()), || {
+            super::owned_handle_alive_within(std::ptr::null_mut(), super::OWNED_QUERY_RETIREMENT_SETTLE_MS)
+        })
+        .expect_err("invalid handle");
+        let elapsed = started.elapsed();
+        println!("wait_failure_elapsed_ms={} error={error}", elapsed.as_millis());
+        assert!(error.contains("access denied"), "{error}");
+        assert!(error.contains("cannot settle lifetime"), "{error}");
+        assert!(error.contains("cannot query owned lifetime"), "{error}");
+        assert!(elapsed < Duration::from_millis(500), "WAIT_FAILED consumed the settle budget: {elapsed:?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn successful_live_identity_does_not_wait() {
+        let mut child = spawn_held_child();
+        let handle = exact_handle(&child);
+        let pid = child.id();
+        assert!(child.try_wait().expect("try_wait").is_none());
+        let started = Instant::now();
+        let identity = super::live_owned_identity(handle, pid)
+            .expect("live identity")
+            .expect("live child must not settle as retired");
+        let elapsed = started.elapsed();
+        println!("successful_live_identity_elapsed_ms={} identity={identity}", elapsed.as_millis());
+        assert!(elapsed < Duration::from_millis(500), "successful query entered the retirement wait: {elapsed:?}");
+        assert_eq!(identity["pid"].as_u64(), Some(u64::from(pid)));
+        assert_eq!(identity["alive"].as_bool(), Some(true));
+        let token = identity["creation_token"].as_str().expect("creation token");
+        assert!(!token.is_empty() && !token.starts_with('0') && token.bytes().all(|byte| byte.is_ascii_digit()));
+        let path = identity["path"].as_str().expect("path").to_ascii_lowercase();
+        assert!(path.contains("findstr"), "{path}");
+        let query = super::owned_identity_from_handle(handle, pid);
+        assert!(query.is_ok(), "second exact-handle query failed: {query:?}");
+        let settled = settle_owned_query(query, || panic!("successful query must not wait")).expect("settle");
+        assert!(settled.is_some());
+        drop(child.stdin.take());
+        let _ = child.wait();
+        let _ = Reap(Some(child));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn exited_own_child_exact_handle_settles_retirement() {
+        let mut child = Command::new(system_exe("cmd.exe"))
+            .args(["/c", "exit", "0"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .expect("spawn own cmd child");
+        let handle = exact_handle(&child);
+        let pid = child.id();
+        let status = child.wait().expect("wait for own cmd child");
+        assert!(status.success());
+        let started = Instant::now();
+        let settled = super::live_owned_identity(handle, pid);
+        let elapsed = started.elapsed();
+        println!("exited_own_child_elapsed_ms={} settled={settled:?}", elapsed.as_millis());
+        match settled {
+            Ok(None) => {}
+            Ok(Some(identity)) => {
+                assert_eq!(identity["pid"].as_u64(), Some(u64::from(pid)));
+                assert_eq!(identity["alive"].as_bool(), Some(false), "exited child stayed alive: {identity}");
+            }
+            Err(error) => panic!("natural exit surfaced a query failure: {error}"),
+        }
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "already-exited exact handle consumed the settle budget: {elapsed:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    fn owned_record(child: &std::process::Child) -> Value {
+        let identity = super::live_owned_identity(exact_handle(child), child.id())
+            .expect("identity")
+            .expect("live child");
+        json!({
+            "pid": child.id(),
+            "expected_exe": identity["path"].as_str().expect("path"),
+            "creation_token": identity["creation_token"].as_str().expect("token"),
+            "timeout_ms": 5000,
+        })
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn verified_child_exit_waits_on_the_same_handle() {
+        let mut child = spawn_held_child();
+        let params = owned_record(&child);
+        assert!(child.try_wait().expect("try_wait").is_none());
+        let stdin = child.stdin.take().expect("piped stdin");
+        let _reap = Reap(Some(child));
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            drop(stdin);
+        });
+        let started = Instant::now();
+        let result = super::wait_owned(&params).expect("owned wait");
+        let elapsed = started.elapsed();
+        println!("verified_child_exit_elapsed_ms={} result={result}", elapsed.as_millis());
+        assert_eq!(result["exited"].as_bool(), Some(true));
+        assert!(elapsed >= Duration::from_millis(100), "wait returned before the child exit: {elapsed:?}");
+        assert!(elapsed < Duration::from_millis(5000), "exit wait used more than the caller bound: {elapsed:?}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn verified_child_timeout_is_not_retirement() {
+        let mut reap = Reap(Some(spawn_held_child()));
+        let child = reap.0.as_mut().expect("child");
+        let mut params = owned_record(child);
+        params["timeout_ms"] = json!(200);
+        assert!(child.try_wait().expect("try_wait").is_none());
+        let started = Instant::now();
+        let result = super::wait_owned(&params).expect("owned wait");
+        let elapsed = started.elapsed();
+        println!("verified_child_timeout_elapsed_ms={} result={result}", elapsed.as_millis());
+        assert_eq!(result["exited"].as_bool(), Some(false));
+        assert!(elapsed >= Duration::from_millis(150), "timeout returned early: {elapsed:?}");
+        assert!(elapsed < Duration::from_millis(900), "timeout waited too long: {elapsed:?}");
+        assert!(child.try_wait().expect("try_wait").is_none(), "timeout killed or lost the child");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn creation_token_mismatch_is_not_retirement() {
+        let mut reap = Reap(Some(spawn_held_child()));
+        let child = reap.0.as_mut().expect("child");
+        let mut params = owned_record(child);
+        params["creation_token"] = json!("1");
+        params["timeout_ms"] = json!(5000);
+        let started = Instant::now();
+        let error = super::wait_owned(&params).expect_err("token mismatch");
+        let elapsed = started.elapsed();
+        println!("token_mismatch_elapsed_ms={} error={error}", elapsed.as_millis());
+        assert!(error.contains("mismatch"), "{error}");
+        assert!(elapsed < Duration::from_millis(500), "mismatch consumed the caller wait: {elapsed:?}");
+        assert!(child.try_wait().expect("try_wait").is_none(), "mismatch killed or lost the child");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn executable_mismatch_is_not_retirement() {
+        let mut reap = Reap(Some(spawn_held_child()));
+        let child = reap.0.as_mut().expect("child");
+        let mut params = owned_record(child);
+        params["expected_exe"] = json!(system_exe("cmd.exe"));
+        params["timeout_ms"] = json!(5000);
+        let started = Instant::now();
+        let error = super::wait_owned(&params).expect_err("executable mismatch");
+        let elapsed = started.elapsed();
+        println!("exe_mismatch_elapsed_ms={} error={error}", elapsed.as_millis());
+        assert!(error.contains("mismatch"), "{error}");
+        assert!(elapsed < Duration::from_millis(500), "mismatch consumed the caller wait: {elapsed:?}");
+        assert!(child.try_wait().expect("try_wait").is_none(), "mismatch killed or lost the child");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn already_signalled_or_missing_pid_is_retired_without_a_requery_loop() {
+        let mut child = spawn_held_child();
+        let params = owned_record(&child);
+        drop(child.stdin.take());
+        child.wait().expect("wait for own findstr child");
+        let started = Instant::now();
+        let signalled = super::wait_owned(&params).expect("signalled owned wait");
+        let signalled_elapsed = started.elapsed();
+        println!("already_signalled_elapsed_ms={} result={signalled}", signalled_elapsed.as_millis());
+        assert_eq!(signalled["exited"].as_bool(), Some(true));
+        assert!(
+            signalled_elapsed < Duration::from_millis(500),
+            "signalled handle consumed the settle or caller budget: {signalled_elapsed:?}"
+        );
+        let pid = params["pid"].as_u64().expect("pid");
+        drop(child);
+        let started = Instant::now();
+        let gone = super::wait_owned(&params);
+        let gone_elapsed = started.elapsed();
+        println!("pid_after_drop_elapsed_ms={} result={gone:?}", gone_elapsed.as_millis());
+        match gone {
+            Ok(value) => assert_eq!(value["exited"].as_bool(), Some(true), "pid {pid} stayed alive: {value}"),
+            Err(error) => assert!(error.contains("mismatch"), "pid {pid} was adopted: {error}"),
+        }
+        assert!(gone_elapsed < Duration::from_millis(500), "missing pid consumed the caller wait: {gone_elapsed:?}");
+    }
 }
 #[cfg(windows)]
 fn live_owned_identity(handle:windows_sys::Win32::Foundation::HANDLE,pid:u32)->Result<Option<Value>,String> {
-    settle_owned_query(owned_identity_from_handle(handle,pid),||owned_handle_alive(handle))
+    // Only a failed identity query may block, and only on this same handle.
+    settle_owned_query(owned_identity_from_handle(handle, pid), || {
+        owned_handle_alive_within(handle, OWNED_QUERY_RETIREMENT_SETTLE_MS)
+    })
 }
 
 #[cfg(windows)]
@@ -319,6 +721,34 @@ fn close_window_owned(params: &Value) -> Result<Value, String> {
 }
 #[cfg(not(windows))]
 fn close_window_owned(_: &Value) -> Result<Value, String> { Err("owned window close is supported only on Windows".into()) }
+
+#[cfg(windows)]
+fn wait_owned(params: &Value) -> Result<Value, String> {
+    let pid = required_u32(params, "pid")?;
+    let token = creation_token(params)?;
+    let expected = fs::canonicalize(required_str(params, "expected_exe")?).map_err(|e| e.to_string())?;
+    let timeout_ms = owned_wait_timeout(params)?;
+    // ERROR_INVALID_PARAMETER is the nonexistent PID. A later process is not adopted.
+    let Some(handle) = open_owned_process(pid, false)? else {
+        return Ok(json!({"exited": true}));
+    };
+    // The original object is already signalled. Do not query its image during exit.
+    if !owned_handle_alive(handle.0)? {
+        return Ok(json!({"exited": true}));
+    }
+    let Some(identity) = live_owned_identity(handle.0, pid)? else {
+        return Ok(json!({"exited": true}));
+    };
+    let actual = fs::canonicalize(required_str(&identity, "path")?).map_err(|e| e.to_string())?;
+    if actual != expected || creation_token(&identity)? != token {
+        return Err("owned process lifetime or executable mismatch; nothing waited".into());
+    }
+    // This is the same verified handle. Exit does not reopen the PID or reread the image.
+    let alive = owned_handle_alive_within(handle.0, timeout_ms)?;
+    Ok(json!({"exited": !alive}))
+}
+#[cfg(not(windows))]
+fn wait_owned(_: &Value) -> Result<Value, String> { Err("owned process wait is supported only on Windows".into()) }
 
 #[cfg(windows)]
 fn process_path(pid: u32) -> Result<PathBuf, String> {
@@ -842,6 +1272,7 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "workflow_member" => workflow_supervisor::member(&request.params),
         "run" => run_command(&request.params),
         "spawn" => spawn(&request.params),
+        "run_owned_to_files" => owned_run::run(&request.params),
         "inspect" => inspect(&request.params),
         "inspect_owned" => inspect_owned(&request.params),
         "tcp_listener" => tcp_listener(&request.params),
@@ -855,6 +1286,7 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "udp_send" => udp(&request.params),
         "sha256" => sha256(&request.params),
         "wait" => wait_for(&request.params),
+        "wait_owned" => wait_owned(&request.params),
         "sleep" => sleep(&request.params),
         "memory_dump" => memory_dump(&request.params),
         "screenshot" => screenshot(&request.params),

@@ -146,6 +146,13 @@ impl HeroCommand {
     }
 }
 
+/// Hold is the only persistent command that claims movement priority by itself.
+/// A move target and an active recall are separate. Stop leaves neither a
+/// command nor a move target, so idle autoattack policy stays unchanged.
+pub fn command_claims_movement_priority(has_move_target: bool, active: Option<HeroCommand>) -> bool {
+    has_move_target || matches!(active, Some(HeroCommand::HoldPosition))
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HeroCommandQueue {
     pub active: Option<HeroCommand>,

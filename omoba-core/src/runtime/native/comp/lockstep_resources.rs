@@ -168,6 +168,218 @@ pub struct PendingAbilityCast {
     pub owner_pid: u32,
 }
 
+/// Slot-only summoner requests admitted by the wire gate. Spell identity stays
+/// on the roster. Receipts record admission separately from settlement.
+#[derive(Default)]
+pub struct PendingSummonerCastQueue {
+    pub tick: Option<u32>,
+    pub requests: Vec<PendingSummonerCast>,
+    pub receipts: Vec<SummonerCastReceipt>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingSummonerCast {
+    pub owner_pid: u32,
+    pub request: crate::runtime::summoner_runtime::SummonerCastRequest,
+}
+
+/// Slot-0 ward requests admitted by the wire gate. Catalog stays on the server.
+/// `source_generation` is the actor life captured at admission. Drain does not
+/// rebind it, so a replacement cannot spend.
+#[derive(Default)]
+pub struct PendingWardPlacementQueue {
+    pub tick: Option<u32>,
+    pub requests: Vec<PendingWardPlacement>,
+    pub receipts: Vec<WardCommandReceipt>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PendingWardPlacement {
+    pub owner_pid: u32,
+    pub local_slot: u8,
+    pub x_raw: i64,
+    pub y_raw: i64,
+    pub source_generation: Option<u32>,
+    /// Lockstep acceptance correlation. Zero is not an admitted command.
+    pub admitted_correlation: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WardCommandReceipt {
+    pub player_id: u32,
+    pub slot: u32,
+    pub admitted_correlation: u32,
+    pub stage: crate::runtime::ward_transport::WardReceiptStage,
+    pub code: &'static str,
+    /// Actor life captured at admission. `None` stays generation 0 on the wire.
+    pub actor_generation: Option<u32>,
+}
+
+/// Owner-and-epoch journal of at most eight explicit ward outcomes.
+/// A ninth correlation retires the oldest into `uncertain_through`.
+/// An epoch change drops that owner's rows. This is not a second command route.
+#[derive(Clone, Debug, Default)]
+pub struct OwnerWardOutcomeJournal {
+    owners: std::collections::BTreeMap<u32, OwnerWardJournalRow>,
+}
+
+#[derive(Clone, Debug)]
+struct OwnerWardJournalRow {
+    epoch: u64,
+    uncertain_through: u32,
+    rows: Vec<crate::runtime::ward_transport::OwnerWardOutcome>,
+}
+
+impl OwnerWardOutcomeJournal {
+    pub fn note(&mut self, player: u32, epoch: u64, outcome: crate::runtime::ward_transport::OwnerWardOutcome) {
+        use crate::runtime::ward_transport::{
+            OWNER_WARD_OUTCOME_ADMITTED, OWNER_WARD_OUTCOME_CAPACITY, OWNER_WARD_OUTCOME_REJECTED, OWNER_WARD_OUTCOME_SETTLED,
+        };
+        if player == 0 || epoch == 0 || outcome.admitted_correlation == 0 || outcome.slot != 0 {
+            return;
+        }
+        if !matches!(outcome.stage, OWNER_WARD_OUTCOME_ADMITTED | OWNER_WARD_OUTCOME_SETTLED | OWNER_WARD_OUTCOME_REJECTED) {
+            return;
+        }
+        let row = self.owners.entry(player).or_insert_with(|| OwnerWardJournalRow {
+            epoch,
+            uncertain_through: 0,
+            rows: Vec::new(),
+        });
+        if row.epoch != epoch {
+            *row = OwnerWardJournalRow { epoch, uncertain_through: 0, rows: Vec::new() };
+        }
+        if outcome.admitted_correlation <= row.uncertain_through {
+            return;
+        }
+        if let Some(existing) = row.rows.iter_mut().find(|item| item.admitted_correlation == outcome.admitted_correlation) {
+            if existing.stage == OWNER_WARD_OUTCOME_ADMITTED && outcome.stage != OWNER_WARD_OUTCOME_ADMITTED {
+                *existing = outcome;
+            }
+            return;
+        }
+        row.rows.push(outcome);
+        row.rows.sort_by_key(|item| item.admitted_correlation);
+        while row.rows.len() > OWNER_WARD_OUTCOME_CAPACITY {
+            let dropped = row.rows.remove(0);
+            row.uncertain_through = row.uncertain_through.max(dropped.admitted_correlation);
+        }
+    }
+
+    pub fn block_for(&self, player: u32, epoch: u64) -> crate::runtime::ward_transport::OwnerWardOutcomeBlock {
+        use crate::runtime::ward_transport::OwnerWardOutcomeBlock;
+        let Some(row) = self.owners.get(&player) else {
+            return OwnerWardOutcomeBlock::default();
+        };
+        if row.epoch != epoch {
+            return OwnerWardOutcomeBlock::default();
+        }
+        let mut block = OwnerWardOutcomeBlock {
+            uncertain_through: row.uncertain_through,
+            count: row.rows.len() as u8,
+            rows: [crate::runtime::ward_transport::OwnerWardOutcome::default(); crate::runtime::ward_transport::OWNER_WARD_OUTCOME_CAPACITY],
+        };
+        for (index, item) in row.rows.iter().enumerate() {
+            block.rows[index] = *item;
+        }
+        block
+    }
+}
+
+/// One admitted command's trusted actor life, aligned with `PendingPlayerInputs`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AdmittedCommandIdentity {
+    pub player_id: u32,
+    pub correlation: u32,
+    pub actor_generation: Option<u32>,
+}
+
+#[derive(Default)]
+pub struct AdmittedCommandIdentities {
+    pub rows: Vec<AdmittedCommandIdentity>,
+}
+
+/// Per-owner view epoch used to retire ward command retention.
+#[derive(Default)]
+pub struct WardAdmissionEpoch {
+    pub by_player: std::collections::BTreeMap<u32, u64>,
+}
+
+const WARD_COMMAND_RETENTION: usize = 256;
+
+#[derive(Clone)]
+struct OwnerWardRetention {
+    epoch: u64,
+    expired_through: u32,
+    order: std::collections::VecDeque<u32>,
+    closed: std::collections::BTreeSet<u32>,
+}
+
+impl Default for OwnerWardRetention {
+    fn default() -> Self {
+        Self {
+            epoch: 0,
+            expired_through: 0,
+            order: std::collections::VecDeque::new(),
+            closed: std::collections::BTreeSet::new(),
+        }
+    }
+}
+
+/// Bounded closed command correlations. A second settle does not spend.
+/// Changing the owner's epoch drops that owner's retention.
+#[derive(Default)]
+pub struct WardSettledInputIds {
+    owners: std::collections::BTreeMap<u32, OwnerWardRetention>,
+}
+
+impl WardSettledInputIds {
+    pub fn observe_epoch(&mut self, player: u32, epoch: u64) {
+        if let Some(row) = self.owners.get_mut(&player) {
+            if row.epoch != epoch {
+                *row = OwnerWardRetention { epoch, ..OwnerWardRetention::default() };
+            }
+        }
+    }
+
+    pub fn is_closed(&self, player: u32, epoch: u64, correlation: u32) -> bool {
+        let Some(row) = self.owners.get(&player) else {
+            return false;
+        };
+        row.epoch == epoch
+            && correlation != 0
+            && (correlation <= row.expired_through || row.closed.contains(&correlation))
+    }
+
+    pub fn close(&mut self, player: u32, epoch: u64, correlation: u32) {
+        if player == 0 || correlation == 0 {
+            return;
+        }
+        let row = self.owners.entry(player).or_default();
+        if row.epoch != epoch {
+            *row = OwnerWardRetention { epoch, ..OwnerWardRetention::default() };
+        }
+        if row.closed.insert(correlation) {
+            row.order.push_back(correlation);
+            while row.order.len() > WARD_COMMAND_RETENTION {
+                if let Some(expired) = row.order.pop_front() {
+                    row.closed.remove(&expired);
+                    row.expired_through = row.expired_through.max(expired);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SummonerCastReceipt {
+    pub player_id: u32,
+    pub slot: u32,
+    pub stage: crate::runtime::summoner_transport::SummonerReceiptStage,
+    pub code: &'static str,
+    pub effect_class: Option<&'static str>,
+}
+
 /// Deterministic tower active-ability pulse opportunities awaiting script
 /// dispatch. Dispatch drains these records before the tower scheduler advances
 /// the same tower on the next authoritative tick.
@@ -245,6 +457,8 @@ pub struct PendingItemUseQueue {
     pub requests: Vec<PendingItemAction>,
     /// Tick-local authority results, consumed by the team projector.
     pub settlements: Vec<crate::runtime::shop::ShopSettlement>,
+    /// Undo results. Separate from the buy/sell FIFO.
+    pub undo_settlements: Vec<crate::runtime::shop::ShopUndoSettlement>,
 }
 
 #[derive(Clone, Debug)]
@@ -254,14 +468,33 @@ pub enum PendingItemAction {
         owner_pid: u32,
         command: crate::runtime::shop::ShopCommand,
     },
+    Undo {
+        owner_pid: u32,
+        request: crate::runtime::shop::ShopUndoRequest,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub struct PendingItemUse {
     pub item_slot: u32,
     pub target_pos: Option<SimVec2>,
+    /// Legacy scalar coordinates are not point presence. True only for an explicit point.
+    pub point_explicit: bool,
+    /// Command index only. It is not a life and it is not an origin.
     pub target_entity: Option<u32>,
+    /// Local generation supplied by secure rewrite or filtered injection.
+    /// Absent means the in-process command did not name a life. Zero is rejected
+    /// rather than resolved to whatever entity now owns the index.
+    pub target_generation: Option<u32>,
     pub owner_pid: u32,
+    /// Trusted owner index stamped at acceptance. Not an ECS `Entity` and not a canonical id.
+    pub owner_index: Option<u32>,
+    /// Paired with `owner_index`. The first bind must use this pair. Zero is not a life.
+    pub owner_generation: Option<u32>,
+    /// Set by `bind_queued_item_lives`. Drain must not resolve the index again.
+    pub lives_bound: bool,
+    pub owner_entity: Option<Entity>,
+    pub target_life: Option<Entity>,
 }
 
 /// Hero command requests from MoveTo / AttackMove / AttackTarget. They are
@@ -285,6 +518,8 @@ pub struct PendingHeroCommand {
 #[derive(Clone, Debug)]
 pub enum PendingHeroCommandKind {
     HoldPosition,
+    /// One-shot clear. It never becomes a persistent `HeroCommand`.
+    Stop,
     MoveTo { pos: SimVec2 },
     AttackMove { pos: SimVec2 },
     AttackTarget { target_entity_id: u32 },

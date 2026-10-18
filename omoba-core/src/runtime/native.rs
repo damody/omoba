@@ -5,6 +5,7 @@
 //! before moving the larger gameplay code.
 
 pub mod ability_runtime;
+pub mod combat_acquisition;
 pub mod comp;
 pub mod events;
 pub mod economy_projection;
@@ -16,6 +17,8 @@ pub mod input;
 pub mod item;
 pub mod shop;
 pub mod moba_match;
+pub mod summoner_world;
+pub mod ward_world;
 pub mod moba_assist;
 pub mod scene;
 pub mod scripting;
@@ -36,9 +39,24 @@ pub use comp::*;
 pub use events::{
     RuntimeBroadcast, RuntimeEvent, RuntimeEventSink, RuntimeEventVecSink, RuntimeEvents,
 };
+pub use summoner_world::{
+    drain_pending_summoner_casts, project_team_summoners, summoner_projection_metadata,
+    validate_server_loadouts,
+};
+pub use ward_world::{
+    apply_configured_trinket_loadouts, copied_ward_roster, drain_pending_ward_placements,
+    install_ward_admission_epochs, project_private_owner_ward, retire_owner_wards,
+    route_admitted_ward_placement, set_authoritative_trinket_loadout, settle_ward_placement,
+    trusted_actor_generation, validate_trinket_loadouts, WardPlacementIdentity, WardPlacementReceipt,
+    WardPlacementRequest, WardReject, WardRosterState, WARD_LOCAL_SLOT,
+};
+#[cfg(any(test, feature = "test-support"))]
+pub use ward_world::override_retained_ward_combat_policy;
 pub use game_processor::{
     drain_pending_ability_casts, drain_pending_ability_upgrades, drain_pending_hero_command_clears,
-    drain_pending_item_uses, drain_pending_moves, drain_pending_tower_ability_casts,
+    bind_queued_item_lives, canonical_item_owner, clear_untrusted_item_life, drain_pending_item_uses,
+    drain_pending_moves, overwrite_item_owner_canonical, pending_item_use_from_command,
+    seal_item_use_owner, write_local_item_actor, drain_pending_tower_ability_casts,
     drain_pending_tower_sells, drain_pending_tower_spawns, drain_pending_tower_target_priorities,
     drain_pending_tower_upgrades, handle_ability_cast_from_input,
     handle_ability_upgrade_from_input, handle_item_use_from_input,
@@ -51,11 +69,14 @@ pub use gameplay_phases::*;
 pub use initialization::{
     create_world_for_scene, create_world_for_scene_with_content, create_world_from_loaded_content,
     populate_ability_registry, populate_tower_template_registry, populate_tower_upgrade_registry,
-    StateInitializer,
+    OwnedEcsPool, StateInitializer,
 };
 pub use input::*;
 pub use moba_match::*;
-pub use item::{sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry};
+pub use item::{
+    apply_item_stats, sell_price, ActiveEffect, ItemBonus, ItemConfig, ItemRegistry,
+    ItemStatAggregate, ItemStatApplication,
+};
 pub use scene::*;
 pub use scripting::{
     drain_pending_tower_ability_callbacks, run_script_dispatch, ScriptEvent, ScriptEventQueue,

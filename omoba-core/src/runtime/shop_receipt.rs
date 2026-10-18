@@ -353,6 +353,7 @@ mod tests {
                         )
                         .unwrap(),
                         shop_available: false,
+                        shop_reason: crate::runtime::native::economy_projection::SHOP_REASON_HERO_ABSENT,
                         shield_remaining_raw: 0,
                     },
                 },

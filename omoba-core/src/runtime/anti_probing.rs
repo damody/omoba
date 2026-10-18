@@ -47,6 +47,26 @@ pub struct SecureInputValidationSnapshot {
 pub type SharedSecureInputValidationSnapshot = Arc<Mutex<SecureInputValidationSnapshot>>;
 
 impl SecureInputValidationSnapshot {
+    /// Source-only commands still require the authenticated team's current
+    /// view, exact disclosure and input-tick visibility. Resolve no target.
+    pub fn validate_actor_and_resolve(
+        &self,
+        authenticated_team: u32,
+        input_tick: u64,
+        actor: SecureTargetReference,
+    ) -> Result<u64, GeneralizedInputRejection> {
+        if actor.replica_id == 0 || actor.view_epoch == 0 || actor.disclosure_epoch == 0 {
+            return Err(GeneralizedInputRejection::InvalidTarget);
+        }
+        self.validate(authenticated_team, input_tick, actor, actor)?;
+        let canonical = self.teams[&authenticated_team].replicas[&actor.replica_id].canonical_id;
+        let generation = canonical >> 32;
+        if generation == 0 || generation > i32::MAX as u64 {
+            return Err(GeneralizedInputRejection::InvalidTarget);
+        }
+        Ok(canonical)
+    }
+
     pub fn validate(
         &self,
         authenticated_team: u32,
@@ -109,6 +129,46 @@ impl SecureInputValidationSnapshot {
             .ok_or(GeneralizedInputRejection::InvalidTarget)?
             .canonical_id;
         Ok((actor, target))
+    }
+}
+
+#[cfg(test)]
+mod directional_source_tests {
+    use super::*;
+
+    #[test]
+    fn direction_source_resolution_requires_owned_visible_exact_life() {
+        let actor=SecureTargetReference {replica_id:9,view_epoch:4,disclosure_epoch:3};
+        let canonical=(2_u64<<32)|7;
+        let mut view=TeamInputValidationView {view_epoch:4,..Default::default()};
+        view.replicas.insert(9,ReplicaValidationRecord {canonical_id:canonical,
+            disclosure_epoch:3,owner_team:Some(1)});
+        view.visible_by_tick.insert(10,[canonical].into_iter().collect());
+        view.visible_by_tick.insert(12,Default::default());
+        let mut snapshot=SecureInputValidationSnapshot::default();snapshot.teams.insert(1,view);
+        assert_eq!(snapshot.validate_actor_and_resolve(1,10,actor),Ok(canonical));
+        assert_eq!(snapshot.validate_actor_and_resolve(1,11,actor),Ok(canonical));
+        let rejected=Err(GeneralizedInputRejection::InvalidTarget);
+        assert_eq!(snapshot.validate_actor_and_resolve(1,9,actor),rejected);
+        assert_eq!(snapshot.validate_actor_and_resolve(1,12,actor),rejected);
+        assert_eq!(snapshot.validate_actor_and_resolve(2,10,actor),rejected);
+        for bad in [SecureTargetReference {replica_id:0,..actor},
+            SecureTargetReference {replica_id:10,..actor},
+            SecureTargetReference {view_epoch:0,..actor},
+            SecureTargetReference {view_epoch:5,..actor},
+            SecureTargetReference {disclosure_epoch:0,..actor},
+            SecureTargetReference {disclosure_epoch:4,..actor}] {
+            assert_eq!(snapshot.validate_actor_and_resolve(1,10,bad),rejected);
+        }
+        snapshot.teams.get_mut(&1).unwrap().replicas.get_mut(&9).unwrap().owner_team=Some(2);
+        assert_eq!(snapshot.validate_actor_and_resolve(1,10,actor),rejected);
+        snapshot.teams.get_mut(&1).unwrap().replicas.get_mut(&9).unwrap().owner_team=Some(1);
+        for bad in [7,1_u64<<63,u64::MAX] {
+            let view=snapshot.teams.get_mut(&1).unwrap();
+            view.replicas.get_mut(&9).unwrap().canonical_id=bad;
+            view.visible_by_tick.insert(10,[bad].into_iter().collect());
+            assert_eq!(snapshot.validate_actor_and_resolve(1,10,actor),rejected);
+        }
     }
 }
 

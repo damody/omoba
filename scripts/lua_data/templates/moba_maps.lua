@@ -13,6 +13,16 @@ local maps = {
       { id = "north_island", min = {1150, 1200}, max = {1250, 1250} },
       { id = "south_island", min = {1150, -1250}, max = {1250, -1200} },
     },
+    -- Public visual surfaces. They never participate in movement, fog geometry,
+    -- lane routing, camp leashes or authoritative collision.
+    presentation_surfaces = {
+      { id = "central_river", kind = "river", width = 80,
+        points = {{1200,-1360},{1050,-700},{1250,0},{1100,700},{1200,1360}} },
+      { id = "northwest_grove", kind = "jungle", width = 0, points = {{400,200},{1000,1150}} },
+      { id = "northeast_grove", kind = "jungle", width = 0, points = {{1400,200},{2000,1150}} },
+      { id = "southwest_grove", kind = "jungle", width = 0, points = {{400,-1150},{1000,-200}} },
+      { id = "southeast_grove", kind = "jungle", width = 0, points = {{1400,-1150},{2000,-200}} },
+    },
     jungle_camps = {
       { id = "north_guardian", position = {800, 700}, hp = 450, damage = 30,
         move_speed = 260, attack_range = 130, leash_radius = 450,

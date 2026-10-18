@@ -6,7 +6,8 @@ use prost::Message;
 use sha2::{Digest, Sha256};
 
 use crate::game_proto::{
-    transition, AuthorityRevision, ComponentRepair, DeterministicMetadata, DisclosureEpoch,
+    transition, AuthoritativeModePresentation, AuthorityRevision, ComponentRepair,
+    DeterministicMetadata, DisclosureEpoch,
     EntityReplace, FilteredTeamSnapshot, ForgetEntity, HideEntity, PostStep, PreStep,
     ReplicaEntityId as ProtoReplicaEntityId, RevealEntity, SanitizedExternalEffect, SnapshotId,
     Step, TeamGameStart, TeamHashCheckpoint, TeamPublicEvent, TeamTickFrame, TeamViewRebase,
@@ -195,6 +196,12 @@ pub struct TeamViewProjector {
     latest_external_property_by_replica: BTreeMap<u64, Vec<u8>>,
     fog_grid: Option<crate::runtime::fog_grid::AuthorityFogGrid>,
     pending_fog_event: Option<TeamPublicEvent>,
+    prepared_mode: Option<AuthoritativeModePresentation>,
+    combat_preferences: Option<crate::game_proto::CombatPreferencesProjection>,
+    /// Last step's owner-undo hash material. Empty before the first frame and
+    /// whenever that step had no owner-undo fact. The next bootstrap and rebase
+    /// carry this vector; they do not recompute it from private ledger state.
+    retained_owner_undo_material: Vec<u8>,
 }
 
 #[derive(Default)]
@@ -207,6 +214,19 @@ pub struct TeamProjectionRuntime {
     pub latest_rebases: BTreeMap<u32, RecoveryRebaseBundle>,
     pending_rebase_outbound: BTreeMap<u32, PendingRebaseOutbound>,
     pub pending_accepted_inputs: Vec<CanonicalAcceptedInput>,
+}
+
+impl TeamProjectionRuntime {
+    /// Current team disclosure and view epoch. The caller must not keep this
+    /// borrow across a later mutable world fetch.
+    pub fn communication_disclosure(&self, team_id: u32) -> Option<(&TeamIdentityState, u64)> {
+        self.projectors.get(&team_id).map(|projector| (&projector.identity, projector.view_epoch))
+    }
+
+    /// Owned copies so the authority drain can release this borrow before admission.
+    pub fn communication_disclosures(&self) -> Vec<(u32, u64, TeamIdentityState)> {
+        self.projectors.iter().map(|(team_id, projector)| (*team_id, projector.view_epoch, projector.identity.clone())).collect()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -391,9 +411,36 @@ pub fn run_team_projection_after_wave_b(
     if !committed.barrier_reached {
         return Ok(());
     }
-    let settlements = std::mem::take(
-        &mut world.write_resource::<crate::runtime::PendingItemUseQueue>().settlements,
-    );
+    let (settlements, undo_settlements) = {
+        let mut queue = world.write_resource::<crate::runtime::PendingItemUseQueue>();
+        (
+            std::mem::take(&mut queue.settlements),
+            std::mem::take(&mut queue.undo_settlements),
+        )
+    };
+    // Read the authority roster before the mutable projection borrow. An empty
+    // decode, or no MOBA match, leaves the manifest field empty.
+    let authoritative_game_mode = world
+        .try_fetch::<crate::runtime::native::comp::GameMode>()
+        .map(|mode| *mode);
+    let combat_projections: BTreeMap<_, _> = world.try_fetch::<crate::runtime::MobaMatch>().map(|match_state| {
+        visibility.teams.iter().filter_map(|(team, visibility_state)| {
+            crate::runtime::combat_transport::project(&match_state, *team, &visibility_state.index.current, 1)
+                .map(|projection| (*team, projection))
+        }).collect()
+    }).unwrap_or_default();
+    let admitted_summoners = world.try_fetch::<crate::runtime::MobaMatch>().map(|state| {
+        let mut rows = BTreeMap::new();
+        for team in state.config.teams {
+            let bytes = crate::runtime::project_team_summoners(&state, team);
+            if crate::runtime::summoner_transport::decode_projected_summoners(&bytes)
+                .is_some_and(|decoded| !decoded.is_empty())
+            {
+                rows.insert(team, bytes);
+            }
+        }
+        rows
+    }).unwrap_or_default();
     let (mut runtime, mut coordinator) = <(
         Write<TeamProjectionRuntime>,
         Write<crate::runtime::AuthorityRepairCoordinator>,
@@ -414,6 +461,11 @@ pub fn run_team_projection_after_wave_b(
             .projectors
             .entry(*team)
             .or_insert_with(|| TeamViewProjector::new(*team, TeamProjectorConfig::default()));
+        let combat_projection = combat_projections.get(team).cloned().map(|mut projection| {
+            projection.view_epoch = projector.view_epoch;
+            projection
+        });
+        projector.prepare_combat_preferences(combat_projection)?;
         projector.refresh_expected_visible_components(
             committed.tick,
             &state.index.current,
@@ -438,11 +490,16 @@ pub fn run_team_projection_after_wave_b(
             // hash_entities is the committed result of replica tick T. A
             // rebase consumer must resume by executing T+1, not execute T a
             // second time from an already-completed baseline.
-            let bundle = projector.build_filtered_rebase(
+            let mut bundle = projector.build_filtered_rebase(
                 next_tick_after_committed(committed.tick),
                 resume_sequence,
                 view_epoch,
             )?;
+            if let Some(bytes) = admitted_summoners.get(team) {
+                bundle.manifest.admitted_summoner_projection = bytes.clone();
+                bundle.manifest.manifest_hash =
+                    crate::runtime::manifest_hash(&bundle.manifest).to_vec();
+            }
             projector.enqueue_rebase_notice(crate::runtime::rebase_notice(
                 bundle
                     .manifest
@@ -460,7 +517,8 @@ pub fn run_team_projection_after_wave_b(
             ));
             rebases.insert(*team, bundle);
         }
-        let frame = projector.build_frame_with_settlements(
+        projector.prepare_authoritative_mode(authoritative_game_mode);
+        let frame = projector.build_frame_with_undo_settlements(
             server_tick,
             committed.tick,
             &state.index.current,
@@ -473,6 +531,7 @@ pub fn run_team_projection_after_wave_b(
                 .cloned()
                 .collect(),
             &settlements,
+            &undo_settlements,
         )?;
         if committed.tick % projector.config.hash_checkpoint_interval_ticks.max(1) == 0 {
             record_expected_component_evidence(
@@ -562,7 +621,27 @@ impl TeamViewProjector {
             latest_external_property_by_replica: BTreeMap::new(),
             fog_grid: None,
             pending_fog_event: None,
+            prepared_mode: None,
+            combat_preferences: None,
+            retained_owner_undo_material: Vec::new(),
         }
+    }
+
+    pub fn prepare_authoritative_mode(
+        &mut self,
+        mode: Option<crate::runtime::native::comp::GameMode>,
+    ) {
+        self.prepared_mode = mode.and_then(|mode| {
+            crate::runtime::authoritative_mode::presentation(mode, self.view_epoch)
+        });
+    }
+
+    pub fn prepare_combat_preferences(&mut self, projection: Option<crate::game_proto::CombatPreferencesProjection>)
+        -> Result<(), ProjectionError> {
+        crate::runtime::combat_transport::decode_projection(projection.as_ref(), self.view_epoch)
+            .map_err(|_| ProjectionError::MalformedDisclosedState)?;
+        self.combat_preferences = projection;
+        Ok(())
     }
 
     pub fn sample_authority_fog(
@@ -731,10 +810,19 @@ impl TeamViewProjector {
             &disclosed_world,
             &chunks,
         );
+        manifest.combat_preferences = self.combat_preferences.clone().map(|mut projection| {
+            projection.view_epoch = view_epoch;
+            projection
+        });
+        if !self.retained_owner_undo_material.is_empty() {
+            manifest.retained_owner_undo_material = self.retained_owner_undo_material.clone();
+        }
         if let Some(grid) = recovered_fog.as_ref().and_then(|grid| grid.latest()) {
             if grid.tick > authoritative_tick { return Err(ProjectionError::InvalidFog("future fog rebase")); }
             manifest.manifest_version = 2;
             manifest.fog_grid = Some(grid.to_presentation());
+        }
+        if manifest.fog_grid.is_some() || !manifest.retained_owner_undo_material.is_empty() || manifest.combat_preferences.is_some() {
             manifest.manifest_hash = crate::runtime::selective::manifest_hash(&manifest).to_vec();
         }
         if view_epoch != self.view_epoch {
@@ -742,6 +830,7 @@ impl TeamViewProjector {
                 .map(|grid| grid.presentation_event()).transpose().map_err(ProjectionError::InvalidFog)?;
         }
         self.view_epoch = view_epoch;
+        self.combat_preferences = manifest.combat_preferences.clone();
         self.fog_grid = recovered_fog;
         Ok(RecoveryRebaseBundle { chunks, manifest })
     }
@@ -773,6 +862,11 @@ impl TeamViewProjector {
                 schema_version: 1,
                 value: snapshot.encode().expect("validated authority fog snapshot"),
             });
+        }
+        if let Some(entry) = crate::runtime::shop_undo_wire::retained_owner_undo_metadata(
+            &self.retained_owner_undo_material,
+        ) {
+            team_private_metadata.push(entry);
         }
         let snapshot = FilteredTeamSnapshot {
             snapshot_schema_version: 1,
@@ -820,6 +914,13 @@ impl TeamViewProjector {
             mana_rules_hash: String::new(),
             command_protocol_version: 0,
             command_rules_hash: String::new(),
+            summoner_protocol_version: 0,
+            summoner_rules_hash: String::new(),
+            ward_protocol_version: 0,
+            ward_rules_hash: String::new(),
+            owner_ward_projection: Vec::new(),
+            owner_ward_envelope: None,
+            combat_preferences: self.combat_preferences.clone(),
         }
     }
 
@@ -884,9 +985,27 @@ impl TeamViewProjector {
         accepted_inputs: Vec<CanonicalAcceptedInput>,
         settlements: &[crate::runtime::shop::ShopSettlement],
     ) -> Result<PaddedTeamFrame, ProjectionError> {
+        self.build_frame_with_undo_settlements(
+            server_tick, replica_tick, visible, transitions, facts, graph,
+            accepted_inputs, settlements, &[],
+        )
+    }
+
+    pub fn build_frame_with_undo_settlements(
+        &mut self,
+        server_tick: u64,
+        replica_tick: u64,
+        visible: &BTreeSet<u64>,
+        transitions: Vec<VisibilityTransition>,
+        facts: &[OrderedFact],
+        graph: &ProjectionDependencyGraph,
+        accepted_inputs: Vec<CanonicalAcceptedInput>,
+        settlements: &[crate::runtime::shop::ShopSettlement],
+        undo_settlements: &[crate::runtime::shop::ShopUndoSettlement],
+    ) -> Result<PaddedTeamFrame, ProjectionError> {
         self.pending_reveals.extend(transitions);
         let pre_step = self.build_pre_step(replica_tick, visible, graph)?;
-        let step = self.build_step(replica_tick, visible, facts, accepted_inputs, settlements)?;
+        let step = self.build_step(replica_tick, visible, facts, accepted_inputs, settlements, undo_settlements)?;
         // Recovery actions are queued before visibility transitions are
         // projected.  A unit can leave vision in that same frame; never emit a
         // post-step repair/replace for an entity pre-step just removed.
@@ -902,10 +1021,17 @@ impl TeamViewProjector {
                 .as_ref()
                 .is_some_and(|id| self.hash_entities.contains_key(&id.value))
         });
+        let undo_material = crate::runtime::shop_undo_wire::owner_undo_hash_material(&step.public_events);
+        if crate::runtime::shop_undo_wire::canonical_retained_owner_undo_material(&undo_material).is_none() {
+            return Err(ProjectionError::MalformedDisclosedState);
+        }
+        self.retained_owner_undo_material = undo_material.clone();
         let hash = expected_team_hash(
             self.team_id,
             replica_tick.saturating_add(1),
             &self.hash_entities,
+            &undo_material,
+            self.combat_preferences.as_ref(),
         );
         let post_step = PostStep {
             component_repairs: self.pending_component_repairs.drain(..).collect(),
@@ -939,6 +1065,8 @@ impl TeamViewProjector {
             step: Some(step),
             post_step: Some(post_step),
             padding: Vec::new(),
+            authoritative_mode: self.prepared_mode.take(),
+            combat_preferences: self.combat_preferences.clone(),
         };
         self.sequence = self.sequence.saturating_add(1);
         // Reserve the following revision for post-step authoritative repairs.
@@ -1130,10 +1258,14 @@ impl TeamViewProjector {
         facts: &[OrderedFact],
         accepted: Vec<CanonicalAcceptedInput>,
         settlements: &[crate::runtime::shop::ShopSettlement],
+        undo_settlements: &[crate::runtime::shop::ShopUndoSettlement],
     ) -> Result<Step, ProjectionError> {
         let mut public_events = crate::runtime::shop_receipt::project_shop_receipts(
             self.team_id, replica_tick, &accepted, settlements,
         )?;
+        public_events.extend(crate::runtime::shop_undo_wire::project_shop_undo_receipts(
+            self.team_id, replica_tick, &accepted, undo_settlements,
+        )?);
         let mut external_effects = Vec::new();
         let policies = crate::runtime::ProjectionPolicyRegistry::secure_defaults();
         if let Some(id) = facts.iter().find_map(|fact| match &fact.audience {
@@ -1154,7 +1286,7 @@ impl TeamViewProjector {
             )
         });
         for fact in ordered {
-            if let ObservableFact::OwnerEconomy { team, .. } = &fact.fact {
+            if let ObservableFact::OwnerEconomy { team, .. } | ObservableFact::OwnerShopUndo { team, .. } = &fact.fact {
                 if *team != self.team_id || !matches!(fact.audience, FactAudience::Team(value) if value == self.team_id) {
                     continue;
                 }
@@ -1188,6 +1320,10 @@ impl TeamViewProjector {
         }
         if let Some(event) = self.pending_fog_event.take() { public_events.push(event); }
         for (&id, (_, _, components)) in &self.hash_entities {
+            if let Some(state) = components.get(&crate::runtime::channel_visual_state::SCHEMA_ID) {
+                public_events.push(TeamPublicEvent { event_kind: crate::runtime::FactKind::ChannelVisual as u32,
+                    subject: Some(ProtoReplicaEntityId { value: id }), sanitized_payload: state.clone(), stable_sub_index: 0 });
+            }
             if let Some(state) = components.get(&crate::runtime::attack_visual_state::SCHEMA_ID) {
                 public_events.push(TeamPublicEvent { event_kind: crate::runtime::FactKind::AttackVisual as u32,
                     subject: Some(ProtoReplicaEntityId { value: id }), sanitized_payload: state.clone(), stable_sub_index: 0 });
@@ -1231,23 +1367,37 @@ impl TeamViewProjector {
         let mut accepted_inputs = accepted
             .into_iter()
             .filter(|input| input.team_id == self.team_id)
+            .filter(|input| !super::input_scheme_transport::is_owner_setting_action(input.action_kind) ||
+                super::input_scheme_transport::owner_setting_available(self.combat_preferences.as_ref(),self.view_epoch,input.action_kind,input.player_id))
             .filter_map(|input| {
-                let actor = replica_proto(&self.identity, input.actor_canonical_id)?;
+                if input.action_kind==super::direction_transport::ACTION_KIND
+                    && !super::direction_transport::available(self.combat_preferences.as_ref(),self.view_epoch,input.player_id) {return None;}
+                let actor = if super::input_scheme_transport::is_owner_setting_action(input.action_kind) && input.actor_canonical_id == 0 {
+                    None
+                } else {
+                    Some(replica_proto(&self.identity, input.actor_canonical_id)?)
+                };
                 let target = input
                     .target_canonical_id
                     .and_then(|id| replica_proto(&self.identity, id));
                 if input.target_canonical_id.is_some() && target.is_none() {
                     return None;
                 }
-                Some(crate::game_proto::TeamAcceptedInput {
+                let projected = crate::game_proto::TeamAcceptedInput {
                     player_id: input.player_id,
                     input_id: input.input_id,
                     action_kind: input.action_kind,
-                    actor: Some(actor),
+                    actor,
                     target,
                     sanitized_payload: input.sanitized_payload,
                     stable_sub_index: 0,
-                })
+                };
+                if super::input_scheme_transport::is_owner_setting_action(projected.action_kind)
+                    && super::input_scheme_transport::validate_owner_setting_ack(&projected).is_err() { return None; }
+                if projected.action_kind==super::direction_transport::ACTION_KIND
+                    && super::direction_transport::validate_projected_ack(&projected).is_err() {return None;}
+                if super::direction_transport::reject_kind_alias(&projected).is_err() {return None;}
+                Some(projected)
             })
             .collect::<Vec<_>>();
         accepted_inputs.sort_by_key(|input| (input.player_id, input.input_id));
@@ -1347,6 +1497,7 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
             (Some(*source), None, payload)
         }
         ObservableFact::OwnerEconomy { state, .. } => (None, None, state.encode()),
+        ObservableFact::OwnerShopUndo { state, .. } => (None, None, state.encode()),
         ObservableFact::CommittedEconomy { source, state } => (Some(*source), None, state.encode()),
         ObservableFact::CommittedEquipmentStats { source, hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw } => {
             for value in [hp_raw, max_hp_raw, speed_raw, armor_raw, attack_raw] { payload.extend(value.to_le_bytes()); }
@@ -1575,9 +1726,11 @@ fn expected_team_hash(
     team: u32,
     tick: u64,
     entities: &BTreeMap<u64, (u64, u32, BTreeMap<u32, Vec<u8>>)>,
+    undo_material: &[u8],
+    combat_preferences: Option<&crate::game_proto::CombatPreferencesProjection>,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"omoba-canonical-team-view-v1\0");
+    hasher.update(crate::runtime::shop_undo_wire::CANONICAL_TEAM_VIEW_DOMAIN);
     hasher.update(team.to_be_bytes());
     hasher.update(tick.to_be_bytes());
     for (replica_id, (epoch, entity_kind, components)) in entities {
@@ -1590,6 +1743,8 @@ fn expected_team_hash(
             hasher.update(bytes);
         }
     }
+    crate::runtime::shop_undo_wire::mix_team_undo_material(&mut hasher, undo_material);
+    crate::runtime::combat_transport::mix_projection_hash(&mut hasher, combat_preferences);
     hasher.finalize().into()
 }
 
@@ -1784,7 +1939,7 @@ mod ability_cue_projection_tests {
                 (SCHEMA_ID,state.encode().unwrap())]);
             let visible=BTreeSet::from([source]);
             projector.refresh_expected_visible_components(tick,&visible,&BTreeMap::from([(source,baseline)]));
-            let step=projector.build_step(tick,&visible,&[],vec![],&[]).unwrap();
+            let step=projector.build_step(tick,&visible,&[],vec![],&[],&[]).unwrap();
             let events:Vec<_>=step.public_events.iter().filter(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32).collect();
             assert_eq!(events.len(),1);assert_eq!(events[0].subject.as_ref().unwrap().value,mapping.replica_id.get());
             assert_eq!(events[0].sanitized_payload,state.encode().unwrap());
@@ -1808,15 +1963,41 @@ mod ability_cue_projection_tests {
                 (SCHEMA_ID, state.encode().unwrap())]);
             let visible = BTreeSet::from([source]);
             projector.refresh_expected_visible_components(tick, &visible, &BTreeMap::from([(source, baseline)]));
-            let step = projector.build_step(tick, &visible, &[], vec![], &[]).unwrap();
+            let step = projector.build_step(tick, &visible, &[], vec![], &[], &[]).unwrap();
             let events: Vec<_> = step.public_events.iter().filter(|event| event.event_kind == crate::runtime::FactKind::AttackVisual as u32).collect();
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].subject.as_ref().unwrap().value, mapping.replica_id.get());
             assert_eq!(events[0].sanitized_payload, state.encode().unwrap());
         }
         projector.hash_entities.clear();
-        let hidden = projector.build_step(4, &BTreeSet::new(), &[], vec![], &[]).unwrap();
+        let hidden = projector.build_step(4, &BTreeSet::new(), &[], vec![], &[], &[]).unwrap();
         assert!(!hidden.public_events.iter().any(|event| event.event_kind == crate::runtime::FactKind::AttackVisual as u32));
+    }
+
+    #[test]
+    fn channel_visual_state_projector_discloses_visible_enemy_and_clears_channel() {
+        use crate::runtime::channel_visual_state::{ChannelVisualState,SCHEMA_ID};
+        assert!(crate::runtime::secure_replica_component_allowlist().contains(&SCHEMA_ID));
+        let canonical=CanonicalEntityKey{id:7,generation:1};let source=(1u64<<32)|7;
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig::default());
+        let mapping=projector.identity.disclose(canonical).unwrap();
+        projector.hash_entities.insert(mapping.replica_id.get(),(mapping.disclosure_epoch,0,BTreeMap::new()));
+        for (tick,state) in [(1,ChannelVisualState::None),(2,ChannelVisualState::Recall),(3,ChannelVisualState::None)] {
+            let baseline=crate::runtime::encode_disclosed_baseline(&[
+                (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(
+                    crate::runtime::DemoRenderState{x_raw:0,y_raw:0,team_id:2,kind:1,owner_player_id:9})),
+                (SCHEMA_ID,state.encode())]);
+            let visible=BTreeSet::from([source]);
+            projector.refresh_expected_visible_components(tick,&visible,&BTreeMap::from([(source,baseline)]));
+            let step=projector.build_step(tick,&visible,&[],vec![],&[],&[]).unwrap();
+            let events:Vec<_>=step.public_events.iter().filter(|event|event.event_kind==crate::runtime::FactKind::ChannelVisual as u32).collect();
+            assert_eq!(events.len(),1);assert_eq!(events[0].subject.as_ref().unwrap().value,mapping.replica_id.get());
+            assert_eq!(ChannelVisualState::decode(&events[0].sanitized_payload),Some(state));
+            assert_eq!(events[0].sanitized_payload.len(),5,"channel projection carries no private countdown or destination");
+        }
+        projector.hash_entities.clear();
+        let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
+        assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::ChannelVisual as u32));
     }
 
     #[test]

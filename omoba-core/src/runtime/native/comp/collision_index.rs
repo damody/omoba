@@ -203,6 +203,45 @@ impl CollisionIndex {
         inner.truncate(n);
         (inner, outer)
     }
+
+    /// Pad so Fixed64→f32 rounding of the center, the stored point, and the
+    /// radius cannot drop a point that is inside the exact raw disk.
+    ///
+    /// The pad is 16 ULPs of the local magnitude plus two fixed units
+    /// (`2 / SCALE`). It is not an attack-range extension: callers still accept
+    /// or reject with raw `Fixed64` positions. `SCALE` is 1024.
+    pub fn conservative_query_radius(center: Vec2<f32>, radius: f32) -> f32 {
+        let magnitude = center.x.abs().max(center.y.abs()).max(radius.abs()).max(1.0);
+        let scale_pad = magnitude * (16.0 * f32::EPSILON);
+        let unit_pad = 2.0 / (omoba_sim::fixed::SCALE as f32);
+        radius + scale_pad + unit_pad
+    }
+
+    /// Every index identity inside a conservative envelope of `radius`.
+    ///
+    /// Uses [`SpatialIndex::query_in_range`]. Does not truncate to ten and does
+    /// not return stored float distances. A non-finite center or a negative
+    /// radius returns nothing. A positive non-finite radius queries a large
+    /// finite envelope so a huge fixed range is not dropped at the f32 cast.
+    pub fn entities_in_radius(&self, pos: Vec2<f32>, radius: f32) -> Vec<Entity> {
+        if !pos.x.is_finite() || !pos.y.is_finite() || !(radius >= 0.0) {
+            return Vec::new();
+        }
+        let query_radius = if radius.is_finite() {
+            Self::conservative_query_radius(pos, radius)
+        } else {
+            f32::MAX / 4.0
+        };
+        let mut entities: Vec<Entity> = self
+            .index
+            .query_in_range(pos, query_radius)
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect();
+        entities.sort_by_key(|entity| (entity.id(), entity.gen().id()));
+        entities.dedup();
+        entities
+    }
 }
 
 pub struct Searcher {
@@ -283,5 +322,77 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    fn f32_of(raw: i64) -> f32 {
+        omoba_sim::Fixed64::from_raw(raw).to_f32_for_render()
+    }
+
+    #[test]
+    fn local_radius_keeps_fixed_boundary_and_does_not_truncate_to_ten() {
+        // Just inside the ±10000 index bounds. At this magnitude every raw
+        // step is an exact f32, so the boundary sits on radius^2 rather than
+        // outside it. The strict `<` nearest-neighbour path still drops it.
+        let source_raw = 10_000_001i64;
+        let range_raw = 3i64;
+        let boundary_raw = source_raw + range_raw;
+        let center = Vec2::new(f32_of(source_raw), 0.0);
+        let radius = f32_of(range_raw);
+        let beyond = Vec2::new(f32_of(boundary_raw), 0.0);
+        // Inside the ±10000 index, raw/1024 values in this binade are exact, so
+        // the unpadded squared distance equals radius^2. search_nn uses a strict
+        // `<` and drops that boundary. The padded local query keeps it, and it
+        // also keeps the next raw unit. Exact eligibility is the caller's job.
+        let next_raw = boundary_raw + 1;
+        let next_point = Vec2::new(f32_of(next_raw), 0.0);
+        let boundary_d2 = beyond.distance_squared(center);
+        assert_eq!(boundary_d2, radius * radius);
+        assert!(next_point.distance_squared(center) > radius * radius);
+
+        for kind in ["hash_grid", "sap", "quadtree", "bvh"] {
+            let mut world = World::new();
+            let boundary = world.create_entity().build();
+            let next = world.create_entity().build();
+            let mut extras = Vec::new();
+            let mut rows = vec![
+                (boundary, Vec2::new(f32_of(boundary_raw), 0.0)),
+                (next, next_point),
+            ];
+            for index in 0..12 {
+                let entity = world.create_entity().build();
+                extras.push(entity);
+                rows.push((
+                    entity,
+                    Vec2::new(f32_of(source_raw) + (index as f32 + 1.0), 0.0),
+                ));
+            }
+            let reversed: Vec<_> = rows.iter().rev().copied().collect();
+            for insertion in [rows.clone(), reversed] {
+                let mut index = CollisionIndex::new(kind, SpatialIndexParams::default());
+                index.rebuild_from(insertion);
+                let found = index.entities_in_radius(center, radius);
+                assert!(
+                    found.contains(&boundary),
+                    "{kind} dropped the exact fixed boundary"
+                );
+                assert!(
+                    found.contains(&next),
+                    "{kind} pad excluded the next raw unit; exact checks must reject it"
+                );
+                assert!(
+                    extras.iter().all(|entity| !found.contains(entity)),
+                    "{kind} tiny query was not local"
+                );
+                assert!(index
+                    .search_nn(center, radius, 10)
+                    .iter()
+                    .all(|hit| hit.e != boundary && hit.e != next));
+                let wide = index.entities_in_radius(center, 50.0);
+                assert_eq!(wide.len(), 14, "{kind} truncated or dropped a local entity");
+                assert!(wide.contains(&boundary) && wide.contains(&next));
+                assert!(extras.iter().all(|entity| wide.contains(entity)));
+                assert_eq!(index.search_nn(center, 50.0, 10).len(), 10);
+            }
+        }
     }
 }

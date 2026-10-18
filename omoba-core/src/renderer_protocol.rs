@@ -5,8 +5,9 @@
 use crate::game_proto::{self as proto, player_input::Action, renderer_input::Intent, PlayerInput};
 
 pub const PRESENTATION_MAGIC: u32 = 0x4f4d_5254;
-/// v5 requires the owner shield baseline; v4 also added queued point commands.
-pub const PRESENTATION_PROTOCOL_VERSION: u32 = 5;
+/// v6 carries the summoner ABI rows. v5 requires the owner shield baseline; v4 also added queued point commands.
+// v7 adds typed communication intents and local correlation, separate from gameplay.
+pub const PRESENTATION_PROTOCOL_VERSION: u32 = 11;
 pub const MAX_PRESENTATION_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 /// Convert an existing formal command into a renderer intent. Entity IDs must
@@ -31,6 +32,23 @@ pub fn player_input_to_renderer_intent(input: &PlayerInput) -> Option<Intent> {
             target_render_id: u64::from(value.target_id), queued: value.queued,
         }),
         Action::HoldPosition(value) => Intent::HoldPosition(*value),
+        Action::Stop(_) => Intent::Stop(proto::Stop {}),
+        Action::InputScheme(value) => {
+            crate::runtime::input_scheme_transport::validate_update(value).ok()?;
+            Intent::InputScheme(*value)
+        },
+        Action::Direction(value) => {
+            crate::runtime::direction_transport::validate_client(value).ok()?;
+            Intent::Direction(proto::RendererDirectionIntent {
+                schema_version:value.schema_version,
+                source_render_id:value.source.as_ref()?.replica_entity_id.as_ref()?.value,
+                press_id:value.press_id,phase:value.phase,x:value.x,y:value.y,
+            })
+        },
+        Action::CombatPreferences(value) => {
+            crate::runtime::combat_transport::validate_update(value).ok()?;
+            Intent::CombatPreferences(*value)
+        }
         Action::CastAbility(value) => Intent::AbilityCast(proto::AbilityCastIntent {
             ability_index: value.ability_index,
             target_render_id: u64::from(value.target_entity.unwrap_or(0)),
@@ -41,17 +59,41 @@ pub fn player_input_to_renderer_intent(input: &PlayerInput) -> Option<Intent> {
             ability_index: value.ability_index,
         }),
         Action::Recall(_) => Intent::Recall(proto::RecallIntent {}),
-        Action::ItemUse(value) => Intent::ItemUse(proto::ItemUseIntent {
-            item_slot: value.item_slot,
-            target_render_id: u64::from(value.target_entity.unwrap_or(0)),
-            x_raw: i64::from(value.target_pos.as_ref().map_or(0, |pos| pos.x)),
-            y_raw: i64::from(value.target_pos.as_ref().map_or(0, |pos| pos.y)),
+        Action::SummonerCast(value) => Intent::SummonerCast(proto::SummonerCastIntent {
+            slot: value.slot, x_raw: value.x_raw, y_raw: value.y_raw,
         }),
+        Action::WardPlacement(value) => Intent::WardPlacement(proto::WardPlacementIntent {
+            slot: value.slot, x_raw: value.x_raw, y_raw: value.y_raw,
+        }),
+        Action::ItemUse(value) => {
+            let explicit = value.point_explicit == Some(true);
+            if explicit && value.target_pos.is_none() {
+                return None;
+            }
+            let pos = value.target_pos.as_ref();
+            // owner_entity and owner_generation stay on the authority command.
+            Intent::ItemUse(proto::ItemUseIntent {
+                item_slot: value.item_slot,
+                target_render_id: u64::from(value.target_entity.unwrap_or(0)),
+                x_raw: i64::from(pos.map_or(0, |point| point.x)),
+                y_raw: i64::from(pos.map_or(0, |point| point.y)),
+                explicit_x_raw: explicit.then(|| i64::from(pos.expect("explicit point checked").x)),
+                explicit_y_raw: explicit.then(|| i64::from(pos.expect("explicit point checked").y)),
+            })
+        }
         Action::ItemBuy(value) => {
             let item = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == value.item_id)?;
             Intent::ItemBuy(proto::ItemBuyIntent { catalog_id: u32::from(item.catalog_id) })
         }
         Action::ItemSell(value) => Intent::ItemSell(proto::ItemSellIntent { item_slot: value.item_slot }),
+        Action::ShopUndo(value) => {
+            // Newest and a zero sequence must not become a renderer intent.
+            // A later purchase cannot be selected by rewriting this field.
+            if value.mode != crate::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE || value.sequence == 0 {
+                return None;
+            }
+            Intent::ShopUndo(proto::ShopUndoIntent { sequence: value.sequence })
+        }
         Action::TowerPlace(value) => {
             let pos = value.pos?;
             Intent::TowerAction(proto::TowerActionIntent {
@@ -90,6 +132,21 @@ mod tests {
     }
 
     #[test]
+    fn shared_renderer_direction_codec_keeps_only_opaque_source_and_integer_gesture() {
+        let client=proto::HeroDirectionInput {schema_version:1,source:Some(proto::SecureReplicaTarget {
+            replica_entity_id:Some(proto::ReplicaEntityId {value:9}),view_epoch:Some(proto::ViewEpoch {value:4}),
+            disclosure_epoch:Some(proto::DisclosureEpoch {value:3}),
+        }),press_id:u64::MAX-1,phase:2,x:-32767,y:32767,sealed_source:0};
+        let Intent::Direction(intent)=roundtrip(Action::Direction(client.clone())) else {panic!("wrong renderer intent");};
+        assert_eq!((intent.source_render_id,intent.press_id,intent.phase,intent.x,intent.y),(9,u64::MAX-1,2,-32767,32767));
+        assert_eq!(crate::runtime::direction_transport::client_from_renderer(&intent,client.source.clone().unwrap()).unwrap(),client);
+        assert!(player_input_to_renderer_intent(&PlayerInput {action:Some(Action::Direction(proto::HeroDirectionInput {
+            source:None,sealed_source:1<<32,..client.clone()}))}).is_none());
+        let mut wrong=client.source.unwrap();wrong.replica_entity_id.as_mut().unwrap().value=10;
+        assert!(crate::runtime::direction_transport::client_from_renderer(&intent,wrong).is_err());
+    }
+
+    #[test]
     fn shared_renderer_codec_preserves_point_target_and_queue_semantics() {
         for queued in [false, true] {
             let target = Some(proto::Vec2I { x: i32::MIN, y: i32::MAX });
@@ -114,8 +171,12 @@ mod tests {
         assert_eq!(roundtrip(Action::UpgradeAbility(proto::UpgradeAbility { ability_index: 2 })),
             Intent::AbilityUpgrade(proto::AbilityUpgradeIntent { ability_index: 2 }));
         assert_eq!(roundtrip(Action::Recall(proto::Recall {})), Intent::Recall(proto::RecallIntent {}));
-        assert_eq!(roundtrip(Action::ItemUse(proto::ItemUse { item_slot: 5, target_entity: Some(42), target_pos: point })),
-            Intent::ItemUse(proto::ItemUseIntent { item_slot: 5, target_render_id: 42, x_raw: -123, y_raw: 456 }));
+        assert_eq!(roundtrip(Action::SummonerCast(proto::SummonerCast { slot: 1, x_raw: None, y_raw: None })),
+            Intent::SummonerCast(proto::SummonerCastIntent { slot: 1, x_raw: None, y_raw: None }));
+        assert_eq!(roundtrip(Action::SummonerCast(proto::SummonerCast { slot: 0, x_raw: Some(-4), y_raw: Some(9) })),
+            Intent::SummonerCast(proto::SummonerCastIntent { slot: 0, x_raw: Some(-4), y_raw: Some(9) }));
+        assert_eq!(roundtrip(Action::ItemUse(proto::ItemUse { item_slot: 5, target_entity: Some(42), target_pos: point, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None })),
+            Intent::ItemUse(proto::ItemUseIntent { item_slot: 5, target_render_id: 42, x_raw: -123, y_raw: 456, explicit_x_raw: None, explicit_y_raw: None }));
         let item = &omoba_template_ids::MOBA_ITEM_CATALOG[0];
         assert_eq!(roundtrip(Action::ItemBuy(proto::ItemBuy { item_id: item.id.into() })),
             Intent::ItemBuy(proto::ItemBuyIntent { catalog_id: u32::from(item.catalog_id) }));
@@ -127,6 +188,67 @@ mod tests {
             Intent::TowerAction(proto::TowerActionIntent { action_kind: 2, tower_render_id: 42, path: 2, level: 3, ..Default::default() }));
         assert_eq!(roundtrip(Action::TowerSell(proto::TowerSell { tower_entity_id: 42 })),
             Intent::TowerAction(proto::TowerActionIntent { action_kind: 3, tower_render_id: 42, ..Default::default() }));
+    }
+
+    #[test]
+    fn item_use_explicit_origin_roundtrip_is_distinct_from_missing_point() {
+        let origin = Some(proto::Vec2I { x: 0, y: 0 });
+        let explicit = roundtrip(Action::ItemUse(proto::ItemUse {
+            item_slot: 0, target_entity: None, target_pos: origin, point_explicit: Some(true), target_generation: Some(9),
+            owner_entity: Some(3), owner_generation: Some(11),
+        }));
+        assert_eq!(explicit, Intent::ItemUse(proto::ItemUseIntent {
+            item_slot: 0, target_render_id: 0, x_raw: 0, y_raw: 0,
+            explicit_x_raw: Some(0), explicit_y_raw: Some(0),
+        }));
+        let missing = roundtrip(Action::ItemUse(proto::ItemUse {
+            item_slot: 0, target_entity: None, target_pos: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None,
+        }));
+        let legacy_zero = roundtrip(Action::ItemUse(proto::ItemUse {
+            item_slot: 0, target_entity: None, target_pos: origin, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None,
+        }));
+        assert_eq!(missing, legacy_zero);
+        assert_ne!(explicit, missing);
+        assert!(player_input_to_renderer_intent(&PlayerInput { action: Some(Action::ItemUse(proto::ItemUse {
+            item_slot: 0, target_pos: None, target_entity: None, point_explicit: Some(true), target_generation: Some(9),
+            owner_entity: Some(3), owner_generation: Some(11),
+        })) }).is_none());
+    }
+
+    #[test]
+    fn ability_index_four_and_five_stay_qwer_not_summoner() {
+        for index in [4, 5] {
+            let intent = roundtrip(Action::CastAbility(proto::CastAbility {
+                ability_index: index, target_entity: None, target_pos: None,
+            }));
+            assert!(matches!(intent, Intent::AbilityCast(value) if value.ability_index == index));
+        }
+    }
+
+    #[test]
+    fn stop_command_renderer_roundtrip_has_no_coordinate() {
+        let intent = roundtrip(Action::Stop(proto::Stop {}));
+        assert_eq!(intent, Intent::Stop(proto::Stop {}));
+        let encoded = PlayerInput { action: Some(Action::Stop(proto::Stop {})) }.encode_to_vec();
+        let decoded = PlayerInput::decode(encoded.as_slice()).unwrap();
+        assert_eq!(decoded.action, Some(Action::Stop(proto::Stop {})));
+        assert!(matches!(player_input_to_renderer_intent(&decoded), Some(Intent::Stop(proto::Stop {}))));
+    }
+
+    #[test]
+    fn shop_undo_sequence_roundtrips_and_newest_does_not_bind() {
+        let pinned = roundtrip(Action::ShopUndo(proto::ShopUndo {
+            mode: crate::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE,
+            sequence: 9,
+        }));
+        assert_eq!(pinned, Intent::ShopUndo(proto::ShopUndoIntent { sequence: 9 }));
+        for action in [
+            Action::ShopUndo(proto::ShopUndo { mode: crate::runtime::shop_undo_wire::SHOP_UNDO_MODE_NEWEST, sequence: 0 }),
+            Action::ShopUndo(proto::ShopUndo { mode: crate::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE, sequence: 0 }),
+            Action::ShopUndo(proto::ShopUndo { mode: crate::runtime::shop_undo_wire::SHOP_UNDO_MODE_NEWEST, sequence: 9 }),
+        ] {
+            assert!(player_input_to_renderer_intent(&PlayerInput { action: Some(action) }).is_none());
+        }
     }
 
     #[test]

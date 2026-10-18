@@ -7,6 +7,8 @@ local bootstrap = require('_bootstrap')
 local path = bootstrap.lib('path')
 local process = bootstrap.lib('process')
 local json = bootstrap.lib('json')
+local request_budget = require('ue_mcp_request_budget')
+local request_timeout = request_budget.default_seconds
 
 local tool, arguments, output, filter, owned_editor_file
 local list = false
@@ -16,6 +18,9 @@ while i <= #arg do
   local value = arg[i]
   if value == '--wait-ready' then wait_ready = true
   elseif value == '--list' then list = true
+  elseif value == '--request-timeout-seconds' then
+    i = i + 1
+    request_timeout = request_budget.parse(assert(arg[i], value .. ' requires a value'))
   elseif value == '--tool' or value == '--arguments' or value == '--out' or value == '--filter' or value == '--owned-editor' then
     i = i + 1
     local next_value = assert(arg[i], value .. ' requires a value')
@@ -66,7 +71,7 @@ local function request(method, params, notification)
   local payload = {jsonrpc = '2.0', method = method, params = json.object(params)}
   if not notification then payload.id = ordinal end
   path.write(request_file, json.encode(payload), true)
-  local args = {'--silent', '--show-error', '--fail-with-body', '--max-time', '20',
+  local args = {'--silent', '--show-error', '--fail-with-body', '--max-time', tostring(request_timeout),
     '--header', 'Content-Type: application/json', '--header', 'Accept: application/json, text/event-stream',
     '--dump-header', headers_file, '--data-binary', '@' .. request_file,
     'http://127.0.0.1:' .. endpoint.port .. '/mcp'}

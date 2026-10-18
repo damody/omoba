@@ -5,6 +5,17 @@
 //! without adding another library boundary.
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod summoner_runtime;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod combat_controls;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod combat_transport;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod input_scheme;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod input_scheme_transport;
+pub mod direction_transport;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod anti_probing;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod authority_recovery;
@@ -23,6 +34,7 @@ pub mod presentation_cue;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod buff_visual_state;
 pub mod attack_visual_state;
+pub mod channel_visual_state;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod moba_map_layout;
 #[cfg(not(target_arch = "wasm32"))]
@@ -36,15 +48,27 @@ pub mod selective_fixtures;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod selective_replica;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod hero_attributes;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod stable_fact;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod communication;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod communication_transport;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod shop_receipt;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod shop_undo_wire;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod shop_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod recall_transport;
 pub mod command_transport;
 pub mod mana_transport;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod summoner_transport;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod ward_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod team_projector;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -55,6 +79,8 @@ pub mod team_stream;
 pub mod visibility;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fog_grid;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod authoritative_mode;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use anti_probing::*;

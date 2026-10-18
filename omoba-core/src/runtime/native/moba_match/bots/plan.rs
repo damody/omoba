@@ -2,7 +2,7 @@
 use super::*;
 use crate::runtime::SimulationTickProfile;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,6 +33,10 @@ pub struct RoleBotMatchPlan {
     pub sustain: Option<BotSustainPolicy>,
     #[serde(default)]
     pub item_builds: Vec<BotItemBuild>,
+    /// JSON objects of player ID to a two-slot array. Null is an unequipped slot.
+    /// An omitted or empty map stays unavailable; nothing is equipped by default.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub summoner_loadouts: BTreeMap<u32, [Option<String>; 2]>,
 }
 
 impl RoleBotMatchPlan {
@@ -62,6 +66,10 @@ impl RoleBotMatchPlan {
         if self.think_hz == 0 || self.think_hz > fps {
             return Err("bot think_hz must be between 1 and simulation Hz".into());
         }
+        crate::runtime::native::summoner_world::validated_loadouts(
+            self.players.iter().map(|player| player.player_id),
+            &self.summoner_loadouts,
+        ).map_err(|error| format!("role plan summoner loadout rejected: {error:?}"))?;
         let map = omoba_template_ids::moba_map_by_name(&self.map_id)
             .ok_or_else(|| format!("unknown compiled bot map '{}'", self.map_id))?;
         if self.players.is_empty() || self.players.len() > 10 {
@@ -106,6 +114,7 @@ impl RoleBotMatchPlan {
             players:[left.player_id,right.player_id],heroes:[left.hero,right.hero],additional_players:additional,
             base_recovery_enabled:self.sustain.is_some(),
             mana_enabled:self.mana_enabled,
+            summoner_loadouts:self.summoner_loadouts.clone(),
             ..Default::default()
         },RoleBotConfig { assignments,think_interval_ticks:u64::from(fps.div_ceil(self.think_hz)),
             ability_policies:self.ability_policies.clone(),ability_learning:self.ability_learning.clone(),sustain:self.sustain,
@@ -125,7 +134,7 @@ mod tests {
                     hero:"training_luminary".into(),role,lane:lane.into(),bot:team != 1 || index != 0 });
             }
         }
-        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new() }
+        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new() }
     }
     #[test]
     fn role_bot_plan_compiles_human_and_nine_bots_by_named_lane() {
@@ -189,6 +198,25 @@ mod tests {
         let mut json=serde_json::to_value(plan()).unwrap();
         json.as_object_mut().unwrap().remove("mana_enabled");
         assert!(!serde_json::from_value::<RoleBotMatchPlan>(json).unwrap().mana_enabled);
+    }
+
+    #[test]
+    fn summoner_loadouts_compile_into_match_config_without_a_default_spell() {
+        let legacy = plan();
+        assert!(legacy.compile(1, SimulationTickProfile::Production60Hz).unwrap().0.summoner_loadouts.is_empty());
+        assert!(!serde_json::to_string(&legacy).unwrap().contains("summoner_loadouts"));
+        let mut equipped = legacy.clone();
+        equipped.summoner_loadouts.insert(10, [Some("training_point_blink_v1".into()), None]);
+        equipped.summoner_loadouts.insert(20, [None, Some("training_self_heal_v1".into())]);
+        let config = equipped.compile(1, SimulationTickProfile::Production60Hz).unwrap().0;
+        assert_eq!(config.summoner_loadouts, equipped.summoner_loadouts);
+        equipped.summoner_loadouts.insert(99, [None, None]);
+        assert!(equipped.compile(1, SimulationTickProfile::Production60Hz).unwrap_err().contains("WrongOwner"));
+        equipped.summoner_loadouts.remove(&99);
+        equipped.summoner_loadouts.insert(10, [Some("no-such-spell".into()), None]);
+        assert!(equipped.compile(1, SimulationTickProfile::Production60Hz).unwrap_err().contains("UnknownSpell"));
+        equipped.summoner_loadouts.insert(10, [Some("training_self_heal_v1".into()), Some("training_self_heal_v1".into())]);
+        assert!(equipped.compile(1, SimulationTickProfile::Production60Hz).unwrap_err().contains("DuplicateSpell"));
     }
 
     #[test]

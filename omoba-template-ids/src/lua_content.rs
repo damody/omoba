@@ -25,6 +25,11 @@ pub(crate) struct Manifest {
     pub(crate) moba_economy: MobaEconomyRules,
     #[serde(default)]
     pub(crate) moba_items: Vec<MobaItemEntry>,
+    pub(crate) moba_summoners: Vec<MobaSummonerEntry>,
+    pub(crate) moba_trinkets: Vec<MobaTrinketEntry>,
+    /// Non-MOBA catalogs may omit communication; no synthesized content is used.
+    #[serde(default)]
+    pub(crate) moba_communication: Vec<omoba_content_model::moba_communication::CommunicationContentEntry>,
     #[serde(default)]
     pub(crate) towers: Vec<TowerEntry>,
     #[serde(default)]
@@ -82,6 +87,21 @@ pub(crate) struct MobaMapEntry {
     pub(crate) jungle_camps: Vec<MobaJungleEntry>,
     #[serde(default)]
     pub(crate) terrain: Vec<MobaTerrainEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) presentation_surfaces: Vec<MobaMapSurfaceEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MobaMapSurfaceKindEntry { River, Jungle }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaMapSurfaceEntry {
+    pub(crate) id: String,
+    pub(crate) kind: MobaMapSurfaceKindEntry,
+    pub(crate) width: i32,
+    pub(crate) points: Vec<[i32; 2]>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -156,6 +176,33 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                 || lane.waypoints.windows(2).any(|p| p[0] == p[1])
             { return Err(format!("invalid MOBA lane '{}' in '{}'", lane.id, map.id)); }
         }
+        // Presentation is bounded by existing public geometry. It never expands
+        // fog geometry, lane paths, camp leashes or collision.
+        let geometry = map.lanes.iter().flat_map(|lane| lane.waypoints.iter().copied())
+            .chain(map.jungle_camps.iter().map(|camp| camp.position))
+            .chain(map.terrain.iter().flat_map(|region| [region.min, region.max]));
+        let bounds = geometry.fold([i32::MAX, i32::MAX, i32::MIN, i32::MIN], |b, p|
+            [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]);
+        let mut surface_ids = BTreeSet::new();
+        let mut surface_points = 0;
+        if map.presentation_surfaces.len() > 32 { return Err("MOBA map exceeds 32 presentation surfaces".into()); }
+        for surface in &map.presentation_surfaces {
+            surface_points += surface.points.len();
+            let (shape_valid, margin) = match surface.kind {
+                MobaMapSurfaceKindEntry::River => ((2..=16).contains(&surface.points.len())
+                    && (10..=200).contains(&surface.width)
+                    && !surface.points.windows(2).any(|p| p[0] == p[1]), (i64::from(surface.width)+1)/2),
+                MobaMapSurfaceKindEntry::Jungle => (surface.width == 0 && surface.points.len() == 2
+                    && surface.points[0][0] < surface.points[1][0]
+                    && surface.points[0][1] < surface.points[1][1], 0),
+            };
+            if !valid_id(&surface.id) || !surface_ids.insert(&surface.id) || !shape_valid || surface_points > 256
+                || surface.points.iter().any(|p| (0..2).any(|axis|
+                    i64::from(p[axis])-margin < i64::from(bounds[axis])
+                    || i64::from(p[axis])+margin > i64::from(bounds[axis+2]))) {
+                return Err(format!("invalid public presentation surface '{}' in '{}'",surface.id,map.id));
+            }
+        }
         let mut terrain_ids = BTreeSet::new();
         if map.terrain.len() > 32 { return Err(format!("MOBA map '{}' exceeds 32 terrain rectangles",map.id)); }
         for terrain in &map.terrain {
@@ -206,6 +253,8 @@ impl Default for MobaEconomyRules {
 }
 
 pub(crate) use omoba_content_model::moba_items::{MobaItemEntry, validate_moba_items};
+pub(crate) use omoba_content_model::moba_summoners::{MobaSummonerEntry, validate_moba_summoners};
+pub(crate) use omoba_content_model::moba_trinkets::{MobaTrinketEntry, validate_moba_trinkets};
 #[cfg(test)]
 use omoba_content_model::moba_items::MobaItemActiveEntry;
 
@@ -925,13 +974,38 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     let manifest_value: serde_json::Value = lua
         .from_value(template_value.clone())
         .map_err(|e| format!("convert Lua builder templates.lua JSON value: {e}"))?;
+    if let Some(trinkets) = manifest_value.get("moba_trinkets") {
+        if serde_json::from_value::<Vec<MobaTrinketEntry>>(trinkets.clone()).is_err() {
+            return Err("malformed trinket catalog; rebuild all peers".into());
+        }
+    }
     let manifest: Manifest = lua
         .from_value(template_value)
-        .map_err(|e| format!("convert Lua builder templates.lua output: {e}"))?;
+        .map_err(|e| {
+            let message = format!("convert Lua builder templates.lua output: {e}");
+            if message.contains("moba_trinkets") {
+                format!("{message}; rebuild all peers")
+            } else {
+                message
+            }
+        })?;
     omoba_content_model::animation_metadata::validate_animation_catalog(&manifest_value)?;
     validate_td_layers(&manifest.td_layers)?;
     validate_moba_items(&manifest.moba_items)?;
+    validate_moba_summoners(&manifest.moba_summoners)?;
+    match manifest_value.get("moba_summoners").and_then(serde_json::Value::as_array) {
+        Some(rows) if !rows.is_empty() => {}
+        _ => return Err("absent or empty summoner catalog is unsupported".into()),
+    }
+    validate_moba_trinkets(&manifest.moba_trinkets).map_err(|error| format!("{error}; rebuild all peers"))?;
+    match manifest_value.get("moba_trinkets").and_then(serde_json::Value::as_array) {
+        Some(rows) if !rows.is_empty() => {}
+        _ => return Err("absent or empty trinket catalog is unsupported; rebuild all peers".into()),
+    }
     validate_moba_maps(&manifest.moba_maps)?;
+    if manifest_value.get("moba_communication").is_some() {
+        omoba_content_model::moba_communication::validate_communication_content(&manifest.moba_communication)?;
+    }
     for hero in &manifest.heroes {
         omoba_content_model::validate_hero_animation_clips(&hero.common)?;
         omoba_content_model::validate_moba_loadout(&hero.common,manifest.abilities.iter())?;
@@ -1214,8 +1288,67 @@ fn validate_map_creep_references(
     Ok(())
 }
 
+/// Strictly valid summoner and trinket rows for tests whose subject is not the catalog.
+/// Production templates and the intentional missing-catalog fixtures do not use this.
+#[cfg(test)]
+pub(crate) const FIXTURE_REQUIRED_MOBA_CATALOGS: &str = concat!(
+    "moba_summoners = { { catalog_id = 1, id = 'fixture_blink', display_name = 'Blink', description = 'Fixture blink.', cooldown = 12, target = 'point', operation = { kind = 'point_blink', range = 30, out_of_range = 'reject' } } }",
+    ", ",
+    "moba_trinkets = { { catalog_id = 1, id = 'fixture_lantern', display_name = 'Lantern', description = 'Fixture trinket.', placement_range = 600, initial_charges = 1, max_charges = 2, recharge_seconds = 120, lifetime_seconds = 90, sight_radius = 900, detection_level = 0, stealth_level = 1, hit_points = 3, maximum_owned_placements = 3, direct_attack = 'disclosed_enemy', automatic_acquisition = 'disabled' } }",
+);
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn public_map_surfaces_validate_shapes_bounds_capacity_and_identity() {
+        use super::*;
+        use omoba_content_model::canonical_template_hash;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut map=load_content(root).unwrap().manifest.moba_maps.remove(0);
+        map.presentation_surfaces.clear();
+        let legacy=serde_json::to_value(&map).unwrap();
+        assert!(legacy.get("presentation_surfaces").is_none(),"empty new field preserves legacy catalog serialization");
+        assert!(serde_json::from_value::<MobaMapEntry>(legacy.clone()).unwrap().presentation_surfaces.is_empty());
+        map.presentation_surfaces=vec![
+            MobaMapSurfaceEntry {id:"central_river".into(),kind:MobaMapSurfaceKindEntry::River,width:80,
+                points:vec![[1200,-1360],[1050,-700],[1250,0],[1100,700],[1200,1360]]},
+            MobaMapSurfaceEntry {id:"north_grove".into(),kind:MobaMapSurfaceKindEntry::Jungle,width:0,
+                points:vec![[400,200],[1000,1150]]}];
+        validate_moba_maps(&[map.clone()]).unwrap();
+        let authored=serde_json::to_value(&map).unwrap();
+        assert_ne!(canonical_template_hash(&legacy).unwrap(),canonical_template_hash(&authored).unwrap());
+        assert_eq!(legacy["lanes"],authored["lanes"]);
+        assert_eq!(legacy["terrain"],authored["terrain"]);
+        assert_eq!(legacy["jungle_camps"],authored["jungle_camps"]);
+        for case in 0..14 {
+            let mut bad=map.clone();
+            match case {
+                0=>bad.presentation_surfaces[0].id="Invalid".into(),
+                1=>bad.presentation_surfaces[1].id="central_river".into(),
+                2=>bad.presentation_surfaces[0].width=9,
+                3=>bad.presentation_surfaces[0].width=201,
+                4=>bad.presentation_surfaces[0].points.truncate(1),
+                5=>bad.presentation_surfaces[0].points=vec![[1200,0];17],
+                6=>bad.presentation_surfaces[0].points[1]=bad.presentation_surfaces[0].points[0],
+                7=>bad.presentation_surfaces[0].points[0][1]=-1400,
+                8=>bad.presentation_surfaces[1].width=1,
+                9=>bad.presentation_surfaces[1].points.push([700,800]),
+                10=>bad.presentation_surfaces[1].points[1][0]=400,
+                11=>bad.presentation_surfaces[1].points[0][0]=-1,
+                12=>bad.presentation_surfaces=vec![bad.presentation_surfaces[0].clone();33],
+                _=>bad.presentation_surfaces=(0..17).map(|i|MobaMapSurfaceEntry {
+                    id:format!("river_{i}"),kind:MobaMapSurfaceKindEntry::River,width:10,
+                    points:(0..16).map(|n|[1000+n*5,-1200+n*100]).collect()}).collect(),
+            }
+            assert!(validate_moba_maps(&[bad]).is_err(),"surface case {case}");
+        }
+        for (field,value) in [("kind",serde_json::json!("lane")),("width",serde_json::json!(80.5)),
+            ("points",serde_json::json!([[1200.5,0],[1250,100]])),("unknown",serde_json::json!(true))] {
+            let mut bad=serde_json::to_value(&map.presentation_surfaces[0]).unwrap();bad[field]=value;
+            assert!(serde_json::from_value::<MobaMapSurfaceEntry>(bad).is_err(),"invalid {field}");
+        }
+    }
+
     #[test]
     fn terrain_catalog_validates_corridors_leashes_and_hash() {
         use super::*;
@@ -1406,6 +1539,7 @@ mod tests {
             id: id.into(), name: id.into(), cost, atk: 10.0, hp: 0.0, ms: 0.0, armor: 0.0,
             active: None, cooldown: 0.0,
             recipe: recipe.iter().map(|id| (*id).into()).collect(),
+            target: omoba_content_model::moba_items::MobaItemTargetEntry::legacy_self(),
         };
         let sword = item("sword", 100, &[]);
         let upgrade = item("upgrade", 250, &["sword", "sword"]);
@@ -1432,6 +1566,39 @@ mod tests {
         assert!(serde_json::from_value::<MobaItemEntry>(serde_json::json!({
             "id": "bad", "name": "Bad", "cost": 1, "mp": 100
         })).is_err(), "unsupported mana must not be silently ignored");
+    }
+
+    #[test]
+    fn moba_item_target_contract_keeps_legacy_self_json_and_rejects_mismatches() {
+        use omoba_content_model::moba_items::{MobaItemActiveEntry, MobaItemTargetEntry, MobaItemTargetShape, MobaItemTeamFilter};
+        let passive = serde_json::json!({ "catalog_id": 1, "id": "fixture", "name": "Fixture", "cost": 100,
+            "atk": 0.0, "hp": 0.0, "ms": 0.0, "armor": 0.0, "recipe": [] });
+        let item: MobaItemEntry = serde_json::from_value(passive.clone()).unwrap();
+        assert!(item.target.is_legacy_self());
+        assert_eq!(serde_json::to_value(&item).unwrap(), passive);
+        let point = serde_json::json!({
+            "catalog_id": 10, "id": "moba_training_flare", "name": "Training Flare", "cost": 450,
+            "active": { "kind": "point_nova", "damage": 40, "radius": 80 }, "cooldown": 8,
+            "target": { "shape": "point", "range": 500, "team": "enemy", "requires_visible": true, "out_of_range": "reject" }
+        });
+        let flare: MobaItemEntry = serde_json::from_value(point).unwrap();
+        validate_moba_items(&[flare.clone()]).unwrap();
+        assert_eq!(flare.target.shape, MobaItemTargetShape::Point);
+        assert!(flare.target.rust_literal().contains("MobaItemTargetShapeConst::Point"));
+        assert!(flare.active.as_ref().unwrap().rust_literal().contains("PointNova"));
+        let mut swapped = flare.clone();
+        swapped.target.shape = MobaItemTargetShape::Unit;
+        swapped.target.team = MobaItemTeamFilter::Enemy;
+        assert!(validate_moba_items(&[swapped]).is_err());
+        let mut approach = flare.clone();
+        let mut raw = serde_json::to_value(&approach).unwrap();
+        raw["target"]["out_of_range"] = serde_json::json!("approach");
+        assert!(serde_json::from_value::<MobaItemEntry>(raw).is_err());
+        approach.active = Some(MobaItemActiveEntry::Shield { amount: 100.0, duration: 1.0 });
+        assert!(validate_moba_items(&[approach]).is_err());
+        let mut self_with_point = flare;
+        self_with_point.target = MobaItemTargetEntry::legacy_self();
+        assert!(validate_moba_items(&[self_with_point]).is_err());
     }
     use super::*;
     use std::fs;
@@ -1545,6 +1712,13 @@ mod tests {
         }
     }
 
+    fn with_required_catalogs(fields: &str) -> String {
+        format!(
+            "return function(ctx) return {{ {fields}, {} }} end\n",
+            super::FIXTURE_REQUIRED_MOBA_CATALOGS
+        )
+    }
+
     fn minimal_story(root: &Path, story: &str, creep: &str) {
         let dir = root.join(story);
         write(
@@ -1573,7 +1747,7 @@ mod tests {
         let root = temp_root("spawn_path_selector_args");
         write(
             &root.join("templates.lua"),
-            "return function(ctx) return { creeps = { { id = 'known_creep' } } } end\n",
+            &with_required_catalogs("creeps = { { id = 'known_creep' } }"),
         );
         minimal_story(&root, "S", "known_creep");
         write(
@@ -1610,7 +1784,7 @@ end
         let root = temp_root("spawn_path_selector_range");
         write(
             &root.join("templates.lua"),
-            "return function(ctx) return { creeps = { { id = 'known_creep' } } } end\n",
+            &with_required_catalogs("creeps = { { id = 'known_creep' } }"),
         );
         minimal_story(&root, "S", "known_creep");
         write(
@@ -1632,7 +1806,7 @@ end
         let root = temp_root("include_order");
         write(
             &root.join("templates.lua"),
-            "return function(ctx) return { creeps = { ctx.include('a.lua')[1], ctx.include('b.lua')[1] } } end\n",
+            &with_required_catalogs("creeps = { ctx.include('a.lua')[1], ctx.include('b.lua')[1] }"),
         );
         write(
             &root.join("a.lua"),
@@ -1695,7 +1869,7 @@ end
         let root = temp_root("story_sort");
         write(
             &root.join("templates.lua"),
-            "return function(ctx) return { creeps = { { id = 'creep_a' } } } end\n",
+            &with_required_catalogs("creeps = { { id = 'creep_a' } }"),
         );
         minimal_story(&root, "Z", "creep_a");
         minimal_story(&root, "A", "creep_a");
@@ -1714,7 +1888,7 @@ end
         let root = temp_root("missing_creep_ref");
         write(
             &root.join("templates.lua"),
-            "return function(ctx) return { creeps = { { id = 'known_creep' } } } end\n",
+            &with_required_catalogs("creeps = { { id = 'known_creep' } }"),
         );
         minimal_story(&root, "S", "missing_creep_template");
         let err = load_content(root.clone()).unwrap_err();
@@ -1727,7 +1901,7 @@ end
         let root = temp_root("td_requires_layers");
         write(
             &root.join("templates.lua"),
-            "return function(ctx) return { creeps = { { id = 'known_creep' } } } end\n",
+            &with_required_catalogs("creeps = { { id = 'known_creep' } }"),
         );
         minimal_story(&root, "TD", "known_creep");
         write(
@@ -1740,6 +1914,102 @@ end
             error.contains("TD round 1 references unknown layer 'red'"),
             "{error}"
         );
+        fs::remove_dir_all(root).ok();
+    }
+
+    const TRAINING_TRINKET_DESCRIPTION: &str = "放置後暫時提供友方視野。電荷有限，用盡後需等待回復。";
+
+    fn training_trinket_lua(rows: &str) -> String {
+        format!(
+            "return function(ctx) return {{ moba_summoners = {{ {{ catalog_id = 1, id = 'fixture_blink', display_name = 'Blink', description = 'Fixture blink.', cooldown = 12, target = 'point', operation = {{ kind = 'point_blink', range = 30, out_of_range = 'reject' }} }} }}, moba_trinkets = {rows} }} end\n"
+        )
+    }
+
+    fn valid_trinket_row(catalog_id: u16, id: &str) -> String {
+        format!(
+            "{{ catalog_id = {catalog_id}, id = '{id}', display_name = '偵察燈', description = '{TRAINING_TRINKET_DESCRIPTION}', placement_range = 600, initial_charges = 1, max_charges = 2, recharge_seconds = 120, lifetime_seconds = 90, sight_radius = 900, detection_level = 0, stealth_level = 1, hit_points = 3, maximum_owned_placements = 3, direct_attack = 'disclosed_enemy', automatic_acquisition = 'disabled' }}"
+        )
+    }
+
+    #[test]
+    fn shipped_trinket_catalog_loads_training_scout_lantern() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let content = load_content(root).expect("shipped Lua content");
+        let trinkets = &content.manifest.moba_trinkets;
+        assert_eq!(trinkets.len(), 1);
+        let row = &trinkets[0];
+        assert_eq!(row.catalog_id, 1);
+        assert_eq!(row.id, "training_scout_lantern_v1");
+        assert_eq!(row.display_name, "偵察燈");
+        assert_eq!(row.description, TRAINING_TRINKET_DESCRIPTION);
+        assert_eq!(row.placement_range, 600.0);
+        assert_eq!(row.initial_charges, 1);
+        assert_eq!(row.max_charges, 2);
+        assert_eq!(row.recharge_seconds, 120.0);
+        assert_eq!(row.lifetime_seconds, 90.0);
+        assert_eq!(row.sight_radius, 900.0);
+        assert_eq!(row.detection_level, 0);
+        assert_eq!(row.stealth_level, 1);
+        assert_eq!(row.hit_points, 3);
+        assert_eq!(row.maximum_owned_placements, 3);
+        assert_eq!(row.direct_attack, omoba_content_model::moba_trinkets::MobaTrinketDirectAttack::DisclosedEnemy);
+        assert_eq!(row.automatic_acquisition, omoba_content_model::moba_trinkets::MobaTrinketAutomaticAcquisition::Disabled);
+        validate_moba_trinkets(trinkets).unwrap();
+        let authored = content.manifest_value.get("moba_trinkets").and_then(|value| value.as_array()).unwrap();
+        assert_eq!(authored.len(), 1);
+        assert_eq!(authored[0]["id"], "training_scout_lantern_v1");
+        assert_eq!(content.manifest.moba_summoners.len(), 2);
+        assert_eq!(content.manifest.moba_summoners[0].id, "training_point_blink_v1");
+        assert_eq!(content.manifest.moba_summoners[1].id, "training_self_heal_v1");
+    }
+
+    #[test]
+    fn trinket_loader_rejects_missing_empty_and_malformed_fixtures() {
+        let missing = temp_root("trinket_missing");
+        write(
+            &missing.join("templates.lua"),
+            "return function(ctx) return { moba_summoners = { { catalog_id = 1, id = 'fixture_blink', display_name = 'Blink', description = 'Fixture blink.', cooldown = 12, target = 'point', operation = { kind = 'point_blink', range = 30, out_of_range = 'reject' } } } } end\n",
+        );
+        let error = load_content(missing.clone()).unwrap_err();
+        assert!(error.contains("moba_trinkets"), "{error}");
+        assert!(error.contains("rebuild all peers"), "{error}");
+        assert!(!error.contains("training_scout_lantern_v1"), "{error}");
+        fs::remove_dir_all(missing).ok();
+
+        for (name, rows) in [
+            ("trinket_empty", "{}"),
+            ("trinket_not_list", "1"),
+            ("trinket_unknown_field", "{ catalog_id = 1, id = 'training_scout_lantern_v1', display_name = '偵察燈', description = '放置後暫時提供友方視野。電荷有限，用盡後需等待回復。', placement_range = 600, initial_charges = 1, max_charges = 2, recharge_seconds = 120, lifetime_seconds = 90, sight_radius = 900, detection_level = 0, stealth_level = 1, hit_points = 3, maximum_owned_placements = 3, direct_attack = 'disclosed_enemy', automatic_acquisition = 'disabled', creep_index = true }"),
+            ("trinket_unknown_policy", "{ catalog_id = 1, id = 'training_scout_lantern_v1', display_name = '偵察燈', description = '放置後暫時提供友方視野。電荷有限，用盡後需等待回復。', placement_range = 600, initial_charges = 1, max_charges = 2, recharge_seconds = 120, lifetime_seconds = 90, sight_radius = 900, detection_level = 0, stealth_level = 1, hit_points = 3, maximum_owned_placements = 3, direct_attack = 'creep', automatic_acquisition = 'disabled' }"),
+            ("trinket_bad_range", "{ catalog_id = 1, id = 'training_scout_lantern_v1', display_name = '偵察燈', description = '放置後暫時提供友方視野。電荷有限，用盡後需等待回復。', placement_range = 0, initial_charges = 1, max_charges = 2, recharge_seconds = 120, lifetime_seconds = 90, sight_radius = 900, detection_level = 0, stealth_level = 1, hit_points = 3, maximum_owned_placements = 3, direct_attack = 'disclosed_enemy', automatic_acquisition = 'disabled' }"),
+            ("trinket_bad_charges", "{ catalog_id = 1, id = 'training_scout_lantern_v1', display_name = '偵察燈', description = '放置後暫時提供友方視野。電荷有限，用盡後需等待回復。', placement_range = 600, initial_charges = 2, max_charges = 1, recharge_seconds = 120, lifetime_seconds = 90, sight_radius = 900, detection_level = 0, stealth_level = 1, hit_points = 3, maximum_owned_placements = 3, direct_attack = 'disclosed_enemy', automatic_acquisition = 'disabled' }"),
+            ("trinket_control_char", "{ catalog_id = 1, id = 'training_scout_lantern_v1', display_name = '偵察燈\\n', description = '放置後暫時提供友方視野。電荷有限，用盡後需等待回復。', placement_range = 600, initial_charges = 1, max_charges = 2, recharge_seconds = 120, lifetime_seconds = 90, sight_radius = 900, detection_level = 0, stealth_level = 1, hit_points = 3, maximum_owned_placements = 3, direct_attack = 'disclosed_enemy', automatic_acquisition = 'disabled' }"),
+        ] {
+            let root = temp_root(name);
+            let rows = if name == "trinket_empty" || name == "trinket_not_list" {
+                rows.to_string()
+            } else {
+                format!("{{ {rows} }}")
+            };
+            write(&root.join("templates.lua"), &training_trinket_lua(&rows));
+            let error = load_content(root.clone()).expect_err(name);
+            assert!(error.contains("rebuild all peers") || error.contains("moba_trinkets") || error.contains("trinket"), "{name}: {error}");
+            assert!(error.contains("rebuild all peers"), "{name}: {error}");
+            fs::remove_dir_all(root).ok();
+        }
+    }
+
+    #[test]
+    fn trinket_catalog_ids_stay_with_rows_when_declaration_order_changes() {
+        let root = temp_root("trinket_reorder");
+        let rows = format!("{{ {}, {} }}", valid_trinket_row(2, "second_lantern_v1"), valid_trinket_row(1, "training_scout_lantern_v1"));
+        write(&root.join("templates.lua"), &training_trinket_lua(&rows));
+        let content = load_content(root.clone()).expect("reordered trinket catalog");
+        assert_eq!(content.manifest.moba_trinkets[0].catalog_id, 2);
+        assert_eq!(content.manifest.moba_trinkets[0].id, "second_lantern_v1");
+        assert_eq!(content.manifest.moba_trinkets[1].catalog_id, 1);
+        assert_eq!(content.manifest.moba_trinkets[1].id, "training_scout_lantern_v1");
+        assert_eq!(content.manifest_value["moba_trinkets"][0]["catalog_id"], 2);
         fs::remove_dir_all(root).ok();
     }
 }

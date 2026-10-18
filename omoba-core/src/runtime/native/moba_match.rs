@@ -1,7 +1,7 @@
 //! Opt-in single-lane MOBA rules over the production ECS and outcome pipeline.
 //! No renderer, wall clock, network, or script-DLL dependency is needed here.
 
-use std::collections::{BTreeMap,HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use failure::{err_msg, Error};
 use omoba_sim::{Fixed64, Vec2};
@@ -31,6 +31,10 @@ pub const SINGLE_LANE_RESPAWN_METRIC_ID: u64 = 0x4d52535000000000;
 pub const SINGLE_LANE_LENGTH_METRIC_ID: u64 = 0x4d4f42414c4e3031;
 pub const SINGLE_LANE_RECALL_ACTIVE_METRIC_ID: u64 = 0x4d52414300000000;
 pub const SINGLE_LANE_RECALL_REMAINING_METRIC_ID: u64 = 0x4d524d4e00000000;
+pub const SINGLE_LANE_SUMMONER_SLOT0_SPELL: u64 = 0x4d53533000000000;
+pub const SINGLE_LANE_SUMMONER_SLOT1_SPELL: u64 = 0x4d53533100000000;
+pub const SINGLE_LANE_SUMMONER_SLOT0_COOLDOWN: u64 = 0x4d53534300000000;
+pub const SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN: u64 = 0x4d53534400000000;
 pub const SINGLE_LANE_KILLS_METRIC_ID: u64 = 0x4d4b494c00000000;
 pub const SINGLE_LANE_DEATHS_METRIC_ID: u64 = 0x4d44454100000000;
 pub const SINGLE_LANE_ASSISTS_METRIC_ID: u64 = 0x4d41535300000000;
@@ -205,13 +209,15 @@ fn emit_replica_delta(world: &mut World, state: &MobaMatch, active: bool) {
 
 fn emit_owner_economy(world: &World, state: &MobaMatch, phase: crate::runtime::FactPhase) {
     use crate::runtime::native::economy_projection::{CommittedEconomyState, OwnerEconomyState};
+    let availability: Vec<_> = state
+        .heroes
+        .iter()
+        .map(|slot| super::shop::owner_shop_availability(world, state, slot.player_id))
+        .collect();
     let inventories = world.read_storage::<Inventory>();
     let balances = world.read_storage::<Gold>();
     let effects = world.read_storage::<ItemEffects>();
-    let positions = world.read_storage::<Pos>();
     let properties = world.read_storage::<CProperty>();
-    let active =
-        state.phase == MobaMatchPhase::Playing && !world.read_resource::<GamePause>().is_paused;
     for (side, slot) in state.heroes.iter().enumerate() {
         let team = state.config.teams[slot.side];
         let economy = if let Some(entity) = slot.entity {
@@ -224,17 +230,7 @@ fn emit_owner_economy(world: &World, state: &MobaMatch, phase: crate::runtime::F
             CommittedEconomyState::capture(slot.gold, &slot.inventory, ItemEffects::default())
         }
         .expect("valid persistent owner economy");
-        let shop_available = active
-            && slot.entity.is_some_and(|entity| {
-                properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
-                    && positions
-                        .get(entity)
-                        .zip(state.bases[slot.side].and_then(|base| positions.get(base)))
-                        .is_some_and(|(hero, base)| {
-                            (hero.0 - base.0).length_squared()
-                                <= Fixed64::from_i32(300) * Fixed64::from_i32(300)
-                        })
-            });
+        let (shop_available, shop_reason) = availability[side];
         world
             .read_resource::<crate::runtime::ObservableFactBuffer>()
             .emit(crate::runtime::OrderedFact {
@@ -253,6 +249,7 @@ fn emit_owner_economy(world: &World, state: &MobaMatch, phase: crate::runtime::F
                         player_id: slot.player_id,
                         economy,
                         shop_available,
+                        shop_reason,
                         shield_remaining_raw: slot.entity
                             .filter(|entity| properties.get(*entity).is_some_and(|p| p.hp > Fixed64::ZERO))
                             .and_then(|entity| world.try_fetch::<crate::runtime::native::ability_runtime::buff_store::BuffStore>()
@@ -262,7 +259,57 @@ fn emit_owner_economy(world: &World, state: &MobaMatch, phase: crate::runtime::F
                 },
             })
             .expect("valid persistent owner economy HUD");
+        let projection = crate::runtime::shop_undo_wire::owner_shop_undo_projection(
+            world,
+            state,
+            slot.player_id,
+            crate::runtime::shop_undo_wire::phase_byte(phase),
+        );
+        world
+            .read_resource::<crate::runtime::ObservableFactBuffer>()
+            .emit(crate::runtime::OrderedFact {
+                key: crate::runtime::FactOrderingKey {
+                    tick: world.read_resource::<Tick>().0,
+                    phase,
+                    canonical_source_order: 0,
+                    local_ordinal: side as u32 * 2
+                        + u32::from(phase == crate::runtime::FactPhase::PostStep),
+                    fact_kind: crate::runtime::FactKind::OwnerShopUndo,
+                },
+                audience: crate::runtime::FactAudience::Team(team),
+                fact: crate::runtime::ObservableFact::OwnerShopUndo { team, state: projection },
+            })
+            .expect("valid owner undo availability");
     }
+}
+
+/// Server lockstep domain for moba worlds. Absent `MobaMatch` is not this
+/// function's input; the caller keeps the legacy hash in that case. Gold,
+/// catalog ids, cooldown bits, source identity, and closed records are included.
+/// There is no save schema here. A render snapshot cannot rebuild this ledger.
+pub fn lockstep_economy_v2_material(world: &World) -> Vec<u8> {
+    let Some(state) = world.try_fetch::<MobaMatch>() else { return Vec::new() };
+    let mut heroes: Vec<_> = state.heroes.iter().collect();
+    heroes.sort_by_key(|slot| slot.player_id);
+    let mut bytes = Vec::new();
+    bytes.extend((heroes.len() as u32).to_le_bytes());
+    for slot in heroes {
+        let (gold, catalogs, cooldowns) = super::shop::projected_owner_wallet_in(world, &state, slot.player_id);
+        bytes.extend(slot.player_id.to_le_bytes());
+        bytes.extend(gold.to_le_bytes());
+        for value in catalogs { bytes.extend(value.to_le_bytes()); }
+        for value in cooldowns { bytes.extend(value.to_le_bytes()); }
+        let projection = crate::runtime::shop_undo_wire::owner_shop_undo_projection(
+            world, &state, slot.player_id, 0,
+        );
+        let encoded = projection.encode();
+        bytes.extend((encoded.len() as u32).to_le_bytes());
+        bytes.extend(encoded);
+        let ledger = super::shop::owner_ledger_preimage(world, slot.player_id);
+        bytes.extend((ledger.len() as u32).to_le_bytes());
+        bytes.extend(ledger);
+    }
+    bytes
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -281,6 +328,8 @@ pub struct SingleLanePlayerConfig {
 
 #[derive(Clone, Debug)]
 pub struct SingleLaneConfig {
+    /// Authority input-mode lock and bounded held-direction lease; never renderer clocks.
+    pub input_scheme_rules: crate::runtime::input_scheme::InputSchemeRules,
     /// None preserves the verified straight lane. Some selects a compiled Lua map.
     pub map_id: Option<String>,
     pub seed: u64,
@@ -311,11 +360,19 @@ pub struct SingleLaneConfig {
     pub base_recovery_enabled: bool,
     /// Explicit opt-in; never inferred from legacy GameMode::Moba stories.
     pub mana_enabled: bool,
+    /// Explicit authority loadouts; absent players have no summoner spells.
+    /// Selection is validated before any entities are spawned.
+    pub summoner_loadouts: BTreeMap<u32, [Option<String>; 2]>,
+    /// Slot 0 catalog ids. Empty leaves every hero unequipped. `None` is an
+    /// explicit clear. The authored training file is applied by the server,
+    /// not by this default.
+    pub trinket_loadouts: BTreeMap<u32, Option<u16>>,
 }
 
 impl Default for SingleLaneConfig {
     fn default() -> Self {
         Self {
+            input_scheme_rules: crate::runtime::input_scheme::InputSchemeRules::default(),
             map_id: None,
             seed: 1,
             players: [1, 2],
@@ -340,6 +397,8 @@ impl Default for SingleLaneConfig {
             assist_window_seconds: omoba_template_ids::MOBA_ASSIST_WINDOW_SECONDS,
             base_recovery_enabled: false,
             mana_enabled: false,
+            summoner_loadouts: BTreeMap::new(),
+            trinket_loadouts: BTreeMap::new(),
         }
     }
 }
@@ -366,6 +425,9 @@ struct LaneUnit {
 #[derive(Clone, Debug)]
 pub struct MobaHeroSlot {
     pub player_id: u32,
+    /// Persistent authority policy. Hero replacement never resets this roster value.
+    combat_preferences: crate::runtime::combat_controls::OwnerCombatPreferences,
+    input_scheme: crate::runtime::input_scheme::OwnerInputScheme,
     /// Lane side (0/1), independent of this slot's index in the player roster.
     pub side: usize,
     pub entity: Option<Entity>,
@@ -379,13 +441,90 @@ pub struct MobaHeroSlot {
     hero: Hero,
     inventory: Inventory,
     gold: Gold,
+    pub(crate) summoners: crate::runtime::summoner_runtime::SummonerLoadout,
+    /// Slot 0 trinket. Independent of inventory, abilities, and summoners.
+    /// Omission stays unequipped until an authoritative loadout is installed.
+    pub(crate) trinket: super::ward_world::WardRosterState,
 }
+
+impl MobaHeroSlot {
+    pub fn input_scheme(&self) -> crate::runtime::input_scheme::OwnerInputScheme { self.input_scheme }
+    /// Stable roster content identity, including while no hero life is present.
+    pub fn hero_content_id(&self) -> &str { &self.hero.id }
+    pub fn combat_preferences(&self) -> crate::runtime::combat_controls::OwnerCombatPreferences {
+        self.combat_preferences
+    }
+    /// Roster wallet after [`record_moba_death`] and before the replacement spawn.
+    /// A cleared entity without an admitted respawn is not this wallet.
+    pub(crate) fn admitted_dead_wallet(&mut self) -> Option<(&mut Inventory, &mut Gold)> {
+        if self.entity.is_none() && self.respawn_at.is_some() && self.deaths > 0 {
+            Some((&mut self.inventory, &mut self.gold))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn admitted_dead_wallet_ref(&self) -> Option<(&Inventory, Gold)> {
+        if self.entity.is_none() && self.respawn_at.is_some() && self.deaths > 0 {
+            Some((&self.inventory, self.gold))
+        } else {
+            None
+        }
+    }
+
+    /// Lethal damage has been recorded and the replacement spawn has not happened.
+    pub(crate) fn death_is_pending(&self) -> bool {
+        self.lethal_pending
+    }
+
+    /// Test-only poison. Communication HUD facts must ignore this cache.
+    #[cfg(test)]
+    pub(crate) fn poison_cached_progression_for_test(&mut self) {
+        self.hero.abilities.clear();
+        self.hero.abilities.push("stale_cached_ability".to_string());
+        self.hero.start_cooldown("stale_cached_ability", Fixed64::from_i32(99));
+        self.inventory.slots[0] = Some(ItemInstance {
+            item_id: omoba_template_ids::MOBA_ITEM_CATALOG[0].id.to_string(),
+            cooldown_remaining: 50.0,
+        });
+    }
+
+    /// Installs the same wallet predicate `record_moba_death` leaves behind.
+    #[cfg(test)]
+    pub(crate) fn install_admitted_dead_wallet_for_test(&mut self, inventory: Inventory) {
+        self.entity = None;
+        self.deaths = self.deaths.max(1);
+        self.respawn_at = Some(Fixed64::from_i32(1));
+        self.inventory = inventory;
+    }
+}
+
+/// Combat policy copied from the catalog row at placement. A missing key is an
+/// ordinary body, not a ward.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WardCombatPolicy {
+    pub direct_attack: omoba_template_ids::TrinketDirectAttackConst,
+    pub automatic_acquisition: omoba_template_ids::TrinketAutomaticAcquisitionConst,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CombatPreferenceAdmissionError { WrongOwner, InvalidPhase, InvalidAcquisition }
+
+#[cfg(test)]
+#[path = "moba_match/combat_preference_tests.rs"]
+mod combat_preference_tests;
+#[cfg(test)]
+#[path = "moba_match/input_scheme_tests.rs"]
+mod input_scheme_tests;
 
 #[derive(Clone, Debug)]
 pub struct MobaMatch {
     pub config: SingleLaneConfig,
     pub phase: MobaMatchPhase,
     pub elapsed: Fixed64,
+    pub(crate) input_step: Option<crate::runtime::input_scheme::InputSchemeStepSnapshot>,
+    input_reset_sources: BTreeSet<Entity>,
+    input_attack_reset_sources: BTreeSet<Entity>,
     income_remainder_raw: i64,
     pending_income_delta_raw: i64,
     pub waves: u32,
@@ -402,9 +541,82 @@ pub struct MobaMatch {
     assist_ledger: super::moba_assist::AssistLedger,
     next_wave_at: Fixed64,
     units: BTreeMap<u64, LaneUnit>,
+    pub(crate) summoner_catalog: Option<crate::runtime::summoner_runtime::SummonerCatalog>,
+    /// Canonical placed-ward id to the policy copied at spawn.
+    pub(crate) ward_policies: BTreeMap<u64, WardCombatPolicy>,
 }
 
 impl MobaMatch {
+    fn input_scheme_owner_index(&self, authenticated_owner: u32, requested_owner: u32)
+        -> Result<usize, crate::runtime::input_scheme::InputSchemeError> {
+        use crate::runtime::input_scheme::InputSchemeError;
+        if self.elapsed<Fixed64::ZERO { return Err(InputSchemeError::InvalidClock); }
+        if authenticated_owner==0 || authenticated_owner!=requested_owner { return Err(InputSchemeError::WrongOwner); }
+        if matches!(self.phase,MobaMatchPhase::Finished{..}) { return Err(InputSchemeError::InvalidPhase); }
+        let mut matches=self.heroes.iter().enumerate().filter(|(_,slot)| slot.player_id==authenticated_owner);
+        let index=matches.next().map(|(index,_)|index).ok_or(InputSchemeError::WrongOwner)?;
+        if matches.next().is_some() { return Err(InputSchemeError::WrongOwner); }
+        Ok(index)
+    }
+    pub fn input_scheme_elapsed(&self) -> Fixed64 { if self.elapsed<self.config.warmup {Fixed64::ZERO} else {self.elapsed-self.config.warmup} }
+    pub fn admit_input_scheme(&mut self, authenticated_owner: u32, requested_owner: u32, raw: u32)
+        -> Result<(), crate::runtime::input_scheme::InputSchemeError> {
+        let index=self.input_scheme_owner_index(authenticated_owner,requested_owner)?;
+        let elapsed=self.input_scheme_elapsed();
+        self.heroes[index].input_scheme.select(raw,elapsed,self.config.input_scheme_rules)
+    }
+    pub fn admit_direction(&mut self, authenticated_owner: u32, source: Entity,
+        gesture: crate::runtime::input_scheme::DirectionGesture, x: i32, y: i32)
+        -> Result<crate::runtime::input_scheme::DirectionAdmission, crate::runtime::input_scheme::InputSchemeError> {
+        use crate::runtime::input_scheme::InputSchemeError;
+        let index=self.input_scheme_owner_index(authenticated_owner,authenticated_owner)?;
+        if self.phase!=MobaMatchPhase::Playing { return Err(InputSchemeError::InvalidPhase); }
+        let slot=&self.heroes[index];
+        if slot.entity!=Some(source) || slot.lethal_pending || source.gen().id()<=0 { return Err(InputSchemeError::InvalidSource); }
+        let key=crate::runtime::selective::CanonicalEntityKey{id:source.id(),generation:source.gen().id() as u32};
+        let elapsed=self.input_scheme_elapsed();
+        self.heroes[index].input_scheme.admit_direction(key,gesture,x,y,elapsed,self.config.input_scheme_rules)
+    }
+    pub fn neutralize_direction(&mut self, owner: u32, source: Entity) {
+        if let Ok(index)=self.input_scheme_owner_index(owner,owner) {
+            if self.heroes[index].entity==Some(source) {self.heroes[index].input_scheme.neutralize();}
+        }
+    }
+    pub fn direction_for_source(&self, owner: u32, source: Entity) -> Vec2 {
+        let Ok(index)=self.input_scheme_owner_index(owner,owner) else { return Vec2::ZERO; };
+        let slot=&self.heroes[index];
+        if self.phase!=MobaMatchPhase::Playing || slot.entity!=Some(source) || slot.lethal_pending || source.gen().id()<=0 { return Vec2::ZERO; }
+        slot.input_scheme.direction(crate::runtime::selective::CanonicalEntityKey{id:source.id(),generation:source.gen().id() as u32},self.input_scheme_elapsed())
+    }
+    /// Trusted owner admission seam; wire authentication must supply `authenticated_owner`.
+    /// This does not cancel commands, attacks, recalls or cooldowns.
+    pub fn admit_combat_preferences(&mut self, authenticated_owner: u32, requested_owner: u32,
+        acquisition_raw: u8, idle_auto_attack: bool) -> Result<(), CombatPreferenceAdmissionError> {
+        use crate::runtime::combat_controls::{CombatPreferenceUpdate, OwnerCombatPreferences};
+        if authenticated_owner == 0 || authenticated_owner != requested_owner {
+            return Err(CombatPreferenceAdmissionError::WrongOwner);
+        }
+        if self.phase != MobaMatchPhase::Playing { return Err(CombatPreferenceAdmissionError::InvalidPhase); }
+        let mut matches = self.heroes.iter().enumerate().filter(|(_, slot)| slot.player_id == authenticated_owner);
+        let index = matches.next().map(|(index, _)| index).ok_or(CombatPreferenceAdmissionError::WrongOwner)?;
+        if matches.next().is_some() || self.heroes[index].combat_preferences.owner_id() != authenticated_owner {
+            return Err(CombatPreferenceAdmissionError::WrongOwner);
+        }
+        let next = OwnerCombatPreferences::try_from_raw(CombatPreferenceUpdate {
+            owner_id: authenticated_owner, acquisition_raw, idle_auto_attack, champion_only_direct: false,
+        }).map_err(|_| CombatPreferenceAdmissionError::InvalidAcquisition)?;
+        self.heroes[index].combat_preferences = next;
+        Ok(())
+    }
+
+    pub(crate) fn combat_preferences_for_source(&self, owner: u32, source: Entity)
+        -> Option<crate::runtime::combat_controls::OwnerCombatPreferences> {
+        let mut slots = self.heroes.iter().filter(|slot| slot.player_id == owner);
+        let slot = slots.next()?;
+        if owner == 0 || slots.next().is_some() || slot.entity != Some(source)
+            || slot.combat_preferences.owner_id() != owner { return None; }
+        Some(slot.combat_preferences)
+    }
     /// Aggregate admission only, not prerequisite identities or hidden HP.
     pub(crate) fn disclosed_structure_states(&self)->BTreeMap<u64,[u8;2]> {
         self.units.values().filter_map(|unit| {
@@ -425,8 +637,74 @@ impl MobaMatch {
             _ => true,
         }
     }
+
+    /// Current-match target policy shared by publication, acquisition, and damage.
+    /// Alive, hostility, range, disclosure, and owner preference stay with the caller.
+    /// A non-playing phase closes every body, including ordinary units.
+    #[cfg(test)]
+    pub(crate) fn note_ward_policy(
+        &mut self,
+        entity: Entity,
+        direct_attack: omoba_template_ids::TrinketDirectAttackConst,
+        automatic_acquisition: omoba_template_ids::TrinketAutomaticAcquisitionConst,
+    ) {
+        self.ward_policies.insert(
+            crate::runtime::canonical_entity_id(entity),
+            WardCombatPolicy {
+                direct_attack,
+                automatic_acquisition,
+            },
+        );
+    }
+
+    /// Missing policy means an ordinary body. Direct attack and automatic
+    /// acquisition are separate authored tokens.
+    pub(crate) fn ward_direct_attack_allowed(&self, entity: Entity) -> bool {
+        match self.ward_policies.get(&crate::runtime::canonical_entity_id(entity)) {
+            None => true,
+            Some(policy) => match policy.direct_attack {
+                omoba_template_ids::TrinketDirectAttackConst::DisclosedEnemy => true,
+                omoba_template_ids::TrinketDirectAttackConst::NotDirectlyAttackable => false,
+            },
+        }
+    }
+
+    pub(crate) fn ward_automatic_acquisition_allowed(&self, entity: Entity) -> bool {
+        match self.ward_policies.get(&crate::runtime::canonical_entity_id(entity)) {
+            None => true,
+            Some(policy) => match policy.automatic_acquisition {
+                omoba_template_ids::TrinketAutomaticAcquisitionConst::Enabled => true,
+                omoba_template_ids::TrinketAutomaticAcquisitionConst::Disabled => false,
+            },
+        }
+    }
+
+    pub fn current_match_target_attackable(&self, target: Entity) -> bool {
+        self.phase == MobaMatchPhase::Playing
+            && !self.jungle_camps.iter().any(|camp| camp.entity == Some(target) && camp.returning)
+            && self.units.get(&entity_key(target)).is_none_or(|unit| self.structure_unlocked(unit))
+    }
     pub fn is_recalling(&self, entity: Entity) -> bool {
         self.heroes.iter().any(|s| s.entity == Some(entity) && s.recall.is_some())
+    }
+    /// Build once per public snapshot, rather than scanning camps per entity.
+    pub fn disclosed_unit_attack_states(&self, paused: bool) -> BTreeMap<u64, crate::runtime::attack_visual_state::AttackVisualState> {
+        self.jungle_camps.iter().filter_map(|camp| camp.entity.map(|entity| {
+            let state = if self.phase == MobaMatchPhase::Playing { camp.attack_visual_state(paused) }
+                else { crate::runtime::attack_visual_state::AttackVisualState::default() };
+            (crate::runtime::canonical_entity_id(entity), state)
+        })).collect()
+    }
+    /// Build once per visibility snapshot; no per-entity roster scan or private
+    /// recall origin/deadline leaves the authority through this projection.
+    pub fn disclosed_channel_states(&self) -> BTreeMap<u64, crate::runtime::channel_visual_state::ChannelVisualState> {
+        use crate::runtime::channel_visual_state::ChannelVisualState;
+        self.heroes.iter().filter_map(|slot| slot.entity.map(|entity| {
+            let state = if self.phase == MobaMatchPhase::Playing && slot.recall.is_some() {
+                ChannelVisualState::Recall
+            } else { ChannelVisualState::None };
+            (crate::runtime::canonical_entity_id(entity), state)
+        })).collect()
     }
     #[cfg(feature = "kcp")]
     pub fn allows_player_input(&self, player_id: u32, input: &crate::runtime::PlayerInput) -> bool {
@@ -439,6 +717,119 @@ impl MobaMatch {
             .get(&entity_key(entity))
             .is_some_and(|unit| matches!(unit.role, LaneRole::Creep | LaneRole::Tower))
     }
+
+    /// Current roster in slot order. `entity == None` keeps membership.
+    /// Duplicate or zero player ids, and a side with no `config.teams` entry, fail closed.
+    pub fn communication_roster(&self) -> Result<Vec<CommunicationMember>, CommunicationRosterError> {
+        let mut seen = HashSet::new();
+        let mut members = Vec::with_capacity(self.heroes.len());
+        for slot in &self.heroes {
+            if slot.player_id == 0 || !seen.insert(slot.player_id) {
+                return Err(CommunicationRosterError::DuplicateOrZero);
+            }
+            let Some(team_id) = self.config.teams.get(slot.side).copied() else {
+                return Err(CommunicationRosterError::UnresolvedTeam);
+            };
+            members.push(CommunicationMember {
+                player_id: slot.player_id,
+                side: slot.side,
+                team_id,
+            });
+        }
+        Ok(members)
+    }
+
+    fn communication_slot(&self, player_id: u32) -> Option<&MobaHeroSlot> {
+        let mut found = None;
+        for slot in &self.heroes {
+            if slot.player_id == player_id {
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(slot);
+            }
+        }
+        found
+    }
+
+    /// Inclusive AABB of the compiled map's lanes, camps, and terrain, in `Vec2` raw units.
+    /// The point set matches fog geometry sources. A legacy match with no `map_id` is the
+    /// straight lane segment `x in [0, lane_length]`, `y == 0`.
+    pub fn communication_point_allowed(&self, point: Vec2) -> bool {
+        let Some((min_x, min_y, max_x, max_y)) = communication_bounds_raw(self) else {
+            return false;
+        };
+        let x = point.x.raw();
+        let y = point.y.raw();
+        x >= min_x && x <= max_x && y >= min_y && y <= max_y
+    }
+
+    /// Authored camp home. Live entity position, respawn, and returning state are not read.
+    /// Two camps with the same id fail closed.
+    pub fn communication_objective_home(&self, objective_id: &str) -> Option<Vec2> {
+        let mut home = None;
+        for camp in &self.jungle_camps {
+            if camp.definition.id == objective_id {
+                if home.is_some() {
+                    return None;
+                }
+                home = Some(Vec2::new(
+                    Fixed64::from_i32(camp.definition.position.0),
+                    Fixed64::from_i32(camp.definition.position.1),
+                ));
+            }
+        }
+        home
+    }
+
+    /// Public kills, deaths, and assists for a current roster player. No display name.
+    pub fn communication_public_score(&self, player_id: u32) -> Option<(u32, u32, u32)> {
+        let slot = self.communication_slot(player_id)?;
+        Some((slot.kills, slot.deaths, slot.assists))
+    }
+}
+
+/// One current roster member. Team id is `config.teams[side]`, not a cached copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommunicationMember {
+    pub player_id: u32,
+    pub side: usize,
+    pub team_id: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommunicationRosterError {
+    DuplicateOrZero,
+    UnresolvedTeam,
+}
+
+fn communication_bounds_raw(state: &MobaMatch) -> Option<(i64, i64, i64, i64)> {
+    if let Some(id) = state.config.map_id.as_deref() {
+        let map = omoba_template_ids::moba_map_by_name(id)?;
+        let mut bounds: Option<(i64, i64, i64, i64)> = None;
+        let points = map
+            .lanes
+            .iter()
+            .flat_map(|lane| lane.waypoints.iter().copied())
+            .chain(map.jungle_camps.iter().map(|camp| camp.position))
+            .chain(map.terrain.iter().flat_map(|region| [region.min, region.max]));
+        for (x, y) in points {
+            let x = Fixed64::from_i32(x).raw();
+            let y = Fixed64::from_i32(y).raw();
+            bounds = Some(match bounds {
+                None => (x, y, x, y),
+                Some((min_x, min_y, max_x, max_y)) => {
+                    (min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y))
+                }
+            });
+        }
+        return bounds;
+    }
+    let max_x = state.config.lane_length.raw();
+    if max_x < 0 {
+        return None;
+    }
+    Some((0, 0, max_x, 0))
 }
 
 #[cfg(feature = "kcp")]
@@ -452,12 +843,19 @@ pub fn single_lane_input_action_allowed(input: &crate::runtime::PlayerInput) -> 
                 | I::AttackMove(_)
                 | I::AttackTarget(_)
                 | I::HoldPosition(_)
+                | I::Stop(_)
                 | I::CastAbility(_)
                 | I::UpgradeAbility(_)
                 | I::ItemUse(_)
                 | I::ItemBuy(_)
                 | I::ItemSell(_)
+                | I::ShopUndo(_)
                 | I::Recall(_)
+                | I::SummonerCast(_)
+                | I::WardPlacement(_)
+                | I::CombatPreferences(_)
+                | I::InputScheme(_)
+                | I::Direction(_)
         )
     )
 }
@@ -486,6 +884,27 @@ fn position(config: &SingleLaneConfig, team: usize, offset: Fixed64) -> Vec2 {
         },
         Fixed64::ZERO,
     )
+}
+
+fn finalize_new_life_item_stats(world: &mut World, entity: Entity) {
+    use crate::runtime::native::item::{apply_item_stats, ItemStatAggregate, ItemStatApplication};
+    let inventory = world.read_storage::<Inventory>().get(entity).cloned().unwrap_or_default();
+    let totals = ItemStatAggregate::from_inventory(&inventory, &world.read_resource::<crate::runtime::ItemRegistry>());
+    let applied = world.read_storage::<ItemEffects>().get(entity).copied().unwrap_or_default();
+    let mut properties = world.write_storage::<CProperty>();
+    let mut attacks = world.write_storage::<TAttack>();
+    let next = apply_item_stats(
+        totals,
+        &applied,
+        properties.get_mut(entity),
+        attacks.get_mut(entity),
+        ItemStatApplication::NewLife,
+    );
+    drop(properties);
+    drop(attacks);
+    if let Some(effects) = world.write_storage::<ItemEffects>().get_mut(entity) {
+        *effects = next;
+    }
 }
 
 fn property(hp: Fixed64, speed: Fixed64) -> CProperty {
@@ -604,6 +1023,9 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         counts[side] += 1;
         roster.push((player.player_id, side, player.hero.clone()));
     }
+    let (summoner_catalog, summoner_loadouts) = super::summoner_world::validated_loadouts(
+        roster.iter().map(|(id, _, _)| *id), &config.summoner_loadouts,
+    ).map_err(|error| err_msg(format!("invalid summoner loadout: {error:?}")))?;
     let mut definitions = Vec::new();
     #[cfg(feature = "runtime-lua-content")]
     omoba_template_ids::runtime_content::validate_compiled_moba_catalog().map_err(err_msg)?;
@@ -629,8 +1051,14 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         }
         definitions.push(hero);
     }
+    let needs_directional_plan = world.try_fetch::<crate::runtime::input_scheme::DirectionalStepPlan>().is_none();
+    if needs_directional_plan {
+        world.insert(crate::runtime::input_scheme::DirectionalStepPlan::default());
+    }
     let heroes = roster.iter().enumerate().map(|(index, (player_id, side, _))| MobaHeroSlot {
         player_id: *player_id,
+        combat_preferences: crate::runtime::combat_controls::OwnerCombatPreferences::legacy(*player_id).expect("validated MOBA roster owner"),
+        input_scheme: crate::runtime::input_scheme::OwnerInputScheme::default(),
         side: *side,
         entity: None,
         deaths: 0,
@@ -643,11 +1071,16 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         hero: definitions[index].clone(),
         inventory: Inventory::default(),
         gold: Gold(0),
+        summoners: summoner_loadouts.get(player_id).cloned().unwrap_or_default(),
+        trinket: super::ward_world::WardRosterState::unavailable(),
     }).collect();
     let mut state = MobaMatch {
         config,
         phase: MobaMatchPhase::Warmup,
         elapsed: Fixed64::ZERO,
+        input_step: None,
+        input_reset_sources: BTreeSet::new(),
+        input_attack_reset_sources: BTreeSet::new(),
         income_remainder_raw: 0,
         pending_income_delta_raw: 0,
         waves: 0,
@@ -661,6 +1094,8 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         assist_ledger: super::moba_assist::AssistLedger::default(),
         next_wave_at: Fixed64::ZERO,
         units: BTreeMap::new(),
+        summoner_catalog,
+        ward_policies: BTreeMap::new(),
     };
     if let Some(map) = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name) {
         *world.write_resource::<BlockedRegions>() =
@@ -673,6 +1108,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
     let tower_offsets = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
         .map_or_else(|| vec![700], |map| map.tower_layers.to_vec());
     for lane in &mut state.lane_tower_layers { *lane = vec![[None; 2]; tower_offsets.len()]; }
+    world.insert(crate::runtime::ItemRegistry::generated_moba());
     for team in 0..2 {
         state.spawn_hero(world, team);
         for lane in 0..state.routes.len() {
@@ -687,11 +1123,15 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
     }
     for index in 2..state.heroes.len() { state.spawn_hero(world, index); }
     jungle::setup(world, &mut state);
+    super::ward_world::apply_configured_trinket_loadouts(&mut state)
+        .map_err(|error| err_msg(format!("invalid trinket loadout: {error:?}")))?;
     *world.write_resource::<GameMode>() = GameMode::Moba;
     world.write_resource::<MasterSeed>().0 = state.config.seed;
     world.write_resource::<CurrentCreepWave>().is_running = false;
-    world.insert(crate::runtime::ItemRegistry::generated_moba());
     world.insert(state);
+    world.insert(crate::runtime::shop_undo_wire::LockstepHashContract {
+        version: crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+    });
     Ok(())
 }
 
@@ -811,6 +1251,9 @@ impl MobaMatch {
                 ..ItemEffects::default()
             })
             .build();
+        finalize_new_life_item_stats(world, entity);
+        let player_id = self.heroes[index].player_id;
+        super::shop::bind_roster_shop_undo(world, player_id, entity);
         self.heroes[index].entity = Some(entity);
         self.heroes[index].lethal_pending = false;
         self.heroes[index].recall = None;
@@ -920,18 +1363,193 @@ impl MobaMatch {
     }
 }
 
+#[cfg(feature = "kcp")]
+fn gameplay_command_interrupts_recall(action: &Option<crate::runtime::PlayerInputEnum>) -> bool {
+    use crate::runtime::PlayerInputEnum as I;
+    matches!(
+        action,
+        Some(
+            I::MoveTo(_)
+                | I::AttackMove(_)
+                | I::AttackTarget(_)
+                | I::HoldPosition(_)
+                | I::Stop(_)
+                | I::CastAbility(_)
+                | I::ItemUse(_)
+        )
+    )
+}
+
+/// Gameplay commands win over Recall within the same input batch, independent
+/// of ordering. Stop is included. Recall itself is consumed here.
+#[cfg(feature = "kcp")]
+fn apply_recall_commands(world: &mut World, state: &mut MobaMatch, previous_elapsed: Fixed64, direction_begins: &BTreeSet<u32>) {
+    use crate::runtime::PlayerInputEnum as I;
+    let mut interrupted: std::collections::BTreeSet<u32> = world
+        .read_resource::<PendingPlayerInputs>()
+        .inputs
+        .iter()
+        .filter_map(|(player, input)| gameplay_command_interrupts_recall(&input.action).then_some(*player))
+        .collect();
+    interrupted.extend(direction_begins.iter().copied());
+    world.write_resource::<PendingPlayerInputs>().inputs.retain(|(player, input)| {
+        let side = state.heroes.iter().position(|slot| slot.player_id == *player).expect("roster filtered");
+        let team = state.heroes[side].side;
+        if matches!(input.action, Some(I::Recall(_))) {
+            if interrupted.contains(player) {
+                state.heroes[side].recall = None;
+                return false;
+            }
+            if let Some(entity) = state.heroes[side].entity {
+                if world.read_storage::<CProperty>().get(entity).is_some_and(|property| property.hp > Fixed64::ZERO)
+                    && !recall_control_blocked(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>(), entity)
+                    && state.bases[team].is_some()
+                    && state.heroes[side].recall.is_none()
+                {
+                    let origin = world.read_storage::<Pos>().get(entity).expect("hero position").0;
+                    state.heroes[side].recall = Some((
+                        origin,
+                        previous_elapsed.max(state.config.warmup)
+                            + Fixed64::from_i32(omoba_template_ids::MOBA_RECALL_CHANNEL_SECONDS as i32),
+                    ));
+                    state.heroes[side].input_scheme.neutralize();
+                    if let Some(queue) = world.write_storage::<HeroCommandQueue>().get_mut(entity) {
+                        queue.clear_all();
+                    }
+                    world.write_storage::<MoveTarget>().remove(entity);
+                }
+            }
+            return false;
+        }
+        if gameplay_command_interrupts_recall(&input.action) {
+            state.heroes[side].recall = None;
+        }
+        true
+    });
+}
+
+/// Apply a previously authenticated directional event to its exact live hero.
+/// Presses retire point commands and recall once, preserving attack commitment. Updates
+/// only renew the same gesture, including after a packet-loss lease timeout.
+pub fn apply_direction_input(world: &mut World, owner: u32, source: Entity,
+    gesture: crate::runtime::input_scheme::DirectionGesture, x: i32, y: i32)
+    -> Result<crate::runtime::input_scheme::DirectionAdmission, crate::runtime::input_scheme::InputSchemeError> {
+    let mut state=world.remove::<MobaMatch>().ok_or(crate::runtime::input_scheme::InputSchemeError::InvalidPhase)?;
+    let allow_movement=!world.try_fetch::<GamePause>().is_some_and(|pause|pause.is_paused)
+        && world.read_resource::<DeltaTime>().0>Fixed64::ZERO;
+    let result=apply_direction_with_state(world,&mut state,owner,source,gesture,x,y,allow_movement);
+    world.insert(state);result
+}
+
+fn apply_direction_with_state(world: &mut World, state: &mut MobaMatch, owner: u32, source: Entity,
+    gesture: crate::runtime::input_scheme::DirectionGesture, x: i32, y: i32, allow_movement: bool)
+    -> Result<crate::runtime::input_scheme::DirectionAdmission, crate::runtime::input_scheme::InputSchemeError> {
+    use crate::runtime::input_scheme::{DirectionAdmission, DirectionGesture, InputSchemeError};
+    if !allow_movement
+        && !matches!(gesture, DirectionGesture::End(_)) { return Err(InputSchemeError::InvalidPhase); }
+    if !world.entities().is_alive(source)
+        || world.read_storage::<Hero>().get(source).is_none()
+        || !world.read_storage::<PlayerOwner>().get(source).is_some_and(|value| value.player_id==owner)
+        || !world.read_storage::<CProperty>().get(source).is_some_and(|value| value.hp>Fixed64::ZERO)
+    { return Err(InputSchemeError::InvalidSource); }
+    let index=state.input_scheme_owner_index(owner,owner)?;
+    let life=crate::runtime::selective::CanonicalEntityKey {id:source.id(),generation:source.gen().id() as u32};
+    let was_held=state.heroes[index].input_scheme.active_press(life)!=0;
+    let admission = {
+        let admission=state.admit_direction(owner,source,gesture,x,y)?;
+        if admission==DirectionAdmission::Began {
+            let index=state.input_scheme_owner_index(owner,owner)?;
+            state.heroes[index].recall=None;
+            state.input_reset_sources.insert(source);
+        }
+        admission
+    };
+    if admission==DirectionAdmission::Began {
+        super::game_processor::clear_hero_command_queue(world,source);
+        // A new keyboard press replaces navigation, not an attack in progress.
+    } else if admission==DirectionAdmission::Ended && was_held {
+        // The next command tick keeps an explicit attack, but no stale movement
+        // waypoint may outlive focus loss or a matching key release.
+        world.write_storage::<MoveTarget>().remove(source);
+    }
+    Ok(admission)
+}
+
+fn apply_input_scheme_with_state(world: &mut World,state:&mut MobaMatch,owner:u32,raw:u32)
+    -> Result<bool,crate::runtime::input_scheme::InputSchemeError> {
+    let index=state.input_scheme_owner_index(owner,owner)?;
+    let previous=state.heroes[index].input_scheme.scheme();
+    state.admit_input_scheme(owner,owner,raw)?;
+    if state.heroes[index].input_scheme.scheme()==previous {return Ok(false);}
+    state.heroes[index].recall=None;
+    if let Some(source)=state.heroes[index].entity.filter(|entity|world.entities().is_alive(*entity)
+        && world.read_storage::<Hero>().get(*entity).is_some()
+        && world.read_storage::<PlayerOwner>().get(*entity).is_some_and(|value|value.player_id==owner)) {
+        state.input_reset_sources.insert(source);
+        state.input_attack_reset_sources.insert(source);
+        super::game_processor::clear_hero_command_queue(world,source);
+        super::game_processor::interrupt_attack_for_accepted_command(world,source);
+    }
+    Ok(true)
+}
+
+/// Roster-only setting: works while dead and during warmup; a genuine mode
+/// change retires held input and commands once. Idempotent retries are inert.
+pub fn apply_input_scheme_update(world:&mut World,owner:u32,raw:u32)
+    -> Result<bool,crate::runtime::input_scheme::InputSchemeError> {
+    let mut state=world.remove::<MobaMatch>().ok_or(crate::runtime::input_scheme::InputSchemeError::InvalidPhase)?;
+    let result=apply_input_scheme_with_state(world,&mut state,owner,raw);
+    world.insert(state);result
+}
+
+#[cfg(feature="kcp")]
+fn apply_owner_scheme_inputs(world:&mut World,state:&mut MobaMatch,allow_movement:bool) -> BTreeSet<u32> {
+    let inputs=std::mem::take(&mut world.write_resource::<PendingPlayerInputs>().inputs);
+    let mut retained=Vec::with_capacity(inputs.len());
+    let mut direction_begins=BTreeSet::new();
+    for (owner,input) in inputs {
+        if let Some(crate::runtime::PlayerInputEnum::InputScheme(value))=input.action.as_ref() {
+            if crate::runtime::input_scheme_transport::validate_update(value).is_err() {
+                log::warn!("input scheme rejected for owner {}: invalid shape",owner);
+            } else if let Err(reason)=apply_input_scheme_with_state(world,state,owner,value.scheme) {
+                log::warn!("input scheme rejected for owner {}: {:?}",owner,reason);
+            }
+        } else if let Some(crate::runtime::PlayerInputEnum::Direction(value))=input.action.as_ref() {
+            let result=crate::runtime::direction_transport::validate_sealed(value).map_err(|_|crate::runtime::input_scheme::InputSchemeError::InvalidGesture)
+                .and_then(|gesture| {
+                    let source=Entity::new(value.sealed_source as u32,specs::world::Generation::new((value.sealed_source>>32) as i32));
+                    apply_direction_with_state(world,state,owner,source,gesture,value.x,value.y,allow_movement)
+                });
+            match result {
+                Ok(crate::runtime::input_scheme::DirectionAdmission::Began)=>{direction_begins.insert(owner);},
+                Ok(_)=>{},Err(reason)=>log::warn!("direction rejected for owner {}: {:?}",owner,reason),
+            }
+        } else {retained.push((owner,input));}
+    }
+    world.write_resource::<PendingPlayerInputs>().inputs=retained;
+    direction_begins
+}
+
 /// Pre-dispatch hook. Timers use accumulated scaled fixed delta, never wall time.
 /// Returns false outside active play so callers can freeze the whole gameplay
-/// pipeline, not merely the lane AI. Existing worlds without this resource pass.
+/// pipeline, not merely the lane AI. A paused world is inactive even when
+/// `DeltaTime` is positive: match elapsed does not advance, so absolute ward
+/// deadlines cannot absorb the paused span on resume. Existing worlds without
+/// this resource pass.
 pub fn begin_moba_match_tick(world: &mut World) -> bool {
     // Results are never replay state and must not survive an inactive tick.
-    world
-        .write_resource::<PendingItemUseQueue>()
-        .settlements
-        .clear();
+    {
+        let mut queue = world.write_resource::<PendingItemUseQueue>();
+        queue.settlements.clear();
+        queue.undo_settlements.clear();
+    }
     let Some(mut state) = world.remove::<MobaMatch>() else {
         return true;
     };
+    // An inactive tick must overwrite the previous active controls too.
+    state.input_step = Some(crate::runtime::input_scheme::InputSchemeStepSnapshot {
+        tick: world.read_resource::<Tick>().0, rows: BTreeMap::new(),
+    });
     state.pending_income_delta_raw = 0;
     #[cfg(feature = "kcp")]
     world
@@ -939,58 +1557,52 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         .inputs
         .retain(|(player, input)| state.heroes.iter().any(|s| s.player_id == *player) && single_lane_input_action_allowed(input));
     if matches!(state.phase, MobaMatchPhase::Finished { .. }) {
-        reject_inactive_shop_inputs(world);
+        #[cfg(feature="kcp")]
+        apply_owner_scheme_inputs(world,&mut state,false);
+        let records = super::ward_world::take_ward_records(&mut state);
+        super::ward_world::destroy_ward_records(world, &records);
+        reject_inactive_shop_inputs(world, &state);
         emit_replica_delta(world, &state, false);
         world.insert(state);
         return false;
     }
     let dt = world.read_resource::<DeltaTime>().0;
-    let previous_elapsed = state.elapsed;
-    state.elapsed += dt;
-    if state.elapsed < state.config.warmup || dt <= Fixed64::ZERO {
-        reject_inactive_shop_inputs(world);
+    if world
+        .try_fetch::<GamePause>()
+        .is_some_and(|pause| pause.is_paused)
+    {
+        #[cfg(feature="kcp")]
+        apply_owner_scheme_inputs(world,&mut state,false);
+        reject_inactive_shop_inputs(world, &state);
         emit_replica_delta(world, &state, false);
         world.insert(state);
         return false;
     }
-    if state.phase == MobaMatchPhase::Warmup {
+    let previous_elapsed = state.elapsed;
+    state.elapsed += dt;
+    let active=state.elapsed>=state.config.warmup && dt>Fixed64::ZERO;
+    if active && state.phase == MobaMatchPhase::Warmup {
         state.phase = MobaMatchPhase::Playing;
         state.next_wave_at = state.elapsed;
+    }
+    #[cfg(feature="kcp")]
+    let direction_begins=apply_owner_scheme_inputs(world,&mut state,active);
+    if !active {
+        reject_inactive_shop_inputs(world, &state);
+        emit_replica_delta(world, &state, false);
+        world.insert(state);
+        return false;
     }
     // Count only the playing portion of the warmup-crossing tick.
     state.pending_income_delta_raw = (state.elapsed - previous_elapsed.max(state.config.warmup))
         .raw()
         .max(0);
+    let summoner_delta = Fixed64::from_raw(state.pending_income_delta_raw);
+    let paused = world.read_resource::<GamePause>().is_paused;
+    super::summoner_world::tick_match_loadouts(&mut state, summoner_delta, paused);
+    super::ward_world::tick_match_wards(world, &mut state, summoner_delta, paused);
     #[cfg(feature = "kcp")]
-    {
-        use crate::runtime::PlayerInputEnum as I;
-        // Gameplay commands win over Recall within the same input batch,
-        // independent of ordering; none may be deferred behind a channel.
-        let interrupted: std::collections::BTreeSet<u32> = world.read_resource::<PendingPlayerInputs>().inputs.iter()
-            .filter_map(|(player, input)| matches!(input.action, Some(I::MoveTo(_) | I::AttackMove(_) | I::AttackTarget(_) | I::HoldPosition(_) | I::CastAbility(_) | I::ItemUse(_))).then_some(*player)).collect();
-        world.write_resource::<PendingPlayerInputs>().inputs.retain(|(player, input)| {
-            let side = state.heroes.iter().position(|s| s.player_id == *player).expect("roster filtered");
-            let team = state.heroes[side].side;
-            if matches!(input.action, Some(I::Recall(_))) {
-                if interrupted.contains(player) { state.heroes[side].recall = None; return false; }
-                if let Some(entity) = state.heroes[side].entity {
-                    if world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
-                        && !recall_control_blocked(&world.read_resource::<crate::runtime::ability_runtime::BuffStore>(),entity)
-                        && state.bases[team].is_some() && state.heroes[side].recall.is_none() {
-                        let origin = world.read_storage::<Pos>().get(entity).expect("hero position").0;
-                        state.heroes[side].recall = Some((origin, previous_elapsed.max(state.config.warmup) + Fixed64::from_i32(omoba_template_ids::MOBA_RECALL_CHANNEL_SECONDS as i32)));
-                        if let Some(queue) = world.write_storage::<HeroCommandQueue>().get_mut(entity) { queue.clear_all(); }
-                        world.write_storage::<MoveTarget>().remove(entity);
-                    }
-                }
-                return false;
-            }
-            if matches!(input.action, Some(I::MoveTo(_) | I::AttackMove(_) | I::AttackTarget(_) | I::HoldPosition(_) | I::CastAbility(_) | I::ItemUse(_))) {
-                state.heroes[side].recall = None;
-            }
-            true
-        });
-    }
+    apply_recall_commands(world, &mut state, previous_elapsed, &direction_begins);
     emit_replica_delta(world, &state, true);
     for team in 0..state.heroes.len() {
         if state.heroes[team].entity.is_none() {
@@ -1134,40 +1746,81 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
             .expect("valid lane movement fact");
     }
     world.write_resource::<Vec<DamageInstance>>().extend(damage);
+    capture_input_scheme_step(world, &mut state);
     world.insert(state);
     true
 }
 
-fn reject_inactive_shop_inputs(world: &mut World) {
+fn capture_input_scheme_step(world: &World, state: &mut MobaMatch) {
+    use crate::runtime::input_scheme::{InputSchemeStepSnapshot, OwnerDirectionalStep};
+    let entities = world.entities();
+    let heroes = world.read_storage::<Hero>();
+    let owners = world.read_storage::<PlayerOwner>();
+    let health = world.read_storage::<CProperty>();
+    let mut rows = BTreeMap::new();
+    for slot in &state.heroes {
+        let Some(source) = slot.entity else { continue; };
+        if state.input_scheme_owner_index(slot.player_id, slot.player_id).is_err()
+            || slot.lethal_pending || !entities.is_alive(source) || heroes.get(source).is_none()
+            || !owners.get(source).is_some_and(|owner| owner.player_id == slot.player_id)
+            || !health.get(source).is_some_and(|property| property.hp > Fixed64::ZERO) { continue; }
+        let key = crate::runtime::selective::CanonicalEntityKey { id: source.id(), generation: source.gen().id() as u32 };
+        rows.insert(slot.player_id, OwnerDirectionalStep {
+            source, scheme: slot.input_scheme().scheme(),
+            direction: if slot.recall.is_some() { Vec2::ZERO } else { state.direction_for_source(slot.player_id, source) },
+            press_id: slot.input_scheme().active_press(key),
+            navigation_reset: state.input_reset_sources.contains(&source),
+            attack_reset: state.input_attack_reset_sources.contains(&source),
+        });
+    }
+    state.input_step = Some(InputSchemeStepSnapshot { tick: world.read_resource::<Tick>().0, rows });
+    state.input_reset_sources.clear();
+    state.input_attack_reset_sources.clear();
+}
+
+fn reject_inactive_shop_inputs(world: &mut World, state: &MobaMatch) {
     #[cfg(feature = "kcp")]
     {
         use crate::runtime::{
             shop::{ShopCommand, ShopError, ShopSettlement},
             PlayerInputEnum,
         };
-        let results: Vec<_> = world
-            .read_resource::<PendingPlayerInputs>()
-            .inputs
-            .iter()
-            .filter_map(|(player, input)| {
-                let command = match &input.action {
-                    Some(PlayerInputEnum::ItemBuy(buy)) => ShopCommand::Buy(buy.item_id.clone()),
-                    Some(PlayerInputEnum::ItemSell(sell)) => {
-                        ShopCommand::Sell(sell.item_slot as usize)
-                    }
-                    _ => return None,
-                };
-                Some(ShopSettlement {
+        let mut results = Vec::new();
+        let mut undo_results = Vec::new();
+        for (player, input) in &world.read_resource::<PendingPlayerInputs>().inputs {
+            match &input.action {
+                Some(PlayerInputEnum::ItemBuy(buy)) => results.push(ShopSettlement {
                     player_id: *player,
-                    command,
+                    command: ShopCommand::Buy(buy.item_id.clone()),
                     result: Err(ShopError::MatchUnavailable),
-                })
-            })
-            .collect();
-        world
-            .write_resource::<PendingItemUseQueue>()
-            .settlements
-            .extend(results);
+                }),
+                Some(PlayerInputEnum::ItemSell(sell)) => results.push(ShopSettlement {
+                    player_id: *player,
+                    command: ShopCommand::Sell(sell.item_slot as usize),
+                    result: Err(ShopError::MatchUnavailable),
+                }),
+                Some(PlayerInputEnum::ShopUndo(undo)) => {
+                    let request = if undo.mode == crate::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE {
+                        crate::runtime::shop::ShopUndoRequest::Sequence(undo.sequence)
+                    } else {
+                        crate::runtime::shop::ShopUndoRequest::Sequence(0)
+                    };
+                    let (gold, catalogs, cooldowns) = crate::runtime::shop::projected_owner_wallet_in(world, state, *player);
+                    undo_results.push(crate::runtime::shop::ShopUndoSettlement {
+                        player_id: *player,
+                        request,
+                        result: Err(ShopError::MatchUnavailable),
+                        gold,
+                        catalogs,
+                        cooldowns,
+                    });
+                }
+                _ => {}
+            }
+        }
+        let mut queue = world.write_resource::<PendingItemUseQueue>();
+        queue.settlements.extend(results);
+        queue.undo_settlements.extend(undo_results);
     }
 }
 
@@ -1289,8 +1942,11 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                     .copied()
                     .unwrap_or_default();
                 slot.entity = None;
+                slot.input_scheme.neutralize();
                 slot.recall = None;
                 slot.deaths = slot.deaths.saturating_add(1);
+                let retired_player = slot.player_id;
+                super::shop::retire_owner_shop_undo(world, retired_player);
                 slot.respawn_at = Some(state.elapsed + state.config.respawn_delay);
                 world
                     .write_resource::<crate::runtime::BuffStore>()
@@ -1334,13 +1990,15 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
 /// Checked at the damage boundary, not only by AI. A client cannot bypass the
 /// tower prerequisite by issuing a direct attack/skill on the base.
 pub fn moba_damage_allowed(world: &World, target: Entity) -> bool {
-    world.try_fetch::<MobaMatch>().is_none_or(|state| {
-        state.phase == MobaMatchPhase::Playing
-            && !state.jungle_camps.iter().any(|camp| camp.entity == Some(target) && camp.returning)
-            && state.units.get(&entity_key(target)).is_none_or(|unit| {
-                state.structure_unlocked(unit)
-            })
-    })
+    if let Some(state) = world.try_fetch::<MobaMatch>() {
+        // The live match wins over a disclosed gate. Filtered worlds without a
+        // match continue into the gate below; legacy worlds with neither stay open.
+        return state.current_match_target_attackable(target);
+    }
+    if let Some(gate) = world.try_fetch::<crate::runtime::filtered_specs::DisclosedAttackabilityGate>() {
+        return gate.allows(target);
+    }
+    true
 }
 
 /// Synchronize settled buffs before script admission, including their expiry.
@@ -1373,6 +2031,7 @@ fn refresh_managed_moba_capacity(hero:&mut Hero,buffs:&crate::runtime::BuffStore
 pub fn finish_moba_match_tick(world: &mut World) {
     let tick = world.read_resource::<Tick>().0;
     if world.try_fetch::<MobaMatch>().is_some() {
+        super::summoner_world::emit_committed_summoner_facts(world);
         emit_incoming_damage_observations(world, tick);
     }
     let Some(mut state) = world.try_fetch_mut::<MobaMatch>() else {
@@ -1665,7 +2324,9 @@ pub fn finish_moba_match_tick(world: &mut World) {
     if let Some(winner) = winner {
         state.phase = MobaMatchPhase::Finished { winner, tick };
         let winner_team = winner.map(|side| state.config.teams[side as usize]);
+        let records = super::ward_world::take_ward_records(&mut state);
         drop(state);
+        super::ward_world::destroy_ward_records(world, &records);
         world
             .read_resource::<crate::runtime::ObservableFactBuffer>()
             .emit(crate::runtime::OrderedFact {
@@ -1763,6 +2424,9 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     let state = world.read_resource::<MobaMatch>();
     let mut hash = Sha256::new();
     hash.update(format!("|jungle:{:?}", state.jungle_camps));
+    hash.update(format!("|input-step:{:?}", state.input_step));
+    hash.update(format!("|input-resets:{:?}", state.input_reset_sources));
+    hash.update(format!("|input-attack-resets:{:?}", state.input_attack_reset_sources));
     for camp in &state.jungle_camps {
         if let Some(entity) = camp.entity {
             hash_json(&mut hash, &serde_json::to_value((world.read_storage::<Pos>().get(entity),
@@ -1805,9 +2469,24 @@ pub fn single_lane_replay_digest(world: &World) -> String {
             &mut hash,
             &serde_json::to_value((&slot.hero, &slot.inventory, slot.gold)).expect("slot JSON"),
         );
+        // Roster identity and committed clocks. This diagnostic is not the
+        // selective-replica wire hash and is not a hostile projection.
+        hash.update(format!(
+            "|summoner-owner:{}|summoner-revision:{}|summoner-slot0:{:?}|summoner-cd0:{}|summoner-slot1:{:?}|summoner-cd1:{}",
+            slot.summoners.owner_player_id(),
+            slot.summoners.revision(),
+            slot.summoners.spell_id(0),
+            slot.summoners.cooldown_remaining(0).map(|clock| clock.raw()).unwrap_or(0),
+            slot.summoners.spell_id(1),
+            slot.summoners.cooldown_remaining(1).map(|clock| clock.raw()).unwrap_or(0),
+        ));
+        super::ward_world::hash_roster_wards(&mut hash, world, slot);
+        hash_json(&mut hash, &serde_json::to_value(slot.combat_preferences).expect("combat preferences JSON"));
+        let mut input_material=Vec::new();slot.input_scheme.append_material(&mut input_material);hash.update(input_material);
     }
     hash.update(format!("|assist-rules:{}:{}|ledger:{:?}", state.config.hero_assist_gold,
         state.config.assist_window_seconds, state.assist_ledger));
+    hash.update(format!("|input-scheme-rules:{}:{}",state.config.input_scheme_rules.lock_after().raw(),state.config.input_scheme_rules.direction_lease().raw()));
     hash.update(format!("|xp-rules:{}:{}", state.config.hero_kill_xp, state.config.hero_assist_xp));
     hash.update(format!("|lane-xp-rules:{}:{}", state.config.lane_creep_xp, state.config.lane_xp_radius));
     hash.update(format!("|lane-gold-rules:{}", state.config.lane_creep_gold));
@@ -1858,6 +2537,7 @@ pub fn single_lane_replay_digest(world: &World) -> String {
                 attack.attack_seq,
                 attack.attack_phase
             ));
+            hash.update(format!("|commit:{:?}", attack.committed_target.map(entity_key)));
         }
         if let Some(command) = commands.get(unit.entity) {
             hash.update(format!("|{:?}", command));
@@ -1878,6 +2558,13 @@ pub fn single_lane_replay_digest(world: &World) -> String {
         &mut hash,
         &serde_json::to_value(&*world.read_resource::<Vec<Outcome>>()).expect("outcome JSON"),
     );
+    // Absent and empty ledgers hash the same, so worlds that never buy stay stable.
+    if let Some(ledger) = world.try_fetch::<super::shop::ShopUndoLedger>() {
+        if !ledger.materially_empty() {
+            hash.update(b"|shop-undo:");
+            hash_json(&mut hash, &serde_json::to_value(&*ledger).expect("shop undo JSON"));
+        }
+    }
     format!("{:x}", hash.finalize())
 }
 
@@ -2038,4 +2725,362 @@ pub fn single_lane_bot_inputs(
         ));
     }
     inputs
+}
+
+#[cfg(test)]
+pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMatch {
+    MobaMatch {
+        config: SingleLaneConfig::default(),
+        phase,
+        elapsed: Fixed64::ZERO,
+        input_step: None,
+        input_reset_sources: BTreeSet::new(),
+        input_attack_reset_sources: BTreeSet::new(),
+        income_remainder_raw: 0,
+        pending_income_delta_raw: 0,
+        waves: 0,
+        heroes: vec![MobaHeroSlot {
+            player_id: 7,
+            combat_preferences: crate::runtime::combat_controls::OwnerCombatPreferences::legacy(7).expect("fixture owner"),
+            input_scheme: crate::runtime::input_scheme::OwnerInputScheme::default(),
+            side: 0,
+            entity: Some(hero),
+            deaths: 0,
+            kills: 0,
+            assists: 0,
+            lethal_pending: false,
+            recall: None,
+            respawns: 0,
+            respawn_at: None,
+            hero: Hero::default(),
+            inventory: Inventory::default(),
+            gold: Gold(0),
+            summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
+            trinket: super::ward_world::WardRosterState::unavailable(),
+        }],
+        towers: [None, None],
+        lane_towers: Vec::new(),
+        lane_tower_layers: Vec::new(),
+        routes: Vec::new(),
+        bases: [None, None],
+        jungle_camps: Vec::new(),
+        assist_ledger: super::moba_assist::AssistLedger::default(),
+        next_wave_at: Fixed64::ZERO,
+        units: BTreeMap::new(),
+        summoner_catalog: None,
+        ward_policies: BTreeMap::new(),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn communication_roster_match(
+    heroes: Vec<MobaHeroSlot>,
+    phase: MobaMatchPhase,
+    elapsed: Fixed64,
+    map_id: Option<&str>,
+) -> MobaMatch {
+    let mut config = SingleLaneConfig::default();
+    config.map_id = map_id.map(str::to_string);
+    let mut jungle_camps = Vec::new();
+    if let Some(id) = map_id {
+        if let Some(map) = omoba_template_ids::moba_map_by_name(id) {
+            config.lane_length = Fixed64::from_i32(map.lane_length);
+            jungle_camps = map.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
+        }
+    }
+    MobaMatch {
+        config,
+        phase,
+        elapsed,
+        input_step: None,
+        input_reset_sources: BTreeSet::new(),
+        input_attack_reset_sources: BTreeSet::new(),
+        income_remainder_raw: 0,
+        pending_income_delta_raw: 0,
+        waves: 0,
+        heroes,
+        towers: [None, None],
+        lane_towers: Vec::new(),
+        lane_tower_layers: Vec::new(),
+        routes: Vec::new(),
+        bases: [None, None],
+        jungle_camps,
+        assist_ledger: super::moba_assist::AssistLedger::default(),
+        next_wave_at: Fixed64::ZERO,
+        units: BTreeMap::new(),
+        summoner_catalog: None,
+        ward_policies: BTreeMap::new(),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Entity>) -> MobaHeroSlot {
+    MobaHeroSlot {
+        player_id,
+        combat_preferences: crate::runtime::combat_controls::OwnerCombatPreferences::legacy(player_id).expect("fixture roster owner"),
+        input_scheme: crate::runtime::input_scheme::OwnerInputScheme::default(),
+        side,
+        entity,
+        deaths: 0,
+        kills: 0,
+        assists: 0,
+        lethal_pending: false,
+        recall: None,
+        respawns: 0,
+        respawn_at: None,
+        hero: Hero::default(),
+        inventory: Inventory::default(),
+        gold: Gold(0),
+        summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
+        trinket: super::ward_world::WardRosterState::unavailable(),
+    }
+}
+
+#[cfg(test)]
+impl MobaMatch {
+    pub(crate) fn track_lane_unit_for_attackability_test(
+        &mut self,
+        entity: Entity,
+        team: u8,
+        role: LaneRole,
+        lane: usize,
+    ) {
+        self.units.insert(entity_key(entity), LaneUnit {
+            entity,
+            team,
+            role,
+            attack_remaining: Fixed64::ZERO,
+            lane,
+            next_waypoint: 0,
+            last_hit_retired: false,
+        });
+    }
+
+    pub(crate) fn track_jungle_for_attackability_test(&mut self, entity: Entity, returning: bool) {
+        let mut camp = MobaJungleCamp::new(omoba_template_ids::MobaJungleConst {
+                id: "current_match_attackability",
+                position: (0, 0),
+                hp: 1,
+                damage: 0,
+                move_speed: 0,
+                attack_range: 0,
+                leash_radius: 0,
+                attack_interval_seconds: 1,
+                respawn_seconds: 1,
+                gold: 0,
+                xp: 0,
+        });
+        camp.entity = Some(entity);
+        camp.returning = returning;
+        self.jungle_camps.push(camp);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn stop_command_world() -> (World, Entity) {
+    let mut world = World::new();
+    world.register::<Hero>();
+    world.register::<PlayerOwner>();
+    world.register::<CProperty>();
+    world.register::<MoveTarget>();
+    world.register::<HeroCommandQueue>();
+    world.register::<TAttack>();
+    world.register::<Pos>();
+    world.insert(PendingMoveQueue::default());
+    world.insert(Tick(0));
+    world.insert(GamePause { is_paused: false });
+    let hero = world.create_entity()
+        .with(Hero::default())
+        .with(PlayerOwner::new(7))
+        .with(CProperty {
+            hp: Fixed64::from_i32(100),
+            mhp: Fixed64::from_i32(100),
+            msd: Fixed64::ONE,
+            def_physic: Fixed64::ZERO,
+            def_magic: Fixed64::ZERO,
+        })
+        .with(Pos(Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4))))
+        .with(MoveTarget(Vec2::new(Fixed64::from_i32(9), Fixed64::ZERO)))
+        .with(HeroCommandQueue {
+            active: Some(HeroCommand::HoldPosition),
+            queued: vec![HeroCommand::MoveTo { pos: Vec2::new(Fixed64::ONE, Fixed64::ZERO) }],
+        })
+        .build();
+    (world, hero)
+}
+
+#[cfg(test)]
+fn stop_command_still_holding(world: &World, hero: Entity) -> bool {
+    world.read_storage::<HeroCommandQueue>().get(hero).is_some_and(|queue| {
+        queue.active == Some(HeroCommand::HoldPosition) && queue.queued.len() == 1
+    }) && world.read_storage::<MoveTarget>().get(hero).is_some()
+}
+
+#[cfg(test)]
+fn push_stop(world: &mut World) {
+    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+        owner_pid: 7,
+        queued: false,
+        kind: PendingHeroCommandKind::Stop,
+    });
+}
+
+#[cfg(test)]
+fn stop_command_active(world: &World, hero: Entity) -> Option<HeroCommand> {
+    world.read_storage::<HeroCommandQueue>().get(hero).and_then(|queue| queue.active)
+}
+
+#[cfg(test)]
+#[test]
+fn stop_command_rejects_inactive_phase_pause_and_foreign_hero() {
+    let (mut world, hero) = stop_command_world();
+    world.insert(stop_command_match(hero, MobaMatchPhase::Finished { winner: None, tick: 4 }));
+    push_stop(&mut world);
+    super::game_processor::drain_pending_moves(&mut world);
+    assert!(stop_command_still_holding(&world, hero));
+    world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Warmup;
+    push_stop(&mut world);
+    super::game_processor::drain_pending_moves(&mut world);
+    assert!(stop_command_still_holding(&world, hero));
+    world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+    world.write_resource::<GamePause>().is_paused = true;
+    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+        owner_pid: 7,
+        queued: false,
+        kind: PendingHeroCommandKind::HoldPosition,
+    });
+    super::game_processor::drain_pending_moves(&mut world);
+    assert_eq!(stop_command_active(&world, hero), Some(HeroCommand::HoldPosition));
+    assert!(world.read_storage::<HeroCommandQueue>().get(hero).is_some_and(|queue| queue.queued.is_empty()));
+    assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+    assert!(crate::runtime::command_claims_movement_priority(false, stop_command_active(&world, hero)));
+    push_stop(&mut world);
+    super::game_processor::drain_pending_moves(&mut world);
+    assert_eq!(stop_command_active(&world, hero), Some(HeroCommand::HoldPosition));
+    world.write_resource::<GamePause>().is_paused = false;
+    let decoy = world.create_entity().build();
+    {
+        let mut state = world.write_resource::<MobaMatch>();
+        state.heroes[0].entity = Some(decoy);
+    }
+    push_stop(&mut world);
+    super::game_processor::drain_pending_moves(&mut world);
+    assert_eq!(stop_command_active(&world, hero), Some(HeroCommand::HoldPosition));
+    {
+        let mut state = world.write_resource::<MobaMatch>();
+        state.heroes[0].entity = Some(hero);
+    }
+    push_stop(&mut world);
+    super::game_processor::drain_pending_moves(&mut world);
+    assert_eq!(stop_command_active(&world, hero), None);
+    assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+    assert!(!crate::runtime::command_claims_movement_priority(false, None));
+}
+
+#[cfg(all(test, feature = "kcp"))]
+#[test]
+fn stop_command_interrupts_recall_and_blocks_same_batch_start() {
+    use crate::runtime::{PlayerInput, PlayerInputEnum};
+    let stop = || (7, PlayerInput { action: Some(PlayerInputEnum::Stop(crate::game_proto::Stop {})) });
+    let recall = || (7, PlayerInput { action: Some(PlayerInputEnum::Recall(crate::game_proto::Recall {})) });
+    let prepare = || {
+        let (mut world, hero) = stop_command_world();
+        world.insert(PendingPlayerInputs::default());
+        world.insert(crate::runtime::ability_runtime::BuffStore::default());
+        let mut state = stop_command_match(hero, MobaMatchPhase::Playing);
+        state.bases[0] = Some(hero);
+        assert!(state.allows_player_input(7, &stop().1));
+        assert!(!state.allows_player_input(8, &stop().1));
+        assert!(single_lane_input_action_allowed(&stop().1));
+        (world, state, hero)
+    };
+    {
+        let (mut world, mut state, hero) = prepare();
+        world.write_resource::<PendingPlayerInputs>().inputs = vec![recall()];
+        apply_recall_commands(&mut world, &mut state, Fixed64::ZERO, &BTreeSet::new());
+        assert!(state.heroes[0].recall.is_some());
+        assert_eq!(state.disclosed_channel_states()[&crate::runtime::canonical_entity_id(hero)],crate::runtime::channel_visual_state::ChannelVisualState::Recall);
+        assert!(world.read_resource::<PendingPlayerInputs>().inputs.is_empty());
+        assert!(world.read_storage::<HeroCommandQueue>().get(hero).is_some_and(|queue| queue.active.is_none()));
+        assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+        // Exercise the authority producer, not just a handcrafted replica baseline.
+        world.register::<Faction>();
+        world.register::<crate::runtime::ReplicationScope>();
+        world.register::<crate::runtime::StealthProfile>();
+        world.register::<crate::runtime::VisibilityOverride>();
+        world.register::<crate::runtime::RememberPolicy>();
+        world.register::<crate::runtime::VisionSource>();
+        world.register::<Unit>();
+        world.register::<crate::runtime::DemoPatrol>();
+        world.register::<Facing>();
+        world.register::<TurnSpeed>();
+        world.register::<CollisionRadius>();
+        world.register::<Inventory>();
+        world.register::<Gold>();
+        world.register::<ItemEffects>();
+        world.register::<Tower>();
+        world.register::<crate::scripting::ScriptUnitTag>();
+        world.register::<crate::runtime::PlacedWard>();
+        world.insert(crate::runtime::VisionOccluderSet::default());
+        world.insert(state);
+        let disclosed = |world: &World| {
+            let view = crate::runtime::build_wave_b_read_view(world, 0);
+            let row = view.entities.iter().find(|row| row.canonical_id == crate::runtime::canonical_entity_id(hero)).unwrap();
+            let components = crate::runtime::decode_disclosed_components(&row.disclosed_baseline).unwrap();
+            crate::runtime::channel_visual_state::ChannelVisualState::decode(
+                components[&crate::runtime::channel_visual_state::SCHEMA_ID],
+            ).unwrap()
+        };
+        assert_eq!(disclosed(&world), crate::runtime::channel_visual_state::ChannelVisualState::Recall);
+        let mut state = world.remove::<MobaMatch>().unwrap();
+        world.write_resource::<PendingPlayerInputs>().inputs = vec![stop()];
+        apply_recall_commands(&mut world, &mut state, Fixed64::ZERO, &BTreeSet::new());
+        world.insert(state);
+        assert_eq!(disclosed(&world), crate::runtime::channel_visual_state::ChannelVisualState::None);
+    }
+    {
+        let (mut world, mut state, hero) = prepare();
+        state.heroes[0].recall = Some((Vec2::new(Fixed64::from_i32(3), Fixed64::from_i32(4)), Fixed64::from_i32(50)));
+        world.write_resource::<PendingPlayerInputs>().inputs = vec![stop()];
+        apply_recall_commands(&mut world, &mut state, Fixed64::ZERO, &BTreeSet::new());
+        assert!(state.heroes[0].recall.is_none());
+        assert_eq!(state.disclosed_channel_states()[&crate::runtime::canonical_entity_id(hero)],crate::runtime::channel_visual_state::ChannelVisualState::None);
+        assert!(matches!(
+            world.read_resource::<PendingPlayerInputs>().inputs[0].1.action,
+            Some(PlayerInputEnum::Stop(_))
+        ));
+        assert!(stop_command_still_holding(&world, hero));
+        push_stop(&mut world);
+        world.insert(state);
+        super::game_processor::drain_pending_moves(&mut world);
+        assert!(world.read_storage::<HeroCommandQueue>().get(hero).is_some_and(|queue| {
+            queue.active.is_none() && queue.queued.is_empty()
+        }));
+    }
+    {
+        let (mut world, mut state, hero) = prepare();
+        world.write_resource::<PendingPlayerInputs>().inputs = vec![recall(), stop()];
+        apply_recall_commands(&mut world, &mut state, Fixed64::ZERO, &BTreeSet::new());
+        assert!(state.heroes[0].recall.is_none());
+        let inputs = &world.read_resource::<PendingPlayerInputs>().inputs;
+        assert_eq!(inputs.len(), 1);
+        assert!(matches!(inputs[0].1.action, Some(PlayerInputEnum::Stop(_))));
+        assert!(stop_command_still_holding(&world, hero));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn disclosed_attackability_gate_never_overrides_authority_match() {
+    use crate::runtime::filtered_specs::{DisclosedAttackabilityGate, DisclosedAttackabilityRecord};
+    use specs::{Builder, WorldExt};
+    let mut world = World::new();
+    let target = world.create_entity().build();
+    assert!(moba_damage_allowed(&world, target), "no match and no gate stays open");
+    let mut gate = DisclosedAttackabilityGate::default();
+    gate.record(target, DisclosedAttackabilityRecord::Governed { admitted: false });
+    world.insert(gate);
+    assert!(!moba_damage_allowed(&world, target));
+    world.insert(stop_command_match(target, MobaMatchPhase::Playing));
+    assert!(moba_damage_allowed(&world, target), "a playing authority match ignores the gate");
 }

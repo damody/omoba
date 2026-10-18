@@ -15,6 +15,9 @@ impl PendingShopQueries {
     pub fn finish(&mut self, id: u32) {
         self.entries.remove(&id);
     }
+    pub fn contains(&self, id: u32) -> bool {
+        self.entries.contains_key(&id)
+    }
     pub fn due(&mut self, now_ms: u64) -> Vec<u32> {
         let mut candidates: Vec<_> = self
             .entries

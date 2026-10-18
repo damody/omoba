@@ -31,6 +31,8 @@ fn frame(tick: u64, sequence: u64, revision: u64) -> TeamTickFrame {
         step: Some(Default::default()),
         post_step: Some(PostStep::default()),
         padding: vec![],
+        authoritative_mode: None,
+        combat_preferences: None,
     }
 }
 

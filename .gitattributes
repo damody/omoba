@@ -1,1 +1,3 @@
 *.bat text eol=crlf
+# 來源素材與其授權／SHA 必須跨電腦逐 byte 一致。
+scripts/art/** -text

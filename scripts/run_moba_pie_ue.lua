@@ -4,9 +4,12 @@ package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local b=require('_bootstrap')
 local path,json,process,time,platform=b.lib('path'),b.lib('json'),b.lib('process'),b.lib('time'),b.lib('platform')
 local launch=require('moba_role_launch')
+local lifecycle=require('ue_pie_lifecycle')
 if #arg==1 and (arg[1]=='--help' or arg[1]=='-h') then
-  print('Usage: tools/lua/lua.exe scripts/run_moba_pie_ue.lua --no-build --interactive-selection --recipe FILE --output NEW_DIRECTORY --finish-timeout-seconds 1..7200 [--selection-smoke-hero HERO] [--port PORT] [--ue-root PATH]')
+  print('Usage: tools/lua/lua.exe scripts/run_moba_pie_ue.lua --no-build --interactive-selection --recipe FILE --output NEW_DIRECTORY --finish-timeout-seconds 1..7200 [--editor-ready-timeout-seconds 1..3600] [--selection-timeout-seconds 1..7200] [--selection-smoke-hero HERO] [--port PORT] [--ue-root PATH]')
   print('Uses prebuilt compiled artifacts and one local human. Owns a new Editor and one PIE world; never adopts another Editor. Manual selection requires explicit human confirmation; smoke automation is opt-in. No forced winner or gameplay Lua.')
+  print('--editor-ready-timeout-seconds waits for the original owned Editor to become MCP-ready, including a cold first DDC shader compile. Default 1800. It does not skip shaders or treat a timeout as ready.')
+  print('--selection-timeout-seconds bounds hero selection completion. --finish-timeout-seconds bounds the natural match result. Neither budget is the Editor startup wait.')
   return
 end
 local options=launch.options(arg)
@@ -38,6 +41,7 @@ local function mcp(name,args)
   local file=path.join(output,('mcp-%03d-%s.json'):format(ordinal,name))
   local result=process.run(platform.lua_executable,{path.join(b.root,'scripts/ue_mcp.lua'),
     '--owned-editor',path.join(output,'owned-editor.json'),'--tool',name,
+    '--request-timeout-seconds',tostring(require('ue_mcp_request_budget').for_tool(name)),
     '--arguments',json.encode(json.object(args)),'--out',file},{cwd=b.root,check=false})
   assert(result.exit_code==0,'owned PIE MCP failed: '..name..'\n'..result.stderr..result.stdout)
   local envelope=json.read(file);assert(not envelope.isError,'PIE MCP error: '..name)
@@ -89,24 +93,35 @@ local ok,err=xpcall(function()
   editor_record=spawn('editor',spec)
   json.write(path.join(output,'owned-editor.json'),editor_record)
   local endpoint_api=require('ue_mcp_endpoint')
-  process.poll_owned_ready(editor_record,120000,function()
+  -- Cold Editor startup only. Selection handshake and match finish keep their own budgets.
+  launch.await_owned_editor_ready(process, editor_record, options, function()
     local resolved,endpoint=pcall(endpoint_api.resolve,path.join(b.root,'omfue','om.uproject'))
     if resolved then endpoint_api.require_owned(endpoint,editor_record,process);return true end
     local reason=tostring(endpoint)
     assert(reason:find('found 0',1,true) or reason:find('registry unavailable',1,true),reason)
     return false
-  end,'owned PIE Editor MCP readiness')
-  mcp('enable_extension',{extension_id='Testing',enabled=true})
-  local automation=mcp('get_automation_test_results',{})
-  assert((automation.running or 0)==0,'automation active in owned Editor')
-  assert(not mcp('get_pie_status',{}).pie_running,'fresh Editor already has PIE; never adopt it')
+  end)
+  -- Advertised capabilities choose the read-only unlock and optional Testing extension.
+  local pie_preflight=require('ue_pie_preflight')
+  local function list_owned_capabilities()
+    assert(editor_record and process.owned_alive(editor_record),'original PIE Editor retired')
+    ordinal=ordinal+1
+    local file=path.join(output,pie_preflight.tools_list_evidence_name(ordinal))
+    local result=process.run(platform.lua_executable,pie_preflight.owned_tools_list_args(
+      b.root,path.join(output,'owned-editor.json'),file),{cwd=b.root,check=false})
+    assert(result.exit_code==0,'owned PIE MCP tools/list failed\n'..result.stderr..result.stdout)
+    local payload=json.read(file)
+    pie_preflight.capability_names(payload)
+    return payload
+  end
+  pie_preflight.prepare(list_owned_capabilities,function(name,args) return mcp(name,args) end)
   mcp('begin_play_in_editor',{num_clients=1,net_mode='standalone'});started=true
   local budget=require('moba_selection_deadline')
   local token=budget.start(options,time)
   local readiness=require('moba_selection_readiness').reader(human,false)
   local ready=false
   local editor_log=path.join(output,'editor.stdout.log')
-  local ready_deadline=time.monotonic_ms()+45000
+  local ready_deadline=time.monotonic_ms()+budget.wait_ms(token,time,180000)
   while not path.is_file(receipt) do
     budget.check(token,time)
     assert(process.owned_alive(editor_record),'Editor exited before finalized selection')
@@ -155,8 +170,18 @@ local ok,err=xpcall(function()
   local handoff=mcp('call_pie_blueprint_function',{actor_label=controller,function_name='ContinueAfterHeroSelection'})
   assert(handoff.return_value=='True','native PIE presentation handoff refused')
   report.same_world_handoff=true;report.controller=controller
-  local initial_picture=mcp('take_pie_screenshot',{file_path=path.join(output,'pie-gameplay.png')})
-  assert(path.is_file(initial_picture.file_path),'PIE gameplay screenshot missing')
+  local requested_picture=path.join(output,'pie-gameplay.png')
+  local initial_picture=mcp('take_pie_screenshot',{file_path=requested_picture})
+  -- MCP success returns before the PNG write finishes.
+  process.poll_owned_ready(editor_record,30000,function()
+    assert(process.owned_alive(server),'PIE authority exited before gameplay screenshot')
+    assert(process.owned_alive(runtime),'PIE runtime exited before gameplay screenshot')
+    assert(type(initial_picture.file_path)=='string','PIE gameplay screenshot path missing')
+    local returned=path.absolute(initial_picture.file_path)
+    assert(returned==path.absolute(requested_picture),'PIE gameplay screenshot path mismatch')
+    if not path.is_file(returned) then return false end
+    return path.attributes(returned).size>0
+  end,'PIE gameplay screenshot')
   report.gameplay_screenshot=initial_picture.file_path
   local observer=require('moba_role_finish_observer').reader(game.clients)
   local authority_log=require('moba_bounded_log').reader()
@@ -185,25 +210,44 @@ local ok,err=xpcall(function()
   assert(report.pie_result.pie_running and report.pie_result.has_player,'result no longer belongs to live PIE world')
   report.success=true
 end,debug.traceback)
-if started and editor_record and process.owned_alive(editor_record) then
-  local clean,reason=pcall(function() mcp('stop_play_in_editor',{}) end)
-  if not clean then report.pie_cleanup_error=tostring(reason);ok=false end
+local cleanup_errors
+local function retire_owned()
+  local errors={}
+  for i=#owned,1,-1 do
+    local clean,reason=pcall(function()
+      if process.owned_alive(owned[i]) then process.stop_owned(owned[i]) end
+      assert(process.wait_owned(owned[i],5000),'original PIE child remained after stop')
+    end)
+    if not clean then errors[#errors+1]=tostring(reason) end
+  end
+  return errors
 end
-local cleanup_errors={}
-for i=#owned,1,-1 do
-  local clean,reason=pcall(function()
-    if process.owned_alive(owned[i]) then process.stop_owned(owned[i]) end
-    assert(process.wait_owned(owned[i],5000),'original PIE child remained after stop')
-  end)
-  if not clean then cleanup_errors[#cleanup_errors+1]=tostring(reason) end
+if started and editor_record then
+  -- Accepted stop is not observed idle. Poll this same Editor, then retire either way.
+  local stopped=lifecycle.await_pie_stop({
+    owned_alive=function() return process.owned_alive(editor_record) end,
+    call=function(name,args) return mcp(name,args) end,
+    now_ms=time.monotonic_ms,
+    sleep_ms=time.sleep_ms,
+    retire=retire_owned,
+    stop_tool='stop_play_in_editor',
+    status_tool='get_pie_status',
+  })
+  if stopped.pie_cleanup_error then report.pie_cleanup_error=stopped.pie_cleanup_error;ok=false end
+  cleanup_errors=stopped.cleanup_errors
+else
+  cleanup_errors=retire_owned()
 end
-report.cleanup_verified=#cleanup_errors==0;report.cleanup_errors=cleanup_errors
+report.cleanup_verified=#cleanup_errors==0 and report.pie_cleanup_error==nil
+report.cleanup_errors=cleanup_errors
 report.success=ok and report.success and report.cleanup_verified
 if not ok then report.error=tostring(err) end
 -- Only this newly reserved output may receive error evidence.
 path.mkdir_p(output);save()
 if not report.success then
-  path.append(path.join(output,'errors.md'),'# PIE selection flow failure\n\n'..tostring(err)..'\n\n'..
+  local detail=tostring(err)
+  if report.pie_cleanup_error then detail=detail..'\n'..report.pie_cleanup_error end
+  path.append(path.join(output,'errors.md'),'# PIE selection flow failure\n\n'..detail..'\n\n'..
     table.concat(cleanup_errors,'\n')..'\n\nDecision: preserve all evidence and retire only original owned children; no forced winner, fallback or unrelated Editor cleanup.\n')
 end
 assert(report.success,'PIE selection-to-result did not complete: '..output)

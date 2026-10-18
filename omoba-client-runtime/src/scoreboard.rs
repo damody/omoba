@@ -55,7 +55,7 @@ mod tests {
     use super::*;
     fn snapshot(n: u32) -> FilteredRenderSnapshot {
         let mut s = FilteredRenderSnapshot { team_id: 1, replica_tick: 1, entities: vec![], public_events: vec![],
-            external_effects: vec![], memory_directives: vec![], remembered_presentations: Default::default() };
+            external_effects: vec![], memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None };
         let mut metric = |id: u64, v: i64| s.public_events.push(omoba_core::game_proto::TeamPublicEvent {
             event_kind: FactKind::Hud as u32, sanitized_payload: [0u32.to_le_bytes().as_slice(),
                 id.to_le_bytes().as_slice(), v.to_le_bytes().as_slice()].concat(), ..Default::default() });

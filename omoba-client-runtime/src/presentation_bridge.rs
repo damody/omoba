@@ -1,4 +1,5 @@
 use std::{
+    net::SocketAddr,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
@@ -23,6 +24,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::{mpsc, watch, Mutex},
+    task::JoinHandle,
 };
 
 use crate::{config::ClientRuntimeConfig, ClientRuntimeError};
@@ -35,17 +37,60 @@ type SharedCues = Arc<std::sync::Mutex<crate::cue_retention::CueRetention>>;
 type SharedReady = Arc<std::sync::Mutex<Option<Arc<RendererIpcEnvelope>>>>;
 static RENDERER_CONNECTION: AtomicU64 = AtomicU64::new(1);
 
+/// Tracks every renderer session `serve_connections` spawns.
+/// Aborting only the accept task would leave those sessions running after the hub is gone.
+struct SessionSupervisor {
+    stop: watch::Sender<bool>,
+    active_renderer_connection: Arc<AtomicU64>,
+    sessions: std::sync::Mutex<Vec<JoinHandle<()>>>,
+}
+
+impl SessionSupervisor {
+    fn shutdown(&self) {
+        let _ = self.stop.send(true);
+        let mut sessions = self.sessions.lock().expect("renderer session registry poisoned");
+        for task in sessions.drain(..) {
+            task.abort();
+        }
+    }
+
+    fn track(&self, handle: JoinHandle<()>) {
+        let mut sessions = self.sessions.lock().expect("renderer session registry poisoned");
+        if *self.stop.borrow() {
+            handle.abort();
+            return;
+        }
+        sessions.retain(|task| !task.is_finished());
+        sessions.push(handle);
+    }
+}
+
 pub struct PresentationHub {
     player_id: u32,
+    local_addr: SocketAddr,
+    server: std::sync::Mutex<Option<JoinHandle<()>>>,
+    sessions: Arc<SessionSupervisor>,
     ready: SharedReady,
     damage: SharedCues,
     shop_receipts: crate::shop_presentation::ShopReceiptHistory,
+    shop_undo_receipts: crate::shop_presentation::ShopUndoReceiptHistory,
     shop_pending: crate::shop_recovery::PendingShopQueries,
     shop_clock: std::time::Instant,
     shop_smoke_stage: u8,
     shop_smoke_query: Option<u32>,
     shop_protocol_enabled: bool,
+    owner_undo: crate::shop_presentation::OwnerUndoCache,
+    owner_economy: Option<omoba_core::runtime::native::economy_projection::OwnerEconomyState>,
+    owner_economy_epoch: Option<u64>,
     recall_protocol_enabled: bool,
+    summoner_protocol_enabled: bool,
+    owner_ward_protocol: u32,
+    owner_ward_epoch: u64,
+    owner_ward_private: Vec<u8>,
+    ward_correlations: crate::ward_correlation::WardCorrelationTable,
+    communication: omoba_core::runtime::communication_transport::CommunicationInbox,
+    communication_request_seq: u64,
+    communication_input: crate::communication_input::CommunicationInputGateway,
     recall_smoke_stage: u8,
     combat_smoke_stage: u8,
     combat_smoke_score: Option<(u32, u32, u32)>,
@@ -66,6 +111,9 @@ impl PresentationHub {
         let listener = TcpListener::bind(config.presentation_bind)
             .await
             .map_err(|error| ClientRuntimeError::Ipc(error.to_string()))?;
+        let local_addr = listener
+            .local_addr()
+            .map_err(|error| ClientRuntimeError::Ipc(error.to_string()))?;
         let (latest_tx, latest_rx) = watch::channel(None);
         let (critical_tx, critical_rx) = mpsc::channel(256);
         let (input_tx, input_rx) = mpsc::channel(256);
@@ -73,7 +121,13 @@ impl PresentationHub {
         let disconnected_at_ms = Arc::new(AtomicU64::new(now_ms()));
         let damage = Arc::new(std::sync::Mutex::new(crate::cue_retention::CueRetention::default()));
         let ready = Arc::new(std::sync::Mutex::new(None));
-        tokio::spawn(serve_connections(
+        let (stop, stop_rx) = watch::channel(false);
+        let sessions = Arc::new(SessionSupervisor {
+            stop,
+            active_renderer_connection: Arc::new(AtomicU64::new(0)),
+            sessions: std::sync::Mutex::new(Vec::new()),
+        });
+        let server = tokio::spawn(serve_connections(
             listener,
             config.player_id,
             config.team_id,
@@ -84,18 +138,35 @@ impl PresentationHub {
             disconnected_at_ms.clone(),
             damage.clone(),
             ready.clone(),
+            Arc::clone(&sessions),
+            stop_rx,
         ));
         Ok(Self {
             player_id: config.player_id,
+            local_addr,
+            server: std::sync::Mutex::new(Some(server)),
+            sessions,
             ready,
             damage,
             shop_receipts: Default::default(),
+            shop_undo_receipts: Default::default(),
             shop_pending: Default::default(),
             shop_clock: std::time::Instant::now(),
             shop_smoke_stage: 0,
             shop_smoke_query: None,
             shop_protocol_enabled: false,
+            owner_undo: crate::shop_presentation::OwnerUndoCache::default(),
+            owner_economy: None,
+            owner_economy_epoch: None,
             recall_protocol_enabled: false,
+            summoner_protocol_enabled: false,
+            owner_ward_protocol: 0,
+            owner_ward_epoch: 0,
+            owner_ward_private: Vec::new(),
+            ward_correlations: crate::ward_correlation::WardCorrelationTable::default(),
+            communication: omoba_core::runtime::communication_transport::CommunicationInbox::default(),
+            communication_request_seq: 0,
+            communication_input: Default::default(),
             recall_smoke_stage: 0,
             combat_smoke_stage: 0,
             combat_smoke_score: None,
@@ -112,11 +183,175 @@ impl PresentationHub {
         })
     }
 
+    /// Address from the one successful `bind`, including an ephemeral port.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+
+    /// Stops the accept loop and aborts every renderer session this hub spawned.
+    /// Safe to call more than once. `Drop` calls this while the runtime is still alive.
+    pub fn shutdown(&self) {
+        self.sessions.shutdown();
+        if let Some(server) = self
+            .server
+            .lock()
+            .expect("presentation server poisoned")
+            .take()
+        {
+            server.abort();
+        }
+    }
+
     pub fn publish_latest(&self, envelope: RendererIpcEnvelope) {
         if matches!(envelope.payload, Some(renderer_ipc_envelope::Payload::RuntimeReady(_))) {
             *self.ready.lock().expect("ready retention poisoned") = Some(Arc::new(envelope.clone()));
         }
         self.latest_tx.send_replace(Some(Arc::new(envelope)));
+    }
+
+    pub fn communication_hello_allowed(&self) -> bool {
+        self.communication.hello_allowed()
+    }
+
+    pub fn communication_hello_retry_for_scope(&self) -> bool {
+        self.communication.hello_retry_for_scope()
+    }
+
+    pub fn note_communication_hello_sent(&mut self) {
+        self.communication.note_hello_sent();
+    }
+
+    pub fn note_communication_transition(&mut self, view_epoch: u64, server_tick: u64) {
+        self.communication.note_transition(view_epoch, server_tick);
+    }
+
+    /// Agreed presentation after any view retirement. Empty when negotiation is absent.
+    pub fn current_communication_presentation(&self) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        if !self.communication.agreed() {
+            return None;
+        }
+        let batch = self.communication.presentation();
+        (batch.room_id != 0 && batch.run_id != 0 && batch.view_epoch != 0 && batch.elapsed_raw >= 0).then_some(batch)
+    }
+
+    pub fn apply_communication_hello(
+        &mut self,
+        result: &omoba_core::game_proto::CommunicationHelloResult,
+    ) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        let batch = self.communication.apply_hello(result)?;
+        if result.agreed { self.communication_request_seq = self.communication_request_seq.max(result.request_floor); }
+        self.sync_communication_input();
+        Some(self.decorate_communication(batch))
+    }
+
+    pub fn apply_communication_receipt(
+        &mut self,
+        receipt: &omoba_core::game_proto::CommunicationReceipt,
+    ) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        let batch = self.communication.apply_receipt(receipt)?;
+        self.sync_communication_input();
+        self.communication_input.settle(receipt.request_id, receipt.refusal, false);
+        Some(self.decorate_communication(batch))
+    }
+
+    pub fn apply_communication_event(
+        &mut self,
+        event: &omoba_core::game_proto::CommunicationWireEvent,
+    ) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        let batch = self.communication.apply_event(event)?;
+        self.sync_communication_input();
+        Some(self.decorate_communication(batch))
+    }
+
+    pub fn apply_communication_replay(
+        &mut self,
+        batch: &omoba_core::game_proto::CommunicationReplayBatch,
+    ) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        let batch = self.communication.apply_replay(batch)?;
+        self.sync_communication_input();
+        Some(self.decorate_communication(batch))
+    }
+
+    pub fn observe_communication_view(
+        &mut self,
+        view_epoch: u64,
+    ) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        let batch = self.communication.observe_view(view_epoch)?;
+        self.sync_communication_input();
+        Some(self.decorate_communication(batch))
+    }
+
+    pub fn communication_replay_query(&mut self) -> Option<omoba_core::game_proto::CommunicationReplayQuery> {
+        let request_id = self.communication_request_seq.checked_add(1)?;
+        let query = self.communication.replay_query(request_id)?;
+        self.communication_request_seq = request_id;
+        Some(query)
+    }
+
+    pub fn prepare_communication_submit(
+        &mut self,
+        body: &omoba_core::runtime::communication_transport::DecodedBody,
+    ) -> Result<omoba_core::game_proto::CommunicationSubmit, u32> {
+        let request_id = self.communication_request_seq.checked_add(1)
+            .ok_or(omoba_core::runtime::communication_transport::REFUSAL_SEQUENCE_EXHAUSTED)?;
+        let wire = self.communication.prepare_submit(request_id, request_id, body)?;
+        self.communication_request_seq = request_id;
+        Ok(wire)
+    }
+
+    pub fn fail_communication_submit_locally(&mut self, request_id: u64) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        let batch = self.communication.fail_submit_locally(request_id)?;
+        self.communication_input.settle(request_id, omoba_core::runtime::communication_transport::REFUSAL_LOCAL_TRANSPORT, true);
+        Some(self.decorate_communication(batch))
+    }
+
+    fn sync_communication_input(&mut self) {
+        let renderer = self.sessions.active_renderer_connection.load(Ordering::Acquire);
+        for request in self.communication_input.synchronize(&self.communication, renderer) {
+            let _ = self.communication.fail_submit_locally(request);
+        }
+    }
+
+    fn decorate_communication(&self, mut batch: omoba_core::game_proto::CommunicationPresentation) -> omoba_core::game_proto::CommunicationPresentation {
+        let active = self.sessions.active_renderer_connection.load(Ordering::Acquire);
+        batch.input_result = self.communication_input.result().filter(|result|
+            result.renderer_connection_id == active && active != 0
+                && (result.phase != 2 || batch.receipt.as_ref().is_some_and(|receipt|
+                    receipt.request_id == result.network_request_id && receipt.refusal == result.refusal)));
+        batch
+    }
+
+    pub fn prepare_renderer_communication(&mut self, input: &RendererInput, replica: &crate::replica_host::ReplicaHost)
+        -> Result<(omoba_core::game_proto::CommunicationSubmit, omoba_core::game_proto::CommunicationPresentation), u32> {
+        use omoba_core::runtime::communication_transport as wire;
+        self.sync_communication_input();
+        let Some(omoba_core::game_proto::renderer_input::Intent::Communication(intent)) = &input.intent else { return Err(wire::REFUSAL_MALFORMED) };
+        if input.player_id != self.player_id { return Err(wire::REFUSAL_IDENTITY_MISMATCH); }
+        if input.disclosure_epoch != replica.view_epoch() { return Err(wire::REFUSAL_VIEW_MISMATCH); }
+        self.communication_input.preflight(input, intent)?;
+        let body = crate::communication_input::decode_intent(intent, &self.communication, replica)?;
+        let submit = self.prepare_communication_submit(&body)?;
+        self.communication_input.track(submit.request_id, input.request_id, std::time::Instant::now());
+        let batch = self.decorate_communication(self.communication.presentation());
+        Ok((submit, batch))
+    }
+
+    pub fn refuse_renderer_communication(&mut self, input: &RendererInput, refusal: u32) -> Option<omoba_core::game_proto::CommunicationPresentation> {
+        self.sync_communication_input();
+        let Some(omoba_core::game_proto::renderer_input::Intent::Communication(intent)) = &input.intent else { return None };
+        if input.player_id != self.player_id || !self.communication_input.accepts_source(input, intent) { return None; }
+        self.communication_input.refuse_locally(input.request_id, refusal);
+        Some(self.decorate_communication(self.communication.presentation()))
+    }
+
+    pub fn expire_communication_submissions(&mut self) -> Vec<omoba_core::game_proto::CommunicationPresentation> {
+        self.sync_communication_input();
+        let due = self.communication_input.due(std::time::Instant::now());
+        due.into_iter().filter_map(|request| self.fail_communication_submit_locally(request)).collect()
+    }
+
+    pub fn note_communication_replay_sent(&mut self) {
+        self.communication.note_replay_query_sent();
     }
 
     pub fn snapshot_envelope(
@@ -128,7 +363,16 @@ impl PresentationHub {
         runtime_rtt_us: u64,
     ) -> RendererIpcEnvelope {
         let mut hud = crate::moba_hud::project(&snapshot, self.player_id);
-        if let Some(hud) = &mut hud { hud.recall_protocol_enabled = self.recall_protocol_enabled; }
+        if let Some(hud) = &mut hud {
+            hud.recall_protocol_enabled = self.recall_protocol_enabled;
+            crate::moba_hud::gate_summoner_capability(hud, &snapshot, self.summoner_protocol_enabled);
+        }
+        self.retain_owner_shop(view_epoch, &snapshot);
+        self.owner_undo.observe(view_epoch, &snapshot, self.player_id);
+        self.shop_undo_receipts.capture(view_epoch, snapshot.replica_tick, self.player_id, &snapshot.public_events);
+        let undo_presentation = crate::shop_presentation::owner_undo_presentation(
+            self.owner_undo.view(), self.owner_undo.enabled(), self.player_id);
+        let undo_receipts = self.shop_undo_receipts.project(view_epoch);
         let mut economy = crate::shop_presentation::economy(&snapshot, self.player_id);
         if let Some(economy) = &mut economy {
             economy.shop_protocol_enabled = self.shop_protocol_enabled;
@@ -145,6 +389,14 @@ impl PresentationHub {
             snapshot.moba_hud = hud;
             snapshot.owner_economy = economy;
             snapshot.shop_receipts = self.shop_receipts.project(view_epoch);
+            snapshot.shop_transaction_correlations = self.shop_receipts.project_pending(view_epoch);
+            snapshot.owner_shop_undo = undo_presentation;
+            snapshot.shop_undo_receipts = undo_receipts;
+            if self.owner_ward_epoch == view_epoch {
+                snapshot.owner_ward_protocol = self.owner_ward_protocol;
+                snapshot.owner_ward_private = self.owner_ward_private.clone();
+                snapshot.ward_input_correlations = self.ward_correlations.project(self.player_id, view_epoch);
+            }
             self.damage.lock().expect("damage retention poisoned").project(snapshot);
         }
         envelope
@@ -166,11 +418,73 @@ impl PresentationHub {
         self.shop_receipts.capture(view_epoch, tick, self.player_id, events);
     }
 
+    /// Stores one labeled private projection for this view epoch.
+    /// Malformed, schema-1, or hash-invalid bytes are dropped. Absence stays unavailable.
+    pub fn set_owner_ward_private(&mut self, epoch: u64, protocol: u32, bytes: &[u8]) {
+        self.owner_ward_epoch = epoch;
+        let accepted = protocol == omoba_core::runtime::ward_transport::WARD_PROTOCOL_VERSION
+            && omoba_core::runtime::ward_transport::decode_owner_ward_projection(bytes).is_ok();
+        if accepted {
+            self.owner_ward_protocol = protocol;
+            self.owner_ward_private = bytes.to_vec();
+        } else {
+            self.owner_ward_protocol = 0;
+            self.owner_ward_private.clear();
+        }
+    }
+
     pub fn set_shop_protocol_enabled(&mut self, enabled: bool) { self.shop_protocol_enabled = enabled; }
+    pub fn set_shop_undo_enabled(&mut self, enabled: bool) { self.owner_undo.set_enabled(enabled); }
+    pub fn owner_shop_undo(&self) -> Option<&crate::shop_presentation::OwnerShopUndoView> { self.owner_undo.view() }
+    pub fn retain_owner_shop(&mut self, epoch: u64, snapshot: &omoba_core::runtime::FilteredRenderSnapshot) {
+        if self.owner_economy_epoch != Some(epoch) {
+            self.owner_economy = None;
+            self.owner_economy_epoch = Some(epoch);
+        }
+        self.owner_economy = crate::shop_presentation::owner_economy_state(snapshot, self.player_id);
+    }
+    pub fn owner_economy_fact(&self, epoch: u64) -> Option<&omoba_core::runtime::native::economy_projection::OwnerEconomyState> {
+        if self.owner_economy_epoch == Some(epoch) { self.owner_economy.as_ref() } else { None }
+    }
+    pub fn owner_undo_fact(&self, epoch: u64) -> Option<&omoba_core::runtime::shop_undo_wire::OwnerShopUndoProjection> {
+        self.owner_undo.projection(epoch)
+    }
     pub fn set_recall_protocol_enabled(&mut self, enabled: bool) { self.recall_protocol_enabled = enabled; }
+    pub fn set_summoner_protocol_enabled(&mut self, enabled: bool) { self.summoner_protocol_enabled = enabled; }
     pub fn can_track_shop(&self) -> bool { self.shop_pending.can_track() }
     pub fn track_shop(&mut self, id: u32) { self.shop_pending.track(id, self.shop_clock.elapsed().as_millis() as u64); }
+    /// Binds the renderer request to the authority input.
+    /// Completed is idempotent and consumes no pending slot. Conflict and Capacity leave the table unchanged.
+    pub fn note_shop_request(&mut self, epoch: u64, owner: u32, authority_input_id: u32, request_id: u64, action_kind: u32) -> crate::shop_presentation::ShopRequestNote {
+        self.shop_receipts.note_request(epoch, owner, authority_input_id, request_id, action_kind)
+    }
+    pub fn note_shop_uncertain(&mut self, epoch: u64, owner: u32, request_id: u64) -> bool {
+        self.shop_receipts.note_uncertain(epoch, owner, request_id)
+    }
+    pub fn note_shop_uncertain_request(&mut self, request_id: u64) -> bool {
+        self.shop_receipts.note_uncertain_request(request_id)
+    }
     pub fn due_shop_queries(&mut self) -> Vec<u32> { self.shop_pending.due(self.shop_clock.elapsed().as_millis() as u64) }
+    pub fn can_track_undo(&self) -> bool { self.owner_undo.can_track() }
+    pub fn track_undo(&mut self, id: u32) { self.owner_undo.track(id, self.shop_clock.elapsed().as_millis() as u64); }
+    /// Binds one authority undo input to the renderer request that submitted it.
+    pub fn note_undo_request(&mut self, epoch: u64, owner: u32, authority_input_id: u32, request_id: u64, sequence: u64) {
+        self.shop_undo_receipts.note_request(epoch, owner, authority_input_id, request_id, sequence);
+    }
+    /// Keeps the renderer request and the authority input distinct. A repeat does not allocate another placement.
+    pub fn note_ward_request(&mut self, epoch: u64, owner: u32, actor_generation: u32, authority_input_id: u32, request_id: u64, phase: u32) -> bool {
+        self.ward_correlations.note(epoch, owner, actor_generation, authority_input_id, request_id, phase)
+    }
+    pub fn replace_ward_correlations(&mut self, epoch: u64, rows: Vec<omoba_core::runtime::ward_transport::WardCorrelationDraft>) {
+        self.ward_correlations.replace_all(epoch, rows);
+    }
+    pub fn ward_authority_for(&self, epoch: u64, owner: u32, request_id: u64) -> Option<u32> {
+        self.ward_correlations.authority_for(owner, epoch, request_id)
+    }
+    pub fn ward_settles(&self, epoch: u64, owner: u32, request_id: u64, outcome_correlation: u32, outcome_actor: u32) -> bool {
+        self.ward_correlations.settles(owner, epoch, request_id, outcome_correlation, outcome_actor)
+    }
+    pub fn due_undo_queries(&mut self) -> Vec<u32> { self.owner_undo.due(self.shop_clock.elapsed().as_millis() as u64) }
     pub fn take_shop_smoke_query(&mut self) -> Option<u32> { self.shop_smoke_query.take() }
 
     /// Opt-in network fixture: only disclosed state and ordinary player intents.
@@ -199,10 +513,21 @@ impl PresentationHub {
                 y_raw: 900 * 1024, queued: false })),
             1 if self.player_id != 2 && (pose.x_raw-hud.lane_length_raw/2).abs() <= 75*1024
                 && (pose.y_raw-900*1024).abs() <= 75*1024 => {
-                snapshot.entities.iter().find(|e| decode(e).is_some_and(|target|
-                    target.kind == 1 && target.team_id != snapshot.team_id && target.owner_player_id == 2))
-                    .map(|target| Intent::AttackTarget(AttackTargetIntent {
-                        target_render_id: target.replica_id, queued: false }))
+                let source = snapshot.entities.iter().find(|entity| entity.replica_id == hero.render_id)
+                    .and_then(|entity| entity.components.get(&omoba_core::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID))
+                    .and_then(|bytes| omoba_core::runtime::decode_disclosed_combat_relation(bytes))
+                    .filter(|combat| combat.alive)
+                    .and_then(|combat| omoba_core::runtime::faction_from_disclosed_kind(combat.faction_kind, combat.team_id));
+                source.and_then(|source| snapshot.entities.iter().find(|entity| {
+                    let Some(target) = decode(entity) else { return false };
+                    if target.kind != 1 || target.owner_player_id != 2 { return false; }
+                    let Some(combat) = entity.components.get(&omoba_core::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID)
+                        .and_then(|bytes| omoba_core::runtime::decode_disclosed_combat_relation(bytes))
+                        .filter(|combat| combat.alive && combat.attackable) else { return false };
+                    omoba_core::runtime::faction_from_disclosed_kind(combat.faction_kind, combat.team_id)
+                        .is_some_and(|faction| source.is_hostile_to(&faction))
+                }).map(|target| Intent::AttackTarget(AttackTargetIntent {
+                    target_render_id: target.replica_id, queued: false })))
             }
             _ => None,
         };
@@ -359,6 +684,16 @@ impl PresentationHub {
 
     pub fn retain_shop_replay(&mut self, view_epoch: u64, reply: &omoba_core::game_proto::ShopReceiptReplay)
         -> Result<bool, &'static str> {
+        if reply.schema_version == 2 {
+            let receipt = omoba_core::runtime::shop_undo_wire::validate_undo_receipt_replay(reply, self.player_id)?;
+            if matches!(reply.status, 2 | 3 | 4) { self.owner_undo.finish(reply.input_id); }
+            let Some(receipt) = receipt else { return Ok(false); };
+            self.shop_undo_receipts.capture(view_epoch, receipt.tick, self.player_id, &[omoba_core::game_proto::TeamPublicEvent {
+                event_kind: omoba_core::runtime::FactKind::ShopUndoReceipt as u32,
+                sanitized_payload: receipt.encode(), ..Default::default()
+            }]);
+            return Ok(true);
+        }
         omoba_core::runtime::shop_transport::validate_receipt_replay(reply, self.player_id)?;
         if matches!(reply.status, 2 | 3 | 4) { self.shop_pending.finish(reply.input_id); }
         let Some(receipt) = omoba_core::runtime::shop_transport::validate_receipt_replay(reply, self.player_id)? else { return Ok(false); };
@@ -407,6 +742,24 @@ impl PresentationHub {
     }
 }
 
+impl Drop for PresentationHub {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+async fn watch_stop(mut stop: watch::Receiver<bool>) {
+    if *stop.borrow() {
+        return;
+    }
+    while stop.changed().await.is_ok() {
+        if *stop.borrow() {
+            return;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn serve_connections(
     listener: TcpListener,
     player_id: u32,
@@ -418,40 +771,61 @@ async fn serve_connections(
     disconnected_at_ms: Arc<AtomicU64>,
     damage: SharedCues,
     ready: SharedReady,
+    sessions: Arc<SessionSupervisor>,
+    mut stop_rx: watch::Receiver<bool>,
 ) {
     loop {
-        let Ok((stream, peer)) = listener.accept().await else {
-            break;
-        };
-        if !peer.ip().is_loopback() {
-            continue;
-        }
-        let _ = stream.set_nodelay(true);
-        let latest = latest_rx.clone();
-        let critical = Arc::clone(&critical_rx);
-        let inputs = input_tx.clone();
-        let connection_flag = connected.clone();
-        let disconnected = disconnected_at_ms.clone();
-        let retained = damage.clone();
-        let retained_ready = ready.clone();
-        tokio::spawn(async move {
-            if let Err(error) = serve_renderer_retained(
-                stream,
-                player_id,
-                team_id,
-                latest,
-                critical,
-                inputs,
-                connection_flag,
-                disconnected,
-                Some(retained),
-                Some(retained_ready),
-            )
-            .await
-            {
-                log::warn!("renderer IPC disconnected: {error}");
+        tokio::select! {
+            biased;
+            changed = stop_rx.changed() => {
+                if changed.is_err() || *stop_rx.borrow() {
+                    break;
+                }
             }
-        });
+            accepted = listener.accept() => {
+                let Ok((stream, peer)) = accepted else { break; };
+                if *stop_rx.borrow() {
+                    break;
+                }
+                if !peer.ip().is_loopback() {
+                    continue;
+                }
+                let _ = stream.set_nodelay(true);
+                let latest = latest_rx.clone();
+                let critical = Arc::clone(&critical_rx);
+                let inputs = input_tx.clone();
+                let connection_flag = connected.clone();
+                let disconnected = disconnected_at_ms.clone();
+                let retained = damage.clone();
+                let retained_ready = ready.clone();
+                let active_renderer_connection = Arc::clone(&sessions.active_renderer_connection);
+                let stop = stop_rx.clone();
+                let task = tokio::spawn(async move {
+                    tokio::select! {
+                        biased;
+                        _ = watch_stop(stop) => {}
+                        result = serve_renderer_retained(
+                            stream,
+                            player_id,
+                            team_id,
+                            latest,
+                            critical,
+                            inputs,
+                            connection_flag,
+                            disconnected,
+                            Some(retained),
+                            Some(retained_ready),
+                            Some(active_renderer_connection),
+                        ) => {
+                            if let Err(error) = result {
+                                log::warn!("renderer IPC disconnected: {error}");
+                            }
+                        }
+                    }
+                });
+                sessions.track(task);
+            }
+        }
     }
 }
 
@@ -465,10 +839,15 @@ fn now_ms() -> u64 {
 struct RendererLease {
     connected: Arc<AtomicBool>,
     disconnected_at_ms: Arc<AtomicU64>,
+    active_renderer_connection: Option<Arc<AtomicU64>>,
+    connection: u64,
 }
 
 impl Drop for RendererLease {
     fn drop(&mut self) {
+        if let Some(active) = &self.active_renderer_connection {
+            let _ = active.compare_exchange(self.connection, 0, Ordering::AcqRel, Ordering::Acquire);
+        }
         self.disconnected_at_ms.store(now_ms(), Ordering::Relaxed);
         self.connected.store(false, Ordering::Release);
     }
@@ -487,7 +866,7 @@ async fn serve_renderer(
     disconnected_at_ms: Arc<AtomicU64>,
 ) -> Result<(), ClientRuntimeError> {
     serve_renderer_retained(stream, player_id, team_id, latest_rx, critical_rx, input_tx,
-        connected, disconnected_at_ms, None, None).await
+        connected, disconnected_at_ms, None, None, None).await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -498,6 +877,7 @@ async fn serve_renderer_retained(
     input_tx: mpsc::Sender<RendererInput>, connected: Arc<AtomicBool>,
     disconnected_at_ms: Arc<AtomicU64>, damage: Option<SharedCues>,
     ready_metadata: Option<SharedReady>,
+    active_renderer_connection: Option<Arc<AtomicU64>>,
 ) -> Result<(), ClientRuntimeError> {
     let connection = RENDERER_CONNECTION.fetch_add(1, Ordering::Relaxed);
     let (mut reader, mut writer) = stream.into_split();
@@ -516,7 +896,10 @@ async fn serve_renderer_retained(
     let _lease = RendererLease {
         connected,
         disconnected_at_ms,
+        active_renderer_connection: active_renderer_connection.clone(),
+        connection,
     };
+    if let Some(active) = &active_renderer_connection { active.store(connection, Ordering::Release); }
     let meter = Arc::new(Mutex::new(PresentationIpcMeter::new(player_id, team_id, connection)));
     log::info!("{}", meter.lock().await.enable_line());
     if let Some(line) = meter.lock().await.observe_receive(handshake_wire) {
@@ -557,7 +940,11 @@ async fn serve_renderer_retained(
         loop {
             let (envelope, wire_bytes) = read_envelope_measured(&mut reader).await?;
             match envelope.payload {
-                Some(renderer_ipc_envelope::Payload::RendererInput(input)) => {
+                Some(renderer_ipc_envelope::Payload::RendererInput(mut input)) => {
+                    if let Some(omoba_core::game_proto::renderer_input::Intent::Communication(intent)) = &mut input.intent {
+                        if intent.encoded_len() > omoba_core::runtime::communication_transport::SUBMIT_MAX_BYTES { continue; }
+                        intent.renderer_connection_id = connection;
+                    }
                     if let Some(line) = receive_meter.lock().await.observe_receive(wire_bytes) {
                         log::info!("{line}");
                     }
@@ -904,6 +1291,10 @@ fn snapshot_envelope_cached(
     }
     let visibility_digest =
         u64::from_be_bytes(digest.finalize()[..8].try_into().expect("digest prefix"));
+    let authoritative_mode = snapshot.authoritative_mode.clone().filter(|mode| {
+        omoba_core::runtime::authoritative_mode::accepted(Some(mode), view_epoch)
+            != omoba_core::runtime::authoritative_mode::UNAVAILABLE
+    });
     let (fog_tiles, vision_circles, tree_occluders, polygon_occluders) =
         fog_cache.derive_for_mode(&entities, snapshot.team_id, formal_moba);
     envelope(
@@ -939,6 +1330,14 @@ fn snapshot_envelope_cached(
             owner_economy: None,
             shop_receipts: Vec::new(),
             fog_grid,
+            authoritative_mode,
+            owner_shop_undo: None,
+            shop_undo_receipts: Vec::new(),
+            owner_ward_private: Vec::new(),
+            owner_ward_protocol: 0,
+            ward_input_correlations: Vec::new(),
+            shop_transaction_correlations: Vec::new(),
+            combat_preferences: snapshot.combat_preferences.clone(),
         }),
     )
 }
@@ -1234,6 +1633,31 @@ fn segments_intersect(a: (i64, i64), b: (i64, i64), c: (i64, i64), d: (i64, i64)
         && (cd_a == 0 || cd_b == 0 || cd_a.signum() != cd_b.signum())
 }
 
+/// Reset, then the current communication batch, then the snapshot.
+pub fn assemble_rebased_presentation(
+    reset: RendererIpcEnvelope,
+    communication: Option<RendererIpcEnvelope>,
+    snapshot: RendererIpcEnvelope,
+) -> Vec<RendererIpcEnvelope> {
+    let mut ordered = Vec::with_capacity(3);
+    ordered.push(reset);
+    if let Some(communication) = communication {
+        ordered.push(communication);
+    }
+    ordered.push(snapshot);
+    ordered
+}
+
+pub fn communication_envelope(
+    sequence: u64,
+    batch: omoba_core::game_proto::CommunicationPresentation,
+) -> RendererIpcEnvelope {
+    envelope(
+        sequence,
+        renderer_ipc_envelope::Payload::TeamCommunication(batch),
+    )
+}
+
 fn envelope(sequence: u64, payload: renderer_ipc_envelope::Payload) -> RendererIpcEnvelope {
     RendererIpcEnvelope {
         magic: PRESENTATION_MAGIC,
@@ -1379,7 +1803,7 @@ mod tests {
             public_events: vec![omoba_core::game_proto::TeamPublicEvent {
                 event_kind: omoba_core::runtime::FactKind::Hud as u32,
                 sanitized_payload: payload, ..Default::default()
-            }], external_effects: vec![], memory_directives: vec![], remembered_presentations: Default::default() };
+            }], external_effects: vec![], memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None };
         let mut fresh = DemoFogCache::default();
         snapshot_envelope_cached(1, 5, 1, source, 0, &mut fresh);
         assert!(fresh.formal_moba_seen, "production envelope uses authority phase marker");
@@ -1393,7 +1817,7 @@ mod tests {
                 cell_size_raw: 1024, columns: 3, rows: 1 }, cells: vec![0,1,2] };
         let source = |events| FilteredRenderSnapshot { team_id: 1, replica_tick: 11,
             entities: vec![], public_events: events, external_effects: vec![],
-            memory_directives: vec![], remembered_presentations: Default::default() };
+            memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None };
         let mut cache = DemoFogCache::default();
         let good = snapshot_envelope_cached(1, 10, 7, source(vec![grid.presentation_event().unwrap()]), 0, &mut cache);
         let decoded = RendererIpcEnvelope::decode(good.encode_to_vec().as_slice()).unwrap();
@@ -1433,7 +1857,7 @@ mod tests {
             public_events: Vec::new(),
             external_effects: Vec::new(),
             memory_directives: Vec::new(),
-            remembered_presentations: Default::default(),
+            remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
         };
         let bytes = snapshot_envelope(1, 2, 1, snapshot, 0).encode_to_vec();
         let decoded = RendererIpcEnvelope::decode(bytes.as_slice()).unwrap();
@@ -1449,7 +1873,7 @@ mod tests {
             entities: vec![omoba_core::runtime::FilteredRenderEntity {
                 replica_id: 4, disclosure_epoch: 3, entity_kind: 1, components: Default::default(),
             }], public_events: vec![], external_effects: vec![],
-            memory_directives: vec![], remembered_presentations: Default::default(),
+            memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
         };
         for (kind, target, index) in [(4,4,0), (4,4,1), (7,4,2), (4,99,3)] {
             snapshot.external_effects.push(SanitizedExternalEffect {
@@ -1483,7 +1907,7 @@ mod tests {
                 effect_kind: omoba_core::runtime::FactKind::DirectCombat as u32,
                 visible_target: Some(ReplicaEntityId {value: 4}),
                 sanitized_payload: 1000_i64.to_le_bytes().to_vec(), stable_sub_index: 0,
-            }], memory_directives: vec![], remembered_presentations: Default::default(),
+            }], memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
         };
         for (kind, caster, index, payload) in [
             (8, 4, 1, AbilityPresentationCue::public_payload(123, 3)),
@@ -1555,7 +1979,7 @@ mod tests {
                 replica_id: 9,
                 disclosure_epoch: 4,
             }],
-            remembered_presentations: Default::default(),
+            remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
         };
         let decoded = RendererIpcEnvelope::decode(
             snapshot_envelope(1, 2, 1, snapshot, 0)
@@ -1571,6 +1995,58 @@ mod tests {
     }
 
     #[test]
+    fn communication_envelope_is_not_a_critical_result_and_leaves_snapshot_tails_empty() {
+        use omoba_core::game_proto::CommunicationPresentation;
+        use omoba_core::runtime::communication_transport::COMMUNICATION_SCHEMA_VERSION;
+        let batch = CommunicationPresentation {
+            schema_version: COMMUNICATION_SCHEMA_VERSION,
+            negotiated: true,
+            view_epoch: 4,
+            room_id: 9,
+            run_id: 3,
+            player_id: 7,
+            team_id: 2,
+            source_generation: 1,
+            presentation_epoch: 1,
+            ..Default::default()
+        };
+        let decoded = RendererIpcEnvelope::decode(communication_envelope(4, batch).encode_to_vec().as_slice()).unwrap();
+        assert!(matches!(decoded.payload, Some(renderer_ipc_envelope::Payload::TeamCommunication(_))));
+        assert!(!matches!(decoded.payload, Some(renderer_ipc_envelope::Payload::CriticalInputResult(_))));
+        let reset = reset_view_envelope(1, 2, 3, 4, 4);
+        let ordered = assemble_rebased_presentation(reset, Some(decoded), RendererIpcEnvelope {
+            magic: PRESENTATION_MAGIC,
+            protocol_version: PRESENTATION_PROTOCOL_VERSION,
+            sequence: 3,
+            payload: Some(renderer_ipc_envelope::Payload::RuntimeReady(omoba_core::game_proto::RuntimeReadyPresentation::default())),
+        });
+        assert!(matches!(ordered[0].payload, Some(renderer_ipc_envelope::Payload::Lifecycle(_))));
+        assert!(matches!(ordered[1].payload, Some(renderer_ipc_envelope::Payload::TeamCommunication(_))));
+        assert!(matches!(ordered[2].payload, Some(renderer_ipc_envelope::Payload::RuntimeReady(_))));
+        let snapshot = FilteredRenderSnapshot {
+            team_id: 2,
+            replica_tick: 2,
+            entities: Vec::new(),
+            public_events: Vec::new(),
+            external_effects: Vec::new(),
+            memory_directives: Vec::new(),
+            remembered_presentations: Default::default(),
+            hero_attributes: Default::default(), disclosed_summoners: Default::default(),
+            authoritative_mode: None, combat_preferences: None,
+        };
+        let decoded = RendererIpcEnvelope::decode(
+            snapshot_envelope(1, 2, 4, snapshot, 0).encode_to_vec().as_slice(),
+        ).unwrap();
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = decoded.payload else {
+            panic!("expected snapshot payload");
+        };
+        assert!(snapshot.shop_receipts.is_empty());
+        assert!(snapshot.shop_undo_receipts.is_empty());
+        assert!(snapshot.owner_ward_private.is_empty());
+        assert_eq!(snapshot.owner_ward_protocol, 0);
+    }
+
+    #[test]
     fn snapshot_envelope_carries_runtime_rtt() {
         let snapshot = FilteredRenderSnapshot {
             team_id: 1,
@@ -1579,7 +2055,7 @@ mod tests {
             public_events: Vec::new(),
             external_effects: Vec::new(),
             memory_directives: Vec::new(),
-            remembered_presentations: Default::default(),
+            remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
         };
         let decoded = RendererIpcEnvelope::decode(
             snapshot_envelope(1, 2, 1, snapshot, 1_500)
@@ -1606,6 +2082,7 @@ mod tests {
                 ((8, 3), b"server-sanitized-last-known".to_vec()),
                 ((9, 4), Vec::new()),
             ]),
+            hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
         };
         let message = snapshot_envelope(20, 91, 7, source, 0);
         let decoded = RendererIpcEnvelope::decode(message.encode_to_vec().as_slice()).unwrap();
@@ -1656,7 +2133,60 @@ mod tests {
         writer.write_u32(bytes.len() as u32).await.unwrap();
         writer.write_all(&bytes).await.unwrap();
         assert!(read_envelope(&mut reader).await.is_err());
-        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 5);
+        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 11);
+    }
+
+    #[tokio::test]
+    async fn authoritative_mode_projects_through_snapshot_and_rejects_bad_protocol() {
+        use omoba_core::runtime::authoritative_mode::{self, MOBA, TOWER_DEFENSE};
+        use omoba_core::runtime::native::comp::GameMode;
+        let source = FilteredRenderSnapshot {
+            team_id: 2, replica_tick: 11, entities: vec![], public_events: vec![],
+            external_effects: vec![], memory_directives: vec![],
+            remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(),
+            authoritative_mode: Some(authoritative_mode::presentation(GameMode::TowerDefense, 4).unwrap()),
+            combat_preferences: None,
+        };
+        let projected = snapshot_envelope(8, 11, 4, source.clone(), 0);
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = &projected.payload else { panic!("snapshot"); };
+        assert_eq!(authoritative_mode::accepted(snapshot.authoritative_mode.as_ref(), 4), TOWER_DEFENSE);
+        assert!(snapshot.moba_hud.is_none() && snapshot.owner_economy.is_none());
+        assert!(snapshot.shop_receipts.is_empty() && snapshot.effects.is_empty());
+        let mismatched = snapshot_envelope(9, 11, 5, source, 0);
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = &mismatched.payload else { panic!("snapshot"); };
+        assert!(snapshot.authoritative_mode.is_none(), "a later epoch does not keep the old mode");
+        let config = ClientRuntimeConfig::parse(["--player-id", "7", "--team", "2", "--server", "127.0.0.1:7777",
+            "--presentation-bind", "127.0.0.1:0"].into_iter().map(str::to_owned)).unwrap();
+        let mut hub = PresentationHub::bind(&config).await.unwrap();
+        let owned = FilteredRenderSnapshot {
+            team_id: 2, replica_tick: 12, entities: vec![], public_events: vec![],
+            external_effects: vec![], memory_directives: vec![],
+            remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(),
+            authoritative_mode: Some(authoritative_mode::presentation(GameMode::Moba, 4).unwrap()),
+            combat_preferences: None,
+        };
+        let hub_envelope = hub.snapshot_envelope(10, 12, 4, owned, 0);
+        assert!(!matches!(hub_envelope.payload, Some(renderer_ipc_envelope::Payload::CriticalInputResult(_))));
+        let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = &hub_envelope.payload else { panic!("snapshot"); };
+        assert_eq!(authoritative_mode::accepted(snapshot.authoritative_mode.as_ref(), 4), MOBA);
+        assert!(snapshot.shop_receipts.is_empty());
+        let kept = snapshot.authoritative_mode.clone();
+        for version in [3_u32, 5, 6, PRESENTATION_PROTOCOL_VERSION + 1] {
+            let bad = RendererIpcEnvelope {
+                magic: PRESENTATION_MAGIC, protocol_version: version, sequence: 1,
+                payload: Some(renderer_ipc_envelope::Payload::Snapshot(TeamPresentationSnapshot {
+                    team_id: 2, view_epoch: 4,
+                    authoritative_mode: Some(authoritative_mode::presentation(GameMode::TowerDefense, 4).unwrap()),
+                    ..Default::default()
+                })),
+            };
+            let bytes = bad.encode_to_vec();
+            let (mut writer, mut reader) = tokio::io::duplex(512);
+            writer.write_u32(bytes.len() as u32).await.unwrap();
+            writer.write_all(&bytes).await.unwrap();
+            assert!(read_envelope(&mut reader).await.is_err(), "protocol {version} must not install a mode");
+            assert_eq!(kept.as_ref().map(|mode| mode.mode), Some(MOBA));
+        }
     }
 
     #[tokio::test]
@@ -1729,6 +2259,7 @@ mod tests {
                     (8, 3),
                     b"frozen-before-disconnect".to_vec(),
                 )]),
+                hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
             };
             let mut retained = snapshot_envelope(20, 91, 7, source, 0);
             if let Some(renderer_ipc_envelope::Payload::Snapshot(snapshot)) = &mut retained.payload
@@ -1745,6 +2276,7 @@ mod tests {
                         slot, catalog_id: if slot == 1 { 3 } else { 0 }, cooldown_seconds: 0.0 }).collect(),
                     shop_available: false,
                     shop_protocol_enabled: false,
+                    ..Default::default()
                 });
                 snapshot.shop_receipts = vec![omoba_core::game_proto::ShopTransactionReceipt {
                     schema_version: 1, player_id: 7, input_id: 42, settled_tick: 89,
@@ -1890,13 +2422,15 @@ mod tests {
         let mut wrong = replay.clone(); wrong.player_id = 8;
         assert!(hub.retain_shop_replay(4, &wrong).is_err());
         hub.retain_shop_receipts(4, 90, &[]); // discarded intermediate presentation
-        let owner = OwnerEconomyState { player_id: 7, shop_available: false, shield_remaining_raw: 0,
+        let owner = OwnerEconomyState { player_id: 7, shop_available: false,
+            shop_reason: omoba_core::runtime::native::economy_projection::SHOP_REASON_HERO_ABSENT,
+            shield_remaining_raw: 0,
             economy: CommittedEconomyState { gold: 550, item_ids: [0, 3, 0, 0, 0, 0],
                 cooldown_bits: [0; 6], effect_bits: [0; 10], dirty: false } };
         let source = FilteredRenderSnapshot { team_id: 2, replica_tick: 91, entities: vec![],
             public_events: vec![omoba_core::game_proto::TeamPublicEvent { event_kind: FactKind::OwnerEconomy as u32,
                 sanitized_payload: owner.encode(), ..Default::default() }], external_effects: vec![],
-            memory_directives: vec![], remembered_presentations: Default::default() };
+            memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None };
         let closed = hub.snapshot_envelope(7, 91, 4, source.clone(), 0);
         let Some(renderer_ipc_envelope::Payload::Snapshot(closed)) = closed.payload else { panic!("snapshot"); };
         assert!(!closed.owner_economy.unwrap().shop_protocol_enabled);
@@ -1933,7 +2467,7 @@ mod tests {
             let server = tokio::spawn(async move {
                 let (stream, _) = listener.accept().await.unwrap();
                 serve_renderer_retained(stream, 7, 1, latest_rx, Arc::new(Mutex::new(critical_rx)),
-                    input_tx, Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), Some(shared), None).await
+                    input_tx, Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), Some(shared), None, None).await
             });
             let mut client = TcpStream::connect(address).await.unwrap();
             write_envelope(&mut client, &envelope(0, renderer_ipc_envelope::Payload::RendererReady(
@@ -2006,7 +2540,7 @@ mod tests {
                 for session in 0..2 {
                     let (stream, _) = listener.accept().await.unwrap();
                     serve_renderer_retained(stream, 7, 1, latest_rx.clone(), critical.clone(),
-                        input_tx.clone(), shutdown.clone(), consumed.clone(), Some(shared.clone()), None)
+                        input_tx.clone(), shutdown.clone(), consumed.clone(), Some(shared.clone()), None, None)
                         .await.unwrap_or_else(|e| panic!("renderer session {session}: {e}"));
                     closed_tx.send(session).await.unwrap();
                 }
@@ -2191,6 +2725,186 @@ mod tests {
         })
         .await
         .expect("late baseline socket test timed out");
+    }
+
+    #[tokio::test]
+    async fn summoner_rows_follow_the_stepper_through_extract_rebase_and_the_envelope() {
+        use omoba_core::game_proto::{
+            AuthorityRevision, DeterministicMetadata, FilteredTeamSnapshot, PreStep, Step, TeamGameStart,
+            TeamPublicEvent, TeamTickFrame, ViewEpoch,
+        };
+        use omoba_core::runtime::summoner_transport::{
+            encode_projected_summoners, ProjectedSummonerPlayer, ProjectedSummonerSlot,
+            SUMMONER_PROJECTION_KEY, SUMMONER_PROJECTION_NAMESPACE, SUMMONER_PROJECTION_SCHEMA,
+        };
+        use omoba_core::runtime::{
+            manifest_hash, single_lane_player_metric, single_rebase_fixture, FactKind,
+            SINGLE_LANE_ELAPSED_METRIC_ID, SINGLE_LANE_PHASE_METRIC_ID,
+            SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN,
+        };
+        use sha2::{Digest, Sha256};
+
+        fn roster(player: u32, catalogs: [u16; 2], clocks: [i64; 2]) -> Vec<u8> {
+            encode_projected_summoners(&[ProjectedSummonerPlayer {
+                player_id: player,
+                slots: [0, 1].map(|index| ProjectedSummonerSlot {
+                    catalog_id: catalogs[index],
+                    cooldown_raw: clocks[index],
+                }),
+            }])
+        }
+        fn start(team: u32, bytes: Vec<u8>) -> TeamGameStart {
+            let disclosed_world = Vec::new();
+            TeamGameStart {
+                protocol_version: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+                team_id: team,
+                replica_start_tick: 1,
+                next_team_sequence: 1,
+                tick_rate_hz: 20,
+                view_epoch: Some(ViewEpoch { value: 1 }),
+                team_private_metadata: vec![DeterministicMetadata {
+                    namespace: SUMMONER_PROJECTION_NAMESPACE.into(),
+                    key: SUMMONER_PROJECTION_KEY.into(),
+                    schema_version: SUMMONER_PROJECTION_SCHEMA,
+                    value: bytes,
+                }],
+                filtered_snapshot: Some(FilteredTeamSnapshot {
+                    team_id: team,
+                    view_epoch: Some(ViewEpoch { value: 1 }),
+                    authoritative_tick: 1,
+                    disclosed_world: disclosed_world.clone(),
+                    filtered_snapshot_hash: Sha256::digest(&disclosed_world).to_vec(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }
+        }
+        fn hud(team: u32, metric: u64, value: i64) -> TeamPublicEvent {
+            TeamPublicEvent {
+                event_kind: FactKind::Hud as u32,
+                sanitized_payload: [
+                    team.to_le_bytes().as_slice(),
+                    metric.to_le_bytes().as_slice(),
+                    value.to_le_bytes().as_slice(),
+                ].concat(),
+                ..Default::default()
+            }
+        }
+        fn frame(team: u32, tick: u64, sequence: u64, events: Vec<TeamPublicEvent>) -> Vec<u8> {
+            TeamTickFrame {
+                protocol_version: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+                frame_schema_version: 1,
+                content_schema_version: 1,
+                team_id: team,
+                server_tick: tick,
+                replica_tick: tick,
+                team_sequence: sequence,
+                view_epoch: Some(ViewEpoch { value: 1 }),
+                authority_revision: Some(AuthorityRevision { value: 0 }),
+                pre_step: Some(PreStep::default()),
+                step: Some(Step { public_events: events, ..Default::default() }),
+                post_step: Some(Default::default()),
+                padding: Vec::new(),
+                authoritative_mode: None, combat_preferences: None,
+            }.encode_to_vec()
+        }
+        let heal = omoba_template_ids::summoner_spell_by_name("training_self_heal_v1").unwrap().cooldown.raw();
+        let mut host = crate::replica_host::ReplicaHost::bootstrap_disclosed(&start(1, roster(7, [1, 2], [0, heal]))).unwrap();
+        let before = host.extract_presentation_source();
+        assert!(before.entities.is_empty());
+        assert_eq!(before.disclosed_summoners.players.len(), 1);
+        assert_eq!(before.disclosed_summoners.players[0].player_id, 7);
+        assert_eq!(before.disclosed_summoners.players[0].slots[0].catalog_id, 1);
+        assert_eq!(before.disclosed_summoners.players[0].slots[1].cooldown_raw, heal);
+        let repeated = host.extract_presentation_source();
+        assert_eq!(repeated.disclosed_summoners, before.disclosed_summoners);
+        let control = [
+            hud(0, SINGLE_LANE_PHASE_METRIC_ID, 1),
+            hud(0, SINGLE_LANE_ELAPSED_METRIC_ID, 1024),
+        ];
+        host.apply_encoded_frame(&frame(1, 1, 1, control.to_vec()), 0).unwrap().unwrap();
+        let phased = host.extract_presentation_source();
+        assert_eq!(phased.disclosed_summoners.players[0].slots[1].cooldown_raw, heal);
+        let persisted = host.extract_presentation_source();
+        assert_eq!(persisted.disclosed_summoners, phased.disclosed_summoners);
+        assert!(persisted.public_events.is_empty());
+        let mut updated = control.to_vec();
+        let next_clock = heal - 1024;
+        updated.push(hud(1, single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, 7), next_clock));
+        host.apply_encoded_frame(&frame(1, 2, 2, updated), 0).unwrap().unwrap();
+        let committed = host.extract_presentation_source();
+        assert!(committed.entities.is_empty());
+        assert_eq!(committed.disclosed_summoners.players[0].slots[1].cooldown_raw, next_clock);
+        assert_eq!(committed.disclosed_summoners.players[0].slots[0].cooldown_raw, 0);
+
+        let mut hostile = crate::replica_host::ReplicaHost::bootstrap_disclosed(&start(2, roster(8, [0, 2], [0, 0]))).unwrap();
+        hostile.apply_encoded_frame(&frame(2, 1, 1, vec![
+            hud(1, single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, 7), next_clock),
+        ]), 0).unwrap().unwrap();
+        let hidden = hostile.extract_presentation_source();
+        assert_eq!(hidden.disclosed_summoners.players.len(), 1);
+        assert_eq!(hidden.disclosed_summoners.players[0].player_id, 8);
+        assert_eq!(hidden.disclosed_summoners.players[0].slots[1].cooldown_raw, 0);
+        assert!(hidden.disclosed_summoners.players.iter().all(|row| row.player_id != 7));
+
+        let admit = |id: [u8; 16], bytes: Vec<u8>, rehash: bool| {
+            let mut fixture = single_rebase_fixture(id, 1, 4, 3, Vec::new()).unwrap();
+            if rehash {
+                fixture.manifest.admitted_summoner_projection = bytes;
+                fixture.manifest.manifest_hash = manifest_hash(&fixture.manifest).to_vec();
+            }
+            fixture
+        };
+        let replacement = admit([9; 16], roster(9, [2, 1], [0, 0]), true);
+        for chunk in &replacement.chunks { assert!(host.receive_rebase_chunk(chunk)); }
+        host.receive_rebase_manifest(&replacement.manifest).unwrap();
+        let replaced = host.extract_presentation_source();
+        assert_eq!(replaced.disclosed_summoners.players.len(), 1);
+        assert_eq!(replaced.disclosed_summoners.players[0].player_id, 9);
+        let blink_total = omoba_template_ids::summoner_spell_by_name("training_point_blink_v1").unwrap().cooldown.raw();
+        for (id, bytes) in [
+            ([6; 16], roster(9, [0, 1], [1, 0])),
+            ([5; 16], roster(9, [1, 2], [blink_total + 1, 0])),
+        ] {
+            let rejected = admit(id, bytes, true);
+            for chunk in &rejected.chunks { assert!(host.receive_rebase_chunk(chunk)); }
+            assert!(host.receive_rebase_manifest(&rejected.manifest).is_err());
+            assert_eq!(host.extract_presentation_source().disclosed_summoners.players[0].player_id, 9);
+        }
+        let invalid = admit([8; 16], vec![1, 2, 3], true);
+        for chunk in &invalid.chunks { assert!(host.receive_rebase_chunk(chunk)); }
+        assert!(host.receive_rebase_manifest(&invalid.manifest).is_err());
+        assert_eq!(host.extract_presentation_source().disclosed_summoners.players[0].player_id, 9);
+        let cleared = admit([7; 16], Vec::new(), false);
+        for chunk in &cleared.chunks { assert!(host.receive_rebase_chunk(chunk)); }
+        host.receive_rebase_manifest(&cleared.manifest).unwrap();
+        assert!(host.extract_presentation_source().disclosed_summoners.players.is_empty());
+
+        let config = ClientRuntimeConfig::parse(["--player-id", "7", "--team", "1", "--server", "127.0.0.1:9",
+            "--presentation-bind", "127.0.0.1:0"].into_iter().map(str::to_owned)).unwrap();
+        let mut hub = PresentationHub::bind(&config).await.unwrap();
+        hub.set_recall_protocol_enabled(true);
+        hub.set_shop_protocol_enabled(true);
+        let closed = hub.snapshot_envelope(1, committed.replica_tick, 1, committed.clone(), 0);
+        let Some(renderer_ipc_envelope::Payload::Snapshot(closed)) = closed.payload else { panic!("snapshot"); };
+        let closed_hud = closed.moba_hud.unwrap();
+        assert!(closed_hud.hero.is_none());
+        assert!(closed_hud.recall_protocol_enabled);
+        assert!(!closed_hud.summoner_protocol_enabled);
+        assert_eq!(closed_hud.summoner_slot0.unwrap().catalog_id, 0);
+        assert_eq!(closed_hud.summoner_slot1.unwrap().owner_player_id, 0);
+        hub.set_summoner_protocol_enabled(true);
+        let open = hub.snapshot_envelope(2, committed.replica_tick, 1, committed, 0);
+        let encoded = open.encode_to_vec();
+        let open = RendererIpcEnvelope::decode(encoded.as_slice()).unwrap();
+        assert_eq!(RendererIpcEnvelope::decode(open.encode_to_vec().as_slice()).unwrap(), open);
+        let Some(renderer_ipc_envelope::Payload::Snapshot(open_snapshot)) = &open.payload else { panic!("snapshot"); };
+        let open_hud = open_snapshot.moba_hud.as_ref().unwrap();
+        assert!(open_hud.hero.is_none());
+        assert!(open_hud.summoner_protocol_enabled);
+        assert_eq!(open_hud.summoner_slot0.as_ref().unwrap().catalog_id, 1);
+        assert_eq!(open_hud.summoner_slot1.as_ref().unwrap().cooldown_raw, next_clock);
+        assert_eq!(open_hud.summoner_slot1.as_ref().unwrap().spell_id, "training_self_heal_v1");
     }
 
     #[test]
@@ -2499,5 +3213,102 @@ mod tests {
         assert_eq!(server_meter.receive_samples(), 1);
         assert_eq!(client_meter.receive_samples(), 0);
         assert_eq!(server_meter.send_samples(), 0);
+    }
+
+    fn loopback_config() -> ClientRuntimeConfig {
+        ClientRuntimeConfig::parse(
+            [
+                "--player-id",
+                "7",
+                "--team-id",
+                "2",
+                "--server",
+                "127.0.0.1:9",
+                "--presentation-bind",
+                "127.0.0.1:0",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .unwrap()
+    }
+
+    async fn handshake(address: std::net::SocketAddr) -> TcpStream {
+        let mut client = TcpStream::connect(address).await.unwrap();
+        write_envelope(
+            &mut client,
+            &envelope(
+                0,
+                renderer_ipc_envelope::Payload::RendererReady(omoba_core::game_proto::RendererReady {
+                    player_id: 7,
+                    team_id: 2,
+                    latest_snapshot_sequence: 0,
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        client
+    }
+
+    async fn assert_released_within_deadline(address: std::net::SocketAddr, client: &mut TcpStream) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let mut client_closed = false;
+        let mut listener_released = false;
+        while tokio::time::Instant::now() < deadline {
+            if !client_closed {
+                match tokio::time::timeout(Duration::from_millis(50), read_envelope(client)).await {
+                    Ok(Err(_)) => client_closed = true,
+                    Ok(Ok(_)) => {}
+                    Err(_) => {}
+                }
+            }
+            if !listener_released {
+                if let Ok(listener) = TcpListener::bind(address).await {
+                    drop(listener);
+                    listener_released = true;
+                }
+            }
+            if client_closed && listener_released {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("listener_released={listener_released} client_closed={client_closed}");
+    }
+
+    #[tokio::test]
+    async fn bind_port0_exposes_loopback_and_shutdown_releases_listener_and_session() {
+        let config = loopback_config();
+        let hub = PresentationHub::bind(&config).await.unwrap();
+        let address = hub.local_addr();
+        assert!(address.ip().is_loopback());
+        assert_ne!(address.port(), 0);
+        assert_ne!(address.port(), config.presentation_bind.port());
+        hub.publish_latest(ready_envelope(1, &config, 1, 1, 60));
+        let mut client = handshake(address).await;
+        let ready = read_envelope(&mut client).await.unwrap();
+        assert!(matches!(
+            ready.payload,
+            Some(renderer_ipc_envelope::Payload::RuntimeReady(_))
+        ));
+        hub.shutdown();
+        assert_released_within_deadline(address, &mut client).await;
+        hub.shutdown();
+    }
+
+    #[tokio::test]
+    async fn drop_releases_listener_and_active_renderer_session_within_deadline() {
+        let config = loopback_config();
+        let hub = PresentationHub::bind(&config).await.unwrap();
+        let address = hub.local_addr();
+        hub.publish_latest(ready_envelope(1, &config, 1, 1, 60));
+        let mut client = handshake(address).await;
+        assert!(matches!(
+            read_envelope(&mut client).await.unwrap().payload,
+            Some(renderer_ipc_envelope::Payload::RuntimeReady(_))
+        ));
+        drop(hub);
+        assert_released_within_deadline(address, &mut client).await;
     }
 }

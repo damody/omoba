@@ -25,6 +25,9 @@ scripts/*.dylib
 .perf-packages/
 .superpowers/
 .worktrees/
+# 本機調查、建置與錄影證據；可攜驗收摘要放在 docs/acceptance/。
+/.ai-collab/
+/graphify-out/
 # 本機 editor / 使用者狀態
 settings.ron
 .claude/settings.local.json

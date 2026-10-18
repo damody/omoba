@@ -27,6 +27,11 @@ local function options(name)
 end
 test('strict remote selection flags and no gameplay options',function()
   assert(options('flags').player==6)
+  local remote=join.options({'--invite',invite,'--player','6','--output',path.join(root,'remote-budget'),
+    '--editor-ready-timeout-seconds','90'})
+  assert(remote.editor_ready_timeout_seconds==90)
+  rejects(function() join.options({'--invite',invite,'--player','6','--output','new',
+    '--editor-ready-timeout-seconds','NaN'}) end)
   for _,args in ipairs({{}, {'--invite',invite,'--player','06','--output','new'},
     {'--invite',invite,'--player','0','--output','new'},
     {'--invite',invite,'--player','6','--output','new','--server-only','true'},
@@ -50,6 +55,7 @@ test('private invitation metadata without returning token',function()
 end)
 local function lifecycle(mode)
   local opts=options(mode)
+  if mode=='cold-ready' then opts.editor_ready_timeout_seconds=90;opts.selection_timeout_seconds=120 end
   if mode=='signal' or mode=='signal-at-start' then
     opts.selection_cancel_file=path.join(root,mode..'.signal')
     if mode=='signal-at-start' then path.write(opts.selection_cancel_file,'') end
@@ -97,7 +103,7 @@ local function lifecycle(mode)
     end
     assert(result_file and log)
     local protocol=mode=='bad-ready' and '10' or '1'
-    path.write(log,'OM_SELECTION_READY player='..opts.player..' protocol='..protocol..' shared_room=1\n')
+    path.write(log,mode=='cold-ready' and '' or 'OM_SELECTION_READY player='..opts.player..' protocol='..protocol..' shared_room=1\n')
     return 606
   end
   old.inspect=function() return alive end
@@ -106,6 +112,7 @@ local function lifecycle(mode)
   local api,fixture=require('tests.selection_owned_fixture').wrap(old)
   local clock={monotonic_ms=function() return now end,sleep_ms=function(ms)
     now=now+ms
+    if mode=='cold-ready' then now=60000;path.write(log,'OM_SELECTION_READY player='..opts.player..' protocol=1 shared_room=1\n',true) end
     if mode=='signal' then path.write(opts.selection_cancel_file,'');return end
     if mode=='timeout' then return end
     if mode=='reused' or mode=='reused-cancel' then fixture.reuse(606) end
@@ -125,7 +132,7 @@ local function lifecycle(mode)
     end})
   assert(verified)
   assert(spawns==(mode=='signal-at-start' and 0 or 1))
-  local success=mode=='success' or mode=='reused' or mode=='native-validation'
+  local success=mode=='success' or mode=='reused' or mode=='native-validation' or mode=='cold-ready'
   assert(ok==success,tostring(err))
   assert(#fixture.stopped==((mode=='timeout' or mode=='signal') and 1 or 0))
   if success then
@@ -154,7 +161,7 @@ test('frontend mismatch fails before output or renderer',function()
 end)
 for _,mode in ipairs({'success','cancel','timeout','wrong-player','bad-ready','reused','reused-cancel',
   'missing-plan','unlocked-seat','config-failure','changed-plan','missing-owner','bot-owner','native-validation',
-  'signal','signal-at-start'}) do
+  'signal','signal-at-start','cold-ready'}) do
   test('remote original-owned selection '..mode,function() lifecycle(mode) end)
 end
 print(('selection join: %d groups passed; injected renderer, no network/game/Unreal acceptance'):format(total))

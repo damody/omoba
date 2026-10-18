@@ -17,6 +17,7 @@ pub mod lockstep_timing;
 pub mod quant;
 pub mod renderer_protocol;
 pub mod runtime;
+pub mod wire_tags;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod scripting;
 #[cfg(not(target_arch = "wasm32"))]

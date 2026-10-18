@@ -17,7 +17,8 @@ local function record(plan)
   local seats={}
   for _,p in ipairs(final.players) do seats[#seats+1]={player=copy(p),locked=true} end
   return {schema_version=1,scope='shared-selection-host-finalized',tick_rate_hz=60,plan=final,
-    selection={schema_version=1,catalog_data_hash=hash,revision=5,ready=true,finalized=true,seats=seats}}
+    selection={schema_version=1,catalog_data_hash=hash,revision=5,ready=true,finalized=true,seats=seats,
+      summoner_loadouts=final.summoner_loadouts}}
 end
 local total=0
 local function test(name,fn) fn();total=total+1;print('PASS '..name) end
@@ -40,7 +41,25 @@ test('host plan permits only all human hero choices',function()
     function(x) x.selection.seats[1].locked=false end,
     function(x) x.selection.seats[1].player.hero='different' end,
     function(x) x.plan.think_hz=60 end,
+    function(x) x.plan.summoner_loadouts={['1']={'training_point_blink_v1',json.null}} end,
+    function(x) x.selection.summoner_loadouts={['1']={'training_self_heal_v1',json.null}} end,
+    function(x) x.plan.summoner_loadouts=json.null end,
+    function(x) x.selection.summoner_loadouts=json.null end,
   }) do local changed=copy(r);mutate(changed);rejects(function() shared.result(changed,baseline,hash) end) end
+end)
+
+test('host loadouts survive hero choice and reject a substituted snapshot',function()
+  local equipped=copy(baseline)
+  equipped.summoner_loadouts={['1']={json.null,'training_self_heal_v1'},['2']={'training_point_blink_v1','training_self_heal_v1'}}
+  local accepted=shared.result(record(equipped),equipped,hash)
+  assert(accepted.summoner_loadouts['1'][2]=='training_self_heal_v1')
+  assert(accepted.summoner_loadouts['2'][1]=='training_point_blink_v1')
+  local empty=copy(equipped)
+  empty.summoner_loadouts={}
+  rejects(function() shared.result(record(empty),equipped,hash) end)
+  local absent=copy(equipped)
+  absent.summoner_loadouts=nil
+  assert(shared.result(record(absent),copy(baseline),hash))
 end)
 
 test('terminal receipt accepts stale text but not wrong bound identity',function()
@@ -61,6 +80,8 @@ local function execute(name,mode)
   local options=launch.options({'--interactive-selection','--profile','debug','--recipe',recipe,
     '--hero','1=training_vanguard','--output',path.join(directory,'match')})
   if mode=='completion-timeout' then options.selection_timeout_seconds=1 end
+  if mode=='old' then options.editor_ready_timeout_seconds=1 end
+  if mode=='cold-ready' then options.editor_ready_timeout_seconds=90;options.selection_timeout_seconds=120 end
   if mode=='subset' or mode=='lan' or mode=='wrong-address' then options.local_players={[1]=true} end
   if mode=='lan' or mode=='wrong-address' then options.selection_bind='192.0.2.10' end
   local now,host_dir,plan=0,nil,nil
@@ -106,8 +127,8 @@ local function execute(name,mode)
     local room=mode=='room-prefix' and '10' or (mode=='old' and id==2 and '0' or '1')
     local prefix=(mode=='fast-backlog') and string.rep('startup\n',40000) or ''
     local tail=mode=='fast-tail' and '' or '\n'
-    path.write(log,prefix..('OM_SELECTION_READY player=%d protocol=%s shared_room=%s'):format(id,protocol,room)..tail)
-    peers[id]={result=result,pid=200+id}
+    path.write(log,mode=='cold-ready' and '' or prefix..('OM_SELECTION_READY player=%d protocol=%s shared_room=%s'):format(id,protocol,room)..tail)
+    peers[id]={result=result,pid=200+id,log=log}
     states[200+id]={alive=true,exe=exe}
     if id==2 and (mode=='fast-backlog' or mode=='fast-tail' or mode=='fast-protocol-prefix') then publish() end
     return 200+id
@@ -143,6 +164,10 @@ local function execute(name,mode)
   end
   local clock={monotonic_ms=function() return now end,sleep_ms=function(ms)
     assert(ms==250);now=now+ms
+    if mode=='cold-ready' then
+      now=60000
+      for id,peer in pairs(peers) do path.write(peer.log,('OM_SELECTION_READY player=%d protocol=1 shared_room=1\n'):format(id),true) end
+    end
     if mode=='reused-host' then fixture.reuse(101)
     elseif mode=='reused-renderer' then fixture.reuse(202)
     elseif mode=='cancel' or mode=='cleanup-error' then states[202].alive=false
@@ -157,7 +182,7 @@ local function execute(name,mode)
   assert(path.read(recipe)==original,'source recipe was modified')
   assert(not path.exists(options.output),'gameplay configuration was created during selection')
   if mode=='success' or mode=='delayed-publication' or mode=='fast-backlog' or mode=='fast-tail'
-    or mode=='subset' or mode=='lan' then
+    or mode=='subset' or mode=='lan' or mode=='cold-ready' then
     assert(ok,tostring(err))
     local expected=(mode=='subset' or mode=='lan') and {101,201} or {101,201,202}
     for ordinal,pid in ipairs(expected) do
@@ -203,7 +228,7 @@ end
 for _,mode in ipairs({'success','delayed-publication','cancel','host-exit','old','bad-ready',
   'tamper','bad-receipt','missing-receipt','publication-timeout','cleanup-error','completion-timeout',
   'partial-spawn','reused-host','reused-renderer','protocol-prefix','room-prefix',
-  'fast-backlog','fast-tail','fast-protocol-prefix','subset','lan','wrong-address'}) do
+  'fast-backlog','fast-tail','fast-protocol-prefix','subset','lan','wrong-address','cold-ready'}) do
   test('shared launch '..mode,function() execute(mode,mode) end)
 end
 print(('shared selection launcher: %d/%d passed; mocked processes, no gameplay/Unreal acceptance'):format(total,total))

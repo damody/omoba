@@ -2,12 +2,13 @@
 
 use omoba_core::runtime::*;
 use omoba_sim::Fixed64;
-use specs::{Join, World, WorldExt};
+use specs::{Builder, Join, World, WorldExt};
 
 fn world(config: SingleLaneConfig, profile: SimulationTickProfile) -> (World, SimulationDriver) {
     let pool = StateInitializer::create_thread_pool();
     let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
     world.insert(TowerTemplateRegistry::default());
+    populate_tower_upgrade_registry(&mut world);
     let mut scripts = ScriptRegistry::new();
     scripts.insert_manifest(crate::get_manifest());
     populate_ability_registry(&mut world, &scripts);
@@ -2069,7 +2070,7 @@ fn support_guard_focus_60hz_shares_formal_attack_and_skill_without_hidden_escort
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
             player(3,1,BotRole::Carry,"training_ranger"),player(4,2,BotRole::Top,"training_vanguard")],
-        ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+        ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         ability_policies:vec![BotAbilityPolicy {ability:"lumen_bolt".into(),intent:BotAbilityIntent::EnemyUnit}]};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
@@ -2124,7 +2125,7 @@ fn jungle_assist_60hz_uses_committed_allies_and_formal_skill_and_attack_inputs()
         hero:hero.into(),lane:"mid".into(),bot:player_id==1};
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
         players:vec![player(1,1,BotRole::Jungle,"training_vanguard"),player(2,2,BotRole::Mid,"training_luminary"),
-            player(3,1,BotRole::Mid,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+            player(3,1,BotRole::Mid,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         ability_policies:vec![BotAbilityPolicy {ability:"vanguard_strike".into(),intent:BotAbilityIntent::EnemyUnit}]};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
@@ -2213,7 +2214,7 @@ fn ally_heal_60hz_generated_support_rejects_enemy_and_heals_disclosed_teammate()
         hero:hero.into(),lane:"mid".into(),bot:player_id==1};
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:true,
         players:vec![player(1,1,BotRole::Support,"training_support"),player(2,2,BotRole::Mid,"training_luminary"),
-            player(3,1,BotRole::Carry,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+            player(3,1,BotRole::Carry,"training_ranger")],ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         ability_policies:vec![BotAbilityPolicy {ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHeal {below_hp_per_mille:600}}]};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
@@ -2256,7 +2257,7 @@ fn support_escort_navigation_60hz_holds_on_blocked_disclosure_and_resumes() {
     let player=|player_id,team_id,role,bot|RoleBotPlayerPlan {player_id,team_id,role,bot,
         hero:"training_luminary".into(),lane:"bottom".into()};
     let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
-        ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+        ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)]};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
@@ -2307,7 +2308,7 @@ fn role_bots_support_escorts_human_using_committed_position_at_60hz() {
     use omoba_core::runtime::native::moba_match::bots::*;
     let player=|player_id,team_id,role,bot| RoleBotPlayerPlan {player_id,team_id,role,bot,
         hero:"training_luminary".into(),lane:"bottom".into()};
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
         players:vec![player(1,1,BotRole::Carry,false),player(2,2,BotRole::Mid,false),player(3,1,BotRole::Support,true)]};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
@@ -2380,7 +2381,7 @@ fn role_bot_plan_nine_bots_leave_human_control_untouched_at_60hz() {
                 role,lane:lane.into(),bot:player_id != 1});
         }
     }
-    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new()};
+    let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new()};
     let (mut config,bots)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
     config.warmup=Fixed64::ZERO;
     let (mut w,mut driver)=world(config,SimulationTickProfile::Production60Hz);
@@ -2746,7 +2747,7 @@ fn combat_navigation_60hz_lane_roles_skip_failed_chases_hold_and_reconsider() {
         hero:"training_vanguard".into(),lane:"top".into()};
     for role in [BotRole::Top,BotRole::Mid,BotRole::Carry,BotRole::Support] {
         let plan=RoleBotMatchPlan {schema_version:1,map_id:"three_lane_training".into(),think_hz:60,mana_enabled:false,
-            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),
+            ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:std::collections::BTreeMap::new(),
             players:vec![player(1,1,BotRole::Top),player(2,2,BotRole::Mid),player(3,2,BotRole::Support)]};
         let (mut config,_)=plan.compile(42,SimulationTickProfile::Production60Hz).unwrap();
         config.warmup=Fixed64::ZERO;config.wave_interval=Fixed64::from_i32(10_000);
@@ -5043,27 +5044,330 @@ fn single_lane_formal_shop_inputs_are_ordered_atomic_and_replayable() {
 #[test]
 fn single_lane_equipment_and_balance_survive_respawn_without_double_bonus() {
     use omoba_core::runtime::item::{ItemRegistry, ItemConfig, ItemBonus};
-    use omoba_core::runtime::shop::{transact_moba_shop, ShopCommand};
-    let (mut world, mut driver) = world(fast_config(), SimulationTickProfile::Coarse15Hz);
+    use omoba_core::runtime::shop::{transact_moba_shop, undo_moba_shop, ShopCommand, ShopUndoRequest};
+    let (mut world, mut driver) = world(SingleLaneConfig {
+        wave_interval: Fixed64::from_i32(10_000),
+        hero_kill_gold: 0,
+        hero_assist_gold: 0,
+        ..fast_config()
+    }, SimulationTickProfile::Coarse15Hz);
     world.insert(ItemRegistry::from_configs(vec![ItemConfig {id: "moba_armor".into(), name: "Armor".into(),
         cost: 100, bonus: ItemBonus {hp: 100.0, armor: 5.0, ..ItemBonus::default()}, active: None,
         cooldown: 0.0, recipe: vec![]} ]));
     driver.step(&mut world, []).unwrap();
     let old = world.read_resource::<MobaMatch>().heroes[0].entity.unwrap();
     world.write_storage::<Gold>().get_mut(old).unwrap().0 = 200;
+    world.write_storage::<Hero>().get_mut(old).unwrap().experience = 23;
+    let intact = world.read_storage::<CProperty>().get(old).unwrap().clone();
+    let damaged = intact.hp - Fixed64::from_i32(80);
+    world.write_storage::<CProperty>().get_mut(old).unwrap().hp = damaged;
     transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_armor".into())).unwrap();
     driver.step(&mut world, []).unwrap();
-    let hp = world.read_storage::<CProperty>().get(old).unwrap().mhp;
-    let armor = world.read_storage::<CProperty>().get(old).unwrap().def_physic;
+    let bought = world.read_storage::<CProperty>().get(old).unwrap().clone();
+    assert_eq!(bought.mhp, intact.mhp + Fixed64::from_i32(100));
+    assert_eq!(bought.def_physic, intact.def_physic + Fixed64::from_i32(5));
+    assert!(bought.hp - damaged < Fixed64::from_i32(100));
+    assert!(bought.mhp - bought.hp > Fixed64::from_i32(40));
+    assert_eq!(world.read_storage::<Hero>().get(old).unwrap().experience, 23);
+    assert_eq!(world.read_storage::<ItemEffects>().get(old).unwrap().applied_hp, 100.0);
+    undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest).unwrap();
+    driver.step(&mut world, []).unwrap();
+    let undone = world.read_storage::<CProperty>().get(old).unwrap().clone();
+    assert_eq!(undone.mhp, intact.mhp);
+    assert_eq!(undone.def_physic, intact.def_physic);
+    assert!(undone.hp - damaged < Fixed64::from_i32(100));
+    assert!(undone.mhp - undone.hp > Fixed64::from_i32(40));
+    assert_eq!(world.read_storage::<Hero>().get(old).unwrap().experience, 23);
+    assert_eq!(world.read_storage::<ItemEffects>().get(old).unwrap().applied_hp, 0.0);
+    assert!(world.read_storage::<Inventory>().get(old).unwrap().find_item("moba_armor").is_none());
+    transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_armor".into())).unwrap();
+    driver.step(&mut world, []).unwrap();
+    let rebought = world.read_storage::<CProperty>().get(old).unwrap().clone();
+    assert_eq!(rebought.mhp, intact.mhp + Fixed64::from_i32(100));
+    assert!(rebought.hp - damaged < Fixed64::from_i32(100));
+    assert!(rebought.mhp - rebought.hp > Fixed64::from_i32(40));
+    assert_eq!(world.read_storage::<Hero>().get(old).unwrap().experience, 23);
     let pos = world.read_storage::<Pos>().get(old).unwrap().0;
     world.write_resource::<Vec<Outcome>>().push(Outcome::Death { pos, ent: old });
     for _ in 0..40 { driver.step(&mut world, []).unwrap(); }
     let new = world.read_resource::<MobaMatch>().heroes[0].entity.unwrap();
     assert_ne!(canonical_entity_id(new), canonical_entity_id(old));
+    assert!(!world.entities().is_alive(old));
     assert_eq!(world.read_storage::<Gold>().get(new).unwrap().0, 100);
     assert_eq!(world.read_storage::<Inventory>().get(new).unwrap().find_item("moba_armor"), Some(0));
-    assert_eq!(world.read_storage::<CProperty>().get(new).unwrap().mhp, hp);
-    assert_eq!(world.read_storage::<CProperty>().get(new).unwrap().def_physic, armor);
+    let born = world.read_storage::<CProperty>().get(new).unwrap().clone();
+    assert_eq!(born.mhp, rebought.mhp);
+    assert_eq!(born.def_physic, rebought.def_physic);
+    assert_eq!(born.hp, born.mhp, "respawned loadout starts at its finalized maximum");
+    assert_eq!(world.read_storage::<Hero>().get(new).unwrap().experience, 23);
+    let born_effects = *world.read_storage::<ItemEffects>().get(new).unwrap();
+    assert_eq!((born_effects.applied_hp, born_effects.applied_armor, born_effects.dirty), (100.0, 5.0, false));
+    driver.step(&mut world, []).unwrap();
+    let second = world.read_storage::<CProperty>().get(new).unwrap().clone();
+    let second_effects = *world.read_storage::<ItemEffects>().get(new).unwrap();
+    assert_eq!(second.mhp, born.mhp);
+    assert_eq!(second.def_physic, born.def_physic);
+    assert_eq!((second_effects.applied_hp, second_effects.applied_armor), (100.0, 5.0));
+    assert!(second.hp - born.hp < Fixed64::from_i32(100));
+}
+
+#[test]
+fn single_lane_dead_roster_shop_persists_through_respawn_without_reviving() {
+    use omoba_core::runtime::native::economy_projection::{
+        SHOP_REASON_AVAILABLE, SHOP_REASON_DEAD_UNCAPTURED, SHOP_REASON_FOREIGN_OWNER,
+        SHOP_REASON_MISSING_BASE, SHOP_REASON_NOT_PLAYING, SHOP_REASON_OUTSIDE_SHOP,
+        SHOP_REASON_PAUSED, SHOP_REASON_RETIRED, SHOP_REASON_STALE_IDENTITY, SHOP_REASON_UNKNOWN_PLAYER,
+    };
+    use omoba_core::runtime::shop::{
+        owner_shop_availability, transact_moba_shop, undo_moba_shop, ShopCommand, ShopError,
+        ShopUndoLedger, ShopUndoRequest, SHOP_UNDO_ROSTER_GENERATION, SHOP_UNDO_ROSTER_INDEX,
+    };
+    use omoba_core::runtime::shop_receipt::{project_shop_receipts, ShopReceipt};
+    use omoba_core::runtime::shop_transport::validate_receipt_replay;
+    use prost::Message;
+    let config = SingleLaneConfig {
+        wave_interval: Fixed64::from_i32(10_000),
+        hero_kill_gold: 0,
+        hero_assist_gold: 0,
+        ..fast_config()
+    };
+    let catalog = |id: &str| -> u16 {
+        omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == id).unwrap().catalog_id
+    };
+    let owner_fact = |facts: &[omoba_core::runtime::OrderedFact], player: u32| {
+        facts.iter().rev().find_map(|fact| match &fact.fact {
+            ObservableFact::OwnerEconomy { state, .. } if state.player_id == player => Some(state.clone()),
+            _ => None,
+        }).unwrap()
+    };
+    let availability = |world: &World, player: u32| {
+        let state = world.read_resource::<MobaMatch>().clone();
+        owner_shop_availability(world, &state, player)
+    };
+    let no_living_owner = |world: &World, player: u32| {
+        !(&world.entities(), &world.read_storage::<PlayerOwner>(), &world.read_storage::<CProperty>()).join()
+            .any(|(_, owner, property)| owner.player_id == player && property.hp > Fixed64::ZERO)
+    };
+    let outside_shop_position = |world: &World, player: u32| {
+        let state = world.read_resource::<MobaMatch>();
+        let side = state.heroes.iter().find(|slot| slot.player_id == player).unwrap().side;
+        let base = state.bases[side].unwrap();
+        let origin = world.read_storage::<Pos>().get(base).unwrap().0;
+        origin + omoba_sim::Vec2::new(Fixed64::ZERO,
+            Fixed64::from_i32(omoba_core::runtime::shop::MOBA_SHOP_RADIUS + 1))
+    };
+    let registry = || ItemRegistry::from_configs(vec![
+        ItemConfig { id: "moba_sword".into(), name: "Sword".into(), cost: 100,
+            bonus: ItemBonus { atk: 10.0, ..ItemBonus::default() }, active: None, cooldown: 0.0, recipe: vec![] },
+        ItemConfig { id: "moba_armor".into(), name: "Armor".into(), cost: 100,
+            bonus: ItemBonus { hp: 100.0, armor: 5.0, ..ItemBonus::default() }, active: None, cooldown: 0.0, recipe: vec![] },
+    ]);
+    let buy_input = |id: &str| PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: id.into() })) };
+    let mut dead_digests = Vec::new();
+    let mut respawn_digests = Vec::new();
+    for _ in 0..2 {
+        let (mut world, mut driver) = world(config.clone(), SimulationTickProfile::Coarse15Hz);
+        world.insert(registry());
+        driver.step(&mut world, []).unwrap();
+        let heroes = hero_pair(&world);
+        for hero in heroes { world.write_storage::<Gold>().get_mut(hero).unwrap().0 = 500; }
+        let td_before = extract_snapshot(&mut world, 0, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()),
+            std::sync::Arc::new(Vec::new()), Vec::new(), Vec::new()).player_gold;
+        transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_sword".into())).unwrap();
+        let spawn = world.read_storage::<Pos>().get(heroes[0]).unwrap().0;
+        let outside = outside_shop_position(&world, 1);
+        world.write_storage::<Pos>().get_mut(heroes[0]).unwrap().0 = outside;
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Sell(0)), Err(ShopError::OutsideShop));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_OUTSIDE_SHOP));
+        assert_eq!(world.read_storage::<Gold>().get(heroes[0]).unwrap().0, 400);
+        world.write_storage::<Pos>().get_mut(heroes[0]).unwrap().0 = spawn;
+        world.write_storage::<CProperty>().get_mut(heroes[0]).unwrap().hp = Fixed64::ZERO;
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_armor".into())), Err(ShopError::HeroUnavailable));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_DEAD_UNCAPTURED));
+        assert_eq!(world.read_storage::<CProperty>().get(heroes[0]).unwrap().hp, Fixed64::ZERO);
+        world.write_storage::<CProperty>().get_mut(heroes[0]).unwrap().hp = Fixed64::from_i32(500);
+        transact_moba_shop(&mut world, 2, ShopCommand::Buy("moba_armor".into())).unwrap();
+        world.write_resource::<Vec<Outcome>>().push(Outcome::Death { pos: spawn, ent: heroes[0] });
+        let died = driver.step(&mut world, [(1, buy_input("moba_armor"))]).unwrap();
+        assert!(world.read_resource::<MobaMatch>().heroes[0].entity.is_none());
+        assert!(!world.entities().is_alive(heroes[0]));
+        assert!(no_living_owner(&world, 1));
+        assert_eq!(world.read_resource::<PendingItemUseQueue>().settlements.len(), 1);
+        assert!(world.read_resource::<PendingItemUseQueue>().settlements[0].result.is_ok());
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest), Err(ShopError::UndoUnavailable));
+        let died_economy = owner_fact(&died.facts, 1);
+        assert_eq!(died_economy.economy.gold, 300);
+        assert_eq!(died_economy.economy.item_ids[0], catalog("moba_sword"));
+        assert_eq!(died_economy.economy.item_ids[1], catalog("moba_armor"));
+        assert!(died_economy.shop_available);
+        assert_eq!(died_economy.shop_reason, SHOP_REASON_AVAILABLE);
+        assert_eq!(world.read_storage::<Gold>().get(heroes[1]).unwrap().0, 400);
+        {
+            let prior = world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records[0].clone();
+            assert!(!prior.eligible);
+            assert_eq!(prior.source_index, heroes[0].id());
+            assert_ne!(prior.source_index, SHOP_UNDO_ROSTER_INDEX);
+        }
+        transact_moba_shop(&mut world, 1, ShopCommand::Sell(0)).unwrap();
+        let sold = driver.step(&mut world, []).unwrap();
+        let sold_economy = owner_fact(&sold.facts, 1);
+        assert_eq!(sold_economy.economy.gold, 350);
+        assert_eq!(sold_economy.economy.item_ids[0], 0);
+        assert_eq!(sold_economy.economy.item_ids[1], catalog("moba_armor"));
+        assert!(world.read_resource::<MobaMatch>().heroes[0].entity.is_none());
+        let bought = driver.step(&mut world, [(1, buy_input("moba_sword"))]).unwrap();
+        assert_eq!(world.read_resource::<PendingItemUseQueue>().settlements[0].result, Ok(()));
+        let bought_economy = owner_fact(&bought.facts, 1);
+        assert_eq!(bought_economy.economy.gold, 250);
+        assert_eq!(bought_economy.economy.item_ids[0], catalog("moba_sword"));
+        assert_eq!(bought_economy.economy.item_ids[1], catalog("moba_armor"));
+        assert!(bought_economy.shop_available);
+        assert_eq!(bought_economy.shop_reason, SHOP_REASON_AVAILABLE);
+        assert!(no_living_owner(&world, 1));
+        assert_eq!(world.read_storage::<Gold>().get(heroes[1]).unwrap().0, 400);
+        let td_after = extract_snapshot(&mut world, driver.tick() as u32, std::sync::Arc::new(Vec::new()),
+            std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()), Vec::new(), Vec::new()).player_gold;
+        assert_eq!(td_after, td_before);
+        let settlements = world.read_resource::<PendingItemUseQueue>().settlements.clone();
+        let payload = buy_input("moba_sword").encode_to_vec();
+        let accepted = CanonicalAcceptedInput::from_authoritative_acceptance(1, 1, 42, 17, 0, None, payload.clone());
+        let receipts = project_shop_receipts(1, driver.tick(), &[accepted.clone(), accepted], &settlements).unwrap();
+        assert_eq!(receipts.len(), 1);
+        let receipt = ShopReceipt::decode(&receipts[0].sanitized_payload).unwrap();
+        assert_eq!(receipt.result_code, 0);
+        assert_eq!(receipt.catalog_id, u32::from(catalog("moba_sword")));
+        let local = CanonicalAcceptedInput::from_authoritative_acceptance(1, 1, 0, 17, 0, None, payload);
+        assert!(project_shop_receipts(1, driver.tick(), &[local], &settlements).unwrap().is_empty());
+        let replay = omoba_core::game_proto::ShopReceiptReplay {
+            schema_version: 1, request_id: 4, player_id: 1, input_id: 42, status: 2, receipt: receipt.encode(),
+        };
+        let before_replay = single_lane_replay_digest(&world);
+        assert_eq!(validate_receipt_replay(&replay, 1), Ok(Some(receipt.clone())));
+        assert_eq!(validate_receipt_replay(&replay, 1), Ok(Some(receipt)));
+        assert_eq!(single_lane_replay_digest(&world), before_replay);
+        let sequence = world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.last().unwrap().sequence;
+        assert_eq!(world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.last().unwrap().source_index, SHOP_UNDO_ROSTER_INDEX);
+        assert_eq!(world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.last().unwrap().source_generation, SHOP_UNDO_ROSTER_GENERATION);
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Sequence(sequence)).unwrap(), sequence);
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Sequence(sequence)), Err(ShopError::UndoDuplicate));
+        assert!(no_living_owner(&world, 1));
+        let refunded = driver.step(&mut world, []).unwrap();
+        let refunded_economy = owner_fact(&refunded.facts, 1);
+        assert_eq!(refunded_economy.economy.gold, 350);
+        assert_eq!(refunded_economy.economy.item_ids[0], 0);
+        assert_eq!(refunded_economy.economy.item_ids[1], catalog("moba_armor"));
+        let again = driver.step(&mut world, [(1, buy_input("moba_sword"))]).unwrap();
+        assert_eq!(owner_fact(&again.facts, 1).economy.gold, 250);
+        let fresh = world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.last().unwrap().clone();
+        assert!(fresh.eligible);
+        assert_eq!(fresh.source_index, SHOP_UNDO_ROSTER_INDEX);
+        assert!(world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.iter()
+            .filter(|record| record.sequence != fresh.sequence).all(|record| !record.eligible));
+        let base = world.read_resource::<MobaMatch>().bases[0].unwrap();
+        let respawn_at = world.read_resource::<MobaMatch>().heroes[0].respawn_at;
+        world.write_resource::<MobaMatch>().bases[0] = None;
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_sword".into())), Err(ShopError::MatchUnavailable));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_MISSING_BASE));
+        world.write_resource::<MobaMatch>().bases[0] = Some(base);
+        world.write_resource::<GamePause>().is_paused = true;
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Sell(1)), Err(ShopError::MatchUnavailable));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_PAUSED));
+        world.write_resource::<GamePause>().is_paused = false;
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Finished { winner: Some(0), tick: driver.tick() };
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Sell(1)), Err(ShopError::MatchUnavailable));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_NOT_PLAYING));
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+        for player in [0, 99] {
+            assert_eq!(transact_moba_shop(&mut world, player, ShopCommand::Buy("moba_sword".into())), Err(ShopError::UnknownPlayer));
+            assert_eq!(availability(&world, player), (false, SHOP_REASON_UNKNOWN_PLAYER));
+        }
+        world.write_resource::<MobaMatch>().heroes[0].respawn_at = None;
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_sword".into())), Err(ShopError::HeroUnavailable));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_RETIRED));
+        world.write_resource::<MobaMatch>().heroes[0].respawn_at = respawn_at;
+        world.write_resource::<MobaMatch>().heroes[0].entity = Some(heroes[0]);
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Buy("moba_sword".into())), Err(ShopError::HeroUnavailable));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_STALE_IDENTITY));
+        world.write_resource::<MobaMatch>().heroes[0].entity = None;
+        world.write_resource::<MobaMatch>().heroes[0].entity = Some(heroes[1]);
+        assert_eq!(transact_moba_shop(&mut world, 1, ShopCommand::Sell(0)), Err(ShopError::UnknownPlayer));
+        assert_eq!(availability(&world, 1), (false, SHOP_REASON_FOREIGN_OWNER));
+        assert_eq!(world.read_storage::<Gold>().get(heroes[1]).unwrap().0, 400);
+        world.write_resource::<MobaMatch>().heroes[0].entity = None;
+        let away = world.read_storage::<Pos>().get(heroes[1]).unwrap().0;
+        let outside = outside_shop_position(&world, 2);
+        world.write_storage::<Pos>().get_mut(heroes[1]).unwrap().0 = outside;
+        assert_eq!(transact_moba_shop(&mut world, 2, ShopCommand::Sell(0)), Err(ShopError::OutsideShop));
+        assert_eq!(availability(&world, 2), (false, SHOP_REASON_OUTSIDE_SHOP));
+        assert_eq!(world.read_storage::<Gold>().get(heroes[1]).unwrap().0, 400);
+        world.write_storage::<Pos>().get_mut(heroes[1]).unwrap().0 = away;
+        let settled = driver.step(&mut world, []).unwrap();
+        assert!(world.read_resource::<MobaMatch>().heroes[0].entity.is_none());
+        assert_eq!(owner_fact(&settled.facts, 1).economy.gold, 250);
+        assert_eq!(owner_fact(&settled.facts, 1).shop_reason, SHOP_REASON_AVAILABLE);
+        assert_eq!(world.read_storage::<Gold>().get(heroes[1]).unwrap().0, 400);
+        dead_digests.push(single_lane_replay_digest(&world));
+        let mut spawned = None;
+        for _ in 0..40 {
+            driver.step(&mut world, []).unwrap();
+            if let Some(entity) = world.read_resource::<MobaMatch>().heroes[0].entity {
+                spawned = Some(entity);
+                break;
+            }
+        }
+        let new = spawned.expect("replacement hero");
+        assert_ne!(canonical_entity_id(new), canonical_entity_id(heroes[0]));
+        assert!(!world.entities().is_alive(heroes[0]));
+        assert_eq!(world.read_storage::<Gold>().get(new).unwrap().0, 250);
+        assert_eq!(world.read_storage::<Inventory>().get(new).unwrap().find_item("moba_sword"), Some(0));
+        assert_eq!(world.read_storage::<Inventory>().get(new).unwrap().find_item("moba_armor"), Some(1));
+        assert_eq!(world.read_storage::<Gold>().get(heroes[1]).unwrap().0, 400);
+        let born = world.read_storage::<CProperty>().get(new).unwrap().clone();
+        assert_eq!(born.hp, born.mhp, "a new life starts at full health including retained/dead-purchased equipment");
+        assert_eq!(born.mhp, world.read_storage::<CProperty>().get(heroes[1]).unwrap().mhp);
+        let effects = *world.read_storage::<ItemEffects>().get(new).unwrap();
+        assert_eq!((effects.applied_hp, effects.applied_armor, effects.applied_atk, effects.dirty), (100.0, 5.0, 10.0, false));
+        let atk = world.read_storage::<TAttack>().get(new).unwrap().atk_physic.clone().val();
+        assert_eq!(atk, world.read_storage::<TAttack>().get(heroes[1]).unwrap().atk_physic.clone().val() + Fixed64::from_i32(10));
+        driver.step(&mut world, []).unwrap();
+        let second = world.read_storage::<CProperty>().get(new).unwrap().clone();
+        let second_effects = *world.read_storage::<ItemEffects>().get(new).unwrap();
+        assert_eq!(second.mhp, born.mhp);
+        assert!(second.hp - born.hp < Fixed64::from_i32(100));
+        assert_eq!((second_effects.applied_hp, second_effects.applied_armor, second_effects.applied_atk), (100.0, 5.0, 10.0));
+        let bound = world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.last().unwrap().clone();
+        assert!(bound.eligible);
+        assert_eq!(bound.source_index, new.id());
+        assert_eq!(bound.source_generation, new.gen().id());
+        assert!(world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.iter()
+            .filter(|record| record.sequence != bound.sequence).all(|record| !record.eligible));
+        respawn_digests.push(single_lane_replay_digest(&world));
+        let base_pos = world.read_storage::<Pos>().get(base).unwrap().0;
+        world.write_storage::<Pos>().get_mut(new).unwrap().0 = base_pos;
+        world.write_resource::<ShopUndoLedger>().owners.get_mut(&1).unwrap().records.last_mut().unwrap().source_generation = 0;
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest), Err(ShopError::UndoUnavailable));
+        assert_eq!(world.read_storage::<Gold>().get(new).unwrap().0, 250);
+        assert_eq!(world.read_storage::<Inventory>().get(new).unwrap().find_item("moba_sword"), Some(0));
+        world.write_resource::<ShopUndoLedger>().owners.get_mut(&1).unwrap().records.last_mut().unwrap().source_generation = new.gen().id();
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Sequence(bound.sequence)).unwrap(), bound.sequence);
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Sequence(bound.sequence)), Err(ShopError::UndoDuplicate));
+        assert_eq!(world.read_storage::<Gold>().get(new).unwrap().0, 350);
+        assert!(world.read_storage::<Inventory>().get(new).unwrap().find_item("moba_sword").is_none());
+        assert_eq!(world.read_storage::<Inventory>().get(new).unwrap().find_item("moba_armor"), Some(1));
+        assert_eq!(world.read_storage::<CProperty>().get(new).unwrap().hp, second.hp);
+        driver.step(&mut world, []).unwrap();
+        let after_undo = *world.read_storage::<ItemEffects>().get(new).unwrap();
+        assert_eq!((after_undo.applied_hp, after_undo.applied_armor, after_undo.applied_atk), (100.0, 5.0, 0.0));
+        assert_eq!(world.read_storage::<CProperty>().get(new).unwrap().mhp, second.mhp);
+        assert!(world.read_storage::<CProperty>().get(new).unwrap().hp - second.hp < Fixed64::from_i32(100));
+        assert_eq!(world.read_storage::<TAttack>().get(new).unwrap().atk_physic.clone().val(), atk - Fixed64::from_i32(10));
+        assert_eq!(world.read_storage::<Gold>().get(heroes[1]).unwrap().0, 400);
+        assert!(world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.iter().any(|record| {
+            record.item_id == "moba_sword" && !record.eligible && record.source_index == heroes[0].id()
+        }));
+    }
+    assert_eq!(dead_digests[0], dead_digests[1]);
+    assert_eq!(respawn_digests[0], respawn_digests[1]);
 }
 
 #[test]
@@ -5085,13 +5389,14 @@ fn single_lane_shop_warmup_and_dead_owner_produce_explicit_tick_local_rejections
     assert!(authority.read_resource::<MobaMatch>().heroes[0].entity.is_none());
     let result = driver.step(&mut authority, [(1, buy()), (99, buy())]).unwrap();
     assert_eq!(authority.read_resource::<PendingItemUseQueue>().settlements.len(), 1);
-    assert_eq!(authority.read_resource::<PendingItemUseQueue>().settlements[0].result, Err(ShopError::HeroUnavailable));
+    assert_eq!(authority.read_resource::<PendingItemUseQueue>().settlements[0].result, Err(ShopError::InsufficientGold));
     let owned = result.facts.iter().rev().find_map(|fact| match &fact.fact {
         ObservableFact::OwnerEconomy { state, .. } if state.player_id == 1 => Some(state), _ => None,
     }).unwrap();
     assert_eq!(owned.economy.gold, 0);
     assert_eq!(owned.economy.item_ids, [0; 6]);
-    assert!(!owned.shop_available);
+    assert!(owned.shop_available);
+    assert_eq!(owned.shop_reason, omoba_core::runtime::native::economy_projection::SHOP_REASON_AVAILABLE);
 }
 
 #[test]
@@ -5135,7 +5440,7 @@ fn single_lane_buy_use_sell_keeps_mixed_item_input_order() {
     world.write_storage::<CProperty>().get_mut(hero).unwrap().hp = Fixed64::from_i32(100);
     driver.step(&mut world, [
         (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_armor".into() })) }),
-        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None })) }),
         (1, PlayerInput { action: Some(PlayerInputEnum::ItemSell(ItemSell { item_slot: 0 })) }),
     ]).unwrap();
     assert_eq!(world.read_storage::<Gold>().get(hero).unwrap().0, 150);
@@ -5160,7 +5465,7 @@ fn item_sprint_60hz_uses_timed_buff_without_mutating_base_speed() {
     let base = w.read_storage::<CProperty>().get(hero).unwrap().msd;
     let baseline = UnitStats::from_refs(&w.read_resource::<BuffStore>(), false).final_move_speed(base, hero);
     let use_item = || (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
-        item_slot: 0, target_pos: None, target_entity: None,
+        item_slot: 0, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None,
     })) });
     driver.step(&mut w, [
         (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_armor".into() })) }),
@@ -5172,7 +5477,7 @@ fn item_sprint_60hz_uses_timed_buff_without_mutating_base_speed() {
     assert!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining > 4.0);
     // Cooldown rejection must not refresh duration or stack another copy.
     let remaining = w.read_resource::<BuffStore>().get(hero, "item_sprint:moba_armor").unwrap().remaining;
-    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err());
+    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_err());
     assert_eq!(w.read_resource::<BuffStore>().get(hero, "item_sprint:moba_armor").unwrap().remaining, remaining);
     driver.step(&mut w, []).unwrap();
     // Reset only the fixture cooldown to exercise a legal refresh before expiry.
@@ -5209,7 +5514,7 @@ fn generated_active_shop_items_60hz_buy_use_real_catalog_without_effect_override
         assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0, 2000 - cfg.cost);
         assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().item_id, id);
         driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
-            item_slot: 0, target_pos: None, target_entity: None,
+            item_slot: 0, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None,
         })) })]).unwrap();
         assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, Fixed64::from_i32(100), "shield is not healing");
         assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().msd, base_speed);
@@ -5233,10 +5538,11 @@ fn generated_active_shop_items_60hz_buy_use_real_catalog_without_effect_override
             },
             ActiveEffect::DamageReduce { percent, .. } => assert_eq!(w.read_resource::<BuffStore>().sum_add(hero, StatKey::DamageTakenBonus), -fixed(*percent)),
             ActiveEffect::HeadshotNext { bonus_damage } => assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(hero), fixed(*bonus_damage)),
+            ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } => panic!("targeted training items have their own fixtures"),
         }
         let cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
         assert!(cooldown > cfg.cooldown - 1.0 && cooldown <= cfg.cooldown);
-        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err());
+        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_err());
         assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, cooldown);
     }
 }
@@ -5265,7 +5571,7 @@ fn item_restore_mana_60hz_clamps_owner_pool_and_emits_actual_gain() {
     w.write_resource::<ScriptEventQueue>().drain();
     w.write_resource::<ScriptVisualEventQueue>().drain();
     driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
-        item_slot: 0, target_pos: None, target_entity: None,
+        item_slot: 0, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None,
     })) })]).unwrap();
     let maximum = base + Fixed64::from_i32(60);
     let pool = w.read_storage::<Hero>().get(hero).unwrap().mana_pool.clone().unwrap();
@@ -5277,10 +5583,10 @@ fn item_restore_mana_60hz_clamps_owner_pool_and_emits_actual_gain() {
         event.kind == ScriptVisualEventKind::ManaGained && event.primary == hero)
         .map(|event| event.amount).collect();
     assert_eq!(gained, vec![maximum - Fixed64::from_i32(10)]);
-    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err());
+    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_err());
     assert_eq!(w.read_storage::<Hero>().get(hero).unwrap().mana_pool.as_ref().unwrap(), &pool);
     w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
-    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_ok());
+    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_ok());
     assert!(!w.write_resource::<ScriptEventQueue>().drain().iter().any(|event| matches!(event, ScriptEvent::ManaGained { .. })));
     assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 5.0);
 }
@@ -5315,7 +5621,7 @@ fn item_restore_mana_preflight_rejects_invalid_amount_pool_or_capacity_atomicall
         let pool = w.read_storage::<Hero>().get(hero).unwrap().mana_pool.clone();
         let command = format!("{:?}", w.read_storage::<HeroCommandQueue>().get(hero).unwrap());
         w.write_resource::<ScriptEventQueue>().drain();
-        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err(), "case {case}");
+        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_err(), "case {case}");
         assert_eq!(w.read_storage::<Hero>().get(hero).unwrap().mana_pool, pool);
         assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
         assert_eq!(format!("{:?}", w.read_storage::<HeroCommandQueue>().get(hero).unwrap()), command);
@@ -5358,7 +5664,7 @@ fn item_active_rejection_is_non_mutating_for_invalid_or_unimplemented_effects() 
             bonus: ItemBonus::default(), active: Some(active), cooldown, recipe: vec![],
         }]));
         let base = w.read_storage::<CProperty>().get(hero).unwrap().msd;
-        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err());
+        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_err());
         assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
         assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().msd, base);
         assert!(!w.read_resource::<BuffStore>().has(hero, "item_sprint:moba_armor"));
@@ -5384,7 +5690,7 @@ fn item_shield_60hz_absorbs_after_reduction_and_expires_without_healing() {
     w.write_storage::<CProperty>().get_mut(hero).unwrap().hp = Fixed64::from_i32(100);
     driver.step(&mut w, [
         (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_armor".into() })) }),
-        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None })) }),
     ]).unwrap();
     assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, Fixed64::from_i32(100));
     assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero), Fixed64::from_i32(100));
@@ -5408,7 +5714,7 @@ fn item_shield_60hz_absorbs_after_reduction_and_expires_without_healing() {
     assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero), Fixed64::ZERO);
     assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, Fixed64::from_i32(90));
     w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
-    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_ok());
+    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_ok());
     assert!(w.write_resource::<BuffStore>().grant_damage_shield(hero, Fixed64::from_i32(20), Fixed64::from_raw(1)));
     assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero), Fixed64::from_i32(100));
     for _ in 0..20 { driver.step(&mut w, []).unwrap(); }
@@ -5439,7 +5745,7 @@ fn generated_shield_60hz_owner_projection_tracks_absorption_expiry_and_death() {
     };
     let result = driver.step(&mut w, [
         (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_guard_charm".into() })) }),
-        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None })) }),
     ]).unwrap();
     check(&result.facts, 100 * 1024);
     w.write_resource::<Vec<Outcome>>().push(Outcome::ScriptDirectDamage { target: hero, amount: Fixed64::from_i32(40) });
@@ -5472,12 +5778,12 @@ fn item_next_attack_bonus_60hz_formal_use_arms_owner_without_base_stat_change() 
     w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 200;
     driver.step(&mut w, [
         (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_armor".into() })) }),
-        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse { item_slot: 0, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None })) }),
     ]).unwrap();
     assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(hero), Fixed64::from_i32(60));
     assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(other), Fixed64::ZERO);
     assert_eq!(w.read_storage::<TAttack>().get(hero).unwrap().atk_physic.v, base);
-    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err());
+    assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_err());
     assert_eq!(w.read_resource::<BuffStore>().next_attack_bonus(hero), Fixed64::from_i32(60));
 }
 
@@ -5501,7 +5807,7 @@ fn item_damage_reduce_60hz_settles_packets_and_expires_without_stacking() {
     { let mut props = w.write_storage::<CProperty>(); let p = props.get_mut(hero).unwrap();
         p.hp = Fixed64::from_i32(10_000); p.mhp = p.hp; }
     let use_slot = |slot| (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
-        item_slot: slot, target_pos: None, target_entity: None,
+        item_slot: slot, target_pos: None, target_entity: None, point_explicit: None, target_generation: None, owner_entity: None, owner_generation: None,
     })) });
     driver.step(&mut w, [
         (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_armor".into() })) }),
@@ -5522,10 +5828,10 @@ fn item_damage_reduce_60hz_settles_packets_and_expires_without_stacking() {
     assert_eq!(w.read_resource::<BuffStore>().sum_add(source, StatKey::DamageTakenBonus), Fixed64::ZERO);
     damage(&mut w, 80);
     let remaining = w.read_resource::<BuffStore>().get(hero, "item_damage_reduce:moba_sword").unwrap().remaining;
-    assert!(handle_item_use_from_input(&mut w, 1, None, None, 1).is_err());
+    assert!(handle_item_use_from_input(&mut w, 1, None, None, 1, false).is_err());
     assert_eq!(w.read_resource::<BuffStore>().get(hero, "item_damage_reduce:moba_sword").unwrap().remaining, remaining);
     w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1].as_mut().unwrap().cooldown_remaining = 0.0;
-    assert!(handle_item_use_from_input(&mut w, 1, None, None, 1).is_ok());
+    assert!(handle_item_use_from_input(&mut w, 1, None, None, 1, false).is_ok());
     assert_eq!(w.read_resource::<BuffStore>().sum_add(hero, StatKey::DamageTakenBonus), Fixed64::from_raw(-512));
     for _ in 0..9 { driver.step(&mut w, []).unwrap(); }
     assert!(!w.read_resource::<BuffStore>().has(hero, "item_damage_reduce:moba_sword"));
@@ -5555,10 +5861,840 @@ fn item_damage_reduce_preflight_rejects_invalid_effect_without_mutation() {
             (1, PlayerInput { action: Some(PlayerInputEnum::HoldPosition(omoba_core::game_proto::HoldPosition { queued: false })) }),
         ]).unwrap();
         let command = format!("{:?}", w.read_storage::<HeroCommandQueue>().get(hero).unwrap());
-        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1).is_err());
+        assert!(handle_item_use_from_input(&mut w, 0, None, None, 1, false).is_err());
         assert!(!w.read_resource::<BuffStore>().has(hero, "item_damage_reduce:moba_armor"));
         assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
         assert_eq!(format!("{:?}", w.read_storage::<HeroCommandQueue>().get(hero).unwrap()), command);
+    }
+}
+
+fn raw_point(x: i32, y: i32) -> Vec2I {
+    Vec2I { x: Fixed64::from_i32(x).raw() as i32, y: Fixed64::from_i32(y).raw() as i32 }
+}
+
+fn sim_point(x: i32, y: i32) -> omoba_sim::Vec2 {
+    omoba_sim::Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y))
+}
+
+fn place_hero(world: &mut World, entity: specs::Entity, x: i32, y: i32) {
+    world.write_storage::<Pos>().get_mut(entity).unwrap().0 = sim_point(x, y);
+}
+
+fn set_hold(world: &mut World, entity: specs::Entity) {
+    let mut queues = world.write_storage::<HeroCommandQueue>();
+    if let Some(queue) = queues.get_mut(entity) {
+        queue.replace(HeroCommand::HoldPosition);
+    } else {
+        queues.insert(entity, HeroCommandQueue { active: Some(HeroCommand::HoldPosition), queued: Vec::new() }).unwrap();
+    }
+}
+
+fn disarm_attack(world: &mut World, entity: specs::Entity) {
+    world.write_storage::<TAttack>().get_mut(entity).unwrap().asd_count = Fixed64::from_i32(-100);
+}
+
+fn body(hp: i32) -> CProperty {
+    CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(hp), msd: Fixed64::from_i32(300), def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }
+}
+
+fn spawn_body(world: &mut World, x: i32, y: i32, team: i32, hp: i32, hide_from: Option<u32>) -> specs::Entity {
+    let entity = world.create_entity()
+        .with(Pos(sim_point(x, y)))
+        .with(Faction::new(FactionType::Enemy, team))
+        .with(body(hp))
+        .with(ReplicationScope { kind: ReplicationScopeKind::Vision, owner_team: Some(team.max(0) as u32) })
+        .build();
+    if let Some(viewer) = hide_from {
+        world.write_storage::<VisibilityOverride>().insert(entity, VisibilityOverride {
+            team: Some(viewer), kind: VisibilityOverrideKind::ForceHide, priority: 1, stable_rule_id: 1,
+        }).unwrap();
+    }
+    entity
+}
+
+fn item_use(slot: u32, point: Option<Vec2I>, entity: Option<u32>, explicit: Option<bool>) -> (u32, PlayerInput) {
+    (1, PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
+        item_slot: slot, target_pos: point, target_entity: entity, point_explicit: explicit, target_generation: None, owner_entity: None, owner_generation: None,
+    })) })
+}
+
+#[test]
+fn item_point_nova_60hz_damages_visible_enemies_at_explicit_point_including_origin() {
+    let (mut w, mut driver) = world(fast_config(), SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    assert_eq!(w.read_resource::<MobaMatch>().phase, MobaMatchPhase::Playing);
+    let [hero, enemy] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_flare".into() })) })]).unwrap();
+    place_hero(&mut w, hero, 0, 7000);
+    place_hero(&mut w, enemy, 80, 7000);
+    set_hold(&mut w, hero);
+    disarm_attack(&mut w, hero);
+    disarm_attack(&mut w, enemy);
+    let hidden = spawn_body(&mut w, 20, 7000, 2, 300, Some(1));
+    let ally = spawn_body(&mut w, 10, 7000, 1, 300, None);
+    let neutral = spawn_body(&mut w, 15, 7000, 0, 300, None);
+    let owner_hp = w.read_storage::<CProperty>().get(hero).unwrap().hp;
+    let enemy_hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w, [item_use(0, Some(raw_point(0, 7000)), None, Some(true))]).unwrap();
+    assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, owner_hp);
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, enemy_hp - Fixed64::from_i32(40));
+    assert_eq!(w.read_storage::<CProperty>().get(hidden).unwrap().hp, Fixed64::from_i32(300));
+    assert_eq!(w.read_storage::<CProperty>().get(ally).unwrap().hp, Fixed64::from_i32(300));
+    assert_eq!(w.read_storage::<CProperty>().get(neutral).unwrap().hp, Fixed64::from_i32(300));
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active, Some(HeroCommand::HoldPosition));
+    let cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
+    assert!(cooldown > 7.0 && cooldown <= 8.0);
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    place_hero(&mut w, hero, 0, 0);
+    place_hero(&mut w, enemy, 0, 80);
+    let before_origin = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    assert!(handle_item_use_from_input(&mut w, 0, Some(sim_point(0, 0)), None, 1, true).is_ok());
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, before_origin - Fixed64::from_i32(40));
+    assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, owner_hp);
+    assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 8.0);
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active, Some(HeroCommand::HoldPosition));
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    place_hero(&mut w, enemy, 200, 0);
+    let after_hit = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    assert!(handle_item_use_from_input(&mut w, 0, Some(sim_point(0, 0)), None, 1, true).is_ok());
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, after_hit);
+    assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 8.0);
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active, Some(HeroCommand::HoldPosition));
+}
+
+#[test]
+fn item_unit_hex_60hz_damages_visible_enemy_and_ignores_legacy_point() {
+    let (mut w, mut driver) = world(fast_config(), SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [hero, enemy] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_hex".into() })) })]).unwrap();
+    place_hero(&mut w, hero, 0, 7000);
+    place_hero(&mut w, enemy, 400, 7000);
+    set_hold(&mut w, hero);
+    disarm_attack(&mut w, hero);
+    disarm_attack(&mut w, enemy);
+    let enemy_hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    let owner_hp = w.read_storage::<CProperty>().get(hero).unwrap().hp;
+    driver.step(&mut w, [item_use(0, Some(raw_point(0, 0)), Some(enemy.id()), None)]).unwrap();
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, enemy_hp - Fixed64::from_i32(55));
+    assert_eq!(w.read_storage::<CProperty>().get(hero).unwrap().hp, owner_hp);
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active, Some(HeroCommand::HoldPosition));
+    let cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
+    assert!(cooldown > 7.0 && cooldown <= 8.0);
+    assert!(handle_item_use_from_input(&mut w, 0, Some(sim_point(0, 0)), Some(enemy.id()), 1, false).is_err());
+    assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, cooldown);
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, enemy_hp - Fixed64::from_i32(55));
+}
+
+#[test]
+fn item_target_rejections_are_non_mutating_for_shape_range_team_fog_death_owner_and_replacement() {
+    let (mut w, mut driver) = world(fast_config(), SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [hero, enemy] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    driver.step(&mut w, [
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_flare".into() })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_hex".into() })) }),
+    ]).unwrap();
+    place_hero(&mut w, hero, 0, 7000);
+    place_hero(&mut w, enemy, 400, 7000);
+    set_hold(&mut w, hero);
+    let ally = spawn_body(&mut w, 100, 7000, 1, 250, None);
+    let hidden = spawn_body(&mut w, 120, 7000, 2, 250, Some(1));
+    let deleted = spawn_body(&mut w, 140, 7000, 2, 250, None);
+    let deleted_id = deleted.id();
+    assert!(w.delete_entity(deleted).is_ok());
+    w.maintain();
+    let read = |w: &World| {
+        let hero_hp = w.read_storage::<CProperty>().get(hero).unwrap().hp;
+        let enemy_hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        let ally_hp = w.read_storage::<CProperty>().get(ally).unwrap().hp;
+        let hidden_hp = w.read_storage::<CProperty>().get(hidden).unwrap().hp;
+        let gold = w.read_storage::<Gold>().get(hero).unwrap().0;
+        let inventory = w.read_storage::<Inventory>();
+        let cd0 = inventory.get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
+        let cd1 = inventory.get(hero).unwrap().slots[1].as_ref().unwrap().cooldown_remaining;
+        drop(inventory);
+        let command = w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active;
+        (hero_hp, enemy_hp, ally_hp, hidden_hp, gold, cd0, cd1, command)
+    };
+    let before = read(&w);
+    let refuse = |w: &mut World, slot, point: Option<omoba_sim::Vec2>, entity, explicit: bool| {
+        assert!(handle_item_use_from_input(w, slot, point, entity, 1, explicit).is_err());
+    };
+    w.write_resource::<MobaMatch>().phase = MobaMatchPhase::Warmup;
+    refuse(&mut w, 0, Some(sim_point(0, 7000)), None, true);
+    w.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+    w.write_storage::<CProperty>().get_mut(hero).unwrap().hp = Fixed64::ZERO;
+    refuse(&mut w, 0, Some(sim_point(0, 7000)), None, true);
+    w.write_storage::<CProperty>().get_mut(hero).unwrap().hp = before.0;
+    refuse(&mut w, 0, Some(sim_point(600, 7000)), None, true);
+    refuse(&mut w, 0, Some(sim_point(0, 7000)), None, false);
+    refuse(&mut w, 0, Some(sim_point(0, 7000)), Some(enemy.id()), true);
+    refuse(&mut w, 0, None, None, false);
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().item_id = "moba_training_hex".into();
+    refuse(&mut w, 0, Some(sim_point(0, 7000)), None, true);
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().item_id = "moba_sword".into();
+    refuse(&mut w, 0, Some(sim_point(0, 7000)), None, true);
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().item_id = "moba_training_flare".into();
+    let saved = (*w.read_resource::<ItemRegistry>()).clone();
+    w.insert(ItemRegistry::from_configs(vec![ItemConfig {
+        id: "moba_armor".into(), name: "Mismatched nova".into(), cost: 100, bonus: ItemBonus::default(),
+        active: Some(ActiveEffect::PointNova { damage: Fixed64::from_i32(40), radius: Fixed64::from_i32(80) }), cooldown: 8.0, recipe: vec![],
+    }]));
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().item_id = "moba_armor".into();
+    refuse(&mut w, 0, Some(sim_point(0, 7000)), None, true);
+    w.insert(saved);
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().item_id = "moba_training_flare".into();
+    refuse(&mut w, 1, None, Some(ally.id()), false);
+    refuse(&mut w, 1, None, Some(hidden.id()), false);
+    w.write_storage::<CProperty>().get_mut(enemy).unwrap().hp = Fixed64::ZERO;
+    refuse(&mut w, 1, Some(sim_point(0, 0)), Some(enemy.id()), false);
+    w.write_storage::<CProperty>().get_mut(enemy).unwrap().hp = before.1;
+    refuse(&mut w, 1, None, Some(u32::MAX), false);
+    refuse(&mut w, 1, None, Some(deleted_id), false);
+    place_hero(&mut w, enemy, 2000, 7000);
+    refuse(&mut w, 1, None, Some(enemy.id()), false);
+    place_hero(&mut w, enemy, 400, 7000);
+    refuse(&mut w, 1, Some(sim_point(0, 7000)), Some(enemy.id()), true);
+    refuse(&mut w, 1, None, None, false);
+    w.write_storage::<CProperty>().get_mut(hero).unwrap().hp = Fixed64::ZERO;
+    refuse(&mut w, 1, None, Some(enemy.id()), false);
+    w.write_storage::<CProperty>().get_mut(hero).unwrap().hp = before.0;
+    assert_eq!(read(&w), before);
+}
+
+#[test]
+fn item_point_shape_rejects_unresolved_entity_presence() {
+    let (mut w, mut driver) = world(fast_config(), SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [hero, enemy] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    driver.step(&mut w, [
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_flare".into() })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_guard_charm".into() })) }),
+    ]).unwrap();
+    place_hero(&mut w, hero, 0, 0);
+    place_hero(&mut w, enemy, 0, 80);
+    set_hold(&mut w, hero);
+    disarm_attack(&mut w, hero);
+    disarm_attack(&mut w, enemy);
+    let read = |w: &World| {
+        let hero_hp = w.read_storage::<CProperty>().get(hero).unwrap().hp;
+        let enemy_hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        let gold = w.read_storage::<Gold>().get(hero).unwrap().0;
+        let inventory = w.read_storage::<Inventory>();
+        let flare = inventory.get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
+        let charm = inventory.get(hero).unwrap().slots[1].as_ref().unwrap().cooldown_remaining;
+        drop(inventory);
+        let command = w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active;
+        (hero_hp, enemy_hp, gold, flare, charm, command)
+    };
+    let before = read(&w);
+    assert_eq!(before.3, 0.0);
+    assert_eq!(before.4, 0.0);
+    assert_eq!(before.5, Some(HeroCommand::HoldPosition));
+    let reject_direct = |w: &mut World, entity: Option<u32>| {
+        assert!(handle_item_use_from_input(w, 0, Some(sim_point(0, 0)), entity, 1, true).is_err());
+    };
+    reject_direct(&mut w, Some(u32::MAX));
+    let missing = spawn_body(&mut w, 0, 40, 2, 300, None);
+    let missing_id = missing.id();
+    let missing_gen = missing.gen().id() as u32;
+    assert!(w.delete_entity(missing).is_ok());
+    w.maintain();
+    reject_direct(&mut w, Some(missing_id));
+    reject_direct(&mut w, Some(enemy.id()));
+    assert_eq!(read(&w), before);
+
+    let queue_point = |w: &mut World, slot: u32, index: Option<u32>, generation: Option<u32>| {
+        let item = ItemUse {
+            item_slot: slot, target_pos: Some(raw_point(0, 0)), target_entity: index, point_explicit: Some(true),
+            target_generation: generation, owner_entity: None, owner_generation: None,
+        };
+        w.write_resource::<PendingItemUseQueue>().requests.push(PendingItemAction::Use(
+            pending_item_use_from_command(1, &item),
+        ));
+    };
+    queue_point(&mut w, 0, Some(u32::MAX), Some(u32::MAX));
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => {
+            assert_eq!(request.target_entity, Some(u32::MAX));
+            assert_eq!(request.target_generation, Some(u32::MAX));
+            assert_eq!(request.target_life, None);
+            assert!(request.point_explicit);
+            assert_eq!(request.target_pos, Some(sim_point(0, 0)));
+        }
+        other => panic!("expected the unresolved point shape to stay queued, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    assert!(w.read_resource::<PendingItemUseQueue>().requests.is_empty());
+    assert_eq!(read(&w), before);
+    let stale_gen = (enemy.gen().id() as u32).saturating_add(1);
+    for (index, generation) in [
+        (Some(u32::MAX), None),
+        (Some(missing_id), None),
+        (Some(missing_id), Some(missing_gen)),
+        (Some(enemy.id()), Some(0)),
+        (Some(enemy.id()), Some(stale_gen)),
+        (None, Some(enemy.gen().id() as u32)),
+        (None, Some(0)),
+    ] {
+        queue_point(&mut w, 0, index, generation);
+        drain_pending_item_uses(&mut w);
+        assert_eq!(read(&w), before, "queued point {index:?} gen {generation:?}");
+    }
+    let accepted = spawn_body(&mut w, 0, 40, 2, 300, None);
+    queue_point(&mut w, 0, Some(accepted.id()), Some(accepted.gen().id() as u32));
+    assert!(w.delete_entity(accepted).is_ok());
+    w.maintain();
+    let recycled = spawn_body(&mut w, 0, 40, 2, 300, None);
+    assert_eq!(recycled.id(), accepted.id());
+    assert_ne!(recycled.gen(), accepted.gen());
+    drain_pending_item_uses(&mut w);
+    assert_eq!(w.read_storage::<CProperty>().get(recycled).unwrap().hp, Fixed64::from_i32(300));
+    assert_eq!(read(&w), before);
+
+    assert!(handle_item_use_from_input(&mut w, 0, Some(sim_point(0, 0)), None, 1, true).is_ok());
+    let legal = read(&w);
+    assert_eq!(legal.0, before.0);
+    assert_eq!(legal.1, before.1 - Fixed64::from_i32(40));
+    assert_eq!(legal.2, before.2);
+    assert_eq!(legal.3, 8.0);
+    assert_eq!(legal.4, 0.0);
+    assert_eq!(legal.5, Some(HeroCommand::HoldPosition));
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    queue_point(&mut w, 0, None, None);
+    drain_pending_item_uses(&mut w);
+    let queued_legal = read(&w);
+    assert_eq!(queued_legal.1, legal.1 - Fixed64::from_i32(40));
+    assert_eq!(queued_legal.2, before.2);
+    assert_eq!(queued_legal.3, 8.0);
+    assert_eq!(queued_legal.4, 0.0);
+    assert_eq!(queued_legal.5, Some(HeroCommand::HoldPosition));
+
+    assert!(handle_item_use_from_input(&mut w, 1, Some(sim_point(9, 9)), Some(u32::MAX), 1, true).is_ok());
+    let self_use = read(&w);
+    assert_eq!(self_use.0, before.0);
+    assert_eq!(self_use.1, queued_legal.1);
+    assert_eq!(self_use.2, before.2);
+    assert_eq!(self_use.3, 8.0);
+    assert!(self_use.4 > 0.0);
+    assert!(self_use.5.is_none());
+    assert!(w.read_resource::<BuffStore>().shield_remaining(hero) > Fixed64::ZERO);
+    assert!(handle_item_use_from_input(&mut w, 1, Some(sim_point(9, 9)), Some(enemy.id()), 1, true).is_err());
+    assert_eq!(read(&w).4, self_use.4);
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1].as_mut().unwrap().cooldown_remaining = 0.0;
+    set_hold(&mut w, hero);
+    queue_point(&mut w, 1, Some(u32::MAX), Some(1));
+    drain_pending_item_uses(&mut w);
+    let queued_self = read(&w);
+    assert_eq!(queued_self.1, queued_legal.1);
+    assert_eq!(queued_self.2, before.2);
+    assert_eq!(queued_self.3, 8.0);
+    assert!(queued_self.4 > 0.0);
+    assert!(queued_self.5.is_none());
+    assert!(w.read_resource::<BuffStore>().shield_remaining(hero) > Fixed64::ZERO);
+}
+
+#[test]
+fn item_targeted_cooldown_is_independent_and_does_not_clear_commands() {
+    let (mut w, mut driver) = world(fast_config(), SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [hero, enemy] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    driver.step(&mut w, [
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_flare".into() })) }),
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_guard_charm".into() })) }),
+    ]).unwrap();
+    place_hero(&mut w, hero, 0, 7000);
+    place_hero(&mut w, enemy, 80, 7000);
+    set_hold(&mut w, hero);
+    disarm_attack(&mut w, hero);
+    disarm_attack(&mut w, enemy);
+    let enemy_before = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    driver.step(&mut w, [item_use(0, Some(raw_point(0, 7000)), None, Some(true))]).unwrap();
+    let flare_cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
+    assert!(flare_cooldown > 7.0 && flare_cooldown <= 8.0);
+    assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[1].as_ref().unwrap().cooldown_remaining, 0.0);
+    assert_eq!(w.read_resource::<BuffStore>().shield_remaining(hero), Fixed64::ZERO);
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active, Some(HeroCommand::HoldPosition));
+    let damaged = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    assert_eq!(damaged, enemy_before - Fixed64::from_i32(40));
+    assert!(handle_item_use_from_input(&mut w, 1, Some(sim_point(0, 7000)), Some(enemy.id()), 1, true).is_ok());
+    assert!(w.read_resource::<BuffStore>().shield_remaining(hero) > Fixed64::ZERO);
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, damaged);
+    assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, flare_cooldown);
+    assert!(w.read_storage::<Inventory>().get(hero).unwrap().slots[1].as_ref().unwrap().cooldown_remaining > 0.0);
+    assert!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active.is_none());
+}
+
+#[test]
+fn item_target_credit_60hz_records_kill_assist_and_lane_last_hit() {
+    let (mut w, mut driver) = world(SingleLaneConfig {
+        additional_players: vec![extra_player(3, 1)],
+        wave_interval: Fixed64::from_i32(10_000),
+        hero_kill_gold: 0, hero_assist_gold: 0, hero_kill_xp: 0, hero_assist_xp: 0,
+        lane_creep_gold: 0, lane_creep_xp: 0, ..fast_config()
+    }, SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let hero_of = |w: &World, player: u32| w.read_resource::<MobaMatch>().heroes.iter()
+        .find(|slot| slot.player_id == player).unwrap().entity.unwrap();
+    let [owner, enemy] = hero_pair(&w);
+    let ally = hero_of(&w, 3);
+    let place_at_own_base = |w: &mut World, player: u32| {
+        let state = w.read_resource::<MobaMatch>();
+        let slot = state.heroes.iter().find(|slot| slot.player_id == player).unwrap();
+        let hero = slot.entity.unwrap();
+        let base = state.bases[slot.side].unwrap();
+        drop(state);
+        let base_pos = w.read_storage::<Pos>().get(base).unwrap().0;
+        w.write_storage::<Pos>().get_mut(hero).unwrap().0 = base_pos;
+    };
+    place_at_own_base(&mut w, 1);
+    place_at_own_base(&mut w, 3);
+    w.write_storage::<Gold>().get_mut(owner).unwrap().0 = 5000;
+    w.write_storage::<Gold>().get_mut(ally).unwrap().0 = 5000;
+    driver.step(&mut w, [
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_hex".into() })) }),
+        (3, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_hex".into() })) }),
+    ]).unwrap();
+    let purchased = |w: &World, entity: specs::Entity| {
+        w.read_storage::<Inventory>().get(entity).unwrap().slots[0].as_ref().unwrap().item_id.clone()
+    };
+    assert_eq!(purchased(&w, owner), "moba_training_hex");
+    assert_eq!(purchased(&w, ally), "moba_training_hex");
+    assert_eq!(w.read_storage::<Gold>().get(owner).unwrap().0, 5000 - 450);
+    assert_eq!(w.read_storage::<Gold>().get(ally).unwrap().0, 5000 - 450);
+    for entity in [owner, enemy, ally] {
+        place_hero(&mut w, entity, 0, 7000);
+        disarm_attack(&mut w, entity);
+        set_hold(&mut w, entity);
+    }
+    place_hero(&mut w, enemy, 400, 7000);
+    {
+        let mut state = w.write_resource::<MobaMatch>();
+        state.config.hero_kill_gold = 40;
+        state.config.hero_assist_gold = 15;
+        state.config.lane_creep_gold = 20;
+    }
+    let gold = |w: &World, entity: specs::Entity| w.read_storage::<Gold>().get(entity).unwrap().0;
+    let counts = |w: &World, player: u32| {
+        let state = w.read_resource::<MobaMatch>();
+        let slot = state.heroes.iter().find(|slot| slot.player_id == player).unwrap();
+        (slot.kills, slot.assists)
+    };
+    assert_eq!(gold(&w, owner), 5000 - 450);
+    assert_eq!(gold(&w, ally), 5000 - 450);
+    assert_eq!(counts(&w, 1), (0, 0));
+    assert_eq!(counts(&w, 3), (0, 0));
+    w.write_storage::<CProperty>().get_mut(enemy).unwrap().hp = Fixed64::from_i32(800);
+    w.write_resource::<Vec<Outcome>>().push(Outcome::ScriptDirectDamage { target: enemy, amount: Fixed64::from_i32(1) });
+    process_outcomes(&mut w, &mut RuntimeEventVecSink::default()).unwrap();
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, Fixed64::from_i32(799));
+    assert_eq!(gold(&w, owner), 5000 - 450, "anonymous script damage does not buy participation");
+    assert_eq!(counts(&w, 1), (0, 0));
+    assert!(handle_item_use_from_input(&mut w, 0, None, Some(enemy.id()), 1, false).is_ok());
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, Fixed64::from_i32(799 - 55));
+    assert_eq!(gold(&w, owner), 5000 - 450);
+    assert_eq!(counts(&w, 1), (0, 0));
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active, Some(HeroCommand::HoldPosition));
+    w.write_storage::<CProperty>().get_mut(enemy).unwrap().hp = Fixed64::from_i32(55);
+    assert!(handle_item_use_from_input(&mut w, 0, None, Some(enemy.id()), 3, false).is_ok());
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, Fixed64::ZERO);
+    assert_eq!(gold(&w, ally), 5000 - 450 + 40);
+    assert_eq!(gold(&w, owner), 5000 - 450 + 15);
+    assert_eq!(counts(&w, 3), (1, 0));
+    assert_eq!(counts(&w, 1), (0, 1));
+    assert_eq!(counts(&w, 2), (0, 0));
+    w.write_storage::<Inventory>().get_mut(owner).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    let creep = lane_creeps(&w, 2)[0];
+    place_hero(&mut w, creep, 100, 7000);
+    w.write_storage::<CProperty>().get_mut(creep).unwrap().hp = Fixed64::from_i32(55);
+    assert!(handle_item_use_from_input(&mut w, 0, None, Some(creep.id()), 1, false).is_ok());
+    assert_eq!(w.read_storage::<CProperty>().get(creep).unwrap().hp, Fixed64::ZERO);
+    assert_eq!(gold(&w, owner), 5000 - 450 + 15 + 20);
+    assert_eq!(gold(&w, ally), 5000 - 450 + 40);
+    assert_eq!(counts(&w, 1), (0, 1), "lane last hit is not a hero kill");
+    assert_eq!(counts(&w, 3), (1, 0));
+    w.write_storage::<Inventory>().get_mut(owner).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    let shielded = spawn_body(&mut w, 80, 7000, 2, 200, None);
+    assert!(w.write_resource::<BuffStore>().grant_damage_shield(shielded, Fixed64::from_i32(55), Fixed64::from_i32(10)));
+    assert!(handle_item_use_from_input(&mut w, 0, None, Some(shielded.id()), 1, false).is_ok());
+    assert_eq!(w.read_storage::<CProperty>().get(shielded).unwrap().hp, Fixed64::from_i32(200));
+    assert_eq!(w.read_resource::<BuffStore>().shield_remaining(shielded), Fixed64::ZERO);
+    assert_eq!(gold(&w, owner), 5000 - 450 + 15 + 20);
+    assert_eq!(counts(&w, 1), (0, 1));
+    assert_eq!(w.read_storage::<Inventory>().get(owner).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 8.0);
+    w.write_storage::<Inventory>().get_mut(owner).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    place_hero(&mut w, shielded, 2000, 7000);
+    let command = w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active;
+    assert!(handle_item_use_from_input(&mut w, 0, None, Some(shielded.id()), 1, false).is_err());
+    assert_eq!(w.read_storage::<CProperty>().get(shielded).unwrap().hp, Fixed64::from_i32(200));
+    assert_eq!(w.read_storage::<Inventory>().get(owner).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
+    assert_eq!(gold(&w, owner), 5000 - 450 + 15 + 20);
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(owner).unwrap().active, command);
+}
+
+#[test]
+fn item_target_life_rejects_reused_index_and_reassigned_owner() {
+    let (mut w, mut driver) = world(fast_config(), SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [hero, enemy] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_hex".into() })) })]).unwrap();
+    place_hero(&mut w, hero, 0, 7000);
+    place_hero(&mut w, enemy, 400, 7000);
+    set_hold(&mut w, hero);
+    disarm_attack(&mut w, hero);
+    disarm_attack(&mut w, enemy);
+    let queue_use = |w: &mut World, index: Option<u32>, generation: Option<u32>| {
+        w.write_resource::<PendingItemUseQueue>().requests.push(PendingItemAction::Use(PendingItemUse {
+            item_slot: 0, target_pos: None, point_explicit: false, target_entity: index, target_generation: generation,
+            owner_pid: 1, owner_index: None, owner_generation: None, lives_bound: false, owner_entity: None, target_life: None,
+        }));
+    };
+    let snapshot = |w: &World| {
+        let enemy_hp = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+        let gold = w.read_storage::<Gold>().get(hero).unwrap().0;
+        let cooldown = w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining;
+        let command = w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active;
+        (enemy_hp, gold, cooldown, command)
+    };
+    let body = spawn_body(&mut w, 120, 7000, 2, 250, None);
+    let before = snapshot(&w);
+    queue_use(&mut w, Some(body.id()), Some(body.gen().id() as u32));
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => {
+            assert_eq!(request.owner_entity, Some(hero));
+            assert_eq!(request.target_life, Some(body));
+            assert!(request.lives_bound);
+        }
+        other => panic!("expected a bound item use, got {other:?}"),
+    }
+    assert!(w.delete_entity(body).is_ok());
+    w.maintain();
+    let recycled = spawn_body(&mut w, 120, 7000, 2, 250, None);
+    assert_eq!(recycled.id(), body.id(), "specs must hand the deleted index back");
+    assert_ne!(recycled.gen(), body.gen());
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => assert_eq!(request.target_life, Some(body)),
+        other => panic!("expected the bound life to survive recycle, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    assert!(!w.entities().is_alive(body));
+    assert_eq!(w.read_storage::<CProperty>().get(recycled).unwrap().hp, Fixed64::from_i32(250));
+    assert_eq!(snapshot(&w), before);
+    queue_use(&mut w, Some(enemy.id()), Some(enemy.gen().id() as u32));
+    bind_queued_item_lives(&w);
+    w.write_storage::<PlayerOwner>().get_mut(hero).unwrap().player_id = 99;
+    drain_pending_item_uses(&mut w);
+    assert_eq!(snapshot(&w), before);
+    w.write_storage::<PlayerOwner>().get_mut(hero).unwrap().player_id = 1;
+    queue_use(&mut w, Some(enemy.id()), Some(0));
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => assert_eq!(request.target_life, None),
+        other => panic!("generation 0 is not the current entity, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    assert_eq!(snapshot(&w), before);
+    queue_use(&mut w, None, Some(enemy.gen().id() as u32));
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => {
+            assert_eq!(request.target_life, None);
+            assert_ne!(request.target_life, Some(w.entities().entity(0)));
+        }
+        other => panic!("a generation without an index is not a target, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    assert_eq!(snapshot(&w), before);
+    queue_use(&mut w, Some(enemy.id()), Some(enemy.gen().id() as u32));
+    bind_queued_item_lives(&w);
+    let hero_life = w.read_storage::<Hero>().get(hero).unwrap().clone();
+    let inventory = w.read_storage::<Inventory>().get(hero).unwrap().clone();
+    let property = w.read_storage::<CProperty>().get(hero).unwrap().clone();
+    let gold = w.read_storage::<Gold>().get(hero).unwrap().0;
+    assert!(w.delete_entity(hero).is_ok());
+    w.maintain();
+    let replaced = w.create_entity()
+        .with(hero_life)
+        .with(PlayerOwner::new(1))
+        .with(property)
+        .with(Gold(gold))
+        .with(inventory)
+        .with(Pos(sim_point(0, 7000)))
+        .with(Faction::new(FactionType::Player, 1))
+        .with(VisionSource { team: 1, radius: Fixed64::from_i32(1000), detection_level: 0 })
+        .build();
+    assert_eq!(replaced.id(), hero.id());
+    assert_ne!(replaced.gen(), hero.gen());
+    drain_pending_item_uses(&mut w);
+    assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, before.0);
+    assert_eq!(w.read_storage::<Gold>().get(replaced).unwrap().0, gold);
+    assert_eq!(w.read_storage::<Inventory>().get(replaced).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
+    assert!(!w.entities().is_alive(hero));
+}
+
+#[test]
+fn item_accepted_owner_life_rejects_replacement_before_first_bind() {
+    let (mut w, mut driver) = world(SingleLaneConfig {
+        additional_players: vec![extra_player(3, 1)],
+        wave_interval: Fixed64::from_i32(10_000),
+        ..fast_config()
+    }, SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let hero_of = |w: &World, player: u32| w.read_resource::<MobaMatch>().heroes.iter()
+        .find(|slot| slot.player_id == player).unwrap().entity.unwrap();
+    let [hero, enemy] = hero_pair(&w);
+    let ally = hero_of(&w, 3);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    w.write_storage::<Gold>().get_mut(ally).unwrap().0 = 5000;
+    driver.step(&mut w, [
+        (1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_hex".into() })) }),
+        (3, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_hex".into() })) }),
+    ]).unwrap();
+    for entity in [hero, ally] {
+        place_hero(&mut w, entity, 0, 7000);
+        set_hold(&mut w, entity);
+        disarm_attack(&mut w, entity);
+        w.write_storage::<CProperty>().get_mut(entity).unwrap().hp = Fixed64::from_i32(800);
+    }
+    place_hero(&mut w, enemy, 400, 7000);
+    disarm_attack(&mut w, enemy);
+    w.write_storage::<CProperty>().get_mut(enemy).unwrap().hp = Fixed64::from_i32(800);
+    let cd = |w: &World, entity: specs::Entity| {
+        w.read_storage::<Inventory>().get(entity).unwrap().slots[0].as_ref().unwrap().cooldown_remaining
+    };
+    let gold = |w: &World, entity: specs::Entity| w.read_storage::<Gold>().get(entity).unwrap().0;
+    let command = |w: &World, entity: specs::Entity| w.read_storage::<HeroCommandQueue>().get(entity).unwrap().active;
+    let enemy_hp = |w: &World| w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    let before_hp = enemy_hp(&w);
+    let before_gold = gold(&w, hero);
+    let ally_gold = gold(&w, ally);
+    let before_command = command(&w, hero);
+    assert_eq!(before_command, Some(HeroCommand::HoldPosition));
+    assert_eq!(cd(&w, hero), 0.0);
+    assert_eq!(cd(&w, ally), 0.0);
+    let unchanged = |w: &World| {
+        assert_eq!(enemy_hp(w), before_hp);
+        assert_eq!(gold(w, hero), before_gold);
+        assert_eq!(gold(w, ally), ally_gold);
+        assert_eq!(cd(w, hero), 0.0);
+        assert_eq!(cd(w, ally), 0.0);
+        assert_eq!(command(w, hero), before_command);
+        assert_eq!(command(w, ally), Some(HeroCommand::HoldPosition));
+    };
+    let parts = |input: &PlayerInput| match &input.action {
+        Some(PlayerInputEnum::ItemUse(value)) => (
+            value.owner_entity, value.owner_generation, value.target_entity, value.target_generation,
+        ),
+        other => panic!("expected ItemUse, got {other:?}"),
+    };
+    let mut forged = PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
+        item_slot: 0, target_pos: None, target_entity: Some(ally.id()), point_explicit: None,
+        target_generation: Some(99), owner_entity: Some(ally.id()),
+        owner_generation: Some(ally.gen().id() as u32),
+    })) };
+    assert!(!seal_item_use_owner(&w, 1, &mut forged), "another player's actor is not rewritten onto player 1");
+    assert_eq!(parts(&forged).0, Some(ally.id()));
+    assert_eq!(parts(&forged).1, Some(ally.gen().id() as u32));
+    clear_untrusted_item_life(&mut forged);
+    assert_eq!((parts(&forged).0, parts(&forged).1, parts(&forged).3), (None, None, None));
+    assert_eq!(parts(&forged).2, Some(ally.id()), "legacy target index is not an owner life");
+    assert!(seal_item_use_owner(&w, 1, &mut forged));
+    assert_eq!(parts(&forged).0, Some(hero.id()));
+    assert_eq!(parts(&forged).1, Some(hero.gen().id() as u32));
+    assert_ne!(parts(&forged).0, Some(ally.id()));
+    let mut half = PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
+        item_slot: 0, target_pos: None, target_entity: None, point_explicit: None,
+        target_generation: None, owner_entity: Some(hero.id()), owner_generation: None,
+    })) };
+    assert!(!seal_item_use_owner(&w, 1, &mut half));
+    assert_eq!(parts(&half), (Some(hero.id()), None, None, None));
+
+    let mut stolen = ItemUse {
+        item_slot: 0, target_pos: None, target_entity: Some(enemy.id()), point_explicit: None,
+        target_generation: Some(enemy.gen().id() as u32), owner_entity: Some(999),
+        owner_generation: Some(u32::MAX),
+    };
+    write_local_item_actor(&mut stolen, ally);
+    assert_eq!(stolen.owner_entity, Some(ally.id()));
+    assert_eq!(stolen.owner_generation, Some(ally.gen().id() as u32));
+    assert_ne!(stolen.owner_generation, Some(u32::MAX), "filtered translation uses the local generation");
+    assert!(canonical_item_owner(&w, 1, &stolen).is_none());
+    assert_eq!(canonical_item_owner(&w, 3, &stolen), Some(canonical_entity_id(ally)));
+    w.write_resource::<PendingItemUseQueue>().requests.push(PendingItemAction::Use(
+        pending_item_use_from_command(1, &stolen),
+    ));
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => {
+            assert_eq!(request.owner_entity, Some(ally));
+            assert_ne!(request.owner_entity, Some(hero));
+            assert!(request.lives_bound);
+        }
+        other => panic!("expected the stamped ally, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    unchanged(&w);
+
+    let mut partial = stolen;
+    partial.owner_generation = None;
+    w.write_resource::<PendingItemUseQueue>().requests.push(PendingItemAction::Use(
+        pending_item_use_from_command(1, &partial),
+    ));
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => assert_eq!(request.owner_entity, None),
+        other => panic!("a half owner pair is not the current hero, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    unchanged(&w);
+
+    let mut accepted = ItemUse {
+        item_slot: 0, target_pos: None, target_entity: Some(enemy.id()), point_explicit: None,
+        target_generation: Some(enemy.gen().id() as u32), owner_entity: None, owner_generation: None,
+    };
+    write_local_item_actor(&mut accepted, hero);
+    w.write_resource::<PendingItemUseQueue>().requests.push(PendingItemAction::Use(
+        pending_item_use_from_command(1, &accepted),
+    ));
+    w.write_storage::<PlayerOwner>().get_mut(hero).unwrap().player_id = 99;
+    w.write_storage::<PlayerOwner>().get_mut(ally).unwrap().player_id = 1;
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => {
+            assert_eq!(request.owner_entity, Some(hero));
+            assert_ne!(request.owner_entity, Some(ally));
+        }
+        other => panic!("reassignment must not retarget the queued owner, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    assert_eq!(cd(&w, ally), 0.0, "player 1's replacement hero must not spend the queued hex");
+    assert_eq!(cd(&w, hero), 0.0);
+    assert_eq!(enemy_hp(&w), before_hp);
+    assert_eq!(gold(&w, hero), before_gold);
+    assert_eq!(gold(&w, ally), ally_gold);
+    assert_eq!(command(&w, hero), before_command);
+    assert_eq!(command(&w, ally), Some(HeroCommand::HoldPosition));
+    w.write_storage::<PlayerOwner>().get_mut(hero).unwrap().player_id = 1;
+    w.write_storage::<PlayerOwner>().get_mut(ally).unwrap().player_id = 3;
+
+    let mut stamped = PlayerInput { action: Some(PlayerInputEnum::ItemUse(accepted)) };
+    assert!(seal_item_use_owner(&w, 1, &mut stamped));
+    assert_eq!(parts(&stamped).0, Some(hero.id()));
+    assert_eq!(parts(&stamped).1, Some(hero.gen().id() as u32));
+    let stamped_item = match &stamped.action {
+        Some(PlayerInputEnum::ItemUse(value)) => *value,
+        _ => unreachable!(),
+    };
+    w.write_resource::<PendingItemUseQueue>().requests.push(PendingItemAction::Use(
+        pending_item_use_from_command(1, &stamped_item),
+    ));
+    let old_gen = hero.gen();
+    let hero_life = w.read_storage::<Hero>().get(hero).unwrap().clone();
+    let inventory = w.read_storage::<Inventory>().get(hero).unwrap().clone();
+    let property = w.read_storage::<CProperty>().get(hero).unwrap().clone();
+    let held_gold = w.read_storage::<Gold>().get(hero).unwrap().0;
+    assert!(w.delete_entity(hero).is_ok());
+    w.maintain();
+    let replaced = w.create_entity()
+        .with(hero_life)
+        .with(PlayerOwner::new(1))
+        .with(property)
+        .with(Gold(held_gold))
+        .with(inventory)
+        .with(Pos(sim_point(0, 7000)))
+        .with(Faction::new(FactionType::Player, 1))
+        .with(VisionSource { team: 1, radius: Fixed64::from_i32(1000), detection_level: 0 })
+        .build();
+    set_hold(&mut w, replaced);
+    assert_eq!(replaced.id(), hero.id(), "specs must hand the deleted owner index back");
+    assert_ne!(replaced.gen(), old_gen);
+    assert!(!seal_item_use_owner(&w, 1, &mut stamped));
+    assert_eq!(parts(&stamped).1, Some(old_gen.id() as u32));
+    assert_ne!(parts(&stamped).1, Some(replaced.gen().id() as u32));
+    let mut legacy = PlayerInput { action: Some(PlayerInputEnum::ItemUse(ItemUse {
+        item_slot: 0, target_pos: None, target_entity: Some(enemy.id()), point_explicit: None,
+        target_generation: None, owner_entity: None, owner_generation: None,
+    })) };
+    assert!(seal_item_use_owner(&w, 1, &mut legacy));
+    assert_eq!(parts(&legacy).0, Some(replaced.id()));
+    assert_eq!(parts(&legacy).1, Some(replaced.gen().id() as u32));
+    assert_ne!(parts(&legacy).1, Some(old_gen.id() as u32));
+    bind_queued_item_lives(&w);
+    match &w.read_resource::<PendingItemUseQueue>().requests[0] {
+        PendingItemAction::Use(request) => {
+            assert_eq!(request.owner_entity.map(|entity| (entity.id(), entity.gen().id())), Some((hero.id(), old_gen.id())));
+            assert_ne!(request.owner_entity, Some(replaced));
+        }
+        other => panic!("the first bind must keep the accepted life, got {other:?}"),
+    }
+    drain_pending_item_uses(&mut w);
+    assert_eq!(enemy_hp(&w), before_hp);
+    assert_eq!(gold(&w, replaced), held_gold);
+    assert_eq!(cd(&w, replaced), 0.0);
+    assert_eq!(command(&w, replaced), Some(HeroCommand::HoldPosition));
+    assert!(!w.entities().is_alive(hero));
+}
+
+#[test]
+fn item_target_fixed_damage_keeps_fractional_and_large_raw_values() {
+    let (mut w, mut driver) = world(fast_config(), SimulationTickProfile::Production60Hz);
+    driver.step(&mut w, []).unwrap();
+    let [hero, enemy] = hero_pair(&w);
+    w.write_storage::<Gold>().get_mut(hero).unwrap().0 = 5000;
+    driver.step(&mut w, [(1, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: "moba_training_flare".into() })) })]).unwrap();
+    place_hero(&mut w, hero, 0, 7000);
+    place_hero(&mut w, enemy, 0, 7000);
+    set_hold(&mut w, hero);
+    disarm_attack(&mut w, hero);
+    disarm_attack(&mut w, enemy);
+    w.write_storage::<CProperty>().get_mut(enemy).unwrap().hp = Fixed64::from_i32(20_000);
+    w.write_storage::<CProperty>().get_mut(enemy).unwrap().mhp = Fixed64::from_i32(20_000);
+    let override_flare = |w: &mut World, damage: Fixed64, radius: Fixed64| {
+        w.insert(ItemRegistry::from_configs(vec![ItemConfig {
+            id: "moba_training_flare".into(), name: "Precision flare".into(), cost: 450,
+            bonus: ItemBonus::default(), active: Some(ActiveEffect::PointNova { damage, radius }),
+            cooldown: 8.0, recipe: vec![],
+        }]));
+    };
+    let damage = Fixed64::from_raw((1i64 << 24) + 1);
+    let mirrored = Fixed64::from_raw((f64::from(damage.to_f32_for_render()) * 1024.0).round() as i64);
+    assert_ne!(damage, mirrored);
+    override_flare(&mut w, damage, Fixed64::from_i32(80));
+    let before = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    let gold = w.read_storage::<Gold>().get(hero).unwrap().0;
+    assert!(handle_item_use_from_input(&mut w, 0, Some(sim_point(0, 7000)), None, 1, true).is_ok());
+    assert_eq!(before - w.read_storage::<CProperty>().get(enemy).unwrap().hp, damage);
+    assert_ne!(before - w.read_storage::<CProperty>().get(enemy).unwrap().hp, mirrored);
+    assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 8.0);
+    assert_eq!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active, Some(HeroCommand::HoldPosition));
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    override_flare(&mut w, Fixed64::from_raw(1), Fixed64::from_i32(80));
+    let before_fraction = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    assert!(handle_item_use_from_input(&mut w, 0, Some(sim_point(0, 7000)), None, 1, true).is_ok());
+    assert_eq!(before_fraction - w.read_storage::<CProperty>().get(enemy).unwrap().hp, Fixed64::from_raw(1));
+    w.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining = 0.0;
+    let settled = w.read_storage::<CProperty>().get(enemy).unwrap().hp;
+    for (amount, radius) in [
+        (Fixed64::ZERO, Fixed64::from_i32(80)),
+        (Fixed64::from_raw(-1), Fixed64::from_i32(80)),
+        (Fixed64::from_raw(1_000_000 * 1024 + 1), Fixed64::from_i32(80)),
+        (damage, Fixed64::ZERO),
+    ] {
+        override_flare(&mut w, amount, radius);
+        assert!(handle_item_use_from_input(&mut w, 0, Some(sim_point(0, 7000)), None, 1, true).is_err());
+        assert_eq!(w.read_storage::<CProperty>().get(enemy).unwrap().hp, settled);
+        assert_eq!(w.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 0.0);
+        assert_eq!(w.read_storage::<Gold>().get(hero).unwrap().0, gold);
+        assert_eq!(w.read_storage::<HeroCommandQueue>().get(hero).unwrap().active, Some(HeroCommand::HoldPosition));
     }
 }
 
@@ -6164,7 +7300,7 @@ fn single_lane_shop_filtered_settlement_is_private_atomic_and_survives_respawn()
     }).collect();
     let buy = |player, id: &str| (player, PlayerInput { action: Some(PlayerInputEnum::ItemBuy(ItemBuy { item_id: id.into() })) });
     let sell = |player, slot| (player, PlayerInput { action: Some(PlayerInputEnum::ItemSell(ItemSell { item_slot: slot })) });
-    let mut advance = |authority: &mut World, driver: &mut SimulationDriver, inputs: Vec<(u32, PlayerInput)>| {
+    let advance = |authority: &mut World, driver: &mut SimulationDriver, inputs: Vec<(u32, PlayerInput)>, replicas: &mut [(u32, SelectiveReplicaRuntime, SpecsDisclosedWorldStepper)]| {
         let accepted: Vec<_> = inputs.iter().enumerate().map(|(ordinal, (player, input))| {
             let state = authority.read_resource::<MobaMatch>();
             let side = state.config.players.iter().position(|id| id == player).unwrap();
@@ -6179,7 +7315,7 @@ fn single_lane_shop_filtered_settlement_is_private_atomic_and_survives_respawn()
         let frames = authority.read_resource::<TeamProjectionRuntime>().latest_frames.clone();
         let starts = authority.write_resource::<TeamProjectionRuntime>()
             .build_team_bootstraps(driver.tick() + 1, 15, fast_config().seed);
-        for (team, replica, stepper) in &mut replicas {
+        for (team, replica, stepper) in replicas.iter_mut() {
             let frame = frames[team].frame.clone();
             assert!(frame.post_step.as_ref().unwrap().component_repairs.is_empty());
             assert!(frame.step.as_ref().unwrap().accepted_inputs.iter().all(|input| input.player_id == *team));
@@ -6202,6 +7338,15 @@ fn single_lane_shop_filtered_settlement_is_private_atomic_and_survives_respawn()
                 .collect();
             assert!(!economy.is_empty());
             assert!(economy.iter().all(|state| state.player_id == *team), "other team's persistent economy leaked");
+            let undo_facts: Vec<_> = frame.step.as_ref().unwrap().public_events.iter()
+                .filter(|event| event.event_kind == FactKind::OwnerShopUndo as u32)
+                .collect();
+            assert!(!undo_facts.is_empty(), "shop team {team} tick {} dropped owner undo", driver.tick());
+            assert!(undo_facts.iter().all(|event| {
+                event.subject.is_none()
+                    && omoba_core::runtime::shop_undo_wire::OwnerShopUndoProjection::decode(&event.sanitized_payload)
+                        .is_some_and(|projection| projection.player_id == *team)
+            }), "other team's owner undo leaked");
             let current = economy.last().unwrap();
             if let Some(hero) = authority.read_resource::<MobaMatch>().heroes[(*team - 1) as usize].entity {
                 assert_eq!(current.economy.gold, authority.read_storage::<Gold>().get(hero).unwrap().0);
@@ -6211,7 +7356,8 @@ fn single_lane_shop_filtered_settlement_is_private_atomic_and_survives_respawn()
             } else if *team == 2 {
                 assert_eq!(current.economy.gold, 550);
                 assert_eq!(current.economy.item_ids[1], 3);
-                assert!(!current.shop_available);
+                assert!(current.shop_available);
+                assert_eq!(current.shop_reason, omoba_core::runtime::native::economy_projection::SHOP_REASON_AVAILABLE);
             }
             assert!(matches!(replica.apply_frame(frame, stepper).unwrap(), FrameApplyResult::Applied { .. }));
             let expected = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&starts[team], allow.clone(), BTreeSet::new()).unwrap();
@@ -6246,15 +7392,16 @@ fn single_lane_shop_filtered_settlement_is_private_atomic_and_survives_respawn()
         vec![buy(1, "moba_sword"), buy(2, "moba_armor")], vec![],
         vec![buy(1, "moba_sword"), buy(1, "moba_greatsword"), buy(2, "moba_boots")], vec![],
         vec![buy(1, "moba_armor"), sell(2, 0)], vec![], vec![sell(1, 0)], vec![],
-    ] { advance(&mut authority, &mut driver, inputs); }
+    ] { advance(&mut authority, &mut driver, inputs, &mut replicas); }
     assert_eq!(authority.read_storage::<Gold>().get(heroes[0]).unwrap().0, 525);
     assert_eq!(authority.read_storage::<Gold>().get(heroes[1]).unwrap().0, 550);
     // Cover a fresh filtered bootstrap/reconnect after settled transactions.
     let current = authority.write_resource::<TeamProjectionRuntime>()
         .build_team_bootstraps(driver.tick() + 1, 15, fast_config().seed);
-    for (team, start) in current {
-        let fresh = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start, allow.clone(), BTreeSet::new()).unwrap();
-        assert_private(fresh.world(), team);
+    for (team, replica, _) in &replicas {
+        let fresh = SelectiveReplicaRuntime::bootstrap_from_team_game_start(&current[team], allow.clone(), BTreeSet::new()).unwrap();
+        assert_private(fresh.world(), *team);
+        assert_eq!(replica.canonical_team_hash(), fresh.canonical_team_hash(), "shop reconnect team {team}");
     }
     // Keep the boots across death and the new identity reveal. Increase all
     // remaining allied vision so the opponent stays visible while dead.
@@ -6262,7 +7409,7 @@ fn single_lane_shop_filtered_settlement_is_private_atomic_and_survives_respawn()
     let speed_before = authority.read_storage::<CProperty>().get(heroes[1]).unwrap().msd;
     let pos = authority.read_storage::<Pos>().get(heroes[1]).unwrap().0;
     authority.write_resource::<Vec<Outcome>>().push(Outcome::Death { pos, ent: heroes[1] });
-    for _ in 0..40 { advance(&mut authority, &mut driver, vec![]); }
+    for _ in 0..40 { advance(&mut authority, &mut driver, vec![], &mut replicas); }
     let new = authority.read_resource::<MobaMatch>().heroes[1].entity.unwrap();
     assert_ne!(canonical_entity_id(new), canonical_entity_id(heroes[1]));
     assert_eq!(authority.read_storage::<Gold>().get(new).unwrap().0, 550);

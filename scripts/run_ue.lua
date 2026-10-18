@@ -1,4 +1,13 @@
 local script=debug.getinfo(1,'S').source:sub(2);local dir=script:match('^(.*)[/\\]');package.path=dir..'/?.lua;'..package.path
+local entry=require('unreal_entry')
+local route=entry.plan(arg)
+if route.help then print(entry.help());return end
+if route.mode=='moba' then
+  local destination=dir..'/run_moba_session_ue.lua'
+  _G.arg=route.args;arg[0]=destination
+  return assert(loadfile(destination))()
+end
+_G.arg=route.args;arg[0]=script
 local b=require('_bootstrap');local path=b.lib('path');local process=b.lib('process');local time=b.lib('time');local mode='game';local build=false;local rhi='-d3d11';local networked=false;local seconds=90;local i=1;while i<=#arg do local v=arg[i];if v=='--editor'then mode='editor'elseif v=='--headless-smoke'then mode='headless'elseif v=='--build-only'then mode='build-only';build=true elseif v=='--build'then build=true elseif v=='--game-smoke'then mode='game-smoke'elseif v=='--safe'then mode='safe'elseif v=='--dx12'then rhi='-d3d12'elseif v=='--d3d11'then rhi='-d3d11'elseif v=='--networked'or v=='--with-backend'then networked=true elseif v=='--single-player'then networked=false elseif v=='--seconds'then i=i+1;seconds=assert(tonumber(arg[i]),'--seconds requires number')elseif v=='--no-build'then build=false else error('Unknown argument: '..v)end;i=i+1 end
 local ue=os.getenv('UE_5_8_ROOT')or os.getenv('UE_ROOT')or os.getenv('UE_5_7_ROOT');if not ue then for _,p in ipairs({'D:/UE5.8','D:/UE_5.8','C:/Program Files/Epic Games/UE_5.8','D:/UE5.7','D:/UE_5.7','C:/Program Files/Epic Games/UE_5.7'})do if path.is_file(path.join(p,'Engine','Binaries','Win64','UnrealEditor.exe'))then ue=p;break end end end;ue=ue or'D:/UE5.8';local omfue=path.join(b.root,'omfue');local project=path.join(omfue,'om.uproject');local editor=path.join(ue,'Engine','Binaries','Win64','UnrealEditor.exe');local editor_cmd=path.join(ue,'Engine','Binaries','Win64','UnrealEditor-Cmd.exe');local build_bat=path.join(ue,'Engine','Build','BatchFiles','Build.bat');assert(path.is_file(project),'missing UE project: '..project);assert(path.is_file(editor),'UnrealEditor.exe not found under '..ue);assert(path.is_file(build_bat),'Build.bat not found under '..ue)
 local env={OMB_GAME_TOML=path.join(b.root,'omb','game.toml'),OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0',OMB_LUA_CONTENT_ROOT='',OMB_STORY_DATA_DIR='',OMB_SCRIPTS_DIR=path.join(b.root,'scripts'),OMB_DLL_PATH=path.join(b.root,'scripts','base_content.dll'),OMB_STORY='TD_1'};if build then process.run('cmd.exe',{'/d','/c',build_bat,'OmEditor','Win64','Development',project,'-WaitMutex','-FromMsBuild'},{cwd=b.root,env=env,label='Unreal build'})end;if mode=='build-only'then return end

@@ -33,6 +33,7 @@ fn empty_frame(tick: u64, sequence: u64, revision: u64) -> TeamTickFrame {
         step: Some(Step::default()),
         post_step: Some(PostStep::default()),
         padding: Vec::new(),
+        authoritative_mode: None, combat_preferences: None,
     }
 }
 

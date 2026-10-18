@@ -625,6 +625,23 @@ pub struct ItemUse {
     pub target_pos: ::core::option::Option<Vec2I>,
     #[prost(uint32, optional, tag = "3")]
     pub target_entity: ::core::option::Option<u32>,
+    /// Presence of an authored point, including the origin. Absent is not (0,0).
+    /// Legacy peers ignore this field. Presentation protocol stays v6.
+    #[prost(bool, optional, tag = "4")]
+    pub point_explicit: ::core::option::Option<bool>,
+    /// Local life generation for a disclosed unit after trusted injection.
+    /// Renderer intents do not carry this. Zero is not encoded. Absence is not
+    /// an origin, a missing point, or permission to bind whatever now uses the index.
+    #[prost(uint32, optional, tag = "5")]
+    pub target_generation: ::core::option::Option<u32>,
+    /// Index of the trusted owner, not a canonical id. Secure rewrite and the
+    /// authority seal overwrite a client value. Renderer intents do not carry it.
+    /// Zero generation is not a life. Absence of both owner fields is the legacy
+    /// current-hero path, not a secure acceptance.
+    #[prost(uint32, optional, tag = "6")]
+    pub owner_entity: ::core::option::Option<u32>,
+    #[prost(uint32, optional, tag = "7")]
+    pub owner_generation: ::core::option::Option<u32>,
 }
 /// Authoritative MOBA shop commands. No client-supplied price or balance.
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -657,11 +674,165 @@ pub struct HoldPosition {
     #[prost(bool, tag = "1")]
     pub queued: bool,
 }
+/// Immediate stop. Cancels the owner's movement, attack intent, queued commands,
+/// recall, and interruptible attack windup or backswing, then returns to idle.
+/// It is not a persistent hold and cannot be queued.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Stop {}
+/// Dedicated summoner cast. The client names only its own loadout slot 0 or 1
+/// and, when the trusted catalog requires a point, both raw coordinates.
+/// Spell identity, hero, owner, cooldown, balance, entity targets, and queueing
+/// are not fields on this message.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SummonerCast {
+    #[prost(uint32, tag = "1")]
+    pub slot: u32,
+    #[prost(sint64, optional, tag = "2")]
+    pub x_raw: ::core::option::Option<i64>,
+    #[prost(sint64, optional, tag = "3")]
+    pub y_raw: ::core::option::Option<i64>,
+}
+/// Dedicated local trinket placement. The client names only slot 0 and both
+/// explicit Fixed64 raw coordinates. Owner, catalog, charges, cooldown,
+/// lifetime, entity, and queue are not fields. Tag 23 stays unused.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct WardPlacement {
+    #[prost(uint32, tag = "1")]
+    pub slot: u32,
+    #[prost(sint64, optional, tag = "2")]
+    pub x_raw: ::core::option::Option<i64>,
+    #[prost(sint64, optional, tag = "3")]
+    pub y_raw: ::core::option::Option<i64>,
+}
+/// Authority undo request. Mode 1 is Newest and sequence must be 0; trusted
+/// admission pins the owner's current purchase sequence. Mode 2 names that
+/// already projected sequence and sequence must be nonzero. This is not a shop
+/// buy or sell. The client renderer sends only mode 2 through ShopUndoIntent.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShopUndo {
+    #[prost(uint32, tag = "1")]
+    pub mode: u32,
+    #[prost(uint64, tag = "2")]
+    pub sequence: u64,
+}
+/// Owner comes exclusively from authenticated InputSubmit. No entity or key state.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CombatPreferencesUpdate {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    /// 0 hero origin, 1 cursor origin for explicit attack-move
+    #[prost(uint32, tag = "2")]
+    pub acquisition: u32,
+    #[prost(bool, tag = "3")]
+    pub idle_auto_attack: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CombatPreferencesRow {
+    #[prost(uint32, tag = "1")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "2")]
+    pub acquisition: u32,
+    #[prost(bool, tag = "3")]
+    pub idle_auto_attack: bool,
+    /// Independent typed capability, bound to the same complete owner roster and hash.
+    /// Absent means input-scheme/profile identity is unavailable, even if combat settings exist.
+    #[prost(message, optional, tag = "4")]
+    pub input_scheme: ::core::option::Option<InputSchemeOwnerState>,
+}
+/// Authority roster identity remains present while the hero is dead. No display
+/// name, hidden entity handle or renderer clock is used as a profile key.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InputSchemeOwnerState {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    /// 0 point-and-click, 1 keyboard
+    #[prost(uint32, tag = "2")]
+    pub scheme: u32,
+    #[prost(string, tag = "3")]
+    pub hero_content_id: ::prost::alloc::string::String,
+    #[prost(sint64, tag = "4")]
+    pub playing_elapsed_raw: i64,
+    #[prost(sint64, tag = "5")]
+    pub lock_after_raw: i64,
+    #[prost(sint64, tag = "6")]
+    pub direction_lease_raw: i64,
+    /// High-water mark for the current live hero only; 0 while dead or before first press.
+    #[prost(uint64, tag = "7")]
+    pub last_press_id: u64,
+    /// 0 once retired; expiry alone does not retire a press
+    #[prost(uint64, tag = "8")]
+    pub active_press_id: u64,
+    #[prost(message, optional, tag = "9")]
+    pub direction_step: ::core::option::Option<InputSchemeDirectionStep>,
+    /// 0 unavailable, 1 source-only directional input
+    #[prost(uint32, tag = "10")]
+    pub direction_protocol: u32,
+}
+/// Controls consumed before movement for one exact tick, independent of the
+/// post-step lease. Contains no private source identity or future destination.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct InputSchemeDirectionStep {
+    #[prost(uint64, tag = "1")]
+    pub tick: u64,
+    #[prost(uint32, tag = "2")]
+    pub scheme: u32,
+    #[prost(sint64, tag = "3")]
+    pub direction_x_raw: i64,
+    #[prost(sint64, tag = "4")]
+    pub direction_y_raw: i64,
+    #[prost(uint64, tag = "5")]
+    pub press_id: u64,
+    #[prost(bool, tag = "6")]
+    pub navigation_reset: bool,
+    /// mode change only; direction Begin must preserve windup
+    #[prost(bool, tag = "7")]
+    pub attack_reset: bool,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct InputSchemeUpdate {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub scheme: u32,
+}
+/// A client supplies an opaque, currently disclosed own actor only. The edge
+/// removes source after validation and stamps sealed_source for authority use;
+/// neither reference nor canonical identity survives a projected ACK.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct HeroDirectionInput {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(message, optional, tag = "2")]
+    pub source: ::core::option::Option<SecureReplicaTarget>,
+    #[prost(uint64, tag = "3")]
+    pub press_id: u64,
+    /// 1 Begin, 2 Update, 3 End; unspecified is invalid
+    #[prost(uint32, tag = "4")]
+    pub phase: u32,
+    #[prost(sint32, tag = "5")]
+    pub x: i32,
+    #[prost(sint32, tag = "6")]
+    pub y: i32,
+    /// authority only; client must send zero
+    #[prost(uint64, tag = "7")]
+    pub sealed_source: u64,
+}
+/// Complete, sorted owner rows for own team and currently disclosed opponents.
+/// Empty/missing clears capability. Does not contain hidden entity identities.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CombatPreferencesProjection {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub view_epoch: u64,
+    #[prost(message, repeated, tag = "3")]
+    pub rows: ::prost::alloc::vec::Vec<CombatPreferencesRow>,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -709,6 +880,20 @@ pub mod player_input {
         Recall(super::Recall),
         #[prost(message, tag = "20")]
         HoldPosition(super::HoldPosition),
+        #[prost(message, tag = "21")]
+        Stop(super::Stop),
+        #[prost(message, tag = "22")]
+        SummonerCast(super::SummonerCast),
+        #[prost(message, tag = "24")]
+        ShopUndo(super::ShopUndo),
+        #[prost(message, tag = "25")]
+        WardPlacement(super::WardPlacement),
+        #[prost(message, tag = "26")]
+        CombatPreferences(super::CombatPreferencesUpdate),
+        #[prost(message, tag = "27")]
+        InputScheme(super::InputSchemeUpdate),
+        #[prost(message, tag = "28")]
+        Direction(super::HeroDirectionInput),
     }
 }
 /// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
@@ -852,6 +1037,18 @@ pub struct JoinRequest {
     pub command_protocol_version: u32,
     #[prost(string, tag = "17")]
     pub command_rules_hash: ::prost::alloc::string::String,
+    /// Independent of command 2, Recall 2, and shop 1. Zero plus an empty hash
+    /// stays disabled. A partial version or hash fails closed.
+    #[prost(uint32, tag = "18")]
+    pub summoner_protocol_version: u32,
+    #[prost(string, tag = "19")]
+    pub summoner_rules_hash: ::prost::alloc::string::String,
+    /// Independent of QWER, item, summoner, and shop. Zero plus an empty hash
+    /// stays disabled. A partial version or hash fails closed.
+    #[prost(uint32, tag = "20")]
+    pub ward_protocol_version: u32,
+    #[prost(string, tag = "21")]
+    pub ward_rules_hash: ::prost::alloc::string::String,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -1048,6 +1245,28 @@ pub struct TeamGameStart {
     pub command_protocol_version: u32,
     #[prost(string, tag = "30")]
     pub command_rules_hash: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "31")]
+    pub summoner_protocol_version: u32,
+    #[prost(string, tag = "32")]
+    pub summoner_rules_hash: ::prost::alloc::string::String,
+    /// Echo of the admitted ward negotiation. Zero means the session stays
+    /// ward-disabled. owner_ward_projection is private to this authenticated
+    /// player and is empty for observers and for every other teammate.
+    #[prost(uint32, tag = "33")]
+    pub ward_protocol_version: u32,
+    #[prost(string, tag = "34")]
+    pub ward_rules_hash: ::prost::alloc::string::String,
+    /// Echo of owner_ward_envelope.projection. Empty matches a verified
+    /// unavailable envelope. A nonempty echo must equal that projection.
+    /// Neither field is team-hash material.
+    #[prost(bytes = "vec", tag = "35")]
+    pub owner_ward_projection: ::prost::alloc::vec::Vec<u8>,
+    /// Sealed private admission. The expected hash is inside this envelope;
+    /// a locally recomputed hash is not a substitute.
+    #[prost(message, optional, tag = "36")]
+    pub owner_ward_envelope: ::core::option::Option<OwnerWardEnvelope>,
+    #[prost(message, optional, tag = "37")]
+    pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevealEntity {
@@ -1188,6 +1407,33 @@ pub struct ShopReceiptReplay {
     #[prost(bytes = "vec", tag = "6")]
     pub receipt: ::prost::alloc::vec::Vec<u8>,
 }
+/// Owner-addressed private ward state. Not a team broadcast, not team hash
+/// material, and not sent to a session that did not negotiate ward protocol.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OwnerWardEnvelope {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub session_id: u64,
+    #[prost(uint64, tag = "4")]
+    pub view_epoch: u64,
+    #[prost(uint64, tag = "5")]
+    pub authoritative_tick: u64,
+    #[prost(bytes = "vec", tag = "6")]
+    pub projection: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "7")]
+    pub projection_hash: ::prost::alloc::vec::Vec<u8>,
+}
+/// Read-only recovery of the caller's own envelope. Does not submit gameplay.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct OwnerWardRecoveryQuery {
+    #[prost(uint64, tag = "1")]
+    pub request_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub view_epoch: u64,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BoundedRandomTape {
     #[prost(uint64, tag = "1")]
@@ -1295,6 +1541,17 @@ pub struct PostStep {
     #[prost(message, optional, tag = "4")]
     pub rebase_notice: ::core::option::Option<TeamViewRebaseNotice>,
 }
+/// Public match mode for every legitimate participant of the current view.
+/// Carried with that view epoch. It contains no entity, economy, or enemy data.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AuthoritativeModePresentation {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub mode: u32,
+    #[prost(uint64, tag = "3")]
+    pub view_epoch: u64,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TeamTickFrame {
     #[prost(uint32, tag = "1")]
@@ -1323,6 +1580,14 @@ pub struct TeamTickFrame {
     pub post_step: ::core::option::Option<PostStep>,
     #[prost(bytes = "vec", tag = "13")]
     pub padding: ::prost::alloc::vec::Vec<u8>,
+    /// Optional. Frames that omit it stay unavailable; this is not a protocol bump.
+    /// Absence, schema_version other than 1, view_epoch 0 or different from this
+    /// frame's view_epoch, or mode outside {1=MOBA, 2=TowerDefense} is unavailable.
+    /// Never infer the mode from HUD, lives, hero presence, or map name.
+    #[prost(message, optional, tag = "14")]
+    pub authoritative_mode: ::core::option::Option<AuthoritativeModePresentation>,
+    #[prost(message, optional, tag = "15")]
+    pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct TeamReplayRequest {
@@ -1427,7 +1692,7 @@ pub struct RendererIpcEnvelope {
     pub sequence: u64,
     #[prost(
         oneof = "renderer_ipc_envelope::Payload",
-        tags = "10, 11, 12, 13, 14, 20, 21, 22, 23"
+        tags = "10, 11, 12, 13, 14, 20, 21, 22, 23, 24"
     )]
     pub payload: ::core::option::Option<renderer_ipc_envelope::Payload>,
 }
@@ -1453,6 +1718,10 @@ pub mod renderer_ipc_envelope {
         RendererConsumed(super::RendererConsumed),
         #[prost(message, tag = "23")]
         RendererShutdown(super::RendererShutdown),
+        /// Team communication delivery. Not a snapshot field and not a gameplay ACK.
+        /// Absence leaves the existing frame, ward, and shop tails unchanged.
+        #[prost(message, tag = "24")]
+        TeamCommunication(super::CommunicationPresentation),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1664,6 +1933,52 @@ pub struct TeamPresentationSnapshot {
     /// Absence means unavailable, never full visibility or demo fallback.
     #[prost(message, optional, tag = "19")]
     pub fog_grid: ::core::option::Option<FogGridPresentation>,
+    /// Same message as TeamTickFrame.authoritative_mode. Absence is unavailable.
+    #[prost(message, optional, tag = "20")]
+    pub authoritative_mode: ::core::option::Option<AuthoritativeModePresentation>,
+    /// Absence means this session has no undo projection. Not an implicit can-undo.
+    #[prost(message, optional, tag = "21")]
+    pub owner_shop_undo: ::core::option::Option<OwnerShopUndoPresentation>,
+    /// Bounded undo settlement identities. Not v1 shop receipts and not the 92-byte wallet.
+    #[prost(message, repeated, tag = "22")]
+    pub shop_undo_receipts: ::prost::alloc::vec::Vec<ShopUndoTransactionReceipt>,
+    /// Owner-only verified private projection. Empty means unavailable.
+    /// Not a team fact, not a charge delta, and not an authority ACK.
+    #[prost(bytes = "vec", tag = "23")]
+    pub owner_ward_private: ::prost::alloc::vec::Vec<u8>,
+    /// 0 disables placement. 3 is the accepted ward protocol. Any other value disables it.
+    #[prost(uint32, tag = "24")]
+    pub owner_ward_protocol: u32,
+    /// Renderer request and authority input stay distinct. This is not an authority ACK.
+    /// An illegal row drops the whole list. It does not clear the private charge view.
+    #[prost(message, repeated, tag = "25")]
+    pub ward_input_correlations: ::prost::alloc::vec::Vec<WardInputCorrelation>,
+    /// Pending buy/sell rows. Not receipts, not undo, and not a wallet change.
+    /// An illegal row drops the whole list. It does not alter shop_receipts.
+    #[prost(message, repeated, tag = "26")]
+    pub shop_transaction_correlations: ::prost::alloc::vec::Vec<
+        ShopTransactionCorrelation,
+    >,
+    #[prost(message, optional, tag = "27")]
+    pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
+}
+/// Bounded owner+epoch+actor+renderer-request+authority-input row.
+/// phase: 1 forwarded, 2 applied to presentation, 3 transport uncertain, 4 local rejected.
+/// authority_input 0 is legal only for phase 4. None of these phases is settlement.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct WardInputCorrelation {
+    #[prost(uint32, tag = "1")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub view_epoch: u64,
+    #[prost(uint32, tag = "3")]
+    pub actor_generation: u32,
+    #[prost(uint64, tag = "4")]
+    pub renderer_request: u64,
+    #[prost(uint32, tag = "5")]
+    pub authority_input: u32,
+    #[prost(uint32, tag = "6")]
+    pub phase: u32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct InventorySlotPresentation {
@@ -1695,6 +2010,57 @@ pub struct OwnerEconomyPresentation {
     /// Q10 authority absorption, owner-scoped, 0..1024000000
     #[prost(sint64, tag = "7")]
     pub shield_remaining_raw: i64,
+    /// Schema 3 copies the authority shop-reason byte. Schema 2 leaves this at the
+    /// protobuf default. Consumers must not read that default as AVAILABLE.
+    #[prost(uint32, tag = "8")]
+    pub shop_reason: u32,
+}
+/// Session capability plus the owner scalar. projected is false when the scalar
+/// has not arrived. can_undo is never implied by undo_supported or by reason 0.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct OwnerShopUndoPresentation {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(bool, tag = "3")]
+    pub projected: bool,
+    #[prost(bool, tag = "4")]
+    pub undo_supported: bool,
+    #[prost(bool, tag = "5")]
+    pub can_undo: bool,
+    #[prost(uint32, tag = "6")]
+    pub reason: u32,
+    #[prost(uint64, tag = "7")]
+    pub newest_sequence: u64,
+    /// 32 bytes when projected; not a user-facing value
+    #[prost(bytes = "vec", tag = "8")]
+    pub ledger_commitment: ::prost::alloc::vec::Vec<u8>,
+}
+/// Identity projection of one undo settlement. Schema 1 here is not the 40-byte
+/// buy/sell receipt. result_code uses the undo receipt codes, including 14 and 15.
+/// input_id is the authority input. request_id is the renderer request and stays 0
+/// until the client binds that exact owner, view epoch, and pinned sequence.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShopUndoTransactionReceipt {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "3")]
+    pub input_id: u64,
+    #[prost(uint64, tag = "4")]
+    pub settled_tick: u64,
+    #[prost(uint64, tag = "5")]
+    pub sequence: u64,
+    #[prost(uint32, tag = "6")]
+    pub result_code: u32,
+    #[prost(sint32, tag = "7")]
+    pub gold: i32,
+    #[prost(uint64, tag = "8")]
+    pub request_id: u64,
+    #[prost(uint64, tag = "9")]
+    pub view_epoch: u64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ShopTransactionReceipt {
@@ -1716,6 +2082,30 @@ pub struct ShopTransactionReceipt {
     /// 0 settled successfully, 1..13 stable ShopError codes
     #[prost(uint32, tag = "8")]
     pub result_code: u32,
+    /// Renderer request. 0 means this retained receipt is not bound to a UI request.
+    #[prost(uint64, tag = "9")]
+    pub request_id: u64,
+    /// Capturing view epoch. Meaningful when request_id is nonzero; otherwise 0.
+    #[prost(uint64, tag = "10")]
+    pub view_epoch: u64,
+}
+/// Pending buy or sell. phase 1 is admitted (not success). phase 2 is transport uncertain.
+/// Neither phase settles the wallet. authority_input is the authority input id.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShopTransactionCorrelation {
+    #[prost(uint32, tag = "1")]
+    pub player_id: u32,
+    #[prost(uint64, tag = "2")]
+    pub view_epoch: u64,
+    #[prost(uint64, tag = "3")]
+    pub request_id: u64,
+    #[prost(uint32, tag = "4")]
+    pub authority_input: u32,
+    /// 17 buy, 18 sell
+    #[prost(uint32, tag = "5")]
+    pub action_kind: u32,
+    #[prost(uint32, tag = "6")]
+    pub phase: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AbilityHudPresentation {
@@ -1729,6 +2119,38 @@ pub struct AbilityHudPresentation {
     pub cooldown_raw: i64,
     #[prost(sint64, tag = "5")]
     pub total_cooldown_raw: i64,
+}
+/// Owner summoner row. Independent of the live hero so a dead or absent hero
+/// keeps admitted equipment. Catalog id 0 is canonical unavailable. Shape,
+/// range, and total cooldown come from the authored catalog. cooldown_raw is
+/// the authority clock and is not a client countdown. schema_version below 3
+/// cannot enable these rows.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SummonerHudPresentation {
+    /// 0 or 1
+    #[prost(uint32, tag = "1")]
+    pub slot: u32,
+    /// 0 = unequipped
+    #[prost(uint32, tag = "2")]
+    pub catalog_id: u32,
+    /// 0 unavailable, 1 self, 2 point; entity is not authored
+    #[prost(uint32, tag = "3")]
+    pub shape: u32,
+    /// catalog range, Q10; 0 for self and unavailable
+    #[prost(sint64, tag = "4")]
+    pub range_raw: i64,
+    /// authority remaining, Q10
+    #[prost(sint64, tag = "5")]
+    pub cooldown_raw: i64,
+    /// catalog total, Q10
+    #[prost(sint64, tag = "6")]
+    pub total_cooldown_raw: i64,
+    /// catalog identity; empty when catalog_id is 0
+    #[prost(string, tag = "7")]
+    pub spell_id: ::prost::alloc::string::String,
+    /// matches MobaHudPresentation.player_id when enabled
+    #[prost(uint32, tag = "8")]
+    pub owner_player_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct HeroHudPresentation {
@@ -1757,6 +2179,25 @@ pub struct HeroHudPresentation {
     pub mana_raw: i64,
     #[prost(sint64, tag = "12")]
     pub max_mana_raw: i64,
+    /// Schema 4: absent means unavailable, not six zero attributes. Q10 values.
+    #[prost(message, optional, tag = "13")]
+    pub combat_attributes: ::core::option::Option<HeroCombatAttributesPresentation>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct HeroCombatAttributesPresentation {
+    #[prost(sint64, tag = "1")]
+    pub attack_damage_raw: i64,
+    #[prost(sint64, tag = "2")]
+    pub physical_armor_raw: i64,
+    /// Fraction \[-1,1\], not a flat armor rating.
+    #[prost(sint64, tag = "3")]
+    pub magic_resistance_raw: i64,
+    #[prost(sint64, tag = "4")]
+    pub move_speed_raw: i64,
+    #[prost(sint64, tag = "5")]
+    pub attack_range_raw: i64,
+    #[prost(sint64, tag = "6")]
+    pub attack_interval_raw: i64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MobaHudPresentation {
@@ -1790,6 +2231,13 @@ pub struct MobaHudPresentation {
     /// public persistent rows, independent of vision
     #[prost(message, optional, tag = "12")]
     pub scoreboard: ::core::option::Option<ScoreboardPresentation>,
+    /// Negotiated summoner wire. Recall and shop flags do not imply this.
+    #[prost(bool, tag = "13")]
+    pub summoner_protocol_enabled: bool,
+    #[prost(message, optional, tag = "14")]
+    pub summoner_slot0: ::core::option::Option<SummonerHudPresentation>,
+    #[prost(message, optional, tag = "15")]
+    pub summoner_slot1: ::core::option::Option<SummonerHudPresentation>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScoreboardPresentation {
@@ -1922,6 +2370,7 @@ pub struct AbilityCastIntent {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ItemUseIntent {
+    /// Owner index and generation are not renderer fields.
     #[prost(uint32, tag = "1")]
     pub item_slot: u32,
     #[prost(uint64, tag = "2")]
@@ -1930,6 +2379,11 @@ pub struct ItemUseIntent {
     pub x_raw: i64,
     #[prost(sint64, tag = "4")]
     pub y_raw: i64,
+    /// Both set, or neither. Legacy x_raw/y_raw stay scalars and do not mean a point is present.
+    #[prost(sint64, optional, tag = "5")]
+    pub explicit_x_raw: ::core::option::Option<i64>,
+    #[prost(sint64, optional, tag = "6")]
+    pub explicit_y_raw: ::core::option::Option<i64>,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct ItemBuyIntent {
@@ -1943,6 +2397,31 @@ pub struct ItemSellIntent {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RecallIntent {}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SummonerCastIntent {
+    #[prost(uint32, tag = "1")]
+    pub slot: u32,
+    #[prost(sint64, optional, tag = "2")]
+    pub x_raw: ::core::option::Option<i64>,
+    #[prost(sint64, optional, tag = "3")]
+    pub y_raw: ::core::option::Option<i64>,
+}
+/// Slot 0 and both explicit raw coordinates. Not a summoner or shop intent.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct WardPlacementIntent {
+    #[prost(uint32, tag = "1")]
+    pub slot: u32,
+    #[prost(sint64, optional, tag = "2")]
+    pub x_raw: ::core::option::Option<i64>,
+    #[prost(sint64, optional, tag = "3")]
+    pub y_raw: ::core::option::Option<i64>,
+}
+/// Pinned purchase sequence only. Newest is not a renderer field.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ShopUndoIntent {
+    #[prost(uint64, tag = "1")]
+    pub sequence: u64,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AbilityUpgradeIntent {
     #[prost(uint32, tag = "1")]
@@ -1973,6 +2452,21 @@ pub struct AttackTargetIntent {
     pub queued: bool,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct RendererDirectionIntent {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub source_render_id: u64,
+    #[prost(uint64, tag = "3")]
+    pub press_id: u64,
+    #[prost(uint32, tag = "4")]
+    pub phase: u32,
+    #[prost(sint32, tag = "5")]
+    pub x: i32,
+    #[prost(sint32, tag = "6")]
+    pub y: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RendererInput {
     #[prost(uint64, tag = "1")]
     pub request_id: u64,
@@ -1982,13 +2476,13 @@ pub struct RendererInput {
     pub disclosure_epoch: u64,
     #[prost(
         oneof = "renderer_input::Intent",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30"
     )]
     pub intent: ::core::option::Option<renderer_input::Intent>,
 }
 /// Nested message and enum types in `RendererInput`.
 pub mod renderer_input {
-    #[derive(Clone, Copy, PartialEq, ::prost::Oneof)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Intent {
         #[prost(message, tag = "10")]
         MoveTo(super::MoveToIntent),
@@ -2012,7 +2506,80 @@ pub mod renderer_input {
         AbilityUpgrade(super::AbilityUpgradeIntent),
         #[prost(message, tag = "20")]
         HoldPosition(super::HoldPosition),
+        #[prost(message, tag = "21")]
+        Stop(super::Stop),
+        #[prost(message, tag = "22")]
+        SummonerCast(super::SummonerCastIntent),
+        #[prost(message, tag = "25")]
+        ShopUndo(super::ShopUndoIntent),
+        #[prost(message, tag = "26")]
+        WardPlacement(super::WardPlacementIntent),
+        #[prost(message, tag = "27")]
+        Communication(super::CommunicationIntent),
+        #[prost(message, tag = "28")]
+        CombatPreferences(super::CombatPreferencesUpdate),
+        #[prost(message, tag = "29")]
+        InputScheme(super::InputSchemeUpdate),
+        #[prost(message, tag = "30")]
+        Direction(super::RendererDirectionIntent),
     }
+}
+/// Local renderer intent. No sender/team/room/run, nonce, canonical actor or clock.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CommunicationIntent {
+    #[prost(uint64, tag = "1")]
+    pub source_generation: u64,
+    #[prost(uint64, tag = "2")]
+    pub presentation_epoch: u64,
+    #[prost(uint32, tag = "3")]
+    pub kind: u32,
+    #[prost(uint32, tag = "4")]
+    pub semantic: u32,
+    #[prost(sint64, tag = "5")]
+    pub point_x_raw: i64,
+    #[prost(sint64, tag = "6")]
+    pub point_y_raw: i64,
+    #[prost(bool, tag = "7")]
+    pub has_point: bool,
+    #[prost(uint64, tag = "8")]
+    pub target_render_id: u64,
+    #[prost(uint64, tag = "9")]
+    pub target_disclosure_epoch: u64,
+    #[prost(uint32, tag = "10")]
+    pub hud_kind: u32,
+    #[prost(uint32, tag = "11")]
+    pub hud_index: u32,
+    #[prost(uint32, tag = "12")]
+    pub hud_player_id: u32,
+    #[prost(uint32, tag = "13")]
+    pub chat_channel: u32,
+    #[prost(string, tag = "14")]
+    pub text: ::prost::alloc::string::String,
+    #[prost(string, tag = "15")]
+    pub objective_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "16")]
+    pub mute_sender_id: u32,
+    #[prost(bool, tag = "17")]
+    pub muted: bool,
+    #[prost(uint32, tag = "18")]
+    pub content_id: u32,
+    /// Stamped by the authenticated local renderer session, never trusted from UI bytes.
+    #[prost(uint64, tag = "19")]
+    pub renderer_connection_id: u64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CommunicationInputResult {
+    #[prost(uint64, tag = "1")]
+    pub renderer_connection_id: u64,
+    #[prost(uint64, tag = "2")]
+    pub request_token: u64,
+    #[prost(uint64, tag = "3")]
+    pub network_request_id: u64,
+    /// 1 queued locally, 2 authority receipt, 3 local refusal/uncertain transport
+    #[prost(uint32, tag = "4")]
+    pub phase: u32,
+    #[prost(uint32, tag = "5")]
+    pub refusal: u32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct RendererReady {
@@ -2092,6 +2659,22 @@ pub struct TeamViewRebase {
     /// Version 2 manifest binds this team-private presentation to its hash.
     #[prost(message, optional, tag = "16")]
     pub fog_grid: ::core::option::Option<FogGridPresentation>,
+    /// Owner-team summoner roster admitted with this baseline. Empty clears the
+    /// previous owner rows. Bytes are the projection codec and are bound into the
+    /// manifest hash when non-empty.
+    #[prost(bytes = "vec", tag = "17")]
+    pub admitted_summoner_projection: ::prost::alloc::vec::Vec<u8>,
+    /// Schema-1 owner-undo hash material for this baseline. Empty means the last
+    /// step had no owner-undo fact, stays outside the manifest digest, and leaves
+    /// older hashes unchanged. Non-empty bytes are the canonical record stream and
+    /// are bound into the manifest hash. Malformed, truncated, duplicate, or
+    /// non-canonical bytes fail verification. This does not change protocol 7,
+    /// snapshot schema 1, or the team-view digest domain.
+    #[prost(bytes = "vec", tag = "18")]
+    pub retained_owner_undo_material: ::prost::alloc::vec::Vec<u8>,
+    /// Binds the complete admitted combat policy to the rebase manifest digest.
+    #[prost(message, optional, tag = "19")]
+    pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TestCommandRequest {
@@ -2130,6 +2713,290 @@ pub struct ViewportUpdate {
     pub half_width: f32,
     #[prost(float, tag = "4")]
     pub half_height: f32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CommunicationHello {
+    #[prost(uint32, tag = "1")]
+    pub protocol_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub claimed_room_id: u64,
+    #[prost(uint64, tag = "3")]
+    pub claimed_run_id: u64,
+    #[prost(uint32, tag = "4")]
+    pub claimed_player_id: u32,
+    #[prost(uint32, tag = "5")]
+    pub claimed_team_id: u32,
+    #[prost(uint64, tag = "6")]
+    pub claimed_view_epoch: u64,
+    #[prost(bool, tag = "7")]
+    pub claimed_observer: bool,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CommunicationHelloResult {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint32, tag = "2")]
+    pub protocol_version: u32,
+    #[prost(bool, tag = "3")]
+    pub agreed: bool,
+    #[prost(uint32, tag = "4")]
+    pub refusal: u32,
+    #[prost(uint64, tag = "5")]
+    pub room_id: u64,
+    #[prost(uint64, tag = "6")]
+    pub run_id: u64,
+    #[prost(uint32, tag = "7")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "8")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "9")]
+    pub view_epoch: u64,
+    /// Highest nonce already consumed for this room, run, and player.
+    /// The next request must use a greater nonce. An idempotent hello does not lower it.
+    #[prost(uint64, tag = "10")]
+    pub request_floor: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CommunicationSubmit {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub request_id: u64,
+    #[prost(uint64, tag = "3")]
+    pub nonce: u64,
+    #[prost(uint64, tag = "4")]
+    pub claimed_room_id: u64,
+    #[prost(uint64, tag = "5")]
+    pub claimed_run_id: u64,
+    #[prost(uint32, tag = "6")]
+    pub claimed_player_id: u32,
+    #[prost(uint32, tag = "7")]
+    pub claimed_team_id: u32,
+    #[prost(uint64, tag = "8")]
+    pub claimed_view_epoch: u64,
+    #[prost(bool, tag = "9")]
+    pub claimed_observer: bool,
+    /// 1 ping, 2 chat, 3 objective, 4 mute, 5 emote, 6 status
+    #[prost(uint32, tag = "10")]
+    pub kind: u32,
+    #[prost(uint32, tag = "11")]
+    pub semantic: u32,
+    #[prost(sint64, tag = "12")]
+    pub point_x_raw: i64,
+    #[prost(sint64, tag = "13")]
+    pub point_y_raw: i64,
+    #[prost(bool, tag = "14")]
+    pub has_point: bool,
+    #[prost(bool, tag = "15")]
+    pub has_target: bool,
+    #[prost(uint64, tag = "16")]
+    pub replica_id: u64,
+    /// Optional compatibility assertion. Zero lets authority derive generation
+    /// from its current disclosed replica mapping; renderer generations are not canonical.
+    #[prost(uint32, tag = "18")]
+    pub generation: u32,
+    #[prost(uint64, tag = "19")]
+    pub disclosure_epoch: u64,
+    #[prost(uint64, tag = "20")]
+    pub target_view_epoch: u64,
+    /// 0 none, 1 ability, 2 item, 3 public score
+    #[prost(uint32, tag = "21")]
+    pub hud_kind: u32,
+    #[prost(uint32, tag = "22")]
+    pub hud_index: u32,
+    #[prost(uint32, tag = "23")]
+    pub hud_player_id: u32,
+    /// 1 team, 2 explicit all
+    #[prost(uint32, tag = "24")]
+    pub chat_channel: u32,
+    #[prost(string, tag = "25")]
+    pub text: ::prost::alloc::string::String,
+    #[prost(string, tag = "26")]
+    pub objective_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "27")]
+    pub mute_sender_id: u32,
+    #[prost(bool, tag = "28")]
+    pub muted: bool,
+    /// Canonical Lua communication ID, only kind 5.
+    #[prost(uint32, tag = "29")]
+    pub content_id: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CommunicationReceipt {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub request_id: u64,
+    /// 0 means the outcome_kind succeeded
+    #[prost(uint32, tag = "3")]
+    pub refusal: u32,
+    #[prost(uint64, tag = "4")]
+    pub room_id: u64,
+    #[prost(uint64, tag = "5")]
+    pub run_id: u64,
+    #[prost(uint32, tag = "6")]
+    pub sender_id: u32,
+    /// 0 unless outcome_kind is an admitted event
+    #[prost(uint64, tag = "7")]
+    pub sequence: u64,
+    #[prost(uint64, tag = "8")]
+    pub view_epoch: u64,
+    /// 1 event, 2 mute, 3 refused, 4 replay, 5 hello
+    #[prost(uint32, tag = "9")]
+    pub outcome_kind: u32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CommunicationWireEvent {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub room_id: u64,
+    #[prost(uint64, tag = "3")]
+    pub run_id: u64,
+    #[prost(uint32, tag = "4")]
+    pub sender_id: u32,
+    #[prost(uint32, tag = "5")]
+    pub sender_team: u32,
+    #[prost(uint64, tag = "6")]
+    pub sequence: u64,
+    #[prost(uint64, tag = "7")]
+    pub view_epoch: u64,
+    /// 1 team, 2 explicit all
+    #[prost(uint32, tag = "8")]
+    pub audience: u32,
+    /// 1 ping, 2 chat, 3 objective, 5 emote/interaction, 6 HUD status
+    #[prost(uint32, tag = "9")]
+    pub kind: u32,
+    #[prost(uint32, tag = "10")]
+    pub semantic: u32,
+    #[prost(sint64, tag = "11")]
+    pub point_x_raw: i64,
+    #[prost(sint64, tag = "12")]
+    pub point_y_raw: i64,
+    #[prost(bool, tag = "13")]
+    pub has_point: bool,
+    #[prost(bool, tag = "14")]
+    pub has_target: bool,
+    #[prost(uint64, tag = "15")]
+    pub replica_id: u64,
+    #[prost(uint32, tag = "16")]
+    pub generation: u32,
+    #[prost(uint64, tag = "17")]
+    pub disclosure_epoch: u64,
+    #[prost(uint32, tag = "18")]
+    pub hud_kind: u32,
+    #[prost(uint32, tag = "19")]
+    pub hud_index: u32,
+    #[prost(sint64, tag = "20")]
+    pub ability_remaining_raw: i64,
+    #[prost(uint32, tag = "21")]
+    pub catalog_id: u32,
+    #[prost(uint32, tag = "22")]
+    pub cooldown_bits: u32,
+    #[prost(uint32, tag = "23")]
+    pub score_player_id: u32,
+    #[prost(uint32, tag = "24")]
+    pub kills: u32,
+    #[prost(uint32, tag = "25")]
+    pub deaths: u32,
+    #[prost(uint32, tag = "26")]
+    pub assists: u32,
+    #[prost(uint32, tag = "27")]
+    pub chat_channel: u32,
+    #[prost(string, tag = "28")]
+    pub text: ::prost::alloc::string::String,
+    #[prost(string, tag = "29")]
+    pub objective_id: ::prost::alloc::string::String,
+    #[prost(sint64, tag = "30")]
+    pub objective_x_raw: i64,
+    #[prost(sint64, tag = "31")]
+    pub objective_y_raw: i64,
+    #[prost(sint64, tag = "32")]
+    pub expires_at_raw: i64,
+    /// sender correlation; 0 for every other recipient
+    #[prost(uint64, tag = "33")]
+    pub receipt_request_id: u64,
+    /// MobaMatch.elapsed raw at admission. Ping and objective require this and expires_at_raw.
+    #[prost(sint64, tag = "34")]
+    pub admitted_at_raw: i64,
+    /// Canonical original communication content, only kind 5.
+    #[prost(uint32, tag = "35")]
+    pub content_id: u32,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CommunicationReplayQuery {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub request_id: u64,
+    #[prost(uint64, tag = "3")]
+    pub claimed_room_id: u64,
+    #[prost(uint64, tag = "4")]
+    pub claimed_run_id: u64,
+    #[prost(uint32, tag = "5")]
+    pub claimed_player_id: u32,
+    #[prost(uint32, tag = "6")]
+    pub claimed_team_id: u32,
+    #[prost(uint64, tag = "7")]
+    pub claimed_view_epoch: u64,
+    #[prost(bool, tag = "8")]
+    pub claimed_observer: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CommunicationReplayBatch {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub request_id: u64,
+    #[prost(uint32, tag = "3")]
+    pub refusal: u32,
+    #[prost(uint64, tag = "4")]
+    pub room_id: u64,
+    #[prost(uint64, tag = "5")]
+    pub run_id: u64,
+    #[prost(uint64, tag = "6")]
+    pub view_epoch: u64,
+    #[prost(bool, tag = "7")]
+    pub already_replayed: bool,
+    #[prost(message, repeated, tag = "8")]
+    pub events: ::prost::alloc::vec::Vec<CommunicationWireEvent>,
+    /// Match clock used for expiry. Negative is invalid and the batch is malformed.
+    #[prost(sint64, tag = "9")]
+    pub elapsed_raw: i64,
+}
+/// Renderer-facing copy of admitted communication. source_generation is the
+/// client binding generation. presentation_epoch advances when that binding
+/// or its view is retired. Neither value is an actor generation.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CommunicationPresentation {
+    #[prost(uint32, tag = "1")]
+    pub schema_version: u32,
+    #[prost(uint64, tag = "2")]
+    pub view_epoch: u64,
+    #[prost(uint64, tag = "3")]
+    pub room_id: u64,
+    #[prost(uint64, tag = "4")]
+    pub run_id: u64,
+    #[prost(uint32, tag = "5")]
+    pub player_id: u32,
+    #[prost(uint32, tag = "6")]
+    pub team_id: u32,
+    #[prost(uint64, tag = "7")]
+    pub source_generation: u64,
+    #[prost(uint64, tag = "8")]
+    pub presentation_epoch: u64,
+    #[prost(message, repeated, tag = "9")]
+    pub events: ::prost::alloc::vec::Vec<CommunicationWireEvent>,
+    #[prost(message, optional, tag = "10")]
+    pub receipt: ::core::option::Option<CommunicationReceipt>,
+    /// Match clock copied for render consumers. Negative is invalid.
+    #[prost(sint64, tag = "11")]
+    pub elapsed_raw: i64,
+    #[prost(bool, tag = "12")]
+    pub negotiated: bool,
+    /// Local renderer correlation, not gameplay ACK.
+    #[prost(message, optional, tag = "13")]
+    pub input_result: ::core::option::Option<CommunicationInputResult>,
 }
 /// Entity kind enum used by EntityDeath / CreepHp to disambiguate dynamic kinds.
 /// 0 = unspecified → client shim treats as legacy "entity".

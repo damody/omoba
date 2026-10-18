@@ -341,6 +341,7 @@ fn forget_removes_entity_before_same_tick_gameplay() {
         step: Some(Step::default()),
         post_step: Some(PostStep::default()),
         padding: vec![],
+        authoritative_mode: None, combat_preferences: None,
     };
     runtime.apply_frame(frame, &mut noop).unwrap();
     assert!(runtime.world().entities.is_empty());
@@ -946,6 +947,7 @@ fn empty_wire_frame(tick: u64, sequence: u64) -> TeamTickFrame {
         step: Some(Step::default()),
         post_step: Some(PostStep::default()),
         padding: vec![],
+        authoritative_mode: None, combat_preferences: None,
     }
 }
 

@@ -6,7 +6,8 @@ local path,json=b.lib('path'),b.lib('json')
 local M={}
 function M.options(args)
   local values={['--profile']=true,['--ue-root']=true,['--graphics']=true,
-    ['--output']=true,['--selection-timeout-seconds']=true,['--selection-cancel-file']=true}
+    ['--output']=true,['--selection-timeout-seconds']=true,['--selection-cancel-file']=true,
+    ['--editor-ready-timeout-seconds']=true}
   local forwarded={'--interactive-selection'}
   local invite,player
   local seen={};local i=1
@@ -75,7 +76,7 @@ function M.run(options,process,time,dependencies)
     assert(owned.pid==pid,'selection join spawn identity mismatch')
     path.write(path.join(output,'owned-process.json'),json.encode(owned))
     local readiness=require('moba_selection_readiness').reader(options.player,true)
-    local ready=false;local deadline=time.monotonic_ms()+45000
+    local ready=false;local deadline=require('moba_selection_readiness').deadline(options,completion,time)
     while true do
       budget.check(completion,time)
       local alive=process.owned_alive(owned)

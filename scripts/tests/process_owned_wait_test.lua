@@ -2,45 +2,63 @@ package.path='scripts/?.lua;'..package.path
 require('_bootstrap')
 local P=require('tools.lua.lib.process')
 local T=require('tools.lua.lib.time')
+local host=require('tools.lua.lib.host')
 local record=P.validate_owned({pid=7,executable='D:/code/omoba/fixture.exe',creation_token='133000000000000001'})
 local count=0
 local function test(name,fn)
-  local inspect,clock,sleep=P.inspect_owned,T.monotonic_ms,T.sleep_ms
+  local inspect,clock,sleep,call=P.inspect_owned,T.monotonic_ms,T.sleep_ms,host.call
   local now=0
   T.monotonic_ms=function() return now end
   T.sleep_ms=function(ms) assert(ms>0 and ms<=50);now=now+ms end
   P.inspect_owned=function(pid) assert(pid==record.pid);return record end
+  host.call=function(operation) error('unexpected host operation '..tostring(operation)) end
   local ok,err=xpcall(function() fn(function()return now end) end,debug.traceback)
-  P.inspect_owned,T.monotonic_ms,T.sleep_ms=inspect,clock,sleep
+  P.inspect_owned,T.monotonic_ms,T.sleep_ms,host.call=inspect,clock,sleep,call
   assert(ok,err);count=count+1;print('PASS '..name)
 end
-test('already retired lifetime succeeds without PID wait',function(now)
-  P.inspect_owned=function() return nil end
-  assert(P.wait_owned(record,0) and now()==0)
+local function expect_wait(timeout,exited)
+  local state={calls=0}
+  host.call=function(operation,params)
+    state.calls=state.calls+1
+    assert(operation=='wait_owned')
+    assert(params.pid==record.pid and params.expected_exe==record.executable)
+    assert(params.creation_token==record.creation_token and params.timeout_ms==timeout)
+    return {exited=exited}
+  end
+  return state
+end
+test('retired native result is one boolean and does not sleep in Lua',function(now)
+  local state=expect_wait(0,true)
+  assert(P.wait_owned(record,0) and now()==0 and state.calls==1)
 end)
-test('same executable reused PID is not the original lifetime',function(now)
-  P.inspect_owned=function() return {pid=7,executable=record.executable,creation_token='133000000000000002'} end
-  assert(P.wait_owned(record,5000) and now()==0)
+test('token or executable mismatch stays an error',function(now)
+  host.call=function() error('owned process lifetime or executable mismatch; nothing waited') end
+  assert(not pcall(P.wait_owned,record,5000))
+  assert(now()==0)
 end)
-test('bounded timeout and zero timeout never oversleep',function(now)
-  assert(not P.wait_owned(record,0));assert(now()==0)
-  assert(not P.wait_owned(record,73));assert(now()==73)
+test('timeout result stays false and the caller bound is forwarded once',function(now)
+  local zero=expect_wait(0,false)
+  assert(not P.wait_owned(record,0));assert(now()==0 and zero.calls==1)
+  local bounded=expect_wait(73,false)
+  assert(not P.wait_owned(record,73));assert(now()==0 and bounded.calls==1)
 end)
-test('original exits before timeout and default remains bounded',function(now)
-  P.inspect_owned=function() if now()<100 then return record end end
-  assert(P.wait_owned(record,1000) and now()==100)
-  P.inspect_owned=function()return record end
-  assert(not P.wait_owned(record));assert(now()==5100)
+test('native exit and the default bound are one call each',function(now)
+  local exited=expect_wait(1000,true)
+  assert(P.wait_owned(record,1000) and now()==0 and exited.calls==1)
+  local default=expect_wait(5000,false)
+  assert(not P.wait_owned(record) and now()==0 and default.calls==1)
 end)
 test('query failure and malformed legacy identity fail closed',function()
-  P.inspect_owned=function()error('inaccessible owned process')end
+  host.call=function() error('cannot query exact process identity: Access is denied. (os error 5)') end
   assert(not pcall(P.wait_owned,record,100))
+  host.call=function() error('unexpected host operation') end
   assert(not pcall(P.wait_owned,{pid=7,exe=record.executable},100))
   for _,timeout in ipairs({-1,1.5,'100'}) do assert(not pcall(P.wait_owned,record,timeout)) end
 end)
 test('clock regression rejects rather than hanging',function()
   local calls=0
   T.monotonic_ms=function()calls=calls+1;return calls==1 and 100 or 99 end
+  host.call=function() return {exited=true} end
   assert(not pcall(P.wait_owned,record,100))
 end)
 test('readiness only evaluates predicates for the original live child',function(now)

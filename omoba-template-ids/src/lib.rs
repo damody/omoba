@@ -15,6 +15,27 @@ compile_error!("compiled-content-only forbids runtime-lua-content; Lua is build-
 
 pub use omoba_sim::Fixed64;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommunicationSemanticConst {
+    Joke, Challenge, Dance, Laugh, Salute,
+    Acknowledge, Applaud, Thanks, Surprise, Resolve, Patience, Celebrate, Regroup,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommunicationContentConst {
+    pub catalog_id: u16,
+    pub id: &'static str,
+    pub semantic: CommunicationSemanticConst,
+    pub interaction_slot: u8,
+    pub wheel_slot: u8,
+    pub label: &'static str,
+    pub subtitle: &'static str,
+    pub duration_raw: u16,
+    pub icon: Option<&'static str>,
+    pub audio: Option<&'static str>,
+    pub animation: Option<&'static str>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct MobaLaneConst {
     pub id: &'static str,
@@ -30,6 +51,20 @@ pub struct MobaMapConst {
     pub lanes: &'static [MobaLaneConst],
     pub jungle_camps: &'static [MobaJungleConst],
     pub terrain: &'static [MobaTerrainConst],
+    pub presentation_surfaces: &'static [MobaMapSurfaceConst],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum MobaMapSurfaceKind { River = 1, Jungle = 2 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaMapSurfaceConst {
+    pub id: &'static str,
+    pub kind: MobaMapSurfaceKind,
+    pub width: i32,
+    /// River centerline, or jungle minimum/maximum bounds. Visual only.
+    pub points: &'static [(i32, i32)],
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -69,6 +104,46 @@ pub struct MobaItemConst {
     pub active: Option<MobaItemActiveConst>,
     pub cooldown: Fixed64,
     pub recipe: &'static [&'static str],
+    pub target: MobaItemTargetConst,
+}
+
+/// Authored item target rule. Self ignores attached point and unit bytes.
+/// Point and unit reject out of range and never queue or approach.
+#[derive(Clone, Copy, Debug)]
+pub struct MobaItemTargetConst {
+    pub shape: MobaItemTargetShapeConst,
+    pub range: Fixed64,
+    pub team: MobaItemTeamConst,
+    pub requires_visible: bool,
+    pub out_of_range: MobaItemOutOfRangeConst,
+}
+
+impl MobaItemTargetConst {
+    pub const SELF: Self = Self {
+        shape: MobaItemTargetShapeConst::Self_,
+        range: Fixed64::ZERO,
+        team: MobaItemTeamConst::Any,
+        requires_visible: false,
+        out_of_range: MobaItemOutOfRangeConst::Reject,
+    };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MobaItemTargetShapeConst {
+    Self_,
+    Point,
+    Unit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MobaItemTeamConst {
+    Any,
+    Enemy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MobaItemOutOfRangeConst {
+    Reject,
 }
 
 /// Build-time authored effects, executed by the native shared item executor.
@@ -79,6 +154,80 @@ pub enum MobaItemActiveConst {
     RestoreMana { amount: Fixed64 },
     DamageReduce { percent: Fixed64, duration: Fixed64 },
     HeadshotNext { bonus_damage: Fixed64 },
+    PointNova { damage: Fixed64, radius: Fixed64 },
+    UnitHex { damage: Fixed64 },
+}
+
+/// Generated summoner spell. Balance comes from `templates/moba_summoners.lua`.
+/// There is no second rules hash; these fields are part of `CONTENT_CATALOG_DATA_HASH`.
+#[derive(Clone, Copy, Debug)]
+pub struct SummonerSpellConst {
+    pub catalog_id: u16,
+    pub id: &'static str,
+    pub display_name: &'static str,
+    pub description: &'static str,
+    pub cooldown: Fixed64,
+    pub target: SummonerTargetConst,
+    pub operation: SummonerSpellOperationConst,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SummonerTargetConst {
+    None,
+    Point,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SummonerOutOfRangeConst {
+    Reject,
+    ClampToRange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SummonerSpellOperationConst {
+    PointBlink {
+        range: Fixed64,
+        out_of_range: SummonerOutOfRangeConst,
+    },
+    SelfHeal { amount: Fixed64 },
+}
+
+/// Generated trinket. Balance comes from `templates/moba_trinkets.lua`.
+/// There is no second rules hash; these fields are part of `CONTENT_CATALOG_DATA_HASH`.
+/// Continuous fields are quantized once. Counts and levels stay integers.
+/// This catalog does not place a ward or grant vision.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrinketConst {
+    pub catalog_id: u16,
+    pub id: &'static str,
+    pub display_name: &'static str,
+    pub description: &'static str,
+    pub placement_range: Fixed64,
+    pub initial_charges: u16,
+    pub max_charges: u16,
+    pub recharge_seconds: Fixed64,
+    pub lifetime_seconds: Fixed64,
+    pub sight_radius: Fixed64,
+    pub detection_level: u16,
+    pub stealth_level: u16,
+    pub hit_points: u16,
+    pub maximum_owned_placements: u16,
+    pub direct_attack: TrinketDirectAttackConst,
+    pub automatic_acquisition: TrinketAutomaticAcquisitionConst,
+}
+
+/// Authored direct-attack policy. Future trinkets add a variant here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrinketDirectAttackConst {
+    DisclosedEnemy,
+    NotDirectlyAttackable,
+}
+
+/// Authored automatic-acquisition policy. Future trinkets add a variant here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrinketAutomaticAcquisitionConst {
+    Disabled,
+    Enabled,
 }
 
 #[cfg(feature = "runtime-lua-content")]
@@ -820,6 +969,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn communication_catalog_compiles_explicit_ids_slots_and_missing_optional_media() {
+        assert_eq!(COMMUNICATION_CONTENT.len(), 13);
+        for (slot, id) in [(1, 1), (2, 2), (3, 3), (4, 4), (5, 5)] {
+            assert_eq!(communication_content(id).unwrap().interaction_slot, slot);
+        }
+        for slot in 1..=8 {
+            let row = communication_content(100 + u16::from(slot)).unwrap();
+            assert_eq!(row.wheel_slot, slot);
+            assert_eq!(row.interaction_slot, 0);
+        }
+        assert!(communication_content(0).is_none());
+        assert!(communication_content(65535).is_none());
+        assert!(COMMUNICATION_CONTENT.iter().all(|row| row.icon.is_none() && row.audio.is_none() && row.animation.is_none()));
+    }
+
+    #[test]
     fn seven_towers_publish_active_ability_metadata() {
         let cases = [
             (TOWER_DART, 2, "dart_heavy_burst", 12, 5120, 0, 0),
@@ -882,5 +1047,66 @@ mod tests {
         }
         assert_eq!(td_layer_by_name("moab").unwrap().children.len(), 4);
         assert_eq!(td_layer_by_name("ceramic").unwrap().leak_value, 104);
+    }
+
+    #[test]
+    fn summoner_generated_rows_mirror_lua_balance_and_join_content_catalog_data_hash() {
+        let blink = summoner_spell_by_name("training_point_blink_v1").unwrap();
+        let heal = summoner_spell_by_name("training_self_heal_v1").unwrap();
+        assert_eq!(SUMMONER_SPELL_CATALOG.len(), 2);
+        assert_eq!(blink.catalog_id, 1);
+        assert_eq!(heal.catalog_id, 2);
+        assert_eq!(blink.display_name, "閃躍");
+        assert_eq!(heal.display_name, "復甦");
+        assert_eq!(blink.description, "指定地面一點並瞬間移動。超出距離時沿射線夾到範圍內。可跨越牆面，落點必須可站。");
+        assert_eq!(heal.description, "立即回復自身生命，不選取任何單位。");
+        assert_eq!(blink.target, SummonerTargetConst::Point);
+        assert_eq!(heal.target, SummonerTargetConst::None);
+        let quant = |value: f32| i64::from((value * 1024.0).round() as i32);
+        assert_eq!(blink.cooldown, Fixed64::from_raw(quant(300.0)));
+        assert_eq!(heal.cooldown, Fixed64::from_raw(quant(240.0)));
+        match blink.operation {
+            SummonerSpellOperationConst::PointBlink { range, out_of_range } => {
+                assert_eq!(range, Fixed64::from_raw(quant(400.0)));
+                assert_eq!(out_of_range, SummonerOutOfRangeConst::ClampToRange);
+            }
+            SummonerSpellOperationConst::SelfHeal { .. } => panic!("blink operation"),
+        }
+        match heal.operation {
+            SummonerSpellOperationConst::SelfHeal { amount } => {
+                assert_eq!(amount, Fixed64::from_raw(quant(200.0)));
+            }
+            SummonerSpellOperationConst::PointBlink { .. } => panic!("heal operation"),
+        }
+        assert_eq!(CONTENT_CATALOG_DATA_HASH.len(), 16);
+        assert!(CONTENT_CATALOG_DATA_HASH.chars().all(|ch| ch.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn trinket_generated_row_matches_authored_training_scout_lantern() {
+        let row = trinket_by_name("training_scout_lantern_v1").unwrap();
+        assert_eq!(TRINKET_CATALOG.len(), 1);
+        assert_eq!(row.catalog_id, 1);
+        assert_eq!(row.id, "training_scout_lantern_v1");
+        assert_eq!(row.display_name, "偵察燈");
+        assert_eq!(row.description, "放置後暫時提供友方視野。電荷有限，用盡後需等待回復。");
+        let quant = |value: f32| i64::from((value * 1024.0).round() as i32);
+        assert_eq!(row.placement_range, Fixed64::from_raw(quant(600.0)));
+        assert_eq!(row.recharge_seconds, Fixed64::from_raw(quant(120.0)));
+        assert_eq!(row.lifetime_seconds, Fixed64::from_raw(quant(90.0)));
+        assert_eq!(row.sight_radius, Fixed64::from_raw(quant(900.0)));
+        assert_eq!(row.initial_charges, 1);
+        assert_eq!(row.max_charges, 2);
+        assert_eq!(row.hit_points, 3);
+        assert_eq!(row.maximum_owned_placements, 3);
+        assert_eq!(row.detection_level, 0);
+        assert_eq!(row.stealth_level, 1);
+        assert_eq!(row.direct_attack, TrinketDirectAttackConst::DisclosedEnemy);
+        assert_eq!(row.automatic_acquisition, TrinketAutomaticAcquisitionConst::Disabled);
+        assert!(MOBA_TRINKET_CATALOG_JSON.contains("training_scout_lantern_v1"));
+        assert!(MOBA_TRINKET_CATALOG_JSON.contains("disclosed_enemy"));
+        assert!(MOBA_TRINKET_CATALOG_JSON.contains("\"automatic_acquisition\":\"disabled\"")
+            || MOBA_TRINKET_CATALOG_JSON.contains("\"automatic_acquisition\": \"disabled\""));
+        assert_eq!(CONTENT_CATALOG_DATA_HASH.len(), 16);
     }
 }

@@ -95,6 +95,7 @@ pub struct StepInjections {
     pub public_events: Vec<TeamPublicEvent>,
     pub random_tapes: Vec<BoundedRandomTape>,
     pub external_effects: Vec<SanitizedExternalEffect>,
+    pub combat_preferences: Option<game_proto::CombatPreferencesProjection>,
 }
 
 pub trait DisclosedWorldStepper {
@@ -228,7 +229,7 @@ pub struct FilteredRenderEntity {
     pub components: BTreeMap<u32, Vec<u8>>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FilteredRenderSnapshot {
     pub team_id: u32,
     pub replica_tick: u64,
@@ -238,6 +239,15 @@ pub struct FilteredRenderSnapshot {
     pub memory_directives: Vec<RenderMemoryDirective>,
     /// Frozen, server-sanitized presentation; never part of the gameplay world.
     pub remembered_presentations: BTreeMap<(u64, u64), Vec<u8>>,
+    /// Owner-team summoner roster. Standalone extracts stay empty. The replica
+    /// host copies the stepper resource after this extract.
+    pub disclosed_summoners: super::summoner_transport::DisclosedSummonerProjection,
+    /// Last mode installed by an applied frame. Rebase and a successful frame
+    /// with an absent or rejected mode clear it. Rejected frames do not.
+    pub authoritative_mode: Option<game_proto::AuthoritativeModePresentation>,
+    pub combat_preferences: Option<game_proto::CombatPreferencesProjection>,
+    /// Computed by the current filtered Specs world, scoped by body identity and tick.
+    pub hero_attributes: BTreeMap<(u64, u64), super::hero_attributes::DisclosedHeroAttributes>,
 }
 
 pub struct SelectiveReplicaRuntime {
@@ -260,6 +270,23 @@ pub struct SelectiveReplicaRuntime {
     /// Last measured apply. Cleared on every entry and only set for `Applied`.
     /// Not part of `world` and not hashed.
     stage_profile: Option<ReplicaStageDurations>,
+    presented_mode: Option<game_proto::AuthoritativeModePresentation>,
+    combat_preferences: Option<game_proto::CombatPreferencesProjection>,
+    /// Owner-undo fact bytes from the last successfully injected step, or from
+    /// the verified bootstrap/rebase that restored that step. Empty leaves the
+    /// v1 team digest unchanged and is the no-fact, unavailable-without-a-fact,
+    /// and retirement-cleared state.
+    owner_undo_hash_material: Vec<u8>,
+    /// Private owner trinket bytes. Empty stays outside the team digest.
+    /// A rebase does not carry this fact. A verified owner envelope restores it.
+    owner_ward_projection: Vec<u8>,
+    owner_ward_verified: Vec<u8>,
+    owner_ward_player: u32,
+    owner_ward_epoch: u64,
+    owner_ward_session: u64,
+    owner_ward_tick: u64,
+    owner_ward_revision: u64,
+    owner_ward_needs_recovery: bool,
 }
 
 impl SelectiveReplicaRuntime {
@@ -292,7 +319,208 @@ impl SelectiveReplicaRuntime {
             retired_replica_filter: vec![0; 131_072].into_boxed_slice(),
             last_apply_fault: None,
             stage_profile: None,
+            presented_mode: None,
+            combat_preferences: None,
+            owner_undo_hash_material: Vec::new(),
+            owner_ward_projection: Vec::new(),
+            owner_ward_verified: Vec::new(),
+            owner_ward_player: 0,
+            owner_ward_epoch: 0,
+            owner_ward_session: 0,
+            owner_ward_tick: 0,
+            owner_ward_revision: 0,
+            owner_ward_needs_recovery: false,
         }
+    }
+
+    pub fn owner_ward_projection(&self) -> &[u8] {
+        &self.owner_ward_projection
+    }
+
+    pub fn owner_ward_needs_recovery(&self) -> bool {
+        self.owner_ward_needs_recovery
+    }
+
+    pub fn owner_ward_tick(&self) -> u64 {
+        self.owner_ward_tick
+    }
+
+    pub fn owner_ward_revision(&self) -> u64 {
+        self.owner_ward_revision
+    }
+
+    pub fn owner_ward_session(&self) -> u64 {
+        self.owner_ward_session
+    }
+
+    pub fn owner_ward_player(&self) -> u32 {
+        self.owner_ward_player
+    }
+
+    /// Verified owner envelope. Rejected input clears placement capability and
+    /// requests recovery, but it cannot move the last verified tick or revision.
+    pub fn apply_verified_owner_ward_envelope(
+        &mut self,
+        envelope: &game_proto::OwnerWardEnvelope,
+    ) -> Result<(), &'static str> {
+        let opened = match crate::runtime::ward_transport::open_owner_ward_envelope(envelope) {
+            Ok(opened) => opened,
+            Err(error) => {
+                self.reject_unverified_owner_ward();
+                return Err(error);
+            }
+        };
+        if envelope.view_epoch != self.view_epoch
+            || self.owner_ward_player == 0
+            || envelope.player_id != self.owner_ward_player
+        {
+            self.reject_unverified_owner_ward();
+            return Err("OWNER_WARD_OWNER_OR_EPOCH_MISMATCH");
+        }
+        if self.owner_ward_session != 0 && envelope.session_id != self.owner_ward_session {
+            self.reject_unverified_owner_ward();
+            return Err("OWNER_WARD_OWNER_OR_EPOCH_MISMATCH");
+        }
+        let (incoming, revision) = match &opened {
+            crate::runtime::ward_transport::OwnerWardEnvelopeBody::Clear => (&[][..], 0),
+            crate::runtime::ward_transport::OwnerWardEnvelopeBody::Apply { projection, .. } => {
+                (envelope.projection.as_slice(), projection.revision)
+            }
+        };
+        let newer = envelope.authoritative_tick > self.owner_ward_tick
+            || (envelope.authoritative_tick == self.owner_ward_tick && revision > self.owner_ward_revision);
+        let same = envelope.authoritative_tick == self.owner_ward_tick && revision == self.owner_ward_revision;
+        if !newer && !same {
+            return Err("OWNER_WARD_STALE");
+        }
+        if same {
+            if incoming != self.owner_ward_verified.as_slice() {
+                self.reject_unverified_owner_ward();
+                return Err("NONCANONICAL_OWNER_WARD");
+            }
+            self.owner_ward_projection = incoming.to_vec();
+            if self.owner_ward_session == 0 {
+                self.owner_ward_session = envelope.session_id;
+            }
+            self.owner_ward_needs_recovery = false;
+            return Ok(());
+        }
+        self.owner_ward_projection = incoming.to_vec();
+        self.owner_ward_verified = incoming.to_vec();
+        self.owner_ward_player = envelope.player_id;
+        self.owner_ward_epoch = envelope.view_epoch;
+        self.owner_ward_session = envelope.session_id;
+        self.owner_ward_tick = envelope.authoritative_tick;
+        self.owner_ward_revision = revision;
+        self.owner_ward_needs_recovery = false;
+        Ok(())
+    }
+
+    /// Byte-level continuing apply. Prefer [`Self::apply_verified_owner_ward_envelope`].
+    /// Decode failure clears. A mismatched owner or epoch clears.
+    pub fn apply_continuing_owner_ward_projection(
+        &mut self,
+        player_id: u32,
+        bytes: &[u8],
+    ) -> Result<(), &'static str> {
+        if bytes.is_empty() || player_id == 0 {
+            self.clear_owner_ward_bytes();
+            return Ok(());
+        }
+        let decoded = match crate::runtime::ward_transport::decode_owner_ward_projection(bytes) {
+            Ok(decoded) => decoded,
+            Err(error) => {
+                self.clear_owner_ward_bytes();
+                return Err(error);
+            }
+        };
+        if decoded.player_id != player_id || decoded.view_epoch != self.view_epoch {
+            self.clear_owner_ward_bytes();
+            return Err("OWNER_WARD_OWNER_OR_EPOCH_MISMATCH");
+        }
+        self.owner_ward_projection = bytes.to_vec();
+        self.owner_ward_verified = bytes.to_vec();
+        self.owner_ward_player = decoded.player_id;
+        self.owner_ward_epoch = decoded.view_epoch;
+        self.owner_ward_revision = decoded.revision;
+        Ok(())
+    }
+
+    /// Drops usable capability. The last verified owner, session, epoch, tick,
+    /// and revision stay where the last accepted envelope left them.
+    fn reject_unverified_owner_ward(&mut self) {
+        self.owner_ward_projection.clear();
+        if self.owner_ward_player != 0 || self.owner_ward_session != 0 {
+            self.owner_ward_needs_recovery = true;
+        }
+    }
+
+    fn clear_owner_ward_bytes(&mut self) {
+        self.owner_ward_projection.clear();
+    }
+
+    fn clear_owner_ward(&mut self) {
+        self.owner_ward_projection.clear();
+        self.owner_ward_verified.clear();
+        self.owner_ward_player = 0;
+        self.owner_ward_epoch = 0;
+        self.owner_ward_session = 0;
+        self.owner_ward_tick = 0;
+        self.owner_ward_revision = 0;
+        self.owner_ward_needs_recovery = false;
+    }
+
+    fn restore_owner_ward_bootstrap(
+        &mut self,
+        start: &game_proto::TeamGameStart,
+    ) -> Result<(), ReplicaRuntimeError> {
+        let negotiated = crate::runtime::ward_transport::negotiate_ward_protocol(
+            start.ward_protocol_version,
+            &start.ward_rules_hash,
+        )
+        .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        if !negotiated {
+            // Version 0 is an explicit disable and must not smuggle a projection.
+            // Any other unsupported version, including previously accepted protocol 2,
+            // disables only ward. Its payload is not decoded and does not fail bootstrap.
+            let carries = start.owner_ward_envelope.is_some() || !start.owner_ward_projection.is_empty();
+            if start.ward_protocol_version == 0 && carries {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+            self.clear_owner_ward();
+            return Ok(());
+        }
+        let Some(envelope) = start.owner_ward_envelope.as_ref() else {
+            return Err(ReplicaRuntimeError::MalformedBaseline);
+        };
+        if start.player_id == 0 || envelope.projection.as_slice() != start.owner_ward_projection.as_slice() {
+            return Err(ReplicaRuntimeError::MalformedBaseline);
+        }
+        let opened = crate::runtime::ward_transport::open_owner_ward_envelope(envelope)
+            .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        let epoch = start.view_epoch.as_ref().map_or(0, |epoch| epoch.value);
+        let tick = crate::runtime::ward_transport::owner_ward_bootstrap_tick(start);
+        if envelope.player_id != start.player_id
+            || envelope.view_epoch != epoch
+            || envelope.authoritative_tick != tick
+        {
+            return Err(ReplicaRuntimeError::MalformedBaseline);
+        }
+        let (bytes, revision) = match opened {
+            crate::runtime::ward_transport::OwnerWardEnvelopeBody::Clear => (Vec::new(), 0),
+            crate::runtime::ward_transport::OwnerWardEnvelopeBody::Apply { projection, .. } => {
+                (envelope.projection.clone(), projection.revision)
+            }
+        };
+        self.owner_ward_projection = bytes.clone();
+        self.owner_ward_verified = bytes;
+        self.owner_ward_player = envelope.player_id;
+        self.owner_ward_epoch = epoch;
+        self.owner_ward_session = envelope.session_id;
+        self.owner_ward_tick = tick;
+        self.owner_ward_revision = revision;
+        self.owner_ward_needs_recovery = false;
+        Ok(())
     }
 
     pub fn stall_state(&self) -> &ReplicaStallState {
@@ -333,6 +561,11 @@ impl SelectiveReplicaRuntime {
         };
         runtime.expected_replica_tick = start.replica_start_tick;
         runtime.global_seed = start.global_seed;
+        runtime.owner_undo_hash_material = retained_owner_undo_for_bootstrap(start, snapshot)?;
+        runtime.restore_owner_ward_bootstrap(start)?;
+        super::combat_transport::decode_projection(start.combat_preferences.as_ref(), runtime.view_epoch)
+            .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        runtime.combat_preferences = start.combat_preferences.clone();
         Ok(runtime)
     }
 
@@ -342,6 +575,15 @@ impl SelectiveReplicaRuntime {
 
     pub fn view_epoch(&self) -> u64 {
         self.view_epoch
+    }
+
+    pub fn combat_preferences_for_owner(&self, owner: u32) -> Option<super::combat_controls::OwnerCombatPreferences> {
+        super::combat_transport::decode_projection(self.combat_preferences.as_ref(), self.view_epoch)
+            .ok()?.get(&owner).copied()
+    }
+
+    pub fn input_scheme_for_owner(&self, owner: u32) -> Option<super::input_scheme_transport::AdmittedOwnerInputScheme> {
+        super::input_scheme_transport::for_owner(self.combat_preferences.as_ref(),self.view_epoch,owner)
     }
 
     pub fn next_replica_tick(&self) -> u64 {
@@ -475,10 +717,19 @@ impl SelectiveReplicaRuntime {
             .as_ref()
             .map_or(0, |revision| revision.value);
         let staged_baselines = {
+            super::combat_transport::decode_projection(frame.combat_preferences.as_ref(), frame_view_epoch)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            super::input_scheme_transport::decode_direction_steps(frame.combat_preferences.as_ref(), frame_view_epoch, self.expected_replica_tick)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
             let staging = ReplicaPhaseGuard::enter(clock, ReplicaStagePhase::Staging);
             self.preflight_entity_references(&frame)?;
             self.apply_pre_step(frame.pre_step.as_ref(), frame_revision)?;
             self.last_injections = self.inject_step(frame.step.as_ref())?;
+            self.last_injections.combat_preferences = frame.combat_preferences.clone();
+            self.combat_preferences = frame.combat_preferences.clone();
+            self.owner_undo_hash_material = crate::runtime::shop_undo_wire::owner_undo_hash_material(
+                frame.step.as_ref().map(|step| step.public_events.as_slice()).unwrap_or(&[]),
+            );
             // Reveal/Replace baselines are captured from the authoritative world
             // after this replica tick has already executed. Keep them out of the
             // local step for this frame, then merge them back as the tick result.
@@ -553,6 +804,11 @@ impl SelectiveReplicaRuntime {
             durations.fixed_step_detail = fixed_step_detail;
             self.stage_profile = Some(durations);
         }
+        self.presented_mode = frame.authoritative_mode.filter(|mode| {
+            super::authoritative_mode::accepted(Some(mode), frame_view_epoch)
+                != super::authoritative_mode::UNAVAILABLE
+        });
+        self.combat_preferences = frame.combat_preferences;
         Ok(FrameApplyResult::Applied {
             replica_tick: frame.replica_tick,
             team_sequence: frame.team_sequence,
@@ -633,6 +889,20 @@ impl SelectiveReplicaRuntime {
         }
         if let Some(step) = &frame.step {
             for input in &step.accepted_inputs {
+                super::direction_transport::reject_kind_alias(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+                if input.action_kind==super::direction_transport::ACTION_KIND {
+                    super::direction_transport::validate_projected_ack(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+                    if !super::direction_transport::available(frame.combat_preferences.as_ref(),frame.view_epoch.as_ref().map_or(0,|epoch|epoch.value),input.player_id) {
+                        return Err(ReplicaRuntimeError::WrongTeam);
+                    }
+                }
+                if super::input_scheme_transport::is_owner_setting_action(input.action_kind) {
+                    super::input_scheme_transport::validate_owner_setting_ack(input).map_err(|_| ReplicaRuntimeError::Decode)?;
+                    if !super::input_scheme_transport::owner_setting_available(frame.combat_preferences.as_ref(),frame.view_epoch.as_ref().map_or(0,|epoch|epoch.value),input.action_kind,input.player_id) {
+                        return Err(ReplicaRuntimeError::WrongTeam);
+                    }
+                    continue;
+                }
                 let actor = input.actor.as_ref().map_or(0, |id| id.value);
                 if actor == 0 || !entities.contains(&actor) {
                     self.last_apply_fault = Some(ReplicaApplyFault {
@@ -942,6 +1212,14 @@ impl SelectiveReplicaRuntime {
             return Ok(StepInjections::default());
         };
         for input in &step.accepted_inputs {
+            super::direction_transport::reject_kind_alias(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+            if input.action_kind==super::direction_transport::ACTION_KIND {
+                super::direction_transport::validate_projected_ack(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+            }
+            if super::input_scheme_transport::is_owner_setting_action(input.action_kind) {
+                super::input_scheme_transport::validate_owner_setting_ack(input).map_err(|_| ReplicaRuntimeError::Decode)?;
+                continue;
+            }
             let actor = input.actor.as_ref().map_or(0, |id| id.value);
             if actor == 0 || !self.world.entities.contains_key(&actor) {
                 self.last_apply_fault = Some(ReplicaApplyFault {
@@ -1005,6 +1283,7 @@ impl SelectiveReplicaRuntime {
             public_events: step.public_events.clone(),
             random_tapes: step.random_tapes.clone(),
             external_effects: step.external_effects.clone(),
+            combat_preferences: None,
         })
     }
 
@@ -1186,7 +1465,7 @@ impl SelectiveReplicaRuntime {
 
     pub fn canonical_team_hash(&self) -> [u8; 32] {
         let mut digest = Sha256::new();
-        digest.update(b"omoba-canonical-team-view-v1\0");
+        digest.update(crate::runtime::shop_undo_wire::CANONICAL_TEAM_VIEW_DOMAIN);
         digest.update(self.team_id.to_be_bytes());
         digest.update(self.world.tick.to_be_bytes());
         for (replica_id, entity) in &self.world.entities {
@@ -1208,6 +1487,8 @@ impl SelectiveReplicaRuntime {
                 digest.update(bytes);
             }
         }
+        crate::runtime::shop_undo_wire::mix_team_undo_material(&mut digest, &self.owner_undo_hash_material);
+        super::combat_transport::mix_projection_hash(&mut digest, self.combat_preferences.as_ref());
         digest.finalize().into()
     }
 
@@ -1239,6 +1520,10 @@ impl SelectiveReplicaRuntime {
                 .filter(|(_, presentation)| !presentation.is_empty())
                 .map(|(key, presentation)| (*key, presentation.clone()))
                 .collect(),
+            disclosed_summoners: super::summoner_transport::DisclosedSummonerProjection::default(),
+            authoritative_mode: self.presented_mode.clone(),
+            combat_preferences: self.combat_preferences.clone(),
+            hero_attributes: BTreeMap::new(),
         }
     }
 
@@ -1277,6 +1562,10 @@ impl SelectiveReplicaRuntime {
         {
             return Err(ReplicaRuntimeError::UnverifiedRebase);
         }
+        let retained_owner_undo = retained_owner_undo_for_rebase(snapshot, manifest)?;
+        super::combat_transport::decode_projection(manifest.combat_preferences.as_ref(),
+            manifest.view_epoch.as_ref().map_or(0, |epoch| epoch.value))
+            .map_err(|_| ReplicaRuntimeError::UnverifiedRebase)?;
         let entities = decode_disclosed_world(verified_snapshot_bytes, &self.component_allowlist)?;
         self.world = DisclosedReplicaWorld {
             tick: snapshot.authoritative_tick,
@@ -1288,14 +1577,79 @@ impl SelectiveReplicaRuntime {
         self.expected_replica_tick = snapshot.authoritative_tick;
         self.expected_team_sequence = manifest.resume_team_sequence;
         self.last_injections = StepInjections::default();
+        self.owner_undo_hash_material = retained_owner_undo;
+        // The rebase manifest stays free of private charges. Keep the bound
+        // session and require a newer verified owner envelope to restore.
+        let session = self.owner_ward_session;
+        let player = self.owner_ward_player;
+        self.owner_ward_projection.clear();
+        self.owner_ward_verified.clear();
+        self.owner_ward_session = session;
+        self.owner_ward_epoch = self.view_epoch;
+        self.owner_ward_tick = snapshot.authoritative_tick;
+        self.owner_ward_revision = 0;
+        self.owner_ward_needs_recovery = session != 0 || player != 0;
         self.memory_directives.clear();
         self.remembered_presentations.clear();
         self.applied_transition_revisions.clear();
         self.retired_replica_filter.fill(0);
         self.stall = ReplicaStallState::Running;
         self.stage_profile = None;
+        self.presented_mode = None;
+        self.combat_preferences = manifest.combat_preferences.clone();
         Ok(())
     }
+}
+
+fn retained_owner_undo_for_bootstrap(
+    start: &game_proto::TeamGameStart,
+    snapshot: &game_proto::FilteredTeamSnapshot,
+) -> Result<Vec<u8>, ReplicaRuntimeError> {
+    if crate::runtime::shop_undo_wire::metadata_declares_owner_undo(&start.public_metadata)
+        || crate::runtime::shop_undo_wire::metadata_declares_owner_undo(&snapshot.public_metadata)
+    {
+        return Err(ReplicaRuntimeError::MalformedBaseline);
+    }
+    let from_start = crate::runtime::shop_undo_wire::retained_owner_undo_from_metadata(
+        &start.team_private_metadata,
+    )
+    .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+    let from_snapshot = crate::runtime::shop_undo_wire::retained_owner_undo_from_metadata(
+        &snapshot.team_private_metadata,
+    )
+    .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+    if from_start != from_snapshot {
+        return Err(ReplicaRuntimeError::MalformedBaseline);
+    }
+    Ok(from_start)
+}
+
+/// The verified manifest is authoritative. Snapshot metadata may echo the same
+/// bytes and must not contradict them. Omitting the echo is the chunk-reassembly
+/// path, which has no private metadata of its own. A public-channel copy fails.
+fn retained_owner_undo_for_rebase(
+    snapshot: &game_proto::FilteredTeamSnapshot,
+    manifest: &game_proto::TeamViewRebase,
+) -> Result<Vec<u8>, ReplicaRuntimeError> {
+    if crate::runtime::shop_undo_wire::metadata_declares_owner_undo(&snapshot.public_metadata) {
+        return Err(ReplicaRuntimeError::MalformedBaseline);
+    }
+    let echoed = crate::runtime::shop_undo_wire::retained_owner_undo_from_metadata(
+        &snapshot.team_private_metadata,
+    )
+    .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+    let retained = if manifest.retained_owner_undo_material.is_empty() {
+        Vec::new()
+    } else {
+        crate::runtime::shop_undo_wire::canonical_retained_owner_undo_material(
+            &manifest.retained_owner_undo_material,
+        )
+        .ok_or(ReplicaRuntimeError::UnverifiedRebase)?
+    };
+    if !echoed.is_empty() && echoed != retained {
+        return Err(ReplicaRuntimeError::UnverifiedRebase);
+    }
+    Ok(retained)
 }
 
 fn post_tick_baseline_ids(pre_step: Option<&PreStep>) -> BTreeSet<u64> {
@@ -1427,6 +1781,7 @@ mod replica_stage_tests {
             step: Some(Step::default()),
             post_step: Some(PostStep::default()),
             padding: Vec::new(),
+            authoritative_mode: None, combat_preferences: None,
         }
         .encode_to_vec()
     }
@@ -1542,5 +1897,198 @@ mod replica_stage_tests {
         assert!(runtime.take_stage_profile().is_none());
         assert_eq!(runtime.canonical_team_hash(), after_recovered);
         assert!(runtime.world().resources.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod owner_undo_baseline_tests {
+    use super::{NoopDisclosedWorldStepper, SelectiveReplicaRuntime};
+    use crate::game_proto::{FilteredTeamSnapshot, TeamViewRebase, TeamViewRebaseChunk};
+    use crate::runtime::shop::{UNDO_REASON_CAN_UNDO, UNDO_REASON_RETIRED};
+    use crate::runtime::shop_undo_wire::{
+        metadata_declares_owner_undo, owner_undo_hash_material, retained_owner_undo_from_metadata,
+        OwnerShopUndoProjection, OWNER_UNDO_RETAINED_NAMESPACE,
+    };
+    use crate::runtime::{
+        verify_snapshot_manifest, FactAudience, FactKind, FactOrderingKey, FactPhase, FrameApplyResult,
+        IncompleteSnapshotStaging, ObservableFact, OrderedFact, ProjectionDependencyGraph,
+        TeamProjectorConfig, TeamViewProjector,
+    };
+    use std::collections::BTreeSet;
+
+    fn allow() -> BTreeSet<u32> {
+        BTreeSet::new()
+    }
+
+    fn undo_fact(phase: u8, can_undo: bool, reason: u8, sequence: u64) -> OrderedFact {
+        OrderedFact {
+            key: FactOrderingKey {
+                tick: 1,
+                phase: if phase == 0 { FactPhase::PreStep } else { FactPhase::PostStep },
+                canonical_source_order: 0,
+                local_ordinal: u32::from(phase),
+                fact_kind: FactKind::OwnerShopUndo,
+            },
+            audience: FactAudience::Team(1),
+            fact: ObservableFact::OwnerShopUndo {
+                team: 1,
+                state: OwnerShopUndoProjection {
+                    phase,
+                    player_id: 7,
+                    can_undo,
+                    reason,
+                    newest_sequence: sequence,
+                    commitment: [9; 32],
+                },
+            },
+        }
+    }
+
+    fn bootstrap(start: &crate::game_proto::TeamGameStart) -> Result<SelectiveReplicaRuntime, super::ReplicaRuntimeError> {
+        SelectiveReplicaRuntime::bootstrap_from_team_game_start(start, allow(), BTreeSet::new())
+    }
+
+    fn undo_slot(entries: &mut [crate::game_proto::DeterministicMetadata]) -> &mut crate::game_proto::DeterministicMetadata {
+        entries.iter_mut().find(|entry| entry.namespace == OWNER_UNDO_RETAINED_NAMESPACE).expect("retained owner undo")
+    }
+
+    fn assemble(manifest: &TeamViewRebase, chunks: &[TeamViewRebaseChunk]) -> (FilteredTeamSnapshot, Vec<u8>) {
+        let mut staging = IncompleteSnapshotStaging::default();
+        staging.begin(manifest.snapshot_id.clone().expect("snapshot id"), chunks.len() as u32);
+        for chunk in chunks {
+            assert!(staging.insert(chunk), "rebase chunk");
+        }
+        let bytes = staging.finish(manifest).expect("verified rebase bytes");
+        let snapshot = FilteredTeamSnapshot {
+            snapshot_schema_version: manifest.snapshot_schema_version,
+            snapshot_id: manifest.snapshot_id.clone(),
+            team_id: manifest.team_id,
+            view_epoch: manifest.view_epoch.clone(),
+            authoritative_tick: manifest.authoritative_tick,
+            disclosed_world: bytes.clone(),
+            public_metadata: Vec::new(),
+            team_private_metadata: Vec::new(),
+            filtered_snapshot_hash: manifest.filtered_snapshot_hash.clone(),
+        };
+        (snapshot, bytes)
+    }
+
+    #[test]
+    fn continuing_purchase_bootstrap_rebase_and_retirement_share_one_hash() {
+        let graph = ProjectionDependencyGraph::default();
+        let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+        let baseline = projector.build_team_game_start(1, 120, 9);
+        let mut continued = bootstrap(&baseline).expect("empty baseline");
+        assert!(retained_owner_undo_from_metadata(&baseline.team_private_metadata).unwrap().is_empty());
+
+        let frame = projector
+            .build_frame(1, 1, &BTreeSet::new(), vec![], &[undo_fact(1, true, UNDO_REASON_CAN_UNDO, 4)], &graph)
+            .expect("purchase frame");
+        let events = frame.frame.step.as_ref().unwrap().public_events.clone();
+        let purchase = events.iter().find(|event| event.event_kind == FactKind::OwnerShopUndo as u32).expect("owner undo fact");
+        let decoded = OwnerShopUndoProjection::decode(&purchase.sanitized_payload).expect("purchase projection");
+        assert!(decoded.can_undo && decoded.player_id == 7 && decoded.newest_sequence == 4);
+        assert!(matches!(
+            continued.apply_frame(frame.frame, &mut NoopDisclosedWorldStepper).unwrap(),
+            FrameApplyResult::Applied { .. }
+        ));
+        let purchased = projector.build_team_game_start(2, 120, 9);
+        let fresh = bootstrap(&purchased).expect("purchase baseline");
+        assert_eq!(continued.canonical_team_hash(), fresh.canonical_team_hash());
+        assert_eq!(
+            retained_owner_undo_from_metadata(&purchased.team_private_metadata).unwrap(),
+            owner_undo_hash_material(&events)
+        );
+        let mut stripped = purchased.clone();
+        stripped.team_private_metadata.retain(|entry| entry.namespace != OWNER_UNDO_RETAINED_NAMESPACE);
+        stripped.filtered_snapshot.as_mut().unwrap().team_private_metadata.retain(|entry| entry.namespace != OWNER_UNDO_RETAINED_NAMESPACE);
+        assert_ne!(bootstrap(&stripped).unwrap().canonical_team_hash(), continued.canonical_team_hash());
+
+        let mut enemy = TeamViewProjector::new(2, TeamProjectorConfig::default());
+        let enemy_frame = enemy
+            .build_frame(1, 1, &BTreeSet::new(), vec![], &[undo_fact(1, true, UNDO_REASON_CAN_UNDO, 4)], &graph)
+            .unwrap();
+        assert!(enemy_frame.frame.step.unwrap().public_events.iter().all(|event| event.event_kind != FactKind::OwnerShopUndo as u32));
+        let enemy_start = enemy.build_team_game_start(2, 120, 9);
+        let quiet = TeamViewProjector::new(2, TeamProjectorConfig::default()).build_team_game_start(2, 120, 9);
+        assert!(retained_owner_undo_from_metadata(&enemy_start.team_private_metadata).unwrap().is_empty());
+        assert_eq!(bootstrap(&enemy_start).unwrap().canonical_team_hash(), bootstrap(&quiet).unwrap().canonical_team_hash());
+
+        let bundle = projector.build_filtered_rebase(2, 2, 1).expect("purchase rebase");
+        assert_eq!(bundle.manifest.retained_owner_undo_material, owner_undo_hash_material(&events));
+        assert!(verify_snapshot_manifest(&bundle.manifest));
+        let (snapshot, bytes) = assemble(&bundle.manifest, &bundle.chunks);
+        let mut rejoined = SelectiveReplicaRuntime::new(1, 0, 0, 1, allow(), BTreeSet::new());
+        rejoined.apply_verified_rebase(&snapshot, &bundle.manifest, &bytes).expect("rejoin");
+        assert_eq!(rejoined.canonical_team_hash(), fresh.canonical_team_hash());
+
+        let mut contradicted = snapshot.clone();
+        contradicted.team_private_metadata = purchased.team_private_metadata.clone();
+        let commitment_at = 4 + 8 + 16;
+        undo_slot(&mut contradicted.team_private_metadata).value[commitment_at] ^= 0xff;
+        let mut untouched = SelectiveReplicaRuntime::new(1, 0, 0, 1, allow(), BTreeSet::new());
+        assert!(untouched.apply_verified_rebase(&contradicted, &bundle.manifest, &bytes).is_err());
+        assert_eq!(untouched.world().tick, 0);
+        assert_ne!(untouched.canonical_team_hash(), fresh.canonical_team_hash());
+        let mut truncated_echo = snapshot.clone();
+        truncated_echo.team_private_metadata = purchased.team_private_metadata.clone();
+        undo_slot(&mut truncated_echo.team_private_metadata).value.pop();
+        assert!(untouched.apply_verified_rebase(&truncated_echo, &bundle.manifest, &bytes).is_err());
+        assert_eq!(untouched.world().tick, 0);
+
+        let mut bad_manifest = bundle.manifest.clone();
+        bad_manifest.retained_owner_undo_material.push(0);
+        bad_manifest.manifest_hash = crate::runtime::manifest_hash(&bad_manifest).to_vec();
+        assert!(!verify_snapshot_manifest(&bad_manifest));
+        assert!(untouched.apply_verified_rebase(&snapshot, &bad_manifest, &bytes).is_err());
+
+        let mut truncated = purchased.clone();
+        undo_slot(&mut truncated.team_private_metadata).value.pop();
+        undo_slot(&mut truncated.filtered_snapshot.as_mut().unwrap().team_private_metadata).value.pop();
+        assert!(bootstrap(&truncated).is_err());
+        let mut one_sided = purchased.clone();
+        undo_slot(&mut one_sided.team_private_metadata).value.pop();
+        assert!(bootstrap(&one_sided).is_err());
+        let mut duplicate = purchased.clone();
+        let extra = undo_slot(&mut duplicate.team_private_metadata).clone();
+        duplicate.team_private_metadata.push(extra.clone());
+        duplicate.filtered_snapshot.as_mut().unwrap().team_private_metadata.push(extra);
+        assert!(bootstrap(&duplicate).is_err());
+        let mut public = purchased.clone();
+        let leaked = undo_slot(&mut public.team_private_metadata).clone();
+        public.public_metadata.push(leaked);
+        assert!(metadata_declares_owner_undo(&public.public_metadata));
+        assert!(bootstrap(&public).is_err());
+
+        let retired = projector
+            .build_frame(2, 2, &BTreeSet::new(), vec![], &[undo_fact(1, false, UNDO_REASON_RETIRED, 0)], &graph)
+            .expect("retired frame");
+        assert!(matches!(
+            continued.apply_frame(retired.frame, &mut NoopDisclosedWorldStepper).unwrap(),
+            FrameApplyResult::Applied { .. }
+        ));
+        let retired_start = projector.build_team_game_start(3, 120, 9);
+        assert!(!retained_owner_undo_from_metadata(&retired_start.team_private_metadata).unwrap().is_empty());
+        assert_eq!(continued.canonical_team_hash(), bootstrap(&retired_start).unwrap().canonical_team_hash());
+
+        let cleared_frame = projector
+            .build_frame(3, 3, &BTreeSet::new(), vec![], &[], &graph)
+            .expect("cleared frame");
+        assert!(matches!(
+            continued.apply_frame(cleared_frame.frame, &mut NoopDisclosedWorldStepper).unwrap(),
+            FrameApplyResult::Applied { .. }
+        ));
+        let cleared = projector.build_team_game_start(4, 120, 9);
+        assert!(retained_owner_undo_from_metadata(&cleared.team_private_metadata).unwrap().is_empty());
+        assert!(cleared.filtered_snapshot.as_ref().unwrap().team_private_metadata.iter().all(|entry| entry.namespace != OWNER_UNDO_RETAINED_NAMESPACE));
+        let cleared_fresh = bootstrap(&cleared).unwrap();
+        assert_eq!(continued.canonical_team_hash(), cleared_fresh.canonical_team_hash());
+        let clear_bundle = projector.build_filtered_rebase(4, 4, 1).expect("cleared rebase");
+        assert!(clear_bundle.manifest.retained_owner_undo_material.is_empty());
+        assert_eq!(crate::runtime::manifest_hash(&clear_bundle.manifest).as_slice(), clear_bundle.manifest.manifest_hash.as_slice());
+        let (clear_snapshot, clear_bytes) = assemble(&clear_bundle.manifest, &clear_bundle.chunks);
+        let mut rejoined_clear = SelectiveReplicaRuntime::new(1, 0, 0, 1, allow(), BTreeSet::new());
+        rejoined_clear.apply_verified_rebase(&clear_snapshot, &clear_bundle.manifest, &clear_bytes).unwrap();
+        assert_eq!(rejoined_clear.canonical_team_hash(), cleared_fresh.canonical_team_hash());
     }
 }

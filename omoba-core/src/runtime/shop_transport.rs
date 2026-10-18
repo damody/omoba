@@ -1,7 +1,28 @@
 //! Transport catalog agreement. Not a gameplay resource or purchase capability.
 pub const SHOP_CATALOG_VERSION: u32 = 1;
-/// Explicit opt-in to owner-scoped transactions and read-only result recovery.
+/// Explicit opt-in to owner-scoped buy/sell and read-only result recovery.
+/// Version 1 has no undo capability.
 pub const SHOP_PROTOCOL_VERSION: u32 = 1;
+/// Buy/sell plus correlated undo. Same rules hash and catalog agreement as version 1.
+pub const SHOP_UNDO_PROTOCOL_VERSION: u32 = 2;
+
+/// Bootstrap echo. Undo implies transactions. Unknown combinations stay off.
+pub fn echoed_shop_protocol_version(transactions: bool, undo: bool) -> u32 {
+    if undo && transactions {
+        SHOP_UNDO_PROTOCOL_VERSION
+    } else if transactions {
+        SHOP_PROTOCOL_VERSION
+    } else {
+        0
+    }
+}
+
+pub fn catalog_id_for_item(item_id: &str) -> u32 {
+    omoba_template_ids::MOBA_ITEM_CATALOG
+        .iter()
+        .find(|item| item.id == item_id)
+        .map_or(0, |item| u32::from(item.catalog_id))
+}
 
 pub fn item_id_for_catalog(catalog_id: u32) -> Option<&'static str> {
     let id = u16::try_from(catalog_id).ok()?;
@@ -19,13 +40,44 @@ pub fn negotiate_shop_protocol(
     if version == 0 && rules_hash.is_empty() {
         return Ok(false);
     }
-    if version != SHOP_PROTOCOL_VERSION {
+    if version != SHOP_PROTOCOL_VERSION && version != SHOP_UNDO_PROTOCOL_VERSION {
         return Err("SHOP_PROTOCOL_VERSION_MISMATCH");
     }
     if !catalog_agreed || rules_hash != omoba_template_ids::CONTENT_CATALOG_DATA_HASH {
         return Err("SHOP_RULES_HASH_MISMATCH");
     }
     Ok(true)
+}
+
+/// Undo capability. Version 1 is an explicit absence, not an error.
+/// Version 0 with an empty hash stays disabled. Any other mismatch fails closed.
+pub fn negotiate_shop_undo_protocol(
+    version: u32,
+    rules_hash: &str,
+    catalog_agreed: bool,
+) -> Result<bool, &'static str> {
+    if version == 0 && rules_hash.is_empty() {
+        return Ok(false);
+    }
+    if version == SHOP_PROTOCOL_VERSION {
+        negotiate_shop_protocol(version, rules_hash, catalog_agreed)?;
+        return Ok(false);
+    }
+    if version != SHOP_UNDO_PROTOCOL_VERSION {
+        return Err("SHOP_PROTOCOL_VERSION_MISMATCH");
+    }
+    if !catalog_agreed || rules_hash != omoba_template_ids::CONTENT_CATALOG_DATA_HASH {
+        return Err("SHOP_RULES_HASH_MISMATCH");
+    }
+    Ok(true)
+}
+
+/// Session capability from the server echo. Version 1 keeps buy/sell and leaves undo off.
+/// Unknown versions and a bad rules hash fail closed for both.
+pub fn shop_capability_from_echo(version: u32, rules_hash: &str) -> Result<(bool, bool), &'static str> {
+    let transactions = negotiate_shop_protocol(version, rules_hash, true)?;
+    let undo = negotiate_shop_undo_protocol(version, rules_hash, true)?;
+    Ok((transactions, undo && transactions))
 }
 
 /// Transport-only budget. Caller supplies monotonic session elapsed time;
@@ -104,13 +156,29 @@ mod tests {
         let hash = omoba_template_ids::CONTENT_CATALOG_DATA_HASH;
         assert_eq!(negotiate_shop_protocol(0, "", false), Ok(false));
         assert_eq!(negotiate_shop_protocol(1, hash, true), Ok(true));
+        assert_eq!(negotiate_shop_protocol(SHOP_UNDO_PROTOCOL_VERSION, hash, true), Ok(true));
+        assert_eq!(negotiate_shop_undo_protocol(0, "", false), Ok(false));
+        assert_eq!(negotiate_shop_undo_protocol(1, hash, true), Ok(false));
+        assert_eq!(negotiate_shop_undo_protocol(SHOP_UNDO_PROTOCOL_VERSION, hash, true), Ok(true));
+        assert_eq!(echoed_shop_protocol_version(true, false), SHOP_PROTOCOL_VERSION);
+        assert_eq!(echoed_shop_protocol_version(true, true), SHOP_UNDO_PROTOCOL_VERSION);
+        assert_eq!(echoed_shop_protocol_version(false, false), 0);
+        assert_eq!(echoed_shop_protocol_version(false, true), 0);
+        assert_eq!(shop_capability_from_echo(0, ""), Ok((false, false)));
+        assert_eq!(shop_capability_from_echo(SHOP_PROTOCOL_VERSION, hash), Ok((true, false)));
+        assert_eq!(shop_capability_from_echo(SHOP_UNDO_PROTOCOL_VERSION, hash), Ok((true, true)));
+        assert!(shop_capability_from_echo(3, hash).is_err());
+        assert!(shop_capability_from_echo(SHOP_UNDO_PROTOCOL_VERSION, "old").is_err());
         for (version, hash, catalog) in [
             (0, hash, true),
-            (2, hash, true),
+            (3, hash, true),
             (1, "old", true),
             (1, hash, false),
+            (2, "old", true),
+            (2, hash, false),
         ] {
             assert!(negotiate_shop_protocol(version, hash, catalog).is_err());
+            assert!(negotiate_shop_undo_protocol(version, hash, catalog).is_err());
         }
         let mut budget = ShopQueryBudget::default();
         for _ in 0..8 {

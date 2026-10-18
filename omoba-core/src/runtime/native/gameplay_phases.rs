@@ -11,6 +11,7 @@ pub enum DeterministicGameplayPhase {
     ItemUses,
     AbilityUpgrades,
     AbilityCasts,
+    SummonerCasts,
     Moves,
     PreScriptOutcomes,
     TowerUpgrades,
@@ -32,6 +33,7 @@ pub const DETERMINISTIC_GAMEPLAY_PHASES: &[DeterministicGameplayPhase] = &[
     DeterministicGameplayPhase::ItemUses,
     DeterministicGameplayPhase::AbilityUpgrades,
     DeterministicGameplayPhase::AbilityCasts,
+    DeterministicGameplayPhase::SummonerCasts,
     DeterministicGameplayPhase::Moves,
     DeterministicGameplayPhase::PreScriptOutcomes,
     DeterministicGameplayPhase::TowerUpgrades,
@@ -66,4 +68,23 @@ pub fn run_deterministic_gameplay_phases<C: DeterministicGameplayContext>(
         context.run_phase(*phase)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summoner_phase_index_matches_table_between_ability_casts_and_moves() {
+        let phases = DETERMINISTIC_GAMEPLAY_PHASES;
+        assert_eq!(phases.len(), 19);
+        let casts = phases.iter().position(|phase| *phase == DeterministicGameplayPhase::AbilityCasts).unwrap();
+        let summoners = phases.iter().position(|phase| *phase == DeterministicGameplayPhase::SummonerCasts).unwrap();
+        let moves = phases.iter().position(|phase| *phase == DeterministicGameplayPhase::Moves).unwrap();
+        assert_eq!(summoners, casts + 1);
+        assert_eq!(moves, summoners + 1);
+        assert_eq!(DeterministicGameplayPhase::SummonerCasts as usize, summoners);
+        assert_eq!(phases.first(), Some(&DeterministicGameplayPhase::Dispatcher));
+        assert_eq!(phases.last(), Some(&DeterministicGameplayPhase::PostScriptOutcomes));
+    }
 }

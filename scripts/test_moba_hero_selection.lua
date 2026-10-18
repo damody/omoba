@@ -14,6 +14,12 @@ local function reply()
     selection={catalog_data_hash='testhash',ready=true,finalized=true},
     plan=launch.select_heroes(baseline,{[1]='training_ranger'})}
 end
+local function reply_with(plan)
+  local value=reply()
+  value.plan=plan
+  value.selection.summoner_loadouts=plan.summoner_loadouts
+  return value
+end
 local total=0
 local function test(name,fn) fn();total=total+1;print('PASS '..name) end
 local function rejects(fn) assert(not pcall(fn),'expected rejection') end
@@ -33,14 +39,30 @@ test('finalized handoff changes only the bound human hero',function()
     function(r) r.plan.players[2].hero='training_ranger' end,
     function(r) r.plan.players[1].team_id=2 end,
     function(r) r.plan.think_hz=60 end,
+    function(r) r.plan.summoner_loadouts={['1']={'training_point_blink_v1',json.null}} end,
+    function(r) r.selection.summoner_loadouts={['1']={'training_self_heal_v1',json.null}} end,
+    function(r) r.plan.summoner_loadouts=json.null end,
+    function(r) r.selection.summoner_loadouts=json.null end,
   }) do local r=reply();mutate(r);rejects(function() launch.selection_result(r,baseline,1,'testhash') end) end
+  local equipped=launch.select_heroes(baseline,{[1]='training_ranger'})
+  equipped.summoner_loadouts={['1']={'training_point_blink_v1',json.null}}
+  local source=launch.select_heroes(baseline,{})
+  source.summoner_loadouts={['1']={'training_point_blink_v1',json.null}}
+  local selected=launch.selection_result(reply_with(equipped),source,1,'testhash')
+  assert(selected.summoner_loadouts['1'][1]=='training_point_blink_v1')
+  local omitted=launch.select_heroes(baseline,{})
+  omitted.summoner_loadouts={}
+  assert(launch.selection_result(reply_with(launch.select_heroes(baseline,{[1]='training_ranger'})),omitted,1,'testhash'))
 end)
 
 local function execute(name,mode)
   local options=launch.options({'--interactive-selection','--profile','debug','--hero','1=training_vanguard',
     '--output',path.join(root,name)})
   if mode=='completion-timeout' then options.selection_timeout_seconds=1 end
+  if mode=='old' then options.editor_ready_timeout_seconds=1 end
+  if mode=='cold-ready' then options.editor_ready_timeout_seconds=90;options.selection_timeout_seconds=120 end
   local elapsed=0
+  local cold_log
   local slept,spawned,stopped=false,false,false
   local fake={run=function(_,args)
     assert(args[1]=='--lock-plan')
@@ -56,11 +78,12 @@ local function execute(name,mode)
       assert(not a:find('om-presentation=',1,true),'gameplay runtime started during selection')
       result=result or a:match('^%-om%-selection%-result=(.*)$')
       local log=a:match('^%-abslog=(.*)$')
+      if mode=='cold-ready' then cold_log=log or cold_log end
       if log and mode~='old' then
         local marker='OM_SELECTION_READY player=1 protocol='..(mode=='protocol-prefix' and '10' or '1')
           ..' shared_room='..(mode=='wrong-room' and '1' or '0')
         local prefix=mode=='retired-backlog' and string.rep('startup\n',40000) or ''
-        path.write(log,prefix..marker..(mode=='retired-tail' and '' or '\n'))
+        path.write(log,mode=='cold-ready' and '' or prefix..marker..(mode=='retired-tail' and '' or '\n'))
       end
     end
     assert(result)
@@ -77,13 +100,14 @@ local function execute(name,mode)
     stop=function() assert(mode=='old' or mode=='completion-timeout','must not stop an unrelated or exited process');stopped=true end}
   local fixture
   fake,fixture=require('tests.selection_owned_fixture').wrap(fake)
-  local ok=pcall(launch.interactive_select,options,'mock-editor.exe',fake,
+  local ok,err=pcall(launch.interactive_select,options,'mock-editor.exe',fake,
     {sleep_ms=function(ms) assert(ms==250);slept=true;elapsed=elapsed+ms
+      if mode=='cold-ready' then elapsed=60000;path.write(cold_log,'OM_SELECTION_READY player=1 protocol=1 shared_room=0\n',true) end
       if mode=='reused-success' or mode=='reused-cancel' then fixture.reuse(123) end end,
       monotonic_ms=function() return slept and mode=='old' and 50000 or elapsed end})
   assert(spawned and (slept or mode=='retired-backlog' or mode=='retired-tail'))
-  if mode=='success' or mode=='reused-success' or mode=='retired-backlog' or mode=='retired-tail' then
-    assert(ok and next(options.hero_selections)==nil)
+  if mode=='success' or mode=='reused-success' or mode=='retired-backlog' or mode=='retired-tail' or mode=='cold-ready' then
+    assert(ok and next(options.hero_selections)==nil,tostring(err))
     assert(path.is_file(options.recipe))
     assert(json.read(options.recipe).players[1].hero=='training_ranger')
   else
@@ -117,4 +141,5 @@ test('protocol prefix cannot satisfy single selection handshake',function()execu
 test('shared-room marker cannot satisfy single selection handshake',function()execute('wrong-room','wrong-room')end)
 test('retired producer backlog drains in bounded chunks',function()execute('retired-backlog','retired-backlog')end)
 test('unterminated marker is accepted only after producer retirement',function()execute('retired-tail','retired-tail')end)
+test('cold single renderer handshake after60s within90s startup budget',function()execute('cold-ready','cold-ready')end)
 print(('selection handoff functionality: %d/%d passed; mocked renderer, no match started'):format(total,total))

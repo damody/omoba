@@ -20,6 +20,7 @@ return function(ctx)
       version = meta.catalog.version,
     },
     towers = ctx.include("templates/towers.lua"),
+    world_units = ctx.include("templates/world_units.lua"),
     heroes = ctx.include("templates/heroes.lua"),
     abilities = ctx.include("templates/abilities.lua"),
     buffs = ctx.include("templates/buffs.lua"),
@@ -28,6 +29,9 @@ return function(ctx)
     projectile_kinds = ctx.include("templates/projectile_kinds.lua"),
     td_layers = ctx.include("templates/td_layers.lua"),
     moba_items = ctx.include("templates/moba_items.lua"),
+    moba_summoners = ctx.include("templates/moba_summoners.lua"),
+    moba_trinkets = ctx.include("templates/moba_trinkets.lua"),
+    moba_communication = ctx.include("templates/moba_communication.lua"),
     moba_economy = ctx.include("templates/moba_economy.lua"),
     moba_maps = ctx.include("templates/moba_maps.lua"),
   }

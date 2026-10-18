@@ -1,5 +1,7 @@
 # omoba
 
+換機／接續開發請先讀 [handoff.md](handoff.md)，其中列出2026-10-18的功能進度、工具鏈、建置／驗收方式與限制。可攜驗收摘要位於 [docs/acceptance/2026-10-18-handoff](docs/acceptance/2026-10-18-handoff/README.md)。
+
 `omoba` 是以 Rust 實作的 MOBA / TD 雙模式遊戲。Repo 是 monorepo，權威模擬、script DLL、Fyrox 前端與 Unreal 前端分在多個 Cargo workspace 與 git submodule。
 
 目前的分工是：
@@ -16,15 +18,15 @@
 
 主要在 Windows 上開發。根目錄 `.bat` 只負責呼叫固定的 Lua runtime，建置、DLL staging 與 process lifecycle 都在 `scripts/*.lua`。
 
-這些 `.bat` 目前把 Lua 執行檔寫死成 `D:\code\omoba\tools\lua\lua.exe`，腳本路徑則用 `%~dp0`。Clone 到別的目錄時，要先改這個絕對路徑，或直接用同一支 `lua.exe` 執行對應的 `scripts/*.lua`。請從 `cmd.exe` 啟動 `.bat`。
+四個 `.bat` 以 `%~dp0` 定位此 clone 的 `tools\lua\lua.exe` 與對應腳本、轉送參數並回傳 exit code，不需修改 clone 絕對路徑。請從 `cmd.exe` 啟動 `.bat`。
 
 | 情境 | 指令 | 實際腳本 |
 |---|---|---|
 | 第一次 clone 後拉 submodule | `git submodule update --init --recursive` | `omb`、`omfx`、`omfue`、`erps`、`specs`、`log4rs`、`map_editor`、`mqtt_log_viewer` |
-| 正式 MOBA | 見下方 Lua 指令 | `scripts/run_moba_role_ue.lua`。`compiled-content-only`，Unreal 只呈現 |
+| 正式 MOBA | `run_ue.bat --moba` | `scripts/run_moba_session_ue.lua` 重用正式 role workflow。預設真人選角；全本機真人可於結算準備下一局 |
 | Headless MOBA | 見下方 Lua 指令 | `scripts/run_moba_headless.lua` |
 | Unreal TD | `run_ue.bat` | `scripts/run_ue.lua`。預設單機 `TD_1`，環境關閉 runtime Lua；加 `--networked` 才另起 `compiled-content-only` backend |
-| 雙隊 Unreal IPC | `run_2player_ue.bat` | `scripts/run_2player_ue.lua` |
+| 雙隊 Unreal IPC | `tools\lua\lua.exe scripts\run_2player_ue.lua` | `scripts/run_2player_ue.lua` |
 | 歷史 Fyrox TD | `run.bat` | `scripts/run.lua`。`runtime-lua-content`、`TD_1`、`OMB_NO_HEROES=1`。不再維護 |
 | 歷史 release TD | `run_10000.bat` | `scripts/run_10000.lua`。release `TD_1` 加 `OMB_TD_STARTING_GOLD=10000` |
 | 歷史雙玩家 fog | `run_2player.bat` | `scripts/run_2player_interactive.lua`。兩份 Fyrox renderer |
@@ -34,11 +36,14 @@
 正式 MOBA：
 
 ```bat
-D:\code\omoba\tools\lua\lua.exe scripts\run_moba_role_ue.lua --help
-D:\code\omoba\tools\lua\lua.exe scripts\run_moba_headless.lua
-D:\code\omoba\tools\lua\lua.exe scripts\run_moba_role_ue.lua --hero 1=training_ranger
-D:\code\omoba\tools\lua\lua.exe scripts\run_moba_role_ue.lua --interactive-selection
-D:\code\omoba\tools\lua\lua.exe scripts\run_moba_role_ue.lua --recipe target\role-ue-runs\...\session\match-plan.json
+run_ue.bat --moba
+run_ue.bat --moba --help
+run_ue.bat --moba --interactive-selection --no-build --ue-root D:/UE5.8
+tools\lua\lua.exe scripts\run_moba_role_ue.lua --help
+tools\lua\lua.exe scripts\run_moba_headless.lua
+tools\lua\lua.exe scripts\run_moba_role_ue.lua --hero 1=training_ranger
+tools\lua\lua.exe scripts\run_moba_role_ue.lua --interactive-selection
+tools\lua\lua.exe scripts\run_moba_role_ue.lua --recipe target\role-ue-runs\...\session\match-plan.json
 ```
 
 `run_moba_role_ue.lua` 的預設配方是 `scripts/lua_data/moba_single_player.lua`，profile 是 `release`，KCP port 是 `57061`，story 是 `FOG_2TEAM_DEMO`。準備階段會寫一份新的 `game.toml`，把 `STEP_FPS` 設成 60，並把 `LUA_CONTENT`／`LUA_HOT_RELOAD` 設成 false。server、每位本機真人一份 client runtime，以及 presentation-only 的 Unreal 都吃這份設定。Bot 留在 server process，不拿 KCP 連線。
@@ -198,7 +203,7 @@ Server 只把該隊看得到的 fact 放進 team stream。Fog grid、商店回�
 | `Plugins/BpGeneratorUltimate` | Editor MCP、資產與 PIE 工具。不是遊戲執行期依賴 |
 | `omfue/restart` | 停掉 Editor、編 bridge 與 OmGame 的本機工具。`scripts/build_ue_moba.lua` 會先編它 |
 
-正式對局加 `-om-presentation-only`，不代入 KCP endpoint。`run_ue.bat` 不加 `--networked` 時仍是 `-om-single-player`，那是單機 TD，不是 MOBA 權威模擬。
+正式對局加 `-om-presentation-only`，不代入 KCP endpoint。`run_ue.bat --moba` 轉到正式 MOBA launcher；沒有 `--moba` 的既有 TD 路徑不加 `--networked` 時仍是 `-om-single-player`，那是單機 TD。
 
 ### Fyrox (`omfx`，不維護)
 

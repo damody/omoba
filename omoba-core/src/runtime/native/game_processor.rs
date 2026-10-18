@@ -12,20 +12,23 @@ use crate::runtime::comp::{
     AttackCancelFx, AttackCancelFxQueue, AttackCancelPhase, AttackPhaseFx, AttackPhaseFxQueue,
     AttackSequencePhase, BlockedRegions, Bounty, CProperty, CircularVision, CollisionRadius, Creep,
     CreepData, CreepStatus, ExplosionFx, ExplosionFxQueue, Facing, FacingBroadcast, Faction,
-    FactionType, Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBase, IsBuilding,
+    FactionType, GamePause, Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBase, IsBuilding,
     KnowledgeBonusResource, MasterSeed, MoveTarget, Outcome, Path, PendingAbilityCastQueue,
     PendingAbilityUpgradeQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
     PendingItemUseQueue, PendingMoveQueue, PendingTowerAbilityActivation,
     PendingTowerAbilityActivationQueue, PendingTowerAbilityCastQueue, PendingTowerSellQueue,
     PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue,
-    PlayerEconomy, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, Searcher, TAttack,
-    TProperty, Tick, Tower, TowerAbilityCastResult, TowerAbilityCastResults,
+    PlayerEconomy, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, ReplicationScope,
+    ReplicationScopeKind, Searcher, StealthProfile, TAttack, TProperty, Tick, Tower,
+    TowerAbilityCastResult, TowerAbilityCastResults, VisionOccluderSet, VisionSource,
+    VisibilityOverride, VisibilityOverrideKind,
     TowerActiveAbilityState, TowerData, TowerFireFxQueue, TowerSpawnOrderCounter,
     TowerTargetPriority, TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed,
     Unit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
+use crate::game_proto::{player_input::Action as ProtoAction, ItemUse, PlayerInput};
 use crate::runtime::item::{ActiveEffect, ItemRegistry};
 use crate::runtime::scripting::{ScriptEvent, ScriptEventQueue, ScriptUnitTag, SkillTarget};
 use crate::tower_meta::UpgradeEffect;
@@ -116,7 +119,7 @@ fn entity_by_id(world: &World, entity_id: u32) -> Option<Entity> {
     (&entities).join().find(|e| e.id() == entity_id)
 }
 
-fn clear_hero_command_queue(world: &mut World, hero: Entity) {
+pub(crate) fn clear_hero_command_queue(world: &mut World, hero: Entity) {
     {
         let mut queues = world.write_storage::<HeroCommandQueue>();
         if let Some(queue) = queues.get_mut(hero) {
@@ -172,6 +175,20 @@ fn validate_attack_target(
     Ok(target)
 }
 
+/// Stop is admitted only for the living owned hero. A present match also
+/// requires Playing, an unpaused world, and the roster slot for that hero.
+/// Worlds without a match keep the owner/alive gate and still honor GamePause.
+fn stop_context_allows(world: &World, hero: Entity, owner_pid: u32) -> bool {
+    if world.try_fetch::<GamePause>().is_some_and(|pause| pause.is_paused) {
+        return false;
+    }
+    let Some(state) = world.try_fetch::<crate::runtime::MobaMatch>() else {
+        return true;
+    };
+    state.phase == crate::runtime::MobaMatchPhase::Playing
+        && state.heroes.iter().any(|slot| slot.player_id == owner_pid && slot.entity == Some(hero))
+}
+
 pub fn drain_pending_moves(world: &mut World) {
     register_projection_policy(
         world,
@@ -202,6 +219,28 @@ pub fn drain_pending_moves(world: &mut World) {
             }
         };
         let command = match req.kind {
+            PendingHeroCommandKind::Stop => {
+                if req.queued {
+                    log::warn!(
+                        "HeroCommand rejected pid={} hero={:?} kind=stop reason=not_queueable",
+                        req.owner_pid, hero,
+                    );
+                    continue;
+                }
+                if !stop_context_allows(world, hero, req.owner_pid) {
+                    log::warn!(
+                        "Stop rejected pid={} hero={:?} reason=inactive_or_unowned",
+                        req.owner_pid, hero,
+                    );
+                    continue;
+                }
+                clear_hero_command_queue(world, hero);
+                if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {
+                    state.neutralize_direction(req.owner_pid, hero);
+                }
+                interrupt_attack_for_accepted_command(world, hero);
+                continue;
+            }
             PendingHeroCommandKind::HoldPosition => HeroCommand::HoldPosition,
             PendingHeroCommandKind::MoveTo { pos } => HeroCommand::MoveTo { pos },
             PendingHeroCommandKind::AttackMove { pos } => HeroCommand::AttackMove { pos },
@@ -249,6 +288,11 @@ pub fn drain_pending_moves(world: &mut World) {
         }
 
         clear_hero_command_queue(world, hero);
+        if !matches!(command, HeroCommand::AttackTarget { .. }) {
+            if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {
+                state.neutralize_direction(req.owner_pid, hero);
+            }
+        }
         if !matches!(command, HeroCommand::AttackMove { .. }) {
             interrupt_attack_for_accepted_command(world, hero);
         }
@@ -1397,18 +1441,414 @@ pub fn drain_pending_tower_upgrades(world: &mut World) {
     drop(drain_span);
 }
 
+fn catalog_item_target(item_id: &str) -> omoba_template_ids::MobaItemTargetConst {
+    omoba_template_ids::MOBA_ITEM_CATALOG
+        .iter()
+        .find(|item| item.id == item_id)
+        .map(|item| item.target)
+        .unwrap_or(omoba_template_ids::MobaItemTargetConst::SELF)
+}
+
+fn item_effect_matches_target(active: &ActiveEffect, shape: omoba_template_ids::MobaItemTargetShapeConst) -> bool {
+    use omoba_template_ids::MobaItemTargetShapeConst::*;
+    match (shape, active) {
+        (Self_, ActiveEffect::Shield { .. } | ActiveEffect::SprintBuff { .. } | ActiveEffect::RestoreMana { .. }
+            | ActiveEffect::DamageReduce { .. } | ActiveEffect::HeadshotNext { .. }) => true,
+        (Point, ActiveEffect::PointNova { .. }) => true,
+        (Unit, ActiveEffect::UnitHex { .. }) => true,
+        _ => false,
+    }
+}
+
+/// Authored floats are quantized once at the catalog boundary. Execution rejects
+/// a non-positive or oversized fixed amount. It does not convert through f32
+/// and it does not replace the effect with the catalog value.
+fn checked_item_fixed(value: Fixed64, maximum_units: i64) -> Result<Fixed64, failure::Error> {
+    let maximum = maximum_units.saturating_mul(1024);
+    if value <= Fixed64::ZERO || value.raw() > maximum {
+        return Err(failure::err_msg("ItemUse: invalid targeted amount"));
+    }
+    Ok(value)
+}
+
+fn item_life_from_parts(index: u32, generation: u32) -> Option<Entity> {
+    let generation = i32::try_from(generation).ok().filter(|value| *value > 0)?;
+    Some(Entity::new(index, specs::world::Generation::new(generation)))
+}
+
+fn owner_item_life_intact(world: &World, owner: Entity, owner_pid: u32) -> bool {
+    let alive = world.entities().is_alive(owner);
+    let owns_player = world.read_storage::<PlayerOwner>().get(owner)
+        .is_some_and(|owner_component| owner_component.player_id == owner_pid);
+    alive && owns_player && player_hero_entity(world, "ItemUse", owner_pid).ok() == Some(owner)
+}
+
+/// Overwrite any client owner fields with the packed authoritative identity.
+/// Generation is the high 32 bits and the ECS index is the low 32 bits.
+/// Generation 0 clears both fields. It is not the current hero.
+pub fn overwrite_item_owner_canonical(item: &mut ItemUse, canonical_actor: u64) {
+    let index = (canonical_actor & u64::from(u32::MAX)) as u32;
+    let generation = (canonical_actor >> 32) as u32;
+    if generation == 0 {
+        item.owner_entity = None;
+        item.owner_generation = None;
+        return;
+    }
+    item.owner_entity = Some(index);
+    item.owner_generation = Some(generation);
+}
+
+/// Write this world's actor index and generation. Authority generation is not copied.
+pub fn write_local_item_actor(item: &mut ItemUse, actor: Entity) {
+    let generation = actor.gen().id();
+    if generation <= 0 {
+        item.owner_entity = None;
+        item.owner_generation = None;
+        return;
+    }
+    item.owner_entity = Some(actor.id());
+    item.owner_generation = Some(generation as u32);
+}
+
+/// Drop forged owner life and forged target life from a reference-free payload.
+/// `target_entity` stays, because legacy non-secure commands still name an index.
+pub fn clear_untrusted_item_life(input: &mut PlayerInput) {
+    if let Some(ProtoAction::ItemUse(item)) = input.action.as_mut() {
+        item.owner_entity = None;
+        item.owner_generation = None;
+        item.target_generation = None;
+    }
+}
+
+/// Earliest ECS owner boundary. A missing pair stamps the submitting player's
+/// current hero. A present pair is kept only when that exact entity still owns
+/// the player and is still that player's current hero. Failure does not rewrite
+/// the command onto whoever is current. A half pair is refused.
+pub fn seal_item_use_owner(world: &World, player_id: u32, input: &mut PlayerInput) -> bool {
+    let Some(ProtoAction::ItemUse(item)) = input.action.as_mut() else {
+        return true;
+    };
+    match (item.owner_entity, item.owner_generation) {
+        (None, None) => match player_hero_entity(world, "ItemUse", player_id) {
+            Ok(hero) => {
+                write_local_item_actor(item, hero);
+                true
+            }
+            Err(_) => false,
+        },
+        (Some(index), Some(generation)) => item_life_from_parts(index, generation)
+            .is_some_and(|owner| owner_item_life_intact(world, owner, player_id)),
+        _ => false,
+    }
+}
+
+/// Canonical id of an already sealed ItemUse owner. None drops the input.
+/// This does not fall back to whichever hero the player controls now.
+pub fn canonical_item_owner(world: &World, player_id: u32, item: &ItemUse) -> Option<u64> {
+    let owner = item_life_from_parts(item.owner_entity?, item.owner_generation?)?;
+    owner_item_life_intact(world, owner, player_id).then(|| crate::runtime::canonical_entity_id(owner))
+}
+
+/// Same pending record the input tick queues. Tests and the tick must not diverge.
+pub fn pending_item_use_from_command(owner_pid: u32, item: &ItemUse) -> crate::comp::PendingItemUse {
+    let target_pos = item.target_pos.as_ref().map(|point| {
+        omoba_sim::Vec2::new(
+            omoba_sim::Fixed64::from_raw(point.x as i64),
+            omoba_sim::Fixed64::from_raw(point.y as i64),
+        )
+    });
+    crate::comp::PendingItemUse {
+        item_slot: item.item_slot,
+        target_pos,
+        point_explicit: item.point_explicit.unwrap_or(false),
+        target_entity: item.target_entity,
+        target_generation: item.target_generation,
+        owner_pid,
+        owner_index: item.owner_entity,
+        owner_generation: item.owner_generation,
+        lives_bound: false,
+        owner_entity: None,
+        target_life: None,
+    }
+}
+
+/// Bind owner and disclosed-unit life once. A paired owner index and generation
+/// was stamped at trusted acceptance; this first bind uses that pair and does
+/// not search for the current hero. A missing pair is the legacy in-process
+/// resolution of the current hero, once. A half pair is not a hero. A later
+/// call must not replace a bound life.
+pub fn bind_queued_item_lives(world: &World) {
+    let mut queue = world.write_resource::<PendingItemUseQueue>();
+    for action in &mut queue.requests {
+        let crate::comp::PendingItemAction::Use(request) = action else { continue; };
+        if request.lives_bound { continue; }
+        request.owner_entity = match (request.owner_index, request.owner_generation) {
+            (Some(index), Some(generation)) => item_life_from_parts(index, generation),
+            (None, None) => player_hero_entity(world, "ItemUse", request.owner_pid).ok(),
+            _ => None,
+        };
+        // Resolution may be None. The raw index and generation stay; drain reads
+        // them as shape presence and must not treat this None as a missing field.
+        request.target_life = match (request.target_entity, request.target_generation) {
+            (Some(index), Some(generation)) => item_life_from_parts(index, generation),
+            (Some(index), None) => entity_by_id(world, index),
+            (None, _) => None,
+        };
+        request.lives_bound = true;
+    }
+}
+
+fn within_item_range(origin: omoba_sim::Vec2, point: omoba_sim::Vec2, range: Fixed64) -> bool {
+    let delta = point - origin;
+    delta.length_squared() <= range * range
+}
+
+fn item_damage_boundary_open(world: &World, target: Entity) -> bool {
+    crate::runtime::moba_damage_allowed(world, target)
+        && !world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>()
+            .is_some_and(|targets| targets.0.contains(&target))
+}
+
+fn same_live_item_target(world: &World, entity: Entity) -> bool {
+    world.entities().is_alive(entity) && entity_by_id(world, entity.id()) == Some(entity)
+}
+
+/// Same precedence as committed `entity_visible_to_team`, read from ECS components.
+/// Occluder checks use the public segment test. A missing occluder resource is an empty set.
+fn item_entity_visible_to_team(world: &World, target: Entity, viewer_team: u32) -> bool {
+    let (scope_kind, owner_team, override_kind) = {
+        let factions = world.read_storage::<Faction>();
+        let scopes = world.read_storage::<ReplicationScope>();
+        let overrides = world.read_storage::<VisibilityOverride>();
+        let team = factions.get(target).map(|faction| faction.team_id.max(0) as u32).unwrap_or(0);
+        let scope = scopes.get(target).copied().unwrap_or(ReplicationScope {
+            kind: ReplicationScopeKind::Vision,
+            owner_team: Some(team),
+        });
+        let override_kind = overrides.get(target).and_then(|rule| {
+            (rule.team.is_none() || rule.team == Some(viewer_team)).then_some(rule.kind)
+        });
+        (scope.kind, scope.owner_team, override_kind)
+    };
+    if scope_kind == ReplicationScopeKind::ServerOnly {
+        return false;
+    }
+    if override_kind == Some(VisibilityOverrideKind::ForceHide) {
+        return false;
+    }
+    if scope_kind == ReplicationScopeKind::Public || override_kind == Some(VisibilityOverrideKind::ForceShow) {
+        return true;
+    }
+    if scope_kind == ReplicationScopeKind::OwnerTeam && owner_team == Some(viewer_team) {
+        return true;
+    }
+    let (target_pos, origins) = {
+        let positions = world.read_storage::<Pos>();
+        let Some(target_pos) = positions.get(target).map(|pos| pos.0) else { return false; };
+        let stealth = world.read_storage::<StealthProfile>().get(target).map(|profile| profile.stealth_level).unwrap_or(0);
+        let sources = world.read_storage::<VisionSource>();
+        let entities = world.entities();
+        let origins: Vec<omoba_sim::Vec2> = (&entities, &positions, &sources).join().filter_map(|(_, pos, source)| {
+            if source.team != viewer_team || source.detection_level < stealth {
+                return None;
+            }
+            let delta = target_pos - pos.0;
+            (delta.length_squared() <= source.radius * source.radius).then_some(pos.0)
+        }).collect();
+        (target_pos, origins)
+    };
+    let occluders = world.try_fetch::<VisionOccluderSet>().map(|set| set.0.clone()).unwrap_or_default();
+    origins.into_iter().any(|origin| {
+        crate::runtime::comp::vision_occluder::line_of_sight(&occluders, origin, target_pos)
+            == crate::runtime::comp::vision_occluder::LosResult::Clear
+    })
+}
+
+fn slot_still_ready(world: &World, hero: Entity, slot_i: usize, item_id: &str) -> bool {
+    world.read_storage::<Inventory>().get(hero)
+        .and_then(|inventory| inventory.slots.get(slot_i))
+        .and_then(|slot| slot.as_ref())
+        .is_some_and(|instance| instance.item_id == item_id && instance.cooldown_remaining <= 0.0)
+}
+
+/// Point and unit items never queue, never approach, and never clear hero commands.
+/// A legal point with zero victims still commits cooldown. Any refusal returns before writes.
+fn commit_targeted_item_use(
+    world: &mut World,
+    hero_entity: Entity,
+    owner_pid: u32,
+    slot_i: usize,
+    item_id: &str,
+    cooldown: f32,
+    active: &ActiveEffect,
+    rule: omoba_template_ids::MobaItemTargetConst,
+    target_pos: Option<omoba_sim::Vec2>,
+    target_life: Option<Entity>,
+    point_explicit: bool,
+    target_named: bool,
+) -> Result<(), failure::Error> {
+    use omoba_template_ids::{MobaItemOutOfRangeConst, MobaItemTargetShapeConst, MobaItemTeamConst};
+    if rule.out_of_range != MobaItemOutOfRangeConst::Reject || rule.range <= Fixed64::ZERO
+        || rule.team != MobaItemTeamConst::Enemy || !rule.requires_visible {
+        return Err(failure::err_msg("ItemUse: targeted contract is not reject-visible-enemy"));
+    }
+    let playing = world.try_fetch::<crate::runtime::MobaMatch>()
+        .is_some_and(|state| state.phase == crate::runtime::MobaMatchPhase::Playing);
+    if !playing {
+        return Err(failure::err_msg("ItemUse: match is not playing"));
+    }
+    if !owner_item_life_intact(world, hero_entity, owner_pid) {
+        return Err(failure::err_msg("ItemUse: owner life changed before commit"));
+    }
+    if world.try_fetch::<BuffStore>().is_none() {
+        return Err(failure::err_msg("ItemUse: buff store unavailable"));
+    }
+    let owner_hp = world.read_storage::<CProperty>().get(hero_entity).map(|property| property.hp);
+    let owner_pos = world.read_storage::<Pos>().get(hero_entity).map(|pos| pos.0);
+    let viewer_team = world.read_storage::<Faction>().get(hero_entity).map(|faction| faction.team_id);
+    let (Some(owner_hp), Some(owner_pos), Some(viewer_team)) = (owner_hp, owner_pos, viewer_team) else {
+        return Err(failure::err_msg("ItemUse: owner state unavailable"));
+    };
+    if owner_hp <= Fixed64::ZERO {
+        return Err(failure::err_msg("ItemUse: owner is dead"));
+    }
+    if viewer_team <= 0 {
+        return Err(failure::err_msg("ItemUse: owner team is not targeted"));
+    }
+    let viewer_team = viewer_team as u32;
+    let victims = match (rule.shape, active) {
+        (MobaItemTargetShapeConst::Point, ActiveEffect::PointNova { damage, radius }) => {
+            // Failed resolution is not an absent field. A named index or generation,
+            // including a malformed or orphan pair, is the wrong shape for a point.
+            if !point_explicit || target_pos.is_none() || target_named || target_life.is_some() {
+                return Err(failure::err_msg("ItemUse: point item requires an explicit point and no entity"));
+            }
+            let point = target_pos.expect("explicit point checked");
+            if !within_item_range(owner_pos, point, rule.range) {
+                return Err(failure::err_msg("ItemUse: point is out of range"));
+            }
+            let damage = checked_item_fixed(*damage, 1_000_000)?;
+            let radius = checked_item_fixed(*radius, 2_000)?;
+            let mut found: Vec<Entity> = {
+                let entities = world.entities();
+                let properties = world.read_storage::<CProperty>();
+                let factions = world.read_storage::<Faction>();
+                let positions = world.read_storage::<Pos>();
+                (&entities, &properties, &factions, &positions).join().filter_map(|(entity, property, faction, pos)| {
+                    if property.hp <= Fixed64::ZERO || faction.team_id <= 0 || faction.team_id as u32 == viewer_team {
+                        return None;
+                    }
+                    let delta = pos.0 - point;
+                    (delta.length_squared() <= radius * radius).then_some(entity)
+                }).collect()
+            };
+            found.retain(|entity| {
+                item_entity_visible_to_team(world, *entity, viewer_team)
+                    && item_damage_boundary_open(world, *entity)
+            });
+            found.sort_by_key(|entity| (entity.id(), entity.gen().id()));
+            (damage, found)
+        }
+        (MobaItemTargetShapeConst::Unit, ActiveEffect::UnitHex { damage }) => {
+            if point_explicit || !target_named || target_life.is_none() {
+                return Err(failure::err_msg("ItemUse: unit item requires a disclosed entity and no explicit point"));
+            }
+            let target = target_life.expect("disclosed entity checked");
+            if !same_live_item_target(world, target) {
+                return Err(failure::err_msg("ItemUse: target is stale"));
+            }
+            let hp = world.read_storage::<CProperty>().get(target).map(|property| property.hp);
+            let team = world.read_storage::<Faction>().get(target).map(|faction| faction.team_id);
+            let pos = world.read_storage::<Pos>().get(target).map(|position| position.0);
+            let (Some(hp), Some(team), Some(pos)) = (hp, team, pos) else {
+                return Err(failure::err_msg("ItemUse: target is not a living enemy"));
+            };
+            if hp <= Fixed64::ZERO || team <= 0 || team as u32 == viewer_team {
+                return Err(failure::err_msg("ItemUse: target is not a living enemy"));
+            }
+            if !within_item_range(owner_pos, pos, rule.range) {
+                return Err(failure::err_msg("ItemUse: target is out of range"));
+            }
+            if !item_entity_visible_to_team(world, target, viewer_team) {
+                return Err(failure::err_msg("ItemUse: target is not visible"));
+            }
+            if !item_damage_boundary_open(world, target) {
+                return Err(failure::err_msg("ItemUse: target is not attackable"));
+            }
+            (checked_item_fixed(*damage, 1_000_000)?, vec![target])
+        }
+        _ => return Err(failure::err_msg("ItemUse: effect does not match authored target contract")),
+    };
+    if !slot_still_ready(world, hero_entity, slot_i, item_id) {
+        return Err(failure::err_msg("ItemUse: source item changed before commit"));
+    }
+    let (damage, mut victims) = victims;
+    if matches!(rule.shape, MobaItemTargetShapeConst::Unit) {
+        if victims.len() != 1 || !same_live_item_target(world, victims[0]) {
+            return Err(failure::err_msg("ItemUse: target changed before commit"));
+        }
+    } else {
+        victims.retain(|entity| same_live_item_target(world, *entity));
+    }
+    if !owner_item_life_intact(world, hero_entity, owner_pid) {
+        return Err(failure::err_msg("ItemUse: owner life changed before commit"));
+    }
+    for target in victims {
+        apply_checked_direct_damage(world, Some(hero_entity), target, damage);
+    }
+    {
+        let mut inventories = world.write_storage::<Inventory>();
+        if let Some(inventory) = inventories.get_mut(hero_entity) {
+            if let Some(Some(instance)) = inventory.slots.get_mut(slot_i) {
+                if instance.item_id == item_id {
+                    instance.cooldown_remaining = cooldown;
+                }
+            }
+        }
+    }
+    log::info!("ItemUse targeted ok slot={} item={} cooldown={}s", slot_i, item_id, cooldown);
+    super::shop::note_shop_undo_item_committed(world, owner_pid);
+    Ok(())
+}
+
 pub fn handle_item_use_from_input(
     world: &mut World,
     item_slot: u32,
-    _target_pos: Option<omoba_sim::Vec2>,
-    _target_entity: Option<u32>,
+    target_pos: Option<omoba_sim::Vec2>,
+    target_entity: Option<u32>,
     owner_pid: u32,
+    point_explicit: bool,
+) -> Result<(), failure::Error> {
+    let hero_entity = player_hero_entity(world, "ItemUse", owner_pid)?;
+    // Direct calls resolve the current hero and the current target index.
+    // Queued commands carry the owner and target lives stamped at trusted
+    // acceptance. This function does not read those lives. A failed lookup
+    // leaves the raw index named; it does not become a no-target point.
+    let target_named = target_entity.is_some();
+    let target_life = target_entity.and_then(|id| entity_by_id(world, id));
+    apply_resolved_item_use(
+        world, item_slot, target_pos, target_life, hero_entity, owner_pid, point_explicit, target_named,
+    )
+}
+
+fn apply_resolved_item_use(
+    world: &mut World,
+    item_slot: u32,
+    target_pos: Option<omoba_sim::Vec2>,
+    target_life: Option<Entity>,
+    hero_entity: Entity,
+    owner_pid: u32,
+    point_explicit: bool,
+    target_named: bool,
 ) -> Result<(), failure::Error> {
     register_projection_policy(
         world,
         omb_script_abi::types::projection_policy_ids::ITEM,
         "runtime/native/game_processor/handle_item_use_from_input",
     );
+    if !owner_item_life_intact(world, hero_entity, owner_pid) {
+        return Err(failure::err_msg("ItemUse: owner life changed before commit"));
+    }
     let slot_i = item_slot as usize;
     if slot_i >= INVENTORY_SLOTS {
         return Err(failure::err_msg(format!(
@@ -1416,8 +1856,6 @@ pub fn handle_item_use_from_input(
             slot_i, INVENTORY_SLOTS, owner_pid
         )));
     }
-
-    let hero_entity = player_hero_entity(world, "ItemUse", owner_pid)?;
 
     let (item_cfg, can_use) = {
         let invs = world.read_storage::<Inventory>();
@@ -1463,6 +1901,21 @@ pub fn handle_item_use_from_input(
     if !cfg.cooldown.is_finite() || cfg.cooldown < 0.0 || cfg.cooldown > 3600.0 {
         return Err(failure::err_msg("ItemUse: invalid cooldown"));
     }
+    let catalog_target = catalog_item_target(&cfg.id);
+    if !item_effect_matches_target(&active, catalog_target.shape) {
+        return Err(failure::err_msg(format!(
+            "ItemUse: slot={} effect does not match authored target contract (pid={})",
+            slot_i, owner_pid
+        )));
+    }
+    if catalog_target.shape != omoba_template_ids::MobaItemTargetShapeConst::Self_ {
+        return commit_targeted_item_use(
+            world, hero_entity, owner_pid, slot_i, &cfg.id, cfg.cooldown, &active, catalog_target,
+            target_pos, target_life, point_explicit, target_named,
+        );
+    }
+    // Self items ignore attached point, entity, generation, and explicit-origin bytes.
+    let _ = (target_pos, target_life, point_explicit, target_named);
     let mut prepared_mana = None;
     match &active {
         ActiveEffect::RestoreMana { amount } => {
@@ -1531,6 +1984,9 @@ pub fn handle_item_use_from_input(
                 return Err(failure::err_msg("ItemUse: invalid shield duration or resources"));
             }
         }
+        ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } => {
+            return Err(failure::err_msg("ItemUse: targeted effect reached the self transaction"));
+        }
     }
 
     match &active {
@@ -1572,6 +2028,9 @@ pub fn handle_item_use_from_input(
                 hero_entity, amount, Fixed64::from_raw((*duration * 1024.0) as i64));
             debug_assert!(granted);
         }
+        ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } => {
+            return Err(failure::err_msg("ItemUse: targeted effect reached the self transaction"));
+        }
     }
 
     {
@@ -1591,10 +2050,12 @@ pub fn handle_item_use_from_input(
         cfg.id,
         cfg.cooldown
     );
+    super::shop::note_shop_undo_item_committed(world, owner_pid);
     Ok(())
 }
 
 pub fn drain_pending_item_uses(world: &mut World) {
+    bind_queued_item_lives(world);
     let drained = {
         let mut q = world.write_resource::<PendingItemUseQueue>();
         std::mem::take(&mut q.requests)
@@ -1618,13 +2079,35 @@ pub fn drain_pending_item_uses(world: &mut World) {
                 );
                 continue;
             }
+            crate::comp::PendingItemAction::Undo { owner_pid, request } => {
+                let result = if crate::runtime::shop_undo_wire::undo_hash_contract_active(world) {
+                    crate::runtime::shop::undo_moba_shop(world, owner_pid, request)
+                } else {
+                    Err(crate::runtime::shop::ShopError::MatchUnavailable)
+                };
+                if let Err(error) = &result {
+                    log::warn!("Shop undo rejected pid={}: {:?}", owner_pid, error);
+                }
+                let (gold, catalogs, cooldowns) = crate::runtime::shop::projected_owner_wallet(world, owner_pid);
+                world.write_resource::<PendingItemUseQueue>().undo_settlements.push(
+                    crate::runtime::shop::ShopUndoSettlement { player_id: owner_pid, request, result, gold, catalogs, cooldowns }
+                );
+                continue;
+            }
         };
-        if let Err(e) = handle_item_use_from_input(
+        let Some(owner) = req.owner_entity else {
+            log::warn!("ItemUse failed pid={} slot={}: owner life is unavailable", req.owner_pid, req.item_slot);
+            continue;
+        };
+        if let Err(e) = apply_resolved_item_use(
             world,
             req.item_slot,
             req.target_pos,
-            req.target_entity,
+            req.target_life,
+            owner,
             req.owner_pid,
+            req.point_explicit,
+            req.target_entity.is_some() || req.target_generation.is_some(),
         ) {
             log::warn!(
                 "ItemUse failed pid={} slot={}: {}",
@@ -2233,6 +2716,7 @@ fn handle_death(
 ) -> Result<(), failure::Error> {
     let is_lane_match = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
     crate::runtime::record_moba_death(world, entity);
+    super::ward_world::retire_if_placed_ward(world, entity);
     let is_enemy_base = {
         let bases = world.read_storage::<IsBase>();
         let factions = world.read_storage::<Faction>();
@@ -2632,6 +3116,10 @@ fn handle_script_set_asd_interval(world: &mut World, entity: Entity, value: Fixe
 }
 
 fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed64) {
+    apply_checked_direct_damage(world, None, target, amount);
+}
+
+fn apply_checked_direct_damage(world: &mut World, source: Option<Entity>, target: Entity, amount: Fixed64) {
     if !crate::runtime::moba_damage_allowed(world, target) { return; }
     // Same authority-settlement boundary as regular Damage. A disclosed MOBA
     // actor must not locally redo Lua damage (including immune returners).
@@ -2653,12 +3141,17 @@ fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed6
         } else { false }
     };
     if applied {
+        if took_damage {
+            // A shield may absorb the remainder. Armor and max-health benefits
+            // still participated in a settled packet, so undo closes.
+            super::shop::note_shop_undo_combat(world, source, target);
+        }
         if took_damage && amount > Fixed64::ZERO {
-            crate::runtime::native::moba_match::record_moba_hero_damage(world, None, target,
+            crate::runtime::native::moba_match::record_moba_hero_damage(world, source, target,
                 before.is_some_and(|hp| amount >= hp));
-            crate::runtime::native::moba_match::record_moba_jungle_damage(world, None, target,
+            crate::runtime::native::moba_match::record_moba_jungle_damage(world, source, target,
                 before.is_some_and(|hp| amount >= hp));
-            crate::runtime::native::moba_match::record_moba_lane_damage(world, None, target,
+            crate::runtime::native::moba_match::record_moba_lane_damage(world, source, target,
                 before.is_some_and(|hp| amount >= hp));
         }
         return;
@@ -3457,6 +3950,233 @@ mod tests {
         let attack = *world.read_storage::<TAttack>().get(hero).unwrap();
         assert_eq!(attack.attack_phase, AttackSequencePhase::Backswing);
         assert_eq!(attack.asd_count, Fixed64::from_raw(123));
+    }
+
+    fn seed_hold(world: &mut World, hero: Entity) {
+        let _ = world.write_storage::<MoveTarget>().insert(
+            hero,
+            MoveTarget(omoba_sim::Vec2::new(Fixed64::from_i32(9), Fixed64::from_i32(4))),
+        );
+        let _ = world.write_storage::<HeroCommandQueue>().insert(
+            hero,
+            HeroCommandQueue {
+                active: Some(HeroCommand::HoldPosition),
+                queued: vec![HeroCommand::MoveTo {
+                    pos: omoba_sim::Vec2::new(Fixed64::from_i32(3), Fixed64::ZERO),
+                }],
+            },
+        );
+    }
+
+    fn push_kind(world: &mut World, owner: u32, queued: bool, kind: PendingHeroCommandKind) {
+        world.write_resource::<PendingMoveQueue>().requests.push(crate::comp::PendingHeroCommand {
+            owner_pid: owner,
+            queued,
+            kind,
+        });
+    }
+
+    fn held(world: &World, hero: Entity) -> bool {
+        world.read_storage::<HeroCommandQueue>().get(hero).is_some_and(|queue| {
+            queue.active == Some(HeroCommand::HoldPosition) && queue.queued.len() == 1
+        }) && world.read_storage::<MoveTarget>().get(hero).is_some()
+    }
+
+    fn priority(world: &World, hero: Entity) -> bool {
+        crate::runtime::command_claims_movement_priority(
+            world.read_storage::<MoveTarget>().get(hero).is_some(),
+            world.read_storage::<HeroCommandQueue>().get(hero).and_then(|queue| queue.active),
+        )
+    }
+
+    #[test]
+    fn stop_command_clears_move_target_current_and_queued() {
+        let mut world = world_for_owner_tests();
+        let first = add_owned_hero(&mut world, 1, "First");
+        let second = add_owned_hero(&mut world, 2, "Second");
+        seed_hold(&mut world, first);
+        seed_hold(&mut world, second);
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::MoveTo {
+            pos: omoba_sim::Vec2::new(Fixed64::from_i32(8), Fixed64::ZERO),
+        });
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        push_kind(&mut world, 2, false, PendingHeroCommandKind::Stop);
+        push_kind(&mut world, 2, false, PendingHeroCommandKind::MoveTo {
+            pos: omoba_sim::Vec2::new(Fixed64::from_i32(6), Fixed64::ZERO),
+        });
+        drain_pending_moves(&mut world);
+        assert!(world.read_storage::<MoveTarget>().get(first).is_none());
+        assert!(world.read_storage::<HeroCommandQueue>().get(first).is_some_and(|queue| {
+            queue.active.is_none() && queue.queued.is_empty()
+        }));
+        assert!(!priority(&world, first));
+        assert!(matches!(
+            world.read_storage::<HeroCommandQueue>().get(second).and_then(|queue| queue.active),
+            Some(HeroCommand::MoveTo { .. })
+        ));
+        assert!(world.read_storage::<MoveTarget>().get(second).is_none());
+        assert!(!priority(&world, second));
+    }
+
+    #[test]
+    fn stop_command_hold_stays_distinct_until_a_later_command() {
+        let mut world = world_for_owner_tests();
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::HoldPosition);
+        drain_pending_moves(&mut world);
+        assert_eq!(
+            world.read_storage::<HeroCommandQueue>().get(hero).and_then(|queue| queue.active),
+            Some(HeroCommand::HoldPosition)
+        );
+        assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+        assert!(priority(&world, hero));
+        assert!(crate::runtime::command_claims_movement_priority(false, Some(HeroCommand::HoldPosition)));
+        assert!(!crate::runtime::command_claims_movement_priority(false, Some(HeroCommand::MoveTo {
+            pos: omoba_sim::Vec2::ZERO,
+        })));
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::MoveTo {
+            pos: omoba_sim::Vec2::new(Fixed64::from_i32(4), Fixed64::ZERO),
+        });
+        drain_pending_moves(&mut world);
+        assert!(matches!(
+            world.read_storage::<HeroCommandQueue>().get(hero).and_then(|queue| queue.active),
+            Some(HeroCommand::MoveTo { .. })
+        ));
+        assert!(!priority(&world, hero));
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::HoldPosition);
+        drain_pending_moves(&mut world);
+        assert!(priority(&world, hero));
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        drain_pending_moves(&mut world);
+        assert!(world.read_storage::<HeroCommandQueue>().get(hero).is_some_and(|queue| queue.active.is_none()));
+        assert!(!priority(&world, hero));
+    }
+
+    #[test]
+    fn stop_command_cancels_windup_and_preserves_idle_cooldown() {
+        let mut world = world_for_owner_tests();
+        world.insert(AttackCancelFxQueue::default());
+        let windup_hero = add_owned_hero(&mut world, 1, "Windup");
+        let idle_hero = add_owned_hero(&mut world, 2, "Idle");
+        let mut windup = TAttack::new(
+            Fixed64::from_i32(10), Fixed64::from_i32(2), Fixed64::from_i32(100), Fixed64::from_i32(20),
+        );
+        let cooldown = windup.asd.v;
+        let seq = windup.begin_attack_windup();
+        windup.asd_count = Fixed64::from_i32(-1);
+        let _ = world.write_storage::<TAttack>().insert(windup_hero, windup);
+        let mut idle = TAttack::new(
+            Fixed64::from_i32(10), Fixed64::from_i32(2), Fixed64::from_i32(100), Fixed64::from_i32(20),
+        );
+        idle.asd_count = Fixed64::from_raw(400);
+        let idle_count = idle.asd_count;
+        let _ = world.write_storage::<TAttack>().insert(idle_hero, idle);
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        push_kind(&mut world, 2, false, PendingHeroCommandKind::Stop);
+        drain_pending_moves(&mut world);
+        let windup = *world.read_storage::<TAttack>().get(windup_hero).unwrap();
+        assert_eq!(windup.attack_phase, AttackSequencePhase::Idle);
+        assert_eq!(windup.asd_count, cooldown);
+        let idle = *world.read_storage::<TAttack>().get(idle_hero).unwrap();
+        assert_eq!(idle.attack_phase, AttackSequencePhase::Idle);
+        assert_eq!(idle.asd_count, idle_count);
+        let fx = world.read_resource::<AttackCancelFxQueue>();
+        assert_eq!(fx.pending.len(), 1);
+        assert_eq!(fx.pending[0].entity_id, windup_hero.id());
+        assert_eq!(fx.pending[0].phase, AttackCancelPhase::Windup);
+        assert!(!fx.pending[0].impact_committed);
+        assert_eq!(fx.pending[0].attack_seq, seq);
+    }
+
+    #[test]
+    fn stop_command_backswing_keeps_committed_projectile() {
+        let mut world = world_for_owner_tests();
+        world.register::<Projectile>();
+        world.insert(AttackCancelFxQueue::default());
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        let mut attack = TAttack::new(
+            Fixed64::from_i32(10), Fixed64::from_i32(2), Fixed64::from_i32(100), Fixed64::from_i32(20),
+        );
+        attack.begin_attack_windup();
+        attack.mark_attack_impact();
+        attack.asd_count = Fixed64::from_raw(123);
+        let _ = world.write_storage::<TAttack>().insert(hero, attack);
+        let shot = Projectile {
+            time_left: Fixed64::from_i32(5),
+            owner: hero,
+            target: None,
+            tpos: omoba_sim::Vec2::new(Fixed64::from_i32(8), Fixed64::from_i32(9)),
+            radius: Fixed64::ONE,
+            msd: Fixed64::from_i32(12),
+            damage_phys: Fixed64::from_i32(77),
+            damage_magi: Fixed64::from_i32(3),
+            damage_real: Fixed64::from_i32(1),
+            damage_profile: 4,
+            slow_factor: Fixed64::ZERO,
+            slow_duration: Fixed64::ZERO,
+            hit_radius: Fixed64::ZERO,
+            stun_duration: Fixed64::ZERO,
+            kind_id: 9,
+            generation: 1,
+        };
+        let projectile = world.create_entity().with(shot).build();
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        drain_pending_moves(&mut world);
+        let attack = *world.read_storage::<TAttack>().get(hero).unwrap();
+        assert_eq!(attack.attack_phase, AttackSequencePhase::Idle);
+        let projectiles = world.read_storage::<Projectile>();
+        let kept = projectiles.get(projectile).unwrap();
+        assert_eq!(kept.damage_phys, Fixed64::from_i32(77));
+        assert_eq!(kept.damage_magi, Fixed64::from_i32(3));
+        assert_eq!(kept.damage_real, Fixed64::from_i32(1));
+        assert_eq!(kept.time_left, Fixed64::from_i32(5));
+        assert_eq!(kept.owner, hero);
+        assert_eq!(kept.kind_id, 9);
+        assert_eq!(world.read_storage::<Projectile>().join().count(), 1);
+        let fx = world.read_resource::<AttackCancelFxQueue>();
+        assert_eq!(fx.pending.len(), 1);
+        assert_eq!(fx.pending[0].phase, AttackCancelPhase::Backswing);
+        assert!(fx.pending[0].impact_committed);
+    }
+
+    #[test]
+    fn stop_command_rejects_dead_wrong_owner_and_queued() {
+        let mut world = world_for_owner_tests();
+        let hero = add_owned_hero(&mut world, 1, "Hero");
+        seed_hold(&mut world, hero);
+        push_kind(&mut world, 1, true, PendingHeroCommandKind::Stop);
+        push_kind(&mut world, 99, false, PendingHeroCommandKind::Stop);
+        drain_pending_moves(&mut world);
+        assert!(held(&world, hero));
+        world.insert(GamePause { is_paused: true });
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        drain_pending_moves(&mut world);
+        assert!(held(&world, hero));
+        {
+            world.write_resource::<GamePause>().is_paused = false;
+        }
+        let _ = world.write_storage::<CProperty>().insert(hero, CProperty {
+            hp: Fixed64::ZERO,
+            mhp: Fixed64::from_i32(100),
+            msd: Fixed64::ONE,
+            def_physic: Fixed64::ZERO,
+            def_magic: Fixed64::ZERO,
+        });
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        drain_pending_moves(&mut world);
+        assert!(held(&world, hero));
+        {
+            let mut properties = world.write_storage::<CProperty>();
+            properties.get_mut(hero).unwrap().hp = Fixed64::from_i32(50);
+        }
+        push_kind(&mut world, 1, false, PendingHeroCommandKind::Stop);
+        drain_pending_moves(&mut world);
+        assert!(world.read_storage::<HeroCommandQueue>().get(hero).is_some_and(|queue| {
+            queue.active.is_none() && queue.queued.is_empty()
+        }));
+        assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+        assert!(!priority(&world, hero));
     }
 
     fn add_owned_tower(world: &mut World, player_id: u32) -> Entity {
@@ -4613,6 +5333,9 @@ fn handle_damage(
 
     if was_hit {
         crate::runtime::native::moba_match::interrupt_moba_recall(world, target);
+        // Invalidate before shield absorption removes the packet. Assist and
+        // kill credit stay on the post-shield `took_damage` path below.
+        super::shop::note_shop_undo_combat(world, Some(source), target);
     }
     if took_damage {
         crate::runtime::native::moba_match::record_moba_hero_damage(world, Some(source), target, first_lethal_hit);

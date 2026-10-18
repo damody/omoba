@@ -4,14 +4,17 @@ pub mod config;
 mod cue_retention;
 pub mod evidence;
 pub mod input_bridge;
+pub mod communication_input;
 pub mod moba_hud;
 pub mod scoreboard;
 pub mod presentation_bridge;
+pub mod renderer_fixture;
 pub mod replica_host;
 pub mod session;
 pub mod shutdown;
 pub mod shop_presentation;
 pub mod shop_recovery;
+pub mod ward_correlation;
 
 use std::fmt;
 

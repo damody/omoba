@@ -84,6 +84,22 @@ return function(ctx)
             ticks_per_second = 30.0,
             timeline_offset_ticks = 747.0,
           },
+          cast = {
+            model = "templates/heroes/saika_magoichi/b01_ani_cast.fbx",
+            animation = "Take 001", duration_ticks = 73.0, ticks_per_second = 30.0, timeline_offset_ticks = 627.0,
+          },
+          cast_secondary = {
+            model = "templates/heroes/saika_magoichi/b01_ani_cast2.fbx",
+            animation = "Take 001", duration_ticks = 50.0, ticks_per_second = 30.0, timeline_offset_ticks = 815.0,
+          },
+          death = {
+            model = "templates/heroes/saika_magoichi/b01_ani_die.fbx",
+            animation = "Take 001", duration_ticks = 110.0, ticks_per_second = 30.0, timeline_offset_ticks = 436.0,
+          },
+          sniper_move = {
+            model = "templates/heroes/saika_magoichi/b01_ani_run2.fbx",
+            animation = "Take 001", duration_ticks = 32.0, ticks_per_second = 30.0, timeline_offset_ticks = 385.0,
+          },
         },
         animations = {
           move = {
@@ -132,11 +148,26 @@ return function(ctx)
             end_tick = 53.0,
             loop = true,
           },
+          cast = { source = "cast", start_tick = 0.0, end_tick = 73.0, loop = false },
+          cast_secondary = { source = "cast_secondary", start_tick = 0.0, end_tick = 50.0, loop = false },
+          death = { source = "death", start_tick = 0.0, end_tick = 110.0, loop = false },
+          sniper_move = { source = "sniper_move", start_tick = 0.0, end_tick = 32.0, loop = true },
+          recall = { source = "idle_3", start_tick = 0.0, end_tick = 53.0, loop = true },
         },
       },
       ue = {
         native_visual = {
-          state_slots = { sniper_mode = "sniper", sniper_walk = "move" },
+          state_slots = { sniper_mode = "sniper", sniper_walk = "sniper_move" },
+          -- Source FBX Material 03 is solid cloth, without an atlas texture.
+          material_sections = { ["2"] = "/Game/Omoba/PresentationMaterialsV1/M_SaikaCloth.M_SaikaCloth" },
+          -- The existing mesh's import coordinates own these animation imports.
+          -- V1 imports with mismatched unit conversion remain as error evidence.
+          animation_assets = {
+            cast = { asset = "/Game/Omoba/AuthoredAnimationsV2/saika_magoichi/b01_ani_cast_Anim.b01_ani_cast_Anim", end_seconds = 73.0/30.0, loop_animation = false },
+            cast_secondary = { asset = "/Game/Omoba/AuthoredAnimationsV2/saika_magoichi/b01_ani_cast2_Anim.b01_ani_cast2_Anim", end_seconds = 50.0/30.0, loop_animation = false },
+            death = { asset = "/Game/Omoba/AuthoredAnimationsV2/saika_magoichi/b01_ani_die_Anim.b01_ani_die_Anim", end_seconds = 110.0/30.0, loop_animation = false },
+            sniper_move = { asset = "/Game/Omoba/AuthoredAnimationsV2/saika_magoichi/b01_ani_run2_Anim.b01_ani_run2_Anim", end_seconds = 32.0/30.0, loop_animation = true },
+          },
         },
         animation = {
           idle_variants = { "stand_1", "stand_2", "stand_3" },
@@ -269,5 +300,14 @@ return function(ctx)
   support.background='晨光術士的隊友治療配裝變體，沿用共用技能與原生呈現。'
   support.abilities={'lumen_bolt','lumen_touch','lumen_lance','lumen_aid'}
   heroes[#heroes+1]=support
+  local native_visuals=ctx.include('templates/moba_native_visuals.lua')
+  for _,hero in ipairs(heroes)do
+    local profile=native_visuals[hero.id]
+    if profile then
+      -- Apprentice/support are shallow gameplay clones; give each a separate Unreal settings table.
+      local ue={};for key,value in pairs(hero.ue or{})do ue[key]=value end
+      ue.native_visual=profile;hero.ue=ue
+    end
+  end
   return heroes
 end

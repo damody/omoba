@@ -9,8 +9,13 @@ local lfs = require('lfs')
 local root = path.repo_root()
 local work = path.join(root, 'omfue/Saved/McpAutomation/AssetRecipe')
 local recipe = json.read(path.join(root, 'omfue/Plugins/OmRuntime/Source/OmGenerated/om_asset_recipe.json'))
+local forwarded={};if #arg>0 then
+  assert(#arg==2 and arg[1]=='--owned-editor','use [--owned-editor FILE]')
+  process.validate_owned(json.read(arg[2]));forwarded={'--owned-editor',path.absolute(arg[2],root)}
+end
 local function apply()
-  local result = process.run(platform.lua_executable, {path.join(root, 'scripts/ue_apply_asset_recipe.lua')},
+  local arguments={path.join(root, 'scripts/ue_apply_asset_recipe.lua')};for _,value in ipairs(forwarded)do arguments[#arguments+1]=value end
+  local result = process.run(platform.lua_executable, arguments,
     {cwd = root, check = false})
   assert(result.exit_code == 0, result.stderr .. result.stdout)
   local report = json.read(path.join(work, 'report.json'))

@@ -1,6 +1,6 @@
 # Script migration manifest
 
-固定 runtime：`D:\code\omoba\tools\lua\lua.exe`（Lua 5.4.8）。下表是 root repository
+固定 runtime：實際 clone 根目錄的 `tools\lua\lua.exe`（Lua 5.4.8）。下表是 root repository
 本次變更的完整腳本契約清冊；`—` 表示沒有該類輸入或副作用。所有 replacement 成功回傳
 `0`，參數、驗證、外部命令或必要產物失敗皆回傳非零；背景程序一律記錄 PID 與 executable
 identity，並以相反依賴順序清理，不使用全域同名終止。

@@ -2,6 +2,9 @@ use std::collections::BTreeSet;
 pub mod buff_visual_sources;
 pub mod animation_metadata;
 pub mod moba_items;
+pub mod moba_summoners;
+pub mod moba_trinkets;
+pub mod moba_communication;
 use serde::{Deserialize, Serialize};
 
 /// Shared gameplay and presentation-facing ability data parsed from Lua.
@@ -158,17 +161,50 @@ pub fn validate_ability_progression(ability: &AbilityDefinition) -> Result<(), S
     validate_ability_effects(ability)
 }
 
+/// Unit-target allegiance of an authored effect list.
+///
+/// `HealAlly` is ally. `Damage`, `SlowEnemy`, `StunEnemy`, and `ControlEnemy`
+/// are enemy. Self, area, dash, and empty or custom lists are unspecified.
+/// Area damage is a point effect and does not make the unit target hostile.
+/// A list that contains both sides is the same conflict `validate_ability_effects` rejects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnitTargetAllegiance {
+    Ally,
+    Enemy,
+    Unspecified,
+}
+
+impl UnitTargetAllegiance {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ally => "ally",
+            Self::Enemy => "enemy",
+            Self::Unspecified => "unspecified",
+        }
+    }
+}
+
+pub fn unit_target_allegiance(effects: &[AbilityEffect]) -> Result<UnitTargetAllegiance, &'static str> {
+    let ally = effects.iter().any(|effect| matches!(effect, AbilityEffect::HealAlly { .. }));
+    let enemy = effects.iter().any(|effect| matches!(effect,
+        AbilityEffect::Damage { .. } | AbilityEffect::SlowEnemy { .. }
+            | AbilityEffect::StunEnemy { .. } | AbilityEffect::ControlEnemy { .. }));
+    match (ally, enemy) {
+        (true, true) => Err("conflicting unit target allegiance"),
+        (true, false) => Ok(UnitTargetAllegiance::Ally),
+        (false, true) => Ok(UnitTargetAllegiance::Enemy),
+        (false, false) => Ok(UnitTargetAllegiance::Unspecified),
+    }
+}
+
 /// Shared by template IDs, runtime content and Unreal codegen.
 pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), String> {
     if ability.tombstone || ability.effects.is_empty() {return Ok(());}
     if ability.effects.len()>32 || !matches!(ability.ability_type.as_str(),"active"|"ultimate")
         || ability.cast_type!="instant" {return Err(format!("ability '{}': effects require bounded instant active/ultimate",ability.id));}
     // All unit effects share one target; it cannot be both an ally and enemy.
-    if ability.effects.iter().any(|effect| matches!(effect, AbilityEffect::HealAlly {..}))
-        && ability.effects.iter().any(|effect| matches!(effect,
-            AbilityEffect::Damage {..} | AbilityEffect::SlowEnemy {..} | AbilityEffect::StunEnemy {..}
-                | AbilityEffect::ControlEnemy {..})) {
-        return Err(format!("ability '{}': conflicting unit target allegiance", ability.id));
+    if let Err(conflict) = unit_target_allegiance(&ability.effects) {
+        return Err(format!("ability '{}': {conflict}", ability.id));
     }
     if ability.effects.iter().any(|effect|matches!(effect,AbilityEffect::DashToPoint)) {
         if ability.effects.len()!=1 || ability.target_type!="point" {
@@ -841,6 +877,41 @@ mod tests {
         assert!(validate_ability_progression(&bad).is_err());
         let mut bad=valid;bad.target_type="point".into();
         assert!(validate_ability_progression(&bad).is_err());
+    }
+
+    #[test]
+    fn unit_target_allegiance_follows_validated_effects_and_rejects_conflicts() {
+        assert_eq!(unit_target_allegiance(&[AbilityEffect::HealAlly { amount_key: "heal".into() }]).unwrap(), UnitTargetAllegiance::Ally);
+        for effect in [
+            AbilityEffect::Damage { amount_key: "damage".into(), damage_kind: EffectDamageKind::Magical },
+            AbilityEffect::SlowEnemy { reduction_key: "reduction".into(), duration_key: "duration".into() },
+            AbilityEffect::StunEnemy { duration_key: "duration".into() },
+            AbilityEffect::ControlEnemy { control: ControlEffectKind::Root, duration_key: "duration".into() },
+            AbilityEffect::ControlEnemy { control: ControlEffectKind::Silence, duration_key: "duration".into() },
+        ] {
+            assert_eq!(unit_target_allegiance(&[effect]).unwrap(), UnitTargetAllegiance::Enemy);
+        }
+        assert_eq!(unit_target_allegiance(&[]).unwrap(), UnitTargetAllegiance::Unspecified);
+        assert_eq!(unit_target_allegiance(&[AbilityEffect::HealSelf { amount_key: "heal".into() }]).unwrap(), UnitTargetAllegiance::Unspecified);
+        assert_eq!(unit_target_allegiance(&[AbilityEffect::DashToPoint]).unwrap(), UnitTargetAllegiance::Unspecified);
+        assert_eq!(unit_target_allegiance(&[AbilityEffect::AreaDamage {
+            amount_key: "damage".into(), radius_key: "radius".into(), damage_kind: EffectDamageKind::Physical,
+        }]).unwrap(), UnitTargetAllegiance::Unspecified);
+        assert_eq!(unit_target_allegiance(&[
+            AbilityEffect::HealAlly { amount_key: "heal".into() },
+            AbilityEffect::AreaDamage { amount_key: "damage".into(), radius_key: "radius".into(), damage_kind: EffectDamageKind::Physical },
+        ]).unwrap(), UnitTargetAllegiance::Ally);
+        assert_eq!(
+            unit_target_allegiance(&[
+                AbilityEffect::HealAlly { amount_key: "heal".into() },
+                AbilityEffect::Damage { amount_key: "damage".into(), damage_kind: EffectDamageKind::Pure },
+            ]).unwrap_err(),
+            "conflicting unit target allegiance",
+        );
+        assert_eq!(
+            (UnitTargetAllegiance::Ally.as_str(), UnitTargetAllegiance::Enemy.as_str(), UnitTargetAllegiance::Unspecified.as_str()),
+            ("ally", "enemy", "unspecified"),
+        );
     }
 
     #[test]

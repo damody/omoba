@@ -12,7 +12,9 @@ use crate::comp::{DeltaTime, GamePause, GameSpeed, PendingPlayerInputs, Tick, Ti
 use crate::lockstep_timing::fixed_raw_for_tick_at_fps;
 use crate::runtime::{
     build_phase3_dispatcher, drain_pending_ability_casts, drain_pending_ability_upgrades,
+    drain_pending_summoner_casts, drain_pending_ward_placements,
     drain_pending_hero_command_clears, drain_pending_item_uses, drain_pending_moves,
+    seal_item_use_owner,
     drain_pending_tower_ability_callbacks, drain_pending_tower_ability_casts,
     drain_pending_tower_sells, drain_pending_tower_spawns, drain_pending_tower_target_priorities,
     drain_pending_tower_upgrades, process_outcomes, run_script_dispatch, tick_tower_abilities,
@@ -89,11 +91,17 @@ impl SimulationDriver {
         inputs: impl IntoIterator<Item = (u32, PlayerInput)>,
     ) -> Result<SimulationTickResult, Error> {
         self.tick = self.tick.saturating_add(1);
+        let mut accepted_inputs = Vec::new();
+        for (player_id, mut input) in inputs {
+            if seal_item_use_owner(world, player_id, &mut input) {
+                accepted_inputs.push((player_id, input));
+            }
+        }
         {
             let mut pending = world.write_resource::<PendingPlayerInputs>();
             pending.tick = u32::try_from(self.tick)
                 .map_err(|_| err_msg("simulation tick exceeds PlayerInput u32 range"))?;
-            pending.inputs.extend(inputs);
+            pending.inputs.extend(accepted_inputs);
         }
         world.write_resource::<Tick>().0 = self.tick;
 
@@ -141,6 +149,10 @@ impl SimulationDriver {
         drain_pending_ability_upgrades(world);
         world.maintain();
         drain_pending_ability_casts(world);
+        world.maintain();
+        drain_pending_summoner_casts(world);
+        world.maintain();
+        drain_pending_ward_placements(world);
         world.maintain();
         drain_pending_moves(world);
         world.maintain();

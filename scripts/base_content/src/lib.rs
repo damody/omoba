@@ -37,6 +37,10 @@ mod headless_hero_cast_tests;
 mod single_lane_match_tests;
 #[cfg(test)]
 mod mana_script_tests;
+#[cfg(test)]
+mod ward_world_tests;
+#[cfg(test)]
+mod ward_transport_tests;
 
 #[export_root_module]
 fn get_manifest() -> Manifest_Ref {

@@ -48,6 +48,63 @@ function M.spawn_owned(exe,args,options)
   copy.owned_identity=true
   return M.spawn(exe,args,copy)
 end
+local function exact_fields(value,fields)
+  assert(type(value)=='table' and getmetatable(value)==nil,'invalid owned-run contract')
+  for key in pairs(value)do assert(fields[key],'unknown owned-run field')end
+  for key in pairs(fields)do assert(value[key]~=nil,'missing owned-run field')end
+end
+local function owned_run_identity(value)
+  exact_fields(value,{pid=true,executable=true,creation_token=true})
+  return M.validate_owned(value)
+end
+function M.validate_owned_ready(value)
+  exact_fields(value,{schema=true,identity=true})
+  assert(value.schema=='omoba-owned-run-ready/1','unknown owned-run ready schema')
+  return owned_run_identity(value.identity)
+end
+function M.validate_owned_exit(expected,value)
+  expected=M.validate_owned(expected)
+  exact_fields(value,{schema=true,identity=true,exit_code=true,retired=true})
+  assert(value.schema=='omoba-owned-run-exit/1' and value.retired==true,'unverified owned-run retirement')
+  assert(math.type(value.exit_code)=='integer' and value.exit_code>=0 and value.exit_code<=4294967295,'invalid Windows exit code')
+  local identity=owned_run_identity(value.identity)
+  assert(identity.pid==expected.pid and identity.creation_token==expected.creation_token
+    and identity.executable:lower()==expected.executable:lower(),'owned-run result lifetime or executable mismatch')
+  return {schema=value.schema,identity=identity,exit_code=value.exit_code,retired=true}
+end
+function M.run_owned_to_files(exe,args,options)
+  options=options or {}
+  assert(options.stdout and options.stderr and options.ready_file,'owned run requires new stdout, stderr and ready files')
+  assert(exe:find('[/\\]'),'owned run requires an explicit executable path')
+  local result=host.call('run_owned_to_files',{exe=path.absolute(exe),args=args or {},cwd=path.absolute(options.cwd or '.'),
+    env=options.env or {},stdout=path.absolute(options.stdout),stderr=path.absolute(options.stderr),ready_file=path.absolute(options.ready_file)})
+  return M.validate_owned_exit(result.identity,result)
+end
+-- A producer may publish its complete receipt and exit between the first file
+-- observation and the liveness query. Re-read after confirmed original exit.
+function M.poll_owned_exit(expected,waiter,receipt_file,timeout_ms)
+  expected=M.validate_owned(expected);waiter=M.validate_owned(waiter)
+  assert(math.type(timeout_ms)=='integer' and timeout_ms>=0 and timeout_ms<=60000,'invalid exit receipt timeout')
+  receipt_file=path.absolute(receipt_file)
+  local json=require('tools.lua.lib.json')
+  local function read()
+    if not path.is_file(receipt_file)then return nil end
+    local file=assert(io.open(receipt_file,'rb'),'cannot read owned exit receipt')
+    local bytes=file:read(65537);file:close();assert(not bytes or #bytes<=65536,'owned exit receipt exceeds limit')
+    local ok,value=pcall(json.decode,bytes or '')
+    if ok then return M.validate_owned_exit(expected,value)end
+    return nil -- Only an incomplete JSON write may be retried while the producer lives.
+  end
+  local deadline=time.monotonic_ms()+timeout_ms
+  while true do
+    local value=read();if value then return value end
+    if not M.owned_alive(waiter)then
+      value=read();assert(value,'original waiter retired without a complete owned exit receipt');return value
+    end
+    assert(time.monotonic_ms()<deadline,'owned exit receipt timed out')
+    time.sleep_ms(20)
+  end
+end
 function M.inspect_owned(pid)
   local result=host.call('inspect_owned',{pid=pid})
   if result.alive==false then return nil end
@@ -71,21 +128,19 @@ function M.owned_alive(record)
   return current~=nil and current.creation_token==record.creation_token
     and current.executable:lower()==record.executable:lower()
 end
--- Wait for the original lifetime, never a subsequent process reusing its PID.
--- Query failures propagate; they are not proof of retirement.
+-- One native wait on the verified process handle. The caller passes the shared
+-- deadline remainder. Query failures and identity mismatches stay errors.
 function M.wait_owned(record,timeout_ms)
   record=M.validate_owned(record)
   if timeout_ms==nil then timeout_ms=5000 end
   assert(math.type(timeout_ms)=='integer' and timeout_ms>=0,'invalid owned wait timeout')
   local started=time.monotonic_ms()
-  while M.owned_alive(record) do
-    local elapsed=time.monotonic_ms()-started
-    assert(elapsed>=0,'owned wait clock moved backwards')
-    local remaining=timeout_ms-elapsed
-    if remaining<=0 then return false end
-    time.sleep_ms(math.min(50,remaining))
-  end
-  return true
+  local result=host.call('wait_owned',{
+    pid=record.pid,expected_exe=record.executable,creation_token=record.creation_token,timeout_ms=timeout_ms})
+  local elapsed=time.monotonic_ms()-started
+  assert(elapsed>=0,'owned wait clock moved backwards')
+  assert(type(result)=='table' and type(result.exited)=='boolean','invalid owned wait response')
+  return result.exited
 end
 function M.poll_owned_ready(record,timeout_ms,predicate,label)
   record=M.validate_owned(record)

@@ -31,4 +31,4 @@ compiled-content-only = ["omoba-template-ids/compiled-content-only", "omoba-core
 [dev-dependencies]
 prost = "0.13"
 specs = { path = "../../specs" }
-omoba-core = { path = "../../omoba-core", default-features = false, features = ["kcp"] }
+omoba-core = { path = "../../omoba-core", default-features = false, features = ["kcp", "test-support"] }

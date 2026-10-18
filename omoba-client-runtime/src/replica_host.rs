@@ -52,6 +52,70 @@ mod map_contract_tests {
         assert_eq!(kept.phase_ns(ReplicaStagePhase::HostFinalize), 7);
         assert_eq!(kept.phase_ns(ReplicaStagePhase::Staging), 0);
     }
+
+    #[test]
+    fn replica_host_coalesces_owner_ward_recovery_after_a_rejected_envelope() {
+        use omoba_core::game_proto::{FilteredTeamSnapshot, TeamGameStart, ViewEpoch};
+        use omoba_core::runtime::ward_transport::{
+            encode_owner_ward_projection, hash_owner_ward_projection, owner_ward_session_binding,
+            seal_owner_ward_envelope, stamp_owner_ward_admission, OwnerWardProjection,
+        };
+        use sha2::{Digest, Sha256};
+        let row = omoba_template_ids::TRINKET_CATALOG.iter().find(|row| row.catalog_id == 1).unwrap();
+        let projection = OwnerWardProjection {
+            player_id: 7,
+            view_epoch: 1,
+            catalog_id: row.catalog_id,
+            charges: 1,
+            max_charges: row.max_charges,
+            recharge_remaining_raw: 0,
+            revision: 2,
+            placement_capable: true,
+            elapsed_raw: 8,
+        };
+        let bytes = encode_owner_ward_projection(&projection).unwrap();
+        let disclosed_world = Vec::new();
+        let mut start = TeamGameStart {
+            protocol_version: omoba_core::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+            player_id: 7,
+            team_id: 1,
+            replica_start_tick: 1,
+            next_team_sequence: 1,
+            tick_rate_hz: 20,
+            view_epoch: Some(ViewEpoch { value: 1 }),
+            filtered_snapshot: Some(FilteredTeamSnapshot {
+                team_id: 1,
+                authoritative_tick: 1,
+                view_epoch: Some(ViewEpoch { value: 1 }),
+                disclosed_world: disclosed_world.clone(),
+                filtered_snapshot_hash: Sha256::digest(&disclosed_world).to_vec(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let session = owner_ward_session_binding("host-recovery", 7);
+        stamp_owner_ward_admission(&mut start, true, session, &bytes);
+        assert_eq!(
+            start.owner_ward_envelope.as_ref().unwrap().projection_hash.as_slice(),
+            hash_owner_ward_projection(&bytes),
+        );
+        let mut host = ReplicaHost::bootstrap_disclosed(&start).unwrap();
+        assert!(host.owner_ward_recovery_enabled());
+        assert_eq!(host.runtime.owner_ward_projection(), bytes.as_slice());
+        let mut poisoned = start.owner_ward_envelope.clone().unwrap();
+        poisoned.authoritative_tick = u64::MAX;
+        poisoned.projection_hash[0] ^= 0xff;
+        assert!(host.apply_owner_ward_envelope(&poisoned).is_err());
+        assert!(host.runtime.owner_ward_projection().is_empty());
+        assert_eq!(host.runtime.owner_ward_tick(), 1);
+        assert_eq!(host.poll_owner_ward_recovery(), Some((1, 1)));
+        assert_eq!(host.poll_owner_ward_recovery(), Some((2, 1)));
+        assert_eq!(host.poll_owner_ward_recovery(), None);
+        let recovered = seal_owner_ward_envelope(7, session, 1, 1, &bytes);
+        host.apply_owner_ward_envelope(&recovered).unwrap();
+        assert_eq!(host.runtime.owner_ward_projection(), bytes.as_slice());
+        assert_eq!(host.poll_owner_ward_recovery(), None);
+    }
 }
 
 pub struct ReplicaHost {
@@ -64,6 +128,8 @@ pub struct ReplicaHost {
     expected_team_sequence: u64,
     fog: omoba_core::runtime::fog_grid::FogGridRetention,
     stage_profile: Option<ReplicaStageDurations>,
+    owner_ward_recovery: bool,
+    owner_ward_recovery_budget: omoba_core::runtime::ward_transport::OwnerWardRecoveryBudget,
 }
 
 pub(crate) fn commit_stage_profile(
@@ -83,6 +149,18 @@ pub(crate) fn commit_stage_profile(
 
 impl ReplicaHost {
     pub fn bootstrap(start: &TeamGameStart) -> Result<Self, ClientRuntimeError> {
+        Self::open(start, true)
+    }
+
+    /// Same production open as [`Self::bootstrap`]. Tests skip only the script
+    /// registry requirement so a disclosed roster can be read without
+    /// `base_content.dll`.
+    #[cfg(test)]
+    pub(crate) fn bootstrap_disclosed(start: &TeamGameStart) -> Result<Self, ClientRuntimeError> {
+        Self::open(start, false)
+    }
+
+    fn open(start: &TeamGameStart, require_scripts: bool) -> Result<Self, ClientRuntimeError> {
         omoba_core::runtime::moba_map_layout::validate_metadata(&start.public_metadata)
             .map_err(|error| ClientRuntimeError::Replica(error.into()))?;
         let fog = omoba_core::runtime::fog_grid::FogGridRetention::bootstrap(start)
@@ -96,7 +174,7 @@ impl ReplicaHost {
         )
         .map_err(|error| ClientRuntimeError::Replica(format!("bootstrap: {error:?}")))?;
         let mut stepper = SpecsDisclosedWorldStepper::from_start(start, components, resources);
-        if stepper.script_registry.is_empty() {
+        if require_scripts && stepper.script_registry.is_empty() {
             return Err(ClientRuntimeError::Replica(
                 "no gameplay scripts loaded; set OMB_SCRIPTS_DIR to the directory containing base_content".into(),
             ));
@@ -114,7 +192,52 @@ impl ReplicaHost {
             expected_team_sequence: start.next_team_sequence,
             fog,
             stage_profile: None,
+            owner_ward_recovery: omoba_core::runtime::ward_transport::negotiate_ward_protocol(
+                start.ward_protocol_version,
+                &start.ward_rules_hash,
+            )
+            .unwrap_or(false),
+            owner_ward_recovery_budget: omoba_core::runtime::ward_transport::OwnerWardRecoveryBudget::default(),
         })
+    }
+
+    pub fn owner_ward_recovery_enabled(&self) -> bool {
+        self.owner_ward_recovery
+    }
+
+    pub fn owner_ward_protocol(&self) -> u32 {
+        if self.owner_ward_recovery {
+            omoba_core::runtime::ward_transport::WARD_PROTOCOL_VERSION
+        } else {
+            0
+        }
+    }
+
+    /// Verified private bytes currently held by the replica. Empty means unavailable.
+    pub fn verified_owner_ward_bytes(&self) -> &[u8] {
+        self.runtime.owner_ward_projection()
+    }
+
+    pub fn apply_owner_ward_envelope(
+        &mut self,
+        envelope: &omoba_core::game_proto::OwnerWardEnvelope,
+    ) -> Result<(), &'static str> {
+        let result = self.runtime.apply_verified_owner_ward_envelope(envelope);
+        if result.is_ok() {
+            self.owner_ward_recovery_budget.reset();
+        }
+        result
+    }
+
+    /// View epoch for one coalesced read-only recovery query, when the replica
+    /// still needs one and this epoch has attempts left.
+    pub fn poll_owner_ward_recovery(&mut self) -> Option<(u64, u64)> {
+        let epoch = self.owner_ward_recovery_budget.poll(
+            self.owner_ward_recovery,
+            self.runtime.owner_ward_needs_recovery(),
+            self.runtime.view_epoch(),
+        )?;
+        Some((self.owner_ward_recovery_budget.request_id(), epoch))
     }
 
     pub fn apply_encoded_frame(
@@ -226,6 +349,8 @@ impl ReplicaHost {
         if let Some(grid) = self.fog.latest() {
             source.public_events.push(grid.presentation_event().expect("validated retained fog"));
         }
+        source.disclosed_summoners = self.stepper.disclosed_summoners();
+        source.hero_attributes = self.stepper.disclosed_hero_attributes();
         source
     }
 
@@ -275,6 +400,14 @@ impl ReplicaHost {
         self.runtime.view_epoch()
     }
 
+    pub fn combat_preferences_for_owner(&self, owner: u32) -> Option<omoba_core::runtime::combat_controls::OwnerCombatPreferences> {
+        self.runtime.combat_preferences_for_owner(owner)
+    }
+
+    pub fn input_scheme_for_owner(&self, owner: u32) -> Option<omoba_core::runtime::input_scheme_transport::AdmittedOwnerInputScheme> {
+        self.runtime.input_scheme_for_owner(owner)
+    }
+
     pub fn next_replica_tick(&self) -> u64 {
         self.runtime.next_replica_tick()
     }
@@ -316,6 +449,16 @@ impl ReplicaHost {
             team_private_metadata: Vec::new(),
             filtered_snapshot_hash: manifest.filtered_snapshot_hash.clone(),
         };
+        let team_private_metadata = if manifest.admitted_summoner_projection.is_empty() {
+            Vec::new()
+        } else {
+            vec![omoba_core::game_proto::DeterministicMetadata {
+                namespace: omoba_core::runtime::summoner_transport::SUMMONER_PROJECTION_NAMESPACE.into(),
+                key: omoba_core::runtime::summoner_transport::SUMMONER_PROJECTION_KEY.into(),
+                schema_version: omoba_core::runtime::summoner_transport::SUMMONER_PROJECTION_SCHEMA,
+                value: manifest.admitted_summoner_projection.clone(),
+            }]
+        };
         self.runtime
             .apply_verified_rebase(&snapshot, manifest, &bytes)
             .map_err(|error| ClientRuntimeError::Replica(format!("rebase: {error:?}")))?;
@@ -327,6 +470,7 @@ impl ReplicaHost {
                     global_seed: self.runtime.global_seed(),
                     tick_rate_hz: self.tick_rate_hz,
                     public_metadata: self.public_metadata.clone(),
+                    team_private_metadata,
                     ..TeamGameStart::default()
                 },
                 secure_replica_component_allowlist(),
@@ -367,12 +511,12 @@ impl ReplicaHost {
         &self,
         player_id: u32,
     ) -> Option<omoba_core::game_proto::SecureReplicaTarget> {
-        let render_id = self
+        let mut matches = self
             .runtime
             .world()
             .entities
             .iter()
-            .find_map(|(id, entity)| {
+            .filter_map(|(id, entity)| {
                 entity
                     .components
                     .get(&omoba_core::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
@@ -383,8 +527,17 @@ impl ReplicaHost {
                             && render.kind == 1
                     })
                     .map(|_| *id)
-            })?;
+            });
+        let render_id=matches.next()?;
+        if matches.next().is_some() {return None;}
         self.secure_reference(render_id)
+    }
+
+    pub fn attack_relation_legal(&self, source_player_id: u32, render_id: u64) -> bool {
+        let rows: Vec<_> = self.runtime.world().entities.iter()
+            .map(|(id, entity)| (*id, &entity.components))
+            .collect();
+        omoba_core::runtime::disclosed_attack_target_admitted(&rows, source_player_id, render_id)
     }
 
     pub fn owns_hero(&self, player_id: u32) -> bool {

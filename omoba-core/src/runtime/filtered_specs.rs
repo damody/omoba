@@ -24,6 +24,167 @@ pub struct ReplicaPhaseTrace(pub Vec<DeterministicGameplayPhase>);
 #[derive(Default)]
 pub struct DisclosedMovementPriority(pub BTreeMap<Entity, bool>);
 
+/// Per-entity disclosed attackability for a filtered world.
+///
+/// An empty gate stays open. A denied entity refuses. A governed entity that
+/// was not admitted refuses. Authority worlds do not insert this resource, and
+/// [`crate::runtime::moba_damage_allowed`] ignores it whenever `MobaMatch` exists.
+#[derive(Default)]
+pub struct DisclosedAttackabilityGate {
+    governed: BTreeSet<Entity>,
+    admitted: BTreeSet<Entity>,
+    denied: BTreeSet<Entity>,
+    /// Independent of `denied`. A missing ward body is not an entry here.
+    pub ward_direct_denied: BTreeSet<Entity>,
+    pub ward_automatic_disabled: BTreeSet<Entity>,
+}
+
+/// How one filtered entity contributes to [`DisclosedAttackabilityGate`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DisclosedAttackabilityRecord {
+    /// No combat component and no locked structure. Legacy damage stays open.
+    LegacyOpen,
+    /// Structure admission 0 without a combat component.
+    LegacyDenied,
+    /// Combat bytes are present. `admitted` already intersects alive, HP, and structure.
+    Governed { admitted: bool },
+}
+
+impl DisclosedAttackabilityGate {
+    pub fn clear(&mut self) {
+        self.governed.clear();
+        self.admitted.clear();
+        self.denied.clear();
+        self.ward_direct_denied.clear();
+        self.ward_automatic_disabled.clear();
+    }
+
+    pub fn note_disclosed_ward(&mut self, entity: Entity, body: Option<&crate::runtime::DisclosedWardBody>) {
+        self.ward_direct_denied.remove(&entity);
+        self.ward_automatic_disabled.remove(&entity);
+        let Some(body) = body else { return };
+        if !crate::runtime::ward_transport::disclosed_direct_attack_allowed(body.direct_attack) {
+            self.ward_direct_denied.insert(entity);
+        }
+        if !crate::runtime::ward_transport::disclosed_automatic_acquisition_allowed(body.automatic_acquisition) {
+            self.ward_automatic_disabled.insert(entity);
+        }
+    }
+
+    pub fn record(&mut self, entity: Entity, record: DisclosedAttackabilityRecord) {
+        match record {
+            DisclosedAttackabilityRecord::LegacyOpen => {
+                self.governed.remove(&entity);
+                self.admitted.remove(&entity);
+                self.denied.remove(&entity);
+            }
+            DisclosedAttackabilityRecord::LegacyDenied => {
+                self.governed.remove(&entity);
+                self.admitted.remove(&entity);
+                self.denied.insert(entity);
+            }
+            DisclosedAttackabilityRecord::Governed { admitted: true } => {
+                self.governed.insert(entity);
+                self.admitted.insert(entity);
+                self.denied.remove(&entity);
+            }
+            DisclosedAttackabilityRecord::Governed { admitted: false } => {
+                self.governed.insert(entity);
+                self.admitted.remove(&entity);
+                self.denied.insert(entity);
+            }
+        }
+    }
+
+    pub fn allows(&self, entity: Entity) -> bool {
+        if self.denied.contains(&entity) {
+            return false;
+        }
+        if self.governed.contains(&entity) && !self.admitted.contains(&entity) {
+            return false;
+        }
+        true
+    }
+}
+
+/// One currently disclosed ward. The row is the replica identity, not a Specs generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DisclosedWardCandidate {
+    pub replica_id: u64,
+    pub disclosure_epoch: u64,
+    pub catalog_id: u16,
+    pub generation: u32,
+}
+
+/// Bounded index of disclosed wards on a filtered world.
+/// Authority matches do not consult it. Membership clear drops every row.
+#[derive(Default)]
+pub struct DisclosedWardCandidates {
+    pub rows: BTreeMap<Entity, DisclosedWardCandidate>,
+}
+
+/// Insert or remove the disclosed ward body. Absence clears the component and
+/// the independent direct/automatic gate entries. Malformed bytes fail closed.
+/// This does not insert `Unit` and does not copy charges or lifetime.
+pub fn apply_disclosed_ward_component(
+    world: &mut World,
+    entity: Entity,
+    components: &BTreeMap<u32, Vec<u8>>,
+) -> Result<(), ReplicaRuntimeError> {
+    let decoded = match components.get(&crate::runtime::DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID) {
+        Some(bytes) => Some(
+            crate::runtime::ward_transport::decode_disclosed_ward_body(bytes)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?,
+        ),
+        None => None,
+    };
+    let body = decoded.map(|decoded| crate::runtime::DisclosedWardBody {
+        catalog_id: decoded.catalog_id,
+        generation: decoded.generation,
+        direct_attack: decoded.direct_attack,
+        automatic_acquisition: decoded.automatic_acquisition,
+    });
+    {
+        let mut storage = world.write_storage::<crate::runtime::DisclosedWardBody>();
+        match body {
+            Some(component) => {
+                storage
+                    .insert(entity, component)
+                    .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            }
+            None => {
+                storage.remove(entity);
+            }
+        }
+    }
+    if world.try_fetch::<DisclosedAttackabilityGate>().is_some() {
+        world
+            .write_resource::<DisclosedAttackabilityGate>()
+            .note_disclosed_ward(entity, body.as_ref());
+    }
+    if world.try_fetch::<DisclosedWardCandidates>().is_some() {
+        let identity = world.read_storage::<ReplicaIdentity>().get(entity).cloned();
+        let mut index = world.write_resource::<DisclosedWardCandidates>();
+        match (body.as_ref(), identity) {
+            (Some(component), Some(identity)) => {
+                index.rows.insert(
+                    entity,
+                    DisclosedWardCandidate {
+                        replica_id: identity.replica_id,
+                        disclosure_epoch: identity.disclosure_epoch,
+                        catalog_id: component.catalog_id,
+                        generation: component.generation,
+                    },
+                );
+            }
+            _ => {
+                index.rows.remove(&entity);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Single-lane combat settles on authority: private opponent targets and
 /// projectile lifetimes are not mirrored. Visible vitals apply after gameplay.
 #[derive(Default)]
@@ -83,7 +244,6 @@ impl FilteredReplicaWorldBuilder {
 
     fn empty_with_pool(self, start: &TeamGameStart, thread_pool: &std::sync::Arc<rayon::ThreadPool>) -> FilteredReplicaWorld {
         let mut world = crate::runtime::StateInitializer::setup_standard_ecs_world(thread_pool);
-        world.register::<ReplicaIdentity>();
         world.register::<FilteredComponents>();
         world.insert(TickDeterministicRng::new(start.global_seed));
         world.insert(crate::runtime::MasterSeed(start.global_seed));
@@ -91,6 +251,14 @@ impl FilteredReplicaWorldBuilder {
         world.insert(ExternalEffectInjectionQueue::default());
         world.insert(ReplicaPhaseTrace::default());
         world.insert(DisclosedMovementPriority::default());
+        world.insert(crate::runtime::input_scheme::DirectionalStepPlan::default());
+        world.insert(crate::runtime::input_scheme::AdmittedDirectionalSteps::default());
+        world.insert(DisclosedAttackabilityGate::default());
+        world.insert(DisclosedWardCandidates::default());
+        world.insert(crate::runtime::summoner_transport::DisclosedSummonerAuthority(start.team_id));
+        world.insert(crate::runtime::summoner_transport::disclosed_summoner_projection_from_metadata(
+            &start.team_private_metadata,
+        ));
         world.write_resource::<crate::runtime::Tick>().0 = start.replica_start_tick;
         world.write_resource::<crate::runtime::Time>().0 =
             start.replica_start_tick as f64 / f64::from(start.tick_rate_hz.max(1));
@@ -184,6 +352,59 @@ impl SpecsDisclosedWorldStepper {
         self.synchronize_specs_membership(disclosed)
     }
 
+    /// Read-only copy of the roster installed at bootstrap and refreshed by
+    /// `fixed_step`. This is the only disclosed summoner store.
+    pub fn disclosed_summoners(
+        &self,
+    ) -> crate::runtime::summoner_transport::DisclosedSummonerProjection {
+        self.filtered
+            .world
+            .try_fetch::<crate::runtime::summoner_transport::DisclosedSummonerProjection>()
+            .map(|projection| (*projection).clone())
+            .unwrap_or_default()
+    }
+
+    /// Current filtered hero components and modifiers only. This never imports
+    /// authority actors or retains a prior disclosure. Iterate heroes, not every
+    /// render entity; duplicate owners invalidate that owner's projection.
+    pub fn disclosed_hero_attributes(
+        &self,
+    ) -> BTreeMap<(u64, u64), crate::runtime::hero_attributes::DisclosedHeroAttributes> {
+        use specs::Join;
+        use crate::runtime::{ability_runtime::{BuffStore, UnitStats}, CProperty, Hero, IsBuilding, PlayerOwner, TAttack};
+        use crate::runtime::hero_attributes::{DisclosedHeroAttributes, query_attributes};
+        let world = &self.filtered.world;
+        let Some(buffs) = world.try_fetch::<BuffStore>() else { return BTreeMap::new(); };
+        let entities = world.entities();
+        let heroes = world.read_storage::<Hero>();
+        let owners = world.read_storage::<PlayerOwner>();
+        let identities = world.read_storage::<ReplicaIdentity>();
+        let properties = world.read_storage::<CProperty>();
+        let attacks = world.read_storage::<TAttack>();
+        let buildings = world.read_storage::<IsBuilding>();
+        let mut seen = BTreeSet::new();
+        let mut conflicts = BTreeSet::new();
+        let mut by_owner = BTreeMap::new();
+        for (entity, _, owner, identity) in (&entities, &heroes, &owners, &identities).join() {
+            if owner.player_id == 0 || identity.replica_id == 0 || identity.disclosure_epoch == 0 { continue; }
+            let Some(mapping) = self.filtered.entities.0.get(&identity.replica_id) else { continue; };
+            if mapping.entity != entity || mapping.disclosure_epoch != identity.disclosure_epoch
+                || mapping.authority_revision != identity.authority_revision { continue; }
+            if !seen.insert(owner.player_id) {
+                conflicts.insert(owner.player_id); by_owner.remove(&owner.player_id); continue;
+            }
+            if seen.len() > 10 { return BTreeMap::new(); }
+            if conflicts.contains(&owner.player_id) { continue; }
+            let (Some(property), Some(attack)) = (properties.get(entity), attacks.get(entity)) else { continue; };
+            let stats = UnitStats::from_refs(&buffs, buildings.get(entity).is_some());
+            let Some(values) = query_attributes(property, attack, &stats, entity) else { continue; };
+            by_owner.insert(owner.player_id, ((identity.replica_id, identity.disclosure_epoch), DisclosedHeroAttributes {
+                player_id: owner.player_id, replica_tick: self.replica_tick, values,
+            }));
+        }
+        by_owner.into_values().collect()
+    }
+
     /// Rebuilds only the filtered Specs world while retaining the worker-local
     /// script registry and dispatcher. Re-loading the same dynamic library on
     /// every filtered rebootstrap makes process RSS grow for the whole match.
@@ -194,8 +415,9 @@ impl SpecsDisclosedWorldStepper {
         resource_allowlist: BTreeSet<u32>,
         disclosed: &DisclosedReplicaWorld,
     ) -> Result<(), ReplicaRuntimeError> {
-        self.filtered =
-            FilteredReplicaWorldBuilder::new(component_allowlist, resource_allowlist).empty(start);
+        let pool = std::sync::Arc::clone(self.dispatcher.thread_pool());
+        self.filtered = FilteredReplicaWorldBuilder::new(component_allowlist, resource_allowlist)
+            .empty_with_pool(start, &pool);
         install_disclosed_content(&mut self.filtered.world, &self.script_registry);
         self.global_seed = start.global_seed;
         self.replica_tick = start.replica_start_tick;
@@ -207,16 +429,31 @@ impl SpecsDisclosedWorldStepper {
         &mut self,
         disclosed: &DisclosedReplicaWorld,
     ) -> Result<(), ReplicaRuntimeError> {
+        self.filtered
+            .world
+            .write_resource::<DisclosedAttackabilityGate>()
+            .clear();
+        self.filtered
+            .world
+            .write_resource::<DisclosedWardCandidates>()
+            .rows
+            .clear();
         let stale: Vec<_> = self
             .filtered
             .entities
             .0
-            .keys()
-            .filter(|id| !disclosed.entities.contains_key(id))
-            .copied()
+            .iter()
+            .filter(|(id, entry)| disclosed.entities.get(*id)
+                .is_none_or(|state| state.disclosure_epoch != entry.disclosure_epoch))
+            .map(|(id, _)| *id)
             .collect();
         for replica_id in stale {
             if let Some(entry) = self.filtered.entities.0.remove(&replica_id) {
+                // A disclosure generation is a new local life. Permanent derived
+                // modifiers must not survive either absence or an in-batch reveal.
+                if let Some(mut buffs) = self.filtered.world.try_fetch_mut::<crate::runtime::ability_runtime::BuffStore>() {
+                    buffs.remove_all_for(entry.entity);
+                }
                 self.filtered
                     .world
                     .delete_entity(entry.entity)
@@ -369,14 +606,38 @@ impl SpecsDisclosedWorldStepper {
                 }
             }
         }
+        // Present combat bytes replace the lossy kind/team inference above.
+        // Old snapshots without this component keep that inference.
+        let combat = if let Some(bytes) = state.components.get(&crate::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID) {
+            let relation = crate::runtime::decode_disclosed_combat_relation(bytes)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let faction = crate::runtime::faction_from_disclosed_kind(relation.faction_kind, relation.team_id)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            self.filtered
+                .world
+                .write_storage::<Faction>()
+                .insert(entity, faction)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            Some(relation)
+        } else {
+            None
+        };
         if let Some(visual) = state.components.get(&crate::runtime::attack_visual_state::SCHEMA_ID) {
             if crate::runtime::attack_visual_state::AttackVisualState::decode(visual).is_none() { return Err(ReplicaRuntimeError::MalformedBaseline); }
+        }
+        if let Some(visual) = state.components.get(&crate::runtime::channel_visual_state::SCHEMA_ID) {
+            if crate::runtime::channel_visual_state::ChannelVisualState::decode(visual).is_none() { return Err(ReplicaRuntimeError::MalformedBaseline); }
         }
         if let Some(visual)=state.components.get(&crate::runtime::buff_visual_state::SCHEMA_ID) {
             if crate::runtime::buff_visual_state::BuffVisualState::decode(visual).is_none() {return Err(ReplicaRuntimeError::MalformedBaseline);}
         }
         if let Some(bytes) = state.components.get(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID) {
             if crate::runtime::visibility::decode_disclosed_structure(bytes).is_none() {
+                return Err(ReplicaRuntimeError::MalformedBaseline);
+            }
+        }
+        if let Some(bytes) = state.components.get(&crate::runtime::DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID) {
+            if crate::runtime::decode_disclosed_presentation_identity(bytes).is_none() {
                 return Err(ReplicaRuntimeError::MalformedBaseline);
             }
         }
@@ -495,6 +756,31 @@ impl SpecsDisclosedWorldStepper {
             crate::runtime::DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID,
             crate::runtime::ScriptUnitTag
         );
+        let structure_denied = state
+            .components
+            .get(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID)
+            .and_then(|bytes| crate::runtime::visibility::decode_disclosed_structure(bytes))
+            .is_some_and(|(_, admitted)| !admitted);
+        let hp_positive = self
+            .filtered
+            .world
+            .read_storage::<CProperty>()
+            .get(entity)
+            .is_some_and(|property| property.hp > omoba_sim::Fixed64::ZERO);
+        let record = if let Some(relation) = combat {
+            DisclosedAttackabilityRecord::Governed {
+                admitted: relation.attackable && relation.alive && hp_positive && !structure_denied,
+            }
+        } else if structure_denied {
+            DisclosedAttackabilityRecord::LegacyDenied
+        } else {
+            DisclosedAttackabilityRecord::LegacyOpen
+        };
+        self.filtered
+            .world
+            .write_resource::<DisclosedAttackabilityGate>()
+            .record(entity, record);
+        apply_disclosed_ward_component(&mut self.filtered.world, entity, &state.components)?;
         Ok(())
     }
 
@@ -623,6 +909,10 @@ impl SpecsDisclosedWorldStepper {
         use crate::runtime::PlayerOwner;
         let mut decoded = Vec::new();
         for accepted in &injections.accepted_inputs {
+            if crate::runtime::input_scheme_transport::is_owner_setting_action(accepted.action_kind) {
+                crate::runtime::input_scheme_transport::validate_owner_setting_ack(accepted).map_err(|_| ReplicaRuntimeError::Decode)?;
+                continue;
+            }
             let actor_id = accepted.actor.as_ref().map_or(0, |id| id.value);
             let actor = self
                 .filtered
@@ -640,10 +930,18 @@ impl SpecsDisclosedWorldStepper {
             if !owned {
                 return Err(ReplicaRuntimeError::WrongTeam);
             }
+            if accepted.action_kind==crate::runtime::direction_transport::ACTION_KIND {
+                crate::runtime::direction_transport::validate_projected_ack(accepted).map_err(|_|ReplicaRuntimeError::Decode)?;
+                if self.filtered.world.read_storage::<crate::runtime::Hero>().get(actor).is_none() {
+                    return Err(ReplicaRuntimeError::WrongTeam);
+                }
+                continue; // exact-tick controls drive movement, never a post-step ACK
+            }
             let mut input =
                 crate::game_proto::PlayerInput::decode(accepted.sanitized_payload.as_slice())
                     .map_err(|_| ReplicaRuntimeError::Decode)?;
-            let target_local = accepted
+            if matches!(input.action,Some(Action::Direction(_))) {return Err(ReplicaRuntimeError::Decode);}
+            let target_entity = accepted
                 .target
                 .as_ref()
                 .map(|id| {
@@ -651,10 +949,14 @@ impl SpecsDisclosedWorldStepper {
                         .entities
                         .0
                         .get(&id.value)
-                        .map(|entry| entry.entity.id())
+                        .map(|entry| entry.entity)
                         .ok_or(ReplicaRuntimeError::UnknownEntity)
                 })
                 .transpose()?;
+            // Other combat actions keep the local index only. ItemUse translates
+            // both the accepted actor and the target to this replica's own
+            // entity lives. Authority generation is not copied from the payload.
+            let target_local = target_entity.map(|entity| entity.id());
             match input.action.as_mut() {
                 Some(Action::AttackTarget(value)) => {
                     value.target_id = target_local.ok_or(ReplicaRuntimeError::UnknownEntity)?
@@ -668,7 +970,21 @@ impl SpecsDisclosedWorldStepper {
                     value.tower_entity_id =
                         target_local.ok_or(ReplicaRuntimeError::UnknownEntity)?
                 }
-                Some(Action::ItemUse(value)) => value.target_entity = target_local,
+                Some(Action::ItemUse(value)) => {
+                    // A payload that still names a target, with no accepted life, is not
+                    // a no-target point. Do not clear that shape into absence.
+                    if accepted.target.is_none()
+                        && (value.target_entity.is_some() || value.target_generation.is_some())
+                    {
+                        return Err(ReplicaRuntimeError::Decode);
+                    }
+                    crate::runtime::write_local_item_actor(value, actor);
+                    value.target_entity = target_local;
+                    value.target_generation = target_entity.and_then(|entity| {
+                        let generation = entity.gen().id();
+                        (generation > 0).then_some(generation as u32)
+                    });
+                }
                 Some(Action::SetTowerTargetPriority(value)) => {
                     value.tower_entity_id =
                         target_local.ok_or(ReplicaRuntimeError::UnknownEntity)?
@@ -681,17 +997,40 @@ impl SpecsDisclosedWorldStepper {
                 None => return Err(ReplicaRuntimeError::Decode),
             }
             // A shop input is acknowledged as accepted, but its actual result
-            // is settled once by authority. Never buy/sell in this replica.
-            if matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_))) {
+            // is settled once by authority. Never buy, sell, or undo in this replica.
+            if matches!(input.action, Some(Action::ItemBuy(_) | Action::ItemSell(_) | Action::ShopUndo(_) | Action::CombatPreferences(_))) {
                 continue;
             }
-            decoded.push((accepted.player_id, input));
+            let correlation = u32::try_from(accepted.input_id).unwrap_or(0);
+            let actor_generation = self
+                .filtered
+                .world
+                .entities()
+                .is_alive(actor)
+                .then_some(actor.gen().id() as u32);
+            decoded.push((accepted.player_id, input, correlation, actor_generation));
         }
         #[cfg(feature = "kcp")]
         {
             let mut pending = self.filtered.world.write_resource::<PendingPlayerInputs>();
             pending.tick = self.replica_tick as u32;
-            pending.inputs = decoded;
+            pending.inputs = decoded
+                .iter()
+                .map(|(player_id, input, _, _)| (*player_id, input.clone()))
+                .collect();
+            self.filtered
+                .world
+                .write_resource::<crate::runtime::AdmittedCommandIdentities>()
+                .rows = decoded
+                .iter()
+                .map(|(player_id, _, correlation, actor_generation)| {
+                    crate::runtime::AdmittedCommandIdentity {
+                        player_id: *player_id,
+                        correlation: *correlation,
+                        actor_generation: *actor_generation,
+                    }
+                })
+                .collect();
         }
         #[cfg(not(feature = "kcp"))]
         let _ = decoded;
@@ -737,6 +1076,15 @@ impl SpecsDisclosedWorldStepper {
             return Err(ReplicaRuntimeError::ResourceNotAllowlisted);
         }
         self.replica_tick = world.tick;
+        let preferences = crate::runtime::combat_transport::decode_projection(
+            injections.combat_preferences.as_ref(),
+            injections.combat_preferences.as_ref().map_or(0, |projection| projection.view_epoch),
+        ).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        crate::runtime::input_scheme_transport::decode_direction_steps(
+            injections.combat_preferences.as_ref(),
+            injections.combat_preferences.as_ref().map_or(0, |projection| projection.view_epoch), self.replica_tick,
+        ).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        self.filtered.world.insert(crate::runtime::native::combat_acquisition::AdmittedCombatPreferences { by_owner: preferences });
         self.filtered
             .world
             .write_resource::<crate::runtime::Tick>()
@@ -846,6 +1194,7 @@ impl SpecsDisclosedWorldStepper {
             .write_resource::<TickDeterministicRng>()
             .begin_tick(self.replica_tick);
         self.inject_accepted_inputs(injections)?;
+        install_direction_steps(&mut self.filtered.world, injections, self.replica_tick)?;
 
         // Only an authoritative active-channel fact clears old commands. An
         // accepted Recall alone may be rejected by phase or same-batch movement.
@@ -923,7 +1272,13 @@ impl SpecsDisclosedWorldStepper {
                 P::AbilityCasts => {
                     crate::runtime::drain_pending_ability_casts(&mut self.filtered.world)
                 }
-                P::Moves => crate::runtime::drain_pending_moves(&mut self.filtered.world),
+                P::SummonerCasts => {
+                    crate::runtime::drain_pending_summoner_casts(&mut self.filtered.world)
+                }
+                P::Moves => {
+                    crate::runtime::drain_pending_ward_placements(&mut self.filtered.world);
+                    crate::runtime::drain_pending_moves(&mut self.filtered.world)
+                }
                 P::PreScriptOutcomes | P::PostScriptOutcomes => {
                     let mut sink = crate::runtime::RuntimeEventVecSink::default();
                     crate::runtime::process_outcomes(&mut self.filtered.world, &mut sink)
@@ -999,6 +1354,7 @@ impl SpecsDisclosedWorldStepper {
         apply_authoritative_movement_outcomes(self, injections)?;
         self.export_gameplay_components(world)?;
         apply_disclosed_events(world, injections)?;
+        apply_disclosed_summoner_projection(self, injections);
         self.synchronize_specs_membership(world)?;
         if let (Some(start), Some(detail)) = (finalization_started, detail.as_mut()) {
             detail.finalization_ns = start.elapsed().as_nanos();
@@ -1009,11 +1365,69 @@ impl SpecsDisclosedWorldStepper {
     }
 }
 
+fn install_direction_steps(world: &mut specs::World, injections: &StepInjections, tick: u64) -> Result<(), ReplicaRuntimeError> {
+    use specs::{Join, WorldExt};
+    let projection = injections.combat_preferences.as_ref();
+    let admitted = crate::runtime::input_scheme_transport::decode_direction_steps(
+        projection, projection.map_or(0, |value| value.view_epoch), tick,
+    ).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+    let mut rows = std::collections::BTreeMap::new();
+    let mut seen = std::collections::BTreeSet::new();
+    {
+        let entities = world.entities();
+        let heroes = world.read_storage::<crate::runtime::Hero>();
+        let owners = world.read_storage::<crate::runtime::PlayerOwner>();
+        for (entity, _, owner) in (&entities, &heroes, &owners).join() {
+            if let Some(step) = admitted.get(&owner.player_id) {
+                if !seen.insert(owner.player_id) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+                rows.insert(entity, *step);
+            }
+        }
+    }
+    // Newly revealed post-tick baselines are deliberately absent here; staging
+    // merges them after this step. Never create an actor from a roster row.
+    for (entity, step) in &rows {
+        if step.navigation_reset { crate::runtime::native::game_processor::clear_hero_command_queue(world, *entity); }
+        if step.attack_reset { crate::runtime::native::game_processor::interrupt_attack_for_accepted_command(world, *entity); }
+    }
+    world.insert(crate::runtime::input_scheme::AdmittedDirectionalSteps { tick, rows });
+    Ok(())
+}
+
+fn apply_disclosed_summoner_projection(stepper: &mut SpecsDisclosedWorldStepper, injections: &StepInjections) {
+    let payloads: Vec<&[u8]> = injections.public_events.iter()
+        .filter(|event| event.event_kind == crate::runtime::FactKind::Hud as u32)
+        .map(|event| event.sanitized_payload.as_slice())
+        .collect();
+    let updated = {
+        let authority = stepper.filtered.world.try_fetch::<crate::runtime::summoner_transport::DisclosedSummonerAuthority>();
+        let current = stepper.filtered.world.try_fetch::<crate::runtime::summoner_transport::DisclosedSummonerProjection>();
+        match (authority.as_ref(), current.as_ref()) {
+            (Some(authority), Some(current)) => {
+                crate::runtime::summoner_transport::refresh_disclosed_summoner_projection(
+                    current, authority.0, payloads,
+                )
+            }
+            _ => None,
+        }
+    };
+    if let Some(next) = updated {
+        *stepper.filtered.world.write_resource::<crate::runtime::summoner_transport::DisclosedSummonerProjection>() = next;
+    }
+}
+
 fn apply_committed_economy_and_equipment(
     world: &mut DisclosedReplicaWorld,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
     for event in &injections.public_events {
+        if event.event_kind == crate::runtime::FactKind::ChannelVisual as u32 {
+            crate::runtime::channel_visual_state::ChannelVisualState::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::channel_visual_state::SCHEMA_ID).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            *bytes = event.sanitized_payload.clone();
+        }
         if event.event_kind == crate::runtime::FactKind::AttackVisual as u32 {
             crate::runtime::attack_visual_state::AttackVisualState::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let id = event.subject.as_ref().map_or(0, |id| id.value);
@@ -1296,6 +1710,167 @@ fn apply_disclosed_events(
 }
 
 #[cfg(test)]
+mod input_scheme_step_tests {
+    use super::*;
+    use crate::runtime::*;
+    use specs::{Builder, Join, WorldExt};
+    fn injection(tick: u64) -> StepInjections {
+        StepInjections {combat_preferences:Some(crate::game_proto::CombatPreferencesProjection {
+            schema_version:1,view_epoch:1,rows:vec![crate::game_proto::CombatPreferencesRow {
+                player_id:7,acquisition:0,idle_auto_attack:true,
+                input_scheme:Some(crate::game_proto::InputSchemeOwnerState {
+                    schema_version:1,scheme:1,hero_content_id:"training_luminary".into(),
+                    playing_elapsed_raw:34,lock_after_raw:600*1024,direction_lease_raw:307,
+                    last_press_id:1,active_press_id:0,direction_protocol:1,
+                    direction_step:Some(crate::game_proto::InputSchemeDirectionStep {
+                        tick,scheme:1,direction_x_raw:1024,direction_y_raw:0,press_id:1,navigation_reset:true,attack_reset:false,
+                    }),
+                }),
+            }],
+        }),..Default::default()}
+    }
+    #[test]
+    fn input_scheme_frame_staging_skips_reveal_then_replays_direction_to_authority_hash() {
+        let mut fix=crate::runtime::native::combat_acquisition::test_support::CombatFixture::legacy();
+        fix.owner(7);
+        let property=crate::runtime::visibility::encode_disclosed_property(fix.world.read_storage::<CProperty>().get(fix.hero).unwrap());
+        let attack=crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<TAttack>().get(fix.hero).unwrap());
+        let body=vec![
+            (DISCLOSED_HERO_COMPONENT_SCHEMA_ID,crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<Hero>().get(fix.hero).unwrap())),
+            (DISCLOSED_FACING_COMPONENT_SCHEMA_ID,crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<Facing>().get(fix.hero).unwrap())),
+            (DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID,crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<TurnSpeed>().get(fix.hero).unwrap())),
+            (DISCLOSED_COLLISION_RADIUS_COMPONENT_SCHEMA_ID,crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<CollisionRadius>().get(fix.hero).unwrap())),
+        ];
+        let render=|x| encode_demo_render_state(DemoRenderState {x_raw:x,y_raw:0,team_id:1,kind:1,owner_player_id:7});
+        let components=|x| { let mut components=vec![(DEMO_RENDER_COMPONENT_SCHEMA_ID,render(x)),
+            (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,property.clone()),
+            (DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID,attack.clone())];
+            components.extend(body.clone());components };
+        let allow=secure_replica_component_allowlist();
+        let empty=std::collections::BTreeSet::new();
+        let canonical=(1_u64<<32)|55;
+        let visible=std::collections::BTreeSet::from([canonical]);
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig {hash_checkpoint_interval_ticks:1,..Default::default()});
+        projector.prepare_combat_preferences(injection(1).combat_preferences).unwrap();
+        let start=projector.build_team_game_start(1,30,0);
+        let mut replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),empty.clone()).unwrap();
+        let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow,empty);
+        let graph=ProjectionDependencyGraph::default();
+        let reveal=crate::runtime::visibility::VisibilityTransition::Reveal {
+            canonical_id:canonical,effective_tick:1,
+            baseline:crate::runtime::visibility::encode_disclosed_baseline(&components(0)),
+        };
+        let first=projector.build_frame_with_inputs(1,1,&visible,vec![reveal],&[],&graph,vec![]).unwrap().frame;
+        replica.apply_frame(first.clone(),&mut stepper).unwrap();
+        let render_id=*replica.world().entities.keys().next().unwrap();
+        // The reveal was staged after the first Specs tick. Import its public
+        // baseline for these direct admission checks without advancing time.
+        stepper.bootstrap_membership(replica.world()).unwrap();
+        let direction_payload=crate::game_proto::PlayerInput {action:Some(crate::game_proto::player_input::Action::Direction(
+            crate::game_proto::HeroDirectionInput {schema_version:1,source:None,press_id:1,phase:1,x:1,y:0,sealed_source:0}))};
+        let accepted=CanonicalAcceptedInput::from_authoritative_acceptance(1,7,91,crate::runtime::direction_transport::ACTION_KIND,
+            canonical,None,direction_payload.encode_to_vec());
+        let local=stepper.filtered.entities.0[&render_id].entity;
+        let ack=crate::game_proto::TeamAcceptedInput {player_id:7,input_id:91,action_kind:crate::runtime::direction_transport::ACTION_KIND,
+            actor:Some(crate::game_proto::ReplicaEntityId {value:render_id}),target:None,
+            sanitized_payload:direction_payload.encode_to_vec(),stable_sub_index:0};
+        let ack_injection=StepInjections {accepted_inputs:vec![ack],..Default::default()};
+        stepper.filtered.world.write_storage::<PlayerOwner>().get_mut(local).unwrap().player_id=8;
+        assert!(matches!(stepper.inject_accepted_inputs(&ack_injection),Err(ReplicaRuntimeError::WrongTeam)));
+        stepper.filtered.world.write_storage::<PlayerOwner>().get_mut(local).unwrap().player_id=7;
+        let hero=stepper.filtered.world.write_storage::<Hero>().remove(local).unwrap();
+        assert!(matches!(stepper.inject_accepted_inputs(&ack_injection),Err(ReplicaRuntimeError::WrongTeam)));
+        stepper.filtered.world.write_storage::<Hero>().insert(local,hero).unwrap();
+        stepper.inject_accepted_inputs(&ack_injection).unwrap();
+        let position=|replica:&SelectiveReplicaRuntime| decode_demo_render_state(
+            &replica.world().entities[&render_id].components[&DEMO_RENDER_COMPONENT_SCHEMA_ID]).unwrap().x_raw;
+        assert_eq!(position(&replica),0,"post-tick reveal must not move a second time");
+        assert_eq!(replica.canonical_team_hash().as_slice(),first.post_step.unwrap().hash_checkpoint.unwrap().canonical_team_hash.as_slice());
+        // Post-step lease is retired, but this tick still consumed a direction.
+        projector.prepare_combat_preferences(injection(2).combat_preferences).unwrap();
+        let dt=crate::lockstep_timing::fixed_raw_for_tick_at_fps(2,30);
+        let expected=(fix.world.read_storage::<CProperty>().get(fix.hero).unwrap().msd
+            *omoba_sim::Fixed64::from_raw(dt)).raw();
+        let baselines=std::collections::BTreeMap::from([(canonical,
+            crate::runtime::visibility::encode_disclosed_baseline(&components(expected)))]);
+        projector.refresh_expected_visible_components(2,&visible,&baselines);
+        let next=projector.build_frame_with_inputs(2,2,&visible,vec![],&[],&graph,vec![accepted]).unwrap().frame;
+        assert_eq!(next.step.as_ref().unwrap().accepted_inputs.len(),1);
+        let mut leaked=next.clone();
+        if let Some(crate::game_proto::player_input::Action::Direction(value))=crate::game_proto::PlayerInput::decode(
+            leaked.step.as_ref().unwrap().accepted_inputs[0].sanitized_payload.as_slice()).unwrap().action {
+            let payload=crate::game_proto::PlayerInput {action:Some(crate::game_proto::player_input::Action::Direction(
+                crate::game_proto::HeroDirectionInput {sealed_source:canonical,..value}))};
+            leaked.step.as_mut().unwrap().accepted_inputs[0].sanitized_payload=payload.encode_to_vec();
+        }
+        let before=replica.canonical_team_hash();
+        assert!(replica.apply_frame(leaked,&mut stepper).is_err());assert_eq!(replica.canonical_team_hash(),before);
+        replica.apply_frame(next.clone(),&mut stepper).unwrap();
+        assert_eq!(position(&replica),expected);
+        assert!(expected>0);
+        assert_eq!(replica.canonical_team_hash().as_slice(),next.post_step.unwrap().hash_checkpoint.unwrap().canonical_team_hash.as_slice());
+    }
+    #[test]
+    fn input_scheme_filtered_mode_reset_and_direction_begin_keep_distinct_attack_policy() {
+        for reset in [false,true] {
+            let mut fix=crate::runtime::native::combat_acquisition::test_support::CombatFixture::legacy();
+            fix.owner(7);fix.filtered();
+            fix.world.insert(AttackCancelFxQueue::default());
+            fix.world.insert(DeltaTime(omoba_sim::Fixed64::from_raw(34)));
+            fix.world.insert(crate::runtime::input_scheme::DirectionalStepPlan::default());
+            { let mut attacks=fix.world.write_storage::<TAttack>();let attack=attacks.get_mut(fix.hero).unwrap();
+                attack.attack_phase=AttackSequencePhase::Windup;attack.asd_count=omoba_sim::Fixed64::from_raw(-100); }
+            let mut input=injection(1);
+            input.combat_preferences.as_mut().unwrap().rows[0].input_scheme.as_mut().unwrap().direction_step.as_mut().unwrap().attack_reset=reset;
+            install_direction_steps(&mut fix.world,&input,1).unwrap();
+            assert_eq!(fix.world.read_resource::<AttackCancelFxQueue>().pending.len(),usize::from(reset));
+            if !reset {assert_eq!(fix.world.read_storage::<TAttack>().get(fix.hero).unwrap().asd_count.raw(),-100);}
+            crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&fix.world);
+            crate::comp::run_now::<crate::tick::hero_move_tick::Sys>(&fix.world);
+            assert_eq!(fix.world.read_storage::<Pos>().get(fix.hero).unwrap().0.x>omoba_sim::Fixed64::ZERO,reset);
+        }
+    }
+    #[test]
+    fn input_scheme_filtered_consumer_moves_from_frozen_step_and_expires_by_exact_tick() {
+        let mut fix=crate::runtime::native::combat_acquisition::test_support::CombatFixture::legacy();
+        fix.owner(7);fix.filtered();fix.command(HeroCommand::HoldPosition);
+        fix.world.insert(DeltaTime(omoba_sim::Fixed64::from_raw(34)));
+        fix.world.insert(crate::runtime::input_scheme::DirectionalStepPlan::default());
+        install_direction_steps(&mut fix.world,&injection(1),1).unwrap();
+        assert_eq!(fix.world.read_storage::<HeroCommandQueue>().get(fix.hero).unwrap().active,None);
+        crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&fix.world);
+        crate::comp::run_now::<crate::tick::hero_move_tick::Sys>(&fix.world);
+        let moved=fix.world.read_storage::<Pos>().get(fix.hero).unwrap().0;
+        assert!(moved.x>omoba_sim::Fixed64::ZERO);
+        fix.world.write_resource::<Tick>().0=2;
+        assert!(install_direction_steps(&mut fix.world,&injection(1),2).is_err());
+        assert_eq!(fix.world.read_resource::<crate::runtime::input_scheme::AdmittedDirectionalSteps>().tick,1);
+        crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&fix.world);
+        crate::comp::run_now::<crate::tick::hero_move_tick::Sys>(&fix.world);
+        assert_eq!(fix.world.read_storage::<Pos>().get(fix.hero).unwrap().0,moved);
+        install_direction_steps(&mut fix.world,&StepInjections::default(),2).unwrap();
+        assert!(fix.world.read_resource::<crate::runtime::input_scheme::AdmittedDirectionalSteps>().rows.is_empty());
+    }
+    #[test]
+    fn input_scheme_filtered_step_never_creates_missing_bodies_or_accepts_duplicate_owners() {
+        for duplicate in [false,true] {
+            let mut fix=crate::runtime::native::combat_acquisition::test_support::CombatFixture::legacy();
+            fix.owner(7);
+            if duplicate {
+                fix.world.create_entity().with(Hero::default()).with(PlayerOwner::new(7)).build();
+                assert!(install_direction_steps(&mut fix.world,&injection(1),1).is_err());
+                assert!(fix.world.try_fetch::<crate::runtime::input_scheme::AdmittedDirectionalSteps>().is_none());
+            } else {
+                fix.delete(fix.hero);
+                install_direction_steps(&mut fix.world,&injection(1),1).unwrap();
+                assert!(fix.world.read_resource::<crate::runtime::input_scheme::AdmittedDirectionalSteps>().rows.is_empty());
+                assert_eq!((&fix.world.entities()).join().count(),0);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod committed_actor_state_tests {
     use super::*;
     use crate::runtime::*;
@@ -1401,6 +1976,26 @@ mod committed_actor_state_tests {
         assert!(apply_disclosed_events(&mut world, &event(FactKind::AttackVisual, idle.clone())).is_err());
         world.entities.clear();
         assert!(apply_disclosed_events(&mut world, &event(FactKind::AttackVisual, idle)).is_err());
+    }
+
+    #[test]
+    fn channel_visual_state_absolute_updates_clear_and_require_live_baseline() {
+        use crate::runtime::channel_visual_state::{ChannelVisualState,SCHEMA_ID};
+        let mut world=world();
+        world.entities.get_mut(&1).unwrap().components.insert(SCHEMA_ID,ChannelVisualState::None.encode());
+        for state in [ChannelVisualState::Recall,ChannelVisualState::None,ChannelVisualState::Recall] {
+            let update=event(FactKind::ChannelVisual,state.encode());
+            apply_disclosed_events(&mut world,&update).unwrap();
+            let once=world.clone();apply_disclosed_events(&mut world,&update).unwrap();assert_eq!(world,once);
+            assert_eq!(ChannelVisualState::decode(&world.entities[&1].components[&SCHEMA_ID]),Some(state));
+        }
+        for bad in [b"CVS0\x01".to_vec(),b"CVS1\x02".to_vec(),b"CVS1\x01\0".to_vec()] {
+            let before=world.clone();assert!(apply_disclosed_events(&mut world,&event(FactKind::ChannelVisual,bad)).is_err());assert_eq!(world,before);
+        }
+        world.entities.get_mut(&1).unwrap().components.remove(&SCHEMA_ID);
+        assert!(apply_disclosed_events(&mut world,&event(FactKind::ChannelVisual,ChannelVisualState::Recall.encode())).is_err());
+        world.entities.clear();
+        assert!(apply_disclosed_events(&mut world,&event(FactKind::ChannelVisual,ChannelVisualState::None.encode())).is_err());
     }
 
     #[test]
@@ -1583,7 +2178,7 @@ mod committed_actor_state_tests {
 #[cfg(test)]
 mod canonical_json_tests {
     use crate::runtime::visibility::canonical_disclosed_json;
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     #[test]
     fn fixed_step_detail_specs_profile_keeps_world_identical() {
@@ -1628,6 +2223,90 @@ mod canonical_json_tests {
         let _ = filtered.world.read_resource::<TowerUpgradeRegistry>();
         let _ = filtered.world.read_resource::<AbilityRegistry>();
         assert_eq!(filtered.world.entities().join().count(), 0);
+        assert!(filtered.world.try_fetch::<DisclosedAttackabilityGate>().is_some());
+    }
+
+    #[test]
+    fn disclosed_combat_relation_restores_faction_and_attackability_gate() {
+        use crate::runtime::*;
+        use specs::WorldExt;
+        let start = crate::game_proto::TeamGameStart { tick_rate_hz: 60, global_seed: 7, ..Default::default() };
+        let allow = secure_replica_component_allowlist();
+        let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, allow, std::collections::BTreeSet::new());
+        let render = |team: u32, kind: u8| encode_demo_render_state(DemoRenderState {
+            x_raw: 0, y_raw: 0, team_id: team, kind, owner_player_id: 0,
+        });
+        let mut property = vec![0u8; 40];
+        property[..8].copy_from_slice(&(100i64 * 1024).to_be_bytes());
+        property[8..16].copy_from_slice(&(100i64 * 1024).to_be_bytes());
+        let combat = |kind: u8, team: i32, attackable: bool, alive: bool| {
+            encode_disclosed_combat_relation(DisclosedCombatRelation {
+                faction_kind: kind, team_id: team, attackable, alive,
+            }).unwrap()
+        };
+        let row = |components: BTreeMap<u32, Vec<u8>>| ReplicaEntityState {
+            replica_id: 0, disclosure_epoch: 1, entity_kind: 2, authority_revision: 1, components,
+        };
+        let legacy = BTreeMap::from([
+            (DEMO_RENDER_COMPONENT_SCHEMA_ID, render(2, 2)),
+            (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property.clone()),
+        ]);
+        let mut enemy = legacy.clone();
+        enemy.insert(DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, combat(2, 2, true, true));
+        let ally = BTreeMap::from([
+            (DEMO_RENDER_COMPONENT_SCHEMA_ID, render(1, 2)),
+            (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property.clone()),
+            (DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, combat(4, 1, true, true)),
+        ]);
+        let neutral_camp = BTreeMap::from([
+            (DEMO_RENDER_COMPONENT_SCHEMA_ID, render(0, 2)),
+            (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property.clone()),
+            (DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, combat(5, 0, true, true)),
+        ]);
+        let locked = BTreeMap::from([
+            (DEMO_RENDER_COMPONENT_SCHEMA_ID, render(2, 2)),
+            (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property.clone()),
+            (DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID, vec![1, 0]),
+        ]);
+        let mut stale_attackable = enemy.clone();
+        stale_attackable.insert(DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID, vec![1, 0]);
+        let open = BTreeMap::from([
+            (DEMO_RENDER_COMPONENT_SCHEMA_ID, render(0, 2)),
+            (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property.clone()),
+        ]);
+        let mut disclosed = DisclosedReplicaWorld::default();
+        for (id, components) in [
+            (1u64, legacy),
+            (2, enemy),
+            (3, ally),
+            (4, neutral_camp),
+            (5, locked),
+            (6, stale_attackable),
+            (7, open),
+        ] {
+            let mut state = row(components);
+            state.replica_id = id;
+            disclosed.entities.insert(id, state);
+        }
+        stepper.bootstrap_membership(&disclosed).unwrap();
+        let specs_entity = |id: u64| stepper.filtered.entities.0[&id].entity;
+        {
+            let factions = stepper.filtered.world.read_storage::<Faction>();
+            assert_eq!(factions.get(specs_entity(1)).unwrap().faction_id, FactionType::Player);
+            assert_eq!(factions.get(specs_entity(2)).unwrap().faction_id, FactionType::Enemy);
+            assert_eq!(factions.get(specs_entity(2)).unwrap().team_id, 2);
+            assert_eq!(factions.get(specs_entity(3)).unwrap().faction_id, FactionType::Ally);
+            assert_eq!(factions.get(specs_entity(4)).unwrap().faction_id, FactionType::HostileNeutral);
+            assert_eq!(factions.get(specs_entity(4)).unwrap().team_id, 0);
+            assert_eq!(factions.get(specs_entity(7)).unwrap().faction_id, FactionType::Neutral);
+        }
+        assert!(moba_damage_allowed(&stepper.filtered.world, specs_entity(2)));
+        assert!(moba_damage_allowed(&stepper.filtered.world, specs_entity(7)));
+        assert!(!moba_damage_allowed(&stepper.filtered.world, specs_entity(5)));
+        assert!(!moba_damage_allowed(&stepper.filtered.world, specs_entity(6)));
+        disclosed.entities.get_mut(&2).unwrap().components.insert(
+            DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, vec![1, 9, 0, 0, 0, 2, 1, 1]);
+        assert!(stepper.bootstrap_membership(&disclosed).is_err());
     }
 
     #[test]
@@ -1709,5 +2388,190 @@ mod canonical_json_tests {
         assert_eq!(positions.get(entity).unwrap().0.x.raw(), 123);
         assert_eq!(positions.get(entity).unwrap().0.y.raw(), -456);
         assert_eq!(facings.get(entity).unwrap().0.ticks(), 1024);
+    }
+}
+
+#[cfg(test)]
+mod worker_pool_ownership {
+    use super::SpecsDisclosedWorldStepper;
+    use crate::runtime::OwnedEcsPool;
+    use specs::{Builder, Join, WorldExt};
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    #[test]
+    fn rebootstrap_reuses_dispatcher_pool() {
+        let start = crate::game_proto::TeamGameStart {
+            tick_rate_hz: 60,
+            ..Default::default()
+        };
+        let components = BTreeSet::new();
+        let resources = BTreeSet::new();
+        let mut stepper =
+            SpecsDisclosedWorldStepper::from_start(&start, components.clone(), resources.clone());
+        let pool = Arc::clone(stepper.dispatcher.thread_pool());
+        let _stale = stepper.filtered.world.create_entity().build();
+        let disclosed = crate::runtime::DisclosedReplicaWorld::default();
+        stepper
+            .rebootstrap(&start, components.clone(), resources, &disclosed)
+            .expect("rebootstrap");
+        assert!(Arc::ptr_eq(&pool, stepper.dispatcher.thread_pool()));
+        let stored = stepper.filtered.world.read_resource::<OwnedEcsPool>();
+        assert!(Arc::ptr_eq(&pool, &stored.0));
+        assert_eq!(pool.current_num_threads(), stored.0.current_num_threads());
+        drop(stored);
+        assert_eq!(stepper.filtered.world.entities().join().count(), 0);
+        assert_eq!(stepper.filtered.component_allowlist, components);
+    }
+
+    fn summoner_hud(team: u32, metric: u64, value: i64) -> crate::game_proto::TeamPublicEvent {
+        let mut sanitized_payload = Vec::with_capacity(20);
+        sanitized_payload.extend(team.to_le_bytes());
+        sanitized_payload.extend(metric.to_le_bytes());
+        sanitized_payload.extend(value.to_le_bytes());
+        crate::game_proto::TeamPublicEvent {
+            event_kind: crate::runtime::FactKind::Hud as u32,
+            sanitized_payload,
+            ..Default::default()
+        }
+    }
+
+    fn summoner_stepper(team: u32, player: u32, slot1_cooldown: i64) -> crate::runtime::SpecsDisclosedWorldStepper {
+        use crate::runtime::summoner_transport::{
+            encode_projected_summoners, ProjectedSummonerPlayer, ProjectedSummonerSlot,
+            SUMMONER_PROJECTION_KEY, SUMMONER_PROJECTION_NAMESPACE, SUMMONER_PROJECTION_SCHEMA,
+        };
+        let start = crate::game_proto::TeamGameStart {
+            team_id: team,
+            tick_rate_hz: 60,
+            team_private_metadata: vec![crate::game_proto::DeterministicMetadata {
+                namespace: SUMMONER_PROJECTION_NAMESPACE.into(),
+                key: SUMMONER_PROJECTION_KEY.into(),
+                schema_version: SUMMONER_PROJECTION_SCHEMA,
+                value: encode_projected_summoners(&[ProjectedSummonerPlayer {
+                    player_id: player,
+                    slots: [
+                        ProjectedSummonerSlot { catalog_id: 1, cooldown_raw: 0 },
+                        ProjectedSummonerSlot { catalog_id: 2, cooldown_raw: slot1_cooldown },
+                    ],
+                }]),
+            }],
+            ..Default::default()
+        };
+        let allow = std::collections::BTreeSet::new();
+        crate::runtime::SpecsDisclosedWorldStepper::from_start(&start, allow.clone(), allow)
+    }
+
+    fn step_hud(stepper: &mut crate::runtime::SpecsDisclosedWorldStepper, events: Vec<crate::game_proto::TeamPublicEvent>) {
+        use crate::runtime::selective_replica::DisclosedWorldStepper;
+        let allow = std::collections::BTreeSet::new();
+        let mut world = crate::runtime::DisclosedReplicaWorld { tick: 1, ..Default::default() };
+        stepper.fixed_step(&mut world, &crate::runtime::StepInjections {
+            public_events: events, ..Default::default()
+        }, &allow, &allow).unwrap();
+    }
+
+    fn slot1(stepper: &crate::runtime::SpecsDisclosedWorldStepper) -> (u16, i64) {
+        let projection = stepper.filtered.world.read_resource::<crate::runtime::summoner_transport::DisclosedSummonerProjection>();
+        let slot = projection.players[0].slots[1];
+        (slot.catalog_id, slot.cooldown_raw)
+    }
+
+    #[test]
+    fn disclosed_summoner_projection_refreshes_bootstrap_clock_for_dead_owner() {
+        use crate::runtime::native::moba_match::{
+            single_lane_player_metric, SINGLE_LANE_ELAPSED_METRIC_ID, SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN,
+            SINGLE_LANE_SUMMONER_SLOT1_SPELL,
+        };
+        use omoba_sim::Fixed64;
+        use specs::Join;
+        let committed = Fixed64::from_i32(240).raw();
+        let mut stepper = summoner_stepper(1, 7, committed);
+        assert_eq!(stepper.filtered.world.read_resource::<crate::runtime::summoner_transport::DisclosedSummonerAuthority>().0, 1);
+        assert_eq!(slot1(&stepper), (2, committed));
+        let decreased = Fixed64::from_i32(230).raw();
+        step_hud(&mut stepper, vec![
+            summoner_hud(1, single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_SPELL, 7), 2),
+            summoner_hud(1, single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, 7), decreased),
+            summoner_hud(0, SINGLE_LANE_ELAPSED_METRIC_ID, Fixed64::from_i32(1).raw()),
+        ]);
+        assert_eq!(slot1(&stepper), (2, decreased));
+        assert_eq!(stepper.filtered.world.entities().join().count(), 0);
+        let later = Fixed64::from_i32(220).raw();
+        step_hud(&mut stepper, vec![
+            summoner_hud(1, single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, 7), later),
+        ]);
+        assert_eq!(slot1(&stepper), (2, later));
+        assert_eq!(stepper.filtered.world.read_resource::<crate::runtime::summoner_transport::DisclosedSummonerProjection>().players.len(), 1);
+        assert_eq!(stepper.disclosed_summoners().players[0].slots[1].cooldown_raw, later);
+    }
+
+    #[test]
+    fn disclosed_summoner_projection_rejects_foreign_unknown_and_malformed_facts() {
+        use crate::runtime::native::moba_match::{
+            single_lane_player_metric, SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, SINGLE_LANE_SUMMONER_SLOT1_SPELL,
+        };
+        use omoba_sim::Fixed64;
+        let committed = Fixed64::from_i32(240).raw();
+        let mut stepper = summoner_stepper(1, 7, committed);
+        let cooldown = single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, 7);
+        let spell = single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_SPELL, 7);
+        for events in [
+            vec![summoner_hud(2, cooldown, Fixed64::from_i32(10).raw())],
+            vec![summoner_hud(1, single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, 8), 0)],
+            vec![summoner_hud(1, cooldown, -1)],
+            vec![summoner_hud(1, cooldown, committed + 1)],
+            vec![summoner_hud(1, spell, 0)],
+            vec![
+                summoner_hud(1, cooldown, Fixed64::from_i32(10).raw()),
+                summoner_hud(1, spell, 99),
+            ],
+            vec![crate::game_proto::TeamPublicEvent {
+                event_kind: crate::runtime::FactKind::Hud as u32,
+                sanitized_payload: {
+                    let mut bytes = 1_u32.to_le_bytes().to_vec();
+                    bytes.extend(cooldown.to_le_bytes());
+                    bytes
+                },
+                ..Default::default()
+            }],
+        ] {
+            step_hud(&mut stepper, events);
+            assert_eq!(slot1(&stepper), (2, committed));
+            assert_eq!(stepper.filtered.world.read_resource::<crate::runtime::summoner_transport::DisclosedSummonerProjection>().players[0].player_id, 7);
+        }
+        let mut hostile = summoner_stepper(2, 8, 0);
+        step_hud(&mut hostile, vec![
+            summoner_hud(1, single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_SPELL, 7), 2),
+            summoner_hud(1, cooldown, committed),
+        ]);
+        let hidden = hostile.filtered.world.read_resource::<crate::runtime::summoner_transport::DisclosedSummonerProjection>();
+        assert_eq!(hidden.players.len(), 1);
+        assert_eq!(hidden.players[0].player_id, 8);
+        assert_eq!(hidden.players[0].slots[1].catalog_id, 2);
+        assert_eq!(hidden.players[0].slots[1].cooldown_raw, 0);
+        assert!(hidden.players.iter().all(|row| row.player_id != 7));
+    }
+
+    #[test]
+    fn disclosed_summoner_projection_accepts_atomic_equipment_clock_updates_in_either_order() {
+        use crate::runtime::native::moba_match::{
+            single_lane_player_metric, SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN,
+            SINGLE_LANE_SUMMONER_SLOT1_SPELL,
+        };
+        let total = omoba_template_ids::summoner_spell_by_name("training_self_heal_v1").unwrap().cooldown.raw();
+        let cooldown = single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_COOLDOWN, 7);
+        let spell = single_lane_player_metric(SINGLE_LANE_SUMMONER_SLOT1_SPELL, 7);
+        for reverse in [false, true] {
+            let mut stepper = summoner_stepper(1, 7, total);
+            let mut clear = vec![summoner_hud(1, spell, 0), summoner_hud(1, cooldown, 0)];
+            if reverse { clear.reverse(); }
+            step_hud(&mut stepper, clear);
+            assert_eq!(slot1(&stepper), (0, 0));
+            let mut equip = vec![summoner_hud(1, spell, 2), summoner_hud(1, cooldown, total)];
+            if reverse { equip.reverse(); }
+            step_hud(&mut stepper, equip);
+            assert_eq!(slot1(&stepper), (2, total));
+        }
     }
 }

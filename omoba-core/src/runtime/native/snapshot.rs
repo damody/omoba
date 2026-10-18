@@ -12,7 +12,7 @@ use super::comp::hero::AttributeType;
 use super::comp::{
     BlockedRegions, CProperty, Creep, CreepWave, CurrentCreepWave, Facing, GamePause, GameSpeed,
     Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MatchKillCounter, MoveTarget,
-    Path as CreepPath, PlayerEconomy, PlayerLives, PlayerOwner, Pos, Projectile,
+    Faction, Path as CreepPath, PlayerEconomy, PlayerLives, PlayerOwner, Pos, Projectile,
     RemovedEntitiesQueue, TAttack, Tower, TowerAbilityCastResult, TowerAbilityCastResults,
     TowerSpawnOrder, TowerTemplateRegistry, TowerUpgradeRegistry,
 };
@@ -261,6 +261,12 @@ pub struct EntityRenderData {
     pub facing_rad: f32,
     pub hp: i32,
     pub max_hp: i32,
+    /// Exact Fixed64 raw HP and max HP when a CProperty or a validated disclosed
+    /// property is present. `None` means those vitals were absent: callers then
+    /// use the legacy i32 fields above and must not invent a fraction. A present
+    /// value stays authoritative, including raw 1 (1/1024) and a nonpositive raw
+    /// value that truncates to the same i32 zero.
+    pub exact_vitals: Option<ExactHealthVitals>,
     pub unit_id: String,
     pub hero_name: String,
     pub hero_title: String,
@@ -286,8 +292,71 @@ pub struct EntityRenderData {
     pub hero_command: Option<Box<HeroCommandSnapshot>>,
     pub buffs: Vec<BuffSnapshot>,
     pub attack_visual_state: Option<crate::runtime::attack_visual_state::AttackVisualState>,
+    pub channel_visual_state: Option<crate::runtime::channel_visual_state::ChannelVisualState>,
     pub attack_range: f32,
     pub td_layer: Option<TdLayerRenderSnapshot>,
+    /// Disclosed faction/team/attackability. Absence is unknown, not team 0.
+    pub combat: Option<crate::runtime::DisclosedCombatRelation>,
+    /// Configured owner the hostility bit was computed for. Zero means unknown.
+    pub relation_source_player_id: u32,
+    pub relation_source_alive: bool,
+    /// The one row chosen by the configured-owner resolver. Owner id is not this.
+    pub relation_is_configured_source: bool,
+    /// `None` is unavailable. `Some(false)` is a known non-hostile.
+    pub hostile_to_source: Option<bool>,
+    /// Disclosed ward identity. Zero catalog means this entity is not a ward.
+    pub ward_catalog_id: u32,
+    pub ward_generation: u32,
+    pub ward_direct: u8,
+    pub ward_automatic: u8,
+    pub ward_known: bool,
+}
+
+/// Validated raw health. `hp_raw` / `max_hp_raw` are Fixed64 raw units (scale 1024).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExactHealthVitals {
+    pub hp_raw: i64,
+    pub max_hp_raw: i64,
+}
+
+impl EntityRenderData {
+    /// Source and renderer alive test.
+    ///
+    /// Exact raw HP is used when `exact_vitals` is present. The legacy `hp > 0`
+    /// fallback runs only when exact vitals are absent. Available nonpositive
+    /// exact HP is dead even if the truncated i32 field is nonzero.
+    pub fn exact_hp_positive(&self) -> bool {
+        match self.exact_vitals {
+            Some(vitals) => vitals.hp_raw > 0,
+            None => self.hp > 0,
+        }
+    }
+
+    /// Existing C `f32` health fields. Exact raw values convert at the render
+    /// boundary. Legacy i32 fields are cast only when exact vitals are absent.
+    pub fn projected_health(&self) -> (f32, f32) {
+        match self.exact_vitals {
+            Some(vitals) => (
+                Fixed64::from_raw(vitals.hp_raw).to_f32_for_render(),
+                Fixed64::from_raw(vitals.max_hp_raw).to_f32_for_render(),
+            ),
+            None => (self.hp as f32, self.max_hp as f32),
+        }
+    }
+}
+
+fn health_from_property(prop: Option<&CProperty>) -> (i32, i32, Option<ExactHealthVitals>) {
+    let Some(prop) = prop else {
+        return (0, 0, None);
+    };
+    (
+        prop.hp.to_f32_for_render() as i32,
+        prop.mhp.to_f32_for_render() as i32,
+        Some(ExactHealthVitals {
+            hp_raw: prop.hp.raw(),
+            max_hp_raw: prop.mhp.raw(),
+        }),
+    )
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -317,11 +386,11 @@ fn td_layer_render_snapshot(
 
 fn tower_active_ability_snapshot(
     tower: Option<&Tower>,
-    hp: i32,
+    hp_positive: bool,
     upgrades: &TowerUpgradeRegistry,
 ) -> Option<TowerActiveAbilitySnapshot> {
     let state = tower?.active_ability.as_ref()?;
-    if hp <= 0 {
+    if !hp_positive {
         return None;
     }
     let def = upgrades.iter_all().find_map(|def| {
@@ -375,6 +444,15 @@ fn snapshot_match_kills(world: &World) -> u32 {
         .try_fetch::<MatchKillCounter>()
         .map(|counter| counter.0)
         .unwrap_or(0)
+}
+
+fn snapshot_channel_visual_states(world: &World) -> BTreeMap<u64, crate::runtime::channel_visual_state::ChannelVisualState> {
+    world.try_fetch::<crate::runtime::MobaMatch>().map(|state| state.disclosed_channel_states()).unwrap_or_default()
+}
+
+fn snapshot_unit_attack_visual_states(world: &World) -> BTreeMap<u64, crate::runtime::attack_visual_state::AttackVisualState> {
+    let paused = world.try_fetch::<GamePause>().is_some_and(|pause| pause.is_paused);
+    world.try_fetch::<crate::runtime::MobaMatch>().map(|state| state.disclosed_unit_attack_states(paused)).unwrap_or_default()
 }
 
 #[derive(Clone, Debug, Default)]
@@ -544,7 +622,7 @@ mod tests {
         let mut tower = Tower::new();
         tower.active_ability = Some(TowerActiveAbilityState::ready("arty_fire_at_will"));
 
-        let snapshot = tower_active_ability_snapshot(Some(&tower), 1, &registry)
+        let snapshot = tower_active_ability_snapshot(Some(&tower), true, &registry)
             .expect("live tower with unlocked ability should be rendered");
 
         assert_eq!(snapshot.duration_total, 3.0);
@@ -892,6 +970,98 @@ pub fn build_tower_upgrade_def_snapshots(
     defs
 }
 
+fn disclosed_damage_allowed_for_live_entities(world: &World) -> BTreeMap<(u32, u32), bool> {
+    let live: Vec<specs::Entity> = world.entities().join().collect();
+    let mut allowed = BTreeMap::new();
+    for entity in live {
+        // Each call drops its match or gate fetch. Authority ignores client metadata.
+        allowed.insert(
+            (entity.id(), entity.gen().id() as u32),
+            super::moba_match::moba_damage_allowed(world, entity),
+        );
+    }
+    allowed
+}
+
+fn disclosed_combat_for_entity(
+    faction: Option<&Faction>,
+    exact_hp_raw: Option<i64>,
+    legacy_hp: i32,
+    damage_allowed: bool,
+) -> Option<crate::runtime::DisclosedCombatRelation> {
+    let faction = faction?;
+    let faction_kind = crate::runtime::faction_kind_discriminant(&faction.faction_id)?;
+    // Exact raw HP when the property exists. Legacy i32 only if it does not.
+    let alive = exact_hp_raw.map(|raw| raw > 0).unwrap_or(legacy_hp > 0);
+    Some(crate::runtime::DisclosedCombatRelation {
+        faction_kind,
+        team_id: faction.team_id,
+        attackable: alive && damage_allowed,
+        alive,
+    })
+}
+
+/// Stamp source-relative hostility for one configured owner.
+///
+/// The per-team visibility baseline stays source-free. A missing source faction,
+/// a dead source, or a missing target relation leaves hostility unknown.
+/// Native entity id 0 is addressable here; presentation render id 0 is not.
+pub fn apply_configured_source_relation(entities: &mut [EntityRenderData], source_player_id: u32) {
+    if source_player_id == 0 {
+        for entity in entities.iter_mut() {
+            entity.relation_source_player_id = 0;
+            entity.relation_source_alive = false;
+            entity.relation_is_configured_source = false;
+            entity.hostile_to_source = None;
+        }
+        return;
+    }
+    let mut source: Option<(u32, u32, u8, i32, bool)> = None;
+    for entity in entities.iter() {
+        if entity.kind != EntityKind::Hero || entity.owner_player_id != Some(source_player_id) {
+            continue;
+        }
+        let Some(combat) = entity.combat else { continue };
+        if crate::runtime::faction_from_disclosed_kind(combat.faction_kind, combat.team_id).is_none() {
+            continue;
+        }
+        let key = (entity.entity_id, entity.entity_gen);
+        let replace = source
+            .as_ref()
+            .map(|(id, gen, _, _, _)| key < (*id, *gen))
+            .unwrap_or(true);
+        if replace {
+            source = Some((
+                key.0,
+                key.1,
+                combat.faction_kind,
+                combat.team_id,
+                combat.alive && entity.exact_hp_positive(),
+            ));
+        }
+    }
+    let source_alive = source.is_some_and(|(_, _, _, _, alive)| alive);
+    let source_faction = source
+        .filter(|(_, _, _, _, alive)| *alive)
+        .and_then(|(_, _, kind, team, _)| crate::runtime::faction_from_disclosed_kind(kind, team));
+    let source_key = source.map(|(id, gen, _, _, _)| (id, gen));
+    let mut marked_source = false;
+    for entity in entities.iter_mut() {
+        entity.relation_source_player_id = source_player_id;
+        entity.relation_source_alive = source_alive;
+        let is_source = !marked_source && source_key.is_some_and(|key| (entity.entity_id, entity.entity_gen) == key);
+        if is_source {
+            marked_source = true;
+        }
+        entity.relation_is_configured_source = is_source;
+        entity.hostile_to_source = source_faction.as_ref().and_then(|source_faction| {
+            let combat = entity.combat?;
+            let target = crate::runtime::faction_from_disclosed_kind(combat.faction_kind, combat.team_id)?;
+            Some(source_faction.is_hostile_to(&target))
+        });
+    }
+}
+
 pub fn extract_snapshot(
     world: &mut World,
     tick: u32,
@@ -907,6 +1077,9 @@ pub fn extract_snapshot(
         tick,
     )
     .entered();
+    let damage_allowed = disclosed_damage_allowed_for_live_entities(world);
+    let channel_states = snapshot_channel_visual_states(world);
+    let unit_attack_states = snapshot_unit_attack_visual_states(world);
     let storage_span = tracing::trace_span!(
         "omoba_core::runtime::extract_runtime.storage_borrows",
         perfetto = true,
@@ -927,6 +1100,7 @@ pub fn extract_snapshot(
     let gold_storage = world.read_storage::<Gold>();
     let tatk_storage = world.read_storage::<TAttack>();
     let owner_storage = world.read_storage::<PlayerOwner>();
+    let faction_storage = world.read_storage::<Faction>();
     let buff_store = world.read_resource::<BuffStore>();
     let is_building_storage = world.read_storage::<IsBuilding>();
     let inventory_storage = world.read_storage::<Inventory>();
@@ -979,15 +1153,8 @@ pub fn extract_snapshot(
             })
             .unwrap_or(0.0);
 
-        let (hp, max_hp) = cprop_storage
-            .get(entity)
-            .map(|c| {
-                (
-                    c.hp.to_f32_for_render() as i32,
-                    c.mhp.to_f32_for_render() as i32,
-                )
-            })
-            .unwrap_or((0, 0));
+        let (hp, max_hp, exact_vitals) = health_from_property(cprop_storage.get(entity));
+        let hp_positive = exact_vitals.map(|vitals| vitals.hp_raw > 0).unwrap_or(hp > 0);
 
         let (px, py) = pos.xy_f32();
         drop(scalar_span);
@@ -1209,13 +1376,22 @@ pub fn extract_snapshot(
             .map(|t| t.target_priority.as_str().to_string())
             .unwrap_or_default();
         let tower_active_ability =
-            tower_active_ability_snapshot(tower_storage.get(entity), hp, &tower_upgrade_registry);
+            tower_active_ability_snapshot(tower_storage.get(entity), hp_positive, &tower_upgrade_registry);
         let hero_command = hero_command_snapshot(
             command_queue_storage.get(entity),
             move_target_storage.get(entity),
             &pos_storage,
         );
         let td_layer = td_layer_render_snapshot(creep_storage.get(entity), hp, max_hp);
+        let combat = disclosed_combat_for_entity(
+            faction_storage.get(entity),
+            exact_vitals.map(|vitals| vitals.hp_raw),
+            hp,
+            damage_allowed
+                .get(&(entity.id(), entity.gen().id() as u32))
+                .copied()
+                .unwrap_or(true),
+        );
 
         out.push(EntityRenderData {
             entity_id: entity.id(),
@@ -1230,6 +1406,7 @@ pub fn extract_snapshot(
             facing_rad: facing,
             hp,
             max_hp,
+            exact_vitals,
             unit_id,
             hero_name,
             hero_title,
@@ -1254,9 +1431,20 @@ pub fn extract_snapshot(
             tower_active_ability,
             hero_command,
             buffs: entity_buffs,
-            attack_visual_state: None,
+            attack_visual_state: unit_attack_states.get(&crate::runtime::canonical_entity_id(entity)).copied(),
+            channel_visual_state: channel_states.get(&crate::runtime::canonical_entity_id(entity)).copied(),
             attack_range,
             td_layer,
+            combat,
+            relation_source_player_id: 0,
+            relation_source_alive: false,
+            relation_is_configured_source: false,
+            hostile_to_source: None,
+            ward_catalog_id: 0,
+            ward_generation: 0,
+            ward_direct: 0,
+            ward_automatic: 0,
+            ward_known: false,
         });
         drop(push_span);
         drop(entity_span);
@@ -1408,6 +1596,9 @@ pub fn extract_data_for_render(
         tick,
     )
     .entered();
+    let damage_allowed = disclosed_damage_allowed_for_live_entities(world);
+    let channel_states = snapshot_channel_visual_states(world);
+    let unit_attack_states = snapshot_unit_attack_visual_states(world);
     let storage_span = tracing::trace_span!(
         "omoba_core::runtime::extract_runtime.storage_borrows",
         perfetto = true,
@@ -1428,6 +1619,7 @@ pub fn extract_data_for_render(
     let gold_storage = world.read_storage::<Gold>();
     let tatk_storage = world.read_storage::<TAttack>();
     let owner_storage = world.read_storage::<PlayerOwner>();
+    let faction_storage = world.read_storage::<Faction>();
     let buff_store = world.read_resource::<BuffStore>();
     let is_building_storage = world.read_storage::<IsBuilding>();
     let inventory_storage = world.read_storage::<Inventory>();
@@ -1462,15 +1654,8 @@ pub fn extract_data_for_render(
             })
             .unwrap_or(0.0);
 
-        let (hp, max_hp) = cprop_storage
-            .get(entity)
-            .map(|c| {
-                (
-                    c.hp.to_f32_for_render() as i32,
-                    c.mhp.to_f32_for_render() as i32,
-                )
-            })
-            .unwrap_or((0, 0));
+        let (hp, max_hp, exact_vitals) = health_from_property(cprop_storage.get(entity));
+        let hp_positive = exact_vitals.map(|vitals| vitals.hp_raw > 0).unwrap_or(hp > 0);
 
         let (px, py) = pos.xy_f32();
         let unit_id = unit_tag_storage
@@ -1656,13 +1841,22 @@ pub fn extract_data_for_render(
             .map(|t| t.target_priority.as_str().to_string())
             .unwrap_or_default();
         let tower_active_ability =
-            tower_active_ability_snapshot(tower_storage.get(entity), hp, &tower_upgrade_registry);
+            tower_active_ability_snapshot(tower_storage.get(entity), hp_positive, &tower_upgrade_registry);
         let hero_command = hero_command_snapshot(
             command_queue_storage.get(entity),
             move_target_storage.get(entity),
             &pos_storage,
         );
         let td_layer = td_layer_render_snapshot(creep_storage.get(entity), hp, max_hp);
+        let combat = disclosed_combat_for_entity(
+            faction_storage.get(entity),
+            exact_vitals.map(|vitals| vitals.hp_raw),
+            hp,
+            damage_allowed
+                .get(&(entity.id(), entity.gen().id() as u32))
+                .copied()
+                .unwrap_or(true),
+        );
 
         out.push(EntityRenderData {
             entity_id: entity.id(),
@@ -1677,6 +1871,7 @@ pub fn extract_data_for_render(
             facing_rad: facing,
             hp,
             max_hp,
+            exact_vitals,
             unit_id,
             hero_name,
             hero_title,
@@ -1701,9 +1896,20 @@ pub fn extract_data_for_render(
             tower_active_ability,
             hero_command,
             buffs: entity_buffs,
-            attack_visual_state: None,
+            attack_visual_state: unit_attack_states.get(&crate::runtime::canonical_entity_id(entity)).copied(),
+            channel_visual_state: channel_states.get(&crate::runtime::canonical_entity_id(entity)).copied(),
             attack_range,
             td_layer,
+            combat,
+            relation_source_player_id: 0,
+            relation_source_alive: false,
+            relation_is_configured_source: false,
+            hostile_to_source: None,
+            ward_catalog_id: 0,
+            ward_generation: 0,
+            ward_direct: 0,
+            ward_automatic: 0,
+            ward_known: false,
         });
     }
     drop(entities_span);
@@ -1810,4 +2016,282 @@ pub fn extract_data_for_render(
     drop(assemble_span);
     drop(snapshot_span);
     snapshot
+}
+
+#[cfg(test)]
+mod disclosed_relation_tests {
+    use super::*;
+    use specs::Builder;
+
+    fn row(
+        id: u32,
+        gen: u32,
+        kind: EntityKind,
+        owner: Option<u32>,
+        hp: i32,
+        combat: Option<crate::runtime::DisclosedCombatRelation>,
+    ) -> EntityRenderData {
+        EntityRenderData {
+            entity_id: id,
+            entity_gen: gen,
+            kind,
+            owner_player_id: owner,
+            hp,
+            combat,
+            ..Default::default()
+        }
+    }
+
+    fn combat(kind: u8, team: i32, attackable: bool, alive: bool) -> crate::runtime::DisclosedCombatRelation {
+        crate::runtime::DisclosedCombatRelation {
+            faction_kind: kind,
+            team_id: team,
+            attackable,
+            alive,
+        }
+    }
+
+    #[test]
+    fn disclosed_combat_relation_source_switch_retires_hostility() {
+        let mut entities = vec![
+            row(10, 1, EntityKind::Hero, Some(7), 100, Some(combat(1, 1, true, true))),
+            row(9, 1, EntityKind::Hero, Some(9), 100, Some(combat(1, 1, true, true))),
+            row(4, 1, EntityKind::Hero, Some(4), 100, Some(combat(1, 2, true, true))),
+            row(40, 1, EntityKind::Creep, None, 100, Some(combat(2, 2, true, true))),
+            row(41, 1, EntityKind::Creep, None, 100, Some(combat(4, 1, true, true))),
+            row(42, 1, EntityKind::Creep, None, 100, Some(combat(5, 0, true, true))),
+            row(43, 1, EntityKind::Creep, None, 100, Some(combat(3, 0, true, true))),
+            row(44, 1, EntityKind::Tower, None, 100, Some(combat(2, 2, false, true))),
+            row(45, 1, EntityKind::Hero, Some(2), 0, Some(combat(1, 2, false, false))),
+            row(46, 1, EntityKind::Creep, None, 100, None),
+            row(0, 2, EntityKind::Creep, None, 100, Some(combat(2, 2, true, true))),
+        ];
+        apply_configured_source_relation(&mut entities, 7);
+        let hostile = |rows: &[EntityRenderData], id: u32| {
+            rows.iter().find(|entity| entity.entity_id == id).unwrap().hostile_to_source
+        };
+        assert!(entities.iter().all(|entity| entity.relation_source_player_id == 7 && entity.relation_source_alive));
+        assert_eq!(
+            entities.iter().filter(|entity| entity.relation_is_configured_source).map(|entity| entity.entity_id).collect::<Vec<_>>(),
+            vec![10]
+        );
+        assert_eq!(hostile(&entities, 10), Some(false));
+        assert_eq!(hostile(&entities, 9), Some(false));
+        assert_eq!(hostile(&entities, 4), Some(true));
+        assert_eq!(hostile(&entities, 40), Some(true));
+        assert_eq!(hostile(&entities, 41), Some(false));
+        assert_eq!(hostile(&entities, 42), Some(true));
+        assert_eq!(hostile(&entities, 43), Some(false));
+        assert_eq!(hostile(&entities, 44), Some(true));
+        assert!(!entities.iter().find(|entity| entity.entity_id == 44).unwrap().combat.unwrap().attackable);
+        assert_eq!(hostile(&entities, 45), Some(true));
+        assert_eq!(hostile(&entities, 46), None);
+        assert_eq!(hostile(&entities, 0), Some(true));
+        apply_configured_source_relation(&mut entities, 9);
+        assert!(entities.iter().all(|entity| entity.relation_source_player_id == 9 && entity.relation_source_alive));
+        assert_eq!(
+            entities.iter().filter(|entity| entity.relation_is_configured_source).map(|entity| (entity.entity_id, entity.entity_gen)).collect::<Vec<_>>(),
+            vec![(9, 1)]
+        );
+        assert_eq!(hostile(&entities, 10), Some(false));
+        assert_eq!(hostile(&entities, 4), Some(true));
+        entities.push(row(1, 1, EntityKind::Hero, Some(7), 0, Some(combat(1, 1, false, false))));
+        apply_configured_source_relation(&mut entities, 7);
+        assert!(entities.iter().all(|entity| {
+            entity.relation_source_player_id == 7 && !entity.relation_source_alive && entity.hostile_to_source.is_none()
+        }));
+        assert_eq!(
+            entities.iter().filter(|entity| entity.relation_is_configured_source).map(|entity| entity.entity_id).collect::<Vec<_>>(),
+            vec![1],
+            "a dead lower hero stays the source and does not keep the previous hero's hostility"
+        );
+        apply_configured_source_relation(&mut entities, 0);
+        assert!(entities.iter().all(|entity| {
+            entity.relation_source_player_id == 0
+                && !entity.relation_source_alive
+                && !entity.relation_is_configured_source
+                && entity.hostile_to_source.is_none()
+        }));
+        assert!(entities.iter().any(|entity| entity.combat.is_some()));
+    }
+
+    fn marked_source(rows: &[EntityRenderData]) -> Vec<(u32, u32)> {
+        rows.iter()
+            .filter(|entity| entity.relation_is_configured_source)
+            .map(|entity| (entity.entity_id, entity.entity_gen))
+            .collect()
+    }
+
+    #[test]
+    fn configured_source_row_tracks_replacement_death_and_native_id0() {
+        let mut rows = vec![
+            row(10, 1, EntityKind::Hero, Some(7), 100, Some(combat(1, 1, true, true))),
+            row(20, 1, EntityKind::Creep, None, 100, Some(combat(2, 2, true, true))),
+        ];
+        apply_configured_source_relation(&mut rows, 7);
+        assert_eq!(marked_source(&rows), vec![(10, 1)]);
+        assert_eq!(rows[1].hostile_to_source, Some(true));
+
+        rows[0] = row(10, 2, EntityKind::Hero, Some(7), 0, Some(combat(1, 1, false, false)));
+        apply_configured_source_relation(&mut rows, 7);
+        assert_eq!(marked_source(&rows), vec![(10, 2)]);
+        assert!(rows.iter().all(|entity| !entity.relation_source_alive && entity.hostile_to_source.is_none()));
+
+        rows[0] = row(10, 3, EntityKind::Hero, Some(7), 100, Some(combat(1, 2, true, true)));
+        apply_configured_source_relation(&mut rows, 7);
+        assert_eq!(marked_source(&rows), vec![(10, 3)]);
+        assert!(rows[0].relation_source_alive);
+        assert_eq!(rows[1].hostile_to_source, Some(false), "same-owner replacement must not reuse the previous hostility");
+
+        let mut native = vec![
+            row(5, 1, EntityKind::Hero, Some(7), 100, Some(combat(1, 1, true, true))),
+            row(0, 4, EntityKind::Hero, Some(7), 100, Some(combat(1, 1, true, true))),
+            row(8, 1, EntityKind::Creep, None, 100, Some(combat(2, 2, true, true))),
+        ];
+        apply_configured_source_relation(&mut native, 7);
+        assert_eq!(marked_source(&native), vec![(0, 4)]);
+        assert!(native[1].relation_source_alive);
+        assert_eq!(native[2].hostile_to_source, Some(true));
+
+        let mut missing = vec![row(8, 1, EntityKind::Creep, None, 100, Some(combat(2, 2, true, true)))];
+        apply_configured_source_relation(&mut missing, 7);
+        assert!(marked_source(&missing).is_empty());
+        assert_eq!(missing[0].relation_source_player_id, 7);
+        assert!(!missing[0].relation_source_alive && missing[0].hostile_to_source.is_none());
+        apply_configured_source_relation(&mut missing, 0);
+        assert_eq!(missing[0].relation_source_player_id, 0);
+        assert!(!missing[0].relation_is_configured_source);
+    }
+
+    fn extraction_world() -> World {
+        use super::super::comp::{BlockedRegions, ExplosionFxQueue, VisionOccluderSet};
+        use super::super::scripting::ScriptVisualEventQueue;
+        let mut world = World::new();
+        world.register::<Pos>();
+        world.register::<Facing>();
+        world.register::<CProperty>();
+        world.register::<Hero>();
+        world.register::<Tower>();
+        world.register::<TowerSpawnOrder>();
+        world.register::<Projectile>();
+        world.register::<Creep>();
+        world.register::<ScriptUnitTag>();
+        world.register::<MoveTarget>();
+        world.register::<HeroCommandQueue>();
+        world.register::<Gold>();
+        world.register::<TAttack>();
+        world.register::<PlayerOwner>();
+        world.register::<Faction>();
+        world.register::<IsBuilding>();
+        world.register::<Inventory>();
+        world.insert(BuffStore::default());
+        world.insert(TowerUpgradeRegistry::new());
+        world.insert(RemovedEntitiesQueue::default());
+        world.insert(CurrentCreepWave::default());
+        world.insert(Vec::<CreepWave>::new());
+        world.insert(PlayerLives::default());
+        world.insert(GamePause::default());
+        world.insert(ExplosionFxQueue::default());
+        world.insert(super::super::comp::TowerFireFxQueue::default());
+        world.insert(super::super::comp::AttackPhaseFxQueue::default());
+        world.insert(super::super::comp::AttackCancelFxQueue::default());
+        world.insert(ScriptVisualEventQueue::default());
+        world.insert(BTreeMap::<String, super::super::comp::Path>::new());
+        world.insert(BlockedRegions::default());
+        world.insert(VisionOccluderSet::default());
+        world
+    }
+
+    fn spawn_unit(world: &mut World, owner: Option<u32>, faction: Faction, hp_raw: Option<i64>, hero: bool) {
+        let mut builder = world.create_entity().with(Pos(omoba_sim::Vec2::new(Fixed64::ZERO, Fixed64::ZERO)));
+        if let Some(raw) = hp_raw {
+            builder = builder.with(CProperty {
+                hp: Fixed64::from_raw(raw),
+                mhp: Fixed64::from_raw(1024),
+                msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO,
+                def_magic: Fixed64::ZERO,
+            });
+        }
+        if hero {
+            builder = builder.with(Hero::new("hero_fraction".into(), "Fraction".into(), "Exact".into()));
+        }
+        if let Some(player_id) = owner {
+            builder = builder.with(PlayerOwner { player_id });
+        }
+        builder.with(faction).build();
+    }
+
+    fn assert_same_health(full: &EntityRenderData, live: &EntityRenderData) {
+        assert_eq!(full.exact_vitals, live.exact_vitals);
+        assert_eq!(full.hp, live.hp);
+        assert_eq!(full.max_hp, live.max_hp);
+        assert_eq!(full.combat, live.combat);
+        assert_eq!(full.kind, live.kind);
+        assert_eq!(full.owner_player_id, live.owner_player_id);
+    }
+
+    #[test]
+    fn fractional_exact_health_survives_both_native_extractors() {
+        use super::super::comp::FactionType;
+        let mut world = extraction_world();
+        let player = Faction::new(FactionType::Player, 1);
+        let enemy = Faction::new(FactionType::Enemy, 2);
+        spawn_unit(&mut world, Some(7), player.clone(), Some(1), true);
+        spawn_unit(&mut world, None, enemy.clone(), Some(512), false);
+        spawn_unit(&mut world, None, enemy.clone(), Some(0), false);
+        spawn_unit(&mut world, None, enemy.clone(), Some(-1), false);
+        spawn_unit(&mut world, None, enemy, None, false);
+        let full = extract_snapshot(
+            &mut world,
+            1,
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
+            Arc::new(Vec::new()),
+            Vec::new(),
+            Vec::new(),
+        );
+        let live = extract_data_for_render(&mut world, 1, Vec::new(), Vec::new());
+        assert_eq!(full.entities.len(), 5);
+        assert_eq!(live.entities.len(), 5);
+        for (full_row, live_row) in full.entities.iter().zip(live.entities.iter()) {
+            assert_same_health(full_row, live_row);
+        }
+        let source = &full.entities[0];
+        assert_eq!(source.kind, EntityKind::Hero);
+        assert_eq!(source.hp, 0, "raw 1 still truncates the legacy i32 field");
+        assert_eq!(source.max_hp, 1);
+        assert_eq!(source.exact_vitals, Some(ExactHealthVitals { hp_raw: 1, max_hp_raw: 1024 }));
+        assert!(source.exact_hp_positive());
+        assert!(source.combat.unwrap().alive && source.combat.unwrap().attackable);
+        let half = &full.entities[1];
+        assert_eq!(half.exact_vitals, Some(ExactHealthVitals { hp_raw: 512, max_hp_raw: 1024 }));
+        assert_eq!(half.hp, 0);
+        assert!(half.combat.unwrap().alive && half.combat.unwrap().attackable);
+        assert_eq!(half.projected_health(), (0.5, 1.0));
+        assert_eq!(source.projected_health().0, 1.0 / 1024.0);
+        for dead in &full.entities[2..] {
+            assert!(!dead.exact_hp_positive());
+            assert!(!dead.combat.unwrap().alive);
+            assert!(!dead.combat.unwrap().attackable);
+        }
+        assert!(full.entities[2].exact_vitals.unwrap().hp_raw == 0);
+        assert_eq!(full.entities[3].exact_vitals.unwrap().hp_raw, -1);
+        assert!(full.entities[4].exact_vitals.is_none() && full.entities[4].hp == 0);
+
+        let mut rows = full.entities.clone();
+        apply_configured_source_relation(&mut rows, 7);
+        assert!(rows.iter().all(|row| row.relation_source_alive));
+        assert_eq!(rows[1].hostile_to_source, Some(true));
+        assert_eq!(rows[2].hostile_to_source, Some(true));
+
+        let mut dead_source = extraction_world();
+        spawn_unit(&mut dead_source, Some(7), player, Some(0), true);
+        spawn_unit(&mut dead_source, None, Faction::new(FactionType::Enemy, 2), Some(512), false);
+        let mut dead_rows = extract_data_for_render(&mut dead_source, 2, Vec::new(), Vec::new()).entities;
+        apply_configured_source_relation(&mut dead_rows, 7);
+        assert!(dead_rows.iter().all(|row| !row.relation_source_alive && row.hostile_to_source.is_none()));
+        assert!(dead_rows[1].exact_hp_positive());
+        assert!(!dead_rows[0].exact_hp_positive());
+    }
 }

@@ -28,6 +28,10 @@ impl SystemDispatcher {
         }
     }
 
+    pub(crate) fn thread_pool(&self) -> &Arc<ThreadPool> {
+        &self.thread_pool
+    }
+
     /// 運行所有遊戲系統
     pub fn run_systems(&mut self, world: &World) -> Result<(), Error> {
         self.run_systems_inner(world, false).map(|_| ())
@@ -84,7 +88,10 @@ impl SystemDispatcher {
         tick: u64,
         transition_delay_ticks: u64,
     ) {
-        crate::runtime::run_committed_visibility_wave_b(world, tick, transition_delay_ticks);
+        // Wave B par_iter runs after Dispatcher::dispatch has left this pool.
+        self.thread_pool.install(|| {
+            crate::runtime::run_committed_visibility_wave_b(world, tick, transition_delay_ticks);
+        });
     }
 
     /// 運行特定系統組
@@ -383,5 +390,43 @@ mod reconfigure_retire_cached_dispatcher_tests {
             .expect("reconfigure same thread count");
         assert!(systems.dispatcher.is_none());
         assert_eq!(systems.thread_pool.current_num_threads(), 2);
+    }
+}
+
+#[cfg(test)]
+mod worker_pool_ownership {
+    use super::SystemDispatcher;
+    use crate::runtime::StateInitializer;
+    use rayon::ThreadPoolBuilder;
+    use specs::WorldExt;
+    use std::collections::HashSet;
+    use std::sync::Arc;
+
+    #[test]
+    fn post_commit_visibility_uses_dispatcher_pool() {
+        let pool = Arc::new(
+            ThreadPoolBuilder::new()
+                .num_threads(2)
+                .thread_name(|index| format!("post-commit-budget-{index}"))
+                .build()
+                .expect("scoped post-commit pool"),
+        );
+        let mut world = StateInitializer::setup_standard_ecs_world(&pool);
+        let dispatcher = SystemDispatcher::new(Arc::clone(&pool));
+        dispatcher.run_post_commit_visibility(&mut world, 1, 0);
+
+        let pool_threads: HashSet<_> = pool
+            .broadcast(|_| std::thread::current().id())
+            .into_iter()
+            .collect();
+        assert_eq!(pool_threads.len(), pool.current_num_threads());
+        let runtime = world.read_resource::<crate::runtime::TeamVisibilityRuntime>();
+        for team in crate::runtime::SUPPORTED_REPLICA_TEAMS {
+            let state = runtime.teams.get(&team).expect("wave B team state");
+            assert!(runtime.last_transitions.contains_key(&team));
+            assert_eq!(state.witness_worker_count, pool.current_num_threads());
+            let thread = state.witness_thread.expect("wave B worker thread");
+            assert!(pool_threads.contains(&thread));
+        }
     }
 }

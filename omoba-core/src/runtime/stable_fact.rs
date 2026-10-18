@@ -62,6 +62,12 @@ pub enum FactKind {
     ProjectileImpact = 29,
     OwnerBuffVisual = 30,
     AttackVisual = 31,
+    /// Owner-team undo availability. Not part of the 95-byte economy codec.
+    OwnerShopUndo = 32,
+    /// Version-2 undo settlement. Never a v1 shop receipt.
+    ShopUndoReceipt = 33,
+    /// Absolute channel animation state, only for currently disclosed entities.
+    ChannelVisual = 34,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -95,6 +101,7 @@ pub enum ObservableFact {
     /// Public aggregate only; never buff identity, caster or expiry.
     CommittedIncomingDamage { source: u64, bonus_raw: i64 },
     OwnerEconomy { team: u32, state: crate::runtime::native::economy_projection::OwnerEconomyState },
+    OwnerShopUndo { team: u32, state: crate::runtime::shop_undo_wire::OwnerShopUndoProjection },
     CommittedEconomy { source: u64, state: crate::runtime::native::economy_projection::CommittedEconomyState },
     CommittedEquipmentStats { source: u64, hp_raw: i64, max_hp_raw: i64, speed_raw: i64, armor_raw: i64, attack_raw: i64 },
     /// Final, already-disclosable state after an authority-owned settlement.

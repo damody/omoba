@@ -41,7 +41,7 @@ local function stage(mode)
   local result=process.run(platform.lua_executable,{path.join(b.root,'scripts','build_ue_moba.lua'),mode,'--ue-root',ue_root},{cwd=b.root})
   print(result.stdout)
 end
-workflow.execute(options,{
+return workflow.execute(options,{
 build_server=function() require('moba_server_build').build(options,process) end,
 verify_server=function() require('moba_server_build').verify(options) end,
 resolve_editor=function() editor,ue_root=launch.editor(options) end,
@@ -63,6 +63,16 @@ build_runtime=function()
 end,
 verify_stage=function()
   require('moba_frontend_preflight').verify(ue_root,process)
+  if options.managed_session_bootstrap then
+    local scope=require('moba_managed_session').catalog_scope(b.lib('json').decode(
+      require('moba_config_command').run(options,{'--catalog-scope'},process).stdout))
+    if options.managed_catalog_scope then
+      for _,key in ipairs({'catalog_identity_hash','content_hash','map_catalog_hash'}) do
+        assert(scope[key]==options.managed_catalog_scope[key],'compiled managed catalog changed during selection')
+      end
+    end
+    options.managed_catalog_scope=scope
+  end
 end,
 select=function() launch.interactive_select(options,editor,process,time) end,
 prepare=function()
@@ -82,3 +92,4 @@ if not ok then
   end
   error(err,0)
 end
+return err

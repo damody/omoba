@@ -18,6 +18,7 @@ use crate::comp::PendingPlayerInputs;
 #[cfg(feature = "kcp")]
 use crate::comp::{
     CurrentCreepWave, GamePause, GameSpeed, PendingAbilityCastQueue, PendingAbilityUpgradeQueue,
+    AdmittedCommandIdentities, PendingSummonerCastQueue, PendingWardPlacementQueue,
     PendingDebugCreepSpawnQueue, PendingHeroCommandClearQueue, PendingHeroCommandKind,
     PendingItemUseQueue, PendingMoveQueue, PendingTowerAbilityCastQueue, PendingTowerSellQueue,
     PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue, SandboxMode,
@@ -40,6 +41,9 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingTowerUpgradeQueue>,
         Write<'a, PendingAbilityUpgradeQueue>,
         Write<'a, PendingAbilityCastQueue>,
+        Write<'a, PendingSummonerCastQueue>,
+        Write<'a, PendingWardPlacementQueue>,
+        Write<'a, AdmittedCommandIdentities>,
         Write<'a, PendingItemUseQueue>,
         Write<'a, PendingMoveQueue>,
         Write<'a, PendingHeroCommandClearQueue>,
@@ -47,6 +51,7 @@ impl<'a> System<'a> for Sys {
         Write<'a, PendingDebugCreepSpawnQueue>,
         Write<'a, PendingTowerAbilityCastQueue>,
         Read<'a, SandboxMode>,
+        Option<Write<'a, crate::runtime::MobaMatch>>,
     );
 
     const NAME: &'static str = "player_input";
@@ -64,6 +69,9 @@ impl<'a> System<'a> for Sys {
             mut upgrade_q,
             mut ability_q,
             mut cast_q,
+            mut summoner_q,
+            mut ward_q,
+            mut admitted,
             mut item_q,
             mut move_q,
             mut clear_q,
@@ -71,6 +79,7 @@ impl<'a> System<'a> for Sys {
             mut debug_spawn_q,
             mut tower_ability_cast_q,
             sandbox_mode,
+            mut combat_match,
         ): Self::SystemData,
     ) {
         if pending.inputs.is_empty() {
@@ -79,12 +88,22 @@ impl<'a> System<'a> for Sys {
         let target_tick = pending.tick;
         let totaltime = time.0 as f32;
         let drained: Vec<_> = pending.inputs.drain(..).collect();
+        let admitted_rows = std::mem::take(&mut admitted.rows);
         log::trace!(
             "player_input_tick: draining {} inputs for tick {}",
             drained.len(),
             target_tick
         );
-        for (player_id, input) in drained {
+        for (index, (player_id, input)) in drained.into_iter().enumerate() {
+            if let Some(omoba_core::runtime::PlayerInputEnum::CombatPreferences(update)) = input.action.as_ref() {
+                if let (Ok(raw), Some(state)) = (crate::runtime::combat_transport::validate_update(update), combat_match.as_mut()) {
+                    if let Err(reason) = state.admit_combat_preferences(player_id, player_id, raw, update.idle_auto_attack) {
+                        log::warn!("combat preferences rejected for owner {}: {:?}", player_id, reason);
+                    }
+                }
+                continue;
+            }
+            let row = admitted_rows.get(index);
             route_input(
                 player_id,
                 target_tick,
@@ -98,6 +117,8 @@ impl<'a> System<'a> for Sys {
                 &mut upgrade_q,
                 &mut ability_q,
                 &mut cast_q,
+                &mut summoner_q,
+                &mut ward_q,
                 &mut item_q,
                 &mut move_q,
                 &mut clear_q,
@@ -105,6 +126,8 @@ impl<'a> System<'a> for Sys {
                 &mut debug_spawn_q,
                 &mut tower_ability_cast_q,
                 sandbox_mode.0,
+                row.map(|row| row.correlation).unwrap_or(0),
+                row.and_then(|row| row.actor_generation),
             );
         }
     }
@@ -134,6 +157,8 @@ fn route_input(
     upgrade_q: &mut PendingTowerUpgradeQueue,
     ability_q: &mut PendingAbilityUpgradeQueue,
     cast_q: &mut PendingAbilityCastQueue,
+    summoner_q: &mut PendingSummonerCastQueue,
+    ward_q: &mut PendingWardPlacementQueue,
     item_q: &mut PendingItemUseQueue,
     move_q: &mut PendingMoveQueue,
     clear_q: &mut PendingHeroCommandClearQueue,
@@ -141,6 +166,8 @@ fn route_input(
     debug_spawn_q: &mut PendingDebugCreepSpawnQueue,
     tower_ability_cast_q: &mut PendingTowerAbilityCastQueue,
     sandbox_mode: bool,
+    admitted_correlation: u32,
+    actor_generation: Option<u32>,
 ) {
     use omoba_core::runtime::PlayerInputEnum;
 
@@ -238,6 +265,13 @@ fn route_input(
         Some(PlayerInputEnum::HoldPosition(a)) => {
             move_q.requests.push(crate::comp::PendingHeroCommand {
                 owner_pid:player_id,queued:a.queued,kind:PendingHeroCommandKind::HoldPosition,
+            });
+        }
+        Some(PlayerInputEnum::Stop(_)) => {
+            move_q.requests.push(crate::comp::PendingHeroCommand {
+                owner_pid: player_id,
+                queued: false,
+                kind: PendingHeroCommandKind::Stop,
             });
         }
         Some(PlayerInputEnum::AttackTarget(a)) => {
@@ -413,19 +447,8 @@ fn route_input(
             // write + CProperty (HP / msd) 寫入所有需要的`&mut World`。
             // 透過在主機和副本上調度後立即耗盡
             // `GameProcessor::drain_pending_item_uses`。
-            let target_pos = i.target_pos.as_ref().map(|v| {
-                omoba_sim::Vec2::new(
-                    omoba_sim::Fixed64::from_raw(v.x as i64),
-                    omoba_sim::Fixed64::from_raw(v.y as i64),
-                )
-            });
             item_q.requests.push(crate::comp::PendingItemAction::Use(
-                crate::comp::PendingItemUse {
-                    item_slot: i.item_slot,
-                    target_pos,
-                    target_entity: i.target_entity,
-                    owner_pid: player_id,
-                },
+                super::super::game_processor::pending_item_use_from_command(player_id, &i),
             ));
         }
         Some(PlayerInputEnum::ItemBuy(i)) => {
@@ -438,6 +461,20 @@ fn route_input(
             item_q.requests.push(crate::comp::PendingItemAction::Shop {
                 owner_pid: player_id,
                 command: crate::runtime::shop::ShopCommand::Sell(i.item_slot as usize),
+            });
+        }
+        Some(PlayerInputEnum::ShopUndo(undo)) => {
+            // Newest is pinned before this route. A remaining Newest, or any other
+            // shape, is sequence 0 and cannot bind a later purchase.
+            let request = match (undo.mode, undo.sequence) {
+                (crate::runtime::shop_undo_wire::SHOP_UNDO_MODE_SEQUENCE, sequence) => {
+                    crate::runtime::shop::ShopUndoRequest::Sequence(sequence)
+                }
+                _ => crate::runtime::shop::ShopUndoRequest::Sequence(0),
+            };
+            item_q.requests.push(crate::comp::PendingItemAction::Undo {
+                owner_pid: player_id,
+                request,
             });
         }
         Some(PlayerInputEnum::DebugSpawnCreep(d)) => {
@@ -471,6 +508,59 @@ fn route_input(
         }
         // Authority MobaMatch consumes Recall before dispatch; other modes do not support it.
         Some(PlayerInputEnum::Recall(_)) => {}
+        Some(PlayerInputEnum::SummonerCast(cast)) => {
+            if summoner_q.tick != Some(tick) {
+                summoner_q.tick = Some(tick);
+                summoner_q.requests.clear();
+                summoner_q.receipts.clear();
+            }
+            if summoner_q.requests.iter().any(|pending| pending.owner_pid == player_id) {
+                summoner_q.receipts.push(crate::comp::SummonerCastReceipt {
+                    player_id,
+                    slot: cast.slot,
+                    stage: crate::runtime::summoner_transport::SummonerReceiptStage::AdmissionRejected,
+                    code: "QUEUED_SUMMONER_CAST",
+                    effect_class: None,
+                });
+                return;
+            }
+            match crate::runtime::summoner_transport::admit_summoner_cast(cast.slot, cast.x_raw, cast.y_raw) {
+                Ok(request) => {
+                    summoner_q.receipts.push(crate::comp::SummonerCastReceipt {
+                        player_id,
+                        slot: cast.slot,
+                        stage: crate::runtime::summoner_transport::SummonerReceiptStage::Admitted,
+                        code: crate::runtime::summoner_transport::RECEIPT_ADMITTED,
+                        effect_class: None,
+                    });
+                    summoner_q.requests.push(crate::comp::PendingSummonerCast {
+                        owner_pid: player_id,
+                        request,
+                    });
+                }
+                Err(code) => summoner_q.receipts.push(crate::comp::SummonerCastReceipt {
+                    player_id,
+                    slot: cast.slot,
+                    stage: crate::runtime::summoner_transport::SummonerReceiptStage::AdmissionRejected,
+                    code,
+                    effect_class: None,
+                }),
+            }
+        }
+        Some(PlayerInputEnum::WardPlacement(placement)) => {
+            crate::runtime::route_admitted_ward_placement(
+                player_id,
+                tick,
+                &placement,
+                admitted_correlation,
+                actor_generation,
+                ward_q,
+            );
+        }
+        // Processed in ordered input admission above, never queued as movement.
+        Some(PlayerInputEnum::CombatPreferences(_)) => {}
+        Some(PlayerInputEnum::InputScheme(_)) => {}
+        Some(PlayerInputEnum::Direction(_)) => {} // consumed by ordered authority pre-dispatch admission
         None => {
             log::warn!(
                 "player_input_tick: pid={} tick={} input action is None (malformed proto?)",
@@ -502,6 +592,37 @@ mod tests {
         SetTowerTargetPriority, TargetPriority, ToggleGameSpeed, TogglePause,
         TowerAbilityCastInput, Vec2I,
     };
+
+    #[allow(clippy::too_many_arguments)]
+    fn route_input(
+        player_id: u32,
+        tick: u32,
+        input: PlayerInput,
+        cw: &mut CurrentCreepWave,
+        pause: &mut GamePause,
+        speed: &mut GameSpeed,
+        totaltime: f32,
+        tower_q: &mut PendingTowerSpawnQueue,
+        sell_q: &mut PendingTowerSellQueue,
+        upgrade_q: &mut PendingTowerUpgradeQueue,
+        ability_q: &mut PendingAbilityUpgradeQueue,
+        cast_q: &mut PendingAbilityCastQueue,
+        item_q: &mut PendingItemUseQueue,
+        move_q: &mut PendingMoveQueue,
+        clear_q: &mut PendingHeroCommandClearQueue,
+        target_priority_q: &mut PendingTowerTargetPriorityQueue,
+        debug_spawn_q: &mut PendingDebugCreepSpawnQueue,
+        tower_ability_cast_q: &mut PendingTowerAbilityCastQueue,
+        sandbox_mode: bool,
+    ) {
+        let mut summoner_q = PendingSummonerCastQueue::default();
+        let mut ward_q = PendingWardPlacementQueue::default();
+        super::route_input(
+            player_id, tick, input, cw, pause, speed, totaltime, tower_q, sell_q, upgrade_q,
+            ability_q, cast_q, &mut summoner_q, &mut ward_q, item_q, move_q, clear_q, target_priority_q,
+            debug_spawn_q, tower_ability_cast_q, sandbox_mode, 0, None,
+        );
+    }
 
     #[test]
     fn tower_ability_cast_input_routes_to_pending_queue() {
@@ -902,5 +1023,122 @@ mod tests {
         assert_eq!(debug_spawn_q.requests.len(), 1);
         assert_eq!(debug_spawn_q.requests[0].emitter_index, 2);
         assert_eq!(debug_spawn_q.requests[0].count, 5);
+    }
+
+    #[test]
+    fn stop_command_routes_as_immediate_pending_clear() {
+        let mut cw = CurrentCreepWave::default();
+        let mut pause = GamePause::default();
+        let mut speed = GameSpeed::default();
+        let mut tower_q = PendingTowerSpawnQueue::default();
+        let mut sell_q = PendingTowerSellQueue::default();
+        let mut upgrade_q = PendingTowerUpgradeQueue::default();
+        let mut ability_q = PendingAbilityUpgradeQueue::default();
+        let mut cast_q = PendingAbilityCastQueue::default();
+        let mut item_q = PendingItemUseQueue::default();
+        let mut move_q = PendingMoveQueue::default();
+        let mut clear_q = PendingHeroCommandClearQueue::default();
+        let mut target_priority_q = PendingTowerTargetPriorityQueue::default();
+        let mut debug_spawn_q = PendingDebugCreepSpawnQueue::default();
+        route_input(
+            7,
+            3,
+            PlayerInput { action: Some(PlayerInputEnum::Stop(crate::game_proto::Stop {})) },
+            &mut cw,
+            &mut pause,
+            &mut speed,
+            0.0,
+            &mut tower_q,
+            &mut sell_q,
+            &mut upgrade_q,
+            &mut ability_q,
+            &mut cast_q,
+            &mut item_q,
+            &mut move_q,
+            &mut clear_q,
+            &mut target_priority_q,
+            &mut debug_spawn_q,
+            &mut PendingTowerAbilityCastQueue::default(),
+            false,
+        );
+        assert_eq!(move_q.requests.len(), 1);
+        assert_eq!(move_q.requests[0].owner_pid, 7);
+        assert!(!move_q.requests[0].queued);
+        assert!(matches!(move_q.requests[0].kind, PendingHeroCommandKind::Stop));
+        assert!(clear_q.requests.is_empty());
+    }
+
+    #[test]
+    fn summoner_wire_admission_rejects_malformed_slot_point_and_queue() {
+        let mut queues = (
+            CurrentCreepWave::default(), GamePause::default(), GameSpeed::default(),
+            PendingTowerSpawnQueue::default(), PendingTowerSellQueue::default(),
+            PendingTowerUpgradeQueue::default(), PendingAbilityUpgradeQueue::default(),
+            PendingAbilityCastQueue::default(), PendingItemUseQueue::default(),
+            PendingMoveQueue::default(), PendingHeroCommandClearQueue::default(),
+            PendingTowerTargetPriorityQueue::default(), PendingDebugCreepSpawnQueue::default(),
+            PendingTowerAbilityCastQueue::default(), PendingSummonerCastQueue::default(),
+        );
+        let cast = |slot, x: Option<i64>, y: Option<i64>| PlayerInput {
+            action: Some(PlayerInputEnum::SummonerCast(crate::game_proto::SummonerCast { slot, x_raw: x, y_raw: y })),
+        };
+        let route = |queues: &mut (_, _, _, _, _, _, _, _, _, _, _, _, _, _, PendingSummonerCastQueue), input| {
+            let mut ward_q = PendingWardPlacementQueue::default();
+            super::route_input(7, 4, input, &mut queues.0, &mut queues.1, &mut queues.2, 0.0,
+                &mut queues.3, &mut queues.4, &mut queues.5, &mut queues.6, &mut queues.7,
+                &mut queues.14, &mut ward_q, &mut queues.8, &mut queues.9, &mut queues.10, &mut queues.11,
+                &mut queues.12, &mut queues.13, false, 0, None);
+        };
+        route(&mut queues, cast(4, None, None));
+        route(&mut queues, cast(0, Some(1), None));
+        assert!(queues.14.requests.is_empty());
+        assert!(queues.14.receipts.iter().all(|receipt| receipt.stage == crate::runtime::summoner_transport::SummonerReceiptStage::AdmissionRejected));
+        route(&mut queues, cast(1, None, None));
+        route(&mut queues, cast(0, Some(3), Some(4)));
+        assert_eq!(queues.14.requests.len(), 1);
+        assert_eq!(queues.14.requests[0].request.slot, 1);
+        assert!(queues.14.receipts.iter().any(|receipt| receipt.code == "QUEUED_SUMMONER_CAST"));
+        assert!(queues.9.requests.is_empty());
+    }
+
+    #[test]
+    fn ward_wire_admission_rejects_wrong_slot_one_sided_point_and_duplicate_queue() {
+        let mut queues = (
+            CurrentCreepWave::default(), GamePause::default(), GameSpeed::default(),
+            PendingTowerSpawnQueue::default(), PendingTowerSellQueue::default(),
+            PendingTowerUpgradeQueue::default(), PendingAbilityUpgradeQueue::default(),
+            PendingAbilityCastQueue::default(), PendingItemUseQueue::default(),
+            PendingMoveQueue::default(), PendingHeroCommandClearQueue::default(),
+            PendingTowerTargetPriorityQueue::default(), PendingDebugCreepSpawnQueue::default(),
+            PendingTowerAbilityCastQueue::default(), PendingSummonerCastQueue::default(),
+        );
+        let mut ward_q = PendingWardPlacementQueue::default();
+        let place = |slot, x: Option<i64>, y: Option<i64>| PlayerInput {
+            action: Some(PlayerInputEnum::WardPlacement(crate::game_proto::WardPlacement { slot, x_raw: x, y_raw: y })),
+        };
+        let route = |queues: &mut (_, _, _, _, _, _, _, _, _, _, _, _, _, _, PendingSummonerCastQueue), ward_q: &mut PendingWardPlacementQueue, input, correlation: u32, generation: Option<u32>| {
+            super::route_input(7, 4, input, &mut queues.0, &mut queues.1, &mut queues.2, 0.0,
+                &mut queues.3, &mut queues.4, &mut queues.5, &mut queues.6, &mut queues.7,
+                &mut queues.14, ward_q, &mut queues.8, &mut queues.9, &mut queues.10, &mut queues.11,
+                &mut queues.12, &mut queues.13, false, correlation, generation);
+        };
+        route(&mut queues, &mut ward_q, place(1, Some(3), Some(4)), 81, Some(9));
+        route(&mut queues, &mut ward_q, place(0, Some(3), None), 82, Some(9));
+        route(&mut queues, &mut ward_q, place(0, None, Some(4)), 83, Some(9));
+        route(&mut queues, &mut ward_q, place(0, Some(3), Some(4)), 0, Some(9));
+        assert!(ward_q.requests.is_empty());
+        assert!(ward_q.receipts.iter().all(|receipt| receipt.stage == crate::runtime::ward_transport::WardReceiptStage::AdmissionRejected));
+        assert!(ward_q.receipts.iter().any(|receipt| receipt.code == "INVALID_WARD_SLOT"));
+        assert!(ward_q.receipts.iter().any(|receipt| receipt.code == "MALFORMED_WARD_POINT"));
+        assert!(ward_q.receipts.iter().any(|receipt| receipt.code == "INVALID_WARD_REQUEST_ID"));
+        route(&mut queues, &mut ward_q, place(0, Some(3), Some(4)), 84, Some(9));
+        route(&mut queues, &mut ward_q, place(0, Some(5), Some(6)), 85, Some(9));
+        assert_eq!(ward_q.requests.len(), 1);
+        assert_eq!(ward_q.requests[0].local_slot, 0);
+        assert_eq!(ward_q.requests[0].source_generation, Some(9));
+        assert_eq!(ward_q.requests[0].admitted_correlation, 84);
+        assert!(ward_q.receipts.iter().any(|receipt| receipt.code == "QUEUED_WARD_PLACEMENT"));
+        assert!(queues.9.requests.is_empty());
+        assert!(queues.14.requests.is_empty());
     }
 }

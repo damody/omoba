@@ -459,6 +459,19 @@ message ItemUse {
   uint32 item_slot = 1;  // inventory slot index
   optional Vec2I target_pos = 2;
   optional uint32 target_entity = 3;
+  // Presence of an authored point, including the origin. Absent is not (0,0).
+  // Legacy peers ignore this field. Presentation protocol stays v6.
+  optional bool point_explicit = 4;
+  // Local life generation for a disclosed unit after trusted injection.
+  // Renderer intents do not carry this. Zero is not encoded. Absence is not
+  // an origin, a missing point, or permission to bind whatever now uses the index.
+  optional uint32 target_generation = 5;
+  // Index of the trusted owner, not a canonical id. Secure rewrite and the
+  // authority seal overwrite a client value. Renderer intents do not carry it.
+  // Zero generation is not a life. Absence of both owner fields is the legacy
+  // current-hero path, not a secure acceptance.
+  optional uint32 owner_entity = 6;
+  optional uint32 owner_generation = 7;
 }
 
 // Authoritative MOBA shop commands. No client-supplied price or balance.
@@ -479,6 +492,108 @@ message TogglePause {}
 message ToggleGameSpeed {}
 // Persistent hold, replaced by a new immediate gameplay command.
 message HoldPosition { bool queued = 1; }
+// Immediate stop. Cancels the owner's movement, attack intent, queued commands,
+// recall, and interruptible attack windup or backswing, then returns to idle.
+// It is not a persistent hold and cannot be queued.
+message Stop {}
+
+// Dedicated summoner cast. The client names only its own loadout slot 0 or 1
+// and, when the trusted catalog requires a point, both raw coordinates.
+// Spell identity, hero, owner, cooldown, balance, entity targets, and queueing
+// are not fields on this message.
+message SummonerCast {
+  uint32 slot = 1;
+  optional sint64 x_raw = 2;
+  optional sint64 y_raw = 3;
+}
+
+// Dedicated local trinket placement. The client names only slot 0 and both
+// explicit Fixed64 raw coordinates. Owner, catalog, charges, cooldown,
+// lifetime, entity, and queue are not fields. Tag 23 stays unused.
+message WardPlacement {
+  uint32 slot = 1;
+  optional sint64 x_raw = 2;
+  optional sint64 y_raw = 3;
+}
+
+// Authority undo request. Mode 1 is Newest and sequence must be 0; trusted
+// admission pins the owner's current purchase sequence. Mode 2 names that
+// already projected sequence and sequence must be nonzero. This is not a shop
+// buy or sell. The client renderer sends only mode 2 through ShopUndoIntent.
+message ShopUndo {
+  uint32 mode = 1;
+  uint64 sequence = 2;
+}
+
+// Owner comes exclusively from authenticated InputSubmit. No entity or key state.
+message CombatPreferencesUpdate {
+  uint32 schema_version = 1;
+  uint32 acquisition = 2; // 0 hero origin, 1 cursor origin for explicit attack-move
+  bool idle_auto_attack = 3;
+}
+
+message CombatPreferencesRow {
+  uint32 player_id = 1;
+  uint32 acquisition = 2;
+  bool idle_auto_attack = 3;
+  // Independent typed capability, bound to the same complete owner roster and hash.
+  // Absent means input-scheme/profile identity is unavailable, even if combat settings exist.
+  InputSchemeOwnerState input_scheme = 4;
+}
+
+// Authority roster identity remains present while the hero is dead. No display
+// name, hidden entity handle or renderer clock is used as a profile key.
+message InputSchemeOwnerState {
+  uint32 schema_version = 1;
+  uint32 scheme = 2; // 0 point-and-click, 1 keyboard
+  string hero_content_id = 3;
+  sint64 playing_elapsed_raw = 4;
+  sint64 lock_after_raw = 5;
+  sint64 direction_lease_raw = 6;
+  // High-water mark for the current live hero only; 0 while dead or before first press.
+  uint64 last_press_id = 7;
+  uint64 active_press_id = 8; // 0 once retired; expiry alone does not retire a press
+  InputSchemeDirectionStep direction_step = 9;
+  uint32 direction_protocol = 10; // 0 unavailable, 1 source-only directional input
+}
+
+// Controls consumed before movement for one exact tick, independent of the
+// post-step lease. Contains no private source identity or future destination.
+message InputSchemeDirectionStep {
+  uint64 tick = 1;
+  uint32 scheme = 2;
+  sint64 direction_x_raw = 3;
+  sint64 direction_y_raw = 4;
+  uint64 press_id = 5;
+  bool navigation_reset = 6;
+  bool attack_reset = 7; // mode change only; direction Begin must preserve windup
+}
+
+message InputSchemeUpdate {
+  uint32 schema_version = 1;
+  uint32 scheme = 2;
+}
+
+// A client supplies an opaque, currently disclosed own actor only. The edge
+// removes source after validation and stamps sealed_source for authority use;
+// neither reference nor canonical identity survives a projected ACK.
+message HeroDirectionInput {
+  uint32 schema_version = 1;
+  SecureReplicaTarget source = 2;
+  uint64 press_id = 3;
+  uint32 phase = 4; // 1 Begin, 2 Update, 3 End; unspecified is invalid
+  sint32 x = 5;
+  sint32 y = 6;
+  uint64 sealed_source = 7; // authority only; client must send zero
+}
+
+// Complete, sorted owner rows for own team and currently disclosed opponents.
+// Empty/missing clears capability. Does not contain hidden entity identities.
+message CombatPreferencesProjection {
+  uint32 schema_version = 1;
+  uint64 view_epoch = 2;
+  repeated CombatPreferencesRow rows = 3;
+}
 
 message PlayerInput {
   oneof action {
@@ -502,6 +617,13 @@ message PlayerInput {
     ItemSell item_sell = 18;
     Recall recall = 19;
     HoldPosition hold_position = 20;
+    Stop stop = 21;
+    SummonerCast summoner_cast = 22;
+    ShopUndo shop_undo = 24;
+    WardPlacement ward_placement = 25;
+    CombatPreferencesUpdate combat_preferences = 26;
+    InputSchemeUpdate input_scheme = 27;
+    HeroDirectionInput direction = 28;
   }
 }
 
@@ -591,6 +713,14 @@ message JoinRequest {
   string mana_rules_hash = 15;
   uint32 command_protocol_version = 16;
   string command_rules_hash = 17;
+  // Independent of command 2, Recall 2, and shop 1. Zero plus an empty hash
+  // stays disabled. A partial version or hash fails closed.
+  uint32 summoner_protocol_version = 18;
+  string summoner_rules_hash = 19;
+  // Independent of QWER, item, summoner, and shop. Zero plus an empty hash
+  // stays disabled. A partial version or hash fails closed.
+  uint32 ward_protocol_version = 20;
+  string ward_rules_hash = 21;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -706,6 +836,21 @@ message TeamGameStart {
   string mana_rules_hash = 28;
   uint32 command_protocol_version = 29;
   string command_rules_hash = 30;
+  uint32 summoner_protocol_version = 31;
+  string summoner_rules_hash = 32;
+  // Echo of the admitted ward negotiation. Zero means the session stays
+  // ward-disabled. owner_ward_projection is private to this authenticated
+  // player and is empty for observers and for every other teammate.
+  uint32 ward_protocol_version = 33;
+  string ward_rules_hash = 34;
+  // Echo of owner_ward_envelope.projection. Empty matches a verified
+  // unavailable envelope. A nonempty echo must equal that projection.
+  // Neither field is team-hash material.
+  bytes owner_ward_projection = 35;
+  // Sealed private admission. The expected hash is inside this envelope;
+  // a locally recomputed hash is not a substitute.
+  OwnerWardEnvelope owner_ward_envelope = 36;
+  CombatPreferencesProjection combat_preferences = 37;
 }
 
 message RevealEntity {
@@ -788,6 +933,24 @@ message ShopReceiptReplay {
   bytes receipt = 6; // Original typed 40-byte receipt, only for status 2.
 }
 
+// Owner-addressed private ward state. Not a team broadcast, not team hash
+// material, and not sent to a session that did not negotiate ward protocol.
+message OwnerWardEnvelope {
+  uint32 schema_version = 1;
+  uint32 player_id = 2;
+  uint64 session_id = 3;
+  uint64 view_epoch = 4;
+  uint64 authoritative_tick = 5;
+  bytes projection = 6;
+  bytes projection_hash = 7;
+}
+
+// Read-only recovery of the caller's own envelope. Does not submit gameplay.
+message OwnerWardRecoveryQuery {
+  uint64 request_id = 1;
+  uint64 view_epoch = 2;
+}
+
 message BoundedRandomTape {
   uint64 tape_id = 1;
   DisclosureEpoch disclosure_epoch = 2;
@@ -853,6 +1016,14 @@ message PostStep {
   TeamViewRebaseNotice rebase_notice = 4;
 }
 
+// Public match mode for every legitimate participant of the current view.
+// Carried with that view epoch. It contains no entity, economy, or enemy data.
+message AuthoritativeModePresentation {
+  uint32 schema_version = 1;
+  uint32 mode = 2;
+  uint64 view_epoch = 3;
+}
+
 message TeamTickFrame {
   uint32 protocol_version = 1;
   uint32 frame_schema_version = 2;
@@ -867,6 +1038,12 @@ message TeamTickFrame {
   Step step = 11;
   PostStep post_step = 12;
   bytes padding = 13;
+  // Optional. Frames that omit it stay unavailable; this is not a protocol bump.
+  // Absence, schema_version other than 1, view_epoch 0 or different from this
+  // frame's view_epoch, or mode outside {1=MOBA, 2=TowerDefense} is unavailable.
+  // Never infer the mode from HUD, lives, hero presence, or map name.
+  AuthoritativeModePresentation authoritative_mode = 14;
+  CombatPreferencesProjection combat_preferences = 15;
 }
 
 message TeamReplayRequest {
@@ -943,6 +1120,9 @@ message RendererIpcEnvelope {
     RendererReady renderer_ready = 21;
     RendererConsumed renderer_consumed = 22;
     RendererShutdown renderer_shutdown = 23;
+    // Team communication delivery. Not a snapshot field and not a gameplay ACK.
+    // Absence leaves the existing frame, ward, and shop tails unchanged.
+    CommunicationPresentation team_communication = 24;
   }
 }
 
@@ -1072,6 +1252,36 @@ message TeamPresentationSnapshot {
   repeated ShopTransactionReceipt shop_receipts = 18;
   // Absence means unavailable, never full visibility or demo fallback.
   FogGridPresentation fog_grid = 19;
+  // Same message as TeamTickFrame.authoritative_mode. Absence is unavailable.
+  AuthoritativeModePresentation authoritative_mode = 20;
+  // Absence means this session has no undo projection. Not an implicit can-undo.
+  OwnerShopUndoPresentation owner_shop_undo = 21;
+  // Bounded undo settlement identities. Not v1 shop receipts and not the 92-byte wallet.
+  repeated ShopUndoTransactionReceipt shop_undo_receipts = 22;
+  // Owner-only verified private projection. Empty means unavailable.
+  // Not a team fact, not a charge delta, and not an authority ACK.
+  bytes owner_ward_private = 23;
+  // 0 disables placement. 3 is the accepted ward protocol. Any other value disables it.
+  uint32 owner_ward_protocol = 24;
+  // Renderer request and authority input stay distinct. This is not an authority ACK.
+  // An illegal row drops the whole list. It does not clear the private charge view.
+  repeated WardInputCorrelation ward_input_correlations = 25;
+  // Pending buy/sell rows. Not receipts, not undo, and not a wallet change.
+  // An illegal row drops the whole list. It does not alter shop_receipts.
+  repeated ShopTransactionCorrelation shop_transaction_correlations = 26;
+  CombatPreferencesProjection combat_preferences = 27;
+}
+
+// Bounded owner+epoch+actor+renderer-request+authority-input row.
+// phase: 1 forwarded, 2 applied to presentation, 3 transport uncertain, 4 local rejected.
+// authority_input 0 is legal only for phase 4. None of these phases is settlement.
+message WardInputCorrelation {
+  uint32 player_id = 1;
+  uint64 view_epoch = 2;
+  uint32 actor_generation = 3;
+  uint64 renderer_request = 4;
+  uint32 authority_input = 5;
+  uint32 phase = 6;
 }
 
 message InventorySlotPresentation {
@@ -1087,6 +1297,36 @@ message OwnerEconomyPresentation {
   bool shop_available = 5; // authority phase/alive/proximity, not affordability
   bool shop_protocol_enabled = 6; // negotiated transport capability; defaults closed
   sint64 shield_remaining_raw = 7; // Q10 authority absorption, owner-scoped, 0..1024000000
+  // Schema 3 copies the authority shop-reason byte. Schema 2 leaves this at the
+  // protobuf default. Consumers must not read that default as AVAILABLE.
+  uint32 shop_reason = 8;
+}
+// Session capability plus the owner scalar. projected is false when the scalar
+// has not arrived. can_undo is never implied by undo_supported or by reason 0.
+message OwnerShopUndoPresentation {
+  uint32 schema_version = 1;
+  uint32 player_id = 2;
+  bool projected = 3;
+  bool undo_supported = 4;
+  bool can_undo = 5;
+  uint32 reason = 6;
+  uint64 newest_sequence = 7;
+  bytes ledger_commitment = 8; // 32 bytes when projected; not a user-facing value
+}
+// Identity projection of one undo settlement. Schema 1 here is not the 40-byte
+// buy/sell receipt. result_code uses the undo receipt codes, including 14 and 15.
+// input_id is the authority input. request_id is the renderer request and stays 0
+// until the client binds that exact owner, view epoch, and pinned sequence.
+message ShopUndoTransactionReceipt {
+  uint32 schema_version = 1;
+  uint32 player_id = 2;
+  uint64 input_id = 3;
+  uint64 settled_tick = 4;
+  uint64 sequence = 5;
+  uint32 result_code = 6;
+  sint32 gold = 7;
+  uint64 request_id = 8;
+  uint64 view_epoch = 9;
 }
 message ShopTransactionReceipt {
   uint32 schema_version = 1;
@@ -1097,6 +1337,20 @@ message ShopTransactionReceipt {
   uint32 catalog_id = 6;
   uint32 item_slot = 7;
   uint32 result_code = 8; // 0 settled successfully, 1..13 stable ShopError codes
+  // Renderer request. 0 means this retained receipt is not bound to a UI request.
+  uint64 request_id = 9;
+  // Capturing view epoch. Meaningful when request_id is nonzero; otherwise 0.
+  uint64 view_epoch = 10;
+}
+// Pending buy or sell. phase 1 is admitted (not success). phase 2 is transport uncertain.
+// Neither phase settles the wallet. authority_input is the authority input id.
+message ShopTransactionCorrelation {
+  uint32 player_id = 1;
+  uint64 view_epoch = 2;
+  uint64 request_id = 3;
+  uint32 authority_input = 4;
+  uint32 action_kind = 5; // 17 buy, 18 sell
+  uint32 phase = 6;
 }
 
 message AbilityHudPresentation {
@@ -1105,6 +1359,21 @@ message AbilityHudPresentation {
   uint32 level = 3;
   sint64 cooldown_raw = 4;
   sint64 total_cooldown_raw = 5;
+}
+// Owner summoner row. Independent of the live hero so a dead or absent hero
+// keeps admitted equipment. Catalog id 0 is canonical unavailable. Shape,
+// range, and total cooldown come from the authored catalog. cooldown_raw is
+// the authority clock and is not a client countdown. schema_version below 3
+// cannot enable these rows.
+message SummonerHudPresentation {
+  uint32 slot = 1; // 0 or 1
+  uint32 catalog_id = 2; // 0 = unequipped
+  uint32 shape = 3; // 0 unavailable, 1 self, 2 point; entity is not authored
+  sint64 range_raw = 4; // catalog range, Q10; 0 for self and unavailable
+  sint64 cooldown_raw = 5; // authority remaining, Q10
+  sint64 total_cooldown_raw = 6; // catalog total, Q10
+  string spell_id = 7; // catalog identity; empty when catalog_id is 0
+  uint32 owner_player_id = 8; // matches MobaHudPresentation.player_id when enabled
 }
 message HeroHudPresentation {
   uint64 render_id = 1;
@@ -1120,6 +1389,17 @@ message HeroHudPresentation {
   bool mana_supported = 10;
   sint64 mana_raw = 11;
   sint64 max_mana_raw = 12;
+  // Schema 4: absent means unavailable, not six zero attributes. Q10 values.
+  HeroCombatAttributesPresentation combat_attributes = 13;
+}
+message HeroCombatAttributesPresentation {
+  sint64 attack_damage_raw = 1;
+  sint64 physical_armor_raw = 2;
+  // Fraction [-1,1], not a flat armor rating.
+  sint64 magic_resistance_raw = 3;
+  sint64 move_speed_raw = 4;
+  sint64 attack_range_raw = 5;
+  sint64 attack_interval_raw = 6;
 }
 message MobaHudPresentation {
   uint32 schema_version = 1;
@@ -1135,6 +1415,10 @@ message MobaHudPresentation {
   bool recall_protocol_enabled = 10;
   OwnerScorePresentation score = 11; // absent = unsupported, not a fabricated 0/0/0
   ScoreboardPresentation scoreboard = 12; // public persistent rows, independent of vision
+  // Negotiated summoner wire. Recall and shop flags do not imply this.
+  bool summoner_protocol_enabled = 13;
+  SummonerHudPresentation summoner_slot0 = 14;
+  SummonerHudPresentation summoner_slot1 = 15;
 }
 
 message ScoreboardPresentation {
@@ -1179,14 +1463,47 @@ message RuntimeSessionState {
 message MoveToIntent { sint64 x_raw = 1; sint64 y_raw = 2; bool queued = 3; }
 message AttackMoveIntent { sint64 x_raw = 1; sint64 y_raw = 2; bool queued = 3; }
 message AbilityCastIntent { uint32 ability_index = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
-message ItemUseIntent { uint32 item_slot = 1; uint64 target_render_id = 2; sint64 x_raw = 3; sint64 y_raw = 4; }
+message ItemUseIntent {
+  // Owner index and generation are not renderer fields.
+  uint32 item_slot = 1;
+  uint64 target_render_id = 2;
+  sint64 x_raw = 3;
+  sint64 y_raw = 4;
+  // Both set, or neither. Legacy x_raw/y_raw stay scalars and do not mean a point is present.
+  optional sint64 explicit_x_raw = 5;
+  optional sint64 explicit_y_raw = 6;
+}
 message ItemBuyIntent { uint32 catalog_id = 1; }
 message ItemSellIntent { uint32 item_slot = 1; }
 message RecallIntent {}
+message SummonerCastIntent {
+  uint32 slot = 1;
+  optional sint64 x_raw = 2;
+  optional sint64 y_raw = 3;
+}
+// Slot 0 and both explicit raw coordinates. Not a summoner or shop intent.
+message WardPlacementIntent {
+  uint32 slot = 1;
+  optional sint64 x_raw = 2;
+  optional sint64 y_raw = 3;
+}
+// Pinned purchase sequence only. Newest is not a renderer field.
+message ShopUndoIntent {
+  uint64 sequence = 1;
+}
 message AbilityUpgradeIntent { uint32 ability_index = 1; }
 message TowerActionIntent { uint32 action_kind = 1; uint64 tower_render_id = 2; uint32 tower_kind_id = 3; uint32 path = 4; uint32 level = 5; sint64 x_raw = 6; sint64 y_raw = 7; }
 
 message AttackTargetIntent { uint64 target_render_id = 1; bool queued = 2; }
+
+message RendererDirectionIntent {
+  uint32 schema_version = 1;
+  uint64 source_render_id = 2;
+  uint64 press_id = 3;
+  uint32 phase = 4;
+  sint32 x = 5;
+  sint32 y = 6;
+}
 
 message RendererInput {
   uint64 request_id = 1;
@@ -1204,7 +1521,47 @@ message RendererInput {
     RecallIntent recall = 18;
     AbilityUpgradeIntent ability_upgrade = 19;
     HoldPosition hold_position = 20;
+    Stop stop = 21;
+    SummonerCastIntent summoner_cast = 22;
+    ShopUndoIntent shop_undo = 25;
+    WardPlacementIntent ward_placement = 26;
+    CommunicationIntent communication = 27;
+    CombatPreferencesUpdate combat_preferences = 28;
+    InputSchemeUpdate input_scheme = 29;
+    RendererDirectionIntent direction = 30;
   }
+}
+
+// Local renderer intent. No sender/team/room/run, nonce, canonical actor or clock.
+message CommunicationIntent {
+  uint64 source_generation = 1;
+  uint64 presentation_epoch = 2;
+  uint32 kind = 3;
+  uint32 semantic = 4;
+  sint64 point_x_raw = 5;
+  sint64 point_y_raw = 6;
+  bool has_point = 7;
+  uint64 target_render_id = 8;
+  uint64 target_disclosure_epoch = 9;
+  uint32 hud_kind = 10;
+  uint32 hud_index = 11;
+  uint32 hud_player_id = 12;
+  uint32 chat_channel = 13;
+  string text = 14;
+  string objective_id = 15;
+  uint32 mute_sender_id = 16;
+  bool muted = 17;
+  uint32 content_id = 18;
+  // Stamped by the authenticated local renderer session, never trusted from UI bytes.
+  uint64 renderer_connection_id = 19;
+}
+
+message CommunicationInputResult {
+  uint64 renderer_connection_id = 1;
+  uint64 request_token = 2;
+  uint64 network_request_id = 3;
+  uint32 phase = 4; // 1 queued locally, 2 authority receipt, 3 local refusal/uncertain transport
+  uint32 refusal = 5;
 }
 
 message RendererReady {
@@ -1247,6 +1604,19 @@ message TeamViewRebase {
   bytes manifest_hash = 15;
   // Version 2 manifest binds this team-private presentation to its hash.
   FogGridPresentation fog_grid = 16;
+  // Owner-team summoner roster admitted with this baseline. Empty clears the
+  // previous owner rows. Bytes are the projection codec and are bound into the
+  // manifest hash when non-empty.
+  bytes admitted_summoner_projection = 17;
+  // Schema-1 owner-undo hash material for this baseline. Empty means the last
+  // step had no owner-undo fact, stays outside the manifest digest, and leaves
+  // older hashes unchanged. Non-empty bytes are the canonical record stream and
+  // are bound into the manifest hash. Malformed, truncated, duplicate, or
+  // non-canonical bytes fail verification. This does not change protocol 7,
+  // snapshot schema 1, or the team-view digest domain.
+  bytes retained_owner_undo_material = 18;
+  // Binds the complete admitted combat policy to the rebase manifest digest.
+  CombatPreferencesProjection combat_preferences = 19;
 }
 
 message TestCommandRequest {
@@ -1273,4 +1643,168 @@ message ViewportUpdate {
   float center_y = 2;
   float half_width = 3;
   float half_height = 4;
+}
+
+// Authenticated team communication. Tags 0x2F..0x35.
+// These frames are not PingRequest (0x17/0x18), shop (0x2B/0x2C),
+// or owner ward (0x2D/0x2E). An old peer that does not know the tag
+// must not parse the bytes as an existing command.
+// Canonical entity ids stay on the server. CommunicationSubmit field 17 is
+// reserved so a client cannot supply one. Events omit them. A filtered client
+// sends replica_id, generation, disclosure_epoch, and target_view_epoch.
+
+message CommunicationHello {
+  uint32 protocol_version = 1;
+  uint64 claimed_room_id = 2;
+  uint64 claimed_run_id = 3;
+  uint32 claimed_player_id = 4;
+  uint32 claimed_team_id = 5;
+  uint64 claimed_view_epoch = 6;
+  bool claimed_observer = 7;
+}
+
+message CommunicationHelloResult {
+  uint32 schema_version = 1;
+  uint32 protocol_version = 2;
+  bool agreed = 3;
+  uint32 refusal = 4;
+  uint64 room_id = 5;
+  uint64 run_id = 6;
+  uint32 player_id = 7;
+  uint32 team_id = 8;
+  uint64 view_epoch = 9;
+  // Highest nonce already consumed for this room, run, and player.
+  // The next request must use a greater nonce. An idempotent hello does not lower it.
+  uint64 request_floor = 10;
+}
+
+message CommunicationSubmit {
+  uint32 schema_version = 1;
+  uint64 request_id = 2;
+  uint64 nonce = 3;
+  uint64 claimed_room_id = 4;
+  uint64 claimed_run_id = 5;
+  uint32 claimed_player_id = 6;
+  uint32 claimed_team_id = 7;
+  uint64 claimed_view_epoch = 8;
+  bool claimed_observer = 9;
+  uint32 kind = 10; // 1 ping, 2 chat, 3 objective, 4 mute, 5 emote, 6 status
+  uint32 semantic = 11;
+  sint64 point_x_raw = 12;
+  sint64 point_y_raw = 13;
+  bool has_point = 14;
+  bool has_target = 15;
+  uint64 replica_id = 16;
+  // Was an untrusted canonical id. Reserved so old payloads cannot populate it.
+  reserved 17;
+  reserved "canonical_id";
+  // Optional compatibility assertion. Zero lets authority derive generation
+  // from its current disclosed replica mapping; renderer generations are not canonical.
+  uint32 generation = 18;
+  uint64 disclosure_epoch = 19;
+  uint64 target_view_epoch = 20;
+  uint32 hud_kind = 21; // 0 none, 1 ability, 2 item, 3 public score
+  uint32 hud_index = 22;
+  uint32 hud_player_id = 23;
+  uint32 chat_channel = 24; // 1 team, 2 explicit all
+  string text = 25;
+  string objective_id = 26;
+  uint32 mute_sender_id = 27;
+  bool muted = 28;
+  uint32 content_id = 29; // Canonical Lua communication ID, only kind 5.
+}
+
+message CommunicationReceipt {
+  uint32 schema_version = 1;
+  uint64 request_id = 2;
+  uint32 refusal = 3; // 0 means the outcome_kind succeeded
+  uint64 room_id = 4;
+  uint64 run_id = 5;
+  uint32 sender_id = 6;
+  uint64 sequence = 7; // 0 unless outcome_kind is an admitted event
+  uint64 view_epoch = 8;
+  uint32 outcome_kind = 9; // 1 event, 2 mute, 3 refused, 4 replay, 5 hello
+}
+
+message CommunicationWireEvent {
+  uint32 schema_version = 1;
+  uint64 room_id = 2;
+  uint64 run_id = 3;
+  uint32 sender_id = 4;
+  uint32 sender_team = 5;
+  uint64 sequence = 6;
+  uint64 view_epoch = 7;
+  uint32 audience = 8; // 1 team, 2 explicit all
+  uint32 kind = 9; // 1 ping, 2 chat, 3 objective, 5 emote/interaction, 6 HUD status
+  uint32 semantic = 10;
+  sint64 point_x_raw = 11;
+  sint64 point_y_raw = 12;
+  bool has_point = 13;
+  bool has_target = 14;
+  uint64 replica_id = 15;
+  uint32 generation = 16;
+  uint64 disclosure_epoch = 17;
+  uint32 hud_kind = 18;
+  uint32 hud_index = 19;
+  sint64 ability_remaining_raw = 20;
+  uint32 catalog_id = 21;
+  uint32 cooldown_bits = 22;
+  uint32 score_player_id = 23;
+  uint32 kills = 24;
+  uint32 deaths = 25;
+  uint32 assists = 26;
+  uint32 chat_channel = 27;
+  string text = 28;
+  string objective_id = 29;
+  sint64 objective_x_raw = 30;
+  sint64 objective_y_raw = 31;
+  sint64 expires_at_raw = 32;
+  uint64 receipt_request_id = 33; // sender correlation; 0 for every other recipient
+  // MobaMatch.elapsed raw at admission. Ping and objective require this and expires_at_raw.
+  sint64 admitted_at_raw = 34;
+  uint32 content_id = 35; // Canonical original communication content, only kind 5.
+}
+
+message CommunicationReplayQuery {
+  uint32 schema_version = 1;
+  uint64 request_id = 2;
+  uint64 claimed_room_id = 3;
+  uint64 claimed_run_id = 4;
+  uint32 claimed_player_id = 5;
+  uint32 claimed_team_id = 6;
+  uint64 claimed_view_epoch = 7;
+  bool claimed_observer = 8;
+}
+
+message CommunicationReplayBatch {
+  uint32 schema_version = 1;
+  uint64 request_id = 2;
+  uint32 refusal = 3;
+  uint64 room_id = 4;
+  uint64 run_id = 5;
+  uint64 view_epoch = 6;
+  bool already_replayed = 7;
+  repeated CommunicationWireEvent events = 8;
+  // Match clock used for expiry. Negative is invalid and the batch is malformed.
+  sint64 elapsed_raw = 9;
+}
+
+// Renderer-facing copy of admitted communication. source_generation is the
+// client binding generation. presentation_epoch advances when that binding
+// or its view is retired. Neither value is an actor generation.
+message CommunicationPresentation {
+  uint32 schema_version = 1;
+  uint64 view_epoch = 2;
+  uint64 room_id = 3;
+  uint64 run_id = 4;
+  uint32 player_id = 5;
+  uint32 team_id = 6;
+  uint64 source_generation = 7;
+  uint64 presentation_epoch = 8;
+  repeated CommunicationWireEvent events = 9;
+  CommunicationReceipt receipt = 10;
+  // Match clock copied for render consumers. Negative is invalid.
+  sint64 elapsed_raw = 11;
+  bool negotiated = 12;
+  CommunicationInputResult input_result = 13; // Local renderer correlation, not gameplay ACK.
 }

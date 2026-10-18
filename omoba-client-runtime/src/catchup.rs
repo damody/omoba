@@ -81,9 +81,13 @@ impl ReplicaLagTracker {
     }
 
     pub fn plan_next_frame(&self, inbound_depth: usize) -> CatchUpPlan {
+        self.plan_next_frame_with_elapsed(inbound_depth, self.batch_started.elapsed())
+    }
+
+    fn plan_next_frame_with_elapsed(&self, inbound_depth: usize, elapsed: Duration) -> CatchUpPlan {
         let catching_up = self.is_catching_up(inbound_depth);
         let reaches_frame_limit = self.batch_frames.saturating_add(1) >= MAX_CATCH_UP_FRAMES;
-        let reaches_time_limit = self.batch_started.elapsed() >= MAX_CATCH_UP_DURATION;
+        let reaches_time_limit = elapsed >= MAX_CATCH_UP_DURATION;
         let yield_after_frame = catching_up && (reaches_frame_limit || reaches_time_limit);
         CatchUpPlan {
             publish_latest_snapshot: !catching_up || yield_after_frame,
@@ -129,35 +133,37 @@ impl ReplicaLagTracker {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn force_batch_age(&mut self, age: Duration) {
-        self.batch_started = Instant::now() - age;
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn frame_plan(tracker: &ReplicaLagTracker, depth: usize) -> CatchUpPlan {
+        tracker.plan_next_frame_with_elapsed(depth, Duration::ZERO)
+    }
+
     #[test]
     fn frame_limit_ends_a_catch_up_batch() {
         let mut tracker = ReplicaLagTracker::new(0);
         for tick in 1..MAX_CATCH_UP_FRAMES {
-            let plan = tracker.plan_next_frame(10);
+            let plan = frame_plan(&tracker, 10);
             assert!(!plan.yield_after_frame);
             tracker.observe_applied(u64::from(tick), 10, 0, false);
         }
-        let plan = tracker.plan_next_frame(10);
+        let plan = frame_plan(&tracker, 10);
         assert!(plan.yield_after_frame);
         assert!(plan.publish_latest_snapshot);
     }
 
     #[test]
     fn time_limit_ends_a_catch_up_batch() {
-        let mut tracker = ReplicaLagTracker::new(0);
-        tracker.force_batch_age(MAX_CATCH_UP_DURATION);
-        let plan = tracker.plan_next_frame(MIN_CATCH_UP_DEPTH);
+        let tracker = ReplicaLagTracker::new(0);
+        let before = tracker.plan_next_frame_with_elapsed(MIN_CATCH_UP_DEPTH, MAX_CATCH_UP_DURATION - Duration::from_nanos(1));
+        assert!(!before.yield_after_frame);
+        let plan = tracker.plan_next_frame_with_elapsed(MIN_CATCH_UP_DEPTH, MAX_CATCH_UP_DURATION);
         assert!(plan.yield_after_frame);
+        assert!(plan.publish_latest_snapshot);
     }
 
     #[test]
@@ -165,7 +171,7 @@ mod tests {
         let tracker = ReplicaLagTracker::new(0);
         for depth in [1_usize, 3] {
             assert_eq!(
-                tracker.plan_next_frame(depth),
+                frame_plan(&tracker, depth),
                 CatchUpPlan {
                     publish_latest_snapshot: true,
                     yield_after_frame: false
@@ -177,7 +183,7 @@ mod tests {
     #[test]
     fn four_queued_frames_enter_catch_up() {
         let tracker = ReplicaLagTracker::new(0);
-        let plan = tracker.plan_next_frame(MIN_CATCH_UP_DEPTH);
+        let plan = frame_plan(&tracker, MIN_CATCH_UP_DEPTH);
         assert!(!plan.publish_latest_snapshot);
         assert!(!plan.yield_after_frame);
     }
@@ -192,7 +198,7 @@ mod tests {
     #[test]
     fn no_backlog_always_publishes_latest_snapshot() {
         let tracker = ReplicaLagTracker::new(0);
-        let plan = tracker.plan_next_frame(0);
+        let plan = frame_plan(&tracker, 0);
         assert_eq!(
             plan,
             CatchUpPlan {
@@ -208,7 +214,7 @@ mod tests {
         let mut yields = 0;
         for tick in 1..=frame_count {
             let remaining = (frame_count - tick) as usize;
-            let plan = tracker.plan_next_frame(remaining);
+            let plan = frame_plan(&tracker, remaining);
             applied += 1;
             yields += u32::from(plan.yield_after_frame);
             tracker.observe_applied(u64::from(tick), remaining, 0, plan.yield_after_frame);
@@ -245,7 +251,7 @@ mod tests {
         let mut applied = 0_u32;
         while let Some(_frame) = pending.remove(&expected) {
             let remaining = pending.len();
-            let plan = tracker.plan_next_frame(remaining);
+            let plan = frame_plan(&tracker, remaining);
             applied += 1;
             expected += 1;
             tracker.observe_applied(expected - 1, remaining, 0, plan.yield_after_frame);

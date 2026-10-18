@@ -5,7 +5,7 @@ use omoba_client_runtime::{
     evidence::EvidenceRecorder,
     input_bridge::{InputBridge, InputDecision},
     presentation_bridge::{
-        lifecycle_envelope, ready_envelope_for_start, reset_view_envelope,
+        assemble_rebased_presentation, communication_envelope, lifecycle_envelope, ready_envelope_for_start, reset_view_envelope,
         PresentationHub, PRESENTATION_MAGIC, PRESENTATION_PROTOCOL_VERSION,
     },
     replica_host::ReplicaHost,
@@ -77,13 +77,28 @@ async fn main() -> anyhow::Result<()> {
         config.presentation_bind
     );
     let mut input_bridge = InputBridge::resume_after(session.start.last_seen_input_id);
-    input_bridge.set_shop_enabled(session.start.shop_protocol_version == omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION);
-    presentation.set_shop_protocol_enabled(session.start.shop_protocol_version == omoba_core::runtime::shop_transport::SHOP_PROTOCOL_VERSION);
+    let shop_version = session.start.shop_protocol_version;
+    let shop_rules = session.start.shop_rules_hash.as_str();
+    let (transactions, undo) = omoba_core::runtime::shop_transport::shop_capability_from_echo(shop_version, shop_rules)
+        .map_err(|reason| anyhow::anyhow!(reason))?;
+    input_bridge.set_shop_enabled(transactions);
+    input_bridge.set_shop_undo_enabled(undo);
+    presentation.set_shop_protocol_enabled(transactions);
+    presentation.set_shop_undo_enabled(undo);
     let recall_enabled = session.start.recall_protocol_version == omoba_core::runtime::recall_transport::RECALL_PROTOCOL_VERSION;
     input_bridge.set_recall_enabled(recall_enabled);
     input_bridge.set_commands_enabled(omoba_core::runtime::command_transport::negotiate_command_protocol(
         session.start.command_protocol_version, &session.start.command_rules_hash)
         .map_err(|reason| anyhow::anyhow!("command capability: {reason}"))?);
+    let summoner_enabled = omoba_core::runtime::summoner_transport::negotiate_summoner_protocol(
+        session.start.summoner_protocol_version, &session.start.summoner_rules_hash)
+        .map_err(|reason| anyhow::anyhow!("summoner capability: {reason}"))?;
+    input_bridge.set_summoner_enabled(summoner_enabled);
+    let ward_enabled = omoba_core::runtime::ward_transport::negotiate_ward_protocol(
+        session.start.ward_protocol_version, &session.start.ward_rules_hash)
+        .map_err(|reason| anyhow::anyhow!("ward capability: {reason}"))?;
+    input_bridge.set_ward_enabled(ward_enabled);
+    presentation.set_summoner_protocol_enabled(summoner_enabled);
     presentation.set_recall_protocol_enabled(recall_enabled);
     if config.test_mode && std::env::var("OMOBA_SHOP_QUERY_SMOKE").as_deref() == Ok("1") {
         // No transaction fixture: query a missing shop result only.
@@ -119,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
         config.team_id,
     );
     log::info!("{}", replica_steps.enable_line());
+    maybe_send_communication_hello(&mut presentation, &session.client, config.player_id, config.team_id, replica.view_epoch(), session.start.server_tick).await;
     presentation.publish_latest(ready_envelope_for_start(presentation_sequence,&config,&session.start)?);
     presentation_sequence = presentation_sequence.saturating_add(1);
     presentation
@@ -161,7 +177,14 @@ async fn main() -> anyhow::Result<()> {
         tokio::select! {
             biased;
             _ = shop_query_interval.tick() => {
+                for batch in presentation.expire_communication_submissions() {
+                    presentation_sequence = presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(communication_envelope(presentation_sequence, batch)).await?;
+                }
                 for id in presentation.due_shop_queries() {
+                    session.client.query_shop_receipt(u64::from(id), id).await?;
+                }
+                for id in presentation.due_undo_queries() {
                     session.client.query_shop_receipt(u64::from(id), id).await?;
                 }
             }
@@ -227,7 +250,20 @@ async fn main() -> anyhow::Result<()> {
                 ).await?;
             },
             inbound = session.inbound.recv() => match inbound {
+                Some(LockstepInbound::CommunicationHelloResult { msg }) => {
+                    dispatch_communication(&mut presentation, &session.client, &mut presentation_sequence, &LockstepInbound::CommunicationHelloResult { msg }).await?;
+                }
+                Some(LockstepInbound::CommunicationReceipt { msg }) => {
+                    dispatch_communication(&mut presentation, &session.client, &mut presentation_sequence, &LockstepInbound::CommunicationReceipt { msg }).await?;
+                }
+                Some(LockstepInbound::CommunicationEvent { msg }) => {
+                    dispatch_communication(&mut presentation, &session.client, &mut presentation_sequence, &LockstepInbound::CommunicationEvent { msg }).await?;
+                }
+                Some(LockstepInbound::CommunicationReplay { msg }) => {
+                    dispatch_communication(&mut presentation, &session.client, &mut presentation_sequence, &LockstepInbound::CommunicationReplay { msg }).await?;
+                }
                 Some(LockstepInbound::TeamTickFrame { msg, encoded, .. }) => {
+                    maybe_send_communication_hello(&mut presentation, &session.client, config.player_id, config.team_id, replica.view_epoch(), msg.server_tick).await;
                     latest_server_tick = latest_server_tick.max(msg.server_tick);
                     replica_lag.observe_received(msg.replica_tick);
                     if presentation_trace_enabled() {
@@ -329,6 +365,11 @@ async fn main() -> anyhow::Result<()> {
                             publish_rebased_presentation(&mut presentation, &mut replica,
                                 &mut presentation_sequence, msg.authoritative_tick,
                                 session.client.latest_rtt_us().unwrap_or(0)).await?;
+                            if let Some((recovery_request, recovery_epoch)) = replica.poll_owner_ward_recovery() {
+                                if let Err(error) = session.client.query_owner_ward_recovery(recovery_request, recovery_epoch).await {
+                                    log::warn!("owner ward recovery query failed: {error}");
+                                }
+                            }
                             if let Err(error) = session.client.acknowledge_team_rebase(
                                 msg.team_id, msg.resume_team_sequence, view_epoch,
                             ).await {
@@ -346,6 +387,16 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                         Err(error) => shutdown.cancel(ShutdownReason::UnsafeSession(error.to_string())),
+                    }
+                }
+                Some(LockstepInbound::OwnerWardEnvelope { msg }) => {
+                    if let Err(error) = replica.apply_owner_ward_envelope(&msg) {
+                        log::warn!("owner ward envelope rejected: {error}");
+                        if let Some((recovery_request, recovery_epoch)) = replica.poll_owner_ward_recovery() {
+                            if let Err(error) = session.client.query_owner_ward_recovery(recovery_request, recovery_epoch).await {
+                                log::warn!("owner ward recovery query failed: {error}");
+                            }
+                        }
                     }
                 }
                 Some(LockstepInbound::ShopReceiptReplay { msg }) => {
@@ -386,6 +437,53 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn maybe_send_communication_hello(
+    presentation: &mut PresentationHub,
+    client: &omoba_core::kcp::client::KcpClient,
+    player_id: u32,
+    team_id: u32,
+    view_epoch: u64,
+    server_tick: u64,
+) {
+    presentation.note_communication_transition(view_epoch, server_tick);
+    if !presentation.communication_hello_allowed() {
+        return;
+    }
+    presentation.note_communication_hello_sent();
+    if let Err(error) = client.send_communication_hello(player_id, team_id, view_epoch).await {
+        log::warn!("communication hello failed: {error}");
+    }
+}
+
+async fn dispatch_communication(
+    presentation: &mut PresentationHub,
+    client: &omoba_core::kcp::client::KcpClient,
+    sequence: &mut u64,
+    inbound: &LockstepInbound,
+) -> anyhow::Result<()> {
+    let batch = match inbound {
+        LockstepInbound::CommunicationHelloResult { msg } => {
+            let batch = presentation.apply_communication_hello(msg);
+            if let Some(query) = presentation.communication_replay_query() {
+                match client.send_communication_replay_query(&query).await {
+                    Ok(()) => presentation.note_communication_replay_sent(),
+                    Err(error) => log::warn!("communication replay query failed: {error}"),
+                }
+            }
+            batch
+        }
+        LockstepInbound::CommunicationReceipt { msg } => presentation.apply_communication_receipt(msg),
+        LockstepInbound::CommunicationEvent { msg } => presentation.apply_communication_event(msg),
+        LockstepInbound::CommunicationReplay { msg } => presentation.apply_communication_replay(msg),
+        _ => None,
+    };
+    if let Some(batch) = batch {
+        *sequence = sequence.saturating_add(1);
+        presentation.publish_critical(communication_envelope(*sequence, batch)).await?;
+    }
+    Ok(())
+}
+
 async fn publish_rebased_presentation(
     presentation: &mut PresentationHub,
     replica: &mut ReplicaHost,
@@ -393,16 +491,30 @@ async fn publish_rebased_presentation(
     authoritative_tick: u64,
     rtt_us: u64,
 ) -> anyhow::Result<()> {
+    let _ = presentation.observe_communication_view(replica.view_epoch());
     *sequence = sequence.saturating_add(1);
-    presentation.publish_critical(reset_view_envelope(*sequence, replica.team_id(),
-        authoritative_tick, replica.next_replica_tick(), replica.view_epoch())).await?;
+    let reset = reset_view_envelope(*sequence, replica.team_id(),
+        authoritative_tick, replica.next_replica_tick(), replica.view_epoch());
+    let communication = presentation.current_communication_presentation().map(|batch| {
+        *sequence = sequence.saturating_add(1);
+        communication_envelope(*sequence, batch)
+    });
     *sequence = sequence.saturating_add(1);
     let source = replica.extract_presentation_source();
+    presentation.set_owner_ward_private(
+        replica.view_epoch(),
+        replica.owner_ward_protocol(),
+        replica.verified_owner_ward_bytes(),
+    );
     let snapshot = presentation.snapshot_envelope(*sequence, authoritative_tick,
         replica.view_epoch(), source, rtt_us);
-    // Ordered live recovery and retained baseline for a renderer reconnect.
-    presentation.publish_critical(snapshot.clone()).await?;
-    presentation.publish_latest(snapshot);
+    let ordered = assemble_rebased_presentation(reset, communication, snapshot);
+    for envelope in &ordered {
+        presentation.publish_critical(envelope.clone()).await?;
+    }
+    if let Some(snapshot) = ordered.last() {
+        presentation.publish_latest(snapshot.clone());
+    }
     Ok(())
 }
 
@@ -412,16 +524,34 @@ async fn publish_shop_replay_outcome(
     sequence: &mut u64,
     reply: &omoba_core::game_proto::ShopReceiptReplay,
 ) -> anyhow::Result<()> {
-    let (accepted, code, tick) = match reply.status {
-        2 => {
-            let receipt = omoba_core::runtime::shop_receipt::ShopReceipt::decode(&reply.receipt)
-                .ok_or_else(|| anyhow::anyhow!("invalid validated shop receipt"))?;
-            (receipt.result_code == 0, omoba_client_runtime::shop_presentation::receipt_result_name(receipt.result_code), receipt.tick)
+    let (accepted, code, tick) = if reply.schema_version == 2 {
+        match reply.status {
+            2 => {
+                let receipt = omoba_core::runtime::shop_undo_wire::ShopUndoReceipt::decode(&reply.receipt)
+                    .ok_or_else(|| anyhow::anyhow!("invalid validated shop undo receipt"))?;
+                (receipt.result_code == 0, omoba_client_runtime::shop_presentation::undo_result_name(receipt.result_code), receipt.tick)
+            }
+            3 => (false, "UNDO_RESULT_UNCERTAIN", 0),
+            4 => (false, "SHOP_ADMISSION_REJECTED_LATE", 0),
+            _ => return Ok(()),
         }
-        3 => (false, "SHOP_RESULT_EXPIRED_UNCERTAIN", 0),
-        4 => (false, "SHOP_ADMISSION_REJECTED_LATE", 0),
-        _ => return Ok(()),
+    } else {
+        match reply.status {
+            2 => {
+                let receipt = omoba_core::runtime::shop_receipt::ShopReceipt::decode(&reply.receipt)
+                    .ok_or_else(|| anyhow::anyhow!("invalid validated shop receipt"))?;
+                (receipt.result_code == 0, omoba_client_runtime::shop_presentation::receipt_result_name(receipt.result_code), receipt.tick)
+            }
+            3 => (false, "SHOP_RESULT_EXPIRED_UNCERTAIN", 0),
+            4 => (false, "SHOP_ADMISSION_REJECTED_LATE", 0),
+            _ => return Ok(()),
+        }
     };
+    if matches!(code, "SHOP_RESULT_EXPIRED_UNCERTAIN" | "SHOP_ADMISSION_REJECTED_LATE") {
+        if let Some(request_id) = pending.get(&reply.input_id).copied() {
+            presentation.note_shop_uncertain_request(request_id);
+        }
+    }
     if let Some(request_id) = pending.remove(&reply.input_id) {
         *sequence = sequence.saturating_add(1);
         presentation.publish_critical(critical_result(*sequence, request_id, reply.input_id, accepted, code, tick)).await?;
@@ -445,19 +575,98 @@ async fn handle_renderer_input(
     renderer_input: RendererInput,
 ) -> anyhow::Result<()> {
     let request_id = renderer_input.request_id;
-    let is_shop = matches!(renderer_input.intent, Some(omoba_core::game_proto::renderer_input::Intent::ItemBuy(_)) | Some(omoba_core::game_proto::renderer_input::Intent::ItemSell(_)));
+    if matches!(renderer_input.intent, Some(omoba_core::game_proto::renderer_input::Intent::Communication(_))) {
+        match presentation.prepare_renderer_communication(&renderer_input, replica) {
+            Ok((submit, queued)) => {
+                *presentation_sequence = presentation_sequence.saturating_add(1);
+                presentation.publish_critical(communication_envelope(*presentation_sequence, queued)).await?;
+                if let Err(error) = session.client.send_communication_submit(&submit).await {
+                    log::warn!("communication submit transport uncertain: {error}");
+                    if let Some(batch) = presentation.fail_communication_submit_locally(submit.request_id) {
+                        *presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(communication_envelope(*presentation_sequence, batch)).await?;
+                    }
+                }
+            }
+            Err(refusal) => {
+                if let Some(batch) = presentation.refuse_renderer_communication(&renderer_input, refusal) {
+                    *presentation_sequence = presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(communication_envelope(*presentation_sequence, batch)).await?;
+                }
+            }
+        }
+        return Ok(());
+    }
+    let undo_sequence = match &renderer_input.intent {
+        Some(omoba_core::game_proto::renderer_input::Intent::ShopUndo(intent)) => intent.sequence,
+        _ => 0,
+    };
+    let shop_action = match &renderer_input.intent {
+        Some(omoba_core::game_proto::renderer_input::Intent::ItemBuy(_)) => 17,
+        Some(omoba_core::game_proto::renderer_input::Intent::ItemSell(_)) => 18,
+        _ => 0,
+    };
+    let is_shop = shop_action != 0;
+    let is_undo = matches!(renderer_input.intent, Some(omoba_core::game_proto::renderer_input::Intent::ShopUndo(_)));
+    let is_ward = matches!(renderer_input.intent, Some(omoba_core::game_proto::renderer_input::Intent::WardPlacement(_)));
+    if is_undo && !presentation.can_track_undo() {
+        *presentation_sequence = presentation_sequence.saturating_add(1);
+        presentation.publish_critical(critical_result(*presentation_sequence, request_id, 0, false, "UNDO_PENDING_CAPACITY", replica.next_replica_tick())).await?;
+        return Ok(());
+    }
     if is_shop && !presentation.can_track_shop() {
         *presentation_sequence = presentation_sequence.saturating_add(1);
         presentation.publish_critical(critical_result(*presentation_sequence, request_id, 0, false, "SHOP_PENDING_CAPACITY", replica.next_replica_tick())).await?;
         return Ok(());
     }
+    input_bridge.set_owner_shop_disclosure(presentation.owner_economy_fact(replica.view_epoch()).cloned().map(|economy| {
+        omoba_client_runtime::input_bridge::OwnerShopDisclosure {
+            epoch: replica.view_epoch(),
+            economy,
+            undo: presentation.owner_undo_fact(replica.view_epoch()).cloned(),
+        }
+    }));
     match input_bridge.validate(renderer_input, config.player_id, replica) {
         InputDecision::RepeatedShop { request_id, input_id } => {
-            presentation.track_shop(input_id);
+            if is_undo {
+                presentation.track_undo(input_id);
+                presentation.note_undo_request(replica.view_epoch(), config.player_id, input_id, request_id, undo_sequence);
+            } else {
+                match presentation.note_shop_request(replica.view_epoch(), config.player_id, input_id, request_id, shop_action) {
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Pending => {
+                        presentation.track_shop(input_id);
+                        pending_input_requests.insert(input_id, request_id);
+                    }
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Completed => {
+                        if pending_input_requests.get(&input_id).is_some_and(|existing| *existing != request_id) {
+                            *presentation_sequence = presentation_sequence.saturating_add(1);
+                            presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id, false, "SHOP_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
+                            return Ok(());
+                        }
+                        pending_input_requests.entry(input_id).or_insert(request_id);
+                    }
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Conflict => {
+                        *presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id, false, "SHOP_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
+                        return Ok(());
+                    }
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Capacity => {
+                        *presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(critical_result(*presentation_sequence, request_id, 0, false, "SHOP_PENDING_CAPACITY", replica.next_replica_tick())).await?;
+                        return Ok(());
+                    }
+                }
+            }
+            *presentation_sequence = presentation_sequence.saturating_add(1);
+            presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id,
+                true, if is_undo { "UNDO_RESULT_QUERY_ONLY" } else { "SHOP_RESULT_QUERY_ONLY" }, replica.next_replica_tick())).await?;
+        }
+        InputDecision::RepeatedWard { request_id, input_id } => {
+            presentation.note_ward_request(replica.view_epoch(), config.player_id, 0, input_id, request_id, omoba_core::runtime::ward_transport::WARD_PHASE_FORWARDED);
             pending_input_requests.insert(input_id, request_id);
             *presentation_sequence = presentation_sequence.saturating_add(1);
             presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id,
-                true, "SHOP_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
+                true, "WARD_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
         }
         InputDecision::Accepted {
             input_id,
@@ -481,8 +690,41 @@ async fn handle_renderer_input(
             // A failed write may have reached the server. Retain the original
             // identity for read-only recovery, never assume no transaction ran.
             if is_shop {
-                presentation.track_shop(input_id);
+                match presentation.note_shop_request(replica.view_epoch(), config.player_id, input_id, request_id, shop_action) {
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Pending => {
+                        presentation.track_shop(input_id);
+                        pending_input_requests.insert(input_id, request_id);
+                    }
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Completed => {
+                        if pending_input_requests.get(&input_id).is_some_and(|existing| *existing != request_id) {
+                            *presentation_sequence = presentation_sequence.saturating_add(1);
+                            presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id, false, "SHOP_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
+                            return Ok(());
+                        }
+                        pending_input_requests.entry(input_id).or_insert(request_id);
+                        *presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id, true, "SHOP_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
+                        return Ok(());
+                    }
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Conflict => {
+                        *presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(critical_result(*presentation_sequence, request_id, input_id, false, "SHOP_RESULT_QUERY_ONLY", replica.next_replica_tick())).await?;
+                        return Ok(());
+                    }
+                    omoba_client_runtime::shop_presentation::ShopRequestNote::Capacity => {
+                        *presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(critical_result(*presentation_sequence, request_id, 0, false, "SHOP_PENDING_CAPACITY", replica.next_replica_tick())).await?;
+                        return Ok(());
+                    }
+                }
+            }
+            if is_undo {
+                presentation.track_undo(input_id);
                 pending_input_requests.insert(input_id, request_id);
+                presentation.note_undo_request(replica.view_epoch(), config.player_id, input_id, request_id, undo_sequence);
+            }
+            if is_ward {
+                presentation.note_ward_request(replica.view_epoch(), config.player_id, 0, input_id, request_id, omoba_core::runtime::ward_transport::WARD_PHASE_FORWARDED);
             }
             let result = if let Some(target) = secure_target {
                 let Some(actor) = replica.owned_hero_reference(config.player_id) else {
@@ -536,12 +778,22 @@ async fn handle_renderer_input(
                     u64::from(target_tick),
                     if result.is_ok() {
                         "FORWARDED"
+                    } else if is_undo {
+                        "UNDO_RESULT_UNCERTAIN"
                     } else if is_shop {
                         "SHOP_TRANSPORT_UNCERTAIN"
+                    } else if is_ward {
+                        "WARD_TRANSPORT_UNCERTAIN"
                     } else {
                         "SERVER_TRANSPORT_ERROR"
                     },
                 )?;
+            }
+            if is_ward && result.is_err() {
+                presentation.note_ward_request(replica.view_epoch(), config.player_id, 0, input_id, request_id, omoba_core::runtime::ward_transport::WARD_PHASE_UNCERTAIN);
+            }
+            if is_shop && result.is_err() {
+                presentation.note_shop_uncertain(replica.view_epoch(), config.player_id, request_id);
             }
             *presentation_sequence = presentation_sequence.saturating_add(1);
             presentation
@@ -552,8 +804,12 @@ async fn handle_renderer_input(
                     result.is_ok(),
                     if result.is_ok() {
                         "FORWARDED"
+                    } else if is_undo {
+                        "UNDO_RESULT_UNCERTAIN"
                     } else if is_shop {
                         "SHOP_TRANSPORT_UNCERTAIN"
+                    } else if is_ward {
+                        "WARD_TRANSPORT_UNCERTAIN"
                     } else {
                         "SERVER_TRANSPORT_ERROR"
                     },
@@ -562,6 +818,9 @@ async fn handle_renderer_input(
                 .await?;
         }
         InputDecision::Rejected { request_id, code } => {
+            if is_ward {
+                presentation.note_ward_request(replica.view_epoch(), config.player_id, 0, 0, request_id, omoba_core::runtime::ward_transport::WARD_PHASE_REJECTED);
+            }
             if let Some(evidence) = evidence {
                 evidence.record_network_event(
                     "input-local-rejection",
@@ -623,7 +882,24 @@ async fn catch_up_available_frames(
             .is_none()
         {
             match session.inbound.try_recv() {
+                Ok(LockstepInbound::CommunicationHelloResult { msg }) => {
+                    dispatch_communication(presentation, &session.client, presentation_sequence, &LockstepInbound::CommunicationHelloResult { msg }).await?;
+                    continue;
+                }
+                Ok(LockstepInbound::CommunicationReceipt { msg }) => {
+                    dispatch_communication(presentation, &session.client, presentation_sequence, &LockstepInbound::CommunicationReceipt { msg }).await?;
+                    continue;
+                }
+                Ok(LockstepInbound::CommunicationEvent { msg }) => {
+                    dispatch_communication(presentation, &session.client, presentation_sequence, &LockstepInbound::CommunicationEvent { msg }).await?;
+                    continue;
+                }
+                Ok(LockstepInbound::CommunicationReplay { msg }) => {
+                    dispatch_communication(presentation, &session.client, presentation_sequence, &LockstepInbound::CommunicationReplay { msg }).await?;
+                    continue;
+                }
                 Ok(LockstepInbound::TeamTickFrame { msg, encoded, .. }) => {
+                    maybe_send_communication_hello(presentation, &session.client, config.player_id, config.team_id, replica.view_epoch(), msg.server_tick).await;
                     *latest_server_tick = (*latest_server_tick).max(msg.server_tick);
                     replica_lag.observe_received(msg.replica_tick);
                     if let Some(evidence) = evidence {
@@ -723,6 +999,15 @@ async fn catch_up_available_frames(
                             publish_rebased_presentation(presentation, replica,
                                 presentation_sequence, msg.authoritative_tick,
                                 session.client.latest_rtt_us().unwrap_or(0)).await?;
+                            if let Some((recovery_request, recovery_epoch)) = replica.poll_owner_ward_recovery() {
+                                if let Err(error) = session
+                                    .client
+                                    .query_owner_ward_recovery(recovery_request, recovery_epoch)
+                                    .await
+                                {
+                                    log::warn!("owner ward recovery query failed: {error}");
+                                }
+                            }
                             if let Err(error) = session
                                 .client
                                 .acknowledge_team_rebase(
@@ -764,6 +1049,21 @@ async fn catch_up_available_frames(
                         }
                     }
                     return Ok(());
+                }
+                Ok(LockstepInbound::OwnerWardEnvelope { msg }) => {
+                    if let Err(error) = replica.apply_owner_ward_envelope(&msg) {
+                        log::warn!("owner ward envelope rejected: {error}");
+                        if let Some((recovery_request, recovery_epoch)) = replica.poll_owner_ward_recovery() {
+                            if let Err(error) = session
+                                .client
+                                .query_owner_ward_recovery(recovery_request, recovery_epoch)
+                                .await
+                            {
+                                log::warn!("owner ward recovery query failed: {error}");
+                            }
+                        }
+                    }
+                    continue;
                 }
                 Ok(LockstepInbound::ShopReceiptReplay { msg }) => {
                     match presentation.retain_shop_replay(replica.view_epoch(), &msg) {
@@ -1265,6 +1565,27 @@ async fn apply_ready_frame(
             presentation_snapshot_route(publish_latest_snapshot, &applied_local_inputs)
         {
             *presentation_sequence = presentation_sequence.saturating_add(1);
+            for (input_id, accepted, result_code) in &settled_inputs {
+                if *accepted && *result_code == "APPLIED_TO_PRESENTATION" {
+                    if let Some(request_id) = pending_input_requests.get(input_id) {
+                        if presentation.ward_authority_for(replica.view_epoch(), config.player_id, *request_id) == Some(*input_id) {
+                            presentation.note_ward_request(
+                                replica.view_epoch(),
+                                config.player_id,
+                                0,
+                                *input_id,
+                                *request_id,
+                                omoba_core::runtime::ward_transport::WARD_PHASE_APPLIED,
+                            );
+                        }
+                    }
+                }
+            }
+            presentation.set_owner_ward_private(
+                replica.view_epoch(),
+                replica.owner_ward_protocol(),
+                replica.verified_owner_ward_bytes(),
+            );
             let envelope = presentation.snapshot_envelope(
                 *presentation_sequence,
                 msg.server_tick,

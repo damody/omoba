@@ -118,6 +118,7 @@ mod tests {
             tower_layers: &[100],
             lanes: &[],
             jungle_camps: &[],
+            presentation_surfaces: &[],
             terrain: &[
                 MobaTerrainConst {
                     id: "negative",

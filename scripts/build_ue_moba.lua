@@ -7,12 +7,17 @@ local path = bootstrap.lib('path')
 local process = bootstrap.lib('process')
 local platform = bootstrap.lib('platform')
 local stage_contract = require('moba_stage_contract')
+local engine_bootstrap = require('ue_engine_bootstrap')
 
 local root = bootstrap.root
 local omfue = path.join(root, 'omfue')
 local restart_exe = path.join(omfue, 'restart', 'target', 'debug', 'om_restart.exe')
 local mode = 'build'
 local ue_root
+local build_executor = 'default'
+local disable_action_cache = false
+local prefetch_shared_pch = false
+local bootstrap_engine, refresh_engine, max_parallel_actions
 
 local i = 1
 while i <= #arg do
@@ -26,8 +31,24 @@ while i <= #arg do
   elseif value == '--ue-root' then
     i = i + 1
     ue_root = assert(arg[i], '--ue-root requires a path')
+  elseif value == '--build-executor' then
+    i = i + 1
+    build_executor = assert(arg[i], '--build-executor requires default or local')
+    assert(build_executor == 'default' or build_executor == 'local', '--build-executor requires default or local')
+  elseif value == '--disable-action-cache' then
+    disable_action_cache = true
+  elseif value == '--prefetch-shared-pch' then
+    prefetch_shared_pch = true
+  elseif value == '--refresh-engine' then
+    bootstrap_engine = true
+    refresh_engine = true
+  elseif value == '--bootstrap-engine' then
+    bootstrap_engine = true
+  elseif value == '--max-parallel-actions' then
+    i = i + 1
+    max_parallel_actions = engine_bootstrap.parallel_actions(arg[i])
   elseif value == '--help' or value == '-h' then
-    print('Usage: tools/lua/lua.exe scripts/build_ue_moba.lua [--build-only|--full|--verify-staged-only] [--ue-root PATH]')
+    print('Usage: tools/lua/lua.exe scripts/build_ue_moba.lua [--build-only|--full|--verify-staged-only] [--ue-root PATH] [--build-executor default|local] [--disable-action-cache] [--prefetch-shared-pch] [--max-parallel-actions 1..64] [--bootstrap-engine|--refresh-engine]')
     return
   else
     error('unknown argument: ' .. value)
@@ -35,14 +56,56 @@ while i <= #arg do
   i = i + 1
 end
 
+assert(build_executor ~= 'local' or mode ~= 'verify',
+  '--build-executor local cannot be combined with verification')
+assert(not disable_action_cache or (build_executor == 'local' and mode ~= 'verify'),
+  '--disable-action-cache requires a local build')
+assert(not max_parallel_actions or (build_executor == 'local' and mode ~= 'verify'),
+  '--max-parallel-actions requires a local build')
+assert(not prefetch_shared_pch or (build_executor == 'local' and mode ~= 'verify'),
+  '--prefetch-shared-pch requires a local build')
+if mode == 'build' then process.supervise_workflow(script, arg) end
+
 local function verify_stage_consistency()
   local report=stage_contract.verify(stage_contract.bindings(root))
+  require('ue_map_biome_materials').require_ready(root)
+  require('ue_hud_portrait_coverage').require_ready(root)
+  require('voice_audio_import').require_ready(root)
   for _,artifact in ipairs(report.artifacts) do
     print('[moba-ue] '..artifact.role..' stage SHA-256 verified: '..artifact.sha256)
   end
 end
 
-if mode == 'verify' then verify_stage_consistency(); return end
+if mode == 'verify' then
+  assert(not bootstrap_engine, '--bootstrap-engine cannot be used with --verify-staged-only')
+  verify_stage_consistency()
+  return
+end
+local engine_root = path.absolute(ue_root or os.getenv('UE_5_8_ROOT') or os.getenv('UE_ROOT') or os.getenv('UE_5_7_ROOT') or 'D:/UE5.8')
+local editor_exe = path.join(engine_root, 'Engine/Binaries/Win64/UnrealEditor.exe')
+local engine_build = path.join(engine_root, 'Engine/Build/BatchFiles/Build.bat')
+local bootstrap_marker = path.join(omfue,'Saved/BuildTemp/source-engine-bootstrap.json')
+local json = bootstrap.lib('json')
+local pending = path.is_file(bootstrap_marker) and json.read(bootstrap_marker)
+if pending then
+  assert(type(pending)=='table' and type(pending.engine_root)=='string', 'invalid source-engine bootstrap checkpoint')
+end
+local engine_plan = engine_bootstrap.plan{
+	build_executor=build_executor,
+  disable_action_cache=disable_action_cache,
+  requested=bootstrap_engine, refresh=refresh_engine, parallel=bootstrap_engine and max_parallel_actions or nil, mode=mode,
+  editor_present=path.is_file(editor_exe),
+  source_present=path.is_file(path.join(engine_root,'Engine/Source/UnrealEditor.Target.cs'))
+    and not path.is_file(path.join(engine_root,'Engine/Build/InstalledBuild.txt')),
+  build_present=path.is_file(engine_build), project=path.join(omfue,'om.uproject'),
+  initialization_pending=pending and path.absolute(pending.engine_root):lower()==engine_root:lower(),
+}
+if engine_plan.initialize and pending then
+  assert(path.absolute(pending.engine_root):lower()==engine_root:lower(),
+    'finish the existing source-engine bootstrap checkpoint before initializing another engine')
+end
+-- Every later stage must use the same engine selected for admission.
+ue_root = engine_root
 
 local function run_stage(label, exe, args, cwd, env)
   print('[moba-ue] ' .. label)
@@ -96,8 +159,14 @@ run_stage('build om_restart tool', 'cargo', {
 run_stage('ensure BpGeneratorUltimate animation import fix', platform.lua_executable, {
   path.join(root, 'scripts', 'ensure_bpgu_animation_import.lua'),
 }, root)
+run_stage('generate native MCP static dispatch catalog', platform.lua_executable, {
+  path.join(root,'scripts/generate_ue_mcp_catalog.lua'),
+}, root)
+run_stage('synchronize original HUD content names', platform.lua_executable, {
+  path.join(root,'scripts/sync_ue_hud_manifest_labels.lua'),
+}, root)
 
-if mode == 'full' then
+if mode == 'full' and path.is_file(editor_exe) then
   run_restart('stop matching Unreal Editor before staging DLLs', 'stop')
 end
 
@@ -110,8 +179,48 @@ run_stage('stage current base_content.dll', platform.lua_executable, {
   path.join(root, 'scripts', 'dev_run_freshness.lua'), '--action', 'stage-dll',
 }, root)
 
-run_restart('generate bridge and compile OmGame', 'build')
+if engine_plan.initialize then
+  -- A late interrupted source build may have linked Editor.exe already. Keep
+  -- an explicit checkpoint so a retry can finish the initial engine graph.
+  path.mkdir_p(path.parent(bootstrap_marker))
+  json.write(bootstrap_marker,{engine_root=engine_root,project=path.join(omfue,'om.uproject')},true)
+  run_stage('generate and stage bridge before source-engine initialization', path.join(omfue,'build_bridge.bat'), {}, omfue)
+  local build_temp = path.join(omfue,'Saved/BuildTemp/ubt')
+  path.mkdir_p(build_temp)
+  run_stage('build source-engine ShaderCompileWorker prerequisite', engine_build, engine_plan.shader_args, omfue, {TEMP=build_temp,TMP=build_temp})
+  run_stage('initialize required engine modules with OmGameEditor', engine_build, engine_plan.args, omfue, {TEMP=build_temp,TMP=build_temp})
+  assert(path.is_file(editor_exe), 'engine initialization completed without UnrealEditor.exe')
+  assert(path.is_file(path.join(engine_root,'Engine/Binaries/Win64/ShaderCompileWorker.exe')),
+    'engine initialization completed without ShaderCompileWorker.exe')
+end
+-- The initialized engine goes through the ordinary NoEngineChanges build gate.
+if build_executor == 'local' then
+  local build_temp = path.join(omfue, 'Saved/BuildTemp/ubt')
+  path.mkdir_p(build_temp)
+  local build_env = {TEMP = build_temp, TMP = build_temp}
+  run_stage('generate and stage bridge', path.join(omfue, 'build_bridge.bat'), {}, omfue, build_env)
+  if prefetch_shared_pch then
+    local result=require('ue_shared_pch_preflight').run(omfue,engine_root,bootstrap.lib('time').monotonic_ms,function(row)
+      print(('[moba-ue] read-only PCH prefetch: %s; %d bytes; %d ms'):format(row.path,row.bytes,row.elapsed_ms))
+    end)
+    print(('[moba-ue] PCH prefetch: %d files, %d bytes, %d over-budget skips; not an integrity check'):format(result.files,result.bytes,result.skipped))
+  end
+  local local_build_args = engine_bootstrap.ordinary_build_args{
+    project=path.join(omfue,'om.uproject'), parallel=max_parallel_actions, disable_action_cache=disable_action_cache}
+  -- UE5.8 always uses the UBA local executor; NoUBA disables detours, not
+  -- its action cache. This explicit per-run option isolates cache stalls.
+  run_stage('compile OmGame with local executor', engine_build, local_build_args, omfue, build_env)
+else
+  run_restart('generate bridge and compile OmGame', 'build')
+end
+run_stage('ensure public map biome materials',platform.lua_executable,{
+  path.join(root,'scripts/ue_map_biome_materials.lua'),'--ue-root',engine_root,'--ensure',
+},root)
+run_stage('ensure verified CC0 match voice',platform.lua_executable,{
+  path.join(root,'scripts/import_moba_voice.lua'),'--ue-root',engine_root,'--ensure',
+},root)
 verify_stage_consistency()
+if engine_plan.initialize then assert(os.remove(bootstrap_marker), 'cannot retire source-engine bootstrap checkpoint') end
 if mode == 'full' then
   start_editor()
   run_stage('verify project-bound BpGeneratorUltimate MCP readiness', platform.lua_executable, {

@@ -325,6 +325,9 @@ pub struct TAttack {
     // Host-local resolved presentation timing, not gameplay or private wire state.
     #[serde(skip)]
     pub animation_timing: Option<AttackAnimationTiming>,
+    // Exact host-local life, never a canonical identity on the disclosure wire.
+    #[serde(skip)]
+    pub committed_target: Option<specs::Entity>,
 }
 
 impl TAttack {
@@ -338,6 +341,7 @@ impl TAttack {
             attack_seq: 0,
             attack_phase: AttackSequencePhase::Idle,
             animation_timing: None,
+            committed_target: None,
         }
     }
 
@@ -345,16 +349,19 @@ impl TAttack {
         self.attack_seq = self.attack_seq.wrapping_add(1);
         self.attack_phase = AttackSequencePhase::Windup;
         self.animation_timing = None;
+        self.committed_target = None;
         self.attack_seq
     }
 
     pub fn mark_attack_impact(&mut self) {
         self.attack_phase = AttackSequencePhase::Backswing;
+        self.committed_target = None;
     }
 
     pub fn clear_attack_sequence(&mut self) {
         self.attack_phase = AttackSequencePhase::Idle;
         self.animation_timing = None;
+        self.committed_target = None;
     }
 }
 

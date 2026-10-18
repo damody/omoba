@@ -4,29 +4,52 @@
 use super::comp::{Gold, Inventory, ItemEffects, ItemInstance};
 use serde::{Deserialize, Serialize};
 
+/// Why `shop_available` is true or false. The UI must read this byte.
+/// It must not infer shopping from hit points or from a missing entity.
+pub const SHOP_REASON_AVAILABLE: u8 = 0;
+pub const SHOP_REASON_PAUSED: u8 = 1;
+pub const SHOP_REASON_NOT_PLAYING: u8 = 2;
+pub const SHOP_REASON_UNKNOWN_PLAYER: u8 = 3;
+pub const SHOP_REASON_OUTSIDE_SHOP: u8 = 4;
+pub const SHOP_REASON_MISSING_BASE: u8 = 5;
+pub const SHOP_REASON_HERO_ABSENT: u8 = 6;
+pub const SHOP_REASON_DEAD_UNCAPTURED: u8 = 7;
+pub const SHOP_REASON_STALE_IDENTITY: u8 = 8;
+pub const SHOP_REASON_FOREIGN_OWNER: u8 = 9;
+pub const SHOP_REASON_RETIRED: u8 = 10;
+pub const SHOP_REASON_MAX: u8 = SHOP_REASON_RETIRED;
+
 /// Persistent player-owned HUD data, independent of a live render entity.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct OwnerEconomyState {
     pub player_id: u32,
     pub economy: CommittedEconomyState,
     pub shop_available: bool,
+    /// [`SHOP_REASON_AVAILABLE`] only when `shop_available` is true.
+    pub shop_reason: u8,
     /// Q10 remaining absorption only; no buff identity, source or payload.
     pub shield_remaining_raw: i64,
 }
 
 impl OwnerEconomyState {
-    pub const PAYLOAD_LEN: usize = 94;
+    pub const PAYLOAD_LEN: usize = 95;
     pub fn encode(&self) -> Vec<u8> {
         [
             self.player_id.to_le_bytes().as_slice(),
             self.economy.encode().as_slice(),
             &[u8::from(self.shop_available)],
             self.shield_remaining_raw.to_le_bytes().as_slice(),
+            &[self.shop_reason],
         ]
         .concat()
     }
     pub fn decode(bytes: &[u8]) -> Option<Self> {
-        if bytes.len() != Self::PAYLOAD_LEN || bytes[85] > 1 {
+        if bytes.len() != Self::PAYLOAD_LEN || bytes[85] > 1 || bytes[94] > SHOP_REASON_MAX {
+            return None;
+        }
+        let shop_available = bytes[85] == 1;
+        let shop_reason = bytes[94];
+        if shop_available != (shop_reason == SHOP_REASON_AVAILABLE) {
             return None;
         }
         let player_id = u32::from_le_bytes(bytes[..4].try_into().ok()?);
@@ -38,7 +61,8 @@ impl OwnerEconomyState {
         Some(Self {
             player_id,
             economy: CommittedEconomyState::decode(&bytes[4..85]).ok()?,
-            shop_available: bytes[85] == 1,
+            shop_available,
+            shop_reason,
             shield_remaining_raw,
         })
     }
@@ -189,6 +213,7 @@ mod tests {
         let state = OwnerEconomyState {
             player_id: 7,
             shop_available: true,
+            shop_reason: SHOP_REASON_AVAILABLE,
             shield_remaining_raw: 102400,
             economy: CommittedEconomyState::capture(
                 Gold(5),
@@ -204,6 +229,18 @@ mod tests {
         assert!(OwnerEconomyState::decode(&state.encode()[..85]).is_none());
         let mut bytes = state.encode();
         bytes[85] = 2;
+        assert!(OwnerEconomyState::decode(&bytes).is_none());
+        let mut bytes = state.encode();
+        bytes[94] = SHOP_REASON_OUTSIDE_SHOP;
+        assert!(OwnerEconomyState::decode(&bytes).is_none());
+        let mut closed = state.clone();
+        closed.shop_available = false;
+        closed.shop_reason = SHOP_REASON_AVAILABLE;
+        assert!(OwnerEconomyState::decode(&closed.encode()).is_none());
+        closed.shop_reason = SHOP_REASON_DEAD_UNCAPTURED;
+        assert_eq!(OwnerEconomyState::decode(&closed.encode()), Some(closed));
+        let mut bytes = state.encode();
+        bytes[94] = SHOP_REASON_MAX + 1;
         assert!(OwnerEconomyState::decode(&bytes).is_none());
         for raw in [-1i64, 1_024_000_001, i64::MAX] {
             let mut bytes = state.encode();

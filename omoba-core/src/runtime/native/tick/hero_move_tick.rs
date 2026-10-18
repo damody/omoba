@@ -13,6 +13,7 @@ pub struct HeroMoveRead<'a> {
     entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     tick: Read<'a, Tick>,
+    directional_steps: Option<Read<'a, crate::runtime::input_scheme::DirectionalStepPlan>>,
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     heroes: ReadStorage<'a, Hero>,
     propertys: ReadStorage<'a, CProperty>,
@@ -30,6 +31,27 @@ pub struct HeroMoveWrite<'a> {
     pos: WriteStorage<'a, Pos>,
     move_targets: WriteStorage<'a, MoveTarget>,
     facings: WriteStorage<'a, Facing>,
+    /// Present only after an authoritative purchase. Setup does not insert a ledger.
+    shop_undo: ShopUndoMove<'a>,
+}
+
+/// Exclusive ledger fetch that stays absent until the shop kernel inserts it.
+struct ShopUndoMove<'a>(Option<shred::FetchMut<'a, super::super::shop::ShopUndoLedger>>);
+
+impl<'a> SystemData<'a> for ShopUndoMove<'a> {
+    fn setup(_world: &mut shred::World) {}
+
+    fn fetch(world: &'a shred::World) -> Self {
+        Self(world.try_fetch_mut::<super::super::shop::ShopUndoLedger>())
+    }
+
+    fn reads() -> Vec<shred::ResourceId> {
+        Vec::new()
+    }
+
+    fn writes() -> Vec<shred::ResourceId> {
+        vec![shred::ResourceId::new::<super::super::shop::ShopUndoLedger>()]
+    }
 }
 
 #[derive(Default)]
@@ -120,6 +142,22 @@ pub fn advance_with_collision(
     (pos, false)
 }
 
+/// Preserve the admitted bounded direction instead of renormalizing a quantized waypoint.
+/// The exact raw step never exceeds the same movement-speed budget as point commands.
+fn advance_direction_with_collision(pos: SimVec2, direction: SimVec2, step: Fixed64,
+    radius: Fixed64, regions: &BlockedRegions) -> SimVec2 {
+    if step<=Fixed64::ZERO {return pos;}
+    let mul=|axis:Fixed64|Fixed64::from_raw((i128::from(axis.raw())*i128::from(step.raw())/1024) as i64);
+    let delta=SimVec2::new(mul(direction.x),mul(direction.y));
+    let full=pos+delta;
+    if !path_hits_regions(pos,full,radius,regions) {return full;}
+    let x=SimVec2::new(full.x,pos.y);
+    if x!=pos && !path_hits_regions(pos,x,radius,regions) {return x;}
+    let y=SimVec2::new(pos.x,full.y);
+    if y!=pos && !path_hits_regions(pos,y,radius,regions) {return y;}
+    pos
+}
+
 impl<'a> System<'a> for Sys {
     type SystemData = (HeroMoveRead<'a>, HeroMoveWrite<'a>);
 
@@ -152,7 +190,7 @@ impl<'a> System<'a> for Sys {
         // 注意：ParJoin 在這裡是確定性安全的——每個英雄只寫入自己的 pos/face 儲存槽
         // （規範強制每個實體隔離），且每個實體的固定64/角度數學是與順序無關的。
         // 收集到的「結果」Vec 排序僅是有線格式（廣播順序）；鎖步狀態不受影響。
-        let results: Vec<(Option<specs::Entity>, (u32, f32, f32, f32))> = (
+        let results: Vec<(Option<specs::Entity>, Option<specs::Entity>, (u32, f32, f32, f32))> = (
             &tr.entities,
             &tr.heroes,
             &tr.propertys,
@@ -175,7 +213,7 @@ impl<'a> System<'a> for Sys {
 
                     // Root / stun 狀態：完全凍結（不轉向、不位移、不消耗 MoveTarget）
                     if tr.buff_store.is_rooted(entity) {
-                        return (None, (entity.id(), pos_x_f, pos_y_f, facing_rad_out));
+                        return (None, None, (entity.id(), pos_x_f, pos_y_f, facing_rad_out));
                     }
 
                     let target = move_target.0;
@@ -222,7 +260,11 @@ impl<'a> System<'a> for Sys {
                                 .get(entity)
                                 .map(|r| r.0)
                                 .unwrap_or(Fixed64::from_i32(30));
-                            let (new_pos, reached) = advance_with_collision(
+                            let planned_direction=tr.directional_steps.as_ref()
+                                .filter(|plan|plan.tick==tr.tick.0).and_then(|plan|plan.directions.get(&entity)).copied();
+                            let (new_pos, reached) = if let Some(direction)=planned_direction {
+                                (advance_direction_with_collision(pos.0,direction,step,radius,&tr.regions),false)
+                            } else { advance_with_collision(
                                 pos.0,
                                 target,
                                 step,
@@ -231,7 +273,7 @@ impl<'a> System<'a> for Sys {
                                 &tr.radii,
                                 entity,
                                 &tr.regions,
-                            );
+                            ) };
                             pos.0 = new_pos;
                             if reached {
                                 arrived_entity = Some(entity);
@@ -267,15 +309,23 @@ impl<'a> System<'a> for Sys {
                             },
                         });
                     }
-                    (arrived_entity, (entity.id(), out_x, out_y, out_facing))
+                    let moved = (pos.0 != position_before).then_some(entity);
+                    (arrived_entity, moved, (entity.id(), out_x, out_y, out_facing))
                 },
             )
             .collect();
 
         // 移除已到達的 MoveTarget（par_join 結束後序列 mutation 才安全）
-        for (arrived, _) in &results {
+        for (arrived, _, _) in &results {
             if let Some(entity) = arrived {
                 tw.move_targets.remove(*entity);
+            }
+        }
+        if let Some(mut ledger) = tw.shop_undo.0 {
+            for (_, moved, _) in &results {
+                if let Some(entity) = moved {
+                    ledger.note_movement(*entity);
+                }
             }
         }
     }
@@ -308,6 +358,8 @@ mod tests {
         world.register::<Pos>();
         world.register::<TAttack>();
         world.register::<TurnSpeed>();
+        world.register::<crate::runtime::ReplicaIdentity>();
+        world.register::<crate::runtime::DisclosedWardBody>();
         world.insert(DeltaTime(Fixed64::from_raw(1024 / 30)));
         world.insert(Tick(0));
         world.insert(crate::runtime::ObservableFactBuffer::default());
@@ -321,6 +373,12 @@ mod tests {
         world.insert(PendingTowerUpgradeQueue::default());
         world.insert(PendingAbilityUpgradeQueue::default());
         world.insert(PendingAbilityCastQueue::default());
+        world.insert(PendingSummonerCastQueue::default());
+        world.insert(PendingWardPlacementQueue::default());
+        world.insert(WardSettledInputIds::default());
+        world.insert(AdmittedCommandIdentities::default());
+        world.insert(WardAdmissionEpoch::default());
+        world.insert(OwnerWardOutcomeJournal::default());
         world.insert(PendingItemUseQueue::default());
         world.insert(PendingHeroCommandClearQueue::default());
         world.insert(PendingTowerTargetPriorityQueue::default());
@@ -486,6 +544,98 @@ mod tests {
             trace
         };
         assert_eq!(run(),run(),"every-tick movement replay");
+    }
+
+    fn buy_boots(world: &mut World, hero: specs::Entity) {
+        use crate::runtime::moba_match::{shop_fixture_slot, stop_command_match, MobaMatchPhase};
+        use crate::runtime::shop::{transact_moba_shop, ShopCommand};
+        use crate::item::{ItemBonus, ItemConfig, ItemRegistry};
+        world.register::<Inventory>();
+        world.register::<Gold>();
+        world.register::<ItemEffects>();
+        world.write_storage::<Inventory>().insert(hero, Inventory::default()).unwrap();
+        world.write_storage::<Gold>().insert(hero, Gold(400)).unwrap();
+        world.write_storage::<ItemEffects>().insert(hero, ItemEffects::default()).unwrap();
+        world.insert(ItemRegistry::from_configs(vec![ItemConfig {
+            id: "moba_boots".into(),
+            name: "Boots".into(),
+            cost: 300,
+            bonus: ItemBonus { ms: 25.0, ..ItemBonus::default() },
+            active: None,
+            cooldown: 0.0,
+            recipe: Vec::new(),
+        }]));
+        let base = world.create_entity().with(Pos(SimVec2::new(Fixed64::ZERO, Fixed64::ZERO))).build();
+        let mut state = stop_command_match(hero, MobaMatchPhase::Playing);
+        state.heroes = vec![shop_fixture_slot(1, 0, Some(hero))];
+        state.bases = [Some(base), None];
+        world.insert(state);
+        transact_moba_shop(world, 1, ShopCommand::Buy("moba_boots".into())).unwrap();
+    }
+
+    #[test]
+    fn shop_undo_hero_move_system_invalidates_only_real_displacement() {
+        use crate::runtime::shop::{undo_moba_shop, ShopError, ShopUndoLedger, ShopUndoRequest};
+        let moved = |world: &World, hero| world.read_storage::<Pos>().get(hero).unwrap().0;
+        let (mut world, hero) = movement_world();
+        assert!(world.try_fetch::<ShopUndoLedger>().is_none());
+        let _ = world.write_storage::<MoveTarget>().insert(
+            hero, MoveTarget(SimVec2::new(Fixed64::from_i32(100), Fixed64::ZERO)));
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+        assert!(moved(&world, hero).x > Fixed64::ZERO);
+        assert!(world.try_fetch::<ShopUndoLedger>().is_none(), "system setup must not insert a ledger");
+
+        let (mut world, hero) = movement_world();
+        buy_boots(&mut world, hero);
+        let start = moved(&world, hero);
+        let _ = world.write_storage::<MoveTarget>().insert(
+            hero, MoveTarget(SimVec2::new(Fixed64::from_i32(100), Fixed64::ZERO)));
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+        assert!(moved(&world, hero).x > start.x);
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest), Err(ShopError::UndoUnavailable));
+        assert_eq!(world.read_storage::<Gold>().get(hero).unwrap().0, 100);
+        assert_eq!(world.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().item_id, "moba_boots");
+
+        let (mut world, hero) = movement_world();
+        buy_boots(&mut world, hero);
+        let start = moved(&world, hero);
+        let _ = world.write_storage::<MoveTarget>().insert(
+            hero, MoveTarget(SimVec2::new(Fixed64::ZERO, Fixed64::from_i32(100))));
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+        assert_eq!(moved(&world, hero), start);
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest).unwrap(), 1);
+        assert_eq!(world.read_storage::<Gold>().get(hero).unwrap().0, 400);
+
+        let (mut world, hero) = movement_world();
+        buy_boots(&mut world, hero);
+        world.write_resource::<BuffStore>().add(
+            hero, omb_script_abi::buff_ids::BuffId::Root.as_str(), Fixed64::from_i32(5), serde_json::json!({}));
+        let start = moved(&world, hero);
+        let _ = world.write_storage::<MoveTarget>().insert(
+            hero, MoveTarget(SimVec2::new(Fixed64::from_i32(100), Fixed64::ZERO)));
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+        assert_eq!(moved(&world, hero), start);
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest).unwrap(), 1);
+
+        let (mut world, hero) = movement_world();
+        buy_boots(&mut world, hero);
+        world.write_resource::<BlockedRegions>().0.push(BlockedRegion {
+            name: "shop-undo-block".into(),
+            points: vec![vek::Vec2::new(1.0, -40.0), vek::Vec2::new(30.0, -40.0),
+                vek::Vec2::new(30.0, 40.0), vek::Vec2::new(1.0, 40.0)],
+        });
+        let start = moved(&world, hero);
+        let _ = world.write_storage::<MoveTarget>().insert(
+            hero, MoveTarget(SimVec2::new(Fixed64::from_i32(100), Fixed64::ZERO)));
+        crate::comp::run_now::<Sys>(&world);
+        world.maintain();
+        assert_eq!(moved(&world, hero), start);
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest).unwrap(), 1);
+        assert_eq!(world.read_storage::<Gold>().get(hero).unwrap().0, 400);
     }
 
     #[test]

@@ -15,7 +15,9 @@ function M.options(args)
     ['--selection-bind']='selection_bind',
     ['--finish-timeout-seconds']='finish_timeout_seconds',['--selection-smoke-hero']='selection_smoke_hero',
     ['--selection-timeout-seconds']='selection_timeout_seconds',
-    ['--selection-cancel-file']='selection_cancel_file'}
+    ['--editor-ready-timeout-seconds']='editor_ready_timeout_seconds',
+    ['--selection-cancel-file']='selection_cancel_file',
+    ['--managed-session-bootstrap']='managed_session_bootstrap'}
   local i=1
   while i<=#args do
     local key=args[i]
@@ -66,6 +68,15 @@ function M.options(args)
     assert(options.interactive_selection,'selection timeout requires interactive selection')
     options.selection_timeout_seconds=seconds
   end
+  if options.editor_ready_timeout_seconds==nil then
+    options.editor_ready_timeout_seconds=1800
+  else
+    local raw=options.editor_ready_timeout_seconds
+    local seconds=type(raw)=='string' and raw:match('^[1-9]%d*$') and math.tointeger(tonumber(raw))
+    assert(seconds and seconds>=1 and seconds<=3600,
+      'editor ready timeout must be a decimal integer from 1 to 3600 seconds')
+    options.editor_ready_timeout_seconds=seconds
+  end
   if options.selection_cancel_file then
     assert(options.interactive_selection,'selection cancel file requires interactive selection')
     assert(type(options.selection_cancel_file)=='string' and options.selection_cancel_file~='',
@@ -73,7 +84,23 @@ function M.options(args)
     options.selection_cancel_file=path.absolute(options.selection_cancel_file,b.root)
   end
   network.validate(options)
+  if options.managed_session_bootstrap then
+    assert(not options.prepare_only and not options.server_only and not options.connect
+      and not options.finish_timeout_seconds and not next(options.local_players),
+      'managed provider requires an unbounded host with all humans local')
+    options.managed_session_bootstrap=path.absolute(options.managed_session_bootstrap,b.root)
+  end
   return options
+end
+
+-- Cold owned-Editor startup only. Does not change selection or match budgets.
+function M.await_owned_editor_ready(process_api, record, options, predicate)
+  local seconds=options and options.editor_ready_timeout_seconds
+  assert(math.type(seconds)=='integer' and seconds>=1 and seconds<=3600,
+    'editor ready timeout must be a decimal integer from 1 to 3600 seconds')
+  local timeout_ms=seconds*1000
+  assert(math.type(timeout_ms)=='integer','editor ready timeout overflow')
+  return process_api.poll_owned_ready(record, timeout_ms, predicate, 'owned PIE Editor MCP readiness')
 end
 
 -- Shared pre-match adapter for CLI and future UI. Never mutates the recipe.
@@ -93,6 +120,26 @@ function M.select_heroes(value,selections)
     player.hero=hero
   end
   return selected
+end
+
+-- Absent and empty host maps are the same unavailable state. Any named row stays exact.
+function M.omit_empty_summoner_loadouts(plan)
+  local copy=json.decode(json.encode(plan))
+  local map=copy.summoner_loadouts
+  assert(map==nil or (map~=json.null and type(map)=='table'),'summoner loadouts must be a map')
+  if map==nil or next(map)==nil then copy.summoner_loadouts=nil end
+  return copy
+end
+
+function M.assert_snapshot_loadouts(snapshot,plan)
+  local function norm(value)
+    if value==nil then return {} end
+    assert(value~=json.null and type(value)=='table','summoner loadouts must be a map')
+    if next(value)==nil then return {} end
+    return value
+  end
+  assert(json.encode(norm(snapshot and snapshot.summoner_loadouts))==json.encode(norm(plan and plan.summoner_loadouts)),
+    'selection snapshot summoner loadouts differ from the final plan')
 end
 
 function M.editor(options)
@@ -129,11 +176,12 @@ function M.selection_result(reply,baseline,player_id,hash)
     'selection did not finalize')
   assert(reply.selection.catalog_data_hash==hash,'selection content hash mismatch')
   local final=assert(reply.plan,'selection result lacks final plan')
+  M.assert_snapshot_loadouts(reply.selection,final)
   local hero
   for _,p in ipairs(final.players or {}) do if p.player_id==player_id then hero=p.hero end end
   assert(hero,'selected human missing from final plan')
-  local expected=M.select_heroes(baseline,{[player_id]=hero})
-  local actual=json.decode(json.encode(final))
+  local expected=M.omit_empty_summoner_loadouts(M.select_heroes(baseline,{[player_id]=hero}))
+  local actual=M.omit_empty_summoner_loadouts(final)
   table.sort(expected.players,function(a,b) return a.player_id<b.player_id end)
   table.sort(actual.players,function(a,b) return a.player_id<b.player_id end)
   assert(json.encode(actual)==json.encode(expected),'selection changed host-owned match rules or roster')
@@ -173,7 +221,7 @@ function M.interactive_select(options,editor,process,time)
     assert(owned.pid==pid,'selection spawn identity mismatch')
     path.write(path.join(output,'owned-process.json'),json.encode(owned))
     -- No server/client World exists yet. Closing the window cancels selection.
-    local deadline=time.monotonic_ms()+45000
+    local deadline=require('moba_selection_readiness').deadline(options,completion_deadline,time)
     local ready=false
     local readiness=require('moba_selection_readiness').reader(humans[1],false)
     local function read_ready(final)
@@ -261,11 +309,20 @@ function M.prepare(options,process)
   local checked=config_command.run(options,{'--config',generated},process)
   local report=json.decode(checked.stdout)
   assert(report.scope=='configuration-only' and report.tick_rate_hz==60,'unexpected preflight report')
+  if options.managed_session_bootstrap then
+    local scope=assert(options.managed_catalog_scope,'managed catalog must be checked before selection')
+    for _,key in ipairs({'catalog_identity_hash','content_hash','map_catalog_hash'}) do
+      assert(report[key]==scope[key],'prepared managed catalog differs from preselection scope')
+    end
+    assert(locked.selection.catalog_data_hash==scope.content_hash,'selection content differs from managed catalog')
+  end
   local local_humans=options.server_only and {} or network.local_humans(report.humans,options.local_players)
   local worker_budget=require('moba_host_budget').local_budget(#local_humans+(options.connect and 0 or 1),#local_humans)
   local server_address=(options.connect or options.server_bind)..':'..options.port
   path.write(recipe_json,json.encode(value))
   local plan={schema_version=1,scope='prepared-not-launched',config=generated,output=output,
+    catalog_identity_hash=report.catalog_identity_hash,content_hash=report.content_hash,map_catalog_hash=report.map_catalog_hash,
+    managed_session_bootstrap=options.managed_session_bootstrap,
     worker_budget=worker_budget,
     finish_timeout_seconds=options.finish_timeout_seconds,
     mode=options.server_only and 'dedicated-server' or (options.connect and 'remote-client' or 'host'),server_address=server_address,
@@ -344,6 +401,15 @@ function M.launch(plan,editor,process,time)
   assert((plan.mode=='remote-client' and plan.server==nil)
     or (plan.mode~='remote-client' and plan.server~=nil),'launch mode/server ownership mismatch')
   local owned={}
+  local control_api=require('moba_managed_control')
+  local session_process=require('moba_session_process')
+  local managed=plan.managed_session_bootstrap and control_api.install(plan,plan.managed_session_bootstrap)
+  local function journal(record,label)
+    record=process.validate_owned(record)
+    record.label=label
+    owned[#owned+1]=record
+    path.write(path.join(plan.output,'owned-processes.json'),json.encode(owned),true)
+  end
   local function spawn(label,spec)
     assert(path.is_file(spec.exe),'missing executable: '..spec.exe)
     local stdout=path.join(plan.output,label..'.stdout.log')
@@ -351,10 +417,7 @@ function M.launch(plan,editor,process,time)
     local pid,record=process.spawn_owned(spec.exe,spec.args,{cwd=spec.cwd,env=spec.env,stdout=stdout,stderr=stderr})
     record=process.validate_owned(record)
     assert(record.pid==pid,'match spawn identity mismatch')
-    record.label=label
-    owned[#owned+1]=record
-    -- Persist after every spawn, including a partial startup that later fails.
-    path.write(path.join(plan.output,'owned-processes.json'),json.encode(owned),true)
+    journal(record,label)
     return record,stdout,stderr
   end
   local ok,err=xpcall(function()
@@ -373,7 +436,18 @@ function M.launch(plan,editor,process,time)
         return M.runtime_ready(text,client)
       end,'runtime-p'..client.player_id)
       client.unreal.exe=editor
-      editors[#editors+1]=spawn('unreal-p'..client.player_id,client.unreal)
+      if managed then
+        local label='unreal-p'..client.player_id
+        local spec={}
+        for key,value in pairs(client.unreal) do spec[key]=value end
+        spec.stdout=path.join(plan.output,label..'.stdout.log')
+        spec.stderr=path.join(plan.output,label..'.stderr.log')
+        local entry=session_process.spawn(label,spec,path.join(plan.output,'process-'..client.player_id),process,time,journal)
+        entry.player_id=client.player_id
+        editors[#editors+1]=entry
+      else
+        editors[#editors+1]=spawn('unreal-p'..client.player_id,client.unreal)
+      end
     end
     print('Humans admitted; Unreal processes started. This is not renderer/full-match acceptance.')
     local finish_deadline = plan.finish_timeout_seconds and time.monotonic_ms() + plan.finish_timeout_seconds * 1000
@@ -385,7 +459,19 @@ function M.launch(plan,editor,process,time)
     end
     while true do
       local active=false
-      for _,record in ipairs(editors) do if process.owned_alive(record) then active=true end end
+      if managed then control_api.poll(managed,time.monotonic_ms()) end
+      for _,record in ipairs(editors) do
+        if managed then
+          if not record.exit_recorded then
+            local alive,receipt=session_process.observe(record,process)
+            if alive then active=true else
+              control_api.record_exit(managed,record.player_id,receipt.exit_code,time.monotonic_ms())
+              record.exit_recorded=true
+              assert(receipt.exit_code==0,'managed Unreal failed with exit '..receipt.exit_code)
+            end
+          end
+        elseif process.owned_alive(record) then active=true end
+      end
       if not active then
         assert(not finish_deadline, 'renderers exited before the bounded result observation completed')
         break
@@ -437,5 +523,8 @@ function M.launch(plan,editor,process,time)
   end
   assert(#failures==0,table.concat(failures,'\n'))
   assert(ok,err)
+  if managed then
+    plan.managed_next=control_api.finalize(managed,true,true,time.monotonic_ms())
+  end
 end
 return M

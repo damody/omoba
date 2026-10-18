@@ -22,6 +22,7 @@ fn config() -> TeamProjectorConfig {
         mass_reveal_chunk_entities: 64,
         rebase_chunks_per_tick: 2,
         hash_checkpoint_interval_ticks: 1,
+        ..TeamProjectorConfig::default()
     }
 }
 

@@ -8,6 +8,7 @@ local parent=path.mkdir_p(path.join(b.root,'target','role-launch-tests'))
 local root
 for i=1,1000 do local candidate=path.join(parent,os.time()..'-'..i);if lfs.mkdir(candidate) then root=candidate;break end end
 assert(root)
+local exporter=require('export_moba_role_plan')
 local tests=0
 local function test(name,fn) fn();tests=tests+1;print('PASS '..name) end
 local function rejects(fn) assert(not pcall(fn),'expected rejection') end
@@ -15,6 +16,55 @@ local function contains(values,wanted) for _,v in ipairs(values) do if v==wanted
 local base=path.join(b.root,'omb','game.toml')
 local original=path.read(base,true)
 local plan
+test('exporter emits named summoner slots and keeps nulls inside the plan JSON only',function()
+  local function fields(loadouts)
+    return exporter.server_fields({map_id='three_lane_training',mana_enabled=false,players={
+      {player_id=1,team_id=1,bot=false},{player_id=2,team_id=2,bot=true}},summoner_loadouts=loadouts})
+  end
+  local function auth(text) return assert(text:match('AUTHENTICATED_SUMMONER_LOADOUTS=(%b{})')) end
+  assert(auth(fields(nil))=='{}')
+  assert(auth(fields({}))=='{}')
+  local one=auth(fields({['7']={json.null,'training_self_heal_v1'}}))
+  assert(one=='{"7"={slot1="training_self_heal_v1"}}')
+  assert(not one:find('null',1,true))
+  local both=auth(fields({['2']={'training_self_heal_v1',json.null},['1']={'training_point_blink_v1','training_self_heal_v1'}}))
+  assert(both=='{"1"={slot0="training_point_blink_v1",slot1="training_self_heal_v1"},"2"={slot0="training_self_heal_v1"}}')
+  local full=fields({['1']={'training_point_blink_v1',json.null}})
+  assert(full:find('MATCH_ROLE_PLAN_JSON=',1,true) and full:find('training_point_blink_v1',1,true))
+  for _,bad in ipairs({
+    {['01']={json.null,json.null}},
+    {['1']={'training_point_blink_v1'}},
+    {['1']={'training_point_blink_v1','training_self_heal_v1','extra'}},
+    {['1']={slot0='training_point_blink_v1'}},
+    {['0']={json.null,json.null}},
+    {['1']={json.null,''}},
+  }) do rejects(function() fields(bad) end) end
+end)
+
+test('current compiled tool preserves every equipped or empty slot through two launch preparations',function()
+  local recipe=launch.load_recipe(launch.options({'--recipe','scripts/lua_data/moba_summoner_loadout_example.lua'}))
+  recipe.summoner_loadouts['2']={json.null,'training_self_heal_v1'}
+  recipe.summoner_loadouts['3']={'training_point_blink_v1',json.null}
+  recipe.summoner_loadouts['4']={json.null,json.null}
+  local fixture=path.join(root,'summoner-plan.json')
+  path.write(fixture,json.encode(recipe))
+  local first
+  for index=1,2 do
+    local options=launch.options({'--prepare-only','--recipe',index==1 and fixture or first.recipe_json,
+      '--output',path.join(root,'summoner-handoff-'..index)})
+    local prepared=launch.prepare(options,process)
+    local final=json.read(prepared.recipe_json)
+    local selection=json.read(prepared.selection_report)
+    assert(json.encode(final.summoner_loadouts)==json.encode(recipe.summoner_loadouts))
+    assert(json.encode(selection.summoner_loadouts)==json.encode(recipe.summoner_loadouts))
+    local report=json.decode(require('moba_config_command').run(options,{'--config',prepared.config},process).stdout)
+    assert(json.encode(report.summoner_loadouts)==json.encode(recipe.summoner_loadouts))
+    assert(report.scope=='configuration-only' and prepared.scope=='prepared-not-launched')
+    first=prepared
+  end
+  assert(path.read(base,true)==original,'source config changed')
+end)
+
 test('shared pre-match selections preserve recipe and reject ownership ambiguity',function()
   local recipe={players={
     {player_id=1,team_id=1,role='top',hero='old',bot=false},

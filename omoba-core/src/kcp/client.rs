@@ -152,6 +152,8 @@ impl ReplicaCheckpointReporter {
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
     ShopReceiptReplay { msg: ShopReceiptReplay },
+    /// Owner-addressed private ward state. Not a team broadcast.
+    OwnerWardEnvelope { msg: OwnerWardEnvelope },
     SecureTargetInputResult {
         msg: SecureTargetInputResult,
         wire_bytes: usize,
@@ -206,6 +208,11 @@ pub enum LockstepInbound {
         wire_bytes: usize,
         logical_bytes: usize,
     },
+    /// Negotiated communication channel. Not a gameplay command and not RTT.
+    CommunicationHelloResult { msg: CommunicationHelloResult },
+    CommunicationReceipt { msg: CommunicationReceipt },
+    CommunicationEvent { msg: CommunicationWireEvent },
+    CommunicationReplay { msg: CommunicationReplayBatch },
 }
 
 /// P6：每會話序列間隙檢查的結果。暴露進行測試。
@@ -282,6 +289,66 @@ impl KcpClient {
         let msg = ShopReceiptQuery { request_id, input_id };
         let mut writer = self.writer.lock().await;
         write_framed(&mut *writer, TAG_SHOP_RECEIPT_QUERY, &msg.encode_to_vec()).await?;
+        Ok(())
+    }
+
+    /// Communication hello. Claimed room and run stay zero so the server binds
+    /// the current published scope. This does not submit gameplay.
+    pub async fn send_communication_hello(
+        &self,
+        player_id: u32,
+        team_id: u32,
+        view_epoch: u64,
+    ) -> Result<()> {
+        let msg = CommunicationHello {
+            protocol_version: crate::runtime::communication_transport::COMMUNICATION_PROTOCOL_VERSION,
+            claimed_room_id: 0,
+            claimed_run_id: 0,
+            claimed_player_id: player_id,
+            claimed_team_id: team_id,
+            claimed_view_epoch: view_epoch,
+            claimed_observer: false,
+        };
+        let payload = msg.encode_to_vec();
+        if payload.len() > crate::runtime::communication_transport::HELLO_MAX_BYTES {
+            anyhow::bail!("communication hello exceeds policy cap");
+        }
+        let mut writer = self.writer.lock().await;
+        write_framed(&mut *writer, TAG_COMMUNICATION_HELLO, &payload).await?;
+        Ok(())
+    }
+
+    /// Later UI and tests submit through this method. The current runtime does
+    /// not bind a key to it, and the receipt is not a gameplay ACK.
+    pub async fn send_communication_submit(&self, submit: &CommunicationSubmit) -> Result<()> {
+        let payload = submit.encode_to_vec();
+        if payload.len() > crate::runtime::communication_transport::SUBMIT_MAX_BYTES {
+            anyhow::bail!("communication submit exceeds policy cap");
+        }
+        let mut writer = self.writer.lock().await;
+        write_framed(&mut *writer, TAG_COMMUNICATION_SUBMIT, &payload).await?;
+        Ok(())
+    }
+
+    pub async fn send_communication_replay_query(&self, query: &CommunicationReplayQuery) -> Result<()> {
+        let payload = query.encode_to_vec();
+        if payload.len() > crate::runtime::communication_transport::REPLAY_QUERY_MAX_BYTES {
+            anyhow::bail!("communication replay query exceeds policy cap");
+        }
+        let mut writer = self.writer.lock().await;
+        write_framed(&mut *writer, TAG_COMMUNICATION_REPLAY_QUERY, &payload).await?;
+        Ok(())
+    }
+
+    /// Read-only recovery of this connection's owner ward envelope.
+    /// It does not allocate an input ID or submit gameplay.
+    pub async fn query_owner_ward_recovery(&self, request_id: u64, view_epoch: u64) -> Result<()> {
+        if request_id == 0 {
+            anyhow::bail!("invalid owner ward recovery query");
+        }
+        let msg = OwnerWardRecoveryQuery { request_id, view_epoch };
+        let mut writer = self.writer.lock().await;
+        write_framed(&mut *writer, TAG_OWNER_WARD_RECOVERY_QUERY, &msg.encode_to_vec()).await?;
         Ok(())
     }
     pub async fn shutdown(&self) -> Result<()> {
@@ -683,6 +750,14 @@ impl KcpClient {
                                     Err(error) => warn!("Failed to decode ShopReceiptReplay: {}", error),
                                 }
                             }
+                            TAG_OWNER_WARD_ENVELOPE => {
+                                match OwnerWardEnvelope::decode(payload.as_slice()) {
+                                    Ok(msg) => {
+                                        if lockstep_tx.send(LockstepInbound::OwnerWardEnvelope { msg }).await.is_err() { break; }
+                                    }
+                                    Err(error) => warn!("Failed to decode OwnerWardEnvelope: {}", error),
+                                }
+                            }
                             TAG_TEAM_REBASE_CHUNK_V2 => {
                                 let logical_bytes = payload.len();
                                 match TeamViewRebaseChunk::decode(payload.as_slice()) {
@@ -744,6 +819,54 @@ impl KcpClient {
                                     Err(error) => {
                                         warn!("Failed to decode SecureTargetInputResult: {}", error)
                                     }
+                                }
+                            }
+                            TAG_COMMUNICATION_HELLO_RESULT => {
+                                if payload.len() > crate::runtime::communication_transport::HELLO_MAX_BYTES {
+                                    warn!("oversized communication hello result");
+                                } else {
+                                    match CommunicationHelloResult::decode(payload.as_slice()) {
+                                        Ok(msg) => {
+                                            if lockstep_tx
+                                                .send(LockstepInbound::CommunicationHelloResult { msg })
+                                                .await
+                                                .is_err()
+                                            {
+                                                break;
+                                            }
+                                        }
+                                        Err(error) => warn!("Failed to decode CommunicationHelloResult: {}", error),
+                                    }
+                                }
+                            }
+                            TAG_COMMUNICATION_RECEIPT => {
+                                match crate::runtime::communication_transport::decode_receipt(payload.as_slice()) {
+                                    Ok(msg) => {
+                                        if lockstep_tx.send(LockstepInbound::CommunicationReceipt { msg }).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(refusal) => warn!("communication receipt refused before delivery: {}", refusal),
+                                }
+                            }
+                            TAG_COMMUNICATION_EVENT => {
+                                match crate::runtime::communication_transport::decode_event(payload.as_slice()) {
+                                    Ok(msg) => {
+                                        if lockstep_tx.send(LockstepInbound::CommunicationEvent { msg }).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(refusal) => warn!("communication event refused before delivery: {}", refusal),
+                                }
+                            }
+                            TAG_COMMUNICATION_REPLAY => {
+                                match crate::runtime::communication_transport::decode_replay_batch(payload.as_slice()) {
+                                    Ok(msg) => {
+                                        if lockstep_tx.send(LockstepInbound::CommunicationReplay { msg }).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    Err(refusal) => warn!("communication replay refused before delivery: {}", refusal),
                                 }
                             }
                             TAG_PING_RESP => {
@@ -882,6 +1005,10 @@ impl KcpClient {
             mana_rules_hash: String::new(),
             command_protocol_version: 0,
             command_rules_hash: String::new(),
+            summoner_protocol_version: 0,
+            summoner_rules_hash: String::new(),
+            ward_protocol_version: 0,
+            ward_rules_hash: String::new(),
         };
         {
             let mut w = self.writer.lock().await;
@@ -929,25 +1056,7 @@ impl KcpClient {
         if player_id == 0 {
             anyhow::bail!("player join requires non-zero player_id");
         }
-        let req = JoinRequest {
-            player_name,
-            role: JoinRole::RolePlayer as i32,
-            player_id,
-            requested_protocol: SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
-            supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
-            secure_fog_capability: true,
-            view_epoch: 0,
-            shop_catalog_version: crate::runtime::shop_transport::SHOP_CATALOG_VERSION,
-            shop_catalog_hash: omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned(),
-            shop_protocol_version: crate::runtime::shop_transport::SHOP_PROTOCOL_VERSION,
-            shop_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
-            recall_protocol_version: crate::runtime::recall_transport::RECALL_PROTOCOL_VERSION,
-            recall_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
-            mana_protocol_version: crate::runtime::mana_transport::MANA_PROTOCOL_VERSION,
-            mana_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
-            command_protocol_version: crate::runtime::command_transport::COMMAND_PROTOCOL_VERSION,
-            command_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
-        };
+        let req = selective_lockstep_join_request(player_name, player_id);
         {
             let mut writer = self.writer.lock().await;
             write_framed_msg(&mut *writer, TAG_JOIN_REQUEST, &req).await?;
@@ -973,10 +1082,10 @@ impl KcpClient {
                     if msg.input_allocator_version != 1 {
                         anyhow::bail!("secure bootstrap input allocator agreement missing or mismatched");
                     }
-                    let shop = crate::runtime::shop_transport::negotiate_shop_protocol(
-                        msg.shop_protocol_version, &msg.shop_rules_hash, true)
+                    let (shop, undo) = crate::runtime::shop_transport::shop_capability_from_echo(
+                        msg.shop_protocol_version, &msg.shop_rules_hash)
                         .map_err(|reason| anyhow::anyhow!(reason))?;
-                    info!("secure shop protocol player={} enabled={}", player_id, shop);
+                    info!("secure shop protocol player={} enabled={} undo={}", player_id, shop, undo);
                     let recall = crate::runtime::recall_transport::negotiate_recall_protocol(
                         msg.recall_protocol_version, &msg.recall_rules_hash)
                         .map_err(|reason| anyhow::anyhow!(reason))?;
@@ -988,7 +1097,16 @@ impl KcpClient {
                     let commands = crate::runtime::command_transport::negotiate_command_protocol(
                         msg.command_protocol_version, &msg.command_rules_hash)
                         .map_err(|reason| anyhow::anyhow!(reason))?;
-                    info!("secure command protocol player={} enabled={}", player_id, commands);
+                    info!("secure command protocol player={} enabled={} set={}", player_id, commands,
+                        crate::runtime::command_transport::agreed_command_set(commands));
+                    let summoner = crate::runtime::summoner_transport::negotiate_summoner_protocol(
+                        msg.summoner_protocol_version, &msg.summoner_rules_hash)
+                        .map_err(|reason| anyhow::anyhow!(reason))?;
+                    info!("secure summoner protocol player={} enabled={}", player_id, summoner);
+                    let ward = crate::runtime::ward_transport::negotiate_ward_protocol(
+                        msg.ward_protocol_version, &msg.ward_rules_hash)
+                        .map_err(|reason| anyhow::anyhow!(reason))?;
+                    info!("secure ward protocol player={} enabled={}", player_id, ward);
                     self.last_player_id = Some(msg.player_id);
                     self.last_step_fps = Some(msg.tick_rate_hz);
                     return Ok(msg);
@@ -1783,9 +1901,66 @@ fn translate_typed_payload(
     Some(out)
 }
 
+/// Maintained player join. Requests shop undo protocol 2. The legacy observer join stays at version 0.
+pub fn selective_lockstep_join_request(player_name: String, player_id: u32) -> JoinRequest {
+    JoinRequest {
+        player_name,
+        role: JoinRole::RolePlayer as i32,
+        player_id,
+        requested_protocol: SELECTIVE_LOCKSTEP_PROTOCOL_VERSION,
+        supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
+        secure_fog_capability: true,
+        view_epoch: 0,
+        shop_catalog_version: crate::runtime::shop_transport::SHOP_CATALOG_VERSION,
+        shop_catalog_hash: omoba_template_ids::MOBA_ITEM_CATALOG_HASH.to_owned(),
+        shop_protocol_version: crate::runtime::shop_transport::SHOP_UNDO_PROTOCOL_VERSION,
+        shop_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+        recall_protocol_version: crate::runtime::recall_transport::RECALL_PROTOCOL_VERSION,
+        recall_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+        mana_protocol_version: crate::runtime::mana_transport::MANA_PROTOCOL_VERSION,
+        mana_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+        command_protocol_version: crate::runtime::command_transport::COMMAND_PROTOCOL_VERSION,
+        command_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+        summoner_protocol_version: crate::runtime::summoner_transport::SUMMONER_PROTOCOL_VERSION,
+        summoner_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+        ward_protocol_version: crate::runtime::ward_transport::WARD_PROTOCOL_VERSION,
+        ward_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod seq_gap_tests {
     use super::{detect_seq_gap, normalize_game_start_step_fps, SeqGapResult};
+
+    #[test]
+    fn maintained_join_requests_undo_and_echo_keeps_v1_absence_fail_closed() {
+        use crate::runtime::shop_transport::{
+            echoed_shop_protocol_version, shop_capability_from_echo, SHOP_PROTOCOL_VERSION,
+            SHOP_UNDO_PROTOCOL_VERSION,
+        };
+        let request = super::selective_lockstep_join_request("keeper".into(), 7);
+        assert_eq!(request.player_id, 7);
+        assert_eq!(request.role, super::JoinRole::RolePlayer as i32);
+        assert_eq!(request.shop_catalog_hash, omoba_template_ids::MOBA_ITEM_CATALOG_HASH);
+        assert_eq!(request.shop_rules_hash, omoba_template_ids::CONTENT_CATALOG_DATA_HASH);
+        assert_eq!(request.shop_protocol_version, SHOP_UNDO_PROTOCOL_VERSION);
+        assert_ne!(request.shop_protocol_version, SHOP_PROTOCOL_VERSION);
+        let hash = request.shop_rules_hash.as_str();
+        let capable = echoed_shop_protocol_version(true, true);
+        assert_eq!(capable, request.shop_protocol_version);
+        assert_eq!(shop_capability_from_echo(capable, hash), Ok((true, true)));
+        let v1 = echoed_shop_protocol_version(true, false);
+        assert_eq!(v1, SHOP_PROTOCOL_VERSION);
+        assert_eq!(shop_capability_from_echo(v1, hash), Ok((true, false)));
+        assert_eq!(echoed_shop_protocol_version(false, true), 0);
+        assert_eq!(shop_capability_from_echo(0, ""), Ok((false, false)));
+        assert!(shop_capability_from_echo(3, hash).is_err());
+        assert!(shop_capability_from_echo(request.shop_protocol_version, "old").is_err());
+        assert_eq!(super::selective_lockstep_join_request("other".into(), 8).shop_protocol_version, request.shop_protocol_version);
+        assert_eq!(request.ward_protocol_version, crate::runtime::ward_transport::WARD_PROTOCOL_VERSION);
+        assert_eq!(request.ward_rules_hash, omoba_template_ids::CONTENT_CATALOG_DATA_HASH);
+        assert_eq!(crate::runtime::ward_transport::negotiate_ward_protocol(0, ""), Ok(false));
+    }
 
     #[test]
     fn game_start_step_fps_defaults_only_for_legacy_zero() {

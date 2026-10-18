@@ -9,11 +9,13 @@ fn production_selective_consumers_cannot_use_noop_stepper() {
 #[test]
 fn authoritative_runtime_consumes_the_shared_phase_table() {
     let backend = include_str!("../../../omb/src/state/core.rs");
+    let filtered = include_str!("filtered_specs.rs");
+    let driver = include_str!("native/simulation_driver.rs");
     assert!(backend.contains("run_deterministic_gameplay_phases"));
     assert!(!backend.contains("const DETERMINISTIC_GAMEPLAY_PHASES"));
-    let omfx = include_str!("../../../omfx/game/src/sim_runner.rs");
-    assert!(omfx.contains("run_deterministic_gameplay_phases"));
-    assert!(!omfx.contains("const DETERMINISTIC_GAMEPLAY_PHASES"));
+    for source in [backend, filtered, driver] {
+        assert!(source.contains("drain_pending_summoner_casts"));
+    }
     let expected = super::DETERMINISTIC_GAMEPLAY_PHASES;
     assert_eq!(
         expected.first(),
@@ -23,7 +25,29 @@ fn authoritative_runtime_consumes_the_shared_phase_table() {
         expected.last(),
         Some(&super::DeterministicGameplayPhase::PostScriptOutcomes)
     );
-    assert_eq!(expected.len(), 18);
+    assert_eq!(expected.len(), 19);
+}
+
+#[test]
+fn maintained_drivers_drain_summoner_casts_between_ability_casts_and_moves() {
+    for source in [
+        include_str!("../../../omb/src/state/core.rs"),
+        include_str!("filtered_specs.rs"),
+        include_str!("native/simulation_driver.rs"),
+    ] {
+        let ability = source.find("drain_pending_ability_casts(").expect("ability drain call");
+        let summoner = source.find("drain_pending_summoner_casts(").expect("summoner drain call");
+        let ward = source.find("drain_pending_ward_placements(").expect("ward drain call");
+        let moves = source.find("drain_pending_moves(").expect("move drain call");
+        assert!(ability < summoner && summoner < ward && ward < moves);
+    }
+    let phases = super::DETERMINISTIC_GAMEPLAY_PHASES;
+    let ability = phases.iter().position(|phase| *phase == super::DeterministicGameplayPhase::AbilityCasts).unwrap();
+    let summoner = phases.iter().position(|phase| *phase == super::DeterministicGameplayPhase::SummonerCasts).unwrap();
+    let moves = phases.iter().position(|phase| *phase == super::DeterministicGameplayPhase::Moves).unwrap();
+    assert_eq!(summoner, ability + 1);
+    assert_eq!(moves, summoner + 1);
+    assert_eq!(phases[summoner] as u16 as usize, summoner);
 }
 
 #[test]

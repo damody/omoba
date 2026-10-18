@@ -150,6 +150,19 @@ impl TeamIdentityState {
         self.canonical_to_replica.get(&canonical).copied()
     }
 
+    /// Lookup for a client-visible replica id. Callers do not build `ReplicaEntityId`.
+    /// Zero, unknown, retired, and stale epochs fail in the same guard as `canonical_for`.
+    pub fn canonical_for_replica(
+        &self,
+        replica_id: u64,
+        disclosure_epoch: u64,
+    ) -> Result<CanonicalEntityKey, TeamIdentityError> {
+        if replica_id == 0 {
+            return Err(TeamIdentityError::UnknownReplica);
+        }
+        self.canonical_for(ReplicaEntityId(replica_id), disclosure_epoch)
+    }
+
     pub fn canonical_for(
         &self,
         replica_id: ReplicaEntityId,
@@ -167,6 +180,28 @@ impl TeamIdentityState {
             return Err(TeamIdentityError::StaleDisclosureEpoch);
         }
         Ok(canonical)
+    }
+
+    /// Current disclosed identity only. Remembered, forgotten, stale-epoch, and
+    /// generation-mismatched claims fail. This does not publish position, name,
+    /// or status, and it does not authenticate a network session.
+    pub fn disclosed_identity_matches(
+        &self,
+        replica_id: u64,
+        disclosure_epoch: u64,
+        canonical: CanonicalEntityKey,
+    ) -> bool {
+        let Ok(resolved) = self.canonical_for(ReplicaEntityId(replica_id), disclosure_epoch) else {
+            return false;
+        };
+        if resolved != canonical {
+            return false;
+        }
+        self.replica_for(resolved).is_some_and(|mapping| {
+            mapping.visibility == MappingVisibility::Disclosed
+                && mapping.disclosure_epoch == disclosure_epoch
+                && mapping.replica_id.get() == replica_id
+        })
     }
 
     pub fn disclosed_mappings(&self) -> Vec<(CanonicalEntityKey, TeamEntityMapping)> {
@@ -427,6 +462,26 @@ pub fn manifest_hash(manifest: &TeamViewRebase) -> [u8; 32] {
             digest.update(bytes);
         }
     }
+    // Empty stays outside the digest so v1 and v2 hashes of older manifests
+    // do not change. Non-empty bytes are the owner-team projection codec.
+    if !manifest.admitted_summoner_projection.is_empty() {
+        digest.update(b"summoner-projection\0");
+        digest.update((manifest.admitted_summoner_projection.len() as u32).to_be_bytes());
+        digest.update(&manifest.admitted_summoner_projection);
+    }
+    // Empty owner-undo material stays outside the digest, same as an absent
+    // summoner roster. Non-empty bytes are schema-1 hash material.
+    if !manifest.retained_owner_undo_material.is_empty() {
+        digest.update(b"owner-undo-material\0");
+        digest.update((manifest.retained_owner_undo_material.len() as u32).to_be_bytes());
+        digest.update(&manifest.retained_owner_undo_material);
+    }
+    if let Some(projection) = &manifest.combat_preferences {
+        let bytes = prost::Message::encode_to_vec(projection);
+        digest.update(b"combat-preferences\0");
+        digest.update((bytes.len() as u32).to_be_bytes());
+        digest.update(bytes);
+    }
     digest.finalize().into()
 }
 
@@ -462,6 +517,9 @@ pub fn build_snapshot_manifest(
         filtered_snapshot_hash: Sha256::digest(snapshot_bytes).to_vec(),
         manifest_hash: Vec::new(),
         fog_grid: None,
+        admitted_summoner_projection: Vec::new(),
+        retained_owner_undo_material: Vec::new(),
+        combat_preferences: None,
     };
     manifest.manifest_hash = manifest_hash(&manifest).to_vec();
     manifest
@@ -475,7 +533,22 @@ pub fn verify_snapshot_manifest(manifest: &TeamViewRebase) -> bool {
                 manifest.view_epoch.as_ref().map_or(0, |epoch| epoch.value), manifest.authoritative_tick).is_ok()),
         _ => false,
     };
-    valid_presentation && manifest.manifest_hash == manifest_hash(manifest).as_slice()
+    let summoners_admitted = manifest.admitted_summoner_projection.is_empty()
+        || crate::runtime::summoner_transport::decode_projected_summoners(
+            &manifest.admitted_summoner_projection,
+        )
+        .is_some();
+    let undo_retained = manifest.retained_owner_undo_material.is_empty()
+        || crate::runtime::shop_undo_wire::canonical_retained_owner_undo_material(
+            &manifest.retained_owner_undo_material,
+        )
+        .is_some();
+    valid_presentation
+        && crate::runtime::combat_transport::decode_projection(manifest.combat_preferences.as_ref(),
+            manifest.view_epoch.as_ref().map_or(0, |epoch| epoch.value)).is_ok()
+        && summoners_admitted
+        && undo_retained
+        && manifest.manifest_hash == manifest_hash(manifest).as_slice()
         && manifest.chunk_count as usize == manifest.ordered_chunk_hashes.len()
 }
 
@@ -541,6 +614,121 @@ impl IncompleteSnapshotStaging {
 
 mod v2_payload_sealed {
     pub trait Sealed {}
+}
+
+#[cfg(test)]
+mod summoner_manifest_tests {
+    use super::*;
+    use crate::runtime::summoner_transport::{
+        encode_projected_summoners, ProjectedSummonerPlayer, ProjectedSummonerSlot,
+    };
+
+    fn bare_manifest() -> TeamViewRebase {
+        build_snapshot_manifest(
+            SnapshotId {
+                snapshot_schema_version: FILTERED_SNAPSHOT_SCHEMA_VERSION,
+                match_instance_id: vec![1; 16],
+                team_id: 1,
+                view_epoch: Some(ViewEpoch { value: 1 }),
+                authoritative_tick: 1,
+                monotonic_snapshot_ordinal: 1,
+            },
+            1,
+            1,
+            1,
+            1,
+            1,
+            b"",
+            &[],
+        )
+    }
+
+    #[test]
+    fn empty_summoner_bytes_preserve_the_manifest_hash_and_invalid_bytes_fail_verify() {
+        let bare = bare_manifest();
+        let mut manifest = bare.clone();
+        manifest.admitted_summoner_projection = vec![1, 2, 3];
+        assert_ne!(manifest_hash(&manifest).as_slice(), bare.manifest_hash.as_slice());
+        manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+        assert!(!verify_snapshot_manifest(&manifest));
+        manifest.admitted_summoner_projection = encode_projected_summoners(&[ProjectedSummonerPlayer {
+            player_id: 7,
+            slots: [
+                ProjectedSummonerSlot { catalog_id: 1, cooldown_raw: 0 },
+                ProjectedSummonerSlot { catalog_id: 2, cooldown_raw: 0 },
+            ],
+        }]);
+        manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+        assert!(verify_snapshot_manifest(&manifest));
+        let blink_total = omoba_template_ids::summoner_spell_by_name("training_point_blink_v1")
+            .unwrap()
+            .cooldown
+            .raw();
+        for slots in [
+            [
+                ProjectedSummonerSlot { catalog_id: 0, cooldown_raw: 1 },
+                ProjectedSummonerSlot { catalog_id: 1, cooldown_raw: 0 },
+            ],
+            [
+                ProjectedSummonerSlot { catalog_id: 1, cooldown_raw: blink_total + 1 },
+                ProjectedSummonerSlot { catalog_id: 2, cooldown_raw: 0 },
+            ],
+        ] {
+            manifest.admitted_summoner_projection = encode_projected_summoners(&[ProjectedSummonerPlayer {
+                player_id: 7,
+                slots,
+            }]);
+            manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+            assert!(!verify_snapshot_manifest(&manifest));
+        }
+        manifest.admitted_summoner_projection.clear();
+        manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+        assert_eq!(manifest.manifest_hash, bare.manifest_hash);
+        assert!(verify_snapshot_manifest(&manifest));
+    }
+
+    #[test]
+    fn empty_owner_undo_material_preserves_manifest_hash_and_bad_bytes_fail_verify() {
+        use crate::game_proto::TeamPublicEvent;
+        use crate::runtime::shop_undo_wire::{
+            canonical_retained_owner_undo_material, owner_undo_hash_material, OwnerShopUndoProjection,
+        };
+        use crate::runtime::FactKind;
+        let bare = bare_manifest();
+        let mut manifest = bare.clone();
+        assert!(manifest.retained_owner_undo_material.is_empty());
+        assert_eq!(manifest_hash(&manifest).as_slice(), bare.manifest_hash.as_slice());
+        manifest.retained_owner_undo_material = vec![1, 2, 3];
+        assert_ne!(manifest_hash(&manifest).as_slice(), bare.manifest_hash.as_slice());
+        manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+        assert!(!verify_snapshot_manifest(&manifest));
+        let projection = OwnerShopUndoProjection {
+            phase: 1,
+            player_id: 7,
+            can_undo: true,
+            reason: 0,
+            newest_sequence: 4,
+            commitment: [9; 32],
+        };
+        let material = owner_undo_hash_material(&[TeamPublicEvent {
+            event_kind: FactKind::OwnerShopUndo as u32,
+            stable_sub_index: 3,
+            sanitized_payload: projection.encode(),
+            ..Default::default()
+        }]);
+        assert!(canonical_retained_owner_undo_material(&material).is_some());
+        manifest.retained_owner_undo_material = material;
+        manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+        assert!(verify_snapshot_manifest(&manifest));
+        assert_ne!(manifest.manifest_hash, bare.manifest_hash);
+        manifest.retained_owner_undo_material.push(0);
+        manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+        assert!(!verify_snapshot_manifest(&manifest));
+        manifest.retained_owner_undo_material.clear();
+        manifest.manifest_hash = manifest_hash(&manifest).to_vec();
+        assert_eq!(manifest.manifest_hash, bare.manifest_hash);
+        assert!(verify_snapshot_manifest(&manifest));
+    }
 }
 
 pub trait V2PlayerPayload: Message + v2_payload_sealed::Sealed {}

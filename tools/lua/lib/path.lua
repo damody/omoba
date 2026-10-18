@@ -1,7 +1,4 @@
 local platform = require("tools.lua.lib.platform")
-if platform.is_windows then
-  package.cpath = [[D:\code\omoba\tools\lua\?.dll;]] .. package.cpath
-end
 local ok, lfs = pcall(require, "lfs")
 assert(ok, "LuaFileSystem is required beside tools/lua/lua.exe")
 
@@ -75,9 +72,9 @@ function M.quote(value)
 end
 
 function M.repo_root(start)
-  local current = M.absolute(start or lfs.currentdir())
+  local current = M.absolute(start or platform.repo_root)
   while true do
-    if M.is_directory(M.join(current, ".git")) and M.is_directory(M.join(current, "scripts")) then return current end
+    if M.exists(M.join(current, ".git")) and M.is_directory(M.join(current, "scripts")) then return current end
     local parent = M.parent(current)
     assert(parent ~= current, "repository root not found from " .. tostring(start))
     current = parent

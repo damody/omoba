@@ -1,4 +1,8 @@
 use crate::comp::*;
+use crate::runtime::combat_controls::AcquisitionIntent;
+use crate::runtime::native::combat_acquisition::{
+    acquire, AcquisitionRequest, CombatAcquisitionView, DisclosureContext,
+};
 use crate::tick::attack_phase::{
     advance_attack_phase, attack_phase_durations, fixed_secs_to_ms, start_attack_windup, AttackPhaseStep,
 };
@@ -14,22 +18,6 @@ const FACING_BROADCAST_THRESHOLD_RAD: f32 = 0.26;
 /// 跨系統將使重播決定論無效。
 const OP_HERO_NO_TARGET_JITTER: u32 = 10;
 
-// Explicit attacks must not lose their target merely because the bounded
-// nearest-neighbour auto-attack query contains ten closer creeps. The caller
-// supplies only a live target's current position; normal range/faction/HP gates
-// below still apply, including in a filtered replica.
-fn include_explicit_attack_candidate(
-    candidates: &mut Vec<DisIndex>, target: Option<specs::Entity>,
-    target_pos: Option<vek::Vec2<f32>>, origin: vek::Vec2<f32>, range: f32,
-) {
-    let (Some(target), Some(position)) = (target, target_pos) else { return; };
-    let distance = position.distance_squared(origin);
-    if distance.is_finite() && range.is_finite() && range > 0.0
-        && distance <= range * range && !candidates.iter().any(|hit| hit.e == target) {
-        candidates.push(DisIndex { e: target, dis: distance });
-    }
-}
-
 #[derive(SystemData)]
 pub struct HeroRead<'a> {
     entities: Entities<'a>,
@@ -43,6 +31,7 @@ pub struct HeroRead<'a> {
     owners: ReadStorage<'a, PlayerOwner>,
     disclosed_priority: Option<Read<'a, crate::runtime::filtered_specs::DisclosedMovementPriority>>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    admitted_directions: Option<Read<'a, crate::runtime::input_scheme::AdmittedDirectionalSteps>>,
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     propertys: ReadStorage<'a, CProperty>,
     turn_speeds: ReadStorage<'a, TurnSpeed>,
@@ -50,6 +39,12 @@ pub struct HeroRead<'a> {
     command_queues: ReadStorage<'a, HeroCommandQueue>,
     buff_store: Read<'a, omoba_core::runtime::ability_runtime::BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
+    visibility: Option<Read<'a, crate::runtime::TeamVisibilityRuntime>>,
+    admitted: Option<Read<'a, crate::runtime::native::combat_acquisition::AdmittedCombatPreferences>>,
+    attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
+    disclosed_wards: Option<Read<'a, crate::runtime::filtered_specs::DisclosedWardCandidates>>,
+    replica_identities: ReadStorage<'a, crate::runtime::ReplicaIdentity>,
+    ward_bodies: ReadStorage<'a, crate::runtime::DisclosedWardBody>,
 }
 
 #[derive(SystemData)]
@@ -96,21 +91,15 @@ impl<'a> System<'a> for Sys {
                         ),
                         fact: crate::runtime::ObservableFact::MovementPriority {
                             source,
-                            active: tr.move_targets.get(entity).is_some()
-                                || tr.command_queues.get(entity).is_some_and(|q|q.active==Some(HeroCommand::HoldPosition))
-                                || tr.moba.as_ref().is_some_and(|m| m.is_recalling(entity)),
+                            active: command_claims_movement_priority(
+                                tr.move_targets.get(entity).is_some(),
+                                tr.command_queues.get(entity).and_then(|queue| queue.active),
+                            ) || tr.moba.as_ref().is_some_and(|m| m.is_recalling(entity)),
                         },
                     })
                     .expect("valid visible movement priority");
             }
         }
-
-        // 獲取英雄的陣營信息和名稱用於敵友判斷和日誌記錄
-        let hero_faction_map: std::collections::HashMap<specs::Entity, Faction> =
-            (&tr.entities, &tr.factions, &tw.heroes)
-                .join()
-                .map(|(e, f, _)| (e, f.clone()))
-                .collect();
 
         // 獲取英雄名稱映射表
         let hero_name_map: std::collections::HashMap<specs::Entity, String> =
@@ -118,6 +107,16 @@ impl<'a> System<'a> for Sys {
                 .join()
                 .map(|(e, hero)| (e, hero.name.clone()))
                 .collect();
+        let hero_ids: std::collections::BTreeSet<specs::Entity> =
+            hero_name_map.keys().copied().collect();
+        let disclosure = DisclosureContext::resolve(
+            tr.disclosed_priority.is_some(),
+            tr.moba.is_some(),
+            tr.visibility.as_deref(),
+        );
+        let admitted = tr.admitted.as_deref();
+        let attack_gate = tr.attack_gate.as_deref();
+        let match_state = tr.moba.as_deref();
 
         // 技能冷卻倒數 — sequential 迴圈一次刷所有 hero 的 ability_cooldowns，
         // 在 par_join 攻擊迭代之前處理，避免 borrow 衝突。
@@ -142,6 +141,17 @@ impl<'a> System<'a> for Sys {
                 },
                 |_guard, (e, _hero, _pty, atk, pos, facing, facing_bc)| {
                     let mut outcomes: Vec<Outcome> = Vec::new();
+                    let keyboard = tr.admitted_directions.as_ref().filter(|steps| steps.tick == tr.tick.0)
+                        .and_then(|steps| steps.rows.get(&e))
+                        .map(|step| step.scheme == crate::runtime::input_scheme::InputScheme::Keyboard)
+                        .unwrap_or_else(|| tr.owners.get(e).is_some_and(|owner| {
+                        match_state.is_some_and(|state| {
+                            let mut slots = state.heroes.iter().filter(|slot| slot.player_id == owner.player_id);
+                            slots.next().is_some_and(|slot| slot.entity == Some(e)
+                                && slot.input_scheme().scheme() == crate::runtime::input_scheme::InputScheme::Keyboard)
+                                && slots.next().is_none()
+                        })
+                    }));
 
                     // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
                     let (pos_x_f, pos_y_f) = pos.xy_f32();
@@ -159,11 +169,7 @@ impl<'a> System<'a> for Sys {
                         &*tr.buff_store,
                         tr.is_buildings.get(e).is_some(),
                     );
-                    // 0.01 ≈ 10/1024 raw — 下限以避免被零除的發散。
-                    let asd_mult_raw = stats.final_attack_speed_mult(e);
-                    let min_asd_mult = Fixed64::from_raw(10);
-                    let asd_mult = if asd_mult_raw < min_asd_mult { min_asd_mult } else { asd_mult_raw };
-                    let effective_interval: Fixed64 = atk.asd.v / asd_mult;
+                    let effective_interval = stats.final_attack_interval(atk.asd.v, e);
                     if atk.attack_phase == AttackSequencePhase::Backswing && atk.animation_timing.is_some() {
                         atk.animation_timing = Some(AttackAnimationTiming::new(attack_phase_durations(effective_interval), dt <= Fixed64::ZERO));
                     }
@@ -178,8 +184,10 @@ impl<'a> System<'a> for Sys {
                     // （否則 hero 會一直想轉向敵人，與移動轉向互相拉扯卡住）
                     let moving = tr.disclosed_priority.as_ref()
                         .and_then(|priority| priority.0.get(&e).copied())
-                        .unwrap_or_else(|| tr.move_targets.get(e).is_some()
-                            || tr.command_queues.get(e).is_some_and(|q|q.active==Some(HeroCommand::HoldPosition)));
+                        .unwrap_or_else(|| command_claims_movement_priority(
+                            tr.move_targets.get(e).is_some(),
+                            tr.command_queues.get(e).and_then(|queue| queue.active),
+                        ));
                     if moving || tr.moba.as_ref().is_some_and(|m| m.is_recalling(e)) {
                         return (e.id(), outcomes);
                     }
@@ -188,93 +196,57 @@ impl<'a> System<'a> for Sys {
                     if !matches!(attack_phase, AttackPhaseStep::Charging) {
                         // Wall time is never a deterministic gameplay gate.
                         if dt > Fixed64::ZERO {
-                            // 搜尋攻擊範圍內的所有單位
-                            let search_n = 10; // 搜尋最近的 10 個目標
                             // 攻擊範圍：UnitStats 聚合（Dota ATTACK_RANGE_BONUS + ATTACK_RANGE_BONUS_UNIQUE，MAX_ATTACK_RANGE clamp）
                             let attack_range: Fixed64 = stats.final_attack_range(atk.range.v, e);
                             let range_bonus: Fixed64 = attack_range - atk.range.v;
-                            let search_range: Fixed64 = attack_range + Fixed64::from_i32(50); // 稍微擴大搜尋範圍以確保不遺漏邊界目標
-                            // 注意：搜尋器內部使用 f32 來實作 instant_distance lib 相容性；呼叫者的最終距離檢查是固定64。
-                            let attack_range_f = attack_range.to_f32_for_render();
-                            let search_range_f = search_range.to_f32_for_render();
-                            let (creep_targets, _) =
-                                tr.searcher.creep.search_nn_two_radii(pos_vek, attack_range_f, search_range_f, search_n);
-                            let (tower_targets, _) =
-                                tr.searcher.tower.search_nn_two_radii(pos_vek, attack_range_f, search_range_f, search_n);
-                            // 合併 creep + tower 候選，一起走敵友判斷
-                            let mut potential_targets = Vec::with_capacity(creep_targets.len() + tower_targets.len());
-                            potential_targets.extend(creep_targets);
-                            potential_targets.extend(tower_targets);
-                            potential_targets.sort_by(|a, b| a.dis.total_cmp(&b.dis)
-                                .then_with(|| a.e.id().cmp(&b.e.id()))
-                                .then_with(|| a.e.gen().id().cmp(&b.e.gen().id())));
-                            let explicit_target = tr.command_queues.get(e).and_then(|queue| match queue.active {
-                                Some(HeroCommand::AttackTarget { target, .. }) if tr.entities.is_alive(target) => Some(target),
-                                _ => None,
-                            });
-                            include_explicit_attack_candidate(&mut potential_targets, explicit_target,
-                                explicit_target.and_then(|target| tr.pos.get(target).map(|pos| {
-                                    let (x, y) = pos.xy_f32(); vek::Vec2::new(x, y)
-                                })), pos_vek, attack_range_f);
-
-                            // 偵錯：顯示搜尋結果
-                            // 獲取英雄名稱
                             let hero_name = hero_name_map.get(&e)
                                 .cloned()
                                 .unwrap_or_else(|| format!("英雄 {}", e.id()));
-
-                            if potential_targets.len() > 0 {
-                                log::trace!("{} 在位置 ({:.0}, {:.0}) 搜尋到 {} 個潛在目標，攻擊範圍: {:.1} (基礎 {:.1} + buff {:.1})",
-                                    hero_name, pos_x_f, pos_y_f, potential_targets.len(),
+                            let active = tr.command_queues.get(e).and_then(|queue| queue.active);
+                            let committed_impact = keyboard && matches!(attack_phase, AttackPhaseStep::Impact);
+                            let (intent, command_point, explicit_target) = if committed_impact {
+                                (AcquisitionIntent::AttackTarget, None, atk.committed_target)
+                            } else { match active {
+                                Some(HeroCommand::AttackTarget { target, .. }) => {
+                                    (AcquisitionIntent::AttackTarget, None, Some(target))
+                                }
+                                Some(HeroCommand::AttackMove { pos }) => {
+                                    (AcquisitionIntent::AttackMove, Some(pos), None)
+                                }
+                                _ => (AcquisitionIntent::Idle, None, None),
+                            }};
+                            let view = CombatAcquisitionView {
+                                entities: &tr.entities,
+                                positions: &tr.pos,
+                                health: &tr.propertys,
+                                factions: &tr.factions,
+                                owners: &tr.owners,
+                                heroes: &hero_ids,
+                                searcher: &*tr.searcher,
+                                disclosure,
+                                admitted,
+                                attack_gate,
+                                match_state,
+                                disclosed_wards: tr.disclosed_wards.as_deref(),
+                                replica_identities: &tr.replica_identities,
+                                ward_bodies: &tr.ward_bodies,
+                            };
+                            let selected = if committed_impact && explicit_target.is_none() { None } else { acquire(
+                                &view,
+                                AcquisitionRequest {
+                                    source: e,
+                                    intent,
+                                    command_point,
+                                    range: attack_range,
+                                    explicit_target,
+                                },
+                            ) };
+                            if let Some(target) = selected {
+                                log::trace!("{} 在位置 ({:.0}, {:.0}) 取得攻擊目標，攻擊範圍: {:.1} (基礎 {:.1} + buff {:.1})",
+                                    hero_name, pos_x_f, pos_y_f,
                                     attack_range.to_f32_for_render(),
                                     atk.range.v.to_f32_for_render(),
                                     range_bonus.to_f32_for_render());
-                            } else {
-                                log::trace!("{} 沒有找到目標", hero_name);
-                            }
-
-                            // 過濾出可攻擊的敵對目標（必須在攻擊範圍內）
-                            // 注意：搜尋器返回 f32 平方距離； f32 中的比較可接受（邊界有損還可以）。
-                            let mut valid_targets = Vec::new();
-                            let attack_range_squared = attack_range_f * attack_range_f; // 計算攻擊範圍的平方
-
-                            if let Some(hero_faction) = hero_faction_map.get(&e) {
-                                for target_info in potential_targets.iter() {
-                                    // 首先檢查距離是否在攻擊範圍內
-                                    if target_info.dis <= attack_range_squared {
-                                        if let Some(target_faction) = tr.factions.get(target_info.e) {
-                                            // 嚴格敵友判定：只有 is_hostile_to = true 才算敵對
-                                            if hero_faction.is_hostile_to(target_faction)
-                                                && tr.propertys.get(target_info.e)
-                                                    .is_some_and(|p| p.hp > Fixed64::ZERO) {
-                                                valid_targets.push(target_info);
-                                            }
-                                        }
-                                        // 無 Faction → 不攻擊（安全預設，避免誤擊我方單位）
-                                    }
-                                }
-                            } else {
-                                log::warn!("{} 沒有陣營信息，無法進行敵友判斷", hero_name);
-                            }
-
-                            if valid_targets.len() > 0 {
-                                // 攻擊最近的敵人：先轉向，角度 < 30° 才能開火
-                                let forced_target = tr.command_queues.get(e).and_then(|queue| {
-                                    match queue.active {
-                                        Some(HeroCommand::AttackTarget { target, .. }) => Some(target),
-                                        _ => None,
-                                    }
-                                });
-                                let selected_target = forced_target
-                                    .and_then(|target| {
-                                        valid_targets
-                                            .iter()
-                                            .copied()
-                                            .find(|target_info| target_info.e == target)
-                                    })
-                                    .unwrap_or(valid_targets[0]);
-                                let target = selected_target.e;
-                                // 注意：轉向日誌使用 f32 邊界 — Fix64 沒有顯示。
                                 let target_pos = tr.pos.get(target)
                                     .map(|p| { let (x, y) = p.xy_f32(); vek::Vec2::new(x, y) })
                                     .unwrap_or(pos_vek);
@@ -300,13 +272,14 @@ impl<'a> System<'a> for Sys {
                                     }
 
                                     let angle_diff = normalize_angle(desired - new_rad).abs();
-                                    if angle_diff < MOVE_ANGLE_THRESHOLD {
+                                    if committed_impact || angle_diff < MOVE_ANGLE_THRESHOLD {
                                         if matches!(attack_phase, AttackPhaseStep::Ready) {
                                             let (windup, backswing) = start_attack_windup(
                                                 &mut atk.asd_count,
                                                 effective_interval,
                                             );
                                             let attack_seq = atk.begin_attack_windup();
+                                            if keyboard { atk.committed_target = Some(target); }
                                             atk.animation_timing = Some(AttackAnimationTiming::new((windup, backswing), false));
                                             outcomes.push(Outcome::AttackPhaseCue {
                                                 entity: e,
@@ -326,7 +299,7 @@ impl<'a> System<'a> for Sys {
                                                 source: Some(e.clone()),
                                                 target: Some(target)
                                             });
-                                            let actual_distance = selected_target.dis.sqrt();
+                                            let actual_distance = diff.magnitude();
                                             log::debug!("⚔️ {} 發射彈道攻擊，距離: {:.0}，攻擊力: {:.1}",
                                                 hero_name, actual_distance,
                                                 atk.atk_physic.v.to_f32_for_render());
@@ -334,7 +307,16 @@ impl<'a> System<'a> for Sys {
                                     }
                                     // 角度太大 → 繼續轉，本 tick 不開火
                                 }
-                            } else if matches!(attack_phase, AttackPhaseStep::Ready) {
+                            } else {
+                                log::trace!("{} 沒有找到目標", hero_name);
+                            }
+                            // A hidden, dead, recycled or out-of-range committed life
+                            // fizzles; it must never retarget or reset the ready clock.
+                            if committed_impact {
+                                atk.mark_attack_impact();
+                                atk.animation_timing = Some(AttackAnimationTiming::new(attack_phase_durations(effective_interval), false));
+                            }
+                            if selected.is_none() && matches!(attack_phase, AttackPhaseStep::Ready) {
                                 // 沒有有效目標時，減少一些攻擊冷卻時間避免過度檢查
                                 // 0.3 ≈ 307/1024 原始；原始抖動 ε [0, 256) ≈ 0..0.25。
                                 // 階段 1de.2：透過 SimRng 確定性每（英雄、刻度）抖動。
@@ -389,8 +371,10 @@ fn attack_direction(delta: vek::Vec2<f32>, current: f32) -> f32 {
 
 #[cfg(test)]
 mod explicit_target_tests {
-    use super::*;
-    use specs::{Builder, World, WorldExt};
+    use super::attack_direction;
+    use crate::comp::HeroCommand;
+    use crate::runtime::native::combat_acquisition::test_support::{CombatFixture, IndexedBody};
+
     #[test]
     fn overlapping_attack_target_preserves_facing_without_blocking_attack() {
         for delta in [vek::Vec2::zero(), vek::Vec2::new(0.01, -0.01)] {
@@ -398,28 +382,18 @@ mod explicit_target_tests {
         }
         assert_eq!(attack_direction(vek::Vec2::new(0.0, 5.0), 1.25), std::f32::consts::FRAC_PI_2);
     }
+
     #[test]
     fn explicit_target_is_not_limited_by_ten_closer_auto_attack_candidates() {
-        let mut world = World::new();
-        let target = world.create_entity().build();
-        let mut candidates: Vec<_> = (0..10).map(|i| DisIndex {
-            e: world.create_entity().build(), dis: (i + 1) as f32,
-        }).collect();
-        let origin = vek::Vec2::new(0.0, 0.0);
-        include_explicit_attack_candidate(&mut candidates, Some(target), Some(vek::Vec2::new(400.0, 0.0)), origin, 550.0);
-        assert_eq!(candidates.len(), 11);
-        assert_eq!(candidates[10].e, target);
-        include_explicit_attack_candidate(&mut candidates, Some(target), Some(vek::Vec2::new(400.0, 0.0)), origin, 550.0);
-        assert_eq!(candidates.len(), 11);
-        for (position, range) in [(vek::Vec2::new(600.0, 0.0), 550.0),
-            (vek::Vec2::new(f32::NAN, 0.0), 550.0), (origin, 0.0)] {
-            let mut empty = Vec::new();
-            include_explicit_attack_candidate(&mut empty, Some(target), Some(position), origin, range);
-            assert!(empty.is_empty());
+        let mut fix = CombatFixture::legacy();
+        for index in 1..=12 {
+            fix.spawn_units(IndexedBody::Creep, index, 2, 100);
         }
-        let mut empty = Vec::new();
-        include_explicit_attack_candidate(&mut empty, Some(target), None, origin, 550.0);
-        include_explicit_attack_candidate(&mut empty, None, Some(origin), origin, 550.0);
-        assert!(empty.is_empty());
+        let explicit = fix.spawn_units(IndexedBody::Creep, 30, 2, 100);
+        fix.command(HeroCommand::AttackTarget {
+            target: explicit,
+            chase_origin: None,
+        });
+        assert_eq!(fix.attack_targets(), vec![explicit]);
     }
 }

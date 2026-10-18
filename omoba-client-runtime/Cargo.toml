@@ -1,5 +1,6 @@
 [package]
 name = "omoba-client-runtime"
+default-run = "omoba-client-runtime"
 version = "0.1.0"
 edition = "2021"
 description = "External team-filtered Specs replica and renderer IPC host"

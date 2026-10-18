@@ -34,8 +34,153 @@ pub const DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID: u32 = 0x464f470e;
 pub const DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID: u32 = 0x464f470f;
 /// Version 1: role (1 tower, 2 base), current damage admission (0 or 1).
 pub const DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID: u32 = 0x464f4710;
+/// Version 1 combat relation. 0x464f4703 stays unallocated. 0x464f4711 and
+/// 0x464f4712 are visual schemas. Eight bytes: version, faction discriminant,
+/// big-endian team id, attackable, alive. Absence is unknown, not team 0.
+pub const DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID: u32 = 0x464f4713;
+pub const DISCLOSED_COMBAT_RELATION_VERSION: u8 = 1;
+/// Version 1 disclosed ward body: catalog, generation, direct policy, automatic
+/// policy. Not a unit, and not private owner charge state.
+pub const DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID: u32 = 0x464f4714;
 
-pub(crate) fn decode_disclosed_structure(bytes: &[u8]) -> Option<(u8,bool)> {
+/// Presentation template identity only. Does not bind or execute a script.
+/// Version, ASCII byte length, then a bounded author-defined template name.
+pub const DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID: u32 = 0x464f4715;
+
+pub fn encode_disclosed_presentation_identity(id: &str) -> Option<Vec<u8>> {
+    if id.is_empty() || id.len() > 96 || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+        return None;
+    }
+    let mut bytes = vec![1, id.len() as u8];
+    bytes.extend_from_slice(id.as_bytes());
+    Some(bytes)
+}
+
+pub fn decode_disclosed_presentation_identity(bytes: &[u8]) -> Option<&str> {
+    if bytes.len() < 3 || bytes[0] != 1 || usize::from(bytes[1]) + 2 != bytes.len() {
+        return None;
+    }
+    let id = std::str::from_utf8(&bytes[2..]).ok()?;
+    encode_disclosed_presentation_identity(id)?;
+    Some(id)
+}
+
+/// Disclosed faction/team/attackability. This is not owner identity and not a
+/// minimap team. `faction_kind` is 1 Player, 2 Enemy, 3 Neutral, 4 Ally,
+/// 5 HostileNeutral.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DisclosedCombatRelation {
+    pub faction_kind: u8,
+    pub team_id: i32,
+    pub attackable: bool,
+    pub alive: bool,
+}
+
+pub fn faction_kind_discriminant(kind: &crate::runtime::FactionType) -> Option<u8> {
+    Some(match kind {
+        crate::runtime::FactionType::Player => 1,
+        crate::runtime::FactionType::Enemy => 2,
+        crate::runtime::FactionType::Neutral => 3,
+        crate::runtime::FactionType::Ally => 4,
+        crate::runtime::FactionType::HostileNeutral => 5,
+    })
+}
+
+pub fn faction_from_disclosed_kind(kind: u8, team_id: i32) -> Option<crate::runtime::Faction> {
+    let faction_id = match kind {
+        1 => crate::runtime::FactionType::Player,
+        2 => crate::runtime::FactionType::Enemy,
+        3 => crate::runtime::FactionType::Neutral,
+        4 => crate::runtime::FactionType::Ally,
+        5 => crate::runtime::FactionType::HostileNeutral,
+        _ => return None,
+    };
+    Some(crate::runtime::Faction::new(faction_id, team_id))
+}
+
+/// Attackable only while the body is alive, a published structure admits
+/// damage when that byte exists, and a jungle camp is not returning.
+pub fn disclosed_attackable(alive: bool, structure_admission: Option<bool>, jungle_returning: bool) -> bool {
+    alive && structure_admission.unwrap_or(true) && !jungle_returning
+}
+
+pub fn encode_disclosed_combat_relation(relation: DisclosedCombatRelation) -> Option<Vec<u8>> {
+    if !matches!(relation.faction_kind, 1..=5) || (relation.attackable && !relation.alive) {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(8);
+    bytes.push(DISCLOSED_COMBAT_RELATION_VERSION);
+    bytes.push(relation.faction_kind);
+    bytes.extend_from_slice(&relation.team_id.to_be_bytes());
+    bytes.push(u8::from(relation.attackable));
+    bytes.push(u8::from(relation.alive));
+    Some(bytes)
+}
+
+pub fn decode_disclosed_combat_relation(bytes: &[u8]) -> Option<DisclosedCombatRelation> {
+    if bytes.len() != 8 || bytes[0] != DISCLOSED_COMBAT_RELATION_VERSION || !matches!(bytes[1], 1..=5) {
+        return None;
+    }
+    if bytes[6] > 1 || bytes[7] > 1 { return None; }
+    let attackable = bytes[6] == 1;
+    let alive = bytes[7] == 1;
+    if attackable && !alive { return None; }
+    Some(DisclosedCombatRelation {
+        faction_kind: bytes[1],
+        team_id: i32::from_be_bytes(bytes[2..6].try_into().ok()?),
+        attackable,
+        alive,
+    })
+}
+
+/// Presentation admission. Native entity id 0 is a different namespace and is
+/// not a render id. A missing, malformed, dead, or non-hostile row refuses.
+/// The lowest owned living hero with a valid combat component is the source.
+pub fn disclosed_attack_target_admitted(
+    entities: &[(u64, &BTreeMap<u32, Vec<u8>>)],
+    source_player_id: u32,
+    target_render_id: u64,
+) -> bool {
+    if source_player_id == 0 || target_render_id == 0 { return false; }
+    let mut source: Option<(u64, DisclosedCombatRelation, bool)> = None;
+    for (render_id, components) in entities {
+        let Some((render, combat, hp_positive)) = disclosed_relation_row(components) else { continue };
+        if render.kind != 1 || render.owner_player_id != source_player_id { continue; }
+        let replace = source.as_ref().map(|(current, _, _)| render_id < current).unwrap_or(true);
+        if replace { source = Some((*render_id, combat, hp_positive)); }
+    }
+    let Some((_, source_combat, source_hp)) = source else { return false; };
+    if !source_combat.alive || !source_hp { return false; }
+    let Some(source_faction) = faction_from_disclosed_kind(source_combat.faction_kind, source_combat.team_id) else {
+        return false;
+    };
+    let Some((_, target_components)) = entities.iter().find(|(render_id, _)| *render_id == target_render_id) else {
+        return false;
+    };
+    let Some((_, target_combat, target_hp)) = disclosed_relation_row(target_components) else { return false; };
+    if !target_combat.alive || !target_combat.attackable || !target_hp { return false; }
+    if let Some(bytes) = target_components.get(&DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID) {
+        let Some(body) = crate::runtime::ward_transport::decode_disclosed_ward_body(bytes) else {
+            return false;
+        };
+        if !crate::runtime::ward_transport::disclosed_direct_attack_allowed(body.direct_attack) {
+            return false;
+        }
+    }
+    faction_from_disclosed_kind(target_combat.faction_kind, target_combat.team_id)
+        .is_some_and(|target_faction| source_faction.is_hostile_to(&target_faction))
+}
+
+fn disclosed_relation_row(components: &BTreeMap<u32, Vec<u8>>) -> Option<(DemoRenderState, DisclosedCombatRelation, bool)> {
+    let render = decode_demo_render_state(components.get(&DEMO_RENDER_COMPONENT_SCHEMA_ID)?)?;
+    let combat = decode_disclosed_combat_relation(components.get(&DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID)?)?;
+    let hp_positive = components.get(&DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID)
+        .and_then(|bytes| decode_disclosed_health(bytes))
+        .is_some_and(|(hp, _)| hp > 0);
+    Some((render, combat, hp_positive))
+}
+
+pub fn decode_disclosed_structure(bytes: &[u8]) -> Option<(u8,bool)> {
     if bytes.len()!=2 || !matches!(bytes[0],1|2) || bytes[1]>1 {return None;}
     Some((bytes[0],bytes[1]==1))
 }
@@ -114,6 +259,10 @@ pub(crate) fn encode_disclosed_baseline(components: &[(u32, Vec<u8>)]) -> Vec<u8
 
 /// Borrowed, bounded decoder for the committed baseline component framing.
 /// Validate the entire frame before any caller uses a partial component.
+pub fn disclosed_component<'a>(baseline: &'a [u8], schema: u32) -> Option<&'a [u8]> {
+    decode_disclosed_components(baseline)?.remove(&schema)
+}
+
 pub(crate) fn decode_disclosed_components(bytes: &[u8]) -> Option<BTreeMap<u32, &[u8]>> {
     let count = u32::from_be_bytes(bytes.get(..4)?.try_into().ok()?) as usize;
     let mut rest = bytes.get(4..)?;
@@ -130,7 +279,7 @@ pub(crate) fn decode_disclosed_components(bytes: &[u8]) -> Option<BTreeMap<u32, 
     rest.is_empty().then_some(result)
 }
 
-pub(crate) fn decode_disclosed_health(bytes: &[u8]) -> Option<(i64,i64)> {
+pub fn decode_disclosed_health(bytes: &[u8]) -> Option<(i64,i64)> {
     if bytes.len() != 40 { return None; }
     let hp = i64::from_be_bytes(bytes[..8].try_into().ok()?);
     let max_hp = i64::from_be_bytes(bytes[8..16].try_into().ok()?);
@@ -279,6 +428,10 @@ pub struct TeamVisibilityState {
     pub index: TeamVisibilityIndex,
     pub history: TeamVisibilityHistory,
     last_remember: BTreeMap<u64, RememberDisposition>,
+    #[cfg(test)]
+    pub(crate) witness_worker_count: usize,
+    #[cfg(test)]
+    pub(crate) witness_thread: Option<std::thread::ThreadId>,
 }
 
 impl TeamVisibilityState {
@@ -288,6 +441,10 @@ impl TeamVisibilityState {
             index: TeamVisibilityIndex::default(),
             history: TeamVisibilityHistory::new(history_capacity),
             last_remember: BTreeMap::new(),
+            #[cfg(test)]
+            witness_worker_count: 0,
+            #[cfg(test)]
+            witness_thread: None,
         }
     }
 
@@ -418,6 +575,23 @@ fn entity_visible_to_team(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn presentation_identity_is_bounded_and_canonical() {
+        use super::*;
+        for id in ["single_lane_tower", "single_lane_base", "single_lane_creep", "custom_42"] {
+            let bytes = encode_disclosed_presentation_identity(id).unwrap();
+            assert_eq!(decode_disclosed_presentation_identity(&bytes), Some(id));
+            for end in 0..bytes.len() { assert!(decode_disclosed_presentation_identity(&bytes[..end]).is_none()); }
+            let mut extra = bytes.clone(); extra.push(0);
+            assert!(decode_disclosed_presentation_identity(&extra).is_none());
+        }
+        for id in ["", "../escape", "not a template", "單位", "unit.path"] {
+            assert!(encode_disclosed_presentation_identity(id).is_none());
+        }
+        assert!(encode_disclosed_presentation_identity(&"a".repeat(96)).is_some());
+        assert!(encode_disclosed_presentation_identity(&"a".repeat(97)).is_none());
+        assert!(decode_disclosed_presentation_identity(&[2, 1, b'a']).is_none());
+    }
     use super::*;
 
     fn entity(scope: ReplicationScopeKind, owner_team: Option<u32>, x: i32) -> CommittedEntityView {
@@ -568,6 +742,113 @@ mod tests {
             }
         )));
     }
+
+    #[test]
+    fn disclosed_combat_relation_codec_rejects_malformed_bytes_and_emits_only_real_factions() {
+        use crate::runtime::*;
+        use omoba_sim::{Fixed64, Vec2};
+        use specs::{Builder, WorldExt};
+        assert!(decode_disclosed_combat_relation(&[]).is_none());
+        assert!(decode_disclosed_combat_relation(&[1, 1, 0, 0, 0, 1]).is_none());
+        assert!(decode_disclosed_combat_relation(&[2, 1, 0, 0, 0, 1, 1, 1]).is_none());
+        assert!(decode_disclosed_combat_relation(&[1, 0, 0, 0, 0, 1, 1, 1]).is_none());
+        assert!(decode_disclosed_combat_relation(&[1, 6, 0, 0, 0, 1, 1, 1]).is_none());
+        assert!(decode_disclosed_combat_relation(&[1, 2, 0, 0, 0, 2, 1, 0]).is_none());
+        assert!(encode_disclosed_combat_relation(DisclosedCombatRelation {
+            faction_kind: 2, team_id: 2, attackable: true, alive: false,
+        }).is_none());
+        assert!(!disclosed_attackable(false, Some(true), false));
+        assert!(!disclosed_attackable(true, Some(false), false));
+        assert!(!disclosed_attackable(true, Some(true), true));
+        assert!(disclosed_attackable(true, None, false));
+        let alive = encode_disclosed_combat_relation(DisclosedCombatRelation {
+            faction_kind: 2, team_id: -3, attackable: true, alive: true,
+        }).unwrap();
+        assert_eq!(decode_disclosed_combat_relation(&alive), Some(DisclosedCombatRelation {
+            faction_kind: 2, team_id: -3, attackable: true, alive: true,
+        }));
+        assert_eq!(
+            faction_from_disclosed_kind(5, 0).unwrap().faction_id,
+            FactionType::HostileNeutral
+        );
+
+        let mut world = specs::World::new();
+        world.register::<Pos>();
+        world.register::<Faction>();
+        world.register::<ReplicationScope>();
+        world.register::<StealthProfile>();
+        world.register::<VisibilityOverride>();
+        world.register::<RememberPolicy>();
+        world.register::<VisionSource>();
+        world.register::<Unit>();
+        world.register::<Hero>();
+        world.register::<PlayerOwner>();
+        world.register::<CProperty>();
+        world.register::<DemoPatrol>();
+        world.register::<TAttack>();
+        world.register::<Facing>();
+        world.register::<TurnSpeed>();
+        world.register::<CollisionRadius>();
+        world.register::<Inventory>();
+        world.register::<Gold>();
+        world.register::<ItemEffects>();
+        world.register::<Tower>();
+        world.register::<ScriptUnitTag>();
+        world.register::<PlacedWard>();
+        world.insert(VisionOccluderSet::default());
+        let property = |hp: i32| CProperty {
+            hp: Fixed64::from_i32(hp),
+            mhp: Fixed64::from_i32(10),
+            msd: Fixed64::ZERO,
+            def_physic: Fixed64::ZERO,
+            def_magic: Fixed64::ZERO,
+        };
+        let place = |x: i32| Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO));
+        let presentation_only = world.create_entity().with(place(1))
+            .with(Unit::new("custom_public_unit".into(), "Public".into(), UnitType::Creep)).build();
+        world.create_entity().with(place(2)).with(Faction::new(FactionType::Enemy, 2))
+            .with(property(10)).build();
+        world.create_entity().with(place(3)).with(Faction::new(FactionType::Ally, 1))
+            .with(property(0)).build();
+        let view = build_wave_b_read_view(&world, 4);
+        assert_eq!(view.entities.len(), 3);
+        let row = view.entities.iter().find(|row| row.canonical_id == crate::runtime::canonical_entity_id(presentation_only)).unwrap();
+        let components = decode_disclosed_components(&row.disclosed_baseline).unwrap();
+        assert_eq!(decode_disclosed_presentation_identity(&components[&DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID]), Some("custom_public_unit"));
+        assert!(!components.contains_key(&DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID));
+        assert!(world.read_storage::<ScriptUnitTag>().get(presentation_only).is_none(), "read view cannot enable scripting");
+        let mut saw_unfactioned = false;
+        let mut saw_enemy = false;
+        let mut saw_dead_ally = false;
+        for entity in view.entities.iter() {
+            let components = decode_disclosed_components(&entity.disclosed_baseline).unwrap();
+            let render = decode_demo_render_state(
+                components.get(&DEMO_RENDER_COMPONENT_SCHEMA_ID).copied().unwrap(),
+            ).unwrap();
+            let combat = components.get(&DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID).copied()
+                .map(|bytes| decode_disclosed_combat_relation(bytes).unwrap());
+            match render.x_raw {
+                raw if raw == Fixed64::from_i32(1).raw() => {
+                    assert!(combat.is_none(), "no faction stays unknown");
+                    saw_unfactioned = true;
+                }
+                raw if raw == Fixed64::from_i32(2).raw() => {
+                    assert_eq!(combat, Some(DisclosedCombatRelation {
+                        faction_kind: 2, team_id: 2, attackable: true, alive: true,
+                    }));
+                    saw_enemy = true;
+                }
+                raw if raw == Fixed64::from_i32(3).raw() => {
+                    assert_eq!(combat, Some(DisclosedCombatRelation {
+                        faction_kind: 4, team_id: 1, attackable: false, alive: false,
+                    }));
+                    saw_dead_ally = true;
+                }
+                other => panic!("unexpected disclosed x {other}"),
+            }
+        }
+        assert!(saw_unfactioned && saw_enemy && saw_dead_ally);
+    }
 }
 
 fn resolve_override(
@@ -606,7 +887,14 @@ pub fn run_team_wave_b_parallel(
 ) -> Vec<(u32, Vec<VisibilityTransition>)> {
     let mut results: Vec<_> = teams
         .par_iter_mut()
-        .map(|state| (state.team, state.resolve(view, transition_delay_ticks)))
+        .map(|state| {
+            #[cfg(test)]
+            {
+                state.witness_worker_count = rayon::current_num_threads();
+                state.witness_thread = Some(std::thread::current().id());
+            }
+            (state.team, state.resolve(view, transition_delay_ticks))
+        })
         .collect();
     results.sort_by_key(|(team, _)| *team);
     results
@@ -655,12 +943,16 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let inventories = world.read_storage::<crate::runtime::Inventory>();
     let gold = world.read_storage::<crate::runtime::Gold>();
     let item_effects = world.read_storage::<crate::runtime::ItemEffects>();
-    let moba = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
-    let structures = world.try_fetch::<crate::runtime::MobaMatch>()
-        .map(|state|state.disclosed_structure_states()).unwrap_or_default();
+    let match_state = world.try_fetch::<crate::runtime::MobaMatch>();
+    let moba = match_state.is_some();
+    let paused = world.try_fetch::<crate::runtime::GamePause>().is_some_and(|pause| pause.is_paused);
+    let unit_attack_states = match_state.as_ref().map(|state| state.disclosed_unit_attack_states(paused)).unwrap_or_default();
+    let structures = match_state.as_ref().map(|state| state.disclosed_structure_states()).unwrap_or_default();
+    let channels = match_state.as_ref().map(|state| state.disclosed_channel_states()).unwrap_or_default();
     let buffs = world.try_fetch::<crate::runtime::BuffStore>();
     let towers = world.read_storage::<crate::runtime::Tower>();
     let script_tags = world.read_storage::<crate::runtime::ScriptUnitTag>();
+    let placed_wards = world.read_storage::<crate::runtime::PlacedWard>();
 
     let mut committed_entities: Vec<_> = (&entities, &positions)
         .join()
@@ -693,6 +985,50 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             )];
             if let Some(state)=structures.get(&canonical_id) {
                 disclosed.push((DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID,state.to_vec()));
+            }
+            if let Some(faction) = factions.get(entity) {
+                if let Some(faction_kind) = faction_kind_discriminant(&faction.faction_id) {
+                    let alive = properties.get(entity).is_some_and(|property| property.hp > Fixed64::ZERO);
+                    let attackable = match match_state.as_ref() {
+                        Some(state) => alive && state.current_match_target_attackable(entity),
+                        None => disclosed_attackable(
+                            alive,
+                            structures.get(&canonical_id).map(|state| state[1] == 1),
+                            false,
+                        ),
+                    };
+                    let relation = DisclosedCombatRelation {
+                        faction_kind,
+                        team_id: faction.team_id,
+                        attackable,
+                        alive,
+                    };
+                    if let Some(bytes) = encode_disclosed_combat_relation(relation) {
+                        disclosed.push((DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, bytes));
+                    }
+                }
+            }
+            if let Some(ward) = placed_wards.get(entity) {
+                let generation = entity.gen().id() as u32;
+                let policy = match_state.as_ref().and_then(|state| state.ward_policies.get(&canonical_id));
+                let (direct, automatic) = if let Some(policy) = policy {
+                    (
+                        crate::runtime::ward_transport::direct_attack_token(policy.direct_attack),
+                        crate::runtime::ward_transport::automatic_acquisition_token(policy.automatic_acquisition),
+                    )
+                } else if let Some(row) = omoba_template_ids::TRINKET_CATALOG.iter().find(|row| row.catalog_id == ward.catalog_id) {
+                    (
+                        crate::runtime::ward_transport::direct_attack_token(row.direct_attack),
+                        crate::runtime::ward_transport::automatic_acquisition_token(row.automatic_acquisition),
+                    )
+                } else {
+                    (0, 0)
+                };
+                if let Some(bytes) = crate::runtime::ward_transport::encode_disclosed_ward_body(
+                    ward.catalog_id, generation, direct, automatic,
+                ) {
+                    disclosed.push((DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID, bytes));
+                }
             }
             if let Some(property) = properties.get(entity) {
                 disclosed.push((
@@ -734,9 +1070,20 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 disclose_json!(item_effects, DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID);
             }
             disclose_json!(script_tags, DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID);
-            if moba && heroes.get(entity).is_some() {
-                let state = attacks.get(entity).map(crate::runtime::attack_visual_state::AttackVisualState::from_attack).unwrap_or_default();
+            // Unit identity is already public for this disclosed entity. Do not
+            // synthesize ScriptUnitTag: that component also enables callbacks.
+            let presentation_id = script_tags.get(entity).map(|tag| tag.unit_id.as_str())
+                .filter(|id| !id.is_empty())
+                .or_else(|| units.get(entity).map(|unit| unit.id.as_str()));
+            if let Some(bytes) = presentation_id.and_then(encode_disclosed_presentation_identity) {
+                disclosed.push((DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, bytes));
+            }
+            if moba && (heroes.get(entity).is_some() || attacks.get(entity).is_some() || unit_attack_states.contains_key(&crate::runtime::canonical_entity_id(entity))) {
+                let state = unit_attack_states.get(&crate::runtime::canonical_entity_id(entity)).copied()
+                    .unwrap_or_else(|| attacks.get(entity).map(crate::runtime::attack_visual_state::AttackVisualState::from_attack).unwrap_or_default());
                 disclosed.push((crate::runtime::attack_visual_state::SCHEMA_ID, state.encode().expect("bounded resolved attack timing")));
+                let channel = channels.get(&canonical_id).copied().unwrap_or_default();
+                disclosed.push((crate::runtime::channel_visual_state::SCHEMA_ID, channel.encode()));
             }
             if moba && heroes.get(entity).is_some() && owners.get(entity).is_some() && team != 0 {
                 let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualState::from_store(store,entity))

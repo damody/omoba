@@ -1,0 +1,1 @@
+{"authority_ack":false,"exit_code":0,"expected_tests":["Om.Editor.WindowVideoContainer","Om.Runtime.JsonlObservation"],"native":{"count":2,"failed":0,"not_run":0,"succeeded":2,"succeeded_with_warnings":0,"warnings":0},"rhi":"d3d12","scope":"affected native subset; unrelated suite and captures reused explicitly","simulations_executed":0,"success":true}

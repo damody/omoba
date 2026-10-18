@@ -157,7 +157,12 @@ pub fn run_script_dispatch(
         let mut visual_events = Vec::new();
         // Only serial queue order may advance managed mana/CD state. Never use
         // parallel hook scheduling or the immutable ECS cache as a balance ledger.
-        for (event_ordinal, ev) in events.into_iter().enumerate() {
+        for (event_ordinal, mut ev) in events.into_iter().enumerate() {
+            // Registry target type is the cast contract. Client input can attach a
+            // point, including the origin, or a stale entity before this queue is
+            // drained. Drop that payload only for TargetType::None, and do it
+            // before rank admission, mana reservation, cues, unit hooks, or ABI.
+            normalize_authoritative_no_target(&mut ev, registry);
             let invocation_entity = event_invocation_entity(&ev);
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
             // Capture before handler mutation, from the same serial ledger as
@@ -268,6 +273,9 @@ pub fn run_script_dispatch(
     )
     .entered();
     if SCRIPT_ON_TICK_PARALLEL {
+        let owned_pool = world
+            .try_fetch::<crate::runtime::OwnedEcsPool>()
+            .map(|pool| std::sync::Arc::clone(&pool.0));
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let managed=(&cache.hero).join().any(|hero|hero.mana_pool.is_some());
         let results: Vec<_> = if managed {
@@ -277,9 +285,16 @@ pub fn run_script_dispatch(
                 dispatch_tick(&cache,registry,*ent,uid,dt,event_count as u64+ordinal as u64,
                     rng_seed,Some(&mut cast_heroes))).collect()
         } else {
-            tagged.par_iter().enumerate().map(|(ordinal,(ent,uid))|
+            // Dispatcher::dispatch has already returned. A bare par_iter would
+            // use the process-global pool. Harnesses with no world pool keep
+            // that previous context; production worlds install OwnedEcsPool.
+            let parallel = || tagged.par_iter().enumerate().map(|(ordinal,(ent,uid))|
                 dispatch_tick(&cache,registry,*ent,uid,dt,event_count as u64+ordinal as u64,
-                    rng_seed,None)).collect()
+                    rng_seed,None)).collect::<Vec<_>>();
+            match owned_pool.as_ref() {
+                Some(pool) => pool.install(parallel),
+                None => parallel(),
+            }
         };
         drop(cache);
         let mut global_outcomes = world.write_resource::<Vec<crate::comp::Outcome>>();
@@ -578,6 +593,22 @@ fn skill_target_entity(target: &SkillTarget) -> Option<Entity> {
 
 fn action_instance_id(entity: Entity, tick: u64) -> u64 {
     (u64::from(entity.id()) << 32) | tick
+}
+
+/// Authoritative no-target abilities ignore client point and entity payloads.
+/// Unknown ids are left unchanged so the existing missing-handler rejection
+/// still runs. Point and Unit definitions keep the supplied target, and a
+/// point at (0, 0) stays a point.
+fn normalize_authoritative_no_target(event: &mut ScriptEvent, registry: &ScriptRegistry) {
+    let ScriptEvent::SkillCast { skill_id, target, .. } = event else {
+        return;
+    };
+    let Some((definition, _)) = registry.get_ability(skill_id) else {
+        return;
+    };
+    if definition.target_type == crate::ability_meta::TargetType::None {
+        *target = SkillTarget::None;
+    }
 }
 
 /// Reserve against the ordered event ledger without mutating ECS. The candidate
@@ -1401,5 +1432,128 @@ mod tests {
             tower_ability_record_status(None, "test_active", 7),
             TowerAbilityRecordStatus::MissingTower
         );
+    }
+}
+
+#[cfg(test)]
+mod worker_pool_ownership {
+    use super::run_script_dispatch;
+    use abi_stable::sabi_trait::prelude::TD_Opaque;
+    use abi_stable::std_types::RStr;
+    use omb_script_abi::script::{UnitScript, UnitScript_TO};
+    use omb_script_abi::types::{EntityHandle, Fixed64};
+    use omb_script_abi::world::GameWorldDyn;
+    use crate::runtime::{OwnedEcsPool, ScriptRegistry, ScriptUnitTag, StateInitializer};
+    use rayon::ThreadPoolBuilder;
+    use specs::{Builder, WorldExt};
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    struct Hit {
+        workers: Option<usize>,
+        on_pool: Option<usize>,
+        thread: std::thread::ThreadId,
+    }
+
+    struct PoolProbe {
+        pool: Arc<rayon::ThreadPool>,
+        hits: Arc<Mutex<Vec<Hit>>>,
+    }
+
+    impl UnitScript for PoolProbe {
+        fn unit_id(&self) -> RStr<'_> {
+            "pool_probe".into()
+        }
+
+        fn on_tick(&self, _: EntityHandle, _: Fixed64, _: &mut GameWorldDyn<'_>) {
+            let on_pool = self.pool.current_thread_index();
+            // Outside this pool, current_num_threads() would initialize the global pool.
+            let workers = on_pool.map(|_| rayon::current_num_threads());
+            self.hits.lock().expect("probe lock").push(Hit {
+                workers,
+                on_pool,
+                thread: std::thread::current().id(),
+            });
+        }
+    }
+
+    fn scoped_pool() -> Arc<rayon::ThreadPool> {
+        Arc::new(
+            ThreadPoolBuilder::new()
+                .num_threads(2)
+                .thread_name(|index| format!("script-budget-{index}"))
+                .build()
+                .expect("scoped script pool"),
+        )
+    }
+
+    fn dispatch_probes(pool: &Arc<rayon::ThreadPool>, tagged: usize, mana: bool) -> Vec<Hit> {
+        let mut world = StateInitializer::setup_standard_ecs_world(pool);
+        {
+            let stored = world.read_resource::<OwnedEcsPool>();
+            assert!(Arc::ptr_eq(pool, &stored.0));
+        }
+        let hits = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = ScriptRegistry::new();
+        registry.insert_unit_for_test(
+            "pool_probe",
+            UnitScript_TO::from_value(
+                PoolProbe {
+                    pool: Arc::clone(pool),
+                    hits: Arc::clone(&hits),
+                },
+                TD_Opaque,
+            ),
+        );
+        for _ in 0..tagged {
+            world
+                .create_entity()
+                .with(ScriptUnitTag {
+                    unit_id: "pool_probe".to_string(),
+                })
+                .build();
+        }
+        if mana {
+            let mut hero = crate::comp::Hero::new("probe".into(), "Probe".into(), String::new());
+            hero.mana_pool = Some(
+                crate::runtime::ability_runtime::ManaPool::full(omoba_sim::Fixed64::from_i32(100))
+                    .expect("mana pool"),
+            );
+            world.create_entity().with(hero).build();
+        }
+        run_script_dispatch(&mut world, &registry, 3, Fixed64::ZERO);
+        let collected = {
+            let mut guard = hits.lock().expect("probe lock");
+            let collected: Vec<Hit> = guard.drain(..).collect();
+            collected
+        };
+        collected
+    }
+
+    #[test]
+    fn parallel_on_tick_uses_world_pool() {
+        let pool = scoped_pool();
+        let hits = dispatch_probes(&pool, 4, false);
+        assert_eq!(hits.len(), 4);
+        let pool_threads: HashSet<_> = pool
+            .broadcast(|_| std::thread::current().id())
+            .into_iter()
+            .collect();
+        assert_eq!(pool_threads.len(), pool.current_num_threads());
+        for hit in &hits {
+            let index = hit.on_pool.expect("on_tick ran on the world pool");
+            assert!(index < pool.current_num_threads());
+            assert_eq!(hit.workers, Some(pool.current_num_threads()));
+            assert!(pool_threads.contains(&hit.thread));
+        }
+    }
+
+    #[test]
+    fn managed_on_tick_stays_off_world_pool() {
+        let pool = scoped_pool();
+        let hits = dispatch_probes(&pool, 1, true);
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].on_pool.is_none());
+        assert!(hits[0].workers.is_none());
     }
 }

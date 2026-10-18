@@ -4,6 +4,7 @@ package.path = source:match('^(.*)[/\\]') .. '/?.lua;' .. package.path
 local b = require('_bootstrap')
 local path,json = b.lib('path'),b.lib('json')
 local validation = require('ue_blueprint_validation')
+local blueprints = require('ue_blueprint_assets')
 local assets, seen, parents = {}, {}, {}
 local create_missing = false
 local function add(asset)
@@ -44,46 +45,65 @@ local ordinal=0
 local function call(tool,args)
   ordinal=ordinal+1
   local file=path.join(work,'op-'..ordinal..'-'..tool..'.json')
+  assert(not path.exists(file), 'refusing stale response: '..file)
   local result=b.lib('process').run(b.lib('platform').lua_executable,{
     path.join(b.root,'scripts/ue_mcp.lua'),'--tool',tool,'--arguments',json.encode(json.object(args)),'--out',file,
   },{cwd=b.root,check=false})
-  assert(result.exit_code==0, tool..' failed; response: '..file..'; '..result.stderr)
-  for _,content in ipairs(json.read(file).content or {}) do
-    if content.type=='text' then
-      local parsed,value=pcall(json.decode,content.text)
-      if parsed and type(value)=='table' then return value end
-    end
+  local value
+  if path.is_file(file) then
+    local parsed,envelope=pcall(json.read,file)
+    if parsed then value=blueprints.unwrap_tool(envelope) end
   end
-  error('missing structured result: '..tool)
+  if result.exit_code~=0 or not value or blueprints.is_explicit_negative(value) then
+    local detail=value and blueprints.negative_message(value) or result.stderr
+    error(tool..' failed; response: '..file..'; '..tostring(detail))
+  end
+  return value
 end
 local ok, failure = xpcall(function()
-  assert(not call('get_pie_status',{}).pie_running,'stop PIE before compiling or creating assets')
+  local pie=call('get_pie_status',{})
+  blueprints.require_idle(pie)
+  local provider
+  if create_missing then
+    ordinal=ordinal+1
+    local listed_file=path.join(work,'op-'..ordinal..'-tools-list.json')
+    assert(not path.exists(listed_file), 'refusing stale tools/list response: '..listed_file)
+    local listed=b.lib('process').run(b.lib('platform').lua_executable,{
+      path.join(b.root,'scripts/ue_mcp.lua'),'--list','--out',listed_file,
+    },{cwd=b.root,check=false})
+    assert(listed.exit_code==0, 'tools/list failed; response: '..listed_file..'; '..listed.stderr)
+    provider=blueprints.select_provider(json.read(listed_file))
+  end
   for index,asset in ipairs(assets) do
     local pending={asset=asset,success=false,status='pending',diagnostics={}}
     report.assets[index]=pending
     json.write(path.join(work,'report.json'),report,true)
-    local created=false
+    local result
     if create_missing and parents[asset] then
-      if not call('check_asset_exists',{asset_path=asset}).exists then
-        local folder,name=asset:match('^(.*)/([^/]+)$')
-        local value=call('create_asset',{asset_type='Blueprint',name=name,save_path=folder,
-          options={parent_class='/Script/OmGenerated.'..parents[asset]}})
-        assert(validation.package_path(value.asset_path)==asset,'creation returned another asset')
-        created=true
-      end
-      local skeleton=call('get_blueprint_skeleton',{blueprint_path=asset})
-      assert(skeleton.parent_class==parents[asset], 'refusing mismatched existing Blueprint parent: '..asset)
+      local outcome=blueprints.bootstrap(provider,asset,parents[asset],{
+        call=call,
+        on_created=function()
+          pending.created=true
+          json.write(path.join(work,'report.json'),report,true)
+        end,
+        compile=function(created)
+          local compiled=validation.compile(b,asset,path.join(work,index..'-compile.json'))
+          compiled.created=created
+          report.assets[index]=compiled
+          json.write(path.join(work,'report.json'),report,true)
+          return compiled
+        end,
+      })
+      result=outcome.compile
+      if outcome.saved then result.saved=true end
+      json.write(path.join(work,'report.json'),report,true)
+    else
+      result=validation.compile(b,asset,path.join(work,index..'-compile.json'))
+      result.created=false
+      report.assets[index]=result
+      json.write(path.join(work,'report.json'),report,true)
     end
-    local result = validation.compile(b,asset,path.join(work,index..'-compile.json'))
-    result.created=created
-    report.assets[index] = result
-    json.write(path.join(work,'report.json'),report,true)
-    assert(result.success, asset .. ': ' .. table.concat(result.diagnostics,'; '))
-    if created then
-      local saved=call('save_assets',{asset_paths={asset}})
-      assert(saved.failed==0 and saved.saved==1,'asset save incomplete: '..asset)
-      result.saved=true
-    end
+    assert(result.success, asset .. ': ' .. table.concat(result.diagnostics or {},'; '))
   end
   report.success = true
 end,debug.traceback)

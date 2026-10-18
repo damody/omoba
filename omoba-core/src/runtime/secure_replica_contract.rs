@@ -80,13 +80,17 @@ mod terrain_decode_tests {
 
 /// Component schemas that are safe to materialize in a team-filtered replica.
 pub fn secure_replica_component_allowlist() -> BTreeSet<u32> {
-    BTreeSet::from([
+    let schemas = [
         crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_WARD_BODY_COMPONENT_SCHEMA_ID,
+        crate::runtime::DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID,
         crate::runtime::buff_visual_state::SCHEMA_ID,
         crate::runtime::attack_visual_state::SCHEMA_ID,
+        crate::runtime::channel_visual_state::SCHEMA_ID,
         crate::runtime::DISCLOSED_DEMO_PATROL_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID,
@@ -98,7 +102,10 @@ pub fn secure_replica_component_allowlist() -> BTreeSet<u32> {
         crate::runtime::DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID,
         crate::runtime::DISCLOSED_ITEM_EFFECTS_COMPONENT_SCHEMA_ID,
-    ])
+    ];
+    let unique = schemas.into_iter().collect::<BTreeSet<_>>();
+    assert_eq!(unique.len(), schemas.len(), "disclosed component schema IDs must be unique");
+    unique
 }
 
 /// Resource schemas that are safe to materialize in a team-filtered replica.

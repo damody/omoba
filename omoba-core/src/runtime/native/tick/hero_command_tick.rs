@@ -1,9 +1,14 @@
 use crate::comp::*;
+use crate::runtime::combat_controls::{within_raw_range, AcquisitionIntent};
+use crate::runtime::native::combat_acquisition::{
+    acquire, assess_direct_target, AcquisitionRequest, CombatAcquisitionView, DirectStatus,
+    DisclosureContext,
+};
 use crate::tick::hero_move_tick::path_hits_regions;
 use omoba_core::runtime::ability_runtime::BuffStore;
 use omoba_sim::{fixed::SCALE, Fixed64, Vec2 as SimVec2};
-use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, WriteStorage};
-use std::collections::{BTreeMap, VecDeque};
+use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, WriteStorage};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const PATH_GRID_WORLD_UNITS: i64 = 64;
 const PATH_GRID_RAW: i64 = PATH_GRID_WORLD_UNITS * SCALE;
@@ -12,6 +17,10 @@ const MAX_PATH_GRID_SPAN: i64 = 96;
 
 #[derive(SystemData)]
 pub struct HeroCommandData<'a> {
+    dt: Read<'a, DeltaTime>,
+    tick: Read<'a, Tick>,
+    directional_steps: Option<Write<'a, crate::runtime::input_scheme::DirectionalStepPlan>>,
+    admitted_directions: Option<Read<'a, crate::runtime::input_scheme::AdmittedDirectionalSteps>>,
     entities: Entities<'a>,
     heroes: ReadStorage<'a, Hero>,
     pos: ReadStorage<'a, Pos>,
@@ -24,6 +33,16 @@ pub struct HeroCommandData<'a> {
     is_buildings: ReadStorage<'a, IsBuilding>,
     queues: WriteStorage<'a, HeroCommandQueue>,
     move_targets: WriteStorage<'a, MoveTarget>,
+    properties: ReadStorage<'a, CProperty>,
+    owners: ReadStorage<'a, PlayerOwner>,
+    visibility: Option<Read<'a, crate::runtime::TeamVisibilityRuntime>>,
+    moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    disclosed_priority: Option<Read<'a, crate::runtime::DisclosedMovementPriority>>,
+    admitted: Option<Read<'a, crate::runtime::native::combat_acquisition::AdmittedCombatPreferences>>,
+    attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
+    disclosed_wards: Option<Read<'a, crate::runtime::filtered_specs::DisclosedWardCandidates>>,
+    replica_identities: ReadStorage<'a, crate::runtime::ReplicaIdentity>,
+    ward_bodies: ReadStorage<'a, crate::runtime::DisclosedWardBody>,
 }
 
 #[derive(Clone, Debug)]
@@ -31,6 +50,7 @@ pub(crate) struct HeroCommandDecision {
     entity: specs::Entity,
     queue: HeroCommandQueue,
     next_waypoint: Option<SimVec2>,
+    direction: Option<SimVec2>,
 }
 
 #[derive(Default)]
@@ -43,28 +63,86 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
         let arrive_eps = Fixed64::from_raw(768);
-        let read = HeroCommandRead {
-            pos: &data.pos,
-            factions: &data.factions,
-            attacks: &data.attacks,
-            radii: &data.radii,
-            searcher: &*data.searcher,
-            regions: &*data.regions,
-            buff_store: &*data.buff_store,
-            is_buildings: &data.is_buildings,
-        };
-
-        let mut decisions: Vec<_> = (&data.entities, &data.heroes, &data.pos, &data.queues)
+        let hero_ids: BTreeSet<specs::Entity> = (&data.entities, &data.heroes)
             .join()
-            .map(|(entity, _hero, pos, queue)| {
-                decide_hero_command(&read, entity, pos.0, queue.clone(), arrive_eps)
-            })
+            .map(|(entity, _hero)| entity)
             .collect();
+        let mut decisions: Vec<_> = {
+            let disclosure = DisclosureContext::resolve(
+                data.disclosed_priority.is_some(),
+                data.moba.is_some(),
+                data.visibility.as_deref(),
+            );
+            let acquisition = CombatAcquisitionView {
+                entities: &data.entities,
+                positions: &data.pos,
+                health: &data.properties,
+                factions: &data.factions,
+                owners: &data.owners,
+                heroes: &hero_ids,
+                searcher: &*data.searcher,
+                disclosure,
+                admitted: data.admitted.as_deref(),
+                attack_gate: data.attack_gate.as_deref(),
+                match_state: data.moba.as_deref(),
+                disclosed_wards: data.disclosed_wards.as_deref(),
+                replica_identities: &data.replica_identities,
+                ward_bodies: &data.ward_bodies,
+            };
+            let read = HeroCommandRead {
+                pos: &data.pos,
+                factions: &data.factions,
+                attacks: &data.attacks,
+                radii: &data.radii,
+                searcher: &*data.searcher,
+                regions: &*data.regions,
+                buff_store: &*data.buff_store,
+                is_buildings: &data.is_buildings,
+            };
+            (&data.entities, &data.heroes, &data.pos)
+                .join()
+                .filter_map(|(entity, _hero, pos)| {
+                    let queue = data.queues.get(entity);
+                    let direction = data.owners.get(entity)
+                        .and_then(|owner| data.moba.as_ref().map(|state| state.direction_for_source(owner.player_id, entity)))
+                        .or_else(|| data.admitted_directions.as_ref().filter(|steps| steps.tick == data.tick.0)
+                            .and_then(|steps| steps.rows.get(&entity)).map(|step| step.direction))
+                        .unwrap_or(SimVec2::ZERO);
+                    if direction != SimVec2::ZERO && data.properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
+                        && !data.moba.as_ref().is_some_and(|state| state.is_recalling(entity))
+                    {
+                        let stats = crate::runtime::ability_runtime::UnitStats::from_refs(&*data.buff_store, data.is_buildings.get(entity).is_some());
+                        let speed = stats.final_move_speed(data.properties.get(entity).expect("checked hero property").msd, entity);
+                        return Some(decide_keyboard_direction(&read, &acquisition, entity, pos.0, queue.cloned().unwrap_or_default(),
+                            direction, speed * data.dt.0, data.dt.0, arrive_eps));
+                    }
+                    queue.map(|queue| decide_hero_command(
+                        &read,
+                        &acquisition,
+                        entity,
+                        pos.0,
+                        queue.clone(),
+                        arrive_eps,
+                    ))
+                })
+                .collect()
+        };
         decisions.sort_by_key(|decision| decision.entity.id());
+
+        if let Some(plan)=data.directional_steps.as_mut() {
+            plan.tick=data.tick.0;plan.directions.clear();
+            for decision in &decisions {
+                if let Some(direction)=decision.direction {plan.directions.insert(decision.entity,direction);}
+            }
+        }
 
         for decision in decisions {
             if let Some(queue) = data.queues.get_mut(decision.entity) {
                 *queue = decision.queue;
+            } else {
+                // Keep an empty queue after the first held direction so that
+                // neutral/expired leases retire their previous MoveTarget.
+                let _ = data.queues.insert(decision.entity, decision.queue);
             }
             match decision.next_waypoint {
                 Some(target) => {
@@ -80,8 +158,46 @@ impl<'a> System<'a> for Sys {
     }
 }
 
+/// A held direction never invokes path finding or invents a remote MoveTo.
+/// Explicit attacks retain their legal target; windup/impact pause movement,
+/// while cooldown/backswing permit movement. Point-click behavior is unchanged.
+fn decide_keyboard_direction(
+    data: &HeroCommandRead<'_, '_>, acquisition: &CombatAcquisitionView<'_, '_>,
+    entity: specs::Entity, pos: SimVec2, mut queue: HeroCommandQueue,
+    direction: SimVec2, step: Fixed64, dt: Fixed64, arrive_eps: Fixed64,
+) -> HeroCommandDecision {
+    if let Some(HeroCommand::AttackTarget {target,..})=queue.active {
+        if !matches!(assess_direct_target(acquisition,entity,target),Some(DirectStatus::Legal{..})) {
+            queue.advance();
+        }
+    }
+    // Explicit point commands and Hold keep their existing arbitration. A new
+    // directional press retires these through the authenticated input router.
+    if queue.active.is_some() && !matches!(queue.active,Some(HeroCommand::AttackTarget{..})) {
+        return decide_hero_command(data,acquisition,entity,pos,queue,arrive_eps);
+    }
+    let mut hold = false;
+    if let Some(attack)=data.attacks.get(entity) {
+        hold=attack.asd_count < Fixed64::ZERO;
+        if let Some(HeroCommand::AttackTarget{target,..})=queue.active {
+            let stats=crate::runtime::ability_runtime::UnitStats::from_refs(&*data.buff_store,data.is_buildings.get(entity).is_some());
+            let multiplier=stats.final_attack_speed_mult(entity).max(Fixed64::from_raw(10));
+            let mut clock=attack.asd_count;
+            let ready=crate::tick::attack_phase::advance_attack_phase(&mut clock,dt,attack.asd.v/multiplier)
+                == crate::tick::attack_phase::AttackPhaseStep::Ready;
+            if ready {
+                hold |= acquire(acquisition,AcquisitionRequest{source:entity,intent:AcquisitionIntent::AttackTarget,
+                    command_point:None,range:stats.final_attack_range(attack.range.v,entity),explicit_target:Some(target)}).is_some();
+            }
+        }
+    }
+    let next_waypoint=(!hold && step>Fixed64::ZERO).then(||pos+direction*(step*Fixed64::from_i32(2)+Fixed64::ONE));
+    HeroCommandDecision{entity,queue,direction:next_waypoint.map(|_|direction),next_waypoint}
+}
+
 fn decide_hero_command(
     data: &HeroCommandRead<'_, '_>,
+    acquisition: &CombatAcquisitionView<'_, '_>,
     entity: specs::Entity,
     pos: SimVec2,
     mut queue: HeroCommandQueue,
@@ -118,7 +234,7 @@ fn decide_hero_command(
                     queue.advance();
                     continue;
                 }
-                if attack_move_should_hold(data, entity, pos) {
+                if attack_move_should_hold(acquisition, data, entity, target) {
                     next_waypoint = None;
                     break;
                 }
@@ -139,8 +255,14 @@ fn decide_hero_command(
                 target,
                 chase_origin,
             } => {
-                let Some(step) =
-                    resolve_attack_target_command(data, entity, pos, target, chase_origin)
+                let Some(step) = resolve_attack_target_command(
+                    acquisition,
+                    data,
+                    entity,
+                    pos,
+                    target,
+                    chase_origin,
+                )
                 else {
                     queue.advance();
                     continue;
@@ -182,6 +304,7 @@ fn decide_hero_command(
         entity,
         queue,
         next_waypoint,
+        direction: None,
     }
 }
 
@@ -204,45 +327,55 @@ struct HeroCommandRead<'a, 'b> {
     is_buildings: &'b ReadStorage<'a, IsBuilding>,
 }
 
+fn attack_phase_locks_animation(data: &HeroCommandRead<'_, '_>, entity: specs::Entity) -> bool {
+    matches!(
+        data.attacks.get(entity).map(|attack| attack.attack_phase),
+        Some(AttackSequencePhase::Windup | AttackSequencePhase::Backswing)
+    )
+}
+
 fn attack_move_should_hold(
+    acquisition: &CombatAcquisitionView<'_, '_>,
     data: &HeroCommandRead<'_, '_>,
     entity: specs::Entity,
-    pos: SimVec2,
+    command_point: SimVec2,
 ) -> bool {
-    if matches!(
-        data.attacks.get(entity).map(|a| a.attack_phase),
-        Some(AttackSequencePhase::Windup | AttackSequencePhase::Backswing)
-    ) {
+    if attack_phase_locks_animation(data, entity) {
         return true;
     }
     let Some(range) = effective_attack_range(data, entity) else {
         return false;
     };
-    find_hostile_in_range(data, entity, pos, range).is_some()
+    acquire(
+        acquisition,
+        AcquisitionRequest {
+            source: entity,
+            intent: AcquisitionIntent::AttackMove,
+            command_point: Some(command_point),
+            range,
+            explicit_target: None,
+        },
+    )
+    .is_some()
 }
 
 fn resolve_attack_target_command(
+    acquisition: &CombatAcquisitionView<'_, '_>,
     data: &HeroCommandRead<'_, '_>,
     entity: specs::Entity,
     pos: SimVec2,
     target: specs::Entity,
     chase_origin: Option<SimVec2>,
 ) -> Option<AttackTargetStep> {
-    let target_pos = data.pos.get(target)?.0;
-    let source_faction = data.factions.get(entity)?;
-    let target_faction = data.factions.get(target)?;
-    if !source_faction.is_hostile_to(target_faction) {
+    let status = assess_direct_target(acquisition, entity, target)?;
+    let DirectStatus::Legal { position: target_pos } = status else {
         return None;
-    }
-    if matches!(
-        data.attacks.get(entity).map(|a| a.attack_phase),
-        Some(AttackSequencePhase::Windup | AttackSequencePhase::Backswing)
-    ) {
+    };
+    if attack_phase_locks_animation(data, entity) {
         return Some(AttackTargetStep::Hold);
     }
     let attack_range = effective_attack_range(data, entity)?;
-    let distance = (target_pos - pos).length();
-    if distance <= attack_range {
+    if within_raw_range(pos, target_pos, attack_range) {
         return Some(AttackTargetStep::Hold);
     }
     let origin = chase_origin.unwrap_or(pos);
@@ -263,44 +396,6 @@ fn effective_attack_range(
         data.is_buildings.get(entity).is_some(),
     );
     Some(stats.final_attack_range(atk.range.v, entity))
-}
-
-fn find_hostile_in_range(
-    data: &HeroCommandRead<'_, '_>,
-    entity: specs::Entity,
-    pos: SimVec2,
-    attack_range: Fixed64,
-) -> Option<specs::Entity> {
-    let source_faction = data.factions.get(entity)?;
-    let pos_vek = vek::Vec2::new(pos.x.to_f32_for_render(), pos.y.to_f32_for_render());
-    let attack_range_f = attack_range.to_f32_for_render();
-    let search_range_f = attack_range_f + 50.0;
-    let (mut creep_targets, _) =
-        data.searcher
-            .creep
-            .search_nn_two_radii(pos_vek, attack_range_f, search_range_f, 10);
-    let (tower_targets, _) =
-        data.searcher
-            .tower
-            .search_nn_two_radii(pos_vek, attack_range_f, search_range_f, 10);
-    creep_targets.extend(tower_targets);
-    creep_targets.sort_by(|a, b| {
-        a.dis
-            .partial_cmp(&b.dis)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.e.id().cmp(&b.e.id()))
-    });
-    let range_sq = attack_range_f * attack_range_f;
-    creep_targets
-        .into_iter()
-        .filter(|target| target.dis <= range_sq)
-        .find(|target| {
-            data.factions
-                .get(target.e)
-                .map(|f| source_faction.is_hostile_to(f))
-                .unwrap_or(false)
-        })
-        .map(|target| target.e)
 }
 
 fn plan_next_waypoint(
@@ -742,5 +837,31 @@ mod tests {
             SimVec2::new(Fixed64::from_i32(128), Fixed64::ZERO),
         )
         .is_none());
+    }
+}
+
+#[cfg(test)]
+mod acquisition_consumer {
+    use crate::comp::HeroCommand;
+    use crate::runtime::native::combat_acquisition::test_support::{
+        away_from, held, CombatFixture, IndexedBody,
+    };
+
+    #[test]
+    fn attack_move_hold_reaches_the_enemy_beyond_ten_nearer_allies() {
+        let mut fix = CombatFixture::legacy();
+        for index in 1..=12 {
+            fix.spawn_units(IndexedBody::Creep, index, 1, 100);
+        }
+        let enemy = fix.spawn_units(IndexedBody::Creep, 24, 2, 100);
+        fix.command(HeroCommand::AttackMove { pos: away_from(0) });
+        assert_eq!(fix.attack_targets(), vec![enemy]);
+        fix.ready();
+        let observation = fix.run_command();
+        assert!(held(&observation));
+        assert!(matches!(
+            observation.active,
+            Some(HeroCommand::AttackMove { .. })
+        ));
     }
 }

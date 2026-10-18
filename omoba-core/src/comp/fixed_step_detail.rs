@@ -16,6 +16,7 @@ pub fn phase_key(phase: P) -> &'static str {
         P::ItemUses => "item_uses_ns",
         P::AbilityUpgrades => "ability_upgrades_ns",
         P::AbilityCasts => "ability_casts_ns",
+        P::SummonerCasts => "summoner_casts_ns",
         P::Moves => "moves_ns",
         P::PreScriptOutcomes => "pre_script_outcomes_ns",
         P::TowerUpgrades => "tower_upgrades_ns",

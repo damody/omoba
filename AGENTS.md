@@ -8,7 +8,7 @@ This file provides guidance to Codex when working with code in this repository.
 
 依使用者 2026-10-05 指示，`omfue` 是唯一需要維護的前端。`omfx`／Fyrox 保留為歷史程式，不再新增功能、修復相容問題、編譯驗證或納入驗收。共用 schema／Rust API 變更只維護正式後端與 Unreal 消費端，不為 `omfx` 補接線；此決定不授權刪除其檔案或 submodule。
 
-正式建置涉及 `scripts/`、`omb/`、`omoba-client-runtime/` 與 `omfue` 的 Rust／Unreal 元件，不包含歷史 `omfx` workspace。所有工作流邏輯使用 Lua 5.4，固定由 `D:\code\omoba\tools\lua\lua.exe` 執行；常用入口保留根目錄薄 `.bat` wrapper。
+正式建置涉及 `scripts/`、`omb/`、`omoba-client-runtime/` 與 `omfue` 的 Rust／Unreal 元件，不包含歷史 `omfx` workspace。所有工作流邏輯使用 Lua 5.4，固定由實際 clone 根目錄的 `tools\lua\lua.exe` 執行；常用入口保留根目錄薄 `.bat` wrapper。
 
 ## Toolchain
 
@@ -28,7 +28,7 @@ This file provides guidance to Codex when working with code in this repository.
 
 不要新增根目錄 `.sh` 或其他 `.bat`。四個 `.bat` 只能定位並呼叫對應 Lua、轉送 `%*`、回傳 exit code，不得包含建置或程序邏輯。若修改 `.bat`，必須維持 CRLF 行尾與 UTF-8 無 BOM。
 
-一般工具入口使用 `D:\code\omoba\tools\lua\lua.exe scripts\<tool>.lua`。不得新增 PowerShell、Python 或 shell fallback；Lua 標準庫缺少的平台能力由 `tools/lua-host` 提供。
+一般工具入口從 clone 根目錄使用 `tools\lua\lua.exe scripts\<tool>.lua`。不得新增 PowerShell、Python 或 shell fallback；Lua 標準庫缺少的平台能力由 `tools/lua-host` 提供。
 
 ## 常用手動指令
 

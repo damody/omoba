@@ -9,11 +9,16 @@ local process, platform = bootstrap.lib('process'), bootstrap.lib('platform')
 local hash = bootstrap.lib('hash')
 local planner = require('ue_asset_recipe_plan')
 local recipe_file = path.join(bootstrap.root, 'omfue/Plugins/OmRuntime/Source/OmGenerated/om_asset_recipe.json')
-local dry_run = false
-for _, value in ipairs(arg) do
-  assert(value == '--dry-run', 'use [--dry-run]')
-  dry_run = true
+local dry_run,owned_editor_file = false,nil
+local index=1
+while index<=#arg do
+  local value=arg[index]
+  if value=='--dry-run' then assert(not dry_run,'duplicate dry run');dry_run=true
+  elseif value=='--owned-editor' then assert(not owned_editor_file,'duplicate owner');index=index+1;owned_editor_file=path.absolute(assert(arg[index],'owner file required'),bootstrap.root)
+  else error('use [--dry-run] [--owned-editor FILE]')end
+  index=index+1
 end
+if owned_editor_file then process.validate_owned(json.read(owned_editor_file)) end
 local plan = planner.build(json.read(recipe_file))
 local work = path.join(bootstrap.root, 'omfue/Saved/McpAutomation/AssetRecipe')
 path.mkdir_p(work)
@@ -26,10 +31,12 @@ local ordinal = 0
 local function call(name, arguments)
   ordinal = ordinal + 1
   local file = path.join(work, string.format('%03d-%s.json', ordinal, name))
-  local result = process.run(platform.lua_executable, {
+  local arguments = {
     path.join(bootstrap.root, 'scripts/ue_mcp.lua'), '--tool', name,
     '--arguments', json.encode(json.object(arguments)), '--out', file,
-  }, {cwd = bootstrap.root, check = false})
+  }
+  if owned_editor_file then arguments[#arguments+1]='--owned-editor';arguments[#arguments+1]=owned_editor_file end
+  local result = process.run(platform.lua_executable, arguments, {cwd = bootstrap.root, check = false})
   assert(result.exit_code == 0, name .. ' failed: ' .. result.stderr .. result.stdout)
   for _, content in ipairs(json.read(file).content or {}) do
     if content.type == 'text' then

@@ -1,7 +1,7 @@
 use crate::lua_content::{
     load_content, validate_active_ability_quantization, AbilityEntry, AttackTimingEntry,
     CreepEntry, HeroEntry, HeroRenderEntry, Manifest, StoryBundle, SummonEntry, TdLayerEntry,
-    TowerEntry, UpgradeEffectEntry,
+    TowerEntry, UpgradeEffectEntry, MobaTrinketEntry,
 };
 use crate::{
     ability_by_name, ability_id_str, creep_id_str, hero_id_str, summon_id_str, tower_id_str,
@@ -62,6 +62,9 @@ pub struct RuntimeContent {
     hero_assist_gold: u32,
     assist_window_seconds: u32,
     moba_item_catalog_json: String,
+    moba_trinket_catalog_json: String,
+    moba_trinkets: Vec<MobaTrinketEntry>,
+    communication_content_json: String,
     moba_map_catalog_json: String,
     tower_stats: Vec<Option<&'static TowerStats>>,
     tower_display: Vec<Option<&'static str>>,
@@ -366,10 +369,55 @@ impl RuntimeContent {
         if self.moba_item_catalog_json != crate::MOBA_ITEM_CATALOG_JSON {
             return Err("MOBA item catalog differs from compiled content; rebuild all peers".into());
         }
+        if !self.trinkets_match_compiled() {
+            return Err("MOBA trinket catalog differs from compiled content; rebuild all peers".into());
+        }
+        if self.communication_content_json != crate::COMMUNICATION_CONTENT_JSON {
+            return Err("communication catalog differs from compiled content; rebuild all peers".into());
+        }
         if self.moba_map_catalog_json != crate::MOBA_MAP_CATALOG_JSON {
             return Err("MOBA map catalog differs from compiled content; rebuild all peers".into());
         }
         Ok(())
+    }
+
+    fn trinkets_match_compiled(&self) -> bool {
+        self.moba_trinket_catalog_json == crate::MOBA_TRINKET_CATALOG_JSON
+            && self.moba_trinkets.len() == crate::TRINKET_CATALOG.len()
+            && self.moba_trinkets.iter().zip(crate::TRINKET_CATALOG).all(|(runtime, compiled)| {
+                let direct_attack = match runtime.direct_attack {
+                    omoba_content_model::moba_trinkets::MobaTrinketDirectAttack::DisclosedEnemy => {
+                        crate::TrinketDirectAttackConst::DisclosedEnemy
+                    }
+                    omoba_content_model::moba_trinkets::MobaTrinketDirectAttack::NotDirectlyAttackable => {
+                        crate::TrinketDirectAttackConst::NotDirectlyAttackable
+                    }
+                };
+                let automatic_acquisition = match runtime.automatic_acquisition {
+                    omoba_content_model::moba_trinkets::MobaTrinketAutomaticAcquisition::Disabled => {
+                        crate::TrinketAutomaticAcquisitionConst::Disabled
+                    }
+                    omoba_content_model::moba_trinkets::MobaTrinketAutomaticAcquisition::Enabled => {
+                        crate::TrinketAutomaticAcquisitionConst::Enabled
+                    }
+                };
+                runtime.catalog_id == compiled.catalog_id
+                    && runtime.id == compiled.id
+                    && runtime.display_name == compiled.display_name
+                    && runtime.description == compiled.description
+                    && fixed64(runtime.placement_range) == compiled.placement_range
+                    && runtime.initial_charges == compiled.initial_charges
+                    && runtime.max_charges == compiled.max_charges
+                    && fixed64(runtime.recharge_seconds) == compiled.recharge_seconds
+                    && fixed64(runtime.lifetime_seconds) == compiled.lifetime_seconds
+                    && fixed64(runtime.sight_radius) == compiled.sight_radius
+                    && runtime.detection_level == compiled.detection_level
+                    && runtime.stealth_level == compiled.stealth_level
+                    && runtime.hit_points == compiled.hit_points
+                    && runtime.maximum_owned_placements == compiled.maximum_owned_placements
+                    && direct_attack == compiled.direct_attack
+                    && automatic_acquisition == compiled.automatic_acquisition
+            })
     }
 
     fn from_manifest(manifest: Manifest, stories: Vec<StoryBundle>) -> Result<Self, String> {
@@ -536,6 +584,11 @@ impl RuntimeContent {
                 .map_err(|error| format!("serialize MOBA maps: {error}"))?,
             moba_item_catalog_json: serde_json::to_string(&manifest.moba_items)
                 .map_err(|error| format!("serialize MOBA items: {error}"))?,
+            moba_trinket_catalog_json: serde_json::to_string(&manifest.moba_trinkets)
+                .map_err(|error| format!("serialize MOBA trinkets: {error}"))?,
+            moba_trinkets: manifest.moba_trinkets.clone(),
+            communication_content_json: serde_json::to_string(&manifest.moba_communication)
+                .map_err(|error| format!("serialize communication catalog: {error}"))?,
             passive_gold_per_second: manifest.moba_economy.passive_gold_per_second,
             base_recovery_hp_per_second: manifest.moba_economy.base_recovery_hp_per_second,
             base_recovery_radius: manifest.moba_economy.base_recovery_radius,
@@ -582,6 +635,7 @@ impl RuntimeContent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ContentShape {
+    communication_content_json: String,
     base_recovery_hp_per_second: u32,
     base_recovery_radius: u32,
     mana_regen_per_second: u32,
@@ -600,6 +654,7 @@ struct ContentShape {
     hero_assist_gold: u32,
     assist_window_seconds: u32,
     moba_item_catalog_json: String,
+    moba_trinket_catalog_json: String,
     towers: Vec<Option<String>>,
     heroes: Vec<Option<String>>,
     abilities: Vec<Option<String>>,
@@ -633,6 +688,8 @@ enum JsonShape {
 impl ContentShape {
     fn from_manifest(manifest: &Manifest, stories: &[StoryBundle]) -> Self {
         Self {
+            communication_content_json: serde_json::to_string(&manifest.moba_communication)
+                .expect("validated communication catalog"),
             moba_map_catalog_json: serde_json::to_string(&manifest.moba_maps)
                 .expect("validated MOBA map catalog"),
             hero_moba_loadouts: manifest.heroes.iter().filter(|entry| !entry.tombstone)
@@ -641,6 +698,8 @@ impl ContentShape {
                 .map(|entry| (entry.id.clone(), entry.levels.iter().map(|level| level.required_hero_level).collect())).collect(),
             moba_item_catalog_json: serde_json::to_string(&manifest.moba_items)
                 .expect("validated MOBA item catalog"),
+            moba_trinket_catalog_json: serde_json::to_string(&manifest.moba_trinkets)
+                .expect("validated MOBA trinket catalog"),
             passive_gold_per_second: manifest.moba_economy.passive_gold_per_second,
             base_recovery_hp_per_second: manifest.moba_economy.base_recovery_hp_per_second,
             base_recovery_radius: manifest.moba_economy.base_recovery_radius,
@@ -718,6 +777,12 @@ impl ContentShape {
         }
         if self.moba_item_catalog_json != previous.moba_item_catalog_json {
             return Err("MOBA item catalog changed; rebuild all peers, not hot reload".into());
+        }
+        if self.moba_trinket_catalog_json != previous.moba_trinket_catalog_json {
+            return Err("MOBA trinket catalog changed; rebuild all peers, not hot reload".into());
+        }
+        if self.communication_content_json != previous.communication_content_json {
+            return Err("communication catalog changed; rebuild all peers, not hot reload".into());
         }
         if self.moba_map_catalog_json != previous.moba_map_catalog_json {
             return Err("MOBA map catalog changed; rebuild all peers, not hot reload".into());
@@ -1603,6 +1668,8 @@ mod tests {
 
         assert_eq!(runtime.td_layer_digest, crate::TD_LAYER_CATALOG_DIGEST);
         assert_eq!(runtime.moba_item_catalog_json, crate::MOBA_ITEM_CATALOG_JSON);
+        assert_eq!(runtime.moba_trinket_catalog_json, crate::MOBA_TRINKET_CATALOG_JSON);
+        assert!(runtime.trinkets_match_compiled());
         runtime.validate_moba_catalog().expect("compiled MOBA catalog agrees with Lua");
         assert_eq!(runtime.td_layer_catalog, crate::td_layer_catalog());
         for generated in crate::td_layer_catalog() {
@@ -1628,6 +1695,22 @@ mod tests {
         assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA item catalog changed"));
         let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
         assert!(runtime.validate_moba_catalog().unwrap_err().contains("rebuild all peers"));
+    }
+
+    #[test]
+    fn communication_catalog_changes_require_rebuild_not_dev_hot_reload() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content = load_content(root).unwrap();
+        let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        assert_eq!(runtime.communication_content_json, crate::COMMUNICATION_CONTENT_JSON);
+        runtime.validate_moba_catalog().unwrap();
+        content = load_content(PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data")).unwrap();
+        content.manifest.moba_communication[0].subtitle.push('！');
+        let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("communication catalog changed"));
+        let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("communication catalog differs"));
     }
 
     #[test]
@@ -1905,8 +1988,8 @@ mod tests {
         write(
             &root.join("templates.lua"),
             &format!(
-                "return function(ctx) return {{ creeps = {{ {{ id = '{}', hp = {}, move_speed = 100 }} }} }} end\n",
-                creep_id, hp
+                "return function(ctx) return {{ creeps = {{ {{ id = '{}', hp = {}, move_speed = 100 }} }}, {} }} end\n",
+                creep_id, hp, crate::lua_content::FIXTURE_REQUIRED_MOBA_CATALOGS
             ),
         );
     }
@@ -2026,8 +2109,8 @@ mod tests {
         write(
             &root.join("templates.lua"),
             &format!(
-                "return function(ctx) return {{ creeps = {{ {{ id = '{}' }}, {{ id = '{}' }} }} }} end\n",
-                creep_id, second_creep
+                "return function(ctx) return {{ creeps = {{ {{ id = '{}' }}, {{ id = '{}' }} }}, {} }} end\n",
+                creep_id, second_creep, crate::lua_content::FIXTURE_REQUIRED_MOBA_CATALOGS
             ),
         );
         let err = reload_runtime_lua_content_dev(None).unwrap_err();
@@ -2052,5 +2135,35 @@ mod tests {
         assert_eq!(first_hash, second_hash);
 
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn trinket_runtime_range_charges_and_policy_changes_require_peer_rebuild() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut cases: Vec<(&str, Box<dyn Fn(&mut MobaTrinketEntry)>)> = Vec::new();
+        cases.push(("placement_range", Box::new(|entry: &mut MobaTrinketEntry| entry.placement_range = 601.0)));
+        cases.push(("initial_charges", Box::new(|entry: &mut MobaTrinketEntry| entry.initial_charges = 2)));
+        cases.push(("automatic_acquisition", Box::new(|entry: &mut MobaTrinketEntry| {
+            entry.automatic_acquisition = omoba_content_model::moba_trinkets::MobaTrinketAutomaticAcquisition::Enabled;
+        })));
+        cases.push(("direct_attack", Box::new(|entry: &mut MobaTrinketEntry| {
+            entry.direct_attack = omoba_content_model::moba_trinkets::MobaTrinketDirectAttack::NotDirectlyAttackable;
+        })));
+        for (field, mutate_entry) in cases {
+            let mut content = load_content(root.clone()).unwrap();
+            let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+            let hash = omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+            mutate_entry(&mut content.manifest.moba_trinkets[0]);
+            content.manifest_value["moba_trinkets"][0] = serde_json::to_value(&content.manifest.moba_trinkets[0]).unwrap();
+            assert_ne!(hash, omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap(), "{field}");
+            let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+            let shape_error = after.ensure_compatible_with(&before).unwrap_err();
+            assert!(shape_error.contains("MOBA trinket catalog changed"), "{field}: {shape_error}");
+            assert!(shape_error.contains("rebuild all peers"), "{field}: {shape_error}");
+            let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+            let catalog_error = runtime.validate_moba_catalog().unwrap_err();
+            assert!(catalog_error.contains("rebuild all peers"), "{field}: {catalog_error}");
+            assert!(!runtime.trinkets_match_compiled(), "{field}");
+        }
     }
 }

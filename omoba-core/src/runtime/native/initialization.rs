@@ -11,6 +11,10 @@ use crate::ue4::import_campaign::CampaignData;
 use crate::ue4::import_map::CreepWaveData;
 use omoba_sim::Fixed64;
 
+/// World-owned budgeted Rayon pool. Not deterministic match state.
+#[derive(Clone)]
+pub struct OwnedEcsPool(pub Arc<ThreadPool>);
+
 /// 狀態初始化器
 pub struct StateInitializer;
 
@@ -794,6 +798,9 @@ impl StateInitializer {
         ecs.register::<TurnSpeed>();
         ecs.register::<ReplicationScope>();
         ecs.register::<VisionSource>();
+        ecs.register::<PlacedWard>();
+        ecs.register::<DisclosedWardBody>();
+        ecs.register::<crate::runtime::ReplicaIdentity>();
         ecs.register::<StealthProfile>();
         ecs.register::<VisibilityOverride>();
         ecs.register::<RememberPolicy>();
@@ -972,11 +979,14 @@ impl StateInitializer {
         );
     }
 
-    fn initialize_resources(ecs: &mut World, _thread_pool: &Arc<ThreadPool>) {
+    fn initialize_resources(ecs: &mut World, thread_pool: &Arc<ThreadPool>) {
         use std::collections::BTreeMap;
         use std::time::Instant;
 
         // 初始化基本資源
+        // Retain the pool passed into world setup. Dropping it here made later
+        // par_iter calls construct the process-global pool.
+        ecs.insert(OwnedEcsPool(Arc::clone(thread_pool)));
         ecs.insert(Tick(0));
         ecs.insert(TickStart(Instant::now()));
         ecs.insert(TimeOfDay(0.0));
@@ -1039,6 +1049,12 @@ impl StateInitializer {
         // 延遲來自 lockstep CastAbility inputs 的 hero ability cast requests。
         // 在 script dispatch 前 drain，讓 SkillCast 在同一 tick 執行。
         ecs.insert(crate::comp::PendingAbilityCastQueue::default());
+        ecs.insert(crate::comp::PendingSummonerCastQueue::default());
+        ecs.insert(crate::comp::PendingWardPlacementQueue::default());
+        ecs.insert(crate::comp::WardSettledInputIds::default());
+        ecs.insert(crate::comp::AdmittedCommandIdentities::default());
+        ecs.insert(crate::comp::WardAdmissionEpoch::default());
+        ecs.insert(crate::comp::OwnerWardOutcomeJournal::default());
 
         // Tower active-ability pulse opportunities are produced by the
         // deterministic scheduler and drained by script dispatch.
@@ -1266,6 +1282,7 @@ impl StateInitializer {
                 attack_seq: 0,
                 attack_phase: AttackSequencePhase::Idle,
                 animation_timing: None,
+                committed_target: None,
             };
 
             // 創建英雄圓形視野組件
@@ -1603,6 +1620,7 @@ impl StateInitializer {
                     attack_seq: 0,
                     attack_phase: AttackSequencePhase::Idle,
                     animation_timing: None,
+                    committed_target: None,
                 };
 
                 let enemy_vision = CircularVision::new(

@@ -120,6 +120,9 @@ fn main() {
     emit_projectile_kinds(&mut out, &m.projectile_kinds);
     emit_td_layers(&mut out, &m.td_layers);
     emit_moba_items(&mut out, &m.moba_items);
+    emit_moba_summoners(&mut out, &m.moba_summoners);
+    emit_moba_trinkets(&mut out, &m.moba_trinkets);
+    emit_moba_communication(&mut out, &m.moba_communication);
     emit_moba_maps(&mut out, &m.moba_maps);
     out.push_str(&format!("\npub const MOBA_PASSIVE_GOLD_PER_SECOND: u32 = {};\n", m.moba_economy.passive_gold_per_second));
     out.push_str(&format!("pub const MOBA_HERO_KILL_GOLD: u32 = {};\n", m.moba_economy.hero_kill_gold));
@@ -170,6 +173,19 @@ fn main() {
     fs::write(&out_path, out).unwrap();
 }
 
+fn emit_moba_communication(out: &mut String, rows: &[omoba_content_model::moba_communication::CommunicationContentEntry]) {
+    let json = serde_json::to_string(rows).expect("validated communication catalog");
+    out.push_str(&format!("\npub const COMMUNICATION_CONTENT_JSON: &str = {json:?};\n"));
+    out.push_str("\npub static COMMUNICATION_CONTENT: &[CommunicationContentConst] = &[\n");
+    for row in rows {
+        let optional = |value: &Option<String>| value.as_ref().map(|s| format!("Some({s:?})")).unwrap_or_else(|| "None".into());
+        out.push_str(&format!("CommunicationContentConst {{ catalog_id: {}, id: {:?}, semantic: {}, interaction_slot: {}, wheel_slot: {}, label: {:?}, subtitle: {:?}, duration_raw: {}, icon: {}, audio: {}, animation: {} }},\n",
+            row.catalog_id, row.id, row.semantic.rust_literal(), row.interaction_slot, row.wheel_slot,
+            row.label, row.subtitle, row.duration_raw, optional(&row.icon), optional(&row.audio), optional(&row.animation)));
+    }
+    out.push_str("];\npub fn communication_content(id: u16) -> Option<&'static CommunicationContentConst> { COMMUNICATION_CONTENT.iter().find(|row| row.catalog_id == id) }\n");
+}
+
 fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
     let json = serde_json::to_string(maps).expect("validated MOBA map catalog");
     let hash = canonical_template_hash(&serde_json::to_value(maps).expect("map JSON"))
@@ -196,6 +212,17 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
             out.push_str(&format!("MobaTerrainConst {{ id: {:?}, min: ({},{}), max: ({},{}) }},\n",
                 terrain.id,terrain.min[0],terrain.min[1],terrain.max[0],terrain.max[1]));
         }
+        out.push_str("], presentation_surfaces: &[\n");
+        for surface in &map.presentation_surfaces {
+            let kind = match surface.kind {
+                lua_content::MobaMapSurfaceKindEntry::River => "River",
+                lua_content::MobaMapSurfaceKindEntry::Jungle => "Jungle",
+            };
+            out.push_str(&format!("MobaMapSurfaceConst {{ id: {:?}, kind: MobaMapSurfaceKind::{}, width: {}, points: &[",
+                surface.id,kind,surface.width));
+            for [x,y] in &surface.points { out.push_str(&format!("({x},{y}),")); }
+            out.push_str("] },\n");
+        }
         out.push_str("] },\n");
     }
     out.push_str("];\npub fn moba_map_by_name(id: &str) -> Option<&'static MobaMapConst> { MOBA_MAPS.iter().find(|map| map.id == id) }\n");
@@ -214,13 +241,58 @@ fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
         let active = item.active.as_ref().map(|effect| format!("Some({})", effect.rust_literal()))
             .unwrap_or_else(|| "None".into());
         out.push_str(&format!(
-            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, active: {}, cooldown: {}, recipe: &[{}] }},\n",
+            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, active: {}, cooldown: {}, recipe: &[{}], target: {} }},\n",
             item.catalog_id, item.id, item.name, item.cost,
             fixed64_lit(item.atk), fixed64_lit(item.hp), fixed64_lit(item.ms), fixed64_lit(item.armor),
-            active, fixed64_lit(item.cooldown), recipe,
+            active, fixed64_lit(item.cooldown), recipe, item.target.rust_literal(),
         ));
     }
     out.push_str("];\n");
+}
+
+fn emit_moba_trinkets(out: &mut String, trinkets: &[MobaTrinketEntry]) {
+    let json = serde_json::to_string(trinkets).expect("validated trinket catalog");
+    out.push_str(&format!("\npub const MOBA_TRINKET_CATALOG_JSON: &str = {:?};\n", json));
+    out.push_str("\npub static TRINKET_CATALOG: &[TrinketConst] = &[\n");
+    for trinket in trinkets {
+        out.push_str(&format!(
+            "TrinketConst {{ catalog_id: {}, id: {:?}, display_name: {:?}, description: {:?}, placement_range: {}, initial_charges: {}, max_charges: {}, recharge_seconds: {}, lifetime_seconds: {}, sight_radius: {}, detection_level: {}, stealth_level: {}, hit_points: {}, maximum_owned_placements: {}, direct_attack: {}, automatic_acquisition: {} }},\n",
+            trinket.catalog_id,
+            trinket.id,
+            trinket.display_name,
+            trinket.description,
+            fixed64_lit(trinket.placement_range),
+            trinket.initial_charges,
+            trinket.max_charges,
+            fixed64_lit(trinket.recharge_seconds),
+            fixed64_lit(trinket.lifetime_seconds),
+            fixed64_lit(trinket.sight_radius),
+            trinket.detection_level,
+            trinket.stealth_level,
+            trinket.hit_points,
+            trinket.maximum_owned_placements,
+            trinket.direct_attack.rust_literal(),
+            trinket.automatic_acquisition.rust_literal(),
+        ));
+    }
+    out.push_str("];\npub fn trinket_by_name(id: &str) -> Option<&'static TrinketConst> { TRINKET_CATALOG.iter().find(|trinket| trinket.id == id) }\n");
+}
+
+fn emit_moba_summoners(out: &mut String, spells: &[MobaSummonerEntry]) {
+    out.push_str("\npub static SUMMONER_SPELL_CATALOG: &[SummonerSpellConst] = &[\n");
+    for spell in spells {
+        out.push_str(&format!(
+            "SummonerSpellConst {{ catalog_id: {}, id: {:?}, display_name: {:?}, description: {:?}, cooldown: {}, target: {}, operation: {} }},\n",
+            spell.catalog_id,
+            spell.id,
+            spell.display_name,
+            spell.description,
+            fixed64_lit(spell.cooldown),
+            spell.target.rust_literal(),
+            spell.operation.rust_literal(),
+        ));
+    }
+    out.push_str("];\npub fn summoner_spell_by_name(id: &str) -> Option<&'static SummonerSpellConst> { SUMMONER_SPELL_CATALOG.iter().find(|spell| spell.id == id) }\n");
 }
 
 fn emit_td_layers(out: &mut String, entries: &[TdLayerEntry]) {

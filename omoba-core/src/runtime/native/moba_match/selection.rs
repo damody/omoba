@@ -1,7 +1,7 @@
 //! Host-owned pre-match selection. No World, Lua VM, renderer or sockets.
 use super::bots::{RoleBotMatchPlan, RoleBotPlayerPlan};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub mod service;
 
@@ -67,6 +67,9 @@ pub struct HeroSelectionSnapshot {
     pub ready: bool,
     pub finalized: bool,
     pub seats: Vec<HeroSelectionSeat>,
+    /// Host-installed trusted slots. Client Select and Lock never write this map.
+    #[serde(default)]
+    pub summoner_loadouts: BTreeMap<u32, [Option<String>; 2]>,
 }
 
 /// This is a rules kernel, NOT authentication. The host must obtain the player
@@ -78,6 +81,7 @@ pub struct HeroSelectionSession {
     finalized: bool,
     seed: u64,
     tick_rate_hz: u32,
+    summoner_loadouts: BTreeMap<u32, [Option<String>; 2]>,
 }
 
 impl HeroSelectionSession {
@@ -90,6 +94,7 @@ impl HeroSelectionSession {
             .filter(|p| p.bot)
             .map(|p| p.player_id)
             .collect();
+        let summoner_loadouts = plan.summoner_loadouts.clone();
         Ok(Self {
             plan,
             locked,
@@ -97,7 +102,38 @@ impl HeroSelectionSession {
             finalized: false,
             seed,
             tick_rate_hz,
+            summoner_loadouts,
         })
+    }
+
+    /// Host authentication only. A rejected map leaves the plan and retained map unchanged.
+    /// An identical map does not publish a new revision. A real change increments the
+    /// revision before any later lock can consent, and a locked human seat refuses the change.
+    pub fn install_trusted_loadouts(
+        &mut self,
+        loadouts: BTreeMap<u32, [Option<String>; 2]>,
+    ) -> Result<(), String> {
+        if self.finalized {
+            return Err("hero selection already finalized".into());
+        }
+        let players = self.plan.players.iter().map(|player| player.player_id);
+        crate::runtime::native::summoner_world::validated_loadouts(players, &loadouts)
+            .map_err(|error| format!("trusted summoner loadout rejected: {error:?}"))?;
+        if loadouts == self.summoner_loadouts && loadouts == self.plan.summoner_loadouts {
+            return Ok(());
+        }
+        if self.plan.players.iter().any(|player| !player.bot && self.locked.contains(&player.player_id)) {
+            return Err("trusted summoner loadouts cannot change after a human seat locks".into());
+        }
+        let next_revision = self.revision.checked_add(1).ok_or("hero selection revision exhausted")?;
+        self.plan.summoner_loadouts = loadouts.clone();
+        self.summoner_loadouts = loadouts;
+        self.revision = next_revision;
+        Ok(())
+    }
+
+    pub fn trusted_loadouts(&self) -> &BTreeMap<u32, [Option<String>; 2]> {
+        &self.summoner_loadouts
     }
 
     pub fn snapshot(&self) -> HeroSelectionSnapshot {
@@ -120,6 +156,7 @@ impl HeroSelectionSession {
                     locked: self.locked.contains(&p.player_id),
                 })
                 .collect(),
+            summoner_loadouts: self.summoner_loadouts.clone(),
         }
     }
 
@@ -213,6 +250,7 @@ mod tests {
             ability_learning: vec![],
             sustain: None,
             item_builds: vec![],
+            summoner_loadouts: BTreeMap::new(),
             players: vec![
                 RoleBotPlayerPlan {
                     player_id: 7,
@@ -385,5 +423,88 @@ mod tests {
                 assert!(omoba_template_ids::ability_by_name(&ability).is_some());
             }
         }
+    }
+
+    #[test]
+    fn trusted_summoner_loadouts_reject_unknown_players_and_ignore_client_select() {
+        let mut session = HeroSelectionSession::new(plan(), 1, 60).unwrap();
+        assert!(session.install_trusted_loadouts(BTreeMap::from([(99, [None, None])])).unwrap_err().contains("WrongOwner"));
+        assert!(session.trusted_loadouts().is_empty());
+        let good = BTreeMap::from([(7, [Some("training_self_heal_v1".into()), None])]);
+        let revision = session.snapshot().revision;
+        session.install_trusted_loadouts(good.clone()).unwrap();
+        assert_eq!(session.snapshot().revision, revision + 1);
+        session.install_trusted_loadouts(good.clone()).unwrap();
+        assert_eq!(session.snapshot().revision, revision + 1);
+        assert!(serde_json::from_str::<HeroSelectionRequest>(
+            r#"{"expected_revision":1,"action":{"kind":"select","hero":"training_ranger","summoner_loadouts":{"7":[null,null]}}}"#
+        ).is_err());
+        session.apply(7, request(revision + 1, HeroSelectionAction::Select { hero: "training_ranger".into() })).unwrap();
+        assert_eq!(session.snapshot().summoner_loadouts, good);
+        assert_eq!(session.plan.summoner_loadouts, good);
+        assert_eq!(session.snapshot().seats[0].player.hero, "training_ranger");
+        session.apply(7, request(revision + 2, HeroSelectionAction::Lock)).unwrap();
+        assert!(session.install_trusted_loadouts(BTreeMap::new()).unwrap_err().contains("human seat locks"));
+        assert_eq!(session.snapshot().summoner_loadouts, good);
+        session.apply(8, request(revision + 3, HeroSelectionAction::Lock)).unwrap();
+        let finalized = session.finalize(revision + 4).unwrap();
+        assert_eq!(finalized.summoner_loadouts, good);
+        assert_eq!(session.snapshot().summoner_loadouts, good);
+        assert_eq!(session.snapshot().catalog_data_hash, omoba_template_ids::CONTENT_CATALOG_DATA_HASH);
+        assert!(session.install_trusted_loadouts(BTreeMap::new()).is_err());
+        assert_eq!(session.snapshot().summoner_loadouts, good);
+    }
+
+    fn lock_plan(plan: RoleBotMatchPlan) -> (HeroSelectionSnapshot, RoleBotMatchPlan) {
+        let mut session = HeroSelectionSession::new(plan, 0, 60).unwrap();
+        let humans: Vec<_> = session.snapshot().seats.iter()
+            .filter(|seat| !seat.player.bot).map(|seat| seat.player.player_id).collect();
+        let mut revision = session.snapshot().revision;
+        for player_id in humans {
+            session.apply(player_id, request(revision, HeroSelectionAction::Lock)).unwrap();
+            revision += 1;
+        }
+        let finalized = session.finalize(revision).unwrap();
+        (session.snapshot(), finalized)
+    }
+
+    #[test]
+    fn host_plan_loadouts_round_trip_through_finalize_and_second_lock() {
+        let cases = [
+            BTreeMap::new(),
+            BTreeMap::from([(7, [Some("training_point_blink_v1".into()), None])]),
+            BTreeMap::from([(8, [None, Some("training_self_heal_v1".into())])]),
+            BTreeMap::from([(7, [Some("training_point_blink_v1".into()), Some("training_self_heal_v1".into())])]),
+        ];
+        for loadouts in cases {
+            let mut original = plan();
+            original.summoner_loadouts = loadouts.clone();
+            let (snapshot, finalized) = lock_plan(original);
+            assert_eq!(snapshot.summoner_loadouts, loadouts);
+            assert_eq!(finalized.summoner_loadouts, loadouts);
+            assert_eq!(snapshot.catalog_data_hash, omoba_template_ids::CONTENT_CATALOG_DATA_HASH);
+            let encoded = serde_json::to_string(&finalized).unwrap();
+            if loadouts.is_empty() { assert!(!encoded.contains("summoner_loadouts")); }
+            let (again_snapshot, again) = lock_plan(serde_json::from_str(&encoded).unwrap());
+            assert_eq!(again.summoner_loadouts, loadouts);
+            assert_eq!(again_snapshot.summoner_loadouts, loadouts);
+            assert_eq!(again_snapshot.catalog_data_hash, snapshot.catalog_data_hash);
+        }
+    }
+
+    #[test]
+    fn host_plan_loadouts_reject_unknown_catalog_duplicate_and_bad_rows_before_session() {
+        let mut unknown_player = plan();
+        unknown_player.summoner_loadouts.insert(99, [None, None]);
+        assert!(HeroSelectionSession::new(unknown_player, 0, 60).err().expect("unknown player must reject").contains("WrongOwner"));
+        let mut unknown_spell = plan();
+        unknown_spell.summoner_loadouts.insert(7, [Some("no-such-spell".into()), None]);
+        assert!(HeroSelectionSession::new(unknown_spell, 0, 60).err().expect("unknown spell must reject").contains("UnknownSpell"));
+        let mut duplicate = plan();
+        duplicate.summoner_loadouts.insert(7, [Some("training_self_heal_v1".into()), Some("training_self_heal_v1".into())]);
+        assert!(HeroSelectionSession::new(duplicate, 0, 60).err().expect("duplicate spell must reject").contains("DuplicateSpell"));
+        let mut raw = serde_json::to_value(plan()).unwrap();
+        raw["summoner_loadouts"] = serde_json::json!({"7": ["training_self_heal_v1"]});
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(raw).is_err());
     }
 }

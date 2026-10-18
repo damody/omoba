@@ -31,4 +31,11 @@ function M.reader(player,shared)
   end
   return reader
 end
+function M.deadline(options, completion_token, time)
+  local seconds=options.editor_ready_timeout_seconds
+  if seconds==nil then seconds=1800 end
+  assert(math.type(seconds)=='integer' and seconds>=1 and seconds<=3600,
+    'editor ready timeout must be 1..3600 whole seconds')
+  return time.monotonic_ms()+require('moba_selection_deadline').wait_ms(completion_token,time,seconds*1000)
+end
 return M

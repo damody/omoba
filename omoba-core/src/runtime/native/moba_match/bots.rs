@@ -484,7 +484,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             if let Some(item_slot)=items::choose_active(assignment.role,&config.item_builds,registry,inventory,
                 own.position,team,seen,&observation) {
                 inputs.push((slot.player_id,PlayerInput {action:Some(PlayerInputEnum::ItemUse(crate::game_proto::ItemUse {
-                    item_slot:item_slot as u32,target_pos:None,target_entity:None,
+                    item_slot:item_slot as u32,target_pos:None,target_entity:None,point_explicit:None,target_generation:None,owner_entity:None,owner_generation:None,
                 }))}));
                 continue;
             }

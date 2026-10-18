@@ -1,11 +1,6 @@
 use crate::comp::*;
-use omoba_sim::Fixed64;
+use crate::runtime::native::item::{apply_item_stats, ItemStatAggregate, ItemStatApplication};
 use specs::{shred, Entities, Join, Read, ReadExpect, SystemData, WriteStorage};
-
-#[inline]
-fn f32_to_fx(v: f32) -> Fixed64 {
-    Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64)
-}
 
 #[derive(SystemData)]
 pub struct ItemRead<'a> {
@@ -53,95 +48,28 @@ impl<'a> System<'a> for Sys {
             .collect();
 
         for e in dirty_ents {
-            // 聚合裝備屬性
-            let mut sum_atk = 0.0f32;
-            let mut sum_hp = 0.0f32;
-            let mut sum_mp = 0.0f32;
-            let mut sum_ms = 0.0f32;
-            let mut sum_armor = 0.0f32;
-            let mut sum_mp_regen = 0.0f32;
-            if let Some(inv) = tw.inventories.get(e) {
-                for slot in inv.slots.iter() {
-                    if let Some(inst) = slot {
-                        if let Some(cfg) = tr.item_reg.get(&inst.item_id) {
-                            sum_atk += cfg.bonus.atk;
-                            sum_hp += cfg.bonus.hp;
-                            sum_mp += cfg.bonus.mp;
-                            sum_ms += cfg.bonus.ms;
-                            sum_armor += cfg.bonus.armor;
-                            sum_mp_regen += cfg.bonus.mp_regen;
-                        }
-                    }
-                }
-            }
-
-            let (applied_atk, applied_hp, applied_ms, applied_armor) = {
-                if let Some(eff) = tw.effects.get(e) {
-                    (
-                        eff.applied_atk,
-                        eff.applied_hp,
-                        eff.applied_ms,
-                        eff.applied_armor,
-                    )
-                } else {
-                    (0.0, 0.0, 0.0, 0.0)
-                }
-            };
-
-            // CProperty / TAttack 全 Fixed64（Phase 1c.2）；ItemEffects / ItemBonus 仍 f32（Phase 1d）。
-            // 在 apply 邊界做一次轉換 — 邏輯不變。
-            let applied_hp_fx = f32_to_fx(applied_hp);
-            let sum_hp_fx = f32_to_fx(sum_hp);
-            let applied_ms_fx = f32_to_fx(applied_ms);
-            let sum_ms_fx = f32_to_fx(sum_ms);
-            let applied_armor_fx = f32_to_fx(applied_armor);
-            let sum_armor_fx = f32_to_fx(sum_armor);
-            let applied_atk_fx = f32_to_fx(applied_atk);
-            let sum_atk_fx = f32_to_fx(sum_atk);
-
-            if let Some(prop) = tw.properties.get_mut(e) {
-                prop.mhp = prop.mhp - applied_hp_fx + sum_hp_fx;
-                let one = Fixed64::ONE;
-                let hp_clamped_max = if prop.hp < prop.mhp {
-                    prop.hp
-                } else {
-                    prop.mhp
-                };
-                prop.hp = if hp_clamped_max < one {
-                    one
-                } else {
-                    hp_clamped_max
-                };
-                prop.msd = prop.msd - applied_ms_fx + sum_ms_fx;
-                prop.def_physic = prop.def_physic - applied_armor_fx + sum_armor_fx;
-            }
-            if let Some(atk) = tw.attacks.get_mut(e) {
-                let cur = atk.atk_physic.val();
-                atk.atk_physic = Vf32::new(cur - applied_atk_fx + sum_atk_fx);
-            }
-
+            let totals = tw.inventories.get(e).map(|inv| ItemStatAggregate::from_inventory(inv, &tr.item_reg))
+                .unwrap_or_default();
+            let applied = tw.effects.get(e).copied().unwrap_or_default();
+            let next = apply_item_stats(
+                totals,
+                &applied,
+                tw.properties.get_mut(e),
+                tw.attacks.get_mut(e),
+                ItemStatApplication::ExistingBody,
+            );
             if let Some(eff) = tw.effects.get_mut(e) {
-                eff.bonus_atk = sum_atk;
-                eff.bonus_hp = sum_hp;
-                eff.bonus_mp = sum_mp;
-                eff.bonus_ms = sum_ms;
-                eff.bonus_armor = sum_armor;
-                eff.bonus_mp_regen = sum_mp_regen;
-                eff.applied_atk = sum_atk;
-                eff.applied_hp = sum_hp;
-                eff.applied_ms = sum_ms;
-                eff.applied_armor = sum_armor;
-                eff.dirty = false;
+                *eff = next;
             }
 
             log::info!(
                 "ItemEffects 重算 entity={:?}: atk+{} hp+{} ms+{} armor+{} mp+{}",
                 e,
-                sum_atk,
-                sum_hp,
-                sum_ms,
-                sum_armor,
-                sum_mp
+                totals.atk,
+                totals.hp,
+                totals.ms,
+                totals.armor,
+                totals.mp
             );
         }
     }

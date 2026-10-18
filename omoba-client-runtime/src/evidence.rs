@@ -333,7 +333,7 @@ mod income_capture_tests {
                 let board = crate::scoreboard::project(&FilteredRenderSnapshot {
                     team_id: team, replica_tick: frame.replica_tick, entities: vec![],
                     public_events: frame.step.unwrap().public_events, external_effects: vec![],
-                    memory_directives: vec![], remembered_presentations: Default::default(),
+                    memory_directives: vec![], remembered_presentations: Default::default(), hero_attributes: Default::default(), disclosed_summoners: Default::default(), authoritative_mode: None, combat_preferences: None,
                 }).expect("complete authority board");
                 assert_eq!(board.rows.len(), 2);
                 if let Some(other) = shared.insert(frame.replica_tick, board.clone()) { assert_eq!(other, board); }
@@ -548,7 +548,7 @@ mod income_capture_tests {
                 if require_board {
                     let board = crate::scoreboard::project(&omoba_core::runtime::FilteredRenderSnapshot {
                         team_id:team,replica_tick:frame.replica_tick,entities:vec![],public_events:events.clone(),
-                        external_effects:vec![],memory_directives:vec![],remembered_presentations:Default::default(),
+                        external_effects:vec![],memory_directives:vec![],remembered_presentations:Default::default(),hero_attributes: Default::default(), disclosed_summoners:Default::default(), authoritative_mode: None, combat_preferences: None,
                     }).expect("complete public board in wire");
                     assert_eq!(board.rows.len(),3);
                     if let Some(other) = shared_boards.insert(frame.replica_tick,board.clone()) {

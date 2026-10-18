@@ -23,8 +23,10 @@ function M.result(record,baseline,hash)
       selections[p.player_id]=p.hero
     end
   end
-  local expected=require('moba_role_launch').select_heroes(baseline,selections)
-  local actual=json.decode(json.encode(final))
+  local launch=require('moba_role_launch')
+  launch.assert_snapshot_loadouts(state,final)
+  local expected=launch.omit_empty_summoner_loadouts(launch.select_heroes(baseline,selections))
+  local actual=launch.omit_empty_summoner_loadouts(final)
   table.sort(expected.players,function(a,c) return a.player_id<c.player_id end)
   table.sort(actual.players,function(a,c) return a.player_id<c.player_id end)
   assert(json.encode(actual)==json.encode(expected),'selection changed host-owned rules, Bot or roster')
@@ -112,7 +114,7 @@ local function run_room(options,editor,process,time,output,candidate,exe,local_p
         '-UserDir='..path.join(directory,'ue-user'),'-abslog='..log}
       if options.selection_smoke_hero then args[#args+1]='-om-selection-smoke-hero='..options.selection_smoke_hero end
       renderers[#renderers+1]={id=id,owned=spawn(editor,args,path.join(b.root,'omfue'),'player-'..id),
-        receipt=receipt,log=log,deadline=time.monotonic_ms()+45000,
+        receipt=receipt,log=log,deadline=require('moba_selection_readiness').deadline(options,completion_deadline,time),
         readiness=require('moba_selection_readiness').reader(id,true)}
     end
     local function read_ready(renderer,final)
