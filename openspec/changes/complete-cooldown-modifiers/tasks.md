@@ -1,0 +1,4 @@
+- [x] Wire checked shared cooldown calculation to managed ledger and actual script settlement.
+- [x] Cover arithmetic/family/bounds and formal60Hz cast/release/pause/resource behavior.
+- [x] Run consolidated Rust/backend/UE5.8/native/source/pixel acceptance.
+- [x] Preserve errors/evidence and update inventory, tasks and handoff.

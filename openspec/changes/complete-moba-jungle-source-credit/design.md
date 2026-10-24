@@ -1,0 +1,9 @@
+# 設計
+
+來源必須是仍有效的完整entity identity，Faction對應正式config隊伍。PlayerOwner直接綁定同側正式roster，主人死亡不改變player身份；沒有PlayerOwner時最多追溯8個帶generation的SummonedUnit連結，各節點須有效且同隊，cycle／超限／失效／跨隊拒絕。權威PlayerOwner為優先的持久歸屬，不依賴其summoner仍存活；錯誤owner不回落隨機玩家。
+
+沒有player owner也沒有召喚鏈的合法隊伍單位，只記team side，不發個人Gold／XP。第一個正傷害致死把player／side快照到camp body；Death消費一次，因此來源其後退休不遺失獎勵，匿名／中立／非法來源也先退休生命ledger，Heal不能換人重領。主體objective按side授予隊伍，個人獎勵仍按player進live或dead wallet。新增side也隨既有jungle debug material進digest。
+
+仇恨目標與獎勵分開：正式同隊伍Faction、存活HP且非hero lethal_pending的非英雄也可成為camp.target。追擊、patience、回頭、LOS與傷害仍走原camp AI；目標退休後原回頭流程清理。
+
+本輪不實作ParallelWorldAdapter::spawn_summoned_unit的既有stub，不宣稱召喚技能已能生成單位。已退休且無source snapshot的投射物、召喚鏈主人已退休又未附PlayerOwner的來源仍拒絕；後續需生成時歸屬快照／完整召喚pipeline。

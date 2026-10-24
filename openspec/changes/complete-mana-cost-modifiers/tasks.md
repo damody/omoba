@@ -1,0 +1,4 @@
+- [x] Wire checked shared cost multiplier to authority and bot budgeting.
+- [x] Cover aggregation, formal60Hz costs/rejections/release and bot admission.
+- [x] Complete Rust/backend/UE/native/source/pixel acceptance.
+- [x] Record errors/evidence and update inventory, tasks and handoff.

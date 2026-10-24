@@ -1,0 +1,7 @@
+# Design
+
+Append host-only critical damage envelope and default-false native projectile/script-outcome launch provenance. Preserve existing amount/RNG semantics. The serial damage settlement records eligible target HP before processing and emits one new target-only CriticalHit fact only after positive actual HP loss and positive physical contribution, excluding unsupported TD layers and pending-retired targets. Nested/forged critical wrappers and managed casts are rejected; visual pellets/child projectiles/on-hit callbacks cannot inherit entitlement. Late buff changes do not reroll launch provenance.
+
+Append FactKind37 and a strict28-byte CRT1 presentation cue. Team projection requires current target disclosure; only target replica/epoch and event identity leave the authority. Bridge reuses FxImpact discriminator4, with native dispatch and bounded text kind24 showing CRIT in gold. No ABI layout change. Existing capacity64/per-owner4, dedup/expiry/fog/reset/lifetime controls apply.
+
+Extend existing meaningful native/script/projectile provenance tests, strict cue/projector/IPC tests and formal60Hz actual settlement cases. Extend actual PublicHealthTextLifecycle to render CRIT and save a separate fresh PNG. Keep66 prior image reviews hash-bound and inspect one new image. Preserve all explicit originals plus37 bridge/generated candidates, freeze final inputs, run fresh Rust/backend/UE/native, source proof and independent closure. No new real network match.

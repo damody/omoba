@@ -1,0 +1,4 @@
+- [x] 1. Wire shared native defense/accuracy lookup and deterministic avoided-hit handling.
+- [x] 2. Add ECS/flag/determinism and formal60Hz lane-AI coverage.
+- [x] 3. Freeze and run concentrated Rust/backend/UE/native/source acceptance.
+- [x] 4. Seal original evidence and retirement; update errors, handoff and inventory.

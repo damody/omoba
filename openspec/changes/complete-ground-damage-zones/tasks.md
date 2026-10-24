@@ -1,0 +1,4 @@
+- [x] Implement checked anchored zone specification and deterministic indexed pulse clocks.
+- [x] Wire live enemy circle pulses, lifetime cancellation and authored flame assault metadata/presentation.
+- [x] Add scheduler, ECS and formal 60Hz gameplay regressions; run final Rust/backend/UE5.8 acceptance.
+- [x] Preserve errors/evidence and update tasks, whole-game inventory and handoff.

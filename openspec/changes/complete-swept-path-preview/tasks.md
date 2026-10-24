@@ -1,0 +1,5 @@
+- [x] Define and validate the authored swept-path contract.
+- [x] Generate rank widths and route them through the current owner HUD.
+- [x] Draw intended capsules and explain clamp/terrain/authority in tooltip and aiming guidance.
+- [x] Add content/codegen/native regression coverage and complete concentrated acceptance.
+- [x] Record evidence, errors, remaining gaps and handoff.

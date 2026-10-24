@@ -1,0 +1,3 @@
+# 設計
+
+沿已驗證的公開source／target中心查詢守門，新增只讀TryEvaluatePublishedCastTarget。使用正式SubmitOwnedAbilityCommand相同的IsPublishedLivingAlly／IsPublishedLegalHostile，不依owner或非敵對推友軍。狀態0未知、1條件符合、2陣營不符、3敵對但不可攻擊。未知requirement保持未知。Owner經嚴格反射契約按目前AbilityUnitAllegiance讀取，Evaluate優先保留未學習／冷卻／魔力／缺目標，再顯示條件原因，符合後才顯示range。無command gate／ACK或跨ABI變更。

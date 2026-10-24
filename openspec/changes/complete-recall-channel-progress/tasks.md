@@ -1,0 +1,4 @@
+- [x] Share recall-duration validation/defaults and generate catalog duration with parity coverage.
+- [x] Publish typed total and integrate a bounded read-only native channel strip.
+- [x] Validate progression, pause/cancel/scope/numeric behavior and actual Slate pixels after implementation.
+- [x] Preserve errors, source/stage/retirement evidence and update inventory and handoff.

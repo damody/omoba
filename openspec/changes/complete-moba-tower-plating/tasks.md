@@ -1,0 +1,5 @@
+- [x] 通用規則／原子驗證與正式server／role plan接線。
+- [x] 外塔HP門檻、去重／歸因／逐層分金、加固與生命期。
+- [x] ECS與正式60Hz技能／傷害／錢包／snapshot回歸。
+- [x] Rust、UE5.8、後端、Lua、World與來源一致性驗收。
+- [x] 錯誤、完整度盤點、證據與handoff更新。

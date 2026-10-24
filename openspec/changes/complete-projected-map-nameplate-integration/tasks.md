@@ -1,0 +1,4 @@
+- [x] 1. Trace stale projected-map fixture publication and preserve production disclosure rules.
+- [x] 2. Publish overview/combat frames and assert actual painted overview admission.
+- [x] 3. Build/full native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence, retirement, handoff and completeness inventory.

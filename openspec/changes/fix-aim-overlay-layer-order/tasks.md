@@ -1,0 +1,4 @@
+- [x] 1. Propagate highest actual paint layer through shared aiming/communication overlay.
+- [x] 2. Add actual production overlay paint/text/pixel/lifecycle regression.
+- [x] 3. UE/full native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence and update errors/handoff/completeness inventory.

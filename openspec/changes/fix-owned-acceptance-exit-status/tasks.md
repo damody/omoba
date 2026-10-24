@@ -1,0 +1,4 @@
+- [x] 1. Implement shared fixed-Lua launcher with identity-bound actual exit, fresh summary, health and cleanup.
+- [x] 2. Add actual child failure/success, stale output and forged identity regressions.
+- [x] 3. Run consolidated workflow/platform/CLI regressions and source consistency verification.
+- [x] 4. Seal evidence and update future entry point, errors, handoff and completeness inventory.

@@ -1,0 +1,2 @@
+# Swept path cast preview
+The current instant swept dash has authoritative path damage but only generic point aiming. Publish an explicit validated shape contract, draw the intended capsule and explain range clamping and terrain uncertainty on the existing owner HUD. Scope is local content and Unreal; no additional matches or protocol changes.

@@ -1,0 +1,5 @@
+# Design
+
+Introduce a serializable host-only DamageZonePulse outcome carrying exact source identity and the existing strict zone payload. BuffTick queues these in the scheduler's due order. Before normal damage/fact settlement, decode and validate the common DamageZoneSpec, reject/cancel retired sources, sample current hostile living non-building targets in the anchored circle, and prepend canonical RawDamage packets plus the ordinary pulse cue. Children settle before the next pulse envelope, so earlier lethals affect later source admission.
+
+Use the existing payload parser and normal raw-to-settled defense/shield/credit path; no new FFI operation, content name, local timer, global history interpolation or independent zone lifetime policy. Reject these internal envelopes inside managed script casts. Target sampling moves to serial resolution; malformed envelopes emit no damage/cue and do not revoke valid live zones. Preserve original source bytes and whole-cohort consistency before acceptance.

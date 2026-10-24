@@ -1,0 +1,4 @@
+- [x] 1. Shared typed/Lua executable cone contract and append-only content.
+- [x] 2. Shared published native cone geometry, guidance and lifecycle.
+- [x] 3. Focused gameplay/contract/native tests and concentrated full acceptance.
+- [x] 4. Seal evidence, errors, handoff and completeness inventory.

@@ -1,0 +1,4 @@
+- [x] Generate typed item target allegiance and propagate executable point-area metadata.
+- [x] Implement shared current-item feedback and integrate the actual aim overlay and tooltip guidance.
+- [x] Verify disclosed target/range/cooldown/lifecycle behavior and native pixels after implementation.
+- [x] Preserve source/stage/process/error evidence and update inventory, tasks and handoff.

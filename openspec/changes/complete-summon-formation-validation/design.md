@@ -1,0 +1,3 @@
+# Design
+
+Resolve metadata and all requested formation coordinates before any spawn request. Use authored current-rank extras only for omitted fields; reject malformed JSON, wrong types, fractional counts, bad ranks, nonpositive lifetime/spacing, excessive extents and missing/dead owners. Generic rows/count geometry uses fixed-point facing basis and deterministic row-major order, capped at128 bodies and10000 world-unit offsets. Runtime terrain placement remains authoritative and may adjust requests. Existing managed-cast discard owns rollback if any spawn request fails; do not add a partial despawn workaround or expand the full GameWorld ABI table. Correct content description to facing-relative formation without changing targeting or balance.

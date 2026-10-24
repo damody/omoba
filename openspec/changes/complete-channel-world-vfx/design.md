@@ -1,0 +1,7 @@
+# Design
+
+Reuse the canonical channel metadata decoder. Build a bounded typed channel map beside existing cast preparation states from public ABI buffs and living visible hero rows. Reject duplicate/invalid channel rows; legacy unknown totals produce no invented progress. Carry an opaque nonzero 64-bit instance key plus finite bounded total/remaining in the native frame payload; no C ABI or wire change.
+
+Use the actor's existing epoch/tick/sequence admission before mutating a channel effect. Hide, death, rebind, reset and recall priority retire it. A TMap from actor to pool slot gives O(1) updates; the existing 512-effect capacity and original instanced ring resources apply. Radius follows authoritative elapsed fraction; local time changes only pulse opacity. Pause freezes pulse age and authoritative updates still place the correct geometry. No timer predicts completion. No actor/component allocation per update. Typed channel buff callbacks suppress a second generic ring while preserving custom and legacy handlers.
+
+Native integration consumes the actual Rust filtered ABI fixture already used for public duration tests. Cover malformed/legacy/high-bit key, ambiguous rows, foreign/stale/epoch data, clear/reveal/death/recall/opt-out/reset, capacity drop/recovery, no duplicate generic ring, no local progress prediction and actual shader pixels. Capture current character plus midway/late/cleared shader outputs; run all 76 native tests, build/stage/source checks and image review. Inherit unchanged full Rust/backend evidence only under complete SHA proof.

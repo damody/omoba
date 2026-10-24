@@ -1,0 +1,5 @@
+- [x] 初始／剩餘塔皮權威公開狀態與生命期。
+- [x] ABI既有payload、共用decoder與單次frame map接線。
+- [x] 原生分段名牌、偏好／退休快取與專用截圖。
+- [x] Rust、UE5.8、後端、Lua、World與來源一致性驗收。
+- [x] 錯誤、完整度盤點、證據及handoff更新。

@@ -1,0 +1,5 @@
+# Design
+
+Add normalized critical_chance default-zero/legacy-omitted with finite, range and fixed-point quantum validation at model and runtime catalog admission. Compile the same field to Rust and native metadata. Share the existing permanent item-passive lease with lifesteal, without overwriting independent ability modifiers. Sum equipment chance and clamp at the shared boundary; existing critical RNG/multiplier and launch provenance remain authoritative. New catalog17 is a600gold12.5% critical component;18 is1800gold25attack25% critical using17+sword. Existing items unchanged. Offensive net chance invalidates purchase undo after combat. Existing sale undo remains unsupported.
+
+Formal production60Hz covers recipe, undo, sale, stacking/cap, lifesteal coexistence, independent modifier, actual settled critical damage/fact and new life. Extend native actual item hover capture. Preserve all37 generated candidates, retire owned codegen before freeze, then fresh eight Rust packages/backend/UE/native92, source proof, image inspection and independent archive closure.

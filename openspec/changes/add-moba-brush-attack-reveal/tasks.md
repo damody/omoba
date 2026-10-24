@@ -1,0 +1,6 @@
+- [x] 1. 共用普攻揭露state、admission接線與digest
+- [x] 2. Wave B、即時unit targeting及fog共用brush bypass
+- [x] 3. 技能tooltip顯示公開目標需求、距離與落點半徑
+- [x] 4. 有限期限／暫停／死亡／重播、tooltip及完整Rust／Lua測試
+- [x] 5. UE5.8建置與完整本機接受
+- [x] 6. 三分鐘監測、錯誤MD、來源驗證與交接

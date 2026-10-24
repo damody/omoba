@@ -1,0 +1,5 @@
+- [x] Add strict shared point-circle resolver/executor with optional canonical control and explicit profile.
+- [x] Migrate flame_blade/flame_assault and align preview/description with actual circle behavior.
+- [x] Add typed PointCircle generation and keep mobility policy exclusive to displacement.
+- [x] Complete real-adapter, formal 60Hz, content, Unreal and regression acceptance.
+- [x] Record errors/evidence, remaining gaps and handoff.

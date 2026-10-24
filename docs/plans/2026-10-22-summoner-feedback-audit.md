@@ -1,0 +1,7 @@
+# Scope
+
+Continue whole-game completeness on one machine: D/F point-cast guidance and authoritative no-op blink rejection. Known remaining gaps include persistent/channel skills, summon commit group atomicity, replica lifecycle acceptance and broader content/art. This batch does not mark those complete or replace 11 external acceptance requirements. No real network match or historical omfx maintenance.
+
+Implementation reuses native owner reflection and shared feedback, with a current-slot helper consumed by actual PaintAim. Explicit closed protocol: supported Point summoner is PointBlink; new operation kinds must extend the contract. No spell ID or slot number behavior branch. Invalid/malformed metadata is unknown. Tooltips share landing guidance; self heal keeps existing behavior. Authority compares resolved fixed-point position before commit and returns NO_DISPLACEMENT through the actual queued receipt.
+
+Final acceptance: Rust V2 1952 passed / 10 existing ignored / zero failed, four Lua contracts successful, backend V1 and UE5.8 builds V1/V2 successful. World V2 55 successful / zero Failed or NotRun with four existing reset-fixture warnings. All 15 images viewed after World retirement. Final baseline/check covers 3398 exact source/assets; seven staged DLLs and import library separately SHA verified. V1 failed Rust/native evidence and intentional pending source cancellation are preserved. No game quota reset, real network match, commit/push or omfx maintenance.

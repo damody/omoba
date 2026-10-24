@@ -1,0 +1,17 @@
+# Bot directional cone COMPLETE
+
+OpenSpec complete-bot-directional-cone4/4.
+
+Shared compiled/runtime AbilityConst now exposes per-rank quantized cone half-angle ticks from the same validated aim geometry used by authoritative execution and native aiming guidance; runtime catalog reload rejects geometry drift. Closed EnemyCone {min_targets} requires actual executable instant active/ultimate point-cone metadata. No free-form angle/radius-key inference or hero-name rule.
+
+The common planner uses committed disclosed living role-eligible opponents, canonical-ID deduplication, bounded32 enemy-center candidate axes and512 unique in-range observations. It scores the full source-centered sector with the authoritative fixed-point predicate, preserves disclosed guard/farm focus by coverage, then hit count, distance and canonical ID. Zero direction, unsupported coordinates, known >128-hit sectors or observation overflow are skipped. Existing author policy order, role restrictions, mana, rank, cooldown, attack deferral and control gates remain. This is a deterministic bounded enemy-center heuristic, not a claim of globally optimal continuous-angle aiming or prediction.
+
+Optional scripts/lua_data/moba_scatter_match.lua derives from the existing mixed recipe, selects the scatter loadout for carry seats, adds explicit min2 cone policy and consecutive learning ranks. Existing default recipes remain. Fresh compiled moba-config --lock-plan admits all10players/2carry seats at60Hz without creating a World or network match.
+
+Five focused core contracts cover strict schema/catalog matching, all-rank source range, radial/angular edges, dedup/permutation stability, disclosed focus and hidden-focus isolation, bounds/budgets, role/mana/root/attack gates. One runtime catalog test checks compiled/load/reload coherence. Formal60Hz actual bot input hits3stationary neutral targets at100/600/610distance for110each, charges45mana and starts cooldown; private uncommitted positions do not change aim and hidden cached units cannot satisfy min2.
+
+Fresh8Rust 1884passed/0failed/9existing ignored (15/49/120/74/995/336/138/157); shared Lua cone11/11. Fresh backend build/stage and UE5.8 build/stagedDLL/import SHA passed. Fresh full native91: 90success+1existing warning case,0failed/0notrun. Fullsource3470:3463unchanged+7exact frozen inputs versus index-bound active-cone parent. All native presentation and authored executable geometry inputs are unchanged;63previously reviewed PNG are inherited by exact SHA and source proof. Fresh native raw captures are retained separately and are not claimed as newly reviewed visual acceptance.
+
+Archive524 independently verified files; 8actual owned jobs exited0 with original child/waiter retirement, all launchers and closure helper reaped. Maximum health gap151578ms <=180000. No failed acceptance cohort this batch; pre-freeze ambiguous boundary fixture and read-path mistake/root/prevention recorded in docs/plans/2026-10-24-bot-cone-errors.md.
+
+Evidence:docs/acceptance/2026-10-24-bot-cone/index.json. Final baseline omfue/Saved/BuildTemp/bot-cone-source-before-v1.json. All readers retired; source freeze released. Continue concrete single-PC gameplay gaps such as independent zone lifetimes or additional data-driven content; do not repeat accepted nameplate/active-cone/bot-cone work. Full combat replica/11external/MVP33/44 remain. No true network match/quota reset/commit/push/omfx. Deadline2026-10-25 00:33:38 Asia/Taipei/automationomoba-48 unchanged.

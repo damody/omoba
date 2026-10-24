@@ -1,0 +1,4 @@
+- [x] Implement shared current-target eligibility for native and ordinary projectile leech.
+- [x] Extend core and formal60Hz target-category and explicit-effect controls.
+- [x] Complete fresh frozen-source Rust/backend/UE5.8/native acceptance.
+- [x] Close evidence/retirement/error records and update handoff/inventory.

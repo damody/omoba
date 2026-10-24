@@ -1,0 +1,4 @@
+- [x] Implement explicit raw packets, shared fixed-point defense math and checked live target defenses.
+- [x] Wire direct scripts, DoT and persisted script-projectile stage with provenance.
+- [x] Add raw/settled, defenses, shield, TD and formal-input regressions and run final Rust/backend/UE5.8 acceptance.
+- [x] Preserve evidence/errors and update inventory, tasks and handoff.

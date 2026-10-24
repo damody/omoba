@@ -1,0 +1,2 @@
+# Mobility cast feedback
+Rooted sources and zero-displacement requests can still look eligible in the current ability preview. Derive mobility policy from shared executable content, publish independent root guidance, and explain the authority rule without locally blocking commands. Complete local acceptance only; no extra matches or protocol changes.

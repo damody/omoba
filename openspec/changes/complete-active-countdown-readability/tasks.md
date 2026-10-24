@@ -1,0 +1,4 @@
+- [x] 1. Add shared positive-duration formatter and cast/recall consumers.
+- [x] 2. Add boundary/public-control/real recall lifecycle and actual Slate capture coverage.
+- [x] 3. UE/full native/source/inheritance/visual acceptance through actual-exit launcher.
+- [x] 4. Seal evidence and update errors/handoff/completeness inventory.

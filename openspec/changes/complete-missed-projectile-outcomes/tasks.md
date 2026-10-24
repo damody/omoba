@@ -1,0 +1,4 @@
+- [x] Preserve source miss at native and typed script launch and gate hit settlement.
+- [x] Cover serialization, exact-generation provenance, source retirement, legitimate zero damage and formal hero/summon MISS feedback.
+- [x] Run frozen Rust/backend/UE and the explicit 92-case native suite.
+- [x] Seal source/provenance/retirement evidence and update handoff and whole-game audit.

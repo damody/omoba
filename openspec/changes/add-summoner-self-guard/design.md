@@ -1,0 +1,5 @@
+# Design
+
+Shared strict author schema validates positive quantized reduction<=1 and duration<=60. Append generated constant/runtime operation; no-target plan, unsupported sink failure, existing current-life/context/cooldown transaction and ECS source reuse. Append catalog6training_self_guard_v1, 堅守,25%/3sec/CD180; no implicit loadout replacement. Existing item_damage_reduce family uses strongest magnitude, independent source expiry, existing public damage_reduction metadata/status/summary. No heal/shield/cleanse/command cancellation. Full runtime generated catalog coherence already serializes operation.
+
+Content/model/codegen/catalog tests plus actual ECS grant/control/command/public time/independent expiry, atomic context rejection, formal60Hz real damage160->120->140->160 with weaker item/pause/cooldown/team disclosure. Native actual generated identity/author tooltip/currentD/F self card/cooldown/retirement and capture. Fresh8Rust expected1873/9ignored, backend,UE/native85/fullsource3450 and54PNG planned. Original failures and all owned receipts retained.

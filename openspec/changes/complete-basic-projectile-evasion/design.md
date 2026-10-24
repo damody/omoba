@@ -1,0 +1,5 @@
+# Design
+
+Extract exact target dodge operation0 beside source-miss operation2. Native DamageInstance reuses it without changing results. ProjectileRead reads existing BuffStore/MasterSeed; only the homing single-target branch with origin.normal_attack and exact origin.source==projectile.owner can evade. Sample target evasion/negative-evasion at reached impact, before create_projectile_damage creates RawDamage/ProjectileHit/slow/stun. Always keep ordinary projectile Death and public removal. No source-alive gate, profile inference, hero names, AOE/swept policy, new ABI, new content or new miss UI.
+
+Core tests prove stable stream and exact provenance including retired/reused source. Actual production60Hz player attacks verify late evasion addition/removal, counter-evasion, expiry, pause, harmless visual pellets, one-shot consumption and final HP/control/retirement. Correctly initialize attack clock to exactly its interval. Freeze four formal sources before concentrated Rust/backend/UE/native/source acceptance. Immutable helper versions and original failures retained.

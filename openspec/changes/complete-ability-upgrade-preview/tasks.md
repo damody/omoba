@@ -1,0 +1,4 @@
+- [x] Generate shared rank base summaries and test their authored values.
+- [x] Publish bounded typed upgrade state and render current/next comparison and reasons.
+- [x] Add native lifecycle, rank/gate and actual tooltip capture coverage; consolidate acceptance.
+- [x] Record errors, source/stage/process evidence and update inventory and handoff.

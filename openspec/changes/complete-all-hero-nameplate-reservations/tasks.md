@@ -1,0 +1,4 @@
+- [x] 1. Reserve all current projected heroes without a hero shortlist/cap.
+- [x] 2. Add65th/order/gap/stress/lifecycle and actual Slate coverage.
+- [x] 3. Freeze3native sources, build and concentrate native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence/retirement and update errors/handoff/inventory.

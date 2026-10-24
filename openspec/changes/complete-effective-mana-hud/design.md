@@ -1,0 +1,3 @@
+# Design
+
+Post-settlement owner score publication emits bounded four-slot cost/binding facts and a tick stamp, scoped to the owner's team. Unavailable=-1 and invalid=-2 remain distinct from free=0. Client requires unique current-team metrics, exact tick/ability/rank and actual owner mana; classify unavailable/affordable/short/invalid. Existing AbilityHud gets additive protobuf fields and bridge ABI35 adds explicit state/price fields (48-byte row); stale ABI is rejected. Native published cost now means effective authority cost, not generated base. Unknown delegates final authority; known short/invalid blocks local final submission. Authority rechecks on actual release. No private buff disclosure or C++ stat recomputation.

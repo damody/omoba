@@ -1,0 +1,5 @@
+- [x] Implement owner D/F guidance and current-slot validation.
+- [x] Reject no-displacement blink in authoritative model and receipt.
+- [x] Add model, real ECS and native owner/bridge coverage.
+- [x] Run consolidated acceptance and inspect actual rendered tooltip.
+- [x] Record errors, acceptance limits and handoff.

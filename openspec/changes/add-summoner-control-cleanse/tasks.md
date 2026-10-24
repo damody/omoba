@@ -1,0 +1,5 @@
+- [x] Add strict authored/generated/runtime self-control-cleanse operation and fourth Lua spell.
+- [x] Implement canonical indexed control removal and atomic ECS settlement.
+- [x] Add authoring, plan/commit, ECS, formal60Hz and generated/native tooltip coverage.
+- [x] Complete consolidated Rust/backend/UE5.8/native/source/image acceptance.
+- [x] Archive evidence and update errors, completeness audit and handoff.

@@ -1,0 +1,5 @@
+# 設計
+
+Payload明確區分未知cost與合法零cost；來源為目前公開英雄與已學rank的generated ManaCosts。Owner只存目前slot的有限非負cost；替換、未知、未學習及runtime退休清除。瞄準提示依目前owned且alive的mana／maxmana計算，不支援魔力或非法數值不推論不足；只改文字／顏色，不攔截submit、不當作ACK。
+
+野怪在實際入射程時再用現有line_of_sight與VisionOccluderSet判定，包含全部camp附屬怪。阻擋則不消耗攻擊週期、不產生damage／attack sequence／brush reveal，繼續原static navigation追擊。返回、patience與傷害ledger不改。缺舊world資源時沿既有無牆行為，正式map boot必載compiled occluders。

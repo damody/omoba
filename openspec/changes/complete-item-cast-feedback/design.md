@@ -1,0 +1,3 @@
+# Design
+
+Generate unit allegiance from validated item.target.team, copy it with point-area radius into the owner hotbar payload, and keep bounded six-slot feedback caches. Evaluate current item identity, owner life, shape and cooldown before using the existing disclosed source/target pair and target-admission query. Use an item-unknown state for absent/replaced/invalid metadata. Draw point radius from the generated executable effect, never cue cosmetics. Current item rules do not impose ability silence/root gating or mana costs; do not invent those restrictions. Preserve submission and cancellation paths. Clear new caches on source and runtime retirement. All guidance is advisory and not an authority receipt.

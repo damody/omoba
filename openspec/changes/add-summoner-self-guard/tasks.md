@@ -1,0 +1,4 @@
+- [x] 1. Add strict shared operation/authored catalog/runtime/ECS integration.
+- [x] 2. Add model/actualECS/formal60Hz/native guidance coverage.
+- [x] 3. Freeze10sources; fullRust/backend/UE/native/source/visual acceptance.
+- [x] 4. Seal raw evidence/retirement and update handoff/audit/errors.

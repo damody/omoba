@@ -1,0 +1,4 @@
+- [x] Connect explicit matching authority cost state to common aim guidance.
+- [x] Add native coverage for state, text/color, precedence and retirement boundaries.
+- [x] Build UE5.8 and complete consolidated native/source/image acceptance.
+- [x] Save evidence, errors, completeness audit and handoff.

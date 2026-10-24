@@ -1,0 +1,4 @@
+- [x] Bind native leech flags to serial damage and derive healing from actual accepted HP loss.
+- [x] Cover mixed damage, shields, overkill, packet reduction, healing cut, source lifetime, nested rejection, checked arithmetic and formal60Hz vitals.
+- [x] Run frozen Rust/backend/UE/native92 and full source consistency acceptance.
+- [x] Seal original errors/source/retirement evidence and update handoff/completeness inventory.

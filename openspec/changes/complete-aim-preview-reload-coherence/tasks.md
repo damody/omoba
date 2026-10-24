@@ -1,0 +1,4 @@
+- [x] Add shared canonical aim projection and use it in Unreal generation.
+- [x] Preserve compiled/runtime signatures and reject startup/reload geometry mismatches.
+- [x] Add geometry matrix and unaffected-tuning tests; consolidate formal acceptance.
+- [x] Preserve errors, source/stage/retirement evidence and update inventory/handoff.

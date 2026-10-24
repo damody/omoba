@@ -1,0 +1,23 @@
+# E1528 — channel world VFX
+
+## Product gap and prevention
+
+The accepted recovery channel publicly exposes canonical total/remaining and an owned progress strip, but world actors only receive the generic buff ring. It has no channel-specific authoritative progress or ordered frame lifecycle. Add a common typed state, use existing actor frame admission and a single indexed pooled ring; local pulse time must never become a gameplay countdown. Native tests must use actual filtered ABI export, high-bit opaque keys, invalid/duplicate metadata, lifecycle and bounded pool pressure, plus actual shader pixels. Bone channel animation remains a separate unimplemented gap.
+
+Runner preparation must preserve exact native test IDs and fixture CLI keys. E1527 proved that unrestricted batch renaming can silently omit coverage before the contract rejects it. This batch uses path-only replacement and asserts the original PublicChannelDuration test and public-channel fixture flag.
+
+## Pre-acceptance empty-state review
+
+Initial UEbuild-v1 passed, but source review found the new channel projector scanned the full entity array even when no valid channel rows existed. Preserve the original ten-source cohort and successful build/source-capture receipts, wait/reap every source reader, then add an empty-result return before the living-entity scan and an actual empty public snapshot assertion. Rebuild from a fresh final cohort. This is a production fast-path improvement before native acceptance, not an observed test failure; do not claim the initial build used the final sources. Prevention: every new optional public-state projector should short-circuit empty results before a second full entity pass, especially in stress scenes.
+
+## WorldV1 visual rejection despite native success
+
+WorldV1 executed76/0failed/0notrun and the new channel shader correctly showed midway/late/cleared rings. Actual character+ring PNG review rejected a T-pose: this new fixture synchronized base VFX animation state but never sent a native idle OnAnimationState after its final epoch reset. The shader-only images are informative, but the cohort is not accepted visually. Preserve the complete successful raw run, all available original images and exact ten inputs-v2. After every reader retires/reaps, modify only the fixture: send the current idle snapshot, assert the native animation slot before capture, and orient the light from the capture camera side so the body is readable. Rebuild and run freshWorldV2; do not alter production animation or approve the T-pose because assertions passed. Prevention: actual character captures require a verified live native animation pose as well as pixel/color assertions.
+
+## Accepted closure
+
+UE5.8 buildV3/staged DLL/import SHA passed. WorldV2 executed76:75success+1existingwarningcase,0failed/0notrun. Source guard verified3441 inputs; full accepted Rust1844passed/0failed/9existingignored and backend result inherited after SHA proof3431 unchanged prior inputs+9 native changes+1 addition; no full Rust rerun is claimed. Archive contains437 independently reverified evidence files; 41 final accepted PNGs, with historical captures also retained. Health8 samples/max171 seconds. Four final and six historical successful workers have creation-token-bound retired receipts; all launchers, three inheritance readers and the single170-second health monitor were reaped. CIM found no owned build/test/source worker remaining.
+
+11 new/changed images actually viewed; 30 accepted prior SHA-identical images inherited. Four new512x512 images show the actual idle native hero with a turquoise channel ring, isolated midway and larger late ring, and a completely cleared shader image. No channel bone animation is claimed; existing idle pose is used for the character capture.
+
+All initial cohorts are preserved. BuildV1 passed; empty-state review then added a projector fast return and empty snapshot assertion (exact2 deltas,8 unchanged between ten-source inputs-v1/v2). WorldV1 passed76 native tests but actual character+ring PNG was rejected for T-pose: the fixture omitted native idle state after an epoch reset. A fixture-only follow-up sends current idle, asserts the actual animation slot and lights the camera-facing side; all9 production sources unchanged from inputs-v2 to final inputs-v3. Full freshWorldV2 and finalBuildV3 accepted. Original rawWorldV1/report/available images, every source cohort and all6 historical worker receipts remain archived. No failed native result is invented and the visually rejected run is not approved. E1528 records root causes and prevention.

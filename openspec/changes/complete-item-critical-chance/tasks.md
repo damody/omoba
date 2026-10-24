@@ -1,0 +1,4 @@
+- [x] Preserve originals and implement shared critical equipment data/runtime/shop.
+- [x] Add authored recipes, native tooltip and meaningful lifecycle/combat coverage.
+- [x] Freeze after codegen and complete fresh Rust/backend/UE/native acceptance with image review.
+- [x] Close evidence, retirement, errors, handoff and completeness inventory.

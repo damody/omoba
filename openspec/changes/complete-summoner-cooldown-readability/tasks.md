@@ -1,0 +1,4 @@
+- [x] 1. Implement common positive timer/pair formatting and explicit D/F tooltip.
+- [x] 2. Add meaningful both-slot edge cases and real capture.
+- [x] 3. Freeze sources and run UE/native/source/inheritance/visual acceptance.
+- [x] 4. Preserve evidence/errors/retirement and update handoff/inventory/tasks.

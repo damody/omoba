@@ -1,0 +1,7 @@
+# Design
+
+Compile rank cone_half_angle_ticks directly from shared ability_aim_preview into AbilityConst and runtime reload/coherence checks. EnemyCone{min_targets} is closed and valid only for real compiled instant active/ultimate point cones. No angle/radius key duplication, hero names or tooltip inference.
+
+Only committed SeenUnit observations enter planning. Role enemy/focus, author priority, resource, attack-windup and root rules remain. Canonical dedup precedes bounded selection: at most512 admissible observations and32 disclosed center directions; known over-budget observations or >128 covered victims skip the cone. Scores prioritize disclosed assist coverage, then count, distance, canonical ID. Shared fixed-point sector includes source apex and closed radial/angular boundaries. Zero direction/non-serializable points rejected. This bounded heuristic does not claim globally optimal continuous angles or knowledge of hidden targets.
+
+Optional moba_scatter_match.lua changes carry loadout and opts into two-target cone policy. Existing recipes stay unchanged. Unit geometry/permutation/budget/focus/schema/resource tests, typed generated/runtime geometry, formal60Hz committed-view cast and hidden/noncommitted data tests, recipe compile, fresh Rust/backend/UE/native/source/visual acceptance. Fixed Lua owned acceptance; freeze full old/new inputs before repair; preserve actual exits and original failures. OpenSpec CLI unavailable; direct artifacts continue established fallback.

@@ -1,0 +1,5 @@
+# Item cast audit
+
+The authored targeted-item contract is reject / visible / enemy for current point-nova and unit-hex variants. The backend and bridge already reject invalid targets, range and cooldown; this increment makes the player's preview reflect current disclosed conditions. Existing TryEvaluatePublishedCastTarget and IsPublishedLegalHostile match the bridge's owned-item target admission and can be reused. Current targeted item execution does not add ability silence/root restrictions; keep that policy. New area geometry comes from the validated EffectRadius, not names or cue size.
+
+Visual review: twenty predecessor images are byte-identical to archived previously reviewed pixels. Viewed three new/changed images: item feedback tooltip, first-kill notice and summon. Item text wraps visibly without clipping, with correct effect values, enemy/visibility/reject guidance and 3.5-second cooldown. The stretched tooltip test host is not a 3D player aim capture. Existing partial lower-HUD first-kill clipping and hero/focus map overlaps remain recorded limitations.

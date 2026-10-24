@@ -1,0 +1,5 @@
+- [x] 權威通用層數與ABI payload生命期回歸。
+- [x] Unreal有界解碼、typed row與狀態列層數呈現。
+- [x] 非法輸入、刷新、永久與清除的原生Widget回歸。
+- [x] 集中Rust、UE5.8、Lua、World與來源一致性驗收。
+- [x] 錯誤紀錄、完整度盤點、證據與handoff更新。

@@ -1,0 +1,4 @@
+- [x] Implement typed script attack accuracy and summon integration.
+- [x] Add actual production60Hz shooting and impact acceptance.
+- [x] Run frozen source Rust/backend/UE/native acceptance.
+- [x] Seal evidence, retire owned processes and update handoff/audit.

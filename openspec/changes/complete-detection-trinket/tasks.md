@@ -1,0 +1,4 @@
+- [x] Append detection trinket data with stable scout regression and actual detection/lifetime coverage.
+- [x] Generate shared readable catalog details and integrate the ward tooltip.
+- [x] Run complete Rust/backend/UE5.8 and native Slate acceptance with source coherence.
+- [x] Preserve errors/evidence and update inventory, tasks and handoff.

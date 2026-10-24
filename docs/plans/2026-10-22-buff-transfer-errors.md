@@ -1,0 +1,5 @@
+# 個人野區Buff與擊殺傳承錯誤紀錄
+
+本輪沿前輪S04限制：同target測試EXE執行期間不重新連結；重試必須等前批owner／watcher完全退休。新增測試先檢查mut是否確實需要，避免無效警告造成重跑。
+
+- T01：匿名ScriptDirectDamage只先變更CProperty HP；單純process_outcomes兩次不會執行下一步DeathTick。新增核心測試錯把HP0當成已退休而失敗。修正unit fixture明確經record_moba_death生命期邊界，另擴正式60Hz測試走匿名傷害＋下一步native DeathTick，仍要求lease／Buff清空、未傳承給敵方。保留V1失敗紀錄；重跑必須先等V1 owner／watcher退休。

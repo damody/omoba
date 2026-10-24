@@ -1,0 +1,5 @@
+# Design
+
+Add SelfControlCleanse to authored/generated/runtime operation enums and a resolved self effect. Strict target-none schema with no numeric parameters or implicit immunity. Rust commit sinks unsupported for this effect return ApplyFailure; production ECS implements canonical BuffId removal through indexed BuffStore.remove. Validate owner/alive/phase/pause/shape/cooldown before any effect, then commit cooldown after success. No control block applies to this self operation. No action interruption, HP/mana mutation or new immunity. Buffs other than the three canonical control entries retain their data/lifetimes/clocks.
+
+Lua catalog ID4 training_control_cleanse_v1, name淨念, cooldown210s, no loadout defaults changed. Existing wire/ABI remains unchanged; catalog hash includes full operation identity. Unreal consumes generated text through the existing self summoner card. Add strict authoring/model/real ECS/formal60Hz/native tests and actual tooltip capture. Full maintained Rust scopes, backend, UE5.8, staging and native suite/source consistency accepted together.

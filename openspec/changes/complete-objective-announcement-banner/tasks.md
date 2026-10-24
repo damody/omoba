@@ -1,0 +1,4 @@
+- [x] Add shared typed selector and authority-driven banner/retirement wiring.
+- [x] Cover notice roles, invalid payloads, clearing, text scale and narrow/wide Slate geometry.
+- [x] Build UE5.8 and consolidate native regressions and actual banner captures.
+- [x] Preserve errors, source/stage/process evidence and update handoff/inventory.

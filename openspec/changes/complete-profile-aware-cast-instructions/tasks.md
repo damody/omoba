@@ -1,0 +1,4 @@
+- [x] 1. Implement shared profile-aware help and world overlay consumer.
+- [x] 2. Add real owner matching, inactive/missing/release/retirement and actual Slate capture coverage.
+- [x] 3. UE/full native/source/inheritance/visual acceptance with immutable parent preflight.
+- [x] 4. Seal evidence and update errors/handoff/completeness inventory.

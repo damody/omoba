@@ -1,0 +1,4 @@
+- [x] Audit projection and introduce bounded screen-space suppression with fresh anchors and hidden-layout measurement.
+- [x] Add geometry, priority, recovery and actual Slate coverage and captures.
+- [x] Run UE5.8 build and consolidated single-machine regressions.
+- [x] Record acceptance, errors, inventory and handoff.

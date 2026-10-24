@@ -1,0 +1,4 @@
+- [x] Add bounded authored item rate/catalog and shared inventory passive lifecycle.
+- [x] Add purchase/sale/undo/damage/lifecycle and native tooltip coverage; regenerate and freeze.
+- [x] Complete fresh Rust/backend/UE/native acceptance and inspect item tooltip.
+- [x] Seal independent evidence and update errors, handoff, completeness and tasks.

@@ -1,0 +1,4 @@
+- [x] 1. Project typed non-building policy and add scoped public admission/feedback.
+- [x] 2. Add actual catalog/native lifecycle coverage and render localized refusal.
+- [x] 3. Build and run consolidated native/source/visual acceptance with inherited Rust proof.
+- [x] 4. Preserve evidence/retirement and update handoff, inventory and errors.

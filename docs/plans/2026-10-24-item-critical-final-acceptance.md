@@ -1,0 +1,13 @@
+# Authored critical equipment COMPLETE
+
+OpenSpec complete-item-critical-chance4/4.
+
+Shared item critical_chance defaults to zero, omits legacy zero JSON, rejects nonfinite/negative/over-one/subquantum and malformed values at model and native custom-catalog admission. Generated Rust catalog and Unreal metadata use the same value. Existing inventory dirty rebuild and new-life finalization share one permanent item lease containing both lifesteal and preattack_criticalstrike; independent ability modifiers remain separate. Chance sums and caps100%. No item/hero identity branches or new critical RNG/multiplier rules.
+
+New shop catalog17精準手套 costs600gold and grants12.5%critical;18精準長刀 costs1800gold,25attack and25%critical using17+sword. Existing items/prices/recipes unchanged. Net chance is offensive for purchase-undo benefit tracking even when flat attack is zero. Sale undo remains unsupported and is not claimed. Native common tooltip prints exact percentage, additive100%cap, existing default2x physical multiplier and avoided/fully shielded hit feedback exclusions. Actual generated critical item hover image inspected and SHA-bound;67 prior reviews retain historical provenance, total68.
+
+Formal production60Hz validates real generated-shop buy/recipe/upgrade undo/sale, pure-chance combat refund rejection, independent modifiers, additive cap, shared lease with lifesteal, guaranteed200physical damage and25actual healing from100base, one settled CriticalHit, no inventory healing, zero-removal and production death/new-life restoration. Fresh Rust1928/0failed/9existing ignored, Lua11/11; backend/UE5.8 actual0, staged DLL/import SHA verified. Native92(91Success/1SuccessWithWarnings,4existing warnings), fresh MISS/R/lifesteal/CRIT/critical-equipment captures required.
+
+Fullsource3472=3456unchanged+16explicit frozen changes against strict parentomfue/Saved/BuildTemp/critical-feedback-source-before-v3.json/indexdocs/acceptance/2026-10-24-critical-feedback/index.json; own baselineomfue/Saved/BuildTemp/item-critical-source-before-v1.json. All37 generated candidates preserved before owned codegen; exact outputs frozen after original retirement. 597 independent rehashed files/8 original workers, actual Windows exits/identity retirement checked; max health gap150641ms. Readers and sealer retired before archive closure. Errors/prevention:docs/plans/2026-10-24-item-critical-errors.md.
+
+Remaining: sale undo, wider geometry/gameplay/combat coverage/art and11external acceptance items; full MVP33/44 remains. No true network match/quota reset/commit/push/omfx. Fixed unattended deadline2026-10-25 00:33:38 Asia/Taipei, automationomoba-48 unchanged.

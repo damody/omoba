@@ -1,0 +1,3 @@
+# Design
+
+Shared native FOmDurationText accepts authority seconds only: invalid/negative unavailable, zero distinct, positive<0.1 explicit<0.1, normal one decimal with optional integral trim for existing cooldown consumers. No local ticking, command gating, source changes or hero-name exceptions. Cast preview stun/silence/root/item-aim, recall HUD/status use shared formatting. Existing cooldown helper delegates to shared formatter without ordinary visual changes. Actual public bridge control0.01 test and real recall Slate0.01 capture/zero/retirement plus helper boundaries/permanence cover semantics. Full87 native, UE5.8/source3458 planned; prior Rust/backend via exact source inheritance.

@@ -1,0 +1,4 @@
+- [x] 1. Shared compiled/runtime cone geometry and closed bot intent.
+- [x] 2. Deterministic bounded disclosed planning and optional recipe.
+- [x] 3. Focused contracts/formal casts and concentrated acceptance.
+- [x] 4. Preserve evidence/retirement and update errors/handoff/inventory.

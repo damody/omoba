@@ -1,0 +1,7 @@
+# Design
+
+The ability data owns normalized lifesteal values0.125/0.1875/0.25 (exact Q10). A Field mapping to StatKey::Lifesteal, maximum1, Encoding::Raw reuses the existing transform resolver/admission/refresh/expiry mechanism. Rank-one effect preview reads the same compiled extra. Description clearly states physical actual HP loss, all three rates and shared exclusions/healing reduction. Existing resources/cooldown/duration/range/damage/stun semantics remain unchanged.
+
+Extend existing script tests for rank fallback, explicit overrides, invalid metadata, refresh without stacking and expiry. Extend the real production60Hz transform test with reduced source HP, disabled natural regen, actual projectile rate and actual leech HP, preserving one-real-hit/visual/pause/resource controls. Native existing ReadableHudToolTip verifies generated metadata/rates and actual normal R-card hover, text and saved pixels. View exact new tooltip capture before binding its SHA; inherit64 prior reviews and add one fresh reviewed image.
+
+Preserve all five explicit inputs plus every existing generated output before editing. Run owned codegen using the normal absolute content/output roots, retire/reap it, then compute the exact changed subset and freeze runtime/generated inputs together before fresh readers. Builds must not regenerate different bytes/mtime. Report parent/own baselines directly from configuration. No new network match, quota operation, commit/push or historical frontend work.

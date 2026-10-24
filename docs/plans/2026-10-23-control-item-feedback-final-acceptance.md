@@ -1,0 +1,13 @@
+# Control item target feedback — accepted
+
+OpenSpec complete-control-item-target-feedback4/4.
+
+Validated control-item hotbar policy reaches the owner preview. A read-only bridge query first reuses current source/target identity, visibility, life, allegiance and attackability admission, then uses the current disclosed kind to report an otherwise legal building. The shared renderer shows「此道具無法指定建築」with warning color. Hidden/stale/foreign target kind remains unknown; non-control damaging items keep building admission. Slot replacement, source retirement and scope reset clear policy. No item/hero/camp name rule, actor-class guess, hidden query, gameplay gate, authority ACK claim or C ABI change.
+
+Actual generated catalog13 versus11 exercised source-relative published tower/hero rows, foreign owner, ally/unattackable/hidden target, stale/current generation, current kind refresh, replacement and source retirement. Localized shared refusal screenshot actually viewed. Existing item feedback/native control status and the entire native suite remain accepted.
+
+UE5.8 BuildV2 and staged DLL/import SHA passed. WorldV1 executed79:78success+1existingwarningcase,0failed/0notrun,warnings4. Source guard verified3444 inputs; prior full8-scope Rust1849passed/0failed/9existingignored and backend accepted by exact SHA proof3436 unchanged inputs+7 native deltas+1 native addition; no new full Rust suite claimed. Archive contains131 independently reverified evidence files and46 final PNGs. Health6 samples/max171seconds. Four final and one failed historical worker have creation-token-bound retired receipts. All launchers, two inheritance readers and the single170-second health monitor were reaped; final CIM found no owned build/test/source process remaining.
+
+BuildV1 failed C2248 because the new fixture lacked an existing-style WITH_DEV_AUTOMATION_TESTS friend declaration. Original failed build/log/false retired receipt,8inputs-v1 and initial inheritance proof retained. After all readers retired, only one test-guard friend line was added; other7 inputs unchanged. Inputs-v2 and fresh BuildV2 accepted. Production members remain private and admission was not weakened. E1531 records root cause, repeated read-only path mistakes and prevention.
+
+Evidence:docs/acceptance/2026-10-23-control-item-feedback/index.json; final/errors:docs/plans/2026-10-23-control-item-feedback-{final-acceptance,errors}.md. All readers retired; source freeze released. Further gameplay/content polish, full combat replica,11 external tasks/MVP33/44 and known worldless first-kill crop/map focus-label overlaps remain pending. No real network matches/quota reset/commit/push/omfx maintenance. Original deadline2026-10-25 00:33:38 Asia/Taipei and automationomoba-48 unchanged.

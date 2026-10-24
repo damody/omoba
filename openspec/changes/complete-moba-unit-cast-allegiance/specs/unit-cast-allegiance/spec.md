@@ -1,0 +1,3 @@
+# Requirements
+
+已知技能entity要求使用當前公開關係與完整source／target generation。非敵對中立不能直接當友軍；敵對但未公開attackable不能提示條件符合。來源／視野／生命期失效輸出未知。UI只讀原因不取代權威結果，point與未設定要求保留range。

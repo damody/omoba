@@ -1,0 +1,5 @@
+- [x] Add bounded catalog, generator and training content.
+- [x] Implement authoritative deferred splitting and full-clear respawn.
+- [x] Cover malformed content and actual 60Hz lifecycle.
+- [x] Run concentrated Rust, Unreal and local world acceptance.
+- [x] Record errors, evidence, inventory and handoff.

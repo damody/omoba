@@ -1,0 +1,4 @@
+- [x] 1. Add shared cursor-free recall card entry and native action widget.
+- [x] 2. Add lifecycle/input-surface/actual Slate coverage and capture.
+- [x] 3. Freeze5native sources and concentrate UE/native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence/retirement and update errors/handoff/inventory.

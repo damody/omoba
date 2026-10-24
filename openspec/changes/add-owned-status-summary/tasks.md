@@ -1,0 +1,4 @@
+- [x] 1. Implement shared bounded visible summary and owner/life/mode/retirement gates.
+- [x] 2. Add real ABI/native lifecycle/bounds and actual Slate capture coverage.
+- [x] 3. Freeze4native sources, build and concentrate native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence/retirement and update errors/handoff/inventory.

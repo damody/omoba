@@ -1,0 +1,15 @@
+# Authored lifesteal transform COMPLETE
+
+OpenSpec complete-authored-lifesteal-transform4/4.
+
+Matchlock Gun now authors12.5%/18.75%/25% ordinary physical lifesteal for its three ranks in the shared Lua ability data. Existing generic bounded transform fields, effect-preview modifiers and BuffStore feed shared UnitStats.Lifesteal and the settled ordinary-hit path; refresh replaces one lease, expiry removes it. No hero/camp identity special case in damage processing. Actual hostile physical HP loss grants healing; shields, structures and non-hostile/unknown targets cannot supply shared ordinary leech; existing received-healing and source-life rules remain. Description and generated Unreal metadata publish all ranks and conditions from the same content source.
+
+Existing script/formal tests extended for exact Q10 rates128/192/256, refresh/expiry, invalid/out-of-range/subquantum metadata and effect overrides. The production60Hz all-rank transform case now observes actual ordinary projectile healing with passive regeneration disabled and visual children ineligible, then expiry clears the rate. Native ReadableHudToolTip reads generated actual R metadata, asserts rank extras and opens the actual R card through Slate pointer hover; its fresh PNG was directly viewed and SHA-bound.64 historical reviewed images retain their original provenance; total65, not65 newly viewed captures.
+
+Fresh Rust1918/0failed/9existing ignored and Lua11/11. Codegen/backend/UE5.8 actual0, staged DLL/import hashes verified. Native92 (91Success/1SuccessWithWarnings, 4existing warnings), required actual MISS PNG and authored R tooltip PNG.
+
+Fullsource3472=3464unchanged+8explicit frozen inputs against strict parent omfue/Saved/BuildTemp/leech-target-source-before-v2.json, index docs/acceptance/2026-10-24-leech-target/index.json. Own baseline omfue/Saved/BuildTemp/authored-leech-source-before-v2.json. 938 independent evidence files and 12 original workers retired with identity-bound actual Windows exits; maximum health gap150641ms. Generated outputs were preserved before codegen and frozen only after codegen retirement. Errors/prevention:docs/plans/2026-10-24-authored-leech-errors.md. Original readers/sealer retired before source release and archive closure.
+
+WorldV1 failed only the new tooltip fixture hover (actual Windows1/API60059 reaped). V2 publishes the actual ability HUD state and hovers card-border padding rather than a child-owned tooltip. Only the native test CPP changed; all successful V1 Rust/content inputs are SHA-identical. Fresh V2 UE/staged/native/source acceptance follows retirement, retaining the original failure. Recovery-preparer N02 failed before readers and was completed by a new immutable V3 preparer.
+
+Remaining: authored item lifesteal, critical public outcomes/visuals, more geometry/gameplay and combat coverage/art. Full MVP remains33/44 with11external acceptance items. No true network match/quota reset/commit/push/omfx. Deadline2026-10-25 00:33:38 Asia/Taipei/omoba-48 unchanged.

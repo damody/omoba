@@ -1,0 +1,3 @@
+# Requirements
+
+同World未提交的同team summons不得重疊；不同team預約不得洩漏。取消與drop立即撤銷預約；成功預約跨cache保留直到正式commit，並精確以Entity含generation退休。speculative平行hook不建立預約；固定canonical重放順序決定結果。最終位置須與returned handle讀到位置一致，除非commit前世界條件真的改變。

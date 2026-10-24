@@ -1,0 +1,18 @@
+# Zone pulse ordering COMPLETE
+
+OpenSpec fix-zone-pulse-ordering4/4.
+
+Fixed a concrete combat ordering defect: catch-up zone pulses were grouped by source/key, so a later low-ID hit could precede an earlier high-ID hit in the same tick. Each shared DamageZonePulse now carries its exact positive fixed-point due_offset. The common scheduler derives offsets from the prior remainder and active lifetime, then sorts by due offset, source ID/generation and buff key. BuffTick and ordinary raw-damage settlement retain that chronological order. No hero/camp-name rule or custom kill-credit override.
+
+Existing source-bound death/removal cancellation, rank/admission bounds, clock remainder, inclusive expiry pulse, nonpositive-dt no-op, hostile living target sampling, defenses, shields and first-lethal overkill protection remain. This orders zone pulses relative to other zone pulses. Positions still sample the current simulation state; it does not reconstruct historical movement or impose global chronology on unrelated combat subsystems. Independent zone lifetime policies remain a separate future feature.
+
+New tests prove a high-ID source due at12raw precedes a low-ID source due at16raw and equal-time keys are canonical; one catch-up step equals15/60/120Hz absolute due streams with exact lifetime endpoints. Actual ECS verifies RawDamage source order and normal resistance settlement. Formal60Hz production driver, native admitted zone payloads and real hero death/score paths verify earlier high-ID lethal credit, canonical low-ID exact-tie credit, pause clock preservation and one death despite same-tick overkill. Clock priming is explicit fixture setup with victim outside the area; this is not a newly authored skill-cast or network-match claim.
+
+Fresh8Rust1888passed/0failed/9existing ignored (15/49/120/74/998/337/138/157); unchanged shared Lua cone11/11. Fresh backend build/stage and UE5.8 build/stagedDLL/import SHA passed. Fresh native91: 90success+1existing warning case,0failed/0notrun,warnings4. Fullsource3470:3466unchanged+4exact frozen Rust inputs against index-bound bot-cone parent; all4old byte copies independently match parent hashes. Native presentation and authored executable geometry inputs unchanged;63previously reviewed images inherited by exactSHA/fullsourceproof. Fresh native raw captures retained separately, not claimed newly reviewed.
+
+Archive511 independently verified files; 7actual owned jobs exited0 with original child/waiter retirement, all launchers/closure reaped. Health max151500ms <=180000. Original preparationV1 literal-delimiter failure source and explicitly labeled tool-output transcription retained; correction used distinct prepare-seal-v2, and no frozen gameplay source repair was needed. Error/root/prevention:docs/plans/2026-10-24-zone-order-errors.md.
+
+Evidence:docs/acceptance/2026-10-24-zone-order/index.json. Finalbaseline omfue/Saved/BuildTemp/zone-order-source-before-v1.json. All readers retired/source freeze released. Do not repeat accepted nameplate/active-cone/bot-cone/order work; continue concrete single-PC gameplay such as independent zones or further data-driven content. Fullcombat replica/11external/MVP33/44 remain. No true network match/quota reset/commit/push/omfx. Deadline2026-10-25 00:33:38 Asia/Taipei/automationomoba-48 unchanged.
+
+
+Archive amendment: original index is preserved. Its own Saved inputs/snapshot were omitted by an escaped-prefix filter; see docs/plans/2026-10-24-zone-order-archive-amendment.md and distinct docs/acceptance/2026-10-24-zone-order/index-amended-v2.json. The complete byte-SHA map derives from the originally sealed ancestor+four delta ledger, and snapshot SHA is newly bound rather than claimed originally sealed.

@@ -1,0 +1,5 @@
+# Design
+
+Add facing_formation {rows} to the shared aim contract, with standardized summon_count, row_spacing, col_spacing and front_row_distance rank extras matching the generic formation executor. Validate count/rows/dimensions/extents and special-handler exclusivity. Generator emits rank specs; bridge scales to cm and publishes a typed UI spec. Owned overlay publishes known facing; concealment, retirement, invalid pose and owner changes clear it. Aim draws bounded requested slots in caster-facing coordinates, retaining existing point command validation and cursor confirmation behavior. Tooltip states that terrain/friendly occupancy adjusts final positions. No Rust/C ABI expansion, new match or hidden-occupancy query.
+
+Compiled and runtime AbilityConst carry the same authored rows, consumed by the executor instead of a fixed2. ContentShape and compiled-runtime admission reject row changes through hot reload until all peers are rebuilt. AbilityConst is an internal Rust representation, not the stable GameWorld ABI; formal host and DLL still rebuild together with Rust1.95.0.

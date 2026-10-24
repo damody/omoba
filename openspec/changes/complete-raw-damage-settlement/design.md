@@ -1,0 +1,7 @@
+# Design
+
+Outcome::RawDamage is authority-local, distinct from already-settled Damage/ProjectileDamage. Resolve live target defenses at serial settlement using one shared fixed-point formula also used by DamageInstance. Apply incoming packet modifiers and shields once through the existing sink. Raw projectile stage is explicit serialized native state; older/native projectiles default to settled. Script projectile creation always marks raw, including child projectiles after owner retirement. Preserve immutable ProjectileOrigin and reject mismatched provenance.
+
+Creation audit: new native homing/directional attacks only compute outgoing source damage, so those factories also explicitly mark Raw. The backend legacy projectile factory does the same and emits an explicit NORMAL/TRUE profile. Only old serialized/default fixture projectiles retain Settled compatibility. Native packets that already computed defenses (DamageInstance and legacy melee contact) retain the existing settled variant.
+
+Hero CProperty bases override Unit bases, other Units use Unit stats, and CProperty-only targets use their own bases. Include checked armor/resistance buff aggregation. TD layered targets keep their dedicated profile/layer rules without MOBA base-defense reduction. Retain existing nonnegative-armor and capped-positive-resistance balance policy; do not silently rebalance negative defenses. Fixed-point operation order remains identical to existing DamageInstance. No C ABI or protocol layout changes.

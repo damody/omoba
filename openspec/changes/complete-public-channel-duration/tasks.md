@@ -1,0 +1,4 @@
+- [x] Implement strict BVS2 wrapper with legacy decode and sanitized channel rendering.
+- [x] Connect authoritative producer, replica validation and Unreal bridge.
+- [x] Cover codec/privacy/team filtering/update/bridge/native integration locally.
+- [x] Complete consolidated build/tests/source/image acceptance and record errors/evidence/handoff.

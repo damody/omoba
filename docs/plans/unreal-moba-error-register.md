@@ -1,3 +1,435 @@
+## E1386：單session完整驗收超出期限，新增有界分段而不冒稱效能修復（2026-10-20）
+
+單次全程三次在860秒逾時，根因尚未證實，原失敗與success=false包保持不變。正式新增foundation自然邊界294／120／103，既有tail164／102／54；strict union重驗每筆原始case／wire／stage、UE index、清理、七binary SHA、內容／ABI與不同run id，確認458／222／157及13真Slate cursor觀察完整覆蓋。每段保留原860／900秒、90 frames、8fps，拒絕漏案／重複／錯序／換檔或偽造旗標；不得將phased成功稱single-session成功或固定效能證據。當前world-phased-final-v2整套本機驗收成功，新包`docs/acceptance/2026-10-20-world-runtime-scope-phased/index.json`明列execution_mode=phased與single_session_full_success=false。140 owned及69 local Lua契約含拒收案例；18專項／205 native／69 Blueprint／五PCM成功，3335來源前後一致，全部清理正常。詳`docs/plans/2026-10-20-world-runtime-scope-phased-acceptance.md`。
+
+## E1382：Slate節流原始碼查找猜測了錯誤檔名（2026-10-20）
+
+讀取SlateThrottleManager.cpp時回報缺檔；實際是SlateCore/Private/Application/ThrottleManager.cpp，已用rg --files於已知Runtime/Slate及SlateCore目錄列舉定位。後續先列舉名稱再讀，不猜跨模組檔名。正式來源與驗收證據未改。
+
+## E1381：不錄影完整v3仍逾時，不能把錄影當唯一原因（2026-10-20）
+
+封存及接受界線：`docs/acceptance/2026-10-20-world-runtime-scope/index.json`包含27份SHA／size封存，feature_success=true、full_acceptance_success=false；報告`docs/plans/2026-10-20-world-runtime-scope-validation.md`。沒有把不錄影或重試當效能修復，完整事件仍待有效執行條件及進一步因果定位。
+
+world-scope-final-v3未啟用選配錄影，仍整體success=false、owned超出原860秒，停在153 control stages／215 wire；最後每600frame樣本frames39600／wall821.565／pump121.569／advance374.233／outside325.764。205 native、69 Blueprint及五PCM分項成功，全部publisher／editor／profile清理正常。不得宣稱完整458事件已接受，也不得把關閉錄影當作通用修復。當前世界scope及suppressed結果修正由18專項（四既有preview-world warning）驗證成功，完整流程另列未通過；不反覆用相同條件重跑來冒充修復。
+
+本機UE原始碼檢查：EditorEngine::ShouldThrottleCPUUsage對unattended直接回false；SlateCore的ThrottleManager則須有active ThrottleCount且允許節流才限制expensive tasks，僅記錄Slate.bAllowThrottling=1不證明節流正在生效。沒有充分因果證據，故未修改Engine或使用者節流／FPS設定。原三輪summary／timing／log、失敗影片與所有監測保留，功能接受與完整流程失敗分開記錄。
+
+## E1380：世界scope完整錄影v1超出原期限（2026-10-20）
+
+診斷界線：UE5.8本機EditorEngine.cpp的ShouldThrottleCPUUsage對FApp::IsUnattended直接回false，當次OM_OWNED_CLOCK亦unattended=1，故未修改使用者背景CPU節流設定。GetMaxTickRate以1/60探測所顯示的60不是當次實際FPS量測。CaptureVideo在bRecordVideo=false直接返回，但事件Paint與原視窗／游標證明仍存在；不能把關閉選配錄影當成效能修復或移除全部繪製成本。
+
+同來源同參數world-scope-final-v2也整體失敗：owned仍超出860秒，144 control stages／200 wire，最後frames37800／wall833.702／pump114.990／advance407.712／outside311.001；205 native、69 Blueprint、五PCM與全部清理成功。兩輪皆保留，不能稱錄影版完整通過或效能已修復。接工具原有不啟用選配錄影的完整v3，保留全部事件／frame／期限與其餘檢查；兩公開map的144幀／12片段錄影仍另作嚴格驗證，明確區分完整事件接受與全程錄影未通過。正式程式來源不變，不新增對局。
+
+world-scope-final-v1整體success=false：205 native全成功（12既有warning）、69 Blueprint零診斷及五PCM成功，但owned editor超出860秒共用期限，停在147 control stages／209 wire；最後每600frame樣本frames38400、wall829.198、pump108.288、advance412.828、outside308.082。全部publisher／editor／profile清理成功，source hash_drift=false。與先前E1369同類，當次仍持續推進，不是已證明死鎖；Runtime只啟動一次，速度差尚未歸因單一原因。保留原完整summary／workflow／engine log／AVI與監測，無延長期限、降低case／frame／8fps標準或修改已驗來源。接同來源、同參數完整v2；重試通過也不宣稱固定效能問題已修復。
+
+## E1379：世界生命週期green-v1恢復假設與suppressed HUD漏結果（2026-10-20）
+
+green-v2十八專項已通過，完整viewport三輪仍逾時，未宣告完整接受；封存含原failed-green-v1及三輪failed full summary／timing，詳`docs/plans/2026-10-20-world-runtime-scope-validation.md`。下段為原失敗。
+
+WorldScopeWorldV1的18項中ShopUndoProjectionAndPin失敗三斷言，其餘17成功。新的Stop mode0／actor釋放已通過；兩個mode恢復斷言誤把port-zero未連線Runtime當已連線，正式Tick本來就保持owned HUD unavailable，修正斷言保持0並仍要求fresh公開actor能恢復、冪等Start保留actor，不新增連線bypass。第三個一般操作結果仍顯示已送出，定位到DispatchHudAndOverlayEvents的suppressed早退跳過control-only結果；抽共用DispatchOwnedInputResults供早退及正常路徑使用，完整snapshot仍先收據後結果。原WorldScopeWorldV1 logs／report／PNG／影片與source-v1保留，修正後另跑v2，不覆寫失敗，不放寬真正連線門檻。
+
+## E1378：查找world測試時再次使用位置glob及猜測模組路徑（2026-10-20）
+
+rg的位置參數Om*Tests.cpp在PowerShell未展開，另將OmFrameContract.cpp猜在OmRuntime模組，分別回報路徑語法與缺檔。改從已知OmEditor父目錄用-g、由實際OmGenerated/Public/OmFrameContract.h讀取inline契約。後續所有搜尋先用已知父目錄，不把未確認檔名或shell glob當位置參數；正式來源與證據未受影響。
+
+## E1377：直接Runtime生命週期未退休世界bridge呈現（2026-10-20）
+
+當前功能專項接受、完整流程未接受：十八專項通過（四筆既有warning），ordinary UE5.8建置30.64秒、205 native／69 Blueprint／五PCM分項成功；完整viewport三輪逾時，不能稱fresh458通過。3334來源前後一致，27份封存`docs/acceptance/2026-10-20-world-runtime-scope/index.json`明確overall success=false／feature_success=true，詳`docs/plans/2026-10-20-world-runtime-scope-validation.md`。下方為修正前歷史。
+
+red-v1已重現唯一失敗：Direct runtime stop invalidates the world presentation immediately；真port-zero Runtime停止後mode仍不是0，原WorldScopeRedV1 report／engine.log／六PNG保留。共用修正由PostInitializeComponents／BeginPlay及Start維護Runtime scope reset訂閱，Tick確認替換、EndPlay解除；沿既有ResetRuntimePresentation清除公開actor、route／occluder、target、cue／audio、frame／catalog cursor及HUD，不在reset回呼重啟Runtime。不新增對局，待green與完整驗收。
+
+檢查發現world actor的StartRuntime／StopRuntime有ResetRuntimePresentation，但直接subsystem Stop／Start不通知world actor；可能保留舊呈現mode、entity／target／效果及快照游標，立即重啟也跳過actor tick的無連線清除。沿真port-zero Runtime整合新增實際92:1 actor及mode1快照，驗停止即時變0／actor釋放、新Runtime等待新snapshot、fresh同快照可恢復、冪等Start保留live actor，先執行red。修正應沿相同Runtime scope reset，綁定與解除遵循actor生命期，不靠額外tick、不新增對局。
+
+## E1376：輸入owner未訂閱Runtime生命週期退休（2026-10-20）
+
+最終接受：ordinary UE5.8建置36.78秒、十七專項零warning、完整205 native／458操作／69 Blueprint／五PCM／嚴格錄影及全部owned清理成功，3334來源前後一致。真Runtime停止997歸零、舊資格失效、新投影低ID恢復與冪等Start保留live request均通過。22份證據`docs/acceptance/2026-10-20-owner-runtime-scope/index.json`，詳`docs/plans/2026-10-20-owner-runtime-scope-final-acceptance.md`；下方待驗文字為修正前歷史。
+
+red-v1已重現唯一失敗：Direct runtime stop retires ward admission immediately，預期0實為997。原OwnerScopeRedV1 report／engine.log與PNG保留。修正改共用EnsureRuntimeInputBindings，owner建立／BeginPlay即綁定命令及scope reset；Runtime替換與RetireInput一起解除。重設本機direction／analog／pointer hold／cast／hero／ward及能力道具資格，保留profile與owner；停止回呼不送方向end命令。冪等Start不重設，待green與完整驗收。
+
+來源檢查發現輸入owner只在direction refresh訂閱命令admitted，沒有Runtime scope reset；直接Stop／Start在兩個World tick之間可能保留ward renderer admission與舊hero／ward資格、瞄準／按住等暫態輸入。沿既有真port-zero Runtime整合案例新增997停止即時歸零、舊ward投影失效、新公開投影恢復低ID及冪等Start保留有效關聯回歸，先執行red。共用修正須在owner建立即訂閱、重綁解除、退休移除；重設只取消本機暫態，不在Runtime停止回呼送出新命令，保留使用者profile。不新增對局。
+
+## E1375：文件finisher以整段存在阻擋同檔第二個插入（2026-10-20）
+
+完整驗收與22份封存成功後，finisher已更新handoff、audit及4.4段落；接續同一tasks.md的7.3段落時，全檔already-updated guard誤把前一段已存在視為重跑，主動中止。已核對部分寫入，不重跑前段；用獨立resume只完成7.3與E1374最終接受，並重驗22份SHA／size與33/11計數。防範：多段文件更新須按插入點檢查或先計算整份輸出，不用同一全文段落作每個插入的全檔阻擋。正式來源與已驗證據未改，不需重跑功能驗收。
+
+## E1374：Runtime停止未退休商店撤銷關聯與舊經濟資格（2026-10-20）
+
+最終接受：ordinary UE5.8建置37.56秒，十六專項零warning、完整205 native／458操作／69 Blueprint／五PCM／嚴格錄影與全部owned清理成功。3334來源前後一致，22份可攜證據`docs/acceptance/2026-10-20-shop-runtime-scope/index.json`，詳`docs/plans/2026-10-20-shop-runtime-scope-final-acceptance.md`。新增停止987即時退休、新投影／舊receipt／低ID／冪等Start回歸均通過；下方待驗文字保留為修正前歷史。
+
+red-v1已真實重現唯一失敗：Direct runtime stop retires shop undo correlation immediately，預期0實為987；原ShopScopeRedV1 report／engine.log與六張PNG保留。採widget共用ResetRuntimeInputScope，在清除舊undo pending／watch／pin與settled文字後，使用既有空經濟投影退休buy／sell關聯及recipe資格，保留widget等待新的公開投影。冪等Start仍不廣播重設。不修改權威交易／退款語意；待green與完整驗收。
+
+來源檢查發現既有scope reset只清一般操作；商店undo的pending／receipt watch／request id／purchase pin與舊經濟資格未同步退休，直接Stop／Start可能跨Runtime保留。以既有真port-zero Runtime整合案例新增停止即時退休、重新等待公開經濟投影、舊receipt不顯示退款及冪等Start保留live request回歸，先執行red。修正只退休本機舊scope，不推測退款或修改權威receipt，沒有新對局。
+
+## E1373：PowerShell下rg路徑再次使用未展開glob／猜測檔名（2026-10-20）
+
+本輪查找Shop及Saved建置檔時，兩次將glob放在位置參數，另指定不存在的scripts/ue_build.lua，產生路徑錯誤；正式來源未受影響。改以已知父目錄搭配rg --files／-g或直接讀已確認的scripts/build_ue_moba.lua。後續不得在PowerShell位置參數使用Bash式glob；沒有結果的AGENTS清單exit 1不代表工具故障。
+
+## E1372：Saved計時摘要wrapper未替換輸出路徑（2026-10-20）
+
+Runtime scope完整驗收已成功；整理計時時，wrapper只替換被單引號完整包住的prefix，實際路徑前還有BuildTemp目錄，因而仍指向既有runtime-feedback-full-timing-summary.json。工具拒絕覆寫，舊證據未變。修正為替換明確runtime-feedback-前綴，再以新runtime-scope-full-timing-summary.json輸出並核對458案例與raw log SHA；不需重跑已通過且來源未變的驗收。此類wrapper執行前須核對輸入及輸出路徑，PowerShell多命令最後exit 0也不能取代逐項檢查工具輸出。
+
+## E1371：讀取歷史stage紀錄前仍猜測候選檔名（2026-10-20）
+
+檢查finalizer的SHA標記時，rg同時指定已存在的runtime-feedback-stage-v2.log與不存在的v1，後者回報找不到檔案。已由v2確認兩個正式stage SHA標記，沒有變更正式輸入或覆寫證據。後續先列舉實際檔案再讀取，不把缺檔當建置失敗。
+
+## E1370：直接Runtime停止／重啟未退休一般操作關聯（2026-10-20）
+
+最終接受：普通UE5.8建置50.25秒；十六專項零warning，直接Stop立即清除、舊結果不復活、兩次重啟低ID與冪等Start保留pending均通過。完整205 native／458實際操作／69 Blueprint／五PCM及3334來源一致；三分鐘檢查、嚴格錄影及全部owned清理成功。red原失敗不覆寫，22份證據見`docs/acceptance/2026-10-20-runtime-input-scope/index.json`，詳`docs/plans/2026-10-20-runtime-input-scope-final-acceptance.md`。下方待驗文字保留為修正前歷史。
+
+red-v1已正式重現：ShopUndoProjectionAndPin唯一失敗為Direct runtime stop clears ordinary feedback immediately，原report／engine.log／六張回覆PNG保留。修正採Runtime的新scope reset事件，在明確Stop及成功建立新Runtime時同步發送；已運作Runtime的冪等Start不清除pending。HUD沿既有建立／重綁／退休同時訂閱與解除，清掉一般操作回覆與64筆關聯；不變更商店權威receipt／退款規則、單調ID規則或任何重試政策。待新建置與完整本機驗收。
+
+盤點發現Runtime subsystem可直接Stop／Start，未同步通知既有HUD；Rust Runtime的next_input_id從0初始化。如果停止與重啟在兩個World tick之間完成，actor無法觀察中間的停止狀態，HUD owner epoch也未必改變，舊LatestId可壓掉重啟後的新低ID。新增真port-zero Runtime停止／重啟、無World tick的整合回歸，先驗證缺口；修正應使用Runtime生命週期共用通知，沿HUD訂閱／解除生命期清除關聯，不靠延遲tick、重建widget或放寬單調ID規則。測試的admission／result為受控fixture，不冒稱權威ACK；不新增對局。
+
+## E1369：完整owned操作超出共用期限，保留失敗並分段定位（2026-10-20）
+
+最終v2：205 native／458實際操作／69 Blueprint／五PCM與全部清理成功，3334來源前後一致；獨立83案例溝通段及每600個實際engine frame分項計時已保存。保持860秒工作期限、900秒publisher壽命、原frame數與8fps。v1與v2速度差尚未歸因單一原因，v1依然失敗，固定效能父項仍pending，不能寫成效能問題已解。
+
+runtime-feedback-final-v1失敗；205 native與69 Blueprint子項成功，owned進度至控制147，shared deadline到期。publisher／editor／profile均依擁有權清理，沒有改寫失敗或接受部分影片。關閉後唯讀timeline有效4793幀、840.560秒，Ability163.602／ItemsRecall194.764／Communication162.031／Selection76.962秒；相對上一接受105.685／129.683／103.479／63.949秒，整體有明顯變慢，不能直接歸因於通知。共用Read仍只畫一次，Engine的ShouldThrottleCPUUsage明示unattended不走背景節流，不應未量測就修改使用者電源／節流設定。新增每600個實際engine frame的pump／advance／其餘等待分項時間，保持原frame數、事件順序、8fps及期限，先跑受影響獨立phase定位。來源消費者全部退出後才補E1368權杖檢查與回歸。
+
+查Engine header曾先猜Settings/EditorPerformanceSettings.h而不存在，已用rg --files定位Classes/Editor/EditorPerformanceSettings.h；此為唯讀盤點錯誤，不改Engine。後續應先inventory而非沿舊版目錄慣例猜路徑。
+
+## E1368：共用admission仍須驗證selected source權杖（2026-10-20）
+
+最終接受：復用OmMatchSessionSource嚴格controller／epoch權杖，十六專項的未選中source拒絕／Acquire後才通知／重綁與退休均通過；完整v2依最終來源接受，沒有放寬來源規則。
+
+runtime-feedback-final-v1執行期間的唯讀review發現：新HUD訂閱雖檢查registered controller、world、bound source與player，尚未檢查該source是否為目前選中的來源及其captured controller／epoch。多來源交接時不可把「widget目前綁定」等同「來源已取得發布權」。既有OmMatchSessionSource提供IsMatchSessionSourceCurrent，應直接復用，不另掃world或猜controller。等本輪所有consumer退出後補嚴格介面檢查，並新增未選中來源不可通知、明確Acquire後才可通知及退休回歸；v1保留為中間候選，最終接受須對修正後來源重新建置、凍結指紋與完整驗收。
+
+## E1367：音訊專用batch被當成一般native輸出路徑（2026-10-20）
+
+完整驗收的第八批為audio-output profile，唯讀狀態查詢卻依一般批次規則猜native-008-engine.log，檔案不存在。正式runner已將此批交給verify_original_audio_output.lua，並從.ai-collab/original-audio-output/runtime-feedback-final-v1-audio/native-report讀取；已讀runner實際分支確認，未重跑、改寫或刪除證據。後續查詢以native-progress的profile及producer定義為準，不能只按流水號推導檔名。此錯誤不影響正在前進的owned操作驗收。
+
+## E1366：直接Runtime命令繞過一般操作送出回覆（2026-10-20）
+
+最終接受：runtime-feedback-build-v3成功（UBT10.30秒）；十六專項零warning，完整205 native／458實際操作／222 wire／157 stage／13 cursor／69 Blueprint／五PCM與全部清理成功，正式owned對每次Stop／Hold實際送出驗HUD文字。3334來源／資產SHA、size、mtime前後一致；六張當次HUD及兩張map原圖直接檢視。詳2026-10-20-runtime-feedback-final-acceptance.md；下段實作時的「待驗收」是歷史，不改寫原失敗／調查。
+
+盤點發現Stop／Hold的action owner與legacy controller直接呼叫Runtime，上一輪僅WorldBridge／小地圖的回覆接線漏掉這些入口；舊模型十種kind通過不代表實際送出路徑已覆蓋。改由Runtime成功送出後發布帶實際wire player與request id的共用事件，HUD owner按同一local controller／world／source／widget生命期訂閱，解除綁定時移除；移除兩處分散通知，保留既有方向admission事件與authority結果消費。新增直接事件consumer的外來owner／Stop／Hold／退休測試，以及正式owned實際Stop／Hold事件到HUD文字斷言。驗收尚待新建置及完整本機輪，不新增對局或重設10/10。
+
+盤點初次讀取誤用不存在的Source/OmPlayer目錄，隨後以rg --files定位Plugins/OmRuntime；另一讀取把Bash花括號展開放進PowerShell，parser拒絕且未執行任何命令。改使用已盤點的實際共同父目錄，不混用shell語法。測試草稿的Hold文案也在建置前與正式Notice逐字比對並修正，不改產品文字來配合測試。
+
+## E1365：文件producer patch漏掉Lua長字串prefix（2026-10-20）
+
+最後補充原始錄影JPEG檢視紀錄時，patch只使用段落正文，漏掉同一行的text=text..[=[，apply_patch驗證失敗，沒有產生部分修改。重新rg讀取真行後以完整context套用；這是Saved文件producer修訂，不改正式來源、測試輸入或驗收結果。最後diff --check另指出插入點兩行CR字元被視為trailing whitespace，已僅修正新增的兩行，未重新格式化歷史register。後續不能把程式內長字串正文當獨立Markdown行；混合行尾檔案必須依插入點實際行尾處理，不能只因整檔任意位置出現CRLF就套用CRLF。
+
+## E1364：完整操作逾時與共用取樣重複繪製（2026-10-20）
+
+最終接受：build-v6成功14.59秒，ActionFeedbackWorldV1十六專項全Success／0warning；四種實際尺寸的backbuffer回呼均為一次繪製，兩map144幀／12片段及像素對照通過。action-feedback-final-v2完整205 native（12既有warning保留）、458操作／222 wire／157 stage／13 cursor、69 Blueprint零診斷、五PCM與全部清理成功；操作錄影3559幀／11片段，590.485秒，全部嚴格驗證。3334來源SHA／size／mtime驗收前後一致。沒有增加期限或取消通知，v1失敗完整保留。詳2026-10-20-action-feedback-final-acceptance.md。
+
+action-feedback-final-v1完整輪失敗，204 native與69 Blueprint子範圍通過；owned shared deadline到期，沒有native完成報告，不接受部分影片或勾父項。程序持續前進至Selection／seq142，publisher／editor／profile均按擁有權清理。原JSON／AVI／timeline／log保留，不改寫、不補列或增加900秒期限。
+
+完成後唯讀比對歷史成功：舊owned3556幀／590.189秒，新失敗4805幀／840.958秒有效timeline，800×600／400×300範圍一致。Ability／ItemsRecall／Communication耗時較長，Selection相近；不能據此斷言唯一原因是新通知或機器負載。讀實際UE5.8 SlateApplication.cpp確認TakeScreenshot會PrepareToTakeScreenshot後自行PrivateDrawWindows；helper在之前又ForceRedrawWindow與Flush，確有每次取樣重複繪製成本。移除helper多餘draw／flush，保留prepass、真render extent、完整pixel count與原始像素；新增實際backbuffer回呼計數、四次resize及畫素內容回歸。需要新的公開世界／專項及完整接受；舊失敗不因子項成功改成PASS。
+
+## E1363：擷取工具盤點仍誤猜Saved檔名（2026-10-20）
+
+準備最後錄影原圖擷取時誤讀不存在的nonmatch-verify-world-video-v3.lua，只產生唯讀找不到檔案，沒有碰活躍AVI／timeline或正式來源。已回到rg --files配合world／video filter的真inventory及正式owned_window_video.inspect介面，不靠版本號猜檔名。正式驗收仍在原owned程序前進，沒有重啟或放寬驗證。
+
+## E1362：回饋可見性斷言早於Slate paint（2026-10-20）
+
+action-feedback-focused-v1模型及PlayableMvpHud成功，ShopUndoProjectionAndPin因一次「Ordinary feedback text is visible」失敗。四張原始800×600視窗逐張檢視均已正確顯示送出／不確定／拒絕／確認；原測試在更新bound text後、第一次Slate paint前讀取visibility，而Read會在之後完成真正prepass／redraw。修正方向為每次斷言前先完成同一實際視窗的paint，有擷取時沿共用Read一次完成；不刪除可見性斷言、不加sleep或World.Tick、不把圖片成功當整輪測試通過。舊指紋v1僅歷史候選，待測試修訂及新build後重新凍結來源並完整驗收。
+
+## E1361：小地圖補接誤用action owner的bridge欄位（2026-10-20）
+
+action-feedback-build-v3失敗於CommandBridge未宣告；該弱參照是action owner的實作，不屬command bar。改沿既有ActivateItemCard使用的UOmPlayerHudOwnerComponent公開介面GetCommandBar／GetHudSource，要求同一live widget與有效source。不能在不同類別之間照搬private欄位名稱；應先讀目標類別及同類現有路徑。v3退出後才修正，原失敗log保留。
+
+## E1360：誤將結果view欄位當widget owner欄位（2026-10-20）
+
+action-feedback-build-v2正式失敗，OmCommandBarWidget.cpp引用LocalPlayerId未宣告；header盤點所見的同名欄位其實屬FOmMatchResultView，不能視為UOmCommandBarWidget成員。改用該widget實際GameInstance的RuntimeBridgeSubsystem configured local player，與正式送出路徑一致；不從缺席hero或scoreboard推測owner。另盤點所有widget直接SubmitGameplayInputEvent入口，補小地圖Move路徑共用追蹤，shop仍由原receipt機制處理。等所有consumer退出後才修正，v2 log保留。
+
+## E1359：一般操作結果未接HUD與新追蹤實作盤點（2026-10-20）
+
+剩餘4.3追查確認OmAppliedInput已有原request ID／player／command kind／status，但HUD僅消費商店與偏好結果，一般移動／攻擊／施法回覆沒有可見呈現。本輪補共用有界關聯，不以enqueue推斷權威成功、不推測實際效果、不增加重試或對局。確定性模型與production control-only frame派送分開驗證；父項仍需原權威ACK真對局證據，不先勾完。
+
+盤點時曾誤猜OmBridge為獨立Source module，實際OmRuntimeBridgeSubsystem位於OmRuntime；已改用rg --files定位。新碼初稿亦將C ABI InputSummonerCast誤寫成InputCastSummoner，已在讀實際header時辨識。build-v1正式退出6，另發現FOmInputSubmitStatus真正宣告在OmRuntimeBridgeSubsystem.h，不能假設GameplayInputTypes.h包含它；新tracker header改明確forward declaration，cpp及測試直接include其定義，不靠unity或PCH偶然補齊。等待當輪build consumer全退出後才修正。後續以真header列舉建立映射，不由UE action名稱猜ABI名稱。建置與回歸結果接續記錄，v1失敗log保留。
+
+## E1358：接續盤點讀取單行大型 JSON 與猜測測試檔名（2026-10-19）
+
+接續複核時，對 health JSONL 使用 Tail 1、對 index.json 使用 TotalCount 5，仍可能輸出一整列數萬 token 的 JSON，造成截斷；另外直接猜測 moba_owned_viewport_ipc_test.lua，實際檔名是 owned_viewport_ipc_contract_test.lua。均為唯讀盤點錯誤，沒有修改正式來源或影響既有驗收。後續 JSON 必須經 Lua json.read 後只輸出需要的欄位；檔名先使用 rg --files 配合 -g filter 定位，再執行或讀取。已有檔案的驗證結果採新的輸出檔名，不能覆寫歷史成功／失敗報告。實際契約測試重新執行，127 cases passed。
+
+## E1357：逐幀強制刷磁碟及重複 redraw 拉長驗收（2026-10-19）
+
+完整v4仍在前進，但owned shared deadline到期，程序依擁有權清理，沒有native完成報告，不能接受部分影片或勾任務。2026-10-19的203 native及69 Blueprint通過屬該失敗整輪的子範圍；整體不接受。讀實際UE FileManagerGeneric.cpp確認FArchive::Flush不只是排出記憶體buffer，也呼叫Handle->Flush；逐列刷磁碟增加額外I/O，CaptureVideo在共用Read之前又重複redraw一次。這些額外成本與已觀測的流程拉長相符，不把deadline failure說成程式掛死或新權威效能證據。
+
+改用持續、可共享讀取的IFileHandle：每列UTF-8加換行一次完整Write、立即檢查回傳，最後Close才完整Flush並檢查結果；保留原row／byte界線與已有檔案拒絕。既有live-reader回歸仍要求結束前可見完整紀錄。移除CaptureVideo重複的render preparation，由共用Read唯一負責，不改world clock、不放寬原期限、不降低逐幀驗證。build-v29成功14.31秒，接fresh focused／完整接受與source-v6。
+
+最終接受：build-v29成功14.31秒，WorldV17十三項零warning、127 Lua契約成功；nonmatch-final-v5完整203 native（12既有warning）、458操作／222 wire／157 stage／13 cursor、69 Blueprint零診斷、五PCM及全部清理成功。完整操作錄影3556幀／13片段／112,463,546 bytes，590.189秒；兩公開map144幀／12片段亦嚴格通過。source-v6共3331份SHA、size、mtime後驗完全一致，沒有放寬原期限、補列、丟幀或重寫失敗報告。OpenSpec更新33/44、11待驗；詳2026-10-19-nonmatch-final-acceptance.md與docs/acceptance/2026-10-19-nonmatch/index.json。
+
+## E1356：錄影 timeline 每幀重開寫入失敗與次級驗證遮蔽（2026-10-19）
+
+nonmatch-final-v3 的202 native／69 Blueprint仍成功，owned在154 case、1058 timeline rows時先報 owned video frame timeline write failed。AVI已多寫一幀，Lua先驗影片便報 movie frames missing from timeline，遮蔽原始失敗；整體不接受，不補寫缺列、不截斷AVI、不放寬索引。D槽仍約1.3TB可用，排除空間不足；舊 SaveStringToFile 每幀重開append，未回報可判定的OS錯誤碼，不能斷言是監控讀取或防毒造成。
+
+改為兩producer共用有界UTF-8 timeline writer：一次建立、允許讀取共享、每列flush、檢查寫入及close錯誤、拒絕覆寫與內嵌換行，不靠重試或丟影格。新增實際reader持續開啟時append／flush可讀、中文UTF-8、row／byte bound與close回歸，正式Runtime inventory收錄。Lua先通過既有native成功gate才讀／驗dependent影片，保留真正失敗原因；既有owned artifact契約測試已成功。活躍錄影監控只看metadata與CPU，不再額外讀其逐幀內容；最後才嚴格驗全檔。仍須新build／focused／完整接受與新來源指紋，v3失敗保留。
+
+## E1355：原生視窗證據統一量測與 actual-painted 命中（2026-10-19）
+
+diagnostic-v1 完整458操作／222 wire／157 stage／13 cursor成功，3514原始錄影影格通過，所有程序回收；因此未固定重現v2時序失敗，不把重跑成功當修復。觀測原生window DPI1.5、application scale1、render raster800×600、window local533.333×400，兩套座標不可混用。舊 video 使用預設 TakeScreenshot 邏輯大小；既有 PNG 已用實際 window render extent 與 arranged-path offset校正。將後者收斂為 OmOwnedWindowCapture，供原生／公開地圖的 PNG、錄影與 frozen對照共用；輸出仍為原render buffer，未縮放或後製，取樣不前進world time。
+
+卡片沿用舊 tick-space center，而通用 TryClickTag 已使用 actual paint／scroll geometry與 hit-grid origin。改共用後者，仍要求同一 enabled SButton identity及實際 interactive-window leaf；disabled card仍要求其原shield、拒絕button命中，採相同paint／grid座標。沒有直接呼叫delegate、跳過斷言或依case硬改位置。等待消費程序全部結束才實作，下一輪需 fresh build／公開圖／完整驗收與3331份指紋。v2失敗、diagnostic成功各自保留。
+
+## E1354：完整 owned 操作在 item-card-map 真實命中失敗（2026-10-19）
+
+nonmatch-final-v2 的202 native全部成功（12既有warning）、69 Blueprint零診斷，但完整 owned viewport 在255個case後因 item card 0 的實際命中 leaf 為 SScrollBox 而失敗；整體不能接受。原始 AVI 嚴格保留，擷取第一與最後片段末張原始 JPEG，發現 ItemsRecall 期間視窗取樣從800×600變為532×398，末張只看到上方回城資訊，不能沿用前一片段800×600原圖診斷。尚未證實是 layout、DPI 或 window geometry 的哪一層，不能用擴大視窗／重試／跳過 hit-test冒稱通用修復。
+
+已確認 supervisor、editor、publisher與編譯consumer均退出，再新增 raster／scene／native DPI／window geometry變更及實際卡片 ancestor診斷，保留原嚴格斷言。v3來源指紋保留歷史，加入診斷後須重新凍結及最後完整驗收。父項勾選暫不更新，失敗報告不覆寫。
+
+## E1353：唯讀盤點仍須使用實際 inventory 與 rg filter（2026-10-19）
+
+本輪曾錯猜 OmEditor 為獨立 plugin 路徑，並再次把 Windows literal wildcard 路徑交給 rg；均只產生找不到檔案／語法錯誤，未更動來源。後續統一先以 rg --files 真 inventory 定位檔案；多檔搜尋指定存在的目錄再用 -g filter，不能把未展開的星號當檔名。UBT 共用 LocalAppData Log.txt 也可能屬於其他專案，建置判定只使用本輪唯一 Lua log 與 owned process，避免將外部專案舊 log 當本專案進度。
+
+## E1352：顏色輸入值不等於曝光後的 screenshot RGB（2026-10-19）
+
+WorldV13 真實 VFX 差異3320像素，但文字 gold 門檻為0；原圖確有三組清楚的 -125，曝光後高光接近白色，不能用輸入 FColor 的色彩比例判斷 glyph 有無。改以只隱藏實際 UTextRenderComponent 的同時間視窗差異驗證文字可見，保留像素差門檻，另外保存兩張未修圖的實際隱藏對照 PNG 供目視核對。不是忽略原失敗或改文字／曝光去迎合判斷；舊報告保留。
+
+## E1351：二維 screenshot extent 的未使用分量也須初始化（2026-10-19）
+
+WorldV12 已直接看到三個 -125 與三個 cyan cast cue，灰方塊消失，十項成功／一項失敗。新 frozen control 比較整個 FIntVector，但 Slate screenshot 只填 XY，未初始化的 Z 造成尺寸比較失敗。改明確三個 extent 全部零初始化，仍嚴格比較相同 XY、pixel count 與可見像素差，不略過失敗斷言。道路 height／rebuild／destroy／scope 回歸亦已真成功。原失敗報告不覆寫。
+
+## E1350：非有限負例使用標準 numeric_limits（2026-10-19）
+
+build-v22 拒絕新增負例的 TNumericLimits<float>::Infinity，UE 此型別無該成員。改用標準 limits 的 std::numeric_limits<float>::infinity()，保留非有限高度應拒絕的真負例，不移除斷言；原編譯錯誤 log 保留。變更前已確認編譯 consumer 全部退出。
+
+## E1349：首次建立的材質需完成 shader 才能接受畫面（2026-10-19）
+
+WorldV11 十項零 warning，但實際 PNG 仍為灰色矩形，不能只因 v21 建置及計數通過便接受遮擋修正。資源完成等待原本位於新 combat material／text 建立之前；新增第一次 draw 後完成 shader／asset compilation 的 gate，等待不前進 world tick、也不改效果生命週期。新增同一實際視窗、同一 world time 的文字及 VFX 隱藏對照像素檢查，分別要求可見金色字與效果差異；對照不錄入事件影片。另補道路實際頂面、重建、scope reset、回收與 ring literal XY 回歸。
+
+scratch 首次把 path.write 的 overwrite 參數誤設 false，工具依契約拒絕覆寫，來源未動；讀取真函式 signature 後改 true，再獨立確認編輯成功。查詢截圖也曾早於 producer 完成，後續須先列出實際產物再讀圖。
+
+## E1348：物件計數成功不能取代實際戰鬥像素驗收（2026-10-19）
+
+WorldV9／V10 十項皆成功且零 warning，但人工檢視實際 public-combat PNG 沒看到傷害字與效果，因此拒絕這部分視覺驗收。實際投影顯示傷害字與血條面板重疊；地面 ring 原本高度3cm，低於道路頂面9cm；水平 body disc 也可能藏於模型內。已排除任意改 visual scale 的猜測，保留公開座標、深度測試與效果生命週期。修正使用實際血條 cached geometry 避讓、地形建立／回收時登記表面高度，以及依實際鏡頭將 body cue 放至模型前緣。建置 v21 成功，仍須 fresh 截圖及回歸證據才接受。
+
+修正 scratch 首次因 CRLF 長字串再轉換及 GroundRing 不完整 anchor 而在記憶體準備階段失敗，未寫入任何正式來源。統一先轉 LF 再依目標格式轉換、改用完整函式 signature 的唯一 anchor，才一次寫入八檔。後續不得在未確認編輯成功時啟動相依建置。
+
+## E1347：combat roster 使用支援的 world 與正確清理順序（2026-10-19）
+
+WorldV8 十項中九成功，新的 roster 因 EditorPreview 不建立 combat world subsystem 而正確拒絕；改用既有 combat fixture 相同的 Editor world，不擴大正式 subsystem 的 world-type 支援。兩公開map 新 cast／HP delta 與三個實際 actor cast clip 已通過，但清理 RenderHost 時出現兩筆 no context warning。原 fixture 在 DestroyWorld 前先移除 GEngine world context，現在先 DestroyWorld 再移除 context，使 subsystem 在仍有 context 時回收 actor。警告未忽略，需 fresh report 零 warning 才接受。
+
+四 PIE 的 native／原 BP、windowed／borderless、focus／hit-test 全部真成功，實測 OS DPI=1.5。延伸只使用實際可用螢幕的 per-monitor DPI，若硬體缺少100／150配對，明示保留該矩陣pending，不改系統設定、不模擬OS DPI、不要求使用者確認。
+
+## E1346：跨模組 catalog 透過已匯出的 immutable view（2026-10-19）
+
+build-v17 所有 C++ 編譯通過，link 拒絕新增 roster 測試直接存取未匯出的 ContentEntries／ContentEntryCount。依 OmRegistry.h 的正式 OMGENERATED_API GetContentEntries() 非擁有 immutable view 改迴圈，不修改 generated 檔、不擴大 DLL export 或繞過 catalog。舊 LNK2001／1120 log 保留，待新建置與真測試確認。
+
+新增 runner 不再層層讀取／替換前一個 factory 的替換字串，以免同時改到 Lua pattern 與 replacement 而漏掉新增測試。v8 直接從原始 runner template 生成完整十項清單，cargo exact 完整名、video 與 PIE capture 均顯式指定，report 仍依這份完整清單驗證。
+
+## E1345：Lua 內嵌 C++ 必須使用具等號的長字串（2026-10-19）
+
+phase2 scratch 的 C++ Entities[Casters[I]] 含有雙右括號，提前終止 Lua 的雙括號長字串，整個 Lua 在 parse 階段失敗、沒有任何正式來源被修改。後面 shell 以分號接續的 build-v16 因而只驗到舊來源（UBT1.66秒），不得當成 phase2 建置。改為具等號的長字串，並分開執行編輯與依賴建置、確認編輯 exit0 才啟動新 build。已實際退出後才修改；避免任何失敗編輯被後續成功 exit code 遮蔽。
+
+同批 PIE 增加原生 windowed／borderless window mode、實際 OS DPI 值、local focus／hit-test與可選原視窗 PNG。OS DPI 只記觀測值，不把強制尺寸或 UI scale 冒稱100／150%的OS矩陣。記錄 focus 前先確認 shared widget 有效，失敗走清理與診斷，不解參考空指標。
+
+## E1344：新 PIE 功能測試須納入正式 feature inventory（2026-10-19）
+
+nonmatch-final-v1 正式完整200 native成功（12既有warning）、完整 owned IPC／69 Blueprint成功；四 PIE在相同來源的WorldV7九專項另有成功，但新名稱 Om.Editor.PieActionOwnerMatrix 被既有正式allowlist略過，不能把200說成包含它。確認完整 supervisor退出、所有consumer清理後，將feature測試改名Om.Runtime.PieActionOwnerMatrix，使既有通用inventory自動收錄，不放寬所有可能修改資產的Om.Editor測試。舊報告名稱不改寫，最後以新清單再驗收。
+
+同批追加七個非tombstone正式英雄的真實clip／pooled VFX／HP文字／pause／fog／pool新generation回歸，明示沒有專屬hit／respawn clip的角色使用既有generic pose及共享動畫cue，不宣稱新增其專用素材。公開map fixture追加同視點三個真實cast clip與公開HP delta的實際視窗證據；仍為synthetic public frame、零authority simulation／ACK。原200完整接受保留，不重設10/10。
+
+## E1343：錯誤紀錄新區段也須遵守自身行尾（2026-10-19）
+
+最後 diff --check 發現新 E1335 區段四行 CR 為 trailing whitespace；該筆插入刻意轉 CRLF 與文件新增行慣例不符。只移除該四行 CR，其餘歷史 bytes 不動。Markdown 與根 bat 的格式契約不同，不能把 bat 的 CRLF 規則套用到文件。此為 docs 修正，不變更凍結的來源／資產；完整驗收期間只改文件，不碰 consumer 輸入。
+
+## E1342：nameplate 回歸須持有實際 Slate root（2026-10-19）
+
+world-v6 的八個其他專項含真實 fog／restore、shop、Full HD／QHD、四 PIE 全通過；新 nameplate 測試三個正例失敗，因直接丟棄 TakeWidget() 回傳的 shared reference，未 tick 的最小 fixture 失去 cached Slate root，UUserWidget::IsVisible 因而 false。修為持有該實際 root 至測試結束，hide／pool 的無 tick 斷言維持。已直接檢視 v6 fog 原圖，先前六處灰色舊背景全部消失，合法自己血條仍在，不能把測試生命期問題誤報為產品修正失效。
+
+同時將 reveal 的 ApplyCachedNameplate 限定為真正 hidden→visible 邊界，重複 visible 呼叫只做整數／布林檢查，不為每個已顯示 actor 重新格式化 nameplate。原失敗報告保留，最後需 fresh 驗收。
+
+## E1341：真實 fog 圖像揭露 pool nameplate 殘留（2026-10-19）
+
+world-v5 已通過真正 shop 開／關與 Full HD／QHD，後來在 fog 圖像套用「場景明亮像素」守衛失敗。已直接看原圖：fog 的遮暗合理，但舊 actor 所在處仍有淡灰條，不可只調低閾值接受。ResetPresentationState 原本隱藏 UWidgetComponent 並清掉 children，但 screen-space layer 在 actor／component 停 tick 後仍保留整個 widget 的背景。共用 AOmUnitActor 增加同步 root visibility：hide／pool reset 立即 collapse，合法 reveal／新frame 沿同一計算恢復；不加 per-frame actor 掃描、不改 Engine。
+
+新增實際 widget／component 的無 tick hide、reveal、pool reuse 回歸。fog capture 改為同尺寸／同視點前後實際 RGB 遮暗比較，正常場景仍保留原亮度門檻，restore 必須再次通過。待當次正常／fog／restore 原圖及完整驗證成功才接受。world-v4／v5 全部失敗報告保留，E1340 的 owner-scope 原因為初步判讀，未隔離成獨立根因；實際 hover 與事件階段修正後 shop 在 v5 已通過。
+
+## E1340：世界 shop 事件須在有效 owner HUD 階段驗證（2026-10-19）
+
+world-v4 拒絕 Actual world shop button opens visible shop。事件放在 relation-only synthetic frame 後，原圖顯示未知 gold／slots，先判讀可能為 owner scope 已失效，尚須當次事件證據確認。另發現 SButton 測試缺少真正 MouseMove 更新 hover，因此補同一位置的實際 MouseMove，再沿 hit-test path down／up；不得只傳 pointer 座標而省略 hover 狀態。將真正 pointer 開關商店移至最初明確 ApplyHeroHud／economy 的有效 owner 階段，仍保留真 hit-test、down／up、visible shop 斷言，不直接呼叫 ToggleShop、不把斷線目錄偽造為權威 receipt。原失敗報告與未完成影片保留，不能採計為完整影片接受。
+
+## E1339：公開地圖匯出及錄影的嚴格守衛（2026-10-19）
+
+world-v1 的 Cargo --exact 使用短函式名，exit0 但實跑零測試；工作流以 compiled-maps.json 必須由當次 create_new 產生的守衛拒絕，沒有當成功。world-v2 改完整 driver::compiled_map_fixture:: 名稱，真實一項通過並產生公開 ABI 幾何，後續六 UE 渲染專項零 warning 成功。nonmatch-build-v9 的 C4456 拒絕新增 summary block 使用既有外層 Json 名稱，退出後改為 VideoJson，保留原失敗 log。不要只看 exit0、不要降低編譯警告等級。
+
+## E1338：PIE 入口必須驗真實 class 與 BeginPlay 所需場景（2026-10-19）
+
+v1 缺少明確 team，PresentationIpc 正確拒絕；補上暫存命令列 team=1 並於結束還原。v2 證明直接改基底 GameMode CDO 並未改變 PIE 實際 PlayerController，故新增兩個 editor-only fixture GameMode，在 constructor 明確選 native／既有 Blueprint 與 RTS camera，不修改 uasset。v3 實際四次 PIE 成功，但原 BP BeginPlay 找不到預先存在的 BP_WorldBridge 產生八個 warning；改為啟動前在暫存 map 放置原 BP bridge，PIE 中驗恰好一個，不隱藏 warning 或放寬斷言。v4 四次實際 native／原 BP stop restart 通過，零 warning。所有失敗及 v3 警告 log 保留。
+
+fixture 使用唯一未佔用 player profile 目錄，精確還原 runtime 設定與命令列，停止自己建立的 PIE 後才還原；不終止事先存在的 PIE。Port 0 不建立 authority match，不當成 ACK。另記本輪誤把 PowerShell -ErrorAction 參數傳給 rg；rg 僅用自身旗標，檔案先盤點後讀取。
+
+## E1337：PIE 測試需明確取得 TObjectPtr 指向物件（2026-10-19）
+
+nonmatch-build-v3 的首個編譯錯誤為 auto* World=GEditor->PlayWorld 無法從 TObjectPtr 推導指標，其餘是連鎖診斷。完整退出後只修正為 UWorld* World=GEditor->PlayWorld.Get()，保留原 log，不針對後續連鎖錯誤亂改型別。另一次定位誤用 UnrealEd/Public/Editor/EditorEngine.h，實際由 rg --files 找到 Classes/Editor/EditorEngine.h；不應繼續猜 UE include 的實體磁碟位置。
+
+## E1336：新增 roster 測試的 FName 型別（2026-10-19）
+
+nonmatch-build-v1 正確拒絕新增測試把 FString 傳給 SetIdentity 的 FName 參數。等待完整建置退出、確認無 consumer 存活後，兩處改為明確 FName，保留原失敗 log。這是測試呼叫型別修正，沒有改正式 API 或放寬建置。
+
+## E1335：本輪檔案定位與 CRLF 編輯（2026-10-19）
+
+盤點時誤猜 OmNativeAnimationComponent.cpp／OmPlayerHudSubsystem.cpp，實際共用動畫在 OmAnimatedUnitActor.cpp，HUD 為 owner component；已改用 rg --files 定位。初次 patch 比對既有 CRLF 內容失敗，未修改來源；改用固定 Lua runtime 的 binary read/write 與唯一文字錨點插入，保留其餘位元組。後續不得反覆猜檔名或以文字模式重寫原檔行尾。過長讀取輸出曾截斷，後續須限制檔案區段與輸出量。
+
+## E1334：Cargo.toml新增行的CR須依既有LF修正（2026-10-19）
+
+最後git diff --check在backend Cargo.toml新增syn dev-dependency行發現CR尾端空白；沒有忽略該檢查或改Git whitespace規則。僅移除該行末端一個CR byte，其他內容不變；修改前後cargo metadata --no-deps的完整JSON逐byte一致，證明依賴／feature／profile解析未改，backend diff檢查恢復exit0。函式測試與build結果保留，沒有為行尾重跑重複功能案例。
+
+已保留v4原快照，依這個單檔格式等價證據更新v5，再真實重算全部3325份SHA／mtime成功；相對完整UE基線的reviewed delta仍只有相同3個backend檔案，前端／shared／資產不漂移。可攜snapshot、verification、reviewed delta與index均更新，另附manifest-ending-proof.json。避免重犯：新增TOML行須保留該檔既有LF，四根bat則仍固定CRLF／無BOM，不能用一個預設行尾套所有檔案。
+
+## E1333：本輪最終接受與證據計數界線（2026-10-19）
+
+全部已授權的本輪實作／新機建置／本機驗收完成。完整UE198 Success（12既有warning保留）、69 Blueprint零compiler／load診斷、458真viewport cases／222 wire rows／157 control rows／13游標、五實際PCM、3900影格／11 AVI／117512618 bytes與全部清理成功。新工具後另1 HUD專項成功，不加算199。生命PNG、兩UI PNG與兩個未重編碼AVI JPEG已直接檢視；未宣稱逐張看過全部3900影格或正式世界美術。
+
+Rust base241／core784／ABI15共1040單元、補齊release DLL後3 TD integration及doc1成功；doc1既有ignored保留。client／bridge／codegen完整、最後backend整包及五all-target命令、host26／Lua契約全部成功，所有既有ignored逐harness保留；backend main重複library不加算不同測試。原combined exit1及早期backend失敗log未改寫。metadata guard、TCP收尾及舊follower期待皆由真完整backend重驗確認。
+
+最終3325份SHA／mtime核對成功；與UE完整驗收基線3316相比，3313份不變，3個最後backend修正已重驗，另9個backend integration檔案新增守衛，包含修正後的follower案例。前端／shared／資產不漂移，新CLI另有真HUD對接接受。bridge與script stage SHA最後再驗成功，source-engine marker由正式成功流程退休。可攜摘要`docs/acceptance/2026-10-19-new-machine/index.json`與`2026-10-19-ue58-final-acceptance.md`。
+
+沒有新權威對局／ACK／LAN，沒有重設10/10，沒有維護omfx，沒有commit／push。OpenSpec仍27/44；只接受本輪功能，不以這些綠燈勾完未驗父項。每3分鐘程序身分監控及長步驟CPU／影格核對已完成，沒有留下持續監控排程。
+
+## E1332：選角整合案例仍期待舊follower無配方契約（2026-10-19）
+
+backend-tests-final-v3的library189成功／1既有ignored、moba-config三單元已成功；後續真TCP整合在follower.plan.is_null斷言失敗。對照現行unit selection_network_authenticated_final_recipe_is_shared_without_new_handoff與已接受的final-plan distribution規格：所有已認證席位，包括stale read，都應收到同一host finalized recipe，不再額外人工handoff。整合改驗follower.plan確實為object且完全等於finalizer.plan；原invalid capability／duplicate connection／bound identity／stale error／原子publication／host退休驗證全保留。這是舊期待更正，不刪除follower驗證或修改已正確的production配方分發。
+
+## E1331：metadata provenance修正及Windows正常TCP收尾（2026-10-19）
+
+metadata guard已使用既有版本syn的dev-only依賴解析Rust cfg／inline items／外部module path與test provenance；production identifiers／字串／macro仍檢查，unknown feature採保守策略，共用production source不因test別名而排除。原receipt fixture未改；移除歷史omfx掃描，沒有特定檔案豁免。五個metadata專項全部成功；backend library完整189成功／1既有ignored。
+
+接續moba-config網路完整測試發現Windows10057 NotConnected：對端完成並關閉後，NetworkPeer::finish對shutdown(Both)直接unwrap。正式proxy在renderer stdin EOF同樣以?傳播該正常狀態。改用共用close_completed_stream，只將NotConnected視為已關閉；所有先前read／write／identity驗證與其他shutdown錯誤維持失敗，finish仍join並回傳server worker結果。仍需完整backend與新tool／HUD對接確認；原失敗log保留。
+
+## E1330：完整consumer驗證的release前置與metadata test誤判（2026-10-19）
+
+rust-scripts-final-v2真實通過base_content241、ABI15、core784共1040單元；core另三個TD autoplay integration因scripts/target/release沒有script DLL而失敗，原始log保留。正在以固定Rust1.95.0正式cargo build base_content --release補齊，再單獨重跑三個integration，不重跑已過單元或冒稱整包exit0。
+
+backend-tests本輪185成功／1失敗／1既有ignored；metadata_guard把scripts/base_content的純cfg(test)對局／wire receipt fixture中的ShopReceiptReplay.input_id=42當production gameplay metadata。不得刪除該receipt驗證或改字串躲token，也不新增特定檔案豁免；待全部consumers退出後，以Rust語法／test-only module provenance區分production與test，並保留production違規負例。client／bridge／codegen測試已成功，其餘all-target checks及完整Unreal仍在執行，沒有把整輪標成功。
+
+## E1329：來源守衛範圍與scratch命令引用須如實核對（2026-10-19）
+
+初版3090份快照覆蓋shared／script／runtime／UE來源與資產，但漏列omb/src、omfue/bridge、omfue/codegen、proto等正式consumer；不能宣稱它是全部正式來源。補v3納入這些及content-model／specs／log4rs來源與backend manifests，全部target／Saved／Intermediate仍排除。首次用CLI內嵌Lua字串時混入PowerShell單引號使Lua報unfinished string，未寫入v3；改用Saved內明確Lua檔產生，失敗log保留，未更動production／test來源。完整驗收仍在原來源上執行，最後以實際完成的v3檔數／SHA／mtime核對為準。
+
+## E1328：完整core檢查須分active與inactive輸入封套（2026-10-19）
+
+rust-core-final-v1為783成功／1失敗／零ignored；input_scheme_authority_digest_binds_private_commitment_and_step_controls沿world()的Warmup設定測active snapshot綁定，與E1316新的inactive契約衝突。改為明確Playing後維持全部原commitment／snapshot差異斷言，另加pause時wire tick改變不變、真正private commitment改變仍造成hash差異，沒有跳過或移除該test。FocusedV12四native全成功／零warning，長文字三個真wheel到達完整底端、正常字級全可見。new-machine-video-tail-v1錄影與全部尾段事件、AVI索引／影格／SHA、publisher／editor／profile清理均成功；尚未冒稱完整458事件已重新通過。
+
+## E1327：商店可達性須由真正wheel輸入證明（2026-10-19）
+
+FocusedV11的rows重建仍未令程式化ScrollDescendantIntoView(BottomOrRight)端點斷言成功，不能宣稱E1326已解決捲動。保留實際scale改變才失效的cache政策，將專項底端到達改為最多24個真Slate mouse-wheel事件，要求事件被scroll消費、完整底端／範圍／字級／固定close都維持原斷言。這直接驗使用者捲動，而非把一次程式化helper等同使用者能力；仍待真結果。一般apply_patch首輪因parked.attacker脈絡不同而拒絕，核對diff確認atomic未改來源後使用正確脈絡，不連續盲試。
+
+## E1326：商店rows快取未包含文字縮放（2026-10-19）
+
+FocusedV10選角／VFX／生命文字成功，但shop normal文字仍同end-edge失敗，穩定layout等待並未修正根因。檢查ApplyReadableFonts只改基本HUD，而RefreshShopRows signature不包含scale、會直接跳過既有rows。改為僅在實際scale改變時讓shop row cache失效並重建，保留recipe／search／category／transaction狀態與原有節流；用相同實際geometry可讀性專項驗，不放寬斷言。後續須核對真結果。terrain四項、ward十項、jungle完整66.90秒專項已全部成功，零ignored。
+
+## E1325：首次完整新機驗收仍有fixture／前置缺口（2026-10-19）
+
+rust-scripts-final-v1為235成功／6失敗／零ignored（292.06秒）；三路完整lifecycle已通過。三個terrain／jungle雙world replay只在a投影端執行committed visibility，b沒有相同權威可見性前置；已讓b每tick同樣執行wave B，保留完整hash比較。兩個ward測試用AdmittedCombatPreferences shadow覆寫正式MobaMatch，與已驗權威名冊優先契約衝突；改驗shadow不能覆寫explicit authority target，沒有修改combat policy。bot replay本輪已真finished但winner1，舊assert把winner0當完成條件；改驗合法winner0或1，完整每tick replay／四技能／死亡重生／唯一end仍保留，不把此test當競技平衡驗證。
+
+Unreal完整198 native有兩失敗：HudOwnerRejectsInvalidSource缺moba-config.exe；已正式cargo build成功2m16s，完整入口增加fail-fast前置與交接指令。ShopRecipePresentation在font scale切換後僅pump兩次便讀取scroll geometry，normal text的end edge未達；改為有界12次、連續兩次實際尺寸／位置／offset穩定才比較，沒有放寬可讀性斷言。五PCM專項成功、warning保留。
+
+owned viewport第一張TakeScreenshot失敗，零frames／零事件；publisher／editor／profile全部真清理成功。正式video在初始化最多等待120個真frame並force redraw／flush，第一張frame成功前不發送任何事件，後續capture失敗仍立即fail；新增實際geometry／pixel數診斷。沒有把空AVI或黑fixture當接受。以上修正均在全部build／test／native consumers退出後進行，仍待專項及完整重跑。首次3090來源／資產SHA／mtime快照保留，來源已變更時不宣稱該快照沿用成功。
+
+## E1324：專項runner誤讀contract回傳與opaque PNG alpha（2026-10-19）
+
+FocusedV8正式報表兩Success／零warning／2036青色glyph pixels，但Saved臨時runner誤以assert(verified.success)檢查只回傳count／failed等統計的contract，導致外層exit1。維持原始exit1與正式report，修正下一輪runner在contract驗證成功後明確設定success。V7與V8 PNG SHA相同，RGB glyph存在但顯示器對render-target alpha呈現不一致；opaque證據匯出明確把alpha設255，保留逐像素RGB，不後製圖案或移動文字。重新保存當輪真render後直接檢視，不用舊圖冒充。
+
+## E1323：實際glyph已可見，像素色彩判斷須依LDR空間（2026-10-19）
+
+FocusedV7的UnlitText與所有生命期／相機斷言成功，僅舊R<G/2像素判斷失敗。原始512×256 PNG直接目視已是清楚淡青色+10，非黑圖。FinalColorLDR的gamma轉換不保留該linear ratio；改以G/B>60、G-R>20的明確青色通道差異驗至少100個glyph pixels，並記實際數量。維持show-only文字隔離與直接原圖檢視，不能把背景或角色pixel算成文字，也不把V7測試失敗藏掉。
+
+## E1322：生命文字應使用明確unlit字型材質（2026-10-19）
+
+FocusedV6診斷default material unlit=false、font_pages=1，blank scene加方向光仍未達glyph門檻。Engine Content實際存在UnlitText，含MSM_Unlit／EmissiveColor／FontSampleParameter；正式池改為lazy載入該共用Engine字型材質，缺檔只警告一次、拒絕配置。未修改Engine或新增美術二進位。專項移除額外方向光並要求真unlit shading model與glyph pixels，確保暗處可讀，仍待下一輪真render接受。
+
+## E1321：資源就緒後仍黑，核對文字材質光照條件（2026-10-19）
+
+FocusedV5確認RobotoDistanceField／DefaultTextMaterialOpaque存在，size35.703×35.703×26.314、visible=true、hidden=false，camera一致；streaming與生命期通過，但glyph pixels仍失敗。增加material shading model／font atlas pages診斷，並沿既有CombatVfx捕捉測試加正面方向光。這是釐清實際材質需求，不移除render驗證；所有失敗圖仍保留。
+
+## E1320：相機修正後glyph仍黑，必須檢查資源就緒（2026-10-19）
+
+FocusedV4相機iterator／local／朝向全部通過，expected與actual camera一致；僅cyan pixel斷言仍失敗，PNG直接目視全黑。待consumer退出，增加真font／material／world-size診斷、明確TextRender show flag，並沿既有combat capture的首次capture→StreamAllResources→FinishAllCompilation→再次capture流程。沒有把兩輪黑圖當接受，也不移除render斷言。
+
+## E1319：Editor fixture 必須顯式加入 World controller iterator（2026-10-19）
+
+FocusedV3補LocalPlayer／viewtarget後仍同兩項失敗。檢查Engine Controller::PostInitializeComponents與本倉庫ActionOwnerTests確認Editor world不會自動AddController；因此World subsystem的正式local-controller iterator仍為空。加入公開World::AddController，並新增iterator歸屬、IsLocalController斷言及expected／actual camera diagnostics，不修改production查找範圍、不降低像素門檻。V3失敗完整保留，全部consumer退出才編輯。
+
+## E1318：Editor controller 缺 LocalPlayer／view target 造成黑色文字取樣（2026-10-19）
+
+HealthTextFocusedV2真實執行兩項，NativeCombatVfxLifecycle成功；PublicHealthTextLifecycle僅朝向及cyan pixels兩項失敗，其餘生命期／容量斷言無error。PNG直接目視為全黑，未接受。檢查本機UE的IsLocalController確認沒有NetDriver時必須有ULocalPlayer；測試原本只有裸controller，故正式池正確略過它，文字沒有朝向取樣相機。待Editor與worker退出後，依既有ActionOwner fixture設置真LocalPlayer雙向關聯、公開SpawnPlayerCameraManager與SetViewTarget到同世界相機，再驗朝向及實際glyph，沒有降低像素門檻或讓production掃描相機。
+
+## E1317：容量fixture不可實例化抽象AOmUnitActor（2026-10-19）
+
+HealthTextFocusedV1在新機cold shader編譯期間，唯讀檢查發現容量fixture誤用UCLASS(Abstract)基底。已核對原生workflow_supervise request及PID／exe／creation token，停止僅本次監督Job，確認Editor／shaderworkers／Rust皆退出，再改為正式可實例化AOmHeroTrainingVanguard並檢查spawn結果。舊輪非接受結果，不等待已知錯誤變成崩潰。新增每owner容量保護斷言。Rust combat_relation當次五個專項皆成功，零ignored；保留warn，非完整suite。
+
+## E1316：inactive input envelope 的 tick 不能當作 gameplay freeze clock（2026-10-19）
+
+combat-relation-focused-v1已走完playing replica hash，失敗於finished後single_lane_replay_digest。根因是begin_moba_match_tick每tick正確更新input_step為當前wire tick；input_scheme_transport解碼要求tick相同，因此不能凍結這個傳輸封套或重播最後active controls。修正只在replay診斷hash遇warmup／pause／terminal時以inactive標記代表不可執行的controls；playing仍綁完整snapshot／tick，其他gameplay state、private commitments與canonical team hash完全保留。v2原完整60Hz lifecycle專項19.01秒通過；仍須完整回歸。UE v10正式bootstrap／ordinary／stage已exit0，E1314與E1315編譯問題消失。
+
+## E1315：生命文字首次編譯與 lifecycle 專項失敗（2026-10-19）
+
+v9已以獨立TU編譯140 actions，原Unity重名錯誤消失，但新增的匯出類別以逗號宣告兩個constexpr引發MSVC C2487；拆成兩行。測試不能直接呼叫AController私有SetActorLocation／Rotation，改用公開SetInitialLocationAndRotation。容量fixture每個owner也必須先走正式SynchronizeCombatFrame種生命期，不能繞過AcceptCombatVfxTick。全部consumer退出後才修正。combat-relation-focused-v1已不再於tick120／relation mismatch失敗，而在終局後frozen replay digest斷言失敗，仍待查；不宣稱完整測試已通過。
+
+## E1314：fresh checkout 的 Unity 合併暴露跨檔 helper 衝突（2026-10-19）
+
+bootstrap-v8完成至4251/4258時，OmRuntime與OmEditor的合併TU失敗：DefaultHudRootClassPath重定義、SignatureKey／Canonical／FJob歧義、ResponsiveHud與ItemIcon同名Overlaps／ContainsRect／ReadPaintedScale衝突。過去adaptive-unity把修改過的檔案分離，不能代表fresh checkout可重建。已確認監督與compiler全部退出後，在兩個正式ModuleRules明確設bUseUnity=false，維持每個cpp獨立TU與原有shared PCH；這是跨機器一致的module建置政策，不修改Engine／UBT／快取、不依賴working tree狀態，也不改任何測試期待。續編仍須真實成功才可接受。
+
+## E1313：來源路徑與既有 guard 必須先核對（2026-10-19）
+
+唯讀追查時曾假設 game_processor 位於 src 根目錄，實際位於 omoba-core/src/runtime/native/game_processor.rs；Windows 上把未展開的 *.rs 當搜尋路徑也回傳錯誤。先用 rg --files 定位，再以目錄加 -g 篩選，不能重複猜路徑。另 HealSelf 分支已有 Target::None guard，不能沿用「缺 guard」猜測直接修改；須追查正式輸入到 script callback 的目標轉換。這些讀取失敗沒有改動來源或驗收結果，Engine bootstrap 仍持續執行。
+
+## E1312：個人 UBT 的過時 /Zm1000 覆寫造成 D8000（2026-10-19）
+
+v5已實際選用MSVC14.44.35229，仍有D8000；在Saved建立獨立最小重現，tiny nested／SARIF／dx flags皆可接受，實際共享response組合則失敗，直接編譯同一BuildSettings動作也exit2。啟用官方UBA detours的v6仍失敗；該探索選項已從正式Lua移除，不保留無效繞路。
+
+二分共享選項找到/Zm1000：單獨放入nested rsp即可exit2，而去掉它、保持真UE BuildSettings來源／其他全部選項不變，輸出至獨立Saved診斷目錄則真編譯exit0。根因是使用者AppData/Roaming/Unreal Engine/UnrealBuildTool/BuildConfiguration.xml覆寫PCHMemoryAllocationFactor=1000；Engine原始預設為0且官方工具鏈註解建議避免此選項。已在同目錄保留BuildConfiguration.xml.before-ue58-20261019.bak的完整原始byte，只移除該元素，其他個人並行設定保留，沒有修改Engine、UBT來源、共享PCH或既有responsefile，也不手刪bootstrap marker。v7回到正式NoUBA／nocache／local入口重跑。診斷在omfue/Saved/BuildTemp/msvc-response-probe-v1/，不是正式建置成功證據。
+
+## E1311：安裝新工具鏈後 UBT 舊建置圖仍選14.38（2026-10-19）
+
+VS17.14.37806.7更新最後完成、isComplete=true／isRebootRequired=false，MSVC14.44.35229與SDK22621實際存在。但ordinary bootstrap v4沿用舊makefile的14.38，8.30秒失敗，原log保留。新增可選--compiler-version Latest／Preview／明確三或四段版本，依UE公開-CompilerVersion參數一致傳給ShaderCompileWorker、bootstrap及ordinary gate；不固定某台機器絕對路徑、不改Engine manifest／個人編譯器選擇。純Lua測試覆蓋合法／非法版本、local-only／verify拒絕與三階段一致，普通NoEngineChanges仍保留。v5確認確已採14.44，但發現獨立的E1312，不把安裝或版本參數成功當建置通過。
+
+## E1310：診斷時再次使用 Windows 未展開的 rg 路徑與單行 JSON 行數截斷（2026-10-19）
+
+盤點來源時兩次把 observable*.rs／OmAutomationTestActors.* 當作 rg 路徑傳入，Windows 回報123；後續改為 rg 搜尋真目錄並使用 -g 過濾。另 state.json 是單行JSON，以 TotalCount 讀取導致輸出截斷；改為解析 selectedPackages／installationVersion 等明確欄位。沒有以失敗搜尋或截斷輸出作成功判定，後續必須保留真目錄＋-g與JSON欄位投影。
+
+## E1309：VS modify 回傳0但沒有安裝14.44；更新會轉交背景Installer（2026-10-19）
+
+使用者允許後重新執行提升modify，實際 token 已為 elevated，exit0，但工具鏈目錄仍無14.44。VS實例仍17.13.5，原目錄不能提供指定17.14元件；依官方update流程更新唯一instance67e6b32f至17.14。Installer self-update後launcher已exit0，背景setup14744／35600仍在更新，因此不能把launcher exit0當所有套件完成，也不能同步啟動其他安裝／UE編譯。一次額外update入口exit0後未啟動另一套安裝；後續只監控同一批背景程序、setup logs及真實工具鏈。
+
+UpgradeAssistant於08:48:47起數分鐘沒有主log更新；檢查程序CPU／I/O與後續紀錄，08:52:46已繼續MigrateToAzure套件並有寫入，確認尚非已證死鎖，保留程序正常完成，不強殺／不跳過簽章。使用者要求每3分鐘核對是否卡住；安裝完成須再驗VS狀態、14.44編譯器及UE實際選用版本。舊SDK更新是VS已選元件的正式升級，不修改Engine或ABI規則。
+
+## E1308：提升後的 VS Installer 不接受手組安裝路徑（2026-10-19）
+
+使用者重新授權安裝後，run_elevated 已啟動 Installer，但 modify 回傳1，log 明示找不到 installPath=C:/Program Files/Microsoft Visual Studio/2022/Community 的已裝產品。改由 vswhere -all -products * -format json 取得唯一 instance67e6b32f，原樣使用其 installationPath（保留回傳的反斜線）重試，不重寫機器上的 VS instance metadata。第二次請求已顯示原生 Windows UAC；截至本次檢查仍是 consent.exe，尚無新 Installer log／14.44目錄，不能宣稱已安裝或重跑 UE。使用者須在 Windows UAC 桌面允許，聊天授權不替代該 OS 操作。
+
+## E1307：Lua host ShellExecuteExW 尚需 Registry feature（2026-10-18）
+
+為已授權的新機安裝新增原生 UAC 啟動能力時，第一輪 cargo test 回報 ShellExecuteExW／SHELLEXECUTEINFOW 未匯出。檢查 windows-sys 0.61.2 原始宣告確認除 Win32_UI_Shell 外還需 Win32_System_Registry；補齊後參數引用測試與正常 build 成功。UAC 由 Windows 顯示、使用者決定，沒有繞過同意或修改權限規則。
+
+實際 UAC 請求已顯示 consent.exe，最後回傳 Windows error1223（操作被使用者取消），未啟動提升後的 Installer、未補裝14.44，不自動重試。Lua host 全26測試與 script-abi 全15測試另行通過；base_content 的224成功／17失敗仍保留。UE建置與新機完整驗收未完成。
+
+## E1306：Installer 一般模式不能保留 --norestart（2026-10-18）
+
+第二次安裝仍回傳 5007（isadmin=true、iselevated=false）；改互動模式時誤保留 --norestart，Installer 顯示 exit87：該參數要求 quiet 或 passive。依明確 PID／可執行檔回收本次錯誤視窗，修正互動參數後可正常載入清單，仍未安裝。後續改由 Lua host 使用 Windows ShellExecuteExW runas 發出原生 UAC 請求，安裝參數使用 quiet／norestart；沒有用 PowerShell 或 shell fallback，也沒有把使用者口述管理員等同於實際 elevated token。
+
+## E1305：新機 base_content 全測試重跑 17 項失敗（2026-10-18）
+
+先前測試在換模型中斷後無可回讀 session，因此在確認無 cargo／rustc 後重跑 cargo test --manifest-path scripts/Cargo.toml -p omb-script-abi -p base_content。base_content 實際 224 passed／17 failed／0 ignored，非成功；Cargo 因首 package 失敗，不能宣稱 script-abi 已執行。失敗涵蓋 filtered replica hashes／攻擊狀態、ward、warmup／終局與施法 fixture。以 compiled-content-only 專項重跑 single_lane_full_filtered_match_lifecycle_60hz 仍失敗，排除只是缺少該 feature：tick120、schema0x464f4713 的權威 attackable=true，replica 保留 false。未修改測試預期、未宣稱舊機1168結果可沿用，也未啟動新的權威對局；待定位所有原因與修復。
+
+## E1304：新機 MSVC 版本無法編譯 UE5.8，安裝器要求提升權限（2026-10-18）
+
+正式 bootstrap 的 ShaderCompileWorker 289 actions 在第 31 個 action 前失敗，exit 6，D8000／C7539。UBT 選用唯一未禁用的 14.38.33145；14.39、14.40、14.43 被此 Engine 禁用。沒有修改 Engine 或放寬編譯規則。原始 log 已保留 omfue/Saved/BuildTemp/new-machine-shader-bootstrap-failed.log；checkpoint 保留。
+
+依交接曾驗過的 MSVC14.44，並核對 Microsoft 官方 component ID Microsoft.VisualStudio.Component.VC.14.44.17.14.x86.x64，嘗試用現有 VS Installer modify --quiet --norestart 補裝。安裝器回傳 5007，明確要求一開始即以提升權限執行。已請使用者以系統管理員安裝該個別元件；不以其他編譯器繞過，不宣稱 UE build/native/Blueprint 通過。
+
+等待期間補 ue_build_prerequisites.lua，在正式建置的任何生成／編譯／暫存階段之前檢查 cbindgen --version，缺少或輸出非法時顯示固定已驗安裝指令；verify-only 不新增該依賴。九項純 Lua 負例／成功輸入、既有 bootstrap command tests 與實際 cbindgen0.29.4 probe 通過，handoff 補上原先漏列的 cbindgen 安裝步驟。
+
+## E1303：新機 bridge 建置缺少 cbindgen（2026-10-18）
+
+正式 bootstrap 已成功編譯 base_content 與 om_bridge，但 build_bridge.bat 在產生 header 時回傳 9009：cbindgen 不在 PATH。依既有登錄的原機版本安裝 cargo install cbindgen --version 0.29.4 --locked，成功；保留 checkpoint 後重跑正式 Lua bootstrap。OmGenerated 的實質差異僅 lua_input_hash（4e802ab3f3c28c7f → 4b5f2eaa2b642385），content_hash 仍為 b8f4e442b61b1913；其他生成來源僅 checkout/generated 行尾差，尚未宣稱新機接受。新機 64 GiB RAM／當時約 42 GiB 可用，重跑採入口支援的並行 8，不變更 Engine 配置或驗收門檻。
+
+## E1302：新機 Engine 尚未初始化（2026-10-18）
+
+使用 D:/UE5.8 的 ordinary Lua 建置在 admission 拒絕：缺少 UnrealEditor.exe。Rust 1.95.0 與 Lua host 已正常建置；依正式入口加 --bootstrap-engine 接續，不修改 Engine manifest、不刪除 bootstrap checkpoint，也不把交接驗收當成本機成功。
+
+## E1301：盤點時使用未確認的檔案路徑（2026-10-18）
+
+讀取 scripts/lib/path.lua、scripts/tests/ue_engine_bootstrap_test.lua 與尚未建立的 Saved/BuildTemp 失敗；正確工具位置為 tools/lua/lib/path.lua，既有測試為 scripts/test_ue_engine_bootstrap.lua。未修改來源；後續只沿實際列檔結果讀取。
+
+## E1300：新機未安裝 OpenSpec CLI（2026-10-18）
+
+openspec status 與 instructions apply 均回報 command not found。直接讀取既有 change proposal/design/specs/tasks 接續核對，未重建或改寫既有任務狀態；仍為 27/44，未宣稱 CLI 或新機功能驗收成功。
+
 ## E1299：忽略AI暫存目錄後仍對其追蹤檔使用一般git add（2026-10-18）
 
 交接已以`/.ai-collab/`排除大量本機cache／草稿，最後一次git add同時指定其已追蹤review／state時回報ignored path。先前`git add -u`已暫存這兩個追蹤檔，沒有內容遺失；改為只對這兩個明確追蹤檔使用`git add -u --`，其他正式檔案分開add，不以`-f .ai-collab`把整批cache帶入提交。
@@ -1224,11 +1656,24 @@ unit-selection-native-v1 Editor exit 3，OmUnitTeamMarkerTests.cpp:266 直接 Ne
 
 unit-selection-build-v3 普通 nocache 建置失敗，UBT 85.77 秒，OmWorldBridgeActor.cpp:2096 C2662。const getter 誤用非 const 的 IsOwnedGameplayConnectionReady；該函式失敗時會 InvalidateOwnedHud，不能直接改成 const 或強制轉型。改為讀取 RuntimeStarted、連線診斷與玩家身分，失效回傳空資訊，不在 getter 清理 HUD。保留原失敗證據；重新普通建置成功後才執行受影響 native 測試。
 
-# Unreal MOBA 防錯紀錄## E950：新增選取UI反射資料後普通建置要求引擎更新（2026-10-12）unit-selection-build-v1真FailedDueToEngineChange、UBT4.71秒；95行起列出NetCore與Engine modules等現存檔，原summary／logs保留，尚無C++成功。依正式Lua流程refresh nocache，再補普通成功才跑native。新選取來源凍結至每輪建置終態，禁止手改manifest／BuildId或清cache繞過。## E949：新選取來源的前置API／patch順序審查（2026-10-12）建置前審查抓到新碼猜測 HasRuntimeProfile／Sample.Pixel，實際既有API是 HasRuntimeControlProfile／ViewportPixel；已讀header及同一取點結構後修正，沒有失敗編譯或測試可宣稱。一次多檔patch又將同檔較後面的Sync段排在較前Publish段之前，驗證失敗且整組未套用，已讀檔確認後拆成依來源順序修改，去除無作用hunk。後續先定位API，再依檔案順序產生窄patch。
-
-## E948：交接文件長行使用不完整patch上下文（2026-10-12）
-
-apply_patch以首行片段當作整行匹配而失敗；整組patch未套用，已讀檔確認。改用一次性Lua對已接受summary檢查後前置新紀錄，保留完整歷史、不盲目重跑。沒有改寫既有驗收產物。
+# Unreal MOBA 防錯紀錄
+
+## E950：新增選取UI反射資料後普通建置要求引擎更新（2026-10-12）
+
+unit-selection-build-v1真FailedDueToEngineChange、UBT4.71秒；95行起列出NetCore與Engine modules等現存檔，原summary／logs保留，尚無C++成功。依正式Lua流程refresh nocache，再補普通成功才跑native。新選取來源凍結至每輪建置終態，禁止手改manifest／BuildId或清cache繞過。
+
+## E949：新選取來源的前置API／patch順序審查（2026-10-12）
+
+建置前審查抓到新碼猜測 HasRuntimeProfile／Sample.Pixel，實際既有API是 HasRuntimeControlProfile／ViewportPixel；已讀header及同一取點結構後修正，沒有失敗編譯或測試可宣稱。一次多檔patch又將同檔較後面的Sync段排在較前Publish段之前，驗證失敗且整組未套用，已讀檔確認後拆成依來源順序修改，去除無作用hunk。後續先定位API，再依檔案順序產生窄patch。
+
+
+
+## E948：交接文件長行使用不完整patch上下文（2026-10-12）
+
+
+
+apply_patch以首行片段當作整行匹配而失敗；整組patch未套用，已讀檔確認。改用一次性Lua對已接受summary檢查後前置新紀錄，保留完整歷史、不盲目重跑。沒有改寫既有驗收產物。
+
 
 
 ## E947：專用ring capture未完成EOF／資源更新，線性色比不適用tone-mapped PNG（2026-10-12）
@@ -8054,3 +8499,615 @@ abi-v3 core779／client143成功；bridge123成功／1失敗／1既有ignored，
 ### E1035 — 既有feature測試仍硬編碼ABI27
 
 abi-v2 core779／client143成功；bridge121成功／3失敗／1既有ignored，新mode/direction/inline snapshot測試全部成功，失敗是Stop／ShopRecipe／Summoner的ABI27 literal。先前只改新frame版號assert，漏掉其餘同類與兩個舊header字串，另ignored測試也有literal。已盤點全部27，保留真正拒絕ABI27的negativecase，其餘feature測試改比較om_abi_version()與維護常數，header字串依常數格式化。專門ABI28 layout測試仍明確檢查版號與尺寸。cbindgen ABI28生成／staged byte identity與MSVC maintained smoke已真成功，不能把本輪三失敗當作新ABI行為通過整輪。
+## E1383：診斷腳本須先列舉再讀取（2026-10-20）
+
+讀取猜測的Saved/BuildTemp/runtime-feedback-timing-v1.lua時缺檔；列舉後確認實際是runtime-feedback-timing-summary.lua等檔。此為唯讀診斷失敗，未改正式來源或驗收結果。後續先用rg --files定位，不猜Saved或Engine檔名。
+
+## E1384：驗收入口改為選擇runner後，舊來源斷言尚未同步（2026-10-20）
+
+分段驗收工具新增後，owned契約140項成功；local acceptance契約仍搜尋字面ipc.run而失敗。已同步為實際runner.run呼叫，保留不受native結果省略IPC的檢查，並補拒收單段tail冒充全覆蓋、偽造phased成功旗標、缺少原始證據三項。此失敗發生於純Lua測試，未開始UE或新增對局。
+
+## E1385：串行指紋尚未完成時，下游測試log尚不存在（2026-10-20）
+
+world-phased串行指令先建立3335檔指紋，再產生world測試log；提前Get-Content下游log時回報缺檔。改以已存在的source指紋log及程序狀態確認進度，檔案不存在先判斷是否尚未排程到該步，避免誤判卡住或重啟。未改來源／測試結果。
+
+## E1387：foundation終點漏接共用FinishShopCase轉移（2026-10-20）
+
+初版只改ShopRecipe頂端ShopCursor>=Count的終點，但實際最後案例由FinishShopCase直接Next(WardAim)，因此可能繞過foundation終點。於第一輪進行時檢查出，不等待其跑完整段後再逾時；以inspect_owned的真creation token鎖定自有editor中止，讓原workflow保留失敗並清理publisher／profile，全部消費者退場才修改正式來源。此輪native已成功不能當完整phased成功。修正共用FinishShopCase及原防衛分支，後續需重新建置／18專項／整套phased；記錄刻意中止證據，不覆寫v1。
+
+停止工具首次Lua字串使用單反斜線導致非法escape，語法檢查即拒絕，沒有執行停止；改長括號字串。CIM時間轉token亦不手算，改inspect_owned讀取並明確核對實際token後才停止，避免誤殺PID重用程序。
+
+## E1388：最後diff檢查發現錯誤紀錄尾端空白行（2026-10-20）
+
+git diff --check發現error register多餘EOF空白行，已去除並保留單一結尾換行；其餘Git LF／CRLF訊息為既有工作樹換行提示，不改已驗證的程式來源或根目錄bat。修正後再次檢查，功能驗收與39份封存不受影響。
+
+## E1389：最後封存核對須依實際schema讀歷史清單（2026-10-20）
+
+新包使用artifacts，前一個27份失敗包使用files；最後核對工具誤讀historical.artifacts而在唯讀檢查停止，已依實際index改讀files，保留原success=false。另新增CRLF片段與舊LF混用被Git視為trailing whitespace，已將MD統一LF、尾端保留單一換行；只改文件與Saved核對工具，已驗程式來源、39份新封存及27份歷史封存皆不改。
+## E1390：PowerShell下rg位置參數不可帶檔名glob（2026-10-20）
+
+續作鏡頭盤點時將Om*Camera*／Om*Mini*當rg位置參數，Windows回報invalid filename；實際元件在OmRuntime，不在OmGenerated。這是E1378已記錄過的操作錯誤再次發生，已改以rg --files列舉及已知父目錄配-g '*Camera*'／-g '*Minimap*'。後續檔案搜尋固定先列舉，工具參數不能依賴PowerShell展開glob。只讀失敗，未影響正式來源或驗收。
+
+## E1391：鏡頭暫時追蹤與按住狀態未隨Runtime scope退休（2026-10-20）
+
+修正及接受已完成：十九專項與fresh206 native／458分段案例／69 Blueprint／五PCM成功，3335來源前後一致；保留有效red及兩次fixture失敗，41份封存`docs/acceptance/2026-10-20-camera-runtime-scope/index.json`，詳`docs/plans/2026-10-20-camera-runtime-scope-final-acceptance.md`。下方為原缺口。
+
+world reset雖可清除英雄位置，但camera沒有Runtime scope訂閱；Space temporary focus、pan／drag／scout及隊友快照可能跨直接Stop／Start保留。新增Om.Runtime.CameraRuntimeScope，透過實際InputStack按Space後直接Stop驗立即退休，並驗新Runtime不能復活舊hold、舊release不回跳、新press可用、profile／zoom保留及冪等Start保留當前hold。先保留修正前red，再補共用鏡頭scope處理；不新增權威對局或把fixture當ACK。
+
+## E1392：CameraRuntimeScope第一個red未建立有效camera manager（2026-10-20）
+
+CameraScopeRedV1只有profile applies失敗，尚未到Runtime停止斷言，不能當正式缺口的red。fixture的standalone world未走完整player startup，InitInputSystem不保證camera manager存在；依既有camera fixture在缺少時建立並InitializeFor，再明確核對ResolveForController後才apply profile。保留該失敗報告，重新建置執行red-v2，不改正式camera行為或放寬guard。
+
+## E1393：鏡頭scope新快照測試點超出既有camera bounds（2026-10-20）
+
+CameraScopeWorldV1的19項中CameraRuntimeScope最後一個fresh hero location斷言失敗，其他scope退休／新舊Space／按住pan／保存鎖定偏好均通過。fixture使用11000／12000，超過預設正邊界10000，正式clamp正確生效；改用不同且位於邊界內的6000／7000，不放寬正式camera bounds。保留原failed-green report，再建置及重跑19專項；不能把該次結果稱全數成功。
+
+## E1394：溝通草稿／gesture及UI快取未同步退休Runtime scope（2026-10-20）
+
+已完成共用修正及接受：有效red唯一命中草稿未同步關閉；green十九專項及fresh206 native／458分段案例／69 Blueprint／五PCM成功，3335來源前後一致，38份封存`docs/acceptance/2026-10-20-communication-runtime-scope/index.json`，詳`docs/plans/2026-10-20-communication-runtime-scope-final-acceptance.md`。下方為原缺口。
+
+Runtime重設一般操作與商店，但widget溝通狀態依賴下一次RefreshCommunicationUi，InputOwner的CommunicationGesture也未取消；直接Stop／Start間可能保留舊草稿、歷史／objectives、mute token與gesture。擴充現有真Runtime整合測試，以受控合法communication view在實際owned widget／model放入狀態，直接Stop驗無tick立即退休，非新對局或權威訊息。先建置保留red，再集中共用scope清理，並驗冪等Start保留live狀態／新scope可重用及一般偏好不變。
+## E1395：Runtime停止未同步退休記分板hold槽位（2026-10-20）
+
+已完成共用修正及完整接受：有效red唯一命中hold未同步退休；green十九專項及fresh206 native／458分段案例／69 Blueprint／五PCM成功，3335來源前後一致，38份封存`docs/acceptance/2026-10-20-scoreboard-runtime-scope/index.json`，詳`docs/plans/2026-10-20-scoreboard-runtime-scope-final-acceptance.md`。下方保留原缺口。
+
+實際PlayerInput按Tab建立hold後直接StopRuntime，修正前ScoreboardScopeRedV1唯一失敗為Runtime stop immediately retires scoreboard hold。world清公開rows不會清輸入owner的bScoreboardHeld／mask／keys，不能依賴下一tick或舊release。共用ResetRuntimeInputScope透過既有CloseOwnedScoreboard退休全部槽位；widget自己的reset另同步關閉requested，對事件註冊順序與缺少world actor皆可用。沿用既有port-zero Runtime整合fixture，驗無tick退休、舊release、新press、冪等Start與重複Stop；不新增對局或製造權威ACK。完整接受已完成，見上方封存及驗收報告。
+## E1396：檢查HUD實作時猜測不存在的來源檔名（2026-10-20）
+
+讀取OmCommandBarHero.cpp失敗；實際hero邏輯位於OmCommandBarWidget.cpp。後續先以rg --files列出已存在檔案，再定位symbol，不能以猜測檔名當查找入口。此次僅為唯讀檢查失敗，沒有改動或損壞檔案。
+## E1397：typed HUD Runtime red使用不符合來源契約的普通AActor（2026-10-20）
+
+HudIdentityScopeRedV1在EnsureForController回傳nullptr處失敗，未到Runtime停止斷言，不算有效red。來源需具備六個正式HUD multicast delegate property，普通AActor不符合HasHudSourceProperties。改用既有具備完整契約但尚未選用的AOmAutomationActionBridge，明確驗未選用後透過正式ApplyHeroHud初始化受控公開投影，不增加新類別、不放寬來源guard，也不將該投影說成真網路資料。保留失敗報告，重新建置red-v2。
+## E1398：HUD已揭露英雄身分未獨立退休Runtime scope（2026-10-20）
+
+已完成共用修正及接受：有效red-v2唯一命中舊portrait保留；green十九專項、fresh206 native／458分段案例／69 Blueprint／五PCM成功，3335來源前後一致，39份封存`docs/acceptance/2026-10-20-hud-identity-runtime-scope/index.json`，詳`docs/plans/2026-10-20-hud-identity-runtime-scope-final-acceptance.md`。下方為原缺口。
+
+合法bound但未選用來源透過正式ApplyHeroHud接受受控公開投影後，Runtime直接Stop不經world tick，HudIdentityScopeRedV2唯一失敗為頭像預期None卻仍為saika_magoichi。world的空投影受到來源選用guard，HUD不能依賴它清自己的LastDisclosedHeroContentId／DisplayName。ResetGameplayInputScope加入既有ClearIdentityCaches並標示composition需重新套用，再沿既有widget scope清理；保留owner及widget，冪等Start不廣播reset。整合測試驗即刻清頭像／名稱、新Runtime死亡不能借舊身分、fresh公開投影可用、同Runtime死亡與冪等Start仍保留自己的身分、重複Stop安全。初始化為明示受控typed payload，不冒稱網路權威資料或新ACK。完整接受已完成，見上方封存及驗收報告。
+
+## E1399：Runtime停止未退休整組HUD投影及舊結算modal（2026-10-20）
+
+已完成共用修正及接受：有效red唯一命中舊結算未退休；green十九專項、fresh206 native／458分段案例／69 Blueprint／五PCM成功，3335來源前後一致，41份封存`docs/acceptance/2026-10-20-hud-projection-runtime-scope/index.json`，詳`docs/plans/2026-10-20-hud-projection-runtime-scope-final-acceptance.md`。同步退休owner mode／epoch快取，避免同模式的新Runtime被誤認未變；E1400–E1402保留失敗建置與兩份failed-green及處置。下方為原缺口。
+
+HudProjectionScopeRedV1透過真port-zero Runtime與合法bound未選用來源的正式typed投影，實際顯示結算視窗後直接Stop，唯一失敗為Runtime stop immediately retires the old match result。先前scope僅清通訊／身分／記分板hold及economy，結果modal、回城時鐘、技能、選取、Buff、小地圖等仍依賴world發空投影；未選用來源無法代為清理，舊結果會持續擋輸入。widget ResetRuntimeInputScope集中透過既有setter退休所有Runtime投影、時鐘、面板與操作結果，保留可重用widget／owner及控制偏好。擴充現有整合測試驗原始Slate結果面板折疊、舊技能／地圖／選取／Buff／摘要清除、新hero可重用、冪等Start保留live回城時鐘及重複Stop退休。受控typed payload不冒稱真權威結果或ACK；完整接受已完成，見上方封存及驗收報告。
+
+## E1400：UWidget衍生類別迴圈變數Slot遮蔽成員導致編譯失敗（2026-10-20）
+
+hud-projection-scope-build-v1.log的C4458指出ResetRuntimeInputScope中區域變數Slot遮蔽UWidget::Slot，UE警告升級為編譯錯誤。改為SlotIndex，不關閉warning或降低編譯規則。後續在UWidget衍生類別統一使用SlotIndex／LocalSlot等明確區域名稱，先檢查繼承成員。保留35.01秒失敗建置日誌，重新建置v2；這不是成功建置或功能接受證據。
+
+## E1401：HUD技能scope清理順序重建舊rank／cooldown文字（2026-10-20）
+
+HudProjectionScopeWorldV1十九項中ShopUndoProjectionAndPin唯一失敗為Runtime stop clears old ability label。SetAbilitySlot會讀取bAbilityVisualStateKnown以建立compact文字；先清label、再清visual會用舊level／cooldown重組文字，即使logical text已空仍留下畫面舊資料。改為先SetAbilityVisualState(empty)，再SetAbilitySlot(empty)，不放寬空文字斷言。保留failed-green-v1原報告，重新建置及執行十九專項；前次不能稱全數成功。
+
+## E1402：技能scope測試誤將保留的快捷鍵當成殘留label（2026-10-20）
+
+HudProjectionScopeWorldV2仍只有Runtime stop clears old ability label失敗。完整讀取SetAbilitySlot／GetAbilitySlotText後確認：logical label空時仍刻意保留目前profile的快捷鍵，因此IsEmpty斷言不符合顯示契約。E1401的先visual後label順序仍必要，否則會另外組回舊rank／cooldown；但前兩次空字串斷言本身無法區分快捷鍵與舊資料，不能只憑該訊息宣稱修正仍有rank殘留。測試改驗logical label確實空，且實際readout精確等於當前GetAbilityHotkeyText，不接受舊名稱／rank／cooldown，也不把正常快捷鍵隱藏以迎合測試。兩份failed-green報告均保留，再建置及重跑。
+
+## E1403：小地圖同玩家切換公開視圖仍保留舊捕捉與overlay（2026-10-20）
+
+SOmMinimap::SetState原本只在不可用或InLocalPlayer改變時退休capture；同一玩家切換payload公開玩家／隊伍或地圖bounds時，舊inspect、communication markers與camera footprint仍可跨視圖保留。既有MinimapPreferences真port-zero Runtime／actual Slate fixture擴充雙使用者與雙指標對照，red唯一失敗為Minimap view change immediately retires owned capture。共用SetState以O(1)比較本機玩家、公開player／team及bounds，改變時沿既有RetirePointerCapture精確釋放自己的user／pointer，再清標記時鐘與鏡頭框；正常marker／fog資料更新不取消同視圖拖曳。green驗三類變更、stable更新保留capture、舊move不pan新視圖、fresh press／release仍可用及其他user／pointer完整保留。不修改OwnerEpoch既有來源綁定契約，不新增對局或製造權威視圖；初始化為明示受控minimap payload。完整接受已完成：二十專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致通過，45份封存`docs/acceptance/2026-10-20-minimap-view-scope/index.json`，詳`docs/plans/2026-10-20-minimap-view-scope-final-acceptance.md`。四份failed-green及失敗建置保留，E1404–E1409記錄測試工具缺口與處置。
+
+## E1404：Responsive HUD滾輪fixture未驗證命中預期scroll（2026-10-20）
+
+MinimapViewScopeWorldV1二十項中MinimapPreferences的新視圖／捕捉測試成功，唯一失敗為ResponsiveHudLayout的Actual wheel reveals the complete menu label；400x300、text2.0時scroll offset維持0而label在viewport下方。原RouteWheel只驗事件handled，可能由外層HUD消耗，無法證明scroll收到事件；取點使用未裁切tick-space右邊緣，沒有與實際paint／window可見區域對齊。不能僅據此認定是minimap或production scroll缺陷。將測試改為paint viewport與window交集的內部取點，並強制hit path含預期SScrollBox；保留真Slate move／wheel、16次上限、完整label及不zoom斷言，不直接改scroll offset、不放寬字體／裁切標準。保留原failed-green報告，再建置及重跑；若實際命中仍失敗，繼續查production，不能只重跑掩蓋。
+
+## E1405：唯讀查找再次使用PowerShell不展開的rg位置glob（2026-10-20）
+
+以OmEditorGameViewportFixture.*當rg位置參數得到os error123，重複E1390已記錄的錯誤。立即改為已知parent加-g 'OmEditorGameViewportFixture.*'，成功讀取兩個真實檔案，沒有改動來源或資料。後續查找一律先rg --files，再使用已知目錄與-g；不能把shell glob是否展開當成前提。
+
+## E1406：Responsive HUD fixture將視窗內paint座標誤當桌面事件座標（2026-10-20）
+
+MinimapViewScopeWorldV2的新增hit-path斷言證實未命中預期SScrollBox，前次用paint可見區取點仍不夠。FOmEditorGameViewportFixture會把各視窗放在100+offset桌面位置；ForceRedrawWindow／TakeScreenshot的paint geometry在window space，Slate.LocateWindowUnderMouse及FPointerEvent需要desktop space。讀取UE SWindow::GetWindowGeometryInScreen／InWindow實作後，改以Window paint AbsoluteToLocal再經GetWindowGeometryInScreen LocalToAbsolute，使用真視窗位置／DPI，不加固定offset。scroll事件必須命中預期widget、真的改變offset、完整揭露label且不zoom；同時保留原16次上限。原有shop/world事件的座標契約不改，預期scroll目標不再被誤分類為world探針。記錄paint／screen／nativeWindow witness，保留兩份failed-green並重跑，不能把前次稱成功。
+
+## E1407：桌面座標轉換仍未命中scroll，需保留實際hit-path診斷（2026-10-20）
+
+MinimapViewScopeWorldV3仍只有ResponsiveHudLayout失敗，hit-path guard未通過；witness為paint(244,177.5)、screen(634,567.5)、nativeWindow(390,390)。E1406的window到desktop轉換不能單獨視為完整根因或修復完成。加入before／after BringToFront的實際widget type／tag路徑，確認前景視窗與遮擋／clipping狀態；繼續保留命中SScrollBox、真wheel、完整文字及不zoom斷言，不放寬或盲目重跑。前三份failed-green均保留且未接受。
+
+## E1408：FArrangedChildren不支援range-for造成診斷程式編譯失敗（2026-10-20）
+
+minimap-view-scope-build-v4.log的C3312指出FWidgetPath::Widgets為FArrangedChildren，沒有begin／end，不能假設UE容器皆支援range-for。診斷改為既有Num()與索引存取，不改正式引擎或關閉編譯檢查。保留失敗建置日誌，v4 native尚未執行；後續先讀實際容器介面或沿用附近既有迭代方式。
+
+## E1409：HUD捲動fixture被前一個互動式tooltip攔截（2026-10-20）
+
+MinimapViewScopeWorldV4的before／after-front真hit path皆為SOmHudToolTipHost→SOmHudToolTip→SScrollBox:OmHudToolTipScroll→OmHudToolTipText，並非OmCombatScroll；BringToFront沒有改變結果，不能再推測是其他視窗遮擋。長tooltip本來就允許讀取與捲動，收到wheel是正常行為。HUD scroll案例需隔離先前hover提示狀態，沿公開CloseToolTip結束前一提示，透過SetCursorPos同步真正應用游標與FPointerEvent（tooltip IsInteractive讀GetCursorPos），再在paint/window可見交集內的捲軸邊緣送真move／wheel。原游標於fixture結束恢復，不停用tooltip功能、不直接改scroll offset；保留命中預期scroll、完整文字、16次上限及不zoom斷言。四份failed-green與E1408失敗建置全部保留，先取得green再完整接受。
+## E1410：唯讀rg再次把glob放在路徑位置（2026-10-20）
+
+查找OmRuntime來源時把Om*傳成位置路徑，Windows回報os error 123；沒有修改來源或執行產品測試。這是E1390／E1405已記錄過的操作錯誤，改用已知父目錄加`-g 'Om*.cpp'`後成功。後續每次rg工具呼叫都先確認位置參數是現存目錄或確定檔案，所有wildcard只放在-g參數，不以重試相同失敗指令處理。
+## E1411：失效的HUD閱讀提示只隱藏而未退休焦點（2026-10-20）
+
+SOmHudToolTipHost::Tick原先在Visible=false時直接返回，CanPresent／文字／client使提示IsEmpty後只collapsed，仍保留Tip與閱讀焦點。擴充既有ReadableHudToolTip真GameViewport／Slate hover、wheel、click整合fixture；長提示實際取得閱讀焦點後切換shop scope使其不可用，執行owner host正常Tick，不先呼叫global UpdateToolTip。修正前唯一失敗為Unavailable tooltip host restores prior reading focus，原始報告保留TooltipRetirementRedV1。這不是沒有成功取得閱讀焦點的fixture問題。
+
+共用host Tick對仍持有但IsEmpty的tip執行既有OnClosed，沿其user／descendant焦點guard歸還原焦點，再以CloseIfCurrent保護新提示並清舊widget；持有局部shared pointer避免close callback釋放目前tip。不呼叫全域CloseToolTip，不停用tooltip、不修改字型、scroll或gameplay快捷鍵仲裁。green另驗回原HUD scope不復活舊提示，原多視窗尺寸／字級、wheel、keyboard、Esc、retire及GC斷言保留。完整接受已完成：二十一專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致成功，48份封存`docs/acceptance/2026-10-20-tooltip-retirement/index.json`，詳`docs/plans/2026-10-20-tooltip-retirement-final-acceptance.md`。有效red與流程失敗保留。
+## E1412：來源基準尚未完成就執行相依輸入比對（2026-10-20）
+
+tooltip-retirement-source-v1.lua仍在建立3335個來源／資產指紋時，提早執行maintained-proof，因基準JSON尚不存在而失敗。未修改產品或驗收來源，沒有把錯誤輸出當PASS；保留工具log，等source session明確exit 0且JSON存在才執行相依比對。來源擷取／來源比對／封存是相依步驟，必須依序等待完成，不得將啟動等同完成。
+
+本輪追加錯誤紀錄時多留一空白行於EOF，git diff --check已攔下；統一LF與單一結尾換行後再次檢查，不以忽略檢查處理。
+## E1413：唯讀來源查找先猜檔名再盤點（2026-10-20）
+
+本輪查找先猜OmGenerated/Private/OmUnitActor.cpp、OmPublicUnitTeamMarkersTests.cpp、OmNativeCombatVfxTests.cpp及OmNativeCombatPresentation.h，均不存在；工具回報os error 2。來源沒有變動。後改用現存OmRuntime/Source父目錄的rg --files及-g篩選，定位OmRuntime/Private/OmUnitActor.cpp、OmUnitTeamMarkerTests.cpp及OmNativeCombatVisualTests.cpp，再以確定路徑讀取。不應因熟悉類別名就猜檔案／目錄；盤點及讀取是相依步驟，未知檔名先盤點，避免重犯E1396類錯誤。
+## E1414：正式Buff特效拒絕配置仍建立舊文字元件（2026-10-20）
+
+AOmUnitActor::OnBuffState在正式native VFX啟用時，若pool因滿載、隱藏／未就緒、duration非法等拒絕SyncBuff，原本會落入legacy UTextRenderComponent路徑；錯target／generation也因外層條件不成立而落入legacy。實際world pool填滿512格後，既有NativeCombatVfxLifecycle新增有效red唯一失敗為Rejected native buff never allocates a legacy text component：預期0個registered text，實際新增1個。原始BuffAdmissionRedV1報告保留，不把pool拒絕誤認需要fallback。
+
+共用OnBuffState讓native路徑完整封閉：錯目標先拒絕；zero remaining即退休；既有自訂handler保留；SyncBuff成功才建立／保留輕量native ownership handle，失敗清obsolete native／text bookkeeping並返回，不配置legacy component。明確停用native的既有文字呈現路徑保留。green驗512上限、連續拒絕不增component／handle、目前持續狀態在容量回復後能重新取得native visual、隱藏／錯世代／NaN duration不逃逸、自訂handler不被取代、明確legacy模式仍可用且能清理。未提高容量、引入逐entity掃描、變更Rust／ABI或新增權威對局。完整接受已完成：二十二專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致成功，42份封存`docs/acceptance/2026-10-20-buff-admission/index.json`，詳`docs/plans/2026-10-20-buff-admission-final-acceptance.md`。有效red及E1415 failed-green保留。
+## E1415：自訂Buff handler fixture錯用抽象UObject（2026-10-20）
+
+BuffAdmissionWorldV1的容量／拒絕／回復斷言已通過，但自訂handler探針NewObject<UObject>觸發UE5.8 UObjectGlobals.cpp:3295的抽象類別ensure，因此該輪NativeCombatVfxLifecycle失敗，不能作接受。改用具體USceneComponent作實際自訂視覺探針，仍驗原指標未被native handler取代，清理走既有DestroyComponent。未放寬engine ensure或產品guard；保留原failed-green report／engine log。source-v1已完成但包含錯誤fixture，修正後另建立source-v2，不覆寫舊基準，依新基準完整驗收。
+## E1416：content rebinding fixture在無native pool的preview world依賴legacy fallback（2026-10-20）
+
+buff-admission-final-v1完整native只有ActorContentRebinding失敗，三個baseline restore斷言預期1實際0；全輪success=false，Blueprint依正式guard未啟動，雖兩段458視窗清單成功也不稱整體接受。原始summary及native-001 report／engine log完整保留。
+
+根因：該fixture使用EditorPreview，但UOmCombatVisualSubsystem只支援Game／PIE／Editor；原本期待的persistent visual實際是native被拒絕後建立的legacy text。不可為了舊fixture恢復無界fallback或擴大subsystem到所有preview。改以支援native pool的Editor world，並提供明示有效hp/max_hp=100，保留原content replacement、舊actor退休、持續snapshot恢復、pool重用、control-only保留及完整baseline退休斷言。專項加入ActorContentRebinding，改用source-v3並完整重跑，source-v1/v2及失敗全輪不覆寫。
+## E1417：更新來源基準卻沿用既有輸入比對輸出名（2026-10-20）
+
+source-v3完成後，maintained-proof舊producer雖已指向新輸入，輸出仍是已存在的maintained-proof-v1.json，path.write防覆寫guard正確拒絕。舊證據未覆蓋、未視為重跑成功；另建maintained-proof-v2.lua，明確讀source-v3、寫新的maintained-proof-v2.json，再重新比對527 Rust／ABI與93內容Lua。更換輸入版本時，所有產物及封存引用都須同步版本化，不僅更改讀取路徑。
+## E1418：尚未確認建置session退出就啟動相依red（2026-10-20）
+
+buff-identity-red-build-v1在write_stdin仍回傳running session時，便啟動red-v1。後續確認建置成功，但啟動順序不足以嚴格證明測試只讀完成的binary，因此該輪不作有效red，原報告／log保留；等build及red session都明確exit後另用RedV2重跑。相依建置→測試不能僅用rg看到部分log或經過時間推定完成，必須檢查exit_code及session狀態，running時不得啟動consumer。
+## E1419：Buff移除／刷新／更新未驗目前entity世代（2026-10-20）
+
+OnBuffState只有native路徑內驗target，OnBuffRemoved／Refreshed／Updated則只看visual key，舊entity或世代事件可碰到新occupant重用的key：移除目前handle／pool visual，或改動legacy文字。新增既有NativeCombatVfxLifecycle真生成hero／pool整合矩陣，完成建置後獨立RedV2唯一失敗為A stale buff removal preserves current ownership，確實先有目前native handle再被錯世代事件清除；RedV1因啟動順序不嚴謹已由E1418排除。
+
+共用IsCurrentBuffTarget在default Added／State／Removed／Refreshed／Updated回呼任何視覺操作前，以O(1)驗有效目前entity及target id／generation一致；native、tracked custom與明確legacy路徑使用同一邊界，不清其他entity的有效visual、不因舊事件改文字或產生debug cue。green涵蓋錯id及錯世代五類回呼、舊refresh zero不能清pool、current update/remove正常退休、fresh current state仍可建立、custom與legacy保護，保留前輪512容量／拒絕／回復及實際shader渲染斷言。僅保證目前entity世代，payload未提供Runtime epoch，不將此修正冒稱跨Runtime ACK或序號防重播。完整接受已完成：二十二專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致成功，39份封存`docs/acceptance/2026-10-20-buff-identity/index.json`，詳`docs/plans/2026-10-20-buff-identity-final-acceptance.md`。有效RedV2及E1418排除的RedV1保留。
+## E1420：native Buff刷新／更新拒絕後保留失效ownership（2026-10-20）
+
+OnBuffRefreshed將SyncBuff結果丟棄：zero remaining雖清pool renderer卻留ActiveBuffEffects中的native handle；OnBuffUpdated在非zero但SyncBuff拒絕時也留舊renderer／handle。合法target的NaN duration、隱藏而已被RetireOwner清pool等情境會使bookkeeping與實際renderer不一致。既有NativeCombatVfxLifecycle擴充真hero／pool回歸，建置明確exit 0後獨立RedV1唯一失敗為Current terminal refresh retires native ownership，預期0、實際1；先驗renderer確已為0，非未建立特效的fixture問題。
+
+新增private UpdateTrackedNativeBuff供Refresh／Updated共用，只接管已追蹤的UOmCombatBuffVisual：zero remaining、無pool或SyncBuff拒絕均沿UntrackBuffEffect一次退休renderer及ownership，回傳handled防止進legacy。有限合法值與-1無限期保持目前視覺；沒有自動重試、建立新visual或提高容量，fresh完整State可依既有路徑重新建立。不是native handle的custom／legacy不被helper接管，既有target／generation guard仍先執行。green驗terminal refresh、current update/remove、NaN refresh/update、hidden update、infinite state及custom terminal事件，保留舊世代隔離、512上限、容量回復及shader／content rebinding。未變更Rust／FFI schema或新增權威對局。完整接受已完成：二十二專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致成功，38份封存`docs/acceptance/2026-10-20-buff-update/index.json`，詳`docs/plans/2026-10-20-buff-update-final-acceptance.md`。有效red保留。
+## E1421：回城持續特效被容量拒絕後不再恢復（2026-10-20）
+
+SynchronizeCombatAnimation把bCombatRecalling設為邏輯true後只在旗標改變時呼叫void SetRecall；共享池若被persistent效果填滿，SetRecall配置失敗卻沒有回傳結果。釋放容量後相同有效回城狀態不會再配置圈框。既有NativeCombatVfxLifecycle真生成hero／pool，填滿512格、送目前回城、再RetireOwner釋放容量並重送同一有效動畫，red唯一失敗Current recall restores its declined persistent visual；並非沒有成功填滿或未清空池。
+
+SetRecall回傳是否達成呈現狀態；actor另追蹤bRecallVisualPending，只有狀態改變或後續目前有效快照仍pending才處理。O(1) CanRetryPersistentAllocation先檢查scope／frame／free slot／resources，池滿時不重掃效果陣列；成功後清pending，已呈現的回城不重啟age。取消、隱藏、死亡、epoch／presentation reset同步清pending；只回復仍有效的持續狀態，不重播oneshot、不新增timer或網路重試、不提高512上限。green驗滿載重複快照仍512、釋放後一個圈框、age保持、pending取消不復活及fresh回城可用，保留死亡／隱藏／scope與既有Buff等回歸。未變更Rust／FFI schema或新增對局。完整接受已完成：二十二專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致成功，38份封存`docs/acceptance/2026-10-20-recall-admission/index.json`，詳`docs/plans/2026-10-20-recall-admission-final-acceptance.md`。有效red保留。
+
+## E1422：交接後查詢已失效的執行 session（2026-10-20）
+
+接續來源指紋工作時，對舊 session 30934 呼叫 write_stdin，工具回覆 Unknown process id。執行 session 可能已完成或不再保留，不能把不存在的工具控制代號當作建置或產品失敗，也不能因此重跑會拒絕覆寫的證據產生器。改查完成日誌（3335 files captured）、實際程序清單與輸出檔案，再以獨立來源比對成功確認基準。後續恢復工作先檢查完成證據與存活程序，只對仍可用的 session 輪詢；本次未改動測試門檻或覆寫證據。
+
+## E1423：再次把萬用字元放進rg位置路徑（2026-10-20）
+
+查找OmWorld及OmNative來源時把星號直接放進Windows位置參數，兩次得到os error 123。改對既有Source／Private目錄用rg搭配-g檔名篩選，並在未知檔名時先查既有目錄；後續找到正式橋接位於OmGenerated/Private/OmWorldBridgeActor.cpp。另一次直接讀取未先確認存在的world-scope-finalize-v2.lua亦失敗，改讀已存在的finalizer；未知檔名一律先以rg --files確認。這是查找操作錯誤，未變更產品或採用錯誤輸出作證。禁止在rg位置路徑使用星號；相關前例E1410／E1413仍保留。
+
+## E1424：較舊動畫快照可回滾目前戰鬥特效（2026-10-20）
+
+正式bridge先呼叫SynchronizeCombatAnimation，再OnAnimationState。native骨架消費端已驗自身latest snapshot tick，但戰鬥特效只驗CombatFrameTick；動畫tick較生命值frame新時，舊但仍高於frame的快照可取消新回城、改暫停。真生成hero／world pool有效red唯一失敗Older animation cannot cancel current recall rendering，非缺材質或容量不足。test-only建置確認exit 0後才啟動獨立red。
+
+共用AOmUnitActor新增CombatAnimationTick，外來entity、負tick、低於生命值frame或低於已接受動畫tick的快照在任何副作用前返回。同tick refinement維持相容；有效新快照才推進tick。隱藏／顯示保留時序，presentation reset及新epoch才清時序，所有角色共用，沒有新timer、掃描、網路重試或ABI變更。green涵蓋stale cancel／unpause、實際圈框age保持、same-tick cancel／resume、stale recall／pause不能復活、負tick與外來世代隔離、concealment及新epoch較低tick；前輪容量回復與Buff回歸均保留。完整接受已完成：二十二專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致成功，38份封存`docs/acceptance/2026-10-20-combat-ordering/index.json`，詳`docs/plans/2026-10-20-combat-ordering-final-acceptance.md`。有效red保留。
+## E1425：未確認header-only型別就讀取不存在的cpp（2026-10-20）
+
+檢查PresentationCueHistory時直接讀取不存在的Private/OmPresentationCueHistory.cpp，得到路徑不存在；以rg --files確認實際只有Public/OmPresentationCueHistory.h後讀取正確來源。再次落入猜檔名的查找錯誤；後續未知實作位置必須先列檔，再使用確定存在的路徑。沒有改動產品或採用失敗輸出作驗收。
+
+## E1426：骨架動畫接受落後目前生命值frame的快照（2026-10-20）
+
+AOmAnimatedUnitActor::OnAnimationState僅比對上一筆動畫tick，沒有比對已接受的NativeHealthTick。HP frame前進後，較舊但高於上一筆動畫的快照仍能切換姿勢，或在動畫tick相同而HP frame更前時解除暫停；與共用戰鬥特效的frame邊界不一致。七正式hero共用AnimationSnapshotOrdering擴充實際骨架／instance回歸，有效red唯一失敗Animation older than current health frame preserves recall pose。test-only建置確認exit 0後才執行red。
+
+共用動畫actor在任何副作用前以既有NativeHealthTick拒絕落後frame的動畫，保留相同tick refinement、先有動畫而尚無HP frame、隱藏／新epoch／pool reset邊界；不新增欄位、timer、掃描或ABI。四個既有動畫fixture原先使用default tick 0代表目前動畫，修正為明確目前HP tick，保留所有原assertions；新增的過期快照測試保持舊tick。fresh專項另納入NativeHeroAnimationLifecycle、NativeCreepPresentation與AuthoredHeroAnimationLifecycle，連同七hero姿勢與暫停／resume、current frame equal tick、新epoch低tick及pool reset驗證。完整接受已完成：二十五專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致成功，38份封存`docs/acceptance/2026-10-20-animation-frame/index.json`，詳`docs/plans/2026-10-20-animation-frame-final-acceptance.md`。有效red保留。
+## E1427：Lua直接讀取UE帶BOM的原始報告（2026-10-20）
+
+建立25項專項producer時，json.read直接讀UE原始report/index.json，因UTF-8 BOM於byte 1失敗；這是producer解析錯誤，尚未啟動UE專項。修正為讀raw並去掉檔頭BOM後json.decode，與正式UE報告驗證器一致。producer部分輸出已存在，因此只允許內容完全相同的producer檔重用，禁止覆寫不同內容或測試證據；專項改用明確存在的新producer。第一份失敗log保留，不算產品或green失敗；後續解析UE原始JSON一律先處理BOM。
+## E1428：多層文字替換使歷史封存核對保留舊數量（2026-10-20）
+
+animation-frame-final-audit-v1沿用前輪wrapper並替換combat-ordering，但前輪內層pattern是帶Lua轉義的combat%-ordering，未同步變更。因此當前pack期待數仍39，實際已嚴格封存38，最後歷史核對報pack status/schema mismatch；不是產品測試或封存雜湊失敗。保留v1失敗log，不改封存index或放寬38份門檻。改獨立v2以明確pack／數量／預期success清單核對，錯誤訊息必須包含pack路徑；逐份SHA／size、551份歷史證據、strict完整操作union、3335來源與33/44狀態均保留。後續不再以多層字串改寫產生歷史核對清單。
+
+v2實際核對成功：本輪38份、歷史551份SHA／size、strict完整操作union、3335來源與33/44任務狀態一致；原v1失敗保留，未修改任何歷史證據。
+## E1429：外來生命值frame污染目前角色音效基準（2026-10-20）
+
+AOmUnitActor::PresentOriginalAudioFrame在更新OriginalAudioOwner／scope／last tick／HP之前，沒有核對payload entity／generation與presentation epoch。音效事件的key卻使用目前actor身分，使錯世代frame的HP=0被當成目前角色死亡；外來future tick亦可推高last tick，抑制之後有效目前恢復。既有AudioResourceScope真world／owner／source及實際公開cue history回歸，test-only建置確認exit 0後取得有效red，唯一失敗Foreign health generation cannot emit a current source audio cue，預期0實際1。NoSound只驗真admission／caption，不冒稱device播放。
+
+共用入口在任何副作用前核對payload與目前actor id／generation、正且一致的audio presentation epoch、同world／bridge owner；原有限HP／負tick／native override guard保留。不新增欄位、timer、掃描、重試或ABI。green涵蓋錯id／generation／舊epoch不產生cue，外來future tick不污染clock，目前恢復與死亡cue／caption正常、新epoch低tick重建baseline不假重生，以及NoSound零voice。實際五PCM輸出由完整驗收另驗，不用字幕或cue數代替音訊。完整接受已完成：26專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua及3335來源一致，43份封存`docs/acceptance/2026-10-20-audio-health/index.json`，詳`docs/plans/2026-10-20-audio-health-final-acceptance.md`。有效red、failed-v1、diagnostic-v2與早期source-v1保留。
+## E1430：新增測試組合暴露小地圖命中前置狀態不完整（2026-10-20）
+
+AudioHealthWorldV1的音效隔離回歸通過，但MinimapPreferences在Right drag hits the same minimap失敗，尚未進入命令或音效邏輯。保留失敗報告與source-v1。加入實際hit widget／座標診斷後，WorldV2的26項均成功（四既有warning），press與drag皆SOmMinimap；這只能證明該輪未重現，不能把多印log當成修復，也不能斷言初次遮擋元件已確定。
+
+fixture沿已接受的ResponsiveHudLayout互動前置流程，在命中檢查前帶自己的視窗到前景、關閉前一個互動tooltip並同步平台cursor與Slate mouse event；退出時關閉本輪tooltip並還原cursor。不關閉產品tooltip功能、不改座標或命中／capture斷言、不更動正式Minimap／音效路徑。保留widget／point診斷，最終WorldV3及新source-v2獨立驗證，先前failed與diagnostic包不覆寫。避免互動測試依賴前一個測試留下的application cursor／前景視窗／reading popup；對原失敗的具體遮擋來源保持未確認。
+## E1431：非目前音效元件與非目前frame可改寫角色音效基準（2026-10-20）
+
+PresentOriginalAudioLocomotion只比較epoch，沒有核對目前綁定的audio component或其frame tick。相同epoch的外來bridge音效元件雖被PlayPublicCue拒絕，仍先把bOriginalAudioWalking設true，吃掉之後目前元件的合法起步。過期idle也會把連續移動改成非移動，下一frame重播起步。前輪health入口雖已隔離entity／epoch，仍允許同身分future tick在事件被audio frame拒絕後污染HP clock。真world／bridge／source與公開cue history擴充既有AudioResourceScope；test-only建置明確exit 0後，red唯一失敗Foreign audio owner cannot consume current movement transition，預期2實際1。
+
+audio component提供O(1) IsCurrentPresentationFrame（正epoch且epoch／tick皆精確相符），health與locomotion在任何基準變更前共用。locomotion另驗OriginalAudioOwner就是目前元件及同world／bridge owner，保留native override與既有baseline／轉換語意。不新增actor時鐘欄位、timer、掃描、重送或Rust／FFI schema。green驗外來元件不吃起步、舊idle不假起步、落後audio frame但高於HP tick的idle及future idle不改狀態、fresh起步仍可用、同entity future／past health不污染clock／HP並保留恢復caption；前輪entity／epoch、死亡與新時間軸斷言保留。NoSound只驗admission／caption、零voice，實際音訊輸出由完整五PCM另驗。完整接受已完成：26專項、fresh206 native／458分段案例／69 Blueprint／五PCM、140＋69 Lua與3335來源一致成功，38份封存`docs/acceptance/2026-10-20-audio-locomotion/index.json`，詳`docs/plans/2026-10-20-audio-locomotion-final-acceptance.md`。有效red保留。
+## E1432：收尾複驗沿用已存在的驗證輸出路徑（2026-10-20）
+
+為確認本輪沒有程式變更時，直接呼叫audio-locomotion-source-v1.lua check，事後檢查才發現該工具以false禁止覆寫已存在的source-verified-v1.json。尚未到寫入步驟前，用已確認command line的task-owned PID 20164及Lua host executable／creation token停止該次hash程序；未刪除、覆寫原證據，也未停止UE或其他工作。原不完整check log保留。改用獨立nonmatch-closeout-source-v2.lua讀同一份baseline，寫全新nonmatch-closeout-source-verified-v2.json。之後重用既有proof工具前先檢查輸出命名與覆寫契約，不能把重跑同名checker當作安全的read-only操作。
+
+獨立v2來源複驗實際成功：3335檔與最近完整接受一致；38份封存SHA／size及原始完整操作strict union核對成功，結果`omfue/Saved/BuildTemp/nonmatch-closeout-verified-v1.json`。本輪未重跑全部功能測試，也未把不完整v1算作成功。
+
+## E1433：沿用猜測的 Rust 檔案位置（2026-10-21）
+查找 ability_runtime、hero_command_tick 與 event 時使用不存在的路徑。失敗查找沒有改動產品；改用已存在的 native 父目錄搜尋與 rg --files 定位。後續未知檔案必須先列檔，不能依模組名猜實體位置。
+
+
+## E1434：對角線地圖變更暴露水平 fixture 與呈現身分缺漏（2026-10-21）
+首輪 authoring 55/56，河道測試沿用負 Y，改用合法新圖河道後 56/56。core 首輪 782/784，兩個 communication 測試沿用舊邊界及營地座標，已改新邊界與 catalog 取值。base 首輪多項舊水平座標失敗；在已確認 task-owned PID／executable 後停止尚未完成的長生命週期測試，不列為完整驗收。診斷輪先收集其餘失敗，後續最終仍須不跳過測試重跑。新增營地還必須具備 world_units 呈現身分，單改 map catalog 不算完成。初次查找後仍重複使用猜測路徑與 Windows 不支援的檔名 wildcard；後續搜尋只傳已存在父目錄及 -g filter。
+
+
+## E1435：護主測試欄位與固定目標生命周期（2026-10-21）
+新增測試把 DamageInstance.source 誤當 Entity，實際是 DamageSource；改讀 source_entity 後編譯成功。加入固定目標後，真實 AI 專項出現有效 red：護主過期仍因 sticky target 繼續追英雄。改為明確記錄目標是否由護主取得，失去保護時取消該優先保留，一般目標仍保持穩定；新狀態納入重播雜湊。巡邏目的地上限原為8，擴充16營地後會漏掉合法可達營地；以 authoring 最大32對齊，保留有限查詢測試並擴充超限 fixture。
+
+
+## E1436：長生命週期測試缺乏進度與核心 fixture 容量未同步（2026-10-21）
+base-full-v4 的其他案例已有結果，三路長測試仍有 CPU 活動但超過兩分鐘沒有 tick 進度，不能用 CPU 活動證明場景持續推進。確認 task-owned PID 43440 的絕對 executable 與 creation time 後停止該輪，保留原 log，絕不列為全套通過。重跑新增每600 tick 的 phase／存活塔／死亡進度，原24,000 tick驗收界線不放寬。同時 core-v2 的三個失敗是兩個僅12候選的容量 fixture 與一個仍將閒置中立野怪視為回城威脅的舊預期；容量 fixture 改為大於正式上限，回城測試改驗新規則。
+
+
+## E1437：對角線推線停滯、正式5v5投影容量及 KCP 測試回傳型別（2026-10-21）
+base-full-v5 的定期進度確認三路 tick601至8401皆18塔，便利 Push Bot 直線跨野區反覆接敵而未沿三路彎道。確認 owned PID28732 後停止該輪，保留進度作失敗證據，改以共享 route 的目標前綴選取下一個彎點，原24,000 tick期限不放寬。正式後端 role-server 測試亦有效失敗 FrameTooLarge：原 default padding buckets 最大16KiB，完整5v5、三層塔與擴充兵線超出該投影容量；KCP 既有stream framing並無這個16KiB上限。正式policy擴充2次冪 buckets至64KiB並強制有限上限，未改測試門檻／關閉投影；backend-v2 實際189通過、1原有ignored。新增真KCP roundtrip／超限拒絕測試一度把 read_framed 的 Option三元組當二元組，core-v5因此編譯失敗；依實際API改解包 Option與wire length，只修改cfg(test)部分後獨立重跑，不將失敗編譯視為接受證據。
+
+
+## E1438：自動拉怪重置循環與舊撤退 fixture 假設（2026-10-21）
+route-v2 的固定角色座標(約64,980)及攻擊移動命令持續不變；核心自動取得目標未排除 HostileNeutral，搭配過短小營地 leash，形成野區邊緣停射／重置路徑。共用 acquisition 對 Idle／AttackMove 排除 HostileNeutral，保留明確 AttackTarget；同一公開 faction 在 authority 與 filtered 消費端專項通過。常規營地追擊半徑調為700、大型1000；既有NPC繞障已整合，因此 authoring 改驗營地本體20半徑不可被牆佔用，不再禁止整個leash內有牆，新增正向detour authoring驗證。core-v7 786／authoring-v5 57通過。neutral-v1 真正推進拆掉6座敵塔後，舊生命週期fixture在取得dead defender的actor時unwrap失敗：舊絕對Y=3000離新右上基地僅600，沒有達到原本撤離3000距離的意圖。撤退改為實際基地＋3000，且只對存活defender發正式輸入；沒有提高24,000 tick限額。先前把CPU活動當進度的說法不充分，後續保留tick／角色／塔數證據。
+
+
+## E1439：測試把已移動營地當作原點、warmup受擊與護主期限共用（2026-10-21）
+NPC terrain fixture在warmup前排入傷害，原先靠idle自動拉怪碰巧進入追擊。改成正式進入Playing再排實際傷害後，release-v2的return位置斷言又把首次追擊後的位置當home，實際正確回營(600,1200)卻被判失敗；改用catalog出生點camp_home，保留繞障、越牆檢查、返回、滿血及雙副本斷言。Release-v3完整244項無跳過通過。程式審查亦發現護主若共用一個expiry，後續AOE會延長小兵護主；單攻擊者單victim紀錄還會被另一名受害者覆蓋。改為bounded攻擊者生命＋受害player鍵、分開minion／tower期限，加入遠方第二受害者、AOE不延長小兵但可刷新塔、拆塔小兵忽略呼救的真AI回歸。三個正式5v5種子各4500 tick、雙世界9000步、雙副本9000步，確認三波與遠程／砲車真攻擊及無repair重播。
+
+
+## E1440：呈現catalog僅收集第一張地圖（2026-10-21）
+world_units最初僅遍歷maps[1]，後續地圖若有不同營地／兵種便會沒有呈現身分。改為依序合併全部地圖、同角色ID去重、保留既有reserved IDs並對camp／minion共用ID拒絕；追加地圖不重編既有ID。新增固定Lua5.4測試以兩份不同map及碰撞案例驗證；目前既有map序列化內容與IDs不變，最新Rust1565項及兩次UE建置成功。
+
+## E1441：目標catalog驗收硬編兩項，場景證據仍畫示意塔（2026-10-21）
+完整local-v1的206 native與69 Blueprint成功，但tail於objective-vote-north失敗。OmOwnedViewportIpcTests要求Catalog.Num()==2，實際資料已是16；不是HUD或傳輸遺失catalog。驗收改要求當前範圍內實際欲點擊的ID存在，仍驗真Slate按鈕、TCP intent、唯一ordinal與目標ID，沒有放寬產品API或時間／FPS門檻。整輪保持failed證據，不當作完整通過。另發現compiled-map scene固定每路一對示意塔和單一小兵，不能證明三層塔及新兵種。renderer-only export升級schema3，使用與authority相同的Fixed64 route advance匯出全部塔位，並讀取第3波編成及HP；C++載入有界資料，呈現實際18塔、三兵種與16營地，依然明示synthetic visibility／unit placement及零simulation／ACK。
+
+
+## E1442：再次猜測 Unreal 測試來源路徑（2026-10-21）
+延續驗收時曾誤讀不存在的 omfue/Source/Om/Private/Tests 路徑。測試實際位於 omfue/Plugins/OmRuntime/Source/OmEditor/Private；omfue 內多項受 ignore 規則影響，盤點必須使用 rg --files --no-ignore 並限縮來源目錄，再讀盤點結果，避免把查找失敗誤認檔案不存在。未影響執行中的建置或測試。
+
+
+## E1443：操作文件 patch 未讀取實際定位行（2026-10-21）
+更新操作文件時曾送出只有井號的錯誤 context，apply_patch 正確拒絕，沒有修改檔案。先讀取實際標題與段落後，使用完整既有段落作定位，才加入當前地圖／兵線／護主／回營規則；拒絕的 patch 不算已完成修改。
+
+
+## E1444：Windows 原生命令的路徑 glob 不由 PowerShell 展開（2026-10-21）
+查看 native report 警告時，把 native-00*-report/index.json 當成 rg 路徑，Windows rg 收到字面的星號而報123。改傳已盤點的父目錄搭配 --glob index.json 遞迴搜尋；無產品修改，也沒有將查找錯誤記為驗收失敗。後續以 rg 的 --glob 控制檔名，不假設 PowerShell 會展開原生命令參數。
+
+
+## E1445：最終接受成功仍須揭露警告（2026-10-21）
+local-v2成功但native為197 Success＋9 SuccessWithWarnings、共13警告，並非零警告。已讀取原始report：包含負向fixture拒絕不支援模式／非法route range、無context測試world退休，以及UE背景HTTP連線探測generate_204的3秒timeout。場景26項另有4個無context測試world退休警告；PCM音訊專項亦標示SuccessWithWarnings。這些未導致測試失敗，保留完整summary，不關閉探測、不刪警告或把全部結果改寫為無警告；Blueprint為69項、0 error／0 warning。
+
+## E1446：錯誤紀錄尾端多餘空行（2026-10-21）
+最終 git diff --check 指出錯誤紀錄 EOF 多出空白行，來自連續 Add-Content 留白。只移除尾端重複換行並保留單一終止換行，未改動產品來源或重跑已接受功能。後續追加紀錄以單一末尾換行收尾。
+
+## E1447：群怪／施放提示擴充的資料、fixture及可讀性修正（2026-10-21）
+
+本輪詳細紀錄集中於 [2026-10-21-completeness-errors.md](2026-10-21-completeness-errors.md) C01–C09。包括舊硬重置／全路開門預期、野區牆內的水平座標fixture、附屬怪追加map後ID位移、AVI寫入鎖與Lua文字／binary參數，以及真影格發現縮放後提示字過小。保留兩次failed Rust全套、不可用擷取與被字體修正取代的local-v1。修正後Rust1568通過，27場景與最終local-v2完整206 native／458案例／69Blueprint／五PCM成功；未新增權威連線對局。不能用v1控制成功代替v2可讀性接受，也不能把JPEG擷取破圖當作UE渲染錯誤。
+
+## E1448：基地攻防與空間尺度實作的視覺／fixture修正（2026-10-21）
+
+詳細紀錄見 [2026-10-21-base-structures-errors.md](2026-10-21-base-structures-errors.md) B01–B15。WorldV1自動通過仍由實際畫面發現主堡／雙塔／水晶重疊，因此改為共享4800幾何、可配置基地間距及實際route弧長邊界。新版地圖也揭露通訊／後端fixture的舊2400假設，以及技能隔離origin／自訂牆不再同源；由公開幾何推導並保留原傷害、魔力、冷卻及碰撞斷言。另記錄UE C4458、固定點tuple型別、watcher缺檔／短程序退休、查找及模板feature數字更正。local-v1小地圖fixture漏算Slate screen round trip，改用實際螢幕取樣並保留一raw上限後，完整local-v2通過。最後發現無角色計畫的一般三路漏接authored兵線，補正式入口並另跑190項／正式backend建置。最終Rust1573通過／10既有ignored、27場景、完整206 native／458案例／69Blueprint／五PCM通過；UI cohort3339前後一致，之後僅一後端檔另驗，其餘3338未變，最後來源3339亦一致。保留所有failed／被取代cohort，不冒稱零警告、權威ACK或單session效能。
+
+## E1449：草叢及技能落點預覽的 fixture 與可見性入口（2026-10-21）
+
+詳見 [2026-10-21-brush-preview-errors.md](2026-10-21-brush-preview-errors.md) P01–P08。新 codegen fixture 遺漏 active／instant 被正式 validation 拒絕，補 fixture，沒有放寬 production 契約。單位道具使用即時視野入口，須與 Wave B／fog 一起接草叢，避免公開隱藏後仍可指定；切回舊 map 必須清除舊草叢 resource。實際地表是膠囊形，不能用外接矩形誤隱蔽角落，已改 doubled raw 距離判定並補軸向／圓端／半 quantum 測試，以全新來源 cohort 重驗。V3 Rust1636通過／10既有ignored，UE build-v2、backend-v2與28項WorldV2成功；完整local接受另見本輪最終報告，不採過期aggregate或主動退休的local-v1作成功。短程序監測競爭另依原工作流exit／退休收據確認。
+
+最終完整local-v2亦成功：207 native／458案例／69Blueprint／五PCM；13份原始JSON逐byte封存已獨立複核，8次監測最大180秒。P08更正來源盤點：3339來源／資產不變，2個正式建置產物依current build及接受前staging SHA收據另驗，不把產物更新當來源一致，也不略過失敗guard。
+
+## E1450：牆體視野／目標提示及背景音訊驗收（2026-10-21）
+
+詳見[錯誤W01–W06](2026-10-21-wall-guidance-errors.md)。新static slice fixture改const後完整RustV2通過，不放寬schema。第一輪監測缺口保留，後續由launcher立即建立owned watcher。local-v1／v2的實際PCM為零均保留；Engine背景音量override不足，UE Editor每幀會覆寫FApp，故正式音訊runner另以兩個process-local EditorPerProjectUserSettings override允許背景音訊及固定EditorVolumeLevel，不改持久設定／OS音量／焦點、不跳過PCM斷言。獨立五PCM及完整local-v3成功。Rust **1640通過／10既有ignored**；UE WorldV2 **29項成功**；完整local-v3 **208 native、458cases／222intents／157stages／13cursor、69Blueprint、五PCM**成功。native為200 Success＋8 SuccessWithWarnings／12 warnings；World為28 Success＋1 SuccessWithWarnings／4 warnings；音訊1 warning已包含於native統計，Blueprint0 error／0 warning。正式來源／資產 **3339檔**接受前後一致；2項derived outputs依current build、接受前staging SHA與import library另驗。v1→v3只有音訊runner Lua改變，Rust／Unreal來源不變，明確保留RustV2／WorldV2 cohort。19份原始JSON逐byte封存及SHA獨立複核；完整流程8個健康樣本，UTC最大間隔180秒，另有持續讀取最新測試log檢查；owned workflow與watcher全部退休。 敵方需求原始frame850已目視，己方需求以native測試證明，不冒稱兩者都有截圖。舊MVP仍33/44，未新增權威對局。
+
+## E1451：草叢普攻揭露的完整入口與技能tooltip（2026-10-21）
+
+詳見[錯誤R01–R06](2026-10-21-brush-attack-errors.md)。私有兵線key與公開canonical ID不可混用；到期測試只清理受測entity，不刪除其他合法AI grant。曾漏接直接結算的jungle AI，覆核後抽共用state函式並增加真實中立camp出手測試，主動退休local-v1後重驗；camp fixture採正式受傷／仇恨API，不放寬private欄位。失敗RustV1／V2／V4與superseded cohort全部保留。最終RustV5 1648／10、WorldV2 30成功。最終local-v2完整成功：**209 native、458案例／222 intents／157 stages／13 cursor、69 Blueprint、五段實際PCM**。native為201 Success＋8 SuccessWithWarnings、12 warnings（含音訊警告）；Blueprint 0 error／0 warning。接受前後**3340個來源／資產檔一致**，另核對current build／接受前staging及import library SHA，沒有把2個derived outputs當來源。19份原始JSON逐byte封存並獨立複核；完整工作流7次健康取樣，180秒排程的UTC觀測最大間隔181秒，期間另持續讀取最新log確認進度。所有owned工作流與watcher已退休。 新增tooltip以原生UE及原始frame850／1000目視接受地點／距離文字，其他字樣仍以native證明；未新增權威對局，舊MVP仍33/44。
+
+## E1452：連通草叢、施法模式提示與凍結後驗收（2026-10-21）
+
+詳見[錯誤C01–C09](2026-10-21-connected-brush-errors.md)。Fetch clone須解參考後複製Arc資源，避免借用包裝型別推導；草叢連通必須用精確capsule而非AABB。未綁定快捷鍵明確提示，不顯示「按下 —」。source capture的stdout辨識false receipt保留，正式capture-v2使用exit wrapper；最後測試修改晚於build-v1，採凍結後build-v2重建。RustV1失敗、V2主動退休均保留，最終RustV3 1653／10、World30、完整209 native／458案例／69Blueprint／五PCM成功。3340來源／資產一致，current build／接受前staging／import library SHA另驗；20份原始JSON逐byte封存並獨立複核，12個owned工作及12個watcher退休。未新增權威對局，舊MVP仍33/44；完整健康取樣與視覺界線見最終驗收。
+
+## E1453：技能魔力提示與野怪隔牆出手（2026-10-21）
+
+詳見[錯誤M01–M05](2026-10-21-cast-resource-errors.md)。移動AI fixture需有ObservableFactBuffer；新tooltip截圖fixture避免Tip遮蔽導致C4456，RustV1／build-v1失敗保留。已學rank cost區分合法零與未知，owned有效mana才提示不足，替換／退休清除，不攔截提交。Camp所有主體共用正式LOS，不可只用距離隔牆出手。最終RustV2 1654／10、World30、完整209 native／458案例／69Blueprint／五PCM成功。3340來源／資產一致，current build／接受前staging／import library SHA另驗；20份JSON逐byte封存並獨立複核，11個owned工作與11個watcher退休。實際tooltip元件圖已目視，非真對局hover；未新增權威對局，原MVP仍33/44。
+
+## E1454：全遊戲盤點、塔focus與未生效metadata辨識（2026-10-21）
+
+詳見[錯誤F01–F08](2026-10-21-tower-focus-errors.md)。新測試需用實際replay digest／Vec2 API；paused begin回false，不可為測試改pause。V1／V2失敗、V3被補覆蓋取代均保留。發現cast_time只是metadata，撤回準備顯示，改實際冷卻明細；完整排程列優先缺口。塔focus獨立、有界、reset／pause／digest，不影響小兵基傷。最終RustV4 1659／10、World30、完整209 native／458案例／69Blueprint／五PCM成功，3341來源一致；20 JSON＋盤點MD逐byte封存獨立複核，13工作與13watcher退休。World背景HTTP timeout保留；tooltip元件圖非真對局hover／ACK。未新增連線對局，舊MVP仍33/44。
+
+## E1455：建築獎勵、兵線成長與Windows測試檔鎖（2026-10-21）
+
+詳[錯誤B01–B06](2026-10-21-building-rewards-errors.md)。V1新core測試fixture缺TowerTemplateRegistry；V2在舊EXE存活時重連結造成LNK1104。兩批保留，最終V3須驗證舊owner／watcher已退休再啟動，不能只依Cargo編譯鎖。Saved複用須檢查self path及Lua parent API。最終Rust1670／10（core828、base247）、正式UE5.8／後端build與World30成功，3343來源一致，原始log／receipt與MD逐byte封存獨立複核。角色化建築每生命一次分配、死亡錢包、NPC來源及重生；新兵生成時有界時間成長／pause／digest。沒有將前輪209／458／69／五PCM混算本輪。
+
+## E1456：史詩隊伍增益與正式Death提交時序（2026-10-21）
+
+詳[錯誤O01–O04](2026-10-21-objective-buffs-errors.md)。V1 template60成功、core828／4新測試失敗：只處理Damage一輪，Death仍在next_outcomes。補下一輪死亡提交／60Hz下一step斷言，不提前發獎。V2等待舊owned worker與watcher全退休才啟動，避免Windows同名EXE link鎖。最終Rust1676／10、core832／base248、UE5.8／後端build與World33成功，3344來源一致，原始log／receipt／MD封存獨立驗證。營地政策／catalog／BuffStore／snapshot共用，主體一次／refresh／死亡資格／重生剩餘／pause／deadline／terminal；不宣稱永久stack或新真對局ACK。
+
+## E1457：首塔獎勵的跨tick候選與持久塔層（2026-10-21）
+
+詳[錯誤T01–T02](2026-10-21-first-tower-errors.md)。設計核對修正僅按entity定序：致死後暫停會保留pending，後tick較小entity不能覆蓋，因此用(tick,完整entity)字典序。首塔常數空間pending／settled、匿名／強制consume、死亡錢包資格，finish在owner economy發布前一次提交；持久layer索引不因外塔退休重新編號。最終Rust1681／10、core837／base248、UE5.8／後端build／World33成功，3345來源一致，原始證據封存獨立複核。60Hz技能同step owner economy500；不宣稱首塔公告／塔皮或新真對局ACK。
+
+## E1458：野怪來源歸因、經驗餘額與召喚生成stub（2026-10-22）
+
+詳[錯誤J01–J07](2026-10-21-jungle-credit-errors.md)。V1 core839／3失敗：300 XP誤當欄位餘額，以及舊camp fixture缺Faction／Outcome。補正式fixture及level3／80斷言，不放寬目標驗證。V2待舊owner／watcher退休才啟動。最終Rust1687／10、core842／base249、UE5.8／後端與World33成功，3346來源一致，原始證據封存獨立複核。新增PlayerOwner／8-link來源、first lethal player／side、team-only objective與非英雄仇恨。實查spawn_summoned_unit仍INVALID stub；不得把ownership fixture與元件存在當成召喚技能完成，優先補生成pipeline。World HTTP timeout保留，Saved scope replace錯誤修正並留錄。
+
+## E1459：真實召喚生成、固定點生命期與隔離fixture（2026-10-22）
+
+詳[錯誤S01–S12](2026-10-22-summon-spawn-errors.md)。不能把ownership fixture當作召喚技能成功；本輪改實際入口／完整元件及真handle。平行hook不得依thread先後分配；固定排序重跑，有失敗即回收預留，specs刪除於maintain生效。新digest需一次檢查fixture全部storage；S08原13項、S11剩3項由註冊SummonedUnit／Faction解決，不放寬正式驗證。編譯漏import與所有失敗批次保留。最終Rust1692／10、core846／base250、UE5.8／後端與World33成功；3346來源一致，證據封存獨立複核。仍缺通用施法排程／中斷與退休投射物來源等，原MVP33/44維持，不冒稱完整遊戲已完成。
+
+## E1460：召喚可見性／視野、控制效果與正式提交fixture（2026-10-22）
+
+詳[錯誤C01–C06](2026-10-22-summon-combat-errors.md)。原召喚只查牆，沒有committed disclosure／VisionSource；本輪接共用權威與filtered規則，草叢失去可見後停止索敵，保留ward／結構政策。暈眩／定身／沉默分開，屬性共用UnitStats。RustV1兩個fixture只有gameplay、沒有外層Wave B提交；補真實提交，不注入可見名單或放寬索敵，V2等V1完全退休才啟動。最終Rust1695／10、core848／base251、UE5.8／後端與World33成功；3346來源一致、證據封存獨立複核。全遊戲仍有施法排程／退休來源等缺口，原MVP33/44不冒稱已全完成。
+
+## E1461：投射物來源退休導致跨生命期歸因遺失（2026-10-22）
+
+詳[錯誤 P01–P04](2026-10-22-projectile-credit-errors.md)。原 projectile 只保存 owner Entity，來源退休後 Faction／PlayerOwner 消失。三個正式工廠改為每發捕捉已驗證隊伍／玩家與完整 generation，命中原生傷害 scope 沿共用英雄／小兵／野怪／建築獎勵解析；scope 回傳錯誤也清除，快照隨投射物退休。不可暫留死實體或以裸 id 查新生命。第一個 PS 編輯 here-string 分隔符巢狀錯誤未執行，改逐步 patch 並讀回工廠接線。Rust1700／10、UE5.8／後端、Lua 三契約與 World33 通過，來源一致與封存獨立複核。整款遊戲尚有明列缺口，MVP33/44維持。
+
+## E1462：召喚落點未驗地形、直線滑動與缺通用跟隨（2026-10-22）
+
+詳[錯誤 N01–N03](2026-10-22-summon-nav-errors.md)。原生成直接寫 Pos，移動僅直線滑動。共用公開 polygon／fixed-point geometry，接納前及生成時有界找合法點並排除友軍／同批占位，不查隱藏敵人；原生 waypoint 快取、腳本共用 static_step_toward，內容距離門檻、命令優先、主人完整 generation／死亡與控制生命期均接線。路徑讀取應先 rg --files，不再猜 native/mod.rs。Rust1706／10、UE5.8／後端、Lua 三契約及 World33 通過，來源／封存獨立複核；競爭落點整組原子回滾與完整複本生命期仍明列，MVP33/44不冒稱完成。
+
+## E1463：cast_time未執行與前搖生命周期／測試fixture（2026-10-22）
+
+詳[錯誤W01–W08](2026-10-22-cast-windup-errors.md)。原正數cast_time仍即時execute；正式MOBA新增固定點準備／取消／到期交易與tooltip。回城／結算／queued命令規則補齊，來源generation及rank／目標再驗，不提前扣款或發成功cue。V1新資源案例引用無map fixture沒有ManaPool，補明確合法pool，原始失敗保留；最終RustV2與build-v2包含最後來源，等V1全退出才重跑。Rust1709／10、UE5.8／後端／Lua三契約與World34成功，來源一致、封存獨立複核。動態進度／持續引導及其他全遊戲缺口明列，原MVP33/44維持。
+
+## E1464：權威施法進度缺失與結果推斷風險（2026-10-22）
+
+詳[錯誤P01–P04](2026-10-22-cast-progress-errors.md)。先前只有靜態前搖tooltip，無動態準備／取消／成功狀態；改正式交易結果與fixed-point進度，經Team HUD／typed proto／ABI31到唯一Unreal前端，同instance防倒退／復活／終態覆寫，缺欄或非法資料閉合清除。protoc既有生成碼fallback同步並測codec。Rust1713／10、UE5.8／後端／Lua三契約與World35成功，保留四既有清理warnings，來源一致與封存獨立複核。未冒稱真實網路動態畫面／全英雄動畫完成，MVP33/44維持。
+
+## E1465：固定英雄擊殺金缺少連殺終結規則（2026-10-22）
+
+詳[錯誤B01–B08](2026-10-22-shutdown-bounty-errors.md)。新增Lua四欄有界政策、player roster連殺、第一次敵對英雄致死額外金與死亡清除，沿正式召喚／投射物歸因與死亡錢包，公開score／typed proto／ABI32到Unreal。V1新fixture需drain延後Death後重生，正式技能需下一step退休，8連殺650不可當cap700；V2另找到通用DeathTick多發10金／XP，正式MOBA改走唯一獎勵路徑而legacy保留，修正測試且保留失敗；整批退休後V4 Rust1721／10，UE5.8／後端／Lua三契約與World36成功，來源一致、封存獨立複核。保留既有四清理警告，不冒稱真實網路賞金接受或全遊戲完成，MVP33/44維持。
+
+## E1466：缺少首次有效英雄擊殺里程碑與公開公告（2026-10-22）
+
+詳[錯誤F01–F03](2026-10-22-first-kill-errors.md)。新增內容首殺金、同tick canonical唯一選定、finish支付與跨死亡錢包，公告五秒沿權威時間、pause凍結、到期不重設里程碑；公開metric／typed proto／ABI33到Unreal資訊列，缺欄／重複／非法及非對手資料閉合。Rust1729／10、UE5.8／後端／Lua三契約與World37成功，保留四既有清理warnings，來源一致、原始證據封存獨立複核。MVP33/44維持，不冒稱真網路公告接受或全遊戲完成。
+
+## E1467：普通英雄擊殺金缺少連敗折價（2026-10-22）
+
+詳[錯誤D01–D03](2026-10-22-death-streak-errors.md)。新增Lua曲線、hash／重建守門、權威成功擊殺結算／跨重生連敗與重設、digest，首殺／終結額外金不折；既有owner Gold接線維持ABI33。最終Rust1734／10、UE5.8／後端／Lua三契約與World37成功，保留四既有清理warnings；來源一致、證據封存獨立複核。MVP33/44維持，不宣稱完整LOL或外部網路接受。
+
+## E1468：史詩目標重複取得缺少內容驅動疊層與封頂（2026-10-22）
+
+詳[錯誤S01–S05](2026-10-22-objective-stacks-errors.md)。新增max_stacks兼容預設／界限／hash重建守門與權威lease疊層封頂、刷新／到期／生命期、單entry整數倍屬性；正式南史詩最多四層。Rust1740／10、UE5.8／後端／Lua三契約與World37成功，四既有清理warnings保留、來源與原始證據封存複核。這是限時隊伍疊層，永久stack／擊殺傳承／光環／分裂及外部接受仍待實作，MVP33/44維持。
+
+## E1469：一般營地缺少個人Buff與剩餘時間擊殺傳承（2026-10-22）
+
+詳[錯誤T01](2026-10-22-buff-transfer-errors.md)。新增personal_buff／transfer_on_kill、scope一致性／hash重建守門、玩家lease與英雄／召喚／投射物歸因、有效敵對擊殺剩餘期限轉移／同類較晚期限、死亡／重生／到期／pause／結束與digest。正式60Hz技能取得、約60秒傳承／modifier10與匿名native DeathTick通過。Rust1747／10、UE5.8／後端／Lua三契約與World37成功、四既有清理warnings保留，來源與原始證據封存。MVP33/44維持，沒有新增傳承公告或外部對局接受。
+
+## E1470：史詩隊伍成長缺少永久累積與同營地多項獎勵（2026-10-22）
+
+詳[錯誤P01](2026-10-22-permanent-objectives-errors.md)。新增多項獎勵、重複ID／scope預算／hash守門、duration0永久隊伍政策、Option到期、BuffStore canonical永久tick與跨死亡重生／結束清理；南史詩保留限時護甲並增加最多四層永久攻擊。Rust1754／10、UE5.8／後端／Lua三契約與World37成功，四既有清理warnings保留；來源與證據封存複核，MVP33/44及外部待驗維持。
+
+
+## E1471：權威Buff層數缺少玩家呈現（2026-10-22）
+
+沿通用stacks payload與ABI33新增Unreal typed count、有界解碼與限時／永久×N顯示；刷新／generation／清除與非法資料回歸。詳2026-10-22-buff-stacks-errors.md及最終驗收。Rust1756／10、World37、UE5.8／後端／Lua成功，來源與證據封存，MVP33/44維持。
+
+
+## E1472：史詩獎勵缺少兵線光環且NPC傷害未聚合Buff（2026-10-22）
+
+新增內容驅動隊伍光環、同side兵線／距離／去重／死亡與到期生命期，補齊UnitStats實際攻擊與防禦接線。V1 E0382及A01..A04記錄於minion-aura-errors；前批退休後V2 Rust1762／10成功，UE5.8／後端／Lua／World37成功，來源與含失敗紀錄證據封存。MVP33/44維持。
+
+
+## E1473：外塔缺少塔皮獎勵／加固及魔抗單位接線（2026-10-22）
+
+新增通用TowerPlatingRules、外塔分段ledger、逐層本地金／匿名消耗／治療去重、有限Buff加固與到期／退役／結束清除；正式server與role plan啟用，規則與ledger進digest。P01..P04記錄分金、退休、查詢與normalized魔抗接線修正。Rust1768／10、UE5.8／後端／Lua／World37成功，來源與證據封存；專用塔血條分段／美術與MVP33/44外部缺證仍留盤點。
+
+
+## E1474：塔皮缺少初始公開狀態與玩家分段名牌（2026-10-22）
+
+新增獨立status／generic health_segments、ABI33／typed frame／Bridge→Actor→Widget接線，層數與HP獨立、期限與退休清除。U01..U06記錄key／錯誤enum、配置成本、整秒快取與查詢修正；前批退休後V2 Rust1770／10、UE5.8／後端／Lua／World38通過，專用PNG與原始證據封存；MVP33/44維持。
+
+
+## E1475：野怪死亡後缺少分裂與待生生命期（2026-10-22）
+
+新增通用有界death_children、累積home／terrain驗證與生成、致死退役queue、碰撞安全出生、原營仇恨／回頭、逐body獎勵與全清重生。J01..J06記錄ECS ownership、pending去重、內容界線、Lua長字串、helper區域作用域與精簡移動fixture資源修正。Rust1774／10、UE5.8／後端／Lua／World38成功，來源與完整失敗／重跑證據封存；原MVP33/44與外部11項缺證維持。
+
+
+## E1476：場上名牌缺少護盾與權威倒數（2026-10-22）
+
+既有護盾改為公開native catalog damage_shield，沿Buff snapshot／ABI33加上bounded decoder／typed frame／Bridge→Actor→Widget，獨立護盾條／數字／權威期限與偏好／generation／退休清除。S01..S05記錄接線、查詢quote、單位與容器收合。Rust1776／10、UE5.8／後端／Lua／World39成功，專用原生PNG與來源／證據封存；原MVP33/44與外部11項缺證維持。
+
+
+## E1477：受療倍率未接直接治療與可玩抑療（2026-10-22）
+
+新增共用checked received_healing、native／script／regen／召喚師倍率與cap順序、禁止一般治療復活、明確hard-reset restoration；UnitHex optional抑療與generated UI，咒擊符50%／4秒，公開Buff／到期／死亡。H01..H11記錄順序、作用域、舊復活assert與protobuf fixture修正；Rust1782／10、UE5.8／後端／Lua／World40成功，來源及原始失敗／重跑證據封存。原MVP33/44與外部11項缺證維持。
+
+
+## E1478 — 2026-10-22 目標經濟補償
+
+C01..C05與原始失敗封存見 [錯誤MD](2026-10-22-objective-comeback-errors.md)。全批退休後才修復；最終Rust 1788／10、UE／後端成功，World 41成功，來源與staging／證據逐byte SHA獨立複核。見 [完整驗收](2026-10-22-objective-comeback-final-acceptance.md)。
+
+
+## E1479 — 2026-10-22 權威目標公告
+
+N01..N05見 [錯誤MD](2026-10-22-objective-notice-errors.md)。全批退休後才修fixture／API；最終Rust 1794／10、UE／後端成功、World 42成功，來源／staging與封存逐byte SHA獨立複核。見 [完整驗收](2026-10-22-objective-notice-final-acceptance.md)。
+
+
+## E1480 — 2026-10-22 權威施法準備動作
+
+P01..P04／T01..T02見 [錯誤MD](2026-10-22-cast-preparation-errors.md)。全批退休後才修JSON型別檢查及bridge fixture；最終Rust 1799／10，UE／後端成功、World 43成功，來源／staging與封存逐byte SHA獨立複核。見 [完整驗收](2026-10-22-cast-preparation-final-acceptance.md)。
+
+
+## E1481 — 2026-10-22 內容驅動施法受傷中斷
+
+P01..P03／T01見 [錯誤MD](2026-10-22-cast-interrupt-errors.md)。V1原生fixture漏目標形狀；全批退休後修測試並重驗UE／World，來源基準證明其他檔案未變，保留成功RustV1 1803／10；World 44成功，來源／staging與封存獨立複核。見 [完整驗收](2026-10-22-cast-interrupt-final-acceptance.md)。
+
+
+## E1482 — 2026-10-22 召喚物公開身分與原生呈現
+
+根因與修復見 [錯誤MD](2026-10-22-summon-presentation-errors.md)。精簡World相容、fixture公開視野、腳本攻擊提示渠道、抽象Actor與修復工具防覆寫問題均保留失敗證據；所有消費者退休後修復。最終Rust 1807／10，World 45成功，來源／staging與封存獨立複核。見 [完整驗收](2026-10-22-summon-presentation-final-acceptance.md)。
+
+
+## E1483 — 2026-10-22 共用召喚落點預約
+
+路徑與Saved helper識別字問題、退休來源callback設計邊界見 [錯誤MD](2026-10-22-summon-ledger-errors.md)。最終Rust 1809／10、World 45成功；來源／staging與封存獨立複核。見 [完整驗收](2026-10-22-summon-ledger-final-acceptance.md)。
+
+
+## E1484 — 2026-10-22 指定單位技能射程提示
+
+詳見 [錯誤MD](2026-10-22-unit-cast-range-errors.md)。V1來源快取漏新CPP，World完整性守門拒絕；正式建置入口補來源重新發現，修復新fixture欄位後BuildV5及WorldV4成功。保留RustV2 1818／10，World 46成功；來源／staging與封存獨立複核。見 [完整驗收](2026-10-22-unit-cast-range-final-acceptance.md)。
+
+
+## E1485 — 2026-10-22 指定單位技能陣營提示
+
+見 [錯誤MD](2026-10-22-unit-cast-allegiance-errors.md)。P01查找前先依實際入口定位；P02 Saved helper的pairs變數遮蔽標準函式，啟動驗收前改名mappings。正式build-v1及WorldV1成功，Rust 1818／10，World 47成功，來源與證據獨立校驗。見 [完整驗收](2026-10-22-unit-cast-allegiance-final-acceptance.md)。
+
+
+## E1486 — 2026-10-22 控制效果施法提示
+
+見 [錯誤MD](2026-10-22-cast-control-errors.md)。P01避免shell路徑glob；P02使用實際宣告入口及typed buff catalog，未知ID不可被fallback名稱誤判為無控制；P03封存helper改名後核對required CPP。Rust 1818／10，World 48通過，正式UE5.8 build與來源／staging成功。見 [完整驗收](2026-10-22-cast-control-final-acceptance.md)。
+
+
+## E1487 — 2026-10-22 野怪返回名牌
+
+見 [錯誤MD](2026-10-22-jungle-return-errors.md)。P01區分內部永久Buff常數與公開-1 sentinel；P02不猜模組路徑；P03明確hide/reveal清除返回cache，fresh authority才恢復。Rust 1820／10，World 49成功，來源／staging與證據獨立校驗。見 [完整驗收](2026-10-22-jungle-return-final-acceptance.md)。
+
+
+## E1488 — 2026-10-22 可見單位控制效果名牌
+
+見 [錯誤與決策MD](2026-10-22-crowd-control-errors.md)。獨立控制時間、主要效果與並存標籤、永久／極大時間安全呈現、公開完整generation／living／重複守門、hide/reveal與名牌節流已驗。P01非同步截圖待World退休再讀取；本批無新增建置／測試失敗。Rust 1820／10，World 50成功。見 [完整驗收](2026-10-22-crowd-control-final-acceptance.md)。
+
+
+## E1489 — 2026-10-22 選取目標戰鬥資訊卡
+
+見 [錯誤與決策MD](2026-10-22-selected-combat-errors.md)。P01不猜測測試檔名，依實際測試ID定位。共用名牌格式、HP固定時狀態更新、同秒raw getter與selection生命周期已驗。Rust 1820／10，World 51成功，來源與證據獨立校驗。見 [完整驗收](2026-10-22-selected-combat-final-acceptance.md)。
+
+
+## E1490 — 2026-10-22 彈體來源上下文
+
+見[錯誤與決策](2026-10-22-projectile-context-errors.md)及[完整驗收](2026-10-22-projectile-context-final-acceptance.md)。退休來源命中回呼、子彈與MOBA追加傷害歸因、召喚物目標守門已接；最終Rust 1825／10，World 51成功。保留preflight失敗及過渡證據；不覆寫receipt。
+
+
+## E1491 — 2026-10-22 沿路碰撞衝刺
+
+見[錯誤與決策](2026-10-22-dash-path-errors.md)與[完整驗收](2026-10-22-dash-path-final-acceptance.md)。共用精確capsule／碰撞裁切、四rank沿路單次傷害與失敗資源回滾完成。最終Rust 1904／10、World 51成功；V1自然回魔fixture失敗證據保留。
+
+
+## E1492 — 2026-10-22 沿路施放提示
+
+WorldV1抓到TArray.Add自引用閉合斷言，WorldV2抓到hero snapshot退休未清寬度，目視抓到tooltip fixture比例／rank錯位；改為複製首點再Add，完整WorldV3通過。保留V1失敗／取消／來源／build證據，修復前精確退休讀取worker，不放寬正式規則。raw string換行與header-only／Windows rg路徑錯誤已記錄。最終Rust1938／10、World52、UE5.8 build-v3與backend-v1成功；來源／資產、DLL及證據SHA另驗。見2026-10-22-path-preview-errors.md及final-acceptance。
+
+
+## E1493 — 2026-10-22 位移施放提示
+
+批次名替換誤改既有SweptPathPreview測試ID，在World執行前讀回恢復；WorldV1唯一失敗為fixture漏MaxLevel而被HUD正式校驗拒絕，改用真metadata、保留失敗證據並以WorldV2全量接受，未放寬正式規則。通用movement policy與公開root channel分離，不把root當全技能silence；雙channel／owner政策同步退休清理，reflection共用嚴格校驗。最終Rust1940／10、World53、UE5.8與backend-v1成功；完整證據、錯誤／決策、remaining見2026-10-22-mobility-feedback-final-acceptance.md及errors.md。
+
+
+## E1494 — 2026-10-22 正式圓形爆發技能
+
+盤點誤猜outcome.rs短路徑，實際native/comp/outcome.rs；新sibling tests顯式import私有use不會轉出的ABI types。新增PointCircle必須避免is_some誤判位移，rank fixture用真metadata／比例／MaxLevel，formal共享no-regen及動態slot。最終Rust1950／10、World54、UE5.8與backend-v1通過；預檢後才提交damage／control、RErr資源回滾與真圓形metadata詳見2026-10-22-point-blast-final-acceptance.md／errors.md。
+
+## E1495 — 2026-10-22 召喚師施放提示
+
+盤點再次誤用猜測路徑與 literal wildcard，改用已知目錄的 rg --files／-g。HUD 未發布逐技能超距離政策，不可一律宣稱 clamp；PointBlink 封閉契約不依技能 ID／slot 特判。Rust V1 舊冷卻案例原地施放與新規則衝突，改成真位移保留斷言；World V1 移除既有「指定地點」用語造成版面案例失敗，恢復原文字並增加規則後全量 V2 通過，未放寬測試。精確取消尚未 fingerprint 的 source V1 waiter、保存原因與退休 receipt；相關 reader 退休後才改 C++ 文字，使用 V2 source baseline／check。最終 Rust1952／10、World55、UE5.8及backend成功；115證據另驗，7次健康採樣最大170秒。完整紀錄見2026-10-22-summoner-feedback-final-acceptance.md／errors.md。
+
+## E1496 — 2026-10-23 普攻被動與受擊點扇形
+
+2026-10-22開工批次跨日完成。發現既有雨鐵砲查victim半徑卻從attacker算角度，且AttackHit被動hook沒有原生producer。新增共用量化扇形、明確normal-attack provenance及退休Hero rank fallback，視覺／miss與script children不得繼承資格；不以NORMAL profile或英雄名稱推測。路徑猜測與不匹配文件hunk記入errors。Rust V1唯一失敗290/1為閒置Hero沒有queue的fixture假設，reader退休後僅條件清理queue，保留全部傷害／pause／stun斷言；focused probe2/2及RustV2全量通過。正式輸入與成功World/build另用source SHA證明等價。最終Rust1962／10、World56、UE5.8與backend成功；3402來源穩定、133證據獨立逐byte／SHA驗、13次健康採樣最大171秒。詳見2026-10-22-passive-cone-final-acceptance.md／errors.md。
+
+
+## E1497 — 2026-10-23 自身變身技能嚴格校驗
+
+火繩銃靜默零值與三段擊 unchecked rank／錯值 fallback 改為共用有界預檢；一般屬性 raw Q10 與 attack_stun normalized 編碼不能混用。盤點猜錯 buff_store 路徑記入 errors。Rust V1 294/1 為新 fixture 提前讀取 lazy ProjectileOrigins，reader 退出後 optional prior set 修正；probe4/4、完整V2通過，正式輸入僅測試檔差異另驗。World runner 複製不可改動既有 native capture flag；V2補齊圖像。最終 Rust1966／10、World56、UE5.8及backend成功；3404來源穩定、151證據獨立逐byte／SHA驗、7健康採樣最大171秒。詳見2026-10-23-transform-buff-final-acceptance.md及errors.md。
+
+
+## E1498 — 2026-10-23 公開非英雄名牌避讓
+
+固定64候選加入真Slate足跡與目前mesh錨點避讓。跨模組UMG直接呼叫連結失敗，改由OmRuntime API封裝；初次TakeWidget短命wrapper清掉layout，改共用純Slate建構。原生測試抓到既有synthetic map手動插值後沒有刷新名牌判定，fixture改分離焦點並保留可見／關閉斷言。精確停止唯讀source child保留token與原因；CIM token捨入及錯路徑被ownership guard拒絕，改用原生記錄。詳細過程見errors.md。最終Rust1966／10、World58、UE5.8及backend成功，3406來源穩定，164證據另驗，健康最大171秒。48h接續omoba-48至2026-10-25 00:33:38 Taipei。
+
+
+## E1499 — 2026-10-23 英雄名牌保留區
+
+共用固定64英雄保留足跡與64非英雄避讓；焦點可跨英雄保留區，仍遵守非英雄碰撞。Rust1966／10、World59、UE5.8及backend成功，3407來源穩定，108份證據另驗。診斷曾誤猜health.log，應先rg列出實際health.jsonl；未造成生產或測試錯誤。詳見2026-10-23-hero-reservation-errors.md與final-acceptance.md。
+
+
+## E1500 — 2026-10-23 召喚陣形預檢
+
+共用rank-aware陣形預檢與全座標preflight，保留正式平衡值。V1因Fixed64沒有abs而編譯失敗，等待reader退休後改上下界比較；不假設數值wrapper具有primitive方法，先查公開API。原始失敗與重新驗收保留。Rust1970／10、World59、UE5.8及backend成功，3409輸入穩定；詳見2026-10-23-summon-formation-errors.md及final-acceptance.md。
+
+
+## E1501 — 2026-10-23 自身朝向陣形提示
+
+明確作者契約與逐rank元資料、公開owned pose、固定128幾何與tooltip，隱藏／非法／退役清除；不以英雄名稱或cosmetic推斷。診斷曾誤猜payload檔名，應先rg列檔。錯誤與接受詳見2026-10-23-formation-preview-errors.md及final-acceptance.md。Rust1973／10、World60、UE5.8與backend成功，3411來源一致。
+
+
+## E1502 — 2026-10-23 共用技能預覽幾何reload契約
+
+根因為native build-time幾何與runtime數值調參可分離；改共用投影與compiled/runtime簽章，startup／reload同時守門，拒絕維持原snapshot；非幾何damage仍可reload。Rust1976／10、World60、UE5.8及backend成功，3411來源一致；詳見2026-10-23-aim-coherence-errors.md與final-acceptance.md。
+
+
+## E1503 — 2026-10-23 技能升級比較與工具準備
+
+新增共用逐rank基礎資料與typed升級狀態，現有按鈕／技能tooltip比較，清除未知／越界／退役資料。初期路徑猜測及Lua未escape hyphen造成runner語法片段錯誤；先discovery、escape、loadfile語法檢查後才執行，無失敗native cohort。codegen65、World62、UE5.8成功；詳見2026-10-23-upgrade-preview-errors.md與final-acceptance.md。
+
+
+## E1504 — 2026-10-23 主動道具施放提示
+
+既有PaintAim只對Ability套cooldown／target admission，且point item半徑未傳遞。以schema metadata與六格現況cache共用feedback補齊，不改balance／authority。預檢修正fixture position.x；BuildV1另因漏新測試friend宣告而C2248，退休reader後補最小宣告，V2成功，原始失敗證據保留。預防：同時核對fixture及private測試access契約，不為測試公開production members。codegen66、World63、UE5.8成功；詳見2026-10-23-item-feedback-errors.md及final-acceptance.md。
+
+
+## E1505 — 2026-10-23 回城進度、fixture生命周期與共用HUD更新
+
+以shared recall duration＋generated registry＋typed owner total接實際Slate進度條；禁止推測總長／pause外插／零冒稱成功。RustV1內部manifest新增欄位但serialized Root漏接，codegen2測試失敗；補Root後RustV2的190項通過。WorldV1因NewObject後未Initialize WidgetTree就TakeWidget而崩潰。WorldV2測試通過但目視發現時間／KDA回歸：新排序防護從共用入口提前返回，擋住既有標籤更新。退休所有reader後改用獨立channel快照，保留舊標籤流程並新增回歸斷言，build／World／source V3接受。保留所有失敗來源、日誌／堆疊及V2畫面；預防是內外schema round-trip／authority parity、遵守UUserWidget Initialize生命周期並保留Slate root，以及新投影排序不得改變共用入口其他消費者。詳見2026-10-23-recall-progress-errors.md與final-acceptance.md。
+
+
+## E1506 — 2026-10-23 召喚結算接受與成功事實
+
+原SpawnSummoned在serial placement接受前便發出成功fact，並只重查owner隊伍；改為living owner／generation／faction／PlayerOwner／duration守門、已有實體防覆寫與成功後發fact。RustV1 fixture漏BlockedRegion import；V2三項拒絕測試誤認EntitiesRes::delete立即退休。所有reader退休並保留原始source/log後明確匯入、用World::maintain驗證真frame boundary；V3 core926＋formation4成功。預防：測試明確依賴匯入、尊重ECS延遲刪除生命周期、成功公告從committed結果派發，不從意圖推測。更多discovery與runner switch錯誤見2026-10-23-summon-settlement-errors.md。whole-formation資源原子回滾仍pending。
+
+
+## E1507 — 2026-10-23 護障召喚師、共享盾重授與驗收profile
+
+新增共同SelfShield作者／generated／plan／ECS sink及第三個正式召喚師，接真正shield與D/F冷卻。V1 core929通過/1新測試失敗：錯把BuffStore::add較長時限理解為覆寫2秒；保留正式規則，退休reader後修作者說明與測試，再補client-runtime enum消費端。V2 core930及新60Hz功能成功；全base誤用debug，依ready root／parent chain與native exact creation token只退休自己的未最佳化測試，保留不完整日誌，不冒稱通過。來源未再改動，以V3 release全base及scoped Rust／sourceV2接受。所有失敗來源／日誌／debug-retirement證據保留。預防：讀完整Buff刷新契約、擴enum先搜所有正式消費端，長生命期全模擬驗收明確--release，health動態追蹤當前cohort。詳見2026-10-23-summoner-shield-errors.md與final-acceptance.md。
+
+## E1508 — 2026-10-23 召喚師編譯目錄與Lua重載漂移
+
+RuntimeContent及ContentShape漏召喚師目錄，可能讓作者新hash與實際編譯操作／Unreal文字分離。用完整shared序列化同時守startup peer gate與reload，15種有效變更矩陣及實際拒絕不改generation/hash／後續合法傷害重載驗證。Rust1419零失敗；3420來源一致、55證據、healthmax171秒，程序全退休。探索曾由receipt前綴猜不存在helper，改讀owner／實際目錄；部署另確認dedicated server只stage後端DLL，因此固定Lua同步同一accepted DLL到UE plugin並驗SHA，不冒稱已重建UE。防重犯：新增compiled共享目錄時同步startup/reload相容面，讀部署契約確定每個消費端。詳見2026-10-23-summoner-coherence-errors.md與final-acceptance.md。
+
+## E1509 — 2026-10-23 目標公告橫幅與Slate可見性邊界
+
+新增由權威快照驅動、共用typed selector的可讀目標公告。V1 build成功／原生65成功1失敗：八項expiry/reset立即收合斷言發現visibility lambda尚保留舊求值，雖然文字已清空。全部reader退休並保留V1原始來源/report/log/圖片後，改由authoritysetter、HUDchrome、reset/retire明確更新SBorder visibility，新增立即hide/show/retirement斷言，V2 build及全66接受。預防：狀態清除要檢查實際容器可見性，不能只檢查文字；不要把AutoWrapText(false)誤認成禁換行而忽略既有WrapTextAt。helper錯猜stop-v1路徑造成部分clone，按內容一致性恢復而不覆寫證據。3421來源一致、129證據／29PNG、healthmax171秒、程序全退休。詳見2026-10-23-objective-banner-errors.md與final-acceptance.md。
+
+## E1510 — 2026-10-23 施法整組結算、法力依賴與發布邊界
+
+腳本成功先扣費／發布cue但後段召喚仍可拒絕；後續施法與on_tick絕對法力寫入又可能夾帶失敗前筆費用。以原生施法封套、全陣形不可變stats落點計畫及全腳本法力CAS批次／同批通知解決，不做名稱特判或退款猜算。V1 core934通過、base298通過3舊fixture失敗（過早讀managed成功cue）；保留7原始來源／日誌，退休reader後加「結算前無成功」及原成功條件於真結算後斷言，補非施法與多owner資源守門。V2全1523通過／9ignored後再發現無召喚時不需掃全場占位，退休reader並保留原檔，以V3最終來源重跑全scope接受。預防：成功公告從完整結算派發、所有共享ledger消費者均核對原始狀態，效能檢查避免一般技能全實體掃描。backend／UE5.8與World66成功，3423來源一致、153證據／29PNG、healthmax171秒，程序全退休。詳見2026-10-23-cast-transactions-errors.md與final-acceptance.md。
+
+
+## E1511 — 2026-10-23 DoT生命期、分數積分與公開來源綁定
+
+到期前刪除buff漏最後區間，每tick截斷又使raw DPS隨頻率改變。改先積分min(dt,remaining)並保留每buff餘數，穩定排序；來源整數完整校驗，不窄化。新增通用Lua敵方DoT及遊俠流血；canonical family將同箭減速／流血分開且不洩漏私有key。V1 base302通過2舊fixture失敗，精確差額170 raw為新流血tick；保留原10sources/logs，退休reader後修正fixture隔離／持續傷害預期。V1template feature漏開亦保留，V2整個最終scope重跑1771passed/9existingignored。backend／UE5.8／World66成功；165份證據／29PNG、3425輸入一致、health 13 samples／max171秒；全部程序退休/reap。預防：生命期夾限先於退休、傷害量子餘數跟來源身份、公開狀態用已校驗catalog source family；不能拿零防禦fixture宣稱armor parity。審查新發現raw script damage與已結算DamageInstance混用，下一批先建立raw／settled明確邊界，勿用兩路皆false的predeclared或全域重算防禦。詳見periodic-damage errors/final-acceptance MD。
+
+
+## E1512 — 2026-10-23 原始／已結算傷害與同批退休目標
+
+直接script/DoT缺基礎防禦，但DamageInstance已算；引入顯式RawDamage與serialized projectile stage，serial讀live defense並共用固定點math，packet/shield/credit只走一次。FocusedV1九失敗保存原始來源後補registry及有效TRUE profile，不削弱credit斷言。V2全1780pass後以red test重現Death後扣shield，保存輸入／退休reader後加target retirement guard，最終V3全scope接受：1781passed/0failed/9existingignored；3426正式輸入一致；221份證據／29PNG；health15 samples／max171秒。預防：先查權威退休ledger，保留合法已退休source彈體；不以predeclared猜測／不全域重算。詳見raw-damage errors/final-acceptance MD。
+
+
+## E1513 — 2026-10-23 共用地面傷害區域與排程生命期
+
+新增typed zone payload、reverse-index clock、精確圓形live敵人脈衝與source生命取消；flameassault保留瞬間爆發／stun，加三秒六脈衝。V1編譯失敗因缺specs::Builder，保存10sources/logs並退休reader後修正；完整最終scope 1790passed/0failed/9existingignored；3427正式輸入一致；148份證據／29PNG；health10 samples／max170秒。backend/UE5.8/stage/import/World66成功，程序全退休。預防：首發／到期順序明確、clock與source世代／ability key綁定、刷新重啟、JSON固定點完整校驗，勿把caster-bound zone宣稱為獨立zone或channel。詳見ground-zones errors/final-acceptance MD。
+
+
+## E1514 — 2026-10-23 持續區域公開倒數與死亡退休
+
+新增typed zone→canonical status/time投影、非法名稱／payload拒絕、多區域maxremaining合併、立即死亡清除；角色資訊沿用localizedownedbufflist，技能rank文案合併相同值。1795passed/0failed/9existingignored；3428正式輸入一致；117份證據／30PNG；health7 samples／max171秒；backend/UE5.8/stage/import/World67成功，新真Slate狀態截圖接受。程序全退休。預防：不可把診斷BuffListText當玩家實際顯示，不能讓名稱替代權威typed狀態，也不公開source/coords/JSON。詳見ground-zone-status errors/final-acceptance MD。
+
+
+## E1515 — 2026-10-23 可見偵隱飾品與共用放置說明
+
+Append-only detector catalog2沿用權威放置／視野／電荷與生命期；generated native說明與range/sight/lifetime共用formatter，保留owner gate。1799passed/0failed/9existingignored；3429正式輸入一致；246份證據／31PNG；health12 samples／max171秒；backend/UE5.8/stage/import/World69成功。舊catalog1完整保留。失敗原始來源／logs封存。詳見detection-trinket errors/final-acceptance MD。
+
+
+## E1516 — 2026-10-23 權威英雄升等HUD提示
+
+共用owner/entity/generation scoped tracker，初次baseline、monotonic level/elapsed、防重播、4秒呈現expiry、invalid/end/missing/retirement清除；實際HUDheader中文節點接線與PNG驗收。World70全執行／0failed／0notrun；3432正式輸入一致；101份證據／32PNG；health7 samples／max171秒；UE5.8/stage/import成功，Rust/backend1799+9ignored繼承且雙向來源一致。詳見hero-level errors/final-acceptance MD。
+
+
+## E1517 — 2026-10-23 施法準備時間modifier正式接線
+
+共享checked_cast_time＋productionadmission，familychecked聚合／overflow／上下限、startsnapshot／midcastdrift／pause／成功release資源恰好一次；Unreal拒絕instance-totaldrift與正值subdecimal不顯示假0。1803passed/0failed/9existingignored；World71全執行；3433正式輸入一致；260份證據／34PNG；health16 samples／max171秒；backend/UE5.8/stage/import成功。詳見cast-time errors/final-acceptance MD。
+
+
+## E1518 — 2026-10-23 正式冷卻modifier接線
+
+交易預留與實際CD原都用base duration。共用checked resolver＋同值結算，既有百分比／stacking／family／floor、非法overflow拒絕、release時取樣與running不重縮放；2core＋3formal60Hz。1808passed/0failed/9existingignored；World71全執行；3433正式輸入一致；121份證據／34PNG；health8 samples／max171秒；backend/UE5.8/stage/import成功。詳見cooldown errors/final-acceptance MD。
+
+
+## E1519 — 2026-10-23 魔力消耗modifier安全接線
+
+正式與bot共享checked multiplier，合法free與非法資料分離，family／溢位／release扣款與bot規劃驗證。1813passed/0failed/9existingignored；World71全執行；3433正式輸入一致；145份證據／34PNG；health8 samples／max172秒；詳見mana-cost errors/final-acceptance。
+
+
+## E1520 — 2026-10-23 實際cooldown total HUD
+
+HUD原base總長與modifier後remaining不一致。SharedHero instance total跨serde→ownerHUD，legacy fallback／invalid拒絕／tickclear與native fraction驗證。1819passed/0failed/9existingignored；World71全執行；3433正式輸入一致；150份證據／34PNG；health10 samples／max171秒；詳見effective-cd errors/final-acceptance。
+
+
+## E1521 — 2026-10-23 有效魔力消耗HUD／前端預檢
+
+authority team-scoped currentcost→clientbinding/rawaffordability→ABI35→nativecurrentprice/exactclassification；刪除base-cost gate，invalid不變free。1824passed/0failed/9existingignored；World71全執行；3433正式輸入一致；300份證據／34PNG；health15 samples／max171秒；詳見effective-mana errors/final-acceptance。

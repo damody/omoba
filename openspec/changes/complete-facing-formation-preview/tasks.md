@@ -1,0 +1,4 @@
+- [x] Add explicit shared authored formation contract, validation and generated rank metadata.
+- [x] Wire typed payload, disclosed owned facing, bounded geometry, aim rendering and tooltip guidance.
+- [x] Add content/generator/native lifecycle and real Slate visual coverage; consolidate acceptance.
+- [x] Preserve errors, source consistency and retirement evidence; update inventory and handoff.

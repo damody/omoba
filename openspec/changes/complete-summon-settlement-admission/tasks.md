@@ -1,0 +1,4 @@
+- [x] Revalidate serial summon admission and defer success facts until materialization.
+- [x] Cover genuine ECS settlement rejection, ownership, lifecycle and duplicate behavior.
+- [x] Run scoped Rust, official backend and UE5.8 integration acceptance with source/stage evidence.
+- [x] Record failures/prevention, process retirement and update inventory/handoff.

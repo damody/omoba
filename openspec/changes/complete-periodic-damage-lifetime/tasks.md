@@ -1,0 +1,4 @@
+- [x] Implement deterministic checked DoT lifetime integration and remainder ownership.
+- [x] Add validated authored enemy DoT and playable ranger bleed through generated generic dispatch.
+- [x] Run focused and consolidated Rust, official backend and UE5.8 acceptance.
+- [x] Preserve evidence, document errors and update inventory and handoff.

@@ -1,0 +1,4 @@
+- [x] Connect shared critical bases/multiplier and stable operation1 to native and ordinary projectile damage.
+- [x] Cover base/default/absolute/expiry, body types, flags, miss, physical-only lifesteal and formal hero/summon launch freezing.
+- [x] Complete frozen Rust/backend/UE/native92 acceptance and full source consistency.
+- [x] Seal evidence/retirement and update errors, handoff and completeness inventory.

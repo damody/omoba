@@ -1,0 +1,2 @@
+# Point blast combat
+Two maintained manually scripted circle skills lack consistent point/range/scalar admission and return success for invalid targets. Add a reusable prevalidated instantaneous circle executor, migrate both skills, and expose their real authored circle geometry to existing Unreal preview. Prioritize deterministic local simulation and native acceptance; no new matches.

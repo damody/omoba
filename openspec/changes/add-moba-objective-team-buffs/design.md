@@ -1,0 +1,9 @@
+# 設計
+
+營地主體optional objective_buff定義Buff ID、1–3600秒期限、0–1000攻擊／護甲加成（至少一項非零）及lost_on_death。模板驗證catalog引用與數值，編譯為MobaObjectiveBuffConst。兩張map共用原內容轉換；附屬怪明確不繼承objective_buff。
+
+權威每隊每Buff一個lease，key依side／id排序、最多64個，含絕對模擬deadline、原規則與eligible player set，全入digest。只有正式主體Death消費既有首次致死killer時授予；匿名、強制Death、重複Death與附屬怪不授予。重複擊殺refresh不疊加；兩隊獨立。lost_on_death僅授予當下存活英雄、死亡移除資格；persistent包含死亡玩家，重生以原deadline剩餘時間補回。結束清除，pause不前進期限。
+
+BuffStore保存實際baseattack_bonus_damage／physical_armor_bonus，原生攻擊／護甲與snapshot沿原聚合。新增objective_might／objective_guard正式native-only Buff catalog及中文label。同步不每frame覆寫Buff；僅缺少entry時物化，respawn生成發生在buff_tick前，補償該step尚未執行的dt。到絕對deadline先移除，避免多一tick。此類隊伍lease效果不可獨立dispel；入場資格由lease控制。
+
+training平衡為史詩之力180秒+20攻擊/+10護甲且死亡失去；守護祝福120秒+15護甲且死後保留原期限。這是專案原創平衡，不宣稱LOL特定版本。未包含永久stack、傳承、周圍小兵強化或分裂機制。

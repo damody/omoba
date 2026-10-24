@@ -1,0 +1,5 @@
+- [x] Add shared bounded integer sector geometry and boundary tests.
+- [x] Implement checked passive cone executor and connect authored Rain Iron Cannon.
+- [x] Add real adapter, committed-source/formal combat and native tooltip coverage.
+- [x] Run consolidated Rust/Lua/backend/UE/native acceptance and visual inspection.
+- [x] Seal evidence, record errors and update whole-game audit/handoff.

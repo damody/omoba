@@ -1,0 +1,5 @@
+# Design
+
+Validate closed aggregation family, exact integer stat payload, range and positive<=60 lifetime before canonical disclosure. Reserved canonical names cannot bypass validation; unknown/malformed data is filtered. Do not parse item/hero/summoner names. Append two native-only authored Chinese buff identities. Existing max-lifetime canonical union means at least one source remains, independent of strongest magnitude calculation. No private source, magnitude or unrelated payload leaves the codec; existing BVS1 wire and owner/visibility consumers remain.
+
+Core store/codec tests cover independent stronger/shorter and weaker/longer sources, refresh/removal, foreign entity, malformed/reserved keys and expiry. Existing actual summoner ECS test verifies canonical status from real cast. Actual Rust filtered replica->ABI fixture supplies native catalog/HUD/lifecycle and screenshot checks. Full8Rust expected1867/9ignored, backend,UE/native83/source3448/52PNG; preserve raw failures and owned receipts.

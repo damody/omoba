@@ -1,0 +1,13 @@
+# Item cooldown readability — accepted
+
+OpenSpec complete-item-cooldown-readability4/4.
+
+All six item slots now reuse the D/F cooldown scalar in logical pairs, expanded countdown and concise labels. Positive tails below0.1seconds display<0.1 rather than0.0; fractional values retain one decimal and trailing.0 is omitted. Exact signedzero hides the card countdown. Negative/nonfinite/inverted pairs disclose unavailable timing; passive/empty/cleared slots do not retain active countdown. Existing compact ceiling, authority/readiness/input policy remain unchanged; no local timers or identity branches.
+
+Existing ItemCastFeedback fixture now covers all six slots, tiny/fractional positives, signedzero readiness, four malformed pairs, passive suppression and economy scope clearing. Its actual Slate capture includes the live logical positive-tail label alongside existing target/range/visibility guidance. Retained D/F, responsive HUD and action retirement tests remain in the full native suite.
+
+UE5.8 BuildV2/staged DLL/import SHA passed. FullWorldV2 executed82:81success+1existingwarningcase,0failed/0notrun,warnings4. Source guard verified3447 inputs;3444 prior inputs unchanged+3 exact native inputs-v2 prove inheritance of prior full8scope Rust1863passed/0failed/9ignored and backend; no new fullRust run claimed. Inheritance bound to fresh source verification. Archive contains409 independently reverified files and51 accepted PNGs;12 changed images actually viewed,39 prior SHA-identical images inherited. Health6 samples/max172seconds. Four final and four historical workers (2success/2failed) retired; all launchers/source readers and single170second health monitor reaped; final CIM found no owned build/test/source worker remaining.
+
+Preparation path guesses and atomic patch mismatch were corrected before build/readers and recorded in docs/plans/2026-10-23-item-time-errors.md. WorldV1 failed exact old 2.0-second presentation expectations after intentional removal of trailing.0. Original fixture SHA bound to failed source baseline, original2inputs-v1 and extra fixture, failed full report/all51images and all4retired receipts preserved. Repaired only two expected text literals to2 and2/5; retained all semantic/status/tooltip checks. Fresh3inputs-v2/fullUEV2/fullWorldV2/sourceV2 accepted. No failed runtime accepted. Evidence:docs/acceptance/2026-10-23-item-time/index.json. All readers retired/source freeze released.
+
+Further gameplay/content polish, hero-to-hero overlap/64hero reservation cap, full combat replica and11 external tasks/MVP33/44 remain pending. No real network matches/quota reset/commit/push/omfx maintenance. Original unattended deadline2026-10-25 00:33:38 Asia/Taipei and automationomoba-48 unchanged.

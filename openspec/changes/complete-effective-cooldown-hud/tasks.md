@@ -1,0 +1,4 @@
+- [x] Preserve actual cooldown total and project validated owner HUD duration.
+- [x] Verify lifecycle/legacy/invalid states, formal60Hz snapshot and native fractions.
+- [x] Run consolidated Rust/backend/UE/native/source/pixel acceptance.
+- [x] Record errors/evidence and update inventory, tasks and handoff.

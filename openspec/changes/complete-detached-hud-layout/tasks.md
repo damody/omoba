@@ -1,0 +1,4 @@
+- [x] 1. Add safe Slate geometry notification and shared HUD layout helper.
+- [x] 2. Cover worldless resize/content/bounds and corrected first-kill capture.
+- [x] 3. Build UE5.8 and run consolidated native/source/visual acceptance with inherited Rust proof.
+- [x] 4. Archive failures if any, source and retirement evidence; update inventory and handoff.

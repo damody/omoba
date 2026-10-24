@@ -1,0 +1,5 @@
+- [x] 權威進度／取消／成功結果與HUD metrics
+- [x] 共用proto／client-runtime投影與閉合驗證
+- [x] bridge ABI／Unreal進度與生命期提示
+- [x] 核心／投影／正式技能／UE驗證案例
+- [x] 集中驗收、封存、錯誤MD與交接

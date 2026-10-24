@@ -1,0 +1,4 @@
+- [x] 1. Add optional validated control data and authority transaction behavior; author root item.
+- [x] 2. Generate native control metadata and accurate guidance with malformed-policy rejection.
+- [x] 3. Add meaningful schema, generated metadata, actual 60 Hz and native presentation coverage.
+- [x] 4. Run Rust/backend/UE/native acceptance, inspect captures, preserve source and retirement evidence; update inventory and handoff.

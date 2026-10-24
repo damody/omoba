@@ -1,0 +1,9 @@
+# Design
+
+ChannelHeal carries fixed-point amount/duration/interval. Duration1raw..60s, interval0.25..10s, positive amount<=1m, integral pulse count. Lua item12「靜心符」cost500/CD30/40heal per1s for3s. Start validates playing living owned hero, resources, position, no silence/stun/recall and ready inventory before mutation. Commit clears movement/queued actions/held direction and attack windup, replaces any current channel, and charges cooldown once.
+
+Host BTreeMap keyed by exact Entity generation stores owner/origin/remaining/clock/lastTick/spec. Advance after regular outcomes and before owner HUD projection, so committed HP damage can cancel before that tick's heal. Reuse received-healing/HP cap settlement. Tick stamp prevents duplicate advancement; pause freezes time. Relocation, silence/stun, owner/life/phase/recall changes cancel. Accepted stop/move/attack/skill and keyboard direction begin use shared cancellation. Root alone allows stationary healing; shield-only hits do not interrupt. Autonomous attacks are suppressed. Other self items need not interrupt.
+
+Canonical public recovery_channel discloses catalog identity/remaining only. Replay diagnostics include private clock/spec. No new wire/C ABI fields or GameWorld FFI method: inventory already carries catalog IDs; new local C++ item enum/interval metadata is generated. Shared self-item-kind helper avoids enum-order assumptions. Shop/hotbar explains timing/cancellation and hero details show countdown. A dedicated progress bar, animation and VFX remain future presentation work.
+
+Verify authoring,15/60/120Hz/no early/double/late pulses, pause/root/healing reduction, cancellation, privacy/replay diagnostics; formal shop purchase/use/cooldown/damage/shield; generated/native card/input/status/actual tooltip. Consolidate maintained Rust8/backend/UE/native/source/PNG acceptance and retain original failures.

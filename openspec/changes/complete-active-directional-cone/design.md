@@ -1,0 +1,5 @@
+# Design
+
+Closed typed cone_damage effect, exclusive instant active/ultimate point skill. Per-rank positive range and half angle at most pi/2. Q10 half-angle quantization feeds the existing deterministic 4096-turn sector predicate and published native preview ticks. Nonzero in-range aim specifies direction; effect reaches full range. Canonical live enemy candidates are deduplicated before bounded atomic damage commit. Ordinary damage settlement remains authoritative. No hero-name branches and no misleading circular area cue.
+
+Append ability/hero IDs, preserve original ranger volley and reuse ranger visual data. Common preview displays source-centered sector, missing-direction guidance and truthful tooltip. Validate typed/Lua contracts, fixed boundaries/order/overflow, actual formal cast resource and damage settlement, generated metadata/lifecycle and native geometry/rendering. Fresh Rust scopes, backend, UE and native acceptance; freeze sources before readers, preserve raw failures and original process retirement. OpenSpec CLI unavailable; direct artifacts follow established fallback. No true network game or input ACK claim.

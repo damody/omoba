@@ -1,0 +1,5 @@
+- [x] 盤點selection與公開狀態來源。
+- [x] typed selected snapshot與共用格式。
+- [x] Bridge／HUD狀態更新與生命周期。
+- [x] 原生語意／實際Slate截圖與集中驗收。
+- [x] 錯誤、盤點、交接與證據封存。

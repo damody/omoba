@@ -1,0 +1,4 @@
+- [x] 1. Connect ability tooltip shortcut/icon routes to shared active binding help.
+- [x] 2. Add secondary/modifier/unbound/no-target/mode regression and contained Slate rows.
+- [x] 3. UE/full native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence and update errors/handoff/completeness inventory.

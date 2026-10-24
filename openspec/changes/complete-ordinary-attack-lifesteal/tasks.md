@@ -1,0 +1,4 @@
+- [x] Implement shared stat and explicit ordinary attack launch/settlement policy.
+- [x] Add meaningful serial and production60Hz coverage, including late buffs and source retirement.
+- [x] Complete fresh Rust/backend/UE5.8/native acceptance with frozen sources and immutable evidence.
+- [x] Close evidence, errors, handoff and completeness inventory after original readers retire.

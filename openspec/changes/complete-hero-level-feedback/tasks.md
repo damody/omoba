@@ -1,0 +1,4 @@
+- [x] Implement scoped monotonic hero level presentation tracker and integrate real HUD notice.
+- [x] Add baseline, replay, expiry, scope retirement and actual widget/Slate coverage.
+- [x] Build UE5.8 and run consolidated native/public-map acceptance with source coherence.
+- [x] Preserve evidence/errors and update final acceptance, inventory and handoff.

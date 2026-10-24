@@ -1,0 +1,4 @@
+- [x] Add checked public zone status identity and immediate death retirement.
+- [x] Integrate localized hero-details countdown and compact authored rank prose.
+- [x] Add public-state, bridge, formal-input and real Slate regressions; run consolidated acceptance.
+- [x] Preserve errors/evidence and update inventory, tasks and handoff.

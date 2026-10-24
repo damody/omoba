@@ -1,0 +1,9 @@
+# Desktop-to-paint coordinate errors and prevention
+
+Exact UE source evidence is preserved with SHA in paint-space-engine-convention.json and archived engine-source/: SWidget.cpp, Types/PaintArgs.h and DrawElementTypes.cpp. These are read-only provenance copies; no engine edits. Six actual moved-window/render-scale measurements logged desktop origins and painted centers agreeing within1pixel (printed errors0.0000/0.0001).
+
+Confirmed root: UE5.8 SWidget.cpp around1494 appends Args.GetWindowToDesktopTransform to cache desktop geometry while OnPaint receives original window-relative allotted geometry. Production communication directly inverted paint geometry against desktop event origin, and shared aim projection used cached desktop viewport geometry similarly. This explains original V2 mismatch retained in prior aim-layer history. Pass the current paint offset, subtract it in one checked helper, and use it for every common overlay desktop-point conversion. No fixed offset/OS DPI guess, input gate change or unit-name rule.
+
+Native probe measures original FSlateTextElement render transform/local size and adds current window offset, matching engine DrawElementTypes.cpp Init. Actual FPointerEvent desktop origin and moved windows/render scales establish presentation coordinates; they do not bypass or claim successful owner-context admission/true network commands. Existing ownership/input regressions remain included.
+
+Pre-reader tooling error: one rg command incorrectly put Om*Tests.cpp in a Windows path argument and returned123. Corrected immediately to the discovered concrete directory with -g pattern. Use literal discovered directories and keep file patterns in -g only. No formal readers were active. OpenSpec CLI unavailable; direct artifacts and fixedLua retained. Immutable parent SHA binding precedes readers; actual exit receipts and original failures must be preserved.

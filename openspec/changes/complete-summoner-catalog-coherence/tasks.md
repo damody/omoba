@@ -1,0 +1,4 @@
+- [x] Generate complete serialized summoner catalog and enforce startup/reload parity.
+- [x] Cover field/membership drift and actual reload snapshot preservation.
+- [x] Run concentrated Rust acceptance and record source/process evidence.
+- [x] Update errors, inventory and handoff.

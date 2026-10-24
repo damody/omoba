@@ -1,0 +1,5 @@
+# Design
+
+Maintain separate bounded 64-entry hero and nonhero shortlists. Hero reservation order prioritizes self, selection, hover and central distance with stable identity ties. Only current alive rows with a currently visible hero widget can reserve; concealment, preference-off, retirement, generation mismatch or offscreen projection do not reserve. The actual hero presentation remains governed by existing policy, including when more than 64 heroes are present; overflow heroes are simply not reservation obstacles.
+
+One shared padded/clipped rectangle builder serves both reservation and admission. Reservations may overlap each other; their union protects heroes without choosing which hero disappears. Ordinary nonheroes collide with reservations and prior admitted nonheroes. Focused nonheroes ignore only reservations and still cannot overlap an earlier nonhero. Each view starts fresh, so concealment, movement or released space restores candidates. At most 128 Slate measures and 128 stored rectangles; no all-entity pair scan. Hero/hero label stacking and focused-target overlap remain explicit limitations.

@@ -1,0 +1,5 @@
+- [x] 1. 全正式遊戲功能盤點與單機優先清單
+- [x] 2. 可配置tower focus、reset／pause／digest及實際ECS測試
+- [x] 3. 公開cooldown剩餘／總長tooltip與元件圖測試
+- [x] 4. Rust／Lua、UE5.8建置、場景與完整單機接受
+- [x] 5. 三分鐘監測、錯誤MD、來源驗證與交接

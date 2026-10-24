@@ -1,0 +1,4 @@
+- [x] 1. Implement closed shared cleanse effect and authored item with atomic authority preflight.
+- [x] 2. Project native self-use metadata/Chinese guidance and add meaningful formal/native tests.
+- [x] 3. Run full Rust/backend/UE/native/source/visual acceptance, preserve failures and retirement evidence.
+- [x] 4. Update handoff, completeness inventory, tasks and error prevention records.

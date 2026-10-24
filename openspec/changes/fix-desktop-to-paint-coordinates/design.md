@@ -1,0 +1,5 @@
+# Design
+
+Pass current FPaintArgs window-to-desktop translation through the common overlay renderer. Shared checked DesktopToLocal subtracts it before geometry inverse, rejects nonfinite/singular inputs and clears output on failure. Apply to communication origin, attack range/cursor, cast hint anchor, world outlines, marker and source guide. No stale cached window offset, fixed DPI compensation or per-hero rules. Input/admission/selection geometry and lifecycle remain unchanged.
+
+Actual production overlay fixture uses FPointerEvent desktop position, two moved native Slate windows, three render scales, actual emitted text center transforms and current paint offsets. Math round trips cover four layout scales and signed translations; legacy conversion must disagree. This tests event coordinate convention and production rendering, not live owner-context admission/network ACK or physical OS DPI. Existing ownership/input suite remains in full90native. Freeze5native inputs/full3463source/62images.

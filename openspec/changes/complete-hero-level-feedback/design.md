@@ -1,0 +1,5 @@
+# Design
+
+A native presentation tracker keys baseline by local player and exact hero entity/generation. First valid playing sample establishes a baseline. Monotonic highest level and elapsed sample time prevent duplicate/backward sample replays. Scope changes, missing/invalid state, nonplaying phase and HUD retirement reset it. A higher level refreshes one four-second presentation notice to the newest observed level; intermediate unobserved levels are not synthesized. The local presentation timer is independent of simulation pause and does not drive gameplay.
+
+The real command bar header uses this shared tracker and localized text with existing readable font sizing, header wrapping, HUD visibility and layout content invalidation. Tests cover the state machine and actual initialized widget/Slate. Rust, backend, content, wire and C ABI are unchanged; prior accepted Rust/backend evidence is referenced with source coherence, while the new UE build/native cohort and public ABI export run on this scope.

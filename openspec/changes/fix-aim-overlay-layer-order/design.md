@@ -1,0 +1,3 @@
+# Design
+
+Communication paint returns base for inactive/tiny cases and base+5 after actual center text. Aim paint preserves that maximum, adds cursor layer+1 only when emitted and cast hint layer+2 when emitted, and carries the maximum through projection/target early returns. Production Slate OnPaint returns the result; missing owner returns base. No global element scans, additional entity loops, commands, input policy or z-order changes. Automation-only factory instantiates the real production overlay. Native probe records actual new text elements and actual child paint return; later opaque sibling must cover all center pixels. Exercise ping/emote/inactive/retirement. Freeze4native inputs, full89native/3461source/60PNG, immutable parent/actual-exit workers.

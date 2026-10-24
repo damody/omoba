@@ -1,0 +1,4 @@
+- [x] Add authored rank lifesteal to the existing bounded transform and effect preview.
+- [x] Extend script/formal/native tooltip coverage and regenerate/freeze exact generated outputs.
+- [x] Complete fresh Rust/backend/UE5.8/native acceptance and inspect the new tooltip image.
+- [x] Seal independent evidence, retire original readers and close errors/handoff/inventory.

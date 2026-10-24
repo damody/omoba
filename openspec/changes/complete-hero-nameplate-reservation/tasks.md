@@ -1,0 +1,4 @@
+- [x] Add shared reservation geometry, bounded hero shortlist and current render-visibility query.
+- [x] Add geometry and real actor/Slate lifecycle coverage and captures.
+- [x] Build UE5.8 and run consolidated single-machine acceptance.
+- [x] Preserve errors/evidence and update handoff, inventory and tasks.

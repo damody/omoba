@@ -1,0 +1,5 @@
+# Design
+
+ProjectileOrigin攜帶來源單生命的read-only腳本快照。來源存活時維持即時讀取；退休後僅該來源handle可回退，is_alive保持false。快照僅保存該entity的buff／元件，不複製全世界或tower空間cache。正式tick將命中事件連同每發origin帶入串行dispatch。追加Damage與ScriptProjectile透過來源一致且禁止巢狀的內部封套傳遞；processor先驗證再揭開，既有傷害／observable fact／生成流程照常執行。子彈繼承origin，避免退休或ID重用造成歸因丟失。
+
+OpenSpec CLI本環境既有不可用，依已讀apply skill手動維護artifacts；使用者已授權自主實作，不另詢問選項。

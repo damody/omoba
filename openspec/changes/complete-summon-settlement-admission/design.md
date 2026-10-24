@@ -1,0 +1,3 @@
+# Design
+
+Keep the ABI and authored balance unchanged. The serial handler returns accepted/rejected, releases the placement reservation on either path, validates current living owner and exact captured player ownership, and retains the existing deterministic placement rule. Existing units are never overwritten or deleted by a repeated spawn. Defer only summon spawn facts until successful settlement; other outcomes retain their order. Rejected reserved handles retire without a spawn callback or success fact. Test through the real outcome processor and native ECS resources, including ownership changes, stale generations, blocked placement, valid permanent/timed spawns and duplicate outcomes. This is per-entity admission, not whole-formation resource rollback.

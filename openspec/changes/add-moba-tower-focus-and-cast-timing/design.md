@@ -1,0 +1,5 @@
+# 設計
+
+SingleLaneConfig持有TowerFocusRules，setup原子驗證百分比及timeout界線。每個LaneUnit含immutable身份所屬的focus state；僅Tower／NexusTower對Hero的已排入damage queue攻擊會遞增，第一擊base、後續每擊+25%、最多+100%，可改規則或設零停用。換目標、失去合法目標、到期、死亡／退休／新spawn清除；暫停沿模擬clock凍結。Policy及state納入replay digest，不進公開wire。加傷發生於既有damage pipeline前，護甲／傷害歸因仍由原pipeline處理；是已承諾instant攻擊，不是投射物命中回報。
+
+Ability tooltip讀取實際HUD的CooldownRemainingSeconds／CooldownTotalSeconds，顯示目前剩餘與總長。未學習不顯示，非有限／負值／剩餘大於總長沿既有invalid visual state契約清除；ready保留total、零total明確顯示，與WorldUnitsToCm無關。內容cast_time目前未形成全技能權威排程，不拿它冒稱實際準備時間，也不推測channel duration。保留成本、範圍與控制模式；以實際SOmHudToolTip元件圖及完整本機工作流驗收。

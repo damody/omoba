@@ -1,0 +1,5 @@
+# Design
+
+UnitStats owns the pure common eligibility helper, accepting source/target faction references and canonical building classification; a read-only raw_damage World wrapper supports serial projectile settlement. Native DamageInstance samples this policy when creating the damage packet; ordinary projectiles sample it at impact while retaining launch-time rate. IsBuilding is the documented canonical structure classification, avoiding tower/unit/camp names and redundant special cases. Missing faction information fails closed for shared leech. Damage admission, explicit flags, source life, shields, overkill, healing reduction, callback isolation and committed vitals retain their existing behavior.
+
+Extend existing meaningful core/production60Hz tests for structure, same-team, missing/passive-neutral and hostile-neutral targets. Freeze five inputs; compare against ordinary-leech own source-before-v4 via its sealed index; fresh Rust/backend/UE/native acceptance. Preserve failure originals and exact owned exits. Generate report parent names from configuration rather than broad version substitution.

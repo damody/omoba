@@ -1,0 +1,3 @@
+# Requirements
+
+僅使用當前公開且存活的source／target，需owner一致與完整generation。滑鼠落點不可當單位中心。隱藏／退休／來源失效拒絕查詢並清空輸出；未知range不顯示射程內外。單位移動即時重新計算。既有輸入與後端admission保持。

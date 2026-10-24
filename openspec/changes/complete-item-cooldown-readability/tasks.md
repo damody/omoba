@@ -1,0 +1,4 @@
+- [x] 1. Share truthful timer formatter across item text surfaces.
+- [x] 2. Add six-slot semantic edge cases and actual capture.
+- [x] 3. Build and concentrate native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence, retire workers, update handoff/audit/errors.

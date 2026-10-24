@@ -1,0 +1,11 @@
+# Ability tooltip bindings complete
+
+OpenSpec complete-ability-tooltip-bindings4/4.
+
+Ability QWER tooltip now lists active primary/secondary cast chords with localized modifier labels. Normal shortcut and every icon-click aiming route reuse shared actual WorldCombat confirmation/cancel help. Quick and indicator shortcut behavior remains distinct, while icon clicks correctly describe forced normal aiming. Missing shortcuts retain complete icon confirmation/cancel instructions; no-target casts remain immediate. Existing tooltip lifecycle/profile gates and world helper are reused without new command paths, local ticking, hero-name special cases or gameplay mutation.
+
+Extended native regression validates secondary modifier cast bindings, actual shared normal confirmation, active/inactive/missing bindings, unbound shortcut icon route, immediate no-target mode, and quick/indicator icon routes via validated profile APIs. Shared Slate rows render full shortcut/icon and unbound instructions with actual bottom containment. This captures production guidance strings, not a live-match input/authority ACK.
+
+UE5.8 BuildV1/staged DLL/import SHA passed. Full native88:87success+1existingwarningcase,0failed/0notrun,warnings4. Fullsource3460:3458unchanged+2exactexisting native inputs-v1. Priorfresh8Rust1873/0failed/9ignored and backend inherited by immutable parent/source proof; no freshfullRust/backend rerun claimed. Archive147independent files/59PNG; 19changed images actually viewed and40SHAidentical inherited. Four actual-exit CLI workers exited0 with retired child/waiter receipts; health max152297ms. All launcher sessions reaped; final owned-process check recorded.
+
+Evidence:docs/acceptance/2026-10-23-tooltip-guidance/index.json. Errors/prevention:docs/plans/2026-10-23-tooltip-guidance-errors.md. Final baseline omfue/Saved/BuildTemp/tooltip-guidance-source-before-v1.json,2frozen native inputs/config-v1. All readers retired/source freeze released. Continue concrete single-PC gameplay and presentation gaps; full combat replica/11external/MVP33/44 remain. No true network game/quota reset/commit/push/omfx. New actual-exit launcher required. Deadline2026-10-25 00:33:38 Asia/Taipei/automationomoba-48 unchanged.

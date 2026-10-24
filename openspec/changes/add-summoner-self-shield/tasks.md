@@ -1,0 +1,4 @@
+- [x] Add shared authored/generated shield operation and formal Lua spell.
+- [x] Add model and exclusive ECS shield commit with lifecycle/rejection coverage.
+- [x] Verify generated Unreal catalog, selection and actual tooltip with native regression.
+- [x] Concentrated Rust/backend/UE5.8/source/stage/visual acceptance, error MD and handoff.

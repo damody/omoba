@@ -1,0 +1,4 @@
+- [x] 1. Add validated canonical timed-family projection and authored native-only identities.
+- [x] 2. Add real ECS/store/codec/filtered-ABI/native HUD and actual capture coverage.
+- [x] 3. Freeze7sources and concentrate fullRust/backend/UE/native/source/visual acceptance.
+- [x] 4. Preserve evidence/retirement/errors and update handoff/inventory.

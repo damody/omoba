@@ -1,0 +1,13 @@
+# Invalid cost aim feedback acceptance
+
+Change: complete-invalid-cost-aim-feedback. Scope: three native sources, no Rust/protobuf/C ABI/backend change. Authority cost state 3 now reaches the matching pending ability's shared aim evaluation, with Chinese reason and existing orange warning color. Unlearned/cooldown retain precedence. Unknown/malformed states do not imply invalid, and owner/unlearned/missing-shape retirement clears disclosure. Existing submission authority remains unchanged.
+
+UE5.8 build and stage/import-library SHA verification succeeded. The full native suite executed 71 tests: 70 success, 1 existing warning case, 4 existing RuntimePresentationReset warnings, 0 failed and 0 not run. PointAreaPreview contains the new invalid-cost state/text/color, precedence, normal/unknown/malformed and retirement assertions. This extends an existing native test rather than increasing test count.
+
+Rust/backend results are inherited, not newly rerun: the prior accepted 1824 passed / 0 failed / 9 existing ignored cohort is bound by SHA to its accepted index and source baseline. Inheritance checked 3430 unchanged formal inputs and exactly three expected native changes. Final build-to-acceptance source verification is recorded in the evidence index.
+
+34 native captures reviewed: 28 SHA-identical to previous accepted images; 6 changed images actually opened (recall, diagonal map, first-kill notice, summon, cast-time crop and full viewport). Existing worldless first-kill HUD crop and map focus/nameplate overlap remain known. This batch does not claim a dedicated screenshot of the new invalid-cost aim overlay: that behavior is verified by shared native evaluation/cache tests and the real OnPaint call-site connection.
+
+Evidence: docs/acceptance/2026-10-23-invalid-cost-aim/index.json. Errors/root causes/prevention: 2026-10-23-invalid-cost-aim-errors.md. Final verification succeeded for all 3433 formal inputs. The archive contains 81 evidence files / 34 PNGs, with archived bytes/SHA and original source SHA independently checked after sealing. Health maximum interval was 170 seconds. All four workers and their watchers retired and were reaped; the single health session50823 also retired/reaped; CIM found no remaining lua/cargo/rustc/UnrealEditor-Cmd/cl/omobab process before sealing. Sealer33604 subsequently completed and was reaped. No build or test failure occurred in this batch.
+
+No new network match, quota reset, commit/push or historical omfx maintenance. The unattended deadline remains 2026-10-25 00:33:38 Asia/Taipei. Channels, full combat replica, 11 external acceptance requirements and MVP 33/44 remain pending.

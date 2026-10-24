@@ -1,0 +1,4 @@
+- [x] Implement bounded shared rank-aware formation resolution and connect existing handler.
+- [x] Correct authored facing-relative description and add invalid/rank/formation/rollback coverage.
+- [x] Consolidated Rust, content generation, UE5.8 and native regression acceptance.
+- [x] Preserve source consistency, process retirement, errors and evidence; update handoff and inventory.

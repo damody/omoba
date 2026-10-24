@@ -1,0 +1,4 @@
+- [x] Publish scoped current checked costs and project typed owner HUD state.
+- [x] Wire ABI35 and native admission/resource tooltip without base-cost gating.
+- [x] Verify formal facts, invalid/stale/duplicate/isolation boundaries and native values.
+- [x] Complete consolidated build/source/pixel acceptance and update records.

@@ -1,0 +1,4 @@
+- [x] 1. Implement bounded shared hero placement/current actor pivot/lifecycle and exact final reservations.
+- [x] 2. Add geometry/order/scale/work/lifecycle/actual Slate bounds and two captures.
+- [x] 3. Freeze6native inputs; UE/native/source/inheritance/visual acceptance.
+- [x] 4. Seal original evidence/retirement and update handoff/audit/errors.

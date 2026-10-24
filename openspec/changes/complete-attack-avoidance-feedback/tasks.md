@@ -1,0 +1,4 @@
+- [x] Implement authority fact, safe projection, typed cue and native MISS rendering.
+- [x] Add formal shooting, privacy/codec/retention/bridge and actual glyph acceptance.
+- [x] Run frozen Rust/backend/UE/native acceptance and inspect fresh capture.
+- [x] Seal failures/provenance/retirement and update handoff/audit.

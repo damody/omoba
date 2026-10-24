@@ -1,0 +1,4 @@
+- [x] 1. Confirm engine coordinate conventions and apply checked common conversion across aiming/communication.
+- [x] 2. Add actual moved-window/render-scale/text-position and invalid/retirement regression.
+- [x] 3. UE/full native/source/inheritance/visual acceptance.
+- [x] 4. Seal evidence and update errors/handoff/completeness inventory.

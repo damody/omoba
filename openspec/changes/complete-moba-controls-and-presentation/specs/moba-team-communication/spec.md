@@ -19,3 +19,7 @@
 #### Scenario: 文字輸入不觸發gameplay
 - **WHEN** 玩家輸入包含QWER／Space／A的聊天文字並送出
 - **THEN** 沒有施法／camera／AttackMove，文字送至所選有效channel；focus釋放後操作恢复，斷線時顯示失敗原因
+
+#### Scenario: Runtime重建立即退休溝通狀態
+- **WHEN** 直接停止或成功建立新Runtime，包含兩個UI tick之間的Stop／Start
+- **THEN** 同步取消草稿與ping／emote gesture，清除舊歷史／objectives面板、標記、音訊去重與mute／結果token；不提交訊息、不在新Runtime恢復舊狀態，只在草稿持有焦點時歸還自己的viewport；保留偏好及可重用widget／owner，冪等Start保留有效live狀態

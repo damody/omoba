@@ -1,0 +1,5 @@
+- [x] Lua／型別／生成／hash與policy守門。
+- [x] 權威兵線光環／範圍／去重／生命期與digest。
+- [x] 單機ECS與正式60Hz／snapshot回歸。
+- [x] Rust、UE5.8、後端、Lua、World與來源驗收。
+- [x] 錯誤、盤點、證據與handoff更新。

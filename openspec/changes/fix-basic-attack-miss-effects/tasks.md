@@ -1,0 +1,4 @@
+- [x] 1. Share source-miss RNG and clear missed hero-launch hit effects.
+- [x] 2. Cover deterministic compatibility and formal60Hz launch/impact/one-shot consumption.
+- [x] 3. Freeze and run Rust/backend/UE/native/source acceptance.
+- [x] 4. Seal evidence/retirement and update errors, tasks, inventory and handoff.

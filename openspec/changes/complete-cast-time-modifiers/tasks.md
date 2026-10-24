@@ -1,0 +1,4 @@
+- [x] Add checked fixed-point cast-duration calculation and production admission wiring.
+- [x] Verify shared aggregation/bounds and real formal60Hz haste/slow/snapshot/pause/release/resource behavior.
+- [x] Run Rust/backend/UE5.8 and consolidated native/presentation/source acceptance.
+- [x] Preserve errors/evidence and update inventory, tasks and handoff.

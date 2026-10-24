@@ -1,0 +1,4 @@
+- [x] 1. Add host-only deferred pulse envelope and checked serial expansion/admission.
+- [x] 2. Cover invalid data, current targets, death/removal/generation and managed-cast isolation; formal60Hz no ghost kills.
+- [x] 3. Freeze and run concentrated Rust/backend/UE/native/source acceptance.
+- [x] 4. Seal original evidence/retirement and update errors, handoff and inventory.

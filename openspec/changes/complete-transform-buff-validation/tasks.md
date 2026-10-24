@@ -1,0 +1,4 @@
+- [x] Audit shipped handlers and implement shared checked resolver/executor.
+- [x] Add real adapter and formal 60Hz coverage for both transformations.
+- [x] Run consolidated Rust/build acceptance and review actual results.
+- [x] Record errors, acceptance scope and remaining completeness gaps in MD/handoff.

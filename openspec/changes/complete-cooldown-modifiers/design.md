@@ -1,0 +1,3 @@
+# Design
+
+Use checked_sum_add for both existing cooldown stats, checked multiplier addition, existing 102raw lower multiplier bound, i128 duration multiplication, positive one-raw minimum and existing 1,000,000-second upper limit. Zero remains zero. Reject invalid modifiers before handlers/resources; both managed ledger and emitted cooldown use one resolved value. Resolve again at actual release after windup, then keep the running cooldown fixed while future modifiers change. Pause retains existing game-time semantics. Legacy no-Mana casts use the same resolver. Tests cover real 60Hz release, transactions, rejected casts, pause and current cooldown drift.

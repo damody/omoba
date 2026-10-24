@@ -1,0 +1,3 @@
+# Design
+
+Generate bounded per-rank base summaries into the existing visual registry from the same Lua levels. Populate current/next summaries and a typed reason in PopulateAbilityUpgradeHud, preserving legacy Tooltip text for existing consumers. The command bar formats a localized upgrade section and the actual plus-button tooltip using current control bindings. Base catalog values are not effective modified runtime stats or an upgrade receipt. Clear all new state on unknown identity, invalid rank, source replacement and retirement. Reuse the actual Slate tooltip renderer for a captured comparison fixture. No hero-name dispatch or script ABI extension.

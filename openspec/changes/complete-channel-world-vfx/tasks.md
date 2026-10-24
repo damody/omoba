@@ -1,0 +1,4 @@
+- [x] 1. Decode bounded public channel state into ordered native entity frames.
+- [x] 2. Add one shared pooled channel effect per actor with complete retirement and capacity recovery.
+- [x] 3. Add actual filtered ABI, lifecycle, pressure and shader-capture regression.
+- [x] 4. Complete UE5.8/native/source/image acceptance, preserve errors/evidence and retire every worker; update inventory and handoff.

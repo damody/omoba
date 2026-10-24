@@ -1,0 +1,3 @@
+# 共用召喚落點預約
+
+同tick跨event／on_tick invocation各自只看ECS及自身outcomes，會重複承諾同一友軍落點；最終commit再移位與技能返回handle位置不同。加入權威World範圍、固定順序且有界的預約ledger；取消／panic／drop釋放，成功outcome接管至commit。無新增對局／ABI／omfx。

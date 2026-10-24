@@ -1,0 +1,4 @@
+- [x] 1. Share target evasion and guard native primary projectile impacts.
+- [x] 2. Cover stream/provenance/retired source and formal60Hz current-target policy.
+- [x] 3. Freeze and run Rust/backend/UE/native/source acceptance.
+- [x] 4. Seal original evidence/retirement and update errors, handoff and inventory.

@@ -1,0 +1,3 @@
+# Design
+
+Append stable FactKind36 and ObservableFact without shifting existing enum variants. Projection requires a currently visible disclosed target, publishes no attacker or reason modifier, then common typed AVD1 envelope uses disclosure epoch, bounded retention/ack and FxImpact cue_id3. It is distinct from damage/actual impact and plays no impact sound. Native floating text shares the existing64global/4per-owner pool, pause, retirement and dedup. MISS uses supported Latin glyphs; no unavailable CJK font assumption. Native source-missed projectile flight presentation remains unchanged because that path carries no confirmed impact avoidance; no fabricated cue.

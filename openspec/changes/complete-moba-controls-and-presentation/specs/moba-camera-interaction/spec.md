@@ -44,8 +44,16 @@
 - **WHEN** 玩家使用可改鍵的F9動作切換edge pan
 - **THEN** 當前狀態可見且持久化；停用時邊緣游標不移camera，方向鍵與合法中鍵拖曳仍依profile運作
 
+#### Scenario: Runtime重建退休鏡頭held state
+- **WHEN** 直接停止Runtime或成功建立新Runtime，包含兩個world tick之間的Stop／Start
+- **THEN** 立即取消暫時追蹤、按住平移、drag、scout與小地圖檢視，退休舊hero／隊友位置與pointer樣本；不回跳舊視點，不因新快照恢復舊hold；保留profile、zoom與鎖定偏好，新press仍可操作，冪等Start不取消當前hold
+
 ### Requirement: 小地圖視窗範圍框
 系統 SHALL 由實際render camera與map平面交點生成viewport輪廓，隨pan／zoom更新，使用同一map transform，不能用固定裝飾矩形。
+
+#### Scenario: 小地圖公開視圖與座標範圍切換
+- **WHEN** 同一widget更新為不同公開玩家／隊伍視圖或地圖座標範圍，即使本機玩家與Runtime未變
+- **THEN** 同步退休舊檢視拖曳、其自身Slate指標捕捉、通訊標記與鏡頭框；舊move不作用於新視圖，新press可重新檢視，其他使用者／指標不受影響；同視圖的一般資料更新保留目前拖曳
 
 #### Scenario: 縮放改變範圍框
 - **WHEN** 玩家拉近、拉遠或拖曳鏡頭

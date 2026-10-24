@@ -1,0 +1,6 @@
+- [x] Add checked authored/generated/runtime channel schema and Lua shop item.
+- [x] Implement host pulses, healing, cancellation, attack suppression and replay diagnostic.
+- [x] Wire canonical public status and native self-item metadata/guidance.
+- [x] Add formal shop/input, lifecycle and native rendered guidance coverage.
+- [x] Complete consolidated Rust/backend/UE/native/source/image acceptance.
+- [x] Preserve evidence/errors and update completeness audit/handoff.

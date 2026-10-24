@@ -1,0 +1,4 @@
+- [x] 1. Audit actual narrow cast readout and create common compact/full labels.
+- [x] 2. Preserve readable font size and measure unwrapped card content through responsive layout.
+- [x] 3. Extend real game viewport regression across sizes, scales and active/terminal states.
+- [x] 4. Build UE5.8, accept complete native suite and images, bind source/inherited Rust evidence, retire all workers and update records.

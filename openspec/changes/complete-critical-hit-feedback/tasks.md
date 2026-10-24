@@ -1,0 +1,4 @@
+- [x] Preserve original inputs and implement settled critical provenance/fact/cue pipeline.
+- [x] Add native bounded rendering and meaningful settlement/privacy/lifecycle tests.
+- [x] Freeze sources and complete fresh Rust/backend/UE/native acceptance; inspect new image.
+- [x] Close independent evidence, errors, handoff, completeness inventory and retirement.

@@ -1,0 +1,5 @@
+- [x] 1. 有界owner／召喚鏈resolver與team-only credit
+- [x] 2. 第一致死快照、個人／隊伍Death結算與非英雄仇恨
+- [x] 3. 實際ECS、死亡主人、退休／generation／cycle及60Hz結果測試
+- [x] 4. 最後集中Rust／Lua、UE5.8／後端與本機驗收
+- [x] 5. 三分鐘監測、錯誤MD、來源封存與handoff

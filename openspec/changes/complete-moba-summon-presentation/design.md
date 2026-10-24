@@ -1,0 +1,9 @@
+# 設計
+
+native EntityKind新增Summon，由權威Unit.unit_type分類，兩個extract入口一致。WaveB DemoRenderState沿既有kind u8欄位加4為Summon；25-byte格式與ABI34不改，既有decoder對未知kind保留，舊renderer可generic fallback。新kind只是已公開身分類別，不傳SummonedUnit、召喚者實體或私有AI／navigation。
+
+filtered driver將render kind4轉typed Summon，公開Unit shadow只保留類別，native gameplay SummonedUnit不重建。projection映射既有EntitySummon與CatalogSummon，並加入通用動畫狀態／移動推導。不得因同名小兵或owner欄位猜類別；未知catalog保留Summon語義但使用generic fallback。
+
+summons.lua透過既有moba_native_visuals提供原創ranger rig／材質／動畫，65世界單位高度；只改呈現，不加入新模型。現有無設定角色的lazy skeletal fallback測試改用真正無設定的base actor，獨立新增召喚物正式Bridge／骨架／生命周期測試與原生截圖。
+
+測試：native完整／快速snapshot與WaveB；正式60Hz生成、移動與退休；filtered公開資料轉ABI的catalog／motion／hide／reveal／generation／removal；Unreal synthetic public frame實際選到召喚class、nameplate、動畫與池化重設。170秒監測，錯誤MD保留，整批退休後才修來源。

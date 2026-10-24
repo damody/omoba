@@ -1,0 +1,4 @@
+- [x] 1. Implement fixed-point due offsets and canonical chronological draining.
+- [x] 2. Add catch-up/partition/lifetime/tie and actual ECS/formal60Hz kill-credit regressions.
+- [x] 3. Freeze sources and run concentrated Rust/backend/UE/native/source acceptance.
+- [x] 4. Seal original evidence/retirement and update errors, handoff and inventory.

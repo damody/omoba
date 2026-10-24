@@ -1,0 +1,5 @@
+- [x] Derive movement policy from both shared executable contracts and generate current-rank metadata.
+- [x] Publish independent scoped root facts with complete-list validation and retirement clearing.
+- [x] Add root/unknown/zero-displacement feedback and tooltip guidance without local command gates.
+- [x] Complete concentrated Rust, Lua, backend, UE and native acceptance.
+- [x] Record errors, evidence, remaining gaps and handoff.

@@ -1,0 +1,5 @@
+- [x] personal_buff內容／傳承政策、catalog與scope驗證、生成及重建守門。
+- [x] 個人lease授予、有效英雄擊殺傳承、生命期與digest。
+- [x] 真實傷害／營地／剩餘時間與正式60Hz回歸。
+- [x] 集中Rust、UE5.8、後端、Lua與World驗收。
+- [x] 來源／證據封存與錯誤、盤點、handoff更新。

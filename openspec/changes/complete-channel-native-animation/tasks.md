@@ -1,0 +1,4 @@
+- [x] 1. Add shared semantic channel selection and authoritative sampled native pose.
+- [x] 2. Connect life/recall/preparation priority, frame scope/order and full retirement.
+- [x] 3. Add two-skeleton/lifecycle/pose capture regression and update actual ABI world VFX expectation.
+- [x] 4. Complete UE5.8/native/source/image evidence, retire workers and update error/inventory/handoff records.

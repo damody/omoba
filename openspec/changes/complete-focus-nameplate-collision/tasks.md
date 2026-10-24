@@ -1,0 +1,4 @@
+- [x] 1. Remove focus collision bypass from shared policy and native caller.
+- [x] 2. Update meaningful measured hero/focus recovery tests and capture.
+- [x] 3. Freeze sources and run UE/native/source/inheritance/visual acceptance.
+- [x] 4. Record errors, retirement, evidence, handoff and remaining limits.

@@ -1,0 +1,4 @@
+- [x] Implement common managed cast envelopes and deferred successful cues.
+- [x] Implement bounded whole-formation admission, immutable placement plan and retirement.
+- [x] Add real ECS settlement and formal 60Hz integration coverage, then consolidate acceptance.
+- [x] Preserve errors, original failures and source/process evidence; update handoff/inventory.

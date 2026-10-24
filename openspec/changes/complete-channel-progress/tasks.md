@@ -1,0 +1,4 @@
+- [x] Add bounded public metadata decode and generic ordered channel model.
+- [x] Attach read-only live progress strip with scope/life retirement handling.
+- [x] Add public projection/model/lifecycle/actual Slate capture coverage.
+- [x] Complete UE/native/source/image acceptance and evidence/error/handoff updates.

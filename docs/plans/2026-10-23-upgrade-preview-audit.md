@@ -1,0 +1,5 @@
+# Upgrade preview audit
+
+Selected a concrete player-facing gap after aim-coherence acceptance. Existing channels/zones and summon settlement remain pending; this batch does not replace those implementations. Existing upgrade admission uses generated RequiredHeroLevels, native disclosed owner level/points and playing/alive status. Add comparisons from generated base catalog data with explicit labeling; current effects/modifiers and hot reload are not inferred from the catalog. No new gameplay balance or input route is required.
+
+Visual acceptance: 18 existing images match previously reviewed archived pixels byte-for-byte. Viewed four new/changed PNGs: upgrade comparison, layered map, first-kill notice and summon. New comparison text is readable without clipping and preserves decimal cast time / backend-unit range / current shortcut. Its three-column test host deliberately stretches tooltip backgrounds; it is a shared-renderer fixture, not a gameplay hover or authority upgrade receipt. Existing hero/focus overlap and first-kill partial HUD clipping remain limitations.

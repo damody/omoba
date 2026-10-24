@@ -1,0 +1,5 @@
+- [x] Register public shield metadata and cover authoritative absorption lifecycle.
+- [x] Implement bounded decoder, bridge, actor and native nameplate presentation.
+- [x] Cover ABI, real widget lifecycle and actual 60Hz item use.
+- [x] Run concentrated Rust, UE and local world acceptance.
+- [x] Record errors, inventory, evidence and handoff.

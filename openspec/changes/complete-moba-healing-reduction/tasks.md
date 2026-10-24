@@ -1,0 +1,5 @@
+- [x] Implement shared checked healing and regeneration settlement.
+- [x] Add optional authored unit-item healing reduction through generation, authority and UI.
+- [x] Cover malformed content, actual item/heal lifecycle and metadata.
+- [x] Run concentrated Rust, UE and local world acceptance.
+- [x] Record errors, evidence, inventory and handoff.

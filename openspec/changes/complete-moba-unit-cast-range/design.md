@@ -1,0 +1,3 @@
+# 設計
+
+Bridge只從PublishedDirectTargets以完整Entity含generation與明確player／source讀取當前存活公開單位的中心。Owner透過嚴格反射契約即時查詢，不引入OmGenerated依賴或全單位cache。Marker追蹤entity ref，ground point仍保持獨立。隱藏／退休／來源替換立即不再提供位置。距離使用2D中心且保留range未知、冷卻／魔力／未學習優先提示。只讀guidance不gate提交。
