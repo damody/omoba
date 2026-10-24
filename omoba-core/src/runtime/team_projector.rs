@@ -22,6 +22,9 @@ use specs::{SystemData, World, WorldExt, Write};
 
 pub const TEAM_FRAME_SCHEMA_VERSION: u32 = 1;
 pub const CONTENT_SCHEMA_VERSION: u32 = 1;
+/// Bounded production padding policy for full 5v5 maps and authored wave bursts.
+/// This is a projector capacity, independent of the KCP stream's framing length.
+pub const MAX_PADDED_TEAM_FRAME_BYTES: usize = 64 * 1024;
 
 pub(crate) fn next_tick_after_committed(committed_tick: u64) -> u64 {
     committed_tick.saturating_add(1)
@@ -153,7 +156,7 @@ impl Default for TeamProjectorConfig {
     fn default() -> Self {
         Self {
             component_allowlist: crate::runtime::secure_replica_component_allowlist(),
-            size_buckets: vec![256, 512, 1024, 2048, 4096, 8192, 16384],
+            size_buckets: (8..=MAX_PADDED_TEAM_FRAME_BYTES.ilog2()).map(|power|1usize<<power).collect(),
             mass_reveal_chunk_entities: 64,
             rebase_chunks_per_tick: 2,
             hash_checkpoint_interval_ticks: 120,
@@ -1320,6 +1323,10 @@ impl TeamViewProjector {
         }
         if let Some(event) = self.pending_fog_event.take() { public_events.push(event); }
         for (&id, (_, _, components)) in &self.hash_entities {
+            if let Some(state)=components.get(&crate::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID) {
+                public_events.push(TeamPublicEvent {event_kind:crate::runtime::FactKind::DisclosedCombatRelation as u32,
+                    subject:Some(ProtoReplicaEntityId {value:id}),sanitized_payload:state.clone(),stable_sub_index:0});
+            }
             if let Some(state) = components.get(&crate::runtime::channel_visual_state::SCHEMA_ID) {
                 public_events.push(TeamPublicEvent { event_kind: crate::runtime::FactKind::ChannelVisual as u32,
                     subject: Some(ProtoReplicaEntityId { value: id }), sanitized_payload: state.clone(), stable_sub_index: 0 });
@@ -1443,7 +1450,7 @@ fn project_fact(
     let target_visible = target.is_some_and(|id| visible.contains(&id));
     // Source-less impact is not a global event. Remembered/forgotten targets
     // cannot anchor it, even if an inconsistent visibility set contains them.
-    if matches!(ordered.fact, ObservableFact::ProjectileImpact { .. })
+    if matches!(ordered.fact, ObservableFact::ProjectileImpact { .. } | ObservableFact::AttackAvoided { .. } | ObservableFact::CriticalHit { .. })
         && (!target_visible || target.and_then(|id| replica_proto(identity, id)).is_none()) {
         return;
     }
@@ -1491,6 +1498,8 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
     let mut payload = Vec::new();
     match fact {
         ObservableFact::ProjectileImpact { target } => (None, Some(*target), b"HIT1".to_vec()),
+        ObservableFact::AttackAvoided { target } => (None, Some(*target), b"AVD1".to_vec()),
+        ObservableFact::CriticalHit {target}=>(None,Some(*target),b"CRT1".to_vec()),
         ObservableFact::CommittedMana { source, state } => (Some(*source), None, state.encode()),
         ObservableFact::CommittedAbilityRanks { source, ranks } => {
             for rank in ranks { payload.extend(rank.to_le_bytes()); }
@@ -1840,7 +1849,7 @@ fn pad_frame(
     for bucket in buckets
         .iter()
         .copied()
-        .filter(|size| *size >= canonical_bytes.len())
+        .filter(|size| *size >= canonical_bytes.len() && *size <= MAX_PADDED_TEAM_FRAME_BYTES)
     {
         let mut low = 0usize;
         let mut high = bucket - canonical_bytes.len();
@@ -1923,6 +1932,29 @@ mod ability_cue_projection_tests {
         }
     }
 
+    #[cfg(feature="kcp")]
+    #[tokio::test]
+    async fn authored_map_bursts_use_bounded_padding_and_round_trip_real_kcp_framing() {
+        let config=TeamProjectorConfig::default();
+        assert_eq!(config.size_buckets.last(),Some(&MAX_PADDED_TEAM_FRAME_BYTES));
+        for size in [17*1024,50*1024,MAX_PADDED_TEAM_FRAME_BYTES+1] {
+            let frame=TeamTickFrame {step:Some(Step {public_events:vec![TeamPublicEvent {
+                event_kind:1,sanitized_payload:vec![7;size],..Default::default()}],..Default::default()}),..Default::default()};
+            let result=pad_frame(frame,&config.size_buckets);
+            if size>MAX_PADDED_TEAM_FRAME_BYTES {assert!(matches!(result,Err(ProjectionError::FrameTooLarge)));continue;}
+            let padded=result.unwrap();
+            assert!(config.size_buckets.contains(&padded.wire_bytes.len()));
+            assert!(padded.wire_bytes.len()<=MAX_PADDED_TEAM_FRAME_BYTES);
+            let (mut writer,mut reader)=tokio::io::duplex(2*MAX_PADDED_TEAM_FRAME_BYTES);
+            crate::kcp::framing::write_framed(&mut writer,crate::wire_tags::TAG_TEAM_TICK_FRAME_V2,&padded.wire_bytes).await.unwrap();
+            let (tag,bytes,wire_len)=crate::kcp::framing::read_framed(&mut reader).await.unwrap().unwrap();
+            assert_eq!(tag,crate::wire_tags::TAG_TEAM_TICK_FRAME_V2);
+            assert_eq!(bytes,padded.wire_bytes);
+            assert!(wire_len<=MAX_PADDED_TEAM_FRAME_BYTES+5);
+            assert_eq!(TeamTickFrame::decode(bytes.as_slice()).unwrap(),padded.frame);
+        }
+    }
+
     #[test]
     fn buff_visual_state_projector_publishes_current_countdown_and_empty_state() {
         use crate::runtime::buff_visual_state::{BuffVisualState,SCHEMA_ID};
@@ -1944,6 +1976,27 @@ mod ability_cue_projection_tests {
             assert_eq!(events.len(),1);assert_eq!(events[0].subject.as_ref().unwrap().value,mapping.replica_id.get());
             assert_eq!(events[0].sanitized_payload,state.encode().unwrap());
         }
+    }
+
+    #[test]
+    fn public_channel_duration_remains_owner_team_only_and_clears() {
+        use crate::runtime::buff_visual_state::{BuffVisualSnapshot,BuffVisualState,SCHEMA_ID};
+        let id=omoba_template_ids::buff_by_name("recovery_channel").unwrap().raw();
+        let canonical=CanonicalEntityKey {id:7,generation:1};let source=(1u64<<32)|7;
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig::default());let mapping=projector.identity.disclose(canonical).unwrap();
+        projector.hash_entities.insert(mapping.replica_id.get(),(mapping.disclosure_epoch,0,BTreeMap::new()));
+        for (tick,remaining) in [(1,1536),(2,1024),(3,0)] {
+            let state=if remaining==0 {BuffVisualSnapshot {buffs:BuffVisualState(vec![]),channel_totals:vec![]}}
+                else {BuffVisualSnapshot {buffs:BuffVisualState(vec![(id,remaining)]),channel_totals:vec![(id,3072)]}};
+            let bytes=state.encode().unwrap();let baseline=crate::runtime::encode_disclosed_baseline(&[
+                (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(crate::runtime::DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:7})),(SCHEMA_ID,bytes.clone())]);
+            assert!(team_safe_components(&baseline,1).contains_key(&SCHEMA_ID));assert!(!team_safe_components(&baseline,2).contains_key(&SCHEMA_ID));
+            let visible=BTreeSet::from([source]);projector.refresh_expected_visible_components(tick,&visible,&BTreeMap::from([(source,baseline)]));
+            let step=projector.build_step(tick,&visible,&[],vec![],&[],&[]).unwrap();
+            let events:Vec<_>=step.public_events.iter().filter(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32).collect();assert_eq!(events.len(),1);assert_eq!(events[0].sanitized_payload,bytes);
+        }
+        projector.hash_entities.clear();let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
+        assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32));
     }
 
     #[test]
@@ -1975,6 +2028,26 @@ mod ability_cue_projection_tests {
     }
 
     #[test]
+    fn combat_relation_projector_updates_current_disclosure_only() {
+        use crate::runtime::{DisclosedCombatRelation,encode_disclosed_combat_relation,decode_disclosed_combat_relation,DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID as SCHEMA};
+        let canonical=CanonicalEntityKey{id:7,generation:1};let source=(1u64<<32)|7;
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig::default());
+        let mapping=projector.identity.disclose(canonical).unwrap();
+        projector.hash_entities.insert(mapping.replica_id.get(),(mapping.disclosure_epoch,0,BTreeMap::new()));
+        for (tick,alive,attackable) in [(1,true,false),(2,true,true),(3,false,false),(4,true,true)] {
+            let relation=DisclosedCombatRelation{faction_kind:2,team_id:2,alive,attackable};
+            let baseline=crate::runtime::encode_disclosed_baseline(&[(SCHEMA,encode_disclosed_combat_relation(relation).unwrap())]);
+            let visible=BTreeSet::from([source]);projector.refresh_expected_visible_components(tick,&visible,&BTreeMap::from([(source,baseline)]));
+            let step=projector.build_step(tick,&visible,&[],vec![],&[],&[]).unwrap();
+            let events:Vec<_>=step.public_events.iter().filter(|event|event.event_kind==crate::runtime::FactKind::DisclosedCombatRelation as u32).collect();
+            assert_eq!(events.len(),1);assert_eq!(events[0].subject.as_ref().unwrap().value,mapping.replica_id.get());
+            assert_eq!(decode_disclosed_combat_relation(&events[0].sanitized_payload),Some(relation));assert_eq!(events[0].sanitized_payload.len(),8);
+        }
+        projector.hash_entities.clear();let hidden=projector.build_step(5,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
+        assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::DisclosedCombatRelation as u32));
+    }
+
+    #[test]
     fn channel_visual_state_projector_discloses_visible_enemy_and_clears_channel() {
         use crate::runtime::channel_visual_state::{ChannelVisualState,SCHEMA_ID};
         assert!(crate::runtime::secure_replica_component_allowlist().contains(&SCHEMA_ID));
@@ -1998,6 +2071,68 @@ mod ability_cue_projection_tests {
         projector.hash_entities.clear();
         let hidden=projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap();
         assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::ChannelVisual as u32));
+    }
+
+    #[test]
+    fn critical_hit_cue_requires_visible_disclosed_target() {
+        use crate::runtime::{FactKind, FactOrderingKey, FactPhase};
+        let target = CanonicalEntityKey { id: 42, generation: 1 };
+        let canonical = (u64::from(target.generation) << 32) | u64::from(target.id);
+        let mut identity = TeamIdentityState::new(1);
+        let mapping = identity.disclose(target).unwrap();
+        let fact = OrderedFact {
+            key: FactOrderingKey {tick:17, phase:FactPhase::PostStep,
+                canonical_source_order:canonical, local_ordinal:2, fact_kind:FactKind::CriticalHit},
+            audience:FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::PROJECTILE.to_owned()),
+            fact:ObservableFact::CriticalHit {target:canonical},
+        };
+        let mut public=Vec::new(); let mut external=Vec::new();
+        let visible=BTreeSet::from([canonical]);
+        project_fact(&fact,&visible,&identity,&mut public,&mut external);
+        assert_eq!(public.len(),1);
+        assert_eq!(public[0].subject.as_ref().unwrap().value,mapping.replica_id.get());
+        assert_eq!(public[0].sanitized_payload,b"CRT1");
+        assert!(external.is_empty());
+        public.clear();
+        project_fact(&fact,&BTreeSet::new(),&identity,&mut public,&mut external);
+        assert!(public.is_empty());
+        identity.remember(target).unwrap();
+        project_fact(&fact,&visible,&identity,&mut public,&mut external);
+        assert!(public.is_empty());
+        identity.forget(target).unwrap();
+        project_fact(&fact,&visible,&identity,&mut public,&mut external);
+        assert!(public.is_empty() && external.is_empty());
+    }
+
+    #[test]
+    fn attack_avoidance_cue_requires_visible_disclosed_target() {
+        use crate::runtime::{FactKind, FactOrderingKey, FactPhase};
+        let target = CanonicalEntityKey { id: 42, generation: 1 };
+        let canonical = (u64::from(target.generation) << 32) | u64::from(target.id);
+        let mut identity = TeamIdentityState::new(1);
+        let mapping = identity.disclose(target).unwrap();
+        let fact = OrderedFact {
+            key: FactOrderingKey {tick:17, phase:FactPhase::PostStep,
+                canonical_source_order:canonical, local_ordinal:2, fact_kind:FactKind::AttackAvoided},
+            audience:FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::PROJECTILE.to_owned()),
+            fact:ObservableFact::AttackAvoided {target:canonical},
+        };
+        let mut public=Vec::new(); let mut external=Vec::new();
+        let visible=BTreeSet::from([canonical]);
+        project_fact(&fact,&visible,&identity,&mut public,&mut external);
+        assert_eq!(public.len(),1);
+        assert_eq!(public[0].subject.as_ref().unwrap().value,mapping.replica_id.get());
+        assert_eq!(public[0].sanitized_payload,b"AVD1");
+        assert!(external.is_empty());
+        public.clear();
+        project_fact(&fact,&BTreeSet::new(),&identity,&mut public,&mut external);
+        assert!(public.is_empty());
+        identity.remember(target).unwrap();
+        project_fact(&fact,&visible,&identity,&mut public,&mut external);
+        assert!(public.is_empty());
+        identity.forget(target).unwrap();
+        project_fact(&fact,&visible,&identity,&mut public,&mut external);
+        assert!(public.is_empty() && external.is_empty());
     }
 
     #[test]

@@ -34,6 +34,8 @@ pub struct StealthProfile {
 pub enum VisibilityOverrideKind {
     ForceHide,
     ForceShow,
+    /// Grants only brush concealment bypass; range, detection and LOS still apply.
+    RevealBrush,
 }
 
 #[derive(Component, Clone, Copy, Debug)]

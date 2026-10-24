@@ -70,7 +70,13 @@ fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed64 {
 pub struct BuffEntry {
     pub remaining: Fixed64,
     pub payload: Value,
+    /// Fraction of one raw damage quantum; owned by this buff lifetime.
+    periodic_remainder: i64,
+    zone_clock: i64,
 }
+
+/// Canonical persistent lifetime used by stat buffs and snapshots. Explicit removal still applies.
+pub const PERMANENT_BUFF_DURATION: Fixed64 = Fixed64::from_raw(i64::MAX);
 
 /// 以 `Entity -> buff_id` 為 key 的 O(1) buff 索引。
 /// `entities_by_key` 是 stat key → entity → 引用計數的反向索引，
@@ -109,14 +115,44 @@ impl Default for MoveSpeedSums {
 }
 
 impl BuffStore {
+    /// Canonical time-only disclosure for the closed shared modifier families.
+    /// Malformed reserved names/families cannot fall back to catalog-name lookup.
+    pub(crate) fn timed_modifier_visual(name: &str, entry: &BuffEntry) -> Result<Option<&'static str>, ()> {
+        let family = entry.payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str);
+        let kind = match family {
+            Some("item_sprint") => Some(ItemTimedModifier::Sprint),
+            Some("item_damage_reduce") => Some(ItemTimedModifier::DamageReduction),
+            _ => None,
+        };
+        let reserved = matches!(name, "movement_boost" | "damage_reduction");
+        let Some(kind) = kind else { return if reserved { Err(()) } else { Ok(None) }; };
+        let id = match kind { ItemTimedModifier::Sprint => "movement_boost", ItemTimedModifier::DamageReduction => "damage_reduction" };
+        if reserved && name != id { return Err(()); }
+        if entry.remaining <= Fixed64::ZERO || entry.remaining > Fixed64::from_i32(60)
+            || entry.payload.as_object().is_none_or(|object| object.len() != 2) { return Err(()); }
+        let raw = entry.payload.get(kind.stat().as_str()).and_then(Value::as_i64).ok_or(())?;
+        let valid = match kind {
+            ItemTimedModifier::Sprint => (1..=kind.maximum().raw()).contains(&raw),
+            ItemTimedModifier::DamageReduction => (-kind.maximum().raw()..=-1).contains(&raw),
+        };
+        if valid { Ok(Some(id)) } else { Err(()) }
+    }
+
     /// Validates before mutation and preserves the existing strongest family.
     pub fn grant_item_timed_modifier(&mut self, entity: Entity, item_id: &str,
+        kind: ItemTimedModifier, magnitude: Fixed64, duration: Fixed64) -> bool
+    {
+        self.grant_timed_modifier(entity,item_id,kind,magnitude,duration)
+    }
+
+    /// Shared source grant; historical family identities remain stable for snapshots.
+    pub fn grant_timed_modifier(&mut self, entity: Entity, source: &str,
         kind: ItemTimedModifier, magnitude: Fixed64, duration: Fixed64) -> bool
     {
         if magnitude <= Fixed64::ZERO || magnitude > kind.maximum()
             || duration <= Fixed64::ZERO || duration > Fixed64::from_i32(60) { return false; }
         let value = match kind { ItemTimedModifier::Sprint => magnitude, ItemTimedModifier::DamageReduction => -magnitude };
-        self.add(entity, &format!("{}:{}", kind.family(), item_id), duration,
+        self.add(entity, &format!("{}:{}", kind.family(), source), duration,
             serde_json::json!({kind.stat().as_str(): value.raw(), AGGREGATION_FAMILY_KEY: kind.family()}));
         true
     }
@@ -137,17 +173,28 @@ impl BuffStore {
     }
 
     pub fn shield_remaining(&self, entity: Entity) -> Fixed64 {
-        self.get(entity, "__damage_shield")
+        self.get(entity, "damage_shield")
             .and_then(|entry| entry.payload.get("shield_remaining_raw"))
             .and_then(Value::as_i64).map(Fixed64::from_raw)
             .filter(|amount| *amount > Fixed64::ZERO && *amount <= Fixed64::from_i32(1_000_000))
             .unwrap_or(Fixed64::ZERO)
     }
 
+    pub fn grant_healing_reduction(&mut self, entity:Entity, multiplier:Fixed64, duration:Fixed64)->bool {
+        if multiplier<Fixed64::ZERO || multiplier>=Fixed64::ONE
+            || duration<=Fixed64::ZERO || duration>Fixed64::from_i32(60) {return false;}
+        let current=self.get(entity,"healing_reduction").filter(|b|b.remaining>Fixed64::ZERO && b.remaining<=Fixed64::from_i32(60));
+        let factor=current.and_then(|b|b.payload.get("heal_received_multiplier")).and_then(Value::as_i64)
+            .filter(|raw|(0..1024).contains(raw)).map_or(multiplier,|raw|multiplier.min(Fixed64::from_raw(raw)));
+        let duration=current.map_or(duration,|b|duration.max(b.remaining));
+        self.add(entity,"healing_reduction",duration,serde_json::json!({"heal_received_multiplier":factor.raw(),"__aggregation_family":"healing_reduction"}));
+        true
+    }
+
     pub fn grant_damage_shield(&mut self, entity: Entity, amount: Fixed64, duration: Fixed64) -> bool {
         if amount <= Fixed64::ZERO || amount > Fixed64::from_i32(1_000_000)
             || duration <= Fixed64::ZERO || duration > Fixed64::from_i32(60) { return false; }
-        self.add(entity, "__damage_shield", duration,
+        self.add(entity, "damage_shield", duration,
             serde_json::json!({ "shield_remaining_raw": amount.max(self.shield_remaining(entity)).raw() }));
         true
     }
@@ -159,8 +206,8 @@ impl BuffStore {
         if shield == Fixed64::ZERO { return damage; }
         let absorbed = damage.min(shield);
         let remaining = shield - absorbed;
-        if remaining == Fixed64::ZERO { self.remove(entity, "__damage_shield"); }
-        else if let Some(entry) = self.buffs.get_mut(&entity).and_then(|entries| entries.get_mut("__damage_shield")) {
+        if remaining == Fixed64::ZERO { self.remove(entity, "damage_shield"); }
+        else if let Some(entry) = self.buffs.get_mut(&entity).and_then(|entries| entries.get_mut("damage_shield")) {
             entry.payload["shield_remaining_raw"] = serde_json::json!(remaining.raw());
         }
         damage - absorbed
@@ -200,6 +247,10 @@ impl BuffStore {
         let entity_buffs = self.buffs.entry(entity).or_default();
         match entity_buffs.get_mut(buff_id) {
             Some(e) => {
+                if payload.get(super::damage_zone::KEY).is_some() {
+                    e.remaining=duration;
+                    e.zone_clock=0;
+                }
                 if duration > e.remaining {
                     e.remaining = duration;
                 }
@@ -216,6 +267,9 @@ impl BuffStore {
                     _ => true,
                 };
                 if should_replace {
+                    // A reused key must never pay an old source/kind's fractional damage.
+                    if ["source_entity_id","source_entity_gen","dot_kind","damage_profile"].iter()
+                        .any(|key|e.payload.get(*key)!=payload.get(*key)) {e.periodic_remainder=0;}
                     let old_keys: Vec<String> =
                         Self::payload_keys(&e.payload).map(String::from).collect();
                     let new_keys: Vec<String> =
@@ -242,6 +296,8 @@ impl BuffStore {
                     BuffEntry {
                         remaining: duration,
                         payload,
+                        periodic_remainder: 0,
+                        zone_clock: 0,
                     },
                 );
                 for k in &new_keys {
@@ -487,22 +543,93 @@ impl BuffStore {
         self.has(entity, BuffId::Silence.as_str()) || self.has(entity, BuffId::Stun.as_str())
     }
 
+    /// Explicit supported control effects only; unrelated buffs retain payload,
+    /// lifetime and integration clocks. Normal removal maintains reverse indexes.
+    pub fn cleanse_controls(&mut self, entity: Entity) {
+        for id in [BuffId::Stun, BuffId::Root, BuffId::Silence] {
+            self.remove(entity, id.as_str());
+        }
+    }
+
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
     /// 呼叫端可依 payload 內容決定是否廣播（例：payload 含 move_speed_bonus
     /// 表示這是移速影響類 buff，要發 creep/S 還原訊息）。
     /// 階段 1c.3：dt 為固定 64 秒。
+    /// Integrate BEFORE tick retires entries. Stable ordering is independent of HashMap seed.
+    pub fn drain_periodic_damage(&mut self, dt: Fixed64) -> Vec<super::periodic_damage::PeriodicDamageTick> {
+        use super::periodic_damage::{PeriodicDamageSpec,PeriodicDamageTick};
+        if dt<=Fixed64::ZERO {return Vec::new();}
+        let mut entities:Vec<_>=self.entities_with_key("dot_damage").collect();
+        entities.sort_by_key(|e|(e.id(),e.gen().id()));
+        let mut result=Vec::new();
+        for target in entities {
+            let Some(entries)=self.buffs.get_mut(&target) else {continue;};
+            let mut keys:Vec<_>=entries.keys().cloned().collect();keys.sort();
+            for key in keys {
+                let entry=entries.get_mut(&key).unwrap();
+                let Some(spec)=PeriodicDamageSpec::from_payload(&entry.payload) else {continue;};
+                let elapsed=dt.min(entry.remaining).max(Fixed64::ZERO);
+                let numerator=i128::from(spec.rate.raw())*i128::from(elapsed.raw())+i128::from(entry.periodic_remainder);
+                let Ok(raw)=i64::try_from(numerator/1024) else {continue;};
+                entry.periodic_remainder=(numerator%1024) as i64;
+                if raw>0 {result.push(PeriodicDamageTick{target,spec,amount:Fixed64::from_raw(raw)});}
+            }
+        }
+        result
+    }
+
+    /// Sample pulses before lifetime expiry; only indexed zone owners are visited.
+    pub fn cancel_damage_zones(&mut self,source:Entity) {
+        let keys:Vec<_>=self.buffs.get(&source).into_iter().flat_map(|entries|entries.iter())
+            .filter(|(_,entry)|entry.payload.get(super::damage_zone::KEY).is_some()).map(|(key,_)|key.clone()).collect();
+        for key in keys {self.remove(source,&key);}
+    }
+
+    /// Sample pulses before lifetime expiry; only indexed zone owners are visited.
+    pub fn drain_damage_zones(&mut self,dt:Fixed64)->Vec<super::damage_zone::DamageZonePulse> {
+        use super::damage_zone::{DamageZoneSpec,DamageZonePulse,KEY};
+        if dt<=Fixed64::ZERO {return Vec::new();}
+        let mut owners:Vec<_>=self.entities_with_key(KEY).collect();owners.sort_by_key(|e|(e.id(),e.gen().id()));
+        let mut pulses=Vec::new();
+        for source in owners {
+            let Some(entries)=self.buffs.get_mut(&source)else{continue;};
+            let mut keys:Vec<_>=entries.keys().cloned().collect();keys.sort();
+            for key in keys {
+                let entry=entries.get_mut(&key).unwrap();
+                let Some(spec)=DamageZoneSpec::from_payload(&entry.payload)else{continue;};
+                if entry.remaining<=Fixed64::ZERO || entry.remaining>Fixed64::from_i32(30) {continue;}
+                let active=dt.min(entry.remaining).raw();
+                let previous=entry.zone_clock;
+                let clock=previous+active;
+                entry.zone_clock=clock%spec.interval.raw();
+                for ordinal in 1..=clock/spec.interval.raw() {
+                    let due=ordinal*spec.interval.raw()-previous;
+                    pulses.push((due,source.id(),source.gen().id(),key.clone(),
+                        DamageZonePulse {source,spec,due_offset:Fixed64::from_raw(due)}));
+                }
+            }
+        }
+        // A later low-ID source must not consume shields or take first-lethal
+        // credit ahead of an earlier high-ID pulse in the same simulation tick.
+        pulses.sort_by(|a,b|(a.0,a.1,a.2,&a.3).cmp(&(b.0,b.1,b.2,&b.3)));
+        pulses.into_iter().map(|(_,_,_,_,pulse)|pulse).collect()
+    }
+
     pub fn tick(&mut self, dt: Fixed64) -> Vec<(Entity, String, Value)> {
+        if dt<=Fixed64::ZERO {return Vec::new();}
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
         let mut to_drop: Vec<(Entity, String)> = Vec::new();
         for (e, entity_buffs) in self.buffs.iter_mut() {
             for (id, v) in entity_buffs.iter_mut() {
+                if v.remaining==PERMANENT_BUFF_DURATION {continue;}
                 v.remaining -= dt;
                 if v.remaining <= Fixed64::ZERO {
                     to_drop.push((*e, id.clone()));
                 }
             }
         }
+        to_drop.sort_by(|(a,ak),(b,bk)|(a.id(),a.gen().id(),ak).cmp(&(b.id(),b.gen().id(),bk)));
         for (e, id) in to_drop {
             if let Some(entry) = self.remove_entry(e, &id) {
                 expired.push((e, id, entry.payload));
@@ -539,6 +666,34 @@ fn move_speed_sum_slot<'a>(sums: &'a mut MoveSpeedSums, key: &str) -> Option<&'a
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn public_damage_shield_metadata_tracks_absorption_regrant_and_expiry() {
+        let entity=ent(1,1);let mut buffs=BuffStore::default();
+        assert!(omoba_template_ids::buff_by_name("damage_shield").is_some());
+        assert!(buffs.grant_damage_shield(entity,Fixed64::from_i32(100),Fixed64::from_i32(3)));
+        assert_eq!(buffs.get(entity,"damage_shield").unwrap().payload["shield_remaining_raw"],102400);
+        assert_eq!(buffs.absorb_damage_with_shield(entity,Fixed64::from_i32(40)),Fixed64::ZERO);
+        assert_eq!(buffs.get(entity,"damage_shield").unwrap().payload["shield_remaining_raw"],61440);
+        assert!(buffs.grant_damage_shield(entity,Fixed64::from_i32(20),Fixed64::from_i32(2)));
+        assert_eq!(buffs.shield_remaining(entity),Fixed64::from_i32(60));
+        assert_eq!(buffs.absorb_damage_with_shield(entity,Fixed64::from_i32(70)),Fixed64::from_i32(10));
+        assert!(!buffs.has(entity,"damage_shield"));
+        buffs.grant_damage_shield(entity,Fixed64::from_i32(20),Fixed64::from_i32(1));
+        buffs.tick(Fixed64::from_i32(1));assert!(!buffs.has(entity,"damage_shield"));
+    }
+
+    #[test]
+    fn canonical_permanent_lifetime_never_ticks_down_and_explicit_removal_works() {
+        let entity=ent(1,1);
+        let mut buffs=BuffStore::default();
+        buffs.add(entity,"forever",PERMANENT_BUFF_DURATION,serde_json::json!({"physical_armor_bonus":1024}));
+        buffs.add(entity,"finite",Fixed64::from_i32(1),serde_json::json!({}));
+        assert_eq!(buffs.tick(Fixed64::from_i32(2)).len(),1);
+        for _ in 0..10 {assert!(buffs.tick(Fixed64::from_raw(i64::MAX/2)).is_empty());}
+        assert_eq!(buffs.iter_for(entity).next().unwrap().1.remaining,PERMANENT_BUFF_DURATION);
+        assert_eq!(crate::runtime::buff_remaining_secs_for_snapshot(PERMANENT_BUFF_DURATION),-1.0);
+        buffs.remove(entity,"forever");assert!(!buffs.has(entity,"forever"));
+    }
     use super::*;
     use serde_json::json;
     use specs::world::Generation;

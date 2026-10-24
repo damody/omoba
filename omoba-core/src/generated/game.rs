@@ -2119,6 +2119,20 @@ pub struct AbilityHudPresentation {
     pub cooldown_raw: i64,
     #[prost(sint64, tag = "5")]
     pub total_cooldown_raw: i64,
+    #[prost(message, optional, tag = "6")]
+    pub cast: ::core::option::Option<AbilityCastPresentation>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct AbilityCastPresentation {
+    /// 1 preparing, 2 canceled, 3 released
+    #[prost(uint32, tag = "1")]
+    pub state: u32,
+    #[prost(sint64, tag = "2")]
+    pub remaining_raw: i64,
+    #[prost(sint64, tag = "3")]
+    pub total_raw: i64,
+    #[prost(uint64, tag = "4")]
+    pub instance: u64,
 }
 /// Owner summoner row. Independent of the live hero so a dead or absent hero
 /// keeps admitted equipment. Catalog id 0 is canonical unavailable. Shape,
@@ -2238,6 +2252,34 @@ pub struct MobaHudPresentation {
     pub summoner_slot0: ::core::option::Option<SummonerHudPresentation>,
     #[prost(message, optional, tag = "15")]
     pub summoner_slot1: ::core::option::Option<SummonerHudPresentation>,
+    /// current authority notice, absent when expired
+    #[prost(message, optional, tag = "16")]
+    pub first_kill: ::core::option::Option<FirstKillPresentation>,
+    /// current public milestone; absent clears it
+    #[prost(message, optional, tag = "17")]
+    pub objective_notice: ::core::option::Option<ObjectiveNoticePresentation>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct ObjectiveNoticePresentation {
+    #[prost(uint32, tag = "1")]
+    pub team_id: u32,
+    /// 1 lane tower, 2 inhibitor, 3 nexus tower, 4 epic root
+    #[prost(uint32, tag = "2")]
+    pub kind: u32,
+    #[prost(uint64, tag = "3")]
+    pub sequence: u64,
+    /// positive Q10, <=4 seconds; authority clock
+    #[prost(sint64, tag = "4")]
+    pub remaining_raw: i64,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct FirstKillPresentation {
+    #[prost(uint32, tag = "1")]
+    pub killer_player_id: u32,
+    #[prost(uint32, tag = "2")]
+    pub victim_player_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub bonus_gold: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ScoreboardPresentation {
@@ -2259,6 +2301,9 @@ pub struct ScoreboardRowPresentation {
     pub deaths: u32,
     #[prost(uint32, tag = "5")]
     pub assists: u32,
+    /// public extra kill gold; absent legacy row is zero
+    #[prost(uint32, tag = "6")]
+    pub shutdown_bounty_gold: u32,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct OwnerScorePresentation {

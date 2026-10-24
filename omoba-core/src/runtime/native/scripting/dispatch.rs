@@ -62,7 +62,7 @@ fn resolve_cast_rank(
     Ok((rank, if known { u32::from(rank) } else { 0 }))
 }
 
-fn publish_successful_cast_facts(world: &World, visuals: &mut [ScriptVisualEvent]) {
+pub(crate) fn publish_successful_cast_facts(world: &World, visuals: &mut [ScriptVisualEvent]) {
     if !visuals.iter().any(|event| matches!(event.kind, ScriptVisualEventKind::SkillCast | ScriptVisualEventKind::SkillArea)) {
         return;
     }
@@ -112,12 +112,19 @@ pub fn run_script_dispatch(
             .collect()
     };
 
+    let mut windups=world.remove::<super::super::cast_windup::AbilityWindups>().unwrap_or_default();
+    let releases=windups.advance(world,dt);
     let events = {
         let mut queue = world.write_resource::<ScriptEventQueue>();
         queue.drain()
     };
 
-    if tagged.is_empty() && events.is_empty() {
+    let requested_casts:std::collections::BTreeSet<_>=events.iter().filter_map(|event|match event {
+        ScriptEvent::SkillCast {caster,..}=>Some(*caster),_=>None,
+    }).collect();
+    let events:Vec<_>=events.into_iter().map(|event|(event,false))
+        .chain(releases.into_iter().map(|event|(event,true))).collect();
+    if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty() {
         return;
     }
 
@@ -155,16 +162,26 @@ pub fn run_script_dispatch(
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let mut event_outcomes = Vec::new();
         let mut visual_events = Vec::new();
+        let mut targeted_aggression = Vec::new();
         // Only serial queue order may advance managed mana/CD state. Never use
         // parallel hook scheduling or the immutable ECS cache as a balance ledger.
-        for (event_ordinal, mut ev) in events.into_iter().enumerate() {
+        for (event_ordinal, (mut ev,releasing)) in events.into_iter().enumerate() {
             // Registry target type is the cast contract. Client input can attach a
             // point, including the origin, or a stale entity before this queue is
             // drained. Drop that payload only for TargetType::None, and do it
             // before rank admission, mana reservation, cues, unit hooks, or ABI.
             normalize_authoritative_no_target(&mut ev, registry);
             let invocation_entity = event_invocation_entity(&ev);
+            if releasing {windups.result(invocation_entity,false);}
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
+            if is_cast && enforce_learned_ranks {
+                if world.read_resource::<crate::comp::GamePause>().is_paused {continue;}
+                if world.read_resource::<crate::runtime::MobaMatch>().phase!=crate::runtime::MobaMatchPhase::Playing {continue;}
+                if let ScriptEvent::SkillCast {caster,..}=&ev {
+                    if releasing && requested_casts.contains(caster) {continue;}
+                    if windups.0.contains_key(caster) {continue;}
+                }
+            }
             // Capture before handler mutation, from the same serial ledger as
             // gameplay admission. Never sample a later HUD/snapshot level.
             let (cast_level, cast_rank) = match &ev {
@@ -180,10 +197,43 @@ pub fn run_script_dispatch(
                 },
                 _ => (None, 0),
             };
-            let reservation = match prepare_mana_cast(&cache, registry, &ev, cast_level, &mut cast_heroes) {
+            let cooldown = match prepare_cast_cooldown(&cache, registry, &ev, cast_level) {
                 Ok(value) => value,
                 Err(()) => continue,
             };
+            let reservation = match prepare_mana_cast(&cache, registry, &ev, cast_level, cooldown, &mut cast_heroes) {
+                Ok(value) => value,
+                Err(()) => continue,
+            };
+            let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
+            let expected_mana = cast_heroes.get(&invocation_entity).or_else(||cache.hero.get(invocation_entity))
+                .and_then(|hero|hero.mana_pool.clone());
+            let managed_cast = reservation.is_some();
+            if enforce_learned_ranks {
+                if let ScriptEvent::SkillCast {caster,skill_id,target}=&ev {
+                    let Some((def,_))=registry.get_ability(skill_id) else {continue;};
+                    let Some(level)=cast_level.and_then(|rank|def.get_level_data(rank)) else {continue;};
+                    if !level.cast_time.is_finite() || !(0.0..=60.0).contains(&level.cast_time) {continue;}
+                    if level.cast_time>0.0 {
+                        if cache.buffs.is_silenced(*caster) || !cache.entities.is_alive(*caster)
+                            || cache.cprop.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO) {continue;}
+                        let Some(origin)=cache.pos.get(*caster).map(|p|p.0) else {continue;};
+                        if !windup_target_allowed(&cache,def,level,target,origin) {continue;}
+                        if !releasing {
+                            let base=Fixed64::from_raw((f64::from(level.cast_time)*1024.0).round().max(1.0) as i64);
+                            let Some(duration)=crate::runtime::ability_runtime::UnitStats::from_refs(
+                                &cache.buffs,cache.is_building.get(*caster).is_some()).checked_cast_time(base,*caster)
+                                else {continue;};
+                            windups.start(*caster,super::super::cast_windup::Windup {
+                                skill_id:skill_id.clone(),target:target.clone(),origin,
+                                remaining:duration,
+                                rank:cast_level.unwrap(),interrupt_on_damage:level.cast_interrupt_on_damage,last_tick:cache.tick.0,
+                            });
+                            continue;
+                        }
+                    }
+                }
+            }
             let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(
                 &cache,
                 invocation_entity,
@@ -199,7 +249,14 @@ pub fn run_script_dispatch(
                 adapter.stage_mana_spent(*caster,previous-pool.current(),skill_id.clone());
                 adapter.stage_mana_pool(*caster,pool);
             }
-            dispatch_one(&mut adapter, registry, ev, cast_level, rng_seed, &mut visual_events);
+            let targeted = match &ev {
+                ScriptEvent::SkillCast { caster, skill_id, target: SkillTarget::Entity(target) }
+                    if registry.get_ability(skill_id).is_some_and(|(definition, _)|
+                        definition.target_type == crate::ability_meta::TargetType::Unit) => Some((*caster, *target)),
+                _ => None,
+            };
+            dispatch_one(&mut adapter, registry, ev, cast_level, cooldown, rng_seed, &mut visual_events);
+            if releasing {windups.result(invocation_entity,adapter.cast_succeeded());}
             // SkillCast is provisional until the actual handler succeeds.
             // This gate applies to legacy casts too, not only managed Mana.
             // Keep earlier events in the batch; never publish a rejected cast.
@@ -237,14 +294,34 @@ pub fn run_script_dispatch(
                     visual_events.truncate(visual_checkpoint);
                 }
             } else if adapter.hook_panicked()
-                || (is_cast && adapter.has_mana_changes() && !adapter.cast_succeeded()) {
+                || (is_cast && !adapter.cast_succeeded()) {
                 adapter.discard_cast();
                 visual_events.truncate(visual_checkpoint);
             }
             commit_script_mana(&mut adapter,&cache,&mut cast_heroes);
-            event_outcomes.extend(adapter.finish());
+            let cast_ok = adapter.cast_succeeded();
+            let produced = adapter.finish();
+            let has_summons = produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::SpawnSummoned {..}));
+            if is_cast && cast_ok && (managed_cast || has_summons) {
+                let cues = visual_events.drain(visual_checkpoint..).map(|event|crate::runtime::native::comp::outcome::CastSettlementCue {
+                    target:event.secondary,skill_id:event.skill_id,rank:event.ability_rank,tick:event.first_tick,
+                    relocation:event.caster_relocation,area:event.ability_area,
+                }).collect();
+                event_outcomes.push(crate::comp::Outcome::ScriptCastTransaction {
+                    caster:invocation_entity,skill_id:settlement_skill.expect("cast skill"),rank:cast_rank,
+                    faction:cache.faction.get(invocation_entity).cloned(),
+                    player_owner:cache.player_owner.get(invocation_entity).map(|owner|owner.player_id),
+                    expected_mana,outcomes:produced,cues,aggression_target:targeted.map(|(_,target)|target),
+                });
+            } else {
+                if is_cast && cast_ok {if let Some(pair)=targeted {targeted_aggression.push(pair);}}
+                event_outcomes.extend(produced);
+            }
         }
         drop(cache);
+        for (attacker, victim) in targeted_aggression {
+            crate::runtime::native::moba_match::record_moba_champion_aggression(world, attacker, victim, true);
+        }
         publish_successful_cast_facts(world, &mut visual_events);
         if !event_outcomes.is_empty() {
             world
@@ -257,6 +334,7 @@ pub fn run_script_dispatch(
                 .extend(visual_events);
         }
     }
+    if !windups.0.is_empty() || !windups.1.is_empty() {world.insert(windups);}
     let event_ns = event_t.elapsed().as_nanos();
     drop(event_span);
 
@@ -283,24 +361,34 @@ pub fn run_script_dispatch(
             // snapshots. Managed batches use the canonical sorted hook order.
             tagged.iter().enumerate().map(|(ordinal,(ent,uid))|
                 dispatch_tick(&cache,registry,*ent,uid,dt,event_count as u64+ordinal as u64,
-                    rng_seed,Some(&mut cast_heroes))).collect()
+                    rng_seed,Some(&mut cast_heroes),true)).collect()
         } else {
             // Dispatcher::dispatch has already returned. A bare par_iter would
             // use the process-global pool. Harnesses with no world pool keep
             // that previous context; production worlds install OwnedEcsPool.
             let parallel = || tagged.par_iter().enumerate().map(|(ordinal,(ent,uid))|
                 dispatch_tick(&cache,registry,*ent,uid,dt,event_count as u64+ordinal as u64,
-                    rng_seed,None)).collect::<Vec<_>>();
+                    rng_seed,None,false)).collect::<Vec<_>>();
             match owned_pool.as_ref() {
                 Some(pool) => pool.install(parallel),
                 None => parallel(),
             }
         };
+        // Allocation order must not depend on Rayon scheduling. Only hooks that
+        // requested a spawn are replayed, in the canonical tagged order, after
+        // every speculative hook has completed. Speculative outcomes are dropped.
+        let results: Vec<_> = results.into_iter().enumerate().map(|(ordinal, result)| {
+            if result.as_ref().is_some_and(|r| r.4) {
+                let (entity, uid) = &tagged[ordinal];
+                dispatch_tick(&cache,registry,*entity,uid,dt,event_count as u64+ordinal as u64,
+                    rng_seed,None,true)
+            } else {result}
+        }).collect();
         drop(cache);
         let mut global_outcomes = world.write_resource::<Vec<crate::comp::Outcome>>();
         let mut tick_visuals = Vec::new();
         for result in results {
-            if let Some((uid, ns, mut outcomes, visual)) = result {
+            if let Some((uid, ns, mut outcomes, visual, _)) = result {
                 deferred_outcome_count += outcomes.len();
                 global_outcomes.append(&mut outcomes);
                 on_tick_timings.push((uid, ns));
@@ -349,12 +437,13 @@ fn commit_script_mana(adapter:&mut ParallelWorldAdapter<'_>,cache:&ParallelAdapt
 }
 
 fn dispatch_tick(cache:&ParallelAdapterCache<'_>,registry:&ScriptRegistry,entity:Entity,uid:&str,
-    dt:Fixed64,ordinal:u64,tick:u64,mut ledger:Option<&mut HashMap<Entity,crate::comp::Hero>>)
-    -> Option<(String,u128,Vec<crate::comp::Outcome>,ScriptVisualEvent)> {
+    dt:Fixed64,ordinal:u64,tick:u64,mut ledger:Option<&mut HashMap<Entity,crate::comp::Hero>>,allocation_allowed:bool)
+    -> Option<(String,u128,Vec<crate::comp::Outcome>,ScriptVisualEvent,bool)> {
     let script=registry.get(uid)?;
     let handle=ParallelWorldAdapter::entity_to_handle(entity);
     let start=Instant::now();
     let mut adapter=ParallelWorldAdapter::new_with_random_ordinal(cache,entity,ordinal);
+    adapter.allocation_allowed=allocation_allowed;
     if let Some(ledger)=ledger.as_deref() {adapter.begin_mana_transaction(ledger);}
     let mut cooldown_adapter=ParallelTowerCooldownAccess::new(cache);
     let mut world_dyn=world_dyn_of(&mut adapter);
@@ -363,13 +452,15 @@ fn dispatch_tick(cache:&ParallelAdapterCache<'_>,registry:&ScriptRegistry,entity
     drop(cooldown_dyn);drop(world_dyn);
     if result.is_err() {
         log::error!("[scripting] panic in on_tower_tick of {}",uid);
-        if ledger.is_some() {return Some((uid.into(),start.elapsed().as_nanos(),Vec::new(),
-            ScriptVisualEvent::new(ScriptVisualEventKind::Tick,entity,tick)));}
+        adapter.discard_cast();
+        return Some((uid.into(),start.elapsed().as_nanos(),Vec::new(),
+            ScriptVisualEvent::new(ScriptVisualEventKind::Tick,entity,tick),false));
     }
     if let Some(ledger)=ledger.as_deref_mut() {commit_script_mana(&mut adapter,cache,ledger);}
+    let replay=adapter.allocation_requested && !allocation_allowed;
     let mut outcomes=adapter.finish();outcomes.extend(cooldown_adapter.finish());
     Some((uid.into(),start.elapsed().as_nanos(),outcomes,
-        ScriptVisualEvent::new(ScriptVisualEventKind::Tick,entity,tick)))
+        ScriptVisualEvent::new(ScriptVisualEventKind::Tick,entity,tick),replay))
 }
 
 fn filter_ready_on_ticks(
@@ -382,10 +473,16 @@ fn filter_ready_on_ticks(
     let towers = world.read_storage::<Tower>();
     let buildings = world.read_storage::<IsBuilding>();
     let buffs = world.read_resource::<crate::runtime::BuffStore>();
+    let summons = world.read_storage::<crate::comp::SummonedUnit>();
+    let moves = world.read_storage::<crate::comp::MoveTarget>();
     let mut attacks = world.write_storage::<TAttack>();
     tagged
         .into_iter()
         .filter(|(ent, uid)| {
+            if summons.get(*ent).is_some_and(|summon|summon.is_expired() || moves.get(*ent).is_some()
+                || buffs.is_stunned(*ent)) {
+                return false;
+            }
             if towers.get(*ent).is_none() || uid == "tower_ice" {
                 return true;
             }
@@ -611,11 +708,26 @@ fn normalize_authoritative_no_target(event: &mut ScriptEvent, registry: &ScriptR
     }
 }
 
-/// Reserve against the ordered event ledger without mutating ECS. The candidate
-/// state is committed only after the handler succeeds; rejected casts leave no debit.
-fn prepare_mana_cast(
+/// Resolve once before hooks so ledger admission and emitted settlement agree.
+fn prepare_cast_cooldown(
     cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, event: &ScriptEvent,
     cast_level: Option<u8>,
+) -> Result<Option<Fixed64>, ()> {
+    let ScriptEvent::SkillCast { caster, skill_id, .. } = event else { return Ok(None); };
+    let (definition, _) = registry.get_ability(skill_id).ok_or(())?;
+    let data = definition.get_level_data(cast_level.ok_or(())?).ok_or(())?;
+    if !data.cooldown.is_finite() || !(0.0..=1_000_000.0).contains(&data.cooldown) { return Err(()); }
+    let raw = (f64::from(data.cooldown) * 1024.0) as i64;
+    let base = Fixed64::from_raw(if data.cooldown > 0.0 { raw.max(1) } else { 0 });
+    crate::runtime::ability_runtime::UnitStats::from_refs(
+        &cache.buffs, cache.is_building.get(*caster).is_some()).checked_cooldown(base, *caster)
+        .map(Some).ok_or(())
+}
+
+/// Reserve without mutating ECS; only successful handlers commit the candidate.
+fn prepare_mana_cast(
+    cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, event: &ScriptEvent,
+    cast_level: Option<u8>, cooldown: Option<Fixed64>,
     ledger: &mut HashMap<Entity, crate::comp::Hero>,
 ) -> Result<Option<(Entity, crate::comp::Hero)>, ()> {
     let ScriptEvent::SkillCast { caster, skill_id, .. } = event else { return Ok(None); };
@@ -630,16 +742,41 @@ fn prepare_mana_cast(
     let (definition, _) = registry.get_ability(skill_id).ok_or(())?;
     if definition.ability_type == AbilityType::Passive { return Err(()); }
     let data = definition.get_level_data(rank).ok_or(())?;
-    if !data.cooldown.is_finite() || !(0.0..=1_000_000.0).contains(&data.cooldown)
-    { return Err(()); }
     let multiplier = crate::runtime::ability_runtime::UnitStats::from_refs(
-        &cache.buffs, cache.is_building.get(*caster).is_some()).mana_cost_mult(*caster);
+        &cache.buffs, cache.is_building.get(*caster).is_some()).checked_mana_cost_mult(*caster).ok_or(())?;
     let adjusted = crate::runtime::ability_runtime::checked_mana_cost(data.mana_cost, multiplier)
         .map_err(|_| ())?;
     let mut next = hero.clone();
     next.mana_pool.as_mut().ok_or(())?.spend(adjusted).map_err(|_| ())?;
-    next.start_cooldown(skill_id, Fixed64::from_raw((data.cooldown * 1024.0) as i64));
+    next.start_cooldown(skill_id, cooldown.ok_or(())?);
     Ok(Some((*caster, next)))
+}
+
+fn windup_target_allowed(cache:&ParallelAdapterCache<'_>,def:&crate::ability_meta::AbilityDef,
+    level:&crate::ability_meta::AbilityLevelData,target:&SkillTarget,origin:Vec2)->bool {
+    use crate::ability_meta::TargetType;
+    let position=match (&def.target_type,target) {
+        (TargetType::None,SkillTarget::None)=>return true,
+        (TargetType::Point,SkillTarget::Point {x,y})=>Some(Vec2::new(*x,*y)),
+        (TargetType::Unit,SkillTarget::Entity(entity)) if cache.entities.is_alive(*entity)
+            && cache.cprop.get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO)=>cache.pos.get(*entity).map(|p|p.0),
+        _=>None,
+    };
+    position.is_some_and(|point|level.range.is_finite() && level.range>=0.0
+        && (level.range==0.0 || (point-origin).length()<=Fixed64::from_raw((f64::from(level.range)*1024.0) as i64)))
+}
+
+fn dispatch_passive_attack_hit(adapter:&mut ParallelWorldAdapter<'_>,registry:&ScriptRegistry,attacker:Entity,victim:Entity) {
+    let attacker_handle=ParallelWorldAdapter::entity_to_handle(attacker);
+    let victim_handle=ParallelWorldAdapter::entity_to_handle(victim);
+    for (id,rank) in adapter.source_ability_levels(attacker) {
+        let Some((definition,script))=registry.get_ability(&id) else{continue;};
+        if definition.ability_type!=AbilityType::Passive || u32::from(rank)>u32::from(definition.max_level) {continue;}
+        let mut world_dyn=world_dyn_of(adapter);
+        if catch_unwind(AssertUnwindSafe(||script.on_attack_hit(attacker_handle,attacker_handle,victim_handle,rank,&mut world_dyn))).is_err() {
+            log::error!("[scripting] panic in passive on-hit {}",id);
+        }
+    }
 }
 
 fn dispatch_one(
@@ -647,6 +784,7 @@ fn dispatch_one(
     registry: &ScriptRegistry,
     ev: ScriptEvent,
     cast_level: Option<u8>,
+    cooldown: Option<Fixed64>,
     tick: u64,
     visual_events: &mut Vec<ScriptVisualEvent>,
 ) {
@@ -831,7 +969,6 @@ fn dispatch_one(
                     .as_ref()
                     .and_then(|ld| serde_json::to_string(ld).ok())
                     .unwrap_or_else(|| "{}".to_string());
-                let cd_seconds = level_data.as_ref().map(|ld| ld.cooldown).unwrap_or(0.0);
 
                 let exec_ok = {
                     let mut world_dyn = world_dyn_of(adapter);
@@ -863,11 +1000,11 @@ fn dispatch_one(
 
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
                 if exec_ok { adapter.mark_cast_succeeded(); }
-                if exec_ok && cd_seconds > 0.0 {
+                if exec_ok && cooldown.is_some_and(|duration| duration > Fixed64::ZERO) {
                     adapter.start_cooldown(
                         caster,
                         skill_id.clone(),
-                        Fixed64::from_raw((cd_seconds * 1024.0) as i64),
+                        cooldown.expect("SkillCast cooldown resolved before handlers"),
                     );
                 }
             } else {
@@ -906,48 +1043,7 @@ fn dispatch_one(
                 script.on_attack_hit(handle, victim_handle, world_dyn);
             });
 
-            // 2) 若 attacker 是 Hero，輪詢已學的 Passive ability 並呼 on_attack_hit。
-            //    先 snapshot passive ids + levels 避免 dispatch 中借用 hero storage 與 world_dyn 衝突。
-            let passive_calls: Vec<(String, u8)> = match adapter.cache.hero.get(attacker) {
-                Some(hero) => hero
-                    .ability_levels
-                    .iter()
-                    .filter(|(_, lv)| **lv > 0)
-                    .filter_map(|(ability_id, lv)| {
-                        registry.get_ability(ability_id).and_then(|(def, _)| {
-                            if def.ability_type == AbilityType::Passive {
-                                Some((ability_id.clone(), (*lv).max(1) as u8))
-                            } else {
-                                None
-                            }
-                        })
-                    })
-                    .collect(),
-                None => Vec::new(),
-            };
-            if !passive_calls.is_empty() {
-                let attacker_handle = ParallelWorldAdapter::entity_to_handle(attacker);
-                for (ability_id, lv) in passive_calls {
-                    if let Some((_, ability_script)) = registry.get_ability(&ability_id) {
-                        let mut world_dyn = world_dyn_of(adapter);
-                        let r = catch_unwind(AssertUnwindSafe(|| {
-                            ability_script.on_attack_hit(
-                                attacker_handle,
-                                attacker_handle,
-                                victim_handle,
-                                lv,
-                                &mut world_dyn,
-                            );
-                        }));
-                        if r.is_err() {
-                            log::error!(
-                                "[scripting] panic in passive AbilityScript::on_attack_hit of {}",
-                                ability_id
-                            );
-                        }
-                    }
-                }
-            }
+            dispatch_passive_attack_hit(adapter,registry,attacker,victim);
         }
 
         ScriptEvent::ProjectileHit {
@@ -955,6 +1051,7 @@ fn dispatch_one(
             victim,
             kind_id,
             generation,
+            origin,
         } => {
             let victim_handle = ParallelWorldAdapter::entity_to_handle(victim);
             let context = ProjectileHitContext {
@@ -962,12 +1059,16 @@ fn dispatch_one(
                 generation,
             };
             adapter.set_projectile_hit_generation(generation);
+            adapter.set_projectile_origin(origin.clone());
             let cache = adapter.cache;
-            let query_adapter = ParallelProjectileQuery::new(cache);
+            let query_adapter = ParallelProjectileQuery::with_origin(cache, origin.as_ref());
             let query_dyn = ProjectileQuery_TO::from_ptr(RRef::new(&query_adapter), TD_Opaque);
             with_script(adapter, registry, attacker, |script, handle, world_dyn| {
                 script.on_projectile_hit(handle, victim_handle, context, &query_dyn, world_dyn);
             });
+            if origin.as_ref().is_some_and(|origin|origin.source==attacker&&origin.normal_attack) {
+                dispatch_passive_attack_hit(adapter,registry,attacker,victim);
+            }
         }
 
         ScriptEvent::Respawn { e } => {
@@ -1131,7 +1232,7 @@ fn with_script<F>(
         &mut GameWorldDyn<'_>,
     ),
 {
-    let Some(uid) = script_id_of(&adapter.cache, entity) else {
+    let Some(uid) = adapter.projectile_script_id(entity).or_else(||script_id_of(&adapter.cache, entity)) else {
         return;
     };
     let Some(script) = registry.get(&uid) else {

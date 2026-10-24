@@ -10,10 +10,13 @@ pub struct ProjectileRead<'a> {
     entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     tick: Read<'a, Tick>,
+    master_seed: Read<'a, MasterSeed>,
+    buffs: Read<'a, crate::runtime::BuffStore>,
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     searcher: Read<'a, Searcher>,
     creeps: ReadStorage<'a, Creep>,
     towers: ReadStorage<'a, Tower>,
+    origins: Option<Read<'a, ProjectileOrigins>>,
 }
 
 #[derive(SystemData)]
@@ -129,7 +132,7 @@ impl<'a> System<'a> for Sys {
                                 ent: e.clone(),
                             });
                             emit_projectile_removal(&tr, e, proj);
-                            return (e, outcomes);
+                            return (e, attribute_projectile_damage(outcomes,tr.origins.as_ref().and_then(|origins|origins.0.get(&e))));
                         }
                     }
 
@@ -174,15 +177,24 @@ impl<'a> System<'a> for Sys {
                                 duration: Fixed64::from_raw(512), // 0.5 s (raw 512 / SCALE 1024)
                             });
                         } else if let Some(target) = proj.target {
-                            // 單體攻擊
-                            create_projectile_damage(
+                            // Only authority-classified primary attacks opt in. Sample
+                            // exact current target modifiers before any hit/CC hook.
+                            let normal=tr.origins.as_ref().and_then(|origins|origins.0.get(&e))
+                                .is_some_and(|origin|(origin.normal_attack||origin.script_attack)&&origin.source==proj.owner);
+                            let missed=tr.origins.as_ref().and_then(|origins|origins.0.get(&e)).is_some_and(|o|o.source==proj.owner&&o.attack_missed);
+                            let evaded=missed||(normal&&super::super::attack_accuracy::target_evades(
+                                tr.master_seed.0,tr.tick.0 as u32,target,
+                                crate::runtime::UnitStats::from_refs(&tr.buffs,false).evasion_chance(target)));
+                            if evaded {
+                                if target_positions.contains_key(&target) {emit_attack_avoided(&tr,e,target);}
+                            } else {create_projectile_damage(
                                 &proj,
                                 target,
                                 &mut outcomes,
                                 hit_pos,
                                 &tr.towers,
                                 &tr.creeps,
-                            );
+                            );}
                         }
                         // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失
                         outcomes.push(Outcome::Death {
@@ -224,7 +236,7 @@ impl<'a> System<'a> for Sys {
                             emit_projectile_removal(&tr, e, proj);
                         }
                     }
-                    (e, outcomes)
+                    (e, attribute_projectile_damage(outcomes,tr.origins.as_ref().and_then(|origins|origins.0.get(&e))))
                 },
             )
             .fold(
@@ -247,6 +259,16 @@ impl<'a> System<'a> for Sys {
         // 前端已自管子彈動畫（收 C 時拿 target_id + flight_time_ms 後本地 pursuit lerp），
         // 不再廣播 projectile 每 tick 位置。
     }
+}
+
+fn emit_attack_avoided(tr:&ProjectileRead<'_>, projectile:specs::Entity, target:specs::Entity) {
+    let _=tr.facts.emit(crate::runtime::OrderedFact {
+        key:crate::runtime::FactOrderingKey {tick:tr.tick.0,phase:crate::runtime::FactPhase::PostStep,
+            canonical_source_order:crate::runtime::canonical_entity_id(projectile),local_ordinal:1,
+            fact_kind:crate::runtime::FactKind::AttackAvoided},
+        audience:crate::runtime::FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::PROJECTILE.to_owned()),
+        fact:crate::runtime::ObservableFact::AttackAvoided {target:crate::runtime::canonical_entity_id(target)},
+    });
 }
 
 fn emit_projectile_removal(
@@ -340,6 +362,20 @@ fn swept_creep_hit(
 /// `handle_damage` 端在聚合後若仍為 true 則跳過 creep.H 廣播省 bytes。
 /// AOE（radius > 1.0）仍照常發 creep.H，因為 client 無法預測哪些 creep 會被
 /// 濺射到。
+fn attribute_projectile_damage(outcomes:Vec<Outcome>,origin:Option<&ProjectileOrigin>)->Vec<Outcome> {
+    let Some(origin)=origin else {return outcomes;};
+    outcomes.into_iter().map(|outcome|match outcome {
+        outcome @ Outcome::RawDamage {source,..} if source==origin.source =>
+            Outcome::ProjectileContext {origin:origin.clone(),outcome:Box::new(outcome)},
+        Outcome::Damage {pos,phys,magi,real,source,target,damage_profile,predeclared}
+            if source==origin.source => Outcome::ProjectileDamage {origin:origin.clone(),pos,phys,magi,real,
+                source,target,damage_profile,predeclared},
+        outcome @ Outcome::ProjectileHit {source,..} if source==origin.source =>
+            Outcome::ProjectileContext {origin:origin.clone(),outcome:Box::new(outcome)},
+        other=>other,
+    }).collect()
+}
+
 fn create_projectile_damage(
     proj: &Projectile,
     target: specs::Entity,
@@ -371,7 +407,10 @@ fn create_projectile_damage(
     // 跳過蠕動/H.客戶端維護pending_pred_dmg，應用於視覺點擊
     // (t≥1.0)，並透過伺服器穩定時設定的心跳 in_flight 進行協調。
     let predeclared = proj.radius < Fixed64::ONE && proj.damage_phys > Fixed64::ZERO;
-    outcomes.push(Outcome::Damage {
+    if proj.damage_stage==DamageStage::Raw {
+        outcomes.push(Outcome::RawDamage {pos,phys:proj.damage_phys,magi:proj.damage_magi,real:proj.damage_real,
+            source:proj.owner,target,damage_profile:proj.damage_profile,origin:None});
+    } else {outcomes.push(Outcome::Damage {
         pos,
         phys: proj.damage_phys,
         magi: proj.damage_magi,
@@ -380,7 +419,7 @@ fn create_projectile_damage(
         target: target,
         damage_profile: proj.damage_profile,
         predeclared,
-    });
+    });}
     outcomes.push(Outcome::ProjectileHit {
         source: proj.owner,
         target,
@@ -448,6 +487,7 @@ mod tests {
             .create_entity()
             .with(Pos(SimVec2::ZERO))
             .with(Projectile {
+                damage_stage: Default::default(),
                 time_left: Fixed64::from_i32(10),
                 owner,
                 target: None,
@@ -515,6 +555,8 @@ mod tests {
         world.insert(TickProfile::default());
         world.insert(Tick(0));
         world.insert(crate::runtime::ObservableFactBuffer::default());
+        world.insert(MasterSeed::default());
+        world.insert(crate::runtime::BuffStore::default());
         world
     }
 
@@ -537,6 +579,33 @@ mod tests {
     }
 
     #[test]
+    fn primary_impact_evasion_checks_provenance_and_retired_source_without_hit_effects() {
+        for mode in 0..15 {
+            let mut w=projectile_world();w.insert(ProjectileOrigins::default());let source=w.create_entity().build();
+            let target=w.create_entity().with(Pos(SimVec2::new(Fixed64::ONE,Fixed64::ZERO))).build();let other=w.create_entity().build();
+            if mode!=5&&mode<10 {w.write_resource::<crate::runtime::BuffStore>().add(target,"evade",Fixed64::ONE,serde_json::json!({"evasion_constant":1024}));}
+            if mode==3 {w.write_resource::<crate::runtime::BuffStore>().add(target,"counter",Fixed64::ONE,serde_json::json!({"negative_evasion_constant":1024}));}
+            if matches!(mode,4|8|11) {w.delete_entity(source).unwrap();w.maintain();let replacement=w.create_entity().build();assert_eq!(replacement.id(),source.id());assert_ne!(replacement,source);}
+            let projectile=w.create_entity().with(Pos(SimVec2::ZERO)).with(Projectile {
+                damage_stage:DamageStage::Raw,time_left:Fixed64::ONE,owner:source,target:Some(target),tpos:SimVec2::ZERO,
+                radius:Fixed64::ZERO,msd:Fixed64::from_i32(100),damage_phys:if mode==13 {Fixed64::ZERO}else{Fixed64::from_i32(40)},damage_magi:Fixed64::ZERO,
+                damage_real:Fixed64::ZERO,damage_profile:AbiDamageProfile::NORMAL.bits(),slow_factor:Fixed64::from_raw(512),
+                slow_duration:Fixed64::ONE,hit_radius:Fixed64::ZERO,stun_duration:Fixed64::ONE,kind_id:0,generation:0}).build();
+            if mode!=2 {w.write_resource::<ProjectileOrigins>().0.insert(projectile,ProjectileOrigin {
+                source:if matches!(mode,6|9|12) {other}else{source},attack_critical:false,attack_lifesteal:Fixed64::ZERO,attack_missed:matches!(mode,10|11|12|14),script_attack:mode>=7&&mode<10,normal_attack:mode!=1&&mode<7,launch_position:None,credit_team:None,credit_player:None,script:None});}
+            if mode==14 {w.write_storage::<Pos>().remove(target);}
+            run_now::<Sys>(&w);let outcomes=w.read_resource::<Vec<Outcome>>();let evaded=matches!(mode,0|4|7|8|10|11|14);
+            assert!(outcomes.iter().any(|o|matches!(o,Outcome::Death {ent,..}if *ent==projectile)));
+            if evaded {assert_eq!(outcomes.len(),1,"mode{mode}: no damage/hit/slow/stun envelopes");}
+            else {assert!(outcomes.len()>3,"mode{mode}: unaffected hit/control path");}
+            let facts=w.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap();
+            assert_eq!(facts.iter().filter(|f|matches!(f.fact,crate::runtime::ObservableFact::AttackAvoided {target:t} if t==crate::runtime::canonical_entity_id(target))).count(),usize::from(evaded&&mode!=14));
+            assert!(facts.iter().any(|f|matches!(f.fact,crate::runtime::ObservableFact::Projectile {source,active:false,..}
+                if source==crate::runtime::canonical_entity_id(projectile))),"mode{mode}: public removal remains");
+        }
+    }
+
+    #[test]
     fn straight_aoe_projectile_uses_hit_radius_along_swept_path() {
         let mut world = projectile_world();
         let owner = world.create_entity().build();
@@ -554,6 +623,7 @@ mod tests {
             .create_entity()
             .with(Pos(SimVec2::new(Fixed64::ZERO, Fixed64::ZERO)))
             .with(Projectile {
+                damage_stage: Default::default(),
                 time_left: Fixed64::from_i32(10),
                 owner,
                 target: None,
@@ -623,6 +693,7 @@ mod tests {
             .create_entity()
             .with(Pos(SimVec2::ZERO))
             .with(Projectile {
+                damage_stage: Default::default(),
                 time_left: Fixed64::from_i32(10),
                 owner,
                 target: Some(creep),
@@ -662,6 +733,28 @@ mod tests {
     }
 
     #[test]
+    fn projectile_damage_stage_roundtrip_preserves_raw_and_defaults_legacy_to_settled() {
+        let mut world=projectile_world();let owner=world.create_entity().build();let target=world.create_entity().build();
+        let projectile=Projectile{damage_stage:DamageStage::Raw,time_left:Fixed64::ONE,owner,target:Some(target),
+            tpos:SimVec2::ZERO,radius:Fixed64::ZERO,msd:Fixed64::ONE,damage_phys:Fixed64::from_i32(100),
+            damage_magi:Fixed64::ZERO,damage_real:Fixed64::ZERO,damage_profile:AbiDamageProfile::NORMAL.bits(),
+            slow_factor:Fixed64::ZERO,slow_duration:Fixed64::ZERO,hit_radius:Fixed64::ZERO,stun_duration:Fixed64::ZERO,kind_id:0,generation:0};
+        let value=serde_json::to_value(&projectile).unwrap();
+        let restored:Projectile=serde_json::from_value(value.clone()).unwrap();assert_eq!(restored.damage_stage,DamageStage::Raw);
+        let mut old=value;old.as_object_mut().unwrap().remove("damage_stage");
+        let legacy:Projectile=serde_json::from_value(old).unwrap();assert_eq!(legacy.damage_stage,DamageStage::Settled);
+        for (projectile,raw) in [(restored,true),(legacy,false)] {
+            let mut rows=Vec::new();create_projectile_damage(&projectile,target,&mut rows,SimVec2::ZERO,
+                &world.read_storage::<Tower>(),&world.read_storage::<Creep>());
+            assert_eq!(matches!(rows[0],Outcome::RawDamage{..}),raw);
+            assert_eq!(matches!(rows[0],Outcome::Damage{..}),!raw);
+            let origin=ProjectileOrigin{source:owner,script_attack:false,attack_missed:false,normal_attack:false,attack_critical:false,attack_lifesteal:Fixed64::ZERO,launch_position:None,credit_team:None,credit_player:None,script:None};
+            let rows=attribute_projectile_damage(rows,Some(&origin));
+            assert!(matches!(&rows[0],Outcome::ProjectileContext {outcome,..} if matches!(&**outcome,Outcome::RawDamage {source,..} if *source==owner))
+                || matches!(&rows[0],Outcome::ProjectileDamage {source,..} if *source==owner));
+        }
+    }
+    #[test]
     fn projectile_revalidates_camo_detection_at_impact() {
         let mut world = projectile_world();
         let owner = world.create_entity().with(Tower::new()).build();
@@ -684,6 +777,7 @@ mod tests {
             .create_entity()
             .with(Pos(SimVec2::ZERO))
             .with(Projectile {
+                damage_stage: Default::default(),
                 time_left: Fixed64::ONE,
                 owner,
                 target: Some(target),

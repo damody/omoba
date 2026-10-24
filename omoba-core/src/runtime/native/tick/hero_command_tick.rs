@@ -37,6 +37,7 @@ pub struct HeroCommandData<'a> {
     owners: ReadStorage<'a, PlayerOwner>,
     visibility: Option<Read<'a, crate::runtime::TeamVisibilityRuntime>>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    casts: Option<Read<'a, super::super::cast_windup::AbilityWindups>>,
     disclosed_priority: Option<Read<'a, crate::runtime::DisclosedMovementPriority>>,
     admitted: Option<Read<'a, crate::runtime::native::combat_acquisition::AdmittedCombatPreferences>>,
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
@@ -108,6 +109,10 @@ impl<'a> System<'a> for Sys {
                         .or_else(|| data.admitted_directions.as_ref().filter(|steps| steps.tick == data.tick.0)
                             .and_then(|steps| steps.rows.get(&entity)).map(|step| step.direction))
                         .unwrap_or(SimVec2::ZERO);
+                    if direction==SimVec2::ZERO && data.casts.as_ref().is_some_and(|casts|casts.0.contains_key(&entity)) {
+                        return Some(HeroCommandDecision {entity,queue:queue.cloned().unwrap_or_default(),
+                            next_waypoint:None,direction:None});
+                    }
                     if direction != SimVec2::ZERO && data.properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
                         && !data.moba.as_ref().is_some_and(|state| state.is_recalling(entity))
                     {

@@ -1209,6 +1209,7 @@ dependencies = [
 name = "omoba-content-model"
 version = "0.1.0"
 dependencies = [
+ "omoba-sim",
  "serde",
  "serde_json",
 ]
@@ -1228,6 +1229,7 @@ dependencies = [
  "lz4_flex",
  "num_cpus",
  "omb-script-abi",
+ "omoba-content-model",
  "omoba-sim",
  "omoba-template-ids",
  "ordered-float 5.3.0",

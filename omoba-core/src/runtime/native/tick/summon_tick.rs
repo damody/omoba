@@ -1,94 +1,157 @@
-//! 召喚勾選：
-//! 1. 倒數 `SummonedUnit.time_remaining`，歸零時 despawn（廣播 `unit/D` 清除渲染）。
-//! 2. 處理玩家對召喚物下的 MoveTarget：simple lerp 位移 + facing 更新，抵達後 remove。
-//!    召喚物的自動攻擊 / 追敵 AI 在 UnitScript::on_tick（script 端）跑，這裡只做
-//!    「玩家命令移動」的通用覆蓋層，不處理碰撞（summoned units 允許穿越其他單位）。
-
-use omoba_core::runtime::{RuntimeBroadcast, RuntimeEvent, RuntimeEvents};
-use serde_json::json;
-use specs::{shred, Entities, Join, Read, SystemData, Write, WriteStorage};
-
+//! Deterministic summon lifetime and player-command movement.
+use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, WriteStorage};
 use crate::comp::*;
-
-/// 召喚物被玩家命令移動時使用的固定移速。
-/// 與 saika_gunner.rs 內的 MOVE_SPEED 對齊，避免 AI chase 跟玩家 command 移速差太多。
-const SUMMON_COMMAND_SPEED: f32 = 280.0;
+use omoba_sim::Fixed64;
 
 #[derive(SystemData)]
 pub struct SummonTickData<'a> {
     entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
+    pause: Read<'a, GamePause>,
     summoned: WriteStorage<'a, SummonedUnit>,
+    property: ReadStorage<'a, CProperty>,
     pos: WriteStorage<'a, Pos>,
     move_targets: WriteStorage<'a, MoveTarget>,
     facings: WriteStorage<'a, Facing>,
-    runtime_events: Write<'a, RuntimeEvents>,
+    collision: ReadStorage<'a, CollisionRadius>,
+    blocked: Read<'a, BlockedRegions>,
+    buffs: Read<'a, crate::runtime::BuffStore>,
+    outcomes: Write<'a, Vec<Outcome>>,
 }
 
 #[derive(Default)]
 pub struct Sys;
-
 impl<'a> System<'a> for Sys {
     type SystemData = SummonTickData<'a>;
-
     const NAME: &'static str = "summon";
-
-    fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
-        let dt = data.dt.0.to_f32_for_render();
-
-        // 1) MoveTarget 處理：先收集每個有 SummonedUnit + MoveTarget 的 entity 要改到哪個 pos /
-        //    是否 arrive。arrive 之後額外在下一輪刷 MoveTarget.remove()。
-        let mut arrived: Vec<specs::Entity> = Vec::new();
-        for (e, _summ, pos, mt, facing) in (
-            &data.entities,
-            &data.summoned,
-            &mut data.pos,
-            &data.move_targets,
-            &mut data.facings,
-        )
-            .join()
-        {
-            let (px, py) = pos.xy_f32();
-            let (mx, my) = (mt.0.x.to_f32_for_render(), mt.0.y.to_f32_for_render());
-            let dx = mx - px;
-            let dy = my - py;
-            let dist_sq = dx * dx + dy * dy;
-            if dist_sq < 0.0001 {
-                arrived.push(e);
-                continue;
-            }
-            let step = SUMMON_COMMAND_SPEED * dt;
-            let dist = dist_sq.sqrt();
-            if dist <= step {
-                pos.0 = mt.0;
-                *facing = Facing::from_rad_f32(dy.atan2(dx));
-                arrived.push(e);
-            } else {
-                let inv = 1.0 / dist;
-                let new_x = px + dx * inv * step;
-                let new_y = py + dy * inv * step;
-                *pos = Pos::from_xy_f32(new_x, new_y);
-                *facing = Facing::from_rad_f32(dy.atan2(dx));
+    fn run(_job:&mut Job<Self>,mut data:Self::SystemData) {
+        if data.pause.is_paused || data.dt.0<=Fixed64::ZERO {return;}
+        let dt=data.dt.0;
+        for (entity,summon) in (&data.entities,&mut data.summoned).join() {
+            let was_expired=summon.is_expired();
+            if summon.update(dt) && !was_expired {
+                data.outcomes.push(Outcome::EntityRemoved {entity});
             }
         }
-        for e in arrived {
-            data.move_targets.remove(e);
-        }
-
-        // 2) 時效倒數 + despawn
-        let mut expired = Vec::new();
-        for (e, s) in (&data.entities, &mut data.summoned).join() {
-            if s.update(dt) {
-                expired.push(e);
+        let owners:std::collections::BTreeMap<_,_>=(&data.entities,&data.summoned).join()
+            .filter_map(|(_,s)|data.entities.is_alive(s.summoner)
+                .then(||data.property.get(s.summoner).filter(|p|p.hp>Fixed64::ZERO)
+                    .and_then(|_|data.pos.get(s.summoner)).map(|p|(s.summoner,p.0))).flatten()).collect();
+        for (entity,summon) in (&data.entities,&mut data.summoned).join() {
+            if summon.is_expired() || data.property.get(entity).is_none_or(|p|p.hp<=Fixed64::ZERO) {continue;}
+            let nav=&mut summon.navigation;
+            let current=data.move_targets.get(entity).map(|m|m.0);
+            // A command replacing the autonomous destination owns movement until
+            // it completes. Never overwrite it with a stale follow destination.
+            if current.is_some() && current!=nav.auto_target {nav.auto_target=None;continue;}
+            let owner=owners.get(&summon.summoner).copied();
+            let position=data.pos.get(entity).map(|p|p.0);
+            if let Some((owner,position))=owner.zip(position).filter(|_|nav.follow_start_distance>Fixed64::ZERO) {
+                let distance=(owner-position).length();
+                let threshold=if nav.auto_target.is_some() {nav.follow_stop_distance}else{nav.follow_start_distance};
+                if distance>threshold+Fixed64::from_raw(2) {
+                    nav.auto_target=Some(owner);
+                    let _=data.move_targets.insert(entity,MoveTarget(owner));
+                    continue;
+                }
             }
+            if nav.auto_target.take().is_some() {data.move_targets.remove(entity);}
         }
+        let mut arrived=Vec::new();
+        for (entity,summon,property,pos,target,facing) in (&data.entities,&mut data.summoned,
+            &data.property,&mut data.pos,&data.move_targets,&mut data.facings).join() {
+            if summon.is_expired() || property.hp<=Fixed64::ZERO {continue;}
+            if data.buffs.is_rooted(entity) {continue;}
+            let delta=target.0-pos.0;
+            let distance=delta.length();
+            if distance<=Fixed64::from_raw(1) {arrived.push(entity);continue;}
+            let speed=crate::runtime::UnitStats::from_refs(&data.buffs,false).final_move_speed(property.msd,entity);
+            let mut step=speed.max(Fixed64::ZERO)*dt;
+            if summon.navigation.auto_target.is_some() {
+                step=step.min((distance-summon.navigation.follow_stop_distance).max(Fixed64::ZERO));
+            }
+            if step<=Fixed64::ZERO {continue;}
+            let radius=data.collision.get(entity).map(|r|r.0).unwrap_or(Fixed64::ZERO);
+            let next=super::super::summon_navigation::advance(&mut summon.navigation,pos.0,target.0,
+                step.min(distance),dt,radius,&data.blocked);
+            let moved=next-pos.0;
+            if moved.length_squared()>Fixed64::ZERO {facing.0=omoba_sim::trig::atan2(moved.y,moved.x);}
+            pos.0=next;
+            if (target.0-pos.0).length()<=Fixed64::from_raw(1) {arrived.push(entity);}
+        }
+        for entity in arrived {data.move_targets.remove(entity);}
+    }
+}
 
-        for e in expired {
-            data.runtime_events.push(
-                RuntimeEvent::new("td/all/res", "unit", "D", json!({ "id": e.id() }))
-                    .with_broadcast(RuntimeBroadcast::All),
-            );
-            let _ = data.entities.delete(e);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use specs::{Builder,World,WorldExt};
+    fn fixture()->(World,specs::Entity,specs::Entity,specs::Dispatcher<'static,'static>) {
+        let pool=crate::runtime::StateInitializer::create_thread_pool();
+        let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        let property=CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),
+            msd:Fixed64::from_i32(320),def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
+        let owner=world.create_entity().with(Pos(omoba_sim::Vec2::new(Fixed64::from_i32(200),Fixed64::ZERO)))
+            .with(property.clone()).build();
+        let mut summoned=SummonedUnit::new_fixed(owner,Some(Fixed64::from_i32(30)));
+        summoned.navigation.follow_start_distance=Fixed64::from_i32(100);
+        summoned.navigation.follow_stop_distance=Fixed64::from_i32(40);
+        let unit=world.create_entity().with(summoned).with(property).with(Pos(omoba_sim::Vec2::ZERO))
+            .with(Facing(omoba_sim::Angle::ZERO)).with(CollisionRadius(Fixed64::from_i32(10))).build();
+        let mut builder=specs::DispatcherBuilder::new();crate::comp::dispatch::<Sys>(&mut builder,&[]);
+        let mut dispatcher=builder.build();dispatcher.setup(&mut world);
+        world.write_resource::<DeltaTime>().0=Fixed64::from_raw(17);
+        (world,owner,unit,dispatcher)
+    }
+    #[test]
+    fn follow_hysteresis_respects_explicit_commands_root_pause_and_owner_generation() {
+        let (mut world,owner,unit,mut dispatcher)=fixture();
+        dispatcher.dispatch(&world);
+        assert!(world.read_storage::<SummonedUnit>().get(unit).unwrap().navigation.auto_target.is_some());
+        let before=world.read_storage::<Pos>().get(unit).unwrap().0;
+        world.write_resource::<crate::runtime::BuffStore>().add(unit,"root",Fixed64::from_i32(10),serde_json::json!({}));
+        dispatcher.dispatch(&world);assert_eq!(world.read_storage::<Pos>().get(unit).unwrap().0,before);
+        world.write_resource::<crate::runtime::BuffStore>().remove(unit,"root");
+        world.write_resource::<GamePause>().is_paused=true;
+        let remaining=world.read_storage::<SummonedUnit>().get(unit).unwrap().time_remaining;
+        dispatcher.dispatch(&world);assert_eq!(world.read_storage::<SummonedUnit>().get(unit).unwrap().time_remaining,remaining);
+        world.write_resource::<GamePause>().is_paused=false;
+        let explicit=before+omoba_sim::Vec2::new(Fixed64::ZERO,Fixed64::from_i32(150));
+        world.write_storage::<MoveTarget>().insert(unit,MoveTarget(explicit)).unwrap();
+        for _ in 0..12 {dispatcher.dispatch(&world);}
+        assert_eq!(world.read_storage::<Pos>().get(unit).unwrap().0.x,before.x);
+        assert_eq!(world.read_storage::<MoveTarget>().get(unit).unwrap().0,explicit);
+        assert!(world.read_storage::<SummonedUnit>().get(unit).unwrap().navigation.auto_target.is_none());
+        world.write_storage::<MoveTarget>().remove(unit);
+        for _ in 0..90 {dispatcher.dispatch(&world);}
+        let owner_pos=world.read_storage::<Pos>().get(owner).unwrap().0;
+        assert!((world.read_storage::<Pos>().get(unit).unwrap().0-owner_pos).length()<=Fixed64::from_i32(41));
+        assert!(world.read_storage::<MoveTarget>().get(unit).is_none());
+        world.write_storage::<Pos>().get_mut(owner).unwrap().0.x=Fixed64::from_i32(500);
+        dispatcher.dispatch(&world);assert!(world.read_storage::<MoveTarget>().get(unit).is_some());
+        world.delete_entity(owner).unwrap();world.maintain();let replacement=world.create_entity().with(Pos(owner_pos)).build();
+        assert_eq!(replacement.id(),owner.id());assert_ne!(replacement.gen(),owner.gen());
+        let before=world.read_storage::<Pos>().get(unit).unwrap().0;dispatcher.dispatch(&world);
+        assert_eq!(world.read_storage::<Pos>().get(unit).unwrap().0,before);
+        assert!(world.read_storage::<MoveTarget>().get(unit).is_none());
+    }
+    #[test]
+    fn summon_command_navigation_detours_and_expiry_retires_even_while_returning() {
+        let (mut world,_,unit,mut dispatcher)=fixture();
+        world.write_resource::<BlockedRegions>().0.push(BlockedRegion {name:"follow-wall".into(),
+            points:vec![vek::Vec2::new(80.0,-30.0),vek::Vec2::new(81.0,-30.0),
+                vek::Vec2::new(81.0,30.0),vek::Vec2::new(80.0,30.0)]});
+        let mut detoured=false;
+        for _ in 0..180 {
+            let before=world.read_storage::<Pos>().get(unit).unwrap().0;dispatcher.dispatch(&world);
+            let next=world.read_storage::<Pos>().get(unit).unwrap().0;
+            assert!(!super::super::hero_move_tick::path_hits_regions(before,next,Fixed64::from_i32(10),&world.read_resource::<BlockedRegions>()));
+            detoured|=next.y!=Fixed64::ZERO;
         }
+        assert!(detoured);assert!(world.read_storage::<MoveTarget>().get(unit).is_none());
+        world.write_storage::<SummonedUnit>().get_mut(unit).unwrap().time_remaining=Some(Fixed64::from_raw(1));
+        dispatcher.dispatch(&world);
+        assert!(world.read_resource::<Vec<Outcome>>().iter().any(|o|matches!(o,Outcome::EntityRemoved {entity} if *entity==unit)));
     }
 }

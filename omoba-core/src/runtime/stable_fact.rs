@@ -68,6 +68,10 @@ pub enum FactKind {
     ShopUndoReceipt = 33,
     /// Absolute channel animation state, only for currently disclosed entities.
     ChannelVisual = 34,
+    /// Absolute combat admission for an already disclosed subject.
+    DisclosedCombatRelation = 35,
+    AttackAvoided = 36,
+    CriticalHit = 37,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -202,6 +206,10 @@ pub enum ObservableFact {
         target: u64,
         value: u64,
     },
+    /// Confirmed avoidance, target only; never a hidden attacker identity.
+    AttackAvoided { target: u64 },
+    /// Settled physical critical contact; no hidden source or damage amount.
+    CriticalHit { target: u64 },
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

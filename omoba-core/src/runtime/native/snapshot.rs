@@ -14,7 +14,7 @@ use super::comp::{
     Gold, Hero, HeroCommand, HeroCommandQueue, Inventory, IsBuilding, MatchKillCounter, MoveTarget,
     Faction, Path as CreepPath, PlayerEconomy, PlayerLives, PlayerOwner, Pos, Projectile,
     RemovedEntitiesQueue, TAttack, Tower, TowerAbilityCastResult, TowerAbilityCastResults,
-    TowerSpawnOrder, TowerTemplateRegistry, TowerUpgradeRegistry,
+    TowerSpawnOrder, TowerTemplateRegistry, TowerUpgradeRegistry, Unit, UnitType,
 };
 use super::scripting::{ScriptUnitTag, ScriptVisualEventKind, ScriptVisualEventQueue};
 
@@ -722,6 +722,7 @@ pub enum EntityKind {
     Hero,
     Tower,
     Creep,
+    Summon,
     Projectile,
     #[default]
     Other,
@@ -1094,6 +1095,7 @@ pub fn extract_snapshot(
     let tower_spawn_order_storage = world.read_storage::<TowerSpawnOrder>();
     let proj_storage = world.read_storage::<Projectile>();
     let creep_storage = world.read_storage::<Creep>();
+    let unit_type_storage = world.has_value::<specs::storage::MaskedStorage<Unit>>().then(||world.read_storage::<Unit>());
     let unit_tag_storage = world.read_storage::<ScriptUnitTag>();
     let move_target_storage = world.read_storage::<MoveTarget>();
     let command_queue_storage = world.read_storage::<HeroCommandQueue>();
@@ -1131,6 +1133,8 @@ pub fn extract_snapshot(
             EntityKind::Tower
         } else if proj_storage.get(entity).is_some() {
             EntityKind::Projectile
+        } else if unit_type_storage.as_ref().and_then(|units|units.get(entity)).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
+            EntityKind::Summon
         } else if creep_storage.get(entity).is_some() {
             EntityKind::Creep
         } else {
@@ -1613,6 +1617,7 @@ pub fn extract_data_for_render(
     let tower_spawn_order_storage = world.read_storage::<TowerSpawnOrder>();
     let proj_storage = world.read_storage::<Projectile>();
     let creep_storage = world.read_storage::<Creep>();
+    let unit_type_storage = world.has_value::<specs::storage::MaskedStorage<Unit>>().then(||world.read_storage::<Unit>());
     let unit_tag_storage = world.read_storage::<ScriptUnitTag>();
     let move_target_storage = world.read_storage::<MoveTarget>();
     let command_queue_storage = world.read_storage::<HeroCommandQueue>();
@@ -1639,6 +1644,8 @@ pub fn extract_data_for_render(
             EntityKind::Tower
         } else if proj_storage.get(entity).is_some() {
             EntityKind::Projectile
+        } else if unit_type_storage.as_ref().and_then(|units|units.get(entity)).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
+            EntityKind::Summon
         } else if creep_storage.get(entity).is_some() {
             EntityKind::Creep
         } else {
@@ -2293,5 +2300,26 @@ mod disclosed_relation_tests {
         assert!(dead_rows.iter().all(|row| !row.relation_source_alive && row.hostile_to_source.is_none()));
         assert!(dead_rows[1].exact_hp_positive());
         assert!(!dead_rows[0].exact_hp_positive());
+    }
+    #[test]
+    fn summon_identity_matches_full_fast_snapshot_and_public_wave_without_ai_disclosure() {
+        use crate::runtime::*;use specs::{Builder,WorldExt};
+        let pool=StateInitializer::create_thread_pool();let mut world=StateInitializer::setup_campaign_ecs_world(&pool);
+        world.insert(TowerUpgradeRegistry::new());
+        let entity=world.create_entity().with(Pos(omoba_sim::Vec2::ZERO))
+            .with(Unit::new("saika_gunner".into(),"Gunner".into(),UnitType::Summon))
+            .with(CProperty{hp:omoba_sim::Fixed64::from_i32(400),mhp:omoba_sim::Fixed64::from_i32(400),msd:omoba_sim::Fixed64::ZERO,
+                def_physic:omoba_sim::Fixed64::ZERO,def_magic:omoba_sim::Fixed64::ZERO}).build();
+        let full=extract_snapshot(&mut world,1,Arc::new(vec![]),Arc::new(vec![]),Arc::new(vec![]),vec![],vec![]);
+        let fast=extract_data_for_render(&mut world,1,vec![],vec![]);
+        for snapshot in [full,fast] {let row=snapshot.entities.iter().find(|r|r.entity_id==entity.id()).unwrap();assert_eq!(row.kind,EntityKind::Summon);}
+        let view=build_wave_b_read_view(&world,1);let row=view.entities.iter().find(|r|r.canonical_id==canonical_entity_id(entity)).unwrap();
+        let components=crate::runtime::visibility::decode_disclosed_components(&row.disclosed_baseline).unwrap();
+        assert_eq!(decode_demo_render_state(&components[&DEMO_RENDER_COMPONENT_SCHEMA_ID]).unwrap().kind,4);
+        assert_eq!(decode_disclosed_presentation_identity(&components[&DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID]),Some("saika_gunner"));
+        assert!(!components.contains_key(&DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID));
+        assert!(world.read_storage::<SummonedUnit>().get(entity).is_none(),"presentation classification does not invent private summon behavior");
+        world.write_storage::<Unit>().get_mut(entity).unwrap().unit_type=UnitType::Creep;
+        assert_eq!(extract_data_for_render(&mut world,2,vec![],vec![]).entities[0].kind,EntityKind::Other,"same spelling cannot infer summon identity");
     }
 }

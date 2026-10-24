@@ -117,6 +117,7 @@ fn visibility_resolution_schedules_then_commits_a_fresh_reveal() {
         tick: 10,
         entities: Arc::from([entity.clone()]),
         vision_sources: Arc::from([source]),
+        brush_regions: Vec::new().into(),
         vision_occluders: Arc::from([]),
     };
     assert!(state.resolve(&at_10, 1).is_empty());
@@ -124,6 +125,7 @@ fn visibility_resolution_schedules_then_commits_a_fresh_reveal() {
         tick: 11,
         entities: Arc::from([entity]),
         vision_sources: at_10.vision_sources.clone(),
+        brush_regions: Vec::new().into(),
         vision_occluders: Arc::from([]),
     };
     assert_eq!(

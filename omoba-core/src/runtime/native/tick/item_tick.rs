@@ -1,6 +1,6 @@
 use crate::comp::*;
 use crate::runtime::native::item::{apply_item_stats, ItemStatAggregate, ItemStatApplication};
-use specs::{shred, Entities, Join, Read, ReadExpect, SystemData, WriteStorage};
+use specs::{shred, Entities, Join, Read, ReadExpect, SystemData, WriteStorage, Write};
 
 #[derive(SystemData)]
 pub struct ItemRead<'a> {
@@ -11,6 +11,7 @@ pub struct ItemRead<'a> {
 
 #[derive(SystemData)]
 pub struct ItemWrite<'a> {
+    buffs: Write<'a,crate::runtime::BuffStore>,
     inventories: WriteStorage<'a, Inventory>,
     effects: WriteStorage<'a, ItemEffects>,
     properties: WriteStorage<'a, CProperty>,
@@ -61,6 +62,7 @@ impl<'a> System<'a> for Sys {
             if let Some(eff) = tw.effects.get_mut(e) {
                 *eff = next;
             }
+            crate::runtime::native::item::sync_item_passives(e,totals,&mut tw.buffs);
 
             log::info!(
                 "ItemEffects 重算 entity={:?}: atk+{} hp+{} ms+{} armor+{} mp+{}",

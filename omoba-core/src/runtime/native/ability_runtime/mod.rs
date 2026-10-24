@@ -4,6 +4,8 @@
 //! - `buff_store`: `BuffStore` stores and ticks unified buff state.
 
 pub mod buff_store;
+pub mod periodic_damage;
+pub mod damage_zone;
 pub mod mana_pool;
 pub mod mana_cost;
 pub mod mana_projection;

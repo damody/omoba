@@ -1359,6 +1359,15 @@ message AbilityHudPresentation {
   uint32 level = 3;
   sint64 cooldown_raw = 4;
   sint64 total_cooldown_raw = 5;
+  AbilityCastPresentation cast = 6;
+  uint32 mana_cost_state = 7; // 0 unavailable, 1 affordable, 2 short, 3 invalid
+  sint64 effective_mana_cost_raw = 8;
+}
+message AbilityCastPresentation {
+  uint32 state = 1; // 1 preparing, 2 canceled, 3 released
+  sint64 remaining_raw = 2;
+  sint64 total_raw = 3;
+  uint64 instance = 4;
 }
 // Owner summoner row. Independent of the live hero so a dead or absent hero
 // keeps admitted equipment. Catalog id 0 is canonical unavailable. Shape,
@@ -1419,6 +1428,21 @@ message MobaHudPresentation {
   bool summoner_protocol_enabled = 13;
   SummonerHudPresentation summoner_slot0 = 14;
   SummonerHudPresentation summoner_slot1 = 15;
+  FirstKillPresentation first_kill = 16; // current authority notice, absent when expired
+  ObjectiveNoticePresentation objective_notice = 17; // current public milestone; absent clears it
+}
+
+message ObjectiveNoticePresentation {
+  uint32 team_id = 1;
+  uint32 kind = 2; // 1 lane tower, 2 inhibitor, 3 nexus tower, 4 epic root
+  uint64 sequence = 3;
+  sint64 remaining_raw = 4; // positive Q10, <=4 seconds; authority clock
+}
+
+message FirstKillPresentation {
+  uint32 killer_player_id = 1;
+  uint32 victim_player_id = 2;
+  uint32 bonus_gold = 3;
 }
 
 message ScoreboardPresentation {
@@ -1431,6 +1455,7 @@ message ScoreboardRowPresentation {
   uint32 kills = 3;
   uint32 deaths = 4;
   uint32 assists = 5;
+  uint32 shutdown_bounty_gold = 6; // public extra kill gold; absent legacy row is zero
 }
 
 message OwnerScorePresentation {

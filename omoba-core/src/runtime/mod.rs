@@ -79,6 +79,7 @@ pub mod team_stream;
 pub mod visibility;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fog_grid;
+pub mod brush_vision;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod authoritative_mode;
 

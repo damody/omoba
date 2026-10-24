@@ -342,7 +342,7 @@ mod tests {
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(950),home,home,1,&[]));
         let enemy=super::super::SeenUnit {canonical_id:2,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100};
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[enemy]));
-        assert!(!may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {team:0,kind:3,..enemy}]));
+        assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {team:0,kind:3,..enemy}]),"idle neutral is not an enemy team threat");
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {hp_raw:0,..enemy}]));
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {team:1,..enemy}]));
         builds[0].return_to_shop.as_mut().unwrap().min_gold=0;

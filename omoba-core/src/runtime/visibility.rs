@@ -219,6 +219,7 @@ pub struct DemoRenderState {
     pub x_raw: i64,
     pub y_raw: i64,
     pub team_id: u32,
+    /// Presentation category: 1 hero, 2 unit/creep, 3 neutral unit, 4 summon. Unknown values stay generic.
     pub kind: u8,
     pub owner_player_id: u32,
 }
@@ -351,6 +352,7 @@ pub struct WaveBReadView {
     pub entities: Arc<[CommittedEntityView]>,
     pub vision_sources: Arc<[CommittedVisionSource]>,
     pub vision_occluders: Arc<[CommittedVisionOccluder]>,
+    pub brush_regions: crate::runtime::brush_vision::BrushVisionRegions,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -483,7 +485,7 @@ impl TeamVisibilityState {
         }
         for entity in view.entities.iter() {
             let desired =
-                entity_visible_to_team(entity, self.team, &sources, &view.vision_occluders);
+                entity_visible_with_brush(entity, self.team, &sources, &view.vision_occluders, &view.brush_regions);
             let current = self.index.current.contains(&entity.canonical_id);
             if desired == current {
                 self.index.candidates.remove(&entity.canonical_id);
@@ -536,11 +538,22 @@ impl TeamVisibilityState {
     }
 }
 
+#[cfg(test)]
 fn entity_visible_to_team(
+    entity: &CommittedEntityView, team: u32, sources: &[CommittedVisionSource], occluders: &[CommittedVisionOccluder],
+) -> bool { entity_visible_with_brush(entity, team, sources, occluders, &Default::default()) }
+
+pub(crate) fn has_brush_reveal(entity:&CommittedEntityView,team:u32)->bool {
+    entity.overrides.iter().any(|rule|rule.kind==VisibilityOverrideKind::RevealBrush
+        && (rule.team.is_none() || rule.team==Some(team)))
+}
+
+pub(crate) fn entity_visible_with_brush(
     entity: &CommittedEntityView,
     team: u32,
     sources: &[CommittedVisionSource],
     occluders: &[CommittedVisionOccluder],
+    brushes: &crate::runtime::brush_vision::BrushVisionRegions,
 ) -> bool {
     // Deny rules have absolute precedence.
     if entity.scope == ReplicationScopeKind::ServerOnly {
@@ -569,6 +582,8 @@ fn entity_visible_to_team(
         }
         let delta = entity.position - source.position;
         delta.length_squared() <= source.radius * source.radius
+            && (has_brush_reveal(entity,team)
+                || crate::runtime::brush_vision::brush_allows_vision(brushes, source.position, entity.position))
             && line_of_sight(occluders, source.position, entity.position) == LosResult::Clear
     })
 }
@@ -619,9 +634,47 @@ mod tests {
     }
 
     #[test]
+    fn brush_disclosure_respects_sources_detection_and_explicit_scope_grants() {
+        use crate::runtime::brush_vision::BrushVisionRegion;
+        let mut target=entity(ReplicationScopeKind::Vision,Some(2),15);
+        let brushes=vec![BrushVisionRegion {min:Vec2::new(Fixed64::from_i32(10),Fixed64::from_i32(-5)),
+            max:Vec2::new(Fixed64::from_i32(20),Fixed64::from_i32(5))}].into();
+        let outside=source(1,100);
+        assert!(!entity_visible_with_brush(&target,1,&[outside],&[],&brushes));
+        let mut inside=outside;inside.position=target.position;
+        assert!(entity_visible_with_brush(&target,1,&[inside],&[],&brushes));
+        inside.team=2;
+        assert!(!entity_visible_with_brush(&target,1,&[inside],&[],&brushes));
+        inside.team=1;target.stealth_level=1;
+        assert!(!entity_visible_with_brush(&target,1,&[inside],&[],&brushes));
+        target.scope=ReplicationScopeKind::Public;
+        assert!(entity_visible_with_brush(&target,1,&[outside],&[],&brushes));
+        target.scope=ReplicationScopeKind::OwnerTeam;target.owner_team=Some(1);
+        assert!(entity_visible_with_brush(&target,1,&[],&[],&brushes));
+        target.scope=ReplicationScopeKind::ServerOnly;
+        assert!(!entity_visible_with_brush(&target,1,&[inside],&[],&brushes));
+    }
+
+    #[test]
     fn same_team_vision_entity_outside_radius_is_hidden() {
         let target = entity(ReplicationScopeKind::Vision, Some(1), 100);
         assert!(!entity_visible_to_team(&target, 1, &[source(1, 20)], &[]));
+    }
+
+    #[test]
+    fn compiled_wall_disclosure_blocks_then_reveals_from_another_friendly_source() {
+        use omoba_template_ids::{MobaMapConst,MobaTerrainConst};
+        const WALLS:[MobaTerrainConst;1]=[MobaTerrainConst {id:"custom_wall",min:(4,-3),max:(6,3)}];
+        let map=MobaMapConst {terrain:&WALLS,..omoba_template_ids::MOBA_MAPS[0]};
+        let occluders=crate::runtime::moba_map_layout::compiled_vision_occluders(&map);
+        let target=entity(ReplicationScopeKind::Vision,Some(2),10);
+        assert!(!entity_visible_to_team(&target,1,&[source(1,20)],&occluders.0));
+        let mut friendly=source(1,20);friendly.position=target.position;
+        assert!(entity_visible_to_team(&target,1,&[source(1,20),friendly],&occluders.0));
+        friendly.team=2;
+        assert!(!entity_visible_to_team(&target,1,&[source(1,20),friendly],&occluders.0));
+        let mut public=target;public.scope=ReplicationScopeKind::Public;
+        assert!(entity_visible_to_team(&public,1,&[],&occluders.0));
     }
 
     #[test]
@@ -636,7 +689,7 @@ mod tests {
         target.remember = RememberDisposition::LastKnown;
         let mut state = TeamVisibilityState::new(1, 4);
         let mut view = WaveBReadView { tick: 1, entities: vec![target].into(),
-            vision_sources: vec![].into(), vision_occluders: vec![].into() };
+            vision_sources: vec![].into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into() };
         assert_eq!(state.resolve(&view, 0).len(), 1);
         view.tick = 2; view.entities = vec![].into();
         assert!(matches!(state.resolve(&view, 0).as_slice(),
@@ -695,6 +748,7 @@ mod tests {
             tick: 1,
             entities: vec![target.clone()].into(),
             vision_sources: vec![source].into(),
+            brush_regions: Vec::new().into(),
             vision_occluders: Vec::new().into(),
         };
         assert!(state.resolve(&clear, 0).iter().any(|value| matches!(
@@ -712,6 +766,7 @@ mod tests {
             tick: 2,
             entities: vec![target.clone()].into(),
             vision_sources: vec![source].into(),
+            brush_regions: Vec::new().into(),
             vision_occluders: vec![VisionOccluder::Tree(VisionTreeCircle {
                 stable_id: 1,
                 center,
@@ -972,6 +1027,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 team_id: team,
                 kind: if heroes.get(entity).is_some() {
                     1
+                } else if units.get(entity).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
+                    4
                 } else if units.get(entity).is_some() {
                     if factions.get(entity).is_some_and(|f| f.faction_id == FactionType::HostileNeutral) { 3 } else { 2 }
                 } else {
@@ -1086,8 +1143,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 disclosed.push((crate::runtime::channel_visual_state::SCHEMA_ID, channel.encode()));
             }
             if moba && heroes.get(entity).is_some() && owners.get(entity).is_some() && team != 0 {
-                let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualState::from_store(store,entity))
-                    .unwrap_or(crate::runtime::buff_visual_state::BuffVisualState(vec![]));
+                let state=buffs.as_ref().map(|store|crate::runtime::buff_visual_state::BuffVisualSnapshot::from_store(store,entity))
+                    .unwrap_or(crate::runtime::buff_visual_state::BuffVisualSnapshot {buffs:crate::runtime::buff_visual_state::BuffVisualState(vec![]),channel_totals:vec![]});
                 disclosed.push((crate::runtime::buff_visual_state::SCHEMA_ID,state.encode().expect("bounded generated buff IDs")));
             }
             if let Some(tower) = towers.get(entity) {
@@ -1100,6 +1157,16 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 ));
             }
             let baseline = encode_disclosed_baseline(&disclosed);
+            let mut entity_overrides:Vec<_>=overrides.get(entity).map(|rule|CommittedVisibilityOverride {
+                team:rule.team,kind:rule.kind,priority:rule.priority,stable_rule_id:rule.stable_rule_id,
+            }).into_iter().collect();
+            if properties.get(entity).is_some_and(|p|p.hp>Fixed64::ZERO) {
+                if let Some(state)=match_state.as_ref() {
+                    entity_overrides.extend(state.brush_reveal_teams(entity).map(|team|CommittedVisibilityOverride {
+                        team:Some(team),kind:VisibilityOverrideKind::RevealBrush,priority:0,stable_rule_id:canonical_id,
+                    }));
+                }
+            }
             CommittedEntityView {
                 canonical_id,
                 team,
@@ -1110,17 +1177,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                     .get(entity)
                     .map(|value| value.stealth_level)
                     .unwrap_or(0),
-                overrides: overrides
-                    .get(entity)
-                    .map(|rule| {
-                        vec![CommittedVisibilityOverride {
-                            team: rule.team,
-                            kind: rule.kind,
-                            priority: rule.priority,
-                            stable_rule_id: rule.stable_rule_id,
-                        }]
-                    })
-                    .unwrap_or_default(),
+                overrides: entity_overrides,
                 remember: remembers
                     .get(entity)
                     .map(|value| value.disposition)
@@ -1149,6 +1206,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
         entities: committed_entities.into(),
         vision_sources: vision_sources.into(),
         vision_occluders,
+        brush_regions: world.try_fetch::<crate::runtime::brush_vision::BrushVisionRegions>()
+            .map_or_else(Default::default, |regions| (*regions).clone()),
     }
 }
 

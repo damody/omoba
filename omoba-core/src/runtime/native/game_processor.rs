@@ -18,13 +18,13 @@ use crate::runtime::comp::{
     PendingItemUseQueue, PendingMoveQueue, PendingTowerAbilityActivation,
     PendingTowerAbilityActivationQueue, PendingTowerAbilityCastQueue, PendingTowerSellQueue,
     PendingTowerSpawnQueue, PendingTowerTargetPriorityQueue, PendingTowerUpgradeQueue,
-    PlayerEconomy, PlayerOwner, Pos, Projectile, RemovedEntitiesQueue, ReplicationScope,
+    PlayerEconomy, PlayerOwner, Pos, Projectile, ProjectileOrigins, ProjectileImpactOrigin, RemovedEntitiesQueue, ReplicationScope,
     ReplicationScopeKind, Searcher, StealthProfile, TAttack, TProperty, Tick, Tower,
     TowerAbilityCastResult, TowerAbilityCastResults, VisionOccluderSet, VisionSource,
     VisibilityOverride, VisibilityOverrideKind,
     TowerActiveAbilityState, TowerData, TowerFireFxQueue, TowerSpawnOrderCounter,
     TowerTargetPriority, TowerTemplate, TowerTemplateRegistry, TowerUpgradeRegistry, TurnSpeed,
-    Unit, INVENTORY_SLOTS,
+    Unit, UnitType, BountyType, SummonedUnit, INVENTORY_SLOTS,
 };
 use crate::runtime::events::{RuntimeBroadcast, RuntimeEvent, RuntimeEventSink};
 use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
@@ -175,10 +175,10 @@ fn validate_attack_target(
     Ok(target)
 }
 
-/// Stop is admitted only for the living owned hero. A present match also
+/// An active hero action requires the living owned hero. A present match also
 /// requires Playing, an unpaused world, and the roster slot for that hero.
 /// Worlds without a match keep the owner/alive gate and still honor GamePause.
-fn stop_context_allows(world: &World, hero: Entity, owner_pid: u32) -> bool {
+fn active_hero_context_allows(world: &World, hero: Entity, owner_pid: u32) -> bool {
     if world.try_fetch::<GamePause>().is_some_and(|pause| pause.is_paused) {
         return false;
     }
@@ -227,7 +227,7 @@ pub fn drain_pending_moves(world: &mut World) {
                     );
                     continue;
                 }
-                if !stop_context_allows(world, hero, req.owner_pid) {
+                if !active_hero_context_allows(world, hero, req.owner_pid) {
                     log::warn!(
                         "Stop rejected pid={} hero={:?} reason=inactive_or_unowned",
                         req.owner_pid, hero,
@@ -235,6 +235,7 @@ pub fn drain_pending_moves(world: &mut World) {
                     continue;
                 }
                 clear_hero_command_queue(world, hero);
+                super::cast_windup::cancel(world,hero);
                 if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {
                     state.neutralize_direction(req.owner_pid, hero);
                 }
@@ -288,6 +289,7 @@ pub fn drain_pending_moves(world: &mut World) {
         }
 
         clear_hero_command_queue(world, hero);
+        super::cast_windup::cancel(world,hero);
         if !matches!(command, HeroCommand::AttackTarget { .. }) {
             if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {
                 state.neutralize_direction(req.owner_pid, hero);
@@ -542,6 +544,7 @@ pub fn handle_ability_cast_from_input(
     };
 
     clear_hero_command_queue(world, caster);
+    super::cast_windup::cancel(world,caster);
     interrupt_attack_for_accepted_command(world, caster);
 
     world
@@ -1452,7 +1455,7 @@ fn catalog_item_target(item_id: &str) -> omoba_template_ids::MobaItemTargetConst
 fn item_effect_matches_target(active: &ActiveEffect, shape: omoba_template_ids::MobaItemTargetShapeConst) -> bool {
     use omoba_template_ids::MobaItemTargetShapeConst::*;
     match (shape, active) {
-        (Self_, ActiveEffect::Shield { .. } | ActiveEffect::SprintBuff { .. } | ActiveEffect::RestoreMana { .. }
+        (Self_, ActiveEffect::SelfControlCleanse {} | ActiveEffect::ChannelHeal { .. } | ActiveEffect::Shield { .. } | ActiveEffect::SprintBuff { .. } | ActiveEffect::RestoreMana { .. }
             | ActiveEffect::DamageReduce { .. } | ActiveEffect::HeadshotNext { .. }) => true,
         (Point, ActiveEffect::PointNova { .. }) => true,
         (Unit, ActiveEffect::UnitHex { .. }) => true,
@@ -1615,7 +1618,7 @@ fn same_live_item_target(world: &World, entity: Entity) -> bool {
 
 /// Same precedence as committed `entity_visible_to_team`, read from ECS components.
 /// Occluder checks use the public segment test. A missing occluder resource is an empty set.
-fn item_entity_visible_to_team(world: &World, target: Entity, viewer_team: u32) -> bool {
+pub(crate) fn item_entity_visible_to_team(world: &World, target: Entity, viewer_team: u32) -> bool {
     let (scope_kind, owner_team, override_kind) = {
         let factions = world.read_storage::<Faction>();
         let scopes = world.read_storage::<ReplicationScope>();
@@ -1658,8 +1661,14 @@ fn item_entity_visible_to_team(world: &World, target: Entity, viewer_team: u32) 
         (target_pos, origins)
     };
     let occluders = world.try_fetch::<VisionOccluderSet>().map(|set| set.0.clone()).unwrap_or_default();
+    let brushes = world.try_fetch::<crate::runtime::brush_vision::BrushVisionRegions>();
+    let brush_revealed=override_kind==Some(VisibilityOverrideKind::RevealBrush)
+        || world.try_fetch::<crate::runtime::MobaMatch>().is_some_and(|state|
+            state.brush_reveal_teams(target).any(|team|team==viewer_team)
+                && world.read_storage::<CProperty>().get(target).is_some_and(|p|p.hp>Fixed64::ZERO));
     origins.into_iter().any(|origin| {
-        crate::runtime::comp::vision_occluder::line_of_sight(&occluders, origin, target_pos)
+        (brush_revealed || brushes.as_ref().is_none_or(|regions| crate::runtime::brush_vision::brush_allows_vision(regions, origin, target_pos)))
+            && crate::runtime::comp::vision_occluder::line_of_sight(&occluders, origin, target_pos)
             == crate::runtime::comp::vision_occluder::LosResult::Clear
     })
 }
@@ -1749,11 +1758,19 @@ fn commit_targeted_item_use(
             found.sort_by_key(|entity| (entity.id(), entity.gen().id()));
             (damage, found)
         }
-        (MobaItemTargetShapeConst::Unit, ActiveEffect::UnitHex { damage }) => {
+        (MobaItemTargetShapeConst::Unit, ActiveEffect::UnitHex { damage,healing_reduction,control }) => {
+            if let Some(control)=control {checked_item_fixed(control.duration,60)?;}
+            if let Some(reduction)=healing_reduction {
+                if reduction.multiplier<Fixed64::ZERO || reduction.multiplier>=Fixed64::ONE {return Err(failure::err_msg("ItemUse: invalid healing multiplier"));}
+                checked_item_fixed(reduction.duration,60)?;
+            }
             if point_explicit || !target_named || target_life.is_none() {
                 return Err(failure::err_msg("ItemUse: unit item requires a disclosed entity and no explicit point"));
             }
             let target = target_life.expect("disclosed entity checked");
+            if control.is_some()&&world.read_storage::<IsBuilding>().get(target).is_some(){
+                return Err(failure::err_msg("ItemUse: control requires a non-building target"));
+            }
             if !same_live_item_target(world, target) {
                 return Err(failure::err_msg("ItemUse: target is stale"));
             }
@@ -1795,6 +1812,16 @@ fn commit_targeted_item_use(
     }
     for target in victims {
         apply_checked_direct_damage(world, Some(hero_entity), target, damage);
+        if let ActiveEffect::UnitHex {control:Some(control),..}=active {
+            if world.read_storage::<CProperty>().get(target).is_some_and(|p|p.hp>Fixed64::ZERO) {
+                world.write_resource::<BuffStore>().add(target,control.kind.as_str(),control.duration,serde_json::json!({}));
+            }
+        }
+        if let ActiveEffect::UnitHex {healing_reduction:Some(reduction),..}=active {
+            if world.read_storage::<CProperty>().get(target).is_some_and(|p|p.hp>Fixed64::ZERO) {
+                world.write_resource::<BuffStore>().grant_healing_reduction(target,reduction.multiplier,reduction.duration);
+            }
+        }
     }
     {
         let mut inventories = world.write_storage::<Inventory>();
@@ -1848,6 +1875,9 @@ fn apply_resolved_item_use(
     );
     if !owner_item_life_intact(world, hero_entity, owner_pid) {
         return Err(failure::err_msg("ItemUse: owner life changed before commit"));
+    }
+    if !active_hero_context_allows(world, hero_entity, owner_pid) {
+        return Err(failure::err_msg("ItemUse: inactive, paused or mismatched owner context"));
     }
     let slot_i = item_slot as usize;
     if slot_i >= INVENTORY_SLOTS {
@@ -1918,6 +1948,12 @@ fn apply_resolved_item_use(
     let _ = (target_pos, target_life, point_explicit, target_named);
     let mut prepared_mana = None;
     match &active {
+        ActiveEffect::ChannelHeal {amount,duration,interval} => {
+            let spec=super::recovery_channel::Spec {amount:*amount,duration:*duration,interval:*interval};
+            if !super::recovery_channel::can_start(world,hero_entity,owner_pid,spec) {
+                return Err(failure::err_msg("ItemUse: recovery channel unavailable or invalid"));
+            }
+        }
         ActiveEffect::RestoreMana { amount } => {
             let amount = crate::runtime::ability_runtime::checked_mana_cost(*amount, Fixed64::ONE)
                 .map_err(|_| failure::err_msg("ItemUse: invalid mana restore amount"))?;
@@ -1984,12 +2020,23 @@ fn apply_resolved_item_use(
                 return Err(failure::err_msg("ItemUse: invalid shield duration or resources"));
             }
         }
+        ActiveEffect::SelfControlCleanse {} => {
+            if world.try_fetch::<BuffStore>().is_none() {return Err(failure::err_msg("ItemUse: control store unavailable"));}
+        }
         ActiveEffect::PointNova { .. } | ActiveEffect::UnitHex { .. } => {
             return Err(failure::err_msg("ItemUse: targeted effect reached the self transaction"));
         }
     }
 
     match &active {
+        ActiveEffect::SelfControlCleanse {} => {world.write_resource::<BuffStore>().cleanse_controls(hero_entity);}
+        ActiveEffect::ChannelHeal {amount,duration,interval} => {
+            clear_hero_command_queue(world,hero_entity);
+            super::cast_windup::cancel(world,hero_entity);
+            interrupt_attack_for_accepted_command(world,hero_entity);
+            world.write_resource::<super::MobaMatch>().neutralize_direction(owner_pid,hero_entity);
+            super::recovery_channel::start(world,hero_entity,owner_pid,super::recovery_channel::Spec {amount:*amount,duration:*duration,interval:*interval});
+        }
         ActiveEffect::HeadshotNext { bonus_damage } => {
             let amount = crate::runtime::ability_runtime::checked_mana_cost(*bonus_damage, Fixed64::ONE)
                 .expect("next attack bonus was preflighted");
@@ -2041,7 +2088,8 @@ fn apply_resolved_item_use(
             }
         }
     }
-    clear_hero_command_queue(world, hero_entity);
+    // Instant defensive cleanse must not replace an existing movement/attack order.
+    if !matches!(active, ActiveEffect::SelfControlCleanse {}) {clear_hero_command_queue(world, hero_entity);}
 
     log::info!(
         "ItemUse ok pid={} slot={} item={} cooldown={}s",
@@ -2122,7 +2170,15 @@ pub fn drain_pending_item_uses(world: &mut World) {
 
 fn outcome_kind(outcome: &Outcome) -> &'static str {
     match outcome {
+        Outcome::DamageWithLeech {..} => "DamageWithLeech",
+        Outcome::DamageWithCritical {..} => "DamageWithCritical",
+        Outcome::DamageZonePulse {..} => "DamageZonePulse",
+        Outcome::RawDamage {..} => "RawDamage",
+        Outcome::ScriptCastTransaction { .. } => "ScriptCastTransaction",
+        Outcome::ScriptCastCommitted { .. } => "ScriptCastCommitted",
+        Outcome::ProjectileContext { .. } => "ProjectileContext",
         Outcome::Damage { .. } => "Damage",
+        Outcome::ProjectileDamage { .. } => "ProjectileDamage",
         Outcome::ProjectileHit { .. } => "ProjectileHit",
         Outcome::ProjectileLine2 { .. } => "ProjectileLine2",
         Outcome::Death { .. } => "Death",
@@ -2136,6 +2192,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::GainExperience { .. } => "GainExperience",
         Outcome::GainGold { .. } => "GainGold",
         Outcome::SpawnUnit { .. } => "SpawnUnit",
+        Outcome::SpawnSummoned { .. } => "SpawnSummoned",
         Outcome::CreepLeaked { .. } => "CreepLeaked",
         Outcome::AddBuff { .. } => "AddBuff",
         Outcome::Explosion { .. } => "Explosion",
@@ -2156,6 +2213,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
         Outcome::ScriptStartCooldown { .. } => "ScriptStartCooldown",
         Outcome::ScriptSetMana { .. } => "ScriptSetMana",
+        Outcome::ScriptManaCommit { .. } => "ScriptManaCommit",
         Outcome::ScriptManaGained { .. } => "ScriptManaGained",
         Outcome::ScriptManaSpent { .. } => "ScriptManaSpent",
         Outcome::EntityRemoved { .. } => "EntityRemoved",
@@ -2171,10 +2229,22 @@ fn game_end_event(_winner: &str, data: serde_json::Value) -> RuntimeEvent {
     RuntimeEvent::new("td/all/res", "game", "end", data).with_broadcast(RuntimeBroadcast::All)
 }
 
+#[cfg(test)]
+#[path = "summon_settlement_tests.rs"]
+mod summon_settlement_tests;
+
+#[path = "cast_settlement.rs"]
+mod cast_settlement;
+#[path = "raw_damage.rs"]
+mod raw_damage;
+#[path = "zone_pulse_settlement.rs"]
+mod zone_pulse_settlement;
+
 pub fn process_outcomes(
     world: &mut World,
     events: &mut impl RuntimeEventSink,
 ) -> Result<(), failure::Error> {
+    prune_projectile_origins(world);
     let mut remove_uids = Vec::new();
     let mut next_outcomes = Vec::new();
     let mut committed_vitals = BTreeMap::new();
@@ -2194,10 +2264,69 @@ pub fn process_outcomes(
     .entered();
 
     let projection_tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
-    for (outcome_ordinal, outcome) in outcomes.into_iter().enumerate() {
+    let mut pending: std::collections::VecDeque<_> = outcomes.into();
+    let mut next_ordinal = 0usize;
+    while let Some(outcome) = pending.pop_front() {
+        let outcome_ordinal = next_ordinal;
+        next_ordinal += 1;
+        let (outcome, projectile_origin) = match outcome {
+            Outcome::ProjectileContext {origin, outcome} => {
+                let source = match &*outcome {
+                    Outcome::RawDamage {source,..} | Outcome::Damage {source,..} | Outcome::ProjectileHit {source,..} => Some(*source),
+                    Outcome::ScriptProjectile {owner,..} => Some(*owner),
+                    _ => None,
+                };
+                if source != Some(origin.source) {continue;}
+                match *outcome {
+                    Outcome::RawDamage {pos,phys,magi,real,source,target,damage_profile,..} =>
+                        (Outcome::RawDamage {pos,phys,magi,real,source,target,damage_profile,origin:Some(origin)},None),
+                    Outcome::Damage {pos,phys,magi,real,source,target,damage_profile,predeclared} =>
+                        (Outcome::ProjectileDamage {origin,pos,phys,magi,real,source,target,damage_profile,predeclared},None),
+                    other => (other,Some(origin)),
+                }
+            }
+            other => (other,None),
+        };
+        // Raw packets cannot be inferred from predeclared or a damage profile.
+        // Convert before facts/vitals tracking and never feed settled packets back here.
+        let outcome=match outcome {
+            Outcome::DamageZonePulse {source,payload}=>{
+                for child in zone_pulse_settlement::expand(world,source,&payload,&remove_uids).into_iter().rev() {
+                    pending.push_front(child);
+                }
+                continue;
+            },
+            Outcome::RawDamage {pos,phys,magi,real,source,target,damage_profile,origin}=>{
+                if remove_uids.contains(&target) {continue;}
+                if origin.as_ref().is_some_and(|origin|origin.source!=source) {continue;}
+                let Some(damage)=raw_damage::settle(world,target,phys,magi,real,damage_profile) else {continue;};
+                match origin {
+                    Some(origin)=>Outcome::ProjectileDamage {origin,pos,phys:damage.physical,magi:damage.magical,real:damage.pure,
+                        source,target,damage_profile,predeclared:false},
+                    None=>Outcome::Damage {pos,phys:damage.physical,magi:damage.magical,real:damage.pure,
+                        source,target,damage_profile,predeclared:false},
+                }
+            },
+            other=>other,
+        };
+        let (outcome,critical)=match outcome {
+            Outcome::DamageWithCritical{damage}=>{if !matches!(&*damage,Outcome::Damage{..}|Outcome::DamageWithLeech{..}){continue;}(*damage,true)},other=>(other,false),
+        };
+        let (outcome,mut leech)=match outcome {
+            Outcome::DamageWithLeech {damage,physical_leech,magical_leech}=>{
+                if !matches!(&*damage,Outcome::Damage {..}) {continue;}
+                let leech=raw_damage::LeechCommit::capture(world,&damage,physical_leech,magical_leech,&remove_uids);
+                (*damage,leech)
+            },
+            other=>(other,None),
+        };
+        let critical=match &outcome {
+            Outcome::Damage{target,phys,..} if critical=>raw_damage::CriticalCommit::capture(world,*target,*phys,&remove_uids),
+            Outcome::ProjectileDamage{origin,source,target,phys,..} if origin.source==*source && !origin.attack_missed && origin.attack_critical && (origin.normal_attack||origin.script_attack)=>raw_damage::CriticalCommit::capture(world,*target,*phys,&remove_uids),_=>None,
+        };
         if world.try_fetch::<crate::runtime::MobaMatch>().is_some() {
             match &outcome {
-                Outcome::Damage { target, .. } | Outcome::Heal { target, .. }
+                Outcome::Damage { target, .. } | Outcome::ProjectileDamage { target, .. } | Outcome::Heal { target, .. }
                 | Outcome::ScriptDirectDamage { target, .. } | Outcome::ScriptHeal { target, .. } => {
                     committed_vitals.insert(crate::runtime::canonical_entity_id(*target), *target);
                 }
@@ -2210,15 +2339,35 @@ pub fn process_outcomes(
                 _ => {}
             }
         }
-        if let Some(fact) =
-            observable_fact_from_outcome(&outcome, projection_tick, outcome_ordinal as u32)
-        {
+        // Summon intent is not a committed spawn: settlement can still reject
+        // owner life/ownership or legal placement. Other outcome facts retain
+        // their existing ordering contract.
+        let mut committed_fact = observable_fact_from_outcome(&outcome, projection_tick, outcome_ordinal as u32);
+        if let Some(fact) = (!matches!(&outcome, Outcome::SpawnSummoned {..}))
+            .then(|| committed_fact.take()).flatten() {
             let _ = world
                 .read_resource::<crate::runtime::ObservableFactBuffer>()
                 .emit(fact);
         }
         let kind = outcome_kind(&outcome);
         match outcome {
+            Outcome::DamageWithLeech {..}|Outcome::DamageWithCritical {..}=>unreachable!("combat envelope opened before serial settlement"),
+            Outcome::DamageZonePulse {..}=>unreachable!("zone expanded before serial settlement"),
+            Outcome::RawDamage {..}=>unreachable!("raw packet converted before settlement"),
+            Outcome::ScriptCastTransaction {caster,skill_id,rank,faction,player_owner,expected_mana,mut outcomes,cues,aggression_target} => {
+                let admitted = !remove_uids.contains(&caster)
+                    && cast_settlement::admit(world,caster,&skill_id,rank,faction.as_ref(),player_owner,expected_mana.as_ref(),&outcomes,cues.len());
+                let planned = admitted.then(||cast_settlement::plan_summons(world,&outcomes)).flatten();
+                if let Some(planned) = planned {
+                    for spawn in planned {spawn.commit(world,projection_tick,&mut next_ordinal)?;}
+                    outcomes.retain(|outcome|!matches!(outcome,Outcome::SpawnSummoned {..}));
+                    if let Some(target)=aggression_target {super::moba_match::record_moba_champion_aggression(world,caster,target,true);}
+                    pending.push_front(Outcome::ScriptCastCommitted {caster,cues});
+                    for effect in outcomes.into_iter().rev() {pending.push_front(effect);}
+                } else {cast_settlement::reject(world,caster,&outcomes);}
+            }
+            Outcome::ScriptCastCommitted {caster,cues} => {cast_settlement::publish(world,caster,cues);}
+            Outcome::ProjectileContext {..} => unreachable!("nested projectile contexts are rejected"),
             Outcome::Death { ent, .. } => {
                 if remove_uids.contains(&ent) || !world.entities().is_alive(ent) {
                     continue;
@@ -2279,6 +2428,21 @@ pub fn process_outcomes(
                 damage_profile,
                 predeclared,
             )?,
+            Outcome::ProjectileDamage { origin, pos, phys, magi, real, source, target,
+                damage_profile, predeclared } => {
+                if origin.source==source && (origin.normal_attack||origin.script_attack)
+                    && !origin.attack_missed && origin.attack_lifesteal>Fixed64::ZERO
+                    && raw_damage::ordinary_target(world,source,target) {
+                    let damage=Outcome::Damage {pos,phys,magi,real,source,target,damage_profile,predeclared};
+                    leech=raw_damage::LeechCommit::capture(world,&damage,
+                        origin.attack_lifesteal.clamp(Fixed64::ZERO,Fixed64::ONE),Fixed64::ZERO,&remove_uids);
+                }
+                world.insert(ProjectileImpactOrigin(origin));
+                let result = handle_damage(world, &mut next_outcomes, pos, phys, magi, real,
+                    source, target, damage_profile, predeclared);
+                world.remove::<ProjectileImpactOrigin>();
+                result?;
+            }
             Outcome::ProjectileHit {
                 source,
                 target,
@@ -2291,6 +2455,11 @@ pub fn process_outcomes(
                     victim: target,
                     kind_id,
                     generation,
+                    // Attribution survives callbacks; the primary's shared
+                    // leech entitlement does not apply to authored follow-ups.
+                    origin: projectile_origin.map(|mut origin| {
+                        origin.attack_lifesteal=Fixed64::ZERO;origin.attack_critical=false;origin
+                    }),
                 }),
             Outcome::Heal { target, amount, .. } => handle_heal(world, target, amount)?,
             Outcome::UpdateAttack {
@@ -2366,6 +2535,8 @@ pub fn process_outcomes(
                 handle_script_remove_buff(world, target, buff_id)
             }
             Outcome::ScriptProjectile {
+                basic_attack,
+                source_missed,source_critical,
                 pos,
                 owner,
                 target,
@@ -2384,6 +2555,8 @@ pub fn process_outcomes(
                 generation,
             } => handle_script_projectile(
                 world,
+                basic_attack,
+                source_missed,source_critical,
                 pos,
                 owner,
                 target,
@@ -2400,6 +2573,7 @@ pub fn process_outcomes(
                 stun_duration,
                 kind_id,
                 generation,
+                projectile_origin,
             ),
             Outcome::ScriptTowerFireFx { entity, dir_rad } => {
                 handle_script_tower_fire_fx(world, entity, dir_rad)
@@ -2430,6 +2604,11 @@ pub fn process_outcomes(
                     if hero.mana_pool.is_some() { hero.mana_pool = Some(pool); }
                 }
             }
+            Outcome::ScriptManaCommit {changes,notifications} => {
+                if changes.iter().all(|row|!remove_uids.contains(&row.entity)) {
+                    cast_settlement::commit_mana(world,changes,notifications);
+                }
+            }
             Outcome::ScriptManaGained { entity, amount } => {
                 world.write_resource::<ScriptEventQueue>().push(ScriptEvent::ManaGained { e: entity, amount });
             }
@@ -2437,6 +2616,7 @@ pub fn process_outcomes(
                 world.write_resource::<ScriptEventQueue>().push(ScriptEvent::SpentMana { caster: entity, cost: amount, ability_id });
             }
             Outcome::EntityRemoved { entity } => {
+                world.write_resource::<BuffStore>().remove_all_for(entity);
                 world
                     .write_resource::<RemovedEntitiesQueue>()
                     .pending
@@ -2444,6 +2624,22 @@ pub fn process_outcomes(
                 let _ = world.entities().delete(entity);
             }
             Outcome::SpawnUnit { .. } => {}
+            Outcome::SpawnSummoned {entity,pos,unit_id,owner,faction,player_owner,duration} => {
+                if handle_summoned_spawn(world,entity,pos,&unit_id,owner,faction,player_owner,duration)? {
+                    if let Some(fact) = committed_fact.take() {
+                        let _ = world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(fact);
+                    }
+                }
+            }
+        }
+        if let Some(critical)=critical {critical.emit(world,projection_tick,outcome_ordinal as u32);}
+        if let Some(leech)=leech {
+            if let Some((source,amount))=leech.healing(world) {
+                handle_heal(world,source,amount)?;
+                if world.try_fetch::<crate::runtime::MobaMatch>().is_some() {
+                    committed_vitals.insert(crate::runtime::canonical_entity_id(source),source);
+                }
+            }
         }
         log::trace!("processed outcome {}", kind);
     }
@@ -2547,6 +2743,11 @@ fn observable_fact_from_outcome(
                 template_id: text_id("unit"),
                 team: faction.team_id.max(0) as u32,
             },
+        ),
+        Outcome::SpawnSummoned {entity,owner,unit_id,faction,..} => (
+            entity_id(*entity),FactKind::Spawn,policy::SPAWN,
+            ObservableFact::Spawn {source:Some(entity_id(*owner)),template_id:text_id(unit_id),
+                team:faction.team_id.max(0) as u32},
         ),
         Outcome::Death { ent, .. } => (
             entity_id(*ent),
@@ -2715,6 +2916,7 @@ fn handle_death(
     entity: Entity,
 ) -> Result<(), failure::Error> {
     let is_lane_match = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
+    world.write_resource::<BuffStore>().cancel_damage_zones(entity);
     crate::runtime::record_moba_death(world, entity);
     super::ward_world::retire_if_placed_ward(world, entity);
     let is_enemy_base = {
@@ -2859,6 +3061,21 @@ fn credit_td_bounty_for_source(
     Ok(true)
 }
 
+fn remember_projectile_origin(world: &mut World, projectile: Entity, source: Entity) {
+    let Some(origin) = super::moba_match::capture_projectile_origin(world, source) else { return; };
+    if world.try_fetch::<ProjectileOrigins>().is_none() {
+        world.insert(ProjectileOrigins::default());
+    }
+    world.write_resource::<ProjectileOrigins>().0.insert(projectile, origin);
+}
+
+fn prune_projectile_origins(world: &World) {
+    let Some(mut origins) = world.try_fetch_mut::<ProjectileOrigins>() else { return; };
+    let entities = world.entities();
+    let projectiles = world.read_storage::<Projectile>();
+    origins.0.retain(|entity, _| entities.is_alive(*entity) && projectiles.get(*entity).is_some());
+}
+
 fn handle_projectile(
     world: &mut World,
     pos: omoba_sim::Vec2,
@@ -2873,7 +3090,7 @@ fn handle_projectile(
     let tick = world.read_resource::<Tick>().0 as u32;
     let attacker_id = source_entity.id();
 
-    let (msd, target_pos, atk_phys, stun_duration_roll, visual_count) = {
+    let (msd, target_pos, atk_phys, stun_duration_roll, visual_count, missed, critical) = {
         let positions = world.read_storage::<Pos>();
         let attacks = world.read_storage::<TAttack>();
         let buff_store = world.read_resource::<BuffStore>();
@@ -2895,6 +3112,7 @@ fn handle_projectile(
 
         let accuracy_bonus = buff_store.sum_add(source_entity, StatKey::AccuracyBonus);
         let accuracy = (Fixed64::ONE + accuracy_bonus).clamp(Fixed64::ZERO, Fixed64::ONE);
+        let mut missed=super::attack_accuracy::source_misses(master_seed,tick,source_entity,stats.miss_chance(source_entity));
         if accuracy < Fixed64::ONE {
             let roll = Fixed64::from_raw(
                 (crate::runtime::tick_random_u64(
@@ -2904,8 +3122,16 @@ fn handle_projectile(
                 ) % omoba_sim::fixed::SCALE as u64) as i64,
             );
             if roll >= accuracy {
-                final_atk = Fixed64::ZERO;
+                missed = true;
             }
+        }
+        let mut critical=false;
+        if missed {final_atk=Fixed64::ZERO;} else {
+            // Projectile attacks historically have no implicit base critical rate.
+            // Shared buffs opt in; commit the amount once, before visual copies.
+            let (chance,multiplier)=stats.crit_with_base(source_entity,Fixed64::ZERO,Fixed64::from_i32(2));
+            critical=super::attack_accuracy::source_crits(master_seed,tick,source_entity,chance);
+            if critical {final_atk=final_atk*multiplier;}
         }
 
         let mut stun_chance = 0.0f32;
@@ -2926,7 +3152,7 @@ fn handle_projectile(
                 stun_duration = duration;
             }
         }
-        let stun_duration_roll = if stun_chance > 0.0 && stun_duration > 0.0 {
+        let stun_duration_roll = if !missed && stun_chance > 0.0 && stun_duration > 0.0 {
             let roll = crate::runtime::tick_random_u64(
                 master_seed,
                 u64::from(tick),
@@ -2956,6 +3182,7 @@ fn handle_projectile(
             final_atk,
             stun_duration_roll,
             visual_count,
+            missed,critical,
         )
     };
 
@@ -2991,10 +3218,11 @@ fn handle_projectile(
             Fixed64::ZERO
         };
         let start_pos = pos + perp * lateral;
-        world
+        let projectile = world
             .create_entity()
             .with(Pos(start_pos))
             .with(Projectile {
+                damage_stage: crate::runtime::comp::DamageStage::Raw,
                 time_left: safety_time_left,
                 owner: source_entity,
                 tpos: target_pos,
@@ -3017,7 +3245,84 @@ fn handle_projectile(
                 generation: 0,
             })
             .build();
+    remember_projectile_origin(world, projectile, source_entity);
+    if is_real {
+        let leech=crate::runtime::UnitStats::from_refs(&world.read_resource::<BuffStore>(),false).lifesteal(source_entity);
+        if let Some(origin)=world.write_resource::<ProjectileOrigins>().0.get_mut(&projectile) {
+            origin.normal_attack=atk_phys>Fixed64::ZERO;origin.attack_missed=missed;origin.attack_critical=critical&&!missed&&origin.normal_attack;
+            origin.attack_lifesteal=if origin.normal_attack&&!missed {leech}else{Fixed64::ZERO};
+        }
     }
+    }
+    Ok(())
+}
+
+fn handle_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit_id:&str,
+    owner:Entity,faction:Faction,player_owner:Option<u32>,duration:Fixed64) -> Result<bool,failure::Error> {
+    if let Some(ledger)=world.try_fetch::<super::summon_navigation::PlacementReservations>() {ledger.release(entity);}
+    // A duplicate result must neither overwrite nor retire a committed body.
+    if world.read_storage::<Unit>().get(entity).is_some()
+        || world.read_storage::<Pos>().get(entity).is_some()
+        || world.read_storage::<CProperty>().get(entity).is_some() {return Ok(false);}
+    let stats=omoba_template_ids::summon_by_name(unit_id).and_then(omoba_template_ids::active_summon_stats);
+    let valid_owner=world.entities().is_alive(owner)
+        && world.read_storage::<CProperty>().get(owner).is_some_and(|p|p.hp>Fixed64::ZERO)
+        && world.read_storage::<Faction>().get(owner).is_some_and(|f|
+            f.team_id==faction.team_id && f.faction_id==faction.faction_id)
+        && world.read_storage::<PlayerOwner>().get(owner).map(|p|p.player_id)==player_owner;
+    let Some(stats)=stats.filter(|_|valid_owner && world.entities().is_alive(entity)
+        && duration>=Fixed64::ZERO && duration<=Fixed64::from_i32(3600)) else {
+        let _=world.entities().delete(entity);return Ok(false);
+    };
+    let occupied={
+        let entities=world.entities();let positions=world.read_storage::<Pos>();
+        let radii=world.read_storage::<CollisionRadius>();let factions=world.read_storage::<Faction>();
+        (&entities,&positions,&radii,&factions).join().filter(|(_,_,_,f)|f.team_id==faction.team_id)
+            .map(|(_,p,r,_)|(p.0,r.0)).collect::<Vec<_>>()
+    };
+    let anchor=world.read_storage::<Pos>().get(owner).map(|p|p.0);
+    let Some(pos)=super::summon_navigation::placement(pos,anchor,stats.collision_radius,
+        &world.read_resource::<BlockedRegions>(),&occupied) else {
+        log::warn!("summon placement retired reservation {:?}: no legal public-terrain position",entity);
+        let _=world.entities().delete(entity);return Ok(false);
+    };
+    commit_summoned_spawn(world,entity,pos,unit_id,owner,faction,player_owner,duration,stats)?;
+    Ok(true)
+}
+
+fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit_id:&str,
+    owner:Entity,faction:Faction,player_owner:Option<u32>,duration:Fixed64,
+    stats:&omoba_template_ids::SummonStats) -> Result<(),failure::Error> {
+    let id=omoba_template_ids::summon_by_name(unit_id).expect("validated summon");
+    let mut unit=Unit::new(unit_id.into(),omoba_template_ids::active_summon_display(id).into(),UnitType::Summon);
+    unit.max_hp=(stats.hp.raw()/1024) as i32;unit.current_hp=unit.max_hp;
+    unit.base_damage=(stats.damage.raw()/1024) as i32;unit.base_armor=stats.armor;
+    unit.magic_resistance=stats.magic_resistance;unit.attack_range=stats.attack_range;
+    unit.move_speed=stats.move_speed;unit.attack_speed=Fixed64::ONE/stats.attack_interval;
+    unit.spawn_position=(pos.x.to_f32_for_render(),pos.y.to_f32_for_render());
+    unit.exp_reward=0;unit.gold_reward=0;unit.bounty_type=BountyType::None;
+    let facing=world.read_storage::<Facing>().get(owner).copied().unwrap_or(Facing(omoba_sim::Angle::ZERO));
+    world.write_storage::<Unit>().insert(entity,unit)?;
+    world.write_storage::<Pos>().insert(entity,Pos(pos))?;
+    world.write_storage::<Faction>().insert(entity,faction)?;
+    world.write_storage::<CProperty>().insert(entity,CProperty {hp:stats.hp,mhp:stats.hp,
+        msd:stats.move_speed,def_physic:stats.armor,def_magic:stats.magic_resistance})?;
+    world.write_storage::<TAttack>().insert(entity,TAttack::new(stats.damage,stats.attack_interval,stats.attack_range,Fixed64::from_i32(900)))?;
+    world.write_storage::<Facing>().insert(entity,facing)?;
+    world.write_storage::<FacingBroadcast>().insert(entity,FacingBroadcast(None))?;
+    world.write_storage::<CollisionRadius>().insert(entity,CollisionRadius(stats.collision_radius))?;
+    if stats.vision_radius>Fixed64::ZERO {
+        world.write_storage::<VisionSource>().insert(entity,VisionSource {
+            team:world.read_storage::<Faction>().get(entity).expect("summon faction").team_id.max(0) as u32,
+            radius:stats.vision_radius,detection_level:0})?;
+    }
+    world.write_storage::<ScriptUnitTag>().insert(entity,ScriptUnitTag {unit_id:unit_id.into()})?;
+    let mut summoned=SummonedUnit::new_fixed(owner,(duration>Fixed64::ZERO).then_some(duration));
+    summoned.navigation.follow_start_distance=stats.follow_start_distance;
+    summoned.navigation.follow_stop_distance=stats.follow_stop_distance;
+    world.write_storage::<SummonedUnit>().insert(entity,summoned)?;
+    if let Some(player_id)=player_owner {world.write_storage::<PlayerOwner>().insert(entity,PlayerOwner::new(player_id))?;}
+    world.write_resource::<ScriptEventQueue>().push(ScriptEvent::Spawn {e:entity});
     Ok(())
 }
 
@@ -3120,7 +3425,7 @@ fn handle_script_direct_damage(world: &mut World, target: Entity, amount: Fixed6
 }
 
 fn apply_checked_direct_damage(world: &mut World, source: Option<Entity>, target: Entity, amount: Fixed64) {
-    if !crate::runtime::moba_damage_allowed(world, target) { return; }
+    if !crate::runtime::native::moba_match::moba_damage_from_allowed(world,source,target) { return; }
     // Same authority-settlement boundary as regular Damage. A disclosed MOBA
     // actor must not locally redo Lua damage (including immune returners).
     if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>()
@@ -3147,11 +3452,14 @@ fn apply_checked_direct_damage(world: &mut World, source: Option<Entity>, target
             super::shop::note_shop_undo_combat(world, source, target);
         }
         if took_damage && amount > Fixed64::ZERO {
+            super::cast_windup::interrupt_for_damage(world,target);
             crate::runtime::native::moba_match::record_moba_hero_damage(world, source, target,
                 before.is_some_and(|hp| amount >= hp));
             crate::runtime::native::moba_match::record_moba_jungle_damage(world, source, target,
                 before.is_some_and(|hp| amount >= hp));
             crate::runtime::native::moba_match::record_moba_lane_damage(world, source, target,
+                before.is_some_and(|hp| amount >= hp));
+            crate::runtime::native::moba_match::record_moba_building_damage(world, source, target,
                 before.is_some_and(|hp| amount >= hp));
         }
         return;
@@ -3162,14 +3470,14 @@ fn apply_checked_direct_damage(world: &mut World, source: Option<Entity>, target
     }
 }
 
-fn handle_script_heal(world: &mut World, target: Entity, amount: Fixed64) {
+pub(crate) fn handle_script_heal(world: &mut World, target: Entity, amount: Fixed64) {
+    let amount=received_healing(world,target,amount);
     if let Some(prop) = world.write_storage::<CProperty>().get_mut(target) {
-        prop.hp = (prop.hp + amount).min(prop.mhp);
+        prop.hp = healed_hp(prop.hp,prop.mhp,amount);
         return;
     }
     if let Some(unit) = world.write_storage::<Unit>().get_mut(target) {
-        let amount_i = amount.to_f32_for_render() as i32;
-        unit.current_hp = (unit.current_hp + amount_i).min(unit.max_hp);
+        unit.current_hp = (healed_hp(Fixed64::from_i32(unit.current_hp),Fixed64::from_i32(unit.max_hp),amount).raw()/1024) as i32;
     }
 }
 
@@ -3180,6 +3488,9 @@ fn handle_script_remove_buff(world: &mut World, target: Entity, buff_id: String)
 #[allow(clippy::too_many_arguments)]
 fn handle_script_projectile(
     world: &mut World,
+    basic_attack: bool,
+    source_missed: bool,
+    source_critical: bool,
     pos: omoba_sim::Vec2,
     owner: Entity,
     target: Option<Entity>,
@@ -3196,6 +3507,7 @@ fn handle_script_projectile(
     stun_duration: Fixed64,
     kind_id: u16,
     generation: u8,
+    origin: Option<crate::comp::ProjectileOrigin>,
 ) {
     let initial_dist = (tpos - pos).length();
     let speed_f = msd.to_f32_for_render();
@@ -3207,10 +3519,11 @@ fn handle_script_projectile(
     let safety =
         Fixed64::from_raw(((flight_time_s * 3.0 + 1.5) * omoba_sim::fixed::SCALE as f32) as i64);
 
-    world
+    let projectile = world
         .create_entity()
         .with(Pos(pos))
         .with(Projectile {
+            damage_stage: crate::runtime::comp::DamageStage::Raw,
             time_left: safety,
             owner,
             target,
@@ -3229,6 +3542,23 @@ fn handle_script_projectile(
             generation,
         })
         .build();
+    let direct_attack=origin.is_none();
+    if let Some(mut origin) = origin {
+        origin.normal_attack=false;
+        origin.script_attack=false;
+        origin.attack_missed=false;
+        origin.attack_lifesteal=Fixed64::ZERO;origin.attack_critical=false;
+        if world.try_fetch::<ProjectileOrigins>().is_none() {world.insert(ProjectileOrigins::default());}
+        world.write_resource::<ProjectileOrigins>().0.insert(projectile,origin);
+    } else {remember_projectile_origin(world, projectile, owner);}
+    if direct_attack && (basic_attack||source_missed) && target.is_some()
+        && radius==Fixed64::ZERO && hit_radius==Fixed64::ZERO && msd>Fixed64::ZERO && generation==0 {
+        let leech=crate::runtime::UnitStats::from_refs(&world.read_resource::<BuffStore>(),false).lifesteal(owner);
+        if let Some(origin)=world.write_resource::<ProjectileOrigins>().0.get_mut(&projectile) {
+            origin.script_attack=basic_attack&&!source_missed;origin.attack_missed=source_missed;origin.attack_critical=origin.script_attack&&source_critical&&damage_phys>Fixed64::ZERO;
+            origin.attack_lifesteal=if origin.script_attack {leech}else{Fixed64::ZERO};
+        }
+    }
 }
 
 fn handle_script_tower_fire_fx(world: &mut World, entity: Entity, dir_rad: f32) {
@@ -3262,6 +3592,9 @@ fn handle_script_attack_phase_cue(
     backswing_ms: u32,
     dir_rad: f32,
 ) {
+    if let Some(target)=target {
+        crate::runtime::native::moba_match::record_brush_attack_reveal(world,entity,target);
+    }
     let current_tick = world.read_resource::<Tick>().0 as u32;
     let mut queue = world.write_resource::<AttackPhaseFxQueue>();
     let attack_seq = queue.next_seq;
@@ -3296,6 +3629,63 @@ fn handle_script_start_cooldown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_and_script_heals_share_received_policy_clamps_and_never_resurrect() {
+        let mut w=World::new();w.register::<CProperty>();w.insert(BuffStore::default());
+        let e=w.create_entity().with(CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(1000),
+            msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        w.write_resource::<BuffStore>().grant_healing_reduction(e,Fixed64::from_raw(512),Fixed64::from_i32(4));
+        handle_heal(&mut w,e,Fixed64::from_i32(40)).unwrap();handle_script_heal(&mut w,e,Fixed64::from_i32(40));
+        assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp,Fixed64::from_i32(140));
+        handle_heal(&mut w,e,Fixed64::from_i32(-40)).unwrap();assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp,Fixed64::from_i32(140));
+        handle_script_heal(&mut w,e,Fixed64::from_raw(i64::MAX));assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp,Fixed64::from_i32(1000));
+        w.write_storage::<CProperty>().get_mut(e).unwrap().hp=Fixed64::ZERO;
+        handle_heal(&mut w,e,Fixed64::from_i32(40)).unwrap();handle_script_heal(&mut w,e,Fixed64::from_i32(40));
+        assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp,Fixed64::ZERO);
+    }
+
+    #[test]
+    fn legacy_unit_healing_and_strongest_reduction_refresh_expire_safely() {
+        let mut w=World::new();w.register::<CProperty>();w.register::<Unit>();w.insert(BuffStore::default());
+        let mut unit=Unit::new("heal".into(),"heal".into(),UnitType::Creep);unit.current_hp=50;unit.max_hp=100;
+        let e=w.create_entity().with(unit).build();
+        {let mut buffs=w.write_resource::<BuffStore>();
+            assert!(buffs.grant_healing_reduction(e,Fixed64::from_raw(512),Fixed64::from_i32(4)));
+            assert!(buffs.grant_healing_reduction(e,Fixed64::from_raw(768),Fixed64::from_i32(2)));
+            assert_eq!(buffs.get(e,"healing_reduction").unwrap().remaining,Fixed64::from_i32(4));
+            assert!(!buffs.grant_healing_reduction(e,Fixed64::ONE,Fixed64::from_i32(2)));
+        }
+        handle_script_heal(&mut w,e,Fixed64::from_i32(80));assert_eq!(w.read_storage::<Unit>().get(e).unwrap().current_hp,90);
+        w.write_resource::<BuffStore>().tick(Fixed64::from_i32(4));handle_script_heal(&mut w,e,Fixed64::from_i32(10));
+        assert_eq!(w.read_storage::<Unit>().get(e).unwrap().current_hp,100);
+        w.write_storage::<Unit>().get_mut(e).unwrap().current_hp=0;handle_script_heal(&mut w,e,Fixed64::from_i32(100));
+        assert_eq!(w.read_storage::<Unit>().get(e).unwrap().current_hp,0);
+    }
+    #[test]
+    fn targeted_item_visibility_uses_same_brush_sources_as_public_disclosure() {
+        use crate::runtime::brush_vision::{BrushVisionRegion,BrushVisionRegions};
+        let mut world=World::new();
+        world.register::<Pos>();world.register::<Faction>();world.register::<ReplicationScope>();
+        world.register::<VisibilityOverride>();world.register::<StealthProfile>();world.register::<VisionSource>();
+        let p=|x,y|omoba_sim::Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let target=world.create_entity().with(Pos(p(15,0))).build();
+        let source=world.create_entity().with(Pos(p(0,0))).with(VisionSource {
+            team:1,radius:Fixed64::from_i32(100),detection_level:0}).build();
+        world.insert(BrushVisionRegions::from(vec![BrushVisionRegion {min:p(10,-5),max:p(20,5)}]));
+        assert!(!item_entity_visible_to_team(&world,target,1));
+        world.write_storage::<Pos>().get_mut(source).unwrap().0=p(12,0);
+        assert!(item_entity_visible_to_team(&world,target,1));
+        world.write_storage::<Pos>().get_mut(source).unwrap().0=p(0,0);
+        world.write_storage::<Pos>().get_mut(target).unwrap().0=p(30,0);
+        assert!(item_entity_visible_to_team(&world,target,1),"brush never blocks targets behind it");
+        world.insert(BrushVisionRegions::from(vec![
+            BrushVisionRegion {min:p(10,-5),max:p(20,5)},
+            BrushVisionRegion {min:p(18,-5),max:p(40,5)}]));
+        world.write_storage::<Pos>().get_mut(source).unwrap().0=p(15,0);
+        assert!(item_entity_visible_to_team(&world,target,1),"live target admission crosses connected capsules");
+        world.write_storage::<Pos>().get_mut(source).unwrap().0=p(0,0);
+        assert!(!item_entity_visible_to_team(&world,target,1),"outside source still cannot disclose either branch");
+    }
     #[test]
     fn disclosed_authority_targets_do_not_reapply_lua_direct_damage() {
         let mut world = World::new();
@@ -4103,6 +4493,7 @@ mod tests {
         attack.asd_count = Fixed64::from_raw(123);
         let _ = world.write_storage::<TAttack>().insert(hero, attack);
         let shot = Projectile {
+            damage_stage: Default::default(),
             time_left: Fixed64::from_i32(5),
             owner: hero,
             target: None,
@@ -4371,6 +4762,7 @@ mod tests {
                 dir_rad: 1.25,
             },
             Outcome::ScriptProjectile {
+                basic_attack:false,source_missed:false,source_critical:false,
                 pos,
                 owner: entity,
                 target: None,
@@ -4448,8 +4840,15 @@ mod tests {
 
         assert_eq!(
             world.read_storage::<CProperty>().get(target).unwrap().hp,
-            Fixed64::from_i32(15)
+            Fixed64::ZERO // Ordinary healing cannot reverse committed lethal damage.
         );
+        let live=world.create_entity().with(CProperty {hp:Fixed64::from_i32(30),mhp:Fixed64::from_i32(40),
+            msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        world.write_resource::<Vec<Outcome>>().extend([
+            Outcome::ScriptDirectDamage {target:live,amount:Fixed64::from_i32(10)},
+            Outcome::ScriptHeal {target:live,amount:Fixed64::from_i32(15)}]);
+        process_outcomes(&mut world,&mut sink).expect("living target still heals normally");
+        assert_eq!(world.read_storage::<CProperty>().get(live).unwrap().hp,Fixed64::from_i32(35));
     }
 
     fn world_for_tower_ability_cast_tests() -> (World, Entity) {
@@ -4663,6 +5062,7 @@ mod tests {
                 victim,
                 kind_id: 41,
                 generation: 2,
+                origin: None,
             }] if *attacker == source && *victim == target
         ));
     }
@@ -4855,6 +5255,12 @@ fn handle_add_buff(
     duration: Fixed64,
     payload: serde_json::Value,
 ) -> Result<(), failure::Error> {
+    if payload.get(super::ability_runtime::damage_zone::KEY).is_some() {
+        let Some(zone)=super::ability_runtime::damage_zone::DamageZoneSpec::from_payload(&payload)else{return Ok(());};
+        if duration<zone.interval || duration>Fixed64::from_i32(30) || !world.entities().is_alive(target)
+            || world.read_storage::<Faction>().get(target).is_none()
+            || world.read_storage::<CProperty>().get(target).is_none_or(|p|p.hp<=Fixed64::ZERO) {return Ok(());}
+    }
     world
         .write_resource::<BuffStore>()
         .add(target, &buff_id, duration, payload);
@@ -4928,10 +5334,11 @@ fn handle_projectile_directional(
     let safety_time_left =
         Fixed64::from_raw(((flight_time_s * 1.5 + 0.5) * omoba_sim::fixed::SCALE as f32) as i64);
 
-    world
+    let projectile = world
         .create_entity()
         .with(Pos(pos))
         .with(Projectile {
+            damage_stage: crate::runtime::comp::DamageStage::Raw,
             time_left: safety_time_left,
             owner: source_entity,
             tpos: end_pos,
@@ -4950,6 +5357,7 @@ fn handle_projectile_directional(
             generation: 0,
         })
         .build();
+    remember_projectile_origin(world, projectile, source_entity);
     Ok(())
 }
 
@@ -5165,7 +5573,7 @@ fn handle_damage(
     damage_profile: u32,
     _predeclared: bool,
 ) -> Result<(), failure::Error> {
-    if !crate::runtime::moba_damage_allowed(world, target) {
+    if !crate::runtime::native::moba_match::moba_damage_from_allowed(world,Some(source),target) {
         return Ok(());
     }
     if world.try_fetch::<crate::runtime::filtered_specs::DisclosedAuthorityCombatTargets>()
@@ -5338,9 +5746,11 @@ fn handle_damage(
         super::shop::note_shop_undo_combat(world, Some(source), target);
     }
     if took_damage {
+        super::cast_windup::interrupt_for_damage(world,target);
         crate::runtime::native::moba_match::record_moba_hero_damage(world, Some(source), target, first_lethal_hit);
         crate::runtime::native::moba_match::record_moba_jungle_damage(world, Some(source), target, first_lethal_hit);
         crate::runtime::native::moba_match::record_moba_lane_damage(world, Some(source), target, first_lethal_hit);
+        crate::runtime::native::moba_match::record_moba_building_damage(world, Some(source), target, first_lethal_hit);
     }
     if died {
         let mut towers = world.write_storage::<Tower>();
@@ -5357,16 +5767,22 @@ fn handle_damage(
 }
 
 fn handle_heal(world: &mut World, target: Entity, amount: Fixed64) -> Result<(), failure::Error> {
+    let amount=received_healing(world,target,amount);
     let mut properties = world.write_storage::<CProperty>();
     if let Some(target_props) = properties.get_mut(target) {
-        let summed = target_props.hp + amount;
-        target_props.hp = if summed > target_props.mhp {
-            target_props.mhp
-        } else {
-            summed
-        };
+        target_props.hp=healed_hp(target_props.hp,target_props.mhp,amount);
     }
     Ok(())
+}
+
+fn received_healing(world:&World,target:Entity,amount:Fixed64)->Fixed64 {
+    world.try_fetch::<BuffStore>().map_or(amount.max(Fixed64::ZERO),|buffs|
+        crate::runtime::UnitStats::from_refs(&buffs,false).received_healing(amount,target))
+}
+
+fn healed_hp(current:Fixed64,maximum:Fixed64,amount:Fixed64)->Fixed64 {
+    if current<=Fixed64::ZERO || maximum<=Fixed64::ZERO || amount<=Fixed64::ZERO {return current;}
+    Fixed64::from_raw((i128::from(current.raw())+i128::from(amount.raw())).min(i128::from(maximum.raw())) as i64)
 }
 
 fn handle_attack_update(
@@ -5413,12 +5829,16 @@ fn handle_gold_gain(world: &mut World, target: Entity, amount: i32) -> Result<()
         return Ok(());
     }
     let mut golds = world.write_storage::<Gold>();
+    let before=golds.get(target).map_or(0,|gold|gold.0);
     match golds.get_mut(target) {
         Some(gold) => gold.0 = gold.0.saturating_add(amount),
         None => {
             let _ = golds.insert(target, Gold(amount.max(0)));
         }
     }
+    let after=golds.get(target).map_or(0,|gold|gold.0);
+    drop(golds);
+    super::moba_match::record_moba_gold_gain(world,target,(i64::from(after)-i64::from(before)).max(0) as u64);
     Ok(())
 }
 
@@ -5481,6 +5901,10 @@ fn handle_attack_phase_cue(
     backswing_ms: u32,
     dir_rad: f32,
 ) {
+    if let Some(target) = target {
+        crate::runtime::native::moba_match::record_brush_attack_reveal(world,entity,target);
+        crate::runtime::native::moba_match::record_moba_champion_aggression(world, entity, target, true);
+    }
     let current_tick = world.read_resource::<Tick>().0 as u32;
     world
         .write_resource::<crate::runtime::comp::AttackPhaseFxQueue>()

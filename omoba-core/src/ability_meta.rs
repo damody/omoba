@@ -54,6 +54,8 @@ pub struct AbilityLevelData {
     #[serde(default)]
     pub cast_time: f32,
     #[serde(default)]
+    pub cast_interrupt_on_damage: bool,
+    #[serde(default)]
     pub range: f32,
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,

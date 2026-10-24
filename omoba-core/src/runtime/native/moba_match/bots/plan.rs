@@ -110,7 +110,11 @@ impl RoleBotMatchPlan {
         }
         let [Some(left),Some(right)] = first else { return Err("bot plan requires both teams".into()); };
         Ok((SingleLaneConfig {
+            building_reward_rules:BuildingRewardRules::training(),
+            tower_plating_rules:Some(TowerPlatingRules::training()),
+            minion_growth_rules:MinionGrowthRules::training(),
             seed,map_id:Some(map.id.into()),lane_length:Fixed64::from_i32(map.lane_length),
+            authored_minion_waves:true,wave_interval:Fixed64::from_i32(map.wave_interval_seconds as i32),
             players:[left.player_id,right.player_id],heroes:[left.hero,right.hero],additional_players:additional,
             base_recovery_enabled:self.sustain.is_some(),
             mana_enabled:self.mana_enabled,
@@ -144,6 +148,9 @@ mod tests {
         assert_eq!(bots.ability_learning[0].ability,"lumen_bolt");
         assert_eq!(bots.ability_learning[0].rank,1);
         assert_eq!(config.players,[10,20]); assert_eq!(config.additional_players.len(),8);
+        assert_eq!(config.building_reward_rules,BuildingRewardRules::training());
+        assert_eq!(config.tower_plating_rules,Some(TowerPlatingRules::training()));
+        assert_eq!(config.minion_growth_rules,MinionGrowthRules::training());
         assert_eq!(bots.assignments.len(),9); assert_eq!(bots.think_interval_ticks,12);
         assert!(!bots.assignments.iter().any(|a|a.player_id == 10));
         assert_eq!(bots.assignments.iter().find(|a|a.player_id == 12).unwrap().lane,2);

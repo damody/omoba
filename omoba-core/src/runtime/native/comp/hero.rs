@@ -32,6 +32,9 @@ pub struct Hero {
     /// 不寫進 serde 預設值時自動補空 map，相容舊 savegame。
     #[serde(default)]
     pub ability_cooldowns: HashMap<String, Fixed64>,
+    /// Actual duration of each running cooldown; old saves may omit this map.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub ability_cooldown_totals: HashMap<String, Fixed64>,
     /// Explicitly enabled by the authoritative ruleset. Legacy heroes/savegames
     /// remain unsupported rather than silently acquiring a full mana balance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -81,6 +84,7 @@ impl Hero {
             ability_levels: HashMap::new(),
             skill_points: 0,
             ability_cooldowns: HashMap::new(),
+            ability_cooldown_totals: HashMap::new(),
             mana_pool: None,
             level_growth: LevelGrowth::default(),
         }
@@ -135,6 +139,7 @@ impl Hero {
             ability_levels,
             skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
             ability_cooldowns: HashMap::new(),
+            ability_cooldown_totals: HashMap::new(),
             mana_pool: None,
             level_growth: LevelGrowth {
                 strength_per_level: s.level_growth.strength_per_level,
@@ -383,17 +388,35 @@ impl Hero {
         if duration > Fixed64::ZERO {
             self.ability_cooldowns
                 .insert(ability_id.to_string(), duration);
+            self.ability_cooldown_totals.insert(ability_id.to_string(), duration);
         } else {
             self.ability_cooldowns.remove(ability_id);
+            self.ability_cooldown_totals.remove(ability_id);
+        }
+    }
+
+    /// Present a running instance's admitted duration, never today's modifiers.
+    /// Legacy saves lack that snapshot: use a conservative base/remaining bound.
+    pub fn cooldown_total(&self, ability_id: &str, base: Fixed64) -> Option<Fixed64> {
+        let limit = Fixed64::from_i32(1_000_000);
+        let remaining = self.ability_cooldowns.get(ability_id).copied().unwrap_or(Fixed64::ZERO);
+        if base < Fixed64::ZERO || base > limit || remaining < Fixed64::ZERO || remaining > limit { return None; }
+        if remaining == Fixed64::ZERO { return Some(base); }
+        match self.ability_cooldown_totals.get(ability_id).copied() {
+            Some(total) if total >= remaining && total <= limit => Some(total),
+            Some(_) => None,
+            None => Some(base.max(remaining)),
         }
     }
 
     /// 每個 tick 扣 dt；遞減到 0 以下的 entry 自動清除。
     pub fn tick_cooldowns(&mut self, dt: Fixed64) {
+        if dt <= Fixed64::ZERO { return; }
         self.ability_cooldowns.retain(|_, remaining| {
-            *remaining -= dt;
+            *remaining = Fixed64::from_raw(remaining.raw().saturating_sub(dt.raw()));
             *remaining > Fixed64::ZERO
         });
+        self.ability_cooldown_totals.retain(|id, _| self.ability_cooldowns.contains_key(id));
     }
 }
 
@@ -423,6 +446,41 @@ impl Default for Hero {
 #[cfg(test)]
 mod moba_progression_tests {
     use super::Hero;
+    use omoba_sim::Fixed64;
+
+    #[test]
+    fn cooldown_instance_total_survives_tick_refresh_clear_and_expiry() {
+        let mut h=Hero::default();let base=Fixed64::from_i32(20);
+        h.start_cooldown("a",Fixed64::from_i32(40));h.tick_cooldowns(Fixed64::from_i32(10));
+        assert_eq!(h.cooldown_total("a",base),Some(Fixed64::from_i32(40)));
+        h.tick_cooldowns(Fixed64::ZERO);h.tick_cooldowns(Fixed64::from_raw(-1));
+        assert_eq!(h.get_cooldown("a"),Fixed64::from_i32(30));
+        h.start_cooldown("a",Fixed64::from_i32(10));assert_eq!(h.cooldown_total("a",base),Some(Fixed64::from_i32(10)));
+        h.start_cooldown("a",Fixed64::ZERO);assert!(h.ability_cooldown_totals.is_empty());
+        h.start_cooldown("a",Fixed64::ONE);h.tick_cooldowns(Fixed64::from_raw(i64::MAX));
+        assert!(h.ability_cooldowns.is_empty()&&h.ability_cooldown_totals.is_empty());
+    }
+
+    #[test]
+    fn cooldown_instance_serde_supports_old_saves_and_preserves_admitted_total() {
+        let mut h=Hero::default();h.start_cooldown("a",Fixed64::from_i32(40));h.tick_cooldowns(Fixed64::ONE);
+        let json=serde_json::to_value(&h).unwrap();let copy:Hero=serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(copy.cooldown_total("a",Fixed64::from_i32(20)),Some(Fixed64::from_i32(40)));
+        let mut legacy=json;legacy.as_object_mut().unwrap().remove("ability_cooldown_totals");
+        let copy:Hero=serde_json::from_value(legacy).unwrap();
+        assert_eq!(copy.cooldown_total("a",Fixed64::from_i32(20)),Some(Fixed64::from_i32(39)));
+    }
+
+    #[test]
+    fn cooldown_instance_total_rejects_invalid_present_bounds_and_ignores_retired_values() {
+        let mut h=Hero::default();h.start_cooldown("a",Fixed64::from_i32(40));
+        for total in [-1,1,1_024_000_001] {
+            h.ability_cooldown_totals.insert("a".into(),Fixed64::from_raw(total));
+            assert!(h.cooldown_total("a",Fixed64::from_i32(20)).is_none());
+        }
+        h.ability_cooldowns.clear();assert_eq!(h.cooldown_total("a",Fixed64::from_i32(20)),Some(Fixed64::from_i32(20)));
+        h.tick_cooldowns(Fixed64::ONE);assert!(h.ability_cooldown_totals.is_empty());
+    }
 
     #[test]
     fn integer_moba_xp_crosses_multiple_levels_and_caps_without_overflow() {

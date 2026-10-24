@@ -13,7 +13,7 @@ rumqttc = { version = "0.24", optional = true }
 tokio = { version = "1.0", features = ["rt", "sync", "macros", "time"] }
 
 # 序列化
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 sha2 = "0.10"
 
@@ -62,6 +62,7 @@ tracing = "0.1"
 voracious_radix_sort = { version = "1.2.0", features = ["voracious_multithread"] }
 # 模板 ID（建置時從 Story/templates.json 產生）
 omoba-template-ids = { path = "../omoba-template-ids" }
+omoba-content-model = { path = "../omoba-content-model" }
 
 [build-dependencies]
 tonic-build = { version = "0.12", optional = true }

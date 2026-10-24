@@ -1,10 +1,16 @@
-//! Server-only camp AI. Clients receive movement/vitals, never aggro or timers.
+//! Server-only camp AI. Public presentation includes committed return mode,
+//! never an aggro target, patience, reset or respawn timer.
 use super::*;
 use omoba_template_ids::MobaJungleConst;
 use crate::runtime::native::comp::unit::AiType;
 
 #[derive(Clone, Debug)]
 pub struct MobaJungleCamp {
+    pending_children: Vec<(MobaJungleConst,Vec2)>,
+    pub members: Vec<MobaJungleCamp>,
+    pub hard_reset: bool,
+    patience_remaining: Fixed64,
+    reset_remaining: Fixed64,
     pub definition: MobaJungleConst,
     pub entity: Option<Entity>,
     pub returning: bool,
@@ -15,16 +21,30 @@ pub struct MobaJungleCamp {
     attack_sequence: u32,
     lethal_pending: bool,
     killer_player: Option<u32>,
+    killer_side: Option<usize>,
 }
 
 impl MobaJungleCamp {
     pub(super) fn new(definition: MobaJungleConst) -> Self {
         Self {
+            pending_children:Vec::new(),members:Vec::new(),hard_reset:false,
+            patience_remaining:Fixed64::from_i32(definition.patience_seconds),reset_remaining:Fixed64::ZERO,
             definition, entity: None, returning: false, respawns: 0,
             respawn_at: None, target: None, attack_remaining: Fixed64::ZERO,
             attack_sequence: 0,
-            lethal_pending: false, killer_player: None,
+            lethal_pending: false, killer_player: None,killer_side:None,
         }
+    }
+
+    pub(super) fn entities(&self)->impl Iterator<Item=Entity>+'_ {
+        std::iter::once(self).chain(self.members.iter()).filter_map(|body|body.entity)
+    }
+    pub(super) fn contains(&self,entity:Entity)->bool {self.entities().any(|e|e==entity)}
+    pub(super) fn invulnerable(&self)->bool {
+        self.returning && (self.hard_reset || self.definition.soft_reset_seconds==0)
+    }
+    fn body_mut(&mut self,entity:Entity)->Option<&mut Self> {
+        if self.entity==Some(entity) {Some(self)}else{self.members.iter_mut().find(|m|m.entity==Some(entity))}
     }
 
     /// Resolved presentation of an already committed instantaneous attack.
@@ -45,15 +65,48 @@ fn home(camp: &MobaJungleCamp) -> Vec2 {
     Vec2::new(Fixed64::from_i32(camp.definition.position.0), Fixed64::from_i32(camp.definition.position.1))
 }
 
+/// Non-combat presentation settled after outcomes. Buff replication retains the
+/// entity's visibility policy; this does not expose camp-private targets/timers.
+pub(super) fn synchronize_returning(world: &World) {
+    const KEY: &str = "jungle_return";
+    use crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION;
+    let Some(state) = world.try_fetch::<MobaMatch>() else { return; };
+    let props = world.read_storage::<CProperty>();
+    let mut desired = std::collections::BTreeMap::new();
+    if state.phase == MobaMatchPhase::Playing {
+        for camp in &state.jungle_camps {
+            if !camp.returning { continue; }
+            let mode = if camp.invulnerable() { 2 } else { 1 };
+            for body in std::iter::once(camp).chain(camp.members.iter()) {
+                if let Some(entity) = body.entity.filter(|entity| !body.lethal_pending
+                    && world.entities().is_alive(*entity)
+                    && props.get(*entity).is_some_and(|p| p.hp > Fixed64::ZERO)) {
+                    desired.insert(entity, mode);
+                }
+            }
+        }
+    }
+    let mut buffs = world.write_resource::<crate::runtime::BuffStore>();
+    let stale: Vec<_> = buffs.entities_with_key(KEY).filter(|entity| !desired.contains_key(entity)).collect();
+    for entity in stale { buffs.remove(entity, KEY); }
+    for (entity, mode) in desired {
+        let payload = serde_json::json!({"jungle_return":{"mode":mode}});
+        if buffs.get(entity,KEY).is_none_or(|buff| buff.remaining != PERMANENT_BUFF_DURATION || buff.payload != payload) {
+            buffs.remove(entity, KEY);
+            buffs.add(entity, KEY, PERMANENT_BUFF_DURATION, payload);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::BuffStore;
     use crate::runtime::ScriptUnitTag;
     use crate::runtime::visibility::*;
     use crate::runtime::attack_visual_state::{AttackVisualState, SCHEMA_ID};
 
-    #[test]
-    fn real_camp_attack_publishes_resolved_recovery_without_hero_or_script() {
+    fn camp_world() -> (World,Entity,MobaMatch) {
         let (mut world, hero) = super::super::stop_command_world();
         world.register::<Unit>();world.register::<Faction>();world.register::<ReplicationScope>();
         world.register::<StealthProfile>();world.register::<VisibilityOverride>();world.register::<RememberPolicy>();
@@ -64,9 +117,150 @@ mod tests {
         world.insert(VisionOccluderSet::default());world.insert(BlockedRegions::default());
         world.insert(Vec::<DamageInstance>::new());
         let mut state = super::super::stop_command_match(hero, MobaMatchPhase::Playing);
+        world.write_storage::<Faction>().insert(hero,Faction::new(FactionType::Player,state.config.teams[0] as i32)).unwrap();
+        world.insert(Vec::<Outcome>::new());
+        world.insert(crate::runtime::ObservableFactBuffer::default());
         state.config.map_id = Some("three_lane_training".into());
         setup(&mut world, &mut state);
-        assert_eq!(state.jungle_camps.len(), 2);
+        (world,hero,state)
+    }
+
+    #[test]
+    fn public_return_status_tracks_camp_bodies_without_private_timers_or_combat_effects() {
+        use crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION;
+        assert!(omoba_template_ids::buff_by_name("jungle_return").is_some());
+        let (mut world,hero,mut state)=camp_world();world.insert(BuffStore::default());
+        let i=state.jungle_camps.iter().position(|c|!c.members.is_empty()).unwrap();
+        let bodies:Vec<_>=state.jungle_camps[i].entities().collect();
+        state.jungle_camps[i].definition.soft_reset_seconds=2;
+        state.jungle_camps[i].returning=true;
+        world.insert(state);synchronize_returning(&world);
+        for entity in &bodies {
+            let buffs=world.read_resource::<BuffStore>();let status=buffs.get(*entity,"jungle_return").unwrap();
+            assert_eq!(status.payload,serde_json::json!({"jungle_return":{"mode":1}}));
+            assert_eq!(status.remaining,PERMANENT_BUFF_DURATION);
+            assert!(!buffs.is_silenced(*entity)&&!buffs.is_rooted(*entity));
+        }
+        world.write_resource::<BuffStore>().tick(Fixed64::from_i32(1000));
+        world.write_resource::<GamePause>().is_paused=true;synchronize_returning(&world);
+        assert!(world.read_resource::<BuffStore>().has(bodies[0],"jungle_return"));
+        world.write_resource::<GamePause>().is_paused=false;
+        let center=home(&world.read_resource::<MobaMatch>().jungle_camps[i]);
+        world.write_storage::<Pos>().get_mut(hero).unwrap().0=center;
+        record_moba_jungle_damage(&world,Some(hero),bodies[0],false);synchronize_returning(&world);
+        assert!(world.read_resource::<BuffStore>().entities_with_key("jungle_return").next().is_none());
+        world.write_resource::<MobaMatch>().jungle_camps[i].returning=true;
+        world.write_resource::<MobaMatch>().jungle_camps[i].hard_reset=true;synchronize_returning(&world);
+        assert_eq!(world.read_resource::<BuffStore>().get(bodies[0],"jungle_return").unwrap().payload["jungle_return"]["mode"],2);
+        world.write_storage::<CProperty>().get_mut(bodies[0]).unwrap().hp=Fixed64::ZERO;synchronize_returning(&world);
+        assert!(!world.read_resource::<BuffStore>().has(bodies[0],"jungle_return"));
+        assert!(world.read_resource::<BuffStore>().has(bodies[1],"jungle_return"));
+        world.write_resource::<MobaMatch>().phase=MobaMatchPhase::Finished{winner:None,tick:1};synchronize_returning(&world);
+        assert!(world.read_resource::<BuffStore>().entities_with_key("jungle_return").next().is_none());
+    }
+
+    #[test]
+    fn public_return_status_follows_real_leash_transition_hard_reset_and_home_completion() {
+        let (mut world,hero,mut state)=camp_world();world.insert(BuffStore::default());
+        let camp=&mut state.jungle_camps[0];camp.definition.soft_reset_seconds=2;
+        let entity=camp.entity.unwrap();let center=home(camp);
+        camp.target=Some(hero);camp.patience_remaining=Fixed64::ZERO;
+        world.write_storage::<Pos>().get_mut(entity).unwrap().0=center+Vec2::new(Fixed64::from_i32(1000),Fixed64::ZERO);
+        world.write_storage::<Pos>().get_mut(hero).unwrap().0=center+Vec2::new(Fixed64::from_i32(camp.definition.leash_radius+1000),Fixed64::ZERO);
+        tick(&mut world,&mut state,Fixed64::from_raw(16));assert!(state.jungle_camps[0].returning);
+        world.insert(state);synchronize_returning(&world);
+        assert_eq!(world.read_resource::<BuffStore>().get(entity,"jungle_return").unwrap().payload["jungle_return"]["mode"],1);
+        let mut state=world.remove::<MobaMatch>().unwrap();state.jungle_camps[0].reset_remaining=Fixed64::ZERO;
+        tick(&mut world,&mut state,Fixed64::from_raw(16));assert!(state.jungle_camps[0].hard_reset);
+        world.insert(state);synchronize_returning(&world);
+        assert_eq!(world.read_resource::<BuffStore>().get(entity,"jungle_return").unwrap().payload["jungle_return"]["mode"],2);
+        let mut state=world.remove::<MobaMatch>().unwrap();
+        for body in std::iter::once(&state.jungle_camps[0]).chain(state.jungle_camps[0].members.iter()) {
+            if let Some(entity)=body.entity {world.write_storage::<Pos>().get_mut(entity).unwrap().0=home(body);}
+        }
+        tick(&mut world,&mut state,Fixed64::from_raw(16));assert!(!state.jungle_camps[0].returning);
+        world.insert(state);synchronize_returning(&world);
+        assert!(!world.read_resource::<BuffStore>().has(entity,"jungle_return"));
+    }
+
+    #[test]
+    fn queued_splits_are_once_only_and_respawn_waits_for_every_generation() {
+        let (mut world,_,mut state)=camp_world();
+        let index=state.jungle_camps.iter().position(|c|!c.definition.death_children.is_empty()).unwrap();
+        let original:Vec<_>=state.jungle_camps[index].entities().collect();
+        assert_eq!(original.len(),2);
+        for entity in &original {
+            state.jungle_camps[index].body_mut(*entity).unwrap().lethal_pending=true;
+            death(&world,&mut state,*entity);death(&world,&mut state,*entity);
+        }
+        assert_eq!(state.jungle_camps[index].pending_children.len(),4);
+        assert!(state.jungle_camps[index].respawn_at.is_none());
+        tick(&mut world,&mut state,Fixed64::ZERO);
+        let second:Vec<_>=state.jungle_camps[index].entities().collect();assert_eq!(second.len(),4);
+        assert!(second.iter().all(|e|!original.contains(e)));
+        for entity in second {
+            state.jungle_camps[index].body_mut(entity).unwrap().lethal_pending=true;
+            death(&world,&mut state,entity);
+        }
+        assert!(state.jungle_camps[index].respawn_at.is_none());
+        tick(&mut world,&mut state,Fixed64::ZERO);
+        let third:Vec<_>=state.jungle_camps[index].entities().collect();assert_eq!(third.len(),4);
+        for entity in third {
+            state.jungle_camps[index].body_mut(entity).unwrap().lethal_pending=true;
+            death(&world,&mut state,entity);
+        }
+        let deadline=state.jungle_camps[index].respawn_at.unwrap();
+        state.elapsed=deadline-Fixed64::from_raw(1);tick(&mut world,&mut state,Fixed64::ZERO);
+        assert!(state.jungle_camps[index].entities().next().is_none());
+        state.elapsed=deadline;tick(&mut world,&mut state,Fixed64::ZERO);
+        assert_eq!(state.jungle_camps[index].entities().count(),2);
+        assert_eq!(state.jungle_camps[index].members.len(),1);
+        assert_eq!(state.jungle_camps[index].respawns,1);
+    }
+
+    #[test]
+    fn forced_and_terminal_retirement_do_not_split_children_keep_camp_aggro() {
+        for terminal in [false,true] {
+            let (world,_,mut state)=camp_world();
+            let i=state.jungle_camps.iter().position(|c|!c.definition.death_children.is_empty()).unwrap();
+            let entity=state.jungle_camps[i].entity.unwrap();
+            if terminal {state.jungle_camps[i].lethal_pending=true;state.phase=MobaMatchPhase::Finished {winner:None,tick:0};}
+            death(&world,&mut state,entity);
+            assert!(state.jungle_camps[i].pending_children.is_empty());
+        }
+        let (mut world,hero,mut state)=camp_world();
+        let i=state.jungle_camps.iter().position(|c|!c.definition.death_children.is_empty()).unwrap();
+        let entity=state.jungle_camps[i].entity.unwrap();
+        let origin=home(&state.jungle_camps[i])+Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO);
+        world.write_storage::<Pos>().get_mut(entity).unwrap().0=origin;
+        world.write_storage::<Pos>().get_mut(hero).unwrap().0=origin;
+        state.jungle_camps[i].target=Some(hero);state.jungle_camps[i].lethal_pending=true;
+        death(&world,&mut state,entity);
+        for (definition,position) in &state.jungle_camps[i].pending_children {
+            assert!((*position-origin).length()<Fixed64::from_i32(100));
+            assert!(definition.objective_buff.is_none() && definition.personal_buff.is_none());
+        }
+        tick(&mut world,&mut state,Fixed64::from_raw(16));
+        assert_eq!(state.jungle_camps[i].target,Some(hero));
+        assert_eq!(state.jungle_camps[i].entities().count(),3);
+        assert!(state.jungle_camps[i].members.iter().filter(|b|b.entity.is_some()).all(|b|b.attack_sequence>0));
+        state.jungle_camps[i].returning=true;state.jungle_camps[i].hard_reset=true;
+        tick(&mut world,&mut state,Fixed64::from_raw(16));
+        assert!(state.jungle_camps[i].members.iter().filter(|b|b.entity.is_some()).all(|b|b.returning && b.hard_reset));
+        let (mut world,_,mut state)=camp_world();world.insert(BuffStore::default());
+        let camp=&mut state.jungle_camps[0];let e=camp.entity.unwrap();
+        world.write_storage::<CProperty>().get_mut(e).unwrap().hp=Fixed64::ONE;
+        world.write_resource::<BuffStore>().grant_healing_reduction(e,Fixed64::ZERO,Fixed64::from_i32(4));
+        camp.returning=true;camp.hard_reset=true;
+        tick(&mut world,&mut state,Fixed64::from_raw(16));
+        let health=world.read_storage::<CProperty>();let health=health.get(e).unwrap();
+        assert_eq!(health.hp,health.mhp,"completed hard reset is restoration, not combat healing");
+    }
+
+    #[test]
+    fn real_camp_attack_publishes_resolved_recovery_without_hero_or_script() {
+        let (mut world,hero,mut state)=camp_world();
+        assert_eq!(state.jungle_camps.len(), 16);
         let camp_entity = state.jungle_camps[0].entity.unwrap();
         let definition = state.jungle_camps[0].definition;
         let id = crate::runtime::canonical_entity_id(camp_entity);
@@ -112,9 +306,59 @@ mod tests {
         assert!(!state.disclosed_unit_attack_states(false).contains_key(&id));
         assert_eq!(state.disclosed_unit_attack_states(false)[&new_id], AttackVisualState::default());
     }
+
+    #[test]
+    fn camp_and_members_cannot_attack_through_walls_and_chase_until_line_clears() {
+        use crate::runtime::moba_map_layout::{compiled_blocked_regions,compiled_vision_occluders};
+        use omoba_template_ids::{MobaMapConst,MobaTerrainConst};
+        const WALL:[MobaTerrainConst;1]=[MobaTerrainConst {id:"camp_wall",min:(35,-50),max:(45,50)}];
+        let map=MobaMapConst {terrain:&WALL,..omoba_template_ids::MOBA_MAPS[0]};
+        let p=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        for with_members in [false,true] {
+            let (mut world,hero,mut state)=camp_world();
+            let index=state.jungle_camps.iter().position(|c|!c.members.is_empty()==with_members).unwrap();
+            let mut camp=state.jungle_camps.remove(index);
+            camp.definition.position=(0,0);camp.target=Some(hero);
+            let attackers:Vec<_>=camp.entities().collect();
+            for entity in &attackers {world.write_storage::<Pos>().get_mut(*entity).unwrap().0=p(0,0);}
+            world.write_storage::<Pos>().get_mut(hero).unwrap().0=p(80,0);
+            state.jungle_camps=vec![camp];
+            world.insert(crate::runtime::ObservableFactBuffer::default());
+            world.insert(compiled_blocked_regions(&map));world.insert(compiled_vision_occluders(&map));
+            tick(&mut world,&mut state,Fixed64::from_raw(16));
+            assert!(world.read_resource::<Vec<DamageInstance>>().is_empty(),"all camp bodies respect wall LOS");
+            let camp=&state.jungle_camps[0];
+            for body in std::iter::once(camp).chain(camp.members.iter()) {
+                assert_eq!(body.attack_remaining,Fixed64::ZERO,"blocked attack does not spend its budget");
+                assert_eq!(body.attack_sequence,0,"no attack cue or brush exposure on a blocked attempt");
+                assert_ne!(world.read_storage::<Pos>().get(body.entity.unwrap()).unwrap().0,p(0,0),"navigation still pursues");
+            }
+            world.write_storage::<Pos>().get_mut(hero).unwrap().0=p(-20,0);
+            tick(&mut world,&mut state,Fixed64::from_raw(16));
+            assert_eq!(world.read_resource::<Vec<DamageInstance>>().len(),attackers.len(),"every body can attack as soon as range and LOS allow");
+            world.write_resource::<Vec<DamageInstance>>().clear();
+            tick(&mut world,&mut state,Fixed64::from_raw(16));
+            assert!(world.read_resource::<Vec<DamageInstance>>().is_empty(),"successful attacks still respect cooldown");
+        }
+    }
 }
 
 fn spawn(world: &mut World, camp: &mut MobaJungleCamp) {
+    camp.pending_children.clear();
+    spawn_body(world,camp);
+    camp.members=camp.definition.members.iter().map(|member| {
+        let mut body=MobaJungleCamp::new(child_definition(camp.definition,member));
+        spawn_body(world,&mut body);body
+    }).collect();
+}
+
+fn child_definition(parent:MobaJungleConst,child:&omoba_template_ids::MobaJungleMemberConst)->MobaJungleConst {
+    MobaJungleConst {members:&[],death_children:child.death_children,objective_buff:None,personal_buff:None,additional_objective_buffs:&[],
+        id:child.id,position:(parent.position.0+child.offset.0,parent.position.1+child.offset.1),
+        hp:child.hp,damage:child.damage,gold:child.gold,xp:child.xp,..parent}
+}
+
+fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
     let d = camp.definition;
     let mut unit = Unit::new(d.id.into(), d.id.into(), UnitType::Neutral);
     unit.max_hp = d.hp;
@@ -134,11 +378,15 @@ fn spawn(world: &mut World, camp: &mut MobaJungleCamp) {
     camp.entity = Some(entity);
     camp.respawn_at = None;
     camp.returning = false;
+    camp.hard_reset=false;
+    camp.patience_remaining=Fixed64::from_i32(d.patience_seconds);
+    camp.reset_remaining=Fixed64::ZERO;
     camp.target = None;
     camp.attack_remaining = Fixed64::ZERO;
     camp.attack_sequence = 0;
     camp.lethal_pending = false;
     camp.killer_player = None;
+    camp.killer_side = None;
 }
 
 pub(super) fn setup(world: &mut World, state: &mut MobaMatch) {
@@ -151,77 +399,140 @@ pub(super) fn setup(world: &mut World, state: &mut MobaMatch) {
     }
 }
 
+pub(super) fn damage_allowed(world:&World,source:Option<Entity>,target:Entity)->bool {
+    let Some(state)=world.try_fetch::<MobaMatch>()else{return true;};
+    let Some(camp)=state.jungle_camps.iter().find(|c|c.contains(target))else{return true;};
+    if camp.invulnerable() {return false;}
+    if !camp.returning {return true;}
+    let radius=Fixed64::from_i32(camp.definition.leash_radius);
+    source.and_then(|entity|world.read_storage::<Pos>().get(entity).map(|p|p.0))
+        .or_else(|| world.try_fetch::<ProjectileImpactOrigin>()
+            .filter(|origin|source==Some(origin.0.source) && !world.entities().is_alive(origin.0.source))
+            .and_then(|origin|origin.0.launch_position))
+        .is_some_and(|pos|(pos-home(camp)).length_squared()<=radius*radius)
+}
+
 pub(crate) fn record_moba_jungle_damage(world: &World, source: Option<Entity>, target: Entity, lethal: bool) {
     let Some(mut state) = world.try_fetch_mut::<MobaMatch>() else { return; };
     if state.phase != MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused { return; }
-    let attacker = source.and_then(|entity| state.heroes.iter()
-        .find(|s| s.entity == Some(entity) && !s.lethal_pending)
-        .filter(|_| world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp > Fixed64::ZERO))
-        .map(|s| (entity, s.player_id)));
-    let Some(camp) = state.jungle_camps.iter_mut().find(|c| c.entity == Some(target)) else { return; };
-    if camp.returning || camp.lethal_pending { return; }
-    if let Some((entity, _)) = attacker { camp.target = Some(entity); }
+    let credit=if lethal {jungle_credit::resolve(world,&state,source)}else{None};
+    let attacker = source.filter(|entity|jungle_credit::living_target(world,&state.config.teams,&state.heroes,*entity));
+    let Some(camp) = state.jungle_camps.iter_mut().find(|c| c.contains(target)) else { return; };
+    if camp.invulnerable() { return; }
+    if let Some(entity) = attacker {
+        camp.target = Some(entity);camp.returning=false;camp.hard_reset=false;
+        let radius=Fixed64::from_i32(camp.definition.leash_radius);
+        if world.read_storage::<Pos>().get(entity).is_some_and(|pos|(pos.0-home(camp)).length_squared()<=radius*radius) {
+            camp.patience_remaining=Fixed64::from_i32(camp.definition.patience_seconds);
+        }
+        for member in &mut camp.members {member.returning=false;member.hard_reset=false;}
+    }
+    let Some(body)=camp.body_mut(target)else{return};
+    if body.lethal_pending {return;}
     if lethal {
-        camp.lethal_pending = true;
-        camp.killer_player = attacker.map(|(_,player)| player);
+        body.lethal_pending = true;
+        body.killer_player = credit.and_then(|credit|credit.player);
+        body.killer_side = credit.map(|credit|credit.side);
     }
 }
 
 pub(super) fn death(world: &World, state: &mut MobaMatch, entity: Entity) {
-    let Some(camp) = state.jungle_camps.iter_mut().find(|c| c.entity == Some(entity)) else { return; };
-    camp.entity = None;
-    camp.target = None;
-    camp.returning = false;
-    camp.respawn_at = Some(state.elapsed + Fixed64::from_i32(camp.definition.respawn_seconds));
-    let killer = camp.killer_player.take();
-    if state.phase != MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused { return; }
-    if let Some(slot) = killer.and_then(|player| state.heroes.iter_mut().find(|s| s.player_id == player)) {
-        if let Some(hero) = slot.entity {
-            if let Some(gold) = world.write_storage::<Gold>().get_mut(hero) {
-                gold.0 = gold.0.saturating_add(camp.definition.gold as i32);
-            }
-            award_live_moba_xp(world, hero, camp.definition.xp);
-        } else {
-            slot.gold.0 = slot.gold.0.saturating_add(camp.definition.gold as i32);
-            slot.hero.add_moba_experience(camp.definition.xp);
+    let active=state.phase==MobaMatchPhase::Playing && !world.read_resource::<GamePause>().is_paused;
+    let Some(camp) = state.jungle_camps.iter_mut().find(|c| c.contains(entity)) else { return; };
+    let objective=if camp.entity==Some(entity) {Some(camp.definition)}else{None};
+    let personal=if camp.entity==Some(entity) {camp.definition.personal_buff}else{None};
+    let body=camp.body_mut(entity).expect("camp body");
+    let definition=body.definition;
+    let split=active && body.lethal_pending;
+    let corpse=world.read_storage::<Pos>().get(entity).map_or_else(||home(body),|p|p.0);
+    body.entity=None;let killer=body.killer_player.take();let side=body.killer_side.take();let reward=(body.definition.gold,body.definition.xp);
+    if split {
+        for child in definition.death_children {
+            let next=child_definition(definition,child);
+            let offset=Vec2::new(Fixed64::from_i32(child.offset.0),Fixed64::from_i32(child.offset.1));
+            let position=crate::tick::hero_command_tick::static_step_toward(corpse,corpse+offset,
+                offset.length(),Fixed64::from_i32(20),&world.read_resource::<BlockedRegions>());
+            camp.pending_children.push((next,position));
         }
     }
+    if camp.entities().next().is_none() && camp.pending_children.is_empty() {
+        camp.target=None;camp.returning=false;camp.hard_reset=false;
+        camp.respawn_at=Some(state.elapsed+Fixed64::from_i32(camp.definition.respawn_seconds));
+    }
+    if state.phase != MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused { return; }
+    if let Some(index) = killer.and_then(|player| state.heroes.iter().position(|s| s.player_id == player)) {
+        credit_moba_player(world,state,index,reward.0,reward.1);
+    }
+    if let (Some(definition),Some(side))=(objective,side) {
+        if definition.objective_rewards().next().is_some() {objective_comeback::observe(world,state,entity,side,true);objective_notice::observe(world,state,entity,side,4);}
+        for rule in definition.objective_rewards() {objective_buffs::grant_side(world,state,rule,side);}
+    }
+    if let (Some(rule),Some(player))=(personal,killer) {personal_buffs::grant(world,state,player,rule);}
 }
 
 pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
+    let mut brush_attacks=Vec::new();
     for camp in &mut state.jungle_camps {
         if camp.respawn_at.is_some_and(|time| state.elapsed >= time) {
             camp.respawns = camp.respawns.saturating_add(1);
             spawn(world, camp);
         }
-        let Some(entity) = camp.entity else { continue; };
-        if camp.lethal_pending || world.read_storage::<CProperty>().get(entity).is_none_or(|p| p.hp <= Fixed64::ZERO) { continue; }
-        let origin = world.read_storage::<Pos>().get(entity).expect("camp position").0;
+        for (definition,position) in std::mem::take(&mut camp.pending_children) {
+            let mut body=MobaJungleCamp::new(definition);
+            spawn_body(world,&mut body);
+            world.write_storage::<Pos>().get_mut(body.entity.expect("spawned child")).expect("child position").0=position;
+            body.returning=camp.returning;body.hard_reset=camp.hard_reset;
+            camp.members.push(body);
+        }
+        if camp.entities().next().is_none() {continue;}
         let center = home(camp);
         let leash = Fixed64::from_i32(camp.definition.leash_radius);
-        let target = camp.target.filter(|target| state.heroes.iter().any(|s| s.entity == Some(*target) && !s.lethal_pending))
-            .filter(|target| world.read_storage::<CProperty>().get(*target).is_some_and(|p| p.hp > Fixed64::ZERO))
-            .and_then(|target| world.read_storage::<Pos>().get(target).map(|p| (target,p.0)))
-            .filter(|(_,pos)| (*pos-center).length_squared() <= leash*leash);
-        if camp.target.is_some() && (target.is_none() || (origin-center).length_squared() > leash*leash) {
+        let target = camp.target.filter(|target|jungle_credit::living_target(world,&state.config.teams,&state.heroes,*target))
+            .and_then(|target| world.read_storage::<Pos>().get(target).map(|p| (target,p.0)));
+        if !camp.returning && camp.target.is_some() {
+            let outside=target.is_none_or(|(_,pos)|(pos-center).length_squared()>leash*leash);
+            if outside {camp.patience_remaining=(camp.patience_remaining-dt).max(Fixed64::ZERO);}
+            else {camp.patience_remaining=Fixed64::from_i32(camp.definition.patience_seconds);}
+            if target.is_none() || (outside && camp.patience_remaining==Fixed64::ZERO) {
             camp.returning = true;
             camp.target = None;
+            camp.hard_reset=camp.definition.soft_reset_seconds==0;
+            camp.reset_remaining=Fixed64::from_i32(camp.definition.soft_reset_seconds);
+            }
         }
-        camp.attack_remaining = (camp.attack_remaining-dt).max(Fixed64::ZERO);
-        let destination = if camp.returning { Some(center) } else { target.map(|(_,pos)|pos) };
+        if camp.returning && !camp.hard_reset {
+            camp.reset_remaining=(camp.reset_remaining-dt).max(Fixed64::ZERO);
+            if camp.reset_remaining==Fixed64::ZERO {camp.hard_reset=true;}
+        }
+        let returning=camp.returning;let hard=camp.hard_reset;
+        let mut children=std::mem::take(&mut camp.members);let mut all_home=true;
+        for body in std::iter::once(&mut *camp).chain(children.iter_mut()) {
+            body.returning=returning;body.hard_reset=hard;
+            let Some(entity)=body.entity else{continue;};
+            if body.lethal_pending || world.read_storage::<CProperty>().get(entity).is_none_or(|p|p.hp<=Fixed64::ZERO) {continue;}
+            let origin=world.read_storage::<Pos>().get(entity).expect("camp position").0;
+            let destination = if returning { Some(home(body)) } else { target.map(|(_,pos)|pos) };
+            if returning {
+                world.write_resource::<Vec<Outcome>>().push(Outcome::Heal {pos:origin,target:entity,
+                    amount:Fixed64::from_i32(body.definition.hp)*dt*Fixed64::from_i32(if hard {20}else{6})/Fixed64::from_i32(100)});
+            }
+            body.attack_remaining=(body.attack_remaining-dt).max(Fixed64::ZERO);
         let Some(destination) = destination else { continue; };
-        let range = Fixed64::from_i32(camp.definition.attack_range);
-        if !camp.returning && (destination-origin).length_squared() <= range*range {
-            if camp.attack_remaining == Fixed64::ZERO {
+        let range = Fixed64::from_i32(body.definition.attack_range);
+        let attack_line_clear = || world.try_fetch::<crate::runtime::VisionOccluderSet>().is_none_or(|walls|
+            walls.line_of_sight(origin,destination)==crate::runtime::LosResult::Clear);
+        if !returning && (destination-origin).length_squared() <= range*range && attack_line_clear() {
+            if body.attack_remaining == Fixed64::ZERO {
                 world.write_resource::<Vec<DamageInstance>>().push(DamageInstance::new_attack(entity,
-                    target.expect("valid aggro target").0,Fixed64::from_i32(camp.definition.damage)));
-                camp.attack_remaining = Fixed64::from_i32(camp.definition.attack_interval_seconds);
-                camp.attack_sequence = camp.attack_sequence.wrapping_add(1).max(1);
+                    target.expect("valid aggro target").0,Fixed64::from_i32(body.definition.damage)));
+                brush_attacks.push((entity,target.expect("valid aggro target").0));
+                body.attack_remaining = Fixed64::from_i32(body.definition.attack_interval_seconds);
+                body.attack_sequence = body.attack_sequence.wrapping_add(1).max(1);
             }
             continue;
         }
         let pos = crate::tick::hero_command_tick::static_step_toward(origin,destination,
-            Fixed64::from_i32(camp.definition.move_speed)*dt,Fixed64::from_i32(20),
+            Fixed64::from_i32(body.definition.move_speed)*dt*if returning {if hard {Fixed64::from_i32(2)}else{Fixed64::from_i32(6)/Fixed64::from_i32(10)}}else{Fixed64::ONE},Fixed64::from_i32(20),
             &world.read_resource::<BlockedRegions>());
         if pos != origin {
             world.write_storage::<Pos>().get_mut(entity).expect("camp position").0 = pos;
@@ -235,12 +546,19 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
                 fact: crate::runtime::ObservableFact::Movement { source, x_mm: pos.x.raw(),y_mm:pos.y.raw(),facing_ticks:None },
             }).expect("camp movement fact");
         }
-        if camp.returning && pos == center {
-            // Common heal path emits committed vitals for disclosed replicas.
-            world.write_resource::<Vec<Outcome>>().push(Outcome::Heal { pos:center,target:entity,
-                amount:Fixed64::from_i32(camp.definition.hp) });
-            camp.returning = false;
-            camp.attack_remaining = Fixed64::ZERO;
+        if returning {all_home &= pos==home(body);}
+        }
+        camp.members=children;
+        if returning && hard && all_home {
+            camp.returning=false;camp.hard_reset=false;camp.target=None;camp.attack_remaining=Fixed64::ZERO;
+            for body in std::iter::once(&*camp).chain(camp.members.iter()) {
+                if let Some(entity)=body.entity {
+                    // Completed leash reset is restoration, independent of combat antiheal.
+                    if let Some(health)=world.write_storage::<CProperty>().get_mut(entity) {health.hp=health.mhp;}
+                }
+            }
+            for body in &mut camp.members {body.returning=false;body.hard_reset=false;body.attack_remaining=Fixed64::ZERO;}
         }
     }
+    for (attacker,victim) in brush_attacks {super::record_brush_attack_reveal_in(world,state,attacker,victim);}
 }

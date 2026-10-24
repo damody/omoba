@@ -1268,8 +1268,10 @@ mod tests {
     fn communication_rejects_stale_or_hidden_targets_and_out_of_bounds_points() {
         let mut ledger = CommunicationLedger::default();
         let match_state = roster_match(MobaMatchPhase::Playing, Some("three_lane_training"));
-        let inside = Vec2::new(Fixed64::from_i32(0), Fixed64::from_i32(1400));
-        let outside = Vec2::new(Fixed64::from_i32(0), Fixed64::from_i32(1401));
+        let map=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
+        let edge=map.lanes.iter().flat_map(|lane|lane.waypoints.iter()).map(|p|p.1).max().unwrap();
+        let inside = Vec2::new(Fixed64::from_i32(0), Fixed64::from_i32(edge));
+        let outside = Vec2::new(Fixed64::from_i32(0), Fixed64::from_i32(edge+1));
         assert!(match_state.communication_point_allowed(inside));
         assert!(!match_state.communication_point_allowed(outside));
         assert!(!match_state.communication_point_allowed(Vec2::new(Fixed64::from_i32(-1), Fixed64::ZERO)));
@@ -1526,7 +1528,8 @@ mod tests {
         match &voted.body {
             AdmittedBody::ObjectiveVote { objective_id, home, expires_at_raw, .. } => {
                 assert_eq!(objective_id, "north_guardian");
-                assert_eq!(*home, Vec2::new(Fixed64::from_i32(800), Fixed64::from_i32(700)));
+                let camp = match_state.jungle_camps.iter().find(|c| c.definition.id == objective_id).unwrap();
+                assert_eq!(*home, Vec2::new(Fixed64::from_i32(camp.definition.position.0), Fixed64::from_i32(camp.definition.position.1)));
                 assert_eq!(*expires_at_raw, OBJECTIVE_VOTE_TTL_RAW);
             }
             other => panic!("expected vote, {other:?}"),

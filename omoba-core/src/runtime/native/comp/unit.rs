@@ -503,9 +503,22 @@ impl Default for Faction {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SummonedUnit {
     pub summoner: Entity,            // 召喚者
-    pub duration: Option<f32>,       // 持續時間（秒），None 表示永久
-    pub time_remaining: Option<f32>, // 剩餘時間
-    pub summon_time: f32,            // 召喚時間戳
+    pub duration: Option<Fixed64>,
+    pub time_remaining: Option<Fixed64>,
+    pub summon_time: Fixed64,
+    #[serde(default)]
+    pub navigation: SummonNavigation,
+}
+
+/// Content opt-in follow policy and bounded public-terrain waypoint cache.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct SummonNavigation {
+    pub follow_start_distance: Fixed64,
+    pub follow_stop_distance: Fixed64,
+    pub auto_target: Option<omoba_sim::Vec2>,
+    pub destination: Option<omoba_sim::Vec2>,
+    pub waypoint: Option<omoba_sim::Vec2>,
+    pub replan_in: Fixed64,
 }
 
 impl Component for SummonedUnit {
@@ -515,19 +528,26 @@ impl Component for SummonedUnit {
 impl SummonedUnit {
     /// 創建新的召喚物組件
     pub fn new(summoner: Entity, duration: Option<f32>, current_time: f32) -> Self {
+        let mut value=Self::new_fixed(summoner,duration.map(|v|Fixed64::from_raw((v as f64*1024.0) as i64)));
+        value.summon_time=Fixed64::from_raw((current_time as f64*1024.0) as i64);
+        value
+    }
+
+    pub fn new_fixed(summoner:Entity,duration:Option<Fixed64>) -> Self {
         SummonedUnit {
             summoner,
             duration,
             time_remaining: duration,
-            summon_time: current_time,
+            summon_time: Fixed64::ZERO,
+            navigation: SummonNavigation::default(),
         }
     }
 
     /// 更新時間並檢查是否過期
-    pub fn update(&mut self, dt: f32) -> bool {
+    pub fn update(&mut self, dt: Fixed64) -> bool {
         if let Some(ref mut remaining) = self.time_remaining {
-            *remaining -= dt;
-            *remaining <= 0.0
+            *remaining = (*remaining-dt.max(Fixed64::ZERO)).max(Fixed64::ZERO);
+            *remaining <= Fixed64::ZERO
         } else {
             false // 永久召喚物不會過期
         }
@@ -536,9 +556,27 @@ impl SummonedUnit {
     /// 檢查是否過期
     pub fn is_expired(&self) -> bool {
         if let Some(remaining) = self.time_remaining {
-            remaining <= 0.0
+            remaining <= Fixed64::ZERO
         } else {
             false
         }
+    }
+}
+
+#[cfg(test)]
+mod summon_lifetime_tests {
+    use super::*;
+    use specs::{Builder,World,WorldExt};
+    #[test]
+    fn summon_fixed_lifetime_matches_exact_60hz_and_permanent_does_not_expire() {
+        let mut world=World::new();let owner=world.create_entity().build();
+        let mut summon=SummonedUnit::new_fixed(owner,Some(Fixed64::ONE));
+        for tick in 1..=60 {
+            let dt=Fixed64::from_raw((tick*1024/60)-((tick-1)*1024/60));
+            assert_eq!(summon.update(dt),tick==60);
+        }
+        assert_eq!(summon.time_remaining,Some(Fixed64::ZERO));
+        let mut permanent=SummonedUnit::new_fixed(owner,None);
+        assert!(!permanent.update(Fixed64::from_i32(3600)));
     }
 }

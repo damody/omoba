@@ -329,6 +329,13 @@ pub fn acquire(view: &CombatAcquisitionView<'_, '_>, request: AcquisitionRequest
                 if entity == request.source || !ward_auto_ok(view, entity) {
                     continue;
                 }
+                // Jungle camps require an explicit attack. Idle/A-move must
+                // not repeatedly pull and reset a camp while crossing a lane.
+                // The same public faction is available in filtered replicas.
+                if view.factions.get(entity).is_some_and(|f|
+                    f.faction_id == crate::comp::FactionType::HostileNeutral) {
+                    continue;
+                }
                 if let Some(row) = read_candidate(view, request.source, entity) {
                     entities_by_key.insert(row.key, entity);
                     rows.push(row);
@@ -747,6 +754,7 @@ pub(crate) mod test_support {
             tick: 1,
             entities: Vec::new().into(),
             vision_sources: Vec::new().into(),
+            brush_regions: Vec::new().into(),
             vision_occluders: Vec::new().into(),
         }
     }
@@ -826,6 +834,21 @@ mod tests {
         assert_eq!(targets, vec![enemy]);
         assert!(held(&observation));
         assert_eq!(observation.active, Some(HeroCommand::AttackMove { pos: away_from(0) }));
+    }
+
+    #[test]
+    fn jungle_requires_explicit_attack_in_both_authority_and_filtered_consumers() {
+        for filtered in [false,true] {
+            let mut fix=CombatFixture::legacy();
+            let camp=fix.spawn_units(IndexedBody::Creep,20,0,100);
+            fix.world.write_storage::<Faction>().get_mut(camp).unwrap().faction_id=FactionType::HostileNeutral;
+            if filtered {fix.filtered();fix.commit(1,&[fix.hero,camp]);}
+            assert!(fix.attack_targets().is_empty(),"idle must not pull neutral camps");
+            let (targets,observation)=attack_move(&mut fix,0);
+            assert!(targets.is_empty());assert!(observation.moving,"crossing jungle must keep moving");
+            fix.command(HeroCommand::AttackTarget {target:camp,chase_origin:None});
+            assert_eq!(fix.attack_targets(),vec![camp],"direct jungle attacks remain legal");
+        }
     }
 
     #[test]
@@ -1026,6 +1049,7 @@ mod tests {
                 detection_level: 0,
             }]
             .into(),
+            brush_regions: Vec::new().into(),
             vision_occluders: vec![VisionOccluder::Tree(VisionTreeCircle {
                 stable_id: 1,
                 center,

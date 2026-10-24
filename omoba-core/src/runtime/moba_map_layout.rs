@@ -49,6 +49,23 @@ pub fn compiled_blocked_regions(map: &MobaMapConst) -> crate::runtime::BlockedRe
     )
 }
 
+/// Same authored wall bounds as collision and presentation. IDs are local to
+/// this immutable map and assigned by name, independent of authoring order.
+pub fn compiled_vision_occluders(map: &MobaMapConst) -> crate::runtime::VisionOccluderSet {
+    use crate::runtime::{VisionAabb, VisionOccluder, VisionOccluderSet, VisionTerrainPolygon};
+    use omoba_sim::{Fixed64, Vec2};
+    let point=|(x,y)| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+    let mut walls:Vec<_>=map.terrain.iter().collect();
+    walls.sort_by_key(|wall|wall.id);
+    VisionOccluderSet(walls.into_iter().enumerate().map(|(index,wall)| {
+        VisionOccluder::Terrain(VisionTerrainPolygon {
+            stable_id:index as u64+1,name:wall.id.into(),
+            vertices:vec![point(wall.min),point((wall.max.0,wall.min.1)),point(wall.max),point((wall.min.0,wall.max.1))],
+            aabb:VisionAabb {min:point(wall.min),max:point(wall.max)},
+        })
+    }).collect())
+}
+
 /// A valid map ID/hash alone does not prove that navigation received the same
 /// geometry. Compare canonical bytes before decoding or allocating untrusted
 /// counts. Legacy non-compiled maps retain their existing metadata contract.
@@ -109,9 +126,56 @@ pub fn decode(
 mod tests {
     use super::*;
     #[test]
+    fn compiled_wall_vision_matches_collision_is_order_independent_and_blocks_segments() {
+        use crate::runtime::{LosResult,VisionOccluder};
+        use omoba_sim::{Fixed64,Vec2};
+        use omoba_template_ids::MobaTerrainConst;
+        const WALLS:[MobaTerrainConst;2]=[MobaTerrainConst {id:"east",min:(20,-10),max:(30,10)},
+            MobaTerrainConst {id:"west",min:(-30,-10),max:(-20,10)}];
+        let map=MobaMapConst {id:"custom_geometry",terrain:&WALLS,..omoba_template_ids::MOBA_MAPS[0]};
+        let set=compiled_vision_occluders(&map);
+        const REVERSED:[MobaTerrainConst;2]=[WALLS[1],WALLS[0]];
+        assert_eq!(set,compiled_vision_occluders(&MobaMapConst {terrain:&REVERSED,..map}));
+        let p=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        for occluder in &set.0 {
+            let VisionOccluder::Terrain(poly)=occluder else {panic!("compiled wall must be terrain")};
+            let collision=compiled_blocked_regions(&map).0.into_iter().find(|r|r.name==poly.name).unwrap();
+            assert_eq!(poly.vertices.iter().map(|p|(p.x.to_f32_for_render(),p.y.to_f32_for_render())).collect::<Vec<_>>(),
+                collision.points.iter().map(|p|(p.x,p.y)).collect::<Vec<_>>());
+        }
+        assert_eq!(set.line_of_sight(p(0,0),p(40,0)),LosResult::Blocked);
+        assert_eq!(set.line_of_sight(p(0,10),p(40,10)),LosResult::Blocked,"tangent edge is closed");
+        assert_eq!(set.line_of_sight(p(0,11),p(40,11)),LosResult::Clear);
+        assert_eq!(set.line_of_sight(p(0,0),p(10,0)),LosResult::Clear);
+        assert!(compiled_vision_occluders(&MobaMapConst {terrain:&[],..map}).0.is_empty());
+    }
+
+    #[test]
+    fn compiled_map_boot_installs_own_vision_and_preserves_legacy_campaign_policy() {
+        use specs::WorldExt;
+        use crate::runtime::{StateInitializer,VisionOccluderSet};
+        use crate::runtime::native::moba_match::{setup_single_lane_match,SingleLaneConfig};
+        let pool=StateInitializer::create_thread_pool();
+        for map in omoba_template_ids::MOBA_MAPS {
+            let mut world=StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world,SingleLaneConfig {map_id:Some(map.id.into()),
+                lane_length:omoba_sim::Fixed64::from_i32(map.lane_length),..SingleLaneConfig::default()}).unwrap();
+            assert_eq!(*world.read_resource::<VisionOccluderSet>(),compiled_vision_occluders(map));
+            let view=crate::runtime::build_wave_b_read_view(&world,1);
+            assert_eq!(view.vision_occluders.len(),map.terrain.len());
+        }
+        let map=&omoba_template_ids::MOBA_MAPS[0];
+        let mut legacy=StateInitializer::setup_campaign_ecs_world(&pool);
+        let authored=compiled_vision_occluders(map);legacy.insert(authored.clone());
+        setup_single_lane_match(&mut legacy,SingleLaneConfig::default()).unwrap();
+        assert_eq!(*legacy.read_resource::<VisionOccluderSet>(),authored,"legacy keeps descriptor geometry");
+    }
+    #[test]
     fn geometry_conversion_is_data_driven_not_map_name_specific() {
         use omoba_template_ids::MobaTerrainConst;
         let map = MobaMapConst {
+            base_structures: None, base_unlock: omoba_template_ids::MobaBaseUnlockConst::AllLaneTowers,
+            minion_wave: &[],wave_interval_seconds:12,
             id: "not_a_shipped_map",
             lane_length: 900,
             tower_offset: 100,
@@ -119,6 +183,7 @@ mod tests {
             lanes: &[],
             jungle_camps: &[],
             presentation_surfaces: &[],
+            brushes: &[],
             terrain: &[
                 MobaTerrainConst {
                     id: "negative",
@@ -146,6 +211,7 @@ mod tests {
         );
         assert_eq!(regions.0[1].points[2], vek::Vec2::new(100., 120.));
         assert!(compiled_blocked_regions(&MobaMapConst {
+            brushes: &[],
             terrain: &[],
             ..map
         })

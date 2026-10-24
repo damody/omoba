@@ -3,6 +3,26 @@ use serde::{Deserialize, Serialize};
 use specs::storage::VecStorage;
 use specs::{Component, Entity};
 
+/// Authority packet stage. Old serialized projectiles retain legacy settlement.
+#[derive(Clone,Copy,Debug,Default,Deserialize,Serialize,PartialEq,Eq)]
+pub enum DamageStage { #[default] Settled, Raw }
+
+/// Shared existing balance policy. Preserve ratio-then-subtract fixed-point rounding.
+pub fn mitigate_base_defenses(damage:&DamageTypes,armor:Fixed64,resistance_percent:Fixed64,
+    ignore_armor:bool,ignore_resistance:bool)->DamageTypes {
+    let mut physical=damage.physical.max(Fixed64::ZERO);
+    let mut magical=damage.magical.max(Fixed64::ZERO);
+    if !ignore_armor && armor>Fixed64::ZERO {
+        let ratio=Fixed64::from_raw(((i128::from(armor.raw())*1024)/(i128::from(armor.raw())+102400)) as i64);
+        physical=physical-physical*ratio;
+    }
+    if !ignore_resistance && resistance_percent>Fixed64::ZERO {
+        let ratio=Fixed64::from_raw((resistance_percent.raw()/100).min(768));
+        magical=magical-magical*ratio;
+    }
+    DamageTypes::new(physical,magical,damage.pure.max(Fixed64::ZERO))
+}
+
 /// 傷害來源信息
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DamageSource {

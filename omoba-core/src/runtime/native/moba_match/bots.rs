@@ -80,7 +80,7 @@ struct SeenUnit { canonical_id: u64, position: Vec2, team: u32, kind: u8, owner_
 
 fn disclosed_threat(own:Vec2,team:u32,seen:&[SeenUnit],radius:u32) -> bool {
     let radius=Fixed64::from_i32(radius as i32);
-    seen.iter().any(|u|u.team!=team && u.hp_raw>0
+    seen.iter().any(|u|u.team!=team && u.team!=0 && u.hp_raw>0
         && (u.position-own).length_squared()<=radius*radius)
 }
 
@@ -201,7 +201,9 @@ fn jungle_farm_target_excluding(own:Vec2,seen:&[SeenUnit],excluded:&[u64])->Opti
 
 /// A distant opportunity must remain in the current disclosure, not a remembered
 /// building or a private unlock state. Travel is MoveTo, not lane auto-aggression.
-const MAX_TRAVEL_ROUTE_QUERIES:usize=8;
+// Authoring permits up to 32 camps (and 16 lane waypoints). Every authored
+// destination must be considered before declaring the public route blocked.
+const MAX_TRAVEL_ROUTE_QUERIES:usize=32;
 
 fn jungle_siege_destination(team:u32,own:Vec2,seen:&[SeenUnit],
     mut reachable:impl FnMut(Vec2)->bool)->Option<Vec2> {
@@ -335,7 +337,7 @@ fn navigable_combat_decision(assignment:&BotAssignment,team:u32,own:Vec2,destina
     Decision::Hold
 }
 
-fn route_destination(route: &[Vec2], own: Vec2, active_destination: Option<Vec2>) -> Option<Vec2> {
+pub(super) fn route_destination(route: &[Vec2], own: Vec2, active_destination: Option<Vec2>) -> Option<Vec2> {
     let last = *route.last()?;
     let arrival = Fixed64::from_i32(50);
     let index = active_destination.and_then(|point| route.iter().position(|p| *p == point))
@@ -560,7 +562,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                     // exclusively from the committed team disclosure above.
                     let definition=abilities.as_ref()?.get(id)?;
                     let multiplier=crate::runtime::ability_runtime::UnitStats::from_refs(
-                        buffs.as_ref()?,false).mana_cost_mult(entity);
+                        buffs.as_ref()?,false).checked_mana_cost_mult(entity)?;
                     crate::runtime::ability_runtime::checked_mana_cost(
                         definition.get_level_data(rank)?.mana_cost,multiplier).ok()
                 },|id,bonus| {
@@ -709,7 +711,7 @@ mod tests {
     #[test]
     fn combat_navigation_bounds_candidates_and_preserves_observed_tower_guard() {
         let assignment=BotAssignment {player_id:1,role:BotRole::Carry,lane:0,escort_player_id:None};
-        let seen:Vec<_>=(1..=12).map(|id|unit(id,200+id as i32*10,2,2,100)).collect();
+        let seen:Vec<_>=(1..=MAX_TRAVEL_ROUTE_QUERIES as u64+4).map(|id|unit(id,200+id as i32*10,2,2,100)).collect();
         let mut queries=0;
         assert_eq!(navigable_combat_decision(&assignment,1,p(0),p(900),&seen,None,
             Fixed64::from_i32(100), |_| {queries+=1;false}),Decision::Hold);
@@ -736,7 +738,7 @@ mod tests {
 
     #[test]
     fn lane_navigation_bounds_queries_skips_arrival_and_handles_invalid_routes() {
-        let route:Vec<_>=(0..=12).map(|n|p(n*100)).collect();let mut queried=Vec::new();
+        let route:Vec<_>=(0..=MAX_TRAVEL_ROUTE_QUERIES+4).map(|n|p(n as i32*100)).collect();let mut queried=Vec::new();
         assert_eq!(reachable_lane_destination(&route,p(0),p(0),|point| {queried.push(point);false}),None);
         assert_eq!(queried.len(),MAX_TRAVEL_ROUTE_QUERIES);
         assert_eq!(queried[0],p(100));
@@ -757,7 +759,7 @@ mod tests {
         assert_eq!(reachable_patrol_destination(&[p(0),p(0),p(1000)],p(0),p(0), |_|true),Some(p(1000)));
         assert_eq!(reachable_patrol_destination(&[p(0)],p(0),p(0), |_|panic!("already arrived")),None);
         assert_eq!(reachable_patrol_destination(&[],p(0),p(0), |_|true),None);
-        let many:Vec<_>=(1..=12).map(|n|p(n*100)).collect();let mut count=0;
+        let many:Vec<_>=(1..=MAX_TRAVEL_ROUTE_QUERIES+4).map(|n|p(n as i32*100)).collect();let mut count=0;
         assert_eq!(reachable_patrol_destination(&many,p(0),p(100), |_| {count+=1;false}),None);
         assert_eq!(count,MAX_TRAVEL_ROUTE_QUERIES);
     }
@@ -868,7 +870,7 @@ mod tests {
         assert_eq!(queried,vec![near.position,far.position]);
         assert_eq!(jungle_siege_destination(1,p(0),&[far,near], |_|true),Some(near.position),
             "terrain changes must not inherit a blacklist");
-        let candidates:Vec<_>=(0..12).map(|i|unit(i+1,1500+i as i32*100,2,5,100)).collect();
+        let candidates:Vec<_>=(0..MAX_TRAVEL_ROUTE_QUERIES as u64+4).map(|i|unit(i+1,1500+i as i32*100,2,5,100)).collect();
         let mut count=0;
         assert_eq!(jungle_siege_destination(1,p(0),&candidates, |_| {count+=1;false}),None);
         assert_eq!(count,MAX_TRAVEL_ROUTE_QUERIES);

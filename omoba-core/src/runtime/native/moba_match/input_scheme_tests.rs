@@ -305,6 +305,7 @@ fn input_scheme_snapshot_admits_only_current_unique_live_owned_roster_bodies() {
 #[test]
 fn input_scheme_authority_digest_binds_private_commitment_and_step_controls() {
     let world = world();
+    world.write_resource::<MobaMatch>().phase=MobaMatchPhase::Playing;
     let (hero, target) = { let state = world.read_resource::<MobaMatch>();
         (state.heroes[0].entity.unwrap(), state.heroes[1].entity.unwrap()) };
     let before = single_lane_replay_digest(&world);
@@ -317,6 +318,12 @@ fn input_scheme_authority_digest_binds_private_commitment_and_step_controls() {
         tick: 9, rows: BTreeMap::new(),
     });
     assert_ne!(single_lane_replay_digest(&world), before);
+    world.write_resource::<GamePause>().is_paused=true;
+    let paused=single_lane_replay_digest(&world);
+    world.write_resource::<MobaMatch>().input_step.as_mut().unwrap().tick=10;
+    assert_eq!(single_lane_replay_digest(&world),paused,"inactive wire tick is not a gameplay clock");
+    world.write_storage::<TAttack>().get_mut(hero).unwrap().committed_target=Some(target);
+    assert_ne!(single_lane_replay_digest(&world),paused,"pause still binds real private commitments");
 }
 
 #[test]

@@ -38,15 +38,26 @@ pub struct ParallelAdapterCache<'a> {
     pub blocked: Read<'a, BlockedRegions>,
     pub tick: Read<'a, Tick>,
     pub rng_seed: u64,
+    pub walls: Option<Read<'a, crate::runtime::VisionOccluderSet>>,
+    visibility: Option<Read<'a, crate::runtime::TeamVisibilityRuntime>>,
+    moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
+    filtered: bool,
+    summon_placements: super::super::summon_navigation::PlacementReservations,
 }
 
 impl<'a> ParallelAdapterCache<'a> {
     pub fn new(world: &'a World, rng_seed: u64) -> Self {
+        let summon_placements=world.try_fetch::<super::super::summon_navigation::PlacementReservations>()
+            .map(|ledger|(*ledger).clone()).unwrap_or_default();
+        summon_placements.0.lock().unwrap_or_else(|p|p.into_inner())
+            .retain(|entity,_|world.entities().is_alive(*entity));
         let faction=world.read_storage::<Faction>();
         let mut team_keys=HashMap::new();
         for f in (&faction).join() {team_keys.entry(f.team_id).or_insert_with(||format!("team:{}",f.team_id));}
         Self {
             team_keys,
+            summon_placements,
             entities: world.entities(),
             tattack: world.read_storage::<TAttack>(),
             pos: world.read_storage::<Pos>(),
@@ -66,6 +77,11 @@ impl<'a> ParallelAdapterCache<'a> {
             blocked: world.read_resource::<BlockedRegions>().into(),
             tick: world.read_resource::<Tick>().into(),
             rng_seed,
+            walls: world.try_fetch::<crate::runtime::VisionOccluderSet>().map(Into::into),
+            visibility: world.try_fetch::<crate::runtime::TeamVisibilityRuntime>().map(Into::into),
+            moba: world.try_fetch::<crate::runtime::MobaMatch>().map(Into::into),
+            attack_gate: world.try_fetch::<crate::runtime::filtered_specs::DisclosedAttackabilityGate>().map(Into::into),
+            filtered: world.try_fetch::<crate::runtime::filtered_specs::DisclosedMovementPriority>().is_some(),
         }
     }
 }
@@ -81,15 +97,32 @@ pub struct ParallelWorldAdapter<'a> {
     mana_transaction: bool,
     mana_views: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
     mana_dirty: Vec<Entity>,
+    mana_originals: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
     overlay_facing: HashMap<Entity, Angle>,
     overlay_asd_count: HashMap<Entity, Fixed64>,
     projectile_hit_generation: Option<u8>,
+    projectile_origin: Option<ProjectileOrigin>,
+    projectile_source_buffs: Option<BuffStore>,
+    projectile_team_key: Option<String>,
     capture_cast_areas: bool,
     cast_areas: Vec<(Vec2, Fixed64, Fixed64)>,
+    pub(crate) allocation_allowed: bool,
+    pub(crate) allocation_requested: bool,
+    reserved_entities: Vec<Entity>,
 }
 
 pub struct ParallelProjectileQuery<'a> {
     cache: &'a ParallelAdapterCache<'a>,
+    origin: Option<&'a ProjectileOrigin>,
+}
+
+impl Drop for ParallelWorldAdapter<'_> {
+    fn drop(&mut self) {
+        for entity in self.reserved_entities.drain(..) {
+            self.cache.summon_placements.release(entity);
+            let _ = self.cache.entities.delete(entity);
+        }
+    }
 }
 
 pub struct ParallelTowerCooldownAccess<'a> {
@@ -270,7 +303,11 @@ impl TowerCooldownAccess for ParallelTowerCooldownAccess<'_> {
 
 impl<'a> ParallelProjectileQuery<'a> {
     pub fn new(cache: &'a ParallelAdapterCache<'a>) -> Self {
-        Self { cache }
+        Self { cache, origin: None }
+    }
+
+    pub fn with_origin(cache: &'a ParallelAdapterCache<'a>, origin: Option<&'a ProjectileOrigin>) -> Self {
+        Self {cache, origin}
     }
 }
 
@@ -286,7 +323,9 @@ impl ProjectileQuery for ParallelProjectileQuery<'_> {
         let Some(of_entity) = ParallelWorldAdapter::handle_to_entity(of) else {
             return RVec::new();
         };
-        let Some(my_faction) = self.cache.faction.get(of_entity) else {
+        let Some(my_faction) = self.cache.faction.get(of_entity).or_else(||
+            self.origin.filter(|origin|origin.source==of_entity && !self.cache.entities.is_alive(of_entity))
+                .and_then(|origin|origin.script.as_ref()).and_then(|source|source.faction.as_ref())) else {
             return RVec::new();
         };
         let cap = usize::from(cap);
@@ -361,10 +400,17 @@ fn query_script_tower_enemy(
     of: EntityHandle,
     priority: TowerTargetPriority,
 ) -> ROption<EntityHandle> {
+    query_script_tower_enemy_with_source(cache,center,radius,of,priority,None)
+}
+
+fn query_script_tower_enemy_with_source(
+    cache:&ParallelAdapterCache<'_>,center:Vec2,radius:Fixed64,of:EntityHandle,
+    priority:TowerTargetPriority,source:Option<&ProjectileScriptSource>,
+) -> ROption<EntityHandle> {
     let Some(of_ent) = ParallelWorldAdapter::handle_to_entity(of) else {
         return RNone;
     };
-    let my_team = match cache.faction.get(of_ent) {
+    let my_team = match cache.faction.get(of_ent).or_else(||source.and_then(|source|source.faction.as_ref())) {
         Some(faction) => faction.team_id,
         None => return RNone,
     };
@@ -381,7 +427,7 @@ fn query_script_tower_enemy(
             continue;
         };
         let target_creep = cache.creep.get(candidate.e);
-        let camo_visible = match (cache.tower.get(of_ent), target_creep) {
+        let camo_visible = match (cache.tower.get(of_ent).or_else(||source.and_then(|source|source.tower.as_ref())), target_creep) {
             (Some(tower), Some(creep)) => tower_can_target_creep(tower, creep),
             _ => true,
         };
@@ -462,19 +508,111 @@ impl<'a> ParallelWorldAdapter<'a> {
             mana_transaction: false,
             mana_views: HashMap::new(),
             mana_dirty: Vec::new(),
+            mana_originals: HashMap::new(),
             overlay_facing: HashMap::new(),
             overlay_asd_count: HashMap::new(),
             projectile_hit_generation: None,
+            projectile_origin: None,
+            projectile_source_buffs: None,
+            projectile_team_key: None,
             capture_cast_areas: false,
             cast_areas: Vec::new(),
+            allocation_allowed: true,
+            allocation_requested: false,
+            reserved_entities: Vec::new(),
         }
     }
 
     pub fn finish(self) -> Vec<Outcome> {
-        self.outcomes
+        let mut this = self;
+        this.reserved_entities.clear(); // ownership transfers to outcomes
+        std::mem::take(&mut this.outcomes)
     }
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
+
+    pub fn set_projectile_origin(&mut self, origin: Option<ProjectileOrigin>) {
+        self.projectile_team_key=origin.as_ref().and_then(|origin|origin.script.as_ref())
+            .and_then(|source|source.faction.as_ref()).map(|faction|format!("team:{}",faction.team_id));
+        self.projectile_source_buffs = origin.as_ref()
+            .filter(|origin|!self.cache.entities.is_alive(origin.source))
+            .and_then(|origin|origin.script.as_ref().map(|source| {
+                let mut buffs=BuffStore::default();
+                for (id,remaining,payload) in &source.buffs {buffs.add(origin.source,id,*remaining,payload.clone());}
+                buffs
+            }));
+        self.projectile_origin=origin;
+    }
+
+    fn retired_source(&self, entity: Entity) -> Option<&ProjectileScriptSource> {
+        self.projectile_origin.as_ref().filter(|origin|origin.source==entity && !self.cache.entities.is_alive(entity))
+            .and_then(|origin|origin.script.as_deref())
+    }
+    pub(crate) fn projectile_script_id(&self, entity:Entity)->Option<String> {
+        self.retired_source(entity).map(|source|source.unit_id.clone())
+    }
+    fn source_attack(&self, entity:Entity)->Option<&TAttack> {
+        match self.retired_source(entity) {Some(source)=>source.attack.as_ref(),None=>self.cache.tattack.get(entity)}
+    }
+    fn source_property(&self, entity:Entity)->Option<&CProperty> {
+        match self.retired_source(entity) {Some(source)=>source.property.as_ref(),None=>self.cache.cprop.get(entity)}
+    }
+    fn source_unit(&self, entity:Entity)->Option<&Unit> {
+        match self.retired_source(entity) {Some(source)=>source.unit.as_ref(),None=>self.cache.unit.get(entity)}
+    }
+    pub(crate) fn source_ability_levels(&self,entity:Entity)->Vec<(String,u8)> {
+        if let Some(source)=self.retired_source(entity) {return source.ability_levels.clone();}
+        let Some(hero)=self.cache.hero.get(entity).filter(|h|h.ability_levels.len()<=64) else{return Vec::new();};
+        let mut levels:Vec<_>=hero.ability_levels.iter().filter_map(|(id,rank)|
+            u8::try_from(*rank).ok().filter(|rank|*rank>0).map(|rank|(id.clone(),rank))).collect();
+        levels.sort();levels
+    }
+    fn source_faction(&self, entity:Entity)->Option<&Faction> {
+        match self.retired_source(entity) {Some(source)=>source.faction.as_ref(),None=>self.cache.faction.get(entity)}
+    }
+    fn source_tower(&self, entity:Entity)->Option<&Tower> {
+        match self.retired_source(entity) {Some(source)=>source.tower.as_ref(),None=>self.cache.tower.get(entity)}
+    }
+    fn source_is_building(&self, entity:Entity)->bool {
+        match self.retired_source(entity) {Some(source)=>source.building,None=>self.cache.is_building.get(entity).is_some()}
+    }
+    fn source_buffs(&self, entity:Entity)->&BuffStore {
+        if self.retired_source(entity).is_some() {self.projectile_source_buffs.as_ref().unwrap_or(&self.cache.buffs)}
+        else {&self.cache.buffs}
+    }
+    fn attribute_projectile_outcome(&self, outcome:Outcome, source:Entity)->Outcome {
+        match self.projectile_origin.as_ref().filter(|origin|origin.source==source) {
+            Some(origin)=>Outcome::ProjectileContext {origin:origin.clone(),outcome:Box::new(outcome)},
+            None=>outcome,
+        }
+    }
+    fn is_summon(&self, entity:Entity)->bool {
+        self.source_unit(entity).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon))
+    }
+
+    fn summon_target_allowed(&self,source:Entity,target:Entity,center:Vec2,radius:Fixed64)->bool {
+        use crate::runtime::native::combat_acquisition::DisclosureContext;
+        // An already committed projectile is independent of its source's later
+        // death/stun. Ordinary summon acquisition keeps all source admission.
+        let committed=self.projectile_origin.as_ref().is_some_and(|origin|origin.source==source);
+        if radius<=Fixed64::ZERO || source==target
+            || (!committed && (!self.cache.entities.is_alive(source) || self.cache.buffs.is_stunned(source)
+                || !self.cache.cprop.get(source).is_some_and(|h|h.hp>Fixed64::ZERO)))
+            || !self.cache.entities.is_alive(target)
+            || !self.cache.cprop.get(target).is_some_and(|h|h.hp>Fixed64::ZERO) {return false;}
+        let Some((faction,other))=self.source_faction(source).zip(self.cache.faction.get(target)) else {return false;};
+        let Some(position)=self.cache.pos.get(target).map(|p|p.0) else {return false;};
+        let disclosure=DisclosureContext::resolve(self.cache.filtered,self.cache.moba.is_some(),self.cache.visibility.as_deref());
+        if !faction.is_hostile_to(other) || position.distance_squared(center)>radius*radius
+            || !disclosure.allows(Some(faction),crate::runtime::selective::CanonicalEntityKey {
+                id:target.id(),generation:target.gen().id() as u32}) {return false;}
+        let attackable=if let Some(state)=self.cache.moba.as_deref() {
+            state.current_match_target_attackable(target) && state.ward_automatic_acquisition_allowed(target)
+        }else {self.cache.attack_gate.as_deref().is_none_or(|gate|
+            gate.allows(target) && !gate.ward_automatic_disabled.contains(&target))};
+        attackable && self.cache.walls.as_ref().is_none_or(|walls|
+            walls.line_of_sight(center,position)==crate::runtime::LosResult::Clear)
+    }
     pub fn cast_succeeded(&self) -> bool { self.cast_succeeded && !self.hook_panicked }
     pub fn capture_formal_cast_areas(&mut self) { self.capture_cast_areas = true; }
     pub fn successful_cast_areas(&self) -> &[(Vec2, Fixed64, Fixed64)] {
@@ -496,8 +634,15 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.mana_transaction = true;
         self.mana_views = ledger.iter().filter_map(|(entity,hero)|
             hero.mana_pool.clone().map(|pool|(*entity,pool))).collect();
+        self.mana_originals = self.mana_views.clone();
     }
     pub fn stage_mana_pool(&mut self, entity: Entity, pool: crate::runtime::ability_runtime::ManaPool) {
+        if !self.mana_originals.contains_key(&entity) {
+            if let Some(original)=self.mana_views.get(&entity).cloned()
+                .or_else(||self.cache.hero.get(entity).and_then(|hero|hero.mana_pool.clone())) {
+                self.mana_originals.insert(entity,original);
+            }
+        }
         self.mana_views.insert(entity,pool);
         if !self.mana_dirty.contains(&entity) { self.mana_dirty.push(entity); }
     }
@@ -511,11 +656,28 @@ impl<'a> ParallelWorldAdapter<'a> {
     pub fn commit_mana_transaction(&mut self) -> Vec<(Entity,crate::runtime::ability_runtime::ManaPool)> {
         self.mana_dirty.sort_by_key(|e|(e.id(),e.gen().id()));
         let dirty=std::mem::take(&mut self.mana_dirty);
-        dirty.into_iter().map(|entity| {
+        let mut changes=Vec::new();
+        let result=dirty.into_iter().map(|entity| {
             let pool=self.mana_views[&entity].clone();
-            self.commit_mana(entity,pool.clone());
+            let expected=self.mana_originals.insert(entity,pool.clone()).expect("managed mana baseline");
+            changes.push(crate::comp::ManaSettlementChange {entity,expected,pool:pool.clone()});
             (entity,pool)
-        }).collect()
+        }).collect::<Vec<_>>();
+        if !changes.is_empty() {
+            let mut notifications=Vec::new();
+            let changed:std::collections::HashSet<_>=changes.iter().map(|row|row.entity).collect();
+            self.outcomes.retain(|effect|match effect {
+                Outcome::ScriptManaGained {entity,amount} if changed.contains(entity)=>{
+                    notifications.push(crate::comp::ManaSettlementNotification::Gained {entity:*entity,amount:*amount});false
+                },
+                Outcome::ScriptManaSpent {entity,amount,ability_id} if changed.contains(entity)=>{
+                    notifications.push(crate::comp::ManaSettlementNotification::Spent {entity:*entity,amount:*amount,ability_id:ability_id.clone()});false
+                },
+                _=>true,
+            });
+            self.outcomes.push(Outcome::ScriptManaCommit {changes,notifications});
+        }
+        result
     }
     fn managed_mana_entity(&self, e:EntityHandle) -> Option<Entity> {
         let entity=Self::handle_to_entity(e)?;
@@ -528,6 +690,10 @@ impl<'a> ParallelWorldAdapter<'a> {
     /// Each queued event owns a fresh adapter. Failed managed casts discard
     /// both unit pre-hooks and ability outcomes, including their local overlays.
     pub fn discard_cast(&mut self) {
+        for entity in self.reserved_entities.drain(..) {
+            self.cache.summon_placements.release(entity);
+            let _ = self.cache.entities.delete(entity);
+        }
         self.outcomes.clear();
         self.overlay_pos.clear();
         self.overlay_facing.clear();
@@ -537,6 +703,7 @@ impl<'a> ParallelWorldAdapter<'a> {
         self.mana_transaction = false;
         self.mana_views.clear();
         self.mana_dirty.clear();
+        self.mana_originals.clear();
     }
 
     pub fn commit_mana(&mut self, entity: Entity, pool: crate::runtime::ability_runtime::ManaPool) {
@@ -606,19 +773,18 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         if let Some(p) = self.overlay_pos.get(&ent) {
             return RSome(*p);
         }
-        self.cache.pos.get(ent).map(|p| p.0).map_or(RNone, RSome)
+        match self.retired_source(ent) {Some(source)=>source.pos,None=>self.cache.pos.get(ent).map(|p|p.0)}
+            .map_or(RNone, RSome)
     }
 
     fn get_hp(&self, e: EntityHandle) -> ROption<Fixed64> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return RNone;
         };
-        if let Some(p) = self.cache.cprop.get(ent) {
+        if let Some(p) = self.source_property(ent) {
             return RSome(p.hp);
         }
-        self.cache
-            .unit
-            .get(ent)
+        self.source_unit(ent)
             .map(|u| Fixed64::from_i32(u.current_hp))
             .map_or(RNone, RSome)
     }
@@ -627,12 +793,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return RNone;
         };
-        if let Some(p) = self.cache.cprop.get(ent) {
+        if let Some(p) = self.source_property(ent) {
             return RSome(p.mhp);
         }
-        self.cache
-            .unit
-            .get(ent)
+        self.source_unit(ent)
             .map(|u| Fixed64::from_i32(u.max_hp))
             .map_or(RNone, RSome)
     }
@@ -644,13 +808,19 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn faction_of(&self, e: EntityHandle) -> ROption<RStr<'_>> {
-        let Some(entity)=Self::handle_to_entity(e).filter(|entity|self.cache.entities.is_alive(*entity)) else {return RNone;};
+        let Some(entity)=Self::handle_to_entity(e) else {return RNone;};
+        if self.retired_source(entity).is_some() {
+            return self.projectile_team_key.as_deref().map_or(RNone,|key|RSome(RStr::from_str(key)));
+        }
         self.cache.faction.get(entity).and_then(|f|self.cache.team_keys.get(&f.team_id))
             .map_or(RNone,|key|RSome(RStr::from_str(key)))
     }
 
-    fn unit_id_of(&self, _e: EntityHandle) -> ROption<RStr<'_>> {
-        RNone
+    fn unit_id_of(&self, e: EntityHandle) -> ROption<RStr<'_>> {
+        let Some(entity)=Self::handle_to_entity(e) else {return RNone;};
+        self.retired_source(entity).map(|source|source.unit_id.as_str())
+            .or_else(||self.cache.tags.get(entity).map(|tag|tag.unit_id.as_str()))
+            .map_or(RNone,|id|RSome(RStr::from_str(id)))
     }
 
     fn query_enemies_in_range(
@@ -662,12 +832,19 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(of_ent) = Self::handle_to_entity(of) else {
             return RVec::new();
         };
-        let my_team = match self.cache.faction.get(of_ent) {
+        if self.is_summon(of_ent) {
+            let mut found:Vec<_>=(&self.cache.entities,&self.cache.pos).join()
+                .filter(|(e,_)|self.summon_target_allowed(of_ent,*e,center,radius))
+                .map(|(e,p)|(p.0.distance_squared(center).raw(),e)).collect();
+            found.sort_by_key(|(d,e)|(*d,e.id(),e.gen().id()));
+            return found.into_iter().map(|(_,e)|Self::entity_to_handle(e)).collect::<Vec<_>>().into();
+        }
+        let my_team = match self.source_faction(of_ent) {
             Some(f) => f.team_id,
             None => return RVec::new(),
         };
         let r2 = radius * radius;
-        let source_tower = self.cache.tower.get(of_ent);
+        let source_tower = self.source_tower(of_ent);
         let mut out = RVec::new();
         for (ent, pos, fac) in (&self.cache.entities, &self.cache.pos, &self.cache.faction).join() {
             let camo_visible = match (source_tower, self.cache.creep.get(ent)) {
@@ -715,6 +892,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             .get(ent)
             .map(|r| r.0)
             .unwrap_or(Fixed64::from_i32(30));
+        if self.is_summon(ent) {
+            return crate::tick::hero_command_tick::static_step_toward(pos,target,step,radius,&self.cache.blocked);
+        }
         let (new_pos, _) = crate::tick::hero_move_tick::advance_with_collision(
             pos,
             target,
@@ -771,7 +951,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             DamageKind::Magical => (Fixed64::ZERO, amount, Fixed64::ZERO),
             DamageKind::Pure => (Fixed64::ZERO, Fixed64::ZERO, amount),
         };
-        self.outcomes.push(Outcome::Damage {
+        let outcome = self.attribute_projectile_outcome(Outcome::RawDamage {
             pos,
             phys,
             magi,
@@ -779,8 +959,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             source,
             target,
             damage_profile: valid_profile.bits(),
-            predeclared: false,
-        });
+            origin: None,
+        },source);
+        self.outcomes.push(outcome);
     }
 
     fn heal(&mut self, target: EntityHandle, amount: Fixed64) {
@@ -814,7 +995,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn has_buff(&self, target: EntityHandle, buff_id: RStr<'_>) -> bool {
         Self::handle_to_entity(target)
-            .map(|ent| self.cache.buffs.has(ent, buff_id.as_str()))
+            .map(|ent| self.source_buffs(ent).has(ent, buff_id.as_str()))
             .unwrap_or(false)
     }
 
@@ -839,12 +1020,42 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn spawn_summoned_unit(
         &mut self,
-        _pos: Vec2,
-        _unit_type: RStr<'_>,
-        _owner: EntityHandle,
-        _duration: Fixed64,
+        pos: Vec2,
+        unit_type: RStr<'_>,
+        owner: EntityHandle,
+        duration: Fixed64,
     ) -> EntityHandle {
-        EntityHandle::INVALID
+        let Some(owner) = Self::handle_to_entity(owner).filter(|e|
+            self.cache.entities.is_alive(*e)
+                && self.cache.cprop.get(*e).is_some_and(|p| p.hp > Fixed64::ZERO)) else {
+            return EntityHandle::INVALID;
+        };
+        let Some(faction) = self.cache.faction.get(owner).cloned() else {return EntityHandle::INVALID;};
+        let Some(stats) = omoba_template_ids::summon_by_name(unit_type.as_str())
+            .and_then(omoba_template_ids::active_summon_stats) else {return EntityHandle::INVALID;};
+        if duration < Fixed64::ZERO || duration > Fixed64::from_i32(3600) || stats.hp <= Fixed64::ZERO
+            || stats.attack_interval <= Fixed64::ZERO || stats.attack_range <= Fixed64::ZERO
+            || stats.move_speed < Fixed64::ZERO || stats.collision_radius < Fixed64::ZERO
+            || stats.vision_radius<Fixed64::ZERO || stats.vision_radius>Fixed64::from_i32(10_000)
+            || self.reserved_entities.len() >= 128 {return EntityHandle::INVALID;}
+        self.allocation_requested = true;
+        if !self.allocation_allowed {return EntityHandle::INVALID;}
+        let mut occupied:Vec<_>=(&self.cache.entities,&self.cache.pos,&self.cache.collision,&self.cache.faction)
+            .join().filter(|(_,_,_,f)|f.team_id==faction.team_id).map(|(_,p,r,_)|(p.0,r.0)).collect();
+        let mut reservations=self.cache.summon_placements.0.lock().unwrap_or_else(|p|p.into_inner());
+        if reservations.len()>=4096 {return EntityHandle::INVALID;}
+        occupied.extend(reservations.values().filter(|(team,_,_)|*team==faction.team_id)
+            .map(|(_,pos,radius)|(*pos,*radius)));
+        let anchor=self.overlay_pos.get(&owner).copied().or_else(||self.cache.pos.get(owner).map(|p|p.0));
+        let Some(pos)=crate::runtime::native::summon_navigation::placement(pos,anchor,stats.collision_radius,
+            &self.cache.blocked,&occupied) else {return EntityHandle::INVALID;};
+        let entity = self.cache.entities.create();
+        reservations.insert(entity,(faction.team_id,pos,stats.collision_radius));
+        self.reserved_entities.push(entity);
+        self.overlay_pos.insert(entity, pos);
+        self.outcomes.push(Outcome::SpawnSummoned {entity, pos, unit_id:unit_type.as_str().into(),
+            owner, faction, player_owner:self.cache.player_owner.get(owner).map(|p| p.player_id), duration});
+        Self::entity_to_handle(entity)
     }
 
     fn spawn_projectile_ex(&mut self, spec: ProjectileSpec) -> EntityHandle {
@@ -859,12 +1070,33 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(owner_ent) = Self::handle_to_entity(spec.owner) else {
             return EntityHandle::INVALID;
         };
+        let basic_attack=matches!(spec.path,PathSpec::AttackHoming {..});
+        if basic_attack && (self.projectile_hit_generation.is_some() || self.projectile_origin.is_some()
+            || self.capture_cast_areas || !self.is_alive(spec.owner)
+            || spec.splash_radius!=Fixed64::ZERO || spec.hit_radius!=Fixed64::ZERO
+            || spec.speed<=Fixed64::ZERO || spec.damage<Fixed64::ZERO) {return EntityHandle::INVALID;}
+        let missed=basic_attack && crate::runtime::native::attack_accuracy::source_misses(
+            self.cache.rng_seed,self.cache.tick.0 as u32,owner_ent,
+            UnitStats::from_refs(&self.cache.buffs,false).miss_chance(owner_ent));
+        let mut critical=false;
+        let mut attack_damage=if missed {Fixed64::ZERO}else{spec.damage};
+        if basic_attack&&!missed {
+            let (chance,multiplier)=UnitStats::from_refs(&self.cache.buffs,false)
+                .crit_with_base(owner_ent,Fixed64::ZERO,Fixed64::from_i32(2));
+            critical=crate::runtime::native::attack_accuracy::source_crits(self.cache.rng_seed,self.cache.tick.0 as u32,owner_ent,chance);
+            if critical {
+                attack_damage=attack_damage*multiplier;
+            }
+        }
         let from = spec.from;
         let (target_opt, tpos) = match spec.path {
-            PathSpec::Homing { target } => {
+            PathSpec::Homing { target } | PathSpec::AttackHoming { target } => {
                 let Some(target_ent) = Self::handle_to_entity(target) else {
                     return EntityHandle::INVALID;
                 };
+                if basic_attack && !self.summon_target_allowed(owner_ent,target_ent,from,self.get_tower_range(spec.owner)) {
+                    return EntityHandle::INVALID;
+                }
                 let tp = self.cache.pos.get(target_ent).map(|p| p.0).unwrap_or(from);
                 (Some(target_ent), tp)
             }
@@ -877,27 +1109,30 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             facing: fire_angle,
         });
         self.push_tower_fire_fx(owner_ent, Self::angle_to_rad_f32(fire_angle));
-        self.outcomes.push(Outcome::ScriptProjectile {
+        let outcome = self.attribute_projectile_outcome(Outcome::ScriptProjectile {
+            basic_attack:basic_attack&&!missed&&spec.damage>Fixed64::ZERO,
+            source_missed:basic_attack&&missed,source_critical:critical,
             pos: from,
             owner: owner_ent,
             target: target_opt,
             tpos,
             radius: spec.splash_radius,
             msd: spec.speed,
-            damage_phys: spec.damage,
+            damage_phys: attack_damage,
             damage_magi: Fixed64::ZERO,
             damage_real: Fixed64::ZERO,
             damage_profile: profile.bits(),
-            slow_factor: spec.slow_factor,
-            slow_duration: spec.slow_duration,
+            slow_factor: if missed {Fixed64::ZERO}else{spec.slow_factor},
+            slow_duration: if missed {Fixed64::ZERO}else{spec.slow_duration},
             hit_radius: spec.hit_radius,
-            stun_duration: spec.stun_duration,
+            stun_duration: if missed {Fixed64::ZERO}else{spec.stun_duration},
             kind_id: spec.kind_id,
             generation: self
                 .projectile_hit_generation
                 .map(|generation| generation.saturating_add(1))
                 .unwrap_or(0),
-        });
+        },owner_ent);
+        self.outcomes.push(outcome);
         EntityHandle::INVALID
     }
 
@@ -922,26 +1157,26 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     }
 
     fn get_tower_range(&self, e: EntityHandle) -> Fixed64 {
-        Self::handle_to_entity(e)
-            .and_then(|ent| self.cache.tattack.get(ent).map(|t| t.range.v))
-            .unwrap_or(Fixed64::ZERO)
+        let Some(ent)=Self::handle_to_entity(e) else {return Fixed64::ZERO;};
+        let base=self.source_attack(ent).map(|t|t.range.v).unwrap_or(Fixed64::ZERO);
+        if self.is_summon(ent) {UnitStats::from_refs(self.source_buffs(ent),false).final_attack_range(base,ent)} else {base}
     }
 
     fn get_tower_atk(&self, e: EntityHandle) -> Fixed64 {
-        Self::handle_to_entity(e)
-            .and_then(|ent| self.cache.tattack.get(ent).map(|t| t.atk_physic.v))
-            .unwrap_or(Fixed64::ZERO)
+        let Some(ent)=Self::handle_to_entity(e) else {return Fixed64::ZERO;};
+        let base=self.source_attack(ent).map(|t|t.atk_physic.v).unwrap_or(Fixed64::ZERO);
+        if self.is_summon(ent) {UnitStats::from_refs(self.source_buffs(ent),false).final_atk(base,ent)} else {base}
     }
 
     fn get_asd_interval(&self, e: EntityHandle) -> Fixed64 {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Fixed64::ZERO;
         };
-        let Some(base_interval) = self.cache.tattack.get(ent).map(|t| t.asd.v) else {
+        let Some(base_interval) = self.source_attack(ent).map(|t| t.asd.v) else {
             return Fixed64::ZERO;
         };
         let stats =
-            UnitStats::from_refs(&self.cache.buffs, self.cache.is_building.get(ent).is_some());
+            UnitStats::from_refs(self.source_buffs(ent), self.source_is_building(ent));
         let interval = base_interval / stats.final_attack_speed_mult(ent);
         interval.max(Fixed64::from_raw(1))
     }
@@ -953,7 +1188,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         self.overlay_asd_count
             .get(&ent)
             .copied()
-            .or_else(|| self.cache.tattack.get(ent).map(|t| t.asd_count))
+            .or_else(|| self.source_attack(ent).map(|t| t.asd_count))
             .unwrap_or(Fixed64::ZERO)
     }
 
@@ -1012,6 +1247,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             .get(&ent)
             .copied()
             .or_else(|| self.cache.facing.get(ent).map(|f| f.0))
+            .or_else(|| self.retired_source(ent).and_then(|source|source.facing.map(|f|f.0)))
             .unwrap_or(Angle::ZERO)
     }
 
@@ -1024,13 +1260,16 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(of_ent) = Self::handle_to_entity(of) else {
             return RNone;
         };
-        let priority = self
-            .cache
-            .tower
-            .get(of_ent)
+        if self.is_summon(of_ent) {
+            return (&self.cache.entities,&self.cache.pos,&self.cache.faction,&self.cache.cprop).join()
+                .filter(|(e,_,_,_)|self.summon_target_allowed(of_ent,*e,center,radius))
+                .min_by_key(|(e,p,_,_)|(p.0.distance_squared(center).raw(),e.id(),e.gen().id()))
+                .map(|(e,_,_,_)|RSome(Self::entity_to_handle(e))).unwrap_or(RNone);
+        }
+        let priority = self.source_tower(of_ent)
             .map(|tower| tower.target_priority)
             .unwrap_or(TowerTargetPriority::Nearest);
-        query_script_tower_enemy(self.cache, center, radius, of, priority)
+        query_script_tower_enemy_with_source(self.cache, center, radius, of, priority,self.retired_source(of_ent))
     }
 
     fn play_vfx(&mut self, id: RStr<'_>, at: Vec2) {
@@ -1079,13 +1318,13 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64 {
         Self::handle_to_entity(e)
-            .map(|ent| self.cache.buffs.sum_add(ent, stat_key))
+            .map(|ent| self.source_buffs(ent).sum_add(ent, stat_key))
             .unwrap_or(Fixed64::ZERO)
     }
 
     fn product_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64 {
         Self::handle_to_entity(e)
-            .map(|ent| self.cache.buffs.product_mult(ent, stat_key))
+            .map(|ent| self.source_buffs(ent).product_mult(ent, stat_key))
             .unwrap_or(Fixed64::ONE)
     }
 
@@ -1093,15 +1332,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Fixed64::ZERO;
         };
-        let base = self
-            .cache
-            .cprop
-            .get(ent)
+        let base = self.source_property(ent)
             .map(|p| p.msd)
             .unwrap_or(Fixed64::ZERO);
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .final_move_speed(base, ent)
     }
@@ -1110,22 +1346,19 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Fixed64::ZERO;
         };
-        let base = self
-            .cache
-            .tattack
-            .get(ent)
+        let base = self.source_attack(ent)
             .map(|t| t.atk_physic.v)
             .unwrap_or(Fixed64::ZERO);
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .final_atk(base, ent)
     }
 
     fn get_tower_upgrade(&self, e: EntityHandle, path: u8) -> u8 {
         Self::handle_to_entity(e)
-            .and_then(|ent| self.cache.tower.get(ent))
+            .and_then(|ent| self.source_tower(ent))
             .and_then(|tower| tower.upgrade_levels.get(path as usize))
             .copied()
             .unwrap_or(0)
@@ -1133,7 +1366,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
 
     fn has_tower_flag(&self, e: EntityHandle, flag: RStr<'_>) -> bool {
         Self::handle_to_entity(e)
-            .and_then(|ent| self.cache.tower.get(ent))
+            .and_then(|ent| self.source_tower(ent))
             .map(|t| t.upgrade_flags.iter().any(|f| f == flag.as_str()))
             .unwrap_or(false)
     }
@@ -1151,15 +1384,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Fixed64::ZERO;
         };
-        let base = self
-            .cache
-            .tattack
-            .get(ent)
+        let base = self.source_attack(ent)
             .map(|t| t.range.v)
             .unwrap_or(Fixed64::ZERO);
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .final_attack_range(base, ent)
     }
@@ -1167,9 +1397,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
     fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> Fixed64 {
         Self::handle_to_entity(e)
             .and_then(|ent| {
-                self.cache
-                    .buffs
-                    .get(ent, buff_id.as_str())
+                self.source_buffs(ent).get(ent, buff_id.as_str())
                     .map(|b| b.remaining)
             })
             .unwrap_or(Fixed64::ZERO)
@@ -1219,15 +1447,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Fixed64::ZERO;
         };
-        let base = self
-            .cache
-            .cprop
-            .get(ent)
+        let base = self.source_property(ent)
             .map(|c| c.def_physic)
             .unwrap_or(Fixed64::ZERO);
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .final_armor(base, ent)
     }
@@ -1236,15 +1461,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(ent) = Self::handle_to_entity(e) else {
             return Fixed64::ZERO;
         };
-        let base = self
-            .cache
-            .cprop
-            .get(ent)
+        let base = self.source_property(ent)
             .map(|c| c.def_magic)
             .unwrap_or(Fixed64::ZERO);
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .final_magic_resist(base, ent)
     }
@@ -1254,8 +1476,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return Fixed64::ZERO;
         };
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .evasion_chance(ent)
     }
@@ -1265,8 +1487,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return Fixed64::ZERO;
         };
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .miss_chance(ent)
     }
@@ -1276,8 +1498,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return Fixed64::ZERO;
         };
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .crit(ent)
         .0
@@ -1288,8 +1510,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return Fixed64::ONE;
         };
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .crit(ent)
         .1
@@ -1300,15 +1522,15 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return Fixed64::ONE;
         };
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .cooldown_mult(ent)
     }
 
     fn is_building(&self, e: EntityHandle) -> bool {
         Self::handle_to_entity(e)
-            .map(|ent| self.cache.is_building.get(ent).is_some())
+            .map(|ent| self.source_is_building(ent))
             .unwrap_or(false)
     }
 
@@ -1317,8 +1539,8 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return Fixed64::ZERO;
         };
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .max_hp_bonus(ent)
     }
@@ -1328,15 +1550,15 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return Fixed64::ZERO;
         };
         UnitStats::from_refs(
-            &*self.cache.buffs,
-            self.cache.is_building.get(ent).is_some(),
+            self.source_buffs(ent),
+            self.source_is_building(ent),
         )
         .hp_regen(Fixed64::ZERO, ent)
     }
 
     fn get_stat_bonus(&self, e: EntityHandle, key: StatKey) -> Fixed64 {
         Self::handle_to_entity(e)
-            .map(|ent| self.cache.buffs.sum_add(ent, key))
+            .map(|ent| self.source_buffs(ent).sum_add(ent, key))
             .unwrap_or(Fixed64::ZERO)
     }
 
@@ -1450,6 +1672,216 @@ mod tests {
         world.insert(BlockedRegions::default());
         world.insert(Tick(42));
         world
+    }
+
+    #[test]
+    fn summon_handles_are_reserved_only_serially_and_cancelled_on_failure_or_drop() {
+        let mut world=world_for_adapter_tests();
+        let owner=world.create_entity().with(Faction::new(FactionType::Player,7))
+            .with(PlayerOwner::new(42)).with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,
+                msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut probe=ParallelWorldAdapter::new(&cache,owner);probe.allocation_allowed=false;
+        assert_eq!(probe.spawn_summoned_unit(Vec2::ZERO,"saika_gunner".into(),
+            ParallelWorldAdapter::entity_to_handle(owner),Fixed64::ONE),EntityHandle::INVALID);
+        assert!(probe.allocation_requested);assert!(probe.finish().is_empty());
+        let mut adapter=ParallelWorldAdapter::new(&cache,owner);
+        let handle=adapter.spawn_summoned_unit(Vec2::ZERO,"saika_gunner".into(),
+            ParallelWorldAdapter::entity_to_handle(owner),Fixed64::ONE);
+        assert_ne!(handle,EntityHandle::INVALID);
+        let entity=ParallelWorldAdapter::handle_to_entity(handle).unwrap();
+        assert!(cache.entities.is_alive(entity));
+        adapter.discard_cast();assert!(adapter.outcomes.is_empty());
+        let cancelled=entity;
+        let handle=adapter.spawn_summoned_unit(Vec2::ZERO,"saika_gunner".into(),
+            ParallelWorldAdapter::entity_to_handle(owner),Fixed64::ZERO);
+        let entity=ParallelWorldAdapter::handle_to_entity(handle).unwrap();drop(adapter);
+        drop(cache);world.maintain();
+        assert!(!world.entities().is_alive(entity));assert!(!world.entities().is_alive(cancelled));
+    }
+
+    #[test]
+    fn summon_rejects_unknown_template_stale_owner_and_negative_lifetime() {
+        let mut world=world_for_adapter_tests();
+        let owner=world.create_entity().with(Faction::new(FactionType::Player,1))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,
+                def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let cache=ParallelAdapterCache::new(&world,1);let mut adapter=ParallelWorldAdapter::new(&cache,owner);
+        let handle=ParallelWorldAdapter::entity_to_handle(owner);
+        for (id,who,duration) in [("unknown",handle,Fixed64::ONE),("saika_gunner",handle,-Fixed64::ONE),
+            ("saika_gunner",EntityHandle::INVALID,Fixed64::ONE)] {
+            assert_eq!(adapter.spawn_summoned_unit(Vec2::ZERO,id.into(),who,duration),EntityHandle::INVALID);
+        }
+        assert!(adapter.finish().is_empty());
+    }
+
+    fn summon_combat_fixture()->(World,Entity,Entity) {
+        use crate::runtime::{StateInitializer,setup_single_lane_match,SingleLaneConfig,MobaMatch,MobaMatchPhase,VisionSource};
+        let pool=StateInitializer::create_thread_pool();
+        let mut world=StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world,SingleLaneConfig {warmup:Fixed64::ZERO,..SingleLaneConfig::default()}).unwrap();
+        world.write_resource::<MobaMatch>().phase=MobaMatchPhase::Playing;
+        world.write_storage::<VisionSource>().clear();
+        let mut spawn=|team,position,kind|world.create_entity().with(Pos(position))
+            .with(Faction::new(if team==1 {FactionType::Player}else{FactionType::Enemy},team))
+            .with(CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::from_i32(100),
+                def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO})
+            .with(Unit::new("query_fixture".into(),"query".into(),kind)).build();
+        let source=spawn(1,Vec2::ZERO,UnitType::Summon);
+        let target=spawn(2,Vec2::new(Fixed64::from_i32(20),Fixed64::ZERO),UnitType::Creep);
+        world.write_storage::<VisionSource>().insert(source,VisionSource {team:1,radius:Fixed64::from_i32(100),detection_level:0}).unwrap();
+        (world,source,target)
+    }
+
+    fn summon_query(world:&World,source:Entity)->Vec<EntityHandle> {
+        let cache=ParallelAdapterCache::new(world,1);let adapter=ParallelWorldAdapter::new(&cache,source);
+        let handle=ParallelWorldAdapter::entity_to_handle(source);
+        let all=adapter.query_enemies_in_range(Vec2::ZERO,Fixed64::from_i32(100),handle).into_vec();
+        assert_eq!(adapter.query_nearest_enemy(Vec2::ZERO,Fixed64::from_i32(100),handle).into_option(),all.first().copied());
+        all
+    }
+
+    #[test]
+    fn summon_combat_uses_current_brush_disclosure_not_last_known_or_uncommitted_sight() {
+        use crate::runtime::{VisionSource,visibility::run_committed_visibility_wave_b};
+        use crate::runtime::brush_vision::{BrushVisionRegion,BrushVisionRegions};
+        let (mut world,source,target)=summon_combat_fixture();
+        assert!(summon_query(&world,source).is_empty(),"authority without committed view fails closed");
+        world.insert(BrushVisionRegions::from(vec![BrushVisionRegion {
+            min:Vec2::new(Fixed64::from_i32(10),Fixed64::from_i32(-5)),
+            max:Vec2::new(Fixed64::from_i32(30),Fixed64::from_i32(5))}]));
+        run_committed_visibility_wave_b(&mut world,1,0);
+        assert!(summon_query(&world,source).is_empty(),"nearby concealed enemy stays hidden");
+        let observer=world.create_entity().with(Pos(Vec2::new(Fixed64::from_i32(20),Fixed64::ZERO)))
+            .with(VisionSource {team:1,radius:Fixed64::from_i32(100),detection_level:0}).build();
+        run_committed_visibility_wave_b(&mut world,2,0);
+        assert_eq!(summon_query(&world,source),vec![ParallelWorldAdapter::entity_to_handle(target)]);
+        world.write_storage::<VisionSource>().remove(observer);
+        run_committed_visibility_wave_b(&mut world,3,0);
+        assert!(summon_query(&world,source).is_empty(),"last known body must not remain targetable");
+        world.insert(crate::runtime::filtered_specs::DisclosedMovementPriority::default());
+        assert_eq!(summon_query(&world,source),vec![ParallelWorldAdapter::entity_to_handle(target)],
+            "admitted filtered worlds do not require an authority visibility stream");
+    }
+
+    #[test]
+    fn summon_combat_respects_automatic_ward_gate_and_buffed_attack_stats() {
+        let mut world=world_for_adapter_tests();
+        let source=world.create_entity().with(Pos(Vec2::ZERO)).with(Unit::new("s".into(),"s".into(),UnitType::Summon))
+            .with(Faction::new(FactionType::Player,1)).with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,
+                msd:Fixed64::ONE,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO})
+            .with(TAttack::new(Fixed64::from_i32(35),Fixed64::ONE,Fixed64::from_i32(100),Fixed64::ONE)).build();
+        let target=world.create_entity().with(Pos(Vec2::new(Fixed64::ONE,Fixed64::ZERO)))
+            .with(Faction::new(FactionType::Enemy,2)).with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,
+                msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        assert_eq!(summon_query(&world,source).len(),1);
+        let mut gate=crate::runtime::filtered_specs::DisclosedAttackabilityGate::default();
+        gate.ward_automatic_disabled.insert(target);world.insert(gate);
+        assert!(summon_query(&world,source).is_empty());
+        world.insert(crate::runtime::filtered_specs::DisclosedAttackabilityGate::default());
+        world.write_resource::<BuffStore>().add(source,"stun",Fixed64::from_i32(10),json!({}));
+        assert!(summon_query(&world,source).is_empty());
+        world.write_resource::<BuffStore>().remove(source,"stun");
+        world.write_resource::<BuffStore>().add(source,"combat_bonus",Fixed64::from_i32(10),
+            json!({"preattack_bonus_damage":10240,"attack_range_bonus":102400}));
+        let cache=ParallelAdapterCache::new(&world,1);let adapter=ParallelWorldAdapter::new(&cache,source);
+        let handle=ParallelWorldAdapter::entity_to_handle(source);
+        assert_eq!(adapter.get_tower_atk(handle),Fixed64::from_i32(45));
+        assert_eq!(adapter.get_tower_range(handle),Fixed64::from_i32(200));
+    }
+
+    #[test]
+    fn summon_reservations_cross_caches_cancel_exactly_and_do_not_disclose_enemy_placements() {
+        let mut world=world_for_adapter_tests();
+        world.insert(super::super::super::summon_navigation::PlacementReservations::default());
+        let mut owner=|team|world.create_entity().with(Faction::new(FactionType::Player,team))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,
+                def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let friendly=owner(1);let enemy=owner(2);
+        fn spawn<'a>(cache:&'a ParallelAdapterCache<'a>,owner:Entity)->(EntityHandle,Vec2,ParallelWorldAdapter<'a>) {
+            let mut adapter=ParallelWorldAdapter::new(cache,owner);
+            let handle=adapter.spawn_summoned_unit(Vec2::ZERO,"saika_gunner".into(),
+                ParallelWorldAdapter::entity_to_handle(owner),Fixed64::ONE);
+            assert_ne!(handle,EntityHandle::INVALID);
+            let position=adapter.get_pos(handle).into_option().unwrap();
+            (handle,position,adapter)
+        }
+        let cache=ParallelAdapterCache::new(&world,1);
+        let (first,position,adapter)=spawn(&cache,friendly);assert_eq!(adapter.finish().len(),1);drop(cache);
+        let cache=ParallelAdapterCache::new(&world,1);
+        let (_,second,mut adapter)=spawn(&cache,friendly);
+        assert!((second-position).length()>=Fixed64::from_i32(40));
+        adapter.discard_cast();drop(adapter);
+        let (_,again,adapter)=spawn(&cache,friendly);assert_eq!(again,second);drop(adapter);
+        let (_,enemy_position,adapter)=spawn(&cache,enemy);assert_eq!(enemy_position,position);
+        drop(adapter);
+        assert_eq!(cache.summon_placements.0.lock().unwrap().len(),1);
+        let old=ParallelWorldAdapter::handle_to_entity(first).unwrap();
+        cache.entities.delete(old).unwrap();drop(cache);world.maintain();
+        let cache=ParallelAdapterCache::new(&world,1);
+        assert!(cache.summon_placements.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn summon_reservation_budget_rejects_without_consuming_a_handle_or_outcome() {
+        let mut world=world_for_adapter_tests();
+        let owner=world.create_entity().with(Faction::new(FactionType::Player,1))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,
+                def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let cache=ParallelAdapterCache::new(&world,1);
+        let mut ledger=cache.summon_placements.0.lock().unwrap();
+        for _ in 0..4096 {ledger.insert(cache.entities.create(),(2,Vec2::ZERO,Fixed64::ONE));}
+        drop(ledger);
+        let mut adapter=ParallelWorldAdapter::new(&cache,owner);
+        assert_eq!(adapter.spawn_summoned_unit(Vec2::ZERO,"saika_gunner".into(),
+            ParallelWorldAdapter::entity_to_handle(owner),Fixed64::ONE),EntityHandle::INVALID);
+        assert!(adapter.finish().is_empty());assert_eq!(cache.summon_placements.0.lock().unwrap().len(),4096);
+    }
+
+    struct SpawnOnTick;
+    impl UnitScript for SpawnOnTick {
+        fn unit_id(&self)->RStr<'_> {"spawn_on_tick_test".into()}
+        fn on_tick(&self,e:EntityHandle,_dt:Fixed64,world:&mut GameWorldDyn<'_>) {
+            let child=world.spawn_summoned_unit(Vec2::ZERO,"saika_gunner".into(),e,Fixed64::ONE);
+            if child!=EntityHandle::INVALID {world.set_facing(child,Angle::from_ticks(123));}
+        }
+    }
+
+    #[test]
+    fn parallel_summon_hooks_allocate_in_canonical_order_and_keep_returned_handle_commands() {
+        use crate::runtime::StateInitializer;
+        use crate::runtime::scripting::{run_script_dispatch,ScriptEventQueue,ScriptVisualEventQueue};
+        let pool=StateInitializer::create_thread_pool();
+        let mut world=StateInitializer::setup_campaign_ecs_world(&pool);
+        world.insert(ScriptEventQueue::default());world.insert(ScriptVisualEventQueue::default());
+        world.insert(TickProfile::default());
+        let owners:Vec<_>=(0..8).map(|_|world.create_entity()
+            .with(Faction::new(FactionType::Player,1)).with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,
+                msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO})
+            .with(ScriptUnitTag {unit_id:"spawn_on_tick_test".into()}).build()).collect();
+        let mut registry=ScriptRegistry::new();
+        registry.insert_unit_for_test("spawn_on_tick_test",UnitScript_TO::from_value(SpawnOnTick,TD_Opaque));
+        run_script_dispatch(&mut world,&registry,1,Fixed64::from_raw(17));
+        let outcomes=world.read_resource::<Vec<Outcome>>();
+        let spawned:Vec<_>=outcomes.iter().filter_map(|o|if let Outcome::SpawnSummoned {entity,owner,..}=o {
+            Some((*entity,*owner))}else{None}).collect();
+        assert_eq!(spawned.len(),owners.len());
+        let placements:Vec<_>=outcomes.iter().filter_map(|o|if let Outcome::SpawnSummoned {entity,pos,..}=o {
+            Some((*entity,*pos))}else{None}).collect();
+        for (i,(_,position)) in placements.iter().enumerate() {
+            for (_,other) in &placements[..i] {assert!((*position-*other).length()>=Fixed64::from_i32(40));}
+        }
+        for (index,(entity,owner)) in spawned.iter().enumerate() {
+            assert_eq!(*owner,owners[index]);
+            if index>0 {assert!(spawned[index-1].0.id()<entity.id());}
+            assert!(outcomes.iter().any(|o|matches!(o,Outcome::ScriptSetFacing {entity:e,facing}
+                if e==entity && facing.ticks()==123)));
+        }
+        drop(outcomes);
+        crate::runtime::process_outcomes(&mut world,&mut crate::runtime::RuntimeEventVecSink::default()).unwrap();
+        for (entity,position) in placements {assert_eq!(world.read_storage::<Pos>().get(entity).unwrap().0,position);}
+        assert!(world.read_resource::<super::super::super::summon_navigation::PlacementReservations>().0.lock().unwrap().is_empty());
+
     }
 
     #[derive(Clone)]
@@ -1979,9 +2411,13 @@ mod tests {
         assert_eq!(changes[0].1.raw_state(),(100*1024,100*1024,0));
         assert_eq!(cache.hero.get(entity).unwrap().mana_pool.as_ref().unwrap().current(),Fixed64::from_i32(50));
         let outcomes=adapter.finish();
-        assert_eq!(outcomes.len(),3);
-        assert!(matches!(&outcomes[0],Outcome::ScriptManaSpent {amount,..} if *amount==Fixed64::from_i32(30)));
-        assert!(matches!(&outcomes[1],Outcome::ScriptManaGained {amount,..} if *amount==Fixed64::from_i32(80)));
+        assert_eq!(outcomes.len(),1);
+        let Outcome::ScriptManaCommit {changes,notifications}=&outcomes[0] else {panic!("managed write must be guarded")};
+        assert_eq!(changes.len(),1);assert_eq!(changes[0].expected.current(),Fixed64::from_i32(50));
+        assert_eq!(changes[0].pool.current(),Fixed64::from_i32(100));
+        assert_eq!(notifications.len(),2);
+        assert!(matches!(&notifications[0],crate::comp::ManaSettlementNotification::Spent {amount,..} if *amount==Fixed64::from_i32(30)));
+        assert!(matches!(&notifications[1],crate::comp::ManaSettlementNotification::Gained {amount,..} if *amount==Fixed64::from_i32(80)));
         let mut adapter=ParallelWorldAdapter::new(&cache,entity);
         adapter.begin_mana_transaction(&HashMap::new());
         adapter.restore_mana(handle,Fixed64::from_i32(10));
@@ -2114,7 +2550,7 @@ mod tests {
             matches!(outcomes[0], Outcome::ScriptTowerFireFx { entity, .. } if entity == tower)
         );
         assert!(
-            matches!(outcomes[1], Outcome::Damage { target, phys, damage_profile, .. }
+            matches!(outcomes[1], Outcome::RawDamage { target, phys, damage_profile, .. }
                 if target == enemy
                     && phys == Fixed64::from_i32(7)
                     && damage_profile == AbiDamageProfile::NORMAL.bits())

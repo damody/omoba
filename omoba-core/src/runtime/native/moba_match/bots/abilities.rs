@@ -4,11 +4,17 @@ use crate::runtime::CastAbility;
 use omoba_template_ids::{AbilityTypeC, CastTypeC, TargetTypeC};
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+#[path="cone_tests.rs"]
+mod cone_tests;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
 pub enum BotAbilityIntent {
     EnemyUnit,
     EnemyPoint {radius_key:String,min_targets:u16},
+    /// Actual compiled source-sector geometry; no authored radius/angle-key guess.
+    EnemyCone {min_targets:u16},
     /// Author explicitly opts a point skill into closing on disclosed enemies.
     ApproachEnemyPoint {min_distance:u32},
     SelfHeal { below_hp_per_mille:u16 },
@@ -115,6 +121,11 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     return Err("bot point radius must be positive bounded per-rank data");
                 }
             },
+            BotAbilityIntent::EnemyCone {min_targets} if def.target_type==TargetTypeC::Point
+                && (1..=128).contains(min_targets)
+                && def.cone_half_angle_ticks.len()==def.levels.len()
+                && def.cone_half_angle_ticks.iter().all(|ticks|(1..=1024).contains(ticks))
+                && def.levels.iter().all(|rank|rank.range>Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
             _ => return Err("bot ability intent does not match target type or health threshold"),
         }
     }
@@ -168,7 +179,7 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
         // Root blocks voluntary relocation, not ordinary damage/recovery.
         if immobilized && matches!(policy.intent,BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         if defer_offense && matches!(policy.intent,BotAbilityIntent::EnemyUnit
-            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
+            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
         if slot>=4 {continue;} // formal PlayerInput exposes exactly four slots
         if !hero.can_use_ability(&policy.ability) || hero.is_on_cooldown(&policy.ability) {continue;}
@@ -255,6 +266,14 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
                 let (Ok(x),Ok(y))=(i32::try_from(unit.position.x.raw()),i32::try_from(unit.position.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
+            BotAbilityIntent::EnemyCone {min_targets}=>{
+                if health.hp<=Fixed64::ZERO {continue;}
+                let Some(ticks)=def.cone_half_angle_ticks.get(rank).copied() else {continue;};
+                let Some(point)=choose_cone_target(own,level.range,ticks,*min_targets,
+                    seen.iter().filter(enemy).collect(),if prioritizes_focus {focus}else{None}) else {continue;};
+                let (Ok(x),Ok(y))=(i32::try_from(point.x.raw()),i32::try_from(point.y.raw())) else {continue;};
+                target_pos=Some(crate::runtime::Vec2I{x,y});None
+            }
             BotAbilityIntent::EnemyPoint {radius_key,min_targets}=>{
                 let Some((_,radii))=def.extras.iter().find(|(key,_)|*key==radius_key) else {continue;};
                 let Some(radius)=radii.get(rank).copied() else {continue;};
@@ -277,6 +296,40 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
         return Some(CastAbility {ability_index:u32::try_from(slot).ok()?,target_entity:target,target_pos});
     }
     None
+}
+
+// Bounded planning over committed observations only. Candidate axes point at
+// disclosed enemy centers (32 aims,512 unique observations), not inferred motion.
+// The same fixed-point sector predicate as execution scores each full-range aim.
+fn choose_cone_target(own:Vec2,range:Fixed64,half_ticks:u16,min_targets:u16,
+    mut eligible:Vec<&SeenUnit>,focus:Option<u64>)->Option<Vec2> {
+    let supported=|p:Vec2|p.x.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
+        &&p.y.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64;
+    if !supported(own)||range<=Fixed64::ZERO||range>Fixed64::from_i32(10_000)
+        || !(1..=1024).contains(&half_ticks)||!(1..=128).contains(&min_targets){return None;}
+    eligible.retain(|u|u.hp_raw>0&&supported(u.position)
+        &&omoba_sim::terrain::point_in_swept_circle(u.position,own,own,range));
+    eligible.sort_by_key(|u|(u.canonical_id,u.position.x.raw(),u.position.y.raw()));
+    eligible.dedup_by_key(|u|u.canonical_id);
+    // Never undercount a known crowded sector by silently dropping observations.
+    if eligible.len()>512{return None;}
+    let distance=|u:&SeenUnit|(u.position-own).length_squared().raw();
+    eligible.sort_by_key(|u|(focus.is_some()&&Some(u.canonical_id)!=focus,distance(u),u.canonical_id));
+    eligible.iter().filter(|u|u.position!=own
+        &&i32::try_from(u.position.x.raw()).is_ok()&&i32::try_from(u.position.y.raw()).is_ok()).take(32)
+        .filter_map(|aim|{
+            let delta=aim.position-own;let axis=omoba_sim::trig::atan2(delta.y,delta.x);
+            let mut count=0usize;let mut covers_focus=false;
+            for victim in &eligible {
+                if omoba_sim::sector::point_in_sector(victim.position,own,axis,range,half_ticks){
+                    count+=1;covers_focus|=Some(victim.canonical_id)==focus;
+                    if count>128{return None;}
+                }
+            }
+            (count>=usize::from(min_targets)).then_some((focus.is_some()&&!covers_focus,
+                std::cmp::Reverse(count),distance(aim),aim.canonical_id,aim.position))
+        }).min_by_key(|(missing,count,distance,id,_)|(*missing,*count,*distance,*id))
+        .map(|(_,_,_,_,point)|point)
 }
 
 #[cfg(test)]

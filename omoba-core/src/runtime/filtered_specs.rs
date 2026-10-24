@@ -597,13 +597,14 @@ impl SpecsDisclosedWorldStepper {
                 insert_default_if_missing!(crate::runtime::FacingBroadcast);
                 insert_default_if_missing!(TurnSpeed);
                 insert_default_if_missing!(CollisionRadius);
-            } else if render.kind == 2 || render.kind == 3 {
+            } else if matches!(render.kind,2|3|4) {
                 let mut units = self.filtered.world.write_storage::<Unit>();
                 if units.get(entity).is_none() {
                     units
                         .insert(entity, Unit::default())
                         .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
                 }
+                units.get_mut(entity).expect("inserted presentation unit").unit_type=if render.kind==4 {crate::runtime::UnitType::Summon}else{crate::runtime::UnitType::Creep};
             }
         }
         // Present combat bytes replace the lossy kind/team inference above.
@@ -629,7 +630,7 @@ impl SpecsDisclosedWorldStepper {
             if crate::runtime::channel_visual_state::ChannelVisualState::decode(visual).is_none() { return Err(ReplicaRuntimeError::MalformedBaseline); }
         }
         if let Some(visual)=state.components.get(&crate::runtime::buff_visual_state::SCHEMA_ID) {
-            if crate::runtime::buff_visual_state::BuffVisualState::decode(visual).is_none() {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            if crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(visual).is_none() {return Err(ReplicaRuntimeError::MalformedBaseline);}
         }
         if let Some(bytes) = state.components.get(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID) {
             if crate::runtime::visibility::decode_disclosed_structure(bytes).is_none() {
@@ -1421,6 +1422,15 @@ fn apply_committed_economy_and_equipment(
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
     for event in &injections.public_events {
+        if event.event_kind==crate::runtime::FactKind::DisclosedCombatRelation as u32 {
+            crate::runtime::decode_disclosed_combat_relation(&event.sanitized_payload)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let id=event.subject.as_ref().map_or(0,|id|id.value);
+            let entity=world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes=entity.components.get_mut(&crate::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            *bytes=event.sanitized_payload.clone();
+        }
         if event.event_kind == crate::runtime::FactKind::ChannelVisual as u32 {
             crate::runtime::channel_visual_state::ChannelVisualState::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let id = event.subject.as_ref().map_or(0, |id| id.value);
@@ -1540,7 +1550,7 @@ fn apply_disclosed_events(
     apply_committed_economy_and_equipment(world, injections)?;
     for event in &injections.public_events {
         if event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32 {
-            crate::runtime::buff_visual_state::BuffVisualState::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let id=event.subject.as_ref().map_or(0,|id|id.value);
             let entity=world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes=entity.components.get_mut(&crate::runtime::buff_visual_state::SCHEMA_ID).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
@@ -1951,6 +1961,43 @@ mod committed_actor_state_tests {
         let before=world.clone();assert!(apply_disclosed_events(&mut world,&event(FactKind::OwnerBuffVisual,vec![])).is_err());assert_eq!(world,before);
         world.entities.get_mut(&1).unwrap().components.remove(&SCHEMA_ID);
         assert!(apply_disclosed_events(&mut world,&event(FactKind::OwnerBuffVisual,empty)).is_err());
+    }
+
+    #[test]
+    fn public_channel_duration_updates_are_absolute_and_transactionally_bounded() {
+        use crate::runtime::buff_visual_state::{BuffVisualSnapshot,BuffVisualState,SCHEMA_ID};
+        let id=omoba_template_ids::buff_by_name("recovery_channel").unwrap().raw();let mut world=world();
+        world.entities.get_mut(&1).unwrap().components.insert(SCHEMA_ID,BuffVisualState(vec![]).encode().unwrap());
+        for remaining in [1536,1024,0] {
+            let state=if remaining==0 {BuffVisualSnapshot {buffs:BuffVisualState(vec![]),channel_totals:vec![]}}
+                else {BuffVisualSnapshot {buffs:BuffVisualState(vec![(id,remaining)]),channel_totals:vec![(id,3072)]}};
+            let bytes=state.encode().unwrap();let update=event(FactKind::OwnerBuffVisual,bytes.clone());apply_disclosed_events(&mut world,&update).unwrap();
+            let once=world.clone();apply_disclosed_events(&mut world,&update).unwrap();assert_eq!(world,once);
+            assert_eq!(BuffVisualSnapshot::decode(&world.entities[&1].components[&SCHEMA_ID]),Some(state));
+        }
+        let mut bad=BuffVisualSnapshot {buffs:BuffVisualState(vec![(id,1536)]),channel_totals:vec![(id,3072)]}.encode().unwrap();
+        bad[16..24].copy_from_slice(&1i64.to_le_bytes());let before=world.clone();assert!(apply_disclosed_events(&mut world,&event(FactKind::OwnerBuffVisual,bad)).is_err());assert_eq!(world,before);
+    }
+
+    #[test]
+    fn combat_relation_updates_are_absolute_and_require_disclosed_capability() {
+        use crate::runtime::{DisclosedCombatRelation,encode_disclosed_combat_relation,DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID as SCHEMA};
+        let mut world=world();
+        let state=|alive,attackable|encode_disclosed_combat_relation(DisclosedCombatRelation {
+            faction_kind:2,team_id:2,alive,attackable}).unwrap();
+        world.entities.get_mut(&1).unwrap().components.insert(SCHEMA,state(true,false));
+        for bytes in [state(true,true),state(false,false),state(true,true),state(true,false)] {
+            let update=event(FactKind::DisclosedCombatRelation,bytes.clone());
+            apply_disclosed_events(&mut world,&update).unwrap();let once=world.clone();
+            apply_disclosed_events(&mut world,&update).unwrap();assert_eq!(world,once);
+            assert_eq!(world.entities[&1].components[&SCHEMA],bytes);
+        }
+        for bad in [vec![],vec![1,2,0,0,0,2,1,0],vec![1,2,0,0,0,2,2,1]] {
+            let before=world.clone();assert!(apply_disclosed_events(&mut world,&event(FactKind::DisclosedCombatRelation,bad)).is_err());assert_eq!(world,before);
+        }
+        let bytes=state(true,true);world.entities.get_mut(&1).unwrap().components.remove(&SCHEMA);
+        assert!(apply_disclosed_events(&mut world,&event(FactKind::DisclosedCombatRelation,bytes.clone())).is_err());
+        world.entities.clear();assert!(apply_disclosed_events(&mut world,&event(FactKind::DisclosedCombatRelation,bytes)).is_err());
     }
 
     #[test]

@@ -46,6 +46,7 @@ pub enum ScriptEvent {
         victim: Entity,
         kind_id: u16,
         generation: u8,
+        origin: Option<crate::comp::ProjectileOrigin>,
     },
     /// 攻擊動作準備發射（target 可能為 None，例如 orb 技能無目標）。
     AttackStart {

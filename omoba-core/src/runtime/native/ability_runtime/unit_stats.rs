@@ -16,6 +16,7 @@ use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageKind;
 use omoba_sim::Fixed64;
 use specs::Entity;
+use crate::runtime::comp::Faction;
 
 use super::BuffStore;
 
@@ -214,6 +215,25 @@ impl<'a> UnitStats<'a> {
                 .sum_add(e, StatKey::PhysicalArmorBonusUniqueActive)
     }
 
+    pub fn checked_final_armor(&self,base:Fixed64,e:Entity)->Option<Fixed64> {
+        let mut raw=i128::from(base.raw());
+        for key in [StatKey::PhysicalArmorBonus,StatKey::PhysicalArmorBonusUnique,StatKey::PhysicalArmorBonusUniqueActive] {
+            raw=raw.checked_add(i128::from(self.buffs.checked_sum_add(e,key)?.raw()))?;
+        }
+        Some(Fixed64::from_raw(i64::try_from(raw).ok()?))
+    }
+
+    /// Same normalized resistance policy/rounding, with checked intermediate products.
+    pub fn checked_final_magic_resist(&self,base:Fixed64,e:Entity)->Option<Fixed64> {
+        let direct=self.buffs.checked_sum_add(e,StatKey::MagicalResistanceDirectModification)?;
+        if direct>Fixed64::ZERO {return Some(direct.min(Fixed64::ONE));}
+        let bonus=i128::from(self.buffs.checked_sum_add(e,StatKey::MagicalResistanceBonus)?.raw()/100);
+        let decrepify=i128::from(self.buffs.checked_sum_add(e,StatKey::MagicalResistanceDecrepifyUnique)?.raw()/100);
+        let first=(1024-i128::from(base.raw())).checked_mul(1024-bonus)?/1024;
+        let combined=1024-first.checked_mul(1024-decrepify)?/1024;
+        Some(Fixed64::from_raw(combined.clamp(-1024,1024) as i64))
+    }
+
     /// 魔抗：0..1 = 百分比。direct_modification 若存在 → 覆蓋 base + bonus。
     pub fn final_magic_resist(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let direct = self
@@ -251,10 +271,28 @@ impl<'a> UnitStats<'a> {
         )
     }
 
+    /// Normalized shared ordinary-attack physical leech; explicit native flags
+    /// remain independent authority policy and may exceed this shared cap.
+    pub fn lifesteal(&self,e:Entity)->Fixed64 {
+        self.buffs.sum_add(e,StatKey::Lifesteal).clamp(Fixed64::ZERO,Fixed64::ONE)
+    }
+
+    /// Shared ordinary leech requires a known hostile non-structure target.
+    /// Explicit native leech flags retain independent authored effect policy.
+    pub fn ordinary_leech_target(source:Option<&Faction>,target:Option<&Faction>,building:bool)->bool {
+        !building && source.zip(target).is_some_and(|(source,target)|source.is_hostile_to(target))
+    }
+
     /// 回 (chance, multiplier)；chance 為 0..1；multiplier 預設 1.0（無暴擊）
     pub fn crit(&self, e: Entity) -> (Fixed64, Fixed64) {
+        self.crit_with_base(e,Fixed64::ZERO,Fixed64::ONE)
+    }
+
+    /// Native attack paths retain their own authored base chance/default multiplier.
+    /// Positive shared multipliers are absolute, including an explicit 1x.
+    pub fn crit_with_base(&self,e:Entity,base_chance:Fixed64,base_multiplier:Fixed64)->(Fixed64,Fixed64) {
         let chance = clamp_fx(
-            self.buffs.sum_add(e, StatKey::PreattackCriticalStrike),
+            base_chance+self.buffs.sum_add(e, StatKey::PreattackCriticalStrike),
             Fixed64::ZERO,
             Fixed64::ONE,
         );
@@ -262,7 +300,7 @@ impl<'a> UnitStats<'a> {
         let mult = if mult_raw > Fixed64::ZERO {
             mult_raw
         } else {
-            Fixed64::ONE
+            base_multiplier.max(Fixed64::ONE)
         };
         (chance, mult)
     }
@@ -282,6 +320,20 @@ impl<'a> UnitStats<'a> {
         }
     }
 
+    /// Match the public cooldown policy without wrapping authored modifiers.
+    /// Zero cooldown stays zero; positive durations retain at least one raw unit.
+    pub fn checked_cooldown(&self, base: Fixed64, e: Entity) -> Option<Fixed64> {
+        let limit = Fixed64::from_i32(1_000_000).raw();
+        if base.raw() < 0 || base.raw() > limit { return None; }
+        if base == Fixed64::ZERO { return Some(Fixed64::ZERO); }
+        let percentage = self.buffs.checked_sum_add(e, StatKey::CooldownPercentage)?;
+        let stacking = self.buffs.checked_sum_add(e, StatKey::CooldownPercentageStacking)?;
+        let multiplier = Fixed64::ONE.raw().checked_add(percentage.raw())?
+            .checked_add(stacking.raw())?.max(102);
+        let raw = (i128::from(base.raw()) * i128::from(multiplier) / 1024).max(1);
+        (raw <= i128::from(limit)).then(|| Fixed64::from_raw(raw as i64))
+    }
+
     pub fn cast_time_mult(&self, e: Entity) -> Fixed64 {
         let one_tenth = Fixed64::from_raw(102);
         let v = Fixed64::ONE + self.buffs.sum_add(e, StatKey::CastTimePercentage);
@@ -290,6 +342,18 @@ impl<'a> UnitStats<'a> {
         } else {
             v
         }
+    }
+
+    /// Snapshot positive preparation at admission. Never wrap a modifier into haste.
+    /// Instant casts ignore this stat; a positive base always takes at least one raw tick.
+    pub fn checked_cast_time(&self, base: Fixed64, e: Entity) -> Option<Fixed64> {
+        let limit = Fixed64::from_i32(60).raw();
+        if base.raw() < 0 || base.raw() > limit { return None; }
+        if base == Fixed64::ZERO { return Some(Fixed64::ZERO); }
+        let bonus = self.buffs.checked_sum_add(e, StatKey::CastTimePercentage)?;
+        let multiplier = Fixed64::ONE.raw().checked_add(bonus.raw())?.max(102);
+        let raw = (i128::from(base.raw()) * i128::from(multiplier) / 1024).max(1);
+        (raw <= i128::from(limit)).then(|| Fixed64::from_raw(raw as i64))
     }
 
     pub fn mana_cost_mult(&self, e: Entity) -> Fixed64 {
@@ -301,12 +365,50 @@ impl<'a> UnitStats<'a> {
         }
     }
 
+    /// Admission must distinguish an intentional free cast from invalid data.
+    pub fn checked_mana_cost_mult(&self, e: Entity) -> Option<Fixed64> {
+        let percentage = self.buffs.checked_sum_add(e, StatKey::ManaCostPercentage)?;
+        Fixed64::ONE.raw().checked_add(percentage.raw())
+            .map(|raw| Fixed64::from_raw(raw.max(0)))
+    }
+
     // ================= 回復 =================
+
+    /// Recipient-only healing policy. Stable ordering and bounded raw factors
+    /// prevent malformed modifiers from wrapping or manufacturing health.
+    pub fn received_healing(&self, amount:Fixed64, e:Entity)->Fixed64 {
+        if amount<=Fixed64::ZERO {return Fixed64::ZERO;}
+        if !self.buffs.has_any(e) {return amount;}
+        if self.buffs.has(e,StatKey::DisableHealing.as_str())
+            || self.buffs.checked_sum_add(e,StatKey::DisableHealing).is_none_or(|v|v>Fixed64::from_raw(512)) {
+            return Fixed64::ZERO;
+        }
+        let mut values=std::collections::BTreeMap::new();
+        for (id,entry) in self.buffs.iter_for(e) {
+            let Some(value)=entry.payload.get(StatKey::HealReceivedMultiplier.as_str())else{continue;};
+            let raw=if let Some(v)=value.as_i64(){v}else{
+                let Some(v)=value.as_f64().filter(|v|v.is_finite() && (0.0..=4.0).contains(v))else{return Fixed64::ZERO;};
+                (v*1024.0) as i64
+            };
+            if !(0..=4096).contains(&raw){return Fixed64::ZERO;}
+            if let Some(family)=entry.payload.get("__aggregation_family").and_then(|v|v.as_str()) {
+                values.entry((true,family)).and_modify(|old:&mut i64| {
+                    if (raw-1024).abs()>(*old-1024).abs() || ((raw-1024).abs()==(*old-1024).abs() && raw>*old){*old=raw;}
+                }).or_insert(raw);
+            }else{values.insert((false,id),raw);}
+        }
+        let mut factor=1024i64;
+        for raw in values.into_values() {
+            let Ok(next)=i64::try_from(i128::from(factor)*i128::from(raw)/1024)else{return Fixed64::ZERO;};factor=next;
+        }
+        let result=i128::from(amount.raw())*i128::from(factor.min(4096))/1024;
+        Fixed64::from_raw(result.min(i128::from(i64::MAX)) as i64)
+    }
 
     pub fn hp_regen(&self, base: Fixed64, e: Entity) -> Fixed64 {
         let half = Fixed64::from_raw(512); // 0.5 in Q22.10
         if self.buffs.has(e, StatKey::DisableHealing.as_str())
-            || self.buffs.sum_add(e, StatKey::DisableHealing) > half
+            || self.buffs.checked_sum_add(e, StatKey::DisableHealing).is_none_or(|v|v>half)
         {
             return Fixed64::ZERO;
         }
@@ -317,7 +419,7 @@ impl<'a> UnitStats<'a> {
         if v < Fixed64::ZERO {
             Fixed64::ZERO
         } else {
-            v
+            self.received_healing(v,e)
         }
     }
 
@@ -523,6 +625,127 @@ mod tests {
     use specs::{Builder, World, WorldExt};
 
     #[test]
+    fn checked_mana_multiplier_preserves_discount_markup_free_family_and_legacy_float() {
+        let mut w=World::new();let e=w.create_entity().build();let mut b=BuffStore::default();
+        let f=|b:&BuffStore|UnitStats::from_refs(b,false).checked_mana_cost_mult(e).map(|v|v.raw());
+        assert_eq!(f(&b),Some(1024));
+        b.add(e,"weak",Fixed64::ONE,json!({"manacost_percentage":-256,"__aggregation_family":"cost"}));
+        b.add(e,"strong",Fixed64::ONE,json!({"manacost_percentage":-512,"__aggregation_family":"cost"}));
+        assert_eq!(f(&b),Some(512));
+        b.add(e,"markup",Fixed64::ONE,json!({"manacost_percentage":1024}));assert_eq!(f(&b),Some(1536));
+        b.add(e,"free",Fixed64::ONE,json!({"manacost_percentage":-4096}));assert_eq!(f(&b),Some(0));
+        let mut b=BuffStore::default();b.add(e,"legacy",Fixed64::ONE,json!({"manacost_percentage":0.25}));
+        assert_eq!(f(&b),Some(1280));
+        let mut b=BuffStore::default();b.add(e,"negative_extreme",Fixed64::ONE,json!({"manacost_percentage":i64::MIN}));
+        assert_eq!(f(&b),Some(0));
+    }
+
+    #[test]
+    fn checked_mana_multiplier_rejects_malformed_aggregate_and_multiplier_overflow() {
+        let mut w=World::new();let e=w.create_entity().build();
+        for value in [json!("bad"),json!(true),json!(u64::MAX),json!(i64::MAX)] {
+            let mut b=BuffStore::default();b.add(e,"bad",Fixed64::ONE,json!({"manacost_percentage":value}));
+            assert!(UnitStats::from_refs(&b,false).checked_mana_cost_mult(e).is_none());
+        }
+        let mut b=BuffStore::default();
+        for id in ["a","b"] {b.add(e,id,Fixed64::ONE,json!({"manacost_percentage":i64::MAX}));}
+        assert!(UnitStats::from_refs(&b,false).checked_mana_cost_mult(e).is_none());
+    }
+
+    #[test]
+    fn checked_cooldown_preserves_percentage_stacking_family_floor_and_zero() {
+        let mut w=World::new();let e=w.create_entity().build();let mut b=BuffStore::default();
+        let f=|b:&BuffStore,raw|UnitStats::from_refs(b,false).checked_cooldown(Fixed64::from_raw(raw),e).map(|v|v.raw());
+        assert_eq!(f(&b,20480),Some(20480));
+        b.add(e,"a",Fixed64::ONE,json!({"cooldown_percentage":-256,"__aggregation_family":"cd"}));
+        b.add(e,"b",Fixed64::ONE,json!({"cooldown_percentage":-512,"__aggregation_family":"cd"}));
+        b.add(e,"c",Fixed64::ONE,json!({"cooldown_percentage_stacking":256}));
+        assert_eq!(f(&b,20480),Some(15360));
+        b.add(e,"floor",Fixed64::ONE,json!({"cooldown_percentage_stacking":-99999}));
+        assert_eq!(f(&b,20480),Some(2040));assert_eq!(f(&b,1),Some(1));assert_eq!(f(&b,0),Some(0));
+        let mut b=BuffStore::default();b.add(e,"legacy",Fixed64::ONE,json!({"cooldown_percentage":0.5}));
+        assert_eq!(f(&b,513),Some(769));
+    }
+
+    #[test]
+    fn checked_cooldown_rejects_invalid_overflow_and_over_budget() {
+        let mut w=World::new();let e=w.create_entity().build();
+        for key in ["cooldown_percentage","cooldown_percentage_stacking"] {
+            for value in [json!("bad"),json!(i64::MAX),json!(u64::MAX),json!(100_000_000*1024i64)] {
+                let mut b=BuffStore::default();b.add(e,"bad",Fixed64::ONE,json!({key:value}));
+                let stats=UnitStats::from_refs(&b,false);
+                assert!(stats.checked_cooldown(Fixed64::from_i32(20),e).is_none());
+                assert_eq!(stats.checked_cooldown(Fixed64::ZERO,e),Some(Fixed64::ZERO));
+            }
+        }
+        let mut b=BuffStore::default();b.add(e,"a",Fixed64::ONE,json!({"cooldown_percentage":i64::MAX-1024,"cooldown_percentage_stacking":2048}));
+        assert!(UnitStats::from_refs(&b,false).checked_cooldown(Fixed64::ONE,e).is_none());
+        b.add(e,"b",Fixed64::ONE,json!({"cooldown_percentage":i64::MAX}));
+        assert!(UnitStats::from_refs(&b,false).checked_cooldown(Fixed64::ONE,e).is_none());
+        let empty=BuffStore::default();let stats=UnitStats::from_refs(&empty,false);
+        assert!(stats.checked_cooldown(Fixed64::from_raw(-1),e).is_none());
+        assert!(stats.checked_cooldown(Fixed64::from_raw(1_024_000_001),e).is_none());
+    }
+
+    #[test]
+    fn checked_cast_duration_preserves_instant_floor_family_and_fractional_precision() {
+        let mut w=World::new();let e=w.create_entity().build();let mut buffs=BuffStore::default();
+        let f=|b:&BuffStore,raw|UnitStats::from_refs(b,false).checked_cast_time(Fixed64::from_raw(raw),e).map(|v|v.raw());
+        assert_eq!(f(&buffs,512),Some(512));
+        buffs.add(e,"haste",Fixed64::ONE,json!({"casttime_percentage":-512}));
+        assert_eq!(f(&buffs,512),Some(256));assert_eq!(f(&buffs,0),Some(0));
+        buffs.add(e,"slow",Fixed64::ONE,json!({"casttime_percentage":256}));
+        assert_eq!(f(&buffs,513),Some(384));
+        buffs.remove(e,"slow");
+        buffs.add(e,"haste2",Fixed64::ONE,json!({"casttime_percentage":-2048}));
+        assert_eq!(f(&buffs,512),Some(51));assert_eq!(f(&buffs,1),Some(1));
+        buffs.remove(e,"haste");buffs.remove(e,"haste2");
+        buffs.add(e,"legacy_float",Fixed64::ONE,json!({"casttime_percentage":0.5}));
+        assert_eq!(f(&buffs,512),Some(768));
+        buffs.remove(e,"legacy_float");
+        buffs.add(e,"family_a",Fixed64::ONE,json!({"casttime_percentage":-256,"__aggregation_family":"cast_fixture"}));
+        buffs.add(e,"family_b",Fixed64::ONE,json!({"casttime_percentage":-512,"__aggregation_family":"cast_fixture"}));
+        assert_eq!(f(&buffs,512),Some(256),"same family uses strongest, not duplicate stacking");
+    }
+
+    #[test]
+    fn checked_cast_duration_rejects_invalid_aggregation_overflow_and_over_budget() {
+        let mut w=World::new();let e=w.create_entity().build();let mut buffs=BuffStore::default();
+        let f=|b:&BuffStore,raw|UnitStats::from_refs(b,false).checked_cast_time(Fixed64::from_raw(raw),e);
+        assert!(f(&buffs,-1).is_none());assert!(f(&buffs,61441).is_none());
+        for value in [json!("bad"),json!(i64::MAX),json!(u64::MAX),json!(123*1024)] {
+            buffs.add(e,"invalid",Fixed64::ONE,json!({"casttime_percentage":value}));
+            assert!(f(&buffs,512).is_none());assert_eq!(f(&buffs,0),Some(Fixed64::ZERO));
+            buffs.remove(e,"invalid");
+        }
+        buffs.add(e,"a",Fixed64::ONE,json!({"casttime_percentage":i64::MAX}));
+        buffs.add(e,"b",Fixed64::ONE,json!({"casttime_percentage":i64::MAX}));
+        assert!(f(&buffs,512).is_none());
+    }
+
+    #[test]
+    fn healing_policy_is_bounded_canonical_family_aware_and_applied_once_to_regen() {
+        let mut w=World::new();let e=w.create_entity().build();let mut buffs=BuffStore::default();
+        let f=|b:&BuffStore|UnitStats::from_refs(b,false).received_healing(Fixed64::from_i32(100),e);
+        assert_eq!(f(&buffs),Fixed64::from_i32(100));
+        buffs.add(e,"cut",Fixed64::ONE,json!({"heal_received_multiplier":512,"__aggregation_family":"cut"}));
+        buffs.add(e,"weaker",Fixed64::ONE,json!({"heal_received_multiplier":768,"__aggregation_family":"cut"}));
+        buffs.add(e,"amplify",Fixed64::ONE,json!({"heal_received_multiplier":2048}));
+        assert_eq!(f(&buffs),Fixed64::from_i32(100));
+        assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(10),e),Fixed64::from_i32(10));
+        buffs.remove(e,"amplify");assert_eq!(f(&buffs),Fixed64::from_i32(50));
+        assert_eq!(UnitStats::from_refs(&buffs,false).hp_regen(Fixed64::from_i32(10),e),Fixed64::from_i32(5));
+        for value in [json!(-1),json!(4097),json!("bad"),json!(true)] {
+            buffs.add(e,"invalid",Fixed64::ONE,json!({"heal_received_multiplier":value}));assert_eq!(f(&buffs),Fixed64::ZERO);
+        }
+        buffs.remove(e,"invalid");buffs.add(e,"disable_healing",Fixed64::ONE,json!({}));assert_eq!(f(&buffs),Fixed64::ZERO);
+        let mut a=BuffStore::default();let mut b=BuffStore::default();
+        for i in 0..40 {a.add(e,&format!("factor{i:02}"),Fixed64::ONE,json!({"heal_received_multiplier":4096}));}
+        for i in (0..40).rev(){b.add(e,&format!("factor{i:02}"),Fixed64::ONE,json!({"heal_received_multiplier":4096}));}
+        assert_eq!(f(&a),Fixed64::ZERO);assert_eq!(f(&a),f(&b));
+    }
+
+    #[test]
     fn normal_attack_physical_includes_armed_bonus_after_modifiers_without_consuming() {
         let mut world = World::new();
         let owner = world.create_entity().build();
@@ -715,6 +938,21 @@ mod tests {
 
     // Buff flat post-pct：不被 percentage 縮放，純加在最末端。
     // 基本=300、靴子 +90、減速 -50%、增益 +60 → (300+90)*0.5 + 60 = 255。
+    #[test]
+    fn critical_bases_and_absolute_multiplier_preserve_script_defaults_and_expiry() {
+        let mut world=World::new();let e=world.create_entity().build();let mut store=BuffStore::new();
+        let base=Fixed64::from_raw(256);let two=Fixed64::from_i32(2);
+        assert_eq!(UnitStats::from_refs(&store,false).crit(e),(Fixed64::ZERO,Fixed64::ONE));
+        assert_eq!(UnitStats::from_refs(&store,false).crit_with_base(e,base,two),(base,two));
+        store.add(e,"critical",Fixed64::ONE,json!({"preattack_criticalstrike":1024,"crit_multiplier":3072}));
+        assert_eq!(UnitStats::from_refs(&store,false).crit_with_base(e,base,two),(Fixed64::ONE,Fixed64::from_i32(3)));
+        store.add(e,"reduce",Fixed64::ONE,json!({"preattack_criticalstrike":-2048}));
+        assert_eq!(UnitStats::from_refs(&store,false).crit_with_base(e,base,two).0,Fixed64::ZERO);
+        store.tick(Fixed64::ONE);assert_eq!(UnitStats::from_refs(&store,false).crit_with_base(e,base,two),(base,two));
+        store.add(e,"one",Fixed64::ONE,json!({"crit_multiplier":1024}));
+        assert_eq!(UnitStats::from_refs(&store,false).crit_with_base(e,base,two).1,Fixed64::ONE);
+    }
+
     #[test]
     fn move_speed_buff_bonus_is_flat_post_percentage() {
         let mut world = World::new();

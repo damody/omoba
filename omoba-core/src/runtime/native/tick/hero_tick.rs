@@ -31,6 +31,7 @@ pub struct HeroRead<'a> {
     owners: ReadStorage<'a, PlayerOwner>,
     disclosed_priority: Option<Read<'a, crate::runtime::filtered_specs::DisclosedMovementPriority>>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    casts: Option<Read<'a, super::super::cast_windup::AbilityWindups>>,
     admitted_directions: Option<Read<'a, crate::runtime::input_scheme::AdmittedDirectionalSteps>>,
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     propertys: ReadStorage<'a, CProperty>,
@@ -94,7 +95,8 @@ impl<'a> System<'a> for Sys {
                             active: command_claims_movement_priority(
                                 tr.move_targets.get(entity).is_some(),
                                 tr.command_queues.get(entity).and_then(|queue| queue.active),
-                            ) || tr.moba.as_ref().is_some_and(|m| m.is_recalling(entity)),
+                            ) || tr.casts.as_ref().is_some_and(|casts|casts.0.contains_key(&entity))
+                                || tr.moba.as_ref().is_some_and(|m| m.is_recalling(entity)),
                         },
                     })
                     .expect("valid visible movement priority");
@@ -158,7 +160,7 @@ impl<'a> System<'a> for Sys {
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
-                    if tr.buff_store.is_stunned(e) {
+                    if tr.buff_store.is_stunned(e) || tr.buff_store.has(e,super::super::recovery_channel::STATUS) {
                         if let Some(timing) = atk.animation_timing.as_mut() { timing.paused = true; }
                         return (e.id(), outcomes);
                     }
@@ -188,7 +190,8 @@ impl<'a> System<'a> for Sys {
                             tr.move_targets.get(e).is_some(),
                             tr.command_queues.get(e).and_then(|queue| queue.active),
                         ));
-                    if moving || tr.moba.as_ref().is_some_and(|m| m.is_recalling(e)) {
+                    if moving || tr.casts.as_ref().is_some_and(|casts|casts.0.contains_key(&e))
+                        || tr.moba.as_ref().is_some_and(|m| m.is_recalling(e)) {
                         return (e.id(), outcomes);
                     }
 

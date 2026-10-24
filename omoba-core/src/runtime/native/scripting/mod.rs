@@ -5,6 +5,8 @@ pub mod event;
 pub mod parallel_world_adapter;
 pub mod registry;
 pub mod tag;
+#[cfg(test)]
+mod projectile_source_tests;
 
 pub use dispatch::{drain_pending_tower_ability_callbacks, run_script_dispatch};
 pub use event::{

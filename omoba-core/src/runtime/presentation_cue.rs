@@ -18,6 +18,8 @@ pub enum PresentationCue {
     Ability(AbilityPresentationCue),
     AbilityArea(AbilityAreaPresentationCue),
     ProjectileImpact(ProjectileImpactPresentationCue),
+    AttackAvoided(AttackAvoidedPresentationCue),
+    CriticalHit(CriticalHitPresentationCue),
 }
 
 impl PresentationCue {
@@ -26,6 +28,8 @@ impl PresentationCue {
             .or_else(|| AbilityPresentationCue::decode(bytes).map(Self::Ability))
             .or_else(|| AbilityAreaPresentationCue::decode(bytes).map(Self::AbilityArea))
             .or_else(|| ProjectileImpactPresentationCue::decode(bytes).map(Self::ProjectileImpact))
+            .or_else(|| AttackAvoidedPresentationCue::decode(bytes).map(Self::AttackAvoided))
+            .or_else(|| CriticalHitPresentationCue::decode(bytes).map(Self::CriticalHit))
     }
 
     pub fn from_effect(id: u64, bytes: &[u8], maximum_tick: u64) -> Option<Self> {
@@ -34,7 +38,7 @@ impl PresentationCue {
     }
 
     pub fn tick(self) -> u64 {
-        match self { Self::Damage(cue) => cue.tick, Self::Ability(cue) => cue.tick, Self::AbilityArea(cue) => cue.cast.tick, Self::ProjectileImpact(cue) => cue.tick }
+        match self { Self::Damage(cue) => cue.tick, Self::Ability(cue) => cue.tick, Self::AbilityArea(cue) => cue.cast.tick, Self::ProjectileImpact(cue) => cue.tick, Self::AttackAvoided(cue) => cue.tick, Self::CriticalHit(cue)=>cue.tick }
     }
 
     /// The only live entity dependency of the current safe payload formats.
@@ -44,17 +48,23 @@ impl PresentationCue {
             Self::Ability(cue) => (cue.caster_id, cue.disclosure_epoch),
             Self::AbilityArea(cue) => (cue.cast.caster_id, cue.cast.disclosure_epoch),
             Self::ProjectileImpact(cue) => (cue.target_id, cue.disclosure_epoch),
+            Self::AttackAvoided(cue) => (cue.target_id, cue.disclosure_epoch),
+            Self::CriticalHit(cue)=>(cue.target_id,cue.disclosure_epoch),
         }
     }
 
     pub fn encode(self) -> Vec<u8> {
-        match self { Self::Damage(cue) => cue.encode(), Self::Ability(cue) => cue.encode(), Self::AbilityArea(cue) => cue.encode(), Self::ProjectileImpact(cue) => cue.encode() }
+        match self { Self::Damage(cue) => cue.encode(), Self::Ability(cue) => cue.encode(), Self::AbilityArea(cue) => cue.encode(), Self::ProjectileImpact(cue) => cue.encode(), Self::AttackAvoided(cue) => cue.encode(), Self::CriticalHit(cue)=>cue.encode() }
     }
 
     pub fn from_public_event(tick:u64, event:&crate::game_proto::TeamPublicEvent,
         live_epoch:impl FnOnce(u64)->Option<u64>) -> Option<(u64,Self)> {
         if event.event_kind == crate::runtime::FactKind::ProjectileImpact as u32 {
             ProjectileImpactPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::ProjectileImpact(cue)))
+        } else if event.event_kind == crate::runtime::FactKind::CriticalHit as u32 {
+            CriticalHitPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::CriticalHit(cue)))
+        } else if event.event_kind == crate::runtime::FactKind::AttackAvoided as u32 {
+            AttackAvoidedPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::AttackAvoided(cue)))
         } else if event.sanitized_payload.starts_with(b"APC1") {
             AbilityAreaPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::AbilityArea(cue)))
         } else { AbilityPresentationCue::from_public_event(tick,event,live_epoch).map(|(id,cue)|(id,Self::Ability(cue))) }
@@ -91,6 +101,80 @@ impl ProjectileImpactPresentationCue {
 
     pub fn decode(bytes: &[u8]) -> Option<Self> {
         if bytes.len() != 28 || &bytes[..4] != b"IMP1" { return None; }
+        let cue = Self { tick: u64::from_le_bytes(bytes[4..12].try_into().ok()?),
+            target_id: u64::from_le_bytes(bytes[12..20].try_into().ok()?),
+            disclosure_epoch: u64::from_le_bytes(bytes[20..28].try_into().ok()?) };
+        cue.valid().then_some(cue)
+    }
+}
+
+/// Confirmed avoidance has no damage, attacker or projectile-impact meaning.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AttackAvoidedPresentationCue {
+    pub tick: u64,
+    pub target_id: u64,
+    pub disclosure_epoch: u64,
+}
+
+impl AttackAvoidedPresentationCue {
+    fn valid(self) -> bool {
+        self.target_id != 0 && (1..=u64::from(u32::MAX)).contains(&self.disclosure_epoch)
+    }
+
+    pub fn from_public_event(tick: u64, event: &crate::game_proto::TeamPublicEvent,
+        live_epoch: impl FnOnce(u64) -> Option<u64>) -> Option<(u64, Self)> {
+        if event.event_kind != crate::runtime::FactKind::AttackAvoided as u32
+            || event.sanitized_payload != b"AVD1" { return None; }
+        let target_id = event.subject.as_ref()?.value;
+        let cue = Self { tick, target_id, disclosure_epoch: live_epoch(target_id)? };
+        cue.valid().then_some((presentation_effect_id(tick, event.stable_sub_index)?, cue))
+    }
+
+    pub fn encode(self) -> Vec<u8> {
+        let mut bytes = b"AVD1".to_vec();
+        for value in [self.tick, self.target_id, self.disclosure_epoch] { bytes.extend(value.to_le_bytes()); }
+        bytes
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != 28 || &bytes[..4] != b"AVD1" { return None; }
+        let cue = Self { tick: u64::from_le_bytes(bytes[4..12].try_into().ok()?),
+            target_id: u64::from_le_bytes(bytes[12..20].try_into().ok()?),
+            disclosure_epoch: u64::from_le_bytes(bytes[20..28].try_into().ok()?) };
+        cue.valid().then_some(cue)
+    }
+}
+
+/// Settled physical critical hit carries only a currently disclosed target identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CriticalHitPresentationCue {
+    pub tick: u64,
+    pub target_id: u64,
+    pub disclosure_epoch: u64,
+}
+
+impl CriticalHitPresentationCue {
+    fn valid(self) -> bool {
+        self.target_id != 0 && (1..=u64::from(u32::MAX)).contains(&self.disclosure_epoch)
+    }
+
+    pub fn from_public_event(tick: u64, event: &crate::game_proto::TeamPublicEvent,
+        live_epoch: impl FnOnce(u64) -> Option<u64>) -> Option<(u64, Self)> {
+        if event.event_kind != crate::runtime::FactKind::CriticalHit as u32
+            || event.sanitized_payload != b"CRT1" { return None; }
+        let target_id = event.subject.as_ref()?.value;
+        let cue = Self { tick, target_id, disclosure_epoch: live_epoch(target_id)? };
+        cue.valid().then_some((presentation_effect_id(tick, event.stable_sub_index)?, cue))
+    }
+
+    pub fn encode(self) -> Vec<u8> {
+        let mut bytes = b"CRT1".to_vec();
+        for value in [self.tick, self.target_id, self.disclosure_epoch] { bytes.extend(value.to_le_bytes()); }
+        bytes
+    }
+
+    pub fn decode(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != 28 || &bytes[..4] != b"CRT1" { return None; }
         let cue = Self { tick: u64::from_le_bytes(bytes[4..12].try_into().ok()?),
             target_id: u64::from_le_bytes(bytes[12..20].try_into().ok()?),
             disclosure_epoch: u64::from_le_bytes(bytes[20..28].try_into().ok()?) };
@@ -323,6 +407,69 @@ pub fn presentation_effect_id(tick: u64, sub_index: u32) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn critical_hit_cue_is_strict_target_local_and_not_damage() {
+        let mut event = crate::game_proto::TeamPublicEvent {
+            event_kind: crate::runtime::FactKind::CriticalHit as u32,
+            subject: Some(crate::game_proto::ReplicaEntityId { value: 4 }),
+            sanitized_payload: b"CRT1".to_vec(), stable_sub_index: 2,
+        };
+        let (id, cue) = PresentationCue::from_public_event(17, &event, |_| Some(3)).unwrap();
+        assert_eq!(cue.disclosed_entity(), (4, 3));
+        let bytes = cue.encode();
+        assert_eq!(bytes.len(), 28);
+        assert_eq!(PresentationCue::from_effect(id, &bytes, 17), Some(cue));
+        assert!(DamagePresentationCue::decode(&bytes).is_none());
+        assert!(PresentationCue::from_effect(id, &bytes, 16).is_none());
+        assert!(PresentationCue::from_effect(id + (1 << 32), &bytes, 18).is_none());
+        for length in 0..28 { assert!(PresentationCue::decode(&bytes[..length]).is_none()); }
+        let mut extra = bytes.clone(); extra.push(0);
+        assert!(PresentationCue::decode(&extra).is_none());
+        for (offset, value) in [(12, 0_u64), (20, 0), (20, u64::from(u32::MAX) + 1)] {
+            let mut bad = bytes.clone(); bad[offset..offset+8].copy_from_slice(&value.to_le_bytes());
+            assert!(PresentationCue::decode(&bad).is_none());
+        }
+        assert!(PresentationCue::from_public_event(17, &event, |_| None).is_none());
+        assert!(PresentationCue::from_public_event(17, &event, |_| Some(0)).is_none());
+        assert!(PresentationCue::from_public_event(u64::from(u32::MAX)+1, &event, |_| Some(3)).is_none());
+        event.event_kind = crate::runtime::FactKind::Projectile as u32;
+        assert!(PresentationCue::from_public_event(17, &event, |_| Some(3)).is_none());
+        event.event_kind = crate::runtime::FactKind::CriticalHit as u32;
+        event.sanitized_payload.push(0);
+        assert!(PresentationCue::from_public_event(17, &event, |_| Some(3)).is_none());
+    }
+
+    #[test]
+    fn attack_avoidance_cue_is_strict_target_local_and_not_damage() {
+        let mut event = crate::game_proto::TeamPublicEvent {
+            event_kind: crate::runtime::FactKind::AttackAvoided as u32,
+            subject: Some(crate::game_proto::ReplicaEntityId { value: 4 }),
+            sanitized_payload: b"AVD1".to_vec(), stable_sub_index: 2,
+        };
+        let (id, cue) = PresentationCue::from_public_event(17, &event, |_| Some(3)).unwrap();
+        assert_eq!(cue.disclosed_entity(), (4, 3));
+        let bytes = cue.encode();
+        assert_eq!(bytes.len(), 28);
+        assert_eq!(PresentationCue::from_effect(id, &bytes, 17), Some(cue));
+        assert!(DamagePresentationCue::decode(&bytes).is_none());
+        assert!(PresentationCue::from_effect(id, &bytes, 16).is_none());
+        assert!(PresentationCue::from_effect(id + (1 << 32), &bytes, 18).is_none());
+        for length in 0..28 { assert!(PresentationCue::decode(&bytes[..length]).is_none()); }
+        let mut extra = bytes.clone(); extra.push(0);
+        assert!(PresentationCue::decode(&extra).is_none());
+        for (offset, value) in [(12, 0_u64), (20, 0), (20, u64::from(u32::MAX) + 1)] {
+            let mut bad = bytes.clone(); bad[offset..offset+8].copy_from_slice(&value.to_le_bytes());
+            assert!(PresentationCue::decode(&bad).is_none());
+        }
+        assert!(PresentationCue::from_public_event(17, &event, |_| None).is_none());
+        assert!(PresentationCue::from_public_event(17, &event, |_| Some(0)).is_none());
+        assert!(PresentationCue::from_public_event(u64::from(u32::MAX)+1, &event, |_| Some(3)).is_none());
+        event.event_kind = crate::runtime::FactKind::Projectile as u32;
+        assert!(PresentationCue::from_public_event(17, &event, |_| Some(3)).is_none());
+        event.event_kind = crate::runtime::FactKind::AttackAvoided as u32;
+        event.sanitized_payload.push(0);
+        assert!(PresentationCue::from_public_event(17, &event, |_| Some(3)).is_none());
+    }
     #[test]
     fn projectile_impact_cue_is_strict_target_local_and_not_damage() {
         let mut event = crate::game_proto::TeamPublicEvent {

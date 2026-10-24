@@ -4,6 +4,7 @@ use specs::{shred, Entities, Entity, Join, Read, ReadStorage, SystemData, Write}
 
 #[derive(SystemData)]
 pub struct DeathRead<'a> {
+    moba_match: Option<Read<'a, crate::runtime::MobaMatch>>,
     entities: Entities<'a>,
     time: Read<'a, Time>,
     units: ReadStorage<'a, Unit>,
@@ -40,14 +41,17 @@ impl<'a> System<'a> for Sys {
 
                 // 記錄死亡獎勵信息
                 let (px, py) = pos.xy_f32();
-                death_rewards.push(DeathReward {
+                // Formal MOBA owns gold/XP at admitted damage and roster death
+                // settlement. A second generic nearby reward would double-pay
+                // the Unit defaults (and could pay an unrelated spectator).
+                if tr.moba_match.is_none() {death_rewards.push(DeathReward {
                     dead_entity: entity,
                     dead_unit: unit.clone(),
                     position: vek::Vec2::new(px, py),
                     exp_reward: unit.exp_reward,
                     gold_reward: unit.gold_reward,
                     bounty_type: unit.bounty_type.clone(),
-                });
+                });}
 
                 log::info!(
                     "Unit '{}' died at position ({:.1}, {:.1})",
@@ -71,6 +75,33 @@ impl<'a> System<'a> for Sys {
                     ent: dead_entity,
                 });
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use specs::WorldExt;
+    #[test]
+    fn formal_moba_skips_generic_unit_rewards_but_keeps_death_and_legacy_rewards() {
+        for formal in [true,false] {
+            let pool=crate::runtime::StateInitializer::create_thread_pool();
+            let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            world.insert(crate::runtime::TowerTemplateRegistry::default());
+            crate::runtime::setup_single_lane_match(&mut world,Default::default()).unwrap();
+            let [source,target]={let state=world.read_resource::<crate::runtime::MobaMatch>();
+                [state.heroes[0].entity.unwrap(),state.heroes[1].entity.unwrap()]};
+            world.write_storage::<CProperty>().get_mut(target).unwrap().hp=Fixed64::ZERO;
+            for entity in [source,target]{world.write_storage::<Pos>().get_mut(entity).unwrap().0=omoba_sim::Vec2::ZERO;}
+            {let mut units=world.write_storage::<Unit>();let unit=units.get_mut(target).unwrap();unit.gold_reward=777;unit.exp_reward=999;}
+            if !formal {world.remove::<crate::runtime::MobaMatch>();}
+            let mut builder=specs::DispatcherBuilder::new();crate::comp::dispatch::<Sys>(&mut builder,&[]);
+            let mut dispatcher=builder.build();dispatcher.setup(&mut world);dispatcher.dispatch(&world);
+            let outcomes=world.read_resource::<Vec<Outcome>>();
+            assert!(outcomes.iter().any(|o|matches!(o,Outcome::Death {ent,..} if *ent==target)));
+            assert_eq!(outcomes.iter().any(|o|matches!(o,Outcome::GainGold {target,amount:777} if *target==source)),!formal);
+            assert_eq!(outcomes.iter().any(|o|matches!(o,Outcome::GainExperience {target,amount:999} if *target==source)),!formal);
         }
     }
 }

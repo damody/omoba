@@ -113,6 +113,7 @@ mod tests {
         assert_eq!(decide(&policy,&hp,own,home,1,&[enemy]),Some(Recovery::Retreat(home)));
         assert_eq!(decide(&policy,&hp,own,home,1,&[SeenUnit {hp_raw:0,..enemy}]),Some(Recovery::Recall));
         assert_eq!(decide(&policy,&hp,own,home,1,&[SeenUnit {team:1,..enemy}]),Some(Recovery::Recall));
+        assert_eq!(decide(&policy,&hp,own,home,1,&[SeenUnit {team:0,kind:3,..enemy}]),Some(Recovery::Recall),"idle neutral camp is not an enemy team threat");
         hp.hp=Fixed64::from_i32(350);assert_eq!(decide(&policy,&hp,own,home,1,&[]),None);
         hp.hp=Fixed64::from_i32(849);assert_eq!(decide(&policy,&hp,home,home,1,&[]),Some(Recovery::Hold));
         hp.hp=Fixed64::from_i32(850);assert_eq!(decide(&policy,&hp,home,home,1,&[]),None);

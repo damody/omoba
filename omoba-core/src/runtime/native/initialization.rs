@@ -1174,6 +1174,7 @@ impl StateInitializer {
 
         // 腳本事件佇列（由 tick 系統推入、ScriptDispatchSystem 於本 tick 尾端抽乾）
         ecs.insert(crate::scripting::ScriptEventQueue::default());
+        ecs.insert(super::summon_navigation::PlacementReservations::default());
         ecs.insert(crate::scripting::ScriptVisualEventQueue::default());
         ecs.insert(crate::scripting::dispatch::ScriptCastFactOrder::default());
 

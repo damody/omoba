@@ -17,6 +17,10 @@ pub struct ItemBonus {
     pub armor: f32,
     #[serde(default)]
     pub mp_regen: f32,
+    #[serde(default)]
+    pub lifesteal: f32,
+    #[serde(default)]
+    pub critical_chance: f32,
 }
 
 /// Native active-effect schema. Timed and one-shot modifiers use BuffStore;
@@ -24,6 +28,8 @@ pub struct ItemBonus {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActiveEffect {
+    SelfControlCleanse {},
+    ChannelHeal {amount:Fixed64,duration:Fixed64,interval:Fixed64},
     /// Arm a one-shot flat physical bonus consumed by the next normal attack launch.
     HeadshotNext { bonus_damage: f32 },
     /// Timed damage absorption; remaining capacity is distinct from HP.
@@ -38,20 +44,36 @@ pub enum ActiveEffect {
     /// Amounts stay in authoritative fixed units. Float conversion is preview only.
     PointNova { damage: Fixed64, radius: Fixed64 },
     /// Flat damage to one disclosed living enemy.
-    UnitHex { damage: Fixed64 },
+    UnitHex { damage: Fixed64,#[serde(default)] healing_reduction:Option<HealingReduction>,
+        #[serde(default)] control:Option<ItemControl> },
 }
+
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemControl {pub kind:omoba_content_model::ControlEffectKind,pub duration:Fixed64}
+
+#[derive(Clone,Debug,serde::Serialize,serde::Deserialize)]
+pub struct HealingReduction {pub multiplier:Fixed64,pub duration:Fixed64}
 
 impl From<omoba_template_ids::MobaItemActiveConst> for ActiveEffect {
     fn from(value: omoba_template_ids::MobaItemActiveConst) -> Self {
         use omoba_template_ids::MobaItemActiveConst as Generated;
         match value {
+            Generated::SelfControlCleanse => Self::SelfControlCleanse {},
+            Generated::ChannelHeal {amount,duration,interval} => Self::ChannelHeal {amount,duration,interval},
             Generated::Shield { amount, duration } => Self::Shield { amount: amount.to_f32_for_render(), duration: duration.to_f32_for_render() },
             Generated::SprintBuff { ms_bonus, duration } => Self::SprintBuff { ms_bonus: ms_bonus.to_f32_for_render(), duration: duration.to_f32_for_render() },
             Generated::RestoreMana { amount } => Self::RestoreMana { amount: amount.to_f32_for_render() },
             Generated::DamageReduce { percent, duration } => Self::DamageReduce { percent: percent.to_f32_for_render(), duration: duration.to_f32_for_render() },
             Generated::HeadshotNext { bonus_damage } => Self::HeadshotNext { bonus_damage: bonus_damage.to_f32_for_render() },
             Generated::PointNova { damage, radius } => Self::PointNova { damage, radius },
-            Generated::UnitHex { damage } => Self::UnitHex { damage },
+            Generated::UnitHex { damage,healing_reduction,control } => Self::UnitHex { damage,
+                healing_reduction:healing_reduction.map(|r|HealingReduction {multiplier:r.multiplier,duration:r.duration}),
+                control:control.map(|c|ItemControl {kind:match c.kind {
+                    omoba_template_ids::MobaItemControlKindConst::Stun=>omoba_content_model::ControlEffectKind::Stun,
+                    omoba_template_ids::MobaItemControlKindConst::Root=>omoba_content_model::ControlEffectKind::Root,
+                    omoba_template_ids::MobaItemControlKindConst::Silence=>omoba_content_model::ControlEffectKind::Silence,
+                },duration:c.duration}) },
         }
     }
 }
@@ -85,6 +107,8 @@ impl ItemRegistry {
             bonus: ItemBonus {
                 atk: item.atk.to_f32_for_render(), hp: item.hp.to_f32_for_render(),
                 ms: item.ms.to_f32_for_render(), armor: item.armor.to_f32_for_render(),
+                lifesteal: item.lifesteal.to_f32_for_render(),
+                critical_chance: item.critical_chance.to_f32_for_render(),
                 ..ItemBonus::default()
             },
             active: item.active.map(ActiveEffect::from), cooldown: item.cooldown.to_f32_for_render(),
@@ -110,6 +134,19 @@ pub fn sell_price(cost: i32) -> i32 {
     (cost as f32 * 0.5) as i32
 }
 
+#[cfg(test)]
+mod cleanse_tests {
+    use super::*;
+    #[test]
+    fn generated_cleanse_has_typed_runtime_operation_and_no_hidden_parameters() {
+        let row=ItemRegistry::generated_moba().get("moba_purification_charm").unwrap();
+        assert_eq!(row.cost,1400);assert_eq!(row.cooldown,45.);
+        assert!(matches!(row.active,Some(ActiveEffect::SelfControlCleanse {})));
+        let effect:ActiveEffect=serde_json::from_value(serde_json::json!({"kind":"self_control_cleanse"})).unwrap();
+        assert_eq!(serde_json::to_value(effect).unwrap(),serde_json::json!({"kind":"self_control_cleanse"}));
+    }
+}
+
 /// Sum of catalog bonuses currently in one inventory. Unknown ids add nothing.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ItemStatAggregate {
@@ -119,6 +156,8 @@ pub struct ItemStatAggregate {
     pub ms: f32,
     pub armor: f32,
     pub mp_regen: f32,
+    pub lifesteal: f32,
+    pub critical_chance: f32,
 }
 
 impl ItemStatAggregate {
@@ -133,8 +172,23 @@ impl ItemStatAggregate {
             totals.ms += cfg.bonus.ms;
             totals.armor += cfg.bonus.armor;
             totals.mp_regen += cfg.bonus.mp_regen;
+            totals.lifesteal += cfg.bonus.lifesteal;
+            totals.critical_chance += cfg.bonus.critical_chance;
         }
         totals
+    }
+}
+
+/// How a freshly computed aggregate meets an existing body.
+/// Inventory owns one permanent shared modifier, rebuilt only on inventory changes/new life.
+pub fn sync_item_passives(entity:specs::Entity,totals:ItemStatAggregate,buffs:&mut super::ability_runtime::BuffStore) {
+    const KEY:&str="__item_passives";
+    buffs.remove(entity,KEY);
+    let raw=|rate:f32| if rate.is_finite(){(rate.clamp(0.0,1.0)*1024.0).round() as i64}else{0};
+    let lifesteal=raw(totals.lifesteal);let critical=raw(totals.critical_chance);
+    if lifesteal>0 || critical>0 {
+        buffs.add(entity,KEY,super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,
+            serde_json::json!({"lifesteal":lifesteal,"preattack_criticalstrike":critical}));
     }
 }
 

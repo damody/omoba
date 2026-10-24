@@ -30,7 +30,7 @@ impl FogGridGeometry {
             .lanes
             .iter()
             .flat_map(|lane| lane.waypoints.iter().copied())
-            .chain(map.jungle_camps.iter().map(|camp| camp.position))
+            .chain(map.jungle_camps.iter().flat_map(|camp|camp.home_positions()))
             .chain(
                 map.terrain
                     .iter()
@@ -406,6 +406,7 @@ impl AuthorityFogGrid {
                         .unsigned_abs();
                     let radius = source.radius.raw() as u128;
                     dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) <= radius * radius
+                        && crate::runtime::brush_vision::brush_allows_vision(&view.brush_regions, source.position, point)
                         && line_of_sight(&view.vision_occluders, source.position, point)
                             == LosResult::Clear
                 });
@@ -416,6 +417,22 @@ impl AuthorityFogGrid {
             } else {
                 0
             };
+        }
+        // A revealed attacker exposes its own cell, never the entire brush or
+        // another occupant. Reuse disclosure precedence/range/detection/LOS.
+        for entity in view.entities.iter().filter(|entity|
+            super::visibility::has_brush_reveal(entity,self.snapshot.team)
+                && super::visibility::entity_visible_with_brush(entity,self.snapshot.team,
+                    &view.vision_sources,&view.vision_occluders,&view.brush_regions)) {
+            let g=self.snapshot.geometry;
+            let x=i128::from(entity.position.x.raw())-i128::from(g.origin_x_raw);
+            let y=i128::from(entity.position.y.raw())-i128::from(g.origin_y_raw);
+            if x>=0 && y>=0 {
+                let column=x/i128::from(g.cell_size_raw);let row=y/i128::from(g.cell_size_raw);
+                if column<i128::from(g.columns) && row<i128::from(g.rows) {
+                    self.snapshot.cells[row as usize*usize::from(g.columns)+column as usize]=2;
+                }
+            }
         }
         self.snapshot.tick = view.tick;
         self.sampled = true;
@@ -440,6 +457,7 @@ mod tests {
         WaveBReadView {
             tick,
             entities: vec![].into(),
+            brush_regions: Vec::new().into(),
             vision_occluders: vec![].into(),
             vision_sources: vec![CommittedVisionSource {
                 canonical_id: 99,
@@ -450,6 +468,98 @@ mod tests {
             }]
             .into(),
         }
+    }
+
+    #[test]
+    fn brush_fog_enters_leaves_and_keeps_vision_behind_patch() {
+        use crate::runtime::brush_vision::BrushVisionRegion;
+        let mut read=view(1,1);
+        let p=|x,y| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let mut source=read.vision_sources[0];source.radius=Fixed64::from_i32(100);
+        read.vision_sources=vec![source].into();
+        read.brush_regions=vec![BrushVisionRegion {min:p(-10,-10),max:p(0,0)}].into();
+        let mut fog=AuthorityFogGrid::new(1,1,geometry()).unwrap();
+        assert_eq!(fog.sample(&read).unwrap().cells[1],0);
+        assert_eq!(fog.sample(&read).unwrap().cells[2],2,"outside cell behind brush stays visible");
+        source.position=p(-5,-5);read.vision_sources=vec![source].into();read.tick+=1;
+        assert_eq!(fog.sample(&read).unwrap().cells[1],2);
+        source.position=p(-15,-5);read.vision_sources=vec![source].into();read.tick+=1;
+        assert_eq!(fog.sample(&read).unwrap().cells[1],1,"leaving retains explored, not current vision");
+    }
+
+    #[test]
+    fn connected_branches_share_fog_and_entity_disclosure_without_lighting_outside_sources() {
+        use crate::runtime::brush_vision::BrushVisionRegion;
+        use crate::runtime::visibility::{CommittedEntityView,entity_visible_with_brush};
+        use crate::runtime::{ReplicationScopeKind,RememberDisposition};
+        let p=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let mut read=view(1,1);
+        let mut source=read.vision_sources[0];source.position=p(-15,-5);source.radius=Fixed64::from_i32(100);
+        read.vision_sources=vec![source].into();
+        read.brush_regions=vec![BrushVisionRegion {min:p(-20,-10),max:p(-10,0)},
+            BrushVisionRegion {min:p(-12,-10),max:p(0,0)}].into();
+        let target=CommittedEntityView {canonical_id:7,team:2,position:p(-5,-5),scope:ReplicationScopeKind::Vision,
+            owner_team:Some(2),stealth_level:0,remember:RememberDisposition::Forget,disclosed_baseline:vec![],overrides:vec![]};
+        assert!(entity_visible_with_brush(&target,1,&read.vision_sources,&read.vision_occluders,&read.brush_regions));
+        let mut fog=AuthorityFogGrid::new(1,1,geometry()).unwrap();
+        assert_eq!(fog.sample(&read).unwrap().cells[1],2,"different connected branch is currently visible");
+        source.position=p(10,-5);read.vision_sources=vec![source].into();read.tick+=1;
+        assert!(!entity_visible_with_brush(&target,1,&read.vision_sources,&read.vision_occluders,&read.brush_regions));
+        assert_eq!(fog.sample(&read).unwrap().cells[1],1,"leaving shared region retains explored only");
+    }
+
+    #[test]
+    fn attack_exposure_lights_only_attacker_cell_and_keeps_wall_and_denial_policy() {
+        use crate::runtime::visibility::{CommittedEntityView,CommittedVisibilityOverride};
+        use crate::runtime::{ReplicationScopeKind,RememberDisposition,VisibilityOverrideKind};
+        let mut read=view(1,1);
+        let p=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let mut source=read.vision_sources[0];source.radius=Fixed64::from_i32(100);
+        read.vision_sources=vec![source].into();
+        read.brush_regions=vec![crate::runtime::brush_vision::BrushVisionRegion {min:p(-10,-10),max:p(0,0)}].into();
+        let target=CommittedEntityView {canonical_id:7,team:2,position:p(-5,-5),scope:ReplicationScopeKind::Vision,
+            owner_team:Some(2),stealth_level:0,remember:RememberDisposition::Forget,disclosed_baseline:vec![],
+            overrides:vec![CommittedVisibilityOverride {team:Some(1),kind:VisibilityOverrideKind::RevealBrush,
+                priority:0,stable_rule_id:7}]};
+        let normal=AuthorityFogGrid::new(1,1,geometry()).unwrap().sample(&read).unwrap().cells.clone();
+        read.entities=vec![target.clone()].into();
+        let exposed=AuthorityFogGrid::new(1,1,geometry()).unwrap().sample(&read).unwrap().cells.clone();
+        assert_eq!(normal.iter().zip(&exposed).enumerate().filter_map(|(i,(a,b))|(a!=b).then_some(i)).collect::<Vec<_>>(),vec![1]);
+        for case in 0..4 {
+            let mut blocked=read.clone();let mut entity=target.clone();
+            match case {
+                0=>entity.scope=ReplicationScopeKind::ServerOnly,
+                1=>entity.overrides.push(CommittedVisibilityOverride {team:Some(1),kind:VisibilityOverrideKind::ForceHide,priority:0,stable_rule_id:8}),
+                2=>entity.stealth_level=1,
+                _=>{let mut source=source;source.radius=Fixed64::ONE;blocked.vision_sources=vec![source].into();},
+            }
+            blocked.entities=vec![entity].into();
+            assert_eq!(AuthorityFogGrid::new(1,1,geometry()).unwrap().sample(&blocked).unwrap().cells[1],0,"case {case}");
+        }
+        const WALLS:[omoba_template_ids::MobaTerrainConst;1]=[omoba_template_ids::MobaTerrainConst {id:"wall",min:(-11,-10),max:(-9,0)}];
+        read.vision_occluders=crate::runtime::moba_map_layout::compiled_vision_occluders(&omoba_template_ids::MobaMapConst {terrain:&WALLS,..omoba_template_ids::MOBA_MAPS[0]}).0.into();
+        assert_eq!(AuthorityFogGrid::new(1,1,geometry()).unwrap().sample(&read).unwrap().cells[1],0);
+        read.vision_occluders=vec![].into();
+        let mut fog=AuthorityFogGrid::new(1,1,geometry()).unwrap();
+        assert_eq!(fog.sample(&read).unwrap().cells[1],2);
+        read.tick=2;read.entities=vec![].into();
+        assert_eq!(fog.sample(&read).unwrap().cells[1],1,"expiry retains explored ground only");
+    }
+
+    #[test]
+    fn compiled_wall_fog_respects_geometry_and_friendly_vision_on_the_other_side() {
+        use omoba_template_ids::{MobaMapConst,MobaTerrainConst};
+        const WALLS:[MobaTerrainConst;1]=[MobaTerrainConst {id:"custom_wall",min:(-11,-10),max:(-9,0)}];
+        let map=MobaMapConst {terrain:&WALLS,..omoba_template_ids::MOBA_MAPS[0]};
+        let mut read=view(1,1);let mut source=read.vision_sources[0];
+        source.radius=Fixed64::from_i32(100);read.vision_sources=vec![source].into();
+        read.vision_occluders=crate::runtime::moba_map_layout::compiled_vision_occluders(&map).0.into();
+        let mut fog=AuthorityFogGrid::new(1,1,geometry()).unwrap();
+        assert_eq!(fog.sample(&read).unwrap().cells[0],2);
+        assert_eq!(fog.sample(&read).unwrap().cells[1],0);
+        source.position=Vec2::new(Fixed64::from_i32(-5),Fixed64::from_i32(-5));
+        read.vision_sources=vec![source].into();read.tick+=1;
+        assert_eq!(fog.sample(&read).unwrap().cells[1],2);
     }
     #[test]
     fn fog_retention_accepts_projector_global_ordinal_in_mixed_frame() {

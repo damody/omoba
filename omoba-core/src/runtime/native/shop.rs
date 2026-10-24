@@ -26,6 +26,12 @@ pub fn preview_buy_item(registry: &ItemRegistry, inventory: &Inventory, gold: &G
 
 fn valid_item(item: &super::item::ItemConfig) -> bool {
     item.cost > 0
+        && item.bonus.critical_chance.is_finite()
+        && (0.0..=1.0).contains(&item.bonus.critical_chance)
+        && (item.bonus.critical_chance==0.0 || item.bonus.critical_chance>=1.0/1024.0)
+        && item.bonus.lifesteal.is_finite()
+        && (0.0..=1.0).contains(&item.bonus.lifesteal)
+        && (item.bonus.lifesteal==0.0 || item.bonus.lifesteal>=1.0/1024.0)
         && item.cooldown.is_finite()
         && item.cooldown >= 0.0
         && [
@@ -123,6 +129,10 @@ pub struct ShopUndoComponent {
     pub cooldown_bits: u32,
 }
 
+/// Operation is part of authority history and its commitment, never inferred from price.
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+pub enum ShopUndoKind { Purchase, Sale }
+
 /// Newest record is the only one that can be undone. Older eligible records stay
 /// blocked until that newest record is removed by a successful undo. Coverage is
 /// the newest-first undo of every newer recorded purchase, including unrelated
@@ -131,11 +141,12 @@ pub struct ShopUndoComponent {
 /// and undo never sets it back to true.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct ShopUndoRecord {
+    pub kind: ShopUndoKind,
     pub sequence: u64,
     pub item_id: String,
     pub result_slot: u8,
     pub result_cooldown_bits: u32,
-    /// Gold the authority subtracted for this purchase, not the sell price.
+    /// Captured nonnegative transaction amount: purchase refunds; sale reclaims.
     pub paid: i32,
     pub consumed: Vec<ShopUndoComponent>,
     pub benefits: u8,
@@ -158,7 +169,7 @@ impl Default for OwnerShopUndoHistory {
     }
 }
 
-/// Authoritative per-owner purchase history. Absent means no undo has been recorded.
+/// Authoritative per-owner transaction history. Absent means no undo has been recorded.
 #[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
 pub struct ShopUndoLedger {
     pub owners: BTreeMap<u32, OwnerShopUndoHistory>,
@@ -261,7 +272,7 @@ pub fn transact_moba_shop(
         ShopSeat::Retained => mutate_retained_shop(world, player_id, command)?,
     };
     match recorded {
-        Some((record, inventory)) => commit_purchase(world, player_id, record, &inventory),
+        Some((record, inventory)) => commit_transaction(world, player_id, record, &inventory),
         None => {
             if let Some(mut ledger) = world.try_fetch_mut::<ShopUndoLedger>() {
                 ledger.invalidate_player(player_id);
@@ -271,7 +282,7 @@ pub fn transact_moba_shop(
     Ok(())
 }
 
-/// Reverse the newest eligible purchase for `player_id`, or the named sequence
+/// Reverse the newest eligible transaction for `player_id`, or the named sequence
 /// when it is that newest purchase. Refunds `paid` onto the live balance and
 /// restores consumed instances into the slots they occupied. Derived stats are
 /// marked dirty for the existing item tick; hit points, mana, experience, and
@@ -330,8 +341,11 @@ fn evaluate_shop_undo(
     if record.paid < 0 || !can_restore(&inventory, record) {
         return Err((ShopError::UndoUnavailable, UNDO_REASON_SHAPE));
     }
-    let Some(balance) = balance_now.checked_add(record.paid) else {
-        return Err((ShopError::BalanceOverflow, UNDO_REASON_OVERFLOW));
+    let balance = match record.kind {
+        ShopUndoKind::Purchase => balance_now.checked_add(record.paid)
+            .ok_or((ShopError::BalanceOverflow, UNDO_REASON_OVERFLOW))?,
+        ShopUndoKind::Sale => balance_now.checked_sub(record.paid).filter(|balance| *balance>=0)
+            .ok_or((ShopError::InsufficientGold, UNDO_REASON_INVALID_BALANCE))?,
     };
     Ok(UndoPlan {
         sequence: record.sequence,
@@ -392,6 +406,8 @@ pub fn owner_ledger_preimage(world: &World, player_id: u32) -> Vec<u8> {
     bytes.extend((owner.records.len() as u32).to_le_bytes());
     for record in &owner.records {
         bytes.extend(record.sequence.to_le_bytes());
+        bytes.push(match record.kind { ShopUndoKind::Purchase=>0, ShopUndoKind::Sale=>1 });
+        bytes.push(record.result_slot);
         bytes.extend(crate::runtime::shop_transport::catalog_id_for_item(&record.item_id).to_le_bytes());
         bytes.push(u8::from(record.eligible));
         bytes.extend(record.source_index.to_le_bytes());
@@ -412,7 +428,7 @@ pub fn owner_ledger_preimage(world: &World, player_id: u32) -> Vec<u8> {
 pub fn owner_ledger_commitment(world: &World, player_id: u32) -> [u8; 32] {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(b"omoba-shop-undo-ledger-v1\0");
+    hasher.update(b"omoba-shop-undo-ledger-v2\0");
     hasher.update(owner_ledger_preimage(world, player_id));
     hasher.finalize().into()
 }
@@ -656,8 +672,19 @@ fn apply_shop_command(
             Ok(Some((record, inventory.clone())))
         }
         ShopCommand::Sell(slot) => {
-            sell_item(registry, inventory, gold, slot)?;
-            Ok(None)
+            let sold=inventory.slots.get(slot).and_then(Option::as_ref)
+                .cloned().ok_or(ShopError::InvalidSlot)?;
+            if !sold.cooldown_remaining.is_finite() || sold.cooldown_remaining<0.0 {
+                return Err(ShopError::InvalidCatalog);
+            }
+            let credit=sell_item(registry, inventory, gold, slot)?;
+            let record=ShopUndoRecord {
+                kind:ShopUndoKind::Sale, sequence:0, item_id:sold.item_id,
+                result_slot:slot as u8, result_cooldown_bits:sold.cooldown_remaining.to_bits(),
+                paid:credit, consumed:Vec::new(), benefits:BENEFIT_ATTACK|BENEFIT_HP|BENEFIT_ARMOR|BENEFIT_MOVE,
+                eligible:true, source_index, source_generation,
+            };
+            Ok(Some((record,inventory.clone())))
         }
     }
 }
@@ -785,6 +812,7 @@ fn purchase_record(
         .map(|instance| instance.cooldown_remaining.to_bits())
         .unwrap_or(0);
     ShopUndoRecord {
+        kind: ShopUndoKind::Purchase,
         sequence: 0,
         item_id: item_id.to_owned(),
         result_slot: result_slot as u8,
@@ -801,30 +829,38 @@ fn purchase_record(
 fn net_benefits(registry: &ItemRegistry, item_id: &str, consumed: &[ShopUndoComponent]) -> u8 {
     let Some(item) = registry.get(item_id) else { return 0 };
     let mut atk = item.bonus.atk;
+    let mut lifesteal = item.bonus.lifesteal;
+    let mut critical_chance = item.bonus.critical_chance;
     let mut hp = item.bonus.hp;
     let mut armor = item.bonus.armor;
     let mut ms = item.bonus.ms;
     for component in consumed {
         let Some(config) = registry.get(&component.item_id) else { continue };
         atk -= config.bonus.atk;
+        lifesteal -= config.bonus.lifesteal;
+        critical_chance -= config.bonus.critical_chance;
         hp -= config.bonus.hp;
         armor -= config.bonus.armor;
         ms -= config.bonus.ms;
     }
     let mut bits = 0;
-    if atk > 0.0 { bits |= BENEFIT_ATTACK; }
+    if atk > 0.0 || lifesteal > 0.0 || critical_chance > 0.0 { bits |= BENEFIT_ATTACK; }
     if hp > 0.0 { bits |= BENEFIT_HP; }
     if armor > 0.0 { bits |= BENEFIT_ARMOR; }
     if ms > 0.0 { bits |= BENEFIT_MOVE; }
     bits
 }
 
-fn commit_purchase(world: &mut World, player_id: u32, mut record: ShopUndoRecord, current: &Inventory) {
+fn commit_transaction(world: &mut World, player_id: u32, mut record: ShopUndoRecord, current: &Inventory) {
     if world.try_fetch::<ShopUndoLedger>().is_none() {
         world.insert(ShopUndoLedger::default());
     }
     let mut ledger = world.write_resource::<ShopUndoLedger>();
     let owner = ledger.owners.entry(player_id).or_default();
+    if record.kind==ShopUndoKind::Sale {
+        // Selling never reopens any prior purchase or sale, even after this sale is undone.
+        for older in &mut owner.records {older.eligible=false;}
+    }
     {
         // Snapshot eligibility before this pass. Clearing a later record in the
         // same pass must not hide a shape failure, and a false flag stays false.
@@ -884,6 +920,12 @@ fn apply_recorded_undo(inventory: &mut Inventory, record: &ShopUndoRecord) -> bo
 
 fn can_restore(inventory: &Inventory, record: &ShopUndoRecord) -> bool {
     let slot = record.result_slot as usize;
+    if record.kind==ShopUndoKind::Sale {
+        return inventory.slots.get(slot).is_some_and(Option::is_none)
+            && record.consumed.is_empty() && !record.item_id.is_empty()
+            && f32::from_bits(record.result_cooldown_bits).is_finite()
+            && f32::from_bits(record.result_cooldown_bits)>=0.0;
+    }
     let Some(result) = inventory.slots.get(slot).and_then(Option::as_ref) else { return false };
     if result.item_id != record.item_id || result.cooldown_remaining.to_bits() != record.result_cooldown_bits {
         return false;
@@ -909,6 +951,12 @@ fn can_restore(inventory: &Inventory, record: &ShopUndoRecord) -> bool {
 
 fn restore_inventory(inventory: &Inventory, record: &ShopUndoRecord) -> Inventory {
     let mut next = inventory.clone();
+    if record.kind==ShopUndoKind::Sale {
+        next.slots[record.result_slot as usize]=Some(ItemInstance {
+            item_id:record.item_id.clone(),cooldown_remaining:f32::from_bits(record.result_cooldown_bits),
+        });
+        return next;
+    }
     next.slots[record.result_slot as usize] = None;
     for component in &record.consumed {
         next.slots[component.slot as usize] = Some(ItemInstance {
@@ -1406,7 +1454,7 @@ mod tests {
     }
     #[test]
     fn invalid_catalog_never_mutates_inventory() {
-        for invalid in 0..7 {
+        for invalid in 0..17 {
             let mut registry = registry();
             let config = std::sync::Arc::make_mut(registry.items.get_mut("part").unwrap());
             match invalid {
@@ -1416,7 +1464,17 @@ mod tests {
                 3 => config.cooldown = f32::INFINITY,
                 4 => config.recipe = vec!["part".into()],
                 5 => config.recipe = vec!["missing".into()],
-                _ => config.bonus.hp = -1.0,
+                6 => config.bonus.hp = -1.0,
+                7 => config.bonus.lifesteal = f32::NAN,
+                8 => config.bonus.lifesteal = f32::INFINITY,
+                9 => config.bonus.lifesteal = -0.1,
+                10 => config.bonus.lifesteal = 1.01,
+                11 => config.bonus.lifesteal = 0.0001,
+                12 => config.bonus.critical_chance = f32::NAN,
+                13 => config.bonus.critical_chance = f32::INFINITY,
+                14 => config.bonus.critical_chance = -0.1,
+                15 => config.bonus.critical_chance = 1.01,
+                _ => config.bonus.critical_chance = 0.0001,
             }
             let mut inventory = Inventory::default();
             let mut gold = Gold(1000);
@@ -1530,6 +1588,7 @@ mod tests {
         world.register::<MoveTarget>();
         world.register::<Facing>();
         world.register::<Unit>();
+        world.register::<crate::runtime::SummonedUnit>();
         world.register::<Projectile>();
         world.register::<Creep>();
         world.register::<Tower>();
@@ -1693,9 +1752,74 @@ mod tests {
         buy(&mut world, 1, "moba_sword");
         buy(&mut world, 1, "moba_armor");
         transact_moba_shop(&mut world, 1, ShopCommand::Sell(1)).unwrap();
-        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest), Err(ShopError::UndoUnavailable));
+        assert_eq!(gold_of(&world, hero),200);
+        let sequence=undo_moba_shop(&mut world,1,ShopUndoRequest::Newest).unwrap();
+        assert_eq!(gold_of(&world,hero),50);
+        assert_eq!(item_at(&world,hero,1).as_deref(),Some("moba_armor"));
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Sequence(sequence)),Err(ShopError::UndoDuplicate));
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Newest),Err(ShopError::UndoUnavailable),"sale undo does not reopen old purchases");
         assert_eq!(item_at(&world, hero, 0).as_deref(), Some("moba_sword"));
-        assert_eq!(gold_of(&world, hero), 200);
+    }
+
+    #[test]
+    fn sale_undo_is_atomic_captures_credit_and_preserves_cooldown() {
+        for mode in 0..7 {
+            let ShopWorld {mut world,heroes}=shop_world(1000);let hero=heroes[0];
+            buy(&mut world,1,"moba_sword");
+            world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0].as_mut().unwrap().cooldown_remaining=7.25;
+            if mode==6 {std::sync::Arc::make_mut(world.write_resource::<ItemRegistry>().items.get_mut("moba_sword").unwrap()).cost=1;}
+            transact_moba_shop(&mut world,1,ShopCommand::Sell(0)).unwrap();
+            let credit=if mode==6 {0}else{175};assert_eq!(gold_of(&world,hero),650+credit);
+            let record=world.read_resource::<ShopUndoLedger>().owners.get(&1).unwrap().records.last().unwrap().clone();
+            assert_eq!(record.kind,ShopUndoKind::Sale);assert_eq!(record.paid,credit);
+            match mode {
+                0=>std::sync::Arc::make_mut(world.write_resource::<ItemRegistry>().items.get_mut("moba_sword").unwrap()).cost=10000,
+                1=>world.write_storage::<Gold>().get_mut(hero).unwrap().0=174,
+                2=>world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0]=Some(ItemInstance{item_id:"moba_armor".into(),cooldown_remaining:0.0}),
+                3=>note_shop_undo_combat(&mut world,Some(hero),heroes[1]),
+                4=>world.write_resource::<ShopUndoLedger>().owners.get_mut(&1).unwrap().records.last_mut().unwrap().source_generation+=1,
+                5=>world.write_resource::<ShopUndoLedger>().owners.get_mut(&1).unwrap().records.last_mut().unwrap().result_cooldown_bits=f32::NAN.to_bits(),
+                _=>{},
+            }
+            let before=digest(&world);let history=(*world.read_resource::<ShopUndoLedger>()).clone();
+            let result=undo_moba_shop(&mut world,1,ShopUndoRequest::Sequence(record.sequence));
+            if mode==0||mode==6 {
+                assert_eq!(result,Ok(record.sequence));assert_eq!(gold_of(&world,hero),650,"captured credit, never current price");
+                assert_eq!(world.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining.to_bits(),7.25f32.to_bits());
+                assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Sequence(record.sequence)),Err(ShopError::UndoDuplicate));
+            }else{
+                assert_eq!(result,Err(if mode==1{ShopError::InsufficientGold}else{ShopError::UndoUnavailable}));
+                assert_eq!(digest(&world),before);assert_eq!(*world.read_resource::<ShopUndoLedger>(),history);
+                if mode==1 {let state=world.read_resource::<MobaMatch>();let admission=inspect_owner_undo(&world,&state,1);assert!(!admission.can_undo);assert_eq!(admission.reason,UNDO_REASON_INVALID_BALANCE);}
+            }
+        }
+        let ShopWorld {mut world,heroes}=shop_world(1000);buy(&mut world,1,"moba_sword");
+        world.write_storage::<Inventory>().get_mut(heroes[0]).unwrap().slots[0].as_mut().unwrap().cooldown_remaining=f32::NAN;
+        let before=digest(&world);assert_eq!(transact_moba_shop(&mut world,1,ShopCommand::Sell(0)),Err(ShopError::InvalidCatalog));assert_eq!(digest(&world),before);
+    }
+
+    #[test]
+    fn sale_undo_unwinds_later_purchase_without_reopening_previous_purchase() {
+        let ShopWorld {mut world,heroes}=shop_world(1000);let hero=heroes[0];
+        buy(&mut world,1,"moba_sword");transact_moba_shop(&mut world,1,ShopCommand::Sell(0)).unwrap();buy(&mut world,1,"moba_armor");
+        assert_eq!(gold_of(&world,hero),525);
+        let before=digest(&world);assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Sequence(2)),Err(ShopError::UndoUnavailable));assert_eq!(digest(&world),before);
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Sequence(3)),Ok(3));assert_eq!(gold_of(&world,hero),825);
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Sequence(2)),Ok(2));assert_eq!(gold_of(&world,hero),650);assert_eq!(item_at(&world,hero,0).as_deref(),Some("moba_sword"));
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Sequence(1)),Err(ShopError::UndoUnavailable));
+        transact_moba_shop(&mut world,1,ShopCommand::Sell(0)).unwrap();
+        world.write_resource::<ShopUndoLedger>().note_movement(hero);
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Newest),Err(ShopError::UndoUnavailable));
+    }
+
+    #[test]
+    fn sale_undo_commitment_binds_operation_and_original_slot() {
+        let ShopWorld {mut world,heroes:_}=shop_world(1000);buy(&mut world,1,"moba_sword");transact_moba_shop(&mut world,1,ShopCommand::Sell(0)).unwrap();
+        let sale=owner_ledger_commitment(&world,1);
+        world.write_resource::<ShopUndoLedger>().owners.get_mut(&1).unwrap().records.last_mut().unwrap().kind=ShopUndoKind::Purchase;
+        assert_ne!(owner_ledger_commitment(&world,1),sale);
+        {let mut ledger=world.write_resource::<ShopUndoLedger>();let record=ledger.owners.get_mut(&1).unwrap().records.last_mut().unwrap();record.kind=ShopUndoKind::Sale;record.result_slot=1;}
+        assert_ne!(owner_ledger_commitment(&world,1),sale);
     }
 
     #[test]
@@ -2052,7 +2176,7 @@ mod tests {
         transact_moba_shop(&mut world, 1, ShopCommand::Sell(0)).unwrap();
         assert_eq!(retained(&world).1, 825);
         assert!(retained(&world).0.slots.iter().all(Option::is_none));
-        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Newest), Err(ShopError::UndoUnavailable));
+        assert_eq!(undo_moba_shop(&mut world, 1, ShopUndoRequest::Sequence(1)), Err(ShopError::UndoUnavailable));
         assert_eq!(gold_of(&world, heroes[0]), 650);
         assert_eq!(item_at(&world, heroes[0], 0).as_deref(), Some("moba_sword"));
         buy(&mut world, 1, "moba_armor");
@@ -2244,7 +2368,9 @@ mod tests {
         }
         let ledger = world.read_resource::<ShopUndoLedger>();
         assert!(ledger.owners.get(&1).unwrap().records.len() <= SHOP_UNDO_HISTORY_LIMIT);
-        assert!(ledger.owners.get(&1).unwrap().records.iter().all(|record| !record.eligible));
+        let records=&ledger.owners.get(&1).unwrap().records;
+        assert!(records.last().is_some_and(|r|r.eligible&&r.kind==ShopUndoKind::Sale));
+        assert!(records[..records.len()-1].iter().all(|record|!record.eligible));
     }
 
     #[test]

@@ -99,6 +99,8 @@ pub fn settle_summoner_cast(
             phase: phase(state.phase), paused: world.read_resource::<GamePause>().is_paused,
             summoner_enabled: true, rules_revision: 1, origin: position.0,
             hp: property.hp, max_hp: property.mhp,
+            healing_received_multiplier:world.try_fetch::<super::ability_runtime::BuffStore>().map_or(Fixed64::ONE,|buffs|
+                crate::runtime::UnitStats::from_refs(&buffs,false).received_healing(Fixed64::ONE,entity)),
             // The body-aware check below uses the same public terrain routine
             // as authoritative hero movement, rather than a point-only copy.
             blocked_polygons: Vec::new(),
@@ -115,7 +117,9 @@ pub fn settle_summoner_cast(
             if !landing_valid(destination, radius, &regions) { return Err(CastReject::LandingBlocked); }
         }
         let effect = plan.effect().clone();
-        let mut sink = EcsSink { hero_id, position, property };
+        let modifier_source=format!("@summoner:{}",loadout.spell_id(request.slot).ok_or(CastReject::UnknownSpell)?);
+        let mut buffs = world.try_fetch_mut::<super::ability_runtime::BuffStore>();
+        let mut sink = EcsSink { hero_id, entity, position, property, modifier_source, buffs:buffs.as_deref_mut() };
         model::commit_cast(loadout, catalog, &plan, &context, &mut sink)?;
         effect
     };
@@ -239,7 +243,11 @@ pub(crate) fn emit_committed_summoner_facts(world: &World) {
 
 fn effect_class_name(effect: &model::PlannedSummonerEffect) -> &'static str {
     match effect {
+        model::PlannedSummonerEffect::SelfDamageReduction { .. } => "self_damage_reduction",
+        model::PlannedSummonerEffect::SelfSprint { .. } => "self_sprint",
+        model::PlannedSummonerEffect::SelfControlCleanse { .. } => "self_control_cleanse",
         model::PlannedSummonerEffect::SelfHeal { .. } => "self_heal",
+        model::PlannedSummonerEffect::SelfShield { .. } => "self_shield",
         model::PlannedSummonerEffect::PointBlink { .. } => "point_blink",
     }
 }
@@ -261,6 +269,7 @@ fn reject_code(error: CastReject) -> &'static str {
         CastReject::CoordinateOutOfBounds => "COORDINATE_OUT_OF_BOUNDS",
         CastReject::OutOfRange => "OUT_OF_RANGE",
         CastReject::LandingBlocked => "LANDING_BLOCKED",
+        CastReject::NoDisplacement => "NO_DISPLACEMENT",
         CastReject::InvalidDefinition => "INVALID_DEFINITION",
         CastReject::StalePlan => "STALE_PLAN",
         CastReject::ApplyFailed => "APPLY_FAILED",
@@ -277,8 +286,32 @@ fn landing_valid(destination: Vec2, radius: Fixed64, regions: &BlockedRegions) -
     !super::tick::hero_move_tick::path_hits_regions(destination, destination, radius, regions)
 }
 
-struct EcsSink<'a> { hero_id: u64, position: &'a mut Pos, property: &'a mut CProperty }
+struct EcsSink<'a> { hero_id: u64, entity:specs::Entity, position: &'a mut Pos, property: &'a mut CProperty,
+    modifier_source:String,
+    buffs:Option<&'a mut super::ability_runtime::BuffStore> }
 impl SummonerCommitSink for EcsSink<'_> {
+    fn apply_self_damage_reduction(&mut self,hero_id:u64,reduction:Fixed64,duration:Fixed64)->Result<(),ApplyFailure>{
+        if hero_id!=self.hero_id{return Err(ApplyFailure);}
+        if self.buffs.as_deref_mut().is_some_and(|buffs|buffs.grant_timed_modifier(self.entity,&self.modifier_source,
+            super::ability_runtime::ItemTimedModifier::DamageReduction,reduction,duration)){Ok(())}else{Err(ApplyFailure)}
+    }
+    fn apply_self_sprint(&mut self,hero_id:u64,ms_bonus:Fixed64,duration:Fixed64)->Result<(),ApplyFailure>{
+        if hero_id!=self.hero_id{return Err(ApplyFailure);}
+        if self.buffs.as_deref_mut().is_some_and(|buffs|buffs.grant_timed_modifier(self.entity,&self.modifier_source,
+            super::ability_runtime::ItemTimedModifier::Sprint,ms_bonus,duration)){Ok(())}else{Err(ApplyFailure)}
+    }
+    fn apply_self_control_cleanse(&mut self, hero_id:u64) -> Result<(),ApplyFailure> {
+        if hero_id!=self.hero_id {return Err(ApplyFailure);}
+        let buffs=self.buffs.as_deref_mut().ok_or(ApplyFailure)?;
+        buffs.cleanse_controls(self.entity);
+        Ok(())
+    }
+    fn apply_self_shield(&mut self, hero_id:u64, amount:Fixed64, duration:Fixed64) -> Result<(),ApplyFailure> {
+        if hero_id!=self.hero_id {return Err(ApplyFailure);}
+        if self.buffs.as_deref_mut().is_some_and(|buffs|buffs.grant_damage_shield(self.entity,amount,duration)) {
+            Ok(())
+        } else {Err(ApplyFailure)}
+    }
     fn apply_self_heal(&mut self, hero_id: u64, amount: Fixed64) -> Result<(), ApplyFailure> {
         if hero_id != self.hero_id { return Err(ApplyFailure); }
         self.property.hp += amount;
@@ -317,6 +350,189 @@ mod tests {
     fn request(slot: u8, x: i32) -> SummonerCastRequest {
         SummonerCastRequest {slot, point: Some(Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(4)))}
     }
+    fn shield_fixture()->(World,Entity) {
+        let (mut world,hero)=fixture();
+        world.insert(super::super::ability_runtime::BuffStore::default());
+        world.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_shield_v1".into())).unwrap();
+        (world,hero)
+    }
+    #[test]
+    fn guard_real_sink_shares_strongest_family_public_lifetime_and_preserves_commands() {
+        use super::super::ability_runtime::{BuffStore,ItemTimedModifier};use omb_script_abi::stat_keys::StatKey;
+        let (mut w,e)=shield_fixture();w.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_guard_v1".into())).unwrap();let movement=w.read_storage::<MoveTarget>().get(e).unwrap().0;let hp=w.read_storage::<CProperty>().get(e).unwrap().hp;
+        {let mut b=w.write_resource::<BuffStore>();b.add(e,"stun",Fixed64::ONE,serde_json::json!({}));assert!(b.grant_item_timed_modifier(e,"long_weaker",ItemTimedModifier::DamageReduction,Fixed64::from_raw(128),Fixed64::from_i32(6)));}
+        settle_summoner_cast(&mut w,7,&SummonerCastRequest{slot:1,point:None}).unwrap();assert_eq!(cooldown(&w,1),Fixed64::from_i32(180));assert_eq!(w.read_storage::<MoveTarget>().get(e).unwrap().0,movement);assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp,hp);
+        {let b=w.read_resource::<BuffStore>();assert!(b.is_stunned(e));assert_eq!(b.sum_add(e,StatKey::DamageTakenBonus),Fixed64::from_raw(-256));let rows=crate::runtime::buff_visual_state::BuffVisualState::from_store(&b,e).render_buffs();let status=rows.iter().find(|row|row.buff_id=="damage_reduction").unwrap();assert_eq!(status.remaining_secs,6.);assert!(status.payload_json.is_empty());}
+        w.write_resource::<BuffStore>().tick(Fixed64::from_i32(3));assert_eq!(w.read_resource::<BuffStore>().sum_add(e,StatKey::DamageTakenBonus),Fixed64::from_raw(-128));w.write_resource::<BuffStore>().tick(Fixed64::from_i32(3));assert_eq!(w.read_resource::<BuffStore>().sum_add(e,StatKey::DamageTakenBonus),Fixed64::ZERO);
+    }
+    #[test]
+    fn guard_context_missing_resource_and_target_rejections_do_not_consume_cooldown() {
+        use super::super::ability_runtime::BuffStore;
+        for mode in 0..7 {let (mut w,e)=shield_fixture();w.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_guard_v1".into())).unwrap();let mut owner=7;let mut req=SummonerCastRequest{slot:1,point:None};
+            match mode {0=>w.write_resource::<GamePause>().is_paused=true,1=>w.write_resource::<MobaMatch>().phase=MobaMatchPhase::Warmup,2=>w.write_storage::<CProperty>().get_mut(e).unwrap().hp=Fixed64::ZERO,3=>owner=8,4=>req.point=Some(Vec2::ZERO),5=>{w.remove::<BuffStore>();},6=>w.write_storage::<PlayerOwner>().get_mut(e).unwrap().player_id=8,_=>unreachable!()}
+            assert!(settle_summoner_cast(&mut w,owner,&req).is_err());assert_eq!(cooldown(&w,1),Fixed64::ZERO);
+            if mode!=5 {assert_eq!(w.read_resource::<BuffStore>().sum_add(e,omb_script_abi::stat_keys::StatKey::DamageTakenBonus),Fixed64::ZERO);}
+        }
+    }
+    #[test]
+    fn sprint_real_sink_preserves_commands_controls_and_shared_family_lifetimes() {
+        use super::super::ability_runtime::{BuffStore,ItemTimedModifier};use omb_script_abi::stat_keys::StatKey;
+        let (mut w,e)=shield_fixture();w.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_sprint_v1".into())).unwrap();
+        let base=w.read_storage::<CProperty>().get(e).unwrap().msd;let movement=w.read_storage::<MoveTarget>().get(e).unwrap().0;
+        {let mut b=w.write_resource::<BuffStore>();b.add(e,"root",Fixed64::ONE,serde_json::json!({}));assert!(b.grant_item_timed_modifier(e,"item",ItemTimedModifier::Sprint,Fixed64::from_i32(60),Fixed64::from_i32(10)));}
+        let req=SummonerCastRequest{slot:1,point:None};settle_summoner_cast(&mut w,7,&req).unwrap();
+        assert_eq!(cooldown(&w,1),Fixed64::from_i32(180));assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().msd,base);assert_eq!(w.read_storage::<MoveTarget>().get(e).unwrap().0,movement);
+        {let b=w.read_resource::<BuffStore>();assert!(b.is_rooted(e));assert_eq!(b.sum_add(e,StatKey::MoveSpeedBonusBuff),Fixed64::from_i32(80));}
+        let public=crate::runtime::buff_visual_state::BuffVisualState::from_store(&w.read_resource::<BuffStore>(),e).render_buffs();
+        let speed=public.iter().find(|row|row.buff_id=="movement_boost").unwrap();assert_eq!(speed.remaining_secs,10.);assert!(speed.payload_json.is_empty());
+        assert_eq!(settle_summoner_cast(&mut w,7,&req),Err(CastReject::CooldownNotReady));
+        w.write_resource::<BuffStore>().tick(Fixed64::from_i32(6));assert_eq!(w.read_resource::<BuffStore>().sum_add(e,StatKey::MoveSpeedBonusBuff),Fixed64::from_i32(60));
+        w.write_resource::<BuffStore>().tick(Fixed64::from_i32(4));assert_eq!(w.read_resource::<BuffStore>().sum_add(e,StatKey::MoveSpeedBonusBuff),Fixed64::ZERO);
+        assert!(crate::runtime::buff_visual_state::BuffVisualState::from_store(&w.read_resource::<BuffStore>(),e).0.is_empty());
+    }
+    #[test]
+    fn sprint_context_and_missing_resource_rejections_are_atomic() {
+        for mode in 0..7 {let (mut w,e)=shield_fixture();w.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_sprint_v1".into())).unwrap();
+            let mut req=SummonerCastRequest{slot:1,point:None};let mut owner=7;
+            match mode {0=>w.write_resource::<GamePause>().is_paused=true,1=>w.write_resource::<MobaMatch>().phase=MobaMatchPhase::Warmup,
+                2=>w.write_storage::<CProperty>().get_mut(e).unwrap().hp=Fixed64::ZERO,3=>owner=8,4=>req.point=Some(Vec2::ZERO),
+                5=>{w.remove::<super::super::ability_runtime::BuffStore>();},6=>w.write_storage::<PlayerOwner>().get_mut(e).unwrap().player_id=8,_=>unreachable!()}
+            assert!(settle_summoner_cast(&mut w,owner,&req).is_err());assert_eq!(cooldown(&w,1),Fixed64::ZERO);
+            assert!(w.try_fetch::<super::super::ability_runtime::BuffStore>().is_none_or(|b|!b.has_item_timed_modifier(e,super::super::ability_runtime::ItemTimedModifier::Sprint)));
+        }
+    }
+    #[test]
+    fn distinct_authored_sprints_keep_strongest_magnitude_and_independent_expiry() {
+        use omb_script_abi::stat_keys::StatKey;use super::super::ability_runtime::BuffStore;
+        let (mut w,e)=shield_fixture();{
+            let mut state=w.write_resource::<MobaMatch>();state.summoner_catalog.as_mut().unwrap().insert("arbitrary_strong_sprint",model::SummonerDefinition{
+                cooldown:Fixed64::from_i32(180),operation:model::SummonerOperation::SelfSprint{ms_bonus:Fixed64::from_i32(100),duration:Fixed64::from_i32(2)}}).unwrap();
+            state.heroes[0].summoners.set_slot(0,Some("arbitrary_strong_sprint".into())).unwrap();state.heroes[0].summoners.set_slot(1,Some("training_self_sprint_v1".into())).unwrap();
+        }
+        settle_summoner_cast(&mut w,7,&SummonerCastRequest{slot:0,point:None}).unwrap();
+        settle_summoner_cast(&mut w,7,&SummonerCastRequest{slot:1,point:None}).unwrap();
+        assert_eq!(w.read_resource::<BuffStore>().sum_add(e,StatKey::MoveSpeedBonusBuff),Fixed64::from_i32(100));
+        w.write_resource::<BuffStore>().tick(Fixed64::from_i32(2));assert_eq!(w.read_resource::<BuffStore>().sum_add(e,StatKey::MoveSpeedBonusBuff),Fixed64::from_i32(80));
+        w.write_resource::<BuffStore>().tick(Fixed64::from_i32(4));assert_eq!(w.read_resource::<BuffStore>().sum_add(e,StatKey::MoveSpeedBonusBuff),Fixed64::ZERO);
+        assert_eq!(cooldown(&w,0),Fixed64::from_i32(180));assert_eq!(cooldown(&w,1),Fixed64::from_i32(180));
+    }
+    fn cleanse_fixture()->(World,Entity) {
+        let (world,hero)=shield_fixture();
+        world.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_control_cleanse_v1".into())).unwrap();
+        (world,hero)
+    }
+    #[test]
+    fn control_cleanse_removes_only_supported_controls_preserves_indexes_and_actions() {
+        let (mut world,hero)=cleanse_fixture();let other=world.entities().create();
+        let origin=world.read_storage::<Pos>().get(hero).unwrap().0;
+        let movement=world.read_storage::<MoveTarget>().get(hero).unwrap().0;
+        let hp=world.read_storage::<CProperty>().get(hero).unwrap().hp;
+        {
+            let mut buffs=world.write_resource::<super::super::ability_runtime::BuffStore>();
+            for kind in ["stun","root","silence"] {
+                buffs.add(hero,kind,Fixed64::from_i32(4),serde_json::json!({"control_probe":1024}));
+                buffs.add(other,kind,Fixed64::from_i32(4),serde_json::json!({"control_probe":1024}));
+            }
+            for kind in ["unrelated_slow","unrelated_dot","cast_preparation"] {
+                buffs.add(hero,kind,Fixed64::from_i32(7),serde_json::json!({"keep_probe":512}));
+            }
+            buffs.grant_damage_shield(hero,Fixed64::from_i32(30),Fixed64::from_i32(5));
+        }
+        let req=SummonerCastRequest{slot:1,point:None};let effect=settle_summoner_cast(&mut world,7,&req).unwrap();
+        assert_eq!(effect_class_name(&effect),"self_control_cleanse");assert_eq!(cooldown(&world,1),Fixed64::from_i32(210));
+        assert_eq!(world.read_storage::<Pos>().get(hero).unwrap().0,origin);
+        assert_eq!(world.read_storage::<MoveTarget>().get(hero).unwrap().0,movement);
+        assert_eq!(world.read_storage::<CProperty>().get(hero).unwrap().hp,hp);
+        {
+            let buffs=world.read_resource::<super::super::ability_runtime::BuffStore>();
+            assert!(!buffs.is_stunned(hero)&&!buffs.is_rooted(hero)&&!buffs.is_silenced(hero));
+            assert!(buffs.is_stunned(other)&&buffs.is_rooted(other)&&buffs.is_silenced(other));
+            assert!(!buffs.entities_with_key("control_probe").any(|e|e==hero));
+            assert!(buffs.entities_with_key("control_probe").any(|e|e==other));
+            for kind in ["unrelated_slow","unrelated_dot","cast_preparation"] {
+                let entry=buffs.get(hero,kind).unwrap();assert_eq!(entry.remaining,Fixed64::from_i32(7));assert_eq!(entry.payload["keep_probe"],512);
+            }
+            assert_eq!(buffs.shield_remaining(hero),Fixed64::from_i32(30));
+        }
+        world.write_resource::<super::super::ability_runtime::BuffStore>().add(hero,"stun",Fixed64::ONE,serde_json::json!({}));
+        assert_eq!(settle_summoner_cast(&mut world,7,&req),Err(CastReject::CooldownNotReady));
+        assert!(world.read_resource::<super::super::ability_runtime::BuffStore>().is_stunned(hero),"no immunity or replay cleanse");
+        // Explicitly ready a fresh loadout: cleansing no control still consumes its authored cooldown.
+        let (mut empty,_)=cleanse_fixture();settle_summoner_cast(&mut empty,7,&req).unwrap();assert_eq!(cooldown(&empty,1),Fixed64::from_i32(210));
+    }
+    #[test]
+    fn control_cleanse_rejections_preserve_control_and_cooldown() {
+        for case in 0..7 {
+            let (mut world,hero)=cleanse_fixture();let mut req=SummonerCastRequest{slot:1,point:None};let mut owner=7;
+            world.write_resource::<super::super::ability_runtime::BuffStore>().add(hero,"stun",Fixed64::ONE,serde_json::json!({}));
+            let expected=match case {
+                0=>{world.write_resource::<GamePause>().is_paused=true;CastReject::Paused},
+                1=>{world.write_resource::<MobaMatch>().phase=MobaMatchPhase::Warmup;CastReject::NotPlaying},
+                2=>{world.write_storage::<CProperty>().get_mut(hero).unwrap().hp=Fixed64::ZERO;CastReject::Dead},
+                3=>{owner=8;CastReject::WrongOwner},
+                4=>{req.point=Some(Vec2::ZERO);CastReject::WrongTargetShape},
+                5=>{world.remove::<super::super::ability_runtime::BuffStore>();CastReject::ApplyFailed},
+                6=>{world.write_storage::<PlayerOwner>().get_mut(hero).unwrap().player_id=8;CastReject::WrongOwner},
+                _=>unreachable!(),
+            };
+            assert_eq!(settle_summoner_cast(&mut world,owner,&req),Err(expected));assert_eq!(cooldown(&world,1),Fixed64::ZERO);
+            assert!(world.try_fetch::<super::super::ability_runtime::BuffStore>().is_none_or(|b|b.is_stunned(hero)));
+        }
+    }
+    #[test]
+    fn summoner_self_shield_commits_real_buff_without_heal_move_or_command_cancellation() {
+        let (mut world,hero)=shield_fixture();
+        world.write_storage::<CProperty>().get_mut(hero).unwrap().hp=Fixed64::from_i32(40);
+        let origin=world.read_storage::<Pos>().get(hero).unwrap().0;
+        let movement=world.read_storage::<MoveTarget>().get(hero).unwrap().0;
+        {let mut buffs=world.write_resource::<super::super::ability_runtime::BuffStore>();
+            buffs.grant_healing_reduction(hero,Fixed64::ZERO,Fixed64::from_i32(4));
+            for kind in ["stun","root","silence"]{buffs.add(hero,kind,Fixed64::from_i32(4),serde_json::json!({}));}}
+        let request=SummonerCastRequest{slot:1,point:None};
+        let effect=settle_summoner_cast(&mut world,7,&request).unwrap();
+        assert_eq!(effect_class_name(&effect),"self_shield");
+        assert_eq!(world.read_storage::<CProperty>().get(hero).unwrap().hp,Fixed64::from_i32(40));
+        assert_eq!(world.read_storage::<Pos>().get(hero).unwrap().0,origin);
+        assert_eq!(world.read_storage::<MoveTarget>().get(hero).unwrap().0,movement);
+        assert_eq!(cooldown(&world,0),Fixed64::ZERO);assert_eq!(cooldown(&world,1),Fixed64::from_i32(180));
+        assert_eq!(settle_summoner_cast(&mut world,7,&request),Err(CastReject::CooldownNotReady));
+        let mut buffs=world.write_resource::<super::super::ability_runtime::BuffStore>();
+        assert_eq!(buffs.shield_remaining(hero),Fixed64::from_i32(160));
+        assert_eq!(buffs.get(hero,"damage_shield").unwrap().remaining,Fixed64::from_i32(2));
+        assert_eq!(buffs.absorb_damage_with_shield(hero,Fixed64::from_i32(100)),Fixed64::ZERO);
+        assert_eq!(buffs.shield_remaining(hero),Fixed64::from_i32(60));
+        assert_eq!(buffs.absorb_damage_with_shield(hero,Fixed64::from_i32(70)),Fixed64::from_i32(10));
+        assert!(!buffs.has(hero,"damage_shield"));
+    }
+    #[test]
+    fn summoner_self_shield_reuses_maximum_regrant_policy_and_expiry() {
+        let (mut world,hero)=shield_fixture();
+        world.write_resource::<super::super::ability_runtime::BuffStore>().grant_damage_shield(hero,Fixed64::from_i32(300),Fixed64::from_i32(5));
+        settle_summoner_cast(&mut world,7,&SummonerCastRequest{slot:1,point:None}).unwrap();
+        let mut buffs=world.write_resource::<super::super::ability_runtime::BuffStore>();
+        assert_eq!(buffs.shield_remaining(hero),Fixed64::from_i32(300));
+        assert_eq!(buffs.get(hero,"damage_shield").unwrap().remaining,Fixed64::from_i32(5));
+        buffs.tick(Fixed64::from_i32(5));assert!(!buffs.has(hero,"damage_shield"));
+    }
+    #[test]
+    fn summoner_self_shield_rejections_leave_buff_and_cooldown_unchanged() {
+        for case in 0..7 {
+            let (mut world,hero)=shield_fixture();let mut req=SummonerCastRequest{slot:1,point:None};let mut owner=7;
+            let expected=match case {
+                0=>{world.write_resource::<GamePause>().is_paused=true;CastReject::Paused},
+                1=>{world.write_resource::<MobaMatch>().phase=MobaMatchPhase::Warmup;CastReject::NotPlaying},
+                2=>{world.write_storage::<CProperty>().get_mut(hero).unwrap().hp=Fixed64::ZERO;CastReject::Dead},
+                3=>{owner=8;CastReject::WrongOwner},
+                4=>{req.point=Some(Vec2::ZERO);CastReject::WrongTargetShape},
+                5=>{world.remove::<super::super::ability_runtime::BuffStore>();CastReject::ApplyFailed},
+                6=>{world.write_storage::<PlayerOwner>().get_mut(hero).unwrap().player_id=8;CastReject::WrongOwner},
+                _=>unreachable!(),
+            };
+            assert_eq!(settle_summoner_cast(&mut world,owner,&req),Err(expected));
+            assert_eq!(cooldown(&world,1),Fixed64::ZERO);
+            assert!(world.try_fetch::<super::super::ability_runtime::BuffStore>().is_none_or(|b|b.shield_remaining(hero)==Fixed64::ZERO));
+        }
+    }
     fn wall() -> BlockedRegion {
         BlockedRegion { name: "wall".into(), points: vec![vek::Vec2::new(50.0,-50.0),
             vek::Vec2::new(51.0,-50.0),vek::Vec2::new(51.0,50.0),vek::Vec2::new(50.0,50.0)] }
@@ -349,6 +565,14 @@ mod tests {
         assert!(world.read_storage::<MoveTarget>().get(hero).is_some());
         assert_eq!(cooldown(&world,0), Fixed64::ZERO);
         assert_eq!(cooldown(&world,1), Fixed64::from_i32(240));
+        for (hp,max_hp,factor,expected) in [(40,1000,512,140),(90,100,512,100),(40,1000,0,40)] {
+            let (mut world,hero)=fixture();world.insert(super::super::ability_runtime::BuffStore::default());
+            {let mut properties=world.write_storage::<CProperty>();let p=properties.get_mut(hero).unwrap();p.hp=Fixed64::from_i32(hp);p.mhp=Fixed64::from_i32(max_hp);}
+            world.write_resource::<super::super::ability_runtime::BuffStore>().grant_healing_reduction(hero,Fixed64::from_raw(factor),Fixed64::from_i32(4));
+            settle_summoner_cast(&mut world,7,&SummonerCastRequest {slot:1,point:None}).unwrap();
+            assert_eq!(world.read_storage::<CProperty>().get(hero).unwrap().hp,Fixed64::from_i32(expected));
+            assert_eq!(cooldown(&world,1),Fixed64::from_i32(240));
+        }
     }
     #[test]
     fn summoner_world_blink_can_cross_wall_but_body_cannot_land_touching_it() {
@@ -520,6 +744,39 @@ mod tests {
     }
 
     #[test]
+    fn queued_no_displacement_blink_rejects_without_interrupting_commands_or_spending_either_slot() {
+        for slot in 0..2 {
+            let (mut world,hero)=fixture();
+            if slot==1 {
+                let (_,mut loadouts)=validated_loadouts([7],&BTreeMap::from([(7,[Some("training_self_heal_v1".into()),Some("training_point_blink_v1".into())])])).unwrap();
+                world.write_resource::<MobaMatch>().heroes[0].summoners=loadouts.remove(&7).unwrap();
+            }
+            let origin=world.read_storage::<Pos>().get(hero).unwrap().0;
+            let hp=world.read_storage::<CProperty>().get(hero).unwrap().hp;
+            let movement=world.read_storage::<MoveTarget>().get(hero).unwrap().0;
+            let commands=world.read_storage::<HeroCommandQueue>().get(hero).unwrap().clone();
+            queue_cast(&mut world,7,slot,Some(origin));drain_pending_summoner_casts(&mut world);
+            let receipts=world.read_resource::<super::super::comp::PendingSummonerCastQueue>();
+            assert_eq!(receipts.receipts.len(),1);
+            let receipt=&receipts.receipts[0];
+            assert_eq!(receipt.code,"NO_DISPLACEMENT");assert!(receipt.effect_class.is_none());
+            assert_eq!(receipt.stage,crate::runtime::summoner_transport::SummonerReceiptStage::SettlementRejected);
+            drop(receipts);
+            assert_eq!(world.read_storage::<Pos>().get(hero).unwrap().0,origin);
+            assert_eq!(world.read_storage::<CProperty>().get(hero).unwrap().hp,hp);
+            assert_eq!(world.read_storage::<MoveTarget>().get(hero).unwrap().0,movement);
+            assert_eq!(world.read_storage::<HeroCommandQueue>().get(hero).unwrap(),&commands);
+            assert_eq!(cooldown(&world,0),Fixed64::ZERO);assert_eq!(cooldown(&world,1),Fixed64::ZERO);
+            let adjacent=Vec2::new(origin.x+Fixed64::from_raw(1),origin.y);
+            queue_cast(&mut world,7,slot,Some(adjacent));drain_pending_summoner_casts(&mut world);
+            assert_eq!(world.read_storage::<Pos>().get(hero).unwrap().0,adjacent);
+            assert_eq!(cooldown(&world,slot),Fixed64::from_i32(300));
+            assert_eq!(cooldown(&world,1-slot),Fixed64::ZERO);
+            assert!(world.read_storage::<MoveTarget>().get(hero).is_none());
+        }
+    }
+
+    #[test]
     fn dead_replacement_and_reconnect_keep_committed_cooldown() {
         use crate::runtime::summoner_transport::{
             decode_projected_summoners, disclosed_summoner_projection_from_metadata,
@@ -629,6 +886,8 @@ mod tests {
     }
 
     fn prepare_replay_digest(world: &mut World) {
+        world.register::<super::super::comp::SummonedUnit>();
+        world.register::<super::super::comp::Faction>();
         world.register::<super::super::comp::Projectile>();
         world.insert(Vec::<super::super::comp::Outcome>::new());
     }

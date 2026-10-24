@@ -43,6 +43,7 @@ pub enum CastReject {
     CoordinateOutOfBounds,
     OutOfRange,
     LandingBlocked,
+    NoDisplacement,
     InvalidDefinition,
     StalePlan,
     ApplyFailed,
@@ -64,11 +65,15 @@ pub enum OutOfRangePolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SummonerOperation {
+    SelfControlCleanse,
     SelfHeal { amount: Fixed64 },
+    SelfShield { amount: Fixed64, duration: Fixed64 },
     PointBlink {
         range: Fixed64,
         out_of_range: OutOfRangePolicy,
     },
+    SelfSprint { ms_bonus: Fixed64, duration: Fixed64 },
+    SelfDamageReduction { reduction: Fixed64, duration: Fixed64 },
 }
 
 /// Authored spell. Numbers come from the generated catalog, not from a client.
@@ -137,10 +142,20 @@ fn generated_definition(
         return Err(CastReject::InvalidDefinition);
     }
     let operation = match (spell.target, spell.operation) {
+        (omoba_template_ids::SummonerTargetConst::None,
+            omoba_template_ids::SummonerSpellOperationConst::SelfControlCleanse) => SummonerOperation::SelfControlCleanse,
         (
             omoba_template_ids::SummonerTargetConst::None,
             omoba_template_ids::SummonerSpellOperationConst::SelfHeal { amount },
         ) => SummonerOperation::SelfHeal { amount },
+        (
+            omoba_template_ids::SummonerTargetConst::None,
+            omoba_template_ids::SummonerSpellOperationConst::SelfShield { amount, duration },
+        ) => SummonerOperation::SelfShield { amount, duration },
+        (omoba_template_ids::SummonerTargetConst::None,
+            omoba_template_ids::SummonerSpellOperationConst::SelfSprint {ms_bonus,duration}) => SummonerOperation::SelfSprint {ms_bonus,duration},
+        (omoba_template_ids::SummonerTargetConst::None,
+            omoba_template_ids::SummonerSpellOperationConst::SelfDamageReduction {reduction,duration}) => SummonerOperation::SelfDamageReduction {reduction,duration},
         (
             omoba_template_ids::SummonerTargetConst::Point,
             omoba_template_ids::SummonerSpellOperationConst::PointBlink { range, out_of_range },
@@ -167,7 +182,13 @@ fn definition_in_bounds(definition: &SummonerDefinition) -> bool {
         return false;
     }
     match definition.operation {
+        SummonerOperation::SelfDamageReduction {reduction,duration} => reduction>Fixed64::ZERO && reduction<=Fixed64::ONE && duration>Fixed64::ZERO && duration<=Fixed64::from_i32(60),
+        SummonerOperation::SelfSprint {ms_bonus,duration} => ms_bonus>Fixed64::ZERO && ms_bonus<=Fixed64::from_i32(10000)
+            && duration>Fixed64::ZERO && duration<=Fixed64::from_i32(60),
+        SummonerOperation::SelfControlCleanse => true,
         SummonerOperation::SelfHeal { amount } => positive_bounded(amount),
+        SummonerOperation::SelfShield { amount, duration } => positive_bounded(amount)
+            && positive_bounded(duration) && duration<=Fixed64::from_i32(60),
         SummonerOperation::PointBlink { range, .. } => positive_bounded(range),
     }
 }
@@ -310,13 +331,19 @@ pub struct SummonerCastContext {
     pub origin: Vec2,
     pub hp: Fixed64,
     pub max_hp: Fixed64,
+    /// Checked recipient policy from current authority buffs; applied before HP cap.
+    pub healing_received_multiplier:Fixed64,
     pub blocked_polygons: Vec<Vec<Vec2>>,
 }
 
 /// Resolved effect. The sink applies these values and does not look up a spell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlannedSummonerEffect {
+    SelfDamageReduction { hero_id:u64, reduction:Fixed64, duration:Fixed64 },
+    SelfSprint { hero_id:u64, ms_bonus:Fixed64, duration:Fixed64 },
+    SelfControlCleanse { hero_id: u64 },
     SelfHeal { hero_id: u64, amount: Fixed64 },
+    SelfShield { hero_id: u64, amount: Fixed64, duration: Fixed64 },
     PointBlink { hero_id: u64, destination: Vec2 },
 }
 
@@ -333,6 +360,7 @@ struct PlanIdentity {
     origin: Vec2,
     hp: Fixed64,
     max_hp: Fixed64,
+    healing_received_multiplier:Fixed64,
 }
 
 /// Immutable commit token. Replaying it after a successful commit, or after the
@@ -364,7 +392,12 @@ pub struct ApplyFailure;
 
 /// World transaction. `Err` means the adapter published no partial effect.
 pub trait SummonerCommitSink {
+    fn apply_self_damage_reduction(&mut self,_hero_id:u64,_reduction:Fixed64,_duration:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
+    fn apply_self_sprint(&mut self,_hero_id:u64,_ms_bonus:Fixed64,_duration:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
+    /// Unsupported adapters fail before committing cooldown; never a silent no-op.
+    fn apply_self_control_cleanse(&mut self, _hero_id: u64) -> Result<(), ApplyFailure> { Err(ApplyFailure) }
     fn apply_self_heal(&mut self, hero_id: u64, amount: Fixed64) -> Result<(), ApplyFailure>;
+    fn apply_self_shield(&mut self, hero_id: u64, amount: Fixed64, duration: Fixed64) -> Result<(), ApplyFailure>;
     fn apply_point_blink(&mut self, hero_id: u64, destination: Vec2) -> Result<(), ApplyFailure>;
 }
 
@@ -402,6 +435,7 @@ pub fn plan_cast(
             origin: context.origin,
             hp: context.hp,
             max_hp: context.max_hp,
+            healing_received_multiplier:context.healing_received_multiplier,
         },
         request: request.clone(),
         effect,
@@ -447,7 +481,11 @@ pub fn tick_cooldowns(loadout: &mut SummonerLoadout, dt: Fixed64, phase: MatchPh
 
 fn apply_effect(sink: &mut impl SummonerCommitSink, effect: &PlannedSummonerEffect) -> Result<(), ApplyFailure> {
     match *effect {
+        PlannedSummonerEffect::SelfDamageReduction {hero_id,reduction,duration} => sink.apply_self_damage_reduction(hero_id,reduction,duration),
+        PlannedSummonerEffect::SelfSprint {hero_id,ms_bonus,duration} => sink.apply_self_sprint(hero_id,ms_bonus,duration),
+        PlannedSummonerEffect::SelfControlCleanse { hero_id } => sink.apply_self_control_cleanse(hero_id),
         PlannedSummonerEffect::SelfHeal { hero_id, amount } => sink.apply_self_heal(hero_id, amount),
+        PlannedSummonerEffect::SelfShield { hero_id, amount, duration } => sink.apply_self_shield(hero_id, amount, duration),
         PlannedSummonerEffect::PointBlink { hero_id, destination } => sink.apply_point_blink(hero_id, destination),
     }
 }
@@ -467,6 +505,7 @@ fn identity_current(loadout: &SummonerLoadout, plan: &CastPlan, context: &Summon
         && identity.origin == context.origin
         && identity.hp == context.hp
         && identity.max_hp == context.max_hp
+        && identity.healing_received_multiplier == context.healing_received_multiplier
 }
 
 fn validate_context(loadout: &SummonerLoadout, context: &SummonerCastContext) -> Result<(), CastReject> {
@@ -489,7 +528,8 @@ fn validate_context(loadout: &SummonerLoadout, context: &SummonerCastContext) ->
     if !context.summoner_enabled {
         return Err(CastReject::CapabilityDisabled);
     }
-    if !vec_in_world(context.origin) || !non_negative_bounded(context.hp) || !positive_bounded(context.max_hp) {
+    if !vec_in_world(context.origin) || !non_negative_bounded(context.hp) || !positive_bounded(context.max_hp)
+        || context.healing_received_multiplier<Fixed64::ZERO || context.healing_received_multiplier>Fixed64::from_i32(4) {
         return Err(CastReject::CoordinateOutOfBounds);
     }
     Ok(())
@@ -501,13 +541,29 @@ fn resolve_effect(
     request: &SummonerCastRequest,
 ) -> Result<PlannedSummonerEffect, CastReject> {
     match definition.operation {
+        SummonerOperation::SelfDamageReduction {reduction,duration} => {
+            if request.point.is_some(){return Err(CastReject::WrongTargetShape);}
+            Ok(PlannedSummonerEffect::SelfDamageReduction {hero_id:context.hero_id,reduction,duration})
+        }
+        SummonerOperation::SelfSprint {ms_bonus,duration} => {
+            if request.point.is_some(){return Err(CastReject::WrongTargetShape);}
+            Ok(PlannedSummonerEffect::SelfSprint {hero_id:context.hero_id,ms_bonus,duration})
+        }
+        SummonerOperation::SelfControlCleanse => {
+            if request.point.is_some() { return Err(CastReject::WrongTargetShape); }
+            Ok(PlannedSummonerEffect::SelfControlCleanse {hero_id:context.hero_id})
+        }
+        SummonerOperation::SelfShield { amount, duration } => {
+            if request.point.is_some() { return Err(CastReject::WrongTargetShape); }
+            Ok(PlannedSummonerEffect::SelfShield {hero_id:context.hero_id,amount,duration})
+        }
         SummonerOperation::SelfHeal { amount } => {
             if request.point.is_some() {
                 return Err(CastReject::WrongTargetShape);
             }
             Ok(PlannedSummonerEffect::SelfHeal {
                 hero_id: context.hero_id,
-                amount: capped_heal(context.hp, context.max_hp, amount),
+                amount: capped_heal(context.hp, context.max_hp, amount*context.healing_received_multiplier),
             })
         }
         SummonerOperation::PointBlink { range, out_of_range } => {
@@ -526,6 +582,11 @@ fn resolve_effect(
                 }
                 OutOfRangePolicy::ClampToRange => clamp_to_range(context.origin, point, range)?,
             };
+            // Compare the resolved fixed-point destination, including clamping.
+            // An accepted relocation must move at least one simulation raw unit.
+            if destination == context.origin {
+                return Err(CastReject::NoDisplacement);
+            }
             if !vec_in_world(destination) || landing_blocked(destination, &context.blocked_polygons) {
                 return Err(CastReject::LandingBlocked);
             }
@@ -640,6 +701,9 @@ mod tests {
     }
 
     impl SummonerCommitSink for Body {
+        fn apply_self_shield(&mut self,hero_id:u64,_amount:Fixed64,_duration:Fixed64) -> Result<(),ApplyFailure> {
+            if self.fail || hero_id!=self.hero_id {Err(ApplyFailure)} else {Ok(())}
+        }
         fn apply_self_heal(&mut self, hero_id: u64, amount: Fixed64) -> Result<(), ApplyFailure> {
             if self.fail || hero_id != self.hero_id {
                 return Err(ApplyFailure);
@@ -700,6 +764,19 @@ mod tests {
         loadout
     }
 
+    #[test]
+    fn sprint_model_rejects_invalid_shapes_bounds_and_unsupported_sink_without_cooldown() {
+        let mut catalog=SummonerCatalog::new();catalog.insert("arbitrary_sprint",SummonerDefinition {cooldown:fx(180),operation:SummonerOperation::SelfSprint {ms_bonus:fx(80),duration:fx(6)}}).unwrap();
+        let mut loadout=SummonerLoadout::unavailable();loadout.rebind_owner(7).unwrap();loadout.set_slot(0,Some("arbitrary_sprint".into())).unwrap();
+        let ctx=context(at(3,4),40,100);let req=SummonerCastRequest{slot:0,point:None};let plan=plan_cast(&loadout,&catalog,&ctx,&req).unwrap();
+        assert_eq!(plan.effect(),&PlannedSummonerEffect::SelfSprint{hero_id:11,ms_bonus:fx(80),duration:fx(6)});
+        let before=loadout.clone();let mut sink=body_at(at(3,4),40,100);
+        assert_eq!(commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut sink),Err(CastReject::ApplyFailed));assert_eq!(loadout,before);
+        assert_eq!(plan_cast(&loadout,&catalog,&ctx,&SummonerCastRequest{slot:0,point:Some(at(3,4))}).unwrap_err(),CastReject::WrongTargetShape);
+        for (ms_bonus,duration) in [(fx(0),fx(6)),(fx(10001),fx(6)),(fx(80),fx(0)),(fx(80),fx(61))] {
+            assert_eq!(SummonerCatalog::new().insert("bad",SummonerDefinition{cooldown:fx(180),operation:SummonerOperation::SelfSprint{ms_bonus,duration}}),Err(CastReject::InvalidDefinition));
+        }
+    }
     fn context(pos: Vec2, hp: i32, max_hp: i32) -> SummonerCastContext {
         SummonerCastContext {
             player_id: 7,
@@ -712,8 +789,19 @@ mod tests {
             origin: pos,
             hp: fx(hp),
             max_hp: fx(max_hp),
+            healing_received_multiplier:Fixed64::ONE,
             blocked_polygons: Vec::new(),
         }
+    }
+
+    #[test]
+    fn guard_model_validates_ratio_shape_and_fails_unsupported_sink_atomically() {
+        let mut catalog=SummonerCatalog::new();catalog.insert("arbitrary_guard",SummonerDefinition{cooldown:fx(180),operation:SummonerOperation::SelfDamageReduction{reduction:Fixed64::from_raw(256),duration:fx(3)}}).unwrap();
+        let mut loadout=SummonerLoadout::unavailable();loadout.rebind_owner(7).unwrap();loadout.set_slot(0,Some("arbitrary_guard".into())).unwrap();let ctx=context(at(3,4),40,100);let req=SummonerCastRequest{slot:0,point:None};
+        let plan=plan_cast(&loadout,&catalog,&ctx,&req).unwrap();assert_eq!(plan.effect(),&PlannedSummonerEffect::SelfDamageReduction{hero_id:11,reduction:Fixed64::from_raw(256),duration:fx(3)});
+        let before=loadout.clone();let mut sink=body_at(at(3,4),40,100);assert_eq!(commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut sink),Err(CastReject::ApplyFailed));assert_eq!(loadout,before);
+        assert_eq!(plan_cast(&loadout,&catalog,&ctx,&SummonerCastRequest{slot:0,point:Some(at(3,4))}).unwrap_err(),CastReject::WrongTargetShape);
+        for (reduction,duration) in [(Fixed64::ZERO,fx(3)),(Fixed64::from_raw(1025),fx(3)),(Fixed64::from_raw(-1),fx(3)),(Fixed64::ONE,fx(0)),(Fixed64::ONE,fx(61))] {assert_eq!(SummonerCatalog::new().insert("bad",SummonerDefinition{cooldown:fx(180),operation:SummonerOperation::SelfDamageReduction{reduction,duration}}),Err(CastReject::InvalidDefinition));}
     }
 
     fn body_at(pos: Vec2, hp: i32, max_hp: i32) -> Body {
@@ -726,6 +814,57 @@ mod tests {
             mana_raw: None,
             fail: false,
         }
+    }
+
+    #[test]
+    fn self_shield_plan_is_independent_of_healing_and_failure_replay_are_atomic() {
+        #[derive(Default)] struct ShieldSink {fail:bool,applied:Option<(u64,Fixed64,Fixed64)>}
+        impl SummonerCommitSink for ShieldSink {
+            fn apply_self_heal(&mut self,_:u64,_:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
+            fn apply_point_blink(&mut self,_:u64,_:Vec2)->Result<(),ApplyFailure>{Err(ApplyFailure)}
+            fn apply_self_shield(&mut self,id:u64,amount:Fixed64,duration:Fixed64)->Result<(),ApplyFailure>{
+                if self.fail{return Err(ApplyFailure)}self.applied=Some((id,amount,duration));Ok(())
+            }
+        }
+        let mut catalog=SummonerCatalog::new();
+        catalog.insert("arbitrary_shield",SummonerDefinition {cooldown:fx(180),operation:SummonerOperation::SelfShield {amount:fx(160),duration:fx(2)}}).unwrap();
+        let mut loadout=SummonerLoadout::unavailable();loadout.rebind_owner(7).unwrap();loadout.set_slot(1,Some("arbitrary_shield".into())).unwrap();
+        let mut ctx=context(at(3,4),40,100);ctx.healing_received_multiplier=Fixed64::ZERO;
+        let request=SummonerCastRequest{slot:1,point:None};let plan=plan_cast(&loadout,&catalog,&ctx,&request).unwrap();
+        assert_eq!(plan.effect(),&PlannedSummonerEffect::SelfShield {hero_id:11,amount:fx(160),duration:fx(2)});
+        let before=loadout.clone();let mut sink=ShieldSink{fail:true,..Default::default()};
+        assert_eq!(commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut sink),Err(CastReject::ApplyFailed));
+        assert_eq!(loadout,before);assert_eq!(sink.applied,None);
+        sink.fail=false;commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut sink).unwrap();
+        assert_eq!(sink.applied,Some((11,fx(160),fx(2))));assert_eq!(loadout.cooldown_remaining(1),Some(fx(180)));
+        assert!(commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut sink).is_err());
+        let mut wrong=request;wrong.point=Some(at(3,4));assert_eq!(plan_cast(&before,&catalog,&ctx,&wrong).unwrap_err(),CastReject::WrongTargetShape);
+        for (amount,duration) in [(fx(0),fx(2)),(fx(160),fx(0)),(fx(160),fx(61))] {
+            assert_eq!(SummonerCatalog::new().insert("bad",SummonerDefinition{cooldown:fx(3),operation:SummonerOperation::SelfShield{amount,duration}}),Err(CastReject::InvalidDefinition));
+        }
+    }
+
+    #[test]
+    fn control_cleanse_plan_commits_once_and_unsupported_sink_does_not_charge() {
+        struct CleanseSink {applied:usize}
+        impl SummonerCommitSink for CleanseSink {
+            fn apply_self_heal(&mut self,_:u64,_:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
+            fn apply_self_shield(&mut self,_:u64,_:Fixed64,_:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
+            fn apply_point_blink(&mut self,_:u64,_:Vec2)->Result<(),ApplyFailure>{Err(ApplyFailure)}
+            fn apply_self_control_cleanse(&mut self,id:u64)->Result<(),ApplyFailure>{assert_eq!(id,11);self.applied+=1;Ok(())}
+        }
+        let mut catalog=SummonerCatalog::new();catalog.insert("arbitrary_cleanse",SummonerDefinition {
+            cooldown:fx(9),operation:SummonerOperation::SelfControlCleanse}).unwrap();
+        let mut loadout=SummonerLoadout::unavailable();loadout.rebind_owner(7).unwrap();loadout.set_slot(0,Some("arbitrary_cleanse".into())).unwrap();
+        let ctx=context(at(3,4),40,100);let request=SummonerCastRequest{slot:0,point:None};
+        let plan=plan_cast(&loadout,&catalog,&ctx,&request).unwrap();assert_eq!(plan.effect(),&PlannedSummonerEffect::SelfControlCleanse{hero_id:11});
+        let before=loadout.clone();let mut unsupported=body_at(at(3,4),40,100);
+        assert_eq!(commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut unsupported),Err(CastReject::ApplyFailed));assert_eq!(loadout,before);
+        let mut sink=CleanseSink{applied:0};commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut sink).unwrap();
+        assert_eq!(sink.applied,1);assert_eq!(loadout.cooldown_remaining(0),Some(fx(9)));
+        assert!(commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut sink).is_err());assert_eq!(sink.applied,1);
+        let wrong=SummonerCastRequest{point:Some(at(3,4)),..request};
+        assert_eq!(plan_cast(&before,&catalog,&ctx,&wrong).unwrap_err(),CastReject::WrongTargetShape);
     }
 
     fn commit_ok(
@@ -745,6 +884,34 @@ mod tests {
             PlannedSummonerEffect::PointBlink { destination, .. } => *destination,
             other => panic!("expected point blink, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn blink_rejects_resolved_same_point_in_either_slot_but_accepts_one_raw_unit() {
+        for policy in [OutOfRangePolicy::Reject, OutOfRangePolicy::ClampToRange] {
+            for slot in 0..2 {
+                let catalog=catalog(policy,9);
+                let mut loadout=SummonerLoadout::unavailable();loadout.rebind_owner(7).unwrap();
+                loadout.set_slot(slot,Some(BLINK.into())).unwrap();
+                let context=context(at(-13,27),40,100);
+                let before=loadout.clone();
+                let same=SummonerCastRequest {slot,point:Some(context.origin)};
+                assert_eq!(plan_cast(&loadout,&catalog,&context,&same),Err(CastReject::NoDisplacement));
+                assert_eq!(loadout,before);
+                let point=Vec2::new(context.origin.x+Fixed64::from_raw(1),context.origin.y);
+                let mut body=body_at(context.origin,40,100);
+                commit_ok(&mut loadout,&catalog,&context,SummonerCastRequest {slot,point:Some(point)},&mut body);
+                assert_eq!(body.pos,point);assert_eq!(body.hp,context.hp);
+                assert_eq!(loadout.cooldown_remaining(slot),Some(fx(8)));
+                assert_eq!(loadout.cooldown_remaining(1-slot),Some(Fixed64::ZERO));
+            }
+        }
+        let mut tiny=catalog(OutOfRangePolicy::ClampToRange,9);
+        tiny.defs.get_mut(BLINK).unwrap().operation=SummonerOperation::PointBlink {
+            range:Fixed64::from_raw(1),out_of_range:OutOfRangePolicy::ClampToRange};
+        let context=context(at(0,0),40,100);
+        assert_eq!(plan_cast(&equipped_loadout(),&tiny,&context,
+            &SummonerCastRequest {slot:0,point:Some(at(10,10))}),Err(CastReject::NoDisplacement));
     }
 
     #[test]
@@ -769,8 +936,10 @@ mod tests {
             &SummonerCastRequest { slot: 0, point: Some(at(4, 0)) },
         );
         assert_eq!(blocked, Err(CastReject::CooldownNotReady));
-        context.origin = at(4, 0);
-        body.pos = at(4, 0);
+        // Exercise independent cooldowns with an actual relocation. Same-point
+        // rejection has its own atomicity test and cannot consume a cooldown.
+        context.origin = at(3, 0);
+        body.pos = at(3, 0);
         loadout.cooldown_remaining[0] = Fixed64::ZERO;
         commit_ok(
             &mut loadout,
@@ -1100,6 +1269,17 @@ mod tests {
         assert_eq!(body.mana_raw, None);
         assert_eq!(body.skill_points, 4);
         assert_eq!(loadout.cooldown_remaining(0), Some(Fixed64::ZERO));
+        for factor in [Fixed64::ZERO,Fixed64::from_raw(512),Fixed64::from_i32(4)] {
+            let mut ctx=context.clone();ctx.healing_received_multiplier=factor;
+            let mut loadout=equipped_loadout();let mut body=body_at(at(6,6),50,80);
+            let plan=plan_cast(&loadout,&catalog,&ctx,&SummonerCastRequest {slot:1,point:None}).unwrap();
+            let mut changed=ctx.clone();changed.healing_received_multiplier=if factor==Fixed64::ONE {Fixed64::ZERO}else{Fixed64::ONE};
+            assert_eq!(commit_cast(&mut loadout,&catalog,&plan,&changed,&mut body),Err(CastReject::StalePlan));
+            assert_eq!(loadout.cooldown_remaining(1),Some(Fixed64::ZERO));
+            commit_cast(&mut loadout,&catalog,&plan,&ctx,&mut body).unwrap();
+            assert_eq!(body.hp,if factor==Fixed64::ZERO {fx(50)}else{fx(80)},"recipient modifier precedes missing-HP cap");
+            assert!(loadout.cooldown_remaining(1).unwrap()>Fixed64::ZERO);
+        }
     }
 
     #[test]
@@ -1221,11 +1401,23 @@ mod tests {
             let definition = catalog.get(spell.id).unwrap();
             assert_eq!(definition.cooldown, spell.cooldown);
             match (spell.target, spell.operation, &definition.operation) {
+                (omoba_template_ids::SummonerTargetConst::None,omoba_template_ids::SummonerSpellOperationConst::SelfDamageReduction {reduction,duration},
+                    SummonerOperation::SelfDamageReduction {reduction:got,duration:time}) => {assert_eq!(*got,reduction);assert_eq!(*time,duration);},
+                (omoba_template_ids::SummonerTargetConst::None,omoba_template_ids::SummonerSpellOperationConst::SelfSprint {ms_bonus,duration},
+                    SummonerOperation::SelfSprint {ms_bonus:got,duration:time}) => {assert_eq!(*got,ms_bonus);assert_eq!(*time,duration);},
+                (omoba_template_ids::SummonerTargetConst::None,
+                    omoba_template_ids::SummonerSpellOperationConst::SelfControlCleanse,
+                    SummonerOperation::SelfControlCleanse) => {},
                 (
                     omoba_template_ids::SummonerTargetConst::None,
                     omoba_template_ids::SummonerSpellOperationConst::SelfHeal { amount },
                     SummonerOperation::SelfHeal { amount: got },
                 ) => assert_eq!(*got, amount),
+                (
+                    omoba_template_ids::SummonerTargetConst::None,
+                    omoba_template_ids::SummonerSpellOperationConst::SelfShield { amount, duration },
+                    SummonerOperation::SelfShield { amount:got, duration:time },
+                ) => {assert_eq!(*got,amount);assert_eq!(*time,duration);},
                 (
                     omoba_template_ids::SummonerTargetConst::Point,
                     omoba_template_ids::SummonerSpellOperationConst::PointBlink { range, out_of_range },
@@ -1247,7 +1439,7 @@ mod tests {
                 assert_eq!(out_of_range, OutOfRangePolicy::ClampToRange);
                 range
             }
-            SummonerOperation::SelfHeal { .. } => panic!("generated blink"),
+            _ => panic!("generated blink"),
         };
         let mut loadout = SummonerLoadout::unavailable();
         loadout.rebind_owner(7).unwrap();
