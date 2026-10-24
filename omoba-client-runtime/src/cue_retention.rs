@@ -230,6 +230,16 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn avoidance_cue_retention_ack_and_hide_are_target_scoped() {
+        use omoba_core::runtime::presentation_cue::AttackAvoidedPresentationCue;
+        let cue=PresentationEffect {effect_id:presentation_effect_id(10,0).unwrap(),safe_payload:AttackAvoidedPresentationCue {tick:10,target_id:4,disclosure_epoch:3}.encode()};
+        let mut ledger=CueRetention::default();ledger.capture(7,10,vec![cue.clone()]);let mut view=snapshot(10);ledger.project(&mut view);assert_eq!(view.effects.len(),1);
+        ledger.sent(2,40,&view);ledger.consumed(2,40);ledger.capture(7,10,vec![cue.clone()]);let mut after_ack=snapshot(10);ledger.project(&mut after_ack);assert!(after_ack.effects.is_empty());
+        let mut fresh=cue;fresh.effect_id=presentation_effect_id(10,1).unwrap();ledger.capture(7,10,vec![fresh.clone()]);
+        ledger.invalidate(4,3);ledger.capture(7,10,vec![fresh]);assert!(ledger.entries.is_empty(),"hide never reopens old avoidance cues");
+    }
+
+    #[test]
     fn retired_cues_cannot_be_recaptured_after_ack_hide_or_baseline() {
         let cues = vec![effect(10,0), ability_effect(10,1), relocation_effect(10,2),
             area_effect(10,3), impact_effect(10,4)];

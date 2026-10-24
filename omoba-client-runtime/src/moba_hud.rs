@@ -15,6 +15,105 @@ pub const SUMMONER_SHAPE_SELF: u32 = 1;
 pub const SUMMONER_SHAPE_POINT: u32 = 2;
 pub const SUMMONER_SHAPE_ENTITY: u32 = 3;
 
+pub fn valid_objective_notice(hud:&MobaHudPresentation)->bool {
+    hud.objective_notice.as_ref().is_none_or(|n|hud.phase==1 && (1..=2).contains(&n.team_id)
+        && (1..=4).contains(&n.kind) && n.sequence>0 && n.sequence<=i64::MAX as u64 && (1..=4096).contains(&n.remaining_raw))
+}
+pub fn objective_notice(snapshot:&FilteredRenderSnapshot)->Option<omoba_core::game_proto::ObjectiveNoticePresentation> {
+    let read=|id:u64| {
+        let mut rows=snapshot.public_events.iter().filter_map(|event| {
+            let p=&event.sanitized_payload;
+            (event.event_kind==FactKind::Hud as u32 && p.len()>=12 && p[4..12]==id.to_le_bytes()).then_some(p)
+        });
+        let p=rows.next()?;if rows.next().is_some() || p.len()!=20 || p[..4]!=0u32.to_le_bytes(){return None;}
+        Some(i64::from_le_bytes(p[12..20].try_into().unwrap()))
+    };
+    let n=omoba_core::game_proto::ObjectiveNoticePresentation {team_id:u32::try_from(read(OBJECTIVE_TEAM_METRIC_ID)?).ok()?,
+        kind:u32::try_from(read(OBJECTIVE_KIND_METRIC_ID)?).ok()?,sequence:u64::try_from(read(OBJECTIVE_SEQUENCE_METRIC_ID)?).ok()?,
+        remaining_raw:read(OBJECTIVE_REMAINING_METRIC_ID)?};
+    valid_objective_notice(&MobaHudPresentation {phase:1,objective_notice:Some(n),..Default::default()}).then_some(n)
+}
+
+pub fn valid_first_kill(hud:&MobaHudPresentation)->bool {
+    let Some(notice)=&hud.first_kill else{return true;};
+    if hud.phase!=1 || notice.killer_player_id==0 || notice.victim_player_id==0
+        || notice.killer_player_id==notice.victim_player_id || notice.bonus_gold>1_000_000{return false;}
+    let Some(board)=hud.scoreboard.as_ref().filter(|b|crate::scoreboard::valid(b))else{return false;};
+    match (board.rows.iter().find(|r|r.player_id==notice.killer_player_id),board.rows.iter().find(|r|r.player_id==notice.victim_player_id)){
+        (Some(killer),Some(victim))=>killer.team_id!=victim.team_id,_=>false,
+    }
+}
+pub fn first_kill_notice(snapshot:&FilteredRenderSnapshot)->Option<omoba_core::game_proto::FirstKillPresentation>{
+    let read=|id:u64| {
+        let mut values=snapshot.public_events.iter().filter_map(|event|{
+            let p=&event.sanitized_payload;
+            (event.event_kind==FactKind::Hud as u32 && p.len()==20 && p[4..12]==id.to_le_bytes()).then(||p)
+        });
+        let p=values.next()?;if values.next().is_some() || p[..4]!=0u32.to_le_bytes(){return None;}
+        u32::try_from(i64::from_le_bytes(p[12..20].try_into().unwrap())).ok()
+    };
+    let notice=omoba_core::game_proto::FirstKillPresentation {killer_player_id:read(FIRST_KILL_KILLER_METRIC_ID)?,
+        victim_player_id:read(FIRST_KILL_VICTIM_METRIC_ID)?,bonus_gold:read(FIRST_KILL_GOLD_METRIC_ID)?};
+    let candidate=MobaHudPresentation {phase:1,first_kill:Some(notice),scoreboard:crate::scoreboard::project(snapshot),..Default::default()};
+    valid_first_kill(&candidate).then_some(notice)
+}
+
+pub fn valid_cast(value:&omoba_core::game_proto::AbilityCastPresentation)->bool {
+    value.instance>0 && value.instance<=i64::MAX as u64 && (1..=60*1024).contains(&value.total_raw)
+        && match value.state {1=>(1..=value.total_raw).contains(&value.remaining_raw),
+            2|3=>value.remaining_raw==0,_=>false}
+}
+
+pub fn effective_mana_cost(snapshot:&FilteredRenderSnapshot,player:u32,slot:usize,id:&str,rank:u32,mana:i64)->(u32,i64) {
+    if slot>=4 || player==0 || rank==0 || rank>255 {return (0,0);}
+    let read=|namespace| {
+        let metric=single_lane_player_metric(namespace,player);
+        let mut values=snapshot.public_events.iter().filter_map(|event| {
+            let p=&event.sanitized_payload;
+            (event.event_kind==FactKind::Hud as u32 && p.len()==20 && p[..4]==snapshot.team_id.to_le_bytes()
+                && p[4..12]==metric.to_le_bytes()).then(||i64::from_le_bytes(p[12..20].try_into().unwrap()))
+        });let value=values.next()?;if values.next().is_some(){None}else{Some(value)}
+    };
+    if read(MANA_COST_TICK).and_then(|v|u64::try_from(v).ok())!=Some(snapshot.replica_tick) {return (0,0);}
+    let Some(catalog)=omoba_template_ids::ability_by_name(id)else{return (0,0);};
+    if read(MANA_COST_BINDING[slot])!=Some((i64::from(catalog.raw())<<8)|i64::from(rank)){return (0,0);}
+    match read(MANA_COST_RAW[slot]) {
+        Some(-2)=>(3,0),Some(cost) if cost>=0 =>(if mana>=cost{1}else{2},cost),_ =>(0,0),
+    }
+}
+
+/// A malformed typed price must never be converted into an affordable zero.
+pub fn checked_ability_mana_cost(row:&AbilityHudPresentation,mana:Option<i64>)->(u32,i64) {
+    match row.mana_cost_state {
+        0|3 if row.effective_mana_cost_raw==0 => (row.mana_cost_state,0),
+        1|2 if row.level>0 && row.effective_mana_cost_raw>=0
+            && mana.is_some_and(|m|m>=0 && ((m>=row.effective_mana_cost_raw)==(row.mana_cost_state==1))) =>
+                (row.mana_cost_state,row.effective_mana_cost_raw),
+        _=>(3,0),
+    }
+}
+
+pub fn cast_progress(snapshot:&FilteredRenderSnapshot,player:u32,slot:u32)
+    ->Option<omoba_core::game_proto::AbilityCastPresentation> {
+    if player==0 || slot>=4 {return None;}
+    let read=|namespace| {
+        let id=single_lane_player_metric(namespace,player);
+        let mut values=snapshot.public_events.iter().filter_map(|event| {
+            let p=&event.sanitized_payload;
+            (event.event_kind==FactKind::Hud as u32 && p.len()==20
+                && p[..4]==snapshot.team_id.to_le_bytes() && p[4..12]==id.to_le_bytes())
+                .then(||i64::from_le_bytes(p[12..20].try_into().unwrap()))
+        });
+        let value=values.next()?;if values.next().is_some() {None}else{Some(value)}
+    };
+    if read(CAST_SLOT)?!=i64::from(slot+1) {return None;}
+    let value=omoba_core::game_proto::AbilityCastPresentation {
+        state:u32::try_from(read(CAST_STATE)?).ok()?,remaining_raw:read(CAST_REMAINING)?,
+        total_raw:read(CAST_TOTAL)?,instance:u64::try_from(read(CAST_INSTANCE)?).ok()?,
+    };
+    valid_cast(&value).then_some(value)
+}
+
 /// Version 1 never carried mana. Schema 2 and 3 share the same mana rules.
 pub fn valid_mana(schema: u32, hero: &HeroHudPresentation) -> bool {
     if hero.mana_supported {
@@ -82,7 +181,10 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
                             .and_then(|index| def.levels.get(index as usize))
                     })
                     .map_or(0, |data| data.cooldown.raw());
-                AbilityHudPresentation {
+                let total = hero.cooldown_total(id, omoba_template_ids::Fixed64::from_raw(total))?.raw();
+                let (mana_cost_state,effective_mana_cost_raw)=hero.mana_pool.as_ref().map_or((0,0),|pool|
+                    effective_mana_cost(snapshot,player_id,slot,id,level,pool.current().raw()));
+                Some(AbilityHudPresentation {
                     slot: slot as u32,
                     ability_id: id.clone(),
                     level,
@@ -91,9 +193,11 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
                         .get(id)
                         .map_or(0, |value| value.raw().max(0)),
                     total_cooldown_raw: total,
-                }
+                    cast:cast_progress(snapshot,player_id,slot as u32),
+                    mana_cost_state,effective_mana_cost_raw,
+                })
             })
-            .collect();
+            .collect::<Option<Vec<_>>>()?;
         let (mana_supported, mana_raw, max_mana_raw) = hero.mana_pool.as_ref()
             .map_or((false, 0, 0), |pool| (true, pool.current().raw(), pool.maximum().raw()));
         Some(HeroHudPresentation {
@@ -132,6 +236,8 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
             .unwrap_or(0).clamp(0, i64::from(omoba_template_ids::MOBA_RECALL_CHANNEL_SECONDS) * 1024),
         recall_protocol_enabled: false,
         scoreboard: crate::scoreboard::project(snapshot),
+        first_kill: if phase==1{first_kill_notice(snapshot)}else{None},
+        objective_notice: if phase==1{objective_notice(snapshot)}else{None},
         score: (|| {
             Some(omoba_core::game_proto::OwnerScorePresentation {
                 player_id,
@@ -159,7 +265,7 @@ fn shape_and_range(spell: &omoba_template_ids::SummonerSpellConst) -> (u32, i64)
         omoba_template_ids::SummonerTargetConst::Point => {
             let range = match spell.operation {
                 omoba_template_ids::SummonerSpellOperationConst::PointBlink { range, .. } => range.raw(),
-                omoba_template_ids::SummonerSpellOperationConst::SelfHeal { .. } => 0,
+                _ => 0,
             };
             (SUMMONER_SHAPE_POINT, range)
         }
@@ -301,6 +407,161 @@ pub fn gate_summoner_capability(hud: &mut MobaHudPresentation, snapshot: &Filter
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effective_cost_metrics_are_current_bound_unique_and_keep_free_distinct() {
+        let mut s=snapshot();let id="ranger_patch";let player=7;let slot=1;
+        let bind=(i64::from(omoba_template_ids::ability_by_name(id).unwrap().raw())<<8)|1;
+        let team=s.team_id;
+        let rows=|tick,cost|vec![metric(team,single_lane_player_metric(MANA_COST_TICK,player),tick),
+            metric(team,single_lane_player_metric(MANA_COST_BINDING[slot],player),bind),
+            metric(team,single_lane_player_metric(MANA_COST_RAW[slot],player),cost)];
+        let tick=s.replica_tick as i64;
+        for (cost,mana,state) in [(23040,30720,1),(92160,30720,2),(0,0,1),(-2,30720,3),(-1,30720,0)] {
+            s.public_events=rows(tick,cost);
+            assert_eq!(effective_mana_cost(&s,player,slot,id,1,mana),(state,if cost>=0{cost}else{0}));
+        }
+        s.public_events=rows(tick-1,23040);assert_eq!(effective_mana_cost(&s,player,slot,id,1,30720),(0,0));
+        s.public_events=rows(tick,23040);assert_eq!(effective_mana_cost(&s,player,slot,id,2,30720),(0,0));
+        assert_eq!(effective_mana_cost(&s,8,slot,id,1,30720),(0,0));
+        assert_eq!(effective_mana_cost(&s,player,slot,"lumen_touch",1,30720),(0,0));
+        s.public_events.push(s.public_events.last().unwrap().clone());
+        assert_eq!(effective_mana_cost(&s,player,slot,id,1,30720),(0,0));
+        s.public_events=rows(tick,23040);s.team_id+=1;
+        assert_eq!(effective_mana_cost(&s,player,slot,id,1,30720),(0,0));
+    }
+
+    #[test]
+    fn effective_cost_owner_hud_uses_disclosed_price_and_clears_missing_samples() {
+        let mut s=snapshot();let mut owner=entity(3,1,7);
+        let mut h:Hero=serde_json::from_slice(&owner.components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        h.abilities[0]="ranger_patch".into();h.ability_levels.insert("ranger_patch".into(),1);
+        h.mana_pool=Some(omoba_core::runtime::ability_runtime::ManaPool::new(Fixed64::from_i32(30),Fixed64::from_i32(100)).unwrap());
+        owner.components.insert(DISCLOSED_HERO_COMPONENT_SCHEMA_ID,serde_json::to_vec(&h).unwrap());s.entities=vec![owner];
+        let binding=(i64::from(omoba_template_ids::ability_by_name("ranger_patch").unwrap().raw())<<8)|1;
+        for (ns,value) in [(MANA_COST_TICK,s.replica_tick as i64),(MANA_COST_BINDING[0],binding),(MANA_COST_RAW[0],23040)] {
+            s.public_events.push(metric(s.team_id,single_lane_player_metric(ns,7),value));
+        }
+        let row=project(&s,7).unwrap().hero.unwrap().abilities.remove(0);
+        assert_eq!((row.mana_cost_state,row.effective_mana_cost_raw),(1,23040));
+        s.public_events.retain(|e|e.sanitized_payload[4..12]!=single_lane_player_metric(MANA_COST_RAW[0],7).to_le_bytes());
+        assert_eq!(project(&s,7).unwrap().hero.unwrap().abilities[0].mana_cost_state,0);
+    }
+
+    #[test]
+    fn effective_cost_absence_bad_slot_and_unlearned_do_not_become_free_prices() {
+        let s=snapshot();
+        for (player,slot,rank) in [(7,0,1),(0,0,1),(7,4,1),(7,0,0),(7,0,256)] {
+            assert_eq!(effective_mana_cost(&s,player,slot,"ranger_patch",rank,0),(0,0));
+        }
+    }
+
+    #[test]
+    fn typed_effective_cost_rejects_negative_contradictory_unsupported_and_unknown_states() {
+        let valid=AbilityHudPresentation {level:1,mana_cost_state:1,effective_mana_cost_raw:23040,..Default::default()};
+        assert_eq!(checked_ability_mana_cost(&valid,Some(30720)),(1,23040));
+        for (state,cost,level,mana) in [(1,-1,1,Some(30720)),(1,23040,1,Some(1)),(2,23040,1,Some(30720)),
+            (1,23040,0,Some(30720)),(1,23040,1,None),(0,23040,1,Some(30720)),(4,0,1,Some(30720))] {
+            assert_eq!(checked_ability_mana_cost(&AbilityHudPresentation {mana_cost_state:state,effective_mana_cost_raw:cost,level,..Default::default()},mana),(3,0));
+        }
+        assert_eq!(checked_ability_mana_cost(&AbilityHudPresentation {level:1,mana_cost_state:1,..Default::default()},Some(0)),(1,0));
+    }
+
+    #[test]
+    fn owner_cooldown_hud_uses_actual_instance_total_across_roundtrip_and_tick() {
+        let mut snapshot=snapshot();let mut owner=entity(3,1,7);
+        let mut hero:Hero=serde_json::from_slice(&owner.components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        for total in [10,40] {
+            hero.start_cooldown("slot_0",Fixed64::from_i32(total));
+            hero.tick_cooldowns(Fixed64::from_i32(total/2));
+            owner.components.insert(DISCLOSED_HERO_COMPONENT_SCHEMA_ID,serde_json::to_vec(&hero).unwrap());snapshot.entities=vec![owner.clone()];
+            let row=project(&snapshot,7).unwrap().hero.unwrap().abilities.remove(0);
+            assert_eq!(row.total_cooldown_raw,i64::from(total)*1024);assert_eq!(row.cooldown_raw,row.total_cooldown_raw/2);
+            assert!(project(&snapshot,8).unwrap().hero.is_none());
+        }
+    }
+
+    #[test]
+    fn owner_cooldown_hud_falls_back_for_legacy_but_rejects_corrupt_present_totals() {
+        let mut snapshot=snapshot();let mut owner=entity(3,1,7);
+        let mut hero:Hero=serde_json::from_slice(&owner.components[&DISCLOSED_HERO_COMPONENT_SCHEMA_ID]).unwrap();
+        owner.components.insert(DISCLOSED_HERO_COMPONENT_SCHEMA_ID,serde_json::to_vec(&hero).unwrap());snapshot.entities=vec![owner.clone()];
+        let row=project(&snapshot,7).unwrap().hero.unwrap().abilities.remove(0);
+        assert_eq!(row.total_cooldown_raw,3072,"unknown legacy total must still contain remaining");
+        for raw in [-1,1,1_024_000_001] {
+            hero.ability_cooldown_totals.insert("slot_0".into(),Fixed64::from_raw(raw));
+            owner.components.insert(DISCLOSED_HERO_COMPONENT_SCHEMA_ID,serde_json::to_vec(&hero).unwrap());snapshot.entities=vec![owner.clone()];
+            assert!(project(&snapshot,7).unwrap().hero.is_none(),"corrupt owner cooldown cannot become a ready spell");
+        }
+    }
+    #[test]
+    fn objective_notice_is_complete_unique_public_bounded_and_roundtrips() {
+        use prost::Message;
+        let mut s=snapshot();
+        let fields=[(OBJECTIVE_TEAM_METRIC_ID,2),(OBJECTIVE_KIND_METRIC_ID,4),(OBJECTIVE_SEQUENCE_METRIC_ID,7),(OBJECTIVE_REMAINING_METRIC_ID,4096)];
+        for (id,value) in fields {s.public_events.push(metric(0,id,value));}
+        let n=objective_notice(&s).unwrap();assert_eq!((n.team_id,n.kind,n.sequence,n.remaining_raw),(2,4,7,4096));
+        assert_eq!(omoba_core::game_proto::ObjectiveNoticePresentation::decode(n.encode_to_vec().as_slice()).unwrap(),n);
+        assert_eq!(project(&s,7).unwrap().objective_notice,Some(n));s.team_id=2;assert_eq!(project(&s,8).unwrap().objective_notice,Some(n));
+        let mut typed=MobaHudPresentation {phase:1,objective_notice:Some(n),..Default::default()};
+        for phase in [0,2] {typed.phase=phase;assert!(!valid_objective_notice(&typed));}typed.phase=1;
+        for (index,bad) in [(0,0),(0,3),(1,0),(1,5),(2,0),(2,-1),(3,0),(3,4097),(3,-1)] {
+            let mut copy=s.clone();copy.public_events[index+2]=metric(0,fields[index].0,bad);assert!(objective_notice(&copy).is_none());
+        }
+        for index in 0..4 {
+            let mut copy=s.clone();copy.public_events.remove(index+2);assert!(objective_notice(&copy).is_none());
+            let mut copy=s.clone();copy.public_events.push(copy.public_events[index+2].clone());assert!(objective_notice(&copy).is_none());
+            let mut copy=s.clone();copy.public_events[index+2]=metric(1,fields[index].0,fields[index].1);assert!(objective_notice(&copy).is_none());
+            let mut copy=s.clone();let mut malformed=copy.public_events[index+2].clone();malformed.sanitized_payload.pop();
+            copy.public_events.push(malformed);assert!(objective_notice(&copy).is_none());
+        }
+        for event in &mut s.public_events {event.event_kind=FactKind::Ability as u32;}
+        assert!(objective_notice(&s).is_none());
+    }
+    #[test]
+    fn first_kill_notice_requires_complete_public_tuple_opposing_roster_and_codec() {
+        use prost::Message;
+        let mut s=snapshot();
+        s.public_events.push(metric(0,SINGLE_LANE_SCORE_COUNT_METRIC_ID,2));
+        for (player,team)in [(7,1),(8,2)]{for (ns,value)in [(SINGLE_LANE_SCORE_TEAM_METRIC_ID,team),
+            (SINGLE_LANE_SCORE_KILLS_METRIC_ID,0),(SINGLE_LANE_SCORE_DEATHS_METRIC_ID,0),(SINGLE_LANE_SCORE_ASSISTS_METRIC_ID,0)]{
+            s.public_events.push(metric(0,single_lane_player_metric(ns,player),value));}}
+        assert!(first_kill_notice(&s).is_none());
+        for (id,value)in [(FIRST_KILL_KILLER_METRIC_ID,7),(FIRST_KILL_VICTIM_METRIC_ID,8),(FIRST_KILL_GOLD_METRIC_ID,100)]{s.public_events.push(metric(0,id,value));}
+        let n=first_kill_notice(&s).unwrap();assert_eq!((n.killer_player_id,n.victim_player_id,n.bonus_gold),(7,8,100));
+        assert_eq!(omoba_core::game_proto::FirstKillPresentation::decode(n.encode_to_vec().as_slice()).unwrap(),n);
+        assert_eq!(project(&s,7).unwrap().first_kill,Some(n));s.team_id=2;assert_eq!(project(&s,8).unwrap().first_kill,Some(n));
+        let mut typed=project(&s,8).unwrap();typed.phase=2;assert!(!valid_first_kill(&typed));
+        typed.phase=1;typed.first_kill.as_mut().unwrap().victim_player_id=7;assert!(!valid_first_kill(&typed));
+        typed.first_kill=Some(n);typed.scoreboard=None;assert!(!valid_first_kill(&typed));
+        for value in [-1,1_000_001]{*s.public_events.last_mut().unwrap()=metric(0,FIRST_KILL_GOLD_METRIC_ID,value);assert!(first_kill_notice(&s).is_none());}
+        *s.public_events.last_mut().unwrap()=metric(1,FIRST_KILL_GOLD_METRIC_ID,100);assert!(first_kill_notice(&s).is_none());
+        *s.public_events.last_mut().unwrap()=metric(0,FIRST_KILL_GOLD_METRIC_ID,100);s.public_events.push(s.public_events.last().unwrap().clone());assert!(first_kill_notice(&s).is_none());
+        s.public_events.pop();s.public_events.pop();assert!(first_kill_notice(&s).is_none());
+    }
+    #[test]
+    fn cast_progress_is_owner_team_scoped_complete_and_rejects_invalid_tuples() {
+        let mut s=snapshot();
+        let fill=|s:&mut FilteredRenderSnapshot,state,remaining| {
+            s.public_events.clear();
+            for (ns,value) in [(CAST_SLOT,2),(CAST_STATE,state),(CAST_REMAINING,remaining),(CAST_TOTAL,512),(CAST_INSTANCE,4)] {
+                s.public_events.push(metric(1,single_lane_player_metric(ns,7),value));
+            }
+        };
+        fill(&mut s,1,256);
+        let cast=cast_progress(&s,7,1).unwrap();assert_eq!((cast.state,cast.remaining_raw,cast.total_raw,cast.instance),(1,256,512,4));
+        use prost::Message;
+        let mut bytes=Vec::new();cast.encode(&mut bytes).unwrap();
+        assert_eq!(omoba_core::game_proto::AbilityCastPresentation::decode(bytes.as_slice()).unwrap(),cast);
+        assert!(cast_progress(&s,8,1).is_none());assert!(cast_progress(&s,7,0).is_none());
+        s.team_id=2;assert!(cast_progress(&s,7,1).is_none());s.team_id=1;
+        for (state,remaining) in [(0,0),(4,0),(1,0),(1,513),(2,1),(3,-1)] {
+            fill(&mut s,state,remaining);assert!(cast_progress(&s,7,1).is_none());
+        }
+        for state in [2,3] {fill(&mut s,state,0);assert_eq!(cast_progress(&s,7,1).unwrap().state,u32::try_from(state).unwrap());}
+        s.public_events.pop();assert!(cast_progress(&s,7,1).is_none());
+        fill(&mut s,1,256);s.public_events.push(s.public_events[0].clone());assert!(cast_progress(&s,7,1).is_none());
+    }
     #[test]
     fn mana_hud_is_owner_scoped_and_distinguishes_disabled_from_empty() {
         use omoba_core::runtime::ability_runtime::ManaPool;

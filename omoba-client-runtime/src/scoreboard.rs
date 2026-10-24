@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 
 pub fn project(snapshot: &FilteredRenderSnapshot) -> Option<ScoreboardPresentation> {
     let namespaces = [SINGLE_LANE_SCORE_TEAM_METRIC_ID, SINGLE_LANE_SCORE_KILLS_METRIC_ID,
-        SINGLE_LANE_SCORE_DEATHS_METRIC_ID, SINGLE_LANE_SCORE_ASSISTS_METRIC_ID];
+        SINGLE_LANE_SCORE_DEATHS_METRIC_ID, SINGLE_LANE_SCORE_ASSISTS_METRIC_ID, SINGLE_LANE_SCORE_BOUNTY_METRIC_ID];
     let mut count = None;
-    let mut players: BTreeMap<u32, [Option<u32>; 4]> = BTreeMap::new();
+    let mut players: BTreeMap<u32, [Option<u32>; 5]> = BTreeMap::new();
     for event in &snapshot.public_events {
         let p = &event.sanitized_payload;
         if event.event_kind != FactKind::Hud as u32 || p.len() != 20 { continue; }
@@ -27,8 +27,8 @@ pub fn project(snapshot: &FilteredRenderSnapshot) -> Option<ScoreboardPresentati
     let count = count?;
     if !(2..=10).contains(&count) || players.len() != count as usize { return None; }
     let mut rows = Vec::new();
-    for (player_id, [team, kills, deaths, assists]) in players {
-        rows.push(ScoreboardRowPresentation { player_id, team_id: team?, kills: kills?, deaths: deaths?, assists: assists? });
+    for (player_id, [team, kills, deaths, assists, bounty]) in players {
+        rows.push(ScoreboardRowPresentation { player_id, team_id: team?, kills: kills?, deaths: deaths?, assists: assists?, shutdown_bounty_gold:bounty.unwrap_or(0) });
     }
     rows.sort_by_key(|row| (row.team_id, row.player_id));
     let board = ScoreboardPresentation { schema_version: 1, rows };
@@ -42,7 +42,7 @@ pub fn valid(board: &ScoreboardPresentation) -> bool {
     let mut previous = None;
     for row in &board.rows {
         let key = (row.team_id, row.player_id);
-        if row.team_id == 0 || row.player_id == 0 || !players.insert(row.player_id)
+        if row.team_id == 0 || row.player_id == 0 || row.shutdown_bounty_gold>1_000_000 || !players.insert(row.player_id)
             || previous.is_some_and(|p| p >= key) { return false; }
         previous = Some(key);
         *teams.entry(row.team_id).or_insert(0) += 1;
@@ -68,6 +68,20 @@ mod tests {
             }
         }
         s
+    }
+    #[test]
+    fn public_shutdown_bonus_is_explicit_bounded_and_legacy_defaults_to_zero() {
+        use prost::Message;
+        let mut s=snapshot(2);assert_eq!(project(&s).unwrap().rows[0].shutdown_bounty_gold,0);
+        let metric=|value:i64|omoba_core::game_proto::TeamPublicEvent {event_kind:FactKind::Hud as u32,
+            sanitized_payload:[0u32.to_le_bytes().as_slice(),single_lane_player_metric(SINGLE_LANE_SCORE_BOUNTY_METRIC_ID,1).to_le_bytes().as_slice(),value.to_le_bytes().as_slice()].concat(),..Default::default()};
+        s.public_events.push(metric(250));let b=project(&s).unwrap();assert_eq!(b.rows[0].shutdown_bounty_gold,250);
+        assert_eq!(ScoreboardPresentation::decode(b.encode_to_vec().as_slice()).unwrap(),b);
+        s.team_id=2;assert_eq!(project(&s).unwrap(),b);
+        s.public_events.push(metric(250));assert!(project(&s).is_none());s.public_events.pop();
+        for value in [-1,1_000_001]{*s.public_events.last_mut().unwrap()=metric(value);assert!(project(&s).is_none());}
+        *s.public_events.last_mut().unwrap()=metric(250);s.public_events.last_mut().unwrap().sanitized_payload[..4].copy_from_slice(&2u32.to_le_bytes());
+        assert!(project(&s).is_none());
     }
     #[test]
     fn ten_players_are_public_without_live_entities_and_sorted() {

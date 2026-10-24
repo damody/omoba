@@ -2359,8 +2359,8 @@ mod tests {
                     schema_version: 1, player_id: 7, phase: 2, winner_team: 2,
                     respawn_remaining_raw: 1024,
                     scoreboard:Some(omoba_core::game_proto::ScoreboardPresentation {schema_version:1,rows:vec![
-                        omoba_core::game_proto::ScoreboardRowPresentation {player_id:9,team_id:1,kills:0,deaths:1,assists:0},
-                        omoba_core::game_proto::ScoreboardRowPresentation {player_id:7,team_id:2,kills:1,deaths:2,assists:3},
+                        omoba_core::game_proto::ScoreboardRowPresentation {player_id:9,team_id:1,kills:0,deaths:1,assists:0,shutdown_bounty_gold:0},
+                        omoba_core::game_proto::ScoreboardRowPresentation {player_id:7,team_id:2,kills:1,deaths:2,assists:3,shutdown_bounty_gold:0},
                     ]}),
                     score:Some(omoba_core::game_proto::OwnerScorePresentation {player_id:7,kills:1,deaths:2,assists:3}),
                     ..Default::default()
