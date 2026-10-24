@@ -33,7 +33,9 @@ function M.inspect(bytes)
   end
   return {frames=frames,width=width,height=height,bytes=#bytes,entries=entries}
 end
-function M.verify(directory,native)
+function M.verify(directory,native,source)
+  source=source or 'owned-slate-window-synthetic-filtered-feed'
+  assert(source=='owned-slate-window-synthetic-filtered-feed' or source=='owned-slate-window-synthetic-compiled-public-map','unknown video source')
   assert(native.record_video==true and native.video_frames>=1 and native.video_segments>=1,'native video not completed')
   local timeline=p.read(p.join(directory,'owned-window-frames.jsonl'),true)
   assert(#timeline<=16*1024*1024 and timeline:sub(-1)=='\n','invalid frame timeline')
@@ -42,7 +44,7 @@ function M.verify(directory,native)
     local row=j.decode(line)
     assert(math.type(row.segment)=='integer' and row.segment>=1 and row.segment<=native.video_segments,'invalid segment')
     assert(type(row.elapsed_seconds)=='number' and row.elapsed_seconds==row.elapsed_seconds and row.elapsed_seconds>=last and row.elapsed_seconds<3600,'non-monotonic time')
-    assert(type(row.stage)=='string' and #row.stage>0 and row.source=='owned-slate-window-synthetic-filtered-feed','invalid source/stage')
+    assert(type(row.stage)=='string' and #row.stage>0 and row.source==source,'invalid source/stage')
     local entry=segments[row.segment]
     if not entry then
       assert(row.segment==#segments+1,'out-of-order segment')
@@ -55,6 +57,6 @@ function M.verify(directory,native)
   end
   assert(#rows==native.video_frames and #rows<=MAX_FRAMES and #segments==native.video_segments and total==native.video_bytes,'native movie totals disagree')
   for _,entry in ipairs(segments)do assert(entry.seen==entry.frames,'movie frames missing from timeline');entry.entries=nil end
-  return {success=true,frames=#rows,segments=segments,bytes=total,elapsed_seconds=last,authority_ack=false,source='owned-slate-window-synthetic-filtered-feed',playback_fps=8,wall_clock_timeline_separate=true}
+  return {success=true,frames=#rows,segments=segments,bytes=total,elapsed_seconds=last,authority_ack=false,source=source,playback_fps=8,wall_clock_timeline_separate=true}
 end
 return M

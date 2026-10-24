@@ -45,6 +45,8 @@ function M.require_owned_viewport_phase(report, expected)
   assert(report.success == true, 'owned viewport phase failed')
   assert(report.not_run == 0, 'owned viewport phase counted an unrun test as accepted')
   assert(report.failed == 0, 'owned viewport phase has failed tests')
+  if report.execution_mode == 'phased' then require('ue_owned_phase_coverage').verify_report(report)
+  else assert(report.phase == nil or report.phase == 'full', 'a feature phase cannot satisfy full acceptance') end
   assert(type(report.tests) == 'table', 'owned viewport phase has no test list')
   local seen = {}
   for _, test in ipairs(report.tests) do

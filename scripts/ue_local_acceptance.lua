@@ -10,6 +10,7 @@ local ipc = require('moba_owned_viewport_ipc')
 local engine, run_id
 local native_rhi = 'd3d12'
 local record_video = false
+local owned_execution = 'single'
 local i = 1
 while i <= #arg do
   if arg[i] == '--ue-root' then i = i + 1; engine = assert(arg[i], '--ue-root requires a path')
@@ -18,8 +19,11 @@ while i <= #arg do
     i = i + 1; native_rhi = assert(arg[i], '--native-rhi requires d3d12 or null')
     assert(native_rhi == 'd3d12' or native_rhi == 'null', '--native-rhi requires d3d12 or null')
   elseif arg[i] == '--record-video' then record_video = true
+  elseif arg[i] == '--owned-execution' then
+    i = i + 1; owned_execution = assert(arg[i], '--owned-execution requires single or phased')
+    assert(owned_execution == 'single' or owned_execution == 'phased', '--owned-execution requires single or phased')
   elseif arg[i] == '--help' then
-    print('Usage: tools/lua/lua.exe scripts/ue_local_acceptance.lua --ue-root PATH [--run-id UNIQUE_NAME] [--native-rhi d3d12|null] [--record-video]')
+    print('Usage: tools/lua/lua.exe scripts/ue_local_acceptance.lua --ue-root PATH [--run-id UNIQUE_NAME] [--native-rhi d3d12|null] [--record-video] [--owned-execution single|phased]')
     print('Runs local native tests, the owned viewport IPC phase, and official CompileAllBlueprints, without saving existing assets or starting a match.')
     print('Native defaults to d3d12 for painted viewport input tests; Blueprint compilation always uses NullRHI.')
     return
@@ -30,6 +34,8 @@ engine = path.absolute(assert(engine, '--ue-root is required'), b.root)
 run_id = run_id or os.date('!%Y%m%dT%H%M%SZ')
 assert(run_id:match('^[%w_-]+$'), 'run-id must contain only letters, digits, underscores or hyphens')
 assert(#run_id<=74, 'run-id must fit the bounded audio output identifier with its suffix')
+assert(require('moba_renderer_fixture').valid_run_id(run_id..'-ipc'..(owned_execution=='phased' and '-foundation' or '')),
+  'run-id must fit every bounded owned viewport phase identifier')
 local project_dir = path.join(b.root, 'omfue')
 local project = path.join(project_dir, 'om.uproject')
 local exe = path.join(engine, 'Engine/Binaries/Win64/UnrealEditor-Cmd.exe')
@@ -37,6 +43,9 @@ assert(path.is_file(exe), 'selected engine commandlet executable is missing')
 assert(not path.exists(path.join(project_dir, 'Saved/BuildTemp/source-engine-bootstrap.json')),
   'finish pending source-engine initialization before acceptance')
 require('ue_binary_preflight').require_ready(engine, project)
+assert(path.is_file(path.join(b.root,'omb/target/release/moba-config.exe'))
+    or path.is_file(path.join(b.root,'omb/target/debug/moba-config.exe')),
+  'HUD selection acceptance requires moba-config.exe; build explicitly: cargo build --manifest-path omb/Cargo.toml -p omobab --bin moba-config')
 require('moba_stage_contract').verify(require('moba_stage_contract').bindings(b.root))
 process.supervise_workflow(source, arg)
 
@@ -157,7 +166,8 @@ local native_ok, native_failure = xpcall(function()
 end, debug.traceback)
 -- The IPC phase always runs. A native failure must not omit it or count it as accepted.
 local ipc_ok, ipc_result = xpcall(function()
-  return ipc.run({ue_root = engine, run_id = run_id .. '-ipc', record_video = record_video})
+  local runner = owned_execution == 'phased' and require('ue_owned_phase_coverage') or ipc
+  return runner.run({ue_root = engine, run_id = run_id .. '-ipc', record_video = record_video})
 end, debug.traceback)
 if ipc_ok then report.owned_viewport_ipc = ipc_result
 else report.owned_viewport_ipc = {executed = false, success = false, not_run = 1, failed = 1, tests = {}, error = ipc_result} end

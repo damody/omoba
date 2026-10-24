@@ -50,6 +50,9 @@ test('finalized handoff changes only the bound human hero',function()
   source.summoner_loadouts={['1']={'training_point_blink_v1',json.null}}
   local selected=launch.selection_result(reply_with(equipped),source,1,'testhash')
   assert(selected.summoner_loadouts['1'][1]=='training_point_blink_v1')
+  equipped.summoner_loadouts={['1']={'training_self_shield_v1',json.null}}
+  source.summoner_loadouts={['1']={'training_self_shield_v1',json.null}}
+  assert(launch.selection_result(reply_with(equipped),source,1,'testhash').summoner_loadouts['1'][1]=='training_self_shield_v1')
   local omitted=launch.select_heroes(baseline,{})
   omitted.summoner_loadouts={}
   assert(launch.selection_result(reply_with(launch.select_heroes(baseline,{[1]='training_ranger'})),omitted,1,'testhash'))

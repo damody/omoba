@@ -14,6 +14,7 @@ use std::{
 const VERSION: u32 = 1;
 mod workflow_supervisor;
 mod owned_run;
+mod elevated_run;
 
 #[cfg(windows)]
 fn monotonic_ms() -> Result<Value, String> {
@@ -1271,6 +1272,7 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "workflow_supervise" => workflow_supervisor::supervise(&request.params),
         "workflow_member" => workflow_supervisor::member(&request.params),
         "run" => run_command(&request.params),
+        "run_elevated" => elevated_run::run(&request.params),
         "spawn" => spawn(&request.params),
         "run_owned_to_files" => owned_run::run(&request.params),
         "inspect" => inspect(&request.params),

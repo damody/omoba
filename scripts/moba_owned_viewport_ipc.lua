@@ -608,7 +608,15 @@ end
 
 function M.expected_cases(phase)
   phase = phase or 'full'
-  assert(phase == 'full' or phase == 'communication' or phase == 'selection' or phase == 'accessibility' or phase == 'tail', 'unknown owned viewport phase')
+  assert(phase == 'full' or phase == 'foundation' or phase == 'communication' or phase == 'selection' or phase == 'accessibility' or phase == 'tail', 'unknown owned viewport phase')
+  if phase == 'foundation' then
+    local copy = {}
+    for _, spec in ipairs(M.expected_cases('full')) do
+      if spec[1] == 'ward-ready-status' then return copy end
+      copy[#copy + 1] = spec
+    end
+    error('owned foundation boundary is missing')
+  end
   if phase == 'tail' then
     local copy, selected = {}, false
     for _,spec in ipairs(M.expected_cases('full'))do
@@ -726,7 +734,7 @@ local function check_history(startup, history, phase)
     end
   end
   local replaced_epoch = source_epoch
-  if phase == 'full' then
+  if phase == 'full' or phase == 'foundation' then
   local death_hold, baseline_death, death_cast, baseline_cast, replacement, removal, baseline, disclosure, replaced, final = table.unpack(history)
   assert(integer(death_hold.source_render_id, 'source death source') == 11, 'source death changed the owned render id')
   assert(integer(death_hold.source_disclosure_epoch, 'source death epoch') == source_epoch, 'source death bumped the owned epoch')
@@ -800,7 +808,7 @@ local function check_history(startup, history, phase)
   local floor = replaced_epoch
   local source_id = 11
   local actor_generation = floor
-  for index = phase == 'full' and 11 or 1, #history do
+  for index = (phase == 'full' or phase == 'foundation') and 11 or 1, #history do
     local ack = history[index]
     local stage = stages[index]
     if stage == 'baseline' or stage == 'communication_ready' or stage == 'communication_received' or stage == 'communication_signals' or stage == 'communication_signals_expired' or stage == 'communication_hud' then
@@ -1360,7 +1368,7 @@ function M.run(options)
     return report
   end
   local phase = options.phase or 'full'
-  if phase ~= 'full' and phase ~= 'communication' and phase ~= 'selection' and phase ~= 'accessibility' and phase ~= 'tail' then
+  if phase ~= 'full' and phase ~= 'foundation' and phase ~= 'communication' and phase ~= 'selection' and phase ~= 'accessibility' and phase ~= 'tail' then
     report.error = 'unknown owned viewport phase'; finish_tests(); return report
   end
   report.phase, report.full_case_inventory = phase, phase == 'full'
@@ -1445,10 +1453,6 @@ function M.run(options)
     state.editor = editor_owned
     assert(process.wait_owned(editor_owned, left), 'owned editor exceeded the shared deadline')
     local native = json.read(native_report)
-    if options.record_video then
-      report.video = require('owned_window_video').verify(evidence, native)
-      json.write(path.join(evidence, 'owned-window-video.json'), report.video, false)
-    end
     local loaded = M.open_dependent_artifacts(native, function()
       return {
         intents = lines_of(path.read(path.join(evidence, 'intents.jsonl'), true)),
@@ -1457,6 +1461,10 @@ function M.run(options)
         ue_index = path.read(path.join(ue_report, 'index.json'), true),
       }
     end)
+    if options.record_video then
+      report.video = require('owned_window_video').verify(evidence, native)
+      json.write(path.join(evidence, 'owned-window-video.json'), report.video, false)
+    end
     M.verify_artifacts({
       phase = phase,
       startup = startup,
@@ -1470,7 +1478,7 @@ function M.run(options)
       local bytes = assert(path.read(path.join(evidence, name), true), 'missing owned display capture: ' .. name)
       assert(bytes:sub(1, 8) == '\137PNG\13\10\26\10', name .. ' is not a png')
     end
-    if phase == 'full' then
+    if phase == 'full' or phase == 'foundation' then
       assert_display_png('display-hud-visible.png')
       assert_display_png('display-hud-hidden.png')
       assert_display_png('display-settings-visible.png')
@@ -1549,7 +1557,7 @@ end
 
 if is_entry() then
   if arg[1] == '--help' or arg[1] == nil then
-    print([[Usage: tools\lua\lua.exe scripts\moba_owned_viewport_ipc.lua --ue-root PATH [--run-id ID] [--phase full|communication|selection|accessibility|tail]
+    print([[Usage: tools\lua\lua.exe scripts\moba_owned_viewport_ipc.lua --ue-root PATH [--run-id ID] [--phase full|foundation|communication|selection|accessibility|tail]
 Builds the compiled-content fixture, starts it on loopback, and runs Om.Runtime.OwnedViewportIpc.
 A wire intent is local admission only. This entry does not run full local acceptance.]])
     if arg[1] == nil then os.exit(2) end

@@ -59,8 +59,22 @@ for _,parallel in ipairs{1,4,64}do
   assert(flags['-MaxParallelActions='..parallel])
 end
 local defaults=planner.ordinary_build_args{project=project}
-assert(#defaults==8, 'ordinary defaults must not add a resource cap or enable action cache')
+assert(#defaults==9 and has(defaults,'-NoUBTMakefiles') and has(plan.args,'-NoUBTMakefiles'), 'ordinary defaults must not add a resource cap or enable action cache')
 for _,parallel in ipairs{0,65,1.5,-1}do
   assert(not pcall(planner.ordinary_build_args,{project=project,parallel=parallel}))
 end
 print('Ordinary NoEngineChanges resource-cap and structured project arguments passed')
+for _,version in ipairs{'Latest','Preview','14.44.35207','14.44.35229.0'}do
+  assert(planner.compiler_version(version)==version)
+  local selected=planner.plan(opts{build_executor='local',compiler_version=version})
+  local flag='-CompilerVersion='..version
+  assert(has(selected.args,flag) and has(selected.shader_args,flag))
+  local normal=planner.ordinary_build_args{project=project,compiler_version=version}
+  assert(has(normal,flag) and has(normal,'-NoEngineChanges'))
+end
+for _,version in ipairs{'','14','14.44','14.44.35207.','latest','Latest -NoEngineChanges','../14.44'}do
+  assert(not pcall(planner.compiler_version,version))
+end
+reject(opts{compiler_version='Latest'},'requires a local build')
+reject(opts{compiler_version='Latest',build_executor='local',mode='verify'},'requires a local build')
+print('Explicit compiler selection stays identical across bootstrap, shader prerequisite and ordinary gate')

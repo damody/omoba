@@ -20,6 +20,11 @@ assert(not p.exists(evidence) and not p.exists(output),'fresh audio output evide
 local report={schema='omoba.original-audio-output-summary.v1',run_id=id,success=false,authority_games=0,no_sound_flag=false,physical_speaker_audibility_verified=false}
 local ok,err=xpcall(function()
  local args={project,'-unattended','-nop4','-nosplash','-d3d12','-AudioMixer','-NoLiveCoding',
+  -- This owned realtime recorder must render while its unattended window is unfocused.
+  -- Engine command-line config is process-local; preserve user focus and persistent settings.
+  '-ini:Engine:[Audio]:UnfocusedVolumeMultiplier=1.0',
+  '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:bAllowBackgroundAudio=True',
+  '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:EditorVolumeLevel=1.0',
   '-om-original-audio-output='..id,'-ExecCmds=Automation RunTests Om.Runtime.OriginalAudioOutput',
   '-TestExit=Automation Test Queue Empty','-ReportExportPath='..p.join(evidence,'native-report'),'-abslog='..p.join(evidence,'native-engine.log')}
  local result=r.run(p.join(engine,'Engine/Binaries/Win64/UnrealEditor-Cmd.exe'),args,{cwd=p.join(b.root,'omfue'),check=false})

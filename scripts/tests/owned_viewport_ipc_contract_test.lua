@@ -1090,4 +1090,59 @@ do
   assert(not pcall(ipc.validate_owner_control_wire_intent,{kind='InputScheme',schema_version=1,scheme=256}));count=count+1
 end
 -- Unit tests remain self-contained and do not require ignored local editor-run files.
+do
+  local coverage=require('ue_owned_phase_coverage')
+  local foundation=copy()
+  foundation.phase='foundation';foundation.native.phase='foundation';foundation.native.full_case_inventory=false
+  for index=#foundation.native.cases,295,-1 do table.remove(foundation.native.cases,index) end
+  for index=#foundation.intents,121,-1 do table.remove(foundation.intents,index) end
+  for index=#foundation.history,104,-1 do table.remove(foundation.history,index) end
+  foundation.ack=foundation.history[#foundation.history]
+  assert(#ipc.expected_cases('foundation')==294 and #ipc.expected_stages('foundation')==103)
+  assert(ipc.verify_artifacts(foundation));count=count+1
+  local tail=json.decode(json.encode(bundle):gsub('ipc%-contract','ipc-contract-tail'))
+  tail.phase='tail';tail.native.phase='tail';tail.native.full_case_inventory=false
+  tail.startup.published_sequence=tail.history[103].published_sequence
+  tail.startup.source_disclosure_epoch=tail.history[103].source_disclosure_epoch
+  tail.startup.target_disclosure_epoch=tail.history[103].target_disclosure_epoch
+  tail.native.source_disclosure_epoch=tail.startup.source_disclosure_epoch
+  tail.native.target_disclosure_epoch=tail.startup.target_disclosure_epoch
+  for index=1,294 do table.remove(tail.native.cases,1) end
+  for index=1,120 do table.remove(tail.intents,1) end
+  for index=1,103 do table.remove(tail.history,1) end
+  for index,line in ipairs(tail.intents) do line.observation_ordinal=index end
+  for index,stage in ipairs(tail.history) do stage.sequence=index end
+  for _,record in ipairs(tail.native.cases) do
+    if record.first_ordinal>0 then
+      record.first_ordinal=record.first_ordinal-120;record.last_ordinal=record.last_ordinal-120
+      for index=1,#record.intents do record.intents[index]=json.encode(tail.intents[record.first_ordinal+index-1]) end
+    end
+  end
+  tail.ack=tail.history[#tail.history]
+  tail.native.accessible_input={}
+  for index,spec in ipairs(coverage.expected_cursor_observations()) do
+    tail.native.accessible_input[index]={case=spec[1],observation=spec[2],user=0,
+      before_x=1,before_y=2,after_x=spec[3] and 3 or 1,after_y=2,expected_motion=spec[3]}
+  end
+  local samples={foundation,tail}
+  local accepted=coverage.verify_union(samples)
+  assert(accepted.cases==458 and accepted.intents==222 and accepted.stages==157 and accepted.cursor_observations==13)
+  count=count+1
+  local function reject_union(mutate,needle)
+    local bad=json.decode(json.encode(samples));mutate(bad)
+    local ok,err=pcall(coverage.verify_union,bad)
+    assert(not ok and tostring(err):find(needle,1,true),tostring(err));count=count+1
+  end
+  reject_union(function(s) table.remove(s) end,'phase count mismatch')
+  reject_union(function(s) s[1],s[2]=s[2],s[1] end,'phase order mismatch')
+  reject_union(function(s) s[2].cleanup=nil end,'cleanup proof is missing')
+  reject_union(function(s) s[2].native.full_case_inventory=true end,'phase cannot claim a full case inventory')
+  reject_union(function(s) table.remove(s[1].native.cases) end,'native case inventory mismatch')
+  reject_union(function(s) s[2].native.generated_content_hash='different';s[2].native.compiled_content_hash='different' end,'phase content or ABI identity drifted')
+  reject_union(function(s) table.remove(s[2].native.accessible_input) end,'cursor observation count mismatch')
+  reject_union(function(s) s[2].native.accessible_input[1].after_x=1 end,'cursor motion proof differs')
+  reject_union(function(s) s[2].native.accessible_input[3]=s[2].native.accessible_input[1] end,'cursor case mismatch')
+  reject_union(function(s) s[2].cleanup.listener_released=false end,'listener was not released')
+  reject_union(function(s) s[2].history[1].published_sequence=0 end,'published sequence does not match actual IPC envelopes')
+end
 print('owned viewport IPC contract: ' .. count .. ' cases passed')

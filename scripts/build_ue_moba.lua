@@ -17,7 +17,7 @@ local ue_root
 local build_executor = 'default'
 local disable_action_cache = false
 local prefetch_shared_pch = false
-local bootstrap_engine, refresh_engine, max_parallel_actions
+local bootstrap_engine, refresh_engine, max_parallel_actions, compiler_version
 
 local i = 1
 while i <= #arg do
@@ -47,7 +47,11 @@ while i <= #arg do
   elseif value == '--max-parallel-actions' then
     i = i + 1
     max_parallel_actions = engine_bootstrap.parallel_actions(arg[i])
+  elseif value == '--compiler-version' then
+    i = i + 1
+    compiler_version = engine_bootstrap.compiler_version(arg[i])
   elseif value == '--help' or value == '-h' then
+    print('Optional local compiler selection: --compiler-version Latest|Preview|MSVC_VERSION (applies to all UE build stages)')
     print('Usage: tools/lua/lua.exe scripts/build_ue_moba.lua [--build-only|--full|--verify-staged-only] [--ue-root PATH] [--build-executor default|local] [--disable-action-cache] [--prefetch-shared-pch] [--max-parallel-actions 1..64] [--bootstrap-engine|--refresh-engine]')
     return
   else
@@ -64,6 +68,8 @@ assert(not max_parallel_actions or (build_executor == 'local' and mode ~= 'verif
   '--max-parallel-actions requires a local build')
 assert(not prefetch_shared_pch or (build_executor == 'local' and mode ~= 'verify'),
   '--prefetch-shared-pch requires a local build')
+assert(not compiler_version or (build_executor == 'local' and mode ~= 'verify'),
+  '--compiler-version requires a local build')
 if mode == 'build' then process.supervise_workflow(script, arg) end
 
 local function verify_stage_consistency()
@@ -92,6 +98,7 @@ if pending then
 end
 local engine_plan = engine_bootstrap.plan{
 	build_executor=build_executor,
+  compiler_version=compiler_version,
   disable_action_cache=disable_action_cache,
   requested=bootstrap_engine, refresh=refresh_engine, parallel=bootstrap_engine and max_parallel_actions or nil, mode=mode,
   editor_present=path.is_file(editor_exe),
@@ -106,6 +113,8 @@ if engine_plan.initialize and pending then
 end
 -- Every later stage must use the same engine selected for admission.
 ue_root = engine_root
+local cbindgen_version = require('ue_build_prerequisites').require_ready(process)
+print('[moba-ue] cbindgen prerequisite ready: '..cbindgen_version)
 
 local function run_stage(label, exe, args, cwd, env)
   print('[moba-ue] ' .. label)
@@ -206,7 +215,8 @@ if build_executor == 'local' then
     print(('[moba-ue] PCH prefetch: %d files, %d bytes, %d over-budget skips; not an integrity check'):format(result.files,result.bytes,result.skipped))
   end
   local local_build_args = engine_bootstrap.ordinary_build_args{
-    project=path.join(omfue,'om.uproject'), parallel=max_parallel_actions, disable_action_cache=disable_action_cache}
+    project=path.join(omfue,'om.uproject'), parallel=max_parallel_actions, disable_action_cache=disable_action_cache,
+    compiler_version=compiler_version}
   -- UE5.8 always uses the UBA local executor; NoUBA disables detours, not
   -- its action cache. This explicit per-run option isolates cache stalls.
   run_stage('compile OmGame with local executor', engine_build, local_build_args, omfue, build_env)

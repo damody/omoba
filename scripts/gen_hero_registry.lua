@@ -42,6 +42,10 @@ local function validate_levels(ability)
     assert(type(required)=='number' and required%1==0 and required>=previous and required<=25,
       ability.id..': rank '..rank..' required_hero_level must be monotonic in 1..=25')
     previous=required
+    assert(level.cast_interrupt_on_damage==nil or type(level.cast_interrupt_on_damage)=='boolean',
+      ability.id..': cast_interrupt_on_damage must be boolean')
+    assert(not level.cast_interrupt_on_damage or (type(level.cast_time)=='number' and authored_number(level.cast_time)>=1/1024 and authored_number(level.cast_time)<=60),
+      ability.id..': cast_interrupt_on_damage requires cast_time in [1/1024,60]')
     for _,field in ipairs({'cooldown','mana_cost','cast_time','range'}) do
       local value=level[field]
       if value==nil then value=0 end
@@ -131,7 +135,7 @@ local function effect_code(ability, effect)
     assert(scalar(value),
       ability.id .. ' effect amount_key ' .. key .. ' must be zero or finite in [1/1024,1000000]')
   end
-  if effect.kind == 'damage' or effect.kind == 'area_damage' then
+  if effect.kind == 'damage' or effect.kind == 'area_damage' or effect.kind=='cone_damage' or effect.kind=='damage_over_time_enemy' then
     local kinds = {physical = 'Physical', magical = 'Magical', pure = 'Pure'}
     local kind = kinds[effect.damage_kind]
     assert(kind, ability.id .. ' effect has invalid damage_kind')
@@ -141,6 +145,27 @@ local function effect_code(ability, effect)
       local range=authored_number(rank.range)
       assert(range~=nil and range>=1/1024 and range<=10000,
         ability.id..' targeted cast range must be in [1/1024,10000]')
+    end
+    if effect.kind=='cone_damage' then
+      assert(#ability.effects==1 and ability.target_type=='point' and ability.cast_type=='instant'
+        and (ability.ability_type=='active' or ability.ability_type=='ultimate') and not ability.aim_geometry,
+        ability.id..' cone_damage requires one exclusive instant point effect')
+      local angle_key=identifier(effect.half_angle_key,ability.id..' cone half_angle_key')
+      local angles=ability.extras and ability.extras[angle_key]
+      assert(type(angles)=='table' and #angles==ability.max_level,ability.id..' requires per-rank cone angle')
+      for _,angle in ipairs(angles) do angle=authored_number(angle)
+        assert(angle and angle>=1/1024 and angle<=authored_number(math.pi/2),ability.id..' invalid cone angle') end
+      return string.format('crate::generic_effects::EffectOp::ConeDamage { amount_key: "%s", half_angle_key: "%s", kind: omb_script_abi::types::DamageKind::%s }',key,angle_key,kind)
+    end
+    if effect.kind=='damage_over_time_enemy' then
+      local duration_key=identifier(effect.duration_key,ability.id..' DoT duration_key')
+      local durations=ability.extras and ability.extras[duration_key]
+      assert(type(durations)=='table' and #durations==ability.max_level,ability.id..' requires per-rank DoT duration')
+      for _,duration in ipairs(durations) do
+        duration=authored_number(duration)
+        assert(duration and duration>=1/1024 and duration<=60,ability.id..' invalid DoT duration')
+      end
+      return string.format('crate::generic_effects::EffectOp::DamageOverTimeEnemy { amount_key: "%s", duration_key: "%s", kind: omb_script_abi::types::DamageKind::%s }',key,duration_key,kind)
     end
     if effect.kind == 'area_damage' then
       local radius_key=identifier(effect.radius_key,ability.id..' effect radius_key')
@@ -197,10 +222,12 @@ for _, hero in ipairs(heroes) do
         assert(#ability.effects<=32,ability_id..' exceeds 32 effects')
         local effects = {}
         local mana_stats={}
+        local dot_seen=false
         local unit_allegiance
         for _, effect in ipairs(ability.effects) do
+          if effect.kind=='damage_over_time_enemy' then assert(not dot_seen,ability_id..' duplicate DoT effect');dot_seen=true end
           local allegiance=effect.kind=='heal_ally' and 'ally'
-            or ((effect.kind=='damage' or effect.kind=='slow_enemy' or effect.kind=='stun_enemy' or effect.kind=='control_enemy') and 'enemy')
+            or ((effect.kind=='damage' or effect.kind=='damage_over_time_enemy' or effect.kind=='slow_enemy' or effect.kind=='stun_enemy' or effect.kind=='control_enemy') and 'enemy')
           if allegiance then
             assert(not unit_allegiance or unit_allegiance==allegiance,
               ability_id..' conflicting unit target allegiance')
@@ -211,11 +238,13 @@ for _, hero in ipairs(heroes) do
             mana_stats[effect.stat]=true
           end
           assert((effect.kind == 'damage' and ability.target_type == 'unit') or
+            (effect.kind == 'damage_over_time_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'heal_ally' and ability.target_type == 'unit') or
             (effect.kind == 'slow_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'stun_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'control_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'area_damage' and ability.target_type == 'point') or
+            (effect.kind == 'cone_damage' and ability.target_type == 'point') or
             (effect.kind == 'dash_to_point' and ability.target_type == 'point') or
             ((effect.kind == 'heal_self' or effect.kind == 'restore_mana_self' or effect.kind == 'spend_mana_self' or effect.kind=='mana_buff_self')
               and ability.target_type == 'none'),

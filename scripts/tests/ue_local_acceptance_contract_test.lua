@@ -125,11 +125,17 @@ reject_phase('failed test counter', function(r) r.failed = 1 end, 'failed tests'
 reject_phase('wrong test name', function(r) r.tests[1].name = 'Om.Runtime.Other' end, 'unexpected')
 reject_phase('incomplete state', function(r) r.tests[1].state = 'Fail' end, 'failed or incomplete')
 reject_phase('error count', function(r) r.tests[1].errors = 1 end, 'failed or incomplete')
+reject_phase('tail cannot replace full coverage', function(r) r.phase='tail' end, 'feature phase cannot satisfy full acceptance')
+reject_phase('phased flag cannot forge coverage', function(r) r.execution_mode='phased';r.single_session_full_success=true end,
+  'phased coverage cannot claim single-session success')
+reject_phase('phased summary cannot omit raw evidence', function(r)
+  r.execution_mode='phased';r.single_session_full_success=false;r.full_case_coverage=true;r.full_case_inventory=false
+end, 'phase report count mismatch')
 
 local acceptance = path.read(path.join(b.root, 'scripts/ue_local_acceptance.lua'))
 assert(acceptance:find("require('moba_owned_viewport_ipc')", 1, true), 'acceptance does not load the IPC workflow')
 assert(acceptance:find('require_owned_viewport_phase', 1, true), 'acceptance can omit the IPC phase')
-local call_at = assert(acceptance:find('ipc%.run%('), 'acceptance does not call the IPC workflow')
+local call_at = assert(acceptance:find('runner%.run%('), 'acceptance does not call the selected IPC workflow')
 local window = acceptance:sub(math.max(1, call_at - 120), call_at - 1)
 assert(not window:find('native_ok', 1, true), 'IPC invocation is gated on the disconnected native result: ' .. window)
 count = count + 3
