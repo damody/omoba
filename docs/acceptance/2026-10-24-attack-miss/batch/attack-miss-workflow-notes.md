@@ -1,0 +1,5 @@
+# Acceptance reuse
+
+This cohort retains failed RustV1 and accepts complete fresh RustV2/buildV2/nativeV2/sourceV2. Final own baseline is source-before-v2.json/config-v2/inputs-v2. Source-v2 additionally binds the original failed Windows1 receipt and proves four identical runtime inputs plus one changed fixture. Seal-v2 requires that recovery proof. Never clone these cohort-specific failure gates into a future clean batch that has no failed RustV1.
+
+For a future batch use the ordinary strict parent-binding source-v1 structure and generic native-accuracy-seal-v1 structure, adapting actual new parent Rust count/index/own baseline and literal config-derived prefix. The current finalized index must bind its own source-before-v2 row. Preserve helpers once executed/archived; create new versions for recovery. Archive retries require exact-byte equality; use new retirement paths when preserving an orphaned previous attempt. Do not silently rewrite sealed indexes, claim newly bound historical snapshots were originally sealed, or replace raw failure evidence with a pass.

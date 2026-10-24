@@ -1,0 +1,683 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "041CBCF54B16505CC34E8883E9A3D687",
+			"instanceName": "DESKTOP-4TQA8NV-15176",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-10.18.00",
+	"succeeded": 26,
+	"succeededWithWarnings": 5,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.8050541877746582,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "AbilityCastCue",
+			"fullTestPath": "Om.Generated.AbilityCastCue",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.16312560439109802,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "AbilityCueStyle",
+			"fullTestPath": "Om.Generated.AbilityCueStyle",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0077314004302024841,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "AbilityInputPolicy",
+			"fullTestPath": "Om.Generated.AbilityInputPolicy",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0088780969381332397,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ActorContentRebinding",
+			"fullTestPath": "Om.Generated.ActorContentRebinding",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.14363409578800201,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogOmWorldBridge: OM_TERRAIN expected=0 instances=0 rebuild=1 collision=0 navigation=0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.17.59"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogStreaming: FlushAsyncLoading(414): 1 QueuedPackages, 0 AsyncPackages",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.17.59"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSkeletalMesh: [AssetLog] D:\\omoba\\omfue\\Content\\OmGenerated\\Heroes\\saika_magoichi\\RecipeV1\\Mesh\\saika_magoichi.uasset: Fix LOD 0 Section 2 Material index from 2 to 0. The fallback value is 0. The value is not pointing on a valid Material slot index.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.17.59"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Snapshot restores persistent visual without add event' to be 1, but it was 0.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmEditorAutomationTests.cpp",
+					"lineNumber": 4108,
+					"timestamp": "2026.10.20-10.17.59"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Reused fallback restores baseline' to be 1, but it was 0.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmEditorAutomationTests.cpp",
+					"lineNumber": 4118,
+					"timestamp": "2026.10.20-10.17.59"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Control-only frame keeps baseline' to be 1, but it was 0.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmEditorAutomationTests.cpp",
+					"lineNumber": 4122,
+					"timestamp": "2026.10.20-10.17.59"
+				}
+			],
+			"warnings": 0,
+			"errors": 3,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "AnimationStateSmoke",
+			"fullTestPath": "Om.Generated.AnimationStateSmoke",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.016218502074480057,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "BlueprintSurface",
+			"fullTestPath": "Om.Generated.BlueprintSurface",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.011534303426742554,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "BuffEffectLifecycle",
+			"fullTestPath": "Om.Generated.BuffEffectLifecycle",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.015043497085571289,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CollisionTerrainPresentation",
+			"fullTestPath": "Om.Generated.CollisionTerrainPresentation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.034695502370595932,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CompiledCatalogContract",
+			"fullTestPath": "Om.Generated.CompiledCatalogContract",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0074952021241188049,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CompiledContentReloadPolicy",
+			"fullTestPath": "Om.Generated.CompiledContentReloadPolicy",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.01899540051817894,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_6.Untitled:PersistentLevel.OmFallbackUnitActor_0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.17.59"
+				}
+			],
+			"warnings": 1,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CompiledRuntimeCatalogReloadRejection",
+			"fullTestPath": "Om.Generated.CompiledRuntimeCatalogReloadRejection",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.026298500597476959,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "DisconnectedHud",
+			"fullTestPath": "Om.Generated.DisconnectedHud",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.033456303179264069,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FogGeometryKey",
+			"fullTestPath": "Om.Generated.FogGeometryKey",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.010779697448015213,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FrameConsumption",
+			"fullTestPath": "Om.Generated.FrameConsumption",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0083654969930648804,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FrameContract",
+			"fullTestPath": "Om.Generated.FrameContract",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.017203301191329956,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogOmWorldBridge: OM_PRESENTATION rejected frame: Unsupported authoritative game mode",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.17.59"
+				}
+			],
+			"warnings": 1,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FrameGeometryRanges",
+			"fullTestPath": "Om.Generated.FrameGeometryRanges",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.017532799392938614,
+			"dateTime": "2026.10.20-10.17.59",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogOmWorldBridge: OM_PRESENTATION rejected frame: Presentation route point range is out of bounds",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.17.59"
+				}
+			],
+			"warnings": 1,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "FrameTextContract",
+			"fullTestPath": "Om.Generated.FrameTextContract",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0069750994443893433,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "GenericAnimationOverlay",
+			"fullTestPath": "Om.Generated.GenericAnimationOverlay",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0080756992101669312,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "NativeAttackPhaseCursor",
+			"fullTestPath": "Om.Generated.NativeAttackPhaseCursor",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0075167007744312286,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "NativeHeroPresentation",
+			"fullTestPath": "Om.Generated.NativeHeroPresentation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.019912399351596832,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "OwnedBuffListSnapshot",
+			"fullTestPath": "Om.Generated.OwnedBuffListSnapshot",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.03359290212392807,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "OwnedInputUnavailableHud",
+			"fullTestPath": "Om.Generated.OwnedInputUnavailableHud",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.035862099379301071,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "PresentationPerfWindow",
+			"fullTestPath": "Om.Generated.PresentationPerfWindow",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0076589025557041168,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ProjectileCueHistory",
+			"fullTestPath": "Om.Generated.ProjectileCueHistory",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0076635032892227173,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ProjectileCueStyle",
+			"fullTestPath": "Om.Generated.ProjectileCueStyle",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.0077026002109050751,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "PublicTreePresentation",
+			"fullTestPath": "Om.Generated.PublicTreePresentation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.023883000016212463,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RememberedGhostPresentation",
+			"fullTestPath": "Om.Generated.RememberedGhostPresentation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.020193800330162048,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_14.Untitled:PersistentLevel.OmFallbackUnitActor_0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.18.00"
+				}
+			],
+			"warnings": 1,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RuntimePresentationReset",
+			"fullTestPath": "Om.Generated.RuntimePresentationReset",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.032416600733995438,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_15.Untitled:PersistentLevel.OmMapRouteActor_0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.18.00"
+				},
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_15.Untitled:PersistentLevel.OmFallbackUnitActor_0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.18.00"
+				},
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_15.Untitled:PersistentLevel.OmMapRouteActor_1",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.18.00"
+				},
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_15.Untitled:PersistentLevel.OmFallbackUnitActor_1",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-10.18.00"
+				}
+			],
+			"warnings": 4,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SaikaEventDispatch",
+			"fullTestPath": "Om.Generated.SaikaEventDispatch",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.011314500123262405,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "SaikaMetadata",
+			"fullTestPath": "Om.Generated.SaikaMetadata",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.007608901709318161,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ScriptEventDispatch",
+			"fullTestPath": "Om.Generated.ScriptEventDispatch",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.011577099561691284,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "WorldBridgeSyntheticFrameSmoke",
+			"fullTestPath": "Om.Generated.WorldBridgeSyntheticFrameSmoke",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"041CBCF54B16505CC34E8883E9A3D687"
+			],
+			"duration": 0.022112701088190079,
+			"dateTime": "2026.10.20-10.18.00",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}

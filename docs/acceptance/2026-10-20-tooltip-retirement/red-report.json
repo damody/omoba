@@ -1,0 +1,321 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "AAE03CB146E47D7E5104A88E1D70682C",
+			"instanceName": "DESKTOP-4TQA8NV-5384",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-05.54.42",
+	"succeeded": 0,
+	"succeededWithWarnings": 0,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.55871957540512085,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "ReadableHudToolTip",
+			"fullTestPath": "Om.Runtime.ReadableHudToolTip",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"AAE03CB146E47D7E5104A88E1D70682C"
+			],
+			"duration": 0.55871957540512085,
+			"dateTime": "2026.10.20-05.54.41",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogUIActionRouter: Found 0 derived classes when attemping to create action router (CommonUIActionRouterBase)",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseCaptureMode Changed, CapturePermanently_IncludingInitialMouseDown -> NoCapture",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseLockMode Changed, LockOnCapture -> DoNotLock",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogStreaming: FlushAsyncLoading(379): 1 QueuedPackages, 0 AsyncPackages",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseCaptureMode Changed, NoCapture -> CaptureDuringMouseDown",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Synchronously lazy loading font file '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' with subface index 0 in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Took 0.001068 seconds to synchronously load lazily loaded font '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' (3848K) on Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Freetype font face in memory successfully created with synchronously loaded raw font file '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' subface 0 in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Font face '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' subface index 0 successfully added to font face map in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_SCOREBOARD player=1 rows=0 tick=0 value=",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Actual tooltip owner window DPI 1.500; additional DPI values above are layout-model cases, not OS changes.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseCaptureMode Changed, CaptureDuringMouseDown -> NoCapture",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=112.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=112.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Fitting hint before final paint: valid=1 contains=0 sameWindow=1 parent=SBox passiveParent=1 geometry=[Abs=X=320.000 Y=305.000, Scale=1.00, Size=X=480.000 Y=193.000]",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Fitting hint final hit: valid=1 contains=0 point=X=710.000 Y=551.500 last=SViewport",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=112.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "tooltip setup 800x600 text1 requested=X=842.000 Y=648.500 cursor=X=842.000 Y=648.000 card=[Abs=X=674.000 Y=471.000, Scale=1.00, Size=X=36.000 Y=55.000] hostShowing=0 hit=SWindow[None]>SOverlay[None]>SVerticalBox[None]>SVerticalBox[None]>SOverlay[None]>SViewport[None]>SGameLayerManager[None]>SDPIScaler[None]>SVerticalBox[None]>SOverlay[None]>SBox[None]>SOverlay[None]>SConstraintCanvas[None]>SObjectWidget[None]>SOmHudResolutionNormalizer[None]>SOmHudToolTipHost[OmHudToolTipHost]>SOverlay[None]>SOverlay[OmHudNormalizedContent]>SBox[None]>SBox[OmCombatViewport]>SScrollBox[OmCombatScroll]>SHorizontalBox[None]>SOverlay[None]>SScrollPanel[None]>SBorder[OmCombatCluster]>SVerticalBox[None]>SGridPanel[OmGameplayHotbar]>SBox[None]>SGridPanel[None]>SBox[None]>SWrapBox[None]>SOmSummonerCardHit[OmItemStatus.0]>SButton[OmItemCard.0]>",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "tooltip 800x600 text1 pixels=X=480.000 Y=576.000 scale=1.000 wheel=X=602.000 Y=462.000 hitScroll=1 handled=1 offset=0.0->32.0 end=959.0 interactive=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,190.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=75.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=177.0 skills=276.0 inventory=152.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "tooltip setup 800x600 text2 requested=X=802.000 Y=629.000 cursor=X=802.000 Y=629.000 card=[Abs=X=634.000 Y=445.000, Scale=1.00, Size=X=36.000 Y=68.000] hostShowing=0 hit=SWindow[None]>SOverlay[None]>SVerticalBox[None]>SVerticalBox[None]>SOverlay[None]>SViewport[None]>SGameLayerManager[None]>SDPIScaler[None]>SVerticalBox[None]>SOverlay[None]>SBox[None]>SOverlay[None]>SConstraintCanvas[None]>SObjectWidget[None]>SOmHudResolutionNormalizer[None]>SOmHudToolTipHost[OmHudToolTipHost]>SOverlay[None]>SOverlay[OmHudNormalizedContent]>SBox[None]>SBox[OmCombatViewport]>SScrollBox[OmCombatScroll]>SHorizontalBox[None]>SOverlay[None]>SScrollPanel[None]>SBorder[OmCombatCluster]>SVerticalBox[None]>SGridPanel[OmGameplayHotbar]>SBox[None]>SGridPanel[None]>SBox[None]>SWrapBox[None]>SOmSummonerCardHit[OmItemStatus.0]>SButton[OmItemCard.0]>",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "tooltip 800x600 text2 pixels=X=480.000 Y=576.000 scale=1.000 wheel=X=562.000 Y=462.000 hitScroll=1 handled=1 offset=0.0->32.0 end=3698.0 interactive=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.54.42"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Unavailable tooltip host restores prior reading focus' to be true.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmPlayerHudOwnerTests.cpp",
+					"lineNumber": 741,
+					"timestamp": "2026.10.20-05.54.42"
+				}
+			],
+			"warnings": 0,
+			"errors": 1,
+			"artifacts": []
+		}
+	]
+}

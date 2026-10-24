@@ -1,0 +1,57 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "CC32C46D4F87946CB6E3ADB09BB36265",
+			"instanceName": "DESKTOP-4TQA8NV-8116",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-02.28.10",
+	"succeeded": 0,
+	"succeededWithWarnings": 0,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.27420219779014587,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "CameraRuntimeScope",
+			"fullTestPath": "Om.Runtime.CameraRuntimeScope",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"CC32C46D4F87946CB6E3ADB09BB36265"
+			],
+			"duration": 0.27420219779014587,
+			"dateTime": "2026.10.20-02.28.10",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Camera scope profile applies' to be true.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmCameraProfileTests.cpp",
+					"lineNumber": 203,
+					"timestamp": "2026.10.20-02.28.10"
+				}
+			],
+			"warnings": 0,
+			"errors": 1,
+			"artifacts": []
+		}
+	]
+}

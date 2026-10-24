@@ -1,0 +1,9 @@
+# Formation preview scope
+
+Add shared facing-relative requested-slot guidance for existing authored formation. Keep point command/range semantics, resource/control gates and existing server placement. Single-machine acceptance only; whole-group outcome settlement, channels/zones, combat replicas and external11 accepts remain pending. MVP33/44 unchanged.
+
+V1 passed1972 Rust/60 native tests and3411-input consistency, followed by21 reviewed images. A post-acceptance audit found rows were not yet passed through executor constants. After every V1 reader/worker/watcher retired, added compiled/runtime AbilityConst rows, consumed by the handler, row4 geometry and runtime reload guards. V2 repeats the consolidated matrix with1973 Rust tests; all V1 artifacts remain evidence, not overwritten failures.
+
+Concrete follow-up: existing runtime tuning can change numeric extras while native metadata is generated at build time. Rows are now pinned, but general rank count/spacing/front-distance hot-reload coherence still needs a scoped shared policy/guard across generated aim contracts. Do not claim all numeric geometry tuning is synchronized by this batch. This is a useful next single-machine gap before inventing new channel content.
+
+Visual review: all21 V1 PNGs were explicitly viewed after V1 world retirement. After V2 world retirement, compared every final PNG by SHA256:18 are byte-identical to already viewed V1 pixels; reviewed the three changed V2 PNGs (layered-map viewport, first-kill, summon character). Saved per-image SHA/review-source proof and require it during seal/independent verification. New formation diagram shows8 intended slots and actual2×4 tooltip; its cooldown0/0 is default fixture state, not an authored balance assertion. Existing first-kill lower HUD cropping, objective narrow strip and hero/focused overlaps remain explicit limits. Map orientation, gameplay tooltip/status and summon render regressions remain consistent.

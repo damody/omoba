@@ -1,0 +1,1 @@
+{"expected_failure":true,"identity":{"creation_token":"134369197184562756","executable":"D:\\UE5.8\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe","pid":40336},"reason":"E1387: shared FinishShopCase bypasses foundation boundary; retire editor before editing","success":false}

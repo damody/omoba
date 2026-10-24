@@ -1,0 +1,333 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "A9D322ED49FA039BE79154AFE6A36D3E",
+			"instanceName": "DESKTOP-4TQA8NV-10388",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-03.38.39",
+	"succeeded": 0,
+	"succeededWithWarnings": 0,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 1.6119035482406616,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "ShopUndoProjectionAndPin",
+			"fullTestPath": "Om.Runtime.ShopUndoProjectionAndPin",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"A9D322ED49FA039BE79154AFE6A36D3E"
+			],
+			"duration": 1.6119035482406616,
+			"dateTime": "2026.10.20-03.38.38",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Synchronously lazy loading font file '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' with subface index 0 in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Took 0.000938 seconds to synchronously load lazily loaded font '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' (3848K) on Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Freetype font face in memory successfully created with synchronously loaded raw font file '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' subface 0 in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Font face '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' subface index 0 successfully added to font face map in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,201.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=75.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=194.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "roomy large text shop allotted 800.0x602.0 painted 620.0x480.0 absolute 930.0x720.0 preferred 620.0x480.0 windowLocal 806.0x640.0 windowAbsolute 1209.0x960.0 dpi 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "narrow large text shop allotted 266.7x202.0 painted 250.7x186.0 absolute 376.0x279.0 preferred 620.0x480.0 windowLocal 272.7x240.0 windowAbsolute 409.0x360.0 dpi 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,190.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=75.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=166.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,190.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=75.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=166.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,190.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=75.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=166.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogUIActionRouter: Found 0 derived classes when attemping to create action router (CommonUIActionRouterBase)",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseCaptureMode Changed, CapturePermanently_IncludingInitialMouseDown -> NoCapture",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseLockMode Changed, LockOnCapture -> DoNotLock",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogStreaming: FlushAsyncLoading(379): 1 QueuedPackages, 0 AsyncPackages",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=134.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=134.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=154.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=154.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=154.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=154.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=154.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=154.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogOmWorldBridge: OM_TERRAIN expected=0 instances=0 rebuild=1 collision=0 navigation=0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-03.38.39"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Runtime stop immediately retires scoreboard hold' to be false.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmShopUndoUiTests.cpp",
+					"lineNumber": 1083,
+					"timestamp": "2026.10.20-03.38.39"
+				}
+			],
+			"warnings": 0,
+			"errors": 1,
+			"artifacts": []
+		}
+	]
+}

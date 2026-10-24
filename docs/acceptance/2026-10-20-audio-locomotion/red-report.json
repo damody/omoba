@@ -1,0 +1,69 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "7A577ECD45662016E8F1A484566CF850",
+			"instanceName": "DESKTOP-4TQA8NV-43448",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-13.45.56",
+	"succeeded": 0,
+	"succeededWithWarnings": 0,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.074147000908851624,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "AudioResourceScope",
+			"fullTestPath": "Om.Runtime.AudioResourceScope",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"7A577ECD45662016E8F1A484566CF850"
+			],
+			"duration": 0.074147000908851624,
+			"dateTime": "2026.10.20-13.45.56",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogStreaming: FlushAsyncLoading(379): 1 QueuedPackages, 0 AsyncPackages",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-13.45.56"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Foreign audio owner cannot consume current movement transition' to be 2, but it was 1.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmAudioPresentationTests.cpp",
+					"lineNumber": 152,
+					"timestamp": "2026.10.20-13.45.56"
+				}
+			],
+			"warnings": 0,
+			"errors": 1,
+			"artifacts": []
+		}
+	]
+}

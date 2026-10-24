@@ -1,0 +1,12 @@
+# 連殺終結賞金錯誤紀錄
+
+- B01：探索時猜測moba_assist位於moba_match子目錄及獨立OmScoreboardWidget.cpp，讀取失敗；實際assist為native/moba_assist.rs，計分板須先rg --files再讀，不憑類型名稱組檔名。
+- B02：OpenSpec CLI前輪已確認不可用，沿現有手動artifacts；不重試安裝、不新增工作流fallback。功能範圍依使用者不再確認的授權自行選定。
+- B03：複用Saved驗收helper時，廣域prefix替換連既有CastProgressLifecycle測試名稱也改掉；啟動World前讀回發現並保留原名稱。helper路徑／run-id與正式automation test ID須分開替換，不能把沒執行的名稱算通過。
+- B04：首次核心驗收兩個新fixture失敗：process_outcomes的傷害與延後Death需兩次drain，新測試只drain一次就手動重生而破壞slot／unit對應；修正測試先完成死亡。另8連殺依150＋5×100為650金，不是700，改9連殺驗cap。正式規則不放寬，保留V1完整失敗log，最終全套待V1及watcher退休再重跑。
+- B05：WorldV1 automation雖成功，但目視新賞金PNG只有外框沒有資料列；獨立Slate fixture先設State後TakeWidget，且沒有一般HUD NativeTick建列。不能把visible與PNG非空當文字已渲染；改TakeWidget後設資料並assert真實OmPublicScore.1存在。保留原PNG／report，重新build-v2及WorldV2，來源基準重新擷取；不是修改正式遊戲規則。
+- B06：同一V1的正式60Hz技能測試已正確取得450金，卻要求同step entity立刻None；既有模擬將Death延到下一step，改驗同step HP致死／公開賞金立即零值，下一step正式退休且金額不重付。與B04同類生命期測試誤判，不把權威Death改成同步。既有World清理四warning另保留原report，不寫成零警告。
+- B07：V2正式技能測試下一step發現450變460；真正原因是通用death_tick依Unit預設gold_reward再次發金／XP，繞過正式MOBA唯一獎勵路徑。新增可選MobaMatch資源閘，正式MOBA仍發Death但不發通用附近獎勵，舊模式保留；加直接system與正式60Hz回歸。這是正式修正，須build-v3、最終RustV3／WorldV3及新來源基準，保留V2失敗。探索時又猜錯abilities／initializer路徑，查找不應憑命名組路徑。
+- B08：V3新正式賞金案例通過，既有三路完整重播最後seed在24000 tick／400秒期限仍Playing（塔數持續下降，已執行雙隊hash皆一致）；舊fixture依賴重複Unit XP帶來較快成長。全authored-map生命期測試改明確有界20分鐘game-time，依fps換算，保留勝方、每位死亡重生、每step無repair／hash、單次game.end與15step凍結全部斷言。不是恢復重複獎勵或改生產平衡；最終RustV4與第四來源基準，UE／後端最後正式建置仍v3。
+
+最終V4全套1721通過／10既有ignored；該最後seed於tick24224結束，tick24238完成15step凍結接受，實際約404秒，沒有跑滿新上限。V1／V2／V3失敗與WorldV1空白賞金圖均保留，最終原生WorldV3為36成功（35 Success＋1 SuccessWithWarnings／4既有清理warning）。

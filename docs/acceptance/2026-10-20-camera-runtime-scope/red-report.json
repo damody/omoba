@@ -1,0 +1,57 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "B37A684A4800C4B71B5167B710906E68",
+			"instanceName": "DESKTOP-4TQA8NV-24668",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-02.30.05",
+	"succeeded": 0,
+	"succeededWithWarnings": 0,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.36513468623161316,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "CameraRuntimeScope",
+			"fullTestPath": "Om.Runtime.CameraRuntimeScope",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"B37A684A4800C4B71B5167B710906E68"
+			],
+			"duration": 0.36513468623161316,
+			"dateTime": "2026.10.20-02.30.05",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Runtime stop immediately retires temporary camera follow' to be false.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmCameraProfileTests.cpp",
+					"lineNumber": 221,
+					"timestamp": "2026.10.20-02.30.05"
+				}
+			],
+			"warnings": 0,
+			"errors": 1,
+			"artifacts": []
+		}
+	]
+}

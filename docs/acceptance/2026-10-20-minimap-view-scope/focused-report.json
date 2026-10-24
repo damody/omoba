@@ -1,0 +1,4181 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "71BC253F4AFD5553E93AE9B177229C2A",
+			"instanceName": "DESKTOP-4TQA8NV-43812",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-05.33.45",
+	"succeeded": 19,
+	"succeededWithWarnings": 1,
+	"failed": 0,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 30.601543426513672,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "WindowVideoContainer",
+			"fullTestPath": "Om.Editor.WindowVideoContainer",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.007664702832698822,
+			"dateTime": "2026.10.20-05.33.14",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "RuntimePresentationReset",
+			"fullTestPath": "Om.Generated.RuntimePresentationReset",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.040181901305913925,
+			"dateTime": "2026.10.20-05.33.14",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_1.Untitled:PersistentLevel.OmMapRouteActor_0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_1.Untitled:PersistentLevel.OmFallbackUnitActor_0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_1.Untitled:PersistentLevel.OmMapRouteActor_1",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Warning",
+						"message": "LogSpawn: UWorld::DestroyActor: World has no context! World: Untitled, Actor: /Temp/Untitled_1.Untitled:PersistentLevel.OmFallbackUnitActor_1",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				}
+			],
+			"warnings": 4,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ActionFeedbackCorrelation",
+			"fullTestPath": "Om.Runtime.ActionFeedbackCorrelation",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.0047344975173473358,
+			"dateTime": "2026.10.20-05.33.14",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "AnimationSnapshotOrdering",
+			"fullTestPath": "Om.Runtime.AnimationSnapshotOrdering",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.20866739749908447,
+			"dateTime": "2026.10.20-05.33.14",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroSaikaMagoichi",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroDateMasamune",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroTrainingLuminary",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroTrainingApprentice",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroTrainingVanguard",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroTrainingRanger",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroTrainingSupport",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.14"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "CameraRuntimeScope",
+			"fullTestPath": "Om.Runtime.CameraRuntimeScope",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.29295861721038818,
+			"dateTime": "2026.10.20-05.33.15",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "MinimapPreferences",
+			"fullTestPath": "Om.Runtime.MinimapPreferences",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 4.3826746940612793,
+			"dateTime": "2026.10.20-05.33.15",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "RightSpace paintPress=X=854.000 Y=710.000 paintDrag=X=910.000 Y=654.000 paintOrigin=X=826.000 Y=626.000 paintLocal=X=112.000 Y=112.000 arrangedPress=X=854.000 Y=1010.000 arrangedDrag=X=910.000 Y=954.000 arrangedOrigin=X=826.000 Y=926.000 arrangedLocal=X=112.000 Y=112.000 windowPos=X=150.000 Y=150.000 dpi=1.500 windowSize=X=1200.000 Y=900.000 viewport=X=800.000 Y=600.000 arrangedUnderPress=0 tickUnderPress=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.17"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "RightDrag camera=X=7500.000 Y=7500.000 Z=0.000 expected=X=7500.000 Y=7500.000 Z=0.000 toleranceCm=0.017583 pixelCm=89.285714 capture=1 inspecting=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.17"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "CapturedDrag camera=X=7500.000 Y=7500.000 Z=0.000 expected=X=7500.000 Y=7500.000 Z=0.000 toleranceCm=0.019712 pixelCm=89.285714 capture=1 inspecting=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.17"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "NameplateRetirementVisibility",
+			"fullTestPath": "Om.Runtime.NameplateRetirementVisibility",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.010571200400590897,
+			"dateTime": "2026.10.20-05.33.19",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "NativeCharacterAssembly",
+			"fullTestPath": "Om.Runtime.NativeCharacterAssembly",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 2.7678899765014648,
+			"dateTime": "2026.10.20-05.33.19",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "source ref root: 0.000000,0.000000,0.000000|0.000000,180.000000,-0.000000|100.000000,100.000000,100.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "source ref pelvis: -0.000000,-0.050100,0.916700|-0.000000,-0.000000,104.458631|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "source ref spine_01: 0.000000,-0.138176,-0.000000|0.000000,-0.000000,-7.419557|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "source ref spine_02: 0.000000,-0.124035,0.000000|-0.000000,-0.000000,-8.864455|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "source ref spine_03: -0.000000,-0.141272,0.000000|0.000000,-0.000000,-0.030779|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "source ref neck_01: -0.000000,-0.172891,0.000000|-0.000000,-0.000000,12.744301|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "original source A_TPose: height_cm=1.8287 bounds=IsValid=true, Min=(X=-0.972 Y=-0.164 Z=0.000), Max=(X=0.972 Y=0.205 Z=1.829) root=0.000000,0.000000,0.000000|0.000000,0.000000,-0.000000|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "original source Idle_Loop: height_cm=1.7747 bounds=IsValid=true, Min=(X=-0.333 Y=-0.327 Z=0.003), Max=(X=0.377 Y=0.367 Z=1.778) root=0.000000,0.000000,0.000000|0.000000,0.000000,-0.000000|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "original source Jog_Fwd_Loop: height_cm=1.5167 bounds=IsValid=true, Min=(X=-0.434 Y=-0.760 Z=0.222), Max=(X=0.326 Y=0.714 Z=1.739) root=0.000000,0.000000,0.000000|0.000000,0.000000,-0.000000|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "original source Sword_Idle: height_cm=1.6046 bounds=IsValid=true, Min=(X=-0.411 Y=-0.556 Z=0.001), Max=(X=0.379 Y=0.529 Z=1.605) root=0.000000,0.000000,0.000000|0.000000,0.000000,-0.000000|1.000000,1.000000,1.000000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.19"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_ranger.M_ranger: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_regular_male.M_regular_male: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "date_masamune idle: vertices=23855 height_cm=168.2748 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture date_masamune-idle: colors=20107 chromatic_pixels=32572",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "date_masamune move: vertices=23855 height_cm=157.6641 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "date_masamune attack: vertices=23855 height_cm=135.9891 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture date_masamune-attack: colors=18655 chromatic_pixels=33445",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture date_masamune-recall: colors=20710 chromatic_pixels=35082",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture date_masamune-cast: colors=20639 chromatic_pixels=35223",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture date_masamune-hit: colors=20289 chromatic_pixels=34195",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture date_masamune-death: colors=18515 chromatic_pixels=28804",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture date_masamune-respawn: colors=21218 chromatic_pixels=35647",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_peasant.M_peasant: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_luminary idle: vertices=9484 height_cm=151.9411 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_luminary-idle: colors=14738 chromatic_pixels=28374",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_luminary move: vertices=9484 height_cm=130.5571 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_luminary attack: vertices=9484 height_cm=153.5507 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_luminary-attack: colors=14897 chromatic_pixels=28549",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_luminary-recall: colors=14738 chromatic_pixels=28374",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_luminary-cast: colors=14897 chromatic_pixels=28549",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_luminary-hit: colors=14995 chromatic_pixels=27859",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_luminary-death: colors=14460 chromatic_pixels=22158",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_luminary-respawn: colors=14991 chromatic_pixels=28702",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_peasant.M_peasant: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_apprentice idle: vertices=9484 height_cm=150.8200 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_apprentice-idle: colors=14168 chromatic_pixels=26060",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.20"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_apprentice move: vertices=9484 height_cm=130.5571 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_apprentice attack: vertices=9484 height_cm=153.5507 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_apprentice-attack: colors=14894 chromatic_pixels=28560",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_apprentice-recall: colors=14765 chromatic_pixels=28370",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_apprentice-cast: colors=14894 chromatic_pixels=28560",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_apprentice-hit: colors=15020 chromatic_pixels=27885",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_apprentice-death: colors=14478 chromatic_pixels=22134",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_apprentice-respawn: colors=14988 chromatic_pixels=28689",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_peasant.M_peasant: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_regular_male.M_regular_male: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_vanguard idle: vertices=8215 height_cm=154.1805 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_vanguard-idle: colors=15427 chromatic_pixels=32470",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_vanguard move: vertices=8215 height_cm=135.4132 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_vanguard attack: vertices=8215 height_cm=150.8394 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_vanguard-attack: colors=15407 chromatic_pixels=31231",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_vanguard-recall: colors=16256 chromatic_pixels=33280",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_vanguard-cast: colors=16433 chromatic_pixels=33627",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_vanguard-hit: colors=15664 chromatic_pixels=33048",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_vanguard-death: colors=15022 chromatic_pixels=25139",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_vanguard-respawn: colors=16235 chromatic_pixels=33991",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_ranger.M_ranger: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_regular_male.M_regular_male: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_ranger idle: vertices=23855 height_cm=183.8812 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_ranger-idle: colors=19572 chromatic_pixels=33715",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_ranger move: vertices=23855 height_cm=157.6641 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_ranger attack: vertices=23855 height_cm=184.0777 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_ranger-attack: colors=20294 chromatic_pixels=34184",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_ranger-recall: colors=20283 chromatic_pixels=34014",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_ranger-cast: colors=20294 chromatic_pixels=34184",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_ranger-hit: colors=20546 chromatic_pixels=34359",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.21"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_ranger-death: colors=18027 chromatic_pixels=27033",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_ranger-respawn: colors=20859 chromatic_pixels=34452",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_ranger.M_ranger: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "material /Game/Omoba/Characters/MaterialsV1/materials/M_regular_female.M_regular_female: resource=1 compiled=1 shader_map=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_support idle: vertices=23812 height_cm=176.4555 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_support-idle: colors=18856 chromatic_pixels=31246",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_support move: vertices=23812 height_cm=151.7761 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_support attack: vertices=23812 height_cm=177.3208 root_scale=X=100.000 Y=100.000 Z=100.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_support-attack: colors=18815 chromatic_pixels=31462",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_support-recall: colors=18860 chromatic_pixels=31179",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_support-cast: colors=18815 chromatic_pixels=31462",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_support-hit: colors=19001 chromatic_pixels=31107",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_support-death: colors=17326 chromatic_pixels=25811",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "capture training_support-respawn: colors=19107 chromatic_pixels=31592",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "NativeCombatVfxLifecycle",
+			"fullTestPath": "Om.Runtime.NativeCombatVfxLifecycle",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.22213810682296753,
+			"dateTime": "2026.10.20-05.33.22",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture recall: chromatic_pixels=17757 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture recall-fx-only: chromatic_pixels=18754 fx_only=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture area: chromatic_pixels=27167 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture cone: chromatic_pixels=13220 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture cone-fx-only: chromatic_pixels=13663 fx_only=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture formation: chromatic_pixels=34995 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture fan: chromatic_pixels=11813 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture projectile-origin: chromatic_pixels=4478 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture impact: chromatic_pixels=4483 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture impact-fx-only: chromatic_pixels=4770 fx_only=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "combat capture buff: chromatic_pixels=10111 fx_only=0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "PieActionOwnerMatrix",
+			"fullTestPath": "Om.Runtime.PieActionOwnerMatrix",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 2.658233642578125,
+			"dateTime": "2026.10.20-05.33.22",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Actual standalone PIE sessions across native and unchanged original Blueprint, two native window modes, and available actual monitor DPI. Disconnected PresentationIpc port 0; no authority match or ACK.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Actual monitor index=0 name=SKG0001 native=3840x2160 primary=1 scale=1.5000 rect=0,0,2560,1368",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "No distinct actual OS 100/150 monitor pair: record observed DPI only; the full OS DPI matrix remains pending.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.22"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE actual controller=/Script/OmRuntime.OmPlayerController game_mode=OmPieNativeGameMode_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.23"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE round=0 controller=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.OmPlayerController_0 pawn=OmRtsCameraPawn_0 view_target=OmRtsCameraPawn_0 owner=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.OmPlayerController_0.OmPlayerActionOwnerComponent_0 local=/Engine/Transient.UnrealEdEngine_0:LocalPlayer_2",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.23"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE geometry round=0 mode=2 native_mode=2 os_dpi=1.5000 physical_px=960x543 focus=SPIEViewport hit_test=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.23"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE actual controller=/Script/OmRuntime.OmPlayerController game_mode=OmPieNativeGameMode_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.23"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE round=1 controller=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.OmPlayerController_0 pawn=OmRtsCameraPawn_0 view_target=OmRtsCameraPawn_0 owner=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.OmPlayerController_0.OmPlayerActionOwnerComponent_0 local=/Engine/Transient.UnrealEdEngine_0:LocalPlayer_3",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.23"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE geometry round=1 mode=1 native_mode=1 os_dpi=1.5000 physical_px=2551x1383 focus=SPIEViewport hit_test=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.23"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE actual controller=/Game/RustBP/System/BP_PlayerController.BP_PlayerController_C game_mode=OmPieBlueprintGameMode_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.24"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE round=2 controller=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.BP_PlayerController_C_0 pawn=OmRtsCameraPawn_0 view_target=OmRtsCameraPawn_0 owner=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.BP_PlayerController_C_0.OmPlayerActionOwnerComponent_0 local=/Engine/Transient.UnrealEdEngine_0:LocalPlayer_4",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.24"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE geometry round=2 mode=2 native_mode=2 os_dpi=1.5000 physical_px=960x543 focus=SPIEViewport hit_test=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.24"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE actual controller=/Game/RustBP/System/BP_PlayerController.BP_PlayerController_C game_mode=OmPieBlueprintGameMode_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.25"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE round=3 controller=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.BP_PlayerController_C_0 pawn=OmRtsCameraPawn_0 view_target=OmRtsCameraPawn_0 owner=/Temp/UEDPIE_0_Untitled_8.Untitled:PersistentLevel.BP_PlayerController_C_0.OmPlayerActionOwnerComponent_0 local=/Engine/Transient.UnrealEdEngine_0:LocalPlayer_5",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.25"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "PIE geometry round=3 mode=1 native_mode=1 os_dpi=1.5000 physical_px=2551x1383 focus=SPIEViewport hit_test=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.25"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "PlayableMvpHud",
+			"fullTestPath": "Om.Runtime.PlayableMvpHud",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.87694162130355835,
+			"dateTime": "2026.10.20-05.33.25",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "MVP HUD 1920x1080 actual logical combat=X=640.000 Y=153.000 hotbar=X=628.000 Y=145.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.25"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "MVP HUD 1280x720 actual logical combat=X=640.000 Y=153.000 hotbar=X=628.000 Y=145.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.25"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "MVP HUD 800x600 actual logical combat=X=640.000 Y=153.000 hotbar=X=628.000 Y=145.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.25"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "MVP HUD 1920x1080 actual logical combat=X=640.000 Y=153.000 hotbar=X=628.000 Y=145.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "MVP HUD 1280x720 actual logical combat=X=640.000 Y=153.000 hotbar=X=628.000 Y=145.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "MVP HUD 800x600 actual logical combat=X=640.000 Y=153.000 hotbar=X=628.000 Y=145.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Production HUD with explicit synthetic public state, real viewport/Slate paint; no authority game or ACK.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "PublicHeroCombatRoster",
+			"fullTestPath": "Om.Runtime.PublicHeroCombatRoster",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.018961500376462936,
+			"dateTime": "2026.10.20-05.33.26",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "saika_magoichi",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "No dedicated hit clip: configured generic pose plus the shared animated hit cue.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "No dedicated respawn clip: configured generic pose plus the shared animated life cue.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "date_masamune",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_luminary",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_apprentice",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_vanguard",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_ranger",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "training_support",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "PublicUnitSelection",
+			"fullTestPath": "Om.Runtime.PublicUnitSelection",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.061588499695062637,
+			"dateTime": "2026.10.20-05.33.26",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "PublicUnitTeamMarkers",
+			"fullTestPath": "Om.Runtime.PublicUnitTeamMarkers",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.05253249779343605,
+			"dateTime": "2026.10.20-05.33.26",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ResponsiveHudLayout",
+			"fullTestPath": "Om.Runtime.ResponsiveHudLayout",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 5.2956194877624512,
+			"dateTime": "2026.10.20-05.33.26",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Client sizes below are fixture viewport sizes. They are not a process DPI scale change.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Fit signature includes viewport, HudScale, MinimapScale, TextScale, colorblind mode, HUD visibility, profile revision, and presented text. TrySet writes the profile, so this test does not change HudScale.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Own-window Slate geometry below is the fixture client size. It is not a measured OS DPI scale.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "fixture 800x600 viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | normalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x153.0 abs 640.0x153.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | hotkey0 paint 34.0x19.0 abs 34.0x19.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "fixture 800x600 fit outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "fixture 800x600 window=(390.0,390.0)-(1190.0,990.0) hud=(390.0,390.0)-(1190.0,990.0) viewport=800x600",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 400x300 for 800x600 at DPI 2, not process scale viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 900.9x675.7 abs 400.0x300.0 layout 0.444 render 0.444 tickLayout 0.444 tickRender 0.444 | normalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 296.0x237.0 abs 296.0x237.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | hotkey0 paint 34.0x19.0 abs 34.0x19.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 400x300 for 800x600 at DPI 2, not process scale fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=239.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=111.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=239.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 400x300 for 800x600 at DPI 2, not process scale window=(390.0,390.0)-(790.0,690.0) hud=(390.0,390.0)-(790.0,690.0) viewport=400x300",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.26"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 1280x720 viewport 1280x720 curve 0.666 viewportLayout 1.500 windowDpi 1.500 window paint 853.3x480.0 abs 1280.0x720.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 1921.9x1081.1 abs 1280.0x720.0 layout 0.666 render 0.666 tickLayout 0.666 tickRender 0.666 | normalized paint 1280.0x720.0 abs 1280.0x720.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x153.0 abs 640.0x153.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | hotkey0 paint 34.0x19.0 abs 34.0x19.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 1280x720 fit outer=120.0 stack=0 combatW=640.0 inset=28.0 limit=639.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=28.0 reserves=0 render=-248.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 1280x720 window=(390.0,390.0)-(1670.0,1110.0) hud=(390.0,390.0)-(1670.0,1110.0) viewport=1280x720",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 1920x1080 viewport 1920x1080 curve 1.000 viewportLayout 1.500 windowDpi 1.500 window paint 1280.0x720.0 abs 1920.0x1080.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 1920.0x1080.0 abs 1920.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | normalized paint 1920.0x1080.0 abs 1920.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x153.0 abs 640.0x153.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | hotkey0 paint 34.0x19.0 abs 34.0x19.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 1920x1080 fit outer=120.0 stack=0 combatW=640.0 inset=28.0 limit=999.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=28.0 reserves=0 render=-568.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical 1920x1080 window=(390.0,390.0)-(2310.0,1470.0) hud=(390.0,390.0)-(2310.0,1470.0) viewport=1920x1080",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical wide 2560x1080 viewport 2560x1080 curve 1.000 viewportLayout 1.500 windowDpi 1.500 window paint 1706.7x720.0 abs 2560.0x1080.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 2560.0x1080.0 abs 2560.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | normalized paint 2560.0x1080.0 abs 2560.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x153.0 abs 640.0x153.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | hotkey0 paint 34.0x19.0 abs 34.0x19.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical wide 2560x1080 fit outer=120.0 stack=0 combatW=640.0 inset=28.0 limit=999.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=28.0 reserves=0 render=-888.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "logical wide 2560x1080 window=(390.0,390.0)-(2950.0,1470.0) hud=(390.0,390.0)-(2950.0,1470.0) viewport=2560x1080",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Short minimap desktop (402.0,540.0)-(474.0,612.0) tick 402.0,540.0 center 438.0,576.0 hit SOmMinimap user 0 window (390.0,390.0)-(790.0,624.0) body (486.0,443.0)-(782.0,616.0) fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=173.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=45.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=173.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=85.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=173.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=45.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=173.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=85.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=173.0 combat=(296.0,173.0) mini=(80.0,80.0) clause=pass bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "No-fit 80x60 fit outer=16.0 stack=0 combatW=40.0 inset=8.0 limit=-39.0 combat=(40.0,947.0) mini=(16.0,16.0) clause=limit bands hero=59.0 ability=463.0 economy=54.0 items=340.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=28.0\nouter=16.0 stack=1 combatW=64.0 inset=32.0 limit=-63.0 combat=(64.0,947.0) mini=(16.0,16.0) clause=limit bands hero=59.0 ability=463.0 economy=54.0 items=340.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=52.0\nouter=16.0 stack=0 combatW=40.0 inset=8.0 limit=-39.0 combat=(40.0,947.0) mini=(16.0,16.0) clause=limit bands hero=59.0 ability=463.0 economy=54.0 items=340.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=28.0\nouter=16.0 stack=1 combatW=64.0 inset=32.0 limit=-63.0 combat=(64.0,947.0) mini=(16.0,16.0) clause=limit bands hero=59.0 ability=463.0 economy=54.0 items=340.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=52.0\nouter=16.0 stack=1 combatW=64.0 inset=32.0 limit=-63.0 combat=(64.0,1.0) mini=(16.0,16.0) clause=limit bands hero=59.0 ability=463.0 economy=54.0 items=340.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=36.0\nfit result fitted=0 compact=1 combatW=64.0 stack=1 inset=32.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "No-fit minimap (402.0,430.0)-(410.0,438.0) combat (398.0,417.0)-(462.0,418.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "roomy text 1 shop allotted 800.0x600.0 painted 620.0x480.0 absolute 620.0x480.0 preferred 620.0x480.0 viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "roomy text 1 shop diagnostics window=1 closeInside=1 searchInside=1 labels=1/1/1 fonts=11.0/11.0/11.0 expected=11 closeHit=1 settingsRouting=1 settingsEnabled=0 panel=(480.0,450.0)-(1100.0,930.0) close=(1012.0,468.0)-(1082.0,497.0) search=(498.0,509.0)-(1070.0,534.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "narrow text 1 shop allotted 400.0x300.0 painted 384.0x284.0 absolute 384.0x284.0 preferred 620.0x480.0 viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "narrow text 1 shop diagnostics window=1 closeInside=1 searchInside=1 labels=1/1/1 fonts=11.0/11.0/11.0 expected=11 closeHit=1 settingsRouting=1 settingsEnabled=0 panel=(398.0,398.0)-(782.0,682.0) close=(694.0,416.0)-(764.0,445.0) search=(416.0,457.0)-(752.0,482.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "roomy text 2 shop allotted 800.0x600.0 painted 620.0x480.0 absolute 620.0x480.0 preferred 620.0x480.0 viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "roomy text 2 shop diagnostics window=1 closeInside=1 searchInside=1 labels=1/1/1 fonts=18.0/18.0/18.0 expected=18 closeHit=1 settingsRouting=1 settingsEnabled=0 panel=(480.0,450.0)-(1100.0,930.0) close=(994.0,468.0)-(1082.0,507.0) search=(498.0,519.0)-(1070.0,554.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "narrow text 2 shop allotted 400.0x300.0 painted 384.0x284.0 absolute 384.0x284.0 preferred 620.0x480.0 viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "narrow text 2 shop diagnostics window=1 closeInside=1 searchInside=1 labels=1/1/1 fonts=18.0/18.0/18.0 expected=18 closeHit=1 settingsRouting=1 settingsEnabled=0 panel=(398.0,398.0)-(782.0,682.0) close=(676.0,416.0)-(764.0,455.0) search=(416.0,467.0)-(752.0,502.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Recipe click events tag=OmShopRecipe.90 down=1 up=1 selection=90",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 large text scrolls the full recipe line into view font=18 body=18 required=1 start=1 end=1 span=1 close=1 restText=0.00 restView=197.00 topText=467.00 topView=467.00 bottomText=664.00 bottomView=664.00 offsets=671.50/586.50",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.27"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 normal text scrolls the full recipe line into view font=11 body=11 required=1 start=1 end=1 span=1 close=1 restText=0.00 restView=207.00 topText=457.00 topView=457.00 bottomText=664.00 bottomView=664.00 offsets=420.50/249.50",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Recipe click events tag=OmShopRecipe.4 down=1 up=1 selection=4",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Recipe click events tag=OmShopIngredient.1 down=1 up=1 selection=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Recipe click events tag=OmShopRecipeBack down=1 up=1 selection=4",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 0.50 at 800x600 body 10 floor 10.00 applied 0.50 widgets 1 fonts 1 (status 10 label 10) floorMath 1 low 1 high 0 uncapped 6 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | settingsNormalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 744.0x15.0 abs 744.0x15.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 732.0x15.0 abs 732.0x15.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 0.95 at 800x600 body 10 floor 10.00 applied 0.95 widgets 1 fonts 1 (status 10 label 10) floorMath 1 low 0 high 0 uncapped 10 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | settingsNormalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 744.0x15.0 abs 744.0x15.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 732.0x15.0 abs 732.0x15.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 0.95 at 800x600 body 11 floor 10.00 applied 0.95 widgets 1 fonts 1 (status 11 label 11) floorMath 1 low 0 high 0 uncapped 11 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | settingsNormalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 744.0x18.0 abs 744.0x18.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 732.0x18.0 abs 732.0x18.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 1.00 at 800x600 body 11 floor 10.00 applied 1.00 widgets 1 fonts 1 (status 11 label 11) floorMath 1 low 0 high 0 uncapped 11 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | settingsNormalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 744.0x18.0 abs 744.0x18.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 732.0x18.0 abs 732.0x18.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 1.25 at 800x600 body 14 floor 12.50 applied 1.25 widgets 1 fonts 1 (status 14 label 14) floorMath 1 low 0 high 0 uncapped 14 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | settingsNormalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 744.0x22.0 abs 744.0x22.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 732.0x22.0 abs 732.0x22.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 1.59 at 800x600 body 17 floor 15.90 applied 1.59 widgets 1 fonts 1 (status 17 label 17) floorMath 1 low 0 high 0 uncapped 17 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | settingsNormalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 744.0x27.0 abs 744.0x27.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 732.0x27.0 abs 732.0x27.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 2.00 at 800x600 body 18 floor 18.00 applied 2.00 widgets 1 fonts 1 (status 18 label 18) floorMath 1 low 0 high 1 uncapped 22 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | settingsNormalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 744.0x28.0 abs 744.0x28.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 732.0x28.0 abs 732.0x28.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 0.50 at 400x300 body 10 floor 10.00 applied 0.50 widgets 1 fonts 1 (status 10 label 10) floorMath 1 low 1 high 0 uncapped 6 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 900.9x675.7 abs 400.0x300.0 layout 0.444 render 0.444 tickLayout 0.444 tickRender 0.444 | settingsNormalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 344.0x15.0 abs 344.0x15.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 332.0x15.0 abs 332.0x15.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 1.00 at 400x300 body 11 floor 10.00 applied 1.00 widgets 1 fonts 1 (status 11 label 11) floorMath 1 low 0 high 0 uncapped 11 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 900.9x675.7 abs 400.0x300.0 layout 0.444 render 0.444 tickLayout 0.444 tickRender 0.444 | settingsNormalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 344.0x18.0 abs 344.0x18.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 332.0x18.0 abs 332.0x18.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 1.25 at 400x300 body 14 floor 12.50 applied 1.25 widgets 1 fonts 1 (status 14 label 14) floorMath 1 low 0 high 0 uncapped 14 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 900.9x675.7 abs 400.0x300.0 layout 0.444 render 0.444 tickLayout 0.444 tickRender 0.444 | settingsNormalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 344.0x44.0 abs 344.0x44.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 332.0x22.0 abs 332.0x22.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Settings text 2.00 at 400x300 body 18 floor 18.00 applied 2.00 widgets 1 fonts 1 (status 18 label 18) floorMath 1 low 0 high 1 uncapped 22 statusPaint 1 labelPaint 1 labelPainted 1 | viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | settingsRoot paint 900.9x675.7 abs 400.0x300.0 layout 0.444 render 0.444 tickLayout 0.444 tickRender 0.444 | settingsNormalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | status paint 344.0x56.0 abs 344.0x56.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | label paint 332.0x28.0 abs 332.0x28.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.25 at 800x600 fit outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=535.0 combat=(640.0,166.0) mini=(120.0,120.0) clause=pass bands hero=65.0 ability=72.0 economy=29.0 items=120.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=161.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.25 at 800x600 viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | normalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x165.0 abs 640.0x165.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.25 capture is own-window Slate geometry 800x600, not measured OS DPI.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 2.00 at 800x600 fit outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,207.0) mini=(120.0,120.0) clause=pass bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 2.00 at 800x600 viewport 800x600 curve 0.555 viewportLayout 1.500 windowDpi 1.500 window paint 533.3x400.0 abs 800.0x600.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 1441.4x1081.1 abs 800.0x600.0 layout 0.555 render 0.555 tickLayout 0.555 tickRender 0.555 | normalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x206.0 abs 640.0x206.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 2.00 capture is own-window Slate geometry 800x600, not measured OS DPI.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 at 1280x720 fit outer=120.0 stack=0 combatW=640.0 inset=28.0 limit=630.0 combat=(640.0,198.0) mini=(120.0,120.0) clause=pass bands hero=76.0 ability=77.0 economy=34.0 items=64.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=186.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=28.0 reserves=0 render=-248.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 at 1280x720 viewport 1280x720 curve 0.666 viewportLayout 1.500 windowDpi 1.500 window paint 853.3x480.0 abs 1280.0x720.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 1921.9x1081.1 abs 1280.0x720.0 layout 0.666 render 0.666 tickLayout 0.666 tickRender 0.666 | normalized paint 1280.0x720.0 abs 1280.0x720.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x197.0 abs 640.0x197.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 capture is own-window Slate geometry 1280x720, not measured OS DPI.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 at 1920x1080 fit outer=120.0 stack=0 combatW=640.0 inset=28.0 limit=990.0 combat=(640.0,198.0) mini=(120.0,120.0) clause=pass bands hero=76.0 ability=77.0 economy=34.0 items=64.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=186.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=28.0 reserves=0 render=-568.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 at 1920x1080 viewport 1920x1080 curve 1.000 viewportLayout 1.500 windowDpi 1.500 window paint 1280.0x720.0 abs 1920.0x1080.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 1920.0x1080.0 abs 1920.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | normalized paint 1920.0x1080.0 abs 1920.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x197.0 abs 640.0x197.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 capture is own-window Slate geometry 1920x1080, not measured OS DPI.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 at 2560x1080 fit outer=120.0 stack=0 combatW=640.0 inset=28.0 limit=990.0 combat=(640.0,198.0) mini=(120.0,120.0) clause=pass bands hero=76.0 ability=77.0 economy=34.0 items=64.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=186.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=28.0 reserves=0 render=-888.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 at 2560x1080 viewport 2560x1080 curve 1.000 viewportLayout 1.500 windowDpi 1.500 window paint 1706.7x720.0 abs 2560.0x1080.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 2560.0x1080.0 abs 2560.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | normalized paint 2560.0x1080.0 abs 2560.0x1080.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 640.0x197.0 abs 640.0x197.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.50 capture is own-window Slate geometry 2560x1080, not measured OS DPI.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.25 at 400x300 fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=235.0 combat=(256.0,319.0) mini=(120.0,120.0) clause=combatH bands hero=65.0 ability=135.0 economy=29.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=161.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=107.0 combat=(384.0,242.0) mini=(120.0,120.0) clause=combatH bands hero=65.0 ability=72.0 economy=29.0 items=120.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=161.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=235.0 combat=(296.0,256.0) mini=(80.0,80.0) clause=combatH bands hero=65.0 ability=72.0 economy=29.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=161.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=147.0 combat=(384.0,242.0) mini=(80.0,80.0) clause=combatH bands hero=65.0 ability=72.0 economy=29.0 items=120.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=161.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=235.0 combat=(256.0,319.0) mini=(120.0,120.0) clause=combatH bands hero=65.0 ability=135.0 economy=29.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=161.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=107.0 combat=(384.0,242.0) mini=(120.0,120.0) clause=combatH bands hero=65.0 ability=72.0 economy=29.0 items=120.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=161.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=235.0 combat=(296.0,256.0) mini=(80.0,80.0) clause=combatH bands hero=65.0 ability=72.0 economy=29.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=161.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=147.0 combat=(384.0,242.0) mini=(80.0,80.0) clause=combatH bands hero=65.0 ability=72.0 economy=29.0 items=120.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=161.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=235.0 combat=(296.0,235.0) mini=(80.0,80.0) clause=pass bands hero=65.0 ability=135.0 economy=29.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=161.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.25 at 400x300 viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 900.9x675.7 abs 400.0x300.0 layout 0.444 render 0.444 tickLayout 0.444 tickRender 0.444 | normalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 280.0x318.0 abs 280.0x318.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 1.25 capture is own-window Slate geometry 400x300, not measured OS DPI.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 2.00 at 400x300 fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=229.0 combat=(256.0,366.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=101.0 combat=(384.0,275.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=229.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=141.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=229.0 combat=(256.0,366.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=101.0 combat=(384.0,275.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=229.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=141.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=229.0 combat=(296.0,229.0) mini=(80.0,80.0) clause=pass bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Menu wheel paint=X=387.000 Y=177.500 screen=X=777.000 Y=567.500 nativeWindow=X=390.000 Y=390.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Menu wheel before-front point=X=777.000 Y=567.500 nativeWindow=X=390.000 Y=390.000 path=SWindow:None > SOverlay:None > SVerticalBox:None > SVerticalBox:None > SOverlay:None > SViewport:None > SGameLayerManager:None > SDPIScaler:None > SVerticalBox:None > SOverlay:None > SBox:None > SOverlay:None > SConstraintCanvas:None > SObjectWidget:None > SOmHudResolutionNormalizer:None > SOmHudToolTipHost:OmHudToolTipHost > SOverlay:None > SBox:None > SOmHudToolTip:None > SBorder:None > SBox:OmHudToolTipFrame > SScrollBox:OmHudToolTipScroll > SHorizontalBox:None > SOverlay:None > SScrollPanel:None > STextBlock:OmHudToolTipText",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Menu wheel after-front point=X=777.000 Y=567.500 nativeWindow=X=390.000 Y=390.000 path=SWindow:None > SOverlay:None > SVerticalBox:None > SVerticalBox:None > SOverlay:None > SViewport:None > SGameLayerManager:None > SDPIScaler:None > SVerticalBox:None > SOverlay:None > SBox:None > SOverlay:None > SConstraintCanvas:None > SObjectWidget:None > SOmHudResolutionNormalizer:None > SOmHudToolTipHost:OmHudToolTipHost > SOverlay:None > SOverlay:OmHudNormalizedContent > SBox:None > SBox:OmCombatViewport > SScrollBox:OmCombatScroll > SHorizontalBox:None > SScrollBar:None > SVerticalBox:None > SBorder:None > SScrollBarTrack:None > SOverlay:None > SBorder:None",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Menu wheel paint=X=387.000 Y=177.500 screen=X=777.000 Y=567.500 nativeWindow=X=390.000 Y=390.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Menu wheel before-front point=X=777.000 Y=567.500 nativeWindow=X=390.000 Y=390.000 path=SWindow:None > SOverlay:None > SVerticalBox:None > SVerticalBox:None > SOverlay:None > SViewport:None > SGameLayerManager:None > SDPIScaler:None > SVerticalBox:None > SOverlay:None > SBox:None > SOverlay:None > SConstraintCanvas:None > SObjectWidget:None > SOmHudResolutionNormalizer:None > SOmHudToolTipHost:OmHudToolTipHost > SOverlay:None > SOverlay:OmHudNormalizedContent > SBox:None > SBox:OmCombatViewport > SScrollBox:OmCombatScroll > SHorizontalBox:None > SScrollBar:None > SVerticalBox:None > SBorder:None > SScrollBarTrack:None > SOverlay:None > SBorder:None",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Menu wheel after-front point=X=777.000 Y=567.500 nativeWindow=X=390.000 Y=390.000 path=SWindow:None > SOverlay:None > SVerticalBox:None > SVerticalBox:None > SOverlay:None > SViewport:None > SGameLayerManager:None > SDPIScaler:None > SVerticalBox:None > SOverlay:None > SBox:None > SOverlay:None > SConstraintCanvas:None > SObjectWidget:None > SOmHudResolutionNormalizer:None > SOmHudToolTipHost:OmHudToolTipHost > SOverlay:None > SOverlay:OmHudNormalizedContent > SBox:None > SBox:OmCombatViewport > SScrollBox:OmCombatScroll > SHorizontalBox:None > SScrollBar:None > SVerticalBox:None > SBorder:None > SScrollBarTrack:None > SOverlay:None > SBorder:None",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Menu OmShopToggleLabel at 400x300 text 2.00 window (0.0,0.0)-(400.0,300.0) viewport (96.0,63.0)-(392.0,292.0) label (264.0,250.5)-(312.0,278.5) scroll 0.0 -> 64.0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 2.00 at 400x300 viewport 400x300 curve 0.444 viewportLayout 1.500 windowDpi 1.500 window paint 266.7x200.0 abs 400.0x300.0 layout 1.500 render 1.500 tickLayout 1.500 tickRender 1.500 | root paint 900.9x675.7 abs 400.0x300.0 layout 0.444 render 0.444 tickLayout 0.444 tickRender 0.444 | normalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000 | combat paint 280.0x365.0 abs 280.0x365.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Text scale 2.00 capture is own-window Slate geometry 400x300, not measured OS DPI.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1 left fit outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,77.0) mini=(120.0,120.0) clause=reserve bands hero=59.0 ability=68.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=112.0 available=628.0\nouter=120.0 stack=0 combatW=480.0 inset=8.0 limit=539.0 combat=(480.0,91.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=112.0 available=468.0\nfit result fitted=1 compact=1 combatW=480.0 stack=0 inset=8.0 reserves=1 render=-176.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1 left bounds paintWindow (0.0,0.0)-(800.0,600.0) tickWindow (390.0,390.0)-(1190.0,990.0) combat (136.0,501.0)-(616.0,591.0) minimap (12.0,476.0)-(124.0,588.0) settings (696.0,12.0)-(788.0,37.0) reserved (624.0,40.0)-(792.0,592.0) child 1.802 normalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1 right fit outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,77.0) mini=(120.0,120.0) clause=reserve bands hero=59.0 ability=68.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=112.0 available=628.0\nouter=120.0 stack=0 combatW=480.0 inset=8.0 limit=539.0 combat=(480.0,91.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=112.0 available=468.0\nfit result fitted=1 compact=1 combatW=480.0 stack=0 inset=8.0 reserves=1 render=-304.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1 right bounds paintWindow (0.0,0.0)-(800.0,600.0) tickWindow (390.0,390.0)-(1190.0,990.0) combat (8.0,501.0)-(488.0,591.0) minimap (500.0,476.0)-(612.0,588.0) settings (696.0,12.0)-(788.0,37.0) reserved (624.0,40.0)-(792.0,592.0) child 1.802 normalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1.25 left fit outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=535.0 combat=(640.0,81.0) mini=(120.0,120.0) clause=reserve bands hero=65.0 ability=72.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=112.0 available=628.0\nouter=120.0 stack=0 combatW=480.0 inset=8.0 limit=535.0 combat=(480.0,95.0) mini=(120.0,120.0) clause=pass bands hero=65.0 ability=72.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=112.0 available=468.0\nfit result fitted=1 compact=1 combatW=480.0 stack=0 inset=8.0 reserves=1 render=-176.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1.25 left bounds paintWindow (0.0,0.0)-(800.0,600.0) tickWindow (390.0,390.0)-(1190.0,990.0) combat (136.0,497.0)-(616.0,591.0) minimap (12.0,476.0)-(124.0,588.0) settings (680.0,12.0)-(788.0,41.0) reserved (624.0,40.0)-(792.0,592.0) child 1.802 normalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1.25 right fit outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=535.0 combat=(640.0,81.0) mini=(120.0,120.0) clause=reserve bands hero=65.0 ability=72.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=112.0 available=628.0\nouter=120.0 stack=0 combatW=480.0 inset=8.0 limit=535.0 combat=(480.0,95.0) mini=(120.0,120.0) clause=pass bands hero=65.0 ability=72.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=112.0 available=468.0\nfit result fitted=1 compact=1 combatW=480.0 stack=0 inset=8.0 reserves=1 render=-304.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "800x600 text 1.25 right bounds paintWindow (0.0,0.0)-(800.0,600.0) tickWindow (390.0,390.0)-(1190.0,990.0) combat (8.0,497.0)-(488.0,591.0) minimap (500.0,476.0)-(612.0,588.0) settings (680.0,12.0)-(788.0,41.0) reserved (624.0,40.0)-(792.0,592.0) child 1.802 normalized paint 800.0x600.0 abs 800.0x600.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1 left fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=239.0 combat=(256.0,217.0) mini=(120.0,120.0) clause=reserve bands hero=59.0 ability=127.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=244.0\nouter=120.0 stack=0 combatW=168.0 inset=8.0 limit=239.0 combat=(168.0,218.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=128.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=156.0\nfit result fitted=1 compact=1 combatW=168.0 stack=0 inset=8.0 reserves=1 render=-88.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1 left bounds paintWindow (0.0,0.0)-(400.0,300.0) tickWindow (390.0,390.0)-(790.0,690.0) combat (136.0,74.0)-(304.0,291.0) minimap (12.0,176.0)-(124.0,288.0) settings (296.0,12.0)-(388.0,37.0) reserved (312.0,40.0)-(392.0,292.0) child 2.252 normalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1 right fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=239.0 combat=(256.0,217.0) mini=(120.0,120.0) clause=reserve bands hero=59.0 ability=127.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=244.0\nouter=120.0 stack=0 combatW=168.0 inset=8.0 limit=239.0 combat=(168.0,218.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=128.0 economy=35.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=156.0\nfit result fitted=1 compact=1 combatW=168.0 stack=0 inset=8.0 reserves=1 render=-216.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1 right bounds paintWindow (0.0,0.0)-(400.0,300.0) tickWindow (390.0,390.0)-(790.0,690.0) combat (8.0,74.0)-(176.0,291.0) minimap (188.0,176.0)-(300.0,288.0) settings (296.0,12.0)-(388.0,37.0) reserved (312.0,40.0)-(392.0,292.0) child 2.252 normalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1.25 left fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=235.0 combat=(256.0,231.0) mini=(120.0,120.0) clause=reserve bands hero=65.0 ability=135.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=244.0\nouter=120.0 stack=0 combatW=168.0 inset=8.0 limit=235.0 combat=(168.0,232.0) mini=(120.0,120.0) clause=pass bands hero=65.0 ability=136.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=156.0\nfit result fitted=1 compact=1 combatW=168.0 stack=0 inset=8.0 reserves=1 render=-88.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1.25 left bounds paintWindow (0.0,0.0)-(400.0,300.0) tickWindow (390.0,390.0)-(790.0,690.0) combat (136.0,60.0)-(304.0,291.0) minimap (12.0,176.0)-(124.0,288.0) settings (280.0,12.0)-(388.0,41.0) reserved (312.0,40.0)-(392.0,292.0) child 2.252 normalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1.25 right fit outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=235.0 combat=(256.0,231.0) mini=(120.0,120.0) clause=reserve bands hero=65.0 ability=135.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=244.0\nouter=120.0 stack=0 combatW=168.0 inset=8.0 limit=235.0 combat=(168.0,232.0) mini=(120.0,120.0) clause=pass bands hero=65.0 ability=136.0 economy=35.0 items=59.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=112.0 available=156.0\nfit result fitted=1 compact=1 combatW=168.0 stack=0 inset=8.0 reserves=1 render=-216.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "400x300 text 1.25 right bounds paintWindow (0.0,0.0)-(400.0,300.0) tickWindow (390.0,390.0)-(790.0,690.0) combat (8.0,60.0)-(176.0,291.0) minimap (188.0,176.0)-(300.0,288.0) settings (280.0,12.0)-(388.0,41.0) reserved (312.0,40.0)-(392.0,292.0) child 2.252 normalized paint 400.0x300.0 abs 400.0x300.0 layout 1.000 render 1.000 tickLayout 1.000 tickRender 1.000",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 1.0 side 0 selected 0 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 1.0 side 0 selected 1 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=476.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 1.0 side 1 selected 0 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=-128.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 1.0 side 1 selected 1 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=476.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=132.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=-128.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 2.0 side 0 selected 0 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,207.0) mini=(120.0,120.0) clause=pass bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 2.0 side 0 selected 1 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=436.0 combat=(640.0,207.0) mini=(120.0,120.0) clause=pass bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 2.0 side 1 selected 0 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=529.0 combat=(640.0,207.0) mini=(120.0,120.0) clause=pass bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=-128.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 800x600 text 2.0 side 1 selected 1 outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=436.0 combat=(640.0,207.0) mini=(120.0,120.0) clause=pass bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=628.0\nfit result fitted=1 compact=1 combatW=640.0 stack=0 inset=8.0 reserves=0 render=-128.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 1.0 side 0 selected 0 outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=228.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=100.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=228.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=140.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=228.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=100.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=228.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=140.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=228.0 combat=(296.0,228.0) mini=(80.0,80.0) clause=pass bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 1.0 side 0 selected 1 outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=158.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=30.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=158.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=70.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=158.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=30.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=158.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=70.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=158.0 combat=(296.0,158.0) mini=(80.0,80.0) clause=pass bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 1.0 side 1 selected 0 outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=228.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=100.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=228.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=140.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=228.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=100.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=228.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=140.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=228.0 combat=(296.0,228.0) mini=(80.0,80.0) clause=pass bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=-88.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 1.0 side 1 selected 1 outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=158.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=30.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=158.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=70.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=158.0 combat=(256.0,297.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=30.0 combat=(384.0,226.0) mini=(120.0,120.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=158.0 combat=(296.0,238.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=70.0 combat=(384.0,226.0) mini=(80.0,80.0) clause=combatH bands hero=59.0 ability=68.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=158.0 skills=276.0 inventory=132.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=158.0 combat=(296.0,158.0) mini=(80.0,80.0) clause=pass bands hero=59.0 ability=127.0 economy=25.0 items=55.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=158.0 skills=276.0 inventory=132.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=-88.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 2.0 side 0 selected 0 outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=208.0 combat=(256.0,366.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=80.0 combat=(384.0,275.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=208.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=120.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=208.0 combat=(256.0,366.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=80.0 combat=(384.0,275.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=208.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=120.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=208.0 combat=(296.0,208.0) mini=(80.0,80.0) clause=pass bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 2.0 side 0 selected 1 outer=108.0 stack=0 combatW=268.0 inset=8.0 limit=108.0 combat=(268.0,366.0) mini=(108.0,108.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=256.0\nouter=108.0 stack=1 combatW=384.0 inset=124.0 limit=-8.0 combat=(384.0,275.0) mini=(108.0,108.0) clause=limit bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=108.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=20.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=108.0 stack=0 combatW=268.0 inset=8.0 limit=108.0 combat=(268.0,366.0) mini=(108.0,108.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=256.0\nouter=108.0 stack=1 combatW=384.0 inset=124.0 limit=-8.0 combat=(384.0,275.0) mini=(108.0,108.0) clause=limit bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=108.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=20.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=108.0 combat=(296.0,108.0) mini=(80.0,80.0) clause=pass bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=0.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 2.0 side 1 selected 0 outer=120.0 stack=0 combatW=256.0 inset=8.0 limit=208.0 combat=(256.0,366.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=80.0 combat=(384.0,275.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=208.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=120.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=120.0 stack=0 combatW=256.0 inset=8.0 limit=208.0 combat=(256.0,366.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=244.0\nouter=120.0 stack=1 combatW=384.0 inset=136.0 limit=80.0 combat=(384.0,275.0) mini=(120.0,120.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=208.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=120.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=208.0 combat=(296.0,208.0) mini=(80.0,80.0) clause=pass bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=-88.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Header 400x300 text 2.0 side 1 selected 1 outer=108.0 stack=0 combatW=268.0 inset=8.0 limit=108.0 combat=(268.0,366.0) mini=(108.0,108.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=256.0\nouter=108.0 stack=1 combatW=384.0 inset=124.0 limit=-8.0 combat=(384.0,275.0) mini=(108.0,108.0) clause=limit bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=108.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=20.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=108.0 stack=0 combatW=268.0 inset=8.0 limit=108.0 combat=(268.0,366.0) mini=(108.0,108.0) clause=combatH bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=256.0\nouter=108.0 stack=1 combatW=384.0 inset=124.0 limit=-8.0 combat=(384.0,275.0) mini=(108.0,108.0) clause=limit bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=108.0 combat=(296.0,294.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=284.0\nouter=80.0 stack=1 combatW=384.0 inset=96.0 limit=20.0 combat=(384.0,275.0) mini=(80.0,80.0) clause=combatH bands hero=79.0 ability=81.0 economy=35.0 items=138.0 stats=0.0x0.0 gameplayHotbar bands=2 hero=163.0 skills=276.0 inventory=194.0 available=372.0\nouter=80.0 stack=0 combatW=296.0 inset=8.0 limit=108.0 combat=(296.0,108.0) mini=(80.0,80.0) clause=pass bands hero=79.0 ability=153.0 economy=35.0 items=68.0 stats=0.0x0.0 gameplayHotbar bands=3 hero=163.0 skills=276.0 inventory=194.0 available=268.0\nfit result fitted=1 compact=1 combatW=296.0 stack=0 inset=8.0 reserves=0 render=-88.0\n",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 800x600 text 1 name (12.0,34.0)-(88.0,52.0) host (8.0,30.0)-(356.0,113.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 800x600 text 1 host (8.0,30.0)-(356.0,113.0) health (301.5,92.0)-(326.5,108.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 800x600 text 2 name (12.0,44.0)-(164.0,78.0) host (8.0,40.0)-(508.0,172.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 800x600 text 2 host (8.0,40.0)-(508.0,172.0) health (63.5,140.0)-(112.5,172.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 400x300 text 1 name (12.0,30.0)-(88.0,48.0) host (8.0,30.0)-(192.0,96.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 400x300 text 1 host (8.0,30.0)-(192.0,96.0) health (125.5,80.0)-(150.5,96.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 400x300 text 2 name (12.0,40.0)-(164.0,74.0) host (8.0,40.0)-(180.0,106.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Four allies 400x300 text 2 host (8.0,40.0)-(180.0,106.0) health (63.5,74.0)-(112.5,106.0)",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "ShopUndoProjectionAndPin",
+			"fullTestPath": "Om.Runtime.ShopUndoProjectionAndPin",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 2.3182878494262695,
+			"dateTime": "2026.10.20-05.33.31",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "roomy large text shop allotted 800.0x602.0 painted 620.0x480.0 absolute 930.0x720.0 preferred 620.0x480.0 windowLocal 806.0x640.0 windowAbsolute 1209.0x960.0 dpi 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "narrow large text shop allotted 266.7x202.0 painted 250.7x186.0 absolute 376.0x279.0 preferred 620.0x480.0 windowLocal 272.7x240.0 windowAbsolute 409.0x360.0 dpi 1.500",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.31"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "WardAdmissionRetirement",
+			"fullTestPath": "Om.Runtime.WardAdmissionRetirement",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.011247199028730392,
+			"dateTime": "2026.10.20-05.33.34",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "No authority game and no positive ACK. Renderer ids 124-129 are transport admission only.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.34"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "WindowCaptureSingleDraw",
+			"fullTestPath": "Om.Runtime.WindowCaptureSingleDraw",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.21066990494728088,
+			"dateTime": "2026.10.20-05.33.34",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "WindowTimelineSharedWriter",
+			"fullTestPath": "Om.Runtime.WindowTimelineSharedWriter",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 0.013373099267482758,
+			"dateTime": "2026.10.20-05.33.34",
+			"entries": [],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		},
+		{
+			"testDisplayName": "WorldBridgePresentationScale",
+			"fullTestPath": "Om.Runtime.WorldBridgePresentationScale",
+			"tags": [],
+			"state": "Success",
+			"deviceInstance": [
+				"71BC253F4AFD5553E93AE9B177229C2A"
+			],
+			"duration": 11.146605491638184,
+			"dateTime": "2026.10.20-05.33.34",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Actual compiled public ABI geometry; all visibility cells and unit placement are synthetic renderer input. No authority simulation or ACK.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.34"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/overview actual camera X=-2495.648 Y=37.933 Z=212168.687 zoom 244991.3; 786222 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.34"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Normal combat hero body height 0.1271 of viewport, projected min X=-0.014 Y=-0.077 max X=0.017 Y=0.178",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.34"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/hero-combat actual camera X=-26406.693 Y=65076.575 Z=77942.286 zoom 90000.0; 786422 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.34"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/spawn actual camera X=-28718.566 Y=0.000 Z=49742.016 zoom 57437.1; 785586 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.34"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/lane-0 actual camera X=96368.359 Y=140000.000 Z=40931.202 zoom 47263.3; 786420 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.34"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/lane-1 actual camera X=96368.359 Y=0.000 Z=40931.202 zoom 47263.3; 786418 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.35"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/lane-2 actual camera X=96368.359 Y=-140000.000 Z=40931.202 zoom 47263.3; 786419 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.35"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/camp-0 actual camera X=63163.453 Y=70000.000 Z=29161.755 zoom 33673.1; 786395 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.35"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_training/camp-1 actual camera X=141936.645 Y=-70000.000 Z=31286.649 zoom 36126.7; 786230 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.35"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated legacy hero widget: HeroOverlayName[/Script/UMG.TextBlock,0] HeroOverlayVBox[/Script/UMG.VerticalBox,4] HeroOverlay[/Script/UMG.Border,1] EntityOverlayLayer[/Script/UMG.CanvasPanel,4] HudRootCanvas[/Script/UMG.CanvasPanel,4] ",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.35"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-biomes 1280x720 central visible pixels=115200; pawn=X=65261.140 Y=37.933 Z=0.000 camera=X=-89606.173 Y=37.933 Z=268238.054 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.35"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-combat 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.36"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-ally-focus 1280x720 central visible pixels=115200; pawn=X=36000.000 Y=0.000 Z=0.000 camera=X=-9000.000 Y=0.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.36"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-shop 1280x720 central visible pixels=102083; pawn=X=36000.000 Y=0.000 Z=0.000 camera=X=-9000.000 Y=0.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.36"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-spawn 1280x720 central visible pixels=115200; pawn=X=0.000 Y=0.000 Z=0.000 camera=X=-45000.000 Y=0.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.36"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-near 1280x720 central visible pixels=115200; pawn=X=0.000 Y=-140000.000 Z=0.000 camera=X=-45000.000 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.36"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-far 1280x720 central visible pixels=115196; pawn=X=240004.688 Y=140005.469 Z=0.000 camera=X=-1816.953 Y=140005.469 Z=418847.368 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.36"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-wide 1600x600 central visible pixels=120000; pawn=X=0.000 Y=140005.469 Z=0.000 camera=X=-241821.641 Y=140005.469 Z=418847.368 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.37"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-portrait 400x1000 central visible pixels=50000; pawn=X=240004.688 Y=-140000.000 Z=0.000 camera=X=195004.688 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.37"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-full-hd 1920x1080 central visible pixels=259200; pawn=X=0.000 Y=-140000.000 Z=0.000 camera=X=-45000.000 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.37"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-qhd 2560x1440 central visible pixels=460800; pawn=X=0.000 Y=-140000.000 Z=0.000 camera=X=-45000.000 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-relations 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Combat projection actor=OmHeroDateMasamune_0 scale=64.205200 body=X=18593.307 Y=65076.574 Z=0.000 text=X=18593.307 Y=65199.888 Z=13515.453 world_size=1797.7456 camera=X=-26406.693 Y=65076.575 Z=77942.286 projected=1 pixel=X=641.008 Y=304.761",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Combat projection actor=OmHeroTrainingLuminary_0 scale=78.679420 body=X=-4406.692 Y=57076.574 Z=0.000 text=X=-4406.692 Y=57075.447 Z=13835.248 world_size=2203.0237 camera=X=-26406.693 Y=65076.575 Z=77942.286 projected=1 pixel=X=563.018 Y=485.088",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Combat projection actor=OmHeroTrainingVanguard_0 scale=76.793999 body=X=41593.309 Y=57076.574 Z=0.000 text=X=41593.308 Y=57141.602 Z=13812.590 world_size=2150.2319 camera=X=-26406.693 Y=65076.575 Z=77942.286 projected=1 pixel=X=583.282 Y=168.261",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-public-combat 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Frozen causal public combat: text_pixels=371 vfx_pixels=3320",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.38"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-relations-deuteranopia 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-health-text2 1280x720 central visible pixels=115129; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-fog 1280x720 central visible pixels=4983; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-fog-restored 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated native game viewport, actual Slate ally click and original window PNG; explicit synthetic state, no game/ACK.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/overview actual camera X=-2495.648 Y=37.933 Z=212168.687 zoom 244991.3; 786222 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Normal combat hero body height 0.1271 of viewport, projected min X=-0.014 Y=-0.077 max X=0.017 Y=0.178",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/hero-combat actual camera X=-26406.693 Y=65076.575 Z=77942.286 zoom 90000.0; 786426 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/spawn actual camera X=-28718.566 Y=0.000 Z=49742.016 zoom 57437.1; 785606 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.39"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/lane-0 actual camera X=96368.359 Y=140000.000 Z=40931.202 zoom 47263.3; 786422 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/lane-1 actual camera X=96368.359 Y=0.000 Z=40931.202 zoom 47263.3; 786416 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/lane-2 actual camera X=96368.359 Y=-140000.000 Z=40931.202 zoom 47263.3; 786421 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/camp-0 actual camera X=63163.453 Y=70000.000 Z=29161.755 zoom 33673.1; 786399 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Compiled scene three_lane_layered_training/camp-1 actual camera X=141936.645 Y=-70000.000 Z=31286.649 zoom 36126.7; 786247 visible pixels; synthetic unit placement",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated legacy hero widget: HeroOverlayName[/Script/UMG.TextBlock,0] HeroOverlayVBox[/Script/UMG.VerticalBox,4] HeroOverlay[/Script/UMG.Border,1] EntityOverlayLayer[/Script/UMG.CanvasPanel,4] HudRootCanvas[/Script/UMG.CanvasPanel,4] ",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-biomes 1280x720 central visible pixels=115200; pawn=X=65261.140 Y=37.933 Z=0.000 camera=X=-89606.173 Y=37.933 Z=268238.054 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-combat 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.40"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-ally-focus 1280x720 central visible pixels=115200; pawn=X=36000.000 Y=0.000 Z=0.000 camera=X=-9000.000 Y=0.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-shop 1280x720 central visible pixels=102083; pawn=X=36000.000 Y=0.000 Z=0.000 camera=X=-9000.000 Y=0.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-spawn 1280x720 central visible pixels=115200; pawn=X=0.000 Y=0.000 Z=0.000 camera=X=-45000.000 Y=0.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-near 1280x720 central visible pixels=115200; pawn=X=0.000 Y=-140000.000 Z=0.000 camera=X=-45000.000 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-far 1280x720 central visible pixels=115196; pawn=X=240004.688 Y=140005.469 Z=0.000 camera=X=-1816.953 Y=140005.469 Z=418847.368 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.41"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-wide 1600x600 central visible pixels=120000; pawn=X=0.000 Y=140005.469 Z=0.000 camera=X=-241821.641 Y=140005.469 Z=418847.368 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-map-edge-portrait 400x1000 central visible pixels=50000; pawn=X=240004.688 Y=-140000.000 Z=0.000 camera=X=195004.688 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-full-hd 1920x1080 central visible pixels=259200; pawn=X=0.000 Y=-140000.000 Z=0.000 camera=X=-45000.000 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.42"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-qhd 2560x1440 central visible pixels=460800; pawn=X=0.000 Y=-140000.000 Z=0.000 camera=X=-45000.000 Y=-140000.000 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.43"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-relations 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.43"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Combat projection actor=OmHeroDateMasamune_0 scale=64.205200 body=X=18593.307 Y=65076.574 Z=0.000 text=X=18593.307 Y=65199.888 Z=13515.453 world_size=1797.7456 camera=X=-26406.693 Y=65076.575 Z=77942.286 projected=1 pixel=X=641.008 Y=304.761",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.43"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Combat projection actor=OmHeroTrainingLuminary_0 scale=78.679420 body=X=-4406.692 Y=57076.574 Z=0.000 text=X=-4406.692 Y=57075.447 Z=13835.248 world_size=2203.0237 camera=X=-26406.693 Y=65076.575 Z=77942.286 projected=1 pixel=X=563.018 Y=485.088",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.43"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Combat projection actor=OmHeroTrainingVanguard_0 scale=76.793999 body=X=41593.309 Y=57076.574 Z=0.000 text=X=41593.308 Y=57141.602 Z=13812.590 world_size=2150.2319 camera=X=-26406.693 Y=65076.575 Z=77942.286 projected=1 pixel=X=583.282 Y=168.261",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.43"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-public-combat 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.44"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Frozen causal public combat: text_pixels=534 vfx_pixels=3460",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.44"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-relations-deuteranopia 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.44"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-health-text2 1280x720 central visible pixels=115129; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.45"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-fog 1280x720 central visible pixels=4949; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.45"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated game-viewport-fog-restored 1280x720 central visible pixels=115200; pawn=X=18593.307 Y=65076.575 Z=0.000 camera=X=-26406.693 Y=65076.575 Z=77942.286 target=OmRtsCameraPawn_0",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.45"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Integrated native game viewport, actual Slate ally click and original window PNG; explicit synthetic state, no game/ACK.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.45"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Structure 1 root=X=30000.000 Y=-20000.000 Z=0.000 body=X=30000.000 Y=-20000.000 Z=0.000 bounds=IsValid=true, Min=(X=20839.695 Y=-29160.305 Z=0.000), Max=(X=39160.305 Y=-10839.695 Z=24000.000) visible=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.45"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "Structure 2 root=X=60000.000 Y=-20000.000 Z=0.000 body=X=60000.000 Y=-20000.000 Z=0.000 bounds=IsValid=true, Min=(X=47962.964 Y=-32037.036 Z=0.000), Max=(X=72037.036 Y=-7962.964 Z=26000.000) visible=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.33.45"
+				}
+			],
+			"warnings": 0,
+			"errors": 0,
+			"artifacts": []
+		}
+	]
+}

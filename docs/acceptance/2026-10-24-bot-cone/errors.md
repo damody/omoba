@@ -1,0 +1,11 @@
+# Bot directional cone errors and prevention
+
+Previous batch complete-nameplate-screen-spacing and active cone are4/4; no prior workers remain. Reuse final active-cone source-before-v4/index rather than repeating completed features.
+
+Bot geometry must use typed compiled shared quantized angles, not free-form extras inference or a copied float conversion. Only committed disclosed SeenUnit values may affect scoring. Dedup before count, use bounded candidate budget and reject known128+hit plans before submission. Preserve author priorities/role assist/mana/control/attack gates. No true network match.
+
+Before any correction after a reader failure, preserve original bytes of every about-to-change file, including previously unchanged test files; keep actual Windows exit receipts and source/asset consistency. Use plain replacement helpers with required count, only real config consumers, and inspect dependent exit0 before launching the next job. OpenSpec CLI unavailable; fixed Lua/direct artifacts retained.
+
+Pre-freeze fixture review caught an ambiguous half-plane expectation: the extra behind-x point was exactly on another candidate's angular boundary, legitimately tying coverage. Removed that unrelated point so the three exact radial/angular edges uniquely select the intended axis; the common sector tests separately cover behind rejection. No failed acceptance run was concealed. One read-only rg call guessed a nonexistent ability_runtime directory; existing native ability_runtime is authoritative. Discover paths before searching; no workflow fallback added.
+
+Concentrated acceptance passed on the original frozen7inputs without repair: fresh8Rust1884passed/0failed/9existing ignored; Lua11/11; fresh formal backend, offline10player recipe admission, UE5.8 build/stagedDLL/import SHA and native91 (90success+1existing warning case,0failed/0notrun,warnings4). Full3470source check:3463same+7exactchanged against immutable active-cone parent. All original seven acceptance workers exited0 and were retired/reaped before sealing. No failed acceptance cohort this batch. Previously reviewed63PNG are inherited by SHA and unchanged native presentation sources; fresh native captures remain raw evidence and are not claimed as newly reviewed visuals. Preserve this distinction for subsequent batches.

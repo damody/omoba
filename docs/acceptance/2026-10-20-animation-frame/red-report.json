@@ -1,0 +1,93 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "F43B66BD4BE4F46E747FAA91F85BB845",
+			"instanceName": "DESKTOP-4TQA8NV-33452",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-12.47.37",
+	"succeeded": 0,
+	"succeededWithWarnings": 0,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 0.10444590449333191,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "AnimationSnapshotOrdering",
+			"fullTestPath": "Om.Runtime.AnimationSnapshotOrdering",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"F43B66BD4BE4F46E747FAA91F85BB845"
+			],
+			"duration": 0.10444590449333191,
+			"dateTime": "2026.10.20-12.47.37",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "OmHeroSaikaMagoichi",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-12.47.37"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogStreaming: FlushAsyncLoading(379): 1 QueuedPackages, 0 AsyncPackages",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-12.47.37"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSkeletalMesh: [AssetLog] D:\\omoba\\omfue\\Content\\OmGenerated\\Heroes\\saika_magoichi\\RecipeV1\\Mesh\\saika_magoichi.uasset: Fix LOD 0 Section 2 Material index from 2 to 0. The fallback value is 0. The value is not pointing on a valid Material slot index.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-12.47.37"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Animation older than current health frame preserves recall pose' to be recall, but it was idle.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmAnimationSnapshotOrderingTests.cpp",
+					"lineNumber": 54,
+					"timestamp": "2026.10.20-12.47.37"
+				}
+			],
+			"warnings": 0,
+			"errors": 1,
+			"artifacts": []
+		}
+	]
+}

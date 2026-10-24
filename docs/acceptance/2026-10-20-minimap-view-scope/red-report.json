@@ -1,0 +1,249 @@
+﻿{
+	"devices": [
+		{
+			"deviceName": "DESKTOP-4TQA8NV",
+			"instance": "672BB66C445B74447E375781942BC007",
+			"instanceName": "DESKTOP-4TQA8NV-40492",
+			"platform": "WindowsEditor",
+			"oSVersion": "Windows 11 (25H2) [10.0.26200.9711] ",
+			"model": "Default",
+			"gPU": "NVIDIA GeForce RTX 4070",
+			"cPUModel": "12th Gen Intel(R) Core(TM) i9-12900KS",
+			"rAMInGB": 64,
+			"renderMode": "D3D12_SM6",
+			"rHI": "D3D12 (SM6)",
+			"appInstanceLog": ""
+		}
+	],
+	"reportCreatedOn": "2026.10.20-05.09.31",
+	"succeeded": 0,
+	"succeededWithWarnings": 0,
+	"failed": 1,
+	"notRun": 0,
+	"inProcess": 0,
+	"totalDuration": 3.3432180881500244,
+	"comparisonExported": false,
+	"comparisonExportDirectory": "",
+	"tests": [
+		{
+			"testDisplayName": "MinimapPreferences",
+			"fullTestPath": "Om.Runtime.MinimapPreferences",
+			"tags": [],
+			"state": "Fail",
+			"deviceInstance": [
+				"672BB66C445B74447E375781942BC007"
+			],
+			"duration": 3.3432180881500244,
+			"dateTime": "2026.10.20-05.09.28",
+			"entries": [
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogUIActionRouter: Found 0 derived classes when attemping to create action router (CommonUIActionRouterBase)",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseCaptureMode Changed, CapturePermanently_IncludingInitialMouseDown -> NoCapture",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogViewport: Viewport MouseLockMode Changed, LockOnCapture -> DoNotLock",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogStreaming: FlushAsyncLoading(379): 1 QueuedPackages, 0 AsyncPackages",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Synchronously lazy loading font file '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' with subface index 0 in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Took 0.000773 seconds to synchronously load lazily loaded font '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' (3848K) on Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Freetype font face in memory successfully created with synchronously loaded raw font file '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' subface 0 in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogSlate: Font face '../../../Engine/Content/Slate/Fonts/DroidSansFallback.ttf' subface index 0 successfully added to font face map in Game thread.",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.28"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=134.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=134.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.29"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=134.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "RightSpace paintPress=X=854.000 Y=710.000 paintDrag=X=910.000 Y=654.000 paintOrigin=X=826.000 Y=626.000 paintLocal=X=112.000 Y=112.000 arrangedPress=X=854.000 Y=1010.000 arrangedDrag=X=910.000 Y=954.000 arrangedOrigin=X=826.000 Y=926.000 arrangedLocal=X=112.000 Y=112.000 windowPos=X=150.000 Y=150.000 dpi=1.500 windowSize=X=1200.000 Y=900.000 viewport=X=800.000 Y=600.000 arrangedUnderPress=0 tickUnderPress=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "RightDrag camera=X=7500.000 Y=7500.000 Z=0.000 expected=X=7500.000 Y=7500.000 Z=0.000 toleranceCm=0.017583 pixelCm=89.285714 capture=1 inspecting=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=134.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "CapturedDrag camera=X=7500.000 Y=7500.000 Z=0.000 expected=X=7500.000 Y=7500.000 Z=0.000 toleranceCm=0.019712 pixelCm=89.285714 capture=1 inspecting=1",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.30"
+				},
+				{
+					"event":
+					{
+						"type": "Info",
+						"message": "LogTemp: OM_HUD_FIT outer=120.0 stack=0 combatW=640.0 inset=8.0 limit=539.0 combat=(640.0,154.0) mini=(120.0,120.0) clause=pass bands hero=56.0 ability=62.0 economy=25.0 items=112.0 stats=0.0x0.0 gameplayHotbar bands=1 hero=158.0 skills=276.0 inventory=134.0 available=628.0",
+						"context": "log",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "",
+					"lineNumber": -1,
+					"timestamp": "2026.10.20-05.09.31"
+				},
+				{
+					"event":
+					{
+						"type": "Error",
+						"message": "Expected 'Minimap view change immediately retires owned capture' to be false.",
+						"context": "",
+						"artifact": "00000000000000000000000000000000"
+					},
+					"filename": "D:\\omoba\\omfue\\Plugins\\OmRuntime\\Source\\OmEditor\\Private\\OmCameraInteractionTests.cpp",
+					"lineNumber": 789,
+					"timestamp": "2026.10.20-05.09.31"
+				}
+			],
+			"warnings": 0,
+			"errors": 1,
+			"artifacts": []
+		}
+	]
+}

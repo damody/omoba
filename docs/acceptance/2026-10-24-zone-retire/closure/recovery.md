@@ -1,0 +1,7 @@
+# Closure recovery
+
+Original closure-v2 tool session40753 returned Windows exit1 at line11: batch/zone-retire-archive-closure-v2.lua (assertion; stack traceback retained here as explicit transcription, not a raw logfile). The helper had been edited after seal-v2 archived it, so the source/archive SHA comparison correctly failed. No formal gameplay input changed, no acceptance job was rerun, and index.closure was not written. First recovery invocation exited1 because p.write overwrite=false refused the intended restoration; no restoration occurred. Corrected the explicit restore overwrite flag, and retained the already copied failing helper by exact-byte check on retry. Inspect path.write signature before overwrite operations.
+
+Retained exact modified failing helper as archive-closure-failed-v2.lua; restored archive-closure-v2.lua byte-for-byte from its sealed copy. Distinct closure-v3 records truthful launcher observation, archives itself/failing helper/this note and performs the original complete byte/hash check. Tool session40753 reaped exit1. Sealer actual Windows exit0 and retired identities observed; sealer tool-session ID lost during context compaction, API reap not claimed. Prevention: freeze archived helpers as well as formal sources; write a new version before changing any sealed helper and explicitly archive the new version.
+
+Additional read-only path error: attempted native/comp/damage_zone.rs, which does not exist. rg --files located native/ability_runtime/damage_zone.rs. Do not infer module paths; discover first. No source changed.

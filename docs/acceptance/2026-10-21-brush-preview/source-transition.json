@@ -1,0 +1,1 @@
+{"changed":[{"after":"220da488d3a41a5a2950a590f374e4dbfa9fac034adcf88aff3499fb5eac18fa","before":"f3b4132225fa154eb8dd226d4c14fa8b61ba93c11440cbb80e963ca6926907b2","file":"omoba-core/src/runtime/brush_vision.rs"}],"contract_lua_and_templates_unchanged":true,"success":true,"ui_requires_new_complete_acceptance":true,"unchanged":3340}

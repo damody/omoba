@@ -1,0 +1,66 @@
+# 正式遊戲完整度盤點與單機優先清單
+
+最新增量：2026-10-23 aim-coherence 以同一共用投影產生native geometry並封存compiled/runtime signature；射程、有效area、swept width、formation數量／間距／前距與契約變更在啟動／reload拒絕，實際reload拒絕保留原generation/hash，非幾何damage調參可接受。Rust1976／10既有ignored、World60、UE5.8及backend成功，3411輸入一致。詳見2026-10-23-aim-coherence-final-acceptance.md。其他非幾何metadata同步仍依原政策，channels／zones、settlement、replica與11外部接受pending。
+
+前批增量：2026-10-23 formation-preview 新增共用facing_formation作者契約與逐rank預檢／generated metadata；公開owned facing、<=128請求位置、隱藏／替換／退役清除及實際tooltip。Rust1973／10既有ignored、World60、UE5.8及backend成功；3411輸入一致。詳見2026-10-23-formation-preview-final-acceptance.md。預覽不是地形調整後的出生接受；整組settlement、channels／zones、replica與11外部接受仍pending。
+
+前批增量：2026-10-23 summon-formation 補齊共用逐rank陣形預檢、固定點朝向座標、有界數量／間距／生命期及living-owner守門；保留2/4/6/8召喚與45/50/55/60秒，修正自身朝向說明。Rust1970／10既有ignored、World59、UE5.8及backend成功；3409來源／資產一致。詳見2026-10-23-summon-formation-final-acceptance.md。既有managed cast回滾驗證不等於後續settlement整組原子接受；持續引導／特殊幾何、combat replica與11項外部接受仍pending。
+
+前批增量：2026-10-23 hero-reservation 補齊可見英雄名牌的固定64保留足跡，一般非英雄名牌避讓，選取／指向可跨英雄保留區但仍互相避讓；隱藏、退役、世代與移動恢復共用實際Slate量測。Rust1966／10既有ignored、World59成功、backend及UE5.8成功；3407來源／資產前後一致。詳見2026-10-23-hero-reservation-final-acceptance.md。英雄彼此、焦點例外及超過64英雄保留上限仍有限制；持續引導／區域、特殊幾何、召喚整組commit及11項外部接受維持pending。48h無人值守omoba-48至2026-10-25 00:33:38 Taipei。
+
+前批增量：2026-10-23 nameplate-spacing 補齊公開非英雄名牌的固定64候選螢幕避讓、選取／指向優先、目前mesh錨點、真Slate隱藏量測及分離後恢復。Rust1966／10既有ignored、World58成功（4既有warning）、backend及UE5.8成功；3406來源／資產前後一致。詳見2026-10-23-nameplate-spacing-final-acceptance.md及../acceptance/2026-10-23-nameplate-spacing/index.json。英雄名牌交叉碰撞仍待處理；持續引導、特殊幾何、召喚整組commit及11項外部接受維持pending。48h無人值守omoba-48至2026-10-25 00:33:38 Taipei。
+
+前批增量：2026-10-23 transform-buff 補齊火繩銃與三段擊的共用嚴格資料預檢／living-self commit，省略值只取相同 authored rank，錯誤值不再靜默套空 buff。保留七個 rank 的平衡值、Q10／normalized 編碼、refresh／expiry 與視覺連發單次命中。Rust1966通過／10既有ignored、World56成功（4既有warning）、backend及UE5.8成功；3404來源／資產前後一致。詳見2026-10-23-transform-buff-final-acceptance.md及../acceptance/2026-10-23-transform-buff/index.json。持續引導／區域、特殊幾何完整預覽、召喚整組commit與11項外部接受仍未完成。
+
+前批增量：2026-10-23（22日開工批次）passive-cone 補齊真正普攻命中派發被動、受擊點前向扇形、技能／視覺子彈排除、退休英雄來源與逐級資料校驗，並用明確metadata修正被動tooltip。Rust1962通過／10既有ignored、World56成功（4既有warning）、backend與UE5.8成功；3402來源／資產前後一致。完整結果見2026-10-22-passive-cone-final-acceptance.md及../acceptance/2026-10-22-passive-cone/index.json。持續引導、主動特殊幾何、召喚整組commit與11項外部接受仍未完成。
+
+
+前批增量：2026-10-22 summoner-feedback 補齊 D/F point summoner 的公開控制／原地位移／當前slot冷卻提示與落點規則 tooltip，並在權威模型／真ECS queue拒絕原地閃躍、不扣CD或清命令。Rust1952通過／10既有ignored、World55成功（4既有warning）、backend及UE5.8成功；3398來源／資產前後完全一致。詳見2026-10-22-summoner-feedback-final-acceptance.md及../acceptance/2026-10-22-summoner-feedback/index.json。這是既有PointBlink契約的通用slot／catalog方案；更多summoner operation、道具位移提示、持續引導及召喚整組commit仍待補齊。
+
+更新日期：2026-10-23。範圍為omb、共用Rust／內容生成、scripts與唯一前端omfue。這是功能／接線層盤點，並非逐行程式證明，也不宣稱複製特定LOL版本的全部規則、內容或美術。omfx不維護。既有完整MVP仍33/44；11項缺外部ACK／LAN／實際OS DPI／效能證據，不能因本機UI成功就勾完。
+
+## 各系統現況
+
+| 系統 | 已有接線／證據入口 | 尚需完善或接受 |
+|---|---|---|
+| 遊戲模式與生命周期 | native/moba_match、SimulationDriver；warmup／playing／finished、死亡／重生、暫停、recall與結算 | 更完整的競技局規則與觀戰／回放產品流程；既有reconnect仍有外部接受缺口 |
+| 英雄與成長 | generated hero catalog、ability_runtime、award_live_moba_xp；正式七位英雄、rank／技能點、屬性、魔力、buff | 原創英雄內容量與英雄專用機制、美術；完整天賦／符文等可另立規格，不以現有屬性欄當已完成 |
+| 技能執行 | scripts/base_content與native ability pipeline；普通攻擊、point／unit／self、傷害／治療／CC／冷卻／魔力；新增內容驅動召喚生成、確定性handle、ownership／固定點duration／退休，正式60Hz技能實際生成與戰鬥通過；本輪接committed索敵、內容視野與CC／屬性 | 已接fixed-point前搖／取消／釋放交易；已補真正普攻被動派發與命中點扇形；仍缺持續引導／脈衝與主動扇形／線形／多段／導引幾何；新增合法落點／內容驅動跟隨與公開地形導航；仍缺完整可見性複本生命期接受及更多召喚控制 |
+| 技能操作與提示 | OmCombatAimModel、OmCastPreviewFeedback、OmCommandBarWidget；三施法模式、改鍵、自用、目標需求、射程、point半徑、魔力提示 | 本輪補公開cooldown剩餘／總長；新增內容前搖秒數／取消tooltip；新增權威owner施法進度／取消／釋放狀態；已有可見角色權威施法準備動畫、取消／釋放／pause／視野退休；本批新增逐rank受傷中斷政策、HP／護盾例外tooltip；仍缺真連線畫面、持續引導與特殊技能幾何完整揭露 |
+| 戰鬥與命令 | combat_acquisition、game_processor、damage_tick；AttackMove／Stop／Hold、hero-only、auto attack偏好、queue、狀態／護甲／傷害歸因；新增共用受療倍率／禁療，native／script／regen及召喚師治療一致、固定點／防溢位／禁止治療復活 | 既有父項部分缺真ACK。不得拿synthetic renderer意圖當成權威執行成功 |
+| 兵線 | moba_maps.lua／moba_match；兩三路map、authored近戰／遠程／砲車、超級兵、route、索敵、護主、推塔時護主例外；新增生成時HP／攻擊時間成長與cap | 依兵種更細的平衡曲線、局勢差距補償與專屬機制；既有行為保留回歸 |
+| 防禦建築 | lane tower layers、base_structures；前置開門、inhibitor／nexus towers、死亡／重生、super wave、同英雄連續攻擊壓力；每生命隊伍／附近摧毀金、新增整場首塔一次額外金與持久depth分層獎勵 | 新增外塔限時分段金／破層護甲；新增通用塔皮分段名牌／倒數；新增權威塔／兵營／基地塔公告、有界佇列與native HUD；建築美術與更細競技平衡仍待補，不把首塔／分層金當成全建築規則 |
+| 地圖空間 | templates/moba_maps.lua、moba_map_layout、OmWorldBridgeActor；左下／右上基地、三路、河流、14牆、兩張map、導航／碰撞 | 地圖編輯工具的任意多邊形、跳牆／高低地專用規則與更完整美術地形 |
+| 視野與草叢 | visibility、fog_grid、brush_vision、ward_world；range／LOS／stealth／scope、連通capsule草叢、普攻兩秒揭露、探索霧格 | 任意多邊形authoring；更多偵測／掃描類內容與全流程UI；不能把草叢外框或視野未知當可見 |
+| 野區戰鬥 | jungle.rs；16營地32初始主體、group aggro、patience、soft／hard回頭、回血、重生、每body獎勵與LOS；資料指定隊伍Buff／死亡政策；新增PlayerOwner／8-link召喚鏈歸因、致死快照、team-only目標效果與非英雄仇恨 | 已接每發來源快照與命中獎勵歸因；新增限時隊伍疊層與內容封頂；新增個人營地Buff及剩餘時間擊殺傳承；新增永久史詩累積／多項營地獎勵；新增內容驅動附近友軍兵線攻擊／護甲光環、去重與生命期；新增通用有界死亡分裂樹、待生子體去重、屍體附近碰撞安全出生、完整清營才重生；兩張map雙方石怪營啟用兩代分裂；其他特殊營地機制仍可擴充 |
+| 經濟與獎勵 | moba_economy.lua、moba_assist、shop；被動金、擊殺／助攻、尾刀金／附近XP、角色化建築摧毀、NPC觸發與死亡隊員錢包；新增tick統一提交的首塔獎勵／分層金 | 新增內容驅動連殺終結賞金與公開計分板；已接canonical首殺額外金／公開公告；新增跨重生連敗折價／擊殺重設；新增外塔限時逐層本地金；新增全隊累計實得獎勵ledger、內容驅動目標補償／雙門檻／每次啟用池額、塔與史詩根怪canonical分金及公開狀態；新增權威史詩根怪公告／四秒遊戲時間／pause凍結／canonical多目標排序；仍缺更多目標專屬名稱／音效與完整平衡資料 |
+| 商店與道具 | moba_items.lua、shop、economy_projection、HUD；11項訓練道具、recipe／purchase／sell／undo／receipt、六格、主動效果；咒擊符新增可選抑療元件（50%／4秒），原ID／價格／55傷害／450距離保留，公開Buff與generated tooltip | 商品內容量、更多唯一被動／互斥規則／build推薦；undo父項仍缺指定權威接受 |
+| 召喚師與ward | summoner_world／ward_world、loadout、HUD；blink／heal內容、charges／冷卻、team公開與生命期 | 更多原創spell／trinket／偵測內容；不能把既有兩種訓練spell當作完整競技選項 |
+| 鏡頭與輸入 | control profiles、camera、minimap、accessible pointer；改鍵、三施法模式、gamepad合成軸、focus／source退休 | 實體控制器與實際OS DPI／視窗模式接受，合成事件不能替代硬體矩陣 |
+| HUD與溝通 | CommandBar、隊友卡／scoreboard／chat／ping／marker／mute／settings／owned scopes；新增通用Buff層數×N、限時／永久效果、只改層數刷新與有界metadata解碼；新增公開damage_shield、獨立護盾條／數值／權威倒數，部分吸收／耗盡／到期／死亡與可見性退休 | 真聊天／ping權威往返、更多狀態細節與新玩法HUD；產品整合仍有父項外部證據缺口 |
+| 動畫、音效與美術 | NativeCharacter、animation／combatVfx、original audio／五PCM、字幕、資源生命期 | 專用角色／場景美術、技能專屬動畫、完整戰鬥可讀性與硬體效能；PCM通過不等於人工聽感接受 |
+| 技術與驗收 | Rust deterministic tests、owned phased viewport、Blueprint、來源SHA與staging；固定Lua5.4、Rust1.95／UE5.8 | LAN／新真對局／固定硬體負載／長時間單session接受，不能靠重設配額或分段結果冒稱完成 |
+
+上表以實際正式來源和handoff既有接受為依據；「仍缺」限目前盤點入口未形成完整規則／接受的範圍，不宣稱對所有歷史文件做絕對不存在判斷。
+
+## 本輪與後續單機優先順序
+
+1. 本輪：選取目標資訊卡整合公開護盾／控制／塔皮／返回狀態，共用名牌格式與顯示節流；可見單位暈眩／定身／沉默名牌、主要時間與並存效果、生命期／節流；可見野怪committed返回／不可受傷重置名牌與生命期；QWER當前公開暈眩／沉默原因與剩餘時間、指定單位技能的當前公開陣營／可攻擊條件與source／target中心射程提示、隱藏／退休／generation守門；此前World共用有界召喚落點預約、跨event／on_tick不重疊與取消／提交退休；此前明確召喚物公開類別、typed catalog與原生角色／動畫生命期；此前逐rank HP傷害中斷施法、Rust／固定Lua嚴格bool及內容重建守門、shield例外與正式tooltip；已完成的權威目標公告包含committed塔／兵營／基地塔與史詩根怪、每生命去重、canonical排序／最多7待播、四秒scaled時間、pause／到期／終局，public tuple／protobuf／CABI34／native HUD與正式60Hz雙技能接受。前輪抑療與目標經濟補償保留回歸。
+2. 可見角色準備／釋放動畫及逐rank HP傷害中斷政策已接；本批新增退休來源on-hit腳本快照／唯讀戰鬥查詢與追加傷害／子彈歸因、世代隔離；本批新增共用精確capsule與碰撞裁切的瞬間沿路衝刺、四rank fire_dash、單次命中與失敗資源回滾；接續優先：持續引導及特殊幾何完整預覽；召喚公開呈現生命期本輪已接線；完整combat複本接受、更多控制與競爭落點整組原子回滾仍待實作。
+3. 後續：更多目標專屬名稱／音效與平衡資料、召喚通用spawn ledger、特殊技能幾何／導引metadata與實際落點一致性，避免英雄／營地名稱特判。野怪有界死亡分裂已接；其他特殊營地玩法可另擴充。
+4. 後續：更多道具／召喚師內容、建築美術／目標專屬呈現、兵種差異平衡與玩法HUD，均以現有map和離線authority ECS驗證。
+5. 外部條件：11個MVP父項所需真ACK／LAN／實際DPI／固定效能，維持pending，不新增連線對局來填數。
+
+本輪完成狀態與最新接受數字以各批 final-acceptance.md 及證據索引為準；若實作發現新缺口，更新錯誤MD與交接，不以盤點表代替測試。前輪塔focus／cooldown、建築／首塔獎勵、兵線成長與史詩Buff證據保留。既有33/44是原MVP文件勾選數，不代表所有英雄技能（包含仍待擴充的召喚控制策略）皆已功能驗證。
+
+## 2026-10-22 沿路施放提示接續
+
+新增有校驗的aim_geometry契約、逐rank路徑寬度、Unreal owner意圖capsule與tooltip。射程截短、地形與權威不確定性明示；不依英雄ID或特效推測。集中結果見2026-10-22-path-preview-final-acceptance.md與../acceptance/2026-10-22-path-preview/index.json。完整特殊幾何、持續引導與11項外部接受仍pending。
+
+## 2026-10-22 位移施放提示接續
+
+補typed SweptPath／executable DashToPoint共用movement policy、公開owner root獨立channel、定身／未知／原地落點提示與技能tooltip。普通技能維持root下可施放；不新增local gate或ACK推測。集中結果見2026-10-22-mobility-feedback-final-acceptance.md與../acceptance/2026-10-22-mobility-feedback/index.json。其他單機與外部缺口維持上述盤點。
+
+## 2026-10-22 正式圓形爆發技能接續
+
+新增共用PointBlast嚴格預檢／精確circle／canonical單次傷害與可選控制；炎刃／炎襲接線，非法cast用RErr資源回滾；typed PointCircle供真rank半徑預覽，保持非位移。集中結果見2026-10-22-point-blast-final-acceptance.md與../acceptance/2026-10-22-point-blast/index.json。其他單機及11項外部缺口不因本批勾完。
