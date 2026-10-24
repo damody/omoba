@@ -51,6 +51,14 @@ pub(crate) struct Manifest {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MobaEconomyRules {
+    #[serde(default)]
+    pub(crate) objective_comeback: omoba_content_model::objective_comeback::ObjectiveComebackRules,
+    #[serde(default)]
+    pub(crate) first_kill_bonus_gold: u32,
+    #[serde(default)]
+    pub(crate) death_streak_basis_points: Vec<u32>,
+    #[serde(default)]
+    pub(crate) kill_streak_bounty: KillStreakBountyRules,
     pub(crate) passive_gold_per_second: u32,
     pub(crate) hero_kill_gold: u32,
     pub(crate) recall_channel_seconds: u32,
@@ -72,9 +80,38 @@ pub(crate) struct MobaEconomyRules {
     pub(crate) base_recovery_mana_per_second: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct KillStreakBountyRules {
+    pub(crate) threshold: u32,
+    pub(crate) initial_gold: u32,
+    pub(crate) per_kill_gold: u32,
+    pub(crate) max_gold: u32,
+}
+
+pub(crate) fn validate_death_streak(curve: &[u32])->Result<(),String> {
+    if curve.len()>101 || (!curve.is_empty() && curve[0]!=10000)
+        || curve.iter().any(|n|*n>10000) || curve.windows(2).any(|w|w[1]>w[0]) {
+        return Err("MOBA death streak curve needs <=101 nonincreasing basis points, starting at 10000".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_kill_streak_bounty(bounty:KillStreakBountyRules)->Result<(),String> {
+    if (bounty.threshold==0 && bounty!=KillStreakBountyRules::default())
+        || bounty.threshold>100 || bounty.initial_gold>bounty.max_gold
+        || bounty.per_kill_gold>1_000_000 || bounty.max_gold>1_000_000
+        || (bounty.threshold>0 && bounty.initial_gold==0) {
+        return Err("MOBA kill streak bounty must be disabled or bounded threshold 1..100 and gold <=1000000".into());
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MobaMapEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) base_structures: Option<MobaBaseStructuresEntry>,
     pub(crate) id: String,
     pub(crate) lane_length: i32,
     pub(crate) tower_offset: i32,
@@ -88,7 +125,42 @@ pub(crate) struct MobaMapEntry {
     #[serde(default)]
     pub(crate) terrain: Vec<MobaTerrainEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) brushes: Vec<MobaTerrainEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) presentation_surfaces: Vec<MobaMapSurfaceEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) minion_wave: Vec<MobaMinionEntry>,
+    #[serde(default = "default_wave_interval")]
+    pub(crate) wave_interval_seconds: u32,
+}
+
+fn default_wave_interval() -> u32 { 12 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaBaseStructuresEntry {
+    pub(crate) minimum_spacing: i32,
+    pub(crate) inhibitor_offset: i32,
+    pub(crate) inhibitor_hp: i32,
+    pub(crate) inhibitor_respawn_seconds: i32,
+    pub(crate) nexus_tower_offset: i32,
+    pub(crate) nexus_tower_hp: i32,
+    pub(crate) nexus_tower_respawn_seconds: i32,
+    pub(crate) nexus_tower_respawn_hp_percent: i32,
+    pub(crate) siege_minion_id: String,
+    pub(crate) super_minion: MobaMinionEntry,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaMinionEntry {
+    pub(crate) id: String,
+    pub(crate) count: u32,
+    pub(crate) every: u32,
+    pub(crate) hp: i32,
+    pub(crate) damage: i32,
+    pub(crate) attack_range: i32,
+    pub(crate) move_speed: i32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
@@ -115,6 +187,20 @@ pub(crate) struct MobaTerrainEntry {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MobaJungleEntry {
+    #[serde(default)]
+    pub(crate) death_children: Vec<MobaJungleMemberEntry>,
+    #[serde(default)]
+    pub(crate) additional_objective_buffs: Vec<MobaObjectiveBuffEntry>,
+    #[serde(default)]
+    pub(crate) personal_buff: Option<MobaObjectiveBuffEntry>,
+    #[serde(default)]
+    pub(crate) objective_buff: Option<MobaObjectiveBuffEntry>,
+    #[serde(default)]
+    pub(crate) members: Vec<MobaJungleMemberEntry>,
+    #[serde(default)]
+    pub(crate) patience_seconds: i32,
+    #[serde(default)]
+    pub(crate) soft_reset_seconds: i32,
     pub(crate) id: String,
     pub(crate) position: [i32; 2],
     pub(crate) hp: i32,
@@ -130,34 +216,191 @@ pub(crate) struct MobaJungleEntry {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct MobaObjectiveBuffEntry {
+    #[serde(default)]
+    pub(crate) minion_aura: Option<MobaMinionAuraEntry>,
+    #[serde(default)]
+    pub(crate) transfer_on_kill: bool,
+    pub(crate) buff_id: String,
+    #[serde(default = "default_objective_max_stacks")]
+    pub(crate) max_stacks: u32,
+    pub(crate) duration_seconds: i32,
+    pub(crate) attack_bonus: i32,
+    pub(crate) armor_bonus: i32,
+    pub(crate) lost_on_death: bool,
+}
+
+fn default_objective_max_stacks()->u32 {1}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaMinionAuraEntry {
+    pub(crate) buff_id: String,
+    pub(crate) radius: i32,
+    pub(crate) attack_bonus: i32,
+    pub(crate) armor_bonus: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaJungleMemberEntry {
+    #[serde(default)]
+    pub(crate) death_children: Vec<MobaJungleMemberEntry>,
+    pub(crate) id: String,
+    pub(crate) offset: [i32; 2],
+    pub(crate) hp: i32,
+    pub(crate) damage: i32,
+    pub(crate) gold: u32,
+    pub(crate) xp: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MobaLaneEntry {
     pub(crate) id: String,
     pub(crate) waypoints: Vec<[i32; 2]>,
 }
 
+fn validate_objective_buff_catalog(maps:&[MobaMapEntry],buffs:&[Entry])->Result<(),String> {
+    for map in maps {
+        let mut policies=BTreeMap::new();
+        for camp in &map.jungle_camps {
+            let mut ids=BTreeSet::new();
+            for (personal,buff) in camp.objective_buff.iter().chain(&camp.additional_objective_buffs).map(|b|(false,b))
+                .chain(camp.personal_buff.iter().map(|b|(true,b))) {
+                if !ids.insert(&buff.buff_id) {return Err(format!("duplicate camp buff '{}'",buff.buff_id));}
+                if !buffs.iter().any(|b|b.id==buff.buff_id && !b.tombstone) {return Err(format!("unknown objective buff '{}'",buff.buff_id));}
+                let policy=(personal,buff.duration_seconds,buff.attack_bonus,buff.armor_bonus,buff.max_stacks,buff.lost_on_death,buff.transfer_on_kill,buff.minion_aura.as_ref());
+                if policies.insert(&buff.buff_id,policy).is_some_and(|old|old!=policy) {
+                    return Err(format!("inconsistent buff policy or scope '{}'",buff.buff_id));
+                }
+            }
+        }
+        for scope in [false,true] {
+            if policies.values().filter(|p|p.0==scope).count()>32 {return Err("map exceeds 32 buff policies per scope".into());}
+        }
+        let mut auras=BTreeMap::new();
+        for buff in map.jungle_camps.iter().flat_map(|c|c.objective_buff.iter().chain(&c.additional_objective_buffs)) {
+            if let Some(aura)=&buff.minion_aura {
+                if policies.contains_key(&aura.buff_id) || !buffs.iter().any(|b|b.id==aura.buff_id && !b.tombstone)
+                    || auras.insert(&aura.buff_id,aura).is_some_and(|old|old!=aura) {
+                    return Err(format!("invalid or inconsistent minion aura buff '{}'",aura.buff_id));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn camp_home_positions(camp:&MobaJungleEntry)->Vec<[i32;2]> {
+    fn collect(nodes:&[MobaJungleMemberEntry],parent:[i32;2],out:&mut Vec<[i32;2]>) {
+        for node in nodes {let home=[parent[0]+node.offset[0],parent[1]+node.offset[1]];
+            out.push(home);collect(&node.death_children,home,out);}
+    }
+    let mut out=vec![camp.position];collect(&camp.death_children,camp.position,&mut out);
+    collect(&camp.members,camp.position,&mut out);out
+}
+
+fn validate_camp_descendants(camp:&MobaJungleEntry)->Result<(),String> {
+    fn walk(nodes:&[MobaJungleMemberEntry],parent:[i64;2],depth:u32,initial:bool,
+        root:&MobaJungleEntry,count:&mut usize)->Result<(),String> {
+        if nodes.len()>if initial {8}else{4} || (depth>2 && !nodes.is_empty()) {
+            return Err(format!("invalid camp split bounds '{}'",root.id));
+        }
+        let mut offsets=BTreeSet::new();
+        for node in nodes {
+            *count+=1;
+            let home=[parent[0]+i64::from(node.offset[0]),parent[1]+i64::from(node.offset[1])];
+            let delta=[home[0]-i64::from(root.position[0]),home[1]-i64::from(root.position[1])];
+            let radius=i64::from(root.leash_radius)-20;
+            if *count>32 || !valid_id(&node.id) || !(1..=100_000).contains(&node.hp)
+                || !(1..=10_000).contains(&node.damage) || node.gold>10_000 || node.xp>10_000
+                || node.offset.iter().any(|v|!(-500..=500).contains(v))
+                || node.offset==[0,0] || !offsets.insert(node.offset)
+                || home.iter().any(|v|!(-100_000..=100_000).contains(v))
+                || delta.iter().map(|v|v*v).sum::<i64>()>radius*radius {
+                return Err(format!("invalid camp descendant '{}' in '{}'",node.id,root.id));
+            }
+            walk(&node.death_children,home,depth+1,false,root,count)?;
+        }
+        Ok(())
+    }
+    let mut count=1;let home=camp.position.map(i64::from);
+    walk(&camp.death_children,home,1,false,camp,&mut count)?;
+    walk(&camp.members,home,0,true,camp,&mut count)
+}
+
+fn valid_id(id:&str)->bool {
+    !id.is_empty() && id.len()<=64
+        && id.bytes().all(|b|b.is_ascii_lowercase() || b.is_ascii_digit() || b==b'_')
+}
+
 pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
-    let valid_id = |id: &str| !id.is_empty() && id.len() <= 64
-        && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
     let mut ids = BTreeSet::new();
     if maps.len() > 32 { return Err("MOBA map catalog exceeds 32 maps".into()); }
     for map in maps {
         if !valid_id(&map.id) || !ids.insert(&map.id)
             || !(2000..=100_000).contains(&map.lane_length)
-            || map.tower_offset < 300 || i64::from(map.tower_offset) * 2 >= i64::from(map.lane_length)
-            || map.base_unlock != "all_lane_towers" || map.lanes.len() != 3
+            || map.tower_offset < 300
+            || !matches!(map.base_unlock.as_str(), "all_lane_towers" | "any_lane_towers") || map.lanes.len() != 3
         { return Err(format!("invalid MOBA map '{}'", map.id)); }
         if let Some(layers) = &map.tower_layers {
             if layers.is_empty() || layers.len() > 8
-                || layers.iter().any(|offset| *offset < 300 || i64::from(*offset) * 2 >= i64::from(map.lane_length))
+                || layers.iter().any(|offset| *offset < 300)
                 || layers.windows(2).any(|pair| i64::from(pair[0]) - i64::from(pair[1]) < 200)
             {
                 return Err(format!("invalid outer-to-inner tower layers in MOBA map '{}'", map.id));
             }
         }
         let mut lanes = BTreeSet::new();
+        if let Some(rules) = &map.base_structures {
+            let inner = map.tower_layers.as_ref().and_then(|v|v.last()).copied().unwrap_or(map.tower_offset);
+            let m = &rules.super_minion;
+            if !(1..=1000).contains(&rules.minimum_spacing)
+                || i64::from(rules.nexus_tower_offset)<i64::from(rules.minimum_spacing)
+                || i64::from(rules.inhibitor_offset)-i64::from(rules.nexus_tower_offset)<i64::from(rules.minimum_spacing)
+                || i64::from(inner)-i64::from(rules.inhibitor_offset)<i64::from(rules.minimum_spacing)
+                || !(40..inner).contains(&rules.inhibitor_offset)
+                || !(20..rules.inhibitor_offset).contains(&rules.nexus_tower_offset)
+                || !(1..=100_000).contains(&rules.inhibitor_hp)
+                || !(1..=100_000).contains(&rules.nexus_tower_hp)
+                || !(1..=3600).contains(&rules.inhibitor_respawn_seconds)
+                || !(1..=3600).contains(&rules.nexus_tower_respawn_seconds)
+                || !(1..=100).contains(&rules.nexus_tower_respawn_hp_percent)
+                || !map.minion_wave.iter().any(|entry| entry.id==rules.siege_minion_id)
+                || map.minion_wave.iter().filter(|entry|entry.id!=rules.siege_minion_id)
+                    .map(|entry|u64::from(entry.count)).sum::<u64>()+2>16
+                || !valid_id(&m.id) || map.minion_wave.iter().any(|entry|entry.id==m.id)
+                || m.count!=1 || m.every!=1 || !(1..=100_000).contains(&m.hp)
+                || !(1..=10_000).contains(&m.damage) || !(1..=1000).contains(&m.attack_range)
+                || !(1..=2000).contains(&m.move_speed) {
+                return Err(format!("invalid base structure rules in '{}'", map.id));
+            }
+        }
         let mut camps = BTreeSet::new();
         if map.jungle_camps.len() > 32 { return Err("MOBA map exceeds 32 jungle camps".into()); }
         for camp in &map.jungle_camps {
+            if camp.additional_objective_buffs.len()>4
+                || camp.objective_buff.iter().chain(&camp.additional_objective_buffs).any(|b|b.transfer_on_kill
+                    || (b.duration_seconds==0 && b.lost_on_death))
+                || camp.personal_buff.as_ref().is_some_and(|b|b.minion_aura.is_some() || b.max_stacks!=1 || b.duration_seconds==0 || (b.transfer_on_kill && !b.lost_on_death)) {
+                return Err(format!("invalid personal/transfer buff policy for '{}'",camp.id));
+            }
+            if camp.objective_buff.iter().chain(&camp.additional_objective_buffs).chain(camp.personal_buff.iter()).any(|b| !valid_id(&b.buff_id)
+                || b.minion_aura.as_ref().is_some_and(|a| !valid_id(&a.buff_id) || a.buff_id==b.buff_id
+                    || !(1..=3000).contains(&a.radius) || !(0..=1000).contains(&a.attack_bonus)
+                    || !(0..=1000).contains(&a.armor_bonus) || (a.attack_bonus==0 && a.armor_bonus==0))
+                || !(1..=16).contains(&b.max_stacks)
+                || !(0..=3600).contains(&b.duration_seconds) || !(0..=1000).contains(&b.attack_bonus)
+                || !(0..=1000).contains(&b.armor_bonus) || (b.attack_bonus==0 && b.armor_bonus==0)) {
+                return Err(format!("invalid objective buff for '{}'",camp.id));
+            }
+            if camp.members.len()>8 || !(0..=30).contains(&camp.patience_seconds)
+                || !(0..=10).contains(&camp.soft_reset_seconds)
+                || (camp.patience_seconds==0)!=(camp.soft_reset_seconds==0) {
+                return Err(format!("invalid camp group/reset '{}'",camp.id));
+            }
+            validate_camp_descendants(camp)?;
             if !valid_id(&camp.id) || !camps.insert(&camp.id)
                 || camp.position.iter().any(|v| !(-100_000..=100_000).contains(v))
                 || !(1..=100_000).contains(&camp.hp) || !(1..=10_000).contains(&camp.damage)
@@ -167,19 +410,51 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                 || camp.gold > 10_000 || camp.xp > 10_000
             { return Err(format!("invalid MOBA jungle camp '{}' in '{}'", camp.id, map.id)); }
         }
+        if !(1..=300).contains(&map.wave_interval_seconds) || map.minion_wave.len()>4 {
+            return Err(format!("invalid minion wave in '{}'",map.id));
+        }
+        let mut minions=BTreeSet::new();let mut wave_count=0u64;
+        for minion in &map.minion_wave {
+            wave_count+=u64::from(minion.count);
+            if !valid_id(&minion.id) || !minions.insert(&minion.id) || !(1..=8).contains(&minion.count)
+                || !(1..=100).contains(&minion.every) || !(1..=100_000).contains(&minion.hp)
+                || !(1..=10_000).contains(&minion.damage) || !(1..=1000).contains(&minion.attack_range)
+                || !(1..=2000).contains(&minion.move_speed) {
+                return Err(format!("invalid minion '{}' in '{}'",minion.id,map.id));
+            }
+        }
+        if wave_count>16 || (!map.minion_wave.is_empty() && !map.minion_wave.iter().any(|m|m.every==1)) {
+            return Err(format!("minion wave exceeds 16 units or lacks a regular group in '{}'",map.id));
+        }
+        let start = map.lanes.first().and_then(|lane| lane.waypoints.first());
+        let end = map.lanes.first().and_then(|lane| lane.waypoints.last());
+        if start.is_none() || end.is_none() || start == end {
+            return Err(format!("invalid shared base endpoints in MOBA map '{}'", map.id));
+        }
         for lane in &map.lanes {
             if !valid_id(&lane.id) || !lanes.insert(&lane.id)
                 || !(2..=16).contains(&lane.waypoints.len())
-                || lane.waypoints.first() != Some(&[0, 0])
-                || lane.waypoints.last() != Some(&[map.lane_length, 0])
+                || lane.waypoints.first() != start
+                || lane.waypoints.last() != end
                 || lane.waypoints.iter().flatten().any(|v| !(-100_000..=100_000).contains(v))
                 || lane.waypoints.windows(2).any(|p| p[0] == p[1])
             { return Err(format!("invalid MOBA lane '{}' in '{}'", lane.id, map.id)); }
         }
+        // Use route arc length, not the old horizontal side scalar. Coordinates
+        // are validated above; integer roots conservatively round each segment.
+        let shortest=map.lanes.iter().map(|lane|lane.waypoints.windows(2).map(|pair| {
+            let dx=i64::from(pair[1][0])-i64::from(pair[0][0]);
+            let dy=i64::from(pair[1][1])-i64::from(pair[0][1]);
+            ((dx*dx+dy*dy) as u64).isqrt()
+        }).sum::<u64>()).min().unwrap_or(0);
+        if i64::from(map.tower_offset)*2>=shortest as i64
+            || map.tower_layers.as_ref().is_some_and(|layers|layers.iter().any(|&offset|i64::from(offset)*2>=shortest as i64)) {
+            return Err(format!("tower offsets exceed lane arc length in '{}'",map.id));
+        }
         // Presentation is bounded by existing public geometry. It never expands
         // fog geometry, lane paths, camp leashes or collision.
         let geometry = map.lanes.iter().flat_map(|lane| lane.waypoints.iter().copied())
-            .chain(map.jungle_camps.iter().map(|camp| camp.position))
+            .chain(map.jungle_camps.iter().flat_map(|camp|camp_home_positions(camp).into_iter()))
             .chain(map.terrain.iter().flat_map(|region| [region.min, region.max]));
         let bounds = geometry.fold([i32::MAX, i32::MAX, i32::MIN, i32::MIN], |b, p|
             [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]);
@@ -204,6 +479,15 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
             }
         }
         let mut terrain_ids = BTreeSet::new();
+        let mut brush_ids = BTreeSet::new();
+        if map.brushes.len() > 32 { return Err("MOBA map exceeds 32 brushes".into()); }
+        for brush in &map.brushes {
+            if !valid_id(&brush.id) || !brush_ids.insert(&brush.id)
+                || (0..2).any(|axis| brush.min[axis] < bounds[axis] || brush.max[axis] > bounds[axis+2]
+                    || brush.min[axis] >= brush.max[axis]) {
+                return Err(format!("invalid MOBA brush '{}' in '{}'",brush.id,map.id));
+            }
+        }
         if map.terrain.len() > 32 { return Err(format!("MOBA map '{}' exceeds 32 terrain rectangles",map.id)); }
         for terrain in &map.terrain {
             if !valid_id(&terrain.id) || !terrain_ids.insert(&terrain.id)
@@ -214,16 +498,21 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
             use omoba_sim::{Fixed64,Vec2};
             let p=|[x,y]:[i32;2]| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
             let polygon=[p(terrain.min),p([terrain.max[0],terrain.min[1]]),p(terrain.max),p([terrain.min[0],terrain.max[1]])];
-            for x in [120,map.lane_length-120] {
+            let mid = map.lanes.iter().find(|lane| lane.id == "mid").unwrap_or(&map.lanes[0]);
+            for side in 0..2 {
+                let index = if side == 0 { 0 } else { mid.waypoints.len()-1 };
+                let next = if side == 0 { 1 } else { index-1 };
+                let origin = p(mid.waypoints[index]);
+                let direction = p(mid.waypoints[next])-origin;
                 for rank in 0..5 {
-                    let spawn=p([x,rank*60]);
+                    let spawn=origin+direction*(Fixed64::from_i32(120+rank*60)/direction.length());
                     if omoba_sim::terrain::swept_circle_hits_polygon(spawn,spawn,Fixed64::from_i32(20),&polygon) {
                         return Err(format!("MOBA terrain '{}' blocks hero spawn in '{}'",terrain.id,map.id));
                     }
                 }
             }
-            // Until NPC detours are integrated, authored routes and the whole
-            // camp leash must remain clear. Includes base/tower/spawn corridors.
+            // Keep lane spawn/structure corridors clear. Jungle AI already
+            // navigates public obstacles; only its home body must be clear.
             for lane in &map.lanes {
                 if lane.waypoints.windows(2).any(|edge| omoba_sim::terrain::swept_circle_hits_polygon(
                     p(edge[0]),p(edge[1]),Fixed64::from_i32(100),&polygon)) {
@@ -231,9 +520,14 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                 }
             }
             for camp in &map.jungle_camps {
+                for point in camp_home_positions(camp) {
+                    if omoba_sim::terrain::swept_circle_hits_polygon(p(point),p(point),Fixed64::from_i32(20),&polygon) {
+                        return Err(format!("MOBA terrain '{}' blocks camp member '{}'",terrain.id,camp.id));
+                    }
+                }
                 if omoba_sim::terrain::swept_circle_hits_polygon(p(camp.position),p(camp.position),
-                    Fixed64::from_i32(camp.leash_radius+100),&polygon) {
-                    return Err(format!("MOBA terrain '{}' blocks jungle leash '{}' in '{}'",terrain.id,camp.id,map.id));
+                    Fixed64::from_i32(20),&polygon) {
+                    return Err(format!("MOBA terrain '{}' blocks jungle home '{}' in '{}'",terrain.id,camp.id,map.id));
                 }
             }
         }
@@ -244,7 +538,7 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
 impl Default for MobaEconomyRules {
     fn default() -> Self {
         // Legacy TD-only manifests omit the entire MOBA rules section.
-        Self { passive_gold_per_second: 0, hero_kill_gold: 0, recall_channel_seconds: 8,
+        Self { objective_comeback: Default::default(), death_streak_basis_points: Vec::new(), first_kill_bonus_gold: 0, kill_streak_bounty: KillStreakBountyRules::default(), passive_gold_per_second: 0, hero_kill_gold: 0, recall_channel_seconds: omoba_content_model::recall_rules::DEFAULT_RECALL_CHANNEL_SECONDS,
             hero_assist_gold: 0, assist_window_seconds: 10, hero_kill_xp: 0, hero_assist_xp: 0,
             lane_creep_xp: 0, lane_creep_gold: 0, lane_xp_radius: 1200,
             base_recovery_hp_per_second: 0, base_recovery_radius: 0, mana_regen_per_second: 0,
@@ -637,8 +931,48 @@ pub(crate) struct SummonEntry {
     pub(crate) duration: f32,
     #[serde(default)]
     pub(crate) move_speed: f32,
+    #[serde(default)]
+    pub(crate) attack_range: f32,
+    #[serde(default)]
+    pub(crate) attack_interval: f32,
+    #[serde(default)]
+    pub(crate) armor: f32,
+    #[serde(default)]
+    pub(crate) magic_resistance: f32,
+    #[serde(default)]
+    pub(crate) collision_radius: f32,
+    #[serde(default)]
+    pub(crate) vision_radius: f32,
+    #[serde(default)]
+    pub(crate) follow_start_distance: f32,
+    #[serde(default)]
+    pub(crate) follow_stop_distance: f32,
     #[serde(default = "default_attack_timing")]
     pub(crate) attack_timing: AttackTimingEntry,
+}
+
+pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),String> {
+    for entry in entries.iter().filter(|entry|!entry.tombstone) {
+        let (start,stop)=(entry.follow_start_distance,entry.follow_stop_distance);
+        if !start.is_finite() || !stop.is_finite() || start<0.0 || start>10_000.0 || stop<0.0
+            || (start==0.0 && stop!=0.0) || (start>0.0 && (stop<=0.0 || stop>=start)) {
+            return Err(format!("summon {} has invalid follow distances",entry.id));
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn summon_follow_metadata_rejects_invalid_hysteresis_and_preserves_disabled_defaults() {
+    let mut entry:SummonEntry=serde_json::from_value(serde_json::json!({"id":"fixture"})).unwrap();
+    assert!(validate_summon_navigation(&[entry.clone()]).is_ok());
+    entry.follow_start_distance=750.0;entry.follow_stop_distance=350.0;
+    assert!(validate_summon_navigation(&[entry.clone()]).is_ok());
+    for (start,stop) in [(0.0,1.0),(1.0,1.0),(1.0,2.0),(-1.0,0.0),
+        (750.0,0.0),(f32::NAN,1.0),(10001.0,10.0),(750.0,f32::INFINITY)] {
+        entry.follow_start_distance=start;entry.follow_stop_distance=stop;
+        assert!(validate_summon_navigation(&[entry.clone()]).is_err());
+    }
 }
 
 pub(crate) use omoba_content_model::AbilityDefinition as AbilityEntry;
@@ -1003,6 +1337,8 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
         _ => return Err("absent or empty trinket catalog is unsupported; rebuild all peers".into()),
     }
     validate_moba_maps(&manifest.moba_maps)?;
+    validate_summon_navigation(&manifest.summons)?;
+    validate_objective_buff_catalog(&manifest.moba_maps,&manifest.buffs)?;
     if manifest_value.get("moba_communication").is_some() {
         omoba_content_model::moba_communication::validate_communication_content(&manifest.moba_communication)?;
     }
@@ -1010,8 +1346,14 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
         omoba_content_model::validate_hero_animation_clips(&hero.common)?;
         omoba_content_model::validate_moba_loadout(&hero.common,manifest.abilities.iter())?;
     }
+    validate_death_streak(&manifest.moba_economy.death_streak_basis_points)?;
+    validate_kill_streak_bounty(manifest.moba_economy.kill_streak_bounty)?;
+    if !manifest.moba_economy.objective_comeback.is_valid() {return Err("invalid MOBA objective comeback rules".into());}
     if manifest.moba_economy.passive_gold_per_second > 10_000 {
         return Err("MOBA passive gold rate exceeds 10000 per second".into());
+    }
+    if manifest.moba_economy.first_kill_bonus_gold > 1_000_000 {
+        return Err("MOBA first kill bonus exceeds 1000000".into());
     }
     if manifest.moba_economy.hero_kill_gold > 1_000_000 {
         return Err("MOBA hero kill gold exceeds 1000000".into());
@@ -1025,9 +1367,7 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     if manifest.moba_economy.lane_creep_xp > 1_000_000 || !(1..=10_000).contains(&manifest.moba_economy.lane_xp_radius) {
         return Err("MOBA lane XP must be <=1000000 and radius 1..10000".into());
     }
-    if !(1..=60).contains(&manifest.moba_economy.recall_channel_seconds) {
-        return Err("MOBA recall channel must be 1..60 seconds".into());
-    }
+    omoba_content_model::recall_rules::validate_recall_channel_seconds(manifest.moba_economy.recall_channel_seconds)?;
     if manifest.moba_economy.base_recovery_hp_per_second>10_000
         || manifest.moba_economy.base_recovery_mana_per_second>10_000
         || manifest.moba_economy.base_recovery_radius>10_000
@@ -1300,6 +1640,59 @@ pub(crate) const FIXTURE_REQUIRED_MOBA_CATALOGS: &str = concat!(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn healing_reduction_content_is_optional_bounded_and_hashed() {
+        use super::*;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let content=load_content(root).unwrap();
+        let item=content.manifest.moba_items.iter().find(|i|i.id=="moba_training_hex").unwrap();
+        let raw=serde_json::to_value(item).unwrap();
+        for bad in [serde_json::json!({"multiplier":-0.1,"duration":4}),serde_json::json!({"multiplier":1,"duration":4}),
+            serde_json::json!({"multiplier":0.9999,"duration":4}),serde_json::json!({"multiplier":0.5,"duration":0}),
+            serde_json::json!({"multiplier":0.5,"duration":61}),serde_json::json!({"multiplier":"0.5","duration":4}),
+            serde_json::json!({"multiplier":0.5,"duration":4,"typo":1})] {
+            let mut value=raw.clone();value["active"]["healing_reduction"]=bad;
+            assert!(serde_json::from_value::<MobaItemEntry>(value).map_or(true,|i|validate_moba_items(&[i]).is_err()));
+        }
+        let before=omoba_content_model::canonical_template_hash(&raw).unwrap();
+        let mut changed=raw.clone();changed["active"]["healing_reduction"]["duration"]=serde_json::json!(5);
+        assert_ne!(before,omoba_content_model::canonical_template_hash(&changed).unwrap());
+        let mut legacy=raw;legacy["active"].as_object_mut().unwrap().remove("healing_reduction");
+        let legacy=serde_json::from_value::<MobaItemEntry>(legacy).unwrap();validate_moba_items(&[legacy.clone()]).unwrap();
+        assert!(legacy.active.unwrap().rust_literal().contains("healing_reduction:None"));
+    }
+    #[test]
+    fn brush_bounds_identity_capacity_and_optional_serialization_are_validated() {
+        use super::*;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let map=load_content(root).unwrap().manifest.moba_maps.remove(0);
+        assert_eq!(map.brushes.len(),6);
+        for brush in &map.brushes {
+            let surface=map.presentation_surfaces.iter().find(|s|s.id==brush.id).unwrap();
+            assert_eq!(surface.points,vec![brush.min,brush.max]);
+        }
+        let mut overlapping=map.clone();
+        overlapping.brushes[1].min=overlapping.brushes[0].min;
+        overlapping.brushes[1].max=overlapping.brushes[0].max;
+        assert!(validate_moba_maps(&[overlapping]).is_ok(),"distinct identities may form connected brush");
+        for case in 0..5 {
+            let mut bad=map.clone();
+            match case {
+                0=>bad.brushes[0].min=bad.brushes[0].max,
+                1=>bad.brushes[0].id="../bad".into(),
+                2=>bad.brushes[0].min[0]=-100001,
+                3=>bad.brushes.push(bad.brushes[0].clone()),
+                _=>bad.brushes=vec![bad.brushes[0].clone();33],
+            }
+            assert!(validate_moba_maps(&[bad]).is_err(),"brush case {case}");
+        }
+        let before=omoba_content_model::canonical_template_hash(&serde_json::to_value(&map).unwrap()).unwrap();
+        let mut changed=map.clone();changed.brushes[0].min[0]+=1;
+        assert_ne!(before,omoba_content_model::canonical_template_hash(&serde_json::to_value(&changed).unwrap()).unwrap());
+        changed.brushes.clear();
+        let legacy=serde_json::to_value(changed).unwrap();assert!(legacy.get("brushes").is_none());
+        assert!(serde_json::from_value::<MobaMapEntry>(legacy).unwrap().brushes.is_empty());
+    }
+    #[test]
     fn public_map_surfaces_validate_shapes_bounds_capacity_and_identity() {
         use super::*;
         use omoba_content_model::canonical_template_hash;
@@ -1311,7 +1704,7 @@ mod tests {
         assert!(serde_json::from_value::<MobaMapEntry>(legacy.clone()).unwrap().presentation_surfaces.is_empty());
         map.presentation_surfaces=vec![
             MobaMapSurfaceEntry {id:"central_river".into(),kind:MobaMapSurfaceKindEntry::River,width:80,
-                points:vec![[1200,-1360],[1050,-700],[1250,0],[1100,700],[1200,1360]]},
+                points:vec![[120,2280],[650,1700],[1200,1200],[1700,650],[2280,120]]},
             MobaMapSurfaceEntry {id:"north_grove".into(),kind:MobaMapSurfaceKindEntry::Jungle,width:0,
                 points:vec![[400,200],[1000,1150]]}];
         validate_moba_maps(&[map.clone()]).unwrap();
@@ -1355,7 +1748,7 @@ mod tests {
         use omoba_content_model::canonical_template_hash;
         let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
         let maps=load_content(root).unwrap().manifest.moba_maps;
-        assert_eq!(maps[0].terrain.len(),2);
+        assert_eq!(maps[0].terrain.len(),14);
         for case in 0..11 {
             let mut bad=maps.clone();
             match case {
@@ -1364,14 +1757,14 @@ mod tests {
                 2=>bad[0].terrain[0].min[0]=i32::MIN,
                 3=>bad[0].terrain[0].max[0]=bad[0].terrain[0].min[0],
                 4=>bad[0].terrain[0].max[1]=bad[0].terrain[0].min[1]-1,
-                5=>{ bad[0].terrain[0].min=[1100,-1];bad[0].terrain[0].max=[1200,1]; },
-                6=>{ bad[0].terrain[0].min=[1100,1300];bad[0].terrain[0].max=[1200,1310]; },
-                7=>{ bad[0].terrain[0].min=[800,700];bad[0].terrain[0].max=[810,710]; },
-                8=>{ bad[0].terrain[0].min=[1300,700];bad[0].terrain[0].max=[1310,710]; },
+                5=>{ bad[0].terrain[0].min=[1100,1100];bad[0].terrain[0].max=[1200,1200]; },
+                6=>{ bad[0].terrain[0].min=[-10,1300];bad[0].terrain[0].max=[10,1310]; },
+                7=>{ let [x,y]=bad[0].jungle_camps[0].position;bad[0].terrain[0].min=[x,y];bad[0].terrain[0].max=[x+10,y+10]; },
+                8=>{ let [x,y]=bad[0].jungle_camps[0].position;bad[0].terrain[0].min=[x+19,y];bad[0].terrain[0].max=[x+30,y+10]; },
                 9=>bad[0].terrain=vec![bad[0].terrain[0].clone();33],
                 10=>{
                     for lane in &mut bad[0].lanes { lane.waypoints=vec![[0,0],[2400,0]]; }
-                    bad[0].terrain=vec![MobaTerrainEntry { id:"spawn_wall".into(),min:[110,230],max:[130,250] }];
+                    bad[0].terrain=vec![MobaTerrainEntry { id:"spawn_wall".into(),min:[350,-10],max:[370,10] }];
                 },
                 _=>unreachable!(),
             }
@@ -1380,6 +1773,9 @@ mod tests {
         let before=canonical_template_hash(&serde_json::to_value(&maps).unwrap()).unwrap();
         let mut changed=maps.clone();changed[0].terrain[0].max[0]+=1;
         assert!(validate_moba_maps(&changed).is_ok());
+        let mut detour=maps[0].clone();let [x,y]=detour.jungle_camps[0].position;
+        detour.terrain=vec![MobaTerrainEntry {id:"camp_detour".into(),min:[x+100,y],max:[x+110,y+10]}];
+        assert!(validate_moba_maps(&[detour]).is_ok(),"public obstacle inside leash is supported by real NPC pathing");
         assert_ne!(before,canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
         let raw=serde_json::to_value(&maps[0].terrain[0]).unwrap();
         for (key,value) in [("min",serde_json::json!([1.5,2])),("max",serde_json::json!([1,2,3])),("typo",serde_json::json!(1))] {
@@ -1395,7 +1791,26 @@ mod tests {
         use omoba_content_model::canonical_template_hash;
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
         let maps = load_content(root).unwrap().manifest.moba_maps;
-        assert_eq!(maps[0].jungle_camps.len(), 2);
+        assert_eq!(maps[0].jungle_camps.len(), 16);
+        let group=maps[0].jungle_camps.iter().position(|c|c.members.len()==5).unwrap();
+        for case in 0..11 {
+            let mut bad=maps.clone();let camp=&mut bad[0].jungle_camps[group];
+            match case {
+                0=>camp.members=vec![camp.members[0].clone();9],
+                1=>camp.members[0].offset=[0,0],
+                2=>camp.members[0].hp=0,
+                3=>camp.members[0].offset=[i32::MAX,0],
+                4=>camp.patience_seconds=-1,
+                5=>camp.soft_reset_seconds=0,
+                6=>camp.soft_reset_seconds=11,
+                7=>camp.members[0].id="BAD".into(),
+                8=>camp.members[0].offset=camp.members[1].offset,
+                9=>camp.members[0].xp=10001,
+                10=>camp.leash_radius=i32::MIN,
+                _=>unreachable!(),
+            }
+            assert!(validate_moba_maps(&bad).is_err(),"member/reset case {case}");
+        }
         for case in 0..13 {
             let mut bad = maps.clone();
             let c = &mut bad[0].jungle_camps[0];
@@ -1418,6 +1833,94 @@ mod tests {
             let mut bad = raw.clone(); bad[key] = value;
             assert!(serde_json::from_value::<MobaJungleEntry>(bad).is_err());
         }
+    }
+    #[test]
+    fn death_split_trees_bound_depth_population_homes_and_hash_descendants() {
+        use super::*;
+        use omoba_content_model::canonical_template_hash;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let maps=load_content(root).unwrap().manifest.moba_maps;
+        for map in &maps {
+            assert_eq!(map.jungle_camps.iter().filter(|c|!c.death_children.is_empty()).count(),2);
+        }
+        let index=maps[0].jungle_camps.iter().position(|c|!c.death_children.is_empty()).unwrap();
+        for case in 0..9 {
+            let mut bad=maps.clone();let c=&mut bad[0].jungle_camps[index];
+            match case {
+                0=>c.death_children=vec![c.death_children[0].clone();5],
+                1=>c.death_children[0].death_children[0].death_children=vec![c.members[0].clone()],
+                2=>{c.members=(0..8).map(|i| {
+                    let mut m=c.death_children[0].clone();m.offset=[20+i*20,100];
+                    m.death_children=(0..4).map(|j|{let mut n=m.death_children[0].clone();n.offset=[10+j*10,10];n}).collect();m
+                }).collect();},
+                3=>c.death_children[0].hp=0,
+                4=>c.death_children[0].offset=[i32::MAX,0],
+                5=>{c.leash_radius=100;c.attack_range=50;},
+                6=>c.death_children[1].offset=c.death_children[0].offset,
+                7=>c.death_children[0].death_children[0].gold=10001,
+                8=>c.death_children[0].death_children[0].id="BAD".into(),
+                _=>unreachable!(),
+            }
+            assert!(validate_moba_maps(&bad).is_err(),"split case {case}");
+        }
+        let before=canonical_template_hash(&serde_json::to_value(&maps).unwrap()).unwrap();
+        let mut changed=maps.clone();changed[0].jungle_camps[index].death_children[0].death_children[0].gold+=1;
+        assert_ne!(before,canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
+        let mut legacy=serde_json::to_value(&maps[0].jungle_camps[index]).unwrap();
+        legacy.as_object_mut().unwrap().remove("death_children");
+        assert!(serde_json::from_value::<MobaJungleEntry>(legacy).unwrap().death_children.is_empty());
+    }
+
+    #[test]
+    fn base_structure_rules_are_bounded_optional_and_part_of_map_hash() {
+        use super::*;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let map=load_content(root).unwrap().manifest.moba_maps.remove(0);
+        for case in 0..13 {
+            let mut bad=map.clone();let s=bad.base_structures.as_mut().unwrap();
+            match case {
+                0=>s.inhibitor_offset=400,1=>s.inhibitor_hp=0,2=>s.inhibitor_respawn_seconds=0,
+                3=>s.nexus_tower_offset=s.inhibitor_offset,4=>s.nexus_tower_hp=100_001,
+                5=>s.nexus_tower_respawn_seconds=3601,6=>s.nexus_tower_respawn_hp_percent=0,
+                7=>s.nexus_tower_respawn_hp_percent=101,8=>s.siege_minion_id="missing".into(),
+                9=>s.super_minion.id=bad.minion_wave[0].id.clone(),10=>s.super_minion.count=2,
+                11=>s.super_minion.every=3,_=>s.super_minion.move_speed=0,
+            }
+            assert!(validate_moba_maps(&[bad]).is_err(),"base structure case {case}");
+        }
+        let before=omoba_content_model::canonical_template_hash(&serde_json::to_value(&map).unwrap()).unwrap();
+        let mut changed=map;changed.base_structures=None;
+        validate_moba_maps(&[changed.clone()]).unwrap();
+        assert_ne!(before,omoba_content_model::canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
+    }
+    #[test]
+    fn minion_composition_rejects_invalid_and_unbounded_waves_and_hashes_rules() {
+        use super::*;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let map=load_content(root).unwrap().manifest.moba_maps.remove(0);
+        assert_eq!(map.minion_wave.iter().map(|m|m.count).collect::<Vec<_>>(),vec![3,3,1]);
+        for case in 0..12 {
+            let mut bad=map.clone();
+            match case {
+                0=>bad.minion_wave[0].id="BAD".into(),
+                1=>bad.minion_wave[0].count=0,
+                2=>bad.minion_wave[0].count=u32::MAX,
+                3=>bad.minion_wave[0].every=0,
+                4=>bad.minion_wave[0].hp=0,
+                5=>bad.minion_wave[0].damage=-1,
+                6=>bad.minion_wave[0].attack_range=1001,
+                7=>bad.minion_wave[0].move_speed=0,
+                8=>bad.wave_interval_seconds=0,
+                9=>bad.minion_wave[1].id=bad.minion_wave[0].id.clone(),
+                10=>for m in &mut bad.minion_wave {m.count=8;},
+                _=>for m in &mut bad.minion_wave {m.every=3;},
+            }
+            assert!(validate_moba_maps(&[bad]).is_err(),"invalid wave case {case}");
+        }
+        let before=omoba_content_model::canonical_template_hash(&serde_json::to_value(&map).unwrap()).unwrap();
+        let mut changed=map;changed.minion_wave[1].attack_range+=1;
+        validate_moba_maps(&[changed.clone()]).unwrap();
+        assert_ne!(before,omoba_content_model::canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
     }
     #[test]
     fn moba_map_validation_rejects_bad_routes_before_generation() {
@@ -1458,13 +1961,13 @@ mod tests {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
         let maps = load_content(root).unwrap().manifest.moba_maps;
         let map = maps.iter().find(|map| map.id == "three_lane_layered_training").unwrap();
-        assert_eq!(map.tower_layers.as_deref(), Some([1000, 700, 400].as_slice()));
-        for offsets in [vec![], vec![1000; 9], vec![300,700], vec![700,700], vec![700,600], vec![1200], vec![299], vec![i32::MAX]] {
+        assert_eq!(map.tower_layers.as_deref(), Some([2200, 1600, 1000].as_slice()));
+        for offsets in [vec![], vec![1000; 9], vec![300,700], vec![700,700], vec![700,600], vec![3400], vec![299], vec![i32::MAX]] {
             let mut bad = map.clone(); bad.tower_layers = Some(offsets);
             assert!(validate_moba_maps(&[bad]).is_err());
         }
         let raw = serde_json::to_value(map).unwrap();
-        let mut changed = map.clone(); changed.tower_layers = Some(vec![1000,600,400]);
+        let mut changed = map.clone(); changed.tower_layers = Some(vec![2250,1650,1050]);
         assert!(validate_moba_maps(&[changed.clone()]).is_ok());
         assert_ne!(canonical_template_hash(&raw).unwrap(), canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
         for value in [serde_json::json!([700.5]), serde_json::json!(["700"])] {
@@ -1537,7 +2040,7 @@ mod tests {
         let item = |id: &str, cost: i32, recipe: &[&str]| MobaItemEntry {
             catalog_id: if id == "sword" || id == "a" { 1 } else { 2 },
             id: id.into(), name: id.into(), cost, atk: 10.0, hp: 0.0, ms: 0.0, armor: 0.0,
-            active: None, cooldown: 0.0,
+            active: None, cooldown: 0.0, lifesteal: 0.0, critical_chance: 0.0,
             recipe: recipe.iter().map(|id| (*id).into()).collect(),
             target: omoba_content_model::moba_items::MobaItemTargetEntry::legacy_self(),
         };
@@ -1936,7 +2439,7 @@ end
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
         let content = load_content(root).expect("shipped Lua content");
         let trinkets = &content.manifest.moba_trinkets;
-        assert_eq!(trinkets.len(), 1);
+        assert_eq!(trinkets.len(), 2);
         let row = &trinkets[0];
         assert_eq!(row.catalog_id, 1);
         assert_eq!(row.id, "training_scout_lantern_v1");
@@ -1956,9 +2459,14 @@ end
         assert_eq!(row.automatic_acquisition, omoba_content_model::moba_trinkets::MobaTrinketAutomaticAcquisition::Disabled);
         validate_moba_trinkets(trinkets).unwrap();
         let authored = content.manifest_value.get("moba_trinkets").and_then(|value| value.as_array()).unwrap();
-        assert_eq!(authored.len(), 1);
+        assert_eq!(authored.len(), 2);
         assert_eq!(authored[0]["id"], "training_scout_lantern_v1");
-        assert_eq!(content.manifest.moba_summoners.len(), 2);
+        assert_eq!(authored[1]["id"], "training_detection_lantern_v1");
+        assert_eq!(content.manifest.moba_summoners.len(), 6);
+        let guard=&content.manifest.moba_summoners[5];assert_eq!(guard.catalog_id,6);assert_eq!(guard.id,"training_self_guard_v1");
+        assert!(matches!(guard.operation,omoba_content_model::moba_summoners::MobaSummonerOperation::SelfDamageReduction {reduction:0.25,duration:3.0}));
+        let sprint=&content.manifest.moba_summoners[4];assert_eq!(sprint.catalog_id,5);assert_eq!(sprint.id,"training_self_sprint_v1");assert_eq!(sprint.cooldown,180.0);
+        assert!(matches!(sprint.operation,omoba_content_model::moba_summoners::MobaSummonerOperation::SelfSprint {ms_bonus:80.0,duration:6.0}));
         assert_eq!(content.manifest.moba_summoners[0].id, "training_point_blink_v1");
         assert_eq!(content.manifest.moba_summoners[1].id, "training_self_heal_v1");
     }
@@ -2011,5 +2519,122 @@ end
         assert_eq!(content.manifest.moba_trinkets[1].id, "training_scout_lantern_v1");
         assert_eq!(content.manifest_value["moba_trinkets"][0]["catalog_id"], 2);
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn objective_buff_rules_are_authored_bounded_and_require_known_catalog() {
+        let content=load_content(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/lua_data")).unwrap();
+        let maps=content.manifest.moba_maps;
+        assert!(maps.iter().all(|m|m.jungle_camps.iter().filter(|c|c.objective_buff.is_some()).count()==2));
+        for case in 0..7 {
+            let mut bad=maps.clone();let rule=bad[0].jungle_camps.iter_mut().find_map(|c|c.objective_buff.as_mut()).unwrap();
+            match case {0=>rule.duration_seconds=0,1=>rule.duration_seconds=3601,2=>rule.attack_bonus=-1,
+                3=>rule.attack_bonus=1001,4=>rule.armor_bonus=1001,5=>{rule.attack_bonus=0;rule.armor_bonus=0;},_=>rule.buff_id="bad id".into()}
+            assert!(validate_moba_maps(&bad).is_err(),"case {case}");
+        }
+        let mut unknown=maps.clone();unknown[0].jungle_camps.iter_mut().find_map(|c|c.objective_buff.as_mut()).unwrap().buff_id="not_catalogued".into();
+        assert!(validate_objective_buff_catalog(&unknown,&content.manifest.buffs).is_err());
+        assert!(validate_objective_buff_catalog(&maps,&content.manifest.buffs).is_ok());
+    }
+
+    #[test]
+    fn objective_stack_limits_are_bounded_and_legacy_defaults_to_one() {
+        let content=load_content(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/lua_data")).unwrap();
+        for limit in [0,17,u32::MAX] {
+            let mut maps=content.manifest.moba_maps.clone();
+            maps[0].jungle_camps.iter_mut().find_map(|c|c.objective_buff.as_mut()).unwrap().max_stacks=limit;
+            assert!(validate_moba_maps(&maps).is_err());
+        }
+        let rule=content.manifest.moba_maps[0].jungle_camps.iter().find_map(|c|c.objective_buff.as_ref()).unwrap();
+        let mut legacy=serde_json::to_value(rule).unwrap();legacy.as_object_mut().unwrap().remove("max_stacks");
+        assert_eq!(serde_json::from_value::<MobaObjectiveBuffEntry>(legacy.clone()).unwrap().max_stacks,1);
+        for value in [serde_json::json!(-1),serde_json::json!(1.5),serde_json::json!("4")] {
+            legacy["max_stacks"]=value;assert!(serde_json::from_value::<MobaObjectiveBuffEntry>(legacy.clone()).is_err());
+        }
+    }
+
+    #[test]
+    fn personal_buff_scope_transfer_defaults_and_catalog_are_validated() {
+        let content=load_content(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/lua_data")).unwrap();
+        assert_eq!(content.manifest.moba_maps[0].jungle_camps.iter().filter(|c|c.personal_buff.is_some()).count(),4);
+        let mut maps=content.manifest.moba_maps.clone();
+        let index=maps[0].jungle_camps.iter().position(|c|c.personal_buff.is_some()).unwrap();
+        for case in 0..3 {
+            let mut bad=maps.clone();let r=bad[0].jungle_camps[index].personal_buff.as_mut().unwrap();
+            match case {0=>r.max_stacks=2,1=>r.lost_on_death=false,_=>r.duration_seconds=0}
+            assert!(validate_moba_maps(&bad).is_err());
+        }
+        maps[0].jungle_camps[index].objective_buff=maps[0].jungle_camps[index].personal_buff.clone();
+        assert!(validate_objective_buff_catalog(&maps,&content.manifest.buffs).is_err());
+        let mut legacy=serde_json::to_value(content.manifest.moba_maps[0].jungle_camps.iter().find_map(|c|c.objective_buff.as_ref()).unwrap()).unwrap();
+        legacy.as_object_mut().unwrap().remove("transfer_on_kill");
+        assert!(!serde_json::from_value::<MobaObjectiveBuffEntry>(legacy).unwrap().transfer_on_kill);
+        let mut unknown=content.manifest.moba_maps.clone();unknown[0].jungle_camps[index].personal_buff.as_mut().unwrap().buff_id="unknown_personal".into();
+        assert!(validate_objective_buff_catalog(&unknown,&content.manifest.buffs).is_err());
+    }
+
+    #[test]
+    fn minion_aura_policy_boundaries_and_legacy_defaults_are_validated() {
+        let content=load_content(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/lua_data")).unwrap();
+        let maps=&content.manifest.moba_maps;let i=maps[0].jungle_camps.iter().position(|c|c.objective_buff.as_ref().is_some_and(|b|b.minion_aura.is_some())).unwrap();
+        for case in 0..8 {
+            let mut bad=maps.clone();let b=bad[0].jungle_camps[i].objective_buff.as_mut().unwrap();let id=b.buff_id.clone();
+            let a=b.minion_aura.as_mut().unwrap();
+            match case {0=>a.radius=0,1=>a.radius=3001,2=>a.attack_bonus=-1,3=>a.armor_bonus=1001,
+                4=>{a.attack_bonus=0;a.armor_bonus=0},5=>a.buff_id=id,6=>a.buff_id=String::new(),_=>{
+                    let personal=b.clone();bad[0].jungle_camps[i].objective_buff=None;bad[0].jungle_camps[i].personal_buff=Some(personal);}}
+            assert!(validate_moba_maps(&bad).is_err(),"case {case}");
+        }
+        let mut legacy=serde_json::to_value(maps[0].jungle_camps[i].objective_buff.as_ref().unwrap()).unwrap();
+        legacy.as_object_mut().unwrap().remove("minion_aura");
+        assert!(serde_json::from_value::<MobaObjectiveBuffEntry>(legacy).unwrap().minion_aura.is_none());
+    }
+    #[test]
+    fn minion_aura_catalog_identity_consistency_and_content_hash_cover_policy() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/lua_data");
+        let content=load_content(root).unwrap();let maps=&content.manifest.moba_maps;
+        let i=maps[0].jungle_camps.iter().position(|c|c.objective_buff.as_ref().is_some_and(|b|b.minion_aura.is_some())).unwrap();
+        for id in ["missing_aura","objective_guard"] {
+            let mut bad=maps.clone();bad[0].jungle_camps[i].objective_buff.as_mut().unwrap().minion_aura.as_mut().unwrap().buff_id=id.into();
+            assert!(validate_objective_buff_catalog(&bad,&content.manifest.buffs).is_err());
+        }
+        let mut bad=maps.clone();let mut reward=bad[0].jungle_camps[i].objective_buff.clone().unwrap();
+        reward.buff_id="objective_legacy".into();reward.minion_aura.as_mut().unwrap().radius+=1;
+        for camp in &mut bad[0].jungle_camps {camp.additional_objective_buffs.clear();}
+        bad[0].jungle_camps[i].additional_objective_buffs.push(reward);
+        assert!(validate_objective_buff_catalog(&bad,&content.manifest.buffs).is_err());
+        let original=serde_json::to_vec(&content.manifest.moba_maps).unwrap();let mut changed=maps.clone();
+        changed[0].jungle_camps[i].objective_buff.as_mut().unwrap().minion_aura.as_mut().unwrap().radius+=1;
+        assert_ne!(original,serde_json::to_vec(&changed).unwrap(),"canonical serialized content includes aura policy");
+    }
+    #[test]
+    fn permanent_and_multiple_objective_policies_are_bounded_and_legacy_compatible() {
+        let content=load_content(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scripts/lua_data")).unwrap();
+        let maps=&content.manifest.moba_maps;let i=maps[0].jungle_camps.iter().position(|c|!c.additional_objective_buffs.is_empty()).unwrap();
+        let r=maps[0].jungle_camps[i].additional_objective_buffs[0].clone();
+        assert_eq!(r.duration_seconds,0);assert!(!r.lost_on_death);assert!(!r.transfer_on_kill);
+        for case in 0..5 {
+            let mut bad=maps.clone();let c=&mut bad[0].jungle_camps[i];
+            match case {0=>c.additional_objective_buffs[0].lost_on_death=true,
+                1=>c.additional_objective_buffs[0].transfer_on_kill=true,
+                2=>c.additional_objective_buffs=vec![r.clone();5],
+                3=>c.additional_objective_buffs[0].duration_seconds=-1,
+                _=>c.personal_buff=Some(r.clone())}
+            assert!(validate_moba_maps(&bad).is_err());
+        }
+        let mut duplicate=maps.clone();duplicate[0].jungle_camps[i].additional_objective_buffs.push(r.clone());
+        assert!(validate_objective_buff_catalog(&duplicate,&content.manifest.buffs).is_err());
+        let mut legacy=serde_json::to_value(&maps[0].jungle_camps[i]).unwrap();legacy.as_object_mut().unwrap().remove("additional_objective_buffs");
+        assert!(serde_json::from_value::<MobaJungleEntry>(legacy).unwrap().additional_objective_buffs.is_empty());
+        let mut over=maps.clone();over[0].jungle_camps.clear();let mut catalog=content.manifest.buffs.clone();
+        for group in 0..9 {
+            let mut camp=maps[0].jungle_camps[i].clone();camp.objective_buff=None;camp.personal_buff=None;camp.additional_objective_buffs.clear();
+            for slot in 0..4 {
+                let mut reward=r.clone();reward.buff_id=format!("budget_{group}_{slot}");
+                let mut entry=catalog[0].clone();entry.id=reward.buff_id.clone();catalog.push(entry);camp.additional_objective_buffs.push(reward);
+            }
+            over[0].jungle_camps.push(camp);
+        }
+        assert!(validate_objective_buff_catalog(&over,&catalog).unwrap_err().contains("32 buff policies"));
     }
 }

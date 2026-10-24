@@ -20,11 +20,16 @@ pub fn generic_slow_buff_id(ability: &str, caster: crate::types::EntityHandle) -
     format!("generic_slow:{ability}:{}:{}", caster.id, caster.gen)
 }
 
+pub fn generic_dot_buff_id(ability:&str,caster:crate::types::EntityHandle)->String {
+    format!("generic_dot:{ability}:{}:{}",caster.id,caster.gen)
+}
+
 /// Host-local source parsing, never a wire identity. Reject ambiguous keys.
 pub fn declarative_buff_source(key: &str) -> Option<(&str, Option<&str>)> {
     let parts: Vec<_> = key.split(':').collect();
     let (ability, stat, id, generation) = match parts.as_slice() {
         ["generic_slow", ability, id, generation] => (*ability, None, *id, *generation),
+        ["generic_dot", ability, id, generation] => (*ability, Some("dot_damage"), *id, *generation),
         ["generic_mana", ability, stat, id, generation] if !stat.is_empty() => (*ability, Some(*stat), *id, *generation),
         _ => return None,
     };
@@ -88,9 +93,11 @@ mod tests {
     fn declarative_buff_source_identity_is_strict_and_shared() {
         let caster = crate::types::EntityHandle { id: 12, gen: 3 };
         assert_eq!(super::declarative_buff_source(&super::generic_slow_buff_id("a", caster)), Some(("a", None)));
+        assert_eq!(super::declarative_buff_source(&super::generic_dot_buff_id("a", caster)), Some(("a", Some("dot_damage"))));
         assert_eq!(super::declarative_buff_source(&super::generic_mana_buff_id("a", "mana_bonus", caster)), Some(("a", Some("mana_bonus"))));
         for key in ["generic_slow:a:12:3:extra", "generic_slow::12:3", "generic_slow:a:012:3",
-            "generic_slow:a:-1:3", "generic_slow:a:4294967296:3", "generic_mana:a::12:3", "unknown:a:12:3"] {
+            "generic_slow:a:-1:3", "generic_slow:a:4294967296:3", "generic_mana:a::12:3", "unknown:a:12:3",
+            "generic_dot:a:012:3","generic_dot:a:12:3:extra","generic_dot::12:3"] {
             assert!(super::declarative_buff_source(key).is_none(), "{key}");
         }
     }

@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub enum BuffVisualFamily {
     SlowEnemy,
     ManaBuffSelf,
+    DamageOverTimeEnemy,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -24,6 +25,13 @@ pub struct BuffVisualSource {
 pub struct BuffVisualBinding {
     pub buff_id: String,
     pub source: BuffVisualSource,
+}
+
+impl BuffVisualSource {
+    /// Disambiguate slow and ongoing damage from the same authored ability.
+    pub fn effect_stat(&self)->Option<&'static str> {
+        match self.kind {BuffVisualFamily::DamageOverTimeEnemy=>Some("dot_damage"),_=>self.stat.map(ManaBuffStat::as_str)}
+    }
 }
 
 pub fn collect_buff_visual_sources(manifest: &Value) -> Result<Vec<BuffVisualBinding>, String> {
@@ -82,6 +90,7 @@ pub fn collect_buff_visual_sources(manifest: &Value) -> Result<Vec<BuffVisualBin
                         (BuffVisualFamily::SlowEnemy, None, AbilityEffect::SlowEnemy { .. }) => {
                             true
                         }
+                        (BuffVisualFamily::DamageOverTimeEnemy,None,AbilityEffect::DamageOverTimeEnemy {..})=>true,
                         (
                             BuffVisualFamily::ManaBuffSelf,
                             Some(stat),
@@ -102,6 +111,7 @@ pub fn collect_buff_visual_sources(manifest: &Value) -> Result<Vec<BuffVisualBin
                 match source.kind {
                     BuffVisualFamily::SlowEnemy => 0,
                     BuffVisualFamily::ManaBuffSelf => 1,
+                    BuffVisualFamily::DamageOverTimeEnemy => 2,
                 },
                 source.stat,
             );
@@ -120,6 +130,14 @@ pub fn collect_buff_visual_sources(manifest: &Value) -> Result<Vec<BuffVisualBin
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dot_visual_family_matches_only_authored_dot_and_keeps_a_distinct_effect_channel() {
+        let valid=serde_json::json!({"abilities":[{"id":"a","effects":[{"kind":"damage_over_time_enemy","amount_key":"r","duration_key":"d","damage_kind":"physical"}]}],
+            "buffs":[{"id":"bleed","ue":{"buff_visual":{"sources":[{"ability_id":"a","kind":"damage_over_time_enemy"}]}}}]});
+        let bindings=collect_buff_visual_sources(&valid).unwrap();assert_eq!(bindings[0].source.effect_stat(),Some("dot_damage"));
+        for kind in ["slow_enemy","mana_buff_self"] {let mut bad=valid.clone();bad["buffs"][0]["ue"]["buff_visual"]["sources"][0]["kind"]=Value::String(kind.into());assert!(collect_buff_visual_sources(&bad).is_err());}
+        let mut bad=valid;bad["buffs"][0]["ue"]["buff_visual"]["sources"][0]["stat"]=Value::String("mana_bonus".into());assert!(collect_buff_visual_sources(&bad).is_err());
+    }
     #[test]
     fn buff_visual_source_bindings_reject_unknown_mismatched_and_conflicting_sources() {
         let valid = serde_json::json!({"abilities":[{"id":"a","effects":[{"kind":"slow_enemy","reduction_key":"r","duration_key":"d"}]}],

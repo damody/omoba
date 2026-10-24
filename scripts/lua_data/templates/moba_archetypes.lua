@@ -29,6 +29,7 @@ return function(ctx)
         damage_per_level=3.8,hp_per_level=48.0,mana_per_level=24.0},
       skills={
         {id='ranger_shot',name='穿風箭',kind='damage',amounts={90,135,180,225},
+          dot_rates={10,15,20,25},dot_durations={4,4,4,4},
           slows={0.25,0.30,0.35,0.40},slow_durations={2,2.25,2.5,2.75},
           cooldowns={5,4.5,4,3.5},range=750,damage_kind='physical'},
         {id='ranger_patch',name='野外包紮',kind='heal_self',amounts={55,85,115,145},
@@ -73,6 +74,11 @@ return function(ctx)
         ability.extras.stun_duration=skill.stun_durations
         ability.effects[#ability.effects+1]={kind='stun_enemy',duration_key='stun_duration'}
         ability.description=ability.description..' 命中附加短暫暈眩。'
+      end
+      if skill.dot_rates then
+        ability.extras.bleed_rate=skill.dot_rates;ability.extras.bleed_duration=skill.dot_durations
+        ability.effects[#ability.effects+1]={kind='damage_over_time_enemy',amount_key='bleed_rate',duration_key='bleed_duration',damage_kind=skill.damage_kind}
+        ability.description=ability.description..' 另附加物理流血，每秒 '..table.concat(skill.dot_rates,'/')..' 傷害，持續 '..table.concat(skill.dot_durations,'/')..' 秒（依技能等級）；同一施法者刷新，不同施法者分別結算。'
       end
       if skill.control then
         ability.extras.control_duration=skill.control_durations

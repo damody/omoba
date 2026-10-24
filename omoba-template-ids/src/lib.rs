@@ -44,6 +44,10 @@ pub struct MobaLaneConst {
 
 #[derive(Clone, Copy, Debug)]
 pub struct MobaMapConst {
+    pub base_structures: Option<MobaBaseStructuresConst>,
+    pub base_unlock: MobaBaseUnlockConst,
+    pub minion_wave: &'static [MobaMinionConst],
+    pub wave_interval_seconds: u32,
     pub id: &'static str,
     pub lane_length: i32,
     pub tower_offset: i32,
@@ -51,7 +55,33 @@ pub struct MobaMapConst {
     pub lanes: &'static [MobaLaneConst],
     pub jungle_camps: &'static [MobaJungleConst],
     pub terrain: &'static [MobaTerrainConst],
+    pub brushes: &'static [MobaTerrainConst],
     pub presentation_surfaces: &'static [MobaMapSurfaceConst],
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaBaseStructuresConst {
+    pub minimum_spacing: i32,
+    pub inhibitor_offset: i32,
+    pub inhibitor_hp: i32,
+    pub inhibitor_respawn_seconds: i32,
+    pub nexus_tower_offset: i32,
+    pub nexus_tower_hp: i32,
+    pub nexus_tower_respawn_seconds: i32,
+    pub nexus_tower_respawn_hp_percent: i32,
+    pub siege_minion_id: &'static str,
+    pub super_minion: MobaMinionConst,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaMinionConst {
+    pub id: &'static str,
+    pub count: u32,
+    pub every: u32,
+    pub hp: i32,
+    pub damage: i32,
+    pub attack_range: i32,
+    pub move_speed: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +106,13 @@ pub struct MobaTerrainConst {
 
 #[derive(Clone, Copy, Debug)]
 pub struct MobaJungleConst {
+    pub death_children: &'static [MobaJungleMemberConst],
+    pub additional_objective_buffs: &'static [MobaObjectiveBuffConst],
+    pub personal_buff: Option<MobaObjectiveBuffConst>,
+    pub objective_buff: Option<MobaObjectiveBuffConst>,
+    pub members: &'static [MobaJungleMemberConst],
+    pub patience_seconds: i32,
+    pub soft_reset_seconds: i32,
     pub id: &'static str,
     pub position: (i32, i32),
     pub hp: i32,
@@ -87,6 +124,56 @@ pub struct MobaJungleConst {
     pub respawn_seconds: i32,
     pub gold: u32,
     pub xp: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaObjectiveBuffConst {
+    pub minion_aura: Option<MobaMinionAuraConst>,
+    pub transfer_on_kill: bool,
+    pub buff_id: &'static str,
+    pub max_stacks: u32,
+    pub duration_seconds: i32,
+    pub attack_bonus: i32,
+    pub armor_bonus: i32,
+    pub lost_on_death: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaMinionAuraConst {
+    pub buff_id: &'static str,
+    pub radius: i32,
+    pub attack_bonus: i32,
+    pub armor_bonus: i32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MobaBaseUnlockConst { AllLaneTowers, AnyLaneTowers }
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaJungleMemberConst {
+    pub death_children: &'static [MobaJungleMemberConst],
+    pub id: &'static str,
+    pub offset: (i32, i32),
+    pub hp: i32,
+    pub damage: i32,
+    pub gold: u32,
+    pub xp: u32,
+}
+
+impl MobaJungleConst {
+    pub fn objective_rewards(&self)->impl Iterator<Item=MobaObjectiveBuffConst>+'_ {
+        self.objective_buff.into_iter().chain(self.additional_objective_buffs.iter().copied())
+    }
+    pub fn home_positions(&self)->impl Iterator<Item=(i32,i32)>+'_ {
+        fn collect(children:&[MobaJungleMemberConst],parent:(i32,i32),out:&mut Vec<(i32,i32)>) {
+            for child in children {let home=(parent.0+child.offset.0,parent.1+child.offset.1);
+                out.push(home);collect(child.death_children,home,out);}
+        }
+        let mut homes=vec![self.position];
+        collect(self.death_children,self.position,&mut homes);
+        collect(self.members,self.position,&mut homes);
+        homes.into_iter()
+    }
 }
 
 /// Shared MOBA catalog compiled from Lua. Full price includes recipe
@@ -101,6 +188,8 @@ pub struct MobaItemConst {
     pub hp: Fixed64,
     pub ms: Fixed64,
     pub armor: Fixed64,
+    pub lifesteal: Fixed64,
+    pub critical_chance: Fixed64,
     pub active: Option<MobaItemActiveConst>,
     pub cooldown: Fixed64,
     pub recipe: &'static [&'static str],
@@ -149,14 +238,24 @@ pub enum MobaItemOutOfRangeConst {
 /// Build-time authored effects, executed by the native shared item executor.
 #[derive(Clone, Copy, Debug)]
 pub enum MobaItemActiveConst {
+    SelfControlCleanse,
+    ChannelHeal {amount:Fixed64,duration:Fixed64,interval:Fixed64},
     Shield { amount: Fixed64, duration: Fixed64 },
     SprintBuff { ms_bonus: Fixed64, duration: Fixed64 },
     RestoreMana { amount: Fixed64 },
     DamageReduce { percent: Fixed64, duration: Fixed64 },
     HeadshotNext { bonus_damage: Fixed64 },
     PointNova { damage: Fixed64, radius: Fixed64 },
-    UnitHex { damage: Fixed64 },
+    UnitHex { damage: Fixed64,healing_reduction:Option<MobaHealingReductionConst>,control:Option<MobaItemControlConst> },
 }
+
+#[derive(Clone,Copy,Debug)]
+pub enum MobaItemControlKindConst {Stun,Root,Silence}
+#[derive(Clone,Copy,Debug)]
+pub struct MobaItemControlConst {pub kind:MobaItemControlKindConst,pub duration:Fixed64}
+
+#[derive(Clone,Copy,Debug)]
+pub struct MobaHealingReductionConst {pub multiplier:Fixed64,pub duration:Fixed64}
 
 /// Generated summoner spell. Balance comes from `templates/moba_summoners.lua`.
 /// There is no second rules hash; these fields are part of `CONTENT_CATALOG_DATA_HASH`.
@@ -190,6 +289,10 @@ pub enum SummonerSpellOperationConst {
         out_of_range: SummonerOutOfRangeConst,
     },
     SelfHeal { amount: Fixed64 },
+    SelfShield { amount: Fixed64, duration: Fixed64 },
+    SelfControlCleanse,
+    SelfSprint { ms_bonus: Fixed64, duration: Fixed64 },
+    SelfDamageReduction { reduction: Fixed64, duration: Fixed64 },
 }
 
 /// Generated trinket. Balance comes from `templates/moba_trinkets.lua`.
@@ -485,6 +588,14 @@ pub struct SummonStats {
     pub damage: Fixed64,
     pub duration: Fixed64,
     pub move_speed: Fixed64,
+    pub attack_range: Fixed64,
+    pub attack_interval: Fixed64,
+    pub armor: Fixed64,
+    pub magic_resistance: Fixed64,
+    pub collision_radius: Fixed64,
+    pub vision_radius: Fixed64,
+    pub follow_start_distance: Fixed64,
+    pub follow_stop_distance: Fixed64,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly
@@ -523,6 +634,7 @@ pub struct AbilityLevelDataConst {
     pub cooldown: Fixed64,
     pub mana_cost: Fixed64,
     pub cast_time: Fixed64,
+    pub cast_interrupt_on_damage: bool,
     pub range: Fixed64,
 }
 
@@ -537,6 +649,11 @@ pub struct AbilityConst {
     pub cast_type: CastTypeC,
     pub target_type: TargetTypeC,
     pub max_level: u8,
+    pub facing_formation_rows: u16,
+    /// Quantized executable source-sector half-angle for every rank; zero for non-cones.
+    pub cone_half_angle_ticks: &'static [u16],
+    /// Shared semantic geometry, identical to build-time native aiming metadata.
+    pub aim_preview_signature: &'static str,
     pub icon: &'static str,
     pub description: &'static str,
     pub levels: &'static [AbilityLevelDataConst],
@@ -1053,7 +1170,21 @@ mod tests {
     fn summoner_generated_rows_mirror_lua_balance_and_join_content_catalog_data_hash() {
         let blink = summoner_spell_by_name("training_point_blink_v1").unwrap();
         let heal = summoner_spell_by_name("training_self_heal_v1").unwrap();
-        assert_eq!(SUMMONER_SPELL_CATALOG.len(), 2);
+        assert_eq!(SUMMONER_SPELL_CATALOG.len(), 6);
+        let guard=summoner_spell_by_name("training_self_guard_v1").unwrap();assert_eq!(guard.catalog_id,6);assert_eq!(guard.target,SummonerTargetConst::None);
+        assert_eq!(guard.operation,SummonerSpellOperationConst::SelfDamageReduction {reduction:Fixed64::from_raw(256),duration:Fixed64::from_i32(3)});
+        let sprint=summoner_spell_by_name("training_self_sprint_v1").unwrap();assert_eq!(sprint.catalog_id,5);assert_eq!(sprint.cooldown,Fixed64::from_i32(180));assert_eq!(sprint.target,SummonerTargetConst::None);
+        assert_eq!(sprint.operation,SummonerSpellOperationConst::SelfSprint {ms_bonus:Fixed64::from_i32(80),duration:Fixed64::from_i32(6)});
+        let cleanse=summoner_spell_by_name("training_control_cleanse_v1").unwrap();
+        assert_eq!(cleanse.catalog_id,4);
+        assert_eq!(cleanse.cooldown,Fixed64::from_i32(210));
+        assert_eq!(cleanse.target,SummonerTargetConst::None);
+        assert_eq!(cleanse.operation,SummonerSpellOperationConst::SelfControlCleanse);
+        let shield=summoner_spell_by_name("training_self_shield_v1").unwrap();
+        assert_eq!(shield.catalog_id,3);
+        assert_eq!(shield.cooldown,Fixed64::from_i32(180));
+        assert_eq!(shield.target,SummonerTargetConst::None);
+        assert_eq!(shield.operation,SummonerSpellOperationConst::SelfShield {amount:Fixed64::from_i32(160),duration:Fixed64::from_i32(2)});
         assert_eq!(blink.catalog_id, 1);
         assert_eq!(heal.catalog_id, 2);
         assert_eq!(blink.display_name, "閃躍");
@@ -1070,13 +1201,13 @@ mod tests {
                 assert_eq!(range, Fixed64::from_raw(quant(400.0)));
                 assert_eq!(out_of_range, SummonerOutOfRangeConst::ClampToRange);
             }
-            SummonerSpellOperationConst::SelfHeal { .. } => panic!("blink operation"),
+            _ => panic!("blink operation"),
         }
         match heal.operation {
             SummonerSpellOperationConst::SelfHeal { amount } => {
                 assert_eq!(amount, Fixed64::from_raw(quant(200.0)));
             }
-            SummonerSpellOperationConst::PointBlink { .. } => panic!("heal operation"),
+            _ => panic!("heal operation"),
         }
         assert_eq!(CONTENT_CATALOG_DATA_HASH.len(), 16);
         assert!(CONTENT_CATALOG_DATA_HASH.chars().all(|ch| ch.is_ascii_hexdigit()));
@@ -1085,7 +1216,7 @@ mod tests {
     #[test]
     fn trinket_generated_row_matches_authored_training_scout_lantern() {
         let row = trinket_by_name("training_scout_lantern_v1").unwrap();
-        assert_eq!(TRINKET_CATALOG.len(), 1);
+        assert_eq!(TRINKET_CATALOG.len(), 2);
         assert_eq!(row.catalog_id, 1);
         assert_eq!(row.id, "training_scout_lantern_v1");
         assert_eq!(row.display_name, "偵察燈");
@@ -1108,5 +1239,39 @@ mod tests {
         assert!(MOBA_TRINKET_CATALOG_JSON.contains("\"automatic_acquisition\":\"disabled\"")
             || MOBA_TRINKET_CATALOG_JSON.contains("\"automatic_acquisition\": \"disabled\""));
         assert_eq!(CONTENT_CATALOG_DATA_HASH.len(), 16);
+    }
+
+    #[test]
+    fn detection_trinket_is_independent_and_keeps_visible_detection_tradeoffs() {
+        let row=trinket_by_name("training_detection_lantern_v1").unwrap();
+        assert_eq!((row.catalog_id,row.display_name),(2,"偵隱燈"));
+        assert_eq!((row.detection_level,row.stealth_level,row.hit_points,row.maximum_owned_placements),(2,0,4,1));
+        assert_eq!((row.initial_charges,row.max_charges),(1,1));
+        assert_eq!((row.placement_range,row.sight_radius,row.lifetime_seconds,row.recharge_seconds),
+            (Fixed64::from_i32(600),Fixed64::from_i32(600),Fixed64::from_i32(60),Fixed64::from_i32(180)));
+        assert_eq!(row.direct_attack,TrinketDirectAttackConst::DisclosedEnemy);
+        assert_eq!(row.automatic_acquisition,TrinketAutomaticAcquisitionConst::Disabled);
+        assert!(row.description.contains("地形仍會阻擋視線"));
+        assert_eq!(trinket_by_name("training_scout_lantern_v1").unwrap().catalog_id,1);
+    }
+
+    #[test]
+    fn authored_binding_item_preserves_control_and_existing_hex_identity() {
+        let item=MOBA_ITEM_CATALOG.iter().find(|i|i.catalog_id==13).unwrap();
+        assert_eq!((item.id,item.cost),("moba_binding_charm",650));
+        assert_eq!((item.cooldown,item.target.range),(Fixed64::from_i32(18),Fixed64::from_i32(450)));
+        let Some(MobaItemActiveConst::UnitHex {damage,control:Some(control),healing_reduction:None})=item.active else {panic!("authored control")};
+        assert_eq!(damage,Fixed64::from_i32(30));assert!(matches!(control.kind,MobaItemControlKindConst::Root));
+        assert_eq!(control.duration,Fixed64::from_raw(1536));
+        assert!(matches!(MOBA_ITEM_CATALOG.iter().find(|i|i.catalog_id==11).unwrap().active,
+            Some(MobaItemActiveConst::UnitHex {control:None,healing_reduction:Some(_),..})));
+    }
+
+    #[test]
+    fn authored_cleanse_item_has_closed_self_operation_and_stable_prior_identity() {
+        let row=MOBA_ITEM_CATALOG.iter().find(|i|i.catalog_id==14).unwrap();assert_eq!((row.id,row.cost),("moba_purification_charm",1400));
+        assert_eq!(row.cooldown,Fixed64::from_i32(45));assert!(matches!(row.active,Some(MobaItemActiveConst::SelfControlCleanse)));
+        assert_eq!(row.target.shape,MobaItemTargetShapeConst::Self_);assert_eq!(row.target.range,Fixed64::ZERO);
+        assert_eq!(MOBA_ITEM_CATALOG.iter().find(|i|i.catalog_id==13).unwrap().id,"moba_binding_charm");
     }
 }

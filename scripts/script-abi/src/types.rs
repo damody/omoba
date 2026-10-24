@@ -137,6 +137,9 @@ pub enum Target {
 #[derive(StableAbi, Clone, Debug)]
 pub enum PathSpec {
     Homing { target: EntityHandle },
+    /// Explicit single-target ordinary attack. Host applies source miss at launch
+    /// and current target evasion at impact; never inferred from damage tags.
+    AttackHoming { target: EntityHandle },
     Straight { end_pos: Vec2 },
 }
 

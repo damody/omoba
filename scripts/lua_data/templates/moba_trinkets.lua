@@ -23,5 +23,23 @@ return function(ctx)
       direct_attack = "disclosed_enemy",
       automatic_acquisition = "disabled",
     },
+    {
+      catalog_id = 2,
+      id = "training_detection_lantern_v1",
+      display_name = "偵隱燈",
+      description = "放置可被看見的偵隱燈，提供友方視野並揭露範圍內的一般隱形敵人；更強的隱形效果無法被揭露。地形仍會阻擋視線；電荷回復較慢。",
+      placement_range = 600,
+      initial_charges = 1,
+      max_charges = 1,
+      recharge_seconds = 180,
+      lifetime_seconds = 60,
+      sight_radius = 600,
+      detection_level = 2,
+      stealth_level = 0,
+      hit_points = 4,
+      maximum_owned_placements = 1,
+      direct_attack = "disclosed_enemy",
+      automatic_acquisition = "disabled",
+    },
   }
 end

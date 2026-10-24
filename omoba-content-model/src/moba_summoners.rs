@@ -48,6 +48,10 @@ pub enum MobaSummonerOperation {
         out_of_range: MobaSummonerOutOfRange,
     },
     SelfHeal { amount: f32 },
+    SelfShield { amount: f32, duration: f32 },
+    SelfControlCleanse {},
+    SelfSprint { ms_bonus: f32, duration: f32 },
+    SelfDamageReduction { reduction: f32, duration: f32 },
 }
 
 impl MobaSummonerTarget {
@@ -71,6 +75,9 @@ impl MobaSummonerOutOfRange {
 impl MobaSummonerOperation {
     pub fn rust_literal(&self) -> String {
         match self {
+            Self::SelfDamageReduction { reduction, duration } => format!("SummonerSpellOperationConst::SelfDamageReduction {{ reduction: {}, duration: {} }}",fixed64_rust_lit(*reduction),fixed64_rust_lit(*duration)),
+            Self::SelfSprint { ms_bonus, duration } => format!("SummonerSpellOperationConst::SelfSprint {{ ms_bonus: {}, duration: {} }}",fixed64_rust_lit(*ms_bonus),fixed64_rust_lit(*duration)),
+            Self::SelfControlCleanse {} => "SummonerSpellOperationConst::SelfControlCleanse".into(),
             Self::PointBlink { range, out_of_range } => format!(
                 "SummonerSpellOperationConst::PointBlink {{ range: {}, out_of_range: {} }}",
                 fixed64_rust_lit(*range),
@@ -79,6 +86,10 @@ impl MobaSummonerOperation {
             Self::SelfHeal { amount } => format!(
                 "SummonerSpellOperationConst::SelfHeal {{ amount: {} }}",
                 fixed64_rust_lit(*amount),
+            ),
+            Self::SelfShield { amount, duration } => format!(
+                "SummonerSpellOperationConst::SelfShield {{ amount: {}, duration: {} }}",
+                fixed64_rust_lit(*amount), fixed64_rust_lit(*duration),
             ),
         }
     }
@@ -141,11 +152,25 @@ fn validate_summoner_spell(spell: &MobaSummonerEntry) -> Result<(), String> {
     }
     summoner_authoring_fixed_raw(spell.cooldown).map_err(|error| format!("summoner '{}' cooldown: {error}", spell.id))?;
     match (&spell.operation, spell.target) {
+        (MobaSummonerOperation::SelfDamageReduction {reduction,duration},MobaSummonerTarget::None) => {
+            summoner_authoring_fixed_raw(*reduction)?;summoner_authoring_fixed_raw(*duration)?;
+            if *reduction>1.0 || *duration>60.0 {return Err(format!("summoner '{}' damage reduction bounds exceeded",spell.id));}
+        },
+        (MobaSummonerOperation::SelfSprint {ms_bonus,duration},MobaSummonerTarget::None) => {
+            summoner_authoring_fixed_raw(*ms_bonus)?;summoner_authoring_fixed_raw(*duration)?;
+            if *ms_bonus>10000.0 || *duration>60.0 {return Err(format!("summoner '{}' sprint bounds exceeded",spell.id));}
+        },
+        (MobaSummonerOperation::SelfControlCleanse {}, MobaSummonerTarget::None) => {},
         (MobaSummonerOperation::PointBlink { range, .. }, MobaSummonerTarget::Point) => {
             summoner_authoring_fixed_raw(*range).map_err(|error| format!("summoner '{}' range: {error}", spell.id))?;
         }
         (MobaSummonerOperation::SelfHeal { amount }, MobaSummonerTarget::None) => {
             summoner_authoring_fixed_raw(*amount).map_err(|error| format!("summoner '{}' amount: {error}", spell.id))?;
+        }
+        (MobaSummonerOperation::SelfShield { amount, duration }, MobaSummonerTarget::None) => {
+            summoner_authoring_fixed_raw(*amount).map_err(|error| format!("summoner '{}' amount: {error}", spell.id))?;
+            summoner_authoring_fixed_raw(*duration).map_err(|error| format!("summoner '{}' duration: {error}", spell.id))?;
+            if *duration > 60.0 { return Err(format!("summoner '{}' shield duration exceeds60 seconds", spell.id)); }
         }
         _ => return Err(format!("summoner '{}' operation does not match target shape", spell.id)),
     }
@@ -172,6 +197,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn sprint_is_strict_self_positive_bounded_timed_operation() {
+        let mut row=heal(57,"arbitrary_sprint");row.operation=MobaSummonerOperation::SelfSprint{ms_bonus:80.0,duration:6.0};
+        validate_moba_summoners(&[row.clone()]).unwrap();assert!(row.operation.rust_literal().contains("ms_bonus: Fixed64::from_raw(81920)"));
+        for (ms_bonus,duration) in [(0.0,6.0),(-1.0,6.0),(10001.0,6.0),(80.0,0.0),(80.0,61.0),(f32::NAN,6.0)] {
+            let mut bad=row.clone();bad.operation=MobaSummonerOperation::SelfSprint{ms_bonus,duration};assert!(validate_moba_summoners(&[bad]).is_err());
+        }
+        row.target=MobaSummonerTarget::Point;assert!(validate_moba_summoners(&[row]).is_err());
+        assert!(serde_json::from_value::<MobaSummonerOperation>(serde_json::json!({"kind":"self_sprint","ms_bonus":80,"duration":6,"immunity":true})).is_err());
+    }
+
+    #[test]
+    fn guard_is_strict_bounded_self_ratio_and_canonical_codegen() {
+        let mut row=heal(61,"arbitrary_guard");row.operation=MobaSummonerOperation::SelfDamageReduction{reduction:0.25,duration:3.};
+        assert!(validate_moba_summoners(&[row.clone()]).is_ok());
+        assert_eq!(row.operation.rust_literal(),"SummonerSpellOperationConst::SelfDamageReduction { reduction: Fixed64::from_raw(256), duration: Fixed64::from_raw(3072) }");
+        for (reduction,duration) in [(0.,3.),(-0.1,3.),(1.01,3.),(f32::NAN,3.),(f32::INFINITY,3.),(0.25,0.),(0.25,61.),(0.25,f32::NAN),(0.00001,3.)] {
+            let mut bad=row.clone();bad.operation=MobaSummonerOperation::SelfDamageReduction{reduction,duration};assert!(validate_moba_summoners(&[bad]).is_err());
+        }
+        row.target=MobaSummonerTarget::Point;assert!(validate_moba_summoners(&[row]).is_err());
+        assert!(serde_json::from_value::<MobaSummonerOperation>(serde_json::json!({"kind":"self_damage_reduction","reduction":0.25,"duration":3,"immunity":true})).is_err());
+    }
     fn heal(catalog_id: u16, id: &str) -> MobaSummonerEntry {
         MobaSummonerEntry {
             catalog_id,
@@ -182,6 +229,30 @@ mod tests {
             target: MobaSummonerTarget::None,
             operation: MobaSummonerOperation::SelfHeal { amount: 15.0 },
         }
+    }
+
+    #[test]
+    fn self_shield_requires_none_and_positive_bounded_quantized_values() {
+        let mut row=heal(17,"arbitrary_self_shield");
+        row.operation=MobaSummonerOperation::SelfShield {amount:160.0,duration:2.0};
+        validate_moba_summoners(&[row.clone()]).unwrap();
+        assert_eq!(row.operation.rust_literal(),"SummonerSpellOperationConst::SelfShield { amount: Fixed64::from_raw(163840), duration: Fixed64::from_raw(2048) }");
+        for (amount,duration) in [(0.0,2.0),(-1.0,2.0),(f32::NAN,2.0),(f32::INFINITY,2.0),(160.0,0.0),(160.0,60.001),(160.0,f32::NAN),(0.00001,2.0)] {
+            let mut bad=row.clone();bad.operation=MobaSummonerOperation::SelfShield {amount,duration};
+            assert!(validate_moba_summoners(&[bad]).is_err());
+        }
+        row.target=MobaSummonerTarget::Point;assert!(validate_moba_summoners(&[row]).is_err());
+        assert!(serde_json::from_value::<MobaSummonerOperation>(serde_json::json!({"kind":"self_shield","amount":160,"duration":2,"unexpected":1})).is_err());
+    }
+
+    #[test]
+    fn control_cleanse_is_strict_self_operation_with_stable_literal() {
+        let mut row=heal(19,"arbitrary_cleanse");row.operation=MobaSummonerOperation::SelfControlCleanse {};
+        validate_moba_summoners(&[row.clone()]).unwrap();
+        assert_eq!(row.operation.rust_literal(),"SummonerSpellOperationConst::SelfControlCleanse");
+        row.target=MobaSummonerTarget::Point;assert!(validate_moba_summoners(&[row]).is_err());
+        assert!(serde_json::from_value::<MobaSummonerOperation>(serde_json::json!({"kind":"self_control_cleanse"})).is_ok());
+        assert!(serde_json::from_value::<MobaSummonerOperation>(serde_json::json!({"kind":"self_control_cleanse","immunity":3})).is_err());
     }
 
     #[test]

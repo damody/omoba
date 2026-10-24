@@ -58,10 +58,15 @@ pub struct RuntimeContent {
     lane_xp_radius: u32,
     passive_gold_per_second: u32,
     hero_kill_gold: u32,
+    first_kill_bonus_gold: u32,
+    kill_streak_bounty_json: String,
+    objective_comeback_json: String,
+    death_streak_basis_points: Vec<u32>,
     recall_channel_seconds: u32,
     hero_assist_gold: u32,
     assist_window_seconds: u32,
     moba_item_catalog_json: String,
+    moba_summoner_catalog_json: String,
     moba_trinket_catalog_json: String,
     moba_trinkets: Vec<MobaTrinketEntry>,
     communication_content_json: String,
@@ -331,8 +336,17 @@ impl RuntimeContent {
         for (index, runtime) in self.ability_const.iter().enumerate() {
             if let Some(runtime) = runtime {
                 let compiled = crate::ability_const(AbilityId(index as u16)).ok_or("missing compiled ability progression")?;
-                if runtime.levels.iter().map(|v| v.required_hero_level).collect::<Vec<_>>()
-                    != compiled.levels.iter().map(|v| v.required_hero_level).collect::<Vec<_>>() {
+                if runtime.facing_formation_rows!=compiled.facing_formation_rows {
+                    return Err("MOBA facing formation differs from compiled content; rebuild all peers".into());
+                }
+                if runtime.aim_preview_signature!=compiled.aim_preview_signature {
+                    return Err("MOBA aim preview differs from compiled content; rebuild all peers".into());
+                }
+                if runtime.cone_half_angle_ticks!=compiled.cone_half_angle_ticks {
+                    return Err("MOBA executable cone geometry differs from compiled content; rebuild all peers".into());
+                }
+                if runtime.levels.iter().map(|v| (v.required_hero_level,v.cast_interrupt_on_damage)).collect::<Vec<_>>()
+                    != compiled.levels.iter().map(|v| (v.required_hero_level,v.cast_interrupt_on_damage)).collect::<Vec<_>>() {
                     return Err("MOBA ability progression differs from compiled content; rebuild all peers".into());
                 }
             }
@@ -360,6 +374,18 @@ impl RuntimeContent {
         if self.mana_regen_per_second != crate::MOBA_MANA_REGEN_PER_SECOND {
             return Err("MOBA mana regeneration rules differ from compiled content; rebuild all peers".into());
         }
+        if serde_json::to_string(&self.death_streak_basis_points).unwrap() != crate::MOBA_DEATH_STREAK_BASIS_POINTS_JSON {
+            return Err("MOBA death streak curve differs from compiled content; rebuild all peers".into());
+        }
+        if self.objective_comeback_json != crate::MOBA_OBJECTIVE_COMEBACK_JSON {
+            return Err("MOBA objective comeback differs from compiled content; rebuild all peers".into());
+        }
+        if self.kill_streak_bounty_json != crate::MOBA_KILL_STREAK_BOUNTY_JSON {
+            return Err("MOBA kill streak bounty differs from compiled content; rebuild all peers".into());
+        }
+        if self.first_kill_bonus_gold != crate::MOBA_FIRST_KILL_BONUS_GOLD {
+            return Err("MOBA first kill bonus differs from compiled content; rebuild all peers".into());
+        }
         if self.hero_kill_gold != crate::MOBA_HERO_KILL_GOLD {
             return Err("MOBA kill rules differ from compiled content; rebuild all peers".into());
         }
@@ -371,6 +397,9 @@ impl RuntimeContent {
         }
         if !self.trinkets_match_compiled() {
             return Err("MOBA trinket catalog differs from compiled content; rebuild all peers".into());
+        }
+        if self.moba_summoner_catalog_json != crate::MOBA_SUMMONER_CATALOG_JSON {
+            return Err("MOBA summoner catalog differs from compiled content; rebuild all peers".into());
         }
         if self.communication_content_json != crate::COMMUNICATION_CONTENT_JSON {
             return Err("communication catalog differs from compiled content; rebuild all peers".into());
@@ -524,6 +553,14 @@ impl RuntimeContent {
                 damage: fixed64(entry.damage),
                 duration: fixed64(entry.duration),
                 move_speed: fixed64(entry.move_speed),
+                attack_range: fixed64(entry.attack_range),
+                attack_interval: fixed64(entry.attack_interval),
+                armor: fixed64(entry.armor),
+                magic_resistance: fixed64(entry.magic_resistance),
+                collision_radius: fixed64(entry.collision_radius),
+                vision_radius: fixed64(entry.vision_radius),
+                follow_start_distance: fixed64(entry.follow_start_distance),
+                follow_stop_distance: fixed64(entry.follow_stop_distance),
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {
@@ -584,6 +621,8 @@ impl RuntimeContent {
                 .map_err(|error| format!("serialize MOBA maps: {error}"))?,
             moba_item_catalog_json: serde_json::to_string(&manifest.moba_items)
                 .map_err(|error| format!("serialize MOBA items: {error}"))?,
+            moba_summoner_catalog_json: serde_json::to_string(&manifest.moba_summoners)
+                .map_err(|error| format!("serialize MOBA summoners: {error}"))?,
             moba_trinket_catalog_json: serde_json::to_string(&manifest.moba_trinkets)
                 .map_err(|error| format!("serialize MOBA trinkets: {error}"))?,
             moba_trinkets: manifest.moba_trinkets.clone(),
@@ -600,6 +639,10 @@ impl RuntimeContent {
             lane_creep_gold: manifest.moba_economy.lane_creep_gold,
             lane_xp_radius: manifest.moba_economy.lane_xp_radius,
             hero_kill_gold: manifest.moba_economy.hero_kill_gold,
+            first_kill_bonus_gold: manifest.moba_economy.first_kill_bonus_gold,
+            kill_streak_bounty_json: serde_json::to_string(&manifest.moba_economy.kill_streak_bounty).unwrap(),
+            objective_comeback_json: serde_json::to_string(&manifest.moba_economy.objective_comeback).unwrap(),
+            death_streak_basis_points: manifest.moba_economy.death_streak_basis_points.clone(),
             recall_channel_seconds: manifest.moba_economy.recall_channel_seconds,
             hero_assist_gold: manifest.moba_economy.hero_assist_gold,
             assist_window_seconds: manifest.moba_economy.assist_window_seconds,
@@ -635,6 +678,7 @@ impl RuntimeContent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ContentShape {
+    moba_summoner_catalog_json: String,
     communication_content_json: String,
     base_recovery_hp_per_second: u32,
     base_recovery_radius: u32,
@@ -642,7 +686,8 @@ struct ContentShape {
     base_recovery_mana_per_second: u32,
     moba_map_catalog_json: String,
     hero_moba_loadouts: Vec<(String, [u8; 4], u8)>,
-    ability_rank_requirements: Vec<(String, Vec<u8>)>,
+    ability_rank_requirements: Vec<(String, u16, Vec<(u8,bool)>)>,
+    ability_aim_previews:Vec<(String,String)>,
     hero_kill_xp: u32,
     hero_assist_xp: u32,
     lane_creep_xp: u32,
@@ -650,6 +695,10 @@ struct ContentShape {
     lane_xp_radius: u32,
     passive_gold_per_second: u32,
     hero_kill_gold: u32,
+    first_kill_bonus_gold: u32,
+    kill_streak_bounty_json: String,
+    objective_comeback_json: String,
+    death_streak_basis_points: Vec<u32>,
     recall_channel_seconds: u32,
     hero_assist_gold: u32,
     assist_window_seconds: u32,
@@ -688,6 +737,8 @@ enum JsonShape {
 impl ContentShape {
     fn from_manifest(manifest: &Manifest, stories: &[StoryBundle]) -> Self {
         Self {
+            moba_summoner_catalog_json: serde_json::to_string(&manifest.moba_summoners)
+                .expect("validated MOBA summoner catalog"),
             communication_content_json: serde_json::to_string(&manifest.moba_communication)
                 .expect("validated communication catalog"),
             moba_map_catalog_json: serde_json::to_string(&manifest.moba_maps)
@@ -695,7 +746,9 @@ impl ContentShape {
             hero_moba_loadouts: manifest.heroes.iter().filter(|entry| !entry.tombstone)
                 .map(|entry| (entry.id.clone(), entry.moba_loadout.ranks, entry.moba_loadout.skill_points)).collect(),
             ability_rank_requirements: manifest.abilities.iter().filter(|entry| !entry.tombstone)
-                .map(|entry| (entry.id.clone(), entry.levels.iter().map(|level| level.required_hero_level).collect())).collect(),
+                .map(|entry| (entry.id.clone(), omoba_content_model::facing_formation_rows(entry),entry.levels.iter().map(|level| (level.required_hero_level,level.cast_interrupt_on_damage)).collect())).collect(),
+            ability_aim_previews:manifest.abilities.iter().filter(|entry|!entry.tombstone)
+                .map(|entry|(entry.id.clone(),omoba_content_model::ability_aim_preview_signature(entry).expect("validated aim preview"))).collect(),
             moba_item_catalog_json: serde_json::to_string(&manifest.moba_items)
                 .expect("validated MOBA item catalog"),
             moba_trinket_catalog_json: serde_json::to_string(&manifest.moba_trinkets)
@@ -711,6 +764,10 @@ impl ContentShape {
             lane_creep_gold: manifest.moba_economy.lane_creep_gold,
             lane_xp_radius: manifest.moba_economy.lane_xp_radius,
             hero_kill_gold: manifest.moba_economy.hero_kill_gold,
+            first_kill_bonus_gold: manifest.moba_economy.first_kill_bonus_gold,
+            kill_streak_bounty_json: serde_json::to_string(&manifest.moba_economy.kill_streak_bounty).unwrap(),
+            objective_comeback_json: serde_json::to_string(&manifest.moba_economy.objective_comeback).unwrap(),
+            death_streak_basis_points: manifest.moba_economy.death_streak_basis_points.clone(),
             recall_channel_seconds: manifest.moba_economy.recall_channel_seconds,
             hero_assist_gold: manifest.moba_economy.hero_assist_gold,
             assist_window_seconds: manifest.moba_economy.assist_window_seconds,
@@ -751,6 +808,9 @@ impl ContentShape {
         if self.hero_moba_loadouts != previous.hero_moba_loadouts {
             return Err("MOBA hero loadout changed; rebuild all peers".into());
         }
+        if self.ability_aim_previews!=previous.ability_aim_previews {
+            return Err("MOBA aim preview changed; rebuild all peers, not hot reload".into());
+        }
         if self.ability_rank_requirements != previous.ability_rank_requirements {
             return Err("MOBA ability progression changed; rebuild all peers, not hot reload".into());
         }
@@ -769,6 +829,18 @@ impl ContentShape {
         if self.hero_assist_gold != previous.hero_assist_gold || self.assist_window_seconds != previous.assist_window_seconds {
             return Err("MOBA assist rules changed; rebuild all peers, not hot reload".into());
         }
+        if self.death_streak_basis_points != previous.death_streak_basis_points {
+            return Err("MOBA death streak curve changed; rebuild all peers, not hot reload".into());
+        }
+        if self.objective_comeback_json != previous.objective_comeback_json {
+            return Err("MOBA objective comeback changed; rebuild all peers, not hot reload".into());
+        }
+        if self.kill_streak_bounty_json != previous.kill_streak_bounty_json {
+            return Err("MOBA kill streak bounty changed; rebuild all peers, not hot reload".into());
+        }
+        if self.first_kill_bonus_gold != previous.first_kill_bonus_gold {
+            return Err("MOBA first kill bonus changed; rebuild all peers, not hot reload".into());
+        }
         if self.hero_kill_gold != previous.hero_kill_gold {
             return Err("MOBA kill rules changed; rebuild all peers, not hot reload".into());
         }
@@ -780,6 +852,9 @@ impl ContentShape {
         }
         if self.moba_trinket_catalog_json != previous.moba_trinket_catalog_json {
             return Err("MOBA trinket catalog changed; rebuild all peers, not hot reload".into());
+        }
+        if self.moba_summoner_catalog_json != previous.moba_summoner_catalog_json {
+            return Err("MOBA summoner catalog changed; rebuild all peers, not hot reload".into());
         }
         if self.communication_content_json != previous.communication_content_json {
             return Err("communication catalog changed; rebuild all peers, not hot reload".into());
@@ -1319,6 +1394,7 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
                 cooldown: fixed64(level.cooldown),
                 mana_cost: fixed64(level.mana_cost),
                 cast_time: fixed64(level.cast_time),
+                cast_interrupt_on_damage: level.cast_interrupt_on_damage,
                 range: fixed64(level.range),
             })
             .collect(),
@@ -1344,6 +1420,9 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
         cast_type: cast_type(&entry.cast_type)?,
         target_type: target_type(&entry.target_type)?,
         max_level: entry.max_level,
+        facing_formation_rows: omoba_content_model::facing_formation_rows(entry),
+        cone_half_angle_ticks: leak_slice(omoba_content_model::ability_aim_preview(entry)?.ranks.iter().map(|rank|rank.cone_half_angle_ticks).collect()),
+        aim_preview_signature: leak_str(omoba_content_model::ability_aim_preview_signature(entry)?),
         icon: leak_str(entry.icon.clone()),
         description: leak_str(entry.description.clone()),
         levels,
@@ -1637,7 +1716,7 @@ pub fn story_ids() -> Option<&'static [&'static str]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{active_creep_stats, creep_id_str, CreepId, Fixed64};
+    use crate::{active_ability_const,active_creep_stats, creep_id_str, CreepId, Fixed64};
     use std::fs;
     use std::path::Path;
     use std::sync::{Mutex, MutexGuard};
@@ -1668,6 +1747,7 @@ mod tests {
 
         assert_eq!(runtime.td_layer_digest, crate::TD_LAYER_CATALOG_DIGEST);
         assert_eq!(runtime.moba_item_catalog_json, crate::MOBA_ITEM_CATALOG_JSON);
+        assert_eq!(runtime.moba_summoner_catalog_json, crate::MOBA_SUMMONER_CATALOG_JSON);
         assert_eq!(runtime.moba_trinket_catalog_json, crate::MOBA_TRINKET_CATALOG_JSON);
         assert!(runtime.trinkets_match_compiled());
         runtime.validate_moba_catalog().expect("compiled MOBA catalog agrees with Lua");
@@ -1714,6 +1794,98 @@ mod tests {
     }
 
     #[test]
+    fn summoner_catalog_field_and_membership_drift_requires_peer_rebuild() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let cases = [
+            (0, "catalog_id", serde_json::json!(101)),
+            (0, "id", serde_json::json!("different_identity")),
+            (0, "display_name", serde_json::json!("Different label")),
+            (0, "description", serde_json::json!("Different description")),
+            (0, "cooldown", serde_json::json!(301)),
+            (0, "operation", serde_json::json!({"kind":"point_blink","range":401,"out_of_range":"clamp_to_range"})),
+            (0, "operation", serde_json::json!({"kind":"point_blink","range":400,"out_of_range":"reject"})),
+            (1, "operation", serde_json::json!({"kind":"self_heal","amount":201})),
+            (1, "operation", serde_json::json!({"kind":"self_shield","amount":200,"duration":2})),
+            (2, "operation", serde_json::json!({"kind":"self_shield","amount":161,"duration":2})),
+            (2, "operation", serde_json::json!({"kind":"self_shield","amount":160,"duration":3})),
+        ];
+        for (index, field, value) in cases {
+            let mut content = load_content(root.clone()).unwrap();
+            let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+            let mut rows = serde_json::to_value(&content.manifest.moba_summoners).unwrap();
+            rows[index][field] = value;
+            content.manifest.moba_summoners = serde_json::from_value(rows).unwrap();
+            crate::lua_content::validate_moba_summoners(&content.manifest.moba_summoners).unwrap();
+            let after = ContentShape::from_manifest(&content.manifest, &content.stories);
+            assert!(after.ensure_compatible_with(&before).unwrap_err().contains("summoner catalog changed"), "{index}:{field}");
+            let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
+            assert!(runtime.validate_moba_catalog().unwrap_err().contains("summoner catalog differs"), "{index}:{field}");
+        }
+        for mutation in 0..4 {
+            let mut content = load_content(root.clone()).unwrap();
+            let before = ContentShape::from_manifest(&content.manifest, &content.stories);
+            match mutation {
+                0 => { content.manifest.moba_summoners.pop(); }
+                1 => { let mut added = content.manifest.moba_summoners[0].clone(); added.id.push_str("_new"); added.catalog_id = 101; content.manifest.moba_summoners.push(added); }
+                2 => content.manifest.moba_summoners.reverse(),
+                _ => { let spell = &mut content.manifest.moba_summoners[1]; spell.target = omoba_content_model::moba_summoners::MobaSummonerTarget::Point; spell.operation = omoba_content_model::moba_summoners::MobaSummonerOperation::PointBlink { range: 400., out_of_range: omoba_content_model::moba_summoners::MobaSummonerOutOfRange::Reject }; }
+            }
+            crate::lua_content::validate_moba_summoners(&content.manifest.moba_summoners).unwrap();
+            assert!(ContentShape::from_manifest(&content.manifest, &content.stories).ensure_compatible_with(&before).unwrap_err().contains("summoner catalog changed"));
+            assert!(RuntimeContent::from_manifest(content.manifest, content.stories).unwrap().validate_moba_catalog().unwrap_err().contains("summoner catalog differs"));
+        }
+    }
+
+    #[test]
+    fn rejected_real_summoner_reload_preserves_snapshot_and_supported_tuning() {
+        fn copy_tree(source: &Path, dest: &Path) {
+            fs::create_dir_all(dest).unwrap();
+            for entry in fs::read_dir(source).unwrap() {
+                let entry = entry.unwrap();
+                if entry.file_type().unwrap().is_dir() { copy_tree(&entry.path(), &dest.join(entry.file_name())); }
+                else { fs::copy(entry.path(), dest.join(entry.file_name())).unwrap(); }
+            }
+        }
+        let _guard = test_lock();
+        let root = temp_root("summoner_catalog_reload");
+        copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data"), &root);
+        let entry = root.join("templates.lua");
+        let original = fs::read_to_string(&entry).unwrap();
+        let wrapper = |mutation: &str| format!("local original=(function()\n{}\nend)()\nreturn function(ctx) local data=original(ctx) {} return data end\n", original, mutation);
+        enable_runtime_content(&root); reset_store();
+        validate_compiled_moba_catalog().unwrap();
+        let before = runtime_lua_content_info().unwrap().unwrap();
+        let active = ensure_loaded().unwrap().unwrap() as *const RuntimeContent;
+        for mutation in [
+            "data.moba_summoners[1].operation.range=401",
+            "data.moba_summoners[2].operation.amount=201",
+            "data.moba_summoners[3].operation.duration=3",
+            "data.moba_summoners[3].description='changed description'",
+            "data.moba_summoners[3].id='changed_identity'",
+            "table.remove(data.moba_summoners)",
+        ] {
+            write(&entry, &wrapper(mutation));
+            assert!(CONTENT.get().unwrap().validate_dev().unwrap_err().contains("summoner catalog changed"));
+            assert!(reload_runtime_lua_content_dev(None).unwrap_err().contains("summoner catalog changed"));
+            assert_eq!(runtime_lua_content_info().unwrap().unwrap(), before);
+            assert_eq!(ensure_loaded().unwrap().unwrap() as *const RuntimeContent, active);
+            validate_compiled_moba_catalog().unwrap();
+        }
+        // A fresh startup with changed summoners fails the public peer gate too.
+        reset_store();
+        assert!(validate_compiled_moba_catalog().unwrap_err().contains("summoner catalog differs"));
+        write(&entry, &original); reset_store(); validate_compiled_moba_catalog().unwrap();
+        let before = runtime_lua_content_info().unwrap().unwrap();
+        let damage = active_ability_const(crate::ABILITY_FLAME_BLADE).unwrap().extras.iter().find(|(key,_)| *key == "damage").unwrap().1[0];
+        write(&entry, &wrapper("for _,a in ipairs(data.abilities) do if a.id=='flame_blade' then a.extras.damage[1]=a.extras.damage[1]+1 end end"));
+        let accepted = reload_runtime_lua_content_dev(None).unwrap().unwrap();
+        assert_eq!(accepted.generation, before.generation + 1); assert_ne!(accepted.hash, before.hash);
+        assert_eq!(active_ability_const(crate::ABILITY_FLAME_BLADE).unwrap().extras.iter().find(|(key,_)| *key == "damage").unwrap().1[0], damage + Fixed64::ONE);
+        validate_compiled_moba_catalog().unwrap();
+        cleanup(root);
+    }
+
+    #[test]
     fn moba_loadout_changes_require_rebuild_not_dev_hot_reload() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
         let mut content = load_content(root).unwrap();
@@ -1742,6 +1914,118 @@ mod tests {
         assert!(runtime.validate_moba_catalog().unwrap_err().contains("ability progression differs"));
     }
 
+    #[test]
+    fn facing_formation_rows_reach_compiled_runtime_and_reload_guard() {
+        let repo=Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut content=load_content(repo.join("scripts/lua_data")).unwrap();
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let entry=content.manifest.abilities.iter_mut().find(|a|a.id=="saika_reinforcements").unwrap();
+        assert_eq!(ability_const_from_entry(entry).unwrap().facing_formation_rows,2);
+        assert_eq!(crate::ability_const(crate::ABILITY_SAIKA_REINFORCEMENTS).unwrap().facing_formation_rows,2);
+        entry.aim_geometry=Some(omoba_content_model::AbilityAimGeometry::FacingFormation{rows:4});
+        entry.extras.insert("summon_count".into(),vec![4.,4.,8.,8.]);
+        assert_eq!(ability_const_from_entry(entry).unwrap().facing_formation_rows,4);
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("rebuild all peers"));
+        let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("facing formation"));
+    }
+
+    #[test]
+    fn executable_cone_ticks_match_compiled_runtime_projection_and_reload_guard() {
+        let repo=Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut content=load_content(repo.join("scripts/lua_data")).unwrap();
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let entry=content.manifest.abilities.iter_mut().find(|a|a.id=="ranger_scatter").unwrap();
+        assert_eq!(ability_const_from_entry(entry).unwrap().cone_half_angle_ticks,&[341;4]);
+        assert_eq!(crate::ability_const(crate::ABILITY_RANGER_SCATTER).unwrap().cone_half_angle_ticks,&[341;4]);
+        assert_eq!(crate::ability_const(crate::ABILITY_RANGER_VOLLEY).unwrap().cone_half_angle_ticks,&[0;4]);
+        entry.extras.get_mut("half_angle").unwrap()[1]=std::f32::consts::FRAC_PI_2;
+        assert_eq!(ability_const_from_entry(entry).unwrap().cone_half_angle_ticks,&[341,1024,341,341]);
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).is_err());
+        let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().is_err());
+    }
+
+    #[test]
+    fn aim_geometry_numeric_and_semantic_changes_require_rebuild_at_both_boundaries() {
+        let repo=Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        for (id,field) in [("saika_reinforcements","summon_count"),("saika_reinforcements","row_spacing"),
+            ("saika_reinforcements","col_spacing"),("saika_reinforcements","front_row_distance"),
+            ("saika_reinforcements","range"),("fire_dash","dash_width"),("flame_blade","swipe_radius"),("flame_assault","radius")] {
+            let mut content=load_content(repo.join("scripts/lua_data")).unwrap();let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+            let ability=content.manifest.abilities.iter_mut().find(|a|a.id==id).unwrap();
+            if field=="range" {ability.levels[0].range+=1.;}else{ability.extras.get_mut(field).unwrap()[0]+=if field=="summon_count"{2.}else{1.};}
+            assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("aim preview"),"{id} {field}");
+            let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+            assert!(runtime.validate_moba_catalog().unwrap_err().contains("aim preview"),"{id} {field}");
+        }
+    }
+
+    #[test]
+    fn rejected_real_geometry_reload_preserves_snapshot_then_nonspatial_reload_succeeds() {
+        fn copy_tree(source:&Path,dest:&Path) {
+            fs::create_dir_all(dest).unwrap();for entry in fs::read_dir(source).unwrap(){let entry=entry.unwrap();
+                if entry.file_type().unwrap().is_dir(){copy_tree(&entry.path(),&dest.join(entry.file_name()));}
+                else{fs::copy(entry.path(),dest.join(entry.file_name())).unwrap();}}
+        }
+        let _guard=test_lock();let root=temp_root("aim_preview_reload");
+        copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data"),&root);
+        let entry=root.join("templates.lua");let original=fs::read_to_string(&entry).unwrap();
+        enable_runtime_content(&root);reset_store();ensure_loaded().unwrap().unwrap();
+        let before=runtime_lua_content_info().unwrap().unwrap();
+        let id=crate::ABILITY_FLAME_BLADE;
+        let damage=active_ability_const(id).unwrap().extras.iter().find(|(key,_)|*key=="damage").unwrap().1[0];
+        let wrapper=|mutation:&str|format!("local original=(function()\n{}\nend)()\nreturn function(ctx) local data=original(ctx) {} return data end\n",original,mutation);
+        write(&entry,&wrapper("for _,a in ipairs(data.abilities) do if a.id=='saika_reinforcements' then a.extras.col_spacing[1]=a.extras.col_spacing[1]+1 end end"));
+        assert!(reload_runtime_lua_content_dev(None).unwrap_err().contains("aim preview"));
+        let after=runtime_lua_content_info().unwrap().unwrap();assert_eq!(after.generation,before.generation);assert_eq!(after.hash,before.hash);
+        assert_eq!(active_ability_const(crate::ABILITY_SAIKA_REINFORCEMENTS).unwrap().extras.iter().find(|(key,_)|*key=="col_spacing").unwrap().1[0],Fixed64::from_i32(60));
+        write(&entry,&wrapper("for _,a in ipairs(data.abilities) do if a.id=='flame_blade' then a.extras.damage[1]=a.extras.damage[1]+1 end end"));
+        let accepted=reload_runtime_lua_content_dev(None).unwrap().unwrap();assert_eq!(accepted.generation,before.generation+1);assert_ne!(accepted.hash,before.hash);
+        assert_eq!(active_ability_const(id).unwrap().extras.iter().find(|(key,_)|*key=="damage").unwrap().1[0],damage+Fixed64::ONE);
+        cleanup(root);
+    }
+
+    #[test]
+    fn permanent_objective_rewards_are_hashed_and_require_peer_rebuild() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        let camps=content.manifest_value["moba_maps"][0]["jungle_camps"].as_array_mut().unwrap();
+        camps.iter_mut().find(|c|c["additional_objective_buffs"][0].is_object()).unwrap()["additional_objective_buffs"][0]["attack_bonus"]=serde_json::json!(6);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_maps[0].jungle_camps.iter_mut().find(|c|!c.additional_objective_buffs.is_empty()).unwrap().additional_objective_buffs[0].attack_bonus=6;
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("MOBA map catalog changed"));
+        assert!(RuntimeContent::from_manifest(content.manifest,content.stories).unwrap().validate_moba_catalog().unwrap_err().contains("MOBA map catalog differs"));
+    }
+    #[test]
+    fn personal_buff_transfer_policy_is_hashed_and_requires_peer_rebuild() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        let camps=content.manifest_value["moba_maps"][0]["jungle_camps"].as_array_mut().unwrap();
+        camps.iter_mut().find(|c|c["personal_buff"].is_object()).unwrap()["personal_buff"]["transfer_on_kill"]=serde_json::json!(false);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_maps[0].jungle_camps.iter_mut().find_map(|c|c.personal_buff.as_mut()).unwrap().transfer_on_kill=false;
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("MOBA map catalog changed"));
+        assert!(RuntimeContent::from_manifest(content.manifest,content.stories).unwrap().validate_moba_catalog().unwrap_err().contains("MOBA map catalog differs"));
+    }
+    #[test]
+    fn objective_stack_policy_is_hashed_and_requires_peer_rebuild() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        let camps=content.manifest_value["moba_maps"][0]["jungle_camps"].as_array_mut().unwrap();
+        let rule=camps.iter_mut().find(|c|c["objective_buff"].is_object()).unwrap();
+        rule["objective_buff"]["max_stacks"]=serde_json::json!(2);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_maps[0].jungle_camps.iter_mut().find_map(|c|c.objective_buff.as_mut()).unwrap().max_stacks=2;
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before)
+            .unwrap_err().contains("MOBA map catalog changed"));
+        assert!(RuntimeContent::from_manifest(content.manifest,content.stories).unwrap().validate_moba_catalog()
+            .unwrap_err().contains("MOBA map catalog differs"));
+    }
     #[test]
     fn moba_map_changes_require_rebuild_not_hot_reload() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
@@ -1774,6 +2058,107 @@ mod tests {
             assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(
                 serde_json::json!({"passive_gold_per_second": invalid})).is_err());
         }
+    }
+
+    #[test]
+    fn death_streak_curve_is_validated_hashed_and_requires_peer_rebuild() {
+        use crate::lua_content::validate_death_streak;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["death_streak_basis_points"][2]=serde_json::json!(9166);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.death_streak_basis_points[2]-=1;
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before)
+            .unwrap_err().contains("death streak curve changed"));
+        assert!(RuntimeContent::from_manifest(content.manifest,content.stories).unwrap().validate_moba_catalog()
+            .unwrap_err().contains("death streak curve differs"));
+        assert!(validate_death_streak(&[]).is_ok());assert!(validate_death_streak(&[10000,0]).is_ok());
+        for invalid in [vec![9999],vec![10000,10001],vec![10000,0,1],vec![10000;102]] {
+            assert!(validate_death_streak(&invalid).is_err());
+        }
+        let mut legacy=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("death_streak_basis_points");
+        assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(legacy.clone()).unwrap().death_streak_basis_points.is_empty());
+        for invalid in [serde_json::json!([-1]),serde_json::json!([0.5]),serde_json::json!(["10000"])] {
+            legacy["death_streak_basis_points"]=invalid;
+            assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(legacy.clone()).is_err());
+        }
+    }
+    #[test]
+    fn first_kill_bonus_is_hashed_requires_rebuild_and_legacy_defaults_disabled() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["first_kill_bonus_gold"]=serde_json::json!(101);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.first_kill_bonus_gold+=1;
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("first kill bonus changed"));
+        assert!(RuntimeContent::from_manifest(content.manifest,content.stories).unwrap().validate_moba_catalog().unwrap_err().contains("first kill bonus differs"));
+        let mut rules=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+        rules.as_object_mut().unwrap().remove("first_kill_bonus_gold");
+        assert_eq!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules.clone()).unwrap().first_kill_bonus_gold,0);
+        for invalid in [serde_json::json!(-1),serde_json::json!(0.5),serde_json::json!("100")]{
+            rules["first_kill_bonus_gold"]=invalid;assert!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(rules.clone()).is_err());
+        }
+    }
+    #[test]
+    fn objective_comeback_content_bounds_hash_and_rebuild_gates_are_shared() {
+        use omoba_content_model::objective_comeback::ObjectiveComebackRules;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();let good=content.manifest.moba_economy.objective_comeback;
+        assert!(good.is_valid());assert!(ObjectiveComebackRules::default().is_valid());
+        for bad in [ObjectiveComebackRules {starts_seconds:0,..good},ObjectiveComebackRules {starts_seconds:3601,..good},
+            ObjectiveComebackRules {activate_gap:0,..good},ObjectiveComebackRules {release_gap:good.activate_gap,..good},
+            ObjectiveComebackRules {activation_pool:0,..good},ObjectiveComebackRules {activation_pool:1_000_001,..good},
+            ObjectiveComebackRules {tower_gold_per_player:1_000_001,..good},
+            ObjectiveComebackRules {epic_gold_per_player:0,tower_gold_per_player:0,..good}] {assert!(!bad.is_valid());}
+        for invalid in [serde_json::json!(-1),serde_json::json!(0.5),serde_json::json!("500")] {
+            let mut row=serde_json::to_value(good).unwrap();row["activate_gap"]=invalid;
+            assert!(serde_json::from_value::<ObjectiveComebackRules>(row).is_err());
+        }
+        let mut row=serde_json::to_value(good).unwrap();row["unknown"]=serde_json::json!(1);
+        assert!(serde_json::from_value::<ObjectiveComebackRules>(row).is_err());
+        let mut legacy=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("objective_comeback");
+        assert_eq!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(legacy).unwrap().objective_comeback,Default::default());
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["objective_comeback"]["activation_pool"]=serde_json::json!(1001);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.objective_comeback.activation_pool+=1;
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("objective comeback changed"));
+        assert!(RuntimeContent::from_manifest(content.manifest,content.stories).unwrap().validate_moba_catalog().unwrap_err().contains("objective comeback differs"));
+    }
+    #[test]
+    fn kill_streak_bounty_is_validated_hashed_and_requires_all_peer_rebuild() {
+        use crate::lua_content::{KillStreakBountyRules,validate_kill_streak_bounty};
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let mut content=load_content(root).unwrap();
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap();
+        content.manifest_value["moba_economy"]["kill_streak_bounty"]["max_gold"]=serde_json::json!(701);
+        assert_ne!(hash,omoba_content_model::canonical_template_hash(&content.manifest_value).unwrap());
+        content.manifest.moba_economy.kill_streak_bounty.max_gold+=1;
+        let after=ContentShape::from_manifest(&content.manifest,&content.stories);
+        assert!(after.ensure_compatible_with(&before).unwrap_err().contains("kill streak bounty changed"));
+        let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("kill streak bounty differs"));
+        let good=KillStreakBountyRules {threshold:3,initial_gold:150,per_kill_gold:100,max_gold:700};
+        assert!(validate_kill_streak_bounty(good).is_ok());assert!(validate_kill_streak_bounty(Default::default()).is_ok());
+        for bad in [KillStreakBountyRules {threshold:0,..good},KillStreakBountyRules {threshold:101,..good},
+            KillStreakBountyRules {initial_gold:0,..good},KillStreakBountyRules {initial_gold:701,..good},
+            KillStreakBountyRules {per_kill_gold:1_000_001,..good},KillStreakBountyRules {max_gold:1_000_001,..good}]{
+            assert!(validate_kill_streak_bounty(bad).is_err());
+        }
+        for invalid in [serde_json::json!(-1),serde_json::json!(0.5),serde_json::json!("3")] {
+            let mut rules=serde_json::to_value(good).unwrap();rules["threshold"]=invalid;
+            assert!(serde_json::from_value::<KillStreakBountyRules>(rules).is_err());
+        }
+        let mut legacy=serde_json::to_value(crate::lua_content::MobaEconomyRules::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("kill_streak_bounty");
+        assert_eq!(serde_json::from_value::<crate::lua_content::MobaEconomyRules>(legacy).unwrap().kill_streak_bounty,Default::default());
     }
 
     #[test]
@@ -2165,5 +2550,36 @@ mod tests {
             assert!(catalog_error.contains("rebuild all peers"), "{field}: {catalog_error}");
             assert!(!runtime.trinkets_match_compiled(), "{field}");
         }
+    }
+    #[test]
+    fn damage_interrupt_policy_is_strict_ranked_hashed_and_requires_rebuild() {
+        let make=|level:serde_json::Value|serde_json::json!({"id":"fixture","max_level":1,"levels":[level]});
+        let omitted:omoba_content_model::AbilityDefinition=serde_json::from_value(make(serde_json::json!({}))).unwrap();
+        assert!(!omitted.levels[0].cast_interrupt_on_damage);
+        let fixture=temp_root("damage_interrupt_policy");
+        let repo=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_owned();
+        write(&fixture.join("templates/heroes.lua"),"return function(ctx) return {} end");
+        for (lua,json,valid) in [
+            ("cast_time=0.5,cast_interrupt_on_damage=true",serde_json::json!({"cast_time":0.5,"cast_interrupt_on_damage":true}),true),
+            ("cast_interrupt_on_damage=false",serde_json::json!({"cast_interrupt_on_damage":false}),true),
+            ("cast_time=0.5,cast_interrupt_on_damage=1",serde_json::json!({"cast_time":0.5,"cast_interrupt_on_damage":1}),false),
+            ("cast_time=0.5,cast_interrupt_on_damage='true'",serde_json::json!({"cast_time":0.5,"cast_interrupt_on_damage":"true"}),false),
+            ("cast_time=0,cast_interrupt_on_damage=true",serde_json::json!({"cast_time":0,"cast_interrupt_on_damage":true}),false),
+            ("cast_time=61,cast_interrupt_on_damage=true",serde_json::json!({"cast_time":61,"cast_interrupt_on_damage":true}),false),
+        ] {
+            let result=serde_json::from_value::<omoba_content_model::AbilityDefinition>(make(json))
+                .map_err(|e|e.to_string()).and_then(|a|omoba_content_model::validate_ability_progression(&a));
+            assert_eq!(result.is_ok(),valid,"{lua}");
+            write(&fixture.join("templates/abilities.lua"),&["return function(ctx) return {{id='fixture',max_level=1,levels={{",lua,"}}}} end"].concat());
+            let output=std::process::Command::new(repo.join("tools/lua/lua.exe")).arg(repo.join("scripts/gen_hero_registry.lua"))
+                .arg(&fixture).output().unwrap();assert_eq!(output.status.success(),valid,"{lua}: {}",String::from_utf8_lossy(&output.stderr));
+        }
+        let mut content=load_content(repo.join("scripts/lua_data")).unwrap();let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let hash=content_hash(&content.manifest,&content.stories).unwrap();
+        let ability=content.manifest.abilities.iter_mut().find(|v|v.id=="saika_reinforcements").unwrap();
+        assert!(ability.levels.iter().all(|v|v.cast_interrupt_on_damage));ability.levels[1].cast_interrupt_on_damage=false;
+        assert_ne!(hash,content_hash(&content.manifest,&content.stories).unwrap());
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("rebuild all peers"));
+        let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();assert!(runtime.validate_moba_catalog().unwrap_err().contains("ability progression differs"));
     }
 }

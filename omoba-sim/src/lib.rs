@@ -6,6 +6,7 @@
 pub mod fixed;
 pub mod navigation;
 pub mod rng;
+pub mod sector;
 pub mod snapshot;
 pub mod state_hash;
 pub mod terrain;

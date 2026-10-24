@@ -71,10 +71,11 @@ return function(ctx)
     },
     {
       id = "saika_reinforcements",
+      aim_geometry = { kind = "facing_formation", rows = 2 },
       ue = { ability_cue = { shape = "formation", color_rgb = {25,115,255}, radius_cm = 260, duration_seconds = 1.5, payload_distance_scale = 100 } },
       display_name = "雜賀援軍",
       icon = "data/hero1_2.png",
-      description = "在目標位置召喚雜賀鐵炮兵協助作戰。",
+      description = "依自身朝向，在前方兩排召喚雜賀鐵炮兵協助作戰；地形與友軍佔位會調整合法出生位置。",
       ability_type = "active",
       target_type = "point",
       cast_type = "instant",
@@ -84,24 +85,28 @@ return function(ctx)
           cooldown = 27.0,
           mana_cost = 90.0,
           cast_time = 0.5,
+          cast_interrupt_on_damage = true,
           range = 800.0,
         },
         {
           cooldown = 26.0,
           mana_cost = 90.0,
           cast_time = 0.5,
+          cast_interrupt_on_damage = true,
           range = 800.0,
         },
         {
           cooldown = 25.0,
           mana_cost = 90.0,
           cast_time = 0.5,
+          cast_interrupt_on_damage = true,
           range = 800.0,
         },
         {
           cooldown = 24.0,
           mana_cost = 90.0,
           cast_time = 0.5,
+          cast_interrupt_on_damage = true,
           range = 800.0,
         },
       },
@@ -161,7 +166,7 @@ return function(ctx)
       ue = { ability_cue = { shape = "cone", color_rgb = {255,55,20}, duration_seconds = 1.25, payload_distance_scale = 100 } },
       display_name = "雨鐵砲",
       icon = "data/hero1_3.png",
-      description = "被動：普攻命中時以受擊點為中心、朝攻擊方向 90° 扇形 150 半徑對範圍內所有單位造成 15/25/35/45% 攻擊力的真實傷害。",
+      description = "被動：真正普攻命中時，以受擊點為扇形起點，沿攻擊方向的 90°、150 半徑內，對每個存活敵人造成一次 15/25/35/45% 攻擊力的真實傷害。包含受擊點與邊界；技能子彈與純視覺連發不觸發。",
       ability_type = "passive",
       target_type = "none",
       cast_type = "instant",
@@ -272,9 +277,10 @@ return function(ctx)
     },
     {
       id = "flame_blade",
+      aim_geometry = { kind = "point_circle", radius_key = "swipe_radius" },
       display_name = "炎刃",
       icon = "data/ability_icons/ability_flame_blade.png",
-      description = "往前方揮出一刀，對單體或範圍目標造成大量火焰傷害。",
+      description = "在指定地點爆發火焰，對圓形範圍內敵人各造成一次火焰傷害。",
       ability_type = "active",
       target_type = "point",
       cast_type = "instant",
@@ -322,9 +328,10 @@ return function(ctx)
     },
     {
       id = "fire_dash",
+      aim_geometry = { kind = "swept_path", width_key = "dash_width" },
       display_name = "火焰衝擊",
       icon = "data/ability_icons/ability_fire_dash.png",
-      description = "往前衝刺，沿路對敵人造成火焰傷害。",
+      description = "向指定方向瞬間衝刺，碰到地形會停止；對實際路徑內敵人各造成一次火焰傷害。",
       ability_type = "active",
       target_type = "point",
       cast_type = "instant",
@@ -384,9 +391,10 @@ return function(ctx)
     },
     {
       id = "flame_assault",
+      aim_geometry = { kind = "point_circle", radius_key = "radius" },
       display_name = "炎襲",
       icon = "data/ability_icons/ability_flame_assault.png",
-      description = "施展一道巨型火焰，對範圍內敵人造成傷害並暈眩。",
+      description = "在指定地點爆發火焰，對圓形範圍內敵人各造成一次火焰傷害並暈眩；留下燃燒區域。施法者死亡時熄滅，重新施放會替換舊區域。",
       ability_type = "ultimate",
       target_type = "point",
       cast_type = "instant",
@@ -418,6 +426,9 @@ return function(ctx)
         },
       },
       extras = {
+        zone_damage = {25.0,35.0,45.0,55.0},
+        zone_interval = {0.5,0.5,0.5,0.5},
+        zone_duration = {3.0,3.0,3.0,3.0},
         damage = {
           200.0,
           300.0,
@@ -442,7 +453,7 @@ return function(ctx)
       id = "matchlock_gun",
       display_name = "火繩銃",
       icon = "data/ability_icons/ability_matchlock_gun.png",
-      description = "將武器變身火繩銃，增加攻擊距離與傷害，攻擊時有機率暈眩敵人。持續 45 秒。",
+      description = "變身火繩銃 45 秒，增加射程與傷害，普攻有機率暈眩。期間提供 12.5%／18.75%／25% 普通攻擊物理吸血，依實際物理扣血回復生命；護盾吸收、建築與非敵對目標不計，並受治療削減影響。",
       ability_type = "active",
       target_type = "none",
       cast_type = "instant",
@@ -483,6 +494,7 @@ return function(ctx)
           130.0,
           170.0,
         },
+        lifesteal = { 0.125, 0.1875, 0.25 },
         stun_chance = {
           0.87,
           0.87,
@@ -596,5 +608,19 @@ return function(ctx)
   aid.target_type='unit';aid.effects={{kind='heal_ally',amount_key='heal'}}
   for _,level in ipairs(aid.levels) do level.range=600 end
   abilities[#abilities+1]=aid
+  abilities[#abilities+1]=ctx.include('templates/moba_scatter.lua').ability
+  for _,ability in ipairs(abilities) do
+    local extras=ability.extras
+    if extras and extras.zone_damage then
+      local function ranks(values)
+        local result={};local identical=true
+        for _,value in ipairs(values) do result[#result+1]=string.format('%g',value);identical=identical and value==values[1] end
+        if identical then return result[1] end
+        return table.concat(result,'/')
+      end
+      ability.description=ability.description..string.format(' 每%s秒造成%s傷害，持續%s秒。',
+        ranks(extras.zone_interval),ranks(extras.zone_damage),ranks(extras.zone_duration))
+    end
+  end
   return abilities
 end

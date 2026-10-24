@@ -6,6 +6,19 @@
 use omoba_template_ids::*;
 
 #[test]
+fn scatter_loadout_appends_ids_without_replacing_ranger_circle() {
+    assert_eq!(HERO_TRAINING_RANGER.0,6);
+    assert_eq!(HERO_TRAINING_SUPPORT.0,7);
+    assert_eq!(HERO_TRAINING_SCATTER_RANGER.0,8);
+    assert!(ABILITY_RANGER_SCATTER.0>ABILITY_LUMEN_AID.0);
+    let scatter=hero_abilities(HERO_TRAINING_SCATTER_RANGER);
+    assert!(scatter.contains(&ABILITY_RANGER_SCATTER));
+    let original=hero_abilities(HERO_TRAINING_RANGER);
+    assert!(original.contains(&ABILITY_RANGER_VOLLEY));
+    assert!(!original.contains(&ABILITY_RANGER_SCATTER));
+}
+
+#[test]
 fn tower_consts_sequential_from_one() {
     assert_eq!(TOWER_DART.0, 1);
     assert_eq!(TOWER_TACK.0, 2);
@@ -599,7 +612,7 @@ fn collect_files_with_extension(
         let path = entry.path();
         let name = entry.file_name();
         if path.is_dir() {
-            if should_skip_scan_dir(&name) {
+            if should_skip_scan_dir(&path) {
                 continue;
             }
             collect_files_with_extension(&path, extension, out);
@@ -617,7 +630,7 @@ fn collect_cargo_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathB
         let path = entry.path();
         let name = entry.file_name();
         if path.is_dir() {
-            if should_skip_scan_dir(&name) {
+            if should_skip_scan_dir(&path) {
                 continue;
             }
             collect_cargo_manifests(&path, out);
@@ -627,7 +640,12 @@ fn collect_cargo_manifests(dir: &std::path::Path, out: &mut Vec<std::path::PathB
     }
 }
 
-fn should_skip_scan_dir(name: &std::ffi::OsStr) -> bool {
+fn should_skip_scan_dir(path: &std::path::Path) -> bool {
+    // Acceptance archives preserve historical source verbatim. They are evidence,
+    // not runtime/tooling inputs; do not rewrite or delete them to pass this scan.
+    if path.strip_prefix(workspace_root()).is_ok_and(|relative|
+        relative == std::path::Path::new("docs/acceptance")) { return true; }
+    let Some(name) = path.file_name() else { return false; };
     [".git", ".worktrees", "omfue", "target"]
         .iter()
         .any(|skip| name == *skip)

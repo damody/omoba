@@ -2,10 +2,16 @@ use std::collections::BTreeSet;
 pub mod buff_visual_sources;
 pub mod animation_metadata;
 pub mod moba_items;
+pub mod objective_comeback;
 pub mod moba_summoners;
 pub mod moba_trinkets;
 pub mod moba_communication;
+pub mod recall_rules;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+mod aim_geometry_tests;
+#[cfg(test)]
+mod periodic_damage_tests;
 
 /// Shared gameplay and presentation-facing ability data parsed from Lua.
 /// Editor-only `ue` metadata stays with the Unreal generator.
@@ -34,6 +40,82 @@ pub struct AbilityDefinition {
     pub extras: std::collections::BTreeMap<String, Vec<f32>>,
     #[serde(default)]
     pub effects: Vec<AbilityEffect>,
+    /// Authored aiming contract for special Rust handlers; never inferred from cosmetics.
+    #[serde(default)]
+    pub aim_geometry: Option<AbilityAimGeometry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AbilityAimGeometry {
+    /// Center-point capsule along an instantaneous, range-clamped dash.
+    /// Terrain may shorten the actual path; this is an intended path, not an ACK.
+    SweptPath { width_key: String },
+    /// Special-handler circle centered at the requested point.
+    PointCircle { radius_key: String },
+    /// Standard summon_count/row_spacing/col_spacing/front_row_distance extras.
+    FacingFormation { rows: u16 },
+}
+
+/// Gameplay displacement requires an unrooted source. Presentation must use the
+/// same authored contract, never a skill ID or a cosmetic movement animation.
+pub fn ability_requires_movement(ability: &AbilityDefinition) -> bool {
+    matches!(&ability.aim_geometry, Some(AbilityAimGeometry::SweptPath { .. }))
+        || ability.effects.iter().any(|effect| matches!(effect, AbilityEffect::DashToPoint))
+}
+
+/// Shared row count for executor constants and generated presentation. Zero is absent.
+pub fn facing_formation_rows(ability:&AbilityDefinition)->u16 {
+    match &ability.aim_geometry {Some(AbilityAimGeometry::FacingFormation{rows})=>*rows,_=>0}
+}
+
+/// Canonical executable intent, shared by native generation and reload guards.
+/// Cosmetic cues and nonspatial balance extras do not participate.
+#[derive(Debug,Serialize)]
+pub struct AbilityAimPreview {
+    pub geometry:Option<AbilityAimGeometry>,
+    pub ability_type:String,
+    pub cast_type:String,
+    pub target_type:String,
+    pub requires_movement:bool,
+    pub formation_rows:u16,
+    pub ranks:Vec<AbilityAimPreviewRank>,
+}
+#[derive(Debug,Serialize)]
+pub struct AbilityAimPreviewRank {
+    pub cone_half_angle_ticks:u16,
+    pub range:f32,
+    pub point_radius:f32,
+    pub path_width:f32,
+    pub formation_count:u16,
+    pub row_spacing:f32,
+    pub column_spacing:f32,
+    pub front_distance:f32,
+}
+pub fn ability_aim_preview(ability:&AbilityDefinition)->Result<AbilityAimPreview,String> {
+    validate_ability_progression(ability)?;
+    let mut ranks=Vec::with_capacity(ability.levels.len());
+    for (rank,level) in ability.levels.iter().enumerate() {
+        let extra=|key:&str|ability.extras.get(key).and_then(|values|values.get(rank)).copied().unwrap_or(0.0);
+        let point_radius=if let Some(AbilityAimGeometry::PointCircle{radius_key})=&ability.aim_geometry {extra(radius_key)}
+            else if ability.target_type=="point" {ability.effects.iter().filter_map(|effect|match effect {
+                AbilityEffect::AreaDamage{radius_key,..}=>Some(extra(radius_key)),_=>None}).fold(0.0_f32,f32::max)}else{0.0};
+        let path_width=match &ability.aim_geometry {Some(AbilityAimGeometry::SweptPath{width_key})=>extra(width_key),_=>0.0};
+        let formation=facing_formation_rows(ability)>0;
+        let cone_half_angle_ticks=ability.effects.iter().find_map(|effect|match effect {
+            AbilityEffect::ConeDamage{half_angle_key,..}=>omoba_sim::sector::half_angle_ticks(
+                omoba_sim::Fixed64::from_raw((f64::from(extra(half_angle_key))*1024.).round() as i64)),_=>None}).unwrap_or(0);
+        ranks.push(AbilityAimPreviewRank{cone_half_angle_ticks,range:level.range,point_radius,path_width,
+            formation_count:if formation {extra("summon_count") as u16}else{0},
+            row_spacing:if formation {extra("row_spacing")}else{0.0},
+            column_spacing:if formation {extra("col_spacing")}else{0.0},
+            front_distance:if formation {extra("front_row_distance")}else{0.0}});
+    }
+    Ok(AbilityAimPreview{geometry:ability.aim_geometry.clone(),ability_type:ability.ability_type.clone(),cast_type:ability.cast_type.clone(),target_type:ability.target_type.clone(),
+        requires_movement:ability_requires_movement(ability),formation_rows:facing_formation_rows(ability),ranks})
+}
+pub fn ability_aim_preview_signature(ability:&AbilityDefinition)->Result<String,String> {
+    serde_json::to_string(&ability_aim_preview(ability)?).map_err(|error|error.to_string())
 }
 
 /// Executable subset of Lua-authored effects. Amount-bearing effects resolve
@@ -41,6 +123,9 @@ pub struct AbilityDefinition {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AbilityEffect {
+    /// Source-centered directional sector; the requested ground point supplies its axis.
+    ConeDamage { amount_key:String, half_angle_key:String, damage_kind:EffectDamageKind },
+    DamageOverTimeEnemy { amount_key:String, duration_key:String, damage_kind:EffectDamageKind },
     ManaBuffSelf { stat: ManaBuffStat, value_key:String, duration_key:String },
     SlowEnemy { reduction_key:String, duration_key:String },
     StunEnemy { duration_key:String },
@@ -119,6 +204,8 @@ pub struct AbilityLevel {
     #[serde(default)]
     pub cast_time: f32,
     #[serde(default)]
+    pub cast_interrupt_on_damage: bool,
+    #[serde(default)]
     pub range: f32,
 }
 
@@ -136,7 +223,7 @@ fn valid_ability_scalar(value: f32) -> bool {
 
 impl Default for AbilityLevel {
     fn default() -> Self {
-        Self { required_hero_level: 1, cooldown: 0.0, mana_cost: 0.0, cast_time: 0.0, range: 0.0 }
+        Self { required_hero_level: 1, cooldown: 0.0, mana_cost: 0.0, cast_time: 0.0, cast_interrupt_on_damage: false, range: 0.0 }
     }
 }
 
@@ -153,12 +240,52 @@ pub fn validate_ability_progression(ability: &AbilityDefinition) -> Result<(), S
                 return Err(format!("ability '{}': rank {} {field} must be zero or finite in [1/1024,1000000]", ability.id, rank + 1));
             }
         }
+        if level.cast_interrupt_on_damage && !(MIN_ABILITY_SCALAR..=60.0).contains(&level.cast_time) {
+            return Err(format!("ability '{}': rank {} cast_interrupt_on_damage requires cast_time in [1/1024,60]",ability.id,rank+1));
+        }
         if !(1..=25).contains(&level.required_hero_level) || level.required_hero_level < previous {
             return Err(format!("ability '{}': rank {} required_hero_level must be monotonic in 1..=25", ability.id, rank + 1));
         }
         previous = level.required_hero_level;
     }
+    validate_ability_aim_geometry(ability)?;
     validate_ability_effects(ability)
+}
+
+pub fn validate_ability_aim_geometry(ability: &AbilityDefinition) -> Result<(), String> {
+    let Some(geometry) = &ability.aim_geometry else { return Ok(()); };
+    if let AbilityAimGeometry::FacingFormation {rows}=geometry {
+        let fail=||Err(format!("ability '{}': invalid facing formation contract",ability.id));
+        if !matches!(ability.ability_type.as_str(),"active"|"ultimate")||ability.cast_type!="instant"
+            ||ability.target_type!="point"||!ability.effects.is_empty()||*rows==0||*rows>128 {return fail();}
+        let keys=["summon_count","row_spacing","col_spacing","front_row_distance"];
+        for key in keys {if !ability.extras.get(key).is_some_and(|values|values.len()==usize::from(ability.max_level)
+            &&values.iter().all(|v|v.is_finite()&&*v>=if key=="front_row_distance"{0.}else{MIN_ABILITY_SCALAR}&&*v<=10_000.)) {return fail();}}
+        for rank in 0..usize::from(ability.max_level) {
+            let count=ability.extras["summon_count"][rank];let row=ability.extras["row_spacing"][rank];
+            let col=ability.extras["col_spacing"][rank];let front=ability.extras["front_row_distance"][rank];
+            if !(2.0..=128.0).contains(&count)||count.fract()!=0.||count as u16%*rows!=0
+                ||front+row*f32::from(*rows-1)>10_000.||col*(count/f32::from(*rows)-1.)*0.5>10_000.
+                ||!ability.levels.get(rank).is_some_and(|level|level.range.is_finite()&&(MIN_ABILITY_SCALAR..=10_000.).contains(&level.range)) {return fail();}
+        }
+        return Ok(());
+    }
+    let (key,maximum)=match geometry {
+        AbilityAimGeometry::FacingFormation {..}=>unreachable!(),
+        AbilityAimGeometry::SweptPath {width_key}=>(width_key,5_000.0),
+        AbilityAimGeometry::PointCircle {radius_key}=>{
+            if !ability.effects.is_empty() {return Err(format!("ability '{}': point_circle is a special-handler contract; executable effects already declare their geometry",ability.id));}
+            (radius_key,10_000.0)
+        },
+    };
+    let valid = matches!(ability.ability_type.as_str(), "active" | "ultimate")
+        && ability.cast_type == "instant" && ability.target_type == "point"
+        && ability.levels.iter().all(|level| level.range.is_finite()
+            && (MIN_ABILITY_SCALAR..=10_000.0).contains(&level.range))
+        && !key.is_empty() && ability.extras.get(key).is_some_and(|widths|
+            widths.len() == usize::from(ability.max_level) && widths.iter().all(|width|
+                width.is_finite() && (MIN_ABILITY_SCALAR..=maximum).contains(width)));
+    if valid { Ok(()) } else { Err(format!("ability '{}': aim geometry requires instant point targeting, bounded rank range and a complete positive dimension key", ability.id)) }
 }
 
 /// Unit-target allegiance of an authored effect list.
@@ -187,7 +314,7 @@ impl UnitTargetAllegiance {
 pub fn unit_target_allegiance(effects: &[AbilityEffect]) -> Result<UnitTargetAllegiance, &'static str> {
     let ally = effects.iter().any(|effect| matches!(effect, AbilityEffect::HealAlly { .. }));
     let enemy = effects.iter().any(|effect| matches!(effect,
-        AbilityEffect::Damage { .. } | AbilityEffect::SlowEnemy { .. }
+        AbilityEffect::Damage { .. } | AbilityEffect::DamageOverTimeEnemy {..} | AbilityEffect::SlowEnemy { .. }
             | AbilityEffect::StunEnemy { .. } | AbilityEffect::ControlEnemy { .. }));
     match (ally, enemy) {
         (true, true) => Err("conflicting unit target allegiance"),
@@ -225,6 +352,7 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
         Ok(())
     };
     let mut mana_stats=BTreeSet::new();
+    let mut dot_seen=false;
     for effect in &ability.effects {
         let (amount,target)=match effect {
             AbilityEffect::ManaBuffSelf {stat,value_key,duration_key}=>{
@@ -245,6 +373,14 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
                 continue;
             },
             AbilityEffect::DashToPoint=>unreachable!("exclusive movement checked above"),
+            AbilityEffect::DamageOverTimeEnemy {amount_key,duration_key,..}=>{
+                if dot_seen {return Err(format!("ability '{}': duplicate DoT effect",ability.id));}dot_seen=true;
+                values(duration_key,false)?;
+                if ability.extras[duration_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>60.0) {
+                    return Err(format!("ability '{}': DoT duration must be in [1/1024,60]",ability.id));
+                }
+                (amount_key,"unit")
+            },
             AbilityEffect::Damage {amount_key,..}=>(amount_key,"unit"),
             AbilityEffect::HealAlly {amount_key}=>(amount_key,"unit"),
             AbilityEffect::StunEnemy {duration_key} | AbilityEffect::ControlEnemy {duration_key,..}=>{
@@ -267,6 +403,15 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
             | AbilityEffect::SpendManaSelf {amount_key}=>(amount_key,"none"),
             AbilityEffect::AreaDamage {amount_key,radius_key,..}=>{
                 values(radius_key,true)?;
+                (amount_key,"point")
+            }
+            AbilityEffect::ConeDamage {amount_key,half_angle_key,..}=>{
+                values(half_angle_key,false)?;
+                if ability.effects.len()!=1 || ability.aim_geometry.is_some()
+                    || !matches!(ability.ability_type.as_str(),"active"|"ultimate") || ability.cast_type!="instant"
+                    || ability.extras[half_angle_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>std::f32::consts::FRAC_PI_2) {
+                    return Err(format!("ability '{}': cone_damage requires one instant point effect and half-angle in [1/1024,pi/2]",ability.id));
+                }
                 (amount_key,"point")
             }
         };

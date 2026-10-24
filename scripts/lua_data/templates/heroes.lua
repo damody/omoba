@@ -301,6 +301,9 @@ return function(ctx)
   support.abilities={'lumen_bolt','lumen_touch','lumen_lance','lumen_aid'}
   heroes[#heroes+1]=support
   local native_visuals=ctx.include('templates/moba_native_visuals.lua')
+  local scatter=ctx.include('templates/moba_scatter.lua').hero
+  scatter.ue.native_visual=native_visuals.training_ranger
+  heroes[#heroes+1]=scatter
   for _,hero in ipairs(heroes)do
     local profile=native_visuals[hero.id]
     if profile then

@@ -3,7 +3,8 @@
 //! cross products and squared-distance comparisons inside i128 without floats.
 use crate::{Fixed64, Vec2};
 
-const MAX_RAW: i64 = 1 << 29;
+pub const MAX_GEOMETRY_RAW: i64 = 1 << 29;
+const MAX_RAW: i64 = MAX_GEOMETRY_RAW;
 type Point = (i128, i128);
 fn point(v: Vec2) -> Point { (i128::from(v.x.raw()), i128::from(v.y.raw())) }
 fn cross(a: Point, b: Point, p: Point) -> i128 {
@@ -31,6 +32,15 @@ fn near_segment(p: Point, a: Point, b: Point, radius_sq: i128) -> bool {
     }
     let area=dx*py-dy*px;
     area*area<=radius_sq*length_sq
+}
+
+/// Exact point-in-capsule test. Tangency and endpoint disks are included.
+/// Unsupported coordinates/radii fail closed without overflowing i128.
+pub fn point_in_swept_circle(p: Vec2, from: Vec2, to: Vec2, radius: Fixed64) -> bool {
+    let bounded=|v:Vec2|v.x.raw().unsigned_abs()<=MAX_RAW as u64
+        && v.y.raw().unsigned_abs()<=MAX_RAW as u64;
+    radius.raw()>=0 && radius.raw()<=MAX_RAW && bounded(p) && bounded(from) && bounded(to)
+        && near_segment(point(p),point(from),point(to),i128::from(radius.raw()).pow(2))
 }
 fn inside(p: Point, polygon: &[Vec2]) -> bool {
     let mut inside=false;
@@ -80,6 +90,33 @@ mod tests {
     use super::*;
     fn p(x:i32,y:i32)->Vec2 { Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y)) }
     fn wall()->[Vec2;4] { [p(50,-100),p(51,-100),p(51,100),p(50,100)] }
+    #[test]
+    fn capsule_tangency_endpoints_and_one_quantum_outside_are_exact() {
+        let radius=Fixed64::from_i32(10);
+        for point in [p(0,10),p(50,-10),p(-10,0),p(110,0)] {
+            assert!(point_in_swept_circle(point,p(0,0),p(100,0),radius));
+            assert!(point_in_swept_circle(point,p(100,0),p(0,0),radius));
+        }
+        assert!(!point_in_swept_circle(Vec2::new(Fixed64::from_i32(50),radius+Fixed64::from_raw(1)),p(0,0),p(100,0),radius));
+        assert!(!point_in_swept_circle(p(111,0),p(0,0),p(100,0),radius));
+    }
+    #[test]
+    fn capsule_diagonal_translation_and_zero_length_remain_integer_exact() {
+        assert!(point_in_swept_circle(p(47,54),p(0,0),p(100,100),Fixed64::from_i32(5)));
+        assert!(!point_in_swept_circle(p(46,54),p(0,0),p(100,100),Fixed64::from_i32(5)));
+        let offset=p(100_000,-100_000);
+        assert!(point_in_swept_circle(offset+p(47,54),offset,offset+p(100,100),Fixed64::from_i32(5)));
+        assert!(point_in_swept_circle(p(3,4),p(0,0),p(0,0),Fixed64::from_i32(5)));
+        assert!(!point_in_swept_circle(p(3,5),p(0,0),p(0,0),Fixed64::from_i32(5)));
+    }
+    #[test]
+    fn capsule_unsupported_inputs_fail_closed_without_integer_overflow() {
+        let extreme=Vec2::new(Fixed64::from_raw(i64::MIN),Fixed64::ZERO);
+        assert!(!point_in_swept_circle(extreme,p(0,0),p(1,1),Fixed64::ONE));
+        assert!(!point_in_swept_circle(p(0,0),extreme,p(1,1),Fixed64::ONE));
+        assert!(!point_in_swept_circle(p(0,0),p(0,0),p(1,1),-Fixed64::ONE));
+        assert!(!point_in_swept_circle(p(0,0),p(0,0),p(1,1),Fixed64::from_raw(i64::MAX)));
+    }
     #[test]
     fn thin_wall_and_diagonal_corner_cannot_be_tunnelled() {
         assert!(swept_circle_hits_polygon(p(0,0),p(100,0),Fixed64::ZERO,&wall()));
