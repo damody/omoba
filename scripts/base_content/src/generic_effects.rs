@@ -1,6 +1,6 @@
 //! Deterministic, data-driven ability effects generated from Lua declarations.
-//! This intentionally covers only safe, immediate effects. Complex timing,
-//! continuous movement, summons and passive hooks remain explicit Rust handlers.
+//! Immediate effects and host-owned timed damage/stat buffs share admission.
+//! Continuous movement, summons and passive hooks remain explicit Rust handlers.
 
 use abi_stable::std_types::{RErr, ROk, RResult, RSome, RStr, RString};
 use omb_script_abi::{
@@ -17,6 +17,8 @@ use crate::ability_builder::{build_ability_ffi, extra_at, extra_at_id_f32};
 
 #[derive(Clone, Copy, Debug)]
 pub enum EffectOp {
+    ConeDamage {amount_key:&'static str,half_angle_key:&'static str,kind:DamageKind},
+    DamageOverTimeEnemy {amount_key:&'static str,duration_key:&'static str,kind:DamageKind},
     HealAlly {amount_key:&'static str},
     ManaBuffSelf {stat:ManaBuffStat,value_key:&'static str,duration_key:&'static str},
     SlowEnemy { reduction_key:&'static str, duration_key:&'static str },
@@ -37,6 +39,8 @@ pub enum EffectOp {
 
 #[derive(Debug)]
 enum ResolvedEffect {
+    ConeDamage {aim:Vec2,cast_range:Fixed64,half_ticks:u16,amount:Fixed64,kind:DamageKind},
+    DamageOverTimeEnemy {victim:EntityHandle,rate:Fixed64,duration:Fixed64,kind:DamageKind,cast_range:Fixed64},
     HealAlly {victim:EntityHandle,amount:Fixed64,cast_range:Fixed64},
     ManaBuffSelf {stat:ManaBuffStat,value:Fixed64,duration:Fixed64},
     SlowEnemy { victim:EntityHandle, reduction:Fixed64, duration:Fixed64, cast_range:Option<Fixed64> },
@@ -63,6 +67,7 @@ pub struct GenericEffectHandler {
 }
 
 trait EffectSink {
+    fn dot(&mut self,caster:EntityHandle,victim:EntityHandle,ability:AbilityId,rate:Fixed64,duration:Fixed64,kind:DamageKind);
     fn area_cue(&mut self, center:Vec2, radius:Fixed64);
     fn is_ally(&self,caster:EntityHandle,victim:EntityHandle)->bool;
     fn mana_buff(&mut self,caster:EntityHandle,ability:AbilityId,stat:ManaBuffStat,value:Fixed64,duration:Fixed64);
@@ -87,6 +92,11 @@ trait EffectSink {
 }
 
 impl EffectSink for GameWorldDyn<'_> {
+    fn dot(&mut self,caster:EntityHandle,victim:EntityHandle,ability:AbilityId,rate:Fixed64,duration:Fixed64,kind:DamageKind) {
+        let key=omb_script_abi::buff_ids::generic_dot_buff_id(ability.as_str(),caster);
+        let payload=omoba_core::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::payload(rate,caster,kind).to_string();
+        self.add_stat_buff(victim,(&*key).into(),duration,(&*payload).into());
+    }
     fn area_cue(&mut self, center:Vec2, radius:Fixed64) {
         self.emit_explosion(center, radius, Fixed64::ONE);
     }
@@ -173,6 +183,9 @@ fn apply_effects(
     if !caster.is_valid() || !sink.is_alive(caster) {
         return Err(format!("ability '{}': caster is not alive",id.as_str()));
     }
+    if effects.iter().filter(|e|matches!(e,ResolvedEffect::DamageOverTimeEnemy {..})).count()>1 {
+        return Err("duplicate DoT effect".into());
+    }
     if effects.iter().any(|effect|matches!(effect,ResolvedEffect::DashToPoint {..})) {
         let [ResolvedEffect::DashToPoint {target,cast_range}]=effects.as_slice() else {
             return Err(format!("ability '{}': movement cannot be combined with other effects",id.as_str()));
@@ -193,7 +206,25 @@ fn apply_effects(
     let mut expanded=Vec::new();
     let mut areas=Vec::new();
     for effect in effects {
-        if let ResolvedEffect::AreaDamage {center,radius,cast_range,amount,kind}=effect {
+        if let ResolvedEffect::ConeDamage {aim,cast_range,half_ticks,amount,kind}=effect {
+            let origin=sink.position(caster).ok_or("missing cone source position")?;
+            let supported=|p:Vec2|p.x.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
+                &&p.y.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64;
+            if !sink.is_alive(caster)||!supported(origin)||!supported(aim)||origin==aim
+                || cast_range<=Fixed64::ZERO||cast_range>Fixed64::from_i32(10_000)||half_ticks==0||half_ticks>1024
+                || amount<Fixed64::ZERO||amount>Fixed64::from_i32(1_000_000)
+                || !omoba_sim::terrain::point_in_swept_circle(aim,origin,origin,cast_range) {
+                return Err("invalid cone source, direction or budget".into());
+            }
+            let delta=aim-origin;let axis=omoba_sim::trig::atan2(delta.y,delta.x);
+            let mut victims=sink.enemies_in_radius(caster,origin,cast_range);victims.sort_by_key(|e|(e.id,e.gen));victims.dedup();
+            for victim in victims {
+                if victim==caster||!sink.is_alive(victim)||!sink.is_enemy(caster,victim){continue;}
+                if !sink.position(victim).is_some_and(|p|omoba_sim::sector::point_in_sector(p,origin,axis,cast_range,half_ticks)){continue;}
+                if expanded.len()>=128{return Err("cone exceeds128 resolved effects".into());}
+                expanded.push(ResolvedEffect::Damage {victim,amount,kind,cast_range:None});
+            }
+        } else if let ResolvedEffect::AreaDamage {center,radius,cast_range,amount,kind}=effect {
             areas.push((center,radius));
             let position=sink.position(caster).ok_or_else(||format!("ability '{}': missing caster position",id.as_str()))?;
             if !sink.is_alive(caster) || (center-position).length_squared()>cast_range*cast_range {
@@ -213,6 +244,17 @@ fn apply_effects(
     }
     // Validate the entire plan before any world mutation.
     for effect in &expanded {
+        if let ResolvedEffect::DamageOverTimeEnemy {victim,rate,duration,cast_range,..}=effect {
+            if *rate<Fixed64::ZERO || *rate>Fixed64::from_i32(1_000_000)
+                || *duration<=Fixed64::ZERO || *duration>Fixed64::from_i32(60)
+                || *cast_range<=Fixed64::ZERO || *cast_range>Fixed64::from_i32(10_000)
+                || !victim.is_valid() || !sink.is_alive(*victim) || !sink.is_enemy(caster,*victim) {
+                return Err(format!("ability '{}': invalid DoT target/data",id.as_str()));
+            }
+            let origin=sink.position(caster).ok_or("missing caster position")?;
+            let position=sink.position(*victim).ok_or("missing DoT target position")?;
+            if (position-origin).length_squared()>*cast_range * *cast_range {return Err("DoT outside cast range".into());}
+        }
         if let ResolvedEffect::HealAlly {victim,amount,cast_range}=effect {
             if !victim.is_valid() || !sink.is_alive(*victim) || !sink.is_ally(caster,*victim)
                 || *amount<Fixed64::ZERO || *amount>Fixed64::from_i32(1_000_000)
@@ -277,6 +319,7 @@ fn apply_effects(
     }
     for effect in expanded {
         match effect {
+            ResolvedEffect::DamageOverTimeEnemy {victim,rate,duration,kind,..}=>sink.dot(caster,victim,id,rate,duration,kind),
             ResolvedEffect::HealAlly {victim,amount,..}=>sink.heal(victim,amount),
             ResolvedEffect::ManaBuffSelf {stat,value,duration}=>sink.mana_buff(caster,id,stat,value,duration),
             ResolvedEffect::Damage {
@@ -289,7 +332,7 @@ fn apply_effects(
             ResolvedEffect::RestoreManaSelf {..}|ResolvedEffect::SpendManaSelf {..}=>{},
             ResolvedEffect::SlowEnemy {victim,reduction,duration,..}=>sink.slow(caster,victim,id,reduction,duration),
             ResolvedEffect::ControlEnemy {control,victim,duration,..}=>sink.control(victim,control,duration),
-            ResolvedEffect::AreaDamage {..}=>unreachable!("expanded before commit"),
+            ResolvedEffect::AreaDamage {..}|ResolvedEffect::ConeDamage {..}=>unreachable!("expanded before commit"),
             ResolvedEffect::DashToPoint {..}=>unreachable!("exclusive movement handled before commit"),
         }
     }
@@ -314,6 +357,13 @@ fn resolve_effects(
     let mut mana_stats=std::collections::BTreeSet::new();
     for effect in effects {
         match effect {
+            EffectOp::DamageOverTimeEnemy {amount_key,duration_key,kind}=>{
+                let Target::Entity(victim)=target else {return Err("DoT requires entity target".into());};
+                let lookup=|key:&&str|ability.extras.iter().find(|(name,_)|name==key)
+                    .and_then(|(_,values)|values.get(usize::from(level-1))).copied().ok_or("missing DoT extras");
+                resolved.push(ResolvedEffect::DamageOverTimeEnemy {victim:*victim,rate:lookup(amount_key)?,duration:lookup(duration_key)?,
+                    kind:*kind,cast_range:ability.levels[usize::from(level-1)].range});
+            },
             EffectOp::HealAlly {amount_key}=>{
                 let Target::Entity(victim)=target else {return Err("ally heal requires entity target".into());};
                 let amount=ability.extras.iter().find(|(key,_)|key==amount_key)
@@ -360,6 +410,16 @@ fn resolve_effects(
                 }
                 resolved.push(ResolvedEffect::DashToPoint {target:*point,cast_range:range});
             },
+            EffectOp::ConeDamage {amount_key,half_angle_key,kind}=>{
+                if effects.len()!=1 {return Err("cone requires one exclusive effect".into());}
+                let Target::Point(aim)=target else{return Err("cone requires a direction point".into());};
+                let lookup=|key:&&str|ability.extras.iter().find(|(name,_)|name==key)
+                    .and_then(|(_,values)|values.get(usize::from(level-1))).copied().ok_or("missing cone extras");
+                let angle=lookup(half_angle_key)?;
+                let half_ticks=omoba_sim::sector::half_angle_ticks(angle).filter(|ticks|*ticks>0&&*ticks<=1024).ok_or("invalid cone half angle")?;
+                resolved.push(ResolvedEffect::ConeDamage {aim:*aim,cast_range:ability.levels[usize::from(level-1)].range,
+                    half_ticks,amount:lookup(amount_key)?,kind:*kind});
+            }
             EffectOp::Damage { amount_key, kind } => {
                 let Target::Entity(victim) = target else {
                     return Err(format!(
@@ -446,6 +506,10 @@ pub fn generic_effect_ffi(id: AbilityId, effects: &'static [EffectOp]) -> Abilit
         // mana is HP healing or damage. Lua description/extras remain available.
         .filter(|effect|!matches!(effect,EffectOp::DashToPoint|EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}))
         .map(|effect| match effect {
+            EffectOp::DamageOverTimeEnemy {amount_key,duration_key,kind}=>EffectSpec::StatusModifier {
+                target:TargetSelector::Target,modifier_type:format!("damage_over_time_{kind:?}_per_second"),
+                value:extra_at_id_f32(id,amount_key,1),duration:Some(extra_at_id_f32(id,duration_key,1)),
+            },
             EffectOp::StunEnemy {duration_key}=>EffectSpec::StatusModifier {
                 target:TargetSelector::Target,modifier_type:"stun".into(),value:1.0,
                 duration:Some(extra_at_id_f32(id,duration_key,1)),
@@ -473,6 +537,10 @@ pub fn generic_effect_ffi(id: AbilityId, effects: &'static [EffectOp]) -> Abilit
                 amount: extra_at_id_f32(id, amount_key, 1),
             },
             EffectOp::HealAlly {amount_key}=>EffectSpec::Heal {target:TargetSelector::Target,amount:extra_at_id_f32(id,amount_key,1)},
+            EffectOp::ConeDamage {amount_key,half_angle_key,kind}=>EffectSpec::Damage {
+                target:TargetSelector::Custom(format!("enemies_in_source_cone(half_angle_rad={})",extra_at_id_f32(id,half_angle_key,1))),
+                amount:extra_at_id_f32(id,amount_key,1),damage_type:match kind {DamageKind::Physical=>DamageType::Physical,DamageKind::Magical=>DamageType::Magical,DamageKind::Pure=>DamageType::Pure},
+            },
             EffectOp::AreaDamage {amount_key,radius_key,kind}=>EffectSpec::Damage {
                 target:TargetSelector::Custom(format!("enemies_at_target_point(radius={})",extra_at_id_f32(id,radius_key,1))),
                 amount:extra_at_id_f32(id,amount_key,1),
@@ -488,8 +556,30 @@ mod tests {
     use super::*;
     use omoba_template_ids::ABILITY_FLAME_BLADE;
 
+    #[test]
+    fn authored_bleed_all_ranks_validate_before_any_effect_and_expose_rate_duration() {
+        let id=omoba_template_ids::ability_by_name("ranger_shot").unwrap();
+        let caster=EntityHandle{id:1,gen:1};let victim=EntityHandle{id:2,gen:1};
+        let op=EffectOp::DamageOverTimeEnemy{amount_key:"bleed_rate",duration_key:"bleed_duration",kind:DamageKind::Physical};
+        for rank in 1..=4 {
+            let mut sink=HeadlessWorld {alive:true,enemy:true,..Default::default()};
+            let resolve=||resolve_effects(id,&[op],&Target::Entity(victim),rank).unwrap();
+            apply_effects(id,caster,resolve(),&mut sink).unwrap();assert_eq!(sink.dots,vec![(2,i64::from(rank)*5*1024+5*1024,4096)]);
+            sink.enemy=false;assert!(apply_effects(id,caster,resolve(),&mut sink).is_err());assert_eq!(sink.dots.len(),1);
+            sink.enemy=true;sink.positions.insert(2,Vec2::new(Fixed64::from_i32(751),Fixed64::ZERO));
+            assert!(apply_effects(id,caster,resolve(),&mut sink).is_err());assert_eq!(sink.dots.len(),1);
+            sink.positions.clear();let mut invalid=resolve();invalid.push(ResolvedEffect::SpendManaSelf{amount:Fixed64::from_i32(-1)});
+            assert!(apply_effects(id,caster,invalid,&mut sink).is_err());assert_eq!(sink.dots.len(),1);
+            let duplicate=resolve_effects(id,&[op,op],&Target::Entity(victim),rank).unwrap();
+            assert!(apply_effects(id,caster,duplicate,&mut sink).is_err());assert_eq!(sink.dots.len(),1);
+        }
+        assert!(resolve_effects(id,&[op],&Target::None,1).is_err());
+        assert!(resolve_effects(id,&[op],&Target::Entity(victim),0).is_err());
+    }
+
     #[derive(Default)]
     struct HeadlessWorld {
+        dots:Vec<(u32,i64,i64)>,
         mana_buffs:Vec<(ManaBuffStat,i64,i64)>,
         mana:Option<omoba_core::runtime::ability_runtime::ManaPool>,
         damage: Vec<(u32, i64)>,
@@ -505,7 +595,38 @@ mod tests {
         area_cues:Vec<(Vec2,Fixed64)>,
     }
 
+    #[test]
+    fn directional_cone_filters_canonical_candidates_and_rejects_before_any_commit() {
+        let id=omoba_template_ids::ability_by_name("ranger_scatter").unwrap();
+        let caster=EntityHandle{id:1,gen:1};let handle=|id|EntityHandle{id,gen:1};
+        let point=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let op=EffectOp::ConeDamage{amount_key:"damage",half_angle_key:"half_angle",kind:DamageKind::Physical};
+        let mut world=HeadlessWorld{alive:true,enemy:true,enemies:vec![handle(5),handle(3),handle(2),handle(2),handle(9),caster],..Default::default()};
+        world.positions.extend([(1,point(0,0)),(2,point(700,0)),(3,point(100,0)),(5,point(-10,0))]);
+        for rank in 1..=4 {
+            world.damage.clear();let effects=resolve_effects(id,&[op],&Target::Point(point(1,0)),rank).unwrap();
+            apply_effects(id,caster,effects,&mut world).unwrap();
+            assert_eq!(world.damage,vec![(2,(110+(i64::from(rank)-1)*50)*1024),(3,(110+(i64::from(rank)-1)*50)*1024)]);
+            assert!(world.area_cues.is_empty(),"never emit a misleading circle cue");
+        }
+        for aim in [point(0,0),point(701,0)] {
+            world.damage.clear();assert!(apply_effects(id,caster,resolve_effects(id,&[op],&Target::Point(aim),1).unwrap(),&mut world).is_err());assert!(world.damage.is_empty());
+        }
+        world.enemies=vec![handle(2),handle(3),handle(4),handle(5)];
+        world.positions.extend([(2,point(0,700)),(3,point(0,-700)),(4,point(701,0)),(5,point(-1,0))]);world.damage.clear();
+        apply_effects(id,caster,vec![ResolvedEffect::ConeDamage{aim:point(1,0),cast_range:Fixed64::from_i32(700),half_ticks:1024,amount:Fixed64::ONE,kind:DamageKind::Physical}],&mut world).unwrap();
+        assert_eq!(world.damage,vec![(2,1024),(3,1024)]);
+        world.damage.clear();world.enemies=(10..139).map(handle).collect();
+        assert!(apply_effects(id,caster,resolve_effects(id,&[op],&Target::Point(point(1,0)),1).unwrap(),&mut world).is_err());assert!(world.damage.is_empty());
+        assert!(resolve_effects(id,&[op,op],&Target::Point(point(1,0)),1).is_err());
+        assert!(resolve_effects(id,&[op],&Target::None,1).is_err());
+        assert!(resolve_effects(id,&[EffectOp::ConeDamage{amount_key:"missing",half_angle_key:"half_angle",kind:DamageKind::Physical}],&Target::Point(point(1,0)),1).is_err());
+    }
+
     impl EffectSink for HeadlessWorld {
+        fn dot(&mut self,_caster:EntityHandle,victim:EntityHandle,_ability:AbilityId,rate:Fixed64,duration:Fixed64,_kind:DamageKind) {
+            self.dots.push((victim.id,rate.raw(),duration.raw()));
+        }
         fn area_cue(&mut self,center:Vec2,radius:Fixed64) {self.area_cues.push((center,radius));}
         fn is_ally(&self,_caster:EntityHandle,_victim:EntityHandle)->bool { !self.enemy }
         fn mana_buff(&mut self,_caster:EntityHandle,_ability:AbilityId,stat:ManaBuffStat,value:Fixed64,duration:Fixed64) {
@@ -832,7 +953,7 @@ mod tests {
                 EffectOp::Damage { .. } => Target::Entity(victim),
                 EffectOp::HealSelf { .. } => Target::None,
                 EffectOp::HealAlly {..}=>unreachable!("fixture only lists damage/self heal"),
-                EffectOp::AreaDamage {..}|EffectOp::DashToPoint|EffectOp::SlowEnemy {..}|EffectOp::StunEnemy {..}|EffectOp::ControlEnemy {..}
+                EffectOp::ConeDamage {..}|EffectOp::DamageOverTimeEnemy {..}|EffectOp::AreaDamage {..}|EffectOp::DashToPoint|EffectOp::SlowEnemy {..}|EffectOp::StunEnemy {..}|EffectOp::ControlEnemy {..}
                     |EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}=>unreachable!("fixture only lists damage/heal"),
             };
             let resolved = resolve_effects(ability, &[effect], &target, 1).unwrap();
@@ -841,7 +962,7 @@ mod tests {
                     assert_eq!(*amount, Fixed64::from_i32(expected));
                 }
                 ResolvedEffect::HealAlly {..}=>unreachable!("fixture only lists damage/self heal"),
-                ResolvedEffect::AreaDamage {..}|ResolvedEffect::DashToPoint {..}|ResolvedEffect::SlowEnemy {..}|ResolvedEffect::ControlEnemy {..}
+                ResolvedEffect::ConeDamage {..}|ResolvedEffect::DamageOverTimeEnemy {..}|ResolvedEffect::AreaDamage {..}|ResolvedEffect::DashToPoint {..}|ResolvedEffect::SlowEnemy {..}|ResolvedEffect::ControlEnemy {..}
                     |ResolvedEffect::RestoreManaSelf {..}|ResolvedEffect::SpendManaSelf {..}|ResolvedEffect::ManaBuffSelf {..}=>unreachable!("fixture only lists damage/heal"),
             }
             apply_effects(ability, caster, resolved, &mut world).unwrap();

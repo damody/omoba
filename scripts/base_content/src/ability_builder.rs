@@ -68,6 +68,7 @@ pub fn build_ability_def_from_const(
                 cooldown: ld.cooldown.to_f32_for_render(),
                 mana_cost: ld.mana_cost.to_f32_for_render(),
                 cast_time: ld.cast_time.to_f32_for_render(),
+                cast_interrupt_on_damage: ld.cast_interrupt_on_damage,
                 range: ld.range.to_f32_for_render(),
                 extra,
             },

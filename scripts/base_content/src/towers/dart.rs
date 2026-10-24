@@ -337,7 +337,7 @@ mod tests {
             .iter()
             .filter(|outcome| {
                 matches!(outcome,
-                    Outcome::Damage { phys, .. }
+                    Outcome::RawDamage { phys, .. }
                         if *phys == Fixed64::from_i32(120)
                 )
             })
@@ -363,7 +363,7 @@ mod tests {
             .iter()
             .filter(|outcome| {
                 matches!(outcome,
-                    Outcome::Damage { phys, .. }
+                    Outcome::RawDamage { phys, .. }
                         if *phys == Fixed64::from_i32(60)
                 )
             })
@@ -398,7 +398,7 @@ mod tests {
         );
 
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
-            Outcome::Damage { phys, .. }
+            Outcome::RawDamage { phys, .. }
                 if *phys == Fixed64::from_i32(60)
         )));
     }

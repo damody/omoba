@@ -349,7 +349,7 @@ mod tests {
         let damage: Vec<Fixed64> = outcomes
             .iter()
             .filter_map(|outcome| match outcome {
-                Outcome::Damage { magi, .. } => Some(*magi),
+                Outcome::RawDamage { magi, .. } => Some(*magi),
                 _ => None,
             })
             .collect();
@@ -414,11 +414,11 @@ mod tests {
             "cake_frosting_lockdown",
         );
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
-            Outcome::Damage { target, magi, .. }
+            Outcome::RawDamage { target, magi, .. }
                 if *target == fixture.enemies[0] && *magi == Fixed64::from_i32(20)
         )));
         assert!(!outcomes.iter().any(|outcome| matches!(outcome,
-            Outcome::Damage { target, .. } if *target == fixture.enemies[1]
+            Outcome::RawDamage { target, .. } if *target == fixture.enemies[1]
         )));
         assert!(outcomes.iter().any(|outcome| matches!(outcome,
             Outcome::AddBuff { target, buff_id, duration, .. }

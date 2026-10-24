@@ -27,6 +27,49 @@ fn catalog_row() -> &'static TrinketConst {
     omoba_template_ids::TRINKET_CATALOG.iter().find(|row| row.catalog_id == named.catalog_id).expect("catalog id")
 }
 
+#[test]
+fn admitted_detection_trinket_uses_production_step_and_game_time_deadlines() {
+    let row = omoba_template_ids::trinket_by_name("training_detection_lantern_v1").unwrap();
+    let (mut world, mut driver) = world();playing(&mut world, &mut driver);
+    set_authoritative_trinket_loadout(&mut world, 1, Some(row.catalog_id)).unwrap();
+    let actor_life = trusted_actor_generation(&world, 1);
+    let target = pos_of(&world, hero(&world, 1)) + Vec2::new(Fixed64::ZERO, row.placement_range);
+    let placement = omoba_core::game_proto::WardPlacement {slot: u32::from(WARD_LOCAL_SLOT),
+        x_raw: Some(target.x.raw()), y_raw: Some(target.y.raw())};
+    let before = (vision_count(&world), ward_count(&world));
+    route_admitted_ward_placement(1, 4, &placement, 191, actor_life,
+        &mut world.write_resource::<PendingWardPlacementQueue>());
+    driver.step(&mut world, []).unwrap();
+    assert!(world.read_resource::<PendingWardPlacementQueue>().requests.is_empty());
+    assert_eq!(last_receipt(&world).code, omoba_core::runtime::ward_transport::RECEIPT_SETTLED);
+    assert_eq!(last_receipt(&world).admitted_correlation, 191);
+    assert_eq!((vision_count(&world), ward_count(&world)), (before.0+1, before.1+1));
+    let roster = copied_ward_roster(&world, 1).unwrap();
+    assert_eq!(roster.charges(), 0);assert_eq!(roster.placements().len(), 1);
+    let due = roster.next_recharge_at().unwrap().raw();
+    let expiry = roster.placements()[0].expires_at_raw;
+    let private = decode_owner_ward_projection(&project_private_owner_ward(&world, 1, 4)).unwrap();
+    assert_eq!((private.catalog_id, private.charges, private.max_charges), (row.catalog_id, 0, 1));
+    let elapsed = world.read_resource::<MobaMatch>().elapsed.raw();
+    assert_eq!(private.recharge_remaining_raw, due-elapsed);
+    world.write_resource::<GamePause>().is_paused = true;
+    for _ in 0..12 {driver.step(&mut world, []).unwrap();}
+    assert_eq!(world.read_resource::<MobaMatch>().elapsed.raw(), elapsed);
+    assert_eq!(copied_ward_roster(&world, 1).unwrap().placements()[0].expires_at_raw, expiry);
+    world.write_resource::<GamePause>().is_paused = false;
+    world.write_resource::<DeltaTime>().0 = Fixed64::from_raw(expiry-elapsed-1);
+    assert!(begin_moba_match_tick(&mut world));world.maintain();
+    assert_eq!(ward_count(&world), before.1+1, "alive one raw unit before authored expiry");
+    driver.step(&mut world, []).unwrap();
+    assert_eq!(ward_count(&world), before.1, "production step retires expired body");
+    assert_eq!(copied_ward_roster(&world, 1).unwrap().charges(), 0);
+    let now = world.read_resource::<MobaMatch>().elapsed.raw();
+    world.write_resource::<DeltaTime>().0 = Fixed64::from_raw(due-now);
+    assert!(begin_moba_match_tick(&mut world));world.maintain();
+    assert_eq!(copied_ward_roster(&world, 1).unwrap().charges(), 1);
+    assert_eq!(ward_count(&world), before.1, "recharge never resurrects a retired detector");
+}
+
 fn world() -> (World, SimulationDriver) {
     let pool = StateInitializer::create_thread_pool();
     let mut ecs = StateInitializer::setup_campaign_ecs_world(&pool);

@@ -1,22 +1,30 @@
-//! 火繩銃（matchlock_gun）— 伊達政宗的 T 技能：變身火繩銃，45 秒增益。
+//! 火繩銃（matchlock_gun）— 伊達政宗的 R 技能：變身火繩銃，45 秒增益。
 //!
 //! Buff-driven pattern：所有屬性變動（+射程/+傷害/暈眩機率）由 host 端的
 //! buff 表根據 `matchlock_gun` buff id 決定。重複施放會 refresh duration。
 
-use abi_stable::std_types::{ROk, RResult, RStr, RString};
+use abi_stable::std_types::{RErr, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     stat_keys::StatKey,
-    types::{EntityHandle, Fixed64, Target},
+    types::{EntityHandle, Target},
     world::GameWorldDyn,
 };
-use omoba_core::ability_meta::{AbilityLevelData, EffectSpec, TargetSelector};
+use omoba_core::ability_meta::{EffectSpec, TargetSelector};
 use omoba_template_ids::ABILITY_MATCHLOCK_GUN;
 use std::collections::HashMap;
 
 use crate::ability_builder::{build_ability_ffi, extra_at_id_f32};
 
 const BUFF_ID: &str = "matchlock_gun";
+use crate::self_transform::{Encoding,Field};
+const MATCHLOCK_FIELDS: &[Field] = &[
+    Field {key:"range_bonus",stat:StatKey::AttackRangeBonus,maximum:10_000,encoding:Encoding::Raw},
+    Field {key:"damage_bonus",stat:StatKey::BaseAttackBonusDamage,maximum:1_000_000,encoding:Encoding::Raw},
+    Field {key:"lifesteal",stat:StatKey::Lifesteal,maximum:1,encoding:Encoding::Raw},
+    Field {key:"stun_chance",stat:StatKey::AttackStunChance,maximum:1,encoding:Encoding::Normalized},
+    Field {key:"stun_duration",stat:StatKey::AttackStunDuration,maximum:60,encoding:Encoding::Normalized},
+];
 
 pub struct MatchlockGunHandler;
 
@@ -26,58 +34,12 @@ impl AbilityScript for MatchlockGunHandler {
     }
 
     fn execute(
-        &self,
-        caster: EntityHandle,
-        _target: Target,
-        _level: u8,
-        level_data_json: RStr<'_>,
-        world: &mut GameWorldDyn<'_>,
+        &self, caster: EntityHandle, target: Target, level: u8,
+        json: RStr<'_>, world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
-        let level_data: AbilityLevelData =
-            serde_json::from_str(level_data_json.as_str()).unwrap_or_default();
-        // JSON 額外內容仍採用 f64 編碼。
-        let get_f = |k: &str| {
-            level_data
-                .extra
-                .get(k)
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0)
-        };
-        // 階段 1de.2：sum_add-聚合統計資料發出原始的 Fix64 i32（鎖步正確）。
-        // 透過原始 `payload.get(...).as_f64()` (attack_stun_*) 讀取的幫助程式保留 f64。
-        let get_raw =
-            |k: &str| -> i32 { Fixed64::from_raw((get_f(k) * 1024.0) as i64).raw() as i32 };
-        // 持續時間：f64 → FFI add_stat_buff 呼叫邊界處的固定 64。
-        let duration_f = get_f("duration");
-        let duration = Fixed64::from_raw((duration_f * 1024.0) as i64);
-        // damage_bonus 為絕對傷害點（90/130/170）→ BaseAttackBonusDamage；
-        // attack_stun_* 不在 StatKey 聚合路徑（game_processor 直接 .as_f64() 讀）→ 保留 f64。
-        let mut modifiers = serde_json::Map::new();
-        modifiers.insert(
-            StatKey::AttackRangeBonus.as_str().into(),
-            serde_json::json!(get_raw("range_bonus")),
-        );
-        modifiers.insert(
-            StatKey::BaseAttackBonusDamage.as_str().into(),
-            serde_json::json!(get_raw("damage_bonus")),
-        );
-        modifiers.insert(
-            StatKey::AttackStunChance.as_str().into(),
-            serde_json::json!(get_f("stun_chance")),
-        );
-        modifiers.insert(
-            StatKey::AttackStunDuration.as_str().into(),
-            serde_json::json!(get_f("stun_duration")),
-        );
-        let mods_str = serde_json::Value::Object(modifiers).to_string();
-        world.add_stat_buff(
-            caster,
-            RStr::from_str(BUFF_ID),
-            duration,
-            (&*mods_str).into(),
-        );
-        world.log_info(RStr::from_str("[matchlock_gun] transformed"));
-        ROk(())
+        let result=crate::self_transform::resolve(ABILITY_MATCHLOCK_GUN,level,json.as_str(),MATCHLOCK_FIELDS,None)
+            .and_then(|spec|crate::self_transform::execute(world,caster,target,BUFF_ID,spec));
+        match result {Ok(())=>ROk(()),Err(error)=>RErr(error.into())}
     }
 }
 
@@ -85,11 +47,13 @@ pub fn matchlock_gun_ffi() -> AbilityDefFFI {
     let dur_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "duration", 1);
     let range_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "range_bonus", 1);
     let dmg_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "damage_bonus", 1);
+    let leech_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "lifesteal", 1);
     let stun_c_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "stun_chance", 1);
     let stun_d_lv1 = extra_at_id_f32(ABILITY_MATCHLOCK_GUN, "stun_duration", 1);
     let mut preview_mods = HashMap::new();
     preview_mods.insert(StatKey::AttackRangeBonus.as_str().into(), range_lv1);
     preview_mods.insert(StatKey::BaseAttackBonusDamage.as_str().into(), dmg_lv1);
+    preview_mods.insert(StatKey::Lifesteal.as_str().into(), leech_lv1);
     preview_mods.insert(StatKey::AttackStunChance.as_str().into(), stun_c_lv1);
     preview_mods.insert(StatKey::AttackStunDuration.as_str().into(), stun_d_lv1);
     let effects_preview = vec![EffectSpec::Buff {

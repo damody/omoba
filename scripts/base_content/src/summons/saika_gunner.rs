@@ -3,9 +3,9 @@
 //! 每 tick：
 //! 1. 攻擊射程內有敵人 → 累計 asd、發射 homing projectile
 //! 2. 攻擊射程外但 aggro 範圍內有敵人 → 朝目標方向位移逼近
-//! 3. 完全沒有敵人 → 靜止
+//! 3. 無敵人時由 host 的內容驅動跟隨規則決定是否返回主人。
 //!
-//! 不走 host 端 hero_move_tick（僅處理 Hero）；位移在此 on_tick 內直接 `set_pos`。
+//! 命令／返回走 host summon_tick；追擊沿共用公開地形導航，再提交 set_pos。
 
 use omb_script_abi::prelude::*;
 
@@ -14,8 +14,6 @@ pub struct SaikaGunner;
 const BULLET_SPEED: Fixed64 = Fixed64::from_i32(900);
 /// 追擊搜索範圍 = 攻擊射程 × 此倍率（跟 Unit::create_saika_gunner 的 aggro 匹配）
 const AGGRO_MULTIPLIER: Fixed64 = Fixed64::from_raw(1331); // 1.3 * 1024 = 1331.2 ≈ 1331
-/// 移動速度（單位/秒），跟 Unit 預設的 move_speed 匹配
-const MOVE_SPEED: Fixed64 = Fixed64::from_i32(280);
 
 impl UnitScript for SaikaGunner {
     fn unit_id(&self) -> RStr<'_> {
@@ -56,10 +54,14 @@ impl UnitScript for SaikaGunner {
             if asd_count >= asd_interval {
                 w.set_asd_count(e, asd_count - asd_interval);
                 let atk = w.get_tower_atk(e);
+                // This is an ordinary attack commitment, including the shared
+                // brush reveal and public animation sequence, not just a shot.
+                let backswing_ms=(asd_interval.raw().max(0) as u64).saturating_mul(1000)/1024;
+                w.emit_attack_phase_fx(e,Target::Entity(target),0,backswing_ms.min(u32::MAX as u64) as u32);
                 w.spawn_projectile_ex(ProjectileSpec {
                     from: pos,
                     owner: e,
-                    path: PathSpec::Homing { target },
+                    path: PathSpec::AttackHoming { target },
                     speed: BULLET_SPEED,
                     damage: atk,
                     damage_profile: DamageProfile::NORMAL,
@@ -81,7 +83,8 @@ impl UnitScript for SaikaGunner {
                 let dy = target_pos.y - pos.y;
                 let len = (dx * dx + dy * dy).sqrt();
                 if len > Fixed64::ONE {
-                    let step = MOVE_SPEED * dt;
+                    let speed=w.get_final_move_speed(e);
+                    let step = speed * dt;
                     // 透過 host 碰撞檢測 —— 會自動避開其他 CollisionRadius 實體與
                     // BlockedRegion blocker；若被完全擋住會留在原地。
                     let new_pos = w.advance_with_collision(e, target_pos, step);

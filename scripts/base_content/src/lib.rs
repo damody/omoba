@@ -26,6 +26,19 @@ use omb_script_abi::{
 
 pub mod ability_builder;
 mod generic_effects;
+mod swept_dash;
+mod point_blast;
+mod passive_cone;
+mod self_transform;
+mod summon_formation;
+#[cfg(test)]
+mod summon_formation_tests;
+#[cfg(test)]
+mod self_transform_tests;
+#[cfg(test)]
+mod passive_cone_tests;
+#[cfg(test)]
+mod point_blast_tests;
 mod heroes;
 mod summons;
 mod towers;

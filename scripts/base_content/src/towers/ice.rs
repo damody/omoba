@@ -497,7 +497,7 @@ mod tests {
         assert_eq!(
             ready
                 .iter()
-                .filter(|outcome| matches!(outcome, Outcome::Damage { .. }))
+                .filter(|outcome| matches!(outcome, Outcome::RawDamage { .. }))
                 .count(),
             1
         );
@@ -510,7 +510,7 @@ mod tests {
         assert_eq!(
             cooling_down
                 .iter()
-                .filter(|outcome| matches!(outcome, Outcome::Damage { .. }))
+                .filter(|outcome| matches!(outcome, Outcome::RawDamage { .. }))
                 .count(),
             0
         );

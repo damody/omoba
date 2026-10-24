@@ -4,13 +4,13 @@
 //! `abilities[saika_reinforcements].extras` 提供，runtime 透過
 //! active runtime content lookup 取得。
 
-use abi_stable::std_types::{ROk, RResult, RStr, RString};
+use abi_stable::std_types::{RErr, ROk, RResult, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
     types::{EntityHandle, Fixed64, Target, Vec2},
     world::GameWorldDyn,
 };
-use omoba_core::ability_meta::{AbilityLevelData, EffectSpec};
+use omoba_core::ability_meta::EffectSpec;
 use omoba_template_ids::{ABILITY_SAIKA_REINFORCEMENTS, SUMMON_SAIKA_GUNNER};
 
 use crate::ability_builder::{build_ability_ffi, extra_at_id, extra_at_id_f32};
@@ -26,71 +26,32 @@ impl AbilityScript for SaikaReinforcementsHandler {
         &self,
         caster: EntityHandle,
         target: Target,
-        _level: u8,
+        level: u8,
         level_data_json: RStr<'_>,
         world: &mut GameWorldDyn<'_>,
     ) -> RResult<(), RString> {
-        let level_data: AbilityLevelData = match serde_json::from_str(level_data_json.as_str()) {
-            Ok(d) => d,
-            Err(_) => AbilityLevelData::default(),
+        let rows=omoba_template_ids::active_ability_const(ABILITY_SAIKA_REINFORCEMENTS)
+            .map(|content|content.facing_formation_rows).unwrap_or(0);
+        let spec = match crate::summon_formation::resolve(ABILITY_SAIKA_REINFORCEMENTS, level, level_data_json.as_str(), rows) {
+            Ok(spec) => spec, Err(error) => return RErr(error.into()),
         };
-        // JSON extras 仍然帶有 f32（omoba_core::AbilityLevelData 尚未遷移）。
-        // 讀取為 f64，然後在邊界處轉換為固定64。
-        // 第 2 階段：omoba_core::ability_meta 仍然是 f32；第二階段 KCP 標籤返工中的重新設計。
-        let get_fx = |k: &str, dft: Fixed64| -> Fixed64 {
-            level_data
-                .extra
-                .get(k)
-                .and_then(|v| v.as_f64())
-                .map(|v| Fixed64::from_raw((v * 1024.0) as i64))
-                .unwrap_or(dft)
-        };
-        let get_count = |k: &str, dft: u64| -> u64 {
-            level_data
-                .extra
-                .get(k)
-                .and_then(|v| v.as_f64())
-                .map(|v| v as u64)
-                .unwrap_or(dft)
-        };
-        let count = get_count("summon_count", 2).max(2);
-        let duration = get_fx("duration", Fixed64::from_i32(45));
-        let row_spacing = get_fx("row_spacing", Fixed64::from_i32(60));
-        let col_spacing = get_fx("col_spacing", Fixed64::from_i32(60));
-        let front_row_distance = get_fx("front_row_distance", Fixed64::from_i32(120));
-
-        // forward = 永遠用 caster 的 Facing（忽略 target，因前端每次按鍵都送滑鼠
-        // 位置做 target_pos；這個 W 設計上是「以自身朝向往前方兩排召喚」）。
+        // Target compatibility is unchanged: this authored formation follows caster facing.
         let _ = target;
-        let caster_pos = world.get_pos(caster).into_option().unwrap_or(Vec2::ZERO);
+        if !world.is_alive(caster) || !world.get_hp(caster).into_option().is_some_and(|hp| hp > Fixed64::ZERO) {
+            return RErr("formation requires living owner".into());
+        }
+        let Some(caster_pos) = world.get_pos(caster).into_option() else {return RErr("formation owner has no position".into());};
         let facing = world.get_facing(caster);
-
-        let fwd_x = omoba_sim::trig::cos(facing);
-        let fwd_y = omoba_sim::trig::sin(facing);
-        let perp_x = -fwd_y;
-        let perp_y = fwd_x;
-
-        // 2 排 × cols 欄：count 必為偶數（保底 max(2)）；cols = count/2。
-        let rows: u64 = 2;
-        let cols = count / rows;
-        // col_center = (cols - 1) / 2 — 保留在 Fix64 以進行下游偏移數學計算。
-        let half = Fixed64::from_raw(512); // 0.5
-        let col_center = Fixed64::from_i32((cols as i32) - 1) * half;
-
-        let unit_type = RStr::from_str(SUMMON_SAIKA_GUNNER.as_str());
-        for r in 0..rows {
-            let row_dist = front_row_distance + Fixed64::from_i32(r as i32) * row_spacing;
-            let base_x = caster_pos.x + fwd_x * row_dist;
-            let base_y = caster_pos.y + fwd_y * row_dist;
-            for c in 0..cols {
-                let off = (Fixed64::from_i32(c as i32) - col_center) * col_spacing;
-                let p = Vec2 {
-                    x: base_x + perp_x * off,
-                    y: base_y + perp_y * off,
-                };
-                world.spawn_summoned_unit(p, unit_type, caster, duration);
+        let positions = match spec.positions(caster_pos, facing) {
+            Ok(positions) => positions, Err(error) => return RErr(error.into()),
+        };
+        for position in positions {
+            if world.spawn_summoned_unit(position, SUMMON_SAIKA_GUNNER.as_str().into(), caster, spec.duration) == EntityHandle::INVALID {
+                // The host managed-cast transaction discards the complete request group.
+                return RErr("summon creation rejected".into());
             }
         }
+        let (rows,cols,duration)=(spec.rows,spec.count/spec.rows,spec.duration);
 
         world.log_info(
             RString::from(format!(

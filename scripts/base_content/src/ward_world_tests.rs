@@ -18,6 +18,51 @@ fn catalog_row() -> &'static TrinketConst {
         .expect("catalog id")
 }
 
+#[test]
+fn detection_trinket_obeys_level_radius_occlusion_team_and_retirement() {
+    let row = omoba_template_ids::trinket_by_name("training_detection_lantern_v1").unwrap();
+    let (mut world, mut driver) = world();
+    driver.step(&mut world, []).unwrap();
+    set_authoritative_trinket_loadout(&mut world, 1, Some(row.catalog_id)).unwrap();
+    let target = pos_of(&world, hero(&world, 1)) + Vec2::new(Fixed64::ZERO, row.placement_range);
+    let mut hidden = |offset: Vec2, level, team| {
+        world.create_entity().with(Pos(target + offset))
+            .with(ReplicationScope { kind: ReplicationScopeKind::Vision, owner_team: Some(team) })
+            .with(StealthProfile { stealth_level: level })
+            .with(Faction::new(if team == 1 {FactionType::Player} else {FactionType::Enemy}, i32::try_from(team).unwrap())).build()
+    };
+    let red1 = hidden(Vec2::new(Fixed64::ZERO, Fixed64::from_i32(100)), 1, 2);
+    let red2 = hidden(Vec2::new(Fixed64::ZERO, Fixed64::from_i32(100)), 2, 2);
+    let red3 = hidden(Vec2::new(Fixed64::ZERO, Fixed64::from_i32(100)), 3, 2);
+    let edge = hidden(Vec2::new(row.sight_radius, Fixed64::ZERO), 2, 2);
+    let outside = hidden(Vec2::new(row.sight_radius + Fixed64::from_raw(1), Fixed64::ZERO), 2, 2);
+    let blue = hidden(Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO), 2, 1);
+    project(&mut world);
+    assert!(!sees(&world, 1, red2));
+    let placed = place(&mut world, 1, target);
+    let ward = entity_at(placed.entity_id, placed.generation);
+    world.create_entity().with(Pos(target)).with(VisionSource {
+        team: 2, radius: row.sight_radius, detection_level: 0 }).build();
+    project(&mut world);
+    assert!(sees(&world, 1, red1) && sees(&world, 1, red2));
+    assert!(!sees(&world, 1, red3));
+    assert!(sees(&world, 1, edge));
+    assert!(!sees(&world, 1, outside));
+    assert!(sees(&world, 2, ward), "visible detector can be found without enemy detection");
+    assert!(!sees(&world, 2, blue), "detector grants no detection to enemies");
+    let center = target + Vec2::new(Fixed64::ZERO, Fixed64::from_i32(50));
+    let radius = Fixed64::from_i32(20);let extent = Vec2::new(radius, radius);
+    world.write_resource::<VisionOccluderSet>().0.push(VisionOccluder::Tree(VisionTreeCircle {
+        stable_id: 78, center, radius, aabb: VisionAabb {min: center-extent, max: center+extent} }));
+    project(&mut world);
+    assert!(!sees(&world, 1, red2), "detection does not bypass terrain");
+    world.write_resource::<VisionOccluderSet>().0.clear();project(&mut world);
+    assert!(sees(&world, 1, red2));
+    let killer = hero(&world, 2);kill_with_damage(&mut world, killer, ward);project(&mut world);
+    assert!(!generation_alive(&world, ward));
+    assert!(!sees(&world, 1, red2), "retirement removes detection immediately");
+}
+
 fn world() -> (World, SimulationDriver) {
     let pool = StateInitializer::create_thread_pool();
     let mut ecs = StateInitializer::setup_campaign_ecs_world(&pool);
@@ -714,7 +759,8 @@ fn disclosed_direct_attack_hits_auto_disabled_ward_and_attack_move_skips_it() {
     world.insert(admitted);
     command(&mut world, attacker, HeroCommand::AttackTarget { target: ward, chase_origin: None });
     run_now::<omoba_core::tick::hero_command_tick::Sys>(&world);
-    assert!(active(&world, attacker).is_none(), "champion-only direct refuses the ward");
+    assert!(matches!(active(&world, attacker),Some(HeroCommand::AttackTarget {target,..}) if target==ward),
+        "shadow champion-only preferences cannot override the authority roster");
     command(&mut world, attacker, HeroCommand::AttackTarget { target: owner, chase_origin: None });
     run_now::<omoba_core::tick::hero_command_tick::Sys>(&world);
     assert!(matches!(
@@ -1042,7 +1088,8 @@ fn hidden_friendly_stale_and_champion_only_gates_use_the_real_ward() {
         HeroCommand::AttackTarget { target: parked.ward, chase_origin: None },
     );
     run_now::<omoba_core::tick::hero_command_tick::Sys>(&world);
-    assert!(active(&world, parked.attacker).is_none(), "champion-only direct refuses the ward");
+    assert!(matches!(active(&world, parked.attacker),Some(HeroCommand::AttackTarget {target,..}) if target==parked.ward),
+        "shadow champion-only preferences cannot override the authority roster");
 
     world.write_storage::<Pos>().get_mut(parked.owner).unwrap().0 =
         parked.attacker_pos + Vec2::new(Fixed64::from_i32(-20), Fixed64::ZERO);
