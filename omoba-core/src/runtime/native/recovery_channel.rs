@@ -8,6 +8,22 @@ use super::{BuffStore,MobaMatch,MobaMatchPhase};
 pub(crate) const STATUS:&str="recovery_channel";
 #[derive(Clone,Copy,Debug)]
 pub(crate) struct Spec {pub amount:Fixed64,pub duration:Fixed64,pub interval:Fixed64}
+/// None is an ordinary script ability; malformed/unsupported channels fail closed.
+pub(crate) fn ability_spec(def:&crate::ability_meta::AbilityDef,rank:&crate::ability_meta::AbilityLevelData)->Result<Option<Spec>,()> {
+    use crate::ability_meta::{HostAbilityExecution,CastType,TargetType,AbilityType};
+    let Some(HostAbilityExecution::RecoveryChannelSelf {amount_key,duration_key,interval_key})=&def.host_execution
+        else{return if def.cast_type==CastType::Channeled {Err(())}else{Ok(None)};};
+    if def.cast_type!=CastType::Channeled || def.target_type!=TargetType::None
+        || !matches!(def.ability_type,AbilityType::Active|AbilityType::Ultimate) || rank.cast_time!=0.0 {return Err(());}
+    let value=|key:&str|->Result<Fixed64,()>{
+        let value=rank.extra.get(key).and_then(|v|v.as_f64()).ok_or(())?;
+        let raw=value*1024.0;
+        if key.is_empty()||!value.is_finite()||value<=0.0||value>1_000_000.0||raw.fract()!=0.0{return Err(());}
+        Ok(Fixed64::from_raw(raw as i64))
+    };
+    let spec=Spec {amount:value(amount_key)?,duration:value(duration_key)?,interval:value(interval_key)?};
+    if spec.valid(){Ok(Some(spec))}else{Err(())}
+}
 impl Spec {
     pub(crate) fn valid(self)->bool {
         self.amount>Fixed64::ZERO && self.amount<=Fixed64::from_i32(1_000_000)
@@ -22,6 +38,13 @@ struct Channel {owner:u32,origin:Vec2,spec:Spec,remaining:Fixed64,clock:i64,last
 pub(crate) struct Channels(BTreeMap<Entity,Channel>);
 pub(crate) fn diagnostic(world:&World)->Option<String> {
     world.try_fetch::<Channels>().filter(|channels|!channels.0.is_empty()).map(|channels|format!("{:?}",channels.0))
+}
+
+/// Owner decision gate. Public duration buffs are never execution authority.
+pub(crate) fn is_active_for_owner(world:&World,entity:Entity,owner:u32)->bool {
+    world.try_fetch::<Channels>().is_some_and(|channels|channels.0.get(&entity).is_some_and(|channel|
+        channel.owner==owner && channel.remaining>Fixed64::ZERO && live(world,entity,owner)
+            && world.read_storage::<Pos>().get(entity).is_some_and(|pos|pos.0==channel.origin)))
 }
 
 fn live(world:&World,entity:Entity,owner:u32)->bool {
@@ -85,6 +108,22 @@ pub(crate) fn finish_tick(world:&mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ability_execution_metadata_is_closed_rank_resolved_and_fail_closed() {
+        let mut definition:crate::ability_meta::AbilityDef=serde_json::from_value(serde_json::json!({
+            "id":"arbitrary_channel","name":"Channel","ability_type":"active","target_type":"none","cast_type":"channeled",
+            "host_execution":{"kind":"recovery_channel_self","amount_key":"pulse","duration_key":"duration","interval_key":"interval"}
+        })).unwrap();
+        let rank:crate::ability_meta::AbilityLevelData=serde_json::from_value(serde_json::json!({"cooldown":25,"mana_cost":90,"pulse":35,"duration":2,"interval":0.5})).unwrap();
+        let spec=ability_spec(&definition,&rank).unwrap().unwrap();assert_eq!(spec.amount,Fixed64::from_i32(35));assert_eq!(spec.duration,Fixed64::from_i32(2));
+        for (key,value) in [("pulse",0.0),("pulse",0.1),("duration",61.0),("duration",1.25),("interval",0.1)]{
+            let mut bad=rank.clone();bad.extra.insert(key.into(),serde_json::json!(value));assert!(ability_spec(&definition,&bad).is_err());
+        }
+        let mut next=rank.clone();next.extra.insert("pulse".into(),serde_json::json!(95));assert_eq!(ability_spec(&definition,&next).unwrap().unwrap().amount,Fixed64::from_i32(95));
+        definition.host_execution=None;assert!(ability_spec(&definition,&rank).is_err());definition.cast_type=crate::ability_meta::CastType::Instant;
+        assert!(ability_spec(&definition,&rank).unwrap().is_none());
+        assert!(serde_json::from_value::<crate::ability_meta::HostAbilityExecution>(serde_json::json!({"kind":"unknown"})).is_err());
+    }
     fn fixture()->(World,Entity) {
         let (mut world,hero)=super::super::moba_match::stop_command_world();
         world.insert(super::super::moba_match::stop_command_match(hero,MobaMatchPhase::Playing));

@@ -10,6 +10,8 @@ use std::collections::BTreeSet;
 pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Option<&Faction>,
     player:Option<u32>,expected:Option<&ManaPool>,effects:&[Outcome],cue_count:usize)->bool {
     let summons=effects.iter().any(|e|matches!(e,Outcome::SpawnSummoned {..}));
+    let channels=effects.iter().filter(|effect|matches!(effect,Outcome::ScriptRecoveryChannel {..})).count();
+    if channels>1 || (channels>0&&summons){return false;}
     if skill.is_empty() || (summons&&effects.len()>512) || cue_count>16 || rank>u8::MAX as u32
         || !world.entities().is_alive(caster)
         || world.read_storage::<CProperty>().get(caster).is_none_or(|p|p.hp<=Fixed64::ZERO)
@@ -27,12 +29,29 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
     if hero.and_then(|h|h.mana_pool.as_ref())!=expected
         || hero.is_some_and(|h|h.is_on_cooldown(skill))
         || (rank>0 && hero.is_none_or(|h|h.get_ability_level(skill)!=rank as i32)) {return false;}
+    let mut independent=Vec::new();
+    for effect in effects {if let Outcome::AddBuff{target,buff_id,duration,payload}=effect {
+        if (payload.get(super::super::ally_cleanse::KEY).is_some() || buff_id==super::super::ally_cleanse::BUFF)
+            && super::super::ally_cleanse::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if (payload.get(super::super::mana_drain::KEY).is_some() || buff_id==super::super::mana_drain::BUFF)
+            && super::super::mana_drain::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if payload.get(super::super::ally_shield::KEY).is_some()
+            && super::super::ally_shield::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if payload.get(super::super::ability_runtime::damage_zone::KEY).is_some() {
+            if !super::zone_pulse_settlement::admit_zone(world,*target,buff_id,*duration,payload){return false;}
+            let spec=super::super::ability_runtime::damage_zone::DamageZoneSpec::from_payload(payload).expect("checked zone");
+            if spec.independent {if *target!=caster{return false;}independent.push(buff_id.as_str());}
+        }
+    }}
+    if !world.read_resource::<BuffStore>().can_schedule_independent_zones(caster,&independent){return false;}
     effects.iter().all(|effect|match effect {
-        Outcome::ScriptCastTransaction {..}|Outcome::ScriptCastCommitted {..}|Outcome::DamageZonePulse {..}|Outcome::DamageWithLeech {..}|Outcome::DamageWithCritical {..}=>false,
+        Outcome::ScriptCastTransaction {..}|Outcome::ScriptCastCommitted {..}|Outcome::DamageZonePulse {..}|Outcome::IndependentDamageZonePulse {..}|Outcome::DamageWithLeech {..}|Outcome::DamageWithCritical {..}=>false,
         Outcome::ScriptManaCommit {changes,notifications}=>mana_admitted(world,changes,notifications)
-            && (!summons || changes.iter().all(|row|row.entity==caster)),
+            && ((!summons&&channels==0) || changes.iter().all(|row|row.entity==caster)),
+        Outcome::ScriptRecoveryChannel {caster:source,owner,amount,duration,interval}=>*source==caster&&Some(*owner)==player
+            && super::super::recovery_channel::can_start(world,caster,*owner,super::super::recovery_channel::Spec {amount:*amount,duration:*duration,interval:*interval}),
         Outcome::SpawnSummoned {owner,..}=>*owner==caster,
-        _ if !summons=>true,
+        _ if !summons&&channels==0=>true,
         // A formation may update its caster's resources/facing, but cannot
         // insert arbitrary terrain/life mutations between planned siblings.
         Outcome::ScriptSetMana {entity,..}|Outcome::ScriptManaGained {entity,..}
@@ -42,6 +61,24 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
             && *duration>=Fixed64::ZERO&&*duration<=Fixed64::from_i32(1_000_000),
         _=>false,
     })
+}
+
+#[cfg(test)]
+#[test]
+fn recovery_channel_transaction_admits_only_its_exact_live_owner_and_resource_effects() {
+    let (mut world,hero)=crate::runtime::native::moba_match::stop_command_world();
+    world.register::<Faction>();
+    world.insert(BuffStore::default());
+    world.insert(crate::runtime::native::moba_match::stop_command_match(hero,crate::runtime::MobaMatchPhase::Playing));
+    let faction=world.read_storage::<Faction>().get(hero).cloned();
+    let expected=world.read_storage::<Hero>().get(hero).and_then(|hero|hero.mana_pool.clone());
+    let channel=Outcome::ScriptRecoveryChannel {caster:hero,owner:7,amount:Fixed64::from_i32(35),duration:Fixed64::from_i32(2),interval:Fixed64::from_raw(512)};
+    let accepts=|effects:&[Outcome]|admit(&world,hero,"fixture_channel",0,faction.as_ref(),Some(7),expected.as_ref(),effects,0);
+    assert!(accepts(&[channel.clone()]));
+    assert!(!accepts(&[channel.clone(),channel.clone()]));
+    assert!(!accepts(&[Outcome::ScriptHeal {target:hero,amount:Fixed64::ONE},channel.clone()]));
+    assert!(!accepts(&[Outcome::ScriptRecoveryChannel {caster:hero,owner:8,amount:Fixed64::ONE,duration:Fixed64::ONE,interval:Fixed64::ONE}]));
+    world.write_resource::<GamePause>().is_paused=true;assert!(!accepts(&[channel]));
 }
 
 fn mana_admitted(world:&World,changes:&[crate::comp::ManaSettlementChange],notifications:&[crate::comp::ManaSettlementNotification])->bool {

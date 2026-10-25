@@ -26,6 +26,7 @@ pub fn preview_buy_item(registry: &ItemRegistry, inventory: &Inventory, gold: &G
 
 fn valid_item(item: &super::item::ItemConfig) -> bool {
     item.cost > 0
+        && item.bonus.unique_passive.as_ref().is_none_or(|passive|passive.validate().is_ok())
         && item.bonus.critical_chance.is_finite()
         && (0.0..=1.0).contains(&item.bonus.critical_chance)
         && (item.bonus.critical_chance==0.0 || item.bonus.critical_chance>=1.0/1024.0)
@@ -65,6 +66,8 @@ pub enum ShopError {
     UndoUnavailable,
     /// This sequence was already undone. The retry changes nothing.
     UndoDuplicate,
+    /// Post-recipe inventory would exceed an authored equipment group limit.
+    PurchaseGroupLimit,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,9 +250,10 @@ impl ShopError {
             Self::HeroUnavailable => 11,
             Self::OutsideShop => 12,
             Self::MissingComponents => 13,
-            // Undo is not receipt v1. Codes above 13 never enter ShopSettlement.
+            // 14/15 are undo-only; 16 is an appended ordinary buy rejection.
             Self::UndoUnavailable => 14,
             Self::UndoDuplicate => 15,
+            Self::PurchaseGroupLimit => 16,
         }
     }
 }
@@ -341,6 +345,11 @@ fn evaluate_shop_undo(
     if record.paid < 0 || !can_restore(&inventory, record) {
         return Err((ShopError::UndoUnavailable, UNDO_REASON_SHAPE));
     }
+    let restored=restore_inventory(&inventory,record);
+    let registry=world.try_fetch::<ItemRegistry>().ok_or((ShopError::UndoUnavailable,UNDO_REASON_SHAPE))?;
+    if validate_inventory_purchase_groups(&registry,&restored).is_err() {
+        return Err((ShopError::UndoUnavailable,UNDO_REASON_SHAPE));
+    }
     let balance = match record.kind {
         ShopUndoKind::Purchase => balance_now.checked_add(record.paid)
             .ok_or((ShopError::BalanceOverflow, UNDO_REASON_OVERFLOW))?,
@@ -349,7 +358,7 @@ fn evaluate_shop_undo(
     };
     Ok(UndoPlan {
         sequence: record.sequence,
-        restored: restore_inventory(&inventory, record),
+        restored,
         balance,
         seat,
     })
@@ -818,7 +827,7 @@ fn purchase_record(
         result_slot: result_slot as u8,
         result_cooldown_bits,
         paid,
-        benefits: net_benefits(registry, item_id, &consumed),
+        benefits: net_benefits(registry, before, after),
         consumed,
         eligible: true,
         source_index,
@@ -826,29 +835,35 @@ fn purchase_record(
     }
 }
 
-fn net_benefits(registry: &ItemRegistry, item_id: &str, consumed: &[ShopUndoComponent]) -> u8 {
-    let Some(item) = registry.get(item_id) else { return 0 };
-    let mut atk = item.bonus.atk;
-    let mut lifesteal = item.bonus.lifesteal;
-    let mut critical_chance = item.bonus.critical_chance;
-    let mut hp = item.bonus.hp;
-    let mut armor = item.bonus.armor;
-    let mut ms = item.bonus.ms;
-    for component in consumed {
-        let Some(config) = registry.get(&component.item_id) else { continue };
-        atk -= config.bonus.atk;
-        lifesteal -= config.bonus.lifesteal;
-        critical_chance -= config.bonus.critical_chance;
-        hp -= config.bonus.hp;
-        armor -= config.bonus.armor;
-        ms -= config.bonus.ms;
-    }
+fn net_benefits(registry: &ItemRegistry, before: &Inventory, after: &Inventory) -> u8 {
+    let previous=super::item::ItemStatAggregate::from_inventory(before,registry);
+    let current=super::item::ItemStatAggregate::from_inventory(after,registry);
     let mut bits = 0;
-    if atk > 0.0 || lifesteal > 0.0 || critical_chance > 0.0 { bits |= BENEFIT_ATTACK; }
-    if hp > 0.0 { bits |= BENEFIT_HP; }
-    if armor > 0.0 { bits |= BENEFIT_ARMOR; }
-    if ms > 0.0 { bits |= BENEFIT_MOVE; }
+    if current.atk>previous.atk || current.lifesteal>previous.lifesteal || current.critical_chance>previous.critical_chance { bits |= BENEFIT_ATTACK; }
+    if current.hp>previous.hp { bits |= BENEFIT_HP; }
+    if current.armor>previous.armor { bits |= BENEFIT_ARMOR; }
+    if current.ms>previous.ms { bits |= BENEFIT_MOVE; }
     bits
+}
+
+#[cfg(test)]
+#[test]
+fn unique_passive_shop_aggregate_benefits_and_invalid_admission_are_atomic() {
+    // Isolate passive aggregation from separately authored ownership policy.
+    let mut registry=ItemRegistry::generated_moba();
+    for item in registry.items.values_mut(){std::sync::Arc::make_mut(item).purchase_group=None;}
+    let mut inventory=Inventory::default();let mut gold=Gold(5000);
+    let empty=inventory.clone();buy_item(&registry,&mut inventory,&mut gold,"moba_boots").unwrap();
+    assert_eq!(net_benefits(&registry,&empty,&inventory),BENEFIT_MOVE);
+    let one=inventory.clone();buy_item(&registry,&mut inventory,&mut gold,"moba_boots").unwrap();
+    assert_eq!(net_benefits(&registry,&one,&inventory),0,"suppressed duplicate grants no benefit");
+    let two=inventory.clone();buy_item(&registry,&mut inventory,&mut gold,"moba_swift_boots").unwrap();
+    assert_eq!(net_benefits(&registry,&two,&inventory),BENEFIT_MOVE,"upgrade gains actual20 movement");
+    assert_eq!(super::item::ItemStatAggregate::from_inventory(&inventory,&registry).ms,45.);
+    let mut malformed=(*registry.get("moba_boots").unwrap()).clone();malformed.bonus.unique_passive.as_mut().unwrap().priority=0;
+    let invalid=ItemRegistry::from_configs(vec![malformed]);let old=serde_json::to_value(&inventory).unwrap();let old_gold=gold.0;
+    assert_eq!(buy_item(&invalid,&mut inventory,&mut gold,"moba_boots"),Err(ShopError::InvalidCatalog));
+    assert_eq!(serde_json::to_value(&inventory).unwrap(),old);assert_eq!(gold.0,old_gold);
 }
 
 fn commit_transaction(world: &mut World, player_id: u32, mut record: ShopUndoRecord, current: &Inventory) {
@@ -1137,6 +1152,51 @@ pub fn project_catalog_recipes(items: &[RecipeSource]) -> Result<Vec<ItemRecipeP
 
 /// Item cost is the complete price, not the recipe's additional price. All
 /// direct components are required; duplicate IDs consume distinct instances.
+fn validate_inventory_purchase_groups(registry:&ItemRegistry,inventory:&Inventory)->Result<(),ShopError> {
+    omoba_content_model::moba_items::validate_purchase_groups(registry.items.values().filter_map(|item|item.purchase_group.as_ref()))
+        .map_err(|_|ShopError::InvalidCatalog)?;
+    let mut counts=BTreeMap::new();
+    for (_,instance) in inventory.items() {
+        let item=registry.get(&instance.item_id).ok_or(ShopError::InvalidCatalog)?;
+        if let Some(group)=&item.purchase_group {
+            let count=counts.entry(group.id.clone()).or_insert(0u8);*count+=1;
+            if *count>group.limit {return Err(ShopError::PurchaseGroupLimit);}
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn purchase_group_kernel_counts_post_recipe_and_rejects_atomically_with_arbitrary_limits() {
+    use super::item::{ItemConfig,ItemBonus};
+    use omoba_content_model::moba_items::MobaItemPurchaseGroup;
+    let item=|id:&str,group:&str,limit,recipe:Vec<String>|ItemConfig {id:id.into(),name:id.into(),cost:if recipe.is_empty(){100}else{300},
+        purchase_group:Some(MobaItemPurchaseGroup{id:group.into(),name:group.into(),limit}),bonus:ItemBonus::default(),active:None,cooldown:0.,recipe};
+    let registry=ItemRegistry::from_configs(vec![item("a","group",2,vec![]),item("b","group",2,vec![]),
+        item("upgrade","group",2,vec!["a".into(),"b".into()]),item("other","independent",1,vec![])]);
+    let mut inventory=Inventory::default();let mut gold=Gold(5000);
+    buy_item(&registry,&mut inventory,&mut gold,"a").unwrap();buy_item(&registry,&mut inventory,&mut gold,"b").unwrap();
+    let before=serde_json::to_value(&inventory).unwrap();let balance=gold.0;
+    assert_eq!(preview_buy_item(&registry,&inventory,&gold,"a"),Err(ShopError::PurchaseGroupLimit));
+    assert_eq!(buy_item(&registry,&mut inventory,&mut gold,"b"),Err(ShopError::PurchaseGroupLimit));
+    assert_eq!(serde_json::to_value(&inventory).unwrap(),before);assert_eq!(gold.0,balance);
+    buy_item(&registry,&mut inventory,&mut gold,"other").unwrap();
+    buy_item(&registry,&mut inventory,&mut gold,"upgrade").unwrap();assert_eq!(inventory.items().count(),2);
+    assert_eq!(gold.0,4600,"combine charges100 after consuming two100 components");
+    buy_item(&registry,&mut inventory,&mut gold,"a").unwrap();
+    assert_eq!(buy_item(&registry,&mut inventory,&mut gold,"a"),Err(ShopError::PurchaseGroupLimit));
+    let mut inconsistent=registry.clone();std::sync::Arc::make_mut(inconsistent.items.get_mut("b").unwrap()).purchase_group.as_mut().unwrap().limit=1;
+    assert_eq!(validate_inventory_purchase_groups(&inconsistent,&inventory),Err(ShopError::InvalidCatalog));
+    let mut malformed=registry.clone();std::sync::Arc::make_mut(malformed.items.get_mut("other").unwrap()).purchase_group.as_mut().unwrap().limit=0;
+    assert_eq!(validate_inventory_purchase_groups(&malformed,&inventory),Err(ShopError::InvalidCatalog));
+    // A full six-slot bag may upgrade after consuming its two actual components.
+    let mut unrestricted=registry.clone();for row in unrestricted.items.values_mut(){std::sync::Arc::make_mut(row).purchase_group=None;}
+    let mut full=Inventory::default();let mut wallet=Gold(5000);
+    for id in ["a","b","other","other","other","other"]{buy_item(&unrestricted,&mut full,&mut wallet,id).unwrap();}
+    buy_item(&unrestricted,&mut full,&mut wallet,"upgrade").unwrap();assert_eq!(full.items().count(),5);
+}
+
 pub fn buy_item(
     registry: &ItemRegistry,
     inventory: &mut Inventory,
@@ -1175,6 +1235,7 @@ pub fn buy_item(
         item_id: item_id.to_owned(),
         cooldown_remaining: 0.0,
     });
+    validate_inventory_purchase_groups(registry,&next)?;
     *inventory = next;
     gold.0 -= price;
     Ok(slot)
@@ -1218,7 +1279,7 @@ mod tests {
     use super::*;
     fn registry() -> ItemRegistry {
         ItemRegistry::from_configs(vec![
-            ItemConfig {
+            ItemConfig { purchase_group: None,
                 id: "part".into(),
                 name: "Part".into(),
                 cost: 31,
@@ -1227,7 +1288,7 @@ mod tests {
                 cooldown: 0.0,
                 recipe: vec![],
             },
-            ItemConfig {
+            ItemConfig { purchase_group: None,
                 id: "upgrade".into(),
                 name: "Upgrade".into(),
                 cost: 100,
@@ -1301,8 +1362,8 @@ mod tests {
         ];
         assert_eq!(project_catalog_recipes(&overflow), Err(RecipeFault::Overflow));
         let overflow_registry = ItemRegistry::from_configs(vec![
-            ItemConfig { id: "a".into(), name: "a".into(), cost: 2_000_000_000, bonus: ItemBonus::default(), active: None, cooldown: 0.0, recipe: vec![] },
-            ItemConfig { id: "b".into(), name: "b".into(), cost: i32::MAX, bonus: ItemBonus::default(), active: None, cooldown: 0.0, recipe: vec!["a".into(), "a".into()] },
+            ItemConfig { purchase_group: None, id: "a".into(), name: "a".into(), cost: 2_000_000_000, bonus: ItemBonus::default(), active: None, cooldown: 0.0, recipe: vec![] },
+            ItemConfig { purchase_group: None, id: "b".into(), name: "b".into(), cost: i32::MAX, bonus: ItemBonus::default(), active: None, cooldown: 0.0, recipe: vec!["a".into(), "a".into()] },
         ]);
         let mut inventory = Inventory::default();
         inventory.slots[0] = Some(ItemInstance { item_id: "a".into(), cooldown_remaining: 0.0 });
@@ -1314,7 +1375,7 @@ mod tests {
 
         let missing = [RecipeSource { id: "solo", catalog_id: 1, cost: 10, recipe: &["gone"] }];
         assert_eq!(project_catalog_recipes(&missing), Err(RecipeFault::Missing));
-        let missing_registry = ItemRegistry::from_configs(vec![ItemConfig {
+        let missing_registry = ItemRegistry::from_configs(vec![ItemConfig { purchase_group: None,
             id: "solo".into(), name: "solo".into(), cost: 10, bonus: ItemBonus::default(), active: None, cooldown: 0.0, recipe: vec!["gone".into()],
         }]);
         let mut empty = Inventory::default();
@@ -1547,7 +1608,7 @@ mod tests {
     use specs::Builder;
 
     fn catalog_item(id: &str, cost: i32, bonus: ItemBonus, recipe: &[&str], active: Option<ActiveEffect>, cooldown: f32) -> ItemConfig {
-        ItemConfig { id: id.into(), name: id.into(), cost, bonus, active, cooldown, recipe: recipe.iter().map(|id| (*id).into()).collect() }
+        ItemConfig { purchase_group: None, id: id.into(), name: id.into(), cost, bonus, active, cooldown, recipe: recipe.iter().map(|id| (*id).into()).collect() }
     }
 
     fn shop_registry() -> ItemRegistry {
@@ -1645,6 +1706,22 @@ mod tests {
 
     fn digest(world: &specs::World) -> String {
         super::super::moba_match::single_lane_replay_digest(world)
+    }
+
+    #[test]
+    fn purchase_group_undo_conflict_is_atomic_and_recovers_without_consuming_sequence() {
+        let ShopWorld {mut world,heroes}=shop_world(5000);let hero=heroes[0];world.insert(ItemRegistry::generated_moba());
+        buy(&mut world,1,"moba_boots");transact_moba_shop(&mut world,1,ShopCommand::Sell(0)).unwrap();
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1]=Some(ItemInstance {item_id:"moba_boots".into(),cooldown_remaining:0.});
+        let old_gold=gold_of(&world,hero);let old_inventory=serde_json::to_value(world.read_storage::<Inventory>().get(hero).unwrap()).unwrap();
+        let old_history=(*world.read_resource::<ShopUndoLedger>()).clone();
+        {let state=world.read_resource::<MobaMatch>();let view=inspect_owner_undo(&world,&state,1);assert!(!view.can_undo);assert_eq!(view.reason,UNDO_REASON_SHAPE);}
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Newest),Err(ShopError::UndoUnavailable));
+        assert_eq!(gold_of(&world,hero),old_gold);assert_eq!(serde_json::to_value(world.read_storage::<Inventory>().get(hero).unwrap()).unwrap(),old_inventory);
+        assert_eq!(*world.read_resource::<ShopUndoLedger>(),old_history);
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[1]=None;
+        assert_eq!(undo_moba_shop(&mut world,1,ShopUndoRequest::Newest),Ok(2));
+        assert_eq!(item_at(&world,hero,0).as_deref(),Some("moba_boots"));assert_eq!(gold_of(&world,hero),4700);
     }
 
     #[test]

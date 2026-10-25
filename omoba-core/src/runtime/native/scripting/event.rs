@@ -137,6 +137,10 @@ pub struct ScriptEventQueue {
 }
 
 impl ScriptEventQueue {
+    pub(crate) fn discard_channels_of(&mut self,caster:Entity,registry:&crate::runtime::ability_runtime::AbilityRegistry) {
+        self.events.retain(|event|!matches!(event,ScriptEvent::SkillCast {caster:source,skill_id,..}
+            if *source==caster&&registry.get(skill_id).is_some_and(|def|def.cast_type==crate::ability_meta::CastType::Channeled)));
+    }
     pub fn push(&mut self, ev: ScriptEvent) {
         self.events.push(ev);
     }

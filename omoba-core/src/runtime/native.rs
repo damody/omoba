@@ -5,6 +5,10 @@
 //! before moving the larger gameplay code.
 
 pub mod ability_runtime;
+pub mod ally_shield;
+pub mod ally_cleanse;
+pub mod mana_drain;
+pub(crate) mod targeted_effect;
 pub(crate) mod attack_accuracy;
 pub(crate) mod cast_windup;
 pub(crate) mod recovery_channel;
@@ -23,6 +27,7 @@ pub mod shop;
 pub mod moba_match;
 pub mod summoner_world;
 pub(crate) mod summon_navigation;
+pub(crate) mod summon_orders;
 pub mod ward_world;
 pub mod moba_assist;
 pub mod scene;

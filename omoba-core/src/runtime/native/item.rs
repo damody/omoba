@@ -21,6 +21,8 @@ pub struct ItemBonus {
     pub lifesteal: f32,
     #[serde(default)]
     pub critical_chance: f32,
+    #[serde(default)]
+    pub unique_passive: Option<omoba_content_model::moba_items::MobaItemUniquePassive>,
 }
 
 /// Native active-effect schema. Timed and one-shot modifiers use BuffStore;
@@ -80,6 +82,8 @@ impl From<omoba_template_ids::MobaItemActiveConst> for ActiveEffect {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ItemConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purchase_group: Option<omoba_content_model::moba_items::MobaItemPurchaseGroup>,
     pub id: String,
     pub name: String,
     pub cost: i32,
@@ -102,13 +106,19 @@ pub struct ItemRegistry {
 impl ItemRegistry {
     /// No runtime file IO or independent JSON authoring for MOBA equipment.
     pub fn generated_moba() -> Self {
-        Self::from_configs(omoba_template_ids::MOBA_ITEM_CATALOG.iter().map(|item| ItemConfig {
+        Self::from_configs(omoba_template_ids::MOBA_ITEM_CATALOG.iter().map(|item| ItemConfig { purchase_group: item.purchase_group.map(|v|omoba_content_model::moba_items::MobaItemPurchaseGroup {id:v.id.into(),name:v.name.into(),limit:v.limit}),
             id: item.id.into(), name: item.name.into(), cost: item.cost,
             bonus: ItemBonus {
                 atk: item.atk.to_f32_for_render(), hp: item.hp.to_f32_for_render(),
                 ms: item.ms.to_f32_for_render(), armor: item.armor.to_f32_for_render(),
                 lifesteal: item.lifesteal.to_f32_for_render(),
                 critical_chance: item.critical_chance.to_f32_for_render(),
+                unique_passive: item.unique_passive.map(|v|omoba_content_model::moba_items::MobaItemUniquePassive {
+                    group:v.group.into(),name:v.name.into(),priority:v.priority,
+                    atk:v.atk.to_f32_for_render(),hp:v.hp.to_f32_for_render(),ms:v.ms.to_f32_for_render(),
+                    armor:v.armor.to_f32_for_render(),lifesteal:v.lifesteal.to_f32_for_render(),
+                    critical_chance:v.critical_chance.to_f32_for_render(),
+                }),
                 ..ItemBonus::default()
             },
             active: item.active.map(ActiveEffect::from), cooldown: item.cooldown.to_f32_for_render(),
@@ -163,6 +173,7 @@ pub struct ItemStatAggregate {
 impl ItemStatAggregate {
     pub fn from_inventory(inventory: &super::comp::Inventory, registry: &ItemRegistry) -> Self {
         let mut totals = Self::default();
+        let mut winners=std::collections::BTreeMap::new();
         for slot in &inventory.slots {
             let Some(inst) = slot else { continue };
             let Some(cfg) = registry.get(&inst.item_id) else { continue };
@@ -174,6 +185,15 @@ impl ItemStatAggregate {
             totals.mp_regen += cfg.bonus.mp_regen;
             totals.lifesteal += cfg.bonus.lifesteal;
             totals.critical_chance += cfg.bonus.critical_chance;
+            if let Some(passive)=cfg.bonus.unique_passive.as_ref().filter(|p|p.validate().is_ok()) {
+                let replace=winners.get(&passive.group).is_none_or(|(priority,id,_):&(u16,String,omoba_content_model::moba_items::MobaItemUniquePassive)|
+                    passive.priority>*priority || (passive.priority==*priority && cfg.id<*id));
+                if replace {winners.insert(passive.group.clone(),(passive.priority,cfg.id.clone(),passive.clone()));}
+            }
+        }
+        for (_,(_,_,passive)) in winners {
+            totals.atk+=passive.atk;totals.hp+=passive.hp;totals.ms+=passive.ms;totals.armor+=passive.armor;
+            totals.lifesteal+=passive.lifesteal;totals.critical_chance+=passive.critical_chance;
         }
         totals
     }
@@ -204,6 +224,29 @@ pub enum ItemStatApplication {
 
 fn f32_bonus_to_fx(v: f32) -> Fixed64 {
     Fixed64::from_raw((v * omoba_sim::fixed::SCALE as f32) as i64)
+}
+
+#[cfg(test)]
+#[test]
+fn unique_passive_whole_winner_is_slot_independent_and_groups_stack() {
+    use super::comp::{Inventory,ItemInstance};
+    let make=|id:&str,group:&str,priority:u16,ms:f32,hp:f32|ItemConfig { purchase_group: None,
+        id:id.into(),name:id.into(),cost:100,active:None,cooldown:0.,recipe:vec![],
+        bonus:ItemBonus {atk:3.,unique_passive:Some(omoba_content_model::moba_items::MobaItemUniquePassive {
+            group:group.into(),name:"Unique".into(),priority,ms,hp,atk:0.,armor:0.,lifesteal:0.125,critical_chance:0.25,
+        }),..Default::default()},
+    };
+    let registry=ItemRegistry::from_configs(vec![make("z","group",1,25.,300.),make("b","group",2,45.,10.),
+        make("a","group",2,40.,20.),make("other","independent",1,5.,30.)]);
+    for order in [["z","b","a","a","other"],["other","a","z","a","b"],["b","a","other","z","a"]] {
+        let mut inventory=Inventory::default();for (slot,id) in order.iter().enumerate(){inventory.slots[slot]=Some(ItemInstance {item_id:(*id).into(),cooldown_remaining:0.});}
+        let total=ItemStatAggregate::from_inventory(&inventory,&registry);
+        assert_eq!(total.ms,45.);assert_eq!(total.hp,50.,"entire a wins, not strongest HP from z");
+        assert_eq!(total.atk,15.,"base stats still stack for duplicate copies");
+        assert_eq!(total.lifesteal,0.25);assert_eq!(total.critical_chance,0.5);
+        inventory.slots.iter_mut().for_each(|s|if s.as_ref().is_some_and(|i|i.item_id=="a"){*s=None});
+        assert_eq!(ItemStatAggregate::from_inventory(&inventory,&registry).ms,50.,"removal exposes b");
+    }
 }
 
 /// Replace previously applied item deltas with `totals`.

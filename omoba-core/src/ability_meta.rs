@@ -152,8 +152,18 @@ pub enum ConditionType {
 ///
 /// client 透過 ListAbilities 查詢取得，用於 tooltip / 技能樹 UI。
 /// server 透過 AbilityRegistry 關聯對應的 script handler。
+/// Closed executable metadata for authority-owned persistent lifecycles.
+/// Preview EffectSpec values remain descriptive and never execute gameplay.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag="kind",rename_all="snake_case")]
+pub enum HostAbilityExecution {
+    RecoveryChannelSelf {amount_key:String,duration_key:String,interval_key:String},
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AbilityDef {
+    #[serde(default)]
+    pub host_execution:Option<HostAbilityExecution>,
     /// 唯一 ID（例：`B01_sniper_mode`、`tower_dart_attack`）
     pub id: String,
     /// 顯示名稱

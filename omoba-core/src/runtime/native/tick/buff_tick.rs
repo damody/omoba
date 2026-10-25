@@ -65,7 +65,10 @@ impl<'a> System<'a> for Sys {
         for pulse in data.buffs.drain_damage_zones(dt) {
             // Do not capture victims or publish a cue ahead of earlier pulse
             // lethals. The serial processor resolves each host-only envelope.
-            data.outcomes.push(Outcome::DamageZonePulse {source:pulse.source,payload:pulse.spec.payload()});
+            data.outcomes.push(match pulse.lease {
+                Some(lease)=>Outcome::IndependentDamageZonePulse {source:pulse.source,key:pulse.key,lease},
+                None=>Outcome::DamageZonePulse {source:pulse.source,payload:pulse.spec.payload()},
+            });
         }
         // Integrate the active interval before expiry. Fractional raw damage belongs
         // to the buff entry, so changing simulation frequency cannot lose damage.
@@ -208,7 +211,7 @@ mod tests {
                 def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build()
     }
     fn zone_spec()->crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {
-        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {center:omoba_sim::Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),
+        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {independent:false,center:omoba_sim::Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),
             radius:Fixed64::from_i32(100),amount:Fixed64::from_i32(40),interval:Fixed64::from_raw(512),
             kind:omb_script_abi::types::DamageKind::Magical,profile:omb_script_abi::types::DamageProfile::FIRE.bits()}
     }

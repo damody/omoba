@@ -1,4 +1,14 @@
 use std::borrow::Cow;
+
+/// One common transition for item and authored-skill recovery channels.
+fn begin_recovery_channel(world:&mut World,hero:Entity,owner:u32,spec:super::recovery_channel::Spec)->bool {
+    if !super::recovery_channel::can_start(world,hero,owner,spec){return false;}
+    clear_hero_command_queue(world,hero);
+    super::cast_windup::cancel(world,hero);
+    interrupt_attack_for_accepted_command(world,hero);
+    world.write_resource::<super::MobaMatch>().neutralize_direction(owner,hero);
+    super::recovery_channel::start(world,hero,owner,spec);true
+}
 use std::collections::BTreeMap;
 
 use omoba_sim::Fixed64;
@@ -219,6 +229,13 @@ pub fn drain_pending_moves(world: &mut World) {
             }
         };
         let command = match req.kind {
+            PendingHeroCommandKind::OwnedSummonOrder {order} => {
+                if req.queued {continue;}
+                if let Err(reason)=super::summon_orders::apply(world,req.owner_pid,hero,&order) {
+                    log::debug!("OwnedSummonOrder rejected pid={} reason={}",req.owner_pid,reason);
+                }
+                continue;
+            }
             PendingHeroCommandKind::Stop => {
                 if req.queued {
                     log::warn!(
@@ -1682,6 +1699,15 @@ fn slot_still_ready(world: &World, hero: Entity, slot_i: usize, item_id: &str) -
 
 /// Point and unit items never queue, never approach, and never clear hero commands.
 /// A legal point with zero victims still commits cooldown. Any refusal returns before writes.
+fn item_faction_matches(rule: omoba_template_ids::MobaItemTeamConst, source: &Faction, target: &Faction) -> bool {
+    use omoba_template_ids::MobaItemTeamConst;
+    match rule {
+        MobaItemTeamConst::Enemy => target.team_id > 0 && target.team_id != source.team_id,
+        MobaItemTeamConst::Hostile => source.is_hostile_to(target),
+        MobaItemTeamConst::Any => false,
+    }
+}
+
 fn commit_targeted_item_use(
     world: &mut World,
     hero_entity: Entity,
@@ -1698,8 +1724,8 @@ fn commit_targeted_item_use(
 ) -> Result<(), failure::Error> {
     use omoba_template_ids::{MobaItemOutOfRangeConst, MobaItemTargetShapeConst, MobaItemTeamConst};
     if rule.out_of_range != MobaItemOutOfRangeConst::Reject || rule.range <= Fixed64::ZERO
-        || rule.team != MobaItemTeamConst::Enemy || !rule.requires_visible {
-        return Err(failure::err_msg("ItemUse: targeted contract is not reject-visible-enemy"));
+        || !matches!(rule.team, MobaItemTeamConst::Enemy | MobaItemTeamConst::Hostile) || !rule.requires_visible {
+        return Err(failure::err_msg("ItemUse: targeted contract is not reject-visible-offensive"));
     }
     let playing = world.try_fetch::<crate::runtime::MobaMatch>()
         .is_some_and(|state| state.phase == crate::runtime::MobaMatchPhase::Playing);
@@ -1714,17 +1740,17 @@ fn commit_targeted_item_use(
     }
     let owner_hp = world.read_storage::<CProperty>().get(hero_entity).map(|property| property.hp);
     let owner_pos = world.read_storage::<Pos>().get(hero_entity).map(|pos| pos.0);
-    let viewer_team = world.read_storage::<Faction>().get(hero_entity).map(|faction| faction.team_id);
-    let (Some(owner_hp), Some(owner_pos), Some(viewer_team)) = (owner_hp, owner_pos, viewer_team) else {
+    let owner_faction = world.read_storage::<Faction>().get(hero_entity).cloned();
+    let (Some(owner_hp), Some(owner_pos), Some(owner_faction)) = (owner_hp, owner_pos, owner_faction) else {
         return Err(failure::err_msg("ItemUse: owner state unavailable"));
     };
     if owner_hp <= Fixed64::ZERO {
         return Err(failure::err_msg("ItemUse: owner is dead"));
     }
-    if viewer_team <= 0 {
+    if owner_faction.team_id <= 0 {
         return Err(failure::err_msg("ItemUse: owner team is not targeted"));
     }
-    let viewer_team = viewer_team as u32;
+    let viewer_team = owner_faction.team_id as u32;
     let victims = match (rule.shape, active) {
         (MobaItemTargetShapeConst::Point, ActiveEffect::PointNova { damage, radius }) => {
             // Failed resolution is not an absent field. A named index or generation,
@@ -1744,7 +1770,7 @@ fn commit_targeted_item_use(
                 let factions = world.read_storage::<Faction>();
                 let positions = world.read_storage::<Pos>();
                 (&entities, &properties, &factions, &positions).join().filter_map(|(entity, property, faction, pos)| {
-                    if property.hp <= Fixed64::ZERO || faction.team_id <= 0 || faction.team_id as u32 == viewer_team {
+                    if property.hp <= Fixed64::ZERO || !item_faction_matches(rule.team, &owner_faction, faction) {
                         return None;
                     }
                     let delta = pos.0 - point;
@@ -1775,12 +1801,12 @@ fn commit_targeted_item_use(
                 return Err(failure::err_msg("ItemUse: target is stale"));
             }
             let hp = world.read_storage::<CProperty>().get(target).map(|property| property.hp);
-            let team = world.read_storage::<Faction>().get(target).map(|faction| faction.team_id);
+            let faction = world.read_storage::<Faction>().get(target).cloned();
             let pos = world.read_storage::<Pos>().get(target).map(|position| position.0);
-            let (Some(hp), Some(team), Some(pos)) = (hp, team, pos) else {
+            let (Some(hp), Some(faction), Some(pos)) = (hp, faction, pos) else {
                 return Err(failure::err_msg("ItemUse: target is not a living enemy"));
             };
-            if hp <= Fixed64::ZERO || team <= 0 || team as u32 == viewer_team {
+            if hp <= Fixed64::ZERO || !item_faction_matches(rule.team, &owner_faction, &faction) {
                 return Err(failure::err_msg("ItemUse: target is not a living enemy"));
             }
             if !within_item_range(owner_pos, pos, rule.range) {
@@ -2031,11 +2057,8 @@ fn apply_resolved_item_use(
     match &active {
         ActiveEffect::SelfControlCleanse {} => {world.write_resource::<BuffStore>().cleanse_controls(hero_entity);}
         ActiveEffect::ChannelHeal {amount,duration,interval} => {
-            clear_hero_command_queue(world,hero_entity);
-            super::cast_windup::cancel(world,hero_entity);
-            interrupt_attack_for_accepted_command(world,hero_entity);
-            world.write_resource::<super::MobaMatch>().neutralize_direction(owner_pid,hero_entity);
-            super::recovery_channel::start(world,hero_entity,owner_pid,super::recovery_channel::Spec {amount:*amount,duration:*duration,interval:*interval});
+            let started=begin_recovery_channel(world,hero_entity,owner_pid,super::recovery_channel::Spec {amount:*amount,duration:*duration,interval:*interval});
+            debug_assert!(started,"item recovery channel was preflighted");
         }
         ActiveEffect::HeadshotNext { bonus_damage } => {
             let amount = crate::runtime::ability_runtime::checked_mana_cost(*bonus_damage, Fixed64::ONE)
@@ -2173,6 +2196,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::DamageWithLeech {..} => "DamageWithLeech",
         Outcome::DamageWithCritical {..} => "DamageWithCritical",
         Outcome::DamageZonePulse {..} => "DamageZonePulse",
+        Outcome::IndependentDamageZonePulse {..} => "IndependentDamageZonePulse",
         Outcome::RawDamage {..} => "RawDamage",
         Outcome::ScriptCastTransaction { .. } => "ScriptCastTransaction",
         Outcome::ScriptCastCommitted { .. } => "ScriptCastCommitted",
@@ -2207,6 +2231,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptSetTowerInternalCooldown { .. } => "ScriptSetTowerInternalCooldown",
         Outcome::ScriptDirectDamage { .. } => "ScriptDirectDamage",
         Outcome::ScriptHeal { .. } => "ScriptHeal",
+        Outcome::ScriptRecoveryChannel {..}=>"ScriptRecoveryChannel",
         Outcome::ScriptRemoveBuff { .. } => "ScriptRemoveBuff",
         Outcome::ScriptProjectile { .. } => "ScriptProjectile",
         Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
@@ -2290,6 +2315,14 @@ pub fn process_outcomes(
         // Raw packets cannot be inferred from predeclared or a damage profile.
         // Convert before facts/vitals tracking and never feed settled packets back here.
         let outcome=match outcome {
+            Outcome::IndependentDamageZonePulse {source,key,lease}=>{
+                for child in zone_pulse_settlement::expand_independent(world,source,&key,lease,&remove_uids).into_iter().rev(){pending.push_front(child);}
+                continue;
+            },
+            Outcome::AddBuff {target,buff_id,duration,payload} if payload.get(super::ability_runtime::damage_zone::KEY).is_some()=>{
+                if !zone_pulse_settlement::admit_zone(world,target,&buff_id,duration,&payload){continue;}
+                Outcome::AddBuff {target,buff_id,duration,payload}
+            },
             Outcome::DamageZonePulse {source,payload}=>{
                 for child in zone_pulse_settlement::expand(world,source,&payload,&remove_uids).into_iter().rev() {
                     pending.push_front(child);
@@ -2352,7 +2385,7 @@ pub fn process_outcomes(
         let kind = outcome_kind(&outcome);
         match outcome {
             Outcome::DamageWithLeech {..}|Outcome::DamageWithCritical {..}=>unreachable!("combat envelope opened before serial settlement"),
-            Outcome::DamageZonePulse {..}=>unreachable!("zone expanded before serial settlement"),
+            Outcome::DamageZonePulse {..}|Outcome::IndependentDamageZonePulse {..}=>unreachable!("zone expanded before serial settlement"),
             Outcome::RawDamage {..}=>unreachable!("raw packet converted before settlement"),
             Outcome::ScriptCastTransaction {caster,skill_id,rank,faction,player_owner,expected_mana,mut outcomes,cues,aggression_target} => {
                 let admitted = !remove_uids.contains(&caster)
@@ -2531,6 +2564,9 @@ pub fn process_outcomes(
                 handle_script_direct_damage(world, target, amount)
             }
             Outcome::ScriptHeal { target, amount } => handle_script_heal(world, target, amount),
+            Outcome::ScriptRecoveryChannel {caster,owner,amount,duration,interval}=>{
+                begin_recovery_channel(world,caster,owner,super::recovery_channel::Spec {amount,duration,interval});
+            },
             Outcome::ScriptRemoveBuff { target, buff_id } => {
                 handle_script_remove_buff(world, target, buff_id)
             }
@@ -3629,6 +3665,20 @@ fn handle_script_start_cooldown(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hostile_item_relation_is_opt_in_and_preserves_legacy_enemy_matrix() {
+        use omoba_template_ids::MobaItemTeamConst as Scope;
+        let source=Faction {faction_id:FactionType::Player,team_id:1};
+        for (kind,team,enemy,hostile) in [(FactionType::Player,1,false,false),(FactionType::Enemy,2,true,true),
+            (FactionType::Player,2,true,true),(FactionType::HostileNeutral,0,false,true),
+            (FactionType::Neutral,0,false,false),(FactionType::Neutral,2,true,false),
+            (FactionType::HostileNeutral,1,false,false)] {
+            let target=Faction {faction_id:kind,team_id:team};
+            assert_eq!(item_faction_matches(Scope::Enemy,&source,&target),enemy);
+            assert_eq!(item_faction_matches(Scope::Hostile,&source,&target),hostile);
+            assert!(!item_faction_matches(Scope::Any,&source,&target));
+        }
+    }
     #[test]
     fn native_and_script_heals_share_received_policy_clamps_and_never_resurrect() {
         let mut w=World::new();w.register::<CProperty>();w.insert(BuffStore::default());
@@ -5255,11 +5305,28 @@ fn handle_add_buff(
     duration: Fixed64,
     payload: serde_json::Value,
 ) -> Result<(), failure::Error> {
+    if payload.get(super::ally_cleanse::KEY).is_some() || buff_id==super::ally_cleanse::BUFF {
+        super::ally_cleanse::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    if payload.get(super::mana_drain::KEY).is_some() || buff_id==super::mana_drain::BUFF {
+        super::mana_drain::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    if payload.get(super::ally_shield::KEY).is_some() {
+        super::ally_shield::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
     if payload.get(super::ability_runtime::damage_zone::KEY).is_some() {
         let Some(zone)=super::ability_runtime::damage_zone::DamageZoneSpec::from_payload(&payload)else{return Ok(());};
-        if duration<zone.interval || duration>Fixed64::from_i32(30) || !world.entities().is_alive(target)
-            || world.read_storage::<Faction>().get(target).is_none()
-            || world.read_storage::<CProperty>().get(target).is_none_or(|p|p.hp<=Fixed64::ZERO) {return Ok(());}
+        if !zone_pulse_settlement::admit_zone(world,target,&buff_id,duration,&payload){return Ok(());}
+        if zone.independent {
+            let Some(mut origin)=super::moba_match::capture_projectile_origin(world,target)else{return Ok(());};
+            origin.script=None;
+            let faction=world.read_storage::<Faction>().get(target).cloned().expect("checked zone faction");
+            world.write_resource::<BuffStore>().schedule_independent_zone(target,&buff_id,duration,zone,origin,faction);
+            return Ok(());
+        }
     }
     world
         .write_resource::<BuffStore>()

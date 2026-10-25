@@ -1,6 +1,38 @@
 //! Current resolved phase only: no target, modifier source, or inferred critical.
 use crate::runtime::{AttackSequencePhase, TAttack};
+use specs::{Component, Join, WorldExt};
+use omoba_sim::Fixed64;
 pub const SCHEMA_ID: u32 = 0x464f4712;
+pub const RANGE_SCHEMA_ID: u32 = 0x464f4717;
+const MAX_RANGE_RAW: i64 = 1_000_000 * 1024;
+/// Read-only replica presentation, never an attack capability.
+#[derive(Clone,Copy,Debug,Component)]
+#[storage(specs::VecStorage)]
+pub struct DisclosedAttackRange(pub Fixed64);
+pub fn checked_range(range:Fixed64)->Option<Fixed64>{(0..=MAX_RANGE_RAW).contains(&range.raw()).then_some(range)}
+pub fn encode_range(range:Fixed64)->Option<Vec<u8>> {
+    checked_range(range)?;
+    let mut bytes=vec![1];bytes.extend(range.raw().to_be_bytes());Some(bytes)
+}
+pub fn decode_range(bytes:&[u8])->Option<Fixed64> {
+    if bytes.len()!=9||bytes[0]!=1{return None;}
+    let raw=i64::from_be_bytes(bytes[1..].try_into().ok()?);
+    (0..=MAX_RANGE_RAW).contains(&raw).then(||Fixed64::from_raw(raw))
+}
+/// One collection per snapshot/WaveB; no private modifier source is exported.
+pub fn resolved_attack_ranges(world:&specs::World)->std::collections::BTreeMap<u64,Fixed64> {
+    let entities=world.entities();let attacks=world.has_value::<specs::storage::MaskedStorage<TAttack>>().then(||world.read_storage::<TAttack>());
+    let buildings=world.has_value::<specs::storage::MaskedStorage<crate::runtime::IsBuilding>>().then(||world.read_storage::<crate::runtime::IsBuilding>());let buffs=world.try_fetch::<crate::runtime::BuffStore>();
+    let mut out=std::collections::BTreeMap::new();
+    if let Some(attacks)=attacks {for (e,a) in (&entities,&attacks).join(){let range=buffs.as_ref().map_or(a.range.v,|b|
+        crate::runtime::UnitStats::from_refs(b,buildings.as_ref().is_some_and(|s|s.get(e).is_some())).final_attack_range(a.range.v,e));
+        out.insert(crate::runtime::canonical_entity_id(e),checked_range(range).unwrap_or(Fixed64::ZERO));}}
+    if let Some(state)=world.try_fetch::<crate::runtime::MobaMatch>(){out.extend(state.disclosed_npc_attack_ranges(world));}
+    if world.has_value::<specs::storage::MaskedStorage<DisclosedAttackRange>>(){
+        for (e,range) in (&entities,&world.read_storage::<DisclosedAttackRange>()).join(){out.insert(crate::runtime::canonical_entity_id(e),checked_range(range.0).unwrap_or(Fixed64::ZERO));}
+    }
+    out
+}
 const MAX_DURATION_RAW: i64 = 86_400 * 1024;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct AttackVisualState {
@@ -46,6 +78,17 @@ impl AttackVisualState {
 mod tests {
     use super::*;
     use omoba_sim::Fixed64;
+    #[test]
+    fn public_range_closed_codec_read_only_component_and_lifecycle() {
+        use specs::Builder;
+        for raw in [0,1,256001,MAX_RANGE_RAW]{let r=Fixed64::from_raw(raw);let bytes=encode_range(r).unwrap();assert_eq!(bytes.len(),9);assert_eq!(decode_range(&bytes),Some(r));}
+        for raw in [-1,MAX_RANGE_RAW+1,i64::MAX]{assert!(encode_range(Fixed64::from_raw(raw)).is_none());let mut bytes=vec![1];bytes.extend(raw.to_be_bytes());assert!(decode_range(&bytes).is_none());}
+        for bytes in [vec![],vec![0;9],vec![1;8],vec![1;10]]{assert!(decode_range(&bytes).is_none());}
+        let mut w=specs::World::new();w.register::<DisclosedAttackRange>();
+        let e=w.create_entity().with(DisclosedAttackRange(Fixed64::from_i32(250))).build();assert!(!w.has_value::<specs::storage::MaskedStorage<TAttack>>());assert_eq!(resolved_attack_ranges(&w)[&crate::runtime::canonical_entity_id(e)],Fixed64::from_i32(250));
+        w.write_storage::<DisclosedAttackRange>().get_mut(e).unwrap().0=Fixed64::from_raw(-1);assert_eq!(resolved_attack_ranges(&w)[&crate::runtime::canonical_entity_id(e)],Fixed64::ZERO);
+        w.write_storage::<DisclosedAttackRange>().remove(e);assert!(resolved_attack_ranges(&w).is_empty());w.delete_entity(e).unwrap();assert!(resolved_attack_ranges(&w).is_empty());
+    }
     #[test]
     fn attack_visual_state_resolved_timing_codec_and_clear() {
         let mut attack = TAttack::new(Fixed64::ONE, Fixed64::from_i32(8), Fixed64::ONE, Fixed64::ONE);

@@ -780,7 +780,7 @@ mod tests {
     #[test]
     fn verified_owner_ward_receiver_rejects_unverified_order_and_restores_by_recovery() {
         assert_eq!(WARD_PROTOCOL_VERSION, 3);
-        assert_eq!(crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 13);
+        assert_eq!(crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 15);
         let bytes = encode_owner_ward_projection(&equipped(1, 0, true)).unwrap();
         let start = admitted_start(7, 3, 11, &bytes, "receiver");
         assert_eq!(start.ward_protocol_version, 3);

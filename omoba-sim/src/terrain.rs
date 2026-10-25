@@ -4,6 +4,69 @@
 use crate::{Fixed64, Vec2};
 
 pub const MAX_GEOMETRY_RAW: i64 = 1 << 29;
+/// Deterministic nonmoving line endpoint. Geometry outside the supported domain
+/// and zero axes fail closed; long requests retain direction and clamp to range.
+pub fn checked_line_endpoint(origin:Vec2,requested:Vec2,range:Fixed64)->Option<Vec2> {
+    if range<=Fixed64::ZERO||range>Fixed64::from_i32(10_000)||origin==requested{return None;}
+    checked_travel_endpoint(origin,requested,range).filter(|end|*end!=origin)
+}
+
+/// Shared movement endpoint in raw integer distance. Zero budget is a valid
+/// stationary step; negative budget or unsupported coordinates fail closed.
+/// Ceiling the integer length keeps every rounded step inside its budget.
+pub fn checked_travel_endpoint(origin:Vec2,requested:Vec2,budget:Fixed64)->Option<Vec2> {
+    let supported=|p:Vec2|p.x.raw().unsigned_abs()<=MAX_GEOMETRY_RAW as u64&&p.y.raw().unsigned_abs()<=MAX_GEOMETRY_RAW as u64;
+    if !supported(origin)||!supported(requested)||budget<Fixed64::ZERO{return None;}
+    if budget==Fixed64::ZERO||origin==requested{return Some(origin);}
+    let delta=requested-origin;let dx=i128::from(delta.x.raw());let dy=i128::from(delta.y.raw());
+    let squared=(dx*dx+dy*dy) as u128;
+    if squared<=(budget.raw() as u128).pow(2){return Some(requested);}
+    // Work in raw integer distance. Fixed64 length_squared truncates subquantum
+    // squares and can erase valid short directions. Ceiling keeps the clamped
+    // endpoint inside the closed range even for irrational diagonal lengths.
+    let floor=squared.isqrt();let length=if floor*floor==squared{floor}else{floor+1};
+    let component=|raw:i64|Fixed64::from_raw((i128::from(raw)*i128::from(budget.raw())/length as i128) as i64);
+    let end=origin+Vec2::new(component(delta.x.raw()),component(delta.y.raw()));
+    supported(end).then_some(end)
+}
+
+#[cfg(test)]
+mod line_endpoint_tests {
+    use super::*;
+    #[test]
+    fn travel_endpoint_budget_preserves_raw_quanta_and_closed_boundaries() {
+        let raw=|x,y|Vec2::new(Fixed64::from_raw(x),Fixed64::from_raw(y));
+        for x in -32..=32 {for y in -32..=32 {for amount in [0,1,2,16,64] {
+            let end=checked_travel_endpoint(Vec2::ZERO,raw(x,y),Fixed64::from_raw(amount)).unwrap();
+            let squared=i128::from(end.x.raw()).pow(2)+i128::from(end.y.raw()).pow(2);
+            assert!(squared<=i128::from(amount).pow(2));
+            if i128::from(x).pow(2)+i128::from(y).pow(2)<=i128::from(amount).pow(2){assert_eq!(end,raw(x,y));}
+        }}}
+        assert_eq!(checked_travel_endpoint(Vec2::ZERO,raw(1,0),Fixed64::ZERO),Some(Vec2::ZERO));
+        assert_eq!(checked_travel_endpoint(Vec2::ZERO,raw(1,0),Fixed64::from_raw(1)),Some(raw(1,0)));
+        assert!(checked_travel_endpoint(Vec2::ZERO,raw(1,0),Fixed64::from_raw(-1)).is_none());
+        assert!(checked_travel_endpoint(Vec2::ZERO,raw(i64::MAX,0),Fixed64::ONE).is_none());
+    }
+    #[test]
+    fn checked_line_preserves_short_clamps_axes_and_avoids_unit_vector_quantization() {
+        let p=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        assert_eq!(checked_line_endpoint(p(10,20),p(110,20),Fixed64::from_i32(900)),Some(p(110,20)));
+        assert_eq!(checked_line_endpoint(p(10,20),p(10_010,20),Fixed64::from_i32(900)),Some(p(910,20)));
+        assert_eq!(checked_line_endpoint(p(0,0),p(30_000,40_000),Fixed64::from_i32(1000)),Some(p(600,800)));
+        assert_eq!(checked_line_endpoint(p(0,0),p(-30_000,-40_000),Fixed64::from_i32(1000)),Some(p(-600,-800)));
+        assert_eq!(Vec2::new(Fixed64::from_raw(1),Fixed64::ZERO).length(),Fixed64::ZERO,"regression: ordinary squared fixed-point length erases the axis");
+        for raw in 1..=32 {let aim=Vec2::new(Fixed64::from_raw(raw),Fixed64::ZERO);assert_eq!(checked_line_endpoint(Vec2::ZERO,aim,Fixed64::from_raw(64)),Some(aim));}
+        let aim=Vec2::new(Fixed64::from_raw(1),Fixed64::from_raw(1));assert_eq!(checked_line_endpoint(Vec2::ZERO,aim,Fixed64::from_raw(2)),Some(aim));
+        assert_eq!(checked_line_endpoint(Vec2::ZERO,Vec2::new(Fixed64::from_raw(2),Fixed64::ZERO),Fixed64::from_raw(1)),Some(Vec2::new(Fixed64::from_raw(1),Fixed64::ZERO)));
+    }
+    #[test]
+    fn checked_line_zero_invalid_range_and_unsupported_coordinates_fail_closed() {
+        let origin=Vec2::ZERO;let aim=Vec2::new(Fixed64::ONE,Fixed64::ZERO);
+        assert!(checked_line_endpoint(origin,origin,Fixed64::ONE).is_none());
+        for range in [Fixed64::ZERO,Fixed64::from_raw(-1),Fixed64::from_i32(10_001)]{assert!(checked_line_endpoint(origin,aim,range).is_none());}
+        assert!(checked_line_endpoint(origin,Vec2::new(Fixed64::from_raw(i64::MAX),Fixed64::ZERO),Fixed64::ONE).is_none());
+    }
+}
 const MAX_RAW: i64 = MAX_GEOMETRY_RAW;
 type Point = (i128, i128);
 fn point(v: Vec2) -> Point { (i128::from(v.x.raw()), i128::from(v.y.raw())) }
@@ -41,6 +104,29 @@ pub fn point_in_swept_circle(p: Vec2, from: Vec2, to: Vec2, radius: Fixed64) -> 
         && v.y.raw().unsigned_abs()<=MAX_RAW as u64;
     radius.raw()>=0 && radius.raw()<=MAX_RAW && bounded(p) && bounded(from) && bounded(to)
         && near_segment(point(p),point(from),point(to),i128::from(radius.raw()).pow(2))
+}
+
+/// First intersecting prefix of a swept circle, rounded up to Q32 time.
+/// Supported raw geometry permits every scaled distance product inside i128.
+/// A complete segment is admitted first; prefix intersection is then monotone
+/// even after the center passes the point's orthogonal projection.
+pub fn swept_circle_contact_q32(p:Vec2,from:Vec2,to:Vec2,radius:Fixed64)->Option<u64> {
+    if !point_in_swept_circle(p,from,to,radius){return None;}
+    let (a,b,c)=(point(from),point(to),point(p));
+    let (dx,dy,px,py)=(b.0-a.0,b.1-a.1,c.0-a.0,c.1-a.1);
+    let radius_sq=i128::from(radius.raw()).pow(2);
+    if px*px+py*py<=radius_sq{return Some(0);}
+    let length_sq=dx*dx+dy*dy;let projection=px*dx+py*dy;
+    const SCALE:i128=1_i128<<32;
+    let prefix_hits=|time:u64| {
+        let t=i128::from(time);
+        if projection*SCALE<=length_sq*t{return true;}
+        let (x,y)=(px*SCALE-dx*t,py*SCALE-dy*t);
+        x*x+y*y<=radius_sq*SCALE*SCALE
+    };
+    let (mut low,mut high)=(0_u64,1_u64<<32);
+    while low<high {let mid=low+(high-low)/2;if prefix_hits(mid){high=mid;}else{low=mid+1;}}
+    Some(low)
 }
 fn inside(p: Point, polygon: &[Vec2]) -> bool {
     let mut inside=false;
@@ -88,6 +174,40 @@ pub fn swept_circle_hits_polygon(from: Vec2, to: Vec2, radius: Fixed64, polygon:
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn projectile_contact_q32_closed_axes_tangency_and_stationary_cases() {
+        let p=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let ceil=|numerator:u64,denominator:u64|(numerator*(1_u64<<32)).div_ceil(denominator);
+        assert_eq!(swept_circle_contact_q32(p(100,0),p(0,0),p(1000,0),Fixed64::from_i32(5)),Some(ceil(95,1000)));
+        assert_eq!(swept_circle_contact_q32(p(100,5),p(0,0),p(1000,0),Fixed64::from_i32(5)),Some(ceil(100,1000)));
+        assert_eq!(swept_circle_contact_q32(p(102,0),p(0,0),p(100,0),Fixed64::from_i32(5)),Some(ceil(97,100)));
+        assert_eq!(swept_circle_contact_q32(p(33,0),p(100,0),p(0,0),Fixed64::from_i32(5)),Some(ceil(62,100)));
+        assert_eq!(swept_circle_contact_q32(p(33,0),p(0,0),p(100,0),Fixed64::ZERO),Some(ceil(33,100)));
+        assert_eq!(swept_circle_contact_q32(p(1,0),p(0,0),p(0,0),Fixed64::ONE),Some(0));
+        assert!(swept_circle_contact_q32(p(2,0),p(0,0),p(0,0),Fixed64::ONE).is_none());
+    }
+    #[test]
+    fn projectile_contact_q32_preserves_raw_boundary_at_large_translation() {
+        let p=|x,y|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let offset=p(524000,524000);let outside=p(50,1)+Vec2::new(Fixed64::ZERO,Fixed64::from_raw(1));
+        assert!(swept_circle_contact_q32(outside,Vec2::ZERO,p(100,0),Fixed64::ONE).is_none());
+        assert!(swept_circle_contact_q32(offset+outside,offset,offset+p(100,0),Fixed64::ONE).is_none());
+        let tangent=p(50,1);assert_eq!(swept_circle_contact_q32(tangent,Vec2::ZERO,p(100,0),Fixed64::ONE),
+            swept_circle_contact_q32(offset+tangent,offset,offset+p(100,0),Fixed64::ONE));
+        assert!(swept_circle_contact_q32(p(0,0),p(0,0),p(100,0),Fixed64::from_raw(-1)).is_none());
+        assert!(swept_circle_contact_q32(Vec2::new(Fixed64::from_raw(i64::MAX),Fixed64::ZERO),Vec2::ZERO,p(100,0),Fixed64::ONE).is_none());
+    }
+    #[test]
+    fn projectile_contact_q32_matches_capsule_and_translation_on_raw_grid() {
+        let raw=|x,y|Vec2::new(Fixed64::from_raw(x),Fixed64::from_raw(y));let shift=raw(-200,145);
+        for x in -4..=20 {for y in -8..=8 {
+            let (point,start,end,radius)=(raw(x,y),Vec2::ZERO,raw(16,0),Fixed64::from_raw(4));
+            let contact=swept_circle_contact_q32(point,start,end,radius);
+            assert_eq!(contact.is_some(),point_in_swept_circle(point,start,end,radius));
+            assert_eq!(contact,swept_circle_contact_q32(point+shift,start+shift,end+shift,radius));
+            if let Some(time)=contact {assert!(time<=1_u64<<32);}
+        }}
+    }
     fn p(x:i32,y:i32)->Vec2 { Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y)) }
     fn wall()->[Vec2;4] { [p(50,-100),p(51,-100),p(51,100),p(50,100)] }
     #[test]

@@ -1,9 +1,8 @@
 //! Real ECS settlement of independent summoner slots. Wire admission and
 //! owner-team projection call this settlement; they do not keep a second cooldown.
 //! Loadouts live in the match roster, so replacing a hero cannot reset cooldowns.
-//! The maintained client boundary is ABI 22, presentation protocol 6, and HUD
-//! schema 3. Settlement stays on this world adapter. The HUD does not apply
-//! blink or heal locally.
+//! Settlement stays on this world adapter. The HUD never applies resource
+//! restoration or relocation locally.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -91,6 +90,8 @@ pub fn settle_summoner_cast(
         let state = &mut *state;
         let mut positions = world.write_storage::<Pos>();
         let mut properties = world.write_storage::<CProperty>();
+        let mut heroes = world.write_storage::<Hero>();
+        let hero = heroes.get_mut(entity).ok_or(CastReject::ApplyFailed)?;
         let position = positions.get_mut(entity).ok_or(CastReject::ApplyFailed)?;
         let property = properties.get_mut(entity).ok_or(CastReject::ApplyFailed)?;
         let catalog = state.summoner_catalog.as_ref().ok_or(CastReject::CapabilityDisabled)?;
@@ -99,6 +100,7 @@ pub fn settle_summoner_cast(
             phase: phase(state.phase), paused: world.read_resource::<GamePause>().is_paused,
             summoner_enabled: true, rules_revision: 1, origin: position.0,
             hp: property.hp, max_hp: property.mhp,
+            mana: hero.mana_pool.as_ref().map(|pool|(pool.current(),pool.maximum())),
             healing_received_multiplier:world.try_fetch::<super::ability_runtime::BuffStore>().map_or(Fixed64::ONE,|buffs|
                 crate::runtime::UnitStats::from_refs(&buffs,false).received_healing(Fixed64::ONE,entity)),
             // The body-aware check below uses the same public terrain routine
@@ -119,7 +121,7 @@ pub fn settle_summoner_cast(
         let effect = plan.effect().clone();
         let modifier_source=format!("@summoner:{}",loadout.spell_id(request.slot).ok_or(CastReject::UnknownSpell)?);
         let mut buffs = world.try_fetch_mut::<super::ability_runtime::BuffStore>();
-        let mut sink = EcsSink { hero_id, entity, position, property, modifier_source, buffs:buffs.as_deref_mut() };
+        let mut sink = EcsSink { hero_id, entity, position, property, hero, modifier_source, buffs:buffs.as_deref_mut() };
         model::commit_cast(loadout, catalog, &plan, &context, &mut sink)?;
         effect
     };
@@ -247,6 +249,7 @@ fn effect_class_name(effect: &model::PlannedSummonerEffect) -> &'static str {
         model::PlannedSummonerEffect::SelfSprint { .. } => "self_sprint",
         model::PlannedSummonerEffect::SelfControlCleanse { .. } => "self_control_cleanse",
         model::PlannedSummonerEffect::SelfHeal { .. } => "self_heal",
+        model::PlannedSummonerEffect::SelfRestoreMana { .. } => "self_restore_mana",
         model::PlannedSummonerEffect::SelfShield { .. } => "self_shield",
         model::PlannedSummonerEffect::PointBlink { .. } => "point_blink",
     }
@@ -287,9 +290,17 @@ fn landing_valid(destination: Vec2, radius: Fixed64, regions: &BlockedRegions) -
 }
 
 struct EcsSink<'a> { hero_id: u64, entity:specs::Entity, position: &'a mut Pos, property: &'a mut CProperty,
+    hero: &'a mut Hero,
     modifier_source:String,
     buffs:Option<&'a mut super::ability_runtime::BuffStore> }
 impl SummonerCommitSink for EcsSink<'_> {
+    fn apply_self_restore_mana(&mut self,hero_id:u64,amount:Fixed64)->Result<(),ApplyFailure>{
+        if hero_id!=self.hero_id {return Err(ApplyFailure);}
+        let pool=self.hero.mana_pool.as_mut().ok_or(ApplyFailure)?;
+        // Validate everything before the checked, infallible-for-this-state write.
+        if pool.maximum()<=Fixed64::ZERO || amount<Fixed64::ZERO || amount>pool.maximum()-pool.current(){return Err(ApplyFailure);}
+        pool.restore(amount).map(|_|()).map_err(|_|ApplyFailure)
+    }
     fn apply_self_damage_reduction(&mut self,hero_id:u64,reduction:Fixed64,duration:Fixed64)->Result<(),ApplyFailure>{
         if hero_id!=self.hero_id{return Err(ApplyFailure);}
         if self.buffs.as_deref_mut().is_some_and(|buffs|buffs.grant_timed_modifier(self.entity,&self.modifier_source,
@@ -355,6 +366,33 @@ mod tests {
         world.insert(super::super::ability_runtime::BuffStore::default());
         world.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_shield_v1".into())).unwrap();
         (world,hero)
+    }
+    #[test]
+    fn mana_restore_real_sink_caps_preserves_controls_commands_and_hp() {
+        use super::super::ability_runtime::{BuffStore,ManaPool};
+        for (current,maximum,expected) in [(10,500,210),(490,500,500),(500,500,500)] {
+            let (mut w,e)=shield_fixture();w.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_mana_v1".into())).unwrap();
+            w.write_storage::<Hero>().get_mut(e).unwrap().mana_pool=Some(ManaPool::new(Fixed64::from_i32(current),Fixed64::from_i32(maximum)).unwrap());
+            {let mut buffs=w.write_resource::<BuffStore>();buffs.add(e,"stun",Fixed64::ONE,serde_json::json!({}));assert!(buffs.grant_healing_reduction(e,Fixed64::ZERO,Fixed64::ONE));}
+            let hp=w.read_storage::<CProperty>().get(e).unwrap().hp;let movement=w.read_storage::<MoveTarget>().get(e).unwrap().0;
+            let req=SummonerCastRequest{slot:1,point:None};let effect=settle_summoner_cast(&mut w,7,&req).unwrap();
+            assert_eq!(effect,PlannedSummonerEffect::SelfRestoreMana{hero_id:crate::runtime::canonical_entity_id(e),amount:Fixed64::from_i32(expected-current)});
+            assert_eq!(w.read_storage::<Hero>().get(e).unwrap().mana_pool.as_ref().unwrap().current(),Fixed64::from_i32(expected));
+            assert_eq!(w.read_storage::<CProperty>().get(e).unwrap().hp,hp);assert_eq!(w.read_storage::<MoveTarget>().get(e).unwrap().0,movement);assert!(w.read_resource::<BuffStore>().is_stunned(e));
+            assert_eq!(cooldown(&w,1),Fixed64::from_i32(180));assert_eq!(settle_summoner_cast(&mut w,7,&req),Err(CastReject::CooldownNotReady));
+        }
+    }
+    #[test]
+    fn mana_restore_real_sink_rejects_without_resource_or_cooldown_publication() {
+        use super::super::ability_runtime::ManaPool;
+        for mode in 0..8 {
+            let (mut w,e)=fixture();w.write_resource::<MobaMatch>().heroes[0].summoners.set_slot(1,Some("training_self_mana_v1".into())).unwrap();
+            w.write_storage::<Hero>().get_mut(e).unwrap().mana_pool=Some(ManaPool::new(Fixed64::from_i32(10),Fixed64::from_i32(500)).unwrap());
+            let mut owner=7;let mut req=SummonerCastRequest{slot:1,point:None};
+            match mode {0=>w.write_storage::<Hero>().get_mut(e).unwrap().mana_pool=None,1=>w.write_storage::<Hero>().get_mut(e).unwrap().mana_pool=Some(ManaPool::full(Fixed64::ZERO).unwrap()),2=>w.write_resource::<GamePause>().is_paused=true,3=>w.write_resource::<MobaMatch>().phase=MobaMatchPhase::Warmup,4=>w.write_storage::<CProperty>().get_mut(e).unwrap().hp=Fixed64::ZERO,5=>owner=8,6=>req.point=Some(Vec2::ZERO),7=>w.write_storage::<PlayerOwner>().get_mut(e).unwrap().player_id=8,_=>unreachable!()}
+            let before=w.read_storage::<Hero>().get(e).unwrap().mana_pool.clone();
+            assert!(settle_summoner_cast(&mut w,owner,&req).is_err());assert_eq!(cooldown(&w,1),Fixed64::ZERO);assert_eq!(w.read_storage::<Hero>().get(e).unwrap().mana_pool,before);
+        }
     }
     #[test]
     fn guard_real_sink_shares_strongest_family_public_lifetime_and_preserves_commands() {
@@ -436,6 +474,7 @@ mod tests {
             for kind in ["unrelated_slow","unrelated_dot","cast_preparation"] {
                 buffs.add(hero,kind,Fixed64::from_i32(7),serde_json::json!({"keep_probe":512}));
             }
+            for entity in [hero,other] {buffs.add(entity,"generic_slow:arbitrary_skill:12:1",Fixed64::from_i32(4),serde_json::json!({"move_speed_bonus":-256,"__aggregation_family":"generic_ability_slow"}));}
             buffs.grant_damage_shield(hero,Fixed64::from_i32(30),Fixed64::from_i32(5));
         }
         let req=SummonerCastRequest{slot:1,point:None};let effect=settle_summoner_cast(&mut world,7,&req).unwrap();
@@ -446,6 +485,7 @@ mod tests {
         {
             let buffs=world.read_resource::<super::super::ability_runtime::BuffStore>();
             assert!(!buffs.is_stunned(hero)&&!buffs.is_rooted(hero)&&!buffs.is_silenced(hero));
+            assert!(!buffs.has(hero,"generic_slow:arbitrary_skill:12:1")&&buffs.has(other,"generic_slow:arbitrary_skill:12:1"));
             assert!(buffs.is_stunned(other)&&buffs.is_rooted(other)&&buffs.is_silenced(other));
             assert!(!buffs.entities_with_key("control_probe").any(|e|e==hero));
             assert!(buffs.entities_with_key("control_probe").any(|e|e==other));

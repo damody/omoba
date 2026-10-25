@@ -138,6 +138,24 @@ impl CollisionIndex {
         out
     }
 
+    /// Select one admitted spatial candidate by a caller-defined key. Unlike
+    /// midpoint-nearest truncation, every result of the same range query is
+    /// considered. Only one best result is retained after the index query.
+    pub fn select_in_range_by_key<K: Ord>(
+        &self,pos:Vec2<f32>,radius:f32,mut key:impl FnMut(Entity)->Option<K>,
+    )->Option<(Entity,K)> {
+        if !pos.x.is_finite()||!pos.y.is_finite()||!radius.is_finite()||radius<0.0{return None;}
+        let mut best:Option<(Entity,K)>=None;
+        for entry in self.index.query_in_range(pos,radius) {
+            let Some(value)=key(entry.id) else {continue;};
+            let replace=best.as_ref().is_none_or(|(entity,old)|value.cmp(old)
+                .then_with(||entry.id.id().cmp(&entity.id()))
+                .then_with(||entry.id.gen().id().cmp(&entity.gen().id()))==Ordering::Less);
+            if replace {best=Some((entry.id,value));}
+        }
+        best
+    }
+
     pub fn search_nn_bounded(
         &self,
         pos: Vec2<f32>,
@@ -305,6 +323,22 @@ mod tests {
     use super::*;
     use specs::world::Builder;
     use specs::{World, WorldExt};
+
+    #[test]
+    fn projectile_contact_selector_uses_all_candidates_and_stable_ties_on_every_index() {
+        let mut world=World::new();let entities:Vec<_>=(0..40).map(|_|world.create_entity().build()).collect();
+        let rows:Vec<_>=entities.iter().enumerate().map(|(i,e)|(*e,Vec2::new(i as f32,0.))).collect();
+        for kind in ["hash_grid","sap","quadtree","bvh"] {
+            let mut index=CollisionIndex::new(kind,SpatialIndexParams::default());
+            for reverse in [false,true] {
+                let mut ordered=rows.clone();if reverse {ordered.reverse();}index.rebuild_from(ordered);
+                assert_eq!(index.select_in_range_by_key(Vec2::zero(),100.,|e|Some(if e==entities[39]{0_u64}else{1})).unwrap().0,entities[39]);
+                assert_eq!(index.select_in_range_by_key(Vec2::zero(),100.,|_|Some(0_u64)).unwrap().0,entities[0]);
+                assert!(index.select_in_range_by_key(Vec2::zero(),100.,|_|None::<u64>).is_none());
+                assert!(index.select_in_range_by_key(Vec2::zero(),f32::NAN,|_|Some(0_u64)).is_none());
+            }
+        }
+    }
 
     #[test]
     fn collision_index_count_tracks_entities_not_spatial_nodes() {

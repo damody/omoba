@@ -7,7 +7,7 @@ use crate::game_proto::{self as proto, player_input::Action, renderer_input::Int
 pub const PRESENTATION_MAGIC: u32 = 0x4f4d_5254;
 /// v6 carries the summoner ABI rows. v5 requires the owner shield baseline; v4 also added queued point commands.
 // v7 adds typed communication intents and local correlation, separate from gameplay.
-pub const PRESENTATION_PROTOCOL_VERSION: u32 = 11;
+pub const PRESENTATION_PROTOCOL_VERSION: u32 = 12;
 pub const MAX_PRESENTATION_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 /// Convert an existing formal command into a renderer intent. Entity IDs must
@@ -16,6 +16,10 @@ pub const MAX_PRESENTATION_FRAME_BYTES: usize = 8 * 1024 * 1024;
 /// match exhaustive so a new PlayerInput action cannot be silently forgotten.
 pub fn player_input_to_renderer_intent(input: &PlayerInput) -> Option<Intent> {
     Some(match input.action.as_ref()? {
+        Action::SummonCommand(value) => {
+            crate::runtime::summon_transport::validate_client(value).ok()?;
+            Intent::SummonCommand(value.clone())
+        }
         Action::MoveTo(value) => {
             let target = value.target?;
             Intent::MoveTo(proto::MoveToIntent {
@@ -110,7 +114,8 @@ pub fn player_input_to_renderer_intent(input: &PlayerInput) -> Option<Intent> {
         }),
         Action::NoOp(_) | Action::StartRound(_) | Action::TogglePause(_)
         | Action::ToggleGameSpeed(_) | Action::DebugSpawnCreep(_)
-        | Action::TowerAbilityCast(_) | Action::SetTowerTargetPriority(_) => return None,
+        | Action::TowerAbilityCast(_) | Action::SetTowerTargetPriority(_)
+        | Action::OwnedSummonOrder(_) => return None,
     })
 }
 
@@ -118,6 +123,20 @@ pub fn player_input_to_renderer_intent(input: &PlayerInput) -> Option<Intent> {
 mod tests {
     use super::*;
     use prost::Message;
+
+    #[test]
+    fn owned_summon_order_is_not_reinterpreted_as_hero_renderer_input() {
+        for operation in [1, 2] {
+            let order = proto::OwnedSummonOrder {
+                owner_entity: 0, owner_generation: 1, summon_entity: 9,
+                summon_generation: 2, operation,
+                point: (operation == 1).then_some(proto::Vec2I { x: 120, y: 40 }),
+            };
+            assert!(player_input_to_renderer_intent(&PlayerInput {
+                action: Some(Action::OwnedSummonOrder(order)),
+            }).is_none());
+        }
+    }
 
     fn roundtrip(action: Action) -> Intent {
         let input = PlayerInput { action: Some(action) };

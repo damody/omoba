@@ -251,7 +251,7 @@ mod tests {
     }
     fn zone_spec()->crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {
         use omoba_sim::{Fixed64,Vec2};
-        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {center:Vec2::new(Fixed64::from_i32(123),Fixed64::ZERO),
+        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {independent:false,center:Vec2::new(Fixed64::from_i32(123),Fixed64::ZERO),
             radius:Fixed64::from_i32(100),amount:Fixed64::from_i32(25),interval:Fixed64::from_raw(512),
             kind:omb_script_abi::types::DamageKind::Magical,profile:omb_script_abi::types::DamageProfile::FIRE.bits()}
     }

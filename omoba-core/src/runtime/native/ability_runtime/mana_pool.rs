@@ -111,6 +111,13 @@ impl ManaPool {
         Ok(())
     }
 
+    /// Hostile resource loss is capacity-limited and is not a self-spend event.
+    /// Preserve fractional regeneration accrued before the loss.
+    pub fn drain(&mut self, amount: Fixed64) -> Result<Fixed64, ManaPoolError> {
+        if amount < Fixed64::ZERO {return Err(ManaPoolError::InvalidAmount);}
+        let lost=amount.min(self.current);self.current-=lost;Ok(lost)
+    }
+
     /// Returns the amount actually restored; addition cannot overflow.
     pub fn restore(&mut self, amount: Fixed64) -> Result<Fixed64, ManaPoolError> {
         if amount < Fixed64::ZERO {
@@ -163,6 +170,16 @@ mod tests {
     use super::*;
     fn f(value: i32) -> Fixed64 {
         Fixed64::from_i32(value)
+    }
+
+    #[test]
+    fn mana_drain_caps_loss_and_preserves_regeneration_fraction_without_spend_semantics() {
+        let mut pool=ManaPool::from_raw_state(1500,10240,999).unwrap();let before=pool.clone();
+        assert_eq!(pool.drain(Fixed64::from_raw(-1)),Err(ManaPoolError::InvalidAmount));assert_eq!(pool,before);
+        assert_eq!(pool.drain(Fixed64::ONE).unwrap(),Fixed64::ONE);assert_eq!(pool.raw_state(),(476,10240,999));
+        assert_eq!(pool.drain(Fixed64::from_i32(1_000_000)).unwrap(),Fixed64::from_raw(476));assert_eq!(pool.raw_state(),(0,10240,999));
+        assert_eq!(pool.drain(Fixed64::ONE).unwrap(),Fixed64::ZERO);
+        pool.regenerate(Fixed64::ONE,Fixed64::from_raw(1)).unwrap();assert_eq!(pool.raw_state(),(1,10240,999));
     }
 
     #[test]

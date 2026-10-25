@@ -21,7 +21,7 @@ impl ShopReceipt {
     fn valid(&self) -> bool {
         self.player_id != 0
             && self.input_id != 0
-            && self.result_code <= 13
+            && (self.result_code <= 13 || (self.result_code == 16 && self.action_kind == 17))
             && match self.action_kind {
                 17 => {
                     self.slot == 0
@@ -290,6 +290,15 @@ mod tests {
         bytes[0] = 2;
         assert!(ShopReceipt::decode(&bytes).is_none());
         assert!(ShopReceipt::decode(&bytes[..39]).is_none());
+    }
+
+    #[test]
+    fn purchase_group_code_roundtrips_only_as_buy_rejection_and_keeps_reserved_codes_closed() {
+        let mut receipt=ShopReceipt {player_id:7,input_id:42,tick:55,action_kind:17,catalog_id:3,slot:0,result_code:16};
+        assert_eq!(ShopReceipt::decode(&receipt.encode()),Some(receipt.clone()));assert_eq!(receipt.encode().len(),40);
+        for code in [14,15,17,u32::MAX] {receipt.result_code=code;assert!(ShopReceipt::decode(&receipt.encode()).is_none());}
+        receipt.result_code=16;receipt.action_kind=18;receipt.catalog_id=0;
+        assert!(ShopReceipt::decode(&receipt.encode()).is_none(),"sell cannot report a purchase group limit");
     }
 
     #[test]

@@ -6,6 +6,8 @@ use crate::runtime::comp::{CProperty, Creep, CreepStatus, Faction, TAttack, TPro
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Outcome {
+    /// Host-owned stationary channel, admitted with its cast resource transaction.
+    ScriptRecoveryChannel { caster:Entity, owner:u32, amount:Fixed64, duration:Fixed64, interval:Fixed64 },
     /// Host-only scheduled zone. Expand at serial settlement after earlier hits,
     /// rechecking source lifetime and current target state before any cue/damage.
     DamageZonePulse { source:Entity, payload:serde_json::Value },
@@ -262,6 +264,8 @@ pub enum Outcome {
     DamageWithLeech { damage:Box<Outcome>, physical_leech:Fixed64, magical_leech:Fixed64 },
     /// Appended host-only critical provenance. Immediate damage/leech only.
     DamageWithCritical { damage:Box<Outcome> },
+    /// Authority-only lease token. Damage/faction/credit come from the private book.
+    IndependentDamageZonePulse { source:Entity, key:String, lease:u64 },
 }
 
 /// The successful-cast subset of native presentation, without ABI policy handles.

@@ -67,6 +67,7 @@ pub enum OutOfRangePolicy {
 pub enum SummonerOperation {
     SelfControlCleanse,
     SelfHeal { amount: Fixed64 },
+    SelfRestoreMana { amount: Fixed64 },
     SelfShield { amount: Fixed64, duration: Fixed64 },
     PointBlink {
         range: Fixed64,
@@ -143,6 +144,8 @@ fn generated_definition(
     }
     let operation = match (spell.target, spell.operation) {
         (omoba_template_ids::SummonerTargetConst::None,
+            omoba_template_ids::SummonerSpellOperationConst::SelfRestoreMana {amount}) => SummonerOperation::SelfRestoreMana {amount},
+        (omoba_template_ids::SummonerTargetConst::None,
             omoba_template_ids::SummonerSpellOperationConst::SelfControlCleanse) => SummonerOperation::SelfControlCleanse,
         (
             omoba_template_ids::SummonerTargetConst::None,
@@ -186,7 +189,7 @@ fn definition_in_bounds(definition: &SummonerDefinition) -> bool {
         SummonerOperation::SelfSprint {ms_bonus,duration} => ms_bonus>Fixed64::ZERO && ms_bonus<=Fixed64::from_i32(10000)
             && duration>Fixed64::ZERO && duration<=Fixed64::from_i32(60),
         SummonerOperation::SelfControlCleanse => true,
-        SummonerOperation::SelfHeal { amount } => positive_bounded(amount),
+        SummonerOperation::SelfHeal { amount } | SummonerOperation::SelfRestoreMana { amount } => positive_bounded(amount),
         SummonerOperation::SelfShield { amount, duration } => positive_bounded(amount)
             && positive_bounded(duration) && duration<=Fixed64::from_i32(60),
         SummonerOperation::PointBlink { range, .. } => positive_bounded(range),
@@ -331,6 +334,8 @@ pub struct SummonerCastContext {
     pub origin: Vec2,
     pub hp: Fixed64,
     pub max_hp: Fixed64,
+    /// Present only when the authority enabled the hero's checked mana pool.
+    pub mana: Option<(Fixed64, Fixed64)>,
     /// Checked recipient policy from current authority buffs; applied before HP cap.
     pub healing_received_multiplier:Fixed64,
     pub blocked_polygons: Vec<Vec<Vec2>>,
@@ -343,6 +348,7 @@ pub enum PlannedSummonerEffect {
     SelfSprint { hero_id:u64, ms_bonus:Fixed64, duration:Fixed64 },
     SelfControlCleanse { hero_id: u64 },
     SelfHeal { hero_id: u64, amount: Fixed64 },
+    SelfRestoreMana { hero_id: u64, amount: Fixed64 },
     SelfShield { hero_id: u64, amount: Fixed64, duration: Fixed64 },
     PointBlink { hero_id: u64, destination: Vec2 },
 }
@@ -360,6 +366,7 @@ struct PlanIdentity {
     origin: Vec2,
     hp: Fixed64,
     max_hp: Fixed64,
+    mana: Option<(Fixed64, Fixed64)>,
     healing_received_multiplier:Fixed64,
 }
 
@@ -392,6 +399,7 @@ pub struct ApplyFailure;
 
 /// World transaction. `Err` means the adapter published no partial effect.
 pub trait SummonerCommitSink {
+    fn apply_self_restore_mana(&mut self,_hero_id:u64,_amount:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
     fn apply_self_damage_reduction(&mut self,_hero_id:u64,_reduction:Fixed64,_duration:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
     fn apply_self_sprint(&mut self,_hero_id:u64,_ms_bonus:Fixed64,_duration:Fixed64)->Result<(),ApplyFailure>{Err(ApplyFailure)}
     /// Unsupported adapters fail before committing cooldown; never a silent no-op.
@@ -435,6 +443,7 @@ pub fn plan_cast(
             origin: context.origin,
             hp: context.hp,
             max_hp: context.max_hp,
+            mana: context.mana,
             healing_received_multiplier:context.healing_received_multiplier,
         },
         request: request.clone(),
@@ -485,6 +494,7 @@ fn apply_effect(sink: &mut impl SummonerCommitSink, effect: &PlannedSummonerEffe
         PlannedSummonerEffect::SelfSprint {hero_id,ms_bonus,duration} => sink.apply_self_sprint(hero_id,ms_bonus,duration),
         PlannedSummonerEffect::SelfControlCleanse { hero_id } => sink.apply_self_control_cleanse(hero_id),
         PlannedSummonerEffect::SelfHeal { hero_id, amount } => sink.apply_self_heal(hero_id, amount),
+        PlannedSummonerEffect::SelfRestoreMana { hero_id, amount } => sink.apply_self_restore_mana(hero_id, amount),
         PlannedSummonerEffect::SelfShield { hero_id, amount, duration } => sink.apply_self_shield(hero_id, amount, duration),
         PlannedSummonerEffect::PointBlink { hero_id, destination } => sink.apply_point_blink(hero_id, destination),
     }
@@ -505,6 +515,7 @@ fn identity_current(loadout: &SummonerLoadout, plan: &CastPlan, context: &Summon
         && identity.origin == context.origin
         && identity.hp == context.hp
         && identity.max_hp == context.max_hp
+        && identity.mana == context.mana
         && identity.healing_received_multiplier == context.healing_received_multiplier
 }
 
@@ -541,6 +552,14 @@ fn resolve_effect(
     request: &SummonerCastRequest,
 ) -> Result<PlannedSummonerEffect, CastReject> {
     match definition.operation {
+        SummonerOperation::SelfRestoreMana {amount} => {
+            if request.point.is_some() {return Err(CastReject::WrongTargetShape);}
+            let (current,maximum)=context.mana.ok_or(CastReject::CapabilityDisabled)?;
+            if current<Fixed64::ZERO || !positive_bounded(maximum) || current>maximum {
+                return Err(CastReject::CapabilityDisabled);
+            }
+            Ok(PlannedSummonerEffect::SelfRestoreMana {hero_id:context.hero_id,amount:capped_heal(current,maximum,amount)})
+        }
         SummonerOperation::SelfDamageReduction {reduction,duration} => {
             if request.point.is_some(){return Err(CastReject::WrongTargetShape);}
             Ok(PlannedSummonerEffect::SelfDamageReduction {hero_id:context.hero_id,reduction,duration})
@@ -690,6 +709,31 @@ mod tests {
     const BLINK: &str = "authority_point_blink";
     const HEAL: &str = "authority_self_heal";
 
+    #[test]
+    fn mana_restore_plan_caps_revalidates_resource_and_commits_once() {
+        let mut cat=SummonerCatalog::new();cat.insert("arbitrary_resource_spell",SummonerDefinition{cooldown:fx(9),operation:SummonerOperation::SelfRestoreMana{amount:fx(200)}}).unwrap();
+        let mut loadout=SummonerLoadout::unavailable();loadout.rebind_owner(7).unwrap();loadout.set_slot(1,Some("arbitrary_resource_spell".into())).unwrap();
+        let mut ctx=context(at(2,3),20,40);ctx.mana=Some((fx(90),fx(100)));ctx.healing_received_multiplier=Fixed64::ZERO;
+        let req=SummonerCastRequest{slot:1,point:None};let plan=plan_cast(&loadout,&cat,&ctx,&req).unwrap();
+        assert_eq!(plan.effect(),&PlannedSummonerEffect::SelfRestoreMana{hero_id:11,amount:fx(10)});
+        let mut body=Body{hero_id:11,hp:fx(20),max_hp:fx(40),pos:at(2,3),skill_points:3,mana_raw:Some(fx(90).raw()),fail:false};
+        let mut changed=ctx.clone();changed.mana=Some((fx(91),fx(100)));
+        assert_eq!(commit_cast(&mut loadout,&cat,&plan,&changed,&mut body),Err(CastReject::StalePlan));assert_eq!(body.mana_raw,Some(fx(90).raw()));
+        body.fail=true;assert_eq!(commit_cast(&mut loadout,&cat,&plan,&ctx,&mut body),Err(CastReject::ApplyFailed));assert_eq!(loadout.cooldown_remaining(1),Some(Fixed64::ZERO));
+        body.fail=false;commit_cast(&mut loadout,&cat,&plan,&ctx,&mut body).unwrap();assert_eq!(body.mana_raw,Some(fx(100).raw()));assert_eq!(body.hp,fx(20));assert_eq!(body.pos,at(2,3));assert_eq!(loadout.cooldown_remaining(1),Some(fx(9)));
+        assert_eq!(commit_cast(&mut loadout,&cat,&plan,&ctx,&mut body),Err(CastReject::StalePlan));
+    }
+
+    #[test]
+    fn mana_restore_model_rejects_missing_invalid_pool_and_wrong_shape() {
+        let mut cat=SummonerCatalog::new();cat.insert("arbitrary_resource_spell",SummonerDefinition{cooldown:fx(9),operation:SummonerOperation::SelfRestoreMana{amount:fx(200)}}).unwrap();
+        let mut loadout=SummonerLoadout::unavailable();loadout.rebind_owner(7).unwrap();loadout.set_slot(0,Some("arbitrary_resource_spell".into())).unwrap();
+        let mut ctx=context(at(0,0),20,40);let req=SummonerCastRequest{slot:0,point:None};
+        for mana in [None,Some((fx(0),fx(0))),Some((fx(-1),fx(100))),Some((fx(101),fx(100)))] {ctx.mana=mana;assert_eq!(plan_cast(&loadout,&cat,&ctx,&req),Err(CastReject::CapabilityDisabled));}
+        ctx.mana=Some((fx(100),fx(100)));assert_eq!(plan_cast(&loadout,&cat,&ctx,&req).unwrap().effect(),&PlannedSummonerEffect::SelfRestoreMana{hero_id:11,amount:Fixed64::ZERO});
+        assert_eq!(plan_cast(&loadout,&cat,&ctx,&SummonerCastRequest{slot:0,point:Some(at(0,0))}),Err(CastReject::WrongTargetShape));
+    }
+
     struct Body {
         hero_id: u64,
         hp: Fixed64,
@@ -701,6 +745,10 @@ mod tests {
     }
 
     impl SummonerCommitSink for Body {
+        fn apply_self_restore_mana(&mut self,hero_id:u64,amount:Fixed64)->Result<(),ApplyFailure>{
+            if self.fail || hero_id!=self.hero_id {return Err(ApplyFailure);}
+            let mana=self.mana_raw.as_mut().ok_or(ApplyFailure)?;*mana+=amount.raw();Ok(())
+        }
         fn apply_self_shield(&mut self,hero_id:u64,_amount:Fixed64,_duration:Fixed64) -> Result<(),ApplyFailure> {
             if self.fail || hero_id!=self.hero_id {Err(ApplyFailure)} else {Ok(())}
         }
@@ -789,6 +837,7 @@ mod tests {
             origin: pos,
             hp: fx(hp),
             max_hp: fx(max_hp),
+            mana: None,
             healing_received_multiplier:Fixed64::ONE,
             blocked_polygons: Vec::new(),
         }
@@ -1401,6 +1450,8 @@ mod tests {
             let definition = catalog.get(spell.id).unwrap();
             assert_eq!(definition.cooldown, spell.cooldown);
             match (spell.target, spell.operation, &definition.operation) {
+                (omoba_template_ids::SummonerTargetConst::None,omoba_template_ids::SummonerSpellOperationConst::SelfRestoreMana {amount},
+                    SummonerOperation::SelfRestoreMana {amount:got}) => assert_eq!(*got,amount),
                 (omoba_template_ids::SummonerTargetConst::None,omoba_template_ids::SummonerSpellOperationConst::SelfDamageReduction {reduction,duration},
                     SummonerOperation::SelfDamageReduction {reduction:got,duration:time}) => {assert_eq!(*got,reduction);assert_eq!(*time,duration);},
                 (omoba_template_ids::SummonerTargetConst::None,omoba_template_ids::SummonerSpellOperationConst::SelfSprint {ms_bonus,duration},

@@ -1081,6 +1081,7 @@ pub fn extract_snapshot(
     let damage_allowed = disclosed_damage_allowed_for_live_entities(world);
     let channel_states = snapshot_channel_visual_states(world);
     let unit_attack_states = snapshot_unit_attack_visual_states(world);
+    let attack_ranges=crate::runtime::attack_visual_state::resolved_attack_ranges(world);
     let storage_span = tracing::trace_span!(
         "omoba_core::runtime::extract_runtime.storage_borrows",
         perfetto = true,
@@ -1194,14 +1195,7 @@ pub fn extract_snapshot(
         )
         .entered();
         let stats = UnitStats::from_refs(&*buff_store, is_building_storage.get(entity).is_some());
-        let attack_range = tatk_storage
-            .get(entity)
-            .map(|a| {
-                stats
-                    .final_attack_range(a.range.v, entity)
-                    .to_f32_for_render()
-            })
-            .unwrap_or(0.0);
+        let attack_range=attack_ranges.get(&crate::runtime::canonical_entity_id(entity)).map_or(0.0,|r|r.to_f32_for_render());
         drop(stats_span);
 
         let hero_fields_span = tracing::trace_span!(
@@ -1603,6 +1597,7 @@ pub fn extract_data_for_render(
     let damage_allowed = disclosed_damage_allowed_for_live_entities(world);
     let channel_states = snapshot_channel_visual_states(world);
     let unit_attack_states = snapshot_unit_attack_visual_states(world);
+    let attack_ranges=crate::runtime::attack_visual_state::resolved_attack_ranges(world);
     let storage_span = tracing::trace_span!(
         "omoba_core::runtime::extract_runtime.storage_borrows",
         perfetto = true,
@@ -1682,14 +1677,7 @@ pub fn extract_data_for_render(
         let owner_player_id = owner_storage.get(entity).map(|o| o.player_id);
         let gold = gold_storage.get(entity).map(|g| g.0).unwrap_or(0);
         let stats = UnitStats::from_refs(&*buff_store, is_building_storage.get(entity).is_some());
-        let attack_range = tatk_storage
-            .get(entity)
-            .map(|a| {
-                stats
-                    .final_attack_range(a.range.v, entity)
-                    .to_f32_for_render()
-            })
-            .unwrap_or(0.0);
+        let attack_range=attack_ranges.get(&crate::runtime::canonical_entity_id(entity)).map_or(0.0,|r|r.to_f32_for_render());
 
         let (
             hero_name,

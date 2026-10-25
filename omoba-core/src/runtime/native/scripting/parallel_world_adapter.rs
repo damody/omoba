@@ -22,6 +22,10 @@ pub struct ParallelAdapterCache<'a> {
     pub entities: Entities<'a>,
     pub tattack: ReadStorage<'a, TAttack>,
     pub pos: ReadStorage<'a, Pos>,
+    move_targets: Option<ReadStorage<'a, MoveTarget>>,
+    summoned: Option<ReadStorage<'a, SummonedUnit>>,
+    commands: Option<ReadStorage<'a, HeroCommandQueue>>,
+    summon_host_movement: Option<Read<'a, super::super::tick::summon_tick::HostMovement>>,
     pub facing: ReadStorage<'a, Facing>,
     pub cprop: ReadStorage<'a, CProperty>,
     pub unit: ReadStorage<'a, Unit>,
@@ -61,6 +65,13 @@ impl<'a> ParallelAdapterCache<'a> {
             entities: world.entities(),
             tattack: world.read_storage::<TAttack>(),
             pos: world.read_storage::<Pos>(),
+            move_targets: world.has_value::<specs::storage::MaskedStorage<MoveTarget>>()
+                .then(||world.read_storage::<MoveTarget>()),
+            summoned: world.has_value::<specs::storage::MaskedStorage<SummonedUnit>>()
+                .then(||world.read_storage::<SummonedUnit>()),
+            commands: world.has_value::<specs::storage::MaskedStorage<HeroCommandQueue>>()
+                .then(||world.read_storage::<HeroCommandQueue>()),
+            summon_host_movement: world.try_fetch::<super::super::tick::summon_tick::HostMovement>().map(Into::into),
             facing: world.read_storage::<Facing>(),
             cprop: world.read_storage::<CProperty>(),
             unit: world.read_storage::<Unit>(),
@@ -531,6 +542,19 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
 
+    pub(crate) fn stage_recovery_channel(&mut self,caster:Entity,spec:super::super::recovery_channel::Spec)->bool {
+        let Some(owner)=self.cache.player_owner.get(caster).map(|owner|owner.player_id).filter(|owner|*owner>0)else{return false;};
+        let Some(state)=self.cache.moba.as_ref()else{return false;};
+        if !spec.valid() || !self.cache.entities.is_alive(caster) || self.cache.hero.get(caster).is_none()
+            || self.cache.cprop.get(caster).is_none_or(|props|props.hp<=Fixed64::ZERO)
+            || self.cache.buffs.is_silenced(caster) || self.cache.buffs.is_stunned(caster)
+            || state.phase!=crate::runtime::MobaMatchPhase::Playing || state.is_recalling(caster)
+            || !state.heroes.iter().any(|hero|hero.player_id==owner&&hero.entity==Some(caster))
+            || self.cache.pos.get(caster).is_none_or(|pos|pos.0.x.raw().unsigned_abs()>omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
+                ||pos.0.y.raw().unsigned_abs()>omoba_sim::terrain::MAX_GEOMETRY_RAW as u64) {return false;}
+        self.outcomes.push(Outcome::ScriptRecoveryChannel {caster,owner,amount:spec.amount,duration:spec.duration,interval:spec.interval});true
+    }
+
     pub fn set_projectile_origin(&mut self, origin: Option<ProjectileOrigin>) {
         self.projectile_team_key=origin.as_ref().and_then(|origin|origin.script.as_ref())
             .and_then(|source|source.faction.as_ref()).map(|faction|format!("team:{}",faction.team_id));
@@ -588,6 +612,26 @@ impl<'a> ParallelWorldAdapter<'a> {
     }
     fn is_summon(&self, entity:Entity)->bool {
         self.source_unit(entity).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon))
+    }
+
+    /// A preference from this summon owner's active command, never target admission.
+    fn summon_focus_target(&self,source:Entity)->Option<Entity> {
+        let stats=omoba_template_ids::summon_by_name(&self.source_unit(source)?.id)
+            .and_then(omoba_template_ids::active_summon_stats)?;
+        if stats.target_priority!=omoba_template_ids::SummonTargetPriority::OwnerFocus {return None;}
+        let summon=self.cache.summoned.as_ref()?.get(source)?;
+        let owner=summon.summoner;
+        if summon.is_expired() || !self.cache.entities.is_alive(owner)
+            || self.cache.hero.get(owner).is_none()
+            || !self.cache.cprop.get(owner).is_some_and(|p|p.hp>Fixed64::ZERO) {return None;}
+        let player=self.cache.player_owner.get(owner)?.player_id;
+        if player==0 || self.cache.player_owner.get(source)?.player_id!=player {return None;}
+        let faction=self.source_faction(source)?;let owner_faction=self.cache.faction.get(owner)?;
+        if faction.team_id<=0 || faction.team_id!=owner_faction.team_id || faction.faction_id!=owner_faction.faction_id {return None;}
+        match self.cache.commands.as_ref()?.get(owner)?.active? {
+            HeroCommand::AttackTarget {target,..}=>Some(target),
+            _=>None,
+        }
     }
 
     fn summon_target_allowed(&self,source:Entity,target:Entity,center:Vec2,radius:Fixed64)->bool {
@@ -886,6 +930,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         // state as ordinary hero movement. Direct set_pos remains available
         // for explicit authority/forced relocation; do not silently drop it.
         if self.cache.buffs.is_rooted(ent) { return pos; }
+        // Host movement already ran before scripts. An active destination owns
+        // this summon's movement; autonomous pursuit must not add another step.
+        if self.is_summon(ent) && (self.cache.move_targets.as_ref().is_some_and(|targets|targets.get(ent).is_some())
+            || self.cache.summon_host_movement.as_ref().is_some_and(|record|record.owns(self.cache.tick.0,ent))) {
+            return pos;
+        }
         let radius = self
             .cache
             .collision
@@ -1261,9 +1311,10 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             return RNone;
         };
         if self.is_summon(of_ent) {
+            let focus=self.summon_focus_target(of_ent);
             return (&self.cache.entities,&self.cache.pos,&self.cache.faction,&self.cache.cprop).join()
                 .filter(|(e,_,_,_)|self.summon_target_allowed(of_ent,*e,center,radius))
-                .min_by_key(|(e,p,_,_)|(p.0.distance_squared(center).raw(),e.id(),e.gen().id()))
+                .min_by_key(|(e,p,_,_)|(Some(*e)!=focus,p.0.distance_squared(center).raw(),e.id(),e.gen().id()))
                 .map(|(e,_,_,_)|RSome(Self::entity_to_handle(e))).unwrap_or(RNone);
         }
         let priority = self.source_tower(of_ent)
@@ -1675,6 +1726,28 @@ mod tests {
     }
 
     #[test]
+    fn summon_host_destination_blocks_script_chase_until_removed_without_blocking_other_units() {
+        let mut world=world_for_adapter_tests();world.register::<MoveTarget>();
+        let source=world.create_entity().with(Pos(Vec2::ZERO))
+            .with(Unit::new("arbitrary_summon".into(),"arbitrary".into(),UnitType::Summon)).build();
+        let destination=Vec2::new(Fixed64::ZERO,Fixed64::from_i32(100));
+        world.write_storage::<MoveTarget>().insert(source,MoveTarget(destination)).unwrap();
+        let aim=Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO);
+        let advance=|world:&World| {
+            let cache=ParallelAdapterCache::new(world,1);let mut adapter=ParallelWorldAdapter::new(&cache,source);
+            adapter.advance_with_collision(ParallelWorldAdapter::entity_to_handle(source),aim,Fixed64::from_i32(10))
+        };
+        assert_eq!(advance(&world),Vec2::ZERO);
+        world.write_storage::<MoveTarget>().remove(source);
+        assert_eq!(advance(&world),Vec2::new(Fixed64::from_i32(10),Fixed64::ZERO));
+        world.write_resource::<BuffStore>().add(source,"root",Fixed64::ONE,json!({}));
+        assert_eq!(advance(&world),Vec2::ZERO);world.write_resource::<BuffStore>().remove(source,"root");
+        world.write_storage::<MoveTarget>().insert(source,MoveTarget(destination)).unwrap();
+        world.write_storage::<Unit>().get_mut(source).unwrap().unit_type=UnitType::Hero;
+        assert_eq!(advance(&world),Vec2::new(Fixed64::from_i32(10),Fixed64::ZERO));
+    }
+
+    #[test]
     fn summon_handles_are_reserved_only_serially_and_cancelled_on_failure_or_drop() {
         let mut world=world_for_adapter_tests();
         let owner=world.create_entity().with(Faction::new(FactionType::Player,7))
@@ -1739,6 +1812,52 @@ mod tests {
         let all=adapter.query_enemies_in_range(Vec2::ZERO,Fixed64::from_i32(100),handle).into_vec();
         assert_eq!(adapter.query_nearest_enemy(Vec2::ZERO,Fixed64::from_i32(100),handle).into_option(),all.first().copied());
         all
+    }
+
+    #[test]
+    fn summon_owner_focus_preserves_default_visibility_range_owner_life_and_generation() {
+        use crate::runtime::{VisionSource,visibility::run_committed_visibility_wave_b};
+        let (mut world,source,near)=summon_combat_fixture();
+        let far=world.create_entity().with(Pos(Vec2::new(Fixed64::from_i32(80),Fixed64::ZERO)))
+            .with(Faction::new(FactionType::Enemy,2)).with(Unit::new("focus_target".into(),"focus".into(),UnitType::Creep))
+            .with(CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        let make_owner=|w:&mut World|w.create_entity().with(Pos(Vec2::ZERO))
+            .with(Hero::new("owner".into(),"owner".into(),"owner".into())).with(PlayerOwner::new(7))
+            .with(Faction::new(FactionType::Player,1))
+            .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO})
+            .with(HeroCommandQueue {active:Some(HeroCommand::AttackTarget {target:far,chase_origin:None}),queued:Vec::new()}).build();
+        let owner=make_owner(&mut world);
+        world.write_storage::<SummonedUnit>().insert(source,SummonedUnit::new_fixed(owner,Some(Fixed64::from_i32(30)))).unwrap();
+        world.write_storage::<PlayerOwner>().insert(source,PlayerOwner::new(7)).unwrap();
+        let select=|w:&World| {let cache=ParallelAdapterCache::new(w,1);let adapter=ParallelWorldAdapter::new(&cache,source);
+            adapter.query_nearest_enemy(Vec2::ZERO,Fixed64::from_i32(100),ParallelWorldAdapter::entity_to_handle(source)).into_option()};
+        let handle=ParallelWorldAdapter::entity_to_handle;
+        run_committed_visibility_wave_b(&mut world,1,0);
+        assert_eq!(select(&world),Some(handle(near)),"unknown/default policy remains nearest");
+        world.write_storage::<Unit>().get_mut(source).unwrap().id="saika_gunner".into();
+        assert_eq!(select(&world),Some(handle(far)),"authored owner-focus policy assists the active command");
+        world.write_storage::<VisionSource>().get_mut(source).unwrap().radius=Fixed64::from_i32(30);
+        run_committed_visibility_wave_b(&mut world,2,0);
+        assert_eq!(select(&world),Some(handle(near)),"last-known focused target is not current permission");
+        world.write_storage::<VisionSource>().get_mut(source).unwrap().radius=Fixed64::from_i32(100);
+        run_committed_visibility_wave_b(&mut world,3,0);assert_eq!(select(&world),Some(handle(far)));
+        world.write_storage::<Pos>().get_mut(far).unwrap().0.x=Fixed64::from_i32(200);
+        assert_eq!(select(&world),Some(handle(near)),"focus cannot extend the query range");
+        world.write_storage::<Pos>().get_mut(far).unwrap().0.x=Fixed64::from_i32(80);
+        world.write_storage::<CProperty>().get_mut(far).unwrap().hp=Fixed64::ZERO;
+        assert_eq!(select(&world),Some(handle(near)));world.write_storage::<CProperty>().get_mut(far).unwrap().hp=Fixed64::from_i32(100);
+        world.write_storage::<HeroCommandQueue>().get_mut(owner).unwrap().active=Some(HeroCommand::HoldPosition);
+        assert_eq!(select(&world),Some(handle(near)));
+        world.write_storage::<HeroCommandQueue>().get_mut(owner).unwrap().active=Some(HeroCommand::AttackTarget {target:far,chase_origin:None});
+        world.write_storage::<PlayerOwner>().get_mut(owner).unwrap().player_id=8;
+        assert_eq!(select(&world),Some(handle(near)));world.write_storage::<PlayerOwner>().get_mut(owner).unwrap().player_id=7;
+        world.write_storage::<Faction>().get_mut(owner).unwrap().team_id=2;
+        assert_eq!(select(&world),Some(handle(owner)),"foreign faction disables focus; that owner is now a legitimate nearest enemy");world.write_storage::<Faction>().get_mut(owner).unwrap().team_id=1;
+        world.write_storage::<CProperty>().get_mut(owner).unwrap().hp=Fixed64::ZERO;
+        assert_eq!(select(&world),Some(handle(near)));world.write_storage::<CProperty>().get_mut(owner).unwrap().hp=Fixed64::ONE;
+        world.delete_entity(owner).unwrap();world.maintain();let fresh=make_owner(&mut world);
+        assert_eq!(owner.id(),fresh.id());assert_ne!(owner,fresh);
+        assert_eq!(select(&world),Some(handle(near)),"replacement life does not inherit old summon control");
     }
 
     #[test]

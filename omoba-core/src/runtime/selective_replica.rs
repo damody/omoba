@@ -889,6 +889,10 @@ impl SelectiveReplicaRuntime {
         }
         if let Some(step) = &frame.step {
             for input in &step.accepted_inputs {
+                super::summon_transport::reject_kind_alias(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+                if input.action_kind==super::summon_transport::ACTION_KIND {
+                    super::summon_transport::validate_projected_ack(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+                }
                 super::direction_transport::reject_kind_alias(input).map_err(|_|ReplicaRuntimeError::Decode)?;
                 if input.action_kind==super::direction_transport::ACTION_KIND {
                     super::direction_transport::validate_projected_ack(input).map_err(|_|ReplicaRuntimeError::Decode)?;
@@ -1212,6 +1216,10 @@ impl SelectiveReplicaRuntime {
             return Ok(StepInjections::default());
         };
         for input in &step.accepted_inputs {
+            super::summon_transport::reject_kind_alias(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+            if input.action_kind==super::summon_transport::ACTION_KIND {
+                super::summon_transport::validate_projected_ack(input).map_err(|_|ReplicaRuntimeError::Decode)?;
+            }
             super::direction_transport::reject_kind_alias(input).map_err(|_|ReplicaRuntimeError::Decode)?;
             if input.action_kind==super::direction_transport::ACTION_KIND {
                 super::direction_transport::validate_projected_ack(input).map_err(|_|ReplicaRuntimeError::Decode)?;

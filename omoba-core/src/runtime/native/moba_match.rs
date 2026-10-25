@@ -518,6 +518,8 @@ struct LaneUnit {
     team: u8,
     role: LaneRole,
     attack_remaining: Fixed64,
+    attack_duration: Fixed64,
+    base_attack_interval: Fixed64,
     lane: usize,
     next_waypoint: usize,
     last_hit_retired: bool,
@@ -845,6 +847,19 @@ impl MobaMatch {
     pub fn is_recalling(&self, entity: Entity) -> bool {
         self.heroes.iter().any(|s| s.entity == Some(entity) && s.recall.is_some())
     }
+    pub fn disclosed_npc_attack_ranges(&self,world:&World)->BTreeMap<u64,Fixed64> {
+        let entities=world.entities();let props=world.has_value::<specs::storage::MaskedStorage<CProperty>>().then(||world.read_storage::<CProperty>());let bodies=world.has_value::<specs::storage::MaskedStorage<Unit>>().then(||world.read_storage::<Unit>());let buffs=world.try_fetch::<crate::runtime::BuffStore>();let mut out=BTreeMap::new();
+        let live=|e|entities.is_alive(e)&&props.as_ref().and_then(|s|s.get(e)).is_some_and(|p|p.hp>Fixed64::ZERO);
+        for unit in self.units.values().filter(|u|matches!(u.role,LaneRole::Creep|LaneRole::Tower|LaneRole::NexusTower)) {
+            let base=bodies.as_ref().and_then(|s|s.get(unit.entity)).map_or_else(||Fixed64::from_i32(if unit.role.is_tower(){650}else{140}),|u|u.attack_range);
+            let range=if !live(unit.entity){Fixed64::ZERO}else if unit.role==LaneRole::Creep {buffs.as_ref().map_or(base,|b|crate::runtime::UnitStats::from_refs(b,false).final_attack_range(base,unit.entity))}else{base};
+            out.insert(crate::runtime::canonical_entity_id(unit.entity),crate::runtime::attack_visual_state::checked_range(range).unwrap_or(Fixed64::ZERO));
+        }
+        for body in self.jungle_camps.iter().flat_map(|c|std::iter::once(c).chain(c.members.iter())){if let Some(e)=body.entity {
+            let base=Fixed64::from_i32(body.definition.attack_range);let range=if !live(e){Fixed64::ZERO}else{buffs.as_ref().map_or(base,|b|crate::runtime::UnitStats::from_refs(b,false).final_attack_range(base,e))};
+            out.insert(crate::runtime::canonical_entity_id(e),crate::runtime::attack_visual_state::checked_range(range).unwrap_or(Fixed64::ZERO));
+        }}out
+    }
     /// Build once per public snapshot, rather than scanning camps per entity.
     pub fn disclosed_unit_attack_states(&self, paused: bool) -> BTreeMap<u64, crate::runtime::attack_visual_state::AttackVisualState> {
         let mut states:BTreeMap<_,_> = self.jungle_camps.iter().flat_map(|camp|std::iter::once(camp).chain(camp.members.iter())).filter_map(|body| body.entity.map(|entity| {
@@ -855,7 +870,7 @@ impl MobaMatch {
         for unit in self.units.values().filter(|u|matches!(u.role,LaneRole::Creep | LaneRole::Tower | LaneRole::NexusTower)) {
             let state=if self.phase==MobaMatchPhase::Playing && unit.attack_sequence>0 && unit.attack_remaining>Fixed64::ZERO {
                 crate::runtime::attack_visual_state::AttackVisualState {sequence:unit.attack_sequence,phase:2,paused,
-                    elapsed_raw:(Fixed64::ONE-unit.attack_remaining).max(Fixed64::ZERO).raw(),duration_raw:Fixed64::ONE.raw()}
+                    elapsed_raw:(unit.attack_duration-unit.attack_remaining).max(Fixed64::ZERO).raw(),duration_raw:unit.attack_duration.raw()}
             } else {Default::default()};
             states.insert(crate::runtime::canonical_entity_id(unit.entity),state);
         }
@@ -1001,6 +1016,9 @@ fn communication_bounds_raw(state: &MobaMatch) -> Option<(i64, i64, i64, i64)> {
 #[cfg(feature = "kcp")]
 pub fn single_lane_input_action_allowed(input: &crate::runtime::PlayerInput) -> bool {
     use crate::runtime::PlayerInputEnum as I;
+    if let Some(I::OwnedSummonOrder(order)) = input.action.as_ref() {
+        return super::summon_orders::decode(order).is_ok();
+    }
     matches!(
         input.action,
         Some(
@@ -1384,6 +1402,8 @@ impl MobaMatch {
                 team: team as u8,
                 role,
                 attack_remaining: Fixed64::ZERO,
+                attack_duration: Fixed64::ONE,
+                base_attack_interval: Fixed64::ONE,
                 lane: 0,
                 next_waypoint: 1,
                 last_hit_retired: false,
@@ -1529,7 +1549,7 @@ impl MobaMatch {
                 .flat_map(|entry|std::iter::repeat_n(*entry,entry.count as usize)).collect()
         } else {
             vec![omoba_template_ids::MobaMinionConst {id:"single_lane_creep",count:1,every:1,
-                hp:180,damage:24,attack_range:140,move_speed:240};self.config.creeps_per_wave as usize]
+                hp:180,damage:24,attack_range:140,move_speed:240,attack_interval_ms:1000};self.config.creeps_per_wave as usize]
         };
         for team in 0..2 {
           for lane in 0..self.routes.len() {
@@ -1583,6 +1603,9 @@ impl MobaMatch {
                 let tracked = self.units.get_mut(&entity_key(entity)).expect("tracked creep");
                 tracked.lane = lane;
                 tracked.next_waypoint = cursor;
+                // Content validation bounds the integer; quantize once, never
+                // reconstruct authored cadence from an approximate reciprocal.
+                tracked.base_attack_interval=Fixed64::from_raw(i64::from(definition.attack_interval_ms)*1024/1000).max(Fixed64::from_raw(1));
             }
           }
         }
@@ -1875,6 +1898,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     let mut movement = Vec::new();
     let mut damage = Vec::new();
     let mut brush_attacks = Vec::new();
+    let mut npc_attack_commits = Vec::new();
     let units: Vec<_> = state.units.values().cloned().collect();
     let buffs=world.read_resource::<crate::runtime::BuffStore>();
     let npc_stats=crate::runtime::UnitStats::from_refs(&buffs,false);
@@ -1892,11 +1916,12 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
             continue;
         }
         let source_pos = positions.get(unit.entity).expect("lane unit position").0;
-        let range = bodies.get(unit.entity).map(|body|body.attack_range).unwrap_or_else(||Fixed64::from_i32(if unit.role.is_tower() {
+        let base_range = bodies.get(unit.entity).map(|body|body.attack_range).unwrap_or_else(||Fixed64::from_i32(if unit.role.is_tower() {
             650
         } else {
             140
         }));
+        let range=if unit.role==LaneRole::Creep {npc_stats.final_attack_range(base_range,unit.entity)}else{base_range};
         let aggro = if unit.role.is_tower() {range} else {range.max(Fixed64::from_i32(700))};
         let sieging=unit.role==LaneRole::Creep && unit.target.and_then(|target|state.units.get(&entity_key(target)))
             .is_some_and(|target| target.role.is_tower() && properties.get(target.entity).is_some_and(|p|p.hp>Fixed64::ZERO) && positions.get(target.entity)
@@ -1940,6 +1965,9 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         tracked.attack_remaining = (tracked.attack_remaining - dt).max(Fixed64::ZERO);
         tracked.target = target.map(|(target,_,_)|target.entity);
         tracked.target_protected = target_protected;
+        // These attacks are instantaneous: committed recovery still ages, but
+        // a stunned creep cannot start another attack or advance its route.
+        if unit.role==LaneRole::Creep && buffs.is_stunned(unit.entity) {continue;}
         if unit.role.is_tower() {
             tracked.tower_focus.reconcile(target.filter(|(target,_,_)|target.role==LaneRole::Hero)
                 .map(|(target,_,_)|target.entity),state.elapsed,state.config.tower_focus_rules);
@@ -1958,7 +1986,11 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                         target.entity,
                         amount,
                     ));
-                    tracked.attack_remaining = Fixed64::ONE;
+                    if unit.role==LaneRole::Creep {npc_attack_commits.push(unit.entity);}
+                    tracked.attack_duration = if unit.role==LaneRole::Creep {
+                        npc_stats.final_attack_interval(tracked.base_attack_interval,unit.entity).max(Fixed64::from_raw(1))
+                    }else{Fixed64::ONE};
+                    tracked.attack_remaining = tracked.attack_duration;
                     brush_attacks.push((unit.entity,target.entity));
                     tracked.attack_sequence=tracked.attack_sequence.wrapping_add(1).max(1);
                 }
@@ -1966,7 +1998,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
             }
         }
         if unit.role == LaneRole::Creep {
-            let step = properties.get(unit.entity).expect("lane property").msd * dt;
+            if buffs.is_rooted(unit.entity) {continue;}
+            let step = npc_stats.final_move_speed(properties.get(unit.entity).expect("lane property").msd,unit.entity) * dt;
             let pos = if let Some((_,destination,_)) = target {
                 if state.config.map_id.is_none() {
                     let diff = destination - source_pos;
@@ -1995,6 +2028,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     drop(bodies);
     drop(visibility);
     drop(buffs);
+    for entity in npc_attack_commits {world.write_resource::<crate::runtime::BuffStore>().consume_next_attack_bonus(entity);}
     for (entity, pos) in movement {
         if let Some(current) = world.write_storage::<Pos>().get_mut(entity) {
             current.0 = pos;
@@ -2841,6 +2875,9 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     use sha2::{Digest, Sha256};
     let state = world.read_resource::<MobaMatch>();
     let mut hash = Sha256::new();
+    if let Some(zones)=world.try_fetch::<crate::runtime::BuffStore>().and_then(|buffs|buffs.damage_zone_diagnostic()){
+        hash.update(b"|damage-zones:");hash_json(&mut hash,&zones);
+    }
     if let Some(channel)=super::recovery_channel::diagnostic(world) {hash.update(format!("|recovery-channel:{channel}"));}
     if let Some(windups)=world.try_fetch::<super::cast_windup::AbilityWindups>() {
         hash.update(format!("|cast-windups:{:?}|cast-view:{:?}",windups.0,windups.1));
@@ -2946,6 +2983,8 @@ pub fn single_lane_replay_digest(world: &World) -> String {
         hash.update(format!("|target:{:?}:{}",unit.target,unit.target_protected));
         hash.update(format!("|tower-focus:{:?}",unit.tower_focus));
         hash.update(format!("|attack-sequence:{}",unit.attack_sequence));
+        hash.update(format!("|attack-duration:{}",unit.attack_duration.raw()));
+        hash.update(format!("|base-attack-interval:{}",unit.base_attack_interval.raw()));
         let pos = positions.get(unit.entity).expect("lane position");
         let hp = properties.get(unit.entity).expect("lane hp");
         hash_json(
@@ -3360,6 +3399,8 @@ impl MobaMatch {
             team,
             role,
             attack_remaining: Fixed64::ZERO,
+            attack_duration: Fixed64::ONE,
+            base_attack_interval: Fixed64::ONE,
             lane,
             next_waypoint: 0,
             last_hit_retired: false,

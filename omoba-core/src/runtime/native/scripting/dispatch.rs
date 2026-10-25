@@ -302,7 +302,8 @@ pub fn run_script_dispatch(
             let cast_ok = adapter.cast_succeeded();
             let produced = adapter.finish();
             let has_summons = produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::SpawnSummoned {..}));
-            if is_cast && cast_ok && (managed_cast || has_summons) {
+            let has_channel=produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::ScriptRecoveryChannel {..}));
+            if is_cast && cast_ok && (managed_cast || has_summons || has_channel) {
                 let cues = visual_events.drain(visual_checkpoint..).map(|event|crate::runtime::native::comp::outcome::CastSettlementCue {
                     target:event.secondary,skill_id:event.skill_id,rank:event.ability_rank,tick:event.first_tick,
                     relocation:event.caster_relocation,area:event.ability_area,
@@ -970,7 +971,10 @@ fn dispatch_one(
                     .and_then(|ld| serde_json::to_string(ld).ok())
                     .unwrap_or_else(|| "{}".to_string());
 
-                let exec_ok = {
+                let exec_ok = match level_data.as_ref().map(|rank|super::super::recovery_channel::ability_spec(def,rank)) {
+                    Some(Ok(Some(spec)))=>adapter.stage_recovery_channel(caster,spec),
+                    Some(Err(()))|None=>false,
+                    Some(Ok(None))=>{
                     let mut world_dyn = world_dyn_of(adapter);
                     let r = catch_unwind(AssertUnwindSafe(|| {
                         ability_script.execute(
@@ -996,6 +1000,7 @@ fn dispatch_one(
                         }
                     }
                     // world_dyn 在此 block 結束時釋放 adapter 的借用
+                    }
                 };
 
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）

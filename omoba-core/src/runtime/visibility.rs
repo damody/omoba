@@ -1002,6 +1002,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let moba = match_state.is_some();
     let paused = world.try_fetch::<crate::runtime::GamePause>().is_some_and(|pause| pause.is_paused);
     let unit_attack_states = match_state.as_ref().map(|state| state.disclosed_unit_attack_states(paused)).unwrap_or_default();
+    let attack_ranges=if moba {crate::runtime::attack_visual_state::resolved_attack_ranges(world)}else{BTreeMap::new()};
     let structures = match_state.as_ref().map(|state| state.disclosed_structure_states()).unwrap_or_default();
     let channels = match_state.as_ref().map(|state| state.disclosed_channel_states()).unwrap_or_default();
     let buffs = world.try_fetch::<crate::runtime::BuffStore>();
@@ -1115,6 +1116,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             }
             disclose_json!(heroes, DISCLOSED_HERO_COMPONENT_SCHEMA_ID);
             disclose_json!(attacks, DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID);
+            if moba {if let Some(range)=attack_ranges.get(&canonical_id){disclosed.push((crate::runtime::attack_visual_state::RANGE_SCHEMA_ID,crate::runtime::attack_visual_state::encode_range(*range).expect("bounded resolved range")));}}
             disclose_json!(facings, DISCLOSED_FACING_COMPONENT_SCHEMA_ID);
             disclose_json!(turn_speeds, DISCLOSED_TURN_SPEED_COMPONENT_SCHEMA_ID);
             disclose_json!(

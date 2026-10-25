@@ -92,6 +92,9 @@ pub(crate) fn interrupt_for_damage(world:&World,entity:Entity) {
 
 pub(crate) fn cancel(world:&World,entity:Entity) {
     super::recovery_channel::cancel(world,entity);
+    if let (Some(registry),Some(mut queue))=(world.try_fetch::<super::ability_runtime::AbilityRegistry>(),world.try_fetch_mut::<super::scripting::ScriptEventQueue>()) {
+        queue.discard_channels_of(entity,&registry);
+    }
     if let Some(mut pending)=world.try_fetch_mut::<AbilityWindups>() {
         if pending.0.remove(&entity).is_some() {pending.result(entity,false);}
     }

@@ -85,6 +85,8 @@ pub const PERMANENT_BUFF_DURATION: Fixed64 = Fixed64::from_raw(i64::MAX);
 pub struct BuffStore {
     buffs: HashMap<Entity, HashMap<String, BuffEntry>>,
     entities_by_key: HashMap<String, HashMap<Entity, u32>>,
+    independent_zones:BTreeMap<(Entity,String),super::damage_zone::IndependentDamageZone>,
+    next_zone_lease:u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -244,6 +246,16 @@ impl BuffStore {
     /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
     /// 負載約定）。
     pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
+        if payload.get(super::damage_zone::KEY).is_some() {
+            let Some(spec)=super::damage_zone::DamageZoneSpec::from_payload(&payload)else{return;};
+            // An independent lease requires immutable host provenance, not just JSON.
+            if spec.independent || duration<spec.interval || duration>Fixed64::from_i32(30){return;}
+        }
+        self.independent_zones.remove(&(entity,buff_id.to_owned()));
+        self.insert_buff(entity,buff_id,duration,payload);
+    }
+
+    fn insert_buff(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
         let entity_buffs = self.buffs.entry(entity).or_default();
         match entity_buffs.get_mut(buff_id) {
             Some(e) => {
@@ -308,6 +320,7 @@ impl BuffStore {
     }
 
     pub fn remove(&mut self, entity: Entity, buff_id: &str) {
+        self.independent_zones.remove(&(entity,buff_id.to_owned()));
         let _ = self.remove_entry(entity, buff_id);
     }
 
@@ -543,12 +556,45 @@ impl BuffStore {
         self.has(entity, BuffId::Silence.as_str()) || self.has(entity, BuffId::Stun.as_str())
     }
 
-    /// Explicit supported control effects only; unrelated buffs retain payload,
-    /// lifetime and integration clocks. Normal removal maintains reverse indexes.
+    /// Closed hostile slow producers only. Do not infer debuffs from a negative
+    /// movement stat: voluntary stances and mixed/unknown effects must survive.
+    fn cleanseable_slow(name:&str,entry:&BuffEntry)->bool {
+        if entry.remaining<=Fixed64::ZERO{return false;}
+        let Some(payload)=entry.payload.as_object()else{return false;};
+        if payload.len()!=2{return false;}
+        if omb_script_abi::buff_ids::declarative_buff_source(name).is_some_and(|(_,stat)|stat.is_none()) {
+            return payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str)==Some("generic_ability_slow")
+                && payload.get("move_speed_bonus").and_then(Value::as_i64).is_some_and(|v|(-1024..=-1).contains(&v));
+        }
+        if name!="slow"{return false;}
+        // Projectile slow still publishes render floats. Admit only exact Q10
+        // values of that producer, not a permissive float-to-gameplay conversion.
+        let raw=|key:&str,min:i64,max:i64|->Option<i64>{
+            let n=payload.get(key)?.as_f64()?*1024.;
+            (n.is_finite()&&n.fract()==0.&&n>=min as f64&&n<=max as f64).then_some(n as i64)
+        };
+        match (raw("slow_factor",0,1023),raw("move_speed_bonus",-1024,-1)) {
+            (Some(factor),Some(bonus))=>bonus==factor-1024,_=>false,
+        }
+    }
+
+    /// Read-only parity with canonical cleansing. Standard key presence follows
+    /// the existing blocking semantics; slows share the exact closed predicate.
+    pub fn has_cleanseable_controls(&self, entity:Entity)->bool {
+        [BuffId::Stun,BuffId::Root,BuffId::Silence].iter().any(|id|self.has(entity,id.as_str()))
+            || self.buffs.get(&entity).is_some_and(|rows|rows.iter().any(|(name,entry)|Self::cleanseable_slow(name,entry)))
+    }
+
+    /// Explicit supported controls and recognized hostile slows only; unrelated
+    /// buffs retain payload, lifetime and integration clocks. Canonical removal
+    /// maintains reverse indexes and never grants future control immunity.
     pub fn cleanse_controls(&mut self, entity: Entity) {
         for id in [BuffId::Stun, BuffId::Root, BuffId::Silence] {
             self.remove(entity, id.as_str());
         }
+        let mut slows:Vec<_>=self.buffs.get(&entity).into_iter().flat_map(|rows|rows.iter())
+            .filter(|(name,entry)|Self::cleanseable_slow(name,entry)).map(|(name,_)|name.clone()).collect();
+        slows.sort();for id in slows{self.remove(entity,&id);}
     }
 
     /// 倒數所有 buff 並回傳過期的 `(Entity, buff_id, payload)` 清單。
@@ -582,13 +628,63 @@ impl BuffStore {
     pub fn cancel_damage_zones(&mut self,source:Entity) {
         let keys:Vec<_>=self.buffs.get(&source).into_iter().flat_map(|entries|entries.iter())
             .filter(|(_,entry)|entry.payload.get(super::damage_zone::KEY).is_some()).map(|(key,_)|key.clone()).collect();
-        for key in keys {self.remove(source,&key);}
+        // Source retirement clears its public status mirror, never an independent lease.
+        for key in keys {self.remove_entry(source,&key);}
+    }
+
+    pub fn can_schedule_independent_zones(&self,source:Entity,keys:&[&str])->bool {
+        use super::damage_zone::{MAX_INDEPENDENT_ZONES,MAX_INDEPENDENT_ZONES_PER_SOURCE};
+        if keys.len()>MAX_INDEPENDENT_ZONES_PER_SOURCE || self.next_zone_lease.checked_add(keys.len() as u64).is_none()
+            || keys.iter().any(|key|key.is_empty()||key.len()>128||key.chars().any(char::is_control)){return false;}
+        let new:std::collections::BTreeSet<_>=keys.iter().copied()
+            .filter(|key|!self.independent_zones.contains_key(&(source,(*key).to_owned()))).collect();
+        self.independent_zones.len()+new.len()<=MAX_INDEPENDENT_ZONES
+            && self.independent_zones.keys().filter(|(owner,_)|*owner==source).count()+new.len()<=MAX_INDEPENDENT_ZONES_PER_SOURCE
+    }
+
+    pub fn schedule_independent_zone(&mut self,source:Entity,key:&str,duration:Fixed64,
+        spec:super::damage_zone::DamageZoneSpec,origin:crate::runtime::comp::ProjectileOrigin,faction:crate::runtime::comp::Faction)->bool {
+        if !spec.independent || !spec.valid() || duration<spec.interval || duration>Fixed64::from_i32(30)
+            || origin.source!=source || origin.normal_attack || origin.script_attack || origin.attack_missed || origin.attack_critical
+            || origin.attack_lifesteal!=Fixed64::ZERO || origin.script.is_some()
+            || !self.can_schedule_independent_zones(source,&[key]) {return false;}
+        let Some(lease)=self.next_zone_lease.checked_add(1)else{return false;};
+        self.next_zone_lease=lease;
+        self.insert_buff(source,key,duration,spec.payload());
+        self.independent_zones.insert((source,key.to_owned()),super::damage_zone::IndependentDamageZone {
+            spec,remaining:duration,clock:0,lease,origin,faction});
+        true
+    }
+
+    pub fn independent_zone(&self,source:Entity,key:&str,lease:u64)->Option<&super::damage_zone::IndependentDamageZone> {
+        self.independent_zones.get(&(source,key.to_owned())).filter(|entry|entry.lease==lease)
+    }
+
+    /// Authority-only future state. Never append this book to public actor buffs.
+    pub fn damage_zone_diagnostic(&self)->Option<Value> {
+        use super::damage_zone::KEY;
+        if self.next_zone_lease==0 && self.independent_zones.is_empty() && !self.entities_by_key.contains_key(KEY){return None;}
+        let mut bound=Vec::new();
+        for source in self.entities_with_key(KEY) {for (key,entry) in self.iter_for(source) {
+            if entry.payload.get(KEY).is_some(){bound.push(((source.id(),source.gen().id(),key.to_owned()),
+                serde_json::json!([source.id(),source.gen().id(),key,entry.remaining.raw(),entry.zone_clock,entry.payload])));}
+        }}
+        bound.sort_by(|a,b|a.0.cmp(&b.0));
+        let mut independent:Vec<_>=self.independent_zones.iter().map(|((source,key),entry)|
+            ((source.id(),source.gen().id(),key.clone()),serde_json::json!([source.id(),source.gen().id(),key,entry.remaining.raw(),entry.clock,
+                entry.lease,entry.spec.payload(),entry.origin,entry.faction]))).collect();
+        independent.sort_by(|a,b|a.0.cmp(&b.0));
+        Some(serde_json::json!({"next_lease":self.next_zone_lease,"bound":bound.into_iter().map(|(_,row)|row).collect::<Vec<_>>(),
+            "independent":independent.into_iter().map(|(_,row)|row).collect::<Vec<_>>()}))
     }
 
     /// Sample pulses before lifetime expiry; only indexed zone owners are visited.
     pub fn drain_damage_zones(&mut self,dt:Fixed64)->Vec<super::damage_zone::DamageZonePulse> {
         use super::damage_zone::{DamageZoneSpec,DamageZonePulse,KEY};
         if dt<=Fixed64::ZERO {return Vec::new();}
+        // Last tick's final pulses have settled. Expiry itself must not revoke a
+        // pulse due exactly at that endpoint; explicit remove/refresh does revoke it.
+        self.independent_zones.retain(|_,entry|entry.remaining>Fixed64::ZERO);
         let mut owners:Vec<_>=self.entities_with_key(KEY).collect();owners.sort_by_key(|e|(e.id(),e.gen().id()));
         let mut pulses=Vec::new();
         for source in owners {
@@ -597,6 +693,7 @@ impl BuffStore {
             for key in keys {
                 let entry=entries.get_mut(&key).unwrap();
                 let Some(spec)=DamageZoneSpec::from_payload(&entry.payload)else{continue;};
+                if spec.independent {continue;}
                 if entry.remaining<=Fixed64::ZERO || entry.remaining>Fixed64::from_i32(30) {continue;}
                 let active=dt.min(entry.remaining).raw();
                 let previous=entry.zone_clock;
@@ -605,8 +702,17 @@ impl BuffStore {
                 for ordinal in 1..=clock/spec.interval.raw() {
                     let due=ordinal*spec.interval.raw()-previous;
                     pulses.push((due,source.id(),source.gen().id(),key.clone(),
-                        DamageZonePulse {source,spec,due_offset:Fixed64::from_raw(due)}));
+                        DamageZonePulse {source,spec,key:key.clone(),lease:None,due_offset:Fixed64::from_raw(due)}));
                 }
+            }
+        }
+        for ((source,key),entry) in &mut self.independent_zones {
+            let active=dt.min(entry.remaining).raw();let previous=entry.clock;let clock=previous+active;
+            entry.clock=clock%entry.spec.interval.raw();
+            for ordinal in 1..=clock/entry.spec.interval.raw() {
+                let due=ordinal*entry.spec.interval.raw()-previous;
+                pulses.push((due,source.id(),source.gen().id(),key.clone(),DamageZonePulse {
+                    source:*source,spec:entry.spec,key:key.clone(),lease:Some(entry.lease),due_offset:Fixed64::from_raw(due)}));
             }
         }
         // A later low-ID source must not consume shields or take first-lethal
@@ -617,6 +723,7 @@ impl BuffStore {
 
     pub fn tick(&mut self, dt: Fixed64) -> Vec<(Entity, String, Value)> {
         if dt<=Fixed64::ZERO {return Vec::new();}
+        for entry in self.independent_zones.values_mut(){entry.remaining-=dt.min(entry.remaining);}
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
         let mut to_drop: Vec<(Entity, String)> = Vec::new();
@@ -666,6 +773,59 @@ fn move_speed_sum_slot<'a>(sums: &'a mut MoveSpeedSums, key: &str) -> Option<&'a
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bot_self_cleanse_eligibility_matches_canonical_removal_without_mutation() {
+        let e=ent(1,1);let other=ent(2,1);let mut buffs=BuffStore::default();assert!(!buffs.has_cleanseable_controls(e));
+        for name in ["stun","root","silence"]{buffs.add(e,name,fx(3.),serde_json::json!({}));assert!(buffs.has_cleanseable_controls(e));assert!(!buffs.has_cleanseable_controls(other));buffs.cleanse_controls(e);assert!(!buffs.has_cleanseable_controls(e));}
+        for payload in [serde_json::json!({"move_speed_bonus":-128}),serde_json::json!({"move_speed_bonus":-0.5,"slow_factor":0.6}),serde_json::json!({"slow_factor":0.5})]{
+            buffs.add(e,"slow",fx(3.),payload);assert!(!buffs.has_cleanseable_controls(e));buffs.remove(e,"slow");}
+        buffs.add(e,"stance",fx(3.),serde_json::json!({"move_speed_bonus":-128}));assert!(!buffs.has_cleanseable_controls(e));
+        let key=omb_script_abi::buff_ids::generic_slow_buff_id("arbitrary_skill",omb_script_abi::types::EntityHandle{id:9,gen:1});
+        buffs.add(e,&key,fx(3.),serde_json::json!({"move_speed_bonus":-256,"__aggregation_family":"generic_ability_slow"}));
+        let before=buffs.get(e,&key).unwrap().clone();assert!(buffs.has_cleanseable_controls(e));assert_eq!(buffs.get(e,&key).unwrap().remaining,before.remaining);assert_eq!(buffs.get(e,&key).unwrap().payload,before.payload);
+        buffs.cleanse_controls(e);assert!(!buffs.has_cleanseable_controls(e));assert!(buffs.has(e,"stance"));
+        buffs.add(e,"slow",fx(3.),serde_json::json!({"move_speed_bonus":-0.5,"slow_factor":0.5}));assert!(buffs.has_cleanseable_controls(e));buffs.cleanse_controls(e);assert!(!buffs.has_cleanseable_controls(e));
+    }
+    #[test]
+    fn slow_cleanse_accepts_closed_producers_preserves_other_entries_and_reverse_indexes() {
+        let e=ent(1,1);let other=ent(2,1);let mut buffs=BuffStore::default();
+        let key=omb_script_abi::buff_ids::generic_slow_buff_id("arbitrary_skill",omb_script_abi::types::EntityHandle{id:9,gen:1});
+        let second=omb_script_abi::buff_ids::generic_slow_buff_id("other_skill",omb_script_abi::types::EntityHandle{id:10,gen:2});
+        let payload=serde_json::json!({"move_speed_bonus":-256,"__aggregation_family":"generic_ability_slow"});
+        for entity in [e,other]{buffs.add(entity,&key,fx(2.),payload.clone());buffs.add(entity,"slow",fx(2.),serde_json::json!({"move_speed_bonus":-0.5,"slow_factor":0.5}));}
+        buffs.add(e,&second,fx(3.),serde_json::json!({"move_speed_bonus":-512,"__aggregation_family":"generic_ability_slow"}));
+        for id in ["stun","root","silence"]{buffs.add(e,id,fx(2.),serde_json::json!({}));}
+        for (id,payload) in [
+            ("voluntary_stance",serde_json::json!({"move_speed_bonus":-512})),
+            ("retained_dot",serde_json::json!({"dot_damage":100,"__aggregation_family":"different"})),
+            ("generic_slow:foreign:9:1",serde_json::json!({"move_speed_bonus":-256,"__aggregation_family":"different"})),
+            ("generic_slow:mixed:9:1",serde_json::json!({"move_speed_bonus":-256,"__aggregation_family":"generic_ability_slow","dot_damage":12})),
+            ("generic_slow:ambiguous:09:1",serde_json::json!({"move_speed_bonus":-256,"__aggregation_family":"generic_ability_slow"})),
+            ("generic_slow:positive:9:1",serde_json::json!({"move_speed_bonus":256,"__aggregation_family":"generic_ability_slow"})),
+            ("generic_slow:float:9:1",serde_json::json!({"move_speed_bonus":-0.5,"__aggregation_family":"generic_ability_slow"})),
+        ]{buffs.add(e,id,fx(7.),payload);}
+        buffs.grant_damage_shield(e,Fixed64::from_i32(30),fx(5.));buffs.grant_healing_reduction(e,Fixed64::from_raw(512),fx(5.));
+        {let row=buffs.buffs.get_mut(&e).unwrap().get_mut("retained_dot").unwrap();row.periodic_remainder=17;row.zone_clock=23;}
+        let retained:Vec<_>=buffs.buffs[&e].iter().filter(|(name,_)|!matches!(name.as_str(),"slow"|"stun"|"root"|"silence")&&name.as_str()!=key.as_str()&&name.as_str()!=second.as_str()).map(|(name,row)|(name.clone(),row.clone())).collect();
+        buffs.cleanse_controls(e);assert!(!buffs.has(e,&key)&&!buffs.has(e,"slow")&&!buffs.is_stunned(e)&&!buffs.is_rooted(e)&&!buffs.is_silenced(e));
+        assert!(!buffs.has(e,&second));
+        assert!(!buffs.entities_with_key("slow_factor").any(|entity|entity==e));assert!(buffs.entities_with_key("slow_factor").any(|entity|entity==other));
+        for (name,before) in retained{let after=buffs.get(e,&name).unwrap();assert_eq!(after.payload,before.payload);assert_eq!(after.remaining,before.remaining);assert_eq!((after.periodic_remainder,after.zone_clock),(before.periodic_remainder,before.zone_clock));}
+        buffs.cleanse_controls(other);assert!(!buffs.entities_with_key("slow_factor").any(|_|true));
+        buffs.add(e,&key,fx(2.),payload);assert!(buffs.has(e,&key),"no immunity");
+        for payload in [serde_json::json!({"move_speed_bonus":-0.5,"slow_factor":0.4}),serde_json::json!({"move_speed_bonus":-0.3333,"slow_factor":0.6667}),
+            serde_json::json!({"move_speed_bonus":-512,"slow_factor":512}),serde_json::json!({"move_speed_bonus":-0.5,"slow_factor":0.5,"extra":1}),serde_json::json!({"move_speed_bonus":"-0.5","slow_factor":0.5})]{
+            buffs.add(e,"slow",fx(2.),payload);buffs.cleanse_controls(e);assert!(buffs.has(e,"slow"));buffs.remove(e,"slow");}
+        for value in [-1024,-1]{let payload=serde_json::json!({"move_speed_bonus":value,"__aggregation_family":"generic_ability_slow"});buffs.add(e,&key,fx(2.),payload);buffs.cleanse_controls(e);assert!(!buffs.has(e,&key));}
+        for factor in [0,1,1023]{buffs.add(e,"slow",fx(2.),serde_json::json!({"move_speed_bonus":(factor-1024)as f64/1024.,"slow_factor":factor as f64/1024.}));buffs.cleanse_controls(e);assert!(!buffs.has(e,"slow"));}
+    }
+
+    #[test]
+    fn independent_zone_nonce_exhaustion_rejects_without_blocking_ordinary_casts() {
+        let mut buffs=BuffStore::default();let source=ent(1,1);buffs.next_zone_lease=u64::MAX;
+        let before=buffs.damage_zone_diagnostic();assert!(!buffs.can_schedule_independent_zones(source,&["zone"]));
+        assert!(buffs.can_schedule_independent_zones(source,&[]));assert_eq!(buffs.damage_zone_diagnostic(),before);
+    }
     #[test]
     fn public_damage_shield_metadata_tracks_absorption_regrant_and_expiry() {
         let entity=ent(1,1);let mut buffs=BuffStore::default();

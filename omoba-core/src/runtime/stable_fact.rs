@@ -72,6 +72,7 @@ pub enum FactKind {
     DisclosedCombatRelation = 35,
     AttackAvoided = 36,
     CriticalHit = 37,
+    DisclosedAttackRange = 38,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

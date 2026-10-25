@@ -9,7 +9,8 @@ use serde_json::json;
 // Version 10 admits persistent combat preferences and discloses the policy
 // before replica combat runs. Earlier peers cannot predict that selection.
 // Version 11 also hashes the persistent input scheme and stable hero profile identity.
-pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 13;
+// Version14 admits opaque summon commands and redacted notification-only ACKs.
+pub const SELECTIVE_LOCKSTEP_PROTOCOL_VERSION: u32 = 15;
 pub const SELECTIVE_LOCKSTEP_PROTOCOL_V2: u32 = SELECTIVE_LOCKSTEP_PROTOCOL_VERSION;
 
 /// Only these protobuf message types may cross the secure V2 player boundary.
@@ -95,7 +96,7 @@ mod selective_version_tests {
             supported_protocols: vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION],
             secure_fog_required: true,
         };
-        assert_eq!(SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 13);
+        assert_eq!(SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 15);
         assert_eq!(request.resolve(None), Ok(MatchProtocol::SelectiveV2));
         request.requested_protocol = 7;
         request.supported_protocols = vec![SELECTIVE_LOCKSTEP_PROTOCOL_VERSION - 1];

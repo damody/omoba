@@ -402,6 +402,26 @@ message AttackTarget {
   bool queued = 2;       // append to the hero command queue when Shift is held
 }
 
+// Distinct from hero movement. References bind the current owner and summon
+// generations; operation 1=MoveTo(point required), 2=Release(point forbidden).
+message OwnedSummonOrder {
+  uint32 owner_entity = 1;
+  uint32 owner_generation = 2;
+  uint32 summon_entity = 3;
+  uint32 summon_generation = 4;
+  uint32 operation = 5;
+  Vec2I point = 6;
+}
+
+// Client-only opaque references. The authenticated edge converts this into
+// OwnedSummonOrder; canonical lives never occur in this payload or an ACK.
+message SummonCommandInput {
+  SecureReplicaTarget owner = 1;
+  SecureReplicaTarget summon = 2;
+  uint32 operation = 3;
+  Vec2I point = 4;
+}
+
 message AttackMove {
   Vec2I target = 1;  // world position to attack-move toward
   bool queued = 2;   // append to the hero command queue when Shift is held
@@ -624,6 +644,8 @@ message PlayerInput {
     CombatPreferencesUpdate combat_preferences = 26;
     InputSchemeUpdate input_scheme = 27;
     HeroDirectionInput direction = 28;
+    OwnedSummonOrder owned_summon_order = 29;
+    SummonCommandInput summon_command = 30;
   }
 }
 
@@ -1554,6 +1576,7 @@ message RendererInput {
     CombatPreferencesUpdate combat_preferences = 28;
     InputSchemeUpdate input_scheme = 29;
     RendererDirectionIntent direction = 30;
+    SummonCommandInput summon_command = 31;
   }
 }
 

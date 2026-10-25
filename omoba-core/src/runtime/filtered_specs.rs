@@ -245,6 +245,7 @@ impl FilteredReplicaWorldBuilder {
     fn empty_with_pool(self, start: &TeamGameStart, thread_pool: &std::sync::Arc<rayon::ThreadPool>) -> FilteredReplicaWorld {
         let mut world = crate::runtime::StateInitializer::setup_standard_ecs_world(thread_pool);
         world.register::<FilteredComponents>();
+        world.register::<crate::runtime::attack_visual_state::DisclosedAttackRange>();
         world.insert(TickDeterministicRng::new(start.global_seed));
         world.insert(crate::runtime::MasterSeed(start.global_seed));
         world.insert(AcceptedInputInjectionQueue::default());
@@ -626,6 +627,10 @@ impl SpecsDisclosedWorldStepper {
         if let Some(visual) = state.components.get(&crate::runtime::attack_visual_state::SCHEMA_ID) {
             if crate::runtime::attack_visual_state::AttackVisualState::decode(visual).is_none() { return Err(ReplicaRuntimeError::MalformedBaseline); }
         }
+        let range=state.components.get(&crate::runtime::attack_visual_state::RANGE_SCHEMA_ID).map(|bytes|
+            crate::runtime::attack_visual_state::decode_range(bytes).ok_or(ReplicaRuntimeError::MalformedBaseline)).transpose()?;
+        {let mut ranges=self.filtered.world.write_storage::<crate::runtime::attack_visual_state::DisclosedAttackRange>();
+            if let Some(range)=range{ranges.insert(entity,crate::runtime::attack_visual_state::DisclosedAttackRange(range)).map_err(|_|ReplicaRuntimeError::MalformedBaseline)?;}else{ranges.remove(entity);}}
         if let Some(visual) = state.components.get(&crate::runtime::channel_visual_state::SCHEMA_ID) {
             if crate::runtime::channel_visual_state::ChannelVisualState::decode(visual).is_none() { return Err(ReplicaRuntimeError::MalformedBaseline); }
         }
@@ -930,6 +935,22 @@ impl SpecsDisclosedWorldStepper {
                 .is_some_and(|owner| owner.player_id == accepted.player_id);
             if !owned {
                 return Err(ReplicaRuntimeError::WrongTeam);
+            }
+            crate::runtime::summon_transport::reject_kind_alias(accepted).map_err(|_|ReplicaRuntimeError::Decode)?;
+            if accepted.action_kind==crate::runtime::summon_transport::ACTION_KIND {
+                crate::runtime::summon_transport::validate_projected_ack(accepted).map_err(|_|ReplicaRuntimeError::Decode)?;
+                if self.filtered.world.read_storage::<crate::runtime::Hero>().get(actor).is_none() {
+                    return Err(ReplicaRuntimeError::WrongTeam);
+                }
+                let summon_id=accepted.target.as_ref().ok_or(ReplicaRuntimeError::Decode)?.value;
+                let summon=self.filtered.entities.0.get(&summon_id).ok_or(ReplicaRuntimeError::UnknownEntity)?.entity;
+                if !self.filtered.world.read_storage::<PlayerOwner>().get(summon).is_some_and(|owner|owner.player_id==accepted.player_id)
+                    || !self.filtered.world.read_storage::<crate::runtime::Unit>().get(summon).is_some_and(|unit|matches!(unit.unit_type,crate::runtime::UnitType::Summon)) {
+                    return Err(ReplicaRuntimeError::WrongTeam);
+                }
+                // This is a post-step ACK. SummonedUnit is private; never invent
+                // its behavior or feed this notification into hero commands.
+                continue;
             }
             if accepted.action_kind==crate::runtime::direction_transport::ACTION_KIND {
                 crate::runtime::direction_transport::validate_projected_ack(accepted).map_err(|_|ReplicaRuntimeError::Decode)?;
@@ -1444,6 +1465,11 @@ fn apply_committed_economy_and_equipment(
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes = entity.components.get_mut(&crate::runtime::attack_visual_state::SCHEMA_ID).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             *bytes = event.sanitized_payload.clone();
+        }
+        if event.event_kind==crate::runtime::FactKind::DisclosedAttackRange as u32 {
+            crate::runtime::attack_visual_state::decode_range(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let id=event.subject.as_ref().map_or(0,|id|id.value);let entity=world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes=entity.components.get_mut(&crate::runtime::attack_visual_state::RANGE_SCHEMA_ID).ok_or(ReplicaRuntimeError::MalformedBaseline)?;*bytes=event.sanitized_payload.clone();
         }
         if event.event_kind == crate::runtime::FactKind::CommittedEconomy as u32 {
             let state = crate::runtime::native::economy_projection::CommittedEconomyState::decode(&event.sanitized_payload)
@@ -2000,6 +2026,14 @@ mod committed_actor_state_tests {
         world.entities.clear();assert!(apply_disclosed_events(&mut world,&event(FactKind::DisclosedCombatRelation,bytes)).is_err());
     }
 
+    #[test]
+    fn public_range_absolute_updates_are_closed_and_require_current_baseline() {
+        use crate::runtime::attack_visual_state::{RANGE_SCHEMA_ID as SCHEMA,encode_range,decode_range};
+        let mut world=world();world.entities.get_mut(&1).unwrap().components.insert(SCHEMA,encode_range(omoba_sim::Fixed64::ZERO).unwrap());
+        for raw in [1,256001,0]{let bytes=encode_range(omoba_sim::Fixed64::from_raw(raw)).unwrap();let update=event(FactKind::DisclosedAttackRange,bytes.clone());apply_disclosed_events(&mut world,&update).unwrap();let once=world.clone();apply_disclosed_events(&mut world,&update).unwrap();assert_eq!(world,once);assert_eq!(decode_range(&world.entities[&1].components[&SCHEMA]).unwrap().raw(),raw);}
+        let before=world.clone();assert!(apply_disclosed_events(&mut world,&event(FactKind::DisclosedAttackRange,vec![0;9])).is_err());assert_eq!(world,before);
+        world.entities.get_mut(&1).unwrap().components.remove(&SCHEMA);assert!(apply_disclosed_events(&mut world,&event(FactKind::DisclosedAttackRange,encode_range(omoba_sim::Fixed64::ONE).unwrap())).is_err());world.entities.clear();assert!(apply_disclosed_events(&mut world,&event(FactKind::DisclosedAttackRange,encode_range(omoba_sim::Fixed64::ONE).unwrap())).is_err());
+    }
     #[test]
     fn attack_visual_state_absolute_updates_require_live_baseline() {
         use crate::runtime::attack_visual_state::{AttackVisualState, SCHEMA_ID};

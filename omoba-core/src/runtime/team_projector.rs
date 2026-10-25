@@ -1323,6 +1323,9 @@ impl TeamViewProjector {
         }
         if let Some(event) = self.pending_fog_event.take() { public_events.push(event); }
         for (&id, (_, _, components)) in &self.hash_entities {
+            if let Some(range)=components.get(&crate::runtime::attack_visual_state::RANGE_SCHEMA_ID){
+                public_events.push(TeamPublicEvent {event_kind:crate::runtime::FactKind::DisclosedAttackRange as u32,subject:Some(ProtoReplicaEntityId {value:id}),sanitized_payload:range.clone(),stable_sub_index:0});
+            }
             if let Some(state)=components.get(&crate::runtime::DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID) {
                 public_events.push(TeamPublicEvent {event_kind:crate::runtime::FactKind::DisclosedCombatRelation as u32,
                     subject:Some(ProtoReplicaEntityId {value:id}),sanitized_payload:state.clone(),stable_sub_index:0});
@@ -1377,6 +1380,7 @@ impl TeamViewProjector {
             .filter(|input| !super::input_scheme_transport::is_owner_setting_action(input.action_kind) ||
                 super::input_scheme_transport::owner_setting_available(self.combat_preferences.as_ref(),self.view_epoch,input.action_kind,input.player_id))
             .filter_map(|input| {
+                // New summon acknowledgements are notifications with redacted lives.
                 if input.action_kind==super::direction_transport::ACTION_KIND
                     && !super::direction_transport::available(self.combat_preferences.as_ref(),self.view_epoch,input.player_id) {return None;}
                 let actor = if super::input_scheme_transport::is_owner_setting_action(input.action_kind) && input.actor_canonical_id == 0 {
@@ -1404,6 +1408,9 @@ impl TeamViewProjector {
                 if projected.action_kind==super::direction_transport::ACTION_KIND
                     && super::direction_transport::validate_projected_ack(&projected).is_err() {return None;}
                 if super::direction_transport::reject_kind_alias(&projected).is_err() {return None;}
+                if super::summon_transport::reject_kind_alias(&projected).is_err() {return None;}
+                if projected.action_kind==super::summon_transport::ACTION_KIND
+                    && super::summon_transport::validate_projected_ack(&projected).is_err() {return None;}
                 Some(projected)
             })
             .collect::<Vec<_>>();
@@ -1999,6 +2006,13 @@ mod ability_cue_projection_tests {
         assert!(!hidden.public_events.iter().any(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32));
     }
 
+    #[test]
+    fn public_range_projector_only_updates_current_disclosures() {
+        use crate::runtime::attack_visual_state::{RANGE_SCHEMA_ID as SCHEMA,encode_range};
+        let canonical=CanonicalEntityKey{id:7,generation:1};let source=(1u64<<32)|7;let mut projector=TeamViewProjector::new(1,TeamProjectorConfig::default());let mapping=projector.identity.disclose(canonical).unwrap();projector.hash_entities.insert(mapping.replica_id.get(),(mapping.disclosure_epoch,0,BTreeMap::new()));
+        for (tick,raw) in [(1,256001),(2,102400),(3,0)]{let bytes=encode_range(omoba_sim::Fixed64::from_raw(raw)).unwrap();let baseline=crate::runtime::encode_disclosed_baseline(&[(crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(crate::runtime::DemoRenderState{x_raw:0,y_raw:0,team_id:2,kind:3,owner_player_id:0})),(SCHEMA,bytes.clone())]);let visible=BTreeSet::from([source]);projector.refresh_expected_visible_components(tick,&visible,&BTreeMap::from([(source,baseline)]));let step=projector.build_step(tick,&visible,&[],vec![],&[],&[]).unwrap();let events:Vec<_>=step.public_events.iter().filter(|e|e.event_kind==crate::runtime::FactKind::DisclosedAttackRange as u32).collect();assert_eq!(events.len(),1);assert_eq!(events[0].subject.as_ref().unwrap().value,mapping.replica_id.get());assert_eq!(events[0].sanitized_payload,bytes);}
+        projector.hash_entities.clear();assert!(!projector.build_step(4,&BTreeSet::new(),&[],vec![],&[],&[]).unwrap().public_events.iter().any(|e|e.event_kind==crate::runtime::FactKind::DisclosedAttackRange as u32));
+    }
     #[test]
     fn attack_visual_state_projector_updates_visible_enemy_and_idle() {
         use crate::runtime::attack_visual_state::{AttackVisualState, SCHEMA_ID};

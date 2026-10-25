@@ -18,6 +18,7 @@ pub struct MobaJungleCamp {
     pub respawn_at: Option<Fixed64>,
     target: Option<Entity>,
     attack_remaining: Fixed64,
+    attack_duration: Fixed64,
     attack_sequence: u32,
     lethal_pending: bool,
     killer_player: Option<u32>,
@@ -31,6 +32,7 @@ impl MobaJungleCamp {
             patience_remaining:Fixed64::from_i32(definition.patience_seconds),reset_remaining:Fixed64::ZERO,
             definition, entity: None, returning: false, respawns: 0,
             respawn_at: None, target: None, attack_remaining: Fixed64::ZERO,
+            attack_duration:Fixed64::from_i32(definition.attack_interval_seconds),
             attack_sequence: 0,
             lethal_pending: false, killer_player: None,killer_side:None,
         }
@@ -54,7 +56,7 @@ impl MobaJungleCamp {
         if self.returning || self.lethal_pending || self.attack_sequence == 0 || self.attack_remaining <= Fixed64::ZERO {
             return AttackVisualState::default();
         }
-        let duration = Fixed64::from_i32(self.definition.attack_interval_seconds);
+        let duration = self.attack_duration;
         let state = AttackVisualState { sequence: self.attack_sequence, phase: 2, paused,
             elapsed_raw: (duration - self.attack_remaining).max(Fixed64::ZERO).raw(), duration_raw: duration.raw() };
         if state.is_valid() { state } else { AttackVisualState::default() }
@@ -116,6 +118,7 @@ mod tests {
         world.register::<ScriptUnitTag>();world.register::<PlacedWard>();
         world.insert(VisionOccluderSet::default());world.insert(BlockedRegions::default());
         world.insert(Vec::<DamageInstance>::new());
+        world.insert(BuffStore::default());
         let mut state = super::super::stop_command_match(hero, MobaMatchPhase::Playing);
         world.write_storage::<Faction>().insert(hero,Faction::new(FactionType::Player,state.config.teams[0] as i32)).unwrap();
         world.insert(Vec::<Outcome>::new());
@@ -125,6 +128,78 @@ mod tests {
         (world,hero,state)
     }
 
+    #[test]
+    fn npc_damage_jungle_outgoing_bonus_consumption_refusal_siblings_and_optional_store() {
+        for mode in 0..6 {
+            let (mut w,hero,mut state)=camp_world();let i=state.jungle_camps.iter().position(|c|!c.members.is_empty()).unwrap();let mut camp=state.jungle_camps.remove(i);let actor=camp.entity.unwrap();camp.definition.position=(0,0);camp.definition.leash_radius=5000;camp.definition.damage=100;camp.definition.attack_range=100;camp.target=Some(hero);
+            for e in camp.entities(){w.write_storage::<Pos>().get_mut(e).unwrap().0=Vec2::ZERO;}w.write_storage::<Pos>().get_mut(hero).unwrap().0=Vec2::new(Fixed64::from_i32(if mode==2{600}else{0}),Fixed64::ZERO);
+            {let mut b=w.write_resource::<BuffStore>();b.add(actor,"arbitrary_outgoing",Fixed64::from_i32(10),serde_json::json!({"preattack_bonus_damage":20480,"totaldamageoutgoing_percentage":if mode==4{-2048}else{512}}));b.arm_next_attack_bonus(actor,Fixed64::from_i32(30));if mode==1{b.add(actor,"stun",Fixed64::ONE,serde_json::json!({}));}}
+            if mode==3{camp.attack_remaining=Fixed64::ONE;}if mode==5{w.remove::<BuffStore>();}state.jungle_camps=vec![camp];tick(&mut w,&mut state,Fixed64::from_raw(16));
+            let packets=w.read_resource::<Vec<DamageInstance>>();let own:Vec<_>=packets.iter().filter(|p|p.source.source_entity==actor).collect();if matches!(mode,1|2|3){assert!(own.is_empty());}else{assert_eq!(own.len(),1);assert_eq!(own[0].damage_types.physical,Fixed64::from_i32(if mode==5{100}else if mode==4{30}else{210}));}drop(packets);
+            if mode!=5{let b=w.read_resource::<BuffStore>();assert_eq!(b.next_attack_bonus(actor),if matches!(mode,1|2|3){Fixed64::from_i32(30)}else{Fixed64::ZERO});assert!(b.has(actor,"arbitrary_outgoing"));}
+            if mode==0 {for body in &state.jungle_camps[0].members{let p=w.read_resource::<Vec<DamageInstance>>();assert_eq!(p.iter().find(|p|p.source.source_entity==body.entity.unwrap()).unwrap().damage_types.physical,Fixed64::from_i32(body.definition.damage));}
+                for (remove,expected) in [(false,180),(true,100)]{if remove{w.write_resource::<BuffStore>().remove(actor,"arbitrary_outgoing");}state.jungle_camps[0].attack_remaining=Fixed64::ZERO;w.write_resource::<Vec<DamageInstance>>().clear();w.write_resource::<Tick>().0+=1;tick(&mut w,&mut state,Fixed64::from_raw(16));assert_eq!(w.read_resource::<Vec<DamageInstance>>().iter().find(|p|p.source.source_entity==actor).unwrap().damage_types.physical,Fixed64::from_i32(expected));}
+            }
+        }
+    }
+    #[test]
+    fn npc_attack_jungle_modifiers_committed_period_range_siblings_and_absent_store() {
+        for (payload,mult) in [(serde_json::json!({"attackspeed_bonus_constant":102400}),2),
+            (serde_json::json!({"attackspeed_bonus_constant":-51200}),-2),
+            (serde_json::json!({"fixed_attack_rate":4096}),4),(serde_json::json!({"attack_speed_multiplier":2048}),2)] {
+            let (mut world,hero,mut state)=camp_world();let i=state.jungle_camps.iter().position(|c|!c.members.is_empty()).unwrap();let mut camp=state.jungle_camps.remove(i);let actor=camp.entity.unwrap();
+            camp.definition.position=(0,0);camp.definition.attack_range=100;camp.definition.attack_interval_seconds=2;camp.target=Some(hero);
+            for e in camp.entities(){world.write_storage::<Pos>().get_mut(e).unwrap().0=Vec2::ZERO;}world.write_storage::<Pos>().get_mut(hero).unwrap().0=Vec2::ZERO;
+            world.write_resource::<BuffStore>().add(actor,"arbitrary_tempo",Fixed64::from_i32(10),payload);state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));
+            let expected=if mult>0{2048/mult}else{4096};let id=crate::runtime::canonical_entity_id(actor);assert_eq!(state.jungle_camps[0].attack_duration.raw(),expected);assert_eq!(state.disclosed_unit_attack_states(false)[&id].duration_raw,expected);
+            for body in &state.jungle_camps[0].members{assert_eq!(body.attack_duration,Fixed64::from_i32(body.definition.attack_interval_seconds));assert_eq!(body.attack_sequence,1);}
+            world.write_resource::<BuffStore>().remove(actor,"arbitrary_tempo");world.write_resource::<Tick>().0+=1;tick(&mut world,&mut state,Fixed64::from_raw(16));let phase=state.disclosed_unit_attack_states(false)[&id];assert_eq!((phase.duration_raw,phase.elapsed_raw),(expected,16));assert!(phase.is_valid());
+            state.jungle_camps[0].attack_remaining=Fixed64::from_raw(16);world.write_resource::<Tick>().0+=1;tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,2);assert_eq!(state.jungle_camps[0].attack_duration,Fixed64::from_i32(2));
+        }
+        for (payload,expected) in [(serde_json::json!({}),0),(serde_json::json!({"attack_range_bonus":102400}),1),
+            (serde_json::json!({"attack_range_bonus":102400,"max_attack_range":102400}),0),
+            (serde_json::json!({"attack_range_bonus":-204800}),0)] {
+            let (mut world,hero,mut state)=camp_world();let mut camp=state.jungle_camps.remove(0);let e=camp.entity.unwrap();camp.definition.position=(0,0);camp.definition.leash_radius=5000;camp.definition.attack_range=100;camp.target=Some(hero);world.write_storage::<Pos>().get_mut(e).unwrap().0=Vec2::ZERO;world.write_storage::<Pos>().get_mut(hero).unwrap().0=Vec2::new(Fixed64::from_i32(150),Fixed64::ZERO);
+            world.write_resource::<BuffStore>().add(e,"arbitrary_range",Fixed64::from_i32(10),payload);state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,expected);
+        }
+        let (mut world,hero,mut state)=camp_world();world.remove::<BuffStore>();let mut camp=state.jungle_camps.remove(0);let e=camp.entity.unwrap();world.write_storage::<Pos>().get_mut(hero).unwrap().0=home(&camp);camp.target=Some(hero);state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,1);assert_eq!(state.jungle_camps[0].attack_duration,Fixed64::from_i32(state.jungle_camps[0].definition.attack_interval_seconds));assert!(state.disclosed_unit_attack_states(false)[&crate::runtime::canonical_entity_id(e)].is_valid());
+    }
+    #[test]
+    fn npc_control_jungle_body_stun_root_slow_silence_and_sibling_independence() {
+        let mut baseline=Fixed64::ZERO;
+        for control in [None,Some("stun"),Some("root"),Some("silence"),Some("slow")] {for near in [false,true] {
+            let (mut world,hero,mut state)=camp_world();let index=state.jungle_camps.iter().position(|c|!c.members.is_empty()).unwrap();let mut camp=state.jungle_camps.remove(index);
+            camp.definition.position=(0,0);camp.definition.leash_radius=5000;camp.definition.move_speed=256;camp.target=Some(hero);camp.attack_remaining=Fixed64::from_raw(8);
+            let actor=camp.entity.unwrap();let siblings:Vec<_>=camp.members.iter().map(|b|b.entity.unwrap()).collect();
+            for entity in camp.entities(){world.write_storage::<Pos>().get_mut(entity).unwrap().0=Vec2::ZERO;}
+            world.write_storage::<Pos>().get_mut(hero).unwrap().0=Vec2::new(Fixed64::from_i32(if near{0}else{600}),Fixed64::ZERO);
+            if let Some(control)=control {world.write_resource::<BuffStore>().add(actor,control,Fixed64::from_i32(10),if control=="slow"{serde_json::json!({"move_speed_bonus":-0.5,"slow_factor":0.5})}else{serde_json::json!({})});}
+            state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));let camp=&state.jungle_camps[0];
+            if near {assert_eq!(camp.attack_sequence,if control==Some("stun"){0}else{1});assert!(camp.members.iter().all(|b|b.attack_sequence==1));}
+            else {assert_eq!(camp.attack_remaining,Fixed64::ZERO);let moved=world.read_storage::<Pos>().get(actor).unwrap().0.x;
+                match control{None=>{assert!(moved>Fixed64::ZERO);baseline=moved;},Some("stun"|"root")=>assert_eq!(moved,Fixed64::ZERO),Some("slow")=>assert_eq!(moved*Fixed64::from_i32(2),baseline),_=>assert_eq!(moved,baseline)}
+                for entity in siblings {assert!(world.read_storage::<Pos>().get(entity).unwrap().0.x>Fixed64::ZERO,"control must not freeze siblings");}
+                if let Some(control)=control {world.write_resource::<BuffStore>().remove(actor,control);world.write_resource::<Tick>().0+=1;let before=world.read_storage::<Pos>().get(actor).unwrap().0;tick(&mut world,&mut state,Fixed64::from_raw(16));assert!(world.read_storage::<Pos>().get(actor).unwrap().0.x>before.x);}
+            }
+        }}
+        // Minimal callers without the ability subsystem retain base AI.
+        let (mut world,hero,mut state)=camp_world();world.remove::<BuffStore>();let mut camp=state.jungle_camps.remove(0);
+        world.write_storage::<Pos>().get_mut(hero).unwrap().0=home(&camp);camp.target=Some(hero);state.jungle_camps=vec![camp];
+        tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,1);
+    }
+    #[test]
+    fn npc_control_jungle_soft_return_clocks_and_hard_restore_cannot_be_stranded() {
+        let (mut world,_,mut state)=camp_world();let index=state.jungle_camps.iter().position(|c|!c.members.is_empty()).unwrap();let mut camp=state.jungle_camps.remove(index);
+        camp.definition.position=(0,0);camp.definition.move_speed=256;camp.definition.soft_reset_seconds=1;camp.returning=true;camp.hard_reset=false;camp.reset_remaining=Fixed64::ONE;
+        let actor=camp.entity.unwrap();for member in &mut camp.members {member.definition.position=(0,0);}for entity in camp.entities(){world.write_storage::<Pos>().get_mut(entity).unwrap().0=Vec2::ZERO;}
+        world.write_storage::<Pos>().get_mut(actor).unwrap().0=Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO);
+        for control in ["stun","root"]{world.write_resource::<BuffStore>().add(actor,control,Fixed64::from_i32(100),serde_json::json!({}));}
+        world.write_resource::<BuffStore>().add(actor,"slow",Fixed64::from_i32(100),serde_json::json!({"move_speed_bonus":-1.0,"slow_factor":0.0}));world.write_storage::<CProperty>().get_mut(actor).unwrap().hp=Fixed64::ONE;
+        state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(world.read_storage::<Pos>().get(actor).unwrap().0.x,Fixed64::from_i32(500));assert_eq!(state.jungle_camps[0].reset_remaining,Fixed64::from_raw(1008));assert!(!state.jungle_camps[0].hard_reset);
+        world.write_resource::<Tick>().0+=1;tick(&mut world,&mut state,Fixed64::ONE);assert_eq!(world.read_storage::<Pos>().get(actor).unwrap().0,Vec2::ZERO);assert!(!state.jungle_camps[0].returning);assert!(!state.jungle_camps[0].hard_reset);
+        let props=world.read_storage::<CProperty>();assert_eq!(props.get(actor).unwrap().hp,props.get(actor).unwrap().mhp);drop(props);
+        let buffs=world.read_resource::<BuffStore>();assert!(buffs.is_stunned(actor)&&buffs.is_rooted(actor)&&buffs.has(actor,"slow"));
+    }
     #[test]
     fn public_return_status_tracks_camp_bodies_without_private_timers_or_combat_effects() {
         use crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION;
@@ -517,22 +592,41 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
                     amount:Fixed64::from_i32(body.definition.hp)*dt*Fixed64::from_i32(if hard {20}else{6})/Fixed64::from_i32(100)});
             }
             body.attack_remaining=(body.attack_remaining-dt).max(Fixed64::ZERO);
+            let base_speed=Fixed64::from_i32(body.definition.move_speed);
+            let base_range=Fixed64::from_i32(body.definition.attack_range);
+            let base_interval=Fixed64::from_i32(body.definition.attack_interval_seconds);
+            let (stunned,rooted,speed,range,interval)=if returning && hard {
+                // Preserve hard-reset restoration even under a permanent root
+                // or zero-speed modifier. This never removes the stored buffs.
+                (false,false,base_speed,base_range,base_interval)
+            } else if let Some(buffs)=world.try_fetch::<crate::runtime::BuffStore>() {
+                let stats=crate::runtime::UnitStats::from_refs(&buffs,false);
+                (buffs.is_stunned(entity),buffs.is_rooted(entity),
+                    stats.final_move_speed(base_speed,entity),stats.final_attack_range(base_range,entity),
+                    stats.final_attack_interval(base_interval,entity).max(Fixed64::from_raw(1)))
+            } else {(false,false,base_speed,base_range,base_interval)};
+            if stunned {if returning {all_home &= origin==home(body);}continue;}
         let Some(destination) = destination else { continue; };
-        let range = Fixed64::from_i32(body.definition.attack_range);
         let attack_line_clear = || world.try_fetch::<crate::runtime::VisionOccluderSet>().is_none_or(|walls|
             walls.line_of_sight(origin,destination)==crate::runtime::LosResult::Clear);
         if !returning && (destination-origin).length_squared() <= range*range && attack_line_clear() {
             if body.attack_remaining == Fixed64::ZERO {
+                let base=Fixed64::from_i32(body.definition.damage);
+                let amount=world.try_fetch::<crate::runtime::BuffStore>().map_or(base,|buffs|
+                    crate::runtime::UnitStats::from_refs(&buffs,false).normal_attack_physical(base,entity));
                 world.write_resource::<Vec<DamageInstance>>().push(DamageInstance::new_attack(entity,
-                    target.expect("valid aggro target").0,Fixed64::from_i32(body.definition.damage)));
+                    target.expect("valid aggro target").0,amount));
+                if let Some(mut buffs)=world.try_fetch_mut::<crate::runtime::BuffStore>() {buffs.consume_next_attack_bonus(entity);}
                 brush_attacks.push((entity,target.expect("valid aggro target").0));
-                body.attack_remaining = Fixed64::from_i32(body.definition.attack_interval_seconds);
+                body.attack_duration=interval;
+                body.attack_remaining=body.attack_duration;
                 body.attack_sequence = body.attack_sequence.wrapping_add(1).max(1);
             }
             continue;
         }
+        if rooted {if returning {all_home &= origin==home(body);}continue;}
         let pos = crate::tick::hero_command_tick::static_step_toward(origin,destination,
-            Fixed64::from_i32(body.definition.move_speed)*dt*if returning {if hard {Fixed64::from_i32(2)}else{Fixed64::from_i32(6)/Fixed64::from_i32(10)}}else{Fixed64::ONE},Fixed64::from_i32(20),
+            speed*dt*if returning {if hard {Fixed64::from_i32(2)}else{Fixed64::from_i32(6)/Fixed64::from_i32(10)}}else{Fixed64::ONE},Fixed64::from_i32(20),
             &world.read_resource::<BlockedRegions>());
         if pos != origin {
             world.write_storage::<Pos>().get_mut(entity).expect("camp position").0 = pos;

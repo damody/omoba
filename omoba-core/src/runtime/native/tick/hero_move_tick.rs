@@ -556,7 +556,7 @@ mod tests {
         world.write_storage::<Inventory>().insert(hero, Inventory::default()).unwrap();
         world.write_storage::<Gold>().insert(hero, Gold(400)).unwrap();
         world.write_storage::<ItemEffects>().insert(hero, ItemEffects::default()).unwrap();
-        world.insert(ItemRegistry::from_configs(vec![ItemConfig {
+        world.insert(ItemRegistry::from_configs(vec![ItemConfig { purchase_group: None,
             id: "moba_boots".into(),
             name: "Boots".into(),
             cost: 300,

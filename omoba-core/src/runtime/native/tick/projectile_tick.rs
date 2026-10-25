@@ -68,9 +68,16 @@ impl<'a> System<'a> for Sys {
                             proj.tpos = current_tpos;
                         }
                     }
-                    let delta = proj.tpos - pos.0;
-                    let dist = delta.length();
-                    let step = proj.msd * dt;
+                    // Collision and motion consume the same remaining flight
+                    // time, including a final tick shorter than DeltaTime.
+                    let active_dt = dt.max(Fixed64::ZERO).min(proj.time_left);
+                    let step = proj.msd.max(Fixed64::ZERO) * active_dt;
+                    let Some(next_pos)=omoba_sim::terrain::checked_travel_endpoint(pos.0,proj.tpos,step) else {
+                        outcomes.push(Outcome::Death {pos:pos.0,ent:e});
+                        emit_projectile_removal(&tr,e,proj);
+                        return (e,attribute_projectile_damage(outcomes,tr.origins.as_ref().and_then(|origins|origins.0.get(&e))));
+                    };
+                    let reached = next_pos == proj.tpos;
 
                     // 無 target 的方向性子彈（Tack 放射針）：用掃掠 segment 檢查命中
                     // （不只檢查當前 point，還要檢查本 tick 即將走過的路徑）避免高速子彈
@@ -85,15 +92,11 @@ impl<'a> System<'a> for Sys {
                     if proj.target.is_none() {
                         // 計算本 tick 的 swept segment：從 pos.0 出發，沿 delta 方向走 step 距離
                         let a: SimVec2 = pos.0;
-                        let b: SimVec2 = if dist > Fixed64::ZERO {
-                            a + delta.normalized() * step
-                        } else {
-                            a
-                        };
+                        let b: SimVec2 = next_pos;
                         // 注意：mid + half_len 僅在搜尋呼叫邊界在 f32 中計算
                         // （搜尋器在內部使用 f32 來實作 instant_distance lib 相容性；呼叫者中的最終距離檢查是固定 64）。
                         if let Some((hit_ent, hit_pos)) =
-                            swept_creep_hit(&tr.searcher, &target_positions, a, b, sweep_radius)
+                            swept_creep_hit(&tr.searcher, &target_positions, &tr.creeps, a, b, sweep_radius)
                         {
                             if proj.radius > Fixed64::ONE {
                                 let hit_pos_vek = vek::Vec2::new(
@@ -137,7 +140,6 @@ impl<'a> System<'a> for Sys {
                     }
 
                     // 命中判定：本 tick 的移動量已足夠抵達目標 → 直接 hit
-                    let reached = dist <= step || dist < Fixed64::ONE;
                     if reached {
                         // 命中點：優先用 target 的最新位置（snapshot = 本 tick 初的 Pos storage），
                         // 這樣 AoE 圓心和爆炸特效一定落在氣球身上，不會停在子彈剛發射時那一刻。
@@ -204,8 +206,7 @@ impl<'a> System<'a> for Sys {
                         emit_projectile_removal(&tr, e, proj);
                     } else {
                         // 還沒抵達：往目標方向前進一個 step
-                        let vel = (delta.normalized()) * step;
-                        let new_pos = pos.0 + vel;
+                        let new_pos = next_pos;
                         pos.0 = new_pos;
                         let source = crate::runtime::canonical_entity_id(e);
                         let _ = tr.facts.emit(crate::runtime::OrderedFact {
@@ -227,7 +228,7 @@ impl<'a> System<'a> for Sys {
                             },
                         });
                         // 安全閥：time_left 到期仍未命中（例如 target 死掉 tpos 凍結），讓 projectile 自然消失
-                        proj.time_left = proj.time_left - dt;
+                        proj.time_left = (proj.time_left - active_dt).max(Fixed64::ZERO);
                         if proj.time_left <= Fixed64::ZERO {
                             outcomes.push(Outcome::Death {
                                 pos: new_pos,
@@ -316,6 +317,7 @@ fn stable_projectile_outcomes(batches: Vec<(specs::Entity, Vec<Outcome>)>) -> Ve
 fn swept_creep_hit(
     searcher: &Searcher,
     target_positions: &std::collections::HashMap<specs::Entity, SimVec2>,
+    creeps: &ReadStorage<'_, Creep>,
     a: SimVec2,
     b: SimVec2,
     radius: Fixed64,
@@ -328,24 +330,12 @@ fn swept_creep_hit(
     let half_len_f = (vek::Vec2::new(b_xf - a_xf, b_yf - a_yf)).magnitude() * 0.5;
     let radius_f = radius.to_f32_for_render();
     let search_r = half_len_f + radius_f + 5.0;
-    let candidates = searcher.creep.search_nn(seg_mid_f, search_r, 16);
-    let radius2 = radius_f * radius_f;
-    let a_vek = vek::Vec2::new(a_xf, a_yf);
-    let b_vek = vek::Vec2::new(b_xf, b_yf);
-    for ci in candidates.iter() {
-        let cpos_sim = target_positions
-            .get(&ci.e)
-            .copied()
-            .unwrap_or(SimVec2::ZERO);
-        let cpos_vek = vek::Vec2::new(
-            cpos_sim.x.to_f32_for_render(),
-            cpos_sim.y.to_f32_for_render(),
-        );
-        if crate::util::geometry::point_segment_dist_sq(cpos_vek, a_vek, b_vek) <= radius2 {
-            return Some((ci.e, cpos_sim));
-        }
-    }
-    None
+    let (entity,_)=searcher.creep.select_in_range_by_key(seg_mid_f,search_r,|entity| {
+        if !creeps.contains(entity){return None;}
+        let current=*target_positions.get(&entity)?;
+        omoba_sim::terrain::swept_circle_contact_q32(current,a,b,radius)
+    })?;
+    Some((entity,*target_positions.get(&entity)?))
 }
 
 /// 創建投射物傷害事件 - 使用新的傷害事件系統。
@@ -560,6 +550,69 @@ mod tests {
         world
     }
 
+    fn flight_budget_case(end:Fixed64,speed:Fixed64,lifetime:Fixed64,target_x:Fixed64,homing:bool)
+        -> (World,specs::Entity,specs::Entity) {
+        let mut world=projectile_world();world.insert(DeltaTime(Fixed64::from_raw(16)));
+        let owner=world.create_entity().build();
+        let target=world.create_entity().with(Pos(SimVec2::new(target_x,Fixed64::ZERO)))
+            .with(test_creep("flight-budget-target")).build();
+        rebuild_creep_index(&mut world);
+        let projectile=world.create_entity().with(Pos(SimVec2::ZERO)).with(Projectile {
+            damage_stage:DamageStage::Raw,time_left:lifetime,owner,target:homing.then_some(target),
+            tpos:SimVec2::new(end,Fixed64::ZERO),radius:Fixed64::ZERO,msd:speed,
+            damage_phys:Fixed64::from_i32(40),damage_magi:Fixed64::ZERO,damage_real:Fixed64::ZERO,
+            damage_profile:AbiDamageProfile::NORMAL.bits(),slow_factor:Fixed64::ZERO,slow_duration:Fixed64::ZERO,
+            hit_radius:Fixed64::ONE,stun_duration:Fixed64::ZERO,kind_id:7,generation:0,
+        }).build();
+        run_now::<Sys>(&world);(world,projectile,target)
+    }
+
+    #[test]
+    fn projectile_flight_budget_straight_sweep_cannot_hit_past_endpoint() {
+        let (world,projectile,_)=flight_budget_case(Fixed64::from_i32(100),Fixed64::from_i32(64000),Fixed64::ONE,Fixed64::from_i32(200),false);
+        let events=world.read_resource::<Vec<Outcome>>();
+        assert!(!events.iter().any(|v|matches!(v,Outcome::RawDamage{..}|Outcome::Damage{..}|Outcome::ProjectileHit{..})),"sweep must not overshoot declared endpoint");
+        assert!(events.iter().any(|v|matches!(v,Outcome::Death{ent,pos} if *ent==projectile&&pos.x==Fixed64::from_i32(100))));
+        println!("endpoint=100 last_tick_budget=1000 target=200 no_hit=true removal=100");
+    }
+
+    #[test]
+    fn projectile_flight_budget_final_partial_tick_limits_sweep_and_position() {
+        let (world,projectile,_)=flight_budget_case(Fixed64::from_i32(1000),Fixed64::from_i32(6400),Fixed64::from_raw(8),Fixed64::from_i32(60),false);
+        let events=world.read_resource::<Vec<Outcome>>();
+        assert!(!events.iter().any(|v|matches!(v,Outcome::RawDamage{..}|Outcome::Damage{..}|Outcome::ProjectileHit{..})),"remaining lifetime allows only50 units, target60 cannot be hit");
+        assert_eq!(world.read_storage::<Pos>().get(projectile).unwrap().0.x,Fixed64::from_i32(50));
+        assert!(events.iter().any(|v|matches!(v,Outcome::Death{ent,pos} if *ent==projectile&&pos.x==Fixed64::from_i32(50))));
+        println!("tick_raw=16 lifetime_raw=8 last_step=50 target=60 no_hit=true removal=50");
+    }
+
+    #[test]
+    fn projectile_flight_budget_subunit_homing_distance_requires_movement() {
+        let (world,projectile,_)=flight_budget_case(Fixed64::from_raw(512),Fixed64::ZERO,Fixed64::ONE,Fixed64::from_raw(512),true);
+        let events=world.read_resource::<Vec<Outcome>>();
+        assert!(!events.iter().any(|v|matches!(v,Outcome::RawDamage{..}|Outcome::Damage{..}|Outcome::ProjectileHit{..}|Outcome::Death{..})),"positive subunit distance cannot grant a zero-speed impact");
+        assert_eq!(world.read_storage::<Pos>().get(projectile).unwrap().0,SimVec2::ZERO);
+        println!("homing distance_raw=512 speed=0 no_hit=true still_alive=true");
+    }
+
+    #[test]
+    fn projectile_flight_budget_exact_endpoint_contact_still_hits() {
+        let (world,_,target)=flight_budget_case(Fixed64::from_i32(100),Fixed64::from_i32(64000),Fixed64::ONE,Fixed64::from_i32(100),false);
+        let events=world.read_resource::<Vec<Outcome>>();
+        assert_eq!(events.iter().filter(|v|matches!(v,Outcome::RawDamage{target:v,..} if *v==target)).count(),1);
+        assert_eq!(events.iter().filter(|v|matches!(v,Outcome::ProjectileHit{target:v,..} if *v==target)).count(),1);
+    }
+
+    #[test]
+    fn projectile_flight_budget_raw_quantum_arrival_is_not_erased() {
+        for (speed,expected_hit) in [(Fixed64::ZERO,false),(Fixed64::from_raw(64),true)] {
+            let (world,_,target)=flight_budget_case(Fixed64::from_raw(1),speed,Fixed64::ONE,Fixed64::from_raw(1),true);
+            let events=world.read_resource::<Vec<Outcome>>();
+            assert_eq!(events.iter().any(|v|matches!(v,Outcome::RawDamage{target:v,..} if *v==target)),expected_hit,
+                "one raw quantum requires one raw quantum of travel, never rounded-zero arrival");
+        }
+    }
+
     fn rebuild_creep_index(world: &mut World) {
         let items: Vec<_> = {
             let entities = world.entities();
@@ -576,6 +629,62 @@ mod tests {
                 .collect()
         };
         world.write_resource::<Searcher>().creep.rebuild_from(items);
+    }
+
+    fn contact_world(points:&[SimVec2])->(World,Vec<specs::Entity>) {
+        let mut world=projectile_world();world.insert(DeltaTime(Fixed64::from_raw(16)));
+        let owner=world.create_entity().build();
+        let targets=points.iter().map(|point|world.create_entity().with(Pos(*point)).with(test_creep("contact-target")).build()).collect();
+        rebuild_creep_index(&mut world);
+        world.create_entity().with(Pos(SimVec2::ZERO)).with(Projectile {
+            damage_stage:DamageStage::Raw,time_left:Fixed64::ONE,owner,target:None,
+            tpos:SimVec2::new(Fixed64::from_i32(1000),Fixed64::ZERO),radius:Fixed64::ZERO,msd:Fixed64::from_i32(64000),
+            damage_phys:Fixed64::from_i32(40),damage_magi:Fixed64::ZERO,damage_real:Fixed64::ZERO,
+            damage_profile:AbiDamageProfile::NORMAL.bits(),slow_factor:Fixed64::ZERO,slow_duration:Fixed64::ZERO,
+            hit_radius:Fixed64::from_i32(5),stun_duration:Fixed64::ZERO,kind_id:7,generation:0,
+        }).build();(world,targets)
+    }
+    fn contact_point(x:i32,y:i32)->SimVec2 {SimVec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))}
+    fn contact_hits(world:&World)->Vec<specs::Entity> {
+        world.read_resource::<Vec<Outcome>>().iter().filter_map(|v|if let Outcome::RawDamage{target,..}=v{Some(*target)}else{None}).collect()
+    }
+    #[test]
+    fn projectile_contact_first_hit_precedes_midpoint_nearest() {
+        let (world,targets)=contact_world(&[contact_point(500,0),contact_point(100,0)]);
+        run_now::<Sys>(&world);assert_eq!(contact_hits(&world),vec![targets[1]],"front target must intercept before midpoint target");
+    }
+    #[test]
+    fn projectile_contact_off_path_midpoint_crowd_cannot_hide_front_hit() {
+        let mut points=vec![contact_point(100,0)];for y in 20..52 {points.push(contact_point(500,y));}
+        let (world,targets)=contact_world(&points);run_now::<Sys>(&world);
+        assert_eq!(contact_hits(&world),vec![targets[0]],"all32 closer midpoint candidates are outside capsule");
+    }
+    #[test]
+    fn projectile_contact_stale_spatial_row_has_no_origin_fallback() {
+        let (world,targets)=contact_world(&[contact_point(400,0)]);world.write_storage::<Pos>().remove(targets[0]);
+        run_now::<Sys>(&world);assert!(contact_hits(&world).is_empty(),"missing current position cannot become a hit at zero");
+    }
+    #[test]
+    fn projectile_contact_equal_contact_uses_canonical_identity_after_reverse_rebuild() {
+        let (world,targets)=contact_world(&[contact_point(100,0),contact_point(100,0)]);
+        world.write_resource::<Searcher>().creep.rebuild_from(targets.iter().rev().map(|e|(*e,vek::Vec2::new(100.,0.))));
+        run_now::<Sys>(&world);assert_eq!(contact_hits(&world),vec![targets[0]]);
+    }
+    #[test]
+    fn projectile_contact_stale_category_row_is_not_a_creep() {
+        let (world,targets)=contact_world(&[contact_point(100,0)]);world.write_storage::<Creep>().remove(targets[0]);
+        run_now::<Sys>(&world);assert!(contact_hits(&world).is_empty());
+    }
+    #[test]
+    fn projectile_contact_radius_entry_precedes_center_order() {
+        let (world,targets)=contact_world(&[contact_point(99,4),contact_point(100,0)]);
+        run_now::<Sys>(&world);assert_eq!(contact_hits(&world),vec![targets[1]],"entry95 precedes entry96 despite center100 being later");
+    }
+    #[test]
+    fn projectile_contact_tangent_is_closed_but_one_raw_outside_is_not() {
+        let outside=SimVec2::new(Fixed64::from_i32(100),Fixed64::from_i32(5)+Fixed64::from_raw(1));
+        let (world,targets)=contact_world(&[outside,contact_point(300,5)]);
+        run_now::<Sys>(&world);assert_eq!(contact_hits(&world),vec![targets[1]]);
     }
 
     #[test]

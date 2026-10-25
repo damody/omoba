@@ -15,6 +15,7 @@ pub mod input_scheme;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod input_scheme_transport;
 pub mod direction_transport;
+pub mod summon_transport;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod anti_probing;
 #[cfg(not(target_arch = "wasm32"))]

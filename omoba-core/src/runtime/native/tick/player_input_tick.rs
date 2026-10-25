@@ -216,6 +216,16 @@ fn route_input(
         Some(PlayerInputEnum::NoOp(_)) => {
             // 僅確認 - 保持活動心跳，沒有副作用。
         }
+        Some(PlayerInputEnum::OwnedSummonOrder(order)) => {
+            if super::super::summon_orders::decode(&order).is_err() {return;}
+            let count=move_q.requests.iter().filter(|pending|pending.owner_pid==player_id
+                && matches!(&pending.kind,PendingHeroCommandKind::OwnedSummonOrder {..})).count();
+            if count>=32 {return;}
+            move_q.requests.push(crate::comp::PendingHeroCommand {owner_pid:player_id,queued:false,
+                kind:PendingHeroCommandKind::OwnedSummonOrder {order}});
+        }
+        // Client references must be resolved by the authenticated edge first.
+        Some(PlayerInputEnum::SummonCommand(_)) => return,
         Some(PlayerInputEnum::MoveTo(m)) => {
             let (x, y) = m.target.map(|v| (v.x, v.y)).unwrap_or((0, 0));
             log::info!(

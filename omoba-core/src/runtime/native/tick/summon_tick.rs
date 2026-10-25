@@ -3,11 +3,26 @@ use specs::{shred, Entities, Join, Read, ReadStorage, SystemData, Write, WriteSt
 use crate::comp::*;
 use omoba_sim::Fixed64;
 
+/// Phase-local ownership; never serialized or replicated. Entity includes its generation.
+#[derive(Default)]
+pub(crate) struct HostMovement {
+    tick: Option<u64>,
+    moved: std::collections::BTreeSet<specs::Entity>,
+}
+impl HostMovement {
+    fn reset(&mut self,tick:u64) {self.tick=Some(tick);self.moved.clear();}
+    pub(crate) fn owns(&self,tick:u64,entity:specs::Entity)->bool {
+        self.tick==Some(tick) && self.moved.contains(&entity)
+    }
+}
+
 #[derive(SystemData)]
 pub struct SummonTickData<'a> {
     entities: Entities<'a>,
     dt: Read<'a, DeltaTime>,
     pause: Read<'a, GamePause>,
+    tick: Read<'a, Tick>,
+    host_movement: Write<'a, HostMovement>,
     summoned: WriteStorage<'a, SummonedUnit>,
     property: ReadStorage<'a, CProperty>,
     pos: WriteStorage<'a, Pos>,
@@ -25,6 +40,7 @@ impl<'a> System<'a> for Sys {
     type SystemData = SummonTickData<'a>;
     const NAME: &'static str = "summon";
     fn run(_job:&mut Job<Self>,mut data:Self::SystemData) {
+        data.host_movement.reset(data.tick.0);
         if data.pause.is_paused || data.dt.0<=Fixed64::ZERO {return;}
         let dt=data.dt.0;
         for (entity,summon) in (&data.entities,&mut data.summoned).join() {
@@ -75,6 +91,8 @@ impl<'a> System<'a> for Sys {
             let next=super::super::summon_navigation::advance(&mut summon.navigation,pos.0,target.0,
                 step.min(distance),dt,radius,&data.blocked);
             let moved=next-pos.0;
+            // Compare coordinates directly: squared fixed-point length can erase tiny steps.
+            if next!=pos.0 {data.host_movement.moved.insert(entity);}
             if moved.length_squared()>Fixed64::ZERO {facing.0=omoba_sim::trig::atan2(moved.y,moved.x);}
             pos.0=next;
             if (target.0-pos.0).length()<=Fixed64::from_raw(1) {arrived.push(entity);}
@@ -87,6 +105,16 @@ impl<'a> System<'a> for Sys {
 mod tests {
     use super::*;
     use specs::{Builder,World,WorldExt};
+    #[test]
+    fn summon_host_frame_ownership_is_exact_generation_tick_and_reset() {
+        let mut world=World::new();let old=world.create_entity().build();
+        let mut record=HostMovement::default();assert!(!record.owns(0,old));
+        record.reset(42);record.moved.insert(old);assert!(record.owns(42,old));assert!(!record.owns(43,old));
+        world.delete_entity(old).unwrap();world.maintain();let fresh=world.create_entity().build();
+        assert_eq!(old.id(),fresh.id());assert_ne!(old,fresh);assert!(!record.owns(42,fresh));
+        record.reset(42);assert!(!record.owns(42,old));
+        record.moved.insert(fresh);record.reset(43);assert!(!record.owns(43,fresh));
+    }
     fn fixture()->(World,specs::Entity,specs::Entity,specs::Dispatcher<'static,'static>) {
         let pool=crate::runtime::StateInitializer::create_thread_pool();
         let mut world=crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
@@ -108,10 +136,12 @@ mod tests {
     fn follow_hysteresis_respects_explicit_commands_root_pause_and_owner_generation() {
         let (mut world,owner,unit,mut dispatcher)=fixture();
         dispatcher.dispatch(&world);
+        assert!(world.read_resource::<HostMovement>().owns(world.read_resource::<Tick>().0,unit));
         assert!(world.read_storage::<SummonedUnit>().get(unit).unwrap().navigation.auto_target.is_some());
         let before=world.read_storage::<Pos>().get(unit).unwrap().0;
         world.write_resource::<crate::runtime::BuffStore>().add(unit,"root",Fixed64::from_i32(10),serde_json::json!({}));
         dispatcher.dispatch(&world);assert_eq!(world.read_storage::<Pos>().get(unit).unwrap().0,before);
+        assert!(!world.read_resource::<HostMovement>().owns(world.read_resource::<Tick>().0,unit));
         world.write_resource::<crate::runtime::BuffStore>().remove(unit,"root");
         world.write_resource::<GamePause>().is_paused=true;
         let remaining=world.read_storage::<SummonedUnit>().get(unit).unwrap().time_remaining;

@@ -517,6 +517,8 @@ pub struct PendingHeroCommand {
 
 #[derive(Clone, Debug)]
 pub enum PendingHeroCommandKind {
+    /// Separate actor scope; never converted to a hero command.
+    OwnedSummonOrder { order: crate::game_proto::OwnedSummonOrder },
     HoldPosition,
     /// One-shot clear. It never becomes a persistent `HeroCommand`.
     Stop,

@@ -35,6 +35,102 @@ fn flush(world:&mut World,rows:Vec<Outcome>)->Vec<crate::runtime::OrderedFact> {
 }
 
 #[test]
+fn mana_drain_serial_grant_rechecks_identity_team_range_and_later_siblings_atomically() {
+    use crate::runtime::native::mana_drain::{Spec,KEY,BUFF};
+    for case in 0..15 {
+        let (mut world,caster,children,mut batch)=fixture();
+        if let Outcome::ScriptCastTransaction{outcomes,..}=&mut batch{outcomes.retain(|e|!matches!(e,Outcome::SpawnSummoned{..}));}
+        {let r=world.read_resource::<crate::runtime::native::summon_navigation::PlacementReservations>();let mut rows=r.0.lock().unwrap();for child in &children{rows.remove(child);}}
+        for child in children{world.delete_entity(child).unwrap();}world.maintain();
+        let mut faction=world.read_storage::<Faction>().get(caster).unwrap().clone();faction.team_id=2;
+        let mut hero=Hero::new("target".into(),"Target".into(),String::new());hero.mana_pool=if case==1{None}else{Some(ManaPool::new(Fixed64::from_i32(if case==2{0}else{100}),Fixed64::from_i32(200)).unwrap())};
+        let target=world.create_entity().with(faction).with(hero).with(Pos(SimVec2::new(Fixed64::from_i32(600),Fixed64::ZERO)))
+            .with(CProperty{hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        if case==3{world.write_storage::<Hero>().remove(target);}
+        world.write_resource::<BuffStore>().grant_damage_shield(target,Fixed64::from_i32(20),Fixed64::ONE);
+        let mut spec=Spec::checked(caster.id(),caster.gen().id()as u32,Fixed64::from_i32(150),Fixed64::from_i32(600)).unwrap();
+        if case==7{spec.source_generation+=1;}
+        if case==8{spec.source_id=target.id();spec.source_generation=target.gen().id()as u32;}
+        let mut payload=spec.payload();if case==9{payload["unknown"]=json!(true);}if case==13{payload=json!({});}if case==14{payload[KEY]["amount_raw"]=json!(1_024_000_001i64);}
+        let grant=Outcome::AddBuff{target,buff_id:if case==12{"different".into()}else{BUFF.into()},duration:if case==11{Fixed64::from_raw(1025)}else{Fixed64::ONE},payload};
+        if let Outcome::ScriptCastTransaction{outcomes,..}=&mut batch{outcomes.push(grant);if case==10{let mut bad=spec.payload();bad[KEY]["amount_raw"]=json!(-1);outcomes.push(Outcome::AddBuff{target,buff_id:BUFF.into(),duration:Fixed64::ONE,payload:bad});}}
+        match case{4=>world.write_storage::<CProperty>().get_mut(target).unwrap().hp=Fixed64::ZERO,
+            5=>world.write_storage::<Faction>().get_mut(target).unwrap().team_id=1,
+            6=>world.write_storage::<Pos>().get_mut(target).unwrap().0.x+=Fixed64::from_raw(1),_=>{}}
+        flush(&mut world,vec![batch]);let valid=case<=3;
+        assert_eq!(mana(&world,caster),Fixed64::from_i32(if valid{210}else{300}));assert_eq!(world.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown(SKILL),valid);
+        if let Some(pool)=world.read_storage::<Hero>().get(target).and_then(|h|h.mana_pool.as_ref()){assert_eq!(pool.current(),Fixed64::from_i32(if valid{0}else{100}));}
+        assert_eq!(world.read_resource::<BuffStore>().shield_remaining(target),Fixed64::from_i32(20));assert!(!world.read_resource::<BuffStore>().has(target,BUFF));
+        assert_eq!(world.read_storage::<CProperty>().get(target).unwrap().hp,Fixed64::from_i32(if case==4{0}else{100}));
+        let events=world.write_resource::<ScriptEventQueue>().drain();assert_eq!(events.iter().filter(|e|matches!(e,ScriptEvent::SpentMana{..})).count(),if valid{1}else{0});
+    }
+}
+
+#[test]
+fn ally_shield_serial_admission_rechecks_target_source_and_later_siblings_atomically() {
+    use crate::runtime::native::ally_shield::{Spec,KEY};
+    for case in 0..9 {
+        let (mut world,caster,children,mut batch)=fixture();
+        if let Outcome::ScriptCastTransaction {outcomes,..}=&mut batch {outcomes.retain(|effect|!matches!(effect,Outcome::SpawnSummoned {..}));}
+        {let reservations=world.read_resource::<crate::runtime::native::summon_navigation::PlacementReservations>();let mut rows=reservations.0.lock().unwrap();for child in &children{rows.remove(child);}}
+        for child in children {world.delete_entity(child).unwrap();}world.maintain();
+        let faction=world.read_storage::<Faction>().get(caster).unwrap().clone();
+        let target=world.create_entity().with(faction).with(Pos(SimVec2::new(Fixed64::from_i32(600),Fixed64::ZERO)))
+            .with(CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        world.write_resource::<BuffStore>().grant_damage_shield(target,Fixed64::from_i32(20),Fixed64::ONE);
+        let mut spec=Spec::checked(caster.id(),caster.gen().id() as u32,Fixed64::from_i32(100),Fixed64::from_i32(600),Fixed64::from_i32(2)).unwrap();
+        if case==4 {spec.source_generation+=1;}if case==8{spec.source_id=target.id();spec.source_generation=target.gen().id()as u32;}
+        let mut payload=spec.payload();if case==5{payload[KEY]["amount_raw"]=json!(0);}if case==6{payload["unknown"]=json!(1);}
+        let grant=Outcome::AddBuff {target,buff_id:"damage_shield".into(),duration:Fixed64::from_i32(2),payload};
+        if let Outcome::ScriptCastTransaction {outcomes,..}=&mut batch {outcomes.push(grant);if case==7 {
+            let mut bad=spec.payload();bad[KEY]["amount_raw"]=json!(-1);outcomes.push(Outcome::AddBuff {target,buff_id:"damage_shield".into(),duration:Fixed64::ONE,payload:bad});}}
+        match case {1=>world.write_storage::<CProperty>().get_mut(target).unwrap().hp=Fixed64::ZERO,
+            2=>world.write_storage::<Faction>().get_mut(target).unwrap().team_id=2,
+            3=>world.write_storage::<Pos>().get_mut(target).unwrap().0.x+=Fixed64::from_raw(1),_=>{}}
+        let _=flush(&mut world,vec![batch]);
+        assert_eq!(mana(&world,caster),Fixed64::from_i32(if case==0 {210}else{300}));
+        assert_eq!(world.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown(SKILL),case==0);
+        assert_eq!(world.read_resource::<BuffStore>().shield_remaining(target),Fixed64::from_i32(if case==0{100}else{20}));
+        assert_eq!(world.read_resource::<BuffStore>().get(target,"damage_shield").unwrap().remaining,Fixed64::from_i32(if case==0{2}else{1}));
+        let events=world.write_resource::<ScriptEventQueue>().drain();assert_eq!(events.iter().filter(|e|matches!(e,ScriptEvent::SpentMana {..})).count(),if case==0{1}else{0});
+    }
+}
+
+#[test]
+fn ally_cleanse_serial_admission_is_atomic_source_bound_and_preserves_other_buffs() {
+    use crate::runtime::native::ally_cleanse::{Spec,KEY,BUFF};
+    for case in 0..11 {
+        let (mut world,caster,children,mut batch)=fixture();
+        if let Outcome::ScriptCastTransaction {outcomes,..}=&mut batch {outcomes.retain(|e|!matches!(e,Outcome::SpawnSummoned {..}));}
+        {let reservations=world.read_resource::<crate::runtime::native::summon_navigation::PlacementReservations>();let mut rows=reservations.0.lock().unwrap();for child in &children{rows.remove(child);}}
+        for child in children {world.delete_entity(child).unwrap();}world.maintain();
+        let faction=world.read_storage::<Faction>().get(caster).unwrap().clone();
+        let target=world.create_entity().with(faction).with(Pos(SimVec2::new(Fixed64::from_i32(600),Fixed64::ZERO)))
+            .with(CProperty {hp:Fixed64::from_i32(100),mhp:Fixed64::from_i32(100),msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
+        {let mut buffs=world.write_resource::<BuffStore>();for name in ["stun","root","silence"]{buffs.add(target,name,Fixed64::from_i32(3),json!({}));}
+            buffs.add(target,"slow",Fixed64::from_i32(3),json!({"move_speed_bonus":-0.5,"slow_factor":0.5}));
+            buffs.add(target,"self_stance",Fixed64::from_i32(3),json!({"move_speed_bonus":-128}));
+            buffs.grant_damage_shield(target,Fixed64::from_i32(20),Fixed64::ONE);}
+        let mut spec=Spec::checked(caster.id(),caster.gen().id()as u32,Fixed64::from_i32(600)).unwrap();
+        if case==4{spec.source_generation+=1;}if case==8{spec.source_id=target.id();spec.source_generation=target.gen().id()as u32;}
+        let mut payload=spec.payload();if case==5{payload[KEY]["range_raw"]=json!(0);}if case==6{payload["unknown"]=json!(1);}
+        let grant=Outcome::AddBuff {target,buff_id:BUFF.into(),duration:Fixed64::ONE,payload};
+        if let Outcome::ScriptCastTransaction {outcomes,..}=&mut batch {outcomes.push(grant);if case==7{outcomes.push(Outcome::AddBuff {target,buff_id:BUFF.into(),duration:Fixed64::ONE,payload:json!({})});}}
+        match case {1=>world.write_storage::<CProperty>().get_mut(target).unwrap().hp=Fixed64::ZERO,
+            2=>world.write_storage::<Faction>().get_mut(target).unwrap().team_id=2,
+            3=>world.write_storage::<Pos>().get_mut(target).unwrap().0.x+=Fixed64::from_raw(1),
+            9=>world.write_storage::<CProperty>().get_mut(caster).unwrap().hp=Fixed64::ZERO,
+            10=>{world.write_storage::<Pos>().remove(target);},_=>{}}
+        let _=flush(&mut world,vec![batch]);
+        assert_eq!(mana(&world,caster),Fixed64::from_i32(if case==0{210}else{300}));
+        assert_eq!(world.read_storage::<Hero>().get(caster).unwrap().is_on_cooldown(SKILL),case==0);
+        let buffs=world.read_resource::<BuffStore>();for name in ["stun","root","silence","slow"]{assert_eq!(buffs.has(target,name),case!=0,"case {case}: {name}");}
+        assert!(buffs.has(target,"self_stance"));assert!(!buffs.has(target,BUFF));assert_eq!(buffs.shield_remaining(target),Fixed64::from_i32(20));drop(buffs);
+        let events=world.write_resource::<ScriptEventQueue>().drain();assert_eq!(events.iter().filter(|e|matches!(e,ScriptEvent::SpentMana {..})).count(),if case==0{1}else{0});
+    }
+}
+
+#[test]
 fn cast_transaction_commits_entire_formation_once_with_resources_hooks_and_cue() {
     let (mut world,caster,children,batch)=fixture();
     let restored:Outcome=serde_json::from_str(&serde_json::to_string(&batch).unwrap()).unwrap();
