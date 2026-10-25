@@ -155,7 +155,8 @@ pub trait GameWorld: Send {
     /// 讀單位當前 facing 角度（+X = 0，CCW）。
     /// 無 `Facing` component 的實體回 `Angle::ZERO`。
     fn get_facing(&self, e: EntityHandle) -> Angle;
-    /// 查射程內最近的敵人（過濾 faction）；無則 RNone
+    /// 依來源單位的目標策略選擇敵人；未配置時為最近目標。
+    /// 策略不放寬 faction、視野、存活、射程或可攻擊性；無合法目標則 RNone。
     fn query_nearest_enemy(
         &self,
         center: Vec2,

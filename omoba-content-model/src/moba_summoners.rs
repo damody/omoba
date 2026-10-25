@@ -48,6 +48,7 @@ pub enum MobaSummonerOperation {
         out_of_range: MobaSummonerOutOfRange,
     },
     SelfHeal { amount: f32 },
+    SelfRestoreMana { amount: f32 },
     SelfShield { amount: f32, duration: f32 },
     SelfControlCleanse {},
     SelfSprint { ms_bonus: f32, duration: f32 },
@@ -75,6 +76,7 @@ impl MobaSummonerOutOfRange {
 impl MobaSummonerOperation {
     pub fn rust_literal(&self) -> String {
         match self {
+            Self::SelfRestoreMana { amount } => format!("SummonerSpellOperationConst::SelfRestoreMana {{ amount: {} }}",fixed64_rust_lit(*amount)),
             Self::SelfDamageReduction { reduction, duration } => format!("SummonerSpellOperationConst::SelfDamageReduction {{ reduction: {}, duration: {} }}",fixed64_rust_lit(*reduction),fixed64_rust_lit(*duration)),
             Self::SelfSprint { ms_bonus, duration } => format!("SummonerSpellOperationConst::SelfSprint {{ ms_bonus: {}, duration: {} }}",fixed64_rust_lit(*ms_bonus),fixed64_rust_lit(*duration)),
             Self::SelfControlCleanse {} => "SummonerSpellOperationConst::SelfControlCleanse".into(),
@@ -164,7 +166,7 @@ fn validate_summoner_spell(spell: &MobaSummonerEntry) -> Result<(), String> {
         (MobaSummonerOperation::PointBlink { range, .. }, MobaSummonerTarget::Point) => {
             summoner_authoring_fixed_raw(*range).map_err(|error| format!("summoner '{}' range: {error}", spell.id))?;
         }
-        (MobaSummonerOperation::SelfHeal { amount }, MobaSummonerTarget::None) => {
+        (MobaSummonerOperation::SelfHeal { amount } | MobaSummonerOperation::SelfRestoreMana { amount }, MobaSummonerTarget::None) => {
             summoner_authoring_fixed_raw(*amount).map_err(|error| format!("summoner '{}' amount: {error}", spell.id))?;
         }
         (MobaSummonerOperation::SelfShield { amount, duration }, MobaSummonerTarget::None) => {
@@ -181,6 +183,16 @@ fn validate_summoner_spell(spell: &MobaSummonerEntry) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::canonical_template_hash;
+
+    #[test]
+    fn mana_restore_authoring_is_bounded_strict_and_name_independent() {
+        let mut row=heal(53,"arbitrary_resource_spell");row.operation=MobaSummonerOperation::SelfRestoreMana {amount:200.0};
+        validate_moba_summoners(&[row.clone()]).unwrap();
+        assert_eq!(row.operation.rust_literal(),"SummonerSpellOperationConst::SelfRestoreMana { amount: Fixed64::from_raw(204800) }");
+        for amount in [0.0,-1.0,f32::NAN,f32::INFINITY,524289.0] {let mut bad=row.clone();bad.operation=MobaSummonerOperation::SelfRestoreMana {amount};assert!(validate_moba_summoners(&[bad]).is_err());}
+        row.target=MobaSummonerTarget::Point;assert!(validate_moba_summoners(&[row]).is_err());
+        assert!(serde_json::from_value::<MobaSummonerOperation>(serde_json::json!({"kind":"self_restore_mana","amount":200,"target_id":1})).is_err());
+    }
 
     fn blink(catalog_id: u16, id: &str) -> MobaSummonerEntry {
         MobaSummonerEntry {

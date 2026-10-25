@@ -1,4 +1,21 @@
 use super::*;
+#[test]
+fn line_effect_projects_exact_nonmoving_rank_width_and_rejects_ambiguous_contracts() {
+    let mut ability=fixture();ability.aim_geometry=None;ability.extras.insert("hit".into(),vec![100.,200.]);
+    ability.extras.insert("beam_width".into(),vec![120.,180.]);
+    ability.effects=vec![AbilityEffect::LineDamage{amount_key:"hit".into(),width_key:"beam_width".into(),damage_kind:EffectDamageKind::Magical}];
+    let preview=ability_aim_preview(&ability).unwrap();assert!(!preview.requires_movement);
+    assert_eq!(preview.ranks.iter().map(|r|r.path_width).collect::<Vec<_>>(),vec![120.,180.]);
+    assert!(preview.ranks.iter().all(|r|r.point_radius==0.&&r.cone_half_angle_ticks==0));
+    let signature=ability_aim_preview_signature(&ability).unwrap();let mut changed=ability.clone();changed.extras.get_mut("beam_width").unwrap()[0]+=1.;
+    assert_ne!(ability_aim_preview_signature(&changed).unwrap(),signature);
+    changed=ability.clone();changed.extras.get_mut("hit").unwrap()[0]+=1.;assert_eq!(ability_aim_preview_signature(&changed).unwrap(),signature);
+    for width in [0.,-1.,0.0001,5001.,f32::NAN,f32::INFINITY]{let mut bad=ability.clone();bad.extras.get_mut("beam_width").unwrap()[1]=width;assert!(validate_ability_progression(&bad).is_err());}
+    let mut bad=ability.clone();bad.extras.get_mut("beam_width").unwrap().pop();assert!(validate_ability_progression(&bad).is_err());
+    let mut bad=ability.clone();bad.effects.push(AbilityEffect::HealSelf{amount_key:"hit".into()});assert!(validate_ability_progression(&bad).is_err());
+    let mut bad=ability.clone();bad.aim_geometry=Some(AbilityAimGeometry::SweptPath{width_key:"beam_width".into()});assert!(validate_ability_progression(&bad).is_err());
+    for target in ["unit","none"]{let mut bad=ability.clone();bad.target_type=target.into();assert!(validate_ability_progression(&bad).is_err());}
+}
 
 #[test]
 fn active_cone_contract_quantizes_rank_geometry_and_rejects_ambiguous_effects() {

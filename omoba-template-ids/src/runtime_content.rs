@@ -336,6 +336,13 @@ impl RuntimeContent {
         for (index, runtime) in self.ability_const.iter().enumerate() {
             if let Some(runtime) = runtime {
                 let compiled = crate::ability_const(AbilityId(index as u16)).ok_or("missing compiled ability progression")?;
+                if runtime.cleanses_allies!=compiled.cleanses_allies {
+                    return Err("MOBA ally cleanse execution differs from compiled content; rebuild all peers".into());
+                }
+                if runtime.recovery_channel!=compiled.recovery_channel
+                    || (runtime.recovery_channel.is_some() && (runtime.cast_type!=compiled.cast_type || runtime.target_type!=compiled.target_type)) {
+                    return Err("MOBA recovery channel execution differs from compiled content; rebuild all peers".into());
+                }
                 if runtime.facing_formation_rows!=compiled.facing_formation_rows {
                     return Err("MOBA facing formation differs from compiled content; rebuild all peers".into());
                 }
@@ -561,6 +568,10 @@ impl RuntimeContent {
                 vision_radius: fixed64(entry.vision_radius),
                 follow_start_distance: fixed64(entry.follow_start_distance),
                 follow_stop_distance: fixed64(entry.follow_stop_distance),
+                target_priority: match entry.target_priority {
+                    crate::lua_content::SummonTargetPriorityEntry::Nearest=>crate::SummonTargetPriority::Nearest,
+                    crate::lua_content::SummonTargetPriorityEntry::OwnerFocus=>crate::SummonTargetPriority::OwnerFocus,
+                },
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {
@@ -688,6 +699,8 @@ struct ContentShape {
     hero_moba_loadouts: Vec<(String, [u8; 4], u8)>,
     ability_rank_requirements: Vec<(String, u16, Vec<(u8,bool)>)>,
     ability_aim_previews:Vec<(String,String)>,
+    ability_recovery_channels:Vec<(String,(String,String,String))>,
+    ability_ally_cleanses:Vec<String>,
     hero_kill_xp: u32,
     hero_assist_xp: u32,
     lane_creep_xp: u32,
@@ -749,6 +762,14 @@ impl ContentShape {
                 .map(|entry| (entry.id.clone(), omoba_content_model::facing_formation_rows(entry),entry.levels.iter().map(|level| (level.required_hero_level,level.cast_interrupt_on_damage)).collect())).collect(),
             ability_aim_previews:manifest.abilities.iter().filter(|entry|!entry.tombstone)
                 .map(|entry|(entry.id.clone(),omoba_content_model::ability_aim_preview_signature(entry).expect("validated aim preview"))).collect(),
+            ability_recovery_channels:manifest.abilities.iter().filter(|entry|!entry.tombstone).filter_map(|entry|
+                match entry.effects.as_slice() {
+                    [omoba_content_model::AbilityEffect::RecoveryChannelSelf {amount_key,duration_key,interval_key}]=>
+                        Some((entry.id.clone(),(amount_key.clone(),duration_key.clone(),interval_key.clone()))),
+                    _=>None,
+                }).collect(),
+            ability_ally_cleanses:manifest.abilities.iter().filter(|entry|!entry.tombstone && entry.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})))
+                .map(|entry|entry.id.clone()).collect(),
             moba_item_catalog_json: serde_json::to_string(&manifest.moba_items)
                 .expect("validated MOBA item catalog"),
             moba_trinket_catalog_json: serde_json::to_string(&manifest.moba_trinkets)
@@ -797,6 +818,12 @@ impl ContentShape {
     }
 
     fn ensure_compatible_with(&self, previous: &Self) -> Result<(), String> {
+        if self.ability_ally_cleanses!=previous.ability_ally_cleanses {
+            return Err("MOBA ally cleanse execution changed; rebuild all peers, not hot reload".into());
+        }
+        if self.ability_recovery_channels!=previous.ability_recovery_channels {
+            return Err("MOBA recovery channel execution changed; rebuild all peers, not hot reload".into());
+        }
         if self.mana_regen_per_second != previous.mana_regen_per_second {
             return Err("MOBA mana regeneration rules changed; rebuild all peers, not hot reload".into());
         }
@@ -1416,12 +1443,20 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
         ));
     }
     Ok(AbilityConst {
+        cleanses_allies: entry.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
         ability_type: ability_type(&entry.ability_type)?,
         cast_type: cast_type(&entry.cast_type)?,
         target_type: target_type(&entry.target_type)?,
         max_level: entry.max_level,
+        zone_independent: entry.zone_lifetime==Some(omoba_content_model::GroundZoneLifetime::Independent),
         facing_formation_rows: omoba_content_model::facing_formation_rows(entry),
         cone_half_angle_ticks: leak_slice(omoba_content_model::ability_aim_preview(entry)?.ranks.iter().map(|rank|rank.cone_half_angle_ticks).collect()),
+        line_widths: leak_slice(omoba_content_model::ability_aim_preview(entry)?.ranks.iter().map(|rank|if entry.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::LineDamage{..})){fixed64(rank.path_width)}else{Fixed64::ZERO}).collect()),
+        recovery_channel: match entry.effects.as_slice() {
+            [omoba_content_model::AbilityEffect::RecoveryChannelSelf {amount_key,duration_key,interval_key}]=>
+                Some(crate::RecoveryChannelConst {amount_key:leak_str(amount_key.clone()),duration_key:leak_str(duration_key.clone()),interval_key:leak_str(interval_key.clone())}),
+            _=>None,
+        },
         aim_preview_signature: leak_str(omoba_content_model::ability_aim_preview_signature(entry)?),
         icon: leak_str(entry.icon.clone()),
         description: leak_str(entry.description.clone()),
@@ -1715,11 +1750,44 @@ pub fn story_ids() -> Option<&'static [&'static str]> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bot_cleanse_runtime_and_compiled_capabilities_follow_effects() {
+        let entry:super::AbilityEntry=serde_json::from_value(serde_json::json!({"id":"arbitrary_cleanse","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":1,"levels":[{"range":600}],"effects":[{"kind":"cleanse_ally"}]})).unwrap();
+        assert!(super::ability_const_from_entry(&entry).unwrap().cleanses_allies);
+        let mut no_cleanse=entry.clone();no_cleanse.effects.clear();assert!(!super::ability_const_from_entry(&no_cleanse).unwrap().cleanses_allies);
+        let aid=crate::ability_by_name("lumen_aid").and_then(crate::active_ability_const).unwrap();assert!(aid.cleanses_allies);
+        let bolt=crate::ability_by_name("lumen_bolt").and_then(crate::active_ability_const).unwrap();assert!(!bolt.cleanses_allies);
+        let repo=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();let mut content=super::load_content(repo.join("scripts/lua_data")).unwrap();
+        let before=super::ContentShape::from_manifest(&content.manifest,&content.stories);
+        let aid=content.manifest.abilities.iter_mut().find(|a|a.id=="lumen_aid").unwrap();aid.effects.retain(|effect|!matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {}));
+        assert!(super::ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("ally cleanse execution"));
+        let runtime=super::RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();assert!(runtime.validate_moba_catalog().unwrap_err().contains("ally cleanse execution"));
+    }
     use super::*;
     use crate::{active_ability_const,active_creep_stats, creep_id_str, CreepId, Fixed64};
     use std::fs;
     use std::path::Path;
     use std::sync::{Mutex, MutexGuard};
+    #[test]
+    fn recovery_execution_projection_matches_compiled_and_blocks_semantic_reload() {
+        let repo=Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut content=load_content(repo.join("scripts/lua_data")).unwrap();
+        let before=ContentShape::from_manifest(&content.manifest,&content.stories);
+        let entry=content.manifest.abilities.iter_mut().find(|a|a.id=="apprentice_mend").unwrap();
+        let keys=ability_const_from_entry(entry).unwrap().recovery_channel.unwrap();
+        assert_eq!((keys.amount_key,keys.duration_key,keys.interval_key),("pulse_heal","channel_duration","pulse_interval"));
+        assert_eq!(crate::ability_const(crate::ability_by_name("apprentice_mend").unwrap()).unwrap().recovery_channel,Some(keys));
+        assert!(crate::ability_const(crate::ability_by_name("lumen_mend").unwrap()).unwrap().recovery_channel.is_none());
+        let mut arbitrary=entry.clone();arbitrary.id="any_authored_channel".into();
+        assert_eq!(ability_const_from_entry(&arbitrary).unwrap().recovery_channel,Some(keys));
+        let values=entry.extras["pulse_heal"].clone();entry.extras.insert("alternate_pulse".into(),values);
+        let [omoba_content_model::AbilityEffect::RecoveryChannelSelf {amount_key,..}]=entry.effects.as_mut_slice()else{panic!("exclusive authored effect")};
+        *amount_key="alternate_pulse".into();
+        assert_eq!(ability_const_from_entry(entry).unwrap().recovery_channel.unwrap().amount_key,"alternate_pulse");
+        assert!(ContentShape::from_manifest(&content.manifest,&content.stories).ensure_compatible_with(&before).unwrap_err().contains("recovery channel execution"));
+        let runtime=RuntimeContent::from_manifest(content.manifest,content.stories).unwrap();
+        assert!(runtime.validate_moba_catalog().unwrap_err().contains("recovery channel execution"));
+    }
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_lock() -> MutexGuard<'static, ()> {
@@ -1805,6 +1873,7 @@ mod tests {
             (0, "operation", serde_json::json!({"kind":"point_blink","range":401,"out_of_range":"clamp_to_range"})),
             (0, "operation", serde_json::json!({"kind":"point_blink","range":400,"out_of_range":"reject"})),
             (1, "operation", serde_json::json!({"kind":"self_heal","amount":201})),
+            (6, "operation", serde_json::json!({"kind":"self_restore_mana","amount":201})),
             (1, "operation", serde_json::json!({"kind":"self_shield","amount":200,"duration":2})),
             (2, "operation", serde_json::json!({"kind":"self_shield","amount":161,"duration":2})),
             (2, "operation", serde_json::json!({"kind":"self_shield","amount":160,"duration":3})),

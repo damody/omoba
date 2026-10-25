@@ -202,15 +202,15 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
         let unlock=if map.base_unlock=="any_lane_towers" {"AnyLaneTowers"}else{"AllLaneTowers"};
         let base_structures=map.base_structures.as_ref().map_or_else(||"None".to_string(), |s| {
             let m=&s.super_minion;
-            format!("Some(MobaBaseStructuresConst {{ minimum_spacing:{},inhibitor_offset:{},inhibitor_hp:{},inhibitor_respawn_seconds:{},nexus_tower_offset:{},nexus_tower_hp:{},nexus_tower_respawn_seconds:{},nexus_tower_respawn_hp_percent:{},siege_minion_id:{:?},super_minion:MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{}}} }})",
-                s.minimum_spacing,s.inhibitor_offset,s.inhibitor_hp,s.inhibitor_respawn_seconds,s.nexus_tower_offset,s.nexus_tower_hp,s.nexus_tower_respawn_seconds,s.nexus_tower_respawn_hp_percent,s.siege_minion_id,m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed)
+            format!("Some(MobaBaseStructuresConst {{ minimum_spacing:{},inhibitor_offset:{},inhibitor_hp:{},inhibitor_respawn_seconds:{},nexus_tower_offset:{},nexus_tower_hp:{},nexus_tower_respawn_seconds:{},nexus_tower_respawn_hp_percent:{},siege_minion_id:{:?},super_minion:MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{}}} }})",
+                s.minimum_spacing,s.inhibitor_offset,s.inhibitor_hp,s.inhibitor_respawn_seconds,s.nexus_tower_offset,s.nexus_tower_hp,s.nexus_tower_respawn_seconds,s.nexus_tower_respawn_hp_percent,s.siege_minion_id,m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms)
         });
         out.push_str(&format!("MobaMapConst {{ base_structures: {}, ",base_structures));
         out.push_str(&format!("base_unlock: MobaBaseUnlockConst::{}, id: {:?}, lane_length: {}, tower_offset: {}, tower_layers: &{:?}, wave_interval_seconds: {}, minion_wave: &[\n",
             unlock,map.id, map.lane_length, map.tower_offset, layers,map.wave_interval_seconds));
         for m in &map.minion_wave {
-            out.push_str(&format!("MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{}}},\n",
-                m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed));
+            out.push_str(&format!("MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{}}},\n",
+                m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms));
         }
         out.push_str("], lanes: &[\n");
         for lane in &map.lanes {
@@ -276,10 +276,10 @@ fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
         let active = item.active.as_ref().map(|effect| format!("Some({})", effect.rust_literal()))
             .unwrap_or_else(|| "None".into());
         out.push_str(&format!(
-            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, active: {}, cooldown: {}, recipe: &[{}], target: {} }},\n",
+            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, unique_passive: {}, purchase_group: {}, active: {}, cooldown: {}, recipe: &[{}], target: {} }},\n",
             item.catalog_id, item.id, item.name, item.cost,
             fixed64_lit(item.atk), fixed64_lit(item.hp), fixed64_lit(item.ms), fixed64_lit(item.armor),
-            fixed64_lit(item.lifesteal), fixed64_lit(item.critical_chance), active, fixed64_lit(item.cooldown), recipe, item.target.rust_literal(),
+            fixed64_lit(item.lifesteal), fixed64_lit(item.critical_chance), item.unique_passive.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), item.purchase_group.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), active, fixed64_lit(item.cooldown), recipe, item.target.rust_literal(),
         ));
     }
     out.push_str("];\n");
@@ -1460,6 +1460,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tvision_radius: {},\n\
              \tfollow_start_distance: {},\n\
              \tfollow_stop_distance: {},\n\
+             \ttarget_priority: SummonTargetPriority::{},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1474,6 +1475,7 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(e.vision_radius),
             fixed64_lit(e.follow_start_distance),
             fixed64_lit(e.follow_stop_distance),
+            e.target_priority.rust_variant(),
         ));
     }
     out.push('\n');
@@ -1594,12 +1596,16 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
 
         out.push_str(&format!(
             "pub const {}_CONST: AbilityConst = AbilityConst {{\n\
+             \tcleanses_allies: {},\n\
              \tability_type: AbilityTypeC::{},\n\
              \tcast_type: CastTypeC::{},\n\
              \ttarget_type: TargetTypeC::{},\n\
              \tmax_level: {}u8,\n\
+             \tzone_independent: {},\n\
              \tfacing_formation_rows: {}u16,\n\
              \tcone_half_angle_ticks: &{:?},\n\
+             \tline_widths: &[{}],\n\
+             \trecovery_channel: {},\n\
              \taim_preview_signature: \"{}\",\n\
              \ticon: \"{}\",\n\
              \tdescription: \"{}\",\n\
@@ -1607,12 +1613,20 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              \textras: {}_EXTRAS,\n\
              }};\n",
             cname,
+            e.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
             ability_type_to_variant(&e.ability_type),
             cast_type_to_variant(&e.cast_type),
             target_type_to_variant(&e.target_type),
             e.max_level,
+            e.zone_lifetime==Some(omoba_content_model::GroundZoneLifetime::Independent),
             omoba_content_model::facing_formation_rows(e),
             omoba_content_model::ability_aim_preview(e).expect("validated aim preview").ranks.iter().map(|rank|rank.cone_half_angle_ticks).collect::<Vec<_>>(),
+            omoba_content_model::ability_aim_preview(e).expect("validated aim preview").ranks.iter().map(|rank|fixed64_lit(if e.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::LineDamage{..})){rank.path_width}else{0.0})).collect::<Vec<_>>().join(","),
+            match e.effects.as_slice() {
+                [omoba_content_model::AbilityEffect::RecoveryChannelSelf {amount_key,duration_key,interval_key}] =>
+                    format!("Some(RecoveryChannelConst {{amount_key:{:?},duration_key:{:?},interval_key:{:?}}})",amount_key,duration_key,interval_key),
+                _=>"None".to_string(),
+            },
             escape_str_literal(&omoba_content_model::ability_aim_preview_signature(e).expect("validated aim preview")),
             escape_str_literal(&e.icon),
             escape_str_literal(&e.description),

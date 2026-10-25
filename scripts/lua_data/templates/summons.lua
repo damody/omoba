@@ -22,6 +22,7 @@ return function(ctx)
       vision_radius = 800.0,
       follow_start_distance = 750.0,
       follow_stop_distance = 350.0,
+      target_priority = "owner_focus",
     },
   }
 end

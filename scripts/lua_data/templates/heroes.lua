@@ -304,6 +304,12 @@ return function(ctx)
   local scatter=ctx.include('templates/moba_scatter.lua').hero
   scatter.ue.native_visual=native_visuals.training_ranger
   heroes[#heroes+1]=scatter
+  local line={};for key,value in pairs(source)do line[key]=value end
+  line.id='training_line_mage';line.display_name='晨光貫光者';line.title='直線光束配裝'
+  line.background='使用共用直線技能與生成預覽的晨光術士配裝。'
+  line.abilities={'lumen_ray','lumen_touch','lumen_lance','lumen_mend'}
+  line.ue={native_only=true,native_visual=native_visuals.training_luminary}
+  heroes[#heroes+1]=line
   for _,hero in ipairs(heroes)do
     local profile=native_visuals[hero.id]
     if profile then

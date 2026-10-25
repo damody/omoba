@@ -82,6 +82,7 @@ pub struct MobaMinionConst {
     pub damage: i32,
     pub attack_range: i32,
     pub move_speed: i32,
+    pub attack_interval_ms: i32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,11 +191,29 @@ pub struct MobaItemConst {
     pub armor: Fixed64,
     pub lifesteal: Fixed64,
     pub critical_chance: Fixed64,
+    pub unique_passive: Option<MobaItemUniquePassiveConst>,
+    pub purchase_group: Option<MobaItemPurchaseGroupConst>,
     pub active: Option<MobaItemActiveConst>,
     pub cooldown: Fixed64,
     pub recipe: &'static [&'static str],
     pub target: MobaItemTargetConst,
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaItemUniquePassiveConst {
+    pub group: &'static str,
+    pub name: &'static str,
+    pub priority: u16,
+    pub atk: Fixed64,
+    pub hp: Fixed64,
+    pub ms: Fixed64,
+    pub armor: Fixed64,
+    pub lifesteal: Fixed64,
+    pub critical_chance: Fixed64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct MobaItemPurchaseGroupConst {pub id:&'static str,pub name:&'static str,pub limit:u8}
 
 /// Authored item target rule. Self ignores attached point and unit bytes.
 /// Point and unit reject out of range and never queue or approach.
@@ -228,6 +247,7 @@ pub enum MobaItemTargetShapeConst {
 pub enum MobaItemTeamConst {
     Any,
     Enemy,
+    Hostile,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -289,6 +309,7 @@ pub enum SummonerSpellOperationConst {
         out_of_range: SummonerOutOfRangeConst,
     },
     SelfHeal { amount: Fixed64 },
+    SelfRestoreMana { amount: Fixed64 },
     SelfShield { amount: Fixed64, duration: Fixed64 },
     SelfControlCleanse,
     SelfSprint { ms_bonus: Fixed64, duration: Fixed64 },
@@ -580,6 +601,10 @@ pub struct TdLayerMetadataConst {
     pub fortified_eligible: bool,
 }
 
+#[repr(u8)]
+#[derive(Copy,Clone,Debug,PartialEq,Eq)]
+pub enum SummonTargetPriority {Nearest,OwnerFocus}
+
 /// Summon intrinsic stats — 對應 templates.lua summons[i]。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -596,6 +621,7 @@ pub struct SummonStats {
     pub vision_radius: Fixed64,
     pub follow_start_distance: Fixed64,
     pub follow_stop_distance: Fixed64,
+    pub target_priority: SummonTargetPriority,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly
@@ -638,20 +664,33 @@ pub struct AbilityLevelDataConst {
     pub range: Fixed64,
 }
 
-/// Ability 數值 const — 對應 templates.lua abilities[i]。runtime 由
-/// `build_ability_def_from_const(id, &CONST)` 攤成完整 `AbilityDef`（含
-/// HashMap 的 levels / extras）。`extras` 是 sorted-by-key 的 `(name, per_level_values)`
-/// pairs，per_level_values.len() 必須等於 max_level。
+/// Exclusive authored host recovery-channel keys, shared with bot admission.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct RecoveryChannelConst {
+    pub amount_key: &'static str,
+    pub duration_key: &'static str,
+    pub interval_key: &'static str,
+}
+
+/// Ability values and sorted per-rank extras projected from authoring.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct AbilityConst {
+    /// Validated executable friendly cleansing capability, not tooltip inference.
+    pub cleanses_allies: bool,
     pub ability_type: AbilityTypeC,
     pub cast_type: CastTypeC,
     pub target_type: TargetTypeC,
     pub max_level: u8,
+    /// Validated authored zone policy; omitted legacy policies compile to false.
+    pub zone_independent: bool,
     pub facing_formation_rows: u16,
     /// Quantized executable source-sector half-angle for every rank; zero for non-cones.
     pub cone_half_angle_ticks: &'static [u16],
+    /// Executable nonmovement capsule width per rank; zero for other effects.
+    pub line_widths: &'static [Fixed64],
+    /// Executable exclusive host channel declaration; never a tooltip inference.
+    pub recovery_channel: Option<RecoveryChannelConst>,
     /// Shared semantic geometry, identical to build-time native aiming metadata.
     pub aim_preview_signature: &'static str,
     pub icon: &'static str,
@@ -1084,6 +1123,42 @@ pub fn validate_runtime_lua_content_dev() -> Result<Option<()>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn minion_cadence_generated_profiles_preserve_authored_milliseconds() {
+        let map=moba_map_by_name("three_lane_training").unwrap();assert_eq!(map.minion_wave.iter().map(|m|m.attack_interval_ms).collect::<Vec<_>>(),vec![1000,1500,2000]);
+        assert_eq!(map.base_structures.unwrap().super_minion.attack_interval_ms,1000);
+        for map in MOBA_MAPS {for row in map.minion_wave.iter().chain(map.base_structures.iter().map(|s|&s.super_minion)){assert!((1..=10000).contains(&row.attack_interval_ms));}}
+    }
+
+    #[test]
+    fn mana_drain_authored_bolt_preserves_damage_cost_range_and_apprentice_clone() {
+        let bolt=active_ability_const(ability_by_name("lumen_bolt").unwrap()).unwrap();
+        let read=|key|bolt.extras.iter().find(|(name,_)|*name==key).unwrap().1;
+        assert_eq!(read("mana_drain"),&[20,30,40,50].map(Fixed64::from_i32));assert_eq!(read("damage"),&[80,125,170,215].map(Fixed64::from_i32));
+        assert!(bolt.levels.iter().all(|l|l.range==Fixed64::from_i32(600)));assert_eq!(bolt.levels[0].mana_cost,Fixed64::from_i32(45));
+        let clone=active_ability_const(ability_by_name("apprentice_bolt").unwrap()).unwrap();assert!(!clone.extras.iter().any(|(key,_)|*key=="mana_drain"));
+    }
+
+    #[test]
+    fn ally_shield_support_extras_keep_original_heal_cost_range_and_source_clone_independent() {
+        let aid=active_ability_const(ability_by_name("lumen_aid").unwrap()).unwrap();
+        let read=|key|aid.extras.iter().find(|(name,_)|*name==key).unwrap().1;
+        assert_eq!(read("shield"),&[70,100,130,160].map(Fixed64::from_i32));assert_eq!(read("shield_duration"),&[Fixed64::from_i32(2);4]);
+        assert_eq!(read("heal"),&[140,220,300,380].map(Fixed64::from_i32));assert_eq!(aid.levels[0].mana_cost,Fixed64::from_i32(90));
+        let original=active_ability_const(ability_by_name("lumen_mend").unwrap()).unwrap();assert!(!original.extras.iter().any(|(key,_)|*key=="shield"));
+    }
+
+    #[test]
+    fn composed_mana_authored_support_preserves_target_range_and_rank_amounts() {
+        let id=ability_by_name("lumen_aid").unwrap();let aid=active_ability_const(id).unwrap();
+        assert_eq!(aid.target_type,TargetTypeC::Unit);
+        assert_eq!(aid.levels.len(),4);
+        assert!(aid.levels.iter().all(|level|level.range==Fixed64::from_i32(600)));
+        let mana=aid.extras.iter().find(|(key,_)|*key=="self_mana_restore").unwrap();
+        assert_eq!(mana.1,&[10,15,20,25].map(Fixed64::from_i32));
+        let original=active_ability_const(ability_by_name("lumen_mend").unwrap()).unwrap();
+        assert!(!original.extras.iter().any(|(key,_)|*key=="self_mana_restore"));
+    }
 
     #[test]
     fn communication_catalog_compiles_explicit_ids_slots_and_missing_optional_media() {
@@ -1170,7 +1245,9 @@ mod tests {
     fn summoner_generated_rows_mirror_lua_balance_and_join_content_catalog_data_hash() {
         let blink = summoner_spell_by_name("training_point_blink_v1").unwrap();
         let heal = summoner_spell_by_name("training_self_heal_v1").unwrap();
-        assert_eq!(SUMMONER_SPELL_CATALOG.len(), 6);
+        assert_eq!(SUMMONER_SPELL_CATALOG.len(), 7);
+        let mana=summoner_spell_by_name("training_self_mana_v1").unwrap();assert_eq!(mana.catalog_id,7);assert_eq!(mana.target,SummonerTargetConst::None);
+        assert_eq!(mana.operation,SummonerSpellOperationConst::SelfRestoreMana {amount:Fixed64::from_i32(200)});assert_eq!(mana.cooldown,Fixed64::from_i32(180));
         let guard=summoner_spell_by_name("training_self_guard_v1").unwrap();assert_eq!(guard.catalog_id,6);assert_eq!(guard.target,SummonerTargetConst::None);
         assert_eq!(guard.operation,SummonerSpellOperationConst::SelfDamageReduction {reduction:Fixed64::from_raw(256),duration:Fixed64::from_i32(3)});
         let sprint=summoner_spell_by_name("training_self_sprint_v1").unwrap();assert_eq!(sprint.catalog_id,5);assert_eq!(sprint.cooldown,Fixed64::from_i32(180));assert_eq!(sprint.target,SummonerTargetConst::None);

@@ -14,13 +14,13 @@ local maps = {
       nexus_tower_offset=200, nexus_tower_hp=1200,
       nexus_tower_respawn_seconds=180, nexus_tower_respawn_hp_percent=40,
       siege_minion_id="lane_siege",
-      super_minion={id="lane_super",count=1,every=1,hp=900,damage=80,attack_range=160,move_speed=240},
+      super_minion={id="lane_super",count=1,every=1,hp=900,damage=80,attack_range=160,move_speed=240,attack_interval_ms=1000},
     },
     wave_interval_seconds = 30,
     minion_wave = {
-      {id="lane_melee",count=3,every=1,hp=180,damage=24,attack_range=140,move_speed=240},
-      {id="lane_caster",count=3,every=1,hp=120,damage=26,attack_range=550,move_speed=240},
-      {id="lane_siege",count=1,every=3,hp=400,damage=40,attack_range=600,move_speed=240},
+      {id="lane_melee",count=3,every=1,hp=180,damage=24,attack_range=140,move_speed=240,attack_interval_ms=1000},
+      {id="lane_caster",count=3,every=1,hp=120,damage=26,attack_range=550,move_speed=240,attack_interval_ms=1500},
+      {id="lane_siege",count=1,every=3,hp=400,damage=40,attack_range=600,move_speed=240,attack_interval_ms=2000},
     },
     -- Keep lane corridors and camp homes clear; jungle pursuit and return
     -- share the bounded public-terrain navigation used by the simulation.

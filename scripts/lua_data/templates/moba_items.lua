@@ -2,7 +2,8 @@
 -- duration = 3 }, cooldown = 10 compiles to native Rust; no runtime Lua.
 -- Supported kinds: shield, sprint_buff, restore_mana, damage_reduce, headshot_next,
 -- point_nova, unit_hex. Target defaults to self. Point and unit forms require
--- enemy, visible, and out_of_range = "reject". They do not queue or approach.
+-- enemy (positive other team) or hostile (faction hostility including aggressive
+-- neutrals), visible, and out_of_range = "reject". They do not queue or approach.
 -- Mana passive bonuses remain unsupported. Active charm values are the initial
 -- training balance; existing passive IDs/prices/recipes remain unchanged.
 -- Ward Charm stays a self damage-reduction charm, not a ward.
@@ -10,7 +11,9 @@ return function(ctx)
   return {
     { catalog_id = 1, id = "moba_sword", name = "鐵劍", cost = 350, atk = 10 },
     { catalog_id = 2, id = "moba_armor", name = "護身甲", cost = 300, hp = 100, armor = 5 },
-    { catalog_id = 3, id = "moba_boots", name = "輕行靴", cost = 300, ms = 25 },
+    { catalog_id = 3, id = "moba_boots", name = "輕行靴", cost = 300,
+      unique_passive = {group="movement",name="疾行",priority=1,ms=25},
+      purchase_group = {id="footwear",name="鞋靴",limit=1} },
     { catalog_id = 4, id = "moba_greatsword", name = "精鋼重劍", cost = 950, atk = 25,
       recipe = { "moba_sword", "moba_sword" } },
     { catalog_id = 5, id = "moba_guard_charm", name = "守護符", cost = 500,
@@ -33,7 +36,7 @@ return function(ctx)
       active = { kind = "channel_heal", amount = 40, duration = 3, interval = 1 }, cooldown = 30 },
     { catalog_id = 13, id = "moba_binding_charm", name = "縛行符", cost = 650,
       active = { kind = "unit_hex", damage = 30, control = { kind = "root", duration = 1.5 } }, cooldown = 18,
-      target = { shape = "unit", range = 450, team = "enemy", requires_visible = true, out_of_range = "reject" } },
+      target = { shape = "unit", range = 450, team = "hostile", requires_visible = true, out_of_range = "reject" } },
     { catalog_id = 14, id = "moba_purification_charm", name = "淨化護符", cost = 1400,
       active = { kind = "self_control_cleanse" }, cooldown = 45 },
     { catalog_id = 15, id = "moba_leech_blade", name = "汲生短刃", cost = 900,
@@ -44,5 +47,8 @@ return function(ctx)
       critical_chance = 0.125 },
     { catalog_id = 18, id = "moba_precision_saber", name = "精準長刀", cost = 1800,
       atk = 25, critical_chance = 0.25, recipe = { "moba_precision_glove", "moba_sword" } },
+    { catalog_id = 19, id = "moba_swift_boots", name = "疾步長靴", cost = 900,
+      unique_passive = {group="movement",name="疾行",priority=2,ms=45},recipe={"moba_boots"},
+      purchase_group = {id="footwear",name="鞋靴",limit=1} },
   }
 end

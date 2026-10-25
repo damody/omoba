@@ -43,6 +43,47 @@ pub struct AbilityDefinition {
     /// Authored aiming contract for special Rust handlers; never inferred from cosmetics.
     #[serde(default)]
     pub aim_geometry: Option<AbilityAimGeometry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zone_lifetime: Option<GroundZoneLifetime>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GroundZoneLifetime { CasterBound, Independent }
+
+fn validate_zone_lifetime(ability:&AbilityDefinition)->Result<(),String> {
+    if ability.zone_lifetime.is_none(){return Ok(());}
+    let fail=||Err(format!("ability '{}': invalid ground-zone lifetime contract",ability.id));
+    if ability.target_type!="point" || ability.cast_type!="instant"
+        || !matches!(&ability.aim_geometry,Some(AbilityAimGeometry::PointCircle{..})) {return fail();}
+    for key in ["zone_damage","zone_interval","zone_duration"] {
+        if ability.extras.get(key).is_none_or(|v|v.len()!=usize::from(ability.max_level)){return fail();}
+    }
+    for rank in 0..usize::from(ability.max_level) {
+        let amount=ability.extras["zone_damage"][rank];let interval=ability.extras["zone_interval"][rank];let duration=ability.extras["zone_duration"][rank];
+        if !amount.is_finite()||!((1.0/1024.0)..=1_000_000.0).contains(&amount)
+            ||!interval.is_finite()||!(0.25..=10.).contains(&interval)
+            ||!duration.is_finite()||duration<interval||duration>30. {return fail();}
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn ground_zone_lifetime_is_closed_typed_and_requires_bounded_complete_circle_ranks() {
+    let base=serde_json::json!({"id":"arbitrary_zone","ability_type":"active","cast_type":"instant","target_type":"point","max_level":1,
+        "levels":[{"range":700,"cooldown":10,"mana_cost":100}],"aim_geometry":{"kind":"point_circle","radius_key":"radius"},
+        "zone_lifetime":"independent","extras":{"radius":[100],"zone_damage":[10],"zone_interval":[0.5],"zone_duration":[2]}});
+    for policy in ["independent","caster_bound"] {let mut v=base.clone();v["zone_lifetime"]=serde_json::json!(policy);
+        validate_ability_progression(&serde_json::from_value(v).unwrap()).unwrap();}
+    for bad in [serde_json::json!(true),serde_json::json!(1),serde_json::json!("other")] {let mut v=base.clone();v["zone_lifetime"]=bad;assert!(serde_json::from_value::<AbilityDefinition>(v).is_err());}
+    for (key,value) in [("zone_interval",serde_json::json!([0.1])),("zone_duration",serde_json::json!([31])),
+        ("zone_duration",serde_json::json!([0.25])),("zone_damage",serde_json::json!([]))] {
+        let mut v=base.clone();v["extras"][key]=value;assert!(validate_ability_progression(&serde_json::from_value(v).unwrap()).is_err());
+    }
+    let mut v=base.clone();v["target_type"]=serde_json::json!("unit");assert!(validate_ability_progression(&serde_json::from_value(v).unwrap()).is_err());
+    let mut legacy=base;legacy.as_object_mut().unwrap().remove("zone_lifetime");
+    let legacy:AbilityDefinition=serde_json::from_value(legacy).unwrap();assert!(serde_json::to_value(legacy).unwrap().get("zone_lifetime").is_none());
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -100,7 +141,7 @@ pub fn ability_aim_preview(ability:&AbilityDefinition)->Result<AbilityAimPreview
         let point_radius=if let Some(AbilityAimGeometry::PointCircle{radius_key})=&ability.aim_geometry {extra(radius_key)}
             else if ability.target_type=="point" {ability.effects.iter().filter_map(|effect|match effect {
                 AbilityEffect::AreaDamage{radius_key,..}=>Some(extra(radius_key)),_=>None}).fold(0.0_f32,f32::max)}else{0.0};
-        let path_width=match &ability.aim_geometry {Some(AbilityAimGeometry::SweptPath{width_key})=>extra(width_key),_=>0.0};
+        let path_width=match &ability.aim_geometry {Some(AbilityAimGeometry::SweptPath{width_key})=>extra(width_key),_=>ability.effects.iter().find_map(|effect|match effect {AbilityEffect::LineDamage{width_key,..}=>Some(extra(width_key)),_=>None}).unwrap_or(0.0)};
         let formation=facing_formation_rows(ability)>0;
         let cone_half_angle_ticks=ability.effects.iter().find_map(|effect|match effect {
             AbilityEffect::ConeDamage{half_angle_key,..}=>omoba_sim::sector::half_angle_ticks(
@@ -121,8 +162,12 @@ pub fn ability_aim_preview_signature(ability:&AbilityDefinition)->Result<String,
 /// Executable subset of Lua-authored effects. Amount-bearing effects resolve
 /// `amount_key` from per-level `extras`; special skills still use a Rust handler.
 #[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AbilityEffect {
+    /// Exclusive stationary, host-owned recovery channel; amounts are per pulse.
+    RecoveryChannelSelf { amount_key:String, duration_key:String, interval_key:String },
+    /// Instant source-to-point capsule; no displacement or terrain collision.
+    LineDamage { amount_key:String, width_key:String, damage_kind:EffectDamageKind },
     /// Source-centered directional sector; the requested ground point supplies its axis.
     ConeDamage { amount_key:String, half_angle_key:String, damage_kind:EffectDamageKind },
     DamageOverTimeEnemy { amount_key:String, duration_key:String, damage_kind:EffectDamageKind },
@@ -141,6 +186,9 @@ pub enum AbilityEffect {
         amount_key: String,
     },
     HealAlly { amount_key:String },
+    ShieldAlly { amount_key:String, duration_key:String },
+    CleanseAlly {},
+    DrainManaEnemy { amount_key:String },
     RestoreManaSelf { amount_key: String },
     /// Additional script cost, not the host's metadata mana_cost reservation.
     SpendManaSelf { amount_key: String },
@@ -248,6 +296,7 @@ pub fn validate_ability_progression(ability: &AbilityDefinition) -> Result<(), S
         }
         previous = level.required_hero_level;
     }
+    validate_zone_lifetime(ability)?;
     validate_ability_aim_geometry(ability)?;
     validate_ability_effects(ability)
 }
@@ -312,9 +361,9 @@ impl UnitTargetAllegiance {
 }
 
 pub fn unit_target_allegiance(effects: &[AbilityEffect]) -> Result<UnitTargetAllegiance, &'static str> {
-    let ally = effects.iter().any(|effect| matches!(effect, AbilityEffect::HealAlly { .. }));
+    let ally = effects.iter().any(|effect| matches!(effect, AbilityEffect::HealAlly { .. } | AbilityEffect::ShieldAlly { .. } | AbilityEffect::CleanseAlly {}));
     let enemy = effects.iter().any(|effect| matches!(effect,
-        AbilityEffect::Damage { .. } | AbilityEffect::DamageOverTimeEnemy {..} | AbilityEffect::SlowEnemy { .. }
+        AbilityEffect::Damage { .. } | AbilityEffect::DrainManaEnemy {..} | AbilityEffect::DamageOverTimeEnemy {..} | AbilityEffect::SlowEnemy { .. }
             | AbilityEffect::StunEnemy { .. } | AbilityEffect::ControlEnemy { .. }));
     match (ally, enemy) {
         (true, true) => Err("conflicting unit target allegiance"),
@@ -325,8 +374,54 @@ pub fn unit_target_allegiance(effects: &[AbilityEffect]) -> Result<UnitTargetAll
 }
 
 /// Shared by template IDs, runtime content and Unreal codegen.
+#[cfg(test)]
+#[test]
+fn recovery_channel_authoring_is_closed_exclusive_and_exactly_quantized() {
+    let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+        "id":"arbitrary_channel","max_level":1,"ability_type":"active","cast_type":"channeled","target_type":"none",
+        "levels":[{}],"extras":{"pulse":[35],"duration":[2],"interval":[0.5]},
+        "effects":[{"kind":"recovery_channel_self","amount_key":"pulse","duration_key":"duration","interval_key":"interval"}]
+    })).unwrap();
+    assert!(validate_ability_progression(&valid).is_ok());
+    for (key,value) in [("pulse",0.0),("pulse",0.1),("pulse",1_000_001.0),("duration",61.0),("duration",1.25),("interval",0.1),("interval",11.0)] {
+        let mut bad=valid.clone();bad.extras.get_mut(key).unwrap()[0]=value;assert!(validate_ability_progression(&bad).is_err(),"{key}={value}");
+    }
+    for case in 0..6 {
+        let mut bad=valid.clone();match case {
+            0=>bad.cast_type="instant".into(),1=>bad.target_type="point".into(),2=>bad.ability_type="passive".into(),
+            3=>bad.effects.push(AbilityEffect::HealSelf {amount_key:"pulse".into()}),
+            4=>bad.levels[0].cast_time=0.5,5=>{bad.extras.remove("interval");},_=>unreachable!(),
+        };assert!(validate_ability_progression(&bad).is_err(),"case{case}");
+    }
+    let encoded=serde_json::to_value(&valid).unwrap();assert_eq!(encoded["effects"][0]["kind"],"recovery_channel_self");
+}
+
 pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), String> {
     if ability.tombstone || ability.effects.is_empty() {return Ok(());}
+    if let [AbilityEffect::RecoveryChannelSelf {amount_key,duration_key,interval_key}]=ability.effects.as_slice() {
+        let valid=matches!(ability.ability_type.as_str(),"active"|"ultimate")
+            && ability.cast_type=="channeled" && ability.target_type=="none"
+            && ability.max_level>0 && ability.levels.len()==usize::from(ability.max_level)
+            && ability.levels.iter().all(|level|level.cast_time==0.0);
+        if !valid {return Err(format!("ability '{}': recovery channel requires exclusive channeled self targeting with no preparation",ability.id));}
+        let values=|key:&str,min:f32,max:f32|->Result<Vec<i64>,String>{
+            let rows=ability.extras.get(key).filter(|rows|!key.is_empty()&&rows.len()==usize::from(ability.max_level))
+                .ok_or_else(||format!("ability '{}': missing channel extras '{key}'",ability.id))?;
+            rows.iter().map(|&value|{
+                let raw=f64::from(value)*1024.0;
+                if !value.is_finite()||value<min||value>max||raw.fract()!=0.0 {
+                    Err(format!("ability '{}': invalid exactly representable channel extras '{key}'",ability.id))
+                }else{Ok(raw as i64)}
+            }).collect()
+        };
+        values(amount_key,MIN_ABILITY_SCALAR,MAX_ABILITY_SCALAR)?;
+        let duration=values(duration_key,MIN_ABILITY_SCALAR,60.0)?;
+        let interval=values(interval_key,0.25,10.0)?;
+        if duration.iter().zip(interval).any(|(duration,interval)|*duration<interval||*duration%interval!=0){
+            return Err(format!("ability '{}': channel duration must contain whole intervals",ability.id));
+        }
+        return Ok(());
+    }
     if ability.effects.len()>32 || !matches!(ability.ability_type.as_str(),"active"|"ultimate")
         || ability.cast_type!="instant" {return Err(format!("ability '{}': effects require bounded instant active/ultimate",ability.id));}
     // All unit effects share one target; it cannot be both an ally and enemy.
@@ -381,8 +476,26 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
                 }
                 (amount_key,"unit")
             },
+            AbilityEffect::RecoveryChannelSelf {..}=>return Err(format!("ability '{}': recovery channel must be exclusive",ability.id)),
             AbilityEffect::Damage {amount_key,..}=>(amount_key,"unit"),
+            AbilityEffect::DrainManaEnemy {amount_key}=>{
+                values(amount_key,false)?;
+                if ability.extras[amount_key].iter().any(|v|*v<MIN_ABILITY_SCALAR){return Err(format!("ability '{}': mana drain requires positive amount",ability.id));}
+                (amount_key,"unit")
+            },
+            AbilityEffect::CleanseAlly {}=>{
+                if ability.target_type!="unit" || ability.levels.iter().any(|l|!l.range.is_finite()||l.range<MIN_ABILITY_SCALAR||l.range>10_000.) {
+                    return Err(format!("ability '{}': ally cleanse requires bounded unit range",ability.id));
+                }
+                continue;
+            },
             AbilityEffect::HealAlly {amount_key}=>(amount_key,"unit"),
+            AbilityEffect::ShieldAlly {amount_key,duration_key}=>{
+                values(amount_key,false)?;values(duration_key,false)?;
+                if ability.extras[amount_key].iter().any(|v|*v<MIN_ABILITY_SCALAR)
+                    || ability.extras[duration_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>60.) {return Err(format!("ability '{}': shield requires positive amount and duration in [1/1024,60]",ability.id));}
+                (amount_key,"unit")
+            },
             AbilityEffect::StunEnemy {duration_key} | AbilityEffect::ControlEnemy {duration_key,..}=>{
                 values(duration_key,false)?;
                 if ability.extras[duration_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>60.0) {
@@ -398,11 +511,28 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
                 }
                 (reduction_key,"unit")
             },
+            AbilityEffect::RestoreManaSelf {amount_key}=>{
+                // Caster-local restoration does not consume the selected target.
+                // A targeted spell still needs a separate, shape-checked consumer.
+                let consumes_target=ability.effects.iter().any(|effect|matches!(effect,
+                    AbilityEffect::Damage {..}|AbilityEffect::DrainManaEnemy {..}|AbilityEffect::HealAlly {..}|AbilityEffect::ShieldAlly {..}|AbilityEffect::CleanseAlly {}|AbilityEffect::AreaDamage {..}
+                    |AbilityEffect::SlowEnemy {..}|AbilityEffect::StunEnemy {..}|AbilityEffect::ControlEnemy {..}
+                    |AbilityEffect::DamageOverTimeEnemy {..}|AbilityEffect::LineDamage {..}|AbilityEffect::ConeDamage {..}));
+                (amount_key,if consumes_target {ability.target_type.as_str()}else{"none"})
+            },
             AbilityEffect::HealSelf {amount_key}
-            | AbilityEffect::RestoreManaSelf {amount_key}
             | AbilityEffect::SpendManaSelf {amount_key}=>(amount_key,"none"),
             AbilityEffect::AreaDamage {amount_key,radius_key,..}=>{
                 values(radius_key,true)?;
+                (amount_key,"point")
+            }
+            AbilityEffect::LineDamage {amount_key,width_key,..}=>{
+                values(width_key,true)?;
+                if ability.effects.len()!=1 || ability.aim_geometry.is_some()
+                    || !matches!(ability.ability_type.as_str(),"active"|"ultimate") || ability.cast_type!="instant"
+                    || ability.extras[width_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>5_000.) {
+                    return Err(format!("ability '{}': line_damage requires one exclusive instant point effect and width in [1/1024,5000]",ability.id));
+                }
                 (amount_key,"point")
             }
             AbilityEffect::ConeDamage {amount_key,half_angle_key,..}=>{
@@ -1158,6 +1288,76 @@ mod tests {
         let mut bad=valid.clone();bad.target_type="unit".into();assert!(validate_ability_progression(&bad).is_err());
         assert!(serde_json::from_value::<AbilityEffect>(serde_json::json!({"kind":"mana_buff_self","stat":"damage",
             "value_key":"value","duration_key":"duration"})).is_err());
+    }
+
+    #[test]
+    fn mana_drain_schema_checks_enemy_target_and_rank_envelopes() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({"id":"arbitrary_loss","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":2,
+            "levels":[{"range":600},{"range":600}],"extras":{"amount":[20,30]},"effects":[{"kind":"drain_mana_enemy","amount_key":"amount"}]})).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());assert_eq!(unit_target_allegiance(&valid.effects).unwrap(),UnitTargetAllegiance::Enemy);
+        let mut edge=valid.clone();edge.extras.insert("amount".into(),vec![MIN_ABILITY_SCALAR,1_000_000.]);assert!(validate_ability_progression(&edge).is_ok());
+        for value in [0.,-1.,0.0001,1_000_001.,f32::NAN,f32::INFINITY]{let mut bad=valid.clone();bad.extras.get_mut("amount").unwrap()[1]=value;assert!(validate_ability_progression(&bad).is_err());}
+        for target in ["none","point"]{let mut bad=valid.clone();bad.target_type=target.into();assert!(validate_ability_progression(&bad).is_err());}
+        for range in [0.,-1.,10_001.,f32::NAN]{let mut bad=valid.clone();bad.levels[1].range=range;assert!(validate_ability_progression(&bad).is_err());}
+        let mut bad=valid.clone();bad.extras.clear();assert!(validate_ability_progression(&bad).is_err());
+        for reverse in [false,true]{let mut bad=valid.clone();bad.effects.push(AbilityEffect::HealAlly{amount_key:"amount".into()});if reverse{bad.effects.reverse();}assert!(validate_ability_progression(&bad).is_err());}
+    }
+
+    #[test]
+    fn ally_cleanse_schema_requires_closed_friendly_unit_range_and_composes() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({"id":"arbitrary_cleanse","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":2,
+            "levels":[{"range":600},{"range":600}],"extras":{"mana":[10,15]},"effects":[{"kind":"cleanse_ally"},{"kind":"restore_mana_self","amount_key":"mana"}]})).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());assert_eq!(unit_target_allegiance(&valid.effects).unwrap(),UnitTargetAllegiance::Ally);
+        let mut reverse=valid.clone();reverse.effects.reverse();assert!(validate_ability_progression(&reverse).is_ok());
+        let mut alone=valid.clone();alone.effects.truncate(1);alone.extras.clear();assert!(validate_ability_progression(&alone).is_ok());
+        for range in [0.,-1.,0.0001,10_001.,f32::NAN,f32::INFINITY]{let mut bad=valid.clone();bad.levels[1].range=range;assert!(validate_ability_progression(&bad).is_err());}
+        for target in ["none","point"]{let mut bad=valid.clone();bad.target_type=target.into();assert!(validate_ability_progression(&bad).is_err());}
+        let mut bad=valid.clone();bad.effects.push(AbilityEffect::Damage {amount_key:"mana".into(),damage_kind:EffectDamageKind::Magical});assert!(validate_ability_progression(&bad).is_err());
+        assert!(serde_json::from_value::<AbilityEffect>(serde_json::json!({"kind":"cleanse_ally","buffs":["anything"]})).is_err());
+    }
+
+    #[test]
+    fn ally_shield_schema_preserves_friendly_target_and_positive_rank_envelopes() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({"id":"arbitrary_guard","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":2,
+            "levels":[{"range":600},{"range":600}],"extras":{"amount":[70,100],"duration":[2,2],"mana":[10,15]},
+            "effects":[{"kind":"shield_ally","amount_key":"amount","duration_key":"duration"},{"kind":"restore_mana_self","amount_key":"mana"}]})).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());assert_eq!(unit_target_allegiance(&valid.effects).unwrap(),UnitTargetAllegiance::Ally);
+        let mut edge=valid.clone();edge.extras.insert("amount".into(),vec![MIN_ABILITY_SCALAR,1_000_000.]);edge.extras.insert("duration".into(),vec![MIN_ABILITY_SCALAR,60.]);
+        edge.levels[0].range=MIN_ABILITY_SCALAR;edge.levels[1].range=10_000.;assert!(validate_ability_progression(&edge).is_ok());
+        let mut reverse=valid.clone();reverse.effects.reverse();assert!(validate_ability_progression(&reverse).is_ok());
+        for (key,values) in [("amount",vec![0.,100.]),("amount",vec![-1.,100.]),("amount",vec![70.,1000001.]),
+            ("duration",vec![2.,0.]),("duration",vec![2.,60.01]),("duration",vec![2.,f32::NAN])] {
+            let mut bad=valid.clone();bad.extras.insert(key.into(),values);assert!(validate_ability_progression(&bad).is_err());}
+        for target in ["none","point"]{let mut bad=valid.clone();bad.target_type=target.into();assert!(validate_ability_progression(&bad).is_err());}
+        for key in ["amount","duration"]{let mut bad=valid.clone();bad.extras.remove(key);assert!(validate_ability_progression(&bad).is_err());}
+        let mut bad=valid.clone();bad.levels[1].range=0.;assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.effects.push(AbilityEffect::Damage {amount_key:"amount".into(),damage_kind:EffectDamageKind::Magical});
+        assert!(validate_ability_progression(&bad).is_err());bad.effects.reverse();assert!(validate_ability_progression(&bad).is_err());
+    }
+
+    #[test]
+    fn composed_mana_requires_a_valid_target_consumer_and_preserves_self_only_ops() {
+        let valid:AbilityDefinition=serde_json::from_value(serde_json::json!({
+            "id":"arbitrary_support","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":2,
+            "levels":[{"range":600},{"range":600}],"extras":{"heal":[140,210],"resource":[10,15]},
+            "effects":[{"kind":"heal_ally","amount_key":"heal"},{"kind":"restore_mana_self","amount_key":"resource"}]
+        })).unwrap();
+        assert!(validate_ability_progression(&valid).is_ok());
+        let mut reversed=valid.clone();reversed.effects.reverse();assert!(validate_ability_progression(&reversed).is_ok());
+        assert_eq!(unit_target_allegiance(&valid.effects).unwrap(),UnitTargetAllegiance::Ally);
+        let mut bad=valid.clone();bad.effects.remove(0);assert!(validate_ability_progression(&bad).is_err());
+        for target in ["none","point"] {let mut bad=valid.clone();bad.target_type=target.into();assert!(validate_ability_progression(&bad).is_err());}
+        let mut bad=valid.clone();bad.levels[1].range=0.;assert!(validate_ability_progression(&bad).is_err());
+        let mut bad=valid.clone();bad.extras.remove("resource");assert!(validate_ability_progression(&bad).is_err());
+        for kind in ["spend_mana_self","heal_self"] {
+            let mut bad=valid.clone();bad.effects[1]=serde_json::from_value(serde_json::json!({"kind":kind,"amount_key":"resource"})).unwrap();
+            assert!(validate_ability_progression(&bad).is_err());
+        }
+        let mut enemy=valid.clone();enemy.effects[0]=serde_json::from_value(serde_json::json!({"kind":"damage","amount_key":"heal","damage_kind":"magical"})).unwrap();
+        assert!(validate_ability_progression(&enemy).is_ok());
+        let mut area=enemy.clone();area.target_type="point".into();area.extras.insert("radius".into(),vec![100.;2]);
+        area.effects[0]=serde_json::from_value(serde_json::json!({"kind":"area_damage","amount_key":"heal","radius_key":"radius","damage_kind":"magical"})).unwrap();
+        assert!(validate_ability_progression(&area).is_ok());
     }
 
     #[test]

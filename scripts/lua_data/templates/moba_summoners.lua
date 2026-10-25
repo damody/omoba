@@ -34,7 +34,7 @@ return function(ctx)
       catalog_id = 4,
       id = "training_control_cleanse_v1",
       display_name = "淨念",
-      description = "立即解除自身目前的暈眩、定身與沉默，可在這些控制狀態使用。不解除緩速、持續傷害或其他效果，不提供控制免疫；沒有控制時仍消耗冷卻，不中斷移動。",
+      description = "立即解除自身目前的暈眩、定身、沉默與正式技能／彈體緩速，可在這些控制狀態使用。保留自用姿態減速、持續傷害、抑療與增益，不提供控制免疫；沒有控制時仍消耗冷卻，不中斷移動。",
       cooldown = 210,
       target = "none",
       operation = { kind = "self_control_cleanse" },
@@ -56,6 +56,15 @@ return function(ctx)
       cooldown = 180,
       target = "none",
       operation = { kind = "self_damage_reduction", reduction = 0.25, duration = 3 },
+    },
+    {
+      catalog_id = 7,
+      id = "training_self_mana_v1",
+      display_name = "澄息",
+      description = "立即回復自身 200 點魔力，最多回到魔力上限，不受禁療影響。需要已啟用且有容量的魔力池；魔力已滿仍消耗冷卻。可在控制狀態使用，不解除控制、不取消移動或引導。",
+      cooldown = 180,
+      target = "none",
+      operation = { kind = "self_restore_mana", amount = 200 },
     },
   }
 end

@@ -1,4 +1,5 @@
 return function(ctx)
+  local summon_guidance = ctx.include("templates/summon_guidance.lua")
   local abilities = {
     {
       id = "sniper_mode",
@@ -75,7 +76,8 @@ return function(ctx)
       ue = { ability_cue = { shape = "formation", color_rgb = {25,115,255}, radius_cm = 260, duration_seconds = 1.5, payload_distance_scale = 100 } },
       display_name = "雜賀援軍",
       icon = "data/hero1_2.png",
-      description = "依自身朝向，在前方兩排召喚雜賀鐵炮兵協助作戰；地形與友軍佔位會調整合法出生位置。",
+      description = "依自身朝向，在前方兩排召喚雜賀鐵炮兵協助作戰；地形與友軍佔位會調整合法出生位置。\n"
+        .. assert(summon_guidance.saika_gunner, "missing authored summon guidance"),
       ability_type = "active",
       target_type = "point",
       cast_type = "instant",
@@ -277,6 +279,7 @@ return function(ctx)
     },
     {
       id = "flame_blade",
+      zone_lifetime = "independent",
       aim_geometry = { kind = "point_circle", radius_key = "swipe_radius" },
       display_name = "炎刃",
       icon = "data/ability_icons/ability_flame_blade.png",
@@ -312,6 +315,9 @@ return function(ctx)
         },
       },
       extras = {
+        zone_damage = {10.0,15.0,20.0,25.0},
+        zone_interval = {0.5,0.5,0.5,0.5},
+        zone_duration = {2.0,2.0,2.0,2.0},
         damage = {
           200.0,
           250.0,
@@ -594,23 +600,61 @@ return function(ctx)
       local ability = copy(source)
       ability.id = source.id:gsub("^lumen_", "apprentice_")
       if ability.id == "apprentice_lance" then ability.levels[1].required_hero_level = 6 end
+      if ability.id == "apprentice_mend" then
+        ability.display_name="定心療癒"
+        ability.cast_type="channeled"
+        ability.extras={pulse_heal={35,55,75,95},channel_duration={2,2,2,2},pulse_interval={0.5,0.5,0.5,0.5}}
+        ability.effects={{kind="recovery_channel_self",amount_key="pulse_heal",duration_key="channel_duration",interval_key="pulse_interval"}}
+      end
       abilities[#abilities + 1] = ability
     end
   end
   -- Append after apprentice skills to preserve every previously exported ID.
+  -- Change the original bolt after cloning: apprentice balance remains independent.
+  for _,ability in ipairs(abilities)do if ability.id=='lumen_bolt' then
+    ability.description='對指定存活敵人造成80/125/170/215法術傷害，另削減20/30/40/50魔力，最多扣至0；沒有魔力池則不削減。魔力削減不是生命傷害，不受護盾或禁療影響，也不觸發目標自行耗魔效果。'
+    ability.extras.mana_drain={20,30,40,50}
+    ability.effects[#ability.effects+1]={kind='drain_mana_enemy',amount_key='mana_drain'}
+  end end
   for _,ability in ipairs(ctx.include('templates/moba_archetypes.lua').abilities) do
     abilities[#abilities+1]=ability
   end
   local aid
   for _,ability in ipairs(abilities) do if ability.id=='lumen_mend' then aid=copy(ability) end end
   assert(aid)
-  aid.id='lumen_aid';aid.display_name='晨光援護';aid.description='治療指定存活隊友，也可治療自身。'
-  aid.target_type='unit';aid.effects={{kind='heal_ally',amount_key='heal'}}
+  aid.id='lumen_aid';aid.display_name='晨光援護';aid.description='治療指定存活友方單位，也可治療自身，並給予70/100/130/160護盾，持續2秒；與既有護盾取較大剩餘量、較長時間，不累加。施放成功後另回復施法者自身10/15/20/25魔力，最多回到上限，不替目標回魔。仍須先支付原有魔力消耗；護盾與回魔不受禁療影響。'
+  aid.extras.self_mana_restore={10,15,20,25}
+  aid.extras.shield={70,100,130,160};aid.extras.shield_duration={2,2,2,2}
+  aid.target_type='unit';aid.effects={{kind='heal_ally',amount_key='heal'},{kind='restore_mana_self',amount_key='self_mana_restore'},{kind='shield_ally',amount_key='shield',duration_key='shield_duration'},{kind='cleanse_ally'}}
   for _,level in ipairs(aid.levels) do level.range=600 end
   abilities[#abilities+1]=aid
   abilities[#abilities+1]=ctx.include('templates/moba_scatter.lua').ability
+  -- Append-only shared linear skill. Existing skills and numeric IDs stay stable.
+  abilities[#abilities+1]={id='lumen_ray',ue={native_only=true},display_name='貫光射線',
+    description='朝指定地點瞬間施放寬120的直線光束，對線上存活敵方非建築單位各造成一次100/150/200/250魔法傷害。超距離截短至900；包含兩端圓帽與邊界，不受地形阻擋、不移動自身，定身時仍可施放。原地無法指定方向。',
+    ability_type='active',target_type='point',cast_type='instant',max_level=4,
+    levels={{range=900,cooldown=9,mana_cost=45},{range=900,cooldown=8,mana_cost=50},
+      {range=900,cooldown=7,mana_cost=55},{range=900,cooldown=6,mana_cost=60}},
+    extras={damage={100,150,200,250},line_width={120,120,120,120}},
+    effects={{kind='line_damage',amount_key='damage',width_key='line_width',damage_kind='magical'}}}
   for _,ability in ipairs(abilities) do
     local extras=ability.extras
+    local channel=ability.effects and ability.effects[1]
+    if channel and channel.kind=='recovery_channel_self' then
+      assert(#ability.effects==1 and extras,ability.id..' requires exclusive channel extras')
+      local amounts=assert(extras[channel.amount_key],ability.id..' missing pulse amounts')
+      local durations=assert(extras[channel.duration_key],ability.id..' missing channel durations')
+      local intervals=assert(extras[channel.interval_key],ability.id..' missing pulse intervals')
+      local function ranks(values)
+        local result,identical={},true
+        for _,value in ipairs(values)do result[#result+1]=string.format('%g',value);identical=identical and value==values[1] end
+        return identical and result[1] or table.concat(result,'/')
+      end
+      local counts,totals={},{}
+      for rank,amount in ipairs(amounts)do counts[rank]=durations[rank]/intervals[rank];totals[rank]=amount*counts[rank] end
+      ability.description=string.format('站定引導%s秒，每%s秒恢復%s生命，共%s次（總計%s）。移動、停止、普攻、施放其他技能、生命受傷、暈眩或沉默會中斷；定身不會中斷，暫停時不計時。治療受最大生命與治療削減影響。',
+        ranks(durations),ranks(intervals),ranks(amounts),ranks(counts),ranks(totals))
+    end
     if extras and extras.zone_damage then
       local function ranks(values)
         local result={};local identical=true
@@ -620,6 +664,9 @@ return function(ctx)
       end
       ability.description=ability.description..string.format(' 每%s秒造成%s傷害，持續%s秒。',
         ranks(extras.zone_interval),ranks(extras.zone_damage),ranks(extras.zone_duration))
+      if ability.zone_lifetime=='independent' then
+        ability.description=ability.description..' 此區域在施法者死亡後仍持續至到期；重新施放會替換同一生命建立的舊區域。'
+      end
     end
   end
   return abilities

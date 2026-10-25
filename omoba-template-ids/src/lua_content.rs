@@ -161,7 +161,10 @@ pub(crate) struct MobaMinionEntry {
     pub(crate) damage: i32,
     pub(crate) attack_range: i32,
     pub(crate) move_speed: i32,
+    #[serde(default = "default_minion_attack_interval_ms")]
+    pub(crate) attack_interval_ms: i32,
 }
+fn default_minion_attack_interval_ms()->i32 {1000}
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
@@ -373,7 +376,7 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                 || !valid_id(&m.id) || map.minion_wave.iter().any(|entry|entry.id==m.id)
                 || m.count!=1 || m.every!=1 || !(1..=100_000).contains(&m.hp)
                 || !(1..=10_000).contains(&m.damage) || !(1..=1000).contains(&m.attack_range)
-                || !(1..=2000).contains(&m.move_speed) {
+                || !(1..=2000).contains(&m.move_speed) || !(1..=10000).contains(&m.attack_interval_ms) {
                 return Err(format!("invalid base structure rules in '{}'", map.id));
             }
         }
@@ -419,7 +422,7 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
             if !valid_id(&minion.id) || !minions.insert(&minion.id) || !(1..=8).contains(&minion.count)
                 || !(1..=100).contains(&minion.every) || !(1..=100_000).contains(&minion.hp)
                 || !(1..=10_000).contains(&minion.damage) || !(1..=1000).contains(&minion.attack_range)
-                || !(1..=2000).contains(&minion.move_speed) {
+                || !(1..=2000).contains(&minion.move_speed) || !(1..=10000).contains(&minion.attack_interval_ms) {
                 return Err(format!("invalid minion '{}' in '{}'",minion.id,map.id));
             }
         }
@@ -916,6 +919,19 @@ pub(crate) struct CreepEntry {
     pub(crate) gold_reward: i32,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all="snake_case")]
+pub(crate) enum SummonTargetPriorityEntry {
+    #[default]
+    Nearest,
+    OwnerFocus,
+}
+impl SummonTargetPriorityEntry {
+    pub(crate) fn rust_variant(self)->&'static str {
+        match self {Self::Nearest=>"Nearest",Self::OwnerFocus=>"OwnerFocus"}
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct SummonEntry {
     pub(crate) id: String,
@@ -947,6 +963,8 @@ pub(crate) struct SummonEntry {
     pub(crate) follow_start_distance: f32,
     #[serde(default)]
     pub(crate) follow_stop_distance: f32,
+    #[serde(default)]
+    pub(crate) target_priority: SummonTargetPriorityEntry,
     #[serde(default = "default_attack_timing")]
     pub(crate) attack_timing: AttackTimingEntry,
 }
@@ -960,6 +978,19 @@ pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),Stri
         }
     }
     Ok(())
+}
+
+#[test]
+fn summon_target_policy_is_closed_default_nearest_and_compiled_authoring_matches() {
+    let entry:SummonEntry=serde_json::from_value(serde_json::json!({"id":"fixture"})).unwrap();
+    assert_eq!(entry.target_priority,SummonTargetPriorityEntry::Nearest);
+    for value in [serde_json::json!(true),serde_json::json!(null),serde_json::json!(1),serde_json::json!("unknown"),serde_json::json!("OwnerFocus"),serde_json::json!({})] {
+        assert!(serde_json::from_value::<SummonEntry>(serde_json::json!({"id":"fixture","target_priority":value})).is_err());
+    }
+    let focus:SummonEntry=serde_json::from_value(serde_json::json!({"id":"fixture","target_priority":"owner_focus"})).unwrap();
+    assert_eq!(focus.target_priority,SummonTargetPriorityEntry::OwnerFocus);
+    assert_eq!(serde_json::to_value(focus).unwrap()["target_priority"],"owner_focus");
+    assert_eq!(crate::summon_stats(crate::SUMMON_SAIKA_GUNNER).unwrap().target_priority,crate::SummonTargetPriority::OwnerFocus);
 }
 
 #[test]
@@ -1923,6 +1954,18 @@ mod tests {
         assert_ne!(before,omoba_content_model::canonical_template_hash(&serde_json::to_value(changed).unwrap()).unwrap());
     }
     #[test]
+    fn minion_cadence_schema_defaults_bounds_types_and_canonical_hash() {
+        use super::*;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let map=load_content(root).unwrap().manifest.moba_maps.remove(0);
+        let mut legacy=serde_json::to_value(&map.minion_wave[0]).unwrap();legacy.as_object_mut().unwrap().remove("attack_interval_ms");
+        assert_eq!(serde_json::from_value::<MobaMinionEntry>(legacy.clone()).unwrap().attack_interval_ms,1000);
+        for value in [serde_json::json!(1.5),serde_json::json!("1000"),serde_json::json!(true),serde_json::Value::Null]{let mut bad=legacy.clone();bad["attack_interval_ms"]=value;assert!(serde_json::from_value::<MobaMinionEntry>(bad).is_err());}
+        for ms in [0,-1,10001,i32::MAX]{for special in [false,true]{let mut bad=map.clone();if special{bad.base_structures.as_mut().unwrap().super_minion.attack_interval_ms=ms;}else{bad.minion_wave[0].attack_interval_ms=ms;}assert!(validate_moba_maps(&[bad]).is_err());}}
+        for ms in [1,1000,1500,10000]{let mut valid=map.clone();valid.minion_wave[0].attack_interval_ms=ms;valid.base_structures.as_mut().unwrap().super_minion.attack_interval_ms=ms;validate_moba_maps(&[valid]).unwrap();}
+        let hash=|m:&MobaMapEntry|omoba_content_model::canonical_template_hash(&serde_json::to_value(m).unwrap()).unwrap();let before=hash(&map);let mut changed=map;changed.minion_wave[0].attack_interval_ms+=1;assert_ne!(hash(&changed),before);
+    }
+    #[test]
     fn moba_map_validation_rejects_bad_routes_before_generation() {
         use super::*;
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
@@ -2040,7 +2083,7 @@ mod tests {
         let item = |id: &str, cost: i32, recipe: &[&str]| MobaItemEntry {
             catalog_id: if id == "sword" || id == "a" { 1 } else { 2 },
             id: id.into(), name: id.into(), cost, atk: 10.0, hp: 0.0, ms: 0.0, armor: 0.0,
-            active: None, cooldown: 0.0, lifesteal: 0.0, critical_chance: 0.0,
+            active: None, cooldown: 0.0, lifesteal: 0.0, critical_chance: 0.0, unique_passive: None, purchase_group: None,
             recipe: recipe.iter().map(|id| (*id).into()).collect(),
             target: omoba_content_model::moba_items::MobaItemTargetEntry::legacy_self(),
         };
@@ -2435,6 +2478,29 @@ end
     }
 
     #[test]
+    fn authored_zone_lifetime_matches_compiled_policy_and_description() {
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let content=load_content(root).unwrap();
+        let independent=content.manifest.abilities.iter().find(|a|a.id=="flame_blade").unwrap();
+        assert_eq!(independent.zone_lifetime,Some(omoba_content_model::GroundZoneLifetime::Independent));
+        assert!(crate::active_ability_const(crate::ABILITY_FLAME_BLADE).unwrap().zone_independent);
+        assert!(!crate::active_ability_const(crate::ABILITY_FLAME_ASSAULT).unwrap().zone_independent);
+        assert!(independent.description.contains("施法者死亡後仍持續"));
+    }
+
+    #[test]
+    fn authored_line_loadout_and_compiled_width_match_shared_semantic_preview() {
+        use crate::Fixed64;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");let content=load_content(root).unwrap();
+        let ability=content.manifest.abilities.iter().find(|a|a.id=="lumen_ray").unwrap();let preview=omoba_content_model::ability_aim_preview(ability).unwrap();
+        let compiled=crate::active_ability_const(crate::ability_by_name("lumen_ray").unwrap()).unwrap();
+        assert_eq!(compiled.line_widths,vec![Fixed64::from_i32(120);4]);assert!(!preview.requires_movement);
+        assert_eq!(compiled.aim_preview_signature,omoba_content_model::ability_aim_preview_signature(ability).unwrap());
+        assert_eq!(crate::active_ability_const(crate::ABILITY_FIRE_DASH).unwrap().line_widths,vec![Fixed64::ZERO;4]);
+        let hero=content.manifest.heroes.iter().find(|h|h.id=="training_line_mage").unwrap();assert_eq!(hero.abilities[0],"lumen_ray");
+    }
+
+    #[test]
     fn shipped_trinket_catalog_loads_training_scout_lantern() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
         let content = load_content(root).expect("shipped Lua content");
@@ -2462,7 +2528,9 @@ end
         assert_eq!(authored.len(), 2);
         assert_eq!(authored[0]["id"], "training_scout_lantern_v1");
         assert_eq!(authored[1]["id"], "training_detection_lantern_v1");
-        assert_eq!(content.manifest.moba_summoners.len(), 6);
+        assert_eq!(content.manifest.moba_summoners.len(), 7);
+        let mana=&content.manifest.moba_summoners[6];assert_eq!(mana.catalog_id,7);assert_eq!(mana.id,"training_self_mana_v1");
+        assert!(matches!(mana.operation,omoba_content_model::moba_summoners::MobaSummonerOperation::SelfRestoreMana {amount:200.0}));
         let guard=&content.manifest.moba_summoners[5];assert_eq!(guard.catalog_id,6);assert_eq!(guard.id,"training_self_guard_v1");
         assert!(matches!(guard.operation,omoba_content_model::moba_summoners::MobaSummonerOperation::SelfDamageReduction {reduction:0.25,duration:3.0}));
         let sprint=&content.manifest.moba_summoners[4];assert_eq!(sprint.catalog_id,5);assert_eq!(sprint.id,"training_self_sprint_v1");assert_eq!(sprint.cooldown,180.0);
