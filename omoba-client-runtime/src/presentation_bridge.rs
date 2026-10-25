@@ -2133,7 +2133,7 @@ mod tests {
         writer.write_u32(bytes.len() as u32).await.unwrap();
         writer.write_all(&bytes).await.unwrap();
         assert!(read_envelope(&mut reader).await.is_err());
-        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 11);
+        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 12);
     }
 
     #[tokio::test]

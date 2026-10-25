@@ -27,6 +27,42 @@ mod map_contract_tests {
     use super::*;
 
     #[test]
+    fn summon_wire_client_constructor_uses_only_current_owned_kind4_disclosure() {
+        use omoba_core::runtime::*;use std::collections::BTreeSet;
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig::default());
+        let ids=[(1_u64<<32)|1,(1_u64<<32)|2,(1_u64<<32)|3,(1_u64<<32)|4];
+        let visible:BTreeSet<_>=ids.into_iter().collect();
+        let transitions=ids.into_iter().zip([(1,7),(4,7),(4,8),(2,7)]).map(|(canonical_id,(kind,owner_player_id))| {
+            let bytes=encode_demo_render_state(DemoRenderState{x_raw:0,y_raw:0,team_id:1,kind,owner_player_id});
+            VisibilityTransition::Reveal{canonical_id,effective_tick:1,baseline:encode_component_baseline(&[
+                (DEMO_RENDER_COMPONENT_SCHEMA_ID,bytes.as_slice())])}
+        }).collect();
+        projector.build_frame_with_inputs(1,1,&visible,transitions,&[],&ProjectionDependencyGraph::default(),vec![]).unwrap();
+        let mut start=projector.build_team_game_start(1,60,0);start.player_id=7;
+        let host=ReplicaHost::bootstrap_disclosed(&start).unwrap();
+        let rows:Vec<_>=host.runtime.world().entities.iter().map(|(id,e)|(*id,decode_demo_render_state(&e.components[&DEMO_RENDER_COMPONENT_SCHEMA_ID]).unwrap())).collect();
+        let summon=rows.iter().find(|(_,r)|r.kind==4&&r.owner_player_id==7).unwrap().0;
+        for operation in [1,2] {let input=host.owned_summon_command(7,summon,operation,(operation==1).then_some(omoba_core::game_proto::Vec2I{x:100,y:0})).unwrap();
+            let intent=omoba_core::renderer_protocol::player_input_to_renderer_intent(&input).unwrap();
+            let renderer=omoba_core::game_proto::RendererInput{request_id:91,player_id:7,disclosure_epoch:host.view_epoch(),intent:Some(intent)};
+            let mut gateway=crate::input_bridge::InputBridge::resume_after(0);
+            assert!(matches!(gateway.validate(renderer.clone(),7,&host),crate::input_bridge::InputDecision::Rejected{..}));
+            assert_eq!(gateway.reserved_input_id(),0);gateway.set_commands_enabled(true);
+            let crate::input_bridge::InputDecision::Accepted{input:admitted,..}=gateway.validate(renderer.clone(),7,&host) else {panic!("current summon renderer command refused");};
+            assert_eq!(admitted,input);
+            let mut stale=renderer;
+            if let Some(omoba_core::game_proto::renderer_input::Intent::SummonCommand(value))=stale.intent.as_mut(){value.summon.as_mut().unwrap().disclosure_epoch.as_mut().unwrap().value+=1;}
+            assert!(matches!(gateway.validate(stale,7,&host),crate::input_bridge::InputDecision::Rejected{..}));assert_eq!(gateway.reserved_input_id(),1);
+            let Some(omoba_core::game_proto::player_input::Action::SummonCommand(value))=input.action else {panic!("wrong client action");};
+            summon_transport::validate_client(&value).unwrap();assert_eq!(value.owner.unwrap(),host.owned_hero_reference(7).unwrap());}
+        for (id,row) in rows {if id!=summon {assert!(host.owned_summon_command(7,id,2,None).is_none(),"kind{} owner{}",row.kind,row.owner_player_id);}}
+        assert!(host.owned_summon_command(0,summon,2,None).is_none());
+        assert!(host.owned_summon_command(8,summon,2,None).is_none());
+        assert!(host.owned_summon_command(7,u64::MAX,2,None).is_none());
+        assert!(host.owned_summon_command(7,summon,2,Some(Default::default())).is_none());
+    }
+
+    #[test]
     fn bootstrap_rejects_geometry_mismatch_before_loading_scripts() {
         let map = omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
         let mut metadata = omoba_core::runtime::moba_map_layout::bootstrap_metadata(map);
@@ -531,6 +567,20 @@ impl ReplicaHost {
         let render_id=matches.next()?;
         if matches.next().is_some() {return None;}
         self.secure_reference(render_id)
+    }
+
+    /// Construct only from this committed disclosure. Never accept canonical
+    /// entity IDs, another player's summon or a same-team creep as a source.
+    pub fn owned_summon_command(&self,player_id:u32,render_id:u64,operation:u32,point:Option<omoba_core::game_proto::Vec2I>)
+        ->Option<omoba_core::game_proto::PlayerInput> {
+        if player_id==0 {return None;}
+        let entity=self.runtime.world().entities.get(&render_id)?;
+        let render=entity.components.get(&omoba_core::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
+            .and_then(|bytes|omoba_core::runtime::decode_demo_render_state(bytes))?;
+        if render.kind!=4 || render.team_id!=self.team_id || render.owner_player_id!=player_id {return None;}
+        let value=omoba_core::runtime::summon_transport::client_from_references(
+            self.owned_hero_reference(player_id)?,self.secure_reference(render_id)?,operation,point).ok()?;
+        Some(omoba_core::game_proto::PlayerInput {action:Some(omoba_core::game_proto::player_input::Action::SummonCommand(value))})
     }
 
     pub fn attack_relation_legal(&self, source_player_id: u32, render_id: u64) -> bool {

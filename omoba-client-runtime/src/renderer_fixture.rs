@@ -2367,6 +2367,14 @@ fn intent_value(world: &FixtureWorld, intent: Option<renderer_input::Intent>) ->
         return json!({"kind": "none"});
     };
     match intent {
+        renderer_input::Intent::SummonCommand(value) => {
+            let id=|r:Option<&omoba_core::game_proto::SecureReplicaTarget>|r.and_then(|r|r.replica_entity_id.as_ref()).map(|r|r.value.to_string());
+            let epoch=|r:Option<&omoba_core::game_proto::SecureReplicaTarget>|r.and_then(|r|r.disclosure_epoch.as_ref()).map(|r|r.value.to_string());
+            json!({"kind":"SummonCommand","operation":value.operation,
+                "owner_render_id":id(value.owner.as_ref()),"owner_disclosure_epoch":epoch(value.owner.as_ref()),
+                "summon_render_id":id(value.summon.as_ref()),"summon_disclosure_epoch":epoch(value.summon.as_ref()),
+                "has_point":value.point.is_some(),"x_raw":value.point.map(|p|p.x),"y_raw":value.point.map(|p|p.y)})
+        }
         renderer_input::Intent::Communication(value) => json!({
             "kind": "Communication", "communication_kind": value.kind,
             "semantic": value.semantic, "content_id": value.content_id,

@@ -6,6 +6,7 @@ use omoba_core::game_proto::{
 use crate::replica_host::ReplicaHost;
 
 trait InputView {
+    fn owned_summon_command(&self,_player_id:u32,_render_id:u64,_operation:u32,_point:Option<Vec2I>)->Option<PlayerInput>{None}
     fn combat_preferences_available(&self, player_id: u32) -> bool;
     fn input_scheme_for_owner(&self, player_id: u32) -> Option<omoba_core::runtime::input_scheme_transport::AdmittedOwnerInputScheme>;
     fn view_epoch(&self) -> u64;
@@ -19,6 +20,9 @@ trait InputView {
 }
 
 impl InputView for ReplicaHost {
+    fn owned_summon_command(&self,player_id:u32,render_id:u64,operation:u32,point:Option<Vec2I>)->Option<PlayerInput> {
+        self.owned_summon_command(player_id,render_id,operation,point)
+    }
     fn owned_hero_reference(&self, player_id:u32) -> Option<omoba_core::game_proto::SecureReplicaTarget> {
         ReplicaHost::owned_hero_reference(self,player_id)
     }
@@ -175,7 +179,7 @@ impl InputBridge {
             }
         }
         let mut secure_target = None;
-        if matches!(renderer_input.intent, Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)))
+        if matches!(renderer_input.intent, Some(renderer_input::Intent::HoldPosition(_)) | Some(renderer_input::Intent::Stop(_)) | Some(renderer_input::Intent::SummonCommand(_)))
             && !self.commands_enabled { return reject(renderer_input.request_id, "COMMAND_PROTOCOL_UNAVAILABLE"); }
         let is_upgrade = matches!(renderer_input.intent, Some(renderer_input::Intent::AbilityUpgrade(_)));
         if is_upgrade {
@@ -230,6 +234,16 @@ impl InputBridge {
         }
         let original_shop = is_correlated.then(|| renderer_input.clone());
         let action = match renderer_input.intent {
+            Some(renderer_input::Intent::SummonCommand(value)) => {
+                if renderer_input.request_id==0 {return reject(0,"INVALID_SUMMON_REQUEST");}
+                let id=value.summon.as_ref().and_then(|r|r.replica_entity_id.as_ref()).map_or(0,|r|r.value);
+                let Some(expected)=replica.owned_summon_command(configured_player_id,id,value.operation,value.point) else {
+                    return reject(renderer_input.request_id,"SUMMON_SOURCE_UNAVAILABLE");
+                };
+                let supplied=PlayerInput{action:Some(player_input::Action::SummonCommand(value))};
+                if supplied!=expected {return reject(renderer_input.request_id,"STALE_SUMMON_SOURCE");}
+                expected.action.expect("constructed summon client action")
+            }
             Some(renderer_input::Intent::AbilityUpgrade(value)) => player_input::Action::UpgradeAbility(
                 omoba_core::game_proto::UpgradeAbility {ability_index:value.ability_index}),
             Some(renderer_input::Intent::Recall(_)) => player_input::Action::Recall(omoba_core::game_proto::Recall {}),
@@ -490,6 +504,8 @@ fn optional_target(render_id: u64, replica: &impl InputView) -> Result<Option<u3
 
 fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), &'static str> {
     let (x, y) = match intent {
+        Some(renderer_input::Intent::SummonCommand(value)) => return
+            omoba_core::runtime::summon_transport::validate_client(value),
         Some(renderer_input::Intent::CombatPreferences(value)) => return
             omoba_core::runtime::combat_transport::validate_update(value).map(|_| ()),
         Some(renderer_input::Intent::InputScheme(value)) => return
