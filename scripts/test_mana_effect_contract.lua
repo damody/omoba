@@ -12,13 +12,13 @@ for i=1,1000 do
 end
 assert(root)
 local count=0
-local function check(name,target,extras,effects,expected)
+local function check(name,target,extras,effects,expected,levels)
   local dir=path.join(root,name)
   path.write(path.join(dir,'templates','heroes.lua'),
     'return function() return {{id="mana_hero",abilities={"mana_skill"}}} end')
   path.write(path.join(dir,'templates','abilities.lua'),
     'return function() return {{id="mana_skill",max_level=2,ability_type="active",cast_type="instant",'..
-    'target_type="'..target..'",levels={{},{}},extras='..extras..',effects={'..effects..'}}} end')
+    'target_type="'..target..'",levels='..(levels or '{{range=600},{range=600}}')..',extras='..extras..',effects={'..effects..'}}} end')
   local result=process.run(platform.lua_executable,
     {path.join(b.root,'scripts','gen_hero_registry.lua'),dir,'registry'},{cwd=b.root,check=false})
   count=count+1
@@ -29,10 +29,14 @@ local function check(name,target,extras,effects,expected)
     if effects:find('mana_buff_self',1,true) then
       assert(result.stdout:find('EffectOp::ManaBuffSelf',1,true))
       assert(result.stdout:find('omoba_content_model::ManaBuffStat::',1,true))
-    else
+    elseif effects:find('spend_mana_self',1,true) then
       local restore=assert(result.stdout:find('EffectOp::RestoreManaSelf',1,true))
       local spend=assert(result.stdout:find('EffectOp::SpendManaSelf',1,true))
       assert(restore<spend,'resource declaration order must be preserved')
+    else
+      local restore=assert(result.stdout:find('EffectOp::RestoreManaSelf',1,true))
+      local heal=assert(result.stdout:find('EffectOp::HealAlly',1,true))
+      assert((restore<heal)==(effects:find('restore_mana_self',1,true)<effects:find('heal_ally',1,true)))
     end
   end
 end
@@ -48,6 +52,17 @@ check('rank-count','none','{resource={20}}',effects,'needs one extras value')
 check('unit-target','unit','{resource={20,30}}',effects,'target_type')
 check('point-target','point','{resource={20,30}}',effects,'target_type')
 check('unknown','none','{resource={20,30}}','{kind="mana_unknown",amount_key="resource"}','target_type')
+local restore='{kind="restore_mana_self",amount_key="resource"}'
+local heal='{kind="heal_ally",amount_key="resource"}'
+check('ally-restore','unit','{resource={20,30}}',heal..','..restore)
+check('restore-ally','unit','{resource={20,30}}',restore..','..heal)
+check('restore-only-unit','unit','{resource={20,30}}',restore,'target_type')
+check('restore-only-point','point','{resource={20,30}}',restore,'target_type')
+check('ally-wrong-shape','point','{resource={20,30}}',heal..','..restore,'target_type')
+check('ally-no-range','unit','{resource={20,30}}',heal..','..restore,'bounded range','{{},{}}')
+check('ally-no-resource','unit','{resource={20,30}}',heal..',{kind="restore_mana_self",amount_key="missing"}','needs one extras value')
+check('ally-spend','unit','{resource={20,30}}',heal..',{kind="spend_mana_self",amount_key="resource"}','target_type')
+check('ally-heal-self','unit','{resource={20,30}}',heal..',{kind="heal_self",amount_key="resource"}','target_type')
 local function buff(stat) return '{kind="mana_buff_self",stat="'..stat..'",value_key="value",duration_key="duration"}' end
 for _,stat in ipairs({'base_mana_regen','mana_regen_constant','mana_regen_constant_unique','mana_regen_percentage',
   'mana_regen_total_percentage','mana_bonus','extra_mana_bonus'}) do

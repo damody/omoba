@@ -11,6 +11,7 @@ impl AbilityScript for FlameBladeHandler {
     fn execute(&self,caster:EntityHandle,target:Target,level:u8,json:RStr<'_>,world:&mut GameWorldDyn<'_>)->RResult<(),RString> {
         let result=crate::point_blast::resolve(ABILITY_FLAME_BLADE,level,json.as_str(),"damage","swipe_radius",None,
             DamageKind::Magical,DamageProfile::FIRE)
+            .and_then(|spec|crate::point_blast::with_zone(ABILITY_FLAME_BLADE,level,json.as_str(),spec,"zone_damage","zone_interval","zone_duration"))
             .and_then(|spec|crate::point_blast::execute(world,caster,target,spec));
         match result {Ok(())=>ROk(()),Err(error)=>RErr(error.into())}
     }

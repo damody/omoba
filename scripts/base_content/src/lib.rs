@@ -174,7 +174,9 @@ mod generated_registry_tests {
                 .expect("Lua-declared ability is registered");
             let metadata: serde_json::Value =
                 serde_json::from_str(definition.def_json.as_str()).unwrap();
-            assert_eq!(metadata["effects_preview"].as_array().unwrap().len(), 1);
+            assert_eq!(metadata["effects_preview"].as_array().unwrap().len()
+                +usize::from(!metadata["host_execution"].is_null()),1,
+                "one preview or one explicit host execution declaration per registered generic skill");
         }
     }
 }

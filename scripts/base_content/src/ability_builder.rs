@@ -75,6 +75,7 @@ pub fn build_ability_def_from_const(
         );
     }
     AbilityDef {
+        host_execution:None,
         id: id.as_str().to_string(),
         name: active_ability_display(id).to_string(),
         description: c.description.to_string(),
@@ -96,6 +97,10 @@ pub fn build_ability_ffi<S: AbilityScript + 'static>(
     handler: S,
     effects_preview: Vec<EffectSpec>,
 ) -> AbilityDefFFI {
+    build_ability_ffi_with_execution(id,handler,effects_preview,None)
+}
+
+pub fn build_ability_ffi_with_execution<S:AbilityScript+'static>(id:AbilityId,handler:S,effects_preview:Vec<EffectSpec>,execution:Option<omoba_core::ability_meta::HostAbilityExecution>)->AbilityDefFFI {
     let c = active_ability_const(id).unwrap_or_else(|| {
         panic!(
             "ability_const not found for id={} (raw={}); is templates.lua abilities[] complete?",
@@ -103,7 +108,8 @@ pub fn build_ability_ffi<S: AbilityScript + 'static>(
             id.raw()
         )
     });
-    let def = build_ability_def_from_const(id, c, effects_preview);
+    let mut def = build_ability_def_from_const(id, c, effects_preview);
+    def.host_execution=execution;
     let def_json = serde_json::to_string(&def).expect("AbilityDef serialize must succeed");
     AbilityDefFFI {
         def_json: def_json.into(),

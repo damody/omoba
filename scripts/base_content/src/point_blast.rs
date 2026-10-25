@@ -48,6 +48,10 @@ pub(crate) fn with_zone(id:AbilityId,rank:u8,json:&str,mut blast:PointBlast,
     let index=usize::from(rank.checked_sub(1).ok_or("invalid zone rank")?);
     if index>=content.levels.len() {return Err("invalid zone rank");}
     let data:AbilityLevelData=serde_json::from_str(json).map_err(|_|"invalid zone metadata")?;
+    if let Some(policy)=data.extra.get("zone_lifetime") {
+        let expected=if content.zone_independent {"independent"}else{"caster_bound"};
+        if policy.as_str()!=Some(expected){return Err("zone lifetime differs from authored policy");}
+    }
     let read=|key:&str,max:f64|->Result<Fixed64,&'static str> {
         let value=if let Some(value)=data.extra.get(key) {value.as_f64().ok_or("invalid zone extra type")?}
             else {f64::from(content.extras.iter().find(|(name,_)|*name==key).and_then(|(_,values)|values.get(index))
@@ -56,7 +60,7 @@ pub(crate) fn with_zone(id:AbilityId,rank:u8,json:&str,mut blast:PointBlast,
         Ok(Fixed64::from_raw((value*1024.0).round() as i64))
     };
     let duration=read(duration_key,30.0)?;
-    let zone=DamageZoneSpec {center:Vec2::ZERO,radius:blast.radius,amount:read(amount_key,1_000_000.0)?,
+    let zone=DamageZoneSpec {independent:content.zone_independent,center:Vec2::ZERO,radius:blast.radius,amount:read(amount_key,1_000_000.0)?,
         interval:read(interval_key,10.0)?,kind:blast.kind,profile:blast.profile.bits()};
     if !zone.valid() || duration<zone.interval {return Err("invalid zone lifetime or interval");}
     blast.zone=Some((zone,duration,id));Ok(blast)
@@ -88,6 +92,7 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
             omoba_sim::terrain::point_in_swept_circle(position,center,center,spec.radius))).collect();
     hits.sort_by_key(|entity|(entity.id,entity.gen));hits.dedup();
     // No outcomes are emitted until every budget/admission/geometry check ends.
+    if let Some(zone)=spec.zone.filter(|(zone,_,_)|zone.independent) {emit_zone(world,caster,center,zone);}
     world.emit_explosion(center,spec.radius,Fixed64::from_raw(204));
     for target in hits {
         world.deal_damage(target,spec.damage,spec.kind,spec.profile,RSome(caster));
@@ -96,11 +101,14 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
             world.add_buff(target,buff.as_rstr(),duration);
         }
     }
-    if let Some((mut zone,duration,id))=spec.zone {
-        zone.center=center;
-        let key=format!("__ground_damage_zone:{}:{}:{}",id.as_str(),caster.id,caster.gen);
-        let payload=zone.payload().to_string();world.add_stat_buff(caster,key.as_str().into(),duration,payload.as_str().into());
-    }
+    if let Some(zone)=spec.zone.filter(|(zone,_,_)|!zone.independent) {emit_zone(world,caster,center,zone);}
     Ok(())
+}
+
+fn emit_zone(world:&mut GameWorldDyn<'_>,caster:EntityHandle,center:Vec2,
+    (mut zone,duration,id):(omoba_core::runtime::ability_runtime::damage_zone::DamageZoneSpec,Fixed64,AbilityId)) {
+    zone.center=center;
+    let key=format!("__ground_damage_zone:{}:{}:{}",id.as_str(),caster.id,caster.gen);
+    let payload=zone.payload().to_string();world.add_stat_buff(caster,key.as_str().into(),duration,payload.as_str().into());
 }
 
