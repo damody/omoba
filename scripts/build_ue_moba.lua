@@ -128,7 +128,9 @@ local function run_restart(label, command)
   local restart_args = {command}
   local build_env
   if command == 'build' then
-    restart_args[#restart_args + 1] = '--with-bridge'
+    -- Keep both executors on the same clone-local Lua bridge pipeline.
+    run_stage('generate and stage bridge', platform.lua_executable,
+      {path.join(root,'scripts/build_ue_bridge.lua')}, root)
     -- UBT temporarily enters TEMP when switching between case-equivalent
     -- working directories. Keep that operation off the shared user TEMP.
     local build_temp = path.join(omfue, 'Saved', 'BuildTemp', 'ubt')
@@ -193,7 +195,7 @@ if engine_plan.initialize then
   -- an explicit checkpoint so a retry can finish the initial engine graph.
   path.mkdir_p(path.parent(bootstrap_marker))
   json.write(bootstrap_marker,{engine_root=engine_root,project=path.join(omfue,'om.uproject')},true)
-  run_stage('generate and stage bridge before source-engine initialization', path.join(omfue,'build_bridge.bat'), {}, omfue)
+  run_stage('generate and stage bridge before source-engine initialization', platform.lua_executable, {path.join(root,'scripts/build_ue_bridge.lua')}, omfue)
   local build_temp = path.join(omfue,'Saved/BuildTemp/ubt')
   path.mkdir_p(build_temp)
   run_stage('build source-engine ShaderCompileWorker prerequisite', engine_build, engine_plan.shader_args, omfue, {TEMP=build_temp,TMP=build_temp})
@@ -207,7 +209,7 @@ if build_executor == 'local' then
   local build_temp = path.join(omfue, 'Saved/BuildTemp/ubt')
   path.mkdir_p(build_temp)
   local build_env = {TEMP = build_temp, TMP = build_temp}
-  run_stage('generate and stage bridge', path.join(omfue, 'build_bridge.bat'), {}, omfue, build_env)
+  run_stage('generate and stage bridge', platform.lua_executable, {path.join(root,'scripts/build_ue_bridge.lua')}, omfue, build_env)
   if prefetch_shared_pch then
     local result=require('ue_shared_pch_preflight').run(omfue,engine_root,bootstrap.lib('time').monotonic_ms,function(row)
       print(('[moba-ue] read-only PCH prefetch: %s; %d bytes; %d ms'):format(row.path,row.bytes,row.elapsed_ms))
@@ -221,7 +223,7 @@ if build_executor == 'local' then
   -- its action cache. This explicit per-run option isolates cache stalls.
   run_stage('compile OmGame with local executor', engine_build, local_build_args, omfue, build_env)
 else
-  run_restart('generate bridge and compile OmGame', 'build')
+  run_restart('compile OmGame', 'build')
 end
 run_stage('ensure public map biome materials',platform.lua_executable,{
   path.join(root,'scripts/ue_map_biome_materials.lua'),'--ue-root',engine_root,'--ensure',

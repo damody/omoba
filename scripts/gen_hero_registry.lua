@@ -61,6 +61,25 @@ for _, ability in ipairs(abilities) do
 end
 
 local function effect_code(ability, effect)
+  if effect.kind=='recovery_channel_self' then
+    local amount=identifier(effect.amount_key,ability.id..' channel amount_key')
+    local duration=identifier(effect.duration_key,ability.id..' channel duration_key')
+    local interval=identifier(effect.interval_key,ability.id..' channel interval_key')
+    assert(#ability.effects==1 and ability.cast_type=='channeled' and ability.target_type=='none',ability.id..' channel must be exclusive channeled self')
+    local raw={}
+    for _,spec in ipairs({{amount,1/1024,1000000},{duration,1/1024,60},{interval,0.25,10}})do
+      local rows=ability.extras and ability.extras[spec[1]]
+      assert(type(rows)=='table' and #rows==ability.max_level,ability.id..' missing channel rank values')
+      local values={};for _,value in ipairs(rows)do
+        value=authored_number(value);assert(value and value>=spec[2] and value<=spec[3] and value*1024%1==0,ability.id..' invalid channel scalar')
+        values[#values+1]=value*1024
+      end;raw[spec[1]]=values
+    end
+    for rank,level in ipairs(ability.levels)do
+      assert((level.cast_time or 0)==0 and raw[duration][rank]>=raw[interval][rank] and raw[duration][rank]%raw[interval][rank]==0,ability.id..' channel requires whole pulses and no preparation')
+    end
+    return string.format('crate::generic_effects::EffectOp::RecoveryChannelSelf { amount_key: "%s", duration_key: "%s", interval_key: "%s" }',amount,duration,interval)
+  end
   if effect.kind=='mana_buff_self' then
     local stats={base_mana_regen={'BaseManaRegen',0,1000000},mana_regen_constant={'ManaRegenConstant',-1000000,1000000},
       mana_regen_constant_unique={'ManaRegenConstantUnique',-1000000,1000000},mana_regen_percentage={'ManaRegenPercentage',-1,16},
@@ -127,6 +146,12 @@ local function effect_code(ability, effect)
     end
     return 'crate::generic_effects::EffectOp::DashToPoint'
   end
+  if effect.kind=='cleanse_ally' then
+    for key in pairs(effect)do assert(key=='kind',ability.id..' ally cleanse has no configurable fields')end
+    for _,rank in ipairs(ability.levels)do local range=authored_number(rank.range)
+      assert(range and range>=1/1024 and range<=10000,ability.id..' ally cleanse requires bounded range')end
+    return 'crate::generic_effects::EffectOp::CleanseAlly'
+  end
   local key = identifier(effect.amount_key, ability.id .. ' effect amount_key')
   local levels = ability.extras and ability.extras[key]
   assert(type(levels) == 'table' and #levels == ability.max_level,
@@ -135,7 +160,7 @@ local function effect_code(ability, effect)
     assert(scalar(value),
       ability.id .. ' effect amount_key ' .. key .. ' must be zero or finite in [1/1024,1000000]')
   end
-  if effect.kind == 'damage' or effect.kind == 'area_damage' or effect.kind=='cone_damage' or effect.kind=='damage_over_time_enemy' then
+  if effect.kind == 'damage' or effect.kind == 'area_damage' or effect.kind=='cone_damage' or effect.kind=='line_damage' or effect.kind=='damage_over_time_enemy' then
     local kinds = {physical = 'Physical', magical = 'Magical', pure = 'Pure'}
     local kind = kinds[effect.damage_kind]
     assert(kind, ability.id .. ' effect has invalid damage_kind')
@@ -145,6 +170,16 @@ local function effect_code(ability, effect)
       local range=authored_number(rank.range)
       assert(range~=nil and range>=1/1024 and range<=10000,
         ability.id..' targeted cast range must be in [1/1024,10000]')
+    end
+    if effect.kind=='line_damage' then
+      assert(#ability.effects==1 and ability.target_type=='point' and ability.cast_type=='instant'
+        and (ability.ability_type=='active' or ability.ability_type=='ultimate') and not ability.aim_geometry,
+        ability.id..' line_damage requires one exclusive instant point effect')
+      local width_key=identifier(effect.width_key,ability.id..' line width_key')
+      local widths=ability.extras and ability.extras[width_key]
+      assert(type(widths)=='table' and #widths==ability.max_level,ability.id..' requires per-rank line width')
+      for _,width in ipairs(widths)do width=authored_number(width);assert(width and width>=1/1024 and width<=5000,ability.id..' invalid line width')end
+      return string.format('crate::generic_effects::EffectOp::LineDamage { amount_key: "%s", width_key: "%s", kind: omb_script_abi::types::DamageKind::%s }',key,width_key,kind)
     end
     if effect.kind=='cone_damage' then
       assert(#ability.effects==1 and ability.target_type=='point' and ability.cast_type=='instant'
@@ -178,6 +213,26 @@ local function effect_code(ability, effect)
       return string.format('crate::generic_effects::EffectOp::AreaDamage { amount_key: "%s", radius_key: "%s", kind: omb_script_abi::types::DamageKind::%s }',key,radius_key,kind)
     end
     return string.format('crate::generic_effects::EffectOp::Damage { amount_key: "%s", kind: omb_script_abi::types::DamageKind::%s }', key, kind)
+  end
+  if effect.kind=='drain_mana_enemy' then
+    for rank,value in ipairs(levels)do
+      local range=authored_number(ability.levels[rank].range)
+      assert(authored_number(value)>=1/1024,ability.id..' mana drain requires positive amount')
+      assert(range and range>=1/1024 and range<=10000,ability.id..' mana drain requires bounded range')
+    end
+    return string.format('crate::generic_effects::EffectOp::DrainManaEnemy { amount_key: "%s" }',key)
+  end
+  if effect.kind=='shield_ally' then
+    local duration_key=identifier(effect.duration_key,ability.id..' shield duration_key')
+    local durations=ability.extras and ability.extras[duration_key]
+    assert(type(durations)=='table' and #durations==ability.max_level,ability.id..' shield requires per-rank duration')
+    for rank,value in ipairs(levels)do
+      local duration=authored_number(durations[rank]);local range=authored_number(ability.levels[rank].range)
+      assert(authored_number(value)>0,ability.id..' shield amount must be positive')
+      assert(duration and duration>=1/1024 and duration<=60,ability.id..' invalid shield duration')
+      assert(range and range>=1/1024 and range<=10000,ability.id..' shield requires bounded range')
+    end
+    return string.format('crate::generic_effects::EffectOp::ShieldAlly { amount_key: "%s", duration_key: "%s" }',key,duration_key)
   end
   if effect.kind=='heal_ally' then
     for _,rank in ipairs(ability.levels) do
@@ -217,17 +272,24 @@ for _, hero in ipairs(heroes) do
           hero_id .. ' ability ' .. ability_id .. ' needs effects or rust_module')
         assert(ability.ability_type == 'active' or ability.ability_type == 'ultimate',
           ability_id .. ' declarative effects require active or ultimate ability_type')
-        assert(ability.cast_type == 'instant',
-          ability_id .. ' declarative effects require instant cast_type')
+        assert(ability.cast_type == 'instant' or (#ability.effects==1 and ability.effects[1].kind=='recovery_channel_self' and ability.cast_type=='channeled'),
+          ability_id .. ' declarative effects require instant or exclusive recovery channel')
         assert(#ability.effects<=32,ability_id..' exceeds 32 effects')
         local effects = {}
         local mana_stats={}
         local dot_seen=false
         local unit_allegiance
+        local consumes_target=false
+        local target_kinds=ability.target_type=='unit'
+          and {damage=true,drain_mana_enemy=true,heal_ally=true,shield_ally=true,cleanse_ally=true,damage_over_time_enemy=true,slow_enemy=true,stun_enemy=true,control_enemy=true}
+          or (ability.target_type=='point' and {area_damage=true,line_damage=true,cone_damage=true} or {})
+        for _,effect in ipairs(ability.effects)do
+          if target_kinds[effect.kind]then consumes_target=true end
+        end
         for _, effect in ipairs(ability.effects) do
           if effect.kind=='damage_over_time_enemy' then assert(not dot_seen,ability_id..' duplicate DoT effect');dot_seen=true end
-          local allegiance=effect.kind=='heal_ally' and 'ally'
-            or ((effect.kind=='damage' or effect.kind=='damage_over_time_enemy' or effect.kind=='slow_enemy' or effect.kind=='stun_enemy' or effect.kind=='control_enemy') and 'enemy')
+          local allegiance=(effect.kind=='heal_ally' or effect.kind=='shield_ally' or effect.kind=='cleanse_ally') and 'ally'
+            or ((effect.kind=='damage' or effect.kind=='drain_mana_enemy' or effect.kind=='damage_over_time_enemy' or effect.kind=='slow_enemy' or effect.kind=='stun_enemy' or effect.kind=='control_enemy') and 'enemy')
           if allegiance then
             assert(not unit_allegiance or unit_allegiance==allegiance,
               ability_id..' conflicting unit target allegiance')
@@ -240,13 +302,18 @@ for _, hero in ipairs(heroes) do
           assert((effect.kind == 'damage' and ability.target_type == 'unit') or
             (effect.kind == 'damage_over_time_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'heal_ally' and ability.target_type == 'unit') or
+            (effect.kind == 'shield_ally' and ability.target_type == 'unit') or
+            (effect.kind == 'cleanse_ally' and ability.target_type == 'unit') or
+            (effect.kind == 'drain_mana_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'slow_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'stun_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'control_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'area_damage' and ability.target_type == 'point') or
             (effect.kind == 'cone_damage' and ability.target_type == 'point') or
+            (effect.kind == 'line_damage' and ability.target_type == 'point') or
             (effect.kind == 'dash_to_point' and ability.target_type == 'point') or
-            ((effect.kind == 'heal_self' or effect.kind == 'restore_mana_self' or effect.kind == 'spend_mana_self' or effect.kind=='mana_buff_self')
+            (effect.kind == 'restore_mana_self' and (ability.target_type=='none' or consumes_target)) or
+            ((effect.kind == 'heal_self' or effect.kind=='recovery_channel_self' or effect.kind == 'spend_mana_self' or effect.kind=='mana_buff_self')
               and ability.target_type == 'none'),
             ability_id .. ' effect kind does not match target_type')
           effects[#effects + 1] = effect_code(ability, effect)
