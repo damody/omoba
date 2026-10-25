@@ -1,0 +1,11 @@
+# Bot cleanse errors and prevention
+
+BC01 (read-only discovery): assumed bots/observation.rs despite the inventory showing no such module. Actual disclosed observation builder and SeenUnit are in moba_match/bots.rs. No source or worker changed. Prevention: copy exact definition paths from rg before reading a symbol; do not infer modular filenames. The earlier pattern of path guessing must not be repeated in fixtures.
+
+Finding: existing AllyHeal policy only selects injured units. After shared CleanseAlly, full-health controlled teammates remain untreated by bots. Add an explicit author policy with compiled cleanse capability, not hero/skill-name inference. Parse only the team's committed public BuffVisualSnapshot for currently disclosed identities; never read another entity's private BuffStore or use old snapshots. Preserve old pure planner entry through a default no-control-observation wrapper.
+
+Prelaunch inventory found a second AbilityConst constructor in omoba-template-ids/src/runtime_content.rs beyond the initial six-file plan. Its accepted parent hash/original was preserved before editing, expanding the parent to44inputs (seven maintained files plus37OmGenerated). Both generation paths and startup/hot-reload semantic guards were updated together; no stale runtime metadata workaround.
+
+First focused cohort passed templates1/core2/formal1 with actual API exit0 (session2963 chunkcb26f2), no failed retry. Formal tests prove all four public control types can prompt an actual full-health ally cast; missing/private-only/hidden statuses do not. Source froze during readers; the existing pure planner and invalid-candidate callback panic assertions remain covered.
+
+Consolidated first cohort passed all nine Rust scopes, backend/UE5.8, both offline plan/catalog checks and four native tests (zero test-report warnings). No test failure or retry occurred. Fresh actual rank tooltip PNG inspected through view_image; current/next/max summaries remain readable with no clipping, and no new UI behavior is claimed. Existing Rust warnings, generated-proto fallback notice and engine tool-plugin HTTP401 startup messages are preserved in raw logs rather than described as globally warning-free.

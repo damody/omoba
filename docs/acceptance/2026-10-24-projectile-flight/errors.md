@@ -1,0 +1,13 @@
+# Projectile flight errors and prevention
+
+F01: Initial inventory selected a sale-undo gap from an older historical paragraph. complete-shop-sale-undo already has four checked tasks and accepted artifacts. No source changed. Check current OpenSpec completion before selecting a gap; preserve historical reports without treating their pending text as current truth.
+
+F02: Readonly rg supplied a Windows wildcard as a literal path and guessed comp/searcher.rs. Both failed, without mutation. Use a verified directory with -g filters or rg --files before exact reads. The actual projectile system file is runtime/native/tick/projectile_tick.rs.
+
+Confirmed production risks: straight sweep uses full speed*dt past tpos; lifetime is decremented only after full movement; dist<ONE permits positive-distance impacts with zero movement budget. Preserve a failing actual-system cohort before repairing these shared rules. No new skill or network match is claimed.
+
+F03: ProbeV1 original API45715 actual exit1 reaped. Actual Projectile Sys reproduced all three risks (3failed/1normal endpoint passed); frozen test-only input and raw assertions retained. Repair shares active_dt=min(nonnegative dt,remaining lifetime), nonnegative speed budget and clamped next_pos across movement/sweep, and requires sufficient budget even below one world unit. Prevention: last-tick collision and movement must use the same endpoint/lifetime budget; tolerance must not authorize damage before reaching a target.
+
+F04: ProbeV2 API86816 actual0 reaped covered four cases; a further raw1 boundary was then added. ProbeV3 API12322 actual1 reaped (4passed/1failed): Q10 Vec2::length erases subquantum squared distance, so removing the one-unit tolerance alone still permits a zero-speed arrival. Preserve both cohorts. Extend the existing checked integer endpoint implementation into checked_travel_endpoint, reused by line aiming and projectile flight; retain existing line limits and direction rejection. Exact raw squared comparisons plus ceiling integer square root replace normalized-vector distance checks. Unsupported geometry retires without damage. Prevention: include the smallest positive raw distance and diagonal budget bounds, not only fractional world units.
+
+F05: A readonly diagnostic count used doubled percent signs in Lua patterns as if the command were a batch file, yielding 0/0 despite completed raw logs. This count was never accepted or written as test evidence. Correct PowerShell-invoked Lua patterns use single `%`; the saved sealer already uses the correct pattern and validates every scope has positive counts. Prevention: distinguish shell quoting from Lua pattern escaping and reject empty per-scope parses.

@@ -1,0 +1,7 @@
+# Bot recovery channel wait — errors and prevention
+
+Design: read authoritative private Channels for the exact owner/entity. Public recovery_channel duration status is presentation, not proof of execution. Keep all owner/disclosure/cadence gates and avoid issuing Stop/Hold that would itself cancel the channel. Do not enable unsupported bot cast types globally. Prior recovery acceptance retained unchanged; new bot initiation intent remains a separate pending increment.
+
+BW01 before compiling, review caught a draft test using a nonexistent SimulationDriver::last_result_tick accessor. The actual current authority tick is world Tick (driver also exposes tick()). Use the existing Tick resource as other formal fixtures do; corrected before any worker began. Prevention: inspect existing API signatures instead of guessing convenience accessors.
+
+BW02 probeV1 formal owner isolation/fake-status/Stop passed. The skill/item completion case failed starting the item: the fixture had already relocated outside the shop before issuing ItemBuy. Keep production shop range admission unchanged. In the test only, buy at the actual own base, assert the actual inventory item ID, then return to the isolated test origin before starting. Original API55237 actual1 reaped; frozen three inputs, raw failure, owner/waiter exit and retired cleanup retained. Prevention: assert prerequisites (successful purchase) before asserting downstream channel behavior; preserve real player input paths instead of injecting an inventory bypass.

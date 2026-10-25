@@ -1,0 +1,15 @@
+# Bot channel item errors and prevention
+
+Discovery: real recovery channels already suspend bot decisions, but the active item selector has no ChannelHeal arm, so bots cannot initiate that item. Implement an explicit disabled-by-default HP policy, bounded disclosed-threat check, owner silence/windup gate and existing Spec validity predicate. Reuse authority and actual channel wait; do not infer eligibility from names or public duration buffs.
+
+BCI01 read-only discovery searched a guessed bot-self-cleanse-prepare-parent-v1.lua; inventory located bot-self-cleanse-prepare-v1.lua. BCI02 guessed native/item_world.rs; definitions are in native/game_processor.rs, with execution in native/recovery_channel.rs. No worker or maintained source was changed by these searches. Prevention: inventory paths and search definitions before reading them; inherited filename assumptions are unreliable.
+
+BCI03 native test discovery assumed an OmRuntime/Private/Tests directory that does not exist. Search the real Source tree using rg --files with filename globs, then read the returned file. This was read-only and did not affect the running probe. Do not reconstruct test directory names from typical Unreal layouts.
+
+Plan: preserve parent-bound originals; implement the common planner and opt-in recipe; add pure/formal60Hz cases; run consolidated acceptance and independent closure. Preserve every failed input/worker and do not edit sources while readers are active.
+
+Implementation: channel_below_hp_per_mille defaults0 and validates0..1000 in pre-match and pure selector. Typed ChannelHeal uses the existing Spec::valid, current disclosed threat radius, owner silence and attack windup; root alone is permitted. Authority remains ordinary ItemUse and real owner channel wait. Optional archetype Support build adds the item and threshold600; other policies explicitly preserve0.
+
+ProbeV1: core2 and formal1 passed without implementation/test retries. Original session28067 reaped actual exit0, chunk8ac046. Formal fixture compiled the actual Lua recipe, bought through normal authority, exercised disabled/pause/stun/silence/disclosed threat and private-position independence, then real root-start/wait/three40HP pulses/unchanged mana, pause/cooldown freeze, Stop interruption and paired replay. Full acceptance is pending; preserve the exact probe inputs and receipts.
+
+Final acceptance supersedes pending status: original AcceptV1 session37563 reaped actual exit0 (chunk e90dcc), full3496 maintained source/asset SHA/set/size/mtime check succeeded. Fresh nine Rust scopes2138 passed/0failed/9existing ignored; backend/UE5.8/staged DLL and import library/two offline plans/catalog passed. Native4 succeeded/0test warnings; actual1500x1311 rank-effects Slate PNG viewed with complete text and no clipping. No implementation/build/test failure or retry occurred. Existing Rust and engine startup diagnostics are retained; zero test warnings is not a globally clean-log claim. Original jobs must not be relaunched. Independent evidence closure remains required before tasks are marked complete.

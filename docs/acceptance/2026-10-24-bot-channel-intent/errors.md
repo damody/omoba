@@ -1,0 +1,13 @@
+# Bot channel recovery intent — errors and prevention
+
+CI01 a readonly discovery guessed runtime/native/ability_runtime.rs, which does not exist; the actual shared runtime modules must be located with rg --files / declaration search. No source or process changed. Use inventory before reading paths; a no-match optional declaration search is not a runtime failure.
+
+Design invariants: effects_preview is descriptive only; introduce an explicit compiled execution-key projection from the closed authored effect. Do not globally allow every channeled ability or use arbitrary extras/hero-name heuristics. Exact host metadata and cost must still gate owner admission; committed team disclosures are the only threat source. Preserve source generations and original failed worker outputs before any repair.
+
+CI02 source review found hot reload compares ContentShape separately from the startup compiled-catalog guard. Add the closed recovery-key signature to BOTH gates; a startup-only check would permit semantic key drift through dev reload. Numeric tuning retains existing rules. Threat planning also fails closed beyond512 observations or malformed hostile geometry, and uses the shared checked circle predicate instead of an unchecked distance square. These corrections precede the first test worker.
+
+CI03 probeV1 metadata1/core2 passed; actual authored plan compilation rejected more than64 learning goals. The new recipe inherited goals for the replaced loadout. Preserve the existing bounded host limit. Filter policies and learning against the actual selected heroes' abilities from the shared authoring graph, not hardcoded old hero names or a truncation. Original API26592 actual1 reaped/retired with seven frozen inputs and raw logs retained. Prevention: optional recipe composition must remove goals no selected owner can use, and assert the compiled plan bound before gameplay fixtures.
+
+CI04 read-only review during the first probe found disclosed kind6 represents an unattackable structure, which may still be a threatening protected tower. Include this disclosed structure category in conservative threat admission and extend the geometry test; do not infer harmlessness from target attackability. Change only after the original probe retired. No private enemy ECS state is consulted.
+
+CI05 an optional read-only next-batch UI audit guessed omfue/bridge/src/driver as a directory from a Rust module name; that directory is absent. No sources or processes changed. Stop speculative path reads and run rg --files on the verified containing directory before any module lookup. Rust namespace segments do not imply directory boundaries. Current channel acceptance is unaffected.
