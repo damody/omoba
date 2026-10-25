@@ -1,4 +1,40 @@
 use super::*;
+#[test]
+fn line_policy_requires_compiled_nonmoving_geometry_and_closed_bounded_intent() {
+    let policy=|min|BotAbilityPolicy{ability:"lumen_ray".into(),intent:BotAbilityIntent::EnemyLine{min_targets:min}};
+    assert!(validate_policies(&[policy(2)]).is_ok());
+    for min in [0,129]{assert!(validate_policies(&[policy(min)]).is_err());}
+    for id in ["fire_dash","ranger_scatter","lumen_bolt","missing"]{let mut bad=policy(1);bad.ability=id.into();assert!(validate_policies(&[bad]).is_err());}
+    assert!(serde_json::from_str::<BotAbilityIntent>(r#"{"kind":"enemy_line","min_targets":2,"width_key":"fake"}"#).is_err());
+    assert!(matches!(serde_json::from_str::<BotAbilityIntent>(r#"{"kind":"enemy_line","min_targets":2}"#).unwrap(),BotAbilityIntent::EnemyLine{min_targets:2}));
+}
+#[test]
+fn line_selection_uses_closed_capsule_same_clamp_dedup_focus_and_bounded_observations() {
+    let points=[unit(1,100,0),unit(2,600,0),unit(3,960,0),unit(3,960,0),unit(4,961,0),unit(5,400,61),unit(6,-60,0)];
+    for reverse in [false,true]{let mut seen=points.to_vec();if reverse{seen.reverse();}
+        assert_eq!(choose_line_target(Vec2::ZERO,Fixed64::from_i32(900),Fixed64::from_i32(120),4,seen.iter().collect(),None),Some(p(900,0)));}
+    let seen=[unit(1,100,0),unit(2,600,0),unit(3,-200,0)];
+    assert_eq!(choose_line_target(Vec2::ZERO,Fixed64::from_i32(900),Fixed64::from_i32(120),1,seen.iter().collect(),Some(3)),Some(p(-200,0)));
+    let crowded:Vec<_>=(1..=129).map(|id|unit(id,100,0)).collect();
+    assert!(choose_line_target(Vec2::ZERO,Fixed64::from_i32(900),Fixed64::from_i32(120),1,crowded.iter().collect(),None).is_none());
+    let crowded:Vec<_>=(1..=513).map(|id|unit(id,100,0)).collect();
+    assert!(choose_line_target(Vec2::ZERO,Fixed64::from_i32(900),Fixed64::from_i32(120),1,crowded.iter().collect(),None).is_none());
+    assert!(choose_line_target(Vec2::ZERO,Fixed64::from_i32(900),Fixed64::ZERO,1,seen.iter().collect(),None).is_none());
+}
+#[test]
+fn line_intent_keeps_owner_mana_public_enemy_filter_and_root_without_relocation_queries() {
+    use crate::runtime::ability_runtime::ManaPool;
+    let mut hero=hero();hero.abilities=vec!["lumen_ray".into()];hero.ability_levels.insert("lumen_ray".into(),1);
+    hero.mana_pool=Some(ManaPool::new(Fixed64::from_i32(45),Fixed64::from_i32(280)).unwrap());
+    let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);let enemies=[unit(1,100,0),unit(2,600,0)];
+    let policy=BotAbilityPolicy{ability:"lumen_ray".into(),intent:BotAbilityIntent::EnemyLine{min_targets:2}};
+    let decide=|hero:&Hero,seen:&[SeenUnit],defer|choose_cast_with_attack_priority(hero,BotRole::Carry,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,defer,true,|_,_|Some(Fixed64::from_i32(45)),|_,_|None,|_|panic!("line must not query relocation"));
+    let before=hero.mana_pool.clone();let cast=decide(&hero,&enemies,false).unwrap();
+    assert_eq!((cast.ability_index,cast.target_entity,cast.target_pos),(0,None,Some(crate::runtime::Vec2I{x:600*1024,y:0})));
+    assert_eq!(hero.mana_pool,before);assert!(decide(&hero,&enemies,true).is_none());
+    for bad in [SeenUnit{team:1,..enemies[1]},SeenUnit{hp_raw:0,..enemies[1]},SeenUnit{team:0,kind:3,..enemies[1]}]{assert!(decide(&hero,&[enemies[0],bad],false).is_none());}
+    hero.mana_pool.as_mut().unwrap().spend(Fixed64::from_raw(1)).unwrap();assert!(decide(&hero,&enemies,false).is_none());
+}
 
 fn p(x:i32,y:i32)->Vec2 {Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))}
 fn unit(id:u64,x:i32,y:i32)->SeenUnit {SeenUnit{canonical_id:id,position:p(x,y),team:2,kind:1,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100}}

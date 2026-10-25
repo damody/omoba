@@ -15,10 +15,16 @@ pub enum BotAbilityIntent {
     EnemyPoint {radius_key:String,min_targets:u16},
     /// Actual compiled source-sector geometry; no authored radius/angle-key guess.
     EnemyCone {min_targets:u16},
+    /// Actual compiled nonmoving capsule geometry, over disclosed observations.
+    EnemyLine {min_targets:u16},
     /// Author explicitly opts a point skill into closing on disclosed enemies.
     ApproachEnemyPoint {min_distance:u32},
     SelfHeal { below_hp_per_mille:u16 },
+    /// Explicit stationary host channel, started only outside disclosed threats.
+    SelfChannelRecovery { below_hp_per_mille:u16, threat_radius:u32 },
     AllyHeal { below_hp_per_mille:u16 },
+    /// Explicit compiled friendly cleanse; control choices use public observation only.
+    AllyHealOrCleanse { below_hp_per_mille:u16 },
     /// Explicit immediate-recovery hint. HP is optional (zero disables it);
     /// the mana branch must improve the owner's balance after host cost.
     SelfRecovery { below_hp_per_mille:u16, below_mana_per_mille:u16, restore_key:String },
@@ -79,12 +85,23 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
         if !ids.insert(&policy.ability) {return Err("duplicate bot ability policy");}
         let def=omoba_template_ids::ability_by_name(&policy.ability)
             .and_then(omoba_template_ids::active_ability_const).ok_or("unknown active compiled bot ability")?;
-        if !matches!(def.ability_type,AbilityTypeC::Active | AbilityTypeC::Ultimate)
-            || def.cast_type!=CastTypeC::Instant {return Err("bot policy requires an instant active ability");}
+        let supported_cast=if matches!(policy.intent,BotAbilityIntent::SelfChannelRecovery {..}) {
+            def.cast_type==CastTypeC::Channeled && def.recovery_channel.is_some()
+                && def.levels.iter().all(|rank|rank.cast_time==Fixed64::ZERO)
+        } else {def.cast_type==CastTypeC::Instant};
+        if !matches!(def.ability_type,AbilityTypeC::Active | AbilityTypeC::Ultimate) || !supported_cast {
+            return Err("bot policy requires a supported explicit active execution type");
+        }
         match &policy.intent {
+            BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille,threat_radius}
+                if def.target_type==TargetTypeC::None && (1..=1000).contains(below_hp_per_mille)
+                    && (1..=10_000).contains(threat_radius)=>{},
             BotAbilityIntent::EnemyUnit if def.target_type==TargetTypeC::Unit => {},
             BotAbilityIntent::AllyHeal {below_hp_per_mille} if def.target_type==TargetTypeC::Unit
                 && (1..=1000).contains(below_hp_per_mille)=>{},
+            BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille} if def.target_type==TargetTypeC::Unit
+                && def.cleanses_allies && (1..=1000).contains(below_hp_per_mille)
+                && def.levels.iter().all(|rank|rank.range>Fixed64::ZERO&&rank.range<=Fixed64::from_i32(10_000))=>{},
             BotAbilityIntent::ApproachEnemyPoint {min_distance} if def.target_type==TargetTypeC::Point
                 && (1..=10_000).contains(min_distance)
                 && def.levels.iter().all(|level|level.range>Fixed64::from_i32(*min_distance as i32))=>{},
@@ -121,6 +138,9 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
                     return Err("bot point radius must be positive bounded per-rank data");
                 }
             },
+            BotAbilityIntent::EnemyLine {min_targets} if def.target_type==TargetTypeC::Point
+                && (1..=128).contains(min_targets) && def.line_widths.len()==def.levels.len()
+                && def.line_widths.iter().all(|width|*width>Fixed64::ZERO&&*width<=Fixed64::from_i32(5_000))=>{},
             BotAbilityIntent::EnemyCone {min_targets} if def.target_type==TargetTypeC::Point
                 && (1..=128).contains(min_targets)
                 && def.cone_half_angle_ticks.len()==def.levels.len()
@@ -134,7 +154,7 @@ pub(super) fn validate_policies(policies:&[BotAbilityPolicy]) -> Result<(), &'st
 
 pub(super) fn requires_mana(policies:&[BotAbilityPolicy]) -> bool {
     policies.iter().any(|policy|matches!(policy.intent,
-        BotAbilityIntent::SelfRecovery {..}|BotAbilityIntent::SelfManaRegeneration {..}))
+        BotAbilityIntent::SelfRecovery {..}|BotAbilityIntent::SelfManaRegeneration {..}|BotAbilityIntent::SelfChannelRecovery {..}))
 }
 
 #[cfg(test)]
@@ -161,11 +181,19 @@ pub(super) fn choose_cast_with_resources(hero:&Hero,role:BotRole,team:u32,own:Ve
 }
 
 /// Defer offensive intentions only; recovery still follows author ordering.
+#[cfg(test)]
 pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
     seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,defer_offense:bool,immobilized:bool,
     cost:impl Fn(&str,u8)->Option<Fixed64>,
     regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
     relocation_clear:impl Fn(Vec2)->bool) -> Option<CastAbility> {
+    choose_cast_with_control_observation(hero,role,team,own,health,seen,policies,focus,defer_offense,immobilized,cost,regen,relocation_clear,|_|None)
+}
+
+pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:u32,own:Vec2,health:&CProperty,
+    seen:&[SeenUnit],policies:&[BotAbilityPolicy],focus:Option<u64>,defer_offense:bool,immobilized:bool,
+    cost:impl Fn(&str,u8)->Option<Fixed64>,regen:impl Fn(&str,Fixed64)->Option<(Fixed64,Fixed64)>,
+    relocation_clear:impl Fn(Vec2)->bool,control_priority:impl Fn(u64)->Option<u8>) -> Option<CastAbility> {
     let enemy=|unit:&&SeenUnit|unit.hp_raw>0 && unit.team!=team
         && if role==BotRole::Jungle {unit.kind==3
             || (unit.kind==1 && unit.team!=0 && Some(unit.canonical_id)==focus)}
@@ -179,7 +207,7 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
         // Root blocks voluntary relocation, not ordinary damage/recovery.
         if immobilized && matches!(policy.intent,BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         if defer_offense && matches!(policy.intent,BotAbilityIntent::EnemyUnit
-            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
+            |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
         if slot>=4 {continue;} // formal PlayerInput exposes exactly four slots
         if !hero.can_use_ability(&policy.ability) || hero.is_on_cooldown(&policy.ability) {continue;}
@@ -188,6 +216,8 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
         let rank=(owner_rank-1) as usize;
         let Some(def)=omoba_template_ids::ability_by_name(&policy.ability).and_then(omoba_template_ids::active_ability_const) else {continue;};
         let Some(level)=def.levels.get(rank) else {continue;};
+        if matches!(policy.intent,BotAbilityIntent::SelfChannelRecovery {..})
+            && (hero.mana_pool.is_none() || def.cast_type!=CastTypeC::Channeled || def.recovery_channel.is_none()) {continue;}
         let required_cost=if let Some(pool)=&hero.mana_pool {
             let Some(required)=cost(&policy.ability,owner_rank as u8) else {continue;};
             if required<Fixed64::ZERO || required>pool.current() {continue;}
@@ -195,6 +225,34 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
         } else {None};
         let mut target_pos=None;
         let target=match &policy.intent {
+            BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille}=>{
+                if !def.cleanses_allies || def.target_type!=TargetTypeC::Unit || !(1..=1000).contains(below_hp_per_mille)
+                    || seen.len()>512 || level.range<=Fixed64::ZERO || level.range>Fixed64::from_i32(10_000){continue;}
+                let Some((unit,_))=seen.iter().filter(|u|u.team==team && team!=0 && u.kind==1 && u.hp_raw>0 && u.max_hp_raw>0
+                    && (u.position-own).length_squared()<=level.range*level.range)
+                    .filter_map(|unit|{
+                        let priority=control_priority(unit.canonical_id).filter(|p|(1..=4).contains(p)).unwrap_or(5);
+                        (priority<5 || i128::from(unit.hp_raw)*1000<i128::from(unit.max_hp_raw)*i128::from(*below_hp_per_mille)).then_some((unit,priority))
+                    }).min_by(|(a,pa),(b,pb)|pa.cmp(pb)
+                        .then_with(||(i128::from(a.hp_raw)*i128::from(b.max_hp_raw)).cmp(&(i128::from(b.hp_raw)*i128::from(a.max_hp_raw))))
+                        .then_with(||(a.position-own).length_squared().raw().cmp(&(b.position-own).length_squared().raw()))
+                        .then_with(||a.canonical_id.cmp(&b.canonical_id)))else{continue;};
+                Some(unit.canonical_id as u32)
+            },
+            BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille,threat_radius}=>{
+                if !(1..=1000).contains(below_hp_per_mille) || !(1..=10_000).contains(threat_radius)
+                    || seen.len()>512 || health.hp<=Fixed64::ZERO || health.mhp<=Fixed64::ZERO
+                    || i128::from(health.hp.raw())*1000>=i128::from(health.mhp.raw())*i128::from(*below_hp_per_mille) {continue;}
+                let radius=Fixed64::from_i32(*threat_radius as i32);
+                let supported=|pos:Vec2|pos.x.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
+                    && pos.y.raw().unsigned_abs()<=omoba_sim::terrain::MAX_GEOMETRY_RAW as u64;
+                if !supported(own) {continue;}
+                // Neutral monsters are threats too. Only committed disclosed
+                // combatants participate; private positions/targets are irrelevant.
+                if seen.iter().any(|unit|unit.hp_raw>0 && unit.team!=team && matches!(unit.kind,1|2|3|4|5|6)
+                    && (!supported(unit.position)||omoba_sim::terrain::point_in_swept_circle(unit.position,own,own,radius))) {continue;}
+                None
+            }
             BotAbilityIntent::AllyHeal {below_hp_per_mille}=>{
                 let Some(unit)=seen.iter().filter(|u|u.team==team && u.kind==1 && u.hp_raw>0 && u.max_hp_raw>0
                     && i128::from(u.hp_raw)*1000<i128::from(u.max_hp_raw)*i128::from(*below_hp_per_mille)
@@ -266,6 +324,13 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
                 let (Ok(x),Ok(y))=(i32::try_from(unit.position.x.raw()),i32::try_from(unit.position.y.raw())) else {continue;};
                 target_pos=Some(crate::runtime::Vec2I {x,y});None
             }
+            BotAbilityIntent::EnemyLine {min_targets}=>{
+                if health.hp<=Fixed64::ZERO{continue;}
+                let Some(width)=def.line_widths.get(rank).copied()else{continue;};
+                let Some(point)=choose_line_target(own,level.range,width,*min_targets,seen.iter().filter(enemy).collect(),if prioritizes_focus{focus}else{None})else{continue;};
+                let (Ok(x),Ok(y))=(i32::try_from(point.x.raw()),i32::try_from(point.y.raw()))else{continue;};
+                target_pos=Some(crate::runtime::Vec2I{x,y});None
+            }
             BotAbilityIntent::EnemyCone {min_targets}=>{
                 if health.hp<=Fixed64::ZERO {continue;}
                 let Some(ticks)=def.cone_half_angle_ticks.get(rank).copied() else {continue;};
@@ -296,6 +361,27 @@ pub(super) fn choose_cast_with_attack_priority(hero:&Hero,role:BotRole,team:u32,
         return Some(CastAbility {ability_index:u32::try_from(slot).ok()?,target_entity:target,target_pos});
     }
     None
+}
+
+// Bounded planning over committed observations only. Candidate axes point at
+fn choose_line_target(own:Vec2,range:Fixed64,width:Fixed64,min_targets:u16,
+    mut eligible:Vec<&SeenUnit>,focus:Option<u64>)->Option<Vec2> {
+    if width<=Fixed64::ZERO||width>Fixed64::from_i32(5_000)||range<=Fixed64::ZERO||range>Fixed64::from_i32(10_000)
+        ||!(1..=128).contains(&min_targets){return None;}
+    let radius=width/Fixed64::from_i32(2);
+    eligible.retain(|u|u.hp_raw>0&&omoba_sim::terrain::point_in_swept_circle(u.position,own,own,range+radius));
+    eligible.sort_by_key(|u|(u.canonical_id,u.position.x.raw(),u.position.y.raw()));eligible.dedup_by_key(|u|u.canonical_id);
+    if eligible.len()>512{return None;}
+    let distance=|u:&SeenUnit|(u.position-own).length_squared().raw();
+    eligible.sort_by_key(|u|(focus.is_some()&&Some(u.canonical_id)!=focus,distance(u),u.canonical_id));
+    eligible.iter().filter(|u|u.position!=own).take(32).filter_map(|aim|{
+        let end=omoba_sim::terrain::checked_line_endpoint(own,aim.position,range)?;
+        let mut count=0;let mut covers_focus=false;
+        for victim in &eligible {if omoba_sim::terrain::point_in_swept_circle(victim.position,own,end,radius){
+            count+=1;covers_focus|=Some(victim.canonical_id)==focus;if count>128{return None;}
+        }}
+        (count>=usize::from(min_targets)).then_some((focus.is_some()&&!covers_focus,std::cmp::Reverse(count),distance(aim),aim.canonical_id,end))
+    }).min_by_key(|(missing,count,distance,id,_)|(*missing,*count,*distance,*id)).map(|(_,_,_,_,end)|end)
 }
 
 // Bounded planning over committed observations only. Candidate axes point at
@@ -336,6 +422,45 @@ fn choose_cone_target(own:Vec2,range:Fixed64,half_ticks:u16,min_targets:u16,
 mod tests {
     use super::*;
     #[test]
+    fn channel_intent_is_closed_explicit_bounded_and_requires_managed_mana() {
+        let valid=BotAbilityPolicy {ability:"apprentice_mend".into(),intent:BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille:650,threat_radius:1000}};
+        assert!(validate_policies(&[valid.clone()]).is_ok());assert!(requires_mana(&[valid.clone()]));
+        let mut bad=valid.clone();bad.ability="lumen_mend".into();assert!(validate_policies(&[bad]).is_err());
+        let mut bad=valid.clone();bad.intent=BotAbilityIntent::SelfHeal {below_hp_per_mille:650};assert!(validate_policies(&[bad]).is_err());
+        for (hp,radius) in [(0,1000),(1001,1000),(650,0),(650,10001)] {
+            let mut bad=valid.clone();bad.intent=BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille:hp,threat_radius:radius};assert!(validate_policies(&[bad]).is_err());
+        }
+        assert!(validate_policies(&[valid.clone(),valid]).is_err());
+        assert!(serde_json::from_str::<BotAbilityIntent>(r#"{"kind":"self_channel_recovery","below_hp_per_mille":650,"threat_radius":1000,"hidden_enemy":true}"#).is_err());
+    }
+    #[test]
+    fn channel_intent_uses_disclosed_threat_boundary_resources_root_and_bounded_geometry() {
+        use crate::runtime::ability_runtime::ManaPool;
+        let policy=BotAbilityPolicy {ability:"apprentice_mend".into(),intent:BotAbilityIntent::SelfChannelRecovery {below_hp_per_mille:650,threat_radius:1000}};
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
+        hero.abilities=vec!["lumen_bolt".into(),"apprentice_mend".into()];hero.ability_levels.insert("apprentice_mend".into(),1);
+        hero.mana_pool=Some(ManaPool::new(Fixed64::from_i32(100),Fixed64::from_i32(200)).unwrap());
+        let mut hp=property(Fixed64::from_i32(200),Fixed64::ZERO);hp.hp=Fixed64::from_i32(50);hp.mhp=Fixed64::from_i32(200);
+        let decide=|hero:&Hero,hp:&CProperty,seen:&[SeenUnit],cost:Option<Fixed64>|choose_cast_with_attack_priority(hero,BotRole::Mid,1,Vec2::ZERO,hp,seen,&[policy.clone()],None,true,true,|_,_|cost,|_,_|None,|_|false);
+        let cost=Some(Fixed64::from_i32(90));let cast=decide(&hero,&hp,&[],cost).unwrap();
+        assert_eq!((cast.ability_index,cast.target_entity,cast.target_pos),(1,None,None));
+        let enemy=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(1000),Fixed64::ZERO),team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100};
+        assert!(decide(&hero,&hp,&[enemy],cost).is_none(),"inclusive authored threat boundary");
+        let far=SeenUnit {position:Vec2::new(Fixed64::from_raw(1000*1024+1),Fixed64::ZERO),..enemy};
+        assert_eq!(decide(&hero,&hp,&[far],cost).unwrap(),cast);
+        let neutral=SeenUnit {team:0,kind:3,..enemy};assert!(decide(&hero,&hp,&[neutral],cost).is_none());
+        for kind in [2,4,5,6]{assert!(decide(&hero,&hp,&[SeenUnit {kind,..enemy}],cost).is_none());}
+        let ally=SeenUnit {team:1,..enemy};let dead=SeenUnit {hp_raw:0,..enemy};
+        assert_eq!(decide(&hero,&hp,&[ally,dead,far],cost),decide(&hero,&hp,&[far,dead,ally],cost));
+        let malformed=SeenUnit {position:Vec2::new(Fixed64::from_raw(omoba_sim::terrain::MAX_GEOMETRY_RAW+1),Fixed64::ZERO),..enemy};
+        assert!(decide(&hero,&hp,&[malformed],cost).is_none());assert!(decide(&hero,&hp,&vec![ally;513],cost).is_none());
+        assert!(decide(&hero,&hp,&[],None).is_none());
+        hero.mana_pool=Some(ManaPool::new(Fixed64::from_i32(89),Fixed64::from_i32(200)).unwrap());assert!(decide(&hero,&hp,&[],cost).is_none());
+        hero.mana_pool=None;assert!(decide(&hero,&hp,&[],cost).is_none());
+        hero.mana_pool=Some(ManaPool::full(Fixed64::from_i32(200)).unwrap());hp.hp=Fixed64::from_i32(130);assert!(decide(&hero,&hp,&[],cost).is_none());
+        hp.hp=Fixed64::from_i32(50);hero.ability_cooldowns.insert("apprentice_mend".into(),Fixed64::ONE);assert!(decide(&hero,&hp,&[],cost).is_none());
+    }
+    #[test]
     fn support_guard_focus_prioritizes_offensive_intents_without_overriding_heal_order() {
         let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());
         hero.abilities=vec!["lumen_bolt".into(),"vanguard_resolve".into(),"ranger_volley".into(),"lumen_aid".into()];
@@ -366,6 +491,29 @@ mod tests {
         let ally=SeenUnit {canonical_id:9,team:1,hp_raw:20,owner_player_id:3,..close};
         let result=cast(&[enemy,ally],&[heal,damage]).unwrap();
         assert_eq!((result.ability_index,result.target_entity),(3,Some(9)),"author heal-first priority must survive guard focus");
+    }
+
+    #[test]
+    fn bot_cleanse_policy_prioritizes_public_control_then_health_without_target_private_queries() {
+        let mut hero=Hero::new("fixture".into(),"fixture".into(),"fixture".into());hero.abilities=vec!["lumen_aid".into()];hero.ability_levels.insert("lumen_aid".into(),1);
+        let policy=BotAbilityPolicy {ability:"lumen_aid".into(),intent:BotAbilityIntent::AllyHealOrCleanse {below_hp_per_mille:600}};
+        assert!(validate_policies(&[policy.clone()]).is_ok());
+        let hp=property(Fixed64::from_i32(100),Fixed64::ZERO);
+        let ally=SeenUnit {canonical_id:7,position:Vec2::new(Fixed64::from_i32(250),Fixed64::ZERO),team:1,kind:1,owner_player_id:3,hp_raw:100,max_hp_raw:100};
+        let injured=SeenUnit {canonical_id:8,hp_raw:20,..ally};let second=SeenUnit {canonical_id:9,..ally};
+        let decide=|seen:&[SeenUnit],observed:&[(u64,u8)]|choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,seen,&[policy.clone()],None,true,true,|_,_|None,|_,_|None,|_|panic!("nonmovement"),|id|observed.iter().find(|(key,_)|*key==id).map(|(_,p)|*p));
+        assert!(decide(&[ally],&[]).is_none());
+        assert_eq!(decide(&[injured,ally],&[(7,1)]).unwrap().target_entity,Some(7));
+        assert_eq!(decide(&[ally,injured],&[(7,1)]).unwrap().target_entity,Some(7));
+        assert_eq!(decide(&[ally,second],&[(7,4),(9,2)]).unwrap().target_entity,Some(9));
+        assert_eq!(decide(&[second,ally],&[(7,1),(9,1)]).unwrap().target_entity,Some(7));
+        assert_eq!(decide(&[injured],&[]).unwrap().target_entity,Some(8));
+        for invalid in [SeenUnit {team:2,..ally},SeenUnit {kind:2,..ally},SeenUnit {hp_raw:0,..ally},SeenUnit {position:Vec2::new(Fixed64::from_i32(601),Fixed64::ZERO),..ally}] {
+            let result=choose_cast_with_control_observation(&hero,BotRole::Support,1,Vec2::ZERO,&hp,&[invalid],&[policy.clone()],None,false,false,|_,_|None,|_,_|None,|_|true,|_|panic!("invalid candidate must not query public status"));assert!(result.is_none());}
+        assert!(decide(&[],&[(7,1)]).is_none());assert!(decide(&[ally],&[(7,0),(9,1)]).is_none());assert!(decide(&[ally],&[(7,255)]).is_none());
+        for value in [0,1001]{let mut bad=policy.clone();bad.intent=BotAbilityIntent::AllyHealOrCleanse{below_hp_per_mille:value};assert!(validate_policies(&[bad]).is_err());}
+        for ability in ["lumen_bolt","vanguard_strike","lumen_touch"]{let mut bad=policy.clone();bad.ability=ability.into();assert!(validate_policies(&[bad]).is_err());}
+        assert!(serde_json::from_str::<BotAbilityIntent>(r#"{"kind":"ally_heal_or_cleanse","below_hp_per_mille":600,"hidden_control":true}"#).is_err());
     }
 
     #[test]

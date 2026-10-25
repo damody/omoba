@@ -106,6 +106,30 @@ fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32) -> Vec<SeenUnit> 
         }).collect()
 }
 
+fn public_control_priority(bytes:&[u8])->Option<u8> {
+    let snapshot=crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(bytes)?;
+    Some(snapshot.buffs.0.iter().filter_map(|(id,_)|match omoba_template_ids::try_buff_id_str(omoba_template_ids::BuffId(*id))? {
+        "stun"=>Some(1),"root"=>Some(2),"silence"=>Some(3),"slow"=>Some(4),_=>None,
+    }).min().unwrap_or(5))
+}
+
+fn disclosed_control_priority(runtime:&TeamVisibilityRuntime,team:u32,identity:u64)->Option<u8> {
+    if !runtime.teams.get(&team)?.index.current.contains(&identity){return None;}
+    let components=decode_disclosed_components(runtime.latest_disclosed_baseline_by_canonical.get(&identity)?)?;
+    public_control_priority(components.get(&crate::runtime::buff_visual_state::SCHEMA_ID)?)
+}
+
+/// Bot assignment and explicit equipment are the opt-in. Read owner slots only;
+/// never infer the operation from a spell name or write its cooldown locally.
+fn choose_summoner_control_cleanse(player:u32,loadout:&crate::runtime::summoner_runtime::SummonerLoadout,
+    catalog:Option<&crate::runtime::summoner_runtime::SummonerCatalog>,has_control:bool)->Option<u8> {
+    if !has_control || player==0 || loadout.owner_player_id()!=player {return None;}
+    let catalog=catalog?;
+    (0..2u8).find(|&slot|loadout.cooldown_remaining(slot)==Some(Fixed64::ZERO)
+        && loadout.spell_id(slot).and_then(|id|catalog.get(id)).is_some_and(|definition|
+            matches!(definition.operation,crate::runtime::summoner_runtime::SummonerOperation::SelfControlCleanse)))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Decision { Attack(u64), Advance(Vec2), Escort(Vec2), ApproachStructure(Vec2), YieldBehind(Vec2), Hold }
 
@@ -443,16 +467,28 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         let Some(entity) = slot.entity else { continue; };
         // Own health is owner-visible; never inspect opponents' ECS health.
         if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO) { continue; }
-        // Own control state is authorized owner data, not enemy perception.
-        // Wait without replacing existing orders or submitting doomed casts;
-        // normal decisions resume from current disclosures after expiry.
-        if buffs.as_ref().is_some_and(|store|store.is_stunned(entity)) { continue; }
-        let immobilized=buffs.as_ref().is_some_and(|store|store.is_rooted(entity));
-        let recall_blocked=buffs.as_ref().is_some_and(|store|super::recall_control_blocked(store,entity));
-        if state.is_recalling(entity) { continue; }
+        if state.is_recalling(entity)
+            || super::super::recovery_channel::is_active_for_owner(world,entity,slot.player_id) { continue; }
         let team = state.config.teams[slot.side];
         let seen = &perceptions[slot.side];
         let Some(own) = seen.iter().find(|u| u.canonical_id == disclosed_identity(entity)) else { continue; };
+        // Only typed owner cleanses may precede the stunned-owner wait.
+        // Authority retains its existing no-order-replacement cleanse contract.
+        let has_control=buffs.as_ref().is_some_and(|store|store.has_cleanseable_controls(entity));
+        if let (Some(inventory),Some(registry),Some(_))=(inventories.get(entity),registry.as_ref(),buffs.as_ref()) {
+            if let Some(item_slot)=items::choose_control_cleanse(assignment.role,&config.item_builds,registry,inventory,
+                properties.get(entity).expect("validated owner health"),has_control) {
+                inputs.push((slot.player_id,items::active_input(item_slot)));continue;
+            }
+        }
+        if let Some(summoner_slot)=choose_summoner_control_cleanse(slot.player_id,&slot.summoners,state.summoner_catalog.as_ref(),has_control) {
+            inputs.push((slot.player_id,PlayerInput{action:Some(PlayerInputEnum::SummonerCast(crate::game_proto::SummonerCast{
+                slot:u32::from(summoner_slot),x_raw:None,y_raw:None,
+            }))}));continue;
+        }
+        if buffs.as_ref().is_some_and(|store|store.is_stunned(entity)) { continue; }
+        let immobilized=buffs.as_ref().is_some_and(|store|store.is_rooted(entity));
+        let recall_blocked=buffs.as_ref().is_some_and(|store|super::recall_control_blocked(store,entity));
         let home=state.routes[assignment.lane][slot.side][0];
         let radius=radii.get(entity).map(|r|r.0).unwrap_or_else(||CollisionRadius::default().0);
         let shop_radius=Fixed64::from_i32(super::super::shop::MOBA_SHOP_RADIUS);
@@ -480,14 +516,13 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                 reduction_active:store.has_item_timed_modifier(entity,crate::runtime::ability_runtime::ItemTimedModifier::DamageReduction),
                 sprint_active:store.has_item_timed_modifier(entity,crate::runtime::ability_runtime::ItemTimedModifier::Sprint),
                 immobilized,
+                silenced:store.is_silenced(entity),
                 attack_windup:attacks.get(entity).is_some_and(|attack|attack.attack_phase==crate::runtime::AttackSequencePhase::Windup),
                 attack_range:attacks.get(entity).map(|attack|stats.final_attack_range(attack.range.v,entity)).unwrap_or(Fixed64::ZERO),
             };
             if let Some(item_slot)=items::choose_active(assignment.role,&config.item_builds,registry,inventory,
                 own.position,team,seen,&observation) {
-                inputs.push((slot.player_id,PlayerInput {action:Some(PlayerInputEnum::ItemUse(crate::game_proto::ItemUse {
-                    item_slot:item_slot as u32,target_pos:None,target_entity:None,point_explicit:None,target_generation:None,owner_entity:None,owner_generation:None,
-                }))}));
+                inputs.push((slot.player_id,items::active_input(item_slot)));
                 continue;
             }
         }
@@ -555,12 +590,19 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             }
             // Silence blocks spells, not ordinary attacks or skill learning.
             let cast = if buffs.as_ref().is_some_and(|store|store.is_silenced(entity)) {None} else {
-                abilities::choose_cast_with_attack_priority(hero,assignment.role,team,own.position,
+                abilities::choose_cast_with_control_observation(hero,assignment.role,team,own.position,
                 properties.get(entity).expect("validated owner health"),seen,&config.ability_policies,focus,defer_offense || recovery_wait,
                 immobilized,|id,rank| {
                     // Only this authorized owner's resources; targets still come
                     // exclusively from the committed team disclosure above.
                     let definition=abilities.as_ref()?.get(id)?;
+                    if config.ability_policies.iter().any(|policy|policy.ability==id
+                        && matches!(policy.intent,BotAbilityIntent::SelfChannelRecovery {..})) {
+                        // Compiled policy admission is not permission to execute
+                        // arbitrary or stale live channel metadata.
+                        super::super::recovery_channel::ability_spec(definition,definition.get_level_data(rank)?)
+                            .ok().flatten()?;
+                    }
                     let multiplier=crate::runtime::ability_runtime::UnitStats::from_refs(
                         buffs.as_ref()?,false).checked_mana_cost_mult(entity)?;
                     crate::runtime::ability_runtime::checked_mana_cost(
@@ -581,7 +623,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                     let radius=radii.get(entity).map(|r|r.0).unwrap_or(Fixed64::from_i32(30));
                     !crate::runtime::native::tick::hero_move_tick::path_hits_regions(
                         own.position,point,radius,&regions)
-                })
+                },|identity|disclosed_control_priority(&visibility,team,identity))
             };
             if let Some(cast) = cast {
                 if let Some(id)=cast.target_entity {
@@ -693,6 +735,35 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bot_summoner_cleanse_owner_typed_loadout_ready_slot_and_read_only_boundaries() {
+        use crate::runtime::summoner_runtime::{SummonerLoadout,SummonerCatalog,SummonerDefinition,SummonerOperation};
+        let mut catalog=SummonerCatalog::new();
+        for (id,operation) in [("arbitrary_cleanse",SummonerOperation::SelfControlCleanse),("other_cleanse",SummonerOperation::SelfControlCleanse),
+            ("ordinary_heal",SummonerOperation::SelfHeal{amount:Fixed64::from_i32(200)})] {catalog.insert(id,SummonerDefinition{cooldown:Fixed64::from_i32(9),operation}).unwrap();}
+        let mut loadout=SummonerLoadout::unavailable();assert!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true).is_none());loadout.rebind_owner(1).unwrap();
+        loadout.set_slot(0,Some("ordinary_heal".into())).unwrap();loadout.set_slot(1,Some("arbitrary_cleanse".into())).unwrap();
+        let before=loadout.clone();assert_eq!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true),Some(1));assert_eq!(loadout,before);
+        for player in [0,2] {assert!(choose_summoner_control_cleanse(player,&loadout,Some(&catalog),true).is_none());}
+        assert!(choose_summoner_control_cleanse(1,&loadout,None,true).is_none());assert!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),false).is_none());
+        for raw in [-1,1,1024] {let mut value=serde_json::to_value(&loadout).unwrap();value["cooldown_remaining"]=serde_json::to_value([Fixed64::ZERO,Fixed64::from_raw(raw)]).unwrap();let cooling:SummonerLoadout=serde_json::from_value(value).unwrap();assert!(choose_summoner_control_cleanse(1,&cooling,Some(&catalog),true).is_none());}
+        loadout.set_slot(0,Some("other_cleanse".into())).unwrap();assert_eq!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true),Some(0));
+        loadout.set_slot(0,None).unwrap();loadout.set_slot(1,Some("unknown".into())).unwrap();assert!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true).is_none());
+    }
+    #[test]
+    fn bot_cleanse_observation_uses_only_current_public_canonical_buff_status() {
+        use crate::runtime::buff_visual_state::{BuffVisualSnapshot,BuffVisualState};
+        let payload=|names:&[&str]|{let mut rows:Vec<_>=names.iter().map(|name|(omoba_template_ids::buff_by_name(name).unwrap().raw(),1024)).collect();rows.sort_unstable();BuffVisualSnapshot{buffs:BuffVisualState(rows),channel_totals:vec![]}.encode().unwrap()};
+        for (names,expected) in [(vec![],5),(vec!["slow"],4),(vec!["silence","slow"],3),(vec!["root","silence"],2),(vec!["slow","stun"],1),(vec!["damage_shield"],5)]{assert_eq!(public_control_priority(&payload(&names)),Some(expected));}
+        assert!(public_control_priority(&[255,0]).is_none());
+        let mut runtime=TeamVisibilityRuntime::default();runtime.ensure_team(1);runtime.ensure_team(2);runtime.teams.get_mut(&1).unwrap().index.current.insert(7);
+        let bytes=encode_disclosed_baseline(&[(crate::runtime::buff_visual_state::SCHEMA_ID,payload(&["stun"]))]);
+        runtime.latest_disclosed_baseline_by_canonical.insert(7,bytes.clone());runtime.latest_disclosed_baseline_by_canonical.insert(8,bytes);
+        assert_eq!(disclosed_control_priority(&runtime,1,7),Some(1));assert!(disclosed_control_priority(&runtime,1,8).is_none());assert!(disclosed_control_priority(&runtime,2,7).is_none());
+        runtime.teams.get_mut(&1).unwrap().index.current.clear();assert!(disclosed_control_priority(&runtime,1,7).is_none());
+        runtime.teams.get_mut(&1).unwrap().index.current.insert(7);runtime.latest_disclosed_baseline_by_canonical.insert(7,encode_disclosed_baseline(&[]));assert!(disclosed_control_priority(&runtime,1,7).is_none());
+        runtime.latest_disclosed_baseline_by_canonical.insert(7,vec![0;4]);assert!(disclosed_control_priority(&runtime,1,7).is_none());
+    }
     #[test]
     fn combat_navigation_skips_failed_chase_preserves_range_and_reconsiders() {
         let assignment=BotAssignment {player_id:1,role:BotRole::Mid,lane:0,escort_player_id:None};
