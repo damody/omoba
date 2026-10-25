@@ -1,0 +1,7 @@
+# Slow nameplate errors and prevention
+
+SN01 (read-only audit): guessed OmRuntime/Private/OmWorldBridgeActor.cpp and native/ability_runtime/buff_visual_state.rs before inventory; both reads failed. Actual maintained bridge is OmGenerated/Private/OmWorldBridgeActor.cpp; BuffVisualState is runtime/buff_visual_state.rs. No source or worker changed. Prevention: use inventory/definition search and reuse returned paths, including for familiar symbols. Codegen does not emit the hand-maintained world actor implementation; edit its existing shared frame decoder, not a nonexistent codegen template.
+
+Finding: public slow catalog/time already exists and canonical cleansing clears it, but the nameplate control decoder only recognizes stun/root/silence. Extend the common read-only state and canonical ID mapping. Never infer a slow percentage, source identity or ability name from undisclosed data. Keep hard-control priority and current frame/life/visibility gates.
+
+Acceptance: first UE5.8 build and all four native tests succeeded; no test failures or retries. Test report has zero warnings; preserved engine startup still contains existing tool-plugin HTTP401 messages. Actual Slate capture inspected through view_image shows readable 緩速 · 剩3秒 with full name and enemy health bar, no clipping. The frame fixture verifies clearing after public slow absence and reapplication; actual cleanse casting was tested in the earlier slow-cleanse formal60Hz cohort, not rerun or replaced by this UI fixture.

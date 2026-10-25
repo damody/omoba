@@ -1,0 +1,2 @@
+# Design
+Compose the existing mixed-role recipe; replace only mid heroes with training_line_mage, prepend the typed EnemyLine policy and its rank goals, and explicitly enable mana. Existing recipes and generic planner remain unchanged. Integration tests load the actual Lua source using the pinned clone-local Lua runtime and strict JSON plan schema; no duplicate hand-authored plan or network match. Compare paired deterministic worlds, disclosed target selection, hidden membership rejection, root/nonmovement, cooldown and exact damage/resource settlement.

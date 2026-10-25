@@ -1,0 +1,3 @@
+- [x] 1. Generate bounded typed per-rank base effect summaries and carry them through identity-bound HUD metadata.
+- [x] 2. Show current/next base effects in shared skill tooltips, with meaningful lifecycle and actual Slate coverage.
+- [x] 3. Complete concentrated maintained acceptance, immutable evidence and updated handoff/audit.

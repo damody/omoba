@@ -1,0 +1,4 @@
+- [x] Preserve parent inputs and add closed authored/compiled/runtime target policy.
+- [x] Add common owner-focus selection with liveness/ownership/disclosure admission.
+- [x] Verify actual formal owner input and summon shots, then Rust/backend/UE/source consistency.
+- [x] Archive evidence and update acceptance, errors, inventory and handoff.

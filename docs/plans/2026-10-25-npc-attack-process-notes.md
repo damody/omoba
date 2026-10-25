@@ -1,0 +1,3 @@
+# NPC attack post-seal process notes
+
+NA02: Newly derived sealer/closure helpers retained the old human-readable “Hostile item” console caption. Their paths, immutable worker ledgers, input set, test selectors, acceptance index, counts and source-parent binding identify npc-attack correctly. Preserve the original console evidence and launched helper bytes; do not edit or rerun successful jobs merely to relabel their output. The independent closure checks the actual index and hashes. For future helper derivations, review free-text captions alongside identifiers before launch, or parameterize the cohort display name separately. This note supersedes only the console caption, not the accepted evidence or schema.

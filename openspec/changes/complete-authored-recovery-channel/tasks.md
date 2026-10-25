@@ -1,0 +1,6 @@
+- [x] Preserve parent sources; add closed authoring and typed metadata contract.
+- [x] Implement atomic host dispatch/settlement through the shared recovery lifecycle.
+- [x] Handle queued cancellation, time, control and exact-owner/life invariants.
+- [x] Wire an existing playable skill and add schema/formal/replay/native coverage.
+- [x] Perform consolidated maintained builds/tests/source and presentation acceptance.
+- [x] Archive original evidence/retirement and update errors/audit/handoff/tasks.

@@ -1,0 +1,3 @@
+- [x] Generate cleanse capability and add explicit public-observation-only bot intent and recipe.
+- [x] Verify deterministic priority, disclosure boundaries and actual formal60Hz bot cleansing.
+- [x] Complete Rust/backend/UE/catalog/native acceptance, source and evidence closure, errors and handoff/audits.

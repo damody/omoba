@@ -1,0 +1,3 @@
+- [x] Preserve baseline and reproduce endpoint/lifetime/sub-unit failures through the actual projectile system.
+- [x] Share lifetime-limited movement and collision budget; validate regressions.
+- [x] Run maintained builds and full source acceptance, seal failures/retirement and update handoff/inventory.

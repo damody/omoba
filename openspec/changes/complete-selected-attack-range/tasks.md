@@ -1,0 +1,3 @@
+- [x] Wire current disclosed range through selection payload and formatted card with bounded admission and change detection.
+- [x] Extend actual frame/selection/Slate tests for updates, invalid values, categories and retirement.
+- [x] Complete UE/native/source acceptance, independent closure and documentation.

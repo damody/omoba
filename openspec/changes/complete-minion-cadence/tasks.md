@@ -1,0 +1,3 @@
+- [x] Add bounded/defaulted authored interval to Lua schema, generator and minion profiles.
+- [x] Use spawned canonical base intervals in lane AI with locked recovery/replay; add focused/formal coverage.
+- [x] Complete consolidated acceptance, evidence closure, errors and handoff/audit updates.

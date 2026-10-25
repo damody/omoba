@@ -1,0 +1,4 @@
+- [x] Implement typed lifetime metadata, checked bounded zone leases and shared serial settlement.
+- [x] Author independent burn, preserve bound behavior and add meaningful kernel/formal/native coverage.
+- [x] Freeze after codegen and complete fresh Rust/backend/UE/native acceptance with source/image proof.
+- [x] Close evidence/retirement and update errors, handoff, completeness and tasks.

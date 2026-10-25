@@ -1,0 +1,3 @@
+- [x] Guard all shared combat visual admissions before mutation.
+- [x] Verify two-world rejection, deduplication and normal local rendering in native UE tests.
+- [x] Complete UE5.8 build, source consistency, owned retirement and independent evidence closure; update handoff and audit.

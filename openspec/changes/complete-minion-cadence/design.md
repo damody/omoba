@@ -1,0 +1,5 @@
+# Design
+
+MobaMinionEntry/Const gains integer attack_interval_ms, default1000 only when omitted for legacy content; explicit invalid values are rejected. Validate normal and super minions in1..10000ms, preserve strict unknown/type handling and canonical content hashing. Generator carries the exact integer. Spawn quantizes deterministic integer milliseconds to Q10 once, stores it in authority LaneUnit, includes it in replay digest and applies UnitStats::final_attack_interval at actual commits. Existing committed recovery is not rescaled when modifiers change. Towers and legacy one-second defaults retain their rules. Author caster1500 and siege2000ms; keep melee/super1000ms. No hero/minion-name branch in Rust.
+
+Test strict content bounds/default/type/hash and generated values, actual spawn/AI base/modifier/commit period, public recovery timing, formal60Hz pause/expiry and paired replay. Preserve parent-index-bound source originals, focused failures if any, fresh nine Rust/backend/UE/staging/offline plan/catalog/native/source acceptance and independent closure. No true network match.

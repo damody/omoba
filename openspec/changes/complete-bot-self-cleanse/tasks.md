@@ -1,0 +1,3 @@
+- [x] Share exact read-only cleanse eligibility and add typed emergency item selection before stun wait.
+- [x] Verify owner/control/policy/cooldown boundaries and actual formal60Hz self cleanse with order retention.
+- [x] Complete Rust/backend/UE/catalog/native acceptance and independent evidence closure; update errors/handoff/audits.

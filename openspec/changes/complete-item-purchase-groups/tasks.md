@@ -1,0 +1,4 @@
+- [x] Implement validated shared group data, atomic post-recipe admission and undo guard.
+- [x] Wire generated metadata, strict receipt/result handling, authored boots and meaningful lifecycle/native coverage.
+- [x] Freeze after owned codegen, run fresh Rust/backend/UE/native validation and inspect actual capture.
+- [x] Close evidence/retirement and update errors, handoff, completeness and tasks.

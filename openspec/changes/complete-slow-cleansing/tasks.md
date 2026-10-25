@@ -1,0 +1,3 @@
+- [x] 1. Extend shared canonical control cleansing to recognized hostile slows while preserving unrelated state and indexes.
+- [x] 2. Update item/summoner hints and verify actual slow application, cleansing, reapplication, pause and replay.
+- [x] 3. Finish concentrated acceptance, original source/process evidence and independent archive closure; update handoff/audit.

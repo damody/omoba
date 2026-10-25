@@ -1,0 +1,4 @@
+- [x] Preserve source parent and define owner-scoped lifecycle design.
+- [x] Implement authoritative active query and shared bot wait gate.
+- [x] Add actual formal skill/item lifecycle, isolation and replay coverage.
+- [x] Consolidate acceptance and archive evidence/errors/tasks/audit/handoff.

@@ -1,0 +1,4 @@
+- [x] Preserve parent sources and generated inputs; implement shared authored guidance and actual skill composition.
+- [x] Verify policy/default/invalid cases and actual authored skill description.
+- [x] Regenerate metadata and perform consolidated maintained Rust/backend/UE checks with source consistency.
+- [x] Archive evidence, errors and retirement; update handoff and completeness inventory.

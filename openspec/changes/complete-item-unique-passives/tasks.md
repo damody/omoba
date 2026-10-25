@@ -1,0 +1,4 @@
+- [x] Implement validated shared passive data, deterministic aggregation and undo benefit comparison.
+- [x] Author boots upgrade, shared native presentation and meaningful gameplay/lifecycle tests.
+- [x] Freeze sources after owned codegen and complete fresh Rust/backend/UE/native acceptance with image review.
+- [x] Close evidence/retirement and update handoff, errors and completeness audit.

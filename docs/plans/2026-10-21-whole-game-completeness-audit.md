@@ -1,6 +1,74 @@
+最新兵種攻擊節奏：2026-10-25 minion-cadence；通用attack_interval_ms沿Lua嚴格schema／生成資料／生成時Q10／LaneUnit／canonical攻速接線，遠程兵1.5秒、砲車2秒，近戰／超級／legacy維持1秒；不依兵種名稱分支。已提交恢復不重算，下次出手才取新modifier，塔規則維持。資料型別／上下限／hash、三兵種真spawn與modifier、正式60Hz pause／自然到期／公開週期與paired replay已驗。FreshRust九套2163／9ignored、focused4、backend／UE5.8／staging／兩份離線plan／catalog／native4成功；3496來源一致，307份證據獨立重核，原始失敗保留。詳 docs/plans/2026-10-25-minion-cadence-final-acceptance.md。未新增前搖／彈體或真對局；MVP33/44／11外部項不變。
+
+最新選取距離提示：2026-10-25 selected-distance；目前受控英雄與選取目標的公開平面距離、自身普攻範圍內／外提示，共用來源／目標位置守門與世界單位換算。位置或自身射程單獨改變即更新，等距／內外／未知射程／零距離／雙軸180-240-300、隱藏／世代／死亡／退休及實際Slate已驗；只描述幾何、不預測接受。UE5.8／staging／native4零測試warnings；3496來源（3492未變／4變更／0新增），196份證據獨立重核。Rust2159／9ignored與backend/catalog沿用父證據；MVP33/44／11外部項不變。詳 docs/plans/2026-10-25-selected-distance-final-acceptance.md。
+
+最新目標射程資訊：2026-10-25 selected-range；選取卡片顯示目前公開世界單位攻擊範圍，range-only更新／無效清除／種類共用／生命期守門，沿用公開frame而非catalog推測。實際frame→bridge→payload→Slate，250.001／100與零負值超限NaNInfinity、generation／隱藏／死亡／退休已驗。UE5.8／staging／native4零測試warnings、真實卡片PNG目視成功；3496來源（3491未變／5變更／0新增），182份證據獨立重核。Rust2159／9ignored、backend/catalog沿用public-range父證據；MVP33/44／11外部項不變。詳 docs/plans/2026-10-25-selected-range-final-acceptance.md。
+
+最新公開射程增量：2026-10-25 public-range；小兵／各野怪個體與英雄共用canonical射程，兩份權威快照及secure filtered baseline／absolute update／唯讀ECS／bridge ABI一致；不建立假TAttack、不公開私有buff。bonus／cap／pause／自然到期／移除／塔規則／死亡刪除、最小世界、60Hz paired replay已驗。Selective15、presentation12／ABI36；FreshRust九套2159／9ignored、focused5＋backend1、UE5.8／staging／兩份離線plan／catalog／native4成功；3496來源一致，410份證據獨立重核，原始失敗保留。詳 docs/plans/2026-10-25-public-range-final-acceptance.md。未新增真對局；MVP33/44／11外部項不變。
+
+最新NPC傷害修正：2026-10-25 npc-damage；野怪普攻沿用canonical加算／百分比傷害修正，小兵與野怪的下一次普攻加傷於有效出手只消耗一次，拒絕出手保留，塔規則維持。210／180／100封包、負值clamp／siblings／無BuffStore、60Hz真實道具定身後護盾與190／180／100扣血、pause／paired replay已驗。FreshRust九套2154／9ignored、focused3、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，231份證據獨立重核。詳 docs/plans/2026-10-25-npc-damage-final-acceptance.md。未新增真對局；MVP33/44／11外部項不變。
+
+最新NPC攻擊修正：2026-10-25 npc-attack；小兵與各野怪個體沿用canonical攻速／固定攻速／射程及上限，塔維持原規則。每次出手提交恢復週期，增益到期不重算既有進度、下次出手才重算；極速最小Q10步長、無BuffStore基礎AI、siblings／pause／digest／60Hz真實道具定身與paired replay已驗。FreshRust九套2151／9ignored、focused3、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，231份證據獨立重核。詳 docs/plans/2026-10-25-npc-attack-final-acceptance.md。未新增攻擊前搖／投射物或真對局；MVP33/44／11外部項不變。
+
+最新敵對野怪道具增量：2026-10-25 hostile-item；明確hostile契約共用Faction敵對關係，縛行符可指定可見敵對野怪；被動中立／隱藏／回營無敵／建築／越界／舊生命期仍拒絕，不扣冷卻。既有enemy道具保留正隊伍契約，UE共用metadata／提示／目前公開關係同步；真實60Hz購買／定身／pause／到期／paired replay與native預覽已驗。FreshRust九套2148／9ignored、focused4、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，258份證據獨立重核。詳 docs/plans/2026-10-25-hostile-item-final-acceptance.md。中立道具follow-up完成；MVP33/44／11外部項不變。
+
+最新小兵／野怪控制修正：2026-10-25 npc-control；獨立AI沿用canonical暈眩／定身／UnitStats移速，小兵與各野怪個體受控後停止相應行為、解除後恢復；保留原地普攻、沉默基礎動作、建築規則與已提交攻擊時鐘。軟回頭時鐘繼續、硬重置保留回營政策避免卡住，BuffStore缺省仍可執行基礎AI。實際技能暈眩／定身／穿風箭緩速、pause／自然到期／paired replay已驗。FreshRust九套2144／9ignored、focused4、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，351份證據獨立重核。詳 docs/plans/2026-10-25-npc-control-final-acceptance.md。中立目標道具規則另列後續，MVP33/44／11外部項不變。
+
+最新Bot召喚師淨化增量：2026-10-25 bot-summoner-cleanse；目前owner／已裝備typed SelfControlCleanse／零冷卻，沿用canonical資格與普通SummonerCast；先道具、冷卻後可用F，保留指令／護盾／姿態。可選混合配裝Bot Support裝備F、D維持空槽；正式60Hz五類控制／fullHP／pause／當前own disclosure／重新施加與paired replay已驗。FreshRust九套2140／9ignored、focused2、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，348份證據獨立重核。詳 docs/plans/2026-10-25-bot-summoner-cleanse-final-acceptance.md。MVP33/44／11外部項不變。
+
+最新Bot引導回血道具增量：2026-10-25 bot-channel-item；明確預設關閉HP門檻、typed有效ChannelHeal／公開威脅／沉默／前搖守門，沿用普通ItemUse與真引導等待。可選混合配裝Support啟用；正式60Hz購買／選擇／root／pause／三脈衝／Stop恢復與paired replay已驗。FreshRust九套2138／9ignored、focused3、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，231份證據獨立重核。詳 docs/plans/2026-10-25-bot-channel-item-final-acceptance.md。MVP33/44／11外部項不變。
+
+最新Bot自用淨化增量：2026-10-25 bot-self-cleanse；共用唯讀canonical資格與typed道具策略，受控Bot可先於暈眩等待使用正式ItemUse解控，保留原指令／護盾／姿態；策略、生命／可見性／引導、冷卻與一般動作守門維持。正式60Hz五類控制、fullHP／pause／重新施加與paired replay已驗。FreshRust九套2135／9ignored、focused3、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，231份證據獨立重核。詳 docs/plans/2026-10-25-bot-self-cleanse-final-acceptance.md。MVP33/44／11外部項不變。
+
+最新支援Bot增量：2026-10-25 bot-cleanse；明確AllyHealOrCleanse策略與共用編譯／runtime淨化能力metadata，僅讀目前隊伍公開buff快照，滿血受控友方也可解控；硬控／緩速／治療優先序與血量、距離、identity穩定排序。私有狀態不滲入／隱藏資料不回填、熱重載守門、正式60Hz四類控制與paired replay已驗。FreshRust九套2132／9ignored、focused4、backend／UE5.8／兩份離線plan／catalog／native4成功；3496來源一致，243份證據獨立重核。詳 docs/plans/2026-10-25-bot-cleanse-final-acceptance.md。MVP33/44／11外部項不變。
+
+最新友方淨化增量：2026-10-25 ally-cleanse；共用CleanseAlly／嚴格瞬時source grant與canonical淨化，晨光援護保留原ID／治療／護盾／自身回魔／成本CD並新增友方解控。整組原子守門、敵方／越界／舊世代、四級正式60Hz／pause／重新施加與paired replay已驗；Rust效果enum未知欄位閉合。FreshRust九套2128／9ignored，focused5／Lua16、backend／UE5.8／staging／catalog／native4及實際Slate圖成功；3496來源一致，401份證據獨立重核，兩次原始失敗保留。詳 docs/plans/2026-10-25-ally-cleanse-final-acceptance.md。MVP33/44／11外部項不變。
+
+最新緩速名牌增量：2026-10-25 slow-nameplate；既有公開slow catalog／剩餘時間沿共用typed狀態與實際名牌顯示緩速倒數，硬控優先、多來源最晚到期／永久與公開淨化後清除／重新施加／生命期共用守門。Fresh UE5.8與native4／0測試warnings，實際Slate圖目視成功；3494來源（3490未變／4變更／0新增），49份證據獨立重核。Rust2123／9ignored與backend/catalog沿用，MVP33/44／11外部項不變。詳 docs/plans/2026-10-25-slow-nameplate-final-acceptance.md。
+
+最新控制淨化增量：2026-10-25 slow-cleanse；共用canonical remove擴充正式技能／彈體緩速的封閉識別，召喚師與道具沿用原ID／冷卻。多來源清除／索引、其他buff／時鐘保留、自用負移速、正式穿風箭Lv1／4、pause／重新施加與paired replay已驗。FreshRust九套2123／9ignored、focused7、backend／UE5.8／staging／catalog、native4／0warnings及兩張原生提示截圖成功；3494來源一致（3484未變／10變更／0新增），247份證據獨立重核。詳見 docs/plans/2026-10-25-slow-cleanse-final-acceptance.md。MVP33/44、11外部項不變。
+
+最新敵方資源增量：2026-10-25 mana-drain；共用DrainManaEnemy／ManaPool::drain／closed serial grant，原光束保留傷害與成本CD並新增20/30/40/50削魔，學徒複製獨立。空魔／無池扣0、非自行耗魔回呼、護盾獨立、來源／陣營／距離／後續sibling原子守門與四級60Hz／pause／重播已驗。FreshRust九套2121／9ignored、focused11／Lua22、backend／UE5.8／staging／catalog、native4／0warnings及實際Slate截圖成功；3494來源一致（3472未變／19變更／3新增），282份證據獨立重核。詳見 docs/plans/2026-10-25-mana-drain-final-acceptance.md。MVP33/44、11外部項不變。
+
+最新友方護盾增量：2026-10-25 ally-shield；共用ShieldAlly／closed serial grant／canonical BuffStore，晨光援護保留治療與caster回魔並新增70/100/130/160護盾2秒。友方存活／來源生命期／距離與全計畫原子守門、最大量與時間、禁療獨立、吸收／到期／暫停／重播及typed提示已驗。FreshRust九套2113／9ignored、focused8／Lua27、backend／UE5.8／staging／catalog、native4／0warnings及實際Slate截圖成功；3491來源一致（3472未變／17變更／2新增），352份證據獨立重核。詳見 docs/plans/2026-10-25-ally-shield-final-acceptance.md。未新增真對局／ABI／wire；MVP33/44、11外部項不變。
+
+最新技能提示增量：2026-10-25 rank-effects；共用封閉effects／rank extras生成目前與下一級基礎效果，隊友／自身、額外耗魔、每秒／每次／持續與百分比語意保留，custom handler不捏造數值。exact metadata identity、2048字／finite base／新鮮HUD生命期守門；未學習／滿級／reset／退休已驗。FreshRust九套2106／9ignored、codegen83、focused3、backend／UE5.8／staging／catalog、native4／0warnings及300 HUD單位實際Slate截圖成功；3489來源一致（3480未變／9變更），228份證據獨立重核。詳見 docs/plans/2026-10-25-rank-effects-final-acceptance.md。未改玩法／ID／ABI／wire或新增真對局；MVP33/44、11外部項不變。
+
+最新技能組合增量：2026-10-25 composed-mana；共用Rust／固定Lua／generic effects支援選取目標與caster-local回魔組合。既有晨光援護四級治療後替施法者回魔10/15/20/25，目標不回魔、600距離／原有消耗CD／穩定ID維持；先付款、全計畫preflight、既有managed rollback。FreshRust九套2104／9ignored，focused5、Lua43、backend／UE5.8／staging／catalog、native4／0warnings；3489來源一致（3477未變／12變更），452份證據獨立重核。詳見 docs/plans/2026-10-25-composed-mana-final-acceptance.md。未新增真對局／截圖；MVP33/44、11外部項不變。
+
+最新召喚師提示增量：2026-10-25 summoner-resource；operation生成資源需求→既有bridge→typed HUD，共用卡片／tooltip／self preview／owner guard，送出再查目前資源。缺池與非法資料明示原因，空魔／滿魔可回復，保留冷卻優先與自身控制政策；沒有反向依賴或名稱特判。Fresh codegen81／UE5.8／staging／catalog與native5／0warnings、3489來源一致（3477未變／11變更／1新增），372份證據獨立重核。Fresh bridge/client 301／9ignored；其餘沿用前批，不宣稱新跑九套。詳見 docs/plans/2026-10-25-summoner-resource-final-acceptance.md。未新增真對局／截圖；MVP33/44與11外部項不變。
+
+最新召喚師玩法增量：2026-10-24 mana-restore；共用self_restore_mana與catalog7「澄息」200回魔／180秒CD、D/F既有路徑與原創提示、可選單人魔力配裝。checked ManaPool／plan資源重驗／原子CD，缺池拒絕、滿魔耗CD、禁療獨立，保留HP／控制／移動／引導。FreshRust9套2100／9ignored、focused7、backend／UE5.8／staging／離線plan/catalog、native2／0warnings成功；3488來源一致（3474未變／13變更／1新增），390份證據獨立重核。詳見 docs/plans/2026-10-24-mana-restore-final-acceptance.md。未新增真網路對局／截圖／專用圖示；MVP33/44、11外部項不變。
+
+最新彈體首碰增量：2026-10-24 projectile-contact；移除中點nearest16截取，以同一空間查詢的所有候選及共用整數Q32接觸時間選最早者，同量化按id/generation穩定排序；缺Pos／Creep的舊索引列拒絕。四種索引、密集離軸目標、入口／相切／raw邊界與翻轉順序通過，無新全世界掃描。FreshRust九套2093／9ignored、focused11、backend／UE5.8／staging／catalog、native cue2／0warnings成功；3487來源一致（3484未變／3變更），151份證據獨立重核。詳見 docs/plans/2026-10-24-projectile-contact-final-acceptance.md。維持creep碰撞政策，沒有新增技能／截圖／真網路對局；MVP33/44、11外部項不變。
+
+最新共用彈體修正：2026-10-24 projectile-flight；移動／掃掠共用剩餘壽命與整數端點，修正最後tick越過終點、過量壽命移動及不足1單位／raw1零速提前命中。既有瞄準端點沿同一整數機制且保留原限制，沒有名稱特判。FreshRust九套2082通過／9ignored、focused5、backend／UE5.8／staging／catalog、native cue2／0warnings通過；3487來源一致（3485未變／2變更），157份證據獨立重核。原始失敗與退休保留；詳見 docs/plans/2026-10-24-projectile-flight-final-acceptance.md。沒有新增技能／截圖／真網路對局；更多飛行技能／MOBA skillshot碰撞與MVP33/44、11外部項仍待。
+
+最新召喚物 UE 操作增量：2026-10-24 summon-ui；exact owned living summon 選取、Alt+右鍵指定移動／Alt+S恢復自主、可保存遷移快捷鍵與實際綁定提示。獨立型別輸入保留主人＋召喚物 opaque life，client／bridge 目前來源守門；presentation12／selective14／ABI36。active UE 橋接建置改走固定Lua。FreshRust1999/0失敗/9ignored、focused4、backend／UE5.8／DLL-import／catalog、native9/0warnings及實際Slate截圖目視通過。3487來源一致（3457未變／25變更／5新增），1269份證據獨立重核。UI01–UI13失敗與12工作原始exit／退休保留。詳見 docs/plans/2026-10-24-summon-ui-final-acceptance.md。未新增真網路對局；MVP33/44與11外部項不變。
+
+最新召喚物傳輸增量：2026-10-24 summon-wire；opaque雙參照經secure session解析、正式精確owner權威再檢查、canonical ACK遮蔽與notification-only replica，client host建構API；selective14、presentation11。Core4/client1/backend2/actual formal1與paired replay通過。FreshRust1996/0failed/9ignored、UE5.8/backend/staging/catalog與3482來源一致，失敗證據封存。UE issuing UI仍pending，未宣稱玩家可操作。詳見 docs/plans/2026-10-24-summon-wire-final-acceptance.md；MVP33/44與11外部項不變。
+
+最新召喚物增量：2026-10-24 owned-summon-authority；獨立精確owner/summon世代MoveTo/Release、32/tick上限、生命／隊伍／控制／地形權威、重用導航與解除後自主恢復，主人真實引導隔離及paired replay通過。FreshRust1990/0failed/9ignored、focused5、backend/UE5.8/staging/catalog與3481來源一致。UE issuing/scoped transport仍pending，入口明確拒絕，未宣稱玩家可操作。詳見 docs/plans/2026-10-24-summon-orders-final-acceptance.md；MVP33/44與11外部項不變。
+
+最新bot施法增量：2026-10-24 bot-channel-intent；封閉SelfChannelRecovery與compiled/runtime執行投影／peer與reload守門，僅依公開威脅、自身生命與精確host資源開始。可選十席學徒中路配裝／共用graph篩選學習；實際5Hz→60Hz四rank施放／脈衝／root／pause／CD／pairedreplay通過。FreshRust1986/0failed/9ignored、focused4、backend/UE5.8/staging/offlineplan/catalog與3480來源一致；失敗原始證據封存。詳見 docs/plans/2026-10-24-bot-channel-intent-final-acceptance.md。接續盤點玩家召喚物選取／命令操作；MVP33/44與11外部項不變。
+
+最新bot行為增量：2026-10-24 bot-channel-wait；共用決策等待自身真正技能／道具引導，完成或中斷後恢復，假狀態與其他owner不影響。實際正式60Hz脈衝／root／pause／Stop／pairedreplay、FreshRust1982/0failed/9ignored、backend/UE5.8/staging與3479來源一致通過。詳見 docs/plans/2026-10-24-bot-channel-wait-final-acceptance.md。下一優先是封閉的自動引導技能intent與安全啟動；本批沒有宣稱自動開始channel政策。MVP33/44與11外部項不變。
+
+最新引導玩法增量：2026-10-24 authored-recovery-skill；既有學徒 R 由資料驅動站定 2 秒／0.5 秒四脈衝，原子 MP/CD、命令／受傷／控制中斷、root/pause/replay 及共用提示已實作。FreshRust1980/0failed/9ignored＋focused12＋Lua37、backend/UE5.8/staging/catalog/native6（0warnings）、3479來源一致與圖像檢視通過；七個原始 workers 含失敗版完整保留。詳見 docs/plans/2026-10-24-recovery-skill-final-acceptance.md。下一優先是 bot 的封閉引導意圖與等待／恢復，尚未宣稱 bot channel 支援；MVP33/44與11外部項不變。
+
 # 正式遊戲完整度盤點與單機優先清單
 
-目前最新完整驗收：2026-10-24 item-critical；共用暴擊裝備資料／生成手套與長刀、合成撤銷出售重生同步、暴擊與吸血共用被動及正式60Hz實際傷害／CRIT結果與原生提示。Fresh Rust1928／backend／UE5.8／native92／3472來源一致性通過，新裝備PNG已目視，67歷史圖保留來源。詳見 docs/plans/2026-10-24-item-critical-final-acceptance.md。出售撤銷、更多玩法／combat複本／美術與11外部接受仍pending。
+最新提示增量：2026-10-24 summon-guidance；召喚策略自動產生集火／合法索敵／停止後回退說明，所有技能共用 registry Description→身分綁定HUD payload→提示接線，維持模組分層並保留升級／施法資訊。共用C++轉義支援多行／控制字元。Rust1973來自V4，V6完整來源與精確單行test-only差異證明沿用；Lua19、fresh backend/UE5.8/staging/catalog/native6（0warnings）及三等級Slate圖像檢視通過。詳見 docs/plans/2026-10-24-summon-guidance-final-acceptance.md。六版成功／失敗證據保留；MVP33/44、11外部項不變。
+
+最新玩法增量：2026-10-24 summon-owner-focus；封閉資料策略預設nearest、可選owner_focus，既有鐵炮兵啟用後會協助主人目前明確攻擊的合法目標，失效／隱藏／越界時沿既有索敵回退。真正formal AttackTarget→雙召喚物射擊／90實傷、Stop→最近敵人、paired replay通過。FreshRust1972＋focused3、codegen/backend/UE5.8/DLL-import staging及權威↔generated catalog hash核對成功；3476來源一致、10變更／45候選明列。詳見 docs/plans/2026-10-24-summon-focus-final-acceptance.md。未新增pet指令UI或native畫面重跑；MVP33/44與11外部項不變。
+
+最新召喚物增量：2026-10-24 summon-arrival；共用exact Entity/current Tick host移動歸屬補齊抵達當tick的第二次腳本追敵，目標移除仍停在終點，下一tick恢復追擊。原生私有phase-local紀錄不增加wire／序列化導航欄位。FreshRust1969＋focused3、實際召喚／正式60Hz／paired replay、backend與UE5.8／DLL-import staging通過，3476來源一致。詳見 docs/plans/2026-10-24-summon-arrival-final-acceptance.md。玩家召喚選取／命令UI、更多channels／multistage仍pending；33/44與11外部項不變。
+
+最新召喚物增量：2026-10-24 summon-priority；共用script adapter讓仍有效的host MoveTarget優先，避免命令／跟隨移動後再被追敵橫向加走；清除目標後恢復自主追擊。實際召喚技能→combatant→正式60Hz移動與paired replay、adapter／root／非召喚物回歸通過。FreshRust1968＋focused2、backend與UE5.8／DLL-import staging成功，3476來源一致；未宣稱本批native畫面重跑。詳見 docs/plans/2026-10-24-summon-priority-final-acceptance.md。到達當tick的共用步長及玩家召喚控制UI仍pending。
+
+最新離線玩法接線：2026-10-24 line-bot；可選十席配裝讓雙方中路使用直線Q並啟用魔力，實際Lua→嚴格plan→5Hz bot決策→正式60Hz命中。四rank／視野隱藏與私有位置隔離／禁錮／資源／端帽與寬度／paired replay通過。新鮮Rust1966、focused1、Lua23與離線plan-lock成功，3476來源一致；UE/native93/77影像沿用前批已封存證據，未宣稱本批重建。詳見 docs/plans/2026-10-24-line-bot-final-acceptance.md。MVP33/44與11外部接受不變。
+
+目前最新完整驗收：2026-10-24 linear-skill；共用瞬發直線膠囊、固定小數截短、9英雄直線配裝、公開觀察bot選點、非位移／穿透地形提示及正式60Hz命中／防禦／資源／重播。Rust1965＋sim2／Lua23／backend／UE5.8／native93／3475來源與77張目視證據通過。詳見 docs/plans/2026-10-24-linear-skill-final-acceptance.md。其他玩法／美術及11外部接受仍pending。
 
 
 最新玩法增量：2026-10-23 periodic-damage補DoT有效生命期積分、每buff次量子餘數、來源／kind/profile隔離及穩定到期順序；Lua通用敵方DoT接遊俠10/15/20/25 DPS、4秒流血與公開canonical狀態，與減速分開且隱藏私有來源。V2 Rust1771passed/9既有ignored、backend／UE5.8及World66成功；165份證據／29PNG、3425輸入一致、health 13 samples／max171秒，獨立校驗通過。詳見2026-10-23-periodic-damage-final-acceptance.md。新發現共用script／DoT raw damage缺少基礎護甲／抗性，而DamageInstance已先計算；NEXT優先raw／settled共用結算與防double-mitigation，然後持續引導／zones。本批不宣稱armor parity或獨立地面區域完成。
@@ -46,17 +114,17 @@
 | 系統 | 已有接線／證據入口 | 尚需完善或接受 |
 |---|---|---|
 | 遊戲模式與生命周期 | native/moba_match、SimulationDriver；warmup／playing／finished、死亡／重生、暫停、recall與結算 | 更完整的競技局規則與觀戰／回放產品流程；既有reconnect仍有外部接受缺口 |
-| 英雄與成長 | generated hero catalog、ability_runtime、award_live_moba_xp；正式八位英雄（含可選方向散射配裝）、rank／技能點、屬性／魔力／Buff；生成目錄驅動8英雄／30主動及終極技能原生動畫、VFX、死亡／重生／視野退休生命週期驗證 | 原創英雄內容量與專用機制、美術；完整天賦／符文另立規格，不以屬性欄存在當已完成 |
-| 技能執行 | scripts/base_content與native pipeline；傷害／治療／CC／資源交易、前搖／取消／釋放、真正普攻被動、召喚生成／歸屬／退休與公開地形導航；角色生命綁定地面區域、主動方向扇形、公開資料bot扇形選點；區域脈衝到期排序及依序來源退役守門 | 獨立區域生命期、更多線形／多段／導引及通用引導內容、更多召喚控制策略；完整可見性戰鬥複本生命期與真網路仍需外部接受 |
+| 英雄與成長 | generated hero catalog、ability_runtime、award_live_moba_xp；正式九個英雄配裝（含可選方向散射配裝）、rank／技能點、屬性／魔力／Buff；生成目錄驅動9英雄配裝的主動及終極技能原生動畫、VFX、死亡／重生／視野退休生命週期驗證 | 原創英雄內容量與專用機制、美術；完整天賦／符文另立規格，不以屬性欄存在當已完成 |
+| 技能執行 | scripts/base_content與native pipeline；共用傷害／治療／CC／資源交易、前搖／取消／釋放、普攻被動、召喚整組接受與導航；綁定與獨立地面區域、主動扇形、瞬發直線膠囊與共同截短／公開觀察bot選點、死亡與到期守門 | 更多移動／碰撞／追蹤彈體、多段／通用引導內容與召喚控制；完整可見性戰鬥複本生命期與真網路仍需外部接受 |
 | 技能操作與提示 | OmCombatAimModel／CommandBar共用三施法模式、改鍵／自用、單位／圓形／路徑走廊／朝向陣形／來源扇形預覽；逐rank法力／冷卻／前搖與既有引導進度、方向缺失／控制／資源未知提示及tooltip；畫面座標與繪製層修正 | 真連線owner ACK／實體輸入接受、尚未實作的技能形狀與更多具體內容；預覽不代表權威地形調整或出生接受 |
-| 戰鬥與命令 | 共用命令／護甲／歸因／失手閃避MISS／暴擊傷害與實際扣血後CRIT；普通吸血與技能／裝備、合成／購買撤銷／出售／重生、目標隱私與有限文字池 | 出售撤銷、更多暴擊裝備／技能內容、更多命中／幾何玩法、完整combat複本及真ACK |
+| 戰鬥與命令 | 共用命令／護甲／歸因／失手閃避MISS／暴擊傷害與實際扣血後CRIT；普通吸血、技能與正式吸血／暴擊裝備；合成／購買及出售撤銷／重生、目標隱私與有限文字池 | 更廣技能內容、命中／幾何玩法、完整combat複本及真ACK |
 | 兵線 | moba_maps.lua／moba_match；兩三路map、authored近戰／遠程／砲車、超級兵、route、索敵、護主、推塔時護主例外；新增生成時HP／攻擊時間成長與cap | 依兵種更細的平衡曲線、局勢差距補償與專屬機制；既有行為保留回歸 |
 | 防禦建築 | lane tower layers、base_structures；前置開門、inhibitor／nexus towers、死亡／重生、super wave、同英雄連續攻擊壓力；每生命隊伍／附近摧毀金、新增整場首塔一次額外金與持久depth分層獎勵 | 新增外塔限時分段金／破層護甲；新增通用塔皮分段名牌／倒數；新增權威塔／兵營／基地塔公告、有界佇列與native HUD；建築美術與更細競技平衡仍待補，不把首塔／分層金當成全建築規則 |
 | 地圖空間 | templates/moba_maps.lua、moba_map_layout、OmWorldBridgeActor；左下／右上基地、三路、河流、14牆、兩張map、導航／碰撞 | 地圖編輯工具的任意多邊形、跳牆／高低地專用規則與更完整美術地形 |
 | 視野與草叢 | visibility、fog_grid、brush_vision、ward_world；range／LOS／stealth／scope、連通capsule草叢、普攻兩秒揭露、探索霧格 | 任意多邊形authoring；更多偵測／掃描類內容與全流程UI；不能把草叢外框或視野未知當可見 |
 | 野區戰鬥 | jungle.rs；16營地32初始主體、group aggro、patience、soft／hard回頭、回血、重生、每body獎勵與LOS；資料指定隊伍Buff／死亡政策；新增PlayerOwner／8-link召喚鏈歸因、致死快照、team-only目標效果與非英雄仇恨 | 已接每發來源快照與命中獎勵歸因；新增限時隊伍疊層與內容封頂；新增個人營地Buff及剩餘時間擊殺傳承；新增永久史詩累積／多項營地獎勵；新增內容驅動附近友軍兵線攻擊／護甲光環、去重與生命期；新增通用有界死亡分裂樹、待生子體去重、屍體附近碰撞安全出生、完整清營才重生；兩張map雙方石怪營啟用兩代分裂；其他特殊營地機制仍可擴充 |
 | 經濟與獎勵 | moba_economy.lua、moba_assist、shop；被動金、擊殺／助攻、尾刀金／附近XP、角色化建築摧毀、NPC觸發與死亡隊員錢包；新增tick統一提交的首塔獎勵／分層金 | 新增內容驅動連殺終結賞金與公開計分板；已接canonical首殺額外金／公開公告；新增跨重生連敗折價／擊殺重設；新增外塔限時逐層本地金；新增全隊累計實得獎勵ledger、內容驅動目標補償／雙門檻／每次啟用池額、塔與史詩根怪canonical分金及公開狀態；新增權威史詩根怪公告／四秒遊戲時間／pause凍結／canonical多目標排序；仍缺更多目標專屬名稱／音效與完整平衡資料 |
-| 商店與道具 | moba_items.lua、shop、economy_projection、HUD；14項道具（含恢復引導、定身控制與自用淨化）、recipe／purchase／sell／undo／receipt、六格、主動效果；咒擊符新增可選抑療元件（50%／4秒），原ID／價格／55傷害／450距離保留，公開Buff與generated tooltip | 商品內容量、更多唯一被動／互斥規則／build推薦；undo父項仍缺指定權威接受 |
+| 商店與道具 | 共用生成19項；引導、定身、淨化、吸血、暴擊、通用唯一被動及升級靴；新增獨立購買群組／1至6件上限／合成後計數、鞋靴限1件、原子拒絕與undo守門、buy專用結果16及共用原生說明；recipe／交易undo、欄位冷卻恢復不回溯HP、死亡錢包與重生均已單機驗收 | 更多被動與裝備內容／build推薦及平衡；undo父項指定真權威接受仍待外部驗收 |
 | 召喚師與ward | summoner_world／ward_world、loadout、HUD；blink／heal／self-shield／control-cleanse／self-sprint內容、charges／冷卻、team公開與生命期 | 更多原創spell／trinket／偵測內容及護障專用美術；五種現有spell不代表完整競技選項 |
 | 鏡頭與輸入 | control profiles、camera、minimap、accessible pointer；改鍵、三施法模式、gamepad合成軸、focus／source退休 | 實體控制器與實際OS DPI／視窗模式接受，合成事件不能替代硬體矩陣 |
 | HUD與溝通 | CommandBar、隊友卡／scoreboard／chat／ping／marker／mute／settings／owned scopes；新增通用Buff層數×N、限時／永久效果、只改層數刷新與有界metadata解碼；新增公開damage_shield、獨立護盾條／數值／權威倒數，部分吸收／耗盡／到期／死亡與可見性退休 | 真聊天／ping權威往返、更多狀態細節與新玩法HUD；產品整合仍有父項外部證據缺口 |
@@ -490,3 +558,18 @@ Evidence:docs/acceptance/2026-10-24-active-cone/index.json. Errors/root/preventi
 
 
 2026-10-24裝備吸血盤點補充：商店現有撤銷只支援購買；出售撤銷尚未實作，本批只驗證出售後無法套用舊購買撤銷，且不恢復裝備／吸血或HP。出售撤銷列入後續可單機驗證的玩法缺口。
+
+
+2026-10-24出售撤銷後續盤點：本批已實作並完整單機驗收，取代前述裝備吸血批次當時的「只支援購買撤銷」限制；原歷史敘述保留，不代表目前狀態。商店共18項，吸血與暴擊裝備各兩項。無人值守期限依使用者延長至2026-10-26 23:59:59 Asia/Taipei。
+
+
+2026-10-24唯一被動：本批取代先前「更多唯一被動待擴充」中的基礎共用機制缺口。19項道具含新增疾步長靴；一般屬性與不同群組可疊加，同群組唯一被動不疊加。更多獨立玩法與11外部接受仍pending。
+
+
+2026-10-24購買群組：基礎資料驅動持有上限與合成／undo守門已完成單機接受，取代前述「購買互斥規則待完成」的基礎機制缺口。唯一被動去重與購買限制是兩個獨立契約；目前19項，鞋靴群組限1件。其他玩法與11外部接受仍pending。
+
+
+2026-10-24獨立地面區域：共用生命期機制及炎刃四級燃燒已完成單機接受，炎襲維持死亡取消；取代先前基礎獨立地面區域生命期待完成缺口。更多線性／多階段／召喚控制及11外部接受仍pending。
+
+
+2026-10-24直線技能：新增通用瞬發非位移直線傷害、原生寬度預覽與正確地形／定身提示、公開觀察bot選點及第9個可選配裝。獨立區域生命期已於前批完成。更多移動／追蹤彈體、引導／多段／召喚控制與11外部接受仍pending。

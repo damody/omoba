@@ -42,10 +42,11 @@ cargo test --manifest-path scripts/Cargo.toml -p base_content
 
 ```bat
 cargo build --manifest-path scripts/Cargo.toml -p base_content --release
-copy /y scripts\target\release\base_content.dll omb\scripts\base_content.dll
-cd omb
-cargo run -p omobab --bin gen-docs --features gen-docs --release
+copy /y scripts\target\release\base_content.dll scripts\base_content.dll
+cargo run --manifest-path omb\Cargo.toml -p omobab --bin gen-docs --features gen-docs --release
 ```
+
+DLL 一律 stage 到 repo 的 `scripts\base_content.dll`，不要複製到 `omb\scripts\`；`gen-docs` 依序找 `scripts/base_content.dll`、`../scripts/base_content.dll`、`scripts/target/<profile>/base_content.dll`。
 
 產物位於 `omb/target/docs/index.html`。
 

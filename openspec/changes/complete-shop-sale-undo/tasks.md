@@ -1,4 +1,4 @@
 - [x] Implement typed authority sale records, atomic inverse and committed identity.
 - [x] Add formal lifecycle/chain/atomic coverage and native transaction UI/captures.
-- [ ] Freeze and run fresh Rust/backend/UE/native acceptance with source/image proof.
-- [ ] Close evidence, retire original readers and update errors/handoff/completeness/tasks.
+- [x] Freeze and run fresh Rust/backend/UE/native acceptance with source/image proof.
+- [x] Close evidence, retire original readers and update errors/handoff/completeness/tasks.

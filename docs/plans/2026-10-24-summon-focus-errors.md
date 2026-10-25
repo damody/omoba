@@ -1,0 +1,7 @@
+# Summon owner focus errors
+
+SF01 discovery: guessed scripts/script-abi/src/outcome.rs and omoba-core/src/content.rs were absent. No source mutation occurred. Actual inventory showed ABI world/types and the existing template/runtime modules. Use rg --files or containing-directory search before opening module-derived filenames; do not pass guessed paths to rg.
+
+Design prevention: an owner command supplies only a preferred exact entity, never permission to read/attack a hidden or protected target. Reuse the existing common target admission before ranking; default to nearest when owner/command/policy is unavailable. Avoid changing all summons implicitly or special-casing a hero/skill name in runtime code.
+
+SF02 V1 core focus test expected the old near target after changing the owner's faction to the enemy team. That change makes the owner itself a valid hostile target at distance zero. Runtime correctly disabled owner focus and chose that actual nearest enemy. Fix only the assertion to expect the owner, explicitly preserving hostility/nearest behavior; do not add a parent-entity exclusion or weaken the faction gate. V1 frozen45inputs/10changes, template focus pass, failed core output and identity-bound actual exit1 retained. Original API6424 reaped actual1 and worker retired/cleanup before the test-only edit. Prevention: negative admission fixtures must recompute the whole legal fallback set after mutating faction/life/position.

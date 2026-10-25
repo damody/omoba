@@ -1,0 +1,3 @@
+- [x] Integrate canonical NPC attack range/cadence with committed recovery duration and replay state.
+- [x] Cover real lane/jungle actors, modifier lifetime, public projection, pause and formal60Hz replay.
+- [x] Complete consolidated acceptance and independent evidence closure; update errors, handoff and audits.

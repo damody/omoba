@@ -1,0 +1,5 @@
+# Design
+
+DrainManaEnemy is a bounded positive per-rank unit effect, enemy allegiance, range (0,10000]. Use a closed versioned internal grant packet through existing add_stat_buff without ABI/wire changes. Share exact living-source/target/allegiance/range validation with ally shielding through a host-local targeted-effect helper. Serial admission binds the source to actual caster before cost/CD/effects commit. Apply revalidates and drains min(current,amount) directly through checked ManaPool, preserving regeneration remainder and never invoking self-spend hooks. Missing pools are a successful zero loss. Never store the packet as a buff or damage HP/shields/healing.
+
+Existing lumen_bolt keeps80/125/170/215 magic damage, original costs/CD/range600 and IDs; adds20/30/40/50 enemy mana loss. Shared generated rank hints clearly distinguish mana loss from HP damage. Friendly/dead/stale/out-of-range/malformed requests reject atomically. Source consistency, actual owned exits, original failures and independent evidence closure precede completion.

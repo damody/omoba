@@ -1,0 +1,3 @@
+- [x] Implement closed authoring/generation, friendly admission and canonical serial cleanse.
+- [x] Apply support skill data and cover strict atomicity, formal friendly casting and generated native feedback.
+- [x] Consolidate Rust/Lua/backend/UE5.8/catalog/native validation, independently seal evidence and update handoff/audits.

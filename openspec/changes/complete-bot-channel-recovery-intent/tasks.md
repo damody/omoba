@@ -1,0 +1,4 @@
+- [x] Preserve source parent and define closed channel-policy design.
+- [x] Project compiled/runtime recovery execution and validate safe typed intent.
+- [x] Add authored recipe and metadata/decision/formal/replay coverage.
+- [x] Consolidate builds/source acceptance and archive evidence/errors/tasks/audit/handoff.

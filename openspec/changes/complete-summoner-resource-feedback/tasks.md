@@ -1,0 +1,3 @@
+- [x] 1. Generate resource requirement and add shared card/preview/action-owner policy.
+- [x] 2. Cover arbitrary identities, invalid/current/full/empty pools, both slots and scope retirement in native/codegen regressions.
+- [x] 3. Complete concentrated frontend acceptance, immutable evidence and handoff.

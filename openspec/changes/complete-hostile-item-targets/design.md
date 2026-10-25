@@ -1,0 +1,5 @@
+# Design
+
+Closed authored team enum gains Hostile. Authority uses source Faction::is_hostile_to only for that scope; Enemy retains positive other-team semantics. Reuse visibility/current identity/range/damage-boundary/control-building/atomic commit gates. Generated UE metadata publishes hostile, presentation explains aggressive neutrals, and read-only admission uses current published relation/attackability. Existing ability enemy presentation remains unchanged; legacy item enemy uses an item-specific positive-team admission key internally. Unknown scopes fail closed. Binding charm adopts hostile without altering price, damage, duration or cooldown.
+
+Preserve parent-bound originals before edits. Focused model/codegen/core/formal fixtures cover strict schema and relation matrix; actual owned native tests cover metadata, guidance, admission and lifecycle. Consolidated Rust, backend, UE, catalog and source fingerprints follow. Preserve failures and actual process exit/reap receipts before sealing and independent closure.

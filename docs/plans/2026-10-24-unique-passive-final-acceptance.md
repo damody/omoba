@@ -1,0 +1,13 @@
+# Equipment unique passives COMPLETE
+
+OpenSpec complete-item-unique-passives4/4.
+
+Optional shared unique_passive validates a bounded group/name/priority and quantized atk/hp/ms/armor/lifesteal/critical chance. Legacy omission is stable. Generated Rust and Unreal metadata share the same source. Inventory aggregate selects one entire highest-priority passive per group, with lexicographic item-id tie breaking and deterministic group order. Duplicate copies never stack unique effects; ordinary base bonuses remain additive. No item/hero-name runtime exceptions. Existing dirty inventory/new-life paths apply the aggregate without healing or overwriting independent ability modifiers.
+
+Purchase undo now compares actual before/after aggregates, so a suppressed passive creates no phantom benefit and recipe upgrades track the real positive delta. Sale undo keeps its captured-credit/slot/cooldown/monotone policy. Boots now author movement group tier1/25; new catalog19疾步長靴 costs900 including boots component and supplies tier2/45. Same-group boots cannot stack movement. Native shared tooltip publishes passive name, tier, exact bonus and same-group/duplicate nonstacking. Fresh actual native tooltip directly inspected and SHA-bound;70 historical reviews retain provenance.
+
+Coverage includes arbitrary group/id slot permutations, whole-winner selection instead of per-stat maxima, priority/id ties, duplicates/base stacking, multiple independent groups, winner removal/fallback, malformed model/custom catalog atomic rejection, net undo benefits, production60Hz formal purchase/recipe/undo/sale/undo/death/new life/no HP rewind and deterministic replay. Fresh Rust1937/0failed/9existing ignored; Lua11/11; backend/UE5.8 actual0, staged DLL/import SHA verified; native92(91Success/1SuccessWithWarnings,4existing warnings).
+
+Fullsource3472=3456unchanged+16explicit frozen changes; parentomfue/Saved/BuildTemp/sale-undo-source-before-v4.json/indexdocs/acceptance/2026-10-24-sale-undo/index.json; own baselineomfue/Saved/BuildTemp/unique-passive-source-before-v2.json. 688 independent rehashed files/10 original retired workers; actual identity-bound exits checked, max health gap150765ms. Errors and prevention:docs/plans/2026-10-24-unique-passive-errors.md. Original failed cohorts, if any, remain archived without weakening assertions.
+
+Remaining: more independent ground-zone/linear/channel/summon gameplay, equipment exclusive purchase groups/build recommendations/art/balance and11external acceptance items. MVP33/44 unchanged. No true network match/quota reset/commit/push/omfx/unrelated termination. Deadline2026-10-26 23:59:59 Asia/Taipei and existing automation unchanged.

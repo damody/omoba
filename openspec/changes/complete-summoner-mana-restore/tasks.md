@@ -1,0 +1,3 @@
+- [x] 1. Author shared operation, generated content and configurable spell.
+- [x] 2. Implement atomic authoritative mana/cooldown settlement and meaningful resource/lifecycle regressions.
+- [x] 3. Complete concentrated Rust/backend/UE/offline/native acceptance and preserve source, failures, retirement and handoff.

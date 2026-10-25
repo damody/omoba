@@ -1,0 +1,3 @@
+- [x] Add typed owner/loadout control-cleanse selection and ordinary SummonerCast after item priority; equip optional bot Support F slot.
+- [x] Cover pure owner/type/cooldown boundaries and formal60Hz controls, priority, retained orders, pause and replay.
+- [x] Complete consolidated acceptance and independent evidence closure; update errors, handoff and completeness audits.

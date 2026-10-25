@@ -1,0 +1,5 @@
+# Line-bot errors and prevention
+
+LB01 (discovery): rg was given a guessed scripts/moba_role_match.lua path; the actual recipe is scripts/lua_data/moba_role_match.lua. No source mutation occurred. Use rg --files inventories and exact discovered paths before reads. Preserve historical evidence rather than editing the sealed linear-skill cohort.
+
+LB02: V1 focused formal test received [] at tick1 because the actual recipe uses think_hz5 and RoleBotMatchPlan correctly compiles a 12-tick interval at 60 Hz. The fixture incorrectly demanded an immediate decision. Fix: advance the production driver to the next authored decision tick before arranging/disclosing targets, without overriding bot cadence. V1 source snapshot, failed focus output and identity-bound receipt retained under LineBotV1 and Acceptance/LineBot/accept-v1. Original API session40347 was reaped with actual exit1; all related processes retired before source edits. Prevention: end-to-end fixtures must honor authored cadence as well as ability/resource data.

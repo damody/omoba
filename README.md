@@ -1,6 +1,70 @@
 # omoba
 
-換機／接續開發請先讀 [handoff.md](handoff.md)，其中列出2026-10-18的功能進度、工具鏈、建置／驗收方式與限制。可攜驗收摘要位於 [docs/acceptance/2026-10-18-handoff](docs/acceptance/2026-10-18-handoff/README.md)。
+目前進度更新至 **2026-10-25（Asia/Taipei）**。本機專案為 `D:\omoba`，Unreal 為 `D:\UE5.8`。換機／接續開發請先讀 [handoff.md](handoff.md)；完整功能盤點見 [整體完整度盤點](docs/plans/2026-10-21-whole-game-completeness-audit.md)，各批驗收與錯誤紀錄位於 [docs/plans](docs/plans/) 和 [docs/acceptance](docs/acceptance/)。[2026-10-18 可攜交接](docs/acceptance/2026-10-18-handoff/README.md)保留為歷史基準，最新狀態以本頁及各批報告為準。
+
+## 目前實作與驗收進度
+
+原 MVP 清單維持 **33／44 完成、11 個父項待驗收**。這是原清單的接受狀態，不代表整個遊戲或所有 LOL 類玩法已完成。近期單機功能增量不會自動勾完要求真權威回覆、跨機或實體環境證據的父項；詳見 [MVP 功能核對](docs/plans/2026-10-18-mvp-functional-task-audit.md)。
+
+### 各系統目前狀態
+
+| 系統 | 已實作並具單機證據的內容 |
+|---|---|
+| 正式架構與生命期 | Rust 權威 ECS、60Hz 正式流程、隊伍 filtered replica、Unreal presentation-only；選角、開始／結束、死亡／重生、回城、暫停及來源／世代退休。 |
+| 地圖 | 兩張 MOBA map；左下／右上基地、三路、河流、野區、牆體、導航／碰撞及公開地形呈現，已取代原先左右對稱配置。 |
+| 視野與草叢 | LOS／範圍、草叢連通、隱身與偵測、普攻揭露、ward、探索霧格；隱藏或退休單位不當成可選目標。 |
+| 小兵與兵線 | 近戰／遠程／砲車／超級兵、波次組成、路線、索敵、護主與推塔例外、成長及強化兵線；受控與屬性修正共用正式規則。新增資料驅動基礎攻擊間隔：近戰／超級兵 1 秒、遠程兵 1.5 秒、砲車 2 秒。 |
+| 塔與基地建築 | 分層防禦塔、前置開門、兵營／基地塔、摧毀／重生、同英雄連續攻擊壓力；首塔／分層獎勵、限時塔皮分段金／護甲、名牌與權威公告。 |
+| 野區 | 16 營地、32 初始主體；群組仇恨、耐心、軟／硬回頭、回血、重生、LOS、每個體與召喚鏈歸因；個人／隊伍／史詩獎勵、Buff 傳承／疊層／光環與有界死亡分裂。 |
+| NPC 戰鬥 | 小兵與每個野怪個體共用暈眩／定身／移速、攻速／射程與上限、傷害修正及一次普攻加傷；拒絕出手不消耗加傷，已提交恢復週期不因增益到期重算。塔保留獨立規則。 |
+| 英雄與技能 | 九個英雄配裝；rank／技能點、Mana、有效成本／冷卻／前搖、傷害／治療／護盾／控制／淨化／削魔、普攻被動、位移、圓形／扇形／沿路效果、召喚、引導／脈衝與獨立地面區域。 |
+| 施法操作與提示 | 三種施法模式、改鍵、自用、升級；單位／圓形／走廊／陣形／扇形預覽，逐級數值、公開控制／資源／射程／方向提示及 tooltip；預覽不冒充權威落點接受。 |
+| 商店與經濟 | 19 項道具，吸血／暴擊、引導／控制／淨化、唯一被動與購買群組、合成、購買／出售撤銷；被動金、尾刀、附近 XP、擊殺／助攻、首殺、終結賞金及目標經濟補償。 |
+| 召喚師與 Bot | 五種召喚師法術及 ward 生命期；Bot 沿正式輸入操作，包含友方治療／淨化、自用淨化、引導回血道具及召喚師淨化策略。 |
+| HUD 與選取 | 技能／道具／召喚師欄、計分板、隊友卡、商店、設定、聊天／ping 介面；護盾、控制／緩速倒數、塔皮、野怪返回狀態；名牌畫面間距已完成。選取卡片新增目前公開攻擊範圍、到自身英雄的距離及自身普攻範圍內／外提示。 |
+| 動畫、音效與呈現 | 目錄驅動角色與技能呈現、攻擊／施法／引導進度、傷害／MISS／CRIT、護盾與 Buff 視覺、公開目標播報、獨立音量與字幕；跨 world、隱藏、死亡、重生及來源退休有回歸證據。 |
+
+上述為目前已接線的機制與內容，不表示每個英雄／兵種／營地已具專用美術、完整平衡或所有競技規則。完整歷史增量與各自限制以 [整體盤點](docs/plans/2026-10-21-whole-game-completeness-audit.md)及其連結的接受報告為準。
+
+兵種間隔欄位為 `templates/moba_maps.lua` 中的 `attack_interval_ms`，單位為整數毫秒，接受範圍 `1..10000`；舊內容省略時預設 `1000`，明確填入非法值會拒絕。生成時保留整數，出生時一次量化為 Q10，再沿共用攻速規則計算每次提交的週期。
+
+### 最近完成的批次
+
+| 批次 | 完成內容與證據 |
+|---|---|
+| 兵種攻擊節奏 | Lua 嚴格 schema → 生成常數 → 兵線 AI；兵種基礎間隔、canonical 攻速、鎖定恢復週期、暫停／到期／公開進度與重播。[報告](docs/plans/2026-10-25-minion-cadence-final-acceptance.md)／[證據索引](docs/acceptance/2026-10-25-minion-cadence/index.json)。 |
+| 選取距離與普攻範圍提示 | 目前公開位置、來源守門、平面世界單位換算、位置或自身射程單獨更新、未知資料清除及窄卡片換行。[報告](docs/plans/2026-10-25-selected-distance-final-acceptance.md)。 |
+| 選取目標攻擊範圍 | 公開 frame → bridge → typed payload → 實際 Slate 卡片；射程更新、非法值與生命期清除。[報告](docs/plans/2026-10-25-selected-range-final-acceptance.md)。 |
+| 共用公開射程 | 英雄、小兵、野怪的 resolved range 接通兩份權威快照、隊伍公開 baseline／update、唯讀 ECS 及 CABI；不建立假的攻擊元件或公開私有 Buff。[報告](docs/plans/2026-10-25-public-range-final-acceptance.md)。 |
+| NPC 傷害／攻擊／控制 | 正式屬性修正、一次加傷、已提交攻擊時鐘、每個野怪個體控制與回營政策。[傷害](docs/plans/2026-10-25-npc-damage-final-acceptance.md)／[攻擊](docs/plans/2026-10-25-npc-attack-final-acceptance.md)／[控制](docs/plans/2026-10-25-npc-control-final-acceptance.md)。 |
+| 敵對野怪道具 | 共用 hostile 陣營契約，可指定可見敵對野怪；被動中立、隱藏、無敵回營、建築及非法距離仍守門。[報告](docs/plans/2026-10-25-hostile-item-final-acceptance.md)。 |
+| 支援與淨化內容 | 友方護盾／淨化、正式緩速淨化、削魔，以及 Bot 友方／自用／召喚師淨化與引導道具策略。[交接及各批報告](handoff.md)。 |
+
+### 最新集中驗收
+
+最新完整 Rust／建置基準為 `2026-10-25-minion-cadence`：
+
+- 九套 Rust：**2,163 passed、0 failed、9 項既有 ignored**；另有本批重點測試 4 項。
+- 正式後端、UE5.8 建置、DLL staging／匯入庫一致性、兩份既有離線計畫及 catalog 核對通過。
+- 本批原生回歸 **4 項通過、0 項測試警告**，並檢視新產生的實際 Slate 圖；這不是宣稱所有歷史 UE 操作測試都在本批重跑。
+- **3,496 份來源一致性檢查**：3,487 未變更、9 份計畫內變更；**307 份證據獨立重核**，保留原始失敗、來源副本及程序退出／退休／清理紀錄。
+- 正式版本：selective 協定 **15**、presentation 協定 **12**、Unreal bridge CABI **36**。
+- 本輪沒有新增真網路對局、重設 quota、commit／push，亦未維護歷史 `omfx`。
+
+完整結果與適用範圍見 [最新驗收報告](docs/plans/2026-10-25-minion-cadence-final-acceptance.md)。錯誤與防止重犯方式見 [兵種節奏錯誤紀錄](docs/plans/2026-10-25-minion-cadence-errors.md)、[選取距離紀錄](docs/plans/2026-10-25-selected-distance-errors.md)及 [docs/plans](docs/plans/) 中各批 `errors.md`。
+
+### 尚未完成與接續方向
+
+| 類別 | 仍待完成或接受 |
+|---|---|
+| 原 MVP 11 個父項 | 真權威 ACK／對局完整流程、LAN／跨環境、實際 OS DPI／視窗模式、實體輸入與固定硬體效能等完整證據；單機合成 frame 或部分子功能通過不能代替。 |
+| 戰鬥與技能內容 | NPC 普攻前搖／彈體、更多追蹤／碰撞／多段技能與召喚控制、更多特殊營地／道具／召喚師內容，以及完整戰鬥公開複本與真連線生命期接受。 |
+| 地圖、美術與平衡 | 任意多邊形地圖編輯、跳牆／高低地規則、角色／建築／場景專用美術與動畫、更多目標名稱／音效、兵種及整體競技平衡。 |
+| 產品流程 | 觀戰／回放產品化、完整大廳／重連／溝通往返驗收，以及長時間單 session 的固定硬體測量。 |
+
+`complete-nameplate-screen-spacing`、公開射程、選取射程／距離及兵種攻擊節奏的 OpenSpec tasks 均已完成；未將整個遊戲或原 MVP 宣告完成。使用者要求本次收尾後，無人值守排程 `omoba-48` 已暫停。接續工作從 [handoff.md](handoff.md)、[完整度盤點](docs/plans/2026-10-21-whole-game-completeness-audit.md)及對應 OpenSpec change 開始，不重複實作已接受功能。
+
+## 專案概觀
 
 `omoba` 是以 Rust 實作的 MOBA / TD 雙模式遊戲。Repo 是 monorepo，權威模擬、script DLL、Fyrox 前端與 Unreal 前端分在多個 Cargo workspace 與 git submodule。
 
@@ -65,7 +129,7 @@ cargo test --manifest-path omoba-client-runtime\Cargo.toml
 cargo test --manifest-path omoba-template-ids\Cargo.toml
 ```
 
-Lua 工具測試入口是 `D:\code\omoba\tools\lua\lua.exe scripts\test_lua_tooling.lua`。
+從 clone 根目錄執行 Lua 工具測試：`tools\lua\lua.exe scripts\test_lua_tooling.lua`。
 
 ## Toolchain
 
@@ -77,7 +141,7 @@ Lua 工具測試入口是 `D:\code\omoba\tools\lua\lua.exe scripts\test_lua_tool
   - `omfx/Cargo.toml`：Fyrox `executor`
   - `omoba-client-runtime/Cargo.toml`
   - `omoba-core/Cargo.toml`、`omoba-sim/Cargo.toml`、`omoba-template-ids/Cargo.toml`、`omoba-content-model/Cargo.toml` 是 path dependency
-- 正式 MOBA 建置加 `--features compiled-content-only`。`runtime-lua-content` 只留給歷史 Fyrox `run.lua`，兩個 feature 不能同時開。build dependency 裡的 mlua 只負責生成，不算遊戲執行期依賴。
+- 正式 MOBA 建置加 `--features compiled-content-only`。`runtime-lua-content` 用於作者期內容驗證及歷史 Fyrox `run.lua`，兩個 feature 不能同時開。build dependency 裡的 mlua 只負責生成，不算遊戲執行期依賴。
 - `.bat` 必須是 CRLF。`.gitattributes` 已固定 `*.bat text eol=crlf`。LF 會讓 `cmd.exe` 把每行首字吃掉，出現 `'M' is not recognized`。
 
 ## Repository Layout
@@ -151,7 +215,7 @@ Unreal omfue (presentation-only, compiled-content-only)
   -> base_content.dll
 ```
 
-`omoba-client-runtime` 的呈現幀是 4-byte big-endian length 加 protobuf。`PRESENTATION_MAGIC` 是 `0x4f4d5254`，`PRESENTATION_PROTOCOL_VERSION` 目前是 `3`，單一 frame 上限 8 MiB。常數在 `omoba-client-runtime/src/presentation_bridge.rs`。`render_id` 只在單一 team replica 與 disclosure epoch 內有效，不是 Specs entity ID。
+`omoba-client-runtime` 的呈現幀是 4-byte big-endian length 加 protobuf。`PRESENTATION_MAGIC` 是 `0x4f4d5254`，`PRESENTATION_PROTOCOL_VERSION` 目前是 `12`，單一 frame 上限 8 MiB。常數以 `omoba-core/src/renderer_protocol.rs` 為準。`render_id` 只在單一 team replica 與 disclosure epoch 內有效，不是 Specs entity ID。
 
 Renderer 不執行 Specs systems、不載入 script DLL、不連權威 KCP，也不把 remembered ghost 當成可選定的單位。未知版本、過長 frame 或非 loopback endpoint 必須 fail closed。
 
@@ -181,7 +245,7 @@ Renderer 不執行 Specs systems、不載入 script DLL、不連權威 KCP，也
 
 `omoba-client-runtime` 是外部 process。啟動後它會：
 
-1. 用 KCP 連權威 server，協商 selective lockstep protocol version 2。
+1. 用 KCP 連權威 server，協商 selective lockstep V2 系列的目前協定版本 `15`。
 2. 用 `TeamGameStart` 建立該隊的 filtered replica。
 3. 在 `--presentation-bind` 上聽 loopback TCP，送 latest-wins snapshot 與 ordered critical result。
 4. 把 renderer 的 `RendererInput` 轉成 secure target input。不在 client 上直接改 HP、CD 或視野。
@@ -277,7 +341,7 @@ KCP frame 是 `[1B tag][4B len BE][payload]`。payload 至少 64 bytes 且 LZ4 �
 | `0x10`–`0x18` | 舊 lockstep：input、tick batch、hash、join、snapshot、ping |
 | `0x20`–`0x2C` | selective lockstep V2：team start、team frame、rebase、replay、hash mismatch、secure input、checkpoint、session close、shop receipt |
 
-`SELECTIVE_LOCKSTEP_PROTOCOL_VERSION` 是 2。V1 與 V2 以對局為單位協商，同一條 player session 不能混用。`proto/game.proto` 同時保留 typed payload 與 JSON fallback。熱路徑優先用 typed payload 與 quantized scalar。
+`SELECTIVE_LOCKSTEP_PROTOCOL_VERSION` 目前是 `15`，定義於 `omoba-core/src/transport.rs`；「selective V2」是協定系列名稱，並非目前數字版本。未知／舊版本不得混入目前 session。`proto/game.proto` 同時保留 typed payload 與 JSON fallback。熱路徑優先用 typed payload 與 quantized scalar。
 
 `game.toml` 目前設 `MATCH_LOCKSTEP_MODE = "secure_v2_required"`。Secure match 不得攜帶 global master seed、raw ECS ID 或其他隊伍的 hidden state。契約全文在 [`docs/selective-lockstep/protocol-v2-contract.md`](docs/selective-lockstep/protocol-v2-contract.md)。
 
@@ -315,8 +379,8 @@ MOBA 不是另一個 ECS。`SingleLaneConfig` 為 `None` 時維持 TD / 舊行�
 cargo build --manifest-path scripts\Cargo.toml -p base_content --features compiled-content-only
 cargo build --manifest-path omb\Cargo.toml -p omobab --features compiled-content-only
 cargo build --manifest-path omoba-client-runtime\Cargo.toml --features compiled-content-only
-D:\code\omoba\tools\lua\lua.exe scripts\build_ue_moba.lua --build-only
-D:\code\omoba\tools\lua\lua.exe scripts\test_compiled_content_contract.lua
+tools\lua\lua.exe scripts\build_ue_moba.lua --ue-root D:/UE5.8 --build-only
+tools\lua\lua.exe scripts\test_compiled_content_contract.lua
 ```
 
 最後一條檢查 server、client runtime、script DLL 與 Unreal bridge 的 normal dependency 沒有 `mlua`。Release 配方 launcher 預設 `--profile release`。
@@ -373,7 +437,7 @@ cargo test --manifest-path omb\Cargo.toml -p omobab --features gen-docs -- --ign
 
 `omobab`、`executor` 與 `omoba-client-runtime` 在 Windows 上都會呼叫 `timeBeginPeriod(1)`，把 timer granularity 從 15.6 ms 降到 1 ms。這只是上限，不是精準的 1 ms sleep。
 
-## Fyrox Frame Pacing
+## 歷史 Fyrox Frame Pacing（僅留存）
 
 這一節只解釋還留在 repo 裡的 Fyrox 前端。不要為了現行 MOBA 去改這些檔。
 

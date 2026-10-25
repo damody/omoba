@@ -1,0 +1,3 @@
+- [x] Extend common typed control state, label priority and public frame decoder for slow.
+- [x] Cover slow timing, combined control, canonical catalog, clearing and lifecycle through actual native widgets.
+- [x] Build UE5.8, run native regressions, inspect Slate capture and independently seal evidence; update handoff/audit.

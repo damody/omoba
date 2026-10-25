@@ -1,0 +1,4 @@
+- [x] Preserve parent and define disjoint client/authority/ack contracts.
+- [x] Connect secure session sealing, canonical redaction and replica admission.
+- [x] Add client constructor and real formal/projection/security coverage.
+- [x] Consolidate acceptance, archive evidence and update audit/handoff.

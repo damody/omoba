@@ -1,0 +1,6 @@
+- [x] Preserve generation and add typed renderer/ABI contracts.
+- [x] Connect exact-current client and bridge admission.
+- [x] Implement selected summon input, configurable chords and HUD guidance.
+- [x] Port active bridge generation/staging to fixed Lua.
+- [x] Add Rust/native behavioral coverage and review captures.
+- [x] Consolidate builds/source/evidence and update docs/handoff.

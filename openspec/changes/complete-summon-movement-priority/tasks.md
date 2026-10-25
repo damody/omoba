@@ -1,0 +1,4 @@
+- [x] Preserve parent inputs and implement shared host movement priority.
+- [x] Add adapter and actual summoned-combatant formal regression coverage.
+- [x] Run maintained Rust checks, backend/UE build and source consistency verification.
+- [x] Seal original evidence and update errors, acceptance, inventory and handoff.

@@ -1,0 +1,5 @@
+# Common mechanism
+
+Read current own removable controls once, exact owner-bound SummonerLoadout and authority catalog. Only a ready typed SelfControlCleanse is eligible; stable slot order, no spell-name rules. Emit a normal slot-only SummonerCast. No default spell, new schema/ABI, resource settlement or extra target lookup. Phase/pause/fresh visibility/current owner identity/life/recall/real channel guards remain before emergency decisions, and item cleansing keeps priority. Other spell operations do not bypass stun waiting.
+
+Preserve parent-bound originals, cover unavailable/wrong owner/unknown spell/type/cooldown/no-control and read-only selection. Formal60Hz covers all supported control families, full HP, retained order/shield/stance, opt-in loadout, pause/current own disclosure gates, independent slots, item-first then summoner fallback, cooling reapplication and paired replay. Validate the optional Lua recipe and complete consolidated Rust/backend/UE/native/offline catalog acceptance, source consistency, original retirement and independent evidence closure.

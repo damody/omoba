@@ -1,0 +1,3 @@
+- [x] Integrate canonical jungle outgoing damage and one-shot launch consumption for creep/jungle attacks.
+- [x] Cover refusal/commit, buildings/siblings/optional resource and actual formal60Hz HP/shield/pause/replay.
+- [x] Complete consolidated acceptance, independent closure and update errors/handoff/audits.

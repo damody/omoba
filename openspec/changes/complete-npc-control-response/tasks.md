@@ -1,0 +1,3 @@
+- [x] Apply canonical stun/root/move-speed rules to lane creeps and individual jungle bodies while preserving buildings and hard return.
+- [x] Cover body/clock/route/reset boundaries and actual authored formal60Hz control, pause, expiry and replay.
+- [x] Complete consolidated acceptance/source/retirement/evidence closure and update errors, handoff and completeness audits.

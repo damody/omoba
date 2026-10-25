@@ -1,0 +1,3 @@
+# Design
+
+Add SlowSeconds to the typed presentation state. Priority remains stun, root, silence, then slow; simultaneous labels include slow while the primary timer remains that primary control's timer. Match only canonical slow catalog ID; use the existing bounded instance/living-entity decoder, latest same-kind deadline and permanent semantics. No fabricated percentage. SameDisplay includes the slow mask and primary displayed deadline, so existing Slate throttling applies. Validate actual frame-to-actor-to-widget wiring, absence after cleanse, visibility and life gates, plus real Slate capture. No ABI/wire/schema changes; Rust and backend inherited only after whole-source consistency proof.

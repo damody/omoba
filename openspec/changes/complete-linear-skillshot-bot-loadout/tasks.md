@@ -1,0 +1,4 @@
+- [x] Add optional authored line-bot recipe and preserve parent inputs.
+- [x] Exercise actual recipe through strict plan compilation and formal 60 Hz bot execution.
+- [x] Run focused and maintained Rust/Lua regression checks with source/evidence provenance.
+- [x] Update acceptance, completeness audit and handoff with accurate remaining work.

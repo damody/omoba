@@ -1,0 +1,4 @@
+- [x] Preserve accepted inputs and add private per-tick host movement ownership.
+- [x] Verify arrival, next-tick resume, generation/tick isolation and existing controls.
+- [x] Run maintained Rust regressions, backend/UE build, staging and source verification.
+- [x] Archive evidence and update acceptance, errors, audit and handoff.

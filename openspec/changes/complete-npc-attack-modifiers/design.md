@@ -1,0 +1,5 @@
+# Design
+
+Read canonical UnitStats::final_attack_range and final_attack_interval for creep and individual jungle bodies. Keep lane base cadence1s and jungle authored seconds; towers retain old rules. Clamp committed interval to at least one Q10 quantum to keep extreme haste a valid recoverable cycle. Record a private committed duration alongside remaining/sequence, and publish only resolved current recovery through existing AttackVisualState. Never disclose targets or modifier sources. Include duration in deterministic replay digest. Jungle callers without BuffStore retain authored values; hard return continues existing restoration.
+
+Local tests cover range boost/reduction/cap, haste/slow/fixed rate/clamp, pause, modifiers changing during committed recovery, next-attack recalculation, sibling independence, buildings and absent BuffStore. Formal60Hz checks actual NPC decisions, public phase durations, expiry and paired replay. Preserve parent-bound originals, focused probe, consolidated9Rust/backend/UE/catalog/native/source cohort, original exits and independent evidence closure.

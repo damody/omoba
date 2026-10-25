@@ -1,0 +1,3 @@
+- [x] 1. Implement shared authoring/generator/generic ally shield and closed native serial grant admission.
+- [x] 2. Author support shielding and typed hints; verify atomic lifecycle, refresh, absorption, pause/expiry/replay and native presentation.
+- [x] 3. Complete maintained acceptance, immutable failures/source/retirement evidence and handoff/audit.

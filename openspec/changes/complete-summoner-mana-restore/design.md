@@ -1,0 +1,3 @@
+# Design
+
+Append catalog identity 7. `self_restore_mana { amount }` accepts only no-target and positive bounded fixed-point authoring. The plan snapshots optional current/max mana, caps to missing mana and revalidates it at commit. Missing/zero capacity rejects without cooldown. A full valid pool accepts zero restoration and consumes cooldown, like full-HP healing. The real sink uses the existing checked ManaPool under the same exclusive world transaction; no second resource balance, new wire shape or ABI field. It preserves HP, controls, movement and hero cast state. Names do not select behavior. Existing UI catalog generation supplies name and description. Native UI keeps the existing summoner fallback artwork; new artwork is outside this batch.

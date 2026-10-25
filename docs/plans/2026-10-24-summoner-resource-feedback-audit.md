@@ -1,0 +1,9 @@
+# Summoner resource feedback audit (not implemented or accepted)
+
+2026-10-24 heartbeat after the mana-restore batch: handoff, latest acceptance/errors and OpenSpec tasks read. Nameplate spacing4/4 and mana restoration3/3 remain complete. No live Lua/cargo/rustc/UnrealEditor-Cmd workers; no rebuild or test was duplicated.
+
+Candidate for the next implementation batch: make summoner resource requirements explicit in generated metadata and use them in existing D/F readiness, preview and tooltip policy. Missing/zero-capacity mana should be explained before issuing a mana-restoration input; full valid pools must remain usable because the authored policy consumes cooldown even when no mana is restored. Preserve all existing blink/control rules and never select execution behavior by a spell/hero name. This is an audit candidate, not a claim that current resource readiness is implemented or accepted.
+
+Verified sources: `omfue/codegen/src/summoner_catalog.rs`, `omfue/Plugins/OmRuntime/Source/OmRuntime/Private/OmPlayerActionOwnerComponent.cpp` (EvaluateSummonerCastPreview), `omfue/Plugins/OmRuntime/Source/OmEditor/Private/OmSummonerCastFeedbackTests.cpp`, `omoba-client-runtime/src/moba_hud.rs`, `omfue/bridge/src/lib.rs`. Locate command bar and feedback implementations with `rg --files` before reading or editing. Preserve parent inputs against `docs/acceptance/2026-10-24-mana-restore/index.json` and its bound3488-file baseline before any source edit.
+
+SR01 (read-only audit error): guessed `OmRuntime/Private/OmSummonerInput.cpp` does not exist; the summoner preview belongs to OmPlayerActionOwnerComponent. rg correctly rejected the path. No source mutation or worker followed this lookup. Prevention: inventory the actual files before searching; do not infer one implementation file per input domain. Keep the sealed mana-restore errors/evidence immutable.

@@ -1,0 +1,5 @@
+# Recovery skill post-seal observation
+
+RC10 after sealerV4 returned actual exit0 and its original API30611 was reaped, a readonly Get-Process -Id39368 failed because the successfully exited process was already retired. No runtime source or evidence changed and no process was terminated. Treat the reaped exit as authoritative; use Get-Process piped to Where-Object for optional inventory instead of querying a retired PID directly. The original errors.md remains immutable after sealing; this supplementary record is separately archived in closure.
+
+RC11 finish-seal-v4 wrote the valid actual API receipt, then its attempt to update an already existing Saved helper used path.write(...,false), which correctly refused overwrite. Direct exit1; the original closure script remained byte-identical and ran against the valid API receipt. Preserve that successful closure, then separately append the supplementary errors and closure API evidence. Prevention: use a fresh versioned helper for every mutation; check a dependent command's result before launching the next command. This did not alter runtime or test sources.

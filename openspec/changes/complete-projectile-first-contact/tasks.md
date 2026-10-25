@@ -1,0 +1,3 @@
+- [x] Preserve baseline and reproduce wrong-first-hit/dense-candidate failures in the real projectile system.
+- [x] Implement shared integer contact timing and spatial key selection; cover ties, boundaries and stale rows.
+- [x] Run consolidated maintained builds/native/source checks, preserve failures and retirement, update handoff/inventory.

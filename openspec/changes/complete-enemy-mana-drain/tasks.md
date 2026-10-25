@@ -1,0 +1,3 @@
+- [x] 1. Implement checked hostile mana loss, shared target admission and closed generic authoring/generation/settlement.
+- [x] 2. Author light-bolt mana drain and typed hints; cover ranks, missing/empty pools, hooks, atomicity and formal replay.
+- [x] 3. Complete focused and maintained acceptance, actual native pixels, source/retirement evidence and handoff/audit.

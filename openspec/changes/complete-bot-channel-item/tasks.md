@@ -1,0 +1,3 @@
+- [x] Add validated opt-in channel threshold and typed safe planner selection; wire owner silence and optional Support recipe.
+- [x] Cover pure selector boundaries and actual formal60Hz start/wait/pause/pulses/interruption/resumption/replay.
+- [x] Complete consolidated acceptance, source/worker evidence closure and update handoff/audits/errors.

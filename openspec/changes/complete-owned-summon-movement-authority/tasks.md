@@ -1,0 +1,4 @@
+- [x] Preserve source generation and define distinct owned summon input.
+- [x] Implement bounded queue and exact-owner movement/release authority.
+- [x] Add protobuf/negative/formal actual-summon/replay coverage.
+- [x] Consolidate maintained acceptance and archive errors/evidence/tasks/audit/handoff.

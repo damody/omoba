@@ -1,0 +1,3 @@
+- [x] Implement shared authority range and closed public baseline/update contract with secure replica/protocol15 admission.
+- [x] Wire native snapshots and filtered bridge without private state or fake attack components; cover local lifecycle/replay.
+- [x] Complete consolidated acceptance and independent closure; update errors/handoff/audits.

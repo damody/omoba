@@ -1,0 +1,3 @@
+- [x] Publish current admitted planar distance and optional own attack reach in selection payload/card.
+- [x] Cover source-range and position-only changes, boundary/absence/lifecycle and actual Slate capture.
+- [x] Complete consolidated UE/native/source acceptance, independent closure and documentation.

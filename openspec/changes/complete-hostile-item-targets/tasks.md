@@ -1,0 +1,3 @@
+- [x] Add closed hostile catalog contract and shared authority relation policy, preserving enemy compatibility and all commit guards.
+- [x] Adopt scope for binding charm and wire generated metadata, native guidance and published admission with local regressions.
+- [x] Complete focused and consolidated acceptance; preserve failures, source provenance and retirement evidence; update handoff and audits.

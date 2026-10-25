@@ -1,0 +1,5 @@
+# General mechanism
+
+BotActiveItemPolicy gains channel_below_hp_per_mille with serde default0, disabling the rule. Validate0..1000 alongside current fields in both planning and pre-match checks. Select only typed valid ChannelHeal, below the threshold, with no current disclosed enemy within combat_radius, no silence and no attack windup. Root alone remains eligible because stationary recovery authority permits it. Stun is still guarded by the existing outer wait. Reuse ordinary ItemUse and the current exact owner channel wait, pause and interruption mechanics. No hidden threat query, safety guarantee, item-name runtime branch or new authority path.
+
+Retain parent-bound sources before edits. Cover strict policy compatibility and bounds, public threat geometry/life/team boundaries, cooldown and silence/windup, invalid spec and deterministic slot choice. Formal60Hz covers actual purchase/selection/start, ticks with bot input waiting, exact pulses/cooldown, pause freeze, root, interruption and return to normal decisions; paired replay. Consolidate existing Rust/backend/UE/offline plan/native regressions before independent evidence closure.

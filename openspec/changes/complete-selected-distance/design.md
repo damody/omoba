@@ -1,0 +1,5 @@
+# Design
+
+Use the same owner/source/target position admission as unit-cast feedback. Convert current world centimeters once to world units with finite positive scale. Omit invalid/missing distance; admit bounded finite nonnegative values. Compare current distance against the exact source row's public resolved range, with equality inside; no catalog/previous frame/radius/private stat inference. Range zero means unknown reach while distance can remain known. Typed optional distance and reach join selection publication equality; existing text comparison throttles unchanged rendering. Source loss, source conflict, hidden target, replacement, death and retirement follow existing selection lifecycle. Wording describes geometry, not cooldown, controls, attackability or acknowledgement.
+
+Use actual frame→bridge→selected payload→Slate tests: source-only range changes, target position-only changes, exact boundary/inside/outside, unknown source range, full absence, generation/hide/death/retirement, real screenshot. Fresh UE/native/source acceptance inherits immutable Rust/backend/catalog parent proof and retains actual exit/retirement and all failed attempts if any.

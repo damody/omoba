@@ -1,0 +1,3 @@
+- [x] 1. Support targeted composition of caster-local mana restoration in shared authoring and generic execution.
+- [x] 2. Author support-heal restoration and meaningful model/formal lifecycle/transaction coverage.
+- [x] 3. Complete concentrated maintained acceptance, immutable failures/source/retirement evidence, tasks and handoff.

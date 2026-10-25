@@ -1,0 +1,2 @@
+# Design
+Cache registered MoveTarget storage alongside the shared parallel script adapter. For UnitType::Summon, collision-aware autonomous movement returns the current position while a host MoveTarget exists. Apply before any navigation; retain root gating, forced set_pos, normal non-summon behavior and autonomous movement after command completion. No ABI addition, name rules or new wire command. This covers ongoing host movement; arrival-frame budget sharing and explicit player summon command UI remain separate work.

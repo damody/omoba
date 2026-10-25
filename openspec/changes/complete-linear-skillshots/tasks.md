@@ -1,0 +1,4 @@
+- [x] Implement typed linear effects, common endpoint, compiled metadata and strict fixed-Lua generation.
+- [x] Add selectable content, committed-observation bot planning and truthful native preview/tooltips.
+- [x] Add meaningful geometry/kernel/formal/native tests and complete concentrated fresh acceptance.
+- [x] Preserve errors, source/image evidence and retirement; close handoff/completeness/tasks.

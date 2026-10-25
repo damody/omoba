@@ -1,0 +1,3 @@
+# ADDED Requirements
+
+Independent zones SHALL survive exact source death without reviving or binding to another generation. Captured faction/credit SHALL remain immutable. Refresh/cancel SHALL revoke pending old leases; expiry SHALL still settle the exact final pulse once. Managed casts SHALL preflight bounded capacity before any resource/effect/cue. Legacy caster-bound zones SHALL retain death cancellation. Shared serial raw damage SHALL preserve defenses/shields and exclude attack/crit/leech inheritance. Private lifetime/phase/lease state SHALL be covered by replay diagnostics and omitted from public actor metadata. Native tooltip SHALL disclose authored lifetime truthfully.
