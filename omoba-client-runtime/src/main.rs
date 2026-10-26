@@ -4,6 +4,7 @@ use omoba_client_runtime::{
     config::ClientRuntimeConfig,
     evidence::EvidenceRecorder,
     input_bridge::{InputBridge, InputDecision},
+    link_liveness::{InputSettleDeadlines, LinkLiveness, LinkTransition},
     presentation_bridge::{
         assemble_rebased_presentation, communication_envelope, lifecycle_envelope, ready_envelope_for_start, reset_view_envelope,
         PresentationHub, PRESENTATION_MAGIC, PRESENTATION_PROTOCOL_VERSION,
@@ -49,7 +50,134 @@ async fn main() -> anyhow::Result<()> {
         config.protocol_version,
         config.test_mode
     );
+    let (shutdown, shutdown_rx) = ShutdownToken::new();
+    let ctrl_c = shutdown.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            ctrl_c.cancel(ShutdownReason::Requested);
+        }
+    });
+    if let Some(shutdown_file) = config.shutdown_file.clone() {
+        let file_shutdown = shutdown.clone();
+        tokio::spawn(async move {
+            loop {
+                if shutdown_file.exists() {
+                    file_shutdown.cancel(ShutdownReason::Requested);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        });
+    }
     let mut session = SelectiveSession::connect(&config).await?;
+    let mut ctx = RuntimeContext {
+        config, presentation: None, evidence: None, presentation_sequence: 1,
+        resume_token: Vec::new(), shutdown, shutdown_rx, rejoins: 0,
+    };
+    // One match: a lost link reconnects to the same match (rejoin) instead of exiting.
+    loop {
+        match run_session(&mut ctx, session).await? {
+            SessionEnd::Stopped => break,
+            SessionEnd::LinkLost => match reconnect(&mut ctx).await? {
+                Some(next) => session = next,
+                None => break,
+            },
+        }
+    }
+    Ok(())
+}
+
+/// State that outlives one server session: the renderer link, evidence, the
+/// presentation sequence, the rejoin secret and the process shutdown token.
+struct RuntimeContext {
+    config: ClientRuntimeConfig,
+    presentation: Option<PresentationHub>,
+    evidence: Option<EvidenceRecorder>,
+    presentation_sequence: u64,
+    resume_token: Vec<u8>,
+    shutdown: ShutdownToken,
+    shutdown_rx: tokio::sync::watch::Receiver<Option<ShutdownReason>>,
+    rejoins: u32,
+}
+
+/// How one server session ended.
+enum SessionEnd {
+    /// Shutdown requested, match terminated or unsafe: the process exits.
+    Stopped,
+    /// The authority link was lost: try to rejoin the same match.
+    LinkLost,
+}
+
+/// RECONNECTING with backoff until a rejoin succeeds, the player stops the
+/// runtime, or the reconnect window closes. `None` means stop.
+async fn reconnect(ctx: &mut RuntimeContext) -> anyhow::Result<Option<SelectiveSession>> {
+    use omoba_client_runtime::rejoin::{reconnecting_reason, RejoinBackoff, RejoinStep, ATTEMPT_TIMEOUT};
+    use omoba_core::game_proto::runtime_session_state::State;
+    let stop_requested = |rx: &tokio::sync::watch::Receiver<Option<ShutdownReason>>| rx.borrow().is_some();
+    let mut backoff = RejoinBackoff::new(std::time::Instant::now());
+    loop {
+        let (attempt, after) = match backoff.next(std::time::Instant::now()) {
+            RejoinStep::Retry { attempt, after } => (attempt, after),
+            RejoinStep::GiveUp { attempts } => {
+                log::error!("client-runtime rejoin gave up after {attempts} attempts");
+                if let Some(evidence) = &ctx.evidence { evidence.record_network_event("rejoin-gave-up", 0, 0, "SERVER_DISCONNECTED")?; }
+                if let Some(presentation) = ctx.presentation.as_mut() {
+                    ctx.presentation_sequence = ctx.presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(session_state_envelope(ctx.presentation_sequence, State::ServerDisconnected, "rejoin_gave_up")).await?;
+                }
+                return Ok(None);
+            }
+        };
+        if !after.is_zero() {
+            tokio::select! {
+                _ = tokio::time::sleep(after) => {}
+                _ = ctx.shutdown_rx.changed() => {}
+            }
+        }
+        if stop_requested(&ctx.shutdown_rx) { return Ok(None); }
+        // The renderer left (the player pressed 放棄 / quit): give the rejoin up.
+        if ctx.presentation.as_ref().is_some_and(|presentation| presentation.renderer_left_for(5_000)) {
+            log::warn!("client-runtime rejoin abandoned: the renderer left");
+            if let Some(evidence) = &ctx.evidence { evidence.record_network_event("rejoin-abandoned", 0, 0, "SHUTDOWN")?; }
+            return Ok(None);
+        }
+        if let Some(presentation) = ctx.presentation.as_mut() {
+            ctx.presentation_sequence = ctx.presentation_sequence.saturating_add(1);
+            presentation.publish_critical(session_state_envelope(ctx.presentation_sequence, State::Reconnecting, &reconnecting_reason(attempt))).await?;
+        }
+        let joined = tokio::select! {
+            joined = tokio::time::timeout(ATTEMPT_TIMEOUT, SelectiveSession::connect_resuming(&ctx.config, ctx.resume_token.clone())) => Some(joined),
+            _ = ctx.shutdown_rx.changed() => None,
+        };
+        match joined {
+            None => return Ok(None),
+            Some(Ok(Ok(session))) => {
+                ctx.rejoins = ctx.rejoins.saturating_add(1);
+                log::warn!("client-runtime rejoined player_id={} team_id={} attempt={} server_tick={} replica_tick={} rejoins={}",
+                    ctx.config.player_id, session.start.team_id, attempt, session.start.server_tick, session.start.replica_start_tick, ctx.rejoins);
+                if let Some(evidence) = &ctx.evidence { evidence.record_network_event("rejoined", session.start.next_team_sequence, session.start.replica_start_tick, "READY")?; }
+                if let Some(presentation) = ctx.presentation.as_mut() {
+                    ctx.presentation_sequence = ctx.presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(session_state_envelope(ctx.presentation_sequence, State::Ready, "rejoined")).await?;
+                }
+                return Ok(Some(session));
+            }
+            Some(Ok(Err(error))) => log::warn!("client-runtime rejoin attempt {attempt} failed: {error}"),
+            Some(Err(_)) => log::warn!("client-runtime rejoin attempt {attempt} timed out after {} ms", ATTEMPT_TIMEOUT.as_millis()),
+        }
+    }
+}
+
+/// One server session: bootstrap the team replica from this TeamGameStart and
+/// run until the session stops or its link is lost.
+async fn run_session(ctx: &mut RuntimeContext, mut session: SelectiveSession) -> anyhow::Result<SessionEnd> {
+    let RuntimeContext { config, presentation: hub, evidence: evidence_slot, presentation_sequence: sequence_slot,
+        resume_token, shutdown, shutdown_rx, .. } = ctx;
+    let config: &ClientRuntimeConfig = config;
+    let shutdown: &ShutdownToken = shutdown;
+    // The newest secret replaces the last one; it is never logged.
+    *resume_token = session.start.resume_token.clone();
+    let mut session_end = SessionEnd::Stopped;
     let mut replica = ReplicaHost::bootstrap(&session.start)?;
     let (checkpoint_queue, checkpoint_writer) =
         spawn_checkpoint_writer(session.client.replica_checkpoint_reporter());
@@ -70,12 +198,17 @@ async fn main() -> anyhow::Result<()> {
             .to_vec(),
         })
         .await?;
-    let evidence = EvidenceRecorder::create(&config, replica.global_seed())?;
-    let mut presentation = PresentationHub::bind(&config).await?;
-    log::info!(
-        "client-runtime presentation listening on {}",
-        config.presentation_bind
-    );
+    // Evidence and the renderer link belong to the process, not to one session.
+    if evidence_slot.is_none() { *evidence_slot = EvidenceRecorder::create(config, replica.global_seed())?; }
+    let evidence: &Option<EvidenceRecorder> = evidence_slot;
+    if hub.is_none() {
+        *hub = Some(PresentationHub::bind(config).await?);
+        log::info!(
+            "client-runtime presentation listening on {}",
+            config.presentation_bind
+        );
+    }
+    let mut presentation: &mut PresentationHub = hub.as_mut().expect("presentation bound");
     let mut input_bridge = InputBridge::resume_after(session.start.last_seen_input_id);
     let shop_version = session.start.shop_protocol_version;
     let shop_rules = session.start.shop_rules_hash.as_str();
@@ -106,7 +239,7 @@ async fn main() -> anyhow::Result<()> {
     }
     log::info!("input allocator resumed player={} after_id={}",
         config.player_id, session.start.last_seen_input_id);
-    let mut presentation_sequence = 1_u64;
+    let mut presentation_sequence = *sequence_slot;
     let mut scripted_move_sent = false;
     let mut next_scripted_move_tick = config.scripted_move_tick;
     let mut scripted_move_ordinal = 0_u64;
@@ -119,6 +252,7 @@ async fn main() -> anyhow::Result<()> {
     let mut rebase_probe_sent = false;
     let mut pending_frames = BTreeMap::new();
     let mut pending_input_requests = BTreeMap::<u32, u64>::new();
+    let mut input_deadlines = InputSettleDeadlines::default();
     let mut replay_requested_from = None;
     let mut replay_request_id = 1_u64;
     let mut awaiting_authoritative_rebase = false;
@@ -146,25 +280,6 @@ async fn main() -> anyhow::Result<()> {
             replica.view_epoch(),
         ))
         .await?;
-    let (shutdown, mut shutdown_rx) = ShutdownToken::new();
-    let ctrl_c = shutdown.clone();
-    tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            ctrl_c.cancel(ShutdownReason::Requested);
-        }
-    });
-    if let Some(shutdown_file) = config.shutdown_file.clone() {
-        let file_shutdown = shutdown.clone();
-        tokio::spawn(async move {
-            loop {
-                if shutdown_file.exists() {
-                    file_shutdown.cancel(ShutdownReason::Requested);
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-        });
-    }
     log::info!(
         "client-runtime ready player_id={} team_id={} replica_tick={} presentation={}",
         config.player_id,
@@ -173,9 +288,46 @@ async fn main() -> anyhow::Result<()> {
         config.presentation_bind
     );
     let mut shop_query_interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    let mut liveness_interval = tokio::time::interval(std::time::Duration::from_millis(250));
+    let mut link = LinkLiveness::new(std::time::Instant::now(), replica.next_replica_tick());
     loop {
         tokio::select! {
             biased;
+            _ = liveness_interval.tick() => {
+                use omoba_core::game_proto::runtime_session_state::State;
+                for input_id in input_deadlines.expire(latest_server_tick) {
+                    let Some(request_id) = pending_input_requests.remove(&input_id) else { continue; };
+                    log::warn!("input expired unsettled player={} input_id={} server_tick={}", config.player_id, input_id, latest_server_tick);
+                    presentation_sequence = presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(critical_result(presentation_sequence, request_id, input_id, false, "INPUT_EXPIRED", latest_server_tick)).await?;
+                }
+                let progress = replica.next_replica_tick();
+                match link.poll(std::time::Instant::now(), progress) {
+                    Some(LinkTransition::Stalled { silent_for }) => {
+                        log::warn!("authority link stalled: no replica progress for {} ms at replica_tick={}", silent_for.as_millis(), progress);
+                        if let Some(evidence) = &evidence { evidence.record_network_event("link-stalled", replica.expected_team_sequence(), progress, "STALLED")?; }
+                        presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(session_state_envelope(presentation_sequence, State::Stalled, "link_stalled")).await?;
+                    }
+                    Some(LinkTransition::Recovered { stalled_for }) => {
+                        log::warn!("authority link recovered after {} ms at replica_tick={}", stalled_for.as_millis(), progress);
+                        if let Some(evidence) = &evidence { evidence.record_network_event("link-recovered", replica.expected_team_sequence(), progress, "READY")?; }
+                        presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(session_state_envelope(presentation_sequence, State::Ready, "link_recovered")).await?;
+                    }
+                    Some(LinkTransition::Lost { silent_for }) => {
+                        log::error!("authority link lost: no replica progress for {} ms (tolerance {} ms)", silent_for.as_millis(),
+                            omoba_client_runtime::link_liveness::LINK_LOST_AFTER.as_millis());
+                        if let Some(evidence) = &evidence { evidence.record_network_event("link-lost", replica.expected_team_sequence(), progress, "RECONNECTING")?; }
+                        presentation_sequence = presentation_sequence.saturating_add(1);
+                        presentation.publish_critical(session_state_envelope(presentation_sequence, State::Reconnecting, "link_lost")).await?;
+                        // Not the end of the match: rejoin it (see `reconnect`).
+                        session_end = SessionEnd::LinkLost;
+                        break;
+                    }
+                    None => {}
+                }
+            }
             _ = shop_query_interval.tick() => {
                 for batch in presentation.expire_communication_submissions() {
                     presentation_sequence = presentation_sequence.saturating_add(1);
@@ -215,6 +367,7 @@ async fn main() -> anyhow::Result<()> {
                     &mut scripted_move_sent,
                     &mut scripted_move_origin,
                     &mut pending_input_requests,
+                    &mut input_deadlines,
                     &mut latest_server_tick,
                     renderer_input,
                 ).await?;
@@ -422,8 +575,26 @@ async fn main() -> anyhow::Result<()> {
                         replica.next_replica_tick(),
                     )).await?;
                 }
+                Some(LockstepInbound::MatchTerminated { reason_class, last_safe_sequence }) => {
+                    log::error!("match terminated by server: reason={reason_class} last_safe_sequence={last_safe_sequence}");
+                    presentation_sequence = presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(session_state_envelope(presentation_sequence,
+                        omoba_core::game_proto::runtime_session_state::State::Terminated, &format!("match_terminated:{reason_class}"))).await?;
+                    shutdown.cancel(ShutdownReason::MatchTerminated(reason_class));
+                }
                 Some(_) => {}
-                None => shutdown.cancel(ShutdownReason::ServerDisconnected),
+                // The server closed this session (it saw our link die first).
+                // After a stop or a match termination this is just the close.
+                None if shutdown_rx.borrow().is_some() => {}
+                None => {
+                    log::error!("authority session closed by the server; rejoining");
+                    if let Some(evidence) = &evidence { evidence.record_network_event("link-lost", replica.expected_team_sequence(), replica.next_replica_tick(), "RECONNECTING")?; }
+                    presentation_sequence = presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(session_state_envelope(presentation_sequence,
+                        omoba_core::game_proto::runtime_session_state::State::Reconnecting, "session_closed")).await?;
+                    session_end = SessionEnd::LinkLost;
+                    break;
+                }
             },
         }
     }
@@ -434,7 +605,8 @@ async fn main() -> anyhow::Result<()> {
     if let Err(error) = session.client.shutdown().await {
         log::warn!("client-runtime KCP shutdown failed: {error}");
     }
-    Ok(())
+    *sequence_slot = presentation_sequence;
+    Ok(session_end)
 }
 
 async fn maybe_send_communication_hello(
@@ -571,6 +743,7 @@ async fn handle_renderer_input(
     scripted_move_sent: &mut bool,
     scripted_move_origin: &mut Option<(i64, i64)>,
     pending_input_requests: &mut BTreeMap<u32, u64>,
+    input_deadlines: &mut InputSettleDeadlines,
     latest_server_tick: &mut u64,
     renderer_input: RendererInput,
 ) -> anyhow::Result<()> {
@@ -768,6 +941,8 @@ async fn handle_renderer_input(
             };
             if result.is_ok() {
                 pending_input_requests.insert(input_id, request_id);
+                // Shop and undo settle through their own receipt queries.
+                if !is_shop && !is_undo { input_deadlines.track(input_id, u64::from(target_tick)); }
                 log::info!("input forwarded player={} input_id={} target_tick={}",
                     config.player_id, input_id, target_tick);
             }
@@ -1105,6 +1280,14 @@ async fn catch_up_available_frames(
                             replica.next_replica_tick(),
                         ))
                         .await?;
+                    return Ok(());
+                }
+                Ok(LockstepInbound::MatchTerminated { reason_class, last_safe_sequence }) => {
+                    log::error!("match terminated by server: reason={reason_class} last_safe_sequence={last_safe_sequence}");
+                    *presentation_sequence = presentation_sequence.saturating_add(1);
+                    presentation.publish_critical(session_state_envelope(*presentation_sequence,
+                        omoba_core::game_proto::runtime_session_state::State::Terminated, &format!("match_terminated:{reason_class}"))).await?;
+                    shutdown.cancel(ShutdownReason::MatchTerminated(reason_class));
                     return Ok(());
                 }
                 Ok(_) => continue,
@@ -1484,7 +1667,9 @@ async fn apply_ready_frame(
     let mut cues = replica.take_damage_presentation(report.replica_tick);
     cues.extend(replica.ability_presentation(report.replica_tick));
     presentation.retain_effects(replica.view_epoch(), report.replica_tick, cues);
-    let settled_inputs = omoba_client_runtime::shop_presentation::settled_inputs(&msg, config.player_id);
+    let mut settled_inputs = omoba_client_runtime::shop_presentation::settled_inputs(&msg, config.player_id);
+    let rejections = replica.take_owner_command_rejections(config.player_id);
+    omoba_client_runtime::shop_presentation::apply_owner_rejections(&mut settled_inputs, &rejections);
     let applied_local_inputs: Vec<_> = settled_inputs.iter().map(|(id, _, _)| *id).collect();
     if (report.team_sequence % u64::from(divisor) == 0 || !applied_local_inputs.is_empty()) && (presentation.presentation_enabled()
         || config.test_mode && (std::env::var("OMOBA_SHOP_TRANSACTION_SMOKE").as_deref() == Ok("1")
@@ -1738,6 +1923,20 @@ fn presentation_snapshot_route(
         Some(PresentationSnapshotRoute::Latest)
     } else {
         None
+    }
+}
+
+/// Terminal runtime state for the renderer: `safe_reason` is a bounded,
+/// team-opaque class such as `observer-mismatch-after-rebase`.
+fn session_state_envelope(sequence: u64, state: omoba_core::game_proto::runtime_session_state::State, safe_reason: &str) -> RendererIpcEnvelope {
+    RendererIpcEnvelope {
+        magic: PRESENTATION_MAGIC,
+        protocol_version: PRESENTATION_PROTOCOL_VERSION,
+        sequence,
+        payload: Some(renderer_ipc_envelope::Payload::SessionState(omoba_core::game_proto::RuntimeSessionState {
+            state: state as i32,
+            safe_reason: safe_reason.chars().filter(char::is_ascii_graphic).take(96).collect(),
+        })),
     }
 }
 

@@ -54,7 +54,15 @@ impl<'a> System<'a> for Sys {
                 .then(||data.property.get(s.summoner).filter(|p|p.hp>Fixed64::ZERO)
                     .and_then(|_|data.pos.get(s.summoner)).map(|p|(s.summoner,p.0))).flatten()).collect();
         for (entity,summon) in (&data.entities,&mut data.summoned).join() {
+            // G-3 owner policy: dead (HP 0) or retired exact owner life ends the summon.
+            if summon.expire_with_owner && !owners.contains_key(&summon.summoner) && summon.expire_now() {
+                data.outcomes.push(Outcome::EntityRemoved {entity});
+            }
+        }
+        for (entity,summon) in (&data.entities,&mut data.summoned).join() {
             if summon.is_expired() || data.property.get(entity).is_none_or(|p|p.hp<=Fixed64::ZERO) {continue;}
+            // Fixed emplacements never acquire follow or autonomous destinations.
+            if summon.immobile {summon.navigation.auto_target=None;continue;}
             let nav=&mut summon.navigation;
             let current=data.move_targets.get(entity).map(|m|m.0);
             // A command replacing the autonomous destination owns movement until
@@ -77,7 +85,7 @@ impl<'a> System<'a> for Sys {
         for (entity,summon,property,pos,target,facing) in (&data.entities,&mut data.summoned,
             &data.property,&mut data.pos,&data.move_targets,&mut data.facings).join() {
             if summon.is_expired() || property.hp<=Fixed64::ZERO {continue;}
-            if data.buffs.is_rooted(entity) {continue;}
+            if summon.immobile || data.buffs.is_rooted(entity) {continue;}
             let delta=target.0-pos.0;
             let distance=delta.length();
             if distance<=Fixed64::from_raw(1) {arrived.push(entity);continue;}

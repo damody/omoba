@@ -28,6 +28,10 @@ pub struct ObserverMismatch {
     pub expected_hash: [u8; 32],
     pub observed_hash: [u8; 32],
     pub post_repair_hash: [u8; 32],
+    /// Observer replica's disclosed components at the mismatch (digests only).
+    pub observed_components: Vec<crate::runtime::team_projector::ComponentDigestRow>,
+    /// Observer replica's component bytes at the mismatch (team view only, diagnostics).
+    pub observed_bytes: crate::runtime::team_projector::ComponentBytes,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -313,6 +317,8 @@ fn run_team_worker(
     let mut runtime = None;
     let mut stepper: Option<SpecsDisclosedWorldStepper> = None;
     let mut latest_tick = 0;
+    // Observer replica steps run beside the authority tick and compete for CPU.
+    let mut step_window = crate::comp::perf_window::PerfWindow::default();
     while let Ok(message) = rx.recv() {
         metrics
             .queue_depth
@@ -436,10 +442,11 @@ fn run_team_worker(
                                 .store(sequence, Ordering::Relaxed);
                             team.lag_ticks
                                 .store(latest_tick.saturating_sub(replica_tick), Ordering::Relaxed);
-                            record_duration(
-                                &team.step_samples_ns,
-                                started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
-                            );
+                            let step_ns = started.elapsed().as_nanos();
+                            record_duration(&team.step_samples_ns, step_ns.min(u128::from(u64::MAX)) as u64);
+                            if let Some(closed) = step_window.record(step_ns) {
+                                log::info!("{}", crate::comp::perf_window::format_observer_step(team_id, &closed));
+                            }
                             record_duration(
                                 &team.script_phase_samples_ns,
                                 specs.last_script_phase_ns,
@@ -478,6 +485,8 @@ fn run_team_worker(
                                 expected_hash,
                                 observed_hash: post_repair_hash,
                                 post_repair_hash,
+                                observed_components: crate::runtime::team_projector::component_digest_rows(&replica.world().entities),
+                                observed_bytes: crate::runtime::team_projector::component_bytes(&replica.world().entities),
                             });
                         }
                     }

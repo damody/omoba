@@ -15,3 +15,13 @@ pub use No1_flame_blade::flame_blade_ffi;
 pub use No2_fire_dash::fire_dash_ffi;
 pub use No3_flame_assault::flame_assault_ffi;
 pub use No4_matchlock_gun::matchlock_gun_ffi;
+pub mod No5_flame_trail_dash;
+pub mod No6_fire_blast;
+pub mod No7_flame_swiftness;
+pub mod No8_tanegashima;
+#[cfg(test)]
+pub(crate) mod h02_test_support;
+pub use No5_flame_trail_dash::b04_flame_trail_dash_ffi;
+pub use No6_fire_blast::b04_fire_blast_ffi;
+pub use No7_flame_swiftness::b04_flame_swiftness_ffi;
+pub use No8_tanegashima::b04_tanegashima_ffi;

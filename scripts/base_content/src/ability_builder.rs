@@ -75,7 +75,13 @@ pub fn build_ability_def_from_const(
         );
     }
     AbilityDef {
-        host_execution:None,
+        // Content `channel` makes the host own the pulse lifecycle for any
+        // handler; pulses call the handler's on_channel_pulse.
+        host_execution:c.pulse_channel.map(|channel|omoba_core::ability_meta::HostAbilityExecution::PulseChannel {
+            anchor:match channel.anchor {0=>omoba_content_model::ChannelAnchor::SelfOrigin,1=>omoba_content_model::ChannelAnchor::Point,
+                _=>omoba_content_model::ChannelAnchor::Unit},
+            interval_key:channel.interval_key.to_owned(),pulses_key:channel.pulses_key.to_owned(),
+            radius_key:channel.radius_key.map(str::to_owned)}),
         id: id.as_str().to_string(),
         name: active_ability_display(id).to_string(),
         description: c.description.to_string(),
@@ -109,7 +115,8 @@ pub fn build_ability_ffi_with_execution<S:AbilityScript+'static>(id:AbilityId,ha
         )
     });
     let mut def = build_ability_def_from_const(id, c, effects_preview);
-    def.host_execution=execution;
+    // An explicit execution overrides; none keeps what content declares (pulse channel).
+    if execution.is_some() {def.host_execution=execution;}
     let def_json = serde_json::to_string(&def).expect("AbilityDef serialize must succeed");
     AbilityDefFFI {
         def_json: def_json.into(),

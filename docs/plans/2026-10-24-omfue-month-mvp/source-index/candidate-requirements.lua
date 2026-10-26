@@ -1,0 +1,485 @@
+-- D3 candidate requirements (plan D3). Hand-reviewed data; validated and rendered by
+--   tools/lua/lua.exe scripts/hero_source_index.lua requirements
+-- Every skill pins the catalog raw_sha256 it was read against.
+return {
+  schema = "omoba.hero_source_requirements/1",
+  catalog_commit = "ca6ee8602473f6015a397cc121dac6baeb70b2e5",
+  reviewed_on = "2026-10-25",
+  -- Engine status as of 2026-10-25 (survey of scripts/script-abi, scripts/base_content,
+  -- omoba-core/src/runtime/native, omoba-content-model). `supported` = an existing
+  -- generic EffectOp, host system or ABI call can express it, possibly in a
+  -- custom AbilityScript. Anything needing new host/ABI framework is needs_framework.
+  capabilities = {
+    { id = "unit_damage", status = "supported", evidence = "world.rs deal_damage; EffectOp::Damage (generic_effects.rs); lumen_bolt", limitation = "瞬發，含施法距離檢查" },
+    { id = "heal", status = "supported", evidence = "world.rs heal; EffectOp::HealSelf/HealAlly" },
+    { id = "shield_absorb", status = "supported", evidence = "EffectOp::ShieldAlly → damage_shield buff; BuffStore::grant_damage_shield/absorb_damage_with_shield", limitation = "不疊加：大值與長時間取勝" },
+    { id = "timed_stat_buff", status = "supported", evidence = "world.rs add_stat_buff + StatKey（攻擊、攻速、射程、移速、護甲、減傷）；sniper_mode/matchlock_gun/three_stage", limitation = "對友軍或複合增益要寫 Rust handler" },
+    { id = "permanent_stat_bonus", status = "supported", evidence = "AbilityScript::on_learn（ability.rs）+ add_stat_buff", limitation = "英雄模板雖有力量／敏捷／智力欄位，但 MOBA 戰鬥使用 authored 數值，舊屬性公式（comp/hero.rs）與 StatsAgilityBonus 在 MOBA 路徑沒有消費者；來源的屬性加成需在 package assumptions 換算成具體 StatKey" },
+    { id = "slow_debuff", status = "supported", evidence = "EffectOp::SlowEnemy（負 move_speed_bonus）；負攻速 StatKey" },
+    { id = "stun", status = "supported", evidence = "BuffId::Stun；EffectOp::StunEnemy/ControlEnemy；buff_store is_stunned", limitation = "來源的「結凍／停頓」以 stun 實作" },
+    { id = "root", status = "supported", evidence = "BuffId::Root；ControlEnemy；buff_store is_rooted" },
+    { id = "silence", status = "supported", evidence = "BuffId::Silence；dispatch.rs 施法前檢查" },
+    { id = "flat_damage_block", status = "supported", evidence = "StatKey::PhysicalConstantBlock 在 unit_stats.rs 結算" },
+    { id = "evasion", status = "supported", evidence = "UnitStats evasion_chance（unit_stats.rs）；world.rs get_evasion_chance" },
+    { id = "cooldown_reduction", status = "supported", evidence = "UnitStats cooldown_mult（CooldownPercentage[Stacking]）；dispatch.rs prepare_cast_cooldown", limitation = "只有百分比，無固定秒數減免或退還" },
+    { id = "mana_burn", status = "supported", evidence = "EffectOp::DrainManaEnemy；world.rs spend_mana" },
+    { id = "max_hp_percent_damage", status = "supported", evidence = "world.rs get_max_hp + deal_damage（Rust handler）" },
+    { id = "dispel_self", status = "supported", evidence = "EffectOp::CleanseAlly（可指定自身）" },
+    { id = "on_attack_hook", status = "supported", evidence = "AbilityScript::on_attack_hit（ability.rs）由 dispatch.rs 對被動技能呼叫；rain_iron_cannon", limitation = "只對 passive 技能呼叫；在命中後執行（額外傷害為另一筆 damage）" },
+    { id = "proc_chance", status = "supported", evidence = "world.rs rand_unit（每 tick 決定性 seed）；host attack_stun_chance（matchlock_gun）" },
+    { id = "target_class_multiplier", status = "supported", evidence = "world.rs is_building、unit_id_of；on_attack_hit 內加額外傷害", limitation = "英雄／部隊以 unit_id_of 判別；以額外傷害實作百分比加成" },
+    { id = "every_nth_attack", status = "supported", evidence = "on_attack_hit + buff payload 計數（buff_store.rs add 會替換 payload）", limitation = "無內建計數器 API" },
+    { id = "stacking_buff", status = "supported", evidence = "BuffStore::add 單 id 單實例、替換 payload；不同 id 加總", limitation = "無 stack-count API；層數放在 payload，持續時間以最後一次刷新為準" },
+    { id = "aoe_circle", status = "supported", evidence = "EffectOp::AreaDamage；base_content/point_blast.rs；world.rs deal_damage_splash/query_enemies_in_range", limitation = "以自身為中心需 Rust handler" },
+    { id = "aoe_line_instant", status = "supported", evidence = "EffectOp::LineDamage（lumen_ray，capsule）；swept_dash.rs", limitation = "瞬發、不受地形阻擋、無飛行時間" },
+    { id = "dot_debuff", status = "supported", evidence = "EffectOp::DamageOverTimeEnemy；periodic_damage.rs；buff_store drain_periodic_damage", limitation = "每次施放一筆 DoT" },
+    { id = "ground_area_dot", status = "supported", evidence = "native/ability_runtime/damage_zone.rs DamageZoneSpec（圓形、獨立或綁施法者）；point_blast::with_zone", limitation = "只有圓形傷害區域、上限 30 秒；不能減速或治療" },
+    { id = "toggle", status = "supported", evidence = "AbilityType::Toggle；No1_sniper_mode.rs has_buff/remove_buff 模式" },
+    { id = "summon_timed", status = "supported", evidence = "world.rs spawn_summoned_unit；native/tick/summon_tick.rs 到期與跟隨；summons.lua 模板", limitation = "需在 summons.lua 新增召喚物模板；沒有每位主人的數量上限" },
+    { id = "summon_attack_move", status = "supported", evidence = "native/summon_orders.rs；saika_gunner UnitScript AI", limitation = "玩家完整控制仍在 G-3 待完善" },
+    { id = "dash_to_point", status = "supported", evidence = "EffectOp::DashToPoint；base_content swept_dash.rs（沿實際路徑傷害、受碰撞截斷）", limitation = "瞬間位移，沒有隨時間移動" },
+    { id = "blink_to_target", status = "supported", evidence = "world.rs set_pos + get_pos（Rust handler）；summoner Flash 前例", limitation = "需自寫落點合法性檢查" },
+    { id = "leap", status = "supported", evidence = "同 dash_to_point（瞬間位移）", limitation = "沒有拋物線／空中狀態" },
+    { id = "swap_position", status = "supported", evidence = "world.rs set_pos 對兩個 handle" },
+    { id = "attack_range_switch", status = "supported", evidence = "英雄普攻一律走投射物（hero_tick.rs ProjectileLine2）；matchlock_gun 以 AttackRangeBonus 讓近戰英雄遠程攻擊", limitation = "沒有真正的近戰／遠程型態切換或模型替換" },
+    { id = "random_target_det", status = "supported", evidence = "world.rs rand_unit；查詢結果穩定排序" },
+    { id = "global_ally_target", status = "supported", evidence = "EffectOp::HealAlly/ShieldAlly 以單位為目標", limitation = "range 必填且上限 10000；需確認地圖尺寸內等同全圖" },
+    { id = "global_point_target", status = "supported", evidence = "TargetType::Point + range 上限 10000", limitation = "同上" },
+    { id = "projectile_tracking", status = "supported", evidence = "G-1（work-G1.md）：omoba-core/src/runtime/native/ability_projectile.rs Homing；Lua projectile 投遞區塊或 Rust 以 ability_projectile::Spec 發射；lumen_frost_bolt", limitation = "只命中原目標同一世代；目標失效 expire／last_position 皆不造成傷害；每來源同時最多 32 顆" },
+    { id = "projectile_linear", status = "supported", evidence = "G-1：ability_projectile.rs Linear，命中英雄與小兵、max_hits 1～64 穿透、牆 pass／stop；lumen_frost_lance", limitation = "飛行距離＝施法距離；寬度固定（不支援起訖寬度不同的錐形）" },
+    { id = "bounce_chain", status = "needs_framework", g_package = "G-1", evidence = "on_projectile_hit + ProjectileHitContext.generation（只在塔的 UnitScript 用過）", limitation = "英雄技能沒有彈跳入口" },
+    { id = "projectile_vs_building", status = "supported", evidence = "ability_projectile::Spec.buildings（Homing 限定；hittable(..., buildings)）＋ability_projectile_tests::homing_reaches_enemy_buildings_only_when_the_spec_allows_it" },
+    { id = "projectile_on_hit_dot", status = "supported", evidence = "ability_projectile::Spec.dot → generic_dot_buff_id＋PeriodicDamageSpec::payload（與宣告式 DoT 同一套堆疊規則）；ability_projectile_tests::on_hit_dot_applies_*" },
+    { id = "retarget_on_death", status = "supported", g_package = "G-1", evidence = "ability_projectile TargetLostPolicy::Retarget(radius)（payload target_lost=retarget + retarget_radius）；追蹤彈目標失效時改鎖投射物 radius 內最近的存活敵方非建築單位（id 決勝）", limitation = "只限追蹤彈；以最近（決定性）取代來源的隨機；召喚物改鎖需由召喚物 UnitScript 自行處理" },
+    { id = "channel", status = "supported", evidence = "G-2 pulse channel：content channel={anchor=self|point|unit, interval_key, pulses_key, radius_key}，host 擁有生命週期（runtime/native/ability_channel.rs）；每波套用 effects（damage／slow／stun）；示範 lumen_tremor、lumen_tether；另有 recovery_channel_self", limitation = "每波只能套用宣告式 effects；受控、移動、死亡、回城會中斷" },
+    { id = "toggle_mana_per_attack", status = "supported", evidence = "omoba-core runtime/native/attack_orb.rs（G-2）：toggle 標記 buff、每次普攻扣魔、沒藍自動關閉、命中加傷與減速；content AttackOrb；示範 lumen_venom_orb" },
+    { id = "charges", status = "supported", evidence = "G-2（work-G2.md §2）：AbilityDefinition.charges={max_key,recharge_key}；Hero.ability_charges；cast_settlement 扣 1 次", limitation = "max 1..=10 且隨 rank 不遞減；recharge 0.25..600 秒；僅 active／ultimate" },
+    { id = "recast_sub_ability", status = "needs_framework", g_package = "G-2", evidence = "無 sub-ability／recast 視窗", limitation = "第二個按鍵與窗口都不存在" },
+    { id = "delayed_effect", status = "needs_framework", g_package = "G-2", evidence = "只有施法前搖 cast_time（native/cast_windup.rs）", limitation = "施放後延遲 N 秒才結算的階段不存在；若延遲等於前搖可用 cast_time 表達" },
+    { id = "summon_immobile", status = "supported", evidence = "G-3（work-G2.md §3）：summons.lua immobile、damage_per_owner_level、owner_death；Lua summon={unit,duration_key}", limitation = "固定召喚物使用通用砲台 AI；L1 完成，實機待驗" },
+    { id = "extra_action_slot", status = "supported", evidence = "ward-canonical 2026-10-25 23:19：英雄 abilities 第 5 項為 D 欄（runtime slot 4），moba_loadout.ranks 可有 5 項；ability auto_learn 依 required_hero_level 自動學會、不耗技能點", limitation = "只有一個額外欄（extra1）" },
+    { id = "stealth", status = "supported", evidence = "BuffStore::stealth_level（invisibility_level buff，整數層）與 StealthProfile 取高者，visibility read view 與目標可見判定共用；VisionSource.detection_level 決定偵測" },
+    { id = "stealth_attack_no_reveal", status = "supported", evidence = "buff 隱形沒有破隱規則：攻擊、施法都不會解除，持續到 buff 到期", limitation = "需要「攻擊破隱」的英雄要另加規則" },
+    { id = "hero_unit_hooks", status = "supported", evidence = "英雄 content unit_script=true → rust/hero_unit.rs 的 UnitScript：on_skill_cast（施法交易內、execute 前）、on_attack_hit（普攻命中）、on_damage_taken、on_tick（每 tick；自行以標記 buff 節流）", limitation = "GameWorld 讀不到技能等級與 buff payload：以 rank 命名的標記 buff 表示學會的 rank" },
+    { id = "on_cast_trigger", status = "supported", evidence = "英雄 content unit_script=true → gen_hero_registry units 模式產生 UnitDef（heroes::<module>::hero_unit_script()），host bind_hero_unit_scripts 以 hero id 綁定；on_skill_cast 在施法交易內、execute 之前呼叫" },
+    { id = "cdr_on_cast_hook", status = "supported", evidence = "content AbilityDefinition.cast_cooldown_refund → omoba-core runtime/native/cooldown_refund.rs，於 serial settlement 的 ScriptStartCooldown／ScriptConsumeCharge 結算；對手 replica 經 CommittedCooldown＋Hero::commit_cooldown（保留 admitted total）" },
+    { id = "mana_shield", status = "needs_framework", g_package = "G-4", evidence = "UnitScript::on_damage_taken 可改傷害，但英雄無 UnitScript", limitation = "需要英雄 UnitScript 掛點" },
+    { id = "enemy_cast_extends_debuff", status = "needs_framework", g_package = "G-4", evidence = "需要目標方的 on_skill_cast", limitation = "需要英雄 UnitScript 掛點與跨單位事件" },
+    { id = "aura", status = "supported", evidence = "英雄 UnitScript on_tick（content unit_script=true）每隔一段時間刷新：敵方光環用 query_enemies_in_range＋短 buff；友方光環用 ally_area_buff 封包（例：murakami_yoshikiyo b29_quake_axe／b29_morale_boost）" },
+    { id = "ally_area_buff_query", status = "supported", evidence = "omoba-core runtime/native/ally_area_buff.rs：施法者自身的即時封包，serial settlement 依提交位置對同隊非建築單位套上（刷新、不疊加）stat buff", limitation = "只能套 stat payload，最多 8 項" },    { id = "ally_area_query", status = "supported", evidence = "omoba-core runtime/native/ally_area_restore.rs：施法者自身的即時封包，serial settlement 依提交位置選取同隊存活單位並以 received-healing 政策治療最大生命比例；committed vitals 一併揭露", limitation = "目前只有生命；法力回復需另加 committed mana" },
+    { id = "tether_distance_scaled", status = "supported", evidence = "omoba-core runtime/native/tether.rs：目標身上的 timed buff（__tether_v1）自然到期時由 buff_tick 依施法者距離結算傷害（遠→高）與定身（近→長）；提早移除或任一端死亡則不結算" },
+    { id = "summon_forced_target", status = "supported", g_package = "G-3", evidence = "召喚物身上的 buff_ids::SUMMON_TARGET_BUFF（payload {\"summon_target\":[id,gen]}，summon_target_payload 產生）讓該生命成為優先目標（host 仍檢查射程、視野、存活、可攻擊性）；目標死亡後回到模板優先序（最近）", limitation = "目標死亡後改鎖是最近而非隨機；召喚物要有能打到目標的射程或自行移動" },
+    { id = "summon_invulnerable", status = "supported", g_package = "G-3", evidence = "summons.lua invulnerable = true：生成時登記到 MobaMatch.invulnerable_summons，current_match_target_attackable（索敵、投射物、區域、傷害結算、replica 揭露閘門共用）一律排除", limitation = "只在 MOBA 對局生效；BuffId::Invulnerable 狀態 buff 仍沒有消費者" },
+    { id = "ground_area_line", status = "supported", g_package = "G-4", evidence = "DamageZoneSpec.end（center→end 膠囊）＋grow（隨投射物速度逐段鋪出，僅獨立區域）＋linger（每次 pulse 刷新同一個 DoT，離開後最多再燒 linger 秒）；zone_pulse_settlement 用 point_in_swept_circle", limitation = "長度 ≤10000；同一施法者所有 linger 區域共用一個灼燒" },
+    { id = "no_unit_collision", status = "supported", evidence = "BuffStore NO_UNIT_COLLISION 狀態 buff：creep_tick 單位碰撞忽略帶此狀態者；英雄移動本來就只受地形阻擋" },
+    { id = "pull_hook", status = "supported", g_package = "G-4", evidence = "content effect {kind='forced_move_enemy', motion='pull', distance_key, duration_key} 放進 linear projectile（max_hits=1、wall='stop'）；Rust 端用 forced_motion::Spec payload 經 add_stat_buff", limitation = "distance ≤3000、duration ≤5 秒；被位移期間暈眩" },
+    { id = "knockback", status = "supported", g_package = "G-4", evidence = "同 forced_move_enemy，motion='knockback'；單體技能或投射物皆可", limitation = "distance ≤3000、duration ≤5 秒，期間暈眩；AoE 擊退尚不支援（area 效果只展開傷害）" },
+    { id = "true_sight", status = "supported", g_package = "G-4", evidence = "content effect {kind='reveal_area', radius_key, duration_key}，point 目標；Rust 端用 reveal_zone::Spec payload 經 add_stat_buff", limitation = "顯形半徑 ≤2000、時間 ≤30 秒" },
+    { id = "zone_self_state", status = "needs_framework", g_package = "G-4", evidence = "無「在區域內才生效」的自身狀態", limitation = "煙霧內閃避／魔免／不可攻擊、離開即解除" },
+    { id = "vision_debuff", status = "needs_framework", g_package = "G-4", evidence = "visibility.rs 無「降低單位自身視野」入口" },
+    { id = "vision_radius_bonus", status = "deferred", g_package = "backlog", evidence = "BonusNightVision 等 StatKey 宣告但 native 無引用；遊戲沒有日夜循環", limitation = "夜晚視野在本遊戲沒有對應語意" },
+    { id = "curving_hook", status = "deferred", g_package = "backlog", evidence = "投射物無轉向控制", limitation = "可轉彎投射物不在本月範圍" },
+    { id = "illusion", status = "deferred", g_package = "backlog", evidence = "unit_stats.rs 只有註解提到 illusion", limitation = "README §5 分身列為僅需求選中才做；本月不新增大架構（schedule §4.4）" },
+  },
+  heroes = {
+    {
+      source_hero_id = "B01", variant = "current", roster = "delivery", plan_slot = "H01", role = "射手（遠程 700）",
+      notes = "本地 B01_saika_magoichi 是混合改編（見 candidates-draft.md）；本表以來源 current 版為準。T 只有 3 個 rank。",
+      slots = {
+        { source_key = "W", ability = "B01W", action = "Q" },
+        { source_key = "E", ability = "B01E", action = "W" },
+        { source_key = "R", ability = "B01R", action = "E" },
+        { source_key = "T", ability = "B01T", action = "R" },
+      },
+      abilities = {
+        { id = "B01W", reviewed_sha256 = "a8a9b2edc0078f966f324dbf952bee79377a67e54b7b690ef3f7880451c7f226", read = true, bot_usage = { target = "self", when = "敵方英雄在 900～1400 內且自身未被近身時開啟", avoid = "被近身或血量低於 35% 時" }, mechanics = {
+          { what = "12 秒自身增益：攻擊力 +0/10/20/30、攻擊距離 +200/350/500/700", capability = "timed_stat_buff" },
+          { what = "夜晚視野 +1000", capability = "vision_radius_bonus", status_override = "supported", reason = "本遊戲沒有日夜循環，夜晚視野加成不改變任何玩法；在 package assumptions 記錄為不適用" },
+        }, kv_text_conflicts = { "描述寫「攻擊距離提升至 900/1050/1200/1400」（AbilityCastRange），KV modifier 是 bonus_atk_rng 200/350/500/700；700 基礎射程＋bonus 與描述只在最後一級相符" } },
+        { id = "B01E", reviewed_sha256 = "10c5e4960b784cef4e88b1f217c30838de2ea47e155845aac59dedc9e3c4a153", read = true, bot_usage = { target = "point", when = "有儲存次數且在推線或守塔時，放在自身與敵方之間的安全位置", avoid = "敵方塔射程內" }, mechanics = {
+          { what = "每 15 秒儲存 1 位，最多 2/3/4/5 位，施放消耗 1 位", capability = "charges" },
+          { what = "在指定點召喚 1 位雜賀眾，攻擊依英雄等級 +10", capability = "summon_timed" },
+          { what = "召喚物無法移動（定點砲台）", capability = "summon_immobile" },
+        }, assumptions = { "來源未給召喚物存活時間與數值（在缺失的 vscript B01E 中）；MVP 沿用本地 saika_gunner 單位數值並標 assumed" } },
+        { id = "B01R", reviewed_sha256 = "d87a398674d8ac730617928643bc7d54951531158179fbc15e120d716c1928ee", read = true, passive = true, mechanics = {
+          { what = "普攻命中時依目標類別（建築／英雄／部隊）加成物理傷害", capability = "target_class_multiplier" },
+        } },
+        { id = "B01T", reviewed_sha256 = "2af903b3e7ff36f2ae5f9acc6765cc55ae0aa85799fd33f918552c0adffdbf1a", read = true, bot_usage = { target = "self", when = "團戰或敵方英雄在攻擊範圍內、自身血量高於 40%" }, mechanics = {
+          { what = "7/11/13 秒基礎傷害 +200%", capability = "timed_stat_buff" },
+        }, assumptions = { "「三段」只說三段技法；KV 只有 BASEDAMAGEOUTGOING_PERCENTAGE，沒有連發判定。不加多段射擊，只做增傷" } },
+      },
+    },
+    {
+      source_hero_id = "B04", variant = "current", roster = "delivery", plan_slot = "H02", role = "近戰／位移",
+      notes = "來源 B04 對應本地 date_masamune（資料夾 B02_date_masamune）；依名稱對照，不使用編號。",
+      slots = {
+        { source_key = "W", ability = "B04W", action = "Q" },
+        { source_key = "E", ability = "B04E", action = "W" },
+        { source_key = "R", ability = "B04R", action = "E" },
+        { source_key = "T", ability = "B04T", action = "R" },
+      },
+      abilities = {
+        { id = "B04W", reviewed_sha256 = "48b09aafb57556bafad0f464b5aa7712f7604dff5ad7e983bc9caa8e366fffad", read = true, bot_usage = { target = "point", when = "敵方英雄血量低於 50% 且在 900～1200 內，或作為脫離（朝友方塔）", avoid = "衝進敵方塔射程" }, mechanics = {
+          { what = "衝刺到指定點，最遠 900～1200，速度 3000", capability = "dash_to_point" },
+          { what = "衝刺期間隨機對 300 半徑內敵人放火焰（100～400 魔法傷害）", capability = "random_target_det" },
+          { what = "火焰以投射物命中（OnProjectileHitUnit）", capability = "projectile_tracking" },
+        } },
+        { id = "B04E", reviewed_sha256 = "f9a21534442d4b6f6957bf9908d77658bd805bdecbbf2567d55747d76b066c0b", read = true, bot_usage = { target = "point", when = "500 半徑內至少 1 名敵方英雄或 3 個以上敵兵" }, mechanics = {
+          { what = "指定點 500 半徑圓形魔法傷害", capability = "aoe_circle" },
+          { what = "暈眩 0.5/0.8/1.1/1.4 秒", capability = "stun" },
+        } },
+        { id = "B04R", reviewed_sha256 = "21e710001afd0b98e862fd1dfd4923b2f829c077e77400150d28976090127702", read = true, passive = true, mechanics = {
+          { what = "永久 +10/20/30/40 靈活", capability = "permanent_stat_bonus" },
+        }, assumptions = { "英雄模板雖有力量／敏捷／智力欄位，但 MOBA 戰鬥使用 authored 數值，舊屬性公式（comp/hero.rs）與 StatsAgilityBonus 在 MOBA 路徑沒有消費者；換算成實際生效的攻速／護甲，規則寫在 package" } },
+        { id = "B04T", reviewed_sha256 = "c77dc6be2d56f366118cc61a75116dfa1d8da1e4fedea6593025e15e3596f42c", read = true, bot_usage = { target = "self", when = "準備交戰且敵方英雄在 800 內" }, mechanics = {
+          { what = "28/32/36 秒攻擊距離 +672（128→800）與基礎攻擊 +50/70/90", capability = "timed_stat_buff" },
+          { what = "持續期間普攻 38% 機率使目標停頓 0.2 秒", capability = "proc_chance" },
+          { what = "停頓（短暫暈眩）", capability = "stun" },
+          { what = "近戰單位以 800 射程攻擊時需要彈道或改為遠程攻擊呈現", capability = "attack_range_switch" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "A34", variant = "current", roster = "delivery", plan_slot = "H03", role = "施法者／範圍",
+      notes = "有 _20 變體（T 雪女的祝福、D 加賀百萬石）；本表只用 current，不混用。",
+      slots = {
+        { source_key = "W", ability = "A34W", action = "Q" },
+        { source_key = "E", ability = "A34E", action = "W" },
+        { source_key = "R", ability = "A34R", action = "E" },
+        { source_key = "T", ability = "A34T", action = "R" },
+      },
+      abilities = {
+        { id = "A34W", reviewed_sha256 = "6420c9c854ebf1323bf57d173642724c8cea166b4ad45bc1f9f4aaf21ea8fb87", read = true, bot_usage = { target = "enemy_unit", when = "可見的敵方英雄在 600 內，優先正在施法或追擊者" }, mechanics = {
+          { what = "對單一敵人投出追蹤寒霜彈（KV MoveSpeed 2000）", capability = "projectile_tracking" },
+          { what = "目標可以是建築（AbilityUnitTargetType 含 BUILDING，描述「對建築物有效」）", capability = "projectile_vs_building" },
+          { what = "100～400 魔法傷害", capability = "unit_damage" },
+          { what = "結凍 1.0～2.5 秒（STUNNED）", capability = "stun" },
+        } },
+        { id = "A34E", reviewed_sha256 = "d30f4dc10a0c6e3c98ddf37b34ed10c70de35709f60e120107b5c9ee744ed58d", read = true, bot_usage = { target = "enemy_unit", when = "目標周圍 335 內有多名敵人，或清線" }, mechanics = {
+          { what = "指定敵人主傷害", capability = "unit_damage" },
+          { what = "目標周圍 335 半徑擴散傷害", capability = "aoe_circle" },
+          { what = "移速 −30%、攻速 −20%，持續 5 秒", capability = "slow_debuff" },
+        }, kv_text_conflicts = { "描述主傷害 200/300/400/500、擴散 100～400；KV AbilityDamage 100/200/300/400、aoe_damage 100" } },
+        { id = "A34R", reviewed_sha256 = "be37e0ac4e04faa9f4abb2dfb935463a2ef5512752e01a8e126c7497133148e1", read = true, bot_usage = { target = "direction", when = "朝 1200 內敵方英雄或兵群方向" }, mechanics = {
+          { what = "方向性冰霜：起點寬 150、終點寬 500、距離 1200、速度 1250 的線性投射物", capability = "projectile_linear" },
+          { what = "命中後 5 秒每秒傷害（由投射物命中觸發）", capability = "projectile_on_hit_dot" },
+        }, kv_text_conflicts = { "描述每秒 30/40/50/60，KV debuff_damage 50/60/70/80" } },
+        { id = "A34T", reviewed_sha256 = "64cf935d093c663767c3d4cab75edd70a8c897a45345efa55d4341366a42127c", read = true, bot_usage = { target = "self", when = "W／E／R 中至少兩招在冷卻且即將交戰" }, mechanics = {
+          { what = "被動：施放基礎技能時，其他基礎技能冷卻 −2 秒", capability = "cdr_on_cast_hook" },
+          { what = "被動：最大法力 +300/400/500", capability = "permanent_stat_bonus" },
+          { what = "主動：22 秒內基礎技能冷卻減免 40/50/60%", capability = "cooldown_reduction" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "C17", variant = "current", roster = "delivery", plan_slot = "H04", role = "支援／控制",
+      slots = {
+        { source_key = "W", ability = "C17W", action = "Q" },
+        { source_key = "E", ability = "C17E", action = "W" },
+        { source_key = "R", ability = "C17R", action = "E" },
+        { source_key = "T", ability = "C17T", action = "R" },
+        { source_key = "D", ability = "C17D", action = "extra1" },
+      },
+      abilities = {
+        { id = "C17W", reviewed_sha256 = "1e99849f1266eaf69390e4f05a343468899f88c9d2bac1c7b2246c1fb6e5c84e", read = true, bot_usage = { target = "enemy_or_ally_hero", when = "對敵：目標在 600 內且我方要追擊；對友：友方英雄正在承受集火" }, mechanics = {
+          { what = "對敵我英雄皆可施放的 3 秒光鍊，斷開時依距離決定效果", capability = "tether_distance_scaled" },
+          { what = "對敵：距離越遠傷害越高（最高 350～860）", capability = "unit_damage" },
+          { what = "對敵：距離越近定身越久（最高 1.5～4.5 秒）", capability = "root" },
+          { what = "對友：光鍊期間受到傷害 −30～60%", capability = "timed_stat_buff" },
+        } },
+        { id = "C17E", reviewed_sha256 = "19a9e49ed4636332ddcb06132a72c62293187452ca8e4edb94e999f2600be51c", read = true, bot_usage = { target = "ally_unit", when = "友方英雄進入交戰或推塔時（全圖）" }, mechanics = {
+          { what = "全地圖單一友軍（含建築）", capability = "global_ally_target" },
+          { what = "16 秒護甲 +5、總攻擊 +7.5～30%、每秒回血 5～20", capability = "timed_stat_buff" },
+        } },
+        { id = "C17R", reviewed_sha256 = "c16fa3907b832edac72979f53f9d873bf7b3582743d91c80bceab7ac83ee89d8", read = true, bot_usage = { target = "point", when = "200 半徑內有敵方英雄或多名敵兵" }, mechanics = {
+          { what = "指定點 200 半徑魔法傷害 200～500", capability = "aoe_circle" },
+        } },
+        { id = "C17D", reviewed_sha256 = "5e91702861fda40b7f7c02e00cbf89cd67f30b33eb6b7c69a1eb19fe946f81f8", read = true, passive = true, mechanics = {
+          { what = "額外槽 D：本遊戲 loadout 上限 4 個技能（含被動），這是第 5 個", capability = "extra_action_slot" },
+          { what = "受到物理傷害 −20（固定格擋）", capability = "flat_damage_block" },
+          { what = "每次施法使自身與 750 內友軍回復 5% 生命與 4% 法力", capability = "on_cast_trigger" },
+          { what = "範圍內友軍需要友軍查詢", capability = "ally_area_query" },
+          { what = "百分比回復", capability = "heal" },
+        }, kv_text_conflicts = { "描述範圍 750，KV AOERadius 800" } },
+        { id = "C17T", reviewed_sha256 = "10bf7327a49fd78e02636e388e41c0c0c109707dde96d555576cdb75721546cc", read = true, bot_usage = { target = "point", when = "800 半徑內友方血量偏低且有敵方英雄", avoid = "延遲 1 秒內目標可能離開時不要只為了傷害施放" }, mechanics = {
+          { what = "施法前搖 1 秒後生效", capability = "delayed_effect", status_override = "supported", reason = "延遲 1 秒等於 AbilityCastPoint=1，以施法前搖 cast_time 表達" },
+          { what = "800 半徑圓形：敵人受 650～750 或最大生命 20～30%（取高）", capability = "max_hp_percent_damage" },
+          { what = "同範圍友軍回復最大生命 40～50%", capability = "heal" },
+          { what = "範圍內友軍需要友軍查詢", capability = "ally_area_query" },
+          { what = "圓形範圍判定", capability = "aoe_circle" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "A02", variant = "current", roster = "delivery", plan_slot = "H05", role = "切換／隱形（遠程 700）",
+      slots = {
+        { source_key = "W", ability = "A02W", action = "Q" },
+        { source_key = "E", ability = "A02E", action = "W" },
+        { source_key = "R", ability = "A02R", action = "E" },
+        { source_key = "T", ability = "A02T", action = "R" },
+      },
+      abilities = {
+        { id = "A02W", reviewed_sha256 = "183dc8eebdee45e212c04bd6983199d027169a32b74c80f6e5659d71042c6106", read = true, bot_usage = { target = "self_toggle", when = "交戰中、法力高於 25% 時開啟；沒有交戰時關閉", avoid = "法力不足時" }, mechanics = {
+          { what = "toggle 法球：開啟期間每次普攻消耗 10 法力", capability = "toggle_mana_per_attack" },
+          { what = "命中額外毒傷 30～90", capability = "on_attack_hook" },
+          { what = "移速與攻速 −9～21%，持續 4 秒", capability = "slow_debuff" },
+        }, assumptions = { "法力不足時自動關閉 toggle（來源 vscript 缺失，依 Dota 法球慣例）" } },
+        { id = "A02E", reviewed_sha256 = "148fec18938f513d1cdcaf85db5b934ed91c2f6522733dfbe595bb904918374f", read = true, bot_usage = { target = "self", when = "血量低於 60% 或準備交戰" }, mechanics = {
+          { what = "自身立即回復 100～400 生命", capability = "heal" },
+          { what = "10 秒攻速 +40～130%", capability = "timed_stat_buff" },
+        } },
+        { id = "A02R", reviewed_sha256 = "b435717b5fb529705696a66ef720560f2eca8f624efa9f7fb25728c8a9338344", read = true, passive = true, mechanics = {
+          { what = "被動：魔法抗性 +9～36%、總輸出傷害 +6～15%", capability = "permanent_stat_bonus" },
+        } },
+        { id = "A02T", reviewed_sha256 = "35b92adb65acfb07b227b55989ac58dd8b19d7b2d444f32084f6729e3e292cb0", read = true, bot_usage = { target = "self", when = "需要切入或撤退時" }, mechanics = {
+          { what = "20/22/24 秒隱形，攻擊不現形", capability = "stealth_attack_no_reveal" },
+          { what = "基礎攻擊間隔 0.9、移速 +60", capability = "timed_stat_buff" },
+          { what = "無單位碰撞", capability = "no_unit_collision" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "A13", variant = "current", roster = "delivery", plan_slot = "H06", role = "特殊（分身／鉤拉／隱形）",
+      notes = "A13E 的 KV 是 ability_lua 型（頂層 ScriptFile、無 Function），行為幾乎全在缺失的 vscript 中。",
+      slots = {
+        { source_key = "W", ability = "A13W", action = "Q" },
+        { source_key = "E", ability = "A13E", action = "W" },
+        { source_key = "R", ability = "A13R", action = "E" },
+        { source_key = "T", ability = "A13T", action = "R" },
+        { source_key = "D", ability = "A13D", action = "extra1" },
+      },
+      abilities = {
+        { id = "A13W", reviewed_sha256 = "7442c38f9a8e434e0e69a9a20472adba35643f0561c8e5d3451b7d6827afbc81", read = true, bot_usage = { target = "self", when = "受到控制或集火時脫身" }, mechanics = {
+          { what = "產生 1～4 個短暫分身並向外彈出 900 距離", capability = "illusion" },
+          { what = "驅散自身所有法術效果", capability = "dispel_self" },
+        } },
+        { id = "A13W2", sub_of = "A13W", reviewed_sha256 = "ad2407fed1d403beb45f7794fd73ad6021e4c0914c114ed328606cea8de5377a", read = true, mechanics = {
+          { what = "第二個按鍵：與自己的分身換位", capability = "recast_sub_ability" },
+          { what = "換位位移", capability = "swap_position" },
+        } },
+        { id = "A13E", reviewed_sha256 = "7090aeadf07bdcacbaea24c4d90c73efc58410f6806604be623f29368c3a6821", read = true, bot_usage = { target = "point", when = "第一個命中會是敵方英雄的方向（無兵擋路）" }, mechanics = {
+          { what = "1200 距離、寬 150、速度 1000 的鉤鎖，可轉彎", capability = "curving_hook" },
+          { what = "命中第一個單位拉回身旁", capability = "pull_hook" },
+          { what = "敵人額外 100～400 物理傷害", capability = "unit_damage" },
+        } },
+        { id = "A13R", reviewed_sha256 = "42220eed4032a934e8a5364df774a81a27f2922134faaf94da690d13059553da", read = true, passive = true, mechanics = {
+          { what = "11% 閃避", capability = "evasion" },
+          { what = "每第三次攻擊引爆小範圍 75～150 魔法傷害", capability = "every_nth_attack" },
+          { what = "目標受到傷害 +10%，最多疊 3 層", capability = "stacking_buff" },
+        } },
+        { id = "A13D", reviewed_sha256 = "c751758f88134b6457ecba344ced43f5efa915def7c0424c1aac024fa0a4083a", read = true, bot_usage = { target = "self", when = "準備偷襲或脫離視野" }, mechanics = {
+          { what = "額外槽 D（不可學，HotKey D）", capability = "extra_action_slot" },
+          { what = "最多 20 秒隱形，移動加速；攻擊或施法現身", capability = "stealth" },
+          { what = "現身第一擊額外 90～345 傷害", capability = "on_attack_hook" },
+        }, kv_text_conflicts = { "MaxLevel 5 且 rank 0 為 0，與描述 4 段數值不同" } },
+        { id = "A13T", reviewed_sha256 = "1f6f4af6979843de46c19527adbb2c4d79209742f97491b1a8da7a09d5daa7d4", read = true, bot_usage = { target = "point", when = "300 內有多名敵人" }, mechanics = {
+          { what = "在目標區域放 6 秒煙霧；煙霧內自身 100% 閃避、魔免、不可攻擊、不可用物品", capability = "zone_self_state" },
+          { what = "每 0.3 秒對煙霧內敵人造成自身攻擊傷害並附加攻擊效果", capability = "ground_area_dot" },
+          { what = "進入煙霧的敵人失去自身視野", capability = "vision_debuff" },
+          { what = "煙霧內隱形", capability = "stealth" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "C15", variant = "current", roster = "blind", role = "遠程射手（盲測）",
+      notes = "盲測：只做需求表，不寫專用 handler。",
+      slots = {
+        { source_key = "W", ability = "C15W", action = "Q" },
+        { source_key = "E", ability = "C15E", action = "W" },
+        { source_key = "R", ability = "C15R", action = "E" },
+        { source_key = "T", ability = "C15T", action = "R" },
+      },
+      abilities = {
+        { id = "C15W", reviewed_sha256 = "1a63382a2d1e6c0af3ef28c96dc9a6584c0f4eabfc0c768c8383b42f08ea0f75", read = true, mechanics = {
+          { what = "指定點 275 半徑內每個目標各射一箭（追蹤）", capability = "projectile_tracking" },
+          { what = "範圍內目標選取", capability = "aoe_circle" },
+          { what = "暈眩 0.6～2.4 秒", capability = "stun" },
+        }, kv_text_conflicts = { "描述每箭 75～300 傷害，KV AbilitySpecial 沒有傷害欄" } },
+        { id = "C15E", reviewed_sha256 = "1fa0f6dc992a8de957b1d337d3038085dca0ef44f0dd571ba8d2da977879a1ca", read = true, mechanics = {
+          { what = "方向性箭矢（速度 1666、寬 170、距離 2000）", capability = "projectile_linear" },
+          { what = "沿路徑留下 12 秒火焰帶，碰到每秒傷害", capability = "ground_area_dot" },
+          { what = "火焰帶是線形地面區域，不是圓形", capability = "ground_area_line" },
+        }, kv_text_conflicts = { "描述每秒 100～160，KV dmg 25/30/35/40" } },
+        { id = "C15R", reviewed_sha256 = "11aeebd1f4d71698e9cef4af2783de1af39bb87d0250d5dc0048c8da23f85712", read = true, passive = true, mechanics = {
+          { what = "攻擊 +10～34%、靈活 +5～20", capability = "permanent_stat_bonus" },
+        } },
+        { id = "C15T", reviewed_sha256 = "75150edbb63e39290eb1b5368f84a6b3db60a2ab930df94faf9bf44f8d4e5748", read = true, mechanics = {
+          { what = "被動：每第 8 次攻擊產生致命箭矢", capability = "every_nth_attack" },
+          { what = "主動：暈眩目標 1～2 秒並放出 10 發箭矢持續 10 秒", capability = "stun" },
+          { what = "箭矢是會持續攻擊的暫存單位／投射物", capability = "summon_timed" },
+          { what = "目標死亡後箭矢改找附近敵人", capability = "retarget_on_death" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "B29", variant = "current", roster = "blind", role = "近戰／控制（盲測）",
+      notes = "盲測：只做需求表，不寫專用 handler。",
+      slots = {
+        { source_key = "W", ability = "B29W", action = "Q" },
+        { source_key = "E", ability = "B29E", action = "W" },
+        { source_key = "R", ability = "B29R", action = "E" },
+        { source_key = "T", ability = "B29T", action = "R" },
+      },
+      abilities = {
+        { id = "B29W", reviewed_sha256 = "646dd144ff79dfb163cc2e859e380e866cc1cbd4a6f31c8cfc4b9c9a82d1e60c", read = true, mechanics = {
+          { what = "自身 500 半徑傷害", capability = "aoe_circle" },
+          { what = "暈眩 1.0～1.9 秒", capability = "stun" },
+        } },
+        { id = "B29E", reviewed_sha256 = "0453974eb5f925dba90f2967473d01f0ffed90bd658c9ffb7fc1ee37f5c198d0", read = true, mechanics = {
+          { what = "向指定方向跳躍最多 300", capability = "leap" },
+          { what = "落地 500 半徑 200 傷害", capability = "aoe_circle" },
+          { what = "移速 −18～30%", capability = "slow_debuff" },
+          { what = "8 秒光環：附近敵人護甲 −4～13", capability = "aura" },
+        }, kv_text_conflicts = { "描述落地範圍 500，KV radius 800" } },
+        { id = "B29R", reviewed_sha256 = "506375dfc061a33a2a6d40ee6de50b34c1c26cb5673f5b1c5347b27814b7e93f", read = true, passive = true, mechanics = {
+          { what = "身旁友軍攻擊 +7～28%", capability = "aura" },
+          { what = "自身永久力量 +4～16", capability = "permanent_stat_bonus" },
+        }, kv_text_conflicts = { "KV AOERadius 900；描述未給半徑" } },
+        { id = "B29T", reviewed_sha256 = "d4d33dc77fa7fae20a4bdbca468a0cf9e0f8363c40e30e5cd98ad8df78df1836", read = true, mechanics = {
+          { what = "引導：指定範圍內每 0.1 秒一波震波", capability = "channel" },
+          { what = "每波 340 半徑傷害", capability = "aoe_circle" },
+          { what = "每波暈眩 0.2～0.4 秒", capability = "stun" },
+        }, kv_text_conflicts = { "描述每波 60 傷害、半徑 340、最多 50/60/70 波；KV B29T_Amount 50/60/70、B29T_Radius 700/800/900、持續 4.5/5.2/5.9 秒" } },
+      },
+    },
+    {
+      source_hero_id = "B08", variant = "current", roster = "backup", role = "近戰（候補 H02／H06）",
+      slots = {
+        { source_key = "W", ability = "B08W", action = "Q" },
+        { source_key = "E", ability = "B08E", action = "W" },
+        { source_key = "R", ability = "B08R", action = "E" },
+        { source_key = "T", ability = "B08T", action = "R" },
+        { source_key = "D", ability = "B08D", action = "extra1" },
+      },
+      abilities = {
+        { id = "B08W", reviewed_sha256 = "10788f313f1aff15eb8cd8af3a63f5f268533565a6b39605fdd86445531aa5ec", read = true, bot_usage = { target = "direction", when = "朝 1200 內敵方英雄或兵群" }, mechanics = {
+          { what = "方向性刀牙：寬 175、距離 1200、速度 1500 的線性投射物", capability = "projectile_linear" },
+          { what = "路徑上敵人 200～500 傷害", capability = "unit_damage" },
+        }, kv_text_conflicts = { "描述距離 1100，KV shock_distance 1200" } },
+        { id = "B08E", reviewed_sha256 = "7ad3b22af94e747b45d7476d12203659154ba3b087d9bdebe065c84362c52219", read = true, bot_usage = { target = "enemy_unit", when = "可見敵方英雄在 1100 內且血量低於 60%", avoid = "目標在敵方塔射程內" }, mechanics = {
+          { what = "瞬移到指定目標身旁", capability = "blink_to_target" },
+          { what = "100～400 魔法傷害", capability = "unit_damage" },
+          { what = "暈眩 0.3 秒", capability = "stun" },
+          { what = "目標損失 100～280 法力", capability = "mana_burn" },
+        } },
+        { id = "B08R", reviewed_sha256 = "bc9d4e11b365025c7a717189a8911a553a8764f4ef4902f98ddf96d909b9c0fe", read = true, passive = true, mechanics = {
+          { what = "永久攻速 +20～65%", capability = "permanent_stat_bonus" },
+          { what = "使用技能或物品後 8 秒 +15 攻擊、−4% 受到傷害", capability = "on_cast_trigger" },
+          { what = "可疊 4～7 層", capability = "stacking_buff" },
+        } },
+        { id = "B08D", reviewed_sha256 = "b0f557348ee758edffb421c0bfdbf801b4c0fcd606cd7df2b65cf3c6cf27fae9", read = true, bot_usage = { target = "enemy_unit", when = "可見敵方英雄在 1100 內" }, mechanics = {
+          { what = "額外槽 D（16 級大招，不可學）", capability = "extra_action_slot" },
+          { what = "對指定敵人 18 刀，每刀 100 魔法傷害", capability = "unit_damage" },
+          { what = "總共暈眩 2.2 秒", capability = "stun" },
+        } },
+        { id = "B08T", reviewed_sha256 = "58b0f1a7f04e96cfef7786e616e50b2bccbc51d171b7d69fbc70c9691c2e9e22", read = true, bot_usage = { target = "direction", when = "路徑上有低血量敵方英雄" }, mechanics = {
+          { what = "寬 500、距離 3000、速度 3000 的線性投射物", capability = "projectile_linear" },
+          { what = "路徑上敵人 800～1600 傷害", capability = "unit_damage" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "B28", variant = "current", roster = "backup", role = "施法者（候補 H03）",
+      slots = {
+        { source_key = "W", ability = "B28W", action = "Q" },
+        { source_key = "E", ability = "B28E", action = "W" },
+        { source_key = "R", ability = "B28R", action = "E" },
+        { source_key = "T", ability = "B28T", action = "R" },
+      },
+      abilities = {
+        { id = "B28W", reviewed_sha256 = "f3ebfaa574de023d851fcefae54f378db9f66b639d4d35d881cb3369d85e553a", read = true, bot_usage = { target = "direction", when = "朝 1500 內敵方英雄或兵群" }, mechanics = {
+          { what = "直線鳳凰：寬 300、距離 1500、速度 1100", capability = "projectile_linear" },
+          { what = "命中 175 傷害", capability = "unit_damage" },
+          { what = "燃燒 5 秒每秒 50～155", capability = "dot_debuff" },
+        } },
+        { id = "B28E", reviewed_sha256 = "c031beb2bec4901a50476ab329ca0482b3a25c3467f976655b4b2e9e9a49a4e9", read = true, bot_usage = { target = "enemy_unit", when = "可見敵方英雄在 800 內且自身安全", avoid = "自身被集火時" }, mechanics = {
+          { what = "引導綁縛目標（無法動作）", capability = "channel" },
+          { what = "持續時間隨距離縮短而延長（1～5 秒）", capability = "tether_distance_scaled" },
+          { what = "目標無法動作", capability = "stun" },
+          { what = "每秒 100 傷害", capability = "dot_debuff" },
+        } },
+        { id = "B28R", reviewed_sha256 = "312a348da40ad532af8c1b4a12dc701cfd01ad7683585225e4255dfdd817be0d", read = true, bot_usage = { target = "self", when = "600 內有多名敵人" }, mechanics = {
+          { what = "10 秒移速 +0～24%", capability = "timed_stat_buff" },
+          { what = "每 0.3 秒隨機對 600 內敵人射流焰", capability = "random_target_det" },
+          { what = "流焰是投射物", capability = "projectile_tracking" },
+          { what = "燃燒 3 秒每秒 80", capability = "dot_debuff" },
+        } },
+        { id = "B28T", reviewed_sha256 = "b3ee058a44e5774d21cfc0f57208436ee95f198cb787aca1ae4f2c870f34ad71", read = true, bot_usage = { target = "point", when = "800 內有多名敵方英雄" }, mechanics = {
+          { what = "800 範圍內敵人之間彈跳的火流，每跳 +50% 傷害", capability = "bounce_chain" },
+          { what = "目標範圍選取", capability = "aoe_circle" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "B09", variant = "current", roster = "backup", role = "支援／切換（候補 H04／H05）",
+      slots = {
+        { source_key = "W", ability = "B09W", action = "Q" },
+        { source_key = "E", ability = "B09E", action = "W" },
+        { source_key = "R", ability = "B09R", action = "E" },
+        { source_key = "T", ability = "B09T", action = "R" },
+      },
+      abilities = {
+        { id = "B09W", reviewed_sha256 = "a21b276851a96a662033ac4363be0d664d794d80de067c9fc81d099aaf1bb280", read = true, bot_usage = { target = "enemy_unit", when = "敵方施法型英雄在 700 內" }, mechanics = {
+          { what = "敵方英雄身上的可累加 DoT，每秒 7～16，持續 8 秒", capability = "dot_debuff" },
+          { what = "可疊加，上限 20 層、最長 20 秒", capability = "stacking_buff" },
+          { what = "目標每施放一次法術持續時間 +1 秒", capability = "enemy_cast_extends_debuff" },
+        } },
+        { id = "B09E", reviewed_sha256 = "6f4f10cfc917795ffa7f0737d1d6aba0d4b4ee05ff7da0ee353aacf068d9a552", read = true, bot_usage = { target = "enemy_unit", when = "目標周圍 400 內有多名敵人且自身安全", avoid = "自身被集火時" }, mechanics = {
+          { what = "引導最多 10 秒", capability = "channel" },
+          { what = "每 0.5 秒在目標身上 400 半徑傷害：自身總法力 5% + 50～140", capability = "aoe_circle" },
+        } },
+        { id = "B09R", reviewed_sha256 = "947b1b699874ab44325c0e74b7c35e2b4eee1bfd09e361d3c8b350c4965e7468", read = true, bot_usage = { target = "self_toggle", when = "受到傷害且法力高於 30% 時開啟；法力低時關閉" }, mechanics = {
+          { what = "toggle 盾", capability = "toggle" },
+          { what = "以法力吸收每次傷害的 30%，每 1 法力吸收 2～5 傷害", capability = "mana_shield" },
+        } },
+        { id = "B09T", reviewed_sha256 = "4bc75d074700a013e80d6b5bb8627124334667f75d6183dc745c795eef23466e", read = true, bot_usage = { target = "point", when = "團戰中友方缺血缺藍且敵方聚集" }, mechanics = {
+          { what = "全戰場任意點", capability = "global_point_target" },
+          { what = "範圍友軍回復全部法力與 400～700 生命", capability = "heal" },
+          { what = "1 秒後 700 範圍敵人 400～700 魔法傷害", capability = "delayed_effect" },
+          { what = "無視魔免沉默 5～7 秒", capability = "silence" },
+          { what = "敵人流失現有法力 60%", capability = "mana_burn" },
+          { what = "範圍判定", capability = "aoe_circle" },
+        } },
+      },
+    },
+    {
+      source_hero_id = "A04", variant = "current", roster = "backup", role = "召喚／施法者（候補 H05）",
+      slots = {
+        { source_key = "W", ability = "A04W", action = "Q" },
+        { source_key = "E", ability = "A04E", action = "W" },
+        { source_key = "R", ability = "A04R", action = "E" },
+        { source_key = "D", ability = "A04D", action = "extra1" },
+        { source_key = "T", ability = "A04T", action = "R" },
+      },
+      abilities = {
+        { id = "A04W", reviewed_sha256 = "a466c75ad28b7ceb94ada793024d61346e8103742d3bcf206a1dd5ef7f86a514", read = true, bot_usage = { target = "point", when = "推線或交戰時朝敵方" }, mechanics = {
+          { what = "召喚 2 隻水式神，最久 26 秒，數值依等級", capability = "summon_timed" },
+          { what = "召喚物朝目標點進攻", capability = "summon_attack_move" },
+          { what = "召喚物攻擊時減速／凍結建築", capability = "on_attack_hook" },
+        } },
+        { id = "A04E", reviewed_sha256 = "22099b5399755249eb6178b33e1c9d710e44fd1da854157f39752b9918faf67c", read = true, bot_usage = { target = "direction", when = "直線上有敵方英雄或多名敵兵" }, mechanics = {
+          { what = "直線冰凍路徑（寬 150）瞬發", capability = "aoe_line_instant" },
+          { what = "200～500 傷害", capability = "unit_damage" },
+          { what = "凍結 1.1～2.3 秒", capability = "stun" },
+        } },
+        { id = "A04R", reviewed_sha256 = "26df65b7b25a53e2caa6174fc224eb9ddb2c394786afcf03d68e2341d2ecfc4f", read = true, bot_usage = { target = "ally_unit", when = "受傷的友方英雄或自身在 900 內" }, mechanics = {
+          { what = "對受傷友軍英雄或自身：治療 150", capability = "heal" },
+          { what = "可吸收 250～625 傷害的冰盾，10 秒", capability = "shield_absorb" },
+          { what = "冰盾吸滿後周圍 435 敵人凍結 0.5～1.1 秒", capability = "aoe_circle" },
+          { what = "凍結", capability = "stun" },
+        } },
+        { id = "A04D", reviewed_sha256 = "b65c5672f9760ca32dbc722de4a89c19e7f073719dc89cfc103e6e817e61bff1", read = true, passive = true, mechanics = {
+          { what = "額外槽 D：本遊戲 loadout 上限 4 個技能（含被動），這是第 5 個", capability = "extra_action_slot" },
+          { what = "普攻使敵人移速與攻速 −30%，1 秒", capability = "on_attack_hook" },
+          { what = "減速", capability = "slow_debuff" },
+        } },
+        { id = "A04T", reviewed_sha256 = "fb89bb67f3f95f870aecedde707fdc9a8401f1d73db081f5a2402c7097de4c70", read = true, bot_usage = { target = "point", when = "835 內有多名敵人且自身安全", avoid = "自身被集火時" }, mechanics = {
+          { what = "引導 8 秒的暴雪", capability = "channel" },
+          { what = "835 範圍內隨機位置冰爆（半徑 300、每 0.24 秒）", capability = "random_target_det" },
+          { what = "冰爆範圍傷害", capability = "aoe_circle" },
+          { what = "減速 −40% 移速／−30% 攻速", capability = "slow_debuff" },
+        }, kv_text_conflicts = { "描述初始傷害 180/240/300、每秒 30/45/60；KV damage 30/45/60、damage_scepter 180/240/300" } },
+      },
+    },
+  },
+}

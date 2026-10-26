@@ -158,6 +158,15 @@ pub enum ConditionType {
 #[serde(tag="kind",rename_all="snake_case")]
 pub enum HostAbilityExecution {
     RecoveryChannelSelf {amount_key:String,duration_key:String,interval_key:String},
+    /// G-2 pulse channel. The host owns start, interruption and the pulse
+    /// clock; each pulse calls the ability's `AbilityScript::on_tick`.
+    PulseChannel {
+        anchor:omoba_content_model::ChannelAnchor,
+        interval_key:String,
+        pulses_key:String,
+        #[serde(default,skip_serializing_if="Option::is_none")]
+        radius_key:Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

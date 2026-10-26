@@ -47,4 +47,45 @@ pub const TAG_COMMUNICATION_RECEIPT: u8 = 0x32; // S→C admission or refusal, n
 pub const TAG_COMMUNICATION_EVENT: u8 = 0x33; // S→C one authorized recipient
 pub const TAG_COMMUNICATION_REPLAY_QUERY: u8 = 0x34; // C→S one recovery read
 pub const TAG_COMMUNICATION_REPLAY: u8 = 0x35; // S→C retained authorized events
+pub const TAG_MATCH_TERMINATED: u8 = 0x36; // S→C terminal: authority ended the secure match
 
+/// `[u64 BE last_safe_sequence][u8 len][ascii reason_class]`, reason <= 64 bytes.
+pub fn encode_match_terminated(reason_class: &str, last_safe_sequence: u64) -> Vec<u8> {
+    let reason: Vec<u8> = reason_class.bytes().filter(|b| b.is_ascii_graphic()).take(64).collect();
+    let mut bytes = last_safe_sequence.to_be_bytes().to_vec();
+    bytes.push(reason.len() as u8);
+    bytes.extend(reason);
+    bytes
+}
+
+pub fn decode_match_terminated(bytes: &[u8]) -> Option<(String, u64)> {
+    let sequence = u64::from_be_bytes(bytes.get(..8)?.try_into().ok()?);
+    let len = usize::from(*bytes.get(8)?);
+    let reason = bytes.get(9..)?;
+    (len <= 64 && reason.len() == len && reason.iter().all(u8::is_ascii_graphic))
+        .then(|| (String::from_utf8_lossy(reason).into_owned(), sequence))
+}
+
+
+#[cfg(test)]
+mod match_terminated_tests {
+    use super::*;
+
+    #[test]
+    fn match_terminated_round_trips_and_rejects_malformed_frames() {
+        let bytes = encode_match_terminated("observer-mismatch-after-rebase", 9_001);
+        assert_eq!(decode_match_terminated(&bytes), Some(("observer-mismatch-after-rebase".into(), 9_001)));
+        // Non-graphic bytes are stripped and the reason is capped at 64 bytes.
+        let long = format!("a b\n{}", "x".repeat(100));
+        let (reason, _) = decode_match_terminated(&encode_match_terminated(&long, 1)).unwrap();
+        assert_eq!(reason.len(), 64);
+        assert!(reason.starts_with("abxx"));
+        assert_eq!(decode_match_terminated(&bytes[..7]), None);
+        let mut truncated = bytes.clone();
+        truncated.pop();
+        assert_eq!(decode_match_terminated(&truncated), None);
+        let mut control = bytes;
+        control[9] = b'\n';
+        assert_eq!(decode_match_terminated(&control), None);
+    }
+}

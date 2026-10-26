@@ -57,6 +57,44 @@ local ok,err=xpcall(function()
   check(not p.exists(p.join(folder,'round-2')),'no next generation allocation')
  end
  refused(function()coordinator.round_args({'--managed-session-bootstrap','other'},'r','c','o','b')end,'caller cannot inject bootstrap')
+ -- Bounded session: rounds before the last offer the next match; the last is a bounded single match.
+ local bounded_args={'--interactive-selection','--profile','debug','--no-build','--managed-rounds','2','--managed-final-round-seconds','180'}
+ local bounded=launch.options(bounded_args)
+ check(bounded.managed_rounds==2 and bounded.managed_final_round_seconds==180,'bounded round limits parsed')
+ check(coordinator.supported(bounded),'bounded sessions stay managed')
+ for _,bad in ipairs({{'--managed-rounds','1','--managed-final-round-seconds','9'},{'--managed-rounds','2'},
+  {'--managed-final-round-seconds','9'},{'--managed-rounds','2','--managed-final-round-seconds','0'}})do
+  refused(function()launch.options(bad)end,'invalid bounded limits rejected: '..table.concat(bad,' '))
+ end
+ local rounds={}
+ coordinator.run(bounded_args,bounded,p.join(root,'bounded'),function(args)
+  local current=launch.options(args);rounds[#rounds+1]=current
+  check(not current.managed_rounds and not current.managed_final_round_seconds,'round limits never reach the role')
+  if #rounds==1 then
+   check(current.managed_session_bootstrap and not current.finish_timeout_seconds,'first round offers the next match')
+   local bootstrap=j.read(current.managed_session_bootstrap)
+   return {managed_next={kind='start_selection',session_id=bootstrap.session_id,generation=2,players=humans}}
+  end
+  check(not current.managed_session_bootstrap and current.round_time_box_seconds==180 and not current.finish_timeout_seconds,'final round is a time-boxed single match')
+  return {}
+ end)
+ check(#rounds==2,'bounded session stops after the final round')
+ local completion=j.read(p.join(root,'bounded','completed.json'))
+ check(completion.generation==2 and completion.bounded_final_round==true,'bounded completion recorded')
+ check(not p.exists(p.join(root,'bounded','round-2','bootstrap.json')),'final round has no next-match bootstrap')
+ local timed_calls=0
+ coordinator.run(bounded_args,bounded,p.join(root,'timed-out'),function(args)
+  timed_calls=timed_calls+1;return {round_timed_out=true}
+ end)
+ local timed=j.read(p.join(root,'timed-out','completed.json'))
+ check(timed_calls==1 and timed.generation==1 and timed.verdict=='inconclusive','a time-boxed round stops the session as inconclusive')
+ refused(function()coordinator.run(bounded_args,bounded,p.join(root,'bounded-overrun'),function(args)
+  local current=launch.options(args)
+  if current.managed_session_bootstrap then
+   return {managed_next={kind='start_selection',session_id=j.read(current.managed_session_bootstrap).session_id,generation=2,players=humans}}
+  end
+  return {managed_next={kind='start_selection',session_id='x',generation=3,players=humans}}
+ end)end,'final round cannot start a third generation')
 end,debug.traceback)
 j.write(p.join(root,'summary.json'),{success=ok,assertions=count,scope='real immutable snapshots; injected role boundary, no authority or GUI',
  authority_games=0,error=ok and '' or err},false)

@@ -16,8 +16,8 @@
 //! 施法者目前等級的 `AbilityLevelData` — 也避免了
 //! StableAbi 在 `extra: HashMap<String, Value>` 欄位上。
 
-use crate::types::{EntityHandle, Fixed64, Target};
-use crate::world::GameWorldDyn;
+use crate::types::{ChannelPulse, EntityHandle, Fixed64, Target};
+use crate::world::{DisclosureQueryDyn, GameWorldDyn};
 use abi_stable::{
     sabi_trait,
     std_types::{RBox, RResult, RStr, RString},
@@ -77,6 +77,36 @@ pub trait AbilityScript: Send + Sync {
         _level: u8,
         _world: &mut GameWorldDyn<'_>,
     ) {
+    }
+
+    /// One pulse of a host-owned channel (G-2). The host has already
+    /// validated the caster and anchor and charged nothing for this pulse;
+    /// only effects may be applied here. The default forwards to `on_tick`
+    /// with `pulse.elapsed`, so a script that only implements `on_tick`
+    /// still receives every pulse.
+    fn on_channel_pulse(
+        &self,
+        caster: EntityHandle,
+        target: Target,
+        pulse: ChannelPulse,
+        world: &mut GameWorldDyn<'_>,
+    ) {
+        self.on_tick(caster, target, pulse.elapsed, world)
+    }
+
+    /// Cast entry the host actually calls. Handlers whose target selection
+    /// must match team replicas (fogged units excluded before any cap)
+    /// override this and use `disclosure`; the default is plain `execute`.
+    fn execute_disclosed(
+        &self,
+        caster: EntityHandle,
+        target: Target,
+        level: u8,
+        level_data_json: RStr<'_>,
+        world: &mut GameWorldDyn<'_>,
+        _disclosure: &DisclosureQueryDyn<'_>,
+    ) -> RResult<(), RString> {
+        self.execute(caster, target, level, level_data_json, world)
     }
 }
 

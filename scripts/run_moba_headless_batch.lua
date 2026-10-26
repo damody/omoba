@@ -5,7 +5,7 @@ local b=require('_bootstrap')
 local path,process,json=b.lib('path'),b.lib('process'),b.lib('json')
 local batch,compiled=require('moba_headless_batch'),require('moba_compiled_content')
 if arg[1]=='--help' then
-  print('Usage: tools/lua/lua.exe scripts/run_moba_headless_batch.lua [--matches 1..10 (default 10)] [--seed 1] [--recipe ALL_BOT.lua] [--output NEW_DIRECTORY] [--max-game-seconds 600] [--stall-game-seconds 300]')
+  print('Usage: tools/lua/lua.exe scripts/run_moba_headless_batch.lua [--matches 1..10000 (default 10)] [--seed 1] [--recipe ALL_BOT.lua] [--output NEW_DIRECTORY] [--max-game-seconds 600] [--stall-game-seconds 300]')
   return
 end
 local options=batch.options(arg,b.lib('args'))

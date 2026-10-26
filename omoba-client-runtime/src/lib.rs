@@ -4,6 +4,8 @@ pub mod config;
 mod cue_retention;
 pub mod evidence;
 pub mod input_bridge;
+pub mod link_liveness;
+pub mod rejoin;
 pub mod communication_input;
 pub mod moba_hud;
 pub mod scoreboard;

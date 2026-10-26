@@ -84,6 +84,30 @@ impl<'a> System<'a> for Sys {
         }
         let expired = data.buffs.tick(dt);
 
+        // Tethers settle only on natural expiry, with both ends alive.
+        for (target, _, payload) in &expired {
+            let Some(spec) = omoba_core::runtime::native::tether::Spec::from_payload(payload) else { continue; };
+            let source = spec.source();
+            let alive = |e: specs::Entity| data.entities.is_alive(e) && data.cpropertys.get(e).is_some_and(|p| p.hp > omoba_sim::Fixed64::ZERO);
+            if !alive(*target) || !alive(source) { continue; }
+            let (Some(at), Some(from)) = (data.positions.get(*target).map(|p| p.0), data.positions.get(source).map(|p| p.0)) else { continue; };
+            let (amount, root) = spec.settle((at - from).length());
+            if amount > omoba_sim::Fixed64::ZERO {
+                let zero = omoba_sim::Fixed64::ZERO;
+                let (phys, magi, real) = match spec.kind {
+                    omb_script_abi::types::DamageKind::Physical => (amount, zero, zero),
+                    omb_script_abi::types::DamageKind::Magical => (zero, amount, zero),
+                    omb_script_abi::types::DamageKind::Pure => (zero, zero, amount),
+                };
+                data.outcomes.push(Outcome::RawDamage { pos: at, phys, magi, real, source, target: *target,
+                    damage_profile: spec.profile(), origin: None });
+            }
+            if root > omoba_sim::Fixed64::ZERO {
+                data.outcomes.push(Outcome::AddBuff { target: *target, buff_id: omb_script_abi::buff_ids::BuffId::Root.as_str().to_owned(),
+                    duration: root, payload: serde_json::Value::Null });
+            }
+        }
+
         for (entity, _buff_id, payload) in expired {
             // 每條過期 buff push ModifierRemoved 事件，讓腳本的 on_modifier_removed
             // 能 hook 到（例：某 stacking debuff 過期時補一個 refresh buff）。
@@ -211,7 +235,7 @@ mod tests {
                 def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build()
     }
     fn zone_spec()->crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {
-        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {independent:false,center:omoba_sim::Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),
+        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {end:None,grow:None,linger:None,independent:false,center:omoba_sim::Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),
             radius:Fixed64::from_i32(100),amount:Fixed64::from_i32(40),interval:Fixed64::from_raw(512),
             kind:omb_script_abi::types::DamageKind::Magical,profile:omb_script_abi::types::DamageProfile::FIRE.bits()}
     }

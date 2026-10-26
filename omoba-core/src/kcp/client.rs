@@ -122,6 +122,17 @@ pub struct KcpClient {
     latest_team_server_tick: Arc<AtomicU64>,
     /// 最近一次 KCP ping/pong RTT。`u64::MAX` 表示尚未收到樣本。
     latest_rtt_us: Arc<AtomicU64>,
+    /// Reader and ping tasks. Aborted on drop so a lost session's KCP stream
+    /// (held by these tasks' halves) closes instead of retransmitting forever.
+    tasks: Vec<tokio::task::AbortHandle>,
+}
+
+impl Drop for KcpClient {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+    }
 }
 
 /// 僅允許背景工作依序送出 replica checkpoint 的可複製 handle。
@@ -151,6 +162,8 @@ impl ReplicaCheckpointReporter {
 /// 每個事件的廣播可以量化。
 #[derive(Debug, Clone)]
 pub enum LockstepInbound {
+    /// Terminal authority notice: the secure match ended (team-opaque reason).
+    MatchTerminated { reason_class: String, last_safe_sequence: u64 },
     ShopReceiptReplay { msg: ShopReceiptReplay },
     /// Owner-addressed private ward state. Not a team broadcast.
     OwnerWardEnvelope { msg: OwnerWardEnvelope },
@@ -400,7 +413,7 @@ impl KcpClient {
         let (lockstep_tx, lockstep_rx) = mpsc::channel(1024);
         let latest_team_server_tick = Arc::new(AtomicU64::new(0));
         let latest_rtt_us = Arc::new(AtomicU64::new(u64::MAX));
-        Self::spawn_reader(
+        let reader_task = Self::spawn_reader(
             reader,
             event_tx,
             lockstep_tx.clone(),
@@ -413,7 +426,7 @@ impl KcpClient {
 
         // 產生 ping 循環 — 每 1 秒發送一次 TAG_PING_REQ。讀者處理
         // TAG_PING_RESP 並發出 LockstepInbound::Pong 以及計算出的 RTT。
-        Self::spawn_ping_loop(writer.clone(), epoch);
+        let ping_task = Self::spawn_ping_loop(writer.clone(), epoch);
 
         Ok(Self {
             player_name,
@@ -425,13 +438,14 @@ impl KcpClient {
             last_step_fps: None,
             latest_team_server_tick,
             latest_rtt_us,
+            tasks: vec![reader_task.abort_handle(), ping_task.abort_handle()],
         })
     }
 
     /// 定期發送帶有單調時間戳記的 TAG_PING_REQ。
     /// 伺服器將其回應為 TAG_PING_RESP；讀者任務匯出 RTT
     /// 對抗同一個時代。
-    fn spawn_ping_loop(writer: Arc<Mutex<WriteHalf<KcpStream>>>, epoch: std::time::Instant) {
+    fn spawn_ping_loop(writer: Arc<Mutex<WriteHalf<KcpStream>>>, epoch: std::time::Instant) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
             // 第一個蜱立即觸發；跳過它，這樣我們就不會參加比賽
@@ -450,7 +464,7 @@ impl KcpClient {
                     break;
                 }
             }
-        });
+        })
     }
 
     fn spawn_reader(
@@ -462,7 +476,7 @@ impl KcpClient {
         epoch: std::time::Instant,
         latest_team_server_tick: Arc<AtomicU64>,
         latest_rtt_us: Arc<AtomicU64>,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             // P3：本機快取位於讀取器任務中，因此不需要鎖定。
             // HeroStatic 到達僅更新快取（不發出）；英雄熱門登場
@@ -891,6 +905,15 @@ impl KcpClient {
                                     Err(e) => warn!("Failed to decode PingResponse: {}", e),
                                 }
                             }
+                            crate::wire_tags::TAG_MATCH_TERMINATED => {
+                                match crate::wire_tags::decode_match_terminated(&payload) {
+                                    Some((reason_class, last_safe_sequence)) => {
+                                        error!("server terminated the match: reason={} last_safe_sequence={}", reason_class, last_safe_sequence);
+                                        let _ = lockstep_tx.send(LockstepInbound::MatchTerminated { reason_class, last_safe_sequence }).await;
+                                    }
+                                    None => warn!("malformed match termination notice"),
+                                }
+                            }
                             _ => {
                                 warn!("Unknown tag from server: 0x{:02x}", tag);
                             }
@@ -906,7 +929,7 @@ impl KcpClient {
                     }
                 }
             }
-        });
+        })
     }
 
     /// 向伺服器發送玩家命令。
@@ -1009,6 +1032,7 @@ impl KcpClient {
             summoner_rules_hash: String::new(),
             ward_protocol_version: 0,
             ward_rules_hash: String::new(),
+            resume_token: Vec::new(),
         };
         {
             let mut w = self.writer.lock().await;
@@ -1053,10 +1077,22 @@ impl KcpClient {
         player_name: String,
         player_id: u32,
     ) -> Result<TeamGameStart> {
+        self.join_selective_lockstep_resuming(player_name, player_id, Vec::new()).await
+    }
+
+    /// Join, or rejoin the same match with the resume token the previous
+    /// TeamGameStart issued (empty on a first join). The token is never logged.
+    pub async fn join_selective_lockstep_resuming(
+        &mut self,
+        player_name: String,
+        player_id: u32,
+        resume_token: Vec<u8>,
+    ) -> Result<TeamGameStart> {
         if player_id == 0 {
             anyhow::bail!("player join requires non-zero player_id");
         }
-        let req = selective_lockstep_join_request(player_name, player_id);
+        let mut req = selective_lockstep_join_request(player_name, player_id);
+        req.resume_token = resume_token;
         {
             let mut writer = self.writer.lock().await;
             write_framed_msg(&mut *writer, TAG_JOIN_REQUEST, &req).await?;
@@ -1925,6 +1961,7 @@ pub fn selective_lockstep_join_request(player_name: String, player_id: u32) -> J
         summoner_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
         ward_protocol_version: crate::runtime::ward_transport::WARD_PROTOCOL_VERSION,
         ward_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
+        resume_token: Vec::new(),
     }
 }
 

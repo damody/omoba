@@ -572,6 +572,13 @@ impl RuntimeContent {
                     crate::lua_content::SummonTargetPriorityEntry::Nearest=>crate::SummonTargetPriority::Nearest,
                     crate::lua_content::SummonTargetPriorityEntry::OwnerFocus=>crate::SummonTargetPriority::OwnerFocus,
                 },
+                immobile: entry.immobile,
+                damage_per_owner_level: fixed64(entry.damage_per_owner_level),
+                owner_death: match entry.owner_death {
+                    crate::lua_content::SummonOwnerDeathEntry::Persist=>crate::SummonOwnerDeath::Persist,
+                    crate::lua_content::SummonOwnerDeathEntry::Expire=>crate::SummonOwnerDeath::Expire,
+                },
+                invulnerable: entry.invulnerable,
             })))
         })?;
         let summon_display = build_indexed(&manifest.summons, "summon", |raw, entry| {
@@ -1444,6 +1451,7 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
     }
     Ok(AbilityConst {
         cleanses_allies: entry.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
+        auto_learn: entry.auto_learn,
         ability_type: ability_type(&entry.ability_type)?,
         cast_type: cast_type(&entry.cast_type)?,
         target_type: target_type(&entry.target_type)?,
@@ -1457,6 +1465,18 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
                 Some(crate::RecoveryChannelConst {amount_key:leak_str(amount_key.clone()),duration_key:leak_str(duration_key.clone()),interval_key:leak_str(interval_key.clone())}),
             _=>None,
         },
+        pulse_channel: entry.channel.as_ref().map(|channel|crate::PulseChannelConst {
+            anchor:match channel.anchor {omoba_content_model::ChannelAnchor::SelfOrigin=>0,omoba_content_model::ChannelAnchor::Point=>1,omoba_content_model::ChannelAnchor::Unit=>2},
+            interval_key:leak_str(channel.interval_key.clone()),pulses_key:leak_str(channel.pulses_key.clone()),
+            radius_key:channel.radius_key.clone().map(leak_str)}),
+        charges: entry.charges.as_ref().map(|charges|crate::ChargesConst {
+            max_key:leak_str(charges.max_key.clone()),recharge_key:leak_str(charges.recharge_key.clone())}),
+        attack_orb: entry.attack_orb.as_ref().map(|orb|crate::AttackOrbConst {
+            mana_per_attack_key:leak_str(orb.mana_per_attack_key.clone()),amount_key:leak_str(orb.amount_key.clone()),
+            damage_kind:match orb.damage_kind {omoba_content_model::EffectDamageKind::Physical=>0,omoba_content_model::EffectDamageKind::Magical=>1,omoba_content_model::EffectDamageKind::Pure=>2},
+            move_slow_key:orb.move_slow_key.clone().map(leak_str),attack_slow_key:orb.attack_slow_key.clone().map(leak_str),
+            slow_duration_key:orb.slow_duration_key.clone().map(leak_str)}),
+        cast_cooldown_refund_key: entry.cast_cooldown_refund.as_ref().map(|refund|leak_str(refund.seconds_key.clone())),
         aim_preview_signature: leak_str(omoba_content_model::ability_aim_preview_signature(entry)?),
         icon: leak_str(entry.icon.clone()),
         description: leak_str(entry.description.clone()),
@@ -1960,13 +1980,13 @@ mod tests {
         let mut content = load_content(root).unwrap();
         let before = ContentShape::from_manifest(&content.manifest, &content.stories);
         content.manifest.heroes.iter_mut().find(|hero| hero.id == "training_luminary").unwrap()
-            .common.moba_loadout = omoba_content_model::MobaLoadout { ranks: [0;4], skill_points: 1 };
+            .common.moba_loadout = omoba_content_model::MobaLoadout { ranks: [0;5], skill_points: 1 };
         let after = ContentShape::from_manifest(&content.manifest, &content.stories);
         assert!(after.ensure_compatible_with(&before).unwrap_err().contains("MOBA hero loadout changed"));
         let runtime = RuntimeContent::from_manifest(content.manifest, content.stories).unwrap();
         let id = crate::hero_by_name("training_luminary").unwrap();
         let loadout = runtime.hero_stats[usize::from(id.0)].unwrap().moba_loadout;
-        assert_eq!((loadout.ranks,loadout.skill_points),([0;4],1));
+        assert_eq!((loadout.ranks,loadout.skill_points),([0;5],1));
         assert!(runtime.validate_moba_catalog().unwrap_err().contains("hero loadout differs"));
     }
 

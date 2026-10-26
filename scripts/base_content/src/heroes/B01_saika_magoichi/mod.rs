@@ -16,3 +16,13 @@ pub use No2_saika_reinforcements::saika_reinforcements_ffi;
 pub use No3_rain_iron_cannon::rain_iron_cannon_ffi;
 pub use No4_three_stage_technique::three_stage_ffi;
 pub use No4_three_stage_technique::three_stage_ffi as three_stage_technique_ffi;
+pub mod No5_sniper_mode_timed;
+pub mod No6_saika_corps;
+pub mod No7_rain_iron_cannon_class;
+pub mod No8_three_stage;
+#[cfg(test)]
+pub(crate) mod b01_test_support;
+pub use No5_sniper_mode_timed::b01_sniper_mode_ffi;
+pub use No6_saika_corps::b01_saika_corps_ffi;
+pub use No7_rain_iron_cannon_class::b01_rain_iron_cannon_ffi;
+pub use No8_three_stage::b01_three_stage_ffi;

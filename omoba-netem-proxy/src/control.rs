@@ -1,6 +1,7 @@
 use crate::{
     config::ProxyConfig,
     evidence::{record_switch, SharedEvidence},
+    outage::OutageSchedule,
     profile::DelayProfile,
     NetemError, Result,
 };
@@ -28,6 +29,7 @@ pub async fn serve(
     config: &ProxyConfig,
     profiles: SharedProfiles,
     evidence: SharedEvidence,
+    outages: Arc<OutageSchedule>,
     started: Instant,
     shutdown: watch::Sender<bool>,
 ) -> Result<()> {
@@ -51,6 +53,13 @@ pub async fn serve(
         if message.action == "shutdown" {
             let _ = shutdown.send(true);
             return Ok(());
+        }
+        if message.action == "anchor" {
+            // Re-arms outage windows from now (e.g. once every client is admitted).
+            outages.anchor(Instant::now())?;
+            println!("netem-proxy outage anchor at_ms={} authoritative_tick={}",
+                started.elapsed().as_millis(), message.authoritative_tick.unwrap_or(0));
+            continue;
         }
         if message.action != "profile" {
             return Err(NetemError::Config("unknown control action".into()));

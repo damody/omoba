@@ -4,7 +4,8 @@ use omb_script_abi::{stat_keys::StatKey,types::{EntityHandle,Fixed64,Target},wor
 use omoba_core::ability_meta::AbilityLevelData;
 use omoba_template_ids::{active_ability_const,AbilityId};
 
-pub(crate) enum Encoding { Raw, Normalized, Count }
+/// `Percent`: authored in percent (200 = +200%), emitted as the raw fraction.
+pub(crate) enum Encoding { Raw, Normalized, Count, Percent }
 pub(crate) struct Field {
     pub key: &'static str,
     pub stat: StatKey,
@@ -28,6 +29,14 @@ fn scalar(value:f64,maximum:i32,positive:bool)->Result<Fixed64,&'static str> {
 
 pub(crate) fn resolve(id:AbilityId,rank:u8,json:&str,fields:&[Field],visual:Option<&str>)
     ->Result<Transform,&'static str> {
+    resolve_keyed(id,rank,json,fields,visual,"duration",false)
+}
+
+/// Same strict admission with an authored duration key and, when allowed, a
+/// bounded cast windup (the host runs the windup before `execute`; the
+/// transform itself stays instantaneous).
+pub(crate) fn resolve_keyed(id:AbilityId,rank:u8,json:&str,fields:&[Field],visual:Option<&str>,
+    duration_key:&str,allow_windup:bool)->Result<Transform,&'static str> {
     let content=active_ability_const(id).ok_or("missing transform content")?;
     let index=usize::from(rank.checked_sub(1).ok_or("invalid transform rank")?);
     if index>=content.levels.len() || rank>content.max_level {return Err("invalid transform rank");}
@@ -35,7 +44,8 @@ pub(crate) fn resolve(id:AbilityId,rank:u8,json:&str,fields:&[Field],visual:Opti
     let data:AbilityLevelData=serde_json::from_str(json).map_err(|_|"invalid transform metadata")?;
     scalar(f64::from(data.cooldown),86_400,false)?;
     scalar(f64::from(data.mana_cost),1_000_000,false)?;
-    if data.range!=0.0 || data.cast_time!=0.0 {return Err("transform requires instant self metadata");}
+    if data.range!=0.0 || !data.cast_time.is_finite() || !(0.0..=60.0).contains(&data.cast_time)
+        || (!allow_windup && data.cast_time!=0.0) {return Err("transform requires instant self metadata");}
     let read=|key:&str,maximum:i32,positive:bool|->Result<Fixed64,&'static str> {
         if let Some(value)=data.extra.get(key) {
             return scalar(value.as_f64().ok_or("invalid transform extra type")?,maximum,positive);
@@ -47,7 +57,7 @@ pub(crate) fn resolve(id:AbilityId,rank:u8,json:&str,fields:&[Field],visual:Opti
             || (positive && value==Fixed64::ZERO) {return Err("invalid authored transform scalar");}
         Ok(value)
     };
-    let duration=read("duration",3_600,true)?;
+    let duration=read(duration_key,3_600,true)?;
     let mut payload=serde_json::Map::new();
     for field in fields {
         if matches!(field.encoding,Encoding::Count) && data.extra.get(field.key)
@@ -60,6 +70,7 @@ pub(crate) fn resolve(id:AbilityId,rank:u8,json:&str,fields:&[Field],visual:Opti
         }
         let encoded=match field.encoding {
             Encoding::Raw|Encoding::Count=>serde_json::json!(value.raw()),
+            Encoding::Percent=>serde_json::json!(value.raw()/100),
             // These two legacy attack-stun consumers explicitly read normalized numbers.
             Encoding::Normalized=>serde_json::json!(value.raw() as f64/1024.0),
         };

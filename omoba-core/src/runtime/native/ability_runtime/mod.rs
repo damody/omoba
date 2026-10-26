@@ -12,7 +12,7 @@ pub mod mana_projection;
 pub mod registry;
 pub mod unit_stats;
 
-pub use buff_store::{BuffEntry, BuffStore, ItemTimedModifier};
+pub use buff_store::{BuffEntry, BuffStore, ItemTimedModifier, NO_UNIT_COLLISION};
 pub use mana_pool::{ManaPool, ManaPoolError};
 pub use mana_cost::checked_mana_cost;
 pub use mana_projection::CommittedManaState;

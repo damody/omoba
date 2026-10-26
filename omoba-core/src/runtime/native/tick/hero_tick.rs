@@ -31,6 +31,7 @@ pub struct HeroRead<'a> {
     owners: ReadStorage<'a, PlayerOwner>,
     disclosed_priority: Option<Read<'a, crate::runtime::filtered_specs::DisclosedMovementPriority>>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
+    disclosed_recalls: Option<Read<'a, super::super::cast_windup::DisclosedRecallingOwners>>,
     casts: Option<Read<'a, super::super::cast_windup::AbilityWindups>>,
     admitted_directions: Option<Read<'a, crate::runtime::input_scheme::AdmittedDirectionalSteps>>,
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
@@ -123,6 +124,8 @@ impl<'a> System<'a> for Sys {
         // 技能冷卻倒數 — sequential 迴圈一次刷所有 hero 的 ability_cooldowns，
         // 在 par_join 攻擊迭代之前處理，避免 borrow 衝突。
         for (_, hero) in (&tr.entities, &mut tw.heroes).join() {
+            // Rank changes (learn, loadout) take effect before this tick's recharge.
+            hero.sync_authored_charges();
             hero.tick_cooldowns(dt);
         }
 
@@ -160,7 +163,8 @@ impl<'a> System<'a> for Sys {
                     let pos_vek = vek::Vec2::new(pos_x_f, pos_y_f);
 
                     // Stun 狀態：暈眩中不攻擊、不累積冷卻（asd_count 凍結）
-                    if tr.buff_store.is_stunned(e) || tr.buff_store.has(e,super::super::recovery_channel::STATUS) {
+                    if tr.buff_store.is_stunned(e) || tr.buff_store.has(e,super::super::recovery_channel::STATUS)
+                        || tr.buff_store.has(e,super::super::ability_channel::STATUS) {
                         if let Some(timing) = atk.animation_timing.as_mut() { timing.paused = true; }
                         return (e.id(), outcomes);
                     }
@@ -191,7 +195,7 @@ impl<'a> System<'a> for Sys {
                             tr.command_queues.get(e).and_then(|queue| queue.active),
                         ));
                     if moving || tr.casts.as_ref().is_some_and(|casts|casts.0.contains_key(&e))
-                        || tr.moba.as_ref().is_some_and(|m| m.is_recalling(e)) {
+                        || super::super::cast_windup::hero_recalling(tr.moba.as_deref(),tr.disclosed_recalls.as_deref(),&tr.owners,e) {
                         return (e.id(), outcomes);
                     }
 

@@ -80,16 +80,21 @@ local function args(extra, rhi)
   return result
 end
 local native_ok, native_failure = xpcall(function()
+  -- The UECP plugin folder is found by its descriptor (E104); a precompiled plugin
+  -- ships no test sources, so only folders that exist contribute expected tests.
+  local bpgu = require('bpgu_plugin').locate(b.root, path).relative
   for _, folder in ipairs({'Plugins/OmRuntime/Source/OmEditor/Private',
-      'Plugins/BpGeneratorUltimate/Source/UECPMCPBridge/Private/Tests',
-      'Plugins/BpGeneratorUltimate/Source/UECPTools/Private/Tests'}) do
-    visit(path.join(project_dir, folder), function(file, name)
-      if name:match('%.cpp$') then
-        for _, test in ipairs(contract.test_names(path.read(file))) do
-          report.expected_tests[#report.expected_tests + 1] = test
+      bpgu .. '/Source/UECPMCPBridge/Private/Tests',
+      bpgu .. '/Source/UECPTools/Private/Tests'}) do
+    if path.is_directory(path.join(project_dir, folder)) then
+      visit(path.join(project_dir, folder), function(file, name)
+        if name:match('%.cpp$') then
+          for _, test in ipairs(contract.test_names(path.read(file))) do
+            report.expected_tests[#report.expected_tests + 1] = test
+          end
         end
-      end
-    end)
+      end)
+    end
   end
   table.sort(report.expected_tests)
   assert(#report.expected_tests > 0, 'no native tests discovered from source')

@@ -9,7 +9,7 @@ impl BuffVisualState {
         let mut values = std::collections::BTreeMap::<u16, i64>::new();
         for (id, remaining) in store.iter_for(entity).filter_map(|(name, entry)| {
             let timed=crate::runtime::BuffStore::timed_modifier_visual(name,entry).ok()?;
-            if name==crate::runtime::native::recovery_channel::STATUS && !crate::runtime::native::recovery_channel::public_status_valid(entry) {return None;}
+            if is_channel_status(name) && !channel_status_valid(name,entry) {return None;}
             use crate::runtime::ability_runtime::damage_zone::{DamageZoneSpec,KEY};
             let zone=entry.payload.get(KEY).is_some();
             if (zone || name=="ground_damage_zone") && (DamageZoneSpec::from_payload(&entry.payload).is_none()
@@ -94,6 +94,16 @@ impl BuffVisualState {
             .collect()
     }
 }
+/// Public channel bars: remaining time plus an exact `total_raw`.
+const CHANNEL_STATUSES:[&str;2]=[crate::runtime::native::recovery_channel::STATUS,crate::runtime::native::ability_channel::STATUS];
+fn is_channel_status(name:&str)->bool {CHANNEL_STATUSES.contains(&name)}
+/// One `{name:{"total_raw"}}` object, total within 60 s and not below the remaining time.
+fn channel_status_valid(name:&str,entry:&crate::runtime::native::ability_runtime::BuffEntry)->bool {
+    entry.payload.as_object().is_some_and(|o|o.len()==1)
+        && entry.payload.get(name).and_then(|v|v.as_object()).is_some_and(|o|o.len()==1)
+        && entry.payload[name]["total_raw"].as_i64().is_some_and(|raw|
+            raw>0 && raw<=60*1024 && entry.remaining>omoba_sim::Fixed64::ZERO && entry.remaining.raw()<=raw)
+}
 /// Current owner-team snapshot. BVS1 remains an exact legacy codec.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BuffVisualSnapshot {
@@ -103,19 +113,19 @@ pub struct BuffVisualSnapshot {
 impl BuffVisualSnapshot {
     pub fn from_store(store:&crate::runtime::BuffStore,entity:specs::Entity)->Self {
         let buffs=BuffVisualState::from_store(store,entity);
-        let id=buff_by_name(crate::runtime::native::recovery_channel::STATUS).map(|id|id.raw());
-        let channel_totals=store.iter_for(entity).filter_map(|(name,entry)|{
-            if name!=crate::runtime::native::recovery_channel::STATUS || !crate::runtime::native::recovery_channel::public_status_valid(entry){return None;}
-            let id=id?;if !buffs.0.iter().any(|row|row.0==id){return None;}
+        let mut channel_totals:Vec<(u16,i64)>=store.iter_for(entity).filter_map(|(name,entry)|{
+            if !is_channel_status(name) || !channel_status_valid(name,entry){return None;}
+            let id=buff_by_name(name)?.raw();if !buffs.0.iter().any(|row|row.0==id){return None;}
             Some((id,entry.payload[name]["total_raw"].as_i64()?))
         }).collect();
+        channel_totals.sort_unstable();channel_totals.dedup_by_key(|row|row.0);
         Self {buffs,channel_totals}
     }
     fn valid(&self)->bool {
         if self.buffs.encode().is_none()||self.channel_totals.len()>MAX_VISUAL_BUFFS{return false;}
         let mut previous=0;
         for &(id,total) in &self.channel_totals {
-            if id<=previous||buff_by_name(crate::runtime::native::recovery_channel::STATUS).is_none_or(|known|known.raw()!=id)
+            if id<=previous||!CHANNEL_STATUSES.iter().any(|name|buff_by_name(name).is_some_and(|known|known.raw()==id))
                 ||!(1..=60*1024).contains(&total)||!self.buffs.0.iter().any(|&(key,remaining)|key==id&&remaining>0&&remaining<=total){return false;}
             previous=id;
         }
@@ -151,7 +161,7 @@ impl BuffVisualSnapshot {
         for row in &mut buffs {
             let Some(id)=buff_by_name(&row.buff_id)else{continue;};
             if let Some((_,total))=self.channel_totals.iter().find(|value|value.0==id.raw()) {
-                row.payload_json=serde_json::json!({(crate::runtime::native::recovery_channel::STATUS):{"total_raw":total}}).to_string();
+                row.payload_json=serde_json::json!({(row.buff_id.as_str()):{"total_raw":total}}).to_string();
             }
         }
         buffs
@@ -197,6 +207,20 @@ mod tests {
         assert_eq!(later.buffs.0.iter().find(|row|row.0==first.channel_totals[0].0).unwrap().1,1024);
         store.remove(entity,status);let cleared=BuffVisualSnapshot::from_store(&store,entity);assert!(cleared.channel_totals.is_empty());assert_eq!(&cleared.encode().unwrap()[..4],b"BVS1");
         store.add(entity,status,Fixed64::ONE,serde_json::json!({(status):{"total_raw":3072,"origin":"private"}}));
+        assert!(BuffVisualSnapshot::from_store(&store,entity).channel_totals.is_empty());
+    }
+    #[test]
+    fn pulse_channel_bar_uses_the_same_exact_public_total_contract() {
+        use omoba_sim::Fixed64;let mut world=specs::World::new();let entity=world.create_entity().build();let mut store=crate::runtime::BuffStore::default();
+        let status=crate::runtime::native::ability_channel::STATUS;
+        store.add(entity,status,Fixed64::from_raw(2048),serde_json::json!({(status):{"total_raw":3264}}));
+        let snapshot=BuffVisualSnapshot::from_store(&store,entity);
+        assert_eq!(snapshot.channel_totals,vec![(buff_by_name(status).unwrap().raw(),3264)]);
+        let rows=BuffVisualSnapshot::decode(&snapshot.encode().unwrap()).unwrap().render_buffs();
+        let bar=rows.iter().find(|row|row.buff_id==status).unwrap();assert_eq!(bar.remaining_secs,2.0);
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&bar.payload_json).unwrap(),serde_json::json!({(status):{"total_raw":3264}}));
+        // A total above 60 s or below the remaining time is not disclosed.
+        store.remove(entity,status);store.add(entity,status,Fixed64::from_raw(4000),serde_json::json!({(status):{"total_raw":3264}}));
         assert!(BuffVisualSnapshot::from_store(&store,entity).channel_totals.is_empty());
     }
     #[test]
@@ -251,7 +275,7 @@ mod tests {
     }
     fn zone_spec()->crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {
         use omoba_sim::{Fixed64,Vec2};
-        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {independent:false,center:Vec2::new(Fixed64::from_i32(123),Fixed64::ZERO),
+        crate::runtime::ability_runtime::damage_zone::DamageZoneSpec {end:None,grow:None,linger:None,independent:false,center:Vec2::new(Fixed64::from_i32(123),Fixed64::ZERO),
             radius:Fixed64::from_i32(100),amount:Fixed64::from_i32(25),interval:Fixed64::from_raw(512),
             kind:omb_script_abi::types::DamageKind::Magical,profile:omb_script_abi::types::DamageProfile::FIRE.bits()}
     }

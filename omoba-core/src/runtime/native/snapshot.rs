@@ -713,8 +713,8 @@ pub struct HeroStatsExt {
     pub max_mana: f32,
     pub buffs: Vec<BuffSnapshot>,
     pub inventory: [Option<String>; 6],
-    pub ability_levels: [i32; 4],
-    pub ability_ids: [Option<String>; 4],
+    pub ability_levels: [i32; crate::runtime::HERO_ABILITY_SLOTS],
+    pub ability_ids: [Option<String>; crate::runtime::HERO_ABILITY_SLOTS],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -1307,10 +1307,10 @@ pub fn extract_snapshot(
                 }
             }
 
-            let mut ability_ids: [Option<String>; 4] = Default::default();
-            let mut ability_levels: [i32; 4] = [0; 4];
+            let mut ability_ids: [Option<String>; crate::runtime::HERO_ABILITY_SLOTS] = Default::default();
+            let mut ability_levels: [i32; crate::runtime::HERO_ABILITY_SLOTS] = [0; crate::runtime::HERO_ABILITY_SLOTS];
             if let Some(h) = hero_storage.get(entity) {
-                for i in 0..4 {
+                for i in 0..crate::runtime::HERO_ABILITY_SLOTS {
                     if let Some(id) = h.abilities.get(i) {
                         let lvl = h.ability_levels.get(id).copied().unwrap_or(0);
                         ability_levels[i] = lvl;
@@ -1776,10 +1776,10 @@ pub fn extract_data_for_render(
                 }
             }
 
-            let mut ability_ids: [Option<String>; 4] = Default::default();
-            let mut ability_levels: [i32; 4] = [0; 4];
+            let mut ability_ids: [Option<String>; crate::runtime::HERO_ABILITY_SLOTS] = Default::default();
+            let mut ability_levels: [i32; crate::runtime::HERO_ABILITY_SLOTS] = [0; crate::runtime::HERO_ABILITY_SLOTS];
             if let Some(h) = hero_storage.get(entity) {
-                for i in 0..4 {
+                for i in 0..crate::runtime::HERO_ABILITY_SLOTS {
                     if let Some(id) = h.abilities.get(i) {
                         let lvl = h.ability_levels.get(id).copied().unwrap_or(0);
                         ability_levels[i] = lvl;

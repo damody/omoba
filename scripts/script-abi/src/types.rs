@@ -46,6 +46,20 @@ pub mod projection_policy_ids {
     pub const ITEM: &str = "item.v1";
 }
 
+/// One host-owned channel pulse passed to `AbilityScript::on_channel_pulse`.
+/// `level` is the rank locked at cast; `index` counts from 1 to `total`;
+/// `elapsed` is `index * interval`; `anchor` is the pulse center (the cast
+/// origin, the cast point, or the anchored unit's current position).
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ChannelPulse {
+    pub level: u8,
+    pub index: u16,
+    pub total: u16,
+    pub elapsed: Fixed64,
+    pub anchor: Vec2,
+}
+
 /// 遊戲實體的不透明句柄。主機與“specs::Entity”之間進行轉換。
 #[repr(C)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]

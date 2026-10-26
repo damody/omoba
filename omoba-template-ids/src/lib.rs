@@ -51,12 +51,20 @@ pub struct MobaMapConst {
     pub id: &'static str,
     pub lane_length: i32,
     pub tower_offset: i32,
+    /// Lane-tower and base hit points (map-authored, default 1200 / 1600).
+    pub tower_hp: i32,
+    pub base_hp: i32,
     pub tower_layers: &'static [i32],
     pub lanes: &'static [MobaLaneConst],
     pub jungle_camps: &'static [MobaJungleConst],
     pub terrain: &'static [MobaTerrainConst],
     pub brushes: &'static [MobaTerrainConst],
     pub presentation_surfaces: &'static [MobaMapSurfaceConst],
+}
+
+impl MobaMapConst {
+    /// Map-authored multiplier on every hero XP award, as integer per-mille (1000 = 1.0).
+    pub fn hero_xp_scale_permille(&self) -> u32 { moba_map_hero_xp_scale_permille(self.id) }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -518,10 +526,14 @@ pub enum HeroRenderModeC {
     Model3d = 1,
 }
 
+/// Q, W, E, R and the optional extra action slot (D). Equal to
+/// `omoba_content_model::HERO_ABILITY_SLOTS` (checked by the build script).
+pub const HERO_ABILITY_SLOTS: usize = 5;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MobaLoadoutConst {
-    pub ranks: [u8; 4],
+    pub ranks: [u8; HERO_ABILITY_SLOTS],
     pub skill_points: u8,
 }
 
@@ -605,6 +617,11 @@ pub struct TdLayerMetadataConst {
 #[derive(Copy,Clone,Debug,PartialEq,Eq)]
 pub enum SummonTargetPriority {Nearest,OwnerFocus}
 
+/// Owner death/retirement policy (G-3). `Persist` is the legacy behaviour.
+#[repr(u8)]
+#[derive(Copy,Clone,Debug,PartialEq,Eq)]
+pub enum SummonOwnerDeath {Persist,Expire}
+
 /// Summon intrinsic stats — 對應 templates.lua summons[i]。
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -622,6 +639,13 @@ pub struct SummonStats {
     pub follow_start_distance: Fixed64,
     pub follow_stop_distance: Fixed64,
     pub target_priority: SummonTargetPriority,
+    /// Fixed emplacement: zero speed, no follow, move orders rejected.
+    pub immobile: bool,
+    /// Added attack damage per owner hero level above 1, sampled at spawn.
+    pub damage_per_owner_level: Fixed64,
+    pub owner_death: SummonOwnerDeath,
+    /// Never attackable or damageable while alive (MOBA attackability gate).
+    pub invulnerable: bool,
 }
 
 /// Ability 類型 — `omoba_core::ability_meta::AbilityType` 的 const-friendly
@@ -664,6 +688,16 @@ pub struct AbilityLevelDataConst {
     pub range: Fixed64,
 }
 
+/// Authored G-2 pulse channel (content `channel`): anchor 0 self, 1 point, 2 unit.
+/// Rust handlers get it as host execution without declaring it themselves.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct PulseChannelConst {
+    pub anchor: u8,
+    pub interval_key: &'static str,
+    pub pulses_key: &'static str,
+    pub radius_key: Option<&'static str>,
+}
+
 /// Exclusive authored host recovery-channel keys, shared with bot admission.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct RecoveryChannelConst {
@@ -672,12 +706,72 @@ pub struct RecoveryChannelConst {
     pub interval_key: &'static str,
 }
 
+/// Authored stored-use contract (G-2): per-rank extras keys for the whole-count
+/// maximum and the seconds to restore one use.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ChargesConst {
+    pub max_key: &'static str,
+    pub recharge_key: &'static str,
+}
+
+/// Authored toggle-orb keys (G-2); `damage_kind` 0 physical, 1 magical, 2 pure.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct AttackOrbConst {
+    pub mana_per_attack_key: &'static str,
+    pub amount_key: &'static str,
+    pub damage_kind: u8,
+    pub move_slow_key: Option<&'static str>,
+    pub attack_slow_key: Option<&'static str>,
+    pub slow_duration_key: Option<&'static str>,
+}
+
+/// Rank-resolved toggle-orb values.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct AttackOrbValues {
+    pub mana_per_attack: Fixed64,
+    pub amount: Fixed64,
+    pub damage_kind: u8,
+    pub move_slow: Option<Fixed64>,
+    pub attack_slow: Option<Fixed64>,
+    pub slow_duration: Fixed64,
+}
+
+impl AbilityConst {
+    pub fn attack_orb_at(&self, rank: u8) -> Option<AttackOrbValues> {
+        let orb = self.attack_orb?;
+        let index = usize::from(rank.checked_sub(1)?);
+        let lookup = |key: &str| self.extras.iter().find(|(name, _)| *name == key).and_then(|(_, rows)| rows.get(index)).copied();
+        Some(AttackOrbValues {
+            mana_per_attack: lookup(orb.mana_per_attack_key)?, amount: lookup(orb.amount_key)?, damage_kind: orb.damage_kind,
+            move_slow: match orb.move_slow_key { Some(key) => Some(lookup(key)?), None => None },
+            attack_slow: match orb.attack_slow_key { Some(key) => Some(lookup(key)?), None => None },
+            slow_duration: match orb.slow_duration_key { Some(key) => lookup(key)?, None => Fixed64::ZERO },
+        })
+    }
+    /// Seconds taken off the owner's other non-ultimate cooldowns per cast, at `rank` (1-based).
+    pub fn cast_cooldown_refund_at(&self, rank: u8) -> Option<Fixed64> {
+        let key = self.cast_cooldown_refund_key?;
+        let index = usize::from(rank.checked_sub(1)?);
+        self.extras.iter().find(|(name, _)| *name == key).and_then(|(_, rows)| rows.get(index)).copied()
+    }
+    /// (max uses, seconds per restored use) at `rank` (1-based), from validated extras.
+    pub fn charges_at(&self, rank: u8) -> Option<(u16, Fixed64)> {
+        let spec = self.charges?;
+        let index = usize::from(rank.checked_sub(1)?);
+        let lookup = |key: &str| self.extras.iter().find(|(name, _)| *name == key).and_then(|(_, rows)| rows.get(index)).copied();
+        let max = lookup(spec.max_key)?;
+        Some((u16::try_from(max.raw() / 1024).ok()?, lookup(spec.recharge_key)?))
+    }
+}
+
 /// Ability values and sorted per-rank extras projected from authoring.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct AbilityConst {
     /// Validated executable friendly cleansing capability, not tooltip inference.
     pub cleanses_allies: bool,
+    /// Learned automatically at each rank's `required_hero_level`, never with a skill point.
+    pub auto_learn: bool,
     pub ability_type: AbilityTypeC,
     pub cast_type: CastTypeC,
     pub target_type: TargetTypeC,
@@ -691,6 +785,14 @@ pub struct AbilityConst {
     pub line_widths: &'static [Fixed64],
     /// Executable exclusive host channel declaration; never a tooltip inference.
     pub recovery_channel: Option<RecoveryChannelConst>,
+    /// Authored pulse channel; None for every other ability.
+    pub pulse_channel: Option<PulseChannelConst>,
+    /// Stored uses; None for ordinary cooldown-only abilities.
+    pub charges: Option<ChargesConst>,
+    /// Toggle orb; None for every other ability.
+    pub attack_orb: Option<AttackOrbConst>,
+    /// Extras key of the owner cast cooldown refund; None for every other ability.
+    pub cast_cooldown_refund_key: Option<&'static str>,
     /// Shared semantic geometry, identical to build-time native aiming metadata.
     pub aim_preview_signature: &'static str,
     pub icon: &'static str,
@@ -1126,6 +1228,10 @@ mod tests {
     #[test]
     fn minion_cadence_generated_profiles_preserve_authored_milliseconds() {
         let map=moba_map_by_name("three_lane_training").unwrap();assert_eq!(map.minion_wave.iter().map(|m|m.attack_interval_ms).collect::<Vec<_>>(),vec![1000,1500,2000]);
+        // The formal map keeps 1.0 XP; the quick live-check map grows heroes faster; unknown ids keep 1.0.
+        assert_eq!(map.hero_xp_scale_permille(),1000);
+        assert_eq!(moba_map_by_name("three_lane_quick_training").unwrap().hero_xp_scale_permille(),2500);
+        assert_eq!(moba_map_hero_xp_scale_permille("not_a_map"),1000);
         assert_eq!(map.base_structures.unwrap().super_minion.attack_interval_ms,1000);
         for map in MOBA_MAPS {for row in map.minion_wave.iter().chain(map.base_structures.iter().map(|s|&s.super_minion)){assert!((1..=10000).contains(&row.attack_interval_ms));}}
     }

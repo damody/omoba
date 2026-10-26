@@ -1,9 +1,7 @@
 #[test]
 fn production_selective_consumers_cannot_use_noop_stepper() {
     let observer = include_str!("observer_validation.rs");
-    let omfx = include_str!("../../../omfx/game/src/sim_runner.rs");
     assert!(!observer.contains("NoopDisclosedWorldStepper"));
-    assert!(!omfx.contains("NoopDisclosedWorldStepper"));
 }
 
 #[test]
@@ -95,7 +93,6 @@ fn initial_observer_bootstrap_has_only_the_actual_session_outbound_source() {
 fn world_maintain_is_limited_to_the_two_outcome_boundaries() {
     for source in [
         include_str!("../../../omb/src/state/core.rs"),
-        include_str!("../../../omfx/game/src/sim_runner.rs"),
         include_str!("filtered_specs.rs"),
     ] {
         assert!(source.contains("matches!(phase, P::PreScriptOutcomes | P::PostScriptOutcomes)"));
@@ -121,29 +118,10 @@ fn secure_replica_allowlists_have_one_production_source() {
     for source in [
         include_str!("team_projector.rs"),
         include_str!("observer_validation.rs"),
-        include_str!("../../../omfx/game/src/sim_runner.rs"),
     ] {
         assert!(source.contains("secure_replica_component_allowlist"));
         assert!(!source.contains("component_allowlist: BTreeSet::from"));
         assert!(!source.contains("resource_allowlist: BTreeSet::from"));
-    }
-}
-
-#[test]
-fn renderer_only_ipc_module_has_no_gameplay_or_server_transport_owner() {
-    let source = include_str!("../../../omfx/game/src/presentation_client.rs");
-    for forbidden in [
-        "specs::",
-        "SpecsDisclosedWorldStepper",
-        "SelectiveReplicaRuntime",
-        "KcpClient",
-        "base_content.dll",
-        "ScriptRegistry",
-    ] {
-        assert!(
-            !source.contains(forbidden),
-            "renderer-only module contains {forbidden}"
-        );
     }
 }
 

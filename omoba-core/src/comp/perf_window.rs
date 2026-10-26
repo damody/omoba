@@ -1,9 +1,12 @@
 //! Bounded formal performance windows. These counters are wall-clock observations
 //! only: they are not simulation inputs and must never be folded into a state hash.
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 pub const PERF_WINDOW_SAMPLES: u64 = 60;
 pub const SCOPE_STATE_TICK: &str = "state_tick_excluding_transport_send";
+pub const SCOPE_TICK_PHASE: &str = "formal_tick_phase_excluding_transport_send";
+pub const SCOPE_SYSTEM_TIME: &str = "specs_system_run_parallel_sum";
 pub const SCOPE_REPLICA_STEP: &str = "apply_encoded_frame";
 pub const SCOPE_LOCALHOST_IPC: &str = "localhost_tcp_length_prefixed_frame";
 pub const SCOPE_GAME_FRAME_INTERVAL: &str = "game_thread_delta_seconds";
@@ -412,8 +415,133 @@ fn json_object(fields: impl IntoIterator<Item = JsonField>) -> String {
     out
 }
 
+
+/// Laps of one formal tick: each `lap(name)` charges the time since the
+/// previous lap to `name`; a phase lapped twice in a tick (pre/post outcomes)
+/// accumulates. Two `Instant::now()` reads per phase, no allocation after the
+/// first tick when reused with `clear`.
+#[derive(Debug)]
+pub struct PhaseClock {
+    at: Instant,
+    rows: Vec<(&'static str, u128)>,
+}
+
+impl PhaseClock {
+    pub fn start() -> Self {
+        Self { at: Instant::now(), rows: Vec::with_capacity(16) }
+    }
+
+    pub fn lap(&mut self, phase: &'static str) {
+        let now = Instant::now();
+        self.add(phase, now.saturating_duration_since(self.at).as_nanos());
+        self.at = now;
+    }
+
+    /// Charges a measured span (e.g. transport wait) and restarts the lap.
+    pub fn add(&mut self, phase: &'static str, ns: u128) {
+        match self.rows.iter_mut().find(|(name, _)| *name == phase) {
+            Some(row) => row.1 = row.1.saturating_add(ns),
+            None => self.rows.push((phase, ns)),
+        }
+    }
+
+    /// Moves time out of `phase` (e.g. transport wait inside frame send).
+    pub fn subtract(&mut self, phase: &'static str, ns: u128) {
+        if let Some(row) = self.rows.iter_mut().find(|(name, _)| *name == phase) {
+            row.1 = row.1.saturating_sub(ns);
+        }
+    }
+
+    pub fn rows(&self) -> &[(&'static str, u128)] {
+        &self.rows
+    }
+}
+
+/// One 60-sample window per formal tick phase. A window closes on its own
+/// 60th sample and yields one `OM_PERF` line (metric `tick_phase`).
+#[derive(Debug, Default)]
+pub struct TickPhaseWindows {
+    windows: BTreeMap<&'static str, PerfWindow>,
+}
+
+impl TickPhaseWindows {
+    pub fn record_tick(&mut self, phases: &[(&'static str, u128)]) -> Vec<String> {
+        let now = Instant::now();
+        let mut lines = Vec::new();
+        for (phase, ns) in phases {
+            if let Some(closed) = self.windows.entry(phase).or_default().record_at(*ns, now) {
+                lines.push(format_tick_phase(phase, &closed));
+            }
+        }
+        lines
+    }
+}
+
+/// Server-side observer replica step for one team (`observer_step`).
+pub fn format_observer_step(team_id: u32, closed: &PerfWindowClosed) -> String {
+    format!("OM_PERF {}", time_summary("server", "observer_step", SCOPE_REPLICA_STEP, closed, None, Some(team_id)))
+}
+
+pub fn format_tick_phase(phase: &'static str, closed: &PerfWindowClosed) -> String {
+    let summary = time_summary("server", "tick_phase", SCOPE_TICK_PHASE, closed, None, None);
+    format!("OM_PERF {{\"phase\":\"{phase}\",{}", &summary[1..])
+}
+
+/// Per-system time over `window_ticks` formal ticks, from cumulative
+/// `(count, ns)` counters (systems run in parallel, so they overlap).
+/// Only the `top` heaviest systems are reported.
+pub fn format_system_times(
+    previous: &BTreeMap<&'static str, (u64, u128)>,
+    current: &BTreeMap<&'static str, (u64, u128)>,
+    window_ticks: u64,
+    window_duration_ns: u128,
+    top: usize,
+) -> Vec<String> {
+    let mut deltas: Vec<(&'static str, u64, u128)> = current
+        .iter()
+        .map(|(name, (count, ns))| {
+            let (base_count, base_ns) = previous.get(name).copied().unwrap_or((0, 0));
+            (*name, count.saturating_sub(base_count), ns.saturating_sub(base_ns))
+        })
+        .filter(|(_, count, _)| *count > 0)
+        .collect();
+    deltas.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(b.0)));
+    deltas
+        .into_iter()
+        .take(top)
+        .map(|(name, count, ns)| {
+            format!(
+                "OM_PERF {{\"v\":1,\"component\":\"server\",\"metric\":\"system_time\",\"scope\":\"{SCOPE_SYSTEM_TIME}\",\"system\":\"{name}\",\"unit\":\"ns\",\"count\":{count},\"sum\":{ns},\"window_ticks\":{window_ticks},\"window_duration_ns\":{window_duration_ns}}}"
+            )
+        })
+        .collect()
+}
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn phase_clock_accumulates_repeated_phases_and_windows_emit_per_phase() {
+        let mut clock = super::PhaseClock::start();
+        clock.add("outcomes", 3);
+        clock.add("dispatcher", 10);
+        clock.add("outcomes", 4);
+        clock.subtract("dispatcher", 2);
+        assert_eq!(clock.rows(), &[("outcomes", 7), ("dispatcher", 8)]);
+        let mut windows = super::TickPhaseWindows::default();
+        let mut lines = Vec::new();
+        for _ in 0..super::PERF_WINDOW_SAMPLES { lines.extend(windows.record_tick(clock.rows())); }
+        assert_eq!(lines.len(), 2, "one line per phase per 60 ticks");
+        assert!(lines.iter().any(|line| line.starts_with("OM_PERF {\"phase\":\"outcomes\",\"v\":1,") && line.contains("\"metric\":\"tick_phase\"") && line.contains("\"sum\":420")));
+    }
+
+    #[test]
+    fn system_times_report_window_deltas_heaviest_first() {
+        let previous = std::collections::BTreeMap::from([("a", (10u64, 100u128)), ("b", (5, 50))]);
+        let current = std::collections::BTreeMap::from([("a", (70u64, 700u128)), ("b", (65, 9050)), ("c", (0, 0))]);
+        let lines = super::format_system_times(&previous, &current, 60, 1_000_000_000, 1);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("\"system\":\"b\"") && lines[0].contains("\"count\":60") && lines[0].contains("\"sum\":9000"), "{}", lines[0]);
+    }
+
     use super::*;
     use std::time::Duration;
 

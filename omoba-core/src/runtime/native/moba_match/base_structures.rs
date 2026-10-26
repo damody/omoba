@@ -12,6 +12,11 @@ pub(super) struct RespawningStructure {
     respawn_at: Option<Fixed64>,
 }
 
+impl RespawningStructure {
+    /// Match-clock deadline of the pending respawn, if the structure is down.
+    pub fn respawn_at(&self) -> Option<Fixed64> { self.respawn_at }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

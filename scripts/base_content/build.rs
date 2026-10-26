@@ -25,6 +25,7 @@ fn main() {
     for (mode, file) in [
         ("registry", "hero_ability_registry.rs"),
         ("ids", "hero_ability_ids.rs"),
+        ("units", "hero_unit_registry.rs"),
     ] {
         let output = Command::new(&lua)
             .arg(&generator)

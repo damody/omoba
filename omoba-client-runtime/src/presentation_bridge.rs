@@ -104,6 +104,7 @@ pub struct PresentationHub {
     input_tx: mpsc::Sender<RendererInput>,
     connected: Arc<AtomicBool>,
     disconnected_at_ms: Arc<AtomicU64>,
+    bound_at_ms: u64,
 }
 
 impl PresentationHub {
@@ -118,7 +119,8 @@ impl PresentationHub {
         let (critical_tx, critical_rx) = mpsc::channel(256);
         let (input_tx, input_rx) = mpsc::channel(256);
         let connected = Arc::new(AtomicBool::new(false));
-        let disconnected_at_ms = Arc::new(AtomicU64::new(now_ms()));
+        let bound_at_ms = now_ms();
+        let disconnected_at_ms = Arc::new(AtomicU64::new(bound_at_ms));
         let damage = Arc::new(std::sync::Mutex::new(crate::cue_retention::CueRetention::default()));
         let ready = Arc::new(std::sync::Mutex::new(None));
         let (stop, stop_rx) = watch::channel(false);
@@ -180,6 +182,7 @@ impl PresentationHub {
             input_tx,
             connected,
             disconnected_at_ms,
+            bound_at_ms,
         })
     }
 
@@ -735,6 +738,13 @@ impl PresentationHub {
         self.input_tx
             .try_send(input)
             .map_err(|_| ClientRuntimeError::Ipc("test input queue full".into()))
+    }
+    /// A renderer was connected and has now been gone for at least `for_ms`
+    /// (the player left: e.g. gave up a rejoin). False if none ever connected.
+    pub fn renderer_left_for(&self, for_ms: u64) -> bool {
+        let left_at = self.disconnected_at_ms.load(Ordering::Relaxed);
+        !self.connected.load(Ordering::Relaxed) && left_at > self.bound_at_ms
+            && now_ms().saturating_sub(left_at) >= for_ms
     }
     pub fn presentation_enabled(&self) -> bool {
         self.connected.load(Ordering::Relaxed)
@@ -2133,7 +2143,7 @@ mod tests {
         writer.write_u32(bytes.len() as u32).await.unwrap();
         writer.write_all(&bytes).await.unwrap();
         assert!(read_envelope(&mut reader).await.is_err());
-        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 12);
+        assert_eq!(PRESENTATION_PROTOCOL_VERSION, 14);
     }
 
     #[tokio::test]

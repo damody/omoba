@@ -433,6 +433,19 @@ fn child_definition(parent:MobaJungleConst,child:&omoba_template_ids::MobaJungle
         hp:child.hp,damage:child.damage,gold:child.gold,xp:child.xp,..parent}
 }
 
+/// Camp NPC pose (position and, when it changed, facing) for every replica.
+fn emit_camp_pose(world: &World, entity: Entity, pos: Vec2, facing_ticks: Option<i32>) {
+    let source = crate::runtime::canonical_entity_id(entity);
+    world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(crate::runtime::OrderedFact {
+        key: crate::runtime::FactOrderingKey { tick: world.read_resource::<Tick>().0,
+            phase: crate::runtime::FactPhase::PreStep, canonical_source_order: source,
+            local_ordinal: 0, fact_kind: crate::runtime::FactKind::PreStepMovement },
+        audience: crate::runtime::FactAudience::VisibilityPolicy(
+            omb_script_abi::types::projection_policy_ids::MOVEMENT.to_owned()),
+        fact: crate::runtime::ObservableFact::Movement { source, x_mm: pos.x.raw(), y_mm: pos.y.raw(), facing_ticks },
+    }).expect("camp movement fact");
+}
+
 fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
     let d = camp.definition;
     let mut unit = Unit::new(d.id.into(), d.id.into(), UnitType::Neutral);
@@ -449,6 +462,7 @@ fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
         .with(Faction::new(FactionType::HostileNeutral, 0))
         .with(ReplicationScope { kind: ReplicationScopeKind::Vision, owner_team: None })
         .with(Pos(home(camp)))
+        .with(Facing(omoba_sim::Angle::ZERO))
         .with(property(Fixed64::from_i32(d.hp), Fixed64::from_i32(d.move_speed))).build();
     camp.entity = Some(entity);
     camp.respawn_at = None;
@@ -610,6 +624,8 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
         let attack_line_clear = || world.try_fetch::<crate::runtime::VisionOccluderSet>().is_none_or(|walls|
             walls.line_of_sight(origin,destination)==crate::runtime::LosResult::Clear);
         if !returning && (destination-origin).length_squared() <= range*range && attack_line_clear() {
+            // Attacking: its front is the target (same rule as lane creeps).
+            if let Some(ticks)=super::face_toward(world,entity,origin,destination) {emit_camp_pose(world,entity,origin,Some(ticks));}
             if body.attack_remaining == Fixed64::ZERO {
                 let base=Fixed64::from_i32(body.definition.damage);
                 let amount=world.try_fetch::<crate::runtime::BuffStore>().map_or(base,|buffs|
@@ -630,15 +646,8 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
             &world.read_resource::<BlockedRegions>());
         if pos != origin {
             world.write_storage::<Pos>().get_mut(entity).expect("camp position").0 = pos;
-            let source = crate::runtime::canonical_entity_id(entity);
-            world.read_resource::<crate::runtime::ObservableFactBuffer>().emit(crate::runtime::OrderedFact {
-                key: crate::runtime::FactOrderingKey { tick: world.read_resource::<Tick>().0,
-                    phase: crate::runtime::FactPhase::PreStep, canonical_source_order: source,
-                    local_ordinal: 0, fact_kind: crate::runtime::FactKind::PreStepMovement },
-                audience: crate::runtime::FactAudience::VisibilityPolicy(
-                    omb_script_abi::types::projection_policy_ids::MOVEMENT.to_owned()),
-                fact: crate::runtime::ObservableFact::Movement { source, x_mm: pos.x.raw(),y_mm:pos.y.raw(),facing_ticks:None },
-            }).expect("camp movement fact");
+            let facing_ticks=super::face_toward(world,entity,origin,pos);
+            emit_camp_pose(world,entity,pos,facing_ticks);
         }
         if returning {all_home &= pos==home(body);}
         }

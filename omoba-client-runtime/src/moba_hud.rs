@@ -6,10 +6,10 @@ use omoba_core::{
     runtime::*,
 };
 
-/// Schema 2 introduced mana; 3 negotiated summoners; 4 current filtered attributes.
+/// Schema 2 introduced mana; 3 negotiated summoners; 4 current filtered attributes; 5 ability charges.
 pub const MANA_SCHEMA_VERSION: u32 = 2;
 pub const SUMMONER_SCHEMA_VERSION: u32 = 3;
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 pub const SUMMONER_SHAPE_UNAVAILABLE: u32 = 0;
 pub const SUMMONER_SHAPE_SELF: u32 = 1;
 pub const SUMMONER_SHAPE_POINT: u32 = 2;
@@ -95,7 +95,7 @@ pub fn checked_ability_mana_cost(row:&AbilityHudPresentation,mana:Option<i64>)->
 
 pub fn cast_progress(snapshot:&FilteredRenderSnapshot,player:u32,slot:u32)
     ->Option<omoba_core::game_proto::AbilityCastPresentation> {
-    if player==0 || slot>=4 {return None;}
+    if player==0 || slot as usize>=omoba_core::runtime::HERO_ABILITY_SLOTS {return None;}
     let read=|namespace| {
         let id=single_lane_player_metric(namespace,player);
         let mut values=snapshot.public_events.iter().filter_map(|event| {
@@ -123,6 +123,18 @@ pub fn valid_mana(schema: u32, hero: &HeroHudPresentation) -> bool {
     } else {
         hero.mana_raw == 0 && hero.max_mana_raw == 0
     }
+}
+
+/// Schema 5 charge rows: absent (all zero) or `charges <= max <= 10` with a
+/// positive per-use duration, and a running timer exactly when not full.
+pub fn valid_charges(schema: u32, ability: &AbilityHudPresentation) -> bool {
+    if ability.max_charges == 0 {
+        return ability.charges == 0 && ability.charge_remaining_raw == 0 && ability.charge_total_raw == 0;
+    }
+    schema >= 5 && ability.max_charges <= 10 && ability.charges <= ability.max_charges
+        && (1..=600 * 1024).contains(&ability.charge_total_raw)
+        && (0..=ability.charge_total_raw).contains(&ability.charge_remaining_raw)
+        && ((ability.charges == ability.max_charges) == (ability.charge_remaining_raw == 0))
 }
 
 pub fn valid_combat_attributes(schema: u32, hero: &HeroHudPresentation) -> bool {
@@ -169,7 +181,7 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
         let abilities = hero
             .abilities
             .iter()
-            .take(4)
+            .take(omoba_core::runtime::HERO_ABILITY_SLOTS)
             .enumerate()
             .map(|(slot, id)| {
                 let level = hero.ability_levels.get(id).copied().unwrap_or(0).max(0) as u32;
@@ -195,6 +207,10 @@ pub fn project(snapshot: &FilteredRenderSnapshot, player_id: u32) -> Option<Moba
                     total_cooldown_raw: total,
                     cast:cast_progress(snapshot,player_id,slot as u32),
                     mana_cost_state,effective_mana_cost_raw,
+                    max_charges:hero.ability_charges.get(id).map_or(0,|state|u32::from(state.max)),
+                    charges:hero.ability_charges.get(id).map_or(0,|state|u32::from(state.charges)),
+                    charge_remaining_raw:hero.ability_charges.get(id).map_or(0,|state|state.remaining.raw().max(0)),
+                    charge_total_raw:hero.ability_charges.get(id).map_or(0,|state|state.recharge.raw().max(0)),
                 })
             })
             .collect::<Option<Vec<_>>>()?;
@@ -935,5 +951,24 @@ mod tests {
         snapshot.disclosed_summoners.players = vec![projected_player(7, [0, 0], [1, 0])];
         gate_summoner_capability(&mut rejected, &snapshot, true);
         assert!(!rejected.summoner_protocol_enabled, "unequipped catalog cannot carry a clock");
+    }
+}
+
+#[cfg(test)]
+mod charge_hud_tests {
+    use super::*;
+    #[test]
+    fn charge_rows_are_absent_or_consistent() {
+        let none = AbilityHudPresentation::default();
+        assert!(valid_charges(4, &none) && valid_charges(SCHEMA_VERSION, &none));
+        let row = |max, charges, remaining, total| AbilityHudPresentation { max_charges: max, charges,
+            charge_remaining_raw: remaining, charge_total_raw: total, ..Default::default() };
+        assert!(valid_charges(SCHEMA_VERSION, &row(3, 3, 0, 15 * 1024)));
+        assert!(valid_charges(SCHEMA_VERSION, &row(3, 1, 7 * 1024, 15 * 1024)));
+        for bad in [row(3, 3, 1, 15 * 1024), row(3, 1, 0, 15 * 1024), row(3, 4, 0, 1024), row(11, 1, 1, 1024),
+            row(3, 1, 16 * 1024, 15 * 1024), row(3, 1, 1, 0), row(0, 1, 0, 0)] {
+            assert!(!valid_charges(SCHEMA_VERSION, &bad), "{bad:?}");
+        }
+        assert!(!valid_charges(4, &row(3, 3, 0, 15 * 1024)), "schema 4 never carries charges");
     }
 }

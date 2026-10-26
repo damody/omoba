@@ -72,7 +72,7 @@ mod tests {
     fn snapshot()->SecureInputValidationSnapshot {
         let mut view=TeamInputValidationView {view_epoch:4,..Default::default()};
         for (id,canonical) in [(9,(2_u64<<32)|7),(12,(3_u64<<32)|8)] {view.replicas.insert(id,ReplicaValidationRecord {canonical_id:canonical,disclosure_epoch:3,owner_team:Some(1)});}
-        view.visible_by_tick.insert(10,view.replicas.values().map(|r|r.canonical_id).collect());
+        view.visible_by_tick.insert(10,std::sync::Arc::new(view.replicas.values().map(|r|r.canonical_id).collect()));
         let mut s=SecureInputValidationSnapshot::default();s.teams.insert(1,view);s
     }
     #[test]
@@ -94,7 +94,7 @@ mod tests {
         assert_eq!(crate::game_proto::RendererInput::decode(wire.encode_to_vec().as_slice()).unwrap(),wire);
         let mut bad=value;bad.point=None;
         assert!(crate::renderer_protocol::player_input_to_renderer_intent(&PlayerInput{action:Some(Action::SummonCommand(bad))}).is_none());
-        assert_eq!(crate::renderer_protocol::PRESENTATION_PROTOCOL_VERSION,12);
+        assert_eq!(crate::renderer_protocol::PRESENTATION_PROTOCOL_VERSION,14);
     }
     #[test]
     fn summon_wire_seals_both_current_owned_references_atomically() {

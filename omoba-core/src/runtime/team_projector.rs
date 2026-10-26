@@ -205,6 +205,11 @@ pub struct TeamViewProjector {
     /// whenever that step had no owner-undo fact. The next bootstrap and rebase
     /// carry this vector; they do not recompute it from private ledger state.
     retained_owner_undo_material: Vec<u8>,
+    /// Recent checkpoint views as cheap per-component digests, so an observer
+    /// mismatch can name the diverging (entity, schema) instead of a bare hash.
+    expected_digests: std::collections::VecDeque<(u64, Vec<ComponentDigestRow>)>,
+    /// Full expected components of the last few checkpoints, for mismatch diagnostics.
+    expected_snapshots: std::collections::VecDeque<(u64, ComponentBytes)>,
 }
 
 #[derive(Default)]
@@ -217,6 +222,8 @@ pub struct TeamProjectionRuntime {
     pub latest_rebases: BTreeMap<u32, RecoveryRebaseBundle>,
     pending_rebase_outbound: BTreeMap<u32, PendingRebaseOutbound>,
     pub pending_accepted_inputs: Vec<CanonicalAcceptedInput>,
+    /// Wall-clock ns of the latest projection per team (diagnostics only).
+    pub last_projection_ns: BTreeMap<u32, u128>,
 }
 
 impl TeamProjectionRuntime {
@@ -226,10 +233,124 @@ impl TeamProjectionRuntime {
         self.projectors.get(&team_id).map(|projector| (&projector.identity, projector.view_epoch))
     }
 
+    /// Gameplay input fog rule shared by authority admission and projection:
+    /// an input may name only an entity its team's replica can resolve. A team
+    /// without a projector (non-selective modes) keeps every target.
+    pub fn target_disclosed(&self, team_id: u32, canonical: u64) -> bool {
+        self.projectors.get(&team_id).map_or(true, |projector| replica_proto(&projector.identity, canonical).is_some())
+    }
+
+    /// Full admission fog rule: the target must be disclosed to the team's
+    /// replica and actually sighted at the latest wave B (not merely kept by
+    /// a previous tick's input grace).
+    pub fn input_target_admissible(&self, visibility: &crate::runtime::TeamVisibilityRuntime, team_id: u32, canonical: u64) -> bool {
+        self.target_disclosed(team_id, canonical)
+            && visibility.teams.get(&team_id).map_or(true, |state| state.sighted.contains(&canonical))
+    }
+
     /// Owned copies so the authority drain can release this borrow before admission.
     pub fn communication_disclosures(&self) -> Vec<(u32, u64, TeamIdentityState)> {
         self.projectors.iter().map(|(team_id, projector)| (*team_id, projector.view_epoch, projector.identity.clone())).collect()
     }
+}
+
+/// Server input acceptance shared by omb and replica parity harnesses: the
+/// action kind and named target of one input. The target and other host-local
+/// identities are stripped from the payload replicas receive. `None` refuses
+/// the input (an unsealed client payload).
+pub fn sanitize_accepted_action(
+    action: &mut crate::game_proto::player_input::Action,
+) -> Option<(u32, Option<u32>, Option<u32>)> {
+    use crate::game_proto::player_input::Action;
+    Some(match action {
+        Action::SummonCommand(_) => return None, // unsealed client payload
+        Action::OwnedSummonOrder(value) => {
+            let (_,summon)=crate::runtime::summon_transport::validate_authority(value).ok()?;
+            let id=summon as u32;let generation=(summon>>32)as u32;
+            crate::runtime::summon_transport::redact(value).ok()?;
+            (crate::runtime::summon_transport::ACTION_KIND,Some(id),Some(generation))
+        }
+        Action::Stop(_) => (21, None, None),
+        Action::HoldPosition(_) => (20, None, None),
+        Action::Recall(_) => (19, None, None),
+        Action::NoOp(_) => (1, None, None),
+        Action::MoveTo(_) => (2, None, None),
+        Action::AttackTarget(value) => {
+            let id = value.target_id;
+            value.target_id = 0;
+            (3, Some(id), None)
+        }
+        Action::CastAbility(value) => {
+            let id = value.target_entity.take();
+            (4, id, None)
+        }
+        Action::TowerPlace(_) => (5, None, None),
+        Action::TowerUpgrade(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (6, Some(id), None)
+        }
+        Action::TowerSell(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (7, Some(id), None)
+        }
+        Action::ItemUse(value) => {
+            let id = value.target_entity.take();
+            let generation = value.target_generation.take();
+            value.owner_entity = None;
+            value.owner_generation = None;
+            (8, id, generation)
+        }
+        Action::StartRound(_) => (9, None, None),
+        Action::ItemBuy(_) => (17, None, None),
+        Action::ItemSell(_) => (18, None, None),
+        Action::ShopUndo(_) => (crate::runtime::shop_undo_wire::SHOP_UNDO_ACTION_KIND, None, None),
+        Action::UpgradeAbility(_) => (10, None, None),
+        Action::AttackMove(_) => (11, None, None),
+        Action::SetTowerTargetPriority(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (12, Some(id), None)
+        }
+        Action::TogglePause(_) => (13, None, None),
+        Action::ToggleGameSpeed(_) => (14, None, None),
+        Action::DebugSpawnCreep(_) => (15, None, None),
+        Action::TowerAbilityCast(value) => {
+            let id = value.tower_entity_id;
+            value.tower_entity_id = 0;
+            (16, Some(id), None)
+        }
+        Action::SummonerCast(_) => (22, None, None),
+        Action::WardPlacement(_) => (25, None, None),
+        Action::CombatPreferences(_) => (26, None, None),
+        Action::InputScheme(_) => (27, None, None),
+        Action::Direction(value) => {
+            value.source=None;value.sealed_source=0;
+            (crate::runtime::direction_transport::ACTION_KIND,None,None)
+        }
+    })
+}
+
+/// Canonical id of an accepted input's named target. An explicit generation is
+/// the exact life (a dead life is not replaced by the recycled index); without
+/// one the current index is used. The outer `None` refuses the whole input.
+pub fn resolve_accepted_target(world: &specs::World, index: Option<u32>, generation: Option<u32>) -> Option<Option<u64>> {
+    use specs::WorldExt;
+    let entities = world.entities();
+    let target = match (index, generation) {
+        (Some(id), Some(generation)) => i32::try_from(generation).ok().filter(|gen| *gen > 0).and_then(|gen| {
+            let entity = specs::world::Entity::new(id, specs::world::Generation::new(gen));
+            entities.is_alive(entity).then(|| crate::runtime::canonical_entity_id(entity))
+        }),
+        (Some(id), None) => {
+            let entity = entities.entity(id);
+            entities.is_alive(entity).then(|| crate::runtime::canonical_entity_id(entity))
+        }
+        (None, _) => None,
+    };
+    if (index.is_some() || generation.is_some()) && target.is_none() { return None; }
+    Some(target)
 }
 
 #[derive(Clone, Debug)]
@@ -455,6 +576,7 @@ pub fn run_team_projection_after_wave_b(
     let pending_inputs = std::mem::take(&mut runtime.pending_accepted_inputs);
     let mut rebases = BTreeMap::new();
     for (team, state) in &visibility.teams {
+        let team_started = std::time::Instant::now();
         let transitions = visibility
             .last_transitions
             .get(team)
@@ -544,6 +666,7 @@ pub fn run_team_projection_after_wave_b(
             );
         }
         frames.insert(*team, frame);
+        runtime.last_projection_ns.insert(*team, team_started.elapsed().as_nanos());
     }
     runtime.latest_frames = frames;
     for (team_id, bundle) in &rebases {
@@ -627,6 +750,8 @@ impl TeamViewProjector {
             prepared_mode: None,
             combat_preferences: None,
             retained_owner_undo_material: Vec::new(),
+            expected_digests: std::collections::VecDeque::new(),
+            expected_snapshots: std::collections::VecDeque::new(),
         }
     }
 
@@ -924,6 +1049,8 @@ impl TeamViewProjector {
             owner_ward_projection: Vec::new(),
             owner_ward_envelope: None,
             combat_preferences: self.combat_preferences.clone(),
+            // Per-player rejoin secret; stamped by the transport on each unicast join.
+            resume_token: Vec::new(),
         }
     }
 
@@ -1036,6 +1163,12 @@ impl TeamViewProjector {
             &undo_material,
             self.combat_preferences.as_ref(),
         );
+        if replica_tick % self.config.hash_checkpoint_interval_ticks.max(1) == 0 {
+            if self.expected_digests.len() >= EXPECTED_DIGEST_TICKS { self.expected_digests.pop_front(); }
+            self.expected_digests.push_back((replica_tick, component_digest_rows(&self.hash_entities)));
+            if self.expected_snapshots.len() >= EXPECTED_SNAPSHOT_TICKS { self.expected_snapshots.pop_front(); }
+            self.expected_snapshots.push_back((replica_tick, component_bytes(&self.hash_entities)));
+        }
         let post_step = PostStep {
             component_repairs: self.pending_component_repairs.drain(..).collect(),
             entity_replaces: self.pending_entity_replaces.drain(..).collect(),
@@ -1289,6 +1422,11 @@ impl TeamViewProjector {
             )
         });
         for fact in ordered {
+            // Control rows exist only for this team's own heroes.
+            if matches!(fact.fact, ObservableFact::OwnerControl { .. })
+                && !matches!(fact.audience, FactAudience::Team(value) if value == self.team_id) {
+                continue;
+            }
             if let ObservableFact::OwnerEconomy { team, .. } | ObservableFact::OwnerShopUndo { team, .. } = &fact.fact {
                 if *team != self.team_id || !matches!(fact.audience, FactAudience::Team(value) if value == self.team_id) {
                     continue;
@@ -1304,7 +1442,7 @@ impl TeamViewProjector {
             }
             // Our team's cooldowns remain deterministic gameplay from its
             // accepted inputs. Only disclosed opponents need settled state.
-            if let ObservableFact::CommittedCooldown { source, .. } = &fact.fact {
+            if let ObservableFact::CommittedCooldown { source, .. } | ObservableFact::CommittedCharge { source, .. } = &fact.fact {
                 if self.identity.replica_for(unpack_canonical(*source))
                     .and_then(|mapping| self.hash_entities.get(&mapping.replica_id.get()))
                     .and_then(|(_, _, components)| components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID))
@@ -1508,6 +1646,7 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         ObservableFact::AttackAvoided { target } => (None, Some(*target), b"AVD1".to_vec()),
         ObservableFact::CriticalHit {target}=>(None,Some(*target),b"CRT1".to_vec()),
         ObservableFact::CommittedMana { source, state } => (Some(*source), None, state.encode()),
+        ObservableFact::OwnerControl { source, batch, row } => (Some(*source), None, row.encode(*batch)),
         ObservableFact::CommittedAbilityRanks { source, ranks } => {
             for rank in ranks { payload.extend(rank.to_le_bytes()); }
             (Some(*source), None, payload)
@@ -1544,6 +1683,15 @@ fn fact_entities_and_payload(fact: &ObservableFact, viewer_team: u32) -> (Option
         }
         ObservableFact::CommittedCooldown { source, slot, remaining_raw } => {
             payload.extend(slot.to_le_bytes());
+            payload.extend(remaining_raw.to_le_bytes());
+            (Some(*source), None, payload)
+        }
+        ObservableFact::CommittedCharge { source, slot, charges, max, recharge_raw, remaining_raw } => {
+            // 24 bytes LE: slot u32, charges u16, max u16, recharge i64, remaining i64.
+            payload.extend(slot.to_le_bytes());
+            payload.extend(charges.to_le_bytes());
+            payload.extend(max.to_le_bytes());
+            payload.extend(recharge_raw.to_le_bytes());
             payload.extend(remaining_raw.to_le_bytes());
             (Some(*source), None, payload)
         }
@@ -2232,5 +2380,148 @@ mod ability_cue_projection_tests {
         fact.fact = ObservableFact::Ability {source: canonical(caster), ability_id: 123, rank: 0, caster_relocation: None, target: None};
         project_fact(&fact, &BTreeSet::new(), &identity, &mut public, &mut external);
         assert!(public.is_empty() && external.is_empty());
+    }
+}
+
+/// Ticks of expected checkpoint digests retained per team for diagnostics.
+pub const EXPECTED_DIGEST_TICKS: usize = 128;
+/// Full expected snapshots kept for the exact bytes of a recent mismatch.
+pub const EXPECTED_SNAPSHOT_TICKS: usize = 4;
+
+/// Every disclosed component's bytes keyed by (replica id, schema id).
+pub type ComponentBytes = BTreeMap<(u64, u32), Vec<u8>>;
+
+pub fn component_bytes<E: ComponentSource>(entities: &BTreeMap<u64, E>) -> ComponentBytes {
+    let mut out = BTreeMap::new();
+    for (replica_id, entity) in entities {
+        for (schema_id, bytes) in entity.components() { out.insert((*replica_id, *schema_id), bytes.clone()); }
+    }
+    out
+}
+
+/// One disclosed component of a team view: (replica id, schema, FNV-1a 64 of
+/// the bytes). Carries no component content, only identity and a digest.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ComponentDigestRow { pub replica_id: u64, pub schema_id: u32, pub digest: u64 }
+
+fn fnv64(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+pub fn component_digest_rows<E>(entities: &BTreeMap<u64, E>) -> Vec<ComponentDigestRow>
+where E: ComponentSource {
+    let mut rows = Vec::new();
+    for (replica_id, entity) in entities {
+        for (schema_id, bytes) in entity.components() {
+            rows.push(ComponentDigestRow { replica_id: *replica_id, schema_id: *schema_id, digest: fnv64(bytes) });
+        }
+    }
+    rows
+}
+
+/// Both the projector's expected rows and a replica's disclosed world expose components.
+pub trait ComponentSource { fn components(&self) -> &BTreeMap<u32, Vec<u8>>; }
+impl ComponentSource for (u64, u32, BTreeMap<u32, Vec<u8>>) { fn components(&self) -> &BTreeMap<u32, Vec<u8>> { &self.2 } }
+impl ComponentSource for crate::runtime::ReplicaEntityState { fn components(&self) -> &BTreeMap<u32, Vec<u8>> { &self.components } }
+
+impl TeamProjectionRuntime {
+    /// Canonical id behind a team's disclosed replica id (diagnostics only).
+    pub fn canonical_for_replica(&self, team: u32, replica_id: u64) -> Option<u64> {
+        self.projectors.get(&team)?.identity.disclosed_mappings().into_iter()
+            .find(|(_, mapping)| mapping.replica_id.get() == replica_id)
+            .map(|(key, _)| (u64::from(key.generation) << 32) | u64::from(key.id))
+    }
+
+    /// The team view's current expected bytes for one component (diagnostics only).
+    pub fn expected_component_bytes(&self, team: u32, replica_id: u64, schema_id: u32) -> Option<&[u8]> {
+        self.projectors.get(&team)?.hash_entities.get(&replica_id)?.2.get(&schema_id).map(Vec::as_slice)
+    }
+
+    /// Exact expected bytes of one component at a retained checkpoint (diagnostics only).
+    pub fn expected_checkpoint_bytes(&self, team: u32, replica_tick: u64, replica_id: u64, schema_id: u32) -> Option<&[u8]> {
+        self.projectors.get(&team)?.expected_snapshots.iter()
+            .find(|(tick, _)| *tick == replica_tick)?.1.get(&(replica_id, schema_id)).map(Vec::as_slice)
+    }
+
+    /// Retained expected digests for `team` at checkpoint `replica_tick`.
+    pub fn expected_component_digests(&self, team: u32, replica_tick: u64) -> Option<&[ComponentDigestRow]> {
+        self.projectors.get(&team)?.expected_digests.iter()
+            .find(|(tick, _)| *tick == replica_tick).map(|(_, rows)| rows.as_slice())
+    }
+}
+
+/// Human-readable, bounded diff of expected vs observed component digests.
+/// Names only replica ids, schema ids and digests of the team's own disclosed
+/// view, never undisclosed state.
+pub fn describe_component_divergence(expected: Option<&[ComponentDigestRow]>, observed: &[ComponentDigestRow], limit: usize) -> String {
+    describe_component_divergence_with(expected, observed, limit, &|_, _| String::new())
+}
+
+/// As [`describe_component_divergence`]; `label(replica_id, schema_id)` appends
+/// host-side context (canonical id, kind, current team-view bytes) per row.
+pub fn describe_component_divergence_with(expected: Option<&[ComponentDigestRow]>, observed: &[ComponentDigestRow], limit: usize,
+    label: &dyn Fn(u64, u32) -> String) -> String {
+    let Some(expected) = expected else {
+        return format!("expected digests unavailable (older than {EXPECTED_DIGEST_TICKS} checkpoints); observed {} rows", observed.len());
+    };
+    let index = |rows: &[ComponentDigestRow]| rows.iter().map(|row| ((row.replica_id, row.schema_id), row.digest)).collect::<BTreeMap<_, _>>();
+    let (expected, observed) = (index(expected), index(observed));
+    let mut lines = Vec::new();
+    let mut total = 0usize;
+    for key in expected.keys().chain(observed.keys()).collect::<BTreeSet<_>>() {
+        let (left, right) = (expected.get(key), observed.get(key));
+        if left == right { continue; }
+        total += 1;
+        if lines.len() < limit {
+            lines.push(format!("entity={} schema=0x{:08x} expected={} observed={}{}", key.0, key.1,
+                left.map_or("absent".into(), |v| format!("{v:016x}")), right.map_or("absent".into(), |v| format!("{v:016x}")), label(key.0, key.1)));
+        }
+    }
+    format!("{total} divergent component(s); first {}: [{}]", lines.len(), lines.join("; "))
+}
+
+#[cfg(test)]
+mod component_divergence_tests {
+    use super::*;
+
+    fn row(replica_id: u64, schema_id: u32, digest: u64) -> ComponentDigestRow { ComponentDigestRow { replica_id, schema_id, digest } }
+
+    #[test]
+    fn divergence_report_lists_changed_missing_and_extra_components_up_to_limit() {
+        let expected = [row(1, 0x10, 1), row(1, 0x11, 2), row(2, 0x10, 3), row(3, 0x10, 4)];
+        let observed = [row(1, 0x10, 1), row(1, 0x11, 9), row(3, 0x10, 4), row(4, 0x10, 5)];
+        let report = describe_component_divergence(Some(&expected), &observed, 2);
+        assert!(report.starts_with("3 divergent component(s); first 2:"), "{report}");
+        assert!(report.contains("entity=1 schema=0x00000011 expected=0000000000000002 observed=0000000000000009"), "{report}");
+        assert!(report.contains("entity=2 schema=0x00000010 expected=0000000000000003 observed=absent"), "{report}");
+        assert!(!report.contains("entity=4"), "limit keeps the log bounded: {report}");
+        assert!(describe_component_divergence(Some(&expected), &expected, 16).starts_with("0 divergent"));
+        assert!(describe_component_divergence(None, &observed, 16).contains("unavailable"));
+    }
+
+    #[test]
+    fn digest_rows_cover_every_component_and_change_with_bytes() {
+        let mut entities = BTreeMap::new();
+        entities.insert(7u64, (1u64, 0u32, BTreeMap::from([(0x20u32, vec![1u8, 2]), (0x21, vec![3])])));
+        let first = component_digest_rows(&entities);
+        assert_eq!(first.len(), 2);
+        entities.get_mut(&7).unwrap().2.insert(0x21, vec![4]);
+        let second = component_digest_rows(&entities);
+        assert_eq!(first[0], second[0]);
+        assert_ne!(first[1].digest, second[1].digest);
+    }
+
+    #[test]
+    fn target_disclosure_rule_requires_a_disclosed_mapping_for_selective_teams() {
+        let mut runtime = TeamProjectionRuntime::default();
+        assert!(runtime.target_disclosed(1, 42), "non-selective teams keep targets");
+        let canonical = CanonicalEntityKey { id: 7, generation: 1 };
+        let mut projector = TeamViewProjector::new(1, TeamProjectorConfig::default());
+        projector.identity.disclose(canonical).unwrap();
+        runtime.projectors.insert(1, projector);
+        assert!(runtime.target_disclosed(1, (1u64 << 32) | 7));
+        assert!(!runtime.target_disclosed(1, (1u64 << 32) | 8));
+        runtime.projectors.get_mut(&1).unwrap().identity.remember(canonical).unwrap();
+        assert!(!runtime.target_disclosed(1, (1u64 << 32) | 7), "a remembered silhouette is not targetable");
     }
 }

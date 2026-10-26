@@ -5,22 +5,16 @@ use omoba_template_ids::*;
 
 #[test]
 fn saika_magoichi_has_4_abilities() {
+    // H01: the source B01 current kit fills the slots (the hand-written kit stays as retained_abilities).
     let abs = hero_abilities(HERO_SAIKA_MAGOICHI);
-    assert_eq!(abs.len(), 4);
-    assert_eq!(abs[0], ABILITY_SNIPER_MODE);
-    assert_eq!(abs[1], ABILITY_SAIKA_REINFORCEMENTS);
-    assert_eq!(abs[2], ABILITY_RAIN_IRON_CANNON);
-    assert_eq!(abs[3], ABILITY_THREE_STAGE_TECHNIQUE);
+    assert_eq!(abs, [ABILITY_B01_SNIPER_MODE, ABILITY_B01_SAIKA_CORPS, ABILITY_B01_RAIN_IRON_CANNON, ABILITY_B01_THREE_STAGE]);
 }
 
 #[test]
 fn date_masamune_has_4_abilities() {
+    // H02: the source B04 current kit fills the slots.
     let abs = hero_abilities(HERO_DATE_MASAMUNE);
-    assert_eq!(abs.len(), 4);
-    assert_eq!(abs[0], ABILITY_FLAME_BLADE);
-    assert_eq!(abs[1], ABILITY_FIRE_DASH);
-    assert_eq!(abs[2], ABILITY_FLAME_ASSAULT);
-    assert_eq!(abs[3], ABILITY_MATCHLOCK_GUN);
+    assert_eq!(abs, [ABILITY_B04_FLAME_TRAIL_DASH, ABILITY_B04_FIRE_BLAST, ABILITY_B04_FLAME_SWIFTNESS, ABILITY_B04_TANEGASHIMA]);
 }
 
 #[test]

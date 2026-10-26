@@ -84,5 +84,10 @@ return function(ctx)
     { id = "recovery_channel", display_name = "治療引導", ue = { native_only = true } },
     { id = "movement_boost", display_name = "移速提升", ue = { native_only = true } },
     { id = "damage_reduction", display_name = "傷害減免", ue = { native_only = true } },
+    -- Append-only: existing buff ids keep their positions.
+    { id = "ability_channel", display_name = "引導", ue = { native_only = true } },
+    -- G-4 forced displacement status: stunned while moved; plays the hit pose, not a walk.
+    { id = "forced_motion", display_name = "強制位移", ue = { native_only = true,
+      animation_overlay = { overlay = "forced_motion", priority = 1000, locomotion = { walk = "hit", stand = "hit" } } } },
   }
 end

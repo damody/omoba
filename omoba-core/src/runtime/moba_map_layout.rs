@@ -125,6 +125,37 @@ pub fn decode(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// E070: every compiled map's public lane routes are walkable by a hero under
+    /// the exact runtime collision and the server's own MoveTo planner — each
+    /// point stands clear and each next point is reachable from the previous one.
+    #[test]
+    fn every_compiled_lane_route_is_reachable_by_a_hero() {
+        use omoba_sim::{Fixed64,Vec2};
+        let radius=Fixed64::from_i32(30);
+        let p=|(x,y):(i32,i32)|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        assert!(omoba_template_ids::MOBA_MAPS.len()>=3,"training, layered and quick maps are compiled");
+        for map in omoba_template_ids::MOBA_MAPS {
+            let regions=compiled_blocked_regions(map);
+            for lane in map.lanes {
+                for (index,point) in lane.waypoints.iter().enumerate() {
+                    assert!(!crate::runtime::native::tick::hero_move_tick::path_hits_regions(p(*point),p(*point),radius,&regions),
+                        "map {} lane {} point {} {:?} is inside terrain",map.id,lane.id,index,point);
+                }
+                for (index,edge) in lane.waypoints.windows(2).enumerate() {
+                    assert!(crate::runtime::native::tick::hero_command_tick::static_next_waypoint(p(edge[0]),p(edge[1]),radius,&regions).is_some(),
+                        "map {} lane {} segment {} {:?}->{:?} is unreachable for a hero",map.id,lane.id,index,edge[0],edge[1]);
+                }
+            }
+        }
+        // The check is real: a wall on a route point is caught.
+        let map=&omoba_template_ids::MOBA_MAPS[0];
+        let (x,y)=map.lanes[0].waypoints[1];
+        const WALL:[omoba_template_ids::MobaTerrainConst;1]=[omoba_template_ids::MobaTerrainConst {id:"probe",min:(0,0),max:(0,0)}];
+        let mut walled=WALL;walled[0].min=(x-50,y-50);walled[0].max=(x+50,y+50);
+        let leaked:&'static [omoba_template_ids::MobaTerrainConst]=Box::leak(Box::new(walled));
+        let regions=compiled_blocked_regions(&MobaMapConst {terrain:leaked,..*map});
+        assert!(crate::runtime::native::tick::hero_move_tick::path_hits_regions(p((x,y)),p((x,y)),radius,&regions));
+    }
     #[test]
     fn compiled_wall_vision_matches_collision_is_order_independent_and_blocks_segments() {
         use crate::runtime::{LosResult,VisionOccluder};
@@ -178,6 +209,8 @@ mod tests {
             minion_wave: &[],wave_interval_seconds:12,
             id: "not_a_shipped_map",
             lane_length: 900,
+            tower_hp: 1200,
+            base_hp: 1600,
             tower_offset: 100,
             tower_layers: &[100],
             lanes: &[],

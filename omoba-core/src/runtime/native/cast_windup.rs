@@ -5,6 +5,29 @@ use specs::{Entity,World,WorldExt};
 use super::comp::*;
 use super::scripting::{ScriptEvent,SkillTarget};
 
+/// Marks a world that must follow the formal MOBA cast contract without
+/// owning a `MobaMatch`: the team-filtered replica. Windups, in-progress cast
+/// rejection and learned ranks must match the authority tick for tick, or the
+/// replica's own-hero prediction diverges (cooldown/mana one tick early).
+#[derive(Clone,Copy,Debug,Default)]
+pub struct FormalCastRules;
+
+/// Replica stand-in for `MobaMatch::is_recalling`: owners whose team-private
+/// recall-active fact is set this frame. A recall cancels a windup on the
+/// authority, so the owner's replica must cancel the same windup.
+#[derive(Clone,Debug,Default)]
+pub struct DisclosedRecallingOwners(pub std::collections::BTreeSet<u32>);
+
+/// One recall predicate for the authority (`MobaMatch`) and the owner's
+/// filtered replica (its disclosed recall-active fact).
+pub(crate) fn hero_recalling(moba:Option<&super::MobaMatch>,disclosed:Option<&DisclosedRecallingOwners>,
+    owners:&specs::ReadStorage<'_,PlayerOwner>,entity:Entity)->bool {
+    match moba {
+        Some(state)=>state.is_recalling(entity),
+        None=>disclosed.zip(owners.get(entity)).is_some_and(|(recalls,owner)|recalls.0.contains(&owner.player_id)),
+    }
+}
+
 #[derive(Clone,Debug)]
 pub(crate) struct Windup {
     pub skill_id:String,
@@ -14,6 +37,8 @@ pub(crate) struct Windup {
     pub rank:u8,
     pub interrupt_on_damage:bool,
     pub last_tick:u64,
+    /// Set once `origin` holds the committed pose of the start tick.
+    pub anchored:bool,
 }
 #[derive(Default)]
 pub(crate) struct AbilityWindups(pub BTreeMap<Entity,Windup>,pub BTreeMap<Entity,CastView>);
@@ -29,6 +54,29 @@ pub const CAST_REMAINING:u64=0x4d43535200000000;
 pub const CAST_TOTAL:u64=0x4d43534400000000;
 pub const CAST_INSTANCE:u64=0x4d43534900000000;
 const PREPARATION:&str="cast_preparation";
+
+/// A windup's origin is the caster's committed pose at the end of the tick the
+/// windup started, on the authority and on every replica alike. Script dispatch
+/// captures a mid-tick position; on the owner's replica that position is its
+/// own prediction (collision with predicted bodies can leave it a step behind),
+/// and the post-step Movement fact then corrects the pose. Comparing later
+/// ticks against the mid-tick capture cancelled the replica's windup while the
+/// authority's released (split autopilot-strength-after-9: inahime's W, asai's
+/// Q). Call once the tick's pose is final: the authority before it settles
+/// preparation, the replica after it applies the authoritative movement.
+pub(crate) fn anchor_started_windups(world:&World) {
+    let Some(mut windups)=world.try_fetch_mut::<AbilityWindups>() else {return;};
+    let tick=world.read_resource::<Tick>().0;
+    let positions=world.read_storage::<Pos>();
+    for (caster,cast) in windups.0.iter_mut() {
+        // `last_tick` is the start tick until the first advance; `anchored`
+        // keeps a later displacement from ever moving the origin.
+        if !cast.anchored && cast.last_tick==tick {
+            if let Some(pos)=positions.get(*caster) {cast.origin=pos.0;}
+            cast.anchored=true;
+        }
+    }
+}
 
 /// Settle a public, non-combat status after outcomes and buff timers, before projection.
 /// Only active windups create it; aim previews and a cooldown never imply a cast.
@@ -72,6 +120,7 @@ pub(crate) fn synchronize_preparation(world:&World) {
 
 pub(crate) fn clear_preparation(world:&World) {
     super::recovery_channel::clear(world);
+    super::ability_channel::clear(world);
     if let Some(mut casts)=world.try_fetch_mut::<AbilityWindups>() {
         let pending:Vec<_>=casts.0.keys().copied().collect();casts.0.clear();
         for entity in pending {casts.result(entity,false);}
@@ -92,6 +141,7 @@ pub(crate) fn interrupt_for_damage(world:&World,entity:Entity) {
 
 pub(crate) fn cancel(world:&World,entity:Entity) {
     super::recovery_channel::cancel(world,entity);
+    super::ability_channel::cancel(world,entity);
     if let (Some(registry),Some(mut queue))=(world.try_fetch::<super::ability_runtime::AbilityRegistry>(),world.try_fetch_mut::<super::scripting::ScriptEventQueue>()) {
         queue.discard_channels_of(entity,&registry);
     }
@@ -121,12 +171,14 @@ impl AbilityWindups {
         let entities=world.entities();let props=world.read_storage::<CProperty>();
         let positions=world.read_storage::<Pos>();let heroes=world.read_storage::<Hero>();
         let buffs=world.read_resource::<super::BuffStore>();let mut ready=Vec::new();
+        let disclosed_recalls=world.try_fetch::<DisclosedRecallingOwners>();let owners=world.read_storage::<PlayerOwner>();
+        let recalling=|caster:Entity|hero_recalling(state.as_deref(),disclosed_recalls.as_deref(),&owners,caster);
         self.1.retain(|entity,_|entities.is_alive(*entity));
         let views=&mut self.1;
         self.0.retain(|caster,cast| {
             if !entities.is_alive(*caster) || props.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO)
                 || buffs.is_silenced(*caster) || positions.get(*caster).is_none_or(|p|p.0!=cast.origin)
-                || state.as_ref().is_some_and(|state|state.is_recalling(*caster))
+                || recalling(*caster)
                 || heroes.get(*caster).is_none_or(|h|h.get_ability_level(&cast.skill_id)!=i32::from(cast.rank))
                 || matches!(cast.target,SkillTarget::Entity(target) if !entities.is_alive(target)
                     || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO)) {
@@ -151,7 +203,7 @@ pub(crate) fn emit_progress(world:&World,state:&super::MobaMatch) {
             && world.read_storage::<CProperty>().get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO))
             .filter(|_|state.phase==super::MobaMatchPhase::Playing)
             .and_then(|entity|views.as_ref()?.1.get(&entity).zip(heroes.get(entity)))
-            .and_then(|(view,hero)|hero.abilities.iter().take(4).position(|id|id==&view.skill_id).map(|slot|(view,slot)));
+            .and_then(|(view,hero)|hero.abilities.iter().take(HERO_ABILITY_SLOTS).position(|id|id==&view.skill_id).map(|slot|(view,slot)));
         let values=current.map_or([0;5],|(view,slot)|[slot as i64+1,i64::from(view.state),view.remaining.raw(),view.total.raw(),view.instance]);
         for (index,(namespace,value)) in [CAST_SLOT,CAST_STATE,CAST_REMAINING,CAST_TOTAL,CAST_INSTANCE].into_iter().zip(values).enumerate() {
             let team=state.config.teams[slot.side];
@@ -194,8 +246,56 @@ mod tests {
             .with(CProperty {hp:Fixed64::ONE,mhp:Fixed64::ONE,msd:Fixed64::ZERO,
                 def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).build();
         let mut casts=AbilityWindups::default();casts.0.insert(caster,Windup {skill_id:"fixture".into(),
-            target:SkillTarget::None,origin:Vec2::ZERO,remaining:Fixed64::from_raw(512),rank:1,interrupt_on_damage:false,last_tick:0});
+            target:SkillTarget::None,origin:Vec2::ZERO,remaining:Fixed64::from_raw(512),rank:1,interrupt_on_damage:false,last_tick:0,anchored:false});
         (world,caster,casts)
+    }
+    #[test]
+    fn replica_without_moba_match_cancels_windup_on_its_disclosed_recall() {
+        // split17: a bot Recall cancelled the authority windup; the owner's
+        // replica (no MobaMatch) must read the same recall from its fact.
+        for (recalling,released) in [(false,1usize),(true,0)] {
+            let (mut world,caster,mut casts)=fixture();
+let cast=casts.0.remove(&caster).unwrap();casts.start(caster,cast);
+                        world.write_storage::<PlayerOwner>().insert(caster,PlayerOwner {player_id:6}).unwrap();
+            let owners:std::collections::BTreeSet<u32>=if recalling {[6].into()} else {[7].into()};
+            world.insert(DisclosedRecallingOwners(owners));
+            world.write_resource::<Tick>().0=1;
+            assert_eq!(casts.advance(&world,Fixed64::ONE).len(),released);
+            assert!(casts.0.is_empty());
+            assert_eq!(casts.1[&caster].state,if recalling {2} else {1});
+        }
+    }
+    #[test]
+    fn windup_origin_is_the_committed_pose_of_its_start_tick() {
+        // The owner's replica captured a predicted mid-tick position one step
+        // behind; the post-step Movement fact moved the caster to the
+        // authority's pose. Anchoring keeps the windup; without it the next
+        // advance cancelled it (autopilot-strength-after-9).
+        let committed=Vec2::new(Fixed64::from_raw(7037),Fixed64::from_raw(1499));
+        for anchored in [true,false] {
+            let (mut world,caster,mut casts)=fixture();
+            let mut cast=casts.0.remove(&caster).unwrap();cast.last_tick=5;casts.start(caster,cast);world.insert(casts);
+            world.write_resource::<Tick>().0=5;
+            world.write_storage::<Pos>().get_mut(caster).unwrap().0=committed;
+            if anchored {anchor_started_windups(&world);}
+            world.write_resource::<Tick>().0=6;
+            let mut casts=world.remove::<AbilityWindups>().unwrap();
+            assert!(casts.advance(&world,Fixed64::from_raw(17)).is_empty());
+            assert_eq!(casts.0.contains_key(&caster),anchored,"anchored={anchored}");
+            if anchored {
+                assert_eq!(casts.0[&caster].origin,committed);
+                // Only the start tick anchors: a displacement afterwards still cancels.
+                world.insert(casts);
+                world.write_storage::<Pos>().get_mut(caster).unwrap().0=Vec2::ZERO;
+                // End of tick 6: the windup was already anchored at its start tick.
+                anchor_started_windups(&world);
+                assert_eq!(world.read_resource::<AbilityWindups>().0[&caster].origin,committed);
+                world.write_resource::<Tick>().0=7;
+                let mut casts=world.remove::<AbilityWindups>().unwrap();
+                assert!(casts.advance(&world,Fixed64::from_raw(17)).is_empty());
+                assert!(casts.0.is_empty(),"moved after its start tick");
+            }
+        }
     }
     #[test]
     fn windup_uses_exact_fixed_time_and_cannot_double_advance_in_one_tick() {

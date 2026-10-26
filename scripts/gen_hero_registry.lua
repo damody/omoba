@@ -1,7 +1,7 @@
 -- 由 Lua 英雄／技能宣告產生 base_content 的 Rust FFI 註冊語句。
 local content_root = assert(arg[1], 'content root is required')
 local output_mode = arg[2] or 'registry'
-assert(output_mode == 'registry' or output_mode == 'ids', 'unknown output mode')
+assert(output_mode == 'registry' or output_mode == 'ids' or output_mode == 'units', 'unknown output mode')
 local source = debug.getinfo(1,'S').source:sub(2)
 package.path = (source:match('^(.*)[/\\]') or '.') .. '/?.lua;' .. package.path
 local context = require('content_builder').new(content_root)
@@ -117,6 +117,40 @@ local function effect_code(ability, effect)
       return string.format('crate::generic_effects::EffectOp::StunEnemy { duration_key: "%s" }',duration)
     end
     return string.format('crate::generic_effects::EffectOp::ControlEnemy { control: omoba_content_model::ControlEffectKind::%s, duration_key: "%s" }',controls[control],duration)
+  end
+  if effect.kind=='forced_move_enemy' then
+    -- G-4 forced displacement; host bounds are canonical in omoba-content-model.
+    local motions={knockback='Knockback',pull='Pull'}
+    assert(type(effect.motion)=='string' and motions[effect.motion],ability.id..' forced_move_enemy motion must be knockback or pull')
+    local distance=identifier(effect.distance_key,ability.id..' distance_key')
+    local duration=identifier(effect.duration_key,ability.id..' duration_key')
+    for _,spec in ipairs({{distance,3000},{duration,5}}) do
+      local entries=ability.extras and ability.extras[spec[1]]
+      assert(type(entries)=='table' and #entries==ability.max_level,ability.id..' forced_move_enemy requires per-rank '..spec[1])
+      for _,value in ipairs(entries) do
+        value=authored_number(value)
+        assert(value~=nil and value>=1/1024 and value<=spec[2],ability.id..' invalid forced_move_enemy '..spec[1])
+      end
+    end
+    return string.format('crate::generic_effects::EffectOp::ForcedMoveEnemy { motion: omoba_content_model::ForcedMotionKind::%s, distance_key: "%s", duration_key: "%s" }',motions[effect.motion],distance,duration)
+  end
+  if effect.kind=='reveal_area' then
+    -- G-4 true-sight area at the point target; bounds mirror omoba-content-model.
+    local radius=identifier(effect.radius_key,ability.id..' radius_key')
+    local duration=identifier(effect.duration_key,ability.id..' duration_key')
+    for _,spec in ipairs({{radius,2000},{duration,30}}) do
+      local entries=ability.extras and ability.extras[spec[1]]
+      assert(type(entries)=='table' and #entries==ability.max_level,ability.id..' reveal_area requires per-rank '..spec[1])
+      for _,value in ipairs(entries) do
+        value=authored_number(value)
+        assert(value~=nil and value>=1/1024 and value<=spec[2],ability.id..' invalid reveal_area '..spec[1])
+      end
+    end
+    for _,rank in ipairs(ability.levels) do
+      local range=authored_number(rank.range)
+      assert(range~=nil and range>=1/1024 and range<=10000,ability.id..' reveal_area requires bounded range')
+    end
+    return string.format('crate::generic_effects::EffectOp::RevealArea { radius_key: "%s", duration_key: "%s" }',radius,duration)
   end
   if effect.kind=='slow_enemy' then
     local reduction=identifier(effect.reduction_key,ability.id..' reduction_key')
@@ -247,6 +281,61 @@ local function effect_code(ability, effect)
   return string.format('crate::generic_effects::EffectOp::%s { amount_key: "%s" }', op, key)
 end
 
+-- G-1 projectile delivery: one leading op; numeric bounds are canonical in
+-- omoba-content-model (validate_projectile_delivery), shapes are checked here.
+local channel_payload={damage=true,slow_enemy=true,stun_enemy=true,control_enemy=true}
+local projectile_payload={damage=true,slow_enemy=true,stun_enemy=true,control_enemy=true,forced_move_enemy=true}
+local function projectile_code(ability,delivery)
+  assert(type(delivery)=='table',ability.id..' projectile must be a table')
+  local fields={motion=true,speed_key=true,radius_key=true,lifetime_key=true,max_hits=true,wall=true,target_lost=true,caster_death=true}
+  for key in pairs(delivery)do assert(fields[key],ability.id..' unknown projectile field '..tostring(key))end
+  local motion=({linear='Linear',homing='Homing'})[delivery.motion]
+  assert(motion,ability.id..' projectile motion must be linear or homing')
+  assert(ability.target_type==(motion=='Linear' and 'point' or 'unit'),ability.id..' projectile motion does not match target_type')
+  local function pick(value,map,default,label)
+    if value==nil then return default end
+    return assert(map[value],ability.id..' invalid projectile '..label)
+  end
+  local wall=pick(delivery.wall,{pass='Pass',stop='Stop'},'Pass','wall')
+  local lost=pick(delivery.target_lost,{expire='Expire',last_position='LastPosition'},'Expire','target_lost')
+  local death=pick(delivery.caster_death,{continue='Continue',expire='Expire'},'Continue','caster_death')
+  local hits=delivery.max_hits or 1
+  assert(type(hits)=='number' and hits%1==0 and hits>=1 and hits<=64 and (motion=='Linear' or hits==1),
+    ability.id..' projectile max_hits must be 1..64 (homing 1)')
+  assert(motion=='Linear' or wall=='Pass',ability.id..' homing projectile cannot stop at walls')
+  local speed=identifier(delivery.speed_key,ability.id..' projectile speed_key')
+  local radius=identifier(delivery.radius_key,ability.id..' projectile radius_key')
+  local lifetime=delivery.lifetime_key and identifier(delivery.lifetime_key,ability.id..' projectile lifetime_key')
+  assert(motion=='Linear' or lifetime,ability.id..' homing projectile requires lifetime_key')
+  for _,key in ipairs({speed,radius,lifetime})do
+    assert(type(ability.extras)=='table' and type(ability.extras[key])=='table' and #ability.extras[key]==ability.max_level,
+      ability.id..' projectile needs per-rank extras '..key)
+  end
+  return string.format('crate::generic_effects::EffectOp::Projectile { motion: omoba_content_model::ProjectileMotion::%s, speed_key: "%s", radius_key: "%s", lifetime_key: %s, max_hits: %d, wall: omoba_content_model::ProjectileWall::%s, target_lost: omoba_content_model::ProjectileTargetLost::%s, caster_death: omoba_content_model::ProjectileCasterDeath::%s }',
+    motion,speed,radius,lifetime and ('Some("'..lifetime..'")') or 'None',hits,wall,lost,death)
+end
+
+-- G-2 pulse channel: one leading op; the payload ops apply once per pulse.
+-- Numeric bounds are canonical in omoba-content-model (validate_channel_delivery).
+local function channel_code(ability,channel)
+  assert(type(channel)=='table',ability.id..' channel must be a table')
+  local fields={anchor=true,interval_key=true,pulses_key=true,radius_key=true}
+  for key in pairs(channel)do assert(fields[key],ability.id..' unknown channel field '..tostring(key))end
+  local anchor=({self='SelfOrigin',point='Point',unit='Unit'})[channel.anchor]
+  assert(anchor,ability.id..' channel anchor must be self, point or unit')
+  assert(ability.target_type==({SelfOrigin='none',Point='point',Unit='unit'})[anchor],ability.id..' channel anchor does not match target_type')
+  local interval=identifier(channel.interval_key,ability.id..' channel interval_key')
+  local pulses=identifier(channel.pulses_key,ability.id..' channel pulses_key')
+  local radius=channel.radius_key and identifier(channel.radius_key,ability.id..' channel radius_key')
+  assert(radius or anchor=='Unit',ability.id..' self and point channels need radius_key')
+  for _,key in ipairs({interval,pulses,radius})do
+    assert(type(ability.extras)=='table' and type(ability.extras[key])=='table' and #ability.extras[key]==ability.max_level,
+      ability.id..' channel needs per-rank extras '..key)
+  end
+  return string.format('crate::generic_effects::EffectOp::Channel { anchor: omoba_content_model::ChannelAnchor::%s, interval_key: "%s", pulses_key: "%s", radius_key: %s }',
+    anchor,interval,pulses,radius and ('Some("'..radius..'")') or 'None')
+end
+
 local entries = {}
 local registered = {}
 for _, hero in ipairs(heroes) do
@@ -254,7 +343,12 @@ for _, hero in ipairs(heroes) do
     local hero_id = identifier(hero.id, 'hero id')
     local rust_module = hero.rust_module and identifier(hero.rust_module, hero_id .. ' rust_module')
     local seen = {}
-    for _, ability_id in ipairs(hero.abilities or {}) do
+    -- Loadout abilities, then abilities an authored update moved out of the
+    -- loadout (hero.retained_abilities): still registered, never in a slot.
+    local registered_ids = {}
+    for _, id in ipairs(hero.abilities or {}) do registered_ids[#registered_ids + 1] = id end
+    for _, id in ipairs(hero.retained_abilities or {}) do registered_ids[#registered_ids + 1] = id end
+    for _, ability_id in ipairs(registered_ids) do
       identifier(ability_id, hero_id .. ' ability id')
       local ability = active_abilities[ability_id]
       assert(ability and not ability.tombstone, hero_id .. ' references missing or tombstoned ability ' .. ability_id)
@@ -268,28 +362,61 @@ for _, hero in ipairs(heroes) do
       if rust_module then
         entries[#entries + 1] = {module = rust_module, ability = ability_id}
       else
-        assert(type(ability.effects) == 'table' and #ability.effects > 0,
-          hero_id .. ' ability ' .. ability_id .. ' needs effects or rust_module')
-        assert(ability.ability_type == 'active' or ability.ability_type == 'ultimate',
-          ability_id .. ' declarative effects require active or ultimate ability_type')
-        assert(ability.cast_type == 'instant' or (#ability.effects==1 and ability.effects[1].kind=='recovery_channel_self' and ability.cast_type=='channeled'),
-          ability_id .. ' declarative effects require instant or exclusive recovery channel')
+        assert((type(ability.effects) == 'table' and #ability.effects > 0) or type(ability.summon)=='table' or type(ability.attack_orb)=='table',
+          hero_id .. ' ability ' .. ability_id .. ' needs effects, summon, attack_orb or rust_module')
+        ability.effects=ability.effects or {}
+        assert(ability.ability_type == 'active' or ability.ability_type == 'ultimate'
+          or (ability.ability_type == 'toggle' and type(ability.attack_orb)=='table'),
+          ability_id .. ' declarative effects require active or ultimate ability_type (toggle only for attack_orb)')
+        assert(ability.cast_type == 'instant' or (ability.cast_type=='channeled' and (type(ability.channel)=='table'
+            or (#ability.effects==1 and ability.effects[1].kind=='recovery_channel_self'))),
+          ability_id .. ' declarative effects require instant, a pulse channel or an exclusive recovery channel')
         assert(#ability.effects<=32,ability_id..' exceeds 32 effects')
         local effects = {}
+        -- G-3 summon delivery: exclusive point summon; canonical checks live in
+        -- omoba-content-model and the template loader (unit must exist).
+        -- G-2 toggle orb: the handler only flips the caster's marker buff; the
+        -- host resolves cost/damage/slows from the current rank at attack launch.
+        if ability.attack_orb then
+          assert(#ability.effects==0 and not ability.summon and not ability.projectile and ability.target_type=='none'
+            and ability.cast_type=='instant' and ability.ability_type=='toggle',ability_id..' attack_orb is an exclusive instant toggle')
+          effects[1]='crate::generic_effects::EffectOp::ToggleAttackOrb'
+        end
+        if ability.summon then
+          local summon=ability.summon
+          for key in pairs(summon)do assert(key=='unit' or key=='duration_key',ability_id..' unknown summon field '..tostring(key))end
+          assert(#ability.effects==0 and not ability.projectile and ability.target_type=='point' and ability.cast_type=='instant',
+            ability_id..' summon delivery is an exclusive instant point ability')
+          assert(type(summon.unit)=='string' and summon.unit:match('^[a-z0-9_]+$'),ability_id..' summon unit must be a template id')
+          local duration=summon.duration_key and identifier(summon.duration_key,ability_id..' summon duration_key')
+          effects[1]=string.format('crate::generic_effects::EffectOp::SummonAtPoint { unit: "%s", duration_key: %s }',
+            summon.unit,duration and ('Some("'..duration..'")') or 'None')
+        end
+        local delivery=ability.projectile
+        if delivery then
+          assert(ability.cast_type=='instant' and #ability.effects<=3,ability_id..' projectile delivery requires instant cast and at most 3 payload effects')
+          effects[1]=projectile_code(ability,delivery)
+        end
+        local channel=ability.channel
+        if channel then
+          assert(not delivery and not ability.summon and not ability.attack_orb and ability.cast_type=='channeled'
+            and #ability.effects>=1 and #ability.effects<=3,ability_id..' pulse channel is exclusive with 1..3 payload effects')
+          effects[1]=channel_code(ability,channel)
+        end
         local mana_stats={}
         local dot_seen=false
         local unit_allegiance
         local consumes_target=false
         local target_kinds=ability.target_type=='unit'
-          and {damage=true,drain_mana_enemy=true,heal_ally=true,shield_ally=true,cleanse_ally=true,damage_over_time_enemy=true,slow_enemy=true,stun_enemy=true,control_enemy=true}
-          or (ability.target_type=='point' and {area_damage=true,line_damage=true,cone_damage=true} or {})
+          and {damage=true,drain_mana_enemy=true,heal_ally=true,shield_ally=true,cleanse_ally=true,damage_over_time_enemy=true,slow_enemy=true,stun_enemy=true,control_enemy=true,forced_move_enemy=true}
+          or (ability.target_type=='point' and {area_damage=true,line_damage=true,cone_damage=true,reveal_area=true} or {})
         for _,effect in ipairs(ability.effects)do
           if target_kinds[effect.kind]then consumes_target=true end
         end
         for _, effect in ipairs(ability.effects) do
           if effect.kind=='damage_over_time_enemy' then assert(not dot_seen,ability_id..' duplicate DoT effect');dot_seen=true end
           local allegiance=(effect.kind=='heal_ally' or effect.kind=='shield_ally' or effect.kind=='cleanse_ally') and 'ally'
-            or ((effect.kind=='damage' or effect.kind=='drain_mana_enemy' or effect.kind=='damage_over_time_enemy' or effect.kind=='slow_enemy' or effect.kind=='stun_enemy' or effect.kind=='control_enemy') and 'enemy')
+            or ((effect.kind=='damage' or effect.kind=='drain_mana_enemy' or effect.kind=='damage_over_time_enemy' or effect.kind=='slow_enemy' or effect.kind=='stun_enemy' or effect.kind=='control_enemy' or effect.kind=='forced_move_enemy') and 'enemy')
           if allegiance then
             assert(not unit_allegiance or unit_allegiance==allegiance,
               ability_id..' conflicting unit target allegiance')
@@ -299,7 +426,8 @@ for _, hero in ipairs(heroes) do
             assert(type(effect.stat)=='string' and not mana_stats[effect.stat],ability_id..' duplicate/invalid mana buff stat')
             mana_stats[effect.stat]=true
           end
-          assert((effect.kind == 'damage' and ability.target_type == 'unit') or
+          assert((delivery and projectile_payload[effect.kind]) or (channel and channel_payload[effect.kind]) or
+            (not delivery and effect.kind == 'damage' and ability.target_type == 'unit') or
             (effect.kind == 'damage_over_time_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'heal_ally' and ability.target_type == 'unit') or
             (effect.kind == 'shield_ally' and ability.target_type == 'unit') or
@@ -308,10 +436,12 @@ for _, hero in ipairs(heroes) do
             (effect.kind == 'slow_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'stun_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'control_enemy' and ability.target_type == 'unit') or
+            (effect.kind == 'forced_move_enemy' and ability.target_type == 'unit') or
             (effect.kind == 'area_damage' and ability.target_type == 'point') or
             (effect.kind == 'cone_damage' and ability.target_type == 'point') or
             (effect.kind == 'line_damage' and ability.target_type == 'point') or
             (effect.kind == 'dash_to_point' and ability.target_type == 'point') or
+            (effect.kind == 'reveal_area' and ability.target_type == 'point') or
             (effect.kind == 'restore_mana_self' and (ability.target_type=='none' or consumes_target)) or
             ((effect.kind == 'heal_self' or effect.kind=='recovery_channel_self' or effect.kind == 'spend_mana_self' or effect.kind=='mana_buff_self')
               and ability.target_type == 'none'),
@@ -324,7 +454,25 @@ for _, hero in ipairs(heroes) do
     end
   end
 end
-if output_mode == 'ids' then
+-- Hero UnitScripts (owner hooks such as on_skill_cast / on_damage_taken):
+-- a hero with `unit_script = true` registers `heroes::<rust_module>::hero_unit_script()`
+-- under its own content id, which is the unit id the host binds heroes to.
+local hero_units = {}
+for _, hero in ipairs(heroes) do
+  if not hero.tombstone and hero.unit_script ~= nil then
+    assert(hero.unit_script == true, hero.id .. ' unit_script must be true when present')
+    assert(hero.rust_module, hero.id .. ' unit_script needs rust_module')
+    hero_units[#hero_units + 1] = { id = identifier(hero.id, 'hero id'), module = identifier(hero.rust_module, hero.id .. ' rust_module') }
+  end
+end
+if output_mode == 'units' then
+  print('{')
+  for _, unit in ipairs(hero_units) do
+    print(string.format('    v.push(UnitDef { unit_id: "%s".into(), script: UnitScript_TO::from_value(heroes::%s::hero_unit_script(), TD_Opaque) });',
+      unit.id, unit.module))
+  end
+  print('}')
+elseif output_mode == 'ids' then
   print('&[')
   for _, entry in ipairs(entries) do
     print(string.format('    "%s",', entry.ability))

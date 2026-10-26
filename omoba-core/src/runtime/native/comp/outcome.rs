@@ -8,6 +8,13 @@ use crate::runtime::comp::{CProperty, Creep, CreepStatus, Faction, TAttack, TPro
 pub enum Outcome {
     /// Host-owned stationary channel, admitted with its cast resource transaction.
     ScriptRecoveryChannel { caster:Entity, owner:u32, amount:Fixed64, duration:Fixed64, interval:Fixed64 },
+    /// G-2 host-owned pulse channel, admitted with its cast resource transaction.
+    /// `level` is the rank later pulses read through `GameWorld::channel_pulse`.
+    ScriptAbilityChannel {
+        caster:Entity, owner:u32, skill_id:String, level:u8,
+        spec:crate::runtime::native::ability_channel::Spec,
+        anchor:crate::runtime::native::ability_channel::Anchor,
+    },
     /// Host-only scheduled zone. Expand at serial settlement after earlier hits,
     /// rechecking source lifetime and current target state before any cue/damage.
     DamageZonePulse { source:Entity, payload:serde_json::Value },
@@ -31,6 +38,8 @@ pub enum Outcome {
         cues: Vec<CastSettlementCue>,
         aggression_target: Option<Entity>,
     },
+    /// Batch pre-admission result of a `ScriptCastTransaction` (host-only).
+    ScriptCastPreAdmitted { transaction: Box<Outcome>, admitted: bool },
     /// Internal completion marker inserted only after transaction admission.
     ScriptCastCommitted { caster: Entity, cues: Vec<CastSettlementCue> },
     /// Internal provenance envelope. Only damage, hit callbacks and child
@@ -246,6 +255,11 @@ pub enum Outcome {
         ability_id: String,
         duration: Fixed64,
     },
+    /// Spend one stored use of a charge ability (G-2); admitted with its cast.
+    ScriptConsumeCharge {
+        entity: Entity,
+        ability_id: String,
+    },
     ScriptSetMana {
         entity: Entity,
         pool: crate::runtime::ability_runtime::ManaPool,
@@ -266,6 +280,9 @@ pub enum Outcome {
     DamageWithCritical { damage:Box<Outcome> },
     /// Authority-only lease token. Damage/faction/credit come from the private book.
     IndependentDamageZonePulse { source:Entity, key:String, lease:u64 },
+    /// Authority-only ability projectile step. Hits resolve at serial settlement
+    /// from private state; `terminal` ends the flight after those hits.
+    AbilityProjectileStep { projectile:Entity, from:SimVec2, to:SimVec2, arrival:bool, terminal:bool },
 }
 
 /// The successful-cast subset of native presentation, without ABI policy handles.

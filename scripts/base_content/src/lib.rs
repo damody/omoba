@@ -54,6 +54,8 @@ mod mana_script_tests;
 mod ward_world_tests;
 #[cfg(test)]
 mod ward_transport_tests;
+#[cfg(test)]
+mod channel_tests;
 
 #[export_root_module]
 fn get_manifest() -> Manifest_Ref {
@@ -104,6 +106,21 @@ fn units() -> RVec<UnitDef> {
         unit_id: SUMMON_SAIKA_GUNNER.as_str().into(),
         script: UnitScript_TO::from_value(summons::SaikaGunner, TD_Opaque),
     });
+    // Heroes whose content sets `unit_script = true` (generated from templates).
+    include!(concat!(env!("OUT_DIR"), "/hero_unit_registry.rs"));
+    // G-3: every immobile template without a dedicated script gets the generic
+    // emplacement AI, so fixed summons are pure data.
+    // Tombstones leave holes in the ID space; scan a bounded range, once at load.
+    for raw in 1..=4096u16 {
+        let Some(name) = omoba_template_ids::try_summon_id_str(omoba_template_ids::SummonId(raw)) else { continue; };
+        let immobile = omoba_template_ids::active_summon_stats(omoba_template_ids::SummonId(raw)).is_some_and(|stats| stats.immobile);
+        if immobile && !v.iter().any(|def| def.unit_id.as_str() == name) {
+            v.push(UnitDef {
+                unit_id: name.into(),
+                script: UnitScript_TO::from_value(summons::emplacement::Emplacement { unit_id: name.into() }, TD_Opaque),
+            });
+        }
+    }
 
     v
 }

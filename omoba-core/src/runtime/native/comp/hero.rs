@@ -5,6 +5,11 @@ use specs::storage::VecStorage;
 use specs::Component;
 use std::collections::HashMap;
 
+/// Hero ability slots: Q, W, E, R, plus the optional extra action slot D (index 4).
+/// A hero with only four abilities never touches the extra slot.
+pub const HERO_ABILITY_SLOTS: usize = omoba_template_ids::HERO_ABILITY_SLOTS;
+pub const LEGACY_HERO_ABILITY_SLOTS: usize = 4;
+
 /// 英雄組件 - 包含英雄的基礎屬性和成長數據
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Hero {
@@ -39,9 +44,24 @@ pub struct Hero {
     /// remain unsupported rather than silently acquiring a full mana balance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mana_pool: Option<ManaPool>,
+    /// Stored uses for charge abilities (G-2), keyed by ability id. Absent for
+    /// ordinary abilities. Persists and keeps recharging through death.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub ability_charges: std::collections::BTreeMap<String, AbilityChargeState>,
 
     // 升級數據
     pub level_growth: LevelGrowth,
+}
+
+/// One charge ability. `remaining` counts down to the next restored use and is
+/// zero exactly when `charges == max`. `recharge` is the per-use duration of
+/// the current rank, snapshotted when a cycle starts.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AbilityChargeState {
+    pub charges: u16,
+    pub max: u16,
+    pub recharge: Fixed64,
+    pub remaining: Fixed64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -85,6 +105,7 @@ impl Hero {
             skill_points: 0,
             ability_cooldowns: HashMap::new(),
             ability_cooldown_totals: HashMap::new(),
+            ability_charges: std::collections::BTreeMap::new(),
             mana_pool: None,
             level_growth: LevelGrowth::default(),
         }
@@ -140,6 +161,7 @@ impl Hero {
             skill_points: 8, // 初始技能點（playtest 方便把所有 ability 點起來）
             ability_cooldowns: HashMap::new(),
             ability_cooldown_totals: HashMap::new(),
+            ability_charges: std::collections::BTreeMap::new(),
             mana_pool: None,
             level_growth: LevelGrowth {
                 strength_per_level: s.level_growth.strength_per_level,
@@ -395,6 +417,34 @@ impl Hero {
         }
     }
 
+    /// Shorten a running cooldown by `by` seconds, keeping its admitted total;
+    /// reaching zero ends it. Returns whether anything changed.
+    pub fn reduce_cooldown(&mut self, ability_id: &str, by: Fixed64) -> bool {
+        let remaining = self.get_cooldown(ability_id);
+        if remaining <= Fixed64::ZERO || by <= Fixed64::ZERO { return false; }
+        let next = Fixed64::from_raw(remaining.raw().saturating_sub(by.raw()));
+        if next > Fixed64::ZERO {
+            self.ability_cooldowns.insert(ability_id.to_string(), next);
+        } else {
+            self.ability_cooldowns.remove(ability_id);
+            self.ability_cooldown_totals.remove(ability_id);
+        }
+        true
+    }
+
+    /// Apply an authority-settled absolute remaining. A shorter value for a
+    /// running cooldown is a reduction and keeps the admitted total; anything
+    /// else (no cooldown running, or a longer value) is a fresh start.
+    pub fn commit_cooldown(&mut self, ability_id: &str, remaining: Fixed64) {
+        let current = self.get_cooldown(ability_id);
+        let total = self.ability_cooldown_totals.get(ability_id).copied();
+        if remaining > Fixed64::ZERO && current > Fixed64::ZERO && remaining <= current && total.is_some_and(|t| t >= current) {
+            self.ability_cooldowns.insert(ability_id.to_string(), remaining);
+        } else {
+            self.start_cooldown(ability_id, remaining);
+        }
+    }
+
     /// Present a running instance's admitted duration, never today's modifiers.
     /// Legacy saves lack that snapshot: use a conservative base/remaining bound.
     pub fn cooldown_total(&self, ability_id: &str, base: Fixed64) -> Option<Fixed64> {
@@ -417,6 +467,72 @@ impl Hero {
             *remaining > Fixed64::ZERO
         });
         self.ability_cooldown_totals.retain(|id, _| self.ability_cooldowns.contains_key(id));
+        for state in self.ability_charges.values_mut() {
+            if state.charges >= state.max || state.recharge <= Fixed64::ZERO { state.remaining = Fixed64::ZERO; continue; }
+            // Carry overshoot into the next cycle so long ticks never lose time.
+            state.remaining = Fixed64::from_raw(state.remaining.raw().saturating_sub(dt.raw()));
+            while state.remaining <= Fixed64::ZERO && state.charges < state.max {
+                state.charges += 1;
+                state.remaining = if state.charges < state.max { state.remaining + state.recharge } else { Fixed64::ZERO };
+            }
+        }
+    }
+
+    /// Re-derive every charge ability from its generated rank data. Cheap: four
+    /// slots, no allocation unless an ability actually declares charges.
+    pub fn sync_authored_charges(&mut self) {
+        for slot in 0..self.abilities.len() {
+            let rank = self.get_ability_level(&self.abilities[slot]);
+            let spec = u8::try_from(rank).ok().filter(|rank| *rank > 0).and_then(|rank|
+                omoba_template_ids::ability_by_name(&self.abilities[slot])
+                    .and_then(omoba_template_ids::active_ability_const)
+                    .and_then(|content| content.charges_at(rank)));
+            if spec.is_some() || self.ability_charges.contains_key(&self.abilities[slot]) {
+                let id = self.abilities[slot].clone();
+                self.sync_charges(&id, spec);
+            }
+        }
+    }
+
+    /// Ready when off cooldown and, for a charge ability, holding a use.
+    pub fn cast_ready(&self, ability_id: &str) -> bool {
+        !self.is_on_cooldown(ability_id) && self.has_charge(ability_id)
+    }
+
+    /// Ordinary abilities always "have" a charge; charge abilities need one stored.
+    pub fn has_charge(&self, ability_id: &str) -> bool {
+        self.ability_charges.get(ability_id).is_none_or(|state| state.charges > 0)
+    }
+
+    /// Spend one stored use; arms the recharge cycle if it was full. False if none.
+    pub fn consume_charge(&mut self, ability_id: &str) -> bool {
+        let Some(state) = self.ability_charges.get_mut(ability_id) else { return true; };
+        if state.charges == 0 { return false; }
+        state.charges -= 1;
+        if state.remaining <= Fixed64::ZERO && state.charges < state.max { state.remaining = state.recharge; }
+        true
+    }
+
+    /// Align stored uses with the learned rank. First learn starts full; a rank
+    /// that raises the maximum grants the extra uses immediately; a lower
+    /// maximum clamps. A new per-use duration applies from the next cycle;
+    /// a running cycle never exceeds it. Unlearned (rank 0) drops the state.
+    pub fn sync_charges(&mut self, ability_id: &str, spec: Option<(u16, Fixed64)>) {
+        let Some((max, recharge)) = spec.filter(|(max, recharge)| *max > 0 && *recharge > Fixed64::ZERO) else {
+            self.ability_charges.remove(ability_id);
+            return;
+        };
+        let state = self.ability_charges.entry(ability_id.to_owned())
+            .or_insert(AbilityChargeState { charges: max, max, recharge, remaining: Fixed64::ZERO });
+        if max > state.max { state.charges = state.charges.saturating_add(max - state.max); }
+        state.max = max;
+        state.charges = state.charges.min(max);
+        state.recharge = recharge;
+        if state.charges >= max {
+            state.remaining = Fixed64::ZERO;
+        } else if state.remaining <= Fixed64::ZERO || state.remaining > recharge {
+            state.remaining = recharge;
+        }
     }
 }
 
@@ -555,5 +671,63 @@ mod mana_pool_tests {
         assert!(value.get("mana_pool").is_none());
         let restored: Hero = serde_json::from_value(value).unwrap();
         assert!(restored.mana_pool.is_none());
+    }
+}
+
+#[cfg(test)]
+mod charge_tests {
+    use super::*;
+    fn s(seconds: i32) -> Fixed64 { Fixed64::from_i32(seconds) }
+    fn hero() -> Hero { let mut h = Hero::new("h".into(), "h".into(), "".into()); h.sync_charges("b", Some((2, s(15)))); h }
+
+    #[test]
+    fn first_learn_is_full_and_spending_arms_one_recharge_cycle() {
+        let mut h = hero();
+        assert_eq!(h.ability_charges["b"], AbilityChargeState { charges: 2, max: 2, recharge: s(15), remaining: Fixed64::ZERO });
+        assert!(h.cast_ready("b") && h.consume_charge("b") && h.consume_charge("b"));
+        assert!(!h.has_charge("b") && !h.cast_ready("b") && !h.consume_charge("b"), "never negative");
+        assert_eq!(h.ability_charges["b"].remaining, s(15), "second spend keeps the running cycle");
+        assert!(h.cast_ready("other") && h.consume_charge("other"), "ordinary abilities are unaffected");
+    }
+
+    #[test]
+    fn recharge_restores_one_per_cycle_and_carries_overshoot() {
+        let mut h = hero();
+        h.consume_charge("b"); h.consume_charge("b");
+        h.tick_cooldowns(s(14));
+        assert_eq!(h.ability_charges["b"].charges, 0);
+        h.tick_cooldowns(s(2));
+        assert_eq!((h.ability_charges["b"].charges, h.ability_charges["b"].remaining), (1, s(14)), "1 s overshoot carried");
+        // One long step (e.g. accumulated while dead) restores several uses, then stops when full.
+        h.tick_cooldowns(s(100));
+        assert_eq!(h.ability_charges["b"], AbilityChargeState { charges: 2, max: 2, recharge: s(15), remaining: Fixed64::ZERO });
+        h.tick_cooldowns(Fixed64::ZERO);
+        assert_eq!(h.ability_charges["b"].charges, 2);
+    }
+
+    #[test]
+    fn rank_changes_grant_or_clamp_and_unlearn_drops_state() {
+        let mut h = hero();
+        h.consume_charge("b");
+        h.tick_cooldowns(s(5));
+        h.sync_charges("b", Some((3, s(10))));
+        let state = h.ability_charges["b"];
+        assert_eq!((state.charges, state.max, state.recharge, state.remaining), (2, 3, s(10), s(10)), "extra use granted; cycle capped by new duration");
+        h.sync_charges("b", Some((1, s(10))));
+        assert_eq!((h.ability_charges["b"].charges, h.ability_charges["b"].remaining), (1, Fixed64::ZERO), "lower max clamps and stops the cycle");
+        h.sync_charges("b", None);
+        assert!(!h.ability_charges.contains_key("b") && h.has_charge("b"));
+    }
+
+    #[test]
+    fn charges_survive_serde_and_absent_field_defaults_empty() {
+        let mut h = hero();
+        h.consume_charge("b");
+        let value = serde_json::to_value(&h).unwrap();
+        let restored: Hero = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(restored.ability_charges, h.ability_charges);
+        let mut legacy = value; legacy.as_object_mut().unwrap().remove("ability_charges");
+        assert!(serde_json::from_value::<Hero>(legacy).unwrap().ability_charges.is_empty());
+        assert!(serde_json::to_value(Hero::new("x".into(), "x".into(), "".into())).unwrap().get("ability_charges").is_none());
     }
 }

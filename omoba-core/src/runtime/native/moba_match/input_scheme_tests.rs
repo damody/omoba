@@ -208,7 +208,7 @@ fn input_scheme_snapshot_keeps_pre_dispatch_controls_after_same_tick_stop() {
     assert_eq!(row.direction, Vec2::new(Fixed64::ONE, Fixed64::ZERO));
     movement_tick(&world);
     assert!(world.read_storage::<Pos>().get(hero).unwrap().0.x > Fixed64::ZERO);
-    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand { admitted_correlation: 0,
         owner_pid: owner, queued: false, kind: PendingHeroCommandKind::Stop,
     });
     crate::runtime::drain_pending_moves(&mut world);
@@ -594,7 +594,7 @@ fn input_scheme_world_stop_and_hold_retire_gesture_without_heartbeat_resurrectio
         PendingHeroCommandKind::MoveTo{pos:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO)},
         PendingHeroCommandKind::AttackMove{pos:Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO)}] {
         let (mut world,hero,owner,_)=moving_world(1,0);
-        world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand{owner_pid:owner,queued:false,kind});
+        world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand{admitted_correlation:0,owner_pid:owner,queued:false,kind});
         crate::runtime::drain_pending_moves(&mut world);
         assert_eq!(world.read_resource::<MobaMatch>().direction_for_source(owner,hero),Vec2::ZERO);
         assert_eq!(apply_direction_input(&mut world,owner,hero,DirectionGesture::Update(1),1,0),Err(InputSchemeError::RetiredGesture));

@@ -116,6 +116,9 @@ impl Default for MoveSpeedSums {
     }
 }
 
+/// State buff id: the carrier is not an obstacle for other units' movement.
+pub const NO_UNIT_COLLISION: &str = "no_unit_collision";
+
 impl BuffStore {
     /// Canonical time-only disclosure for the closed shared modifier families.
     /// Malformed reserved names/families cannot fall back to catalog-name lookup.
@@ -550,6 +553,22 @@ impl BuffStore {
 
     pub fn is_rooted(&self, entity: Entity) -> bool {
         self.has(entity, BuffId::Root.as_str()) || self.has(entity, BuffId::Stun.as_str())
+            // A forced displacement owns the position even after its stun is cleansed.
+            || self.has(entity, crate::runtime::native::forced_motion::BUFF)
+    }
+
+    /// Timed stealth granted by `invisibility_level` buffs (whole levels).
+    /// Visibility uses the higher of this and the entity's `StealthProfile`;
+    /// attacking does not reveal. Zero when no such buff is active.
+    pub fn stealth_level(&self, entity: Entity) -> u16 {
+        let raw = self.sum_add(entity, StatKey::InvisibilityLevel).raw();
+        u16::try_from((raw / 1024).max(0)).unwrap_or(u16::MAX)
+    }
+
+    /// Other units' movement does not collide with this one while it carries
+    /// the [`NO_UNIT_COLLISION`] state buff. Terrain still blocks it.
+    pub fn ignores_unit_collision(&self, entity: Entity) -> bool {
+        self.has(entity, NO_UNIT_COLLISION)
     }
 
     pub fn is_silenced(&self, entity: Entity) -> bool {
@@ -652,7 +671,7 @@ impl BuffStore {
         self.next_zone_lease=lease;
         self.insert_buff(source,key,duration,spec.payload());
         self.independent_zones.insert((source,key.to_owned()),super::damage_zone::IndependentDamageZone {
-            spec,remaining:duration,clock:0,lease,origin,faction});
+            spec,remaining:duration,clock:0,lease,origin,faction,age:Fixed64::ZERO});
         true
     }
 
@@ -723,7 +742,7 @@ impl BuffStore {
 
     pub fn tick(&mut self, dt: Fixed64) -> Vec<(Entity, String, Value)> {
         if dt<=Fixed64::ZERO {return Vec::new();}
-        for entry in self.independent_zones.values_mut(){entry.remaining-=dt.min(entry.remaining);}
+        for entry in self.independent_zones.values_mut(){entry.age+=dt.min(entry.remaining);entry.remaining-=dt.min(entry.remaining);}
         let mut expired = Vec::new();
         // 先收集 expired，避免 retain 內動態借 self（index_dec 也要 &mut self）
         let mut to_drop: Vec<(Entity, String)> = Vec::new();

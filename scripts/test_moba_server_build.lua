@@ -42,4 +42,18 @@ test('verify authority and matching content without frontend',function()
   dependencies.sha256=function(file) return string.rep(file:gsub('\\','/'):find('/target/',1,true) and 'a' or 'b',64) end
   rejects(function() build.verify({},dependencies) end)
 end)
+test('same-machine release authority accepts the frontend-staged debug build only when current',function()
+  local function digest(file)
+    file=file:gsub('\\','/')
+    if file:find('/target/debug/',1,true) or file:find('scripts/base_content.dll',1,true) then return string.rep('d',64) end
+    return string.rep('r',64)
+  end
+  local report=build.verify({profile='release'},{is_file=function() return true end,sha256=digest})
+  assert(report.base_content_profile=='debug')
+  assert(build.verify({profile='debug'},{is_file=function() return true end,sha256=digest}).base_content_profile=='debug')
+  local stale=function(file) return string.rep(file:gsub('\\','/'):find('scripts/base_content.dll',1,true) and 's' or 'r',64) end
+  rejects(function() build.verify({profile='release'},{is_file=function() return true end,sha256=stale}) end)
+  local no_debug=function(file) return not file:gsub('\\','/'):find('/target/debug/',1,true) end
+  rejects(function() build.verify({profile='release'},{is_file=no_debug,sha256=digest}) end)
+end)
 print(('server build: %d groups passed (injected commands/files; no build or game started)'):format(count))

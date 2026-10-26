@@ -12,7 +12,8 @@ local hero
 for _, value in ipairs(recipe.heroes) do if value.id == 'saika_magoichi' then hero = value end end
 assert(hero and hero.texture_source == 'scripts/lua_data/templates/heroes/saika_magoichi/saika_magoichi_mat.png', 'unexpected source; refusing mutation')
 local original = path.join(b.root, hero.texture_source)
-local replacement = path.join(b.root, 'omfx/data/hero_portraits/hero_default_portrait.png')
+local replacement = path.join(b.root, 'omfue/SourceArt/ContentData/data/hero_portraits/hero_default_portrait.png')
+assert(path.is_file(replacement), 'art swap replacement missing: ' .. replacement)
 local work = path.join(b.root, 'target/art-swap-runs', 'art-swap-' .. os.time())
 assert(not path.exists(work), 'run directory exists')
 path.mkdir_p(work)

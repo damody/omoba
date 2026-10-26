@@ -115,6 +115,15 @@ pub(crate) struct MobaMapEntry {
     pub(crate) id: String,
     pub(crate) lane_length: i32,
     pub(crate) tower_offset: i32,
+    /// Optional lane-tower and base hit points; absent keeps the shipped 1200 / 1600.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) tower_hp: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) base_hp: Option<i32>,
+    /// Optional multiplier on every hero XP award (lane, jungle, kill, assist); absent keeps 1.0.
+    /// 0.1..=10 in exact thousandths: the simulation applies it as integer per-mille.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) hero_xp_scale: Option<f64>,
     /// Optional outer-to-inner offsets; absent preserves the single-tower map.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) tower_layers: Option<Vec<i32>>,
@@ -338,6 +347,13 @@ fn valid_id(id:&str)->bool {
         && id.bytes().all(|b|b.is_ascii_lowercase() || b.is_ascii_digit() || b==b'_')
 }
 
+/// `hero_xp_scale` as integer per-mille: finite, 0.1..=10 and an exact multiple of 0.001.
+pub(crate) fn hero_xp_scale_permille(scale: f64) -> Option<u32> {
+    if !scale.is_finite() || !(0.1..=10.0).contains(&scale) { return None; }
+    let permille = (scale * 1000.0).round();
+    ((scale * 1000.0 - permille).abs() < 1e-6).then_some(permille as u32)
+}
+
 pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
     let mut ids = BTreeSet::new();
     if maps.len() > 32 { return Err("MOBA map catalog exceeds 32 maps".into()); }
@@ -345,6 +361,9 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
         if !valid_id(&map.id) || !ids.insert(&map.id)
             || !(2000..=100_000).contains(&map.lane_length)
             || map.tower_offset < 300
+            || map.tower_hp.is_some_and(|hp| !(1..=100_000).contains(&hp))
+            || map.base_hp.is_some_and(|hp| !(1..=100_000).contains(&hp))
+            || map.hero_xp_scale.is_some_and(|scale| hero_xp_scale_permille(scale).is_none())
             || !matches!(map.base_unlock.as_str(), "all_lane_towers" | "any_lane_towers") || map.lanes.len() != 3
         { return Err(format!("invalid MOBA map '{}'", map.id)); }
         if let Some(layers) = &map.tower_layers {
@@ -516,10 +535,13 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
             }
             // Keep lane spawn/structure corridors clear. Jungle AI already
             // navigates public obstacles; only its home body must be clear.
+            // Every public route point and the segment between neighbours must
+            // be walkable by a hero body (E070): name the exact edge on failure.
             for lane in &map.lanes {
-                if lane.waypoints.windows(2).any(|edge| omoba_sim::terrain::swept_circle_hits_polygon(
+                if let Some((index, edge)) = lane.waypoints.windows(2).enumerate().find(|(_, edge)| omoba_sim::terrain::swept_circle_hits_polygon(
                     p(edge[0]),p(edge[1]),Fixed64::from_i32(100),&polygon)) {
-                    return Err(format!("MOBA terrain '{}' blocks lane '{}' in '{}'",terrain.id,lane.id,map.id));
+                    return Err(format!("MOBA terrain '{}' blocks lane '{}' segment {} ({},{})->({},{}) in '{}'",
+                        terrain.id,lane.id,index,edge[0][0],edge[0][1],edge[1][0],edge[1][1],map.id));
                 }
             }
             for camp in &map.jungle_camps {
@@ -932,6 +954,22 @@ impl SummonTargetPriorityEntry {
     }
 }
 
+/// What happens to a summon when its owner dies or retires (G-3).
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all="snake_case")]
+pub(crate) enum SummonOwnerDeathEntry {
+    /// Legacy: keeps fighting with launch allegiance; stops following.
+    #[default]
+    Persist,
+    /// Removed on the first tick its owner is dead or retired.
+    Expire,
+}
+impl SummonOwnerDeathEntry {
+    pub(crate) fn rust_variant(self)->&'static str {
+        match self {Self::Persist=>"Persist",Self::Expire=>"Expire"}
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub(crate) struct SummonEntry {
     pub(crate) id: String,
@@ -967,10 +1005,27 @@ pub(crate) struct SummonEntry {
     pub(crate) target_priority: SummonTargetPriorityEntry,
     #[serde(default = "default_attack_timing")]
     pub(crate) attack_timing: AttackTimingEntry,
+    /// Fixed emplacement (G-3): never moves, follows or accepts move orders.
+    #[serde(default)]
+    pub(crate) immobile: bool,
+    /// Attack damage added per owner hero level above 1, sampled at spawn.
+    #[serde(default)]
+    pub(crate) damage_per_owner_level: f32,
+    #[serde(default)]
+    pub(crate) owner_death: SummonOwnerDeathEntry,
+    /// Never attackable or damageable while alive (lethal arrows, wisps).
+    #[serde(default)]
+    pub(crate) invulnerable: bool,
 }
 
 pub(crate) fn validate_summon_navigation(entries:&[SummonEntry])->Result<(),String> {
     for entry in entries.iter().filter(|entry|!entry.tombstone) {
+        if entry.immobile && (entry.move_speed!=0.0 || entry.follow_start_distance!=0.0 || entry.follow_stop_distance!=0.0) {
+            return Err(format!("summon {} is immobile but has move speed or follow distances",entry.id));
+        }
+        if !entry.damage_per_owner_level.is_finite() || !(0.0..=10_000.0).contains(&entry.damage_per_owner_level) {
+            return Err(format!("summon {} has invalid damage_per_owner_level",entry.id));
+        }
         let (start,stop)=(entry.follow_start_distance,entry.follow_stop_distance);
         if !start.is_finite() || !stop.is_finite() || start<0.0 || start>10_000.0 || stop<0.0
             || (start==0.0 && stop!=0.0) || (start>0.0 && (stop<=0.0 || stop>=start)) {
@@ -1369,6 +1424,13 @@ pub(crate) fn load_content(content_root: PathBuf) -> Result<LuaContent, String> 
     }
     validate_moba_maps(&manifest.moba_maps)?;
     validate_summon_navigation(&manifest.summons)?;
+    for ability in manifest.abilities.iter().filter(|ability|!ability.tombstone) {
+        if let Some(summon)=&ability.summon {
+            if !manifest.summons.iter().any(|entry|!entry.tombstone&&entry.id==summon.unit) {
+                return Err(format!("ability {} summons unknown or tombstoned unit {}",ability.id,summon.unit));
+            }
+        }
+    }
     validate_objective_buff_catalog(&manifest.moba_maps,&manifest.buffs)?;
     if manifest_value.get("moba_communication").is_some() {
         omoba_content_model::moba_communication::validate_communication_content(&manifest.moba_communication)?;
@@ -1971,9 +2033,13 @@ mod tests {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
         let maps = load_content(root).unwrap().manifest.moba_maps;
         assert!(validate_moba_maps(&maps).is_ok());
-        for case in 0..11 {
+        for case in 0..15 {
             let mut maps = maps.clone();
             match case {
+                11 => maps[0].hero_xp_scale = Some(0.05),
+                12 => maps[0].hero_xp_scale = Some(10.5),
+                13 => maps[0].hero_xp_scale = Some(1.0005),
+                14 => maps[0].hero_xp_scale = Some(f64::NAN),
                 0 => maps.push(maps[0].clone()),
                 1 => maps[0].id = "BAD".into(),
                 2 => maps[0].base_unlock = "unknown".into(),

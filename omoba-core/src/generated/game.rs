@@ -549,6 +549,36 @@ pub struct AttackTarget {
     #[prost(bool, tag = "2")]
     pub queued: bool,
 }
+/// Distinct from hero movement. References bind the current owner and summon
+/// generations; operation 1=MoveTo(point required), 2=Release(point forbidden).
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct OwnedSummonOrder {
+    #[prost(uint32, tag = "1")]
+    pub owner_entity: u32,
+    #[prost(uint32, tag = "2")]
+    pub owner_generation: u32,
+    #[prost(uint32, tag = "3")]
+    pub summon_entity: u32,
+    #[prost(uint32, tag = "4")]
+    pub summon_generation: u32,
+    #[prost(uint32, tag = "5")]
+    pub operation: u32,
+    #[prost(message, optional, tag = "6")]
+    pub point: ::core::option::Option<Vec2I>,
+}
+/// Client-only opaque references. The authenticated edge converts this into
+/// OwnedSummonOrder; canonical lives never occur in this payload or an ACK.
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct SummonCommandInput {
+    #[prost(message, optional, tag = "1")]
+    pub owner: ::core::option::Option<SecureReplicaTarget>,
+    #[prost(message, optional, tag = "2")]
+    pub summon: ::core::option::Option<SecureReplicaTarget>,
+    #[prost(uint32, tag = "3")]
+    pub operation: u32,
+    #[prost(message, optional, tag = "4")]
+    pub point: ::core::option::Option<Vec2I>,
+}
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AttackMove {
     /// world position to attack-move toward
@@ -832,7 +862,7 @@ pub struct CombatPreferencesProjection {
 pub struct PlayerInput {
     #[prost(
         oneof = "player_input::Action",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28"
+        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30"
     )]
     pub action: ::core::option::Option<player_input::Action>,
 }
@@ -894,6 +924,10 @@ pub mod player_input {
         InputScheme(super::InputSchemeUpdate),
         #[prost(message, tag = "28")]
         Direction(super::HeroDirectionInput),
+        #[prost(message, tag = "29")]
+        OwnedSummonOrder(super::OwnedSummonOrder),
+        #[prost(message, tag = "30")]
+        SummonCommand(super::SummonCommandInput),
     }
 }
 /// 沙箱/測試：直接生成一隻指定種類的 creep（BTD6 沙箱「發送氣球」對應）。
@@ -1049,6 +1083,11 @@ pub struct JoinRequest {
     pub ward_protocol_version: u32,
     #[prost(string, tag = "21")]
     pub ward_rules_hash: ::prost::alloc::string::String,
+    /// Rejoin: the secret the server issued to this player in its last TeamGameStart.
+    /// Empty on a first join. A player that has joined before must present the
+    /// latest one; any other value is refused, so nobody can claim a held hero.
+    #[prost(bytes = "vec", tag = "22")]
+    pub resume_token: ::prost::alloc::vec::Vec<u8>,
 }
 /// Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
 /// initial SimSnapshot to bootstrap the client.
@@ -1267,6 +1306,10 @@ pub struct TeamGameStart {
     pub owner_ward_envelope: ::core::option::Option<OwnerWardEnvelope>,
     #[prost(message, optional, tag = "37")]
     pub combat_preferences: ::core::option::Option<CombatPreferencesProjection>,
+    /// Unicast secret for this player's next rejoin (rotated on every join).
+    /// Never logged, never part of any hash.
+    #[prost(bytes = "vec", tag = "38")]
+    pub resume_token: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RevealEntity {
@@ -2121,6 +2164,22 @@ pub struct AbilityHudPresentation {
     pub total_cooldown_raw: i64,
     #[prost(message, optional, tag = "6")]
     pub cast: ::core::option::Option<AbilityCastPresentation>,
+    /// 0 unavailable, 1 affordable, 2 short, 3 invalid
+    #[prost(uint32, tag = "7")]
+    pub mana_cost_state: u32,
+    #[prost(sint64, tag = "8")]
+    pub effective_mana_cost_raw: i64,
+    /// G-2 stored uses. max_charges 0 means an ordinary cooldown-only ability.
+    #[prost(uint32, tag = "9")]
+    pub max_charges: u32,
+    #[prost(uint32, tag = "10")]
+    pub charges: u32,
+    /// Fixed64 seconds to the next restored use; 0 when full
+    #[prost(sint64, tag = "11")]
+    pub charge_remaining_raw: i64,
+    /// Fixed64 seconds per restored use at the current rank
+    #[prost(sint64, tag = "12")]
+    pub charge_total_raw: i64,
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct AbilityCastPresentation {
@@ -2356,6 +2415,8 @@ pub mod runtime_session_state {
         Stalled = 2,
         ServerDisconnected = 3,
         Terminated = 4,
+        /// Link lost; the runtime keeps retrying the same match until it ends or the player gives up.
+        Reconnecting = 5,
     }
     impl State {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -2369,6 +2430,7 @@ pub mod runtime_session_state {
                 Self::Stalled => "STALLED",
                 Self::ServerDisconnected => "SERVER_DISCONNECTED",
                 Self::Terminated => "TERMINATED",
+                Self::Reconnecting => "RECONNECTING",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2379,6 +2441,7 @@ pub mod runtime_session_state {
                 "STALLED" => Some(Self::Stalled),
                 "SERVER_DISCONNECTED" => Some(Self::ServerDisconnected),
                 "TERMINATED" => Some(Self::Terminated),
+                "RECONNECTING" => Some(Self::Reconnecting),
                 _ => None,
             }
         }
@@ -2521,7 +2584,7 @@ pub struct RendererInput {
     pub disclosure_epoch: u64,
     #[prost(
         oneof = "renderer_input::Intent",
-        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30"
+        tags = "10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31"
     )]
     pub intent: ::core::option::Option<renderer_input::Intent>,
 }
@@ -2567,6 +2630,8 @@ pub mod renderer_input {
         InputScheme(super::InputSchemeUpdate),
         #[prost(message, tag = "30")]
         Direction(super::RendererDirectionIntent),
+        #[prost(message, tag = "31")]
+        SummonCommand(super::SummonCommandInput),
     }
 }
 /// Local renderer intent. No sender/team/room/run, nonce, canonical actor or clock.

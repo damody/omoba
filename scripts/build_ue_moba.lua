@@ -71,6 +71,9 @@ assert(not prefetch_shared_pch or (build_executor == 'local' and mode ~= 'verify
 assert(not compiler_version or (build_executor == 'local' and mode ~= 'verify'),
   '--compiler-version requires a local build')
 if mode == 'build' then process.supervise_workflow(script, arg) end
+-- Concurrent build_ue_moba runs overwrote each other's staged DLLs (E106): queue on a
+-- repo-wide lock, taken after supervise_workflow so only the supervised child holds it.
+local build_lock <close> = require('build_lock').acquire(root, mode .. ' ' .. table.concat(arg, ' '))
 
 local function verify_stage_consistency()
   local report=stage_contract.verify(stage_contract.bindings(root))

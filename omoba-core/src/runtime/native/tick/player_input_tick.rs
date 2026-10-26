@@ -221,7 +221,7 @@ fn route_input(
             let count=move_q.requests.iter().filter(|pending|pending.owner_pid==player_id
                 && matches!(&pending.kind,PendingHeroCommandKind::OwnedSummonOrder {..})).count();
             if count>=32 {return;}
-            move_q.requests.push(crate::comp::PendingHeroCommand {owner_pid:player_id,queued:false,
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,owner_pid:player_id,queued:false,
                 kind:PendingHeroCommandKind::OwnedSummonOrder {order}});
         }
         // Client references must be resolved by the authenticated edge first.
@@ -246,7 +246,7 @@ fn route_input(
                 omoba_sim::Fixed64::from_raw(x as i64),
                 omoba_sim::Fixed64::from_raw(y as i64),
             );
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: m.queued,
                 kind: PendingHeroCommandKind::MoveTo { pos },
@@ -266,19 +266,19 @@ fn route_input(
                 omoba_sim::Fixed64::from_raw(x as i64),
                 omoba_sim::Fixed64::from_raw(y as i64),
             );
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: a.queued,
                 kind: PendingHeroCommandKind::AttackMove { pos },
             });
         }
         Some(PlayerInputEnum::HoldPosition(a)) => {
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid:player_id,queued:a.queued,kind:PendingHeroCommandKind::HoldPosition,
             });
         }
         Some(PlayerInputEnum::Stop(_)) => {
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: false,
                 kind: PendingHeroCommandKind::Stop,
@@ -292,7 +292,7 @@ fn route_input(
                 a.target_id,
                 a.queued,
             );
-            move_q.requests.push(crate::comp::PendingHeroCommand {
+            move_q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation,
                 owner_pid: player_id,
                 queued: a.queued,
                 kind: PendingHeroCommandKind::AttackTarget {
@@ -344,6 +344,7 @@ fn route_input(
                 target_pos,
                 target_entity: c.target_entity,
                 owner_pid: player_id,
+                correlation: admitted_correlation,
             });
         }
         Some(PlayerInputEnum::UpgradeAbility(u)) => {
@@ -356,6 +357,7 @@ fn route_input(
             ability_q.requests.push(crate::comp::PendingAbilityUpgrade {
                 ability_index: u.ability_index,
                 owner_pid: player_id,
+                correlation: admitted_correlation,
             });
         }
         Some(PlayerInputEnum::TowerPlace(t)) => {

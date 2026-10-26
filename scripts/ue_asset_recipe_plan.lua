@@ -6,6 +6,7 @@ local function source_name(source)
   assert(type(source) == 'string' and not source:find('\\') and
     not source:match('^/') and not source:find(':') and not source:find('%.%.'),
     'recipe source must be a repository-relative path: ' .. tostring(source))
+  assert(not source:match('^omfx/'), 'recipe source uses the retired omfx frontend: ' .. source)
   local name = assert(source:match('([^/]+)%.[^/.]+$'), 'source has no extension: ' .. source)
   assert(name:match('^[%w_]+$'), 'unsafe asset name: ' .. name)
   return name
@@ -33,20 +34,24 @@ function M.build(recipe)
     local binding = {id = hero.id, generated_class = hero.generated_class,
       animations = json.object(), fallback = not present(hero.model_source)}
     if present(hero.model_source) then
-      binding.mesh = add('mesh', hero.model_source, root .. '/Mesh')
+      binding.mesh = add('mesh', hero.model_source, root .. '/Mesh',
+        {hero = hero.id, field = 'model_source'})
       binding.skeleton = binding.mesh .. '_Skeleton'
     end
     if present(hero.texture_source) then
-      binding.texture = add('texture', hero.texture_source, root .. '/Textures')
+      binding.texture = add('texture', hero.texture_source, root .. '/Textures',
+        {hero = hero.id, field = 'texture_source'})
       binding.material = root .. '/Materials/M_' .. hero.id
       assert(not seen[binding.material], 'material destination collision')
       seen[binding.material] = true
       jobs[#jobs + 1] = {kind = 'material', source = hero.texture_source,
         asset = binding.material, primary = binding.material, texture = binding.texture,
-        destination = root .. '/Materials', name = 'M_' .. hero.id}
+        destination = root .. '/Materials', name = 'M_' .. hero.id,
+        hero = hero.id, field = 'texture_source'}
     end
     if present(hero.portrait_source) then
-      binding.portrait = add('portrait', hero.portrait_source, root .. '/Portrait')
+      binding.portrait = add('portrait', hero.portrait_source, root .. '/Portrait',
+        {hero = hero.id, field = 'portrait_source'})
     end
     local sources = {}
     for _, animation in ipairs(hero.animation_sources) do
@@ -55,7 +60,8 @@ function M.build(recipe)
         not binding.animations[animation.slot], 'invalid or duplicate animation slot')
       local asset = sources[animation.source]
       if not asset then
-        asset = add('animation', animation.source, root .. '/Animations', {skeleton = binding.skeleton})
+        asset = add('animation', animation.source, root .. '/Animations', {skeleton = binding.skeleton,
+          hero = hero.id, field = 'animation_sources.' .. animation.slot})
         sources[animation.source] = asset
       end
       binding.animations[animation.slot] = asset
@@ -64,5 +70,24 @@ function M.build(recipe)
   end
   return {version = 1, catalog_identity_hash = recipe.catalog_identity_hash,
     catalog_data_hash = recipe.catalog_data_hash, jobs = jobs, heroes = heroes}
+end
+-- Every plan source that `is_file(source)` rejects, once per hero/field/path.
+function M.missing_sources(plan, is_file)
+  local missing, seen = {}, {}
+  for _, job in ipairs(plan.jobs) do
+    local key = job.hero .. '\0' .. job.field .. '\0' .. job.source
+    if not seen[key] and not is_file(job.source) then
+      seen[key] = true
+      missing[#missing + 1] = {hero = job.hero, field = job.field, source = job.source}
+    end
+  end
+  return missing
+end
+function M.describe_missing(missing)
+  local lines = {}
+  for _, entry in ipairs(missing) do
+    lines[#lines + 1] = string.format('  hero %s field %s: missing %s', entry.hero, entry.field, entry.source)
+  end
+  return #missing .. ' recipe source file(s) missing:\n' .. table.concat(lines, '\n')
 end
 return M

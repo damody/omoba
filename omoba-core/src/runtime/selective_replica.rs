@@ -396,7 +396,7 @@ impl SelectiveReplicaRuntime {
         if same {
             if incoming != self.owner_ward_verified.as_slice() {
                 self.reject_unverified_owner_ward();
-                return Err("NONCANONICAL_OWNER_WARD");
+                return Err("NONCANONICAL_OWNER_WARD_SAME_TICK_BYTES");
             }
             self.owner_ward_projection = incoming.to_vec();
             if self.owner_ward_session == 0 {

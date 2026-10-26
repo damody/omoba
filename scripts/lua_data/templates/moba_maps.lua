@@ -163,5 +163,35 @@ for key, value in pairs(maps[1]) do layered[key] = value end
 layered.id = "three_lane_layered_training"
 layered.tower_layers = {2200, 1600, 1000}
 maps[#maps + 1] = layered
+-- Live-check variant (append-only): identical layout and rules, but waves hit three times
+-- harder and base structures are lighter and slower to return, so a full push to the
+-- base happens inside a 10-minute run. Ranked/real matches keep three_lane_training.
+local quick = {}
+for key, value in pairs(maps[1]) do quick[key] = value end
+quick.id = "three_lane_quick_training"
+quick.minion_wave = {}
+for index, minion in ipairs(maps[1].minion_wave) do
+  local copy = {}
+  for key, value in pairs(minion) do copy[key] = value end
+  copy.damage = minion.damage * 3
+  quick.minion_wave[index] = copy
+end
+quick.base_structures = {}
+for key, value in pairs(maps[1].base_structures) do quick.base_structures[key] = value end
+quick.base_structures.inhibitor_hp = 300
+quick.base_structures.nexus_tower_hp = 250
+quick.base_structures.inhibitor_respawn_seconds = 600
+quick.base_structures.nexus_tower_respawn_seconds = 600
+local super = {}
+for key, value in pairs(maps[1].base_structures.super_minion) do super[key] = value end
+super.damage = super.damage * 3
+quick.base_structures.super_minion = super
+quick.tower_hp = 400
+-- One outer tower per lane: the push reaches the base structures inside the time box.
+quick.tower_layers = {maps[1].tower_layers[1]}
+quick.base_hp = 400
+-- The live check ends in 4-6 minutes; 2.5x hero XP brings every human seat to level 6 (R) in that time.
+quick.hero_xp_scale = 2.5
+maps[#maps + 1] = quick
 return maps
 end

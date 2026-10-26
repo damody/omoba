@@ -9,3 +9,9 @@
 
 pub mod B01_saika_magoichi;
 pub mod B02_date_masamune;
+pub mod A34_omatsu;
+pub mod C17_oichi;
+pub mod A02_inahime;
+pub mod B08_asai_nagamasa;
+pub mod B29_murakami_yoshikiyo;
+pub mod C15_tamako;

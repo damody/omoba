@@ -107,6 +107,15 @@ impl ScriptRegistry {
     }
 
     #[cfg(test)]
+    pub(crate) fn insert_ability_for_test(&mut self, def: AbilityDef, script: AbilityScript_TO<'static, RBox<()>>) {
+        let id = def.id.clone();
+        if !self.abilities.contains_key(&id) {
+            self.ability_order.push(id.clone());
+        }
+        self.abilities.insert(id, (def, script));
+    }
+
+    #[cfg(test)]
     pub(crate) fn insert_unit_for_test(
         &mut self,
         unit_id: impl Into<String>,

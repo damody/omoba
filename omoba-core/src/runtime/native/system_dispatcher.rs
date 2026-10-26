@@ -147,6 +147,7 @@ impl SystemDispatcher {
             dispatch_builder,
             &["nearby_sys", "player_sys", "demo_patrol_sys"],
         );
+        dispatch::<ability_projectile_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<tower_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<hero_command_tick::Sys>(dispatch_builder, &["projectile_sys"]);
         dispatch::<hero_move_tick::Sys>(dispatch_builder, &["hero_command_sys"]);
@@ -183,6 +184,7 @@ impl SystemDispatcher {
         dispatch::<hero_move_tick::Sys>(dispatch_builder, &["hero_command_sys"]);
         dispatch::<creep_tick::Sys>(dispatch_builder, &[]);
         dispatch::<projectile_tick::Sys>(dispatch_builder, &[]);
+        dispatch::<ability_projectile_tick::Sys>(dispatch_builder, &["projectile_sys"]);
     }
 
     fn build_vision_systems(&self, dispatch_builder: &mut DispatcherBuilder<'_, '_>) {
@@ -294,6 +296,7 @@ pub fn build_phase3_dispatcher() -> Result<Dispatcher<'static, 'static>, Error> 
 
     // 第 2 階段 — Vec<Outcome> 生產者/消費者，已排序。
     dispatch::<projectile_tick::Sys>(&mut builder, &["nearby_sys", "player_sys"]);
+    dispatch::<ability_projectile_tick::Sys>(&mut builder, &["projectile_sys"]);
     dispatch::<tower_tick::Sys>(&mut builder, &["projectile_sys"]);
     dispatch::<hero_command_tick::Sys>(&mut builder, &["projectile_sys"]);
     dispatch::<hero_move_tick::Sys>(&mut builder, &["hero_command_sys"]);

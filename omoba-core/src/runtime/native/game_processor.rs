@@ -6,8 +6,19 @@ fn begin_recovery_channel(world:&mut World,hero:Entity,owner:u32,spec:super::rec
     clear_hero_command_queue(world,hero);
     super::cast_windup::cancel(world,hero);
     interrupt_attack_for_accepted_command(world,hero);
-    world.write_resource::<super::MobaMatch>().neutralize_direction(owner,hero);
+    if let Some(mut state)=world.try_fetch_mut::<super::MobaMatch>() {state.neutralize_direction(owner,hero);}
     super::recovery_channel::start(world,hero,owner,spec);true
+}
+
+/// Same command transition as the recovery channel; the host then owns every pulse.
+fn begin_ability_channel(world:&mut World,hero:Entity,owner:u32,skill_id:String,level:u8,
+    spec:super::ability_channel::Spec,anchor:super::ability_channel::Anchor)->bool {
+    if !super::ability_channel::can_start(world,hero,owner,spec,anchor){return false;}
+    clear_hero_command_queue(world,hero);
+    super::cast_windup::cancel(world,hero);
+    interrupt_attack_for_accepted_command(world,hero);
+    if let Some(mut state)=world.try_fetch_mut::<super::MobaMatch>() {state.neutralize_direction(owner,hero);}
+    super::ability_channel::start(world,hero,owner,skill_id,level,spec,anchor);true
 }
 use std::collections::BTreeMap;
 
@@ -41,6 +52,7 @@ use crate::runtime::geometry::{circle_hits_polygon, point_segment_dist_sq};
 use crate::game_proto::{player_input::Action as ProtoAction, ItemUse, PlayerInput};
 use crate::runtime::item::{ActiveEffect, ItemRegistry};
 use crate::runtime::scripting::{ScriptEvent, ScriptEventQueue, ScriptUnitTag, SkillTarget};
+use super::command_outcome::CommandRejection;
 use crate::tower_meta::UpgradeEffect;
 use omb_script_abi::stat_keys::StatKey;
 use omb_script_abi::types::DamageProfile as AbiDamageProfile;
@@ -199,6 +211,35 @@ fn active_hero_context_allows(world: &World, hero: Entity, owner_pid: u32) -> bo
         && state.heroes.iter().any(|slot| slot.player_id == owner_pid && slot.entity == Some(hero))
 }
 
+/// MOBA move orders head for the closest reachable point when the clicked
+/// destination is inside terrain or cut off (one deterministic rule on the
+/// authority and every replica). `None` only when the hero cannot get closer.
+fn resolve_move_destination(world: &World, hero: Entity, target: omoba_sim::Vec2) -> Option<omoba_sim::Vec2> {
+    let Some(from) = world.read_storage::<Pos>().get(hero).map(|pos| pos.0) else { return Some(target) };
+    let radius = world.read_storage::<CollisionRadius>().get(hero).map(|r| r.0)
+        .unwrap_or_else(|| Fixed64::from_i32(20));
+    let regions = world.read_resource::<crate::comp::BlockedRegions>();
+    let terrain = crate::tick::hero_command_tick::TerrainIndex::new(&regions);
+    let mut memo = crate::tick::hero_command_tick::NavMemo::default();
+    let resolved = crate::tick::hero_command_tick::static_nearest_reachable(from, target, radius, &terrain, &mut memo);
+    if let Some(point) = resolved.filter(|point| *point != target) {
+        log::info!(
+            "HeroCommand destination unreachable; heading for nearest reachable point hero={:?} target=({:.1},{:.1}) nearest=({:.1},{:.1})",
+            hero, target.x.to_f32_for_render(), target.y.to_f32_for_render(),
+            point.x.to_f32_for_render(), point.y.to_f32_for_render()
+        );
+    }
+    resolved
+}
+
+fn reject_unreachable_move(world: &World, owner_pid: u32, correlation: u32, hero: Entity, target: omoba_sim::Vec2) {
+    log::warn!(
+        "HeroCommand rejected pid={} hero={:?} reason=UNREACHABLE target=({:.1},{:.1})",
+        owner_pid, hero, target.x.to_f32_for_render(), target.y.to_f32_for_render()
+    );
+    super::command_outcome::reject(world, owner_pid, correlation, super::command_outcome::UNREACHABLE);
+}
+
 pub fn drain_pending_moves(world: &mut World) {
     register_projection_policy(
         world,
@@ -260,8 +301,20 @@ pub fn drain_pending_moves(world: &mut World) {
                 continue;
             }
             PendingHeroCommandKind::HoldPosition => HeroCommand::HoldPosition,
-            PendingHeroCommandKind::MoveTo { pos } => HeroCommand::MoveTo { pos },
-            PendingHeroCommandKind::AttackMove { pos } => HeroCommand::AttackMove { pos },
+            PendingHeroCommandKind::MoveTo { pos } => match resolve_move_destination(world, hero, pos) {
+                Some(pos) => HeroCommand::MoveTo { pos },
+                None => {
+                    reject_unreachable_move(world, req.owner_pid, req.admitted_correlation, hero, pos);
+                    continue;
+                }
+            },
+            PendingHeroCommandKind::AttackMove { pos } => match resolve_move_destination(world, hero, pos) {
+                Some(pos) => HeroCommand::AttackMove { pos },
+                None => {
+                    reject_unreachable_move(world, req.owner_pid, req.admitted_correlation, hero, pos);
+                    continue;
+                }
+            },
             PendingHeroCommandKind::AttackTarget { target_entity_id } => {
                 match validate_attack_target(world, hero, target_entity_id, req.owner_pid) {
                     Ok(target) => HeroCommand::AttackTarget {
@@ -344,25 +397,39 @@ pub fn handle_ability_upgrade_from_input(
     ability_index: u32,
     owner_pid: u32,
 ) -> Result<(), failure::Error> {
-    if ability_index >= 4 {
-        return Err(failure::err_msg(format!(
-            "AbilityUpgrade: invalid ability_index={} (must be 0..=3) pid={}",
-            ability_index, owner_pid
+    admit_ability_upgrade(world, ability_index, owner_pid).map_err(|rejection| failure::err_msg(rejection.message))
+}
+
+/// Every rejection carries a stable code for the owner's command result.
+fn admit_ability_upgrade(
+    world: &mut World,
+    ability_index: u32,
+    owner_pid: u32,
+) -> Result<(), CommandRejection> {
+    use super::command_outcome as code;
+    if ability_index as usize >= crate::runtime::HERO_ABILITY_SLOTS {
+        return Err(CommandRejection::new(code::INVALID_SLOT, format!(
+            "AbilityUpgrade: invalid ability_index={} (must be below {}) pid={}",
+            ability_index, crate::runtime::HERO_ABILITY_SLOTS, owner_pid
         )));
     }
     let slot = ability_index as usize;
 
-    let hero_entity = player_hero_entity(world, "AbilityUpgrade", owner_pid)?;
+    let hero_entity = player_hero_entity(world, "AbilityUpgrade", owner_pid)
+        .map_err(|error| CommandRejection::new(code::NO_HERO, error.to_string()))?;
 
     let lane = world.try_fetch::<crate::runtime::MobaMatch>();
     let is_lane = lane.is_some();
     if let Some(state) = lane.as_ref() {
         if state.phase != crate::runtime::MobaMatchPhase::Playing
             || world.read_resource::<crate::runtime::GamePause>().is_paused
-            || !state.heroes.iter().any(|slot| slot.player_id == owner_pid && slot.entity == Some(hero_entity))
+        {
+            return Err(CommandRejection::new(code::GAME_NOT_ACTIVE, "AbilityUpgrade: inactive or invalid lane hero"));
+        }
+        if !state.heroes.iter().any(|slot| slot.player_id == owner_pid && slot.entity == Some(hero_entity))
             || world.read_storage::<CProperty>().get(hero_entity).is_none_or(|p| p.hp <= Fixed64::ZERO)
         {
-            return Err(failure::err_msg("AbilityUpgrade: inactive or invalid lane hero"));
+            return Err(CommandRejection::new(code::HERO_INACTIVE, "AbilityUpgrade: inactive or invalid lane hero"));
         }
     }
     drop(lane);
@@ -370,7 +437,7 @@ pub fn handle_ability_upgrade_from_input(
     let ability_id = {
         let heroes = world.read_storage::<Hero>();
         let hero = heroes.get(hero_entity).ok_or_else(|| {
-            failure::err_msg(format!(
+            CommandRejection::new(code::NO_HERO, format!(
                 "AbilityUpgrade: hero entity vanished before read (pid={})",
                 owner_pid
             ))
@@ -380,7 +447,7 @@ pub fn handle_ability_upgrade_from_input(
             .filter(|id| !id.is_empty())
             .cloned()
             .ok_or_else(|| {
-                failure::err_msg(format!(
+                CommandRejection::new(code::ABILITY_NOT_BOUND, format!(
                     "AbilityUpgrade: hero has no ability bound at slot={} (pid={})",
                     slot, owner_pid
                 ))
@@ -391,31 +458,37 @@ pub fn handle_ability_upgrade_from_input(
         let registry = world.read_resource::<AbilityRegistry>();
         let definition = registry.get(&ability_id);
         if is_lane && definition.is_none() {
-            return Err(failure::err_msg("AbilityUpgrade: missing lane ability metadata"));
+            return Err(CommandRejection::new(code::UPGRADE_REJECTED, "AbilityUpgrade: missing lane ability metadata"));
         }
         definition.map(|def| i32::from(def.max_level).max(1)).unwrap_or(5)
     };
+    // Learned automatically at its level gates; a skill point can never buy it.
+    if omoba_template_ids::ability_by_name(&ability_id).and_then(omoba_template_ids::active_ability_const)
+        .is_some_and(|definition| definition.auto_learn) {
+        return Err(CommandRejection::new(code::UPGRADE_REJECTED, format!(
+            "AbilityUpgrade: slot={} ability='{}' is learned automatically pid={}", slot, ability_id, owner_pid)));
+    }
 
     let new_level = {
         let mut heroes = world.write_storage::<Hero>();
         let hero = heroes.get_mut(hero_entity).ok_or_else(|| {
-            failure::err_msg(format!(
+            CommandRejection::new(code::NO_HERO, format!(
                 "AbilityUpgrade: hero entity vanished before write (pid={})",
                 owner_pid
             ))
         })?;
         if hero.skill_points <= 0 {
-            return Err(failure::err_msg(format!(
+            return Err(CommandRejection::new(code::SKILL_POINTS, format!(
                 "AbilityUpgrade: no skill points slot={} ability='{}' pid={}",
                 slot, ability_id, owner_pid
             )));
         }
         let current = hero.ability_levels.get(&ability_id).copied().unwrap_or(0);
         if is_lane && current < 0 {
-            return Err(failure::err_msg("AbilityUpgrade: invalid lane ability rank"));
+            return Err(CommandRejection::new(code::UPGRADE_REJECTED, "AbilityUpgrade: invalid lane ability rank"));
         }
         if current >= max_level {
-            return Err(failure::err_msg(format!(
+            return Err(CommandRejection::new(code::MAX_LEVEL, format!(
                 "AbilityUpgrade: slot={} ability='{}' already maxed ({}/{}) pid={}",
                 slot, ability_id, current, max_level, owner_pid
             )));
@@ -425,10 +498,10 @@ pub fn handle_ability_upgrade_from_input(
             let required = omoba_template_ids::ability_by_name(&ability_id)
                 .and_then(omoba_template_ids::active_ability_const)
                 .and_then(|definition| definition.levels.get(current as usize))
-                .ok_or_else(|| failure::err_msg("AbilityUpgrade: missing lane rank requirements"))?
+                .ok_or_else(|| CommandRejection::new(code::UPGRADE_REJECTED, "AbilityUpgrade: missing lane rank requirements"))?
                 .required_hero_level;
             if hero.level < i32::from(required) {
-                return Err(failure::err_msg(format!("AbilityUpgrade: requires hero level {}", required)));
+                return Err(CommandRejection::new(code::LEVEL_REQUIRED, format!("AbilityUpgrade: requires hero level {}", required)));
             }
         }
         hero.ability_levels.insert(ability_id.clone(), next);
@@ -456,7 +529,243 @@ pub fn handle_ability_upgrade_from_input(
     Ok(())
 }
 
+/// Hero lives (entities) whose held ranks already ran their learn hooks in this
+/// world. A respawn is a new entity, so each life relearns exactly once. World-local
+/// bookkeeping: every world sees the same life start on the same tick.
+#[derive(Default)]
+struct LifeRanksLearned(std::collections::BTreeSet<Entity>);
+
+/// Every rank a hero holds when a life starts (MOBA birth loadout, respawn with
+/// persistent ranks) runs that skill's learn hook once for the life, so permanent
+/// learn effects (passive stat buffs, rank markers) exist from the life's first
+/// upgrade phase, not only after a skill point is spent (split45: born-rank-1
+/// passives never applied, and death erased learned ones). Learn hooks are
+/// rank-idempotent (fixed buff ids). Runs in the AbilityUpgrades phase on the
+/// authority and every replica alike.
+fn relearn_life_ranks(world: &mut World) {
+    if world.try_fetch::<LifeRanksLearned>().is_none() { world.insert(LifeRanksLearned::default()); }
+    let mut learn = Vec::new();
+    {
+        let entities = world.entities();
+        let properties = world.read_storage::<CProperty>();
+        let heroes = world.read_storage::<Hero>();
+        let mut lives = world.write_resource::<LifeRanksLearned>();
+        lives.0.retain(|entity| entities.is_alive(*entity));
+        for (entity, hero, property) in (&entities, &heroes, &properties).join() {
+            if property.hp <= Fixed64::ZERO || !lives.0.insert(entity) { continue; }
+            for id in hero.abilities.iter().filter(|id| !id.is_empty()) {
+                let rank = hero.ability_levels.get(id).copied().unwrap_or(0);
+                if rank > 0 { learn.push((entity, id.clone(), rank)); }
+            }
+        }
+    }
+    if learn.is_empty() { return; }
+    let mut queue = world.write_resource::<ScriptEventQueue>();
+    for (caster, skill_id, rank) in learn {
+        queue.push(ScriptEvent::SkillLearn { caster, skill_id, new_level: rank.clamp(1, i32::from(u8::MAX)) as u8 });
+    }
+}
+
+/// Max-HP bonus already folded into each life's `CProperty.mhp`.
+#[derive(Default)]
+struct AppliedHealthBonus(BTreeMap<Entity, Fixed64>);
+
+/// Max-HP stat buffs (HealthBonus / ExtraHealthBonus) are folded into
+/// `CProperty.mhp` as a delta against what the life already received, like item
+/// stats and level growth: a rising bonus raises HP by the same amount, a falling
+/// one clamps HP. Every reader (disclosure, HUD, heals, regen) then sees one max HP
+/// and `hp <= mhp` holds on the authority and every replica (split45: regen above
+/// the disclosed max made the team replica reject the baseline).
+fn settle_health_bonus(world: &mut World) {
+    if world.try_fetch::<crate::runtime::BuffStore>().is_none() { return; }
+    if world.try_fetch::<AppliedHealthBonus>().is_none() { world.insert(AppliedHealthBonus::default()); }
+    let entities = world.entities();
+    let buffs = world.read_resource::<crate::runtime::BuffStore>();
+    let mut applied = world.write_resource::<AppliedHealthBonus>();
+    let mut properties = world.write_storage::<CProperty>();
+    applied.0.retain(|entity, _| entities.is_alive(*entity));
+    let mut subjects: Vec<Entity> = [omb_script_abi::stat_keys::StatKey::HealthBonus, omb_script_abi::stat_keys::StatKey::ExtraHealthBonus]
+        .iter().flat_map(|key| buffs.entities_with_key(key.as_str())).chain(applied.0.keys().copied()).collect();
+    subjects.sort_by_key(|entity| (entity.id(), entity.gen().id()));
+    subjects.dedup();
+    let stats = crate::runtime::ability_runtime::UnitStats::from_refs(&buffs, false);
+    for entity in subjects {
+        let Some(property) = properties.get_mut(entity) else { applied.0.remove(&entity); continue };
+        let before = applied.0.get(&entity).copied().unwrap_or(Fixed64::ZERO);
+        let bonus = stats.max_hp_bonus(entity);
+        let delta = bonus - before;
+        if delta == Fixed64::ZERO { continue; }
+        // Never below one raw HP of capacity, whatever the buffs say.
+        let mhp = (property.mhp + delta).max(Fixed64::from_raw(1));
+        let applied_delta = mhp - property.mhp;
+        property.mhp = mhp;
+        if applied_delta > Fixed64::ZERO && property.hp > Fixed64::ZERO { property.hp += applied_delta; }
+        if property.hp > property.mhp { property.hp = property.mhp; }
+        let total = before + applied_delta;
+        if total == Fixed64::ZERO { applied.0.remove(&entity); } else { applied.0.insert(entity, total); }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn every_hero_life_relearns_its_held_ranks_once() {
+    let mut world = World::new();
+    world.register::<Hero>();
+    world.register::<CProperty>();
+    world.insert(ScriptEventQueue::default());
+    let mut hero = Hero::default();
+    hero.abilities = vec!["q".into(), "w".into(), "e".into(), "r".into()];
+    for (id, rank) in [("q", 1), ("w", 1), ("e", 2), ("r", 0)] { hero.ability_levels.insert(id.into(), rank); }
+    let life = |hp: i32| CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::ONE, msd: Fixed64::ZERO,
+        def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO };
+    let first = world.create_entity().with(hero.clone()).with(life(1)).build();
+    world.create_entity().with(hero.clone()).with(life(0)).build();
+    relearn_life_ranks(&mut world);
+    assert_eq!(world.read_resource::<ScriptEventQueue>().len(), 3, "every held rank, never an unlearned slot or a dead hero");
+    relearn_life_ranks(&mut world);
+    assert_eq!(world.read_resource::<ScriptEventQueue>().len(), 3, "once per life");
+    // Death and respawn: a new entity is a new life and learns again.
+    world.delete_entity(first).unwrap(); world.maintain();
+    world.create_entity().with(hero).with(life(1)).build();
+    relearn_life_ranks(&mut world);
+    assert_eq!(world.read_resource::<ScriptEventQueue>().len(), 6, "a new life relearns");
+}
+
+#[cfg(test)]
+#[test]
+fn health_bonus_folds_into_max_hp_and_keeps_hp_within_it() {
+    let mut world = World::new();
+    world.register::<CProperty>();
+    world.insert(crate::runtime::BuffStore::default());
+    let unit = world.create_entity().with(CProperty { hp: Fixed64::from_i32(400), mhp: Fixed64::from_i32(500), msd: Fixed64::ZERO,
+        def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+    let hp = |world: &World| { let p = world.read_storage::<CProperty>().get(unit).unwrap().clone(); (p.hp, p.mhp) };
+    world.write_resource::<crate::runtime::BuffStore>().add(unit, "bonus", crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,
+        serde_json::json!({ omb_script_abi::stat_keys::StatKey::HealthBonus.as_str(): 100.0 }));
+    settle_health_bonus(&mut world);
+    assert_eq!(hp(&world), (Fixed64::from_i32(500), Fixed64::from_i32(600)), "max and current rise together");
+    settle_health_bonus(&mut world);
+    assert_eq!(hp(&world), (Fixed64::from_i32(500), Fixed64::from_i32(600)), "applied once");
+    world.write_resource::<crate::runtime::BuffStore>().remove(unit, "bonus");
+    settle_health_bonus(&mut world);
+    assert_eq!(hp(&world), (Fixed64::from_i32(500), Fixed64::from_i32(500)), "removal restores the max and clamps nothing below it");
+}
+
+/// The rank an auto-learned ability has at `hero_level`: every next rank whose
+/// requirement is met, up to `max_level`. Never lowers a rank.
+pub(crate) fn auto_learned_rank(current: i32, max_level: u8, required: impl IntoIterator<Item = u8>, hero_level: i32) -> i32 {
+    let required: Vec<u8> = required.into_iter().collect();
+    let mut rank = current.max(0);
+    while rank < i32::from(max_level) && required.get(rank as usize).is_some_and(|level| hero_level >= i32::from(*level)) { rank += 1; }
+    rank
+}
+
+#[cfg(test)]
+#[test]
+fn auto_learned_ranks_follow_each_level_gate_and_never_drop() {
+    // H06 style: one rank at hero level 16.
+    assert_eq!(auto_learned_rank(0, 1, [16], 15), 0);
+    assert_eq!(auto_learned_rank(0, 1, [16], 16), 1);
+    assert_eq!(auto_learned_rank(1, 1, [16], 25), 1, "max level caps it");
+    // H04 style: born at rank 1 with no further rank.
+    assert_eq!(auto_learned_rank(1, 1, [1], 1), 1);
+    // Several gates reached at once (a big XP reward) learn every rank.
+    assert_eq!(auto_learned_rank(0, 3, [6, 11, 16], 12), 2);
+    assert_eq!(auto_learned_rank(3, 3, [6, 11, 16], 1), 3, "a rank is never removed");
+    assert_eq!(auto_learned_rank(-1, 2, [1, 1], 1), 2, "a negative rank is treated as unlearned");
+}
+
+/// (hero life, ability, rank) already announced by the learn log. Log bookkeeping
+/// only: never hashed, never disclosed, never read by gameplay.
+#[derive(Default)]
+struct AutoLearnAnnounced(std::collections::BTreeSet<(Entity, String, i32)>);
+
+/// Source NOT_LEARNABLE abilities (`auto_learn`): every rank whose
+/// `required_hero_level` the hero has reached is learned now, without a skill
+/// point, in any slot. It runs at the start of the AbilityUpgrades phase in the
+/// authority and in every replica, from the hero level they already share, so a
+/// replica learns on the same tick. A dead hero catches up when it respawns.
+fn auto_learn_gated_ranks(world: &mut World) {
+    if world.try_fetch::<AutoLearnAnnounced>().is_none() { world.insert(AutoLearnAnnounced::default()); }
+    let mut learned = Vec::new();
+    let mut already = Vec::new();
+    {
+        let entities = world.entities();
+        let properties = world.read_storage::<CProperty>();
+        let mut heroes = world.write_storage::<Hero>();
+        for (entity, hero, property) in (&entities, &mut heroes, &properties).join() {
+            if property.hp <= Fixed64::ZERO { continue; }
+            for (slot, id) in hero.abilities.clone().into_iter().enumerate() {
+                let Some(definition) = omoba_template_ids::ability_by_name(&id)
+                    .and_then(omoba_template_ids::active_ability_const).filter(|definition| definition.auto_learn) else { continue };
+                let start = hero.ability_levels.get(&id).copied().unwrap_or(0).max(0);
+                let rank = auto_learned_rank(start, definition.max_level,
+                    definition.levels.iter().map(|level| level.required_hero_level), hero.level);
+                if rank != start {
+                    hero.ability_levels.insert(id.clone(), rank);
+                    learned.push((entity, slot, id, rank));
+                } else if start > 0 {
+                    already.push((entity, id, start));
+                }
+            }
+        }
+    }
+    // A rank the hero already holds (its birth loadout, or a replica restoring a
+    // disclosed hero) is announced once per life with the learn hook's log line, so
+    // log-based acceptance sees every auto-learned rank. Log only: no on_learn rerun.
+    {
+        let mut announced = world.write_resource::<AutoLearnAnnounced>();
+        for (caster, skill_id, rank) in already {
+            if announced.0.insert((caster, skill_id.clone(), rank)) {
+                log::info!("[scripting] learn ability='{}' caster={} rank={}", skill_id, caster.id(), rank);
+            }
+        }
+        for (caster, _, skill_id, rank) in &learned { announced.0.insert((*caster, skill_id.clone(), *rank)); }
+        if announced.0.len() > 4096 {
+            let entities = world.entities();
+            announced.0.retain(|(entity, _, _)| entities.is_alive(*entity));
+        }
+    }
+    for (caster, slot, skill_id, rank) in learned {
+        log::info!("AbilityAutoLearn slot={} ability='{}' level={}", slot, skill_id, rank);
+        world.write_resource::<ScriptEventQueue>().push(ScriptEvent::SkillLearn {
+            caster, skill_id, new_level: rank.clamp(1, i32::from(u8::MAX)) as u8 });
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn auto_learned_birth_ranks_are_announced_once_per_life() {
+    let mut world = World::new();
+    world.register::<Hero>();
+    world.register::<CProperty>();
+    world.insert(ScriptEventQueue::default());
+    let born = |world: &mut World| {
+        let mut hero = Hero::default();
+        hero.abilities = vec!["c17_devotion".into()];
+        hero.ability_levels.insert("c17_devotion".into(), 1);
+        hero.level = 1;
+        world.create_entity().with(hero).with(CProperty { hp: Fixed64::ONE, mhp: Fixed64::ONE, msd: Fixed64::ZERO,
+            def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build()
+    };
+    let first = born(&mut world);
+    let announced = |world: &World| world.read_resource::<AutoLearnAnnounced>().0.clone();
+    auto_learn_gated_ranks(&mut world);
+    assert!(announced(&world).contains(&(first, "c17_devotion".to_owned(), 1)), "birth rank announced");
+    let once = announced(&world);
+    auto_learn_gated_ranks(&mut world);
+    assert_eq!(announced(&world), once, "announced once per life");
+    assert_eq!(world.read_resource::<ScriptEventQueue>().len(), 0, "log only: no learn hook rerun, no rank change");
+    let second = born(&mut world);
+    auto_learn_gated_ranks(&mut world);
+    assert!(announced(&world).contains(&(second, "c17_devotion".to_owned(), 1)), "a new life announces again");
+}
+
 pub fn drain_pending_ability_upgrades(world: &mut World) {
+    super::command_outcome::ensure(world);
+    settle_health_bonus(world);
+    relearn_life_ranks(world);
+    auto_learn_gated_ranks(world);
     let drained = {
         let mut q = world.write_resource::<PendingAbilityUpgradeQueue>();
         std::mem::take(&mut q.requests)
@@ -468,13 +777,15 @@ pub fn drain_pending_ability_upgrades(world: &mut World) {
     )
     .entered();
     for req in drained {
-        if let Err(e) = handle_ability_upgrade_from_input(world, req.ability_index, req.owner_pid) {
+        if let Err(rejection) = admit_ability_upgrade(world, req.ability_index, req.owner_pid) {
             log::warn!(
-                "AbilityUpgrade failed pid={} ability_index={}: {}",
+                "AbilityUpgrade failed pid={} ability_index={} code={}: {}",
                 req.owner_pid,
                 req.ability_index,
-                e
+                rejection.code,
+                rejection
             );
+            super::command_outcome::reject(world, req.owner_pid, req.correlation, rejection.code);
         }
     }
     drop(drain_span);
@@ -487,25 +798,42 @@ pub fn handle_ability_cast_from_input(
     target_entity: Option<u32>,
     owner_pid: u32,
 ) -> Result<(), failure::Error> {
+    admit_ability_cast(world, ability_index, target_pos, target_entity, owner_pid)
+        .map(|_| ())
+        .map_err(|rejection| failure::err_msg(rejection.message))
+}
+
+/// Admission only. The queued SkillCast can still be rejected later in the
+/// same tick (rank, mana, range, handler); `drain_pending_ability_casts`
+/// tracks the returned caster and skill so dispatch can report that too.
+fn admit_ability_cast(
+    world: &mut World,
+    ability_index: u32,
+    target_pos: Option<omoba_sim::Vec2>,
+    target_entity: Option<u32>,
+    owner_pid: u32,
+) -> Result<(Entity, String, Option<&'static str>), CommandRejection> {
+    use super::command_outcome as code;
     register_projection_policy(
         world,
         omb_script_abi::types::projection_policy_ids::HERO_ABILITY,
         "runtime/native/game_processor/handle_ability_cast_from_input",
     );
-    if ability_index >= 4 {
-        return Err(failure::err_msg(format!(
-            "AbilityCast: invalid ability_index={} (must be 0..=3) pid={}",
-            ability_index, owner_pid
+    if ability_index as usize >= crate::runtime::HERO_ABILITY_SLOTS {
+        return Err(CommandRejection::new(code::INVALID_SLOT, format!(
+            "AbilityCast: invalid ability_index={} (must be below {}) pid={}",
+            ability_index, crate::runtime::HERO_ABILITY_SLOTS, owner_pid
         )));
     }
     let slot = ability_index as usize;
 
-    let caster = player_hero_entity(world, "AbilityCast", owner_pid)?;
+    let caster = player_hero_entity(world, "AbilityCast", owner_pid)
+        .map_err(|error| CommandRejection::new(code::NO_HERO, error.to_string()))?;
 
     let ability_id = {
         let heroes = world.read_storage::<Hero>();
         let hero = heroes.get(caster).ok_or_else(|| {
-            failure::err_msg(format!(
+            CommandRejection::new(code::NO_HERO, format!(
                 "AbilityCast: hero entity vanished before read (pid={})",
                 owner_pid
             ))
@@ -515,7 +843,7 @@ pub fn handle_ability_cast_from_input(
             .filter(|id| !id.is_empty())
             .cloned()
             .ok_or_else(|| {
-                failure::err_msg(format!(
+                CommandRejection::new(code::ABILITY_NOT_BOUND, format!(
                     "AbilityCast: hero has no ability bound at slot={} (pid={})",
                     slot, owner_pid
                 ))
@@ -525,19 +853,24 @@ pub fn handle_ability_cast_from_input(
     {
         let heroes = world.read_storage::<Hero>();
         let hero = heroes.get(caster).ok_or_else(|| {
-            failure::err_msg(format!(
+            CommandRejection::new(code::NO_HERO, format!(
                 "AbilityCast: hero entity vanished before gate (pid={})",
                 owner_pid
             ))
         })?;
         if !hero.can_use_ability(&ability_id) {
-            return Err(failure::err_msg(format!(
+            return Err(CommandRejection::new(code::NOT_LEARNED, format!(
                 "AbilityCast: slot={} ability='{}' not learned (pid={})",
                 slot, ability_id, owner_pid
             )));
         }
+        if !hero.is_on_cooldown(&ability_id) && !hero.has_charge(&ability_id) {
+            return Err(CommandRejection::new(code::NO_CHARGE, format!(
+                "AbilityCast: slot={} ability='{}' has no stored charge pid={}", slot, ability_id, owner_pid
+            )));
+        }
         if hero.is_on_cooldown(&ability_id) {
-            return Err(failure::err_msg(format!(
+            return Err(CommandRejection::new(code::ON_COOLDOWN, format!(
                 "AbilityCast: slot={} ability='{}' still on cooldown ({:.2}s) pid={}",
                 slot,
                 ability_id,
@@ -546,6 +879,15 @@ pub fn handle_ability_cast_from_input(
             )));
         }
     }
+
+    // Input shape only: a unit or point ability submitted without that target.
+    // The cast is still queued (settlement decides); a later failure reports this.
+    let shape = world.try_fetch::<AbilityRegistry>().and_then(|registry| registry.get(&ability_id).map(|def| def.target_type.clone()))
+        .and_then(|kind| match kind {
+            crate::ability_meta::TargetType::Unit if target_entity.is_none() => Some(code::TARGET_REQUIRED),
+            crate::ability_meta::TargetType::Point if target_pos.is_none() => Some(code::TARGET_REQUIRED),
+            _ => None,
+        });
 
     let target = if let Some(entity_id) = target_entity {
         let entities = world.entities();
@@ -578,10 +920,12 @@ pub fn handle_ability_cast_from_input(
         slot,
         ability_id
     );
-    Ok(())
+    Ok((caster, ability_id, shape))
 }
 
 pub fn drain_pending_ability_casts(world: &mut World) {
+    super::command_outcome::ensure(world);
+    world.write_resource::<super::command_outcome::OwnerCommandOutcomes>().begin_casts();
     let drained = {
         let mut q = world.write_resource::<PendingAbilityCastQueue>();
         std::mem::take(&mut q.requests)
@@ -593,19 +937,26 @@ pub fn drain_pending_ability_casts(world: &mut World) {
     )
     .entered();
     for req in drained {
-        if let Err(e) = handle_ability_cast_from_input(
+        match admit_ability_cast(
             world,
             req.ability_index,
             req.target_pos,
             req.target_entity,
             req.owner_pid,
         ) {
-            log::warn!(
-                "AbilityCast failed pid={} ability_index={}: {}",
-                req.owner_pid,
-                req.ability_index,
-                e
-            );
+            Ok((caster, skill_id, shape)) => world
+                .write_resource::<super::command_outcome::OwnerCommandOutcomes>()
+                .track_cast(caster, &skill_id, req.owner_pid, req.correlation, shape),
+            Err(rejection) => {
+                log::warn!(
+                    "AbilityCast failed pid={} ability_index={} code={}: {}",
+                    req.owner_pid,
+                    req.ability_index,
+                    rejection.code,
+                    rejection
+                );
+                super::command_outcome::reject(world, req.owner_pid, req.correlation, rejection.code);
+            }
         }
     }
     drop(drain_span);
@@ -1665,16 +2016,22 @@ pub(crate) fn item_entity_visible_to_team(world: &World, target: Entity, viewer_
     let (target_pos, origins) = {
         let positions = world.read_storage::<Pos>();
         let Some(target_pos) = positions.get(target).map(|pos| pos.0) else { return false; };
-        let stealth = world.read_storage::<StealthProfile>().get(target).map(|profile| profile.stealth_level).unwrap_or(0);
+        let stealth = world.read_storage::<StealthProfile>().get(target).map(|profile| profile.stealth_level).unwrap_or(0)
+            .max(world.try_fetch::<BuffStore>().map_or(0, |buffs| buffs.stealth_level(target)));
         let sources = world.read_storage::<VisionSource>();
         let entities = world.entities();
-        let origins: Vec<omoba_sim::Vec2> = (&entities, &positions, &sources).join().filter_map(|(_, pos, source)| {
+        let mut origins: Vec<omoba_sim::Vec2> = (&entities, &positions, &sources).join().filter_map(|(_, pos, source)| {
             if source.team != viewer_team || source.detection_level < stealth {
                 return None;
             }
             let delta = target_pos - pos.0;
             (delta.length_squared() <= source.radius * source.radius).then_some(pos.0)
         }).collect();
+        // True-sight zones detect every stealth level (same rule as Wave B).
+        if let Some(zones) = world.try_fetch::<super::reveal_zone::RevealZones>() {
+            origins.extend(zones.sources().filter(|(_, zone)| zone.team == viewer_team
+                && (target_pos - zone.center).length_squared() <= zone.radius * zone.radius).map(|(_, zone)| zone.center));
+        }
         (target_pos, origins)
     };
     let occluders = world.try_fetch::<VisionOccluderSet>().map(|set| set.0.clone()).unwrap_or_default();
@@ -2197,8 +2554,10 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::DamageWithCritical {..} => "DamageWithCritical",
         Outcome::DamageZonePulse {..} => "DamageZonePulse",
         Outcome::IndependentDamageZonePulse {..} => "IndependentDamageZonePulse",
+        Outcome::AbilityProjectileStep {..} => "AbilityProjectileStep",
         Outcome::RawDamage {..} => "RawDamage",
         Outcome::ScriptCastTransaction { .. } => "ScriptCastTransaction",
+        Outcome::ScriptCastPreAdmitted { .. } => "ScriptCastPreAdmitted",
         Outcome::ScriptCastCommitted { .. } => "ScriptCastCommitted",
         Outcome::ProjectileContext { .. } => "ProjectileContext",
         Outcome::Damage { .. } => "Damage",
@@ -2232,11 +2591,13 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptDirectDamage { .. } => "ScriptDirectDamage",
         Outcome::ScriptHeal { .. } => "ScriptHeal",
         Outcome::ScriptRecoveryChannel {..}=>"ScriptRecoveryChannel",
+        Outcome::ScriptAbilityChannel {..}=>"ScriptAbilityChannel",
         Outcome::ScriptRemoveBuff { .. } => "ScriptRemoveBuff",
         Outcome::ScriptProjectile { .. } => "ScriptProjectile",
         Outcome::ScriptTowerFireFx { .. } => "ScriptTowerFireFx",
         Outcome::ScriptAttackPhaseCue { .. } => "ScriptAttackPhaseCue",
         Outcome::ScriptStartCooldown { .. } => "ScriptStartCooldown",
+        Outcome::ScriptConsumeCharge { .. } => "ScriptConsumeCharge",
         Outcome::ScriptSetMana { .. } => "ScriptSetMana",
         Outcome::ScriptManaCommit { .. } => "ScriptManaCommit",
         Outcome::ScriptManaGained { .. } => "ScriptManaGained",
@@ -2274,6 +2635,7 @@ pub fn process_outcomes(
     let mut next_outcomes = Vec::new();
     let mut committed_vitals = BTreeMap::new();
     let mut committed_cooldowns = BTreeMap::new();
+    let mut committed_charges = BTreeMap::new();
 
     let outcomes = {
         let mut outcomes = world.write_resource::<Vec<Outcome>>();
@@ -2289,7 +2651,28 @@ pub fn process_outcomes(
     .entered();
 
     let projection_tick = world.try_fetch::<Tick>().map(|tick| tick.0).unwrap_or(0);
-    let mut pending: std::collections::VecDeque<_> = outcomes.into();
+    fn pre_admit(world:&World,remove_uids:&[Entity],transaction:Outcome) -> Outcome {
+        let mut transaction = transaction;
+        let admitted = match &mut transaction {
+            Outcome::ScriptCastTransaction {caster,skill_id,rank,faction,player_owner,expected_mana,outcomes,cues,..} => {
+                let admitted = !remove_uids.contains(caster)
+                    && cast_settlement::admit(world,*caster,skill_id,*rank,faction.as_ref(),*player_owner,expected_mana.as_ref(),outcomes,cues.len())
+                    // Summon placement is judged on the same batch-start world as mana.
+                    && cast_settlement::plan_summons(world,outcomes).is_some();
+                if admitted {cast_settlement::apply_caster_mana(world,*caster,outcomes);}
+                admitted
+            }
+            _ => return transaction,
+        };
+        Outcome::ScriptCastPreAdmitted {transaction: Box::new(transaction), admitted}
+    }
+    // Admit every managed cast of this batch against the batch-start world,
+    // in order, before any effect settles. A hidden same-tick effect of
+    // another player (mana drain, control, lethal damage) must not flip
+    // admission: the casting team's replica cannot see it and would diverge.
+    // Only the admitted cast's own mana commit applies now, so the same
+    // caster's next cast in this batch admits against its reserved ledger.
+    let mut pending: std::collections::VecDeque<_> = outcomes.into_iter().map(|outcome|pre_admit(world,&remove_uids,outcome)).collect();
     let mut next_ordinal = 0usize;
     while let Some(outcome) = pending.pop_front() {
         let outcome_ordinal = next_ordinal;
@@ -2317,6 +2700,20 @@ pub fn process_outcomes(
         let outcome=match outcome {
             Outcome::IndependentDamageZonePulse {source,key,lease}=>{
                 for child in zone_pulse_settlement::expand_independent(world,source,&key,lease,&remove_uids).into_iter().rev(){pending.push_front(child);}
+                continue;
+            },
+            Outcome::AbilityProjectileStep {projectile,from,to,arrival,terminal}=>{
+                for child in super::ability_projectile::settle_step(world,projectile,from,to,arrival,terminal,&remove_uids).into_iter().rev(){pending.push_front(child);}
+                continue;
+            },
+            // Launch envelope: never stored as a buff, never published as AddBuff.
+            Outcome::AddBuff {target,buff_id,duration,payload}
+                if payload.get(super::ability_projectile::KEY).is_some() || buff_id==super::ability_projectile::BUFF=>{
+                if !remove_uids.contains(&target) {
+                    if let Some(projectile)=super::ability_projectile::launch(world,target,&buff_id,duration,&payload) {
+                        super::ability_projectile::emit_launch(world,projectile);
+                    }
+                }
                 continue;
             },
             Outcome::AddBuff {target,buff_id,duration,payload} if payload.get(super::ability_runtime::damage_zone::KEY).is_some()=>{
@@ -2363,10 +2760,31 @@ pub fn process_outcomes(
                 | Outcome::ScriptDirectDamage { target, .. } | Outcome::ScriptHeal { target, .. } => {
                     committed_vitals.insert(crate::runtime::canonical_entity_id(*target), *target);
                 }
+                Outcome::AddBuff { target, buff_id, duration, payload } if buff_id.as_str()==super::ally_area_restore::BUFF => {
+                    if let Some(spec)=super::ally_area_restore::admitted(world,*target,buff_id,*duration,payload,None) {
+                        for (ally,_) in super::ally_area_restore::heals(world,&spec) {
+                            committed_vitals.insert(crate::runtime::canonical_entity_id(ally), ally);
+                        }
+                    }
+                }
                 Outcome::ScriptStartCooldown { entity, ability_id, .. } => {
                     if let Some(slot) = world.read_storage::<Hero>().get(*entity)
                         .and_then(|hero| hero.abilities.iter().position(|id| id == ability_id)) {
                         committed_cooldowns.insert((crate::runtime::canonical_entity_id(*entity), slot as u32), (*entity, ability_id.clone()));
+                    }
+                    for (slot, id) in world.read_storage::<Hero>().get(*entity)
+                        .map(|hero| super::cooldown_refund::refunded_slots(hero, ability_id)).unwrap_or_default() {
+                        committed_cooldowns.insert((crate::runtime::canonical_entity_id(*entity), slot as u32), (*entity, id));
+                    }
+                }
+                Outcome::ScriptConsumeCharge { entity, ability_id } => {
+                    if let Some(slot) = world.read_storage::<Hero>().get(*entity)
+                        .and_then(|hero| hero.abilities.iter().position(|id| id == ability_id)) {
+                        committed_charges.insert((crate::runtime::canonical_entity_id(*entity), slot as u32), (*entity, ability_id.clone()));
+                    }
+                    for (slot, id) in world.read_storage::<Hero>().get(*entity)
+                        .map(|hero| super::cooldown_refund::refunded_slots(hero, ability_id)).unwrap_or_default() {
+                        committed_cooldowns.insert((crate::runtime::canonical_entity_id(*entity), slot as u32), (*entity, id));
                     }
                 }
                 _ => {}
@@ -2386,10 +2804,13 @@ pub fn process_outcomes(
         match outcome {
             Outcome::DamageWithLeech {..}|Outcome::DamageWithCritical {..}=>unreachable!("combat envelope opened before serial settlement"),
             Outcome::DamageZonePulse {..}|Outcome::IndependentDamageZonePulse {..}=>unreachable!("zone expanded before serial settlement"),
+            Outcome::AbilityProjectileStep {..}=>unreachable!("ability projectile step expanded before serial settlement"),
             Outcome::RawDamage {..}=>unreachable!("raw packet converted before settlement"),
-            Outcome::ScriptCastTransaction {caster,skill_id,rank,faction,player_owner,expected_mana,mut outcomes,cues,aggression_target} => {
-                let admitted = !remove_uids.contains(&caster)
-                    && cast_settlement::admit(world,caster,&skill_id,rank,faction.as_ref(),player_owner,expected_mana.as_ref(),&outcomes,cues.len());
+            // A transaction produced mid-batch (not seen by pre-admission) admits here.
+            transaction @ Outcome::ScriptCastTransaction {..} => pending.push_front(pre_admit(world,&remove_uids,transaction)),
+            Outcome::ScriptCastPreAdmitted {transaction, admitted} => {
+                let Outcome::ScriptCastTransaction {caster,skill_id,mut outcomes,cues,aggression_target,..} = *transaction
+                    else {unreachable!("pre-admission wraps cast transactions only")};
                 let planned = admitted.then(||cast_settlement::plan_summons(world,&outcomes)).flatten();
                 if let Some(planned) = planned {
                     for spawn in planned {spawn.commit(world,projection_tick,&mut next_ordinal)?;}
@@ -2397,7 +2818,15 @@ pub fn process_outcomes(
                     if let Some(target)=aggression_target {super::moba_match::record_moba_champion_aggression(world,caster,target,true);}
                     pending.push_front(Outcome::ScriptCastCommitted {caster,cues});
                     for effect in outcomes.into_iter().rev() {pending.push_front(effect);}
-                } else {cast_settlement::reject(world,caster,&outcomes);}
+                } else {
+                    // Late serial admission: the owner's input is rejected, never silently scheduled.
+                    // Only an authoritative world can judge it (host lifecycles need MobaMatch).
+                    let authoritative=world.try_fetch::<super::MobaMatch>().is_some();
+                    if let Some(mut journal)=world.try_fetch_mut::<super::command_outcome::OwnerCommandOutcomes>() {
+                        journal.reject_cast_if(caster,&skill_id,super::command_outcome::CAST_REJECTED,authoritative);
+                    }
+                    cast_settlement::reject(world,caster,&outcomes);
+                }
             }
             Outcome::ScriptCastCommitted {caster,cues} => {cast_settlement::publish(world,caster,cues);}
             Outcome::ProjectileContext {..} => unreachable!("nested projectile contexts are rejected"),
@@ -2567,6 +2996,9 @@ pub fn process_outcomes(
             Outcome::ScriptRecoveryChannel {caster,owner,amount,duration,interval}=>{
                 begin_recovery_channel(world,caster,owner,super::recovery_channel::Spec {amount,duration,interval});
             },
+            Outcome::ScriptAbilityChannel {caster,owner,skill_id,level,spec,anchor}=>{
+                begin_ability_channel(world,caster,owner,skill_id,level,spec,anchor);
+            },
             Outcome::ScriptRemoveBuff { target, buff_id } => {
                 handle_script_remove_buff(world, target, buff_id)
             }
@@ -2630,11 +3062,23 @@ pub fn process_outcomes(
                 backswing_ms,
                 dir_rad,
             ),
+            Outcome::ScriptConsumeCharge { entity, ability_id } => {
+                if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
+                    // Admission checked the use; a failed spend here is a no-op, never negative.
+                    hero.consume_charge(&ability_id);
+                    super::cooldown_refund::apply(hero, &ability_id);
+                }
+            }
             Outcome::ScriptStartCooldown {
                 entity,
                 ability_id,
                 duration,
-            } => handle_script_start_cooldown(world, entity, ability_id, duration),
+            } => {
+                handle_script_start_cooldown(world, entity, ability_id.clone(), duration);
+                if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
+                    super::cooldown_refund::apply(hero, &ability_id);
+                }
+            }
             Outcome::ScriptSetMana { entity, pool } => {
                 if let Some(hero) = world.write_storage::<Hero>().get_mut(entity) {
                     if hero.mana_pool.is_some() { hero.mana_pool = Some(pool); }
@@ -2680,7 +3124,8 @@ pub fn process_outcomes(
         log::trace!("processed outcome {}", kind);
     }
 
-    emit_committed_actor_state(world, projection_tick, committed_vitals, committed_cooldowns);
+    emit_committed_actor_state(world, projection_tick, committed_vitals, committed_cooldowns, committed_charges);
+    super::owner_control::settle_batch(world);
 
     let _ = world.delete_entities(&remove_uids[..]);
     world.write_resource::<Vec<Outcome>>().clear();
@@ -2697,9 +3142,10 @@ pub fn process_outcomes(
 struct CommittedActorStateOrder { tick: u64, ordinal: u32 }
 
 fn emit_committed_actor_state(world: &mut World, tick: u64,
-    vitals: BTreeMap<u64, Entity>, cooldowns: BTreeMap<(u64, u32), (Entity, String)>) {
+    vitals: BTreeMap<u64, Entity>, cooldowns: BTreeMap<(u64, u32), (Entity, String)>,
+    charges: BTreeMap<(u64, u32), (Entity, String)>) {
     use crate::runtime::{FactAudience, FactKind, FactOrderingKey, FactPhase, ObservableFact, OrderedFact};
-    if vitals.is_empty() && cooldowns.is_empty() { return; }
+    if vitals.is_empty() && cooldowns.is_empty() && charges.is_empty() { return; }
     if world.try_fetch::<CommittedActorStateOrder>().is_none() {
         world.insert(CommittedActorStateOrder::default());
     }
@@ -2718,6 +3164,15 @@ fn emit_committed_actor_state(world: &mut World, tick: u64,
             if let Some(hero) = heroes.get(entity) {
                 facts.push((source, FactKind::CommittedCooldown, ObservableFact::CommittedCooldown {
                     source, slot, remaining_raw: hero.get_cooldown(&ability_id).raw().max(0),
+                }));
+            }
+        }
+        // Settled after every spend of this batch: one absolute row per slot.
+        for ((source, slot), (entity, ability_id)) in charges {
+            if let Some(state) = heroes.get(entity).and_then(|hero| hero.ability_charges.get(&ability_id)) {
+                facts.push((source, FactKind::CommittedCharge, ObservableFact::CommittedCharge {
+                    source, slot, charges: state.charges, max: state.max,
+                    recharge_raw: state.recharge.raw(), remaining_raw: state.remaining.raw(),
                 }));
             }
         }
@@ -3110,6 +3565,10 @@ fn prune_projectile_origins(world: &World) {
     let entities = world.entities();
     let projectiles = world.read_storage::<Projectile>();
     origins.0.retain(|entity, _| entities.is_alive(*entity) && projectiles.get(*entity).is_some());
+    drop(origins);
+    if let Some(mut orbs) = world.try_fetch_mut::<super::attack_orb::OrbAttacks>() {
+        orbs.0.retain(|entity, _| entities.is_alive(*entity) && projectiles.get(*entity).is_some());
+    }
 }
 
 fn handle_projectile(
@@ -3288,6 +3747,9 @@ fn handle_projectile(
             origin.normal_attack=atk_phys>Fixed64::ZERO;origin.attack_missed=missed;origin.attack_critical=critical&&!missed&&origin.normal_attack;
             origin.attack_lifesteal=if origin.normal_attack&&!missed {leech}else{Fixed64::ZERO};
         }
+        // G-2 toggle orb: a committed ordinary attack pays per launch (even a
+        // missed one); only a later non-evaded hit applies the orb.
+        if atk_phys>Fixed64::ZERO {super::attack_orb::on_launch(world,source_entity,projectile);}
     }
     }
     Ok(())
@@ -3338,12 +3800,16 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     unit.spawn_position=(pos.x.to_f32_for_render(),pos.y.to_f32_for_render());
     unit.exp_reward=0;unit.gold_reward=0;unit.bounty_type=BountyType::None;
     let facing=world.read_storage::<Facing>().get(owner).copied().unwrap_or(Facing(omoba_sim::Angle::ZERO));
+    // G-3: owner-level attack scaling is sampled once, at the committed spawn.
+    let owner_level=world.read_storage::<Hero>().get(owner).map_or(1,|hero|hero.level.max(1));
+    let damage=stats.damage+stats.damage_per_owner_level*Fixed64::from_i32(owner_level-1);
+    unit.base_damage=(damage.raw()/1024) as i32;
     world.write_storage::<Unit>().insert(entity,unit)?;
     world.write_storage::<Pos>().insert(entity,Pos(pos))?;
     world.write_storage::<Faction>().insert(entity,faction)?;
     world.write_storage::<CProperty>().insert(entity,CProperty {hp:stats.hp,mhp:stats.hp,
         msd:stats.move_speed,def_physic:stats.armor,def_magic:stats.magic_resistance})?;
-    world.write_storage::<TAttack>().insert(entity,TAttack::new(stats.damage,stats.attack_interval,stats.attack_range,Fixed64::from_i32(900)))?;
+    world.write_storage::<TAttack>().insert(entity,TAttack::new(damage,stats.attack_interval,stats.attack_range,Fixed64::from_i32(900)))?;
     world.write_storage::<Facing>().insert(entity,facing)?;
     world.write_storage::<FacingBroadcast>().insert(entity,FacingBroadcast(None))?;
     world.write_storage::<CollisionRadius>().insert(entity,CollisionRadius(stats.collision_radius))?;
@@ -3356,7 +3822,12 @@ fn commit_summoned_spawn(world:&mut World,entity:Entity,pos:omoba_sim::Vec2,unit
     let mut summoned=SummonedUnit::new_fixed(owner,(duration>Fixed64::ZERO).then_some(duration));
     summoned.navigation.follow_start_distance=stats.follow_start_distance;
     summoned.navigation.follow_stop_distance=stats.follow_stop_distance;
+    summoned.immobile=stats.immobile;
+    summoned.expire_with_owner=stats.owner_death==omoba_template_ids::SummonOwnerDeath::Expire;
     world.write_storage::<SummonedUnit>().insert(entity,summoned)?;
+    if stats.invulnerable {
+        if let Some(mut state)=world.try_fetch_mut::<crate::runtime::MobaMatch>() {state.add_invulnerable_summon(&world.entities(),entity);}
+    }
     if let Some(player_id)=player_owner {world.write_storage::<PlayerOwner>().insert(entity,PlayerOwner::new(player_id))?;}
     world.write_resource::<ScriptEventQueue>().push(ScriptEvent::Spawn {e:entity});
     Ok(())
@@ -4245,7 +4716,7 @@ mod tests {
         let p2 = add_owned_hero(&mut world, 2, "Hero");
         {
             let mut q = world.write_resource::<PendingMoveQueue>();
-            q.requests.push(crate::comp::PendingHeroCommand {
+            q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation: 0,
                 owner_pid: 2,
                 queued: false,
                 kind: crate::comp::PendingHeroCommandKind::MoveTo {
@@ -4273,7 +4744,7 @@ mod tests {
         {
             let mut q = world.write_resource::<PendingMoveQueue>();
             for i in 0..(HeroCommandQueue::LIMIT + 1) {
-                q.requests.push(crate::comp::PendingHeroCommand {
+                q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation: 0,
                     owner_pid: 1,
                     queued: true,
                     kind: crate::comp::PendingHeroCommandKind::MoveTo {
@@ -4303,7 +4774,7 @@ mod tests {
                 MoveTarget(omoba_sim::Vec2::new(Fixed64::ONE, Fixed64::ONE)),
             );
             let mut q = world.write_resource::<PendingMoveQueue>();
-            q.requests.push(crate::comp::PendingHeroCommand {
+            q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation: 0,
                 owner_pid: 1,
                 queued: false,
                 kind: crate::comp::PendingHeroCommandKind::AttackMove {
@@ -4340,7 +4811,7 @@ mod tests {
                 },
             );
             let mut q = world.write_resource::<PendingMoveQueue>();
-            q.requests.push(crate::comp::PendingHeroCommand {
+            q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation: 0,
                 owner_pid: 1,
                 queued: false,
                 kind: crate::comp::PendingHeroCommandKind::AttackTarget {
@@ -4376,7 +4847,7 @@ mod tests {
             let _ = world.write_storage::<TAttack>().insert(hero, attack);
 
             let mut q = world.write_resource::<PendingMoveQueue>();
-            q.requests.push(crate::comp::PendingHeroCommand {
+            q.requests.push(crate::comp::PendingHeroCommand { admitted_correlation: 0,
                 owner_pid: 1,
                 queued: false,
                 kind: crate::comp::PendingHeroCommandKind::AttackMove {
@@ -4409,7 +4880,7 @@ mod tests {
     }
 
     fn push_kind(world: &mut World, owner: u32, queued: bool, kind: PendingHeroCommandKind) {
-        world.write_resource::<PendingMoveQueue>().requests.push(crate::comp::PendingHeroCommand {
+        world.write_resource::<PendingMoveQueue>().requests.push(crate::comp::PendingHeroCommand { admitted_correlation: 0,
             owner_pid: owner,
             queued,
             kind,
@@ -5305,12 +5776,42 @@ fn handle_add_buff(
     duration: Fixed64,
     payload: serde_json::Value,
 ) -> Result<(), failure::Error> {
+    // Orb markers are only stored for a learned orb on its own caster.
+    if (payload.get(super::attack_orb::KEY).is_some() || buff_id.starts_with("attack_orb:"))
+        && !super::attack_orb::admitted(world,target,&buff_id,&payload,None) {
+        return Ok(());
+    }
     if payload.get(super::ally_cleanse::KEY).is_some() || buff_id==super::ally_cleanse::BUFF {
         super::ally_cleanse::apply(world,target,&buff_id,duration,&payload);
         return Ok(());
     }
     if payload.get(super::mana_drain::KEY).is_some() || buff_id==super::mana_drain::BUFF {
         super::mana_drain::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    if payload.get(super::forced_motion::KEY).is_some() || buff_id==super::forced_motion::BUFF {
+        super::forced_motion::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    // Launch envelope: opens a team vision zone, never stored as a buff.
+    if payload.get(super::reveal_zone::KEY).is_some() || buff_id==super::reveal_zone::BUFF {
+        super::reveal_zone::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    if payload.get(super::ally_area_buff::KEY).is_some() || buff_id==super::ally_area_buff::BUFF {
+        if let Some(spec)=super::ally_area_buff::admitted(world,target,&buff_id,duration,&payload,None) {
+            let stats=super::ally_area_buff::buff_payload(&spec);
+            for ally in super::ally_area_buff::targets(world,&spec) {
+                world.write_resource::<BuffStore>().add(ally,&spec.buff,spec.seconds,stats.clone());
+            }
+        }
+        return Ok(());
+    }
+    if payload.get(super::ally_area_restore::KEY).is_some() || buff_id==super::ally_area_restore::BUFF {
+        if let Some(spec)=super::ally_area_restore::admitted(world,target,&buff_id,duration,&payload,None) {
+            for (ally,amount) in super::ally_area_restore::heals(world,&spec) {handle_script_heal(world,ally,amount);}
+            super::ally_area_restore::restore_mana(world,&spec);
+        }
         return Ok(());
     }
     if payload.get(super::ally_shield::KEY).is_some() {

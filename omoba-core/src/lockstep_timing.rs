@@ -8,6 +8,14 @@ pub const LOCKSTEP_TPS_U64: u64 = LOCKSTEP_TPS as u64;
 pub const LOCKSTEP_INPUT_LOOKAHEAD_TICKS: u32 = 2;
 pub const SUPPORTED_LOCKSTEP_FPS: [u32; 3] = [120, 90, 60];
 
+/// Authority-link liveness shared by the client runtime and the server:
+/// no authority progress for `LINK_STALL_AFTER` is a visible stall; no
+/// traffic for `LINK_LOST_AFTER` is an explicit link-lost verdict on both
+/// ends (the client stops with SERVER_DISCONNECTED, the server closes the
+/// session). KCP keeps a shorter outage's stream intact and resumes it.
+pub const LINK_STALL_AFTER: std::time::Duration = std::time::Duration::from_millis(2000);
+pub const LINK_LOST_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// tokio intervals 使用的截斷 microsecond period。
 pub const LOCKSTEP_TICK_PERIOD_US: u64 = 1_000_000 / LOCKSTEP_TPS_U64;
 

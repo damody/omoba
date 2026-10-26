@@ -1,3 +1,11 @@
+2026-10-26 omfue 月度 MVP（進行中，無人值守）：計畫與紀錄在 docs/plans/2026-10-24-omfue-month-mvp/。接手時先讀 execution-status.md（最新進度在最上面）和 errors.md（E001～E084，新紀錄在最上面）。最短重現路徑：
+1) 建置：`tools/lua/lua.exe scripts/consistent_build.lua`（重建 server、client runtime、UE bridge／OmGame，指紋穩定才結束）。
+2) 打一場：`tools/lua/lua.exe scripts/run_moba_split_local.lua --no-build --recipe scripts/lua_data/moba_two_player_quick.lua --hero 1=<英雄> --hero 6=<英雄> --autopilot lane_v0 --max-seconds 600`；實機局一律 ≤10 分鐘。
+3) 判定：`scripts/check_hero_live_acceptance.lua --run <run 目錄>`（逐招判定，局太短會判 INCONCLUSIVE）、`scripts/check_netem_outage.lua`（斷線／重連）、`scripts/summarize_moba_perf.lua`（效能；沒有 autopilot 的局會被標成不可比較）。
+4) 貼新英雄：依 hero-authoring-guide.md 寫 docs/character_pipeline/packages/<英雄>/，再跑 `tools/lua/lua.exe scripts/hero_author.lua build <package> --execute`（失敗會自動回滾，包含 HUD 清單）。
+5) Editor 換模型：照 unreal-art-guide.md 第 0 節操作，再跑 `Om.Runtime.PublicHeroCombatRoster`。
+目前狀態：H01～H06 與盲測 I1 玉子／I2 村上義清共 8 位英雄實機逐招通過，0 mismatch（split46／49／50／51／53）。實機 mismatch 可以用 server/accepted-inputs.jsonl 離線重播（E086，指令見 errors.md E086／E087）。斷線重連（split44）與效能（split43）通過；全量 UE 測試 286/286（RHI／headless）。HUD 美術：每個英雄技能都有 Grok 生成的原創圖示（E091），每位英雄都有正式頭像（E092）；沒有正式模型的英雄顯示依 id 分配的共用人形 fallback（E093）。最新打包版 package-dev-5 已實機驗證。尚未完成：真雙機 LAN、OS DPI 150%、使用者 L3h 試玩（都需要使用者）、6 位新英雄的正式模型（Editor）。
+
 2026-10-25使用者要求收尾：目前全部系統／近期增量／最新驗收與剩餘範圍已彙整至README.md；omoba-48已透過app工具暫停，不再自動新增功能。最後功能批次為下述minion-cadence，所有原始工作程序已退出、307份證據獨立重核完成。文件收尾紀錄見docs/plans/2026-10-25-readme-wrapup.md；後續明確恢復工作時先讀README與本交接，不將MVP33/44當成整個遊戲已完成。
 
 最新兵種攻擊節奏：2026-10-25 minion-cadence；通用attack_interval_ms沿Lua嚴格schema／生成資料／生成時Q10／LaneUnit／canonical攻速接線，遠程兵1.5秒、砲車2秒，近戰／超級／legacy維持1秒；不依兵種名稱分支。已提交恢復不重算，下次出手才取新modifier，塔規則維持。資料型別／上下限／hash、三兵種真spawn與modifier、正式60Hz pause／自然到期／公開週期與paired replay已驗。FreshRust九套2163／9ignored、focused4、backend／UE5.8／staging／兩份離線plan／catalog／native4成功；3496來源一致，307份證據獨立重核，原始失敗保留。詳 docs/plans/2026-10-25-minion-cadence-final-acceptance.md。未新增前搖／彈體或真對局；MVP33/44／11外部項不變。

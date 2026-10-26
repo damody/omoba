@@ -422,6 +422,12 @@ impl ReplicaHost {
         self.runtime.global_seed()
     }
 
+    /// Own inputs the replica rejected under the authority's rules since the
+    /// last call, as (input id, code). Drained on read.
+    pub fn take_owner_command_rejections(&mut self, player_id: u32) -> Vec<(u32, &'static str)> {
+        self.stepper.take_owner_command_rejections(player_id)
+    }
+
     pub fn current_team_hash(&self) -> [u8; 32] {
         self.runtime.canonical_team_hash()
     }

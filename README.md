@@ -1,8 +1,23 @@
 # omoba
 
-目前進度更新至 **2026-10-25（Asia/Taipei）**。本機專案為 `D:\omoba`，Unreal 為 `D:\UE5.8`。換機／接續開發請先讀 [handoff.md](handoff.md)；完整功能盤點見 [整體完整度盤點](docs/plans/2026-10-21-whole-game-completeness-audit.md)，各批驗收與錯誤紀錄位於 [docs/plans](docs/plans/) 和 [docs/acceptance](docs/acceptance/)。[2026-10-18 可攜交接](docs/acceptance/2026-10-18-handoff/README.md)保留為歷史基準，最新狀態以本頁及各批報告為準。
+目前進度更新至 **2026-10-26（Asia/Taipei）**。本機專案為 `D:\omoba`，Unreal 為 `D:\UE5.8`。換機／接續開發請先讀 [handoff.md](handoff.md)；完整功能盤點見 [整體完整度盤點](docs/plans/2026-10-21-whole-game-completeness-audit.md)，各批驗收與錯誤紀錄位於 [docs/plans](docs/plans/) 和 [docs/acceptance](docs/acceptance/)。[2026-10-18 可攜交接](docs/acceptance/2026-10-18-handoff/README.md)保留為歷史基準，最新狀態以本頁及各批報告為準。
 
 ## 目前實作與驗收進度
+
+### omfue 月度 MVP（2026-10-24 起，進行中）
+
+計畫與每日紀錄在 [docs/plans/2026-10-24-omfue-month-mvp/](docs/plans/2026-10-24-omfue-month-mvp/README.md)：[執行狀態](docs/plans/2026-10-24-omfue-month-mvp/execution-status.md)、[錯誤紀錄](docs/plans/2026-10-24-omfue-month-mvp/errors.md)、[發佈說明](docs/plans/2026-10-24-omfue-month-mvp/release-notes.md)、[玩家指南](docs/plans/2026-10-24-omfue-month-mvp/player-guide.md)、[英雄製作指南](docs/plans/2026-10-24-omfue-month-mvp/hero-authoring-guide.md)、[Unreal 美術指南](docs/plans/2026-10-24-omfue-month-mvp/unreal-art-guide.md)、[效能報告](docs/plans/2026-10-24-omfue-month-mvp/perf-report.md)、[下個月](docs/plans/2026-10-24-omfue-month-mvp/next-month.md)。以下證據都是本機 B＋C＋C（1 個權威 server、2 個 client runtime、2 個 UE，另有 8 個 bot）實機局，由 omfue autopilot 透過真實輸入管線操作，log 位於 `target/mvp-a3/`。
+
+| 項目 | 狀態與證據 |
+|---|---|
+| 可玩對局 | 標準地圖與 quick 測試地圖都能自然結束並顯示結算。追查到的 replica parity 問題（召喚物攻擊計時 E083、英雄 HP 套用順序 E087）都已修正，並在 split51／split53 實機驗證為 0 mismatch。 |
+| 英雄（描述驅動製作） | H01 雜賀孫市、H02 伊達政宗、H03 阿松、H04 阿市、H05 稻姬、H06 淺井長政實機逐招驗收通過（split46／49／50／51，`scripts/check_hero_live_acceptance.lua`）；盲測 I1 玉子、I2 村上義清 8/8 招通過、0 mismatch（split53；replica HP 套用順序 E087 由可重播輸入紀錄 E086 定位）。 |
+| 網路 | netem 80±20 ms、1% 掉包；10 秒斷線自動恢復；30 秒以上斷線後重新加入同一場（split44，E077）。 |
+| 效能 | 伺服器 tick 平均 13.21→6.18 ms、p99 視窗 35.37→12.41 ms，UE 59.5 FPS（split37 對 split43）。 |
+| 打包 | Development 與 Shipping 打包，從乾淨目錄啟動對戰。 |
+| UE 測試 | 全量 `Om.` 286/286，`-d3d12 -NoSound` 與 `-nullrhi` 兩種模式都通過。 |
+| HUD 美術 | 每個英雄技能都有原創圖示、每位英雄都有正式頭像（Grok 生成，E091／E092）；沒有正式模型的英雄顯示共用人形 fallback（E093）。 |
+| 尚未完成 | 真雙機 LAN、OS 150% DPI、使用者親自試玩（需要使用者）；6 位新英雄的正式 3D 模型要在 Editor 指定。 |
 
 原 MVP 清單維持 **33／44 完成、11 個父項待驗收**。這是原清單的接受狀態，不代表整個遊戲或所有 LOL 類玩法已完成。近期單機功能增量不會自動勾完要求真權威回覆、跨機或實體環境證據的父項；詳見 [MVP 功能核對](docs/plans/2026-10-18-mvp-functional-task-audit.md)。
 
@@ -48,7 +63,11 @@
 - 正式後端、UE5.8 建置、DLL staging／匯入庫一致性、兩份既有離線計畫及 catalog 核對通過。
 - 本批原生回歸 **4 項通過、0 項測試警告**，並檢視新產生的實際 Slate 圖；這不是宣稱所有歷史 UE 操作測試都在本批重跑。
 - **3,496 份來源一致性檢查**：3,487 未變更、9 份計畫內變更；**307 份證據獨立重核**，保留原始失敗、來源副本及程序退出／退休／清理紀錄。
-- 正式版本：selective 協定 **15**、presentation 協定 **12**、Unreal bridge CABI **36**。
+- 正式版本：selective 協定 **18**、presentation 協定 **14**、Unreal bridge CABI **36**。
+  - selective 18 追加（不升版）：S→C KCP tag `0x36` `MatchTerminated`（`[u64 BE last_safe_sequence][u8 len][ascii reason]`），安全終止時通知 client；舊 client 遇到未知 tag 只 warn（errors.md E050）。
+  - selective 18：新增 `CommittedCharge` fact（39）；filtered replica 套用與權威端相同的施法前搖規則（`FormalCastRules`）；投射物每一步都發 `Movement` fact，flight 元件改為 v2（errors.md E037）。
+  - selective 16／presentation 13：新增技能投射物，render kind 5 與 flight component `0x464f4718`（`work-G1.md`）。
+  - selective 17／presentation 14：新增技能儲存次數。`Hero.ability_charges` 公開；HUD schema 5 的 `AbilityHudPresentation` 增加欄位 9–12（`work-G2.md`）。
 - 本輪沒有新增真網路對局、重設 quota、commit／push，亦未維護歷史 `omfx`。
 
 完整結果與適用範圍見 [最新驗收報告](docs/plans/2026-10-25-minion-cadence-final-acceptance.md)。錯誤與防止重犯方式見 [兵種節奏錯誤紀錄](docs/plans/2026-10-25-minion-cadence-errors.md)、[選取距離紀錄](docs/plans/2026-10-25-selected-distance-errors.md)及 [docs/plans](docs/plans/) 中各批 `errors.md`。
@@ -215,7 +234,7 @@ Unreal omfue (presentation-only, compiled-content-only)
   -> base_content.dll
 ```
 
-`omoba-client-runtime` 的呈現幀是 4-byte big-endian length 加 protobuf。`PRESENTATION_MAGIC` 是 `0x4f4d5254`，`PRESENTATION_PROTOCOL_VERSION` 目前是 `12`，單一 frame 上限 8 MiB。常數以 `omoba-core/src/renderer_protocol.rs` 為準。`render_id` 只在單一 team replica 與 disclosure epoch 內有效，不是 Specs entity ID。
+`omoba-client-runtime` 的呈現幀是 4-byte big-endian length 加 protobuf。`PRESENTATION_MAGIC` 是 `0x4f4d5254`，`PRESENTATION_PROTOCOL_VERSION` 目前是 `14`，單一 frame 上限 8 MiB。常數以 `omoba-core/src/renderer_protocol.rs` 為準。`render_id` 只在單一 team replica 與 disclosure epoch 內有效，不是 Specs entity ID。
 
 Renderer 不執行 Specs systems、不載入 script DLL、不連權威 KCP，也不把 remembered ghost 當成可選定的單位。未知版本、過長 frame 或非 loopback endpoint 必須 fail closed。
 

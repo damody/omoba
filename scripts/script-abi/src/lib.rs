@@ -30,7 +30,7 @@ pub mod prelude {
     pub use crate::world::{
         GameWorld, GameWorldDyn, GameWorld_TO, TowerActiveAbilityAccess,
         TowerActiveAbilityAccessDyn, TowerActiveAbilityAccess_TO, TowerCooldownAccess,
-        TowerCooldownAccessDyn, TowerCooldownAccess_TO,
+        TowerCooldownAccessDyn, TowerCooldownAccess_TO, DisclosureQuery, DisclosureQueryDyn, DisclosureQuery_TO,
     };
     pub use abi_stable::{
         rstr,

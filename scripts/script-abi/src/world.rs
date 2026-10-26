@@ -21,6 +21,21 @@ pub type GameWorldDyn<'a> = GameWorld_TO<'a, RMut<'a, ()>>;
 
 pub type ProjectileQueryDyn<'a> = ProjectileQuery_TO<'a, RRef<'a, ()>>;
 
+pub type DisclosureQueryDyn<'a> = DisclosureQuery_TO<'a, RRef<'a, ()>>;
+
+/// Narrow cast-time query (outside `GameWorld`, whose method table is full).
+/// Selection that must be identical in the authority and in every
+/// team-filtered replica uses this instead of `query_enemies_in_range`.
+#[sabi_trait]
+pub trait DisclosureQuery: Send + Sync {
+    /// Live (exact life, hp > 0) hostile units within `radius` of `center`
+    /// (closed disk) that `of`'s team currently has disclosed: team vision at
+    /// the authority, the disclosed set in a replica, unrestricted in legacy
+    /// worlds. Sorted by (id, gen); no attackability or line-of-sight filter.
+    /// At most `cap` rows (cap 256); empty for a retired or factionless `of`.
+    fn disclosed_enemies_in_range(&self, center: Vec2, radius: Fixed64, of: EntityHandle, cap: u16) -> RVec<EntityHandle>;
+}
+
 pub type TowerCooldownAccessDyn<'a> = TowerCooldownAccess_TO<'a, RMut<'a, ()>>;
 
 pub type TowerActiveAbilityAccessDyn<'a> = TowerActiveAbilityAccess_TO<'a, RRef<'a, ()>>;

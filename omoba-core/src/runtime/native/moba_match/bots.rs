@@ -468,7 +468,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         // Own health is owner-visible; never inspect opponents' ECS health.
         if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO) { continue; }
         if state.is_recalling(entity)
-            || super::super::recovery_channel::is_active_for_owner(world,entity,slot.player_id) { continue; }
+            || super::super::recovery_channel::is_active_for_owner(world,entity,slot.player_id)
+            || super::super::ability_channel::is_active_for_owner(world,entity,slot.player_id) { continue; }
         let team = state.config.teams[slot.side];
         let seen = &perceptions[slot.side];
         let Some(own) = seen.iter().find(|u| u.canonical_id == disclosed_identity(entity)) else { continue; };

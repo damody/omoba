@@ -437,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn unreachable_route_does_not_walk_partial_path_and_preserves_next_queued_command_at_60hz() {
+    fn unreachable_goal_walks_to_nearest_reachable_point_and_preserves_next_queued_command_at_60hz() {
         for attack_move in [false,true] {
             for queue_next in [false,true] {
                 let (mut world,hero)=movement_world();
@@ -453,29 +453,39 @@ mod tests {
                 world.write_resource::<DeltaTime>().0=Fixed64::from_raw(1024/60);
                 let target=SimVec2::new(Fixed64::from_i32(128),Fixed64::ZERO);
                 let next=SimVec2::new(Fixed64::ZERO,Fixed64::from_i32(64));
-                world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+                world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand { admitted_correlation: 0,
                     owner_pid:1,queued:false,kind:if attack_move {
                         PendingHeroCommandKind::AttackMove {pos:target}
                     } else {PendingHeroCommandKind::MoveTo {pos:target}},
                 });
                 if queue_next {
-                    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+                    world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand { admitted_correlation: 0,
                         owner_pid:1,queued:true,kind:PendingHeroCommandKind::MoveTo {pos:next},
                     });
                 }
+                // E073: an enclosed goal is replaced by the closest reachable point
+                // (outside the enclosure); the hero never crosses terrain to get there.
+                let nearest={
+                    let regions=world.read_resource::<BlockedRegions>();
+                    crate::tick::hero_command_tick::static_nearest_reachable(SimVec2::ZERO,target,Fixed64::ONE,
+                        &crate::tick::hero_command_tick::TerrainIndex::new(&regions),&mut crate::tick::hero_command_tick::NavMemo::default())
+                        .expect("a reachable point closer to the enclosed goal")
+                };
+                assert!((nearest-target).length()<target.length() && nearest!=target);
                 crate::runtime::drain_pending_moves(&mut world);
                 let mut previous=SimVec2::ZERO;
-                for tick in 1..=120 {
+                for tick in 1..=300 {
                     world.write_resource::<Tick>().0=tick;
                     crate::comp::run_now::<crate::tick::hero_command_tick::Sys>(&world);
                     crate::comp::run_now::<Sys>(&world);
                     world.maintain();
                     let pos=world.read_storage::<Pos>().get(hero).unwrap().0;
                     assert!(!path_hits_regions(previous,pos,Fixed64::ONE,&world.read_resource::<BlockedRegions>()));
-                    if !queue_next {assert_eq!(pos,SimVec2::ZERO,"must not approach a dead end");}
+                    assert!(!path_hits_regions(pos,pos,Fixed64::ONE,&world.read_resource::<BlockedRegions>()),"never inside terrain");
                     previous=pos;
                 }
-                assert!((previous-if queue_next {next} else {SimVec2::ZERO}).length()<Fixed64::ONE);
+                assert!((previous-if queue_next {next} else {nearest}).length()<Fixed64::ONE,
+                    "ends at the nearest reachable point (or the next queued order): {previous:?}");
                 let queues=world.read_storage::<HeroCommandQueue>();
                 let queue=queues.get(hero).unwrap();
                 assert!(queue.active.is_none() && queue.queued.is_empty());
@@ -496,7 +506,7 @@ mod tests {
             });
             world.write_resource::<DeltaTime>().0=Fixed64::from_raw(1024/60);
             let target=SimVec2::new(Fixed64::from_i32(30),Fixed64::ZERO);
-            world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+            world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand { admitted_correlation: 0,
                 owner_pid:1,queued:false,kind:if attack_move {
                     PendingHeroCommandKind::AttackMove {pos:target}
                 } else {PendingHeroCommandKind::MoveTo {pos:target}},
@@ -526,7 +536,7 @@ mod tests {
             thin_wall(&mut world);
             world.write_resource::<DeltaTime>().0=Fixed64::from_raw(1024/60);
             let target=SimVec2::new(Fixed64::from_i32(128),Fixed64::ZERO);
-            world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand {
+            world.write_resource::<PendingMoveQueue>().requests.push(PendingHeroCommand { admitted_correlation: 0,
                 owner_pid:1,queued:false,kind:PendingHeroCommandKind::MoveTo { pos:target },
             });
             crate::runtime::drain_pending_moves(&mut world);
@@ -665,7 +675,7 @@ mod tests {
         let start = world.read_storage::<Pos>().get(hero).unwrap().0;
         {
             let mut q = world.write_resource::<PendingMoveQueue>();
-            q.requests.push(PendingHeroCommand {
+            q.requests.push(PendingHeroCommand { admitted_correlation: 0,
                 owner_pid: 1,
                 queued: false,
                 kind: PendingHeroCommandKind::MoveTo {
@@ -760,7 +770,7 @@ mod tests {
         let start = world.read_storage::<Pos>().get(hero).unwrap().0;
         {
             let mut q = world.write_resource::<PendingMoveQueue>();
-            q.requests.push(PendingHeroCommand {
+            q.requests.push(PendingHeroCommand { admitted_correlation: 0,
                 owner_pid: 1,
                 queued: false,
                 kind: PendingHeroCommandKind::MoveTo {

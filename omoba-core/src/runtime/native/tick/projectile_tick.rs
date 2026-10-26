@@ -17,6 +17,7 @@ pub struct ProjectileRead<'a> {
     creeps: ReadStorage<'a, Creep>,
     towers: ReadStorage<'a, Tower>,
     origins: Option<Read<'a, ProjectileOrigins>>,
+    orbs: Option<Read<'a, crate::runtime::native::attack_orb::OrbAttacks>>,
 }
 
 #[derive(SystemData)]
@@ -196,7 +197,11 @@ impl<'a> System<'a> for Sys {
                                 hit_pos,
                                 &tr.towers,
                                 &tr.creeps,
-                            );}
+                            );
+                            // G-2 toggle orb paid at launch: bonus damage/slows on a real hit.
+                            if let Some(hit)=tr.orbs.as_ref().and_then(|orbs|orbs.0.get(&e)) {
+                                outcomes.extend(crate::runtime::native::attack_orb::hit_outcomes(hit,proj.owner,target,hit_pos));
+                            }}
                         }
                         // 方向性子彈：抵達 end_pos 但沒打到任何敵人 → 直接消失
                         outcomes.push(Outcome::Death {

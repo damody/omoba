@@ -37,6 +37,9 @@ pub struct RoleBotMatchPlan {
     /// An omitted or empty map stays unavailable; nothing is equipped by default.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub summoner_loadouts: BTreeMap<u32, [Option<String>; 2]>,
+    /// Spotlight recording stage. Held seats must be bots and get no role decisions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub showcase: Option<ShowcaseConfig>,
 }
 
 impl RoleBotMatchPlan {
@@ -100,7 +103,9 @@ impl RoleBotMatchPlan {
                 return Err("jungle role requires compiled camps".into());
             }
             counts[side] += 1;
-            if player.bot {
+            let held = self.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player.player_id));
+            if held && !player.bot { return Err("a showcase hold seat must be a bot".into()); }
+            if player.bot && !held {
                 let escort_player_id = (player.role == BotRole::Support).then(|| self.players.iter()
                     .find(|p|p.team_id == player.team_id && p.role == BotRole::Carry).map(|p|p.player_id)).flatten();
                 assignments.push(BotAssignment { player_id:player.player_id,role:player.role,lane,escort_player_id });
@@ -114,11 +119,14 @@ impl RoleBotMatchPlan {
             tower_plating_rules:Some(TowerPlatingRules::training()),
             minion_growth_rules:MinionGrowthRules::training(),
             seed,map_id:Some(map.id.into()),lane_length:Fixed64::from_i32(map.lane_length),
+            tower_hp:Fixed64::from_i32(map.tower_hp),base_hp:Fixed64::from_i32(map.base_hp),
+            hero_xp_scale_permille:map.hero_xp_scale_permille(),
             authored_minion_waves:true,wave_interval:Fixed64::from_i32(map.wave_interval_seconds as i32),
             players:[left.player_id,right.player_id],heroes:[left.hero,right.hero],additional_players:additional,
             base_recovery_enabled:self.sustain.is_some(),
             mana_enabled:self.mana_enabled,
             summoner_loadouts:self.summoner_loadouts.clone(),
+            showcase:self.showcase.clone(),
             ..Default::default()
         },RoleBotConfig { assignments,think_interval_ticks:u64::from(fps.div_ceil(self.think_hz)),
             ability_policies:self.ability_policies.clone(),ability_learning:self.ability_learning.clone(),sustain:self.sustain,
@@ -138,7 +146,22 @@ mod tests {
                     hero:"training_luminary".into(),role,lane:lane.into(),bot:team != 1 || index != 0 });
             }
         }
-        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new() }
+        RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new(),showcase:None }
+    }
+    #[test]
+    fn role_bot_plan_takes_structure_hit_points_from_the_compiled_map() {
+        let shipped = plan().compile(1,SimulationTickProfile::Production60Hz).unwrap().0;
+        assert_eq!((shipped.tower_hp,shipped.base_hp),(Fixed64::from_i32(1200),Fixed64::from_i32(1600)));
+        let mut quick = plan();
+        quick.map_id = "three_lane_quick_training".into();
+        let map = omoba_template_ids::moba_map_by_name("three_lane_quick_training").unwrap();
+        let config = quick.compile(1,SimulationTickProfile::Production60Hz).unwrap().0;
+        assert_eq!((config.tower_hp,config.base_hp),(Fixed64::from_i32(map.tower_hp),Fixed64::from_i32(map.base_hp)));
+        assert!(map.tower_hp < 1200 && map.base_hp < 1600);
+        // E096: the map's hero XP multiplier reaches the role-plan entry too (E055: every entry).
+        assert_eq!(shipped.hero_xp_scale_permille,1000);
+        assert_eq!(config.hero_xp_scale_permille,map.hero_xp_scale_permille());
+        assert!(map.hero_xp_scale_permille() > 1000);
     }
     #[test]
     fn role_bot_plan_compiles_human_and_nine_bots_by_named_lane() {
@@ -253,5 +276,64 @@ mod tests {
         assert_eq!(p.compile(1,SimulationTickProfile::Production60Hz).unwrap().1.item_builds[0].items,["moba_greatsword"]);
         p.item_builds[0].items[0]="unknown".into();
         assert!(p.compile(1,SimulationTickProfile::Production60Hz).is_err());
+    }
+    /// Spotlight stage: one human and two held bot seats. The authority rules
+    /// are unchanged; only the starting level, first-life placement, held
+    /// seats and minion waves come from the recipe.
+    fn showcase_plan() -> RoleBotMatchPlan {
+        let player = |player_id:u32,team_id:u32,hero:&str,role:BotRole,bot:bool| RoleBotPlayerPlan {
+            player_id,team_id,hero:hero.into(),role,lane:"mid".into(),bot };
+        let mut p = plan();
+        p.map_id = "three_lane_quick_training".into();
+        p.players = vec![player(1,1,"saika_magoichi",BotRole::Mid,false),player(2,1,"murakami_yoshikiyo",BotRole::Support,true),
+            player(6,2,"murakami_yoshikiyo",BotRole::Mid,true)];
+        p.showcase = Some(ShowcaseConfig { start_level:6, minion_waves:false,
+            placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
+            hold_players:[2,6].into(), hold_hp_permille:5000 });
+        p
+    }
+    #[test]
+    fn showcase_stage_levels_places_and_holds_seats_without_role_decisions() {
+        let (config,bots) = showcase_plan().compile(3,SimulationTickProfile::Production60Hz).unwrap();
+        assert!(bots.assignments.is_empty(), "held seats get no role-bot decisions");
+        let pool = crate::runtime::StateInitializer::create_thread_pool();
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+        setup_single_lane_match(&mut world, config).unwrap();
+        let state = world.read_resource::<MobaMatch>();
+        let positions = world.read_storage::<Pos>();
+        let props = world.read_storage::<CProperty>();
+        let commands = world.read_storage::<HeroCommandQueue>();
+        let mut hp = BTreeMap::new();
+        for slot in &state.heroes {
+            let entity = slot.entity.expect("spawned");
+            let hero = world.read_storage::<Hero>().get(entity).unwrap().clone();
+            assert_eq!(hero.level, 6, "player {}", slot.player_id);
+            assert!(hero.skill_points >= 5, "a skill point per level gained");
+            let at = match slot.player_id { 1 => [2300,2400], 2 => [2050,2400], _ => [2750,2400] };
+            assert_eq!(positions.get(entity).unwrap().0, Vec2::new(Fixed64::from_i32(at[0]), Fixed64::from_i32(at[1])));
+            let held = slot.player_id != 1;
+            assert_eq!(commands.get(entity).and_then(|queue| queue.active), held.then_some(HeroCommand::HoldPosition));
+            hp.insert(slot.player_id, props.get(entity).unwrap().mhp);
+        }
+        let stats = omoba_template_ids::active_hero_stats(omoba_template_ids::hero_by_name("murakami_yoshikiyo").unwrap()).unwrap();
+        assert!(hp[&2] > Fixed64::from_i32(stats.base_hp * 4), "held seat hit points scaled by 5000 per mille: {:?}", hp[&2]);
+    }
+    #[test]
+    fn showcase_stage_rejects_human_holds_and_out_of_roster_or_range_values() {
+        let reject = |p:RoleBotMatchPlan| assert!(p.compile(1,SimulationTickProfile::Production60Hz)
+            .ok().and_then(|(config,_)| { let pool = crate::runtime::StateInitializer::create_thread_pool();
+                let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+                setup_single_lane_match(&mut world, config).ok() }).is_none());
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_players.insert(1); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_players.insert(9); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().placements.insert(9,[1,1]); reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_level = 0; reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().start_level = 26; reject(p);
+        let mut p = showcase_plan(); p.showcase.as_mut().unwrap().hold_hp_permille = 999; reject(p);
+        let json = serde_json::to_value(showcase_plan()).unwrap();
+        assert_eq!(serde_json::from_value::<RoleBotMatchPlan>(json.clone()).unwrap().showcase, showcase_plan().showcase);
+        let mut unknown = json; unknown["showcase"]["camera"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<RoleBotMatchPlan>(unknown).is_err(), "unknown stage fields fail closed");
+        assert!(serde_json::to_value(plan()).unwrap().get("showcase").is_none(), "real plans never carry a stage");
     }
 }

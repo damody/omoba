@@ -60,7 +60,7 @@ pub(crate) fn with_zone(id:AbilityId,rank:u8,json:&str,mut blast:PointBlast,
         Ok(Fixed64::from_raw((value*1024.0).round() as i64))
     };
     let duration=read(duration_key,30.0)?;
-    let zone=DamageZoneSpec {independent:content.zone_independent,center:Vec2::ZERO,radius:blast.radius,amount:read(amount_key,1_000_000.0)?,
+    let zone=DamageZoneSpec {end:None,grow:None,linger:None,independent:content.zone_independent,center:Vec2::ZERO,radius:blast.radius,amount:read(amount_key,1_000_000.0)?,
         interval:read(interval_key,10.0)?,kind:blast.kind,profile:blast.profile.bits()};
     if !zone.valid() || duration<zone.interval {return Err("invalid zone lifetime or interval");}
     blast.zone=Some((zone,duration,id));Ok(blast)

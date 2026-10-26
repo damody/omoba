@@ -5,7 +5,7 @@ use specs::{World, WorldExt};
 use super::{System, TickProfile, tick_profile::VariantStat};
 use crate::tick::*;
 
-pub const JOB_NAMES: [&str; 18] = [
+pub const JOB_NAMES: [&str; 19] = [
     <player_input_tick::Sys as System>::NAME, <nearby_tick::Sys as System>::NAME,
     <player_tick::Sys as System>::NAME, <demo_patrol_tick::Sys as System>::NAME,
     <projectile_tick::Sys as System>::NAME, <tower_tick::Sys as System>::NAME,
@@ -15,6 +15,7 @@ pub const JOB_NAMES: [&str; 18] = [
     <regen_tick::Sys as System>::NAME, <summon_tick::Sys as System>::NAME,
     <creep_tick::Sys as System>::NAME, <creep_wave::Sys as System>::NAME,
     <damage_tick::Sys as System>::NAME, <death_tick::Sys as System>::NAME,
+    <ability_projectile_tick::Sys as System>::NAME,
 ];
 
 #[derive(Clone, Copy)]

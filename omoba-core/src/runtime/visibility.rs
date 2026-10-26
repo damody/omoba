@@ -381,10 +381,14 @@ pub struct TeamVisibilityIndex {
     candidates: BTreeMap<u64, VisibilityCandidate>,
 }
 
+/// One tick's committed visible set. Entries never change after `push`, so
+/// snapshots and runtime clones share them instead of deep-copying 512 sets.
+pub type SharedVisibleSet = Arc<BTreeSet<u64>>;
+
 #[derive(Clone, Debug)]
 pub struct VisibilityHistoryEntry {
     pub tick: u64,
-    pub visible: BTreeSet<u64>,
+    pub visible: SharedVisibleSet,
 }
 
 #[derive(Clone, Debug)]
@@ -403,7 +407,7 @@ impl TeamVisibilityHistory {
     pub fn push(&mut self, tick: u64, visible: &BTreeSet<u64>) {
         self.entries.push_back(VisibilityHistoryEntry {
             tick,
-            visible: visible.clone(),
+            visible: Arc::new(visible.clone()),
         });
         while self.entries.len() > self.capacity {
             self.entries.pop_front();
@@ -416,7 +420,7 @@ impl TeamVisibilityHistory {
             .find(|entry| entry.tick <= tick)
             .is_some_and(|entry| entry.visible.contains(&entity))
     }
-    pub fn snapshot(&self) -> BTreeMap<u64, BTreeSet<u64>> {
+    pub fn snapshot(&self) -> BTreeMap<u64, SharedVisibleSet> {
         self.entries
             .iter()
             .map(|entry| (entry.tick, entry.visible.clone()))
@@ -430,6 +434,14 @@ pub struct TeamVisibilityState {
     pub index: TeamVisibilityIndex,
     pub history: TeamVisibilityHistory,
     last_remember: BTreeMap<u64, RememberDisposition>,
+    /// Entities this team's vision actually covers at the latest wave B,
+    /// before input grace. Gameplay input admission may target only these.
+    pub sighted: BTreeSet<u64>,
+    /// Targets of this tick's admitted inputs. A currently disclosed target
+    /// stays disclosed for this frame so the team's replica can resolve the
+    /// same input the authority executed; it never chains (admission needs
+    /// `sighted`, which grace does not extend).
+    pub input_grace: BTreeSet<u64>,
     #[cfg(test)]
     pub(crate) witness_worker_count: usize,
     #[cfg(test)]
@@ -443,6 +455,8 @@ impl TeamVisibilityState {
             index: TeamVisibilityIndex::default(),
             history: TeamVisibilityHistory::new(history_capacity),
             last_remember: BTreeMap::new(),
+            sighted: BTreeSet::new(),
+            input_grace: BTreeSet::new(),
             #[cfg(test)]
             witness_worker_count: 0,
             #[cfg(test)]
@@ -462,6 +476,8 @@ impl TeamVisibilityState {
             .copied()
             .collect();
         let mut transitions = Vec::new();
+        self.sighted.clear();
+        let grace = std::mem::take(&mut self.input_grace);
         let existing: BTreeSet<_> = view
             .entities
             .iter()
@@ -484,9 +500,11 @@ impl TeamVisibilityState {
             });
         }
         for entity in view.entities.iter() {
-            let desired =
+            let sighted =
                 entity_visible_with_brush(entity, self.team, &sources, &view.vision_occluders, &view.brush_regions);
+            if sighted { self.sighted.insert(entity.canonical_id); }
             let current = self.index.current.contains(&entity.canonical_id);
+            let desired = sighted || (current && grace.contains(&entity.canonical_id));
             if desired == current {
                 self.index.candidates.remove(&entity.canonical_id);
                 continue;
@@ -681,6 +699,25 @@ mod tests {
     fn owner_team_hero_is_visible_to_owner_outside_radius() {
         let target = entity(ReplicationScopeKind::OwnerTeam, Some(1), 100);
         assert!(entity_visible_to_team(&target, 1, &[source(1, 20)], &[]));
+    }
+
+    #[test]
+    fn input_grace_keeps_a_targeted_entity_one_frame_without_extending_sight() {
+        // split18: an admitted input's target left vision that same tick and
+        // its Forget reached the replica before the input; grace holds it once.
+        let enemy = entity(ReplicationScopeKind::Vision, Some(2), 10);
+        let mut state = TeamVisibilityState::new(1, 4);
+        let view = |tick, sources: Vec<CommittedVisionSource>| WaveBReadView { tick, entities: vec![enemy.clone()].into(),
+            vision_sources: sources.into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into() };
+        assert_eq!(state.resolve(&view(1, vec![source(1, 20)]), 0).len(), 1);
+        assert!(state.sighted.contains(&7));
+        state.input_grace.insert(7);
+        assert!(state.resolve(&view(2, vec![]), 0).is_empty(), "graced target is not hidden this frame");
+        assert!(state.index.current.contains(&7) && !state.sighted.contains(&7), "grace is not sight");
+        assert!(state.input_grace.is_empty(), "grace lasts exactly one resolve");
+        assert!(matches!(state.resolve(&view(3, vec![]), 0).as_slice(), [VisibilityTransition::Hide { canonical_id: 7, .. }]));
+        state.input_grace.insert(7);
+        assert!(state.resolve(&view(4, vec![]), 0).is_empty() && !state.index.current.contains(&7), "grace never reveals");
     }
 
     #[test]
@@ -1009,15 +1046,18 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
     let towers = world.read_storage::<crate::runtime::Tower>();
     let script_tags = world.read_storage::<crate::runtime::ScriptUnitTag>();
     let placed_wards = world.read_storage::<crate::runtime::PlacedWard>();
+    let ability_projectiles = world.try_fetch::<crate::runtime::native::ability_projectile::AbilityProjectiles>();
 
     let mut committed_entities: Vec<_> = (&entities, &positions)
         .join()
         .map(|(entity, position)| {
             let canonical_id = ((entity.gen().id() as u32 as u64) << 32) | u64::from(entity.id());
-            let team = factions
+            // Ability projectiles carry their launch team; flight state stays private.
+            let flight = ability_projectiles.as_ref().and_then(|rows| rows.0.get(&entity));
+            let team = flight.map(|state| state.team).unwrap_or_else(|| factions
                 .get(entity)
                 .map(|faction| faction.team_id.max(0) as u32)
-                .unwrap_or(0);
+                .unwrap_or(0));
             let scope = scopes.get(entity).copied().unwrap_or(ReplicationScope {
                 kind: ReplicationScopeKind::Vision,
                 owner_team: Some(team),
@@ -1026,7 +1066,9 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 x_raw: position.0.x.raw(),
                 y_raw: position.0.y.raw(),
                 team_id: team,
-                kind: if heroes.get(entity).is_some() {
+                kind: if flight.is_some() {
+                    crate::runtime::native::ability_projectile::RENDER_KIND
+                } else if heroes.get(entity).is_some() {
                     1
                 } else if units.get(entity).is_some_and(|unit|matches!(unit.unit_type,UnitType::Summon)) {
                     4
@@ -1043,6 +1085,14 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             )];
             if let Some(state)=structures.get(&canonical_id) {
                 disclosed.push((DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID,state.to_vec()));
+            }
+            if let Some(state) = flight {
+                use crate::runtime::native::ability_projectile as projectile;
+                disclosed.push((projectile::DISCLOSED_SCHEMA_ID,
+                    projectile::encode_disclosed_flight(projectile::disclosed_state(state))));
+                if let Some(bytes) = encode_disclosed_presentation_identity(&state.spec.ability) {
+                    disclosed.push((DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, bytes));
+                }
             }
             if let Some(faction) = factions.get(entity) {
                 if let Some(faction_kind) = faction_kind_discriminant(&faction.faction_id) {
@@ -1178,7 +1228,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 stealth_level: stealth
                     .get(entity)
                     .map(|value| value.stealth_level)
-                    .unwrap_or(0),
+                    .unwrap_or(0)
+                    .max(buffs.as_ref().map_or(0, |buffs| buffs.stealth_level(entity))),
                 overrides: entity_overrides,
                 remember: remembers
                     .get(entity)
@@ -1200,6 +1251,12 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             detection_level: source.detection_level,
         })
         .collect();
+    // G-4 true-sight zones: team sight that detects every stealth level.
+    if let Some(zones) = world.try_fetch::<crate::runtime::native::reveal_zone::RevealZones>() {
+        vision_sources.extend(zones.sources().map(|(canonical_id, zone)| CommittedVisionSource {
+            canonical_id, team: zone.team, position: zone.center, radius: zone.radius, detection_level: u16::MAX,
+        }));
+    }
     vision_sources.sort_by_key(|source| (source.team, source.canonical_id));
     let vision_occluders: Arc<[CommittedVisionOccluder]> =
         world.read_resource::<VisionOccluderSet>().0.clone().into();
@@ -1216,6 +1273,12 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
 /// Called only after Wave A outcome/fact reduction and `World::maintain`.
 pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64) {
     let view = build_wave_b_read_view(world, tick);
+    let mut grace: BTreeMap<u32, BTreeSet<u64>> = BTreeMap::new();
+    if let Some(projection) = world.try_fetch::<crate::runtime::TeamProjectionRuntime>() {
+        for input in &projection.pending_accepted_inputs {
+            if let Some(target) = input.target_canonical_id { grace.entry(input.team_id).or_default().insert(target); }
+        }
+    }
     let mut runtime = world.write_resource::<TeamVisibilityRuntime>();
     runtime.latest_owner_by_canonical = view
         .entities
@@ -1245,6 +1308,9 @@ pub fn run_committed_visibility_wave_b(world: &mut World, tick: u64, delay: u64)
     // teams. Neutral faction 0 never receives a disclosure stream.
     for team in crate::runtime::SUPPORTED_REPLICA_TEAMS {
         runtime.ensure_team(team);
+    }
+    for (team, targets) in grace {
+        if let Some(state) = runtime.teams.get_mut(&team) { state.input_grace = targets; }
     }
     let mut states: Vec<_> = std::mem::take(&mut runtime.teams).into_values().collect();
     let results = run_team_wave_b_parallel(&view, &mut states, delay);

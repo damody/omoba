@@ -9,6 +9,10 @@ if arg[1]=='--help' then
   print('Interactive selection: 1..10 human seats from the recipe; multiple humans share one local host and each receive an Unreal window. Any cancellation aborts before gameplay.')
   print('LAN host: --server-bind UNICAST_IPV4 [--local-player ID (repeatable)]. Remote client: --connect HOST_IPV4 --recipe HOST_FINAL.json --local-player ID (repeatable). IPC stays loopback; no firewall changes.')
   print('Dedicated Rust host: --server-only [--server-bind UNICAST_IPV4]; zero local clients, no Unreal build/install required. Share the generated match-plan.json with remote clients. Incompatible with --connect, --local-player, interactive selection and native result capture.')
+  print('Input record: --accepted-inputs FILE.jsonl makes the authority write every accepted input per tick (replay with the replay_accepted_inputs soak).')
+  print('Client autopilot (Development/Editor renderers): --autopilot PROFILE drives each local renderer through synthesized Slate input and writes OUTPUT/autopilot-pID.jsonl plus .coverage.json.')
+  print('Debug status: --debug-query sets OMB_DEBUG_QUERY=1 on the authority so omb-mcp (match_status, list_players) may read the unfiltered state; local development only, never for LAN players.')
+  print('Same-machine split topology: pass identical --host-simulations N --host-renderers M to every --server-only/--connect invocation sharing one host (e.g. 3 and 2 for server + two clients) so the worker budget is shared instead of each assuming the whole machine. Presentation IPC binds 127.0.0.1:(--port + player ID).')
   print('Configuration preflight always uses the selected profile\'s compiled moba-config.exe, never cargo run. --prepare-only and --no-build require prebuilt artifacts; missing tools fail without building or switching profiles.')
   print('LAN selection: --interactive-selection --selection-bind HOST_IPV4 --local-player ID. Only local seats receive windows; send each other seat its private invitation and use scripts/run_moba_selection_join.lua on that machine. Final match-plan.json remains host-owned; do not share the invitation folder.')
   print('Read-only bounded result capture: --finish-timeout-seconds 1..7200. Optional selection automation: --interactive-selection --selection-smoke-hero HERO (requires bounded result capture). Does not force a winner or validate the full match.')
@@ -18,6 +22,7 @@ if arg[1]=='--help' then
   return
 end
 local options=launch.options(arg)
+assert(not options.managed_rounds,'--managed-rounds is owned by the root managed session entry (scripts/run_moba_session_ue.lua)')
 if not options.prepare_only then process.supervise_workflow(source,arg) end
 if not options.output then
   -- Exclusive mkdir, no reuse/deletion of a previous session directory.

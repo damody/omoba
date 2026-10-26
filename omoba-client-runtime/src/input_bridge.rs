@@ -514,7 +514,7 @@ fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), 
             omoba_core::runtime::direction_transport::validate_renderer(value).map(|_|()),
         Some(renderer_input::Intent::Communication(_)) => return Err("COMMUNICATION_IS_NOT_GAMEPLAY"),
         Some(renderer_input::Intent::AbilityUpgrade(value)) => return
-            if value.ability_index<4 {Ok(())} else {Err("INVALID_ABILITY_SLOT")},
+            if (value.ability_index as usize) < omoba_core::runtime::HERO_ABILITY_SLOTS {Ok(())} else {Err("INVALID_ABILITY_SLOT")},
         Some(renderer_input::Intent::Recall(_)) => return Ok(()),
         Some(renderer_input::Intent::SummonerCast(value)) => {
             return omoba_core::runtime::summoner_transport::admit_summoner_cast(
@@ -535,7 +535,7 @@ fn validate_intent_shape(intent: Option<&renderer_input::Intent>) -> Result<(), 
         Some(renderer_input::Intent::MoveTo(value)) => (value.x_raw, value.y_raw),
         Some(renderer_input::Intent::AttackMove(value)) => (value.x_raw, value.y_raw),
         Some(renderer_input::Intent::AbilityCast(value)) => {
-            if value.ability_index >= 4 {
+            if value.ability_index as usize >= omoba_core::runtime::HERO_ABILITY_SLOTS {
                 return Err("INVALID_ABILITY_SLOT");
             }
             (value.x_raw, value.y_raw)
@@ -775,11 +775,12 @@ mod tests {
         assert_rejected(bridge.validate_view(input.clone(), 8, &view), "INVALID_OWNER");
         let mut stale = input.clone(); stale.disclosure_epoch += 1;
         assert_rejected(bridge.validate_view(stale, 7, &view), "STALE_DISCLOSURE_EPOCH");
-        let mut invalid = input.clone(); invalid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: 4 }));
+        let mut invalid = input.clone(); invalid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: 5 }));
         assert_rejected(bridge.validate_view(invalid, 7, &view), "INVALID_ABILITY_SLOT");
         let mut zero = input.clone(); zero.request_id = 0;
         assert!(matches!(bridge.validate_view(zero, 7, &view), InputDecision::Rejected { request_id: 0, code: "INVALID_UPGRADE_REQUEST_ID" }));
-        for slot in 0..4 {
+        // Slot 4 is the extra action slot (D); the authority rejects it for a hero without one.
+        for slot in 0..5 {
             let mut valid = input.clone();
             valid.request_id += u64::from(slot);
             valid.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: slot }));
@@ -795,7 +796,7 @@ mod tests {
         let mut conflict = input;
         conflict.intent = Some(renderer_input::Intent::AbilityUpgrade(AbilityUpgradeIntent { ability_index: 1 }));
         assert_rejected(bridge.validate_view(conflict, 7, &view), "CONFLICTING_UPGRADE_REQUEST_ID");
-        assert_eq!(bridge.allocate_input_id(), Ok(5));
+        assert_eq!(bridge.allocate_input_id(), Ok(6));
     }
 
     #[test]
@@ -1514,7 +1515,7 @@ mod tests {
         for (intent, code) in [
             (
                 renderer_input::Intent::AbilityCast(AbilityCastIntent {
-                    ability_index: 4,
+                    ability_index: 5,
                     ..Default::default()
                 }),
                 "INVALID_ABILITY_SLOT",

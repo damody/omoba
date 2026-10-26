@@ -73,6 +73,10 @@ pub enum FactKind {
     AttackAvoided = 36,
     CriticalHit = 37,
     DisclosedAttackRange = 38,
+    /// G-2 stored uses after a settled spend, for disclosed opponents only.
+    CommittedCharge = 39,
+    /// Own-team controls and channel statuses after one outcome batch (split16).
+    OwnerControl = 40,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -112,9 +116,14 @@ pub enum ObservableFact {
     /// Final, already-disclosable state after an authority-owned settlement.
     CommittedVitals { source: u64, hp_raw: i64, max_hp_raw: i64 },
     CommittedCooldown { source: u64, slot: u32, remaining_raw: i64 },
+    /// Full stored-use state of one slot (G-2); the owning team predicts its own.
+    CommittedCharge { source: u64, slot: u32, charges: u16, max: u16, recharge_raw: i64, remaining_raw: i64 },
+    /// Own-team hero controls and channel statuses after outcome batch `batch`.
+    OwnerControl { source: u64, batch: u8, row: crate::runtime::native::owner_control::OwnerControlRow },
     CommittedAttack { source: u64, elapsed_raw: i64, sequence: u32, phase: u8 },
     CommittedProgression { source: u64, level: i32, experience: i32, experience_to_next: i32, skill_points: i32 },
-    CommittedAbilityRanks { source: u64, ranks: [i32; 4] },
+    /// One rank per slot: four for a Q-R hero, five when it has the extra action slot.
+    CommittedAbilityRanks { source: u64, ranks: Vec<i32> },
     CommittedMana { source: u64, state: crate::runtime::ability_runtime::CommittedManaState },
     /// A visible actor is prioritizing movement, without disclosing its
     /// destination, input, or any entity target.

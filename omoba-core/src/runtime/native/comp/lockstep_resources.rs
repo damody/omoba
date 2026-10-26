@@ -150,6 +150,8 @@ pub struct PendingAbilityUpgradeQueue {
 pub struct PendingAbilityUpgrade {
     pub ability_index: u32,
     pub owner_pid: u32,
+    /// Admitted input id; 0 for unidentified commands (bots, legacy).
+    pub correlation: u32,
 }
 
 /// 來自 `PlayerInputEnum::CastAbility` 的延遲英雄施法請求。
@@ -166,6 +168,8 @@ pub struct PendingAbilityCast {
     pub target_pos: Option<SimVec2>,
     pub target_entity: Option<u32>,
     pub owner_pid: u32,
+    /// Admitted input id; 0 for unidentified commands (bots, legacy).
+    pub correlation: u32,
 }
 
 /// Slot-only summoner requests admitted by the wire gate. Spell identity stays
@@ -510,6 +514,8 @@ pub struct PendingMoveQueue {
 
 #[derive(Clone, Debug)]
 pub struct PendingHeroCommand {
+    /// Admitted input correlation (0 = unidentified); names a rejection.
+    pub admitted_correlation: u32,
     pub owner_pid: u32,
     pub queued: bool,
     pub kind: PendingHeroCommandKind,

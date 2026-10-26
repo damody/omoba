@@ -65,7 +65,7 @@ pub(super) fn validate_learning(steps:&[BotAbilityLearningStep]) -> Result<(), &
 pub(super) fn choose_upgrade(hero:&Hero,steps:&[BotAbilityLearningStep]) -> Option<crate::game_proto::UpgradeAbility> {
     if hero.skill_points<=0 {return None;}
     for step in steps {
-        let Some(slot)=hero.abilities.iter().position(|id|id==&step.ability).filter(|slot|*slot<4) else {continue;};
+        let Some(slot)=hero.abilities.iter().position(|id|id==&step.ability).filter(|slot|*slot<HERO_ABILITY_SLOTS) else {continue;};
         let rank=hero.get_ability_level(&step.ability);
         if rank<0 || rank.checked_add(1)!=Some(i32::from(step.rank)) {continue;}
         let Some(def)=omoba_template_ids::ability_by_name(&step.ability)
@@ -210,7 +210,7 @@ pub(super) fn choose_cast_with_control_observation(hero:&Hero,role:BotRole,team:
             |BotAbilityIntent::EnemyPoint {..}|BotAbilityIntent::EnemyCone {..}|BotAbilityIntent::EnemyLine {..}|BotAbilityIntent::ApproachEnemyPoint {..}) {continue;}
         let Some(slot)=hero.abilities.iter().position(|id|id==&policy.ability) else {continue;};
         if slot>=4 {continue;} // formal PlayerInput exposes exactly four slots
-        if !hero.can_use_ability(&policy.ability) || hero.is_on_cooldown(&policy.ability) {continue;}
+        if !hero.can_use_ability(&policy.ability) || !hero.cast_ready(&policy.ability) {continue;}
         let owner_rank=hero.get_ability_level(&policy.ability);
         if !(1..=255).contains(&owner_rank) {continue;}
         let rank=(owner_rank-1) as usize;

@@ -252,11 +252,13 @@ impl FilteredReplicaWorldBuilder {
         world.insert(ExternalEffectInjectionQueue::default());
         world.insert(ReplicaPhaseTrace::default());
         world.insert(DisclosedMovementPriority::default());
+        world.insert(crate::runtime::native::owner_control::OwnerControlInjections::default());
         world.insert(crate::runtime::input_scheme::DirectionalStepPlan::default());
         world.insert(crate::runtime::input_scheme::AdmittedDirectionalSteps::default());
         world.insert(DisclosedAttackabilityGate::default());
         world.insert(DisclosedWardCandidates::default());
         world.insert(crate::runtime::summoner_transport::DisclosedSummonerAuthority(start.team_id));
+        world.insert(crate::runtime::native::cast_windup::FormalCastRules);
         world.insert(crate::runtime::summoner_transport::disclosed_summoner_projection_from_metadata(
             &start.team_private_metadata,
         ));
@@ -313,6 +315,16 @@ pub struct SpecsDisclosedWorldStepper {
 }
 
 impl SpecsDisclosedWorldStepper {
+    /// Owner inputs this replica's last steps rejected under the authority's
+    /// own admission rules, as (input id, code). Drained on read.
+    pub fn take_owner_command_rejections(&mut self, player_id: u32) -> Vec<(u32, &'static str)> {
+        self.filtered
+            .world
+            .try_fetch_mut::<crate::runtime::native::command_outcome::OwnerCommandOutcomes>()
+            .map(|mut outcomes| outcomes.take_for(player_id))
+            .unwrap_or_default()
+    }
+
     pub fn inject_test_only_position_fault(&mut self) -> bool {
         use specs::Join;
         let mut positions = self.filtered.world.write_storage::<crate::runtime::Pos>();
@@ -509,6 +521,12 @@ impl SpecsDisclosedWorldStepper {
                         authority_revision: state.authority_revision,
                     },
                 );
+                // A new local life (bootstrap, rebase or reveal) starts from the
+                // owner-only baseline: exact controls and channel statuses (split16).
+                if let Some(visual) = state.components.get(&crate::runtime::buff_visual_state::SCHEMA_ID)
+                    .and_then(|bytes| crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(bytes)) {
+                    crate::runtime::native::owner_control::seed_from_visual(&self.filtered.world, entity, &visual);
+                }
             }
             self.synchronize_gameplay_components(state)?;
         }
@@ -1198,6 +1216,18 @@ impl SpecsDisclosedWorldStepper {
             .world
             .write_resource::<DisclosedMovementPriority>()
             .0 = priorities;
+        // Own-team control rows, applied after the matching outcome batch (split16).
+        let mut controls = Vec::new();
+        for event in &injections.public_events {
+            if event.event_kind != crate::runtime::FactKind::OwnerControl as u32 { continue; }
+            let (batch, row) = crate::runtime::native::owner_control::OwnerControlRow::decode(&event.sanitized_payload)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let id = event.subject.as_ref().ok_or(ReplicaRuntimeError::UnknownEntity)?.value;
+            // A subject this replica does not hold cannot affect its gameplay.
+            let Some(entity) = self.filtered.entities.0.get(&id).map(|row| row.entity) else { continue };
+            controls.push((entity, batch, row));
+        }
+        self.filtered.world.write_resource::<crate::runtime::native::owner_control::OwnerControlInjections>().0 = controls;
         self.filtered
             .world
             .write_resource::<AcceptedInputInjectionQueue>()
@@ -1240,6 +1270,7 @@ impl SpecsDisclosedWorldStepper {
                 .filter(|(_, faction, owner, _)| recalling_owners.contains(&(faction.team_id as u32, owner.player_id)))
                 .map(|(_, _, owner, _)| owner.player_id).collect()
         };
+        self.filtered.world.insert(super::native::cast_windup::DisclosedRecallingOwners(owners.iter().copied().collect()));
         self.filtered.world.write_resource::<crate::runtime::PendingHeroCommandClearQueue>()
             .requests.extend(owners);
 
@@ -1374,6 +1405,7 @@ impl SpecsDisclosedWorldStepper {
             .0
             .clear();
         apply_authoritative_movement_outcomes(self, injections)?;
+        crate::runtime::native::cast_windup::anchor_started_windups(&self.filtered.world);
         self.export_gameplay_components(world)?;
         apply_disclosed_events(world, injections)?;
         apply_disclosed_summoner_projection(self, injections);
@@ -1573,7 +1605,6 @@ fn apply_disclosed_events(
     world: &mut DisclosedReplicaWorld,
     injections: &StepInjections,
 ) -> Result<(), ReplicaRuntimeError> {
-    apply_committed_economy_and_equipment(world, injections)?;
     for event in &injections.public_events {
         if event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32 {
             crate::runtime::buff_visual_state::BuffVisualSnapshot::decode(&event.sanitized_payload).ok_or(ReplicaRuntimeError::MalformedBaseline)?;
@@ -1596,15 +1627,18 @@ fn apply_disclosed_events(
         }
         if event.event_kind == crate::runtime::FactKind::CommittedAbilityRanks as u32 {
             let payload=&event.sanitized_payload;
-            if payload.len()!=16 {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            // Four ranks, or five for a hero that owns the extra action slot.
+            if payload.len()!=16 && payload.len()!=20 {return Err(ReplicaRuntimeError::MalformedBaseline);}
             let id=event.subject.as_ref().map_or(0,|id|id.value);
             let entity=world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes=entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero:crate::runtime::Hero=serde_json::from_slice(bytes)
                 .map_err(|_|ReplicaRuntimeError::MalformedBaseline)?;
-            let ranks:[i32;4]=std::array::from_fn(|slot|
-                i32::from_le_bytes(payload[slot*4..slot*4+4].try_into().unwrap()));
+            let slots=payload.len()/4;
+            if hero.abilities.len()>slots {return Err(ReplicaRuntimeError::MalformedBaseline);}
+            let ranks:Vec<i32>=(0..slots).map(|slot|
+                i32::from_le_bytes(payload[slot*4..slot*4+4].try_into().unwrap())).collect();
             for (slot,rank) in ranks.iter().enumerate() {
                 if let Some(ability)=hero.abilities.get(slot) {
                     let def=omoba_template_ids::ability_by_name(ability)
@@ -1692,18 +1726,38 @@ fn apply_disclosed_events(
                 property[offset..offset + 8].copy_from_slice(&raw.to_be_bytes());
             }
         }
-        if event.event_kind == crate::runtime::FactKind::CommittedCooldown as u32 {
-            if event.sanitized_payload.len() != 12 { return Err(ReplicaRuntimeError::MalformedBaseline); }
-            let slot = u32::from_le_bytes(event.sanitized_payload[0..4].try_into().unwrap()) as usize;
-            let raw = i64::from_le_bytes(event.sanitized_payload[4..12].try_into().unwrap());
-            if slot > 3 || raw < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+        if event.event_kind == crate::runtime::FactKind::CommittedCharge as u32 {
+            let p = &event.sanitized_payload;
+            if p.len() != 24 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let slot = u32::from_le_bytes(p[0..4].try_into().unwrap()) as usize;
+            let charges = u16::from_le_bytes(p[4..6].try_into().unwrap());
+            let max = u16::from_le_bytes(p[6..8].try_into().unwrap());
+            let recharge = i64::from_le_bytes(p[8..16].try_into().unwrap());
+            let remaining = i64::from_le_bytes(p[16..24].try_into().unwrap());
+            if slot >= crate::runtime::HERO_ABILITY_SLOTS || max == 0 || max > 10 || charges > max || recharge <= 0 || remaining < 0 || remaining > recharge
+                || (charges == max) != (remaining == 0) { return Err(ReplicaRuntimeError::MalformedBaseline); }
             let id = event.subject.as_ref().map_or(0, |id| id.value);
             let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
             let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
                 .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
             let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
             let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
-            hero.start_cooldown(&ability, omoba_sim::Fixed64::from_raw(raw));
+            hero.ability_charges.insert(ability, crate::runtime::comp::AbilityChargeState {
+                charges, max, recharge: omoba_sim::Fixed64::from_raw(recharge), remaining: omoba_sim::Fixed64::from_raw(remaining) });
+            *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
+        }
+        if event.event_kind == crate::runtime::FactKind::CommittedCooldown as u32 {
+            if event.sanitized_payload.len() != 12 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let slot = u32::from_le_bytes(event.sanitized_payload[0..4].try_into().unwrap()) as usize;
+            let raw = i64::from_le_bytes(event.sanitized_payload[4..12].try_into().unwrap());
+            if slot >= crate::runtime::HERO_ABILITY_SLOTS || raw < 0 { return Err(ReplicaRuntimeError::MalformedBaseline); }
+            let id = event.subject.as_ref().map_or(0, |id| id.value);
+            let entity = world.entities.get_mut(&id).ok_or(ReplicaRuntimeError::UnknownEntity)?;
+            let bytes = entity.components.get_mut(&crate::runtime::DISCLOSED_HERO_COMPONENT_SCHEMA_ID)
+                .ok_or(ReplicaRuntimeError::MalformedBaseline)?;
+            let mut hero: crate::runtime::Hero = serde_json::from_slice(bytes).map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+            let ability = hero.abilities.get(slot).ok_or(ReplicaRuntimeError::MalformedBaseline)?.clone();
+            hero.commit_cooldown(&ability, omoba_sim::Fixed64::from_raw(raw));
             *bytes = crate::runtime::visibility::canonical_disclosed_json(&hero);
         }
         if (event.event_kind == crate::runtime::FactKind::Movement as u32
@@ -1742,6 +1796,10 @@ fn apply_disclosed_events(
             }
         }
     }
+    // Last: the end-of-tick hero snapshot follows every authority-only settlement
+    // (base recovery, item stats), so it supersedes this tick's in-tick rows
+    // (CommittedVitals right after damage, PROP effects) for the same hero.
+    apply_committed_economy_and_equipment(world, injections)?;
     Ok(())
 }
 
@@ -1846,6 +1904,51 @@ mod input_scheme_step_tests {
         assert!(expected>0);
         assert_eq!(replica.canonical_team_hash().as_slice(),next.post_step.unwrap().hash_checkpoint.unwrap().canonical_team_hash.as_slice());
     }
+    /// The owner replica decodes its own accepted cast and rejects it under the
+    /// authority's admission rule, keyed by the same input id.
+    #[test]
+    fn owner_replica_reports_authority_cast_rejection_by_input_id() {
+        let mut fix=crate::runtime::native::combat_acquisition::test_support::CombatFixture::legacy();
+        fix.owner(7);
+        {
+            let mut heroes=fix.world.write_storage::<Hero>();let hero=heroes.get_mut(fix.hero).unwrap();
+            hero.abilities=vec!["q_probe".into(),"w_probe".into(),"e_probe".into(),"r_probe".into()];
+            hero.ability_levels.clear();hero.ability_levels.insert("q_probe".into(),1);
+            hero.ability_cooldowns.insert("q_probe".into(),omoba_sim::Fixed64::from_i32(9));
+        }
+        let property=crate::runtime::visibility::encode_disclosed_property(fix.world.read_storage::<CProperty>().get(fix.hero).unwrap());
+        let attack=crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<TAttack>().get(fix.hero).unwrap());
+        let hero_json=crate::runtime::visibility::canonical_disclosed_json(fix.world.read_storage::<Hero>().get(fix.hero).unwrap());
+        let render=encode_demo_render_state(DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:7});
+        let components=vec![(DEMO_RENDER_COMPONENT_SCHEMA_ID,render),(DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,property),
+            (DISCLOSED_ATTACK_COMPONENT_SCHEMA_ID,attack),(DISCLOSED_HERO_COMPONENT_SCHEMA_ID,hero_json)];
+        let allow=secure_replica_component_allowlist();let empty=std::collections::BTreeSet::new();
+        let canonical=(1_u64<<32)|55;let visible=std::collections::BTreeSet::from([canonical]);
+        let mut projector=TeamViewProjector::new(1,TeamProjectorConfig {hash_checkpoint_interval_ticks:1,..Default::default()});
+        let start=projector.build_team_game_start(1,30,0);
+        let mut replica=SelectiveReplicaRuntime::bootstrap_from_team_game_start(&start,allow.clone(),empty.clone()).unwrap();
+        let mut stepper=SpecsDisclosedWorldStepper::from_start(&start,allow,empty);
+        let reveal=crate::runtime::visibility::VisibilityTransition::Reveal {canonical_id:canonical,effective_tick:1,
+            baseline:crate::runtime::visibility::encode_disclosed_baseline(&components)};
+        let first=projector.build_frame_with_inputs(1,1,&visible,vec![reveal],&[],&ProjectionDependencyGraph::default(),vec![]).unwrap().frame;
+        replica.apply_frame(first,&mut stepper).unwrap();
+        stepper.bootstrap_membership(replica.world()).unwrap();
+        let render_id=*replica.world().entities.keys().next().unwrap();
+        let cast=|input_id:u64,slot:u32| {
+            let payload=crate::game_proto::PlayerInput {action:Some(crate::game_proto::player_input::Action::CastAbility(
+                crate::game_proto::CastAbility {ability_index:slot,..Default::default()}))};
+            crate::game_proto::TeamAcceptedInput {player_id:7,input_id,action_kind:3,
+                actor:Some(crate::game_proto::ReplicaEntityId {value:render_id}),target:None,
+                sanitized_payload:payload.encode_to_vec(),stable_sub_index:0}
+        };
+        stepper.inject_accepted_inputs(&StepInjections {accepted_inputs:vec![cast(61,3),cast(62,0)],..Default::default()}).unwrap();
+        crate::comp::run_now::<crate::tick::player_input_tick::Sys>(&stepper.filtered.world);
+        crate::runtime::drain_pending_ability_casts(&mut stepper.filtered.world);
+        assert_eq!(stepper.take_owner_command_rejections(7),
+            vec![(61,crate::runtime::native::command_outcome::NOT_LEARNED),(62,crate::runtime::native::command_outcome::ON_COOLDOWN)]);
+        assert!(stepper.take_owner_command_rejections(7).is_empty(),"drained on read");
+    }
+
     #[test]
     fn input_scheme_filtered_mode_reset_and_direction_begin_keep_distinct_attack_policy() {
         for reset in [false,true] {
@@ -2280,7 +2383,7 @@ mod canonical_json_tests {
         assert!(detail.preparation_ns > 0);
         assert!(detail.finalization_ns > 0);
         let dispatcher = detail.dispatcher.expect("concrete dispatcher profile");
-        assert_eq!(dispatcher.jobs.unwrap().observed_jobs, 18);
+        assert_eq!(dispatcher.jobs.unwrap().observed_jobs, 19);
         assert!(dispatcher.residual_ns(detail.phases_ns[DeterministicGameplayPhase::Dispatcher as usize]).is_some());
         assert_eq!(plain.filtered.world.read_resource::<ReplicaPhaseTrace>().0,
             measured.filtered.world.read_resource::<ReplicaPhaseTrace>().0);

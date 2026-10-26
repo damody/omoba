@@ -102,6 +102,7 @@ pub fn run_script_dispatch(
     dt: Fixed64,
 ) {
     crate::runtime::refresh_moba_mana_capacities(world);
+    bind_hero_unit_scripts(world, registry);
     // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
     let tagged: Vec<(Entity, String)> = {
         let entities = world.entities();
@@ -124,7 +125,8 @@ pub fn run_script_dispatch(
     }).collect();
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
         .chain(releases.into_iter().map(|event|(event,true))).collect();
-    if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty() {
+    if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
+        && !super::super::ability_channel::any_active(world) {
         return;
     }
 
@@ -155,10 +157,28 @@ pub fn run_script_dispatch(
     // Retain the serial resource ledger across queued events and tick hooks;
     // the immutable ECS cache does not yet contain deferred outcomes.
     let mut cast_heroes = HashMap::new();
+    // (caster, skill, Some(code)) rejects one admitted owner input; None settles it.
+    let mut cast_outcomes: Vec<(Entity, String, Option<&'static str>)> = Vec::new();
+    use super::super::command_outcome as code;
+    // A windup release is not the admitted input; only first-pass casts report.
+    macro_rules! reject_cast {
+        ($outcomes:ident, $event:ident, $releasing:ident, $code:expr) => {{
+            if !$releasing {
+                if let ScriptEvent::SkillCast { caster, skill_id, .. } = &$event {
+                    $outcomes.push((*caster, skill_id.clone(), Some($code)));
+                }
+            }
+            continue;
+        }};
+    }
     {
         // Event hooks stay serial in queue order, but use the same outcome-backed
         // adapter as parallel on_tick so script mutations have one code path.
         let enforce_learned_ranks = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
+        // The team-filtered replica predicts its own heroes' casts and must run
+        // the identical windup/admission timeline as the authority.
+        let formal_casts = enforce_learned_ranks
+            || world.try_fetch::<super::super::cast_windup::FormalCastRules>().is_some();
         let cache = ParallelAdapterCache::new(&*world, rng_seed);
         let mut event_outcomes = Vec::new();
         let mut visual_events = Vec::new();
@@ -174,12 +194,12 @@ pub fn run_script_dispatch(
             let invocation_entity = event_invocation_entity(&ev);
             if releasing {windups.result(invocation_entity,false);}
             let is_cast = matches!(&ev, ScriptEvent::SkillCast { .. });
-            if is_cast && enforce_learned_ranks {
-                if world.read_resource::<crate::comp::GamePause>().is_paused {continue;}
-                if world.read_resource::<crate::runtime::MobaMatch>().phase!=crate::runtime::MobaMatchPhase::Playing {continue;}
+            if is_cast && formal_casts {
+                if world.try_fetch::<crate::comp::GamePause>().is_some_and(|pause|pause.is_paused) {reject_cast!(cast_outcomes,ev,releasing,code::GAME_NOT_ACTIVE);}
+                if world.try_fetch::<crate::runtime::MobaMatch>().is_some_and(|state|state.phase!=crate::runtime::MobaMatchPhase::Playing) {reject_cast!(cast_outcomes,ev,releasing,code::GAME_NOT_ACTIVE);}
                 if let ScriptEvent::SkillCast {caster,..}=&ev {
                     if releasing && requested_casts.contains(caster) {continue;}
-                    if windups.0.contains_key(caster) {continue;}
+                    if windups.0.contains_key(caster) {reject_cast!(cast_outcomes,ev,releasing,code::ALREADY_CASTING);}
                 }
             }
             // Capture before handler mutation, from the same serial ledger as
@@ -192,43 +212,46 @@ pub fn run_script_dispatch(
                     let definition = registry.get_ability(skill_id).map(|(definition, _)| definition);
                     match resolve_cast_rank(raw, definition, require_learned) {
                         Ok((level, rank)) => (Some(level), rank),
-                        Err(()) => continue,
+                        Err(()) => reject_cast!(cast_outcomes,ev,releasing,code::NOT_LEARNED),
                     }
                 },
                 _ => (None, 0),
             };
             let cooldown = match prepare_cast_cooldown(&cache, registry, &ev, cast_level) {
                 Ok(value) => value,
-                Err(()) => continue,
+                Err(()) => reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED),
             };
             let reservation = match prepare_mana_cast(&cache, registry, &ev, cast_level, cooldown, &mut cast_heroes) {
                 Ok(value) => value,
-                Err(()) => continue,
+                Err(reason) => reject_cast!(cast_outcomes,ev,releasing,reason),
             };
             let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
             let expected_mana = cast_heroes.get(&invocation_entity).or_else(||cache.hero.get(invocation_entity))
                 .and_then(|hero|hero.mana_pool.clone());
             let managed_cast = reservation.is_some();
-            if enforce_learned_ranks {
+            if formal_casts {
                 if let ScriptEvent::SkillCast {caster,skill_id,target}=&ev {
-                    let Some((def,_))=registry.get_ability(skill_id) else {continue;};
-                    let Some(level)=cast_level.and_then(|rank|def.get_level_data(rank)) else {continue;};
-                    if !level.cast_time.is_finite() || !(0.0..=60.0).contains(&level.cast_time) {continue;}
+                    let Some((def,_))=registry.get_ability(skill_id) else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
+                    let Some(level)=cast_level.and_then(|rank|def.get_level_data(rank)) else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
+                    if !level.cast_time.is_finite() || !(0.0..=60.0).contains(&level.cast_time) {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);}
                     if level.cast_time>0.0 {
-                        if cache.buffs.is_silenced(*caster) || !cache.entities.is_alive(*caster)
-                            || cache.cprop.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO) {continue;}
-                        let Some(origin)=cache.pos.get(*caster).map(|p|p.0) else {continue;};
-                        if !windup_target_allowed(&cache,def,level,target,origin) {continue;}
+                        if cache.buffs.is_silenced(*caster) {reject_cast!(cast_outcomes,ev,releasing,code::SILENCED);}
+                        if !cache.entities.is_alive(*caster)
+                            || cache.cprop.get(*caster).is_none_or(|p|p.hp<=Fixed64::ZERO) {reject_cast!(cast_outcomes,ev,releasing,code::HERO_INACTIVE);}
+                        let Some(origin)=cache.pos.get(*caster).map(|p|p.0) else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
+                        if let Err(reason)=windup_target_allowed(&cache,def,level,target,origin) {reject_cast!(cast_outcomes,ev,releasing,reason);}
                         if !releasing {
                             let base=Fixed64::from_raw((f64::from(level.cast_time)*1024.0).round().max(1.0) as i64);
                             let Some(duration)=crate::runtime::ability_runtime::UnitStats::from_refs(
                                 &cache.buffs,cache.is_building.get(*caster).is_some()).checked_cast_time(base,*caster)
-                                else {continue;};
+                                else {reject_cast!(cast_outcomes,ev,releasing,code::CAST_REJECTED);};
                             windups.start(*caster,super::super::cast_windup::Windup {
                                 skill_id:skill_id.clone(),target:target.clone(),origin,
                                 remaining:duration,
-                                rank:cast_level.unwrap(),interrupt_on_damage:level.cast_interrupt_on_damage,last_tick:cache.tick.0,
+                                rank:cast_level.unwrap(),interrupt_on_damage:level.cast_interrupt_on_damage,last_tick:cache.tick.0,anchored:false,
                             });
+                            // A started windup is scheduled; a later interruption is not an admission result.
+                            cast_outcomes.push((*caster,skill_id.clone(),None));
                             continue;
                         }
                     }
@@ -300,9 +323,15 @@ pub fn run_script_dispatch(
             }
             commit_script_mana(&mut adapter,&cache,&mut cast_heroes);
             let cast_ok = adapter.cast_succeeded();
+            if is_cast && !cast_ok && !releasing {
+                if let Some(skill_id) = &settlement_skill {
+                    cast_outcomes.push((invocation_entity, skill_id.clone(),
+                        Some(adapter.cast_rejection().unwrap_or(code::CAST_REJECTED))));
+                }
+            }
             let produced = adapter.finish();
             let has_summons = produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::SpawnSummoned {..}));
-            let has_channel=produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::ScriptRecoveryChannel {..}));
+            let has_channel=produced.iter().any(|outcome|matches!(outcome,crate::comp::Outcome::ScriptRecoveryChannel {..}|crate::comp::Outcome::ScriptAbilityChannel {..}));
             if is_cast && cast_ok && (managed_cast || has_summons || has_channel) {
                 let cues = visual_events.drain(visual_checkpoint..).map(|event|crate::runtime::native::comp::outcome::CastSettlementCue {
                     target:event.secondary,skill_id:event.skill_id,rank:event.ability_rank,tick:event.first_tick,
@@ -320,6 +349,20 @@ pub fn run_script_dispatch(
             }
         }
         drop(cache);
+        if !cast_outcomes.is_empty() {
+            let authoritative = world.try_fetch::<crate::runtime::MobaMatch>().is_some();
+            if let Some(mut journal) = world.try_fetch_mut::<code::OwnerCommandOutcomes>() {
+                for (caster, skill_id, rejection) in cast_outcomes.drain(..) {
+                    match rejection {
+                        // The replica cannot judge host-only or hidden-state failures;
+                        // an admission shape problem is input-only and always reported.
+                        Some(rejection) => journal.reject_cast_if(caster, &skill_id, rejection,
+                            authoritative || code::owner_state_code(rejection)),
+                        None => journal.settle_cast(caster, &skill_id),
+                    }
+                }
+            }
+        }
         for (attacker, victim) in targeted_aggression {
             crate::runtime::native::moba_match::record_moba_champion_aggression(world, attacker, victim, true);
         }
@@ -405,6 +448,8 @@ pub fn run_script_dispatch(
             }
         }
     }
+    // G-2: host-owned channel pulses after every hook of this tick, serial and bounded.
+    dispatch_channel_pulses(world, registry, rng_seed, event_count as u64 + tagged.len() as u64);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
     drop(on_tick_span);
 
@@ -462,6 +507,81 @@ fn dispatch_tick(cache:&ParallelAdapterCache<'_>,registry:&ScriptRegistry,entity
     let mut outcomes=adapter.finish();outcomes.extend(cooldown_adapter.finish());
     Some((uid.into(),start.elapsed().as_nanos(),outcomes,
         ScriptVisualEvent::new(ScriptVisualEventKind::Tick,entity,tick),replay))
+}
+
+/// Hero lives already considered by [`bind_hero_unit_scripts`].
+#[derive(Default)]
+pub struct HeroUnitScriptBindings(std::collections::BTreeSet<Entity>);
+
+/// A hero whose content id has a registered `UnitScript` gets that script's
+/// tag, so `on_skill_cast`, `on_damage_taken` and the other unit hooks reach
+/// heroes the same way they reach towers and summons. Each life is considered
+/// exactly once: an explicit detach afterwards is respected, a new life binds
+/// again, and heroes without a script are untouched. Bounded by the hero count.
+pub(crate) fn bind_hero_unit_scripts(world: &mut World, registry: &ScriptRegistry) {
+    if registry.is_empty() {
+        return;
+    }
+    let mut seen = world.remove::<HeroUnitScriptBindings>().unwrap_or_default();
+    let pending: Vec<(Entity, Option<String>)> = {
+        let entities = world.entities();
+        seen.0.retain(|entity| entities.is_alive(*entity));
+        let heroes = world.read_storage::<crate::comp::Hero>();
+        let units = world.read_storage::<crate::comp::Unit>();
+        let tags = world.read_storage::<ScriptUnitTag>();
+        (&entities, &heroes, &units)
+            .join()
+            .filter(|(entity, _, _)| !seen.0.contains(entity))
+            .map(|(entity, _, unit)| (entity, (tags.get(entity).is_none() && registry.get(&unit.id).is_some()).then(|| unit.id.clone())))
+            .collect()
+    };
+    {
+        let mut tags = world.write_storage::<ScriptUnitTag>();
+        for (entity, unit_id) in pending {
+            seen.0.insert(entity);
+            if let Some(unit_id) = unit_id {
+                let _ = tags.insert(entity, ScriptUnitTag { unit_id });
+            }
+        }
+    }
+    world.insert(seen);
+}
+
+/// One `on_channel_pulse` per due pulse, in channel order. A pulse may only
+/// apply effects: a hook that tries to charge, start a channel or spawn has
+/// its whole pulse dropped, so a pulse never costs anything twice.
+fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
+    let due = super::super::ability_channel::advance(world);
+    if due.is_empty() {
+        return;
+    }
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut accepted = Vec::new();
+    for (ordinal, pulse) in due.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(&pulse.skill_id) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(pulse.caster);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, pulse.caster, ordinal_base + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            script.on_channel_pulse(handle, pulse.target.clone(), pulse.pulse, &mut world_dyn)
+        }));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_channel_pulse of {}", pulse.skill_id);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] channel pulse {} of '{}' tried to charge or spawn; dropped", pulse.pulse.index, pulse.skill_id);
+        }
+    }
+    drop(cache);
+    if !accepted.is_empty() {
+        world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
+    }
 }
 
 fn filter_ready_on_ticks(
@@ -730,41 +850,48 @@ fn prepare_mana_cast(
     cache: &ParallelAdapterCache<'_>, registry: &ScriptRegistry, event: &ScriptEvent,
     cast_level: Option<u8>, cooldown: Option<Fixed64>,
     ledger: &mut HashMap<Entity, crate::comp::Hero>,
-) -> Result<Option<(Entity, crate::comp::Hero)>, ()> {
+) -> Result<Option<(Entity, crate::comp::Hero)>, &'static str> {
+    use super::super::command_outcome as code;
     let ScriptEvent::SkillCast { caster, skill_id, .. } = event else { return Ok(None); };
     let Some(original) = cache.hero.get(*caster) else { return Ok(None); };
     if original.mana_pool.is_none() { return Ok(None); }
     let hero = ledger.entry(*caster).or_insert_with(|| original.clone());
     if !cache.entities.is_alive(*caster)
         || !cache.cprop.get(*caster).is_some_and(|prop| prop.hp > Fixed64::ZERO)
-        || hero.is_on_cooldown(skill_id)
-    { return Err(()); }
-    let rank = cast_level.ok_or(())?;
-    let (definition, _) = registry.get_ability(skill_id).ok_or(())?;
-    if definition.ability_type == AbilityType::Passive { return Err(()); }
-    let data = definition.get_level_data(rank).ok_or(())?;
+    { return Err(code::HERO_INACTIVE); }
+    if hero.is_on_cooldown(skill_id) { return Err(code::ON_COOLDOWN); }
+    if !hero.has_charge(skill_id) { return Err(code::NO_CHARGE); }
+    let rank = cast_level.ok_or(code::NOT_LEARNED)?;
+    let (definition, _) = registry.get_ability(skill_id).ok_or(code::CAST_REJECTED)?;
+    if definition.ability_type == AbilityType::Passive { return Err(code::CAST_REJECTED); }
+    let data = definition.get_level_data(rank).ok_or(code::CAST_REJECTED)?;
     let multiplier = crate::runtime::ability_runtime::UnitStats::from_refs(
-        &cache.buffs, cache.is_building.get(*caster).is_some()).checked_mana_cost_mult(*caster).ok_or(())?;
+        &cache.buffs, cache.is_building.get(*caster).is_some()).checked_mana_cost_mult(*caster).ok_or(code::CAST_REJECTED)?;
     let adjusted = crate::runtime::ability_runtime::checked_mana_cost(data.mana_cost, multiplier)
-        .map_err(|_| ())?;
+        .map_err(|_| code::CAST_REJECTED)?;
     let mut next = hero.clone();
-    next.mana_pool.as_mut().ok_or(())?.spend(adjusted).map_err(|_| ())?;
-    next.start_cooldown(skill_id, cooldown.ok_or(())?);
+    next.mana_pool.as_mut().ok_or(code::CAST_REJECTED)?.spend(adjusted).map_err(|_| code::NOT_ENOUGH_MANA)?;
+    next.start_cooldown(skill_id, cooldown.ok_or(code::CAST_REJECTED)?);
+    // Same-tick follow-up casts on this ledger see the spent use.
+    if !next.consume_charge(skill_id) { return Err(code::NO_CHARGE); }
     Ok(Some((*caster, next)))
 }
 
 fn windup_target_allowed(cache:&ParallelAdapterCache<'_>,def:&crate::ability_meta::AbilityDef,
-    level:&crate::ability_meta::AbilityLevelData,target:&SkillTarget,origin:Vec2)->bool {
+    level:&crate::ability_meta::AbilityLevelData,target:&SkillTarget,origin:Vec2)->Result<(),&'static str> {
     use crate::ability_meta::TargetType;
+    use super::super::command_outcome as code;
     let position=match (&def.target_type,target) {
-        (TargetType::None,SkillTarget::None)=>return true,
+        (TargetType::None,SkillTarget::None)=>return Ok(()),
         (TargetType::Point,SkillTarget::Point {x,y})=>Some(Vec2::new(*x,*y)),
         (TargetType::Unit,SkillTarget::Entity(entity)) if cache.entities.is_alive(*entity)
             && cache.cprop.get(*entity).is_some_and(|p|p.hp>Fixed64::ZERO)=>cache.pos.get(*entity).map(|p|p.0),
         _=>None,
     };
-    position.is_some_and(|point|level.range.is_finite() && level.range>=0.0
-        && (level.range==0.0 || (point-origin).length()<=Fixed64::from_raw((f64::from(level.range)*1024.0) as i64)))
+    let point=position.ok_or(code::INVALID_TARGET)?;
+    if !level.range.is_finite() || level.range<0.0 {return Err(code::CAST_REJECTED);}
+    if level.range==0.0 || (point-origin).length()<=Fixed64::from_raw((f64::from(level.range)*1024.0) as i64) {Ok(())}
+    else {Err(code::OUT_OF_RANGE)}
 }
 
 fn dispatch_passive_attack_hit(adapter:&mut ParallelWorldAdapter<'_>,registry:&ScriptRegistry,attacker:Entity,victim:Entity) {
@@ -913,7 +1040,7 @@ fn dispatch_one(
             // - Passive 技能不該走 SkillCast 路徑（on_learn 已處理）
             // - Active / Toggle / Ultimate：若仍在 CD 中直接拒絕
             if let Some(hero) = adapter.cache.hero.get(caster) {
-                if hero.is_on_cooldown(&skill_id) {
+                if !hero.cast_ready(&skill_id) {
                     // 注意：log 使用 f32 邊界 — Fix64 沒有顯示。
                     log::info!(
                         "[scripting] skill '{}' blocked — on cooldown ({:.1}s remaining)",
@@ -971,23 +1098,36 @@ fn dispatch_one(
                     .and_then(|ld| serde_json::to_string(ld).ok())
                     .unwrap_or_else(|| "{}".to_string());
 
-                let exec_ok = match level_data.as_ref().map(|rank|super::super::recovery_channel::ability_spec(def,rank)) {
+                let mut handler_rejection = None;
+                // G-2 pulse channel: the host stages the lifecycle instead of
+                // running `execute`; later pulses call `on_channel_pulse`.
+                let pulse_channel = level_data.as_ref().map(|rank|super::super::ability_channel::ability_spec(def,rank));
+                let exec_ok = if let Some(Ok(Some(spec))) = pulse_channel {
+                    adapter.stage_ability_channel(caster,&skill_id,level,&target_abi,spec)
+                } else if matches!(pulse_channel,Some(Err(()))) {false} else {
+                match level_data.as_ref().map(|rank|super::super::recovery_channel::ability_spec(def,rank)) {
                     Some(Ok(Some(spec)))=>adapter.stage_recovery_channel(caster,spec),
                     Some(Err(()))|None=>false,
                     Some(Ok(None))=>{
+                    // Same immutable snapshot the adapter reads; outlives the mutable world borrow.
+                    let disclosure_query = super::parallel_world_adapter::CastDisclosureQuery { cache: adapter.cache };
+                    let disclosure = omb_script_abi::world::DisclosureQuery_TO::from_ptr(
+                        abi_stable::RRef::new(&disclosure_query), TD_Opaque);
                     let mut world_dyn = world_dyn_of(adapter);
                     let r = catch_unwind(AssertUnwindSafe(|| {
-                        ability_script.execute(
+                        ability_script.execute_disclosed(
                             caster_handle,
                             target_abi,
                             level,
                             (&*level_data_json).into(),
                             &mut world_dyn,
+                            &disclosure,
                         )
                     }));
                     match r {
                         Ok(abi_stable::std_types::RResult::RErr(error)) => {
                             log::warn!("[scripting] ability '{}' execute returned error: {}", skill_id, error);
+                            handler_rejection = Some(super::super::command_outcome::classify_handler_error(error.as_str()));
                             false
                         }
                         Ok(_) => true,
@@ -1001,16 +1141,26 @@ fn dispatch_one(
                     }
                     // world_dyn 在此 block 結束時釋放 adapter 的借用
                     }
-                };
+                }};
 
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
-                if exec_ok { adapter.mark_cast_succeeded(); }
+                if exec_ok {
+                    // Live-acceptance evidence, one line per accepted handler run.
+                    // Serial settlement may still refuse the transaction (resources).
+                    log::info!("[scripting] cast ok ability='{}' caster={} rank={}", skill_id, caster.id(), level);
+                    adapter.mark_cast_succeeded();
+                }
+                else { adapter.note_cast_rejection(handler_rejection.unwrap_or(super::super::command_outcome::CAST_REJECTED)); }
                 if exec_ok && cooldown.is_some_and(|duration| duration > Fixed64::ZERO) {
                     adapter.start_cooldown(
                         caster,
                         skill_id.clone(),
                         cooldown.expect("SkillCast cooldown resolved before handlers"),
                     );
+                }
+                // G-2: a successful cast of a charge ability spends exactly one use.
+                if exec_ok && adapter.cache.hero.get(caster).is_some_and(|hero| hero.ability_charges.contains_key(&skill_id)) {
+                    adapter.consume_charge(caster, skill_id.clone());
                 }
             } else {
                 log::debug!(
@@ -1026,6 +1176,7 @@ fn dispatch_one(
             new_level,
         } => {
             // 派發 on_learn；Passive 技在此套永久 buff
+            log::info!("[scripting] learn ability='{}' caster={} rank={}", skill_id, caster.id(), new_level);
             if let Some((_def, ability_script)) = registry.get_ability(&skill_id) {
                 let caster_handle = ParallelWorldAdapter::entity_to_handle(caster);
                 let mut world_dyn = world_dyn_of(adapter);
@@ -1581,6 +1732,44 @@ mod worker_pool_ownership {
                 thread: std::thread::current().id(),
             });
         }
+    }
+
+    struct HeroProbe;
+    impl UnitScript for HeroProbe {
+        fn unit_id(&self) -> RStr<'_> { "hero_probe".into() }
+    }
+
+    #[test]
+    fn hero_unit_scripts_bind_by_content_id_once_per_life_and_skip_unscripted_heroes() {
+        use crate::runtime::{MobaMatch, SingleLaneConfig};
+        let pool = StateInitializer::create_thread_pool();
+        let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
+        crate::runtime::setup_single_lane_match(&mut world, SingleLaneConfig::default()).unwrap();
+        let heroes: Vec<_> = world.read_resource::<MobaMatch>().heroes.iter().filter_map(|slot| slot.entity).collect();
+        let scripted = heroes[0];
+        let content = world.read_storage::<crate::comp::Unit>().get(scripted).unwrap().id.clone();
+        let mut registry = ScriptRegistry::new();
+        super::bind_hero_unit_scripts(&mut world, &registry);
+        assert!(world.read_storage::<ScriptUnitTag>().get(scripted).is_none(), "empty registry binds nothing");
+        registry.insert_unit_for_test(content.clone(), UnitScript_TO::from_value(HeroProbe, TD_Opaque));
+        super::bind_hero_unit_scripts(&mut world, &registry);
+        assert_eq!(world.read_storage::<ScriptUnitTag>().get(scripted).map(|tag| tag.unit_id.clone()), Some(content.clone()));
+        for other in &heroes[1..] {
+            let id = world.read_storage::<crate::comp::Unit>().get(*other).unwrap().id.clone();
+            assert_eq!(world.read_storage::<ScriptUnitTag>().get(*other).is_some(), id == content, "only heroes with a script");
+        }
+        // An explicit detach of a considered life is respected.
+        world.write_storage::<ScriptUnitTag>().remove(scripted);
+        super::bind_hero_unit_scripts(&mut world, &registry);
+        assert!(world.read_storage::<ScriptUnitTag>().get(scripted).is_none(), "bound once per life");
+        // A replacement life (new entity) is bound on the next dispatch; the old one is gone.
+        let hero = world.read_storage::<crate::comp::Hero>().get(scripted).unwrap().clone();
+        let unit = world.read_storage::<crate::comp::Unit>().get(scripted).unwrap().clone();
+        world.delete_entity(scripted).unwrap();
+        world.maintain();
+        let next = world.create_entity().with(hero).with(unit).build();
+        super::bind_hero_unit_scripts(&mut world, &registry);
+        assert_eq!(world.read_storage::<ScriptUnitTag>().get(next).map(|tag| tag.unit_id.clone()), Some(content));
     }
 
     fn scoped_pool() -> Arc<rayon::ThreadPool> {

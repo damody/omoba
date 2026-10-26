@@ -5,13 +5,19 @@
 use abi_stable::std_types::{RErr, ROk, RResult, RSome, RStr, RString};
 use omb_script_abi::{
     ability::{AbilityDefFFI, AbilityScript},
-    types::{DamageKind, DamageProfile, EntityHandle, Fixed64, Target, Vec2},
+    types::{ChannelPulse, DamageKind, DamageProfile, EntityHandle, Fixed64, Target, Vec2},
     world::GameWorldDyn,
 };
 use omoba_core::ability_meta::{DamageType, EffectSpec, TargetSelector};
 use omoba_template_ids::{active_ability_const, AbilityId};
 use omoba_content_model::ControlEffectKind;
+use omoba_content_model::ForcedMotionKind;
 use omoba_content_model::ManaBuffStat;
+
+fn host_forced_mode(motion: ForcedMotionKind) -> omoba_core::runtime::native::forced_motion::Mode {
+    use omoba_core::runtime::native::forced_motion::Mode;
+    match motion { ForcedMotionKind::Knockback => Mode::Knockback, ForcedMotionKind::Pull => Mode::Pull }
+}
 
 use crate::ability_builder::{extra_at, extra_at_id_f32};
 
@@ -29,6 +35,10 @@ pub enum EffectOp {
     SlowEnemy { reduction_key:&'static str, duration_key:&'static str },
     StunEnemy { duration_key:&'static str },
     ControlEnemy { control:ControlEffectKind, duration_key:&'static str },
+    /// G-4 forced displacement of the enemy target (host `forced_motion`).
+    ForcedMoveEnemy { motion:ForcedMotionKind, distance_key:&'static str, duration_key:&'static str },
+    /// G-4 true-sight area at the point target (host `reveal_zone`).
+    RevealArea { radius_key:&'static str, duration_key:&'static str },
     DashToPoint,
     Damage {
         amount_key: &'static str,
@@ -40,11 +50,41 @@ pub enum EffectOp {
     RestoreManaSelf { amount_key: &'static str },
     SpendManaSelf { amount_key: &'static str },
     AreaDamage { amount_key: &'static str, radius_key: &'static str, kind: DamageKind },
+    /// G-1 delivery. Always first; the following Damage/Slow/Control ops become
+    /// the on-hit payload of one host-owned projectile instead of instant effects.
+    Projectile {
+        motion: omoba_content_model::ProjectileMotion,
+        speed_key: &'static str, radius_key: &'static str, lifetime_key: Option<&'static str>,
+        max_hits: u16, wall: omoba_content_model::ProjectileWall,
+        target_lost: omoba_content_model::ProjectileTargetLost,
+        caster_death: omoba_content_model::ProjectileCasterDeath,
+    },
+    /// G-3 exclusive point summon of a generated template.
+    SummonAtPoint { unit: &'static str, duration_key: Option<&'static str> },
+    /// G-2 toggle orb: flips the caster's host-owned orb marker.
+    ToggleAttackOrb,
+    /// G-2 pulse channel. Always first; the host owns the lifecycle and the
+    /// following Damage/Slow/Control ops apply once per pulse.
+    Channel { anchor: omoba_content_model::ChannelAnchor, interval_key: &'static str, pulses_key: &'static str, radius_key: Option<&'static str> },
 }
 
 #[derive(Debug)]
+enum ProjectileAim { Point(Vec2), Unit(EntityHandle) }
+
+#[derive(Debug)]
 enum ResolvedEffect {
+    ToggleAttackOrb,
+    SummonAtPoint { point: Vec2, cast_range: Fixed64, unit: &'static str, duration: Fixed64 },
+    Projectile {
+        aim: ProjectileAim, cast_range: Fixed64, speed: Fixed64, radius: Fixed64, lifetime: Fixed64, max_hits: u16,
+        wall: omoba_content_model::ProjectileWall, target_lost: omoba_content_model::ProjectileTargetLost,
+        caster_death: omoba_content_model::ProjectileCasterDeath, amount: Fixed64, kind: DamageKind,
+        slow: Option<(Fixed64, Fixed64)>, control: Option<(ControlEffectKind, Fixed64)>,
+        forced: Option<(ForcedMotionKind, Fixed64, Fixed64)>,
+    },
     CleanseAlly {victim:EntityHandle,cast_range:Fixed64},
+    ForcedMoveEnemy { victim:EntityHandle, motion:ForcedMotionKind, distance:Fixed64, duration:Fixed64, cast_range:Fixed64 },
+    RevealArea { center:Vec2, radius:Fixed64, duration:Fixed64, cast_range:Fixed64 },
     DrainManaEnemy {victim:EntityHandle,amount:Fixed64,cast_range:Option<Fixed64>},
     LineDamage {aim:Vec2,cast_range:Fixed64,width:Fixed64,amount:Fixed64,kind:DamageKind},
     ConeDamage {aim:Vec2,cast_range:Fixed64,half_ticks:u16,amount:Fixed64,kind:DamageKind},
@@ -88,6 +128,10 @@ trait EffectSink {
     fn spend_mana(&mut self, caster:EntityHandle, amount:Fixed64, ability:AbilityId)->bool;
     fn slow(&mut self, caster:EntityHandle, victim:EntityHandle, ability:AbilityId, reduction:Fixed64, duration:Fixed64);
     fn control(&mut self, victim:EntityHandle, control:ControlEffectKind, duration:Fixed64);
+    /// Host-owned displacement; the host plans and integrates the motion.
+    fn forced_move(&mut self, victim:EntityHandle, spec:&omoba_core::runtime::native::forced_motion::Spec, duration:Fixed64);
+    /// Host-owned team vision zone; the host admits and times it.
+    fn reveal_area(&mut self, caster:EntityHandle, spec:&omoba_core::runtime::native::reveal_zone::Spec, duration:Fixed64);
     fn collision_destination(&mut self, caster:EntityHandle, target:Vec2, range:Fixed64) -> Vec2;
     fn relocate(&mut self, caster:EntityHandle, destination:Vec2);
     fn position(&self, entity: EntityHandle) -> Option<Vec2>;
@@ -102,6 +146,20 @@ trait EffectSink {
         kind: DamageKind,
     );
     fn heal(&mut self, caster: EntityHandle, amount: Fixed64);
+    /// Host-owned launch envelope; the host admits and owns the whole flight.
+    fn launch_projectile(&mut self, caster: EntityHandle, lifetime: Fixed64, payload: &str);
+    /// Host placement may reject (terrain/occupancy); false aborts the cast.
+    fn summon(&mut self, caster: EntityHandle, point: Vec2, unit: &str, duration: Fixed64) -> bool;
+    /// Toggle the caster's orb marker; the host admits and prices each attack.
+    fn toggle_attack_orb(&mut self, caster: EntityHandle, ability: &str);
+}
+
+fn damage_profile(kind: DamageKind) -> DamageProfile {
+    match kind {
+        DamageKind::Physical => DamageProfile::NORMAL,
+        DamageKind::Magical => DamageProfile::ENERGY,
+        DamageKind::Pure => DamageProfile::TRUE,
+    }
 }
 
 impl EffectSink for GameWorldDyn<'_> {
@@ -153,6 +211,14 @@ impl EffectSink for GameWorldDyn<'_> {
         };
         self.add_buff(victim,buff.as_rstr(),duration);
     }
+    fn forced_move(&mut self,victim:EntityHandle,spec:&omoba_core::runtime::native::forced_motion::Spec,duration:Fixed64) {
+        let payload=spec.payload().to_string();
+        self.add_stat_buff(victim,omoba_core::runtime::native::forced_motion::BUFF.into(),duration,payload.as_str().into());
+    }
+    fn reveal_area(&mut self,caster:EntityHandle,spec:&omoba_core::runtime::native::reveal_zone::Spec,duration:Fixed64) {
+        let payload=spec.payload().to_string();
+        self.add_stat_buff(caster,omoba_core::runtime::native::reveal_zone::BUFF.into(),duration,payload.as_str().into());
+    }
     fn slow(&mut self,caster:EntityHandle,victim:EntityHandle,ability:AbilityId,reduction:Fixed64,duration:Fixed64) {
         let key=omb_script_abi::buff_ids::generic_slow_buff_id(ability.as_str(),caster);
         let payload=serde_json::json!({"move_speed_bonus":-reduction.raw(),"__aggregation_family":"generic_ability_slow"}).to_string();
@@ -187,17 +253,155 @@ impl EffectSink for GameWorldDyn<'_> {
         amount: Fixed64,
         kind: DamageKind,
     ) {
-        let profile = match kind {
-            DamageKind::Physical => DamageProfile::NORMAL,
-            DamageKind::Magical => DamageProfile::ENERGY,
-            DamageKind::Pure => DamageProfile::TRUE,
-        };
-        self.deal_damage(victim, amount, kind, profile, RSome(caster));
+        self.deal_damage(victim, amount, kind, damage_profile(kind), RSome(caster));
     }
 
     fn heal(&mut self, caster: EntityHandle, amount: Fixed64) {
         GameWorldDyn::heal(self, caster, amount);
     }
+
+    fn launch_projectile(&mut self, caster: EntityHandle, lifetime: Fixed64, payload: &str) {
+        self.add_stat_buff(caster, omoba_core::runtime::native::ability_projectile::BUFF.into(), lifetime, payload.into());
+    }
+
+    fn summon(&mut self, caster: EntityHandle, point: Vec2, unit: &str, duration: Fixed64) -> bool {
+        self.spawn_summoned_unit(point, unit.into(), caster, duration).is_valid()
+    }
+
+    fn toggle_attack_orb(&mut self, caster: EntityHandle, ability: &str) {
+        use omoba_core::runtime::native::attack_orb;
+        let buff = attack_orb::buff_id(ability);
+        if self.has_buff(caster, buff.as_str().into()) {
+            self.remove_buff(caster, buff.as_str().into());
+        } else {
+            // Until toggled off, auto-off for mana or death cleanup.
+            let payload = attack_orb::payload(ability).to_string();
+            self.add_stat_buff(caster, buff.as_str().into(), Fixed64::from_raw(i32::MAX as i64), payload.as_str().into());
+        }
+    }
+}
+
+/// Exclusive point summon: range-checked here, placement admitted by the host.
+fn apply_summon(id: AbilityId, caster: EntityHandle, effect: ResolvedEffect, sink: &mut impl EffectSink) -> Result<(), String> {
+    let ResolvedEffect::SummonAtPoint { point, cast_range, unit, duration } = effect else { unreachable!("summon only") };
+    let origin = sink.position(caster).ok_or_else(|| format!("ability '{}': missing caster position", id.as_str()))?;
+    if cast_range <= Fixed64::ZERO || cast_range > Fixed64::from_i32(10_000)
+        || !omoba_sim::terrain::point_in_swept_circle(point, origin, origin, cast_range) {
+        return Err(format!("ability '{}': summon point outside cast range", id.as_str()));
+    }
+    if duration <= Fixed64::ZERO || duration > Fixed64::from_i32(600) {
+        return Err(format!("ability '{}': invalid summon duration", id.as_str()));
+    }
+    if !sink.summon(caster, point, unit, duration) {
+        return Err(format!("ability '{}': summon placement rejected", id.as_str()));
+    }
+    Ok(())
+}
+
+fn resolve_summon(id: AbilityId, unit: &'static str, duration_key: Option<&'static str>, target: &Target, level: u8)
+    -> Result<ResolvedEffect, String> {
+    let ability = active_ability_const(id).ok_or_else(|| format!("unknown generated ability '{}'", id.as_str()))?;
+    let Target::Point(point) = target else { return Err(format!("ability '{}': summon requires a ground point", id.as_str())); };
+    let rank = usize::from(level - 1);
+    let duration = match duration_key {
+        Some(key) => ability.extras.iter().find(|(name, _)| *name == key).and_then(|(_, rows)| rows.get(rank)).copied()
+            .ok_or_else(|| format!("ability '{}': missing summon duration", id.as_str()))?,
+        None => omoba_template_ids::summon_by_name(unit).and_then(omoba_template_ids::active_summon_stats)
+            .map(|stats| stats.duration).ok_or_else(|| format!("ability '{}': unknown summon '{unit}'", id.as_str()))?,
+    };
+    Ok(ResolvedEffect::SummonAtPoint { point: *point, cast_range: ability.levels[rank].range, unit, duration })
+}
+
+fn forced_spec(caster:EntityHandle,motion:ForcedMotionKind,distance:Fixed64,cast_range:Fixed64)
+    ->Option<omoba_core::runtime::native::forced_motion::Spec> {
+    omoba_core::runtime::native::forced_motion::Spec { source_id:caster.id, source_generation:caster.gen,
+        mode:host_forced_mode(motion), distance, cast_range }.checked()
+}
+
+fn reveal_spec(caster:EntityHandle,center:Vec2,radius:Fixed64,cast_range:Fixed64)
+    ->Option<omoba_core::runtime::native::reveal_zone::Spec> {
+    omoba_core::runtime::native::reveal_zone::Spec { source_id:caster.id, source_generation:caster.gen, center, radius, cast_range }.checked()
+}
+
+/// Exclusive projectile launch. Every check precedes the single host envelope.
+fn apply_projectile(id: AbilityId, caster: EntityHandle, effect: ResolvedEffect, sink: &mut impl EffectSink) -> Result<(), String> {
+    use omoba_core::runtime::native::ability_projectile as host;
+    let ResolvedEffect::Projectile { aim, cast_range, speed, radius, lifetime, max_hits, wall, target_lost, caster_death,
+        amount, kind, slow, control, forced } = effect else { unreachable!("projectile only") };
+    let forced = forced.map(|(motion, distance, duration)| (host_forced_mode(motion), distance, duration));
+    let origin = sink.position(caster).ok_or_else(|| format!("ability '{}': missing caster position", id.as_str()))?;
+    let motion = match aim {
+        ProjectileAim::Point(point) => {
+            if point == origin { return Err(format!("ability '{}': projectile needs a direction", id.as_str())); }
+            host::Motion::Linear { aim: point }
+        }
+        ProjectileAim::Unit(victim) => {
+            if !victim.is_valid() || victim == caster || !sink.is_alive(victim) || !sink.is_enemy(caster, victim) {
+                return Err(format!("ability '{}': projectile target is not a live enemy", id.as_str()));
+            }
+            let position = sink.position(victim).ok_or("missing projectile target position")?;
+            if (position - origin).length_squared() > cast_range * cast_range {
+                return Err(format!("ability '{}': projectile target outside cast range", id.as_str()));
+            }
+            host::Motion::Homing { target_id: victim.id, target_generation: victim.gen }
+        }
+    };
+    let linear = matches!(motion, host::Motion::Linear { .. });
+    let spec = host::Spec {
+        source_id: caster.id, source_generation: caster.gen, ability: id.as_str().to_owned(), motion, speed, radius,
+        distance: if linear { cast_range } else { Fixed64::ZERO }, lifetime, max_hits,
+        wall: match wall { omoba_content_model::ProjectileWall::Pass => host::WallPolicy::Pass,
+            omoba_content_model::ProjectileWall::Stop => host::WallPolicy::Stop },
+        target_lost: match target_lost { omoba_content_model::ProjectileTargetLost::Expire => host::TargetLostPolicy::Expire,
+            omoba_content_model::ProjectileTargetLost::LastPosition => host::TargetLostPolicy::LastPosition },
+        caster_death: match caster_death { omoba_content_model::ProjectileCasterDeath::Continue => host::CasterDeathPolicy::Continue,
+            omoba_content_model::ProjectileCasterDeath::Expire => host::CasterDeathPolicy::Expire },
+        amount, kind, profile: damage_profile(kind).bits(), slow, control, dot: None, buildings: false, forced,
+    };
+    if !spec.valid() { return Err(format!("ability '{}': invalid projectile envelope", id.as_str())); }
+    sink.launch_projectile(caster, lifetime, &spec.payload().to_string());
+    Ok(())
+}
+
+/// Delivery plus payload ops -> one exclusive resolved launch.
+fn resolve_projectile(id: AbilityId, effects: &[EffectOp], target: &Target, level: u8) -> Result<ResolvedEffect, String> {
+    let ability = active_ability_const(id).ok_or_else(|| format!("unknown generated ability '{}'", id.as_str()))?;
+    let [EffectOp::Projectile { motion, speed_key, radius_key, lifetime_key, max_hits, wall, target_lost, caster_death }, payload @ ..] = effects
+        else { return Err(format!("ability '{}': projectile delivery must lead its payload", id.as_str())); };
+    let rank = usize::from(level - 1);
+    let read = |key: &str| ability.extras.iter().find(|(name, _)| *name == key).and_then(|(_, rows)| rows.get(rank)).copied()
+        .ok_or_else(|| format!("ability '{}': missing projectile extras '{key}'", id.as_str()));
+    let cast_range = ability.levels[rank].range;
+    let speed = read(speed_key)?;
+    let lifetime = match lifetime_key {
+        Some(key) => read(key)?,
+        // Linear default: exactly the time to fly the cast range, rounded up.
+        None => {
+            if speed <= Fixed64::ZERO { return Err(format!("ability '{}': invalid projectile speed", id.as_str())); }
+            let (distance, rate) = (i128::from(cast_range.raw()) * 1024, i128::from(speed.raw()));
+            Fixed64::from_raw(((distance + rate - 1) / rate) as i64)
+        }
+    };
+    let aim = match (motion, target) {
+        (omoba_content_model::ProjectileMotion::Linear, Target::Point(point)) => ProjectileAim::Point(*point),
+        (omoba_content_model::ProjectileMotion::Homing, Target::Entity(victim)) => ProjectileAim::Unit(*victim),
+        _ => return Err(format!("ability '{}': projectile motion does not match target", id.as_str())),
+    };
+    let (mut amount, mut kind, mut slow, mut control, mut forced) = (None, DamageKind::Pure, None, None, None);
+    for op in payload {
+        match op {
+            EffectOp::Damage { amount_key, kind: damage } if amount.is_none() => { amount = Some(read(amount_key)?); kind = *damage; }
+            EffectOp::SlowEnemy { reduction_key, duration_key } if slow.is_none() => slow = Some((read(reduction_key)?, read(duration_key)?)),
+            EffectOp::StunEnemy { duration_key } if control.is_none() => control = Some((ControlEffectKind::Stun, read(duration_key)?)),
+            EffectOp::ControlEnemy { control: kind, duration_key } if control.is_none() => control = Some((*kind, read(duration_key)?)),
+            EffectOp::ForcedMoveEnemy { motion, distance_key, duration_key } if forced.is_none() =>
+                forced = Some((*motion, read(distance_key)?, read(duration_key)?)),
+            _ => return Err(format!("ability '{}': projectile delivers one damage, slow, control and forced move", id.as_str())),
+        }
+    }
+    Ok(ResolvedEffect::Projectile { aim, cast_range, speed, radius: read(radius_key)?, lifetime, max_hits: *max_hits,
+        wall: *wall, target_lost: *target_lost, caster_death: *caster_death,
+        amount: amount.ok_or_else(|| format!("ability '{}': projectile requires damage", id.as_str()))?, kind, slow, control, forced })
 }
 
 fn apply_effects(
@@ -208,6 +412,21 @@ fn apply_effects(
 ) -> Result<(), String> {
     if !caster.is_valid() || !sink.is_alive(caster) {
         return Err(format!("ability '{}': caster is not alive",id.as_str()));
+    }
+    if effects.iter().any(|e|matches!(e,ResolvedEffect::ToggleAttackOrb)) {
+        if effects.len()!=1 {return Err(format!("ability '{}': attack orb toggle is exclusive",id.as_str()));}
+        sink.toggle_attack_orb(caster,id.as_str());
+        return Ok(());
+    }
+    if effects.iter().any(|e|matches!(e,ResolvedEffect::SummonAtPoint {..})) {
+        let mut effects=effects;
+        if effects.len()!=1 {return Err(format!("ability '{}': summon is an exclusive delivery",id.as_str()));}
+        return apply_summon(id,caster,effects.pop().expect("one effect"),sink);
+    }
+    if effects.iter().any(|e|matches!(e,ResolvedEffect::Projectile {..})) {
+        let mut effects=effects;
+        if effects.len()!=1 {return Err(format!("ability '{}': projectile is an exclusive delivery",id.as_str()));}
+        return apply_projectile(id,caster,effects.pop().expect("one effect"),sink);
     }
     if effects.iter().filter(|e|matches!(e,ResolvedEffect::DamageOverTimeEnemy {..})).count()>1 {
         return Err("duplicate DoT effect".into());
@@ -339,6 +558,23 @@ fn apply_effects(
                 return Err(format!("ability '{}': invalid control data",id.as_str()));
             }
         }
+        if let ResolvedEffect::RevealArea {center,radius,duration,cast_range}=effect {
+            let origin=sink.position(caster).ok_or("missing caster position")?;
+            if reveal_spec(caster,*center,*radius,*cast_range).is_none() || !omoba_core::runtime::native::reveal_zone::valid_duration(*duration)
+                || (*center-origin).length_squared()>*cast_range * *cast_range {
+                return Err(format!("ability '{}': invalid reveal area point/data",id.as_str()));
+            }
+        }
+        if let ResolvedEffect::ForcedMoveEnemy {victim,motion,distance,duration,cast_range}=effect {
+            let spec=forced_spec(caster,*motion,*distance,*cast_range);
+            if spec.is_none() || !omoba_core::runtime::native::forced_motion::valid_duration(*duration)
+                || !victim.is_valid() || *victim==caster || !sink.is_alive(*victim) || !sink.is_enemy(caster,*victim) || sink.is_building(*victim) {
+                return Err(format!("ability '{}': invalid forced move target/data",id.as_str()));
+            }
+            let origin=sink.position(caster).ok_or("missing caster position")?;
+            let position=sink.position(*victim).ok_or("missing forced move target position")?;
+            if (position-origin).length_squared()>*cast_range * *cast_range {return Err("forced move outside cast range".into());}
+        }
         if let ResolvedEffect::DrainManaEnemy {victim,cast_range,..} | ResolvedEffect::Damage { victim, cast_range, .. } | ResolvedEffect::SlowEnemy {victim,cast_range,..}
             | ResolvedEffect::ControlEnemy {victim,cast_range,..} = effect {
             if !sink.is_alive(*victim) {
@@ -393,8 +629,17 @@ fn apply_effects(
             ResolvedEffect::RestoreManaSelf {..}|ResolvedEffect::SpendManaSelf {..}=>{},
             ResolvedEffect::SlowEnemy {victim,reduction,duration,..}=>sink.slow(caster,victim,id,reduction,duration),
             ResolvedEffect::ControlEnemy {control,victim,duration,..}=>sink.control(victim,control,duration),
+            ResolvedEffect::ForcedMoveEnemy {victim,motion,distance,duration,cast_range}=>{
+                let spec=forced_spec(caster,motion,distance,cast_range).expect("preflight forced move");
+                sink.forced_move(victim,&spec,duration);
+            },
+            ResolvedEffect::RevealArea {center,radius,duration,cast_range}=>{
+                let spec=reveal_spec(caster,center,radius,cast_range).expect("preflight reveal area");
+                sink.reveal_area(caster,&spec,duration);
+            },
             ResolvedEffect::AreaDamage {..}|ResolvedEffect::ConeDamage {..}|ResolvedEffect::LineDamage {..}=>unreachable!("expanded before commit"),
             ResolvedEffect::DashToPoint {..}=>unreachable!("exclusive movement handled before commit"),
+            ResolvedEffect::Projectile {..}|ResolvedEffect::SummonAtPoint {..}|ResolvedEffect::ToggleAttackOrb=>unreachable!("exclusive projectile handled before commit"),
         }
     }
     // A resolved, fully admitted effect, including a valid empty-area cast.
@@ -413,6 +658,22 @@ fn resolve_effects(
         .ok_or_else(|| format!("unknown generated ability '{}'", id.as_str()))?;
     if level == 0 || level > ability.max_level {
         return Err(format!("ability '{}' invalid level {level}", id.as_str()));
+    }
+    if let [EffectOp::ToggleAttackOrb]=effects {
+        if !matches!(target,Target::None) {return Err(format!("ability '{}': toggle takes no target",id.as_str()));}
+        return Ok(vec![ResolvedEffect::ToggleAttackOrb]);
+    }
+    if effects.iter().any(|op|matches!(op,EffectOp::ToggleAttackOrb)) {
+        return Err(format!("ability '{}': attack orb toggle is exclusive",id.as_str()));
+    }
+    if let [EffectOp::SummonAtPoint {unit,duration_key}]=effects {
+        return resolve_summon(id,unit,*duration_key,target,level).map(|effect|vec![effect]);
+    }
+    if effects.iter().any(|op|matches!(op,EffectOp::SummonAtPoint {..})) {
+        return Err(format!("ability '{}': summon is an exclusive delivery",id.as_str()));
+    }
+    if effects.iter().any(|op|matches!(op,EffectOp::Projectile {..})) {
+        return resolve_projectile(id,effects,target,level).map(|effect|vec![effect]);
     }
     let mut resolved = Vec::with_capacity(effects.len());
     let mut mana_stats=std::collections::BTreeSet::new();
@@ -455,6 +716,16 @@ fn resolve_effects(
                     return Err(format!("ability '{}': invalid stun target/data",id.as_str()));
                 }
                 resolved.push(ResolvedEffect::ControlEnemy {control,victim:*victim,duration,cast_range:Some(range)});
+            },
+            EffectOp::ForcedMoveEnemy {motion,distance_key,duration_key}=>{
+                let Target::Entity(victim)=target else {return Err(format!("ability '{}': forced move requires entity target",id.as_str()));};
+                resolved.push(ResolvedEffect::ForcedMoveEnemy {victim:*victim,motion:*motion,distance:extra_at(ability,distance_key,level),
+                    duration:extra_at(ability,duration_key,level),cast_range:ability.levels[usize::from(level-1)].range});
+            },
+            EffectOp::RevealArea {radius_key,duration_key}=>{
+                let Target::Point(center)=target else {return Err(format!("ability '{}': reveal area requires a point target",id.as_str()));};
+                resolved.push(ResolvedEffect::RevealArea {center:*center,radius:extra_at(ability,radius_key,level),
+                    duration:extra_at(ability,duration_key,level),cast_range:ability.levels[usize::from(level-1)].range});
             },
             EffectOp::SlowEnemy {reduction_key,duration_key}=>{
                 let Target::Entity(victim)=target else {return Err(format!("ability '{}': slow requires entity target",id.as_str()));};
@@ -519,6 +790,8 @@ fn resolve_effects(
                 });
             }
             EffectOp::RecoveryChannelSelf {..}=>return Err("recovery channel requires authoritative host execution".into()),
+            EffectOp::Projectile {..}|EffectOp::SummonAtPoint {..}|EffectOp::ToggleAttackOrb=>unreachable!("projectile delivery resolved before payload ops"),
+            EffectOp::Channel {..}=>return Err(format!("ability '{}': pulse channel requires authoritative host execution",id.as_str())),
             EffectOp::HealSelf { amount_key } => {
                 if !matches!(target,Target::None) {return Err(format!("ability '{}': self heal requires no target",id.as_str()));}
                 resolved.push(ResolvedEffect::HealSelf {amount:extra_at(ability,amount_key,level)});
@@ -586,6 +859,58 @@ impl AbilityScript for GenericEffectHandler {
             Err(error) => RErr(error.into()),
         }
     }
+
+    fn on_channel_pulse(&self, caster: EntityHandle, target: Target, pulse: ChannelPulse, world: &mut GameWorldDyn<'_>) {
+        let Some(ability) = active_ability_const(self.id) else { return };
+        if pulse.level == 0 || pulse.level > ability.max_level { return; }
+        let rank = usize::from(pulse.level - 1);
+        let read = |key: &str| ability.extras.iter().find(|(name, _)| *name == key).and_then(|(_, rows)| rows.get(rank)).copied()
+            .ok_or_else(|| format!("ability '{}': missing channel extras '{key}'", self.id.as_str()));
+        // A malformed pulse applies nothing; the host still ends the channel on schedule.
+        let _ = apply_channel_pulse(self.id, self.effects, caster, &target, pulse, &read, world);
+    }
+}
+
+/// One pulse: the payload ops after `EffectOp::Channel` hit every enemy in the
+/// pulse radius around `pulse.anchor`, or only the anchored unit when the
+/// channel has no radius. Returns how many units were hit.
+fn apply_channel_pulse(
+    id: AbilityId,
+    effects: &[EffectOp],
+    caster: EntityHandle,
+    target: &Target,
+    pulse: ChannelPulse,
+    read: &dyn Fn(&str) -> Result<Fixed64, String>,
+    sink: &mut impl EffectSink,
+) -> Result<usize, String> {
+    let [EffectOp::Channel { radius_key, .. }, payload @ ..] = effects else {
+        return Err(format!("ability '{}': channel must lead its payload", id.as_str()));
+    };
+    let mut victims = match (radius_key, target) {
+        (Some(key), _) => {
+            let radius = read(key)?;
+            sink.area_cue(pulse.anchor, radius);
+            sink.enemies_in_radius(caster, pulse.anchor, radius)
+        }
+        (None, Target::Entity(unit)) => vec![*unit],
+        (None, _) => return Err(format!("ability '{}': a channel without radius needs a unit anchor", id.as_str())),
+    };
+    victims.retain(|victim| victim.is_valid() && *victim != caster && sink.is_alive(*victim) && sink.is_enemy(caster, *victim));
+    victims.sort_by_key(|victim| (victim.id, victim.gen));
+    victims.dedup();
+    for victim in &victims {
+        for op in payload {
+            match op {
+                EffectOp::Damage { amount_key, kind } => sink.damage(caster, *victim, read(amount_key)?, *kind),
+                EffectOp::SlowEnemy { reduction_key, duration_key } =>
+                    sink.slow(caster, *victim, id, read(reduction_key)?, read(duration_key)?),
+                EffectOp::StunEnemy { duration_key } => sink.control(*victim, ControlEffectKind::Stun, read(duration_key)?),
+                EffectOp::ControlEnemy { control, duration_key } => sink.control(*victim, *control, read(duration_key)?),
+                _ => return Err(format!("ability '{}': channel pulses only damage, slow and control", id.as_str())),
+            }
+        }
+    }
+    Ok(victims.len())
 }
 
 pub fn generic_effect_ffi(id: AbilityId, effects: &'static [EffectOp]) -> AbilityDefFFI {
@@ -593,7 +918,7 @@ pub fn generic_effect_ffi(id: AbilityId, effects: &'static [EffectOp]) -> Abilit
         .iter()
         // Movement and mana have no matching tooltip EffectSpec. Never pretend
         // mana is HP healing or damage. Lua description/extras remain available.
-        .filter(|effect|!matches!(effect,EffectOp::CleanseAlly|EffectOp::DrainManaEnemy {..}|EffectOp::RecoveryChannelSelf {..}|EffectOp::DashToPoint|EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}))
+        .filter(|effect|!matches!(effect,EffectOp::Projectile {..}|EffectOp::SummonAtPoint {..}|EffectOp::ToggleAttackOrb|EffectOp::Channel {..}|EffectOp::CleanseAlly|EffectOp::DrainManaEnemy {..}|EffectOp::RecoveryChannelSelf {..}|EffectOp::DashToPoint|EffectOp::RevealArea {..}|EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}))
         .map(|effect| match effect {
             EffectOp::RecoveryChannelSelf {..}=>unreachable!("host channels are execution metadata, not preview effects"),
             EffectOp::DamageOverTimeEnemy {amount_key,duration_key,kind}=>EffectSpec::StatusModifier {
@@ -608,11 +933,15 @@ pub fn generic_effect_ffi(id: AbilityId, effects: &'static [EffectOp]) -> Abilit
                 target:TargetSelector::Target,modifier_type:control.as_str().into(),value:1.0,
                 duration:Some(extra_at_id_f32(id,duration_key,1)),
             },
+            EffectOp::ForcedMoveEnemy {motion,distance_key,duration_key}=>EffectSpec::StatusModifier {
+                target:TargetSelector::Target,modifier_type:motion.as_str().into(),
+                value:extra_at_id_f32(id,distance_key,1),duration:Some(extra_at_id_f32(id,duration_key,1)),
+            },
             EffectOp::SlowEnemy {reduction_key,duration_key}=>EffectSpec::StatusModifier {
                 target:TargetSelector::Target,modifier_type:"slow".into(),
                 value:extra_at_id_f32(id,reduction_key,1),duration:Some(extra_at_id_f32(id,duration_key,1)),
             },
-            EffectOp::CleanseAlly|EffectOp::DrainManaEnemy {..}|EffectOp::DashToPoint|EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}=>unreachable!("effect has no matching preview schema"),
+            EffectOp::Projectile {..}|EffectOp::SummonAtPoint {..}|EffectOp::ToggleAttackOrb|EffectOp::Channel {..}|EffectOp::CleanseAlly|EffectOp::DrainManaEnemy {..}|EffectOp::DashToPoint|EffectOp::RevealArea {..}|EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}=>unreachable!("effect has no matching preview schema"),
             EffectOp::Damage { amount_key, kind } => EffectSpec::Damage {
                 target: TargetSelector::Target,
                 amount: extra_at_id_f32(id, amount_key, 1),
@@ -647,6 +976,9 @@ pub fn generic_effect_ffi(id: AbilityId, effects: &'static [EffectOp]) -> Abilit
     let execution=match effects {
         [EffectOp::RecoveryChannelSelf {amount_key,duration_key,interval_key}]=>Some(omoba_core::ability_meta::HostAbilityExecution::RecoveryChannelSelf {
             amount_key:(*amount_key).into(),duration_key:(*duration_key).into(),interval_key:(*interval_key).into(),
+        }),
+        [EffectOp::Channel {anchor,interval_key,pulses_key,radius_key},..]=>Some(omoba_core::ability_meta::HostAbilityExecution::PulseChannel {
+            anchor:*anchor,interval_key:(*interval_key).into(),pulses_key:(*pulses_key).into(),radius_key:radius_key.map(Into::into),
         }),_=>None,
     };
     crate::ability_builder::build_ability_ffi_with_execution(id, GenericEffectHandler { id, effects }, preview,execution)
@@ -698,7 +1030,56 @@ mod tests {
         slows:Vec<(u32,i64,i64)>,
         stuns:Vec<(u32,i64)>,
         controls:Vec<(u32,ControlEffectKind,i64)>,
+        forced:Vec<(u32,omoba_core::runtime::native::forced_motion::Spec,i64)>,
+        reveals:Vec<(omoba_core::runtime::native::reveal_zone::Spec,i64)>,
+        launches:Vec<(u32,i64,String)>,
+        summons:Vec<(u32,Vec2,String,i64)>,
         area_cues:Vec<(Vec2,Fixed64)>,
+    }
+
+    #[test]
+    fn channel_pulse_hits_each_live_enemy_once_at_the_locked_rank_or_only_its_unit() {
+        let id = omoba_template_ids::ability_by_name("ranger_shot").unwrap();
+        let caster = EntityHandle { id: 1, gen: 1 };
+        let rows = |key: &str| -> Result<Fixed64, String> {
+            match key { "r" => Ok(Fixed64::from_i32(340)), "dmg" => Ok(Fixed64::from_i32(60)), "stun" => Ok(Fixed64::from_raw(307)),
+                other => Err(format!("missing {other}")) }
+        };
+        let area = [
+            EffectOp::Channel { anchor: omoba_content_model::ChannelAnchor::Point, interval_key: "i", pulses_key: "n", radius_key: Some("r") },
+            EffectOp::Damage { amount_key: "dmg", kind: DamageKind::Magical },
+            EffectOp::StunEnemy { duration_key: "stun" },
+        ];
+        let anchor = Vec2::new(Fixed64::from_i32(500), Fixed64::ZERO);
+        let pulse = ChannelPulse { level: 2, index: 3, total: 60, elapsed: Fixed64::from_raw(306), anchor };
+        let mut sink = HeadlessWorld { alive: true, enemy: true, ..Default::default() };
+        // Unsorted, duplicated, the caster itself, and a dead unit (id 9).
+        sink.enemies = vec![EntityHandle { id: 4, gen: 1 }, EntityHandle { id: 2, gen: 1 }, EntityHandle { id: 4, gen: 1 }, caster, EntityHandle { id: 9, gen: 1 }];
+        let hit = apply_channel_pulse(id, &area, caster, &Target::Point(anchor), pulse, &rows, &mut sink).unwrap();
+        assert_eq!(hit, 2);
+        assert_eq!(sink.damage, vec![(2, 60 * 1024), (4, 60 * 1024)]);
+        assert_eq!(sink.stuns, vec![(2, 307), (4, 307)]);
+        assert_eq!(sink.area_cues, vec![(anchor, Fixed64::from_i32(340))]);
+        // A unit anchor without a radius hits that unit alone.
+        let unit = [
+            EffectOp::Channel { anchor: omoba_content_model::ChannelAnchor::Unit, interval_key: "i", pulses_key: "n", radius_key: None },
+            EffectOp::Damage { amount_key: "dmg", kind: DamageKind::Magical },
+        ];
+        let mut sink = HeadlessWorld { alive: true, enemy: true, ..Default::default() };
+        sink.enemies = vec![EntityHandle { id: 5, gen: 1 }];
+        let victim = EntityHandle { id: 7, gen: 1 };
+        assert_eq!(apply_channel_pulse(id, &unit, caster, &Target::Entity(victim), pulse, &rows, &mut sink).unwrap(), 1);
+        assert_eq!(sink.damage, vec![(7, 60 * 1024)]);
+        sink.enemy = false;
+        assert_eq!(apply_channel_pulse(id, &unit, caster, &Target::Entity(victim), pulse, &rows, &mut sink).unwrap(), 0, "allies are never hit");
+        // Missing metadata applies nothing; a non-payload op is refused.
+        let mut sink = HeadlessWorld { alive: true, enemy: true, ..Default::default() };
+        sink.enemies = vec![EntityHandle { id: 2, gen: 1 }];
+        let broken = [area[0], EffectOp::Damage { amount_key: "nope", kind: DamageKind::Magical }];
+        assert!(apply_channel_pulse(id, &broken, caster, &Target::Point(anchor), pulse, &rows, &mut sink).is_err());
+        let heal = [area[0], EffectOp::HealSelf { amount_key: "dmg" }];
+        assert!(apply_channel_pulse(id, &heal, caster, &Target::Point(anchor), pulse, &rows, &mut sink).is_err());
+        assert!(sink.damage.is_empty() && sink.heals.is_empty());
     }
 
     #[test]
@@ -795,6 +1176,12 @@ mod tests {
             if control==ControlEffectKind::Stun {self.stuns.push((victim.id,duration.raw()));}
             self.controls.push((victim.id,control,duration.raw()));
         }
+        fn forced_move(&mut self,victim:EntityHandle,spec:&omoba_core::runtime::native::forced_motion::Spec,duration:Fixed64) {
+            self.forced.push((victim.id,*spec,duration.raw()));
+        }
+        fn reveal_area(&mut self,_caster:EntityHandle,spec:&omoba_core::runtime::native::reveal_zone::Spec,duration:Fixed64) {
+            self.reveals.push((*spec,duration.raw()));
+        }
         fn slow(&mut self,_caster:EntityHandle,victim:EntityHandle,_ability:AbilityId,reduction:Fixed64,duration:Fixed64) {
             self.slows.push((victim.id,reduction.raw(),duration.raw()));
         }
@@ -821,6 +1208,16 @@ mod tests {
         }
         fn heal(&mut self, _caster: EntityHandle, amount: Fixed64) {
             self.heals.push(amount.raw());
+        }
+        fn launch_projectile(&mut self, caster: EntityHandle, lifetime: Fixed64, payload: &str) {
+            self.launches.push((caster.id, lifetime.raw(), payload.to_owned()));
+        }
+        fn summon(&mut self, caster: EntityHandle, point: Vec2, unit: &str, duration: Fixed64) -> bool {
+            self.summons.push((caster.id, point, unit.to_owned(), duration.raw()));
+            !self.blocked
+        }
+        fn toggle_attack_orb(&mut self, caster: EntityHandle, ability: &str) {
+            self.summons.push((caster.id, Vec2::ZERO, format!("orb:{ability}"), 0));
         }
     }
 
@@ -1187,8 +1584,8 @@ mod tests {
                 EffectOp::Damage { .. } => Target::Entity(victim),
                 EffectOp::HealSelf { .. } => Target::None,
                 EffectOp::CleanseAlly|EffectOp::DrainManaEnemy {..}|EffectOp::HealAlly {..}|EffectOp::ShieldAlly {..}=>unreachable!("fixture only lists damage/self heal"),
-                EffectOp::LineDamage {..}|EffectOp::ConeDamage {..}|EffectOp::DamageOverTimeEnemy {..}|EffectOp::AreaDamage {..}|EffectOp::DashToPoint|EffectOp::SlowEnemy {..}|EffectOp::StunEnemy {..}|EffectOp::ControlEnemy {..}
-                    |EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}|EffectOp::RecoveryChannelSelf {..}=>unreachable!("fixture only lists damage/heal"),
+                EffectOp::LineDamage {..}|EffectOp::ConeDamage {..}|EffectOp::DamageOverTimeEnemy {..}|EffectOp::AreaDamage {..}|EffectOp::DashToPoint|EffectOp::SlowEnemy {..}|EffectOp::StunEnemy {..}|EffectOp::ControlEnemy {..}|EffectOp::ForcedMoveEnemy {..}|EffectOp::RevealArea {..}
+                    |EffectOp::RestoreManaSelf {..}|EffectOp::SpendManaSelf {..}|EffectOp::ManaBuffSelf {..}|EffectOp::RecoveryChannelSelf {..}|EffectOp::Projectile {..}|EffectOp::SummonAtPoint {..}|EffectOp::ToggleAttackOrb|EffectOp::Channel {..}=>unreachable!("fixture only lists damage/heal"),
             };
             let resolved = resolve_effects(ability, &[effect], &target, 1).unwrap();
             match &resolved[0] {
@@ -1196,8 +1593,8 @@ mod tests {
                     assert_eq!(*amount, Fixed64::from_i32(expected));
                 }
                 ResolvedEffect::CleanseAlly {..}|ResolvedEffect::DrainManaEnemy {..}|ResolvedEffect::HealAlly {..}|ResolvedEffect::ShieldAlly {..}=>unreachable!("fixture only lists damage/self heal"),
-                ResolvedEffect::LineDamage {..}|ResolvedEffect::ConeDamage {..}|ResolvedEffect::DamageOverTimeEnemy {..}|ResolvedEffect::AreaDamage {..}|ResolvedEffect::DashToPoint {..}|ResolvedEffect::SlowEnemy {..}|ResolvedEffect::ControlEnemy {..}
-                    |ResolvedEffect::RestoreManaSelf {..}|ResolvedEffect::SpendManaSelf {..}|ResolvedEffect::ManaBuffSelf {..}=>unreachable!("fixture only lists damage/heal"),
+                ResolvedEffect::LineDamage {..}|ResolvedEffect::ConeDamage {..}|ResolvedEffect::DamageOverTimeEnemy {..}|ResolvedEffect::AreaDamage {..}|ResolvedEffect::DashToPoint {..}|ResolvedEffect::SlowEnemy {..}|ResolvedEffect::ControlEnemy {..}|ResolvedEffect::ForcedMoveEnemy {..}|ResolvedEffect::RevealArea {..}
+                    |ResolvedEffect::RestoreManaSelf {..}|ResolvedEffect::SpendManaSelf {..}|ResolvedEffect::ManaBuffSelf {..}|ResolvedEffect::Projectile {..}|ResolvedEffect::SummonAtPoint {..}|ResolvedEffect::ToggleAttackOrb=>unreachable!("fixture only lists damage/heal"),
             }
             apply_effects(ability, caster, resolved, &mut world).unwrap();
         }

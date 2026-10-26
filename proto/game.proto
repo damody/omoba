@@ -743,6 +743,10 @@ message JoinRequest {
   // stays disabled. A partial version or hash fails closed.
   uint32 ward_protocol_version = 20;
   string ward_rules_hash = 21;
+  // Rejoin: the secret the server issued to this player in its last TeamGameStart.
+  // Empty on a first join. A player that has joined before must present the
+  // latest one; any other value is refused, so nobody can claim a held hero.
+  bytes resume_token = 22;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -873,6 +877,9 @@ message TeamGameStart {
   // a locally recomputed hash is not a substitute.
   OwnerWardEnvelope owner_ward_envelope = 36;
   CombatPreferencesProjection combat_preferences = 37;
+  // Unicast secret for this player's next rejoin (rotated on every join).
+  // Never logged, never part of any hash.
+  bytes resume_token = 38;
 }
 
 message RevealEntity {
@@ -1384,6 +1391,11 @@ message AbilityHudPresentation {
   AbilityCastPresentation cast = 6;
   uint32 mana_cost_state = 7; // 0 unavailable, 1 affordable, 2 short, 3 invalid
   sint64 effective_mana_cost_raw = 8;
+  // G-2 stored uses. max_charges 0 means an ordinary cooldown-only ability.
+  uint32 max_charges = 9;
+  uint32 charges = 10;
+  sint64 charge_remaining_raw = 11; // Fixed64 seconds to the next restored use; 0 when full
+  sint64 charge_total_raw = 12;     // Fixed64 seconds per restored use at the current rank
 }
 message AbilityCastPresentation {
   uint32 state = 1; // 1 preparing, 2 canceled, 3 released
@@ -1502,6 +1514,8 @@ message RuntimeSessionState {
     STALLED = 2;
     SERVER_DISCONNECTED = 3;
     TERMINATED = 4;
+    // Link lost; the runtime keeps retrying the same match until it ends or the player gives up.
+    RECONNECTING = 5;
   }
   State state = 1;
   string safe_reason = 2;

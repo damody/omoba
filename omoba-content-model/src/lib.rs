@@ -43,8 +43,370 @@ pub struct AbilityDefinition {
     /// Authored aiming contract for special Rust handlers; never inferred from cosmetics.
     #[serde(default)]
     pub aim_geometry: Option<AbilityAimGeometry>,
+    /// Package `targeting.shape`: presentation-only footprint (never a gameplay contract).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targeting_shape: Option<AbilityTargetingShape>,
+    /// Package movement reach: a range-0 point ability whose handler moves the
+    /// caster at most `extras[key]` toward the requested point and acts where it
+    /// lands (a dash's `max_distance`). Presentation-only: the indicator clamps its
+    /// footprint there and autopilot reach adds it to the footprint. The cast
+    /// itself stays range-free (a farther click still leaps the full distance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targeting_reach_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zone_lifetime: Option<GroundZoneLifetime>,
+    /// Host-owned flight that delivers this ability's enemy unit effects on hit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projectile: Option<ProjectileDelivery>,
+    /// Stored uses (G-2). A cast spends one; one recharges every `recharge_key` seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charges: Option<AbilityCharges>,
+    /// G-3 delivery: spawn one summon template at the requested ground point.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summon: Option<AbilitySummonDelivery>,
+    /// G-2 toggle orb: while toggled on, each ordinary attack spends mana and,
+    /// on hit, adds the declared damage/slows. Auto-off when mana is short.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack_orb: Option<AttackOrb>,
+    /// G-2 pulse channel: host-owned, `effects` apply once per pulse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel: Option<ChannelDelivery>,
+    /// Source NOT_LEARNABLE: each rank is learned automatically, without a skill point,
+    /// as soon as the hero reaches its `required_hero_level`; players cannot spend points on it.
+    /// Works in any slot (e.g. a level-16 extra-slot ultimate, a passive learned at birth).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_learn: bool,
+    /// Authored unit-target allegiance ("ally" or "enemy") for a unit-target
+    /// ability whose effects do not imply one (a custom Rust handler).
+    /// Declarative effects still decide when they do; a contradiction is invalid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit_target: Option<String>,
+    /// Owner cast hook (G-4): while learned, every committed cast of another
+    /// non-ultimate ability of the same hero shortens the remaining cooldowns
+    /// of the hero's other non-ultimate abilities. Host-owned, so team replicas
+    /// recompute it from the same cast; independent of how the ability executes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cast_cooldown_refund: Option<CastCooldownRefund>,
+}
+
+/// Seconds (per rank, `seconds_key` extras in (0, 60]) taken off each other
+/// non-ultimate cooldown when the owner casts a non-ultimate ability.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CastCooldownRefund {
+    pub seconds_key: String,
+}
+
+fn validate_cast_cooldown_refund(ability:&AbilityDefinition,refund:&CastCooldownRefund)->Result<(),String> {
+    let rows=ability.extras.get(&refund.seconds_key)
+        .filter(|rows|!refund.seconds_key.is_empty()&&ability.max_level>0&&rows.len()==usize::from(ability.max_level))
+        .ok_or_else(||format!("ability '{}': cast_cooldown_refund missing per-rank extras '{}'",ability.id,refund.seconds_key))?;
+    if rows.iter().any(|v|!v.is_finite()||*v<MIN_ABILITY_SCALAR||*v>60.0) {
+        return Err(format!("ability '{}': cast_cooldown_refund extras '{}' outside [{MIN_ABILITY_SCALAR},60]",ability.id,refund.seconds_key));
+    }
+    Ok(())
+}
+
+/// G-2 pulse channel. The caster stays in place for `pulses_key` pulses spaced
+/// `interval_key` seconds apart. Each pulse applies `effects` (at most one
+/// `damage`, one `slow_enemy`, one `stun_enemy`/`control_enemy`) to every enemy
+/// within `radius_key` of the anchor; a `unit` anchor without a radius hits
+/// only that unit. Control, silence, movement, death or a lost target end it.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ChannelDelivery {
+    pub anchor: ChannelAnchor,
+    pub interval_key: String,
+    pub pulses_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius_key: Option<String>,
+}
+
+/// `self` = caster origin (target none), `point` = cast point, `unit` = the
+/// selected enemy, followed while it lives and stays visible.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelAnchor { #[serde(rename = "self")] SelfOrigin, Point, Unit }
+
+/// Shortest pulse spacing: one tick at 10 Hz, the B29T authored cadence.
+pub const MIN_CHANNEL_INTERVAL: f32 = 0.1;
+pub const MAX_CHANNEL_PULSES: f32 = 200.0;
+pub const MAX_CHANNEL_SECONDS: f32 = 60.0;
+
+#[cfg(test)]
+#[test]
+fn channel_delivery_is_closed_bounded_and_matches_its_anchor() {
+    let base=serde_json::json!({"id":"quake","ability_type":"ultimate","cast_type":"channeled","target_type":"point","max_level":3,
+        "levels":[{"range":700,"cooldown":90,"mana_cost":200},{"range":700,"cooldown":80,"mana_cost":250},{"range":700,"cooldown":70,"mana_cost":300}],
+        "channel":{"anchor":"point","interval_key":"wave_interval","pulses_key":"wave_count","radius_key":"wave_radius"},
+        "extras":{"wave_interval":[0.1,0.1,0.1],"wave_count":[50,60,70],"wave_radius":[340,340,340],"wave_damage":[60,60,60],"wave_stun":[0.2,0.3,0.4]},
+        "effects":[{"kind":"damage","amount_key":"wave_damage","damage_kind":"magical"},{"kind":"stun_enemy","duration_key":"wave_stun"}]});
+    let parse=|v:&serde_json::Value|serde_json::from_value::<AbilityDefinition>(v.clone());
+    validate_ability_effects(&parse(&base).unwrap()).unwrap();
+    let mut unit=base.clone();unit["target_type"]="unit".into();unit["channel"]["anchor"]="unit".into();
+    unit["channel"].as_object_mut().unwrap().remove("radius_key");validate_ability_effects(&parse(&unit).unwrap()).unwrap();
+    let mut own=base.clone();own["target_type"]="none".into();own["channel"]["anchor"]="self".into();
+    validate_ability_effects(&parse(&own).unwrap()).unwrap();
+    let edits:Vec<(&str,serde_json::Value)>=vec![
+        ("/cast_type",serde_json::json!("instant")),("/target_type",serde_json::json!("unit")),
+        ("/extras/wave_interval",serde_json::json!([0.05,0.1,0.1])),("/extras/wave_count",serde_json::json!([50.5,60,70])),
+        ("/extras/wave_count",serde_json::json!([201,60,70])),("/extras/wave_interval",serde_json::json!([1,1,1])),
+        ("/extras/wave_radius",serde_json::json!([3000,340,340])),("/levels/0",serde_json::json!({"range":700,"cooldown":90,"mana_cost":200,"cast_time":61})),
+        ("/effects/1",serde_json::json!({"kind":"heal_self","amount_key":"wave_damage"})),
+    ];
+    for (pointer,value) in edits {
+        let mut bad=base.clone();*bad.pointer_mut(pointer).unwrap()=value;
+        assert!(validate_ability_effects(&parse(&bad).unwrap()).is_err(),"{pointer}");
+    }
+    // A windup may precede the channel, and a Rust handler may own the pulses.
+    let mut windup=base.clone();windup["levels"][0]["cast_time"]=0.3.into();validate_ability_effects(&parse(&windup).unwrap()).unwrap();
+    let mut scripted=base.clone();scripted["effects"]=serde_json::json!([]);validate_ability_effects(&parse(&scripted).unwrap()).unwrap();
+    let mut doubled=base.clone();doubled["effects"].as_array_mut().unwrap().push(serde_json::json!({"kind":"stun_enemy","duration_key":"wave_stun"}));
+    assert!(validate_ability_effects(&parse(&doubled).unwrap()).is_err(),"two stuns");
+    let mut no_radius=base.clone();no_radius["channel"].as_object_mut().unwrap().remove("radius_key");
+    assert!(validate_ability_effects(&parse(&no_radius).unwrap()).is_err());
+    let mut unknown=base.clone();unknown["channel"]["refund"]=true.into();assert!(parse(&unknown).is_err());
+    let mut legacy=base;legacy.as_object_mut().unwrap().remove("channel");
+    assert!(serde_json::to_value(parse(&legacy).unwrap()).unwrap().get("channel").is_none());
+}
+
+fn validate_channel_delivery(ability:&AbilityDefinition,delivery:&ChannelDelivery)->Result<(),String> {
+    let fail=|why:&str|Err(format!("ability '{}': channel {why}",ability.id));
+    if !matches!(ability.ability_type.as_str(),"active"|"ultimate") || ability.cast_type!="channeled" {
+        return fail("requires a channeled active/ultimate");
+    }
+    if ability.aim_geometry.is_some() || ability.zone_lifetime.is_some() || ability.projectile.is_some()
+        || ability.summon.is_some() || ability.attack_orb.is_some() || ability.charges.is_some() {
+        return fail("cannot combine with another delivery");
+    }
+    let target=match delivery.anchor {ChannelAnchor::SelfOrigin=>"none",ChannelAnchor::Point=>"point",ChannelAnchor::Unit=>"unit"};
+    if ability.target_type!=target {return fail("anchor does not match target_type");}
+    if delivery.radius_key.is_none() && delivery.anchor!=ChannelAnchor::Unit {return fail("self and point anchors need radius_key");}
+    if ability.max_level==0 || ability.levels.len()!=usize::from(ability.max_level) {return fail("needs one level row per rank");}
+    // A windup may precede the channel: the release re-enters the same cast path.
+    if ability.levels.iter().any(|level|!level.cast_time.is_finite()||!(0.0..=60.0).contains(&level.cast_time)) {
+        return fail("needs a cast_time in [0, 60] seconds");
+    }
+    let rows=|key:&str,min:f32,max:f32|->Result<&Vec<f32>,String>{
+        let rows=ability.extras.get(key).filter(|rows|!key.is_empty()&&rows.len()==usize::from(ability.max_level))
+            .ok_or_else(||format!("ability '{}': channel missing per-rank extras '{key}'",ability.id))?;
+        if rows.iter().any(|v|!v.is_finite()||*v<min||*v>max) {
+            return Err(format!("ability '{}': channel extras '{key}' outside [{min},{max}]",ability.id));
+        }
+        Ok(rows)
+    };
+    let intervals=rows(&delivery.interval_key,MIN_CHANNEL_INTERVAL,10.0)?;
+    let pulses=rows(&delivery.pulses_key,1.0,MAX_CHANNEL_PULSES)?;
+    if pulses.iter().any(|count|count.fract()!=0.0) {return fail("pulse counts must be whole numbers");}
+    if intervals.iter().zip(pulses).any(|(interval,count)|interval*count>MAX_CHANNEL_SECONDS) {return fail("lasts at most 60 seconds");}
+    if let Some(key)=&delivery.radius_key {rows(key,0.0,2_000.0)?;}
+    if delivery.anchor!=ChannelAnchor::SelfOrigin {
+        for level in &ability.levels {
+            if !level.range.is_finite() || level.range<MIN_ABILITY_SCALAR || level.range>10_000.0 {return fail("needs bounded per-rank range");}
+        }
+    }
+    let (mut damage,mut slow,mut control)=(0,0,0);
+    for effect in &ability.effects {
+        match effect {
+            AbilityEffect::Damage{amount_key,..}=>{damage+=1;rows(amount_key,0.0,MAX_ABILITY_SCALAR)?;}
+            AbilityEffect::SlowEnemy{reduction_key,duration_key}=>{slow+=1;rows(reduction_key,MIN_ABILITY_SCALAR,1.0)?;rows(duration_key,MIN_ABILITY_SCALAR,60.0)?;}
+            AbilityEffect::StunEnemy{duration_key}|AbilityEffect::ControlEnemy{duration_key,..}=>{control+=1;rows(duration_key,MIN_ABILITY_SCALAR,60.0)?;}
+            _=>return fail("pulses only damage, slow_enemy and stun_enemy/control_enemy"),
+        }
+    }
+    // No declarative pulse effects: the ability's Rust handler applies each
+    // pulse (`on_channel_pulse`); the host still owns the lifecycle.
+    if damage>1 || slow>1 || control>1 {return fail("pulse effects must be distinct (at most one of each)");}
+    Ok(())
+}
+
+/// Per-rank extras keys. `mana_per_attack_key` >= 0; `amount_key` bonus damage;
+/// optional slows are fractions in (0,1] applied for `slow_duration_key` seconds.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AttackOrb {
+    pub mana_per_attack_key: String,
+    pub amount_key: String,
+    pub damage_kind: EffectDamageKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub move_slow_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack_slow_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slow_duration_key: Option<String>,
+}
+
+fn validate_attack_orb(ability:&AbilityDefinition,orb:&AttackOrb)->Result<(),String> {
+    let fail=|why:&str|Err(format!("ability '{}': attack_orb {why}",ability.id));
+    if ability.ability_type!="toggle" || ability.target_type!="none" || ability.cast_type!="instant"
+        || !ability.effects.is_empty() || ability.projectile.is_some() || ability.summon.is_some() || ability.charges.is_some() {
+        return fail("requires an exclusive instant toggle with no target or effects");
+    }
+    if ability.max_level==0 || ability.levels.len()!=usize::from(ability.max_level) {return fail("needs one level row per rank");}
+    let rows=|key:&str,min:f32,max:f32|->Result<(),String>{
+        let rows=ability.extras.get(key).filter(|rows|!key.is_empty()&&rows.len()==usize::from(ability.max_level))
+            .ok_or_else(||format!("ability '{}': attack_orb missing per-rank extras '{key}'",ability.id))?;
+        if rows.iter().any(|v|!v.is_finite()||*v<min||*v>max) {return Err(format!("ability '{}': attack_orb extras '{key}' outside [{min},{max}]",ability.id));}
+        Ok(())
+    };
+    rows(&orb.mana_per_attack_key,0.0,MAX_ABILITY_SCALAR)?;
+    rows(&orb.amount_key,0.0,MAX_ABILITY_SCALAR)?;
+    let slows=orb.move_slow_key.is_some()||orb.attack_slow_key.is_some();
+    if slows!=orb.slow_duration_key.is_some() {return fail("slows and slow_duration_key must be declared together");}
+    for key in [&orb.move_slow_key,&orb.attack_slow_key].into_iter().flatten() {rows(key,MIN_ABILITY_SCALAR,1.0)?;}
+    if let Some(key)=&orb.slow_duration_key {rows(key,MIN_ABILITY_SCALAR,60.0)?;}
+    Ok(())
+}
+
+/// Exclusive point-target summon. `unit` must name a live summon template
+/// (checked where templates are loaded); `duration_key` overrides the
+/// template lifetime per rank, in (0, 600] seconds.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AbilitySummonDelivery {
+    pub unit: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_key: Option<String>,
+}
+
+fn validate_summon_delivery(ability:&AbilityDefinition,delivery:&AbilitySummonDelivery)->Result<(),String> {
+    let fail=|why:&str|Err(format!("ability '{}': summon {why}",ability.id));
+    if !matches!(ability.ability_type.as_str(),"active"|"ultimate") || ability.cast_type!="instant"
+        || ability.target_type!="point" || !ability.effects.is_empty() || ability.projectile.is_some() || ability.zone_lifetime.is_some() {
+        return fail("requires an instant active/ultimate point ability without effects, projectile or zone");
+    }
+    if delivery.unit.is_empty() || !delivery.unit.chars().all(|c|c.is_ascii_lowercase()||c.is_ascii_digit()||c=='_') {return fail("unit must be a template id");}
+    if ability.max_level==0 || ability.levels.len()!=usize::from(ability.max_level)
+        || ability.levels.iter().any(|l|!l.range.is_finite()||l.range<MIN_ABILITY_SCALAR||l.range>10_000.0) {
+        return fail("needs bounded per-rank range");
+    }
+    if let Some(key)=&delivery.duration_key {
+        let rows=ability.extras.get(key).filter(|rows|rows.len()==usize::from(ability.max_level));
+        if rows.is_none_or(|rows|rows.iter().any(|v|!v.is_finite()||*v<MIN_ABILITY_SCALAR||*v>600.0)) {return fail("duration must be per-rank in (0,600]");}
+    }
+    Ok(())
+}
+
+/// Per-rank extras keys: `max_key` holds whole counts in 1..=10, `recharge_key`
+/// seconds per restored use in [0.25, 600]. The normal cooldown still applies
+/// between casts (it may be zero).
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AbilityCharges {
+    pub max_key: String,
+    pub recharge_key: String,
+}
+
+fn validate_ability_charges(ability:&AbilityDefinition)->Result<(),String> {
+    let Some(charges)=&ability.charges else {return Ok(());};
+    let fail=|why:&str|Err(format!("ability '{}': charges {why}",ability.id));
+    if !matches!(ability.ability_type.as_str(),"active"|"ultimate") {return fail("require an active or ultimate ability");}
+    let rows=|key:&str|ability.extras.get(key).filter(|rows|!key.is_empty()&&rows.len()==usize::from(ability.max_level));
+    let (Some(max),Some(recharge))=(rows(&charges.max_key),rows(&charges.recharge_key)) else {return fail("need per-rank max and recharge extras");};
+    if max.iter().any(|v|!v.is_finite()||v.fract()!=0.0||*v<1.0||*v>10.0) {return fail("max must be a whole number in 1..=10");}
+    if recharge.iter().any(|v|!v.is_finite()||*v<0.25||*v>600.0) {return fail("recharge must be in [0.25,600] seconds");}
+    if max.windows(2).any(|pair|pair[1]<pair[0]) {return fail("max must not decrease with rank");}
+    Ok(())
+}
+
+/// G-1 projectile delivery. `effects` must be one `damage`, plus at most one
+/// `slow_enemy` and one `stun_enemy`/`control_enemy`; they apply to each hit.
+/// Linear flies the per-rank cast `range` toward a ground point; homing tracks
+/// the selected enemy unit and hits only it.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectileDelivery {
+    pub motion: ProjectileMotion,
+    pub speed_key: String,
+    pub radius_key: String,
+    /// Required for homing; linear defaults to `range / speed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifetime_key: Option<String>,
+    /// Distinct targets before the flight ends. Linear 1..=64; homing 1.
+    #[serde(default = "default_projectile_hits")]
+    pub max_hits: u16,
+    #[serde(default)]
+    pub wall: ProjectileWall,
+    #[serde(default)]
+    pub target_lost: ProjectileTargetLost,
+    #[serde(default)]
+    pub caster_death: ProjectileCasterDeath,
+}
+fn default_projectile_hits() -> u16 { 1 }
+
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectileMotion { Linear, Homing }
+#[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectileWall { #[default] Pass, Stop }
+#[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectileTargetLost { #[default] Expire, LastPosition }
+#[derive(Debug, Default, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectileCasterDeath { #[default] Continue, Expire }
+
+/// Host bounds of `forced_motion`: distance in [1/1024,3000], duration in [1/1024,5].
+fn forced_motion_rows(ability:&AbilityDefinition,distance_key:&str,duration_key:&str)->Result<(),String> {
+    let bad=|key:&str,max:f32|ability.extras.get(key).is_none_or(|rows|rows.iter().any(|v|!v.is_finite()||*v<MIN_ABILITY_SCALAR||*v>max));
+    if bad(distance_key,3_000.0) || bad(duration_key,5.0) {
+        return Err(format!("ability '{}': forced_move_enemy requires distance in [1/1024,3000] and duration in [1/1024,5]",ability.id));
+    }
+    Ok(())
+}
+
+fn validate_projectile_delivery(ability:&AbilityDefinition,delivery:&ProjectileDelivery)->Result<(),String> {
+    let fail=|why:&str|Err(format!("ability '{}': projectile {why}",ability.id));
+    if !matches!(ability.ability_type.as_str(),"active"|"ultimate") || ability.cast_type!="instant"
+        || ability.aim_geometry.is_some() || ability.zone_lifetime.is_some() {
+        return fail("requires an instant active/ultimate without aim_geometry or zone_lifetime");
+    }
+    let linear=delivery.motion==ProjectileMotion::Linear;
+    if ability.target_type!=if linear {"point"}else{"unit"} {return fail("linear needs a point target and homing a unit target");}
+    let (mut damage,mut slow,mut control,mut forced)=(0,0,0,0);
+    for effect in &ability.effects {
+        match effect {
+            AbilityEffect::Damage{..}=>damage+=1,
+            AbilityEffect::SlowEnemy{..}=>slow+=1,
+            AbilityEffect::StunEnemy{..}|AbilityEffect::ControlEnemy{..}=>control+=1,
+            AbilityEffect::ForcedMoveEnemy{..}=>forced+=1,
+            _=>return fail("delivers only damage, slow_enemy, stun_enemy/control_enemy and forced_move_enemy"),
+        }
+    }
+    if damage!=1 || slow>1 || control>1 || forced>1 {return fail("needs one damage and at most one slow, one control and one forced move");}
+    if !(1..=64).contains(&delivery.max_hits) || (!linear && delivery.max_hits!=1) {return fail("max_hits must be 1..=64 (homing 1)");}
+    if !linear && delivery.wall!=ProjectileWall::Pass {return fail("homing cannot stop at walls");}
+    if ability.max_level==0 || ability.levels.len()!=usize::from(ability.max_level) {return fail("needs one level row per rank");}
+    let rows=|key:&str,min:f32,max:f32|->Result<&Vec<f32>,String>{
+        let rows=ability.extras.get(key).filter(|rows|!key.is_empty()&&rows.len()==usize::from(ability.max_level))
+            .ok_or_else(||format!("ability '{}': projectile missing per-rank extras '{key}'",ability.id))?;
+        if rows.iter().any(|v|!v.is_finite()||*v<min||*v>max) {
+            return Err(format!("ability '{}': projectile extras '{key}' outside [{min},{max}]",ability.id));
+        }
+        Ok(rows)
+    };
+    let speeds=rows(&delivery.speed_key,1.0,20_000.0)?;
+    rows(&delivery.radius_key,0.0,1_000.0)?;
+    let lifetimes=match &delivery.lifetime_key {
+        Some(key)=>Some(rows(key,MIN_ABILITY_SCALAR,30.0)?),
+        None if linear=>None,
+        None=>return fail("homing requires lifetime_key"),
+    };
+    for (rank,level) in ability.levels.iter().enumerate() {
+        if !level.range.is_finite() || level.range<MIN_ABILITY_SCALAR || level.range>10_000.0 {return fail("needs bounded per-rank range");}
+        if lifetimes.is_none() && level.range/speeds[rank]>30.0 {return fail("linear flight exceeds 30 seconds");}
+    }
+    for effect in &ability.effects {
+        match effect {
+            AbilityEffect::Damage{amount_key,..}=>{rows(amount_key,0.0,MAX_ABILITY_SCALAR)?;}
+            AbilityEffect::SlowEnemy{reduction_key,duration_key}=>{rows(reduction_key,MIN_ABILITY_SCALAR,1.0)?;rows(duration_key,MIN_ABILITY_SCALAR,60.0)?;}
+            AbilityEffect::StunEnemy{duration_key}|AbilityEffect::ControlEnemy{duration_key,..}=>{rows(duration_key,MIN_ABILITY_SCALAR,60.0)?;}
+            AbilityEffect::ForcedMoveEnemy{distance_key,duration_key,..}=>{rows(distance_key,0.0,f32::MAX)?;rows(duration_key,0.0,f32::MAX)?;forced_motion_rows(ability,distance_key,duration_key)?;}
+            _=>unreachable!("checked above"),
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +460,20 @@ pub enum AbilityAimGeometry {
     FacingFormation { rows: u16 },
 }
 
+/// Aiming footprint a package declares for its Rust handler (`targeting.shape`). It is published
+/// for presentation only, and only where no gameplay contract (aim_geometry, effects, projectile)
+/// already publishes a footprint; it never changes cast admission or execution.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AbilityTargetingShape {
+    /// Circle centered at the requested point; per-rank radius in world units.
+    Circle { radius_key: String },
+    /// Capsule from the source toward the requested point; per-rank full width.
+    Line { width_key: String },
+    /// Source-centered sector toward the requested point; per-rank half angle in radians.
+    Cone { half_angle_key: String },
+}
+
 /// Gameplay displacement requires an unrooted source. Presentation must use the
 /// same authored contract, never a skill ID or a cosmetic movement animation.
 pub fn ability_requires_movement(ability: &AbilityDefinition) -> bool {
@@ -120,6 +496,8 @@ pub struct AbilityAimPreview {
     pub target_type:String,
     pub requires_movement:bool,
     pub formation_rows:u16,
+    /// The published footprint comes only from the package's declared `targeting_shape`.
+    pub shape_declared_only:bool,
     pub ranks:Vec<AbilityAimPreviewRank>,
 }
 #[derive(Debug,Serialize)]
@@ -132,28 +510,47 @@ pub struct AbilityAimPreviewRank {
     pub row_spacing:f32,
     pub column_spacing:f32,
     pub front_distance:f32,
+    /// Presentation-only movement reach (`targeting_reach_key`); 0 when absent.
+    pub clamp_range:f32,
 }
 pub fn ability_aim_preview(ability:&AbilityDefinition)->Result<AbilityAimPreview,String> {
     validate_ability_progression(ability)?;
     let mut ranks=Vec::with_capacity(ability.levels.len());
+    let mut shape_declared_only=false;
     for (rank,level) in ability.levels.iter().enumerate() {
         let extra=|key:&str|ability.extras.get(key).and_then(|values|values.get(rank)).copied().unwrap_or(0.0);
         let point_radius=if let Some(AbilityAimGeometry::PointCircle{radius_key})=&ability.aim_geometry {extra(radius_key)}
             else if ability.target_type=="point" {ability.effects.iter().filter_map(|effect|match effect {
-                AbilityEffect::AreaDamage{radius_key,..}=>Some(extra(radius_key)),_=>None}).fold(0.0_f32,f32::max)}else{0.0};
-        let path_width=match &ability.aim_geometry {Some(AbilityAimGeometry::SweptPath{width_key})=>extra(width_key),_=>ability.effects.iter().find_map(|effect|match effect {AbilityEffect::LineDamage{width_key,..}=>Some(extra(width_key)),_=>None}).unwrap_or(0.0)};
+                AbilityEffect::AreaDamage{radius_key,..}|AbilityEffect::RevealArea{radius_key,..}=>Some(extra(radius_key)),_=>None})
+                // A point-anchored host channel pulses within its radius around the cast point.
+                .chain(ability.channel.iter().filter(|c|c.anchor==ChannelAnchor::Point).filter_map(|c|c.radius_key.as_deref().map(extra)))
+                .fold(0.0_f32,f32::max)}else{0.0};
+        let path_width=match &ability.aim_geometry {Some(AbilityAimGeometry::SweptPath{width_key})=>extra(width_key),_=>ability.effects.iter().find_map(|effect|match effect {AbilityEffect::LineDamage{width_key,..}=>Some(extra(width_key)),_=>None})
+            .or_else(||ability.projectile.as_ref().filter(|p|p.motion==ProjectileMotion::Linear).map(|p|2.0*extra(&p.radius_key))).unwrap_or(0.0)};
         let formation=facing_formation_rows(ability)>0;
-        let cone_half_angle_ticks=ability.effects.iter().find_map(|effect|match effect {
+        let mut cone_half_angle_ticks=ability.effects.iter().find_map(|effect|match effect {
             AbilityEffect::ConeDamage{half_angle_key,..}=>omoba_sim::sector::half_angle_ticks(
                 omoba_sim::Fixed64::from_raw((f64::from(extra(half_angle_key))*1024.).round() as i64)),_=>None}).unwrap_or(0);
+        let (mut point_radius,mut path_width)=(point_radius,path_width);
+        // A declared footprint only fills an otherwise unpublished point-target ability.
+        if ability.target_type=="point" && !formation && point_radius==0.0 && path_width==0.0 && cone_half_angle_ticks==0 {
+            match &ability.targeting_shape {
+                Some(AbilityTargetingShape::Circle{radius_key})=>{point_radius=extra(radius_key);shape_declared_only|=point_radius>0.0;}
+                Some(AbilityTargetingShape::Line{width_key})=>{path_width=extra(width_key);shape_declared_only|=path_width>0.0;}
+                Some(AbilityTargetingShape::Cone{half_angle_key})=>{cone_half_angle_ticks=omoba_sim::sector::half_angle_ticks(
+                    omoba_sim::Fixed64::from_raw((f64::from(extra(half_angle_key))*1024.).round() as i64)).unwrap_or(0);shape_declared_only|=cone_half_angle_ticks>0;}
+                None=>{}
+            }
+        }
         ranks.push(AbilityAimPreviewRank{cone_half_angle_ticks,range:level.range,point_radius,path_width,
             formation_count:if formation {extra("summon_count") as u16}else{0},
             row_spacing:if formation {extra("row_spacing")}else{0.0},
             column_spacing:if formation {extra("col_spacing")}else{0.0},
-            front_distance:if formation {extra("front_row_distance")}else{0.0}});
+            front_distance:if formation {extra("front_row_distance")}else{0.0},
+            clamp_range:ability.targeting_reach_key.as_deref().filter(|_|ability.target_type=="point" && level.range==0.0).map_or(0.0,extra)});
     }
     Ok(AbilityAimPreview{geometry:ability.aim_geometry.clone(),ability_type:ability.ability_type.clone(),cast_type:ability.cast_type.clone(),target_type:ability.target_type.clone(),
-        requires_movement:ability_requires_movement(ability),formation_rows:facing_formation_rows(ability),ranks})
+        requires_movement:ability_requires_movement(ability),formation_rows:facing_formation_rows(ability),shape_declared_only,ranks})
 }
 pub fn ability_aim_preview_signature(ability:&AbilityDefinition)->Result<String,String> {
     serde_json::to_string(&ability_aim_preview(ability)?).map_err(|error|error.to_string())
@@ -175,6 +572,15 @@ pub enum AbilityEffect {
     SlowEnemy { reduction_key:String, duration_key:String },
     StunEnemy { duration_key:String },
     ControlEnemy { control:ControlEffectKind, duration_key:String },
+    /// Forced displacement of the enemy unit target (G-4): `distance_key` world
+    /// units straight away from (knockback) or toward (pull, stopping at body
+    /// contact) the caster over `duration_key` seconds. The target is stunned
+    /// for that time and terrain stops it; other units never block it.
+    ForcedMoveEnemy { motion:ForcedMotionKind, distance_key:String, duration_key:String },
+    /// True-sight area at the point target (G-4 detection): the caster's team
+    /// sees within `radius_key` and detects every stealth level there for
+    /// `duration_key` seconds. Line of sight still applies; nothing is damaged.
+    RevealArea { radius_key:String, duration_key:String },
     /// Instant relocation with the normal swept-terrain collision contract.
     /// Deliberately exclusive until ordered movement/effect semantics exist.
     DashToPoint,
@@ -199,6 +605,15 @@ pub enum AbilityEffect {
     },
 }
 
+/// Direction of a forced displacement relative to its caster.
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ForcedMotionKind { Knockback, Pull }
+
+impl ForcedMotionKind {
+    pub const fn as_str(self)->&'static str { match self { Self::Knockback=>"knockback",Self::Pull=>"pull" } }
+}
+
 /// Closed gameplay status set; never accept an arbitrary authored Buff ID.
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -210,7 +625,7 @@ impl ControlEffectKind {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum EffectDamageKind {
     Physical,
@@ -297,8 +712,35 @@ pub fn validate_ability_progression(ability: &AbilityDefinition) -> Result<(), S
         previous = level.required_hero_level;
     }
     validate_zone_lifetime(ability)?;
+    validate_ability_charges(ability)?;
     validate_ability_aim_geometry(ability)?;
+    validate_ability_targeting_shape(ability)?;
+    validate_ability_targeting_reach(ability)?;
     validate_ability_effects(ability)
+}
+
+/// Every rank of a declared footprint is a finite positive dimension within the aiming bounds.
+/// `targeting_reach_key` only describes a range-free point ability's movement.
+pub fn validate_ability_targeting_reach(ability: &AbilityDefinition) -> Result<(), String> {
+    let Some(key) = &ability.targeting_reach_key else { return Ok(()); };
+    let valid = ability.target_type == "point" && ability.levels.iter().all(|level| level.range == 0.0)
+        && !key.is_empty() && ability.extras.get(key).is_some_and(|values| values.len() == usize::from(ability.max_level)
+            && values.iter().all(|value| value.is_finite() && (MIN_ABILITY_SCALAR..=10_000.0).contains(value)));
+    if valid { Ok(()) } else {
+        Err(format!("ability '{}': targeting_reach_key needs point targeting, range 0 on every rank and a complete positive per-rank '{}'", ability.id, key))
+    }
+}
+
+pub fn validate_ability_targeting_shape(ability: &AbilityDefinition) -> Result<(), String> {
+    let Some(shape) = &ability.targeting_shape else { return Ok(()); };
+    let (key, maximum) = match shape {
+        AbilityTargetingShape::Circle { radius_key } => (radius_key, 10_000.0),
+        AbilityTargetingShape::Line { width_key } => (width_key, 5_000.0),
+        AbilityTargetingShape::Cone { half_angle_key } => (half_angle_key, std::f32::consts::FRAC_PI_2),
+    };
+    let valid = !key.is_empty() && ability.extras.get(key).is_some_and(|values| values.len() == usize::from(ability.max_level)
+        && values.iter().all(|value| value.is_finite() && (MIN_ABILITY_SCALAR..=maximum).contains(value)));
+    if valid { Ok(()) } else { Err(format!("ability '{}': targeting_shape requires a complete positive per-rank '{}'", ability.id, key)) }
 }
 
 pub fn validate_ability_aim_geometry(ability: &AbilityDefinition) -> Result<(), String> {
@@ -364,13 +806,58 @@ pub fn unit_target_allegiance(effects: &[AbilityEffect]) -> Result<UnitTargetAll
     let ally = effects.iter().any(|effect| matches!(effect, AbilityEffect::HealAlly { .. } | AbilityEffect::ShieldAlly { .. } | AbilityEffect::CleanseAlly {}));
     let enemy = effects.iter().any(|effect| matches!(effect,
         AbilityEffect::Damage { .. } | AbilityEffect::DrainManaEnemy {..} | AbilityEffect::DamageOverTimeEnemy {..} | AbilityEffect::SlowEnemy { .. }
-            | AbilityEffect::StunEnemy { .. } | AbilityEffect::ControlEnemy { .. }));
+            | AbilityEffect::StunEnemy { .. } | AbilityEffect::ControlEnemy { .. } | AbilityEffect::ForcedMoveEnemy { .. }));
     match (ally, enemy) {
         (true, true) => Err("conflicting unit target allegiance"),
         (true, false) => Ok(UnitTargetAllegiance::Ally),
         (false, true) => Ok(UnitTargetAllegiance::Enemy),
         (false, false) => Ok(UnitTargetAllegiance::Unspecified),
     }
+}
+
+/// Published unit-target allegiance of an ability: its declarative effects
+/// when they imply one, otherwise the authored `unit_target` of a unit-target
+/// ability, otherwise unspecified.
+pub fn ability_unit_allegiance(ability: &AbilityDefinition) -> Result<UnitTargetAllegiance, String> {
+    let derived = unit_target_allegiance(&ability.effects).map_err(|why| format!("ability '{}': {why}", ability.id))?;
+    let authored = match ability.unit_target.as_deref() {
+        None => None,
+        Some("ally") => Some(UnitTargetAllegiance::Ally),
+        Some("enemy") => Some(UnitTargetAllegiance::Enemy),
+        Some(other) => return Err(format!("ability '{}': unit_target '{other}' must be ally or enemy", ability.id)),
+    };
+    if authored.is_some() && ability.target_type != "unit" {
+        return Err(format!("ability '{}': unit_target requires a unit target_type", ability.id));
+    }
+    match (derived, authored) {
+        (UnitTargetAllegiance::Unspecified, Some(authored)) => Ok(authored),
+        (derived, Some(authored)) if derived != authored => Err(format!("ability '{}': unit_target contradicts its effects", ability.id)),
+        (derived, _) => Ok(derived),
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn authored_unit_target_fills_only_what_effects_leave_unspecified() {
+    let ability=|unit_target:Option<&str>,target_type:&str,effects:serde_json::Value|->AbilityDefinition {
+        let mut v=serde_json::json!({"id":"fixture","max_level":1,"ability_type":"active","cast_type":"instant","target_type":target_type,
+            "levels":[{"range":600}],"extras":{"heal":[10]},"effects":effects});
+        if let Some(t)=unit_target {v["unit_target"]=t.into();}
+        serde_json::from_value(v).unwrap()
+    };
+    let none=serde_json::json!([]);let heal=serde_json::json!([{"kind":"heal_ally","amount_key":"heal"}]);
+    assert_eq!(ability_unit_allegiance(&ability(Some("ally"),"unit",none.clone())).unwrap(),UnitTargetAllegiance::Ally);
+    assert_eq!(ability_unit_allegiance(&ability(Some("enemy"),"unit",none.clone())).unwrap(),UnitTargetAllegiance::Enemy);
+    assert_eq!(ability_unit_allegiance(&ability(None,"unit",none.clone())).unwrap(),UnitTargetAllegiance::Unspecified);
+    assert_eq!(ability_unit_allegiance(&ability(Some("ally"),"unit",heal.clone())).unwrap(),UnitTargetAllegiance::Ally);
+    assert!(ability_unit_allegiance(&ability(Some("enemy"),"unit",heal)).is_err(),"contradiction");
+    assert!(ability_unit_allegiance(&ability(Some("ally"),"point",none.clone())).is_err(),"unit targets only");
+    assert!(ability_unit_allegiance(&ability(Some("both"),"unit",none.clone())).is_err(),"closed vocabulary");
+    let encoded=serde_json::to_value(ability(None,"unit",none)).unwrap();assert!(encoded.get("unit_target").is_none());
+    let fixture=ability(Some("ally"),"unit",serde_json::json!([]));
+    assert!(validate_ability_effects(&fixture).is_ok());
+    let mut wrong=fixture.clone();wrong.unit_target=Some("neutral".into());
+    assert!(validate_ability_effects(&wrong).is_err());
 }
 
 /// Shared by template IDs, runtime content and Unreal codegen.
@@ -397,7 +884,14 @@ fn recovery_channel_authoring_is_closed_exclusive_and_exactly_quantized() {
 }
 
 pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), String> {
-    if ability.tombstone || ability.effects.is_empty() {return Ok(());}
+    if ability.tombstone {return Ok(());}
+    if let Some(refund)=&ability.cast_cooldown_refund {validate_cast_cooldown_refund(ability,refund)?;}
+    if ability.unit_target.is_some() {ability_unit_allegiance(ability)?;}
+    if let Some(orb)=&ability.attack_orb {return validate_attack_orb(ability,orb);}
+    if let Some(delivery)=&ability.summon {return validate_summon_delivery(ability,delivery);}
+    if let Some(delivery)=&ability.projectile {return validate_projectile_delivery(ability,delivery);}
+    if let Some(delivery)=&ability.channel {return validate_channel_delivery(ability,delivery);}
+    if ability.effects.is_empty() {return Ok(());}
     if let [AbilityEffect::RecoveryChannelSelf {amount_key,duration_key,interval_key}]=ability.effects.as_slice() {
         let valid=matches!(ability.ability_type.as_str(),"active"|"ultimate")
             && ability.cast_type=="channeled" && ability.target_type=="none"
@@ -503,6 +997,20 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
                 }
                 (duration_key,"unit")
             },
+            AbilityEffect::ForcedMoveEnemy {distance_key,duration_key,..}=>{
+                values(distance_key,false)?;values(duration_key,false)?;
+                forced_motion_rows(ability,distance_key,duration_key)?;
+                (distance_key,"unit")
+            },
+            AbilityEffect::RevealArea {radius_key,duration_key}=>{
+                values(radius_key,false)?;values(duration_key,false)?;
+                let bad=|key:&String,max:f32|ability.extras[key].iter().any(|v|*v<MIN_ABILITY_SCALAR||*v>max);
+                if bad(radius_key,2_000.) || bad(duration_key,30.)
+                    || ability.levels.iter().any(|l|!l.range.is_finite()||l.range<MIN_ABILITY_SCALAR||l.range>10_000.) {
+                    return Err(format!("ability '{}': reveal_area requires radius in [1/1024,2000], duration in [1/1024,30] and bounded range",ability.id));
+                }
+                (radius_key,"point")
+            },
             AbilityEffect::SlowEnemy {reduction_key,duration_key}=>{
                 values(reduction_key,false)?;values(duration_key,false)?;
                 if ability.extras[reduction_key].iter().any(|v|*v<MIN_ABILITY_SCALAR || *v>1.0)
@@ -516,7 +1024,7 @@ pub fn validate_ability_effects(ability: &AbilityDefinition) -> Result<(), Strin
                 // A targeted spell still needs a separate, shape-checked consumer.
                 let consumes_target=ability.effects.iter().any(|effect|matches!(effect,
                     AbilityEffect::Damage {..}|AbilityEffect::DrainManaEnemy {..}|AbilityEffect::HealAlly {..}|AbilityEffect::ShieldAlly {..}|AbilityEffect::CleanseAlly {}|AbilityEffect::AreaDamage {..}
-                    |AbilityEffect::SlowEnemy {..}|AbilityEffect::StunEnemy {..}|AbilityEffect::ControlEnemy {..}
+                    |AbilityEffect::SlowEnemy {..}|AbilityEffect::StunEnemy {..}|AbilityEffect::ControlEnemy {..}|AbilityEffect::ForcedMoveEnemy {..}
                     |AbilityEffect::DamageOverTimeEnemy {..}|AbilityEffect::LineDamage {..}|AbilityEffect::ConeDamage {..}));
                 (amount_key,if consumes_target {ability.target_type.as_str()}else{"none"})
             },
@@ -606,21 +1114,38 @@ pub struct HeroDefinition {
     pub level_growth: HeroLevelGrowth,
 }
 
+/// Q, W, E, R. Every hero has these slots.
+pub const LEGACY_HERO_ABILITY_SLOTS: usize = 4;
+/// Plus the optional extra action slot (D, G-3), e.g. a passive or a level-gated ultimate.
+pub const HERO_ABILITY_SLOTS: usize = 5;
+
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct MobaLoadout {
-    pub ranks: [u8; 4],
+    /// Birth rank per slot. Content may list four (the extra slot is then unlearned) or five.
+    #[serde(deserialize_with = "four_or_five_ranks")]
+    pub ranks: [u8; HERO_ABILITY_SLOTS],
     pub skill_points: u8,
 }
 
 impl Default for MobaLoadout {
-    fn default() -> Self { Self { ranks: [1; 4], skill_points: 0 } }
+    fn default() -> Self { Self { ranks: [1, 1, 1, 1, 0], skill_points: 0 } }
+}
+
+fn four_or_five_ranks<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<[u8; HERO_ABILITY_SLOTS], D::Error> {
+    let ranks = Vec::<u8>::deserialize(deserializer)?;
+    if !(LEGACY_HERO_ABILITY_SLOTS..=HERO_ABILITY_SLOTS).contains(&ranks.len()) {
+        return Err(serde::de::Error::custom(format!("moba_loadout.ranks needs {LEGACY_HERO_ABILITY_SLOTS} or {HERO_ABILITY_SLOTS} entries, got {}", ranks.len())));
+    }
+    let mut padded = [0; HERO_ABILITY_SLOTS];
+    padded[..ranks.len()].copy_from_slice(&ranks);
+    Ok(padded)
 }
 
 /// Both Rust and Unreal generators validate the same MOBA-only birth rules.
 pub fn validate_moba_loadout<'a>(hero: &HeroDefinition, abilities: impl IntoIterator<Item = &'a AbilityDefinition>) -> Result<(), String> {
     if hero.tombstone { return Ok(()); }
-    if hero.abilities.len() > 4 { return Err(format!("hero '{}': MOBA loadout exceeds four slots",hero.id)); }
+    if hero.abilities.len() > HERO_ABILITY_SLOTS { return Err(format!("hero '{}': MOBA loadout exceeds {HERO_ABILITY_SLOTS} slots",hero.id)); }
     let definitions: std::collections::BTreeMap<_,_> = abilities.into_iter().map(|a| (a.id.as_str(),a)).collect();
     for (slot,id) in hero.abilities.iter().enumerate() {
         let rank = hero.moba_loadout.ranks[slot];
@@ -969,7 +1494,10 @@ mod tests {
         assert_eq!(legacy.moba_loadout, MobaLoadout::default());
         let unlearned: HeroDefinition = serde_json::from_value(serde_json::json!({"id":"mage",
             "moba_loadout":{"ranks":[0,0,0,0],"skill_points":1}})).unwrap();
-        assert_eq!(unlearned.moba_loadout.ranks, [0;4]);
+        assert_eq!(unlearned.moba_loadout.ranks, [0;5], "four ranks leave the extra slot unlearned");
+        let five: MobaLoadout = serde_json::from_value(serde_json::json!({"ranks":[1,1,1,1,1]})).unwrap();
+        assert_eq!(five.ranks, [1;5]);
+        assert!(serde_json::from_value::<MobaLoadout>(serde_json::json!({"ranks":[0,0,0,0,0,0]})).is_err());
         assert_eq!(unlearned.moba_loadout.skill_points, 1);
         for ranks in [serde_json::json!([0,0,0]),serde_json::json!([0,0,0,256]),serde_json::json!([0,0,0,-1])] {
             assert!(serde_json::from_value::<MobaLoadout>(serde_json::json!({"ranks":ranks})).is_err());
@@ -1405,5 +1933,220 @@ mod tests {
         })).unwrap();
         assert_eq!(render.animation_sources["idle"].model, "idle.fbx");
         assert!(render.animations["idle"].loop_animation);
+    }
+}
+
+#[cfg(test)]
+mod projectile_delivery_tests {
+    use super::*;
+    fn homing() -> serde_json::Value {
+        serde_json::json!({"id":"fixture_bolt","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":1,
+            "levels":[{"range":700}],"extras":{"damage":[90],"speed":[900],"radius":[16],"lifetime":[3],"slow":[0.25],"slow_time":[1.5]},
+            "effects":[{"kind":"damage","amount_key":"damage","damage_kind":"magical"},
+                {"kind":"slow_enemy","reduction_key":"slow","duration_key":"slow_time"}],
+            "projectile":{"motion":"homing","speed_key":"speed","radius_key":"radius","lifetime_key":"lifetime"}})
+    }
+    fn linear() -> serde_json::Value {
+        serde_json::json!({"id":"fixture_lance","ability_type":"active","cast_type":"instant","target_type":"point","max_level":1,
+            "levels":[{"range":1000}],"extras":{"damage":[70],"speed":[1200],"radius":[60]},
+            "effects":[{"kind":"damage","amount_key":"damage","damage_kind":"magical"}],
+            "projectile":{"motion":"linear","speed_key":"speed","radius_key":"radius","max_hits":3,"wall":"stop"}})
+    }
+    fn check(value: serde_json::Value) -> Result<(), String> {
+        validate_ability_progression(&serde_json::from_value::<AbilityDefinition>(value).map_err(|e| e.to_string())?)
+    }
+    #[test]
+    fn projectile_delivery_accepts_homing_and_linear_and_defaults_policies() {
+        check(homing()).unwrap();
+        check(linear()).unwrap();
+        let parsed: AbilityDefinition = serde_json::from_value(homing()).unwrap();
+        let delivery = parsed.projectile.unwrap();
+        assert_eq!((delivery.max_hits, delivery.wall, delivery.target_lost, delivery.caster_death),
+            (1, ProjectileWall::Pass, ProjectileTargetLost::Expire, ProjectileCasterDeath::Continue));
+        // Linear aim preview is a swept path of the projectile diameter over the cast range.
+        let preview = ability_aim_preview(&serde_json::from_value(linear()).unwrap()).unwrap();
+        assert_eq!((preview.ranks[0].path_width, preview.ranks[0].range), (120.0, 1000.0));
+        // Abilities without a delivery keep their exact serialized form.
+        let mut plain = linear(); plain.as_object_mut().unwrap().remove("projectile");
+        let plain: AbilityDefinition = serde_json::from_value(plain).unwrap();
+        assert!(serde_json::to_value(plain).unwrap().get("projectile").is_none());
+    }
+    #[test]
+    fn projectile_delivery_rejects_mismatched_or_unbounded_authoring() {
+        let cases: Vec<(serde_json::Value, &str)> = vec![
+            ({let mut v = homing(); v["target_type"] = "point".into(); v}, "homing needs unit"),
+            ({let mut v = linear(); v["target_type"] = "unit".into(); v}, "linear needs point"),
+            ({let mut v = homing(); v["projectile"].as_object_mut().unwrap().remove("lifetime_key"); v}, "homing lifetime"),
+            ({let mut v = homing(); v["projectile"]["max_hits"] = 2.into(); v}, "homing hits"),
+            ({let mut v = homing(); v["projectile"]["wall"] = "stop".into(); v}, "homing wall"),
+            ({let mut v = linear(); v["projectile"]["max_hits"] = 65.into(); v}, "hit cap"),
+            ({let mut v = linear(); v["projectile"]["max_hits"] = 0.into(); v}, "zero hits"),
+            ({let mut v = linear(); v["extras"]["speed"] = serde_json::json!([0.5]); v}, "speed floor"),
+            ({let mut v = linear(); v["extras"]["radius"] = serde_json::json!([1001]); v}, "radius cap"),
+            ({let mut v = linear(); v["extras"]["speed"] = serde_json::json!([30]); v}, "flight over 30 s"),
+            ({let mut v = linear(); v["effects"] = serde_json::json!([]); v}, "needs damage"),
+            ({let mut v = linear(); v["effects"].as_array_mut().unwrap().push(serde_json::json!({"kind":"heal_self","amount_key":"damage"})); v}, "payload kinds"),
+            ({let mut v = linear(); v["cast_type"] = "channeled".into(); v}, "instant only"),
+            ({let mut v = linear(); v["aim_geometry"] = serde_json::json!({"kind":"swept_path","width_key":"radius"}); v}, "no aim geometry"),
+            ({let mut v = linear(); v["projectile"]["bounce"] = true.into(); v}, "unknown field"),
+            ({let mut v = linear(); v["projectile"]["motion"] = "arc".into(); v}, "unknown motion"),
+        ];
+        for (value, label) in cases { assert!(check(value).is_err(), "{label}"); }
+    }
+}
+
+#[cfg(test)]
+mod forced_move_tests {
+    use super::*;
+    fn shove() -> serde_json::Value {
+        serde_json::json!({"id":"fixture_shove","ability_type":"active","cast_type":"instant","target_type":"unit","max_level":1,
+            "levels":[{"range":500}],"extras":{"damage":[40],"push":[350],"push_time":[0.35]},
+            "effects":[{"kind":"damage","amount_key":"damage","damage_kind":"magical"},
+                {"kind":"forced_move_enemy","motion":"knockback","distance_key":"push","duration_key":"push_time"}]})
+    }
+    fn hook() -> serde_json::Value {
+        serde_json::json!({"id":"fixture_hook","ability_type":"active","cast_type":"instant","target_type":"point","max_level":1,
+            "levels":[{"range":1100}],"extras":{"damage":[60],"speed":[1600],"radius":[60],"pull":[1100],"pull_time":[0.5]},
+            "effects":[{"kind":"damage","amount_key":"damage","damage_kind":"magical"},
+                {"kind":"forced_move_enemy","motion":"pull","distance_key":"pull","duration_key":"pull_time"}],
+            "projectile":{"motion":"linear","speed_key":"speed","radius_key":"radius","max_hits":1,"wall":"stop"}})
+    }
+    fn check(value: serde_json::Value) -> Result<(), String> {
+        validate_ability_progression(&serde_json::from_value::<AbilityDefinition>(value).map_err(|e| e.to_string())?)
+    }
+    #[test]
+    fn forced_move_accepts_unit_knockback_and_projectile_pull() {
+        check(shove()).unwrap();
+        check(hook()).unwrap();
+        let parsed: AbilityDefinition = serde_json::from_value(hook()).unwrap();
+        assert!(matches!(parsed.effects[1], AbilityEffect::ForcedMoveEnemy { motion: ForcedMotionKind::Pull, .. }));
+        assert_eq!(unit_target_allegiance(&serde_json::from_value::<AbilityDefinition>(shove()).unwrap().effects), Ok(UnitTargetAllegiance::Enemy));
+    }
+    #[test]
+    fn forced_move_rejects_unbounded_or_misplaced_authoring() {
+        let cases: Vec<(serde_json::Value, &str)> = vec![
+            ({let mut v = shove(); v["extras"]["push"] = serde_json::json!([0]); v}, "zero distance"),
+            ({let mut v = shove(); v["extras"]["push"] = serde_json::json!([3001]); v}, "distance cap"),
+            ({let mut v = shove(); v["extras"]["push_time"] = serde_json::json!([0]); v}, "zero duration"),
+            ({let mut v = shove(); v["extras"]["push_time"] = serde_json::json!([5.5]); v}, "duration cap"),
+            ({let mut v = shove(); v["extras"].as_object_mut().unwrap().remove("push"); v}, "missing distance"),
+            ({let mut v = shove(); v["effects"][1]["motion"] = "throw".into(); v}, "unknown motion"),
+            ({let mut v = shove(); v["effects"][1]["speed"] = 1.into(); v}, "unknown field"),
+            ({let mut v = hook(); v["extras"]["pull"] = serde_json::json!([3500]); v}, "projectile distance cap"),
+            ({let mut v = hook(); let extra = v["effects"][1].clone(); v["effects"].as_array_mut().unwrap().push(extra); v}, "one forced move per hit"),
+        ];
+        for (value, label) in cases { assert!(check(value).is_err(), "{label}"); }
+    }
+    fn flare() -> serde_json::Value {
+        serde_json::json!({"id":"fixture_flare","ability_type":"active","cast_type":"instant","target_type":"point","max_level":1,
+            "levels":[{"range":1000}],"extras":{"radius":[450],"time":[4]},
+            "effects":[{"kind":"reveal_area","radius_key":"radius","duration_key":"time"}]})
+    }
+    #[test]
+    fn reveal_area_accepts_a_bounded_point_area_and_rejects_the_rest() {
+        check(flare()).unwrap();
+        let cases: Vec<(serde_json::Value, &str)> = vec![
+            ({let mut v = flare(); v["extras"]["radius"] = serde_json::json!([0]); v}, "zero radius"),
+            ({let mut v = flare(); v["extras"]["radius"] = serde_json::json!([2001]); v}, "radius cap"),
+            ({let mut v = flare(); v["extras"]["time"] = serde_json::json!([30.5]); v}, "duration cap"),
+            ({let mut v = flare(); v["levels"] = serde_json::json!([{"range":0}]); v}, "unbounded range"),
+            ({let mut v = flare(); v["target_type"] = "unit".into(); v}, "point only"),
+            ({let mut v = flare(); v["effects"][0]["detection"] = 2.into(); v}, "unknown field"),
+        ];
+        for (value, label) in cases { assert!(check(value).is_err(), "{label}"); }
+    }
+}
+
+#[cfg(test)]
+mod charge_and_summon_delivery_tests {
+    use super::*;
+    fn sentry() -> serde_json::Value {
+        serde_json::json!({"id":"fixture_sentry","ability_type":"active","cast_type":"instant","target_type":"point","max_level":2,
+            "levels":[{"range":600},{"range":600}],"extras":{"charges":[2,3],"charge_time":[15,15],"life":[30,40]},
+            "charges":{"max_key":"charges","recharge_key":"charge_time"},
+            "summon":{"unit":"fixture_turret","duration_key":"life"}})
+    }
+    fn check(value: serde_json::Value) -> Result<(), String> {
+        validate_ability_progression(&serde_json::from_value::<AbilityDefinition>(value).map_err(|e| e.to_string())?)
+    }
+    #[test]
+    fn charges_and_summon_delivery_accept_valid_authoring() {
+        check(sentry()).unwrap();
+        let mut no_summon = sentry(); no_summon.as_object_mut().unwrap().remove("summon");
+        no_summon["effects"] = serde_json::json!([{"kind":"area_damage","amount_key":"life","radius_key":"life","damage_kind":"magical"}]);
+        check(no_summon).unwrap();
+    }
+    #[test]
+    fn charges_and_summon_delivery_reject_invalid_authoring() {
+        let cases: Vec<(serde_json::Value, &str)> = vec![
+            ({let mut v = sentry(); v["extras"]["charges"] = serde_json::json!([2.5,3]); v}, "fractional max"),
+            ({let mut v = sentry(); v["extras"]["charges"] = serde_json::json!([0,3]); v}, "zero max"),
+            ({let mut v = sentry(); v["extras"]["charges"] = serde_json::json!([3,2]); v}, "decreasing max"),
+            ({let mut v = sentry(); v["extras"]["charges"] = serde_json::json!([11,11]); v}, "max over 10"),
+            ({let mut v = sentry(); v["extras"]["charge_time"] = serde_json::json!([0.1,15]); v}, "recharge floor"),
+            ({let mut v = sentry(); v["ability_type"] = "passive".into(); v}, "passive charges"),
+            ({let mut v = sentry(); v["charges"]["extra"] = 1.into(); v}, "unknown charge field"),
+            ({let mut v = sentry(); v["target_type"] = "unit".into(); v}, "summon needs point"),
+            ({let mut v = sentry(); v["effects"] = serde_json::json!([{"kind":"heal_self","amount_key":"life"}]); v}, "summon is exclusive"),
+            ({let mut v = sentry(); v["summon"]["unit"] = "../x".into(); v}, "unit id"),
+            ({let mut v = sentry(); v["extras"]["life"] = serde_json::json!([30]); v}, "per-rank duration"),
+            ({let mut v = sentry(); v["summon"]["count"] = 2.into(); v}, "unknown summon field"),
+        ];
+        for (value, label) in cases { assert!(check(value).is_err(), "{label}"); }
+    }
+}
+
+#[cfg(test)]
+mod cast_cooldown_refund_tests {
+    use super::*;
+    fn refund()->serde_json::Value {
+        serde_json::json!({"id":"cooling","ability_type":"ultimate","cast_type":"instant","target_type":"none","max_level":2,
+            "levels":[{},{}],"extras":{"cut":[2.0,3.0]},"cast_cooldown_refund":{"seconds_key":"cut"}})
+    }
+    #[test]
+    fn refund_needs_per_rank_seconds_in_range_and_round_trips() {
+        let parse=|v:&serde_json::Value|serde_json::from_value::<AbilityDefinition>(v.clone());
+        let ok=parse(&refund()).unwrap();
+        assert!(validate_ability_effects(&ok).is_ok());
+        assert_eq!(serde_json::to_value(&ok).unwrap()["cast_cooldown_refund"]["seconds_key"],"cut");
+        for (bad,why) in [
+            ({let mut v=refund();v["extras"]["cut"]=serde_json::json!([2.0]);v},"one row per rank"),
+            ({let mut v=refund();v["extras"]["cut"]=serde_json::json!([2.0,61.0]);v},"above 60"),
+            ({let mut v=refund();v["extras"]["cut"]=serde_json::json!([0.0,1.0]);v},"zero"),
+            ({let mut v=refund();v["cast_cooldown_refund"]["seconds_key"]="missing".into();v},"missing key"),
+        ] {assert!(validate_ability_effects(&parse(&bad).unwrap()).is_err(),"{why}");}
+        let mut unknown=refund();unknown["cast_cooldown_refund"]["scope"]="all".into();
+        assert!(parse(&unknown).is_err(),"unknown field");
+    }
+}
+
+#[cfg(test)]
+mod attack_orb_tests {
+    use super::*;
+    fn orb() -> serde_json::Value {
+        serde_json::json!({"id":"fixture_orb","ability_type":"toggle","cast_type":"instant","target_type":"none","max_level":1,
+            "levels":[{}],"extras":{"mana":[10],"damage":[30],"slow":[0.09],"time":[4]},
+            "attack_orb":{"mana_per_attack_key":"mana","amount_key":"damage","damage_kind":"magical",
+                "move_slow_key":"slow","attack_slow_key":"slow","slow_duration_key":"time"}})
+    }
+    fn check(value: serde_json::Value) -> Result<(), String> {
+        validate_ability_progression(&serde_json::from_value::<AbilityDefinition>(value).map_err(|e| e.to_string())?)
+    }
+    #[test]
+    fn attack_orb_accepts_toggle_and_rejects_other_shapes() {
+        check(orb()).unwrap();
+        let mut bare = orb();
+        for key in ["move_slow_key","attack_slow_key","slow_duration_key"] { bare["attack_orb"].as_object_mut().unwrap().remove(key); }
+        check(bare).unwrap();
+        let cases: Vec<(serde_json::Value, &str)> = vec![
+            ({let mut v = orb(); v["ability_type"] = "active".into(); v}, "toggle only"),
+            ({let mut v = orb(); v["target_type"] = "unit".into(); v}, "no target"),
+            ({let mut v = orb(); v["effects"] = serde_json::json!([{"kind":"heal_self","amount_key":"damage"}]); v}, "exclusive"),
+            ({let mut v = orb(); v["attack_orb"].as_object_mut().unwrap().remove("slow_duration_key"); v}, "slows need duration"),
+            ({let mut v = orb(); v["extras"]["slow"] = serde_json::json!([1.5]); v}, "slow fraction"),
+            ({let mut v = orb(); v["extras"]["mana"] = serde_json::json!([-1]); v}, "negative mana"),
+            ({let mut v = orb(); v["attack_orb"]["stacks"] = 2.into(); v}, "unknown field"),
+        ];
+        for (value, label) in cases { assert!(check(value).is_err(), "{label}"); }
     }
 }

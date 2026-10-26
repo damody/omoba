@@ -10,12 +10,13 @@ local i = 1
 while i <= #arg do
   if arg[i] == '--ue-root' then i = i + 1; engine = assert(arg[i], '--ue-root requires a path')
   elseif arg[i] == '--run-id' then i = i + 1; run_id = assert(arg[i], '--run-id requires a value')
-  elseif arg[i] == '--kind' then i = i + 1; kind = assert(arg[i], '--kind requires item or trinket')
+  elseif arg[i] == '--kind' then i = i + 1; kind = assert(arg[i], '--kind requires item, trinket or ability')
   elseif arg[i] == '--source-manifest' then i = i + 1; source_manifest = assert(arg[i], '--source-manifest requires a path')
   elseif arg[i] == '--validate-only' then validate_only = true
   elseif arg[i] == '--help' then
-    print('Usage: tools/lua/lua.exe scripts/import_ui_textures.lua --kind item|trinket --ue-root PATH --run-id NAME [--source-manifest PATH] [--validate-only]')
+    print('Usage: tools/lua/lua.exe scripts/import_ui_textures.lua --kind item|trinket|ability --ue-root PATH --run-id NAME [--source-manifest PATH] [--validate-only]')
     print('Trinket default manifest: omfue/Content/Omoba/UI/trinket-icon-assets-v1.json')
+    print('Ability default manifest: omfue/Content/Omoba/UI/Abilities/Source/manifest.json')
     print('Validates catalog identity, source hash, and destination, then runs OmItemIconImport twice.')
     print('Validate-only does not save a package or publish a registry resource.')
     return
@@ -23,12 +24,12 @@ while i <= #arg do
   i = i + 1
 end
 kind = assert(kind, '--kind is required')
-assert(importer.kinds[kind], '--kind must be item or trinket')
+assert(importer.kinds[kind], '--kind must be item, trinket or ability')
 engine = path.absolute(assert(engine, '--ue-root is required'), b.root)
 run_id = assert(run_id, '--run-id is required')
 assert(run_id:match('^[%w_-]+$'), 'run-id must contain only letters, digits, underscores or hyphens')
-if kind ~= 'trinket' then assert(source_manifest, '--kind ' .. kind .. ' requires --source-manifest') end
-local manifest = source_manifest and path.absolute(source_manifest, b.root) or importer.durable_manifest(b.root)
+if kind == 'item' then assert(source_manifest, '--kind ' .. kind .. ' requires --source-manifest') end
+local manifest = source_manifest and path.absolute(source_manifest, b.root) or importer.durable_manifest(b.root, kind)
 local plan = importer.validate({root = b.root, manifest = manifest, kind = kind})
 process.supervise_workflow(source, arg)
 if validate_only then
@@ -119,7 +120,7 @@ local registry = importer.registry_path(b.root)
 local registry_text = path.read(registry, true)
 local published = 0
 for _, asset in ipairs(plan.assets) do
-  local updated, changed = importer.publish_registry_resource(registry_text, kind, asset.content_id, asset.object_path)
+  local updated, changed = importer.publish_registry_resource(registry_text, kind, asset.content_id, asset.object_path, asset.display_name)
   if changed then published = published + 1 end
   registry_text = updated
 end

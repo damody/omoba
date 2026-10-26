@@ -12,13 +12,13 @@ pub(super) fn expand(world:&mut World,source:Entity,payload:&serde_json::Value,r
         if let Some(mut buffs)=world.try_fetch_mut::<BuffStore>() {buffs.cancel_damage_zones(source);}
         return Vec::new();
     }
-    expand_checked(world,source,spec,faction.unwrap(),None,removed)
+    expand_checked(world,source,spec,faction.unwrap(),None,Fixed64::ZERO,removed)
 }
 
 pub(super) fn expand_independent(world:&World,source:Entity,key:&str,lease:u64,removed:&[Entity])->Vec<Outcome> {
     let zone=world.read_resource::<BuffStore>().independent_zone(source,key,lease).cloned();
     let Some(zone)=zone else{return Vec::new();};
-    expand_checked(world,source,zone.spec,zone.faction,Some(zone.origin),removed)
+    expand_checked(world,source,zone.spec,zone.faction,Some(zone.origin),zone.age,removed)
 }
 
 pub(super) fn admit_zone(world:&World,source:Entity,key:&str,duration:Fixed64,payload:&serde_json::Value)->bool {
@@ -29,14 +29,15 @@ pub(super) fn admit_zone(world:&World,source:Entity,key:&str,duration:Fixed64,pa
         && (!spec.independent || world.read_resource::<BuffStore>().can_schedule_independent_zones(source,&[key]))
 }
 
-fn expand_checked(world:&World,source:Entity,spec:DamageZoneSpec,faction:Faction,origin:Option<ProjectileOrigin>,removed:&[Entity])->Vec<Outcome> {
+fn expand_checked(world:&World,source:Entity,spec:DamageZoneSpec,faction:Faction,origin:Option<ProjectileOrigin>,age:Fixed64,removed:&[Entity])->Vec<Outcome> {
+    let reach=spec.reach(age).unwrap_or(spec.center);
     let mut targets={
         let entities=world.entities();let positions=world.read_storage::<Pos>();let factions=world.read_storage::<Faction>();
         let health=world.read_storage::<CProperty>();let buildings=world.read_storage::<IsBuilding>();
         (&entities,&positions,&factions,&health).join()
             .filter(|(target,pos,other,hp)|*target!=source&&!removed.contains(target)&&hp.hp>Fixed64::ZERO
                 &&buildings.get(*target).is_none()&&faction.is_hostile_to(other)
-                &&omoba_sim::terrain::point_in_swept_circle(pos.0,spec.center,spec.center,spec.radius))
+                &&omoba_sim::terrain::point_in_swept_circle(pos.0,spec.center,reach,spec.radius))
             .map(|(target,pos,_,_)|(target,pos.0)).collect::<Vec<_>>()
     };
     targets.sort_by_key(|(entity,_)|(entity.id(),entity.gen().id()));
@@ -46,9 +47,27 @@ fn expand_checked(world:&World,source:Entity,spec:DamageZoneSpec,faction:Faction
         omb_script_abi::types::DamageKind::Magical=>(zero,amount,zero),
         omb_script_abi::types::DamageKind::Pure=>(zero,zero,amount),
     };
-    let mut outcomes:Vec<_>=targets.into_iter().map(|(target,pos)|Outcome::RawDamage {
-        pos,phys,magi,real,source,target,damage_profile:spec.profile,origin:origin.clone()}).collect();
-    outcomes.push(Outcome::Explosion {pos:spec.center,radius:spec.radius,duration:Fixed64::from_raw(204)});
+    let mut outcomes:Vec<_>=match spec.linger {
+        // One shared burn per source: refreshing keeps its fractional remainder.
+        Some(linger)=>{
+            let caster=omb_script_abi::types::EntityHandle {id:source.id(),gen:source.gen().id() as u32};
+            let payload=crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::payload(spec.amount/spec.interval,caster,spec.kind);
+            targets.into_iter().map(|(target,_)|Outcome::AddBuff {target,
+                buff_id:omb_script_abi::buff_ids::generic_dot_buff_id("ground_damage_zone",caster),duration:linger,payload:payload.clone()}).collect()
+        }
+        None=>targets.into_iter().map(|(target,pos)|Outcome::RawDamage {
+            pos,phys,magi,real,source,target,damage_profile:spec.profile,origin:origin.clone()}).collect(),
+    };
+    // A line zone shows evenly spaced bursts along the segment (at most 8, ends included).
+    let end=reach;
+    let span=(end-spec.center).length();
+    let gaps=(span.raw()/(spec.radius.raw()*2).max(1)+1).clamp(0,7) as i32;
+    let gaps=if spec.end.is_some() {gaps.max(1)} else {0};
+    for step in 0..=gaps {
+        let t=|a:Fixed64,b:Fixed64|if gaps==0 {a} else {a+(b-a)*Fixed64::from_i32(step)/Fixed64::from_i32(gaps)};
+        let pos=omoba_sim::Vec2::new(t(spec.center.x,end.x),t(spec.center.y,end.y));
+        outcomes.push(Outcome::Explosion {pos,radius:spec.radius,duration:Fixed64::from_raw(204)});
+    }
     outcomes
 }
 
@@ -67,9 +86,35 @@ mod tests {
             .with(CProperty {hp:Fixed64::from_i32(1000),mhp:Fixed64::from_i32(1000),msd:Fixed64::ZERO,
                 def_physic:Fixed64::ZERO,def_magic:Fixed64::from_i32(25)}).build()
     }
-    fn spec()->DamageZoneSpec {DamageZoneSpec {independent:false,center:Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),radius:Fixed64::from_i32(100),
+    fn spec()->DamageZoneSpec {DamageZoneSpec {end:None,grow:None,linger:None,independent:false,center:Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),radius:Fixed64::from_i32(100),
         amount:Fixed64::from_i32(40),interval:Fixed64::from_raw(512),kind:omb_script_abi::types::DamageKind::Magical,
         profile:omb_script_abi::types::DamageProfile::FIRE.bits()}}
+    #[test]
+    fn line_zone_hits_the_capsule_along_the_segment_but_not_beside_it() {
+        let mut w=world();let source=body(&mut w,0,1);
+        let on_line=body(&mut w,800,2);let past_end=body(&mut w,1250,2);
+        let mut s=spec();s.end=Some(Vec2::new(Fixed64::from_i32(1100),Fixed64::ZERO));
+        let hit:Vec<_>=expand(&mut w,source,&s.payload(),&[]).into_iter().filter_map(|o|match o {Outcome::RawDamage{target,..}=>Some(target),_=>None}).collect();
+        assert_eq!(hit,vec![on_line]);assert!(!hit.contains(&past_end));
+        s.end=None;assert!(expand(&mut w,source,&s.payload(),&[]).iter().all(|o|!matches!(o,Outcome::RawDamage{..})),"disc at 500 misses both");
+    }
+    #[test]
+    fn growing_lingering_line_burns_only_where_laid_and_refreshes_one_dot() {
+        let mut w=world();let source=body(&mut w,0,1);
+        let near=body(&mut w,300,2);let far=body(&mut w,1500,2);
+        let mut s=spec();s.center=Vec2::ZERO;s.end=Some(Vec2::new(Fixed64::from_i32(2000),Fixed64::ZERO));
+        s.grow=Some(Fixed64::from_i32(1000));s.linger=Some(Fixed64::ONE);s.independent=true;
+        let faction=Faction::new(FactionType::Player,1);
+        let origin=crate::runtime::moba_match::capture_projectile_origin(&w,source).map(|mut o|{o.script=None;o}).unwrap();
+        assert!(w.write_resource::<BuffStore>().schedule_independent_zone(source,"line",Fixed64::from_i32(3),s,origin,faction));
+        w.write_resource::<BuffStore>().tick(Fixed64::from_raw(512));
+        let burned=|outs:Vec<Outcome>|outs.into_iter().filter_map(|o|match o {
+            Outcome::AddBuff{target,buff_id,duration,..}=>{assert!(buff_id.starts_with("generic_dot:ground_damage_zone:"));assert_eq!(duration,Fixed64::ONE);Some(target)}
+            Outcome::RawDamage{..}=>panic!("lingering zones burn instead of hitting"),_=>None}).collect::<Vec<_>>();
+        assert_eq!(burned(expand_independent(&w,source,"line",1,&[])),vec![near],"half a second laid 500");
+        w.write_resource::<BuffStore>().tick(Fixed64::ONE);
+        assert_eq!(burned(expand_independent(&w,source,"line",1,&[])),vec![near,far]);
+    }
     #[test]
     fn independent_zone_managed_batch_reserves_all_keys_before_any_effect() {
         let mut w=world();let source=body(&mut w,0,1);let mut s=spec();s.independent=true;

@@ -15,7 +15,7 @@ assert(not importer.inside_project(b.root, path.join(b.root, '..', 'omoba-item-i
 assert(not importer.inside_project(b.root, path.join(b.root, 'omfue', '..', 'scripts')))
 
 local plan = importer.validate({root = b.root, manifest = manifest})
-assert(plan.schema == 'omoba.item-icon-import-plan.v1' and #plan.assets == 11)
+assert(plan.schema == 'omoba.item-icon-import-plan.v1' and #plan.assets == #importer.authored_items(b.root))
 assert(plan.source_manifest == path.absolute(manifest))
 local by_id = {}
 for _, asset in ipairs(plan.assets) do
@@ -58,6 +58,9 @@ local function rejected(mutate)
   assert(not ok, 'invalid manifest was accepted')
 end
 rejected(function(doc) doc.schema = 'other' end)
+rejected(function(doc) doc.tool = 'unknown-generator' end)
+rejected(function(doc) doc.tool = 'mixed'; doc.assets[1].tool = nil end)
+rejected(function(doc) doc.assets[1].tool = 'unknown-generator' end)
 rejected(function(doc) doc.assets[1].sha256 = string.rep('ab', 32) end)
 rejected(function(doc) doc.assets[1].file = '../moba_sword.png' end)
 rejected(function(doc) doc.assets[1].bytes = 1 end)

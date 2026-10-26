@@ -92,7 +92,8 @@ impl<'a> System<'a> for Sys {
             if regen.raw().abs() < 1 {
                 return None;
             }
-            let eff_max = cp.mhp + stats.max_hp_bonus(e);
+            // Max-HP buffs are already part of `mhp` (game_processor::settle_health_bonus).
+            let eff_max = cp.mhp;
             let mut new_hp = cp.hp + regen * dt;
             if new_hp < omoba_sim::Fixed64::ZERO { new_hp = omoba_sim::Fixed64::ZERO; }
             if new_hp > eff_max { new_hp = eff_max; }

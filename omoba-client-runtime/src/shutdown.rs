@@ -6,6 +6,8 @@ pub enum ShutdownReason {
     ServerDisconnected,
     UnsafeSession(String),
     MatchEnded,
+    /// The authority ended the secure match (team-opaque reason class).
+    MatchTerminated(String),
 }
 
 #[derive(Clone)]

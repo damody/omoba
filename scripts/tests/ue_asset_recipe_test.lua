@@ -31,4 +31,19 @@ invalid(function(r) r.heroes[1].animation_sources[2].slot = 'attack' end)
 invalid(function(r) r.heroes[1].animation_sources[2].source = 'elsewhere/b01_ani_attack.fbx' end)
 invalid(function(r) r.heroes[1].model_source = json.null end)
 invalid(function(r) r.heroes[2].id = r.heroes[1].id end)
+invalid(function(r) r.heroes[1].portrait_source = 'omfx/data/hero_portraits/hero_saika_magoichi_portrait.png' end)
+-- Every checked-in recipe source resolves inside maintained roots.
+local function is_file(source)
+  local file = io.open(source, 'rb'); if file then file:close() end
+  return file ~= nil
+end
+local missing = planner.missing_sources(plan, is_file)
+assert(#missing == 0, planner.describe_missing(missing))
+assert(hero.portrait and recipe.heroes[1].portrait_source:match('^omfue/SourceArt/ContentData/data/'))
+-- Missing files name the hero, recipe field and path.
+local gone = planner.missing_sources(plan, function(source) return not source:find('portrait', 1, true) end)
+assert(#gone == 2, 'expected two portrait jobs, got ' .. #gone)
+local message = planner.describe_missing(gone)
+assert(message:find('hero saika_magoichi field portrait_source: missing omfue/SourceArt/ContentData/data/hero_portraits/hero_saika_magoichi_portrait.png', 1, true), message)
+assert(message:find('hero date_masamune field portrait_source:', 1, true), message)
 print('Unreal asset recipe planner tests passed')

@@ -1,6 +1,8 @@
 -- Orchestration and evidence policy, independently testable without a game.
 local M = {}
-M.MAX_MATCHES = 10 -- User policy: future simulation executions must not exceed ten games.
+M.DEFAULT_MATCHES = 10
+-- User policy 2026-10-25: local match count is no longer capped at ten; this is only a sanity bound.
+M.MAX_MATCHES = 10000
 M.DEFAULT_MAX_GAME_SECONDS = 600
 M.DEFAULT_STALL_GAME_SECONDS = 300
 M.BUDGET_SCOPE = 'headless execution budget only; not a game rule or win condition'
@@ -50,7 +52,7 @@ local function budget_seconds(raw, name, integer)
 end
 
 function M.options(values, args)
-  local options = {matches=M.MAX_MATCHES, seed=1, recipe='scripts/lua_data/moba_archetype_match.lua',
+  local options = {matches=M.DEFAULT_MATCHES, seed=1, recipe='scripts/lua_data/moba_archetype_match.lua',
     max_game_seconds='600', stall_game_seconds='300'}
   local allowed = {['--matches']='matches', ['--seed']='seed', ['--recipe']='recipe', ['--output']='output',
     ['--max-game-seconds']='max_game_seconds', ['--stall-game-seconds']='stall_game_seconds'}
@@ -115,7 +117,7 @@ end
 function M.execute(options, steps)
   -- Also guard programmatic callers, before prepare/build/spawn/save side effects.
   assert(math.type(options.matches)=='integer' and options.matches>=1 and options.matches<=M.MAX_MATCHES,
-    'simulation execution requires 1..10 matches')
+    'simulation execution requires 1..'..M.MAX_MATCHES..' matches')
   local max_game_seconds = options.max_game_seconds or M.DEFAULT_MAX_GAME_SECONDS
   local stall_game_seconds = options.stall_game_seconds or M.DEFAULT_STALL_GAME_SECONDS
   assert(stall_game_seconds <= max_game_seconds, 'stall-game-seconds exceeds max-game-seconds')

@@ -637,6 +637,89 @@ return function(ctx)
       {range=900,cooldown=7,mana_cost=55},{range=900,cooldown=6,mana_cost=60}},
     extras={damage={100,150,200,250},line_width={120,120,120,120}},
     effects={{kind='line_damage',amount_key='damage',width_key='line_width',damage_kind='magical'}}}
+  -- Append-only G-1 projectile skills: host-owned flight, damage on contact, never instant.
+  abilities[#abilities+1]={id='lumen_frost_bolt',ue={native_only=true},display_name='寒霜彈',
+    description='向指定存活敵人發射追蹤寒霜彈，飛行速度900，命中時造成90/135/180/225魔法傷害並減速25%，持續1.5秒。距離越遠越晚命中；目標死亡或失效時彈體消失且不造成傷害；施法者死亡後已發射的彈體仍會命中。',
+    ability_type='active',target_type='unit',cast_type='instant',max_level=4,
+    levels={{range=700,cooldown=8,mana_cost=50},{range=700,cooldown=7.5,mana_cost=55},
+      {range=700,cooldown=7,mana_cost=60},{range=700,cooldown=6.5,mana_cost=65}},
+    extras={damage={90,135,180,225},speed={900,900,900,900},radius={16,16,16,16},lifetime={3,3,3,3},
+      slow={0.25,0.25,0.25,0.25},slow_duration={1.5,1.5,1.5,1.5}},
+    effects={{kind='damage',amount_key='damage',damage_kind='magical'},
+      {kind='slow_enemy',reduction_key='slow',duration_key='slow_duration'}},
+    projectile={motion='homing',speed_key='speed',radius_key='radius',lifetime_key='lifetime'}}
+  abilities[#abilities+1]={id='lumen_frost_lance',ue={native_only=true},display_name='冰晶飛槍',
+    description='朝指定方向擲出直線冰晶飛槍，飛行速度1200、寬120、飛行1000距離，沿途依先接觸先命中的順序貫穿最多3個存活敵方非建築單位，各造成一次70/105/140/175魔法傷害。同一單位只受一次傷害；原地無法指定方向。',
+    ability_type='active',target_type='point',cast_type='instant',max_level=4,
+    levels={{range=1000,cooldown=10,mana_cost=55},{range=1000,cooldown=9.5,mana_cost=60},
+      {range=1000,cooldown=9,mana_cost=65},{range=1000,cooldown=8.5,mana_cost=70}},
+    extras={damage={70,105,140,175},speed={1200,1200,1200,1200},radius={60,60,60,60}},
+    effects={{kind='damage',amount_key='damage',damage_kind='magical'}},
+    projectile={motion='linear',speed_key='speed',radius_key='radius',max_hits=3}}
+  -- Append-only G-2/G-3 demo: stored uses + fixed emplacement summon at a point.
+  abilities[#abilities+1]={id='lumen_sentry',ue={native_only=true},display_name='晨光哨塔',
+    description='在指定地點設置一座無法移動的晨光哨塔，持續30秒，攻擊力為30加上英雄每級10點。每15秒儲存1次，最多2/3/4/5次，每次施放消耗1次；施法者死亡時哨塔消失。',
+    ability_type='active',target_type='point',cast_type='instant',max_level=4,
+    levels={{range=600,cooldown=1,mana_cost=40},{range=600,cooldown=1,mana_cost=45},
+      {range=600,cooldown=1,mana_cost=50},{range=600,cooldown=1,mana_cost=55}},
+    extras={charges={2,3,4,5},charge_time={15,15,15,15}},
+    charges={max_key='charges',recharge_key='charge_time'},
+    summon={unit='lumen_sentry_turret'}}
+  -- Append-only G-2 toggle orb demo (A02 W shape): mana per attack, auto-off when short.
+  abilities[#abilities+1]={id='lumen_venom_orb',ue={native_only=true},display_name='蝕光法球',
+    description='切換：開啟期間每次普攻消耗10法力，命中時額外造成30/50/70/90魔法傷害，並使目標移速與攻速降低9/13/17/21%，持續4秒。法力不足時自動關閉，該次攻擊不附加效果。',
+    ability_type='toggle',target_type='none',cast_type='instant',max_level=4,
+    levels={{cooldown=0,mana_cost=0},{cooldown=0,mana_cost=0},{cooldown=0,mana_cost=0},{cooldown=0,mana_cost=0}},
+    extras={orb_mana={10,10,10,10},orb_damage={30,50,70,90},orb_slow={0.09,0.13,0.17,0.21},orb_slow_time={4,4,4,4}},
+    attack_orb={mana_per_attack_key='orb_mana',amount_key='orb_damage',damage_kind='magical',
+      move_slow_key='orb_slow',attack_slow_key='orb_slow',slow_duration_key='orb_slow_time'}}
+  -- Append-only G-2 pulse channel demos: host-owned lifecycle, payload per pulse.
+  abilities[#abilities+1]={id='lumen_tremor',ue={native_only=true},display_name='晨光震波',
+    description='引導：在指定地點每0.25秒釋放一波震波，共12/14/16/18波，每波對半徑340內的敵人造成20/25/30/35魔法傷害並暈眩0.2秒。受到暈眩或沉默、移動、死亡或回城都會立即中斷；中斷後不再出波，也不退還魔力與冷卻。',
+    ability_type='active',target_type='point',cast_type='channeled',max_level=4,
+    levels={{range=700,cooldown=30,mana_cost=100},{range=700,cooldown=27,mana_cost=110},
+      {range=700,cooldown=24,mana_cost=120},{range=700,cooldown=21,mana_cost=130}},
+    extras={wave_interval={0.25,0.25,0.25,0.25},wave_count={12,14,16,18},wave_radius={340,340,340,340},
+      wave_damage={20,25,30,35},wave_stun={0.2,0.2,0.2,0.2}},
+    effects={{kind='damage',amount_key='wave_damage',damage_kind='magical'},{kind='stun_enemy',duration_key='wave_stun'}},
+    channel={anchor='point',interval_key='wave_interval',pulses_key='wave_count',radius_key='wave_radius'}}
+  abilities[#abilities+1]={id='lumen_tether',ue={native_only=true},display_name='晨光牽引',
+    description='引導：鎖定一名敵人，每0.5秒對其造成30/40/50/60魔法傷害並減速30%（持續0.6秒），共8波。目標死亡、失效，或施法者受控、移動、死亡時立即中斷。',
+    ability_type='active',target_type='unit',cast_type='channeled',max_level=4,
+    levels={{range=600,cooldown=16,mana_cost=70},{range=600,cooldown=15,mana_cost=80},
+      {range=600,cooldown=14,mana_cost=90},{range=600,cooldown=13,mana_cost=100}},
+    extras={tether_interval={0.5,0.5,0.5,0.5},tether_count={8,8,8,8},tether_damage={30,40,50,60},
+      tether_slow={0.3,0.3,0.3,0.3},tether_slow_time={0.6,0.6,0.6,0.6}},
+    effects={{kind='damage',amount_key='tether_damage',damage_kind='magical'},
+      {kind='slow_enemy',reduction_key='tether_slow',duration_key='tether_slow_time'}},
+    channel={anchor='unit',interval_key='tether_interval',pulses_key='tether_count'}}
+  -- Append-only G-4 forced displacement demos: host-owned motion, stunned while moved.
+  abilities[#abilities+1]={id='lumen_repulse',ue={native_only=true},display_name='晨光震退',
+    description='對一名敵人造成40/60/80/100魔法傷害，並在0.35秒內把它從施法者身邊直線擊退350距離，期間暈眩。撞到地形時停在牆前；其他單位不會阻擋。',
+    ability_type='active',target_type='unit',cast_type='instant',max_level=4,
+    levels={{range=500,cooldown=12,mana_cost=60},{range=500,cooldown=11,mana_cost=65},
+      {range=500,cooldown=10,mana_cost=70},{range=500,cooldown=9,mana_cost=75}},
+    extras={damage={40,60,80,100},push={350,350,350,350},push_time={0.35,0.35,0.35,0.35}},
+    effects={{kind='damage',amount_key='damage',damage_kind='magical'},
+      {kind='forced_move_enemy',motion='knockback',distance_key='push',duration_key='push_time'}}}
+  abilities[#abilities+1]={id='lumen_hook',ue={native_only=true},display_name='晨光鉤鎖',
+    description='朝指定方向擲出直線鉤鎖，飛行速度1600、寬120、飛行1100距離，撞牆即停。命中第一個敵方非建築單位時造成60/90/120/150魔法傷害，並在0.5秒內把它拉回施法者身旁，期間暈眩。',
+    ability_type='active',target_type='point',cast_type='instant',max_level=4,
+    levels={{range=1100,cooldown=16,mana_cost=90},{range=1100,cooldown=15,mana_cost=95},
+      {range=1100,cooldown=14,mana_cost=100},{range=1100,cooldown=13,mana_cost=105}},
+    extras={damage={60,90,120,150},speed={1600,1600,1600,1600},radius={60,60,60,60},
+      pull={1100,1100,1100,1100},pull_time={0.5,0.5,0.5,0.5}},
+    effects={{kind='damage',amount_key='damage',damage_kind='magical'},
+      {kind='forced_move_enemy',motion='pull',distance_key='pull',duration_key='pull_time'}},
+    projectile={motion='linear',speed_key='speed',radius_key='radius',max_hits=1,wall='stop'}}
+  -- Append-only G-4 detection demo: a timed team true-sight area at a point.
+  abilities[#abilities+1]={id='lumen_flare',ue={native_only=true},display_name='晨光顯影',
+    description='在指定地點點亮半徑450的晨光，持續4/5/6/7秒：我方可看見範圍內的一切，包括隱形的敵人。仍會被地形與樹木遮擋視線，施法者死亡後依然持續。',
+    ability_type='active',target_type='point',cast_type='instant',max_level=4,
+    levels={{range=1000,cooldown=20,mana_cost=50},{range=1000,cooldown=18,mana_cost=50},
+      {range=1000,cooldown=16,mana_cost=50},{range=1000,cooldown=14,mana_cost=50}},
+    extras={flare_radius={450,450,450,450},flare_time={4,5,6,7}},
+    effects={{kind='reveal_area',radius_key='flare_radius',duration_key='flare_time'}}}
   for _,ability in ipairs(abilities) do
     local extras=ability.extras
     local channel=ability.effects and ability.effects[1]
@@ -668,6 +751,10 @@ return function(ctx)
         ability.description=ability.description..' 此區域在施法者死亡後仍持續至到期；重新施放會替換同一生命建立的舊區域。'
       end
     end
+  end
+  -- @hero_author:authored-include (scripts/hero_author.lua build): appended last.
+  for _, ability in ipairs(ctx.include('templates/authored_heroes.lua').abilities or {}) do
+    abilities[#abilities + 1] = ability
   end
   return abilities
 end

@@ -104,6 +104,8 @@ pub struct ParallelWorldAdapter<'a> {
     outcomes: Vec<Outcome>,
     overlay_pos: HashMap<Entity, Vec2>,
     cast_succeeded: bool,
+    /// Owner-visible code for a cast handler that did not succeed.
+    cast_rejection: Option<&'static str>,
     hook_panicked: bool,
     mana_transaction: bool,
     mana_views: HashMap<Entity, crate::runtime::ability_runtime::ManaPool>,
@@ -515,6 +517,7 @@ impl<'a> ParallelWorldAdapter<'a> {
             outcomes: Vec::new(),
             overlay_pos: HashMap::new(),
             cast_succeeded: false,
+            cast_rejection: None,
             hook_panicked: false,
             mana_transaction: false,
             mana_views: HashMap::new(),
@@ -542,6 +545,10 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
 
+    pub(crate) fn note_cast_rejection(&mut self, code: &'static str) { self.cast_rejection = Some(code); }
+
+    pub(crate) fn cast_rejection(&self) -> Option<&'static str> { self.cast_rejection }
+
     pub(crate) fn stage_recovery_channel(&mut self,caster:Entity,spec:super::super::recovery_channel::Spec)->bool {
         let Some(owner)=self.cache.player_owner.get(caster).map(|owner|owner.player_id).filter(|owner|*owner>0)else{return false;};
         let Some(state)=self.cache.moba.as_ref()else{return false;};
@@ -553,6 +560,39 @@ impl<'a> ParallelWorldAdapter<'a> {
             || self.cache.pos.get(caster).is_none_or(|pos|pos.0.x.raw().unsigned_abs()>omoba_sim::terrain::MAX_GEOMETRY_RAW as u64
                 ||pos.0.y.raw().unsigned_abs()>omoba_sim::terrain::MAX_GEOMETRY_RAW as u64) {return false;}
         self.outcomes.push(Outcome::ScriptRecoveryChannel {caster,owner,amount:spec.amount,duration:spec.duration,interval:spec.interval});true
+    }
+
+    /// G-2 pulse channel start. Range and target are checked here so the owner
+    /// sees OUT_OF_RANGE/INVALID_TARGET; settlement rechecks on live state.
+    pub(crate) fn stage_ability_channel(&mut self,caster:Entity,skill_id:&str,level:u8,target:&Target,
+        spec:super::super::ability_channel::Spec)->bool {
+        use super::super::ability_channel::Anchor;
+        use super::super::command_outcome as code;
+        use omoba_content_model::ChannelAnchor;
+        let Some(owner)=self.cache.player_owner.get(caster).map(|owner|owner.player_id).filter(|owner|*owner>0)else{return false;};
+        // A replica has no MobaMatch: it admits from the same caster state, so
+        // its own-team cooldown and channel stay deterministic (split16).
+        if !spec.valid() || !self.cache.entities.is_alive(caster) || self.cache.hero.get(caster).is_none()
+            || self.cache.cprop.get(caster).is_none_or(|props|props.hp<=Fixed64::ZERO)
+            || self.cache.moba.as_ref().is_some_and(|state|state.phase!=crate::runtime::MobaMatchPhase::Playing || state.is_recalling(caster)
+                || !state.heroes.iter().any(|hero|hero.player_id==owner&&hero.entity==Some(caster))) {return false;}
+        if self.cache.buffs.is_silenced(caster) {self.note_cast_rejection(code::SILENCED);return false;}
+        let Some(origin)=self.cache.pos.get(caster).map(|pos|pos.0)else{return false;};
+        let (anchor,point)=match (spec.anchor,target) {
+            (ChannelAnchor::SelfOrigin,_)=>(Anchor::Origin,origin),
+            (ChannelAnchor::Point,Target::Point(point))=>(Anchor::Point(*point),*point),
+            (ChannelAnchor::Unit,Target::Entity(handle))=>{
+                let unit=Self::handle_to_entity(*handle).filter(|unit|*unit!=caster && self.cache.entities.is_alive(*unit)
+                    && self.cache.cprop.get(*unit).is_some_and(|props|props.hp>Fixed64::ZERO)
+                    && match (self.cache.faction.get(caster),self.cache.faction.get(*unit)) {(Some(own),Some(other))=>own.is_hostile_to(other),_=>false});
+                let Some(unit)=unit else {self.note_cast_rejection(code::INVALID_TARGET);return false;};
+                let Some(point)=self.cache.pos.get(unit).map(|pos|pos.0) else {self.note_cast_rejection(code::INVALID_TARGET);return false;};
+                (Anchor::Unit(unit),point)
+            }
+            _=>{self.note_cast_rejection(code::INVALID_TARGET);return false;}
+        };
+        if (point-origin).length()>spec.range && anchor!=Anchor::Origin {self.note_cast_rejection(code::OUT_OF_RANGE);return false;}
+        self.outcomes.push(Outcome::ScriptAbilityChannel {caster,owner,skill_id:skill_id.to_owned(),level,spec,anchor});true
     }
 
     pub fn set_projectile_origin(&mut self, origin: Option<ProjectileOrigin>) {
@@ -616,6 +656,9 @@ impl<'a> ParallelWorldAdapter<'a> {
 
     /// A preference from this summon owner's active command, never target admission.
     fn summon_focus_target(&self,source:Entity)->Option<Entity> {
+        // An owner script's assignment (`summon_target` buff on the summon) wins
+        // over the template priority while that exact life is alive.
+        if let Some(target)=self.summon_assigned_target(source) {return Some(target);}
         let stats=omoba_template_ids::summon_by_name(&self.source_unit(source)?.id)
             .and_then(omoba_template_ids::active_summon_stats)?;
         if stats.target_priority!=omoba_template_ids::SummonTargetPriority::OwnerFocus {return None;}
@@ -632,6 +675,16 @@ impl<'a> ParallelWorldAdapter<'a> {
             HeroCommand::AttackTarget {target,..}=>Some(target),
             _=>None,
         }
+    }
+
+    fn summon_assigned_target(&self,source:Entity)->Option<Entity> {
+        let row=self.cache.buffs.get(source,omb_script_abi::buff_ids::SUMMON_TARGET_BUFF)?.payload
+            .get(omb_script_abi::buff_ids::SUMMON_TARGET_BUFF)?.as_array()?;
+        if row.len()!=2 {return None;}
+        let id=u32::try_from(row[0].as_u64()?).ok()?;let generation=i32::try_from(row[1].as_i64()?).ok()?;
+        let target=self.cache.entities.entity(id);
+        (target.gen().id()==generation && self.cache.entities.is_alive(target)
+            && self.cache.cprop.get(target).is_some_and(|p|p.hp>Fixed64::ZERO)).then_some(target)
     }
 
     fn summon_target_allowed(&self,source:Entity,target:Entity,center:Vec2,radius:Fixed64)->bool {
@@ -762,6 +815,10 @@ impl<'a> ParallelWorldAdapter<'a> {
         });
     }
 
+    pub fn consume_charge(&mut self, entity: Entity, ability_id: String) {
+        self.outcomes.push(Outcome::ScriptConsumeCharge { entity, ability_id });
+    }
+
     pub fn set_projectile_hit_generation(&mut self, generation: u8) {
         self.projectile_hit_generation = Some(generation);
     }
@@ -864,6 +921,9 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         let Some(entity)=Self::handle_to_entity(e) else {return RNone;};
         self.retired_source(entity).map(|source|source.unit_id.as_str())
             .or_else(||self.cache.tags.get(entity).map(|tag|tag.unit_id.as_str()))
+            // MOBA heroes carry no script tag: report their hero template id so
+            // scripts can identify heroes (e.g. per-target-class bonuses).
+            .or_else(||self.cache.hero.get(entity).map(|hero|hero.id.as_str()))
             .map_or(RNone,|id|RSome(RStr::from_str(id)))
     }
 
@@ -1703,7 +1763,7 @@ mod tests {
         scripting::{dispatch::dispatch_tower_ability_callbacks, ScriptRegistry},
     };
 
-    fn world_for_adapter_tests() -> World {
+    pub(super) fn world_for_adapter_tests() -> World {
         let mut world = World::new();
         world.register::<TAttack>();
         world.register::<Pos>();
@@ -2829,5 +2889,66 @@ mod tests {
             ),
             candidates
         );
+    }
+}
+
+/// Cast-time disclosure query (see `omb_script_abi::world::DisclosureQuery`).
+/// Same disclosure rule as summon acquisition, so authority and team replicas
+/// select identical candidates before any handler-side cap.
+pub(crate) struct CastDisclosureQuery<'a> {
+    pub cache: &'a ParallelAdapterCache<'a>,
+}
+
+impl omb_script_abi::world::DisclosureQuery for CastDisclosureQuery<'_> {
+    fn disclosed_enemies_in_range(&self, center: Vec2, radius: Fixed64, of: EntityHandle, cap: u16) -> RVec<EntityHandle> {
+        use crate::runtime::native::combat_acquisition::DisclosureContext;
+        let Some(source) = ParallelWorldAdapter::handle_to_entity(of).filter(|e| self.cache.entities.is_alive(*e)) else { return RVec::new(); };
+        let Some(faction) = self.cache.faction.get(source) else { return RVec::new(); };
+        if radius < Fixed64::ZERO || cap == 0 { return RVec::new(); }
+        let disclosure = DisclosureContext::resolve(self.cache.filtered, self.cache.moba.is_some(), self.cache.visibility.as_deref());
+        let mut rows: Vec<Entity> = (&self.cache.entities, &self.cache.pos, &self.cache.faction, &self.cache.cprop).join()
+            .filter(|(entity, pos, other, property)| *entity != source && property.hp > Fixed64::ZERO
+                && faction.is_hostile_to(other)
+                && omoba_sim::terrain::point_in_swept_circle(pos.0, center, center, radius)
+                && disclosure.allows(Some(faction), crate::runtime::selective::CanonicalEntityKey {
+                    id: entity.id(), generation: entity.gen().id() as u32 }))
+            .map(|(entity, ..)| entity).collect();
+        rows.sort_by_key(|entity| (entity.id(), entity.gen().id()));
+        rows.truncate(usize::from(cap.min(256)));
+        rows.into_iter().map(ParallelWorldAdapter::entity_to_handle).collect()
+    }
+}
+
+#[cfg(test)]
+mod disclosure_query_tests {
+    use super::*;
+    use omb_script_abi::world::DisclosureQuery;
+    use specs::Builder;
+    fn unit(world: &mut World, x: i32, team: i32, hp: i32) -> Entity {
+        world.create_entity().with(Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO)))
+            .with(Faction::new(if team == 1 { FactionType::Player } else { FactionType::Enemy }, team))
+            .with(CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build()
+    }
+    #[test]
+    fn disclosed_query_is_live_hostile_bounded_sorted_and_capped() {
+        let mut world = super::tests::world_for_adapter_tests();
+        let source = unit(&mut world, 0, 1, 100);
+        let far = unit(&mut world, 300, 2, 100);
+        let ally = unit(&mut world, 50, 1, 100);
+        let dead = unit(&mut world, 60, 2, 0);
+        let near = unit(&mut world, 100, 2, 100);
+        let edge = unit(&mut world, 200, 2, 100);
+        let cache = ParallelAdapterCache::new(&world, 1);
+        let query = CastDisclosureQuery { cache: &cache };
+        let handle = ParallelWorldAdapter::entity_to_handle;
+        let got = query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_i32(200), handle(source), 8);
+        // Closed disk, hostile, hp > 0, (id, gen) order; ally, dead and out-of-range rows excluded.
+        assert_eq!(got.to_vec(), vec![handle(near), handle(edge)]);
+        assert!(!got.contains(&handle(ally)) && !got.contains(&handle(dead)) && !got.contains(&handle(far)));
+        assert_eq!(query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_i32(400), handle(source), 1).to_vec(),
+            vec![handle(far)], "cap after canonical (id, gen) order");
+        assert!(query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_i32(400), EntityHandle::INVALID, 8).is_empty());
+        assert!(query.disclosed_enemies_in_range(Vec2::ZERO, Fixed64::from_raw(-1), handle(source), 8).is_empty());
     }
 }

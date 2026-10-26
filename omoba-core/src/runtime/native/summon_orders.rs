@@ -49,6 +49,7 @@ pub(crate) fn apply(world:&mut World,player:u32,owner:Entity,message:&crate::gam
     let from=world.read_storage::<Pos>().get(entity).ok_or("missing_position")?.0;
     if !supported(from) {return Err("unsupported_position");}
     if let Order::MoveTo(target)=order {
+        if world.read_storage::<SummonedUnit>().get(entity).is_some_and(|s|s.immobile) {return Err("immobile");}
         let buffs=world.read_resource::<BuffStore>();
         if buffs.is_rooted(entity)||buffs.is_stunned(entity) {return Err("movement_control");}
         let property=world.read_storage::<CProperty>();let property=property.get(entity).ok_or("missing_property")?;

@@ -15,22 +15,40 @@ fn supported(p:Vec2)->bool {
     p.x.raw().unsigned_abs()<=max && p.y.raw().unsigned_abs()<=max
 }
 
-pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,spec:SweptDash)
-    ->Result<Vec2,&'static str> {
-    if spec.range<=Fixed64::ZERO || spec.range>Fixed64::from_i32(10_000)
-        || spec.width<=Fixed64::ZERO || spec.width>Fixed64::from_i32(5_000)
-        || spec.damage<Fixed64::ZERO || spec.damage>Fixed64::from_i32(1_000_000)
+/// Admitted dash geometry. `hits` are the live enemies inside the swept
+/// circle, ordered by their projection along the actual path (first reached
+/// first), then canonical entity identity.
+pub(crate) struct DashPlan {
+    pub start:Vec2,
+    pub end:Vec2,
+    pub hits:Vec<EntityHandle>,
+}
+
+/// Collision-clipped dash admission and swept-circle selection. Queries only;
+/// the caller commits with [`commit`] after its own validation succeeds.
+pub(crate) fn plan(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,range:Fixed64,width:Fixed64)
+    ->Result<DashPlan,&'static str> {
+    plan_filtered(world,caster,requested,range,width,&|_|true)
+}
+
+/// [`plan`] restricted to candidates `allowed` accepts (e.g. units disclosed to
+/// the caster's team). Filtering happens before contact ordering, so any cap a
+/// caller applies afterwards sees the same set in authority and replicas.
+pub(crate) fn plan_filtered(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,range:Fixed64,width:Fixed64,
+    allowed:&dyn Fn(EntityHandle)->bool)->Result<DashPlan,&'static str> {
+    if range<=Fixed64::ZERO || range>Fixed64::from_i32(10_000)
+        || width<=Fixed64::ZERO || width>Fixed64::from_i32(5_000)
         || !supported(requested) || !world.is_alive(caster)
         || !world.get_hp(caster).into_option().is_some_and(|hp|hp>Fixed64::ZERO) {
         return Err("invalid dash source or budget");
     }
     let start=world.get_pos(caster).into_option().filter(|p|supported(*p)).ok_or("missing dash origin")?;
     // Validate before any Fixed64 squared distance; world coordinates are bounded.
-    let desired=omoba_sim::navigation::step_toward(start,requested,spec.range);
+    let desired=omoba_sim::navigation::step_toward(start,requested,range);
     if desired==start {return Err("dash requires displacement");}
     // A step larger than the entire requested distance makes the existing API
     // test the exact straight segment, without selecting an axis-slide fallback.
-    let check_budget=spec.range+Fixed64::ONE;
+    let check_budget=range+Fixed64::ONE;
     let mut end=desired;
     if world.advance_with_collision(caster,desired,check_budget)!=desired {
         let mut low=0;let mut high=(desired-start).length().raw();
@@ -44,20 +62,43 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:
     if end==start {return Err("dash is immobilized or blocked");}
     let half=Fixed64::from_i32(2);
     let center=start+Vec2::new((end.x-start.x)/half,(end.y-start.y)/half);
-    let radius=spec.width/half;
+    let radius=width/half;
     let broad_radius=(end-start).length()/half+radius+Fixed64::ONE;
-    let mut hits:Vec<_>=world.query_enemies_in_range(center,broad_radius,caster).into_iter()
-        .filter(|entity|*entity!=caster && world.is_alive(*entity))
-        .filter(|entity|world.get_hp(*entity).into_option().is_some_and(|hp|hp>Fixed64::ZERO))
-        .filter(|entity|world.get_pos(*entity).into_option().is_some_and(|position|
-            omoba_sim::terrain::point_in_swept_circle(position,start,end,radius))).collect();
-    hits.sort_by_key(|entity|(entity.id,entity.gen));hits.dedup();
-    // All admission and geometry queries have completed before any mutation.
-    world.set_pos(caster,end);
-    let direction=end-start;
+    let candidates:Vec<_>=world.query_enemies_in_range(center,broad_radius,caster).into_iter().collect();
+    let mut hits=Vec::new();
+    for entity in candidates {
+        if entity==caster || !allowed(entity) || !world.is_alive(entity)
+            || !world.get_hp(entity).into_option().is_some_and(|hp|hp>Fixed64::ZERO) {continue;}
+        let Some(position)=world.get_pos(entity).into_option() else {continue;};
+        if !omoba_sim::terrain::point_in_swept_circle(position,start,end,radius) {continue;}
+        // Exact integer projection onto the path direction (raw Q10 coordinates).
+        let along=i128::from((position.x-start.x).raw())*i128::from((end.x-start.x).raw())
+            +i128::from((position.y-start.y).raw())*i128::from((end.y-start.y).raw());
+        hits.push((along,entity));
+    }
+    hits.sort_by_key(|(along,entity)|(*along,entity.id,entity.gen));
+    hits.dedup_by_key(|(_,entity)|*entity);
+    Ok(DashPlan {start,end,hits:hits.into_iter().map(|(_,entity)|entity).collect()})
+}
+
+/// Moves and faces the caster along an admitted plan.
+pub(crate) fn commit(world:&mut GameWorldDyn<'_>,caster:EntityHandle,plan:&DashPlan) {
+    world.set_pos(caster,plan.end);
+    let direction=plan.end-plan.start;
     world.set_facing(caster,omoba_sim::trig::atan2(direction.y,direction.x));
+}
+
+pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,spec:SweptDash)
+    ->Result<Vec2,&'static str> {
+    if spec.damage<Fixed64::ZERO || spec.damage>Fixed64::from_i32(1_000_000) {return Err("invalid dash source or budget");}
+    let plan=plan(world,caster,requested,spec.range,spec.width)?;
+    // Damage keeps canonical identity order (unchanged legacy outcome order).
+    let mut hits=plan.hits.clone();
+    hits.sort_by_key(|entity|(entity.id,entity.gen));
+    // All admission and geometry queries have completed before any mutation.
+    commit(world,caster,&plan);
     for target in hits {world.deal_damage(target,spec.damage,spec.damage_kind,spec.damage_profile,RSome(caster));}
-    Ok(end)
+    Ok(plan.end)
 }
 
 #[cfg(test)]

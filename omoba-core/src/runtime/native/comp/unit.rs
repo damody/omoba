@@ -508,6 +508,12 @@ pub struct SummonedUnit {
     pub summon_time: Fixed64,
     #[serde(default)]
     pub navigation: SummonNavigation,
+    /// G-3 fixed emplacement: never moves, follows or accepts move orders.
+    #[serde(default)]
+    pub immobile: bool,
+    /// G-3 owner policy: removed once the exact owner life is dead or retired.
+    #[serde(default)]
+    pub expire_with_owner: bool,
 }
 
 /// Content opt-in follow policy and bounded public-terrain waypoint cache.
@@ -540,7 +546,16 @@ impl SummonedUnit {
             time_remaining: duration,
             summon_time: Fixed64::ZERO,
             navigation: SummonNavigation::default(),
+            immobile: false,
+            expire_with_owner: false,
         }
+    }
+
+    /// End the life now (owner policy); returns whether it was still active.
+    pub fn expire_now(&mut self) -> bool {
+        let active = !self.is_expired();
+        self.time_remaining = Some(Fixed64::ZERO);
+        active
     }
 
     /// 更新時間並檢查是否過期

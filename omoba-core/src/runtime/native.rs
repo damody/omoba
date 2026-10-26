@@ -5,15 +5,26 @@
 //! before moving the larger gameplay code.
 
 pub mod ability_runtime;
+pub mod ability_channel;
 pub mod ally_shield;
+pub mod attack_orb;
+pub mod cooldown_refund;
+pub mod tether;
+pub mod forced_motion;
+pub mod reveal_zone;
+pub mod ability_projectile;
+pub mod ally_area_buff;
+pub mod ally_area_restore;
 pub mod ally_cleanse;
 pub mod mana_drain;
 pub(crate) mod targeted_effect;
 pub(crate) mod attack_accuracy;
 pub(crate) mod cast_windup;
 pub(crate) mod recovery_channel;
+pub mod owner_control;
 pub use cast_windup::{CAST_SLOT,CAST_STATE,CAST_REMAINING,CAST_TOTAL,CAST_INSTANCE};
 pub mod combat_acquisition;
+pub mod command_outcome;
 pub mod comp;
 pub mod events;
 pub mod economy_projection;

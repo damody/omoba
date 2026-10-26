@@ -276,7 +276,7 @@ mod tests {
                     lane: "mid".into(),
                     bot: true,
                 },
-            ],
+            ], showcase: None
         }
     }
     fn request(revision: u64, action: HeroSelectionAction) -> HeroSelectionRequest {

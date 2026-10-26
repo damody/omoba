@@ -60,11 +60,10 @@
 
 ### 4.2 契約
 
-- **位置**：omfue 的 Development／Editor 模組，暫名 `UOmAutoPilotComponent`（名稱待實作）。Shipping 包不得編譯進去。啟動參數暫定 `-om-autopilot=<profile>`，由 `moba_role_launch` 依 player 傳入。
-- **觀察**：只讀該玩家合法可見的資料（filtered frame、HUD 狀態、小地圖、商店目錄）。不讀 server、不讀其他 client、不讀霧中資訊。
-- **輸出**：
-  - **預設模式（input-component）**：呼叫鍵盤／滑鼠 handler 使用的同一個入口（`OmPlayerController`／`OmOwnerControlInput`／`OmPlayerActionOwnerComponent`），保留技能預覽、目標選擇、UI 攔截規則。
-  - **Slate 模式**：在 Slate／Enhanced Input 層合成實體事件，含螢幕座標與 DPI 換算。schedule.md J4 的 DPI／視窗矩陣使用這個模式（B4）。
+- **位置（已實作 v0）**：`omfue/Plugins/OmRuntime/Source/OmRuntime/Public/OmAutoPilot.h` 的 `FOmAutoPilot`，整個類別包在 `#if !UE_BUILD_SHIPPING` 內，Shipping 不編譯。由 `AOmPlayerController` 在 `-om-autopilot=<profile>` 時建立。launcher 參數是 `run_moba_role_ue.lua --autopilot PROFILE`，trace 寫到 `<run>/autopilot-p<id>.jsonl`，覆蓋統計寫到同名的 `.coverage.json`。
+- **觀察**：只讀該玩家合法可見的資料。資料來源是 `UOmRuntimeBridgeSubsystem::OnPresentationFrameProcessed`：WorldBridgeActor 處理完 frame 後，在同一個 lease 內廣播，內容是 team-filtered 實體、owner HUD、公開 lane route 和 applied input 結果。不讀 server、不讀其他 client、不讀霧中資訊。
+- **輸出（只有一條路徑）**：在 `FSlateApplication` 合成鍵盤和滑鼠事件，先 mouse move 再按鍵，指標是虛擬座標，不移動 OS 游標。按鍵一律從 control profile 的 `FindChordBinding(OmControlAction::...)` 查，所以玩家改鍵後照樣有效；滑鼠位置由世界座標投影後換成 viewport cached geometry 的 Slate absolute 座標，OS DPI 不是 100% 時也正確。事件會經過 PreGame preprocessor、UI 攔截、InputComponent 綁定，最後才到 bridge submission，和真人輸入同一條路。原本規劃的「input-component 模式」因此不再需要；J4 的 DPI／視窗矩陣也直接用這條路徑。
+- **Trace 對應**：`OnGameplayInputTransportAccepted` 抓到合成事件對應的 input_id；frame 的 `applied_inputs` 給出權威結果（status 0 為 accepted，否則 rejected）。UI 吃掉、沒有送出的事件記成 `not_submitted`，不會繞道。
 - **可以失敗**：被 UI 擋住、目標失效、沒藍、CD 中，都照實記錄 rejected，不得繞道。
 - **行為（有限狀態機）**：開局買裝 → 上線 → 補刀／普攻 → 敵方英雄在射程內且資源足夠就放技能 → 低血撤退或回城 → 回泉水補給、購物 → 升級技能（固定順序）→ 有兵線就推塔 → 死亡等待重生 → 對局結束看結算 → 返回／下一局。
 - **技能使用**：讀英雄 package 的 `bot_usage` metadata（目標類型、射程、保留資源）。生成的英雄只要 autopilot 能正確施放，就順便驗證了生成的瞄準與目標 metadata；盲測英雄也照用，不寫專用規則。

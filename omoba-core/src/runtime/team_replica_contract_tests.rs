@@ -88,7 +88,7 @@ fn committed_actor_state_is_visible_only_and_has_no_canonical_identity_payload()
             fact: ObservableFact::CommittedProgression { source, level: 2, experience: 25, experience_to_next: 120, skill_points: 1 } },
         OrderedFact { key: FactOrderingKey {tick:1,phase:FactPhase::PostStep,canonical_source_order:source,local_ordinal:4,fact_kind:FactKind::CommittedAbilityRanks},
             audience:FactAudience::VisibilityPolicy(omb_script_abi::types::projection_policy_ids::HERO_ABILITY.into()),
-            fact:ObservableFact::CommittedAbilityRanks {source,ranks:[2,1,1,1]} },
+            fact:ObservableFact::CommittedAbilityRanks {source,ranks:vec![2,1,1,1]} },
     ]).collect();
     let frame = projector.build_frame(1, 1, &BTreeSet::from([10]), vec![], &facts, &ProjectionDependencyGraph::default()).unwrap().frame;
     let events = frame.step.unwrap().public_events;

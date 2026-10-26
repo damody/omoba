@@ -279,12 +279,21 @@ pub fn decode_owner_ward_private(bytes: &[u8]) -> Result<(OwnerWardProjection, O
     let revision = u64::from_be_bytes(bytes[30..38].try_into().unwrap());
     let capable = bytes[38];
     let elapsed_raw = i64::from_be_bytes(bytes[39..47].try_into().unwrap());
-    if player_id == 0 || elapsed_raw < 0 || recharge_remaining_raw < 0 || capable > 1 {
-        return Err("NONCANONICAL_OWNER_WARD");
+    if player_id == 0 {
+        return Err("NONCANONICAL_OWNER_WARD_PLAYER");
+    }
+    if elapsed_raw < 0 {
+        return Err("NONCANONICAL_OWNER_WARD_ELAPSED");
+    }
+    if recharge_remaining_raw < 0 {
+        return Err("NONCANONICAL_OWNER_WARD_RECHARGE_NEGATIVE");
+    }
+    if capable > 1 {
+        return Err("NONCANONICAL_OWNER_WARD_CAPABLE_FLAG");
     }
     if catalog_id == 0 {
         if charges != 0 || max_charges != 0 || recharge_remaining_raw != 0 || capable != 0 {
-            return Err("NONCANONICAL_OWNER_WARD");
+            return Err("NONCANONICAL_OWNER_WARD_UNEQUIPPED_FIELDS");
         }
     } else {
         let row = omoba_template_ids::TRINKET_CATALOG
@@ -292,20 +301,20 @@ pub fn decode_owner_ward_private(bytes: &[u8]) -> Result<(OwnerWardProjection, O
             .find(|row| row.catalog_id == catalog_id)
             .ok_or("UNKNOWN_WARD_CATALOG")?;
         if max_charges != row.max_charges || charges > max_charges {
-            return Err("NONCANONICAL_OWNER_WARD");
+            return Err("NONCANONICAL_OWNER_WARD_CHARGES");
         }
         if recharge_remaining_raw > row.recharge_seconds.raw() {
-            return Err("NONCANONICAL_OWNER_WARD");
+            return Err("NONCANONICAL_OWNER_WARD_RECHARGE_RANGE");
         }
         if charges == max_charges && recharge_remaining_raw != 0 {
-            return Err("NONCANONICAL_OWNER_WARD");
+            return Err("NONCANONICAL_OWNER_WARD_FULL_RECHARGE");
         }
         if capable == 1 && charges == 0 {
-            return Err("NONCANONICAL_OWNER_WARD");
+            return Err("NONCANONICAL_OWNER_WARD_CAPABLE_EMPTY");
         }
     }
     if recharge_remaining_raw > 0 && elapsed_raw.checked_add(recharge_remaining_raw).is_none() {
-        return Err("NONCANONICAL_OWNER_WARD");
+        return Err("NONCANONICAL_OWNER_WARD_CLOCK_OVERFLOW");
     }
     let outcomes = decode_owner_ward_outcomes(&bytes[OWNER_WARD_CHARGE_LEN..])?;
     Ok((
@@ -343,11 +352,14 @@ fn decode_owner_ward_outcomes(bytes: &[u8]) -> Result<OwnerWardOutcomeBlock, &'s
             packed_ended = true;
             continue;
         }
-        if packed_ended || reserved != 0 || slot != 0 || !matches!(stage, OWNER_WARD_OUTCOME_ADMITTED | OWNER_WARD_OUTCOME_SETTLED | OWNER_WARD_OUTCOME_REJECTED) {
-            return Err("NONCANONICAL_OWNER_WARD");
+        if packed_ended {
+            return Err("NONCANONICAL_OWNER_WARD_OUTCOME_HOLE");
+        }
+        if reserved != 0 || slot != 0 || !matches!(stage, OWNER_WARD_OUTCOME_ADMITTED | OWNER_WARD_OUTCOME_SETTLED | OWNER_WARD_OUTCOME_REJECTED) {
+            return Err("NONCANONICAL_OWNER_WARD_OUTCOME_RECORD");
         }
         if correlation <= previous {
-            return Err("NONCANONICAL_OWNER_WARD");
+            return Err("NONCANONICAL_OWNER_WARD_OUTCOME_ORDER");
         }
         previous = correlation;
         rows[usize::from(count)] = OwnerWardOutcome { admitted_correlation: correlation, actor_generation, stage, slot };
@@ -401,6 +413,21 @@ pub fn seal_owner_ward_envelope(
         projection: projection.to_vec(),
         projection_hash,
     }
+}
+
+/// Server seal for owner bytes projected into one stored team bootstrap.
+/// The tick is that bootstrap's own tick, never a team frame's replica tick:
+/// a frame tick lags the live world and repeats while the projection barrier
+/// waits, but `elapsed_raw` inside the bytes still moves, and the receiver
+/// requires one byte string per (tick, revision).
+pub fn seal_stored_owner_ward_envelope(
+    start: &crate::game_proto::TeamGameStart,
+    player_id: u32,
+    session_id: u64,
+    projection: &[u8],
+) -> crate::game_proto::OwnerWardEnvelope {
+    let view_epoch = start.view_epoch.as_ref().map_or(0, |epoch| epoch.value);
+    seal_owner_ward_envelope(player_id, session_id, view_epoch, owner_ward_bootstrap_tick(start), projection)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -644,20 +671,20 @@ mod tests {
         let mut duplicate = settled_block(9, 4);
         duplicate.count = 2;
         duplicate.rows[1] = duplicate.rows[0];
-        assert_eq!(encode_owner_ward_private(&row, &duplicate).unwrap_err(), "NONCANONICAL_OWNER_WARD");
+        assert_eq!(encode_owner_ward_private(&row, &duplicate).unwrap_err(), "NONCANONICAL_OWNER_WARD_OUTCOME_ORDER");
         let mut late = settled_block(3, 4);
         late.uncertain_through = 3;
-        assert_eq!(encode_owner_ward_private(&row, &late).unwrap_err(), "NONCANONICAL_OWNER_WARD");
+        assert_eq!(encode_owner_ward_private(&row, &late).unwrap_err(), "NONCANONICAL_OWNER_WARD_OUTCOME_ORDER");
         let mut padded = encode_owner_ward_private(&row, &settled_block(9, 4)).unwrap();
         let record = OWNER_WARD_CHARGE_LEN + 4;
         padded[record + 10] = 1;
-        assert_eq!(decode_owner_ward_private(&padded).unwrap_err(), "NONCANONICAL_OWNER_WARD");
+        assert_eq!(decode_owner_ward_private(&padded).unwrap_err(), "NONCANONICAL_OWNER_WARD_OUTCOME_RECORD");
         let mut hole = encode_owner_ward_private(&row, &settled_block(9, 4)).unwrap();
         let start = OWNER_WARD_CHARGE_LEN + 4;
         let first = hole[start..start + 12].to_vec();
         hole[start..start + 12].fill(0);
         hole[start + 12..start + 24].copy_from_slice(&first);
-        assert_eq!(decode_owner_ward_private(&hole).unwrap_err(), "NONCANONICAL_OWNER_WARD");
+        assert_eq!(decode_owner_ward_private(&hole).unwrap_err(), "NONCANONICAL_OWNER_WARD_OUTCOME_HOLE");
         let mut foreign = seal_owner_ward_envelope(7, 1, 3, 1, &bytes);
         foreign.player_id = 8;
         assert_eq!(open_owner_ward_envelope(&foreign).unwrap_err(), "OWNER_WARD_OWNER_OR_EPOCH_MISMATCH");
@@ -780,7 +807,7 @@ mod tests {
     #[test]
     fn verified_owner_ward_receiver_rejects_unverified_order_and_restores_by_recovery() {
         assert_eq!(WARD_PROTOCOL_VERSION, 3);
-        assert_eq!(crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 15);
+        assert_eq!(crate::transport::SELECTIVE_LOCKSTEP_PROTOCOL_VERSION, 18);
         let bytes = encode_owner_ward_projection(&equipped(1, 0, true)).unwrap();
         let start = admitted_start(7, 3, 11, &bytes, "receiver");
         assert_eq!(start.ward_protocol_version, 3);
@@ -857,7 +884,7 @@ mod tests {
         twin.elapsed_raw = 101;
         let twin_bytes = encode_owner_ward_projection(&twin).unwrap();
         let twin_envelope = seal_owner_ward_envelope(7, session, 3, 11, &twin_bytes);
-        assert_eq!(replica.apply_verified_owner_ward_envelope(&twin_envelope).unwrap_err(), "NONCANONICAL_OWNER_WARD");
+        assert_eq!(replica.apply_verified_owner_ward_envelope(&twin_envelope).unwrap_err(), "NONCANONICAL_OWNER_WARD_SAME_TICK_BYTES");
         assert!(replica.owner_ward_projection().is_empty());
         assert_eq!(replica.owner_ward_tick(), 11);
         assert_eq!(replica.owner_ward_revision(), spent_revision);
@@ -942,5 +969,91 @@ mod tests {
             &explicit, std::collections::BTreeSet::new(), std::collections::BTreeSet::new(),
         );
         assert_eq!(smuggled.err(), Some(crate::runtime::ReplicaRuntimeError::MalformedBaseline));
+    }
+
+    /// Live server world: two heroes, match playing, player 1 holds the training trinket.
+    fn live_owner_world() -> specs::World {
+        use specs::WorldExt;
+        use crate::runtime::{MobaMatch, MobaMatchPhase, SingleLaneConfig, StateInitializer};
+        let pool = StateInitializer::create_thread_pool();
+        let mut world = StateInitializer::setup_campaign_ecs_world(&pool);
+        crate::runtime::setup_single_lane_match(&mut world, SingleLaneConfig {
+            warmup: Fixed64::ZERO,
+            wave_interval: Fixed64::from_i32(1_000_000),
+            ..SingleLaneConfig::default()
+        }).unwrap();
+        world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+        let row = omoba_template_ids::trinket_by_name("training_scout_lantern_v1").unwrap();
+        crate::runtime::set_authoritative_trinket_loadout(&mut world, 1, Some(row.catalog_id)).unwrap();
+        world
+    }
+
+    /// One server step: the live elapsed clock moves, the roster revision does not.
+    fn advance_live_clock(world: &mut specs::World) {
+        use specs::WorldExt;
+        let mut state = world.write_resource::<crate::runtime::MobaMatch>();
+        state.elapsed = Fixed64::from_raw(state.elapsed.raw() + 17);
+    }
+
+    /// Store refresh as `omb::state::State` does every step: a bootstrap built at
+    /// `server_tick` plus the private owner bytes projected from the same world.
+    fn stored_bootstrap(world: &specs::World, epoch: u64, server_tick: u64) -> (crate::game_proto::TeamGameStart, Vec<u8>) {
+        let mut start = admitted_start(1, epoch, server_tick, &[], "store");
+        start.ward_protocol_version = 0;
+        start.ward_rules_hash.clear();
+        start.owner_ward_envelope = None;
+        (start, crate::runtime::project_private_owner_ward(world, 1, epoch))
+    }
+
+    /// Run 3 B+C+C: team frames repeated one replica tick (barrier not reached)
+    /// while each store refresh carried a new elapsed. Every continuing envelope
+    /// was then a different byte string under one (tick, revision).
+    #[test]
+    fn continuing_owner_ward_envelopes_from_the_live_store_stay_canonical_while_frame_ticks_repeat() {
+        let mut world = live_owner_world();
+        let epoch = 5_u64;
+        let (joined, joined_bytes) = stored_bootstrap(&world, epoch, 10);
+        assert!(!joined_bytes.is_empty(), "the live owner projection encodes");
+        let session = owner_ward_session_binding("live-store", 1);
+        let mut admitted = joined.clone();
+        stamp_owner_ward_admission(&mut admitted, true, session, &joined_bytes);
+        let mut replica = boot(&admitted);
+        assert_eq!(replica.owner_ward_projection(), joined_bytes.as_slice());
+        let repeated_frame_tick = 10_u64;
+        let mut previous = joined_bytes;
+        for server_tick in 11..=14_u64 {
+            advance_live_clock(&mut world);
+            let (stored, bytes) = stored_bootstrap(&world, epoch, server_tick);
+            assert_ne!(bytes, previous, "elapsed is inside the private bytes");
+            assert_eq!(
+                decode_owner_ward_projection(&bytes).unwrap().revision,
+                decode_owner_ward_projection(&previous).unwrap().revision,
+            );
+            let frame_sealed = seal_owner_ward_envelope(1, session, epoch, repeated_frame_tick, &bytes);
+            let envelope = seal_stored_owner_ward_envelope(&stored, 1, session, &bytes);
+            assert_eq!(envelope.authoritative_tick, server_tick);
+            assert_eq!(replica.apply_verified_owner_ward_envelope(&envelope), Ok(()), "server tick {server_tick}");
+            assert_eq!(replica.owner_ward_projection(), bytes.as_slice());
+            // A recovery answer from the same store refresh is the same envelope.
+            assert_eq!(replica.apply_verified_owner_ward_envelope(&envelope), Ok(()));
+            // The old frame-tick seal is now behind the verified tick, never a twin.
+            assert_eq!(replica.apply_verified_owner_ward_envelope(&frame_sealed), Err("OWNER_WARD_STALE"));
+            assert_eq!(replica.owner_ward_projection(), bytes.as_slice());
+            previous = bytes;
+        }
+        // The frame-tick seal the server used before: a second byte string under
+        // the verified (tick, revision) is a twin and must stay rejected.
+        let mut twin_world = live_owner_world();
+        let (start, first) = stored_bootstrap(&twin_world, epoch, 10);
+        let mut admitted = start;
+        stamp_owner_ward_admission(&mut admitted, true, session, &first);
+        let mut twin_replica = boot(&admitted);
+        advance_live_clock(&mut twin_world);
+        let moved = crate::runtime::project_private_owner_ward(&twin_world, 1, epoch);
+        let twin = seal_owner_ward_envelope(1, session, epoch, repeated_frame_tick, &moved);
+        assert_eq!(
+            twin_replica.apply_verified_owner_ward_envelope(&twin),
+            Err("NONCANONICAL_OWNER_WARD_SAME_TICK_BYTES"),
+        );
     }
 }

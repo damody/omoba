@@ -26,6 +26,8 @@ fn fixed64_lit(v: f32) -> String {
 }
 
 fn main() {
+    // src/lib.rs mirrors this for MobaLoadoutConst; the two must never drift.
+    const _: () = assert!(omoba_content_model::HERO_ABILITY_SLOTS == 5);
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let content_root = manifest_dir.parent().unwrap().join("scripts/lua_data");
     println!("cargo:rerun-if-changed=build.rs");
@@ -206,8 +208,8 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
                 s.minimum_spacing,s.inhibitor_offset,s.inhibitor_hp,s.inhibitor_respawn_seconds,s.nexus_tower_offset,s.nexus_tower_hp,s.nexus_tower_respawn_seconds,s.nexus_tower_respawn_hp_percent,s.siege_minion_id,m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms)
         });
         out.push_str(&format!("MobaMapConst {{ base_structures: {}, ",base_structures));
-        out.push_str(&format!("base_unlock: MobaBaseUnlockConst::{}, id: {:?}, lane_length: {}, tower_offset: {}, tower_layers: &{:?}, wave_interval_seconds: {}, minion_wave: &[\n",
-            unlock,map.id, map.lane_length, map.tower_offset, layers,map.wave_interval_seconds));
+        out.push_str(&format!("base_unlock: MobaBaseUnlockConst::{}, id: {:?}, lane_length: {}, tower_offset: {}, tower_hp: {}, base_hp: {}, tower_layers: &{:?}, wave_interval_seconds: {}, minion_wave: &[\n",
+            unlock,map.id, map.lane_length, map.tower_offset, map.tower_hp.unwrap_or(1200), map.base_hp.unwrap_or(1600), layers,map.wave_interval_seconds));
         for m in &map.minion_wave {
             out.push_str(&format!("MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{}}},\n",
                 m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms));
@@ -261,6 +263,16 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
         out.push_str("] },\n");
     }
     out.push_str("];\npub fn moba_map_by_name(id: &str) -> Option<&'static MobaMapConst> { MOBA_MAPS.iter().find(|map| map.id == id) }\n");
+    // Map-authored hero XP multiplier as integer per-mille; maps without one (and maps built
+    // outside the catalog) keep 1000.
+    out.push_str("pub fn moba_map_hero_xp_scale_permille(id: &str) -> u32 { match id {\n");
+    for map in maps {
+        if let Some(scale) = map.hero_xp_scale {
+            let permille = lua_content::hero_xp_scale_permille(scale).expect("validated hero_xp_scale");
+            out.push_str(&format!("    {:?} => {},\n", map.id, permille));
+        }
+    }
+    out.push_str("    _ => 1000,\n} }\n");
 }
 
 fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
@@ -1461,6 +1473,10 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
              \tfollow_start_distance: {},\n\
              \tfollow_stop_distance: {},\n\
              \ttarget_priority: SummonTargetPriority::{},\n\
+             \timmobile: {},\n\
+             \tdamage_per_owner_level: {},\n\
+             \towner_death: SummonOwnerDeath::{},\n\
+             \tinvulnerable: {},\n\
              }};\n",
             cname,
             fixed64_lit(e.hp),
@@ -1476,6 +1492,10 @@ fn emit_summon_stats(out: &mut String, entries: &[SummonEntry]) {
             fixed64_lit(e.follow_start_distance),
             fixed64_lit(e.follow_stop_distance),
             e.target_priority.rust_variant(),
+            e.immobile,
+            fixed64_lit(e.damage_per_owner_level),
+            e.owner_death.rust_variant(),
+            e.invulnerable,
         ));
     }
     out.push('\n');
@@ -1597,6 +1617,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
         out.push_str(&format!(
             "pub const {}_CONST: AbilityConst = AbilityConst {{\n\
              \tcleanses_allies: {},\n\
+             \tauto_learn: {},\n\
              \tability_type: AbilityTypeC::{},\n\
              \tcast_type: CastTypeC::{},\n\
              \ttarget_type: TargetTypeC::{},\n\
@@ -1606,6 +1627,10 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              \tcone_half_angle_ticks: &{:?},\n\
              \tline_widths: &[{}],\n\
              \trecovery_channel: {},\n\
+             \tpulse_channel: {},\n\
+             \tcharges: {},\n\
+             \tattack_orb: {},\n\
+             \tcast_cooldown_refund_key: {},\n\
              \taim_preview_signature: \"{}\",\n\
              \ticon: \"{}\",\n\
              \tdescription: \"{}\",\n\
@@ -1614,6 +1639,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              }};\n",
             cname,
             e.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
+            e.auto_learn,
             ability_type_to_variant(&e.ability_type),
             cast_type_to_variant(&e.cast_type),
             target_type_to_variant(&e.target_type),
@@ -1627,6 +1653,16 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
                     format!("Some(RecoveryChannelConst {{amount_key:{:?},duration_key:{:?},interval_key:{:?}}})",amount_key,duration_key,interval_key),
                 _=>"None".to_string(),
             },
+            e.channel.as_ref().map_or("None".to_string(),|channel|format!(
+                "Some(PulseChannelConst {{anchor:{},interval_key:{:?},pulses_key:{:?},radius_key:{:?}}})",
+                match channel.anchor {omoba_content_model::ChannelAnchor::SelfOrigin=>0,omoba_content_model::ChannelAnchor::Point=>1,omoba_content_model::ChannelAnchor::Unit=>2},
+                channel.interval_key,channel.pulses_key,channel.radius_key)),
+            e.charges.as_ref().map_or("None".to_string(),|charges|format!("Some(ChargesConst {{max_key:{:?},recharge_key:{:?}}})",charges.max_key,charges.recharge_key)),
+            e.attack_orb.as_ref().map_or("None".to_string(),|orb|format!(
+                "Some(AttackOrbConst {{mana_per_attack_key:{:?},amount_key:{:?},damage_kind:{},move_slow_key:{:?},attack_slow_key:{:?},slow_duration_key:{:?}}})",
+                orb.mana_per_attack_key,orb.amount_key,match orb.damage_kind {omoba_content_model::EffectDamageKind::Physical=>0,omoba_content_model::EffectDamageKind::Magical=>1,omoba_content_model::EffectDamageKind::Pure=>2},
+                orb.move_slow_key,orb.attack_slow_key,orb.slow_duration_key)),
+            e.cast_cooldown_refund.as_ref().map_or("None".to_string(),|refund|format!("Some({:?})",refund.seconds_key)),
             escape_str_literal(&omoba_content_model::ability_aim_preview_signature(e).expect("validated aim preview")),
             escape_str_literal(&e.icon),
             escape_str_literal(&e.description),
