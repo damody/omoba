@@ -34,7 +34,7 @@ function M.options(args)
       options.netem_outages[#options.netem_outages+1]={team=tonumber(team),at_s=tonumber(at),duration_s=tonumber(duration)}
     elseif key=='--recipe' or key=='--ue-root' or key=='--autopilot' or key=='--output' or key=='--port'
       or key=='--netem' or key=='--netem-seed' or key=='--packaged-game' or key=='--max-seconds' or key=='--resolution'
-      or key=='--spotlight-script' then
+      or key=='--spotlight-script' or key=='--autopilot-shot-interval' or key=='--frame-cap' then
       i=i+1;options[key:sub(3):gsub('%-','_')]=assert(args[i],key..' requires a value')
     else error('unknown argument: '..key) end
     i=i+1
@@ -118,7 +118,11 @@ function M.role_args(options,role,plan_file,player_id,humans,output,team_id)
     -- Hero choices lock into the authority's plan; clients join that plan as-is.
     for _,hero in ipairs(options.heroes or {}) do add('--hero',hero) end
     if not options.no_accepted_inputs then add('--accepted-inputs',path.join(output,'accepted-inputs.jsonl')) end
-  else add('--connect','127.0.0.1','--recipe',plan_file,'--local-player',tostring(player_id),'--ue-root',options.ue_root) end
+  else
+    add('--connect','127.0.0.1','--recipe',plan_file,'--local-player',tostring(player_id),'--ue-root',options.ue_root)
+    -- Same machine, same match: clients load the authority's own base_content copy (E124).
+    add('--base-content',path.join(path.parent(plan_file),'artifacts','scripts','base_content.dll'))
+  end
   -- Only the authority builds; clients reuse the same artifacts (no mid-run rebuild).
   if options.no_build or role~='server' then add('--no-build') end
   if role~='server' and options.netem then
@@ -127,8 +131,10 @@ function M.role_args(options,role,plan_file,player_id,humans,output,team_id)
   add('--host-simulations',tostring(1+humans),'--host-renderers',tostring(humans),'--output',output)
   if role~='server' and options.autopilot then add('--autopilot',options.autopilot) end
   if role~='server' and options.spotlight_script then add('--spotlight-script',options.spotlight_script) end
+  if role~='server' and options.autopilot_shot_interval then add('--autopilot-shot-interval',options.autopilot_shot_interval) end
   if role~='server' and options.packaged_game then add('--packaged-game',options.packaged_game) end
   if role~='server' and options.resolution then add('--resolution',options.resolution) end
+  if role~='server' and options.frame_cap then add('--frame-cap',options.frame_cap) end
   return args
 end
 

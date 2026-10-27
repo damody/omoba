@@ -34,13 +34,44 @@ local function newest_source_time()
   return newest
 end
 
+-- Calls run a copy of the host, never the build output (E137, as E125 for the game): a
+-- long-running host (a supervised workflow) locked target/debug/omoba-lua-host.exe, so a
+-- host source change made every later cargo build fail and every Lua workflow on the
+-- machine stopped with "failed to build omoba-lua-host". The copy lives in
+-- target/run/<size>-<time>/ and is made once per build.
+local run_copy
+local function copy_of(source)
+  local attributes = path.attributes(source)
+  local key = string.format("%d-%d", attributes.size or 0, attributes.modification or 0)
+  local directory = path.join(root, "tools", "lua-host", "target", "run", key)
+  local copy = path.join(directory, platform.is_windows and "omoba-lua-host.exe" or "omoba-lua-host")
+  if path.is_file(copy) and path.attributes(copy).size == attributes.size then return copy end
+  path.mkdir_p(directory)
+  local partial = copy .. "." .. os.time() .. "-" .. math.random(0, 999999) .. ".partial"
+  local input = assert(io.open(source, "rb"));local output = assert(io.open(partial, "wb"))
+  output:write(input:read("a"));input:close();output:close()
+  if not platform.is_windows then os.execute("chmod +x " .. path.quote(partial)) end
+  -- Another process may have made the same copy meanwhile; either one is identical.
+  if not os.rename(partial, copy) then os.remove(partial) end
+  assert(path.is_file(copy), "omoba-lua-host run copy missing: " .. copy)
+  return copy
+end
+
 local function ensure()
-  if path.is_file(executable)
-      and (path.attributes(executable).modification or 0) >= newest_source_time() then return end
-  local command = "cargo build --manifest-path " .. path.quote(manifest)
-  local ok, _, code = os.execute(command)
-  assert(ok and code == 0, "failed to build omoba-lua-host")
+  if run_copy then return run_copy end
+  if not path.is_file(executable)
+      or (path.attributes(executable).modification or 0) < newest_source_time() then
+    local command = "cargo build --manifest-path " .. path.quote(manifest)
+    local ok, _, code = os.execute(command)
+    -- A host built before still serves every existing operation; only a missing one fails.
+    assert((ok and code == 0) or path.is_file(executable), "failed to build omoba-lua-host")
+    if not (ok and code == 0) then
+      io.stderr:write("[lua-host] rebuild failed; using the previous host build\n")
+    end
+  end
   assert(path.is_file(executable), "omoba-lua-host output missing")
+  run_copy = copy_of(executable)
+  return run_copy
 end
 
 function M.call(operation, params)
@@ -60,7 +91,7 @@ function M.call(operation, params)
   local temporary = path.join(reserved, 'request.json')
   local response_file = temporary .. ".response"
   path.write(temporary, json.encode({version=1,operation=operation,params=params or {}}), false)
-  local ok, _, code = os.execute(path.quote(executable) .. " " .. path.quote(temporary)
+  local ok, _, code = os.execute(path.quote(ensure()) .. " " .. path.quote(temporary)
     .. " " .. path.quote(response_file))
   local output = path.is_file(response_file) and path.read(response_file) or ""
   assert(os.remove(temporary), "failed to remove Lua host request: " .. temporary)
@@ -74,5 +105,5 @@ function M.call(operation, params)
   return response.result
 end
 
-function M.executable() ensure(); return executable end
+function M.executable() return ensure() end
 return M

@@ -35,6 +35,14 @@ test('missing build and missing deployed copies fail closed',function()
     rejects(function() stages.verify(bindings,{is_file=function(p)return p~=missing end,sha256=function()return sha end}) end)
   end
 end)
+test('a launch checks the binaries project it will run (E116 session shadow build)',function()
+  local shadow=path.join(root,'shadow-project')
+  local own=stages.bindings(root,shadow)
+  assert(own[1].copies[1]==path.join(shadow,'Plugins/OmRuntime/Binaries/Win64/om_bridge.dll'))
+  assert(own[2].copies[1]==bindings[2].copies[1],'the server-side staged base DLL stays shared')
+  assert(own[2].copies[2]==path.join(shadow,'Plugins/OmRuntime/Binaries/Win64/base_content.dll'))
+  assert(own[1].built==bindings[1].built and own[2].built==bindings[2].built,'same current builds')
+end)
 local function execute(options,fail)
   local seen={}
   local steps={}

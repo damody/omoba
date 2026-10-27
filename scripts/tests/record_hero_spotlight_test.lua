@@ -7,6 +7,18 @@ local spotlight=require('record_hero_spotlight')
 local options=spotlight.options({'--hero','saika_magoichi'})
 assert(options.heroes[1]=='saika_magoichi' and #options.heroes==1)
 assert(options.output=='target/spotlight' and options.ffmpeg==spotlight.DEFAULT_FFMPEG and options.fps==30)
+-- Its own authority port, never the shared split default, so it cannot join another live match.
+assert(options.port==spotlight.DEFAULT_PORT and options.port~=57061)
+assert(spotlight.options({'--hero','oichi','--port','58000'}).port==58000)
+assert(not pcall(spotlight.options,{'--hero','oichi','--port','57061'}))
+-- Each hero of one invocation gets its own port block (no reuse while a socket is released).
+local seen={}
+local every=spotlight.options({"--all"})
+for index=1,#every.heroes do
+  local port=spotlight.run_port(every,index)
+  assert(not seen[port] and (port<57061 or port>57070),port) seen[port]=true
+end
+assert(spotlight.run_port(every,1)==spotlight.DEFAULT_PORT and spotlight.run_port(every,2)==spotlight.DEFAULT_PORT+10)
 local all=spotlight.options({'--all'})
 assert(#all.heroes==8)
 for _,bad in ipairs({{},{'--all','--hero','oichi'},{'--hero','bad name'},{'--max-seconds','900','--hero','oichi'},
@@ -83,4 +95,32 @@ assert(shots[3].frame==240)
 -- A missing encoder fails early and says where to get one; it is never downloaded.
 local ok,err=pcall(spotlight.ffmpeg,{ffmpeg='target/no-such-dir/ffmpeg.exe'})
 assert(not ok and tostring(err):find('BtbN',1,true) and tostring(err):find('never downloads',1,true))
+-- --all runs each hero in its own invocation (own workflow, own port, builds only first).
+local every2=spotlight.options({'--all','--max-seconds','240'})
+local first=table.concat(spotlight.child_args(every2,'saika_magoichi',1),' ')
+local second=table.concat(spotlight.child_args(every2,'date_masamune',2),' ')
+assert(first:find('--hero saika_magoichi',1,true) and first:find('--port '..spotlight.DEFAULT_PORT,1,true) and not first:find('--no-build',1,true))
+assert(second:find('--port '..(spotlight.DEFAULT_PORT+10),1,true) and second:find('--no-build',1,true) and second:find('--max-seconds 240',1,true))
+-- A finished run with no owned process left passes; a live one is reported.
+do
+  local path=b.lib('path')
+  local root=path.mkdir_p(path.join(b.root,'target','tests','spotlight-retired'))
+  path.mkdir_p(path.join(root,'p1'))
+  path.write(path.join(root,'p1','owned-processes.json'),'[{"label":"unreal-p1","pid":4294967,"creation_token":"1","executable":"D:/x.exe"}]',true)
+  spotlight.assert_retired(root)
+end
+-- A run whose renderer never reached the demonstration is recorded again; a finished one is not.
+do
+  local path=b.lib('path')
+  local root=path.mkdir_p(path.join(b.root,'target','tests','spotlight-never-recorded'))
+  path.mkdir_p(path.join(root,'p1'))
+  os.remove(path.join(root,'p1','spotlight-frames-p1','frames.jsonl'))
+  assert(spotlight.renderer_never_recorded(root),'no frames')
+  path.mkdir_p(path.join(root,'p1','spotlight-frames-p1'))
+  path.write(path.join(root,'p1','spotlight-frames-p1','frames.jsonl'),'{"frame":0,"t":0}\n',true)
+  path.write(path.join(root,'p1','autopilot-p1.jsonl'),'{"event":"start"}\n',true)
+  assert(spotlight.renderer_never_recorded(root),'frames but never finished')
+  path.write(path.join(root,'p1','autopilot-p1.jsonl'),'{"event":"spotlight_finished","reason":"complete"}\n',true)
+  assert(not spotlight.renderer_never_recorded(root))
+end
 print('record_hero_spotlight_test ok')

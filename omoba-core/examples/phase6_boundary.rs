@@ -45,6 +45,7 @@ fn view(tick: u64, value: CommittedEntityView, source: bool) -> WaveBReadView {
             Arc::from([])
         },
         vision_occluders: Arc::from([]),
+        brush_regions: Vec::new().into(),
     }
 }
 
@@ -535,8 +536,8 @@ fn main() -> Result<(), String> {
                 ),
             ]),
             visible_by_tick: BTreeMap::from([
-                (9, BTreeSet::from([ENTITY, TARGET])),
-                (10, BTreeSet::from([ENTITY])),
+                (9, Arc::new(BTreeSet::from([ENTITY, TARGET]))),
+                (10, Arc::new(BTreeSet::from([ENTITY]))),
             ]),
         },
     );

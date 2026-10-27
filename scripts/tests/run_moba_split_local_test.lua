@@ -28,6 +28,10 @@ assert(server:find('--server-only',1,true) and server:find('--host-simulations 3
 assert(not server:find('--autopilot',1,true) and not server:find('--local-player',1,true))
 assert(server:find('--debug-query',1,true) and not table.concat(split.role_args(o,'client','PLAN',6,2,'C'),' '):find('--debug-query',1,true))
 local client=table.concat(split.role_args(o,'client','PLAN',6,2,'C'),' ')
+-- E124: clients load the authority's run copy of base_content, never a build of their own.
+do local shared=table.concat(split.role_args(o,'client','S/match-plan.json',6,2,'C'),' ')
+  assert(shared:find('--base-content S'..package.config:sub(1,1),1,true) or shared:find('--base-content S/',1,true))
+  assert(shared:find('artifacts',1,true) and not server:find('--base-content',1,true)) end
 -- E086: the authority records its accepted inputs by default; clients never do.
 assert(server:find('--accepted-inputs S',1,true) and not table.concat(split.role_args(o,'client','PLAN',6,2,'C'),' '):find('--accepted-inputs',1,true))
 do local off={} for k,v in pairs(o) do off[k]=v end off.no_accepted_inputs=true

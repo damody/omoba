@@ -5793,6 +5793,11 @@ fn handle_add_buff(
         super::forced_motion::apply(world,target,&buff_id,duration,&payload);
         return Ok(());
     }
+    // Blink landing request: settles a legal position and facing, never stored as a buff.
+    if payload.get(super::blink_landing::KEY).is_some() || buff_id==super::blink_landing::BUFF {
+        super::blink_landing::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
     // Launch envelope: opens a team vision zone, never stored as a buff.
     if payload.get(super::reveal_zone::KEY).is_some() || buff_id==super::reveal_zone::BUFF {
         super::reveal_zone::apply(world,target,&buff_id,duration,&payload);

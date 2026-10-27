@@ -25,7 +25,7 @@ return function(ctx)
         timing = { cast_point = 0.01, cooldown_starts = "on_cast" },
         resources = { cooldown = { 21, 19, 17, 15 }, mana_cost = { 80, 100, 120, 140 } },
         effects = {
-          { kind = "dash", max_distance = { 900, 1000, 1100, 1200 }, trigger_radius = 300 },
+          { kind = "dash", max_distance = { 900, 1000, 1100, 1200 }, trigger_radius = 300, speed = 3000 },
           { kind = "projectile", motion = "homing", speed = 1200, radius = 16, lifetime = 3, max_targets = 8 },
           { kind = "damage", amount = { 100, 200, 300, 400 }, damage_kind = "magical", delivered_by = "projectile" },
         },

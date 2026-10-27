@@ -5,17 +5,17 @@
 | 能力 id | 狀態 | G 包 | 依據 | 限制 |
 |---|---|---|---|---|
 | `ally_area_buff_query` | supported |  | omoba-core runtime/native/ally_area_buff.rs：施法者自身的即時封包，serial settlement 依提交位置對同隊非建築單位套上（刷新、不疊加）stat buff | 只能套 stat payload，最多 8 項 |
-| `ally_area_query` | supported |  | omoba-core runtime/native/ally_area_restore.rs：施法者自身的即時封包，serial settlement 依提交位置選取同隊存活單位並以 received-healing 政策治療最大生命比例；committed vitals 一併揭露 | 目前只有生命；法力回復需另加 committed mana |
+| `ally_area_query` | supported |  | omoba-core runtime/native/ally_area_restore.rs：施法者自身的即時封包，serial settlement 依提交位置選取同隊存活單位，以 received-healing 政策治療最大生命比例，並回復最大法力比例（mana_fraction）；committed vitals 一併揭露。使用者：oichi c17_aurora_guard（只回生命）、c17_devotion（英雄 UnitScript on_skill_cast，回復 5% 生命與 4% 法力） | 只限即時的一次性回復；持續型友軍光環用 ally_area_buff |
 | `aoe_circle` | supported |  | EffectOp::AreaDamage；base_content/point_blast.rs；world.rs deal_damage_splash/query_enemies_in_range | 以自身為中心需 Rust handler |
 | `aoe_line_instant` | supported |  | EffectOp::LineDamage（lumen_ray，capsule）；swept_dash.rs | 瞬發、不受地形阻擋、無飛行時間 |
 | `attack_range_switch` | supported |  | 英雄普攻一律走投射物（hero_tick.rs ProjectileLine2）；matchlock_gun 以 AttackRangeBonus 讓近戰英雄遠程攻擊 | 沒有真正的近戰／遠程型態切換或模型替換 |
 | `aura` | supported |  | 英雄 UnitScript on_tick（content unit_script=true）每隔一段時間刷新：敵方光環用 query_enemies_in_range＋短 buff；友方光環用 ally_area_buff 封包（例：murakami_yoshikiyo b29_quake_axe／b29_morale_boost） |  |
-| `blink_to_target` | supported |  | world.rs set_pos + get_pos（Rust handler）；summoner Flash 前例 | 需自寫落點合法性檢查 |
+| `blink_to_target` | supported |  | omoba-core blink_landing.rs：施法者自身的即時封包，serial settlement 以單點可走性（point_walkable，英雄移動同一套地形檢查加自身碰撞半徑）決定落點：偏好點不可走時，在目標周圍同距離以 15° 步進、左右交替找最近的可走點，並面向目標；例：asai_nagamasa b08_flash_cut | 只在目標周圍同距離的環上找；都不可走時留在原地 |
 | `cdr_on_cast_hook` | supported |  | content AbilityDefinition.cast_cooldown_refund → omoba-core runtime/native/cooldown_refund.rs，於 serial settlement 的 ScriptStartCooldown／ScriptConsumeCharge 結算；對手 replica 經 CommittedCooldown＋Hero::commit_cooldown（保留 admitted total） |  |
 | `channel` | supported |  | G-2 pulse channel：content channel={anchor=self／point／unit, interval_key, pulses_key, radius_key}，host 擁有生命週期（runtime/native/ability_channel.rs）；每波套用 effects（damage／slow／stun）；示範 lumen_tremor、lumen_tether；另有 recovery_channel_self | 每波只能套用宣告式 effects；受控、移動、死亡、回城會中斷 |
 | `charges` | supported |  | G-2（work-G2.md §2）：AbilityDefinition.charges={max_key,recharge_key}；Hero.ability_charges；cast_settlement 扣 1 次 | max 1..=10 且隨 rank 不遞減；recharge 0.25..600 秒；僅 active／ultimate |
 | `cooldown_reduction` | supported |  | UnitStats cooldown_mult（CooldownPercentage[Stacking]）；dispatch.rs prepare_cast_cooldown | 只有百分比，無固定秒數減免或退還 |
-| `dash_to_point` | supported |  | EffectOp::DashToPoint；base_content swept_dash.rs（沿實際路徑傷害、受碰撞截斷） | 瞬間位移，沒有隨時間移動 |
+| `dash_to_point` | supported |  | EffectOp::DashToPoint；base_content swept_dash.rs（沿實際路徑傷害、受碰撞截斷）；連續位移：swept_dash::motion_packet → omoba-core forced_motion.rs Mode::Dash（施法者自身、host 依速度逐 tick 移動、撞牆停止、PreStepMovement 事實；不暈眩、移動中受 root），例：date_masamune b04_flame_trail_dash（dash_speed）、fire_dash（authored dash_duration）、murakami b29_quake_axe 跳躍（共用速度） | 路徑效果（傷害、鎖定、落地重擊）在施法時依核准路徑決定，不是在通過或落地當下；未宣告 dash_speed 時用 swept_dash::DASH_SPEED 2000 |
 | `dispel_self` | supported |  | EffectOp::CleanseAlly（可指定自身） |  |
 | `dot_debuff` | supported |  | EffectOp::DamageOverTimeEnemy；periodic_damage.rs；buff_store drain_periodic_damage | 每次施放一筆 DoT |
 | `evasion` | supported |  | UnitStats evasion_chance（unit_stats.rs）；world.rs get_evasion_chance |  |
@@ -29,7 +29,7 @@
 | `heal` | supported |  | world.rs heal; EffectOp::HealSelf/HealAlly |  |
 | `hero_unit_hooks` | supported |  | 英雄 content unit_script=true → rust/hero_unit.rs 的 UnitScript：on_skill_cast（施法交易內、execute 前）、on_attack_hit（普攻命中）、on_damage_taken、on_tick（每 tick；自行以標記 buff 節流） | GameWorld 讀不到技能等級與 buff payload：以 rank 命名的標記 buff 表示學會的 rank |
 | `knockback` | supported | G-4 | 同 forced_move_enemy，motion='knockback'；單體技能或投射物皆可 | distance ≤3000、duration ≤5 秒，期間暈眩；AoE 擊退尚不支援（area 效果只展開傷害） |
-| `leap` | supported |  | 同 dash_to_point（瞬間位移） | 沒有拋物線／空中狀態 |
+| `leap` | supported |  | 同 dash_to_point（連續位移，forced_motion Mode::Dash；例：murakami b29_quake_axe） | 沒有拋物線／空中狀態；落地重擊在施法時依落點決定 |
 | `mana_burn` | supported |  | EffectOp::DrainManaEnemy；world.rs spend_mana |  |
 | `max_hp_percent_damage` | supported |  | world.rs get_max_hp + deal_damage（Rust handler） |  |
 | `no_unit_collision` | supported |  | BuffStore NO_UNIT_COLLISION 狀態 buff：creep_tick 單位碰撞忽略帶此狀態者；英雄移動本來就只受地形阻擋 |  |

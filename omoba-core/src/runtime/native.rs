@@ -15,6 +15,7 @@ pub mod reveal_zone;
 pub mod ability_projectile;
 pub mod ally_area_buff;
 pub mod ally_area_restore;
+pub mod blink_landing;
 pub mod ally_cleanse;
 pub mod mana_drain;
 pub(crate) mod targeted_effect;

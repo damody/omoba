@@ -2,6 +2,1008 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E153 商店收尾：背包列被切、✓ 蓋到價格、設定面板字級沒跟畫面高度（2026-10-27，session-ward）
+
+- **現象**（E151／E152 之後留下的三個小問題）：
+  1. 720p 與 1080p 的商店底部列，背包六格換到第二行，被主框底邊切掉一部分。
+  2. 1080p 字變大後，已擁有道具的 ✓ 蓋住價格的百位數字。
+  3. 設定面板的字級仍只用使用者的 TextScale，跟 HUD 依畫面高度縮放的字級不一致。
+- **根因**：
+  1. 背包格是預設樣式的 SButton，樣式本身左右各多 13px padding，每格寬度約是圖示的兩倍，所以那一行放不下而換行。底部列又是參考高度 55·S 固定不變，換行後的第二行就被切掉。
+  2. ✓ 是掛在卡片 overlay 左下角，底部 padding 寫死 16px。價格文字一旦比 16px 高，✓ 就會落在價格那一行。
+  3. `UOmControlSettingsWidget::UpdateFontCache` 沒有乘上 E152 的高度係數。
+- **通用修正**：
+  1. 背包格改用無 padding 的 `GlyphButtonStyle`，720p、1080p、1440p 都能放在同一行。底部列的高度改為「參考高度與實際所需高度取大者」，道具格區相應讓出空間，所以即使字更大、換行，也不會被切。
+  2. ✓ 改放在圖示本身的 overlay 左下角，無論字多大都在圖示上，不會碰到價格。
+  3. 設定面板字級改為「使用者 TextScale × `ViewportTextFactor`（自己的 viewport 高度）」，和 HUD 共用同一個內文大小規則。
+- **測試**：`Om.Runtime.ShopLayout` 在 720p、1080p、1440p 下檢查：
+  - 背包 6 格都完整落在主框內。
+  - 每一個可見的 ✓ 底邊都在價格頂邊以上，而且至少有一個 ✓ 顯示。
+  - 2000×1013 參考比例測試（含底部列 3% 以內）仍然通過。
+  - 影子專案：商店系列、ResponsiveHudLayout、PlayableMvpHud 共 10 項 Success。前一輪 Om.Runtime. 全量（含設定面板改動）只有兩項模型測試失敗，與這次改動無關。
+  - 截圖在 `target/session-ward/fix4-shots/shop-720p-all.png` 和 `shop-1080p-all.png`。
+- **避免**：
+  - 小圖示按鈕不要使用預設 ButtonStyle，它會加上看不到的 padding。
+  - 固定高度的區塊，要容得下內容可能換行之後的高度。
+  - 角標要掛在它標示的那個元素上，不要用固定 padding 去估位置。
+
+## E152 HUD 內文在 1080p 只有 11px：字級完全不隨畫面高度變化（2026-10-27，session-ward）
+
+- **現象**：商店和整個 HUD 的內文在 1080p 只有 11px（參考圖約 15px），看起來偏小（商店子 agent 留下的缺口 2）。
+- **根因**：`FOmHudReadableText` 的字級只由使用者的 TextScale 決定（內文 11、標題 14、技能格 12），刻意不跟 viewport 連動。HUD 會抵消 1080 以下的 DPI 縮小，所以 720p 和 1080p 都是 11 個實體 px；1440p 以上才會隨 UE DPI 曲線放大。
+- **通用修正**：
+  - 新增 `FOmHudReadableText::ViewportTextFactor(HUD 高度)`：720 以下為 1，1080 以上為 14/11，中間線性內插。
+  - `UOmCommandBarWidget::RefreshClusterScales` 以「使用者 TextScale × 這個係數」套用字級（仍受 ScaleLower／ScaleUpper 限制）。
+  - 結果：1080p 內文 14px、標題 18px；720p 維持 11px（空間不夠放大）；1440p 的 logical 高度是 1080，同樣是 14，再由 UE DPI 曲線放大。所有 HUD 尺寸本來就由 `AppliedTextScale` 推導，會一起跟著變。
+  - 設定面板也已在 E153 改為同樣的規則。
+- **測試**：
+  - 新增 `Om.Runtime.HudTextViewportFactor`：600、720 為 11；1080、1440 為 14；900 介於兩者之間；1080 的標題為 18；沒有高度時為 1。
+  - 鎖定字級的測試改為依實際套用的值計算：`ResponsiveHudLayout` 的「Preview text scale is applied」改成預期 TextScale × 係數；選單按鈕字級改用 `GetAppliedTextScale()`。
+  - `PlayableMvpHud` 的 hotbar 上限從固定 160 改成 160 + 最多 20（1080p 時字變大後為 165）。
+  - 影子專案 Om.Runtime. 全量：除了這兩項之外，只有模型相關的 NativeCharacterAssembly、NativeCreepPresentation 失敗（Tripo 模型那條線，與字級無關）。修正後 13 項 HUD／商店相關測試全部 Success。
+- **避免**：決定可讀字級時，要同時考慮實體像素和畫面高度；改了字級規則，要用 `FOmHudReadableText` 的函式在測試裡推導預期值，不要寫死數字。
+
+## E151 實機 720p 商店退回直式堆疊版：隊友卡和提示行佔掉帶狀區（2026-10-27，session-ward）
+
+- **現象**：實機 720p 開商店時，HUD 標頭（比分列、4 張隊友卡、回城、操作提示）到指令列之間只剩約 315px，S 約 0.45，低於 `FOmShopSpec::MinScale` 0.59，於是改用舊的直式堆疊商店（商店子 agent 留下的缺口 1）。
+- **根因**：商店帶狀區的上緣是整個標頭欄的底（`HeaderBottom`），隊友卡在 720p 就佔掉約 80px。
+- **通用修正**：
+  - 商店開著時，隊友卡（`OmTeamHudViewport`）暫時收起，關閉後恢復，所以商店永遠不會蓋住隊友卡。
+  - 帶狀區上緣改用標頭頂端的固定列（狀態列、比分列與右上角的設定按鈕，`ShopTopStripBottom`）。標頭較下方的回城、提示行在畫面左側，而商店主框在 720p 從 x 約 168（快速購買欄）、y 約 88 開始，實際上不會重疊。
+  - 結果：720p 的 S 約 0.68，使用參考排版（兩欄、快速購買欄、合成樹）。
+- **測試**：`Om.Runtime.ShopLayout` 加上實機標頭（4 張隊友卡加兩行操作提示）。檢查項目：
+  - 720p、1080p、1440p 都使用兩欄商店。
+  - 商店開著時隊友卡收起，關閉後恢復。
+  - 截圖在 `target/session-ward/font3-shots/shop-720p-all.png`。
+- **後續**：背包列被切、✓ 蓋到價格，已在 E153 修正。
+- **避免**：要擠進帶狀區的 modal，應該先收起它會蓋到、而且暫時不需要的 HUD 元件；不要只靠縮小 modal。
+
+## E150 商店第三輪（依參考圖量測）：換解析度後詳細欄沿用舊尺寸；1080p 底部列換行，autopilot 找不到背包格；patch 工具把 LF 寫進 CRLF 標頭（2026-10-27，session-shop）
+
+- **現象**：
+  - 版面測試在 720p 失敗：`upgrade row above the tree`。進階道具列量到 50px 高（應約 23），疊到合成樹上。
+  - 1080p 實機局（live-5）裡，autopilot 兩位玩家的 `shop_sell_select` 都是 `widget OmShopSell.0 not visible within 6.0s`。截圖顯示底部列的交易狀態文字佔掉寬度，背包六格被擠到第二行，而第二行在框外被切掉。
+  - 改完商店後第一次實機局（live-3、live-4）在啟動時就被擋下：`launch binaries carry different content: authority content=3ced… renderer bridge=…`。
+  - 用 Lua 區塊替換工具（`target/session-shop/sub.lua`）修改 `OmCommandBarWidget.h` 後，這個 CRLF 標頭出現了 LF 行。用 Lua 長字串 `[[...]]` 包 C++ 時，遇到 `]]]` 會提前結束字串。
+- **根因**：
+  - 詳細欄（進階道具、合成樹）是在選取道具時依「當下的縮放與模式」建好的，視窗大小改變不會重建。測試從 1080p 換成 720p 時，留著的是另一種尺寸（compact）建出來的列。
+  - 參考圖的底部列只有出售、復原、金幣，我們多了狀態文字和背包六格；縮放約 0.9 時，一行放不下。
+  - 別的 session 改了 lua_data，伺服器的 content hash 和影子專案的 bridge 不一致（和 E149 同一類）。
+  - 替換工具把新內容原樣寫入，沒有沿用檔案的行尾。
+- **通用修正**：
+  - `SOmShopFrame::Tick` 偵測 fit 的模式或縮放改變（取到千分位），改變時呼叫 `OnLayoutChanged`，清掉詳細欄和快速購買欄的 signature 後重建。詳細欄的 signature 也加入縮放與模式。
+  - 參考圖版面的底部列固定一行：出售、復原、金幣、背包六格（20px×S）。交易狀態顯示在分頁列的狀態欄，復原的原因寫在按鈕 tooltip。compact 堆疊模式維持原本的狀態列順序（Responsive 的 narrow 測試要求捲動後同時看得到復原按鈕和原因）。
+  - autopilot 的快速購買步驟在 compact 商店（沒有快速購買欄）時直接略過，不會讓整段商店腳本逾時。
+  - 實機局改成不帶 `--no-build`，讓伺服器重建到目前的 content；影子專案改用 `resync2.sh` 同步，流程是先 sync、再 3-way merge、最後 stage，所以 stage 失敗也不會丟掉 session 的修改。
+  - 替換後一律用 `crlf.lua` 正規化行尾，並比對 CR 數量；Lua 內嵌 C++ 改用 `[==[ ... ]==]`。
+- **驗證**：影子專案 d3d12 跑 Shop*／ResponsiveHudLayout／PlayableMvpHud／HudAssetRegistry／LegacyTdInputGuard，12/12 通過；nullrhi 10/10 通過。2000×1013 的參考比例檢查中，10 個區塊的尺寸誤差與位置誤差都 ≤ 1.6%（表格在 `shop-layout-spec.md`）。
+- **避免**：
+  - 依幾何建出來的 Slate 列（尺寸寫在建構當下），要在 layout key 改變時重建，不能只在資料改變時重建。
+  - 照參考圖固定一行的列，要先算出最小縮放時的總寬；放不下的內容移到 tooltip 或其他區域，不能讓它換行到框外。
+  - 改了 lua_data 或 bridge 之後的實機局，不要帶 `--no-build`。
+
+## E149 lua_data 放回 live 後，release omobab 沒有重建，實機局被 content hash 檢查擋下（2026-10-27，session-tripo）
+
+- **現象**：野怪的 lua_data 在 15:55 經 `land_to_live` 放回，main 在 15:57 建好 live 的 UE bridge。之後跑實機局，launch 拒絕啟動，訊息是 `authority content=3ced…, renderer bridge=884d…`。
+- **根因**：`land_to_live` 和 `check_live_consistent` 只對候選樹跑 `cargo check`，不會重建 `omb/target/release/omobab.exe`。這個 exe 停在 14:54，內嵌的是舊的 content hash。
+- **通用修正**：沒有改程式。launch preflight（E125）已經正確擋下，訊息也指出要重建哪一個。照著重建 release 的 omobab、client runtime 和 base_content 之後就能啟動。
+- **以後**：放回 lua_data 之後要跑實機局，先重建 release 的三個 Rust 產物再 launch。不要懷疑 bridge，bridge 是在 live 建置時跟著重建的。
+
+## E148 斜視角加 FOV 20° 之後，浮動數字飄到名牌上方 100–250 px：大小、行距、上升距離都是世界單位（2026-10-27，session-ward）
+
+- **現象**：鏡頭改成 -56°、FOV 20° 並拉遠（E140／E147）之後，`target/spotlight-camera-fov20b/date_masamune/keyframes/02_slot0_enemy_effect.png` 裡的「-400／-110.2」字變大，離名牌和單位太遠，兩行之間的間距也很大。
+- **根因**：`UOmCombatVisualSubsystem` 的文字大小（`WorldSize` 28／32）、堆疊行距（`HealthTextRowHeight` 28）、上升速度（`HealthTextRisePerSecond` 45/s）都是世界單位，換算到畫面上的像素取決於鏡頭距離和 FOV。窄 FOV、遠距離時每公分佔的像素變多，所以整個堆疊被放大、推高。避開名牌的 `FOmFloatingTextClearance::Lift` 本來就是用畫面像素計算的，不是原因。
+- **通用修正**：
+  - 改用畫面空間的常數，以 1080 px 高為基準，隨 viewport 高度等比例縮放：字高 26 px（暴擊 30 px）、行距 30 px、上升 36 px/s。
+  - 每個 frame 由實際投影量出數字原點沿 screen-up 每單位佔幾個像素（`PixelsPerUnitAlong`，100 單位探針），再由純函式 `FloatingTextLayout` 換算成 `WorldSize` 和偏移量。所以任何鏡頭距離、FOV、解析度下看起來都一樣。沒有本機鏡頭時，退回原本的世界單位乘以單位縮放。
+  - 堆疊時判斷「列是否被占用」的比例改用像素常數（rise/row 的比例維持一致）。
+- **測試**：新增 `Om.Runtime.FloatingTextScreenSpace`。
+  - 情境：用 UE 實際的 view-projection（`UGameplayStatics::GetViewProjectionMatrix` 加 `FSceneView::ProjectWorldToScreen`），測舊俯視鏡頭（-80°、FOV 90、距離 2000）和斜視角（-56°、FOV 20、距離 9000），解析度 1920×1080 和 1280×720。
+  - 斷言：第 0、2 列、age 0 和 0.5 s 時，離原點的像素距離與預期誤差 ≤ 1 px；字高誤差 ≤ 0.5 px；暴擊字較大；沒有鏡頭時退回世界單位。
+  - 影子專案結果：FloatingTextScreenSpace、FloatingTextClearance、PublicHealthTextLifecycle、PresentationCueSlots、NameplateAboveModelOnScreen 全部 Success。
+- **目視確認，第二輪修正**：
+  - 用 live binaries 錄 spotlight（`target/spotlight-ft148-live2/date_masamune/keyframes/02_slot0_enemy_effect.png`）：數字已經貼在名牌上方，但字偏小，而且「-400」和「-110.2」疊在一起。
+  - 疊字的原因：每個數字停在自己生成時的世界位置。date 衝刺後，新的數字生成點在畫面上往上移，用世界單位算出來的列就壓到舊的數字上；各數字自己記錄的名牌 lift 也會各自不同。
+  - 修正：
+    - 有本機鏡頭時，生成時在畫面上選列：從該擁有者目前的名牌 lift 開始，取最低一個與所有存活數字的畫面位置相距一整列的列。
+    - Tick 時同一擁有者共用最大的 lift。
+    - 字放大到 32 px（暴擊 38 px），行距 32 px。
+  - 影子結果（`target/spotlight-ft148-shadow/date_masamune/keyframes/02_slot0_enemy_effect.png`）：三個數字等距排列、不重疊，最新的一個在名牌上方約 40 px（含上升）。四項相關測試都 Success。
+- **避免**：疊在畫面上的 HUD 元素（數字、名牌、提示），大小和距離都要用畫面像素定義，由實際投影換算成世界單位；不要寫死世界單位，否則鏡頭參數一改就會跑掉。
+
+## E147 鏡頭改用 20° 窄 FOV：縮放距離改成「參考鏡頭距離」、霧要依多出的距離補償；autopilot 買失敗後商店面板沒關，擋住所有地面點擊（2026-10-27，camera-oblique）
+
+- **需求**：使用者要求把 FOV 從 90° 降到 20°、把鏡頭拉遠來減少廣角變形，同時維持差不多的地面視野。距離要從 FOV 推算，不能寫死。
+- **通用修正（相機）**：
+  - `AOmRtsCameraPawn` 的 FOV 改由程式定義：`DefaultFieldOfViewDegrees = 20`，在 constructor、`OnConstruction` 和 `PostInitializeComponents` 套用。level 上放置的 pawn 載入時不會重跑 construction，所以 `PostInitializeComponents` 也要套用。
+  - 所有縮放值都改成「參考鏡頭（90°）距離」，包括 `DesiredZoomDistance`、上下限、滾輪步距、地圖 fit 和 control profile。實際 arm 長度是 `GetArmLengthForZoom(zoom) = zoom × tan(45°)/tan(FOV/2)`，20° 時約為 5.67 倍。上下限、滾輪步距和地圖 fit 因此全部等比例調整，玩家存好的 profile 也不需要遷移。
+  - 霧／大氣：Main.umap 的 ExponentialHeightFog 和 SkyAtmosphere 會依相機距離累積霧，相機拉遠後畫面整片泛白。pawn 改成把霧的 `StartDistance`、`FogCutoffDistance`、`VolumetricFogStartDistance` 和大氣的 `AerialPerspectiveStartDepth` 往後推「arm − arm/鏡頭倍率」。只在 arm 長度變化超過 1% 時更新；fog 元件每 2 秒最多掃描一次；EndPlay 時還原。
+  - 已確認不需要改的部分：
+    - 陰影：VSM 已開啟（`r.Shadow.Virtual.Enable=1`），clipmap 的範圍足以涵蓋 4～5 km。
+    - far clip：UE 的 perspective 投影用無限遠的 far plane。
+    - 名牌：screen-space widget，大小固定。
+    - 浮動數字：world-space，但地面覆蓋範圍不變時，焦點附近的投影大小也不變。
+    - 滑鼠射線和小地圖視錐框：都是逐像素 deproject 到地面，跟 FOV 無關。
+- **潛在 bug（小地圖）**：`FOmMinimapModel::Unproject` 的像素邊界檢查沒有容許捨入誤差。arm 變長後地圖範圍數值變大，點在小地圖邊角的點擊會被拒絕（MinimapCameraOrientation 的 corner click 失敗）。已加上 `1+1e-9` 的容差，和既有的世界座標邊界容差一致。
+- **autopilot bug**：
+  - 現象：FOV 20 第一局，autopilot 在英雄剛離開商店範圍時開了商店。`OmShopBuy.auto` 3 秒內沒出現，`UiQueue.Reset()` 連後面的 `shop_close` 一起丟掉，面板一直開著蓋住畫面中央。之後的地面點擊都被正式的指標分類器判定為 HUD，出現 82 次 `projection_failed` 和 533 次「鏡頭回到自己」，英雄卡在出生點約 20000 個 tick。
+  - 修正：`FUiStep` 新增 `bCleanup`，`shop_close` 標記為清理步驟。腳本中某一步失敗時，只保留清理步驟，其餘捨棄。
+- **測試修正**：`OmCompiledMapSceneCapture`、`CameraGroundCoverage`、`WorldUnitVisualScale` 原本斷言 `TargetArmLength == zoom`，改成 `GetArmLengthForZoom(zoom)`。`RtsCameraObliqueDefault` 新增斷言：FOV 等於 20°，且 `arm × tan(FOV/2)` 等於 `zoom × tan(45°)`。
+- **驗證**：
+  - 影子專案 `target/ue-shadow-camera` 中，19 個相機相關測試全部通過，包含 Camera*、Minimap*、NameplateAboveModelOnScreen、WorldSurfacePresentation、WorldUnitVisualScale、FloatingTextClearance、RtsCameraObliqueDefault。
+  - spotlight `target/spotlight-camera-fov20b`：8 張關鍵影格，構圖不變，邊緣角色不再傾斜，霧補償後的顏色和 FOV 90 時一致。
+  - 對局 `target/camera-fov20-match3`：quick map 在 600 秒內分出勝負（隊伍 2 勝）。鏡頭為 `[-56,0]`，autopilot 送出 251 個指令。
+  - 相機高度和 FOV 90 時的比例約為 5.6，符合等覆蓋範圍的推算。
+- **附帶發現**：影子專案剛重新 stage 後的第一局，UE 的啟動和 shader 暖機比平常多約 60～95 秒，600 秒的時間上限因此被吃掉。快取熱了之後，第三局就在時限內打完。
+- **放回 live**：這些改動是在 E143 的 `land_to_live.lua` 流程出現之前直接寫進 live 的。事後用 `check_live_consistent.lua --ubt` 確認 live 一致（codegen、cargo、server、bridge、UBT 都通過）。之後的相機改動改走 land_to_live。
+- **避免**：
+  - 改 FOV 時要一起處理 arm 長度、隨距離累積的霧／大氣，以及所有把 arm 長度當成 zoom 的斷言。
+  - autopilot 的 UI 腳本凡是會打開面板的，都要有清理步驟；某一步失敗時不能把關閉面板的步驟也丟掉。
+
+## E146 Tripo 兵線：共用 lua_data 改到一半，live codegen 失敗；`--sync` 把影子裡未放回的 C++ 覆蓋掉；陣營材質只支援靜態模型（2026-10-27，Tripo 兵線）
+
+- **現象**：
+  - 14:29 左右起，live 的 `om_codegen` 對共用 `scripts/lua_data` 失敗，所有 `build_ue_moba`／`stage_ue_shadow` 都被擋下（omfx-decouple 回報）。
+    - 先是 `invalid type: map, expected a sequence`：小兵 profile 裡空的 `attachments={}` 被序列化成 map。
+    - 修掉後又遇到 `unit 'lane_melee' invalid static native visual metadata`：Lua 已經給「會動的小兵」設了 `ally_material_sections`，但 live codegen 只接受靜態模型使用它。
+  - 為了重新 stage bridge 跑 `stage_ue_shadow --sync`，把影子專案裡還沒放回 live 的 C++（陣營材質延伸到會動的模型、姿勢檢查擴充）覆蓋回 live 版本。
+- **根因**：
+  - `scripts/lua_data` 和 codegen 一樣是 live 輸入，我卻把它當成只影響自己影子專案的設定在改。
+  - `--sync` 的定義就是「影子 = live」，不會保留影子專案自己的改動。
+- **修正**：
+  - 當下：共用 lua_data 退到 live codegen 支援的版本（小兵先換 Tripo 身體，`team_colored={}`），live codegen 恢復正常。
+  - 驗證流程改成三份副本：
+    - codegen 用 `target/session-assets/codegen`（Cargo 路徑多一層 `../`，CARGO_TARGET_DIR 獨立）；
+    - Lua 用 `target/session-assets/lua_data`；
+    - C++ 用影子專案，並把改動寫成 patch 腳本（scratchpad `patch_relation.lua`），`--sync` 後重新套用。
+    - 驗證通過後，codegen、C++ 和 Lua 同一批放回 live，再用 live 跑一次 codegen，以及 `stage_ue_shadow --sync --build`，確認一致。
+  - 功能面：
+    - 陣營材質改成 `AOmUnitActor` 的通用機制：`GetRelationMaterialMesh()` 靜態模型回傳 `NativeBodyMesh`，`AOmAnimatedUnitActor` 回傳 `NativeHeroMesh`；`InitializeNativePresentation` 結束時套用；陣營未知時還原成記住的原始材質。
+    - codegen 抽出 `generated_relation_material_sections`，靜態和會動的模型都可以用（測試共 90 項）。
+  - `Om.Runtime.NativeHeroPoseSanity` 改成列舉所有用 TripoV1 身體的 `AOmAnimatedUnitActor`，不再只看 OmHero 類別。現在 13 個都通過：8 位英雄、近戰／遠程／攻城／超級兵、測試用 probe。
+- **驗證**：
+  - 影子專案 `WorldUnitVisualScale`（新增兵線陣營斷言與截圖）、`NativeHeroPoseSanity` 通過。
+  - 實機局 `target/minions-match-3`：友方小兵藍衣、拿長槍的足輕。
+  - 遠鏡頭兩隊同框：`.ai-collab/structures/world_fit_ally_enemy_minions.png`。
+  - 放回 live 後，live codegen 測試 90 項通過，`stage_ue_shadow --sync --build` 通過。
+- **避免**：
+  - `scripts/lua_data` 也是 live；改 lua_data 時，先在副本 content root 驗證。
+  - 影子專案有還沒放回 live 的改動時，不要跑 `--sync`，或先把改動寫成可以重套的 patch。
+
+## E145 量測局的 client 連到另一個 session 的 server：預設 port 衝突，server 綁定失敗，launcher 沒發現就啟動 client（2026-10-27，P0 #5）
+
+- **現象**：第一次 10 英雄量測局（perf-10hero-1）在 `runtime-p1 ready timeout` 失敗。runtime 的 log 顯示 `Connected to KCP server at 127.0.0.1:57061`，卻始終沒有 ready。
+- **根因**：
+  - 所有 session 的 split 都預設用 port 57061。另一個 session 14:49 啟動的 server（PID 59796）已經佔著這個 port，我的 server 綁定失敗並結束（`Failed to bind KCP listener on 0.0.0.0:57061`）。
+  - `moba_role_launch.launch` 啟動 server 後沒有確認它真的綁好 port，就繼續啟動 client。結果 client 連到別人那局的 server，等一個永遠不會來的 ready。
+- **通用修正**：
+  - `moba_role_launch.wait_server_bound`：啟動 server 後先等 `KCP listener bound on` 這行。
+    - server 結束或出現 `Failed to bind` 時，立即報錯，附上原因並建議換 `--port`。
+    - 舊版 server 沒有這行 log：出現 `Starting KCP server` 後 5 秒內沒失敗，就視為已綁定。
+    - dedicated server 模式也一樣處理。
+  - omb `kcp_transport.rs` 綁定成功後加一行 `info!("KCP listener bound on {}")`，以 `land_to_live` 放回（E143 的第一次正式使用）。
+  - renderer 的 content 一致性檢查（E125）從 prepare 移到 launch，在實際要執行的 UE 執行副本上檢查 bridge；沒有 authority content hash 的手寫計畫不檢查。這樣 prepare-only 測試就不會受當下 live 前端狀態影響。
+- **驗證**：
+  - `test_moba_role_launch.lua` 11/11、`test_moba_dedicated_server.lua` 7 組通過。共用的測試 fixture 讓假的子程序輸出綁定成功那行。
+  - `moba_role_finish_observer_test.lua` 失敗在 `unknown launch mode`：測試的計畫沒有 mode，與本次修改無關。
+- **避免**：
+  - launcher 啟動任何程序後，要等它明確回報就緒才啟動依賴它的程序；不能只看程序已經 spawn。
+  - 同時跑多個 split 時，每個 session 用各自的 `--port`（spotlight 用 57461，量測用 57261）。
+
+## E144 1080p、10 英雄的 frame time p95／p99：UE 端原本只有 60 幀視窗的平均與最大值，無法得到分位數（2026-10-27，P0 #5）
+
+- **現象**：P0 #5 要求 1080p、10 英雄的 p95／p99 frame time。但 renderer 的 `OM_PERF` 每 60 幀只輸出一次 mean／max（而且標明 `not_a_statistic: p95`），既有工具都算不出分位數。
+- **通用修正**：
+  - **UE**（`OmPresentationPerf.h/.cpp`、`OmWorldBridgeActor`）：
+    - 新增 `FOmPresentationPerfHistogram`：0.25 ms 一格、上限 250 ms，另有一格溢位。
+    - 每 600 幀、以及 presentation 結束時輸出 `OM_PERF_HIST`：從 presentation 開始累積的完整直方圖（稀疏的 bucket:count），加上 p50／p95／p99 和 max。
+    - 指標有兩個：game_frame_interval（game thread DeltaSeconds）和 presentation_work（Om presentation tick 本身的工作量）。
+    - 已在影子專案建置並通過 `Om.Generated.PresentationPerfWindow`，再以 3-way merge 合併回 live。
+  - **報告**：`scripts/moba_frame_time_report.lua UE_LOG [--warmup-seconds N] [--json OUT]`。
+    - 取暖機結束前的最後一行和最後一行相減，得到只含量測區間的分佈。
+    - 量測條件（OS、CPU、GPU、解析度、RHI、是否離屏、幀率上限）一律從同一份 log 讀出。
+    - 分位數取 bucket 上緣，最多偏高 0.25 ms；超過 250 ms 的只回報「>250」，不填一個捏造的數字。
+  - **啟動選項**：`--frame-cap N`（`moba_role_launch`／`run_moba_split_local`）。預設 60，也就是玩家拿到的 `t.MaxFPS 60`；0 表示不限，用來量實際成本與餘裕。
+- **量測結果**（i9-12900KS、RTX 4070、Windows 11、1920x1080、d3d11、離屏、真實地圖 `moba_single_player.lua`：1 個 autopilot 席＋9 bot，共 10 英雄；扣除前 60 秒暖機）：
+
+  | 條件 | 樣本／時長 | p50 | p95 | p99 | 平均 | >250 ms |
+  |---|---|---|---|---|---|---|
+  | 上限 60（出貨設定，perf-10hero-2） | 17400 幀／295 s | 16.75 ms | 16.75 ms | 17.00 ms | 59.0 fps | 1 |
+  | 不限（perf-10hero-uncapped） | 109800 幀／520 s | 3.75 ms | 7.50 ms | 48.00 ms | 211 fps | 1 |
+
+  - presentation_work（Om 自己的 tick）：上限 60 時 p50 2.00、p95 3.25、p99 5.00 ms；不限時 p50 0.25、p95 2.25、p99 19.25 ms。
+  - 解讀：出貨設定下 p99 仍維持 60 fps；不限幀率時 p95 有 2 倍以上餘裕。不過約 1% 的幀會出現 20～50 ms 的尖峰，而且 presentation_work 的 p99 同步升高，表示尖峰主要來自 Om presentation 的突發工作（推測是大量快照套用或 HUD 重建），值得後續分析。量測區間內各有 1 幀超過 250 ms。
+- **量測條件的限制**（必須一併閱讀）：
+  - 離屏（`-RenderOffScreen`，E114 規定自動化不得佔用使用者桌面）沒有 swap chain present、沒有 DWM 合成、沒有 vsync 等待，所以真實視窗的 frame time 會比較高。真實視窗的數字要由使用者在不使用桌面時，以 `OM_OWN_DESKTOP=1`、同樣的指令再量一次。
+  - renderer 是 editor 的 `-game` 模式（從影子專案的執行副本啟動），不是 Shipping 打包版。
+  - 上限 60 那次和另一個 session 14:49 啟動的對局部分重疊，CPU 被分走；不限那次沒有確認有沒有其他對局同時在跑。
+  - 長時間 soak（2 小時）的取捨仍需使用者決定，見 next-month.md P0 #5。
+- **驗證**：`moba_frame_time_report_test.lua` 14 項通過；UE 單元測試 `Om.Generated.PresentationPerfWindow` 通過（影子建置）。
+- **避免**：效能數字一律附上量測條件（硬體、解析度、RHI、是否離屏、幀率上限、是否有其他負載）。有幀率上限時，frame time 只能證明「達到上限」，要量成本和餘裕必須另外跑不限幀率的一局。
+
+## E143 直接改 live、留下半成品已經第五次：需要一個會先驗證、再一次寫入 live 的落地流程（2026-10-27，omfx-decouple）
+
+- **現象**：
+  - E076（stuck recover 落地時沒編譯 UE）、E107／E109（載入畫面在 live 改到一半，其他 session 編譯失敗）、E139 都是同一類問題。
+  - 2026-10-27 14:29 也發生一次：共用 lua_data 的小兵陣營材質先放進 live，但 live 的 codegen 還不支援，`om_codegen` 失敗（`invalid type: map, expected a sequence`）。這段期間所有前端建置都失敗，server／runtime 的 content（eef2…）也和 bridge（3072…）分開了。
+- **根因**：lua_data、codegen、omfue C++、Rust crate 都是其他 session 正在建置的 live 輸入，但是否改好再放回只靠自律，沒有任何機制在寫入前確認「live 加上這批變更」仍能 codegen 和編譯，也沒有防止只放回一部分。
+- **通用修正**：
+  - `scripts/land_to_live.lua --change SRC=LIVE[@BASE] ... [--manifest FILE.json] [--checks auto|...] [--dry-run]`：
+    - 在 build lock 保護下計算每個檔案的結果：有 BASE 時，用 git merge-file 3-way merge 到目前的 live 檔；有衝突就整批不放回。
+    - 在 `target/land/tree` 鏡像 Rust 與 Lua 原始碼（scripts、omoba-*、specs、omfue/codegen、omfue/bridge，不含 target），套上這批變更。需要 UBT 時，另外把 `target/land/shadow` 從 live 同步，再套上 omfue 的變更。
+    - 依變更涉及的路徑自動決定檢查：
+      - 永遠跑 om_codegen，而且讀的是候選樹的 lua_data，不會寫入 live 的 OmGenerated；
+      - Rust、lua_data 或 codegen 有變更時，跑 cargo check base_content；
+      - bridge 或 client runtime 有變更時，跑 cargo check bridge，並重產 header；
+      - omfue、lua_data 或 codegen 有變更時，跑影子專案的 UBT。
+    - cargo 使用獨立的 `CARGO_TARGET_DIR=target/land/cargo-target`，不會鎖到或改寫任何人的 target。
+    - 全部通過、而且檢查期間沒有任何 live 檔被別人改動，才一次寫入所有檔案；否則一個都不寫，並印出原因，結果也寫進 `target/land/last.json`。
+  - `scripts/check_live_consistent.lua [--ubt]`：同樣的檢查，但不帶任何變更，任何人隨時可以跑，確認 live 目前能否 codegen 和編譯。
+  - AGENTS.md 核心注意事項加入規則：live 輸入一律經 land_to_live 放回。
+- **驗證**：
+  - `scripts/tests/land_to_live_test.lua` 26 項，涵蓋：
+    - 路徑決定要跑哪些檢查、拒絕 repo 外與 target 內的路徑；
+    - 檢查失敗時 live 不變，並回報原因；
+    - 通過時才寫入，codegen 讀候選樹，live 的 OmGenerated 不被寫入；
+    - 3-way merge 保留雙方修改，衝突時整批拒絕；
+    - 多檔要嘛全部放回、要嘛全部不放回，UBT 失敗時全部不放回；
+    - 檢查期間 live 被改動時拒絕；
+    - dry run、manifest、參數解析；check_live_consistent 不帶變更。
+  - 第一次實際執行 check_live_consistent 就失敗：base_content 的 build.rs 會執行 repo 內的 `tools/lua/lua.exe`，但候選樹沒有這個目錄。補上 `tools/lua` 後通過：codegen、cargo check base_content、omobab、bridge 都通過。
+  - 第一次正式放回：E145 的 kcp「綁定成功」log（omb/src/transport/kcp_transport.rs）帶 BASE 經 3-way merge，codegen、cargo check base_content、omobab 通過後寫入 live（15:22）。
+- **避免**：
+  - 不要直接編輯 live 的 lua_data、codegen、omfue 原始碼或 Rust crate，改在影子或副本完成後用 land_to_live 放回。
+  - 覺得 live 壞了，先跑 check_live_consistent 確認，不要猜。
+
+## E142 商店改版第二輪：快速購買欄的價格被切掉；影子專案重新同步會蓋掉 session 自己的修改；Edit 工具把混合行尾檔的單一 CRLF 改成 LF（2026-10-27，session-shop）
+
+- **現象**：
+  - 商店框左側的快速購買欄（寬 64）裡，「1,450」只畫出「1,45」。測試量到價格文字實際寬 22、需要 28（720p）。
+  - 影子專案 `stage_ue_shadow.lua --sync` 第二次執行時，鏡像把 session 已修改的 13 個檔案換回 live 版（大小不同就覆蓋）。同一次同步的 content codegen 又因為別的 session 改到一半的內容失敗（`unit 'lane_melee' invalid static native visual metadata`），腳本中斷，原本接在後面的 3-way merge 沒有執行。
+  - 第一次影子建置時，OmGenerated 編譯失敗（`NativeStaticAllyMaterials` 未宣告）：live 的 codegen 已經輸出新欄位，`OmUnitActor.h` 卻是在同步之後才由別的 session 落地。
+  - `OmAutoPilot.cpp` 幾乎全是 LF，只有第 2 行是 CRLF。用 Edit 工具修改後，這一行被改成 LF，diff 會多出一行無關的變更。另外，我又對 CRLF 的 `ue_run_snapshot_test.lua` 用了 `sed -i`，整個檔案變成 LF（E107 的老問題）。發現後已用位元組安全的 Lua 改回 CRLF。
+  - 最後一輪測試時，`ue_run_snapshot.prepare` 連續失敗 8 次，訊息是 `live omfue binaries kept changing`。實際原因是 `target/ue-run/7f504b8c87152aba` 只剩一個 omfue/Saved／Intermediate 的空殼，裡面沒有 ready.txt：這個副本在 renderer 啟動時被其他 session 的 prune 改名移走（那次 UE 回報 `module 'OmEditor' could not be found`），UE 隨後又在原路徑重建了 Saved。之後每次 prepare 的 rename 都撞上這個殘留目錄，只好重試，最後回報錯誤。
+- **根因**：
+  - 預設的 `SButton` 樣式（CoreStyle "Button"）左右共佔約 24px padding，放進 56px 寬的欄位後，內容只剩 22px。
+  - 影子同步的設計是「影子＝live 的鏡像」，不會保留 session 自己的修改；codegen 讀的是 live 當下的狀態，可能剛好是別人改到一半的版本。
+  - Edit 工具會把整個檔案統一成一種行尾。
+- **修正**：
+  - 快速購買卡改用無 padding 的 `GlyphButtonStyle`；欄內價格不加千分位，並且置中。`Om.Runtime.ShopLayout` 新增斷言「Quick price is not clipped」（實際寬度 ≥ 需要寬度），720p 和 1080p 都會檢查。
+  - session 工作流程：同步前先備份自己改過的檔案（`target/session-shop/mine`），同步後以 `git merge-file`（mine／base／live）合回，base 改成這次的 live 版。codegen 失敗時，照樣手動執行合併；影子沿用上一次成功的 OmGenerated，仍可建置與測試。
+  - 修改混合行尾的檔案後，比對 CR 數量。這次已用位元組安全的 Lua 把第 2 行的 CRLF 復原。
+  - `ue_run_snapshot.prepare`：目標副本目錄存在但沒有 ready.txt 時，視為殘留，先用 `remove_tree` 清掉（不會進入 junction），再 rename。`ue_run_snapshot_test.lua` 新增這個情境（35 checks）。
+  - 驗收：影子專案 d3d12 與 nullrhi 都跑過 Shop*／ResponsiveHudLayout／PlayableMvpHud，全部通過；兩場 ≤10 分鐘的離屏實機局（`target/session-shop/live-1`、`live-2`），購買、選取、出售、復原、快速購買都被權威端接受。之後以 3-way merge 放回 live，沒有衝突。live 尚未重新建置。
+- **避免**：
+  - 窄欄（< 80px）裡的按鈕，一律使用無 padding 的樣式，並在測試中斷言文字沒有被切掉，不能只看截圖。
+  - 影子專案裡的修改，在重新同步前一定要先備份；同步腳本失敗時，先檢查自己的檔案是否已被覆蓋，再決定下一步。
+  - 用 Edit 工具改檔之後，比對檔案的 CR 數量和 base 是否一致。
+
+## E141 IPC 失敗在 `input-tap-w`：中斷的測試把玩家自己的鍵盤 W 改成 F6 留在 profile 裡（2026-10-27，session-ward）
+
+- **現象**：live 建置後單獨跑 IPC（live-build2-ipc-2），失敗在 `owner control wire sequence incomplete: input-tap-w`。鍵盤方案已經切換成功（`input_keyboard` 有 ack），但按 W 沒有送出任何方向意圖。
+- **根因，跟 E135 的預設鍵位修改無關**：
+  - 使用者本人的 `omfue/Saved/Controls/1/profile.json` 裡，鍵盤 patch 的 MoveForward 是 F6。
+  - IPC 的 `input-rebind`（case 9）會把 MoveForward 改成 F6，等到 `input-restore-binding`（case 11）才改回 W。
+  - 上一輪 `live-build2-null-1-ipc` 在 13:10 執行途中被中止，F6 就留在了玩家自己的設定檔裡。
+  - 之後每一輪 IPC，以及使用者本人用鍵盤方案時，按 W 都沒有反應。
+  - 更根本的問題：自動化程序（IPC、本機驗收、autopilot、spotlight、shader warmup）讀寫的都是玩家自己的 `Saved/Controls/<id>`。另外有十多個測試自己組這個路徑做備份和還原，所以任何中途中止都會改壞使用者的鍵位。
+- **通用修正**：
+  - runtime 新增 `UOmPlayerActionOwnerComponent::ControlProfilePath(PlayerId)` 作為唯一的路徑來源。有 `-om-control-profile-dir=<dir>` 時改用 `<dir>/<id>/profile.json`。`PrepareProfilePath` 和所有會擷取或寫入 profile 的測試（ActionOwner、CameraInteraction、OwnedViewportIpc、ShopUndoUi、PieActionOwner、PlayerHudOwner）都改用它。
+  - `ue_desktop.isolate_controls(list, dir)`：每個自動化 UE 啟動都要帶自己的 profile 目錄，空值會被拒絕。已套用到 ue_local_acceptance（`<work>/controls`）、moba_owned_viewport_ipc（`<evidence>/controls`）、moba_role_launch 的 autopilot／spotlight 席位（`<output>/controls-p<id>`）和 ue_shader_warmup（移除從其他席位複製來的旗標，改用自己的目錄）。真人玩家的啟動入口（run_ue、run_2player_ue、真人席位）照舊使用玩家自己的 profile。
+  - 使用者的 profile 改之前先備份到 `target/session-ward/backup/Controls-1-profile-before-e139.json`，然後只還原被測試改壞的那一列（鍵盤 MoveForward 改回 W），其他自訂鍵位都沒動。
+  - `moba_owned_viewport_ipc.lua` 本身也會在開始時備份玩家的 `Saved/Controls/1/profile.json`，結束時（即使是被中止）寫回去。兩次 IPC 被中止的時間點，玩家 profile 的 mtime 都剛好更新。現在改成只處理這一輪 evidence 底下的隔離 profile，使用者在跑測試期間自己改的鍵位，不會再被寫回的舊檔覆蓋（IPC contract 140 cases 通過）。
+- **驗證**：
+  - Lua：`ue_desktop_test` 6、IPC contract 140、local acceptance contract 69、role_launch、shader warmup 全部通過。
+  - 影子專案：17 項 profile 相關測試（ControlProfile*、ActionOwner*、CameraInteraction*、ShopUndo*、PlayerHud*、ManagedNextMatch）都 Success。
+  - IPC `e139-ipc-2`（只有 ue_desktop 隔離，還沒有 C++ 的路徑覆寫）：整輪 `OwnedViewportIpc` Success。
+  - 完整修正後（影子專案含 `ControlProfilePath`，加上 runner 不再備份或寫回玩家 profile）重跑 IPC `e141-ipc-4`：整輪 `OwnedViewportIpc` Success（632 s），玩家的 `Saved/Controls/1/profile.json` mtime 沒有變。中間兩次超過 15 分鐘的 deadline（e140-ipc-1、e141-ipc-2），是因為其他 session 的對局和編譯同時在跑，每秒處理的 frame 從 67.7 降到 51.7，不是回歸。
+- **注意**：
+  - live 前端重建之前，舊 binaries 會忽略 `-om-control-profile-dir`，autopilot 對局仍會寫入 `Saved/Controls/1`（14:18 另一個 session 的對局就是這樣）。
+  - lua_data 或 codegen 正在被其他 session 修改時，影子 stage 會失敗；這時只要稍後重跑即可。
+- **避免**：
+  - 自動化程序絕不能讀寫使用者的設定（控制、畫面、音量等）。設定路徑只從一個 helper 取得，自動化入口一律帶隔離目錄。
+  - 會改鍵位的測試，要假設自己隨時可能被中止。
+
+## E139 Tripo 建築：靜態模型沒有匯入流程、沒有陣營配色；`WorldUnitVisualScale` 把 saika 當紅色英雄；Tripo 帳號點數被別處用掉 1500（2026-10-27，Tripo 建築）
+
+- **現象**：
+  - 要把塔、主堡、抑制塔換成 Tripo 模型，但角色匯入流程只收有骨架的模型，`WorldModelsV1` 也只收 CC0 的 OBJ；靜態模型也沒辦法依陣營換色。
+  - live 建置後，`Om.Runtime.WorldUnitVisualScale` 的「Original red hero is readable」失敗（紅色像素只有 64，門檻 200）。
+  - 打開 Tripo 時點數是 5595，上次結束時是 7095；資產列表多了家具類模型。這不是本 session 花的。
+- **根因**：
+  - 匯入管線只為角色設計。
+  - 那支測試和 E130 一樣，把 saika 預設成舊的紅色 b01 外觀；Tripo 版 saika 是黑甲，只有頭巾和圍巾是紅的。
+- **通用修正**：
+  - **靜態模型來源集 `tripo_static_v1`**：`omfue/SourceArt/Structures/TripoStaticV1/<id>/`。
+    - 收件腳本加上 `--static`，並斷言模型沒有骨頭。
+    - 匯入 commandlet 新增 `bStatic` 來源集：FBX 匯入成 StaticMesh（合併網格、不產生碰撞），只能產生一個 StaticMesh 加上材質和貼圖，回報高度和三角面數。
+    - Lua 的 validate／verify 同步支援，契約測試從 76 項增加到 89 項。
+  - **陣營配色**：
+    - 上色工具改成通用：一個模型可以宣告多個變體 `recolors`，並支援多個來源集。靜態模型的變體放在 `TripoStaticVariantsV1/<id>/`，同一目錄可以放多個變體。
+    - runtime 新增 `NativeStaticAllyMaterials`／`NativeStaticEnemyMaterials`，依單位相對本機玩家的陣營（Self 算友方；陣營未知時用模型原本的材質）切換材質，陣營改變時跟著換。
+    - codegen 新增 `ally_material_sections`／`enemy_material_sections`，只有靜態模型可以用（會動的模型會被拒絕），測試共 90 項。
+    - 三個建築的米白瓦片和旗幟（飽和度 ≤ 0.22、亮度 ≥ 0.62）在友方改成藍（色相 215），在敵方改成紅（色相 0），木頭和石頭不動。
+  - **測試**：
+    - `WorldUnitVisualScale` 在現有的建築檢查裡加上陣營切換：敵方顯示紅、自己和友方顯示藍、陣營未知時還原原本材質。
+    - 「紅色英雄」改成量測英雄輪廓：畫面中心附近和地面顏色差異大、又不是回城光環的像素數，門檻 150，saika 實測 433。紅色像素數仍會記錄。
+- **驗證**：
+  - 影子建置後，`WorldUnitVisualScale`、`NativeHeroPoseSanity`、`NativeHeroPresentation` 全部通過。
+  - 實機局 `target/structures-match-2`：友方建築用新模型、藍色屋頂，尺寸沿用原本的 240／260／110／210 world units。
+  - 敵方紅色的遊戲內截圖沒拍到：autopilot 的英雄沒推到敵方建築；spotlight 把英雄放在敵塔旁會被塔打死，放在射程外，敵塔又不在鏡頭裡。紅色只由自動化測試和貼圖對照確認。
+- **流程錯誤（live 半成品約 34 分鐘）**：
+  - codegen（`omfue/codegen/src/lib.rs`）是直接在 live 修改的，13:28 就進了 live；但 runtime 標頭 `OmUnitActor.h` 和實作是先在影子專案寫完、建置後，14:02 才放回 live。
+  - 中間這段時間，任何從 live 做 stage 建置的人（ward、lol-45）都在 `OmContentClasses.cpp` 編到 C2065。
+  - 14:02 之後，從 live `--sync --build` 的影子建置已確認通過。
+  - **規則**：codegen 會產生 C++ 程式碼，屬於 C++ 改動的一部分，要和 runtime 標頭一起在影子專案建置通過後，同一批放回 live（E076、E107、E109）。這次 codegen 是先改 live 再複製到影子，順序反了。
+- **避免**：
+  - 換掉某個單位的外觀後，搜尋測試裡用到該單位的地方（例如 `AOmHeroSaikaMagoichi`）是否假設了舊外觀，改成量測可見度或依來源檢查。
+  - Tripo 帳號是共用的，每次開始前先記下點數，結束時核對。
+
+## E140 主視角是正上方俯視：`BP_RtsCameraPawn` 覆寫了 pitch 和 SpringArm 旋轉（2026-10-27，camera-oblique）
+
+- **現象**：實機對局截圖是正上方俯視，autopilot trace 的 `camera_pitch_yaw` 一直是 `[-90,0]`。但 C++ 的 `AOmRtsCameraPawn::CameraPitchDegrees` 預設是 -60，小地圖在沒有量測基底時的 fallback（`GetDefault<AOmRtsCameraPawn>()`）也假設是這個值。
+- **根因**：
+  - 正式使用的 `/Game/RustBP/System/BP_RtsCameraPawn` 覆寫了 `CameraPitchDegrees`，也覆寫了 SpringArm 元件模板的 `RelativeRotation`，兩個值都是 -90。owned Tick 每個 frame 都會用 BP 的 pitch 重設 arm。
+  - Tick 在沒有 input owner 時會提早 return，所以 arm 會一直停在模板的 -90。
+  - 測試用的 `EditorPreview` world 沒有初始化 actors，`PostInitializeComponents` 不會被呼叫，因此修正不能放在那裡。
+- **通用修正**：
+  - 鏡頭方向改成由程式定義，不再是 reflected UPROPERTY：`DefaultCameraPitchDegrees = -56`（LoL 式斜視，yaw 固定為 0）。BP 存的舊值在載入時會被忽略。要在執行期改方向，只能用 `SetCameraOrientation`。
+  - 新增 `OnConstruction`，在 BP 元件模板和 construction script 之後把 arm 設成程式定義的方向。
+  - 新增 `Om.Runtime.RtsCameraObliqueDefault`：載入正式 BP 並 spawn，檢查實際 view pitch 在 -60～-45 之間、yaw 為 0、畫面中心是焦點。
+  - 已確認滑鼠射線、小地圖視錐框（逐角 deproject 到地面）、小地圖方向基底、名牌（E133 的 ScreenUp）、迷霧（世界空間格子）都不依賴 pitch；地圖 clamp 夾的是焦點，焦點仍在畫面中心。
+- **驗證**：
+  - 影子專案 `target/ue-shadow-camera` 中，RtsCameraObliqueDefault、NameplateAboveModelOnScreen、MinimapCameraOrientation、MinimapCameraFootprintClip、MinimapCameraRoutedInput、OwnedCameraInputStack、FloatingTextClearance 全部通過。
+  - quick map 的 split autopilot 對局 `target/camera-oblique-match` 在 600 秒內分出勝負（隊伍 2 勝）。trace 的 122 筆 `camera_pitch_yaw` 都是 `[-56,0]`。截圖中塔有側面、名牌在模型上方、小地圖視錐框是梯形。
+  - omfx-decouple 建議的 spotlight 取景檢查：`record_hero_spotlight.lua --hero date_masamune --no-build`（輸出在 `target/spotlight-camera-oblique`），8 張關鍵影格都沒有跳過。角色從斜上方看得到全身，名牌和浮動數字的位置都正確。
+- **附帶發現**：
+  - 第一次 sync 時，`omfue/codegen` 已經會產生 `NativeStaticAllyMaterials`／`NativeStaticEnemyMaterials`，但當時影子專案的標頭還沒有這兩個成員，UBT 報 C2065。Tripo session 表示對應的 OmUnitActor.h／.cpp 在 14:02 已進 live。這次只在自己的影子專案刪掉那幾行產生碼，沒有動 live。
+  - 之後重新 sync 時，`templates.lua` 的輸出格式錯誤，codegen 失敗（invalid type: map, expected a sequence），應該是其他 session 正在修改 lua_data。
+- **避免**：
+  - 會影響全遊戲呈現的相機參數不要開放給 BP 覆寫；需要調整時改程式常數並加測試。
+  - 驗收鏡頭時要看實機 trace 的 `camera_pitch_yaw`，不能只看 C++ 預設值。
+  - 用 `EditorPreview` world 測試 actor 初始化時，記得 `PostInitializeComponents` 不會被呼叫。
+
+## E138 打包版完全不顯示血量文字和浮動數字：`UnlitText` 只用 runtime 路徑載入，沒被 cook（2026-10-27，session-ward）
+
+- **現象**：next-month P2 #20 一直留著「UnlitText 載入失敗」的警告。打包版的 log 出現 `SkipPackage: /Engine/EngineMaterials/UnlitText … does not exist`，接著是 `Public health text requires Engine UnlitText material`。`ShowFloatingText` 因此直接 return false，打包版看不到任何傷害或治療數字。之前紀錄寫「名牌照常顯示」，把這個問題的嚴重性看輕了。
+- **根因**：`UOmCombatVisualSubsystem` 只用 `LoadObject(TEXT("/Engine/EngineMaterials/UnlitText…"))` 在執行期載入。沒有任何 cook 進去的 package 參考它，所以 cooker 不會帶上它。
+  - 第一版修正把它加進 `DefaultEngine.ini [Engine.StartupPackages]`，結果無效：用 `UnrealPak -List` 檢查 package-shipping-5 的 utoc，裡面沒有 UnlitText，連引擎自己列在 StartupPackages 的 `DefaultTextMaterialTranslucent` 也沒有。這一版已撤回。
+  - 但被原生 constructor 用 `ConstructorHelpers` 載入的引擎資產都有被 cook，例如 `DefaultTextMaterialOpaque`（來自 TextRenderComponent）、`Widget3DPassThrough_Translucent`（來自 WidgetComponent），以及我們自己的 `BasicShapes/*`。
+- **通用修正**：
+  - `UOmCombatVisualSubsystem` 新增 constructor，用 `ConstructorHelpers::FObjectFinder` 參考 UnlitText；runtime 的 `LoadObject` 流程不變。已在影子專案建置並通過 PublicHealthTextLifecycle、FloatingTextClearance、PresentationCueSlots，並已 3-way 合併進 live（omfx-decouple 確認沒有衝突）。
+  - `ue_cook_coverage_test.lua` 新增規則：原始碼裡所有只用路徑載入的 `/Engine/...` 資產（`LoadObject`、`FSoftObjectPath`），都必須另外有 constructor 參考；引擎自己的 constructor 已經載入的資產列在白名單裡，並註明是哪個 class。修正前跑這個測試會抓到 UnlitText，修正後通過。
+- **驗證（live 重建後）**：Development 打包 `target/session-ward/package-dev-e138`（50 個檔案）。`UnrealPak -List` 列出 `Engine/Content/EngineMaterials/UnlitText.uasset`（98849 bytes）。用打包版跑 6 分鐘冒煙對局（`target/mvp-a3/pkg-e138-smoke`，p1 date_masamune）：兩個 client 都沒有 UnlitText 的 SkipPackage 或 warning；`p1/autopilot-p1-shot-004-combat-text.png`、`shot-006` 可以看到浮動的回復數字（+2、+6、+6.1）。
+- **profiler DLL**：`aqProf.dll`、`VtuneApi*.dll` 的 `Failed to load (126)` 是 UE 在 Windows 上探測選用 profiler 的正常訊息，不影響執行，不需要處理。
+- **避免**：只在執行期用路徑載入的資產（不論 `/Game` 或 `/Engine`），一定要同時有 cook 的來源。`/Game` 用 DirectoriesToAlwaysCook；`/Engine` 用 constructor 參考。兩種都由 cook coverage 測試把關。
+
+## E137 音訊驗收用字串比對 UE 回報的錄音路徑，執行副本經 junction 回報的路徑對不上；修改 lua-host 原始碼讓所有 Lua 流程失敗（2026-10-27，omfx-decouple）
+
+- **現象一**：`live-build2-null-1` 第 11 批 `Om.Runtime.OriginalAudioOutput` 在 `verify_original_audio_output.lua:48` 失敗，錯誤為 `unexpected recording path or duplicate`。
+- **根因一**：
+  - E128 把音訊驗收改成從執行副本啟動 UE。UE 在 `output.json` 回報的錄音檔路徑是透過副本的 junction：`D:/omoba/target/ue-run/0d7646eb996e1827/omfue/Saved/Automation/OriginalAudio/.../routed-mix.wav`。
+  - 驗收拿這個字串和 live 路徑 `omfue/Saved/...` 做字串比對；兩者指向同一個檔案，字串卻不同。
+- **修正一**：
+  - 新增 `ue_run_snapshot.live_path(root, file)`。副本中經 junction 連到 live 的項目都維持原本的相對位置，所以把 `target/ue-run/<key>/` 去掉，就是 live 的真實路徑。
+  - 副本自己複製的 binaries（Binaries、Intermediate、外掛 Binaries）沒有對應的 live 檔案，原樣傳回；副本以外的路徑也原樣傳回。
+  - 音訊驗收比對前先換成 live 路徑。
+  - 盤點其他字串比對：`moba_owned_viewport_ipc` 和 `moba_renderer_fixture` 的 `same_path` 只用來判斷入口腳本，`ue_local_acceptance` 的報告欄位不比對 UE 回報的路徑。目前只有音訊驗收需要改。
+- **現象二（本次修正途中由我造成）**：我為了加一個解析 junction 的 `real_path` 操作而修改 lua-host 原始碼，之後所有 Lua 流程都停在 `host.lua:42: failed to build omoba-lua-host`，我自己的 spotlight 重錄也在 omatsu 中斷。其他 session 的流程同一時段也可能受到影響。
+- **根因二**：
+  - `host.lua` 發現原始碼比 exe 新，就執行 `cargo build`；但其他流程的長駐 host（12:51、12:56 啟動的 workflow supervisor）正從 `tools/lua-host/target/debug/omoba-lua-host.exe` 執行，exe 被鎖（os error 5），建置失敗後直接 assert。
+  - 這和 E125 是同一類問題：直接執行 build 輸出的檔案。
+- **修正二**：
+  - `host.lua` 一律從 `tools/lua-host/target/run/<size>-<mtime>/` 的副本執行 host，build 輸出因此永遠不會被鎖，下次原始碼更新就能順利重建。
+  - 如果重建失敗但先前已有建好的 host，沿用舊的並提示，不再讓所有流程失敗；只有用到新操作時才會失敗。
+  - `real_path` 已改用純 Lua 的 `live_path` 取代，所以從 lua-host 移除，沒有留下沒用到的程式碼。
+  - 那兩個仍從 target/debug 執行的 supervisor 結束後，下一次呼叫就會重建並改用副本。
+- **驗證**：
+  - `ue_run_snapshot_test.lua` 增加到 32 項：Saved 換回 live、大小寫與分隔符號、binaries 不換、live 路徑不變。
+  - host 在 exe 被鎖時實測：印出 `rebuild failed; using the previous host build` 後照常回應，副本建在 `target/run/2680832-1793073858`。
+  - 單獨重跑音訊驗收：`verify_original_audio_output.lua --run-id e137-audio-1`（live binaries，從執行副本啟動）通過，5 段實際的 realtime mixer PCM 全部驗證成功，exit 0。
+- **避免**：
+  - 從執行副本啟動的 UE 回報的路徑，比對前一律用 `live_path` 換成 live 路徑。
+  - 任何會被長駐程序執行的工具（lua-host、遊戲 exe）都要從副本執行，build 失敗時要能沿用既有版本；修改共用工具的原始碼前，要先確認不會讓正在執行的流程失敗。
+
+## E136 影子專案同步沿用 live 的 mtime，UBT 沒有重編較早落地的改動，連結失敗（2026-10-27，session-ward）
+
+- **現象**：影子專案 `--sync --build` 後連結失敗，錯誤是 `LNK2019 UOmCombatVisualSubsystem::RegisterNameplateUnit`。這個函式在 live 和影子的 .cpp 裡都有定義。
+- **根因**：`stage_ue_shadow.lua` 的 `copy_file` 會把複本的 mtime 設成來源的 mtime；mirror 也用「mtime 不同」判斷是否複製。
+  - 另一個 session 12:13 在 live 改了 `OmCombatVisualSubsystem.cpp`，影子專案 12:2x 才同步進來。
+  - 複本的 mtime 是 12:13，比影子專案上次建置的 .obj 還舊，所以 UBT 認為不用重編，保留了舊的 obj。
+  - 而 `OmUnitActor.cpp` 是新近修改，有重編，開始呼叫這個新函式，連結就找不到。
+- **通用修正**：
+  - `copy_file` 把複本的 mtime 設成 `max(來源 mtime, 現在)`，不會落在過去。
+  - mirror 改成「沒有複本、大小不同，或來源比複本新」時才複製，所以已經同步過的複本不會每次重抄。
+  - `ue_shadow_stage_test.lua` 新增情境：來源時間比影子專案還舊時仍會複製，複本時間 ≥ 同步當下，再同步一次不會重抄（39 checks）。
+  - 既有影子專案（session-ward 的 ueproj）裡今天同步進來的檔案已經手動 touch，讓 UBT 重新編譯。
+- **避免**：
+  - 給建置工具吃的鏡像不能保留來源的 mtime。UBT、cargo 這類工具只看「輸入是否比輸出新」，而別的 session 的改動，時間可能早於你上次建置。
+  - 看到「定義明明在、卻 unresolved external」的錯誤時，先懷疑 .obj 是舊的。
+
+## E135 鍵盤移動方案從舊設定檔載入時，Stop 和額外技能都用 X，整份控制設定被拒（2026-10-27，session-ward）
+
+- **現象**：live 建置後的 OwnedViewportIpc（`live-tripo-null-4-ipc`）出現 `OM_CONTROL_PROFILE player=1 code=duplicate-chord message=Stop primary (pressed) and CastExtra primary (pressed) both use X in worldCombat`，整份設定檔被當成錯誤，只能用記憶體裡的預設值。
+- **預設鍵位本身沒有衝突**（照 LoL 慣例）：
+  - 點擊移動方案（scheme 0）：Stop = S，額外技能 CastExtra = X。
+  - 鍵盤移動方案（scheme 1）：S 已經是「向後移動」，所以 Stop = X，額外技能預設不綁定，由玩家自己選。
+- **根因**：`FOmControlProfileSet::ImportJson` 讀 `om.player-control-profile-set` v1 時，各方案的 patch 原樣保留。
+  - 額外技能欄位出現之前存的檔案，global 層沒有任何 `*Extra` 列。global 匯入時的遷移（`ReleaseOccupiedDefault`）因此補上 CastExtra = X。
+  - 但鍵盤 patch 是舊的，裡面有 Stop = X，卻沒有「CastExtra 不綁定」這一列。
+  - 鍵盤方案於是繼承了 global 新補的 X，跟 Stop 撞鍵，Validate 失敗。
+- **通用修正**（`OmControlProfileSet.cpp` 的 `SeedNewKeyboardActions`）：
+  - 判斷依據：存檔裡 global 層完全沒出現過的 action，代表它是存檔之後才新增的，鍵盤 patch 對它也不可能有設定。
+  - 這類 action 在鍵盤 patch 裡改用工廠預設的鍵盤對應補齊。
+  - 玩家在舊檔裡自己改過的鍵盤設定保持不變。
+  - 以後再新增 action 也適用，不用一個一個寫遷移。
+- **測試**：新增 `Om.Runtime.ControlProfileSetUniqueChords`。
+  - 工廠預設的兩個方案都不能有 duplicate-chord，並逐項檢查鍵位：點擊方案 Stop=S、CastExtra=X；鍵盤方案 Stop=X、向後=S、CastExtra 不綁定。
+  - 模擬額外技能欄位出現前存的檔案（去掉所有 `*Extra` 列），必須能載入、不撞鍵、保留玩家原本的鍵盤設定，而且能完整 round-trip。
+- **驗證**（全部 live 程式碼同步進影子專案並重編，`-d3d12 -RenderOffScreen`，log 在 `target/mvp-a3/ue-tests-ui4.log`）：HudHintFollowsRoutedPointer、NameplateAboveModelOnScreen、ReadableHudToolTip、ManagedNextMatch、ManagedNextMatchCancellation、ControlProfileSet、ControlProfileSetPersistence、ControlProfileSetUniqueChords、PublicHealthTextLifecycle 全部 Success。nullrhi（`ue-tests-ui2-null.log`）：ManagedNextMatch 以 warning 跳過畫面段並通過，HudHint 以 warning 跳過。
+- **避免**：
+  - 新增任何會補預設鍵位的 action 時，鍵盤方案必須透過 `SeedKeyboard` 的保留表處理，不能只改 global 的遷移。
+  - 任何可能衝突的預設值，都要讓 `ControlProfileSetUniqueChords` 涵蓋。
+
+## E134 `ManagedNextMatch` 的「真實指標點到下一局按鈕」在 nullrhi 下根本無法成立，E127 的推測是錯的（2026-10-27，session-ward）
+
+- **現象**：`Om.Runtime.ManagedNextMatch` 失敗在 `Actual pointer hits next-match action`。
+  - live-tripo-null-1 只加 `-NullRHI` 時失敗，live-tripo-null-4 加了 `-NullRHI -RenderOffScreen` 也一樣失敗。
+  - 所以不是使用者桌面干擾。
+- **更正 E127**：
+  - 查遍 `Saved/Automation/LocalAcceptance/*/native-*-engine.log`，這項測試只在 d3d12 下通過過：10-21 的十多次全部是 `-d3d12`，今天的 `offscreen-rhi-1` 是 `-d3d12 -RenderOffScreen`。
+  - 它在 nullrhi 下從來沒有通過過。E127 說「先前在 nullrhi 下 302/302 都通過過」，是把 d3d12 套件誤認成 nullrhi。
+  - E127 給全部套件加 `-RenderOffScreen` 這個修正本身仍然正確，但它不是這個失敗的原因。
+- **根因**：`-NullRHI` 下 `FApp::CanEverRender()` 為 false，`FSlateApplication::PrivateDrawWindows` 會直接 return（`Slate.SkipWidgetDrawingInHeadlessMode`）。
+  - 所有 widget 的幾何都是 0，hit-test grid 是空的，所以任何點擊判定都不可能成立。
+  - 結果面板的 `Contains` 檢查也因為全是 0 而「空洞地」通過了。
+  - 並沒有任何元件擋住按鈕：
+    - 浮動數字、名牌：world-space 或 viewport 層，不在結果面板的 widget 樹裡。
+    - 合併後的 tooltip：測試裡沒有開 hint。
+    - loading 畫面：這個 fixture 沒有掛。
+  - 實際上，同一份 live 程式碼在 d3d12 off-screen 下這項測試會通過（見本條驗證）。
+- **通用修正**（`OmPlayerHudOwnerTests.cpp`）：
+  - 沒有 rendering RHI 時，結果面板幾何、hit-test 和 Slate 點擊這幾段都跳過並發出 warning。
+  - ready 請求改從按鈕自己用的 session gate（`RequestReadyNextMatch`）送出，所以 Job、檔案和 owner 退役流程在 nullrhi 下仍然有驗到。
+  - 有 RHI 時，點擊判定改用 `OmLocateHit`（只看該視窗自己的 grid）。失敗訊息會帶出實際點到的 widget，以後如果真的有東西擋住，可以直接看出是誰。
+- **驗證**（全部 live 程式碼同步進影子專案並重編，`-d3d12 -RenderOffScreen`，log 在 `target/mvp-a3/ue-tests-ui4.log`）：HudHintFollowsRoutedPointer、NameplateAboveModelOnScreen、ReadableHudToolTip、ManagedNextMatch、ManagedNextMatchCancellation、ControlProfileSet、ControlProfileSetPersistence、ControlProfileSetUniqueChords、PublicHealthTextLifecycle 全部 Success。nullrhi（`ue-tests-ui2-null.log`）：ManagedNextMatch 以 warning 跳過畫面段並通過，HudHint 以 warning 跳過。
+- **避免**：只要測試會碰到 widget 幾何、hit-test 或截圖，第一步就要分清楚有沒有 rendering RHI（`OmSkipWithoutRendering` 或 `FApp::CanEverRender()`）。不要在 nullrhi 下斷言畫面上的東西。
+
+## E133 名牌蓋住 Tripo 英雄上半身：偏移量沿世界 Z，俯視鏡頭下這剛好是視線方向（2026-10-27，session-ward）
+
+- **現象**：一般對局和 spotlight 裡，名牌疊在 Tripo 英雄的胸口和頭上。
+- **根因**：`AOmUnitActor::GetNameplateWorldAnchor` 把錨點放在 bounds 原點，再沿世界 Z 往上抬。
+  - MOBA 俯視鏡頭的 pitch 約 -80°，世界 Z 幾乎就是視線方向，抬得再高，投影到畫面上也只移動一點點。
+  - 模型越高（Tripo 身體），名牌就越深入模型裡。
+- **通用修正**：錨點改沿鏡頭的 screen-up（`OmScreenFacing::ScreenUp`，本機視角）。
+  - 位移量 = bounds 在 screen-up 方向的實際半高 `|Ex·Ux|+|Ey·Uy|+|Ez·Uz|` 再加 12 cm。
+  - 高度由模型 bounds 推出，不寫死。任何 yaw、俯視或側視都適用。沒有本機視角時退回世界 Z。
+- **測試**：新增 `Om.Runtime.NameplateAboveModelOnScreen`。
+  - 情境：實際生成的英雄，俯視 yaw 0/90/37 加上側視。
+  - 斷言：錨點在 screen-up 上位於模型頂端 +12 cm（±0.1），在 screen-right 上居中。
+- **驗證**（全部 live 程式碼同步進影子專案並重編，`-d3d12 -RenderOffScreen`，log 在 `target/mvp-a3/ue-tests-ui4.log`）：HudHintFollowsRoutedPointer、NameplateAboveModelOnScreen、ReadableHudToolTip、ManagedNextMatch、ManagedNextMatchCancellation、ControlProfileSet、ControlProfileSetPersistence、ControlProfileSetUniqueChords、PublicHealthTextLifecycle 全部 Success。nullrhi（`ue-tests-ui2-null.log`）：ManagedNextMatch 以 warning 跳過畫面段並通過，HudHint 以 warning 跳過。
+- **避免**：任何放在模型「上方」的畫面元素（名牌、血條、提示），都要用畫面方向和模型 bounds 計算，不要用世界 Z 加常數。
+
+## E132 回城提示卡在左上角不關：hint 的來源元件是用 OS 游標找的（2026-10-27，session-ward）
+
+- **現象**：autopilot 或 off-screen 測試 hover 回城按鈕後，提示出現在左上角而且一直不關。真實玩家在 app 失焦時也會殘留。
+- **根因**：
+  - `SOmHudToolTip::OnOpening` 用 `GetCursorPos()`（OS 游標）去找開出 hint 的來源元件。autopilot 和 off-screen 的合成輸入只送 Slate pointer event，不會移動 OS 游標，所以找不到來源。
+  - 找不到來源時，關閉與否完全交給引擎的 `UpdateToolTip`。但引擎只在 app active 或 OS 游標在 Slate 視窗上時才檢查，所以 hint 永遠不關。
+  - 位置也是用 OS 游標算的：off-screen 下游標是 (0,0)，提示就跑到左上角。
+  - 補充：cursor user 的 `GetCursorPosition()` 回傳的也是平台游標，所以不能拿它當「Slate 實際送出的 pointer 位置」。
+- **通用修正**：
+  - 來源改從 Slate 最後一次送出 pointer event 的路徑取得（`FSlateUser::GetLastWidgetsUnderCursor()`，也就是引擎 tooltip 更新本身用的路徑）。真實或合成的 pointer 都適用，找不到時才退回 OS 游標。
+  - `SOmHudToolTipHost::Tick`：來源和 hover anchor 都不再被 hover 時，就關閉 hint（可閱讀捲動的 hint 在 hover 時除外）。不依賴引擎是否檢查。
+  - 定位：OS 游標不在來源元件上時（合成輸入），hint 開在來源元件旁邊。
+- **測試**：新增 `Om.Runtime.HudHintFollowsRoutedPointer`（需要 RHI，加 `-RenderOffScreen`，只移動 null cursor）。
+  - 合成 pointer 情境：hint 開在來源旁邊，不在游標或視窗角落；pointer 離開後就關閉。
+  - 真實游標情境：hint 開在游標旁邊；離開後就關閉。
+- **驗證**（全部 live 程式碼同步進影子專案並重編，`-d3d12 -RenderOffScreen`，log 在 `target/mvp-a3/ue-tests-ui4.log`）：HudHintFollowsRoutedPointer、NameplateAboveModelOnScreen、ReadableHudToolTip、ManagedNextMatch、ManagedNextMatchCancellation、ControlProfileSet、ControlProfileSetPersistence、ControlProfileSetUniqueChords、PublicHealthTextLifecycle 全部 Success。nullrhi（`ue-tests-ui2-null.log`）：ManagedNextMatch 以 warning 跳過畫面段並通過，HudHint 以 warning 跳過。
+- **實戰證據**：tripo-heroes 的 split run（`target/tripo-live-match-3/p1/autopilot-p1-shot-007-combat-text.png` 等）中，提示框就在回城[B] 按鈕正下方，從第 4～5 張截圖開始一直到比賽結束都沒關。
+- **避免**：HUD 互動邏輯只能依賴 Slate 實際送出的 event 和 hover 狀態，不要依賴 OS 游標位置。autopilot 從不移動使用者的游標（E114）。
+
+## E131 owned-viewport IPC 的 fixture 一直沒連上：bridge 拒絕 content 較新的 fixture，preflight 沒擋（2026-10-27，live-tripo-null-4）
+
+- **現象**：`live-tripo-null-4` 的 IPC 階段失敗：`fixture frame was not ready: connected=0 fps=0 catalog=1 frame=33 player=1 hero=0 phase=0`。時間點緊接在 E128 改成從副本執行 fixture 之後，因此一度懷疑是副本造成的。
+- **根因**：
+  - 不是副本造成的。fixture 正常啟動，startup.json 完整，也是從 `target/run-bin` 的副本執行。
+  - UE 的 `ue.stderr.log` 不斷出現 `om presentation runtime-ready rejected: runtime content=30724da96c6528cc renderer content=53083805ccf07bf7`。
+  - `moba_owned_viewport_ipc` 每次執行都會用目前的 lua_data 重建 fixture（`fixture.build()`）；live bridge 卻只在前端建置時更新（11:33）。之後 lua_data（Tripo 英雄）又改了，所以兩邊內容不一致。
+  - 這和 E125 是同一類問題，但 E125 的 content 檢查只接在 `moba_role_launch`，IPC 路徑沒有，結果只能等到 frame timeout，才得到一個看不出原因的錯誤。
+- **通用修正**：
+  - `moba_owned_viewport_ipc.lua` 在 fixture 啟動後、UE 啟動前，比對 fixture 的 `startup.content_hash` 與執行副本中 bridge 內嵌的 `OM_CONTENT_CATALOG_DATA_HASH`（`run_artifacts.content_hash`）。
+  - 不一致時立即報錯，並說明解法：重建前端，或使用相符的影子建置。
+  - 兩邊的 hash 都會寫進報告（`live_content_hash`、`bridge_content_hash`）。
+- **驗證**：
+  - `owned_viewport_ipc_contract_test.lua` 140 cases 通過。
+  - 用 `stage_ue_shadow.lua --sync --build` 依目前的 lua_data 重建影子專案，bridge 的 marker 為 `30724da9…`。
+  - `OM_UE_RUN_BINARIES=影子` 單獨執行 `moba_owned_viewport_ipc.lua --run-id e130-ipc-1`：`Om.Runtime.OwnedViewportIpc` 成功，success=true、failed=0、not_run=0，沒有任何 rejected，fixture 也是從 `target/run-bin` 執行。
+  - live 的 IPC 要等 live 前端用目前的 lua_data 重建（`build_ue_moba`）後才會通過；在那之前，新的 preflight 會直接報出原因。
+- **避免**：
+  - 凡是會在執行期比對 content hash 的兩端（server、runtime、fixture 對 bridge），每一個啟動入口都要在啟動 UE 前比對 marker，不能只接在其中一條路徑。
+  - 看到 `entities=0` 或 `connected=0` 時，先查 UE stderr 裡的 `runtime-ready rejected`。
+
+## E130 saika 換成 Tripo 身體後，`Om.Generated.NativeHeroPresentation` 仍要求舊 recipe 材質（2026-10-27，Tripo 材質 namespace）
+
+- **現象**：live 建置後的 nullrhi 全量測試（`omfue/Saved/Automation/LocalAcceptance/live-tripo-null-1`，native-001）失敗：`Expected 'Material uses recipe namespace' to be true.`。這次 run 裡英雄相關只有這一個斷言失敗（native-005 的 ManagedNextMatch 是 E127）。
+- **根因**：這支測試和 E121 的 `AuthoredHeroAnimationLifecycle` 一樣，寫死了 saika 只會有舊 b01 recipe 外觀（`RecipeV1/Materials/M_saika_magoichi`）。Tripo 身體用的是 FBX 內嵌貼圖匯入的材質（`TripoV1/<hero>/tripo_mat_*`），阿市則用上色變體（`TripoVariantsV1/oichi/`）。
+- **判斷：Tripo 材質是合理的例外，不改匯入流程**：
+  - RecipeV1 材質是 `ue_apply_asset_recipe.lua` 透過 MCP，用舊模型的貼圖為每位英雄各做一個「貼圖→材質」，沒有共同的 master material、outline 或遠鏡頭可讀性處理。本質和 Tripo FBX 內嵌的材質相同。
+  - MaterialsV1（`character_materials.lua`）是 CC0 Quaternius 人形專用的貼圖組。
+  - 讓 Tripo 改走 recipe 管線不會多得到任何東西，反而會多出一份重複的貼圖。
+  - 遠鏡頭的配色問題，已經改由 manifest 的 `recolor` 變體在建置期處理（阿市，見 ledger）。
+- **通用修正**：
+  - 測試依身體來源檢查各自的 namespace，而不是放寬：舊 recipe 身體照舊要求 RecipeV1；`TripoV1/<hero>/` 身體只接受自己匯入的材質（`TripoV1/<hero>/`）或宣告的變體（`TripoVariantsV1/<hero>/`）。
+  - `Om.Runtime.NativeHeroPoseSanity` 也對所有 Tripo 英雄做同樣的檢查，並記錄每個 slot 的材質路徑（8/8：阿市是 `oichi_mat_sakura`，其餘是各自的 `tripo_mat_*`）。
+- **驗證**：影子專案建置後，`NativeHeroPresentation`、`NativeHeroPoseSanity`、`AuthoredHeroAnimationLifecycle` 都 Success（`.ai-collab/tripo-material-ns-1`）。兩個檔案確認與影子一致後放回 live（CRLF）。
+- **避免**：更換某位英雄的身體來源時，用 `grep` 找出寫死該英雄資產路徑的測試（`RecipeV1`、`M_<hero>`、`b01_`），一起改成依來源檢查。
+
+## E129 英雄和敵人重疊時，傷害數字被另一個單位的名牌擋住（2026-10-27，英雄 spotlight）
+
+- **現象**：Tripo 版 spotlight 中，伊達 Q（踏火無痕）衝到敵人身上、村上突進時，「-510.2」「-325」被疊在一起的兩個名牌（敵人的在上，自己的在下）蓋住。
+- **根因**：
+  - 名牌是 UMG widget，永遠畫在世界空間的 `UTextRenderComponent` 數字之上，調整繪製層級無法解決。
+  - E123 的 `ClearNameplate` 只避開數字所屬單位自己的名牌（`Owner->GetNameplateDesktopBounds`），而且只看數字中心點的 X 是否落在名牌範圍內，沒考慮數字的寬度。
+  - 兩個單位重疊時，數字被推到自己名牌上緣，正好落在另一個單位的名牌底下。
+- **通用修正**（一般對局和 spotlight 共用同一條路徑）：
+  - 新增 `OmRuntime/Public/OmFloatingTextClearance.h`：純螢幕空間計算 `Lift(Base, HalfWidth, HalfHeight, Plates, Current)`，逐輪把數字推到所有仍重疊的名牌之上，疊在一起的名牌會一層層越過，最多 16 輪。數字的寬度也列入判斷，名牌順序不影響結果，已經上推的距離不會變小。
+  - `UOmCombatVisualSubsystem` 新增 `RegisterNameplateUnit`；`AOmUnitActor::EnsureNameplateWidget` 建立名牌時會註冊（只加 4 行）。
+  - 每個 tick 只有在有數字顯示時，才把可見名牌轉成 viewport 像素矩形（`GatherNameplatePixels`，畫面外的略過，失效的單位移除），再交給 `ClearNameplate` 一起避讓。沒有數字時不做任何事，不影響壓力場景的熱路徑。
+- **驗證**：
+  - 新測試 `Om.Runtime.FloatingTextClearance`：
+    - 先重現舊行為：只避開自己的名牌時，數字仍在敵人名牌底下；
+    - 新行為下數字清開所有名牌，名牌順序不影響結果，數字的邊緣碰到名牌也會上推；
+    - 遠處的名牌、上方很遠的名牌都不影響數字；已經上推的距離不會變小；無效矩形和 NaN 都不影響結果；
+    - 15 層疊在一起的名牌全部清開。
+  - 第一版的重疊判斷含邊界（`>=`），結果把剛好上推到邊距外的位置也算成重疊；改成嚴格比較後才通過。
+  - 影子建置中，`FloatingTextClearance`、`PublicHealthTextLifecycle`、`HeroNameplatePlacement` 都通過。
+  - 影子 binaries 重錄伊達與村上：伊達 Q 的「-400／-110.2」、村上的「-200／-102.6」都在兩個疊在一起的名牌之上。
+  - 原始碼以 3-way merge 合併回 live；live 在這段期間沒有變動，合併後與影子建置完全相同。live binaries 尚未用 UBT 重建，會在下一次 `build_ue_moba` 生效。
+- **避免**：世界空間的提示文字要避開螢幕空間 UI 時，必須考慮所有可見的 UI 矩形，不能只看自己的；同時要用文字的實際寬度判斷，而不是只看中心點。
+
+## E128 E124 漏掉的入口：ue_local_acceptance、原始音訊驗收仍檢查共用 base_content；renderer fixture 直接執行 target 裡的 exe（2026-10-27，omfx-decouple）
+
+- **現象**：`live-tripo-null-2` 的 `ue_local_acceptance.lua` 又因為「staged base_content differs from current build」被擋下。
+- **根因**：E124 只改了 `moba_role_launch` 的路徑。下面這些入口仍有舊問題：
+  - `ue_local_acceptance.lua` 第 49 行仍呼叫 `moba_stage_contract.verify(bindings(root))`，檢查共用的 `scripts/base_content.dll` 和 plugin 副本是否等於最新的 debug build。
+  - `verify_original_audio_output.lua` 除了同樣的檢查，還直接用 live `omfue/om.uproject` 啟動 UE，違反 E116。
+  - `moba_renderer_fixture.lua`（owned-viewport IPC 用）直接執行 `omoba-client-runtime/target/debug/omoba-renderer-fixture.exe`，執行期間鎖住它（E125 的同一類問題）。
+- **通用修正**：
+  - **ue_local_acceptance**：
+    - 改用 `ue_bridge_stage.verify_launch`，只比對 bridge 和它的 stage record。
+    - base_content 用 `run_artifacts.stage_base_content` 複製到 `target/ue-local-acceptance/<run_id>/`。
+    - UE 執行副本用 `ue_run_snapshot.prepare(root, nil, {base_content=...})` 載入這份。
+  - **verify_original_audio_output**：同上；UE 改從執行副本（`snapshot.uproject` / `project_dir`）啟動。
+  - **moba_renderer_fixture**：
+    - 來源改走 `run_artifacts.rust_binary`（遵守 `OM_RUST_RUN_BINARIES`）；
+    - `spawn_fixture` 先用 `stage_binaries` 複製到 `target/run-bin/<key>/`，再從副本啟動。
+  - **全面盤點**：
+    - 仍用 `moba_stage_contract.bindings` 的只剩建置流程（`build_ue_moba` build 模式、`hero_author` 的 build 驗證），它們檢查的是剛 stage 的東西，屬於正確用法。
+    - `run_ue.lua` 的舊 TD 模式（非 MOBA）仍讀共用 `scripts/`，MOBA 模式已轉到 `run_moba_session_ue`。
+    - `run_2player*.lua`、`run_moba_headless_batch.lua`、`run_moba_runtime_smoke.lua` 直接讀 `target/<profile>`，但不做共用副本檢查。這些列為後續工作。
+- **驗證**：
+  - `ue_local_acceptance_contract_test.lua` 69 cases、`owned_viewport_ipc_contract_test.lua` 140 cases 通過。
+  - `renderer_spawn_lifetime_test.lua --run-spawn-lifetime` 實際啟動 fixture 並通過，fixture 是從 `target/run-bin` 的副本執行。
+  - 所有修改的 Lua 檔都能載入。
+- **避免**：新的驗收或啟動入口一律走 `ue_bridge_stage.verify_launch`、`run_artifacts.stage_base_content` / `stage_binaries`、`ue_run_snapshot`；不可再用 `moba_stage_contract.bindings` 做 launch 前檢查。
+
+## E127 nullrhi 全量測試的真實游標點擊判定受使用者桌面影響，`ManagedNextMatch` 偶發失敗（2026-10-27，main）
+
+- **現象**：live 建置後跑 nullrhi 全量 Om.（live-tripo-null-1），`Om.Runtime.ManagedNextMatch` 失敗在 `Actual pointer hits next-match action`。同一項測試先前在 nullrhi 下 302/302 都通過過。
+- **根因**：E114 只對 d3d12 套件加了 `-RenderOffScreen`。只加 `-NullRHI` 時，UE 仍使用 Windows platform application，`LocateWindowUnderMouse` 會先問 OS「目前游標下是哪個視窗」，所以結果取決於使用者桌面上開著什麼。測試碼裡還有 20 多處直接用真實桌面做點擊判定，沒有改用 `OmLocateHit`。
+- **通用修正**：`ue_local_acceptance` 對所有套件（含 nullrhi）都加 `-RenderOffScreen`，改用 null platform application，`GetWindowUnderCursor` 一律回空，判定退回 Slate 自己的視窗順序，結果固定，也不會碰到使用者桌面。不逐一修改測試，也沒有把未編譯的 C++ 放進 live（E076）。
+- **避免**：任何自動化 UE 程序，不論 RHI，都要經過 `ue_desktop.append`。之後新寫的點擊測試一律用 `OmLocateHit`。
+- **更正（2026-10-27，session-ward，見 E134）**：`ManagedNextMatch` 失敗的原因不是使用者桌面。這項測試從來沒有在 nullrhi 下通過過（先前通過的都是 d3d12）。nullrhi 下 Slate 不會繪製，hit-test grid 是空的；加 `-RenderOffScreen` 也一樣會失敗。本條的 `-RenderOffScreen` 修正本身仍然正確。
+
+## E126 其餘 7 位 Tripo 英雄：離線截圖畫出上一個姿勢；omatsu 的 idle 不合格；Tripo 頁面設定會被重設（2026-10-27，Tripo 英雄批次）
+
+- **現象**：
+  - `Om.Runtime.NativeHeroPoseSanity` 和 `Om.Editor.PoseCapture` 的截圖，常常畫出上一支動畫，甚至是更早的姿勢。量測數據顯示 attack 和 idle 差 0.3–0.6 個身高，但兩張圖一模一樣；loop 的 move 有時正確。
+  - omatsu 沒通過英雄姿勢檢查：`Spell_Simple_Idle_Loop` 有一隻手腕高過肩膀（+0.016），attack 和 idle 只差 0.025。
+  - Tripo studio：每次進頁面，AI 模型都會回到 H3.1（40 點），綁定的骨骼預設也會回到 Mixamo。有一次按「生成」沒有送出（沒扣點），重新上傳後才成功。
+  - 多英雄同框的遊戲內錄影，和標準的 saika spotlight 一樣，都停在 loading 4/6、`entities=0`。原因是 E124 提到的 bridge（10:56）和 client runtime（10:28 release）不是同一批建置。runtime exe 正被其他 session 的 run 使用，沒辦法重建。已解決：E125 的流程改成每局從 exe 副本執行之後，重建 omobab 和 client runtime（release），用 `stage_ue_shadow.lua --sync --build` 重新 stage 影子專案，lineup 就錄成功了（`target/spotlight-lineup/saika_magoichi/`）。
+- **根因**：
+  - 不在 world tick 裡時，`RefreshBoneTransforms` 只更新可編輯的骨架緩衝，渲染端還是舊的 skinning。`SendAllEndOfFrameUpdates`、`MarkRenderDynamicDataDirty` 都不夠。saika 專用的 authored 測試之所以截得正確，是因為它會讀 `GetCPUSkinnedVertices`，順帶把姿勢推到渲染端。
+  - 動畫庫的施法 idle 本來就舉著手，用在 idle 上就分不出施法和待機。
+  - Tripo 只記住幾何與紋理設定（2K、PBR、拓撲、面數），不記 AI 模型版本和骨骼預設。
+- **通用修正**：
+  - `Om.Editor.PoseCapture` 在 FK 之後呼叫 `GetCPUSkinnedVertices`，截圖和量測現在一致。`NativeHeroPoseSanity` 拿掉截圖功能，只做量測，避免產生會誤導的證據；圖改由 PoseCapture 產生，一律加一支 A_TPose 當暖身。
+  - omatsu 的 idle 改成 Idle_Loop。這是英雄姿勢檢查第一次實際擋下不合格的選擇。
+  - Tripo 操作守則（寫在共用筆記 `tripo-hero-pipeline.md`）：每次生成前確認按鈕上是 25 點（H3.0），綁骨前確認預設是 UE5 Mannequin；按下生成後確認網址換成新的任務 ID、點數有扣，否則重新上傳。
+- **驗證**：
+  - 8 位的 retarget：facing 都是 180，參考姿勢誤差 3–5°，最大 36°（saika 的 Pistol_Aim_Down）。
+  - `NativeHeroPoseSanity` 8/8 通過。
+  - PoseCapture 截圖 `.ai-collab/tripo-pose-2/all_heroes_idle_move_attack.png`（側面：idle／跑步／attack）。
+- **避免**：
+  - 離線渲染動畫姿勢時，要用和截圖同一條渲染路徑驗證「換一支 clip 畫面就會變」，不能只看檔案大小或 hash 不同。
+  - 要在網站上花錢的設定，每次送出前都看按鈕上的價格。
+
+## E125 每局直接執行 target 裡的 omobab／client runtime，exe 被鎖住，其他 session 只能重建一半；bridge 拒絕 content hash 不同的 runtime，畫面一直是 entities=0（2026-10-27，omfx-decouple）
+
+- **現象**：E124 的 smoke（10:57、11:06）、ward 與 tripo-heroes 的 run 都卡在 loading 4/6。UE log 一直是 `OM_PRESENTATION tick=1 entities=0`，runtime 不斷記錄 `renderer IPC disconnected: unexpected end of file`。重建 runtime 也失敗（`存取被拒 os error 5`）。
+- **根因**：
+  - UE 的 stderr 有 `om presentation runtime-ready rejected: runtime ... content=3c37d7b4ef769133 renderer ... content=62f50a931e14ae4f`。bridge 會比對 runtime ready 帶來的 `CONTENT_CATALOG_DATA_HASH`，不同就斷線；runtime 隨即重連，結果無限循環，畫面上看不到任何錯誤。
+  - 為什麼會不同：每一局都直接執行 `omb/target/release/omobab.exe` 和 `omoba-client-runtime/target/release/omoba-client-runtime.exe`，執行中 exe 被鎖。lua_data 改動後，其他 session 的 cargo 只重建得了 moba-config 和 bridge，omobab 和 runtime 複製失敗，仍停在舊內容。launch-plan 的 `content_hash` 是 62f5…，跑起來的 runtime 卻是 3c37…。
+  - preflight 沒有比對各個 binary 帶的內容版本。protocol 版本（`PRESENTATION_PROTOCOL_VERSION=14`）兩邊相同，所以那一層也查不出來。
+- **通用修正**：
+  - **exe 改從快取副本執行**：`run_artifacts.stage_binaries` 把 server 與 client runtime 複製到 `target/run-bin/<key>/`，再從副本啟動。
+    - key 依來源的名稱、大小、時間產生，重建後會產生新副本，已在跑的局繼續用舊的。重用時會 touch `ready.txt`，最近用過的最晚被清。
+    - 只保留 6 份，清理前先改名，使用中的 Windows 拒絕改名，因此不會被刪。
+    - `target/<profile>` 底下的 exe 從此不被任何一局鎖住，cargo 隨時可以重建。
+    - 接在 `moba_role_launch.prepare`（`use_run_binaries`），所以 run_moba_role_ue、split、spotlight、dedicated server 都會走這條路。
+  - **指定 binaries 來源**：`OM_RUST_RUN_BINARIES=<cargo target 目錄>`（例如 session 自己的 `CARGO_TARGET_DIR`）指定所有 crate 的來源，比照 `OM_UE_RUN_BINARIES`；沒設定時才用各 crate 的 `target`。
+    - 解析入口是 `run_artifacts.rust_target`／`rust_binary`。
+    - 跟著這個變數的有：omobab、client runtime、moba-config（`moba_config_command`）、`moba_server_build.verify`、run 的 base_content 來源，以及 `ue_bridge_stage.sources`（影子 stage 的 bridge／base_content）。
+    - 之前 exe 路徑寫死在 `moba_role_launch`，session 自建的 target 用不上。
+  - **content marker 與 preflight**：
+    - `omoba-template-ids/build.rs` 產生 `CONTENT_CATALOG_MARKER = "OM_CONTENT_CATALOG_DATA_HASH=<hash>;"`。omobab、client runtime 啟動時會 log 它，bridge 在 `om_runtime_create` 時 log 它（`black_box`），確保這段字串留在 binary 裡。header 不變，UE 不必重建。
+    - `run_artifacts.content_hash` 直接掃描 binary 讀出 hash。
+    - prepare 時，`verify_content` 拿 server、runtime，以及將要執行的 UE 專案（`OM_UE_RUN_BINARIES` 或 live）的 om_bridge.dll，和 authority 的 `content_hash` 比對；不一致就在啟動前報錯，並列出每個 binary 的 hash。
+    - E125 之前建置的 binary 沒有 marker，只提示，不擋下。
+- **驗證**：
+  - `run_artifacts_test.lua` 增加到 40 項：快取、重建產生新副本、已開始的局保留副本、清理、marker 跨讀取邊界、不一致時拒絕、沒有 marker 只提示。
+  - `test_moba_role_launch.lua` 11/11（斷言 server 與 runtime 都從 `target/run-bin` 執行）；`test_moba_dedicated_server.lua` 7 組；launch contract 9/9。
+  - 實機 smoke：
+    - 其他 session 的舊流程程序釋放 release exe 後，重建 omobab、client runtime、base_content，並用 `stage_ue_shadow.lua` 重新 stage 影子專案。三者的 marker 都是 `62f50a931e14ae4f`。
+    - date_masamune spotlight（run-20261027-112837，離屏，影子 binaries）錄製成功，8 個 keyframe 都有，影片 1920x1080。
+    - server 與 runtime 都從 `target/run-bin/<key>/` 執行；UE 達到 `tick=5379 entities=23 heroes=3`，沒有出現任何 `runtime-ready rejected`。
+- **避免**：
+  - 啟動遊戲程序一律從 run 副本執行（`run_artifacts`），不可直接執行 `target/<profile>` 裡的 exe。
+  - 會在執行期比對內容或協定的兩端，launch 前就要用 binary 裡的 marker 比對；不能只靠執行期斷線來表示不一致，因為那在畫面上看不出來。
+  - 尚未接上的入口：`moba_owned_viewport_ipc`、`run_moba_headless_batch.lua`、`run_ue.lua`、`run_2player*.lua`。
+
+## E124 共用的 scripts/base_content.dll 與影子專案的 bridge／base_content 副本，被其他 session 的重建弄成過期，launch preflight 反覆擋下（2026-10-27，omfx-decouple）
+
+- **現象**：E002、E106 之後仍反覆發生。某個 session 重建 debug base_content（`cargo build`、`cargo test`、build_ue_bridge 都會），共用的 `scripts/base_content.dll` 和 plugin 裡的副本就和 `scripts/target/debug` 不一致。結果：
+  - `moba_server_build.verify` 擋下 server；
+  - `build_ue_moba --verify-staged-only` 擋下 launcher；
+  - 影子專案（E116）要靠各 session 自己的腳本手動 `cp`（ward 的 `ueproj.sh`、session-g1 的 `shadow_stage.lua`）；
+  - bridge 被重建也一樣：今天 live plugin 的 om_bridge.dll（08:01 stage）比共用 build（10:29）舊，live launch 被擋。
+- **根因**：
+  - 所有 launch 共用同一份 stage 副本，preflight 檢查的是「副本 == 共用 target 裡最新的 build」，而那份 build 任何 session 都會改寫。這是在檢查新舊，不是在檢查這次 run 自己是否一致。
+  - server 和 runtime 直接載入共用副本，副本被換掉時兩邊也可能不一致。
+- **通用修正**：
+  - **base_content 每個 run 各自一份**：
+    - `scripts/run_artifacts.lua`：launch 的 prepare 從 `scripts/target/{debug,release}` 取最新的 build（同時間時取本次建置的 profile），複製到 `<run>/artifacts/scripts/base_content.dll`，並寫 `artifacts/base_content.json`（profile、來源、SHA-256）。複製期間來源被重建（大小或時間改變）會重試，三次後拒絕。
+    - `moba_role_launch` 的 game.toml `SCRIPTS_DIR`／`DLL_PATH`、server 與 client runtime 的 `OMB_SCRIPTS_DIR`／`OMB_DLL_PATH` 都指向這份副本；載入器讀取的是 `OMB_SCRIPTS_DIR` 目錄，裡面只有這一個 DLL。
+    - 同一台機器上的同一局必須載入相同內容：`run_moba_split_local` 的 client 加上 `--base-content <authority 的 run 副本>`，複製 authority 的那份，不另外取最新 build。
+    - `ue_run_snapshot.prepare(root, deps, {base_content=...})`：執行副本用 run 的 DLL 取代 plugin 裡 stage 的那份，並把 SHA-256 混進 key，所以內容不同的 run 不會共用副本。
+    - `moba_server_build.verify` 只要求有 build 存在，不再檢查共用副本。
+  - **bridge 改成檢查 stage record**：
+    - 新增 `scripts/ue_bridge_stage.lua`：stage header、lib、bridge、base_content，並在 `Plugins/OmRuntime/Binaries/Win64/om_bridge.stage.json` 寫下這組檔案的 SHA-256。`build_ue_bridge.lua` 已改用它。
+    - launch 檢查（`verify_launch`）只確認專案裡的 DLL 和 header 是當初一起 stage 的；若共用 build 比較新，只提示「不是最新」，不擋下。
+    - 沒有 record 的舊專案沿用舊規則；live 下次 `build_ue_moba` 後就會有 record。
+    - 建置（build mode）仍然檢查剛 stage 進 live 的兩份副本。
+  - **影子專案統一入口**：`tools\lua\lua.exe scripts\stage_ue_shadow.lua --project DIR [--sync] [--build]`。
+    - `--sync`：只複製有變動的原始碼，刪除 live 已刪除的檔案；新影子專案會一次性帶入 live 的 Binaries 和 Intermediate/Build，讓 UBT 從增量開始。
+    - 預設動作：codegen 輸出到影子專案；建置 bridge 和 debug base_content；cbindgen；stage 並寫 record。不會寫入 live。
+    - `--build`：對影子專案跑 UBT（`-WaitMutex`）。
+- **驗證**：
+  - 新增 `scripts/tests/run_artifacts_test.lua`（27 項）、`scripts/tests/ue_shadow_stage_test.lua`（35 項）。
+  - 更新並通過：`test_moba_server_build.lua`（5 組）、`test_moba_role_launch.lua`（11/11，斷言 server／runtime／game.toml 都指向 run 副本）、`tests/ue_bridge_stage_test.lua`（12 cases，verify-only 不再檢查共用 base_content）、`tests/run_moba_split_local_test.lua`、`test_moba_launch_contract.lua`（9/9）、`tests/ue_run_snapshot_test.lua`（27 項）。
+  - 實際用 `stage_ue_shadow.lua` stage `target/session-g1/ue_shadow` 並寫入 record；`OM_UE_RUN_BINARIES=影子專案` 執行 `--verify-staged-only` 通過。
+  - 實機 spotlight（date_masamune，影子 binaries，離屏，run-20261027-105729）：
+    - 程序模組清單顯示 server（omobab）與 client runtime 都載入各自 `<run>/server|p1/artifacts/scripts/base_content.dll`，不是 `scripts\base_content.dll`；
+    - 兩份副本與 UE 執行副本 `target/ue-run/359f6ed7cd481530` 內 plugin 的 base_content 都是 SHA-256 `585427ec…`；
+    - 同時間另一個 session 的 spotlight-lineup run 也已走這條路徑。
+    - presentation-only 的 UE 本身不載入 base_content。
+    - 這兩次 smoke（10:57、11:06）都沒有錄到影片。runtime 正常 tick，但 UE 每次連上 presentation IPC 就斷線（runtime 記 1125 次 `renderer IPC disconnected: unexpected end of file`），畫面停在 `tick=1 entities=0`，loading 4/6 逾時。
+      - 同時間另一個 session 的 spotlight-lineup run（快照 b3a0…）也是一樣的情況。
+      - 10:36 成功錄影後唯一改變的是 bridge：影子專案從共用 target 重新 stage 了其他 session 10:29～10:56 間重建的 om_bridge.dll（c7268d9e…；header 沒變），runtime exe 仍是 10:28 版。
+      - 想重建 runtime 做對照，但 exe 正被其他 run 使用（os error 5），對照未完成。
+      - 研判是 bridge 和 runtime 不是同一批建置，與 per-run base_content 無關，列為後續工作。也就是說，「stage 最新的 bridge」需要搭配同一批建置的 client runtime。
+  - `test_moba_network_launch.lua` 第 56 行失敗，原因是期望值 57062 沒有跟上 presentation port = port + player_id（57067），與本修正無關；它的 prepare 已產生 run 副本，`moba-config --config` 也接受了。
+- **避免**：
+  - launch 的檢查只回答「這次 run 自己是否一致」，不要拿共用 target 裡最新的 build 當基準。
+  - 新的 launcher 要經過 `run_artifacts.stage_base_content`，不可讀 `scripts/base_content.dll`。
+  - 影子專案不要手動複製 DLL，用 `stage_ue_shadow.lua`。
+  - 尚未接上的舊入口（`run_ue.lua`、`run_2player*.lua`、`run_moba_headless_batch.lua`、`run_moba_runtime_smoke.lua`）仍直接讀共用副本或 target，列為後續工作。
+
+## E123 浮動血量數字疊成一團，被誤認為「直排」：回血每 tick 一個、堆疊行號依數量計算、上飄跨行、名牌避讓逐行計算（2026-10-27，英雄 spotlight）
+
+- **現象**：saika spotlight 的 08 影格中，敵方替身頭上有一團看似直排的「+0.1」。tamako 的燃燒傷害「-2.7／-2.1」也疊在一起，「-357.5／+0.9」在名牌上緣重疊。
+- **調查**：
+  - 連續放大 4 格後確認：每個數字都是橫向，和同一格的「-357.5」方向一致。E111 的 OmScreenFacing 在 spotlight 鏡頭下有生效，鏡頭沒有 roll，也沒有使用其他 view。
+  - 「‡8:1」其實是 3 到 4 個「+0.1」上下重疊。
+  - 回血和傷害走同一條路徑：整個專案只有 `OmCombatVisualSubsystem` 建立浮動數字。
+- **根因**（`OmCombatVisualSubsystem`，一般對局和 spotlight 都受影響）：
+  1. 回血幾乎每個 tick 都送一筆很小的回復，每筆各冒一個數字、各存在 1 秒。
+  2. 堆疊行號取「同一單位目前有幾個數字」：較舊的數字消失後，新數字會重用仍被佔用的行。
+  3. 行距 28，但上飄速度 45／秒，舊數字會飄進下一行，和在那一行新建的數字重疊。
+  4. `ClearNameplate` 以每個數字自己那一行的位置計算上推量：第 0 行推得多、第 1 行推得少，兩者剛好停在名牌上緣同一個位置。
+- **通用修正**：
+  1. 小於 5 HP 的回復按單位累積，累積到 5 或從第一筆起滿 2 秒才合併成一個「+N」。傷害、暴擊、閃避和大額治療照舊即時顯示。到期的合併數字在老化迴圈之後才顯示，否則一次 Tick 的 DeltaSeconds 會讓它當場過期。`IsTickable` 也納入「有累積中的回復」。
+  2. 新數字取「和每個存活數字目前高度（行號＋已上飄的行數）都至少差一行」的最低行。所有數字上飄速度相同，建立時隔開，整個存活期間都會隔開。
+  3. 名牌避讓改以堆疊底部（`State.Origin`）計算，整疊數字一起上移，行距不變。
+  4. 測試 `Om.Runtime.PublicHealthTextLifecycle` 新增斷言：
+     - 30 個 0.1 合併成一個「+3」，累積到門檻時立即顯示；
+     - 傷害不會被合併；
+     - 每個數字各占一行，空出的行會被重用；
+     - 0.3 秒後的燃燒數字會避開已經上飄的那一行。
+     
+     它和 `HeroNameplatePlacement` 都在影子 binaries 離屏 d3d12 下通過。
+- **結果**：8 位 spotlight 重錄後，tamako 的燃燒數字等距排開，saika 的回血合併成一個「+0.8」，傷害數字橫向且不重疊。
+- **過程中的錯誤**：
+  - 第一版測試在一次 Tick 了 2.1 秒，合併數字當場過期而沒顯示，因此改了顯示順序。
+  - 第二版測試沒考慮門檻後剩下的 1.0 還在累積。
+  - 第一次修好重疊後，名牌避讓又讓底部兩行重疊，抽看影格才發現。
+- **避免**：判斷「方向錯誤」前，先放大連續幾格，看是單一字形旋轉還是多個字重疊。凡是逐筆產生的高頻呈現（regen、DoT），都要有門檻或聚合；堆疊類的 UI 要用物件目前的實際位置挑空位，不能用數量計算；任何後處理的位移都要整組一起套用。
+
+## E122 Tripo saika 雙臂穿過身體像殭屍：來源動畫庫和 Tripo 骨架朝向相反，auto-align 依世界方向把手臂拗向另一側（2026-10-27，Tripo saika 試點）
+
+- **現象**：main 檢查 E121 的截圖，發現 idle 和 attack 都是兩臂往前平伸；attack 和 idle 幾乎一樣。E121 的直立檢查（Idle 963‰）沒有擋下來。
+- **根因**：
+  - 用新增的 `Om.Editor.PoseCapture` 以 FK 量測關節：retarget 後的 A_TPose，左臂從 X +11（左肩）伸到 X −17，右臂也一樣反過來，手臂穿過胸口。
+  - 原因是朝向：CC0 動畫庫的參考姿勢腳趾朝 −Y，Tripo 骨架朝 +Y，兩邊左右命名都正確，只差 180°。`AutoAlignAllBones(Target)` 把目標骨頭對齊到來源的世界方向，所以每條肢體都被拗到身體另一側。
+  - 直立度只看垂直範圍，手臂水平地往錯的方向伸，它照樣算「直立」。
+  - 另一方面，來源的 Pistol_Idle_Loop 本來就是雙手持槍前舉（來源手腕 Z 1.34–1.40，肩膀 1.42，往前 0.36 m），Pistol_Shoot 和它幾乎一樣。saika 的步槍背在背上、手上沒有槍，所以這個 idle 看起來像殭屍，attack 也看不出差別。
+- **通用修正**：
+  - `OmCharacterRetargetCommandlet` 從參考姿勢的腳→腳趾（沒有腳趾就用頭→臉）算出來源和目標的朝向，取差值並四捨五入成 90° 的倍數（`FacingDegrees`）。
+    - 不為 0 時：對來源 root 設 retarget pose 偏移（local delta `Ref⁻¹·Yaw·Ref`），每支來源評估動畫的 root 也乘上同一個 Yaw，然後才 auto-align。
+    - 簽章加上 `facing:<deg>|`，結果回報 `source_facing_correction_deg`。facing 為 0 時簽章不變，CC0 六個 rig 的既有輸出照常 verified。
+  - 姿勢忠實度 `pose_error_deg`：每支動畫在第一格和中間格，比較來源和目標「retarget root → 左右手、左右腳、頭」的方向夾角，取最大值。Lua 端要求每支 ≤ 60°、reference clip ≤ 20°，另外驗證 facing 只能是 0／±90／180，且簽章一致（測試 51 項，含 folded_limbs、fractional_facing）。
+  - 實測結果：
+    - saika 修正後是 5–18°（Pistol_Aim_Down 36°）。
+    - CC0 回歸（male_base 等 6 個）是 3–16°。
+    - 修正前手臂穿身體，接近 180°。
+  - 新增 `Om.Runtime.NativeHeroPoseSanity`：每個用 TripoV1 身體的英雄都要通過兩項檢查。
+    - idle 時兩手腕至少低於肩膀 5% 身高。
+    - attack 和 idle 的手腕或頭位移至少 8% 身高。
+    - saika 實測：手腕低於肩膀 0.26／0.25，attack 差異 0.385。
+  - saika 的 idle 改成 Idle_Loop。
+  - `Om.Editor.PoseCapture`（`-om-pose-capture-mesh/clips/dir`）可對任何網格加動畫輸出正面／側面 PNG，以及 FK 關節座標。
+- **避免**：
+  - 新的骨架來源先比對朝向（腳趾方向），再看 retarget 結果。
+  - 判斷 retarget 好壞用「和來源比較的方向誤差」，不要只看直立度或有沒有動作。
+  - 選 idle／attack 動畫時，要看英雄手上實際拿什麼；動畫庫的手槍姿勢不適合空手或背槍的身體。
+
+## E121 Tripo 試點：retarget 驗證不檢查姿勢是否直立；俯視錄影誤判成躺倒；authored 英雄測試寫死舊 recipe；直接改了 live C++（2026-10-27，Tripo saika 試點）
+
+- **現象**：
+  - saika_magoichi 換成 Tripo 骨架後，spotlight 俯視（-60°）畫面看起來像躺在地上、雙手攤開。retarget 結果 46 物件、39 支有動作，全部「通過」，但驗證只檢查數值有限和有沒有動作，就算姿勢整個倒下也會通過。
+  - `Om.Runtime.AuthoredHeroAnimationLifecycle` 寫死舊 b01 recipe 的材質路徑（M_SaikaCloth／RecipeV1）、`cast_secondary` 片段，並且要求 `EndSeconds > 0`。換成 Tripo 外觀後，8 個 slot 全部失敗。
+  - 第一次 spotlight 啟動時被 `moba_stage_contract` 擋下：影子專案的 `om_bridge.dll`／`base_content.dll` 比目前的建置舊。
+  - 本 session 一度直接 Edit live 的 `OmCharacterRetargetCommandlet.cpp`（還沒編譯就寫進 live 樹，違反 E102／E107），幾分鐘內用影子副本還原。
+- **根因**：
+  - retarget 驗證缺少「直立」量測。俯視畫面裡，雙手前舉的 Pistol_Idle 看起來像攤開，無法判斷姿勢。
+  - 測試假設 saika 只會有一種外觀。
+  - 影子專案的 Binaries 只由 UBT 建置，Rust bridge 與 script DLL 要另外 stage。
+- **通用修正**：
+  - `OmCharacterRetargetCommandlet` 為每支 clip 回報 `upright_permille`（第 0 格骨架垂直範圍 ÷ 參考姿勢垂直範圍）。`character_retarget.verify_result` 要求每支 clip 都有這個值、reference clip ≥ 900，且至少一半的 clip ≥ 700（測試加上 missing_upright、lying_library）。saika 實測：Idle 963、Pistol_Shoot 963、Crouch 約 500、Swim_Fwd 361，結論是站著的，不是躺倒。
+  - 判斷姿勢改用 `Om.Runtime.AuthoredHeroAnimationLifecycle` 的側面截圖（`-om-authored-hero-capture=<dir>`），不用俯視錄影。這支測試改成通用版：網格在 `/Game/OmGenerated/Heroes/` 底下才套用舊 recipe 的期望；其他外觀改成要求每個 section 用自己匯入的材質，`EndSeconds` 為 0 視為整段，沒有 `cast_secondary` 就跳過。
+  - 影子專案啟動前，從 `omfue/bridge/target/debug/om_bridge.dll` 和 `scripts/target/debug/base_content.dll` 複製到影子的 `Plugins/OmRuntime/Binaries/Win64`（只寫影子）。
+- **驗證**：影子 UBT 建置（`-NoHotReloadFromIDE`）成功；retarget 兩次（verified／saved 0）通過新門檻；`AuthoredHeroAnimationLifecycle` 在影子執行副本 Success；`character_retarget_test.lua` 46 項。兩個 C++ 檔確認與影子完全相同後才複製回 live。
+- **避免**：
+  - 改 C++ 一律先改影子、建置通過再複製回 live。
+  - 判斷模型姿勢、朝向、比例，用側面截圖；俯視畫面只能用來看辨識度。
+  - 英雄尺寸不用手調：hero 由 `ConfigureWorldPresentationScale` 依網格邊界正規化到 120 world units。
+
+## E120 離屏 renderer 忽略 -ResX/-ResY，spotlight 只錄到 888×500；stage 檢查不認 OM_UE_RUN_BINARIES（2026-10-27，英雄 spotlight）
+
+- **現象**：
+  - E114 改成 `-RenderOffScreen` 之後，spotlight 錄到的 `frames.jsonl` 每一格都是 888×500，ffmpeg 把它放大成 1080p，畫面糊掉。
+  - 設定 `OM_UE_RUN_BINARIES` 用影子 binaries 跑時，client 的 preflight（`build_ue_moba --verify-staged-only`）一律回報「staged base_content differs」。
+- **根因**：
+  - 離屏時 UE 改用 null platform application，`-ResX/-ResY` 不會套到 viewport。
+  - `moba_stage_contract.bindings` 寫死檢查 live 的 `omfue/Plugins/OmRuntime/Binaries`，但 snapshot 實際複製的是 `OM_UE_RUN_BINARIES` 指定的專案。
+- **通用修正**：
+  - `moba_role_launch` 對離屏的 autopilot／spotlight 座位加上 `-ForceRes`，並在 `-ExecCmds` 補上 `r.SetRes <寬>x<高>w`（尺寸取自 `--resolution`）。實際錄到的影格因此變成 1920×1080。
+  - `bindings(root, project)` 預設檢查 `OM_UE_RUN_BINARIES` 指定的專案，沒設時才看 live omfue。`build_ue_moba` 在建置模式下明確檢查 live（它剛 stage 進 live）。`test_moba_launch_contract` 新增一項測試。
+- **結果**：從影子 binaries（含 ward 的 E111 OmScreenFacing）重錄 8 位，全部 1920×1080，傷害數字為橫向。
+- **避免**：換渲染模式（離屏、null RHI、遠端）時，第一次跑要先核對實際影格尺寸，不能只看參數有沒有帶上。任何「替代 binaries」機制都要讓 snapshot、preflight 與 stage 檢查讀同一個來源。
+
+## E119 owned-viewport IPC 的 item-cooldown 斷言寫死「4.0」，HUD 早就改顯示「4秒」；alt-r-aid-self 偶發沒送出（2026-10-27，IPC 驗收）
+
+- **現象**：
+  - E115 修好之後，`manafix-ipc-3` 失敗在 `item-cooldown item HUD did not match the owner rows: kind=2 texts=守護符 4秒 [1] | ...`。冷卻值本身是 4.0，row 也正確，只有文字不符。
+  - `manafix-ipc-2` 失敗在 `alt-r-aid-self produced no AbilityCast intent`：按 Alt+R 後，log 既沒有 OM_CAST 也沒有 OM_CAST_REJECT。
+- **根因**：
+  - item-cooldown：e397732（10-24）讓道具格的冷卻改用 `FOmDurationText::Seconds(v, true)`，整數秒會去掉「.0」，所以顯示成「4秒」或「[冷卻 4/4秒]」。`OmOwnedViewportIpcTests.cpp` 有四個地方仍用 `Contains(TEXT("4.0"))`；10-21 之後沒有跑過完整一輪 IPC，所以一直沒發現。
+  - alt-r-aid-self：沒能重現。影子專案在 `HandleCastChord`／`HandleCastKeyUp`／`CombatAim.Press` 加了診斷 log 後，連跑三輪（ipc-3、4、5），這個案例每次都過：SelfCastR 的 chord 每次都看到 `hold=0`，modifier 也比對成功。「上一個案例的 R 鍵卡在按住」的推測沒有證據支持，所以沒有改產品程式碼。
+- **通用修正**：
+  - 測試新增 `ShowsItemCooldown(Text, Seconds)`，用 HUD 同一個 formatter 產生預期字串，同時接受精簡版「<值>秒」和完整版「冷卻 <值>/」。四處 `"4.0"` 斷言都改成呼叫它，數值本身仍然用 `Near(..., 4.f)` 檢查。
+  - 影子建置一律帶 `-NoHotReloadFromIDE`（見 E118）。
+- **驗證**：影子專案 `target/session-mana/ueproj` 以 UBT 建置（只多了診斷 log 和這次的測試修正）。帶 `OM_UE_RUN_BINARIES` 跑的 `manafix-ipc-4`（full，`-RenderOffScreen`）整輪通過：`success=true`、`Om.Runtime.OwnedViewportIpc` 沒有錯誤。`manafix-ipc-5` 在 Selection 階段撞到 860 秒的總時限；editor 啟動花了約 4 分鐘（當時機器負載高），在那之前所有案例都通過。live 只放回測試原始碼，沒有建置 live。
+- **避免**：
+  - 驗收斷言要檢查顯示文字時，用產品自己的 formatter 產生預期值，不要寫死格式。
+  - 改 HUD 文字格式的 commit，要同時搜尋 IPC／automation 測試裡寫死的字串。
+  - 偶發失敗要先加診斷 log 重跑幾輪取得證據，有證據才改產品程式碼。
+
+## E118 影子專案的 UBT 建置被使用者 editor 的 Live Coding 擋下；角色管線只認 Quaternius 一套來源（2026-10-27，英雄 3D 模型）
+
+- **現象**：
+  - 在 `target/session-assets/ueproj/omfue` 影子專案用 `Build.bat OmGameEditor ... -Project=<影子>` 建置，UBT 直接回 `Unable to build while Live Coding is active`（使用者的 editor 開著 live 專案）。同一個指令十分鐘前還能建置。
+  - 要替 8 位英雄匯入 Tripo 生成的骨架模型，但 `OmCharacterSourceImport`／`OmCharacterRetarget` 把來源目錄（QuaterniusV1）、輸出目錄與 registry 都寫死，也不接受帶材質的 FBX；`import_character_sources`／`retarget_characters` 還是直接用 live `omfue/om.uproject` 啟動（違反 E116）。
+  - 用一個非 UE 標準骨架的 FBX 試跑時，UE 的 auto characterization 失敗（`native auto characterization/FBIK failed`），retarget 整個中止。
+- **根因**：
+  - UBT `HotReload.CheckForLiveCodingSessionActive` 以 engine 的 `UnrealEditor.exe` 判斷 Live Coding session；只要有任何 editor 開著 Live Coding，同一個 engine 的所有 editor target（包括影子專案）都會被擋，與影子專案自己的 Intermediate 無關。
+  - 角色管線當初只為一套 CC0 rig 設計，沒有「來源集」的概念。
+  - auto characterization 只認得 UE 已知的骨架樣板。
+- **通用修正**：
+  - 影子建置加 UBT 參數 `-NoHotReloadFromIDE`（`bAllowHotReloadFromIDE=false`，只關掉這個檢查；影子專案有自己的 Intermediate／Binaries，不會改到 live coding 載入中的 obj）。
+  - 來源集：C++ `FSourceSet`／`FTargetSet` 與 Lua `character_source_import.sets`、`character_retarget.target_sets`。plan 沒有 `source_set`／`target_set` 時行為與 registry 完全不變（CC0 回歸：影子內從零 retarget male_base，46 物件、39 支有動作）；`tripo_v1` 讀 `SourceArt/Characters/TripoV1/<hero>/{<hero>.fbx,manifest.json}`，匯入嵌入材質／貼圖（各上限 16），輸出 `/Game/Omoba/Characters/TripoV1` 與 `TripoRetargetV1`。retarget 簽章帶「目標 FBX 的 sha256」而不是整份 registry 的 sha，新增英雄不會讓舊英雄的輸出變成 stale。
+  - manifest 可選 `retarget = {root, chains=[{name,start,end}]}`：auto characterization 不認得的骨架改用明確的 chain（名稱必須是來源庫的 auto chain 名稱，才能 exact mapping；只做 FK）。chain 定義也寫進簽章。影子試跑：非標準 40 骨 rig 用 10 條明確 chain，46 物件、39 支有動作，第二次執行 verified／saved 0。
+  - 兩個 driver 改用 `ue_run_snapshot.prepare`，plan 的來源路徑指向副本自己的 `SourceArt`。
+  - `scripts/tripo_character_intake.lua`：下載檔只讀不執行，複製到 `<hero>/<hero>.fbx`，manifest 寫入 Tripo 任務、選項、點數與 Grok 參考圖 sha256。FBX 的 LimbNode 數只是估計（UE 會把中間的 Null 節點也算成骨頭：試跑 27 vs 實際 40），以第一次匯入回報的實際骨數為準（`--bones`）。
+- **驗證**：`character_source_import_test.lua` 76 項、`character_retarget_test.lua` 44 項；影子 UBT 建置成功；影子專案自己的 Content（非 junction）跑完匯入兩次與 retarget 兩次。
+- **避免**：
+  - 影子建置一律帶 `-NoHotReloadFromIDE`；看到 Live Coding 錯誤不要重試等待，也不要叫使用者關 editor。
+  - 新增一類美術來源時，先把「來源目錄、輸出目錄、registry、ownership 簽章」做成可列舉的集合，不要複製一份 commandlet。
+
+## E117 影子執行副本的 UE 啟動時卡在 UBT QueryTargets；每份副本都重新暖 shader（2026-10-27，main）
+
+- **現象**：ward 的 float-text-2 從影子執行副本啟動 shader warmup 後，log 從 08:38 起一直停在 `Launching UnrealBuildTool... -Mode=QueryTargets -Project=target/ue-run/<key>/omfue/om.uproject`，6 分鐘以上沒有進展；同時 launcher 印出 `Warming Unreal shaders ... (cold DDC)`。
+- **根因**：
+  - E116 的副本沒有 `Intermediate/`。UE editor 讀不到 `Intermediate/TargetInfo.json`，就呼叫 UBT `-Mode=QueryTargets`；UBT 的全域 mutex 被其他 session 的影子建置佔住，所以只能一直等。
+  - `ue_shader_warmup.stamp_path` 用專案路徑當 key。副本路徑每次重建都不同，雖然 DDC 透過 junction 共用，仍被判定為冷。
+- **通用修正**：
+  - `ue_run_snapshot` 新增 `seed_target_info`：新建和重用的副本都會從 live `omfue/Intermediate/TargetInfo.json` 補一份，時間戳記為當下，除非之後 `*.Target.cs` 有變動，否則快取一直有效。
+  - `ue_shader_warmup.stamp_path` 把 `target/ue-run/<key>/omfue` 對應回 live `omfue`。
+  - 測試：`ue_run_snapshot_test.lua`（27 項）、`ue_shader_warmup_test.lua`。
+- **避免**：讓 UE 從另一個專案目錄執行時，要列出 UE 啟動時會讀寫的專案狀態（Intermediate 的快取、DDC、Saved），逐一確認不會觸發建置工具或冷快取；不能只看 Binaries。
+
+## E116 自動化 UE 從 live omfue 啟動，鎖住 DLL，使用者在 Visual Studio 編譯失敗（LNK1104）（2026-10-27，main）
+
+- **現象**：使用者在 VS 建置 `OmGameEditor` 時，OmRuntime、OmEditor、OmGenerated 與 32 個 UECP DLL 全部連結失敗（`LNK1104`、UBA 的 `being used by another process - UnrealEditor-Cmd.exe`）。占用者是子 agent 正在跑的 owned-viewport IPC 驗收。E114 的離屏只解決搶視窗，沒解決鎖檔。
+- **根因**：所有自動化（Om. 測試、IPC 驗收、autopilot／spotlight 實機局、英雄選擇）都用 `omfue/om.uproject` 啟動 UE，模組 DLL 從 live `Binaries` 載入並被映射；只要有一個在跑，任何人都無法重新連結。
+- **通用修正**：
+  - `scripts/ue_run_snapshot.lua`：在 `target/ue-run/<key>/` 建立執行副本。只複製 `omfue/Binaries` 與各外掛 `Binaries`（不含 pdb、exp、lib、exe，約 100 MB，3 秒）；`Content`、`Config`、`Saved`、外掛 `Source` 與 repo 其他頂層目錄都用 junction 連到 live，因此 `ProjectDir()/..` 照常找到 `scripts`、`omb`，證據仍寫進 live `Saved`。
+  - `<key>` 由 live binaries 的名稱、大小、時間算出，重建後自動換新副本；複製期間 binaries 變動就重試。
+  - 只保留最近 3 份。清理時先改名，使用中的副本 Windows 拒絕改名，因此會略過；刪除時只移除 junction 本身，絕不進入 live 樹。
+  - `OM_UE_RUN_BINARIES=<影子專案目錄>`（或 `prepare(root, nil, {binaries=...})`）：副本改從 session 自己的影子建置複製 Binaries，Content／Saved 仍是 live。使用者的 editor 開著 live 專案、live DLL 無法重建時，session 用這個測試自己的建置，不必等 live。
+  - lua-host 新增 `junction_create`、`junction_inspect`、`junction_remove`：建立目錄符號連結需要權限，junction 不需要。
+  - 已接上 `ue_local_acceptance`、`moba_owned_viewport_ipc`、`moba_role_launch`（實機 renderer 與英雄選擇）。
+- **驗證**：`scripts/tests/ue_run_snapshot_test.lua`（20 項）；實際從副本執行 `Om.Runtime.ShopModel`，log 確認 Om 與 UECP 模組都從 `target/ue-run/...` 載入；執行中的副本改名會得到 `Permission denied`。
+- **避免**：任何 agent 手動啟動 `UnrealEditor(-Cmd)` 都必須用 `require('ue_run_snapshot').prepare(root).uproject`，不可直接用 `omfue/om.uproject`。只有 `build_ue_moba` 與資產 commandlet（要寫 live Content）可以碰 live 專案。
+
+## E115 owned-viewport IPC 的 q-mana-refuses：法力不足的 Q 沒有在前端被拒，直接送上 wire（2026-10-27，IPC 驗收）
+
+- **現象**：`ue_local_acceptance.lua --native-rhi d3d12` 最後的 IPC 階段（run `offscreen-rhi-1-ipc`）失敗：`q-mana-refuses refusal was not Owned ability mana is short (accepted=1 id=49 error=)`。fixture 的 `owner_short_mana` 已經把法力設成 lumen_bolt rank 1 成本 −1，ack 也正常。
+- **根因**：3ad758b1（10-24）改成「價格要由 authority 證明」：`moba_hud::effective_mana_cost` 只在快照有同一 tick 的 `MANA_COST_TICK`、對上 ability／rank 的 `MANA_COST_BINDING[slot]` 和 `MANA_COST_RAW[slot]`（team-scoped HUD 事件，由 `moba_match::emit_owner_mana_costs` 發出）時，才給 `mana_cost_state` 1／2；否則是 0（價格未知）。`renderer_fixture.rs` 的 `to_snapshot` 從沒發過這三種事件，所以每個 slot 都是 0，`AOmWorldBridgeActor` 只在 state==2 時拒絕，就把 Q 放行了。fixture 執行檔本身不舊（IPC 腳本每次都會 `fixture.build()`），fixture 的單元測試只檢查 mana 數值、沒檢查 `mana_cost_state`，所以沒抓到。
+- **通用修正**：`omoba-client-runtime/src/renderer_fixture.rs` 新增 `owner_mana_cost_events`，每個快照依 authority 同樣的格式發出 owner 的 tick／binding／cost（team = OWNER_TEAM_ID，tick = 快照 replica_tick，cost = 編譯後 rank 成本；owner 不在、死亡或沒有法力池時 binding 0、cost −1）。fixture 測試加上 `owner_short_mana` → `(2, cost)`、`owner_cooldown`（滿法力）→ `(1, cost)`。
+- **驗證**：fixture lib 測試 50/50、`owned_viewport_ipc_contract_test.lua` 140 cases 通過。IPC 重跑 `manafix-ipc-2`（full，`-RenderOffScreen`）：q-mana-refuses 得到 `Owned ability mana is short`，之後 q-cooldown-refuses、q-far-refuses、apprentice、point、死亡／替換／移除／epoch、r-aid-ally 都通過。整輪仍然沒過：卡在後面的 `alt-r-aid-self`，Alt+R 沒有送出 SelfCast（log 沒有 OM_CAST 或 OM_CAST_REJECT，10-21 的 foundation run 有 `label=SelfCast input=54`）。法力狀態只會在 bridge 拒絕，而且會留下 OM_CAST log，所以研判跟這次修正無關，另外追查。後續見 E119：`manafix-ipc-4` 整輪全綠。
+- **避免**：HUD／前端改成只信任 authority 發布的新事件時，同一個 commit 要同步讓 renderer fixture 發出這些事件，並在 fixture 測試直接斷言前端實際讀的欄位（例如 `mana_cost_state`），不要只斷言原始數值。
+
+## E114 自動化測試與 autopilot 局的 UE 視窗搶走使用者桌面：使用者開著 editor 卻無法操作（2026-10-27，main）
+
+- **現象**：使用者開 Unreal Editor 時，各 session 的 RHI 全量測試與 autopilot／spotlight 實機局不斷在桌面開出視窗。`OmRequireInteractiveDesktop` 還會 `HACK_ForceToFront` 並用 `SetCursorPos` 把真實游標移到測試點，使用者完全無法控制 editor。使用者 editor 的 log 也收到其他測試程序的 `LogAutomationWorker: Received FindWorkersMessage`。
+- **根因**：所有自動化 UE 程序都用真實桌面（Windows platform application）開視窗；「互動桌面」測試預設就會搶前景、移動游標。沒有任何一處區分「使用者的桌面」與「自動化可用的桌面」。
+- **通用修正**：
+  - `scripts/ue_desktop.lua`：自動化啟動的 UE（`ue_local_acceptance` 的 d3d12 套件、`moba_owned_viewport_ipc`、`moba_role_launch` 的 autopilot／spotlight 座位）預設加 `-RenderOffScreen`。UE 改用 null platform application 與無 swapchain 的 viewport（D3D11／D3D12 都支援），不在桌面出現視窗、不搶前景、不動游標；backbuffer 截圖與錄影照常。
+  - `OM_OWN_DESKTOP=1` 才改傳 `-om-own-desktop`，保留可見視窗。
+  - `OmHeadlessAutomation.h` 新增 `OmOwnsDesktop()`：只有 `-om-own-desktop` 且不是離屏時，`OmRequireInteractiveDesktop` 才會把視窗拉到前面、移動游標；否則只驗證視窗自己的 hit-test grid，並警告略過真實桌面路由。
+- **避免**：任何 agent 手動下 `UnrealEditor(-Cmd)` 跑 RHI 測試或實機 autopilot 局，都必須帶 `-RenderOffScreen`，除非使用者明確同意讓出桌面。不要寫會移動真實游標或強制前景的測試，除非用 `OmOwnsDesktop()` 擋住。
+
+## E113 spotlight --all 錄完的英雄 renderer 沒退場，8 位錄完時機器上同時有 8 個 UE＋8 個 omobab；法力不足被拒的施放被當成成功（2026-10-27，英雄 spotlight）
+
+- **現象**：
+  - `record_hero_spotlight.lua --all` 執行期間（07:02–07:15），每位英雄錄完後，它的 UnrealEditor 遊戲視窗和 omobab 仍然留著；到 07:14 時，機器上共有 8 個 UE 和 8 個 omobab。
+  - 預覽的 trace 顯示，omatsu E、oichi R、inahime R、asai W／R、murakami W／R、tamako W 都被 authority 以 `NOT_ENOUGH_MANA`（code 6）拒絕，spotlight 卻把它們算成已施放。
+  - saika 的 E 被跳過，原因是敵方替身已經被召喚物和強化普攻打死。
+- **根因**：
+  - 8 位英雄都在同一個 `supervise_workflow` 裡依序執行。split runner 只停掉它直接啟動的 lua 角色啟動器；UE 和 runtime 是啟動器的子孫程序，要等整個 workflow 結束、job 被回收時才會一起關掉，所以每位英雄的程序都留到最後。
+  - 一招示範連放 4 到 5 個技能，法力撐不到最後。spotlight 只看「有沒有送出去」，沒看 authority 的結果。
+  - 替身 8 倍血量不夠。
+- **通用修正**：
+  - `--all` 改成每位英雄各開一個子程序（`record_hero_spotlight.lua --hero X`），每個都有自己的受監督 workflow，子程序結束時那位英雄的 server、runtime、UE 一定會被回收。每位結束後再用 `assert_retired` 依 owned-processes 紀錄（含 creation_token）確認沒有任何程序還活著，然後才開始下一位。每位英雄也用自己的 port（57461 + 10×序號）。
+  - spotlight 會讀取 authority 的施放結果：被拒的示範會在等待時間內重試，超過時間才記為 `spotlight_refused`／skipped，並附上拒絕碼。
+  - showcase 的 recipe 改為 `mana_enabled=false`（spotlight 的主題不是資源管理）、`start_level=16`（所有大招都學得到，包括 asai 16 級的 extra 招）、`hold_hp_permille=30000`。
+- **避免**：
+  - 在同一個 workflow 裡連續跑多次實機時，每次結束都要確認它的整棵程序樹都已退場，不能只停直接啟動的子程序。
+  - 判斷「施放成功」一律看 authority 的 ack 和效果，不能看「送出」。
+
+## E112 商店改版：合成道具直接購買缺材料必被拒、舊 TD P 鍵在 MOBA 仍送塔優先指令、商店版面依第一幀估算而錯位（2026-10-27，shop-v3）
+
+- **現象**：
+  - 權威端 `buy_item` 要求合成道具的每個直接材料都已在背包，否則回 MissingComponent；舊商店只能直接買整件，缺材料時玩家點了必定失敗。
+  - 舊 `RustBP/System/BP_PlayerController` 的 TD 按鍵圖在 MOBA 仍輪詢 P（塔優先）等鍵，送出 SetTowerTargetPriority 等 TD 指令（E100 待辦）。
+  - 新商店的 roomy／compact 判斷與 body 高度一開始用「模型估算的 frame」，第一幀 header／指令列帶狀區還沒量到，`ShopUndoProjectionAndPin` 首幀量不到復原按鈕；實機 720p 帶狀區只有約 290px，門檻 320 讓 1280 寬的商店退回直排版，格子被擠到畫面外。
+  - 工作副本用 `sed -i` 刪行，Git Bash 的 sed 把整個 CRLF 檔改成 LF（當場用 unix2dos 復原，未進 live）。
+- **根因**：把「直接購買」當成「依配方購買」；TD 藍圖輸入沒有依模式停用；版面依賴上一幀量測值而不是 Slate 本身的排版。
+- **通用修正**：
+  - `FOmShopModel`（OmShopModel.h/.cpp）只讀目錄資料算出階級、分類、配方樹、進階道具、扣除已持有材料的價格與「下一件該買什麼」。左鍵仍是原本的單一權威購買（不改 wire 合約）；右鍵、詳細欄「購買」、佇列都送 `NextPurchaseStep`，每一步都是一筆正常的權威交易。
+  - `AOmWorldBridgeActor::CanSubmitInputEvent` 在權威模式為 MOBA 時拒絕 PlaceTower／UpgradeTower／SellTower／SetTowerTargetPriority／StartRound（不送 wire），TD 模式不受影響；`Om.Runtime.LegacyTdInputGuard` 驗證。
+  - 版面改由 Slate 自己決定：外層 `OmShopScroll` 的 body slot 用 `FillContentSize`，roomy 時 split 只要求最小高度、由 slot 撐滿；footer 放在 split 內（roomy 在底部、compact 在最上面）；compact 門檻依文字縮放調整（寬 640×max(1,0.75s)、高 200×s）。
+  - 行刪除改用 Lua 以位元組讀寫（scratchpad 的 dellines／movelines），不再對 repo 檔案用 `sed -i`。
+- **避免**：送任何交易前先確認權威端的前置條件（材料、範圍、模式）；UI 版面不要用上一幀量測決定結構，交給 Slate 的 slot 規則；改 CRLF 檔只用 Edit 或二進位安全的 Lua。
+
+## E111 浮動傷害數字被轉成 90 度直排，而且有殘影（2026-10-27，session-ward）
+
+- **現象**：spotlight keyframe（`target/spotlight/saika_magoichi/keyframes/06_slot2_passive_effect.png`）與遊戲中，「-147.9」都是直排，旁邊還有疊影。
+- **根因**（與 E097 同類：寫死 world 軸，沒有從主攝影機實際的視角推導）：
+  - `OmCombatVisualSubsystem` 用 `(CameraLocation-Location).Rotation()` 讓文字面向攝影機。這只決定 X 軸，roll 一律是 0。MOBA 攝影機接近正俯視，pitch 約 90 度時 yaw 只由一個極小的水平分量決定，文字的上方因此變成任意的水平方向，畫面上就成了旋轉的直排。
+  - 數字上浮與同一單位的多個數字疊放，都是沿 world Z 偏移。Z 在俯視時就是視線方向，所以數字既不會在畫面上上浮，疊放的數字也全部重疊，看起來就是殘影。
+- **通用修正**：
+  - 新增 `OmScreenFacing`（OmRuntime）。`TextRotation` 以 `MakeFromXZ(-camera forward, camera up)` 計算旋轉。UTextRenderComponent 的字形在 YZ 平面，閱讀方向是 -Y，所以這樣 -Y 正好是畫面右方，文字由左到右、不鏡像。`ScreenUp` 回傳攝影機的 up 向量。
+  - 浮動數字每一 frame 依當下的視角重設朝向，上浮與疊放都沿畫面上方；疊放層數另外記錄，不再寫死在 Origin 裡。
+  - 舊版 buff 文字（原始 VFX 關閉時，`AOmUnitActor::Tick`）也改用同一個朝向。
+- **其他 world-space 文字檢查**：名牌是 screen-space widget，ping 是投影到螢幕位置，表情不用 world 文字，三者都沒有這個問題。
+- **測試**：`Om.Runtime.PublicHealthTextLifecycle` 新增 yaw 0／90／37（pitch -80）的檢查：閱讀方向沿畫面右方、基線水平（與畫面上方的內積小於 0.01）、文字直立、面向攝影機、沿畫面上方上浮。
+- **實機證據**：float-text-4（quick map，lane_v0，影子建置加 `OM_UE_RUN_BINARIES`，離屏執行）。`p1/autopilot-p1-shot-004-combat-text.png` 的「-118.8」與 `p6/autopilot-p6-shot-001-combat-text.png` 的「+2」都是水平、可讀、沒有殘影，位置在名牌上方。全量 Om. RHI 302/302、-nullrhi 302/302。
+- **附帶修改**：autopilot 新增「combat-text」截圖，每局最多 3 張、間隔 20 秒，只在浮動文字落在本機 viewport 內、且載入畫面已關閉時才拍（`HasHealthTextOnScreen`、`IsMatchLoadingScreenShown`），之後的驗收可以直接拿到傷害數字的畫面。
+- **避免**：
+  - world-space 文字或 billboard 一律以攝影機的 forward 與 up 建出完整的旋轉，不要只用方向向量 `Rotation()`。
+  - 位移動畫要沿畫面座標軸，不要沿 world 軸。
+
+## E110 第一支 spotlight 影片拍到錯的地方：鏡頭沒對準英雄、和別人的比賽撞 port、替身被字幕擋住（2026-10-27，英雄 spotlight）
+
+- **現象**：
+  1. hold 席位被移出 bot 指派後，server 拒絕啟動，訊息是「human authentication and bot controllers must partition the match roster」。
+  2. 第一支 saika 影片整段都拍著基地地面，鏡頭沒有移動。對自己施放的 Q、R 成功了，但 W、E 回報「target is outside the visible world area」，最後被跳過。
+  3. 重錄時 server 綁不到 57061（os error 10048），因為另一個 session 的 omobab 正在用這個 port；我的 client 還連上了那個 server。
+  4. 敵方替身被放在 +x 方向，畫面上是正下方，剛好被字幕擋住，被動展示的普攻點擊失敗。
+  5. keyframes 資料夾裡混著上一輪留下的舊圖。
+- **根因**：
+  1. server 把名單分成「人類」與「bot 控制者」兩組，hold 席位必須算在控制者裡。
+  2. RTS 鏡頭並不是 controller 的 pawn。`Cast<AOmRtsCameraPawn>(PC->GetPawn())` 拿到的是 null，於是沒有對準英雄、也沒有拉近，而且沒有任何錯誤訊息；我又寫死了一個絕對縮放值 1100。
+  3. 所有 split 局預設都用 57061，錄影卻沒有自己專屬的 port；而且「等其他程序結束」的檢查和實際啟動之間還有時間差。
+  4. 擺放位置時沒有先確認地圖座標和畫面方向的對應。
+  5. 編碼前沒有先清空輸出資料夾。
+  6. 另外，`--no-build` 加上「server 用舊的 release omobab」導致修正沒有生效。正確順序是：先讓 server 角色建置，再 `build_ue_moba --build-only` 重新 stage，最後才用 `--no-build` 錄影。
+- **通用修正**：
+  1. hold 席位保留 bot 指派，但在 `role_bot_inputs` 裡依比賽設定（`ShowcaseConfig::holds`）略過，不產生任何輸入。測試有對照組：同一批席位不設 hold 時會做出決策。
+  2. 鏡頭改用 `AOmRtsCameraPawn::ResolveForController`；縮放改成目前距離 × 0.6；每一招開始前重新對準英雄；拿不到鏡頭就以 `camera_unavailable` 結束，不會錄出錯誤的畫面。
+  3. `record_hero_spotlight.lua` 改用專屬的 port 57461（可用 `--port` 指定，但不允許 57061）。
+  4. 替身改放在英雄左右兩側（y 方向），間距 280，並避開河道草叢。
+  5. 編碼前先清空 keyframes。
+- **結果**：saika_magoichi 四招全部施放，0 次跳過，785 格，0 格掉幀，影片約 26 秒，H.264 1920×1080 30fps。
+- **避免**：需要點擊畫面的自動化，在錄影或驗收前一定要先截一張圖確認構圖，不能只看 ack 結果。取得遊戲物件失敗時要明確報錯並中止，不能默默略過。共用機器上的實機程序都要用自己專屬的 port。
+
+## E109 載入畫面第二輪又在 live 樹改到一半，其他 session 編譯失敗；`TryGetStringField` 把 JSON 數字當成字串（2026-10-27，match loading screen）
+
+- **現象**：
+  - 加 MoviePlayer 地圖載入階段時，我直接在 live `omfue` 改 `OmMatchLoading*`、新增 `SOmMatchLoadingScreen`／`OmMatchLoadingSubsystem`，還沒改完呼叫端與 Build.cs，ward 和 spotlight 的 build_ue_moba 因此失敗（違反 E102／E107）。
+  - 新測試 `MatchLoadingRoster`「Non-text display name rejected」在 nullrhi 與 RHI 都失敗：`"display_name":7` 被接受。
+- **根因**：
+  - E107 寫了「先在工作區編譯」，但當時沒有能單獨編譯的工作副本，於是又回到 live 改。
+  - UE 的 `FJsonObject::TryGetStringField` 會把數字、布林轉成字串回傳 true，不能拿來驗證型別。
+- **通用修正**：
+  - live 樹先還原為已提交且能編譯的版本，半成品移到 `target/session-loading/work`。
+  - 建立獨立的影子專案 `target/session-loading/shadow/omfue`（複製 `om.uproject`、`Config`、`Source`、`Plugins/OmRuntime/Source`，影子 uproject 停用 BpGeneratorUltimate），用它的 `-Project=` 編譯 OmGameEditor（含 OmEditor 測試）。它有自己的 Intermediate／Binaries，不會碰到 live 的 DLL 或 staging。影子編譯通過後，等 `target/locks/build_ue_moba` 釋放才複製進 live，接著立刻跑 build_ue_moba。
+  - 型別驗證改用 `HasTypedField<EJson::String>`，再 `TryGetStringField`。
+- **避免**：
+  - 改既有 UE 模組（尤其是 Build.cs 依賴或跨檔 API）時，一律先在影子專案編譯，再著陸；著陸前檢查 live 檔案在複製影子之後沒有被別人改過（只差自己的改動）。
+  - 驗證 JSON 欄位型別時不要依賴 `TryGet*Field` 的回傳值，用 `HasTypedField<EJson::...>`。
+
+## E108 RHI 的真實命中測試依桌面狀態失敗：UECP 1.7.3 的置頂歡迎視窗擋在測試點上（2026-10-27，session-ward）
+
+- **現象**：
+  - 自 2026-10-26 23:05 起，每一輪 RHI 全量 Om. 都固定失敗 10 項：PieActionOwnerMatrix、ControlRuntimePersistence、MinimapPreferences、OwnedItemCards、ReadableHudToolTip、ItemIconPresentation，以及商店 4 項。21:02 那一輪全部通過。
+  - 失敗的都是用 `FSlateApplication::LocateWindowUnderMouse` 做的真實命中測試（例如「Actual PIE world center hit-test」、「painted hit path」、「under the pointer」、「Actual hover presents …」）。
+  - 在沒有 editor、Claude 視窗最小化的情況下仍會重現。
+- **根因**：
+  - `LocateWindowUnderMouse` 會先向 OS 詢問「真實游標底下是哪個視窗」，再依 Slate 的視窗順序 fallback，所以結果取決於桌面上的前景視窗、真實游標位置與視窗堆疊順序。
+  - 加上診斷後確認：點位被導到 `'Ultimate Engine Copilot'` SWindow。這是使用者 21:42 換上的 UECP 1.7.3 每次啟動都會跳出的歡迎／公告視窗，`IsTopmostWindow(true)`，700×620 置中，直到在外掛 UI 按下 dismiss 為止。21:02 通過、23:05 失敗，中間的變化就是這次換外掛；沒有證據顯示是程式回歸。
+  - 背景程序無法取得前景，`HACK_ForceToFront` 也拿不到。
+- **通用修正**（`OmEditor/Private/OmHeadlessAutomation.h`）：
+  - `OmLocateInWindow`：只把目標視窗列為候選，查詢該視窗自己的 hit-test grid。結果是確定的，與 OS 前景和真實游標無關。
+  - `OmRequireInteractiveDesktop`：先 ForceToFront／BringToFront，再把真實游標移到測試點；仍然拿不到時，AddWarning「desktop not interactive: <原因>; the point routed to '<視窗>'」。
+  - `OmLocateHit`：一律回傳視窗 grid 的路徑，由呼叫端驗證。桌面可以互動時，真實路徑也必須命中同一個 leaf widget，否則判為錯誤，所以回歸不會被蓋掉。
+- **套用範圍**：6 個非商店測試。
+  - 點擊在桌面不能互動時，改沿著 grid 路徑 Route*。
+  - tooltip 一律驗證 hovered path 最內層的 tooltip 是該卡片的 tooltip，以及說明文字；真實 popup 的呈現與截圖只在桌面可以互動時執行。
+  - 商店 4 項交給商店改版的子 agent 套用。
+- **證據**：
+  - 6 項全數通過。
+  - 移開游標後，MinimapPreferences 的真實路徑通過且與 grid 一致；OwnedItemCards 多數卡片點擊的真實路徑也通過。
+  - 只有落在 UECP 歡迎視窗範圍內的點（PIE 中心、部分卡片）被跳過。
+  - 完整一輪都走真實路徑，需要使用者在 UECP 外掛中按下 dismiss，關掉歡迎視窗（設定存在外掛的全域 config，不由 session 修改）。
+- **避免**：
+  - 「actual」命中測試一律經過 `OmLocateHit`，不要直接呼叫 `LocateWindowUnderMouse(…GetInteractiveTopLevelWindows())`。
+  - 安裝或更新 editor 外掛後，先確認是否會跳出置頂視窗，再跑 RHI。
+
+## E107 載入畫面新檔著陸後才第一次編譯：兩個編譯錯誤短暫弄壞 live 樹；`sed -i` 把 CRLF 改成 LF；繞過 build_ue_moba 直接呼叫 Build.bat（2026-10-26，match loading screen）
+
+- **現象**：
+  - 外掛換版期間 build_ue_moba 無法執行，我把 `OmMatchLoading*` 新檔放進 live `omfue` 後，直接用 `Build.bat OmGameEditor` 編譯，第一次失敗兩處：UE 5.8 的 `FJsonObject::Values` key 是 `UE::TSharedString`，沒有 `IsNumeric/Contains`；迴圈變數 `Slot` 遮蔽 `UUserWidget::Slot`（C4458 在專案設定為 error）。約 3 分鐘內修正並編譯成功，但這段時間其他 session 的 UE 建置會失敗。
+  - 用 Git Bash 的 `sed -i` 修改 CRLF 檔案後，整個檔案變成 LF（`file` 顯示 `with CRLF, LF` 或無 CRLF）。
+  - 直接呼叫 `Build.bat` 不經過 build_ue_moba，沒有 E106 的建置鎖，可能與其他 session 的建置互相干擾。
+- **根因**：違反 E102 的「先在工作區編譯再著陸」；UE 5.8 JSON API 與舊版不同卻沒有先查標頭；Windows 上的 GNU sed 會正規化行尾；為了繞過暫時壞掉的 build_ue_moba 改走 UBT。
+- **通用修正**：修正兩處編譯錯誤（`FString Key(Pair.Key.ToView())`、改名 `SpellSlot`）；以 Lua 二進位讀寫把 5 個新檔統一成 CRLF；之後一律用 build_ue_moba／consistent_build（E106 建置鎖）。
+- **避免**：
+  - 新 UE 檔案先放工作區，等 build_ue_moba 可用、編譯通過才著陸；build_ue_moba 壞掉時等待，不改走 Build.bat。
+  - 讀取 `FJsonObject::Values` 的 key 時用 `ToView()` 轉成 `FString`。UUserWidget／UWidget 子類別裡不要用 `Slot` 當區域變數名。
+  - CRLF 檔案只用 Edit 工具或 Lua `rb/wb` 改寫，不用 `sed -i`；改完用 `file` 確認行尾。
+
 ## E106 多個 session 同時跑 build_ue_moba，staged base_content.dll 互相覆蓋，checksum 驗證失敗（2026-10-26）
 
 - **現象**：錄影 session 的 build_ue_moba，和載入畫面子 agent 的 consistent_build 同時進行；staged `scripts/base_content.dll` 的 checksum 驗證失敗，錄影建置因此中止。

@@ -7,12 +7,12 @@ local function fixture()
  local registry={assets={{id='animation_library',objects={{class='AnimSequence',object_path='/Game/Source/Idle.Idle'},
   {class='AnimSequence',object_path='/Game/Source/Walk.Walk'}}},{id='male_base',objects={{class='SkeletalMesh',object_path=mesh,bones=65},
   {class='Skeleton',object_path=skeleton}}}}}
- local row={id='male_base',signature=plan.source_registry_sha256..'|animation_library|male_base|calibration|auto_ik_calibrated_centimeters_v4',action='imported',reference_clip='calibration',source_root_correction='finite calibrated transform',
+ local row={id='male_base',signature=plan.source_registry_sha256..'|animation_library|male_base|calibration|auto_ik_calibrated_centimeters_v4',action='imported',reference_clip='calibration',source_root_correction='finite calibrated transform',source_facing_correction_deg=0,
   target_mesh=mesh,target_skeleton=skeleton,chains={},objects={},finite_transforms=130,moving_clips=1}
  for i=1,8 do row.chains[i]={source='chain'..i,target='chain'..i}end
  local function object(name,class)local o={object_path=m.destination..'/male_base/'..name..'.'..name,class=class};row.objects[#row.objects+1]=o;return o end
  object('source_rig','IKRigDefinition');object('target_rig','IKRigDefinition');object('retargeter','IKRetargeter')
- for _,name in ipairs({'Idle','Walk'})do local o=object('male_base_'..name,'AnimSequence');o.seconds=1;o.keys=2;o.tracks=65;o.finite_transforms=65;o.skeleton=skeleton;o.has_motion=name=='Walk'end
+ for _,name in ipairs({'Idle','Walk'})do local o=object('male_base_'..name,'AnimSequence');o.seconds=1;o.keys=2;o.tracks=65;o.finite_transforms=65;o.skeleton=skeleton;o.has_motion=name=='Walk';o.upright_permille=960;o.pose_error_deg=12 end
  return plan,registry,{schema='omoba.character-retarget-result.v1',success=true,error='',render_verified=false,imported=1,verified=0,saved=5,targets={row}}
 end
 local function test(name,change,valid)
@@ -20,6 +20,8 @@ local function test(name,change,valid)
  local ok,packages=pcall(m.verify_result,plan,registry,result);assert(ok==valid,name..': '..tostring(packages));total=total+1
 end
 test('complete actual source identity',function()end,true)
+test('facing-corrected target signs its quarter turn',function(p,r,v)v.targets[1].source_facing_correction_deg=180
+ v.targets[1].signature=p.source_registry_sha256..'|animation_library|male_base|calibration|facing:180|auto_ik_calibrated_centimeters_v4'end,true)
 test('no-save repeat',function(p,r,v)v.imported=0;v.verified=1;v.saved=0;v.targets[1].action='verified'end,true)
 local cases={
  schema=function(v)v.schema='old'end, failure=function(v)v.success=false end,error=function(v)v.error='failure'end,
@@ -43,6 +45,22 @@ local cases={
  fractional_counter=function(v)v.saved=0.5 end,invalid_action=function(v)v.targets[1].action='skipped'end,
  verified_write=function(v)v.targets[1].action='verified';v.imported=0;v.verified=1 end,
  duplicate_target=function(v)v.targets[2]=v.targets[1]end,
+ missing_upright=function(v)v.targets[1].objects[4].upright_permille=nil end,
+ lying_library=function(v)v.targets[1].objects[4].upright_permille=180;v.targets[1].objects[5].upright_permille=200 end,
+ missing_pose_error=function(v)v.targets[1].objects[4].pose_error_deg=nil end,
+ folded_limbs=function(v)v.targets[1].objects[5].pose_error_deg=172 end,
+ fractional_facing=function(v)v.targets[1].source_facing_correction_deg=45 end,
+ unsigned_facing=function(v)v.targets[1].source_facing_correction_deg=180 end,
  }
 for name,change in pairs(cases)do test(name,function(p,r,v)change(v)end,false)end
+-- A generated target set writes under its own root and pins the target rig's own source hash.
+local function tripo(p,r,v)
+ p.target_set='tripo_v1';p.target_registry_sha256=string.rep('b',64);r.assets[2].source_sha256=string.rep('c',64)
+ local row=v.targets[1];row.signature=p.source_registry_sha256..'|animation_library|male_base|calibration|tripo_v1:'..string.rep('c',64)..'|auto_ik_calibrated_centimeters_v4'
+ for _,o in ipairs(row.objects)do o.object_path=o.object_path:gsub('^'..m.destination,m.target_sets.tripo_v1.destination)end
+end
+test('tripo target set',tripo,true)
+test('tripo stale target source',function(p,r,v)tripo(p,r,v);r.assets[2].source_sha256=string.rep('d',64)end,false)
+test('tripo output under cc0 root',function(p,r,v)tripo(p,r,v);p.target_set=nil end,false)
+test('unknown target set',function(p,r,v)tripo(p,r,v);p.target_set='other'end,false)
 print('PASS '..total..' character retarget contract cases; no render acceptance claimed')

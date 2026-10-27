@@ -53,6 +53,8 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
             && super::super::mana_drain::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::forced_motion::KEY).is_some() || buff_id==super::super::forced_motion::BUFF)
             && super::super::forced_motion::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if (payload.get(super::super::blink_landing::KEY).is_some() || buff_id==super::super::blink_landing::BUFF)
+            && super::super::blink_landing::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::reveal_zone::KEY).is_some() || buff_id==super::super::reveal_zone::BUFF)
             && super::super::reveal_zone::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::attack_orb::KEY).is_some() || buff_id.starts_with("attack_orb:"))

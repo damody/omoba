@@ -1,11 +1,12 @@
 //! 一刀．閃瞬（H06，來源 B08E current）：瞬移到指定敵人身旁並斬擊，造成
 //! 100/200/300/400 魔法傷害、暈眩 0.3 秒，並燒掉 100/160/220/280 法力。
-//! 瞬移不受路徑阻擋；落點在目標朝施法者方向 LAND 處，面向目標。
+//! 瞬移不受路徑阻擋；落點在目標朝施法者方向 LAND 處，面向目標。該點不可走（目標貼牆）時，
+//! host blink_landing 改落在目標周圍同距離、最近的可走點；都不可走就留在原地。
 use abi_stable::std_types::{RErr,ROk,RResult,RSome,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},buff_ids::BuffId,
     types::{DamageKind,DamageProfile,EntityHandle,Fixed64,Target,Vec2},world::GameWorldDyn};
 use omoba_core::ability_meta::{AbilityLevelData,DamageType,EffectSpec,TargetSelector};
-use omoba_core::runtime::native::mana_drain;
+use omoba_core::runtime::native::{blink_landing,mana_drain};
 use omoba_template_ids::{ABILITY_B08_FLASH_CUT,active_ability_const};
 use crate::ability_builder::{build_ability_ffi,extra_at_id_f32};
 
@@ -44,11 +45,11 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
         || !world.query_enemies_in_range(at,Fixed64::ZERO,caster).iter().any(|e|*e==victim) {return Err("flash cut target is not a live enemy unit");}
     if !omoba_sim::terrain::point_in_swept_circle(at,origin,origin,spec.range) {return Err("flash cut target outside cast range");}
     let burn=mana_drain::Spec::checked(caster.id,caster.gen,spec.burn,spec.range).ok_or("invalid flash cut mana burn")?;
+    // The host settles a walkable landing (terrain is not visible to scripts) and faces the target.
+    let land=blink_landing::Spec {source_id:caster.id,source_generation:caster.gen,anchor:at,preferred:landing(origin,at),
+        cast_range:spec.range}.checked().ok_or("invalid flash cut landing")?;
     // All checks done; apply outcomes.
-    let end=landing(origin,at);
-    world.set_pos(caster,end);
-    let facing=at-end;
-    if facing!=Vec2::new(Fixed64::ZERO,Fixed64::ZERO) {world.set_facing(caster,omoba_sim::trig::atan2(facing.y,facing.x));}
+    world.add_stat_buff(caster,blink_landing::BUFF.into(),Fixed64::ONE,land.payload().to_string().as_str().into());
     world.deal_damage(victim,spec.damage,DamageKind::Magical,DamageProfile::SHARP,RSome(caster));
     world.add_buff(victim,BuffId::Stun.as_rstr(),spec.stun);
     world.add_stat_buff(victim,mana_drain::BUFF.into(),Fixed64::ONE,burn.payload().to_string().as_str().into());
@@ -75,13 +76,15 @@ mod tests {
     use super::*;
     use crate::heroes::B08_asai_nagamasa::b08_test_support::*;
     use omoba_core::Outcome;
+    use specs::WorldExt;
 
     #[test]
     fn every_rank_blinks_beside_the_target_damages_stuns_and_burns_mana() {
         for (rank,damage,burn) in [(1u8,100,100),(2,200,160),(3,300,220),(4,400,280)] {
             let mut t=TestWorld::new();let enemy=t.body(p(1000,0),2);
             let outcomes=t.cast(&FlashCutHandler,Target::Entity(t.handle(enemy)),rank,&rank_json(ID,rank)).unwrap();
-            assert_eq!(final_position(&outcomes),Some(p(900,0)),"rank {rank}: lands 100 before the target");
+            let land=landing_request(&outcomes).expect("blink landing packet");
+            assert_eq!((land.preferred,land.anchor),(p(900,0),p(1000,0)),"rank {rank}: lands 100 before the target");
             assert!(outcomes.iter().any(|o|matches!(o,Outcome::RawDamage {target,magi,..} if *target==enemy && *magi==Fixed64::from_i32(damage))));
             assert!(outcomes.iter().any(|o|matches!(o,Outcome::AddBuff {target,buff_id,duration,..}
                 if *target==enemy && buff_id=="stun" && *duration==Fixed64::from_raw(307))),"0.3 s stun");
@@ -103,6 +106,25 @@ mod tests {
     fn a_target_already_in_reach_keeps_the_caster_in_place() {
         let mut t=TestWorld::new();let enemy=t.body(p(60,0),2);
         let outcomes=t.cast(&FlashCutHandler,Target::Entity(t.handle(enemy)),1,&rank_json(ID,1)).unwrap();
-        assert_eq!(final_position(&outcomes),Some(p(0,0)));
+        assert_eq!(landing_request(&outcomes).map(|land|land.preferred),Some(p(0,0)));
+        t.apply(outcomes);
+        assert_eq!(t.world.read_storage::<omoba_core::Pos>().get(t.source).unwrap().0,p(0,0));
+    }
+
+    #[test]
+    fn a_target_hugging_a_wall_still_gets_a_legal_landing_beside_it() {
+        // H06 W: the wall covers the caster's side of the target, so the preferred point is not walkable.
+        let mut t=TestWorld::new();let enemy=t.body(p(1000,0),2);
+        t.world.insert(omoba_core::BlockedRegions(vec![omoba_core::BlockedRegion {name:"wall".into(),points:vec![
+            vek::Vec2::new(850.0,-60.0),vek::Vec2::new(960.0,-60.0),vek::Vec2::new(960.0,60.0),vek::Vec2::new(850.0,60.0)]}]));
+        let outcomes=t.cast(&FlashCutHandler,Target::Entity(t.handle(enemy)),1,&rank_json(ID,1)).unwrap();
+        t.apply(outcomes);
+        let landed=t.world.read_storage::<omoba_core::Pos>().get(t.source).unwrap().0;
+        assert_ne!(landed,p(900,0),"never inside the wall");
+        assert!(blink_landing::point_walkable(&t.world.read_resource::<omoba_core::BlockedRegions>(),landed,Fixed64::from_i32(10)),
+            "walkable for the caster's body");
+        let gap=(landed-p(1000,0)).length();
+        assert!(gap>=Fixed64::from_i32(99)&&gap<=Fixed64::from_i32(101),"beside the target, in melee reach");
+        assert!(t.world.read_storage::<omoba_core::CProperty>().get(enemy).unwrap().hp<Fixed64::from_i32(1000),"the slash still lands");
     }
 }

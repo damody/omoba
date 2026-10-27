@@ -314,7 +314,7 @@ fn resolve_summon(id: AbilityId, unit: &'static str, duration_key: Option<&'stat
 
 fn forced_spec(caster:EntityHandle,motion:ForcedMotionKind,distance:Fixed64,cast_range:Fixed64)
     ->Option<omoba_core::runtime::native::forced_motion::Spec> {
-    omoba_core::runtime::native::forced_motion::Spec { source_id:caster.id, source_generation:caster.gen,
+    omoba_core::runtime::native::forced_motion::Spec { to:None, source_id:caster.id, source_generation:caster.gen,
         mode:host_forced_mode(motion), distance, cast_range }.checked()
 }
 

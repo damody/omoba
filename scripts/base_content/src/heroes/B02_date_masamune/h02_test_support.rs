@@ -54,8 +54,14 @@ impl TestWorld {
     }
 }
 
+/// Where the cast moves the caster: an instant `set_pos`, or the endpoint of its host dash motion.
 pub(crate) fn final_position(outcomes:&[Outcome])->Option<Vec2> {
-    outcomes.iter().rev().find_map(|o|match o {Outcome::ScriptSetPos {pos,..}=>Some(*pos),_=>None})
+    use omoba_core::runtime::native::forced_motion;
+    outcomes.iter().rev().find_map(|o|match o {
+        Outcome::ScriptSetPos {pos,..}=>Some(*pos),
+        Outcome::AddBuff {buff_id,duration,payload,..} if buff_id==forced_motion::BUFF=>
+            forced_motion::Spec::from_payload(buff_id,*duration,payload).and_then(|spec|spec.to),
+        _=>None})
 }
 
 /// The authored rank metadata the host would pass (extras fall back to content).

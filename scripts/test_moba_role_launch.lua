@@ -102,6 +102,17 @@ test('fixed Lua + full TOML + production Rust configuration preflight',function(
   assert(plan.content_mode=='compiled-content-only' and plan.server.env.OMB_LUA_CONTENT=='0')
   assert(plan.clients[1].runtime.env.OMB_LUA_CONTENT=='0' and plan.clients[1].unreal.env.OMB_LUA_CONTENT=='0')
   assert(path.read(plan.config):match('LUA_CONTENT%s*=%s*false'))
+  -- E124: server, runtime and config all load this run's own base_content copy.
+  local run_scripts=path.join(plan.output,'artifacts','scripts')
+  assert(plan.base_content.dll==path.join(run_scripts,'base_content.dll') and path.is_file(plan.base_content.dll))
+  assert(plan.server.env.OMB_SCRIPTS_DIR==run_scripts and plan.server.env.OMB_DLL_PATH==plan.base_content.dll)
+  assert(plan.clients[1].runtime.env.OMB_SCRIPTS_DIR==run_scripts)
+  -- E125: server and runtime run from keyed copies, never the locked build output.
+  local run_bin=path.join(b.root,'target','run-bin')
+  assert(plan.run_binaries and plan.server.exe:find(run_bin,1,true)==1 and plan.clients[1].runtime.exe:find(run_bin,1,true)==1)
+  for _,key in ipairs({'DLL_PATH','SCRIPTS_DIR'}) do
+    assert(path.read(plan.config):match('\n'..key..'%s*=%s*[^\n]*artifacts'),key..' points at the run copy')
+  end
   assert(plan.clients[1].presentation=='127.0.0.1:57062')
   local locked=json.read(plan.selection_report)
   assert(locked.schema_version==1 and locked.ready and locked.finalized and #locked.seats==10)
@@ -151,6 +162,7 @@ end)
 test('original child cleanup is reverse order, waited, and failures propagated',function()
   local function execute(fail_stop)
     local copied=json.decode(json.encode(plan))
+    copied.content_hash=nil -- lifecycle only; the renderer content check is tested on its own
     copied.output=path.mkdir_p(path.join(root,fail_stop and 'cleanup-failure' or 'cleanup-success'))
     copied.server.exe=b.lib('platform').lua_executable
     copied.clients[1].runtime.exe=copied.server.exe
@@ -178,6 +190,7 @@ end)
 test('reused server/runtime/renderer and partial startup retain exact ownership',function()
   for _,mode in ipairs({'server-reused','runtime-reused','renderer-reused','partial-spawn'}) do
     local copied=json.decode(json.encode(plan))
+    copied.content_hash=nil -- lifecycle only; the renderer content check is tested on its own
     copied.output=path.mkdir_p(path.join(root,mode))
     copied.server.exe=b.lib('platform').lua_executable
     copied.clients[1].runtime.exe=copied.server.exe

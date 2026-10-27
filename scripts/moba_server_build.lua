@@ -38,24 +38,19 @@ end
 function M.verify(options,dependencies)
   local selected=profile(options)
   dependencies=dependencies or {is_file=path.is_file,sha256=b.lib('hash').sha256}
+  local artifacts=require('run_artifacts') -- OM_RUST_RUN_BINARIES aware (E125)
   for _,binary in ipairs({'omobab.exe','moba-config.exe'}) do
-    local file=path.join(b.root,'omb/target',selected,binary)
+    local file=artifacts.rust_binary(b.root,'omb',selected,binary)
     assert(dependencies.is_file(file),'missing dedicated authority executable: '..file)
   end
-  -- The staged DLL is shared by every process on this machine. A same-machine
-  -- --server-only next to --connect clients finds the frontend-staged debug DLL;
-  -- accept it when it is a current build of either profile, never a stale copy.
-  local stage_contract=require('moba_stage_contract')
-  local staged=path.join(b.root,'scripts/base_content.dll')
-  local first_err
+  -- No shared staged DLL is checked: each launch copies the current base_content build into
+  -- its own run directory (run_artifacts.lua, E124), so only a build has to exist.
   for _,candidate in ipairs({selected,selected=='release' and 'debug' or 'release'}) do
-    local built=path.join(b.root,'scripts/target',candidate,'base_content.dll')
-    if candidate==selected or dependencies.is_file(built) then
-      local ok,report=pcall(stage_contract.verify,{{role='base_content',built=built,copies={staged}}},dependencies)
-      if ok then report.base_content_profile=candidate;return report end
-      first_err=first_err or report
+    local built=artifacts.rust_binary(b.root,'scripts',candidate,'base_content.dll')
+    if dependencies.is_file(built) then
+      return {schema_version=1,scope='dedicated-authority-build',base_content_profile=candidate,base_content=built}
     end
   end
-  error(first_err,0)
+  error('missing base_content build: scripts/target/{debug,release}/base_content.dll',0)
 end
 return M

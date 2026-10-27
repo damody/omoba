@@ -42,6 +42,12 @@ local ability_count,ability_pending,ability_packaged=coverage.validate_abilities
 for _,ability in ipairs(ability_pending) do print('[moba-ue] WARNING HUD ability icon is the shared placeholder (no authored art): '..ability) end
 local portraits=require('ue_hud_portrait_coverage').validate(context.include('templates/heroes.lua'),manifest,
  function(name)return require('ue_hud_portrait_coverage').inspect_png(p.join(b.root,'omfue/Content/Omoba/UI',name))end)
+-- A summoner spell without HUD art is shown as an equipped marker (HUD and loading cards); warn.
+local summoner_art,summoners_without_art={}, {}
+for _,entry in ipairs(manifest.entries) do if entry.kind=='summoner' then summoner_art[entry.id]=true end end
+for id in pairs(names.summoner) do if not summoner_art[id] then summoners_without_art[#summoners_without_art+1]=id end end
+table.sort(summoners_without_art)
+for _,id in ipairs(summoners_without_art) do print('[moba-ue] WARNING summoner spell has no HUD icon; D/F slots show an equipped marker: '..id) end
 -- A hero without loading-card art is not an error: the loading screen crops its portrait, with a warning.
 local loading_count,loading_fallback=coverage.validate_loading(heroes,manifest,inspect_ui)
 for _,hero in ipairs(loading_fallback) do print('[moba-ue] WARNING hero has no loading-card art; the loading screen crops its square portrait: '..hero) end

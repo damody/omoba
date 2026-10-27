@@ -82,8 +82,11 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
     let landing=plan.as_ref().map(|plan|plan.end).unwrap_or(origin);
     let slammed=enemy_units_in_circle(world,caster,landing,spec.radius);
     let aura=enemy_units_in_circle(world,caster,landing,spec.aura_radius);
+    // The leap is a continuous host dash at the shared speed (15c); the slam and aura are decided
+    // from the admitted landing now.
+    let leap=match &plan {Some(plan)=>crate::swept_dash::motion_packet(caster,plan,crate::swept_dash::DASH_SPEED)?,None=>None};
     // All checks done; apply outcomes.
-    if let Some(plan)=&plan {crate::swept_dash::commit(world,caster,plan);}
+    crate::swept_dash::commit_motion(world,caster,leap);
     let slow_id=omb_script_abi::buff_ids::generic_slow_buff_id(ID.as_str(),caster);
     let slow=serde_json::json!({"move_speed_bonus":-spec.slow.raw(),"__aggregation_family":"generic_ability_slow"}).to_string();
     for e in &slammed {
@@ -151,6 +154,7 @@ mod tests {
             let behind=t.body(p(-200,0),2);let ally=t.body(p(300,10),1);let tower=t.building(p(400,0),2);
             let outcomes=t.cast(&QuakeAxeHandler,Target::Point(p(2000,0)),rank,&rank_json(ID,rank)).unwrap();
             assert_eq!(final_position(&outcomes),Some(p(300,0)),"rank {rank}: leap capped at 300");
+            assert!(!outcomes.iter().any(|o|matches!(o,omoba_core::Outcome::ScriptSetPos {..})),"rank {rank}: the leap is a continuous host dash");
             let mut slammed=vec![(behind,Fixed64::from_i32(200)),(edge,Fixed64::from_i32(200))];slammed.sort_by_key(|(e,_)|e.id());
             assert_eq!(magic_damage(&outcomes),slammed,"rank {rank}");
             let slow_id=omb_script_abi::buff_ids::generic_slow_buff_id(ID.as_str(),t.handle(t.source));

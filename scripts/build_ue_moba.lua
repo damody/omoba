@@ -76,7 +76,12 @@ if mode == 'build' then process.supervise_workflow(script, arg) end
 local build_lock <close> = require('build_lock').acquire(root, mode .. ' ' .. table.concat(arg, ' '))
 
 local function verify_stage_consistency()
-  local report=stage_contract.verify(stage_contract.bindings(root))
+  -- A build verifies what it staged into live omfue; --verify-staged-only checks the binaries
+  -- a launch will run (OM_UE_RUN_BINARIES when a session runs its own shadow build).
+  -- A launch runs its own base_content copy and checks the bridge against its stage record
+  -- (E124), so another session's rebuild never blocks it; a build checks what it just staged.
+  local report=mode=='build' and stage_contract.verify(stage_contract.bindings(root,path.join(root,'omfue')))
+    or require('ue_bridge_stage').verify_launch(root)
   require('ue_map_biome_materials').require_ready(root)
   require('ue_hud_portrait_coverage').require_ready(root)
   require('voice_audio_import').require_ready(root)

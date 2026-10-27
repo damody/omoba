@@ -40,6 +40,8 @@ async fn main() -> anyhow::Result<()> {
         timeBeginPeriod(1);
     }
     env_logger::init();
+    // Keeps the content marker in the binary for the launch preflight (E125).
+    log::info!("{}", std::hint::black_box(omoba_template_ids::CONTENT_CATALOG_MARKER));
     let config = ClientRuntimeConfig::from_env_args()?;
     log::info!(
         "client-runtime starting player_id={} team_id={} server={} presentation={} protocol={} test_mode={}",

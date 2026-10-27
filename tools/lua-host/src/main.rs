@@ -15,6 +15,8 @@ const VERSION: u32 = 1;
 mod workflow_supervisor;
 mod owned_run;
 mod elevated_run;
+mod junction;
+mod png_recolor;
 
 #[cfg(windows)]
 fn monotonic_ms() -> Result<Value, String> {
@@ -1287,12 +1289,16 @@ fn dispatch(request: &Request) -> Result<Value, String> {
         "close_window_owned" => close_window_owned(&request.params),
         "udp_send" => udp(&request.params),
         "sha256" => sha256(&request.params),
+        "junction_create" => junction::create(&request.params),
+        "junction_inspect" => junction::inspect(&request.params),
+        "junction_remove" => junction::remove(&request.params),
         "wait" => wait_for(&request.params),
         "wait_owned" => wait_owned(&request.params),
         "sleep" => sleep(&request.params),
         "memory_dump" => memory_dump(&request.params),
         "screenshot" => screenshot(&request.params),
         "toml_update_sections" => toml_update_sections(&request.params),
+        "png_recolor" => png_recolor::run(&request.params),
         other => Err(format!("unknown operation {other}")),
     }
 }

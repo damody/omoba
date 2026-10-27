@@ -109,6 +109,7 @@ fn build_view(occluders: Arc<[omoba_core::runtime::VisionOccluder]>) -> WaveBRea
         entities: entities.into(),
         vision_sources: sources.into(),
         vision_occluders: occluders,
+        brush_regions: Vec::new().into(),
     }
 }
 

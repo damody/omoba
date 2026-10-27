@@ -11,6 +11,7 @@ local data = {
       extras = {
         damage_amount = { 100, 200, 300, 400 },
         dash_max_distance = { 900, 1000, 1100, 1200 },
+        dash_speed = { 3000, 3000, 3000, 3000 },
         dash_trigger_radius = { 300, 300, 300, 300 },
         projectile_lifetime = { 3, 3, 3, 3 },
         projectile_max_targets = { 8, 8, 8, 8 },

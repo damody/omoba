@@ -2050,13 +2050,16 @@ mod swept_dash_formal {
             let ally=body(&mut world,origin+Vec2::new(range/Fixed64::from_i32(2),Fixed64::ZERO),1);
             let before=mana(&world,caster);
             cast(&mut world,&mut driver,caster,origin+Vec2::new(range+Fixed64::from_i32(500),Fixed64::ZERO));
-            assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0,origin+Vec2::new(range,Fixed64::ZERO));
+            // 15c: a continuous dash over the authored 0.5 s, never a teleport.
+            assert!(world.read_storage::<Pos>().get(caster).unwrap().0.x<origin.x+range,"rank {rank}: not at the endpoint on the cast tick");
             let damage=crate::ability_builder::extra_at_id(omoba_template_ids::ABILITY_FIRE_DASH,"damage_per_tick",rank as u8)
                 *crate::ability_builder::extra_at_id(omoba_template_ids::ABILITY_FIRE_DASH,"dash_duration",rank as u8)*Fixed64::from_i32(10);
             for target in [middle,endpoint] {assert_eq!(hp(&world,target),Fixed64::from_i32(1000)-damage,"rank {rank}");}
             for target in [outside,beyond,ally] {assert_eq!(hp(&world,target),Fixed64::from_i32(1000));}
             assert_eq!(mana(&world,caster),before-cost);
             assert_eq!(world.read_storage::<Hero>().get(caster).unwrap().get_cooldown(ID),Fixed64::from_i32(30));
+            for _ in 0..31 {driver.step(&mut world,[]).unwrap();}
+            assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0,origin+Vec2::new(range,Fixed64::ZERO),"rank {rank}");
             world.write_resource::<BuffStore>().add(caster,"stun",Fixed64::from_i32(10),serde_json::json!({}));
             for _ in 0..30 {driver.step(&mut world,[]).unwrap();}
             for target in [middle,endpoint] {assert_eq!(hp(&world,target),Fixed64::from_i32(1000)-damage);}
@@ -2069,8 +2072,9 @@ mod swept_dash_formal {
         let middle=body(&mut world,origin+Vec2::new(Fixed64::from_i32(100),Fixed64::ZERO),2);
         let behind=body(&mut world,origin+Vec2::new(Fixed64::from_i32(500),Fixed64::ZERO),2);
         cast(&mut world,&mut driver,caster,origin+Vec2::new(Fixed64::from_i32(900),Fixed64::ZERO));
+        for _ in 0..31 {driver.step(&mut world,[]).unwrap();}
         let end=world.read_storage::<Pos>().get(caster).unwrap().0;
-        assert!(end.x>Fixed64::from_i32(200) && end.x<Fixed64::from_i32(300));assert_eq!(end.y,origin.y);
+        assert!(end.x>origin.x+Fixed64::from_i32(200) && end.x<origin.x+Fixed64::from_i32(300),"{end:?}");assert_eq!(end.y,origin.y);
         assert_eq!(hp(&world,middle),Fixed64::from_i32(750));assert_eq!(hp(&world,behind),Fixed64::from_i32(1000));
         let radius=world.read_storage::<CollisionRadius>().get(caster).unwrap().0;
         let polygon=world.read_resource::<BlockedRegions>().0.last().unwrap().points.iter()

@@ -11,7 +11,7 @@
 local source=debug.getinfo(1,'S').source:sub(2)
 package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local b=require('_bootstrap')
-local path,process,json=b.lib('path'),b.lib('process'),b.lib('json')
+local path,process,json,platform=b.lib('path'),b.lib('process'),b.lib('json'),b.lib('platform')
 local lfs=require('lfs')
 local M={}
 
@@ -19,10 +19,13 @@ M.HEROES={'saika_magoichi','date_masamune','omatsu','oichi','inahime','asai_naga
 M.SLOT_OF_ACTION={Q=0,W=1,E=2,R=3,extra1=4}
 M.RECIPE='scripts/lua_data/moba_hero_spotlight.lua'
 M.DEFAULT_FFMPEG='target/tools/ffmpeg/ffmpeg.exe'
+-- A spotlight run owns its authority port: never the shared split default (57061), so a
+-- recording can neither collide with nor join another session's live match.
+M.DEFAULT_PORT=57461
 M.FFMPEG_SOURCE='BtbN FFmpeg-Builds (github.com/BtbN/FFmpeg-Builds/releases, ffmpeg-master-latest-win64-gpl.zip) or gyan.dev'
 
 function M.options(args)
-  local options={heroes={},output='target/spotlight',ffmpeg=M.DEFAULT_FFMPEG,ue_root='D:/UE5.8',fps=30,max_seconds=300}
+  local options={heroes={},output='target/spotlight',ffmpeg=M.DEFAULT_FFMPEG,ue_root='D:/UE5.8',fps=30,max_seconds=300,port=M.DEFAULT_PORT}
   local i=1
   while i<=#args do
     local key=args[i]
@@ -36,6 +39,9 @@ function M.options(args)
       options.heroes[#options.heroes+1]=hero
     elseif key=='--output' or key=='--ffmpeg' or key=='--ue-root' or key=='--run' then
       i=i+1;options[key:sub(3):gsub('%-','_')]=assert(args[i],key..' requires a value')
+    elseif key=='--port' then
+      i=i+1;options.port=assert(math.tointeger(tonumber(args[i] or '')),'--port must be an integer')
+      assert(options.port>=1024 and options.port<=65525 and options.port~=57061,'--port must be 1024..65525 and not the shared 57061')
     elseif key=='--max-seconds' then
       i=i+1;options.max_seconds=assert(math.tointeger(tonumber(args[i] or '')),'--max-seconds must be an integer')
       assert(options.max_seconds>=60 and options.max_seconds<=600,'--max-seconds must be 60..600 (a live run stays under 10 minutes)')
@@ -209,6 +215,10 @@ function M.encode(options,hero,run_root)
   assert(finished,'the renderer never finished the spotlight; see '..path.join(seat,'autopilot-p1.jsonl'))
   local out=path.absolute(path.join(options.output,hero),b.root)
   path.mkdir_p(path.join(out,'keyframes'))
+  -- Keyframes describe this run only: never leave an earlier run's frames beside them.
+  for name in lfs.dir(path.join(out,'keyframes')) do
+    if name:match('%.png$') then assert(os.remove(path.join(out,'keyframes',name))) end
+  end
   local list=path.join(out,'frames.ffconcat')
   path.write(list,M.concat_list(frames,frames_dir,options.fps),true)
   local video=path.join(out,hero..'_spotlight.mp4')
@@ -228,7 +238,16 @@ function M.encode(options,hero,run_root)
   return report
 end
 
-function M.record(options,hero)
+-- The authority port of the INDEX-th hero of one invocation (1-based). Consecutive heroes
+-- never reuse a port, so a previous run still releasing its socket cannot collide with the
+-- next one; presentation ports (port + player id) stay inside each 10-port block.
+function M.run_port(options,index)
+  local port=options.port+(index-1)*10
+  assert(port<=65525 and (port>57070 or port<57061),'spotlight port block overlaps the shared 57061')
+  return port
+end
+
+function M.record(options,hero,index)
   local split=require('run_moba_split_local')
   local package=M.load_package(b.root,hero)
   local out=path.absolute(path.join(options.output,hero),b.root)
@@ -237,10 +256,57 @@ function M.record(options,hero)
   json.write(script,M.script(package),true)
   local run_root=path.join(out,'run-'..os.date('%Y%m%d-%H%M%S'))
   local args={'--recipe',M.RECIPE,'--hero','1='..hero,'--autopilot','spotlight','--spotlight-script',script,
-    '--resolution','1920x1080','--max-seconds',tostring(options.max_seconds),'--output',run_root,'--ue-root',options.ue_root}
+    '--resolution','1920x1080','--max-seconds',tostring(options.max_seconds),'--port',tostring(M.run_port(options,index or 1)),'--output',run_root,'--ue-root',options.ue_root}
   if options.no_build then args[#args+1]='--no-build' end
   split.run(split.options(args))
   return M.encode(options,hero,run_root)
+end
+
+-- Arguments of one hero's own invocation (several heroes run one after another, each in its
+-- own supervised workflow, so its server, runtime and renderer are retired before the next).
+function M.child_args(options,hero,index)
+  local args={'--hero',hero,'--output',options.output,'--ffmpeg',options.ffmpeg,'--ue-root',options.ue_root,
+    '--max-seconds',tostring(options.max_seconds),'--port',tostring(M.run_port(options,index))}
+  -- Only the first run builds; later heroes reuse the same artifacts.
+  if options.no_build or index>1 then args[#args+1]='--no-build' end
+  return args
+end
+
+-- Every process a finished run owned (renderer, runtime, authority) must be gone. A retired
+-- Unreal renderer takes seconds to exit, so wait up to TIMEOUT_MS before calling it a leak.
+function M.assert_retired(run_root,timeout_ms,sleep_ms)
+  local records={}
+  for _,file in ipairs({path.join(run_root,'p1','owned-processes.json'),path.join(run_root,'server','owned-processes.json')}) do
+    if path.is_file(file) then
+      for _,record in ipairs(json.decode(path.read(file))) do records[#records+1]=record end
+    end
+  end
+  local time=b.lib('time')
+  local deadline=time.monotonic_ms()+(timeout_ms or 60000)
+  while true do
+    local alive={}
+    -- Identity includes the creation token: a reused PID is not this run's process.
+    for _,record in ipairs(records) do
+      -- A PID whose identity cannot even be queried (access denied) was reused by another
+      -- user's or a protected process: this run's processes are always ours to inspect.
+      local queried,live=pcall(process.owned_alive,record)
+      if queried and live then alive[#alive+1]=tostring(record.label)..' '..tostring(record.pid) end
+    end
+    if #alive==0 then return end
+    assert(time.monotonic_ms()<deadline,'spotlight run left processes alive: '..table.concat(alive,', '))
+    time.sleep_ms(sleep_ms or 1000)
+  end
+end
+
+-- A renderer that never reached the demonstration (no trace or no frames, e.g. it hung while
+-- starting and the time box retired it) left nothing to encode: that hero is recorded again.
+function M.renderer_never_recorded(run_root)
+  local seat=path.join(run_root,'p1')
+  if not path.is_file(path.join(seat,'spotlight-frames-p1','frames.jsonl')) then return true end
+  for _,event in ipairs(M.read_trace(path.join(seat,'autopilot-p1.jsonl'))) do
+    if event.event=='spotlight_finished' then return false end
+  end
+  return true
 end
 
 if arg and arg[0] and arg[0]:match('record_hero_spotlight%.lua$') then
@@ -257,15 +323,43 @@ if arg and arg[0] and arg[0]:match('record_hero_spotlight%.lua$') then
     print('spotlight '..report.hero..': '..report.video)
     return
   end
-  process.supervise_workflow(source,arg)
-  local failures={}
-  for index,hero in ipairs(options.heroes) do
-    -- Only the first run builds; later heroes reuse the same artifacts.
-    if index>1 then options.no_build=true end
-    local ok,result=pcall(M.record,options,hero)
-    if ok then print('spotlight '..hero..': '..result.video..' ('..#result.keyframes..' keyframes, skipped '..tostring(result.skipped)..')')
-    else failures[#failures+1]=hero..': '..tostring(result);print('spotlight '..hero..' FAILED: '..tostring(result)) end
+  if #options.heroes>1 then
+    -- One supervised invocation per hero: returning from it retires everything that hero started.
+    local failures={}
+    local function latest_run(hero)
+      local out=path.absolute(path.join(options.output,hero),b.root)
+      local runs={}
+      if path.is_directory(out) then
+        for name in lfs.dir(out) do if name:match('^run%-') then runs[#runs+1]=name end end
+      end
+      table.sort(runs)
+      return #runs>0 and path.join(out,runs[#runs]) or nil
+    end
+    for index,hero in ipairs(options.heroes) do
+      local result
+      for attempt=1,2 do
+        result=process.run(platform.lua_executable,{source,table.unpack(M.child_args(options,hero,index))},
+          {check=false,label='spotlight '..hero})
+        io.write(result.stdout or '')
+        local run=latest_run(hero)
+        if run then
+          local ok,err=pcall(M.assert_retired,run)
+          if not ok then failures[#failures+1]=hero..': '..tostring(err) end
+        end
+        if result.exit_code==0 or not run or not M.renderer_never_recorded(run) or attempt==2 then break end
+        print('spotlight '..hero..': the renderer never reached the demonstration; recording it again')
+      end
+      if result.exit_code~=0 then
+        failures[#failures+1]=hero..': exit '..tostring(result.exit_code)..' '..tostring(result.stderr):sub(1,400)
+        print('spotlight '..hero..' FAILED (exit '..tostring(result.exit_code)..')')
+      end
+    end
+    assert(#failures==0,table.concat(failures,'\n'))
+    return
   end
-  assert(#failures==0,table.concat(failures,'\n'))
+  process.supervise_workflow(source,arg)
+  local hero=options.heroes[1]
+  local result=M.record(options,hero,1)
+  print('spotlight '..hero..': '..result.video..' ('..#result.keyframes..' keyframes, skipped '..tostring(result.skipped)..')')
 end
 return M

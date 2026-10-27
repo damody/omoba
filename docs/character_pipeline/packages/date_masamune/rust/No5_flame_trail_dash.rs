@@ -1,6 +1,7 @@
-//! 踏火無痕（H02，來源 B04W current）：碰撞截斷的瞬間衝刺；實際路徑兩側觸發
-//! 半徑內的敵人依接觸先後各被一道追蹤火焰鎖定，火焰命中時才造成魔法傷害。
-//! 全部檢查完成後才移動施法者並送出 G-1 發射封包。
+//! 踏火無痕（H02，來源 B04W current）：碰撞截斷的連續衝刺（host forced_motion dash，
+//! 速度 dash_speed，未宣告時用 swept_dash::DASH_SPEED）；實際路徑兩側觸發半徑內的敵人
+//! 依接觸先後各被一道追蹤火焰鎖定，火焰命中時才造成魔法傷害。
+//! 全部檢查完成後才開始衝刺並送出 G-1 發射封包。
 use abi_stable::std_types::{RErr,ROk,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},types::{DamageKind,DamageProfile,EntityHandle,Fixed64,Target},world::{DisclosureQueryDyn,GameWorldDyn}};
 use omoba_core::ability_meta::{AbilityLevelData,DamageType,EffectSpec,TargetSelector};
@@ -12,7 +13,7 @@ const ID:omoba_template_ids::AbilityId=ABILITY_B04_FLAME_TRAIL_DASH;
 
 pub(crate) struct FlameTrail {
     pub range:Fixed64,pub trigger_radius:Fixed64,pub speed:Fixed64,pub radius:Fixed64,
-    pub lifetime:Fixed64,pub max_targets:usize,pub damage:Fixed64,
+    pub lifetime:Fixed64,pub max_targets:usize,pub damage:Fixed64,pub dash_speed:Fixed64,
 }
 
 /// Host rank JSON is strict; omitted extras fall back to the same authored rank.
@@ -41,6 +42,8 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<FlameTrail,&'static str> {
         lifetime:read("projectile_lifetime",1.0/1024.0,30.0)?,
         max_targets:(max_targets.raw()/1024) as usize,
         damage:read("damage_amount",0.0,1_000_000.0)?,
+        // Authored per ability when the package declares it; the shared dash speed otherwise.
+        dash_speed:match read("dash_speed",1.0,20_000.0) {Ok(speed)=>speed,Err("missing flame trail extra")=>crate::swept_dash::DASH_SPEED,Err(e)=>return Err(e)},
     };
     if spec.lifetime<=Fixed64::ZERO {return Err("flame trail lifetime below quantum");}
     Ok(spec)
@@ -75,8 +78,9 @@ pub(crate) fn execute_filtered(world:&mut GameWorldDyn<'_>,caster:EntityHandle,t
         if !row.valid() {return Err("invalid flame trail projectile envelope");}
         envelopes.push(row.payload().to_string());
     }
+    let motion=crate::swept_dash::motion_packet(caster,&plan,spec.dash_speed)?;
     // Every admission check precedes the first mutation.
-    crate::swept_dash::commit(world,caster,&plan);
+    crate::swept_dash::commit_motion(world,caster,motion);
     for payload in &envelopes {world.add_stat_buff(caster,host::BUFF.into(),spec.lifetime,payload.as_str().into());}
     Ok(envelopes.len())
 }
@@ -136,6 +140,16 @@ mod tests {
             let ally=t.body(p(400,0),1);
             let outcomes=t.cast(&FlameTrailDashHandler,Target::Point(p(5000,0)),rank,&rank_json(rank)).unwrap();
             assert_eq!(final_position(&outcomes),Some(p(distance,0)),"rank {rank}");
+            // A continuous host dash at the shared speed, never an instant teleport.
+            assert!(!outcomes.iter().any(|o|matches!(o,Outcome::ScriptSetPos {..})),"rank {rank}: no instant move");
+            let dash=outcomes.iter().find_map(|o|match o {Outcome::AddBuff {target,buff_id,duration,payload}
+                if *target==t.source && buff_id==omoba_core::runtime::native::forced_motion::BUFF=>Some((*duration,
+                    omoba_core::runtime::native::forced_motion::Spec::from_payload(buff_id,*duration,payload).unwrap())),_=>None}).expect("dash motion");
+            assert_eq!(dash.1.mode,omoba_core::runtime::native::forced_motion::Mode::Dash);
+            // The package authors the source speed (3000); content carries it as dash_speed.
+            let speed=crate::ability_builder::extra_at_id(ID,"dash_speed",rank);
+            assert_eq!(speed,Fixed64::from_i32(3000),"rank {rank}: authored dash speed");
+            assert_eq!(dash.0,Fixed64::from_i32(distance)/speed,"rank {rank}: travel time at the authored dash speed");
             let mut locked=launches(&outcomes);locked.sort();
             let mut expected=vec![(t.handle(near).id,i64::from(damage)*1024),(t.handle(edge).id,i64::from(damage)*1024)];
             expected.sort();

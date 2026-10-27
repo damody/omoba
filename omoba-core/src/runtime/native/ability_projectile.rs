@@ -453,7 +453,7 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
         }
         if let Some((mode, distance, duration)) = state.spec.forced {
             // The hit already proved contact; range only bounds the owner link.
-            let spec = super::forced_motion::Spec { source_id: state.owner.id(), source_generation: state.owner.gen().id() as u32,
+            let spec = super::forced_motion::Spec { to: None, source_id: state.owner.id(), source_generation: state.owner.gen().id() as u32,
                 mode, distance, cast_range: Fixed64::from_i32(10_000) };
             outcomes.push(Outcome::AddBuff { target: *target, buff_id: super::forced_motion::BUFF.to_owned(), duration,
                 payload: spec.payload() });

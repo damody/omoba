@@ -50,7 +50,7 @@ impl AbilityScript for FireDashHandler {
         let damage=damage*duration*Fixed64::from_i32(10);
         match crate::swept_dash::execute(world,caster,dest,crate::swept_dash::SweptDash {
             range:Fixed64::from_raw((f64::from(data.range)*1024.0).round() as i64),width,damage,
-            damage_kind:DamageKind::Magical,damage_profile:DamageProfile::FIRE,
+            damage_kind:DamageKind::Magical,damage_profile:DamageProfile::FIRE,duration,
         }) {Ok(_)=>ROk(()),Err(error)=>RErr(error.into())}
     }
 }

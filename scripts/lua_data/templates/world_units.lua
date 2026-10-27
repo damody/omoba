@@ -10,19 +10,36 @@ return function(ctx)
   local profiles=ctx.include('templates/moba_native_visuals.lua')
   local creep=copy(profiles.training_vanguard)
   creep.height_world_units=70
-  local north=copy(profiles.date_masamune);north.height_world_units=110
-  local south=copy(profiles.training_vanguard);south.height_world_units=120
-  local root = '/Game/Omoba/WorldModelsV1/'
-  local function unit(id, catalog_id, mesh, height)
+  local tripo_bodies=ctx.include('templates/moba_tripo_hero_visuals.lua')
+  -- A Tripo body profile for a world unit; an empty Lua table serialises as a map, so drop empty lists.
+  local tripo={profile=function(id)
+    local visual=tripo_bodies.profile(id);if visual and visual.attachments and #visual.attachments==0 then visual.attachments=nil end
+    return visual
+  end}
+  -- Neutral jungle camps wear generated Tripo bodies in neutral colours (no team variants): tengu
+  -- guardians, an oni for epic camps, kappa members; a body not yet imported keeps its CC0 profile.
+  local north=tripo.profile('jungle_tengu') or copy(profiles.date_masamune);north.height_world_units=110
+  local south=tripo.profile('jungle_tengu') or copy(profiles.training_vanguard);south.height_world_units=120
+  -- Generated Tripo structures (omfue/SourceArt/Structures/TripoStaticV1, imported by
+  -- import_character_sources --source-set tripo_static_v1); their off-white roofs and banners
+  -- carry the team colour through ally/enemy variants (recolor_characters --source-set tripo_static_v1).
+  local root = '/Game/Omoba/Structures/TripoStaticV1/'
+  local variants = '/Game/Omoba/Structures/TripoStaticVariantsV1/'
+  local function unit(id, catalog_id, model, height)
+    local function variant(team)
+      local name=model..'_mat_'..team
+      return {['0']=variants..model..'/'..name..'.'..name}
+    end
     return {id=id, kind='Tower', catalog_id=catalog_id,
       ue={native_only=true, native_visual={
-        static_mesh_asset=root..mesh..'.'..mesh, height_world_units=height}}}
+        static_mesh_asset=root..model..'/'..model..'.'..model, height_world_units=height,
+        ally_material_sections=variant('ally'), enemy_material_sections=variant('enemy')}}}
   end
   local units = {
-    unit('single_lane_tower', 32768, 'SM_tower_square', 240),
-    unit('single_lane_base', 32769, 'SM_base_keep_roof', 260),
-    unit('moba_inhibitor', 32770, 'SM_base_keep_roof', 110),
-    unit('moba_nexus_tower', 32771, 'SM_tower_square', 210),
+    unit('single_lane_tower', 32768, 'tower_yagura', 240),
+    unit('single_lane_base', 32769, 'castle_keep', 260),
+    unit('moba_inhibitor', 32770, 'shrine_gate', 110),
+    unit('moba_nexus_tower', 32771, 'tower_yagura', 210),
     {id='single_lane_creep',kind='Creep',catalog_id=32768,ue={native_only=true,native_visual=creep}},
     {id='north_guardian',kind='Creep',catalog_id=32769,ue={native_only=true,native_visual=north}},
     {id='south_guardian',kind='Creep',catalog_id=32770,ue={native_only=true,native_visual=south}},
@@ -46,11 +63,14 @@ return function(ctx)
   for _,map in ipairs(maps) do
     for index,camp in ipairs(map.jungle_camps or {}) do
       local visual=copy(index%2==1 and north or south)
-      if camp.id:find('epic') then visual.height_world_units=170 end
+      if camp.id:find('epic') then visual=tripo.profile('jungle_oni') or visual;visual.height_world_units=170 end
       append(camp.id,'camp',visual)
     end
+    -- Lane minions wear generated Tripo bodies with team-coloured cloth: melee ashigaru, foot archer,
+    -- siege engineer (wave order); any further wave entry keeps the shared CC0 creep.
+    local minion_bodies={'minion_ashigaru','minion_archer','minion_siege'}
     for index,minion in ipairs(map.minion_wave or {}) do
-      local visual=copy(index==2 and profiles.training_luminary or creep)
+      local visual=minion_bodies[index] and tripo.profile(minion_bodies[index]) or copy(creep)
       visual.height_world_units=index==3 and 95 or 70
       append(minion.id,'minion',visual)
     end
@@ -58,7 +78,7 @@ return function(ctx)
   -- Append new member identities after the established camp/minion IDs.
   for _,map in ipairs(maps) do for _,camp in ipairs(map.jungle_camps or {}) do
     for _,member in ipairs(camp.members or {}) do
-      local visual=copy(creep);visual.height_world_units=50
+      local visual=tripo.profile('jungle_kappa') or copy(creep);visual.height_world_units=50
       append(member.id,'camp',visual,true)
     end
   end end
@@ -72,7 +92,8 @@ return function(ctx)
       assert(not known[id], 'super minion collides with existing world identity: '..id)
       if not super_ids[id] then
         assert(next_super_id<=65535,'super minion catalog capacity exceeded')
-        local visual=copy(creep);visual.height_world_units=115
+        -- The super minion is the melee ashigaru, larger.
+        local visual=tripo.profile('minion_ashigaru') or copy(creep);visual.height_world_units=115
         units[#units+1]={id=id,kind='Creep',catalog_id=next_super_id,ue={native_only=true,native_visual=visual}}
         super_ids[id]=true;next_super_id=next_super_id+1
       end

@@ -463,6 +463,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
     let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team));
     let mut inputs = Vec::new();
     for assignment in &config.assignments {
+        // A held showcase seat stands still: no movement, attack, cast, shop or learning input.
+        if super::ShowcaseConfig::holds(&state.config, assignment.player_id) { continue; }
         let slot = state.heroes.iter().find(|s| s.player_id == assignment.player_id).expect("validated roster");
         let Some(entity) = slot.entity else { continue; };
         // Own health is owner-visible; never inspect opponents' ECS health.

@@ -29,31 +29,25 @@ test('successful build executes exact four stages',function()
   build.build({profile='debug'},{run=function() calls=calls+1;return {exit_code=0} end})
   assert(calls==4)
 end)
-test('verify authority and matching content without frontend',function()
+test('verify authority and a base_content build without frontend or shared copy',function()
   local files={}
-  local dependencies={is_file=function(file) files[#files+1]=file;return true end,
-    sha256=function() return string.rep('a',64) end}
+  local dependencies={is_file=function(file) files[#files+1]=file;return true end}
   local report=build.verify({profile='release'},dependencies)
-  assert(#report.artifacts==1 and #files==4)
-  for _,file in ipairs(files) do assert(not file:find('omfue',1,true)) end
+  assert(report.base_content_profile=='release' and #files==3)
+  for _,file in ipairs(files) do
+    assert(not file:find('omfue',1,true))
+    -- E124: the shared scripts/base_content.dll is never consulted; runs stage their own copy.
+    assert(not file:gsub('\\','/'):find('scripts/base_content.dll',1,true))
+  end
   dependencies.is_file=function(file) return not file:find('moba-config.exe',1,true) end
   rejects(function() build.verify({},dependencies) end)
-  dependencies.is_file=function() return true end
-  dependencies.sha256=function(file) return string.rep(file:gsub('\\','/'):find('/target/',1,true) and 'a' or 'b',64) end
-  rejects(function() build.verify({},dependencies) end)
 end)
-test('same-machine release authority accepts the frontend-staged debug build only when current',function()
-  local function digest(file)
-    file=file:gsub('\\','/')
-    if file:find('/target/debug/',1,true) or file:find('scripts/base_content.dll',1,true) then return string.rep('d',64) end
-    return string.rep('r',64)
-  end
-  local report=build.verify({profile='release'},{is_file=function() return true end,sha256=digest})
-  assert(report.base_content_profile=='debug')
-  assert(build.verify({profile='debug'},{is_file=function() return true end,sha256=digest}).base_content_profile=='debug')
-  local stale=function(file) return string.rep(file:gsub('\\','/'):find('scripts/base_content.dll',1,true) and 's' or 'r',64) end
-  rejects(function() build.verify({profile='release'},{is_file=function() return true end,sha256=stale}) end)
-  local no_debug=function(file) return not file:gsub('\\','/'):find('/target/debug/',1,true) end
-  rejects(function() build.verify({profile='release'},{is_file=no_debug,sha256=digest}) end)
+test('either profile build satisfies the authority, the selected one first',function()
+  local function only(profile) return function(file) file=file:gsub('\\','/')
+    return not file:find('base_content',1,true) or file:find('/target/'..profile..'/',1,true)~=nil end end
+  assert(build.verify({profile='release'},{is_file=only('debug')}).base_content_profile=='debug')
+  assert(build.verify({profile='debug'},{is_file=only('release')}).base_content_profile=='release')
+  assert(build.verify({profile='debug'},{is_file=function() return true end}).base_content_profile=='debug')
+  rejects(function() build.verify({profile='release'},{is_file=only('none')}) end)
 end)
 print(('server build: %d groups passed (injected commands/files; no build or game started)'):format(count))

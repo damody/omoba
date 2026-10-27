@@ -369,6 +369,16 @@ return function(ctx)
       end
     end
   end
+  -- Generated Tripo bodies (templates/moba_tripo_hero_visuals.lua) replace any earlier native visual,
+  -- including a borrowed CC0 rig or legacy render model, once the hero's rig and clips are imported.
+  local tripo_visuals=ctx.include('templates/moba_tripo_hero_visuals.lua')
+  for _,hero in ipairs(heroes)do
+    local profile=tripo_visuals.profile(hero.id,hero.ue and hero.ue.native_visual)
+    if profile then
+      local ue={};for key,value in pairs(hero.ue or{})do ue[key]=value end
+      ue.native_visual=profile;hero.ue=ue
+    end
+  end
   -- Every hero without its own character art (no native mesh, no legacy render model) gets the
   -- shared humanoid fallback instead of the diagnostic box; Editor art replaces it.
   local shared_fallback=ctx.include('templates/moba_shared_hero_fallback.lua')

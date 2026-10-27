@@ -16,6 +16,9 @@ M.SETTLED_FRAMES=120
 M.DEFAULT_TIMEOUT_MS=3*3600*1000
 
 function M.stamp_path(root,editor,project,graphics)
+  -- Run snapshots (E116) share the live DDC through a junction: key them as live omfue,
+  -- or every rebuild would trigger another full warmup.
+  project=project:gsub('[/\\]target[/\\]ue%-run[/\\]%x+[/\\]omfue','/omfue')
   local attributes=assert(lfs.attributes(editor),'missing Unreal editor: '..tostring(editor))
   local key=('%s-%d-%d-%s'):format(graphics,attributes.size,attributes.modification,
     (project:gsub('[^%w]','_')):sub(-48))
@@ -39,7 +42,7 @@ function M.warmup_args(sample_args,output)
   local args={}
   local skip={['-corelimit']=true,['-om-autopilot']=true,['-om-autopilot-trace']=true,
     ['-om-result-ui-smoke']=true,['-om-result-ui-screenshot']=true,['-sessionname']=true,
-    ['-UserDir']=true,['-abslog']=true,['-om-presentation']=true}
+    ['-UserDir']=true,['-abslog']=true,['-om-presentation']=true,['-om-control-profile-dir']=true}
   for _,arg in ipairs(sample_args) do
     local name=arg:match('^(%-[%w%-]+)')
     if not (name and skip[name]) then args[#args+1]=arg end
@@ -48,6 +51,8 @@ function M.warmup_args(sample_args,output)
   args[#args+1]='-sessionname=omfue-shader-warmup'
   args[#args+1]='-UserDir='..path.join(output,'ue-shader-warmup')
   args[#args+1]='-abslog='..path.join(output,'ue-shader-warmup.log')
+  -- Even when copied from a human seat, the warmup never touches the player's controls (E141).
+  require('ue_desktop').isolate_controls(args,path.join(output,'ue-shader-warmup-controls'))
   return args
 end
 

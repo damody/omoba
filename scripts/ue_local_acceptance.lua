@@ -46,8 +46,18 @@ require('ue_binary_preflight').require_ready(engine, project)
 assert(path.is_file(path.join(b.root,'omb/target/release/moba-config.exe'))
     or path.is_file(path.join(b.root,'omb/target/debug/moba-config.exe')),
   'HUD selection acceptance requires moba-config.exe; build explicitly: cargo build --manifest-path omb/Cargo.toml -p omobab --bin moba-config')
-require('moba_stage_contract').verify(require('moba_stage_contract').bindings(b.root))
+-- The bridge is checked against its stage record and base_content is this run's own copy
+-- (E124, E127): a shared scripts/base_content.dll that another session's rebuild made stale
+-- no longer blocks acceptance.
+require('ue_bridge_stage').verify_launch(b.root)
 process.supervise_workflow(source, arg)
+local run_artifacts = path.join(b.root, 'target', 'ue-local-acceptance', run_id)
+assert(not path.exists(run_artifacts), 'acceptance run artifacts must be new: ' .. run_artifacts)
+local base_content = require('run_artifacts').stage_base_content(b.root, run_artifacts)
+-- Unreal runs from a binaries snapshot so the live omfue DLLs stay free for the user's
+-- own build (E116); evidence still lands in live Saved through the snapshot's junction.
+local snapshot = require('ue_run_snapshot').prepare(b.root, nil, {base_content = base_content.dll})
+project = snapshot.uproject
 
 local relative = 'Saved/Automation/LocalAcceptance/' .. run_id
 local work = path.join(project_dir, relative)
@@ -66,7 +76,7 @@ local function visit(directory, fn)
   end
 end
 local function run(label, arguments)
-  local result = process.run(exe, arguments, {cwd = project_dir, check = false})
+  local result = process.run(exe, arguments, {cwd = snapshot.project_dir, check = false})
   path.write(path.join(work, label .. '-stdout.log'), result.stdout or '', false)
   path.write(path.join(work, label .. '-stderr.log'), result.stderr or '', false)
   report.processes[#report.processes + 1] = {label = label, exit_code = result.exit_code}
@@ -76,6 +86,11 @@ local base = {project, '-unattended', '-nop4', '-NoSound', '-NoLiveCoding'}
 local function args(extra, rhi)
   local result = {}; for _, value in ipairs(base) do result[#result + 1] = value end
   result[#result + 1] = rhi == 'd3d12' and '-d3d12' or '-NullRHI'
+  -- Every suite stays off the user's desktop unless OM_OWN_DESKTOP=1 (E114). -NullRHI alone
+  -- still uses the Windows platform application, so a real-pointer hit-test asks the OS which
+  -- window is under the user's cursor and flakes with whatever the user has open (E127).
+  require('ue_desktop').append(result)
+  require('ue_desktop').isolate_controls(result, path.join(work, 'controls')) -- never the player's profile (E141)
   for _, value in ipairs(extra) do result[#result + 1] = value end
   return result
 end

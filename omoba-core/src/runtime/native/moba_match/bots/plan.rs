@@ -103,9 +103,11 @@ impl RoleBotMatchPlan {
                 return Err("jungle role requires compiled camps".into());
             }
             counts[side] += 1;
+            // A held showcase seat is still this seat's bot controller (the server partitions
+            // the roster into humans and controllers); the match config makes it issue nothing.
             let held = self.showcase.as_ref().is_some_and(|showcase| showcase.hold_players.contains(&player.player_id));
             if held && !player.bot { return Err("a showcase hold seat must be a bot".into()); }
-            if player.bot && !held {
+            if player.bot {
                 let escort_player_id = (player.role == BotRole::Support).then(|| self.players.iter()
                     .find(|p|p.team_id == player.team_id && p.role == BotRole::Carry).map(|p|p.player_id)).flatten();
                 assignments.push(BotAssignment { player_id:player.player_id,role:player.role,lane,escort_player_id });
@@ -295,10 +297,31 @@ mod tests {
     #[test]
     fn showcase_stage_levels_places_and_holds_seats_without_role_decisions() {
         let (config,bots) = showcase_plan().compile(3,SimulationTickProfile::Production60Hz).unwrap();
-        assert!(bots.assignments.is_empty(), "held seats get no role-bot decisions");
+        // Held seats keep their bot controller (roster partition: humans plus controllers)...
+        assert_eq!(bots.assignments.iter().map(|a|a.player_id).collect::<Vec<_>>(), vec![2,6]);
         let pool = crate::runtime::StateInitializer::create_thread_pool();
         let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
         setup_single_lane_match(&mut world, config).unwrap();
+        // ...but make no role decision on any think tick, while the same seats unheld do decide
+        // (published visibility, so an empty result is the hold, not missing perception).
+        let decisions = |plan:RoleBotMatchPlan| {
+            let (config,bots) = plan.compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+            let mut players = BTreeSet::new();
+            for tick in 1..=bots.think_interval_ticks * 3 {
+                world.write_resource::<crate::comp::Tick>().0 = tick;
+                crate::runtime::run_committed_visibility_wave_b(&mut world, tick, 0);
+                players.extend(super::role_bot_inputs(&world, &bots).unwrap().into_iter().map(|(player,_)|player));
+            }
+            players
+        };
+        let mut unheld = showcase_plan();
+        unheld.showcase.as_mut().unwrap().hold_players.clear();
+        assert!(!decisions(unheld).is_empty(), "control: the same bot seats decide when not held");
+        assert!(decisions(showcase_plan()).is_empty(), "held seats issue no input");
         let state = world.read_resource::<MobaMatch>();
         let positions = world.read_storage::<Pos>();
         let props = world.read_storage::<CProperty>();

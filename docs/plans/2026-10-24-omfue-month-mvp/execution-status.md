@@ -16,9 +16,60 @@
 | D3–D4 | doing | 待使用者決定 | 候選草案在 `source-index/candidates-draft.md`，尚未逐招判定 |
 | F2 | accepted（L1） | session `omfx-decouple` | `work-F2.md`；UE Editor import／PIE 驗證未執行 |
 
+## 2026-10-27（E124：每個 run 自帶 base_content；影子專案統一 stage 流程）
+
+通用流程（取代手動 stage／複製 DLL）：
+
+```text
+一般 launch（run_moba_role_ue / run_moba_split_local / record_hero_spotlight）：
+  prepare → run_artifacts.stage_base_content：最新 scripts/target/{debug,release}/base_content.dll
+           複製到 <run>/artifacts/scripts/，server、runtime、game.toml 都指向它
+  split client → --base-content <authority 的 run 副本>（同一局的內容相同）
+  UE renderer → ue_run_snapshot.prepare(root, nil, {base_content=run 副本})：快照內 plugin 的 base_content 換成 run 副本
+  preflight → bridge 對照 om_bridge.stage.json（同一組 stage 的 dll＋header）；不檢查共用 scripts/base_content.dll
+  exe（E125）→ omobab／client runtime 複製到 target/run-bin/<key>/ 後從副本啟動；target/<profile> 不再被鎖
+  content（E125）→ server、runtime、renderer bridge 內嵌的 OM_CONTENT_CATALOG_DATA_HASH 必須等於 authority 的 content_hash，否則啟動前就拒絕
+影子專案（E116）：
+  tools\lua\lua.exe scripts\stage_ue_shadow.lua --project DIR [--sync] [--build]
+  然後 OM_UE_RUN_BINARIES=DIR 啟動；不要手動 cp om_bridge.dll / base_content.dll
+```
+
+- 新檔：`scripts/run_artifacts.lua`、`scripts/ue_bridge_stage.lua`、`scripts/stage_ue_shadow.lua`，以及測試 `scripts/tests/run_artifacts_test.lua`、`scripts/tests/ue_shadow_stage_test.lua`。
+- 修改：`moba_role_launch`、`ue_run_snapshot`、`moba_server_build`、`moba_stage_contract`、`build_ue_moba`、`build_ue_bridge`、`run_moba_split_local`，以及對應的測試。細節見 errors.md E124。
+- live omfue 還沒有 stage record，所以仍沿用舊規則（要等於最新 bridge build）。目前 live plugin 的 bridge 比共用 build 舊，下次 `build_ue_moba` 之後就會改用 record 規則。
+
 ## 2026-10-26（J1 通過、H03～H06 著陸、盲測 I1／I2、Shipping 打包）
 
 ```text
+P1 15c／15d ✓（session-ward，2026-10-27）：
+  - 15c：fire_dash（dash_duration）與 quake_axe 跳躍（共用速度）改為 forced_motion Mode::Dash 連續位移；瞬移 commit 已移除。
+  - 15d：omoba-core 的 examples 已修正，--all-targets 可以全部編譯。
+  - 驗證：omoba-core --all-targets 通過；base_content 全量測試另行回報。
+  - 實機：p15c-murakami-date PASS 8/8，mismatch 0。
+  - package rust/ 副本已同步（murakami No2_quake_axe、b29_test_support）；registry 重新產生（dash_to_point、leap 兩列）。
+  - 15b（重新產生 content，讓 dash_speed 3000 生效）需要 live build_ue_moba，等使用者關掉 editor 再做。
+P1 #12～#15 ✓（session-ward，2026-10-27）：
+  - #12 tether、#13 隱形＋無碰撞：程式中已實作。#13 補了一個 Rust 測試：攻擊後仍隱形，偵測等級足夠才看得到。
+  - #14 新增 omoba-core blink_landing.rs（point_walkable，落點由 host 決定合法位置），asai b08_flash_cut 已改用。
+  - #15 新增 forced_motion Mode::Dash（連續衝刺），date b04_flame_trail_dash 已改用；package speed 3000 要等下一次 hero_author build 才生效。
+  - capability-registry：由 candidate-requirements.lua 重新產生，更新 dash_to_point、blink_to_target、ally_area_query 三列。
+  - package rust/ 副本已同步：asai No2_flash_cut 與 b08_test_support、date No5_flame_trail_dash 與 h02_test_support。
+  - 全量 Rust：omoba-core lib／tests 1185＋3、base_content 541、omb-script-abi 15、hero_author 13，全數通過。
+    另外發現 omoba-core examples 編不過（WaveBReadView 缺 brush_regions），與本次修改無關，見 next-month。
+  - 建置：手動建置 release omobab、client runtime、base_content、bridge（live UBT 未建置），stage-dll 後複製到影子專案。
+  - 實機（quick map，lane_v0，影子專案加 OM_UE_RUN_BINARIES，離屏，≤10 分鐘）：
+    - p1b-asai-date-2：PASS，flash_cut 6 次、flame_trail_dash 24 次，mismatch 0。
+    - p1b-oichi-inahime-2：PASS 9/9，light_chain 8 次、shadow_meld 6 次，mismatch 0。
+P1 #8～#10 ✓（session-ward，2026-10-27）：
+  - 三項能力在程式中都已實作，只是 next-month 沒有更新，所以這次是驗證之後標成完成：
+    - #10 ally_area_restore：生命＋法力。
+    - #9 cast_cooldown_refund／cooldown_refund.rs。
+    - #8 build.rs 產生的 hero_unit_registry。
+  - Rust 測試：omoba-core ally_area 2、cooldown_refund 2、hero_unit 1；base_content A34 8、C17 10、B08 11，全數通過。
+  - 實機（quick map，lane_v0，影子建置加 OM_UE_RUN_BINARIES，離屏，≤10 分鐘）：
+    - p1-asai-murakami-2：PASS；b08_endless_fang 是 16 級大招，10 分鐘內到不了，判 NOT_REACHABLE。
+    - p1-oichi-omatsu-2：oichi 五招與 omatsu rapid_cooling 都 PASS，mismatch 0。唯一失敗是 omatsu 的 a34_frost_bolt：autopilot 整局只嘗試施放一次，與能力本身無關。重跑 p1-oichi-omatsu-3：比賽自然結束，PASS 9/9（含 frost_bolt），mismatch 0。
+  - capability-registry 的 ally_area_query 備註已更新（法力回復已支援）。
 技能特效 doing（session-ward，使用者原話：「參考 D:\omoba\ref\vfx_mcp 來製作角色的技能特效」）：
   資產端 BLOCKED（E101）：
     - omfue 的 UECP 外掛沒有啟用授權，每次開 editor 只能寫入 6 次，需要使用者啟用。

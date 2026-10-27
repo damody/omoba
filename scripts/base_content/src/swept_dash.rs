@@ -1,4 +1,6 @@
-//! Shared, instantaneous collision-constrained dash and actual-path damage.
+//! Shared collision-constrained dash and actual-path damage. The caster moves continuously along the
+//! admitted path: [`motion_packet`] / [`motion_packet_for`] + [`commit_motion`] start a host
+//! `forced_motion` dash (H02, 15c); path effects are still decided from the admitted plan at cast.
 use abi_stable::std_types::RSome;
 use omb_script_abi::{types::{EntityHandle,Fixed64,Vec2,DamageKind,DamageProfile},world::GameWorldDyn};
 
@@ -8,6 +10,8 @@ pub(crate) struct SweptDash {
     pub damage:Fixed64,
     pub damage_kind:DamageKind,
     pub damage_profile:DamageProfile,
+    /// Travel time of the continuous dash (authored, e.g. fire_dash `dash_duration`).
+    pub duration:Fixed64,
 }
 
 fn supported(p:Vec2)->bool {
@@ -81,11 +85,35 @@ pub(crate) fn plan_filtered(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requ
     Ok(DashPlan {start,end,hits:hits.into_iter().map(|(_,entity)|entity).collect()})
 }
 
-/// Moves and faces the caster along an admitted plan.
-pub(crate) fn commit(world:&mut GameWorldDyn<'_>,caster:EntityHandle,plan:&DashPlan) {
-    world.set_pos(caster,plan.end);
-    let direction=plan.end-plan.start;
-    world.set_facing(caster,omoba_sim::trig::atan2(direction.y,direction.x));
+/// Dash speed (world units per second) when an ability does not author `dash_speed`.
+pub(crate) const DASH_SPEED:Fixed64=Fixed64::from_raw(2_000*1024);
+
+/// Host continuous motion for an admitted plan: a `forced_motion` dash on the caster
+/// itself, travelling `plan.start -> plan.end` at `speed`. None when there is no travel.
+/// Built before any mutation so a caller can reject the cast without outcomes.
+pub(crate) fn motion_packet(caster:EntityHandle,plan:&DashPlan,speed:Fixed64)->Result<Option<(Fixed64,String)>,&'static str> {
+    let length=(plan.end-plan.start).length();
+    if length<=Fixed64::ZERO {return Ok(None);}
+    if speed<=Fixed64::ZERO {return Err("invalid dash speed");}
+    motion_packet_for(caster,plan,(length/speed).max(Fixed64::from_raw(1)))
+}
+
+/// [`motion_packet`] with an authored travel time instead of a speed.
+pub(crate) fn motion_packet_for(caster:EntityHandle,plan:&DashPlan,duration:Fixed64)->Result<Option<(Fixed64,String)>,&'static str> {
+    use omoba_core::runtime::native::forced_motion as motion;
+    let length=(plan.end-plan.start).length();
+    if length<=Fixed64::ZERO {return Ok(None);}
+    if !motion::valid_duration(duration) {return Err("invalid dash travel time");}
+    let spec=motion::Spec {source_id:caster.id,source_generation:caster.gen,mode:motion::Mode::Dash,distance:length,
+        cast_range:length+Fixed64::ONE,to:Some(plan.end)}.checked().ok_or("invalid dash motion")?;
+    Ok(Some((duration,spec.payload().to_string())))
+}
+
+/// Starts the host motion built by [`motion_packet`]; the host faces the caster along it.
+pub(crate) fn commit_motion(world:&mut GameWorldDyn<'_>,caster:EntityHandle,packet:Option<(Fixed64,String)>) {
+    if let Some((duration,payload))=packet {
+        world.add_stat_buff(caster,omoba_core::runtime::native::forced_motion::BUFF.into(),duration,payload.as_str().into());
+    }
 }
 
 pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:Vec2,spec:SweptDash)
@@ -95,8 +123,9 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,requested:
     // Damage keeps canonical identity order (unchanged legacy outcome order).
     let mut hits=plan.hits.clone();
     hits.sort_by_key(|entity|(entity.id,entity.gen));
+    let motion=motion_packet_for(caster,&plan,spec.duration)?;
     // All admission and geometry queries have completed before any mutation.
-    commit(world,caster,&plan);
+    commit_motion(world,caster,motion);
     for target in hits {world.deal_damage(target,spec.damage,spec.damage_kind,spec.damage_profile,RSome(caster));}
     Ok(plan.end)
 }
@@ -122,7 +151,8 @@ mod tests {
         world.insert(TowerTemplateRegistry::default());let source=body(&mut world,p(0,0),1);(world,source)
     }
     fn spec()->SweptDash {SweptDash {range:Fixed64::from_i32(400),width:Fixed64::from_i32(150),
-        damage:Fixed64::from_i32(100),damage_kind:DamageKind::Magical,damage_profile:DamageProfile::FIRE}}
+        damage:Fixed64::from_i32(100),damage_kind:DamageKind::Magical,damage_profile:DamageProfile::FIRE,
+        duration:Fixed64::from_raw(512)}}
     #[test]
     fn swept_dash_clips_thin_terrain_and_damages_only_actual_path_once() {
         let (mut world,source)=fixture();let middle=body(&mut world,p(100,0),2);
@@ -139,6 +169,14 @@ mod tests {
         assert_eq!(damage,vec![(middle,Fixed64::from_i32(100)),(tangent,Fixed64::from_i32(100))]);
         world.write_resource::<Vec<Outcome>>().extend(outcomes);
         omoba_core::runtime::process_outcomes(&mut world,&mut omoba_core::runtime::RuntimeEventVecSink::default()).unwrap();
+        // A continuous dash: settlement starts it, the host steps it over the authored 0.5 s.
+        assert_eq!(world.read_storage::<Pos>().get(source).unwrap().0,p(0,0),"no instant teleport");
+        world.insert(omoba_core::runtime::ObservableFactBuffer::default());
+        world.insert(omoba_core::DeltaTime(Fixed64::from_raw(128)));
+        omoba_core::runtime::native::forced_motion::step(&mut world);
+        let first=world.read_storage::<Pos>().get(source).unwrap().0;
+        assert!(first.x>Fixed64::ZERO && first.x<end.x,"part of the way after the first step: {first:?}");
+        for _ in 0..4 {omoba_core::runtime::native::forced_motion::step(&mut world);}
         assert_eq!(world.read_storage::<Pos>().get(source).unwrap().0,end);
         for entity in [middle,tangent] {assert_eq!(world.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(900));}
         for entity in [outside,behind,ally] {assert_eq!(world.read_storage::<CProperty>().get(entity).unwrap().hp,Fixed64::from_i32(1000));}

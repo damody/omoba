@@ -2,13 +2,14 @@ local build=assert(loadfile('scripts/lua_data/templates/world_units.lua'))()
 local profiles={training_vanguard={},date_masamune={},training_luminary={}}
 local first={jungle_camps={{id='north_guardian'},{id='south_guardian'},{id='first_camp',members={{id='first_small'}}}},
  minion_wave={{id='first_melee'}}}
-local second={jungle_camps={{id='second_camp',members={{id='second_small'},{id='first_small'}}},{id='first_camp'}},
+local second={jungle_camps={{id='second_camp',members={{id='second_small'},{id='first_small'}}},{id='first_camp'},{id='second_epic'}},
  minion_wave={{id='second_caster'},{id='first_melee'}}}
 first.base_structures={super_minion={id='first_super'}}
 second.base_structures={super_minion={id='second_super'}}
 local maps={first}
 local context={include=function(name)
  if name=='templates/moba_native_visuals.lua'then return profiles end
+ if name=='templates/moba_tripo_hero_visuals.lua'then return {profile=function(id)return {tripo=id}end} end
  assert(name=='templates/moba_maps.lua');return maps
 end}
 local function indexed(rows)
@@ -32,6 +33,11 @@ assert(after.first_small.catalog_id==40000 and after.second_small.catalog_id==40
 assert(after.first_super.catalog_id==60000 and after.second_super.catalog_id==60001)
 assert(after.moba_inhibitor.kind=='Tower' and after.moba_inhibitor.catalog_id==32770)
 assert(after.moba_nexus_tower.kind=='Tower' and after.moba_nexus_tower.catalog_id==32771)
+-- Neutral camps wear Tripo bodies without team variants: tengu guardians, oni epic, kappa members.
+local function body(id)return after[id].ue.native_visual end
+assert(body('north_guardian').tripo=='jungle_tengu' and body('first_camp').tripo=='jungle_tengu')
+assert(body('second_epic').tripo=='jungle_oni' and body('second_epic').height_world_units==170)
+assert(body('first_small').tripo=='jungle_kappa' and body('first_small').height_world_units==50)
 local original=first.base_structures
 first.base_structures={super_minion={id='first_melee'}}
 assert(not pcall(build,context),'super minion identity collision must fail closed')

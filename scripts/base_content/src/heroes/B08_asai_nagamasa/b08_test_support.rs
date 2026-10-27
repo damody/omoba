@@ -52,6 +52,18 @@ impl TestWorld {
         handler.on_learn(self.handle(self.source),rank,&mut dynworld);
         drop(dynworld);adapter.finish()
     }
+    /// Commits outcomes the way the host does after a script phase.
+    pub fn apply(&mut self,outcomes:Vec<Outcome>) {
+        self.world.write_resource::<Vec<Outcome>>().extend(outcomes);
+        omoba_core::runtime::process_outcomes(&mut self.world,&mut omoba_core::runtime::RuntimeEventVecSink::default()).unwrap();
+    }
+}
+
+/// The blink landing request a cast sent to its caster (host-settled, `blink_landing`).
+pub(crate) fn landing_request(outcomes:&[Outcome])->Option<omoba_core::runtime::native::blink_landing::Spec> {
+    use omoba_core::runtime::native::blink_landing;
+    outcomes.iter().find_map(|o|match o {Outcome::AddBuff {buff_id,duration,payload,..} if buff_id==blink_landing::BUFF=>
+        blink_landing::Spec::from_payload(buff_id,*duration,payload),_=>None})
 }
 
 pub(crate) fn final_position(outcomes:&[Outcome])->Option<Vec2> {

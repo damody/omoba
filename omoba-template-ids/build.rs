@@ -76,6 +76,11 @@ fn main() {
     out.push_str(&format!(
         "pub const CONTENT_CATALOG_DATA_HASH: &str = \"{catalog_data_hash}\";\n\n"
     ));
+    // One contiguous literal that binaries keep (they log it at startup), so a launch can read
+    // which content a built server, client runtime or bridge carries without starting it (E125).
+    out.push_str(&format!(
+        "pub const CONTENT_CATALOG_MARKER: &str = \"OM_CONTENT_CATALOG_DATA_HASH={catalog_data_hash};\";\n\n"
+    ));
 
     emit_tower_namespace(&mut out, &m.towers);
     emit_tower_render_metadata(&mut out, &m.towers);

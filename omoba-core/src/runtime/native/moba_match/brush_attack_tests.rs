@@ -184,3 +184,18 @@ fn real_neutral_jungle_ai_attack_in_brush_exposes_only_its_source_to_defender() 
     world.write_resource::<MobaMatch>().elapsed=BRUSH_ATTACK_REVEAL_DURATION;
     assert!(!visible(&world,attacker,2));
 }
+
+#[test]
+fn invisibility_buff_keeps_an_attacking_hero_hidden_until_detected() {
+    // H05 inahime R: the timed invisibility buff (BuffStore::stealth_level), not only StealthProfile,
+    // denies the brush attack reveal; attacking never removes it.
+    let (mut world,attacker,victim)=fixture();
+    world.write_resource::<crate::runtime::BuffStore>().add(attacker,"stealth_test",Fixed64::from_i32(20),
+        serde_json::json!({"invisibility_level":1024}));
+    record_brush_attack_reveal(&world,attacker,victim);
+    assert!(!visible(&world,attacker,2),"an invisible attacker stays hidden after attacking");
+    assert!(!super::super::game_processor::item_entity_visible_to_team(&world,attacker,2));
+    assert_eq!(world.read_resource::<crate::runtime::BuffStore>().stealth_level(attacker),1,"the attack kept the buff");
+    world.write_storage::<VisionSource>().get_mut(victim).unwrap().detection_level=1;
+    assert!(visible(&world,attacker,2),"detection at the stealth level reveals the attacker");
+}

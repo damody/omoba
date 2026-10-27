@@ -1,7 +1,10 @@
 //! Forced displacement (G-4 `knockback` / `pull_hook`). A script moves an
 //! enemy by a timed buff on the victim whose payload is `{KEY: ..}`:
 //! - `knockback` pushes it `distance` straight away from the source;
-//! - `pull` drags it straight toward the source, stopping at body contact.
+//! - `pull` drags it straight toward the source, stopping at body contact;
+//! - `dash` moves the source itself to a fixed endpoint (a continuous dash, H02):
+//!   the packet is on its own caster, carries no stun (the motion buff alone roots
+//!   it against commands) and turns it to face the travel direction.
 //!
 //! The direction and travel are fixed when the serial settlement applies the
 //! buff, from the positions at that moment; the victim then moves at a constant
@@ -28,11 +31,13 @@ pub const MAX_DISTANCE: i32 = 3_000;
 pub const MAX_DURATION: i32 = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode { Knockback, Pull }
+pub enum Mode { Knockback, Pull, Dash }
 
 impl Mode {
-    pub const fn as_str(self) -> &'static str { match self { Self::Knockback => "knockback", Self::Pull => "pull" } }
-    pub fn parse(text: &str) -> Option<Self> { match text { "knockback" => Some(Self::Knockback), "pull" => Some(Self::Pull), _ => None } }
+    pub const fn as_str(self) -> &'static str { match self { Self::Knockback => "knockback", Self::Pull => "pull", Self::Dash => "dash" } }
+    pub fn parse(text: &str) -> Option<Self> {
+        match text { "knockback" => Some(Self::Knockback), "pull" => Some(Self::Pull), "dash" => Some(Self::Dash), _ => None }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,29 +47,44 @@ pub struct Spec {
     pub mode: Mode,
     /// Knockback travel, or the pull's longest travel.
     pub distance: Fixed64,
-    /// Admission range from the live source to the victim.
+    /// Admission range from the live source to the victim (a dash: to its endpoint).
     pub cast_range: Fixed64,
+    /// A dash's endpoint (`Some` exactly for `Mode::Dash`).
+    pub to: Option<Vec2>,
 }
 
 impl Spec {
     pub fn checked(self) -> Option<Self> {
         (self.source_id != u32::MAX && self.source_generation > 0 && self.source_generation <= i32::MAX as u32
             && self.distance > Fixed64::ZERO && self.distance <= Fixed64::from_i32(MAX_DISTANCE)
-            && self.cast_range > Fixed64::ZERO && self.cast_range <= Fixed64::from_i32(10_000)).then_some(self)
+            && self.cast_range > Fixed64::ZERO && self.cast_range <= Fixed64::from_i32(10_000)
+            && (self.mode == Mode::Dash) == self.to.is_some()
+            && self.to.is_none_or(|to| to.x.raw().abs() <= omoba_sim::terrain::MAX_GEOMETRY_RAW
+                && to.y.raw().abs() <= omoba_sim::terrain::MAX_GEOMETRY_RAW)).then_some(self)
     }
     pub fn payload(&self) -> Value {
-        json!({ (KEY): { "source_id": self.source_id, "source_generation": self.source_generation,
-            "mode": self.mode.as_str(), "distance_raw": self.distance.raw(), "range_raw": self.cast_range.raw() } })
+        let mut row = json!({ "source_id": self.source_id, "source_generation": self.source_generation,
+            "mode": self.mode.as_str(), "distance_raw": self.distance.raw(), "range_raw": self.cast_range.raw() });
+        if let Some(to) = self.to { row["to"] = json!([to.x.raw(), to.y.raw()]); }
+        json!({ (KEY): row })
     }
     pub fn from_payload(buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Self> {
         if buff_id != BUFF || !valid_duration(duration) || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
-        if row.len() != 5 { return None; }
+        let to = match row.get("to") {
+            Some(point) => {
+                let xy = point.as_array()?;
+                if xy.len() != 2 { return None; }
+                Some(Vec2::new(Fixed64::from_raw(xy[0].as_i64()?), Fixed64::from_raw(xy[1].as_i64()?)))
+            }
+            None => None,
+        };
+        if row.len() != 5 + usize::from(to.is_some()) { return None; }
         Self { source_id: u32::try_from(row.get("source_id")?.as_u64()?).ok()?,
             source_generation: u32::try_from(row.get("source_generation")?.as_u64()?).ok()?,
             mode: Mode::parse(row.get("mode")?.as_str()?)?,
             distance: Fixed64::from_raw(row.get("distance_raw")?.as_i64()?),
-            cast_range: Fixed64::from_raw(row.get("range_raw")?.as_i64()?) }.checked()
+            cast_range: Fixed64::from_raw(row.get("range_raw")?.as_i64()?), to }.checked()
     }
     pub fn source(&self) -> Entity { self.source_entity() }
     fn source_entity(&self) -> Entity { Entity::new(self.source_id, specs::world::Generation::new(self.source_generation as i32)) }
@@ -83,6 +103,8 @@ pub struct Motion {
     pub direction: Vec2,
     pub remaining: Fixed64,
     pub time_left: Fixed64,
+    /// A dash's exact endpoint: its last step lands here, free of direction rounding.
+    pub to: Option<Vec2>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -96,6 +118,7 @@ impl ForcedMotions {
             "source": crate::runtime::canonical_entity_id(motion.source), "mode": motion.mode.as_str(),
             "direction": [motion.direction.x.raw(), motion.direction.y.raw()],
             "remaining": motion.remaining.raw(), "time_left": motion.time_left.raw(),
+            "to": motion.to.map(|to| [to.x.raw(), to.y.raw()]),
         })).collect())
     }
 }
@@ -107,10 +130,18 @@ fn movable(world: &World, entity: Entity) -> bool {
         && world.read_storage::<Pos>().get(entity).is_some()
 }
 
-/// Live hostile target in range of the exact live source, not a building.
+/// Live hostile target in range of the exact live source, not a building; a dash
+/// is on its own live source with its endpoint in range.
 pub fn admitted(world: &World, target: Entity, buff_id: &str, duration: Fixed64, payload: &Value,
     expected_source: Option<Entity>) -> Option<Spec> {
     let spec = Spec::from_payload(buff_id, duration, payload)?;
+    if let Some(to) = spec.to {
+        let source = spec.source_entity();
+        let at = world.read_storage::<Pos>().get(target).map(|pos| pos.0)?;
+        return (target == source && world.entities().entity(spec.source_id) == source
+            && expected_source.is_none_or(|expected| expected == source) && movable(world, target)
+            && (to - at).length_squared() <= spec.cast_range * spec.cast_range).then_some(spec);
+    }
     (super::targeted_effect::admitted(world, target, spec.source_id, spec.source_generation, spec.cast_range, false, expected_source)
         && movable(world, target)).then_some(spec)
 }
@@ -124,13 +155,18 @@ fn radius(world: &World, entity: Entity) -> Fixed64 {
 pub fn plan(world: &World, target: Entity, spec: &Spec) -> Option<(Vec2, Fixed64)> {
     let positions = world.read_storage::<Pos>();
     let (at, from) = (positions.get(target)?.0, positions.get(spec.source_entity())?.0);
-    let delta = match spec.mode { Mode::Knockback => at - from, Mode::Pull => from - at };
+    let delta = match (spec.mode, spec.to) {
+        (Mode::Dash, Some(to)) => to - at,
+        (Mode::Knockback, _) => at - from,
+        _ => from - at,
+    };
     let length = delta.length();
     if length <= Fixed64::ZERO { return None; }
     let direction = Vec2::new(delta.x / length, delta.y / length);
     let travel = match spec.mode {
         Mode::Knockback => spec.distance,
         Mode::Pull => spec.distance.min(length - radius(world, target) - radius(world, spec.source_entity())),
+        Mode::Dash => spec.distance.min(length),
     };
     (travel > Fixed64::ZERO).then_some((direction, travel))
 }
@@ -147,10 +183,17 @@ pub fn apply(world: &mut World, target: Entity, buff_id: &str, duration: Fixed64
         world.write_resource::<ForcedMotions>().0.retain(|entity, _| buffs.has(*entity, BUFF));
     }
     world.write_resource::<ForcedMotions>().0.insert(target, Motion {
-        source: spec.source_entity(), mode: spec.mode, direction, remaining, time_left: duration });
+        source: spec.source_entity(), mode: spec.mode, direction, remaining, time_left: duration,
+        to: spec.to.filter(|_| spec.mode == Mode::Dash) });
+    if spec.mode == Mode::Dash {
+        if let Some(face) = world.write_storage::<super::comp::Facing>().get_mut(target) {
+            face.0 = omoba_sim::trig::atan2(direction.y, direction.x);
+        }
+    }
     let mut buffs = world.write_resource::<BuffStore>();
     buffs.add(target, BUFF, duration, payload.clone());
-    buffs.add(target, omb_script_abi::buff_ids::BuffId::Stun.as_str(), duration, Value::Null);
+    // A dash is the caster's own motion: rooted by the motion buff, not stunned.
+    if spec.mode != Mode::Dash { buffs.add(target, omb_script_abi::buff_ids::BuffId::Stun.as_str(), duration, Value::Null); }
     true
 }
 
@@ -179,7 +222,10 @@ pub fn step(world: &mut World) {
         let from = world.read_storage::<Pos>().get(*entity).expect("movable position").0;
         let last = motion.time_left <= dt;
         let travel = if last { motion.remaining } else { motion.remaining.min(motion.remaining * dt / motion.time_left) };
-        let to = from + Vec2::new(motion.direction.x * travel, motion.direction.y * travel);
+        let to = match motion.to {
+            Some(end) if last || travel >= motion.remaining => end,
+            _ => from + Vec2::new(motion.direction.x * travel, motion.direction.y * travel),
+        };
         let wall = world.try_fetch::<BlockedRegions>().and_then(|regions| wall_contact(from, to, radius(world, *entity), &regions));
         let end = wall.unwrap_or(to);
         if end != from {
@@ -207,15 +253,73 @@ pub fn step(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use specs::Builder;
+
+    fn p(x: i32, y: i32) -> Vec2 { Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)) }
+
+    #[test]
+    fn a_dash_moves_its_own_caster_continuously_rooted_not_stunned_and_stops_at_a_wall() {
+        for wall in [false, true] {
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+            world.insert(crate::runtime::ObservableFactBuffer::default());
+            world.insert(DeltaTime(Fixed64::from_raw(256)));
+            if wall {
+                world.insert(BlockedRegions(vec![super::super::comp::BlockedRegion { name: "wall".into(), points: vec![
+                    vek::Vec2::new(500.0, -200.0), vek::Vec2::new(600.0, -200.0), vek::Vec2::new(600.0, 200.0), vek::Vec2::new(500.0, 200.0)] }]));
+            }
+            let caster = world.create_entity().with(Pos(p(0, 0))).with(super::super::comp::Facing(omoba_sim::Angle::from_degrees_i32(90)))
+                .with(CProperty { hp: Fixed64::from_i32(100), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
+                    def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO })
+                .with(CollisionRadius(Fixed64::from_i32(20))).build();
+            let spec = Spec { source_id: caster.id(), source_generation: caster.gen().id() as u32, mode: Mode::Dash,
+                distance: Fixed64::from_i32(1_000), cast_range: Fixed64::from_i32(1_001), to: Some(p(1_000, 0)) }.checked().unwrap();
+            // One second for 1000 units: four 0.25 s steps.
+            assert!(apply(&mut world, caster, BUFF, Fixed64::ONE, &spec.payload()), "wall={wall}");
+            assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0, p(0, 0), "not an instant teleport");
+            assert_eq!(world.read_storage::<super::super::comp::Facing>().get(caster).unwrap().0, omoba_sim::Angle::ZERO, "faces the dash");
+            {
+                let buffs = world.read_resource::<BuffStore>();
+                assert!(buffs.is_rooted(caster) && !buffs.has(caster, omb_script_abi::buff_ids::BuffId::Stun.as_str()), "rooted, not stunned");
+            }
+            step(&mut world);
+            assert_eq!(world.read_storage::<Pos>().get(caster).unwrap().0, p(250, 0), "a quarter of the way after a quarter second");
+            for _ in 0..3 { step(&mut world); }
+            let end = world.read_storage::<Pos>().get(caster).unwrap().0;
+            if wall {
+                assert!(end.x < Fixed64::from_i32(481) && end.x > Fixed64::from_i32(470), "stops at the wall: {end:?}");
+            } else {
+                assert_eq!(end, p(1_000, 0));
+            }
+            assert!(world.read_resource::<ForcedMotions>().0.is_empty(), "the motion ends");
+        }
+    }
+
+    #[test]
+    fn a_dash_packet_is_only_admitted_on_its_own_caster() {
+        let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&crate::runtime::StateInitializer::create_thread_pool());
+        let body = |world: &mut World, at: Vec2| world.create_entity().with(Pos(at))
+            .with(CProperty { hp: Fixed64::from_i32(100), mhp: Fixed64::from_i32(100), msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build();
+        let (caster, other) = (body(&mut world, p(0, 0)), body(&mut world, p(10, 0)));
+        let spec = Spec { source_id: caster.id(), source_generation: caster.gen().id() as u32, mode: Mode::Dash,
+            distance: Fixed64::from_i32(500), cast_range: Fixed64::from_i32(501), to: Some(p(500, 0)) }.checked().unwrap();
+        assert!(admitted(&world, caster, BUFF, Fixed64::ONE, &spec.payload(), Some(caster)).is_some());
+        assert!(admitted(&world, other, BUFF, Fixed64::ONE, &spec.payload(), None).is_none(), "never moves another unit");
+        let far = Spec { cast_range: Fixed64::from_i32(400), ..spec };
+        assert!(admitted(&world, caster, BUFF, Fixed64::ONE, &far.payload(), None).is_none(), "endpoint beyond range");
+    }
     fn spec(mode: Mode) -> Spec {
-        Spec { source_id: 3, source_generation: 1, mode, distance: Fixed64::from_i32(400), cast_range: Fixed64::from_i32(600) }
+        Spec { source_id: 3, source_generation: 1, mode, distance: Fixed64::from_i32(400), cast_range: Fixed64::from_i32(600),
+            to: (mode == Mode::Dash).then(|| Vec2::new(Fixed64::from_i32(400), Fixed64::ZERO)) }
     }
     #[test]
     fn payload_round_trips_strictly() {
-        for mode in [Mode::Knockback, Mode::Pull] {
+        for mode in [Mode::Knockback, Mode::Pull, Mode::Dash] {
             let s = spec(mode);
             assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &s.payload()), Some(s));
         }
+        assert_eq!(Spec { to: None, ..spec(Mode::Dash) }.checked(), None, "a dash names its endpoint");
+        assert_eq!(Spec { to: spec(Mode::Dash).to, ..spec(Mode::Pull) }.checked(), None, "only a dash has an endpoint");
         let s = spec(Mode::Knockback);
         assert_eq!(Spec::from_payload("stun", Fixed64::ONE, &s.payload()), None, "only the status buff carries it");
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ZERO, &s.payload()), None);

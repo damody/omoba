@@ -19,8 +19,8 @@ function M.options(args)
     ['--selection-cancel-file']='selection_cancel_file',
     ['--managed-session-bootstrap']='managed_session_bootstrap',
     ['--host-simulations']='host_simulations',['--host-renderers']='host_renderers',
-    ['--autopilot']='autopilot',['--packaged-game']='packaged_game',['--resolution']='resolution',
-    ['--accepted-inputs']='accepted_inputs',['--spotlight-script']='spotlight_script',
+    ['--autopilot']='autopilot',['--packaged-game']='packaged_game',['--resolution']='resolution',['--frame-cap']='frame_cap',
+    ['--accepted-inputs']='accepted_inputs',['--autopilot-shot-interval']='autopilot_shot_interval',['--base-content']='base_content',['--spotlight-script']='spotlight_script',
     ['--round-time-box-seconds']='round_time_box_seconds',['--managed-rounds']='managed_rounds',['--managed-final-round-seconds']='managed_final_round_seconds'}
   local i=1
   while i<=#args do
@@ -54,6 +54,12 @@ function M.options(args)
   assert(options.profile=='release' or options.profile=='debug','profile must be release or debug')
   assert(options.graphics=='d3d11' or options.graphics=='d3d12','graphics must be d3d11 or d3d12')
   assert(not (options.prepare_only and options.interactive_selection),'interactive selection cannot be prepare-only')
+  -- Periodic in-match evidence screenshots of an autopilot seat (default every 120 s).
+  if options.autopilot_shot_interval then
+    options.autopilot_shot_interval=assert(math.tointeger(tonumber(options.autopilot_shot_interval)),'--autopilot-shot-interval must be an integer')
+    assert(options.autopilot_shot_interval>=5 and options.autopilot_shot_interval<=3600,'--autopilot-shot-interval must be 5..3600 seconds')
+    assert(options.autopilot,'--autopilot-shot-interval requires --autopilot')
+  end
   -- Hero spotlight recording (record_hero_spotlight.lua): the autopilot's spotlight profile reads it.
   if options.spotlight_script then
     assert(options.autopilot=='spotlight','--spotlight-script requires --autopilot spotlight')
@@ -188,6 +194,14 @@ function M.assert_snapshot_loadouts(snapshot,plan)
 end
 
 -- Renderer window size WIDTHxHEIGHT (default 1280x720), for the window/resolution matrix.
+-- Renderer frame-rate cap (t.MaxFPS). 60 is what players get; 0 removes the cap so a
+-- frame-time measurement shows the real cost and headroom instead of the cap (E144).
+function M.frame_cap(options)
+  local value=options.frame_cap==nil and 60 or math.tointeger(tonumber(options.frame_cap))
+  assert(value and value>=0 and value<=1000,'--frame-cap must be an integer 0..1000 (0 = uncapped)')
+  return value
+end
+
 function M.resolution(options)
   local value=options.resolution or '1280x720'
   local width,height=value:match('^(%d+)x(%d+)$')
@@ -267,7 +281,8 @@ function M.interactive_select(options,editor,process,time)
     return require('moba_shared_selection').run(options,editor,process,time,output,candidate,exe,humans,preflight)
   end
   local result=path.join(output,'finalized-reply.json')
-  local args={path.join(b.root,'omfue','om.uproject'),'/Game/Map/Main','-game',
+  local snapshot=require('ue_run_snapshot').prepare(b.root) -- E116
+  local args={snapshot.uproject,'/Game/Map/Main','-game',
     '-om-hero-selection','-om-presentation-only','-om-selection-exe='..exe,'-om-selection-plan='..candidate,
     '-om-selection-player='..humans[1],'-om-selection-result='..result,
     '-'..options.graphics,'-noraytracing','-windowed','-ResX=1280','-ResY=720',
@@ -280,7 +295,7 @@ function M.interactive_select(options,editor,process,time)
   local ok,err=xpcall(function()
     local budget=require('moba_selection_deadline')
     local completion_deadline=budget.start(options,time)
-    local pid,record=process.spawn_owned(editor,args,{cwd=path.join(b.root,'omfue'),
+    local pid,record=process.spawn_owned(editor,args,{cwd=snapshot.project_dir,
       env={OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0'},
       stdout=path.join(output,'ue.stdout.log'),stderr=path.join(output,'ue.stderr.log')})
     owned=process.validate_owned(record)
@@ -367,6 +382,27 @@ function M.authored_lane_index(root,map_id,lane)
   return nil
 end
 
+-- Short commit of the checkout that launched this renderer (shown on the loading screen's build
+-- line). Read from .git directly; nil when unavailable (exported trees, unusual layouts).
+function M.build_identity(root)
+  local git=path.join(root,'.git')
+  if not path.is_file(path.join(git,'HEAD')) then return nil end
+  local head=path.read(path.join(git,'HEAD')):match('^%s*(.-)%s*$')
+  local hash=head:match('^(%x+)$')
+  local ref=head:match('^ref:%s*(%S+)$')
+  if ref then
+    local loose=path.join(git,ref)
+    if path.is_file(loose) then hash=path.read(loose):match('^(%x+)') end
+    if not hash and path.is_file(path.join(git,'packed-refs')) then
+      for line in path.read(path.join(git,'packed-refs')):gmatch('[^\r\n]+') do
+        local value,name=line:match('^(%x+)%s+(%S+)$')
+        if name==ref then hash=value end
+      end
+    end
+  end
+  return hash and #hash>=7 and hash:sub(1,9):lower() or nil
+end
+
 function M.presentation_address(port,player_id)
   assert(math.type(player_id)=='integer' and player_id>0,'presentation player ID must be a positive integer')
   local presentation_port=port+player_id
@@ -395,8 +431,11 @@ function M.prepare(options,process)
   local hero_catalog=path.join(output,'hero-catalog.json')
   path.write(hero_catalog,json.encode({schema_version=1,catalog_data_hash=locked.selection.catalog_data_hash,
     heroes=locked.hero_catalog}))
-  local scripts=path.join(b.root,'scripts')
-  local content=path.join(scripts,'lua_data')
+  local content=path.join(b.root,'scripts','lua_data')
+  -- This run's own base_content copy (E124): never the shared scripts/base_content.dll.
+  local base_content=require('run_artifacts').stage_base_content(b.root,output,nil,options.profile,
+    options.base_content and path.absolute(options.base_content,b.root))
+  local scripts=base_content.scripts_dir
   local fields=exporter.server_fields(value)..table.concat({
     'STEP_FPS=60','SPEED_MULT=1','SERVER_IP='..json.encode(options.server_bind),
     'SERVER_PORT='..json.encode(tostring(options.port)),
@@ -407,7 +446,7 @@ function M.prepare(options,process)
     {path={'server'},fields=fields},
     {path={'content'},fields=table.concat({
       'SCRIPTS_DIR='..json.encode(scripts),
-      'DLL_PATH='..json.encode(path.join(scripts,'base_content.dll')),
+      'DLL_PATH='..json.encode(base_content.dll),
       'LUA_CONTENT=false','LUA_HOT_RELOAD=false',
       'LUA_CONTENT_ROOT='..json.encode(content),'STORY_DATA_DIR='..json.encode(content),
     },'\n')..'\n'},
@@ -447,7 +486,8 @@ function M.prepare(options,process)
     story=report.story,map_id=report.map_id,tick_rate_hz=60,
     base_recovery_enabled=report.base_recovery_enabled,
     mana_enabled=report.mana_enabled,
-    human_count=#report.humans,bot_count=#report.bot_player_ids,clients={},human_heroes={}}
+    human_count=#report.humans,bot_count=#report.bot_player_ids,clients={},human_heroes={},
+    base_content={dll=base_content.dll,profile=base_content.profile,sha256=base_content.sha256,manifest=base_content.manifest}}
   for _,player in ipairs(value.players) do
     if player.bot==false then
       plan.human_heroes[#plan.human_heroes+1]={player_id=player.player_id,hero=player.hero}
@@ -455,7 +495,7 @@ function M.prepare(options,process)
   end
   table.sort(plan.human_heroes,function(a,b) return a.player_id<b.player_id end)
   local env={OMB_GAME_TOML=generated,OMB_STORY=report.story,OMB_SCENE_PATH='',
-    OMB_DLL_PATH=path.join(scripts,'base_content.dll'),OMB_SCRIPTS_DIR=scripts,
+    OMB_DLL_PATH=base_content.dll,OMB_SCRIPTS_DIR=scripts,
     OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0',OMB_LUA_CONTENT_ROOT='',OMB_STORY_DATA_DIR='',RUST_LOG='info'}
   -- Unfiltered authority queries for local debug tools (omb-mcp); off unless asked.
   if options.debug_query then env.OMB_DEBUG_QUERY='1' end
@@ -463,7 +503,7 @@ function M.prepare(options,process)
   if options.accepted_inputs then env.OMOBA_ACCEPTED_INPUTS=path.absolute(options.accepted_inputs,b.root) end
   for key,value in pairs(worker_budget.env) do env[key]=value end
   if not options.connect then
-    plan.server={exe=path.join(b.root,'omb','target',options.profile,'omobab.exe'),args={},cwd=path.join(b.root,'omb'),env=env}
+    plan.server={exe=require('run_artifacts').rust_binary(b.root,'omb',options.profile,'omobab.exe'),args={},cwd=path.join(b.root,'omb'),env=env}
   end
   for _,human in ipairs(local_humans) do
     local id,team=tostring(human.player_id),tostring(human.team_id)
@@ -472,7 +512,7 @@ function M.prepare(options,process)
     local runtime_env={}
     for key,v in pairs(env) do runtime_env[key]=v end
     runtime_env.OMB_PLAYER_ID=id;runtime_env.OMB_TEAM_ID=team;runtime_env.OMB_PLAYER_NAME=name
-    local runtime={exe=path.join(b.root,'omoba-client-runtime','target',options.profile,'omoba-client-runtime.exe'),
+    local runtime={exe=require('run_artifacts').rust_binary(b.root,'omoba-client-runtime',options.profile,'omoba-client-runtime.exe'),
       cwd=b.root,env=runtime_env,args={'--player-id',id,'--team',team,'--player-name',name,
         '--server',server_address,'--presentation-bind',address,
         '--presentation-hz','60',}}
@@ -488,7 +528,7 @@ function M.prepare(options,process)
       '-nosplash','-nop4','-NoLiveCoding','-AllowMultipleInstances',
       '-sessionname=omfue-role-p'..id,'-UserDir='..path.join(output,'ue-p'..id),
       '-abslog='..path.join(output,'ue-p'..id..'.log'),'-stdout','-FullStdOutLogOutput',
-      '-ExecCmds=t.MaxFPS 60'}}
+      '-ExecCmds=t.MaxFPS '..M.frame_cap(options)}}
     if options.packaged_game then
       -- A cooked game has no project argument and is already a game target.
       local kept={}
@@ -501,13 +541,32 @@ function M.prepare(options,process)
     -- Match loading screen (presentation only): the locked seats and hero names this renderer joins.
     ue.args[#ue.args+1]='-om-loading-selection='..selection_report
     ue.args[#ue.args+1]='-om-loading-catalog='..hero_catalog
+    local build_id=M.build_identity(b.root)
+    if build_id then ue.args[#ue.args+1]='-om-build-id='..build_id end
     -- (project switches are appended below and checked once the list is complete)
     if options.autopilot then
       ue.args[#ue.args+1]='-om-autopilot='..options.autopilot
       ue.args[#ue.args+1]='-om-autopilot-trace='..path.join(output,'autopilot-p'..id..'.jsonl')
-      ue.args[#ue.args+1]='-om-autopilot-shot-interval=120'
+      ue.args[#ue.args+1]='-om-autopilot-shot-interval='..tostring(options.autopilot_shot_interval or 120)
+      -- No human plays an autopilot seat: render off-screen so it never takes the user's
+      -- desktop, foreground or cursor (E114; OM_OWN_DESKTOP=1 keeps a visible window).
+      require('ue_desktop').append(ue.args)
+      require('ue_desktop').isolate_controls(ue.args,path.join(output,'controls-p'..id)) -- never the player's profile (E141)
+      -- An off-screen viewport ignores -ResX/-ResY (spotlight frames came out 888x500):
+      -- force the requested size, also through the console once the viewport exists.
+      if not require('ue_desktop').owns_desktop() then
+        local size=M.resolution(options)
+        ue.args[#ue.args+1]='-ForceRes'
+        for index,value in ipairs(ue.args) do
+          if value:match('^%-ExecCmds=') then
+            ue.args[index]=value..(', r.SetRes %dx%dw'):format(size[1],size[2])
+          end
+        end
+      end
       -- Evidence: one window capture while the match loading screen is on screen.
       ue.args[#ue.args+1]='-om-loading-screenshot='..path.join(output,'loading-p'..id..'.png')
+      -- and one while the match map is still loading (MoviePlayer phase).
+      ue.args[#ue.args+1]='-om-loading-map-screenshot='..path.join(output,'loading-map-p'..id..'.png')
       if options.spotlight_script then
         ue.args[#ue.args+1]='-om-spotlight-script='..path.absolute(options.spotlight_script,b.root)
         ue.args[#ue.args+1]='-om-spotlight-frames='..path.join(output,'spotlight-frames-p'..id)
@@ -533,8 +592,98 @@ function M.prepare(options,process)
     plan.clients[#plan.clients+1]={player_id=human.player_id,team_id=human.team_id,
       presentation=address,runtime=runtime,unreal=ue}
   end
+  M.use_run_binaries(plan)
   path.write(path.join(output,'launch-plan.json'),json.encode(plan))
   return plan
+end
+
+-- Server and client runtime run from copies (run_artifacts.stage_binaries, E125): a running
+-- target/<profile> executable is locked, and other sessions' builds then failed or rebuilt
+-- only part of the set. Before anything starts, every binary of this launch must carry the
+-- authority's content hash; the renderer's bridge otherwise rejects the runtime and never
+-- shows a frame.
+function M.use_run_binaries(plan,deps)
+  deps=deps or {}
+  local artifacts=deps.artifacts or require('run_artifacts')
+  local files,roles={},{}
+  local function add(role,exe)
+    local name=assert(exe:match('([^/\\]+)$'))
+    files[#files+1]={name=name,source=exe};roles[#roles+1]={role=role,name=name}
+  end
+  if plan.server then add('server',plan.server.exe) end
+  local runtime=plan.clients[1] and plan.clients[1].runtime.exe
+  if runtime then add('client runtime',runtime) end
+  if #files==0 then return plan end
+  local staged=artifacts.stage_binaries(b.root,files)
+  local checks={}
+  for _,role in ipairs(roles) do checks[#checks+1]={role=role.role,file=staged.files[role.name]} end
+  -- The renderer's bridge is checked at launch, against the snapshot it actually runs
+  -- (M.verify_renderer_content); a prepared plan does not depend on the frontend build.
+  artifacts.verify_content(checks,plan.content_hash,deps.log)
+  if plan.server then plan.server.exe=staged.files[roles[1].name] end
+  for _,client in ipairs(plan.clients) do client.runtime.exe=staged.files[roles[#roles].name] end
+  plan.run_binaries={dir=staged.dir,key=staged.key}
+  return plan
+end
+
+-- Editor renderers start from a binaries snapshot, not live omfue: a running Unreal maps
+-- the project DLLs and the user's own build then fails to relink them (E116). Content,
+-- Config and Saved are the live ones through the snapshot's junctions.
+function M.use_run_snapshot(plan,snapshot)
+  if plan.packaged_game then return plan end
+  local live=path.join(b.root,'omfue','om.uproject')
+  for _,client in ipairs(plan.clients) do
+    local ue=client.unreal
+    if ue.args[1]==live then
+      snapshot=snapshot or require('ue_run_snapshot').prepare(b.root,nil,
+        {base_content=plan.base_content and plan.base_content.dll})
+      ue.args[1]=snapshot.uproject;ue.cwd=snapshot.project_dir
+    end
+  end
+  return plan
+end
+
+-- The bridge each renderer will load must carry the authority's content: it rejects a runtime
+-- with other content and the match shows no frame (E125). Checked on the snapshot actually
+-- launched, so OM_UE_RUN_BINARIES and live are both covered; a packaged game is its own set.
+function M.verify_renderer_content(plan,deps)
+  -- Without the authority's content hash (a hand-built plan) there is nothing to compare.
+  if plan.packaged_game or not plan.content_hash then return end
+  deps=deps or {}
+  local stage=require('ue_bridge_stage')
+  local checks,seen={},{}
+  for _,client in ipairs(plan.clients) do
+    local bridge=client.unreal.cwd and path.join(client.unreal.cwd,stage.DLL)
+    if bridge and not seen[bridge] and path.is_file(bridge) then seen[bridge]=true;checks[#checks+1]={role='renderer bridge',file=bridge} end
+  end
+  if #checks>0 then (deps.artifacts or require('run_artifacts')).verify_content(checks,plan.content_hash,deps.log) end
+end
+
+-- Clients start only after the authority holds its port (E145). A second server on a port
+-- another match already uses fails to bind and exits; its clients then joined the other
+-- match's server (same port) and waited for a ready that never came. A server built before
+-- the bound line counts as bound once it has been listening for GRACE_MS without failing.
+M.SERVER_BIND_TIMEOUT_MS=120000
+M.SERVER_BIND_GRACE_MS=5000
+function M.wait_server_bound(record,stdout,stderr,process,time)
+  local deadline,starting_at
+  while true do
+    local out=path.is_file(stdout) and path.read(stdout) or ''
+    local err=path.is_file(stderr) and path.read(stderr) or ''
+    if out:find('KCP listener bound on',1,true) then return true end
+    local failure=err:match('Failed to bind KCP listener[^\r\n]*') or out:match('Failed to bind KCP listener[^\r\n]*')
+    if failure or not process.owned_alive(record) then
+      error('authority did not start: '..(failure or ('exited before binding; see '..stderr))..
+        '\nAnother match may be using this port; pass a free --port.',0)
+    end
+    deadline=deadline or time.monotonic_ms()+M.SERVER_BIND_TIMEOUT_MS
+    if out:find('Starting KCP server on',1,true) then
+      starting_at=starting_at or time.monotonic_ms()
+      if time.monotonic_ms()-starting_at>=M.SERVER_BIND_GRACE_MS then return true end
+    end
+    assert(time.monotonic_ms()<deadline,'authority did not bind its port within '..(M.SERVER_BIND_TIMEOUT_MS//1000)..' s; see '..stdout)
+    time.sleep_ms(250)
+  end
 end
 
 function M.runtime_ready(text,client)
@@ -575,13 +724,20 @@ function M.launch(plan,editor,process,time)
   end
   local timed_out=false
   local ok,err=xpcall(function()
-    local server=plan.server and spawn('server',plan.server) or nil
+    -- Before anything starts: the renderer snapshot and its bridge's content (E125, E145).
+    if not dedicated then M.use_run_snapshot(plan);M.verify_renderer_content(plan) end
+    local server,server_out,server_err
+    if plan.server then
+      server,server_out,server_err=spawn('server',plan.server)
+      M.wait_server_bound(server,server_out,server_err,process,time)
+    end
     if dedicated then
       print('Dedicated Rust authority started; no local renderer. This is not LAN/full-match acceptance.')
       while process.owned_alive(server) do time.sleep_ms(500) end
       return
     end
     -- Before any runtime: a cold DDC would stall every renderer at frame 0 (E003).
+    M.use_run_snapshot(plan)
     local sample=plan.clients[1].unreal
     if plan.shader_warmup then require('ue_shader_warmup').ensure({editor=editor,project=sample.args[1],graphics=plan.graphics or 'd3d11',
       sample_args=sample.args,cwd=sample.cwd,env=sample.env,output=plan.output,journal=journal},process,time) end
