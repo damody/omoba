@@ -36,7 +36,6 @@ function M.item_names(dir)
 end
 
 M.SCALE = 1024
-M.EMIT_IR = true
 M.SCHEMA = V.SCHEMA_REVISION
 
 local function sorted_keys(t)
@@ -137,15 +136,9 @@ end
 -- opts.names: { [id] = text } for {@id} names outside the document (items of other documents)
 function M.compile(doc, opts)
   opts = opts or {}
-  local out = { abilities = {}, items = {}, extras = {}, description = {}, levels = {}, ir_problems = {} }
-  -- behavior IR (M3, v3_ir.lua): entries with data behavior; rust_handler entries keep their handler.
-  -- Off unless opts.ir (or M.EMIT_IR): omoba-content-model V3Block rejects an `ir` field until the
-  -- M3 ir.rs lands (v3-content-model-proposal.md §4.1); flip M.EMIT_IR then.
-  local ir_by_id, ir_problems = {}, {}
-  if opts.ir or (opts.ir == nil and M.EMIT_IR) then
-    ir_by_id, ir_problems = dofile(tools_dir .. "/v3_ir.lua").compile_doc(doc, { runtime_ids = opts.runtime_ids })
-  end
-  out.ir_problems = ir_problems
+  -- M3' ④: no behavior IR in the catalog (generated Rust runs the behavior, v3_rust.lua); the
+  -- castable's flags go out as `ability_flags` for the host's rule layer.
+  local out = { abilities = {}, items = {}, extras = {}, description = {}, levels = {} }
   local owners, names, statuses = {}, {}, {}
   local shared = { id = "shared", values = doc.values or {}, max_level = 1 }
   owners.shared = shared
@@ -449,7 +442,10 @@ function M.compile(doc, opts)
       if block[k] and #block[k] == 0 then block[k] = nil end
     end
     for _, lt in pairs(block.text or {}) do if lt.pieces and #lt.pieces == 0 then lt.pieces = nil end end
-    block.ir = ir_by_id[def.id]
+    local castable = o.kind == "ability" and def or def.active
+    if castable and type(castable.flags) == "table" and #castable.flags > 0 then
+      block.ability_flags = { table.unpack(castable.flags) }
+    end
     if o.kind == "ability" then out.abilities[def.id] = block else out.items[def.id] = block end
     out.description[def.id] = description
     -- v2-compatible extras: every static value, by its v3 name (and its v2 alias)

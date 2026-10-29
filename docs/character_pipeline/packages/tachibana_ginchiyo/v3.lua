@@ -25,9 +25,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "霜刺",
-            body = "開啟時每次對非建築目標出手消耗 {mana_per_attack} 法力；法力不足時自動關閉。命中非建築目標時額外造成 {damage} 魔法傷害；目標不是魔免時，移動速度降低 {slow}、攻擊速度降低 {attack_slow}，持續 {duration} 秒。開啟期間對建築出手時會額外再射出一次普攻。" },
+            body = "開啟時每次對非建築目標出手消耗 {mana_per_attack} 法力；法力不足時自動關閉。命中非建築目標時額外造成 {damage} 魔法傷害；目標不是魔免時，移動速度降低 {slow}、攻擊速度降低 {attack_slow}，持續 {duration} 秒。對建築出手不消耗法力，也不附加效果。" },
           en = { name = "Frost Thorn",
-            body = "While active, each attack started against a non-building costs {mana_per_attack} mana; the ability turns off when Ginchiyo lacks the mana. Attacks that land on non-buildings deal {damage} bonus magic damage and, if the target is not spell immune, slow its movement speed by {slow} and attack speed by {attack_slow} for {duration} seconds. While active, each attack started against a building also fires one extra attack." },
+            body = "While active, each attack started against a non-building costs {mana_per_attack} mana; the ability turns off when Ginchiyo lacks the mana. Attacks that land on non-buildings deal {damage} bonus magic damage and, if the target is not spell immune, slow its movement speed by {slow} and attack speed by {attack_slow} for {duration} seconds. Attacks against buildings cost no mana and carry no effect." },
         },
         target = { type = "none" },
         statuses = {
@@ -38,13 +38,11 @@ return function(ctx)
                 { op = "if", cond = "self.mana < $mana_per_attack",
                   actions = { { op = "toggle_ability", of = "self", ability = "c09_frost_thorn", on = false } },
                   otherwise = {
+                    -- FC-090（D13）：對建築不扣魔、不套法球，也不多打一次
                     { op = "if", cond = "not event.target.is_building",
                       actions = {
                         { op = "spend_mana", from = "self", amount = "$mana_per_attack", ability = "ability" },
                         { op = "modify_attack", is_orb = true },
-                      },
-                      otherwise = {
-                        { op = "attack", attacker = "self", target = "event.target", trigger_effects = false, use_orb = false },
                       } },
                   } },
               },
@@ -71,8 +69,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C09.lua:43-47",
-            text = "對建築出手時呼叫 PerformAttack(target, …, useProjectile = true, …)，在每次出手時額外射出一次真實普攻（processProcs = false，不觸發法球與攻擊特效）；開著霜刺拆塔等於攻擊次數加倍。看起來原意是「對建築不扣法力、不套法球」，實際卻多打一次。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C09.lua:43-47",
+            text = "FC-090（D13 修正：對建築不扣魔、不套法球，拿掉多打的那一次）。原作：對建築出手時呼叫 PerformAttack(target, …, useProjectile = true, …)，在每次出手時額外射出一次真實普攻（processProcs = false，不觸發法球與攻擊特效）；開著霜刺拆塔等於攻擊次數加倍。看起來原意是「對建築不扣法力、不套法球」，實際卻多打一次。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C09.lua:36-40",
             text = "法力檢查在 OnAttackStart，對建築出手也檢查；法力不足時關閉開關並移除法球狀態，這一擊沒有效果。扣魔在出手前搖，攻擊被取消或落空仍然扣魔。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C09.lua:55-68",

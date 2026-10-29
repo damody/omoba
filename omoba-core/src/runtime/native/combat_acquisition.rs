@@ -110,6 +110,9 @@ pub struct CombatAcquisitionView<'a, 'b> {
     pub disclosed_wards: Option<&'b crate::runtime::filtered_specs::DisclosedWardCandidates>,
     pub replica_identities: &'b ReadStorage<'a, crate::runtime::ReplicaIdentity>,
     pub ward_bodies: &'b ReadStorage<'a, crate::runtime::DisclosedWardBody>,
+    /// Statuses: an `invulnerable` unit is never an attack candidate (rules::vocab). None in
+    /// fixtures without a BuffStore.
+    pub buffs: Option<&'b crate::runtime::BuffStore>,
 }
 
 /// One hero's request. `AttackTarget` ignores `command_point` and the local slice.
@@ -206,7 +209,7 @@ fn read_candidate(
     let gated = match view.match_state {
         Some(state) => state.current_match_target_attackable(target),
         None => view.attack_gate.map(|gate| gate.allows(target)).unwrap_or(true),
-    };
+    } && view.buffs.is_none_or(|buffs| !super::rules::vocab::invulnerable(buffs, target));
     let key = entity_key(target);
     Some(AttackCandidate {
         key,
@@ -1408,6 +1411,7 @@ mod tests {
                 disclosed_wards: None,
                 replica_identities: &identities,
                 ward_bodies: &bodies,
+                buffs: None,
             };
             assess_direct_target(&view, fix.hero, target)
         };

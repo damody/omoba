@@ -55,7 +55,7 @@ local function sync(missing)
  local original=j.encode(ms);local writes,saved=0,nil
  local env=setmetatable({package={path=''},arg={},print=function()end,require=function(name)
   if name=='_bootstrap'then return{root='fixture',lib=function(key)
-   if key=='path'then return{join=function(...)return table.concat({...},'/')end}end
+   if key=='path'then return{join=function(...)return table.concat({...},'/')end,is_file=function()return false end}end
    assert(key=='json');return{read=function()return j.decode(original)end,write=function(_,value)writes=writes+1;saved=value end}
   end}end
   if name=='content_builder'then return{new=function()return{include=function(file)if file=='templates/heroes.lua'then return hs end;return{}end}end}end

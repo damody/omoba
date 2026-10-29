@@ -337,6 +337,9 @@ return function(ctx)
       end
     end
   end
+  -- v3 test heroes (scripts/v3_test_heroes.lua): test_only heroes whose package is only a v3
+  -- document, appended after the authored ones; their unit stats come from `source_stats`.
+  for _, hero in ipairs(ctx.include('templates/v3_test_heroes.lua').heroes or {}) do heroes[#heroes + 1] = hero end
   -- Generated Tripo bodies (templates/moba_tripo_hero_visuals.lua) replace any earlier native visual,
   -- including a borrowed CC0 rig or legacy render model, once the hero's rig and clips are imported.
   local tripo_visuals=ctx.include('templates/moba_tripo_hero_visuals.lua')

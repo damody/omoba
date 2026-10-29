@@ -169,6 +169,10 @@ return function(ctx)
             notes = "原作 modifier_A06R_2：光環子狀態，IsHidden、AllowIllusionDuplicate。" },
           { id = "a06r_charge", duration = "infinite", stacking = { max = "$charge_max" }, dispel = "basic", visibility = "buff",
             reveal = "public", remove_on = { "death" },
+            -- FC-103（D13）：層數消失（死亡、驅散）時一併停用怒焰
+            triggers = {
+              on_removed = { { op = "set_ability_active", of = "self", ability = "a06_flame_of_anger", active = false } },
+            },
             text = { zh_TW = { name = "怒焰層數", body = "每次攻擊出手累積一層，最多 {charge_max} 層；達到 {charge_cost} 層時可使用{@a06_flame_of_anger}，施放消耗 {charge_cost} 層。死亡時清空。" }, en = { name = "Flame of Anger Charges", body = "Gains one charge per attack launched, up to {charge_max}; at {charge_cost} charges {@a06_flame_of_anger} can be cast, consuming {charge_cost} charges. Lost on death." } },
             notes = "原作 modifier_A06R_to_A06D：由腳本以 ApplyDataDrivenModifier 套上，沒有 Duration、沒寫 IsPurgable（§12.3 暫定 basic）、非 Permanent（死亡時移除）。" },
         },
@@ -178,8 +182,8 @@ return function(ctx)
             text = "計數用 datadriven OnAttack（攻擊出手），攻擊建築、被閃避或未命中都算。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A06_Ii_Naomasa.lua:83-99",
             text = "層數上限 9，但到 9 層後再攻擊仍會重新設定怒焰等級並啟用。怒焰的等級只在達到門檻的那次攻擊才同步成赤焰流等級；赤焰流升級後要再攻擊一次才會更新。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A06_Ii_Naomasa.lua:102-112",
-            text = "層數狀態在死亡（或被驅散）時消失，但怒焰的啟用旗標不會關掉：死前已可用的怒焰，復活後不需層數仍能施放一次（A06D_Use 找不到狀態時只停用）。若復活後已攻擊而重新掛上一到四層，施放會讓層數變成負值，之後要多攻擊數次才回到門檻。資料照原作（set_stacks 為負值的語意待規則層確認）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A06_Ii_Naomasa.lua:102-112",
+            text = "FC-103（D13 修正：層數狀態消失時一併停用怒焰（a06r_charge 的 on_removed））。原作：層數狀態在死亡（或被驅散）時消失，但怒焰的啟用旗標不會關掉：死前已可用的怒焰，復活後不需層數仍能施放一次（A06D_Use 找不到狀態時只停用）。若復活後已攻擊而重新掛上一到四層，施放會讓層數變成負值，之後要多攻擊數次才回到門檻。資料照原作（set_stacks 為負值的語意待規則層確認）。" },
           { policy = "note", ref = "vscripts/heroes/A_Oda/A06_Ii_Naomasa.lua:85,88,104",
             text = "FindModifierByNameAndCaster 傳入未定義的全域 hCaster（nil）；原作可正常累積，推定引擎在 caster 為 nil 時只比對名稱。" },
           { policy = "no_effect", ref = "npc/A_Oda/A06.txt:555-559",

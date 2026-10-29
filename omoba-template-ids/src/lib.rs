@@ -184,6 +184,10 @@ impl MobaMapConst {
     pub fn first_wave_seconds(&self) -> u32 { moba_map_first_wave_seconds(self.id) }
     /// Map-authored time-based minion growth (the training growth by default).
     pub fn minion_time_growth(&self) -> MobaMinionTimeGrowthConst { moba_map_minion_time_growth(self.id) }
+    /// Map trees (E187 §5.5; none by default).
+    pub fn trees(&self) -> MobaTreesConst { moba_map_trees(self.id) }
+    /// Whether jungle bots farm their own side's camps (E187 §5.4: a camp declares its side).
+    pub fn has_sided_camps(&self) -> bool { self.jungle_camps.iter().any(|camp| camp.side.is_some()) }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -296,6 +300,10 @@ pub struct MobaMinionConst {
     pub first_barracks_percent: u32,
     /// Per-lane count overrides by lane id; other lanes spawn `count` (E187: the original mid lane).
     pub lane_counts: &'static [(&'static str, u32)],
+    /// Growth by the map's wave counter instead of this group's own spawn count (E187: every
+    /// ShuaGuai_Of_* grows by the infantry counter chubing.lua _G.A_count): a regular spawn on wave
+    /// `w` grows `w + offset` times (may be negative), extra minions between waves `waves - 1`.
+    pub wave_growth_offset: Option<i32>,
 }
 
 impl MobaMinionConst {
@@ -324,16 +332,20 @@ impl MobaMinionConst {
     }
     /// Hp and damage of this group on wave `wave` with the per-wave growth (base values otherwise).
     pub fn grown(&self, wave: u32) -> (i32, i32) {
-        self.grown_at(self.spawn_index(wave).unwrap_or(0))
+        match self.wave_growth_offset {
+            Some(offset) => self.grown_at(i64::from(wave) + i64::from(offset)),
+            None => self.grown_at(i64::from(self.spawn_index(wave).unwrap_or(0))),
+        }
     }
     /// Hp and damage of this group's latest wave up to `wave` (base values before its first): what
     /// extra minions spawned between waves carry (E187: the original's current growth counter).
     pub fn grown_latest(&self, wave: u32) -> (i32, i32) {
+        // The original counter after the latest wave's increment (chubing.lua A_count = waves - 1).
+        if self.wave_growth_offset.is_some() { return self.grown_at(i64::from(wave) - 1); }
         let latest = (self.first_wave.max(1)..=wave).rev().find_map(|w| self.spawn_index(w));
-        self.grown_at(latest.unwrap_or(0))
+        self.grown_at(i64::from(latest.unwrap_or(0)))
     }
-    fn grown_at(&self, index: u32) -> (i32, i32) {
-        let n = i64::from(index);
+    fn grown_at(&self, n: i64) -> (i32, i32) {
         let grow = |base: i32, per: i32| (i64::from(base) + n * i64::from(per)).clamp(1, i64::from(i32::MAX)) as i32;
         (grow(self.hp, self.hp_per_wave), grow(self.damage, self.damage_per_wave))
     }
@@ -394,6 +406,15 @@ pub struct MobaJungleConst {
     pub tags: &'static [MobaUnitTag],
     /// The original game's kill reward (E187); used only by a match with game rules.
     pub original_reward: Option<MobaOriginalRewardConst>,
+    /// Unit template (presentation identity) of the leader body: the camp id unless authored
+    /// (E187 §5.4, the original neutral type).
+    pub unit: &'static str,
+    /// Leader home relative to `position`, the camp center and leash anchor (E187 §5.4).
+    pub leader_offset: (i32, i32),
+    /// Each body respawns `respawn_seconds` after its own death (E187 §5.4, eventforkill.lua).
+    pub unit_respawn: bool,
+    /// Side (0 goodguys, 1 badguys) whose jungle this camp is; None: shared (E187 §5.4).
+    pub side: Option<u8>,
 }
 
 /// Queryable unit tags (moba_maps.lua camp `tags`, E187). Abilities ask with
@@ -507,9 +528,37 @@ pub struct MobaJungleMemberConst {
     pub damage: i32,
     pub gold: u32,
     pub xp: u32,
+    /// The member's own stats (E187 §5.4); None: the leader's.
+    pub move_speed: Option<i32>,
+    pub attack_range: Option<i32>,
+    pub attack_interval_ms: Option<i32>,
+    pub armor: Option<i32>,
+    pub magic_resistance: Option<i32>,
+}
+
+/// A map tree (E187 §5.5): its point, the original tree model kind and variant (presentation).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaTreeConst {
+    pub position: (i32, i32),
+    pub kind: &'static str,
+    pub variant: u8,
+}
+
+/// A map's trees and their radius (E187 §5.5): each tree blocks movement as the square of
+/// half-extent `radius` around its point and vision as a circle of that radius.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MobaTreesConst {
+    pub radius: i32,
+    pub trees: &'static [MobaTreeConst],
+}
+
+impl MobaTreesConst {
+    pub const NONE: Self = Self { radius: 0, trees: &[] };
 }
 
 impl MobaJungleConst {
+    /// Home of the leader body: the camp center plus the leader offset (E187 §5.4).
+    pub fn leader_home(&self)->(i32,i32) {(self.position.0+self.leader_offset.0,self.position.1+self.leader_offset.1)}
     pub fn objective_rewards(&self)->impl Iterator<Item=MobaObjectiveBuffConst>+'_ {
         self.objective_buff.into_iter().chain(self.additional_objective_buffs.iter().copied())
     }
@@ -526,6 +575,7 @@ impl MobaJungleConst {
         let mut homes=vec![self.position];
         collect(self.death_children,self.position,&mut homes);
         collect(self.members,self.position,&mut homes);
+        if self.leader_offset!=(0,0) {homes.push(self.leader_home());}
         homes.into_iter()
     }
 }
@@ -1969,6 +2019,27 @@ pub fn validate_runtime_lua_content_dev() -> Result<Option<()>, String> {
 mod tests {
     use super::*;
     #[test]
+    fn original_minions_grow_by_the_infantry_wave_counter() {
+        // E187, chubing.lua: every group grows by _G.A_count (from -1, +1 after each infantry wave);
+        // infantry read it before their wave's increment, the others after it.
+        for id in ["three_lane_training", "three_lane_quick_training", "nobu"] {
+            let map = moba_map_by_name(id).unwrap();
+            let group = |id: &str| map.minion_wave.iter().find(|m| m.id == id).unwrap();
+            let (melee, caster, siege, cavalry) = (group("lane_melee"), group("lane_caster"), group("lane_siege"), group("lane_cavalry"));
+            assert_eq!(melee.grown(1), (800 - 8, 47 - 1));
+            assert_eq!(melee.grown(2), (800, 47));
+            assert_eq!(caster.grown(1), (650, 72));
+            assert_eq!(caster.grown(11), (650 + 10 * 8, 72 + 10 * 2));
+            // Gunners and cavalry first come on wave 6, after five infantry increments.
+            assert_eq!(siege.grown(6), (780 + 5 * 5, 87 + 5 * 3));
+            assert_eq!(cavalry.grown(51), (1500 + 50 * 10, 64 + 50 * 3));
+            // Fall reinforcements between waves read the counter after the latest wave.
+            assert_eq!(siege.grown_latest(20), siege.grown(20));
+            assert_eq!(melee.grown_latest(20), melee.grown(21));
+        }
+    }
+
+    #[test]
     fn game_rules_carry_the_sources_surrender_vote() {
         // E187: vscripts/computer_system/surrender.lua:91 math.ceil(n*0.5 + 0.1) after :131 900 s.
         let surrender = GAME_RULES.expect("game_rules.lua").surrender.expect("game_rules.lua surrender");
@@ -2021,7 +2092,12 @@ mod tests {
             }
             for other in map.jungle_camps.iter().filter(|c| !c.id.contains("epic_guardian")) {
                 assert!(other.tags.is_empty() && other.original_reward.is_none() && other.first_spawn_seconds == 0, "{}", other.id);
-                assert_eq!(other.attack_interval_ms, other.attack_interval_seconds * 1000);
+                // The nobu map's original neutrals (E187 §5.4) keep their exact KV interval.
+                if other.unit_respawn {
+                    assert_eq!(((other.attack_interval_ms + 500) / 1000).max(1), other.attack_interval_seconds, "{}", other.id);
+                } else {
+                    assert_eq!(other.attack_interval_ms, other.attack_interval_seconds * 1000);
+                }
             }
             let reward = souls.original_reward.unwrap();
             assert_eq!((reward.team_gold, reward.team_xp, reward.buff_choice), (1000, 0, MobaBuffChoiceConst::All));
@@ -2148,9 +2224,10 @@ mod tests {
         assert_eq!(map.minion_time_growth().hp_step_percent,0);
         let gunner=map.minion_wave.iter().find(|m|m.id=="lane_siege").unwrap();
         assert_eq!((1..=16).filter(|w|gunner.spawn_index(*w).is_some()).collect::<Vec<_>>(),vec![6,11,16]);
-        assert_eq!(gunner.grown(11),(785,90),"second gunner group: +5 HP and +3 attack");
+        // Growth follows the infantry counter A_count (wave - 1 for gunners): +5 HP / +3 attack each.
+        assert_eq!(gunner.grown(11),(780+10*5,87+10*3),"second gunner group: ten infantry increments");
         let infantry=map.minion_wave.iter().find(|m|m.id=="lane_melee").unwrap();
-        assert_eq!((infantry.spawn_index(1),infantry.grown(3)),(Some(0),(816,49)));
+        assert_eq!((infantry.spawn_index(1),infantry.grown(3)),(Some(0),(808,48)));
         // Gunners and cavalry: every 5 waves from wave 6, and after 1800 s (from wave 56) every 2.
         let cavalry=map.minion_wave.iter().find(|m|m.id=="lane_cavalry").unwrap();
         for group in [gunner,cavalry] {
@@ -2159,7 +2236,7 @@ mod tests {
             assert_eq!(group.spawn_index(56),Some(10));assert_eq!(group.spawn_index(58),Some(11));
             assert_eq!((group.reinforcement_percent(false),group.reinforcement_percent(true)),(100,200));
         }
-        assert_eq!((cavalry.hp,cavalry.armor,cavalry.grown(11)),(1500,4,(1510,67)));
+        assert_eq!((cavalry.hp,cavalry.armor,cavalry.grown(11)),(1500,4,(1600,94)));
         let archer=map.minion_wave.iter().find(|m|m.id=="lane_caster").unwrap();
         for group in [infantry,archer] {
             assert_eq!((group.reinforcement_percent(false),group.reinforcement_percent(true)),(100,130),"{}",group.id);
@@ -2168,9 +2245,9 @@ mod tests {
         for (group,side,mid) in [(infantry,3,4),(archer,2,3),(gunner,2,3),(cavalry,1,1)] {
             assert_eq!(map.lanes.iter().map(|lane|group.count_in_lane(lane.id)).collect::<Vec<_>>(),vec![side,mid,side],"{}",group.id);
         }
-        // Extra minions carry their group's latest wave: before its first, its base values.
-        assert_eq!((gunner.grown_latest(5),gunner.grown_latest(10),gunner.grown_latest(11)),((780,87),(780,87),(785,90)));
-        assert_eq!((infantry.grown_latest(3),infantry.grown_latest(0)),(infantry.grown(3),(800,47)));
+        // Extra minions read the infantry counter between waves (A_count = waves - 1).
+        assert_eq!((gunner.grown_latest(5),gunner.grown_latest(10),gunner.grown_latest(11)),((800,99),(825,114),(830,117)));
+        assert_eq!((infantry.grown_latest(3),infantry.grown_latest(0)),(infantry.grown(4),(792,46)));
         // A fallen inhibitor calls 3 infantry + 3 archers at +60 / +120 s and 1 gunner + 2 cavalry at
         // +75 / +135 s for the attackers in its lane.
         let fall=map.base_structures.unwrap().fall_reinforcements;

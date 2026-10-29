@@ -200,6 +200,8 @@ pub struct TeamViewProjector {
     fog_grid: Option<crate::runtime::fog_grid::AuthorityFogGrid>,
     pending_fog_event: Option<TeamPublicEvent>,
     prepared_mode: Option<AuthoritativeModePresentation>,
+    /// M3' ② script DLLs the authority swapped before this tick (dev hot reload).
+    pending_script_swaps: Vec<crate::game_proto::ScriptModuleSwap>,
     combat_preferences: Option<crate::game_proto::CombatPreferencesProjection>,
     /// Last step's owner-undo hash material. Empty before the first frame and
     /// whenever that step had no owner-undo fact. The next bootstrap and rebase
@@ -547,6 +549,11 @@ pub fn run_team_projection_after_wave_b(
     let authoritative_game_mode = world
         .try_fetch::<crate::runtime::native::comp::GameMode>()
         .map(|mode| *mode);
+    // M3' ②: the swaps the authority applied before this tick, announced in every team frame.
+    let script_swaps = world
+        .try_fetch::<crate::scripting::loader::ScriptSwapsThisTick>()
+        .map(|swaps| swaps.0.clone())
+        .unwrap_or_default();
     let combat_projections: BTreeMap<_, _> = world.try_fetch::<crate::runtime::MobaMatch>().map(|match_state| {
         visibility.teams.iter().filter_map(|(team, visibility_state)| {
             crate::runtime::combat_transport::project(&match_state, *team, &visibility_state.index.current, 1)
@@ -643,6 +650,7 @@ pub fn run_team_projection_after_wave_b(
             rebases.insert(*team, bundle);
         }
         projector.prepare_authoritative_mode(authoritative_game_mode);
+        projector.pending_script_swaps = script_swaps.clone();
         let frame = projector.build_frame_with_undo_settlements(
             server_tick,
             committed.tick,
@@ -748,6 +756,7 @@ impl TeamViewProjector {
             fog_grid: None,
             pending_fog_event: None,
             prepared_mode: None,
+            pending_script_swaps: Vec::new(),
             combat_preferences: None,
             retained_owner_undo_material: Vec::new(),
             expected_digests: std::collections::VecDeque::new(),
@@ -1203,6 +1212,7 @@ impl TeamViewProjector {
             padding: Vec::new(),
             authoritative_mode: self.prepared_mode.take(),
             combat_preferences: self.combat_preferences.clone(),
+            script_module_swaps: std::mem::take(&mut self.pending_script_swaps),
         };
         self.sequence = self.sequence.saturating_add(1);
         // Reserve the following revision for post-step authoritative repairs.

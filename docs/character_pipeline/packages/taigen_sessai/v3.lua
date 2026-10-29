@@ -170,9 +170,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "淨化",
-            body = "對友方單位施放時，目標身上只會出現特效，實際被淨化的是雪齋自己：移除自己身上所有由敵方施加的狀態。對敵方施放時，若目標是分身就直接消滅；否則移除目標的覺悟酒魔免，使其 {wine_block} 秒內無法再獲得覺悟酒的魔免，接著造成 {damage} 魔法傷害，並緩速 {move_slow:abs}，持續 {slow_time} 秒。" },
+            body = "對友方單位施放時，移除目標身上所有由敵方施加的狀態。對敵方施放時，若目標是分身就直接消滅；否則移除目標的覺悟酒魔免，使其 {wine_block} 秒內無法再獲得覺悟酒的魔免，接著造成 {damage} 魔法傷害，並緩速 {move_slow:abs}，持續 {slow_time} 秒。" },
           en = { name = "Purify",
-            body = "Cast on an ally: the target only shows an effect; Sessai himself is purified instead, losing every status applied by enemies. Cast on an enemy: an illusion is destroyed outright; otherwise the target loses its Resolve Sake spell immunity and cannot regain it from Resolve Sake for {wine_block} seconds, then takes {damage} magic damage and is slowed by {move_slow:abs} for {slow_time} seconds." },
+            body = "Cast on an ally: removes every status applied by enemies from the target. Cast on an enemy: an illusion is destroyed outright; otherwise the target loses its Resolve Sake spell immunity and cannot regain it from Resolve Sake for {wine_block} seconds, then takes {damage} magic damage and is slowed by {move_slow:abs} for {slow_time} seconds." },
         },
         target = { type = "unit", range = "$cast_range", team = "both",
           types = { "hero", "creep", "neutral", "summon" }, flags = { "include_magic_immune" } },
@@ -204,8 +204,8 @@ return function(ctx)
             { op = "if", cond = "is_ally(target, caster)",
               actions = {
                 { op = "apply_status", status = "b22r_mark", to = "target" },
-                -- 原作淨化的是施法者自己，不是目標
-                { op = "remove_status", from = "caster", dispel = "all", team_of_source = "enemy" },
+                -- FC-125（D13）：淨化目標隊友（原作移除的是施法者自己身上的狀態）
+                { op = "remove_status", from = "target", dispel = "all", team_of_source = "enemy" },
               },
               otherwise = {
                 { op = "if", cond = "target.is_illusion",
@@ -225,8 +225,8 @@ return function(ctx)
             text = "跨文件約定：覺悟酒（及 item_kotennmyohiragumo.lua:26、item_the_great_sword_of_disease.lua:72）的魔免狀態要帶 tag perceive_wine，並以 reapply_if_removed 重套；b22r_wine_block 以 immune_to = tag:perceive_wine 擋住重套，十秒後道具自然補回。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B22.lua:97-103",
             text = "友方分支以 RemoveModifierByName 移除，不看可否驅散，所以寫 dispel = all（§12.4：不看類別）；也不排除 cleanse_protected。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B22.lua:96-103",
-            text = "友方分支呼叫 caster:FindAllModifiers() 並從 caster 移除，目標只掛到特效 modifier_B22R2；對別的隊友施放等於只淨化自己。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B22.lua:96-103",
+            text = "FC-125（D13 修正：友方分支淨化目標隊友，而不是施法者自己）。原作：友方分支呼叫 caster:FindAllModifiers() 並從 caster 移除，目標只掛到特效 modifier_B22R2；對別的隊友施放等於只淨化自己。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B22.lua:99-100",
             text = "淨化判斷 v:GetParent():GetTeamNumber() ~= caster team 恆為假（parent 就是 caster），實際只看 v:GetCaster() 是否敵隊；施加者已失效（IsValidEntity=false）的 debuff 不會被移除。" },
           { policy = "as_source", ref = "npc/B_Unified/B22.txt:299",

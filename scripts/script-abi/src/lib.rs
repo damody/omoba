@@ -8,6 +8,7 @@
 
 pub mod ability;
 pub mod buff_ids;
+pub mod ext;
 pub mod manifest;
 pub mod script;
 pub mod stat_keys;

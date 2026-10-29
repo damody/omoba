@@ -19,7 +19,9 @@ function M.commands(options)
     if selected=='release' then args[#args+1]='--release' end
     commands[#commands+1]={exe='cargo',args=args}
   end
-  build('scripts/Cargo.toml','base_content')
+  -- The script DLL set: base_content and every hero DLL (script_dlls.lua).
+  commands[#commands+1]={exe='cargo',args=require('script_dlls').cargo_args({'build','--manifest-path',
+    path.join(b.root,'scripts/Cargo.toml')},'compiled-content-only',selected=='release' and {'--release'} or nil)}
   build('omb/Cargo.toml','omobab','moba-config')
   build('omb/Cargo.toml','omobab','omobab')
   commands[#commands+1]={exe=platform.lua_executable,args={
@@ -48,6 +50,10 @@ function M.verify(options,dependencies)
   for _,candidate in ipairs({selected,selected=='release' and 'debug' or 'release'}) do
     local built=artifacts.rust_binary(b.root,'scripts',candidate,'base_content.dll')
     if dependencies.is_file(built) then
+      for _,module in ipairs(require('script_dlls').modules()) do
+        local file=artifacts.rust_binary(b.root,'scripts',candidate,module.file)
+        assert(dependencies.is_file(file),'missing script DLL beside base_content: '..file)
+      end
       return {schema_version=1,scope='dedicated-authority-build',base_content_profile=candidate,base_content=built}
     end
   end

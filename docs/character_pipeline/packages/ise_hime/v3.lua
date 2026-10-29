@@ -75,7 +75,7 @@ return function(ctx)
           },
         },
         statuses = {
-          { id = "b23d_damage_reduction", duration = "infinite", stacking = "refresh", dispel = "basic", visibility = "buff",
+          { id = "b23d_damage_reduction", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "buff", -- FC-107（D13）：不可驅散，亡魂連動不被破壞
             reveal = "public",
             stats = { incoming_damage_pct = "-$damage_reduction" },
             triggers = {
@@ -156,8 +156,8 @@ return function(ctx)
             text = "亡魂已滿時照常施放、扣魔、進冷卻，只是不召喚。前搖檢查有屍體、出手時屍體消失時，CreateUnitByName 收到 nil 位置報錯，同樣只扣資源不召喚。" },
           { policy = "as_source", ref = "npc/B_Unified/B23.txt:170-190",
             text = "減傷層數只是顯示亡魂數；datadriven 屬性不乘層數，一隻與七隻亡魂都是固定減傷。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B23.lua:106-118",
-            text = "減傷狀態可被一般驅散（未寫 IsPurgable）。被驅散後亡魂死亡時 FindModifierByNameAndCaster 回傳 nil 報錯：不扣法力；伊勢姬死亡時也不再帶走亡魂（OnDeath 掛在這個狀態上）。直到下一次召喚重新掛上。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B23.lua:106-118",
+            text = "FC-107（D13 修正：減傷狀態改成不可驅散，亡魂連動不會被破壞）。原作：減傷狀態可被一般驅散（未寫 IsPurgable）。被驅散後亡魂死亡時 FindModifierByNameAndCaster 回傳 nil 報錯：不扣法力；伊勢姬死亡時也不再帶走亡魂（OnDeath 掛在這個狀態上）。直到下一次召喚重新掛上。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B23.lua:113-118",
             text = "伊勢姬死亡帶走亡魂時，每隻亡魂的死亡照樣扣她的法力（她已死，影響只在復活前的法力值）。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B23.lua:131-167",
@@ -345,12 +345,14 @@ return function(ctx)
             { op = "for_each", select = ghosts(), actions = {
               { op = "remove_status", from = "it", status = "b23r_magic_immune" },
             } },
+            -- FC-087（D13）：引導結束時也移除伊勢姬自己的魔免（魔免只在引導期間）
+            { op = "remove_status", from = "caster", status = "b23r_magic_immune" },
           },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B23.lua:321-327",
-            text = "中斷處理只移除亡魂的魔法免疫，沒有移除伊勢姬自己的：施放後立刻取消引導，仍以耗魔換得完整的魔法免疫時間。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B23.lua:321-327",
+            text = "FC-087（D13 修正：引導結束時也移除伊勢姬自己的魔免）。原作：中斷處理只移除亡魂的魔法免疫，沒有移除伊勢姬自己的：施放後立刻取消引導，仍以耗魔換得完整的魔法免疫時間。" },
           { policy = "design_intent", ref = "vscripts/heroes/B_Unified/B23.lua:305-318",
             text = "原作 Timer 先治療再檢查是否仍在引導，所以施放當下一跳、之後每 0.2 秒一跳，引導結束（或被打斷）後的那一跳仍會治療。照設計意圖寫成：施放一跳、引導每跳一次、結束時一跳。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B23.lua:306-307",

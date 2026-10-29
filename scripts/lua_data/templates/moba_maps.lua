@@ -72,6 +72,11 @@ local maps = {
     -- +5 HP, +3 attack) and lane_cavalry = cavalry (1500 HP, armor 4, 60-68 every 1.0 s, range 100,
     -- speed 400; +10 HP, +3 attack) from wave 6 (205 s, the first wave after 180 s) every 5 waves
     -- (175 s); after 1800 s the timer returns 70 s, so from wave 56 (1955 s) every 2 waves.
+    -- Growth counter: every group grows by the infantry counter _G.A_count (chubing.lua:338, :449,
+    -- :565, :666 read it; :178 / :292 add 1 after each infantry wave, from -1), not by its own
+    -- spawn count: infantry read it before their wave's increment (wave - 2), archers 2 s later and
+    -- gunners / cavalry after it (wave - 1), so wave 1 infantry carry -8 HP / -1 attack
+    -- (wave_growth_offset). The fall reinforcements read it between waves (waves - 1).
     -- Mid sends one more infantry, archer and gunner (chubing.lua:280-332, the `_num + 1` calls at
     -- spawn points 2 and 5): infantry 3/4/3, archers 2/3/2, gunners 2/3/2, cavalry 1/1/1.
     -- Reinforcement (chubing.lua ShuaGuai_Of_*): the original has two soldier camps per lane; the
@@ -81,13 +86,13 @@ local maps = {
     -- percents (lane_down_percent); its fall also calls the extra waves (base_structures above).
     minion_wave = {
       {id="lane_melee",count=3,every=1,hp=800,damage=47,attack_range=138,move_speed=325,attack_interval_ms=1580,hp_per_wave=8,damage_per_wave=1,
-        lane_down_percent=130,lane_counts={mid=4}},
+        wave_growth_offset=-2,lane_down_percent=130,lane_counts={mid=4}},
       {id="lane_caster",count=2,every=1,hp=650,damage=72,attack_range=500,move_speed=325,attack_interval_ms=1670,hp_per_wave=8,damage_per_wave=2,
-        lane_down_percent=130,lane_counts={mid=3}},
+        wave_growth_offset=-1,lane_down_percent=130,lane_counts={mid=3}},
       {id="lane_siege",count=2,every=5,first_wave=6,hp=780,damage=87,attack_range=650,move_speed=290,attack_interval_ms=2000,hp_per_wave=5,damage_per_wave=3,
-        late={from_wave=56,every=2},lane_down_percent=200,lane_counts={mid=3}},
+        late={from_wave=56,every=2},wave_growth_offset=-1,lane_down_percent=200,lane_counts={mid=3}},
       {id="lane_cavalry",count=1,every=5,first_wave=6,hp=1500,damage=64,attack_range=100,move_speed=400,attack_interval_ms=1000,hp_per_wave=10,damage_per_wave=3,
-        armor=4,late={from_wave=56,every=2},lane_down_percent=200},
+        armor=4,late={from_wave=56,every=2},wave_growth_offset=-1,lane_down_percent=200},
     },
     -- Keep lane corridors and camp homes clear; jungle pursuit and return
     -- share the bounded public-terrain navigation used by the simulation.
@@ -342,7 +347,8 @@ maps[#maps + 1] = quick
 --   * Base, fountain and hero spawns: dota_*_fort, the fountain prefab and info_player_start_*.
 --     The fountain is the team's home: recall, base recovery and the home shop.
 --   * Terrain: the 305 rectangles that cover the 4,629 blocked gridnav cells exactly.
---   * Camps: only the two bosses at their vmap positions (§5.4 brings the 24 original camps).
+--   * Camps: the 24 original camps and the two bosses at their vmap positions (§5.4, below).
+--   * Trees: the 1,564 trees of the tile grid (§5.5, below).
 --   * Shops: the home shop at each fountain (Dota's home shop surrounds the fountain) plus the
 --     ent_dota_shop points inside the playable bounds; the three outside it are left out. The
 --     purchase radius is Dota's default shop trigger reach, 720 (§5.9).
@@ -373,7 +379,7 @@ local nobu = {
   lane_clearance = 30,
   lanes = {}, towers = {}, barracks = {}, general_towers = {},
   bases = {}, fountains = {}, hero_spawns = {}, shops = {}, shop_radius = 720,
-  terrain = {}, jungle_camps = {},
+  terrain = {}, jungle_camps = {}, trees = {},
 }
 nobu.base_structures = {}
 for key, value in pairs(maps[1].base_structures) do nobu.base_structures[key] = value end
@@ -430,6 +436,97 @@ for _, boss_source in ipairs(source.bosses) do
       nobu.jungle_camps[#nobu.jungle_camps + 1] = copy
     end
   end
+end
+-- Camps (E187 §5.4): the 24 original camps (nobu_map.lua neutral_camps) with the original KV of
+-- their units (templates/nobu_neutrals.lua). `position` is the camp center, the leash anchor and
+-- the bots' patrol point; every body stands at its own vmap point: the leader (the camp's
+-- highest-HP unit, the first listed on a tie) at leader_offset, the other units as members, each
+-- with its own HP, attack, interval, range, armor, speed, gold and XP.
+--   * Attack is the mean of AttackDamageMin / AttackDamageMax, a half rounding to even like the
+--     standard map's camps above (wolves 60.5 -> 60, red_guardian 129.5 -> 130).
+--   * Respawn: every unit by itself, CP_respawn_time 120 s after its own death, at its own point
+--     (library/events/eventforkill.lua:39, :388-437 neutral_130, :467-512 neutral_160). The growth
+--     applied there per CP_Monster (+50 HP / +12 attack for neutral_130, +100 / +50 for neutral_160)
+--     stays 0 on this map: CP_Monster only grows in items/Addon_Items/war_magic.lua:468-472, the
+--     to_soldier_Oda modifier of soldier_Oda_unit, which nobu.vmap never places (only the separate
+--     maps/content/to_soldier_Oda.vmap prefab names that unit).
+--   * Leash: hold_position / for_cp_position (npc_abilities_custom_load.txt:5322-5372) run
+--     tofar_goback (items/Addon_Items/tofar_goback.lua:443-462): back home past 1000 from the spawn
+--     point. Here the camp's leash of 1000 around its center, with the standard camps' patience and
+--     reset rules.
+--   * Not modelled: cp_recover (the killer heals 35 x (1 + its HP fraction), dummy.lua:536-543),
+--     slow_self and the modifier_unit_armor CP_Posistion gives every neutral (dummy.lua:395-400).
+--   * Side: a camp is the jungle of the side whose fort is nearer, unless its partner under the
+--     map's 180-degree symmetry (the camp nearest its point mirrored through the bounds center) is
+--     nearer the same fort; such a pair lies on the axis between the forts and is shared (the two
+--     corner pirate camps). Jungle bots farm their own side's camps.
+local neutrals = ctx.include("templates/nobu_neutrals.lua")
+local CP_RESPAWN_SECONDS = 120
+local CP_LEASH_RADIUS = 1000
+local function mean_attack(row)
+  local sum = row.damage_min + row.damage_max
+  local half = sum // 2
+  if sum % 2 == 1 and half % 2 == 1 then half = half + 1 end
+  return half
+end
+local function body_stats(row)
+  return { hp = row.hp, damage = mean_attack(row), gold = row.gold, xp = row.xp, move_speed = row.move_speed,
+    attack_range = row.attack_range, attack_interval_ms = row.attack_rate_ms, armor = row.armor,
+    magic_resistance = row.magic_resistance }
+end
+local camp_sides = {}
+do
+  local forts = { goodguys = source.teams.goodguys.fort.position, badguys = source.teams.badguys.fort.position }
+  local function d2(a, b) return (a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2 end
+  local function nearer(p) return d2(p, forts.goodguys) < d2(p, forts.badguys) and "goodguys" or "badguys" end
+  local cx, cy = source.bounds.min[1] + source.bounds.max[1], source.bounds.min[2] + source.bounds.max[2]
+  for _, c in ipairs(source.neutral_camps) do
+    local mirror, partner = { cx - c.center[1], cy - c.center[2] }, nil
+    for _, other in ipairs(source.neutral_camps) do
+      if other ~= c and (not partner or d2(other.center, mirror) < d2(partner.center, mirror)) then partner = other end
+    end
+    if not partner or nearer(partner.center) ~= nearer(c.center) then camp_sides[c.id] = nearer(c.center) end
+  end
+end
+for _, c in ipairs(source.neutral_camps) do
+  local leader = 1
+  for index, u in ipairs(c.units) do
+    if assert(neutrals[u.unit], "no neutral template for " .. u.unit).hp > neutrals[c.units[leader].unit].hp then leader = index end
+  end
+  local lead = neutrals[c.units[leader].unit]
+  local camp = body_stats(lead)
+  camp.magic_resistance = nil
+  camp.attack_interval_seconds = math.max(1, (lead.attack_rate_ms + 500) // 1000)
+  camp.id = c.id
+  camp.position = xy(c.center)
+  camp.unit = lead.id
+  camp.leader_offset = { c.units[leader].position[1] - c.center[1], c.units[leader].position[2] - c.center[2] }
+  camp.leash_radius = CP_LEASH_RADIUS
+  camp.respawn_seconds = CP_RESPAWN_SECONDS
+  camp.unit_respawn = true
+  camp.side = camp_sides[c.id]
+  camp.patience_seconds = maps[1].jungle_camps[1].patience_seconds
+  camp.soft_reset_seconds = maps[1].jungle_camps[1].soft_reset_seconds
+  camp.members = {}
+  for index, u in ipairs(c.units) do
+    if index ~= leader then
+      local row = neutrals[u.unit]
+      local member = body_stats(row)
+      member.id = row.id
+      member.offset = { u.position[1] - c.center[1], u.position[2] - c.center[2] }
+      camp.members[#camp.members + 1] = member
+    end
+  end
+  nobu.jungle_camps[#nobu.jungle_camps + 1] = camp
+end
+-- Trees (E187 §5.5): the 1,564 trees of the tile grid's object lattice, on the gridnav cell corners
+-- (every 64). Dota keeps trees out of the baked gridnav (1,318 of these have no blocked cell around
+-- them) and a tree holds the 2x2 cells around its corner: here each tree blocks movement as the
+-- square of half-extent tree_radius 64 and vision as a VisionTree circle of radius 64 (inferred,
+-- nobu-map-comparison.md §5.5). Trees are neither cut nor respawned: no ability cuts trees yet.
+nobu.tree_radius = 64
+for index, t in ipairs(source.trees) do
+  nobu.trees[index] = { position = { t[1], t[2] }, kind = t[3], variant = t[4] }
 end
 maps[#maps + 1] = nobu
 return maps

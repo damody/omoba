@@ -228,6 +228,12 @@ pub enum Outcome {
         target: Entity,
         amount: Fixed64,
     },
+    /// Test damage trace only (`damage_trace.rs`): tags the next damage packet of the same
+    /// script run with its ability and v3 effect path. Settles nothing.
+    ScriptDamageTag {
+        ability: String,
+        path: String,
+    },
     ScriptRemoveBuff {
         target: Entity,
         buff_id: String,

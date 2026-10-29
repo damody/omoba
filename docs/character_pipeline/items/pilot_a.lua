@@ -607,7 +607,7 @@ return function(ctx)
                       { op = "cue", id = "d09_lightning", at = "self", to = "it" },
                       { op = "damage", to = "it", type = "magical", amount = "$chain_damage * event.attack.effect_multiplier" },
                       { op = "delay", time = "$counter_reset_delay", actions = {
-                        { op = "set_state", var = "raikiri", value = "0", on = "event.target" },
+                        { op = "set_state", var = "raikiri", value = "0", on = "self" }, -- FC-019～021（D13）：重設攻擊者自己的計數
                       } },
                     } },
                 } },
@@ -648,8 +648,8 @@ return function(ctx)
             text = "保底計數是英雄身上的 caster.raikiri，舞雷刀、雷切、大千鳥共用；以 scope = hero 的 unit_state raikiri（counter_var）表達，其他兩件的文件要宣告同名同型別的變數。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:226",
             text = "近戰判定是 GetBaseAttackRange() < 200 且英雄不是 B04（base_attack_range、is_hero_id），不是攻擊型態。" },
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:264-266",
-            text = "觸發後 0.1 秒把被攻擊者自己的 raikiri 設為 nil：打到持有雷系道具的敵方英雄會重設對方的保底計數，明顯是 bug；資料照原作（每個被打到的單位排一次，結果相同）。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:264-266",
+            text = "FC-019（D13 修正：0.1 秒後重設攻擊者自己的 raikiri）。原作：觸發後 0.1 秒把被攻擊者自己的 raikiri 設為 nil：打到持有雷系道具的敵方英雄會重設對方的保底計數，明顯是 bug；" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:261-263",
             text = "targets_shocked 從 1 起算、條件 < targets(6)，實際最多 5 個單位；FIND_ANY_ORDER 不保證包含主目標，v3 用預設的 entity id 排序（決定性）。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:251",
@@ -858,9 +858,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "下忍",
-            body = "消耗品：在目標地點召喚一名可控制的{@ninja_unit1}，持續 {lifetime} 秒。每位玩家最多追蹤 {max_ninjas} 名；再召喚時最舊的那名會失去時限、永久留下且不再計入。商店每 {restock_time} 秒補一件，可與隊友共用。" },
+            body = "消耗品：在目標地點召喚一名可控制的{@ninja_unit1}，持續 {lifetime} 秒。每位玩家最多 {max_ninjas} 名；再召喚時最舊的那名會消失。商店每 {restock_time} 秒補一件，可與隊友共用。" },
           en = { name = "Genin",
-            body = "Consumable: summons a controllable {@ninja_unit1} at the target point for {lifetime} seconds. Each player tracks at most {max_ninjas}; summoning another makes the oldest lose its time limit, staying forever and no longer counted. The shop restocks one every {restock_time} seconds; shareable with allies." },
+            body = "Consumable: summons a controllable {@ninja_unit1} at the target point for {lifetime} seconds. Each player can have at most {max_ninjas}; summoning another makes the oldest vanish. The shop restocks one every {restock_time} seconds; shareable with allies." },
         },
         shop = { cost = "$cost", stock = { max = "$stock", initial = "$stock", restock = "$restock_time" }, shareable = true,
           consumable = { charges = "$charges", remove_when_empty = true } },
@@ -881,16 +881,19 @@ return function(ctx)
               otherwise = {
                 { op = "if", cond = "exists(state.item_ninja1_slot1) and exists(state.item_ninja1_slot2)",
                   actions = {
-                    -- 超額：較舊那一格的下忍拿掉 modifier_kill（不死、不再追蹤），新下忍佔它的編號
+                    -- 超額：較舊那一格的下忍消失，新下忍佔它的編號。
+                    -- FC-093（D13）：原作移除 modifier_kill 讓舊下忍永久留下；FC-134（D13）：先把舊下忍編號歸零，它的死亡不會清掉新下忍的槽位
                     { op = "if", cond = "state.item_ninja1_older == 1",
                       actions = {
-                        { op = "remove_status", from = "state.item_ninja1_slot1", status = "ninja1_lifetime" },
+                        { op = "set_state", on = "state.item_ninja1_slot1", var = "item_ninja1_number", value = "0" },
+                        { op = "kill", to = "state.item_ninja1_slot1", silent = true },
                         { op = "set_state", on = "caster", var = "item_ninja1_slot1", value = "u" },
                         { op = "set_state", on = "u", var = "item_ninja1_number", value = "1" },
                         { op = "set_state", on = "caster", var = "item_ninja1_older", value = "1 + 1" },
                       },
                       otherwise = {
-                        { op = "remove_status", from = "state.item_ninja1_slot2", status = "ninja1_lifetime" },
+                        { op = "set_state", on = "state.item_ninja1_slot2", var = "item_ninja1_number", value = "0" },
+                        { op = "kill", to = "state.item_ninja1_slot2", silent = true },
                         { op = "set_state", on = "caster", var = "item_ninja1_slot2", value = "u" },
                         { op = "set_state", on = "u", var = "item_ninja1_number", value = "1 + 1" },
                         { op = "set_state", on = "caster", var = "item_ninja1_older", value = "1" },
@@ -922,7 +925,7 @@ return function(ctx)
             reveal = "public", states = { "no_unit_collision" }, notes = "原作 modifier_phased 0.1 秒" },
           { id = "ninja1_lifetime", duration = "$lifetime", stacking = "refresh", dispel = "none", visibility = "hidden",
             reveal = "public", triggers = { on_expired = { { op = "kill", to = "self" } } },
-            notes = "原作 modifier_kill（240 秒後死亡）；被頂替時移除這個狀態，下忍就永久留下" },
+            notes = "原作 modifier_kill（240 秒後死亡）；原作被頂替時移除這個狀態，下忍就永久留下（FC-093 修正為被頂替時直接消失）" },
           { id = "ninja1_passive", duration = "infinite", stacking = "keep", dispel = "none", visibility = "hidden",
             reveal = "public", states = { "magic_immune", "no_unit_collision" },
             values = {
@@ -932,11 +935,13 @@ return function(ctx)
             stats = { incoming_damage_pct = "-$damage_block" },
             triggers = {
               on_attacked = { { op = "set_health", to = "self", value = "self.hp - $hp_per_attack" } },
-              -- 原作 modifier_update_buy_ninja1 OnDeath → update_ninja1：只看自己的編號清空主人的槽位，不檢查槽位裡是不是自己
+              -- 原作 modifier_update_buy_ninja1 OnDeath → update_ninja1：依自己的編號清空主人的槽位。
+              -- FC-134（D13）：被頂替的下忍編號已歸零，不清任何槽位；只有仍佔著槽位的下忍才清
               on_death = { actions = {
                 { op = "if", cond = "state.item_ninja1_number == 1",
-                  actions = { { op = "clear_state", on = "owner_of(self)", var = "item_ninja1_slot1" } },
-                  otherwise = { { op = "clear_state", on = "owner_of(self)", var = "item_ninja1_slot2" } } },
+                  actions = { { op = "clear_state", on = "owner_of(self)", var = "item_ninja1_slot1" } } },
+                { op = "if", cond = "state.item_ninja1_number == 1 + 1",
+                  actions = { { op = "clear_state", on = "owner_of(self)", var = "item_ninja1_slot2" } } },
               } },
             },
             text = {
@@ -950,14 +955,14 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "as_source", ref = "vscripts/items/Addon_Items/tofar_goback.lua:645-653",
-            text = "名額照原作用兩個編號槽位表達（item_ninja1_slot1／slot2、item_ninja1_older，下忍自己的 item_ninja1_number）。被頂替的舊下忍保留原編號，死亡時只依編號清空主人的槽位、不檢查槽位裡是不是自己：同編號的新下忍因此脫離名額，之後的召喚會填進空出的槽位，它保留 240 秒時限照常死亡。資料照原作；修不修見 fix-candidates（修正方式是清空前檢查槽位裡是否就是自己）。" },
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_ninja.lua:19,25",
-            text = "超額時移除舊下忍的 modifier_kill，舊下忍不會死，反而永久存在且不再被追蹤；反覆購買可以累積任意多名永久下忍。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/tofar_goback.lua:645-653",
+            text = "FC-134（D13 修正：被頂替的舊下忍先把編號歸零再消失，死亡時只清自己仍佔著的槽位）。原作：名額用兩個編號槽位表達（item_ninja1_slot1／slot2、item_ninja1_older，下忍自己的 item_ninja1_number）。被頂替的舊下忍保留原編號，死亡時只依編號清空主人的槽位、不檢查槽位裡是不是自己：同編號的新下忍因此脫離名額，之後的召喚會填進空出的槽位，它保留 240 秒時限照常死亡。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_ninja.lua:19,25",
+            text = "FC-093（D13 修正：超額時最舊的下忍直接消失（不再移除時限讓它永久留下））。原作：超額時移除舊下忍的 modifier_kill，舊下忍不會死，反而永久存在且不再被追蹤；反覆購買可以累積任意多名永久下忍。" },
           { policy = "as_source", ref = "npc/npc_items_custom_load.txt:17261-17269",
             text = "SpendCharge 在 0.1 秒後才執行（DelayedAction）；冷卻一秒，不影響結果，v3 由 consumable 在使用時扣次數。" },
           { policy = "note", ref = "npc/npc_items_custom_load.txt:17238,17253", text = "AbilityCastRange 400 重複宣告。" },
-          { policy = "note", ref = "vscripts/items/Addon_Items/item_ninja.lua:42-61", text = "中忍（Shock2）有同樣的問題，且新單位不會被記錄；不在本批。" },
+          { policy = "note", ref = "vscripts/items/Addon_Items/item_ninja.lua:42-61", text = "中忍（Shock2）原作有同樣的問題，且新單位不會被記錄；見 FC-094（已修正）。" },
           { policy = "as_source", text = "ItemShareability = ITEM_FULLY_SHAREABLE_STACKING、ItemStackable 1、ItemPermanent 0：可堆疊、可與隊友共用、次數用完消失。" },
         },
         provenance = { "npc/npc_items_custom_load.txt:17232-17271", "vscripts/items/Addon_Items/item_ninja.lua:1-40",

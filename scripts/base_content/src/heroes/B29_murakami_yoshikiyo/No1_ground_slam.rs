@@ -1,6 +1,7 @@
 //! 動地斧（村上義清，來源 B29W current）：猛擊地面，對自身周圍 radius（B29.lua:15
 //! 寫死；KV AOERadius 只是指示圈）內存活的敵方英雄與一般單位（不含建築）造成
 //! damage 魔法傷害並暈眩 stun 秒；數值見 v3.lua 的 radius、damage、stun。
+//! 原作 FindUnitsInRadius 無旗標：魔免與無敵的敵人選不到（B29.lua:15-29，v3 選取預設，E226）。
 //! 前搖由 host windup 處理；本 handler 在結算時執行。
 use abi_stable::std_types::{RErr,ROk,RResult,RSome,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},buff_ids::BuffId,
@@ -26,12 +27,14 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<Slam,&'static str> {
     Ok(spec)
 }
 
-/// Live enemy heroes and basic units (no buildings) within `radius` of `at`,
-/// endpoint included, in canonical identity order.
+/// Live enemy heroes and basic units (no buildings, not magic immune, not invulnerable) within
+/// `radius` of `at`, endpoint included, in canonical identity order.
 pub(crate) fn enemy_units_in_circle(world:&GameWorldDyn<'_>,caster:EntityHandle,at:Vec2,radius:Fixed64)->Vec<EntityHandle> {
     let mut hits:Vec<EntityHandle>=world.query_enemies_in_range(at,radius,caster).into_iter()
         .filter(|e|*e!=caster && world.is_alive(*e) && world.get_hp(*e).into_option().is_some_and(|hp|hp>Fixed64::ZERO)
             && !world.is_building(*e)
+            && !world.has_buff(*e,RStr::from_str(omoba_core::runtime::native::magic_immunity::BUFF))
+            && !world.has_buff(*e,RStr::from_str("invulnerable"))
             && world.get_pos(*e).into_option().is_some_and(|pos|omoba_sim::terrain::point_in_swept_circle(pos,at,at,radius)))
         .collect();
     hits.sort_by_key(|e|(e.id,e.gen));hits.dedup();hits
@@ -83,6 +86,20 @@ mod tests {
             assert_eq!(stunned,vec![(near,q(stun)),(edge,q(stun))],"rank {rank}");
             for e in [out,ally,tower] {assert!(!outcomes.iter().any(|o|matches!(o,omoba_core::Outcome::RawDamage {target,..} if *target==e)));}
         }
+    }
+
+    #[test]
+    fn magic_immune_and_invulnerable_enemies_are_not_selected() {
+        use specs::WorldExt;
+        let mut t=TestWorld::new();
+        let plain=t.body(p(100,0),2);let immune=t.body(p(-100,0),2);let guarded=t.body(p(0,100),2);
+        assert!(omoba_core::runtime::native::magic_immunity::grant(&t.world,immune,Fixed64::from_i32(5)),"immune enemy");
+        t.world.write_resource::<omoba_core::runtime::BuffStore>()
+            .add(guarded,"invulnerable",Fixed64::from_i32(5),serde_json::json!({}));
+        let outcomes=t.cast(&GroundSlamHandler,Target::None,1,&rank_json(ID,1)).unwrap();
+        let stunned:Vec<_>=buffs(&outcomes,"stun").into_iter().map(|(e,_,_)|e).collect();
+        assert_eq!(stunned,vec![plain],"B29.lua:15 FindUnitsInRadius without flags");
+        assert_eq!(magic_damage(&outcomes).len(),1);
     }
 
     #[test]

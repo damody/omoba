@@ -32,7 +32,7 @@ return function(ctx)
         armor = "$armor_base + caster.level * $armor_per_level",
       },
       as = "u" },
-    { op = "set_health", to = "u", value = "$b07e_cannon.hp" },
+    { op = "set_health", to = "u", value = "u.max_hp" }, -- FC-124（D13）：出生滿血（原作維持模板的 1000）
     { op = "set_mana", to = "u", value = "0" },
     { op = "apply_status", status = "b07e_phased", to = "u" },
     { op = "apply_status", status = "b07e_mana_cap", to = "u" },
@@ -164,8 +164,8 @@ return function(ctx)
         events = { on_cast = e_on_cast },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B07.lua:109-110",
-            text = "SetBaseMaxHealth(hp) 後接 SetHealth(GetHealth())，目前生命維持單位原本的 1000：二到四級的國崩隊出生時不是滿血（1000/1200 等）。看起來本意是補滿（GetMaxHealth），資料照實際寫，是否改成滿血由使用者決定。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B07.lua:109-110",
+            text = "FC-124（D13 修正：國崩隊出生滿血（set_health u.max_hp））。原作：SetBaseMaxHealth(hp) 後接 SetHealth(GetHealth())，目前生命維持單位原本的 1000：二到四級的國崩隊出生時不是滿血（1000/1200 等）。看起來本意是補滿（GetMaxHealth），" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B07.lua:86-106",
             text = "超過兩隊時以 ForceKill 殺掉最早的一隊（陣亡，不是移除）；已死亡的不計入上限。國崩隊沒有存活時間，也不會因義昭死亡而消失。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B07.lua:111-113",

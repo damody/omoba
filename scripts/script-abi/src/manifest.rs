@@ -45,8 +45,19 @@ pub struct Manifest {
 
     /// DEV-only hook: reload this DLL's runtime Lua content snapshot and return
     /// the loaded generation/hash. Default release hosts do not call this.
-    #[sabi(last_prefix_field)]
     pub dev_reload_runtime_lua_content: extern "C" fn(RStr<'_>) -> RuntimeLuaReloadResultFFI,
+
+    /// M3'：這個 DLL 的模組 id（`base_content`、`hero_a02`…），對應 scripts-manifest.json。
+    pub module_id: extern "C" fn() -> RStr<'static>,
+
+    /// 編譯時的內容標記 `OM_CONTENT_CATALOG_DATA_HASH=<hash>;`（E125）。host 拒絕載入
+    /// 內容與自己不同的 DLL。
+    pub content_marker: extern "C" fn() -> RStr<'static>,
+
+    /// 編譯時 catalog 的 identity hash（英雄／技能 id 結構，不含數值）。開發用熱加載只要求
+    /// 這個相同：改數值後重編的英雄 DLL 資料 hash 不同，但 id 結構不能變。
+    #[sabi(last_prefix_field)]
+    pub content_identity: extern "C" fn() -> RStr<'static>,
 }
 
 impl RootModule for Manifest_Ref {

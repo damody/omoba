@@ -10,7 +10,7 @@ return function(ctx)
     source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
     deferred = {
       { source_id = "C25D", reason = "not_in_source",
-        note = "vscripts/addon_game_mode.lua:341,444 列了 D，但 npc/C_Neutral/C25_2.txt 的 Ability 清單沒有 C25D，npc/ 也只有 C25D_old（11 版一刀．瞬）。開場 PickHero 以 FindAbilityByName(\"C25D\") 取得 nil 再 SetLevel，推定報錯並中斷該 Timer 其餘的初始化（vscripts/library/events/eventforpichero.lua:57-61）。" },
+        note = "vscripts/addon_game_mode.lua:341,444 列了 D，但 npc/C_Neutral/C25_2.txt 的 Ability 清單沒有 C25D，npc/ 也只有 C25D_old（11 版一刀．瞬）。開場 PickHero 以 FindAbilityByName(\"C25D\") 取得 nil 再 SetLevel，推定報錯並中斷該 Timer 其餘的初始化（vscripts/library/events/eventforpichero.lua:57-61）。FC-069（D13 修正）：不自動學不存在的 C25D，其餘初始化照常（v3 本來就不建立 C25D）。" },
     },
     hero = {
       source_id = "C25",

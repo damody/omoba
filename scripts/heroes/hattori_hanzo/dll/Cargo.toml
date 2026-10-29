@@ -1,0 +1,18 @@
+[package]
+name = "hero_a13"
+version = "0.1.0"
+edition = "2021"
+description = "hero_a13.dll: exports hero_a13_impl's manifest (M3')"
+
+[lib]
+name = "hero_a13"
+crate-type = ["cdylib"]
+
+[dependencies]
+abi_stable = "0.11"
+hero_a13_impl = { path = ".." }
+
+[features]
+default = []
+runtime-lua-content = ["hero_a13_impl/runtime-lua-content"]
+compiled-content-only = ["hero_a13_impl/compiled-content-only"]

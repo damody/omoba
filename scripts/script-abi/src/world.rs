@@ -10,7 +10,7 @@ use crate::types::*;
 pub use crate::types::{PathSpec, ProjectileSpec};
 use abi_stable::{
     sabi_trait,
-    std_types::{ROption, RStr, RVec},
+    std_types::{ROption, RResult, RSlice, RStr, RString, RVec},
     RMut, RRef,
 };
 
@@ -189,8 +189,9 @@ pub trait GameWorld: Send {
 
     // ---- 日誌（轉送到主機的log4rs）----
     fn log_info(&self, msg: RStr<'_>);
-    fn log_warn(&self, msg: RStr<'_>);
-    fn log_error(&self, msg: RStr<'_>);
+    /// `level` 1 = warn, 2 = error, anything else = info. (One entry for both: the sabi_trait
+    /// vtable holds at most 64 methods.)
+    fn log_at(&self, level: u8, msg: RStr<'_>);
 
     // ============================================================
     // Dota 2 modifier 風格聚合查詢 API
@@ -244,8 +245,9 @@ pub trait GameWorld: Send {
     /// 補 mana，上限截限；成功交易提交後才通知實際增加量，無效／零量不通知。
     fn restore_mana(&mut self, e: EntityHandle, amount: Fixed64);
 
-    /// 從腳本端主動 push `StateChanged` 事件。
-    fn trigger_state_changed(&mut self, e: EntityHandle, state_id: RStr<'_>, active: bool);
+    /// 通用延伸點（M3'，取代沒有呼叫點的 trigger_state_changed；trait 最多 64 個方法，E235）。
+    /// op 與參數見 `crate::ext`；不認得的 op 回 RErr。
+    fn ext(&mut self, op: u32, args: RSlice<'_, crate::ext::ExtArg>) -> RResult<crate::ext::ExtValue, RString>;
 
     // ============================================================
     // Dota 2 modifier property 完整查詢（Phase E）
@@ -309,4 +311,8 @@ pub trait GameWorld: Send {
         windup_ms: u32,
         backswing_ms: u32,
     );
+
+    /// The JSON payload of one of `e`'s buff rows, if it has it (the unit state variables of
+    /// v3 `unit_state`, omoba-core `unit_var`, are read back through this).
+    fn get_buff_payload(&self, e: EntityHandle, buff_id: RStr<'_>) -> ROption<RString>;
 }

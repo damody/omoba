@@ -60,6 +60,59 @@ pub struct ChannelPulse {
     pub anchor: Vec2,
 }
 
+/// One `on_scheduled` call (omoba-core `scheduled_effect`): the rank, step and instance the
+/// schedule was made with.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Scheduled {
+    pub level: u8,
+    pub step: u16,
+    pub instance: u32,
+}
+
+/// One `on_status_event` call (omoba-core `status_event`). `kind`: 0 expired, 1 removed or
+/// dispelled, 2 the holder's buffs cleared (death), 3 the holder's attack hit `other`, 4 the
+/// holder was hit by `other`'s attack, 5 the holder took `amount` damage from `other`, 6 the holder
+/// dealt `amount` to `other`. `damage_kind` (5, 6): 0 physical, 1 magical, 2 pure.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct StatusEvent {
+    pub kind: u8,
+    pub level: u8,
+    pub source: EntityHandle,
+    pub other: EntityHandle,
+    pub amount: Fixed64,
+    pub damage_kind: u8,
+}
+
+/// What an `on_damage_pre` hook does to the packet: `mode` 0 keeps it, 1 multiplies every damage
+/// kind by `value`, 2 lowers the total to `value` (split in proportion), 3 cancels it.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct DamageEdit {
+    pub mode: u8,
+    pub value: Fixed64,
+}
+
+impl DamageEdit {
+    pub const KEEP_MODE: u8 = 0;
+    pub const MULTIPLY: u8 = 1;
+    pub const SET: u8 = 2;
+    pub const CANCEL: u8 = 3;
+    pub const KEEP: Self = Self { mode: 0, value: Fixed64::ZERO };
+}
+
+/// A value captured by a schedule. `kind` 0 = `num`, 1 = `unit`, 2 = `point`; the other fields
+/// are zero / invalid.
+#[repr(C)]
+#[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ScheduleArg {
+    pub kind: u8,
+    pub num: Fixed64,
+    pub unit: EntityHandle,
+    pub point: Vec2,
+}
+
 /// 遊戲實體的不透明句柄。主機與“specs::Entity”之間進行轉換。
 #[repr(C)]
 #[derive(StableAbi, Copy, Clone, Debug, PartialEq, Eq, Hash)]

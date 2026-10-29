@@ -1033,6 +1033,7 @@ impl KcpClient {
             ward_protocol_version: 0,
             ward_rules_hash: String::new(),
             resume_token: Vec::new(),
+            script_modules_hash: crate::scripting::loader::declared_script_modules_hash(),
         };
         {
             let mut w = self.writer.lock().await;
@@ -1962,6 +1963,7 @@ pub fn selective_lockstep_join_request(player_name: String, player_id: u32) -> J
         ward_protocol_version: crate::runtime::ward_transport::WARD_PROTOCOL_VERSION,
         ward_rules_hash: omoba_template_ids::CONTENT_CATALOG_DATA_HASH.to_owned(),
         resume_token: Vec::new(),
+        script_modules_hash: crate::scripting::loader::declared_script_modules_hash(),
     }
 }
 

@@ -87,8 +87,6 @@ return function(ctx)
         cast = { cast_point = "$cast_point" },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         unit_state = {
-          b13e_last_target = { type = "unit", reveal = "public", scope = "hero",
-            note = "原作 caster.B13E_old_target：最後一次催眠的目標，醒來判定一律作用在它身上" },
           b13e_wake_armed = { type = "bool", init = "true", reveal = "public", scope = "hero",
             note = "原作 caster.can_dmg == nil：施放後 0.1 秒內為 false，任何傷害都不會叫醒" },
         },
@@ -96,11 +94,10 @@ return function(ctx)
           { id = "b13e_sleep", text = { zh_TW = { name = "催眠", body = "沉睡中，無法行動，敵方會優先攻擊其他單位；受到傷害就會醒來並暈眩 {wake_stun} 秒。" }, en = { name = "Hypnosis", body = "Asleep: cannot act and enemies prefer other targets. Taking damage wakes it up and stuns it for {wake_stun} seconds." } }, duration = "$sleep", stacking = "refresh", dispel = "basic", visibility = "debuff",
             reveal = "public", states = { "stun", "low_attack_priority" }, cue = "b13e_sleep_overhead", tags = { "b13e_sleep" },
             triggers = {
+              -- FC-015（D13）：受傷的目標自己醒來（原作一律叫醒最後一次催眠的目標）
               on_take_damage = { filter = "state.b13e_wake_armed", actions = {
-                { op = "if", cond = "exists(state.b13e_last_target)", actions = {
-                  { op = "apply_status", status = "b13e_wake_stun", to = "state.b13e_last_target" },
-                  { op = "remove_status", from = "state.b13e_last_target", status = "b13e_sleep" },
-                } },
+                { op = "apply_status", status = "b13e_wake_stun", to = "self" },
+                { op = "remove_status", from = "self", status = "b13e_sleep" },
               } },
             },
             notes = "原作 modifier_B13E_sleep：IsDebuff、IsStunDebuff、Duration 4.5、STUNNED＋LOW_ATTACK_PRIORITY；沒寫 IsPurgable，§12.3 暫定 basic。帶 tag b13e_sleep：道具文件（batch_I0、batch_I4 的灼燒光環）以 has_status_tag 跳過睡眠中的目標（登錄在 registry-additions-B）。" },
@@ -111,7 +108,6 @@ return function(ctx)
         events = {
           on_cast = {
             { op = "set_state", var = "b13e_wake_armed", value = "false" },
-            { op = "set_state", var = "b13e_last_target", value = "target" },
             { op = "cue", id = "b13e_bell_toll", at = "target" },
             { op = "apply_status", status = "b13e_sleep", to = "target" },
             { op = "damage", to = "target", type = "magical", amount = "$cast_damage" },
@@ -122,8 +118,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B13.lua:359-367",
-            text = "醒來判定作用在 caster.B13E_old_target（最後一次催眠的目標），不是受到傷害的單位：冷卻縮減或重置讓兩個目標同時沉睡時，打前一個目標會叫醒後一個，前一個繼續睡。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B13.lua:359-367",
+            text = "FC-015（D13 修正：受傷的目標自己醒來，不再作用在最後一次催眠的目標）。原作：醒來判定作用在 caster.B13E_old_target（最後一次催眠的目標），不是受到傷害的單位：冷卻縮減或重置讓兩個目標同時沉睡時，打前一個目標會叫醒後一個，前一個繼續睡。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B13.lua:349-356",
             text = "施放後 0.1 秒內（caster.can_dmg）任何來源的傷害都不會叫醒，包括自己造成的 1 點魔法傷害；這個旗標是施法者層級的，不分目標。" },
           { policy = "as_source", ref = "npc/B_Unified/B13.txt:251-259",

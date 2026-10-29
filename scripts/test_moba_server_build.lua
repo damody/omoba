@@ -8,6 +8,9 @@ test('profile-matched Rust and Lua stages only',function()
   for _,profile in ipairs({'debug','release'}) do
     local commands=build.commands({profile=profile})
     assert(#commands==4)
+    -- M3': one invocation builds base_content and every hero DLL.
+    local first=table.concat(commands[1].args,' ')
+    for _,module in ipairs(require('script_dlls').modules()) do assert(first:find('-p '..module.module,1,true),module.module) end
     for index,command in ipairs(commands) do
       local text=table.concat(command.args,' ')
       assert(not text:find('omfue',1,true) and not text:find('client-runtime',1,true))
@@ -33,7 +36,8 @@ test('verify authority and a base_content build without frontend or shared copy'
   local files={}
   local dependencies={is_file=function(file) files[#files+1]=file;return true end}
   local report=build.verify({profile='release'},dependencies)
-  assert(report.base_content_profile=='release' and #files==3)
+  -- two executables, base_content, then every DLL of the set (base_content again included).
+  assert(report.base_content_profile=='release' and #files==3+#require('script_dlls').modules())
   for _,file in ipairs(files) do
     assert(not file:find('omfue',1,true))
     -- E124: the shared scripts/base_content.dll is never consulted; runs stage their own copy.

@@ -117,6 +117,10 @@ pub struct BuffStore {
     entities_by_key: HashMap<String, HashMap<Entity, u32>>,
     independent_zones:BTreeMap<(Entity,String),super::damage_zone::IndependentDamageZone>,
     next_zone_lease:u64,
+    /// Rows marked for status events (status_event::KEY) that left their holder, with how
+    /// (status_event EXPIRED / REMOVED / CLEARED), in the order they left. Drained by the script
+    /// dispatch; transient, not part of the replicated state.
+    status_ended: Vec<(Entity, String, Value, u8)>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -358,7 +362,20 @@ impl BuffStore {
 
     pub fn remove(&mut self, entity: Entity, buff_id: &str) {
         self.independent_zones.remove(&(entity,buff_id.to_owned()));
-        let _ = self.remove_entry(entity, buff_id);
+        if let Some(entry) = self.remove_entry(entity, buff_id) {
+            self.record_status_end(entity, buff_id, &entry.payload, crate::runtime::native::status_event::REMOVED);
+        }
+    }
+
+    fn record_status_end(&mut self, entity: Entity, buff_id: &str, payload: &Value, kind: u8) {
+        if payload.get(crate::runtime::native::status_event::KEY).is_some() {
+            self.status_ended.push((entity, buff_id.to_owned(), payload.clone(), kind));
+        }
+    }
+
+    /// The status-event rows that left their holders since the last drain (status_event).
+    pub fn drain_status_ended(&mut self) -> Vec<(Entity, String, Value, u8)> {
+        std::mem::take(&mut self.status_ended)
     }
 
     fn remove_entry(&mut self, entity: Entity, buff_id: &str) -> Option<BuffEntry> {
@@ -406,6 +423,12 @@ impl BuffStore {
     /// 清除 entity 的所有 buff（單位死亡時呼叫）。
     pub fn remove_all_for(&mut self, entity: Entity) {
         if let Some(entity_buffs) = self.buffs.remove(&entity) {
+            let mut ended: Vec<(&String, &BuffEntry)> = entity_buffs.iter()
+                .filter(|(_, entry)| entry.payload.get(crate::runtime::native::status_event::KEY).is_some()).collect();
+            ended.sort_by(|a, b| a.0.cmp(b.0));
+            let ended: Vec<(Entity, String, Value, u8)> = ended.into_iter()
+                .map(|(id, entry)| (entity, id.clone(), entry.payload.clone(), crate::runtime::native::status_event::CLEARED)).collect();
+            self.status_ended.extend(ended);
             for entry in entity_buffs.into_values() {
                 let keys: Vec<String> = Self::payload_keys(&entry.payload)
                     .map(String::from)
@@ -432,6 +455,11 @@ impl BuffStore {
             .as_object()
             .into_iter()
             .flat_map(|m| m.keys().map(|s| s.as_str()))
+    }
+
+    /// Whether `entity` has a buff whose payload carries `key` (the reverse index, O(1)).
+    pub fn entity_has_key(&self, entity: Entity, key: &str) -> bool {
+        self.entities_by_key.get(key).is_some_and(|holders| holders.contains_key(&entity))
     }
 
     fn index_inc(&mut self, entity: Entity, key: &str) {
@@ -827,6 +855,7 @@ impl BuffStore {
         to_drop.sort_by(|(a,ak),(b,bk)|(a.id(),a.gen().id(),ak).cmp(&(b.id(),b.gen().id(),bk)));
         for (e, id) in to_drop {
             if let Some(entry) = self.remove_entry(e, &id) {
+                self.record_status_end(e, &id, &entry.payload, crate::runtime::native::status_event::EXPIRED);
                 expired.push((e, id, entry.payload));
             }
         }

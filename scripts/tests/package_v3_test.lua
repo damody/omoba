@@ -655,15 +655,15 @@ end)
 
 -- unit_state declarations in the IR (m3-ir-design.md §7.2): on by default, every variable the block uses
 test('ir_unit_state', function()
-  local d = assert(v3.load_file(assert(sources.hero_path(b.root, 'B30'))))
+  local d = assert(v3.load_file(assert(sources.hero_path(b.root, 'B27'))))
   local off = IR.compile_doc(d, { unit_state = false })
-  assert(off.b30_purgatory_slash.unit_state == nil, 'opts.unit_state = false leaves it out')
+  assert(off.b27_rending_blade.unit_state == nil, 'opts.unit_state = false leaves it out')
   local out, problems = IR.compile_doc(d)
   assert(#problems == 0, table.concat(problems, '\n'))
-  local ir = out.b30_purgatory_slash
+  local ir = out.b27_rending_blade
   local row
   for _, r in ipairs(ir.unit_state or {}) do if r.name == 'tsum' then row = r end end
-  assert(row, 'b30_purgatory_slash declares tsum')
+  assert(row, 'b27_rending_blade declares tsum')
   assert(row.type == 'fixed' and row.scope == 'match' and row.reveal == 'public', 'type, scope and reveal come from the declaration')
   assert(type(row.init) == 'number' and ir.exprs[row.init], 'init is an expression index')
 end)

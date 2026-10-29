@@ -181,6 +181,7 @@ return function(ctx)
           channel_time = { 4, unit = "s", source = "kv:AbilityChannelTime" },
           radius = { 350, unit = "dist", source = "kv:A23R_aoeRadius" },
           wave_interval = { 0.3, unit = "s", source = "script:vscripts/heroes/A_Oda/A23.lua:139 wave_delay = 0.3" },
+          max_wave = { 10, unit = "count", source = "kv:A23R_maxWave", note = "FC-070：原作腳本沒用到這個鍵（引導 4 秒共 14 波）；依 D13 照說明最多 10 波" },
           damage = { 40, 80, 120, 160, unit = "dmg", damage_type = "magical", source = "kv:A23R_damage" },
           building_pct = { 20, unit = "pct", source = "kv:adjust_damage_at_building", note = "KV 寫 0.2（比例）" },
           dot = { 20, 25, 30, 35, unit = "dmg", damage_type = "magical", source = "kv:A23R_dot" },
@@ -195,9 +196,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "鬼術．墜火",
-            body = "持續施法期間，每 {wave_interval} 秒在目標地點 {radius} 範圍內降下一波火雨，稍後對範圍內的敵方英雄、一般單位與建築造成 {damage} 魔法傷害（建築只受 {building_pct}），並使非建築的敵人燃燒 {dot_duration} 秒、每 {dot_interval} 秒受到 {dot} 魔法傷害，燃燒可疊加。施放後摧毀範圍內的樹木。施法期間若秀家周圍 {detect_radius} 內有敵方單位，雙方都看得到秀家。" },
+            body = "持續施法期間，每 {wave_interval} 秒在目標地點 {radius} 範圍內降下一波火雨（最多 {max_wave} 波），稍後對範圍內的敵方英雄、一般單位與建築造成 {damage} 魔法傷害（建築只受 {building_pct}），並使非建築的敵人燃燒 {dot_duration} 秒、每 {dot_interval} 秒受到 {dot} 魔法傷害，燃燒可疊加。施放後摧毀範圍內的樹木。施法期間若秀家周圍 {detect_radius} 內有敵方單位，雙方都看得到秀家。" },
           en = { name = "Demon Art: Falling Fire",
-            body = "While channeling, calls down a wave of fire rain within {radius} of the target point every {wave_interval} seconds. Shortly after, each wave deals {damage} magic damage to enemy heroes, units and buildings in the area (buildings take only {building_pct}) and sets non-building enemies ablaze for {dot_duration} seconds, taking {dot} magic damage every {dot_interval} seconds; burns stack. Destroys trees in the area on cast. While channeling, Hideie is visible to both teams if any enemy unit is within {detect_radius} of him." },
+            body = "While channeling, calls down a wave of fire rain within {radius} of the target point every {wave_interval} seconds (at most {max_wave} waves). Shortly after, each wave deals {damage} magic damage to enemy heroes, units and buildings in the area (buildings take only {building_pct}) and sets non-building enemies ablaze for {dot_duration} seconds, taking {dot} magic damage every {dot_interval} seconds; burns stack. Destroys trees in the area on cast. While channeling, Hideie is visible to both teams if any enemy unit is within {detect_radius} of him." },
         },
         target = { type = "point", range = "$cast_range", aoe_radius = "$radius" },
         cast = { cast_point = "$cast_point", channel_time = "$channel_time", interruptible = true },
@@ -222,7 +223,7 @@ return function(ctx)
             { op = "delay", time = "$tree_delay", capture = { "center" }, actions = {
               { op = "destroy_trees", at = "center", radius = "$radius" },
             } },
-            { op = "repeat", interval = "$wave_interval", first = 0, ["while"] = "caster.is_channeling", actions = {
+            { op = "repeat", interval = "$wave_interval", first = 0, count = "$max_wave", ["while"] = "caster.is_channeling", actions = {
               -- 秀家周圍 1000 內有任何敵方單位（含建築、魔免、隱形）就讓雙方看到他 1 秒
               { op = "for_each",
                 select = { from = "caster", shape = "circle", radius = "$detect_radius", team = "enemy",
@@ -253,8 +254,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A23.lua:135-189",
-            text = "KV A23R_maxWave = 10 與原作說明「總共可降下10波」都沒有被腳本使用：迴圈只看 IsChanneling，4 秒引導每 0.3 秒一波（t=0…3.9）共 14 波，傷害與燃燒層數比設計多四成。資料照原作 14 波。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A23.lua:135-189",
+            text = "FC-070（D13 修正：repeat count = $max_wave，最多 10 波）。原作：KV A23R_maxWave = 10 與原作說明「總共可降下10波」都沒有被腳本使用：迴圈只看 IsChanneling，4 秒引導每 0.3 秒一波（t=0…3.9）共 14 波，傷害與燃燒層數比設計多四成。" },
           { policy = "no_effect", ref = "vscripts/heroes/A_Oda/A23.lua:179",
             text = "對建築的燃燒（modifier_A23R_dot_building，KV A23R_dot_building 10/15/20/25）已被註解，建築只吃每波 20% 傷害。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A23.lua:161-184",

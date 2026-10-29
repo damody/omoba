@@ -87,6 +87,8 @@ return function(ctx)
           { id = "b15e_orb", text = { zh_TW = { name = "烈焰箭", body = "每次普攻開始消耗 {mana_per_attack} 法力；普攻命中時額外造成 {damage} 魔法傷害（對建築為 {building_pct}）。" }, en = { name = "Flame Arrows", body = "Each attack costs {mana_per_attack} mana; attacks that land deal {damage} bonus magic damage ({building_pct} against buildings)." } }, duration = "infinite", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public", cue = "b15e_searing_arrow_projectile", remove_on = { "death" },
             triggers = {
+              -- FC-104（D13）：死亡時關閉開關（釋放法球槽），復活後不會開著卻沒有效果
+              on_death = { { op = "toggle_ability", of = "self", ability = "b15_flame_arrow", on = false } },
               on_attack_windup = {
                 { op = "if", cond = "self.mana < $mana_per_attack", actions = {
                   { op = "toggle_ability", of = "self", ability = "b15_flame_arrow", on = false },
@@ -124,8 +126,8 @@ return function(ctx)
             text = "法球槽 nobuorb1：開啟時無條件寫成 B15E_1（覆寫道具佔用），之後法球道具（item_mana_thief、item_kokumo、item_the_spear_of_saddle）觸發時又會覆寫，這時烈焰箭照扣魔但不加傷；關閉時只有槽仍是自己才清空。以 orb_slot = { claim = true（開啟時佔用）, overridable = true（可被之後的法球覆寫）, release = status_end（b15e_orb 移除時讓出）} 表達，命中加傷以 orb_slot_free 判斷槽仍是自己。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:87-101",
             text = "扣魔在 OnAttackStart（前搖開始）：攻擊被取消仍扣魔，打建築也扣；扣魔不看法球槽。法力不足時先 CastAbilityToggle 關閉，再 SpendMana 把剩餘法力扣到零，這一擊沒有加傷（狀態已移除）。" },
-          { policy = "fix_candidate", ref = "npc/B_Unified/B15.txt:217-238",
-            text = "modifier_searing_arrow 不是 Passive，死亡時被移除，但開關仍亮、nobuorb1 仍是 B15E_1（推定）：復活後不扣魔也不加傷，必須手動關再開；期間法球槽仍被佔用，幻象的 searing_arrow2 仍會加傷。v3 的 release = status_end 在死亡移除 b15e_orb 時就讓出法球槽，只差在這段期間其他只在槽空著時生效的法球可以生效。" },
+          { policy = "fixed", ref = "npc/B_Unified/B15.txt:217-238",
+            text = "FC-104（D13 修正：死亡時關閉開關並釋放法球槽）。原作：modifier_searing_arrow 不是 Passive，死亡時被移除，但開關仍亮、nobuorb1 仍是 B15E_1（推定）：復活後不扣魔也不加傷，必須手動關再開；期間法球槽仍被佔用，幻象的 searing_arrow2 仍會加傷。v3 的 release = status_end 在死亡移除 b15e_orb 時就讓出法球槽，只差在這段期間其他只在槽空著時生效的法球可以生效。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:40-55",
             text = "加傷走 AMHC:Damage（義元已死不傷害）；建築 25%。命中的單位類型不限（KV 含建築）。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:74-85",

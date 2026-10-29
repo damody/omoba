@@ -48,9 +48,10 @@ pub struct V3Block {
     /// docs/character_pipeline/tools/v3_bot.lua.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot: Option<serde_json::Value>,
-    /// The behavior IR (M3, crate::ir); none while a Rust handler runs the behavior.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ir: Option<crate::ir::IrBlock>,
+    /// The castable's `flags` (v3-vocab ABILITY_FLAGS, e.g. `does_not_break_invisibility`), which
+    /// the host's rule layer reads (M3' ④: formerly inside the behavior IR's target block).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ability_flags: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -248,7 +249,6 @@ pub fn validate_block(block: &V3Block, kind: &str, max_level: u8) -> Result<(), 
     if block.max_level != max_level || max_level == 0 { return Err(format!("{owner}: max_level must equal the row's {max_level}")); }
     if block.source_id.is_empty() || block.source_id.len() > 128 { return Err(format!("{owner}: source_id is required")); }
     let names = check_values(&block.values, max_level, &owner)?;
-    if let Some(ir) = &block.ir { ir.validate().map_err(|e| format!("{owner}: ir: {e}"))?; }
     for r in block.info.iter().chain(&block.stat_lines) {
         if r.field.as_deref().is_some_and(|f| !INFO_FIELDS.contains(&f)) { return Err(format!("{owner}: unknown info field")); }
         match (&r.value, &r.expr) {

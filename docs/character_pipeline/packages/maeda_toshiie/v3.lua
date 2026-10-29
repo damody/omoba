@@ -162,19 +162,22 @@ return function(ctx)
       { id = "a14_stacked_spear", source_id = "A14R", slot = "E", kind = "passive", max_level = 4, tags = { "basic" },
         values = {
           str_bonus = { 4, 7, 10, 13, unit = "stat", source = "kv:str_bonus" },
-          attack_bonus = { 15, unit = "dmg", source = "kv:atk_bonus" },
-          stack_cap = { 5, 10, 15, 20, unit = "count", hidden = true, source = "kv:buff_max_time" },
+          attack_bonus = { 15, unit = "dmg", source = "kv:atk_bonus",
+            note = "FC-038（使用者 2026-10-29 決定全修）：滿層時的總攻擊加成，維持原作的固定 +15 上限" },
+          stack_cap = { 5, 10, 15, 20, unit = "count", source = "kv:buff_max_time" },
+          attack_per_stack = { expr = "$attack_bonus / $stack_cap", unit = "dmg",
+            note = "FC-038：每層的攻擊加成，滿層 stack_cap 時合計 attack_bonus" },
         },
         text = {
           zh_TW = { name = "疊擊槍術",
-            body = "被動：提高 {str_bonus} 力量與 {attack_bonus} 攻擊力。連續攻擊同一目標時，狀態圖示會累積層數，但層數不影響數值。" },
+            body = "被動：提高 {str_bonus} 力量。連續攻擊同一目標時累積層數，每層提高 {attack_per_stack} 攻擊力，最多 {stack_cap} 層（滿層 {attack_bonus}）；換目標時重新計算。" },
           en = { name = "Stacked Spear Art",
-            body = "Passive: grants +{str_bonus} strength and +{attack_bonus} attack damage. Consecutive attacks on the same target build up a stack counter on the buff icon, but the stacks do not change any numbers." },
+            body = "Passive: grants +{str_bonus} strength. Consecutive attacks on the same target build stacks, each granting +{attack_per_stack} attack damage, up to {stack_cap} stacks (+{attack_bonus} at full); switching targets starts over." },
         },
         target = { type = "none" },
         passive = {
           reveal = "public",
-          stats = { str = "$str_bonus", attack_damage = "$attack_bonus" },
+          stats = { str = "$str_bonus" },
           triggers = {
             on_attack_hit = {
               { op = "if", cond = "state.a14r_count < state.a14t_bonus", actions = {
@@ -188,22 +191,23 @@ return function(ctx)
                   { op = "set_state", var = "a14r_count", value = "1 + state.a14t_bonus" },
                   { op = "set_state", var = "a14r_last", value = "event.target" },
                 } },
-              { op = "set_display_stacks", status = "a14r_stack", to = "self", count = "state.a14r_count" },
+              { op = "set_stacks", status = "a14r_stack", to = "self", count = "state.a14r_count" },
             },
           },
         },
         statuses = {
-          { id = "a14r_stack", duration = "infinite", stacking = "keep", dispel = "none", visibility = "buff", reveal = "public",
-            text = { zh_TW = { name = "疊擊槍術層數", body = "被動：力量 +{str_bonus}、攻擊力 +{attack_bonus}；連續攻擊同一目標時累積層數，層數只是顯示。" }, en = { name = "Stacked Spear Stacks", body = "Passive: +{str_bonus} strength and +{attack_bonus} attack damage; consecutive attacks on the same target build stacks, which are display only." } },
-            notes = "原作 modifier_A14R_atk_bonus（Passive）：PREATTACK_BONUS_DAMAGE 固定 %atk_bonus，層數只是 StackCount 顯示。屬性改寫在被動 stats。" },
+          { id = "a14r_stack", duration = "infinite", stacking = { max = "$stack_cap", value_stacks = true }, dispel = "none", visibility = "buff", reveal = "public",
+            text = { zh_TW = { name = "疊擊槍術層數", body = "每層攻擊力 +{attack_per_stack}，最多 {stack_cap} 層。" }, en = { name = "Stacked Spear Stacks", body = "+{attack_per_stack} attack damage per stack, up to {stack_cap} stacks." } },
+            stats = { attack_damage = { value = "$attack_per_stack", per_stack = true } },
+            notes = "原作 modifier_A14R_atk_bonus（Passive）：PREATTACK_BONUS_DAMAGE 固定 %atk_bonus，層數只是 StackCount 顯示。FC-038 修正後每層 attack_per_stack，上限 stack_cap（A14T 加的層也夾在上限內），滿層等於原作的 +15。" },
         },
         events = {
           on_learn = { { op = "apply_status", status = "a14r_stack", to = "caster" } },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/A_Oda/A14.txt:223-231",
-            text = "攻擊力加成是 datadriven 屬性 %atk_bonus = 15，不會乘 StackCount；連擊層數（A14R_current_time，最多 buff_max_time 5/10/15/20）只改顯示，實際永遠只有 +15 攻擊力。設計意圖應是每層 +15。資料照實際：固定 +15、層數只顯示。" },
+          { policy = "fixed", ref = "npc/A_Oda/A14.txt:223-231",
+            text = "FC-038（使用者 2026-10-29 決定全修：層數真的影響攻擊力，每層 attack_bonus ÷ stack_cap，滿層等於原作固定 +15，強度上限不變）。原作：攻擊力加成是 datadriven 屬性 %atk_bonus = 15，不會乘 StackCount；連擊層數（A14R_current_time，最多 buff_max_time 5/10/15/20）只改顯示，實際永遠只有 +15 攻擊力。設計意圖應是每層 +15。" },
           { policy = "as_source", ref = "npc/A_Oda/A14.txt:242-251",
             text = "AbilitySpecial 有兩個 \"02\"（buff_max_time 與 atk_bonus）；推定兩個都有效。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A14.lua:145-167",
@@ -224,15 +228,18 @@ return function(ctx)
           move_speed = { 700, unit = "move_speed",
             source = "kv:modifier_A14T MODIFIER_PROPERTY_MOVESPEED_ABSOLUTE",
             note = "AbilitySpecial bonus_movement_speed 300 沒有使用；modifier 直接寫死絕對移速 700" },
-          attack_speed = { 10, 15, 20, unit = "atk_speed", source = "kv:a14t_ASPD" },
+          attack_speed = { 10, 15, 20, unit = "atk_speed", source = "kv:a14t_ASPD",
+            note = "FC-039（使用者 2026-10-29 決定全修）：滿層時的總攻速加成，維持原作的固定加成上限" },
           bonus_count = { 5, 8, 10, unit = "count", hidden = true, source = "kv:a14r_bouns_count" },
-          max_count = { 10, unit = "count", hidden = true, source = "kv:a14t_max_count" },
+          max_count = { 10, unit = "count", source = "kv:a14t_max_count" },
+          aspd_per_stack = { expr = "$attack_speed / $max_count", unit = "atk_speed",
+            note = "FC-039：每層的攻速加成，滿層 max_count 時合計 attack_speed" },
         },
         text = {
           zh_TW = { name = "狂怒．槍之又左",
-            body = "被動：提高 {attack_speed} 攻擊速度。主動：{duration} 秒內獲得 {evasion} 閃避、移動速度固定為 {move_speed}、無視單位碰撞，幻象也會複製這個狀態。連續攻擊同一目標同樣會累積顯示用的層數。" },
+            body = "主動：{duration} 秒內獲得 {evasion} 閃避、移動速度固定為 {move_speed}、無視單位碰撞，幻象也會複製這個狀態；期間連續攻擊同一目標時累積層數，每層提高 {aspd_per_stack} 攻擊速度，最多 {max_count} 層（滿層 {attack_speed}）。" },
           en = { name = "Fury: Spear Matazaemon",
-            body = "Passive: grants +{attack_speed} attack speed. Active: for {duration} seconds gains {evasion} evasion, a fixed movement speed of {move_speed} and no unit collision; illusions copy this state. Consecutive attacks on the same target also build a display-only stack counter." },
+            body = "Active: for {duration} seconds gains {evasion} evasion, a fixed movement speed of {move_speed} and no unit collision; illusions copy this state. Meanwhile, consecutive attacks on the same target build stacks, each granting +{aspd_per_stack} attack speed, up to {max_count} stacks (+{attack_speed} at full)." },
         },
         target = { type = "none" },
         cast = { immediate = true },
@@ -240,23 +247,24 @@ return function(ctx)
         requires = { hero_level = "$required_level" },
         passive = {
           reveal = "public",
-          stats = { attack_speed = "$attack_speed" },
           triggers = {
-            on_attack_hit = {
+            -- FC-039：只在狂怒期間累積（照說明，要施放才生效）
+            on_attack_hit = { filter = "has_status(self, a14t_rage)", actions = {
               { op = "if", cond = "exists(state.a14t_last) and event.target == state.a14t_last",
                 actions = { { op = "set_state", var = "a14t_count", value = "min(state.a14t_count + 1, $max_count)" } },
                 otherwise = {
                   { op = "set_state", var = "a14t_count", value = "1" },
                   { op = "set_state", var = "a14t_last", value = "event.target" },
                 } },
-              { op = "set_display_stacks", status = "a14t_aspd_stack", to = "self", count = "state.a14t_count" },
-            },
+              { op = "set_stacks", status = "a14t_aspd_stack", to = "self", count = "state.a14t_count" },
+            } },
           },
         },
         statuses = {
-          { id = "a14t_aspd_stack", duration = "infinite", stacking = "keep", dispel = "none", visibility = "buff", reveal = "public",
-            text = { zh_TW = { name = "狂怒層數", body = "被動：攻擊速度 +{attack_speed}；連續攻擊同一目標時累積層數，層數只是顯示。" }, en = { name = "Fury Stacks", body = "Passive: +{attack_speed} attack speed; consecutive attacks on the same target build stacks, which are display only." } },
-            notes = "原作 modifier_A14T_ASPD_bonus（Passive）：ATTACKSPEED_BONUS_CONSTANT 固定 %a14t_ASPD，層數只是顯示；攻速改寫在被動 stats。" },
+          { id = "a14t_aspd_stack", duration = "infinite", stacking = { max = "$max_count", value_stacks = true }, dispel = "none", visibility = "buff", reveal = "public",
+            text = { zh_TW = { name = "狂怒層數", body = "每層攻擊速度 +{aspd_per_stack}，最多 {max_count} 層。" }, en = { name = "Fury Stacks", body = "+{aspd_per_stack} attack speed per stack, up to {max_count} stacks." } },
+            stats = { attack_speed = { value = "$aspd_per_stack", per_stack = true } },
+            notes = "原作 modifier_A14T_ASPD_bonus（Passive）：ATTACKSPEED_BONUS_CONSTANT 固定 %a14t_ASPD，層數只是顯示。FC-039 修正後每層 aspd_per_stack、只在狂怒期間累積，狂怒結束歸零；滿層等於原作的固定加成。" },
           { id = "a14t_rage", duration = "$duration", stacking = "refresh", dispel = "none", visibility = "buff",
             text = {
               zh_TW = { name = "狂怒．槍之又左", body = "閃避 {evasion}、移動速度固定為 {move_speed}、無視單位碰撞，持續 {duration} 秒。" },
@@ -268,10 +276,15 @@ return function(ctx)
               on_created = {
                 { op = "set_state", var = "a14t_bonus", value = "$bonus_count" },
                 { op = "if", cond = "has_status(self, a14r_stack) and state.a14r_count < state.a14t_bonus", actions = {
-                  { op = "set_display_stacks", status = "a14r_stack", to = "self", count = "state.a14t_bonus" },
+                  { op = "set_stacks", status = "a14r_stack", to = "self", count = "state.a14t_bonus" },
                 } },
               },
-              on_removed = { { op = "set_state", var = "a14t_bonus", value = "0" } },
+              on_removed = {
+                { op = "set_state", var = "a14t_bonus", value = "0" },
+                -- FC-039：狂怒結束，攻速層數歸零
+                { op = "set_state", var = "a14t_count", value = "0" },
+                { op = "set_stacks", status = "a14t_aspd_stack", to = "self", count = "0" },
+              },
             },
             notes = "原作 modifier_A14T：IsPurgable 0、AllowIllusionDuplicate；EVASION_CONSTANT 80、MOVESPEED_ABSOLUTE 700、NO_UNIT_COLLISION；每秒一次閃電特效與音效。" },
         },
@@ -285,8 +298,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/A_Oda/A14.txt:414-422",
-            text = "攻速加成是 datadriven 屬性 %a14t_ASPD，不乘 StackCount；連擊層數（最多 a14t_max_count 10）只改顯示，實際只有固定的 +10/15/20 攻速，而且學會就永久生效、不需要施放。設計意圖應是每層加攻速。資料照實際。" },
+          { policy = "fixed", ref = "npc/A_Oda/A14.txt:414-422",
+            text = "FC-039（使用者 2026-10-29 決定全修：要施放才生效，狂怒期間每層 attack_speed ÷ max_count，滿層等於原作固定加成）。原作：攻速加成是 datadriven 屬性 %a14t_ASPD，不乘 StackCount；連擊層數（最多 a14t_max_count 10）只改顯示，實際只有固定的 +10/15/20 攻速，而且學會就永久生效、不需要施放。設計意圖應是每層加攻速。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A14.lua:183-197",
             text = "施放期間把全域 A14T_stack 設成 a14r_bouns_count（5/8/10），讓疊擊槍術換目標時從這個層數起算；只影響顯示。OnCreated 只改顯示的 StackCount，不改 A14R_current_time。" },
           { policy = "as_source", ref = "npc/A_Oda/A14.txt:340",

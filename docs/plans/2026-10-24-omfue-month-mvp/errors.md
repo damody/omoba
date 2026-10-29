@@ -2,6 +2,172 @@
 
 每個錯誤記：現象、根因、通用修正、以後如何避免。所有 session 共用這個檔案；新紀錄加在最上面，只追加，不改寫別人的紀錄。 編號撞號時，後寫入者改用目前最大號 +1。
 
+## E242 host 端砍樹（destroy_trees）：authority 決定、公開 Hud fact 送到每一隊 replica；寫進程式的錯誤編號撞號；CRLF 檔又被 sed -i 改壞一次（2026-10-30，e187 遊戲模式 session；已放回 live）
+
+- **內容**（影子 `target/e187/t13`，基底 `b13`，放回 10 個檔；之後的編號更正又放回 8 個檔）：
+  - `scripts/ability_kit` 的 `Cx::destroy_trees(at, radius)` 原本是空操作。現在照「特殊 buff 當 host 指令」的既有寫法（如 `ability_projectile`、`reveal_zone`）送出 `__destroy_trees` 請求，不改 abi_stable 介面（GameWorld 的方法數已滿，見 E235）。
+  - 新模組 `omoba-core/src/runtime/native/tree_cut.rs`：
+    - 請求只在 authority 排隊（`PendingTreeCuts` 只在有樹的地圖安裝）；replica 沒有佇列，直接丟掉，所以預測的施放不會動到 replica 狀態。
+    - authority 在下一個 active tick 開頭、所有移動之前，讓點在半徑內的樹倒下，並從編譯地圖減去倒下集合重建 BlockedRegions 與 VisionOccluderSet。
+    - 每棵樹的變動各發一個 AllPlayers、PreStep 的 Hud fact（`CUT_METRIC_ID`／`REGROW_METRIC_ID`，值是樹的索引）。replica 在同一步開頭用同一個函式重建碰撞。
+    - 300 秒後重生，依據原作 `libraries/buildinghelper.lua:129` 的 TreeRegrowTime，addon 沒有改過。有單位站在樹的方塊上時延後重生，這點是推定；Dota 是把單位推開。
+    - 倒下的樹進入 replay digest，只在非空時加入，舊 digest 不變。
+    - 局中重新 bootstrap 時，server 送的是目前的地形。`moba_map_layout::validate_metadata` 改成也接受「編譯地圖減掉一些樹」，其他差異一律拒絕；replica 從中推回倒下集合。
+- **測試**：
+  - omoba-core `tree_cut` 6 項：半徑內倒下、下一 tick 才生效、重複砍不再發 fact、有單位擋住就延後、重生後地形與視野完全還原、replica 依 fact 重建、局中 bootstrap、沒有樹的地圖不受影響、payload 上下限。
+  - base_content `tree_cut_replica`：nobu 上英雄走過砍出的缺口，兩隊 replica 的地形與 canonical hash 每步都和 authority 相同。暫時停用 replica 套用時，這個測試在第 0 步就失敗，證明測試有效。
+  - omoba-core 1357 項全過。base_content release：影子 603 過、26 失敗；基底 b13 602 過、同樣 26 失敗（施法前搖、被動學習等），是 live 原本就有的。
+- **錯誤 1：錯誤編號撞號**：程式註解先寫成 E235，放回後才發現 E235 已被線 B 使用。用 land_to_live 把我加的 10 處改成 E242。
+- **錯誤 2：CRLF 檔被 `sed -i` 改成 LF**：把改動套到 live 版 `codegen.rs` 時，用 `sed -i` 改 use 行，整檔行尾被換掉；放回前比對時發現，重做成 Lua 字串替換。
+- **以後如何避免**：
+  - 把錯誤編號寫進程式之前，先在 errors.md 占好號碼（先寫一行標題），寫完再放回。
+  - 任何檔案都不用 `sed -i`，一律用 Lua 做精確替換（已重犯多次：E171、E188、E211、E235）。
+  - 會改變 replica 會用到的共用資源（例如 BlockedRegions）時，一定要有公開 fact 讓每一隊在同一步套用，並寫一個「停用套用就會失敗」的對拍測試。
+
+## E241 conformance：「施放後施法者死亡」殺得太早，投射物帶的狀態還沒落地（2026-10-30，conformance session）
+
+- **現象**：24 個 `death/caster_dies_after_cast` 記為 unsupported：「X was not on the unit before the death」（A34 寒冰箭的 stun、冰息的 generic_dot、C15 散射的 stun 等）。
+- **根因（a，harness）**：施放一被接受就殺死施法者，投射物還在飛，狀態還沒套上，無從判斷「施加者死亡後狀態保留」。v3 的情境只說死亡在施放之後。
+- **修正**：殺死前最多等 3 秒，直到情境列出的狀態（status_removed／status_kept 的 runtime_id）都在各自的單位上；到期仍沒出現的照舊 unsupported。
+- **結果**：12 個轉為通過（A34 寒冰箭、冰息、C15 散射 r1～r4），沒有新失敗。live：1587 通過、15 (b)、0 (c)、691 unsupported。已放回。
+- **以後如何避免**：情境的「之後」要等到前一步的效果都落地再做下一步，不要用「施放被接受」當作效果已完成。
+
+## E240 conformance：已上架英雄新增可產生的 9 招對手寫 handler；投射物招式在產生版施放不成立；target types = all（2026-10-30，conformance session）
+
+- **做法**：live 仍由手寫 handler 跑、但 v3_rust.lua 已能產生的 9 招（A07W、A34W／A34R／A34E、B08R／B08 天牙、B29 地裂、C15 精準之光／散射），在影子 `target/e229-gen` 把產生的 crate 改名 `gen_<id>` 掛成 base_content 的 dev-dependency，`V3_CONFORMANCE_GENERATED=1` 時以 `replace_ability_script` 換掉，和同一棵樹的 handler 版逐筆比（`scripts/v3_conformance_report.lua compare`）。這個切換只在影子，不放回 live。
+- **發現（交給 A）**：
+  - 0 差異：B29 地裂、C15 精準之光。
+  - 施放完全不成立（不扣魔、不進冷卻）：A34 寒冰箭、冰息、C15 散射、B08 天牙。四招都用 `projectile`，懷疑 `Cx::projectile` 回 Err；host 沒有印出腳本的錯誤，harness 看不到原因。
+  - A07W：產生版以 v3 key 套上 a07w_guard（handler 沒有，原本 unsupported，22 個轉為通過），但 basic／strong 驅散後 guard 仍在（8 個 fail；v3 寫 dispel = basic）。
+  - B08R：產生版學會後沒有 handler 放的 `b08_living_soul_rank:<n>` 標記，情境結果不變。
+- **live 重跑**：A02、B01、C17 已是產生的 Rust；產生版 vs `legacy_handlers` 0 差異，與上一輪也 0 差異（沒有退步）。
+- **harness**：`target_unit.types = {"all"}` 包含英雄，改用敵方英雄當目標（C17E 的 invisible／fogged target 8 個轉為通過）。live：1575 通過、15 (b)、0 (c)、703 unsupported。已放回。
+- **以後如何避免**：腳本回傳的錯誤要能被測試讀到；「施放沒被接受」的原因看不到時，只能從招式的共同點猜。
+
+## E239 conformance：hook 招式的情境、召喚上限的情境（2026-10-30，conformance session）
+
+- **背景**：使用者 2026-10-30 決定，兩招以上類似的機制做成共用產生器，完全獨特的才寫 hook，由 AI 實作（README D7、m3-rust-codegen-design §2.4）。hook 要有可比對的預期結果；A 轉來主 session 的要求：雜賀眾召喚第 cap+1 位時最早的那位要消失。
+- **做法**：
+  - `v3_scenarios.lua`：條目內的 `{ op = "hook", name }` 與 `hook_value(name, …)` 都算用到 hook。hook 宣告有 `cases = { { id, given, when, expect } }`（現有情境詞彙、只能寫 `$名稱`）時，每個 rank 每個 case 產生一個 `case = "hook"` 的情境；沒有 cases 就產生一個 `hook_behavior` 情境帶 `behavior`（或 `why`）與 `test`，harness 記 unsupported，讓沒寫預期結果的 hook 在報表上看得到。`cases`／`behavior` 欄位的 schema 與驗證交給 A。合成文件測過（2 個 rank × 1 case、1 個 behavior，check 無問題）。
+  - 召喚上限：`create_unit` 有 `limit_per_owner` 且 `over_limit = remove_oldest` 時，產生 `normal/summon_cap/<as>`。harness 的 `cast_until_over_cap` 每次清冷卻、補滿充能與法力後再施放，直到做出的單位超過上限；`summon_cap` 檢查最早那位不在、剩下的數量等於上限、全隊金錢增加少於該召喚物的賞金（不算死亡、沒有付賞金）。
+- **結果**：B01E r1～r4 的召喚上限情境在產生版與手寫 handler 都通過；1567 通過、15 (b)、0 (c)、711 unsupported，兩版逐筆 0 差異。已放回 live。
+- **以後如何避免**：AI 寫的 hook 沒有資料可對照，一定要在 v3 寫出可檢查的 cases；只寫文字的 hook 會在報表上一直是 unsupported。
+
+## E238 conformance：M3' ④ 之後 live 跑的就是產生的 Rust；加上換回手寫 handler 的對照模式（2026-10-30，conformance session）
+
+- **背景**：B 放回 M3' ④，稻姬、雜賀、阿市全部技能與伊達政宗兩招改由產生的 Rust 執行，手寫 handler 移到 `base_content/src/legacy_handlers.rs`。之前在影子裡把產生的 crate 改名掛成 dev-dependency 的比對方式（`target/e229-gen`、`V3_CONFORMANCE_GENERATED`）不再需要。
+- **做法**：`V3_CONFORMANCE_HANDLERS=1` 時，harness 用 `legacy_handlers::handler_scripts()／handler_units()` 換回手寫版，結果寫到 `target/v3-conformance-handlers`。不設時就是 live 的產生版。兩者用 `tools\lua\lua.exe scripts\v3_conformance_report.lua compare target/v3-conformance-handlers target/v3-conformance` 逐筆比。
+- **結果**：含 A 的 require_source_alive 修正（E236），10 位 2289 個情境逐筆 0 差異；兩邊都是 1563 通過、15 (b)、0 (c)、711 unsupported。已放回 live。
+- **限制**：`damage_skipped_if_source_dead`（8 個：B08E、C17W 的 caster_dies_after_cast）仍是 unsupported。C17W 斷鏈時 root 的 on_created 傷害（require_source_alive = false）和要跳過的斷鏈傷害在同一 tick，對英雄（有魔抗）量不出哪一筆；B08E 的傷害在死亡前就已結算。要判斷需要 host 的傷害事件紀錄（來源、路徑），目前沒有。
+- **以後如何避免**：執行方式換掉後，對照組要留在 live 能直接切換，不要只在影子裡維持另一套連結方式。
+
+## E237 conformance：FC-025 修正後，harness 的「持有者死亡」被毫髮無傷擋下；FC-005／025／046 補專用測試（2026-10-30，conformance session）
+
+- **現象**：A 放回 FC-005（B08R 不清空別人給的護盾）、FC-025（A07W 結算前取消敵方非物理傷害，致死也擋）、FC-046（A07R 連續 4 次沒暴擊後必中）後重跑，A07 的 10 筆 (b)（`a07_unscathed/*/holder_dies`、`a07_strongest/*/holder_dies`、`caster_dies_after_cast`）仍然失敗：「持有者被致死一擊後仍活著」。
+- **根因（a，harness）**：harness 的致死一擊是 1,000,000 純粹傷害。修正後的 v3 正是要擋下它；A07W 的 guard 另有物理 −300%，所以毫髮無傷期間任何傷害都死不了，「持有者死亡」這個情境不會發生。原本列成 (b) 的理由（「原作擋不住致死、package 擋得住」）已經因 FC-025 消失。
+- **修正**：
+  - 從情境文件找出 `on_take_damage_pre` 以 `modify_damage cancel` 取消非物理傷害的狀態。持有者擋下純粹致死、又帶著這種狀態時，再補一擊物理致死；兩種都擋下就記為 unsupported（「狀態擋下所有傷害，不會死」），和無敵一樣。物理擋不住時照常檢查狀態是否移除。
+  - known_differences 刪掉這 10 筆，剩 15 筆 (b)，都是 `a07_rouse_free`（port 沒有 A07D2 這一招）。
+  - fix-candidate 專用測試（`v3_conformance::fix_candidates`，release）：`fc025_a07w_cancels_lethal_non_physical_damage`（r1～r4：致死的魔法、純粹傷害都擋下，狀態結束後同一擊致死）、`fc046_a07r_crits_after_misses_in_a_row`（r4 攻擊 60 次，連續沒暴擊不超過 `$misses`，且有暴擊）、`fc005_b08_casts_keep_other_shields`（別的單位給的 500 護盾在 B08 施放後不變）。三項都通過。
+- **以後如何避免**：情境要的「讓某單位死亡」要用文件裡沒有東西擋得住的方式；fix-candidate 改了資料後，先看哪些情境的前提跟著變了，再判斷 (b) 是轉為通過還是不再適用。
+
+## E236 產生器把沒寫的 `require_source_alive` 當成 false；只比對腳本情境沒抓到（2026-10-30 凌晨，history-nobu 工作線 B，M3' ④）
+
+- **現象**：雜賀、阿市、稻姬、伊達政宗兩招改成產生的 Rust 後，三組腳本情境（各 5400 tick）都與手寫 handler 每 tick 相同，但用實機紀錄重播（live2、live3、shop8-1）在 tick 8360／35481 分歧。二分（`SOAK_LEGACY_ONLY`）到 `b01_rain_iron_cannon`：雜賀陣亡後才命中的普攻，產生碼仍造成傷害。
+- **根因**：`v3_rust.lua` 輸出 `require_source_alive: a.require_source_alive and "true" or "false"`，動作沒寫這欄時變成 false；schema（v3.md §規則層）規定預設 true（原作 AMHC:Damage：攻擊者要存活、不吃法術增幅）。沒寫這欄的傷害同時錯吃法術增幅。腳本情境裡攻擊者從不在投射物飛行中死亡，所以比不出來。
+- **通用修正**：產生器改成 `~= false`（線 A 已放回 live）。修正後 live3 重播 36127 tick 每 tick 相同。
+- **避免**：產生的 Rust 上架前，除了腳本情境，一定要用至少一局實機 accepted-inputs 紀錄做重播比對；分歧時用 `SOAK_IR_DIAG_TICK`（傾印兩邊狀態）與 `SOAK_LEGACY_ONLY`（只換部分 handler）二分到單一技能。
+
+## E235 GameWorld 的 sabi_trait 已滿 64 個方法；影子裡又用 sed -i 改了 CRLF 檔（2026-10-29 深夜，history-nobu 工作線 A）
+
+- **現象 1**：在 `scripts/script-abi/src/world.rs` 的 `GameWorld` 加第 65 個方法（`get_buff_payload`），`#[sabi_trait]` 巨集 panic：`attempt to shift left with overflow`。錯誤訊息只說 proc-macro panicked，不會指出方法數。
+- **根因 1**：abi_stable 的 sabi_trait 用 64 位元遮罩記錄方法，一個 trait 最多 64 個方法。`GameWorld` 剛好已滿。
+- **修正 1**：把沒有任何呼叫點的 `log_warn`、`log_error`（scripts 與 omoba-core 都是 0 處）合成 `log_at(level, msg)`，空出的位置給 `get_buff_payload`，總數仍是 64。其他新功能都不加 GameWorld 方法：排程、狀態事件、投射物命中走 BuffStore 列＋payload，回呼加在方法還少的 `AbilityScript`。
+- **避免 1**：要加 GameWorld 方法前先數方法數；滿了就合併沒人用的方法，或改走「BuffStore 列＋payload」（delayed_effect、unit_var、scheduled_effect 的模式）。新回呼放在 AbilityScript。
+- **現象 2**：影子 `target/lineA/host` 裡有 5 個 CRLF 檔（ability.rs、moba_match.rs、ability_projectile_tests.rs、dispatch.rs、ability_kit codegen.rs）被 `sed -i` 變成 LF。和 live 比對時整個檔案都算差異，放回前才發現。
+- **根因 2**：Git Bash 的 GNU sed `-i` 改寫時會丟掉 ``。E 紀錄已經有這條規則，但我把小修改當成例外。
+- **修正 2**：用 Lua 把這 5 個檔轉回 CRLF，再和 live 比對：差異只剩自己的修改。
+- **避免 2**：只要檔案是 CRLF（先用 `tr -cd '' < f | wc -c` 確認），一律用 Lua 腳本 `s:find(old, 1, true)` 加替換，不用 sed -i。放回前一律做「影子 vs live」的行數差異檢查，差異行數遠大於修改量就是行尾被改了。
+
+## E234 E187 續：nobu 的 24 營與 1,564 棵樹；bot 的 travel 判斷不能把「圍住」當成「可達」；小兵成長照原作的足輕計數（2026-10-29 夜，e187 遊戲模式 session；已放回 live）
+
+- **內容**（影子 `target/e187/t11`，基底 `b11`，一次放回 22 個檔）：
+  - **野怪營地**：nobu 的 24 營、68 隻原作中立單位（`templates/nobu_neutrals.lua`，14 種的 HP、攻擊、間隔、射程、護甲、移速、金錢、經驗照 `npc_units_custom_load.txt`）。每隻站在自己的 vmap 點，死後 120 秒各自在原點重生（eventforkill.lua:388-512）；牽引 1000、仇恨與重置沿用現行規則。營地依離哪方主堡近分邊，對稱的角落營共用；打野 bot 只巡自己這邊、不打魔王。
+  - **樹**：1,564 棵，每棵擋路（半徑 64 的方塊）也擋視野（VisionTree 圓）。視野用 256 單位分桶的 `IndexedVisionOccluders`，答案與全掃描相同。原作沒有能砍樹的技能被實作，所以樹不會倒、也不重生。
+  - **小兵成長**（新）：原作每個 `ShuaGuai_Of_*` 都用足輕計數 `_G.A_count`（chubing.lua:338、449、565、666；每波足輕後 +1，從 -1 起）成長，不是各兵種自己的波次。新欄位 `wave_growth_offset`：足輕 -2、弓兵／鐵炮／騎兵 -1；兵營被破的追加兵讀 `waves - 1`。第 51 波的騎兵從 +90 HP 變成 +500 HP。
+- **現象**：t11 加了 `static_travel_reachable`（讓 nobu 的 bot 不因樹擋住長直線而拒絕出發）之後，base_content 有 6 個導航測試失敗（目的地在地形內、被圍住的家、被擋的營地與塔等，bot 應該 hold 或改選下一個，卻照走）；nobu 6 局全部超過 50 分鐘牆鐘。
+- **根因**：helper 在找不到路時改用 `static_nearest_reachable`（走得更近就算可達）。這把「被圍住」與「在地形裡」也當成可達，改變了所有地圖的語意；而且它把整個搜尋框跑到底，bot 每次思考對每個候選點都跑一次，所以變慢。
+- **修正**：
+  - 目的地在搜尋範圍（96 格）內：先用原本的搜尋，找不到再用邊界放大到 32 格的同一種有界搜尋（樹林繞路會超出原本 8 格的框）。被圍住或在地形裡的點兩次都找不到，仍然拒絕。
+  - 超出範圍：直線通就可達（同以前），否則只要目的地本身沒被擋就可達，交給移動指令分段走；不跑任何搜尋。
+  - 舊地圖的距離都在範圍內，答案不變；6 個導航測試恢復通過。nobu 約 8.9 ms/tick（2 局並行）。
+- **測試**（影子）：omoba-core 1342 全過；template-ids 27（新增足輕計數成長）；base_content release 導航 6 個、`three_lane_60hz_full_filtered_match_lifecycle` 3 seed 都通過（seed 1 約 16 分、seed 42 約 14 分，上限 20 分）。base_content 的 10 個 v3_conformance 在影子失敗，原因是影子沒有 `docs/character_pipeline/tools`，不是本批造成。
+- **量測**（release headless，quick 上限 1200 秒）：原陣容 12/12、中位 6.8 分（4.0–11.6）；對調 12/12、中位 6.1 分（3.9–8.4），雙方都推倒塔。
+- **UE 實機截不到局中畫面（未解決）**：ue-quick4／5／6 的 server 都在 tick 13299（3.7 分）自然結束、隊伍 2 勝；但 UE 引擎初始化花了 5～15 分鐘（平常 15 秒），進場時比賽已結束。期間另一個 session 在跑 d3d12 的 cue VFX 截圖 UnrealEditor-Cmd（不受 live_match 鎖限制），磁碟閒置、啟動中的 UE 幾乎不用 CPU，像是在等共用資源；ue-quick5 的 UE 被結束後也卡在終止狀態約 20 分鐘。根本問題是 server 不等 renderer 就開局；建議：開局前等所有本機 renderer 回報進場，或讓 UE 類工作也取得機器鎖。
+- **以後如何避免**：
+  - 為新地圖放寬共用的可達判斷時，先跑舊地圖的導航測試；放寬只能在「舊判斷答不出來」的情況（例如超出搜尋範圍）生效，不能改變「找不到路」的意思。
+  - bot 思考裡每個候選點都會呼叫的判斷，不能跑到窮盡的搜尋。
+  - 照原作數值時，連「用哪個計數器成長」也要對照原始碼，不要只看每波加多少。
+
+## E233 英雄 crate 同時是 cdylib＋rlib 時，測試連結失敗並覆寫 DLL（2026-10-29 夜，history-nobu 工作線 B，M3' ①）
+
+- **現象**：`hero_a02` 設成 `crate-type=["cdylib","rlib"]` 讓 base_content 測試在同一 process 註冊稻姬，`cargo test -p base_content` 連結失敗（LNK2005 `_as_lib_header_root_module_loader`）。改用 feature 關掉 rlib 的匯出後，`cargo test` 又用測試的 feature 重編 cdylib，`target/debug/hero_a02.dll` 變成 109KB、沒有 root module 的空殼。
+- **根因**：`export_root_module` 產生固定名稱的 `#[no_mangle]` 符號，rlib 也帶著它；同一個 package 的 cdylib 與 rlib 是同一次 rustc 編譯，被當依賴時也會輸出 cdylib，蓋掉 DLL。
+- **通用修正**：每位英雄兩個 package：`scripts/heroes/<hero>/` 是 rlib `hero_<id>_impl`（技能本體與 `get_manifest()`，不匯出），`scripts/heroes/<hero>/dll/` 是 cdylib `hero_<id>`（只匯出，沒人依賴）。`run_artifacts.stage_base_content` 拒絕沒有內容標記的 DLL。
+- **避免**：會被其他 crate 依賴的 package 不要帶 cdylib；DLL 用專門的薄 package 匯出。
+
+## E232 abi_stable `RootModule::load_from_file` 依型別快取，第二個 DLL 拿回第一個的 manifest（2026-10-29 夜，history-nobu 工作線 B，M3' ①）
+
+- **現象**：spike（`target/m3p/spike`）：兩個匯出同一 `Manifest_Ref` 的 DLL，第二次 `load_from_file` 回傳第一個 DLL 的 manifest。舊 loader 走訪目錄每個 DLL 都這樣載，所以目錄裡只要多一個腳本 DLL，就會默默把 base_content 註冊兩次、另一個 DLL 完全沒載入。
+- **根因**：`load_from` 把 root module 存在 `declare_root_module_statics!` 的 per-type static（`root_mod.try_init`），之後一律回傳快取。
+- **通用修正**：`omoba-core scripting::loader` 改用 `lib_header_from_path(path)?.init_root_module::<Manifest_Ref>()`（仍做版本與 layout 檢查，不經 per-type 快取）；有 `scripts-manifest.json` 時只依它載入並核對 SHA-256；每個 DLL 的 `content_marker` 要等於 host 的 catalog。gen-docs 也改用它。
+- **避免**：同一個 root 型別要載入多個 DLL 時，不要用 `RootModule::load_*`；熱加載用新檔名（同路徑會拿回已載入的那份）。
+
+## E231 Grok 生圖改成只開 image_gen；M6 生成的美術沒有地方接進 HUD（2026-10-29 夜，history-nobu 工作線 C）
+
+- **現象**：
+  - 照舊做法用 `grok -p ... --always-approve` 跑無人值守生圖，被權限檢查擋下（Grok agent 會拿到 shell、檔案、網路等全部工具並自動核准）。
+  - M6 要上架的英雄還不在 live 的 `templates/abilities.lua`，所以舊流程（直接寫 `hud-assets-v1.json` 的 authored row 與 `Abilities/Source/manifest.json`）會在 HUD sync 驗證時失敗：「ability icon refers to unknown ability」。
+  - `ue_hud_portrait_coverage_test` 一直失敗：測試替 sync 準備的假 `path` 沒有 `is_file`，而 sync 從 nobu 圖示那次改動起就會呼叫它。
+- **根因**：
+  - 舊的生圖流程讓 Grok 自己複製檔案、縮圖、寫報告，所以需要全部工具。
+  - HUD sync 只認兩種圖：手寫的 authored row（必須是 live catalog 裡的 id）與 nobu 原作索引（`nobu-icons-v1.json`，由 `import_nobu_icons.lua` 重新產生，不能手加）。生成圖沒有自己的索引。
+- **通用修正**：
+  - Grok 只開 `image_gen`：`--tools image_gen --allow image_gen --no-subagents --disable-web-search --max-turns 3`。圖留在 Grok 的 session 資料夾，由我們自己的 Lua 依 `out.json` 的 sessionId 複製出來、算 sha256。縮圖改用 lua-host 的 `png_square_icon`。
+  - 新增 `scripts/generated_art.lua` 與索引 `omfue/Content/Omoba/UI/generated-art-v1.json`：頭像、技能圖示是 `gen-<kind>-<id>.png`（256²），cue 參考圖放 `omfue/SourceArt/CueReferences/`（512²，遊戲不載入）。匯入時一定要附目視審查（review），並記錄 prompt、嘗試次數與退回原因。
+  - HUD sync（`ue_hud_portrait_coverage.lua`）在 nobu 沒有原作圖時用生成圖，row 標 `source='generated'`，和 nobu row 一樣是衍生的（英雄下架就移除）。手寫 row 仍然優先。網站（`site/ue_icons.lua`）與 M6 報告也讀同一份索引。
+  - 測試替假 `path` 補上 `is_file`；新增 `scripts/tests/generated_art_test.lua`。
+- **以後如何避免**：
+  - 外部生成工具只給它完成任務需要的那一個工具；檔案搬移、縮圖、記錄都在我們自己的 Lua 裡做。
+  - 給還沒上架的內容準備美術，走衍生索引，不要寫 authored row。
+
+## E230 land_to_live 只做 cargo check，放回的測試在 test 設定下編不過（2026-10-29 夜，history-nobu 工作線 A）
+
+- **現象**：村上義清地裂（B29W）handler 補上「不選魔免、無敵的敵人」（原作 B29.lua:15 FindUnitsInRadius 無旗標，v3 選取預設，E226 的 IR 同規則），同時加了一個測試。land_to_live 的 codegen、cargo 都通過並寫進 live，但之後跑 `cargo test -p base_content ground_slam` 失敗：`no method named write_resource found for struct specs::World`。base_content 的 lib test 整個編不過，約 15 分鐘後修正放回。
+- **根因**：land_to_live 的 cargo 檢查是 `cargo check`（不含 `#[cfg(test)]`），測試模組裡缺 `use specs::WorldExt;` 不會被發現。
+- **修正**：測試補上 `use specs::WorldExt;`，再放回；`cargo test -p base_content ground_slam` 5 passed。
+- **以後如何避免**：放回含測試的變更之前，先在影子或自己的 `CARGO_TARGET_DIR` 跑那幾個測試；或放回之後立刻跑，失敗就馬上修正放回。land_to_live 通過只代表 lib 能編譯，不代表測試能編譯。
+- **另外**：`target/m1v3/sw` 影子裡只有地裂、精準之光的 IR 切換（coverage 改 expressible、ir_switch）與舊版測試，沒有 handler 修正；照交接不放回。魔免排除是這次另外寫的。
+
+## E229 conformance：toggle 沒有冷卻也不扣魔，被誤判為施放沒被接受；靠普攻套上的狀態、法球事件與召喚納入檢查（2026-10-29 晚間，conformance session）
+
+- **現象**：E226 追補後重跑，6 個隱形施法者情境仍是「施放沒被接受」：三段擊 r3、B06T r3、稻姬毒箭 r1～r4。稻姬毒箭的 toggle、法球事件、毒的 dispel／死亡／到期／可見性情境全部 unsupported。
+- **根因（a，harness）**：
+  - 「施放被接受」只看冷卻上升或扣魔。toggle（A02W 法球）兩者都沒有，所以永遠判成沒被接受。
+  - 沒有指定法力的情境，法力上限只是英雄基礎值；B01T r3、B06T r3 比基礎法力貴，施放本來就會被拒。
+  - 毒（`generic_slow:a02_venom_arrow:{caster}`）由法球的 `on_attack_hit` 套上，harness 只會施放，所以觀察不到。
+- **修正**：
+  - 施放被接受也包括「這招 v3 的狀態新出現在施法者身上」。
+  - 沒有指定法力時，法力上限至少是這招的 mana_cost＋10。
+  - `toggle`／`toggled_on`：toggle_on 檢查法球狀態在施法者身上；toggle_off 檢查 `on_toggle_off` 移除的狀態不在。
+  - 狀態施放後還沒出現時，讓施法者攻擊敵方英雄再找（法球的毒、B04、B06 的普攻狀態）。
+  - 持有者身上狀態的 `on_attack_hit`／`on_attack_windup`：攻擊後，套到 `event.target` 的狀態要出現，`spend_mana` 的單 tick 扣魔等於文件。
+  - 一般施放的 `create_unit`：新 template 單位數等於 count（不超過 limit_per_owner）、召喚者是施法者、lifetime 相符。
+- **結果**：live 1417 → 1495 通過，unsupported 843 → 765，25 (b)、4 (c) 不變，沒有新失敗。land_to_live（codegen、cargo）通過。
+- **第二批（同日）**：charges 的 `charge_spent`／`charge_restore`／`given charges`；`on: it/target` 的狀態落在施法者身上（自我施放）；寫在建立出來的單位上的狀態，port 可能掛在施法者身上（C15E 火場）。1559 通過、701 unsupported，沒有新失敗。
+- **以後如何避免**：判斷「施放有沒有成立」不能只看資源。toggle、被動切換、免費招都沒有資源變化，要同時看技能本身的狀態。
+- **編號**：上一個 conformance session 停在 `target/e228`（B01T 法力的註解寫 E228，但 errors.md 沒有 E228），這批記為 E229。
+
 ## E227 conformance 支援被動數值（含重生後）、建築目標與預設狀態 key；被動技能要照玩家流程學（2026-10-29，已移植英雄 conformance session）
 
 - **做法**：

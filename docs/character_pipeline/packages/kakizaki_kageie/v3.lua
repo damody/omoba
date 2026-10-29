@@ -14,10 +14,6 @@ return function(ctx)
       source_id = "B30",
       text = { zh_TW = { name = "柿崎景家" }, en = { name = "Kakizaki Kageie" } },
     },
-    unit_state = {
-      tsum = { type = "fixed", init = "0", reveal = "public", scope = "match",
-        note = "原作全域變數 tsum（沒有 local）：B30T 的補套 Timer 與 B27T 共用同一個值（登錄在 registry-additions-B）" },
-    },
     abilities = {
       -------------------------------------------------------------------------
       { id = "b30_reverse_shield", source_id = "B30W", slot = "Q", kind = "active", max_level = 4, tags = { "basic" },
@@ -260,10 +256,8 @@ return function(ctx)
               team = "enemy", types = BASIC, flags = { "include_magic_immune" }, cue = "b30t_slash",
               on_hit = {
                 { op = "damage", to = "it", type = "magical", amount = "$damage", require_source_alive = false },
-                { op = "set_state", var = "tsum", value = "$tsum_step" },
                 { op = "call", routine = "b30t_ignite", args = { victim = "it" } },
               } },
-            { op = "set_state", var = "tsum", value = "$tsum_step" },
             { op = "for_each",
               select = { from = "caster", shape = "circle", radius = "$near_radius", team = "enemy", types = BASIC,
                 flags = { "include_magic_immune" } },
@@ -275,8 +269,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B30.lua:176-212",
-            text = "tsum 是全域變數（沒有 local），被所有命中與施放時的範圍搜尋共用，且與 B27T 共用：每命中一個目標就把 tsum 重設為 0.1，而每個目標的 Timer 每 0.1 秒都把同一個 tsum 加 0.1。同時點燃 N 個目標時補套窗口約縮成 1/N，同一瞬間後處理的目標拿到的時間依序少 0.1 秒。資料照原作以 scope = match 的 unit_state tsum 表達；明顯違反「每個目標點燃 6/8/10 秒」的設計，是否改成每個目標各自計時由使用者決定。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B30.lua:176-212",
+            text = "FC-009（D13 修正：每個目標各自計時點燃 dot_duration，不再共用全域 tsum）。原作：tsum 是全域變數（沒有 local），被所有命中與施放時的範圍搜尋共用，且與 B27T 共用：每命中一個目標就把 tsum 重設為 0.1，而每個目標的 Timer 每 0.1 秒都把同一個 tsum 加 0.1。同時點燃 N 個目標時補套窗口約縮成 1/N，同一瞬間後處理的目標拿到的時間依序少 0.1 秒。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B30.lua:176-212",
             text = "命中（或施放時在範圍內）後 0.1 秒才第一次套用，時間是 dotDuration − tsum；之後每 0.1 秒檢查，不在就以剩餘時間補套（驅散後立刻補回），tsum 到達 dotDuration 後停止。原作在檢查之後才決定要不要再跑一次，資料以 repeat 的 stop_when（每次執行前檢查）表達：只差在 tsum 剛超過門檻的那一次（原作那次的時間不為正，沒有效果）。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B30.lua:180,203",
@@ -295,12 +289,10 @@ return function(ctx)
         owner = "b30_purgatory_slash",
         params = { victim = "unit" },
         actions = {
-          { op = "repeat", interval = "$tsum_step", first = "$tsum_step", stop_when = "state.tsum >= $dot_duration", actions = {
+          -- FC-009（D13）：每個目標各自計時（第 i 次補套時已過 (i + 1) × tsum_step）
+          { op = "repeat", interval = "$tsum_step", first = "$tsum_step", count = "$dot_duration / $tsum_step - 1", as = "i", actions = {
             { op = "if", cond = "exists(victim) and not has_status(victim, b30t_burn)", actions = {
-              { op = "apply_status", status = "b30t_burn", to = "victim", duration = "$dot_duration - state.tsum" },
-            } },
-            { op = "if", cond = "state.tsum < $dot_duration", actions = {
-              { op = "set_state", var = "tsum", value = "state.tsum + $tsum_step" },
+              { op = "apply_status", status = "b30t_burn", to = "victim", duration = "$dot_duration - (i + 1) * $tsum_step" },
             } },
           } },
         },

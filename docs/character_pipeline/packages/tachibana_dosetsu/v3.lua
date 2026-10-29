@@ -252,22 +252,22 @@ return function(ctx)
             reveal = "public", states = { "invulnerable" }, cue = "c07t_cloud",
             triggers = {
               periodic = { interval = "$tick", first = "$tick", actions = {
-                -- 原作 C07_Effect：先看 caster.C07E_target（距離以最新一朵雲 caster.C07T_dummy 計算，不需可見）
+                -- 原作 C07_Effect：先看 caster.C07E_target（不需可見）。FC-016（D13）：每朵雲以自己判斷距離、可見與傷害來源（原作一律讀最新一朵 caster.C07T_dummy）
                 { op = "let", name = "bound", value = "state.c07e_target" },
                 { op = "if",
-                  cond = "exists(bound) and has_status(bound, c07e_bind) and distance(bound, state.c07t_storm) < $radius",
+                  cond = "exists(bound) and has_status(bound, c07e_bind) and distance(bound, self) < $radius",
                   actions = {
                     { op = "call", routine = "c07t_strike",
-                      args = { victim = "bound", bound = "true", cloud = "self", storm = "state.c07t_storm" } },
+                      args = { victim = "bound", bound = "true", cloud = "self", storm = "self" } },
                   },
                   otherwise = {
                     { op = "for_each",
                       select = { from = "self", shape = "circle", radius = "$radius", team = "enemy", types = { "all" },
                         flags = { "include_magic_immune" }, order = "nearest",
-                        where = "is_visible_to(it, state.c07t_storm) and not has_tag(it, dummy)", limit = "1" },
+                        where = "is_visible_to(it, self) and not has_tag(it, dummy)", limit = "1" },
                       actions = {
                         { op = "call", routine = "c07t_strike",
-                          args = { victim = "it", bound = "false", cloud = "self", storm = "state.c07t_storm" } },
+                          args = { victim = "it", bound = "false", cloud = "self", storm = "self" } },
                       } },
                   } },
                 -- 範圍內所有非建築敵人（包含看不見的）都吃靜電
@@ -298,9 +298,12 @@ return function(ctx)
             { op = "reveal", at = "storm.position", radius = "$cloud_reveal_radius", duration = "$duration", teams = "all" },
             { op = "cue", id = "spell_hint", attach = "storm", radius = "$radius", duration = "$duration" },
             { op = "set_ability_level", of = "caster", ability = "c07_storm_move", level = "ability.level" },
-            -- 原作 caster.timer：每次施放各自一個 timer，到期把 C07T2 歸零（不會被後一次施放取消）
+            -- 原作 caster.timer：每次施放各自一個 timer，到期把 C07T2 歸零。
+            -- FC-016（D13）：只有到期的是最新一朵雲時才歸零，舊雲到期不會讓新雲無法移動
             { op = "delay", time = "$duration", actions = {
-              { op = "set_ability_level", of = "caster", ability = "c07_storm_move", level = "0" },
+              { op = "if", cond = "state.c07t_storm == storm", actions = {
+                { op = "set_ability_level", of = "caster", ability = "c07_storm_move", level = "0" },
+              } },
             } },
           },
         },
@@ -314,8 +317,8 @@ return function(ctx)
             text = "雷電桎梏目標分支在道雪死亡時寫成 AMHC:Damage(dummyx, v2*0.5, …)，打到建築會報錯中斷該跳。v3 中道雪死亡會打斷引導並立即移除綁定，這個分支到不了。" },
           { policy = "note", ref = "vscripts/heroes/C_Neutral/C07.lua:357-360",
             text = "道雪死亡後每跳把 dmg 加到 caster.takedamage／herodamage（統計用），活著時不加；不影響結算。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C07.lua:184",
-            text = "原作一律讀 caster.C07T_dummy（最新一朵雲）。刷新後同時有兩朵雲時，舊雲以新雲位置判斷綁定目標距離、以新雲為傷害來源；舊雲的 timer 到期時會把移動雷雲歸零，新雲剩下的時間無法移動。資料照原作（state.c07t_storm）。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C07.lua:184",
+            text = "FC-016（D13 修正：每朵雲以自己判斷綁定距離、可見與傷害來源；舊雲到期只在它仍是最新一朵時才把移動雷雲歸零）。原作：原作一律讀 caster.C07T_dummy（最新一朵雲）。刷新後同時有兩朵雲時，舊雲以新雲位置判斷綁定目標距離、以新雲為傷害來源；舊雲的 timer 到期時會把移動雷雲歸零，新雲剩下的時間無法移動。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C07.lua:179-186",
             text = "視野：己方半徑 1000 的視野固定在施放點，不跟著雲移動；另外雙方在雲的初始位置各有半徑 100 的視野。" },
           { policy = "design_intent", ref = "vscripts/heroes/C_Neutral/C07.lua:202",
@@ -395,6 +398,8 @@ return function(ctx)
             },
             triggers = {
               on_attack_windup = { { op = "cue", id = "c07d_attack_pose", at = "self" } },
+              -- FC-110（D13）：死亡時關閉開關，復活後重開就有盾（不會開著卻沒有效果）
+              on_death = { { op = "toggle_ability", of = "self", ability = "c07_magic_shield", on = false } },
             },
             notes = "原作 modifier_C07D；modifier_C07D_2 的 MODIFIER_STATE_FROZEN 只是凍住舉盾動畫，放在 cue。" },
         },
@@ -414,8 +419,8 @@ return function(ctx)
             text = "C07D／C07D_ATTACK 只處理手勢與 FROZEN 動畫凍結，0.05 秒與 rate/3 的 timer 都是動畫用；caster.C07D_B 設了沒人讀。改用 cue。" },
           { policy = "as_source", ref = "npc/C_Neutral/C07.txt:486",
             text = "current 版沒有 DONT_CANCEL_CHANNEL（_old 版有），引導雷電桎梏時開關盾會依 Dota 規則打斷引導；但開關技能不會斷開雷電桎梏的連結。" },
-          { policy = "fix_candidate", ref = "npc/C_Neutral/C07.txt:512-541",
-            text = "modifier_C07D 不是 Permanent，推定死亡時被移除，但開關狀態仍是開啟；復活後要關再開才有盾。未實測。" },
+          { policy = "fixed", ref = "npc/C_Neutral/C07.txt:512-541",
+            text = "FC-110（D13 修正：死亡時關閉開關（on_death toggle off））。原作：modifier_C07D 不是 Permanent，推定死亡時被移除，但開關狀態仍是開啟；復活後要關再開才有盾。未實測。" },
           { policy = "as_source", ref = "npc/C_Neutral/C07.txt:512-541",
             text = "modifier_C07D 是 datadriven、沒寫 IsPurgable，依 §12.3 暫定可被一般驅散（推定）；被驅散後開關仍是開啟，同樣要關再開。" },
         },

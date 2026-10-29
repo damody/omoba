@@ -36,6 +36,9 @@
 //! - `vision` (any, [`with_vision`]): the flight gives the caster's team plain sight of
 //!   that radius around itself while it lasts (原作 ProvidesVision / VisionRadius; E185),
 //!   a following `reveal_zone` that closes with the projectile.
+//! - `on_hit` (any, [`with_on_hit`]): each hit schedules the owning ability's
+//!   `on_scheduled(step)` on the owner with the authored captures plus the unit hit and the
+//!   impact point (scheduled_effect, due on the next script dispatch; v3 `projectile.on_hit`).
 use omoba_content_model::ControlEffectKind;
 use omoba_sim::{Fixed64, Vec2};
 use omb_script_abi::types::{DamageKind, DamageProfile};
@@ -198,7 +201,7 @@ impl Spec {
         if buff_id != BUFF || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
         let optional = ["slow", "control", "dot", "buildings", "forced", "retarget_radius", "bounce",
-            "dodgeable", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision"].iter().filter(|key| row.contains_key(**key)).count();
+            "dodgeable", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision", "on_hit"].iter().filter(|key| row.contains_key(**key)).count();
         if row.len() != 15 + optional { return None; }
         let raw = |name: &str| row.get(name)?.as_i64().map(Fixed64::from_raw);
         let id = |value: &Value, name: &str| value.get(name)?.as_u64().and_then(|v| u32::try_from(v).ok());
@@ -265,6 +268,7 @@ impl Spec {
         if row.contains_key("delay") && delay_of(payload) == Fixed64::ZERO { return None; }
         if row.contains_key("healing_reduction") && healing_reduction_of(payload).is_none() { return None; }
         if row.contains_key("vision") && vision_of(payload).is_none() { return None; }
+        if row.contains_key("on_hit") && on_hit_of(payload).is_none() { return None; }
         (spec.valid() && duration == spec.lifetime).then_some(spec)
     }
 }
@@ -293,6 +297,22 @@ pub fn bounce_of(payload: &Value) -> Option<(u16, Fixed64)> {
 fn with_row(mut payload: Value, key: &str, value: Value) -> Value {
     if let Some(row) = payload.get_mut(KEY).and_then(Value::as_object_mut) { row.insert(key.into(), value); }
     payload
+}
+
+/// Each hit schedules `template` (scheduled_effect) on the owner, with the unit hit and the
+/// impact point appended to its captures; at most `MAX_ARGS - 2` authored captures.
+pub fn with_on_hit(payload: Value, template: &super::scheduled_effect::Spec) -> Value {
+    with_row(payload, "on_hit", template.payload()[super::scheduled_effect::KEY].clone())
+}
+
+/// The on-hit schedule template of a payload, if valid.
+pub fn on_hit_of(payload: &Value) -> Option<super::scheduled_effect::Spec> {
+    use super::scheduled_effect as se;
+    let row = payload.get(KEY)?.as_object()?.get("on_hit")?.clone();
+    let probe = row.as_object()?;
+    let id = format!("{}{}:{}:{}", se::PREFIX, probe.get("ability")?.as_str()?, probe.get("instance")?.as_u64()?, probe.get("step")?.as_u64()?);
+    let spec = se::Spec::from_buff(&id, &serde_json::json!({ (se::KEY): row }))?;
+    (spec.args.len() + 2 <= se::MAX_ARGS).then_some(spec)
 }
 
 /// Marks a homing payload dodgeable: [`dodge`] of the locked unit retires it.
@@ -470,6 +490,8 @@ pub struct State {
     pub dot_interval: Option<Fixed64>,
     pub hit_stack: Option<String>,
     pub healing_reduction: Option<(Fixed64, Fixed64)>,
+    /// The `on_hit` schedule template (scheduled_effect).
+    pub on_hit: Option<super::scheduled_effect::Spec>,
     /// Launch delay still to wait before the first step (see [`MAX_LAUNCH_DELAY`]).
     pub delay_left: Fixed64,
 }
@@ -506,6 +528,7 @@ impl AbilityProjectiles {
             if let Some(end) = state.end_radius { row["end_radius"] = json!(end.raw()); }
             if let Some(interval) = state.dot_interval { row["dot_interval"] = json!(interval.raw()); }
             if let Some(buff) = &state.hit_stack { row["hit_stack"] = json!(buff); }
+            if let Some(on_hit) = &state.on_hit { row["on_hit"] = on_hit.payload(); }
             row["delay_left"] = json!(state.delay_left.raw());
             row
         }).collect())
@@ -605,7 +628,7 @@ pub fn launch(world: &mut World, target: Entity, buff_id: &str, duration: Fixed6
         bounce: bounce_of(payload),
         dodgeable: dodgeable_of(payload), end_radius: end_radius_of(payload),
         dot_interval: dot_interval_of(payload), hit_stack: hit_stack_of(payload),
-        delay_left: delay_of(payload), healing_reduction: healing_reduction_of(payload),
+        delay_left: delay_of(payload), healing_reduction: healing_reduction_of(payload), on_hit: on_hit_of(payload),
     });
     // Flight vision: the team sees around the projectile until it retires (the zone follows
     // the entity and closes when it is removed; the duration only bounds it).
@@ -695,8 +718,11 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
     let mut last_contact = None;
     for (ordinal, (contact, target)) in hits.iter().enumerate() {
         let pos = world.read_storage::<Pos>().get(*target).map(|p| p.0).unwrap_or(to);
-        outcomes.push(Outcome::RawDamage { pos, phys, magi, real, source: state.owner, target: *target,
-            damage_profile: state.spec.profile, origin: Some(state.origin.clone()) });
+        // A flight that only carries its effects (generated `projectile` with `on_hit`) deals no damage row.
+        if state.spec.amount > Fixed64::ZERO {
+            outcomes.push(Outcome::RawDamage { pos, phys, magi, real, source: state.owner, target: *target,
+                damage_profile: state.spec.profile, origin: Some(state.origin.clone()) });
+        }
         if let Some((reduction, duration)) = state.spec.slow {
             outcomes.push(Outcome::AddBuff { target: *target,
                 buff_id: omb_script_abi::buff_ids::generic_slow_buff_id(&state.spec.ability, caster), duration,
@@ -729,6 +755,19 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
                 outcomes.push(Outcome::AddBuff { target: *target, buff_id: super::hit_stack::APPLY_BUFF.to_owned(),
                     duration: Fixed64::ONE, payload: super::hit_stack::apply_payload(caster.id, caster.gen, caster_buff) });
             }
+        }
+        if let Some(template) = &state.on_hit {
+            // One schedule per hit, due on the next dispatch: captures + the unit hit + the impact
+            // point. The instance mixes in this flight's hit count so hits never share a row.
+            use super::scheduled_effect as se;
+            let mut args = template.args.clone();
+            args.push(omb_script_abi::types::ScheduleArg { kind: se::ARG_UNIT, num: Fixed64::ZERO,
+                unit: omb_script_abi::types::EntityHandle { id: target.id(), gen: target.gen().id() as u32 }, point: Vec2::ZERO });
+            args.push(omb_script_abi::types::ScheduleArg { kind: se::ARG_POINT, num: Fixed64::ZERO,
+                unit: omb_script_abi::types::EntityHandle::INVALID, point: pos });
+            let instance = template.instance.wrapping_mul(64).wrapping_add((state.hits.len() + ordinal) as u32);
+            let spec = se::Spec { instance, args, ..template.clone() };
+            outcomes.push(Outcome::AddBuff { target: state.owner, buff_id: spec.buff_id(), duration: se::GRACE, payload: spec.payload() });
         }
         if let Some((multiplier, duration)) = state.healing_reduction {
             // BuffStore merges it (and keeps it off a magic-immune unit) like every other grant.

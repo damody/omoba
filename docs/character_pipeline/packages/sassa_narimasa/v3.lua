@@ -122,9 +122,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "疾射",
-            body = "{duration} 秒內攻擊速度增加 {attack_speed}、移動速度提高 {move_speed_pct}。期間每次被普攻命中，有 {restore_chance} 機率立即補回該次攻擊的傷害量（以護甲減免前的數值計算，不分近戰或遠程）。" },
+            body = "{duration} 秒內攻擊速度增加 {attack_speed}、移動速度提高 {move_speed_pct}。期間每次被普攻命中，有 {restore_chance} 機率立即補回該次攻擊的傷害量（只限遠程攻擊，以護甲減免前的數值計算）。" },
           en = { name = "Rapid Fire",
-            body = "For {duration} seconds gains +{attack_speed} attack speed and +{move_speed_pct} movement speed. Meanwhile, each time an attack lands on Narimasa there is a {restore_chance} chance to instantly restore health equal to that attack's damage (before armor), whether melee or ranged." },
+            body = "For {duration} seconds gains +{attack_speed} attack speed and +{move_speed_pct} movement speed. Meanwhile, each time an attack lands on Narimasa there is a {restore_chance} chance to instantly restore health equal to that attack's damage (before armor); only ranged attacks count." },
         },
         target = { type = "none" },
         cast = { immediate = true, ignore_backswing = true },
@@ -132,17 +132,18 @@ return function(ctx)
         statuses = {
           { id = "a17e_rapid", duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
-              zh_TW = { name = "疾射", body = "攻擊速度 +{attack_speed}、移動速度提高 {move_speed_pct}；每次被普攻命中有 {restore_chance} 機率立即補回該次攻擊的傷害量。持續 {duration} 秒。" },
-              en = { name = "Rapid Fire", body = "+{attack_speed} attack speed and +{move_speed_pct} movement speed; each attack that lands on him has a {restore_chance} chance to instantly restore health equal to its damage. Lasts {duration} seconds." },
+              zh_TW = { name = "疾射", body = "攻擊速度 +{attack_speed}、移動速度提高 {move_speed_pct}；每次被遠程普攻命中有 {restore_chance} 機率立即補回該次攻擊的傷害量。持續 {duration} 秒。" },
+              en = { name = "Rapid Fire", body = "+{attack_speed} attack speed and +{move_speed_pct} movement speed; each ranged attack that lands on him has a {restore_chance} chance to instantly restore health equal to its damage. Lasts {duration} seconds." },
             },
             reveal = "public",
             stats = { attack_speed = "$attack_speed", move_speed_pct = "$move_speed_pct" },
             triggers = {
-              on_attacked_hit = {
+              -- FC-119（D13）：只對遠程攻擊觸發（原作判斷的是被攻擊者自己）
+              on_attacked_hit = { filter = "event.attack.is_ranged", actions = {
                 { op = "chance", p = "$restore_chance", actions = {
                   { op = "set_health", to = "self", value = "min(self.hp + event.attack.damage, self.max_hp)" },
                 } },
-              },
+              } },
             },
             notes = "原作 modifier_A17E：未寫 IsPurgable；OnAttacked 以 %attack_damage 呼叫 A17E_OnAttacked。" },
         },
@@ -154,8 +155,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A17.lua:143-151",
-            text = "「閃避遠程攻擊」的判斷寫成 keys.target:IsRangedAttacker()；OnAttacked 的 target 是被攻擊的成政本人（遠程英雄），條件恆真，所以近戰攻擊也會觸發。資料照原作（不分近戰遠程）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A17.lua:143-151",
+            text = "FC-119（D13 修正：只對遠程攻擊觸發（filter event.attack.is_ranged））。原作：「閃避遠程攻擊」的判斷寫成 keys.target:IsRangedAttacker()；OnAttacked 的 target 是被攻擊的成政本人（遠程英雄），條件恆真，所以近戰攻擊也會觸發。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A17.lua:147",
             text = "實作不是閃避而是 SetHealth(當前生命 + %attack_damage)：補回的是護甲前的攻擊傷害，通常比實際受到的多；不受治療增減影響，最多補到生命上限。致命的攻擊不會被救回。" },
           { policy = "as_source", ref = "npc/A_Oda/A17.txt:520",

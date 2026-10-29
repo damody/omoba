@@ -67,7 +67,8 @@ return function(ctx)
     for index,camp in ipairs(map.jungle_camps or {}) do
       local visual=copy(index%2==1 and north or south)
       if camp.id:find('epic') then visual=tripo.profile('jungle_oni') or visual;visual.height_world_units=170 end
-      append(camp.id,'camp',visual)
+      -- E187 §5.4: a leader authored with a unit template wears that identity, not the camp id.
+      append(camp.unit or camp.id,'camp',visual)
     end
     -- Lane minions wear generated Tripo bodies with team-coloured cloth: melee ashigaru, foot archer,
     -- siege engineer (wave order); any further wave entry keeps the shared CC0 creep.

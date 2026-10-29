@@ -142,11 +142,16 @@ return function(ctx)
                   amount = "event.attack.damage * $lifesteal * armor_multiplier(event.target.bonus_armor)" },
                 { op = "cue", id = "generic_lifesteal", at = "self" },
               } },
+              -- FC-102（D13）：開著死亡時關掉開關並還原成遠程
+              on_death = {
+                { op = "remove_status", from = "self", status = "a03e_melee" },
+                { op = "toggle_ability", of = "self", ability = "a03_spider_form", on = false },
+              },
             },
             notes = "原作 modifier_A03E_buff：MOVESPEED_BONUS_CONSTANT 38、BASE_ATTACK_TIME_CONSTANT 1.3、PHYSICAL_ARMOR_BONUS、HEALTH_BONUS、ATTACK_RANGE_BONUS −470；OnAttackLanded 呼叫 item_muramasa_katana.lua StealLife2（StealPercent 40）。沒寫 IsPurgable，§12.3 暫定 basic。" },
           { id = "a03e_melee", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "hidden",
             reveal = "public", scope = "hero", states = { "melee_attack" },
-            notes = "原作 A03.lua:60 SetAttackCapability(DOTA_UNIT_CAP_MELEE_ATTACK)、:71 改回 RANGED：不是 modifier，死亡不還原，只有關閉開關時改回（v3.1 狀態旗標 melee_attack；scope = hero 讓它跨死亡保留）。" },
+            notes = "原作 A03.lua:60 SetAttackCapability(DOTA_UNIT_CAP_MELEE_ATTACK)、:71 改回 RANGED：不是 modifier，原作死亡不還原（FC-102 修正後死亡時移除並關掉開關），關閉開關時改回（v3.1 狀態旗標 melee_attack；scope = hero 讓它跨死亡保留）。" },
         },
         events = {
           on_toggle_on = {
@@ -164,8 +169,8 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_muramasa_katana.lua:109-137",
             text = "吸血自己算護甲減免：GetPhysicalArmorValue(true)（bIgnoreBase，推定只取額外護甲）帶入 0.06a/(1+0.06|a|)，所以照原作用 armor_multiplier(bonus_armor)；目標帶 isvoid（跨文件 tag）或是建築時不吸血。%attack_damage 推定為減免前的攻擊傷害。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A03.lua:58-73",
-            text = "開關開著死亡時，datadriven 狀態隨死亡移除，但 SetAttackCapability(近戰) 與模型不會還原、開關仍亮著：復活後是攻擊距離回到遠程數值的近戰單位且沒有任何加成，直到手動關掉再開（推測，未在 Dota 實測）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A03.lua:58-73",
+            text = "FC-102（D13 修正：開著死亡時關掉開關並還原成遠程（on_death））。原作：開關開著死亡時，datadriven 狀態隨死亡移除，但 SetAttackCapability(近戰) 與模型不會還原、開關仍亮著：復活後是攻擊距離回到遠程數值的近戰單位且沒有任何加成，直到手動關掉再開（推測，未在 Dota 實測）。" },
           { policy = "note", ref = "vscripts/heroes/A_Oda/A03.lua:62,72",
             text = "開啟時模型縮放 0.5、關閉時設為 1.4，但英雄 KV ModelScale 是 1.2：關過一次後模型比原本大，屬呈現。" },
           { policy = "note",

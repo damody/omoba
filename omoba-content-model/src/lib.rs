@@ -3,7 +3,6 @@ pub mod buff_visual_sources;
 pub mod animation_metadata;
 pub mod moba_items;
 pub mod v3;
-pub mod ir;
 pub mod objective_comeback;
 pub mod moba_summoners;
 pub mod moba_trinkets;

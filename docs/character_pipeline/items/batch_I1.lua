@@ -131,15 +131,17 @@ return function(ctx)
           vision_time = { 4, unit = "s", source = "script:vscripts/items/Addon_Items/item_fubuki_shoulders.lua:148 AddFOWViewer" },
           as_slow = { 30, unit = "atk_speed", kv = { -30 }, source = "kv:modifier_slow_attack_speed as_slow", source_differs = "KV 的 RunScript 以負數傳攻速緩速；v3 寫緩速量（正值）" },
           as_slow_time = { 1, unit = "s", source = "kv:modifier_slow_attack_speed Duration" },
+          reactive_slow = { 15, unit = "pct", kv = { -15 }, source = "kv:modifier_slow_move_speed ms_slow",
+            source_differs = "原作被同鍵的攻速緩速覆寫成 0，從不生效；FC-013 依 D13 照原意生效" },
           think = { 0.1, unit = "s", hidden = true, source = "kv:modifier_take_mana_to_shield ThinkInterval" },
           mana_threshold = { 50, unit = "pct", source = "script:vscripts/items/Addon_Items/item_kisyosennfuyuzuki.lua:58 GetMaxMana()*0.5" },
           shield_cap = { 50, unit = "pct", source = "script:vscripts/items/Addon_Items/item_kisyosennfuyuzuki.lua:75-76 GetMaxMana()*0.5" },
         },
         text = {
           zh_TW = { name = "吹雪護肩",
-            body = "被動：法力高於最大法力的 {mana_threshold} 時，超出的部分每次檢查都轉成冰盾並把法力壓回 {mana_threshold}，冰盾最多為最大法力的 {shield_cap}。受到不致死的傷害時以冰盾抵銷，冰盾不足時只抵銷剩餘量；場上每多一位持有者，每次受傷就多扣一次冰盾。主動：在身邊造成冰霜新星，範圍內的敵人緩速 {nova_slow}，持續 {nova_slow_time} 秒，並取得該處 {vision_radius} 範圍 {vision_time} 秒不受地形阻擋的視野；之後 {reactive_time} 秒內，對你造成物理傷害的敵方非建築、非魔免單位攻速降低 {as_slow}，持續 {as_slow_time} 秒。這兩種緩速互相覆蓋：一方生效或結束時，另一方的效果就消失。" },
+            body = "被動：法力高於最大法力的 {mana_threshold} 時，超出的部分每次檢查都轉成冰盾並把法力壓回 {mana_threshold}，冰盾最多為最大法力的 {shield_cap}。冰盾吸收你受到的傷害，直到用完。主動：在身邊造成冰霜新星，範圍內的敵人緩速 {nova_slow}，持續 {nova_slow_time} 秒，並取得該處 {vision_radius} 範圍 {vision_time} 秒不受地形阻擋的視野；之後 {reactive_time} 秒內，對你造成物理傷害的敵方非建築、非魔免單位攻速降低 {as_slow}、移動速度降低 {reactive_slow}，持續 {as_slow_time} 秒。各種緩速各自生效。" },
           en = { name = "Fubuki Shoulder Guards",
-            body = "Passive: whenever your mana is above {mana_threshold} of your maximum mana, each check turns the excess into an ice shield and sets your mana back to {mana_threshold}; the shield holds at most {shield_cap} of your maximum mana. The shield absorbs non-lethal damage you take, or as much of it as the shield has left; each additional holder on the map drains the shield one more time per hit. Active: releases a frost nova around you that slows enemies in it by {nova_slow} for {nova_slow_time} seconds and grants {vision_radius} vision there for {vision_time} seconds, unblocked by terrain; for the next {reactive_time} seconds, enemy non-building, non-spell-immune units that deal physical damage to you have their attack speed reduced by {as_slow} for {as_slow_time} seconds. The two slows overwrite each other: when either one is applied or ends, the other's effect is lost." },
+            body = "Passive: whenever your mana is above {mana_threshold} of your maximum mana, each check turns the excess into an ice shield and sets your mana back to {mana_threshold}; the shield holds at most {shield_cap} of your maximum mana. The shield absorbs damage you take until it is used up. Active: releases a frost nova around you that slows enemies in it by {nova_slow} for {nova_slow_time} seconds and grants {vision_radius} vision there for {vision_time} seconds, unblocked by terrain; for the next {reactive_time} seconds, enemy non-building, non-spell-immune units that deal physical damage to you have their attack speed reduced by {as_slow} and movement speed by {reactive_slow} for {as_slow_time} seconds. Each slow applies on its own." },
         },
         shop = { cost = "$cost", recipe = { components = { "item_staff", "item_staff", "item_stable_shield", "item_frozen_ring" }, recipe_cost = "$recipe_cost" } },
         unit_state = {
@@ -154,25 +156,9 @@ return function(ctx)
                 { op = "set_state", var = "fubuki_shoulders_shield",
                   value = "min(state.fubuki_shoulders_shield + self.mana - self.max_mana * $mana_threshold, self.max_mana * $shield_cap)" },
                 { op = "set_mana", to = "self", value = "self.max_mana * $mana_threshold" },
+                -- FC-018／FC-036（D13）：只有持有者自己的冰盾、在傷害結算前吸收；量改變時重新套上
+                { op = "apply_status", status = "fubuki_ice_shield", to = "self" },
               } },
-            } },
-            on_take_damage = { filter = "alive(self) and not self.is_illusion", actions = {
-              { op = "let", name = "cur_hp", value = "self.hp + event.damage.final" },
-              { op = "for_each",
-                select = { from = "self", shape = "global", team = "any", types = { "hero" },
-                  flags = { "include_dead", "include_invulnerable", "include_out_of_game", "include_magic_immune", "include_hidden" },
-                  where = "has_item(it, item_fubuki_shoulders) and not it.is_illusion" },
-                actions = {
-                  { op = "if", cond = "state.fubuki_shoulders_shield - event.damage.final >= 0",
-                    actions = {
-                      { op = "set_state", var = "fubuki_shoulders_shield", value = "state.fubuki_shoulders_shield - event.damage.final" },
-                      { op = "set_health", to = "self", value = "cur_hp" },
-                    },
-                    otherwise = {
-                      { op = "set_health", to = "self", value = "cur_hp - event.damage.final + state.fubuki_shoulders_shield" },
-                      { op = "set_state", var = "fubuki_shoulders_shield", value = "0" },
-                    } },
-                } },
             } },
           },
         },
@@ -192,61 +178,43 @@ return function(ctx)
             triggers = {
               on_take_damage = {
                 filter = "is_enemy(self, event.attacker) and event.damage.is_physical and not event.attacker.is_building and not event.attacker.is_magic_immune",
-                actions = { { op = "apply_status", status = "fubuki_attack_slow", to = "event.attacker" } } },
+                actions = {
+                  { op = "apply_status", status = "fubuki_attack_slow", to = "event.attacker" },
+                  { op = "apply_status", status = "fubuki_reactive_slow", to = "event.attacker" },
+                } },
             },
             text = { zh_TW = { name = "吹雪冰甲", body = "對你造成物理傷害的敵方非建築、非魔免單位攻擊速度降低 {as_slow}，持續 {as_slow_time} 秒。" }, en = { name = "Fubuki Frost Armor", body = "Enemy non-building, non-spell-immune units that deal physical damage to you lose {as_slow} attack speed for {as_slow_time} seconds." } },
             notes = "原作 Lua modifier_fubuki_shoulders（全域 OnTakeDamage，篩 event.unit == 持有者、DAMAGE_TYPE_PHYSICAL）；沒覆寫 IsPurgable，暫定不可驅散。" },
           { id = "fubuki_attack_slow", duration = "$as_slow_time", stacking = "refresh", dispel = "basic", visibility = "debuff",
             reveal = "public", tags = { "slow" },
-            vars = { muted = { type = "bool", init = "false", reveal = "public" } },
-            stats = { attack_speed = { op = "add", value = "-$as_slow", when = "not vars.muted" } },
-            triggers = {
-              on_created = {
-                { op = "if", cond = "has_status(self, fubuki_nova_slow)", actions = {
-                  { op = "set_var", var = "muted", value = "true", status = "fubuki_nova_slow", on = "self" } } },
-              },
-              on_refreshed = {
-                { op = "set_var", var = "muted", value = "false" },
-                { op = "if", cond = "has_status(self, fubuki_nova_slow)", actions = {
-                  { op = "set_var", var = "muted", value = "true", status = "fubuki_nova_slow", on = "self" } } },
-              },
-              on_removed = {
-                { op = "if", cond = "has_status(self, fubuki_nova_slow)", actions = {
-                  { op = "set_var", var = "muted", value = "true", status = "fubuki_nova_slow", on = "self" } } },
-              },
-            },
-            text = { zh_TW = { name = "攻速緩速", body = "攻擊速度降低 {as_slow}；與冰霜新星的緩速互相覆蓋。" }, en = { name = "Attack Slow", body = "Attack speed reduced by {as_slow}; overwritten by, and overwrites, the frost nova slow." } },
-            notes = "原作 modifier_slow_attack_speed（與 modifier_slow_move_speed 同時套上），全域緩速表鍵 fubuki_shoulders。" },
+            stats = { attack_speed = "-$as_slow" },
+            text = { zh_TW = { name = "攻速緩速", body = "攻擊速度降低 {as_slow}。" }, en = { name = "Attack Slow", body = "Attack speed reduced by {as_slow}." } },
+            notes = "原作 modifier_slow_attack_speed（與 modifier_slow_move_speed 同時套上），全域緩速表鍵 fubuki_shoulders；FC-013 修正後各自生效。" },
+          { id = "fubuki_reactive_slow", duration = "$as_slow_time", stacking = "refresh", dispel = "basic", visibility = "debuff",
+            reveal = "public", tags = { "slow" },
+            stats = { slow_pct = "$reactive_slow" },
+            text = { zh_TW = { name = "冰甲緩速", body = "移動速度降低 {reactive_slow}。" }, en = { name = "Frost Armor Slow", body = "Movement speed reduced by {reactive_slow}." } },
+            notes = "原作 modifier_slow_move_speed（-15%，被同鍵的攻速緩速覆寫而從不生效）；FC-013 修正後照原意生效。" },
+          { id = "fubuki_ice_shield", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "buff",
+            reveal = "public",
+            absorb = { amount = "state.fubuki_shoulders_shield",
+              on_absorb = { { op = "set_state", var = "fubuki_shoulders_shield", value = "max(state.fubuki_shoulders_shield - absorbed, 0)" } } },
+            text = { zh_TW = { name = "冰盾", body = "吸收受到的傷害，直到用完。" }, en = { name = "Ice Shield", body = "Absorbs damage taken until used up." } },
+            notes = "FC-018／FC-036 修正：原作 modifier_kisyosennfuyuzuki_shield 以全域 OnTakeDamage 在結算後 SetHealth 補回、每位持有者各扣一次；修正後是持有者自己的 absorb。" },
           { id = "fubuki_nova_slow", duration = "$nova_slow_time", stacking = "refresh", dispel = "basic", visibility = "debuff",
             reveal = "public", tags = { "slow" }, cue = "generic_slowed_cold",
-            vars = { muted = { type = "bool", init = "false", reveal = "public" } },
-            stats = { slow_pct = { op = "add", value = "$nova_slow", when = "not vars.muted" } },
-            triggers = {
-              on_created = {
-                { op = "if", cond = "has_status(self, fubuki_attack_slow)", actions = {
-                  { op = "set_var", var = "muted", value = "true", status = "fubuki_attack_slow", on = "self" } } },
-              },
-              on_refreshed = {
-                { op = "set_var", var = "muted", value = "false" },
-                { op = "if", cond = "has_status(self, fubuki_attack_slow)", actions = {
-                  { op = "set_var", var = "muted", value = "true", status = "fubuki_attack_slow", on = "self" } } },
-              },
-              on_removed = {
-                { op = "if", cond = "has_status(self, fubuki_attack_slow)", actions = {
-                  { op = "set_var", var = "muted", value = "true", status = "fubuki_attack_slow", on = "self" } } },
-              },
-            },
-            text = { zh_TW = { name = "冰霜新星", body = "移動速度降低 {nova_slow}；與攻速緩速互相覆蓋。" }, en = { name = "Frost Nova", body = "Movement speed reduced by {nova_slow}; overwritten by, and overwrites, the attack slow." } },
+            stats = { slow_pct = "$nova_slow" },
+            text = { zh_TW = { name = "冰霜新星", body = "移動速度降低 {nova_slow}。" }, en = { name = "Frost Nova", body = "Movement speed reduced by {nova_slow}." } },
             notes = "原作 modifier_slow_move_speed2，全域緩速表鍵 fubuki_shoulders（與攻速緩速同鍵）。" },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/nobu_modifiers/modifier_kisyosennfuyuzuki_shield.lua:23-54",
-            text = "冰盾的 OnTakeDamage 是全域事件且沒有檢查受傷者是不是自己：場上每個 modifier_kisyosennfuyuzuki_shield（每位非分身持有者一個，死亡也保留）都會對同一次傷害各扣一次盾，最後一次決定血量；兩人持有時盾消耗兩倍，盾在前一次已歸零時這一擊完全不抵銷。資料照原作以 for_each 全場持有者表達。" },
-          { policy = "fix_candidate", ref = "vscripts/nobu_modifiers/modifier_kisyosennfuyuzuki_shield.lua:33-51",
-            text = "抵銷用 SetHealth 在傷害結算後補回血量，致死傷害時單位已死亡，冰盾擋不住致死傷害（filter alive(self)）。" },
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:12163-12249",
-            text = "三個緩速 modifier 都用同一個全域緩速鍵 fubuki_shoulders：反擊時先套移速 -15%、再套攻速 -30%，後者把移速鍵覆寫為 0，所以 -15% 移速緩速從不生效（不列數值）；攻速緩速與冰霜新星的移速緩速也互相覆寫，任一個結束（ReturnSpeed）就把兩者都清掉。資料以 vars.muted 照原作表達。" },
+          { policy = "fixed", ref = "vscripts/nobu_modifiers/modifier_kisyosennfuyuzuki_shield.lua:23-54",
+            text = "FC-018（D13 修正：冰盾只屬於持有者自己（absorb 狀態），不再被全場持有者各扣一次）。原作：冰盾的 OnTakeDamage 是全域事件且沒有檢查受傷者是不是自己：場上每個 modifier_kisyosennfuyuzuki_shield（每位非分身持有者一個，死亡也保留）都會對同一次傷害各扣一次盾，最後一次決定血量；兩人持有時盾消耗兩倍，盾在前一次已歸零時這一擊完全不抵銷。" },
+          { policy = "fixed", ref = "vscripts/nobu_modifiers/modifier_kisyosennfuyuzuki_shield.lua:33-51",
+            text = "FC-036（D13 修正：改用 absorb，在傷害結算前吸收，擋得住致死傷害）。原作：抵銷用 SetHealth 在傷害結算後補回血量，致死傷害時單位已死亡，冰盾擋不住致死傷害（filter alive(self)）。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:12163-12249",
+            text = "FC-013（D13 修正：三種緩速各自生效：拿掉互相覆蓋的 muted，補上原本被覆寫的移速 −15%）。原作：三個緩速 modifier 都用同一個全域緩速鍵 fubuki_shoulders：反擊時先套移速 -15%、再套攻速 -30%，後者把移速鍵覆寫為 0，所以 -15% 移速緩速從不生效（不列數值）；攻速緩速與冰霜新星的移速緩速也互相覆寫，任一個結束（ReturnSpeed）就把兩者都清掉。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_kisyosennfuyuzuki.lua:45-82",
             text = "轉盾的 Take_mana_to_shield 寫在桔梗仙冬月的腳本裡，但只有吹雪護肩的 modifier_take_mana_to_shield 掛上（桔梗仙冬月那份已註解）。每 0.1 秒把超過一半的法力轉成盾並 SetMana 回一半，所以持有者的法力永遠不會超過一半；冰盾上限是最大法力的一半。" },
           { policy = "note", ref = "vscripts/items/Addon_Items/item_kisyosennfuyuzuki.lua:78",
@@ -783,8 +751,8 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_insight_gem.lua:24-44",
             text = "OnOwnerDied（與 modifier_lose_gem 的 OnDeath）呼叫 Death：銷毀持有者 0～8 格（含背包）所有 item_insight_gem_hero／ninja／Shard，不會掉落；完整的 item_insight_gem 不受影響。以共用 routine insight_gem_lose 表達。" },
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:4304-4317",
-            text = "光環子狀態結束時以 RemoveModifier 移除目標身上「一個」modifier_truesight，不分來源：若目標先被主動（10 秒）看穿、再進入光環（光環掛的是永久的一份），離開光環時推定移除的是較早的十秒那份，光環那份永久留下，目標從此一直被看穿。資料只寫一般情況，邊界待 M2 實測。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:4304-4317",
+            text = "FC-097（D13 修正：資料以光環與主動各自的狀態表達，光環結束只移除光環自己那份）。原作：光環子狀態結束時以 RemoveModifier 移除目標身上「一個」modifier_truesight，不分來源：若目標先被主動（10 秒）看穿、再進入光環（光環掛的是永久的一份），離開光環時推定移除的是較早的十秒那份，光環那份永久留下，目標從此一直被看穿。資料只寫一般情況，邊界待 M2 實測。" },
           { policy = "note", ref = "npc/npc_items_custom_load.txt:4268-4284", text = "舊的 0.25 秒 think 版本已註解。" },
         },
         provenance = { "npc/npc_items_custom_load.txt:4190-4335", "npc/npc_items_custom_load.txt:16403-16416",
@@ -835,8 +803,8 @@ return function(ctx)
             text = "光環只看穿英雄與建築（含魔免、無敵）；主動是英雄、單位與建築，但沒有旗標，魔免與無敵的敵人不會被看穿。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_insight_gem.lua:24-44",
             text = "持有者死亡時銷毀所有三種碎片（含背包），見共用 routine insight_gem_lose。" },
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:16205-16218",
-            text = "與洞察碎片相同：光環結束時移除目標身上任一個 modifier_truesight，可能留下永久的看穿；資料只寫一般情況。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:16205-16218",
+            text = "FC-098（D13 修正：資料以光環與主動各自的狀態表達，光環結束只移除光環自己那份）。原作：與洞察碎片相同：光環結束時移除目標身上任一個 modifier_truesight，可能留下永久的看穿；資料只寫一般情況。" },
         },
         provenance = { "npc/npc_items_custom_load.txt:16092-16236", "vscripts/items/Addon_Items/item_insight_gem.lua:1-44", "shops/nobu_shops.txt:13" } },
 
@@ -887,8 +855,8 @@ return function(ctx)
             text = "OnEquip 呼叫 OnEquipNinja，item_insight_gem.lua 沒有這個函式（OnEquipHeroNinja 也已註解），執行期報錯，不會掛 modifier_lose_gem；OnOwnerDied 仍會呼叫 Death，所以死亡時照樣消失。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_insight_gem.lua:24-44",
             text = "持有者死亡時銷毀所有三種碎片（含背包），見共用 routine insight_gem_lose。" },
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:16354-16367",
-            text = "與洞察碎片相同：光環結束時移除目標身上任一個 modifier_truesight，可能留下永久的看穿；資料只寫一般情況。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:16354-16367",
+            text = "FC-099（D13 修正：資料以光環與主動各自的狀態表達，光環結束只移除光環自己那份）。原作：與洞察碎片相同：光環結束時移除目標身上任一個 modifier_truesight，可能留下永久的看穿；資料只寫一般情況。" },
         },
         provenance = { "npc/npc_items_custom_load.txt:16239-16385", "vscripts/items/Addon_Items/item_insight_gem.lua:1-44", "shops/nobu_shops.txt:14" } },
 
@@ -1149,14 +1117,14 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "紅雪左文字",
-            body = "被動：普攻命中時有 {crit_chance} 機率讓下一次普攻暴擊，造成 {crit} 傷害；連續 {pity_after} 次沒有觸發時下一次必定觸發。持有多件時每件各擲一次，以最後一件的結果為準。主動：身邊範圍內的友方單位基礎攻擊力 +{buff_damage}，持續 {buff_time} 秒，並讓身上的火之卷系列道具進入相同長度的冷卻。" },
+            body = "被動：普攻命中時有 {crit_chance} 機率讓下一次普攻暴擊，造成 {crit} 傷害；連續 {pity_after} 次沒有觸發時下一次必定觸發。持有多件時每件各自判定、各自累積保底，任一件觸發，下一次普攻就暴擊。主動：身邊範圍內的友方單位基礎攻擊力 +{buff_damage}，持續 {buff_time} 秒，並讓身上的火之卷系列道具進入相同長度的冷卻。" },
           en = { name = "Kousetsu Samonji",
-            body = "Passive: each landed attack has a {crit_chance} chance to make your next attack a critical strike for {crit} damage; after {pity_after} landed attacks in a row without one, the next always triggers it. With multiple copies, each rolls separately and the last roll decides. Active: nearby allied units gain +{buff_damage} base attack damage for {buff_time} seconds, and your Book of Fire series items go on a cooldown of the same length." },
+            body = "Passive: each landed attack has a {crit_chance} chance to make your next attack a critical strike for {crit} damage; after {pity_after} landed attacks in a row without one, the next always triggers it. With multiple copies, each rolls and counts its guarantee on its own; if any copy succeeds, the next attack is a critical strike. Active: nearby allied units gain +{buff_damage} base attack damage for {buff_time} seconds, and your Book of Fire series items go on a cooldown of the same length." },
         },
         shop = { cost = "$cost", recipe = { components = { "item_big_tachi", "item_red_spear" }, recipe_cost = "$recipe_cost" } },
         unit_state = {
-          kousetsusamonnji_count = { type = "int", init = "0", reveal = "public", scope = "hero",
-            note = "原作 caster.kousetsusamonnji_count" },
+          kousetsusamonnji_count = { type = "int", init = "0", reveal = "public", scope = "item_instance",
+            note = "原作 caster.kousetsusamonnji_count（英雄共用）；FC-113 修正後每件道具各自一份" },
         },
         passive = {
           stats = { str = "$str", agi = "$agi", attack_damage = "$attack" },
@@ -1179,7 +1147,7 @@ return function(ctx)
             { op = "cue", id = "fire_scroll_d03", at = "caster" },
           } } },
         statuses = {
-          { id = "kousetsusamonnji_crit", duration = "infinite", stacking = "refresh", dispel = "basic", visibility = "hidden",
+          { id = "kousetsusamonnji_crit", duration = "infinite", stacking = "refresh", scope = "item_instance", dispel = "basic", visibility = "hidden",
             reveal = "public",
             triggers = { on_attack_windup = { { op = "modify_attack", crit_multiplier = "$crit" } } },
             notes = "原作 item_kousetsusamonnji_critical_strike_crit：datadriven 沒寫 IsPurgable，暫定 basic；下一次命中時移除" },
@@ -1192,8 +1160,8 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_kousetsusamonnji.lua:27-66",
             text = "命中時先移除暴擊、再擲骰，成功才掛上，所以暴擊作用於下一次攻擊；沒有排除建築。機率 26/101（約 25.7%），保底是失敗 +1、>= 4 觸發，等於連續三次未中後下一次必中。" },
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:9604-9616",
-            text = "Passive_lightning_katana 是 MULTIPLE：持有兩件時每次命中跑兩次 Shock，第二次會先移除第一次剛掛上的暴擊再自己擲骰，結果只看最後一次，第二件道具沒有增加暴擊率（但兩次都推進共用的保底計數）。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:9604-9616",
+            text = "FC-113（使用者 2026-10-29 決定全修：暴擊狀態與保底計數都改成 scope = item_instance，每件各自判定、各自累積保底）。原作：Passive_lightning_katana 是 MULTIPLE：持有兩件時每次命中跑兩次 Shock，第二次會先移除第一次剛掛上的暴擊再自己擲骰，結果只看最後一次，第二件道具沒有增加暴擊率（但兩次都推進共用的保底計數）。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_fire_scroll.lua:27-35",
             text = "主動呼叫火之卷的 Shock：把身上 0～8 格的 item_fire_scroll、item_the_art_of_war_flame_chapter、item_the_lost_art_of_war_1、item_recipe_the_art_of_war 設成本道具的冷卻（15 秒）；以 cooldown_groups fire_scroll_family（trigger_only、length = own，即本道具冷卻）表達，那些道具的文件要加入同一組（receive_only 或 member）。" },
           { policy = "as_source", ref = "npc/npc_items_custom_load.txt:9544-9562",

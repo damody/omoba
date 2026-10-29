@@ -3,7 +3,7 @@
 -- 英雄共通的 magical_resistance（nobu 魔抗池）屬規則層，A24_precache 只是資產，都不列入。
 -- 開場自動學 A24D（heromap_autoskill A24 ["16"] = "D"），寫在 hero.auto_learn；A24D 是 NOT_LEARNABLE，
 -- 之後由 A24T OnUpgrade 設成「大招等級 + 1」。
--- 血盾剩餘量在原作是 Lua 欄位 unit.AphoticShieldRemaining，這裡用登錄表的共用 unit_state aphotic_shield_remaining（scope = unit）；
+-- 血盾剩餘量在原作是共用的 Lua 欄位 unit.AphoticShieldRemaining；FC-001 修正後是私有的 unit_state a24_blood_shield，以 absorb 狀態 a24d_shield 吸收（FC-027）；
 -- W/E/R/T 施放時扣血並把扣血量的兩倍加進血盾（routine a24_blood_price、a24_gain_shield）。
 return function(ctx)
   return {
@@ -21,10 +21,8 @@ return function(ctx)
         source = "script:vscripts/heroes/A_Oda/A24.lua:139,282,381,458 shield = healthCost*2" },
     },
     unit_state = {
-      aphotic_shield_remaining = { type = "fixed", init = "0", reveal = "public", scope = "unit",
-        note = "原作 unit.AphoticShieldRemaining（登錄表共用名稱，與 A04、B08、B36、C06、C12、河童之殼同一個變數）；以 modifier_A24D_count 的層數公開顯示" },
-      a24_selfdamage = { type = "bool", init = "false", reveal = "team", scope = "unit",
-        note = "原作 caster.selfdamage：自傷時讓血盾跳過這一次傷害" },
+      a24_blood_shield = { type = "fixed", init = "0", reveal = "public", scope = "unit",
+        note = "原作 unit.AphoticShieldRemaining（與其他護盾共用同名欄位）；FC-001 修正後是盛政自己的血盾量，以 modifier_A24D_count 的層數公開顯示" },
     },
     abilities = {
       -------------------------------------------------------------------------
@@ -38,9 +36,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "血盾集陣",
-            body = "被動：魔法抗性提高 {magicres_bonus}。施放其他技能時付出的生命會化為血盾，最多累積 {shield_max}；受到傷害後，以血盾補回等量生命（不超過血盾剩餘量），擋不住致命傷害。血盾每 {decay_interval} 秒減少 {decay}。無法手動學習，等級固定比{@a24_bloodbath}高一級。" },
+            body = "被動：魔法抗性提高 {magicres_bonus}。施放其他技能時付出的生命會化為血盾，最多累積 {shield_max}；血盾吸收受到的傷害，直到用完。血盾每 {decay_interval} 秒減少 {decay}。無法手動學習，等級固定比{@a24_bloodbath}高一級。" },
           en = { name = "Blood Shield Formation",
-            body = "Passive: +{magicres_bonus} magic resistance. Health paid by Morimasa's other abilities becomes a blood shield, stacking up to {shield_max}; after he takes damage, the shield restores that much health (no more than the shield has left), so it cannot stop a lethal hit. The shield loses {decay} every {decay_interval} seconds. Cannot be learned manually; its level is always one higher than {@a24_bloodbath}." },
+            body = "Passive: +{magicres_bonus} magic resistance. Health paid by Morimasa's other abilities becomes a blood shield, stacking up to {shield_max}; the shield absorbs incoming damage until it is used up. The shield loses {decay} every {decay_interval} seconds. Cannot be learned manually; its level is always one higher than {@a24_bloodbath}." },
         },
         target = { type = "none" },
         passive = {
@@ -51,39 +49,37 @@ return function(ctx)
               { op = "apply_status", status = "a24d_count", to = "self" },
             },
             periodic = { interval = "$decay_interval", actions = {
-              { op = "set_state", on = "self", var = "aphotic_shield_remaining", value = "max(state.aphotic_shield_remaining - $decay, 0)" },
-              { op = "set_display_stacks", to = "self", status = "a24d_count", count = "floor(state.aphotic_shield_remaining)" },
-              { op = "if", cond = "state.aphotic_shield_remaining <= 0", actions = {
-                { op = "cue", id = "a24d_shield_glow", attach = "self", stop = true },
-              } },
+              { op = "set_state", on = "self", var = "a24_blood_shield", value = "max(state.a24_blood_shield - $decay, 0)" },
+              { op = "call", routine = "a24d_sync", args = {} },
             } },
-            -- 原作 OnTakeDamage：傷害已扣血後才 SetHealth 補回
-            on_take_damage = {
-              { op = "if", cond = "not state.a24_selfdamage", actions = {
-                { op = "set_health", to = "self", value = "self.hp + min(event.damage.final, state.aphotic_shield_remaining)" },
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining", value = "max(state.aphotic_shield_remaining - event.damage.final, 0)" },
-                { op = "set_display_stacks", to = "self", status = "a24d_count", count = "floor(state.aphotic_shield_remaining)" },
-              } },
-              { op = "set_state", on = "self", var = "a24_selfdamage", value = "false" },
-            },
           },
         },
         statuses = {
           { id = "a24d_count", duration = "infinite", stacking = "keep", dispel = "none", visibility = "buff",
             reveal = "public",
-            text = { zh_TW = { name = "血盾", body = "層數是血盾剩餘量，最多 {shield_max}；受到傷害後以血盾補回等量生命，擋不住致命傷害。血盾每 {decay_interval} 秒減少 {decay}。" }, en = { name = "Blood Shield", body = "Stacks show the shield left, up to {shield_max}; after taking damage the shield restores that much health, but it cannot stop a lethal hit. The shield loses {decay} every {decay_interval} seconds." } },
+            text = { zh_TW = { name = "血盾", body = "層數是血盾剩餘量，最多 {shield_max}；血盾吸收受到的傷害。血盾每 {decay_interval} 秒減少 {decay}。" }, en = { name = "Blood Shield", body = "Stacks show the shield left, up to {shield_max}; the shield absorbs incoming damage. The shield loses {decay} every {decay_interval} seconds." } },
             notes = "原作 modifier_A24D_count（Passive、不隱藏）：層數只是顯示血盾剩餘量（SetStackCount 截成整數）。" },
+          -- FC-027（D13）：血盾在傷害結算前吸收（擋得住致命傷害）；量改變時以 a24d_sync 重新套上
+          { id = "a24d_shield", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "hidden",
+            reveal = "public",
+            absorb = { amount = "state.a24_blood_shield",
+              on_absorb = {
+                { op = "set_state", on = "self", var = "a24_blood_shield", value = "max(state.a24_blood_shield - absorbed, 0)" },
+                { op = "set_display_stacks", to = "self", status = "a24d_count", count = "floor(state.a24_blood_shield)" },
+              },
+              on_broken = { { op = "cue", id = "a24d_shield_glow", attach = "self", stop = true } } },
+            notes = "FC-027 修正：原作在 OnTakeDamage（已扣血）後 SetHealth 補回；這裡改成 absorb，付血（hp_removal）不被吸收。" },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A24.lua:59-85",
-            text = "血盾是在 OnTakeDamage（傷害已扣血）後 SetHealth 補回，致死傷害仍會殺死盛政。資料照原作寫 on_take_damage + set_health；若修正，改用 absorb。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A24.lua:12-16",
-            text = "剩餘量存在 unit.AphoticShieldRemaining，與 A04、B08、B36、C06、C12、item_the_shell_of_spirituality_kappa 共用同名欄位，互相覆寫、重複補血。資料照原作用登錄表的共用變數 aphotic_shield_remaining；若決定修正，改成私有前綴名稱即可。" },
-          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A24.lua:63-67,119-121",
-            text = "自傷前設 caster.selfdamage = true，讓下一次 OnTakeDamage 跳過補血並清掉旗標。若自傷被完全擋下（無敵、傷害歸零），旗標留著，下一筆真正的傷害不會被血盾補回。" },
-          { policy = "as_source", ref = "npc/A_Oda/A24.txt:55-63",
-            text = "OnTakeDamage 不分傷害類型與來源；DamageTaken 是減免後的傷害（event.damage.final）。補血用 SetHealth，不經治療增減，也不觸發治療事件。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A24.lua:59-85",
+            text = "FC-027（D13 修正：血盾改用 absorb 在傷害結算前吸收，擋得住致命傷害；量改變時重新套上）。原作：血盾是在 OnTakeDamage（傷害已扣血）後 SetHealth 補回，致死傷害仍會殺死盛政。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A24.lua:12-16",
+            text = "FC-001（D13 修正：改成盛政私有的 unit_state a24_blood_shield，不再與其他護盾共用）。原作：剩餘量存在 unit.AphoticShieldRemaining，與 A04、B08、B36、C06、C12、item_the_shell_of_spirituality_kappa 共用同名欄位，互相覆寫、重複補血。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A24.lua:63-67,119-121",
+            text = "原作機制（FC-027 修正前）：自傷前設 caster.selfdamage = true，讓下一次 OnTakeDamage 跳過補血並清掉旗標。若自傷被完全擋下（無敵、傷害歸零），旗標留著，下一筆真正的傷害不會被血盾補回。修正後付血以 hp_removal 旗標表達，absorb 本來就不吸收。" },
+          { policy = "note", ref = "npc/A_Oda/A24.txt:55-63",
+            text = "原作機制（FC-027 修正前）：OnTakeDamage 不分傷害類型與來源；DamageTaken 是減免後的傷害（event.damage.final）。補血用 SetHealth，不經治療增減，也不觸發治療事件。" },
           { policy = "note", ref = "vscripts/heroes/A_Oda/A24.lua:3-57",
             text = "衰減在 OnIntervalThink；分身也有這個被動，分身的欄位第一次 think 才初始化為 0，之前受傷時比較 nil 會報錯（沒有效果）。v3 以 scope = unit、init 0 表達，差異只在前 1.3 秒。" },
           { policy = "note",
@@ -231,7 +227,7 @@ return function(ctx)
             { op = "teleport", who = "caster", to = "position(target)", find_clear_space = false },
             { op = "if", cond = "not target.is_magic_immune", actions = {
               { op = "apply_status", status = "a24e_stun", to = "target",
-                duration = "$stun_max - gap * ($stun_max - $stun_min) / ($far_dist - $near_dist)" },
+                duration = "max($stun_max - gap * ($stun_max - $stun_min) / ($far_dist - $near_dist), 0)" },
             } },
             { op = "damage", to = "target", type = "pure", amount = "$poke_damage" },
             { op = "apply_status", status = "a24e_attack", to = "caster" },
@@ -241,8 +237,8 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A24.lua:279-347",
             text = "生命高於 10% 時血盾加「扣血量兩倍 + sheild_bonus」，否則只加 sheild_bonus；兩者都受 shield_max 上限。A24T 期間不扣血，但血盾照扣血量計算。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A24.lua:349-361",
-            text = "暈眩 1.8 − (距離−200)×1.5/600 沒有下限：距離超過 1000（目標在前搖中走遠、或有施法距離加成）時為負值，負的 duration 在 Dota 的實際效果未驗證（可能視為永久）。資料照公式寫，建議修正為不低於零。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A24.lua:349-361",
+            text = "FC-083（D13 修正：暈眩時間以 max(…, 0) 夾住，不低於零）。原作：暈眩 1.8 − (距離−200)×1.5/600 沒有下限：距離超過 1000（目標在前搖中走遠、或有施法距離加成）時為負值，負的 duration 在 Dota 的實際效果未驗證（可能視為永久）。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A24.lua:358-359",
             text = "SetAbsOrigin 直接放到目標中心（不找空位），只靠 0.1 秒相位避免卡住。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A24.lua:360-363",
@@ -403,8 +399,8 @@ return function(ctx)
         actions = {
           { op = "if", cond = "not gated or caster.hp_pct > $hp_gate", actions = {
             { op = "if", cond = "not gated or not has_status(caster, a24t_frenzy)", actions = {
-              { op = "set_state", var = "a24_selfdamage", value = "true" },
-              { op = "damage", to = "caster", source = "caster", type = "pure", amount = "cost" },
+              -- 付血是生命移除（hp_removal），血盾不吸收（原作以 caster.selfdamage 讓血盾跳過）
+              { op = "damage", to = "caster", source = "caster", type = "pure", amount = "cost", flags = { "hp_removal" } },
             } },
             { op = "call", routine = "a24_gain_shield", args = { amount = "cost * $shield_ratio" } },
             { op = "cue", id = "a24_blood_spray", at = "caster" },
@@ -414,10 +410,23 @@ return function(ctx)
       a24_gain_shield = {
         params = { amount = "num" },
         actions = {
-          { op = "set_state", var = "aphotic_shield_remaining",
-            value = "min(state.aphotic_shield_remaining + amount, $a24_blood_shield.shield_max)" },
-          { op = "set_display_stacks", to = "caster", status = "a24d_count", count = "floor(state.aphotic_shield_remaining)" },
+          { op = "set_state", var = "a24_blood_shield",
+            value = "min(state.a24_blood_shield + amount, $a24_blood_shield.shield_max)" },
+          { op = "call", routine = "a24d_sync", args = {} },
           { op = "cue", id = "a24d_shield_glow", attach = "caster" },
+        },
+      },
+      -- 血盾量改變後：重新套上吸收狀態（剩餘量重設為目前的量），並更新顯示
+      a24d_sync = {
+        owner = "a24_blood_shield",
+        actions = {
+          { op = "set_display_stacks", to = "caster", status = "a24d_count", count = "floor(state.a24_blood_shield)" },
+          { op = "if", cond = "state.a24_blood_shield > 0",
+            actions = { { op = "apply_status", status = "a24d_shield", to = "caster" } },
+            otherwise = {
+              { op = "remove_status", from = "caster", status = "a24d_shield" },
+              { op = "cue", id = "a24d_shield_glow", attach = "caster", stop = true },
+            } },
         },
       },
     },

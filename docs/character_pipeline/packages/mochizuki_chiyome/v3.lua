@@ -335,9 +335,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "忍法密傳．獸靈同化",
-            body = "被動：{@b16d_moon}在千代女 {share_range} 距離內時，兩者的攻擊傷害提高 {damage_bonus}。主動：忍犬最大生命增加 {hp_bonus} 並回復至全滿；{duration} 秒內，忍犬在 {share_range} 距離內時，千代女每次受到傷害後回復該次傷害 {share_pct} 的生命，忍犬承受等量的純粹傷害。忍犬不在場時施放不會進入冷卻（仍消耗法力）。" },
+            body = "被動：{@b16d_moon}在千代女 {share_range} 距離內時，兩者的攻擊傷害提高 {damage_bonus}。主動：忍犬最大生命增加 {hp_bonus} 並回復至全滿；{duration} 秒內，忍犬在 {share_range} 距離內時，千代女受到的傷害有 {share_pct} 改由忍犬承受（純粹傷害）。忍犬不在場時施放不會進入冷卻（仍消耗法力）。" },
           en = { name = "Secret Ninja Art: Animal Spirit",
-            body = "Passive: while {@b16d_moon} is within {share_range} of Chiyome, both deal {damage_bonus} more attack damage. Active: the hound's maximum health rises by {hp_bonus} and it is fully healed; for {duration} seconds, while the hound is within {share_range}, Chiyome regains {share_pct} of each instance of damage she takes and the hound takes that much pure damage. Casting without a living hound does not start the cooldown (mana is still spent)." },
+            body = "Passive: while {@b16d_moon} is within {share_range} of Chiyome, both deal {damage_bonus} more attack damage. Active: the hound's maximum health rises by {hp_bonus} and it is fully healed; for {duration} seconds, while the hound is within {share_range}, {share_pct} of the damage Chiyome takes is dealt to the hound instead as pure damage. Casting without a living hound does not start the cooldown (mana is still spent)." },
         },
         target = { type = "none" },
         cast = { immediate = true },
@@ -373,16 +373,20 @@ return function(ctx)
           { id = "b16t_union", duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public", cue = "b16t_aura",
             text = {
-              zh_TW = { name = "獸靈同化", body = "忍犬在 {share_range} 距離內時，每次受到傷害後回復該次傷害 {share_pct} 的生命，由忍犬承受等量的純粹傷害。" },
-              en = { name = "Animal Spirit", body = "While the hound is within {share_range}, regains {share_pct} of each instance of damage taken; the hound takes that much pure damage." },
+              zh_TW = { name = "獸靈同化", body = "忍犬在 {share_range} 距離內時，受到的傷害有 {share_pct} 改由忍犬承受（純粹傷害）。" },
+              en = { name = "Animal Spirit", body = "While the hound is within {share_range}, {share_pct} of damage taken is dealt to the hound instead as pure damage." },
             },
+            -- FC-030（D13）：減免前先把 share_pct 移給忍犬（原作受傷後才 SetHealth 補回，致死傷害照樣打死千代女）；
+            -- 減免後再讓忍犬承受被移走的那一份（final 是剩下的 1 − share_pct，換算回去）
             triggers = {
+              on_take_damage_pre = {
+                filter = "exists(state.b16_moon) and alive(state.b16_moon) and edge_distance(self, state.b16_moon) <= $share_range",
+                actions = { { op = "modify_damage", multiplier = "1 - $share_pct" } } },
               on_take_damage = {
                 filter = "exists(state.b16_moon) and alive(state.b16_moon) and edge_distance(self, state.b16_moon) <= $share_range",
                 actions = {
-                  { op = "let", name = "part", value = "event.damage.final * $share_pct" },
-                  { op = "set_health", to = "self", value = "self.hp + part" },
-                  { op = "damage", to = "state.b16_moon", source = "self", type = "pure", amount = "part" },
+                  { op = "damage", to = "state.b16_moon", source = "self", type = "pure", require_source_alive = false,
+                    amount = "event.damage.final * $share_pct / (1 - $share_pct)" },
                 } },
             },
             notes = "合併原作 modifier_B16T（只有粒子）與 modifier_B16T2（IsHidden，OnTakeDamage）；兩者 Duration 都是 %duration，沒寫 IsPurgable，暫定 basic。" },
@@ -402,8 +406,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B16_Mochidsuki_Chiyome.lua:275-286",
-            text = "說明寫「受到的 80% 傷害被忍犬吸收」，實際是 OnTakeDamage 之後才 SetHealth 補回 80%：致死傷害照樣打死千代女（死後 AMHC:Damage 因攻擊者已死也不傷忍犬），補血用 SetHealth 不經治療規則。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B16_Mochidsuki_Chiyome.lua:275-286",
+            text = "FC-030（D13 修正：減免前把 80% 傷害移給忍犬（純粹傷害，千代女死後仍計算），不再受傷後 SetHealth 補回）。原作：說明寫「受到的 80% 傷害被忍犬吸收」，實際是 OnTakeDamage 之後才 SetHealth 補回 80%：致死傷害照樣打死千代女（死後 AMHC:Damage 因攻擊者已死也不傷忍犬），補血用 SetHealth 不經治療規則。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B16_Mochidsuki_Chiyome.lua:280-281",
             text = "分擔與被動加成都要求忍犬在 100 邊緣距離（CalcDistanceBetweenEntityOBB）內，幾乎要貼身；%attack_damage 推定為減免後的實際傷害，任何來源與類型（含自傷）都觸發。忍犬承受的純粹傷害記在千代女名下，打死忍犬算友軍擊殺。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B16_Mochidsuki_Chiyome.lua:262-266",

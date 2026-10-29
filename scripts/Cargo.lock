@@ -51,6 +51,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ability_kit"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "omb-script-abi",
+ "omoba-content-model",
+ "omoba-core",
+ "omoba-sim",
+ "omoba-template-ids",
+ "serde_json",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -169,6 +182,12 @@ name = "base_content"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
+ "ability_kit",
+ "hero_a02_impl",
+ "hero_a13_impl",
+ "hero_b01_impl",
+ "hero_b04_impl",
+ "hero_c17_impl",
  "omb-script-abi",
  "omoba-content-model",
  "omoba-core",
@@ -638,6 +657,85 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
+name = "hero_a02"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a02_impl",
+ "omb-script-abi",
+]
+
+[[package]]
+name = "hero_a02_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+ "omb-script-abi",
+ "omoba-core",
+ "omoba-sim",
+ "omoba-template-ids",
+ "serde_json",
+ "specs",
+]
+
+[[package]]
+name = "hero_a13"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_a13_impl",
+]
+
+[[package]]
+name = "hero_a13_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b01"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_b01_impl",
+]
+
+[[package]]
+name = "hero_b01_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_b04_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
+name = "hero_c17"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "hero_c17_impl",
+]
+
+[[package]]
+name = "hero_c17_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
+]
+
+[[package]]
 name = "hibitset"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -667,6 +765,22 @@ dependencies = [
  "parking_lot",
  "rand 0.8.6",
  "rayon",
+]
+
+[[package]]
+name = "items"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "items_impl",
+]
+
+[[package]]
+name = "items_impl"
+version = "0.1.0"
+dependencies = [
+ "abi_stable",
+ "ability_kit",
 ]
 
 [[package]]

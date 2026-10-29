@@ -11,7 +11,11 @@
 -- Output: { schema = "v3-scenarios/1", document, id, kind, scenarios = [ scenario ] }
 --   scenario = { id, entry, rank, case, given = [fact], when = [step], expect = [outcome], refs, rule? , quirk? }
 --   case: normal | trigger | toggle_on | toggle_off | insufficient_mana | insufficient_health |
---         no_charges | cooldown | target_invalid | magic_immune | dispel | death | visibility | quirk
+--         no_charges | cooldown | target_invalid | magic_immune | dispel | death | visibility | quirk | hook
+--   hook (§8): every hook an entry uses ({ op = "hook" }, hook_value(...), or the whole entry as
+--   `hook = "<name>"` with kind = "ability", whose behavior scenarios are generated as usual) gives its declared `cases` (given/when/expect in this same
+--   vocabulary) per rank, or, when it has none, one `hook_behavior` case carrying its text, so the
+--   AI-written hook is compared with what the document says it does.
 --   fact / step / outcome: tables with a `kind` and named fields (expressions are document strings);
 --   `effects` outcomes list the actions the case runs: { op, path, phase, conds, args, status? }.
 --   refs: every value the scenario reads (`name` or `owner.name`), so a test can resolve them per rank.
@@ -222,6 +226,19 @@ local function entry_scenarios(doc, def, entry_kind, out)
         push(rank, "normal", { given = given({ valid_target, cost.mana and { kind = "mana_at_least", amount = cost.mana } or nil }),
           when = { cast_step }, expect = exp })
       end
+      -- A summon over its per-owner limit removes the earliest one (host summon_owner_cap): removed
+      -- after the cast commits, not a death, no bounty.
+      for _, e in ipairs(base_effects) do
+        local a = e.args or {}
+        if e.op == "create_unit" and not e.conds and a.limit_per_owner and a.over_limit == "remove_oldest" and a.template then
+          push(rank, "normal", { suffix = "summon_cap/" .. (a.as or a.template),
+            given = given({ valid_target, cost.mana and { kind = "mana_at_least", amount = cost.mana } or nil }),
+            when = { { kind = "cast_until_over_cap", entry = def.id, target = target.type or "none", template = a.template,
+              count = a.count or "1", cap = a.limit_per_owner } },
+            expect = { { kind = "summon_cap", template = a.template, cap = a.limit_per_owner, over_limit = a.over_limit,
+              rule = "v3.md create_unit limit_per_owner／over_limit = remove_oldest：超過上限時最早的那位消失，不算死亡、沒有賞金" } } })
+        end
+      end
       -- resources
       if cost.mana then
         push(rank, "insufficient_mana", { given = given({ valid_target, { kind = "mana_exactly", amount = cost.mana .. " - 1" } }),
@@ -408,6 +425,35 @@ local function entry_scenarios(doc, def, entry_kind, out)
           expect = { { kind = "status_display", status = s.id, visibility = s.visibility, reveal = s.reveal,
             rule = "v3.md §3.2 reveal：public 雙方 replica 都知道；team 只有己方；derived 只揭露結果" } } })
       end
+    end
+  end
+  -- hooks the entry uses (§8): their declared cases, or their text
+  local used, seen = {}, {}
+  local function scan(t)
+    if type(t) == "string" then
+      for name in t:gmatch("hook_value%(%s*([%w_]+)") do if not seen[name] then seen[name] = true; used[#used + 1] = name end end
+    elseif type(t) == "table" then
+      if t.op == "hook" and type(t.name) == "string" and not seen[t.name] then seen[t.name] = true; used[#used + 1] = t.name end
+      -- the whole entry (or an item's active) is a hook (D7): `hook = "<name>"`
+      if type(t.hook) == "string" and not seen[t.hook] then seen[t.hook] = true; used[#used + 1] = t.hook end
+      for _, k in ipairs(sorted_keys(t)) do scan(t[k]) end
+    end
+  end
+  scan(def)
+  for _, name in ipairs(used) do
+    local h = (doc.hooks or {})[name] or {}
+    if h.cases and #h.cases > 0 then
+      for rank = 1, max_level do
+        for i, c in ipairs(h.cases) do
+          local g = { { kind = "learned", entry = def.id, rank = rank } }
+          for _, fact in ipairs(c.given or {}) do g[#g + 1] = fact end
+          push(rank, "hook", { suffix = name .. "/" .. (c.id or tostring(i)), given = g, when = c.when or {}, expect = c.expect or {},
+            hook = name, rule = "v3.md §8 hook cases" })
+        end
+      end
+    else
+      push(1, "hook", { suffix = name, given = { { kind = "learned", entry = def.id, rank = 1 } }, when = {},
+        expect = { { kind = "hook_behavior", hook = name, text = h.behavior or h.why, test = h.test } }, hook = name })
     end
   end
   -- one scenario per quirk (rank 1; the quirk text says when it applies)

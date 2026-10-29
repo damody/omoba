@@ -179,19 +179,20 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "苦楚秘釀",
-            body = "{buff_duration} 秒內攻擊速度 +{attack_speed}。期間每次受到傷害後，若生命不高於最大生命的 {hp_hold}，立即補到這個值；施放時也檢查一次。致命的傷害不會被擋下。" },
+            body = "{buff_duration} 秒內攻擊速度 +{attack_speed}。期間生命不會低於最大生命的 {hp_hold}（受到的傷害最多扣到這個值）；施放時若已低於這個值，立即補到這個值。" },
           en = { name = "Bitter Brew",
-            body = "Gains +{attack_speed} attack speed for {buff_duration} seconds. During this time, whenever Nagayasu takes damage and is left at or below {hp_hold} of his maximum health, his health is raised to that amount; this is also checked on cast. Lethal damage is not prevented." },
+            body = "Gains +{attack_speed} attack speed for {buff_duration} seconds. During this time his health cannot drop below {hp_hold} of his maximum health (damage only takes him down to that amount); if he is already below it on cast, his health is raised to it." },
         },
         target = { type = "none" },
         cast = { immediate = true },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         statuses = {
-          { id = "a36r_brew", text = { zh_TW = { name = "苦楚秘釀", body = "攻擊速度提高 {attack_speed}。受到傷害後生命不高於最大生命的 {hp_hold} 時，立即補到這個值；致命的傷害不會被擋下。" }, en = { name = "Bitter Brew", body = "+{attack_speed} attack speed. Whenever damage leaves him at or below {hp_hold} of maximum health, his health is raised to that amount; lethal damage is not prevented." } }, duration = "$buff_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
+          { id = "a36r_brew", text = { zh_TW = { name = "苦楚秘釀", body = "攻擊速度提高 {attack_speed}。生命不會低於最大生命的 {hp_hold}。" }, en = { name = "Bitter Brew", body = "+{attack_speed} attack speed. Health cannot drop below {hp_hold} of maximum health." } }, duration = "$buff_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public", cue = "a36r_armlet_glow", stats = { attack_speed = "$attack_speed" },
             triggers = {
-              on_take_damage = { filter = "self.hp <= self.max_hp * $hp_hold", actions = {
-                { op = "set_health", to = "self", value = "self.max_hp * $hp_hold" },
+              -- FC-029（D13）：在傷害結算前把這一筆夾到生命下限，致命的一擊也擋得住
+              on_take_damage_pre = { filter = "self.hp - event.damage.final < self.max_hp * $hp_hold", actions = {
+                { op = "modify_damage", set = "max(self.hp - self.max_hp * $hp_hold, 0)" },
               } },
             },
             notes = "原作 modifier_A36R_buff：datadriven，沒寫 IsPurgable（暫定 basic）。" },
@@ -208,8 +209,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A36.lua:113-120",
-            text = "保命是 OnTakeDamage 之後以 SetHealth 補回，致命的一擊在觸發前就已死亡；原作說明寫「生命值不會低於總生命值的 6/12/18/24%」。KV 註解也寫「無敵弄不出來」。資料照實際。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A36.lua:113-120",
+            text = "FC-029（D13 修正：傷害結算前把這一筆夾到生命下限（on_take_damage_pre 的 modify_damage），生命不會低於 hp_hold）。原作：保命是 OnTakeDamage 之後以 SetHealth 補回，致命的一擊在觸發前就已死亡；原作說明寫「生命值不會低於總生命值的 6/12/18/24%」。KV 註解也寫「無敵弄不出來」。" },
           { policy = "as_source", ref = "npc/A_Oda/A36.txt:461-466",
             text = "攻速是 ATTACKSPEED_BONUS_CONSTANT（攻速點數），原作說明寫百分比。" },
           { policy = "as_source", ref = "npc/A_Oda/A36.txt:420-430",

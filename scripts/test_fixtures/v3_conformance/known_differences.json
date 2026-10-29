@@ -2,10 +2,6 @@
   "schema": "v3-conformance-known/1",
   "note": "Scenarios that fail today on purpose: class b = a listed port difference (census-v3 README), c = found by these tests. Remove an entry once it passes (the test reports it).",
   "scenarios": {
-    "a07_unscathed/r1/death/a07w_convert/holder_dies": {"class": "b", "note": "census-v3 已移植英雄差異：A07 毫髮無傷原作擋不住致死；package 擋得住，所以持有者被致死一擊後仍活著"},
-    "a07_unscathed/r2/death/a07w_convert/holder_dies": {"class": "b", "note": "census-v3 已移植英雄差異：A07 毫髮無傷原作擋不住致死；package 擋得住，所以持有者被致死一擊後仍活著"},
-    "a07_unscathed/r3/death/a07w_convert/holder_dies": {"class": "b", "note": "census-v3 已移植英雄差異：A07 毫髮無傷原作擋不住致死；package 擋得住，所以持有者被致死一擊後仍活著"},
-    "a07_unscathed/r4/death/a07w_convert/holder_dies": {"class": "b", "note": "census-v3 已移植英雄差異：A07 毫髮無傷原作擋不住致死；package 擋得住，所以持有者被致死一擊後仍活著"},
     "a07_rouse_free/r1/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
     "a07_rouse_free/r1/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
     "a07_rouse_free/r2/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
@@ -16,20 +12,10 @@
     "a07_rouse_free/r4/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
     "a07_rouse_free/r5/cooldown": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
     "a07_rouse_free/r5/normal": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
-    "a07_strongest/r1/death/a07t_strongest/holder_dies": {"class": "b", "note": "census-v3 已移植英雄差異（同 a07_unscathed holder_dies）：大招也呼叫 a07w_cast（v3.lua:319），毫髮無傷生效（持有者帶 a07_unscathed），package 擋得住致死，原作擋不住"},
-    "a07_strongest/r2/death/a07t_strongest/holder_dies": {"class": "b", "note": "census-v3 已移植英雄差異（同 a07_unscathed holder_dies）：大招也呼叫 a07w_cast（v3.lua:319），毫髮無傷生效（持有者帶 a07_unscathed），package 擋得住致死，原作擋不住"},
-    "a07_strongest/r3/death/a07t_strongest/holder_dies": {"class": "b", "note": "census-v3 已移植英雄差異（同 a07_unscathed holder_dies）：大招也呼叫 a07w_cast（v3.lua:319），毫髮無傷生效（持有者帶 a07_unscathed），package 擋得住致死，原作擋不住"},
-    "a07_strongest/r1/death/caster_dies_after_cast": {"class": "b", "note": "census-v3 已移植英雄差異（同 a07_unscathed holder_dies）：大招的 a07w_cast 讓毫髮無傷擋下致死，施法者沒死，狀態留著"},
-    "a07_strongest/r2/death/caster_dies_after_cast": {"class": "b", "note": "census-v3 已移植英雄差異（同 a07_unscathed holder_dies）：大招的 a07w_cast 讓毫髮無傷擋下致死，施法者沒死，狀態留著"},
-    "a07_strongest/r3/death/caster_dies_after_cast": {"class": "b", "note": "census-v3 已移植英雄差異（同 a07_unscathed holder_dies）：大招的 a07w_cast 讓毫髮無傷擋下致死，施法者沒死，狀態留著"},
     "a07_rouse_free/r1/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
     "a07_rouse_free/r2/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
     "a07_rouse_free/r3/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
     "a07_rouse_free/r4/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
-    "a07_rouse_free/r5/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"},
-    "b29_quake_axe/r1/magic_immune": {"class": "c", "note": "E223：b29e_armor_pulse 的 for_each 沒有 include_magic_immune，v3 規定略過魔免敵人；handler 仍把破甲套到魔免單位上（host 的魔免只擋控制、緩速、DoT、法力類）。IR 的 for_each 預設排除魔免，切到 IR 後應自然修好（c1），B 切 B29 時驗證"},
-    "b29_quake_axe/r2/magic_immune": {"class": "c", "note": "E223：b29e_armor_pulse 的 for_each 沒有 include_magic_immune，v3 規定略過魔免敵人；handler 仍把破甲套到魔免單位上（host 的魔免只擋控制、緩速、DoT、法力類）。IR 的 for_each 預設排除魔免，切到 IR 後應自然修好（c1），B 切 B29 時驗證"},
-    "b29_quake_axe/r3/magic_immune": {"class": "c", "note": "E223：b29e_armor_pulse 的 for_each 沒有 include_magic_immune，v3 規定略過魔免敵人；handler 仍把破甲套到魔免單位上（host 的魔免只擋控制、緩速、DoT、法力類）。IR 的 for_each 預設排除魔免，切到 IR 後應自然修好（c1），B 切 B29 時驗證"},
-    "b29_quake_axe/r4/magic_immune": {"class": "c", "note": "E223：b29e_armor_pulse 的 for_each 沒有 include_magic_immune，v3 規定略過魔免敵人；handler 仍把破甲套到魔免單位上（host 的魔免只擋控制、緩速、DoT、法力類）。IR 的 for_each 預設排除魔免，切到 IR 後應自然修好（c1），B 切 B29 時驗證"}
+    "a07_rouse_free/r5/visibility/invisible_caster": {"class": "b", "note": "census-v3 已移植英雄差異：A07 奮起在原作大招期間換成 0 法力的 A07D2（a07_rouse_free）；port 沒有這一招，改用退還法力"}
   }
 }

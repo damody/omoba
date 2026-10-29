@@ -14,10 +14,6 @@ return function(ctx)
       source_id = "B36",
       text = { zh_TW = { name = "直江兼續" }, en = { name = "Naoe Kanetsugu" } },
     },
-    unit_state = {
-      aphotic_shield_remaining = { type = "fixed", init = "0", reveal = "public", scope = "unit",
-        note = "原作 unit.AphoticShieldRemaining，存在被套盾的單位上；A04、A24、B08、C06、C12 與 item_the_shell_of_spirituality_kappa 讀寫同一個欄位（v3.1 同名同型別跨文件共用）。" },
-    },
     abilities = {
       -------------------------------------------------------------------------
       { id = "b36_naoe_seal", source_id = "B36W", slot = "Q", kind = "active", max_level = 4, tags = { "basic" },
@@ -135,9 +131,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "劃心為籬",
-            body = "為自身與周圍 {radius} 內的其他友方英雄（不含分身）各架起一面護盾，持續 {duration} 秒：受到的傷害降低 {damage_reduction}，並在受到傷害後回復該次傷害，直到累計回復 {absorb} 加上兼續當下法力 {mana_pct} 為止。若周圍沒有其他友方英雄，兼續額外獲得 {armor} 護甲，護盾耗盡時一併消失。" },
+            body = "為自身與周圍 {radius} 內的其他友方英雄（不含分身）各架起一面護盾，持續 {duration} 秒：受到的傷害降低 {damage_reduction}，並吸收受到的傷害，共可吸收 {absorb} 加上兼續當下法力 {mana_pct}。若周圍沒有其他友方英雄，兼續額外獲得 {armor} 護甲，護盾耗盡時一併消失。" },
           en = { name = "Heart Fence",
-            body = "Grants a shield to Kanetsugu and every other allied hero (illusions excluded) within {radius} for {duration} seconds: damage taken is reduced by {damage_reduction}, and each instance of damage taken is healed back afterwards, until a total of {absorb} plus {mana_pct} of Kanetsugu's current mana has been healed. If no other allied hero is nearby, Kanetsugu also gains +{armor} armor, which ends when his shield breaks." },
+            body = "Grants a shield to Kanetsugu and every other allied hero (illusions excluded) within {radius} for {duration} seconds: damage taken is reduced by {damage_reduction}, and the shield absorbs damage taken, up to {absorb} plus {mana_pct} of Kanetsugu's current mana. If no other allied hero is nearby, Kanetsugu also gains +{armor} armor, which ends when his shield breaks." },
         },
         target = { type = "none", aoe_radius = "$radius" },
         cast = { cast_point = "0", ignore_backswing = true },
@@ -145,29 +141,19 @@ return function(ctx)
         statuses = {
           { id = "b36e_shield", duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
-              zh_TW = { name = "劃心為籬", body = "受到的傷害降低 {damage_reduction}，並在受到傷害後回復該次傷害，直到累計回復 {absorb} 加上兼續施放時法力 {mana_pct} 為止；耗盡時消失。致命傷害仍會死亡。" },
-              en = { name = "Heart Fence", body = "Takes {damage_reduction} less damage and heals back each instance of damage taken, until a total of {absorb} plus {mana_pct} of Kanetsugu's mana at cast has been healed; ends when depleted. Lethal damage still kills." },
+              zh_TW = { name = "劃心為籬", body = "受到的傷害降低 {damage_reduction}，並吸收受到的傷害，共 {absorb} 加上兼續施放時法力 {mana_pct}；耗盡時消失。" },
+              en = { name = "Heart Fence", body = "Takes {damage_reduction} less damage and absorbs damage taken, up to {absorb} plus {mana_pct} of Kanetsugu's mana at cast; ends when depleted." },
             },
             reveal = "public", cue = "b36e_shield_fx",
             stats = { incoming_damage_pct = "-$damage_reduction" },
-            triggers = {
-              on_created = {
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining", value = "$absorb + caster.mana * $mana_pct" },
-              },
-              on_take_damage = {
-                { op = "let", name = "taken", value = "event.damage.final" },
-                { op = "set_health", to = "self", value = "self.hp + min(taken, state.aphotic_shield_remaining)" },
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining", value = "state.aphotic_shield_remaining - taken" },
-                { op = "if", cond = "state.aphotic_shield_remaining <= 0", actions = {
-                  { op = "clear_state", on = "self", var = "aphotic_shield_remaining" },
-                  { op = "remove_status", from = "self", status = "b36e_shield" },
-                  { op = "if", cond = "self == caster", actions = {
-                    { op = "remove_status", from = "self", status = "b36e_armor" },
-                  } },
+            -- FC-002／FC-032（D13）：結算前吸收（擋得住致死傷害），每個護盾自己的剩餘量（不再共用 AphoticShieldRemaining）
+            absorb = { amount = "$absorb + caster.mana * $mana_pct",
+              on_broken = {
+                { op = "if", cond = "self == caster", actions = {
+                  { op = "remove_status", from = "self", status = "b36e_armor" },
                 } },
-              },
-            },
-            notes = "原作 modifier_B36E：OnCreated 把 unit.AphoticShieldRemaining 設成護盾量（跨文件共用的 unit_state aphotic_shield_remaining）；OnTakeDamage 以 SetHealth 把該次傷害補回；沒寫 IsPurgable，暫定 basic。" },
+              } },
+            notes = "原作 modifier_B36E：OnCreated 把 unit.AphoticShieldRemaining 設成護盾量，OnTakeDamage 以 SetHealth 把該次傷害補回；修正後改成 absorb（耗盡時狀態連同減傷一起移除）。沒寫 IsPurgable，暫定 basic。" },
           { id = "b36e_armor", duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
               zh_TW = { name = "劃心為籬", body = "護甲 +{armor}；兼續的護盾耗盡時一併消失。" },
@@ -199,14 +185,14 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B36.lua:89-110",
-            text = "護盾不是吸收，而是在 OnTakeDamage（傷害已結算）之後以 SetHealth 把血補回：一次致死的傷害照樣打死目標，護盾擋不住。原意應是吸收傷害。資料照原作（受傷後 set_health）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B36.lua:85",
-            text = "剩餘量存在 unit.AphoticShieldRemaining，A04、A24、B08、C06、C12 與道具河童之殼也用同一個欄位：同一個單位身上同時有兩種護盾時互相覆寫剩餘量、兩邊都依它補血。資料照原作，用跨文件共用的 unit_state aphotic_shield_remaining（scope = unit；其他文件要用同名同型別才會真的共用）。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B36.lua:89-110",
+            text = "FC-032（D13 修正：改成 absorb，在傷害結算前吸收，擋得住致死傷害）。原作：護盾不是吸收，而是在 OnTakeDamage（傷害已結算）之後以 SetHealth 把血補回：一次致死的傷害照樣打死目標，護盾擋不住。原意應是吸收傷害。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B36.lua:85",
+            text = "FC-002（D13 修正：每個護盾用 absorb 自己的剩餘量，不再共用 AphoticShieldRemaining）。原作：剩餘量存在 unit.AphoticShieldRemaining，A04、A24、B08、C06、C12 與道具河童之殼也用同一個欄位：同一個單位身上同時有兩種護盾時互相覆寫剩餘量、兩邊都依它補血。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B36.lua:82",
             text = "護盾量讀的是兼續在 OnCreated 當下（已扣本次法力）的法力，不是最大法力；每個被套用的友軍各算一次，各自獨立。" },
-          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B36.lua:103-113",
-            text = "補血用 SetHealth，不算治療（不受減療、不觸發治療事件）；傷害超過剩餘量時只補剩餘量並移除護盾。減傷 25% 在護盾消失後也一併消失。" },
+          { policy = "note", ref = "vscripts/heroes/B_Unified/B36.lua:103-113",
+            text = "原作機制（FC-032 修正前）：補血用 SetHealth，不算治療（不受減療、不觸發治療事件）；傷害超過剩餘量時只補剩餘量並移除護盾。減傷 25% 在護盾消失後也一併消失。" },
           { policy = "note", ref = "npc/B_Unified/B36.txt:154-156",
             text = "選取用技能的目標設定：友方 HERO、旗標 0（不含魔免以外的特殊排除）。KV 的 %attack_damage 在 OnTakeDamage 推定為最終傷害（event.damage.final）。" },
         },

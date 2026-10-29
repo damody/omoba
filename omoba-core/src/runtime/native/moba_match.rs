@@ -689,6 +689,8 @@ pub struct MobaHeroSlot {
     /// Slot 0 trinket. Independent of inventory, abilities, and summoners.
     /// Omission stays unequipped until an authoritative loadout is installed.
     pub(crate) trinket: super::ward_world::WardRosterState,
+    /// v3 `unit_state` rows of scope `hero` (unit_var), kept from the last life for the next.
+    hero_vars: Vec<(String, serde_json::Value)>,
 }
 
 impl MobaHeroSlot {
@@ -815,6 +817,8 @@ pub struct MobaMatch {
     /// attackable or damageable. Every acquisition and damage gate (and the
     /// disclosed replica gate built from it) reads `current_match_target_attackable`.
     pub(crate) invulnerable_summons: std::collections::BTreeSet<(u32, i32)>,
+    /// Fallen map trees and their regrow times (E242).
+    pub(crate) trees: super::tree_cut::TreeCuts,
 }
 
 impl MobaMatch {
@@ -1487,6 +1491,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         gold: Gold(config.game_rules.map_or(0, |rules| rules.gold_starting.min(i32::MAX as u32) as i32)),
         summoners: summoner_loadouts.get(player_id).cloned().unwrap_or_default(),
         trinket: super::ward_world::WardRosterState::unavailable(),
+        hero_vars: Vec::new(),
     }).collect();
     let mut state = MobaMatch {
         base_structures: Vec::new(),
@@ -1527,6 +1532,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         summoner_catalog,
         ward_policies: BTreeMap::new(),
         invulnerable_summons: std::collections::BTreeSet::new(),
+        trees: Default::default(),
     };
     world.insert(state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
         .map(crate::runtime::brush_vision::BrushVisionRegions::from_map).unwrap_or_default());
@@ -1537,6 +1543,8 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         // occluders; legacy campaign worlds keep their descriptor resource.
         *world.write_resource::<VisionOccluderSet>() =
             crate::runtime::moba_map_layout::compiled_vision_occluders(map);
+        // Tree cut requests queue only where trees exist (E242).
+        if !map.trees().trees.is_empty() { world.insert(super::tree_cut::PendingTreeCuts::default()); }
     }
     world.write_resource::<crate::runtime::TeamVisibilityRuntime>().fog_geometry =
         state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
@@ -1766,6 +1774,8 @@ impl MobaMatch {
                 HeroCommandQueue { active: Some(HeroCommand::HoldPosition), queued: Vec::new() });
         }
         super::shop::bind_roster_shop_undo(world, player_id, entity);
+        let kept = std::mem::take(&mut self.heroes[index].hero_vars);
+        super::unit_var::restore(&mut world.write_resource::<crate::runtime::BuffStore>(), entity, &kept);
         self.heroes[index].entity = Some(entity);
         self.heroes[index].lethal_pending = false;
         self.heroes[index].recall = None;
@@ -1883,7 +1893,8 @@ impl MobaMatch {
         } else {
             vec![omoba_template_ids::MobaMinionConst {id:"single_lane_creep",count:self.config.creeps_per_wave,every:1,
                 hp:180,damage:24,attack_range:140,move_speed:240,attack_interval_ms:1000,first_wave:1,hp_per_wave:0,damage_per_wave:0,
-                armor:0,late_from_wave:0,late_every:0,lane_down_percent:100,first_barracks_percent:100,lane_counts:&[]}]
+                armor:0,late_from_wave:0,late_every:0,lane_down_percent:100,first_barracks_percent:100,lane_counts:&[],
+                wave_growth_offset:None}]
         };
         for team in 0..2 {
           for lane in 0..self.routes.len() {
@@ -2147,6 +2158,11 @@ fn apply_owner_scheme_inputs(world:&mut World,state:&mut MobaMatch,allow_movemen
 /// `DeltaTime` is positive: match elapsed does not advance, so absolute ward
 /// deadlines cannot absorb the paused span on resume. Existing worlds without
 /// this resource pass.
+impl MobaMatch {
+    /// The map trees currently down (E242).
+    pub fn fallen_trees(&self) -> std::collections::BTreeSet<u32> { self.trees.fallen() }
+}
+
 pub fn begin_moba_match_tick(world: &mut World) -> bool {
     if world.try_fetch::<MobaMatch>().is_some_and(|state|state.phase!=MobaMatchPhase::Playing) {
         super::recovery_channel::clear(world);
@@ -2225,6 +2241,11 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     #[cfg(feature = "kcp")]
     apply_recall_commands(world, &mut state, previous_elapsed, &direction_begins);
     emit_replica_delta(world, &state, true);
+    // Trees cut since the last active tick fall, and due ones regrow, before any movement (E242).
+    if let Some(map) = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name) {
+        let elapsed = state.elapsed;
+        super::tree_cut::tick(world, &mut state.trees, map, elapsed);
+    }
     for team in 0..state.heroes.len() {
         if state.heroes[team].entity.is_none() {
             state.heroes[team].hero.tick_cooldowns(dt);
@@ -2791,6 +2812,8 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                 slot.respawn_at = Some(state.elapsed + respawn);
                 objective_buffs::retire_hero(&mut state,retired_player);
                 personal_buffs::retire_hero(&mut state,retired_player);
+                let kept = super::unit_var::persisting(&world.read_resource::<crate::runtime::BuffStore>(), entity);
+                if let Some(slot) = state.heroes.iter_mut().find(|s| s.player_id == retired_player) { slot.hero_vars = kept; }
                 world
                     .write_resource::<crate::runtime::BuffStore>()
                     .remove_all_for(entity);
@@ -3396,6 +3419,7 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     hash.update(format!("|minion-auras:{:?}",state.minion_aura_targets));
     hash.update(format!("|tower-plating:{:?}:{:?}",state.config.tower_plating_rules,state.tower_plates));
     hash.update(format!("|base-structures:{:?}|barracks-fall:{:?}",state.base_structures,state.barracks_fall));
+    if !state.trees.is_empty() { hash.update(format!("|trees:{:?}",state.trees)); }
     if let Some(material) = surrender::hash_material(&state) { hash.update(material); }
     // The step envelope must keep the current wire tick even while no gameplay
     // can execute. It is not a running gameplay clock during pause/terminal.
@@ -3826,6 +3850,7 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
             gold: Gold(0),
             summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
             trinket: super::ward_world::WardRosterState::unavailable(),
+            hero_vars: Vec::new(),
         }],
         towers: [None, None],
         lane_towers: Vec::new(),
@@ -3853,6 +3878,7 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
         summoner_catalog: None,
         ward_policies: BTreeMap::new(),
         invulnerable_summons: std::collections::BTreeSet::new(),
+        trees: Default::default(),
     }
 }
 
@@ -3911,6 +3937,7 @@ pub(crate) fn communication_roster_match(
         summoner_catalog: None,
         ward_policies: BTreeMap::new(),
         invulnerable_summons: std::collections::BTreeSet::new(),
+        trees: Default::default(),
     }
 }
 
@@ -3937,6 +3964,7 @@ pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Enti
         gold: Gold(0),
         summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
         trinket: super::ward_world::WardRosterState::unavailable(),
+        hero_vars: Vec::new(),
     }
 }
 
@@ -4000,6 +4028,10 @@ impl MobaMatch {
                 magic_resistance: 0,
                 tags: &[],
                 original_reward: None,
+                unit: "current_match_attackability",
+                leader_offset: (0, 0),
+                unit_respawn: false,
+                side: None,
         });
         camp.entity = Some(entity);
         camp.returning = returning;

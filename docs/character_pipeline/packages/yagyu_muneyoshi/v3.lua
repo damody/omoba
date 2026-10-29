@@ -274,11 +274,14 @@ return function(ctx)
           on_cast = {
             { op = "cue", id = "c24t_voice", at = "caster" },
             { op = "set_health", to = "caster", value = "min(caster.hp + caster.max_hp * $regen, caster.max_hp)" },
-            { op = "set_health", to = "target", value = "min(target.hp + target.max_hp * $regen, target.max_hp)" },
+            -- FC-091（D13）：對自己施放時只回復、只加攻一次
+            { op = "if", cond = "target ~= caster", actions = {
+              { op = "set_health", to = "target", value = "min(target.hp + target.max_hp * $regen, target.max_hp)" },
+            } },
             { op = "teleport", who = "caster", to = "position(target)", find_clear_space = false },
             { op = "apply_status", status = "c24t_phased", to = "caster" },
             { op = "apply_status", status = "c24t_resolve", to = "caster" },
-            { op = "apply_status", status = "c24t_resolve", to = "target" },
+            { op = "if", cond = "target ~= caster", actions = { { op = "apply_status", status = "c24t_resolve", to = "target" } } },
             { op = "cue", id = "c24t_burst", at = "target" },
           },
         },
@@ -286,8 +289,8 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "npc/C_Neutral/C24.txt:270-332",
             text = "KV 沒寫 AbilityCastRange，施法距離無限（全圖）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C24.lua:108-114",
-            text = "DOTA_UNIT_TARGET_TEAM_FRIENDLY 可以對自己施放：那時自己回復兩次（第二次以第一次之後的生命計算），並拿到兩份 +80 基礎攻擊（MULTIPLE），比對隊友施放更強，與「對友方英雄施展」的設計不符。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C24.lua:108-114",
+            text = "FC-091（D13 修正：對自己施放時只回復一次、只拿一份 +80）。原作：DOTA_UNIT_TARGET_TEAM_FRIENDLY 可以對自己施放：那時自己回復兩次（第二次以第一次之後的生命計算），並拿到兩份 +80 基礎攻擊（MULTIPLE），比對隊友施放更強，與「對友方英雄施展」的設計不符。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C24.lua:108-111",
             text = "回復用 SetHealth，不算治療（不吃增療、減療，也不受目標魔免影響）；傳送用 SetAbsOrigin（不找空地），以 0.5 秒相位避免卡位。原作說明寫「受傷的友方英雄」，實際滿血也能施放。" },
           { policy = "note", ref = "npc/C_Neutral/C24.txt:299,314",

@@ -49,7 +49,7 @@ fn fixture_with_mana(ability_factory:extern "C" fn()->RVec<AbilityDefFFI>,mana_e
     let mut world=StateInitializer::setup_campaign_ecs_world(&StateInitializer::create_thread_pool());
     world.insert(TowerTemplateRegistry::default());
     let mut registry=ScriptRegistry::new();
-    registry.insert_manifest(Manifest {units,abilities:ability_factory,dev_reload_runtime_lua_content:crate::dev_reload_runtime_lua_content}.leak_into_prefix());
+    registry.insert_manifest(Manifest {units,abilities:ability_factory,dev_reload_runtime_lua_content:crate::dev_reload_runtime_lua_content,module_id:crate::module_id,content_marker:crate::content_marker,content_identity:crate::content_identity}.leak_into_prefix());
     populate_ability_registry(&mut world,&registry);world.insert(registry);
     setup_single_lane_match(&mut world,SingleLaneConfig {warmup:Fixed64::ZERO,mana_enabled,base_recovery_enabled:false,
         heroes:["training_ranger".into(),"training_luminary".into()],

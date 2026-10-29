@@ -50,8 +50,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "high",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_mountain_scroll.lua:10",
-            text = "系列清單寫 item_recipe_the_art_of_war 而不是 item_the_art_of_war：使用山之卷不會讓孫子兵法全本進冷卻。資料照原作，mountain_family 不含全本。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_mountain_scroll.lua:10",
+            text = "FC-065（D13 修正：全本改成 mountain_family 的成員，使用山之卷也讓全本進冷卻）。原作：系列清單寫 item_recipe_the_art_of_war 而不是 item_the_art_of_war：使用山之卷不會讓孫子兵法全本進冷卻。" },
           { policy = "no_effect", ref = "vscripts/items/Addon_Items/item_mountain_scroll.lua:16",
             text = "套用 modifier_art_of_war_mountain_chapter，但山之卷 KV 沒有定義這個 modifier，沒有效果。" },
           { policy = "no_effect", ref = "npc/npc_items_custom_load.txt:1196-1201",
@@ -231,10 +231,11 @@ return function(ctx)
           cast = { immediate = true },
           cost = { mana = "$mana_cost", cooldown = "$cooldown",
             cooldown_groups = {
+              -- FC-064～068（D13）：全本與各卷共用冷卻（原作清單寫成 item_recipe_the_art_of_war，各卷不會帶全本進冷卻）
               { group = "forest_family" },
-              { group = "fire_family", role = "trigger_only", length = "caster" },
-              { group = "wind_family", role = "trigger_only", length = "caster" },
-              { group = "mountain_family", role = "trigger_only", length = "caster" },
+              { group = "fire_family", length = "caster" },
+              { group = "wind_family", length = "caster" },
+              { group = "mountain_family", length = "caster" },
             } },
           events = {
             on_cast = {
@@ -315,8 +316,8 @@ return function(ctx)
             text = "全本的山之章鎖定是 15 秒，說明寫 30 秒。鎖定以名稱判斷，與山之卷共用 mountain_scroll_lockout（以 tag 判斷）。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_wind_scroll.lua:28-49",
             text = "風之卷計時 time += 0.25 但每 0.2 秒執行，實際 32 次約 6.4 秒，不是 8 秒；中心固定在施放位置，不跟著施放者。" },
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_fire_scroll.lua:32",
-            text = "火、風、山、林四個系列清單都寫 item_recipe_the_art_of_war 而不是 item_the_art_of_war；使用各卷不會讓全本進冷卻。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_fire_scroll.lua:32",
+            text = "FC-064（D13 修正：全本對火、風、山三組改成一般成員，與各卷雙向共用冷卻）。原作：火、風、山、林四個系列清單都寫 item_recipe_the_art_of_war 而不是 item_the_art_of_war；使用各卷不會讓全本進冷卻。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_forest_scroll.lua:189-190",
             text = "弓箭手兩次都呼叫 SetBaseDamageMin，攻擊上限沒有加成，下限（70＋30）反而高於上限 75。模板照實記錄。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_forest_scroll.lua:131-201",
@@ -890,9 +891,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "葵紋越前康繼．禦神刀",
-            body = "被動：非主屬性的兩項屬性再 +{secondary_stat}。受到英雄的傷害後，若生命值不高於 {hp_threshold}，清除自身的攻擊與移動緩速，並在 {active_duration} 秒內把每次受到的傷害補回生命；觸發的那一下不補回，致死傷害無法抵擋。" },
+            body = "被動：非主屬性的兩項屬性再 +{secondary_stat}。受到英雄的傷害後，若生命值不高於 {hp_threshold}，清除自身的攻擊與移動緩速，並在 {active_duration} 秒內免疫所有傷害；觸發的那一下照常結算。" },
           en = { name = "Divine Katana, Echizen-Yasutsugu",
-            body = "Passive: your two non-primary attributes gain another +{secondary_stat}. After taking damage from a hero while at or below {hp_threshold} health, removes your attack and movement slows, and for {active_duration} seconds every instance of damage taken is restored as health; the triggering hit is not restored and lethal damage is not prevented." },
+            body = "Passive: your two non-primary attributes gain another +{secondary_stat}. After taking damage from a hero while at or below {hp_threshold} health, removes your attack and movement slows, and you are immune to all damage for {active_duration} seconds; the triggering hit still lands." },
         },
         shop = { cost = "$cost", category = "secret_shop" },
         active = { kind = "passive", target = { type = "none" }, cost = { cooldown = "$cooldown" } },
@@ -928,17 +929,17 @@ return function(ctx)
             notes = "原作 modifier_sword_of_invincible_passive（Passive 1、IsPurgable 0）；OnEquip 先移除，再由 0.5 秒計時器在冷卻就緒時重套。" },
           { id = "invincible_shield", duration = "$active_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public", cue = "a07w5_shield",
-            text = { zh_TW = { name = "禦神術", body = "每次受到的傷害都會補回生命；致死傷害無法抵擋。" }, en = { name = "Divine Art", body = "Every instance of damage taken is restored as health; lethal damage is not prevented." } },
+            text = { zh_TW = { name = "禦神術", body = "免疫所有傷害。" }, en = { name = "Divine Art", body = "Immune to all damage." } },
             triggers = {
-              on_take_damage = { { op = "if", cond = "alive(self)", actions = {
-                { op = "set_health", to = "self", value = "self.hp + event.damage.final" } } } },
+              -- FC-037（D13）：減免前取消傷害（原作 OnTakeDamage 事後 SetHealth 補回，致死傷害擋不住）
+              on_take_damage_pre = { { op = "modify_damage", cancel = true } },
             },
-            notes = "原作 modifier_sword_of_invincible：OnTakeDamage SetHealth(hp + %attack_damage)，事後補回，不受治療增減影響。" },
+            notes = "原作 modifier_sword_of_invincible：OnTakeDamage SetHealth(hp + %attack_damage)，事後補回；FC-037 修正為真正的傷害免疫。" },
         },
         coverage = "expressible", confidence = "high",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_the_great_sword_of_invincible.lua:82",
-            text = "以 SetHealth(hp + 傷害) 事後補回，致死傷害無法擋；說明的「免疫所有傷害」只是近似。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_the_great_sword_of_invincible.lua:82",
+            text = "FC-037（D13 修正：主動期間在減免前取消所有傷害，致死傷害也擋得住）。原作：以 SetHealth(hp + 傷害) 事後補回，致死傷害無法擋；說明的「免疫所有傷害」只是近似。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_the_great_sword_of_invincible.lua:46-56",
             text = "只清空自訂緩速表（dummy.lua Slow() 系統），Dota 原生緩速 modifier 不受影響；說明的「驅散」未呼叫 Purge（46-52 行被註解）。v3 移除帶 tag slow 的狀態：原作走 Slow() 的緩速在 M2 都要帶這個 tag，原生緩速則不帶。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_the_great_sword_of_invincible.lua:7,31",

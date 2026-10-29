@@ -38,9 +38,10 @@ return function(ctx)
     moba_communication = ctx.include("templates/moba_communication.lua"),
     moba_economy = ctx.include("templates/moba_economy.lua"),
     moba_maps = ctx.include("templates/moba_maps.lua"),
-    -- The original nobu.vmap layout (generated, E187): the nobu map in moba_maps.lua reads it; its
-    -- camps and trees wait for nobu-map-comparison.md §5.4 / §5.5.
+    -- The original nobu.vmap layout (generated, E187): the nobu map in moba_maps.lua reads it,
+    -- with its camps (§5.4, the neutral types of nobu_neutrals.lua) and trees (§5.5).
     nobu_map = ctx.include("templates/nobu_map.lua"),
+    nobu_neutrals = ctx.include("templates/nobu_neutrals.lua"),
     -- What one point of strength, agility and intelligence is worth (Dota 2 rules).
     attribute_rules = ctx.include("templates/attribute_rules.lua"),
     -- Game mode rules of the original game: gold, experience, respawn, acquisition (history_nobu).

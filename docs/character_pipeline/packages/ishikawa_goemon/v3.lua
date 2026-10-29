@@ -14,10 +14,6 @@ return function(ctx)
       text = { zh_TW = { name = "石川五右衛門" }, en = { name = "Ishikawa Goemon" } },
       auto_learn = { "c06_murder_and_loot" },
     },
-    unit_state = {
-      aphotic_shield_remaining = { type = "fixed", init = "0", reveal = "public", scope = "unit",
-        note = "原作 unit.AphoticShieldRemaining（vscripts/heroes/C_Neutral/C06.lua:168）：與 A04、A24、B08、B36、C12、河童之殼共用同一個單位欄位（登錄表 v3-shared-registry.lua）" },
-    },
     abilities = {
       -------------------------------------------------------------------------
       { id = "c06_quick_hands", source_id = "C06W", slot = "Q", kind = "active", max_level = 4, tags = { "basic" },
@@ -122,8 +118,8 @@ return function(ctx)
             text = "說明文字寫偷 23/32/41/50 金，KV 實際是 14/18/24/28（resource/addon_tchinese.txt:3374）。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C06.lua:54-55",
             text = "施法者無條件拿到 money，目標扣款不檢查餘額（SetGold 低於 0 時由引擎夾到 0），所以對沒錢的目標也能憑空生錢。" },
-          { policy = "fix_candidate", ref = "vscripts/amhc_library/amhc.lua:509-522",
-            text = "GivePlayerGold_UnReliable 以 GetGold（總額）+gold 寫回不可靠金錢，若有可靠金錢會被重複計入。屬規則層經濟。" },
+          { policy = "fixed", ref = "vscripts/amhc_library/amhc.lua:509-522",
+            text = "FC-129（D13 修正：本作只有一個金錢池，給錢、扣錢只加減金額（取整數、扣不成負），原作把可靠金錢重複計入的情況不會發生（host script_gold，工作線 B））。原作：GivePlayerGold_UnReliable 以 GetGold（總額）+gold 寫回不可靠金錢，若有可靠金錢會被重複計入。屬規則層經濟。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C06.lua:75",
             text = "被換掉的道具實例被 RemoveItem 銷毀；換回時以 AddItemByName 建新實例，充能、冷卻、購買時間全部重置（LUA:125-126）。" },
           { policy = "note", ref = "vscripts/heroes/C_Neutral/C06.lua:46-47",
@@ -182,27 +178,13 @@ return function(ctx)
         statuses = {
           { id = "c06r_shield", duration = "$shield_time", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
-              zh_TW = { name = "闊氣護盾", body = "受到傷害後把生命補回，直到吸收量用完；擋不住致命傷害。" },
-              en = { name = "Lavish Shield", body = "Restores health lost to damage until the absorb amount is used up; does not prevent lethal damage." },
+              zh_TW = { name = "闊氣護盾", body = "吸收受到的傷害，直到吸收量用完。" },
+              en = { name = "Lavish Shield", body = "Absorbs damage taken until the absorb amount is used up." },
             },
             reveal = "public", cue = "a07w5_shield", remove_on = { "death" },
-            triggers = {
-              on_created = {
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining",
-                  value = "$absorb_base + caster.gold * $gold_ratio + select(has_status(caster, c06t_mark), $mark_shield, 0)" },
-              },
-              -- 原作在傷害結算後補血（SetHealth），不是吸收
-              on_take_damage = {
-                { op = "let", name = "taken", value = "event.damage.final" },
-                { op = "set_health", to = "self", value = "self.hp + min(taken, state.aphotic_shield_remaining)" },
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining", value = "state.aphotic_shield_remaining - taken" },
-                { op = "if", cond = "state.aphotic_shield_remaining <= 0", actions = {
-                  { op = "clear_state", on = "self", var = "aphotic_shield_remaining" },
-                  { op = "remove_status", from = "self", status = "c06r_shield" },
-                } },
-              },
-            },
-            notes = "原作 modifier_C06R（IsBuff 1，IsPurgable 未宣告，照 C01 慣例視為一般驅散）；剩餘量在 unit.AphoticShieldRemaining，即跨文件共用的 unit_state aphotic_shield_remaining。" },
+            -- FC-003／FC-033（D13）：結算前吸收，護盾自己的剩餘量
+            absorb = { amount = "$absorb_base + caster.gold * $gold_ratio + select(has_status(caster, c06t_mark), $mark_shield, 0)" },
+            notes = "原作 modifier_C06R（IsBuff 1，IsPurgable 未宣告，照 C01 慣例視為一般驅散）；原作剩餘量在共用的 unit.AphoticShieldRemaining、受傷後 SetHealth 補回，修正後改成 absorb。" },
         },
         events = {
           on_cast = {
@@ -211,10 +193,10 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "high",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C06.lua:186-192",
-            text = "護盾是在 OnTakeDamage（傷害已扣血）後 SetHealth 補回，致死傷害仍會殺死英雄。資料照原作寫 on_take_damage + set_health；若修正，改用 absorb = { amount = vars 初值, types = { physical, magical, pure } }。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C06.lua:168",
-            text = "剩餘量存在 unit.AphoticShieldRemaining，與 A04、A24、B08、B36、C12、河童之殼共用同名欄位，兩種護盾同時存在會互相覆寫、重複補血（vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:246-283）。資料照原作，用跨文件共用的 unit_state aphotic_shield_remaining（scope = unit）；耗盡時清空（原作設為 nil）。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C06.lua:186-192",
+            text = "FC-033（D13 修正：改用 absorb，在傷害結算前吸收所有類型的傷害）。原作：護盾是在 OnTakeDamage（傷害已扣血）後 SetHealth 補回，致死傷害仍會殺死英雄。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C06.lua:168",
+            text = "FC-003（D13 修正：absorb 用護盾自己的剩餘量，不再共用 AphoticShieldRemaining）。原作：剩餘量存在 unit.AphoticShieldRemaining，與 A04、A24、B08、B36、C12、河童之殼共用同名欄位，兩種護盾同時存在會互相覆寫、重複補血（vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:246-283）。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C06.lua:213-227",
             text = "被動的豪奪 +50 加在上限之後，最高 200；分身先歸零再判斷 +50，分身若帶 modifier_C06T 仍會打 50。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C06.lua:210-232",
@@ -262,8 +244,8 @@ return function(ctx)
             text = "on_kill 不分敵我，反補友方小兵也拿 4 金。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C06.lua:6",
             text = "C06 分身擊殺英雄只拿 4 金（走 else 分支）。金錢給的是分身所屬玩家（self.hero）。" },
-          { policy = "fix_candidate", ref = "vscripts/amhc_library/amhc.lua:509-522",
-            text = "金錢走 GivePlayerGold_UnReliable，有可靠金錢重複計入問題。屬規則層經濟。" },
+          { policy = "fixed", ref = "vscripts/amhc_library/amhc.lua:509-522",
+            text = "FC-130（D13 修正：本作只有一個金錢池，給錢、扣錢只加減金額（取整數、扣不成負），原作把可靠金錢重複計入的情況不會發生（host script_gold，工作線 B））。原作：金錢走 GivePlayerGold_UnReliable，有可靠金錢重複計入問題。屬規則層經濟。" },
           { policy = "note", ref = "npc/C_Neutral/C06.txt:43",
             text = "modifier_C06D IsHidden 0，會顯示在狀態列（passive.visibility = buff）。" },
         },
@@ -338,8 +320,8 @@ return function(ctx)
             text = "金袋位置以施法者為中心（不是目標），C06 自己最容易撿回；其他人撿到也拿 50。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C06.lua:256",
             text = "條件是嚴格 > 50：對方剛好 50 金時不會掉；每袋都是重新檢查。" },
-          { policy = "fix_candidate", ref = "vscripts/amhc_library/amhc.lua:509-522",
-            text = "扣款走 GivePlayerGold_UnReliable(-50)，有可靠金錢重複計入問題；因為先檢查 > 50 再扣，不會產生負值。屬規則層經濟。" },
+          { policy = "fixed", ref = "vscripts/amhc_library/amhc.lua:509-522",
+            text = "FC-131（D13 修正：本作只有一個金錢池，給錢、扣錢只加減金額（取整數、扣不成負），原作把可靠金錢重複計入的情況不會發生（host script_gold，工作線 B））。原作：扣款走 GivePlayerGold_UnReliable(-50)，有可靠金錢重複計入問題；因為先檢查 > 50 再扣，不會產生負值。屬規則層經濟。" },
           { policy = "as_source", ref = "npc/C_Neutral/C06.txt:352-360",
             text = "KV ApplyModifier 的 Target 區塊只有 Center=TARGET 與 Flags、沒有 Radius，推定只作用在目標本人並無視魔免與無敵；屬 Dota datadriven 隱含行為，未實測。" },
           { policy = "as_source", ref = "npc/C_Neutral/C06.txt:337-366",

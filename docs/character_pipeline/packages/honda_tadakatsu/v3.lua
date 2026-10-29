@@ -63,12 +63,13 @@ return function(ctx)
           { id = "a07w_convert", runtime_id = "a07_unscathed:{caster}", text = { zh_TW = { name = "毫髮無傷", body = "受到的所有傷害無效；魔法傷害的 {absorb_magical} 與純粹傷害的 {absorb_pure} 回復為生命。" }, en = { name = "Unscathed", body = "All damage taken is negated; {absorb_magical} of magic damage and {absorb_pure} of pure damage taken heals instead." } }, duration = "$duration", stacking = "refresh", dispel = "none", visibility = "buff",
             reveal = "public",
             triggers = {
-              on_take_damage = {
-                filter = "is_enemy(event.attacker, self) and not event.damage.is_physical and not event.damage.lethal",
+              -- FC-025（D13）：結算前取消敵方的非物理傷害（致死的一擊也擋得住），再回復原始傷害的 30%
+              on_take_damage_pre = {
+                filter = "is_enemy(event.attacker, self) and not event.damage.is_physical",
                 actions = {
                   -- census 單一 $convert（30%）＝ kit 依類型分開的 absorb_magical／absorb_pure（都是 30%）
-                  { op = "set_health", to = "self",
-                    value = "self.hp + event.damage.final + event.damage.raw * select(event.damage.is_magical, $absorb_magical, $absorb_pure)" },
+                  { op = "heal", to = "self", amount = "event.damage.raw * select(event.damage.is_magical, $absorb_magical, $absorb_pure)" },
+                  { op = "modify_damage", cancel = true },
                 } },
             },
             notes = "原作 modifier_A07W（Lua modifier，沒寫 IsPurgable → none）：每 0.1 秒記下目前生命，OnTakeDamage 對敵方造成的非物理傷害以 SetHealth(記下的生命 + original_damage × 0.3) 回寫並更新記錄。" },
@@ -87,8 +88,8 @@ return function(ctx)
             text = "原作 OnTakeDamage 在每次受到敵方傷害後把生命設回受傷前，非物理傷害另回復原始傷害的一部分；現行以結算後的傷害計算回復。" },
           { policy = "note", ref = "npc/A_Oda/A07.txt:167",
             text = "持續與耗魔依 history_nobu；nobugg 版本不同（持續 1/2/3/4、耗魔 100～160），不採用。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:27-46",
-            text = "回寫生命在 OnTakeDamage（受傷之後）：一次就致死的魔法或純粹傷害照樣擊殺本多忠勝，毫髮無傷擋不住。資料照原作（filter 排除 lethal）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:27-46",
+            text = "FC-025（D13 修正：結算前取消敵方的非物理傷害再回復原始傷害的 30%，致死的一擊也擋得住）。原作：回寫生命在 OnTakeDamage（受傷之後）：一次就致死的魔法或純粹傷害照樣擊殺本多忠勝，毫髮無傷擋不住。" },
           { policy = "design_intent", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:17-25",
             text = "原作的「受傷前生命」是每 0.1 秒取樣一次的快照，取樣後到受傷前的治療與回復會被回寫抹掉；資料照設計意圖寫成「這次傷害之前的生命」（self.hp + event.damage.final）。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:29-36",
@@ -184,15 +185,31 @@ return function(ctx)
             body = "Passive: each attack has a {crit_chance} chance to critically strike for {crit_multiplier} damage; after {misses} attacks in a row without a critical strike, the next one always crits. Learning or upgrading it also raises Rouse's level." },
         },
         target = { type = "none" },
+        unit_state = {
+          a07r_noncrit = { type = "int", init = "0", reveal = "team", scope = "hero",
+            note = "原作 caster.A07R_noncrit_count：連續沒有暴擊的次數（FC-046 修正後真的累計）" },
+        },
         passive = {
           reveal = "public",
           triggers = {
             on_attack_windup = { actions = {
               -- census crit_chance "3100/101"（pct，30.693%）＝ kit expr (30 + 1) / (100 + 1)：運算式裡都讀到比例 31/101
-              { op = "chance", p = "$crit_chance", actions = {
-                { op = "modify_attack", crit_multiplier = "$crit_multiplier" },
-                { op = "cue", id = "a07r_crit", at = "event.target" },
-              } },
+              -- FC-046（D13）：連續 misses 次沒有暴擊，下一次必定暴擊（原作計數寫成 0 or count，永遠歸零）
+              { op = "if", cond = "state.a07r_noncrit >= $misses",
+                actions = {
+                  { op = "modify_attack", crit_multiplier = "$crit_multiplier" },
+                  { op = "cue", id = "a07r_crit", at = "event.target" },
+                  { op = "set_state", var = "a07r_noncrit", value = "0" },
+                },
+                otherwise = {
+                  { op = "chance", p = "$crit_chance",
+                    actions = {
+                      { op = "modify_attack", crit_multiplier = "$crit_multiplier" },
+                      { op = "cue", id = "a07r_crit", at = "event.target" },
+                      { op = "set_state", var = "a07r_noncrit", value = "0" },
+                    },
+                    otherwise = { { op = "set_state", var = "a07r_noncrit", value = "state.a07r_noncrit + 1" } } },
+                } },
             } },
           },
         },
@@ -213,8 +230,8 @@ return function(ctx)
             text = "KV 的 CleaveRadius／CleavePercent 只出現在已註解的 CleaveAttack，不做濺射。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:236",
             text = "A07R_Learn_Skill 每次升級碎擊槍時把奮起設為碎擊槍等級 +1；現行奮起依碎擊槍 rank 標記選攻速。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:87-93",
-            text = "保底計數寫成 caster.A07R_noncrit_count = 0 or caster.A07R_noncrit_count，Lua 裡永遠得 0：每次攻擊都先歸零，「超過 4 次沒暴擊必中」永不成立，實際是單純的 31/101 機率。資料照原作（沒有保底）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:87-93",
+            text = "FC-046（D13 修正：連續 4 次沒有暴擊，下一次必定暴擊（unit_state a07r_noncrit））。原作：保底計數寫成 caster.A07R_noncrit_count = 0 or caster.A07R_noncrit_count，Lua 裡永遠得 0：每次攻擊都先歸零，「超過 4 次沒暴擊必中」永不成立，實際是單純的 31/101 機率。" },
           { policy = "port_adaptation", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:81-121",
             text = "現行 handler 有保底：連續四次沒暴擊後第五次必中（照註解意圖），而且在每次普攻命中時決定下一次是否暴擊（以 PreattackCriticalStrike 交給 host）；原作在攻擊開始時決定當次，沒有保底。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A07_Honda_Tadakatsu.lua:88-97",

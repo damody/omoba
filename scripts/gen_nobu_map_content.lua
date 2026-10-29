@@ -156,7 +156,8 @@ function M.build(src)
     map.shops[#map.shops + 1] = { kind = SHOPTYPE[s.shoptype] or tostring(s.shoptype), position = { s.position[1], s.position[2] },
       outside_bounds = (not inside) or nil, source = s.source }
   end
-  for i, t in ipairs(g.trees) do map.trees[i] = { t[1], t[2] } end
+  -- E187 §5.5: each tree keeps its model kind and variant for the frontend (presentation only).
+  for i, t in ipairs(g.trees) do map.trees[i] = { t[1], t[2], t[3], t[4] } end
   map.terrain = rectangles(g)
   map.terrain_source = g.source .. " gridnav (" .. g.gridnav.width .. "x" .. g.gridnav.height .. ", cell " .. g.gridnav.cell .. ")"
   return map

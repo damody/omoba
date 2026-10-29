@@ -81,7 +81,8 @@ fn lua_generated_four_skill_hero_casts_and_settles_in_headless_match() {
         })
         .build();
 
-    assert_eq!(registry.ability_count(), crate::abilities().len());
+    // get_manifest() also registers the hero DLL crates (hero_dlls.lua and test_only heroes).
+    assert_eq!(registry.ability_count(), (crate::get_manifest().abilities())().len());
     for ability_id in ability_ids {
         assert!(registry.get_ability(ability_id).is_some(), "{ability_id}");
     }

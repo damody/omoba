@@ -138,15 +138,14 @@ return function(ctx)
             { op = "let", name = "start", value = "position(caster)" },
             { op = "let", name = "dir", value = "caster.forward" },
             { op = "let", name = "len", value = "distance(caster, point)" },
-            { op = "if", cond = "len >= $path_radius * $two", actions = {
-              { op = "let", name = "n", value = "floor(len / ($path_radius * $two)) + 1" },
-              { op = "let", name = "step", value = "len / (n - 1)" },
-              { op = "repeat", count = "n", as = "i", actions = {
-                { op = "for_each",
-                  select = { from = "offset(start, dir, i * step)", shape = "circle", radius = "$hit_radius",
-                    team = "enemy", types = { "all" }, where = "not it.is_building" },
-                  actions = { { op = "apply_status", status = "b32e_stun", to = "it" } } },
-              } },
+            -- FC-056（D13）：至少兩個判定點（起點與終點），短距離不再除以零
+            { op = "let", name = "n", value = "max(floor(len / ($path_radius * $two)) + 1, $two)" },
+            { op = "let", name = "step", value = "len / (n - 1)" },
+            { op = "repeat", count = "n", as = "i", actions = {
+              { op = "for_each",
+                select = { from = "offset(start, dir, i * step)", shape = "circle", radius = "$hit_radius",
+                  team = "enemy", types = { "all" }, where = "not it.is_building" },
+                actions = { { op = "apply_status", status = "b32e_stun", to = "it" } } },
             } },
             { op = "dodge_projectiles", of = "caster", kind = "tracking", from_team = "any" },
             { op = "teleport", who = "caster", to = "point", find_clear_space = false },
@@ -158,8 +157,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B32_Uesugi_Kenshin.lua:73-78",
-            text = "冰道判定點數 n = floor(距離 / 300) + 1、間距 = 距離 / (n − 1)：距離小於 300 時 n = 1，間距除以零（0/0 或無限大），唯一的判定點座標變成 NaN，冰道完全打不到人；只剩落點 200 的判定。資料照原作在距離不足時跳過冰道。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B32_Uesugi_Kenshin.lua:73-78",
+            text = "FC-056（D13 修正：判定點數至少兩個（起點與終點），短距離也有冰道判定）。原作：冰道判定點數 n = floor(距離 / 300) + 1、間距 = 距離 / (n − 1)：距離小於 300 時 n = 1，間距除以零（0/0 或無限大），唯一的判定點座標變成 NaN，冰道完全打不到人；只剩落點 200 的判定。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B32_Uesugi_Kenshin.lua:37-96",
             text = "冰道（照 A04E 的寫法）以施放當下的位置為起點、沿面向延伸到目標點的距離；判定圓半徑 150√2，選 DOTA_UNIT_TARGET_ALL、FLAG_NONE（不含魔免，含隱形與迷霧中的單位），排除建築。同一單位落在多個圓或又在落點內時只刷新暈眩，不會重複受傷（OnCreated 不重跑，推定，同 A04）。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B32_Uesugi_Kenshin.lua:169-191",

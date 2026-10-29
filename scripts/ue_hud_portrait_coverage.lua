@@ -7,25 +7,44 @@ M.PLACEHOLDER_FILE='hero-placeholder-v1.png'
 -- Original nobu art (scripts/import_nobu_icons.lua): own files nobu-<kind>-<id>.png listed in
 -- nobu-icons-v1.json. It stands in where no art was assigned by hand (authored rows always win)
 -- and replaces the shared placeholder; rows marked source='nobu' are derived like placeholders.
+-- Generated art (scripts/generated_art.lua, gen-<kind>-<id>.png in generated-art-v1.json) fills the
+-- ids nobu has no original for, the same way, with source='generated'.
 M.NOBU_INDEX='nobu-icons-v1.json'
+M.GENERATED_INDEX='generated-art-v1.json'
 local NOBU_KIND={hero='portrait',ability='ability',item='item'}
-function M.nobu_file(kind,id)return 'nobu-'..(kind=='portrait'and'hero'or kind)..'-'..id..'.png' end
--- index table -> {portrait={[id]=file}, ability={[id]=file}}; nil index -> empty
-function M.nobu_files(index)
- local out={portrait={},ability={},item={}}
- if not index then return out end
- assert(index.schema=='omoba.nobu-icons.v1'and type(index.entries)=='table','invalid nobu icon index')
- for _,row in ipairs(index.entries)do
-  local kind=NOBU_KIND[row.kind]
-  if kind and row.status=='original'then
-   assert(row.file==M.nobu_file(kind,row.id),'nobu icon file does not match its id: '..tostring(row.id))
-   out[kind][row.id]=row.file
+local SOURCE_PREFIX={nobu='nobu-',generated='gen-'}
+function M.art_file(source,kind,id)return assert(SOURCE_PREFIX[source],'unknown art source')..(kind=='portrait'and'hero'or kind)..'-'..id..'.png' end
+function M.nobu_file(kind,id)return M.art_file('nobu',kind,id) end
+local function derived_source(row)return row.source~=nil and SOURCE_PREFIX[row.source]~=nil end
+-- index table(s) -> {portrait={[id]=file}, ability=..., item=..., sources={[kind]={[id]='nobu'|'generated'}}};
+-- nil index -> empty. Original nobu art wins over generated art.
+function M.nobu_files(index,generated)
+ local out={portrait={},ability={},item={},sources={portrait={},ability={},item={}}}
+ if index then
+  assert(index.schema=='omoba.nobu-icons.v1'and type(index.entries)=='table','invalid nobu icon index')
+  for _,row in ipairs(index.entries)do
+   local kind=NOBU_KIND[row.kind]
+   if kind and row.status=='original'then
+    assert(row.file==M.nobu_file(kind,row.id),'nobu icon file does not match its id: '..tostring(row.id))
+    out[kind][row.id]=row.file;out.sources[kind][row.id]='nobu'
+   end
+  end
+ end
+ if generated then
+  assert(generated.schema=='omoba.generated-art.v1'and type(generated.entries)=='table','invalid generated art index')
+  for _,row in ipairs(generated.entries)do
+   local kind=NOBU_KIND[row.kind]
+   if kind then
+    assert(row.file==M.art_file('generated',kind,row.id),'generated art file does not match its id: '..tostring(row.id))
+    if not out[kind][row.id]then out[kind][row.id]=row.file;out.sources[kind][row.id]='generated' end
+   end
   end
  end
  return out
 end
-local function derived_row(kind,id,name,file,nobu_file)
- if nobu_file then return {kind=kind,id=id,displayName=name,file=nobu_file,columns=1,rows=1,tile=0,source='nobu'}end
+local function art_source(nobu,kind,id)return nobu and nobu.sources and nobu.sources[kind][id]or'nobu' end
+local function derived_row(kind,id,name,file,nobu_file,source)
+ if nobu_file then return {kind=kind,id=id,displayName=name,file=nobu_file,columns=1,rows=1,tile=0,source=source or'nobu'}end
  return {kind=kind,id=id,displayName=name,file=file,columns=1,rows=1,tile=0,placeholder=true}
 end
 function M.placeholder_entries(heroes,manifest,nobu)
@@ -34,7 +53,7 @@ function M.placeholder_entries(heroes,manifest,nobu)
  for _,row in ipairs(manifest.entries)do if row.kind=='portrait'then present[row.id]=true end end
  for _,hero in ipairs(heroes)do
   if not present[hero.id]then
-   manifest.entries[#manifest.entries+1]=derived_row('portrait',hero.id,hero.display_name,M.PLACEHOLDER_FILE,files[hero.id])
+   manifest.entries[#manifest.entries+1]=derived_row('portrait',hero.id,hero.display_name,M.PLACEHOLDER_FILE,files[hero.id],art_source(nobu,'portrait',hero.id))
    added[#added+1]=hero.id;present[hero.id]=true
   end
  end
@@ -46,13 +65,13 @@ function M.upgrade_placeholders(manifest,nobu)
  for _,row in ipairs(manifest.entries)do
   local file=row.placeholder==true and nobu and nobu[row.kind]and nobu[row.kind][row.id]
   if file then
-   row.file=file;row.placeholder=nil;row.source='nobu'
+   row.file=file;row.placeholder=nil;row.source=art_source(nobu,row.kind,row.id)
    upgraded[#upgraded+1]=row.kind..':'..row.id
   end
  end
  return upgraded
 end
-local function derived(row)return row.placeholder==true or row.source=='nobu' end
+local function derived(row)return row.placeholder==true or derived_source(row) end
 -- Items the shop sells (not test_only engine fixtures) without art get their nobu art as a raw
 -- PNG row; imported (resource) item rows are authored and stay. Returns the added ids.
 function M.item_entries(items,manifest,nobu)
@@ -61,7 +80,7 @@ function M.item_entries(items,manifest,nobu)
  for _,row in ipairs(manifest.entries)do if row.kind=='item'then present[row.id]=true end end
  for _,item in ipairs(items)do
   if not item.test_only and not present[item.id]and files[item.id]then
-   manifest.entries[#manifest.entries+1]={kind='item',id=item.id,displayName=item.name,file=files[item.id],columns=1,rows=1,tile=0,source='nobu'}
+   manifest.entries[#manifest.entries+1]={kind='item',id=item.id,displayName=item.name,file=files[item.id],columns=1,rows=1,tile=0,source=art_source(nobu,'item',item.id)}
    added[#added+1]=item.id;present[item.id]=true
   end
  end
@@ -73,7 +92,7 @@ function M.prune_items(items,manifest,nobu)
  local files=nobu and nobu.item or{}
  for _,item in ipairs(items)do if not item.test_only then sold[item.id]=true end end
  for _,row in ipairs(manifest.entries)do
-  if row.kind=='item'and row.source=='nobu'and not(sold[row.id]and files[row.id]==row.file)then removed[#removed+1]=row.id
+  if row.kind=='item'and derived_source(row)and not(sold[row.id]and files[row.id]==row.file)then removed[#removed+1]=row.id
   else kept[#kept+1]=row end
  end
  manifest.entries=kept
@@ -120,7 +139,7 @@ function M.validate(heroes,manifest,inspect)
    assert(row.file==M.PLACEHOLDER_FILE and row.columns==1 and row.rows==1 and row.tile==0,'invalid placeholder portrait: '..row.id)
   else
    assert(row.placeholder==nil,'invalid placeholder flag: '..row.id)
-   assert(row.source==nil or(row.source=='nobu'and row.file==M.nobu_file('portrait',row.id)and row.columns==1 and row.rows==1),'invalid nobu portrait: '..row.id)
+   assert(row.source==nil or(derived_source(row)and row.file==M.art_file(row.source,'portrait',row.id)and row.columns==1 and row.rows==1),'invalid nobu portrait: '..row.id)
    assert(not tiles[tile],'duplicate portrait tile: '..row.id);tiles[tile]=true
   end
   local image=inspect(row.file)
@@ -167,7 +186,7 @@ function M.ability_placeholder_entries(heroes,abilities,manifest,nobu)
  for _,row in ipairs(manifest.entries)do if row.kind=='ability'then present[row.id]=true end end
  for _,ability in ipairs(order)do
   if not present[ability]then
-   manifest.entries[#manifest.entries+1]=derived_row('ability',ability,names[ability],M.ABILITY_PLACEHOLDER_FILE,files[ability])
+   manifest.entries[#manifest.entries+1]=derived_row('ability',ability,names[ability],M.ABILITY_PLACEHOLDER_FILE,files[ability],art_source(nobu,'ability',ability))
    added[#added+1]=ability;present[ability]=true
   end
  end
@@ -205,7 +224,7 @@ function M.validate_abilities(heroes,abilities,manifest,inspect)
    placeholders[#placeholders+1]=ability
   else
    assert(row.placeholder==nil,'invalid placeholder flag: '..ability)
-   assert(row.source==nil or(row.source=='nobu'and row.file==M.nobu_file('ability',ability)and row.resource==nil
+   assert(row.source==nil or(derived_source(row)and row.file==M.art_file(row.source,'ability',ability)and row.resource==nil
     and row.columns==1 and row.rows==1),'invalid nobu ability icon: '..ability)
    if row.resource~=nil then
     assert(row.resource==M.ABILITY_RESOURCE_ROOT..'/'..ability..'.'..ability and row.file==ability..'.png'

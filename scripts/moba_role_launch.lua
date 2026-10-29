@@ -31,6 +31,8 @@ function M.options(args)
     elseif key=='--interactive-selection' then options.interactive_selection=true
     elseif key=='--no-build' then options.no_build=true
     elseif key=='--debug-query' then options.debug_query=true
+    -- M3' ② dev only: the authority takes hero_hot_reload.lua requests (never a formal match).
+    elseif key=='--script-hot-reload' then options.script_hot_reload=true
     elseif key=='--local-player' then
       i=i+1
       local raw=assert(args[i],'--local-player requires a player ID')
@@ -558,7 +560,8 @@ function M.prepare(options,process)
     base_recovery_enabled=report.base_recovery_enabled,
     mana_enabled=report.mana_enabled,
     human_count=#report.humans,bot_count=#report.bot_player_ids,clients={},human_heroes={},
-    base_content={dll=base_content.dll,profile=base_content.profile,sha256=base_content.sha256,manifest=base_content.manifest}}
+    base_content={dll=base_content.dll,profile=base_content.profile,sha256=base_content.sha256,manifest=base_content.manifest,
+      script_modules=base_content.modules,script_modules_hash=base_content.set_hash}}
   for _,player in ipairs(value.players) do
     if player.bot==false then
       plan.human_heroes[#plan.human_heroes+1]={player_id=player.player_id,hero=player.hero}
@@ -570,6 +573,7 @@ function M.prepare(options,process)
     OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0',OMB_LUA_CONTENT_ROOT='',OMB_STORY_DATA_DIR='',RUST_LOG='info'}
   -- Unfiltered authority queries for local debug tools (omb-mcp); off unless asked.
   if options.debug_query then env.OMB_DEBUG_QUERY='1' end
+  if options.script_hot_reload then env.OMB_SCRIPT_HOT_DIR=path.join(output,'artifacts','scripts-hot') end
   -- Replayable record of every accepted input (E086): server/accepted-inputs.jsonl.
   if options.accepted_inputs then env.OMOBA_ACCEPTED_INPUTS=path.absolute(options.accepted_inputs,b.root) end
   for key,value in pairs(worker_budget.env) do env[key]=value end
@@ -591,6 +595,8 @@ function M.prepare(options,process)
       OM_PLAYER_ID=id,OM_PLAYER_NAME=name,OM_STORY=report.story,
       OMB_LUA_CONTENT='0',OMB_LUA_HOT_RELOAD='0',OMB_LUA_CONTENT_ROOT='',OMB_STORY_DATA_DIR='',
       OM_PRESENTATION_ADDRESS=address,OMFX_PRESENTATION_ADDR=address,
+      -- M3': the run's whole script DLL set, not the plugin's lone base_content copy.
+      OMB_SCRIPTS_DIR=scripts,
       OMB_PLAYER_ID=id,OMB_TEAM_ID=team,OMB_PLAYER_NAME=name},args={
       path.join(b.root,'omfue','om.uproject'),'/Game/Map/Main','-game','-om-networked',
       '-om-presentation-only','-om-native-content','-om-player='..id,'-om-team='..team,

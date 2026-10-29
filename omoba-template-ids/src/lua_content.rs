@@ -192,6 +192,24 @@ pub(crate) struct MobaMapEntry {
     /// Clearance a lane segment keeps from terrain (E070 hero body check); absent: 100.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) lane_clearance: Option<i32>,
+    /// Trees (E187 §5.5, nobu_map.lua `trees`): each blocks movement as the square of half-extent
+    /// `tree_radius` around its point (Dota: a tree holds the 2x2 gridnav cells around its lattice
+    /// corner) and vision as a VisionTree circle of that radius. Absent: no trees.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) trees: Vec<MobaTreeEntry>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(crate) tree_radius: i32,
+}
+
+/// A tree of the map (E187 §5.5): its point, the original tree model kind (presentation only) and
+/// the model variant.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MobaTreeEntry {
+    pub(crate) position: [i32; 2],
+    pub(crate) kind: String,
+    #[serde(default)]
+    pub(crate) variant: u8,
 }
 
 fn default_wave_interval() -> u32 { 12 }
@@ -359,6 +377,10 @@ pub(crate) struct MobaMinionEntry {
     /// spawn `count`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) lane_counts: BTreeMap<String, u32>,
+    /// Optional growth by the map's wave counter (E187: the original infantry counter A_count): a
+    /// spawn on wave w grows w + offset times instead of by this group's own spawn count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) wave_growth_offset: Option<i32>,
 }
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -439,6 +461,23 @@ pub(crate) struct MobaJungleEntry {
     /// plays by the original rules (game_rules); without them it is unused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) original_reward: Option<MobaOriginalRewardEntry>,
+    /// Unit template (presentation identity) of the leader body (E187 §5.4, the original neutral
+    /// type); absent: the camp id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) unit: Option<String>,
+    /// Leader home relative to `position` (E187 §5.4: `position` is the camp center, every body
+    /// stands at its own vmap point); absent: the leader stands at `position`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) leader_offset: Option<[i32; 2]>,
+    /// Each body comes back `respawn_seconds` after its own death at its own home (E187 §5.4,
+    /// eventforkill.lua:388-437 / 467-512 respawn every neutral unit by itself, 120 s after its own death); false: the camp
+    /// respawns as a whole once every body is down.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) unit_respawn: bool,
+    /// The side whose jungle this camp is (E187 §5.4): jungle bots of a map with sided camps farm
+    /// their own side's camps; absent: shared (corner camps, river, bosses).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) side: Option<MobaTeamEntry>,
 }
 
 /// Leader HP / attack added per respawn (E187).
@@ -556,6 +595,18 @@ pub(crate) struct MobaJungleMemberEntry {
     pub(crate) damage: i32,
     pub(crate) gold: u32,
     pub(crate) xp: u32,
+    /// The member's own movement speed, attack range, exact attack interval, armor and magic
+    /// resistance (E187 §5.4: a camp mixes original neutral types); absent: the leader's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) move_speed: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) attack_range: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) attack_interval_ms: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) armor: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) magic_resistance: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -675,7 +726,35 @@ fn camp_home_positions(camp:&MobaJungleEntry)->Vec<[i32;2]> {
             out.push(home);collect(&node.death_children,home,out);}
     }
     let mut out=vec![camp.position];collect(&camp.death_children,camp.position,&mut out);
-    collect(&camp.members,camp.position,&mut out);out
+    collect(&camp.members,camp.position,&mut out);
+    // E187 §5.4: a leader away from the camp center stands at its own home.
+    if let Some([x,y])=camp.leader_offset {out.push([camp.position[0]+x,camp.position[1]+y]);}
+    out
+}
+
+/// E187 §5.4 camp fields: leader template and offset, per-unit respawn and the members' own stats.
+fn validate_camp_units(camp:&MobaJungleEntry)->Result<(),String> {
+    let bad=||Err(format!("invalid camp unit, leader offset, unit respawn or member stats '{}'",camp.id));
+    let radius=i64::from(camp.leash_radius)-20;
+    let inside=|o:[i32;2]|o.iter().all(|v|(-500..=500).contains(v))
+        && o.iter().map(|v|i64::from(*v)*i64::from(*v)).sum::<i64>()<=radius*radius;
+    if camp.unit.as_deref().is_some_and(|unit|!valid_id(unit))
+        || camp.leader_offset.is_some_and(|o|o==[0,0] || !inside(o)
+            || camp.members.iter().any(|m|m.offset==o)) {return bad();}
+    // A body that respawns by itself has no split children and is no objective or timed boss.
+    if camp.unit_respawn && (!camp.death_children.is_empty() || camp.members.iter().any(|m|!m.death_children.is_empty())
+        || camp.objective_buff.is_some() || camp.personal_buff.is_some() || !camp.additional_objective_buffs.is_empty()
+        || camp.original_reward.is_some() || camp.first_spawn_seconds!=0 || camp.respawn_growth.is_some()) {return bad();}
+    fn stats_ok(nodes:&[MobaJungleMemberEntry],leash:i32)->bool {
+        nodes.iter().all(|m|m.move_speed.is_none_or(|v|(1..=2000).contains(&v))
+            && m.attack_range.is_none_or(|v|(1..=1000).contains(&v) && v<leash)
+            && m.attack_interval_ms.is_none_or(|v|(100..=10_000).contains(&v))
+            && m.armor.is_none_or(|v|(0..=1000).contains(&v))
+            && m.magic_resistance.is_none_or(|v|(0..=100).contains(&v))
+            && stats_ok(&m.death_children,leash))
+    }
+    if !stats_ok(&camp.members,camp.leash_radius) || !stats_ok(&camp.death_children,camp.leash_radius) {return bad();}
+    Ok(())
 }
 
 fn validate_camp_descendants(camp:&MobaJungleEntry)->Result<(),String> {
@@ -902,6 +981,12 @@ fn validate_moba_map_layout(map: &MobaMapEntry) -> Result<(), String> {
     if map.shops.len() > 16 || map.shops.iter().any(|shop| !point_ok(shop.position))
         || (map.shops.is_empty() && map.shop_radius != 0)
         || (!map.shops.is_empty() && !(1..=5000).contains(&map.shop_radius)) { return bad("shops"); }
+    // Trees (E187 §5.5): up to 4096, a radius only with trees, points inside the bounds.
+    if map.trees.len() > 4096 || map.trees.is_empty() != (map.tree_radius == 0)
+        || (!map.trees.is_empty() && !(1..=256).contains(&map.tree_radius))
+        || map.trees.iter().any(|tree| !point_ok(tree.position) || !valid_id(&tree.kind) || tree.variant > 15) {
+        return bad("trees");
+    }
     Ok(())
 }
 
@@ -1010,6 +1095,7 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                 return Err(format!("invalid camp group/reset '{}'",camp.id));
             }
             validate_camp_descendants(camp)?;
+            validate_camp_units(camp)?;
             if !valid_id(&camp.id) || !camps.insert(&camp.id)
                 || camp.position.iter().any(|v| !(-100_000..=100_000).contains(v))
                 || !(1..=100_000).contains(&camp.hp) || !(1..=10_000).contains(&camp.damage)
@@ -1041,6 +1127,7 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                     || late.from_wave<=minion.first_wave.unwrap_or(minion.every) || late.from_wave>10_000)
                 || !(1..=1000).contains(&minion.lane_down_percent)
                 || !(1..=1000).contains(&minion.first_barracks_percent)
+                || minion.wave_growth_offset.is_some_and(|offset| !(-8..=8).contains(&offset))
                 || minion.lane_counts.iter().any(|(lane,count)|!(1..=8).contains(count)
                     || !map.lanes.iter().any(|entry|&entry.id==lane)) {
                 return Err(format!("invalid minion '{}' in '{}'",minion.id,map.id));
@@ -1138,6 +1225,14 @@ pub(crate) fn validate_moba_maps(maps: &[MobaMapEntry]) -> Result<(), String> {
                 || terrain.min[0]>=terrain.max[0] || terrain.min[1]>=terrain.max[1] {
                 return Err(format!("invalid MOBA terrain '{}' in '{}'",terrain.id,map.id));
             }
+        }
+        // Trees block movement like terrain (E187 §5.5): the same spawn, lane and camp checks.
+        let tree_squares = map.trees.iter().enumerate().map(|(index, tree)| {
+            let [x, y] = tree.position;
+            MobaTerrainEntry { id: format!("tree {index}"), min: [x - map.tree_radius, y - map.tree_radius],
+                max: [x + map.tree_radius, y + map.tree_radius] }
+        });
+        for terrain in map.terrain.iter().cloned().chain(tree_squares) {
             let polygon=[p(terrain.min),p([terrain.max[0],terrain.min[1]]),p(terrain.max),p([terrain.min[0],terrain.max[1]])];
             for &spawn in &hero_spawns {
                 if omoba_sim::terrain::swept_circle_hits_polygon(spawn,spawn,Fixed64::from_i32(20),&polygon) {
@@ -3608,7 +3703,46 @@ end
         for boss in source["bosses"].as_array().unwrap() {
             assert!(nobu.jungle_camps.iter().any(|c|c.position==xy(&boss["position"]) && c.tags==vec!["boss".to_string()]));
         }
-        assert_eq!(nobu.jungle_camps.len(),2);
+        // Camps (§5.4): the two bosses and the 24 original camps. Every body stands at its vmap point
+        // with the KV of its neutral type (nobu_neutrals.lua) and respawns by itself after 120 s.
+        assert_eq!(nobu.jungle_camps.len(),26);
+        let neutrals=&content.manifest_value["nobu_neutrals"];
+        let int=|v:&serde_json::Value|v.as_i64().unwrap();
+        let mean=|row:&serde_json::Value|{let sum=int(&row["damage_min"])+int(&row["damage_max"]);let half=sum/2;
+            if sum%2==1 && half%2==1 {half+1} else {half}};
+        let add=|a:[i32;2],b:[i32;2]|[a[0]+b[0],a[1]+b[1]];
+        let mut sides=[0,0,0];let mut bodies_total=0;
+        for source_camp in source["neutral_camps"].as_array().unwrap() {
+            let id=source_camp["id"].as_str().unwrap();
+            let camp=nobu.jungle_camps.iter().find(|c|c.id==id).unwrap_or_else(||panic!("camp {id}"));
+            let center=xy(&source_camp["center"]);
+            assert_eq!(camp.position,center,"{id}");
+            assert!(camp.unit_respawn && camp.respawn_seconds==120 && camp.leash_radius==1000 && camp.tags.is_empty(),"{id}");
+            sides[camp.side.map_or(2,|side|side.side() as usize)]+=1;
+            let mut bodies=vec![(camp.unit.clone().unwrap(),add(center,camp.leader_offset.unwrap()),
+                [i64::from(camp.hp),i64::from(camp.damage),i64::from(camp.gold),i64::from(camp.xp),i64::from(camp.move_speed),
+                 i64::from(camp.attack_range),i64::from(camp.attack_interval_ms.unwrap()),i64::from(camp.armor),i64::from(camp.magic_resistance)])];
+            for m in &camp.members {
+                bodies.push((m.id.clone(),add(center,m.offset),[i64::from(m.hp),i64::from(m.damage),i64::from(m.gold),i64::from(m.xp),
+                    i64::from(m.move_speed.unwrap()),i64::from(m.attack_range.unwrap()),i64::from(m.attack_interval_ms.unwrap()),
+                    i64::from(m.armor.unwrap()),i64::from(m.magic_resistance.unwrap())]));
+            }
+            let mut want:Vec<_>=source_camp["units"].as_array().unwrap().iter().map(|u| {
+                let row=&neutrals[u["unit"].as_str().unwrap()];
+                (row["id"].as_str().unwrap().to_string(),xy(&u["position"]),[int(&row["hp"]),mean(row),int(&row["gold"]),int(&row["xp"]),
+                    int(&row["move_speed"]),int(&row["attack_range"]),int(&row["attack_rate_ms"]),int(&row["armor"]),int(&row["magic_resistance"])])
+            }).collect();
+            bodies.sort();want.sort();assert_eq!(bodies,want,"{id}");
+            bodies_total+=bodies.len();
+            // The leader is the camp's strongest body.
+            assert!(camp.members.iter().all(|m|m.hp<=camp.hp),"{id}");
+        }
+        assert_eq!((sides,bodies_total),([11,11,2],68),"eleven camps a side, the two corner camps shared; 68 units");
+        // Trees (§5.5): every tree of the template at its point with its model kind and variant.
+        let trees:Vec<_>=source["trees"].as_array().unwrap().iter().map(|t|MobaTreeEntry {position:xy(t),
+            kind:t[2].as_str().unwrap().into(),variant:t[3].as_u64().unwrap() as u8}).collect();
+        assert_eq!((trees.len(),nobu.tree_radius),(1564,64));
+        assert_eq!(nobu.trees,trees);
         // The standard map's original values; the intermediate soldier camp level is x1.3.
         assert_eq!(nobu.structure_stats,standard.structure_stats);
         assert_eq!((nobu.tower_hp,nobu.base_hp,nobu.first_wave_seconds,nobu.wave_interval_seconds,nobu.minion_time_growth,nobu.hero_xp_scale),
@@ -3624,13 +3758,66 @@ end
         // Every other map keeps its compiled JSON: none of the new fields is serialized.
         for map in maps.iter().filter(|m|m.id!="nobu") {
             let value=serde_json::to_value(map).unwrap();
-            for key in ["bounds","world_bounds","minimap_bounds","towers","barracks","general_towers","bases","fountains","hero_spawns","shops","shop_radius","lane_clearance"] {
+            for key in ["bounds","world_bounds","minimap_bounds","towers","barracks","general_towers","bases","fountains","hero_spawns","shops","shop_radius","lane_clearance","trees","tree_radius"] {
                 assert!(value.get(key).is_none(),"{} {key}",map.id);
+            }
+            // E187 §5.4: no camp or member serializes the new camp fields.
+            for camp in value["jungle_camps"].as_array().unwrap() {
+                for key in ["unit","leader_offset","unit_respawn","side"] {assert!(camp.get(key).is_none(),"{} {key}",map.id);}
+                for member in camp["members"].as_array().unwrap() {
+                    for key in ["move_speed","attack_range","attack_interval_ms","armor","magic_resistance"] {
+                        assert!(member.get(key).is_none(),"{} member {key}",map.id);
+                    }
+                }
             }
             assert!(value["lanes"].as_array().unwrap().iter().all(|lane|lane.get("team").is_none()));
             assert!(value["minion_wave"].as_array().unwrap().iter().all(|m|m.get("first_barracks_percent").is_none()));
             assert!(value["base_structures"].get("general_guard_radius").is_none());
         }
+    }
+    #[test]
+    fn camp_units_member_stats_unit_respawn_and_trees_are_validated() {
+        // E187 §5.4 / §5.5: the optional camp fields and the trees are bounded and consistent.
+        use super::*;
+        let root=PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("scripts/lua_data");
+        let nobu=load_content(root).unwrap().manifest.moba_maps.into_iter().find(|m|m.id=="nobu").unwrap();
+        validate_moba_maps(&[nobu.clone()]).unwrap();
+        let camp=nobu.jungle_camps.iter().position(|c|c.unit_respawn && c.members.len()>=2).unwrap();
+        for case in 0..17 {
+            let mut bad=nobu.clone();let c=&mut bad.jungle_camps[camp];
+            match case {
+                // Leader template and offset: a bad id, the center, beyond the leash, on a member.
+                0=>c.unit=Some("BAD".into()),
+                1=>c.leader_offset=Some([0,0]),
+                2=>c.leader_offset=Some([990,0]),
+                3=>c.leader_offset=Some(c.members[0].offset),
+                // Member stats out of range.
+                4=>c.members[0].move_speed=Some(0),
+                5=>c.members[0].attack_range=Some(c.leash_radius),
+                6=>c.members[0].attack_interval_ms=Some(99),
+                7=>c.members[0].armor=Some(-1),
+                8=>c.members[0].magic_resistance=Some(101),
+                // A body respawning by itself is no timed boss, has no growth and no split children.
+                9=>c.first_spawn_seconds=10,
+                10=>c.respawn_growth=Some(MobaCampGrowthEntry {hp:1,damage:0}),
+                11=>{let m=c.members[0].clone();c.members[0].death_children=vec![MobaJungleMemberEntry {offset:[5,5],..m}];},
+                // Trees: no radius, too many, a bad kind, a bad variant, one on a lane point.
+                12=>bad.tree_radius=0,
+                13=>{let t=bad.trees[0].clone();bad.trees=vec![t;4097];},
+                14=>bad.trees[0].kind="Bad Kind".into(),
+                15=>bad.trees[0].variant=16,
+                _=>{let [x,y]=bad.lanes[1].waypoints[1];bad.trees[0].position=[x,y];},
+            }
+            assert!(validate_moba_maps(&[bad]).is_err(),"case {case}");
+        }
+        // A tree on a camp body is caught like terrain.
+        let mut walled=nobu.clone();let home=camp_home_positions(&walled.jungle_camps[camp])[1];walled.trees[0].position=home;
+        assert!(validate_moba_maps(&[walled]).unwrap_err().contains("blocks"));
+        // A radius without trees, and unknown fields, are rejected.
+        let mut bare=nobu.clone();bare.trees.clear();assert!(validate_moba_maps(&[bare]).is_err());
+        assert!(serde_json::from_value::<MobaTreeEntry>(serde_json::json!({"position":[0,0],"kind":"pine","radius":3})).is_err());
+        assert!(serde_json::from_value::<MobaJungleMemberEntry>(serde_json::json!(
+            {"id":"a","offset":[1,0],"hp":1,"damage":1,"gold":0,"xp":0,"level":1})).is_err());
     }
     #[test]
     fn per_team_lanes_explicit_structures_team_points_shops_and_bounds_are_validated() {

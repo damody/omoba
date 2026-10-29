@@ -33,7 +33,7 @@ fn empty_frame(tick: u64, sequence: u64, revision: u64) -> TeamTickFrame {
         step: Some(Step::default()),
         post_step: Some(PostStep::default()),
         padding: Vec::new(),
-        authoritative_mode: None, combat_preferences: None,
+        authoritative_mode: None, combat_preferences: None, script_module_swaps: Vec::new(),
     }
 }
 
@@ -118,7 +118,7 @@ fn visibility_resolution_schedules_then_commits_a_fresh_reveal() {
         entities: Arc::from([entity.clone()]),
         vision_sources: Arc::from([source]),
         brush_regions: Vec::new().into(),
-        vision_occluders: Arc::from([]),
+        vision_occluders: Vec::new().into(),
     };
     assert!(state.resolve(&at_10, 1).is_empty());
     let at_11 = WaveBReadView {
@@ -126,7 +126,7 @@ fn visibility_resolution_schedules_then_commits_a_fresh_reveal() {
         entities: Arc::from([entity]),
         vision_sources: at_10.vision_sources.clone(),
         brush_regions: Vec::new().into(),
-        vision_occluders: Arc::from([]),
+        vision_occluders: Vec::new().into(),
     };
     assert_eq!(
         state.resolve(&at_11, 1),

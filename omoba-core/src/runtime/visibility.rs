@@ -11,8 +11,8 @@ use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::runtime::native::comp::{
-    line_of_sight, LosResult, RememberDisposition, ReplicationScopeKind, VisibilityOverrideKind,
-    VisionOccluder,
+    IndexedVisionOccluders, LineOfSight, LosResult, RememberDisposition, ReplicationScopeKind,
+    VisibilityOverrideKind, VisionOccluder,
 };
 use crate::runtime::{OrderedFact, OrderedOutput, StableOutputError};
 use specs::{Join, World, WorldExt};
@@ -345,13 +345,15 @@ pub struct CommittedVisionSource {
 
 /// Immutable, stable-sorted Wave B copy of the validated map occluder.
 pub type CommittedVisionOccluder = VisionOccluder;
+/// The committed occluder list with its broad phase (E187 §5.5: the nobu map's trees).
+pub type CommittedVisionOccluders = IndexedVisionOccluders;
 
 #[derive(Clone, Debug)]
 pub struct WaveBReadView {
     pub tick: u64,
     pub entities: Arc<[CommittedEntityView]>,
     pub vision_sources: Arc<[CommittedVisionSource]>,
-    pub vision_occluders: Arc<[CommittedVisionOccluder]>,
+    pub vision_occluders: CommittedVisionOccluders,
     pub brush_regions: crate::runtime::brush_vision::BrushVisionRegions,
 }
 
@@ -575,7 +577,7 @@ pub(crate) fn entity_visible_with_brush(
     entity: &CommittedEntityView,
     team: u32,
     sources: &[CommittedVisionSource],
-    occluders: &[CommittedVisionOccluder],
+    occluders: &(impl LineOfSight + ?Sized),
     brushes: &crate::runtime::brush_vision::BrushVisionRegions,
 ) -> bool {
     // Deny rules have absolute precedence.
@@ -607,7 +609,7 @@ pub(crate) fn entity_visible_with_brush(
         delta.length_squared() <= source.radius * source.radius
             && (has_brush_reveal(entity,team)
                 || crate::runtime::brush_vision::brush_allows_vision(brushes, source.position, entity.position))
-            && line_of_sight(occluders, source.position, entity.position) == LosResult::Clear
+            && occluders.line_of_sight(source.position, entity.position) == LosResult::Clear
     })
 }
 
@@ -1287,8 +1289,8 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
         }));
     }
     vision_sources.sort_by_key(|source| (source.team, source.canonical_id));
-    let vision_occluders: Arc<[CommittedVisionOccluder]> =
-        world.read_resource::<VisionOccluderSet>().0.clone().into();
+    // E187 §5.5: the indexed form, built once per distinct occluder set.
+    let vision_occluders = world.read_resource::<VisionOccluderSet>().committed();
     WaveBReadView {
         tick,
         entities: committed_entities.into(),

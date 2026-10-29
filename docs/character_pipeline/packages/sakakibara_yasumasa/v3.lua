@@ -111,8 +111,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A08.lua:20-24",
-            text = "迴圈裡呼叫 ApplyDamage(damageTable)，但 damageTable 從未在本函式定義，讀到的是全域變數：若全域 damageTable 是 nil，ApplyDamage 報錯中斷迴圈，只有第一個單位被暈；若其他腳本（A03、A11、A20、B09、C14、C20、item_the_great_sword_of_disease……）先寫過全域 damageTable，每個被暈的單位都會再對『上一次的受害者』用『上一次的攻擊者、數值與類型』打一次傷害。這依賴全域狀態，無法以資料重現；KV 沒有傷害數值，資料照設計意圖寫成「範圍內全部暈眩、不造成傷害」。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A08.lua:20-24",
+            text = "FC-006（D13 修正：資料本來就照意圖寫：範圍內全暈、不造成傷害，維持現狀）。原作：迴圈裡呼叫 ApplyDamage(damageTable)，但 damageTable 從未在本函式定義，讀到的是全域變數：若全域 damageTable 是 nil，ApplyDamage 報錯中斷迴圈，只有第一個單位被暈；若其他腳本（A03、A11、A20、B09、C14、C20、item_the_great_sword_of_disease……）先寫過全域 damageTable，每個被暈的單位都會再對『上一次的受害者』用『上一次的攻擊者、數值與類型』打一次傷害。這依賴全域狀態，無法以資料重現；KV 沒有傷害數值，資料照設計意圖寫成「範圍內全部暈眩、不造成傷害」。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A08.lua:18",
             text = "搜尋半徑寫死 550，比 KV AOERadius 450 的指示圈大。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A08.lua:18",

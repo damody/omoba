@@ -199,11 +199,13 @@ return function(ctx)
             reveal = "public", cue = "b24e_target_overhead",
             triggers = {
               on_created = { { op = "damage", to = "self", type = "magical", amount = "$ping_damage", source = "caster", require_source_alive = false } },
+              -- FC-108（D13）：標記被驅散（或結束）時一併解除嘲諷
+              on_removed = { { op = "remove_status", from = "self", status = "b24e_taunt" } },
             },
             notes = "原作 modifier_B24E：IsPurgable、IsDebuff；ThinkInterval 0.1 但沒有 OnIntervalThink。" },
           { id = "b24e_taunt", duration = "$duration", stacking = "refresh", dispel = "none", visibility = "hidden",
-            reveal = "public", states = { "taunt" },
-            notes = "原作 SetForceAttackTarget(caster) 加攻擊命令；不是 modifier，驅散不會解除。" },
+            reveal = "public", states = { "taunt" }, remove_on = { "owner_death" },
+            notes = "原作 SetForceAttackTarget(caster) 加攻擊命令；不是 modifier，驅散不會解除。FC-108 修正後隨標記解除；FC-109 修正後秋山死亡時解除（remove_on owner_death）。" },
           { id = "b24e_strength", duration = "$str_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
               zh_TW = { name = "嘲諷", body = "力量 +{str}。" },
@@ -241,10 +243,10 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B24.lua:340-373",
-            text = "強制攻擊只在施放後 0.1 秒設定一次，之後到 duration+0.1 秒才解除，與可驅散的 modifier_B24E 無關：0.1 秒後驅散減益不會解除嘲諷。資料照原作（嘲諷狀態不可驅散）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B24.lua:341",
-            text = "0.1 秒時若秋山信友已死亡就完全不嘲諷；若之後才死亡，被嘲諷者仍被鎖定攻擊已死亡的他直到結束（只能站著）。原作未使用的 B24E 函式（:376-401）本來要在施法者死亡時移除嘲諷。資料照原作；taunt 旗標對已死亡來源的處理要由 M2 確認一致。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B24.lua:340-373",
+            text = "FC-108（D13 修正：標記被驅散時一併解除嘲諷）。原作：強制攻擊只在施放後 0.1 秒設定一次，之後到 duration+0.1 秒才解除，與可驅散的 modifier_B24E 無關：0.1 秒後驅散減益不會解除嘲諷。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B24.lua:341",
+            text = "FC-109（D13 修正：秋山死亡時解除嘲諷（remove_on owner_death））。原作：0.1 秒時若秋山信友已死亡就完全不嘲諷；若之後才死亡，被嘲諷者仍被鎖定攻擊已死亡的他直到結束（只能站著）。原作未使用的 B24E 函式（:376-401）本來要在施法者死亡時移除嘲諷。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B24.lua:325-334",
             text = "選取帶 MAGIC_IMMUNE_ENEMIES：魔免敵人也會被嘲諷（原作說明「無視魔免」）；1 點魔法傷害對魔免歸零。0.1 秒前減益被驅散的單位只收到 Stop 命令。" },
           { policy = "design_intent", ref = "vscripts/heroes/B_Unified/B24.lua:340,366",
@@ -385,7 +387,7 @@ return function(ctx)
                 lifetime = "$life_duration" },
             } },
             { op = "swap_abilities", on = "caster", from = "b24_earth_prison", to = "b24_shatter",
-              duration = "$life_duration", cooldown_policy = "reset" },
+              duration = "$life_duration", cooldown_policy = "continue" }, -- FC-088（D13）：換回時保留冷卻
             { op = "modify_cooldown", of = "caster", ability = "b24_shatter", mode = "set", amount = "$shatter_initial_cd" },
             { op = "for_each",
               select = { from = "caster", shape = "circle", radius = "$effect_range", team = "enemy", types = { "all" },
@@ -396,8 +398,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B24.lua:85-94",
-            text = "施放後 RemoveAbility(B24T)、6 秒後 AddAbility(B24T) 重新加回同等級的新技能，冷卻因此歸零：大絕實際上每 6 秒就能再放一次（只受法力限制），KV 冷卻 120/100/80 形同無效。資料照原作（swap_abilities 的 cooldown_policy = reset）。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B24.lua:85-94",
+            text = "FC-088（D13 修正：換回大絕時保留冷卻（cooldown_policy = continue），照 KV 冷卻）。原作：施放後 RemoveAbility(B24T)、6 秒後 AddAbility(B24T) 重新加回同等級的新技能，冷卻因此歸零：大絕實際上每 6 秒就能再放一次（只受法力限制），KV 冷卻 120/100/80 形同無效。" },
           { policy = "as_source", ref = "npc/B_Unified/B24.txt:392-411",
             text = "傷害由 KV ActOnTargets 結算，Types 含 DOTA_UNIT_TARGET_ALL：600 內的敵方建築也受 400/700/1000 魔法傷害；在 B24T 腳本之後執行。" },
           { policy = "as_source", ref = "npc/B_Unified/B24.txt:456-466",

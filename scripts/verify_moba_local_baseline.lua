@@ -35,7 +35,8 @@ local ok,err=xpcall(function()
   require('ue_binary_preflight').require_ready(ue_root,path.join(b.root,'omfue','om.uproject'))
   if arg[2]~='--reuse-built' then
   for _,build in ipairs({
-    {label='content',args={'build','--release','--manifest-path','scripts/Cargo.toml','-p','base_content','--features','compiled-content-only'}},
+    -- The script DLL set: base_content and every hero DLL (script_dlls.lua, M3').
+    {label='content',args=require('script_dlls').cargo_args({'build','--release','--manifest-path','scripts/Cargo.toml'},'compiled-content-only')},
     {label='server',args={'build','--release','--manifest-path','omb/Cargo.toml','-p','omobab','--features','compiled-content-only'}},
     {label='client-runtime',args={'build','--release','--manifest-path','omoba-client-runtime/Cargo.toml','--features','compiled-content-only'}},
   }) do command('build-'..build.label, 'cargo',build.args) end

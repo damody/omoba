@@ -75,6 +75,18 @@ pub mod state {
     pub const BLOCK_DISABLED: &str = "block_disabled";
     /// v3.1：只改尋路，不給飛行視野（rules::world::flying_for_pathing）。
     pub const FLYING_FOR_PATHING: &str = "flying_for_pathing";
+    /// 原作 MODIFIER_STATE_INVULNERABLE：不受任何傷害（rules::damage::admit），技能與道具的範圍選取、
+    /// 英雄的自動普攻都選不到（selector 要明確 `include_invulnerable` 才包含）。
+    pub const INVULNERABLE: &str = "invulnerable";
+    /// 原作 MODIFIER_STATE_COMMAND_RESTRICTED：擁有者的新指令一律拒絕（command_restriction.rs，BUFF 同名）。
+    pub const COMMAND_RESTRICTED: &str = "command_restricted";
+    /// 嘲諷／強制攻擊（taunt.rs）：payload `taunt_target` 指名對象；期間拒絕新指令。
+    pub const TAUNT: &str = "taunt";
+}
+
+/// 單位是否無敵（[`state::INVULNERABLE`]）。
+pub fn invulnerable(buffs: &crate::runtime::BuffStore, entity: specs::Entity) -> bool {
+    buffs.has(entity, state::INVULNERABLE)
 }
 
 /// v3 stat 名稱的執行期落點；不認得回傳 None。

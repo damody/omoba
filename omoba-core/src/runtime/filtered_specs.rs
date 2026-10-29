@@ -279,6 +279,10 @@ impl FilteredReplicaWorldBuilder {
                 *world.write_resource::<crate::runtime::BlockedRegions>() = regions;
             }
         }
+        // A map with trees: the fallen set the start's regions carry (E242).
+        let map = crate::runtime::moba_map_layout::decode(&start.public_metadata).ok().flatten();
+        let trees = crate::runtime::native::tree_cut::replica_trees(map, &world.read_resource::<crate::runtime::BlockedRegions>());
+        if let Some(trees) = trees { world.insert(trees); }
         // The shared dispatcher always schedules damage processing. Campaign
         // initialization normally installs this queue, but a filtered world
         // intentionally skips campaign/story spawning and must install the
@@ -1135,6 +1139,14 @@ impl SpecsDisclosedWorldStepper {
         &mut self, world: &mut DisclosedReplicaWorld,
         injections: &StepInjections, resource_allowlist: &BTreeSet<u32>, profiled: bool,
     ) -> Result<Option<crate::comp::fixed_step_detail::FixedStepDetail>, ReplicaRuntimeError> {
+        // M3' ② dev hot reload: the authority swapped these DLLs before stepping this tick.
+        for swap in &injections.script_module_swaps {
+            crate::scripting::loader::apply_hot_swap(&mut self.script_registry, &mut self.filtered.world, swap)
+                .map_err(|error| {
+                    log::error!("[scripting] replica hot swap failed: {error}");
+                    ReplicaRuntimeError::GameplayStep
+                })?;
+        }
         let preparation_started = profiled.then(Instant::now);
         let cpu_start = if profiled { crate::comp::process_cpu::process_cpu_ns() } else { None };
         let mut detail = profiled.then(crate::comp::fixed_step_detail::FixedStepDetail::default);
@@ -1175,6 +1187,12 @@ impl SpecsDisclosedWorldStepper {
             return Err(ReplicaRuntimeError::MalformedBaseline);
         }
         let fixed_raw = lane_delta.unwrap_or(fixed_raw);
+        // Tree changes disclosed for this step, before any movement (E242).
+        let hud: Vec<&[u8]> = injections.public_events.iter()
+            .filter(|event| event.event_kind == crate::runtime::FactKind::Hud as u32)
+            .map(|event| event.sanitized_payload.as_slice()).collect();
+        crate::runtime::native::tree_cut::apply_disclosed(&self.filtered.world, &hud)
+            .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
         let gameplay_active = fixed_raw != 0;
         self.filtered
             .world
@@ -1366,8 +1384,11 @@ impl SpecsDisclosedWorldStepper {
                 }
                 P::PreScriptOutcomes | P::PostScriptOutcomes => {
                     let mut sink = crate::runtime::RuntimeEventVecSink::default();
-                    crate::runtime::process_outcomes(&mut self.filtered.world, &mut sink)
-                        .map_err(|_| ReplicaRuntimeError::GameplayStep)?;
+                    // The damage pipeline reaches on_damage_pre hooks through the registry (damage_pre).
+                    self.filtered.world.insert(std::mem::take(&mut self.script_registry));
+                    let settled = crate::runtime::process_outcomes(&mut self.filtered.world, &mut sink);
+                    self.script_registry = self.filtered.world.remove::<ScriptRegistry>().unwrap_or_default();
+                    settled.map_err(|_| ReplicaRuntimeError::GameplayStep)?;
                 }
                 P::TowerUpgrades => {
                     crate::runtime::drain_pending_tower_upgrades(&mut self.filtered.world)

@@ -96,6 +96,8 @@ pub struct StepInjections {
     pub random_tapes: Vec<BoundedRandomTape>,
     pub external_effects: Vec<SanitizedExternalEffect>,
     pub combat_preferences: Option<game_proto::CombatPreferencesProjection>,
+    /// M3' ② dev hot reload: script DLLs to swap before this step (frame field 16).
+    pub script_module_swaps: Vec<game_proto::ScriptModuleSwap>,
 }
 
 pub trait DisclosedWorldStepper {
@@ -726,6 +728,7 @@ impl SelectiveReplicaRuntime {
             self.apply_pre_step(frame.pre_step.as_ref(), frame_revision)?;
             self.last_injections = self.inject_step(frame.step.as_ref())?;
             self.last_injections.combat_preferences = frame.combat_preferences.clone();
+            self.last_injections.script_module_swaps = frame.script_module_swaps.clone();
             self.combat_preferences = frame.combat_preferences.clone();
             self.owner_undo_hash_material = crate::runtime::shop_undo_wire::owner_undo_hash_material(
                 frame.step.as_ref().map(|step| step.public_events.as_slice()).unwrap_or(&[]),
@@ -1292,6 +1295,7 @@ impl SelectiveReplicaRuntime {
             random_tapes: step.random_tapes.clone(),
             external_effects: step.external_effects.clone(),
             combat_preferences: None,
+            script_module_swaps: Vec::new(),
         })
     }
 
@@ -1789,7 +1793,7 @@ mod replica_stage_tests {
             step: Some(Step::default()),
             post_step: Some(PostStep::default()),
             padding: Vec::new(),
-            authoritative_mode: None, combat_preferences: None,
+            authoritative_mode: None, combat_preferences: None, script_module_swaps: Vec::new(),
         }
         .encode_to_vec()
     }

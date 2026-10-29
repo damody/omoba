@@ -15,6 +15,10 @@ warnings = "allow"
 [dependencies]
 abi_stable = "0.11"
 omb-script-abi = { path = "../script-abi" }
+ability_kit = { path = "../ability_kit" }
+# M3' ④: B04's fire blast and flame swiftness run its generated Rust (the rest of B04 is still
+# hand-written here until M5 gives it its own DLL).
+hero_b04_impl = { path = "../heroes/date_masamune" }
 omoba-core = { path = "../../omoba-core", default-features = false }
 omoba-content-model = { path = "../../omoba-content-model" }
 omoba-template-ids = { path = "../../omoba-template-ids" }
@@ -25,10 +29,15 @@ vek = "0.17"
 
 [features]
 default = []
-runtime-lua-content = ["omoba-template-ids/runtime-lua-content"]
+runtime-lua-content = ["omoba-template-ids/runtime-lua-content", "ability_kit/runtime-lua-content"]
 compiled-content-only = ["omoba-template-ids/compiled-content-only", "omoba-core/compiled-content-only"]
 
 [dev-dependencies]
+hero_a02_impl = { path = "../heroes/inahime", features = ["legacy-handlers"] }
+hero_b01_impl = { path = "../heroes/saika_magoichi" }
+hero_c17_impl = { path = "../heroes/oichi" }
+# test_only (scripts/v3_test_heroes.lua): no DLL of its own yet; conformance runs its scenarios
+hero_a13_impl = { path = "../heroes/hattori_hanzo" }
 prost = "0.13"
 specs = { path = "../../specs" }
 omoba-core = { path = "../../omoba-core", default-features = false, features = ["kcp", "test-support"] }

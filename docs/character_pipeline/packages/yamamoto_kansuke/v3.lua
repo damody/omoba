@@ -60,9 +60,9 @@ return function(ctx)
                       { op = "damage", to = "it", type = "magical", amount = "$damage" },
                     } },
                     { op = "apply_status", status = "b12w_phased", to = "it" },
-                    -- 排除：自己、中立隊伍（team 4）、友方 IsCreature（npc_dota_creature 類別，推定＝召喚單位）
+                    -- 排除：自己、中立隊伍（team 4）；FC-074（D13）：友方只拉英雄，不移動友軍 NPC（小兵、召喚物）
                     { op = "if",
-                      cond = "it ~= caster and (team_of(it) == team_of(caster) or team_of(it) == enemy_team(caster)) and not (is_ally(caster, it) and it.is_summon)",
+                      cond = "it ~= caster and (team_of(it) == team_of(caster) or team_of(it) == enemy_team(caster)) and not (is_ally(caster, it) and not it.is_hero)",
                       actions = {
                         { op = "teleport", who = "it", to = "caster", find_clear_space = false },
                       } },
@@ -79,8 +79,8 @@ return function(ctx)
             text = "傷害在移動之前結算，對範圍內所有敵人（含中立）都造成；經 AMHC，山本勘助已死時不傷害（require_source_alive）。" },
           { policy = "no_effect", ref = "vscripts/heroes/B_Unified/B12.lua:41-47",
             text = "被移動的敵人另以 ApplyDamage 補一次 GetAbilityDamage，但 B12W 的 KV 沒寫 AbilityUnitDamageType，類型是 DAMAGE_TYPE_NONE，推定不造成傷害（同 A15T 的推定，M2 實測）；說明也只寫一次傷害。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B12.lua:39",
-            text = "「不移動友軍 NPC」以 IsCreature() 判斷，只排除 npc_dota_creature 類別（召喚單位等）；友方小兵是 npc_dota_creep_lane（npc/npc_units_custom_load.txt:7162-7166），推定 IsCreature 為假，仍會被拉走，與說明「無法移動友軍 NPC」不符。資料照推定的原作行為。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B12.lua:39",
+            text = "FC-074（D13 修正：友方只拉英雄，不移動友軍 NPC（小兵、召喚物））。原作：「不移動友軍 NPC」以 IsCreature() 判斷，只排除 npc_dota_creature 類別（召喚單位等）；友方小兵是 npc_dota_creep_lane（npc/npc_units_custom_load.txt:7162-7166），推定 IsCreature 為假，仍會被拉走，與說明「無法移動友軍 NPC」不符。資料照推定的原作行為。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B12.lua:39-40",
             text = "移動用 SetAbsOrigin（不找空位），所有被拉的單位疊在山本勘助身上，只靠 0.1 秒 modifier_phased 錯開；距離判斷與落點都用結算當下山本勘助的位置，施法後走遠也算。DelayedAction 不因山本勘助死亡取消，死亡時仍會把單位拉到屍體位置（傷害由規則層歸零）。" },
           { policy = "note", ref = "vscripts/heroes/B_Unified/B12.lua:39",

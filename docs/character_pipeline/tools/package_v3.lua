@@ -787,7 +787,8 @@ function M.validate_doc(doc, opts)
       if s.absorb.amount == nil then err(path .. ".absorb.amount", "必填") else check_expr(s.absorb.amount, "num", ctx, path .. ".absorb.amount") end
       if s.absorb.fraction ~= nil then check_expr(s.absorb.fraction, "num", ctx, path .. ".absorb.fraction") end
       if s.absorb.types ~= nil then for i, t in ipairs(s.absorb.types) do enum(t, V.DAMAGE_TYPES, path .. ".absorb.types[" .. i .. "]") end end
-      local actx = child_ctx(ctx, {})
+      -- on_absorb / on_broken: `event` is the damage packet, `absorbed` what this packet lost to the shield
+      local actx = child_ctx(ctx, { absorbed = "num" })
       actx.event = V.STATUS_EVENTS.on_take_damage
       if s.absorb.on_absorb ~= nil then check_actions(s.absorb.on_absorb, actx, path .. ".absorb.on_absorb") end
       if s.absorb.on_broken ~= nil then check_actions(s.absorb.on_broken, actx, path .. ".absorb.on_broken") end
@@ -1049,6 +1050,16 @@ function M.validate_doc(doc, opts)
       end end
     end
     local has_pending = type(pend) == "table" and #pend > 0
+    -- `hook = "<name>"`: the whole entry is a hand-written trait (kind = "ability" in `hooks`)
+    if def.hook ~= nil then
+      local h = type(def.hook) == "string" and hooks[def.hook]
+      if not h then err(path .. ".hook", "hook `" .. tostring(def.hook) .. "` 沒有宣告在 hooks")
+      else
+        if h.def.kind ~= "ability" then err(path .. ".hook", "招式層的 hook 要宣告 kind = \"ability\"") end
+        h.used = true
+        hook_users[path] = true
+      end
+    end
     local uses_hook = hook_users[path] == true
     if def.coverage == "expressible" then
       if uses_hook then err(path .. ".coverage", "用了 hook，coverage 必須是 needs_hook") end
@@ -1294,6 +1305,37 @@ function M.validate_doc(doc, opts)
         err(h.path .. ".why", "每個 hook 都要寫明為什麼資料表達不了（至少十個字）")
       end
       need_string(h.def.test, h.path .. ".test")
+      if h.def.behavior ~= nil then need_string(h.def.behavior, h.path .. ".behavior") end
+      if h.def.cases ~= nil then
+        if not is_array(h.def.cases) then err(h.path .. ".cases", "必須是陣列")
+        else
+          local ids = {}
+          for i, c in ipairs(h.def.cases) do
+            local cp = h.path .. ".cases[" .. i .. "]"
+            if fields(c, V.HOOK_CASE_FIELDS, cp) then
+              need_string(c.id, cp .. ".id")
+              if type(c.id) == "string" then
+                if ids[c.id] then err(cp .. ".id", "同一個 hook 的 case id 重複") end
+                ids[c.id] = true
+              end
+              -- given / when / expect: arrays of scenario vocabulary items `{ kind = ..., ... }`
+              for _, k in ipairs({ "given", "when", "expect" }) do
+                if c[k] ~= nil then
+                  if not is_array(c[k]) then err(cp .. "." .. k, "必須是情境詞彙的陣列（每項是 { kind = ..., ... }）")
+                  else
+                    for j, item in ipairs(c[k]) do
+                      if type(item) ~= "table" or type(item.kind) ~= "string" or item.kind == "" then
+                        err(cp .. "." .. k .. "[" .. j .. "]", "每項都要是表並寫 kind")
+                      end
+                    end
+                  end
+                end
+              end
+              if type(c.expect) ~= "table" or #c.expect == 0 then err(cp .. ".expect", "每個 case 都要寫預期結果") end
+            end
+          end
+        end
+      end
       if h.def.kind ~= nil then enum(h.def.kind, V.HOOK_KINDS, h.path .. ".kind") end
       if h.def.reads ~= nil then
         for i, r in ipairs(h.def.reads) do
@@ -1306,7 +1348,12 @@ function M.validate_doc(doc, opts)
         end
       end
     end
-    if not h.used then err(h.path, "宣告了但沒有任何 hook action 使用") end
+    -- an entry's `hook = "<name>"` uses it too (checked with that entry's coverage)
+    local by_entry = false
+    for _, list in ipairs({ doc.abilities or {}, doc.items or {} }) do
+      for _, e in ipairs(list) do if type(e) == "table" and e.hook == name then by_entry = true end end
+    end
+    if not h.used and not by_entry then err(h.path, "宣告了但沒有任何 hook action 使用") end
   end
 
   -- unit_state / vars init: expressions of values and rules only

@@ -273,7 +273,7 @@ return function(ctx)
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         requires = { hero_level = "$required_level" },
         statuses = {
-          { id = "a28t_lifetime", duration = "$lifetime", stacking = "refresh", dispel = "basic", visibility = "buff",
+          { id = "a28t_lifetime", duration = "$lifetime", stacking = "refresh", dispel = "none", visibility = "buff", -- FC-084（D13）：不可驅散
             reveal = "public",
             text = { zh_TW = { name = "鳳凰召來", body = "召喚出的鳳凰，存在 {lifetime} 秒後死亡。" }, en = { name = "Phoenix Summoning", body = "Summoned phoenix; dies after {lifetime} seconds." } },
             triggers = {
@@ -302,8 +302,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/A_Oda/A28.txt:384-395",
-            text = "存在時間由 datadriven modifier_A28T 控制，OnDestroy 就讓鳳凰 ForceKill；KV 沒寫 IsPurgable，若 Dota 預設可驅散，敵方一次基本驅散就能直接殺死鳳凰（沒有擊殺者、沒有賞金）。資料照推定（dispel = basic）。" },
+          { policy = "fixed", ref = "npc/A_Oda/A28.txt:384-395",
+            text = "FC-084（D13 修正：存在時間狀態改成不可驅散，鳳凰只能被擊殺或到時間才消失）。原作：存在時間由 datadriven modifier_A28T 控制，OnDestroy 就讓鳳凰 ForceKill；KV 沒寫 IsPurgable，若 Dota 預設可驅散，敵方一次基本驅散就能直接殺死鳳凰（沒有擊殺者、沒有賞金）。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A28_Hashiba_Hideyoshi.lua:321-325",
             text = "caster.great_sword_of_disease 由池田鬼神丸國重 OnEquip 設 1、OnUnequip 清掉（item_the_great_sword_of_disease.lua:5,32），以跨文件共用的 unit_state great_sword_of_disease 照實表達：持有兩把時卸下一把也會失效。" },
           { policy = "no_effect", ref = "npc/A_Oda/A28.txt:397-410",

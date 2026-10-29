@@ -34,6 +34,7 @@ cargo test --release --manifest-path scripts/Cargo.toml -p base_content --lib --
 | 隱形、迷霧、死亡、魔免（E223） | 施法隊伍看不見的目標（隱形或迷霧）：施放前照 server 呼叫 `input_target_admissible`，看不見就丟棄輸入，期望 `cast_rejected`。施法者隱形（`invisibility_level` buff）：施放後檢查 `caster_invisibility_broken`／`kept`。施放後施法者死亡：死亡前已在身上的狀態，施法者的要移除、目標的要保留。效果範圍內的魔免敵人：魔法傷害歸零，選取器套上的狀態不落在它身上（直接對目標套用的除外） |
 | 被動數值、建築、預設 key（E227） | `passive_stats`：被動照玩家流程逐級學（`UpgradeAbility`），讀被動自己的 buff（key 是技能 id）中 vocabulary StatKey 的值；`owner_dies`／`owner_respawns` 後再讀一次。建築目標：最近的敵方 `IsBuilding`，期望拒絕。沒寫 runtime_id 的狀態用執行器的預設 key（IR 英雄用得到，handler 英雄找不到時不算失敗）。施法者隱形改看原本的隱形 buff 是否被移除 |
 | 狀態事件（E220） | `periodic` 的動作只有對持有者自己的 damage 時：每次扣血等於文件的量，間隔等於 interval（誤差 1 tick） |
+| toggle、普攻事件、召喚、charges（E229） | 施放被接受也包括「技能的狀態出現在施法者身上」（toggle 沒有冷卻也不扣魔，稻姬毒箭）。`toggle` on／off：施法者身上有法球狀態／`on_toggle_off` 移除的狀態不在。狀態要靠普攻才套得上時（法球命中），施放後讓施法者攻擊敵方英雄。持有者身上狀態的 `on_attack_hit`／`on_attack_windup`：攻擊後，`apply_status` 到 `event.target` 的狀態出現在被攻擊者身上，`spend_mana` 的單 tick 扣魔等於文件。一般施放的 `create_unit`：施放後新出現的該 template 單位數等於 count（不超過 limit_per_owner），召喚者是施法者，存在時間等於 lifetime。沒有指定法力的情境，法力上限至少夠付這招（B01T r3 比英雄基礎法力貴） |
 
 尚未檢查（記為 unsupported）：
 - 共用 runtime id、而類別不同的狀態（basic 的 stun 30 個；BuffStore 一個 key 只有一筆，host 取最嚴格的 strong）。
@@ -44,7 +45,46 @@ cargo test --release --manifest-path scripts/Cargo.toml -p base_content --lib --
 
 M5 改成資料執行後，要逐項補上這些檢查。
 
-## 3. 結果（2026-10-29，目前的 live；E227 被動數值、建築、預設 key 之後，B 的 E226 破隱之後）
+## 3. 結果（2026-10-29 晚間，目前的 live；E226 追補與 E229 之後）
+
+| 文件 | 英雄 | 情境 | 通過 | 已知差異 | unsupported |
+|---|---|---|---|---|---|
+| B01 | saika_magoichi | 112 | 93 | 0 | 19 |
+| C17 | oichi | 247 | 178 | 0 | 69 |
+| A02 | inahime | 168 | 142 | 0 | 26 |
+| A07 | honda_tadakatsu | 208 | 105 | 15 (b) | 88 |
+| A34 | omatsu | 297 | 222 | 0 | 75 |
+| B04 | date_masamune | 189 | 120 | 0 | 69 |
+| B06 | sanada_yukimura | 276 | 169 | 0 | 107 |
+| B08 | asai_nagamasa | 292 | 197 | 0 | 95 |
+| B29 | murakami_yoshikiyo | 251 | 170 | 0 | 81 |
+| C15 | tamako | 249 | 167 | 0 | 82 |
+| **合計** | | **2289** | **1563** | **15 (b)、0 (c)** | **711** |
+
+- **2026-10-30 最新（E239、E240）**：情境 2293（加 B01E 召喚上限 4 個），1575 通過、15 (b)、0 (c)、703 unsupported。A02、B01、C17 與 B04 兩招已是產生的 Rust，與 `legacy_handlers` 的手寫版逐筆 0 差異；C17E 的 `types = {"all"}` 目標 8 個轉為通過。
+
+- **FC-005／025／046 放回後（2026-10-30，E237）**：A07 毫髮無傷照 FC-025 擋下敵方非物理致死，guard 另擋物理，所以「持有者死亡」情境不會發生，10 筆 (b) 改記 unsupported、從 known_differences 刪除；剩下的 15 筆 (b) 都是 `a07_rouse_free`（port 沒有 A07D2）。三項的專用測試在 `v3_conformance::fix_candidates`。
+
+- **(c) 清空**：地裂（B29E）的 handler 照原作排除魔免後已放回，4 筆 `b29_quake_axe/r1–r4/magic_immune` 通過，已從 known_differences 刪除。剩下的都是 (b)（A07，25 筆）。
+- **稻姬拆成 `hero_a02`（M3' ①）**：拆前（base_content 內）與拆後（`scripts/heroes/inahime`）用同一份情境逐筆比對，168 個情境的結果與說明完全相同；其他 9 位也沒有變化。
+
+- **(c) 是 4 筆，不是 124 筆。** 124 是 E227 影子樹在 E226 放回前的數字；E226 放回時 known_differences 刪了 105 筆 invisible_caster，live 重跑只剩 4 筆：B29E 破甲套到魔免（c1，等 B29 換成產生的 Rust）。
+- E226 追補（施放交易允許移除施法者自己的 buff）重跑：雜賀眾、B29T、C15T 的隱形施法者情境轉為通過（1407 → 1417，unsupported 853 → 843）。剩下 6 個「隱形時不被接受」：三段擊 r3、B06T r3 是 harness 沒給夠法力上限，稻姬毒箭 r1～r4 是 toggle 判定，E229 修正後全部通過。
+- E229 之後：通過 1417 → 1495，unsupported 843 → 765，沒有新的失敗。新增通過的檢查：toggle 8、法球命中與前搖 8、召喚 4；狀態要靠普攻套上的（B04、B06、A02 毒）多 40 個狀態情境可以檢查。
+- E229 第二批（charges、自我施放的持有者、建立出來的單位）：1495 → 1559，unsupported 765 → 701，沒有新失敗。charges：`charge_spent`（施放前後的存量差）、`given charges`（設定存量並開始回充）、`charge_restore`（文件時間前 0.1 秒還沒回、之後 0.2 秒內回 1 格）。狀態寫 `on: it/target` 時也找施法者（B06W 集結、C17E 對自己施放）；寫的是建立出來的單位（C15 的 fire）時，先找新單位，再找施法者（port 把火場 zone 掛在施法者身上）。「觀察不到」的訊息會列出施法者與敵方英雄身上的 buff key。
+- 狀態疊層（E229 第三批）：這 10 位的狀態都是 `stacking = refresh`。一般施放套上持續 2 秒以上的狀態後，等 1 秒再施放一次（清冷卻）：持有者身上仍只有一筆、剩餘時間回到文件的持續時間（不疊加）。33 個情境通過，沒有不符。
+- 位移與法力（E229 第四批）：`leap` 的落點可以是把點夾到最大距離的 `let`，B29E r1～r4 通過；`burn_mana` 對滿法力的敵方英雄量最大單 tick 扣魔，B08E r1～r4 通過。
+- 一般施放的效果檢查通過：傷害 50、套上狀態 70、治療 7、位移 11、召喚 4，periodic 8，沒有不符。
+
+### 產生的 Rust 比對（M3' ③，2026-10-29 深夜）
+
+| 對象 | 情境 | 差異 |
+|---|---|---|
+| v3_rust.lua 產生的 17 招（A02×4、B01×4、C17×5、B04 火焰強襲／炎之迅捷、B29 地裂、C15 精準之光） | 10 位全部 2289 | 第一次：1（`c17_light_chain/r1–r4/target_invalid/self`，產生的版本接受對自己施放）。A 修正後（v3_rust.lua 23:02 版）重跑：**0** |
+
+做法見 execution-status 同日紀錄（影子 `target/e229-gen`、`V3_CONFORMANCE_GENERATED=1`、`scripts/v3_conformance_report.lua`）。B 的多 DLL 載入放回後，改成直接載入 `hero_<id>.dll` 比對。
+
+### 之前的結果（E227 被動數值、建築、預設 key 之後，B 的 E226 破隱之後）
 
 B01、C17、A02 與 B 之後切到 IR 的英雄都由資料執行；IR 版與 handler 版的結果沒有出現差異。
 

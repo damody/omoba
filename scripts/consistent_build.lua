@@ -11,7 +11,7 @@ local lfs=require('lfs')
 local M={}
 
 M.INPUT_ROOTS={'omoba-core/src','omoba-sim/src','omoba-template-ids','omoba-content-model/src',
-  'omoba-client-runtime/src','omb/src','scripts/lua_data','scripts/base_content/src','scripts/script-abi/src',
+  'omoba-client-runtime/src','omb/src','scripts/lua_data','scripts/base_content/src','scripts/script-abi/src','scripts/ability_kit/src','scripts/heroes',
   'omfue/bridge/src','omfue/codegen/src','omfue/Plugins/OmRuntime/Source','proto','omoba-netem-proxy/src'}
 M.MAX_PASSES=8
 -- Each pass starts only after the inputs have been still for START_QUIET_SECONDS,

@@ -13,8 +13,6 @@ return function(ctx)
     unit_state = {
       a26t_count = { type = "int", init = "0", reveal = "public", scope = "ability",
         note = "原作 A26T 的 ability.count：命中非建築目標的普攻次數" },
-      a26t_small_flag = { type = "bool", init = "false", reveal = "public", scope = "ability",
-        note = "原作 A26T 的 ability.small_bomb：下一顆落地的 A26T 投射物要當小炸彈結算" },
     },
     abilities = {
       -------------------------------------------------------------------------
@@ -219,11 +217,8 @@ return function(ctx)
             { op = "apply_status", status = "a26t_phased", to = "caster" },
             { op = "projectile", kind = "tracking", from = "caster", to = "at", speed = "$projectile_speed",
               dodgeable = true, cue = "a26t_bomb_arcana",
-              on_end = {
-                { op = "if", cond = "state.a26t_small_flag",
-                  actions = { { op = "call", routine = "a26t_small_burst", args = { center = "at" } } },
-                  otherwise = { { op = "call", routine = "a26t_big_burst", args = { center = "at" } } } },
-              } },
+              -- FC-014（D13）：大炸彈永遠以大炸彈結算（不再共用 small_bomb 旗標）
+              on_end = { { op = "call", routine = "a26t_big_burst", args = { center = "at" } } } },
           },
         },
         passive = {
@@ -241,22 +236,18 @@ return function(ctx)
               { op = "if", cond = "state.a26t_count == $bomb_every", actions = {
                 { op = "set_state", var = "a26t_count", value = "0" },
                 { op = "remove_status", from = "self", status = "a26t_big_bomb" },
-                { op = "set_state", var = "a26t_small_flag", value = "true" },
                 { op = "projectile", kind = "tracking", from = "self", to = "p", speed = "$small_bomb_speed",
                   dodgeable = true, cue = "a26t_small_bomb",
-                  on_end = {
-                    { op = "if", cond = "state.a26t_small_flag",
-                      actions = { { op = "call", routine = "a26t_small_burst", args = { center = "p" } } },
-                      otherwise = { { op = "call", routine = "a26t_big_burst", args = { center = "p" } } } },
-                  } },
+                  -- FC-014（D13）：小炸彈永遠以小炸彈結算
+                  on_end = { { op = "call", routine = "a26t_small_burst", args = { center = "p" } } } },
               } },
             },
           },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A26.lua:270,380-383",
-            text = "大小炸彈共用同一個 ability.small_bomb 旗標與同一個 OnProjectileHitUnit：小炸彈射出後旗標設為 true，「下一顆落地」的 A26T 投射物不論大小都當小炸彈結算並清旗標。大招飛行中（750 速度）射出小炸彈時，若大招先落地，大招只造成小炸彈傷害且不暈眩，之後的小炸彈反而造成大招傷害與暈眩。資料照原作寫成兩顆投射物都檢查旗標。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A26.lua:270,380-383",
+            text = "FC-014（D13 修正：大小炸彈各自結算：大炸彈的 on_end 只結算大炸彈、小炸彈只結算小炸彈，拿掉共用旗標）。原作：大小炸彈共用同一個 ability.small_bomb 旗標與同一個 OnProjectileHitUnit：小炸彈射出後旗標設為 true，「下一顆落地」的 A26T 投射物不論大小都當小炸彈結算並清旗標。大招飛行中（750 速度）射出小炸彈時，若大招先落地，大招只造成小炸彈傷害且不暈眩，之後的小炸彈反而造成大招傷害與暈眩。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A26.lua:240-244",
             text = "計數只算非建築目標，但打建築也會跑後面的判定；計數為 2 時攻擊建築會重套頭頂特效（沒有效果）。友軍（反補）也算命中。計數存在技能上，跨死亡保留。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A26.lua:245,333",
@@ -303,7 +294,6 @@ return function(ctx)
             actions = {
               { op = "damage", to = "it", type = "magical", amount = "$a26_scorching_bomb.small_bomb_damage", require_source_alive = false },
             } },
-          { op = "set_state", var = "a26t_small_flag", value = "false" },
           { op = "destroy_trees", at = "center", radius = "$a26_scorching_bomb.radius" },
           { op = "cue", id = "a26t_small_explosion", at = "center" },
         },

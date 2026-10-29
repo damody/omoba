@@ -1,7 +1,8 @@
 //! The original nobu map (E187, docs/plans/2026-10-28-history-nobu-full-port/nobu-map-comparison.md
 //! §5.1-5.3, 5.6, 5.8, 5.9): per-team directed lanes, paired towers, two soldier camps per lane, the
 //! general towers, the fort, fountain and hero spawns, the gridnav terrain, the fog extent and the
-//! shops, all from templates/nobu_map.lua through moba_maps.lua.
+//! shops, all from templates/nobu_map.lua through moba_maps.lua; and (§5.4, §5.5) the 24 camps
+//! and the 1,564 trees.
 use super::*;
 use crate::runtime::{SimulationDriver, SimulationTickProfile, StateInitializer};
 
@@ -98,9 +99,18 @@ fn nobu_lays_out_every_structure_route_spawn_and_extent_from_the_template() {
         let hero = state.heroes.iter().find(|slot| slot.side == side).unwrap().entity.unwrap();
         assert_eq!(pos(&world, hero), point(map.hero_spawns.iter().find(|p| usize::from(p.team) == side).unwrap().position));
     }
-    // §5.6: the 305 gridnav rectangles are the collision and vision terrain.
-    assert_eq!(world.read_resource::<BlockedRegions>().0.len(), 305);
-    assert_eq!(world.read_resource::<crate::runtime::VisionOccluderSet>().0.len(), 305);
+    // §5.6 / §5.5: the 305 gridnav rectangles and the 1,564 tree squares are the collision; the
+    // rectangles and one VisionTree per tree are the vision occluders.
+    let trees = map.trees();
+    assert_eq!((trees.trees.len(), trees.radius), (1564, 64));
+    assert_eq!(world.read_resource::<BlockedRegions>().0.len(), 305 + 1564);
+    assert_eq!(world.read_resource::<crate::runtime::VisionOccluderSet>().0.len(), 305 + 1564);
+    // §5.4: the 24 camps stand from the start (the bosses wait for their first appearance).
+    let state = world.read_resource::<MobaMatch>();
+    let standing: usize = state.jungle_camps.iter().filter(|c| c.definition.unit_respawn).map(|c| c.entities().count()).sum();
+    assert_eq!(standing, 68);
+    assert!(state.jungle_camps.iter().filter(|c| c.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss)).all(|c| c.entity.is_none()));
+    drop(state);
     // §5.8: fog covers the authored bounds; communication points are the bounds.
     let bounds = map.bounds.unwrap();
     let fog = world.read_resource::<crate::runtime::TeamVisibilityRuntime>().fog_geometry.unwrap();
@@ -123,6 +133,11 @@ fn existing_maps_keep_their_fog_geometry_and_have_no_explicit_layout() {
         assert_eq!((fog.origin_x_raw, fog.origin_y_raw), (i64::from(derived.min.0) * 1024, i64::from(derived.min.1) * 1024));
         // The standard maps span 0..4800: 63 x 63 cells of 76.2 units.
         assert_eq!((derived.min, derived.max, fog.columns, fog.rows, fog.cell_size_raw), ((0, 0), (4800, 4800), 63, 63, (4800 * 1024 + 62) / 63));
+        // §5.4 / §5.5: no trees, no sided or per-unit camps; collision and vision are the terrain.
+        assert_eq!(map.trees(), omoba_template_ids::MobaTreesConst::NONE);
+        assert!(!map.has_sided_camps() && map.jungle_camps.iter().all(|c| !c.unit_respawn && c.leader_offset == (0, 0) && c.unit == c.id));
+        assert_eq!(crate::runtime::moba_map_layout::compiled_blocked_regions(map).0.len(), map.terrain.len());
+        assert_eq!(crate::runtime::moba_map_layout::compiled_vision_occluders(map).0.len(), map.terrain.len());
     }
 }
 
@@ -332,6 +347,83 @@ fn nobu_tick_cost_breakdown() {
     }
     for (map, collision, vision) in [("three_lane_training", true, true), ("nobu", true, true), ("nobu", false, true), ("nobu", true, false), ("nobu", false, false)] {
         eprintln!("{map} collision={collision} vision={vision}: {:?} per tick", run(map, collision, vision));
+    }
+}
+
+/// E187 §5.5: a tree blocks movement as the square of half-extent 64 around its point (the 2x2
+/// gridnav cells a Dota tree holds) and vision as a VisionTree circle of radius 64. Compared with
+/// the terrain alone, the trees close the ground and the sight lines through their points.
+#[test]
+fn nobu_trees_block_movement_and_vision_where_they_stand() {
+    let world = fixture();
+    let trees = nobu().trees();
+    let regions = world.read_resource::<BlockedRegions>().clone();
+    let terrain_only = BlockedRegions(regions.0[..305].to_vec());
+    let occluders = world.read_resource::<crate::runtime::VisionOccluderSet>().clone();
+    let walls = crate::runtime::VisionOccluderSet(occluders.0.iter().filter(|o| matches!(o, crate::runtime::VisionOccluder::Terrain(_))).cloned().collect());
+    assert_eq!(walls.0.len(), 305);
+    let (committed, walls) = (occluders.committed(), walls.committed());
+    let hits = |r: &BlockedRegions, a: Vec2, b: Vec2, radius: i32| crate::tick::hero_move_tick::path_hits_regions(a, b, Fixed64::from_i32(radius), r);
+    let v = |x: i32, y: i32| Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y));
+    let (mut movement, mut vision) = (0, 0);
+    for (index, tree) in trees.trees.iter().enumerate() {
+        let c = point(tree.position);
+        // The compiled square and circle.
+        let region = &regions.0[305 + index];
+        assert_eq!(region.name, crate::runtime::moba_map_layout::tree_region_name(index));
+        assert_eq!((region.points[0].x as i32, region.points[0].y as i32, region.points[2].x as i32, region.points[2].y as i32),
+            (tree.position.0 - 64, tree.position.1 - 64, tree.position.0 + 64, tree.position.1 + 64));
+        assert!(hits(&regions, c + v(63, 63), c + v(63, 63), 0) && hits(&regions, c - v(63, 63), c - v(63, 63), 0));
+        // A hero body cannot stand on a tree point, and a line through it is closed.
+        assert!(hits(&regions, c, c, 30));
+        if !hits(&terrain_only, c - v(150, 0), c + v(150, 0), 30) { movement += 1; assert!(hits(&regions, c - v(150, 0), c + v(150, 0), 30)); }
+        if walls.line_of_sight(c - v(150, 0), c + v(150, 0)) == crate::runtime::LosResult::Clear {
+            vision += 1;
+            assert_eq!(committed.line_of_sight(c - v(150, 0), c + v(150, 0)), crate::runtime::LosResult::Blocked);
+        }
+        // The circle: a line 63 off the point still crosses it.
+        assert_eq!(committed.line_of_sight(c + v(-150, 63), c + v(150, 63)), crate::runtime::LosResult::Blocked);
+    }
+    assert!(movement > 1000 && vision > 1000, "trees close ground and sight the terrain leaves open: {movement} / {vision}");
+    // The Wave B view (fog sample, unit disclosure) reads the same occluders.
+    let view = crate::runtime::build_wave_b_read_view(&world, 1);
+    assert_eq!(view.vision_occluders.len(), 305 + 1564);
+    let lone = trees.trees.iter().map(|t| point(t.position)).find(|&c| walls.line_of_sight(c - v(300, 0), c + v(300, 0)) == crate::runtime::LosResult::Clear
+        && walls.line_of_sight(c + v(-300, 70), c + v(300, 70)) == crate::runtime::LosResult::Clear
+        && trees.trees.iter().filter(|o| (point(o.position) - c).length_squared() < Fixed64::from_i32(400 * 400)).count() == 1).expect("a lone tree");
+    assert_eq!(view.vision_occluders.line_of_sight(lone - v(300, 0), lone + v(300, 0)), crate::runtime::LosResult::Blocked);
+    assert_eq!(view.vision_occluders.line_of_sight(lone + v(-300, 70), lone + v(300, 70)), crate::runtime::LosResult::Clear);
+}
+
+/// E187 §5.5: with the trees most long lines across nobu are closed. Bot travel admits a
+/// destination beyond the search span whose point is free, and a nearer one with a path in the
+/// widened search box (taken leg by leg); with a path in the movement box the answer is the old one.
+#[test]
+fn bot_travel_reaches_every_own_camp_and_home_across_the_nobu_forest() {
+    use crate::tick::hero_command_tick::{static_next_waypoint, static_travel_reachable};
+    let regions = crate::runtime::moba_map_layout::compiled_blocked_regions(nobu());
+    let radius = Fixed64::from_i32(30);
+    let mut refused_before = 0;
+    for side in 0..2u8 {
+        let home = point(omoba_template_ids::moba_team_point(nobu().fountains, usize::from(side)).unwrap());
+        for camp in nobu().jungle_camps.iter().filter(|c| c.side == Some(side)) {
+            let center = point(camp.position);
+            assert!(static_travel_reachable(home, center, radius, &regions), "{} from side {side}'s fountain", camp.id);
+            assert!(static_travel_reachable(center, home, radius, &regions), "home from {}", camp.id);
+            if static_next_waypoint(home, center, radius, &regions).is_none() { refused_before += 1; }
+        }
+    }
+    assert!(refused_before > 0, "the old rule refused some trips the move orders can make");
+    // A point inside a tree is no trip, near or beyond the span.
+    let tree = point(nobu().trees().trees[0].position);
+    for offset in [400, 7000] {
+        let from = tree + Vec2::new(Fixed64::from_i32(offset), Fixed64::ZERO);
+        assert!(!static_travel_reachable(from, tree, radius, &regions), "{offset}");
+    }
+    // The training maps are smaller than the span: travel is exactly the path rule.
+    let training = crate::runtime::moba_map_layout::compiled_blocked_regions(omoba_template_ids::moba_map_by_name("three_lane_training").unwrap());
+    for (a, b) in [((0, 0), (4800, 4800)), ((100, 2400), (2400, 100)), ((420, 1700), (900, 2100))] {
+        assert_eq!(static_travel_reachable(point(a), point(b), radius, &training), static_next_waypoint(point(a), point(b), radius, &training).is_some());
     }
 }
 

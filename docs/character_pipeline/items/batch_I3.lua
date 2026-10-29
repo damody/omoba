@@ -31,15 +31,6 @@ return function(ctx)
         note = "shops/nobu_shops.txt:226（升級類裝備）列出浪人十手‧三階，但 npc_items_custom_load.txt 沒有定義、也沒有合成表與腳本（scripts/ 全文搜尋只在商店檔出現），原作遊戲裡買不到；addon_tchinese.txt 只有說明文字。" },
     },
 
-    -- 真知短甲與真視赤備挂甲共用的格擋（原作兩件道具各自宣告同名的 block_modifier；RemoveModifier 依名稱移除，不分來源）
-    statuses = {
-      { id = "prophet_armor_block", duration = "infinite", stacking = "independent", dispel = "basic", visibility = "hidden",
-        reveal = "public", stats = { physical_block = "$block_amount" },
-        values = {
-          block_amount = { 50, unit = "dmg", hidden = true, source = "kv:MODIFIER_PROPERTY_PHYSICAL_CONSTANT_BLOCK（block_modifier）" },
-        },
-        notes = "原作 block_modifier：IsBuff、IsHidden、MULTIPLE、沒有 Duration（永久，直到被移除）、沒寫 IsPurgable（暫定 basic）。" },
-    },
 
     items = {
       -------------------------------------------------------------------------
@@ -61,25 +52,18 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "真視赤備挂甲",
-            body = "被動：{detect_radius} 內的敵方單位與建築對你的隊伍現形（看穿隱形）。每次被攻擊命中時有 {block_chance} 機率多獲得一份格擋（之後每次受到攻擊格擋 {block} 物理傷害，沒有時間限制），沒有觸發時移除一份。基礎魔法抗性（魔抗池）+{magic_resist_pool}，同名道具只算一次。主動：使 {active_radius} 內的敵方單位與建築現形 {reveal_duration} 秒。" },
+            body = "被動：{detect_radius} 內的敵方單位與建築對你的隊伍現形（看穿隱形）。每次受到攻擊有 {block_chance} 機率格擋 {block} 物理傷害。基礎魔法抗性（魔抗池）+{magic_resist_pool}，同名道具只算一次。主動：使 {active_radius} 內的敵方單位與建築現形 {reveal_duration} 秒。" },
           en = { name = "Akazonae Armor of True Sight",
-            body = "Passive: enemy units and buildings within {detect_radius} are revealed to your team, including invisible ones. Each time an attack hits you, there is a {block_chance} chance to gain another block charge (each attack you take then has {block} physical damage blocked, with no time limit); failing the roll removes one. +{magic_resist_pool} base magic resistance; multiple copies do not stack. Active: reveals enemy units and buildings within {active_radius} for {reveal_duration} seconds." },
+            body = "Passive: enemy units and buildings within {detect_radius} are revealed to your team, including invisible ones. Each attack against you has a {block_chance} chance to have {block} physical damage blocked. +{magic_resist_pool} base magic resistance; multiple copies do not stack. Active: reveals enemy units and buildings within {active_radius} for {reveal_duration} seconds." },
         },
         shop = { cost = "$cost", recipe = { components = { "item_prophet_armor", "item_health_ingot", "item_magic_resistance_ingot" }, recipe_cost = "$recipe_cost" } },
         passive = {
-          stats = { max_hp = "$max_hp", vision_night = "$night_vision" },
+          -- FC-095（D13）：每次受到攻擊各自 50% 機率格擋 50（規則層 physical_block_chance）
+          stats = { max_hp = "$max_hp", vision_night = "$night_vision", physical_block = "$block", physical_block_chance = "$block_chance" },
           aura = { radius = "$detect_radius", team = "enemy", types = REVEAL_TYPES,
             flags = { "include_magic_immune", "include_invulnerable" }, status = "akazonae_aura_reveal" },
           triggers = {
             on_created = { { op = "apply_status", status = "akazonae_resist_pool", to = "self" } },
-            on_attacked_hit = {
-              { op = "chance", p = "$block_chance", actions = {
-                { op = "apply_status", status = "prophet_armor_block", to = "self" },
-              }, otherwise = {
-                { op = "remove_status", from = "self", status = "prophet_armor_block", limit = 1 },
-              } },
-            },
-            on_removed = { { op = "remove_status", from = "self", status = "prophet_armor_block", limit = 1 } },
           },
         },
         active = { kind = "active", target = { type = "none", aoe_radius = "$active_radius" },
@@ -107,14 +91,14 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:11920-11958",
-            text = "block_modifier 沒有 Duration：每次被命中擲 50%，成功多掛一份永久格擋、失敗移除一份，份數是一個不會消失的隨機漫步，實際上幾乎一直有格擋。原作說明是「50% 機率減少受到的 50 攻擊傷害」（每次攻擊各自判定）。資料照實際行為。" },
-          { policy = "as_source", ref = "npc/npc_items_custom_load.txt:11956",
-            text = "多份 PHYSICAL_CONSTANT_BLOCK 是否相加由規則層決定（Dota 慣例推定只取最高，等於有份數就格擋 50）；資料每份各寫 physical_block。格擋在命中後才擲骰，作用於之後的攻擊。" },
-          { policy = "as_source", ref = "npc/npc_items_custom_load.txt:11836-11848",
-            text = "卸下時只移除一份 block_modifier；殘留的份數永久留著（同 prophet_armor_block，與真知短甲共用同名 modifier，互相移除）。shield_modifier 是 MULTIPLE，持有兩件時每次命中擲兩次。" },
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:11905-11918",
-            text = "與 batch_I1 洞察碎片相同：光環子狀態結束時移除目標身上任一個 modifier_truesight，可能把主動的十秒那份拿掉、留下光環掛的永久那份，目標從此一直被看穿；資料只寫一般情況。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:11920-11958",
+            text = "FC-095（D13 修正：改成每次受到攻擊各自 50% 機率格擋 50（physical_block_chance），不再累積永久份數）。原作：block_modifier 沒有 Duration：每次被命中擲 50%，成功多掛一份永久格擋、失敗移除一份，份數是一個不會消失的隨機漫步，實際上幾乎一直有格擋。原作說明是「50% 機率減少受到的 50 攻擊傷害」（每次攻擊各自判定）。" },
+          { policy = "note", ref = "npc/npc_items_custom_load.txt:11956",
+            text = "原作機制（FC-095 修正前）：多份 PHYSICAL_CONSTANT_BLOCK 是否相加由規則層決定（Dota 慣例推定只取最高，等於有份數就格擋 50）；資料每份各寫 physical_block。格擋在命中後才擲骰，作用於之後的攻擊。" },
+          { policy = "note", ref = "npc/npc_items_custom_load.txt:11836-11848",
+            text = "原作機制（FC-095 修正前）：卸下時只移除一份 block_modifier；殘留的份數永久留著（同 prophet_armor_block，與真知短甲共用同名 modifier，互相移除）。shield_modifier 是 MULTIPLE，持有兩件時每次命中擲兩次。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:11905-11918",
+            text = "FC-100（D13 修正：資料以光環與主動各自的狀態表達，光環結束只移除光環自己那份）。原作：與 batch_I1 洞察碎片相同：光環子狀態結束時移除目標身上任一個 modifier_truesight，可能把主動的十秒那份拿掉、留下光環掛的永久那份，目標從此一直被看穿；資料只寫一般情況。" },
           { policy = "as_source", ref = "npc/npc_items_custom_load.txt:11809-11821",
             text = "主動只帶 MAGIC_IMMUNE_ENEMIES 旗標（真知短甲另有 INVULNERABLE）：無敵的敵人不會被主動看穿；光環兩種都包含。" },
           { policy = "note", ref = "vscripts/items/Addon_Items/item_insight_gem.lua:1-7", text = "主動的 Shock 只有粒子與音效（RevealMap），改用 cue。" },
@@ -141,24 +125,17 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "真知短甲",
-            body = "被動：{detect_radius} 內的敵方單位與建築對你的隊伍現形（看穿隱形）。每次被攻擊命中時有 {block_chance} 機率多獲得一份格擋（之後每次受到攻擊格擋 {block} 物理傷害，沒有時間限制），沒有觸發時移除一份。主動：使 {active_radius} 內的敵方單位與建築現形 {reveal_duration} 秒。" },
+            body = "被動：{detect_radius} 內的敵方單位與建築對你的隊伍現形（看穿隱形）。每次受到攻擊有 {block_chance} 機率格擋 {block} 物理傷害。主動：使 {active_radius} 內的敵方單位與建築現形 {reveal_duration} 秒。" },
           en = { name = "Short Armor of True Knowledge",
-            body = "Passive: enemy units and buildings within {detect_radius} are revealed to your team, including invisible ones. Each time an attack hits you, there is a {block_chance} chance to gain another block charge (each attack you take then has {block} physical damage blocked, with no time limit); failing the roll removes one. Active: reveals enemy units and buildings within {active_radius} for {reveal_duration} seconds." },
+            body = "Passive: enemy units and buildings within {detect_radius} are revealed to your team, including invisible ones. Each attack against you has a {block_chance} chance to have {block} physical damage blocked. Active: reveals enemy units and buildings within {active_radius} for {reveal_duration} seconds." },
         },
         shop = { cost = "$cost", recipe = { components = { "item_lesser_armor", "item_insight_gem" }, recipe_cost = "$recipe_cost" } },
         passive = {
-          stats = { vision_night = "$night_vision" },
+          -- FC-096（D13）：每次受到攻擊各自 50% 機率格擋 50
+          stats = { vision_night = "$night_vision", physical_block = "$block", physical_block_chance = "$block_chance" },
           aura = { radius = "$detect_radius", team = "enemy", types = REVEAL_TYPES,
             flags = { "include_magic_immune", "include_invulnerable" }, status = "prophet_aura_reveal" },
           triggers = {
-            on_attacked_hit = {
-              { op = "chance", p = "$block_chance", actions = {
-                { op = "apply_status", status = "prophet_armor_block", to = "self" },
-              }, otherwise = {
-                { op = "remove_status", from = "self", status = "prophet_armor_block", limit = 1 },
-              } },
-            },
-            on_removed = { { op = "remove_status", from = "self", status = "prophet_armor_block", limit = 1 } },
           },
         },
         active = { kind = "active", target = { type = "none", aoe_radius = "$active_radius" },
@@ -182,12 +159,12 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:11735-11773",
-            text = "與真視赤備挂甲相同：block_modifier 沒有 Duration，份數是不會消失的隨機漫步，實際上幾乎一直格擋；原作說明是每次攻擊 50% 機率格擋 50。資料照實際行為。" },
-          { policy = "as_source", ref = "npc/npc_items_custom_load.txt:11656-11663",
-            text = "卸下時只移除一份 block_modifier。格擋在命中後才擲骰，作用於之後的攻擊；多份是否相加由規則層決定（推定只取最高）。" },
-          { policy = "fix_candidate", ref = "npc/npc_items_custom_load.txt:11720-11733",
-            text = "與 batch_I1 洞察碎片相同：光環結束時移除目標任一個 modifier_truesight，可能留下永久看穿；資料只寫一般情況。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:11735-11773",
+            text = "FC-096（D13 修正：改成每次受到攻擊各自 50% 機率格擋 50（physical_block_chance），不再累積永久份數）。原作：與真視赤備挂甲相同：block_modifier 沒有 Duration，份數是不會消失的隨機漫步，實際上幾乎一直格擋；原作說明是每次攻擊 50% 機率格擋 50。" },
+          { policy = "note", ref = "npc/npc_items_custom_load.txt:11656-11663",
+            text = "原作機制（FC-096 修正前）：卸下時只移除一份 block_modifier。格擋在命中後才擲骰，作用於之後的攻擊；多份是否相加由規則層決定（推定只取最高）。" },
+          { policy = "fixed", ref = "npc/npc_items_custom_load.txt:11720-11733",
+            text = "FC-101（D13 修正：資料以光環與主動各自的狀態表達，光環結束只移除光環自己那份）。原作：與 batch_I1 洞察碎片相同：光環結束時移除目標任一個 modifier_truesight，可能留下永久看穿；資料只寫一般情況。" },
           { policy = "note", ref = "npc/npc_items_custom_load.txt:11666-11687", text = "Passive_prophet_armor 屬性全 0，沒有效果。" },
           { policy = "note", ref = "vscripts/items/Addon_Items/item_insight_gem.lua:1-7", text = "主動的 Shock 只有粒子與音效（RevealMap），改用 cue。" },
         },
@@ -364,7 +341,7 @@ return function(ctx)
                       { op = "damage", to = "it", type = "magical",
                         amount = "select(it.is_hero, $chain_damage, $chain_damage * $non_hero_mult) * event.attack.effect_multiplier" },
                       { op = "delay", time = "$counter_reset_delay", actions = {
-                        { op = "set_state", var = "raikiri", value = "0", on = "event.target" },
+                        { op = "set_state", var = "raikiri", value = "0", on = "self" }, -- FC-019～021（D13）：重設攻擊者自己的計數
                       } },
                     } },
                 } },
@@ -398,8 +375,8 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:224-239",
             text = "保底計數是英雄身上的 caster.raikiri，舞雷刀、雷切、大千鳥共用；本道具不是 item_lightning_katana，所以用 25／6（近戰 33／5）那組門檻。近戰判定是 GetBaseAttackRange() < 200 且英雄不是 B04。" },
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:264-266",
-            text = "與 pilot_a 大千鳥相同：觸發後 0.1 秒把被攻擊者自己的 raikiri 設為 nil，打到持有雷系道具的敵方英雄會重設對方的保底計數。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:264-266",
+            text = "FC-021（D13 修正：0.1 秒後重設攻擊者自己的 raikiri）。原作：與 pilot_a 大千鳥相同：觸發後 0.1 秒把被攻擊者自己的 raikiri 設為 nil，打到持有雷系道具的敵方英雄會重設對方的保底計數。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:261-263",
             text = "被動 targets_shocked 從 1 起算、條件 < targets(5)，實際最多 4 個單位；FIND_ANY_ORDER 不保證包含主目標，v3 用預設排序（決定性）。搜尋沒有魔免旗標，魔免敵人不佔名額（腳本內的 IsMagicImmune 檢查多餘）。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:280-288",

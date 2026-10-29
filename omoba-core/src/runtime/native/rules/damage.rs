@@ -74,12 +74,17 @@ pub fn admit(world: &World, packet: &Packet) -> bool {
         .is_some_and(|targets| targets.0.contains(&packet.target)) {
         return false;
     }
+    // 原作 MODIFIER_STATE_INVULNERABLE：無敵的目標不受任何傷害。
+    if world.try_fetch::<BuffStore>().is_some_and(|buffs| super::vocab::invulnerable(&buffs, packet.target)) {
+        return false;
+    }
     // 原作 AMHC:Damage（amhc.lua:540）：攻擊者已死就不造成傷害。
     !packet.requires_source_alive() || source_alive(world, packet.source)
 }
 
 /// ② 減免前事件，依序執行。新的全域規則（例如原作的結界、幻象倍率）加在這裡。
-pub const BEFORE_MITIGATION: &[fn(&World, &mut Packet)] = &[spell_amplification];
+/// `status_damage_pre`：狀態的 on_deal_damage_pre／on_take_damage_pre（v3，產生的技能 Rust）可以改量或取消。
+pub const BEFORE_MITIGATION: &[fn(&World, &mut Packet)] = &[spell_amplification, crate::runtime::native::scripting::damage_pre::status_damage_pre];
 
 /// 法術增幅（E188）：帶 SPELL 的封包乘上來源的增幅。
 fn spell_amplification(world: &World, packet: &mut Packet) {
@@ -250,6 +255,21 @@ mod tests {
         before_mitigation(&w, &mut packet);
         assert_eq!(packet.profile, normal);
         assert_eq!(packet.physical, Fixed64::from_i32(10), "no amplification without a source amplifier");
+    }
+
+    #[test]
+    fn an_invulnerable_target_takes_no_damage_of_any_kind() {
+        let mut w = world();
+        let source = w.create_entity().with(property(100)).build();
+        let target = w.create_entity().with(property(100)).build();
+        let pure = Packet::new(source, target, Fixed64::ZERO, Fixed64::ZERO, Fixed64::from_i32(10), DamageProfile::NORMAL.bits());
+        assert!(admit(&w, &pure));
+        w.write_resource::<BuffStore>().add(target, super::super::vocab::state::INVULNERABLE, Fixed64::from_i32(3), serde_json::Value::Null);
+        assert!(!admit(&w, &pure), "invulnerable refuses even pure damage");
+        let attack = Packet::new(source, target, Fixed64::from_i32(10), Fixed64::ZERO, Fixed64::ZERO, DamageProfile::NORMAL.bits());
+        assert!(!admit(&w, &attack));
+        w.write_resource::<BuffStore>().remove(target, super::super::vocab::state::INVULNERABLE);
+        assert!(admit(&w, &attack), "the state ends with its buff");
     }
 
     #[test]

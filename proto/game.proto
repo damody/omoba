@@ -747,6 +747,10 @@ message JoinRequest {
   // Empty on a first join. A player that has joined before must present the
   // latest one; any other value is refused, so nobody can claim a held hero.
   bytes resume_token = 22;
+  // M3': SHA-256 of the script DLL set the client loaded (omoba-core scripting::loader
+  // script_modules_hash). A player must match the authority's set; empty only when the
+  // authority loaded no DLL either.
+  string script_modules_hash = 23;
 }
 
 // Tag 0x14 (S→C): response to JoinRequest. Includes master_seed and an
@@ -1073,6 +1077,17 @@ message TeamTickFrame {
   // Never infer the mode from HUD, lives, hero presence, or map name.
   AuthoritativeModePresentation authoritative_mode = 14;
   CombatPreferencesProjection combat_preferences = 15;
+  // M3' ② dev hot reload only (authority started with OMB_SCRIPT_HOT_DIR): script DLLs the
+  // authority swapped before stepping this frame's tick. A replica swaps the same files
+  // (same machine, absolute path, digest checked) before stepping this frame. Empty otherwise.
+  repeated ScriptModuleSwap script_module_swaps = 16;
+}
+
+message ScriptModuleSwap {
+  string module = 1;
+  string file = 2;
+  string sha256 = 3;
+  uint64 generation = 4;
 }
 
 message TeamReplayRequest {

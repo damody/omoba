@@ -14,6 +14,8 @@ local function bolt_routines(r, p, ab, sel_flags, ult)
   local function V(n) return "$" .. ab .. "." .. n end
   local haste = {}
   if ult then haste = { { op = "apply_status", status = "c11t_haste", to = "caster" } } end
+  -- FC-060（D13）：西國無雙每次命中暈眩 stun_duration（原作 C11T_stun 讀錯鍵 stun_time 得 0）
+  if ult then haste[#haste + 1] = { op = "if", cond = "not it.is_magic_immune", actions = { { op = "apply_status", status = "c11t_stun", to = "it" } } } end
   local function with_haste(list)
     local out = {}
     for i = 1, #haste do out[#out + 1] = haste[i] end
@@ -318,19 +320,20 @@ return function(ctx)
           low_mana = { 50, unit = "pct", source = "script:vscripts/heroes/C_Neutral/C11.lua:285-287 GetManaPercent() <= 50" },
           low_mana_mult = { 1.5, unit = "ratio", source = "script:vscripts/heroes/C_Neutral/C11.lua:287 damage * 1.5" },
           orb_mult = { 60, unit = "pct", source = "script:vscripts/heroes/C_Neutral/C11.lua:15 caster.orb = 0.6" },
-          max_jump = { 2, 4, 6, unit = "count", hidden = true, kv = { 2, 4, 6, 8 }, source = "kv:max_jump", source_differs = "KV 四個值，MaxLevel 3 只用到前三個",
-            note = "KV 寫四個值 2/4/6/8，MaxLevel 3 只用到前三個；因為 jump_range 是 0，實際不會彈跳" },
-          jump_range = { 0, unit = "dist", hidden = true,
-            source = "script:vscripts/heroes/C_Neutral/C11.lua:73 GetSpecialValueFor(\"jump_range\")；C11T 沒有這個鍵，得 0" },
+          max_jump = { 2, 4, 6, unit = "count", kv = { 2, 4, 6, 8 }, source = "kv:max_jump", source_differs = "KV 四個值，MaxLevel 3 只用到前三個" },
+          jump_range = { 700, unit = "dist", source = "kv:jump_range@C11W（雷切）",
+            source_differs = "原作 C11.lua:73 讀 C11T 自己沒有的 jump_range（得 0），雷電不會彈跳；FC-059 依 D13 改用雷切的 700" },
+          stun_duration = { 1, unit = "s", source = "kv:stun_duration",
+            source_differs = "原作 C11T_stun 讀錯鍵 stun_time（得 0），沒有暈眩；FC-060 依 D13 照說明暈眩 1 秒" },
           projectile_speed = { 4000, unit = "speed", hidden = true, source = "kv:projectile_speed" },
           attack_speed = { 75, 125, 175, unit = "atk_speed", source = "kv:attack_speed_percentage" },
           haste_duration = { 5, unit = "s", source = "kv:duration" },
         },
         text = {
           zh_TW = { name = "西國無雙",
-            body = "被動：全屬性 +{bonus_all}。普攻命中非建築的敵人時，消去其現有法力的 {mana_pct} 並造成 {damage} 魔法傷害；消去後目標法力不高於 {low_mana} 時傷害乘以 {low_mana_mult}。在{@c11_raikiri}或本招的雷電期間，這個效果只有 {orb_mult}。主動：化為雷電射向目標敵人（可以是魔免敵人），消去其現有法力的 {mana_pct} 並附加一次普攻，之後雷電立刻折返同一個目標，宗茂出現在其身旁並攻擊它。每段雷電命中時宗茂獲得 {attack_speed} 攻擊速度，持續 {haste_duration} 秒，可以疊加。" },
+            body = "被動：全屬性 +{bonus_all}。普攻命中非建築的敵人時，消去其現有法力的 {mana_pct} 並造成 {damage} 魔法傷害；消去後目標法力不高於 {low_mana} 時傷害乘以 {low_mana_mult}。在{@c11_raikiri}或本招的雷電期間，這個效果只有 {orb_mult}。主動：化為雷電射向目標敵人（可以是魔免敵人），消去其現有法力的 {mana_pct}、暈眩非魔免的目標 {stun_duration} 秒並附加一次普攻，之後在 {jump_range} 內的敵人之間傳導，共擊中 {max_jump} 次，最後折返第一個目標，宗茂出現在其身旁並攻擊它。每段雷電命中時宗茂獲得 {attack_speed} 攻擊速度，持續 {haste_duration} 秒，可以疊加。" },
           en = { name = "Unrivaled in Saigoku",
-            body = "Passive: +{bonus_all} to all attributes. Attacks that land on non-building enemies remove {mana_pct} of the target's current mana and deal {damage} magic damage, multiplied by {low_mana_mult} if the target is at or below {low_mana} mana afterwards. During the lightning of {@c11_raikiri} or this ability the effect is only {orb_mult} as strong. Active: turns into lightning that strikes the target enemy (can target spell-immune enemies), removing {mana_pct} of its current mana and performing one attack on it; the lightning then immediately returns to the same target and Muneshige reappears beside it and attacks it. Each lightning hit grants him +{attack_speed} attack speed for {haste_duration} seconds, stacking." },
+            body = "Passive: +{bonus_all} to all attributes. Attacks that land on non-building enemies remove {mana_pct} of the target's current mana and deal {damage} magic damage, multiplied by {low_mana_mult} if the target is at or below {low_mana} mana afterwards. During the lightning of {@c11_raikiri} or this ability the effect is only {orb_mult} as strong. Active: turns into lightning that strikes the target enemy (can target spell-immune enemies), removing {mana_pct} of its current mana, stunning it for {stun_duration} seconds unless it is spell immune, and performing one attack on it; the lightning then arcs between enemies within {jump_range} for {max_jump} hits in total before returning to the first target, where Muneshige reappears and attacks it. Each lightning hit grants him +{attack_speed} attack speed for {haste_duration} seconds, stacking." },
         },
         target = { type = "unit", range = "$cast_range", team = "enemy", types = BASIC },
         flags = { "pierce_magic_immune" },
@@ -361,6 +364,10 @@ return function(ctx)
             },
             reveal = "public", stats = { attack_speed = "$attack_speed" }, cue = "c11r_shock",
             notes = "原作 modifier_C07T_attack_speed（C11T 自己的定義，與 C07 同名但屬於不同技能）：MULTIPLE、Duration 5；沒寫 IsPurgable，暫定 basic。" },
+          { id = "c11t_stun", duration = "$stun_duration", stacking = "refresh", dispel = "strong", visibility = "debuff",
+            text = { zh_TW = { name = "暈眩", body = "暈眩中，無法移動、攻擊或施法。" }, en = { name = "Stunned", body = "Stunned: cannot move, attack or cast." } },
+            reveal = "public", states = { "stun" }, cue = "c11r_shock",
+            notes = "原作 modifier_C11T_stun（C11T_stun 以錯的鍵 stun_time 給 0 秒）；FC-060 修正後 stun_duration。" },
         },
         events = {
           on_phase_start = { { op = "cue", id = "c11w_vo", at = "caster" } },
@@ -368,12 +375,12 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C11.lua:73,113-146",
-            text = "主動沿用 C11W_hit_unit，彈跳半徑讀 jump_range；C11T 沒有這個鍵，得 0，FindUnitsInRadius 找不到其他目標，所以第一下命中後雷電就折返第一個目標，max_jump 2/4/6 沒有作用。說明寫會傳導。資料照原作不彈跳；若修正，jump_range 改用雷切的 700。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C11.lua:73,113-146",
+            text = "FC-059（D13 修正：彈跳半徑改用雷切的 jump_range 700，雷電會在敵人之間傳導）。原作：主動沿用 C11W_hit_unit，彈跳半徑讀 jump_range；C11T 沒有這個鍵，得 0，FindUnitsInRadius 找不到其他目標，所以第一下命中後雷電就折返第一個目標，max_jump 2/4/6 沒有作用。說明寫會傳導。" },
           { policy = "no_effect", ref = "vscripts/heroes/C_Neutral/C11.lua:68,76-81",
             text = "主動沿用 C11W_hit_unit，傷害是 GetAbilityDamage()；C11T 沒有 AbilityDamage，彈跳本身的傷害是 0。實際傷害來自附加攻擊觸發的被動（六成）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C11.lua:316-325",
-            text = "C11T_stun 讀 stun_time（C11T 只有 stun_duration 1），得 0，以 {duration = 0} 套 modifier_C11T_stun：推定沒有暈眩效果。說明寫「電暈 1 秒」，明顯是寫錯鍵名。資料照原作不暈眩；若修正，每段命中暈眩 stun_duration 1 秒（非魔免目標）。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C11.lua:316-325",
+            text = "FC-060（D13 修正：每次命中暈眩 stun_duration 1 秒）。原作：C11T_stun 讀 stun_time（C11T 只有 stun_duration 1），得 0，以 {duration = 0} 套 modifier_C11T_stun：推定沒有暈眩效果。說明寫「電暈 1 秒」，明顯是寫錯鍵名。" },
           { policy = "as_source", ref = "npc/C_Neutral/C11.txt:416-438",
             text = "OnProjectileHitUnit 的攻速加成在每段命中都套用，包括回到第一個目標（或宗茂自己）的回程那段；未命中（OnProjectileFinish）的那段沒有。實際只有兩段（去程與回程），共兩層，各自 5 秒。" },
           { policy = "as_source", ref = "npc/C_Neutral/C11.txt:322-327",

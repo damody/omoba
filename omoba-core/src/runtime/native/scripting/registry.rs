@@ -29,6 +29,17 @@ pub struct ScriptRegistry {
     ability_order: Vec<String>,
     /// 保持清單引用處於活動狀態 → DLL 保持映射狀態。
     _manifests: Vec<Manifest_Ref>,
+    /// M3'：每個 manifest 的模組 id 與它註冊的 unit／ability id（與 `_manifests` 同序）。
+    modules: Vec<RegisteredModule>,
+    /// 熱加載換下的舊版 manifest：DLL 不卸載，引用留著。
+    _retired: Vec<Manifest_Ref>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RegisteredModule {
+    pub module: String,
+    pub units: Vec<String>,
+    pub abilities: Vec<String>,
 }
 
 impl ScriptRegistry {
@@ -39,13 +50,25 @@ impl ScriptRegistry {
             abilities: HashMap::new(),
             ability_order: Vec::new(),
             _manifests: Vec::new(),
+            modules: Vec::new(),
+            _retired: Vec::new(),
         }
     }
 
+    /// The registered script modules, in registration order.
+    pub fn modules(&self) -> &[RegisteredModule] {
+        &self.modules
+    }
+
     pub fn insert_manifest(&mut self, manifest: Manifest_Ref) {
+        let mut registered = RegisteredModule {
+            module: (manifest.module_id())().as_str().to_owned(),
+            ..RegisteredModule::default()
+        };
         let units = (manifest.units())();
         for def in units {
             let id: String = def.unit_id.into();
+            registered.units.push(id.clone());
             if self.scripts.contains_key(&id) {
                 log::warn!("[scripting] duplicate unit_id `{}` — overriding", id);
             } else {
@@ -68,6 +91,7 @@ impl ScriptRegistry {
                 }
             };
             let id = def.id.clone();
+            registered.abilities.push(id.clone());
             if self.abilities.contains_key(&id) {
                 log::warn!("[scripting] duplicate ability id `{}` — overriding", id);
             } else {
@@ -77,6 +101,48 @@ impl ScriptRegistry {
         }
 
         self._manifests.push(manifest);
+        self.modules.push(registered);
+    }
+
+    /// M3' ② dev hot reload: a new build of one script DLL (same module id) replaces the
+    /// scripts and ability metadata it registers; registration order stays. The new build must
+    /// register exactly the same unit and ability ids (adding or removing content needs a
+    /// restart), else nothing changes. The old DLL stays mapped (abi_stable never unloads); all
+    /// state lives in the host, so swapping code loses none.
+    pub fn replace_module(&mut self, manifest: Manifest_Ref) -> Result<RegisteredModule, String> {
+        let module = (manifest.module_id())().as_str().to_owned();
+        let index = self
+            .modules
+            .iter()
+            .position(|registered| registered.module == module)
+            .ok_or_else(|| format!("module `{module}` is not loaded; a hot reload only replaces a loaded module"))?;
+        let units: Vec<_> = (manifest.units())().into_iter().map(|def| (String::from(def.unit_id), def.script)).collect();
+        let mut abilities = Vec::new();
+        for ability in (manifest.abilities())() {
+            let def: AbilityDef = serde_json::from_str(ability.def_json.as_str())
+                .map_err(|error| format!("{module}: ability metadata: {error}"))?;
+            abilities.push((def, ability.script));
+        }
+        let registered = RegisteredModule {
+            module: module.clone(),
+            units: units.iter().map(|(id, _)| id.clone()).collect(),
+            abilities: abilities.iter().map(|(def, _)| def.id.clone()).collect(),
+        };
+        if registered != self.modules[index] {
+            return Err(format!(
+                "{module}: the new build registers other units or abilities ({:?} / {:?}, loaded {:?} / {:?}); restart instead",
+                registered.units, registered.abilities, self.modules[index].units, self.modules[index].abilities
+            ));
+        }
+        for (id, script) in units {
+            self.scripts.insert(id, script);
+        }
+        for (def, script) in abilities {
+            self.abilities.insert(def.id.clone(), (def, script));
+        }
+        let old = std::mem::replace(&mut self._manifests[index], manifest);
+        self._retired.push(old);
+        Ok(registered)
     }
 
     /// Replace the script that runs `ability_id`, keeping its metadata. M3 replays run an

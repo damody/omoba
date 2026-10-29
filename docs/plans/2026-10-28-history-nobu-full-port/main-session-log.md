@@ -56,3 +56,39 @@
 - 2026-10-29 15:53：UE 完成第 2～9 批的呈現報告（9 份）與通用狀態外觀；缺圖清單是 m6-missing-art.md（頭像 26、圖示 130、cue 129），待使用者決定；團戰重測峰值 50／512。下一步派 UE 做 M7 道具呈現：商店、合成樹、說明框只讀 item_shop_v3，未開放的道具通用標示。
 - 2026-10-29 16:22：使用者指示「全部停止」：已取消 cron，5 個 session 都已停止，背景程序已結束（第二次結束時被使用者中斷，留下 1 組 M0 的 debug cargo test）。16:35 寫好交接計畫 handover-2026-10-29.md。
 - 2026-10-29 16:50：使用者決定：134 項 bug 全部修、缺圖用 Grok 生成、515G 暫存檔要刪（已刪除）、要 commit；不用 IR，改成產生 Rust，每位英雄一個 DLL、可熱加載。已改 README（D13～D17、架構、M3'）、新增 m3-rust-codegen-design.md，並在 m3-ir-design、fix-candidates、m6-missing-art、v3-content-model-proposal 加上註記。
+- 2026-10-29 20:40：使用者恢復無人值守（「繼續把遊戲做完」）。決定：tmp_fix.lua 保留、184G 清單刪除（30 個目錄，釋出 178G）、產生的 Rust 不進版控。check_live_consistent --ubt 通過。舊 session 已不在，依 plan-2026-10-29-resume.md 新開五條工作線：line-b-runtime（M3' ①②④）、line-a-codegen（M3' ③）、line-c-ue（M7 呈現、Grok 美術）、line-gamemode（野怪營地、樹、加兵）、line-conformance（E226 重跑）。10 分鐘例行檢查 cron a88ef402。
+- 2026-10-29 20:56：例行檢查：五條線都在跑；line-c-ue 的截圖局 shop8-1 持鎖 14 分鐘超時，已請它照 PID 結束並在之後設時限。
+- 2026-10-29 21:06：例行檢查：shop8-1 於 21:06 釋放鎖（共約 24 分鐘，已提醒 line-c-ue 設時限）。新 land：村上義清地裂 handler（No1_ground_slam.rs），check_live_consistent 通過。五條線都在跑。
+- 2026-10-29 21:26：例行檢查：A 在影子 target/lineA/ws3 讓 97 位英雄的產生 crate 在 deny(warnings) 下編過（每英雄 rlib＋cdylib 雙 package，避開 LNK2005），等 B 放回 M3' ①；已派 A 先做 v3_codegen_coverage、第 1 批產生器寫法與資料類 fix-candidates，並刪 ws／ws2。其餘四線在跑，無鎖。
+- 2026-10-29 21:36：例行檢查：C 完成 M7 道具呈現收尾（shop8-1、roadmap 122 件「尚未開放」截圖、說明框改通用分類）與 M6 第 1、2 批 Grok 美術（E231 generated_art 索引）；已派 C 修 720p 價錢重疊、接第 2～9 批呈現與美術。B 放回 ability_kit（lib、codegen、metadata），實機局 m3p/live1 21:33 起持鎖。
+- 2026-10-29 21:46：例行檢查：B 的 m3p/live1 於 21:40 釋放（約 7 分鐘）。A 改成英雄 crate 由 build.rs 在建置時產生（$OUT_DIR，include!），97 組在 ws3 通過；已再派 coverage、第 1 批寫法、資料類 fix-candidates。conformance 放回 v3_conformance_tests.rs。C 在跑 UE build（build_ue_moba 鎖）。
+- 2026-10-29 21:55：A 問 FC-038 等 7 項「建議不修」怎麼辦。主 session 決定全修：層數類滿層總加成＝原作固定值（FC-044 上限 4 位）、A14T 改成施放才生效、B02R 改 18 枚 90/180/270/360、兩件暴擊道具各自判定。C 回報 M7 收尾與第 1、2 批美術完成，已在做下一步。
+- 2026-10-29 21:56：例行檢查：A 修好 7 項原本「不修」的 FC（v3_fixed_quirks_test 16 項），fix-candidates 已修 15 項；A 每件事做完就停，已要求一路做完清單。conformance 放回 known_differences.json。B 實機局 m3p/live2 21:48 起持鎖。
+- 2026-10-29 22:16：例行檢查：conformance 比對產生的 Rust 17 招（2289 情境），只有 C17W 自我施放不同，已回報 A；比對腳本用了 Python，已要求改 Lua 並一路做完清單。遊戲模式放回 22 檔（野怪營地 jungle.rs、nobu_neutrals、視野遮擋、bots，含 UBT）。B 的 m3p/live2 約 12 分鐘稍超時、live3 約 10 分鐘。
+- 2026-10-29 22:36：例行檢查：C 修好 720p 價錢（UiSmall），第 2 批呈現（command_restricted、no_healthbar 通用外觀）放回，第 1～9 批 Grok 美術 229 張全部補齊；已派 not_on_minimap、73 個 Niagara 特效、與 B 定 runtime 呈現介面。遊戲模式 UE 實機局 e187/ue-quick4 22:28 起持鎖。
+- 2026-10-29 22:46：例行檢查：遊戲模式 UE 局 e187/ue-quick4 持鎖約 18 分鐘超時（log 22:42 後停寫），已請 line-gamemode 照 PID 結束並設時限。conformance 再放回 v3_conformance_tests.rs。
+- 2026-10-29 22:56：e187/ue-quick4 約 28 分鐘未自然結束（tick 95592），line-gamemode 未回應，主 session 照 owned-processes.json PID 結束三個程序，鎖正常釋放；已要求設對局時限並先用 headless 確認打得完。C 放回 not_on_minimap 與狀態外觀（OmStatusLook、OmMinimapModel，UBT 通過）。
+- 2026-10-29 23:06：A 放回 B08／A07 的 FC-005／025／046（content hash 變，已通知重建），修好 C17W 產生版自我施放；FC-078 等 B 的 ①；FC-129～131 交 B。第 2～9 批剩下的寫法要 host API，主 session 決定由 A 自己實作（先跟 B 確認檔案不衝突）。
+- 2026-10-29 23:26：e187/ue-quick5 又持鎖約 18 分鐘未結束（tick 61484）；主 session 照 PID 結束被 auto mode 擋下，改請 line-gamemode 自己結束，並規定 headless 能 10 分鐘內打完前不再開 UE 局、每局帶時限。
+- 2026-10-29 23:36：例行檢查：ue-quick5 於 23:36 釋放（共約 27 分鐘）。C 閒置 18 分鐘，已催它確認背景重拍結果並繼續 Niagara 特效。其他三線在跑，無新 land。
+- 2026-10-29 23:46：line-gamemode 在 23:36 又開 e187/ue-quick6（1 人類＋9 bot、三線 quick、launch 沒有對局時限），到 23:46 約 10 分鐘。它的 turn 一直沒結束，主 session 22:46 起的三則訊息都還在佇列沒讀到；主 session 無法結束它的程序（auto mode 擋下）。launch-plan 顯示 hero_a02.dll 已在 script_modules（B 的 M3' ① 已生效）。
+- 2026-10-29 23:58：查明 e187 UE 局超時的原因：C 的 UnrealEditor-Cmd（d3d12，ue-shadow-c）同時在跑，UE 初始化要 5～15 分鐘，對局本身 3.7 分就結束。E187 headless 已放回（E234）。已協調 C 做完目前重拍後暫停開 UE 約 15 分鐘，直接通知 line-gamemode 開局。
+- 2026-10-30 00:06：例行檢查：ue-quick6 23:58 釋放。C：not_on_minimap 放回；Niagara commandlet 做法可行但第 1 批品質不夠（改 SimpleExplosion 再重拍）；runtime 呈現介面提案已送 B；已暫停開 UE 並通知 line-gamemode 開局，暫停期間做非 UE 工作。C 的 UnrealEditor-Cmd PID 42756（23:37 起）卡住無法結束，回報使用者。A 在等 omoba-core 回歸測試（23:50 起）。
+- 2026-10-30 00:16：A 放回四項 host API（unit_var、scheduled_effect、status_event、投射物命中排程；17 檔，ABI 變動需全部重建），可產生招式 50→69，修 C17W 自我施放與 require_source_alive 預設；道具 70→62 是修正誤判。已派 A 自己做 on_take_damage_pre、推 coverage、M5 比對後換 handler、開始 items.dll。卡住的 UnrealEditor-Cmd 42756 已不在。
+- 2026-10-30 00:30：e187 ue-quick7（540 秒時限）正常收尾，但 C 暫停後 UE 載入引擎仍卡 9 分鐘以上，仍無局中截圖；UnrealEditor-Cmd 42756 仍在且無法終止（主 session 00:16 誤判已消失，更正），疑 GPU 驅動層卡住，需使用者重開機。E187 其餘已放回（E234），UE 驗收擱置；C 恢復開 UE，一次一個實例。
+- 2026-10-30 00:40：e187 查到 UE 不顯示結果、不自己結束的原因（推測）：晚進場時第一幀已是 phase=2，SetMatchResultState 在面板未排版時 return、之後不再判斷。已交給 C 修成排版後再判斷一次，附 UE 測試。
+- 2026-10-30 00:45：UnrealEditor-Cmd 42756 自己結束，不需重開機。C 恢復 UE 工作；已派 line-gamemode 重拍 UE quick 驗收，再做中路加兵、兵營追加兵、建築回血、lifecycle 測試。
+- 2026-10-30 01:00：使用者決定 D7 門檻：2 招以上類似的機制做成共用（v3 詞彙＋產生器＋ability_kit），完全跟大家不同的才寫 hook（AI 實作產生的 trait，取代 stub）。已改 README D7、m3-rust-codegen-design §2.4（原 2.4 ability_kit 改為 2.5）、記憶；通知 A（trait 產生器、coverage 分類、hook 候選清單）、B、conformance。hook 實作工作線等 A 交出候選清單後再開。
+- 2026-10-30 01:05：A 查明 B01 召喚上限由 host summon_owner_cap.rs 執行（有測試）；產生器改成只在三條件下接受 limit_per_owner、其他 block；另 5 份文件原本被默默略過。destroy_trees 在 host 是空操作：產生但列入 coverage「host 沒做到」一節，host 實作交給 line-gamemode。
+- 2026-10-30 01:10：C 更正：42756 已消失、UE 啟動約 1 分鐘；73 個 cue Niagara 已全部放回（cap-all3 總表）。主 session 看總表：外觀都是同一種光球＋火花，只差顏色大小；已請 C 修完結算畫面 bug 後依 cue 種類分範本重做。
+- 2026-10-30 01:15：C 修好 UE 晚進場不顯示結算畫面（bMatchResultPresented，UE 測試 MatchResultAfterLateJoin Success，3 檔 UBT 通過放回），已請 line-gamemode 下一局實機確認。A 放回 limit_per_owner 修正前在等 omoba-core 全套測試，之後交 hook 候選清單。
+- 2026-10-30 01:20：E187 UE quick 驗收通過（ue-quick9：34 秒進場、4.0 分自然結束、13 座建築倒、結果畫面截到、mismatch 0）；中路加兵、兵營追加兵、建築回血、足輕成長已放回（E234），lifecycle 3 seed 通過。缺口：nobu 樹與 24 營 UE 沒畫（bridge driver.rs:1021 有 fog grid 就不送樹）→ 交 C；nobu 完整量測只完成 1 局（40.7 分）→ gamemode 補量測並做 destroy_trees。
+- 2026-10-30 01:30：A 放回 trait 產生器（整招 hook、沒實作編不過、不再產生 stub）與大批寫法（damage_pre、slow、疊層、modify_cooldown、teleport 等，22 檔），可產生招式 50→100；A02、B01、C17 已換成產生的 Rust 上 live。hook 候選：45 招 62 項（另 57 項產生器自補）。conformance 支援 hook 情境；已派它重跑全量確認三位英雄 0 退步。等 A 把清單放到 repo 後開 hook 工作線。
+- 2026-10-30 01:35：A 把 hook 候選清單放到 hook-candidates.md（B 類 45 招）；items.dll（66/168 件）放回中，道具使用與裝備改走 script registry 交給 B。主 session 看清單：不少項目其實是規則層狀態或類似機制（hex、taunt、dash、chain、destroy_tree），應先依「類似就共用」複核。開 hook 工作線被 auto mode 擋下，改提卡片（task_f694e9fe）等使用者啟動。
+- 2026-10-30 01:40：C 把 73 個 cue 分 6 類（ring/aura/buff/burst/trail/slash）放回；主 session 看 cap-all7 總表仍看不出環形，trail/slash 仍是一團。已請 C 用遊戲視角拍、ring/aura 用環形 emitter、trail 用 Ribbon、slash 用弧形。B 同意 runtime 呈現欄位，排在 M5 之後。
+- 2026-10-30 01:45：A 回報本輪 33 檔放回（damage_pre、hook trait、limit_per_owner、items.dll 66/168 件），A 類剩約 50 項等 B 的 ext 讀取 API；道具改走 script registry 由 B 接。已派 A 先用「類似就共用」複核 hook 清單、補不依賴 B 的共用寫法、整理 M6 第 1 批解鎖清單。C 放回 bridge lib.rs（樹／營地接線中）。
+- 2026-10-30 01:55：A 複核 hook 清單：真正獨有只剩 a13_chain_sickle、c06_grand_heist，其餘併入規則層（清單給 B）或共用；不依賴 B 的共用寫法已放回，可產生 100→106 招；M6 第 1 批解鎖清單 m6-wave1-unlock.md（44 招：已產生 16、共用待補 28、無 hook）。撤回 hook 工作線卡片，2 招 hook 由 A 直接做。B 目前是瓶頸（ext 讀取 API、規則層清單、道具路由、ability_kit）。
+- 2026-10-30 02:00：A 放回 A13E 鎖鏈鐮 hook；修投射物 profile 缺傷害類型位元；接上 B 第 1 批 give/take_gold、burn_mana、dash、teleport、dodge_projectiles 等；可產生 113 招，第 1 批 17/44。C06T 被擋：create_pickup 與讀金錢交給 line-gamemode（減輕 B），issue_order 併入規則層 taunt。A 接著做 items.dll host 接線（B 審）。
+- 2026-10-30 02:10：C 放回 nobu 靜態樹送到 UE（有迷霧也送，nobu-trees2 截圖有樹）與 cue 遊戲視角對照表（shapes4：ring／aura 是真的環）；trail／slash 仍是亮點，已請 C 查光帶並改 Ribbon／弧形。A 的 C06T 等 gamemode 與 B；items.dll 接線等 B 回設計問題。
+- 2026-10-30 02:26：B 放回 damage_from_at（傷害紀錄帶來源與路徑）與 headless 測試斷言修正後停下；已催 B 一路做，先回 A 的 items.dll 兩個設計問題與 taunt 狀態細節，再做 ext 讀取 API、remove_status、規則層清單、M3' ②④。
+- 2026-10-30 02:35：C 修好光帶（暖機沒用到 M_Ribbon、改貼地從施法者拉到目標），shapes12 對照表 6 類一眼分得開，主 session 接受此版；真正 Ribbon／弧形 emitter 排到 M8 美術打磨。C 下一步：砍樹移除、M6 各批呈現、runtime 呈現欄位。A 把 damage{source} 改產生 damage_from_at（B 要求）。

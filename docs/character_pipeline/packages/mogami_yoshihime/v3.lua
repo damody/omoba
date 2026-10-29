@@ -232,6 +232,8 @@ return function(ctx)
           regen_reduction = { 60, 80, 100, unit = "pct", kv = { -60, -80, -100 },
             source = "kv:Decrease_Health", note = "MODIFIER_PROPERTY_HP_REGEN_AMPLIFY_PERCENTAGE",
             source_differs = "KV 以負值表示降低，v3 以正值表示；原作說明寫 60/80/99%" },
+          heal_cut = { 60, 80, 99, unit = "pct", source = "kv:decrease_health 40/20/1（HealFilter 把治療壓到這個比例）",
+            note = "FC-057（D13）：原作 HealFilter 隨即把比例設回 1 而沒有效果；照原意受到的治療降為 40/20/1%" },
           timer_tick = { 0.1, unit = "s", hidden = true, source = "script:vscripts/heroes/B_Unified/B33.lua:98-189 Timer 0.1" },
           latch_distance = { 50, unit = "dist", hidden = true,
             source = "script:vscripts/heroes/B_Unified/B33.lua:177 CalcDistanceBetweenEntityOBB < 50" },
@@ -239,9 +241,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "蜘蛛纏身",
-            body = "放出一隻毒蜘蛛追向一名敵方英雄。蜘蛛撲上目標後持續纏住它：目標每秒受到 {damage} 魔法傷害，移動速度降低 {slow}、攻擊速度降低 {attack_slow}、生命回復降低 {regen_reduction}；負面狀態被移除時蜘蛛會立刻重新施加。施放後 {duration} 秒或目標死亡時蜘蛛消失，效果一併結束。" },
+            body = "放出一隻毒蜘蛛追向一名敵方英雄。蜘蛛撲上目標後持續纏住它：目標每秒受到 {damage} 魔法傷害，移動速度降低 {slow}、攻擊速度降低 {attack_slow}、生命回復降低 {regen_reduction}、受到的治療降低 {heal_cut}；負面狀態被移除時蜘蛛會立刻重新施加。施放後 {duration} 秒或目標死亡時蜘蛛消失，效果一併結束。" },
           en = { name = "Spider Attack",
-            body = "Releases a poisonous spider that chases an enemy hero. Once it latches on, the target takes {damage} magic damage per second and has its movement speed reduced by {slow}, attack speed by {attack_slow} and health regeneration by {regen_reduction}; if the debuff is removed, the spider reapplies it immediately. The spider vanishes {duration} seconds after the cast or when the target dies, ending the effect." },
+            body = "Releases a poisonous spider that chases an enemy hero. Once it latches on, the target takes {damage} magic damage per second and has its movement speed reduced by {slow}, attack speed by {attack_slow} health regeneration by {regen_reduction} and healing received by {heal_cut}; if the debuff is removed, the spider reapplies it immediately. The spider vanishes {duration} seconds after the cast or when the target dies, ending the effect." },
         },
         target = { type = "unit", range = "$cast_range", team = "enemy", types = { "hero" }, flags = { "include_magic_immune" } },
         cast = { cast_point = "$cast_point" },
@@ -251,11 +253,11 @@ return function(ctx)
         statuses = {
           { id = "b33t_spiderlings", duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "debuff",
             text = {
-              zh_TW = { name = "蜘蛛纏身", body = "被毒蜘蛛纏住：每秒受到 {damage} 魔法傷害，移動速度降低 {slow}、攻擊速度降低 {attack_slow}、生命回復降低 {regen_reduction}。被移除時蜘蛛會立刻重新施加。" },
-              en = { name = "Spider Attack", body = "Entangled by a poison spider: takes {damage} magic damage per second, with movement speed reduced by {slow}, attack speed by {attack_slow} and health regeneration by {regen_reduction}. The spider reapplies it at once if removed." },
+              zh_TW = { name = "蜘蛛纏身", body = "被毒蜘蛛纏住：每秒受到 {damage} 魔法傷害，移動速度降低 {slow}、攻擊速度降低 {attack_slow}、生命回復降低 {regen_reduction}、受到的治療降低 {heal_cut}。被移除時蜘蛛會立刻重新施加。" },
+              en = { name = "Spider Attack", body = "Entangled by a poison spider: takes {damage} magic damage per second, with movement speed reduced by {slow}, attack speed by {attack_slow} health regeneration by {regen_reduction} and healing received by {heal_cut}. The spider reapplies it at once if removed." },
             },
             reveal = "public", tags = { "slow" }, cue = "b33t_spider_bite",
-            stats = { slow_pct = "$slow", attack_speed = "-$attack_slow", hp_regen_amp_pct = "-$regen_reduction" },
+            stats = { slow_pct = "$slow", attack_speed = "-$attack_slow", hp_regen_amp_pct = "-$regen_reduction", heal_reduction_pct = "$heal_cut" },
             triggers = {
               periodic = { interval = "$damage_tick", actions = {
                 { op = "damage", to = "self", source = "caster", type = "magical", amount = "$damage", require_source_alive = false },
@@ -324,8 +326,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/events.lua:316-342",
-            text = "HealFilter 依 target.b33T 把 decrease_health 壓到 0.4/0.2/0.01（KV decrease_health 40/20/1），但緊接著「沒有 modifier_decrease_HR 就把 decrease_health 設回 1」，所以減療只在目標同時有 modifier_decrease_HR 時才有作用，平常完全沒效。資料照實際：不減療；原意應是治療降為 40/20/1%。另外目標的 decrease_health 若從未設定，比較 nil 會讓 filter 出錯。" },
+          { policy = "fixed", ref = "vscripts/events.lua:316-342",
+            text = "FC-057（D13 修正：受到的治療降為 40/20/1%（heal_reduction_pct 60/80/99））。原作：HealFilter 依 target.b33T 把 decrease_health 壓到 0.4/0.2/0.01（KV decrease_health 40/20/1），但緊接著「沒有 modifier_decrease_HR 就把 decrease_health 設回 1」，所以減療只在目標同時有 modifier_decrease_HR 時才有作用，平常完全沒效。原意是治療降為 40/20/1%。另外目標的 decrease_health 若從未設定，比較 nil 會讓 filter 出錯。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B33.lua:140-189",
             text = "持續時間從施放起算（timer 的 num），不是從蜘蛛撲上起算；蜘蛛 10 秒內追不到目標就整招落空。蜘蛛 dummy 無敵且不可選取，無法阻止。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B33.lua:165-167",

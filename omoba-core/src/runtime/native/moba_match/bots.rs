@@ -4,7 +4,8 @@ use super::*;
 use crate::runtime::native::item::ItemRegistry;
 use crate::runtime::{AttackMove, AttackTarget, MoveTo, PlayerInput, PlayerInputEnum, Vec2I};
 use crate::runtime::visibility::{decode_demo_render_state, decode_disclosed_components, decode_disclosed_health,
-    TeamVisibilityRuntime, DEMO_RENDER_COMPONENT_SCHEMA_ID, DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID};
+    decode_disclosed_presentation_identity, TeamVisibilityRuntime, DEMO_RENDER_COMPONENT_SCHEMA_ID,
+    DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID, DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -115,6 +116,36 @@ fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32, threat: impl Fn(u
                 position: Vec2::new(Fixed64::from_raw(render.x_raw), Fixed64::from_raw(render.y_raw)),
                 team: render.team_id, kind, owner_player_id:render.owner_player_id, hp_raw,max_hp_raw, threat:range })
         }).collect()
+}
+
+/// Disclosed bodies whose presentation identity is a boss camp's unit (E187 §5.4). The identity is
+/// public (what the unit is); the boss tag is public map data.
+fn disclosed_boss_ids(runtime:&TeamVisibilityRuntime,team:u32,bosses:&[&str])->Vec<u64> {
+    if bosses.is_empty() {return Vec::new();}
+    runtime.teams.get(&team).into_iter().flat_map(|state|state.index.current.iter()).filter(|&&canonical_id| {
+        runtime.latest_disclosed_baseline_by_canonical.get(&canonical_id)
+            .and_then(|bytes|decode_disclosed_components(bytes))
+            .and_then(|components|components.get(&DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID)
+                .and_then(|bytes|decode_disclosed_presentation_identity(bytes)).map(|id|bosses.contains(&id)))
+            .unwrap_or(false)
+    }).copied().collect()
+}
+
+/// The jungle patrol (E187 §5.4). On a map whose camps declare sides, the side's own camps
+/// (no boss) in a nearest-neighbour tour from the camp nearest `home`, so the jungler farms its own
+/// jungle instead of crossing the map to the enemy's or to the bosses; ties keep authoring order.
+/// Other maps keep the ring of every camp in authoring order. Camp homes, sides and tags are
+/// public map data; no camp state is read.
+fn jungle_patrol_points(camps:&[MobaJungleCamp],side:usize,home:Vec2)->Vec<Vec2> {
+    let point=|camp:&MobaJungleCamp|Vec2::new(Fixed64::from_i32(camp.definition.position.0),Fixed64::from_i32(camp.definition.position.1));
+    if !camps.iter().any(|camp|camp.definition.side.is_some()) {return camps.iter().map(point).collect();}
+    let mut own:Vec<Vec2>=camps.iter().filter(|camp|usize::from(camp.definition.side.unwrap_or(u8::MAX))==side
+        && !camp.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss)).map(point).collect();
+    let mut tour=Vec::with_capacity(own.len());let mut at=home;
+    while let Some((index,_))=own.iter().enumerate().min_by_key(|(index,p)|((**p-at).length_squared().raw(),*index)) {
+        at=own.remove(index);tour.push(at);
+    }
+    tour
 }
 
 fn public_control_priority(bytes:&[u8])->Option<u8> {
@@ -477,6 +508,12 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         let entity=world.entities().entity(id as u32);
         (disclosed_identity(entity)==id).then(||state.structure_threat(entity)).flatten()
     }));
+    // E187 §5.4: on a map with sided camps the jungler leaves the bosses alone (the bots have no
+    // notion of being strong enough for them): they leave its farm, focus and cast targets.
+    let sided_camps=state.jungle_camps.iter().any(|camp|camp.definition.side.is_some());
+    let boss_units:Vec<&str>=if sided_camps {state.jungle_camps.iter()
+        .filter(|camp|camp.definition.has_tag(omoba_template_ids::MobaUnitTag::Boss)).map(|camp|camp.definition.unit).collect()} else {Vec::new()};
+    let disclosed_bosses=state.config.teams.map(|team|disclosed_boss_ids(&visibility,team,&boss_units));
     let mut inputs = Vec::new();
     for assignment in &config.assignments {
         // A held showcase seat stands still: no movement, attack, cast, shop or learning input.
@@ -493,6 +530,11 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             || super::super::ability_channel::is_active_for_owner(world,entity,slot.player_id) { continue; }
         let team = state.config.teams[slot.side];
         let seen = &perceptions[slot.side];
+        let without_bosses:Vec<SeenUnit>;
+        let seen:&[SeenUnit]=if assignment.role==BotRole::Jungle && !disclosed_bosses[slot.side].is_empty() {
+            without_bosses=seen.iter().filter(|u|!disclosed_bosses[slot.side].contains(&u.canonical_id)).copied().collect();
+            &without_bosses
+        } else {seen};
         let Some(own) = seen.iter().find(|u| u.canonical_id == disclosed_identity(entity)) else { continue; };
         // Only typed owner cleanses may precede the stunned-owner wait.
         // Authority retains its existing no-order-replacement cleanse contract.
@@ -556,8 +598,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                     sustain::Recovery::Recall=>if recall_blocked {recovery_wait=true;None} else {Some(PlayerInputEnum::Recall(crate::game_proto::Recall {}))},
                     sustain::Recovery::Hold=>hold_input(commands.get(entity)),
                     sustain::Recovery::Retreat(home)=>if immobilized {recovery_wait=true;None} else if
-                        crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                            own.position,home,radius,&regions).is_none() {
+                        !crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                            own.position,home,radius,&regions) {
                         // Public terrain may make even a valid home unreachable.
                         // Allow defensive casts first, then cancel stale aggression
                         // with a deduplicated hold. Re-evaluate next think; no blacklist.
@@ -665,10 +707,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         // Static camp locations are public map data. Keep the formal movement
         // destination until arrival; never consult hidden camp timers/state.
         let destination = if assignment.role == BotRole::Jungle {
-            let points: Vec<_> = state.jungle_camps.iter().map(|camp| {
-                let (x,y) = camp.definition.position;
-                Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y))
-            }).collect();
+            let points = jungle_patrol_points(&state.jungle_camps, slot.side, home);
             let active = commands.get(entity).and_then(|q| match q.active {
                 Some(HeroCommand::AttackMove {pos}) => Some(pos), _ => None,
             });
@@ -688,8 +727,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             _=>Fixed64::ZERO,
         };
         let action = match navigable_combat_decision(assignment, team, own.position, destination, seen, attack_focus,attack_range,
-            |point| !immobilized && crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                own.position,point,radius,&regions).is_some()) {
+            |point| !immobilized && crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                own.position,point,radius,&regions)) {
             Decision::Hold => {
                 let Some(action)=hold_input(commands.get(entity)) else {continue;};
                 action
@@ -703,13 +742,10 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             }
             Decision::Advance(destination) => {
                 if immobilized {continue;}
-                let reachable=|point|crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                    own.position,point,radius,&regions).is_some();
+                let reachable=|point|crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                    own.position,point,radius,&regions);
                 let destination=if assignment.role==BotRole::Jungle {
-                    let points:Vec<_>=state.jungle_camps.iter().map(|camp| {
-                        let (x,y)=camp.definition.position;
-                        Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))
-                    }).collect();
+                    let points=jungle_patrol_points(&state.jungle_camps,slot.side,home);
                     reachable_patrol_destination(&points,own.position,destination,reachable)
                 } else {
                     reachable_lane_destination(&state.routes[assignment.lane][slot.side],own.position,destination,reachable)
@@ -727,8 +763,8 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
             Decision::Escort(destination) => {
                 if immobilized && destination!=own.position {continue;}
                 let action=if destination==own.position ||
-                    crate::runtime::native::tick::hero_command_tick::static_next_waypoint(
-                        own.position,destination,radius,&regions).is_none() {hold_input(commands.get(entity))}
+                    !crate::runtime::native::tick::hero_command_tick::static_travel_reachable(
+                        own.position,destination,radius,&regions) {hold_input(commands.get(entity))}
                     else {recovery_move(commands.get(entity),destination)};
                 let Some(action)=action else {continue;};
                 action
@@ -771,6 +807,48 @@ mod tests {
         for raw in [-1,1,1024] {let mut value=serde_json::to_value(&loadout).unwrap();value["cooldown_remaining"]=serde_json::to_value([Fixed64::ZERO,Fixed64::from_raw(raw)]).unwrap();let cooling:SummonerLoadout=serde_json::from_value(value).unwrap();assert!(choose_summoner_control_cleanse(1,&cooling,Some(&catalog),true).is_none());}
         loadout.set_slot(0,Some("other_cleanse".into())).unwrap();assert_eq!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true),Some(0));
         loadout.set_slot(0,None).unwrap();loadout.set_slot(1,Some("unknown".into())).unwrap();assert!(choose_summoner_control_cleanse(1,&loadout,Some(&catalog),true).is_none());
+    }
+    /// E187 §5.4: on nobu the jungler tours its own side's camps (nearest first from home, then
+    /// the nearest remaining one), never a boss or a shared corner camp; maps without sided camps
+    /// keep the ring of every camp in authoring order.
+    #[test]
+    fn nobu_jungle_patrol_tours_its_own_side_camps_and_skips_the_bosses() {
+        let point=|(x,y):(i32,i32)|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let map=omoba_template_ids::moba_map_by_name("nobu").unwrap();
+        let camps:Vec<_>=map.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
+        for side in 0..2 {
+            let home=point(omoba_template_ids::moba_team_point(map.fountains,side).unwrap());
+            let tour=jungle_patrol_points(&camps,side,home);
+            let mut own:Vec<_>=map.jungle_camps.iter().filter(|c|c.side==Some(side as u8)).map(|c|point(c.position)).collect();
+            assert_eq!(tour.len(),11);
+            assert!(map.jungle_camps.iter().filter(|c|c.has_tag(omoba_template_ids::MobaUnitTag::Boss) || c.side!=Some(side as u8))
+                .all(|c|!tour.contains(&point(c.position))),"no boss, shared or enemy camp");
+            let mut at=home;
+            for stop in &tour {
+                let nearest=*own.iter().min_by_key(|p|(**p-at).length_squared().raw()).unwrap();
+                assert_eq!(*stop,nearest);own.retain(|p|*p!=nearest);at=*stop;
+            }
+        }
+        let training=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
+        let camps:Vec<_>=training.jungle_camps.iter().copied().map(MobaJungleCamp::new).collect();
+        assert_eq!(jungle_patrol_points(&camps,1,p(0)),training.jungle_camps.iter().map(|c|point(c.position)).collect::<Vec<_>>());
+    }
+    /// E187 §5.4: a boss is recognized by its disclosed presentation identity only while the team
+    /// currently sees it; other identities and stale payloads are not bosses.
+    #[test]
+    fn disclosed_bosses_are_the_current_bodies_with_a_boss_identity() {
+        let identity=|id:&str|encode_disclosed_baseline(&[(DISCLOSED_PRESENTATION_IDENTITY_SCHEMA_ID,
+            crate::runtime::visibility::encode_disclosed_presentation_identity(id).unwrap())]);
+        let mut runtime=TeamVisibilityRuntime::default();runtime.ensure_team(1);runtime.ensure_team(2);
+        for id in [7,8,9] {runtime.teams.get_mut(&1).unwrap().index.current.insert(id);}
+        runtime.latest_disclosed_baseline_by_canonical.insert(7,identity("north_epic_guardian"));
+        runtime.latest_disclosed_baseline_by_canonical.insert(8,identity("neutral_130_wild_bear"));
+        runtime.latest_disclosed_baseline_by_canonical.insert(9,vec![0;4]);
+        runtime.latest_disclosed_baseline_by_canonical.insert(10,identity("south_epic_guardian"));
+        let bosses=["north_epic_guardian","south_epic_guardian"];
+        assert_eq!(disclosed_boss_ids(&runtime,1,&bosses),vec![7]);
+        assert!(disclosed_boss_ids(&runtime,2,&bosses).is_empty());
+        assert!(disclosed_boss_ids(&runtime,1,&[]).is_empty());
     }
     #[test]
     fn bot_cleanse_observation_uses_only_current_public_canonical_buff_status() {

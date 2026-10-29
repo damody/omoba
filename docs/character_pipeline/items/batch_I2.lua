@@ -239,7 +239,7 @@ return function(ctx)
                       { op = "cue", id = "d09_lightning", at = "self", to = "it" },
                       { op = "damage", to = "it", type = "magical", amount = "$chain_damage * event.attack.effect_multiplier" },
                       { op = "delay", time = "$counter_reset_delay", actions = {
-                        { op = "set_state", var = "raikiri", value = "0", on = "event.target" },
+                        { op = "set_state", var = "raikiri", value = "0", on = "self" }, -- FC-019～021（D13）：重設攻擊者自己的計數
                       } },
                     } },
                 } },
@@ -257,8 +257,8 @@ return function(ctx)
             text = "以 GetName() 判斷舞雷刀：遠程 RandomInt(0,100) <= 10（11/101）、保底 raikiri >= 8；近戰（GetBaseAttackRange() < 200 且不是 B04）<= 18（19/101）、保底 >= 7。失敗先 +1 再比較，等於遠程連續七次、近戰連續六次未中後下一次必中。原作說明寫 18%／10%。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:223-238",
             text = "保底計數是英雄身上的 caster.raikiri，與大千鳥十文字槍、雷切共用（unit_state raikiri，scope hero）。" },
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:264-266",
-            text = "觸發後 0.1 秒把被攻擊者自己的 raikiri 設為 nil：打到持有雷系道具的敵方英雄會重設對方的保底計數（與 pilot 大千鳥同一段程式）。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:264-266",
+            text = "FC-020（D13 修正：0.1 秒後重設攻擊者自己的 raikiri）。原作：觸發後 0.1 秒把被攻擊者自己的 raikiri 設為 nil：打到持有雷系道具的敵方英雄會重設對方的保底計數（與 pilot 大千鳥同一段程式）。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:252-263",
             text = "搜尋以目標為圓心 500、FOW_VISIBLE、沒有魔免旗標，主目標本身也可能被選中（舞雷刀不先標記主目標）；最多五個單位，FIND_ANY_ORDER 以 entity id 排序表達。腳本內的 IsMagicImmune 檢查是多餘的。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_lightning_scroll.lua:296-298",
@@ -874,7 +874,7 @@ return function(ctx)
                       { op = "if", cond = "not has_status(it, moon_mirror_lockout)", actions = {
                         { op = "heal", to = "it", amount = "$heal" },
                         { op = "apply_status", status = "moon_mirror_lockout", to = "it" },
-                        { op = "apply_status", status = "moon_mirror_lantern_lock", to = "state.moon_mirror_cur" },
+                        { op = "apply_status", status = "moon_mirror_lantern_lock", to = "it" }, -- FC-128（D13）：冷卻掛在這次被治療的人身上
                         { op = "apply_status", status = "moon_mirror_hit", to = "it" },
                         { op = "set_state", var = "moon_mirror_live", value = "true" },
                       } },
@@ -902,8 +902,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_moon_mirror.lua:79-83",
-            text = "跳到新目標時，modifier_arc_reito_lantern_cd 掛在「上一個」目標（target）而不是新目標：除了第一個目標在施放時就掛上，每一跳把宮燈冷卻補給前一個人，最後一個被治療的人不會有宮燈冷卻。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_moon_mirror.lua:79-83",
+            text = "FC-128（D13 修正：宮燈冷卻掛在這次被治療的人身上，最後一位也有）。原作：跳到新目標時，modifier_arc_reito_lantern_cd 掛在「上一個」目標（target）而不是新目標：除了第一個目標在施放時就掛上，每一跳把宮燈冷卻補給前一個人，最後一個被治療的人不會有宮燈冷卻。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/item_moon_mirror.lua:79-87,109-113",
             text = "下一個目標身上有月輪鏡治療冷卻時不套 modifier_arc_moon_mirror，彈跳在這裡結束；第一個目標在冷卻中時整個效果不發生（仍扣法力、進冷卻）。與 pilot 靈都宮燈同一套程式。" },
           { policy = "no_effect", ref = "vscripts/items/Addon_Items/item_moon_mirror.lua:94-98",
@@ -1089,7 +1089,9 @@ return function(ctx)
         unit_state = {
           ninja2_unit = { type = "unit", reveal = "team", scope = "hero", note = "原作 caster.ninja2（被追蹤的那名中忍）" },
           ninja2_tracked = { type = "bool", init = "false", reveal = "team", scope = "hero",
-            note = "caster.ninja2 是否為 nil；任何一名中忍死亡時 update_ninja2 設回 nil" },
+            note = "caster.ninja2 是否為 nil；原作任何一名中忍死亡時 update_ninja2 設回 nil" },
+          ninja2_current = { type = "bool", init = "false", reveal = "team", scope = "unit",
+            note = "FC-094（D13）：中忍自己是不是主人目前追蹤的那名；被頂替時先設回 false，它的死亡就不會清掉新中忍的追蹤" },
         },
         values = {
           cost = { 100, unit = "gold", source = "kv:ItemCost" },
@@ -1103,9 +1105,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "中忍",
-            body = "消耗品：在目標地點召喚一名可控制的{@ninja_unit2}，持續 {lifetime} 秒。中忍不受傷害、每被攻擊一次失去一點生命，沒有碰撞、不能被技能指定，能看穿周圍的隱形敵人，並可使用{@ninja2_burrow}。每位玩家追蹤一名中忍：追蹤中的中忍還活著時再召喚，舊的那名會失去時限、永久留下；任何一名中忍死亡時追蹤就會清空。商店每 {restock_time} 秒補一件，可與隊友共用。" },
+            body = "消耗品：在目標地點召喚一名可控制的{@ninja_unit2}，持續 {lifetime} 秒。中忍不受傷害、每被攻擊一次失去一點生命，沒有碰撞、不能被技能指定，能看穿周圍的隱形敵人，並可使用{@ninja2_burrow}。每位玩家最多同時存在一名中忍：再召喚時舊的那名會消失。商店每 {restock_time} 秒補一件，可與隊友共用。" },
           en = { name = "Chunin",
-            body = "Consumable: summons a controllable {@ninja_unit2} at the target point for {lifetime} seconds. The Chunin takes no damage but loses one health each time it is attacked, has no collision, cannot be targeted by spells, reveals nearby invisible enemies and can use {@ninja2_burrow}. Each player tracks one Chunin: summoning another while the tracked one lives makes the old one lose its time limit and stay forever; the tracking is cleared whenever any Chunin dies. The shop restocks one every {restock_time} seconds; shareable with allies." },
+            body = "Consumable: summons a controllable {@ninja_unit2} at the target point for {lifetime} seconds. The Chunin takes no damage but loses one health each time it is attacked, has no collision, cannot be targeted by spells, reveals nearby invisible enemies and can use {@ninja2_burrow}. Each player can have only one Chunin at a time: summoning another makes the old one vanish. The shop restocks one every {restock_time} seconds; shareable with allies." },
         },
         shop = { cost = "$cost", stock = { max = "$stock", initial = "$stock", restock = "$restock_time" }, shareable = true,
           consumable = { charges = "$charges", remove_when_empty = true } },
@@ -1116,12 +1118,14 @@ return function(ctx)
             { op = "create_unit", template = "ninja_unit2", at = "point", owner = "caster", control = "owner", as = "u" },
             { op = "apply_status", status = "ninja2_spawn_phased", to = "u" },
             { op = "apply_status", status = "ninja2_lifetime", to = "u" },
-            { op = "if", cond = "state.ninja2_tracked and exists(state.ninja2_unit)",
-              actions = { { op = "remove_status", from = "state.ninja2_unit", status = "ninja2_lifetime" } },
-              otherwise = {
-                { op = "set_state", var = "ninja2_unit", value = "u" },
-                { op = "set_state", var = "ninja2_tracked", value = "true" },
-              } },
+            -- FC-094（D13）：一人最多同時一名中忍，舊的那名消失（原作移除舊中忍的 modifier_kill，讓它永久留下、新中忍不被追蹤）
+            { op = "if", cond = "state.ninja2_tracked and exists(state.ninja2_unit) and alive(state.ninja2_unit)", actions = {
+              { op = "set_state", on = "state.ninja2_unit", var = "ninja2_current", value = "false" },
+              { op = "kill", to = "state.ninja2_unit", silent = true },
+            } },
+            { op = "set_state", var = "ninja2_unit", value = "u" },
+            { op = "set_state", var = "ninja2_tracked", value = "true" },
+            { op = "set_state", on = "u", var = "ninja2_current", value = "true" },
           } } },
         statuses = {
           { id = "ninja2_spawn_phased", duration = "$phase_time", stacking = "refresh", dispel = "none", visibility = "hidden",
@@ -1130,7 +1134,7 @@ return function(ctx)
             reveal = "public",
             triggers = { on_expired = { { op = "kill", to = "self" } } },
             text = { zh_TW = { name = "召喚時限", body = "時間到時死亡。" }, en = { name = "Summon Timer", body = "Dies when this expires." } },
-            notes = "原作 modifier_kill（240 秒）；超額時被 RemoveModifierByName 移除，所以以狀態表達而不是 create_unit.lifetime" },
+            notes = "原作 modifier_kill（240 秒）；原作超額時被 RemoveModifierByName 移除（FC-094 修正為舊中忍直接消失）" },
           { id = "ninja2_passive", duration = "infinite", stacking = "keep", dispel = "none", visibility = "hidden",
             reveal = "public", states = { "no_unit_collision", "untargetable_by_spells" },
             values = {
@@ -1143,7 +1147,8 @@ return function(ctx)
               flags = { "include_magic_immune", "include_invulnerable" }, status = "ninja2_true_sight_reveal" },
             triggers = {
               on_attacked_hit = { { op = "set_health", to = "self", value = "self.hp - $hp_per_attack" } },
-              on_death = { { op = "set_state", var = "ninja2_tracked", value = "false", on = "self.owner" } },
+              on_death = { { op = "if", cond = "state.ninja2_current", actions = {
+                { op = "set_state", var = "ninja2_tracked", value = "false", on = "self.owner" } } } },
             },
             text = {
               zh_TW = { name = "中忍體質", body = "沒有碰撞、不能被技能指定，不受任何傷害（減免 {damage_block}）；每被攻擊命中一次失去 {hp_per_attack} 點生命。看穿 {sight_radius} 內的隱形敵人。" },
@@ -1156,8 +1161,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/items/Addon_Items/item_ninja.lua:53-61",
-            text = "追蹤中的中忍還活著時再召喚，會移除舊中忍的 modifier_kill（永久存在）而且 caster.ninja2 不更新成新的；之後只要舊的還活著，新召喚的都是普通四分鐘中忍。任何一名中忍死亡（update_ninja2 不看是哪一名）就清空追蹤，下一次召喚又成為被追蹤者，再下一次又讓它永久化：反覆購買可以累積多名永久中忍。原作說明寫「一人最多同時存在一隻」。" },
+          { policy = "fixed", ref = "vscripts/items/Addon_Items/item_ninja.lua:53-61",
+            text = "FC-094（D13 修正：一人最多同時一名中忍：再召喚時舊的那名消失，新中忍被追蹤；只有被追蹤的中忍死亡才清空追蹤）。原作：追蹤中的中忍還活著時再召喚，會移除舊中忍的 modifier_kill（永久存在）而且 caster.ninja2 不更新成新的；之後只要舊的還活著，新召喚的都是普通四分鐘中忍。任何一名中忍死亡（update_ninja2 不看是哪一名）就清空追蹤，下一次召喚又成為被追蹤者，再下一次又讓它永久化：反覆購買可以累積多名永久中忍。原作說明寫「一人最多同時存在一隻」。" },
           { policy = "as_source", ref = "vscripts/items/Addon_Items/tofar_goback.lua:655-659",
             text = "update_ninja2 在中忍死亡時把 owner.ninja2 設為 nil；以 bool 的 ninja2_tracked 表達 nil（unit 變數沒有空值字面值）。IsValidEntity 失敗的分支只在中忍已被移除但未觸發死亡時才會走到，與 exists() 一致。" },
           { policy = "as_source", ref = "npc/npc_abilities_custom_load.txt:1135-1176",

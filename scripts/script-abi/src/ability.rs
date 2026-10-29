@@ -16,11 +16,11 @@
 //! 施法者目前等級的 `AbilityLevelData` — 也避免了
 //! StableAbi 在 `extra: HashMap<String, Value>` 欄位上。
 
-use crate::types::{ChannelPulse, EntityHandle, Fixed64, Target};
+use crate::types::{ChannelPulse, DamageEdit, EntityHandle, Fixed64, ScheduleArg, Scheduled, StatusEvent, Target};
 use crate::world::{DisclosureQueryDyn, GameWorldDyn};
 use abi_stable::{
     sabi_trait,
-    std_types::{RBox, RResult, RStr, RString},
+    std_types::{RBox, RResult, RStr, RString, RVec},
     StableAbi,
 };
 
@@ -133,6 +133,43 @@ pub trait AbilityScript: Send + Sync {
         _effect: ChannelPulse,
         _world: &mut GameWorldDyn<'_>,
     ) {
+    }
+
+    /// A schedule this ability made came due (omoba-core `scheduled_effect`, the generated
+    /// code's `delay`／`repeat`): `at` and `args` are what was scheduled on `owner`. Like a
+    /// delayed effect, only effects may be applied. Default: nothing.
+    fn on_scheduled(
+        &self,
+        _owner: EntityHandle,
+        _at: Scheduled,
+        _args: RVec<ScheduleArg>,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// An event of a status this ability applied (omoba-core `status_event`): `status` is its v3
+    /// id, `holder` the unit it is (or was) on. Only effects may be applied. Default: nothing.
+    fn on_status_event(
+        &self,
+        _holder: EntityHandle,
+        _status: RStr<'_>,
+        _event: StatusEvent,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// Before a damage packet lands (omoba-core `scripting::damage_pre`): a status this ability
+    /// applied listens on the source (`event.kind` 8) or the target (7). `event.amount` is the
+    /// packet's current total, `event.other` the other unit. The edit applies before the next
+    /// hook; effects applied here settle with the next outcome batch. Default: keep.
+    fn on_damage_pre(
+        &self,
+        _holder: EntityHandle,
+        _status: RStr<'_>,
+        _event: StatusEvent,
+        _world: &mut GameWorldDyn<'_>,
+    ) -> DamageEdit {
+        DamageEdit::KEEP
     }
 }
 

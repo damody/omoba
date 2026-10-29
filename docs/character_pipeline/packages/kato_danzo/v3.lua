@@ -378,7 +378,6 @@ return function(ctx)
             source_differs = "KV 以負值表示視野減少；這裡以正值表示減少量" },
           release_lead = { 0.05, unit = "s", hidden = true, source = "script:vscripts/heroes/C_Neutral/C08.lua:464 duration - 0.05" },
           phase_time = { 0.1, unit = "s", hidden = true, source = "script:vscripts/heroes/C_Neutral/C08.lua:460,521 modifier_phased 0.1" },
-          steal_slots = { 3, unit = "count", hidden = true, source = "script:vscripts/heroes/C_Neutral/C08.lua:483-487 RandomInt(0,2)：目標前三格" },
         },
         text = {
           zh_TW = { name = "忍法密傳．鬼吞之術",
@@ -430,7 +429,7 @@ return function(ctx)
             notes = "原作 modifier_in_belly：IsHidden、IsStunDebuff，攻擊免疫＋魔免（讓被吞的人不被其他人打到）；列在 ultimate_modifiers。" },
           { id = "c08t_phased", duration = "$phase_time", stacking = "refresh", dispel = "none", visibility = "hidden",
             reveal = "public", states = { "no_unit_collision" }, notes = "引擎 modifier_phased。" },
-          { id = "c08t_steal_stack", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "buff",
+          { id = "c08t_steal_stack", duration = "infinite", stacking = { mode = "refresh_on_add" }, dispel = "none", visibility = "buff",
             reveal = "public", remove_on = { "death" },
             text = {
               zh_TW = { name = "鬼吞：偷取次數", body = "層數是偷來的技能還能使用的次數。" },
@@ -451,7 +450,7 @@ return function(ctx)
                 { op = "set_state", var = "c08t_use_count", value = "state.c08t_use_count + 1", on = "self" },
                 { op = "if", cond = "has_status(self, c08t_steal_stack)", actions = {
                   { op = "set_stacks", status = "c08t_steal_stack", to = "self",
-                    count = "stacks(self, c08t_steal_stack) - state.c08t_use_count" },
+                    count = "ability.level - state.c08t_use_count" }, -- FC-017（D13）：顯示剩餘次數，不再跳著減
                 } },
                 { op = "if", cond = "state.c08t_use_count >= ability.level", actions = {
                   { op = "set_ability_active", ability = "event.ability", active = false, of = "self" },
@@ -469,23 +468,22 @@ return function(ctx)
             { op = "cue", id = "c08t_cheese", at = "caster", to = "target" },
             { op = "apply_status", status = "c08t_devoured", to = "target" },
             { op = "apply_status", status = "c08t_belly", to = "target" },
-            -- 偷技能：目標 Q／W／E 隨機一格，被動或 A20W、B16W 就重抽（原作沒有上限）
-            { op = "let", name = "r", value = "random_int(1, $steal_slots)" },
-            { op = "let", name = "pick",
-              value = "select(r == 1, ability_in_slot(target, Q), select(r < $steal_slots, ability_in_slot(target, W), ability_in_slot(target, E)))" },
-            { op = "repeat", as = "reroll",
-              ["while"] = "pick.is_passive or is_ability(pick, a20_pirate_domain) or is_ability(pick, b16_flying_raid)",
-              actions = {
-                { op = "let", name = "r", value = "random_int(1, $steal_slots)" },
-                { op = "let", name = "pick",
-                  value = "select(r == 1, ability_in_slot(target, Q), select(r < $steal_slots, ability_in_slot(target, W), ability_in_slot(target, E)))" },
+            -- 偷技能：目標 Q／W／E 中可偷的格子（不是被動、不是 A20W、B16W）均勻抽一格。
+            -- FC-058（D13）：原作被動就無上限重抽，三格都不能偷時卡死；改成先數可偷格數，一格都沒有就不偷（吞噬照常）
+            { op = "let", name = "ok_q", value = "select(exists(ability_in_slot(target, Q)) and not (ability_in_slot(target, Q).is_passive or is_ability(ability_in_slot(target, Q), a20_pirate_domain) or is_ability(ability_in_slot(target, Q), b16_flying_raid)), 1, 0)" },
+            { op = "let", name = "ok_w", value = "select(exists(ability_in_slot(target, W)) and not (ability_in_slot(target, W).is_passive or is_ability(ability_in_slot(target, W), a20_pirate_domain) or is_ability(ability_in_slot(target, W), b16_flying_raid)), 1, 0)" },
+            { op = "let", name = "ok_e", value = "select(exists(ability_in_slot(target, E)) and not (ability_in_slot(target, E).is_passive or is_ability(ability_in_slot(target, E), a20_pirate_domain) or is_ability(ability_in_slot(target, E), b16_flying_raid)), 1, 0)" },
+            { op = "if", cond = "ok_q + ok_w + ok_e > 0", actions = {
+              { op = "let", name = "r", value = "random_int(1, ok_q + ok_w + ok_e)" },
+              { op = "let", name = "pick",
+                value = "select(ok_q == 1 and r == 1, ability_in_slot(target, Q), select(ok_w == 1 and ok_q + ok_w == r, ability_in_slot(target, W), ability_in_slot(target, E)))" },
+              { op = "if", cond = "exists(ability_in_slot(caster, F))", actions = {
+                { op = "remove_ability", from = "caster", ability = "ability_in_slot(caster, F)" },
               } },
-            { op = "if", cond = "exists(ability_in_slot(caster, F))", actions = {
-              { op = "remove_ability", from = "caster", ability = "ability_in_slot(caster, F)" },
+              { op = "add_ability", to = "caster", ability = "pick", level = "max(pick.level, 1)", slot = "F", cast_point = "0", as = "stolen" },
+              { op = "apply_status", status = "c08t_steal_stack", to = "caster", stacks = "ability.level" },
+              { op = "set_state", var = "c08t_use_count", value = "0", on = "caster" },
             } },
-            { op = "add_ability", to = "caster", ability = "pick", level = "max(pick.level, 1)", slot = "F", cast_point = "0", as = "stolen" },
-            { op = "apply_status", status = "c08t_steal_stack", to = "caster", stacks = "ability.level" },
-            { op = "set_state", var = "c08t_use_count", value = "0", on = "caster" },
             { op = "delay", time = "$duration - $release_lead", actions = {
               { op = "if", cond = "has_status(target, c08t_devoured) and distance(caster, status_var(target, c08t_devoured, last_pos)) < $leash",
                 actions = {
@@ -501,10 +499,10 @@ return function(ctx)
             text = "偷技能：RandomInt(0,2) 取目標第 0～2 格（v3 的 Q／W／E），被動或 A20W、B16W 就重抽；移除段藏第 3 格（C08_Steal 佔位格或上次偷到的技能），AddAbility 加上偷到的技能（等級 = 目標該技能等級，至少一級），前搖改為零，層數狀態設為 C08T 等級、use_count 歸零。C08_Steal 是 KV 的 Ability4（NOT_LEARNABLE 空技能），v3 不宣告這個空格，偷到的技能放在段藏沒有使用的 F 格（slot_index 6）；第一次施放時 F 格是空的，不必移除。偷技能在吞噬的 if 之外，即使目標不吞也照樣執行。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C08.lua:547-561,421-425",
             text = "modifier_C08T_use_ability（被動）OnAbilityExecuted 時若施放的是偷來的那一格，use_count +1、層數改為「層數 − use_count」；use_count ≥ C08T 等級時 SetActivated(false) 並移除層數狀態。復活時重套層數 = 等級 − use_count（只是顯示）。層數歸零時 v3 依 set_stacks 規則先移除狀態，原作留著 0 層，只影響顯示。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C08.lua:485-488",
-            text = "重抽迴圈沒有上限：目標第 0～2 格都是被動或在 cannot_steal 名單（A20W、B16W）時無限迴圈，伺服器卡死。資料照原作，以沒有 count 上限的 repeat while 重抽。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C08.lua:12-14,506,552-555",
-            text = "use_count、atk_stack、attributes_stack 是檔案層級的 local，所有加藤段藏共用（含敵我雙方的同名英雄與換英雄後的實例）；層數顯示「層數 − 累計次數」會跳著減（三級：3→2→0）。實際可用次數仍是 C08T 等級。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C08.lua:485-488",
+            text = "FC-058（D13 修正：重抽迴圈改成先數可偷格數再均勻抽一格，三格都不能偷就不偷、吞噬照常）。原作：重抽迴圈沒有上限：目標第 0～2 格都是被動或在 cannot_steal 名單（A20W、B16W）時無限迴圈，伺服器卡死。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C08.lua:12-14,506,552-555",
+            text = "FC-017（D13 修正：use_count 依每個段藏實例分開記（unit_state scope hero），層數顯示改成「等級 − 已用次數」，三級是 3→2→1→0）。原作：use_count、atk_stack、attributes_stack 是檔案層級的 local，所有加藤段藏共用（含敵我雙方的同名英雄與換英雄後的實例）；層數顯示「層數 − 累計次數」會跳著減（三級：3→2→0）。實際可用次數仍是 C08T 等級。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C08.lua:509-532",
             text = "每跳先回復段藏 damage 生命（段藏已死時 Heal 無效），再檢查距離與存活：段藏死亡或這一秒移動超過 2000（閃現、傳送）就提早吐出到上一跳位置；否則把目標移到段藏位置，移除 in_belly、以 AMHC:Damage 造成魔法傷害（此時目標暫時不是 in_belly 的魔免，原本就魔免的目標仍由規則層歸零），再套回 in_belly。" },
           { policy = "design_intent", ref = "npc/C_Neutral/C08.txt:430-441",

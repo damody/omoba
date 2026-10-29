@@ -335,7 +335,7 @@ return function(ctx)
                 { op = "if", cond = "not event.target.is_building", actions = {
                   { op = "cue", id = "b17t_vendetta_crit", at = "self", to = "event.target" },
                   { op = "damage", to = "event.target", source = "self", type = "physical", amount = "$damage" },
-                  { op = "if", cond = "(event.target.is_hero or event.target.is_illusion) and not alive(event.target)", actions = {
+                  { op = "if", cond = "event.target.is_hero and not event.target.is_illusion and not alive(event.target)", actions = { -- FC-086（D13）：只有擊殺真英雄才重置
                     { op = "modify_cooldown", of = "self", ability = "b17_heartseeker", mode = "end" },
                   } },
                 } },
@@ -370,8 +370,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B17.lua:193-195",
-            text = "重置冷卻的判斷用 target:IsHero()，幻象也算英雄：打死敵方幻象就能重置大招。原作說明寫「擊殺英雄」。資料照原作（is_hero 或 is_illusion）。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B17.lua:193-195",
+            text = "FC-086（D13 修正：只有擊殺真英雄（不含幻象）才重置大招）。原作：重置冷卻的判斷用 target:IsHero()，幻象也算英雄：打死敵方幻象就能重置大招。原作說明寫「擊殺英雄」。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B17.lua:177-199",
             text = "額外傷害掛在 OnAttack（出手瞬間）以 AMHC:Damage 直接結算物理傷害：之後普攻 miss、被閃避或投射物被躲，額外傷害照樣打出；攻擊建築只現形不加傷。" },
           { policy = "design_intent", ref = "vscripts/heroes/B_Unified/B17.lua:210-230",

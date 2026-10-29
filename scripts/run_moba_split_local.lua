@@ -20,6 +20,8 @@ function M.options(args)
     if key=='--no-build' then options.no_build=true
     -- The authority records its accepted inputs by default (E086 offline replay).
     elseif key=='--no-accepted-input-log' then options.no_accepted_inputs=true
+    -- M3' ② dev hot reload (scripts/hero_hot_reload.lua --run <authority run dir>).
+    elseif key=='--script-hot-reload' then options.script_hot_reload=true
     elseif key=='--hero' then
       i=i+1
       local value=assert(args[i],'--hero requires PLAYER_ID=HERO')
@@ -120,6 +122,7 @@ function M.role_args(options,role,plan_file,player_id,humans,output,team_id)
     -- Hero choices lock into the authority's plan; clients join that plan as-is.
     for _,hero in ipairs(options.heroes or {}) do add('--hero',hero) end
     if not options.no_accepted_inputs then add('--accepted-inputs',path.join(output,'accepted-inputs.jsonl')) end
+    if options.script_hot_reload then add('--script-hot-reload') end
   else
     add('--connect','127.0.0.1','--recipe',plan_file,'--local-player',tostring(player_id),'--ue-root',options.ue_root)
     -- Same machine, same match: clients load the authority's own base_content copy (E124).

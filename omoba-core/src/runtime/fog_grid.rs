@@ -1,7 +1,7 @@
 //! Authority-only, bounded fog sampling from immutable Wave B geometry.
 //! Payloads contain team-local cell results, never sources or hidden entities.
 use super::{
-    native::comp::{line_of_sight, LosResult},
+    native::comp::LosResult,
     visibility::WaveBReadView,
 };
 use omoba_sim::{Fixed64, Vec2};
@@ -390,7 +390,8 @@ impl AuthorityFogGrid {
                     let radius = source.radius.raw() as u128;
                     dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)) <= radius * radius
                         && crate::runtime::brush_vision::brush_allows_vision(&view.brush_regions, source.position, point)
-                        && line_of_sight(&view.vision_occluders, source.position, point)
+                        // E187 §5.5: the committed occluders' broad phase (same answer).
+                        && view.vision_occluders.line_of_sight(source.position, point)
                             == LosResult::Clear
                 });
             *state = if visible {

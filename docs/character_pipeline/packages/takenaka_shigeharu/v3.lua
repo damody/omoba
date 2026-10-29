@@ -16,8 +16,6 @@ return function(ctx)
       auto_learn = { "a04_frost_sparrow" },
     },
     unit_state = {
-      aphotic_shield_remaining = { type = "fixed", init = "0", reveal = "public", scope = "unit",
-        note = "原作 unit.AphoticShieldRemaining，存在被套盾的單位上；A24、B08、B36、C06、C12 與 item_the_shell_of_spirituality_kappa 讀寫同一個欄位（登錄表 unit_state，同名同型別跨文件共用）。" },
       great_sword_of_disease = { type = "bool", init = "false", reveal = "public", scope = "hero",
         note = "原作 caster.great_sword_of_disease：池田鬼神丸國重（items batch_I4）裝備時設 1、任一把卸下就清掉；跨文件共用（登錄項目見 registry-additions-items.lua）。本文件只讀。" },
     },
@@ -36,10 +34,10 @@ return function(ctx)
           hp = { 500, 575, 650, 725, unit = "hp", source = "kv:hp", note = "A04W_Bonus SetBaseMaxHealth" },
           disease_mult = { 1.5, unit = "ratio",
             source = "script:vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:436-438 caster.great_sword_of_disease 時 hp * 1.5" },
-          move_speed_bonus = { 370, 400, 430, 460, unit = "pct",
-            source = "kv:basic_speed", note = "modifier_A04W_summend MOVESPEED_BONUS_PERCENTAGE" },
-          attack_speed_bonus = { 1.4, 1.25, 1.1, 0.8, unit = "atk_speed",
-            source = "kv:basic_attack_speed", note = "modifier_A04W_summend ATTACKSPEED_BONUS_CONSTANT" },
+          base_move = { 370, 400, 430, 460, unit = "move_speed",
+            source = "kv:basic_speed", note = "FC-079（D13）：原作被當成 MOVESPEED_BONUS_PERCENTAGE（+370%～+460%）；照原意是式神的移動速度" },
+          base_attack_time = { 1.4, 1.25, 1.1, 0.8, unit = "s",
+            source = "kv:basic_attack_speed", note = "FC-079（D13）：原作被當成 ATTACKSPEED_BONUS_CONSTANT；照原意是攻擊間隔" },
           tech_attack = { 10, unit = "dmg", damage_type = "physical",
             source = "kv:modifier_A04W_Tech MODIFIER_PROPERTY_BASEATTACK_BONUSDAMAGE@npc/A_Oda/A04.txt:200-204" },
           building_freeze = { 0.4, unit = "s", source = "kv:modifier_A04W_AttackBuilding Duration@npc/A_Oda/A04.txt:198" },
@@ -50,9 +48,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "式神．水",
-            body = "在竹中身邊召喚 {count} 隻{@a04w_water_spirit}，存在 {lifetime} 秒，可由玩家操控。式神生命 {hp}（持有池田鬼神丸國重．銘刀時乘以 {disease_mult}），移動速度提高 {move_speed_bonus}、攻擊速度 +{attack_speed_bonus}、基礎攻擊 +{tech_attack}；普攻命中建築時使其凍結 {building_freeze} 秒。式神離竹中超過 {leash_range} 時會自動走回竹中身邊。" },
+            body = "在竹中身邊召喚 {count} 隻{@a04w_water_spirit}，存在 {lifetime} 秒，可由玩家操控。式神生命 {hp}（持有池田鬼神丸國重．銘刀時乘以 {disease_mult}），移動速度 {base_move}、攻擊間隔 {base_attack_time} 秒、基礎攻擊 +{tech_attack}；普攻命中建築時使其凍結 {building_freeze} 秒。式神離竹中超過 {leash_range} 時會自動走回竹中身邊。" },
           en = { name = "Shikigami: Water",
-            body = "Summons {count} {@a04w_water_spirit} beside Takenaka for {lifetime} seconds, controllable by the player. Each has {hp} health (multiplied by {disease_mult} while Takenaka holds the Ikeda Kijinmaru Kunishige), +{move_speed_bonus} movement speed, +{attack_speed_bonus} attack speed and +{tech_attack} base attack damage; its attacks freeze buildings for {building_freeze} seconds. A spirit farther than {leash_range} from Takenaka automatically walks back to him." },
+            body = "Summons {count} {@a04w_water_spirit} beside Takenaka for {lifetime} seconds, controllable by the player. Each has {hp} health (multiplied by {disease_mult} while Takenaka holds the Ikeda Kijinmaru Kunishige), a movement speed of {base_move}, an attack interval of {base_attack_time} seconds and +{tech_attack} base attack damage; its attacks freeze buildings for {building_freeze} seconds. A spirit farther than {leash_range} from Takenaka automatically walks back to him." },
         },
         target = { type = "point", range = "$cast_range" },
         cast = { cast_point = "$cast_point" },
@@ -60,7 +58,7 @@ return function(ctx)
         statuses = {
           { id = "a04w_spirit_body", duration = "infinite", stacking = "refresh", dispel = "basic", visibility = "hidden",
             reveal = "public", cue = "a04w_ambient",
-            stats = { move_speed_pct = "$move_speed_bonus", attack_speed = "$attack_speed_bonus" },
+            stats = { base_move_speed = "$base_move", base_attack_time = { op = "set_absolute", value = "$base_attack_time" } },
             triggers = {
               on_attack_hit = { filter = "event.target.is_building", actions = {
                 { op = "apply_status", status = "a04w_building_freeze", to = "event.target" },
@@ -116,8 +114,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/A_Oda/A04.txt:146-152",
-            text = "basic_speed 370/400/430/460 被當成 MOVESPEED_BONUS_PERCENTAGE（+370%～+460%），式神移速直接頂到引擎上限；basic_attack_speed 1.40/1.25/1.10/0.80 被當成攻速常數（只加一點多），看起來原意是「移速 370～460、攻擊間隔 1.4～0.8」。資料照實際行為。" },
+          { policy = "fixed", ref = "npc/A_Oda/A04.txt:146-152",
+            text = "FC-079（D13 修正：basic_speed 當式神移動速度（base_move_speed）、basic_attack_speed 當攻擊間隔（base_attack_time set_absolute））。原作：basic_speed 370/400/430/460 被當成 MOVESPEED_BONUS_PERCENTAGE（+370%～+460%），式神移速直接頂到引擎上限；basic_attack_speed 1.40/1.25/1.10/0.80 被當成攻速常數（只加一點多），看起來原意是「移速 370～460、攻擊間隔 1.4～0.8」。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:354",
             text = "生成位置用 ability:GetAbsOrigin()（推定等於施法者位置，FindClearSpace），施法目標點完全沒有被使用；KV keys.target 對點目標技能是 nil。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:425-442",
@@ -227,9 +225,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "霜之庇護",
-            body = "治療目標友方英雄 {heal} 生命，並給予 {shield_duration} 秒的霜盾：受到傷害後立刻回復等量生命，最多共 {shield} 點。霜盾耗盡時碎裂，對目標周圍 {radius} 內的敵方英雄與部隊造成 {nova_damage} 魔法傷害並冰凍 {freeze} 秒；霜盾到期或被移除時，剩餘的吸收量轉為治療。" },
+            body = "治療目標友方英雄 {heal} 生命，並給予 {shield_duration} 秒的霜盾：吸收受到的傷害，最多共 {shield} 點；重施時補滿。霜盾耗盡時碎裂，對目標周圍 {radius} 內的敵方英雄與部隊造成 {nova_damage} 魔法傷害並冰凍 {freeze} 秒；霜盾到期或被移除時，剩餘的吸收量轉為治療。" },
           en = { name = "Frost Shelter",
-            body = "Heals an allied hero for {heal} and grants a frost shield for {shield_duration} seconds: health lost to damage is immediately restored, up to {shield} in total. When the shield is used up it shatters, dealing {nova_damage} magic damage to enemy heroes and units within {radius} of the target and freezing them for {freeze} seconds; if it expires or is removed, the unused amount is healed instead." },
+            body = "Heals an allied hero for {heal} and grants a frost shield for {shield_duration} seconds that absorbs damage taken, up to {shield} in total (recasting refills it). When the shield is used up it shatters, dealing {nova_damage} magic damage to enemy heroes and units within {radius} of the target and freezing them for {freeze} seconds; if it expires or is removed, the unused amount is healed instead." },
         },
         target = { type = "unit", range = "$cast_range", aoe_radius = "$radius", team = "ally", types = { "hero" } },
         flags = { "self_cast_allowed" },
@@ -238,34 +236,30 @@ return function(ctx)
         statuses = {
           { id = "a04r_shield", duration = "$shield_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public", cue = "a04r_shield_glow",
+            -- FC-023（D13）：結算前吸收，擋得住致死傷害；FC-115：重施時重設為滿量（refresh 重設 absorb 剩餘量）
+            vars = { left = { type = "fixed", init = "$shield", reveal = "public", note = "剩餘吸收量（到期時轉為治療）" } },
+            absorb = { amount = "$shield",
+              on_absorb = { { op = "set_var", var = "left", value = "max(vars.left - absorbed, 0)" } },
+              on_broken = {
+                { op = "set_var", var = "left", value = "0" },
+                { op = "cue", id = "a04r_crystal_nova", at = "self" },
+                { op = "for_each",
+                  select = { from = "self", shape = "circle", radius = "$radius", team = "enemy",
+                    types = { "hero", "creep", "neutral", "summon" } },
+                  actions = {
+                    { op = "damage", to = "it", type = "magical", amount = "$nova_damage", source = "caster",
+                      require_source_alive = false },
+                    { op = "apply_status", status = "a04r_freeze", to = "it" },
+                  } },
+              } },
             triggers = {
-              on_created = {
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining", value = "$shield" },
-              },
-              on_take_damage = {
-                { op = "set_health", to = "self", value = "self.hp + min(event.damage.final, state.aphotic_shield_remaining)" },
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining",
-                  value = "state.aphotic_shield_remaining - event.damage.final" },
-                { op = "if", cond = "state.aphotic_shield_remaining <= 0", actions = {
-                  { op = "clear_state", on = "self", var = "aphotic_shield_remaining" },
-                  { op = "remove_status", from = "self", status = "a04r_shield" },
-                  { op = "cue", id = "a04r_crystal_nova", at = "self" },
-                  { op = "for_each",
-                    select = { from = "self", shape = "circle", radius = "$radius", team = "enemy",
-                      types = { "hero", "creep", "neutral", "summon" } },
-                    actions = {
-                      { op = "damage", to = "it", type = "magical", amount = "$nova_damage", source = "caster",
-                        require_source_alive = false },
-                      { op = "apply_status", status = "a04r_freeze", to = "it" },
-                    } },
-                } },
-              },
-              on_removed = { filter = "state.aphotic_shield_remaining > 0", actions = {
-                { op = "heal", to = "self", amount = "state.aphotic_shield_remaining", source = "caster" },
+              on_refreshed = { { op = "set_var", var = "left", value = "$shield" } },
+              on_removed = { filter = "vars.left > 0", actions = {
+                { op = "heal", to = "self", amount = "vars.left", source = "caster" },
               } },
             },
-            text = { zh_TW = { name = "霜之庇護", body = "受到傷害後立刻回復等量生命，最多共 {shield} 點；耗盡時碎裂，對周圍 {radius} 內的敵人造成 {nova_damage} 魔法傷害並冰凍 {freeze} 秒。持續 {shield_duration} 秒，到期或被移除時剩餘的吸收量轉為治療。" }, en = { name = "Frost Shelter", body = "Health lost to damage is restored immediately, up to {shield} in total; when used up it shatters, dealing {nova_damage} magic damage to enemies within {radius} and freezing them for {freeze} seconds. Lasts {shield_duration} seconds; any unused amount is healed when it expires or is removed." } },
-            notes = "原作 modifier_A04R：剩餘量存在單位欄位 target.AphoticShieldRemaining，即跨文件共用的 unit_state aphotic_shield_remaining（登錄表）；沒寫 IsPurgable。" },
+            text = { zh_TW = { name = "霜之庇護", body = "吸收受到的傷害，最多共 {shield} 點；耗盡時碎裂，對周圍 {radius} 內的敵人造成 {nova_damage} 魔法傷害並冰凍 {freeze} 秒。持續 {shield_duration} 秒，到期或被移除時剩餘的吸收量轉為治療。" }, en = { name = "Frost Shelter", body = "Absorbs damage taken, up to {shield} in total; when used up it shatters, dealing {nova_damage} magic damage to enemies within {radius} and freezing them for {freeze} seconds. Lasts {shield_duration} seconds; any unused amount is healed when it expires or is removed." } },
+            notes = "原作 modifier_A04R：剩餘量存在共用的單位欄位 target.AphoticShieldRemaining、受傷後 SetHealth 補回；修正後改成 absorb，剩餘量記在狀態變數 left。沒寫 IsPurgable。" },
           { id = "a04r_freeze", duration = "$freeze", stacking = "refresh", dispel = "basic", visibility = "debuff",
             text = {
               zh_TW = { name = "霜碎冰凍", body = "被碎裂的霜盾冰凍，暈眩 {freeze} 秒。" },
@@ -284,12 +278,12 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:246-283",
-            text = "剩餘量存在 unit.AphoticShieldRemaining，與 A24、B08、B36、C06、C12、河童之殼共用：同一個單位身上同時有兩種護盾時互相覆寫剩餘量、兩邊都依它補血。資料照原作用共用的 aphotic_shield_remaining；是否拆開由 C06 的 fix_candidate 一併決定。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:260-290",
-            text = "霜盾是「受傷後在 OnTakeDamage 以 SetHealth 補回」，不是事前吸收：一次致死的傷害會先殺死目標，霜盾擋不住；補回也不經治療事件與減療。資料照原作寫成受傷後 set_health。" },
-          { policy = "fix_candidate", ref = "npc/A_Oda/A04.txt:466-484",
-            text = "對已有霜盾的目標重施：modifier 只刷新時間，OnCreated 不重跑，剩餘吸收量不會補滿（推定 datadriven 刷新語意），只得到 150 治療。原意推定是重設護盾。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:246-283",
+            text = "原作機制（隨 FC-003 等共用護盾一併修正）：剩餘量存在 unit.AphoticShieldRemaining，與 A24、B08、B36、C06、C12、河童之殼共用：同一個單位身上同時有兩種護盾時互相覆寫剩餘量、兩邊都依它補血。修正後每個護盾用 absorb 自己的剩餘量。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:260-290",
+            text = "FC-023（D13 修正：改用 absorb，在傷害結算前吸收，擋得住致死傷害）。原作：霜盾是「受傷後在 OnTakeDamage 以 SetHealth 補回」，不是事前吸收：一次致死的傷害會先殺死目標，霜盾擋不住；補回也不經治療事件與減療。" },
+          { policy = "fixed", ref = "npc/A_Oda/A04.txt:466-484",
+            text = "FC-115（D13 修正：重施時 refresh 重設 absorb 剩餘量為滿量）。原作：對已有霜盾的目標重施：modifier 只刷新時間，OnCreated 不重跑，剩餘吸收量不會補滿（推定 datadriven 刷新語意），只得到 150 治療。原意推定是重設護盾。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A04_Takenaka_Juji.lua:292-299",
             text = "霜盾到期、被驅散或被 RemoveModifierByName 時，剩餘量以 Heal 轉成治療；碎裂時剩餘量先清成 nil，不會治療。" },
           { policy = "as_source", ref = "npc/A_Oda/A04.txt:440-464",

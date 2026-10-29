@@ -25,6 +25,30 @@ M.CATALOG = "target/site/source-catalog.json"
 M.ICONS = "omfue/Content/Omoba/UI/nobu-icons-v1.json"
 M.SHELF = "scripts/lua_data/templates/item_shop_v3.lua"
 
+-- What players read for a blocker: its family, never the engine code (kept in blocker_codes).
+M.BLOCKER_FAMILY = {
+  { "^passive:aura", "光環" },
+  { "^passive_trigger:", "被動觸發" },
+  { "^passive:", "被動效果" },
+  { "^action:", "特殊動作" },
+  { "^stat:", "屬性" },
+  { "^state:", "狀態" },
+  { "^event:", "觸發時機" },
+  { "", "條件判斷" }, -- fn:, attr:, token: and anything new
+}
+function M.blocker_labels(codes)
+  local out, seen = {}, {}
+  for _, code in ipairs(codes) do
+    for _, rule in ipairs(M.BLOCKER_FAMILY) do
+      if code:find(rule[1]) then
+        if not seen[rule[2]] then seen[rule[2]] = true; out[#out + 1] = rule[2] end
+        break
+      end
+    end
+  end
+  return out
+end
+
 -- items, order from v3_item_order.build; source: source catalog; icons: nobu index; shelf: shelf ids
 function M.rows(items, source_catalog, icons, shelf)
   local by_source = {}
@@ -42,7 +66,8 @@ function M.rows(items, source_catalog, icons, shelf)
         name = { zh_TW = src.name and src.name.zh_TW or row.name, en = src.name and src.name.en or nil },
         cost = src.cost, category = src.category, icon = icon_of[id] or "",
         state = not row.has_ir and "deferred" or (#row.blockers == 0 and "ready" or "blocked"),
-        blockers = #row.blockers > 0 and row.blockers or nil,
+        blockers = #row.blockers > 0 and M.blocker_labels(row.blockers) or nil,
+        blocker_codes = #row.blockers > 0 and row.blockers or nil,
         unlock_step = type(row.step) == "number" and row.step or nil,
         v3 = { text = v3.text, values = v3.values, info = v3.info, stat_lines = v3.stat_lines },
       }

@@ -242,9 +242,9 @@ return function(ctx)
           cast_point = { 0.35, unit = "s", source = "kv:AbilityCastPoint" },
           root_time = { 1, 1.5, 2, 2.5, unit = "s", source = "kv:time" },
           recheck = { 0.1, unit = "s", hidden = true, source = "script:vscripts/heroes/B_Unified/B02.lua:208-219 每 0.1 秒檢查" },
-          shuriken_count = { 20, unit = "count", kv = { 18 },
-            source = "script:npc/B_Unified/B02.txt:475-494 OnCreated 一發 + modifier_B02R_2（Duration 1.91、ThinkInterval 0.1）十九發",
-            source_differs = "技能名與原作說明是十八方手裏劍、總傷害 90/180/270/360（十八發）；實際二十發" },
+          shuriken_count = { 18, unit = "count", kv = { 18 },
+            source = "kv:原作說明與技能名（十八方手裏劍，總傷害 90/180/270/360）",
+            source_differs = "原作腳本 OnCreated 一發 + modifier_B02R_2（Duration 1.91、ThinkInterval 0.1）十九發，實際二十發；FC-071（使用者 2026-10-29 決定全修）照說明改成十八發" },
           shuriken_interval = { 0.1, unit = "s", hidden = true, source = "kv:modifier_B02R_2 ThinkInterval" },
           volley_duration = { 1.91, unit = "s", hidden = true, source = "kv:modifier_B02R_2 Duration" },
           orbit_radius = { 420, unit = "dist", hidden = true, source = "script:vscripts/heroes/B_Unified/B02.lua:251 420" },
@@ -300,8 +300,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/B_Unified/B02.txt:475-494",
-            text = "名稱與原作說明是十八枚（總傷害 90/180/270/360），實際 OnCreated 一枚加上 Duration 1.91 內十九次 think，共二十枚（100/200/300/400）。資料照實際寫二十枚，是否改回十八枚由使用者決定。" },
+          { policy = "fixed", ref = "npc/B_Unified/B02.txt:475-494",
+            text = "FC-071（使用者 2026-10-29 決定全修：照說明十八枚，總傷害 90/180/270/360）。原作：名稱與原作說明是十八枚，實際 OnCreated 一枚加上 Duration 1.91 內十九次 think，共二十枚（100/200/300/400）。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B02.lua:228-233",
             text = "KV 傷害類型是魔法，但腳本以 AMHC:Damage 造成純粹傷害；魔免目標照樣受傷，只是不暈眩。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B02.lua:208-219",
@@ -329,12 +329,14 @@ return function(ctx)
           strike_interval = { 1, unit = "s", source = "script:vscripts/heroes/B_Unified/B02.lua:304-334 Timer 1 秒、return 1" },
           damage = { 200, 250, 300, unit = "dmg", damage_type = "magical", source = "kv:dmg" },
           stun = { 0.5, unit = "s", source = "kv:stun_duration" },
+          first_stun = { 1, unit = "s", source = "kv:first_stun_duration（modifier_B02T_2）",
+            note = "FC-072（使用者 2026-10-29 決定全修）：原作腳本從未套用；照說明施放時暈眩" },
         },
         text = {
           zh_TW = { name = "忍法密傳．四方導雷",
-            body = "將目標敵人標為導雷目標：之後每 {strike_interval} 秒落下一次四方導雷，共 {strike_count} 次，每次造成 {damage} 魔法傷害並暈眩 {stun} 秒；魔免時不受傷害，但仍會暈眩。目標死亡即停止。" },
+            body = "暈眩目標敵人 {first_stun} 秒並標為導雷目標：之後每 {strike_interval} 秒落下一次四方導雷，共 {strike_count} 次，每次造成 {damage} 魔法傷害並暈眩 {stun} 秒；魔免時不受傷害，但仍會暈眩。目標死亡即停止。" },
           en = { name = "Secret Ninja Art: Four-Way Thunder",
-            body = "Marks the target enemy as a lightning rod: every {strike_interval} seconds afterwards, four-way thunder strikes it, {strike_count} times in total, each dealing {damage} magic damage and stunning it for {stun} seconds; while spell immune it takes no damage but is still stunned. Stops if the target dies." },
+            body = "Stuns the target enemy for {first_stun} seconds and marks it as a lightning rod: every {strike_interval} seconds afterwards, four-way thunder strikes it, {strike_count} times in total, each dealing {damage} magic damage and stunning it for {stun} seconds; while spell immune it takes no damage but is still stunned. Stops if the target dies." },
         },
         target = { type = "unit", range = "$cast_range", team = "enemy", types = { "hero", "creep", "neutral", "summon" } },
         cast = { cast_point = "$cast_point" },
@@ -345,11 +347,16 @@ return function(ctx)
           { id = "b02t_stun", text = { zh_TW = { name = "暈眩", body = "暈眩中，無法移動、攻擊與施法。" }, en = { name = "Stunned", body = "Stunned: cannot move, attack or cast." } }, duration = "$stun", stacking = "refresh", dispel = "basic", visibility = "debuff",
             reveal = "public", states = { "stun" }, cue = "b02t_lightning",
             notes = "原作 modifier_B02T：IsStunDebuff、Duration %stun_duration；沒寫 IsPurgable（暫定 basic），不在 ultimate_modifiers。" },
+          { id = "b02t_first_stun", text = { zh_TW = { name = "暈眩", body = "暈眩中，無法移動、攻擊與施法。" }, en = { name = "Stunned", body = "Stunned: cannot move, attack or cast." } }, duration = "$first_stun", stacking = "refresh", dispel = "strong", visibility = "debuff",
+            reveal = "public", states = { "stun" },
+            notes = "原作 modifier_B02T_2（KV first_stun_duration，腳本從未套用）；FC-072 修正後施放時套上。" },
         },
         events = {
           on_cast = {
             { op = "cue", id = "b02t_cast", at = "caster", to = "target" },
             { op = "let", name = "tgt", value = "target" },
+            -- FC-072（D13）：起手暈眩
+            { op = "apply_status", status = "b02t_first_stun", to = "tgt" },
             { op = "repeat", interval = "$strike_interval", first = "$strike_interval", count = "$strike_count",
               ["while"] = "alive(tgt)", actions = {
                 { op = "if", cond = "not tgt.is_magic_immune", actions = {
@@ -362,8 +369,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "high",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/B_Unified/B02.txt:585-627",
-            text = "原作說明寫「暈眩 1 秒，之後每秒一擊」，KV 也有 modifier_B02T_2（first_stun_duration 1），但腳本從未套用：施放當下沒有任何暈眩，第一擊在一秒後。資料照實際寫，是否補回起手暈眩由使用者決定。" },
+          { policy = "fixed", ref = "npc/B_Unified/B02.txt:585-627",
+            text = "FC-072（D13 修正：施放時套上起手暈眩 first_stun（modifier_B02T_2），之後每秒一擊）。原作：原作說明寫「暈眩 1 秒，之後每秒一擊」，KV 也有 modifier_B02T_2（first_stun_duration 1），但腳本從未套用：施放當下沒有任何暈眩，第一擊在一秒後。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B02.lua:304-334",
             text = "雷擊是對目標的計時器，不是投射物：施放後目標走多遠都會被打中；小太郎死亡後雷擊照常落下並暈眩，傷害由規則層（AMHC:Damage 檢查攻擊者存活）歸零。" },
           { policy = "note", ref = "vscripts/heroes/B_Unified/B02.lua:318-329",

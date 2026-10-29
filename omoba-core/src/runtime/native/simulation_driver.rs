@@ -164,7 +164,10 @@ impl SimulationDriver {
         world.maintain();
 
         let mut sink = RuntimeEventVecSink::default();
-        process_outcomes(world, &mut sink)?;
+        world.insert(std::mem::take(&mut self.scripts));
+        let settled = process_outcomes(world, &mut sink);
+        self.scripts = world.remove::<ScriptRegistry>().unwrap_or_default();
+        settled?;
         world.maintain();
         events.append(&mut sink.events);
 
@@ -177,7 +180,10 @@ impl SimulationDriver {
         run_script_dispatch(world, &self.scripts, master_seed, scaled_dt);
 
         let mut sink = RuntimeEventVecSink::default();
-        process_outcomes(world, &mut sink)?;
+        world.insert(std::mem::take(&mut self.scripts));
+        let settled = process_outcomes(world, &mut sink);
+        self.scripts = world.remove::<ScriptRegistry>().unwrap_or_default();
+        settled?;
         world.maintain();
         events.append(&mut sink.events);
 

@@ -109,6 +109,11 @@ test('fixed Lua + full TOML + production Rust configuration preflight',function(
   assert(plan.base_content.dll==path.join(run_scripts,'base_content.dll') and path.is_file(plan.base_content.dll))
   assert(plan.server.env.OMB_SCRIPTS_DIR==run_scripts and plan.server.env.OMB_DLL_PATH==plan.base_content.dll)
   assert(plan.clients[1].runtime.env.OMB_SCRIPTS_DIR==run_scripts)
+  -- M3': the whole script DLL set, listed with digests the host checks, for UE too.
+  assert(plan.clients[1].unreal.env.OMB_SCRIPTS_DIR==run_scripts)
+  assert(path.is_file(path.join(run_scripts,'scripts-manifest.json')))
+  assert(#plan.base_content.script_modules==#require('script_dlls').modules() and #plan.base_content.script_modules_hash==64)
+  for _,module in ipairs(plan.base_content.script_modules) do assert(path.is_file(path.join(run_scripts,module.file)),module.file) end
   -- E125: server and runtime run from keyed copies, never the locked build output.
   local run_bin=path.join(b.root,'target','run-bin')
   assert(plan.run_binaries and plan.server.exe:find(run_bin,1,true)==1 and plan.clients[1].runtime.exe:find(run_bin,1,true)==1)

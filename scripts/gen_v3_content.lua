@@ -72,15 +72,9 @@ function M.build(root)
     content.source = content.source or { repository = doc.source.repository, commit = doc.source.commit }
     local ok, compiled = pcall(compiler.compile, doc, { names = names, ir = false })
     if not ok then problems[#problems + 1] = file .. ": " .. tostring(compiled); return end
-    -- IR of the data behavior for every entry (rust_handler entries treated as data for compiling)
-    local as_data = copy(doc)
-    for _, list in ipairs({ as_data.abilities or {}, as_data.items or {} }) do
-      for _, e in ipairs(list) do if e.coverage == "rust_handler" then e.coverage = "expressible"; e.handler = nil end end
-    end
-    local irs, ir_problems = ir_compiler.compile_doc(as_data, {})
-    for _, p in ipairs(ir_problems or {}) do problems[#problems + 1] = file .. ": ir " .. tostring(p) end
-    for id, block in pairs(compiled.abilities) do block.ir = irs[id]; content.abilities[id] = block end
-    for id, block in pairs(compiled.items) do block.ir = irs[id]; content.items[id] = block end
+    -- M3' ④: no behavior IR in the content (generated Rust runs the behavior, v3_rust.lua).
+    for id, block in pairs(compiled.abilities) do content.abilities[id] = block end
+    for id, block in pairs(compiled.items) do content.items[id] = block end
     return doc
   end
   for _, h in ipairs(sources.heroes(root)) do
@@ -115,12 +109,12 @@ function M.main(argv)
   local dir = out:gsub("\\", "/"):match("^(.*)/")
   if dir then b.lib("path").mkdir_p(dir) end
   local f = assert(io.open(out, "wb")); f:write(json.encode(content)); f:close()
-  local listed, na, ni, with_ir = 0, 0, 0, 0
+  local listed, na, ni = 0, 0, 0
   for _, h in ipairs(content.heroes) do if h.listed then listed = listed + 1 end end
-  for _, blk in pairs(content.abilities) do na = na + 1; if blk.ir then with_ir = with_ir + 1 end end
-  for _, blk in pairs(content.items) do ni = ni + 1; if blk.ir then with_ir = with_ir + 1 end end
-  print(("wrote %s: %d heroes (%d listed, %d unlisted), %d abilities, %d items, %d with IR, hash %s"):format(
-    out, #content.heroes, listed, #content.heroes - listed, na, ni, with_ir, content.content_hash))
+  for _ in pairs(content.abilities) do na = na + 1 end
+  for _ in pairs(content.items) do ni = ni + 1 end
+  print(("wrote %s: %d heroes (%d listed, %d unlisted), %d abilities, %d items, hash %s"):format(
+    out, #content.heroes, listed, #content.heroes - listed, na, ni, content.content_hash))
   return 0
 end
 

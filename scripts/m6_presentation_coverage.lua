@@ -20,6 +20,19 @@ M.WAVES = "docs/plans/2026-10-28-history-nobu-full-port/m6-waves.md"
 M.CATALOG = "target/site/source-catalog.json"
 M.ICONS = "omfue/Content/Omoba/UI/nobu-icons-v1.json"
 M.CUES = "docs/character_pipeline/presentation/cue-catalog.lua"
+M.GENERATED = "omfue/Content/Omoba/UI/generated-art-v1.json"
+
+-- Generated art (scripts/generated_art.lua) counts as covered: the nobu index gets status
+-- "generated" where an image exists, and cues get their reference image. nil index -> unchanged.
+local function covered(status) return status == "original" or status == "generated" end
+function M.with_generated(icons, cues, generated)
+  if not generated then return icons, cues end
+  GENERATED_ART_AS_MODULE = true
+  local ga = require("generated_art")
+  local refs = ga.rows(generated).cue
+  for id, cue in pairs(cues.cues) do if refs[id] then cue.reference = refs[id].file end end
+  return ga.overlay(icons, generated), cues
+end
 
 -- batch number -> ordered hero source ids ("| A01 德川家康 | ..." rows under "## 第 N 批")
 function M.batch_heroes(waves_text, batch)
@@ -50,7 +63,7 @@ function M.hero(source_id, catalog, icons, cues)
   for _, e in ipairs(icons.entries) do by[e.kind .. ":" .. (e.source_id or "")] = e end
   local portrait = by["hero:" .. source_id]
   r.portrait = portrait and portrait.status or "missing"
-  if r.portrait ~= "original" then
+  if not covered(r.portrait) then
     r.missing[#r.missing + 1] = "頭像（" .. (portrait and portrait.reason or "不在圖示索引") .. "）"
   end
   for _, a in ipairs(catalog.abilities) do
@@ -59,7 +72,7 @@ function M.hero(source_id, catalog, icons, cues)
       local icon = sid and by["ability:" .. sid]
       local row = { id = a.id, icon = icon and icon.status or "missing" }
       r.abilities[#r.abilities + 1] = row
-      if row.icon ~= "original" then
+      if not covered(row.icon) then
         r.missing[#r.missing + 1] = "技能圖示 `" .. a.id .. "`（" .. (icon and icon.reason or "不在圖示索引") .. "）"
       end
       for _, s in ipairs(a.v3 and a.v3.statuses or {}) do
@@ -76,7 +89,7 @@ function M.hero(source_id, catalog, icons, cues)
     for _, use in ipairs(cue.uses or {}) do
       if use.doc == source_id and not seen[id] then
         seen[id] = true
-        r.cues[#r.cues + 1] = { id = id, kind = cue.kind, art = cue.assets and #cue.assets > 0 }
+        r.cues[#r.cues + 1] = { id = id, kind = cue.kind, art = cue.assets and #cue.assets > 0, reference = cue.reference }
       end
     end
   end
@@ -89,23 +102,24 @@ function M.render(batch, rows)
     "",
     "由 `tools\\lua\\lua.exe scripts\\m6_presentation_coverage.lua --batch " .. batch .. "` 產生，不要手改。",
     "",
-    "- **頭像、技能圖示**：原作 nobu 圖（`nobu-icons-v1.json`）；沒有原作圖時，上架後 HUD sync 自動用共用佔位圖。",
+    "- **頭像、技能圖示**：原作 nobu 圖（`nobu-icons-v1.json`）；沒有原作圖時用 Grok 生成圖（`generated-art-v1.json`）；兩者都沒有時，上架後 HUD sync 自動用共用佔位圖。",
+    "- **cue 參考圖**：沒有原作資產的特效 cue 有 Grok 生成的參考圖（`omfue/SourceArt/CueReferences/`），在 Editor 做特效時參考；遊戲內仍播通用佔位特效。",
     "- **cue**：每個 cue 都有 kind，依 kind 播通用佔位特效。對到原作資產的 cue，可以在 Editor（Om Presentation Cues）指定美術。",
     "- **投射物**：kind 為 projectile 的 cue 用該 cue 的顏色（Editor 覆寫，否則 kind 的佔位色）；沒有 cue 時用預設樣式。",
     "- **狀態**：HUD 狀態列表顯示 v3 名稱與說明。有 `runtime_id` 時依它對應，否則依狀態 id 對應（資料執行器的預設）。",
     "",
-    "| 英雄 | 頭像 | 技能圖示（原作／全部） | cue（有原作資產／全部） | 投射物 cue | 狀態（有說明／全部） |",
+    "| 英雄 | 頭像 | 技能圖示（原作或生成／全部） | cue（有原作資產／全部） | 投射物 cue | 狀態（有說明／全部） |",
     "|---|---|---|---|---|---|" }
   for _, r in ipairs(rows) do
     local icons, art, projectiles, described = 0, 0, 0, 0
-    for _, a in ipairs(r.abilities) do if a.icon == "original" then icons = icons + 1 end end
+    for _, a in ipairs(r.abilities) do if covered(a.icon) then icons = icons + 1 end end
     for _, c in ipairs(r.cues) do
       if c.art then art = art + 1 end
       if c.kind == "projectile" then projectiles = projectiles + 1 end
     end
     for _, s in ipairs(r.statuses) do if s.described then described = described + 1 end end
     out[#out + 1] = string.format("| %s %s | %s | %d／%d | %d／%d | %d | %d／%d |", r.source_id, r.name or "",
-      r.portrait == "original" and "原作" or "佔位", icons, #r.abilities, art, #r.cues, projectiles, described, #r.statuses)
+      r.portrait == "original" and "原作" or r.portrait == "generated" and "生成" or "佔位", icons, #r.abilities, art, #r.cues, projectiles, described, #r.statuses)
   end
   out[#out + 1] = ""
   out[#out + 1] = "## 仍缺的素材（目前用通用替代）"
@@ -113,7 +127,9 @@ function M.render(batch, rows)
   local any = false
   for _, r in ipairs(rows) do
     local generic = {}
-    for _, c in ipairs(r.cues) do if not c.art then generic[#generic + 1] = "`" .. c.id .. "`（" .. c.kind .. "）" end end
+    for _, c in ipairs(r.cues) do
+      if not c.art then generic[#generic + 1] = "`" .. c.id .. "`（" .. c.kind .. (c.reference and "，已有生成參考圖" or "") .. "）" end
+    end
     if #r.missing > 0 or #generic > 0 then
       any = true
       out[#out + 1] = "### " .. r.source_id .. " " .. (r.name or "")
@@ -133,13 +149,15 @@ function M.render_missing(batches)
     "",
     "由 `tools\\lua\\lua.exe scripts\\m6_presentation_coverage.lua --missing-art` 產生，不要手改。逐批細節在 `m6-batch<N>-presentation.md`。",
     "",
-    "這份清單留給使用者決定要補哪些美術；目前不下載任何外部素材。替代方案都已經在 UE 生效：",
+    "> **2026-10-29 使用者決定：缺的美術用 Grok 生成**（README D17）。沿用 Grok Build CLI 的 `image_gen`，逐張看過後經 `scripts/generated_art.lua --import` 匯入（`generated-art-v1.json`，HUD sync 在沒有原作圖時使用），每次生成都記到 `docs/plans/2026-10-24-omfue-month-mvp/asset-ledger.md`。已生成的不再列在下面。",
+    "",
+    "還沒生成的替代方案都已經在 UE 生效：",
     "",
     "- **頭像**：共用佔位圖 `hero-placeholder-v1.png`，由 HUD sync 在英雄上架時自動補上。",
     "- **技能圖示**：共用佔位圖 `ability-placeholder-v1.png`，由 HUD sync 補上，建置時會印出警告。",
     "- **cue**：依 cue 目錄的 kind 播通用佔位特效（環、圓盤、連線；sound 不畫）。之後可以在 Editor 的 Om Presentation Cues 指定美術。",
     "", }
-  local portraits, icons, cues = {}, {}, {}
+  local portraits, icons, cues, referenced, nonvisual = {}, {}, {}, {}, {}
   for _, b in ipairs(batches) do
     for _, r in ipairs(b.rows) do
       local who = r.source_id .. " " .. (r.name or "")
@@ -148,7 +166,12 @@ function M.render_missing(batches)
         if m:find("^頭像") then portraits[#portraits + 1] = row else icons[#icons + 1] = row end
       end
       for _, c in ipairs(r.cues) do
-        if not c.art then cues[#cues + 1] = string.format("| %d | %s | `%s` | %s |", b.batch, who, c.id, c.kind) end
+        if not c.art then
+          local row = string.format("| %d | %s | `%s` | %s |", b.batch, who, c.id, c.kind)
+          if c.reference then referenced[#referenced + 1] = row
+          elseif c.kind == "sound" or c.kind == "gesture" then nonvisual[#nonvisual + 1] = row
+          else cues[#cues + 1] = row end
+        end
       end
     end
   end
@@ -163,8 +186,17 @@ function M.render_missing(batches)
   end
   section("頭像（替代：共用佔位圖）", "| 批 | 英雄 | 原因 |", portraits)
   section("技能圖示（替代：共用佔位圖）", "| 批 | 英雄 | 技能與原因 |", icons)
-  section("沒有原作資產的 cue（替代：依 kind 的通用佔位特效）", "| 批 | 英雄 | cue | kind |", cues)
+  section("沒有原作資產的特效 cue（替代：依 kind 的通用佔位特效）", "| 批 | 英雄 | cue | kind |", cues)
+  section("沒有原作資產的聲音與動作 cue（不需要參考圖；sound 不畫，gesture 用預設動作）", "| 批 | 英雄 | cue | kind |", nonvisual)
+  section("已有生成參考圖的 cue（遊戲內仍播通用佔位特效，Editor 做特效時參考）", "| 批 | 英雄 | cue | kind |", referenced)
   return table.concat(out, "\n") .. "\n"
+end
+
+function M.read_generated()
+  local f = io.open(b.root .. "/" .. M.GENERATED, "rb")
+  if not f then return nil end
+  local s = f:read("a"); f:close()
+  return json.decode(s)
 end
 
 function M.main(args)
@@ -173,6 +205,7 @@ function M.main(args)
     local waves = read(M.WAVES)
     local catalog, icons = json.decode(read(M.CATALOG)), json.decode(read(M.ICONS))
     local cues = dofile(b.root .. "/" .. M.CUES)
+    icons, cues = M.with_generated(icons, cues, M.read_generated())
     local batches = {}
     for n = 1, 99 do
       local heroes = M.batch_heroes(waves, n)
@@ -200,6 +233,7 @@ function M.main(args)
   assert(#heroes > 0, "batch " .. batch .. " has no heroes in " .. M.WAVES)
   local catalog, icons = json.decode(read(M.CATALOG)), json.decode(read(M.ICONS))
   local cues = dofile(b.root .. "/" .. M.CUES)
+  icons, cues = M.with_generated(icons, cues, M.read_generated())
   local rows = {}
   for _, h in ipairs(heroes) do rows[#rows + 1] = M.hero(h, catalog, icons, cues) end
   out = out or ("docs/plans/2026-10-28-history-nobu-full-port/m6-batch" .. batch .. "-presentation.md")

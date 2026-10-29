@@ -123,10 +123,7 @@ return function(ctx)
           crit_multiplier = { 200, unit = "pct", source = "kv:MODIFIER_PROPERTY_PREATTACK_CRITICALSTRIKE", note = "KV 寫 200" },
           shield_gap = { 20, 17, 14, 11, unit = "s", source = "kv:shield_gap" },
           shield = { 400, unit = "hp", source = "script:vscripts/heroes/A_Oda/A18.lua:140 magic_shield = 400" },
-          snapshot_interval = { 0.2, unit = "s", hidden = true,
-            source = "script:vscripts/heroes/A_Oda/A18.lua:19-25 StartIntervalThink(0.2) 記下 self.hp" },
-          overflow_mr_scale = { "0.01", unit = "ratio", hidden = true,
-            source = "script:vscripts/heroes/A_Oda/A18.lua:46 (100 − GetMagicalArmorValue())×0.01，GetMagicalArmorValue 是比例" },
+
         },
         text = {
           zh_TW = { name = "頑強戰法",
@@ -144,55 +141,28 @@ return function(ctx)
                 { op = "modify_attack", crit_multiplier = "$crit_multiplier" },
                 { op = "cue", id = "a18r_crit_gesture", at = "self" },
               } } },
+            -- 重套時補回 shield（不疊加）
             periodic = { interval = "$shield_gap", actions = {
               { op = "apply_status", status = "a18r_shield", to = "self" },
-              { op = "set_var", status = "a18r_shield", on = "self", var = "shield", value = "$shield" },
-              { op = "set_var", status = "a18r_shield", on = "self", var = "hp_snap", value = "self.hp" },
             } },
           },
         },
         statuses = {
           { id = "a18r_shield", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "buff",
             reveal = "public", cue = "a18r_shield_glow", remove_on = { "death" },
-            vars = {
-              shield = { type = "fixed", init = "$shield", reveal = "public", note = "原作 modifier_A18R2.magic_shield" },
-              hp_snap = { type = "fixed", init = "self.hp", reveal = "public", note = "原作 modifier_A18R2.hp：每 0.2 秒記下的生命" },
-            },
-            triggers = {
-              periodic = { interval = "$snapshot_interval", actions = {
-                { op = "set_var", var = "hp_snap", value = "self.hp" },
-              } },
-              -- 原作 OnTakeDamage（已扣血）：只看敵隊來源的魔法傷害、不看反射；以減免前的 original_damage 扣盾
-              on_take_damage = {
-                filter = "event.damage.is_magical and is_enemy(event.attacker, self) and not event.damage.is_reflection and vars.shield > 0",
-                actions = {
-                  { op = "if", cond = "vars.shield > event.damage.raw",
-                    actions = {
-                      { op = "set_var", var = "shield", value = "vars.shield - event.damage.raw" },
-                      { op = "set_health", to = "self", value = "vars.hp_snap" },
-                    },
-                    otherwise = {
-                      { op = "let", name = "nhp",
-                        value = "vars.hp_snap - (event.damage.raw - vars.shield) * (1 - self.magic_resist * $overflow_mr_scale)" },
-                      { op = "if", cond = "nhp > 0", actions = { { op = "set_health", to = "self", value = "nhp" } } },
-                      { op = "set_var", var = "shield", value = "0" },
-                      { op = "remove_status", from = "self", status = "a18r_shield" },
-                    } },
-                } },
-            },
+            -- FC-026／FC-120（D13）：結算前吸收（擋得住致死傷害、不抹掉其他傷害與治療），以減免後的傷害扣盾，溢出照常吃魔抗
+            absorb = { amount = "$shield", types = { "magical" }, phase = "post_mitigation" },
             text = { zh_TW = { name = "頑強戰法護盾", body = "吸收敵方造成的魔法傷害，最多 {shield} 點；每 {shield_gap} 秒補滿，耗盡時移除，死亡時消失。" }, en = { name = "Stubborn Tactics Shield", body = "Absorbs up to {shield} magic damage from enemies; refills every {shield_gap} seconds, is removed when depleted and lost on death." } },
             notes = "原作 modifier_A18R2（Lua modifier，以 ApplyDataDrivenModifier 套上；預設死亡移除、不可驅散）；重套時 magic_shield 重設為 400。" },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A18.lua:27-59",
-            text = "OnTakeDamage（已扣血）中，傷害類型是魔法且來源是敵隊、不是反射時：盾量 > original_damage 就扣盾並 SetHealth(0.2 秒前的生命快照)；否則 hp = 快照 − (original − 盾)×(100 − GetMagicalArmorValue())×0.01（大於零才寫回）並移除護盾。以 event.damage.is_magical（v3.1）、狀態 vars 與 periodic 快照照實表達；致死傷害在 on_take_damage 之前已經結算，擋不住。" },
-          { policy = "note", ref = "vscripts/heroes/A_Oda/A18.lua:19-25,129-140",
-            text = "套上護盾時快照設為當下生命，之後每 0.2 秒更新；v3 狀態 vars 的 init 與套用後的 set_var 都取當下生命，差異只在原作第一次 think 前快照為套用當下。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A18.lua:27-59",
-            text = "護盾在傷害已扣血後才以 SetHealth 回寫，致死的魔法傷害照樣殺死一鐵；回寫的是 0.2 秒前的生命快照，會順便抹掉這段時間的其他傷害與治療。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A18.lua:46",
-            text = "破盾時溢出傷害以 (100 − GetMagicalArmorValue())×0.01 計，GetMagicalArmorValue 是 0~1 的比例，等於幾乎不吃魔抗；而且以減免前的 original_damage 扣盾。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A18.lua:27-59",
+            text = "原作機制（FC-026／FC-120 修正前）：OnTakeDamage（已扣血）中，傷害類型是魔法且來源是敵隊、不是反射時：盾量 > original_damage 就扣盾並 SetHealth(0.2 秒前的生命快照)；否則 hp = 快照 − (original − 盾)×(100 − GetMagicalArmorValue())×0.01（大於零才寫回）並移除護盾；致死傷害在 OnTakeDamage 之前已經結算，擋不住。修正後改用 absorb，只看傷害類型（原作另排除非敵隊來源與反射傷害，這兩種魔法傷害在本作罕見，不另外表達）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A18.lua:27-59",
+            text = "FC-026（D13 修正：改用 absorb 在結算前吸收魔法傷害，擋得住致死傷害，也不回寫生命快照）。原作：護盾在傷害已扣血後才以 SetHealth 回寫，致死的魔法傷害照樣殺死一鐵；回寫的是 0.2 秒前的生命快照，會順便抹掉這段時間的其他傷害與治療。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A18.lua:46",
+            text = "FC-120（D13 修正：absorb 以減免後的傷害扣盾，溢出照魔抗減免）。原作：破盾時溢出傷害以 (100 − GetMagicalArmorValue())×0.01 計，GetMagicalArmorValue 是 0~1 的比例，等於幾乎不吃魔抗；而且以減免前的 original_damage 扣盾。" },
           { policy = "as_source", ref = "npc/A_Oda/A18.txt:204-212",
             text = "每 shield_gap 秒不論護盾是否還在都重套一次並補回 400，不會疊加；升級時 A18R_Levelup 重建被動，計時重新開始，第一層在學會後一個間隔才拿到。" },
           { policy = "design_intent", ref = "vscripts/heroes/A_Oda/A18.lua:98-119",

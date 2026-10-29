@@ -1,0 +1,20 @@
+[package]
+name = "hero_a02"
+version = "0.1.0"
+edition = "2021"
+authors = ["damody <t1238142000@gmail.com>"]
+description = "hero_a02.dll: exports hero_a02_impl's manifest (M3')"
+
+[lib]
+name = "hero_a02"
+crate-type = ["cdylib"]
+
+[dependencies]
+abi_stable = "0.11"
+hero_a02_impl = { path = ".." }
+omb-script-abi = { path = "../../../script-abi" }
+
+[features]
+default = []
+runtime-lua-content = ["hero_a02_impl/runtime-lua-content"]
+compiled-content-only = ["hero_a02_impl/compiled-content-only"]

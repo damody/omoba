@@ -33,8 +33,8 @@ local report=batch.execute(options,{
   prepare=function()
     require('export_moba_role_plan').export(options.recipe,recipe_file)
     for _,args in ipairs({
-      {'build','--manifest-path',path.join(b.root,'scripts','Cargo.toml'),'-p','base_content',
-        '--features',compiled.feature,'--release'},
+      require('script_dlls').cargo_args({'build','--manifest-path',path.join(b.root,'scripts','Cargo.toml')},
+        compiled.feature,{'--release'}),
       {'build','--manifest-path',path.join(b.root,'omb','Cargo.toml'),'-p','omobab','--bin','moba-headless',
         '--features',compiled.feature,'--release'},
     }) do

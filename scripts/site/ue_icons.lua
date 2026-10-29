@@ -1,6 +1,7 @@
 -- The site shows the same icons as the game's HUD (M6): for each hero, ability and item the art
 -- the HUD manifest assigns by hand (a portrait file, an imported ability or item source PNG),
--- else the original nobu art (scripts/import_nobu_icons.lua), else the placeholder. Ids are
+-- else the original nobu art (scripts/import_nobu_icons.lua), else generated art
+-- (scripts/generated_art.lua), else the placeholder. Ids are
 -- matched through the nobu index, which records every source id with its game id.
 -- wrap(sup, root) returns a supplement whose hero_icon/ability_icon/item_icon give site paths
 -- "ue/<kind>-<id>.png"; files[rel] is the absolute source the build resamples into img/.
@@ -22,6 +23,11 @@ function M.resolve(root)
   local ui = root .. "/" .. M.UI_DIR
   local index = read_json(ui .. "/nobu-icons-v1.json")
   if not index then return nil end
+  local generated = read_json(ui .. "/generated-art-v1.json")
+  if generated then
+    GENERATED_ART_AS_MODULE = true
+    index = require("generated_art").overlay(index, generated)
+  end
   local manifest = read_json(ui .. "/hud-assets-v1.json") or { entries = {} }
   local authored = { portrait = {}, ability = {}, item = {} }
   for _, row in ipairs(manifest.entries or {}) do
@@ -38,7 +44,7 @@ function M.resolve(root)
   for _, e in ipairs(index.entries or {}) do
     if e.source_id and out[e.kind] then
       out[e.kind][e.source_id] = { id = e.id,
-        file = authored[kind_of[e.kind]][e.id] or (e.status == "original" and e.file and ui .. "/" .. e.file) or nil }
+        file = authored[kind_of[e.kind]][e.id] or ((e.status == "original" or e.status == "generated") and e.file and ui .. "/" .. e.file) or nil }
     end
   end
   return out

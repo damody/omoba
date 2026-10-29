@@ -334,6 +334,159 @@ pub fn line_of_sight(occluders: &[VisionOccluder], source: Vec2, target: Vec2) -
     LosResult::Clear
 }
 
+/// Broad phase bucket edge of [`IndexedVisionOccluders`]: 256 world units.
+const OCCLUDER_BUCKET_RAW: i64 = 256 * omoba_sim::fixed::SCALE;
+/// Lists up to this long are scanned directly (every pre-E187 map stays below it).
+const OCCLUDER_SCAN_LIMIT: usize = 32;
+/// Occluder and query coordinates (raw) the index handles; anything beyond takes the linear scan.
+/// Below it the exact tests never overflow, so a test that blocks always meets the segment
+/// inside the occluder's bounds.
+const OCCLUDER_INDEX_BOUND_RAW: i64 = 1 << 29;
+/// An occluder covering more buckets than this is tested for every query instead.
+const OCCLUDER_BUCKET_LIMIT: i64 = 4096;
+
+#[derive(Debug, Default)]
+struct OccluderBuckets {
+    buckets: std::collections::HashMap<(i64, i64), Vec<u32>>,
+    always: Vec<u32>,
+}
+
+/// An immutable occluder list with a uniform-grid broad phase (E187 §5.5: the nobu map's 1,564
+/// VisionTrees). [`IndexedVisionOccluders::line_of_sight`] answers exactly what the linear
+/// [`line_of_sight`] answers for the same list: a blocking occluder meets the segment inside its
+/// bounds, so it is registered in a bucket the segment crosses; the candidates are then tested in
+/// list order with the linear scan's own bounds rejection and exact test.
+#[derive(Clone, Debug, Default)]
+pub struct IndexedVisionOccluders {
+    list: std::sync::Arc<[VisionOccluder]>,
+    index: Option<std::sync::Arc<OccluderBuckets>>,
+}
+
+impl PartialEq for IndexedVisionOccluders {
+    fn eq(&self, other: &Self) -> bool { self.list == other.list }
+}
+
+impl Eq for IndexedVisionOccluders {}
+
+impl std::ops::Deref for IndexedVisionOccluders {
+    type Target = [VisionOccluder];
+    fn deref(&self) -> &[VisionOccluder] { &self.list }
+}
+
+impl From<Vec<VisionOccluder>> for IndexedVisionOccluders {
+    fn from(list: Vec<VisionOccluder>) -> Self { Self::new(list.into()) }
+}
+
+impl From<std::sync::Arc<[VisionOccluder]>> for IndexedVisionOccluders {
+    fn from(list: std::sync::Arc<[VisionOccluder]>) -> Self { Self::new(list) }
+}
+
+fn within_index(value: i64) -> bool { value.unsigned_abs() <= OCCLUDER_INDEX_BOUND_RAW as u64 }
+
+impl IndexedVisionOccluders {
+    pub fn new(list: std::sync::Arc<[VisionOccluder]>) -> Self {
+        if list.len() <= OCCLUDER_SCAN_LIMIT { return Self { list, index: None }; }
+        let mut index = OccluderBuckets::default();
+        for (position, occluder) in list.iter().enumerate() {
+            let aabb = occluder.aabb();
+            let radius_ok = match occluder { VisionOccluder::Tree(tree) => within_index(tree.radius.raw()), _ => true };
+            let bounded = radius_ok && [aabb.min.x, aabb.min.y, aabb.max.x, aabb.max.y].iter().all(|v| within_index(v.raw()));
+            let cells = [aabb.min.x.raw().div_euclid(OCCLUDER_BUCKET_RAW), aabb.min.y.raw().div_euclid(OCCLUDER_BUCKET_RAW),
+                aabb.max.x.raw().div_euclid(OCCLUDER_BUCKET_RAW), aabb.max.y.raw().div_euclid(OCCLUDER_BUCKET_RAW)];
+            if !bounded || (cells[2] - cells[0] + 1) * (cells[3] - cells[1] + 1) > OCCLUDER_BUCKET_LIMIT {
+                index.always.push(position as u32);
+                continue;
+            }
+            for cx in cells[0]..=cells[2] {
+                for cy in cells[1]..=cells[3] {
+                    index.buckets.entry((cx, cy)).or_default().push(position as u32);
+                }
+            }
+        }
+        Self { list, index: Some(std::sync::Arc::new(index)) }
+    }
+
+    pub fn line_of_sight(&self, source: Vec2, target: Vec2) -> LosResult {
+        let Some(index) = self.index.as_deref() else { return line_of_sight(&self.list, source, target) };
+        if ![source.x, source.y, target.x, target.y].iter().all(|v| within_index(v.raw())) {
+            return line_of_sight(&self.list, source, target);
+        }
+        thread_local! { static SCRATCH: std::cell::RefCell<Vec<u32>> = const { std::cell::RefCell::new(Vec::new()) }; }
+        SCRATCH.with(|scratch| {
+            let Ok(mut candidates) = scratch.try_borrow_mut() else { return line_of_sight(&self.list, source, target) };
+            candidates.clear();
+            candidates.extend_from_slice(&index.always);
+            // Column sweep: per bucket column the segment's y extent, one bucket of margin each way.
+            let (from, to) = if source.x.raw() <= target.x.raw() { (source, target) } else { (target, source) };
+            let (x0, x1, y0, y1) = (i128::from(from.x.raw()), i128::from(to.x.raw()), i128::from(from.y.raw()), i128::from(to.y.raw()));
+            let bucket = i128::from(OCCLUDER_BUCKET_RAW);
+            let y_at = |x: i128| if x1 == x0 { y0 } else { y0 + (x - x0) * (y1 - y0) / (x1 - x0) };
+            for column in x0.div_euclid(bucket)..=x1.div_euclid(bucket) {
+                let (xa, xb) = ((column * bucket).max(x0), ((column + 1) * bucket).min(x1));
+                let (ya, yb) = if x1 == x0 { (y0, y1) } else { (y_at(xa), y_at(xb)) };
+                for row in ya.min(yb).div_euclid(bucket) - 1..=ya.max(yb).div_euclid(bucket) + 1 {
+                    if let Some(entries) = index.buckets.get(&(column as i64, row as i64)) {
+                        candidates.extend_from_slice(entries);
+                    }
+                }
+            }
+            candidates.sort_unstable();
+            candidates.dedup();
+            let segment_aabb = VisionAabb::from_segment(source, target);
+            for &position in candidates.iter() {
+                let occluder = &self.list[position as usize];
+                if !segment_aabb.intersects(occluder.aabb()) { continue; }
+                let result = match occluder {
+                    VisionOccluder::Tree(tree) => tree_blocks(source, target, tree),
+                    VisionOccluder::Terrain(polygon) => polygon_blocks(source, target, polygon),
+                };
+                if result != Some(false) { return line_of_sight(std::slice::from_ref(occluder), source, target); }
+            }
+            LosResult::Clear
+        })
+    }
+}
+
+/// Line of sight through an occluder collection: the linear scan for plain lists, the bucketed
+/// one for [`IndexedVisionOccluders`] (E187 §5.5); both give the same answer.
+pub trait LineOfSight {
+    fn line_of_sight(&self, source: Vec2, target: Vec2) -> LosResult;
+}
+
+impl LineOfSight for [VisionOccluder] {
+    fn line_of_sight(&self, source: Vec2, target: Vec2) -> LosResult { line_of_sight(self, source, target) }
+}
+
+impl<const N: usize> LineOfSight for [VisionOccluder; N] {
+    fn line_of_sight(&self, source: Vec2, target: Vec2) -> LosResult { line_of_sight(self, source, target) }
+}
+
+impl LineOfSight for Vec<VisionOccluder> {
+    fn line_of_sight(&self, source: Vec2, target: Vec2) -> LosResult { line_of_sight(self, source, target) }
+}
+
+impl LineOfSight for IndexedVisionOccluders {
+    fn line_of_sight(&self, source: Vec2, target: Vec2) -> LosResult { IndexedVisionOccluders::line_of_sight(self, source, target) }
+}
+
+impl VisionOccluderSet {
+    /// The committed, indexed form of this set (E187 §5.5). A match's set is fixed, so the index
+    /// is built once per distinct set and shared: each Wave B view clones the Arc.
+    pub fn committed(&self) -> IndexedVisionOccluders {
+        thread_local! {
+            static CACHE: std::cell::RefCell<Option<IndexedVisionOccluders>> = const { std::cell::RefCell::new(None) };
+        }
+        CACHE.with(|cache| {
+            if let Some(cached) = cache.borrow().as_ref().filter(|cached| cached.list[..] == self.0[..]) {
+                return cached.clone();
+            }
+            let built = IndexedVisionOccluders::from(self.0.clone());
+            *cache.borrow_mut() = Some(built.clone());
+            built
+        })
+    }
+}
+
 fn squared_distance(a: Vec2, b: Vec2) -> Option<i128> {
     let x = i128::from(a.x.raw()).checked_sub(i128::from(b.x.raw()))?;
     let y = i128::from(a.y.raw()).checked_sub(i128::from(b.y.raw()))?;
@@ -457,6 +610,59 @@ mod tests {
             a.line_of_sight(p(0, 0), p(10, 0)),
             b.line_of_sight(p(0, 0), p(10, 0))
         );
+    }
+
+    /// E187 §5.5: the bucketed scan answers exactly as the linear one over many trees and walls,
+    /// short and long, axis-aligned and diagonal segments, endpoints inside occluders and beyond
+    /// the indexed range.
+    #[test]
+    fn indexed_line_of_sight_matches_the_linear_scan() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = |span: i64| { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; (seed % (2 * span as u64 + 1)) as i64 - span };
+        let raw = |x: i64, y: i64| Vec2::new(Fixed64::from_raw(x), Fixed64::from_raw(y));
+        let mut list = Vec::new();
+        for id in 0..600u64 {
+            let center = raw(next(9000) * 1024, next(9000) * 1024);
+            let radius = Fixed64::from_i32(1 + (next(80).unsigned_abs() as i32));
+            let corner = Vec2::new(radius, radius);
+            list.push(VisionOccluder::Tree(VisionTreeCircle { stable_id: id + 1, center, radius,
+                aabb: VisionAabb { min: center - corner, max: center + corner } }));
+        }
+        for id in 0..80u64 {
+            let (x, y, w, h) = (next(9000) * 1024, next(9000) * 1024, (1 + next(600).abs()) * 1024, (1 + next(600).abs()) * 1024);
+            let vertices = vec![raw(x, y), raw(x + w, y), raw(x + w, y + h), raw(x, y + h)];
+            list.push(VisionOccluder::Terrain(VisionTerrainPolygon { stable_id: id + 1, name: format!("wall_{id}"),
+                aabb: polygon_aabb(&vertices), vertices }));
+        }
+        let far = raw(1 << 40, 0);
+        list.push(VisionOccluder::Tree(VisionTreeCircle { stable_id: 9999, center: far, radius: Fixed64::ONE,
+            aabb: VisionAabb { min: far, max: far } }));
+        let indexed = IndexedVisionOccluders::from(list.clone());
+        assert!(indexed.index.is_some());
+        let (mut blocked, mut clear) = (0, 0);
+        for case in 0..20_000 {
+            let source = raw(next(9500) * 1024 + next(1023), next(9500) * 1024 + next(1023));
+            let target = match case % 4 {
+                0 => raw(source.x.raw() + next(1500) * 1024, source.y.raw()),
+                1 => raw(source.x.raw(), source.y.raw() + next(1500) * 1024),
+                2 => raw(source.x.raw() + next(400) * 1024, source.y.raw() + next(400) * 1024),
+                _ => raw(next(9500) * 1024, next(9500) * 1024),
+            };
+            let want = line_of_sight(&list, source, target);
+            assert_eq!(indexed.line_of_sight(source, target), want, "{source:?} -> {target:?}");
+            if want == LosResult::Blocked { blocked += 1 } else { clear += 1 }
+        }
+        assert!(blocked > 1000 && clear > 1000, "both outcomes are exercised: {blocked} / {clear}");
+        // Out-of-range queries and short lists take the linear scan.
+        assert_eq!(indexed.line_of_sight(raw(0, 0), far), line_of_sight(&list, raw(0, 0), far));
+        assert!(IndexedVisionOccluders::from(list[..3].to_vec()).index.is_none());
+        // The committed form of a set is shared until the set changes.
+        let set = VisionOccluderSet(list.clone());
+        assert_eq!(set.committed(), indexed);
+        assert!(std::sync::Arc::ptr_eq(&set.committed().list, &set.committed().list));
+        let mut changed = list.clone();
+        changed.pop();
+        assert_eq!(VisionOccluderSet(changed.clone()).committed().len(), changed.len());
     }
 
     #[test]

@@ -278,9 +278,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "不容侵犯",
-            body = "被動：閃避 {evasion} 的攻擊，魔法抗性提高 {magic_resist}。主動：把松姬周圍 {radius} 內的敵人往外推開，並在身上顯示 {duration} 秒的光環特效（沒有其他效果）。" },
+            body = "被動：閃避 {evasion} 的攻擊，魔法抗性提高 {magic_resist}。主動：把松姬周圍 {radius} 內的敵人往外推開，之後 {duration} 秒內無法被敵方技能指定。" },
           en = { name = "Inviolable",
-            body = "Passive: evades {evasion} of attacks and gains {magic_resist} magic resistance. Active: pushes enemies within {radius} of Matsuhime outward and shows an aura effect on her for {duration} seconds (it has no other effect)." },
+            body = "Passive: evades {evasion} of attacks and gains {magic_resist} magic resistance. Active: pushes enemies within {radius} of Matsuhime outward after which she cannot be targeted by enemy abilities for {duration} seconds." },
         },
         target = { type = "none", aoe_radius = "$radius" },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
@@ -292,11 +292,12 @@ return function(ctx)
         statuses = {
           { id = "c19t_aura", duration = "$duration", stacking = "refresh", dispel = "none", visibility = "buff",
             text = {
-              zh_TW = { name = "不容侵犯", body = "光環特效，沒有其他效果。" },
-              en = { name = "Inviolable", body = "Visual aura only; no other effect." },
+              zh_TW = { name = "不容侵犯", body = "無法被敵方技能指定。" },
+              en = { name = "Inviolable", body = "Cannot be targeted by enemy abilities." },
             },
-            reveal = "public", cue = "c19t_aura_fx",
-            notes = "原作 modifier_C19T_knockback：IsPurgable 0，只有特效與 OnCreated 的擊退。" },
+            -- FC-076（D13）：照說明「數秒內無法被指定」；秒數用原作 modifier 的 C19T_duration
+            reveal = "public", cue = "c19t_aura_fx", states = { "untargetable_by_spells" },
+            notes = "原作 modifier_C19T_knockback：IsPurgable 0，只有特效與 OnCreated 的擊退；FC-076 修正後持續期間無法被技能指定。" },
         },
         events = {
           on_cast = {
@@ -311,8 +312,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "low",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/C_Neutral/C19.txt:636-652",
-            text = "原作說明寫主動「秒內無法被指定」，但 modifier_C19T_knockback 只有特效，沒有任何 States 或屬性；持續時間 11/14/17 秒完全沒有作用。資料照實際（只有擊退）。" },
+          { policy = "fixed", ref = "npc/C_Neutral/C19.txt:636-652",
+            text = "FC-076（D13 修正：持續 C19T_duration（11/14/17 秒）無法被敵方技能指定（untargetable_by_spells））。原作：原作說明寫主動「秒內無法被指定」，但 modifier_C19T_knockback 只有特效，沒有任何 States 或屬性；持續時間 11/14/17 秒完全沒有作用。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C19.lua:259-283",
             text = "擊退是 Physics 函式庫給一次 500 的水平初速，靠預設摩擦停下，不暈眩、不打斷；選取沒有旗標，魔免敵人不被推。推開距離與時間依摩擦推定（confidence low）。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C19.lua:284-305",

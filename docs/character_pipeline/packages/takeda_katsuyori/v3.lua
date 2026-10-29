@@ -231,9 +231,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "天目長嚎",
-            body = "被動：每次施放技能或使用道具（開關技能與部分位移、傳送類道具除外），對自身周圍 {radius} 內的敵方英雄與部隊（包含魔免）造成 {damage} 魔法傷害，並降低其 {slow} 移動速度與 {attack_slow} 攻擊速度 {duration} 秒；重複命中不會疊加。" },
+            body = "被動：每次施放技能或使用道具（開關技能與部分位移、傳送類道具除外），對自身周圍 {radius} 內的敵方英雄與部隊（包含魔免）造成 {damage} 魔法傷害，並降低其 {slow} 移動速度與 {attack_slow} 攻擊速度 {duration} 秒；重複命中可疊加。" },
           en = { name = "Tenmoku Howl",
-            body = "Passive: whenever Katsuyori casts an ability or uses an item (except toggles and some movement or teleport items), enemy heroes and units within {radius} (spell-immune ones included) take {damage} magic damage and have their movement speed reduced by {slow} and attack speed reduced by {attack_slow} for {duration} seconds; repeated hits do not stack." },
+            body = "Passive: whenever Katsuyori casts an ability or uses an item (except toggles and some movement or teleport items), enemy heroes and units within {radius} (spell-immune ones included) take {damage} magic damage and have their movement speed reduced by {slow} and attack speed reduced by {attack_slow} for {duration} seconds; repeated hits stack." },
         },
         target = { type = "none", aoe_radius = "$radius" },
         requires = { hero_level = "$required_level" },
@@ -257,24 +257,18 @@ return function(ctx)
         statuses = {
           { id = "b34t_slow_instance", duration = "$duration", stacking = "independent", dispel = "basic", visibility = "debuff",
             text = {
-              zh_TW = { name = "天目長嚎", body = "移動速度降低 {slow}、攻擊速度降低 {attack_slow}；重複命中不會疊加，最早的一層結束時緩速就解除。" },
-              en = { name = "Tenmoku Howl", body = "Movement speed reduced by {slow} and attack speed by {attack_slow}; repeated hits do not stack, and the slow ends when the earliest instance expires." },
+              zh_TW = { name = "天目長嚎", body = "每層移動速度降低 {slow}、攻擊速度降低 {attack_slow}；重複命中可疊加，各層各自計時。" },
+              en = { name = "Tenmoku Howl", body = "Each instance reduces movement speed by {slow} and attack speed by {attack_slow}; repeated hits stack, each instance timing out on its own." },
             },
-            reveal = "public", cue = "b34t_move_slow",
-            triggers = {
-              on_created = { { op = "apply_status", status = "b34t_slow", to = "self", source = "self" } },
-              on_removed = { { op = "remove_status", from = "self", status = "b34t_slow" } },
-            },
-            notes = "原作 modifier_B34T：MULTIPLE、IsPurgable 1，每個實例在 OnCreated／OnDestroy 呼叫 dummy.lua Slow／ReturnSpeed（名稱 modifier_B34T）。" },
-          { id = "b34t_slow", duration = "infinite", stacking = "refresh", dispel = "basic", visibility = "hidden",
-            reveal = "public", tags = { "slow" },
+            -- FC-011（D13）：每個實例自帶緩速並疊加（規則層合成緩速），不再共用一筆
+            reveal = "public", cue = "b34t_move_slow", tags = { "slow" },
             stats = { slow_pct = "$slow", attack_speed = "-$attack_slow" },
-            notes = "nobu 緩速池裡名稱 modifier_B34T 的那一筆：任何一個實例建立就寫入，任何一個實例結束就清掉。" },
+            notes = "原作 modifier_B34T：MULTIPLE、IsPurgable 1，每個實例在 OnCreated／OnDestroy 呼叫 dummy.lua Slow／ReturnSpeed（名稱 modifier_B34T，全部實例共用一筆）；FC-011 修正後各實例自己的緩速。" },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/B_Unified/B34.txt:528-552",
-            text = "modifier_B34T 是 MULTIPLE，但緩速池以固定名稱記錄：重複命中不疊加，而且最早的實例一結束就把緩速清掉，即使還有較新的實例。原作說明寫「可疊加」，原意應是疊加或至少刷新時間。資料照實際（任一實例結束即解除緩速）。" },
+          { policy = "fixed", ref = "npc/B_Unified/B34.txt:528-552",
+            text = "FC-011（D13 修正：每個實例自帶緩速並疊加，各自計時）。原作：modifier_B34T 是 MULTIPLE，但緩速池以固定名稱記錄：重複命中不疊加，而且最早的實例一結束就把緩速清掉，即使還有較新的實例。原作說明寫「可疊加」，原意應是疊加或至少刷新時間。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B34.lua:87",
             text = "ApplyDataDrivenModifier(it, it, ...)：緩速 modifier 的施加者是目標自己，依施加者陣營判斷的驅散（例如只驅散敵方 debuff）可能不會移除它。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B34.lua:62-70",

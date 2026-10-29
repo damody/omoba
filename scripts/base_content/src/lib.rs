@@ -24,13 +24,14 @@ use omb_script_abi::{
     script::UnitScript_TO,
 };
 
-pub mod ability_builder;
+pub use ability_kit::ability_builder;
 mod generic_effects;
 mod swept_dash;
 mod point_blast;
 mod passive_cone;
 mod self_transform;
-mod ir_switch;
+#[cfg(test)]
+mod legacy_handlers;
 mod summon_formation;
 mod owner_cast;
 #[cfg(test)]
@@ -59,14 +60,75 @@ mod ward_transport_tests;
 #[cfg(test)]
 mod channel_tests;
 
+/// Module id in the manifest and in scripts-manifest.json.
+pub const MODULE_ID: &str = "base_content";
+
 #[export_root_module]
-fn get_manifest() -> Manifest_Ref {
+fn root_manifest() -> Manifest_Ref {
     Manifest {
         units,
         abilities,
         dev_reload_runtime_lua_content,
+        module_id,
+        content_marker,
+    content_identity,
     }
     .leak_into_prefix()
+}
+
+#[cfg(not(test))]
+#[allow(dead_code)]
+fn get_manifest() -> Manifest_Ref {
+    root_manifest()
+}
+
+/// Tests register what a launch loads: base_content, then every hero DLL of hero_dlls.lua
+/// (linked in-process as rlibs), in that order; then the test_only v3 heroes
+/// (scripts/v3_test_heroes.lua), which have no DLL of their own yet.
+#[cfg(test)]
+pub(crate) fn get_manifest() -> Manifest_Ref {
+    #[sabi_extern_fn]
+    fn all_units() -> RVec<UnitDef> {
+        let mut v = units();
+        v.extend(hero_a02_impl::units());
+        v.extend(hero_b01_impl::units());
+        v.extend(hero_c17_impl::units());
+        v.extend(hero_a13_impl::units());
+        v
+    }
+    #[sabi_extern_fn]
+    fn all_abilities() -> RVec<AbilityDefFFI> {
+        let mut v = abilities();
+        v.extend(hero_a02_impl::abilities());
+        v.extend(hero_b01_impl::abilities());
+        v.extend(hero_c17_impl::abilities());
+        v.extend(hero_a13_impl::abilities());
+        v
+    }
+    Manifest {
+        units: all_units,
+        abilities: all_abilities,
+        dev_reload_runtime_lua_content,
+        module_id,
+        content_marker,
+    content_identity,
+    }
+    .leak_into_prefix()
+}
+
+#[sabi_extern_fn]
+fn module_id() -> RStr<'static> {
+    RStr::from_str(MODULE_ID)
+}
+
+#[sabi_extern_fn]
+fn content_marker() -> RStr<'static> {
+    ability_kit::module::content_marker()
+}
+
+#[sabi_extern_fn]
+fn content_identity() -> RStr<'static> {
+    ability_kit::module::content_identity()
 }
 
 #[sabi_extern_fn]
@@ -128,8 +190,6 @@ fn units() -> RVec<UnitDef> {
         }
     }
 
-    // M3: hero UnitScripts that only routed casts to an IR passive (ir_switch.rs).
-    ir_switch::apply_units(&mut v);
     v
 }
 
@@ -137,40 +197,23 @@ fn units() -> RVec<UnitDef> {
 fn abilities() -> RVec<AbilityDefFFI> {
     let mut v: RVec<AbilityDefFFI> = RVec::new();
     include!(concat!(env!("OUT_DIR"), "/hero_ability_registry.rs"));
-    // M3: abilities run by their behavior IR (ir_switch.rs).
-    ir_switch::apply(&mut v);
+    // M3' ④: B04's fire blast and flame swiftness run its generated Rust (heroes/date_masamune);
+    // its other abilities stay hand-written here until B04 gets its own DLL (M5).
+    for entry in v.iter_mut() {
+        let generated = match entry.script.ability_id().as_str() {
+            "b04_fire_blast" => hero_b04_impl::generated::b04_fire_blast::ffi(),
+            "b04_flame_swiftness" => hero_b04_impl::generated::b04_flame_swiftness::ffi(),
+            _ => continue,
+        };
+        // The metadata stays the catalog one the handler used; only the script changes.
+        entry.script = generated.script;
+    }
     v
 }
 
 #[sabi_extern_fn]
 fn dev_reload_runtime_lua_content(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
-    dev_reload_runtime_lua_content_impl(expected_hash)
-}
-
-#[cfg(feature = "runtime-lua-content")]
-fn dev_reload_runtime_lua_content_impl(expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
-    let expected = if expected_hash.is_empty() {
-        None
-    } else {
-        Some(expected_hash.as_str())
-    };
-    match omoba_template_ids::reload_runtime_lua_content_dev(expected) {
-        Ok(Some(info)) => ROk(RuntimeLuaReloadInfoFFI {
-            generation: info.generation,
-            hash: info.hash.into(),
-        }),
-        Ok(None) => RErr(RString::from(
-            "runtime Lua content is not active in base_content.dll",
-        )),
-        Err(err) => RErr(err.into()),
-    }
-}
-
-#[cfg(not(feature = "runtime-lua-content"))]
-fn dev_reload_runtime_lua_content_impl(_expected_hash: RStr<'_>) -> RuntimeLuaReloadResultFFI {
-    RErr(RString::from(
-        "base_content.dll was built without runtime-lua-content",
-    ))
+    ability_kit::module::dev_reload_runtime_lua_content(MODULE_ID, expected_hash)
 }
 
 #[cfg(test)]
@@ -205,5 +248,49 @@ mod generated_registry_tests {
                 +usize::from(!metadata["host_execution"].is_null()),1,
                 "one preview or one explicit host execution declaration per registered generic skill");
         }
+    }
+}
+
+#[cfg(test)]
+mod hot_swap_tests {
+    use abi_stable::prefix_type::PrefixTypeTrait;
+    use omb_script_abi::manifest::Manifest;
+    use omoba_core::scripting::ScriptRegistry;
+
+    fn hero_manifest() -> omb_script_abi::manifest::Manifest_Ref {
+        hero_a02_impl::get_manifest()
+    }
+
+    #[test]
+    fn a_module_is_replaced_in_place_and_only_with_the_same_registrations() {
+        let mut registry = ScriptRegistry::new();
+        registry.insert_manifest(super::root_manifest());
+        registry.insert_manifest(hero_manifest());
+        let order: Vec<String> = registry.iter_abilities().map(|(id, _, _)| id.to_owned()).collect();
+        let modules: Vec<String> = registry.modules().iter().map(|m| m.module.clone()).collect();
+        assert_eq!(modules, ["base_content", "hero_a02"]);
+        assert!(registry.modules()[1].abilities.iter().any(|id| id == "a02_wind_prayer"));
+
+        let swapped = registry.replace_module(hero_manifest()).expect("same registrations swap");
+        assert_eq!(swapped.module, "hero_a02");
+        let after: Vec<String> = registry.iter_abilities().map(|(id, _, _)| id.to_owned()).collect();
+        assert_eq!(after, order, "registration order stays");
+
+        // A build that registers other abilities, or a module that is not loaded, is refused.
+        #[abi_stable::sabi_extern_fn]
+        fn no_abilities() -> abi_stable::std_types::RVec<omb_script_abi::ability::AbilityDefFFI> {
+            abi_stable::std_types::RVec::new()
+        }
+        let fewer = Manifest {
+            units: hero_a02_impl::units,
+            abilities: no_abilities,
+            dev_reload_runtime_lua_content: super::dev_reload_runtime_lua_content,
+            module_id: super::module_id,
+            content_marker: super::content_marker,
+            content_identity: super::content_identity,
+        }
+        .leak_into_prefix();
+        assert!(registry.replace_module(fewer).unwrap_err().contains("other units or abilities"));
+        assert_eq!(registry.iter_abilities().count(), order.len());
     }
 }

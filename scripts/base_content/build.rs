@@ -12,6 +12,8 @@ fn main() {
     let lua = repo_root.join("tools/lua/lua.exe");
     for path in [
         &generator,
+        // Heroes with their own DLL leave this registry (M3').
+        &scripts_dir.join("hero_dlls.lua"),
         &scripts_dir.join("content_builder.lua"),
         // Includes may add arbitrary shared template files. Watching the full
         // template directory prevents stale FFI registrations after edits.

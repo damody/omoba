@@ -103,7 +103,7 @@ fn base_frame(team_id: u32, tick: u64, sequence: u64, revision: u64) -> TeamTick
         step: Some(crate::game_proto::Step::default()),
         post_step: Some(PostStep::default()),
         padding: Vec::new(),
-        authoritative_mode: None, combat_preferences: None,
+        authoritative_mode: None, combat_preferences: None, script_module_swaps: Vec::new(),
     }
 }
 

@@ -4,8 +4,7 @@
 -- 英雄共通的 magical_resistance（nobu 魔抗池）屬規則層，C12_precache 只是資產，都不列入。
 -- 慣例：KV 未寫 IsPurgable 的 datadriven modifier 照 C01 寫 dispel = "basic"（v3.md §12.3 推定）。
 -- 原作 HERO | BASIC 照 C01 寫成 types = { "hero", "creep", "neutral", "summon" }。
--- 護盾剩餘量是原作的 unit.AphoticShieldRemaining，依 v3.1 §12.10 用跨文件共用的 unit_state
--- `aphotic_shield_remaining`（scope = unit、fixed）；其他讀寫同名欄位的文件（A04、A24、B08、B36、C06、kappa 道具）應改用同一個名稱。
+-- 護盾剩餘量在原作是共用的 unit.AphoticShieldRemaining；FC-004／FC-034 修正後脈衝護盾用 absorb 自己的剩餘量。
 local BASIC = { "hero", "creep", "neutral", "summon" }
 
 return function(ctx)
@@ -20,8 +19,6 @@ return function(ctx)
     unit_state = {
       c12d_target = { type = "unit", reveal = "public", scope = "hero",
         note = "原作 caster.C12D_target：最近一次定位導彈標記的目標" },
-      aphotic_shield_remaining = { type = "fixed", init = "0", reveal = "public", scope = "unit",
-        note = "原作 unit.AphoticShieldRemaining：與其他英雄、道具的護盾共用同一個單位欄位（v3.1 跨文件同名共用）" },
     },
     abilities = {
       -------------------------------------------------------------------------
@@ -54,15 +51,16 @@ return function(ctx)
               on_moved = {
                 filter = "distance(self, caster) > $break_range",
                 actions = {
-                  { op = "remove_status", from = "self", status = "c12d_count" },
                   { op = "remove_status", from = "self", status = "c12d_mark" },
                 } },
+              -- FC-111（D13）：標記消失（距離、死亡、驅散）時計數一起清除
+              on_removed = { { op = "remove_status", from = "self", status = "c12d_count" } },
             },
             notes = "原作 modifier_C12D_debuff：沒有 Duration（C12D_duration 60 沒被讀），PROVIDES_VISION，OnUnitMoved 檢查距離；沒寫 IsPurgable，暫定 basic。" },
           { id = "c12d_count", duration = "infinite", stacking = "replace", dispel = "none", visibility = "hidden",
             reveal = "public",
             vars = { n = { type = "int", init = "0", reveal = "public" } },
-            notes = "原作 target.C12D_count（單位上的 Lua 欄位）：標記時設 0，鎖定發射時 +1；只有因距離解除時清掉，死亡、驅散都不會清。" },
+            notes = "原作 target.C12D_count（單位上的 Lua 欄位）：標記時設 0，鎖定發射時 +1；原作只有因距離解除時清掉，FC-111 修正後隨標記一起清除。" },
         },
         events = {
           on_cast = {
@@ -78,8 +76,8 @@ return function(ctx)
             text = "距離只在被標記者移動（OnUnitMoved）時檢查：宗麟自己走遠、目標站著不動，標記不會消失。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C12.lua:1-8",
             text = "只記一個目標（caster.C12D_target），改標別人時舊目標身上的標記與計數仍留著（照樣提供視野），只是導彈不再鎖定它。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C12.lua:7,31-35",
-            text = "C12D_count 是單位上的 Lua 欄位，死亡或被驅散時標記消失但計數留著；之後一般發射的導彈打到這個單位，仍會吃到智慧加成傷害，計數為偶數時還會暈眩，等於沒有標記也觸發鎖定效果。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C12.lua:7,31-35",
+            text = "FC-111（D13 修正：計數狀態隨標記一起清除（c12d_mark 的 on_removed））。原作：C12D_count 是單位上的 Lua 欄位，死亡或被驅散時標記消失但計數留著；之後一般發射的導彈打到這個單位，仍會吃到智慧加成傷害，計數為偶數時還會暈眩，等於沒有標記也觸發鎖定效果。" },
           { policy = "note", ref = "npc/C_Neutral/C12.txt:78-85", text = "C12D_duration 60 沒有被使用，標記沒有時間上限。" },
         },
         provenance = { "npc/C_Neutral/C12.txt:22-86", "vscripts/heroes/C_Neutral/C12.lua:1-22", "vscripts/addon_game_mode.lua:431" },
@@ -160,9 +158,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "空間撕裂裝置",
-            body = "被動：智力 +{add_int}。啟動：朝面向瞬移 {blink_range}，對落點 {hit_radius} 內看得見的敵方英雄與部隊造成 {damage} 魔法傷害；若有打到敵人，獲得 {shield_duration} 秒的脈衝護盾，在受到傷害後補回生命，總量為智力 × {shield_int_mult}。" },
+            body = "被動：智力 +{add_int}。啟動：朝面向瞬移 {blink_range}，對落點 {hit_radius} 內看得見的敵方英雄與部隊造成 {damage} 魔法傷害；若有打到敵人，獲得 {shield_duration} 秒的脈衝護盾，吸收受到的傷害，總量為智力 × {shield_int_mult}。" },
           en = { name = "Space Rift Device",
-            body = "Passive: +{add_int} Intelligence. Active: blinks {blink_range} in the facing direction and deals {damage} magic damage to visible enemy heroes and units within {hit_radius} of the landing spot; if any enemy is hit, gains a pulse shield for {shield_duration} seconds that restores health after damage is taken, up to Intelligence × {shield_int_mult} in total." },
+            body = "Passive: +{add_int} Intelligence. Active: blinks {blink_range} in the facing direction and deals {damage} magic damage to visible enemy heroes and units within {hit_radius} of the landing spot; if any enemy is hit, gains a pulse shield for {shield_duration} seconds that absorbs damage taken, up to Intelligence × {shield_int_mult} in total." },
         },
         target = { type = "none" },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
@@ -173,22 +171,12 @@ return function(ctx)
         statuses = {
           { id = "c12e_shield", duration = "$shield_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
-              zh_TW = { name = "脈衝護盾", body = "受到傷害後補回生命，總量為智力 × {shield_int_mult}，用完即消失。" },
-              en = { name = "Pulse Shield", body = "Restores health lost to damage, up to Intelligence × {shield_int_mult} in total; ends when used up." },
+              zh_TW = { name = "脈衝護盾", body = "吸收受到的傷害，總量為智力 × {shield_int_mult}，用完即消失。" },
+              en = { name = "Pulse Shield", body = "Absorbs damage taken, up to Intelligence × {shield_int_mult} in total; ends when used up." },
             },
             reveal = "public", cue = "c12e_pulse_shield",
-            triggers = {
-              -- 原作在傷害結算後補血（SetHealth），不是吸收
-              on_take_damage = {
-                { op = "set_health", to = "self", value = "self.hp + min(event.damage.final, state.aphotic_shield_remaining)" },
-                { op = "set_state", on = "self", var = "aphotic_shield_remaining",
-                  value = "state.aphotic_shield_remaining - event.damage.final" },
-                { op = "if", cond = "state.aphotic_shield_remaining <= 0", actions = {
-                  { op = "clear_state", on = "self", var = "aphotic_shield_remaining" },
-                  { op = "remove_status", from = "self", status = "c12e_shield" },
-                } },
-              },
-            },
+            -- FC-004／FC-034（D13）：結算前吸收，護盾自己的剩餘量（套上時的智力）
+            absorb = { amount = "caster.int * $shield_int_mult" },
             notes = "原作 modifier_C12E：Duration 10，OnTakeDamage 呼叫 C12E_damage_check；沒寫 IsPurgable，暫定 basic。" },
         },
         events = {
@@ -207,16 +195,15 @@ return function(ctx)
               } },
             { op = "if", cond = "state.c12e_hit", actions = {
               { op = "apply_status", status = "c12e_shield", to = "caster" },
-              { op = "set_state", on = "caster", var = "aphotic_shield_remaining", value = "caster.int * $shield_int_mult" },
             } },
           },
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C12.lua:271-289",
-            text = "護盾是在 OnTakeDamage（傷害已扣血）後 SetHealth 補回，擋不住致死傷害。資料照原作寫 on_take_damage + set_health；若修正，改用 absorb。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C12.lua:148",
-            text = "剩餘量存在 unit.AphoticShieldRemaining，與 A04、A24、B08、B36、C06、kappa 道具共用同名欄位，同時存在會互相覆寫、重複補血。v3.1 以跨文件共用的 unit_state 照實表達。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C12.lua:271-289",
+            text = "FC-034（D13 修正：改用 absorb，在傷害結算前吸收）。原作：護盾是在 OnTakeDamage（傷害已扣血）後 SetHealth 補回，擋不住致死傷害。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C12.lua:148",
+            text = "FC-004（D13 修正：absorb 用護盾自己的剩餘量，不再共用 AphoticShieldRemaining）。原作：剩餘量存在 unit.AphoticShieldRemaining，與 A04、A24、B08、B36、C06、kappa 道具共用同名欄位，同時存在會互相覆寫、重複補血。" },
           { policy = "no_effect", ref = "vscripts/heroes/C_Neutral/C12.lua:296-299",
             text = "護盾耗盡時套 modifier_C12E_Boom，C12E 沒有定義這個 modifier，沒有效果（原意是爆炸）。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C12.lua:110-118",
@@ -242,9 +229,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "光學遮罩",
-            body = "使自身或任一友方英雄或部隊隱形並回復 {heal} 生命。距離 {full_range} 內隱形 {invis_time} 秒；超過時每多 {decay_step} 少 {decay_time} 秒，最少 {min_time} 秒。" },
+            body = "使自身或任一友方英雄或部隊隱形並回復 {heal} 生命。距離 {full_range} 內隱形 {invis_time} 秒；超過時每多 {decay_step} 少 {decay_time} 秒，最少 {min_time} 秒；攻擊或施放技能時提前結束。" },
           en = { name = "Optical Mask",
-            body = "Turns Sorin or any allied hero or unit invisible and heals it for {heal}. Within {full_range} the invisibility lasts {invis_time} seconds; beyond that it is {decay_time} seconds shorter per {decay_step}, down to {min_time} seconds." },
+            body = "Turns Sorin or any allied hero or unit invisible and heals it for {heal}. Within {full_range} the invisibility lasts {invis_time} seconds; beyond that it is {decay_time} seconds shorter per {decay_step}, down to {min_time} seconds; attacking or casting ends it early." },
         },
         target = { type = "unit", team = "ally", types = BASIC },
         flags = { "self_cast_allowed" },
@@ -253,10 +240,11 @@ return function(ctx)
         statuses = {
           { id = "c12r_invis", duration = "$invis_time", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
-              zh_TW = { name = "光學遮罩", body = "隱形，敵方看不見。" },
-              en = { name = "Optical Mask", body = "Invisible to enemies." },
+              zh_TW = { name = "光學遮罩", body = "隱形，敵方看不見；攻擊或施放技能時提前結束。" },
+              en = { name = "Optical Mask", body = "Invisible to enemies; attacking or casting ends it early." },
             },
-            reveal = "public", tags = { "invisible", "engine_invisible" }, states = { "invisible" }, cue = "c12r_mask",
+            -- FC-075（D13）：照說明，攻擊或施法時解除
+            reveal = "public", tags = { "invisible", "engine_invisible" }, states = { "invisible" }, cue = "c12r_mask", remove_on = { "attack", "cast" },
             notes = "原作 ApplyDataDrivenModifier 引擎內建 modifier_invisible；可否驅散依引擎（暫定 basic）。" },
         },
         events = {
@@ -268,8 +256,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/C_Neutral/C12.txt:244",
-            text = "原作說明寫「攻擊或施放技能會使隱形提前結束」，KV 註解寫「普攻 放技能 解除不了隱形…沒弄」：引擎 modifier_invisible 不因攻擊或施法解除。資料照原作不解除；若修正，加 remove_on = { attack, cast }。" },
+          { policy = "fixed", ref = "npc/C_Neutral/C12.txt:244",
+            text = "FC-075（D13 修正：隱形狀態加 remove_on = { attack, cast }）。原作：原作說明寫「攻擊或施放技能會使隱形提前結束」，KV 註解寫「普攻 放技能 解除不了隱形…沒弄」：引擎 modifier_invisible 不因攻擊或施法解除。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C12.lua:172-181",
             text = "距離用 3D 的 Length()（含高度差）；v3 用平面距離，差異只在高低地。時間是連續線性遞減，不是每 100 一階。" },
           { policy = "as_source", ref = "npc/C_Neutral/C12.txt:245-291",

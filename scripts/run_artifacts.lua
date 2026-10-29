@@ -5,9 +5,11 @@
 -- refused the run (E002, E106, E124); a copy that only this run reads cannot go stale, and
 -- the build output is never mapped by a running server, so later builds never fail to link.
 --
--- Layout: <run>/artifacts/scripts/base_content.dll (the only DLL there: the loaders read
--- every script DLL of OMB_SCRIPTS_DIR) and <run>/artifacts/base_content.json (profile,
--- source, size, SHA-256).
+-- Layout: <run>/artifacts/scripts/ holds the script DLL set (M3': base_content.dll and one
+-- hero_<id>.dll per hero of hero_dlls.lua) and scripts-manifest.json, which the loaders
+-- follow (omoba-core scripting::loader: exactly these files, in order, each digest checked);
+-- <run>/artifacts/base_content.json (profile, source, size, SHA-256, modules, set hash) and
+-- <run>/artifacts/script-modules.txt (the `module=sha256` lines the set hash is taken of).
 local source=debug.getinfo(1,'S').source:sub(2)
 package.path=assert(source:match('^(.*)[/\\]'))..'/?.lua;'..package.path
 local M={}
@@ -143,6 +145,7 @@ end
 -- copies the first one's DLL rather than whatever is newest by then.
 function M.stage_base_content(root,run_dir,deps,preferred,from)
   local d=deps_of(deps)
+  local modules=(deps and deps.modules) or require('script_dlls').modules()
   local scripts_dir=d.path.join(run_dir,'artifacts','scripts')
   local dll=d.path.join(scripts_dir,'base_content.dll')
   assert(not d.path.exists(dll),'run already has a staged base_content: '..dll)
@@ -156,21 +159,55 @@ function M.stage_base_content(root,run_dir,deps,preferred,from)
     else
       built=M.built_base_content(root,d,preferred)
       assert(built,'no base_content build in scripts/target/{debug,release}; build it before launch')
-      M.verify_current_build('base_content',built.file,d)
     end
-    copy(built.file,dll)
-    local after=stat(d,built.file)
-    if after and after.size==built.size and after.modification==built.modification then
+    -- M3': the whole DLL set comes from the directory of the chosen base_content build (or of
+    -- the shared copy), so its heroes are the same build.
+    local source_dir=d.path.parent(built.file)
+    local sources={}
+    for index,module in ipairs(modules) do
+      local file=index==1 and built.file or d.path.join(source_dir,module.file)
+      local a=stat(d,file)
+      assert(a,('missing %s beside %s; build the script DLL set (scripts/script_dlls.lua) before launch'):format(module.file,built.file))
+      if not from then M.verify_current_build(module.module,file,d) end
+      sources[index]={module=module,file=file,size=a.size,modification=a.modification}
+    end
+    for _,item in ipairs(sources) do copy(item.file,d.path.join(scripts_dir,item.module.file)) end
+    local unchanged=true
+    for _,item in ipairs(sources) do
+      local after=stat(d,item.file)
+      unchanged=unchanged and after and after.size==item.size and after.modification==item.modification
+    end
+    if unchanged then
+      local rows={}
+      for _,item in ipairs(sources) do
+        local copied=d.path.join(scripts_dir,item.module.file)
+        rows[#rows+1]={module=item.module.module,file=item.module.file,hero=item.module.hero,source=item.file,
+          size=item.size,sha256=d.sha256(copied):lower(),content_hash=M.content_hash(copied)}
+        -- Every script DLL carries its content marker in its manifest (ability_kit::module); one
+        -- without it is not a script DLL build of this source (the host would refuse it).
+        if not rows[#rows].content_hash and not (deps and deps.modules) then
+          error(('%s has no content marker: not a script DLL build of the current source; rebuild the set '..
+            '(scripts/script_dlls.lua cargo_args): %s'):format(item.module.file,item.file),0)
+        end
+      end
+      -- The host loads exactly these files in this order and checks each digest
+      -- (omoba-core scripting::loader); the set hash is what the lockstep handshake compares.
+      local set_file=d.path.join(run_dir,'artifacts','script-modules.txt')
+      d.path.write(set_file,require('script_dlls').set_text(rows),true,true) -- binary: LF, as the host hashes it
+      local set_hash=d.sha256(set_file):lower()
+      d.path.write(d.path.join(scripts_dir,'scripts-manifest.json'),
+        d.json.encode({schema_version=1,scope='run-script-modules',set_hash=set_hash,modules=rows}),true)
       local report={schema_version=1,scope='run-base-content',profile=built.profile,source=built.file,
-        size=built.size,modification=built.modification,sha256=d.sha256(dll):lower(),dll=dll}
+        size=built.size,modification=built.modification,sha256=rows[1].sha256,dll=dll,
+        modules=rows,set_hash=set_hash}
       local manifest=d.path.join(run_dir,'artifacts','base_content.json')
       d.path.write(manifest,d.json.encode(report),true)
       report.scripts_dir=scripts_dir;report.manifest=manifest
       return report
     end
-    os.remove(dll)
+    for _,item in ipairs(sources) do os.remove(d.path.join(scripts_dir,item.module.file)) end
   end
-  error('base_content kept changing while it was staged for this run; is a build running?',0)
+  error('the script DLLs kept changing while they were staged for this run; is a build running?',0)
 end
 
 -- Executables (E125). A running omobab.exe / omoba-client-runtime.exe locks its file, so

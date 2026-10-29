@@ -1,0 +1,18 @@
+[package]
+name = "items"
+version = "0.1.0"
+edition = "2021"
+description = "items.dll: exports items_impl's manifest (M7)"
+
+[lib]
+name = "items"
+crate-type = ["cdylib"]
+
+[dependencies]
+abi_stable = "0.11"
+items_impl = { path = ".." }
+
+[features]
+default = []
+runtime-lua-content = ["items_impl/runtime-lua-content"]
+compiled-content-only = ["items_impl/compiled-content-only"]

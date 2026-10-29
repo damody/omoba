@@ -11,12 +11,6 @@ return function(ctx)
       source_id = "B21",
       text = { zh_TW = { name = "馬場信房" }, en = { name = "Baba Nobufusa" } },
     },
-    unit_state = {
-      b21t_stack = { type = "int", init = "0", reveal = "public", scope = "unit",
-        note = "原作 ability.stack：上次計算的層數 floor(損失生命百分比 / stack_hp)" },
-      b21t_tracked = { type = "bool", init = "false", reveal = "public", scope = "unit",
-        note = "原作 ability.modifier ~= nil：是否持有 modifier_B21T_stack 的 handle" },
-    },
     abilities = {
       -------------------------------------------------------------------------
       { id = "b21_sky_wave", source_id = "B21W", slot = "Q", kind = "active", max_level = 4, tags = { "basic" },
@@ -185,6 +179,10 @@ return function(ctx)
           attack = { 35, 45, 55, unit = "dmg", source = "kv:add_attack" },
           armor = { 4, 8, 12, unit = "armor", source = "kv:add_armor" },
           stack_hp = { 12, unit = "pct", source = "kv:stack_hp" },
+          stack_max = { expr = "floor(1 / $stack_hp)", unit = "count",
+            note = "FC-041（使用者 2026-10-29 決定全修）：最多幾份（生命損失 12% 一份，最多 8 份）" },
+          attack_per_stack = { expr = "$attack / $stack_max", unit = "dmg", note = "FC-041：每份的攻擊加成，滿層合計 attack（原作的固定加成）" },
+          armor_per_stack = { expr = "$armor / $stack_max", unit = "armor", note = "FC-041：每份的護甲加成，滿層合計 armor" },
           stun_delay = { 1, unit = "s", source = "script:vscripts/heroes/B_Unified/B21.lua:382 Timers:CreateTimer(1, ...)" },
           stun_radius = { 400, unit = "dist", source = "script:vscripts/heroes/B_Unified/B21.lua:384-386" },
           stun_duration = { 1, unit = "s",
@@ -192,9 +190,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "不死鬼美濃",
-            body = "被動：力量永久提高 {str}。生命損失達到 {stack_hp} 起，獲得{@b21t_bonus}：攻擊力提高 {attack}、護甲提高 {armor}；生命回到損失不足 {stack_hp} 時移除。加成不會隨損失更多生命而增加，層數只是顯示。每次學習或升級此技能，{stun_delay} 秒後暈眩周圍 {stun_radius} 內的敵方英雄與一般單位（包括魔免）{stun_duration} 秒。" },
+            body = "被動：力量永久提高 {str}。生命每損失 {stack_hp} 獲得一層{@b21t_bonus}（最多 {stack_max} 層）：每層攻擊力提高 {attack_per_stack}、護甲提高 {armor_per_stack}（滿層合計 {attack}、{armor}）；生命回復時層數跟著減少。每次學習或升級此技能，{stun_delay} 秒後暈眩周圍 {stun_radius} 內的敵方英雄與一般單位（包括魔免）{stun_duration} 秒。" },
           en = { name = "Undying Demon of Mino",
-            body = "Passive: permanently grants +{str} strength. Once Nobufusa has lost at least {stack_hp} of his health he gains {@b21t_bonus}: +{attack} attack damage and +{armor} armor, removed when less than {stack_hp} is missing again. The bonus does not grow with further health loss; the stack count is display only. Each time this ability is learned or upgraded, enemy heroes and units within {stun_radius} (including spell-immune ones) are stunned for {stun_duration} seconds after {stun_delay} seconds." },
+            body = "Passive: permanently grants +{str} strength. For every {stack_hp} of health Nobufusa has lost he gains a stack of {@b21t_bonus} (up to {stack_max}): each grants +{attack_per_stack} attack damage and +{armor_per_stack} armor (+{attack} and +{armor} at full); stacks drop as he heals. Each time this ability is learned or upgraded, enemy heroes and units within {stun_radius} (including spell-immune ones) are stunned for {stun_duration} seconds after {stun_delay} seconds." },
         },
         target = { type = "none", aoe_radius = "$stun_radius" },
         requires = { hero_level = "$required_level" },
@@ -205,21 +203,19 @@ return function(ctx)
             on_take_damage = { { op = "call", routine = "b21t_update", args = { who = "self" } } },
             on_heal_received = { { op = "call", routine = "b21t_update", args = { who = "self" } } },
             -- 原作被動 modifier 在死亡時被移除（OnDestroy 重設 stack／modifier），重生時重建
-            on_death = {
-              { op = "set_state", var = "b21t_stack", value = "0", on = "self" },
-              { op = "set_state", var = "b21t_tracked", value = "false", on = "self" },
-            },
+            -- FC-105／FC-106（D13）：加成只看狀態本身在不在（不再有會失效的 handle），死亡時狀態隨 remove_on 移除
+
           },
         },
         statuses = {
-          { id = "b21t_bonus", duration = "infinite", stacking = "refresh", dispel = "basic", visibility = "buff",
+          { id = "b21t_bonus", duration = "infinite", stacking = { max = "$stack_max", value_stacks = true }, dispel = "basic", visibility = "buff",
             reveal = "public", cue = "b21t_aura", remove_on = { "death" },
-            stats = { attack_damage = "$attack", armor = "$armor" },
+            stats = { attack_damage = { value = "$attack_per_stack", per_stack = true }, armor = { value = "$armor_per_stack", per_stack = true } },
             text = {
-              zh_TW = { name = "不死鬼美濃", body = "生命損失達到 {stack_hp} 以上：攻擊力 +{attack}、護甲 +{armor}。損失回到不足 {stack_hp} 時移除；層數只是顯示。" },
-              en = { name = "Undying Demon of Mino", body = "At least {stack_hp} of health missing: +{attack} attack damage and +{armor} armor. Removed once less than {stack_hp} is missing; the stack count is display only." },
+              zh_TW = { name = "不死鬼美濃", body = "生命每損失 {stack_hp} 一層：每層攻擊力 +{attack_per_stack}、護甲 +{armor_per_stack}，最多 {stack_max} 層。" },
+              en = { name = "Undying Demon of Mino", body = "One stack per {stack_hp} of health missing: +{attack_per_stack} attack damage and +{armor_per_stack} armor each, up to {stack_max} stacks." },
             },
-            notes = "原作 modifier_B21T_stack：datadriven，屬性不乘層數；沒寫 IsPurgable（推定 basic）。" },
+            notes = "原作 modifier_B21T_stack：datadriven，屬性不乘層數；沒寫 IsPurgable（推定 basic）。FC-041 修正後每層 attack／armor ÷ stack_max，滿層等於原作的固定加成。" },
           { id = "b21t_stun", duration = "$stun_duration", stacking = "refresh", dispel = "basic", visibility = "debuff",
             text = {
               zh_TW = { name = "暈眩", body = "被{@b21_undying_demon}暈眩 {stun_duration} 秒，不受狀態抗性縮短。" },
@@ -230,9 +226,8 @@ return function(ctx)
         },
         events = {
           on_upgrade = {
-            -- 升級時 Dota 重建被動 modifier：OnDestroy 把 stack 歸零、modifier handle 清空，但已存在的加成狀態不移除
-            { op = "set_state", var = "b21t_stack", value = "0", on = "caster" },
-            { op = "set_state", var = "b21t_tracked", value = "false", on = "caster" },
+            -- 升級後立刻依目前生命重算加成（FC-105：原作清空 handle 讓加成殘留）
+            { op = "call", routine = "b21t_update", args = { who = "caster" } },
             { op = "delay", time = "$stun_delay", actions = {
               { op = "if", cond = "exists(caster) and not caster.is_illusion", actions = {
                 { op = "for_each",
@@ -247,12 +242,12 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/B_Unified/B21.txt:388-395",
-            text = "說明寫「生命每降低 12% 便提高攻擊力與護甲」，但 modifier_B21T_stack 是 datadriven，Properties 不乘層數：損失 12% 以上就只有一份固定加成，SetStackCount 只改顯示。資料照原作（不乘層數）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B21.lua:158-208",
-            text = "升級大絕時被動重建，ability.modifier 被清空但 modifier_B21T_stack 沒有移除；若之後生命先回到損失不足 12%，因 handle 為空直接 return，加成會殘留在滿血狀態，直到下次生命降到門檻以下再回升才移除。資料照原作。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B21.lua:192-206",
-            text = "加成狀態若被驅散（推定可被一般驅散），ability.modifier 仍指向已銷毀的 modifier：之後 Destroy／SetStackCount 都會報錯中斷，加成直到死亡或升級大絕前都不會再出現。資料照原作（tracked 仍為真，不再套用）。" },
+          { policy = "fixed", ref = "npc/B_Unified/B21.txt:388-395",
+            text = "FC-041（使用者 2026-10-29 決定全修：層數真的影響數值，每層 attack／armor ÷ stack_max，滿層等於原作固定加成）。原作：說明寫「生命每降低 12% 便提高攻擊力與護甲」，但 modifier_B21T_stack 是 datadriven，Properties 不乘層數：損失 12% 以上就只有一份固定加成，SetStackCount 只改顯示。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B21.lua:158-208",
+            text = "FC-105（D13 修正：加成只看狀態本身，升級後立刻依目前生命重算，不會殘留）。原作：升級大絕時被動重建，ability.modifier 被清空但 modifier_B21T_stack 沒有移除；若之後生命先回到損失不足 12%，因 handle 為空直接 return，加成會殘留在滿血狀態，直到下次生命降到門檻以下再回升才移除。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B21.lua:192-206",
+            text = "FC-106（D13 修正：驅散後下一次生命變化就重新套上（看 has_status，不靠 handle））。原作：加成狀態若被驅散（推定可被一般驅散），ability.modifier 仍指向已銷毀的 modifier：之後 Destroy／SetStackCount 都會報錯中斷，加成直到死亡或升級大絕前都不會再出現。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B21.lua:177-190",
             text = "層數 = floor((100 − GetHealthPercent()) / 12)，只在 OnTakeDamage 與 OnHealthGained 時重算；GetHealthPercent 是整數，資料以比例 hp_pct 計算，邊界可能差一格。新套上加成時沒有 SetStackCount，顯示層數要到下一次層數改變才更新。" },
           { policy = "as_source", ref = "npc/B_Unified/B21.txt:370-377",
@@ -276,24 +271,14 @@ return function(ctx)
         params = { who = "unit" },
         actions = {
           { op = "let", name = "s", value = "floor((1 - who.hp_pct) / $b21_undying_demon.stack_hp)" },
-          { op = "if", cond = "s ~= state.b21t_stack", actions = {
-            { op = "set_state", var = "b21t_stack", value = "s", on = "who" },
-            { op = "if", cond = "s == 0",
-              actions = {
-                { op = "if", cond = "state.b21t_tracked", actions = {
-                  { op = "remove_status", from = "who", status = "b21t_bonus" },
-                  { op = "set_state", var = "b21t_tracked", value = "false", on = "who" },
-                } },
-              },
-              otherwise = {
-                { op = "if", cond = "state.b21t_tracked",
-                  actions = { { op = "set_display_stacks", to = "who", status = "b21t_bonus", count = "s" } },
-                  otherwise = {
-                    { op = "apply_status", status = "b21t_bonus", to = "who" },
-                    { op = "set_state", var = "b21t_tracked", value = "true", on = "who" },
-                  } },
-              } },
-          } },
+          { op = "if", cond = "s == 0",
+            actions = { { op = "remove_status", from = "who", status = "b21t_bonus" } },
+            otherwise = {
+              -- 被驅散後下一次生命變化就重新套上（FC-106）
+              { op = "if", cond = "has_status(who, b21t_bonus)",
+                actions = { { op = "set_stacks", to = "who", status = "b21t_bonus", count = "s" } },
+                otherwise = { { op = "apply_status", status = "b21t_bonus", to = "who", stacks = "s" } } },
+            } },
         },
       },
     },

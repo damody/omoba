@@ -211,9 +211,9 @@ fn emit_moba_communication(out: &mut String, rows: &[omoba_content_model::moba_c
 fn minion_const(m: &lua_content::MobaMinionEntry) -> String {
     let (late_from_wave,late_every)=m.late.map_or((0,0),|late|(late.from_wave,late.every));
     let lane_counts=m.lane_counts.iter().map(|(lane,count)|format!("({lane:?},{count})")).collect::<Vec<_>>().join(",");
-    format!("MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{},first_wave:{},hp_per_wave:{},damage_per_wave:{},armor:{},late_from_wave:{},late_every:{},lane_down_percent:{},first_barracks_percent:{},lane_counts:&[{}]}}",
+    format!("MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{},first_wave:{},hp_per_wave:{},damage_per_wave:{},armor:{},late_from_wave:{},late_every:{},lane_down_percent:{},first_barracks_percent:{},lane_counts:&[{}],wave_growth_offset:{:?}}}",
         m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms,m.first_wave.unwrap_or(m.every),m.hp_per_wave,m.damage_per_wave,
-        m.armor,late_from_wave,late_every,m.lane_down_percent,m.first_barracks_percent,lane_counts)
+        m.armor,late_from_wave,late_every,m.lane_down_percent,m.first_barracks_percent,lane_counts,m.wave_growth_offset)
 }
 
 fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
@@ -248,8 +248,11 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
         }
         out.push_str("], jungle_camps: &[\n");
         fn children(nodes:&[lua_content::MobaJungleMemberEntry])->String {
-            nodes.iter().map(|m|format!("MobaJungleMemberConst {{death_children:&[{}],id:{:?},offset:({},{}),hp:{},damage:{},gold:{},xp:{}}}",
-                children(&m.death_children),m.id,m.offset[0],m.offset[1],m.hp,m.damage,m.gold,m.xp)).collect::<Vec<_>>().join(",")
+            // E187 §5.4: a member's own stats; None inherits the leader's.
+            nodes.iter().map(|m|format!("MobaJungleMemberConst {{death_children:&[{}],id:{:?},offset:({},{}),hp:{},damage:{},gold:{},xp:{},\
+                move_speed:{:?},attack_range:{:?},attack_interval_ms:{:?},armor:{:?},magic_resistance:{:?}}}",
+                children(&m.death_children),m.id,m.offset[0],m.offset[1],m.hp,m.damage,m.gold,m.xp,
+                m.move_speed,m.attack_range,m.attack_interval_ms,m.armor,m.magic_resistance)).collect::<Vec<_>>().join(",")
         }
         for c in &map.jungle_camps {
             let buff=|b:&lua_content::MobaObjectiveBuffEntry| {
@@ -275,7 +278,11 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
                 c.attack_interval_ms.unwrap_or(c.attack_interval_seconds.saturating_mul(1000)),c.first_spawn_seconds,growth.hp,growth.damage,c.armor,c.magic_resistance));
             out.push_str(&format!("death_children:&[{}], additional_objective_buffs:&[{additional}], personal_buff:{personal}, objective_buff:{objective}, patience_seconds:{}, soft_reset_seconds:{}, members: &[{}",
                 children(&c.death_children),c.patience_seconds,c.soft_reset_seconds,children(&c.members)));
-            out.push_str(&format!("], id: {:?}, position: ({},{}), hp: {}, damage: {}, move_speed: {}, attack_range: {}, leash_radius: {}, attack_interval_seconds: {}, respawn_seconds: {}, gold: {}, xp: {} }},\n",
+            // E187 §5.4: leader template and offset, per-unit respawn and the camp's side.
+            let leader_offset=c.leader_offset.unwrap_or([0,0]);
+            out.push_str(&format!("], unit: {:?}, leader_offset: ({},{}), unit_respawn: {}, side: {:?}",
+                c.unit.as_deref().unwrap_or(&c.id),leader_offset[0],leader_offset[1],c.unit_respawn,c.side.map(|side|side.side())));
+            out.push_str(&format!(", id: {:?}, position: ({},{}), hp: {}, damage: {}, move_speed: {}, attack_range: {}, leash_radius: {}, attack_interval_seconds: {}, respawn_seconds: {}, gold: {}, xp: {} }},\n",
                 c.id,c.position[0],c.position[1],c.hp,c.damage,c.move_speed,c.attack_range,c.leash_radius,c.attack_interval_seconds,c.respawn_seconds,c.gold,c.xp));
         }
         out.push_str("], terrain: &[\n");
@@ -349,6 +356,19 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
         if let Some(g) = map.minion_time_growth { out.push_str(&format!("    {:?} => {},\n", map.id, growth(g))); }
     }
     out.push_str(&format!("    _ => {},\n}} }}\n", growth(Default::default())));
+    // Trees (E187 §5.5): by map id like the other optional map rules, so MobaMapConst keeps its
+    // shape for every existing literal; maps without trees (and maps built outside the catalog)
+    // have none.
+    out.push_str("pub fn moba_map_trees(id: &str) -> MobaTreesConst { match id {\n");
+    for map in maps.iter().filter(|map| !map.trees.is_empty()) {
+        out.push_str(&format!("    {:?} => MobaTreesConst {{ radius: {}, trees: &[\n", map.id, map.tree_radius));
+        for tree in &map.trees {
+            out.push_str(&format!("MobaTreeConst {{ position: ({},{}), kind: {:?}, variant: {} }},\n",
+                tree.position[0], tree.position[1], tree.kind, tree.variant));
+        }
+        out.push_str("] },\n");
+    }
+    out.push_str("    _ => MobaTreesConst::NONE,\n} }\n");
 }
 
 /// `V3_CATALOG_JSON`: the package schema v3 blocks of every live hero ability and shelf item,

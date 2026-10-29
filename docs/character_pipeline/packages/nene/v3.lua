@@ -174,8 +174,8 @@ return function(ctx)
           stun = { 1, unit = "s", source = "kv:A15E_stunDuration" },
           max_moon = { 4, 5, 6, 7, unit = "count", source = "kv:A15E_maxMoon" },
           max_hit = { 4, unit = "count", hidden = true, source = "kv:A15E_maxHit" },
-          hits_allowed = { expr = "$max_hit + 1", unit = "count", source = "derived",
-            note = "腳本以「層數 > maxHit 才跳過」判斷，所以實際可以被打 maxHit + 1 次" },
+          hits_allowed = { expr = "$max_hit", unit = "count", source = "derived",
+            note = "原作腳本以「層數 > maxHit 才跳過」判斷，實際可以被打 maxHit + 1 次；FC-117（D13）照說明最多 maxHit 次" },
           moon_interval = { 0.1, unit = "s", source = "script:vscripts/heroes/A_Oda/A15.lua:110 return 0.1" },
           hit_mark = { 0.8, unit = "s", hidden = true, source = "script:vscripts/heroes/A_Oda/A15.lua:103 duration = 0.8" },
         },
@@ -222,8 +222,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A15.lua:94",
-            text = "判斷寫成「層數 > maxHit 才跳過」，第一次命中設一層、之後每次加一，所以同一單位實際可被打中 maxHit + 1 = 5 次（暈眩可疊到五次）；說明與 KV 名稱都是最多 4 次。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A15.lua:94",
+            text = "FC-117（D13 修正：同一單位最多被打 max_hit（4）次）。原作：判斷寫成「層數 > maxHit 才跳過」，第一次命中設一層、之後每次加一，所以同一單位實際可被打中 maxHit + 1 = 5 次（暈眩可疊到五次）；說明與 KV 名稱都是最多 4 次。資料照原作。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A15.lua:66-76",
             text = "優先目標取 FindUnitsInRadius（FIND_ANY_ORDER）裡第一個沒有命中標記的單位，v3 以 entity id 排序取第一個；沒有時落在 RandomVector(RandomInt(0, radius)) 的隨機點，分布與 random_point 略有不同（原作半徑均勻、不是面積均勻）。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A15.lua:59-111",
@@ -247,6 +247,8 @@ return function(ctx)
           jump_radius_per_ult = { 50, unit = "dist",
             source = "script:vscripts/heroes/A_Oda/A15.lua:162-163 jump_radius + (A15T 等級 - 1) * 50" },
           building_pct = { 30, unit = "pct", source = "script:vscripts/heroes/A_Oda/A15.lua:214-216" },
+          general_pct = { 50, unit = "pct", hidden = true, source = "script:vscripts/heroes/A_Oda/A15.lua:217-219 侍大將分支的 damage * 0.5",
+            note = "FC-050（D13）：原作寫錯變數名稱而報錯，照原意對侍大將造成一半傷害" },
           bounce_speed = { 1300, unit = "speed", hidden = true, source = "script:vscripts/heroes/A_Oda/A15.lua:262" },
           bounce_vision = { 225, unit = "dist", hidden = true, source = "script:vscripts/heroes/A_Oda/A15.lua:263" },
           reveal_radius = { 300, unit = "dist", hidden = true, source = "script:vscripts/heroes/A_Oda/A15.lua:251 AddFOWViewer" },
@@ -279,8 +281,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A15.lua:217-219",
-            text = "EXCLUDE_TARGET_NAME2 分支寫錯變數名稱（damage_table，正確是 damageTable），彈跳到侍大將（com_general_oda／com_general_unified，npc/npc_units_custom_load.txt:6178-6180）時執行期報錯：該單位不受傷、不吸血，彈跳在這裡中斷；原意是對侍大將只造成一半傷害。資料照原作，以單位 tag general（v3.1）辨識侍大將。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A15.lua:217-219",
+            text = "FC-050（D13 修正：侍大將只受一半傷害（general_pct）、照樣吸血與彈跳）。原作：EXCLUDE_TARGET_NAME2 分支寫錯變數名稱（damage_table，正確是 damageTable），彈跳到侍大將（com_general_oda／com_general_unified，npc/npc_units_custom_load.txt:6178-6180）時執行期報錯：該單位不受傷、不吸血，彈跳在這裡中斷；原意是對侍大將只造成一半傷害。侍大將以單位 tag general（v3.1）辨識。" },
           { policy = "no_effect", ref = "vscripts/heroes/A_Oda/A15.lua:205-207",
             text = "「傷害低於兩成就以兩成計」寫成改 base_damage 而不是 new_damage，沒有效果；彈跳傷害沒有下限。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A15.lua:162-163",
@@ -342,8 +344,8 @@ return function(ctx)
         statuses = {
           { id = "a15t_volley", duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             text = {
-              zh_TW = { name = "影月攻勢", body = "{@a15_shadow_windmill}的彈跳次數以 {jump_mult} 倍計算；每次攻擊出手時，另外向 {split_range} 內最近的其他敵人射出最多 {arrow_count} 支飛標，命中時觸發彈跳。持續 {duration} 秒。" },
-              en = { name = "Shadow Moon Assault", body = "{@a15_shadow_windmill} bounces {jump_mult} times as many times; each attack launched also throws blades at up to {arrow_count} other nearest enemies within {split_range}, each triggering a bounce on hit. Lasts {duration} seconds." },
+              zh_TW = { name = "影月攻勢", body = "{@a15_shadow_windmill}的彈跳次數以 {jump_mult} 倍計算；每次攻擊出手時，另外向 {split_range} 內最近的其他敵人射出最多 {arrow_count} 支飛標，命中時造成平均攻擊 {split_ratio} 的物理傷害並觸發彈跳。持續 {duration} 秒。" },
+              en = { name = "Shadow Moon Assault", body = "{@a15_shadow_windmill} bounces {jump_mult} times as many times; each attack launched also throws blades at up to {arrow_count} other nearest enemies within {split_range}, each dealing {split_ratio} of average attack damage as physical damage and triggering a bounce on hit. Lasts {duration} seconds." },
             },
             reveal = "public", cue = "a15t_glow",
             triggers = {
@@ -356,6 +358,8 @@ return function(ctx)
                     { op = "projectile", kind = "tracking", from = "self", to = "it", speed = "$arrow_speed", dodgeable = true,
                       cue = "a15t_split_arrow", on_hit = {
                         { op = "cue", id = "a15t_split_hit_sound", at = "it" },
+                        -- FC-051（D13）：分裂飛標造成 split_ratio 的物理傷害（原作傷害類型 NONE 而不扣血）
+                        { op = "damage", to = "it", type = "physical", amount = "avg_attack_against(self, it) * $split_ratio" },
                         { op = "call", routine = "a15r_start",
                           args = { victim = "it", base = "avg_attack_against(self, it) * $split_ratio" } },
                       } },
@@ -372,10 +376,10 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A15.lua:461-475",
-            text = "依 Dota 的傷害型別語意推定：A15T 沒有 AbilityUnitDamageType，GetAbilityDamageType() 為 DAMAGE_TYPE_NONE，這種 ApplyDamage 不扣血；分裂飛標只觸發影風車的彈跳，自己不造成傷害（D13，2026-10-29，confidence medium）。說明與設計的落差是上面那條 fix_candidate。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A15.lua:461-475",
-            text = "A15T 沒有 AbilityUnitDamageType，分裂飛標的 ApplyDamage 類型是 NONE，推定不造成傷害；說明寫「50% 傷害的飛標」。資料照推定的原作行為（不傷害），只保留飛標觸發的影風車彈跳。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A15.lua:461-475",
+            text = "原作（FC-051 修正前）：依 Dota 的傷害型別語意推定：A15T 沒有 AbilityUnitDamageType，GetAbilityDamageType() 為 DAMAGE_TYPE_NONE，這種 ApplyDamage 不扣血；分裂飛標只觸發影風車的彈跳，自己不造成傷害（D13，2026-10-29，confidence medium）。說明與設計的落差是上面那條 fix_candidate。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A15.lua:461-475",
+            text = "FC-051（D13 修正：分裂飛標造成 split_ratio 的物理傷害後再觸發彈跳）。原作：A15T 沒有 AbilityUnitDamageType，分裂飛標的 ApplyDamage 類型是 NONE，推定不造成傷害；說明寫「50% 傷害的飛標」。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A15.lua:471-473",
             text = "飛標命中呼叫 A15R_OnAttackLanded，以平均攻擊 × 0.45 為基礎開始一條影風車彈跳；第一個目標不吃彈跳傷害，之後每跳照影風車規則衰減。A15R 未學時以等級零讀 jump_max，推定取第一級的值。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A15.lua:299-314",
@@ -412,7 +416,7 @@ return function(ctx)
           { op = "for_each",
             select = { from = "center", shape = "circle", radius = "$a15_moon_strike.moon_radius", team = "enemy", types = BASIC },
             actions = {
-              { op = "if", cond = "stacks(it, a15e_hit) <= $a15_moon_strike.max_hit", actions = {
+              { op = "if", cond = "stacks(it, a15e_hit) < $a15_moon_strike.max_hit", actions = { -- FC-117（D13）：最多 max_hit 次
                 { op = "apply_status", status = "a15e_stun", to = "it" },
                 { op = "if", cond = "has_status(it, a15e_hit)",
                   actions = { { op = "add_stacks", to = "it", status = "a15e_hit", count = 1, refresh = false } },
@@ -477,20 +481,19 @@ return function(ctx)
         actions = {
           { op = "apply_status", status = "a15r_hit", to = "victim",
             duration = "select(victim.is_building, $a15_shadow_windmill.hit_mark_building, $a15_shadow_windmill.hit_mark)" },
-          -- 原作對侍大將（EXCLUDE_TARGET_NAME2）寫錯變數名稱而報錯：不受傷、不吸血，這條彈跳中斷
-          { op = "if", cond = "not has_tag(victim, general)", actions = {
-            { op = "if",
-              cond = "ability_level(caster, a15_shadow_moon_assault) > 0 and not victim.is_building and not victim.is_magic_immune",
-              actions = {
-                { op = "heal", to = "caster", source = "caster",
-                  amount = "base * scale * armor_multiplier(victim.bonus_armor) * $a15_shadow_moon_assault.lifesteal" },
-              } },
-            { op = "damage", to = "victim", type = "physical",
-              amount = "select(victim.is_building, base * scale * $a15_shadow_windmill.building_pct, base * scale)" },
-            { op = "if", cond = "left - 1 > 0", actions = {
-              { op = "call", routine = "a15r_jump",
-                args = { from = "victim", base = "base", scale = "scale * (1 + $a15_shadow_windmill.falloff)", left = "left - 1" } },
+          -- FC-050（D13）：侍大將（EXCLUDE_TARGET_NAME2）只受一半傷害、照樣吸血與彈跳（原作寫錯變數名稱而報錯中斷）
+          { op = "let", name = "g", value = "select(has_tag(victim, general), $a15_shadow_windmill.general_pct, 1)" },
+          { op = "if",
+            cond = "ability_level(caster, a15_shadow_moon_assault) > 0 and not victim.is_building and not victim.is_magic_immune",
+            actions = {
+              { op = "heal", to = "caster", source = "caster",
+                amount = "base * scale * g * armor_multiplier(victim.bonus_armor) * $a15_shadow_moon_assault.lifesteal" },
             } },
+          { op = "damage", to = "victim", type = "physical",
+            amount = "select(victim.is_building, base * scale * $a15_shadow_windmill.building_pct, base * scale * g)" },
+          { op = "if", cond = "left - 1 > 0", actions = {
+            { op = "call", routine = "a15r_jump",
+              args = { from = "victim", base = "base", scale = "scale * (1 + $a15_shadow_windmill.falloff)", left = "left - 1" } },
           } },
         },
       },

@@ -1,5 +1,6 @@
 //! Shared script runtime data used by deterministic gameplay systems.
 
+pub mod damage_pre;
 pub mod dispatch;
 pub mod event;
 pub mod parallel_world_adapter;

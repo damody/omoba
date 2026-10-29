@@ -150,8 +150,8 @@ function M.stage(project,deps)
   run(d,'content codegen','cargo',{'run','--manifest-path',d.path.join(ue,'codegen','Cargo.toml'),'--',
     '--content-root',d.path.join(d.root,'scripts','lua_data'),'--out',d.path.join(plugin,'Source','OmGenerated')})
   run(d,'Rust bridge','cargo',{'build','--manifest-path',d.path.join(ue,'bridge','Cargo.toml')})
-  run(d,'base_content (debug)','cargo',{'build','--manifest-path',d.path.join(d.root,'scripts','Cargo.toml'),
-    '-p','base_content','--features','compiled-content-only'})
+  run(d,'script DLLs (debug)','cargo',require('script_dlls').cargo_args({'build','--manifest-path',
+    d.path.join(d.root,'scripts','Cargo.toml')},'compiled-content-only'))
   local header=d.path.join(project,'Saved','BuildBridge','om_bridge.h')
   d.path.mkdir_p(d.path.parent(header))
   run(d,'C ABI header','cbindgen',{'--config',d.path.join(ue,'bridge','cbindgen.toml'),'--crate','om_bridge',

@@ -196,25 +196,28 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "以血償血",
-            body = "被動：每次受到傷害後有 {chance} 機率回復該次傷害，並額外回復該次傷害 {heal} 的生命；連續 {pity_after} 次沒有觸發時下一次必定觸發（{@c23r_on_spell}期間不保底）。施放{@c23_tainted_frenzy}、{@c23_malice_wall}、{@c23_gift_of_death}時獲得{@c23r_on_spell}，持續 {on_spell_duration} 秒：下一次受到傷害必定回復。" },
+            body = "被動：每次受到傷害時有 {chance} 機率吸收該次傷害（自身不受傷），並回復該次傷害 {heal} 的生命；連續 {pity_after} 次沒有觸發時下一次必定觸發（{@c23r_on_spell}期間不保底）。施放{@c23_tainted_frenzy}、{@c23_malice_wall}、{@c23_gift_of_death}時獲得{@c23r_on_spell}，持續 {on_spell_duration} 秒：下一次受到傷害必定回復。" },
           en = { name = "Blood for Blood",
-            body = "Passive: after taking damage, has a {chance} chance to restore that damage plus {heal} of it as extra health; after {pity_after} hits in a row without a trigger, the next one always triggers (no guarantee during {@c23r_on_spell}). Casting {@c23_tainted_frenzy}, {@c23_malice_wall} or {@c23_gift_of_death} grants {@c23r_on_spell} for {on_spell_duration} seconds: the next damage taken is always restored." },
+            body = "Passive: when taking damage, has a {chance} chance to absorb it entirely and restore {heal} of it as health; after {pity_after} hits in a row without a trigger, the next one always triggers (no guarantee during {@c23r_on_spell}). Casting {@c23_tainted_frenzy}, {@c23_malice_wall} or {@c23_gift_of_death} grants {@c23r_on_spell} for {on_spell_duration} seconds: the next damage taken is always restored." },
         },
         target = { type = "none" },
         passive = {
           reveal = "public",
           triggers = {
-            on_take_damage = {
+            -- FC-035（D13）：觸發時在結算前吸收該次傷害（自身不受傷），再回復該次傷害的 heal 比例
+            on_take_damage_pre = {
               { op = "set_state", var = "c23r_count", value = "state.c23r_count + 1" },
               { op = "if", cond = "state.c23r_count > $pity_after and not has_status(self, c23r_on_spell)",
                 actions = {
                   { op = "set_state", var = "c23r_count", value = "0" },
-                  { op = "set_health", to = "self", value = "min(self.hp + event.damage.final * (1 + $heal), self.max_hp)" },
+                  { op = "modify_damage", cancel = true },
+                  { op = "set_health", to = "self", value = "min(self.hp + event.damage.final * $heal, self.max_hp)" },
                 },
                 otherwise = {
                   { op = "chance", p = "$chance", actions = {
                     { op = "set_state", var = "c23r_count", value = "0" },
-                    { op = "set_health", to = "self", value = "min(self.hp + event.damage.final * (1 + $heal), self.max_hp)" },
+                    { op = "modify_damage", cancel = true },
+                    { op = "set_health", to = "self", value = "min(self.hp + event.damage.final * $heal, self.max_hp)" },
                   } },
                 } },
             },
@@ -224,15 +227,15 @@ return function(ctx)
           { id = "c23r_on_spell", duration = "$on_spell_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public",
             text = {
-              zh_TW = { name = "以血償血．必定", body = "下一次受到傷害時必定回復該次傷害；學會{@c23_blood_for_blood}時再額外回復該次傷害 {heal} 的生命。" },
-              en = { name = "Blood for Blood: Assured", body = "The next damage taken is healed back; with {@c23_blood_for_blood} learned, an extra {heal} of that damage is restored too." },
+              zh_TW = { name = "以血償血．必定", body = "下一次受到的傷害必定被吸收；學會{@c23_blood_for_blood}時再額外回復該次傷害 {heal} 的生命。" },
+              en = { name = "Blood for Blood: Assured", body = "The next damage taken is absorbed; with {@c23_blood_for_blood} learned, an extra {heal} of that damage is restored too." },
             },
             triggers = {
-              on_take_damage = {
+              -- FC-035（D13）：必定吸收，在結算前取消這一筆
+              on_take_damage_pre = {
+                { op = "modify_damage", cancel = true },
                 { op = "if", cond = "ability_level(self, c23_blood_for_blood) > 0",
-                  actions = { { op = "set_health", to = "self",
-                    value = "min(self.hp + event.damage.final * (1 + $heal), self.max_hp)" } },
-                  otherwise = { { op = "set_health", to = "self", value = "min(self.hp + event.damage.final, self.max_hp)" } } },
+                  actions = { { op = "set_health", to = "self", value = "min(self.hp + event.damage.final * $heal, self.max_hp)" } } },
                 { op = "remove_status", from = "self", status = "c23r_on_spell" },
               },
             },
@@ -242,10 +245,10 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C23.lua:92",
             text = "條件 `14 >= rnd or count > 100/14 and not onSpell` 中 and 優先：擲骰命中不看 onSpell，只有保底在 onSpell 期間停用；計數仍照常累加。資料先判保底再擲骰，結果分布相同。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C23.lua:95-96,113-114",
-            text = "說明是「吸收該次傷害，自身不會受傷」，實際是 OnTakeDamage 之後 SetHealth(目前生命 + 傷害 ×（一 + heal%）)：傷害已經扣掉才補回，擋不住致死的一擊（包括 onSpell 的「必定吸收」）。資料照原作。" },
-          { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C23.lua:95-96,113-114",
-            text = "SetHealth 不算治療，不吃增療與減療，上限是最大生命。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C23.lua:95-96,113-114",
+            text = "FC-035（D13 修正：在結算前吸收該次傷害（自身不受傷），再回復 heal 比例；必定吸收也一樣）。原作：說明是「吸收該次傷害，自身不會受傷」，實際是 OnTakeDamage 之後 SetHealth(目前生命 + 傷害 ×（一 + heal%）)：傷害已經扣掉才補回，擋不住致死的一擊（包括 onSpell 的「必定吸收」）。" },
+          { policy = "note", ref = "vscripts/heroes/C_Neutral/C23.lua:95-96,113-114",
+            text = "原作（FC-035 修正前）：SetHealth 不算治療，不吃增療與減療，上限是最大生命。" },
           { policy = "as_source", ref = "npc/C_Neutral/C23.txt:253-275",
             text = "OnTakeDamage 不分來源與類型，任何傷害（包括持續傷害每一跳）都算一次，不只原作說明寫的「受到攻擊」。onSpell 期間同一次傷害可能同時觸發被動與 onSpell，兩者各補一次。" },
           { policy = "as_source", ref = "vscripts/heroes/C_Neutral/C23.lua:8,41,175",

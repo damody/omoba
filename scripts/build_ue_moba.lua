@@ -189,10 +189,9 @@ if mode == 'full' and path.is_file(editor_exe) then
   run_restart('stop matching Unreal Editor before staging DLLs', 'stop')
 end
 
-run_stage('build base_content.dll', 'cargo', {
+run_stage('build script DLLs (base_content and hero DLLs)', 'cargo', require('script_dlls').cargo_args({
   'build', '--manifest-path', path.join(root, 'scripts', 'Cargo.toml'),
-  '-p', 'base_content', '--features', 'compiled-content-only',
-}, root)
+}, 'compiled-content-only'), root)
 
 run_stage('stage current base_content.dll', platform.lua_executable, {
   path.join(root, 'scripts', 'dev_run_freshness.lua'), '--action', 'stage-dll',

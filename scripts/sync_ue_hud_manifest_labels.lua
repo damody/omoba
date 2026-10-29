@@ -15,9 +15,13 @@ names.loading=names.portrait
 local file=p.join(b.root,'omfue/Content/Omoba/UI/hud-assets-v1.json')
 local manifest=j.read(file);assert(manifest.schemaVersion==1 and type(manifest.entries)=='table')
 local coverage=require('ue_hud_portrait_coverage')
--- Original nobu art stands in for missing art (scripts/import_nobu_icons.lua); optional.
+-- Original nobu art stands in for missing art (scripts/import_nobu_icons.lua), else generated art
+-- (scripts/generated_art.lua); both optional.
 local nobu_index_file=p.join(b.root,'omfue/Content/Omoba/UI',coverage.NOBU_INDEX)
-local nobu=coverage.nobu_files(p.is_file(nobu_index_file)and j.read(nobu_index_file)or nil)
+local generated_index_file=p.join(b.root,'omfue/Content/Omoba/UI',coverage.GENERATED_INDEX)
+local nobu=coverage.nobu_files(p.is_file(nobu_index_file)and j.read(nobu_index_file)or nil,
+ p.is_file(generated_index_file)and j.read(generated_index_file)or nil)
+local function art_label(kind,id)return nobu.sources[kind][id]=='generated'and'generated art'or'original nobu art' end
 local stale=coverage.prune_placeholders(context.include('templates/heroes.lua'),manifest)
 local changed=#stale
 for _,hero in ipairs(stale) do print('[moba-ue] HUD portrait placeholder removed for hero no longer in the catalog: '..hero) end
@@ -39,17 +43,17 @@ changed=changed+#stale_items
 for _,item in ipairs(stale_items) do print('[moba-ue] HUD nobu item icon removed (no longer sold or art gone): '..item) end
 local upgraded=coverage.upgrade_placeholders(manifest,nobu)
 changed=changed+#upgraded
-for _,key in ipairs(upgraded) do print('[moba-ue] HUD placeholder replaced by original nobu art: '..key) end
+for _,key in ipairs(upgraded) do print('[moba-ue] HUD placeholder replaced by '..art_label(key:match('^([^:]+):(.*)$'))..': '..key) end
 local placeholders=require('ue_hud_portrait_coverage').placeholder_entries(context.include('templates/heroes.lua'),manifest,nobu)
 changed=changed+#placeholders
-for _,hero in ipairs(placeholders) do print('[moba-ue] HUD portrait added for hero without authored art ('..(nobu.portrait[hero]and'original nobu art'or'shared placeholder')..'): '..hero) end
+for _,hero in ipairs(placeholders) do print('[moba-ue] HUD portrait added for hero without authored art ('..(nobu.portrait[hero]and art_label('portrait',hero)or'shared placeholder')..'): '..hero) end
 -- A hero ability without authored art gets the shared placeholder icon and a build warning, never a blank slot.
 local item_icons=coverage.item_entries(shop_items,manifest,nobu)
 changed=changed+#item_icons
-for _,item in ipairs(item_icons) do print('[moba-ue] HUD item icon added from original nobu art: '..item) end
+for _,item in ipairs(item_icons) do print('[moba-ue] HUD item icon added from '..art_label('item',item)..': '..item) end
 local ability_placeholders=coverage.ability_placeholder_entries(heroes,abilities,manifest,nobu)
 changed=changed+#ability_placeholders
-for _,ability in ipairs(ability_placeholders) do print('[moba-ue] HUD ability icon added for hero ability without authored icon ('..(nobu.ability[ability]and'original nobu art'or'shared placeholder')..'): '..ability) end
+for _,ability in ipairs(ability_placeholders) do print('[moba-ue] HUD ability icon added for hero ability without authored icon ('..(nobu.ability[ability]and art_label('ability',ability)or'shared placeholder')..'): '..ability) end
 local inspect_ui=function(name)return coverage.inspect_png(p.join(b.root,'omfue/Content/Omoba/UI',name))end
 local ability_count,ability_pending,ability_packaged=coverage.validate_abilities(heroes,abilities,manifest,inspect_ui)
 for _,ability in ipairs(ability_pending) do print('[moba-ue] WARNING HUD ability icon is the shared placeholder (no authored art): '..ability) end

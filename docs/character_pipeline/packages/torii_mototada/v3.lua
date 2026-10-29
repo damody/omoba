@@ -148,9 +148,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "血殤靈光",
-            body = "被動：攻擊速度增加 {attack_speed}、移動速度提高 {move_speed_pct}。受到非建築敵人造成的傷害時（反射傷害除外），周圍 {radius} 內所有敵人（包含魔免）受到等同該次傷害一定比例的純粹傷害。比例以反射效果掛上時的技能等級決定（每級 {reflect_step}，滿級 {reflect_pct:max}），掛上後要等元忠死亡、復活後重新掛上才會更新；學會技能約一秒後第一次掛上。" },
+            body = "被動：攻擊速度增加 {attack_speed}、移動速度提高 {move_speed_pct}。受到非建築敵人造成的傷害時（反射傷害除外），周圍 {radius} 內所有敵人（包含魔免）受到等同該次傷害一定比例的純粹傷害。比例隨技能目前等級（每級 {reflect_step}，滿級 {reflect_pct:max}）；學會技能約一秒後開始生效。" },
           en = { name = "Blood Grief Aura",
-            body = "Passive: +{attack_speed} attack speed and +{move_speed_pct} movement speed. When Mototada takes damage from a non-building enemy (reflected damage excluded), all enemies within {radius} (spell-immune ones included) take pure damage equal to a portion of it. The portion is locked to this ability's level when the reflection is applied ({reflect_step} per level, {reflect_pct:max} at max level) and only updates when Mototada respawns after dying; it first applies about a second after learning." },
+            body = "Passive: +{attack_speed} attack speed and +{move_speed_pct} movement speed. When Mototada takes damage from a non-building enemy (reflected damage excluded), all enemies within {radius} (spell-immune ones included) take pure damage equal to a portion of it. The portion follows this ability's current level ({reflect_step} per level, {reflect_pct:max} at max level); it starts about a second after learning." },
         },
         target = { type = "none", aoe_radius = "$radius" },
         passive = {
@@ -159,7 +159,7 @@ return function(ctx)
           triggers = {
             periodic = { interval = "$recheck", actions = {
               { op = "if", cond = "not has_status(self, a16r_reflect)", actions = {
-                { op = "apply_status", status = "a16r_reflect", to = "self", vars = { lvl = "ability.level" } },
+                { op = "apply_status", status = "a16r_reflect", to = "self" },
               } },
             } },
           },
@@ -167,7 +167,6 @@ return function(ctx)
         statuses = {
           { id = "a16r_reflect", duration = "infinite", stacking = "keep", dispel = "none", visibility = "hidden",
             reveal = "public", remove_on = { "death" },
-            vars = { lvl = { type = "int", init = "1", reveal = "public", note = "原作 handle.level：掛上時的技能等級" } },
             triggers = {
               on_take_damage = {
                 filter = "is_enemy(event.attacker, self) and not event.attacker.is_building and not event.damage.is_reflection and alive(self)",
@@ -177,7 +176,7 @@ return function(ctx)
                       flags = { "include_magic_immune" } },
                     actions = {
                       { op = "damage", to = "it", source = "self", type = "pure", require_source_alive = false, flags = { "reflection", "no_amplify" },
-                        amount = "event.damage.final * vars.lvl * $reflect_step" },
+                        amount = "event.damage.final * ability_level(self, a16_blood_aura) * $reflect_step" },
                     } },
                 } },
             },
@@ -185,8 +184,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A16.lua:63-78",
-            text = "反射比例取 handle.level，只在 modifier_A16R2 掛上時寫入；計時器每秒只在身上沒有這個 modifier 時才重掛。學會時是一級，所以升級後仍維持 15%，要等死亡（Lua modifier 死亡移除）後重掛才會更新成當時等級。說明寫 15/30/45/60%。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A16.lua:63-78",
+            text = "FC-118（D13 修正：比例改讀技能目前等級 ability_level(self, a16_blood_aura)，不再鎖在掛上時）。原作：反射比例取 handle.level，只在 modifier_A16R2 掛上時寫入；計時器每秒只在身上沒有這個 modifier 時才重掛。學會時是一級，所以升級後仍維持 15%，要等死亡（Lua modifier 死亡移除）後重掛才會更新成當時等級。說明寫 15/30/45/60%。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A16.lua:63-67",
             text = "計時器只在 modifier_A16R 以一級建立時啟動，之後永不停止；死亡期間也會檢查，推定重掛在復活後生效。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A16.lua:28-38",

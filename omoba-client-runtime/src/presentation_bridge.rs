@@ -2815,7 +2815,7 @@ mod tests {
                 step: Some(Step { public_events: events, ..Default::default() }),
                 post_step: Some(Default::default()),
                 padding: Vec::new(),
-                authoritative_mode: None, combat_preferences: None,
+                authoritative_mode: None, combat_preferences: None, script_module_swaps: Vec::new(),
             }.encode_to_vec()
         }
         let heal = omoba_template_ids::summoner_spell_by_name("training_self_heal_v1").unwrap().cooldown.raw();

@@ -18,8 +18,9 @@ use super::ability_runtime::BuffStore;
 pub const BUFF: &str = "command_restricted";
 
 /// Whether `hero` currently refuses new orders.
+/// A taunted hero (taunt.rs) refuses its owner's orders the same way.
 pub fn restricted(world: &World, hero: Entity) -> bool {
-    world.try_fetch::<BuffStore>().is_some_and(|buffs| buffs.has(hero, BUFF))
+    world.try_fetch::<BuffStore>().is_some_and(|buffs| buffs.has(hero, BUFF) || buffs.has(hero, super::taunt::BUFF))
 }
 
 #[cfg(test)]

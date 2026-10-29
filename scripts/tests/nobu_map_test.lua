@@ -75,6 +75,21 @@ test('nobu_map_template_validates', function()
   assert(cur == C.render(map), C.OUT .. ' is stale; run scripts/gen_nobu_map_content.lua')
 end)
 
+-- E187 §5.4: every unit the camps place has a neutral template, and every template is placed.
+local neutrals = dofile(b.root .. '/scripts/lua_data/templates/nobu_neutrals.lua')({})
+test('nobu_neutral_templates_cover_every_camp_unit', function()
+  local map = dofile(b.root .. '/scripts/lua_data/templates/nobu_map.lua')({})
+  local used, count = {}, 0
+  for _, c in ipairs(map.neutral_camps) do
+    for _, u in ipairs(c.units) do assert(neutrals[u.unit], 'no template for ' .. u.unit); used[u.unit] = true; count = count + 1 end
+  end
+  for name, row in pairs(neutrals) do
+    assert(used[name], name .. ' is placed by no camp')
+    assert(row.id == name:gsub('^npc_dota_', ''), name .. ' template id')
+  end
+  assert(#map.neutral_camps == 24 and count == 68, '24 camps, 68 units')
+end)
+
 -- the original map, when the checkout is there
 local source = 'C:/nobu/history_nobu'
 local f = io.open(source .. '/content/dota_addons/nobu/maps/nobu.vmap', 'rb')
@@ -88,6 +103,31 @@ if f then
     assert(#d.neutral_camps == 24 and #d.bosses == 2 and #d.general_towers == 10, 'camps, bosses, general towers')
     for _, l in ipairs(d.lanes) do assert(#l.points >= 6, l.id .. ' is a chain') end
     assert(d.tile_grid and #d.tile_grid.vertex_levels == 71 * 71, 'tile grid vertices')
+  end)
+  -- E187 §5.4: each neutral template equals its KV block in npc_units_custom_load.txt.
+  test('nobu_neutral_templates_match_the_original_kv', function()
+    local kv = assert(io.open(source .. '/game/dota_addons/nobu/scripts/npc/npc_units_custom_load.txt', 'rb'))
+    local lines = {}
+    for l in kv:lines() do lines[#lines + 1] = l end
+    kv:close()
+    for name, row in pairs(neutrals) do
+      assert(lines[row.line]:match('^%s*"([%w_]+)"%s*$') == name, name .. ' block starts at line ' .. row.line)
+      local values, depth, i = {}, 0, row.line + 1
+      repeat
+        local code = lines[i]:gsub('//.*$', '')
+        if code:find('{', 1, true) then depth = depth + 1 end
+        if code:find('}', 1, true) then depth = depth - 1 end
+        local k, v = code:match('^%s*"([%w_]+)"%s*"([^"]*)"')
+        if k and depth == 1 then values[k] = v end
+        i = i + 1
+      until depth == 0
+      local function n(k) return tonumber(values[k]) end
+      local want = { level = n('Level'), hp = n('StatusHealth'), damage_min = n('AttackDamageMin'), damage_max = n('AttackDamageMax'),
+        attack_rate_ms = math.floor(n('AttackRate') * 1000 + 0.5), attack_range = n('AttackRange'), armor = n('ArmorPhysical'),
+        magic_resistance = n('MagicalResistance') or 0, move_speed = n('MovementSpeed'), gold = n('BountyGoldMin'), xp = n('BountyXP') }
+      assert(n('BountyGoldMax') == want.gold, name .. ' fixed bounty')
+      for k, v in pairs(want) do assert(row[k] == v, ('%s %s: template %s, KV %s'):format(name, k, tostring(row[k]), tostring(v))) end
+    end
   end)
 else
   print('SKIP nobu_vmap_counts (no original checkout at ' .. source .. ')')

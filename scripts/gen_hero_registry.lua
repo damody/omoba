@@ -2,8 +2,22 @@
 local content_root = assert(arg[1], 'content root is required')
 local output_mode = arg[2] or 'registry'
 assert(output_mode == 'registry' or output_mode == 'ids' or output_mode == 'units', 'unknown output mode')
+-- arg[3]: a hero of hero_dlls.lua (its own DLL registers only that hero); absent, base_content
+-- registers every hero except those.
+local only_hero = arg[3] ~= '' and arg[3] or nil
 local source = debug.getinfo(1,'S').source:sub(2)
 package.path = (source:match('^(.*)[/\\]') or '.') .. '/?.lua;' .. package.path
+local own_dll = {}
+for _, row in ipairs(require('hero_dlls')) do own_dll[row.hero] = row end
+assert(not only_hero or own_dll[only_hero], 'not a hero of hero_dlls.lua: ' .. tostring(only_hero))
+-- Whether this output registers HERO's abilities and unit script.
+local function selected(hero_id)
+  if only_hero then return hero_id == only_hero end
+  return not own_dll[hero_id]
+end
+-- A v3 test hero (scripts/v3_test_heroes.lua) registers through its generated crate
+-- (scripts/heroes/<v3_crate>), which tests link next to base_content; no output here registers it.
+local function v3_crate_hero(hero) return hero.v3_crate ~= nil end
 local context = require('content_builder').new(content_root)
 local function load_builder(name) return context.include('templates/'..name..'.lua') end
 
@@ -357,9 +371,14 @@ for _, hero in ipairs(heroes) do
       local implementation=rust_module or '@generic'
       if registered[ability_id] then
         assert(registered[ability_id]==implementation,ability_id..' has conflicting hero handler implementations')
+        -- One DLL registers each ability: a hero with its own DLL shares none.
+        assert(not own_dll[hero_id] and not own_dll[registered[ability_id .. '@hero']],
+          ability_id .. ' is shared with a hero that has its own DLL')
       else
       registered[ability_id]=implementation
-      if rust_module then
+      registered[ability_id .. '@hero']=hero_id
+      if not selected(hero_id) or v3_crate_hero(hero) then
+      elseif rust_module then
         entries[#entries + 1] = {module = rust_module, ability = ability_id}
       else
         assert((type(ability.effects) == 'table' and #ability.effects > 0) or type(ability.summon)=='table' or type(ability.attack_orb)=='table',
@@ -459,7 +478,7 @@ end
 -- under its own content id, which is the unit id the host binds heroes to.
 local hero_units = {}
 for _, hero in ipairs(heroes) do
-  if not hero.tombstone and hero.unit_script ~= nil then
+  if not hero.tombstone and hero.unit_script ~= nil and selected(hero.id) and not v3_crate_hero(hero) then
     assert(hero.unit_script == true, hero.id .. ' unit_script must be true when present')
     assert(hero.rust_module, hero.id .. ' unit_script needs rust_module')
     hero_units[#hero_units + 1] = { id = identifier(hero.id, 'hero id'), module = identifier(hero.rust_module, hero.id .. ' rust_module') }
@@ -481,6 +500,8 @@ elseif output_mode == 'ids' then
 else
   print('{')
   for _, entry in ipairs(entries) do
+    -- generic_effects lives in base_content; a hero DLL registers only its rust_module handlers.
+    assert(entry.module or not only_hero, entry.ability .. ': a hero with its own DLL needs rust_module handlers')
     if entry.module then
       print(string.format('    v.push(heroes::%s::%s_ffi());', entry.module, entry.ability))
     else

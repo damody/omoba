@@ -91,7 +91,7 @@ local function read_json_if_ready(file)
 end
 local ok, error_message = xpcall(function()
   for _, build in ipairs({
-    {'scripts/Cargo.toml', '-p', 'base_content'},
+    require('script_dlls').cargo_args({'scripts/Cargo.toml'}),
     {'omb/Cargo.toml', '-p', 'omobab', '--bin', 'omobab'},
     {'omoba-client-runtime/Cargo.toml'},
   }) do

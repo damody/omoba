@@ -67,6 +67,8 @@ V.CONFIDENCE = set({ "high", "medium", "low" })
 V.QUIRK_POLICIES = {
   as_source = "照原作實際行為還原（預設）",
   fix_candidate = "明顯違反設計意圖且影響可玩性，列入修正候選清單由使用者決定；目前仍照原作",
+  -- D13（使用者 2026-10-29：fix-candidates.md 的 134 項全部修）
+  fixed = "原作 bug，依 D13 照設計意圖修正；資料是修正後的行為，text 註明 fix-candidates.md 的編號",
   design_intent = "跟 tick 頻率等引擎副作用有關，照設計意圖（KV 數值）",
   no_effect = "原作執行期報錯或死碼，照中斷後的結果（通常沒有效果）",
   note = "只是紀錄（命名錯誤、呈現細節），不影響結算",
@@ -77,7 +79,7 @@ V.PENDING_FIELDS = set({ "what", "why", "gap" })
 
 V.ABILITY_FIELDS = set({ "id", "source_id", "slot", "kind", "tags", "max_level", "learnable", "level_link", "target",
   "cast", "cost", "requires", "flags", "values", "text", "statuses", "events", "passive", "unit_state", "coverage",
-  "pending", "provenance", "quirks", "confidence", "notes", "handler", "host", "deferred_reason", "bot" })
+  "pending", "provenance", "quirks", "confidence", "notes", "handler", "host", "deferred_reason", "bot", "hook" })
 V.SLOTS = set({ "Q", "W", "E", "R", "D", "F", "sub", "hidden" })
 V.ABILITY_KINDS = set({ "active", "passive", "toggle", "autocast", "channel" })
 V.ABILITY_TAGS = set({ "ultimate", "basic", "toggle", "channel", "item", "sub", "attack_modifier", "orb", "aura",
@@ -109,7 +111,7 @@ V.PASSIVE_FIELDS = set({ "stats", "states", "unique_group", "triggers", "aura", 
 V.ORB_SLOT_FIELDS = set({ "release", "priority", "claim", "overridable" })
 V.ORB_RELEASE = set({ "unequip", "never", "status_end" })
 
-V.ITEM_FIELDS = set({ "id", "source_id", "values", "text", "shop", "passive", "active", "statuses", "unit_state",
+V.ITEM_FIELDS = set({ "id", "source_id", "values", "text", "shop", "passive", "active", "statuses", "unit_state", "hook",
   "coverage", "pending", "provenance", "quirks", "confidence", "notes", "max_level", "handler", "host", "deferred_reason", "tags" })
 V.SHOP_FIELDS = set({ "cost", "recipe", "category", "sellable", "droppable", "shareable", "consumable",
   "purchasable", "stock", "unique" })
@@ -161,8 +163,11 @@ V.REVEAL = {
 }
 -- owner (v3.1): the ability whose values ($x) and unit_state the routine reads
 V.ROUTINE_FIELDS = set({ "params", "actions", "notes", "owner" })
-V.HOOK_FIELDS = set({ "why", "test", "reads", "kind", "params", "notes" })
-V.HOOK_KINDS = set({ "action", "condition", "value", "trigger" })
+V.HOOK_FIELDS = set({ "why", "test", "reads", "kind", "params", "notes", "behavior", "cases" })
+-- hooks.<name>.cases[]: conformance scenarios of a hook (v3_scenarios.lua), in scenario vocabulary
+V.HOOK_CASE_FIELDS = set({ "id", "given", "when", "expect", "notes" })
+-- `ability`: the whole ability (or item) is a hand-written trait (m3-rust-codegen-design.md §2.4)
+V.HOOK_KINDS = set({ "action", "condition", "value", "trigger", "ability" })
 
 ---------------------------------------------------------------------------
 -- text

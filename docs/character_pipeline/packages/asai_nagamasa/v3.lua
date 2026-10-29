@@ -9,7 +9,6 @@
 -- 英雄共通的 magical_resistance（nobu 魔抗池）屬規則層，B08_precache 只是資產，都不列入。
 -- 慣例：KV 未寫 IsPurgable 的 datadriven modifier 照 C01 寫 dispel = "basic"（v3.md §12.3 推定）；
 -- 引擎內建 modifier_stunned 寫 "strong"（同 A05、A21）；原作 HERO | BASIC 寫成 types = { "hero", "creep", "neutral", "summon" }。
--- 原作 unit.AphoticShieldRemaining 用跨文件共用的 unit_state aphotic_shield_remaining（v3.1 §12.10，與 B36 同名同型別）。
 return function(ctx)
   local BASIC = { "hero", "creep", "neutral", "summon" }
   return {
@@ -21,10 +20,6 @@ return function(ctx)
       -- 原作學會途徑不明（NOT_LEARNABLE，addon_game_mode.lua:390 為空）；現行 v2 auto_learn = true（假設 endless_fang_learn）
       -- census：實際由 eventforpichero.lua:152-160 在 16 級 SetLevel(1)，結果相同。
       auto_learn = { "b08_endless_fang" },
-    },
-    unit_state = {
-      aphotic_shield_remaining = { type = "fixed", init = "0", reveal = "public", scope = "unit",
-        note = "原作 unit.AphoticShieldRemaining，存在單位上；A04、A24、B36、C06、C12 與 item_the_shell_of_spirituality_kappa 讀寫同一個欄位（v3.1 同名同型別跨文件共用）。B08R_SE 會把長政自己的這個欄位設為零。" },
     },
     abilities = {
       -------------------------------------------------------------------------
@@ -216,8 +211,7 @@ return function(ctx)
                   },
                   otherwise = {
                     { op = "apply_status", status = "b08r_buff", to = "self", stacks = "1" },
-                    -- B08R_SE：damage_absorb 不存在 → 0；把長政自己的 AphoticShieldRemaining 設為零
-                    { op = "set_state", on = "self", var = "aphotic_shield_remaining", value = "0" },
+                    -- FC-005（D13）：原作 B08R_SE 讀不存在的 damage_absorb，把長政身上共用的 AphoticShieldRemaining 清零；修正後不碰其他護盾
                     { op = "cue", id = "b08r_soul_shield_burst", at = "self" },
                   } },
               } },
@@ -236,8 +230,8 @@ return function(ctx)
           -- 以下由 census-v3 B08 移入（census 的 264,268 與上面同 ref 同一件事，不重複）
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:252-255",
             text = "OnAbilityExecuted 對技能與物品都觸發；只排除切換技與 item_logging、item_tpscroll、item_samurai_cloth（名單比 C17D 少兩種閃現類）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:194-198",
-            text = "B08R_SE 讀不存在的 damage_absorb（得 0），把長政的 unit.AphoticShieldRemaining 設為零：沒有增益時使用技能或物品，會把隊友套在長政身上的同類護盾（A04、A24、B36、C06、C12、河童之殼共用這個欄位）的剩餘量清空。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:194-198",
+            text = "FC-005（D13 修正：B08R 只處理自己的增益，不再清空長政身上其他人給的護盾（各護盾已各自吸收））。原作：B08R_SE 讀不存在的 damage_absorb（得 0），把長政的 unit.AphoticShieldRemaining 設為零：沒有增益時使用技能或物品，會把隊友套在長政身上的同類護盾（A04、A24、B36、C06、C12、河童之殼共用這個欄位）的剩餘量清空。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:262-277",
             text = "第一次觸發把層數設為一；之後每次加一（不超過 3+等級）並重新套用以刷新八秒。數值不乘層數。" },
           { policy = "note", ref = "vscripts/heroes/B_Unified/B08_Asai_Nagamasa.lua:200-247",

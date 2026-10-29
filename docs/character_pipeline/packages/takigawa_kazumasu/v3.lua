@@ -70,7 +70,7 @@ return function(ctx)
               { op = "if", cond = "state.a32w_landed_hit", actions = {
                 { op = "delay", time = "$swap_delay", actions = {
                   { op = "swap_abilities", on = "caster", from = "a32_flying_slash", to = "a32_second_slash",
-                    duration = "$recast_window", cooldown_policy = "reset" },
+                    duration = "$recast_window", cooldown_policy = "continue" }, -- FC-085（D13）：換回時保留冷卻
                 } },
               } },
             } },
@@ -78,8 +78,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A32.lua:93-101",
-            text = "換技能用 RemoveAbility(\"A32W\") + AddAbility(\"A32D\")，五秒後再 AddAbility(\"A32W\")：新加入的 A32W 是新實例，沒有冷卻。只要落地有命中，A32W 的 12/11/10/9 秒冷卻實際變成約五秒，可連續使用。資料照實際（cooldown_policy = reset）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A32.lua:93-101",
+            text = "FC-085（D13 修正：換回飛翔斬時保留冷卻（cooldown_policy = continue））。原作：換技能用 RemoveAbility(\"A32W\") + AddAbility(\"A32D\")，五秒後再 AddAbility(\"A32W\")：新加入的 A32W 是新實例，沒有冷卻。只要落地有命中，A32W 的 12/11/10/9 秒冷卻實際變成約五秒，可連續使用。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A32.lua:60-87",
             text = "落地判定以施法者落地位置為圓心、含魔免；魔免敵人計入「有命中」（換上二段斬）但不受暈眩與傷害；先暈眩再傷害。" },
           { policy = "note", ref = "vscripts/heroes/A_Oda/A32.lua:66-70",
@@ -288,6 +288,8 @@ return function(ctx)
                 { op = "damage", to = "event.target", type = "magical",
                   amount = "avg_attack_against(self, event.target) * select(event.target.is_building, $building_pct, 1)" },
               } },
+              -- FC-133（D13）：死亡時關閉切換，復活後不會只取消物理普攻而沒有魔法傷害
+              on_death = { { op = "toggle_ability", of = "self", ability = "a32_soul_blade", on = false } },
             },
             notes = "原作 modifier_A32F（datadriven，沒寫 IsPurgable，暫定 basic；非 Passive，死亡移除）。" },
         },
@@ -312,8 +314,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate",
-            text = "Dota 的切換技在死亡時不會自動關閉（切換狀態屬於技能，跨死亡保留），而 modifier_A32F 死亡時移除。所以復活後切換仍開著、attackvoid 仍為真：物理普攻被取消，卻沒有魔法傷害。資料照這個推定的原作行為（D13，2026-10-29，confidence medium）；是否改成死亡時關閉切換見 fix-candidates FC-133。" },
+          { policy = "fixed",
+            text = "FC-133（D13 修正：死亡時關閉切換，關閉時清掉 attackvoid）。原作：Dota 的切換技在死亡時不會自動關閉（切換狀態屬於技能，跨死亡保留），而 modifier_A32F 死亡時移除。所以復活後切換仍開著、attackvoid 仍為真：物理普攻被取消，卻沒有魔法傷害。" },
           { policy = "as_source", ref = "vscripts/library/events/eventfordamage.lua:45-54",
             text = "caster.attackvoid 時，凡是 DAMAGE_TYPE_PHYSICAL 的傷害（普攻、物理技能、道具）都記進 next_attack 並取消，以 on_deal_damage_pre 的 event.damage.is_physical 表達（v3.1）；只有普攻命中會觸發魔法傷害。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A32.lua:362-394",

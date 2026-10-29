@@ -32,7 +32,7 @@ scripts/
 ```
 
 - 全部是 `scripts/Cargo.toml` workspace 的成員，共用 `target/`，所以 `ability_kit` 只編一次。
-- 產生器在 cargo build 之前寫入 `src/generated/`。檔頭標「由 v3_rust.lua 產生，不要手改」。是否進版控沿用 om_codegen 的慣例，在 M3' ① 決定。
+- 產生器在 cargo build 之前寫入 `src/generated/`。檔頭標「由 v3_rust.lua 產生，不要手改」。**不進版控**（使用者 2026-10-29）：每次建置前產生，`.gitignore` 排除 `src/generated/`。
 
 ### 2.2 數值與型別
 
@@ -70,9 +70,16 @@ impl AbilityScript for GroundFlame {
 
 - v3 的運算式轉成 Rust 運算式（Fixed64 運算），條件轉成 `if`，`for_each` 轉成走訪 `ability_kit` 選取結果的迴圈。選取一律依 entity id 排序。
 - 延遲、重複、periodic 這類非同步動作，由 host 的排程器保存「下一步」（step 列舉加上參數），所以 DLL 不保存狀態（§4）。
-- 產生器不支援某個寫法時，建置期就失敗並指出那一行 v3。`v3_ir_blockers.lua` 由 `v3_codegen_coverage.lua` 取代，列出「產生器還不支援的寫法」與解鎖順序（沿用 ir-blockers 的排序：M5，然後 M6 第 1～9 批）。
+- 產生器不支援某個寫法時，建置期就失敗並指出那一行 v3；產生器接受的欄位不可以默默略過，不支援就回報到 coverage。`v3_ir_blockers.lua` 由 `v3_codegen_coverage.lua` 取代，列出「產生器還不支援的寫法」與解鎖順序（沿用 ir-blockers 的排序：M5，然後 M6 第 1～9 批）。
 
-### 2.4 共用元件 `ability_kit`
+### 2.4 共用與 hook 的分界（使用者 2026-10-30）
+
+- **2 招以上類似 → 共用**：機制在 2 招以上（英雄技能與道具合計）出現類似的寫法，就做成 v3 詞彙，產生器翻譯，元件放 `ability_kit`。「類似」以機制判斷，不看參數：例如兩招都是「衝刺到點、路徑上觸發效果」就算同一種，即使速度、效果不同。
+- **完全跟大家不同 → hook**：只有 1 招用到、而且無法用既有詞彙組合出來的，才寫 hook。v3 在該招標 `hook = "<方法名>"`，產生器為這招產生一個 trait（`on_cast`、`on_attack_hit`、`on_status_event` 等方法，與這招的 values、status、cue 常數），由手寫的 `src/hooks/<ability>.rs` 實作。沒實作的方法編不過，不再產生「施放時回報缺什麼」的 stub。
+- **hook 的規則**：只能引用產生的常數與 `ability_kit`，不能寫數字，不能保存狀態（`static mut`、thread local）；檔頭寫明為什麼不能共用。v3 仍要寫這招的行為描述或預期結果，conformance 才能產生情境、比對 hook 的實作。
+- **判定依據**：`v3_codegen_coverage.lua` 的「用到的招式數」。一種寫法只有 1 招用到，標為 hook 候選；之後若第 2 招也用到，就把 hook 改成共用，原本的 hook 刪掉。
+
+### 2.5 共用元件 `ability_kit`
 
 產生的程式碼只呼叫這一層，不直接散寫 world 呼叫，好讓產生器保持簡單、行為一致：
 

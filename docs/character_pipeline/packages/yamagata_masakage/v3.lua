@@ -137,16 +137,19 @@ return function(ctx)
           mana_pct = { 3, 5, 7, 9, unit = "pct", source = "kv:B20R_mpRegen" },
           heal_pct = { 1, 2, 3, 4, unit = "pct", source = "kv:B20R_hpRegen" },
           low_hp = { 50, unit = "pct", source = "script:vscripts/heroes/B_Unified/B20.lua:127 GetHealthPercent() < 50" },
+          magic_resist = { 8, 16, 24, 32, unit = "pct", source = "kv:B20R_mrBonus",
+            note = "FC-054：原作 modifier 引用 %B20R_msBonus（不存在）而沒有效果；依 D13 照鍵 B20R_mrBonus 修正" },
         },
         text = {
           zh_TW = { name = "強韌",
-            body = "被動：每次使用技能或道具（切換型技能與少數位移、回城道具除外）時回復 {mana_pct} 最大法力；若生命低於 {low_hp}，另外回復 {heal_pct} 最大生命。" },
+            body = "被動：魔法抗性提高 {magic_resist}。每次使用技能或道具（切換型技能與少數位移、回城道具除外）時回復 {mana_pct} 最大法力；若生命低於 {low_hp}，另外回復 {heal_pct} 最大生命。" },
           en = { name = "Tenacity",
-            body = "Passive: each time Masakage uses an ability or item (except toggles and a few movement and teleport items) he restores {mana_pct} of his maximum mana; if his health is below {low_hp}, he also heals for {heal_pct} of his maximum health." },
+            body = "Passive: +{magic_resist} magic resistance. Each time Masakage uses an ability or item (except toggles and a few movement and teleport items) he restores {mana_pct} of his maximum mana; if his health is below {low_hp}, he also heals for {heal_pct} of his maximum health." },
         },
         target = { type = "none" },
         passive = {
           reveal = "public", visibility = "buff",
+          stats = { magic_resist = "$magic_resist" },
           triggers = {
             on_ability_executed = { who = "self",
               filter = "not event.ability.is_toggle and not is_item(event.ability, item_logging) and not is_item(event.ability, item_tpscroll) and not is_item(event.ability, item_flash_shoes) and not is_item(event.ability, item_flash_ring) and not is_item(event.ability, item_samurai_cloth)",
@@ -160,8 +163,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/B_Unified/B20.txt:136,154",
-            text = "MAGICAL_RESISTANCE_BONUS 引用 %B20R_msBonus，但 AbilitySpecial 的鍵是 B20R_mrBonus（8/16/24/32）：引用不存在、數值為 0，實際沒有魔抗加成。原作說明寫「額外降低受到的法術傷害 8/16/24/32%」。資料照原作（沒有魔抗）。" },
+          { policy = "fixed", ref = "npc/B_Unified/B20.txt:136,154",
+            text = "FC-054（D13 修正）：原作 MAGICAL_RESISTANCE_BONUS 引用 %B20R_msBonus，但 AbilitySpecial 的鍵是 B20R_mrBonus（8/16/24/32）：引用不存在、數值為 0，實際沒有魔抗加成。原作說明寫「額外降低受到的法術傷害 8/16/24/32%」。資料照鍵 B20R_mrBonus 給被動魔抗。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B20.lua:107-132",
             text = "法力以 SetMana 直接設定（截在上限、不經回魔事件）；回血用 Heal（經規則層減療），判斷用整數的 GetHealthPercent() < 50。排除切換型技能與伐木斧、回城卷、閃步鞋、閃光戒、武士衣；被動技能不會觸發 OnAbilityExecuted。" },
           { policy = "note", ref = "npc/B_Unified/B20.txt:130-146",

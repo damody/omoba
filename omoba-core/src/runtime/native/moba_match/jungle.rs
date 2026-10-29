@@ -86,6 +86,14 @@ fn home(camp: &MobaJungleCamp) -> Vec2 {
     Vec2::new(Fixed64::from_i32(camp.definition.position.0), Fixed64::from_i32(camp.definition.position.1))
 }
 
+/// A body's own home (E187 §5.4): the leader stands at the camp center plus its leader offset;
+/// members and split children carry their offset home in `position` and no leader offset.
+/// `home` stays the leash anchor.
+fn body_home(body: &MobaJungleCamp) -> Vec2 {
+    let (x, y) = body.definition.leader_home();
+    Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y))
+}
+
 /// Non-combat presentation settled after outcomes. Buff replication retains the
 /// entity's visibility policy; this does not expose camp-private targets/timers.
 pub(super) fn synchronize_returning(world: &World) {
@@ -127,7 +135,9 @@ mod tests {
     use crate::runtime::visibility::*;
     use crate::runtime::attack_visual_state::{AttackVisualState, SCHEMA_ID};
 
-    fn camp_world() -> (World,Entity,MobaMatch) {
+    fn camp_world() -> (World,Entity,MobaMatch) {camp_world_on("three_lane_training")}
+
+    fn camp_world_on(map_id:&str) -> (World,Entity,MobaMatch) {
         let (mut world, hero) = super::super::stop_command_world();
         world.register::<Unit>();world.register::<Faction>();world.register::<ReplicationScope>();
         world.register::<StealthProfile>();world.register::<VisibilityOverride>();world.register::<RememberPolicy>();
@@ -142,9 +152,97 @@ mod tests {
         world.write_storage::<Faction>().insert(hero,Faction::new(FactionType::Player,state.config.teams[0] as i32)).unwrap();
         world.insert(Vec::<Outcome>::new());
         world.insert(crate::runtime::ObservableFactBuffer::default());
-        state.config.map_id = Some("three_lane_training".into());
+        state.config.map_id = Some(map_id.into());
         setup(&mut world, &mut state);
         (world,hero,state)
+    }
+
+    /// E187 §5.4: every original neutral of a nobu camp stands at its own vmap point with its own
+    /// KV and identity; the leader stands at its offset from the leash center.
+    #[test]
+    fn nobu_camp_bodies_stand_at_their_points_with_their_own_stats() {
+        let (world,_,state)=camp_world_on("nobu");
+        let map=omoba_template_ids::moba_map_by_name("nobu").unwrap();
+        let p=|(x,y):(i32,i32)|Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
+        let units=world.read_storage::<Unit>();let props=world.read_storage::<CProperty>();
+        let mut bodies=0;
+        for (camp,definition) in state.jungle_camps.iter().zip(map.jungle_camps).filter(|(_,d)|d.unit_respawn) {
+            let leader=camp.entity.unwrap();
+            assert_eq!(world.read_storage::<Pos>().get(leader).unwrap().0,p(definition.leader_home()),"{}",definition.id);
+            assert_ne!(definition.leader_home(),definition.position,"the center is no body's point");
+            assert_eq!(units.get(leader).unwrap().name,definition.unit);
+            assert_eq!(home(camp),p(definition.position),"the leash anchor is the center");
+            for (body,member) in camp.members.iter().zip(definition.members) {
+                let entity=body.entity.unwrap();let unit=units.get(entity).unwrap();
+                assert_eq!(world.read_storage::<Pos>().get(entity).unwrap().0,
+                    p((definition.position.0+member.offset.0,definition.position.1+member.offset.1)));
+                assert_eq!((unit.name.as_str(),unit.max_hp,unit.base_damage,unit.attack_range,unit.move_speed,unit.base_armor),
+                    (member.id,member.hp,member.damage,Fixed64::from_i32(member.attack_range.unwrap()),
+                     Fixed64::from_i32(member.move_speed.unwrap()),Fixed64::from_i32(member.armor.unwrap())),"{}",definition.id);
+                assert_eq!(props.get(entity).unwrap().mhp,Fixed64::from_i32(member.hp));
+                assert_eq!(body.attack_duration,attack_interval(&body.definition));
+                assert_eq!(body.definition.attack_interval_ms,member.attack_interval_ms.unwrap());
+                assert_eq!((body.definition.gold,body.definition.xp),(member.gold,member.xp));
+            }
+            bodies+=1+camp.members.len();
+        }
+        assert_eq!(bodies,68,"the 68 neutral units of the 24 camps");
+    }
+
+    /// E187 §5.4 (eventforkill.lua:388-437 / 467-512): each body comes back 120 s after its own
+    /// death at its own point; a returning leader keeps the camp's fight while a member stands.
+    #[test]
+    fn nobu_camp_bodies_respawn_by_themselves_after_their_own_death() {
+        let (mut world,hero,mut state)=camp_world_on("nobu");
+        let i=state.jungle_camps.iter().position(|c|c.definition.unit_respawn && c.members.len()==2).unwrap();
+        let respawn=Fixed64::from_i32(state.jungle_camps[i].definition.respawn_seconds);
+        assert_eq!(respawn,Fixed64::from_i32(120));
+        let kill=|world:&World,state:&mut MobaMatch,entity:Entity| {
+            let camp=&mut state.jungle_camps[i];camp.body_mut(entity).unwrap().lethal_pending=true;
+            world.write_storage::<CProperty>().get_mut(entity).unwrap().hp=Fixed64::ZERO;
+            death(world,state,entity);
+        };
+        // A member dies at 10 s: it alone waits, the others keep standing.
+        state.elapsed=Fixed64::from_i32(10);
+        let member=state.jungle_camps[i].members[0].entity.unwrap();
+        kill(&world,&mut state,member);
+        assert_eq!(state.jungle_camps[i].members[0].respawn_at,Some(Fixed64::from_i32(130)));
+        assert!(state.jungle_camps[i].respawn_at.is_none() && state.jungle_camps[i].entity.is_some());
+        // The leader dies at 50 s while the camp fights the hero.
+        state.jungle_camps[i].target=Some(hero);
+        state.elapsed=Fixed64::from_i32(50);
+        let leader=state.jungle_camps[i].entity.unwrap();
+        kill(&world,&mut state,leader);
+        assert_eq!(state.jungle_camps[i].respawn_at,Some(Fixed64::from_i32(170)));
+        assert_eq!(state.jungle_camps[i].target,Some(hero),"the last member still fights");
+        // At 129.98 s nothing is back; at 130 s the member is, at its own point, the leader is not.
+        respawn_due_bodies(&mut world,&mut state.jungle_camps[i],Fixed64::from_i32(130)-Fixed64::from_raw(16));
+        assert!(state.jungle_camps[i].members[0].entity.is_none());
+        respawn_due_bodies(&mut world,&mut state.jungle_camps[i],Fixed64::from_i32(130));
+        let back=state.jungle_camps[i].members[0].entity.expect("member back after its own 120 s");
+        assert_ne!(back,member);
+        assert_eq!(world.read_storage::<Pos>().get(back).unwrap().0,body_home(&state.jungle_camps[i].members[0]));
+        assert!(state.jungle_camps[i].entity.is_none());
+        // The whole camp never respawns at once: the leader comes back at 170 s and keeps the fight.
+        state.jungle_camps[i].target=Some(hero);
+        respawn_due_bodies(&mut world,&mut state.jungle_camps[i],Fixed64::from_i32(170));
+        let leader_back=state.jungle_camps[i].entity.expect("leader back after its own 120 s");
+        assert_eq!(world.read_storage::<Pos>().get(leader_back).unwrap().0,body_home(&state.jungle_camps[i]));
+        assert_eq!(state.jungle_camps[i].target,Some(hero),"a returning leader keeps the camp's aggro");
+        assert_eq!(state.jungle_camps[i].members[0].entity,Some(back),"standing bodies are not respawned");
+        assert_eq!(state.jungle_camps[i].entities().count(),3);
+        // A camp wiped out has no aggro; each body still returns on its own clock.
+        let (mut world,_,mut state)=camp_world_on("nobu");
+        state.elapsed=Fixed64::from_i32(5);
+        for entity in state.jungle_camps[i].entities().collect::<Vec<_>>() {kill(&world,&mut state,entity);state.elapsed+=Fixed64::ONE;}
+        assert!(state.jungle_camps[i].target.is_none() && state.jungle_camps[i].entities().next().is_none());
+        state.elapsed=Fixed64::from_i32(126);tick(&mut world,&mut state,Fixed64::ZERO);
+        assert_eq!(state.jungle_camps[i].entities().count(),2,"the first two bodies are back, the third waits a second");
+        state.elapsed=Fixed64::from_i32(127);tick(&mut world,&mut state,Fixed64::ZERO);
+        assert_eq!(state.jungle_camps[i].entities().count(),3);
+        // The training camps keep the whole-camp respawn.
+        let (_,_,state)=camp_world();
+        assert!(state.jungle_camps.iter().all(|c|!c.definition.unit_respawn));
     }
 
     #[test]
@@ -448,10 +546,16 @@ fn spawn(world: &mut World, camp: &mut MobaJungleCamp) {
 
 fn child_definition(parent:MobaJungleConst,child:&omoba_template_ids::MobaJungleMemberConst)->MobaJungleConst {
     // Members and split children carry neither the leader's tags, reward, timing nor growth (E187).
+    // A member authored with its own stats (E187 §5.4, a camp mixing original neutral types) uses
+    // them; otherwise it inherits the leader's. Its own template is its identity.
+    let attack_interval_ms=child.attack_interval_ms.unwrap_or(parent.attack_interval_ms);
     MobaJungleConst {members:&[],death_children:child.death_children,objective_buff:None,personal_buff:None,additional_objective_buffs:&[],
         tags:&[],original_reward:None,first_spawn_seconds:0,respawn_growth_hp:0,respawn_growth_damage:0,
-        id:child.id,position:(parent.position.0+child.offset.0,parent.position.1+child.offset.1),
-        hp:child.hp,damage:child.damage,gold:child.gold,xp:child.xp,..parent}
+        id:child.id,unit:child.id,leader_offset:(0,0),position:(parent.position.0+child.offset.0,parent.position.1+child.offset.1),
+        hp:child.hp,damage:child.damage,gold:child.gold,xp:child.xp,
+        move_speed:child.move_speed.unwrap_or(parent.move_speed),attack_range:child.attack_range.unwrap_or(parent.attack_range),
+        attack_interval_ms,attack_interval_seconds:if child.attack_interval_ms.is_some() {((attack_interval_ms+500)/1000).max(1)} else {parent.attack_interval_seconds},
+        armor:child.armor.unwrap_or(parent.armor),magic_resistance:child.magic_resistance.unwrap_or(parent.magic_resistance),..parent}
 }
 
 /// Camp NPC pose (position and, when it changed, facing) for every replica.
@@ -470,7 +574,8 @@ fn emit_camp_pose(world: &World, entity: Entity, pos: Vec2, facing_ticks: Option
 fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
     let d = camp.definition;
     let (hp, damage) = (camp.body_hp(), camp.body_damage());
-    let mut unit = Unit::new(d.id.into(), d.id.into(), UnitType::Neutral);
+    // The body's identity is its unit template (E187 §5.4; the camp id unless authored).
+    let mut unit = Unit::new(d.unit.into(), d.unit.into(), UnitType::Neutral);
     unit.max_hp = hp;
     unit.current_hp = hp;
     unit.base_damage = damage;
@@ -487,7 +592,7 @@ fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
     let entity = world.create_entity().with(unit)
         .with(Faction::new(FactionType::HostileNeutral, 0))
         .with(ReplicationScope { kind: ReplicationScopeKind::Vision, owner_team: None })
-        .with(Pos(home(camp)))
+        .with(Pos(body_home(camp)))
         .with(Facing(omoba_sim::Angle::ZERO))
         .with(CProperty { def_physic: Fixed64::from_i32(d.armor), def_magic: Fixed64::from_i32(d.magic_resistance),
             ..property(Fixed64::from_i32(hp), Fixed64::from_i32(d.move_speed)) }).build();
@@ -508,6 +613,27 @@ fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
     camp.lethal_pending = false;
     camp.killer_player = None;
     camp.killer_side = None;
+}
+
+/// Per-unit respawn (E187 §5.4): every body whose own timer ran out comes back at its home. A
+/// returning leader keeps the camp's aggro, leash and reset state while another body still stands.
+fn respawn_due_bodies(world: &mut World, camp: &mut MobaJungleCamp, elapsed: Fixed64) {
+    let due = |body: &MobaJungleCamp| body.entity.is_none() && body.respawn_at.is_some_and(|time| elapsed >= time);
+    if due(camp) {
+        let others = camp.members.iter().any(|member| member.entity.is_some());
+        let kept = (camp.target, camp.returning, camp.hard_reset, camp.patience_remaining, camp.reset_remaining);
+        camp.respawns = camp.respawns.saturating_add(1);
+        spawn_body(world, camp);
+        if others {
+            (camp.target, camp.returning, camp.hard_reset, camp.patience_remaining, camp.reset_remaining) = kept;
+        }
+    }
+    let (returning, hard_reset) = (camp.returning, camp.hard_reset);
+    for member in camp.members.iter_mut().filter(|member| due(member)) {
+        spawn_body(world, member);
+        member.returning = returning;
+        member.hard_reset = hard_reset;
+    }
 }
 
 pub(super) fn setup(world: &mut World, state: &mut MobaMatch) {
@@ -584,8 +710,12 @@ pub(super) fn death(world: &World, state: &mut MobaMatch, entity: Entity) {
     let body=camp.body_mut(entity).expect("camp body");
     let definition=body.definition;
     let split=active && body.lethal_pending;
-    let corpse=world.read_storage::<Pos>().get(entity).map_or_else(||home(body),|p|p.0);
+    let corpse=world.read_storage::<Pos>().get(entity).map_or_else(||body_home(body),|p|p.0);
     body.entity=None;let killer=body.killer_player.take();let side=body.killer_side.take();let reward=(body.definition.gold,body.definition.xp);
+    // E187 §5.4 (eventforkill.lua:388-437 / 467-512): each original neutral comes back by itself,
+    // respawn_seconds after its own death, at its own home.
+    let unit_respawn=definition.unit_respawn;
+    if unit_respawn {body.respawn_at=Some(state.elapsed+Fixed64::from_i32(definition.respawn_seconds));}
     if split {
         for child in definition.death_children {
             let next=child_definition(definition,child);
@@ -597,7 +727,7 @@ pub(super) fn death(world: &World, state: &mut MobaMatch, entity: Entity) {
     }
     if camp.entities().next().is_none() && camp.pending_children.is_empty() {
         camp.target=None;camp.returning=false;camp.hard_reset=false;
-        camp.respawn_at=Some(state.elapsed+Fixed64::from_i32(camp.definition.respawn_seconds));
+        if !unit_respawn {camp.respawn_at=Some(state.elapsed+Fixed64::from_i32(camp.definition.respawn_seconds));}
     }
     if state.phase != MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused { return; }
     if let Some(index) = killer.and_then(|player| state.heroes.iter().position(|s| s.player_id == player)) {
@@ -621,7 +751,9 @@ pub(super) fn death(world: &World, state: &mut MobaMatch, entity: Entity) {
 pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
     let mut brush_attacks=Vec::new();
     for camp in &mut state.jungle_camps {
-        if camp.respawn_at.is_some_and(|time| state.elapsed >= time) {
+        if camp.definition.unit_respawn {
+            respawn_due_bodies(world, camp, state.elapsed);
+        } else if camp.respawn_at.is_some_and(|time| state.elapsed >= time) {
             // The first appearance of a timed boss is no respawn: it has no growth (E187).
             if !std::mem::take(&mut camp.first_appearance_pending) {camp.respawns = camp.respawns.saturating_add(1);}
             spawn(world, camp);
@@ -660,7 +792,7 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
             let Some(entity)=body.entity else{continue;};
             if body.lethal_pending || world.read_storage::<CProperty>().get(entity).is_none_or(|p|p.hp<=Fixed64::ZERO) {continue;}
             let origin=world.read_storage::<Pos>().get(entity).expect("camp position").0;
-            let destination = if returning { Some(home(body)) } else { target.map(|(_,pos)|pos) };
+            let destination = if returning { Some(body_home(body)) } else { target.map(|(_,pos)|pos) };
             if returning {
                 world.write_resource::<Vec<Outcome>>().push(Outcome::Heal {pos:origin,target:entity,
                     amount:Fixed64::from_i32(body.body_hp())*dt*Fixed64::from_i32(if hard {20}else{6})/Fixed64::from_i32(100)});
@@ -679,7 +811,7 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
                     stats.final_move_speed(base_speed,entity),stats.final_attack_range(base_range,entity),
                     stats.final_attack_interval(base_interval,entity).max(Fixed64::from_raw(1)))
             } else {(false,false,base_speed,base_range,base_interval)};
-            if stunned {if returning {all_home &= origin==home(body);}continue;}
+            if stunned {if returning {all_home &= origin==body_home(body);}continue;}
         let Some(destination) = destination else { continue; };
         let attack_line_clear = || world.try_fetch::<crate::runtime::VisionOccluderSet>().is_none_or(|walls|
             walls.line_of_sight(origin,destination)==crate::runtime::LosResult::Clear);
@@ -700,7 +832,7 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
             }
             continue;
         }
-        if rooted {if returning {all_home &= origin==home(body);}continue;}
+        if rooted {if returning {all_home &= origin==body_home(body);}continue;}
         let pos = crate::tick::hero_command_tick::static_step_toward(origin,destination,
             speed*dt*if returning {if hard {Fixed64::from_i32(2)}else{Fixed64::from_i32(6)/Fixed64::from_i32(10)}}else{Fixed64::ONE},Fixed64::from_i32(20),
             &world.read_resource::<BlockedRegions>());
@@ -709,7 +841,7 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
             let facing_ticks=super::face_toward(world,entity,origin,pos);
             emit_camp_pose(world,entity,pos,facing_ticks);
         }
-        if returning {all_home &= pos==home(body);}
+        if returning {all_home &= pos==body_home(body);}
         }
         camp.members=children;
         if returning && hard && all_home {

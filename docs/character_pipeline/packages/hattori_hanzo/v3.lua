@@ -15,6 +15,32 @@ return function(ctx)
       text = { zh_TW = { name = "服部半藏" }, en = { name = "Hattori Hanzo" } },
       auto_learn = { "a13_vanishing_step" },
     },
+    hooks = {
+      a13_chain_sickle_hook = { kind = "ability", test = "a13_chain_sickle_hook_conformance",
+        why = "鎖鏈鐮是全遊戲唯一沿路徑飛、轉折、命中後沿原路拉回的鉤子；投射物元件沒有路徑與拉回，只有這 1 招用到（D7）",
+        behavior = "沿施法者到指定點的方向擲出鉤鎖，總長 hook_distance、寬 hook_width；飛過 arm_distance 後碰到的第一個敵人受到 hook_damage 物理傷害（無視魔免），帶 a13e_hook_back（暈眩）被拉回擲出點，到點後短暫無碰撞。施法者擲出時有 followthrough 硬直。",
+        reads = { "$a13_chain_sickle.hook_distance", "$a13_chain_sickle.hook_width", "$a13_chain_sickle.hook_damage",
+          "$a13_chain_sickle.hook_speed", "$a13_chain_sickle.pull_speed", "$a13_chain_sickle.pull_max_time",
+          "$a13_chain_sickle.arm_distance", "$a13_chain_sickle.followthrough" },
+        cases = {
+          { id = "hits_first_enemy_in_line",
+            given = { { kind = "target_unit", team = "enemy", types = { "hero" } } },
+            when = { { kind = "cast", entry = "a13_chain_sickle", target = "point" } },
+            expect = { { kind = "cast_accepted" }, { kind = "status_applied", status = "a13e_hook_back", to = "target" },
+              { kind = "damage", to = "target", amount = "$hook_damage", type = "physical" },
+              { kind = "moved_toward", who = "target", toward = "cast_origin" } } },
+          { id = "nothing_in_line",
+            given = { { kind = "no_unit_in_line" } },
+            when = { { kind = "cast", entry = "a13_chain_sickle", target = "point" } },
+            expect = { { kind = "cast_accepted" }, { kind = "status_applied", status = "a13e_followthrough", to = "caster" },
+              { kind = "no_effects" } } },
+          { id = "spell_immune_enemy",
+            given = { { kind = "target_unit", team = "enemy", types = { "hero" }, states = { "magic_immune" } } },
+            when = { { kind = "cast", entry = "a13_chain_sickle", target = "point" } },
+            expect = { { kind = "cast_accepted" }, { kind = "status_applied", status = "a13e_hook_back", to = "target" },
+              { kind = "damage", to = "target", amount = "$hook_damage", type = "physical" } } },
+        } },
+    },
     abilities = {
       -------------------------------------------------------------------------
       { id = "a13_vanishing_step", source_id = "A13D", slot = "D", kind = "active", max_level = 5, learnable = false,
@@ -154,9 +180,7 @@ return function(ctx)
             notes = "代替原作的 illusion.caster 欄位（A13_Hattori_Hanzo.lua:249），讓 A13W2 判斷目標是不是影惑之術的幻象。不用 is_illusion_of：原作只認 A13W 產生的幻象（其他來源的半藏幻象沒有 .caster），而且不限是哪一位半藏的。" },
         },
         events = {
-          on_phase_start = {
-            { op = "apply_status", status = "a13w_invulnerable", to = "caster" },
-          },
+          -- FC-082（D13）：施放成立才給無敵（拿掉前搖開始時的那一次）
           on_cast = {
             { op = "cue", id = "a13w_vo", at = "caster" },
             { op = "let", name = "origin", value = "caster.position" },
@@ -166,7 +190,7 @@ return function(ctx)
             { op = "apply_status", status = "a13w_invulnerable", to = "caster" },
             { op = "remove_status", from = "caster", dispel = "all", team_of_source = "enemy" },
             { op = "swap_abilities", on = "caster", from = "a13_shadow_illusion", to = "a13_substitution",
-              duration = "$swap_window", cooldown_policy = "reset" },
+              duration = "$swap_window", cooldown_policy = "continue" }, -- FC-081（D13）：換回時保留冷卻
             { op = "repeat", count = "$slots", interval = "$spawn_interval", first = "$spawn_interval", as = "k",
               ["while"] = "alive(caster)", actions = {
                 { op = "let", name = "slot", value = "k + 1" },
@@ -213,10 +237,10 @@ return function(ctx)
             text = "幻象傷害：modifier_illusion outgoing_damage = -1000 寫成 outgoing.physical = -10（不造成攻擊傷害），nobu 全域 filter 的 illusion_damage = 0.1 寫成 magical／pure = -0.9（eventfordamage.lua:63-65 對非物理傷害乘 0.1），incoming.all = 0。推定 -1000% 只作用在物理（攻擊）傷害，A13R 魔法爆發仍有 10%；幻象造成的非攻擊物理傷害是否也被 -1000% 歸零未實測。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:245-287",
             text = "複製範圍：英雄等級、同名技能等級、道具以 CreateItem 新實例複製（fresh）、生命等於本體目前值；不複製狀態與 unit_state（A13R 計數各自從零起）。原作另外複製 magical_resistance 欄位（nobu 魔抗池，屬規則層）。法力沒有設定，新英雄單位的法力推定為滿，資料用預設（等於本體目前值），未實測。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:232-237",
-            text = "冷卻幾乎失效：OnSpellStart 內 RemoveAbility(A13W)，6 秒後 AddAbility 一個全新的 A13W，新實例沒有冷卻；有效冷卻約 6 秒而不是 15 秒。資料照原作（cooldown_policy = reset）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:196-201",
-            text = "前搖開始就給 0.8 秒無敵，開始施法後取消也保留，可以不花冷卻與法力取得無敵。資料照原作（on_phase_start）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:232-237",
+            text = "FC-081（D13 修正：換回時保留冷卻（cooldown_policy = continue），照 KV 15 秒）。原作：冷卻幾乎失效：OnSpellStart 內 RemoveAbility(A13W)，6 秒後 AddAbility 一個全新的 A13W，新實例沒有冷卻；有效冷卻約 6 秒而不是 15 秒。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:196-201",
+            text = "FC-082（D13 修正：施放成立才給無敵，拿掉前搖開始時的那一次）。原作：前搖開始就給 0.8 秒無敵，開始施法後取消也保留，可以不花冷卻與法力取得無敵。" },
           { policy = "no_effect", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:223-227",
             text = "移除迴圈用 v:GetCaster():GetTeamNumber()，若某個 modifier 的 caster 是 nil 會報錯，後面的幻象、技能替換整段不執行；資料不重現這個中斷。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:223-226",
@@ -248,15 +272,15 @@ return function(ctx)
           cooldown = { 1, unit = "s", source = "kv:AbilityCooldown" },
           mana_cost = { 100, unit = "mana", source = "kv:AbilityManaCost" },
           cast_point = { 0, unit = "s", source = "kv:AbilityCastPoint" },
-          cast_range = { 0, unit = "dist", source = "assumed:KV 沒寫 AbilityCastRange，Dota GetCastRange 取 0（D13 推定）" },
         },
         text = {
           zh_TW = { name = "忍法．換位之術",
-            body = "與一個由{@a13_shadow_illusion}產生的幻象交換位置，並躲開飛行中的投射物。目標不是這種幻象時沒有效果，但仍消耗法力與冷卻。" },
+            body = "與一個由{@a13_shadow_illusion}產生的幻象交換位置（不限距離），並躲開飛行中的投射物。目標不是這種幻象時沒有效果，但仍消耗法力與冷卻。" },
           en = { name = "Ninja Art: Substitution",
-            body = "Swaps places with an illusion created by {@a13_shadow_illusion} and dodges projectiles in flight. Targeting anything else has no effect but still spends mana and cooldown." },
+            body = "Swaps places with an illusion created by {@a13_shadow_illusion} at any distance and dodges projectiles in flight. Targeting anything else has no effect but still spends mana and cooldown." },
         },
-        target = { type = "unit", team = "ally", types = { "hero" }, range = "$cast_range" },
+        -- FC-132（D13，使用者 2026-10-29 決定全修）：不限距離（原作 KV 沒寫 AbilityCastRange，推定取 0 要走到相接）
+        target = { type = "unit", team = "ally", types = { "hero" } },
         cast = { cast_point = "$cast_point", immediate = true },
         cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
         events = {
@@ -270,8 +294,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "npc/A_Oda/A13.txt:378-413",
-            text = "KV 沒寫 AbilityCastRange（npc/A_Oda/A13.txt:378-413）。Dota 的 GetCastRange 在沒寫時取 0，單位目標技能要走到與目標相接才施放；資料照這個推定寫 cast_range 0（D13，2026-10-29，confidence medium）。與幻象換位多半不需要貼身，是否改成不限距離見 fix-candidates FC-132。" },
+          { policy = "fixed", ref = "npc/A_Oda/A13.txt:378-413",
+            text = "FC-132（D13 修正：換位不限距離）。原作：KV 沒寫 AbilityCastRange（npc/A_Oda/A13.txt:378-413）。Dota 的 GetCastRange 在沒寫時取 0，單位目標技能要走到與目標相接才施放；" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:183-194",
             text = "目標不是幻象（沒有 .caster 欄位）時什麼都不做，但已扣 100 法力與 1 秒冷卻。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:188",
@@ -283,7 +307,7 @@ return function(ctx)
         provenance = { "npc/A_Oda/A13.txt:378-413", "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:183-194" },
       },
       -------------------------------------------------------------------------
-      { id = "a13_chain_sickle", source_id = "A13E", slot = "W", kind = "active", max_level = 4, tags = { "basic" },
+      { id = "a13_chain_sickle", source_id = "A13E", slot = "W", kind = "active", max_level = 4, tags = { "basic" }, hook = "a13_chain_sickle_hook",
         values = {
           cooldown = { 14, 11, 8, 5, unit = "s", source = "kv:AbilityCooldown" },
           mana_cost = { 100, 120, 140, 160, unit = "mana", source = "kv:AbilityManaCost" },
@@ -349,7 +373,7 @@ return function(ctx)
               } },
           },
         },
-        coverage = "expressible", confidence = "medium",
+        coverage = "needs_hook", confidence = "medium",
         quirks = {
           { policy = "note", ref = "vscripts/heroes/A_Oda/A13_Hattori_Hanzo.lua:542-547",
             text = "原作倒拉停在 path[2]（離施法起點一步，約 10 距離）就加 phased 並移除；pull along 定義為退回起點（§12.4），差一步，可忽略。" },

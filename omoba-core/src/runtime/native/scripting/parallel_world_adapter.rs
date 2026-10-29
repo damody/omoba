@@ -48,6 +48,8 @@ pub struct ParallelAdapterCache<'a> {
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
     filtered: bool,
     summon_placements: super::super::summon_navigation::PlacementReservations,
+    /// Test worlds with a `DamageTrace`: scripts tag their damage (ext DAMAGE_TAG).
+    damage_trace: bool,
 }
 
 impl<'a> ParallelAdapterCache<'a> {
@@ -93,6 +95,7 @@ impl<'a> ParallelAdapterCache<'a> {
             moba: world.try_fetch::<crate::runtime::MobaMatch>().map(Into::into),
             attack_gate: world.try_fetch::<crate::runtime::filtered_specs::DisclosedAttackabilityGate>().map(Into::into),
             filtered: world.try_fetch::<crate::runtime::filtered_specs::DisclosedMovementPriority>().is_some(),
+            damage_trace: super::super::damage_trace::enabled(world),
         }
     }
 }
@@ -1432,12 +1435,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         log::debug!("[script] {}", msg.as_str());
     }
 
-    fn log_warn(&self, msg: RStr<'_>) {
-        log::warn!("[script] {}", msg.as_str());
-    }
-
-    fn log_error(&self, msg: RStr<'_>) {
-        log::error!("[script] {}", msg.as_str());
+    fn log_at(&self, level: u8, msg: RStr<'_>) {
+        match level {
+            1 => log::warn!("[script] {}", msg.as_str()),
+            2 => log::error!("[script] {}", msg.as_str()),
+            _ => log::info!("[script] {}", msg.as_str()),
+        }
     }
 
     fn sum_stat(&self, e: EntityHandle, stat_key: StatKey) -> Fixed64 {
@@ -1518,6 +1521,12 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         .final_attack_range(base, ent)
     }
 
+    fn get_buff_payload(&self, e: EntityHandle, buff_id: RStr<'_>) -> ROption<abi_stable::std_types::RString> {
+        Self::handle_to_entity(e)
+            .and_then(|ent| self.source_buffs(ent).get(ent, buff_id.as_str()).map(|b| b.payload.to_string().into()))
+            .into()
+    }
+
     fn get_buff_remaining(&self, e: EntityHandle, buff_id: RStr<'_>) -> Fixed64 {
         Self::handle_to_entity(e)
             .and_then(|ent| {
@@ -1565,7 +1574,27 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         }
     }
 
-    fn trigger_state_changed(&mut self, _e: EntityHandle, _state_id: RStr<'_>, _active: bool) {}
+    fn ext(&mut self, op: u32, args: abi_stable::std_types::RSlice<'_, omb_script_abi::ext::ExtArg>)
+        -> abi_stable::std_types::RResult<omb_script_abi::ext::ExtValue, abi_stable::std_types::RString> {
+        use abi_stable::std_types::{RErr, ROk};
+        use omb_script_abi::ext::{op, ExtArg as A, ExtValue as V};
+        match (op, args.as_slice()) {
+            (op::DAMAGE_TRACE_ENABLED, []) => ROk(V::Bool(self.cache.damage_trace)),
+            (op::DAMAGE_TAG, [A::Str(ability), A::Str(path)]) => {
+                if self.cache.damage_trace {
+                    self.outcomes.push(Outcome::ScriptDamageTag { ability: ability.to_string(), path: path.to_string() });
+                }
+                ROk(V::None)
+            }
+            (op::ABILITY_LEVEL, [A::Unit(unit), A::Str(ability)]) => {
+                let level = Self::handle_to_entity(*unit)
+                    .and_then(|entity| self.cache.hero.get(entity))
+                    .map_or(0, |hero| hero.get_ability_level(ability.as_str()).max(0));
+                ROk(V::Num(Fixed64::from_i32(level)))
+            }
+            (op, _) => RErr(abi_stable::std_types::RString::from(format!("GameWorld::ext: unknown op {op} or arguments"))),
+        }
+    }
 
     fn get_final_armor(&self, e: EntityHandle) -> Fixed64 {
         let Some(ent) = Self::handle_to_entity(e) else {

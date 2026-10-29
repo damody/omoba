@@ -27,14 +27,15 @@ return function(ctx)
           leash = { 500, unit = "dist", source = "script:vscripts/heroes/C_Neutral/C18.lua:101-102 dis < 500" },
           drag_offset = { 100, unit = "dist", hidden = true, source = "script:vscripts/heroes/C_Neutral/C18.lua:103 GetForwardVector()*100" },
           hold_duration = { 0.2, unit = "s", hidden = true, source = "script:vscripts/heroes/C_Neutral/C18.lua:105 modifier_C18W2 duration 0.2" },
-          item_lock = { 3, unit = "s", hidden = true, source = "script:vscripts/heroes/C_Neutral/C18.lua:80 item:StartCooldown(3)" },
+          item_lock = { 3, unit = "s", source = "script:vscripts/heroes/C_Neutral/C18.lua:80 item:StartCooldown(3)",
+            note = "FC-126（D13）：原作鎖的是隆景自己的背包；照原意鎖被拖住的敵人" },
           inventory_slots = { 6, unit = "count", hidden = true, source = "script:vscripts/heroes/C_Neutral/C18.lua:74 for itemSlot=0,5" },
         },
         text = {
           zh_TW = { name = "謀計．單馬沓履",
-            body = "{duration} 秒內移動速度提高 {move_speed_pct}。期間碰到隆景周圍 {radius} 內的敵人會被拖住：只要與隆景相距不到 {leash}，就一直被拉到隆景身後，並且無法移動、施法、攻擊，也不能閃避攻擊。施放時隆景身上的閃現類道具若在可用狀態，會進入短暫冷卻。" },
+            body = "{duration} 秒內移動速度提高 {move_speed_pct}。期間碰到隆景周圍 {radius} 內的敵人會被拖住：只要與隆景相距不到 {leash}，就一直被拉到隆景身後，並且無法移動、施法、攻擊，也不能閃避攻擊。被拖住的敵人身上可用的閃現類道具會進入 {item_lock} 秒冷卻。" },
           en = { name = "Stratagem: Lone Rider",
-            body = "Gains {move_speed_pct} movement speed for {duration} seconds. Enemies that come within {radius} of Takakage during that time are dragged along: while they stay within {leash} of him they are pulled behind him and cannot move, cast, attack or evade attacks. On cast, Takakage's own blink items that are ready go on a short cooldown." },
+            body = "Gains {move_speed_pct} movement speed for {duration} seconds. Enemies that come within {radius} of Takakage during that time are dragged along: while they stay within {leash} of him they are pulled behind him and cannot move, cast, attack or evade attacks. Ready blink items of a dragged enemy go on a {item_lock}-second cooldown." },
         },
         target = { type = "none" },
         cast = { cast_point = "$cast_point", immediate = true },
@@ -80,20 +81,24 @@ return function(ctx)
               en = { name = "Lone Rider Drag", body = "Dragged behind Takakage: cannot move, cast or attack, and cannot evade attacks." },
             },
             reveal = "public", states = { "root", "evade_disabled", "silence", "disarm" }, cue = "c18w_hold_glow",
+            -- FC-126（D13）：被拖住時，這個敵人背包裡可用的閃現道具進入冷卻，不讓他閃走
+            triggers = {
+              on_created = {
+                { op = "repeat", count = "$inventory_slots", as = "k", actions = {
+                  { op = "pick_item", from = "self", slots = "inventory", order = "first", as = "blink_item",
+                    where = "(is_item(it, item_flash_ring) or is_item(it, item_flash_shoes) or is_item(it, item_magic_ring)) and it.cooldown_remaining <= 0" },
+                  { op = "if", cond = "exists(blink_item)", actions = {
+                    { op = "modify_cooldown", of = "self", item = "blink_item", mode = "start", amount = "$item_lock" },
+                  } },
+                } },
+              },
+            },
             notes = "原作 modifier_C18W2：ROOTED、EVADE_DISABLED、SILENCED、DISARMED，0.2 秒，每 0.1 秒重套。" },
         },
         events = {
           on_cast = {
             { op = "cue", id = "c18w_voice", at = "caster" },
             { op = "apply_status", status = "c18w_ride", to = "caster" },
-            -- 背包六格裡每一件「可用」的閃現道具進入冷卻：每次挑一件還沒冷卻的，挑完為止
-            { op = "repeat", count = "$inventory_slots", as = "k", actions = {
-              { op = "pick_item", from = "caster", slots = "inventory", order = "first", as = "blink_item",
-                where = "(is_item(it, item_flash_ring) or is_item(it, item_flash_shoes) or is_item(it, item_magic_ring)) and it.cooldown_remaining <= 0" },
-              { op = "if", cond = "exists(blink_item)", actions = {
-                { op = "modify_cooldown", of = "caster", item = "blink_item", mode = "start", amount = "$item_lock" },
-              } },
-            } },
           },
         },
         coverage = "expressible", confidence = "medium",
@@ -110,8 +115,8 @@ return function(ctx)
             text = "AddNewModifier 的名稱寫成 modifier_pased（打錯字），沒有效果。" },
           { policy = "note", ref = "vscripts/heroes/C_Neutral/C18.lua:110-118",
             text = "結束時對名單上的單位加 modifier_phased 0.1 秒以免卡位，屬呈現細節。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/C_Neutral/C18.lua:74-84",
-            text = "鎖閃現道具的對象是隆景自己的背包（不是被拖住的敵人），等於施放後自己三秒內不能閃現；推測原意是不讓被拖的敵人閃走。" },
+          { policy = "fixed", ref = "vscripts/heroes/C_Neutral/C18.lua:74-84",
+            text = "FC-126（D13 修正：鎖的是被拖住的敵人背包裡可用的閃現道具（c18w_hold 的 on_created），不是隆景自己）。原作：鎖閃現道具的對象是隆景自己的背包（不是被拖住的敵人），等於施放後自己三秒內不能閃現；推測原意是不讓被拖的敵人閃走。" },
           { policy = "note", ref = "npc/C_Neutral/C18.txt:82-84",
             text = "AbilityUnitDamageType MAGICAL 只是標記；本技能沒有傷害。" },
         },

@@ -106,9 +106,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "鬼軀之步",
-            body = "{duration} 秒內移動速度提高 {move_speed}。期間受到英雄或建築單筆至少 {min_damage} 的傷害時，立即回復該傷害，可抵銷 {blocks} 次；次數用完後，再受到英雄或建築的任何傷害就結束效果。致命的傷害不會被抵銷。" },
+            body = "{duration} 秒內移動速度提高 {move_speed}。期間受到英雄或建築單筆至少 {min_damage} 的傷害時，忽略該傷害，可抵銷 {blocks} 次；次數用完後，再受到英雄或建築的任何傷害就結束效果。致命的傷害不會被抵銷。" },
           en = { name = "Ghost Step",
-            body = "Gains +{move_speed} movement speed for {duration} seconds. While active, each single instance of at least {min_damage} damage from a hero or building is healed back at once, up to {blocks} times; once those are used up, the next damage of any amount from a hero or building ends the effect. Lethal damage is not negated." },
+            body = "Gains +{move_speed} movement speed for {duration} seconds. While active, each single instance of at least {min_damage} damage from a hero or building is ignored, up to {blocks} times; once those are used up, the next damage of any amount from a hero or building ends the effect. Lethal damage is not negated." },
         },
         target = { type = "none" },
         cast = { cast_point = "$cast_point" },
@@ -117,14 +117,15 @@ return function(ctx)
           a33e_count = { type = "int", init = "0", reveal = "public", scope = "unit", note = "原作 caster.a33e_count" },
         },
         statuses = {
-          { id = "a33e_ghost_walk", text = { zh_TW = { name = "鬼軀之步", body = "移動速度提高 {move_speed}。受到英雄或建築單筆至少 {min_damage} 的傷害時立即回復，可抵銷 {blocks} 次；次數用完後再受到英雄或建築的傷害就結束。" }, en = { name = "Ghost Step", body = "+{move_speed} movement speed. Each single instance of at least {min_damage} damage from a hero or building is healed back at once, up to {blocks} times; once used up, the next damage from a hero or building ends the effect." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
+          { id = "a33e_ghost_walk", text = { zh_TW = { name = "鬼軀之步", body = "移動速度提高 {move_speed}。受到英雄或建築單筆至少 {min_damage} 的傷害時忽略該傷害，可抵銷 {blocks} 次；次數用完後再受到英雄或建築的傷害就結束。" }, en = { name = "Ghost Step", body = "+{move_speed} movement speed. Each single instance of at least {min_damage} damage from a hero or building is ignored, up to {blocks} times; once used up, the next damage from a hero or building ends the effect." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
             reveal = "public", cue = "a33e_ghost_glow",
             stats = { move_speed_pct = "$move_speed" },
             triggers = {
-              on_take_damage = { filter = "event.attacker.is_hero or event.attacker.is_building", actions = {
+              -- FC-028（D13）：在傷害結算前忽略這一筆（致命一擊也抵銷得掉）
+              on_take_damage_pre = { filter = "event.attacker.is_hero or event.attacker.is_building", actions = {
                 { op = "if", cond = "event.damage.final >= $min_damage and state.a33e_count > 0",
                   actions = {
-                    { op = "set_health", to = "self", value = "self.hp + event.damage.final" },
+                    { op = "modify_damage", cancel = true },
                     { op = "set_state", var = "a33e_count", value = "state.a33e_count - 1", on = "self" },
                     { op = "set_display_stacks", to = "self", status = "a33e_ghost_walk", count = "state.a33e_count + 1" },
                   },
@@ -147,8 +148,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A33.lua:68-93",
-            text = "抵銷是 OnTakeDamage 之後以 SetHealth(目前生命 + 傷害) 補回，致命的一擊在觸發前就已死亡，不會被抵銷；說明寫「忽略」傷害。資料照實際（on_take_damage 後補血）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A33.lua:68-93",
+            text = "FC-028（D13 修正：改在傷害結算前忽略（on_take_damage_pre 的 modify_damage cancel），致命一擊也抵銷得掉）。原作：抵銷是 OnTakeDamage 之後以 SetHealth(目前生命 + 傷害) 補回，致命的一擊在觸發前就已死亡，不會被抵銷；說明寫「忽略」傷害。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A33.lua:77-86",
             text = "一級次數為 0：第一筆英雄或建築造成的傷害（任何數值）就結束效果，只剩移速。次數大於 0 時，小於 50 的傷害既不消耗次數也不結束效果。攻擊者 IsHero 包含幻象與友方英雄，建築包含防禦塔。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A33.lua:78-79",

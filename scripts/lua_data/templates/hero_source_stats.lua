@@ -24,9 +24,10 @@ return function(ctx)
       return n
     end
     for _, hero in ipairs(heroes) do
-      if hero.source_ref and not hero.tombstone and not hero.test_only then
-        local id = hero.source_ref:match(":([%w_]+)$")
-        local entry = assert(id and by_id[id], ("hero '%s': source_ref %s is not in the roster"):format(hero.id, hero.source_ref))
+      -- a test_only hero names its source unit with `source_stats` (scripts/v3_test_heroes.lua)
+      if not hero.tombstone and ((hero.source_ref and not hero.test_only) or hero.source_stats) then
+        local id = hero.source_stats or hero.source_ref:match(":([%w_]+)$")
+        local entry = assert(id and by_id[id], ("hero '%s': source %s is not in the roster"):format(hero.id, tostring(hero.source_stats or hero.source_ref)))
         local s = assert(entry.stats, ("hero '%s': source hero %s has no unit stats"):format(hero.id, id))
         assert(s.primary == "strength" or s.primary == "agility" or s.primary == "intelligence",
           ("hero '%s': source primary attribute %s is not supported"):format(hero.id, tostring(s.primary)))

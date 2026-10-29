@@ -190,8 +190,8 @@ return function(ctx)
             text = "OnAttackLanded 對任何目標都觸發，包括反補友軍時也會定身友軍並在其背後放分身（KV 沒有 team 過濾）。" },
           { policy = "note", ref = "vscripts/heroes/B_Unified/B11.lua:123",
             text = "nobu_modifier_rooted 以 ability=nil 套用，來源歸屬不是截殺術。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B11.lua:163-164",
-            text = "分身帶入 modifier_B11T_Enable 時 duration 用了未定義的全域變數 rate（nil），結果分身拿到完整的鴉襲持續時間，而不是本體剩餘時間；資料照原作給完整時間。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B11.lua:163-164",
+            text = "FC-052（D13 修正：分身的鴉襲狀態時間改成本體剩餘時間 status_remaining(caster, b11t_enable)）。原作：分身帶入 modifier_B11T_Enable 時 duration 用了未定義的全域變數 rate（nil），結果分身拿到完整的鴉襲持續時間，而不是本體剩餘時間；" },
           { policy = "as_source", ref = "vscripts/library/events/eventfordamage.lua:63-65",
             text = "分身的 illusion_damage 只縮放非物理傷害，物理攻擊由 modifier_illusion 的 outgoing_damage 縮放（B11.lua:177），兩者同值。" },
           { policy = "note", ref = "vscripts/heroes/B_Unified/B11.lua:131-140",
@@ -426,7 +426,7 @@ return function(ctx)
               hp = "caster.hp", mana = "caster.max_mana", unit_state = false },
             outgoing = { all = "rate - 1" }, incoming = { all = "incoming" } },
           { op = "if", cond = "has_status(caster, b11t_enable)", actions = {
-            { op = "apply_status", status = "b11t_enable", to = "ill", source = "ill", duration = "$b11_crow_strike.duration" },
+            { op = "apply_status", status = "b11t_enable", to = "ill", source = "ill", duration = "status_remaining(caster, b11t_enable)" }, -- FC-052（D13）：分身只拿本體剩餘時間
           } },
           { op = "apply_status", status = "b11r_phased", to = "caster" },
           { op = "apply_status", status = "b11r_phased", to = "victim" },

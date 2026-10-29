@@ -246,6 +246,7 @@ impl<'a> System<'a> for Sys {
                                 disclosed_wards: tr.disclosed_wards.as_deref(),
                                 replica_identities: &tr.replica_identities,
                                 ward_bodies: &tr.ward_bodies,
+                                buffs: Some(&*tr.buff_store),
                             };
                             let selected = if committed_impact && explicit_target.is_none() { None } else { acquire(
                                 &view,

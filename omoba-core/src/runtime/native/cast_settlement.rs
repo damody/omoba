@@ -59,6 +59,16 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
             && super::super::blink_landing::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::delayed_effect::KEY).is_some() || buff_id.starts_with(super::super::delayed_effect::PREFIX))
             && !super::super::delayed_effect::admitted(*target,buff_id,*duration,payload,caster){return false;}
+        if (payload.get(super::super::scheduled_effect::KEY).is_some() || buff_id.starts_with(super::super::scheduled_effect::PREFIX))
+            && !super::super::scheduled_effect::admitted(&world.read_resource::<BuffStore>(),*target,buff_id,*duration,payload){return false;}
+        if (payload.get(super::super::unit_var::KEY).is_some() || buff_id.starts_with(super::super::unit_var::PREFIX))
+            && !super::super::unit_var::admitted(&world.read_resource::<BuffStore>(),*target,buff_id,*duration,payload){return false;}
+        if (payload.get(super::super::dispel::PURGE_KEY).is_some() || buff_id==super::super::dispel::PURGE_BUFF)
+            && super::super::dispel::PurgeSpec::from_payload(buff_id,*duration,payload).is_none(){return false;}
+        if (payload.get(super::super::mana_burn::KEY).is_some() || buff_id==super::super::mana_burn::BUFF)
+            && super::super::mana_burn::admitted(world,*target,buff_id,*duration,payload).is_none(){return false;}
+        if (payload.get(super::super::script_gold::KEY).is_some() || buff_id==super::super::script_gold::BUFF)
+            && super::super::script_gold::admitted(world,*target,buff_id,*duration,payload).is_none(){return false;}
         if (payload.get(super::super::reveal_zone::KEY).is_some() || buff_id==super::super::reveal_zone::BUFF)
             && super::super::reveal_zone::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::ability_projectile::DODGE_KEY).is_some() || buff_id==super::super::ability_projectile::DODGE_BUFF)

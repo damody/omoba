@@ -14,6 +14,8 @@ const PATH_GRID_WORLD_UNITS: i64 = 64;
 const PATH_GRID_RAW: i64 = PATH_GRID_WORLD_UNITS * SCALE;
 const PATH_GRID_MARGIN: i64 = 8;
 const MAX_PATH_GRID_SPAN: i64 = 96;
+/// Bot travel admission's second, wider search box (E187 §5.5: forest detours on nobu).
+const TRAVEL_GRID_MARGIN: i64 = 32;
 
 #[derive(SystemData)]
 pub struct HeroCommandData<'a> {
@@ -97,6 +99,7 @@ impl<'a> System<'a> for Sys {
                 disclosed_wards: data.disclosed_wards.as_deref(),
                 replica_identities: &data.replica_identities,
                 ward_bodies: &data.ward_bodies,
+                buffs: Some(&*data.buff_store),
             };
             let read = HeroCommandRead {
                 pos: &data.pos,
@@ -643,6 +646,34 @@ pub(crate) fn static_next_waypoint(
     })
 }
 
+/// Bot travel admission (E187 §5.5). A destination within the searchable span counts when the
+/// bounded search finds a path, as before, or when the same search over a box widened by
+/// TRAVEL_GRID_MARGIN cells does (a forest detour on nobu leaves the movement search's box; the
+/// move order then walks it leg by leg); a destination inside terrain or enclosed is refused.
+/// One beyond the span counts when its straight line is clear, as before, or when the point itself
+/// is free: the nobu map's 1,564 trees close almost every long line, and the move order resolves
+/// such a trip leg by leg (MoveTo / AttackMove head for the reachable cell nearest the pulled-back
+/// point), so it is not refused. No search runs for it, so long trips cost no more than before.
+/// The pre-E187 maps keep every bot destination within the span, so their answers are unchanged.
+pub(crate) fn static_travel_reachable(
+    from: SimVec2,
+    target: SimVec2,
+    radius: Fixed64,
+    regions: &BlockedRegions,
+) -> bool {
+    if static_next_waypoint(from, target, radius, regions).is_some() { return true; }
+    let (start, goal) = (grid_key(from), grid_key(target));
+    let terrain = TerrainIndex::cached(regions);
+    if (goal.x - start.x).abs() > MAX_PATH_GRID_SPAN || (goal.y - start.y).abs() > MAX_PATH_GRID_SPAN {
+        return !terrain.hits(target, target, radius);
+    }
+    thread_local! { static MEMO: std::cell::RefCell<NavMemo> = std::cell::RefCell::new(NavMemo::default()); }
+    MEMO.with(|memo| match memo.try_borrow_mut() {
+        Ok(mut memo) => static_next_waypoint_within(from, target, radius, &terrain, &mut memo, TRAVEL_GRID_MARGIN),
+        Err(_) => static_next_waypoint_within(from, target, radius, &terrain, &mut NavMemo::default(), TRAVEL_GRID_MARGIN),
+    }).is_some()
+}
+
 /// Same search and tie-breaking as the original (FIFO, fixed neighbour
 /// order). Static cell and cell-to-cell edge tests come from `memo`; parents
 /// live in a dense array over the bounded search box instead of a tree map.
@@ -652,6 +683,18 @@ pub(crate) fn static_next_waypoint_with(
     radius: Fixed64,
     terrain: &TerrainIndex,
     memo: &mut NavMemo,
+) -> Option<SimVec2> {
+    static_next_waypoint_within(from, target, radius, terrain, memo, PATH_GRID_MARGIN)
+}
+
+/// [`static_next_waypoint_with`] over a search box of `margin` cells around start and goal.
+fn static_next_waypoint_within(
+    from: SimVec2,
+    target: SimVec2,
+    radius: Fixed64,
+    terrain: &TerrainIndex,
+    memo: &mut NavMemo,
+    margin: i64,
 ) -> Option<SimVec2> {
     memo.sync(terrain);
     let start = grid_key(from);
@@ -670,10 +713,10 @@ pub(crate) fn static_next_waypoint_with(
         return (!terrain.hits(from, target, radius)).then_some(target);
     }
 
-    let min_x = start.x.min(goal.x) - PATH_GRID_MARGIN;
-    let max_x = start.x.max(goal.x) + PATH_GRID_MARGIN;
-    let min_y = start.y.min(goal.y) - PATH_GRID_MARGIN;
-    let max_y = start.y.max(goal.y) + PATH_GRID_MARGIN;
+    let min_x = start.x.min(goal.x) - margin;
+    let max_x = start.x.max(goal.x) + margin;
+    let min_y = start.y.min(goal.y) - margin;
+    let max_y = start.y.max(goal.y) + margin;
     let width = (max_x - min_x + 1) as usize;
     let index = |key: GridKey| (key.y - min_y) as usize * width + (key.x - min_x) as usize;
     let key_of = |slot: usize| GridKey { x: min_x + (slot % width) as i64, y: min_y + (slot / width) as i64 };

@@ -756,5 +756,9 @@ return function(ctx)
   for _, ability in ipairs(ctx.include('templates/authored_heroes.lua').abilities or {}) do
     abilities[#abilities + 1] = ability
   end
+  -- v3 test heroes' abilities (scripts/v3_test_heroes.lua), after the authored ones.
+  for _, ability in ipairs(ctx.include('templates/v3_test_heroes.lua').abilities or {}) do
+    abilities[#abilities + 1] = ability
+  end
   return abilities
 end

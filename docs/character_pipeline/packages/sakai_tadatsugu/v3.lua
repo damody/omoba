@@ -223,9 +223,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "忠之極意",
-            body = "被動：受到一次傷害後，若這次傷害大於剩餘生命（且沒有因此死亡），酒井忠次假死倒地：生命與法力全滿，移除所有敵方施加的狀態，並在 {feign_duration} 秒內無敵、暈眩且隱藏血條。分身不會觸發。" },
+            body = "被動：受到致死的傷害時不會死亡，改為假死倒地：生命與法力全滿，移除所有敵方施加的狀態，並在 {feign_duration} 秒內無敵、暈眩且隱藏血條。分身不會觸發。" },
           en = { name = "Essence of Loyalty",
-            body = "Passive: after taking a hit whose damage exceeds his remaining health (without dying from it), Tadatsugu feigns death: his health and mana are fully restored, all statuses applied by enemies are removed, and for {feign_duration} seconds he is invulnerable, stunned and has no health bar. Illusions do not trigger it." },
+            body = "Passive: instead of dying from a lethal hit, Tadatsugu feigns death: his health and mana are fully restored, all statuses applied by enemies are removed, and for {feign_duration} seconds he is invulnerable, stunned and has no health bar. Illusions do not trigger it." },
         },
         target = { type = "none" },
         cost = { cooldown = "$cooldown", cooldown_start = "manual" },
@@ -241,9 +241,11 @@ return function(ctx)
         passive = {
           reveal = "public",
           triggers = {
-            on_take_damage = {
-              filter = "self.alive and event.damage.final > self.hp and not self.is_illusion and ability.is_ready",
+            -- FC-024（D13）：受到致死傷害時取消這一筆並觸發假死（原作在扣血後比較，擋不住致死一擊）
+            on_take_damage_pre = {
+              filter = "self.alive and event.damage.final >= self.hp and not self.is_illusion and ability.is_ready",
               actions = {
+                { op = "modify_damage", cancel = true },
                 { op = "set_health", to = "self", value = "self.max_hp" },
                 { op = "set_mana", to = "self", value = "self.max_mana" },
                 { op = "remove_status", from = "self", dispel = "all", team_of_source = "enemy" },
@@ -254,8 +256,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A05.lua:10",
-            text = "原作說明是「死亡後兩秒原地重生」，但判定在 OnTakeDamage（已扣血）以 damage > GetHealth() 比較受傷後的剩餘生命：致死的一擊已經殺死英雄，SetHealth 不能復活，所以實際上擋不住死亡；反而是「這一擊大於剩餘生命」的非致死重擊（約超過受擊前生命一半）會觸發。資料照原作；若修正，改用 on_take_damage_pre 以 event.damage.lethal 判定並 modify_damage cancel。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A05.lua:10",
+            text = "FC-024（D13 修正：受到致死傷害時在結算前取消這一筆並觸發假死）。原作：原作說明是「死亡後兩秒原地重生」，但判定在 OnTakeDamage（已扣血）以 damage > GetHealth() 比較受傷後的剩餘生命：致死的一擊已經殺死英雄，SetHealth 不能復活，所以實際上擋不住死亡；反而是「這一擊大於剩餘生命」的非致死重擊（約超過受擊前生命一半）會觸發。資料照原作；若修正，改用 on_take_damage_pre 以 event.damage.lethal 判定並 modify_damage cancel。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A05.lua:14-21",
             text = "移除條件是 modifier 的施加者存在且隊伍不同（parent 隊伍的比較恆為假）；施加者已不存在的敵方狀態不會被移除。以 remove_status dispel = all、team_of_source = enemy 表達，不看驅散類別。" },
           { policy = "note", ref = "npc/A_Oda/A05.txt:28-40",
@@ -300,12 +302,14 @@ return function(ctx)
               on_deal_damage_pre = {
                 filter = "not has_status(event.victim, a05t_oath)",
                 actions = { { op = "modify_damage", multiplier = "1 - $outgoing_cut" } } },
+              -- FC-080（D13）：標記消失（驅散、死亡、到期）時，酒井忠次的免傷一起結束
+              on_removed = { { op = "remove_status", from = "caster", status = "a05t_oath" } },
             },
             notes = "原作 modifier_A05T（IsDebuff，沒寫 IsPurgable，推定 basic）加 Lua 欄位 target.A05T_target；OnDestroy 清欄位，所以狀態被移除時效果也結束。" },
           { id = "a05t_oath", duration = "$duration", stacking = "refresh", dispel = "none", visibility = "buff",
             text = {
-              zh_TW = { name = "誓伐", body = "免疫被指定英雄以外所有來源的傷害；身上有{@a05_mikawa_courage}時，被免疫傷害的 {heal_ratio} 轉為回復生命。持續 {duration} 秒。" },
-              en = { name = "Oath of Crusade", body = "Immune to damage from every source except the marked hero; while {@a05_mikawa_courage} is active, {heal_ratio} of the prevented damage heals him. Lasts {duration} seconds." },
+              zh_TW = { name = "誓伐", body = "免疫被指定英雄以外所有來源的傷害，標記消失時一併結束；身上有{@a05_mikawa_courage}時，被免疫傷害的 {heal_ratio} 轉為回復生命。持續 {duration} 秒。" },
+              en = { name = "Oath of Crusade", body = "Immune to damage from every source except the marked hero, ending when the mark does; while {@a05_mikawa_courage} is active, {heal_ratio} of the prevented damage heals him. Lasts {duration} seconds." },
             },
             reveal = "public", scope = "hero", cue = "a05t_aura",
             triggers = {
@@ -329,8 +333,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A05.lua:160-166",
-            text = "目標的 modifier_A05T 被驅散或目標死亡時，OnDestroy 清掉 target.A05T_target，但酒井忠次的 caster.A05T 仍持續到時間結束：此後連原目標的傷害也被免疫，等於完全免傷。用驅散道具清掉目標的標記即可讓酒井忠次全免傷。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A05.lua:160-166",
+            text = "FC-080（D13 修正：標記消失時移除施法者的免傷狀態）。原作：目標的 modifier_A05T 被驅散或目標死亡時，OnDestroy 清掉 target.A05T_target，但酒井忠次的 caster.A05T 仍持續到時間結束：此後連原目標的傷害也被免疫，等於完全免傷。用驅散道具清掉目標的標記即可讓酒井忠次全免傷。資料照原作。" },
           { policy = "as_source", ref = "vscripts/library/events/eventfordamage.lua:71-81",
             text = "判定只看 Lua 旗標，不分是哪一位酒井忠次施加：攻擊者帶任何誓伐標記就不被免疫；被標記者對任何帶誓伐狀態的單位造成全額傷害。目標的分身、召喚物沒有旗標，它們的傷害一樣被免疫、也不被減半。" },
           { policy = "as_source", ref = "vscripts/library/events/eventfordamage.lua:71-81",

@@ -573,7 +573,7 @@ fn widening_line_hits_by_the_radius_reached_at_each_distance() {
     let mut state = State { spec: linear(caster, at(1, 0)), owner: caster, faction: Faction::new(FactionType::Player, 1), team: 1,
         origin: super::super::moba_match::capture_projectile_origin(&w, caster).unwrap(), end: at(1000, 0), target: None,
         target_lost: false, age: Fixed64::ZERO, hits: BTreeSet::new(), heading: Vec2::ZERO, bounce: None, dodgeable: false,
-        end_radius: Some(Fixed64::from_i32(310)), dot_interval: None, hit_stack: None, delay_left: Fixed64::ZERO, healing_reduction: None };
+        end_radius: Some(Fixed64::from_i32(310)), dot_interval: None, hit_stack: None, delay_left: Fixed64::ZERO, healing_reduction: None, on_hit: None };
     assert_eq!(state.hit_radius(), Fixed64::from_i32(10));
     state.age = Fixed64::from_raw(512);
     assert_eq!(state.hit_radius(), Fixed64::from_i32(10 + 300 * 600 / 1000));
@@ -662,5 +662,37 @@ fn launch_delay_waits_at_the_launch_point_then_flies_the_same_line() {
     for bad in [Fixed64::ZERO, MAX_LAUNCH_DELAY + Fixed64::from_raw(1)] {
         let payload = with_delay(spec.payload(), bad);
         assert!(Spec::from_payload(BUFF, spec.lifetime, &payload).is_none(), "{bad:?}");
+    }
+}
+
+#[test]
+fn on_hit_schedules_the_owner_callback_with_the_unit_hit_and_the_impact_point() {
+    use super::super::scheduled_effect as se;
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let first = body(&mut w, 200, 0, 2);
+    let second = body(&mut w, 400, 0, 2);
+    let spec = Spec { max_hits: 8, ..linear(caster, at(1, 0)) };
+    let captured = omb_script_abi::types::ScheduleArg { kind: se::ARG_NUM, num: Fixed64::from_i32(7),
+        unit: omb_script_abi::types::EntityHandle::INVALID, point: Vec2::ZERO };
+    let template = se::Spec { ability: "fixture_bolt".into(), level: 2, step: 3, instance: 5, args: vec![captured] };
+    let payload = with_on_hit(spec.payload(), &template);
+    assert_eq!(on_hit_of(&payload), Some(template.clone()));
+    assert_eq!(Spec::from_payload(BUFF, spec.lifetime, &payload), Some(spec.clone()), "on_hit is an optional row");
+    let too_many = se::Spec { args: vec![captured; se::MAX_ARGS - 1], ..template.clone() };
+    assert!(on_hit_of(&with_on_hit(spec.payload(), &too_many)).is_none(), "room for the unit and the point");
+    cast_payload(&mut w, caster, &spec, payload);
+    fly(&mut w, 60, 60, &[]);
+    let buffs = w.read_resource::<crate::runtime::BuffStore>();
+    let mut rows: Vec<se::Spec> = buffs.iter_for(caster)
+        .filter_map(|(id, b)| se::Spec::from_buff(id, &b.payload)).collect();
+    rows.sort_by_key(|s| s.instance);
+    assert_eq!(rows.len(), 2, "one schedule per hit");
+    let hit_units: Vec<u32> = rows.iter().map(|s| s.args[1].unit.id).collect();
+    assert_eq!(hit_units, vec![first.id(), second.id()]);
+    for s in &rows {
+        assert_eq!((s.ability.as_str(), s.level, s.step, s.args.len()), ("fixture_bolt", 2, 3, 3));
+        assert_eq!(s.args[0], captured, "the authored capture comes first");
+        assert_eq!(s.args[2].kind, se::ARG_POINT);
     }
 }

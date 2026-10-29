@@ -37,7 +37,10 @@ M.TREE={'rust-toolchain.toml','omoba-core','omoba-content-model','omoba-template
   -- staged C ABI header.
   'tools/lua','omfue/Plugins/OmRuntime/Source/ThirdParty/OmBridge',
   -- omoba-core tests include these repo files.
-  'run_2player.bat','omoba-netem-proxy','openspec'}
+  'run_2player.bat','omoba-netem-proxy','openspec',
+  -- hero DLL crates generate their Rust in build.rs from the v3 documents with
+  -- docs/character_pipeline/tools/v3_rust.lua (M3' ④).
+  'docs/character_pipeline'}
 M.SKIP={target=true,['.git']=true,log=true}
 M.CHECKS={'codegen','cargo','ubt'}
 
@@ -285,8 +288,9 @@ function M.check(plan,need,d)
       {d.path.join(tree,'scripts','lua_content_check.lua'),d.path.join(tree,'scripts','lua_data')},{cwd=tree})
   end
   if need.cargo then
-    run(d,'cargo check base_content','cargo',{'check','--manifest-path',d.path.join(tree,'scripts','Cargo.toml'),
-      '-p','base_content','--features','compiled-content-only'},{env=env})
+    -- Every script DLL (base_content and the hero DLLs) is a member of the scripts workspace.
+    run(d,'cargo check script DLLs','cargo',{'check','--manifest-path',d.path.join(tree,'scripts','Cargo.toml'),
+      '--workspace','--features','base_content/compiled-content-only'},{env=env})
   end
   if need.server then
     run(d,'cargo check omobab','cargo',{'check','--manifest-path',d.path.join(tree,'omb','Cargo.toml'),

@@ -7,11 +7,11 @@
 use crate::ability_meta::AbilityType;
 use abi_stable::{
     sabi_trait::prelude::TD_Opaque,
-    std_types::{RNone, RSome},
+    std_types::{RNone, RSome, RStr},
     RMut, RRef,
 };
 use omb_script_abi::{
-    types::{DamageInfo, DamageProfile, EntityHandle, Fixed64, ProjectileHitContext, Target, Vec2},
+    types::{DamageInfo, DamageKind, DamageProfile, EntityHandle, Fixed64, ProjectileHitContext, Target, Vec2},
     world::{
         GameWorld, GameWorldDyn, GameWorld_TO, ProjectileQuery_TO, TowerActiveAbilityAccessDyn,
         TowerActiveAbilityAccess_TO, TowerCooldownAccessDyn, TowerCooldownAccess_TO,
@@ -125,7 +125,9 @@ fn dispatch_scripts(
     if world.try_fetch::<super::super::delayed_effect::DueDelayedEffects>().is_none() {
         world.insert(super::super::delayed_effect::DueDelayedEffects::default());
     }
-    let any_delayed = !world.read_resource::<super::super::delayed_effect::DueDelayedEffects>().0.is_empty();
+    let any_delayed = !world.read_resource::<super::super::delayed_effect::DueDelayedEffects>().0.is_empty()
+        || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::scheduled_effect::KEY).next().is_some()
+        || world.read_resource::<crate::runtime::BuffStore>().entities_with_key(super::super::status_event::KEY).next().is_some();
     // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
     let tagged: Vec<(Entity, String)> = {
         let entities = world.entities();
@@ -146,6 +148,9 @@ fn dispatch_scripts(
     let requested_casts:std::collections::BTreeSet<_>=events.iter().filter_map(|event|match event {
         ScriptEvent::SkillCast {caster,..}=>Some(*caster),_=>None,
     }).collect();
+    // status_event: the holder-side combat events of this tick, resolved after the event hooks.
+    let status_combat: Vec<ScriptEvent> = events.iter().filter(|event| matches!(event,
+        ScriptEvent::AttackHit {..} | ScriptEvent::Damage {..})).cloned().collect();
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
         .chain(releases.into_iter().map(|event|(event,true))).collect();
     if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
@@ -483,6 +488,10 @@ fn dispatch_scripts(
     dispatch_channel_pulses(world, registry, rng_seed, event_count as u64 + tagged.len() as u64);
     // delayed_effect: due effects after the channel pulses, serial, same pulse rule.
     dispatch_delayed_effects(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 4096);
+    // scheduled_effect: due schedules after the delayed effects, serial, same pulse rule.
+    dispatch_scheduled_effects(world, registry, rng_seed, dt, event_count as u64 + tagged.len() as u64 + 8192);
+    // status_event: holder combat events, then statuses that ended, serial, same pulse rule.
+    dispatch_status_events(world, registry, rng_seed, &status_combat, event_count as u64 + tagged.len() as u64 + 12288);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
     drop(on_tick_span);
 
@@ -648,6 +657,121 @@ fn dispatch_delayed_effects(world: &mut World, registry: &ScriptRegistry, rng_se
             accepted.extend(outcomes);
         } else {
             log::warn!("[scripting] delayed effect {} of '{}' tried to charge or spawn; dropped", spec.index, spec.ability);
+        }
+    }
+    drop(cache);
+    if !accepted.is_empty() {
+        world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
+    }
+}
+
+/// One `on_scheduled` per due schedule (omoba-core `scheduled_effect`), in (owner, buff id)
+/// order. The row is removed before its hook runs, so it resolves once even if the hook
+/// reschedules the same step. Paused worlds resolve nothing; a dead owner has no rows left.
+fn dispatch_scheduled_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, dt: Fixed64, ordinal_base: u64) {
+    if world.read_resource::<crate::comp::GamePause>().is_paused { return; }
+    let due = super::super::scheduled_effect::due(&world.read_resource::<crate::runtime::BuffStore>(), dt);
+    if due.is_empty() {
+        return;
+    }
+    {
+        let mut buffs = world.write_resource::<crate::runtime::BuffStore>();
+        for (owner, id, _) in &due { buffs.remove(*owner, id); }
+    }
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut accepted = Vec::new();
+    for (ordinal, (owner, _, spec)) in due.into_iter().enumerate() {
+        if !cache.entities.is_alive(owner) || cache.cprop.get(owner).is_none_or(|p| p.hp <= Fixed64::ZERO) {
+            continue;
+        }
+        let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(owner);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, owner, ordinal_base + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let args: abi_stable::std_types::RVec<_> = spec.args.iter().copied().collect();
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_scheduled(handle, spec.scheduled(), args, &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_scheduled of {}", spec.ability);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] schedule {} of '{}' tried to charge or spawn; dropped", spec.step, spec.ability);
+        }
+    }
+    drop(cache);
+    if !accepted.is_empty() {
+        world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
+    }
+}
+
+/// `on_status_event` of the abilities whose marked statuses (omoba-core `status_event`) saw an
+/// event: first this tick's attack hits and damage of their holders (event order, then the
+/// holder's rows in id order), then the rows that left their holders (in the order they left).
+fn dispatch_status_events(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, combat: &[ScriptEvent], ordinal_base: u64) {
+    use super::super::status_event as se;
+    let ended = world.write_resource::<crate::runtime::BuffStore>().drain_status_ended();
+    if combat.is_empty() && ended.is_empty() {
+        return;
+    }
+    let damage_kind = |k: &DamageKind| match k { DamageKind::Physical => 0u8, DamageKind::Magical => 1, DamageKind::Pure => 2 };
+    let mut calls: Vec<(Entity, String, se::Spec, u8, Option<Entity>, Fixed64, u8)> = Vec::new();
+    {
+        let buffs = world.read_resource::<crate::runtime::BuffStore>();
+        let mut on_holder = |holder: Entity, kind: u8, other: Option<Entity>, amount: Fixed64, dk: u8| {
+            let mut rows: Vec<(String, se::Spec)> = buffs.iter_for(holder)
+                .filter_map(|(id, b)| se::Spec::from_payload(&b.payload).map(|s| (id.to_owned(), s)))
+                .filter(|(_, s)| s.listens(kind)).collect();
+            rows.sort_by(|a, b| a.0.cmp(&b.0));
+            for (id, s) in rows { calls.push((holder, id, s, kind, other, amount, dk)); }
+        };
+        for event in combat {
+            match event {
+                ScriptEvent::AttackHit { attacker, victim } => {
+                    on_holder(*attacker, se::ATTACK_HIT, Some(*victim), Fixed64::ZERO, 0);
+                    on_holder(*victim, se::ATTACKED, Some(*attacker), Fixed64::ZERO, 0);
+                }
+                ScriptEvent::Damage { attacker, victim, amount, kind } => {
+                    on_holder(*victim, se::TAKE_DAMAGE, *attacker, *amount, damage_kind(kind));
+                    if let Some(attacker) = attacker { on_holder(*attacker, se::DEAL_DAMAGE, Some(*victim), *amount, damage_kind(kind)); }
+                }
+                _ => {}
+            }
+        }
+    }
+    for (holder, id, payload, kind) in ended {
+        if let Some(s) = se::Spec::from_payload(&payload).filter(|s| s.listens(kind)) {
+            calls.push((holder, id, s, kind, None, Fixed64::ZERO, 0));
+        }
+    }
+    if calls.is_empty() {
+        return;
+    }
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut accepted = Vec::new();
+    for (ordinal, (holder, _, spec, kind, other, amount, dk)) in calls.into_iter().enumerate() {
+        let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(holder);
+        let other = other.map_or(EntityHandle::INVALID, ParallelWorldAdapter::entity_to_handle);
+        let event = spec.event(kind, other, amount, dk);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, holder, ordinal_base + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_status_event(handle, RStr::from_str(&spec.status), event, &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_status_event of {}", spec.ability);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] status event of '{}' ({}) tried to charge or spawn; dropped", spec.status, spec.ability);
         }
     }
     drop(cache);

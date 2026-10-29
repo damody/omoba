@@ -98,9 +98,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "妖術．陰邪凝視",
-            body = "對一名敵方英雄或一般單位持續施法。引導期間目標無法下達指令，被迫以固定速度走向「（道三座標＋目標座標）乘以 {distance_pct}」的位置，速度使其恰好在引導結束時抵達。施放時道三獲得 {int_steal} 智力、目標失去 {int_decrease:abs} 智力，持續 {steal_duration} 秒；層數只是顯示，不會增加數值。" },
+            body = "對一名敵方英雄或一般單位持續施法。引導期間目標無法下達指令，被迫以固定速度朝道三走去，走到雙方距離的 {distance_pct} 處，速度使其恰好在引導結束時抵達。施放時道三獲得 {int_steal} 智力、目標失去 {int_decrease:abs} 智力，持續 {steal_duration} 秒；層數只是顯示，不會增加數值。" },
           en = { name = "Sorcery: Evil Gaze",
-            body = "Channels on an enemy hero or unit. While channeling, the target cannot be given orders and is forced to walk at a fixed speed toward the point (Dosan's position + the target's position) × {distance_pct}, timed to arrive when the channel ends. On cast, Dosan gains {int_steal} intelligence and the target loses {int_decrease:abs} intelligence for {steal_duration} seconds; the stack count is for display only and does not increase the amount." },
+            body = "Channels on an enemy hero or unit. While channeling, the target cannot be given orders and is forced to walk at a fixed speed toward Dosan, covering {distance_pct} of the distance between them, timed to arrive when the channel ends. On cast, Dosan gains {int_steal} intelligence and the target loses {int_decrease:abs} intelligence for {steal_duration} seconds; the stack count is for display only and does not increase the amount." },
         },
         target = { type = "unit", range = "$cast_range", team = "enemy", types = { "hero", "creep", "neutral", "summon" } },
         cast = { cast_point = "$cast_point", channel_time = "$channel_time", interruptible = true },
@@ -147,7 +147,8 @@ return function(ctx)
         },
         events = {
           on_cast = {
-            { op = "let", name = "dest", value = "(caster.position + target.position) * $distance_pct" },
+            -- FC-116（D13）：雙方之間、從目標往道三走 distance_pct 的點
+            { op = "let", name = "dest", value = "lerp_point(target, caster, $distance_pct)" },
             { op = "apply_status", status = "a11e_mesmerize", to = "target",
               vars = { dest = "dest", speed = "distance(dest, target) / $channel_time" } },
             { op = "cue", id = "a11e_rope", at = "caster", to = "target", duration = "$channel_time" },
@@ -161,8 +162,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A11.lua:68",
-            text = "目的地公式 (caster_pos + target_pos) * pct/100 是錯的：只有 pct = 50（4 級）時等於中點；1～3 級的點是「中點往世界原點縮放」的位置，可能離戰場很遠，目標以算出的速度朝那裡走。原作說明寫「雙方之間 p% 距離的點」。資料照原作公式（點座標乘以比例）。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A11.lua:68",
+            text = "FC-116（D13 修正：目的地改成 lerp_point(目標, 道三, distance_pct)：雙方之間的點）。原作：目的地公式 (caster_pos + target_pos) * pct/100 是錯的：只有 pct = 50（4 級）時等於中點；1～3 級的點是「中點往世界原點縮放」的位置，可能離戰場很遠，目標以算出的速度朝那裡走。原作說明寫「雙方之間 p% 距離的點」。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A11.lua:149-151",
             text = "移速用 MOVESPEED_ABSOLUTE，引擎仍套用移速上下限；距離很遠時實際走不到目的地。資料以 set_absolute 表達，上下限由規則層處理。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A11.lua:71-77",
@@ -238,8 +239,8 @@ return function(ctx)
           { policy = "as_source", text = "光環 Aura_Types = HERO，敵方英雄的幻象也會被影響（flags 帶 include_illusions）。" },
           { policy = "note", ref = "npc/A_Oda/A11.txt:311-323",
             text = "OnUpgrade 先移除再套用被動 modifier，是 datadriven 刷新光環／屬性的慣用寫法；v3 的被動隱含狀態自動處理。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A11.lua:189-200",
-            text = "damageTable 是全域變數，延遲閉包在觸發時才讀這個全域名稱。延遲期間若其他敵人觸發 A11R，或任何腳本寫入全域 damageTable（A11W 每秒都寫，A11T 與另外至少九個英雄／道具腳本也這樣寫），前一次的延遲傷害會打到後寫入的目標、用後寫入的數值與類型；魔免檢查仍看原本的單位。這無法以資料重現，資料以「各自捕捉」表達；若使用者選擇照原作，需要 hook。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A11.lua:189-200",
+            text = "FC-007（D13 修正：資料本來就照意圖寫，維持現狀）。原作：damageTable 是全域變數，延遲閉包在觸發時才讀這個全域名稱。延遲期間若其他敵人觸發 A11R，或任何腳本寫入全域 damageTable（A11W 每秒都寫，A11T 與另外至少九個英雄／道具腳本也這樣寫），前一次的延遲傷害會打到後寫入的目標、用後寫入的數值與類型；魔免檢查仍看原本的單位。這無法以資料重現，資料以「各自捕捉」表達；若使用者選擇照原作，需要 hook。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A11.lua:186",
             text = "傷害量在觸發當下讀道三智力，不是延遲結束時。" },
           { policy = "as_source",

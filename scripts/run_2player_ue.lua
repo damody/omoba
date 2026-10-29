@@ -296,7 +296,7 @@ local windows = {
 
 local ok, result = xpcall(function()
   if not skip_build then
-    build_crate("base_content", { "build", "--manifest-path", "scripts/Cargo.toml", "-p", "base_content", "--features", "compiled-content-only" })
+    build_crate("script DLLs", require("script_dlls").cargo_args({ "build", "--manifest-path", "scripts/Cargo.toml" }, "compiled-content-only"))
     build_server()
     build_runtime()
   end

@@ -7,6 +7,7 @@ local checks={
   {'server','omb/Cargo.toml','omobab'},
   {'client-runtime','omoba-client-runtime/Cargo.toml'},
   {'script-dll','scripts/Cargo.toml','base_content'},
+  {'hero-dll','scripts/Cargo.toml','hero_a02'},
   {'unreal-bridge','omfue/bridge/Cargo.toml'},
 }
 for _,check in ipairs(checks) do
@@ -20,4 +21,4 @@ for _,check in ipairs(checks) do
   end
   print('PASS '..check[1]..': no Lua VM on normal dependency edges')
 end
-print('compiled content dependency contract: 4/4 passed (build-time authoring excluded)')
+print('compiled content dependency contract: '..#checks..'/'..#checks..' passed (build-time authoring excluded)')

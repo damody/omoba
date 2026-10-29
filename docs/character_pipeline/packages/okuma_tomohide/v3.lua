@@ -177,9 +177,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "上野武勇",
-            body = "被動：基礎攻擊力提高 {base_damage_pct}。受到傷害時有 {chance} 機率回復該次傷害，但該次傷害大於受傷後剩餘生命時不回復。" },
+            body = "被動：基礎攻擊力提高 {base_damage_pct}。受到傷害時有 {chance} 機率回復該次傷害；致死的傷害不回復。" },
           en = { name = "Kozuke Valor",
-            body = "Passive: +{base_damage_pct} base attack damage. When taking damage, has a {chance} chance to restore the damage taken, unless it exceeds his remaining health after the hit." },
+            body = "Passive: +{base_damage_pct} base attack damage. When taking damage, has a {chance} chance to restore the damage taken; lethal damage is not restored." },
         },
         target = { type = "none" },
         passive = {
@@ -189,7 +189,7 @@ return function(ctx)
             on_take_damage = { {
               op = "chance", p = "$chance",
               actions = {
-                { op = "if", cond = "event.damage.final <= self.hp", actions = {
+                { op = "if", cond = "not event.damage.lethal", actions = {
                   { op = "set_health", to = "self", value = "self.hp + event.damage.final" },
                 } },
               } } },
@@ -197,8 +197,8 @@ return function(ctx)
         },
         coverage = "expressible", confidence = "medium",
         quirks = {
-          { policy = "fix_candidate", ref = "vscripts/heroes/B_Unified/B26.lua:69-73",
-            text = "OnTakeDamage 時生命已扣除，條件 dmg > GetHealth() 比的是受傷後的生命：只有傷害不超過剩餘生命（受傷前生命至少兩倍傷害）才回復。原意推定是「致死不救」，實際把大於一半目前生命的傷害也排除了；說明寫「無視該次傷害」。資料照原作。" },
+          { policy = "fixed", ref = "vscripts/heroes/B_Unified/B26.lua:69-73",
+            text = "FC-031（D13 修正：只排除致死傷害，條件改成 not event.damage.lethal）。原作：OnTakeDamage 時生命已扣除，條件 dmg > GetHealth() 比的是受傷後的生命：只有傷害不超過剩餘生命（受傷前生命至少兩倍傷害）才回復。原意推定是「致死不救」，實際把大於一半目前生命的傷害也排除了；說明寫「無視該次傷害」。" },
           { policy = "as_source", ref = "vscripts/heroes/B_Unified/B26.lua:71-72",
             text = "以 SetHealth 回補，不受治療增減影響，也不觸發治療事件；致死傷害時單位已死亡，不會被救回。" },
           { policy = "as_source", ref = "npc/B_Unified/B26.txt:285-299",

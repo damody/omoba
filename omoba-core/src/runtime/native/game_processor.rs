@@ -2836,6 +2836,7 @@ fn outcome_kind(outcome: &Outcome) -> &'static str {
         Outcome::ScriptSetTowerInternalCooldown { .. } => "ScriptSetTowerInternalCooldown",
         Outcome::ScriptDirectDamage { .. } => "ScriptDirectDamage",
         Outcome::ScriptHeal { .. } => "ScriptHeal",
+        Outcome::ScriptDamageTag { .. } => "ScriptDamageTag",
         Outcome::ScriptRecoveryChannel {..}=>"ScriptRecoveryChannel",
         Outcome::ScriptAbilityChannel {..}=>"ScriptAbilityChannel",
         Outcome::ScriptRemoveBuff { .. } => "ScriptRemoveBuff",
@@ -2921,8 +2922,12 @@ pub fn process_outcomes(
     // Only the admitted cast's own mana commit applies now, so the same
     // caster's next cast in this batch admits against its reserved ledger.
     let mut pending: std::collections::VecDeque<_> = outcomes.into_iter().map(|outcome|pre_admit(world,&remove_uids,outcome)).collect();
+    // Test damage trace: the tag a script sent right before its damage packet.
+    let mut damage_tag: Option<super::damage_trace::DamageTag> = None;
     let mut next_ordinal = 0usize;
     while let Some(outcome) = pending.pop_front() {
+        // A tag only belongs to the outcome right after it.
+        let tag_now = damage_tag.take();
         let outcome_ordinal = next_ordinal;
         next_ordinal += 1;
         let (outcome, projectile_origin) = match outcome {
@@ -2991,11 +2996,37 @@ pub fn process_outcomes(
                 }
                 continue;
             },
+            Outcome::ScriptDamageTag {ability,path}=>{
+                // Test damage trace only: the tag belongs to the next packet.
+                damage_tag=Some(super::damage_trace::DamageTag {ability,path});
+                continue;
+            },
             Outcome::RawDamage {pos,phys,magi,real,source,target,damage_profile,origin}=>{
-                if remove_uids.contains(&target) {continue;}
-                if origin.as_ref().is_some_and(|origin|origin.source!=source) {continue;}
+                let tag=tag_now;
+                let trace=super::damage_trace::enabled(world).then(||{
+                    let tag=tag.unwrap_or_default();
+                    super::damage_trace::DamageTraceRow {tick:super::damage_trace::tick(world),source,target,before:(phys,magi,real),
+                        after:None,profile:damage_profile,ability:tag.ability,path:tag.path,
+                        result:if super::damage_trace::source_dead_skip(world,source,damage_profile) {
+                            super::damage_trace::DamageTraceResult::SkippedSourceDead} else {super::damage_trace::DamageTraceResult::Cancelled}}
+                });
+                if remove_uids.contains(&target) || origin.as_ref().is_some_and(|origin|origin.source!=source) {
+                    if let Some(row)=trace {super::damage_trace::record(world,row);}
+                    continue;
+                }
                 let attack=origin.as_ref().is_some_and(|origin|origin.normal_attack||origin.script_attack);
-                let Some(damage)=raw_damage::settle(world,target,phys,magi,real,damage_profile,attack) else {continue;};
+                let settled=raw_damage::settle(world,target,phys,magi,real,damage_profile,attack);
+                if let Some(mut row)=trace {
+                    // handle_damage admits the converted packet later in this same iteration, against
+                    // this same world: the trace records that decision.
+                    let admitted=super::rules::damage::admit(world,&super::rules::damage::Packet::new(source,target,phys,magi,real,damage_profile));
+                    if let (true,Some(damage))=(admitted,&settled) {
+                        row.after=Some((damage.physical,damage.magical,damage.pure));
+                        row.result=super::damage_trace::DamageTraceResult::Applied;
+                    }
+                    super::damage_trace::record(world,row);
+                }
+                let Some(damage)=settled else {continue;};
                 match origin {
                     Some(origin)=>Outcome::ProjectileDamage {origin,pos,phys:damage.physical,magi:damage.magical,real:damage.pure,
                         source,target,damage_profile,predeclared:false},
@@ -3072,6 +3103,7 @@ pub fn process_outcomes(
             Outcome::DamageZonePulse {..}|Outcome::IndependentDamageZonePulse {..}=>unreachable!("zone expanded before serial settlement"),
             Outcome::AbilityProjectileStep {..}=>unreachable!("ability projectile step expanded before serial settlement"),
             Outcome::RawDamage {..}=>unreachable!("raw packet converted before settlement"),
+            Outcome::ScriptDamageTag {..}=>unreachable!("damage tag taken before settlement"),
             // A transaction produced mid-batch (not seen by pre-admission) admits here.
             transaction @ Outcome::ScriptCastTransaction {..} => pending.push_front(pre_admit(world,&remove_uids,transaction)),
             Outcome::ScriptCastPreAdmitted {transaction, admitted} => {
@@ -6175,8 +6207,34 @@ fn handle_add_buff(
         super::ally_cleanse::apply_self_slow(world,target,&payload);
         return Ok(());
     }
+    // Hero component commands of generated scripts (hero_command): settled at once, never stored.
+    if payload.get(super::hero_command::KEY).is_some() || buff_id==super::hero_command::BUFF {
+        super::hero_command::apply(world,target,&buff_id,&payload);
+        return Ok(());
+    }
     if payload.get(super::mana_drain::KEY).is_some() || buff_id==super::mana_drain::BUFF {
         super::mana_drain::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    // v3 burn_mana: removes mana only (the document deals its own damage); never stored as a buff.
+    if payload.get(super::mana_burn::KEY).is_some() || buff_id==super::mana_burn::BUFF {
+        super::mana_burn::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    // Taunt: stored as the status, then the hero victim is ordered to attack its taunter.
+    if buff_id==super::taunt::BUFF && payload.get(super::taunt::KEY).is_some() {
+        world.write_resource::<BuffStore>().add(target,&buff_id,duration,payload.clone());
+        if world.read_resource::<BuffStore>().has(target,&buff_id) {super::taunt::order(world,target,&payload);}
+        return Ok(());
+    }
+    // v3 remove_status by filters (dispel / team_of_source / states / except / limit): never stored.
+    if payload.get(super::dispel::PURGE_KEY).is_some() || buff_id==super::dispel::PURGE_BUFF {
+        if let Some(spec)=super::dispel::PurgeSpec::from_payload(&buff_id,duration,&payload) {super::dispel::purge(world,target,&spec);}
+        return Ok(());
+    }
+    // Script gold grant or charge (v3 give_gold / take_gold): never stored as a buff.
+    if payload.get(super::script_gold::KEY).is_some() || buff_id==super::script_gold::BUFF {
+        super::script_gold::apply(world,target,&buff_id,duration,&payload);
         return Ok(());
     }
     if payload.get(super::forced_motion::KEY).is_some() || buff_id==super::forced_motion::BUFF {
@@ -6186,6 +6244,11 @@ fn handle_add_buff(
     // Blink landing request: settles a legal position and facing, never stored as a buff.
     if payload.get(super::blink_landing::KEY).is_some() || buff_id==super::blink_landing::BUFF {
         super::blink_landing::apply(world,target,&buff_id,duration,&payload);
+        return Ok(());
+    }
+    // Tree cut request (E242): queued on the authority, never stored as a buff.
+    if payload.get(super::tree_cut::KEY).is_some() || buff_id==super::tree_cut::BUFF {
+        super::tree_cut::request(world,&payload);
         return Ok(());
     }
     // Launch envelope: opens a team vision zone, never stored as a buff.

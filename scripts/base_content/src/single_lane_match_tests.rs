@@ -13525,19 +13525,22 @@ pub(crate) mod live_soak_replica_parity {
                 out.push(format!("{id}:{gen} hero {} {} {} {:?} {cooldowns:?} {levels:?} {:?}",hero.level,hero.experience,hero.skill_points,
                     hero.mana_pool.as_ref().map(|m|format!("{:?}",m.raw_state())),hero.ability_charges));
             }
-            let mut rows:Vec<_>=buffs.iter_for(entity).map(|(name,b)|format!("{id}:{gen} buff {name} {} {}",b.remaining.raw(),b.payload)).collect();
+            // Generated statuses also leave control-source rows (dispel::CONTROL_SOURCE_PREFIX) a handler never
+            // made; the comparison is of the controls themselves.
+            let mut rows:Vec<_>=buffs.iter_for(entity).filter(|(name,_)|!name.starts_with(omoba_core::runtime::native::dispel::CONTROL_SOURCE_PREFIX))
+                .map(|(name,b)|format!("{id}:{gen} buff {name} {} {}",b.remaining.raw(),b.payload)).collect();
             rows.sort();out.extend(rows);
         }
         out
     }
 
-    /// M3: the IR heroes cast every ability on a script (the recorded bot matches never use
+    /// M3' ④: the generated heroes cast every ability on a script (the recorded bot matches never use
     /// Saika's actives). Saika (player 1) and Oichi (player 2), every rank learned, fight in lane;
     /// both cast each slot in turn. The authority state digest must match the Rust handlers' every tick.
     #[test]
-    fn ir_scripted_casts_match_rust_handlers_every_tick() {
+    fn generated_scripted_casts_match_rust_handlers_every_tick() {
         let toward=|from:omoba_sim::Vec2,to:omoba_sim::Vec2|from+(to-from)*Fixed64::from_raw(256);
-        ir_scripted_casts_compare(["saika_magoichi","oichi"],true,&|tick,pair,[saika,oichi]| match tick%240 {
+        generated_scripted_casts_compare(["saika_magoichi","oichi"],true,&|tick,pair,[saika,oichi]| match tick%240 {
             5=>vec![(1,attack_move(oichi)),(2,attack_move(saika))],
             // Saika: sniper (Q), a gunner toward Oichi (W), three stage (R).
             60=>vec![(1,cast(0,None))],
@@ -13555,8 +13558,8 @@ pub(crate) mod live_soak_replica_parity {
     /// M5: A02 (venom arrow toggled on and off, wind prayer, shadow meld; wind drift learned) against Oichi.
     /// Without mana, so every cast lands on its tick (level 18 set directly keeps the level-1 mana).
     #[test]
-    fn ir_scripted_a02_casts_match_rust_handlers_every_tick() {
-        ir_scripted_casts_compare(["inahime","oichi"],false,&|tick,pair,[inahime,oichi]| match tick%480 {
+    fn generated_scripted_a02_casts_match_rust_handlers_every_tick() {
+        generated_scripted_casts_compare(["inahime","oichi"],false,&|tick,pair,[inahime,oichi]| match tick%480 {
             5|245=>vec![(1,attack_move(oichi)),(2,attack_move(inahime))],
             // Venom arrow on at 60, off at 300 (the host turns it off without mana too).
             60|300=>vec![(1,cast(0,None))],
@@ -13570,9 +13573,9 @@ pub(crate) mod live_soak_replica_parity {
 
     /// M5: B04 fire blast (W) at Oichi; flame swiftness (E) learned. Without mana, like A02.
     #[test]
-    fn ir_scripted_b04_casts_match_rust_handlers_every_tick() {
+    fn generated_scripted_b04_casts_match_rust_handlers_every_tick() {
         // Centred on Date: the heroes fight creeps in different lanes, so his own spot has enemies in reach.
-        ir_scripted_casts_compare(["date_masamune","oichi"],false,&|tick,pair,[date,oichi]| match tick%240 {
+        generated_scripted_casts_compare(["date_masamune","oichi"],false,&|tick,pair,[date,oichi]| match tick%240 {
             5=>vec![(1,attack_move(oichi)),(2,attack_move(date))],
             60|180=>vec![(1,cast_at(1,date))],
             70=>vec![(2,cast(0,Some(pair[0])))],
@@ -13582,15 +13585,15 @@ pub(crate) mod live_soak_replica_parity {
     }
 
     /// Two heroes at level 18 with every ability at rank min(3, max) cast on a fixed plan; the
-    /// authority digest of the IR scripts and of the Rust handlers must match every tick.
-    fn ir_scripted_casts_compare(heroes:[&str;2],mana:bool,plan:&dyn Fn(u32,[specs::Entity;2],[omoba_sim::Vec2;2])->Vec<(u32,PlayerInput)>) {
+    /// authority digest of the generated Rust and of the Rust handlers must match every tick.
+    fn generated_scripted_casts_compare(heroes:[&str;2],mana:bool,plan:&dyn Fn(u32,[specs::Entity;2],[omoba_sim::Vec2;2])->Vec<(u32,PlayerInput)>) {
         let ticks=std::env::var("SOAK_IR_SCRIPTED_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(5400u32);
         let config=SingleLaneConfig {mana_enabled:mana,heroes:heroes.map(String::from),..three_lane_config()};
         let run=|handlers:bool|->Vec<u64> {
             let (mut authority,mut driver)=world(config.clone(),SimulationTickProfile::Production60Hz);
             if handlers {
-                for (id,script) in crate::ir_switch::handler_scripts() {assert!(driver.scripts_mut().replace_ability_script(id,script),"{id}");}
-                for (id,script) in crate::ir_switch::handler_units() {assert!(driver.scripts_mut().replace_unit_script(id,script),"{id}");}
+                for (id,script) in crate::legacy_handlers::handler_scripts() {assert!(driver.scripts_mut().replace_ability_script(id,script),"{id}");}
+                for (id,script) in crate::legacy_handlers::handler_units() {assert!(driver.scripts_mut().replace_unit_script(id,script),"{id}");}
             }
             driver.step(&mut authority,[]).unwrap();
             for hero in hero_pair(&authority) {
@@ -13628,7 +13631,7 @@ pub(crate) mod live_soak_replica_parity {
                     let result=driver.step(&mut authority,[]).unwrap();project_tick(&mut authority,result);
                     digests.push(authority_state_digest(&authority));
                     if std::env::var("SOAK_IR_DIAG_TICK").ok().and_then(|v|v.parse::<usize>().ok())==Some(digests.len()-1) {
-                        let path=std::env::temp_dir().join(format!("ir_scripted_{}.txt",if handlers {"rust"} else {"ir"}));
+                        let path=std::env::temp_dir().join(format!("ir_scripted_{}.txt",if handlers {"rust"} else {"generated"}));
                         std::fs::write(&path,authority_state_lines(&authority).join("\n")).unwrap();
                     }
                     continue;
@@ -13642,28 +13645,26 @@ pub(crate) mod live_soak_replica_parity {
                 project_tick(&mut authority,result);
                 digests.push(authority_state_digest(&authority));
                 if std::env::var("SOAK_IR_DIAG_TICK").ok().and_then(|v|v.parse::<usize>().ok())==Some(digests.len()-1) {
-                    let path=std::env::temp_dir().join(format!("ir_scripted_{}.txt",if handlers {"rust"} else {"ir"}));
+                    let path=std::env::temp_dir().join(format!("ir_scripted_{}.txt",if handlers {"rust"} else {"generated"}));
                     std::fs::write(&path,authority_state_lines(&authority).join("\n")).unwrap();
                 }
             }
             digests
         };
-        let before=omoba_core::runtime::native::ir::runs();
-        let ir=run(false);
-        let ir_runs=omoba_core::runtime::native::ir::runs()-before;
+        let generated=run(false);
         let rust=run(true);
-        let first=ir.iter().zip(&rust).position(|(a,b)|a!=b);
-        eprintln!("ir scripted {heroes:?}: {} ticks, first difference {:?}, IR runs {ir_runs}",ir.len(),first);
-        assert!(ir_runs>0,"the IR ran");
-        assert_eq!(first,None,"IR and Rust handlers diverge");
+        let first=generated.iter().zip(&rust).position(|(a,b)|a!=b);
+        eprintln!("generated scripted {heroes:?}: {} ticks, first difference {:?}",generated.len(),first);
+        assert_eq!(first,None,"generated Rust and Rust handlers diverge");
     }
 
-    /// M3: the behavior IR runs B01 exactly like the Rust handlers it replaced. Replays the
+    /// M3' ④: the generated Rust runs B01 exactly like the Rust handlers it replaced. Replays the
     /// accepted-input record (SOAK_ACCEPTED_INPUTS / SOAK_ROLE_PLAN, as above) twice on the
-    /// authority — the IR scripts (the registry default, ir_switch.rs) and the handlers — and
+    /// authority — the generated scripts (the registry default, hero DLL crates) and the handlers
+    /// (legacy_handlers.rs) — and
     /// compares the authority state digest every tick. Skips without a record.
     #[test]
-    fn ir_replay_matches_rust_handlers_every_tick() {
+    fn generated_replay_matches_rust_handlers_every_tick() {
         use omoba_core::runtime::native::moba_match::bots::RoleBotMatchPlan;
         let (Ok(record),Ok(plan))=(std::env::var("SOAK_ACCEPTED_INPUTS"),std::env::var("SOAK_ROLE_PLAN")) else {return;};
         let text=std::fs::read_to_string(&record).unwrap();
@@ -13689,8 +13690,13 @@ pub(crate) mod live_soak_replica_parity {
         let run=|handlers:bool|->Vec<u64> {
             let (mut authority,mut driver)=world(config.clone(),SimulationTickProfile::Production60Hz);
             if handlers {
-                for (id,script) in crate::ir_switch::handler_scripts() {assert!(driver.scripts_mut().replace_ability_script(id,script),"{id}");}
-                for (id,script) in crate::ir_switch::handler_units() {assert!(driver.scripts_mut().replace_unit_script(id,script),"{id}");}
+                // SOAK_LEGACY_ONLY=id,id: replace only these handlers (bisects a divergence).
+                let only=std::env::var("SOAK_LEGACY_ONLY").ok();
+                for (id,script) in crate::legacy_handlers::handler_scripts() {
+                    if only.as_deref().is_some_and(|only|!only.split(',').any(|o|o==id)) {continue;}
+                    assert!(driver.scripts_mut().replace_ability_script(id,script),"{id}");
+                }
+                for (id,script) in crate::legacy_handlers::handler_units() {assert!(driver.scripts_mut().replace_unit_script(id,script),"{id}");}
             }
             driver.step(&mut authority,[]).unwrap();
             let first=driver.step(&mut authority,[]).unwrap();project_tick(&mut authority,first);
@@ -13706,12 +13712,12 @@ pub(crate) mod live_soak_replica_parity {
                 project_tick(&mut authority,result);
                 digests.push(authority_state_digest(&authority));
                 if diag==Some(digests.len()-1) {
-                    let path=std::env::temp_dir().join(format!("ir_diag_{}.txt",if handlers {"rust"} else {"ir"}));
+                    let path=std::env::temp_dir().join(format!("ir_diag_{}.txt",if handlers {"rust"} else {"generated"}));
                     std::fs::write(&path,authority_state_lines(&authority).join("\n")).unwrap();
                     eprintln!("ir diag: wrote {}",path.display());
                 }
                 if !handlers {
-                    // The IR actually ran: B01's statuses and summons appear.
+                    // The generated Rust actually ran: B01's statuses and summons appear.
                     let buffs=authority.read_resource::<BuffStore>();
                     let mut e=evidence.borrow_mut();
                     for (id,slot) in [("b01_sniper_mode",0usize),("b01_three_stage",1)] {
@@ -13722,15 +13728,13 @@ pub(crate) mod live_soak_replica_parity {
             }
             digests
         };
-        let before=omoba_core::runtime::native::ir::runs();
-        let ir=run(false);
-        let ir_runs=omoba_core::runtime::native::ir::runs()-before;
+        let generated=run(false);
         let rust=run(true);
-        let first=ir.iter().zip(&rust).position(|(a,b)|a!=b);
+        let first=generated.iter().zip(&rust).position(|(a,b)|a!=b);
         let e=evidence.borrow();
-        eprintln!("ir replay: {} ticks compared, first difference {:?}; IR runs {ir_runs} (this process), sniper {} ticks, three stage {} ticks, gunners at most {}",
-            ir.len(),first,e[0],e[1],e[2]);
-        assert_eq!(first,None,"IR and Rust handlers diverge");
+        eprintln!("generated replay: {} ticks compared, first difference {:?}; sniper {} ticks, three stage {} ticks, gunners at most {}",
+            generated.len(),first,e[0],e[1],e[2]);
+        assert_eq!(first,None,"generated Rust and Rust handlers diverge");
     }
 }
 
@@ -15119,3 +15123,7 @@ mod hero_port8_asai_oichi {
 /// M5 conformance baseline: v3 document scenarios against the current Rust handlers (E207).
 #[path = "v3_conformance_tests.rs"]
 mod v3_conformance;
+
+/// E242: tree cuts reach every replica on the same step.
+#[path = "tree_cut_replica_tests.rs"]
+mod tree_cut_replica;

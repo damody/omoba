@@ -155,9 +155,9 @@ return function(ctx)
         },
         text = {
           zh_TW = { name = "衰心靈光",
-            body = "被動：周圍 {radius} 內的敵人每秒法力回復降低 {mana_reduction}；{immune_radius} 內的魔免敵人也會受到同樣效果。受影響的敵人每次花費法力時，再失去 {mana_lost} 法力（不超過三成目前的法力；魔免單位只失去 {immune_ratio}），並被緩速 {slow}，持續 {slow_duration} 秒。" },
+            body = "被動：周圍 {radius} 內的敵人每秒法力回復降低 {mana_reduction}；{immune_radius} 內的魔免敵人也會受到同樣效果。受影響的敵人每次花費法力時，再失去 {mana_lost} 法力（不超過三成目前的法力；魔免單位只失去 {immune_ratio}），並被緩速 {slow}，持續 {slow_duration} 秒，可疊加。" },
           en = { name = "Withering Aura",
-            body = "Passive: enemies within {radius} have their mana regeneration reduced by {mana_reduction}; spell-immune enemies within {immune_radius} are affected as well. Whenever an affected enemy spends mana, it loses an additional {mana_lost} mana (capped at Mitsunari's current mana; spell-immune units lose only {immune_ratio} of that) and is slowed by {slow} for {slow_duration} seconds." },
+            body = "Passive: enemies within {radius} have their mana regeneration reduced by {mana_reduction}; spell-immune enemies within {immune_radius} are affected as well. Whenever an affected enemy spends mana, it loses an additional {mana_lost} mana (capped at Mitsunari's current mana; spell-immune units lose only {immune_ratio} of that) and is slowed by {slow} for {slow_duration} seconds; the slows stack." },
         },
         target = { type = "none" },
         passive = {
@@ -181,14 +181,14 @@ return function(ctx)
             stats = { mana_regen = "-$mana_reduction" },
             triggers = {
               on_mana_spent = { {
-                op = "let", name = "lost", value = "min(caster.mana, $mana_lost)" },
+                op = "let", name = "lost", value = "min(self.mana, $mana_lost)" }, -- FC-122（D13）：以目標的法力為上限
                 { op = "burn_mana", to = "self", source = "caster",
                   amount = "select(self.is_magic_immune, lost * $immune_ratio, lost)" },
                 { op = "apply_status", status = "a29r_slow", to = "self", source = "caster" },
               },
             },
             notes = "原作 modifier_A29R_2（光環給予；IsDebuff、未寫 IsPurgable，暫定 basic）。OnSpentMana 執行 A29R_mana_lost。" },
-          { id = "a29r_slow", text = { zh_TW = { name = "衰心緩速", body = "移動速度降低 {slow}。" }, en = { name = "Withering Slow", body = "Movement speed reduced by {slow}." } }, duration = "$slow_duration", stacking = "keep", dispel = "basic", visibility = "debuff",
+          { id = "a29r_slow", text = { zh_TW = { name = "衰心緩速", body = "每層移動速度降低 {slow}，可疊加。" }, en = { name = "Withering Slow", body = "Each instance reduces movement speed by {slow}; stacks." } }, duration = "$slow_duration", stacking = "independent", dispel = "basic", visibility = "debuff",
             reveal = "public", tags = { "slow" }, cue = "a29r_frost_fx",
             stats = { slow_pct = "$slow" },
             notes = "原作 modifier_A29R_3：MODIFIER_ATTRIBUTE_MULTIPLE，但緩速池以 modifier 名稱為鍵；最早的實例結束時 ReturnSpeed 就清掉緩速。以 keep（再次套用不延長）近似。" },
@@ -197,10 +197,10 @@ return function(ctx)
         quirks = {
           { policy = "as_source", ref = "npc/A_Oda/A29.txt:370-379",
             text = "光環 modifier 的 \"Flags\" 不是 Aura_Flags，光環本身不含魔免單位；魔免敵人改由每秒一次的腳本在 1400 內補上（比光環的 800 大）。" },
-          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:21-22",
-            text = "額外損失的法力取 min(三成自己的目前法力, mana_lost)，不是目標的法力：三成沒魔時敵人不會額外失去法力。看起來原意是以目標法力為上限。" },
-          { policy = "fix_candidate", ref = "npc/A_Oda/A29.txt:424-455",
-            text = "modifier_A29R_3 是 MULTIPLE，但 dummy.lua 緩速池以名稱為鍵：第二次花費法力不會延長或疊加緩速，最早的實例到期就清掉緩速（連較晚套上的一起失效）。原作說明寫「緩速會疊加」。資料以 keep 近似。" },
+          { policy = "fixed", ref = "vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:21-22",
+            text = "FC-122（D13 修正：額外損失的法力以目標的法力為上限 min(self.mana, mana_lost)）。原作：額外損失的法力取 min(三成自己的目前法力, mana_lost)，不是目標的法力：三成沒魔時敵人不會額外失去法力。看起來原意是以目標法力為上限。" },
+          { policy = "fixed", ref = "npc/A_Oda/A29.txt:424-455",
+            text = "FC-010（D13 修正：緩速改成 independent，各實例疊加、各自計時）。原作：modifier_A29R_3 是 MULTIPLE，但 dummy.lua 緩速池以名稱為鍵：第二次花費法力不會延長或疊加緩速，最早的實例到期就清掉緩速（連較晚套上的一起失效）。原作說明寫「緩速會疊加」。" },
           { policy = "as_source",
             text = "一級 mana_lost 為 0：仍會套用緩速，只是不額外扣法力。法力花費包括道具；魔免單位照樣被緩速。" },
           { policy = "as_source", ref = "vscripts/heroes/A_Oda/A29_Ishida_Mitsunari.lua:34",

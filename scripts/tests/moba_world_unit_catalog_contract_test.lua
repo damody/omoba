@@ -52,4 +52,10 @@ assert(not pcall(build,context),'super minion identity collision must fail close
 first.base_structures=original
 maps={first,{jungle_camps={{id='first_melee'}}}}
 assert(not pcall(build,context),'ambiguous camp/minion identity must fail closed')
+-- E187 §5.4: a leader with a unit template wears it; the camp id is no identity, and a template
+-- shared by a leader and a member is one identity.
+maps={first,second,{jungle_camps={{id='third_camp',unit='third_leader',members={{id='third_leader'},{id='third_small'}}}}}}
+local third=indexed(build(context))
+assert(third.third_leader and not third.third_camp and third.third_leader.catalog_id<40000 and third.third_small.catalog_id>=40000)
+for id,row in pairs(after)do assert(third[id].catalog_id==row.catalog_id,'a unit template changed existing identity: '..id)end
 print('multi-map world unit catalog: union, deduplication, stable existing IDs and role collision passed')
