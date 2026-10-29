@@ -106,9 +106,9 @@
 | 情境 | 指令 | 實際腳本 |
 |---|---|---|
 | 第一次 clone 後拉 submodule | `git submodule update --init --recursive` | `omb`、`omfx`、`omfue`、`erps`、`specs`、`log4rs`、`map_editor`、`mqtt_log_viewer` |
-| 正式 MOBA | `run_ue.bat --moba` | `scripts/run_moba_session_ue.lua` 重用正式 role workflow。預設真人選角；全本機真人可於結算準備下一局 |
+| 正式 MOBA demo（1 位玩家＋9 個電腦） | `run_ue.bat`（等同 `run_ue.bat --moba`） | `scripts/run_moba_session_ue.lua` 重用正式 role workflow。預設真人選角；全本機真人可於結算準備下一局。略過重建：`run_ue.bat --no-build` |
 | Headless MOBA | 見下方 Lua 指令 | `scripts/run_moba_headless.lua` |
-| Unreal TD | `run_ue.bat` | `scripts/run_ue.lua`。預設單機 `TD_1`，環境關閉 runtime Lua；加 `--networked` 才另起 `compiled-content-only` backend |
+| Unreal TD | `run_ue.bat --td`（或第一個參數是 TD 專用旗標，例如 `--editor`） | `scripts/run_ue.lua`。預設單機 `TD_1`，環境關閉 runtime Lua；加 `--networked` 才另起 `compiled-content-only` backend |
 | 雙隊 Unreal IPC | `tools\lua\lua.exe scripts\run_2player_ue.lua` | `scripts/run_2player_ue.lua` |
 | 歷史 Fyrox TD | `run.bat` | `scripts/run.lua`。`runtime-lua-content`、`TD_1`、`OMB_NO_HEROES=1`。不再維護 |
 | 歷史 release TD | `run_10000.bat` | `scripts/run_10000.lua`。release `TD_1` 加 `OMB_TD_STARTING_GOLD=10000` |
@@ -119,7 +119,8 @@
 正式 MOBA：
 
 ```bat
-run_ue.bat --moba
+run_ue.bat
+run_ue.bat --no-build
 run_ue.bat --moba --help
 run_ue.bat --moba --interactive-selection --no-build --ue-root D:/UE5.8
 tools\lua\lua.exe scripts\run_moba_role_ue.lua --help
@@ -286,7 +287,7 @@ Server 只把該隊看得到的 fact 放進 team stream。Fog grid、商店回�
 | `Plugins/BpGeneratorUltimate` | Editor MCP、資產與 PIE 工具。不是遊戲執行期依賴 |
 | `omfue/restart` | 停掉 Editor、編 bridge 與 OmGame 的本機工具。`scripts/build_ue_moba.lua` 會先編它 |
 
-正式對局加 `-om-presentation-only`，不代入 KCP endpoint。`run_ue.bat --moba` 轉到正式 MOBA launcher；沒有 `--moba` 的既有 TD 路徑不加 `--networked` 時仍是 `-om-single-player`，那是單機 TD。
+正式對局加 `-om-presentation-only`，不代入 KCP endpoint。`run_ue.bat`（不帶參數）與 `run_ue.bat --moba` 都轉到正式 MOBA launcher。TD 要用 `run_ue.bat --td`，或第一個參數就是 TD 專用旗標；TD 不加 `--networked` 時仍是 `-om-single-player`，那是單機 TD。
 
 ### Fyrox (`omfx`，不維護)
 

@@ -8,8 +8,8 @@
 
 | 情境 | 指令 |
 |---|---|
-| 正式 MOBA（真人選角） | `run_ue.bat --moba` |
-| 同上，略過重建 | `run_ue.bat --moba --interactive-selection --no-build --ue-root D:/UE5.8` |
+| 正式 MOBA demo（1 位玩家＋9 個電腦，真人選角） | `run_ue.bat` |
+| 同上，略過重建 | `run_ue.bat --no-build` |
 | 本機雙人對戰（1 台 server + 2 個畫面） | `tools\lua\lua.exe scripts\run_moba_split_local.lua --no-build` |
 | 打包版（不需要 Editor） | 在上一列加上 `--packaged-game <打包目錄或 OmGame.exe>` |
 
