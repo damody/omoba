@@ -1630,7 +1630,8 @@ impl FixtureWorld {
         }
         let ranks = self.active.ability_levels.clone();
         let threshold = u32::try_from(self.active.experience_to_next).map_err(|_| "experience_threshold")?;
-        if threshold == 0 || !self.active.add_moba_experience(threshold) {
+        // The fixture keeps the legacy experience curve (no game rules).
+        if threshold == 0 || !self.active.add_moba_experience(threshold, None) {
             return Err("experience_did_not_level");
         }
         if self.active.level != 2

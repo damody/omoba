@@ -14,6 +14,29 @@ use super::item::ItemRegistry;
 /// Shared admission radius for authority transactions and owner-side planning.
 pub const MOBA_SHOP_RADIUS: i32 = 300;
 
+/// The match's shops (E187 §5.9): the compiled map's authored shops, if any.
+fn authored_shops(state: &super::moba_match::MobaMatch) -> Option<&'static omoba_template_ids::MobaMapConst> {
+    state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name).filter(|map| !map.shops.is_empty())
+}
+
+/// Purchase reach: the map's authored shop radius, else [`MOBA_SHOP_RADIUS`] around the own base.
+pub fn shop_radius(state: &super::moba_match::MobaMatch) -> omoba_sim::Fixed64 {
+    omoba_sim::Fixed64::from_i32(authored_shops(state).map_or(MOBA_SHOP_RADIUS, |map| map.shop_radius))
+}
+
+/// On a map with authored shops (E187 §5.9): whether `position` is within the purchase radius of
+/// a home or side shop that `side` may use (its own, or one without a team). Secret shops sell
+/// only items marked secret, and the item catalog has no such marking yet, so they sell nothing.
+/// None on maps without shops (the own base's radius applies).
+pub fn authored_shop_in_reach(state: &super::moba_match::MobaMatch, side: usize, position: omoba_sim::Vec2) -> Option<bool> {
+    let map = authored_shops(state)?;
+    let radius = omoba_sim::Fixed64::from_i32(map.shop_radius);
+    Some(map.shops.iter().any(|shop| shop.kind != omoba_template_ids::MobaShopKind::Secret
+        && shop.team.is_none_or(|team| usize::from(team) == side)
+        && (omoba_sim::Vec2::new(omoba_sim::Fixed64::from_i32(shop.position.0), omoba_sim::Fixed64::from_i32(shop.position.1))
+            - position).length_squared() <= radius * radius))
+}
+
 /// Read-only preview using the exact atomic transaction kernel. This is not
 /// authority admission: phase, owner identity and proximity are rechecked there.
 pub fn preview_buy_item(registry: &ItemRegistry, inventory: &Inventory, gold: &Gold,
@@ -621,6 +644,9 @@ fn classify_shop(
     let positions = world.read_storage::<Pos>();
     let hero_pos = positions.get(hero).ok_or((ShopError::HeroUnavailable, SHOP_REASON_STALE_IDENTITY))?.0;
     let base_pos = positions.get(base).ok_or((ShopError::MatchUnavailable, SHOP_REASON_MISSING_BASE))?.0;
+    if let Some(in_reach) = authored_shop_in_reach(state, slot.side, hero_pos) {
+        return if in_reach { Ok(ShopSeat::Live(hero)) } else { Err((ShopError::OutsideShop, SHOP_REASON_OUTSIDE_SHOP)) };
+    }
     let radius = Fixed64::from_i32(MOBA_SHOP_RADIUS);
     if (hero_pos - base_pos).length_squared() > radius * radius {
         return Err((ShopError::OutsideShop, SHOP_REASON_OUTSIDE_SHOP));
@@ -657,6 +683,8 @@ fn mutate_retained_shop(
     )
 }
 
+const SELLS_TEST_ONLY_ITEMS: bool = cfg!(any(test, feature = "test-support"));
+
 fn apply_shop_command(
     registry: &ItemRegistry,
     inventory: &mut Inventory,
@@ -667,7 +695,10 @@ fn apply_shop_command(
 ) -> Result<Option<(ShopUndoRecord, Inventory)>, ShopError> {
     match command {
         ShopCommand::Buy(id) => {
-            if !omoba_template_ids::MOBA_ITEM_CATALOG.iter().any(|item| item.id == id) {
+            // Engine fixtures (test_only, E155) are not for sale: a real authority refuses them
+            // like unknown items; only test builds keep buying them for shop-mechanics tests.
+            if !omoba_template_ids::MOBA_ITEM_CATALOG.iter()
+                .any(|item| item.id == id && (item.in_shop() || SELLS_TEST_ONLY_ITEMS)) {
                 return Err(ShopError::UnknownItem);
             }
             let before_inventory = inventory.clone();
@@ -1263,7 +1294,7 @@ pub fn sell_item(
     if !valid_item(&item) {
         return Err(ShopError::InvalidCatalog);
     }
-    let refund = item.cost / 2;
+    let refund = (i64::from(item.cost) * i64::from(registry.sell_refund_percent.min(100)) / 100) as i32;
     let balance = gold
         .0
         .checked_add(refund)
@@ -1620,6 +1651,7 @@ mod tests {
             catalog_item("moba_stride_charm", 500, ItemBonus::default(), &[], Some(ActiveEffect::SprintBuff { ms_bonus: 60.0, duration: 3.0 }), 12.0),
             catalog_item("moba_training_flare", 450, ItemBonus::default(), &[], Some(ActiveEffect::PointNova {
                 damage: Fixed64::from_i32(40), radius: Fixed64::from_i32(80),
+                damage_type: Default::default(), skip_buildings: false, control: None, hit: Default::default(),
             }), 8.0),
         ])
     }
@@ -1654,6 +1686,7 @@ mod tests {
         world.register::<Creep>();
         world.register::<Tower>();
         world.register::<ScriptUnitTag>();
+        world.register::<super::super::comp::IsBuilding>();
         world.insert(GamePause { is_paused: false });
         world.insert(Tick(0));
         world.insert(DeltaTime(Fixed64::ZERO));
@@ -1796,6 +1829,162 @@ mod tests {
         assert_eq!(item_at(&world, hero, 0).as_deref(), Some("moba_greatsword"));
         assert_eq!(item_at(&world, hero, 1).as_deref(), Some("moba_armor"));
         assert_eq!(digest(&world), before);
+    }
+
+    #[test]
+    fn source_modifier_active_buffs_allies_in_radius_and_charges_mana() {
+        // item_fire_scroll (E160): allies within 700 gain modifier_fire_attack (+20% base damage, 8 s); 50 mana.
+        let ShopWorld { mut world, heroes } = shop_world(5000);
+        world.insert(ItemRegistry::generated_moba());
+        let [hero, enemy] = heroes;
+        let ally = world.create_entity().with(Hero::default()).with(property(500))
+            .with(Pos(Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO))).with(Faction::new(FactionType::Player, 1)).build();
+        let far = world.create_entity().with(Hero::default()).with(property(500))
+            .with(Pos(Vec2::new(Fixed64::from_i32(800), Fixed64::ZERO))).with(Faction::new(FactionType::Player, 1)).build();
+        buy(&mut world, 1, "fire_scroll");
+        world.write_resource::<MobaMatch>().config.mana_enabled = true;
+        let mut pool = crate::runtime::ability_runtime::ManaPool::full(Fixed64::from_i32(100)).unwrap();
+        pool.spend(Fixed64::from_i32(60)).unwrap();
+        world.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool = Some(pool);
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 0, None, None, 1, false).is_err(), "40 mana cannot pay 50");
+        assert!(world.read_resource::<crate::runtime::BuffStore>().get(hero, "modifier_fire_attack").is_none());
+        world.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool.as_mut().unwrap().restore(Fixed64::from_i32(60)).unwrap();
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 0, None, None, 1, false).is_ok());
+        assert_eq!(world.read_storage::<Hero>().get(hero).unwrap().mana_pool.as_ref().unwrap().current(), Fixed64::from_i32(50));
+        assert_eq!(world.read_storage::<Inventory>().get(hero).unwrap().slots[0].as_ref().unwrap().cooldown_remaining, 26.0);
+        let buffs = world.read_resource::<crate::runtime::BuffStore>();
+        for (entity, expected) in [(hero, true), (ally, true), (far, false), (enemy, false)] {
+            let buff = buffs.get(entity, "modifier_fire_attack");
+            assert_eq!(buff.is_some(), expected);
+            if let Some(buff) = buff {
+                assert_eq!(buff.remaining, Fixed64::from_i32(8));
+                assert_eq!(buff.payload["basedamageoutgoing_percentage"].as_i64(), Some(205));
+            }
+        }
+    }
+
+    #[test]
+    fn ally_unit_heal_targets_only_living_allies_in_range_and_charges_mana() {
+        // item_izuminokami_kanesada (E160): heal one ally within 700 by 420; 60 mana; cooldown 45.
+        let ShopWorld { mut world, heroes } = shop_world(5000);
+        world.insert(ItemRegistry::generated_moba());
+        let [hero, enemy] = heroes;
+        let wounded = |hp: i32| CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(1000), msd: Fixed64::ZERO,
+            def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO };
+        let ally = world.create_entity().with(Hero::default()).with(wounded(300))
+            .with(Pos(Vec2::new(Fixed64::from_i32(600), Fixed64::ZERO))).with(Faction::new(FactionType::Player, 1)).build();
+        let far = world.create_entity().with(Hero::default()).with(wounded(300))
+            .with(Pos(Vec2::new(Fixed64::from_i32(900), Fixed64::ZERO))).with(Faction::new(FactionType::Player, 1)).build();
+        let tower = world.create_entity().with(wounded(300)).with(super::super::comp::IsBuilding)
+            .with(Pos(Vec2::new(Fixed64::from_i32(100), Fixed64::ZERO))).with(Faction::new(FactionType::Player, 1)).build();
+        world.maintain();
+        world.write_resource::<Vec<Outcome>>().clear();
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] =
+            Some(ItemInstance { item_id: "izuminokami_kanesada".into(), cooldown_remaining: 0.0 });
+        world.write_resource::<MobaMatch>().config.mana_enabled = true;
+        world.write_storage::<Hero>().get_mut(hero).unwrap().mana_pool =
+            Some(crate::runtime::ability_runtime::ManaPool::full(Fixed64::from_i32(100)).unwrap());
+        for refused in [enemy, far, tower] {
+            assert!(crate::runtime::handle_item_use_from_input(&mut world, 0, None, Some(refused.id()), 1, false).is_err());
+        }
+        assert!(world.read_resource::<Vec<Outcome>>().is_empty(), "refusals change nothing");
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 0, None, Some(ally.id()), 1, false).is_ok());
+        let heals: Vec<_> = world.read_resource::<Vec<Outcome>>().iter().filter_map(|o| match o {
+            Outcome::Heal { target, amount, .. } => Some((*target, *amount)), _ => None }).collect();
+        assert_eq!(heals, vec![(ally, Fixed64::from_i32(420))]);
+        assert_eq!(world.read_storage::<Hero>().get(hero).unwrap().mana_pool.as_ref().unwrap().current(), Fixed64::from_i32(40));
+        let slot = world.read_storage::<Inventory>().get(hero).unwrap().slots[0].clone().expect("not a consumable");
+        assert_eq!(slot.cooldown_remaining, 45.0);
+    }
+
+    #[test]
+    fn shared_cooldown_starts_the_listed_inventory_items_only() {
+        // item_red_spear's Shock (item_fire_scroll.lua) starts the fire family's cooldown with its own 15 s;
+        // using fire_scroll does not touch red_spear (the source lists are one-directional).
+        let ShopWorld { mut world, heroes } = shop_world(5000);
+        world.insert(ItemRegistry::generated_moba());
+        let hero = heroes[0];
+        let spear = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == "red_spear").unwrap();
+        assert!(spear.shares_cooldown_with.contains(&"fire_scroll"));
+        {
+            let mut inventories = world.write_storage::<Inventory>();
+            let slots = &mut inventories.get_mut(hero).unwrap().slots;
+            slots[0] = Some(ItemInstance { item_id: "red_spear".into(), cooldown_remaining: 0.0 });
+            slots[1] = Some(ItemInstance { item_id: "fire_scroll".into(), cooldown_remaining: 0.0 });
+            slots[2] = Some(ItemInstance { item_id: "rations".into(), cooldown_remaining: 0.0 });
+        }
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 0, None, None, 1, false).is_ok());
+        let cooldowns = |world: &specs::World| world.read_storage::<Inventory>().get(hero).unwrap().slots.iter()
+            .map(|slot| slot.as_ref().map(|item| item.cooldown_remaining)).collect::<Vec<_>>();
+        assert_eq!(&cooldowns(&world)[..3], &[Some(15.0), Some(15.0), Some(0.0)]);
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 1, None, None, 1, false).is_err(), "fire scroll shares the cooldown");
+        // The other way round: fire_scroll's list does not name red_spear.
+        {
+            let mut inventories = world.write_storage::<Inventory>();
+            for slot in inventories.get_mut(hero).unwrap().slots.iter_mut().flatten() { slot.cooldown_remaining = 0.0; }
+        }
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 1, None, None, 1, false).is_ok());
+        assert_eq!(&cooldowns(&world)[..3], &[Some(0.0), Some(26.0), Some(0.0)]);
+    }
+
+    #[test]
+    fn item_aura_reaches_allies_in_radius_and_the_active_leaves_a_permanent_copy() {
+        // item_the_art_of_war_flame_chapter (E173): passive aura +7% base damage within 700, holder included;
+        // the active also applies the aura modifier without a Duration (until removed) plus +30% for 8 s.
+        let ShopWorld { mut world, heroes } = shop_world(5000);
+        world.insert(ItemRegistry::generated_moba());
+        let [hero, enemy] = heroes;
+        let ally = world.create_entity().with(Hero::default()).with(property(500))
+            .with(Pos(Vec2::new(Fixed64::from_i32(650), Fixed64::ZERO))).with(Faction::new(FactionType::Player, 1)).build();
+        let far = world.create_entity().with(Hero::default()).with(property(500))
+            .with(Pos(Vec2::new(Fixed64::from_i32(750), Fixed64::ZERO))).with(Faction::new(FactionType::Player, 1)).build();
+        let book = omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item| item.id == "the_art_of_war_flame_chapter").unwrap();
+        let aura = book.aura.expect("flame chapter carries its aura");
+        assert_eq!((aura.name, aura.radius), ("modifier_item_art_of_war_flame_chapter", Fixed64::from_i32(700)));
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[0] =
+            Some(ItemInstance { item_id: "the_art_of_war_flame_chapter".into(), cooldown_remaining: 0.0 });
+        super::super::item_modifiers::settle_item_auras(&mut world);
+        {
+            let buffs = world.read_resource::<crate::runtime::BuffStore>();
+            for (entity, expected) in [(hero, true), (ally, true), (far, false), (enemy, false)] {
+                let entry = buffs.get(entity, aura.name);
+                assert_eq!(entry.is_some(), expected);
+                if let Some(entry) = entry {
+                    assert_eq!(entry.remaining, super::super::item_modifiers::AURA_LINGER, "a refreshed aura, not a lease");
+                    assert_eq!(entry.payload["basedamageoutgoing_percentage"].as_i64(), Some(72));
+                }
+            }
+        }
+        // Two holders: one buff per receiver (the aura name is the buff id).
+        world.write_storage::<Inventory>().get_mut(ally).map(|inv| inv.slots[0] =
+            Some(ItemInstance { item_id: "the_art_of_war_flame_chapter".into(), cooldown_remaining: 0.0 }));
+        super::super::item_modifiers::settle_item_auras(&mut world);
+        assert_eq!(world.read_resource::<crate::runtime::BuffStore>().iter_for(hero).filter(|(id, _)| *id == aura.name).count(), 1);
+        // The active: the aura modifier stays (no Duration in the source) and the fire buff lasts 8 s.
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 0, None, None, 1, false).is_ok());
+        let buffs = world.read_resource::<crate::runtime::BuffStore>();
+        assert_eq!(buffs.get(far, aura.name).map(|entry| entry.remaining), None, "far ally is outside 700");
+        assert_eq!(buffs.get(ally, aura.name).unwrap().remaining, crate::runtime::ability_runtime::buff_store::PERMANENT_BUFF_DURATION);
+        assert_eq!(buffs.get(ally, "modifier_fire_attack").unwrap().remaining, Fixed64::from_i32(8));
+    }
+
+    #[test]
+    fn consumable_active_is_used_up_by_a_committed_use_only() {
+        // item_rations (E160): heal 420 and restore 210 mana, then the item is gone.
+        let ShopWorld { mut world, heroes } = shop_world(5000);
+        world.insert(ItemRegistry::generated_moba());
+        let hero = heroes[0];
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[2] =
+            Some(ItemInstance { item_id: "rations".into(), cooldown_remaining: 5.0 });
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 2, None, None, 1, false).is_err(), "cooling down");
+        assert!(world.read_storage::<Inventory>().get(hero).unwrap().slots[2].is_some(), "a refused use keeps the item");
+        world.write_storage::<Inventory>().get_mut(hero).unwrap().slots[2].as_mut().unwrap().cooldown_remaining = 0.0;
+        world.write_resource::<Vec<Outcome>>().clear();
+        assert!(crate::runtime::handle_item_use_from_input(&mut world, 2, None, None, 1, false).is_ok());
+        assert!(world.read_storage::<Inventory>().get(hero).unwrap().slots[2].is_none(), "used up");
+        assert!(world.read_storage::<super::super::comp::ItemEffects>().get(hero).unwrap().dirty);
+        assert!(world.read_resource::<Vec<Outcome>>().iter().any(|o| matches!(o,
+            Outcome::Heal { target, amount, .. } if *target == hero && *amount == Fixed64::from_i32(420))));
     }
 
     #[test]

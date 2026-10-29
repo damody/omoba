@@ -1,5 +1,6 @@
-//! 一刀．牙（H06，來源 B08W current）：朝方向斬出刀牙（寬 175、飛行 1200、速度
-//! 1500），穿透沿途敵人，各受 200/300/400/500 魔法傷害一次。
+//! 一刀．牙（H06，來源 B08W current，B08.txt:143-287）：朝方向斬出刀牙（半徑、固定
+//! 飛行距離與速度見 v3.lua 的 radius／distance／speed，與施法距離分開），穿透沿途敵人，
+//! 各受 damage 魔法傷害一次。施放後自身 command_lock 秒 command_restricted（modifier_B08W，253-261）。
 use abi_stable::std_types::{RErr,ROk,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},types::{EntityHandle,Target},world::GameWorldDyn};
 use omoba_core::ability_meta::{DamageType,EffectSpec,TargetSelector};
@@ -19,8 +20,8 @@ impl AbilityScript for FangSlashHandler {
 }
 
 pub fn b08_fang_slash_ffi()->AbilityDefFFI {
-    build_ability_ffi(ID,FangSlashHandler,vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"projectile_speed",1),on_hit:vec![
-        EffectSpec::Damage {target:TargetSelector::Target,amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical}]}])
+    build_ability_ffi(ID,FangSlashHandler,vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"speed",1),on_hit:vec![
+        EffectSpec::Damage {target:TargetSelector::Target,amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical}]}])
 }
 
 #[cfg(test)]
@@ -39,11 +40,16 @@ mod tests {
             let spec=outcomes.iter().find_map(|o|match o {Outcome::AddBuff {buff_id,payload,duration,..} if buff_id==host::BUFF=>
                 host::Spec::from_payload(host::BUFF,*duration,payload),_=>None}).expect("launch");
             assert!(matches!(spec.motion,host::Motion::Linear {..}) && !spec.buildings && spec.dot.is_none());
-            assert_eq!((spec.distance,spec.speed,spec.max_hits),(Fixed64::from_i32(1200),Fixed64::from_i32(1500),64),"rank {rank}");
-            assert_eq!(spec.radius,Fixed64::from_raw(87*1024+512),"half of width 175");
+            assert_eq!((spec.distance,spec.speed,spec.max_hits),(Fixed64::from_i32(1200),Fixed64::from_i32(1500),64),"rank {rank}: flies 1200");
+            assert_eq!(spec.radius,Fixed64::from_i32(175),"source StartRadius/EndRadius 175 is a radius");
             assert_eq!(spec.amount,Fixed64::from_i32(damage),"rank {rank}");
             assert!(!outcomes.iter().any(|o|matches!(o,Outcome::RawDamage {..})),"damage only on contact");
+            assert!(outcomes.iter().any(|o|matches!(o,Outcome::AddBuff {target,buff_id,duration,..}
+                if *target==t.source && buff_id==omoba_core::runtime::native::command_restriction::BUFF && *duration==Fixed64::from_raw(102))),
+                "0.1 s command restriction on the caster");
         }
+        let content=omoba_template_ids::active_ability_const(ID).unwrap();
+        assert!(content.levels.iter().all(|l|l.range==Fixed64::from_i32(1100) && l.cast_time==Fixed64::from_raw(102)),"cast range 1100, cast point 0.1");
     }
 
     #[test]

@@ -80,6 +80,12 @@ impl SimulationDriver {
         self.profile
     }
 
+    /// The script registry this driver runs (M3 replays swap one ability's script, see
+    /// `ScriptRegistry::replace_ability_script`).
+    pub fn scripts_mut(&mut self) -> &mut ScriptRegistry {
+        &mut self.scripts
+    }
+
     pub fn tick(&self) -> u64 {
         self.tick
     }

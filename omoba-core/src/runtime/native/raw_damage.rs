@@ -2,7 +2,7 @@
 use omoba_sim::Fixed64;
 use specs::{World,WorldExt,Entity};
 use crate::runtime::comp::*;
-use crate::runtime::{BuffStore,ability_runtime::UnitStats};
+use crate::runtime::ability_runtime::UnitStats;
 
 /// Read-only serial wrapper around the shared stat policy.
 pub(super) fn ordinary_target(world:&World,source:Entity,target:Entity)->bool {
@@ -64,29 +64,16 @@ impl CriticalCommit {
     }
 }
 
-pub(super) fn settle(world:&World,target:Entity,phys:Fixed64,magi:Fixed64,real:Fixed64,profile:u32)->Option<DamageTypes> {
-    if [phys,magi,real].iter().any(|value|*value<Fixed64::ZERO)
-        || i128::from(phys.raw())+i128::from(magi.raw())+i128::from(real.raw())>i128::from(i64::MAX)
-        || omb_script_abi::types::DamageProfile::from_bits(profile).is_none()
-        || !world.entities().is_alive(target) {return None;}
-    let properties=world.read_storage::<CProperty>();let property=properties.get(target)?;
-    if property.hp<=Fixed64::ZERO {return None;}
-    let damage=DamageTypes::new(phys,magi,real);
-    if world.read_storage::<Creep>().get(target).is_some_and(|creep|creep.td_layer.is_some()) {return Some(damage);}
-    if phys==Fixed64::ZERO && magi==Fixed64::ZERO {return Some(damage);}
-    let heroes=world.read_storage::<Hero>();let units=world.read_storage::<Unit>();
-    let (armor,resistance)=if heroes.get(target).is_some() {(property.def_physic,property.def_magic)}
-        else {units.get(target).map_or((property.def_physic,property.def_magic),|unit|(unit.base_armor,unit.magic_resistance))};
-    let buffs=world.read_resource::<BuffStore>();
-    let stats=UnitStats::from_refs(&buffs,world.read_storage::<IsBuilding>().get(target).is_some());
-    let armor=if phys>Fixed64::ZERO {stats.checked_final_armor(armor,target)?}else{Fixed64::ZERO};
-    let resistance=if magi>Fixed64::ZERO {stats.checked_final_magic_resist(resistance/Fixed64::from_i32(100),target)?*Fixed64::from_i32(100)}else{Fixed64::ZERO};
-    Some(mitigate_base_defenses(&damage,armor,resistance,false,false))
+/// Block, armor and resistance of a raw packet (rules::damage::defenses, stage ③ of the
+/// pipeline). `attack`: an ordinary attack's packet, which physical block applies to.
+pub(super) fn settle(world:&World,target:Entity,phys:Fixed64,magi:Fixed64,real:Fixed64,profile:u32,attack:bool)->Option<DamageTypes> {
+    crate::runtime::native::rules::damage::defenses(world,target,phys,magi,real,profile,attack)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::BuffStore;
     use specs::Builder;
     use omb_script_abi::types::DamageProfile;
     use omoba_sim::Vec2;
@@ -277,7 +264,7 @@ mod tests {
                 regrow_ceiling:"lead".into(),regrow_elapsed:Fixed64::ZERO,remaining_leak_value:1,spawn_lineage:1})}).unwrap();
         world.write_storage::<CProperty>().get_mut(target).unwrap().hp=Fixed64::ONE;
         let mut hit=raw(source,target,1,0,0);if let Outcome::RawDamage{damage_profile,..}=&mut hit {*damage_profile=DamageProfile::SHARP.bits();}
-        assert_eq!(settle(&world,target,Fixed64::ONE,Fixed64::ZERO,Fixed64::ZERO,DamageProfile::SHARP.bits()).unwrap().physical,Fixed64::ONE);
+        assert_eq!(settle(&world,target,Fixed64::ONE,Fixed64::ZERO,Fixed64::ZERO,DamageProfile::SHARP.bits(),false).unwrap().physical,Fixed64::ONE);
         flush(&mut world,vec![hit]);assert_eq!(hp(&world,target),Fixed64::ONE);
         let mut hit=raw(source,target,0,0,1);if let Outcome::RawDamage{damage_profile,..}=&mut hit {*damage_profile=DamageProfile::TRUE.bits();}
         flush(&mut world,vec![hit]);assert!(world.read_storage::<Creep>().get(target).is_none_or(|c|c.td_layer.as_ref().is_none_or(|s|s.current_layer!="lead")));

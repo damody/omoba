@@ -11,6 +11,7 @@ return function(ctx)
       { id = "stacking_buff", status = "supported" },
       { id = "on_cast_trigger", status = "supported" },
       { id = "extra_action_slot", status = "supported" },
+      { id = "command_restricted", status = "supported" },
     },
     kit_status = "supported",
     catalog_ready = false,

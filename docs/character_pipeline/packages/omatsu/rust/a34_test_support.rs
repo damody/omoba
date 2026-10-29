@@ -30,6 +30,12 @@ impl TestWorld {
         let e=self.body(at,team);self.world.write_storage::<IsBuilding>().insert(e,IsBuilding).unwrap();e
     }
     pub fn handle(&self,e:Entity)->EntityHandle {ParallelWorldAdapter::entity_to_handle(e)}
+    pub fn source_buff(&mut self,id:&str) {
+        self.world.write_resource::<BuffStore>().add(self.source,id,Fixed64::from_i32(22),serde_json::json!({}));
+    }
+    pub fn hero(&mut self,at:Vec2,team:i32)->Entity {
+        let e=self.body(at,team);self.world.write_storage::<omoba_core::Hero>().insert(e,omoba_core::Hero::default()).unwrap();e
+    }
     pub fn stun_source(&mut self) {
         self.world.write_resource::<BuffStore>().add(self.source,"stun",Fixed64::from_i32(10),serde_json::json!({}));
     }
@@ -44,6 +50,13 @@ impl TestWorld {
             Ok(())=>Ok(outcomes),
             Err(error)=>{assert!(outcomes.is_empty(),"rejected cast emitted outcomes: {error}");Err(error.into())}
         }
+    }
+    /// Read-only script view of the world as the caster sees it.
+    pub fn read<R>(&mut self,f:impl FnOnce(&omb_script_abi::world::GameWorldDyn<'_>,EntityHandle)->R)->R {
+        let cache=ParallelAdapterCache::new(&self.world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,self.source);
+        let dynworld=GameWorld_TO::from_ptr(RMut::new(&mut adapter),TD_Opaque);
+        f(&dynworld,self.handle(self.source))
     }
     pub fn learn(&mut self,handler:&dyn AbilityScript,rank:u8)->Vec<Outcome> {
         let cache=ParallelAdapterCache::new(&self.world,1);

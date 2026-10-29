@@ -30,7 +30,9 @@ mod swept_dash;
 mod point_blast;
 mod passive_cone;
 mod self_transform;
+mod ir_switch;
 mod summon_formation;
+mod owner_cast;
 #[cfg(test)]
 mod summon_formation_tests;
 #[cfg(test)]
@@ -108,6 +110,10 @@ fn units() -> RVec<UnitDef> {
     });
     // Heroes whose content sets `unit_script = true` (generated from templates).
     include!(concat!(env!("OUT_DIR"), "/hero_unit_registry.rs"));
+    // Mobile hunting summons (generic flying chase AI, summons::chaser).
+    for chaser in heroes::C15_tamako::No4_hundred_arrows::chasers() {
+        v.push(UnitDef { unit_id: chaser.unit_id.clone(), script: UnitScript_TO::from_value(chaser, TD_Opaque) });
+    }
     // G-3: every immobile template without a dedicated script gets the generic
     // emplacement AI, so fixed summons are pure data.
     // Tombstones leave holes in the ID space; scan a bounded range, once at load.
@@ -122,6 +128,8 @@ fn units() -> RVec<UnitDef> {
         }
     }
 
+    // M3: hero UnitScripts that only routed casts to an IR passive (ir_switch.rs).
+    ir_switch::apply_units(&mut v);
     v
 }
 
@@ -129,6 +137,8 @@ fn units() -> RVec<UnitDef> {
 fn abilities() -> RVec<AbilityDefFFI> {
     let mut v: RVec<AbilityDefFFI> = RVec::new();
     include!(concat!(env!("OUT_DIR"), "/hero_ability_registry.rs"));
+    // M3: abilities run by their behavior IR (ir_switch.rs).
+    ir_switch::apply(&mut v);
     v
 }
 

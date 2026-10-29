@@ -6,10 +6,16 @@
 //! through the ordinary received-healing policy. Never stored as a buff.
 //! Targets are a pure function of committed positions, so every world that
 //! settles the packet heals the same units; opponents get committed vitals.
+//!
+//! Options (canonical: present in the payload only when `true`):
+//! - `exclude_buildings`: only heroes and units are restored (source
+//!   FindUnitsInRadius HERO+BASIC, e.g. C17D, or a script `IsBuilding` skip, C17T).
+//! - `direct`: the HP is set directly (source `SetHealth(GetHealth() + x)`,
+//!   C17T), bypassing the received-healing policy; still capped at max HP.
 use omoba_sim::{Fixed64, Vec2};
 use serde_json::{Value, json};
 use specs::{Entity, Join, World, WorldExt};
-use super::comp::{CProperty, Faction, Pos};
+use super::comp::{CProperty, Faction, IsBuilding, Pos};
 
 pub const KEY: &str = "__ally_area_restore_v1";
 pub const BUFF: &str = "__ally_area_restore";
@@ -24,9 +30,17 @@ pub struct Spec {
     pub hp_fraction: Fixed64,
     pub mana_fraction: Fixed64,
     pub cast_range: Fixed64,
+    pub exclude_buildings: bool,
+    pub direct: bool,
 }
 
 impl Spec {
+    /// The plain packet: buildings included, received-healing policy.
+    pub fn new(source_id: u32, source_generation: u32, center: Vec2, radius: Fixed64, hp_fraction: Fixed64,
+        mana_fraction: Fixed64, cast_range: Fixed64) -> Self {
+        Self { source_id, source_generation, center, radius, hp_fraction, mana_fraction, cast_range,
+            exclude_buildings: false, direct: false }
+    }
     pub fn checked(self) -> Option<Self> {
         let bounded = omoba_sim::terrain::MAX_GEOMETRY_RAW;
         (self.source_id != u32::MAX && self.source_generation > 0 && self.source_generation <= i32::MAX as u32
@@ -38,15 +52,20 @@ impl Spec {
             && self.cast_range > Fixed64::ZERO && self.cast_range <= Fixed64::from_i32(10_000)).then_some(self)
     }
     pub fn payload(&self) -> Value {
-        json!({ (KEY): { "source_id": self.source_id, "source_generation": self.source_generation,
+        let mut row = json!({ "source_id": self.source_id, "source_generation": self.source_generation,
             "center": [self.center.x.raw(), self.center.y.raw()], "radius_raw": self.radius.raw(),
             "hp_fraction_raw": self.hp_fraction.raw(), "mana_fraction_raw": self.mana_fraction.raw(),
-            "range_raw": self.cast_range.raw() } })
+            "range_raw": self.cast_range.raw() });
+        if self.exclude_buildings { row["exclude_buildings"] = json!(true); }
+        if self.direct { row["direct"] = json!(true); }
+        json!({ (KEY): row })
     }
     pub fn from_payload(buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Self> {
         if buff_id != BUFF || duration != Fixed64::ONE || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
-        if row.len() != 7 { return None; }
+        let flag = |name: &str| -> Option<bool> { match row.get(name) { None => Some(false), Some(Value::Bool(true)) => Some(true), _ => None } };
+        let (exclude_buildings, direct) = (flag("exclude_buildings")?, flag("direct")?);
+        if row.len() != 7 + usize::from(exclude_buildings) + usize::from(direct) { return None; }
         let center = row.get("center")?.as_array()?;
         if center.len() != 2 { return None; }
         Self { source_id: u32::try_from(row.get("source_id")?.as_u64()?).ok()?,
@@ -55,7 +74,7 @@ impl Spec {
             radius: Fixed64::from_raw(row.get("radius_raw")?.as_i64()?),
             hp_fraction: Fixed64::from_raw(row.get("hp_fraction_raw")?.as_i64()?),
             mana_fraction: Fixed64::from_raw(row.get("mana_fraction_raw")?.as_i64()?),
-            cast_range: Fixed64::from_raw(row.get("range_raw")?.as_i64()?) }.checked()
+            cast_range: Fixed64::from_raw(row.get("range_raw")?.as_i64()?), exclude_buildings, direct }.checked()
     }
 }
 
@@ -77,9 +96,10 @@ pub fn targets(world: &World, spec: &Spec) -> Vec<Entity> {
     let source = entities.entity(spec.source_id);
     let factions = world.read_storage::<Faction>();
     let Some(team) = factions.get(source).map(|f| f.team_id) else { return Vec::new(); };
-    let (positions, props) = (world.read_storage::<Pos>(), world.read_storage::<CProperty>());
+    let (positions, props, buildings) = (world.read_storage::<Pos>(), world.read_storage::<CProperty>(), world.read_storage::<IsBuilding>());
     let mut rows: Vec<_> = (&entities, &factions, &positions, &props).join()
-        .filter(|(_, faction, pos, prop)| faction.team_id == team && prop.hp > Fixed64::ZERO
+        .filter(|(entity, faction, pos, prop)| faction.team_id == team && prop.hp > Fixed64::ZERO
+            && !(spec.exclude_buildings && buildings.get(*entity).is_some())
             && (pos.0 - spec.center).length_squared() <= spec.radius * spec.radius)
         .map(|(entity, ..)| entity).collect();
     rows.sort_by_key(|entity| (entity.id(), entity.gen().id()));
@@ -105,9 +125,10 @@ pub fn heals(world: &World, spec: &Spec) -> Vec<(Entity, Fixed64)> {
     let source = entities.entity(spec.source_id);
     let factions = world.read_storage::<Faction>();
     let Some(team) = factions.get(source).map(|f| f.team_id) else { return Vec::new(); };
-    let (positions, props) = (world.read_storage::<Pos>(), world.read_storage::<CProperty>());
+    let (positions, props, buildings) = (world.read_storage::<Pos>(), world.read_storage::<CProperty>(), world.read_storage::<IsBuilding>());
     let mut rows: Vec<_> = (&entities, &factions, &positions, &props).join()
-        .filter(|(_, faction, pos, prop)| faction.team_id == team && prop.hp > Fixed64::ZERO
+        .filter(|(entity, faction, pos, prop)| faction.team_id == team && prop.hp > Fixed64::ZERO
+            && !(spec.exclude_buildings && buildings.get(*entity).is_some())
             && (pos.0 - spec.center).length_squared() <= spec.radius * spec.radius)
         .map(|(entity, _, _, prop)| (entity, Fixed64::from_raw((i128::from(prop.mhp.raw()) * i128::from(spec.hp_fraction.raw()) / 1024) as i64)))
         .filter(|(_, amount)| *amount > Fixed64::ZERO)
@@ -116,13 +137,67 @@ pub fn heals(world: &World, spec: &Spec) -> Vec<(Entity, Fixed64)> {
     rows
 }
 
+/// `direct` packets: each row's HP is set to `min(hp + amount, max)` with no
+/// received-healing policy (source SetHealth). Returns the rows applied.
+pub fn apply_direct(world: &mut World, spec: &Spec) -> Vec<(Entity, Fixed64)> {
+    let rows = heals(world, spec);
+    let mut props = world.write_storage::<CProperty>();
+    for (entity, amount) in &rows {
+        if let Some(prop) = props.get_mut(*entity) {
+            prop.hp = Fixed64::from_raw((i128::from(prop.hp.raw()) + i128::from(amount.raw())).min(i128::from(prop.mhp.raw())) as i64);
+        }
+    }
+    rows
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use specs::Builder;
+
+    fn world() -> (World, Entity) {
+        let mut world = World::new();
+        world.register::<Pos>(); world.register::<Faction>(); world.register::<CProperty>(); world.register::<IsBuilding>();
+        world.register::<super::super::comp::Hero>();
+        let source = body(&mut world, 0, 1, 1000, 1000);
+        (world, source)
+    }
+    fn body(world: &mut World, x: i32, team: i32, hp: i32, mhp: i32) -> Entity {
+        world.create_entity().with(Pos(Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO)))
+            .with(Faction::new(super::super::comp::FactionType::Player, team))
+            .with(CProperty { hp: Fixed64::from_i32(hp), mhp: Fixed64::from_i32(mhp), msd: Fixed64::ZERO,
+                def_physic: Fixed64::ZERO, def_magic: Fixed64::ZERO }).build()
+    }
+
+    #[test]
+    fn options_are_canonical_and_exclude_buildings_or_set_health_directly() {
+        let (mut world, source) = world();
+        let ally = body(&mut world, 100, 1, 300, 1000);
+        let tower = body(&mut world, 200, 1, 300, 1000);
+        world.write_storage::<IsBuilding>().insert(tower, IsBuilding).unwrap();
+        let plain = Spec::new(source.id(), source.gen().id() as u32, Vec2::ZERO, Fixed64::from_i32(800),
+            Fixed64::from_raw(410), Fixed64::ZERO, Fixed64::from_i32(1050)).checked().unwrap();
+        assert_eq!(plain.payload()[KEY].as_object().unwrap().len(), 7, "plain packets keep the original shape");
+        assert_eq!(targets(&world, &plain), vec![source, ally, tower]);
+        let only_units = Spec { exclude_buildings: true, direct: true, ..plain };
+        assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &only_units.payload()), Some(only_units));
+        for (field, value) in [("exclude_buildings", json!(false)), ("direct", json!(1))] {
+            let mut bad = only_units.payload(); bad[KEY][field] = value;
+            assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &bad), None, "{field}");
+        }
+        assert_eq!(targets(&world, &only_units), vec![source, ally]);
+        let rows = apply_direct(&mut world, &only_units);
+        assert_eq!(rows.iter().map(|(e, _)| *e).collect::<Vec<_>>(), vec![source, ally]);
+        let props = world.read_storage::<CProperty>();
+        assert_eq!(props.get(source).unwrap().hp, Fixed64::from_i32(1000), "capped at max HP");
+        assert_eq!(props.get(ally).unwrap().hp, Fixed64::from_raw(300 * 1024 + 1000 * 410), "hp + 40% max HP");
+        assert_eq!(props.get(tower).unwrap().hp, Fixed64::from_i32(300), "buildings untouched");
+    }
+
     #[test]
     fn packet_is_closed_and_bounded() {
-        let spec = Spec { source_id: 1, source_generation: 1, center: Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
-            radius: Fixed64::from_i32(800), hp_fraction: Fixed64::from_raw(410), mana_fraction: Fixed64::ZERO, cast_range: Fixed64::from_i32(1050) };
+        let spec = Spec::new(1, 1, Vec2::new(Fixed64::from_i32(10), Fixed64::ZERO),
+            Fixed64::from_i32(800), Fixed64::from_raw(410), Fixed64::ZERO, Fixed64::from_i32(1050));
         assert_eq!(Spec::from_payload(BUFF, Fixed64::ONE, &spec.payload()), Some(spec));
         assert_eq!(Spec::from_payload(BUFF, Fixed64::from_i32(2), &spec.payload()), None, "instant only");
         assert_eq!(Spec::from_payload("heal", Fixed64::ONE, &spec.payload()), None);

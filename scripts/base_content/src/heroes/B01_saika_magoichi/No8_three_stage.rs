@@ -10,14 +10,14 @@ use crate::self_transform::{Encoding,Field};
 const ID:omoba_template_ids::AbilityId=ABILITY_B01_THREE_STAGE;
 pub(crate) const BUFF_ID:&str="b01_three_stage";
 const FIELDS:&[Field]=&[
-    Field {key:"stat_buff_base_damage_outgoing_pct",stat:StatKey::BaseDamageOutgoingPercentage,maximum:100_000,encoding:Encoding::Percent},
+    Field {key:"damage_pct",stat:StatKey::BaseDamageOutgoingPercentage,maximum:100_000,encoding:Encoding::Percent},
 ];
 
 pub struct ThreeStageHandler;
 impl AbilityScript for ThreeStageHandler {
     fn ability_id(&self)->RStr<'_> {RStr::from_str(ID.as_str())}
     fn execute(&self,caster:EntityHandle,target:Target,level:u8,json:RStr<'_>,world:&mut GameWorldDyn<'_>)->RResult<(),RString> {
-        let result=crate::self_transform::resolve_keyed(ID,level,json.as_str(),FIELDS,None,"stat_buff_duration",true)
+        let result=crate::self_transform::resolve_keyed(ID,level,json.as_str(),FIELDS,None,"duration",true)
             .and_then(|spec|crate::self_transform::execute(world,caster,target,BUFF_ID,spec));
         match result {Ok(())=>ROk(()),Err(error)=>RErr(error.into())}
     }
@@ -26,9 +26,9 @@ impl AbilityScript for ThreeStageHandler {
 pub fn b01_three_stage_ffi()->AbilityDefFFI {
     let mut modifiers=HashMap::new();
     modifiers.insert(StatKey::BaseDamageOutgoingPercentage.as_str().into(),
-        extra_at_id_f32(ID,"stat_buff_base_damage_outgoing_pct",1)/100.0);
+        extra_at_id_f32(ID,"damage_pct",1)/100.0);
     build_ability_ffi(ID,ThreeStageHandler,vec![EffectSpec::Buff {target:TargetSelector::SelfUnit,
-        duration:Some(extra_at_id_f32(ID,"stat_buff_duration",1)),modifiers}])
+        duration:Some(extra_at_id_f32(ID,"duration",1)),modifiers}])
 }
 
 #[cfg(test)]

@@ -108,6 +108,32 @@ pub trait AbilityScript: Send + Sync {
     ) -> RResult<(), RString> {
         self.execute(caster, target, level, level_data_json, world)
     }
+
+    /// A hero's ordinary attack launched (source datadriven `OnAttack`: the
+    /// projectile leaves, not the hit). The host polls every learned ability of
+    /// the attacker (any type, e.g. an ultimate whose buff is active) with its
+    /// rank; handlers gate on their own buff. Default no-op.
+    fn on_attack_launch(
+        &self,
+        _attacker: EntityHandle,
+        _target: EntityHandle,
+        _level: u8,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
+
+    /// A delayed effect this ability scheduled came due (omoba-core
+    /// `delayed_effect`: a caster buff `delayed_effect:<ability>:<index>` that
+    /// expired naturally). `effect.level`, `effect.index` and `effect.anchor`
+    /// are what was scheduled; `total`/`elapsed` are zero. Like a channel
+    /// pulse, only effects may be applied. Default: nothing.
+    fn on_delayed_effect(
+        &self,
+        _caster: EntityHandle,
+        _effect: ChannelPulse,
+        _world: &mut GameWorldDyn<'_>,
+    ) {
+    }
 }
 
 /// `AbilityDef` + 實作它的腳本 — 每種能力一個條目

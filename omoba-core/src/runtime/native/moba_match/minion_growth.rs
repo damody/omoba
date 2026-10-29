@@ -8,12 +8,14 @@ pub struct MinionGrowthRules {
     pub damage_step_percent:u16,
     pub max_hp_bonus_percent:u16,
     pub max_damage_bonus_percent:u16,
+    /// Flat armor every interval (E187: the original creeps gain +1 armor every 300 s).
+    pub armor_step:u16,
 }
 
 impl Default for MinionGrowthRules {
     fn default()->Self {
         Self {interval_seconds:180,hp_step_percent:0,damage_step_percent:0,
-            max_hp_bonus_percent:0,max_damage_bonus_percent:0}
+            max_hp_bonus_percent:0,max_damage_bonus_percent:0,armor_step:0}
     }
 }
 
@@ -22,15 +24,27 @@ impl MinionGrowthRules {
         Self {hp_step_percent:10,damage_step_percent:5,max_hp_bonus_percent:200,
             max_damage_bonus_percent:100,..Self::default()}
     }
+    /// The compiled map's time growth (moba_maps.lua minion_time_growth; the training growth by default).
+    pub fn for_map(map:&omoba_template_ids::MobaMapConst)->Self {
+        let g=map.minion_time_growth();
+        Self {interval_seconds:g.interval_seconds,hp_step_percent:g.hp_step_percent,damage_step_percent:g.damage_step_percent,
+            max_hp_bonus_percent:g.max_hp_bonus_percent,max_damage_bonus_percent:g.max_damage_bonus_percent,armor_step:g.armor_step}
+    }
     pub fn is_valid(self)->bool {
         (1..=3600).contains(&self.interval_seconds) && self.hp_step_percent<=100
             && self.damage_step_percent<=100 && self.max_hp_bonus_percent<=1000
-            && self.max_damage_bonus_percent<=1000
+            && self.max_damage_bonus_percent<=1000 && self.armor_step<=100
     }
     fn scale(self,base:i32,elapsed:Fixed64,step:u16,cap:u16)->i32 {
         let stages=elapsed.raw().max(0)/(i64::from(self.interval_seconds)*1024);
         let bonus=stages.saturating_mul(i64::from(step)).min(i64::from(cap));
         (i64::from(base.max(0))*(100+bonus)/100).min(i64::from(i32::MAX)) as i32
+    }
+    /// Spawn armor: the authored armor plus one step per full interval of play.
+    pub(super) fn armor(self,base:i32,elapsed:Fixed64)->i32 {
+        if !self.is_valid() {return base;}
+        let stages=elapsed.raw().max(0)/(i64::from(self.interval_seconds)*1024);
+        (i64::from(base)+stages.saturating_mul(i64::from(self.armor_step))).clamp(0,i64::from(i32::MAX)) as i32
     }
     pub(super) fn stats(self,hp:i32,damage:i32,elapsed:Fixed64)->(i32,i32) {
         if !self.is_valid() {return (hp,damage);}
@@ -71,7 +85,8 @@ mod tests {
             if !state.units.get(&entity_key(e)).is_some_and(|u|u.role==LaneRole::Creep) {continue;}
             if let Some(prior)=old.get(&e) {assert_eq!((u.max_hp,u.base_damage,p.hp),*prior);}
             else {let definition=map.minion_wave.iter().find(|m|m.id==u.id).unwrap();
-                let (hp,damage)=state.config.minion_growth_rules.stats(definition.hp,definition.damage,state.elapsed);
+                let (hp,damage)=definition.grown(state.waves);
+                let (hp,damage)=state.config.minion_growth_rules.stats(hp,damage,state.elapsed);
                 assert_eq!((u.max_hp,u.current_hp,u.base_damage),(hp,hp,damage));
                 assert_eq!((p.hp,p.mhp),(Fixed64::from_i32(hp),Fixed64::from_i32(hp)));}
         }

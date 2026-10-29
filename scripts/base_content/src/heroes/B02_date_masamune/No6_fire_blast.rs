@@ -1,4 +1,5 @@
 //! 火焰強襲（H02，來源 B04E current）：指定點圓形魔法傷害＋暈眩，不帶燃燒區。
+//! 目標只有敵方英雄與一般單位（B04.txt:178-179 HERO | BASIC；B04.lua:96-104），不含建築。
 use abi_stable::std_types::{RErr,ROk,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},types::{DamageKind,DamageProfile,EntityHandle,Target},world::GameWorldDyn};
 use omoba_core::ability_meta::{DamageType,EffectSpec,TargetSelector};
@@ -12,8 +13,11 @@ pub struct FireBlastHandler;
 impl AbilityScript for FireBlastHandler {
     fn ability_id(&self)->RStr<'_> {RStr::from_str(ID.as_str())}
     fn execute(&self,caster:EntityHandle,target:Target,level:u8,json:RStr<'_>,world:&mut GameWorldDyn<'_>)->RResult<(),RString> {
-        let result=crate::point_blast::resolve(ID,level,json.as_str(),"damage_amount","shape_radius",
-            Some((ControlEffectKind::Stun,"control_duration")),DamageKind::Magical,DamageProfile::FIRE)
+        let result=crate::point_blast::resolve(ID,level,json.as_str(),"damage","radius",
+            Some((ControlEffectKind::Stun,"stun")),DamageKind::Magical,DamageProfile::FIRE.union(DamageProfile::SPELL))
+            .map(crate::point_blast::PointBlast::without_buildings)
+            // B04.lua:96-123: the stun lands before the damage.
+            .map(crate::point_blast::PointBlast::control_first)
             .and_then(|spec|crate::point_blast::execute(world,caster,target,spec));
         match result {Ok(())=>ROk(()),Err(error)=>RErr(error.into())}
     }
@@ -21,11 +25,11 @@ impl AbilityScript for FireBlastHandler {
 
 pub fn b04_fire_blast_ffi()->AbilityDefFFI {
     let effects=vec![EffectSpec::AreaEffect {
-        radius:extra_at_id_f32(ID,"shape_radius",1),duration:0.2,tick_interval:0.0,
+        radius:extra_at_id_f32(ID,"radius",1),duration:0.2,tick_interval:0.0,
         effects:vec![EffectSpec::Damage {target:TargetSelector::AllEnemies,
-            amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical},
+            amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical},
             EffectSpec::StatusModifier {target:TargetSelector::AllEnemies,modifier_type:"stun".into(),value:1.0,
-                duration:Some(extra_at_id_f32(ID,"control_duration",1))}],
+                duration:Some(extra_at_id_f32(ID,"stun",1))}],
     }];
     build_ability_ffi(ID,FireBlastHandler,effects)
 }
@@ -55,6 +59,16 @@ mod tests {
             assert!(stunned.iter().all(|(e,d)|(*e==center||*e==edge) && *d==expected),"rank {rank}: {stunned:?}");
             assert!(!damaged.iter().any(|(e,_)|*e==outside||*e==ally));
         }
+    }
+
+    #[test]
+    fn enemy_buildings_inside_the_blast_are_never_damaged_or_stunned() {
+        let mut t=TestWorld::new();
+        let tower=t.building(p(600,0),2);let enemy=t.body(p(600,100),2);
+        let outcomes=t.cast(&FireBlastHandler,Target::Point(p(600,0)),1,&rank_json(ID,1)).unwrap();
+        let touched=|e:specs::Entity|outcomes.iter().any(|o|matches!(o,Outcome::RawDamage {target,..}|Outcome::AddBuff {target,..} if *target==e));
+        assert!(touched(enemy),"heroes and basic units are hit");
+        assert!(!touched(tower),"source HERO | BASIC excludes buildings");
     }
 
     #[test]

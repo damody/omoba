@@ -79,6 +79,25 @@ impl ScriptRegistry {
         self._manifests.push(manifest);
     }
 
+    /// Replace the script that runs `ability_id`, keeping its metadata. M3 replays run an
+    /// ability once with its behavior IR and once with the Rust handler it replaces.
+    /// False when the ability is not registered.
+    pub fn replace_ability_script(&mut self, ability_id: &str, script: AbilityScript_TO<'static, RBox<()>>) -> bool {
+        match self.abilities.get_mut(ability_id) {
+            Some(entry) => { entry.1 = script; true }
+            None => false,
+        }
+    }
+
+    /// Replace the UnitScript of `unit_id` (M3 replays run a hero's IR UnitScript and its Rust one).
+    /// False when the unit is not registered.
+    pub fn replace_unit_script(&mut self, unit_id: &str, script: UnitScript_TO<'static, RBox<()>>) -> bool {
+        match self.scripts.get_mut(unit_id) {
+            Some(entry) => { *entry = script; true }
+            None => false,
+        }
+    }
+
     /// Ability metadata + handler 的 iterate 入口（依 DLL 宣告順序）。
     pub fn iter_abilities(
         &self,

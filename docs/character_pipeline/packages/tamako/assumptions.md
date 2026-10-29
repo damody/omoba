@@ -1,63 +1,28 @@
 # 玉子：假設與阻塞
 
-來源：`damody/nobugg_official@ca6ee86`，C15 current 版。結構化版本在 `source.lua`。
+來源：`damody/history_nobu@f966720`，C15 current 版。原作腳本 `S/vscripts/heroes/C_Neutral/C15.lua` 在來源 repo；每招的原作行為與移植差異見 `parity.md`，結構化版本在 `source.lua` 的 assumptions。
 
-## 阻塞
+## 阻塞（needs_framework）
 
-kit 狀態 `needs_framework`。Q 亂射、W 爆裂箭、E 精準之光可以建置（W 在 2026-10-26 補上 `ground_area_line` 後支援）。R 要等共用引擎補上下列能力；它**沒有**簡化，也沒有刪掉：package 照來源寫出完整契約，handler 留到缺口補上後再寫。
+- **魔法免疫狀態與目標旗標**：W 亂射、E 爆裂箭原作不打魔免；T 可對魔免施放。引擎沒有魔免狀態。
+- **施法者自動攻擊目標**（`order_owner_attack`）：`new_C15T` 對施法者下佇列攻擊目標指令（`C15.lua:98-106`）；GameWorld 沒有設定施法者指令的入口。
+- **英雄跨生命的腳本計數**：被動 `caster.C15T` 不因死亡重置（`C15.lua:114-119`）；本遊戲計數放在 buff，死亡即清除。
+- W 亂射可閃避（`Dodgeable 1`）由通用能力 projectile_dodge 處理（w1）。
 
-### W 爆裂箭（`c15_burst_arrow`）：`ground_area_line`（G-4，已支援）
+## 已用通用能力補上
 
-來源：箭沿方向飛 2000，沿途留下一排火焰，持續 12 秒。碰到火焰的敵人每 0.25 秒受 25/30/35/40 魔法傷害。
-
-原本的三個缺口都由通用的 `DamageZoneSpec` 欄位補上，沒有用圓形拼接：
-- `end`：區域是 center→end 的膠囊（半寬 170、長 2000）。
-- `grow`：火焰從施法者位置以箭速 1666 逐段鋪出，1.2 秒鋪滿。
-- `linger`：每次 pulse 對區域內的敵人刷新同一個灼燒（每秒 100～160），離開火焰後最多再燒 1.01 秒；碰到多段不會疊加。
-- 區域是獨立區域：施法者死亡後照常持續到 12 秒。
-
-### R 百箭齊發（`c15_hundred_arrows`）
-
-來源：主動暈眩目標，放出 10 支箭矢單位，每支無敵、存活 10 秒、每秒攻擊一次。目標死亡後，箭矢隨機改找附近敵人。被動每 8 次普攻產生一支箭矢。
-
-引擎缺：
-- 召喚物的目標死亡後改鎖：`retarget_on_death` 在登錄中已支援，但只涵蓋追蹤投射物（`TargetLostPolicy::Retarget`）。召喚物只會依 `nearest` 或 `owner_focus` 自行找目標，不是「隨機」。
-- `summon_forced_target`（新缺口，登錄沒有）：召喚物鎖定施放目標。`SummonTargetPriority` 只有 `Nearest` 和 `OwnerFocus`。`OwnerFocus` 跟的是主人的普攻指令，不是技能目標；`GameWorld` 也沒有對召喚物下攻擊指令的入口。
-- `summon_invulnerable`（新缺口，登錄沒有）：箭矢有 `MODIFIER_STATE_INVULNERABLE`，但召喚物模板與 buff 都沒有無敵／不可被選取的狀態，會被敵方普攻與技能打掉。
-- 被動計數本身做得到：英雄 UnitScript 的 `on_attack_hit`，配合以計數命名的標記 buff。但被動產生的箭矢一樣受上面三個缺口限制，所以整招一起標為 `needs_framework`。
-
-改用「10 顆追蹤投射物」也不行：
-- 來源是 10 支箭各自在 10 秒內持續攻擊。
-- 投射物無法延遲或分批發射（`delayed_effect` 也是 needs_framework）。
-- 追蹤投射物現在可以改鎖（`TargetLostPolicy::Retarget`），但另外兩點仍然成立。
+- **爆裂箭火焰**：`DamageZoneSpec` 線形獨立區域（end／grow／linger）。火焰從前方 200 到 2600、約 3333／秒鋪出，每段 15 秒。
+- **一般視野**（reveal_zone `detect=false`）：爆裂箭每段 200、12 秒的施法者隊伍視野（AddFOWViewer），不揭露隱形。
+- **飛行追擊召喚物**（base_content `summons::chaser`）：致命箭矢直線飛向鎖定目標（移速 900），貼身（射程 58＝近戰 10＋雙方 hull 24）每秒攻擊；目標死亡後取 900 內最近敵人。
 
 ## 假設
 
-- **距離單位**：1 個來源距離單位等於 1 個本遊戲世界單位。
-- **版本**：只用 current 版，不混入 `_old`（三連矢、烈焰箭、舊精準之光、舊百箭齊發）。
-- **不對應的欄位**：
-  - 欄 4 的 `magical_resistance` 是通用被動，不屬於本 kit。
-  - 欄 5 的 `C15_precache` 只預載音效。
-  - 所以 D 欄留空。
-- **基礎數值**：本地沒有玉子。
-  - 取來源：生命、護甲、射程、移速、普攻彈速、前搖、攻擊間隔。
-  - 沿用遠程射手稻姬：法力 300、攻擊 50、轉身 540。來源法力由智力推得；基礎攻擊 95 是 Dota 數值，直接用會失衡。
-- **亂射**：
-  - 每支箭是速度 1500 的追蹤彈。碰撞半徑 16 與存活 3 秒是本遊戲取值。
-  - 命中時才扣血並暈眩；目標先死亡，該箭就消失。
-  - 只鎖英雄與一般單位，不鎖建築；只鎖施法者隊伍看得見的敵人。
-  - 引擎每個施法者同時最多 32 顆技能投射物，超過時整次施放會被拒絕。所以最多鎖最近的 32 個敵人。施法者還有別的技能投射物在飛、總數超過 32 時，這次施放失敗、不扣費。
-  - 落點沒有敵人時照常施放、扣魔、進冷卻（來源 ActOnTargets 的行為）。
-- **爆裂箭**：
-  - `new_C15E` 不在來源 repo，行為依 KV 與描述推定（見上方阻塞）。
-  - 描述寫「寬度 170」，KV 把 170 當作每個火焰的半徑；採 KV，半寬 170。
-  - 火焰持續時間：modifier 寫 15 秒，AbilitySpecial 與描述是 12 秒；採 12 秒。
-  - 火焰長度取投射物的 2000，不用施法距離 1350。
-- **精準之光**：
-  - 「攻擊傷害 +%」以 BaseDamageOutgoingPercentage 表達。
-  - 靈活在 MOBA 路徑沒有消費者。依 Dota 7 換算：玉子是靈活主屬性，每點靈活 +1 攻擊、+1 攻速點、+1/6 護甲。
-- **百箭齊發**：
-  - 四個 vscript 函式都不在來源 repo，行為依 KV 與描述推定。
-  - 每支箭傷害：描述 50/75/100，KV 50/100/150；採 KV。
-  - 6/12/18 級解鎖。
-  - 「附近」推定為 700 內，以決定性亂數選取。
+- 距離單位：1 個來源距離單位等於 1 個本遊戲世界單位。
+- 版本：只用 current 版。
+- 不對應的欄位：欄 4 `magical_resistance`、欄 5 `C15_precache`，D 欄留空。
+- 基礎數值：由 hero_source_stats 以 `C15_2.txt` 為準（E157）。
+- 亂射：追蹤彈 1500、存活 3 秒（本遊戲取值）、最多 32 個目標、只鎖已揭露的敵人、空地照常施放。
+- 爆裂箭：火焰半寬 170（KV `arrow_width`）；每段 15 秒（`duration 12` 未使用）；施法距離 1350 只影響指向；多段重疊只一個灼燒（原作是否多份無法判定）。
+- 精準之光：輸出傷害 % 以 `BaseDamageOutgoingPercentage`；敏捷 5/10/15/20 送 `StatKey::StatsAgilityBonus`，由三圍 settle 換算。
+- 百箭齊發：箭矢傷害採 KV 50/100/150；主動 10 支在目標周圍 300 每 36°；被動在目標位置；6/12/18 級解鎖；改鎖半徑 900（Dota 單位 AI，非隨機）。
+- 魔免（原作設定，E170；通用魔免已接上，E179／E184：C15T `pierces_magic_immunity`，可對魔免敵人施放並暈眩；C15W／E 的魔法傷害歸零、減益被擋）：C15W 不打魔免（ENEMIES_NO，ActOnTargets 無旗標）；C15E 火焰 ActOnTargets 無旗標（不打魔免）；C15R 被動自身；C15T 可對魔免施放（SPELL_IMMUNITY_ENEMIES_YES、MAGIC_IMMUNE_ENEMIES），箭矢普攻為物理。

@@ -7,30 +7,33 @@
 //! 只對 `cp.hp > 0` 的單位 tick；死亡後 regen 暫停。
 
 use rayon::prelude::*;
-use specs::{shred, Read, ReadStorage, SystemData, WriteStorage};
+use specs::{shred, Read, ReadStorage, SystemData, Write, WriteStorage};
 
 use crate::comp::*;
-use omb_script_abi::stat_keys::StatKey;
 use omoba_core::runtime::ability_runtime::{BuffStore, UnitStats};
 
 #[derive(SystemData)]
 pub struct RegenTickData<'a> {
     dt: Read<'a, DeltaTime>,
+    tick: Read<'a, Tick>,
     buffs: Read<'a, BuffStore>,
     is_buildings: ReadStorage<'a, IsBuilding>,
     cpropertys: WriteStorage<'a, CProperty>,
     creeps: ReadStorage<'a, Creep>,
     heroes: ReadStorage<'a, Hero>,
+    positions: ReadStorage<'a, Pos>,
+    outcomes: Write<'a, Vec<Outcome>>,
 }
 
 #[derive(Default)]
-pub struct Sys {
-    /// 累積 dt 達 0.25s 才觸發一次 regen 計算（4 Hz），降低每 frame 跑 1000 creep 的壓力。
-    /// 觸發時用累積值當 effective dt，總回血量不變。
-    dt_acc: f32,
-}
+pub struct Sys;
 
-const REGEN_INTERVAL: f32 = 0.25;
+/// Regen runs once every REGEN_TICKS fixed steps (4 Hz at 60 Hz), with that many
+/// steps of dt, to keep 1000-creep maps cheap. The grid is the world tick, not a
+/// per-system accumulator: an authority and a team replica created at different
+/// ticks still regenerate the units they both simulate on the same ticks (E163:
+/// an ally regen buff on lane creeps diverged by one interval).
+const REGEN_TICKS: u64 = 15;
 
 impl<'a> System<'a> for Sys {
     type SystemData = RegenTickData<'a>;
@@ -38,25 +41,18 @@ impl<'a> System<'a> for Sys {
     const NAME: &'static str = "regen";
 
     fn run(job: &mut Job<Self>, mut data: Self::SystemData) {
-        // 階段 1c.3：dt_acc 保留 f32（小累加器，閾值比較）。
-        // Fix64 dt 僅在累加器的邊界處進行轉換。
-        job.own.dt_acc += data.dt.0.to_f32_for_render();
-        if job.own.dt_acc < REGEN_INTERVAL {
+        let _ = &job;
+        if data.tick.0 % REGEN_TICKS != 0 || data.dt.0 <= omoba_sim::Fixed64::ZERO {
             return;
         }
-        let dt_f = std::mem::replace(&mut job.own.dt_acc, 0.0);
-        let dt = omoba_sim::Fixed64::from_raw((dt_f * 1024.0) as i64);
+        let dt = omoba_sim::Fixed64::from_raw(data.dt.0.raw().saturating_mul(REGEN_TICKS as i64));
 
         // 候選 entity：身上至少有一條 buff 含 HP regen 相關 key（任一）。
         // stress map 預期空集合 → 整個 system 跳過。
         use std::collections::HashSet;
-        let candidates: HashSet<specs::Entity> = [
-            StatKey::HealthRegenConstant.as_str(),
-            StatKey::HealthRegenPercentage.as_str(),
-            StatKey::HpRegenAmplifyPercentage.as_str(),
-        ]
+        let candidates: HashSet<specs::Entity> = crate::runtime::native::rules::regen::HP_REGEN_KEYS
         .iter()
-        .flat_map(|k| data.buffs.entities_with_key(k))
+        .flat_map(|k| data.buffs.entities_with_key(k.as_str()))
         .collect();
 
         if candidates.is_empty() {
@@ -87,7 +83,8 @@ impl<'a> System<'a> for Sys {
                 return None;
             }
             let stats = UnitStats::from_refs(buffs, is_buildings.get(e).is_some());
-            let regen = stats.hp_regen(omoba_sim::Fixed64::ZERO, e);
+            // Flat regen plus the per-second share of max HP (rules::regen).
+            let regen = crate::runtime::native::rules::regen::hp_per_second(&stats, omoba_sim::Fixed64::ZERO, cp.mhp, e);
             // |再生| < 0.0001 — 使用 raw < 1 作為固定 64 epsilon (raw 1 = 1/1024 ≈ 0.001)。
             if regen.raw().abs() < 1 {
                 return None;
@@ -113,9 +110,17 @@ impl<'a> System<'a> for Sys {
                 candidates_vec.iter().filter_map(compute).collect()
             };
 
-        // 寫回 CProperty
-        for (e, new_hp, _mhp) in &hp_updates {
-            if let Some(cp) = data.cpropertys.get_mut(*e) {
+        // 寫回 CProperty. A non-hero's regeneration comes from buffs (ally auras) that a
+        // team replica may not hold, so it goes through a Heal outcome: in a MOBA match
+        // that commits the unit's vitals to the replicas like any other heal (E163).
+        let mut sorted = hp_updates;
+        sorted.sort_by_key(|(e, _, _)| (e.id(), e.gen().id()));
+        for (e, new_hp, _mhp) in &sorted {
+            let Some(cp) = data.cpropertys.get_mut(*e) else { continue };
+            if data.heroes.get(*e).is_none() && *new_hp > cp.hp {
+                let pos = data.positions.get(*e).map_or(omoba_sim::Vec2::ZERO, |p| p.0);
+                data.outcomes.push(Outcome::Heal { pos, target: *e, amount: *new_hp - cp.hp });
+            } else {
                 cp.hp = *new_hp;
             }
         }

@@ -1,5 +1,5 @@
-//! 遊風行身（H05，來源 A02R current）：被動魔法抗性 +9/18/27/36%、總攻擊傷害
-//! +6/9/12/15%。每次學習或升級以同一 buff id 取代，不疊加。
+//! 遊風行身（H05，來源 A02R current）：被動魔法抗性與總攻擊傷害加成（見 v3.lua 的
+//! magic_resist、damage_pct）。每次學習或升級以同一 buff id 取代，不疊加。
 use abi_stable::std_types::{RErr,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},stat_keys::StatKey,types::{EntityHandle,Fixed64,Target},world::GameWorldDyn};
 use omoba_core::ability_meta::{EffectSpec,TargetSelector};
@@ -9,8 +9,8 @@ use crate::ability_builder::{build_ability_ffi,extra_at_id,extra_at_id_f32};
 
 const ID:omoba_template_ids::AbilityId=ABILITY_A02_WIND_DRIFT;
 pub(crate) const BUFF_ID:&str="a02_wind_drift";
-const RESIST:&str="stat_bonus_permanent_magic_resist_bonus";
-const DAMAGE:&str="stat_bonus_permanent_base_damage_outgoing_pct";
+const RESIST:&str="magic_resist";
+const DAMAGE:&str="damage_pct";
 
 /// Raw payload for one rank, or None for an invalid rank. Both stats are
 /// authored in percent: magic resistance stays in percent points, damage

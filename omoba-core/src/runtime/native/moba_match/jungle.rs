@@ -23,6 +23,13 @@ pub struct MobaJungleCamp {
     lethal_pending: bool,
     killer_player: Option<u32>,
     killer_side: Option<usize>,
+    /// Waiting for its first appearance (`first_spawn_seconds`, E187); that spawn is no respawn.
+    pub first_appearance_pending: bool,
+}
+
+/// The camp's exact attack interval (E187 `attack_interval_ms`, e.g. the 1.2 s of the souls).
+fn attack_interval(definition:&MobaJungleConst)->Fixed64 {
+    Fixed64::from_raw(i64::from(definition.attack_interval_ms)*1024/1000).max(Fixed64::from_raw(1))
 }
 
 impl MobaJungleCamp {
@@ -32,10 +39,22 @@ impl MobaJungleCamp {
             patience_remaining:Fixed64::from_i32(definition.patience_seconds),reset_remaining:Fixed64::ZERO,
             definition, entity: None, returning: false, respawns: 0,
             respawn_at: None, target: None, attack_remaining: Fixed64::ZERO,
-            attack_duration:Fixed64::from_i32(definition.attack_interval_seconds),
+            attack_duration:attack_interval(&definition),
             attack_sequence: 0,
             lethal_pending: false, killer_player: None,killer_side:None,
+            first_appearance_pending:false,
         }
+    }
+
+    /// Body HP and attack with the respawn growth: respawn n adds n times the growth
+    /// (E187, eventforkill.lua:438-466 and 513-539 CP_Monster, counted from 1 at the first respawn).
+    pub fn body_hp(&self)->i32 {
+        self.definition.hp.saturating_add(self.definition.respawn_growth_hp.saturating_mul(self.respawns.min(i32::MAX as u32) as i32))
+    }
+    #[cfg(test)]
+    pub(super) fn attack_duration_for_test(&self)->Fixed64 {self.attack_duration}
+    pub fn body_damage(&self)->i32 {
+        self.definition.damage.saturating_add(self.definition.respawn_growth_damage.saturating_mul(self.respawns.min(i32::MAX as u32) as i32))
     }
 
     pub(super) fn entities(&self)->impl Iterator<Item=Entity>+'_ {
@@ -148,11 +167,11 @@ mod tests {
             (serde_json::json!({"attackspeed_bonus_constant":-51200}),-2),
             (serde_json::json!({"fixed_attack_rate":4096}),4),(serde_json::json!({"attack_speed_multiplier":2048}),2)] {
             let (mut world,hero,mut state)=camp_world();let i=state.jungle_camps.iter().position(|c|!c.members.is_empty()).unwrap();let mut camp=state.jungle_camps.remove(i);let actor=camp.entity.unwrap();
-            camp.definition.position=(0,0);camp.definition.attack_range=100;camp.definition.attack_interval_seconds=2;camp.target=Some(hero);
+            camp.definition.position=(0,0);camp.definition.attack_range=100;camp.definition.attack_interval_seconds=2;camp.definition.attack_interval_ms=2000;camp.target=Some(hero);
             for e in camp.entities(){world.write_storage::<Pos>().get_mut(e).unwrap().0=Vec2::ZERO;}world.write_storage::<Pos>().get_mut(hero).unwrap().0=Vec2::ZERO;
             world.write_resource::<BuffStore>().add(actor,"arbitrary_tempo",Fixed64::from_i32(10),payload);state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));
             let expected=if mult>0{2048/mult}else{4096};let id=crate::runtime::canonical_entity_id(actor);assert_eq!(state.jungle_camps[0].attack_duration.raw(),expected);assert_eq!(state.disclosed_unit_attack_states(false)[&id].duration_raw,expected);
-            for body in &state.jungle_camps[0].members{assert_eq!(body.attack_duration,Fixed64::from_i32(body.definition.attack_interval_seconds));assert_eq!(body.attack_sequence,1);}
+            for body in &state.jungle_camps[0].members{assert_eq!(body.attack_duration,attack_interval(&body.definition));assert_eq!(body.attack_sequence,1);}
             world.write_resource::<BuffStore>().remove(actor,"arbitrary_tempo");world.write_resource::<Tick>().0+=1;tick(&mut world,&mut state,Fixed64::from_raw(16));let phase=state.disclosed_unit_attack_states(false)[&id];assert_eq!((phase.duration_raw,phase.elapsed_raw),(expected,16));assert!(phase.is_valid());
             state.jungle_camps[0].attack_remaining=Fixed64::from_raw(16);world.write_resource::<Tick>().0+=1;tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,2);assert_eq!(state.jungle_camps[0].attack_duration,Fixed64::from_i32(2));
         }
@@ -162,7 +181,7 @@ mod tests {
             let (mut world,hero,mut state)=camp_world();let mut camp=state.jungle_camps.remove(0);let e=camp.entity.unwrap();camp.definition.position=(0,0);camp.definition.leash_radius=5000;camp.definition.attack_range=100;camp.target=Some(hero);world.write_storage::<Pos>().get_mut(e).unwrap().0=Vec2::ZERO;world.write_storage::<Pos>().get_mut(hero).unwrap().0=Vec2::new(Fixed64::from_i32(150),Fixed64::ZERO);
             world.write_resource::<BuffStore>().add(e,"arbitrary_range",Fixed64::from_i32(10),payload);state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,expected);
         }
-        let (mut world,hero,mut state)=camp_world();world.remove::<BuffStore>();let mut camp=state.jungle_camps.remove(0);let e=camp.entity.unwrap();world.write_storage::<Pos>().get_mut(hero).unwrap().0=home(&camp);camp.target=Some(hero);state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,1);assert_eq!(state.jungle_camps[0].attack_duration,Fixed64::from_i32(state.jungle_camps[0].definition.attack_interval_seconds));assert!(state.disclosed_unit_attack_states(false)[&crate::runtime::canonical_entity_id(e)].is_valid());
+        let (mut world,hero,mut state)=camp_world();world.remove::<BuffStore>();let mut camp=state.jungle_camps.remove(0);let e=camp.entity.unwrap();world.write_storage::<Pos>().get_mut(hero).unwrap().0=home(&camp);camp.target=Some(hero);state.jungle_camps=vec![camp];tick(&mut world,&mut state,Fixed64::from_raw(16));assert_eq!(state.jungle_camps[0].attack_sequence,1);assert_eq!(state.jungle_camps[0].attack_duration,attack_interval(&state.jungle_camps[0].definition));assert!(state.disclosed_unit_attack_states(false)[&crate::runtime::canonical_entity_id(e)].is_valid());
     }
     #[test]
     fn npc_control_jungle_body_stun_root_slow_silence_and_sibling_independence() {
@@ -348,7 +367,7 @@ mod tests {
         assert_eq!(world.read_resource::<Vec<DamageInstance>>().len(), 1, "real AI queues exactly one actual attack");
         let recovery = state.disclosed_unit_attack_states(false)[&id];
         assert_eq!((recovery.sequence, recovery.phase, recovery.elapsed_raw), (1, 2, 0));
-        assert_eq!(recovery.duration_raw, Fixed64::from_i32(definition.attack_interval_seconds).raw());
+        assert_eq!(recovery.duration_raw, attack_interval(&definition).raw());
         assert_eq!(AttackVisualState::decode(&recovery.encode().unwrap()), Some(recovery));
         tick(&mut world, &mut state, Fixed64::from_raw(128));
         let advanced = state.disclosed_unit_attack_states(false)[&id];
@@ -428,7 +447,9 @@ fn spawn(world: &mut World, camp: &mut MobaJungleCamp) {
 }
 
 fn child_definition(parent:MobaJungleConst,child:&omoba_template_ids::MobaJungleMemberConst)->MobaJungleConst {
+    // Members and split children carry neither the leader's tags, reward, timing nor growth (E187).
     MobaJungleConst {members:&[],death_children:child.death_children,objective_buff:None,personal_buff:None,additional_objective_buffs:&[],
+        tags:&[],original_reward:None,first_spawn_seconds:0,respawn_growth_hp:0,respawn_growth_damage:0,
         id:child.id,position:(parent.position.0+child.offset.0,parent.position.1+child.offset.1),
         hp:child.hp,damage:child.damage,gold:child.gold,xp:child.xp,..parent}
 }
@@ -448,12 +469,17 @@ fn emit_camp_pose(world: &World, entity: Entity, pos: Vec2, facing_ticks: Option
 
 fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
     let d = camp.definition;
+    let (hp, damage) = (camp.body_hp(), camp.body_damage());
     let mut unit = Unit::new(d.id.into(), d.id.into(), UnitType::Neutral);
-    unit.max_hp = d.hp;
-    unit.current_hp = d.hp;
-    unit.base_damage = d.damage;
+    unit.max_hp = hp;
+    unit.current_hp = hp;
+    unit.base_damage = damage;
     unit.move_speed = Fixed64::from_i32(d.move_speed);
     unit.attack_range = Fixed64::from_i32(d.attack_range);
+    // Non-hero damage reads the Unit's armor and magic resistance (rules::damage); the property
+    // mirrors them for bodies read without a Unit (E187 boss KV ArmorPhysical / MagicalResistance).
+    unit.base_armor = Fixed64::from_i32(d.armor);
+    unit.magic_resistance = Fixed64::from_i32(d.magic_resistance);
     unit.ai_type = AiType::None;
     // Rewards belong to the first lethal hit ledger, not legacy Unit bounty.
     unit.gold_reward = 0;
@@ -463,7 +489,13 @@ fn spawn_body(world: &mut World, camp: &mut MobaJungleCamp) {
         .with(ReplicationScope { kind: ReplicationScopeKind::Vision, owner_team: None })
         .with(Pos(home(camp)))
         .with(Facing(omoba_sim::Angle::ZERO))
-        .with(property(Fixed64::from_i32(d.hp), Fixed64::from_i32(d.move_speed))).build();
+        .with(CProperty { def_physic: Fixed64::from_i32(d.armor), def_magic: Fixed64::from_i32(d.magic_resistance),
+            ..property(Fixed64::from_i32(hp), Fixed64::from_i32(d.move_speed)) }).build();
+    if !d.tags.is_empty() {
+        // Registration is idempotent; minimal test worlds may not have done it.
+        world.register::<UnitTags>();
+        world.write_storage::<UnitTags>().insert(entity, UnitTags::from_tags(d.tags)).expect("camp tags");
+    }
     camp.entity = Some(entity);
     camp.respawn_at = None;
     camp.returning = false;
@@ -483,8 +515,24 @@ pub(super) fn setup(world: &mut World, state: &mut MobaMatch) {
         .map_or(&[][..], |map| map.jungle_camps);
     for &definition in definitions {
         let mut camp = MobaJungleCamp::new(definition);
-        spawn(world, &mut camp);
+        if definition.first_spawn_seconds > 0 {
+            // A boss first appears on the match clock (E187, GameRulesStateChange.lua:482-533 timers
+            // from the start of the game): playing time, after warmup, so pauses delay it too.
+            camp.first_appearance_pending = true;
+            camp.respawn_at = Some(state.config.warmup + Fixed64::from_i32(definition.first_spawn_seconds));
+        } else {
+            spawn(world, &mut camp);
+        }
         state.jungle_camps.push(camp);
+    }
+}
+
+/// Test fixtures: bring in every camp still waiting for its first appearance now.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn spawn_waiting_camps(world: &mut World, state: &mut MobaMatch) {
+    for camp in state.jungle_camps.iter_mut().filter(|camp| camp.first_appearance_pending) {
+        camp.first_appearance_pending = false;
+        spawn(world, camp);
     }
 }
 
@@ -530,6 +578,9 @@ pub(super) fn death(world: &World, state: &mut MobaMatch, entity: Entity) {
     let Some(camp) = state.jungle_camps.iter_mut().find(|c| c.contains(entity)) else { return; };
     let objective=if camp.entity==Some(entity) {Some(camp.definition)}else{None};
     let personal=if camp.entity==Some(entity) {camp.definition.personal_buff}else{None};
+    let epic=camp.definition.is_objective();
+    // Kills of this camp before this one: every earlier leader death led to one respawn.
+    let earlier_kills=camp.respawns;
     let body=camp.body_mut(entity).expect("camp body");
     let definition=body.definition;
     let split=active && body.lethal_pending;
@@ -550,11 +601,19 @@ pub(super) fn death(world: &World, state: &mut MobaMatch, entity: Entity) {
     }
     if state.phase != MobaMatchPhase::Playing || world.read_resource::<GamePause>().is_paused { return; }
     if let Some(index) = killer.and_then(|player| state.heroes.iter().position(|s| s.player_id == player)) {
-        credit_moba_player(world,state,index,reward.0,reward.1);
+        // Original rules (E187): a killer below the enemy team's average level gets comeback XP
+        // (eventforkill.lua:395-408, ordinary camps only, not the epic objectives).
+        let comeback=state.config.game_rules.filter(|_|!epic)
+            .map_or(0,|rules|original_rewards::jungle_comeback_xp(world,state,&rules,index,reward.1));
+        credit_moba_player(world,state,index,reward.0,reward.1.saturating_add(comeback));
     }
     if let (Some(definition),Some(side))=(objective,side) {
-        if definition.objective_rewards().next().is_some() {objective_comeback::observe(world,state,entity,side,true);objective_notice::observe(world,state,entity,side,4);}
-        for rule in definition.objective_rewards() {objective_buffs::grant_side(world,state,rule,side);}
+        if definition.is_objective() {objective_comeback::observe(world,state,entity,side,true);objective_notice::observe(world,state,entity,side,4);}
+        // Original rules (E187): a boss pays its scripted reward instead of the training buffs.
+        match definition.original_reward.filter(|_|state.config.game_rules.is_some()) {
+            Some(reward)=>original_rewards::boss_kill(world,state,reward,side,earlier_kills),
+            None=>for rule in definition.objective_rewards() {objective_buffs::grant_side(world,state,rule,side);},
+        }
     }
     if let (Some(rule),Some(player))=(personal,killer) {personal_buffs::grant(world,state,player,rule);}
 }
@@ -563,7 +622,8 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
     let mut brush_attacks=Vec::new();
     for camp in &mut state.jungle_camps {
         if camp.respawn_at.is_some_and(|time| state.elapsed >= time) {
-            camp.respawns = camp.respawns.saturating_add(1);
+            // The first appearance of a timed boss is no respawn: it has no growth (E187).
+            if !std::mem::take(&mut camp.first_appearance_pending) {camp.respawns = camp.respawns.saturating_add(1);}
             spawn(world, camp);
         }
         for (definition,position) in std::mem::take(&mut camp.pending_children) {
@@ -603,12 +663,12 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
             let destination = if returning { Some(home(body)) } else { target.map(|(_,pos)|pos) };
             if returning {
                 world.write_resource::<Vec<Outcome>>().push(Outcome::Heal {pos:origin,target:entity,
-                    amount:Fixed64::from_i32(body.definition.hp)*dt*Fixed64::from_i32(if hard {20}else{6})/Fixed64::from_i32(100)});
+                    amount:Fixed64::from_i32(body.body_hp())*dt*Fixed64::from_i32(if hard {20}else{6})/Fixed64::from_i32(100)});
             }
             body.attack_remaining=(body.attack_remaining-dt).max(Fixed64::ZERO);
             let base_speed=Fixed64::from_i32(body.definition.move_speed);
             let base_range=Fixed64::from_i32(body.definition.attack_range);
-            let base_interval=Fixed64::from_i32(body.definition.attack_interval_seconds);
+            let base_interval=attack_interval(&body.definition);
             let (stunned,rooted,speed,range,interval)=if returning && hard {
                 // Preserve hard-reset restoration even under a permanent root
                 // or zero-speed modifier. This never removes the stored buffs.
@@ -627,7 +687,7 @@ pub(super) fn tick(world: &mut World, state: &mut MobaMatch, dt: Fixed64) {
             // Attacking: its front is the target (same rule as lane creeps).
             if let Some(ticks)=super::face_toward(world,entity,origin,destination) {emit_camp_pose(world,entity,origin,Some(ticks));}
             if body.attack_remaining == Fixed64::ZERO {
-                let base=Fixed64::from_i32(body.definition.damage);
+                let base=Fixed64::from_i32(body.body_damage());
                 let amount=world.try_fetch::<crate::runtime::BuffStore>().map_or(base,|buffs|
                     crate::runtime::UnitStats::from_refs(&buffs,false).normal_attack_physical(base,entity));
                 world.write_resource::<Vec<DamageInstance>>().push(DamageInstance::new_attack(entity,

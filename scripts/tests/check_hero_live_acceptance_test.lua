@@ -39,7 +39,7 @@ package_files(path.join(packages, 'hero_b'), 'hero_b', {
 local function run(name, server, p1_coverage, p6_trace, players)
   local dir = path.join(root, name)
   path.write(path.join(dir, 'server', 'match-plan.json'), players or
-    '{"players":[{"player_id":1,"team_id":1,"hero":"hero_a","bot":false},{"player_id":2,"team_id":1,"hero":"training_luminary","bot":true},' ..
+    '{"players":[{"player_id":1,"team_id":1,"hero":"hero_a","bot":false},{"player_id":2,"team_id":1,"hero":"murakami_yoshikiyo","bot":true},' ..
     '{"player_id":6,"team_id":2,"hero":"hero_b","bot":false}]}', true, true)
   path.write(path.join(dir, 'server', 'server.stdout.log'), server, true, true)
   if p1_coverage then path.write(path.join(dir, 'p1', 'autopilot-p1.coverage.json'), p1_coverage, true, true) end
@@ -98,9 +98,9 @@ test('a reached late auto_learn is checked like any ability; run-wide gates fail
 end)
 
 test('a human hero without a package is skipped, not failed', function()
-  local plan = '{"players":[{"player_id":1,"team_id":1,"hero":"training_luminary","bot":false},{"player_id":6,"team_id":2,"hero":"hero_b","bot":false}]}'
+  local plan = '{"players":[{"player_id":1,"team_id":1,"hero":"murakami_yoshikiyo","bot":false},{"player_id":6,"team_id":2,"hero":"hero_b","bot":false}]}'
   local ok, rows = checker.check(run('unauthored', GOOD_SERVER, nil, GOOD_TRACE, plan), { packages = packages })
-  assert(rows[1].status == 'SKIP' and rows[1].hero == 'training_luminary')
+  assert(rows[1].status == 'SKIP' and rows[1].hero == 'murakami_yoshikiyo')
   assert(ok, 'hero_b still passes')
 end)
 

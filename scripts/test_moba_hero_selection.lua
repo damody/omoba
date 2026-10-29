@@ -12,7 +12,7 @@ local baseline=launch.load_recipe(launch.options({}))
 local function reply()
   return {protocol_version=1,admitted_player_id=1,error=json.null,
     selection={catalog_data_hash='testhash',ready=true,finalized=true},
-    plan=launch.select_heroes(baseline,{[1]='training_ranger'})}
+    plan=launch.select_heroes(baseline,{[1]='tamako'})}
 end
 local function reply_with(plan)
   local value=reply()
@@ -27,8 +27,8 @@ local function rejects(fn) assert(not pcall(fn),'expected rejection') end
 test('finalized handoff changes only the bound human hero',function()
   local value=reply()
   local selected=launch.selection_result(value,baseline,1,'testhash')
-  assert(selected.players[1].hero=='training_ranger')
-  assert(baseline.players[1].hero~='training_ranger')
+  assert(selected.players[1].hero=='tamako')
+  assert(baseline.players[1].hero~='tamako')
   for _,mutate in ipairs({
     function(r) r.protocol_version=2 end,
     function(r) r.admitted_player_id=2 end,
@@ -36,7 +36,7 @@ test('finalized handoff changes only the bound human hero',function()
     function(r) r.selection.ready=false end,
     function(r) r.selection.finalized=false end,
     function(r) r.selection.catalog_data_hash='wrong' end,
-    function(r) r.plan.players[2].hero='training_ranger' end,
+    function(r) r.plan.players[2].hero='tamako' end,
     function(r) r.plan.players[1].team_id=2 end,
     function(r) r.plan.think_hz=60 end,
     function(r) r.plan.summoner_loadouts={['1']={'training_point_blink_v1',json.null}} end,
@@ -44,7 +44,7 @@ test('finalized handoff changes only the bound human hero',function()
     function(r) r.plan.summoner_loadouts=json.null end,
     function(r) r.selection.summoner_loadouts=json.null end,
   }) do local r=reply();mutate(r);rejects(function() launch.selection_result(r,baseline,1,'testhash') end) end
-  local equipped=launch.select_heroes(baseline,{[1]='training_ranger'})
+  local equipped=launch.select_heroes(baseline,{[1]='tamako'})
   equipped.summoner_loadouts={['1']={'training_point_blink_v1',json.null}}
   local source=launch.select_heroes(baseline,{})
   source.summoner_loadouts={['1']={'training_point_blink_v1',json.null}}
@@ -55,11 +55,52 @@ test('finalized handoff changes only the bound human hero',function()
   assert(launch.selection_result(reply_with(equipped),source,1,'testhash').summoner_loadouts['1'][1]=='training_self_shield_v1')
   local omitted=launch.select_heroes(baseline,{})
   omitted.summoner_loadouts={}
-  assert(launch.selection_result(reply_with(launch.select_heroes(baseline,{[1]='training_ranger'})),omitted,1,'testhash'))
+  assert(launch.selection_result(reply_with(launch.select_heroes(baseline,{[1]='tamako'})),omitted,1,'testhash'))
+end)
+
+-- E210: picking a bot's default hero. The service moves that bot (E164); the launch accepts the
+-- final roster by its rules, not by which seats changed.
+test('a human may take a bot teammate default hero; the moved bot is legal',function()
+  local function bot_hero(id) for _,p in ipairs(baseline.players) do if p.player_id==id then return p.hero end end end
+  local taken=bot_hero(3)
+  assert(taken and taken~=baseline.players[1].hero,'fixture: seat 3 is a bot with its own hero')
+  local function moved_reply(replacement)
+    local plan=json.decode(json.encode(baseline))
+    for _,p in ipairs(plan.players) do
+      if p.player_id==1 then p.hero=taken elseif p.player_id==3 then p.hero=replacement end
+    end
+    local value=reply_with(plan)
+    value.selection.seats={}
+    for _,p in ipairs(plan.players) do value.selection.seats[#value.selection.seats+1]={locked=true,player=json.decode(json.encode(p))} end
+    value.hero_catalog={}
+    for _,p in ipairs(baseline.players) do value.hero_catalog[#value.hero_catalog+1]={hero=p.hero} end
+    return value
+  end
+  -- the replacement is a hero team 1 does not use (the human's old one is free now)
+  local free=baseline.players[1].hero
+  local accepted=launch.selection_result(moved_reply(free),baseline,1,'testhash')
+  for _,p in ipairs(accepted.players) do
+    if p.player_id==1 then assert(p.hero==taken) end
+    if p.player_id==3 then assert(p.hero==free) end
+  end
+  rejects(function() launch.selection_result(moved_reply(bot_hero(2)),baseline,1,'testhash') end) -- duplicate on team 1
+  rejects(function() launch.selection_result(moved_reply('not_offered'),baseline,1,'testhash') end) -- not in the catalog
+  local unlocked=moved_reply(free)
+  unlocked.selection.seats[1].locked=false
+  rejects(function() launch.selection_result(unlocked,baseline,1,'testhash') end)
+  -- a bot whose hero nobody took may not change
+  local stray=moved_reply(free)
+  for _,p in ipairs(stray.plan.players) do if p.player_id==4 then p.hero=bot_hero(9) end end
+  for _,s in ipairs(stray.selection.seats) do if s.player.player_id==4 then s.player.hero=bot_hero(9) end end
+  rejects(function() launch.selection_result(stray,baseline,1,'testhash') end)
+  -- a seat may change only its hero
+  local relaned=moved_reply(free)
+  relaned.plan.players[3].lane='top'
+  rejects(function() launch.selection_result(relaned,baseline,1,'testhash') end)
 end)
 
 local function execute(name,mode)
-  local options=launch.options({'--interactive-selection','--profile','debug','--hero','1=training_vanguard',
+  local options=launch.options({'--interactive-selection','--profile','debug','--hero','1=asai_nagamasa',
     '--output',path.join(root,name)})
   if mode=='completion-timeout' then options.selection_timeout_seconds=1 end
   if mode=='old' then options.editor_ready_timeout_seconds=1 end
@@ -70,7 +111,7 @@ local function execute(name,mode)
   local fake={run=function(_,args)
     assert(args[1]=='--lock-plan')
     local candidate=json.read(args[2])
-    assert(candidate.players[1].hero=='training_vanguard')
+    assert(candidate.players[1].hero=='asai_nagamasa')
     return {exit_code=0,stdout=json.encode({scope='host-prepared-selection',plan=candidate,
       selection={catalog_data_hash='testhash'}})}
   end,spawn=function(_,args)
@@ -112,7 +153,7 @@ local function execute(name,mode)
   if mode=='success' or mode=='reused-success' or mode=='retired-backlog' or mode=='retired-tail' or mode=='cold-ready' then
     assert(ok and next(options.hero_selections)==nil,tostring(err))
     assert(path.is_file(options.recipe))
-    assert(json.read(options.recipe).players[1].hero=='training_ranger')
+    assert(json.read(options.recipe).players[1].hero=='tamako')
   else
     assert(not ok)
     assert(path.is_file(options.output..'-selection/errors.md'))

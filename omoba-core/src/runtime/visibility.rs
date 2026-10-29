@@ -486,7 +486,12 @@ impl TeamVisibilityState {
         // Deleted/generation-replaced entities no longer occur in the view loop.
         // Retire only a previously disclosed identity, using its existing memory
         // policy; absence must not disclose a hidden death or hidden coordinates.
-        let absent: Vec<_> = self.index.current.difference(&existing).copied().collect();
+        // A target of this tick's admitted input that was deleted during the
+        // step (it died) stays disclosed for this one frame, like a target that
+        // left sight: the team's replica still holds it when it executes the
+        // same input, and it retires on the next resolve (E175).
+        let absent: Vec<_> = self.index.current.difference(&existing).copied()
+            .filter(|canonical_id| !grace.contains(canonical_id)).collect();
         for canonical_id in absent {
             self.index.current.remove(&canonical_id);
             self.index.candidates.remove(&canonical_id);
@@ -718,6 +723,29 @@ mod tests {
         assert!(matches!(state.resolve(&view(3, vec![]), 0).as_slice(), [VisibilityTransition::Hide { canonical_id: 7, .. }]));
         state.input_grace.insert(7);
         assert!(state.resolve(&view(4, vec![]), 0).is_empty() && !state.index.current.contains(&7), "grace never reveals");
+    }
+
+    #[test]
+    fn input_grace_keeps_a_target_deleted_during_the_step_one_frame() {
+        // E175: an admitted AttackTarget/CastAbility named a creep that died in the
+        // same step. Its immediate Hide reached the team's replica before the
+        // input, the projector dropped the input, and only the authority cleared
+        // the queue and cancelled the windup. Grace holds a deleted target once.
+        let enemy = entity(ReplicationScopeKind::Vision, Some(2), 10);
+        let mut state = TeamVisibilityState::new(1, 4);
+        let view = |tick, entities: Vec<CommittedEntityView>| WaveBReadView { tick, entities: entities.into(),
+            vision_sources: vec![source(1, 20)].into(), brush_regions: Vec::new().into(), vision_occluders: vec![].into() };
+        assert_eq!(state.resolve(&view(1, vec![enemy.clone()]), 0).len(), 1);
+        state.input_grace.insert(7);
+        assert!(state.resolve(&view(2, vec![]), 0).is_empty(), "a graced deleted target is not hidden this frame");
+        assert!(state.index.current.contains(&7));
+        assert!(matches!(state.resolve(&view(3, vec![]), 0).as_slice(), [VisibilityTransition::Hide { canonical_id: 7, .. }]),
+            "it retires on the next resolve");
+        assert!(!state.index.current.contains(&7));
+        // Without grace a deletion still hides at once.
+        let mut state = TeamVisibilityState::new(1, 4);
+        state.resolve(&view(1, vec![enemy]), 0);
+        assert!(matches!(state.resolve(&view(2, vec![]), 0).as_slice(), [VisibilityTransition::Hide { canonical_id: 7, .. }]));
     }
 
     #[test]
@@ -1145,7 +1173,7 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
                 ));
                 if moba {
                     if let Some(buffs) = &buffs {
-                        let bonus = buffs.sum_add(entity, omb_script_abi::stat_keys::StatKey::DamageTakenBonus);
+                        let bonus = crate::runtime::ability_runtime::unit_stats::damage_taken_bonus(buffs, entity);
                         disclosed.push((DISCLOSED_INCOMING_DAMAGE_COMPONENT_SCHEMA_ID,
                             bonus.raw().to_be_bytes().to_vec()));
                     }
@@ -1251,10 +1279,11 @@ pub fn build_wave_b_read_view(world: &World, tick: u64) -> WaveBReadView {
             detection_level: source.detection_level,
         })
         .collect();
-    // G-4 true-sight zones: team sight that detects every stealth level.
+    // G-4 reveal zones: team sight; true sight detects every stealth level,
+    // a plain zone (原作 AddFOWViewer) detects none.
     if let Some(zones) = world.try_fetch::<crate::runtime::native::reveal_zone::RevealZones>() {
         vision_sources.extend(zones.sources().map(|(canonical_id, zone)| CommittedVisionSource {
-            canonical_id, team: zone.team, position: zone.center, radius: zone.radius, detection_level: u16::MAX,
+            canonical_id, team: zone.team, position: zone.center, radius: zone.radius, detection_level: zone.detection_level,
         }));
     }
     vision_sources.sort_by_key(|source| (source.team, source.canonical_id));

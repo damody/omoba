@@ -25,29 +25,12 @@ pub struct FogGridGeometry {
 impl FogGridGeometry {
     /// Cover immutable compiled geometry, not hidden units or camera bounds.
     /// At most 64 cells per axis, including the closed maximum endpoint.
+    /// The extent is the map's authored playable `bounds` (E187 §5.8, nobu_map.lua: the terrain
+    /// grid), else the lanes, camps and terrain; maps without bounds keep their geometry.
     pub fn from_map(map: &omoba_template_ids::MobaMapConst) -> Result<Self, &'static str> {
-        let points = map
-            .lanes
-            .iter()
-            .flat_map(|lane| lane.waypoints.iter().copied())
-            .chain(map.jungle_camps.iter().flat_map(|camp|camp.home_positions()))
-            .chain(
-                map.terrain
-                    .iter()
-                    .flat_map(|region| [region.min, region.max]),
-            );
-        let mut bounds: Option<(i64, i64, i64, i64)> = None;
-        for (x, y) in points {
-            let x = i64::from(x) * 1024;
-            let y = i64::from(y) * 1024;
-            bounds = Some(match bounds {
-                None => (x, y, x, y),
-                Some((min_x, min_y, max_x, max_y)) => {
-                    (min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y))
-                }
-            });
-        }
-        let (min_x, min_y, max_x, max_y) = bounds.ok_or("fog map has no geometry")?;
+        let extent = map.extent().ok_or("fog map has no geometry")?;
+        let (min_x, min_y, max_x, max_y) = (i64::from(extent.min.0) * 1024, i64::from(extent.min.1) * 1024,
+            i64::from(extent.max.0) * 1024, i64::from(extent.max.1) * 1024);
         let span_x = max_x - min_x;
         let span_y = max_y - min_y;
         let cell_size_raw = ((span_x.max(span_y) + 62) / 63).max(1024);

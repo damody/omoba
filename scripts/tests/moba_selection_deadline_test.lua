@@ -4,8 +4,8 @@ local now=10000
 local clock={monotonic_ms=function() return now end}
 local function rejects(fn) assert(not pcall(fn),'expected rejection') end
 assert(budget.start({},clock)==nil)
-assert(budget.start({selection_smoke_hero='training_ranger'},clock)==130000)
-assert(budget.start({selection_smoke_hero='training_ranger',selection_timeout_seconds=7},clock)==17000)
+assert(budget.start({selection_smoke_hero='tamako'},clock)==130000)
+assert(budget.start({selection_smoke_hero='tamako',selection_timeout_seconds=7},clock)==17000)
 local deadline=budget.start({selection_timeout_seconds=1},clock)
 now=10999
 budget.check(deadline,clock)

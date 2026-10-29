@@ -75,6 +75,8 @@ reset()
 report = land.run({changes = {{source = new, live = 'scripts/lua_data/templates/heroes.lua'}}}, deps)
 check(report.passed and report.landed and get('scripts/lua_data/templates/heroes.lua') == 'heroes-v2\n', 'passing landing writes live')
 check(ran('--content-root ' .. path.join(root, 'target', 'land', 'tree', 'scripts', 'lua_data')), 'codegen reads the candidate, not live')
+-- E159: the Lua build steps' loader (content_builder) reads the same candidate templates.
+check(ran('lua_content_check.lua ' .. path.join(root, 'target', 'land', 'tree', 'scripts', 'lua_data')), 'Lua content loaders read the candidate too')
 check(ran('cargo check') and built == 1 and synced == 1, 'cargo and UBT ran on the candidate')
 check(not ran(path.join(root, 'omfue', 'Plugins', 'OmRuntime', 'Source', 'OmGenerated')), 'live OmGenerated is never written by a check')
 
@@ -121,6 +123,26 @@ local options = land.parse({'--change', 'a.lua=scripts/x.lua@base.lua', '--check
 check(options.changes[1].source == 'a.lua' and options.changes[1].live == 'scripts/x.lua' and options.changes[1].base == 'base.lua'
   and options.checks == 'codegen,ubt' and options.dry_run, 'argument parsing')
 
+-- Removal: SRC '-' removes LIVE with the batch, only while live still equals BASE.
+reset()
+put('scripts/lua_data/retired.lua', 'retired-v1\n')
+local retired_base = put('work/retired.base.lua', 'retired-v1\n')
+local moved = put('work/moved.lua', 'moved-v1\n')
+report = land.run({changes = {{source = '-', live = 'scripts/lua_data/retired.lua', base = retired_base},
+  {source = moved, live = 'scripts/test_fixtures/moved.lua'}}}, deps)
+check(report.landed and not path.exists(path.join(root, 'scripts/lua_data/retired.lua'))
+  and get('scripts/test_fixtures/moved.lua') == 'moved-v1\n', 'a removal lands with the batch')
+check(not path.exists(path.join(root, 'target/land/tree/scripts/lua_data/retired.lua')), 'the checks ran without the removed file')
+put('scripts/lua_data/retired.lua', 'retired-v2\n')
+rejects(function() land.run({changes = {{source = '-', live = 'scripts/lua_data/retired.lua', base = retired_base}}}, deps) end,
+  'changed since its base')
+check(get('scripts/lua_data/retired.lua') == 'retired-v2\n', 'a changed file is never removed')
+rejects(function() land.run({changes = {{source = '-', live = 'scripts/lua_data/retired.lua'}}}, deps) end, 'needs its BASE')
+rejects(function() land.run({changes = {{source = '-', live = 'scripts/lua_data/absent.lua', base = retired_base}}}, deps) end,
+  'does not exist')
+options = land.parse({'--change', '-=scripts/x.lua@base.lua'})
+check(options.changes[1].source == '-' and options.changes[1].live == 'scripts/x.lua', 'removal argument parsing')
+
 -- check_live_consistent: the same checks with no changes, never writing live.
 reset()
 local consistent = require('check_live_consistent').main({}, deps)
@@ -136,5 +158,42 @@ local function rm(target)
   end
   lfs.rmdir(target)
 end
+-- E171: line endings. Only an end-of-line change between base and live is no conflict, and the
+-- result keeps live's line endings (this test root is not tracked by git; a tracked file gets what
+-- a checkout writes).
+check(land.eol_of('a\r\nb\r\n') == 'crlf' and land.eol_of('a\nb\n') == 'lf' and land.eol_of('ab') == nil, 'eol detection')
+check(land.with_eol('a\r\nb\n', 'crlf') == 'a\r\nb\r\n' and land.with_eol('a\r\nb\n', 'lf') == 'a\nb\n', 'eol conversion')
+put('omoba-core/src/eol.rs', 'one\ntwo\nthree\nfour\n')
+local eol_base = put('work/eol-base.rs', 'one\r\ntwo\r\nthree\r\n')
+local eol_change = put('work/eol-change.rs', 'ONE\r\ntwo\r\nthree\r\n')
+reset()
+report = land.run({changes = {{source = eol_change, live = 'omoba-core/src/eol.rs', base = eol_base}}}, deps)
+check(report.landed, 'a base/live line-ending difference is not a merge conflict: ' .. tostring(report.error))
+check(get('omoba-core/src/eol.rs') == 'ONE\ntwo\nthree\nfour\n', 'merged, with live\'s line endings')
+-- E187: writing live is all or nothing too. A file another process holds made io.open fail with
+-- EINVAL halfway through a batch and left live with half of it; the batch only compiled as a whole.
+local function norm(file) return (path.absolute(file):gsub('\\', '/'):lower()) end
+local function blocking(relative, times)
+  local target, left = norm(path.join(root, relative)), times
+  return setmetatable({write = function(file, ...)
+    if left > 0 and norm(file) == target then left = left - 1; error('Invalid argument', 0) end
+    return path.write(file, ...)
+  end}, {__index = path})
+end
+local function pair_run(file_path)
+  return land.run({changes = {{source = put('work/a.rs', 'a-new\n'), live = 'omoba-core/src/a.rs'},
+    {source = put('work/b.rs', 'b-new\n'), live = 'omoba-core/src/b.rs'}}},
+    {root = root, process = process, shadow = shadow, lock = lock, log = function() end, path = file_path})
+end
+reset(); put('omoba-core/src/a.rs', 'a-live\n'); put('omoba-core/src/b.rs', 'b-live\n')
+report = pair_run(blocking('omoba-core/src/b.rs', math.huge))
+check(not report.landed and tostring(report.error):find('nothing landed (1 written file(s) restored)', 1, true),
+  'a failing live write refuses the batch: ' .. tostring(report.error))
+check(get('omoba-core/src/a.rs') == 'a-live\n' and get('omoba-core/src/b.rs') == 'b-live\n', 'the written file is restored')
+check(locked == 0, 'lock released after a failed write')
+reset()
+report = pair_run(blocking('omoba-core/src/b.rs', 1))
+check(report.landed and get('omoba-core/src/a.rs') == 'a-new\n' and get('omoba-core/src/b.rs') == 'b-new\n',
+  'a write blocked once is retried: ' .. tostring(report.error))
 rm(root)
 print(('land to live: %d checks passed'):format(checks))

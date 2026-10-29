@@ -202,6 +202,18 @@ pub enum StatKey {
     /// 或「-20 ms 沼澤地形」這類「固定數值」效果。對比 `MoveSpeedBonusEquipment`（裝備 flat、會被
     /// percentage 縮放）與 `MoveSpeedBonus`（percentage slow，乘到 base+equipment 上）。
     MoveSpeedBonusBuff = 136,
+    /// 英雄魔抗池的加減值（百分點，原作 `dummy.lua` `Add_magical_resistance` 與直接改
+    /// `magical_resistance` 的技能、道具）：池 = 規則的基礎魔抗 + Σ本值，上限是規則的
+    /// 英雄魔抗上限；其他 `MagicalResistanceBonus` 再乘法合成，不受上限限制
+    /// （omoba-core `rules::magic_resist`）。
+    MagicResistancePool = 137,
+    /// 每秒回復最大生命的比例（v3 `hp_regen_pct`，Dota HEALTH_REGEN_PERCENTAGE 的原意）。與
+    /// `HealthRegenPercentage`（本遊戲沿用為回復倍率）不同；omoba-core `rules::regen`。
+    HealthRegenMaxPercentage = 138,
+    /// 每秒回復最大法力的比例（v3 `mana_regen_pct`）；omoba-core `rules::regen`。
+    ManaRegenMaxPercentage = 139,
+    /// 法力回復量的增幅（v3 `mana_regen_amp_pct`）；生命的對應是 `HpRegenAmplifyPercentage`。
+    ManaRegenAmplifyPercentage = 140,
 }
 
 impl StatKey {
@@ -349,6 +361,10 @@ impl StatKey {
             StatKey::MultiShotVisual => "multi_shot_visual",
             StatKey::DotDamage => "dot_damage",
             StatKey::MoveSpeedBonusBuff => "movespeed_bonus_buff",
+            StatKey::MagicResistancePool => "magic_resistance_pool",
+            StatKey::HealthRegenMaxPercentage => "health_regen_max_percentage",
+            StatKey::ManaRegenMaxPercentage => "mana_regen_max_percentage",
+            StatKey::ManaRegenAmplifyPercentage => "mana_regen_amplify_percentage",
         }
     }
 
@@ -502,6 +518,10 @@ impl StatKey {
             "multi_shot_visual" => Some(StatKey::MultiShotVisual),
             "dot_damage" => Some(StatKey::DotDamage),
             "movespeed_bonus_buff" => Some(StatKey::MoveSpeedBonusBuff),
+            "magic_resistance_pool" => Some(StatKey::MagicResistancePool),
+            "health_regen_max_percentage" => Some(StatKey::HealthRegenMaxPercentage),
+            "mana_regen_max_percentage" => Some(StatKey::ManaRegenMaxPercentage),
+            "mana_regen_amplify_percentage" => Some(StatKey::ManaRegenAmplifyPercentage),
             _ => None,
         }
     }
@@ -646,6 +666,10 @@ impl StatKey {
             StatKey::MultiShotVisual => StatSection::Visual,
             StatKey::DotDamage => StatSection::All,
             StatKey::MoveSpeedBonusBuff => StatSection::NonBuilding,
+            StatKey::MagicResistancePool => StatSection::All,
+            StatKey::HealthRegenMaxPercentage => StatSection::All,
+            StatKey::ManaRegenMaxPercentage => StatSection::All,
+            StatKey::ManaRegenAmplifyPercentage => StatSection::All,
         }
     }
 
@@ -789,6 +813,10 @@ impl StatKey {
             StatKey::MultiShotVisual => Aggregation::SumAdd,
             StatKey::DotDamage => Aggregation::SumAdd,
             StatKey::MoveSpeedBonusBuff => Aggregation::SumAdd,
+            StatKey::MagicResistancePool => Aggregation::SumAdd,
+            StatKey::HealthRegenMaxPercentage => Aggregation::SumAdd,
+            StatKey::ManaRegenMaxPercentage => Aggregation::SumAdd,
+            StatKey::ManaRegenAmplifyPercentage => Aggregation::SumAddThenMul1Plus,
         }
     }
 
@@ -802,7 +830,7 @@ impl StatKey {
 }
 
 /// 按 discriminant 排序的所有 `StatKey` variant — 供 gen-docs / 遍歷測試使用。
-pub const ALL: &[StatKey; 137] = &[
+pub const ALL: &[StatKey; 141] = &[
     StatKey::PreattackBonusDamage,
     StatKey::PreattackBonusDamageProc,
     StatKey::PreattackBonusDamagePostCrit,
@@ -940,6 +968,10 @@ pub const ALL: &[StatKey; 137] = &[
     StatKey::MultiShotVisual,
     StatKey::DotDamage,
     StatKey::MoveSpeedBonusBuff,
+    StatKey::MagicResistancePool,
+    StatKey::HealthRegenMaxPercentage,
+    StatKey::ManaRegenMaxPercentage,
+    StatKey::ManaRegenAmplifyPercentage,
 ];
 
 #[cfg(test)]
@@ -947,8 +979,8 @@ mod tests {
     use super::{Aggregation, StatKey, StatSection, ALL};
 
     #[test]
-    fn all_array_length_is_137() {
-        assert_eq!(ALL.len(), 137);
+    fn all_array_length_is_141() {
+        assert_eq!(ALL.len(), 141);
     }
 
     #[test]

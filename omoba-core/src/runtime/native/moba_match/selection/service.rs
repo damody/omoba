@@ -268,7 +268,7 @@ mod tests {
         let input = command(0, serde_json::json!({"kind":"read"}))
             + &command(
                 0,
-                serde_json::json!({"kind":"select","hero":"training_ranger"}),
+                serde_json::json!({"kind":"select","hero":"tamako"}),
             )
             + &command(1, serde_json::json!({"kind":"lock"}))
             + &command(2, serde_json::json!({"kind":"finalize"}));
@@ -283,7 +283,7 @@ mod tests {
             .collect();
         assert_eq!(replies.len(), 5);
         assert!(replies.iter().all(|r| r["error"].is_null()));
-        assert_eq!(replies[4]["plan"]["players"][0]["hero"], "training_ranger");
+        assert_eq!(replies[4]["plan"]["players"][0]["hero"], "tamako");
         assert_eq!(replies[4]["selection"]["revision"], 3);
         assert_eq!(replies[4]["revision_token"], "3");
         assert_eq!(replies[4]["request_id_token"], "2");
@@ -372,10 +372,10 @@ mod tests {
         let selected = apply(
             &mut first,
             0,
-            serde_json::json!({"kind":"select","hero":"training_ranger"}),
+            serde_json::json!({"kind":"select","hero":"tamako"}),
         );
         assert!(selected.error.is_none());
-        assert_eq!(snapshot(&second).seats[0].player.hero, "training_ranger");
+        assert_eq!(snapshot(&second).seats[0].player.hero, "tamako");
         let stale = apply(&mut second, 0, serde_json::json!({"kind":"lock"}));
         assert_eq!(
             stale.error.as_deref(),
@@ -394,7 +394,7 @@ mod tests {
         assert!(apply(
             &mut second,
             2,
-            serde_json::json!({"kind":"select","hero":"training_luminary"})
+            serde_json::json!({"kind":"select","hero":"murakami_yoshikiyo"})
         )
         .error
         .is_none());
@@ -412,14 +412,14 @@ mod tests {
         );
         assert!(room.clone().take_finalized_plan().unwrap().is_none());
         assert!(final_reply.selection.finalized && final_reply.selection.ready);
-        assert_eq!(plan.players[0].hero, "training_ranger");
-        assert_eq!(plan.players[1].hero, "training_luminary");
+        assert_eq!(plan.players[0].hero, "tamako");
+        assert_eq!(plan.players[1].hero, "murakami_yoshikiyo");
         assert_eq!(snapshot(&second).revision, 5);
         let frozen = serde_json::to_value(snapshot(&second)).unwrap();
         assert!(apply(
             &mut second,
             5,
-            serde_json::json!({"kind":"select","hero":"training_ranger"})
+            serde_json::json!({"kind":"select","hero":"tamako"})
         )
         .error
         .is_some());

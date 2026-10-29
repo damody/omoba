@@ -121,7 +121,17 @@ pub enum ScriptEvent {
         order_kind: String,
         target: SkillTarget,
     },
+    /// The owner committed an item's active use (source OnAbilityExecuted also
+    /// fires for items). Dispatch calls the owner's `UnitScript::on_skill_cast`
+    /// with skill id `ITEM_SKILL_PREFIX + item id` and `Target::None`.
+    ItemUsed {
+        owner: Entity,
+        item_id: String,
+    },
 }
+
+/// Skill-id prefix of an item use passed to `UnitScript::on_skill_cast`.
+pub const ITEM_SKILL_PREFIX: &str = "item:";
 
 #[derive(Clone, Debug)]
 pub enum SkillTarget {

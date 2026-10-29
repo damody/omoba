@@ -66,7 +66,9 @@ mod tests {
         let mut w=crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);w.insert(TowerTemplateRegistry::default());
         let map=omoba_template_ids::moba_map_by_name("three_lane_training").unwrap();
         setup_single_lane_match(&mut w,SingleLaneConfig {map_id:Some(map.id.into()),lane_length:Fixed64::from_i32(map.lane_length),..Default::default()}).unwrap();
-        w.write_resource::<MobaMatch>().phase=MobaMatchPhase::Playing;w
+        w.write_resource::<MobaMatch>().phase=MobaMatchPhase::Playing;
+        // The bosses appear on the match clock (E187); these fixtures fight them at the start.
+        spawn_waiting_jungle_camps_for_test(&mut w);w
     }
     fn update(w:&mut World,f:impl FnOnce(&World,&mut MobaMatch)) {let mut s=w.remove::<MobaMatch>().unwrap();f(w,&mut s);w.insert(s);}
     fn lethal(w:&mut World,source:Option<Entity>,target:Entity) {

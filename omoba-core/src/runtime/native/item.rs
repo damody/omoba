@@ -23,6 +23,9 @@ pub struct ItemBonus {
     pub critical_chance: f32,
     #[serde(default)]
     pub unique_passive: Option<omoba_content_model::moba_items::MobaItemUniquePassive>,
+    /// Passive stat modifiers in ITEM_STAT_MODIFIERS order (E155).
+    #[serde(default)]
+    pub modifiers: [f32; omoba_content_model::moba_items::ITEM_STAT_MODIFIERS.len()],
 }
 
 /// Native active-effect schema. Timed and one-shot modifiers use BuffStore;
@@ -44,10 +47,21 @@ pub enum ActiveEffect {
     DamageReduce { percent: f32, duration: f32 },
     /// Flat damage to visible enemies inside the radius of an explicit point.
     /// Amounts stay in authoritative fixed units. Float conversion is preview only.
-    PointNova { damage: Fixed64, radius: Fixed64 },
+    PointNova { damage: Fixed64, radius: Fixed64,
+        #[serde(default)] damage_type: omoba_content_model::moba_items::ItemDamageType,
+        #[serde(default)] skip_buildings: bool, #[serde(default)] control: Option<ItemControl>,
+        #[serde(default)] hit: ItemHit },
     /// Flat damage to one disclosed living enemy.
     UnitHex { damage: Fixed64,#[serde(default)] healing_reduction:Option<HealingReduction>,
-        #[serde(default)] control:Option<ItemControl> },
+        #[serde(default)] control:Option<ItemControl>, #[serde(default)] damage_type:omoba_content_model::moba_items::ItemDamageType,
+        /// Delivered by a tracking ability projectile (E184): the effects land on arrival.
+        #[serde(default)] projectile:Option<ItemProjectile>, #[serde(default)] hit: ItemHit },
+    /// A source item's datadriven active (E160): named timed modifiers on the caster or its
+    /// allies within `radius`, plus a caster heal and mana restore (item_modifiers).
+    ApplyModifiers { radius: Fixed64, include_basic: bool, modifiers: Vec<super::item_modifiers::ItemModifier>,
+        heal: Fixed64, mana: Fixed64, #[serde(default)] magic_immunity: Fixed64 },
+    /// Heal one disclosed living allied non-building unit (E160).
+    UnitHeal { amount: Fixed64 },
 }
 
 #[derive(Clone,Debug,Serialize,Deserialize)]
@@ -56,6 +70,51 @@ pub struct ItemControl {pub kind:omoba_content_model::ControlEffectKind,pub dura
 
 #[derive(Clone,Debug,serde::Serialize,serde::Deserialize)]
 pub struct HealingReduction {pub multiplier:Fixed64,pub duration:Fixed64}
+
+#[derive(Clone,Copy,Debug,serde::Serialize,serde::Deserialize)]
+pub struct ItemProjectile {pub speed:Fixed64,pub dodgeable:bool,#[serde(default)] pub vision:Fixed64}
+
+/// What a damage item's hits carry beyond damage and control (E188, MobaItemHitConst).
+/// `spell`: the damage has an inflictor, so the caster's spell amplification scales it.
+#[derive(Clone,Copy,Debug,Default,serde::Serialize,serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemHit {
+    #[serde(default)] pub spell:bool,
+    /// Move-speed slow (fraction) and its seconds.
+    #[serde(default)] pub slow:Option<(Fixed64,Fixed64)>,
+    /// Buildings take this instead of the damage, and nothing else.
+    #[serde(default)] pub building_damage:Option<Fixed64>,
+    /// Magic-immune enemies are not found (the area's search lacks MAGIC_IMMUNE_ENEMIES).
+    #[serde(default)] pub excludes_magic_immune:bool,
+    /// Damage per tick, tick interval, seconds, spell.
+    #[serde(default)] pub dot:Option<(Fixed64,Fixed64,Fixed64,bool)>,
+    /// Caster-team sight radius and seconds around the point.
+    #[serde(default)] pub vision:Option<(Fixed64,Fixed64)>,
+}
+
+impl From<omoba_template_ids::MobaItemHitConst> for ItemHit {
+    fn from(h: omoba_template_ids::MobaItemHitConst) -> Self {
+        Self { spell:h.spell, slow:h.slow.map(|s|(s.move_speed,s.duration)), building_damage:h.building_damage,
+            excludes_magic_immune:h.excludes_magic_immune, dot:h.dot.map(|d|(d.damage,d.interval,d.duration,d.spell)),
+            vision:h.vision.map(|v|(v.radius,v.duration)) }
+    }
+}
+
+fn damage_type_of(kind: omoba_template_ids::MobaItemDamageTypeConst) -> omoba_content_model::moba_items::ItemDamageType {
+    match kind {
+        omoba_template_ids::MobaItemDamageTypeConst::Pure => omoba_content_model::moba_items::ItemDamageType::Pure,
+        omoba_template_ids::MobaItemDamageTypeConst::Physical => omoba_content_model::moba_items::ItemDamageType::Physical,
+        omoba_template_ids::MobaItemDamageTypeConst::Magical => omoba_content_model::moba_items::ItemDamageType::Magical,
+    }
+}
+
+fn control_of(c: omoba_template_ids::MobaItemControlConst) -> ItemControl {
+    ItemControl { kind: match c.kind {
+        omoba_template_ids::MobaItemControlKindConst::Stun => omoba_content_model::ControlEffectKind::Stun,
+        omoba_template_ids::MobaItemControlKindConst::Root => omoba_content_model::ControlEffectKind::Root,
+        omoba_template_ids::MobaItemControlKindConst::Silence => omoba_content_model::ControlEffectKind::Silence,
+    }, duration: c.duration }
+}
 
 impl From<omoba_template_ids::MobaItemActiveConst> for ActiveEffect {
     fn from(value: omoba_template_ids::MobaItemActiveConst) -> Self {
@@ -68,14 +127,26 @@ impl From<omoba_template_ids::MobaItemActiveConst> for ActiveEffect {
             Generated::RestoreMana { amount } => Self::RestoreMana { amount: amount.to_f32_for_render() },
             Generated::DamageReduce { percent, duration } => Self::DamageReduce { percent: percent.to_f32_for_render(), duration: duration.to_f32_for_render() },
             Generated::HeadshotNext { bonus_damage } => Self::HeadshotNext { bonus_damage: bonus_damage.to_f32_for_render() },
-            Generated::PointNova { damage, radius } => Self::PointNova { damage, radius },
-            Generated::UnitHex { damage,healing_reduction,control } => Self::UnitHex { damage,
+            Generated::PointNova { damage, radius, damage_type, skip_buildings, control, hit } => Self::PointNova { damage, radius,
+                damage_type: damage_type_of(damage_type), skip_buildings, control: control.map(control_of), hit: hit.into() },
+            Generated::UnitHex { damage,healing_reduction,control,damage_type,projectile,hit } => Self::UnitHex { damage, hit: hit.into(),
+                projectile:projectile.map(|p|ItemProjectile {speed:p.speed,dodgeable:p.dodgeable,vision:p.vision}),
+                damage_type: match damage_type {
+                    omoba_template_ids::MobaItemDamageTypeConst::Pure=>omoba_content_model::moba_items::ItemDamageType::Pure,
+                    omoba_template_ids::MobaItemDamageTypeConst::Physical=>omoba_content_model::moba_items::ItemDamageType::Physical,
+                    omoba_template_ids::MobaItemDamageTypeConst::Magical=>omoba_content_model::moba_items::ItemDamageType::Magical,
+                },
                 healing_reduction:healing_reduction.map(|r|HealingReduction {multiplier:r.multiplier,duration:r.duration}),
                 control:control.map(|c|ItemControl {kind:match c.kind {
                     omoba_template_ids::MobaItemControlKindConst::Stun=>omoba_content_model::ControlEffectKind::Stun,
                     omoba_template_ids::MobaItemControlKindConst::Root=>omoba_content_model::ControlEffectKind::Root,
                     omoba_template_ids::MobaItemControlKindConst::Silence=>omoba_content_model::ControlEffectKind::Silence,
                 },duration:c.duration}) },
+            Generated::ApplyModifiers { radius, include_basic, modifiers, heal, mana, magic_immunity } => Self::ApplyModifiers { radius, include_basic, magic_immunity,
+                modifiers: modifiers.iter().map(|m| super::item_modifiers::ItemModifier { name: m.name.to_owned(), duration: m.duration,
+                    area: m.area, stats: m.stats.iter().map(|(key, value)| ((*key).to_owned(), *value)).collect() }).collect(),
+                heal, mana },
+            Generated::UnitHeal { amount } => Self::UnitHeal { amount },
         }
     }
 }
@@ -101,6 +172,9 @@ pub struct ItemConfig {
 #[derive(Clone, Debug, Default)]
 pub struct ItemRegistry {
     pub items: HashMap<String, Arc<ItemConfig>>,
+    /// Percent of an item's cost a sale returns. Half by default; a match with the original
+    /// game's rules uses theirs (templates/game_rules.lua, 75).
+    pub sell_refund_percent: u32,
 }
 
 impl ItemRegistry {
@@ -119,6 +193,7 @@ impl ItemRegistry {
                     armor:v.armor.to_f32_for_render(),lifesteal:v.lifesteal.to_f32_for_render(),
                     critical_chance:v.critical_chance.to_f32_for_render(),
                 }),
+                modifiers: item.modifiers.map(|v| v.to_f32_for_render()),
                 ..ItemBonus::default()
             },
             active: item.active.map(ActiveEffect::from), cooldown: item.cooldown.to_f32_for_render(),
@@ -131,7 +206,7 @@ impl ItemRegistry {
         for cfg in list {
             items.insert(cfg.id.clone(), Arc::new(cfg));
         }
-        ItemRegistry { items }
+        ItemRegistry { items, sell_refund_percent: 50 }
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<ItemConfig>> {
@@ -168,6 +243,8 @@ pub struct ItemStatAggregate {
     pub mp_regen: f32,
     pub lifesteal: f32,
     pub critical_chance: f32,
+    /// Summed passive stat modifiers in ITEM_STAT_MODIFIERS order (E155).
+    pub modifiers: [f32; omoba_content_model::moba_items::ITEM_STAT_MODIFIERS.len()],
 }
 
 impl ItemStatAggregate {
@@ -185,6 +262,7 @@ impl ItemStatAggregate {
             totals.mp_regen += cfg.bonus.mp_regen;
             totals.lifesteal += cfg.bonus.lifesteal;
             totals.critical_chance += cfg.bonus.critical_chance;
+            for (total, value) in totals.modifiers.iter_mut().zip(cfg.bonus.modifiers) { *total += value; }
             if let Some(passive)=cfg.bonus.unique_passive.as_ref().filter(|p|p.validate().is_ok()) {
                 let replace=winners.get(&passive.group).is_none_or(|(priority,id,_):&(u16,String,omoba_content_model::moba_items::MobaItemUniquePassive)|
                     passive.priority>*priority || (passive.priority==*priority && cfg.id<*id));
@@ -199,17 +277,104 @@ impl ItemStatAggregate {
     }
 }
 
-/// How a freshly computed aggregate meets an existing body.
-/// Inventory owns one permanent shared modifier, rebuilt only on inventory changes/new life.
+#[cfg(test)]
+#[test]
+fn source_item_modifiers_reach_the_combat_readers() {
+    use super::ability_runtime::{BuffStore, UnitStats};
+    use omoba_sim::Fixed64;
+    use specs::{Builder, World, WorldExt};
+    let mut world=World::new();let entity=world.create_entity().build();
+    let mut totals=ItemStatAggregate::default();
+    let index=|key:&str|omoba_content_model::moba_items::ITEM_STAT_MODIFIERS.iter().position(|k|*k==key).unwrap();
+    totals.modifiers[index("attackspeed_bonus_constant")]=25.0;
+    totals.modifiers[index("health_regen_constant")]=10.0;
+    totals.modifiers[index("magical_resistance_bonus")]=15.0;
+    let mut buffs=BuffStore::new();
+    sync_item_passives(entity,totals,&mut buffs);
+    let stats=UnitStats::from_refs(&buffs,false);
+    assert_eq!(stats.final_attack_speed_mult(entity),Fixed64::ONE+Fixed64::from_i32(25)/Fixed64::from_i32(100));
+    assert_eq!(stats.hp_regen(Fixed64::ONE,entity),Fixed64::from_i32(11));
+    assert!(stats.final_magic_resist(Fixed64::ZERO,entity)>Fixed64::ZERO);
+    // Selling everything removes the whole entry.
+    sync_item_passives(entity,ItemStatAggregate::default(),&mut buffs);
+    assert_eq!(UnitStats::from_refs(&buffs,false).final_attack_speed_mult(entity),Fixed64::ONE);
+}
+
+#[cfg(test)]
+#[test]
+fn inventory_passives_settle_the_same_on_authority_and_replica() {
+    use super::ability_runtime::BuffStore;
+    use super::comp::{Inventory,ItemInstance};
+    use specs::{Builder,World,WorldExt};
+    // A replica imports the inventory but never the BuffStore: settling rebuilds the same entry.
+    let world=|with_entry:bool| {
+        let mut world=World::new();world.register::<Inventory>();
+        world.insert(BuffStore::new());world.insert(ItemRegistry::generated_moba());
+        let mut inventory=Inventory::default();
+        inventory.slots[0]=Some(ItemInstance{item_id:"katana".into(),cooldown_remaining:0.});
+        let entity=world.create_entity().with(inventory).build();
+        if with_entry {settle_item_passives(&mut world);}
+        (world,entity)
+    };
+    let (mut authority,a)=world(true);
+    let (mut replica,r)=world(false);
+    assert!(!replica.read_resource::<BuffStore>().has(r,ITEM_PASSIVES_KEY));
+    settle_item_passives(&mut replica);settle_item_passives(&mut authority);
+    let entry=|world:&World,entity|world.read_resource::<BuffStore>().get(entity,ITEM_PASSIVES_KEY).map(|e|e.payload.clone());
+    assert_eq!(entry(&authority,a),entry(&replica,r));
+    assert_eq!(entry(&replica,r).unwrap()["attackspeed_bonus_constant"],15*1024,"katana: +15 attack speed");
+    // Selling removes it on the next settle.
+    replica.write_storage::<Inventory>().get_mut(r).unwrap().slots[0]=None;
+    settle_item_passives(&mut replica);
+    assert!(entry(&replica,r).is_none());
+}
+
+/// Replace one entity's passive entry with `totals` now. The match keeps the entries with
+/// settle_item_passives (its only writer); this is for direct callers and tests.
 pub fn sync_item_passives(entity:specs::Entity,totals:ItemStatAggregate,buffs:&mut super::ability_runtime::BuffStore) {
-    const KEY:&str="__item_passives";
-    buffs.remove(entity,KEY);
+    buffs.remove(entity,ITEM_PASSIVES_KEY);
+    if let Some(payload)=item_passives_payload(&totals) {
+        buffs.add(entity,ITEM_PASSIVES_KEY,super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,payload);
+    }
+}
+
+/// The BuffStore entry that carries an inventory's passive modifiers.
+pub const ITEM_PASSIVES_KEY:&str="__item_passives";
+
+/// Rebuild every inventory's passive entry from the inventory itself (E162). The inventory is
+/// disclosed and the BuffStore is not, so the authority and every replica run this same settle
+/// each tick and it is the only writer: a replica never lacks (or lags) the entry the authority
+/// has, and what reads it (attributes, attack speed, regen) agrees on both sides.
+pub fn settle_item_passives(world:&mut specs::World) {
+    use specs::{Join,WorldExt};
+    if world.try_fetch::<super::ability_runtime::BuffStore>().is_none() {return;}
+    let Some(registry)=world.try_fetch::<crate::runtime::ItemRegistry>() else {return;};
+    let entities=world.entities();
+    let inventories=world.read_storage::<super::comp::Inventory>();
+    let mut buffs=world.write_resource::<super::ability_runtime::BuffStore>();
+    for (entity,inventory) in (&entities,&inventories).join() {
+        let next=item_passives_payload(&ItemStatAggregate::from_inventory(inventory,&registry));
+        if buffs.get(entity,ITEM_PASSIVES_KEY).map(|entry|&entry.payload)==next.as_ref() {continue;}
+        match next {
+            Some(payload)=>buffs.add(entity,ITEM_PASSIVES_KEY,super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,payload),
+            None=>buffs.remove(entity,ITEM_PASSIVES_KEY),
+        }
+    }
+}
+
+/// An aggregate's passive modifiers as a BuffStore payload (raw Fixed64 values); None when empty.
+pub fn item_passives_payload(totals:&ItemStatAggregate)->Option<serde_json::Value> {
     let raw=|rate:f32| if rate.is_finite(){(rate.clamp(0.0,1.0)*1024.0).round() as i64}else{0};
     let lifesteal=raw(totals.lifesteal);let critical=raw(totals.critical_chance);
-    if lifesteal>0 || critical>0 {
-        buffs.add(entity,KEY,super::ability_runtime::buff_store::PERMANENT_BUFF_DURATION,
-            serde_json::json!({"lifesteal":lifesteal,"preattack_criticalstrike":critical}));
+    let mut payload=serde_json::Map::new();
+    if lifesteal>0 {payload.insert("lifesteal".into(),lifesteal.into());}
+    if critical>0 {payload.insert("preattack_criticalstrike".into(),critical.into());}
+    // Source item passives (E155): every summed modifier, by its BuffStore stat key.
+    for (key,value) in omoba_content_model::moba_items::ITEM_STAT_MODIFIERS.iter().zip(totals.modifiers) {
+        let raw=if value.is_finite(){(value*1024.0).round() as i64}else{0};
+        if raw!=0 {payload.insert((*key).into(),raw.into());}
     }
+    (!payload.is_empty()).then_some(serde_json::Value::Object(payload))
 }
 
 /// How a freshly computed aggregate meets an existing body.
@@ -247,6 +412,24 @@ fn unique_passive_whole_winner_is_slot_independent_and_groups_stack() {
         inventory.slots.iter_mut().for_each(|s|if s.as_ref().is_some_and(|i|i.item_id=="a"){*s=None});
         assert_eq!(ItemStatAggregate::from_inventory(&inventory,&registry).ms,50.,"removal exposes b");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn source_unique_movespeed_takes_the_highest_and_never_stacks() {
+    // E183: 褶裙 (+35 unique) and 暗部長靴 (+90 unique, +30 damage): Dota keeps only the highest.
+    use super::comp::{Inventory,ItemInstance};
+    let registry=ItemRegistry::generated_moba();
+    let catalog=|id:&str|omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|item|item.id==id).unwrap();
+    assert!(catalog("pleated_skirt").unique_passive.is_some() && catalog("dark_boots").unique_passive.is_some());
+    let mut inventory=Inventory::default();
+    inventory.slots[0]=Some(ItemInstance {item_id:"pleated_skirt".into(),cooldown_remaining:0.});
+    assert_eq!(ItemStatAggregate::from_inventory(&inventory,&registry).ms,35.);
+    inventory.slots[1]=Some(ItemInstance {item_id:"dark_boots".into(),cooldown_remaining:0.});
+    inventory.slots[2]=Some(ItemInstance {item_id:"pleated_skirt".into(),cooldown_remaining:0.});
+    let total=ItemStatAggregate::from_inventory(&inventory,&registry);
+    assert_eq!(total.ms,90.,"only the highest unique movespeed applies");
+    assert_eq!(total.atk,30.,"the boots' other stats (second Modifiers block) apply");
 }
 
 /// Replace previously applied item deltas with `totals`.

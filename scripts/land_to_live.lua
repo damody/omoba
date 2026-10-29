@@ -10,6 +10,8 @@
 --   BASE  the live file as it was when the change was started: the change is 3-way merged
 --         onto the current live file (git merge-file); a conflict refuses the landing.
 --         Without BASE, SRC replaces LIVE as is.
+--   SRC = '-' removes LIVE (a moved or retired file). BASE is required and live must still
+--         equal it; the removal is part of the candidate and lands with the batch or not at all.
 --   --manifest  a JSON array of {source, live, base?} rows instead of / besides --change.
 --
 -- Under the repo build lock it assembles "live + these changes" outside live:
@@ -17,7 +19,9 @@
 --                        omfue/bridge), with the changes applied
 --   target/land/shadow   an Unreal shadow project synced from live (stage_ue_shadow), with the
 --                        omfue changes applied and OmGenerated regenerated from the tree
--- and runs the checks the changed paths need (auto): om_codegen over the tree's lua_data;
+-- and runs the checks the changed paths need (auto): om_codegen over the tree's lua_data, and
+-- the Lua-side content loader (scripts/lua_content_check.lua: content_builder, which the Lua
+-- build steps such as sync_ue_hud_manifest_labels use) over the same lua_data (E159);
 -- cargo check of base_content (and of the bridge when it or the client runtime changed);
 -- UBT of the shadow when omfue sources, lua_data or codegen changed. Only when all pass, and
 -- no live file changed meanwhile, are the merged files written into live, together.
@@ -29,7 +33,11 @@ local M={}
 -- Sources mirrored into the candidate tree for codegen and cargo (targets excluded).
 M.TREE={'rust-toolchain.toml','omoba-core','omoba-content-model','omoba-template-ids','omoba-sim',
   'omoba-client-runtime','specs','proto','scripts','omfue/codegen','omfue/bridge','omb','log4rs','erps',
-  'tools/lua'} -- build scripts run the repo's own Lua (scripts/base_content/build.rs)
+  -- build scripts run the repo's own Lua (scripts/base_content/build.rs); bridge tests read the
+  -- staged C ABI header.
+  'tools/lua','omfue/Plugins/OmRuntime/Source/ThirdParty/OmBridge',
+  -- omoba-core tests include these repo files.
+  'run_2player.bat','omoba-netem-proxy','openspec'}
 M.SKIP={target=true,['.git']=true,log=true}
 M.CHECKS={'codegen','cargo','ubt'}
 
@@ -111,6 +119,75 @@ end
 
 local function read(d,file) return d.path.is_file(file) and d.path.read(file,true) or nil end
 
+-- Line endings (E171). A change made with other line endings than live (an editor or tool that
+-- writes LF where the checkout has CRLF, or the reverse) used to conflict on every line of a 3-way
+-- merge and to land the wrong line endings. The merge compares LF copies of all three versions, and
+-- every landed file gets the line endings a git checkout of it writes.
+function M.eol_of(text)
+  if text:find('\r\n',1,true) then return 'crlf' end
+  if text:find('\n',1,true) then return 'lf' end
+  return nil
+end
+
+function M.with_eol(text,eol)
+  local lf=text:gsub('\r\n','\n')
+  if eol=='crlf' then return (lf:gsub('\n','\r\n')) end
+  return lf
+end
+
+-- What a checkout of `relative` writes: 'crlf' or 'lf' (.gitattributes eol=, else core.autocrlf of
+-- the file's repository, submodules included), 'binary' (-text), or nil for a file git does not
+-- track (outside any repository, ignored, or new).
+function M.checkout_eol(d,relative)
+  local file=d.path.join(d.root,relative)
+  local dir=d.path.parent(file)
+  local name=slash(file):sub(#slash(dir)+2)
+  local listed=d.process.run('git',{'-C',dir,'ls-files','--eol','--',name},{cwd=d.root,check=false,label='eol '..relative})
+  if listed.exit_code~=0 then return nil end
+  local line=tostring(listed.stdout or ''):match('[^\r\n]+')
+  if not line then return nil end
+  local index=line:match('^i/(%S*)')
+  local attr=line:match('attr/(%S*)') or ''
+  if attr:find('-text',1,true) or index=='-text' or index=='none' then return 'binary' end
+  if attr:find('eol=crlf',1,true) then return 'crlf' end
+  if attr:find('eol=lf',1,true) then return 'lf' end
+  local autocrlf=d.process.run('git',{'-C',dir,'config','--get','core.autocrlf'},{cwd=d.root,check=false,label='autocrlf'})
+  return (autocrlf.exit_code==0 and tostring(autocrlf.stdout or ''):match('^%s*true')) and 'crlf' or 'lf'
+end
+
+-- Tracked text files whose working copy has other line endings than a checkout writes (E171):
+-- {path, worktree, expected}, over the repository and its submodules. Reported, not repaired.
+function M.eol_report(d)
+  local repos={''}
+  local modules=d.process.run('git',{'config','--file','.gitmodules','--get-regexp','path'},{cwd=d.root,check=false,label='submodules'})
+  for path in tostring(modules.stdout or ''):gmatch('%S+%s+(%S+)') do repos[#repos+1]=path end
+  local rows={}
+  for _,repo in ipairs(repos) do
+    local dir=repo=='' and d.root or d.path.join(d.root,repo)
+    local autocrlf=d.process.run('git',{'-C',dir,'config','--get','core.autocrlf'},{cwd=d.root,check=false,label='autocrlf'})
+    local default=(autocrlf.exit_code==0 and tostring(autocrlf.stdout or ''):match('^%s*true')) and 'crlf' or 'lf'
+    local listed=d.process.run('git',{'-C',dir,'ls-files','--eol'},{cwd=d.root,check=false,label='eol '..(repo=='' and '.' or repo)})
+    for line in tostring(listed.stdout or ''):gmatch('[^\r\n]+') do
+      local index,work,attr,path=line:match('^i/(%S*)%s+w/(%S*)%s+attr/(%S*)%s+(.+)$')
+      if index and index~='-text' and index~='none' and index~='' and not attr:find('-text',1,true) then
+        local expected=attr:find('eol=crlf',1,true) and 'crlf' or attr:find('eol=lf',1,true) and 'lf' or default
+        if (work=='crlf' or work=='lf' or work=='mixed') and work~=expected then
+          rows[#rows+1]={path=(repo=='' and '' or repo..'/')..path,worktree=work,expected=expected}
+        end
+      end
+    end
+  end
+  return rows
+end
+
+-- The line endings `relative` lands with: the checkout's, else (no repository) live's, else the
+-- change's own. nil leaves the content as is (binary).
+local function landing_eol(d,relative,current,new)
+  local checkout=M.checkout_eol(d,relative)
+  if checkout=='binary' then return nil end
+  return checkout or (current and M.eol_of(current)) or M.eol_of(new)
+end
+
 -- The merged content of every change against the current live file.
 function M.plan(changes,d)
   local plan={}
@@ -119,22 +196,51 @@ function M.plan(changes,d)
     local relative=M.relative(d.root,change.live,d)
     assert(not seen[relative:lower()],'the same live file twice: '..relative);seen[relative:lower()]=true
     local live=d.path.join(d.root,relative)
-    local new=assert(read(d,d.path.absolute(change.source,d.root)),'missing change source: '..change.source)
     local current=read(d,live)
+    if change.source=='-' then
+      assert(change.base,'removing '..relative..' needs its BASE')
+      local base=assert(read(d,d.path.absolute(change.base,d.root)),'missing base: '..change.base)
+      if current==nil then error('live file to remove does not exist: '..relative,0) end
+      if current~=base then error('live file changed since its base, refusing to remove: '..relative,0) end
+      plan[#plan+1]={relative=relative,live=live,content=nil,remove=true,live_before=current}
+      goto continue
+    end
+    do
+    local new=assert(read(d,d.path.absolute(change.source,d.root)),'missing change source: '..change.source)
+    local eol=landing_eol(d,relative,current,new)
     local content=new
     if change.base then
       local base=assert(read(d,d.path.absolute(change.base,d.root)),'missing base: '..change.base)
       if current==nil then error('live file was removed since its base: '..relative,0) end
-      if current~=base then
-        local result=d.process.run('git',{'merge-file','-p',live,d.path.absolute(change.base,d.root),
-          d.path.absolute(change.source,d.root)},{cwd=d.root,check=false,label='merge '..relative})
+      local same=eol and M.with_eol(current,'lf')==M.with_eol(base,'lf') or current==base
+      if not same then
+        -- Merge LF copies, so a change of line endings alone is never a conflict.
+        local dir=d.path.join(d.root,'target','land','merge')
+        d.path.mkdir_p(dir)
+        local copies={}
+        for index,text in ipairs({current,base,new}) do
+          copies[index]=d.path.join(dir,('%d.%s'):format(#plan+1,({'live','base','change'})[index]))
+          d.path.write(copies[index],eol and M.with_eol(text,'lf') or text,true,true)
+        end
+        local result=d.process.run('git',{'merge-file','-p',copies[1],copies[2],copies[3]},
+          {cwd=d.root,check=false,label='merge '..relative})
         assert(result.exit_code==0,'3-way merge conflict, nothing landed: '..relative)
         content=result.stdout
       end
     end
+    if eol then content=M.with_eol(content,eol) end
     plan[#plan+1]={relative=relative,live=live,content=content,live_before=current}
+    end
+    ::continue::
   end
   return plan
+end
+
+-- Writes a row into a tree: its content, or the removal of the file.
+local function apply(d,file,row)
+  if row.remove then if d.path.is_file(file) then assert(os.remove(file)) end return end
+  d.path.mkdir_p(d.path.parent(file))
+  d.path.write(file,row.content,true,true)
 end
 
 local function write(d,file,content)
@@ -165,15 +271,18 @@ function M.check(plan,need,d)
   local shadow=d.path.join(work,'shadow')
   if need.ubt then d.shadow.sync(shadow,{root=d.root,log=d.log}) end
   for _,row in ipairs(plan) do
-    write(d,d.path.join(tree,row.relative),row.content)
+    apply(d,d.path.join(tree,row.relative),row)
     local inside=row.relative:match('^omfue/(.+)$')
-    if need.ubt and inside then write(d,d.path.join(shadow,inside),row.content) end
+    if need.ubt and inside then apply(d,d.path.join(shadow,inside),row) end
   end
   local generated=need.ubt and d.path.join(shadow,'Plugins','OmRuntime','Source','OmGenerated')
     or d.path.join(work,'codegen-out')
   if need.codegen then
     run(d,'om_codegen over the candidate lua_data','cargo',{'run','--manifest-path',d.path.join(tree,'omfue','codegen','Cargo.toml'),
       '--','--content-root',d.path.join(tree,'scripts','lua_data'),'--out',generated},{env=env})
+    -- The Lua build steps read the same templates through content_builder (E159).
+    run(d,'Lua content loaders over the candidate lua_data',d.platform.lua_executable,
+      {d.path.join(tree,'scripts','lua_content_check.lua'),d.path.join(tree,'scripts','lua_data')},{cwd=tree})
   end
   if need.cargo then
     run(d,'cargo check base_content','cargo',{'check','--manifest-path',d.path.join(tree,'scripts','Cargo.toml'),
@@ -227,8 +336,34 @@ function M.run(options,deps)
       end
     end
     if ok then
-      for _,row in ipairs(plan) do write(d,row.live,row.content) end
-      report.landed=true
+      -- All or nothing on disk too (E187): a write another process blocks (EINVAL from a held file)
+      -- is retried once; if it still fails, every file already written gets its pre-landing content
+      -- back, so live is never left with half of a batch that only compiles as a whole.
+      local written={}
+      local applied,apply_err=pcall(function()
+        for _,row in ipairs(plan) do
+          local done,row_err=pcall(apply,d,row.live,row)
+          if not done then done,row_err=pcall(apply,d,row.live,row) end
+          if not done then error(row.relative..': '..tostring(row_err),0) end
+          written[#written+1]=row
+        end
+      end)
+      if applied then report.landed=true
+      else
+        local failed={}
+        for index=#written,1,-1 do
+          local row=written[index]
+          local restored,restore_err=pcall(function()
+            if row.live_before==nil then
+              if d.path.is_file(row.live) then assert(os.remove(row.live)) end
+            else write(d,row.live,row.live_before) end
+          end)
+          if not restored then failed[#failed+1]=row.relative..': '..tostring(restore_err) end
+        end
+        report.error='writing live failed, nothing landed ('..#written..' written file(s) restored): '..tostring(apply_err)
+          ..(#failed>0 and ('; RESTORE FAILED, live is inconsistent: '..table.concat(failed,'; ')) or '')
+        ok=false
+      end
     end
   end
   d.path.mkdir_p(d.path.join(d.root,'target','land'))
@@ -240,7 +375,7 @@ function M.run(options,deps)
 end
 
 function M.usage()
-  return 'Usage: tools/lua/lua.exe scripts/land_to_live.lua --change SRC=LIVE[@BASE] ... [--manifest FILE.json] [--checks auto|codegen,cargo,server,bridge,ubt] [--dry-run] [--ue-root PATH]'
+  return 'Usage: tools/lua/lua.exe scripts/land_to_live.lua --change SRC=LIVE[@BASE] ... (SRC - removes LIVE; needs BASE) [--manifest FILE.json] [--checks auto|codegen,cargo,server,bridge,ubt] [--dry-run] [--ue-root PATH]'
 end
 
 function M.main(argv,deps)

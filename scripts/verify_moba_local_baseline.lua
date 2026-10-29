@@ -13,6 +13,12 @@ assert(not path.exists(output) and not path.exists(run),'verification output/run
 -- Old launcher's session cleanup must not touch a different live run.
 assert(not path.exists(path.join(b.root,'target','interactive-runs','active-ue-session.json')),
   'another UE session record exists; preserve it and do not clean it implicitly')
+-- One performance measurement and one live match per machine (E197). The children run
+-- synchronously (no attached process), so the holder counts as held for the whole budget.
+local machine_lock=require('machine_lock')
+local performance <close> = machine_lock.acquire(b.root,'performance',{run=output,label='verify_moba_local_baseline',
+  grace_seconds=3*3600,wait_flag='(no wait option; rerun later)'})
+local live <close> = machine_lock.acquire(b.root,'live_match',{run=output,label='verify_moba_local_baseline',grace_seconds=3*3600})
 path.mkdir_p(output)
 local function command(label,exe,argv,environment)
   print('Final baseline: '..label);io.stdout:flush()

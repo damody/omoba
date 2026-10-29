@@ -9,14 +9,18 @@
 local lfs = require("lfs")
 local M = {}
 
--- Crates and the few files outside them that cargo tests include.
-M.TREES = { "scripts/script-abi", "scripts/base_content", "scripts/lua_data", "omoba-core", "omoba-sim",
+-- Crates and the few files outside them that cargo tests include or load at run time
+-- (E189: base_content tests run tools/lua on scripts/test_fixtures recipes; a tree without
+-- them fails those tests, which then look like flaky bot tests). The v3 conformance tests
+-- (E207) run docs/character_pipeline/tools/v3_scenarios.lua, which reads the package v3
+-- documents and scripts/_bootstrap.lua.
+M.TREES = { "scripts/script-abi", "scripts/base_content", "scripts/lua_data", "scripts/test_fixtures", "omoba-core", "omoba-sim",
   "omoba-template-ids", "omoba-content-model", "specs", "tools/lua", "proto", "omb/src", "omoba-netem-proxy",
-  "openspec/changes/simulate-client-rtt-delay/fixtures" }
+  "openspec/changes/simulate-client-rtt-delay/fixtures", "docs/character_pipeline/packages" }
 -- Tooling the shadow build runs (not code under test): always refreshed.
 M.REFRESH = { "docs/character_pipeline/tools" }
 M.FILES = { "scripts/Cargo.toml", "scripts/Cargo.lock", "scripts/gen_hero_registry.lua", "scripts/content_builder.lua",
-  "rust-toolchain.toml", "run_2player.bat", "scripts/compare_fog_evidence.lua", "scripts/stop_netem_proxy.lua" }
+  "rust-toolchain.toml", "run_2player.bat", "scripts/compare_fog_evidence.lua", "scripts/stop_netem_proxy.lua", "scripts/_bootstrap.lua" }
 local SKIP = { target = true, [".git"] = true, assets = true }
 
 local function mkdir_p(p)

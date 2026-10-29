@@ -52,6 +52,25 @@ impl TestWorld {
         handler.on_learn(self.handle(self.source),rank,&mut dynworld);
         drop(dynworld);adapter.finish()
     }
+    /// Runs any script hook as the caster and returns its outcomes.
+    pub fn with_world(&mut self,hook:impl FnOnce(EntityHandle,&mut omb_script_abi::world::GameWorldDyn<'_>))->Vec<Outcome> {
+        let cache=ParallelAdapterCache::new(&self.world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,self.source);
+        let mut dynworld=GameWorld_TO::from_ptr(RMut::new(&mut adapter),TD_Opaque);
+        hook(self.handle(self.source),&mut dynworld);
+        drop(dynworld);adapter.finish()
+    }
+    /// Stores the buff rows of `outcomes` (markers become visible to later hooks).
+    pub fn settle(&mut self,outcomes:Vec<Outcome>) {
+        let mut buffs=self.world.write_resource::<BuffStore>();
+        for o in outcomes {
+            match o {
+                Outcome::AddBuff {target,buff_id,duration,payload}=>buffs.add(target,&buff_id,duration,payload),
+                Outcome::ScriptRemoveBuff {target,buff_id}=>buffs.remove(target,&buff_id),
+                _=>{}
+            }
+        }
+    }
 }
 
 pub(crate) fn final_position(outcomes:&[Outcome])->Option<Vec2> {

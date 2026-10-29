@@ -8,6 +8,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 png = "0.17"
+# Original icons saved as JPEG (scripts/import_nobu_icons.lua); pure Rust, image-rs, pinned.
+jpeg-decoder = { version = "=0.3.2", default-features = false }
 toml = "0.9"
 
 [target.'cfg(windows)'.dependencies]

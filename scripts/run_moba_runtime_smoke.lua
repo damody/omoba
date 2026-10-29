@@ -47,7 +47,8 @@ end
 local game_file = path.join(evidence, 'server-game.toml')
 if first_learn_smoke then
   assert(not config:find('AUTHENTICATED_HERO_BINDINGS%s*='), 'fixture refuses to overwrite existing hero selections')
-  config = config:gsub('%[server%]', '[server]\nAUTHENTICATED_HERO_BINDINGS = { 1 = "training_apprentice", 2 = "training_apprentice" }',1)
+  -- Test-only fixture hero (born with unlearned slots): the server admits it only when told so.
+  config = config:gsub('%[server%]', '[server]\nMATCH_TEST_FIXTURE_HEROES = true\nAUTHENTICATED_HERO_BINDINGS = { 1 = "training_apprentice", 2 = "training_apprentice" }',1)
 end
 if roster_smoke then
   local count

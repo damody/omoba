@@ -16,6 +16,9 @@
 //! - `__aggregation_family: string` — 同一 family 的不同 source buff 對每個 stat
 //!   只採絕對值最強者；乘法 stat 採離 1.0 最遠者。Family 依名稱排序聚合，
 //!   保持 fixed-point 計算順序確定。
+//!   例外：`generic_ability_slow` 的 `move_speed_bonus` 照原作緩速規則
+//!   （dummy.lua:816-902）——同一來源名稱只算一筆，不同來源以 1−Π(1−sᵢ)
+//!   乘法疊加（見 [`combine_ability_slows`]）；同 family 的攻速常數減速仍取最強。
 
 use omb_script_abi::buff_ids::BuffId;
 use omb_script_abi::stat_keys::StatKey;
@@ -25,6 +28,33 @@ use specs::Entity;
 use std::collections::{BTreeMap, HashMap};
 
 const AGGREGATION_FAMILY_KEY: &str = "__aggregation_family";
+/// Ability slows (原作 `dummy.lua` `Slow`／`slow_self_passive`).
+pub const ABILITY_SLOW_FAMILY: &str = "generic_ability_slow";
+const ABILITY_MOVE_SLOW_KEY: &str = "move_speed_bonus";
+
+/// Source name of an ability slow: the ability of a `generic_slow:<ability>:..`
+/// key (原作 `target.ms_slow[keys.name]` 以技能名為鍵), else the buff id itself.
+fn ability_slow_source(name: &str) -> &str {
+    omb_script_abi::buff_ids::declarative_buff_source(name)
+        .filter(|(_, stat)| stat.is_none()).map_or(name, |(ability, _)| ability)
+}
+
+/// One move-speed slow of the ability-slow family. The same source name keeps
+/// one value (原作同名覆蓋; the strongest here, independent of HashMap order).
+fn note_ability_slow<'a>(slows: &mut BTreeMap<&'a str, i64>, name: &'a str, raw: i64) {
+    // A slow is a reduction in 0..=1; positive or malformed values do not slow.
+    let slow = raw.saturating_neg().clamp(0, 1024);
+    slows.entry(ability_slow_source(name)).and_modify(|old| *old = (*old).max(slow)).or_insert(slow);
+}
+
+/// 原作 `slow_self_passive`（dummy.lua:866-902）：不同來源的移速減速乘法疊加，
+/// total = 1 − Π(1 − sᵢ)。Returned as the raw (negative) `move_speed_bonus`.
+/// Sources fold in name order with truncating Q10 products, so every host
+/// computes the same value.
+pub fn combine_ability_slows(slows: &BTreeMap<&str, i64>) -> i64 {
+    let remaining = slows.values().fold(1024i128, |left, slow| left * i128::from(1024 - slow) / 1024);
+    -(1024 - remaining as i64)
+}
 
 /// Host-local item effect identity; consumers do not parse private source keys.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,7 +83,7 @@ impl ItemTimedModifier {
 /// 量化。一旦每個腳本編寫者都使用“.raw()”，我們就可以刪除它
 /// 分支（第 2 階段）。
 #[inline]
-fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed64 {
+pub(crate) fn read_fixed_from_payload(value: &serde_json::Value) -> Fixed64 {
     if let Some(i) = value.as_i64() {
         // PHASE 1de.2 鎖步正確形式：原始固定 64 整數。
         Fixed64::from_raw(i as i64)
@@ -249,6 +279,10 @@ impl BuffStore {
     /// 由 payload 的 `slow_factor` 欄位驅動「強蓋弱」比較（見上方 Reserved
     /// 負載約定）。
     pub fn add(&mut self, entity: Entity, buff_id: &str, duration: Fixed64, payload: Value) {
+        // A magic-immune unit keeps hostile debuffs out unless they pierce (magic_immunity, E179).
+        if crate::runtime::native::magic_immunity::blocks(self, entity, buff_id, &payload) { return; }
+        // Status / slow resistance of the target (damage_immunity::resist).
+        let (duration, payload) = crate::runtime::native::damage_immunity::resist(self, entity, buff_id, duration, payload);
         if payload.get(super::damage_zone::KEY).is_some() {
             let Some(spec)=super::damage_zone::DamageZoneSpec::from_payload(&payload)else{return;};
             // An independent lease requires immutable host provenance, not just JSON.
@@ -437,13 +471,21 @@ impl BuffStore {
         self.sum_add_key(entity, stat.as_str())
     }
 
+    /// 基礎攻擊間隔覆寫（`base_attack_time_constant`，原作 modifier 的 base_attack_time）：
+    /// 多個來源取最小的正值（與走訪順序無關）。
+    pub fn base_attack_time_override(&self, entity: Entity) -> Option<Fixed64> {
+        self.iter_for(entity).filter_map(|(_, entry)| entry.payload.get(StatKey::BaseAttackTimeConstant.as_str()).and_then(Value::as_i64))
+            .filter(|raw| *raw > 0).min().map(Fixed64::from_raw)
+    }
+
     /// Checked aggregation for resource accounting. Preserve family strongest
     /// selection, but sum raw values in i128 so HashMap order cannot overflow.
     /// Invalid values or an unrepresentable final sum fail closed.
     pub fn checked_sum_add(&self, entity: Entity, stat: StatKey) -> Option<Fixed64> {
         let mut total=0i128;
         let mut families:BTreeMap<&str,i64>=BTreeMap::new();
-        for (_,entry) in self.iter_for(entity) {
+        let mut ability_slows:BTreeMap<&str,i64>=BTreeMap::new();
+        for (name,entry) in self.iter_for(entity) {
             let Some(value)=entry.payload.get(stat.as_str()) else {continue;};
             let raw=if let Some(raw)=value.as_i64() {raw} else {
                 let scaled=value.as_f64()?*1024.0;
@@ -451,7 +493,11 @@ impl BuffStore {
                 if !scaled.is_finite() || scaled< i64::MIN as f64 || scaled>=9223372036854775808.0 {return None;}
                 scaled as i64
             };
-            if let Some(family)=entry.payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str) {
+            let family=entry.payload.get(AGGREGATION_FAMILY_KEY).and_then(Value::as_str);
+            if family==Some(ABILITY_SLOW_FAMILY) && stat.as_str()==ABILITY_MOVE_SLOW_KEY {
+                note_ability_slow(&mut ability_slows,name,raw);continue;
+            }
+            if let Some(family)=family {
                 families.entry(family).and_modify(|current| {
                     if raw.unsigned_abs()>current.unsigned_abs()
                         || (raw.unsigned_abs()==current.unsigned_abs() && raw>*current) {*current=raw;}
@@ -459,13 +505,15 @@ impl BuffStore {
             } else {total=total.checked_add(i128::from(raw))?;}
         }
         for raw in families.into_values() {total=total.checked_add(i128::from(raw))?;}
+        total=total.checked_add(i128::from(combine_ability_slows(&ability_slows)))?;
         Some(Fixed64::from_raw(i64::try_from(total).ok()?))
     }
 
     fn sum_add_key(&self, entity: Entity, key: &str) -> Fixed64 {
         let mut total = Fixed64::ZERO;
         let mut family_values: BTreeMap<&str, Fixed64> = BTreeMap::new();
-        for (_, entry) in self.iter_for(entity) {
+        let mut ability_slows: BTreeMap<&str, i64> = BTreeMap::new();
+        for (name, entry) in self.iter_for(entity) {
             let Some(value) = entry.payload.get(key) else {
                 continue;
             };
@@ -478,6 +526,10 @@ impl BuffStore {
                 total += value;
                 continue;
             };
+            if family == ABILITY_SLOW_FAMILY && key == ABILITY_MOVE_SLOW_KEY {
+                note_ability_slow(&mut ability_slows, name, value.raw());
+                continue;
+            }
             family_values
                 .entry(family)
                 .and_modify(|current| {
@@ -492,6 +544,7 @@ impl BuffStore {
         family_values
             .into_values()
             .fold(total, |acc, value| acc + value)
+            + Fixed64::from_raw(combine_ability_slows(&ability_slows))
     }
 
     pub fn move_speed_sums(&self, entity: Entity) -> MoveSpeedSums {
@@ -611,6 +664,11 @@ impl BuffStore {
         for id in [BuffId::Stun, BuffId::Root, BuffId::Silence] {
             self.remove(entity, id.as_str());
         }
+        self.cleanse_slows(entity);
+    }
+
+    /// Removes the entity's cleanseable movement slows only.
+    pub fn cleanse_slows(&mut self, entity: Entity) {
         let mut slows:Vec<_>=self.buffs.get(&entity).into_iter().flat_map(|rows|rows.iter())
             .filter(|(name,entry)|Self::cleanseable_slow(name,entry)).map(|(name,_)|name.clone()).collect();
         slows.sort();for id in slows{self.remove(entity,&id);}
@@ -634,6 +692,17 @@ impl BuffStore {
                 let entry=entries.get_mut(&key).unwrap();
                 let Some(spec)=PeriodicDamageSpec::from_payload(&entry.payload) else {continue;};
                 let elapsed=dt.min(entry.remaining).max(Fixed64::ZERO);
+                if let (Some(interval),Some(pulse))=(spec.interval,spec.pulse_amount()) {
+                    // Discrete ticks: the remainder is this buff's raw clock since its last
+                    // pulse; a pulse lands at every full interval, including one that ends
+                    // exactly at expiry (integrated before `tick` retires the entry).
+                    let clock=i128::from(entry.periodic_remainder)+i128::from(elapsed.raw());
+                    let pulses=clock/i128::from(interval.raw());
+                    entry.periodic_remainder=(clock%i128::from(interval.raw())) as i64;
+                    let Ok(raw)=i64::try_from(i128::from(pulse.raw())*pulses) else {continue;};
+                    if raw>0 {result.push(PeriodicDamageTick{target,spec,amount:Fixed64::from_raw(raw)});}
+                    continue;
+                }
                 let numerator=i128::from(spec.rate.raw())*i128::from(elapsed.raw())+i128::from(entry.periodic_remainder);
                 let Ok(raw)=i64::try_from(numerator/1024) else {continue;};
                 entry.periodic_remainder=(numerator%1024) as i64;
@@ -1156,6 +1225,48 @@ mod tests {
             s.product_mult(e, StatKey::AttackSpeedMultiplier),
             Fixed64::from_raw(1280)
         );
+    }
+
+    /// 原作 dummy.lua:866-902：不同名稱的技能緩速 1−Π(1−sᵢ)；同名只算一筆；
+    /// 攻速常數減速只取最強。Insertion order never changes the result.
+    #[test]
+    fn ability_slows_stack_multiplicatively_per_source_name_like_the_source() {
+        let slow = |raw: i64| json!({"move_speed_bonus": raw, "__aggregation_family": ABILITY_SLOW_FAMILY});
+        let rows = [
+            ("generic_slow:alpha:1:1", slow(-307)),
+            ("generic_slow:beta:2:1", slow(-205)),
+            // Same source name from another caster: one entry, the strongest.
+            ("generic_slow:alpha:3:1", slow(-256)),
+            ("generic_slow:gamma:4:1", json!({(StatKey::AttackSpeedBonusConstant.as_str()): -30 * 1024, "__aggregation_family": ABILITY_SLOW_FAMILY})),
+            ("generic_slow:delta:5:1", json!({(StatKey::AttackSpeedBonusConstant.as_str()): -50 * 1024, "__aggregation_family": ABILITY_SLOW_FAMILY})),
+            ("boots", json!({"move_speed_bonus": 100})),
+        ];
+        let mut results = Vec::new();
+        for reversed in [false, true] {
+            let mut s = BuffStore::new();
+            let e = ent(1, 1);
+            let order: Vec<_> = if reversed { rows.iter().rev().collect() } else { rows.iter().collect() };
+            for (id, payload) in order { s.add(e, id, fx(5.0), payload.clone()); }
+            // 1024·(1024−307)/1024 = 717; 717·(1024−205)/1024 = 573 → slow 451; boots stay additive.
+            assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-451 + 100));
+            assert_eq!(s.move_speed_sums(e).percentage, Fixed64::from_raw(-451 + 100));
+            assert_eq!(s.checked_sum_add(e, StatKey::MoveSpeedBonus), Some(Fixed64::from_raw(-451 + 100)));
+            assert_eq!(s.sum_add(e, StatKey::AttackSpeedBonusConstant), Fixed64::from_i32(-50), "attack slow: strongest only");
+            results.push(s.sum_add(e, StatKey::MoveSpeedBonus));
+            // A full slow stops the unit no matter what else stacks; expiry restores the product.
+            s.add(e, "generic_slow:omega:6:1", fx(1.0), slow(-1024));
+            assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-1024 + 100));
+            s.tick(fx(1.0));
+            assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-451 + 100));
+        }
+        assert_eq!(results[0], results[1]);
+        assert_eq!(combine_ability_slows(&BTreeMap::new()), 0);
+        // Positive or out-of-range members cannot speed up or over-slow.
+        let mut s = BuffStore::new();
+        let e = ent(2, 1);
+        s.add(e, "generic_slow:up:1:1", fx(5.0), slow(512));
+        s.add(e, "generic_slow:over:1:1", fx(5.0), slow(-4096));
+        assert_eq!(s.sum_add(e, StatKey::MoveSpeedBonus), Fixed64::from_raw(-1024));
     }
 }
 

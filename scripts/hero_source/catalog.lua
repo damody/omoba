@@ -10,15 +10,22 @@ local M = {}
 
 M.SCHEMA = "omoba.hero_source_catalog/1"
 M.FACTIONS = { { dir = "A_Oda", prefix = "A" }, { dir = "B_Unified", prefix = "B" }, { dir = "C_Neutral", prefix = "C" } }
-M.TOOLTIP_FILE = "addon_tchinese2.txt"
-M.NAME_FILE = "langtext.lua"
+-- history_nobu layout (E169): the Dota addon lives under ADDON; every catalog path is relative
+-- to the checkout root, so verify re-reads the same files. Tooltips are UTF-16LE (hero_source.text).
+M.ADDON = "game/dota_addons/nobu"
+M.NPC_DIR = M.ADDON .. "/scripts/npc"
+M.VSCRIPTS_DIR = M.ADDON .. "/scripts/vscripts"
+M.TOOLTIP_FILE = M.ADDON .. "/resource/addon_tchinese.txt"
+-- Hero names: the `_G.hero_name_zh = { A01 = "...", ... }` table, read as text, never executed.
+M.NAME_FILE = M.VSCRIPTS_DIR .. "/addon_game_mode.lua"
+-- Selectable heroes (by their override_hero class) and the hero unit defaults.
+M.HEROLIST_FILE = M.NPC_DIR .. "/herolist.txt"
+M.HERO_DEFAULTS_FILE = M.NPC_DIR .. "/npc_heroes_override.txt"
+local text = require("hero_source.text")
 local SLOTS = { W = true, E = true, R = true, T = true, D = true, F = true }
 
 local function read_file(file)
-  local f = assert(io.open(file, "rb"))
-  local text = f:read("a")
-  f:close()
-  return text
+  return text.read(file)
 end
 
 local function sorted_dir(dir)
@@ -147,20 +154,29 @@ end
 
 -- zh-TW names from langtext.lua, read as text. A line commented out with `--`
 -- marks a hero the source website did not list.
-local function parse_names(text)
-  local names, block = {}, nil
+local function parse_names(source_text)
+  local names, inside = {}, false
   local line_no = 0
-  for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+  for line in (source_text .. "\n"):gmatch("([^\n]*)\n") do
     line_no = line_no + 1
-    local b = line:match("^(%w+_heroname) = {")
-    if b then block = b
-    elseif line:match("^}") then block = nil
-    elseif block == "zhtw_heroname" then
-      local commented, id, name = line:match('^%s*(%-?%-?)%s*([ABC]%d%d) = "(.-)",?')
-      if id then names[id] = { name = name, listed = commented == "", line = line_no, raw = line:gsub("\r$", "") } end
+    if line:match("^_G%.hero_name_zh = {") then inside = true
+    elseif inside and line:match("^}") then inside = false
+    elseif inside then
+      local id, name = line:match('^%s*([ABC]%d%d) = "(.-)",?')
+      if id and not names[id] then names[id] = { name = name, line = line_no, raw = line:gsub("\r$", "") } end
     end
   end
   return names
+end
+
+-- herolist.txt: hero classes enabled for selection ("npc_dota_hero_x" "1", not commented out).
+local function parse_herolist(source_text)
+  local listed = {}
+  for line in (source_text .. "\n"):gmatch("([^\n]*)\n") do
+    local class, flag = line:match('^%s*"(npc_dota_hero_[%w_]+)"%s*"(%-?%d+)"')
+    if class and flag == "1" then listed[class] = true end
+  end
+  return listed
 end
 
 local function tooltip_index(doc)
@@ -230,18 +246,31 @@ function M.build(options)
   local tooltip_text = read_file(source .. "/" .. M.TOOLTIP_FILE)
   local tooltip_doc = kv.parse(tooltip_text)
   local tokens, dup_tokens = tooltip_index(tooltip_doc)
-  catalog.files[#catalog.files + 1] = { path = M.TOOLTIP_FILE, role = "tooltips_zhtw", sha256 = sha256(tooltip_text),
-    bytes = #tooltip_text, bom = tooltip_doc.bom, duplicate_tokens = dup_tokens, diagnostics = #tooltip_doc.diagnostics }
+  local tooltip_raw = text.read_raw(source .. "/" .. M.TOOLTIP_FILE)
+  catalog.files[#catalog.files + 1] = { path = M.TOOLTIP_FILE, role = "tooltips_zhtw", sha256 = sha256(tooltip_raw),
+    bytes = #tooltip_raw, encoding = tooltip_raw:sub(1, 2) == "\255\254" and "utf-16le" or "utf-8", bom = tooltip_doc.bom, duplicate_tokens = dup_tokens, diagnostics = #tooltip_doc.diagnostics }
   for _, d in ipairs(tooltip_doc.diagnostics) do d.path = M.TOOLTIP_FILE; diag(d) end
   local name_text = read_file(source .. "/" .. M.NAME_FILE)
   local names = parse_names(name_text)
   catalog.files[#catalog.files + 1] = { path = M.NAME_FILE, role = "hero_names_text_only", sha256 = sha256(name_text),
     bytes = #name_text, executed = false }
+  local herolist_text = read_file(source .. "/" .. M.HEROLIST_FILE)
+  local herolist = parse_herolist(herolist_text)
+  catalog.files[#catalog.files + 1] = { path = M.HEROLIST_FILE, role = "hero_selection_list", sha256 = sha256(herolist_text),
+    bytes = #herolist_text }
+  -- Unit fields a hero's X_2.txt omits fall back to npc_dota_hero_base (Dota inheritance).
+  local defaults_text = read_file(source .. "/" .. M.HERO_DEFAULTS_FILE)
+  local defaults_doc = kv.parse(defaults_text)
+  local defaults_root = defaults_doc.nodes[1]
+  local hero_base = defaults_root and kv.find(defaults_root.children, "npc_dota_hero_base")
+  catalog.hero_unit_defaults = hero_base and scalar_fields(hero_base.children) or {}
+  catalog.files[#catalog.files + 1] = { path = M.HERO_DEFAULTS_FILE, role = "hero_unit_defaults", sha256 = sha256(defaults_text),
+    bytes = #defaults_text }
 
   local heroes_by_id = {}
   local ability_ids = {}
   for _, faction in ipairs(M.FACTIONS) do
-    local rel_dir = "npc/" .. faction.dir
+    local rel_dir = M.NPC_DIR .. "/" .. faction.dir
     for _, name in ipairs(sorted_dir(source .. "/" .. rel_dir)) do
       local rel = rel_dir .. "/" .. name
       local hero_id, suffix = name:match("^([ABC]%d%d)(.-)%.txt$")
@@ -323,7 +352,7 @@ function M.build(options)
             entry.script_refs = script_refs
             local missing_script = false
             for _, r in ipairs(script_refs) do
-              local candidates = { source .. "/" .. r.file, source .. "/scripts/vscripts/" .. r.file }
+              local candidates = { source .. "/" .. M.VSCRIPTS_DIR .. "/" .. r.file, source .. "/" .. M.ADDON .. "/" .. r.file }
               r.present_in_source = false
               for _, c in ipairs(candidates) do
                 if lfs.attributes(c, "mode") == "file" then r.present_in_source = true end
@@ -379,7 +408,7 @@ function M.build(options)
     local hero = heroes_by_id[id]
     local nm = names[id]
     hero.name_zhtw = nm and nm.name or nil
-    hero.listed_on_site = nm and nm.listed or false
+    hero.listed_on_site = hero.override_hero ~= nil and herolist[hero.override_hero] == true
     hero.name_source = nm and { path = M.NAME_FILE, line = nm.line, raw = nm.raw } or nil
     hero.has_main_file = hero.main_file ~= nil
     for _, entry in ipairs(hero.ability_list or {}) do
@@ -453,7 +482,7 @@ function M.verify(catalog, source)
     end
   end
   for _, f in ipairs(catalog.files) do
-    if sha256(text_of(f.path)) ~= f.sha256 then problems[#problems + 1] = "file hash differs: " .. f.path end
+    if sha256(text.read_raw(source .. "/" .. f.path)) ~= f.sha256 then problems[#problems + 1] = "file hash differs: " .. f.path end
   end
   for _, a in ipairs(catalog.abilities) do
     check(a.id, a.path, a)

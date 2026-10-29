@@ -21,7 +21,8 @@ function M.options(args)
     ['--host-simulations']='host_simulations',['--host-renderers']='host_renderers',
     ['--autopilot']='autopilot',['--packaged-game']='packaged_game',['--resolution']='resolution',['--frame-cap']='frame_cap',
     ['--accepted-inputs']='accepted_inputs',['--autopilot-shot-interval']='autopilot_shot_interval',['--base-content']='base_content',['--spotlight-script']='spotlight_script',
-    ['--round-time-box-seconds']='round_time_box_seconds',['--managed-rounds']='managed_rounds',['--managed-final-round-seconds']='managed_final_round_seconds'}
+    ['--round-time-box-seconds']='round_time_box_seconds',['--managed-rounds']='managed_rounds',['--managed-final-round-seconds']='managed_final_round_seconds',
+    ['--wait-live-lock']='wait_live_lock'}
   local i=1
   while i<=#args do
     local key=args[i]
@@ -72,6 +73,8 @@ function M.options(args)
     assert(not options.prepare_only, 'finish observation cannot be prepare-only')
     options.finish_timeout_seconds = seconds
   end
+  -- One live match per machine (E197): how long a launch waits for another one to end.
+  options.wait_live_lock=require('machine_lock').wait_seconds(options.wait_live_lock)
   if options.round_time_box_seconds then
     -- Live-check time box: an unfinished round is INCONCLUSIVE and retires, never an unbounded wait.
     local raw=options.round_time_box_seconds
@@ -170,6 +173,15 @@ function M.select_heroes(value,selections)
     assert(player.bot==false,'hero selection requires a declared human: '..id)
     player.hero=hero
   end
+  -- One hero per team: humans may not share one (a clashing bot is moved by the server).
+  local humans={}
+  for _,player in ipairs(selected.players) do
+    if player.bot==false then
+      local key=tostring(player.team_id)..':'..tostring(player.hero)
+      assert(not humans[key],'hero '..tostring(player.hero)..' is picked twice on team '..tostring(player.team_id))
+      humans[key]=true
+    end
+  end
   return selected
 end
 
@@ -248,6 +260,69 @@ function M.load_recipe(options)
   return M.select_heroes(value,options.hero_selections)
 end
 
+-- The final plan of a selection, checked by the rules rather than by which seats changed (E210):
+-- * the host's rules and summoner loadouts are the baseline's, and so are every seat's identity,
+--   team, controller, lane and role; only heroes may differ;
+-- * every seat has a hero, no team repeats one, and a hero the reply's catalog does not offer is refused;
+-- * every human has the hero of their own locked seat (when the reply carries seats);
+-- * a bot keeps its hero unless a human teammate took it (E164: the service moves that bot to another
+--   hero); any other bot change is a host-rule change.
+-- opts: seats = the selection's seats, hero_catalog = the reply's hero_catalog (both optional).
+function M.assert_final_roster(baseline,final,opts)
+  opts=opts or {}
+  -- one prefix for every roster rule, so logs and callers recognise a host-rule refusal
+  local function assert(ok,why) if not ok then error('selection changed host-owned rules or roster: '..why,2) end return ok end
+  local function without_players(plan)
+    local copy=M.omit_empty_summoner_loadouts(plan)
+    copy.players=nil
+    return json.encode(copy)
+  end
+  assert(without_players(final)==without_players(baseline),'selection changed host-owned match rules')
+  assert(type(final.players)=='table' and #final.players==#baseline.players,'selection roster size changed')
+  local offered
+  if type(opts.hero_catalog)=='table' then
+    offered={}
+    for _,row in ipairs(opts.hero_catalog) do if type(row)=='table' and type(row.hero)=='string' then offered[row.hero]=true end end
+  end
+  local before,after,teams={},{},{}
+  for _,p in ipairs(baseline.players) do before[p.player_id]=p end
+  for _,p in ipairs(final.players) do
+    local original=assert(before[p.player_id],'selection added a player')
+    assert(not after[p.player_id],'selection duplicated a player')
+    after[p.player_id]=p
+    local seat,expected=json.decode(json.encode(p)),json.decode(json.encode(original))
+    seat.hero,expected.hero=nil,nil
+    assert(json.encode(seat)==json.encode(expected),'selection changed seat '..tostring(p.player_id)..' beyond its hero')
+    assert(type(p.hero)=='string' and p.hero:match('^[%w_]+$'),'seat '..tostring(p.player_id)..' has no valid hero')
+    assert(not offered or offered[p.hero] or p.hero==original.hero,'hero '..p.hero..' is not offered by the selection catalog')
+    local key=tostring(p.team_id)..':'..p.hero
+    assert(not teams[key],'hero '..p.hero..' is picked twice on team '..tostring(p.team_id))
+    teams[key]=p
+  end
+  for id,p in pairs(after) do
+    local original=before[id]
+    if original.bot~=false and p.hero~=original.hero then
+      local taker=teams[tostring(p.team_id)..':'..original.hero]
+      assert(taker and taker.bot==false,'selection moved bot '..tostring(id)..' without a human taking its hero')
+    end
+  end
+  if opts.seats~=nil then
+    assert(type(opts.seats)=='table','selection seats must be a list')
+    local locked={}
+    for _,seat in ipairs(opts.seats) do
+      assert(type(seat)=='table' and type(seat.player)=='table','selection has a malformed seat')
+      locked[seat.player.player_id]=seat
+    end
+    for id,p in pairs(after) do
+      if before[id].bot==false then
+        local seat=assert(locked[id],'human '..tostring(id)..' has no selection seat')
+        assert(seat.locked==true and seat.player.hero==p.hero,'human '..tostring(id)..' did not lock this hero')
+      end
+    end
+  end
+  return final
+end
+
 function M.selection_result(reply,baseline,player_id,hash)
   assert(reply.protocol_version==1 and reply.admitted_player_id==player_id,
     'selection protocol or bound identity mismatch')
@@ -260,11 +335,7 @@ function M.selection_result(reply,baseline,player_id,hash)
   local hero
   for _,p in ipairs(final.players or {}) do if p.player_id==player_id then hero=p.hero end end
   assert(hero,'selected human missing from final plan')
-  local expected=M.omit_empty_summoner_loadouts(M.select_heroes(baseline,{[player_id]=hero}))
-  local actual=M.omit_empty_summoner_loadouts(final)
-  table.sort(expected.players,function(a,b) return a.player_id<b.player_id end)
-  table.sort(actual.players,function(a,b) return a.player_id<b.player_id end)
-  assert(json.encode(actual)==json.encode(expected),'selection changed host-owned match rules or roster')
+  M.assert_final_roster(baseline,final,{seats=reply.selection.seats,hero_catalog=reply.hero_catalog})
   return final
 end
 
@@ -691,7 +762,9 @@ function M.runtime_ready(text,client)
   return text:find(('client-runtime ready player_id=%d team_id=%d '):format(client.player_id,client.team_id),1,true)~=nil
 end
 
-function M.launch(plan,editor,process,time)
+-- LOCK (optional): the machine live-match lock (machine_lock.lua, E197); every process
+-- started here is attached, so the lock stays held exactly while one of them runs.
+function M.launch(plan,editor,process,time,lock)
   local dedicated=plan.mode=='dedicated-server'
   assert(plan.mode=='host' or plan.mode=='remote-client' or dedicated,'unknown launch mode')
   if dedicated then
@@ -711,6 +784,7 @@ function M.launch(plan,editor,process,time)
     record.label=label
     owned[#owned+1]=record
     path.write(path.join(plan.output,'owned-processes.json'),json.encode(owned),true)
+    if lock then lock:attach(record,label) end
   end
   local function spawn(label,spec)
     assert(path.is_file(spec.exe),'missing executable: '..spec.exe)

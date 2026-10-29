@@ -73,6 +73,17 @@ function M.options(values, args)
   return options
 end
 
+-- E187: a failed match names its own reason (objective stall, execution budget, crash) instead of
+-- only the exit code, so a stalled match is not read as a bad batch option.
+function M.match_failure(ordinal, seed, exit_code, report, report_file)
+  local reason = 'no report written'
+  if type(report) == 'table' then
+    reason = tostring(report.failure_kind or 'failed') .. ': ' .. tostring(report.error or 'no error text')
+  end
+  return ('match %d (seed %d) failed with exit code %s: %s; report: %s'):format(
+    ordinal, seed, tostring(exit_code), reason, tostring(report_file))
+end
+
 function M.verify(report, seed, budget)
   budget = budget or {max_game_seconds=M.DEFAULT_MAX_GAME_SECONDS, stall_game_seconds=M.DEFAULT_STALL_GAME_SECONDS}
   assert(report.success == true and report.profile_hz == 60, 'match did not pass at 60Hz')

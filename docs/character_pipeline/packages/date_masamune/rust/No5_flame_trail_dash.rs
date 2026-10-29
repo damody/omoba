@@ -32,16 +32,16 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<FlameTrail,&'static str> {
             .copied().ok_or("missing flame trail extra")?;
         fixed(f64::from(value.to_f32_for_render()),min,max)
     };
-    let max_targets=read("projectile_max_targets",1.0,host::MAX_LIVE_PER_SOURCE as f64)?;
+    let max_targets=read("max_targets",1.0,host::MAX_LIVE_PER_SOURCE as f64)?;
     if max_targets.raw()%1024!=0 {return Err("flame trail target cap must be whole");}
     let spec=FlameTrail {
         range:fixed(f64::from(data.range),1.0/1024.0,10_000.0)?,
-        trigger_radius:read("dash_trigger_radius",1.0/1024.0,2_500.0)?,
-        speed:read("projectile_speed",1.0,20_000.0)?,
-        radius:read("projectile_radius",0.0,1_000.0)?,
-        lifetime:read("projectile_lifetime",1.0/1024.0,30.0)?,
+        trigger_radius:read("trigger_radius",1.0/1024.0,2_500.0)?,
+        speed:read("fire_speed",1.0,20_000.0)?,
+        radius:read("fire_radius",0.0,1_000.0)?,
+        lifetime:read("fire_lifetime",1.0/1024.0,30.0)?,
         max_targets:(max_targets.raw()/1024) as usize,
-        damage:read("damage_amount",0.0,1_000_000.0)?,
+        damage:read("damage",0.0,1_000_000.0)?,
         // Authored per ability when the package declares it; the shared dash speed otherwise.
         dash_speed:match read("dash_speed",1.0,20_000.0) {Ok(speed)=>speed,Err("missing flame trail extra")=>crate::swept_dash::DASH_SPEED,Err(e)=>return Err(e)},
     };
@@ -55,7 +55,7 @@ fn envelope(caster:EntityHandle,victim:EntityHandle,spec:&FlameTrail)->host::Spe
         motion:host::Motion::Homing {target_id:victim.id,target_generation:victim.gen},
         speed:spec.speed,radius:spec.radius,distance:Fixed64::ZERO,lifetime:spec.lifetime,max_hits:1,
         wall:host::WallPolicy::Pass,target_lost:host::TargetLostPolicy::Expire,caster_death:host::CasterDeathPolicy::Continue,
-        amount:spec.damage,kind:DamageKind::Magical,profile:DamageProfile::FIRE.bits(),slow:None,control:None,dot:None,buildings:false,forced:None,
+        amount:spec.damage,kind:DamageKind::Magical,profile:DamageProfile::FIRE.union(DamageProfile::SPELL).bits(),slow:None,control:None,dot:None,buildings:false,forced:None,
     }
 }
 
@@ -76,10 +76,13 @@ pub(crate) fn execute_filtered(world:&mut GameWorldDyn<'_>,caster:EntityHandle,t
     for victim in &victims {
         let row=envelope(caster,*victim,&spec);
         if !row.valid() {return Err("invalid flame trail projectile envelope");}
-        envelopes.push(row.payload().to_string());
+        // Source B04.lua:63 bDodgeable = true.
+        envelopes.push(host::with_dodgeable(row.payload()).to_string());
     }
     let motion=crate::swept_dash::motion_packet(caster,&plan,spec.dash_speed)?;
     // Every admission check precedes the first mutation.
+    // Source B04.lua:4: B04W_Start opens with ProjectileManager:ProjectileDodge(caster).
+    world.add_stat_buff(caster,host::DODGE_BUFF.into(),Fixed64::ONE,host::dodge_payload(caster.id,caster.gen).to_string().as_str().into());
     crate::swept_dash::commit_motion(world,caster,motion);
     for payload in &envelopes {world.add_stat_buff(caster,host::BUFF.into(),spec.lifetime,payload.as_str().into());}
     Ok(envelopes.len())
@@ -108,10 +111,10 @@ impl AbilityScript for FlameTrailDashHandler {
 }
 
 pub fn b04_flame_trail_dash_ffi()->AbilityDefFFI {
-    let radius=extra_at_id_f32(ID,"dash_trigger_radius",1);
-    let effects=vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"projectile_speed",1),on_hit:vec![EffectSpec::Damage {
+    let radius=extra_at_id_f32(ID,"trigger_radius",1);
+    let effects=vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"fire_speed",1),on_hit:vec![EffectSpec::Damage {
         target:TargetSelector::Custom(format!("enemies_near_committed_dash(radius={radius})")),
-        amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical}]}];
+        amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical}]}];
     build_ability_ffi(ID,FlameTrailDashHandler,effects)
 }
 
@@ -146,7 +149,7 @@ mod tests {
                 if *target==t.source && buff_id==omoba_core::runtime::native::forced_motion::BUFF=>Some((*duration,
                     omoba_core::runtime::native::forced_motion::Spec::from_payload(buff_id,*duration,payload).unwrap())),_=>None}).expect("dash motion");
             assert_eq!(dash.1.mode,omoba_core::runtime::native::forced_motion::Mode::Dash);
-            // The package authors the source speed (3000); content carries it as dash_speed.
+            // The package authors the source speed (v3.lua dash_speed); content carries it as dash_speed.
             let speed=crate::ability_builder::extra_at_id(ID,"dash_speed",rank);
             assert_eq!(speed,Fixed64::from_i32(3000),"rank {rank}: authored dash speed");
             assert_eq!(dash.0,Fixed64::from_i32(distance)/speed,"rank {rank}: travel time at the authored dash speed");
@@ -167,20 +170,26 @@ mod tests {
         let payload=outcomes.iter().find_map(|o|match o {Outcome::AddBuff {buff_id,payload,duration,..} if buff_id==host::BUFF=>Some((payload.clone(),*duration)),_=>None}).unwrap();
         let spec=host::Spec::from_payload(host::BUFF,payload.1,&payload.0).unwrap();
         assert!(spec.valid());
+        // B04.lua:63 bDodgeable; B04.lua:4 the cast dodges projectiles tracking the caster.
+        assert!(host::dodgeable_of(&payload.0));
+        assert!(outcomes.iter().any(|o|matches!(o,Outcome::AddBuff {target,buff_id,payload,..} if *target==t.source
+            && buff_id==host::DODGE_BUFF && *payload==host::dodge_payload(t.handle(t.source).id,t.handle(t.source).gen))));
         assert_eq!(spec.motion,host::Motion::Homing {target_id:t.handle(victim).id,target_generation:t.handle(victim).gen});
-        assert_eq!((spec.speed,spec.radius,spec.lifetime),(Fixed64::from_i32(1200),Fixed64::from_i32(16),Fixed64::from_i32(3)));
+        assert_eq!((spec.speed,spec.radius,spec.lifetime),(Fixed64::from_i32(1500),Fixed64::from_i32(16),Fixed64::from_i32(10)),"B04.lua:65 speed x 0.5; lifetime is an engine bound");
         assert_eq!((spec.target_lost,spec.caster_death,spec.max_hits),(host::TargetLostPolicy::Expire,host::CasterDeathPolicy::Continue,1));
         assert_eq!(spec.kind,DamageKind::Magical);assert_eq!(spec.ability,"b04_flame_trail_dash");
     }
 
     #[test]
-    fn at_most_eight_targets_in_path_contact_order() {
+    fn at_most_the_host_per_source_cap_in_path_contact_order() {
         let mut t=TestWorld::new();
-        // Created far-to-near so identity order differs from path order.
-        let bodies:Vec<_>=(0..10).rev().map(|i|t.body(p(100+i*80,0),2)).collect();
+        // Created far-to-near so identity order differs from path order. The source has
+        // no cap; the host keeps at most MAX_LIVE_PER_SOURCE (32) live projectiles.
+        let bodies:Vec<_>=(0..34).rev().map(|i|t.body(p(100+i*30,0),2)).collect();
         let outcomes=t.cast(&FlameTrailDashHandler,Target::Point(p(1200,0)),4,&rank_json(4)).unwrap();
         let order:Vec<u32>=launches(&outcomes).into_iter().map(|(id,_)|id).collect();
-        let expected:Vec<u32>=bodies.iter().rev().take(8).map(|e|t.handle(*e).id).collect();
+        let expected:Vec<u32>=bodies.iter().rev().take(host::MAX_LIVE_PER_SOURCE).map(|e|t.handle(*e).id).collect();
+        assert_eq!(expected.len(),32);
         assert_eq!(order,expected);
     }
 

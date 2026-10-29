@@ -4,25 +4,88 @@ local M={}
 -- Shared fallback for heroes without authored art (generated heroes start here);
 -- replacing it with authored art is an Editor-only manifest/art change.
 M.PLACEHOLDER_FILE='hero-placeholder-v1.png'
-function M.placeholder_entries(heroes,manifest)
+-- Original nobu art (scripts/import_nobu_icons.lua): own files nobu-<kind>-<id>.png listed in
+-- nobu-icons-v1.json. It stands in where no art was assigned by hand (authored rows always win)
+-- and replaces the shared placeholder; rows marked source='nobu' are derived like placeholders.
+M.NOBU_INDEX='nobu-icons-v1.json'
+local NOBU_KIND={hero='portrait',ability='ability',item='item'}
+function M.nobu_file(kind,id)return 'nobu-'..(kind=='portrait'and'hero'or kind)..'-'..id..'.png' end
+-- index table -> {portrait={[id]=file}, ability={[id]=file}}; nil index -> empty
+function M.nobu_files(index)
+ local out={portrait={},ability={},item={}}
+ if not index then return out end
+ assert(index.schema=='omoba.nobu-icons.v1'and type(index.entries)=='table','invalid nobu icon index')
+ for _,row in ipairs(index.entries)do
+  local kind=NOBU_KIND[row.kind]
+  if kind and row.status=='original'then
+   assert(row.file==M.nobu_file(kind,row.id),'nobu icon file does not match its id: '..tostring(row.id))
+   out[kind][row.id]=row.file
+  end
+ end
+ return out
+end
+local function derived_row(kind,id,name,file,nobu_file)
+ if nobu_file then return {kind=kind,id=id,displayName=name,file=nobu_file,columns=1,rows=1,tile=0,source='nobu'}end
+ return {kind=kind,id=id,displayName=name,file=file,columns=1,rows=1,tile=0,placeholder=true}
+end
+function M.placeholder_entries(heroes,manifest,nobu)
  local present,added={},{}
+ local files=nobu and nobu.portrait or{}
  for _,row in ipairs(manifest.entries)do if row.kind=='portrait'then present[row.id]=true end end
  for _,hero in ipairs(heroes)do
   if not present[hero.id]then
-   local row={kind='portrait',id=hero.id,displayName=hero.display_name,file=M.PLACEHOLDER_FILE,
-    columns=1,rows=1,tile=0,placeholder=true}
-   manifest.entries[#manifest.entries+1]=row;added[#added+1]=hero.id;present[hero.id]=true
+   manifest.entries[#manifest.entries+1]=derived_row('portrait',hero.id,hero.display_name,M.PLACEHOLDER_FILE,files[hero.id])
+   added[#added+1]=hero.id;present[hero.id]=true
   end
  end
  return added
 end
--- Placeholder rows are derived from the catalog, so one whose hero left the
+-- A shared placeholder row whose id now has nobu art takes it; returns "kind:id" of each upgrade.
+function M.upgrade_placeholders(manifest,nobu)
+ local upgraded={}
+ for _,row in ipairs(manifest.entries)do
+  local file=row.placeholder==true and nobu and nobu[row.kind]and nobu[row.kind][row.id]
+  if file then
+   row.file=file;row.placeholder=nil;row.source='nobu'
+   upgraded[#upgraded+1]=row.kind..':'..row.id
+  end
+ end
+ return upgraded
+end
+local function derived(row)return row.placeholder==true or row.source=='nobu' end
+-- Items the shop sells (not test_only engine fixtures) without art get their nobu art as a raw
+-- PNG row; imported (resource) item rows are authored and stay. Returns the added ids.
+function M.item_entries(items,manifest,nobu)
+ local present,added={},{}
+ local files=nobu and nobu.item or{}
+ for _,row in ipairs(manifest.entries)do if row.kind=='item'then present[row.id]=true end end
+ for _,item in ipairs(items)do
+  if not item.test_only and not present[item.id]and files[item.id]then
+   manifest.entries[#manifest.entries+1]={kind='item',id=item.id,displayName=item.name,file=files[item.id],columns=1,rows=1,tile=0,source='nobu'}
+   added[#added+1]=item.id;present[item.id]=true
+  end
+ end
+ return added
+end
+-- nobu item rows of items the shop no longer sells (or whose art is gone) are dropped
+function M.prune_items(items,manifest,nobu)
+ local sold,kept,removed={}, {},{}
+ local files=nobu and nobu.item or{}
+ for _,item in ipairs(items)do if not item.test_only then sold[item.id]=true end end
+ for _,row in ipairs(manifest.entries)do
+  if row.kind=='item'and row.source=='nobu'and not(sold[row.id]and files[row.id]==row.file)then removed[#removed+1]=row.id
+  else kept[#kept+1]=row end
+ end
+ manifest.entries=kept
+ return removed
+end
+-- Placeholder (and nobu) rows are derived from the catalog, so one whose hero left the
 -- catalog (a rolled-back authoring build) is dropped; authored art still fails.
 function M.prune_placeholders(heroes,manifest)
  local known,kept,removed={}, {},{}
  for _,hero in ipairs(heroes)do known[hero.id]=true end
  for _,row in ipairs(manifest.entries)do
-  if row.kind=='portrait'and row.placeholder==true and not known[row.id]then removed[#removed+1]=row.id
+  if row.kind=='portrait'and derived(row)and not known[row.id]then removed[#removed+1]=row.id
   else kept[#kept+1]=row end
  end
  manifest.entries=kept
@@ -37,7 +100,7 @@ end
 function M.validate(heroes,manifest,inspect)
  assert(type(heroes)=='table'and #heroes>0 and #heroes<=512,'invalid authoring hero catalog')
  assert(type(manifest)=='table'and manifest.schemaVersion==1 and type(manifest.entries)=='table'
-  and #manifest.entries>0 and #manifest.entries<=512,'invalid HUD manifest')
+  and #manifest.entries>0 and #manifest.entries<=2048,'invalid HUD manifest')
  assert(type(inspect)=='function','portrait resource inspector required')
  local expected,seen,tiles={}, {},{}
  for _,hero in ipairs(heroes)do
@@ -57,6 +120,7 @@ function M.validate(heroes,manifest,inspect)
    assert(row.file==M.PLACEHOLDER_FILE and row.columns==1 and row.rows==1 and row.tile==0,'invalid placeholder portrait: '..row.id)
   else
    assert(row.placeholder==nil,'invalid placeholder flag: '..row.id)
+   assert(row.source==nil or(row.source=='nobu'and row.file==M.nobu_file('portrait',row.id)and row.columns==1 and row.rows==1),'invalid nobu portrait: '..row.id)
    assert(not tiles[tile],'duplicate portrait tile: '..row.id);tiles[tile]=true
   end
   local image=inspect(row.file)
@@ -97,13 +161,13 @@ local function hero_abilities(heroes,abilities)
  end
  return order,names
 end
-function M.ability_placeholder_entries(heroes,abilities,manifest)
+function M.ability_placeholder_entries(heroes,abilities,manifest,nobu)
  local order,names=hero_abilities(heroes,abilities);local present,added={}, {}
+ local files=nobu and nobu.ability or{}
  for _,row in ipairs(manifest.entries)do if row.kind=='ability'then present[row.id]=true end end
  for _,ability in ipairs(order)do
   if not present[ability]then
-   manifest.entries[#manifest.entries+1]={kind='ability',id=ability,displayName=names[ability],
-    file=M.ABILITY_PLACEHOLDER_FILE,columns=1,rows=1,tile=0,placeholder=true}
+   manifest.entries[#manifest.entries+1]=derived_row('ability',ability,names[ability],M.ABILITY_PLACEHOLDER_FILE,files[ability])
    added[#added+1]=ability;present[ability]=true
   end
  end
@@ -114,7 +178,7 @@ function M.prune_ability_placeholders(heroes,abilities,manifest)
  local order=hero_abilities(heroes,abilities);local equipped,kept,removed={}, {},{}
  for _,ability in ipairs(order)do equipped[ability]=true end
  for _,row in ipairs(manifest.entries)do
-  if row.kind=='ability'and row.placeholder==true and not equipped[row.id]then removed[#removed+1]=row.id
+  if row.kind=='ability'and derived(row)and not equipped[row.id]then removed[#removed+1]=row.id
   else kept[#kept+1]=row end
  end
  manifest.entries=kept
@@ -141,6 +205,8 @@ function M.validate_abilities(heroes,abilities,manifest,inspect)
    placeholders[#placeholders+1]=ability
   else
    assert(row.placeholder==nil,'invalid placeholder flag: '..ability)
+   assert(row.source==nil or(row.source=='nobu'and row.file==M.nobu_file('ability',ability)and row.resource==nil
+    and row.columns==1 and row.rows==1),'invalid nobu ability icon: '..ability)
    if row.resource~=nil then
     assert(row.resource==M.ABILITY_RESOURCE_ROOT..'/'..ability..'.'..ability and row.file==ability..'.png'
      and row.columns==1 and row.rows==1 and row.tile==0,'invalid packaged ability icon: '..ability)
@@ -184,7 +250,7 @@ function M.require_ready(root)
  local b=require('_bootstrap');local p,j=b.lib('path'),b.lib('json');local lfs=require('lfs')
  local ctx=require('content_builder').new(p.join(root,'scripts/lua_data'))
  local directory=p.join(root,'omfue/Content/Omoba/UI');local file=p.join(directory,'hud-assets-v1.json')
- local size=lfs.attributes(file,'size');assert(size and size>0 and size<=256*1024,'HUD manifest missing or too large')
+ local size=lfs.attributes(file,'size');assert(size and size>0 and size<=1024*1024,'HUD manifest missing or too large')
  local manifest=j.read(file);local inspect=function(name)return M.inspect_png(p.join(directory,name))end
  local heroes=ctx.include('templates/heroes.lua')
  local _,placeholders=M.validate_abilities(heroes,ctx.include('templates/abilities.lua'),manifest,inspect)

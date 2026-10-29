@@ -82,6 +82,20 @@ pub(crate) fn resolve_keyed(id:AbilityId,rank:u8,json:&str,fields:&[Field],visua
     Ok(Transform {duration,payload:serde_json::Value::Object(payload).to_string()})
 }
 
+impl Transform {
+    pub(crate) fn duration(&self)->Fixed64 {self.duration}
+    /// Adds a host option flag (`1` when set) to the single buff payload; unset flags are omitted.
+    pub(crate) fn with_flag(mut self,key:&str,set:bool)->Self {
+        if set {
+            if let Ok(serde_json::Value::Object(mut payload))=serde_json::from_str::<serde_json::Value>(&self.payload) {
+                payload.insert(key.into(),serde_json::json!(1));
+                self.payload=serde_json::Value::Object(payload).to_string();
+            }
+        }
+        self
+    }
+}
+
 pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Target,
     buff:&str,spec:Transform)->Result<(),&'static str> {
     if !matches!(target,Target::None) || !world.is_alive(caster)

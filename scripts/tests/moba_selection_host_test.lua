@@ -65,7 +65,7 @@ local function execute(mode)
     if mode=='cancel' then path.write(options.selection_cancel_file,'');return end
     if mode=='timeout' then return end
     if mode=='host-exit' then alive=false;return end
-    local final=require('moba_role_launch').select_heroes(plan,{[1]='training_ranger',[2]='training_luminary'})
+    local final=require('moba_role_launch').select_heroes(plan,{[1]='tamako',[2]='murakami_yoshikiyo'})
     if mode=='tamper' then final.players[3].team_id=99 end
     local seats={};for _,player in ipairs(final.players) do seats[#seats+1]={player=player,locked=true} end
     path.write(path.join(host_dir,'finalized-plan.json'),json.encode({schema_version=1,
@@ -81,7 +81,7 @@ local function execute(mode)
     assert(ok,tostring(result))
     assert(result==path.join(output,'match-plan.json'))
     local final=json.read(result)
-    assert(final.players[1].hero=='training_ranger' and final.players[2].bot==false and #final.players==10)
+    assert(final.players[1].hero=='tamako' and final.players[2].bot==false and #final.players==10)
     local report=json.read(path.join(output,'result.json'))
     assert(report.scope=='selection-host-only' and report.human_count==2 and report.recipe_json==result)
     assert(#fixture.stopped==0 and #fixture.waited==1)

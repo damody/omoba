@@ -82,10 +82,13 @@ fn tamako_and_murakami_role_bot_match_keeps_team_replicas_identical() {
     // SOAK_ROLE_PLAN=<match-plan.json> replays a live run's exact plan (map, roster, seed rules).
     let source=std::env::var("SOAK_ROLE_PLAN").ok().map(|path|std::fs::read(path).unwrap()).unwrap_or(output.stdout);
     let mut plan:RoleBotMatchPlan=serde_json::from_slice(&source).unwrap();
-    for player in &mut plan.players {
-        player.bot=true;
-        if player.player_id==1 {player.hero="murakami_yoshikiyo".into();}
-        if player.player_id==6 {player.hero="tamako".into();}
+    for player in &mut plan.players {player.bot=true;}
+    // Seat the two kits; a teammate already on that hero takes the seat's previous hero
+    // (one hero per team, E164).
+    for (seat,hero) in [(1u32,"murakami_yoshikiyo"),(6,"tamako")] {
+        let index=plan.players.iter().position(|p|p.player_id==seat).unwrap();
+        let (team,previous)=(plan.players[index].team_id,std::mem::replace(&mut plan.players[index].hero,hero.into()));
+        for other in plan.players.iter_mut().filter(|p|p.player_id!=seat && p.team_id==team && p.hero==hero) {other.hero=previous.clone();}
     }
     let (config,bots)=plan.compile(0x5048,omoba_core::runtime::SimulationTickProfile::Production60Hz).unwrap();
     let ticks=std::env::var("SOAK_BOT_TICKS").ok().and_then(|v|v.parse().ok()).unwrap_or(7200);

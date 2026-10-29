@@ -5,6 +5,8 @@
 -- new packages and new abilities go at the end, and abilities a package drops
 -- stay as tombstones so numeric content IDs never shift.
 local serialize = require("hero_source.serialize")
+local roster = require("hero_source.roster")
+local v3 = require("hero_author.v3")
 local M = {}
 
 M.AUTHORED_FILE = "templates/authored_heroes.lua"
@@ -97,6 +99,8 @@ function M.ability_entry(pkg_id, ab, pres)
     id = ab.id,
     -- Source NOT_LEARNABLE: each rank is learned at its required hero level, without points.
     auto_learn = ab.auto_learn or nil,
+    -- Source SPELL_IMMUNITY_ENEMIES_YES: may target, control and debuff magic-immune enemies (E184).
+    pierces_magic_immunity = ab.pierces_magic_immunity or nil,
     -- Who a unit-target ability may be aimed at, for Rust handlers whose
     -- effects do not say it (omoba-content-model ability_unit_allegiance).
     unit_target = tg.kind == "unit" and (tg.team == "ally" or tg.team == "enemy") and tg.team or nil,
@@ -225,6 +229,11 @@ function M.package_entries(package, slice)
       skipped[#skipped + 1] = ab.id
     end
   end
+  -- Schema v3 document: values, text, extras, levels and description come from v3.lua.
+  if package.kit_compiled then
+    for _, entry in ipairs(built) do v3.apply(entry, package.kit_compiled) end
+    v3.check_rust_keys(package.rust_texts or {}, built)
+  end
   local slots, ranks = {}, {}
   for _, ab in ipairs(abilities) do
     local idx = M.SLOT_INDEX[ab.action]
@@ -240,7 +249,7 @@ function M.package_entries(package, slice)
   end
   if character.identity.integration == "update_existing" then
     result.hero_update = { abilities_by_slot = slots, ranks_by_slot = ranks, skill_points = skill_points,
-      rust_module = character.identity.rust_module }
+      rust_module = character.identity.rust_module, source_ref = roster.source_ref(package.source.provenance) }
   else
     -- A hero row is a dense list: a slice that leaves a slot empty moves later
     -- abilities up, and their birth ranks move with them.
@@ -252,7 +261,9 @@ function M.package_entries(package, slice)
       list[5] = slots[5]; dense[5] = ranks[5]
     end
     ranks = dense
-    local hs, atk = character.base_stats or {}, character.attack or {}
+    -- Unit stats (HP, mana, armor, damage, range, speed, attributes) come from the source unit at
+    -- build time (templates/hero_source_stats.lua); a package authors only what the source lacks.
+    local hs = character.base_stats or {}
     result.hero = {
       id = hero_id,
       rust_module = character.identity.rust_module,
@@ -260,17 +271,13 @@ function M.package_entries(package, slice)
       title = character.hero.title,
       background = character.hero.combat_read,
       abilities = list,
-      attack_range = atk.range,
-      base_damage = hs.base_damage,
-      base_armor = hs.base_armor,
-      base_hp = hs.base_hp,
-      base_mana = hs.base_mana,
-      move_speed = hs.move_speed,
       turn_speed = hs.turn_speed or 720,
       moba_loadout = { ranks = list[5] and { ranks[1] or 0, ranks[2] or 0, ranks[3] or 0, ranks[4] or 0, ranks[5] or 0 }
         or { ranks[1] or 0, ranks[2] or 0, ranks[3] or 0, ranks[4] or 0 }, skill_points = skill_points or 0 },
       unit_script = character.identity.unit_script or nil,
       authored_package = hero_id,
+      -- Playable only with a source hero behind it (checked by the content build).
+      source_ref = roster.source_ref(package.source.provenance),
     }
   end
   return result
@@ -340,7 +347,7 @@ function M.merge(previous, entries)
     local skill_points = u.skill_points
     if skill_points == nil and prev then skill_points = prev.skill_points end
     data.hero_updates[pkg] = { abilities_by_slot = slots, ranks_by_slot = ranks, skill_points = skill_points,
-      rust_module = u.rust_module }
+      rust_module = u.rust_module, source_ref = u.source_ref or (prev and prev.source_ref) }
   end
   return data
 end

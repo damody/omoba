@@ -48,10 +48,12 @@ fn expand_checked(world:&World,source:Entity,spec:DamageZoneSpec,faction:Faction
         omb_script_abi::types::DamageKind::Pure=>(zero,zero,amount),
     };
     let mut outcomes:Vec<_>=match spec.linger {
-        // One shared burn per source: refreshing keeps its fractional remainder.
+        // One shared burn per source, one `amount` pulse per `interval` (the source modifier's
+        // ThinkInterval; C15E_3 0.25 s). A refresh by the next zone pulse keeps the burn's clock.
         Some(linger)=>{
+            use crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec;
             let caster=omb_script_abi::types::EntityHandle {id:source.id(),gen:source.gen().id() as u32};
-            let payload=crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::payload(spec.amount/spec.interval,caster,spec.kind);
+            let payload=PeriodicDamageSpec::with_interval(PeriodicDamageSpec::payload(spec.amount/spec.interval,caster,spec.kind),spec.interval);
             targets.into_iter().map(|(target,_)|Outcome::AddBuff {target,
                 buff_id:omb_script_abi::buff_ids::generic_dot_buff_id("ground_damage_zone",caster),duration:linger,payload:payload.clone()}).collect()
         }
@@ -109,7 +111,10 @@ mod tests {
         assert!(w.write_resource::<BuffStore>().schedule_independent_zone(source,"line",Fixed64::from_i32(3),s,origin,faction));
         w.write_resource::<BuffStore>().tick(Fixed64::from_raw(512));
         let burned=|outs:Vec<Outcome>|outs.into_iter().filter_map(|o|match o {
-            Outcome::AddBuff{target,buff_id,duration,..}=>{assert!(buff_id.starts_with("generic_dot:ground_damage_zone:"));assert_eq!(duration,Fixed64::ONE);Some(target)}
+            Outcome::AddBuff{target,buff_id,duration,payload}=>{assert!(buff_id.starts_with("generic_dot:ground_damage_zone:"));assert_eq!(duration,Fixed64::ONE);
+                // One 40-point pulse per 0.5 s zone interval (the source ThinkInterval), not a continuous rate.
+                let dot=crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::from_payload(&payload).unwrap();
+                assert_eq!((dot.interval,dot.pulse_amount()),(Some(Fixed64::from_raw(512)),Some(Fixed64::from_i32(40))));Some(target)}
             Outcome::RawDamage{..}=>panic!("lingering zones burn instead of hitting"),_=>None}).collect::<Vec<_>>();
         assert_eq!(burned(expand_independent(&w,source,"line",1,&[])),vec![near],"half a second laid 500");
         w.write_resource::<BuffStore>().tick(Fixed64::ONE);

@@ -1,5 +1,7 @@
-//! 寒霜彈（H03，來源 A34W current）：對敵人或敵方建築投出追蹤寒霜彈（速度 2000），
+//! 寒霜彈（H03，來源 A34W current）：對敵人或敵方建築投出追蹤寒霜彈（速度見 v3.lua projectile_speed），
 //! 命中時造成魔法傷害並結凍（暈眩）。傷害在命中時才結算；目標失效則消失。
+//! 寒霜彈可被閃避（A34.txt:61 Dodgeable 1）：目標躲避時失效、不結算。
+//! 急速冷卻主動期間命中英雄時疊魔抗減免（host hit_stack，命中當下判定）。
 use abi_stable::std_types::{RErr,ROk,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},types::{DamageKind,DamageProfile,EntityHandle,Fixed64,Target},world::GameWorldDyn};
 use omoba_core::ability_meta::{AbilityLevelData,DamageType,EffectSpec,TargetSelector};
@@ -22,7 +24,7 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<FrostBolt,&'static str> {
         .ok_or("missing frost bolt extra");
     Ok(FrostBolt {range:Fixed64::from_raw((f64::from(data.range)*1024.0).round() as i64),
         speed:extra("projectile_speed")?,radius:extra("projectile_radius")?,lifetime:extra("projectile_lifetime")?,
-        damage:extra("damage_amount")?,stun:extra("control_duration")?})
+        damage:extra("damage")?,stun:extra("freeze")?})
 }
 
 pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Target,spec:FrostBolt)->Result<(),&'static str> {
@@ -37,14 +39,20 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
         motion:host::Motion::Homing {target_id:victim.id,target_generation:victim.gen},
         speed:spec.speed,radius:spec.radius,distance:Fixed64::ZERO,lifetime:spec.lifetime,max_hits:1,
         wall:host::WallPolicy::Pass,target_lost:host::TargetLostPolicy::Expire,caster_death:host::CasterDeathPolicy::Continue,
-        amount:spec.damage,kind:DamageKind::Magical,profile:DamageProfile::COLD.bits(),slow:None,
+        amount:spec.damage,kind:DamageKind::Magical,profile:DamageProfile::COLD.union(DamageProfile::SPELL).bits(),slow:None,
         control:Some((ControlEffectKind::Stun,spec.stun)),dot:None,
         // Source: 對著敵人或建築物投出寒霜彈.
         buildings:true,forced:None,
     };
     if !envelope.valid() {return Err("invalid frost bolt projectile envelope");}
-    world.add_stat_buff(caster,host::BUFF.into(),spec.lifetime,envelope.payload().to_string().as_str().into());
+    world.add_stat_buff(caster,host::BUFF.into(),spec.lifetime,payload(&envelope).to_string().as_str().into());
     Ok(())
+}
+
+/// Source A34.txt:61 `Dodgeable 1`; A34T_OnHit (A34_Matsu.lua:10-40) while the
+/// caster has the rapid cooling active buff, decided when the bolt lands.
+pub(crate) fn payload(envelope:&host::Spec)->serde_json::Value {
+    host::with_hit_stack(host::with_dodgeable(envelope.payload()),super::No4_rapid_cooling::ACTIVE_BUFF)
 }
 
 pub struct FrostBoltHandler;
@@ -57,9 +65,9 @@ impl AbilityScript for FrostBoltHandler {
 
 pub fn a34_frost_bolt_ffi()->AbilityDefFFI {
     build_ability_ffi(ID,FrostBoltHandler,vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"projectile_speed",1),on_hit:vec![
-        EffectSpec::Damage {target:TargetSelector::Target,amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical},
+        EffectSpec::Damage {target:TargetSelector::Target,amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical},
         EffectSpec::StatusModifier {target:TargetSelector::Target,modifier_type:"stun".into(),value:1.0,
-            duration:Some(extra_at_id_f32(ID,"control_duration",1))}]}])
+            duration:Some(extra_at_id_f32(ID,"freeze",1))}]}])
 }
 
 #[cfg(test)]
@@ -69,8 +77,11 @@ mod tests {
     use omoba_core::Outcome;
 
     fn envelope(outcomes:&[Outcome])->Option<host::Spec> {
-        outcomes.iter().find_map(|o|match o {Outcome::AddBuff {buff_id,payload,duration,..} if buff_id==host::BUFF=>
-            host::Spec::from_payload(host::BUFF,*duration,payload),_=>None})
+        outcomes.iter().find_map(|o|match o {Outcome::AddBuff {buff_id,payload,duration,..} if buff_id==host::BUFF=>{
+            // Dodgeable and gated on the rapid cooling buff, always.
+            assert!(host::dodgeable_of(payload),"A34W Dodgeable 1");
+            assert_eq!(host::hit_stack_of(payload).as_deref(),Some(super::super::No4_rapid_cooling::ACTIVE_BUFF));
+            host::Spec::from_payload(host::BUFF,*duration,payload)},_=>None})
     }
 
     #[test]

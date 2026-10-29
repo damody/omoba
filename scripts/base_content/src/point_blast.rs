@@ -10,6 +10,16 @@ pub(crate) struct PointBlast {
     pub range:Fixed64,pub radius:Fixed64,pub damage:Fixed64,
     pub kind:DamageKind,pub profile:DamageProfile,pub control:Option<(ControlEffectKind,Fixed64)>,
     pub zone:Option<(omoba_core::runtime::ability_runtime::damage_zone::DamageZoneSpec,Fixed64,AbilityId)>,
+    /// Enemy buildings in the circle are hit (default). Source HERO | BASIC skills clear it.
+    pub buildings:bool,
+    /// Apply the control before the damage (the source order where it is so, e.g. B04E).
+    pub control_first:bool,
+}
+
+impl PointBlast {
+    /// Only heroes and basic units are hit (source target type HERO | BASIC).
+    pub(crate) fn without_buildings(mut self)->Self {self.buildings=false;self}
+    pub(crate) fn control_first(mut self)->Self {self.control_first=true;self}
 }
 
 /// Host-supplied rank JSON is strict; omitted extras may use the same authored
@@ -37,7 +47,7 @@ pub(crate) fn resolve(id:AbilityId,rank:u8,json:&str,damage_key:&str,radius_key:
     };
     Ok(PointBlast {range:fixed(f64::from(data.range),true,10_000.0)?,
         radius:read(radius_key,true,10_000.0)?,damage:read(damage_key,false,1_000_000.0)?,
-        control:control.map(|(kind,key)|read(key,true,60.0).map(|duration|(kind,duration))).transpose()?,kind,profile,zone:None})
+        control:control.map(|(kind,key)|read(key,true,60.0).map(|duration|(kind,duration))).transpose()?,kind,profile,zone:None,buildings:true,control_first:false})
 }
 
 /// Optional reusable post-blast zone. Complete validation precedes execute outputs.
@@ -87,6 +97,7 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
     if !omoba_sim::terrain::point_in_swept_circle(center,origin,origin,spec.range) {return Err("point blast outside cast range");}
     let mut hits:Vec<_>=world.query_enemies_in_range(center,spec.radius,caster).into_iter()
         .filter(|target|*target!=caster && world.is_alive(*target))
+        .filter(|target|spec.buildings || !world.is_building(*target))
         .filter(|target|world.get_hp(*target).into_option().is_some_and(|hp|hp>Fixed64::ZERO))
         .filter(|target|world.get_pos(*target).into_option().is_some_and(|position|
             omoba_sim::terrain::point_in_swept_circle(position,center,center,spec.radius))).collect();
@@ -95,11 +106,13 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
     if let Some(zone)=spec.zone.filter(|(zone,_,_)|zone.independent) {emit_zone(world,caster,center,zone);}
     world.emit_explosion(center,spec.radius,Fixed64::from_raw(204));
     for target in hits {
-        world.deal_damage(target,spec.damage,spec.kind,spec.profile,RSome(caster));
-        if let Some((kind,duration))=spec.control {
+        let control=|world:&mut GameWorldDyn<'_>| if let Some((kind,duration))=spec.control {
             let buff=match kind {ControlEffectKind::Stun=>BuffId::Stun,ControlEffectKind::Root=>BuffId::Root,ControlEffectKind::Silence=>BuffId::Silence};
             world.add_buff(target,buff.as_rstr(),duration);
-        }
+        };
+        if spec.control_first {control(world);}
+        world.deal_damage(target,spec.damage,spec.kind,spec.profile,RSome(caster));
+        if !spec.control_first {control(world);}
     }
     if let Some(zone)=spec.zone.filter(|(zone,_,_)|!zone.independent) {emit_zone(world,caster,center,zone);}
     Ok(())

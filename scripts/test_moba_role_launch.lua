@@ -70,13 +70,15 @@ test('shared pre-match selections preserve recipe and reject ownership ambiguity
     {player_id=1,team_id=1,role='top',hero='old',bot=false},
     {player_id=2,team_id=1,role='mid',hero='old',bot=false},
     {player_id=3,team_id=2,role='top',hero='old',bot=true}}}
-  local options=launch.options({'--hero','2=training_luminary','--hero','1=training_luminary'})
+  -- One hero per team (E164): two humans of team 1 pick different heroes; the other team may repeat one.
+  local options=launch.options({'--hero','2=date_masamune','--hero','1=murakami_yoshikiyo'})
   local selected=launch.select_heroes(recipe,options.hero_selections)
-  assert(selected.players[1].hero=='training_luminary' and selected.players[2].hero=='training_luminary')
+  assert(selected.players[1].hero=='murakami_yoshikiyo' and selected.players[2].hero=='date_masamune')
+  rejects(function() launch.select_heroes(recipe,{[1]='murakami_yoshikiyo',[2]='murakami_yoshikiyo'}) end)
   assert(selected.players[1].team_id==1 and selected.players[1].role=='top')
   assert(recipe.players[1].hero=='old' and selected.players[3].hero=='old')
-  rejects(function() launch.select_heroes(recipe,{[3]='training_luminary'}) end)
-  rejects(function() launch.select_heroes(recipe,{[4]='training_luminary'}) end)
+  rejects(function() launch.select_heroes(recipe,{[3]='murakami_yoshikiyo'}) end)
+  rejects(function() launch.select_heroes(recipe,{[4]='murakami_yoshikiyo'}) end)
   rejects(function() launch.select_heroes(recipe,{[1]='bad/name'}) end)
   for _,args in ipairs({{'--hero'},{'--hero','0=x'},{'--hero','4294967296=x'},
       {'--hero','1=x','--hero','01=y'},{'--hero','1=bad/name'}}) do
@@ -120,23 +122,23 @@ test('fixed Lua + full TOML + production Rust configuration preflight',function(
   local catalog=json.read(plan.hero_catalog)
   assert(catalog.schema_version==1 and catalog.catalog_data_hash==locked.catalog_data_hash)
   local found=false
-  for _,hero in ipairs(catalog.heroes) do if hero.hero=='training_ranger' then found=true;assert(#hero.abilities==4) end end
+  for _,hero in ipairs(catalog.heroes) do if hero.hero=='tamako' then found=true;assert(#hero.abilities==4) end end
   assert(found,'compiled selectable hero missing')
   rejects(function() launch.prepare(options,process) end)
 end)
 
 test('hero selections flow into server plan; unknown catalog names fail before launch',function()
-  local selected=launch.prepare(launch.options({'--prepare-only','--hero','1=training_ranger',
+  local selected=launch.prepare(launch.options({'--prepare-only','--hero','1=tamako',
     '--output',path.join(root,'selected')}),process)
   assert(#selected.human_heroes==1 and selected.human_heroes[1].player_id==1)
-  assert(selected.human_heroes[1].hero=='training_ranger')
-  assert(path.read(selected.config):find('training_ranger',1,true))
+  assert(selected.human_heroes[1].hero=='tamako')
+  assert(path.read(selected.config):find('tamako',1,true))
   local saved=json.read(selected.recipe_json)
-  assert(saved.players[1].hero=='training_ranger' and saved.players[1].bot==false)
-  local replay=launch.prepare(launch.options({'--recipe',selected.recipe_json,'--hero','1=training_vanguard',
+  assert(saved.players[1].hero=='tamako' and saved.players[1].bot==false)
+  local replay=launch.prepare(launch.options({'--recipe',selected.recipe_json,'--hero','1=asai_nagamasa',
     '--output',path.join(root,'json-selected')}),process)
-  assert(replay.human_heroes[1].hero=='training_vanguard')
-  assert(json.read(selected.recipe_json).players[1].hero=='training_ranger','source JSON changed')
+  assert(replay.human_heroes[1].hero=='asai_nagamasa')
+  assert(json.read(selected.recipe_json).players[1].hero=='tamako','source JSON changed')
   rejects(function() launch.prepare(launch.options({'--hero','1=unknown_selection_hero',
     '--output',path.join(root,'unknown-hero')}),process) end)
   assert(path.read(base,true)==original)

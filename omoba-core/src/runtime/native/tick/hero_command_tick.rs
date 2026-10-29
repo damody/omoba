@@ -45,6 +45,7 @@ pub struct HeroCommandData<'a> {
     admitted: Option<Read<'a, crate::runtime::native::combat_acquisition::AdmittedCombatPreferences>>,
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
     disclosed_wards: Option<Read<'a, crate::runtime::filtered_specs::DisclosedWardCandidates>>,
+    retaliation: Option<Read<'a, super::super::retaliation::HeroRetaliation>>,
     replica_identities: ReadStorage<'a, crate::runtime::ReplicaIdentity>,
     ward_bodies: ReadStorage<'a, crate::runtime::DisclosedWardBody>,
 }
@@ -67,7 +68,9 @@ impl<'a> System<'a> for Sys {
 
     fn run(_job: &mut Job<Self>, mut data: Self::SystemData) {
         let arrive_eps = Fixed64::from_raw(768);
-        let terrain = TerrainIndex::new(&data.regions);
+        // Built once per distinct terrain, not every tick (E187 §5.6).
+        let terrain = TerrainIndex::cached(&data.regions);
+        let terrain = &*terrain;
         let nav = std::cell::RefCell::new(data.nav_memo.as_deref_mut().map(std::mem::take).unwrap_or_default());
         let hero_ids: BTreeSet<specs::Entity> = (&data.entities, &data.heroes)
             .join()
@@ -133,7 +136,7 @@ impl<'a> System<'a> for Sys {
                         &acquisition,
                         entity,
                         pos.0,
-                        queue.clone(),
+                        auto_engage(&data, &acquisition, entity, pos.0, queue.clone()),
                         arrive_eps,
                     ))
                 })
@@ -206,6 +209,47 @@ fn decide_keyboard_direction(
     }
     let next_waypoint=(!hold && step>Fixed64::ZERO).then(||pos+direction*(step*Fixed64::from_i32(2)+Fixed64::ONE));
     HeroCommandDecision{entity,queue,direction:next_waypoint.map(|_|direction),next_waypoint}
+}
+
+/// The original game's acquisition (Dota AttackAcquisitionRange, templates/game_rules.lua): an
+/// idle hero with no order goes after a recent attacker within its acquisition range (a camp
+/// included, retaliation.rs), else the nearest enemy within it (camps never pulled). A target
+/// already in attack range is left to hero_tick, which attacks without moving. Authority only:
+/// the chase is committed to replicas through movement and attack facts.
+fn auto_engage(
+    data: &HeroCommandData<'_>,
+    acquisition: &CombatAcquisitionView<'_, '_>,
+    entity: specs::Entity,
+    pos: SimVec2,
+    mut queue: HeroCommandQueue,
+) -> HeroCommandQueue {
+    let Some(state) = data.moba.as_deref() else { return queue };
+    let Some(rules) = state.config.game_rules else { return queue };
+    if queue.active.is_some() || !queue.queued.is_empty()
+        || !data.properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO)
+        || data.casts.as_ref().is_some_and(|casts| casts.0.contains_key(&entity))
+        || super::super::cast_windup::hero_recalling(data.moba.as_deref(), data.disclosed_recalls.as_deref(), &data.owners, entity) {
+        return queue;
+    }
+    let Some(attack) = data.attacks.get(entity) else { return queue };
+    let stats = crate::runtime::ability_runtime::UnitStats::from_refs(&*data.buff_store, data.is_buildings.get(entity).is_some());
+    let attack_range = stats.final_attack_range(attack.range.v, entity);
+    // The hero's own AttackAcquisitionRange (source unit), else the game rules' hero default.
+    let own = data.heroes.get(entity).and_then(|hero| omoba_template_ids::hero_by_name(&hero.id))
+        .and_then(omoba_template_ids::active_hero_stats).and_then(|stats| stats.acquisition_range);
+    let acquisition_range = own.unwrap_or(Fixed64::from_i32(rules.hero_acquisition_range.min(i32::MAX as u32) as i32))
+        .max(attack_range);
+    let attacker = data.retaliation.as_deref()
+        .and_then(|hits| super::super::retaliation::attacker(hits, entity, state.elapsed))
+        .filter(|attacker| matches!(assess_direct_target(acquisition, entity, *attacker),
+            Some(DirectStatus::Legal { position }) if within_raw_range(pos, position, acquisition_range)));
+    let target = attacker.or_else(|| acquire(acquisition, AcquisitionRequest { source: entity, intent: AcquisitionIntent::Idle,
+        command_point: None, range: acquisition_range, explicit_target: None }));
+    if let Some(target) = target {
+        let in_range = data.pos.get(target).is_some_and(|at| within_raw_range(pos, at.0, attack_range));
+        if !in_range { queue.active = Some(HeroCommand::AttackTarget { target, chase_origin: None }); }
+    }
+    queue
 }
 
 fn decide_hero_command(
@@ -430,9 +474,43 @@ pub(crate) struct TerrainIndex {
     polygons: Vec<Vec<SimVec2>>,
     nonfinite: bool,
     fingerprint: u64,
+    /// Broad phase (E187 §5.6: the original nobu map has 305 gridnav rectangles): polygon indices
+    /// by the TERRAIN_BUCKET_RAW cells their bounds touch, and each polygon's inclusive raw
+    /// bounds. Polygons with a coordinate beyond the geometry bound are in `always`, because the
+    /// exact test reports them as hit wherever they are.
+    buckets: std::collections::HashMap<(i64, i64), Vec<u32>>,
+    bounds: Vec<[i64; 4]>,
+    always: Vec<u32>,
 }
 
+/// Broad phase bucket edge: 512 world units.
+const TERRAIN_BUCKET_RAW: i64 = 512 * SCALE;
+/// A query covering more buckets than this scans every polygon instead.
+const TERRAIN_BUCKET_QUERY_LIMIT: i64 = 1024;
+
 impl TerrainIndex {
+    /// Bounds and buckets of the quantized polygons; the exact test stays
+    /// `swept_circle_hits_polygon`, so `hits` answers exactly as a full scan would.
+    fn build_broad_phase(&mut self) {
+        let max = omoba_sim::terrain::MAX_GEOMETRY_RAW;
+        for (index, polygon) in self.polygons.iter().enumerate() {
+            let bound = [polygon.iter().map(|p| p.x.raw()).min().unwrap_or(0), polygon.iter().map(|p| p.y.raw()).min().unwrap_or(0),
+                polygon.iter().map(|p| p.x.raw()).max().unwrap_or(0), polygon.iter().map(|p| p.y.raw()).max().unwrap_or(0)];
+            self.bounds.push(bound);
+            // Fewer than three points never hit.
+            if polygon.len() < 3 { continue; }
+            if polygon.iter().any(|p| p.x.raw().unsigned_abs() > max as u64 || p.y.raw().unsigned_abs() > max as u64) {
+                self.always.push(index as u32);
+                continue;
+            }
+            for cx in bound[0].div_euclid(TERRAIN_BUCKET_RAW)..=bound[2].div_euclid(TERRAIN_BUCKET_RAW) {
+                for cy in bound[1].div_euclid(TERRAIN_BUCKET_RAW)..=bound[3].div_euclid(TERRAIN_BUCKET_RAW) {
+                    self.buckets.entry((cx, cy)).or_default().push(index as u32);
+                }
+            }
+        }
+    }
+
     pub(crate) fn new(regions: &BlockedRegions) -> Self {
         let mut fingerprint: u64 = 0xcbf2_9ce4_8422_2325;
         let mut mix = |value: i64| {
@@ -456,12 +534,61 @@ impl TerrainIndex {
             for point in &polygon { mix(point.x.raw()); mix(point.y.raw()); }
             polygons.push(polygon);
         }
-        Self { polygons, nonfinite, fingerprint }
+        let mut index = Self { polygons, nonfinite, fingerprint, buckets: Default::default(), bounds: Vec::new(), always: Vec::new() };
+        index.build_broad_phase();
+        index
     }
 
     pub(crate) fn hits(&self, from: SimVec2, to: SimVec2, radius: Fixed64) -> bool {
-        self.nonfinite || self.polygons.iter()
-            .any(|polygon| omoba_sim::terrain::swept_circle_hits_polygon(from, to, radius, polygon))
+        if self.nonfinite { return true; }
+        let max = omoba_sim::terrain::MAX_GEOMETRY_RAW;
+        let bounded = |v: SimVec2| v.x.raw().unsigned_abs() <= max as u64 && v.y.raw().unsigned_abs() <= max as u64;
+        let full_scan = || self.polygons.iter()
+            .any(|polygon| omoba_sim::terrain::swept_circle_hits_polygon(from, to, radius, polygon));
+        // Out-of-range inputs: the exact test decides for every polygon.
+        if radius.raw() < 0 || radius.raw() > max || !bounded(from) || !bounded(to) { return full_scan(); }
+        let r = radius.raw();
+        let query = [from.x.raw().min(to.x.raw()) - r, from.y.raw().min(to.y.raw()) - r,
+            from.x.raw().max(to.x.raw()) + r, from.y.raw().max(to.y.raw()) + r];
+        let cells = [query[0].div_euclid(TERRAIN_BUCKET_RAW), query[1].div_euclid(TERRAIN_BUCKET_RAW),
+            query[2].div_euclid(TERRAIN_BUCKET_RAW), query[3].div_euclid(TERRAIN_BUCKET_RAW)];
+        if (cells[2] - cells[0] + 1) * (cells[3] - cells[1] + 1) > TERRAIN_BUCKET_QUERY_LIMIT { return full_scan(); }
+        let test = |index: u32| omoba_sim::terrain::swept_circle_hits_polygon(from, to, radius, &self.polygons[index as usize]);
+        if self.always.iter().any(|index| test(*index)) { return true; }
+        // A polygon outside every bucket the query box touches has bounds disjoint from it, which
+        // the exact test's own broad phase rejects; inside, the same inclusive bounds come first.
+        for cx in cells[0]..=cells[2] {
+            for cy in cells[1]..=cells[3] {
+                let Some(bucket) = self.buckets.get(&(cx, cy)) else { continue };
+                for &index in bucket {
+                    let b = self.bounds[index as usize];
+                    if query[2] < b[0] || query[0] > b[2] || query[3] < b[1] || query[1] > b[3] { continue; }
+                    if test(index) { return true; }
+                }
+            }
+        }
+        false
+    }
+
+    /// The match's terrain index, built once per distinct terrain (E187 §5.6): callers that only
+    /// hold `BlockedRegions` share it instead of rebuilding it on every query.
+    pub(crate) fn cached(regions: &BlockedRegions) -> std::rc::Rc<TerrainIndex> {
+        type Shape = Vec<Vec<(u32, u32)>>;
+        thread_local! {
+            static CACHE: std::cell::RefCell<Option<(Shape, std::rc::Rc<TerrainIndex>)>> = const { std::cell::RefCell::new(None) };
+        }
+        // Reused only for bit-identical points (the exact geometry the index was built from).
+        let same = |shape: &Shape| shape.len() == regions.0.len() && shape.iter().zip(&regions.0).all(|(cached, region)|
+            cached.len() == region.points.len() && cached.iter().zip(&region.points).all(|(c, p)| *c == (p.x.to_bits(), p.y.to_bits())));
+        CACHE.with(|cache| {
+            if let Some((shape, index)) = cache.borrow().as_ref() {
+                if same(shape) { return index.clone(); }
+            }
+            let shape = regions.0.iter().map(|region| region.points.iter().map(|p| (p.x.to_bits(), p.y.to_bits())).collect()).collect();
+            let index = std::rc::Rc::new(TerrainIndex::new(regions));
+            *cache.borrow_mut() = Some((shape, index.clone()));
+            index
+        })
     }
 }
 
@@ -507,7 +634,13 @@ pub(crate) fn static_next_waypoint(
     radius: Fixed64,
     regions: &BlockedRegions,
 ) -> Option<SimVec2> {
-    static_next_waypoint_with(from, target, radius, &TerrainIndex::new(regions), &mut NavMemo::default())
+    // The shared index and memo (E187 §5.6): both only cache public terrain answers.
+    thread_local! { static MEMO: std::cell::RefCell<NavMemo> = std::cell::RefCell::new(NavMemo::default()); }
+    let terrain = TerrainIndex::cached(regions);
+    MEMO.with(|memo| match memo.try_borrow_mut() {
+        Ok(mut memo) => static_next_waypoint_with(from, target, radius, &terrain, &mut memo),
+        Err(_) => static_next_waypoint_with(from, target, radius, &terrain, &mut NavMemo::default()),
+    })
 }
 
 /// Same search and tie-breaking as the original (FIFO, fixed neighbour

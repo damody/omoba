@@ -19,6 +19,8 @@ fn murakami_yoshikiyo_kit_keeps_team_replicas_identical() {
     // Counters prove the kit actually fired; parity alone would pass on an idle hero.
     let (aura_ticks,morale_ticks,stun_ticks,channel_ticks)=(std::cell::Cell::new(0u32),std::cell::Cell::new(0u32),
         std::cell::Cell::new(0u32),std::cell::Cell::new(0u32));
+    // The W slam and the R strikes resolve through delayed_effect: count their effects.
+    let (slam_ticks,strike_ticks)=(std::cell::Cell::new(0u32),std::cell::Cell::new(0u32));
     let mismatches=soak_match(SingleLaneConfig {mana_enabled:true,heroes:["murakami_yoshikiyo".into(),"training_luminary".into()],..three_lane_config()},7200,1,
         &|authority|{
             for hero in hero_pair(authority) {
@@ -44,8 +46,10 @@ fn murakami_yoshikiyo_kit_keeps_team_replicas_identical() {
             let buffs=authority.read_resource::<BuffStore>();
             let caster=omoba_core::runtime::scripting::parallel_world_adapter::ParallelWorldAdapter::entity_to_handle(first);
             if buffs.has(second,&format!("b29_breaker_armor:{}:{}",caster.id,caster.gen)) {aura_ticks.set(aura_ticks.get()+1);}
-            if buffs.has(first,&format!("b29_morale:{}:{}",caster.id,caster.gen)) {morale_ticks.set(morale_ticks.get()+1);}
+            if buffs.has(first,super::No3_morale_boost::AURA_BUFF) {morale_ticks.set(morale_ticks.get()+1);}
             if buffs.is_stunned(second) {stun_ticks.set(stun_ticks.get()+1);}
+            if buffs.has(second,&omb_script_abi::buff_ids::generic_slow_buff_id("b29_quake_axe",caster)) {slam_ticks.set(slam_ticks.get()+1);}
+            if buffs.iter_for(first).any(|(id,_)|id.starts_with("delayed_effect:b29_earth_tremor:")) {strike_ticks.set(strike_ticks.get()+1);}
             let channeling=buffs.iter_for(first).any(|(id,_)|id.contains("ability_channel"));
             if channeling {channel_ticks.set(channel_ticks.get()+1);}
             let me=positions.get(first).map(|p|p.0).unwrap_or(a);
@@ -69,7 +73,10 @@ fn murakami_yoshikiyo_kit_keeps_team_replicas_identical() {
             }
         });
     assert!(mismatches.is_empty(),"{:#?}",mismatches);
-    eprintln!("b29 soak: armor aura {} morale aura {} stun {} channel {}",aura_ticks.get(),morale_ticks.get(),stun_ticks.get(),channel_ticks.get());
+    eprintln!("b29 soak: armor aura {} morale aura {} stun {} channel {} slam slow {} pending strikes {}",aura_ticks.get(),morale_ticks.get(),
+        stun_ticks.get(),channel_ticks.get(),slam_ticks.get(),strike_ticks.get());
+    assert!(slam_ticks.get()>0,"the delayed 震地斧 slam landed and slowed the enemy hero");
+    assert!(strike_ticks.get()>0,"大地震撼 strikes were scheduled as delayed effects");
     assert!(aura_ticks.get()>0,"the 破軍靈光 armor debuff reached the enemy hero");
     assert!(stun_ticks.get()>0,"a slam or tremor wave stunned the enemy hero");
     assert!(channel_ticks.get()>=120,"the earth tremor host channel ran for at least 2 s");

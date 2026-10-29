@@ -36,6 +36,14 @@ pub fn settle_damage_packet(
         * (Fixed64::ONE + damage_taken_bonus).max(Fixed64::ZERO)
 }
 
+/// The incoming-damage bonus every MOBA packet settles with (and that the
+/// victim's disclosure publishes): `damage_taken_bonus` plus the Dota
+/// `incoming_damage_percentage` (MODIFIER_PROPERTY_INCOMING_DAMAGE_PERCENTAGE,
+/// e.g. B08R −4%, C17W ally −30..−60%), both additive fractions.
+pub fn damage_taken_bonus(buffs: &BuffStore, victim: Entity) -> Fixed64 {
+    buffs.sum_add(victim, StatKey::DamageTakenBonus) + buffs.sum_add(victim, StatKey::IncomingDamagePercentage)
+}
+
 /// 單位統計聚合上下文的每個刻度快照。
 /// 建置一次，查詢 N 次－便宜（僅儲存引用）。
 pub struct UnitStats<'a> {
@@ -144,8 +152,14 @@ impl<'a> UnitStats<'a> {
 
     /// Same fixed-point interval used by the hero attack phase, including its
     /// minimum divisor. Presentation must not use a separate floating formula.
+    /// A base attack time override (`base_attack_time_constant`) replaces the unit's base.
     pub fn final_attack_interval(&self, base: Fixed64, e: Entity) -> Fixed64 {
-        base / self.final_attack_speed_mult(e).max(Fixed64::from_raw(10))
+        self.base_attack_interval(base, e) / self.final_attack_speed_mult(e).max(Fixed64::from_raw(10))
+    }
+
+    /// The unit's base attack interval, or its base attack time override (`base_attack_time_constant`).
+    pub fn base_attack_interval(&self, base: Fixed64, e: Entity) -> Fixed64 {
+        self.buffs.base_attack_time_override(e).unwrap_or(base)
     }
 
     /// 攻速倍數（乘到 base attack interval 上）。
@@ -397,10 +411,9 @@ impl<'a> UnitStats<'a> {
                 }).or_insert(raw);
             }else{values.insert((false,id),raw);}
         }
-        let mut factor=1024i64;
-        for raw in values.into_values() {
-            let Ok(next)=i64::try_from(i128::from(factor)*i128::from(raw)/1024)else{return Fixed64::ZERO;};factor=next;
-        }
+        // Boosts multiply; healing cuts take the strongest only (rules::healing, 原作 HealFilter).
+        let values=values.into_values().collect::<Vec<_>>();
+        let Some(factor)=crate::runtime::native::rules::healing::combine(&values) else {return Fixed64::ZERO;};
         let result=i128::from(amount.raw())*i128::from(factor.min(4096))/1024;
         Fixed64::from_raw(result.min(i128::from(i64::MAX)) as i64)
     }
@@ -488,8 +501,7 @@ impl<'a> UnitStats<'a> {
         pure: Fixed64,
         victim: Entity,
     ) -> Fixed64 {
-        settle_damage_packet(physical, magical, pure,
-            self.buffs.sum_add(victim, StatKey::DamageTakenBonus))
+        settle_damage_packet(physical, magical, pure, damage_taken_bonus(self.buffs, victim))
     }
 
     /// 計算 `e`（victim）承受 `raw` damage 後的 final 值（含 block / armor / resist / prevention）。
@@ -792,6 +804,24 @@ mod tests {
         let stats = UnitStats::from_refs(&buffs, false);
         assert_eq!(stats.incoming_damage_packet(Fixed64::from_i32(80),
             Fixed64::ZERO, Fixed64::ZERO, victim), Fixed64::from_i32(120));
+    }
+
+    /// Dota INCOMING_DAMAGE_PERCENTAGE (B08R −4%, C17W ally −30%) settles in the
+    /// MOBA packet, additively with damage_taken_bonus.
+    #[test]
+    fn incoming_damage_percentage_reduces_settled_packets() {
+        let mut world = World::new();
+        let victim = world.create_entity().build();
+        let mut buffs = BuffStore::new();
+        buffs.add(victim, "b08_living_soul_buff", fx_huge(), json!({"incoming_damage_percentage":-41}));
+        assert_eq!(damage_taken_bonus(&buffs, victim), Fixed64::from_raw(-41));
+        let stats = UnitStats::from_refs(&buffs, false);
+        assert_eq!(stats.incoming_damage_packet(Fixed64::from_i32(1000), Fixed64::ZERO, Fixed64::ZERO, victim),
+            Fixed64::from_raw(1000 * (1024 - 41)), "−4% (Q10)");
+        buffs.add(victim, "c17_light_chain_guard:1:1", fx_huge(), json!({"incoming_damage_percentage":-307}));
+        buffs.add(victim, "item_reduction", fx_huge(), json!({"damage_taken_bonus":-256}));
+        assert_eq!(UnitStats::from_refs(&buffs, false).incoming_damage_packet(Fixed64::ZERO, Fixed64::from_i32(1000), Fixed64::ZERO, victim),
+            Fixed64::from_raw(1000 * (1024 - 41 - 307 - 256)), "sources add before the multiply");
     }
 
     fn fx_secs(seconds: f32) -> Fixed64 {

@@ -130,7 +130,8 @@ function M.verify_result(plan,result)
    assert(not package_seen[package],'multiple imported exports share one package');package_seen[package]=true;packages[#packages+1]=package
    if obj.class=='Skeleton'then skeleton=obj.object_path
    elseif obj.class=='SkeletalMesh'then assert(obj.bones==a.bones and type(obj.height_cm)=='number'and obj.height_cm>=50 and obj.height_cm<=500);mesh_skeleton=obj.skeleton
-   elseif obj.class=='StaticMesh'then assert(set.static and type(obj.height_cm)=='number'and obj.height_cm>=10 and obj.height_cm<=5000
+   elseif obj.class=='StaticMesh'then assert(set.static and type(obj.height_cm)=='number'and obj.height_cm>0
+    and type(obj.size_cm)=='number'and obj.size_cm>=10 and obj.size_cm<=5000
     and integer(obj.triangles,1,2000000),'invalid imported static model')
    elseif obj.class=='AnimSequence'then assert(type(obj.seconds)=='number'and obj.seconds>0 and obj.seconds<600 and integer(obj.sampled_keys,2,100000))
    elseif obj.class=='Texture2D'then assert(integer(obj.width,1,8192)and integer(obj.height,1,8192),'bounded embedded texture required')end

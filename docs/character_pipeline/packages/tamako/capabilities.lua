@@ -22,6 +22,10 @@ return function(ctx)
       -- source arrows are invulnerable and locked on the cast target.
       { id = "summon_forced_target", status = "supported", g_package = "G-3" },
       { id = "summon_invulnerable", status = "supported", g_package = "G-3" },
+      -- W: 每段火焰的施法者隊伍視野（reveal_zone detect=false，不顯形）。
+      { id = "fow_viewer", status = "supported", g_package = "G-4" },
+      -- R: 箭矢是飛行追擊召喚物（base_content summons::chaser）。
+      { id = "summon_flying_chase", status = "supported", g_package = "G-3" },
     },
     kit_status = "supported",
     catalog_ready = false,

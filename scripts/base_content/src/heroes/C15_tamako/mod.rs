@@ -11,3 +11,5 @@ pub use No2_burst_arrow::c15_burst_arrow_ffi;
 pub use No3_precise_light::c15_precise_light_ffi;
 pub use No4_hundred_arrows::c15_hundred_arrows_ffi;
 pub use hero_unit::hero_unit_script;
+#[cfg(test)]
+pub(crate) mod parity_soak;

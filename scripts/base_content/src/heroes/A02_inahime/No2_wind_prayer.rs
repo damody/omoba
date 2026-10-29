@@ -1,5 +1,5 @@
-//! 風之祈（H05，來源 A02E current）：立即回復 100/200/300/400 生命，10 秒內攻速
-//! +40/70/100/130（攻速點）。重複施放以同一 buff id 刷新，不疊加。
+//! 風之祈（H05，來源 A02E current）：立即回復生命，並在一段時間內增加攻速（攻速點）；
+//! 數值見 v3.lua 的 heal、attack_speed、duration。重複施放以同一 buff id 刷新，不疊加。
 use abi_stable::std_types::{RErr,ROk,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},stat_keys::StatKey,types::{EntityHandle,Fixed64,Target},world::GameWorldDyn};
 use omoba_core::ability_meta::{EffectSpec,TargetSelector};
@@ -18,7 +18,7 @@ pub(crate) fn resolve(rank:u8)->Result<Prayer,&'static str> {
     if index>=content.levels.len() || rank>content.max_level {return Err("invalid wind prayer rank");}
     let extra=|key:&str|content.extras.iter().find(|(name,_)|*name==key).and_then(|(_,rows)|rows.get(index)).copied()
         .ok_or("missing wind prayer extra");
-    let spec=Prayer {heal:extra("heal_amount")?,attack_speed:extra("stat_buff_attack_speed_bonus")?,duration:extra("stat_buff_duration")?};
+    let spec=Prayer {heal:extra("heal")?,attack_speed:extra("attack_speed")?,duration:extra("duration")?};
     if spec.heal<=Fixed64::ZERO || spec.attack_speed<=Fixed64::ZERO || spec.duration<=Fixed64::ZERO || spec.duration>Fixed64::from_i32(60) {
         return Err("invalid wind prayer values");
     }
@@ -44,10 +44,10 @@ impl AbilityScript for WindPrayerHandler {
 
 pub fn a02_wind_prayer_ffi()->AbilityDefFFI {
     let mut modifiers=HashMap::new();
-    modifiers.insert(StatKey::AttackSpeedBonusConstant.as_str().into(),extra_at_id_f32(ID,"stat_buff_attack_speed_bonus",1));
+    modifiers.insert(StatKey::AttackSpeedBonusConstant.as_str().into(),extra_at_id_f32(ID,"attack_speed",1));
     build_ability_ffi(ID,WindPrayerHandler,vec![
-        EffectSpec::Heal {target:TargetSelector::SelfUnit,amount:extra_at_id_f32(ID,"heal_amount",1)},
-        EffectSpec::Buff {target:TargetSelector::SelfUnit,duration:Some(extra_at_id_f32(ID,"stat_buff_duration",1)),modifiers}])
+        EffectSpec::Heal {target:TargetSelector::SelfUnit,amount:extra_at_id_f32(ID,"heal",1)},
+        EffectSpec::Buff {target:TargetSelector::SelfUnit,duration:Some(extra_at_id_f32(ID,"duration",1)),modifiers}])
 }
 
 #[cfg(test)]

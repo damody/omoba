@@ -1,6 +1,6 @@
 # H01 雜賀孫市：假設與改編
 
-結構化版本在 `source.lua` 的 `assumptions`；本檔是給人讀的摘要。來源：`damody/nobugg_official@ca6ee86`，B01 current 版。
+結構化版本在 `source.lua` 的 `assumptions`；本檔是給人讀的摘要，逐招原作對照與移植結果見 `parity.md`。來源：`damody/history_nobu@f966720`（E169 前為 nobugg_official@ca6ee86；此英雄單位數值兩者相同），B01 current 版。
 
 - 距離單位：1 個來源單位等於 1 個世界單位。換算只在 package 裡處理。
 - 基礎數值：
@@ -11,9 +11,12 @@
   - 夜晚視野 +1000 不適用，因為沒有日夜循環。
   - 描述的「提升至 900～1400」是最終射程，KV 的 +200～700 是加成量。700 基礎射程下兩者一致，採用 KV。
 - 雜賀眾（E→W）：
-  - 召喚物數值在缺失的 vscript 中，沿用本地 `saika_gunner`，存活 60 秒。
-  - 學會時先儲存 1 位。
-  - 需要 G-2 儲存次數與 G-3 定點召喚，目前為 `needs_framework`。
+  - 召喚物取原作 B01W_UNIT 與 B01.lua:B01E_CHECK：生命 500、護甲 1、射程 725、攻擊間隔 1.4、存活 180 秒、攻擊 50＋5×英雄等級、無單位碰撞、視野 1400。
+  - 首次學會儲存 2 次（滿）；升級只提高上限、不補次數，未滿時補充計時從 15 秒重新開始（host charges 升級政策）。
+  - 同時存在上限 2/3/4/5，超出時最早召喚的那位立即離場、不給賞金（host summon_owner_cap）。
+  - 落點不可走時由 host 在附近找可放置點（FindClearSpace）。
+  - 玩家操控召喚物（原作移速 280、可操控）是 needs_framework（G-3），之前以定點召喚物（原地待命、攻擊射程內敵人）代替。
+  - 遠離孫市 −90% 輸出、賞金 20 金 5 經驗、great_sword_of_disease 生命 ×1.5 都是 needs_framework。
 - 雨鐵炮（R→被動）：依目標類別在普攻命中時追加物理傷害，不是本地版的扇形真實濺射。
 - 三段（T→R）：
   - 3 個 rank，持續 7/11/13 秒，CD 135/123/111，英雄 6/12/18 級解鎖。
@@ -22,3 +25,4 @@
   - 本地四招保留不動。
   - H01 以新 ID（`b01_*`）附加，本地實作只當程式起點。
   - 英雄 ID `saika_magoichi` 不變，由 build 以 `update_existing` 更新技能欄。
+- 魔免（原作設定，E170；引擎接上通用魔免時依此）：B01W、B01T 只作用於自身；B01E 召喚不涉魔免；B01R 的 KV 帶 MAGIC_IMMUNE_ENEMIES 與 SPELL_IMMUNITY_ENEMIES_YES：加成傷害也打魔免目標（物理）。

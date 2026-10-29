@@ -70,12 +70,20 @@ pub(crate) fn hits_any(
 }
 
 /// Public geometry only; hidden dynamic entities must not alter prediction.
+/// Up to this many regions a direct scan is cheaper than the shared index lookup.
+const TERRAIN_SCAN_LIMIT: usize = 32;
+
 pub(crate) fn path_hits_regions(
     from: SimVec2, to: SimVec2, radius: Fixed64, regions: &BlockedRegions,
 ) -> bool {
     // Hidden dynamic units cannot participate in player-view lockstep path
     // prediction. MOBA hero navigation therefore collides with public static
     // map geometry only; combat/targeting still uses the disclosed Searcher.
+    // Large terrains (E187 §5.6: the original nobu map's 305 rectangles) answer through the
+    // shared bucketed index; its exact test is the one below.
+    if regions.0.len() > TERRAIN_SCAN_LIMIT {
+        return crate::tick::hero_command_tick::TerrainIndex::cached(regions).hits(from, to, radius);
+    }
     for region in &regions.0 {
         if region.points.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) { return true; }
         // Legacy map/metadata floats are quantized at the static data boundary.

@@ -418,7 +418,12 @@ mod tests {
             submit(&mut world, &mut driver, 1, 82, Action::CastAbility(CastAbility {
                 ability_index: 0, target_entity: Some(enemy.id()), ..Default::default() }));
             let rows = world.write_resource::<OwnerCommandOutcomes>().take_for(1);
-            if authoritative { assert_eq!(rows, vec![(82, CAST_REJECTED)]); } else { assert!(rows.is_empty(), "the replica cannot judge a handler"); }
+            // The enemy stands far beyond the cast range: the authority keeps the order as an
+            // approach to cast (E210) instead of reporting anything yet; a world without a match
+            // casts it at once and cannot judge the handler.
+            let approaching = world.try_fetch::<super::super::cast_approach::CastApproaches>().is_some_and(|a| a.0.contains_key(&caster));
+            if authoritative { assert!(rows.is_empty() && approaching, "approach, not a shape refusal: {rows:?}"); }
+            else { assert!(rows.is_empty() && !approaching, "the replica cannot judge a handler"); }
         }
     }
 

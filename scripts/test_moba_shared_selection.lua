@@ -13,7 +13,7 @@ local baseline=launch.load_recipe(launch.options({}))
 baseline.players[2].bot=false
 local function copy(value) return json.decode(json.encode(value)) end
 local function record(plan)
-  local final=launch.select_heroes(plan,{[1]='training_ranger',[2]='training_luminary'})
+  local final=launch.select_heroes(plan,{[1]='tamako',[2]='murakami_yoshikiyo'})
   local seats={}
   for _,p in ipairs(final.players) do seats[#seats+1]={player=copy(p),locked=true} end
   return {schema_version=1,scope='shared-selection-host-finalized',tick_rate_hz=60,plan=final,
@@ -27,14 +27,14 @@ local function rejects(fn) assert(not pcall(fn),'expected rejection') end
 test('host plan permits only all human hero choices',function()
   local r=record(baseline)
   local before=json.encode(baseline)
-  assert(shared.result(r,baseline,hash).players[1].hero=='training_ranger')
+  assert(shared.result(r,baseline,hash).players[1].hero=='tamako')
   assert(json.encode(baseline)==before)
   for _,mutate in ipairs({
     function(x) x.scope='other' end,
     function(x) x.tick_rate_hz=120 end,
     function(x) x.selection.catalog_data_hash='wrong' end,
     function(x) x.selection.ready=false end,
-    function(x) x.plan.players[3].hero='training_ranger' end,
+    function(x) x.plan.players[3].hero='tamako' end,
     function(x) x.plan.players[1].team_id=2 end,
     function(x) x.plan.players[1].bot=true end,
     function(x) x.plan.players[2].player_id=x.plan.players[1].player_id end,
@@ -46,6 +46,31 @@ test('host plan permits only all human hero choices',function()
     function(x) x.plan.summoner_loadouts=json.null end,
     function(x) x.selection.summoner_loadouts=json.null end,
   }) do local changed=copy(r);mutate(changed);rejects(function() shared.result(changed,baseline,hash) end) end
+end)
+
+-- E210: several humans take bots' default heroes on their team; each clashing bot is moved.
+test('several humans take bot default heroes; moved bots are legal',function()
+  local plan=copy(baseline)
+  local by={}
+  for _,p in ipairs(plan.players) do by[p.player_id]=p end
+  local h1,h2=by[1].hero,by[2].hero
+  -- humans 1 and 2 (team 1) take bots 3 and 4's heroes; the bots get the humans' old ones
+  by[1].hero,by[2].hero,by[3].hero,by[4].hero=by[3].hero,by[4].hero,h1,h2
+  local seats={}
+  for _,p in ipairs(plan.players) do seats[#seats+1]={player=copy(p),locked=true} end
+  local r={schema_version=1,scope='shared-selection-host-finalized',tick_rate_hz=60,plan=plan,
+    selection={schema_version=1,catalog_data_hash=hash,revision=5,ready=true,finalized=true,seats=seats,
+      summoner_loadouts=plan.summoner_loadouts}}
+  local accepted=shared.result(r,baseline,hash)
+  assert(accepted.players[1].hero==baseline.players[3].hero and accepted.players[3].hero==h1)
+  local dup=copy(r)
+  dup.plan.players[4].hero=dup.plan.players[3].hero
+  dup.selection.seats[4].player.hero=dup.plan.players[3].hero
+  rejects(function() shared.result(dup,baseline,hash) end)
+  local stray=copy(r)
+  stray.plan.players[5].hero=baseline.players[9].hero
+  stray.selection.seats[5].player.hero=baseline.players[9].hero
+  rejects(function() shared.result(stray,baseline,hash) end) -- bot 5 lost nothing to a human
 end)
 
 test('host loadouts survive hero choice and reject a substituted snapshot',function()
@@ -78,7 +103,7 @@ local function execute(name,mode)
   path.write(recipe,json.encode(baseline))
   local original=path.read(recipe)
   local options=launch.options({'--interactive-selection','--profile','debug','--recipe',recipe,
-    '--hero','1=training_vanguard','--output',path.join(directory,'match')})
+    '--hero','1=asai_nagamasa','--output',path.join(directory,'match')})
   if mode=='completion-timeout' then options.selection_timeout_seconds=1 end
   if mode=='old' then options.editor_ready_timeout_seconds=1 end
   if mode=='cold-ready' then options.editor_ready_timeout_seconds=90;options.selection_timeout_seconds=120 end
@@ -91,7 +116,7 @@ local function execute(name,mode)
   fake.run=function(_,args)
     assert(args[1]=='--lock-plan')
     plan=json.read(args[2])
-    assert(plan.players[1].hero=='training_vanguard')
+    assert(plan.players[1].hero=='asai_nagamasa')
     return {exit_code=0,stdout=json.encode({scope='host-prepared-selection',plan=plan,
       selection={catalog_data_hash=hash}})}
   end
@@ -157,7 +182,7 @@ local function execute(name,mode)
   end
   publish=function()
     local r=record(plan)
-    if mode=='tamper' then r.plan.players[3].hero='training_ranger' end
+    if mode=='tamper' then r.plan.players[3].hero='tamako' end
     receipts(r)
     path.write(path.join(host_dir,'finalized-plan.json'),json.encode(r))
     states[101].alive=false
@@ -191,7 +216,7 @@ local function execute(name,mode)
         and type(entry.creation_token)=='string','ownership evidence missing')
     end
     assert(next(options.hero_selections)==nil and options.recipe~=recipe)
-    assert(json.read(options.recipe).players[1].hero=='training_ranger')
+    assert(json.read(options.recipe).players[1].hero=='tamako')
     if mode=='subset' or mode=='lan' then
       assert(states[202]==nil and peers[2]==nil,'remote seat must not get a local renderer')
       assert(#json.read(options.recipe).players==10 and json.read(options.recipe).players[2].bot==false)
@@ -209,7 +234,7 @@ local function execute(name,mode)
       ['room-prefix']='shared-room handshake',['fast-protocol-prefix']='shared-room handshake',
       ['wrong-address']='selection readiness address'}
     assert(tostring(err):find(assert(reasons[mode]),1,true),'unexpected failure: '..tostring(err))
-    assert(options.recipe==recipe and options.hero_selections[1]=='training_vanguard')
+    assert(options.recipe==recipe and options.hero_selections[1]=='asai_nagamasa')
     local errors=path.read(options.output..'-selection/errors.md')
     assert(#errors>0 and not errors:find('INVITATION_MUST_NOT_BE_READ_BY_LUA',1,true))
     if mode=='cleanup-error' then

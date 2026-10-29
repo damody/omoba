@@ -18,7 +18,7 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<Strike,&'static str> {
     if !data.range.is_finite() || data.range<=0.0 || data.range>10_000.0 {return Err("invalid divine strike range");}
     let extra=|key:&str|content.extras.iter().find(|(name,_)|*name==key).and_then(|(_,rows)|rows.get(index)).copied()
         .ok_or("missing divine strike extra");
-    Ok(Strike {range:Fixed64::from_raw((f64::from(data.range)*1024.0).round() as i64),radius:extra("shape_radius")?,damage:extra("damage_amount")?})
+    Ok(Strike {range:Fixed64::from_raw((f64::from(data.range)*1024.0).round() as i64),radius:extra("radius")?,damage:extra("damage")?})
 }
 
 pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Target,spec:Strike)->Result<(),&'static str> {
@@ -29,7 +29,10 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
         .filter(|e|*e!=caster && !world.is_building(*e) && world.is_alive(*e)
             && world.get_hp(*e).into_option().is_some_and(|hp|hp>Fixed64::ZERO)).collect();
     hit.sort_by_key(|e|(e.id,e.gen));hit.dedup();
-    for e in hit {world.deal_damage(e,spec.damage,DamageKind::Magical,DamageProfile::ENERGY,RSome(caster));}
+    for e in hit {
+        // AMHC:Damage: nothing once Oichi has died (amhc.lua:540).
+        world.deal_damage(e,spec.damage,DamageKind::Magical,DamageProfile::ENERGY.union(DamageProfile::REQUIRE_SOURCE_ALIVE),RSome(caster));
+    }
     Ok(())
 }
 
@@ -42,8 +45,8 @@ impl AbilityScript for DivineStrikeHandler {
 }
 
 pub fn c17_divine_strike_ffi()->AbilityDefFFI {
-    build_ability_ffi(ID,DivineStrikeHandler,vec![EffectSpec::AreaEffect {radius:extra_at_id_f32(ID,"shape_radius",1),duration:0.2,tick_interval:0.0,
-        effects:vec![EffectSpec::Damage {target:TargetSelector::AllEnemies,amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical}]}])
+    build_ability_ffi(ID,DivineStrikeHandler,vec![EffectSpec::AreaEffect {radius:extra_at_id_f32(ID,"radius",1),duration:0.2,tick_interval:0.0,
+        effects:vec![EffectSpec::Damage {target:TargetSelector::AllEnemies,amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical}]}])
 }
 
 #[cfg(test)]

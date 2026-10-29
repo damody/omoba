@@ -86,7 +86,12 @@ prepare=function()
     plan.mode,plan.local_human_count,plan.human_count,plan.bot_count,plan.tick_rate_hz,plan.server_address,plan.config))
   return plan
 end,
-launch=function(plan) launch.launch(plan,editor,process,time) end,
+launch=function(plan)
+  -- One live match per machine (E197); a split child joins the lock its parent holds.
+  local lock <close> = require('machine_lock').acquire(b.root,'live_match',{run=plan.output,
+    label='run_moba_role_ue '..plan.mode,wait_seconds=options.wait_live_lock or 0})
+  launch.launch(plan,editor,process,time,lock)
+end,
 })
 end,debug.traceback)
 if not ok then

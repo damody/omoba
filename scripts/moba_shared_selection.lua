@@ -12,24 +12,12 @@ function M.result(record,baseline,hash)
     and state.catalog_data_hash==hash,'shared selection was not finalized with matching content')
   local final=assert(record.plan,'shared selection final plan missing')
   assert(type(final.players)=='table' and #final.players==#baseline.players,'selection roster size changed')
-  local known,seen,selections={},{},{}
-  for _,p in ipairs(baseline.players) do known[p.player_id]=p end
-  for _,p in ipairs(final.players) do
-    local original=assert(known[p.player_id],'selection added a player')
-    assert(not seen[p.player_id],'selection duplicated a player')
-    seen[p.player_id]=true
-    if original.bot==false then
-      assert(type(p.hero)=='string' and p.hero:match('^[%w_]+$'),'invalid selected hero')
-      selections[p.player_id]=p.hero
-    end
-  end
   local launch=require('moba_role_launch')
   launch.assert_snapshot_loadouts(state,final)
-  local expected=launch.omit_empty_summoner_loadouts(launch.select_heroes(baseline,selections))
+  -- Rules, not a diff: a bot whose hero a human teammate took is moved by the service (E164, E210).
+  launch.assert_final_roster(baseline,final,{seats=state.seats,hero_catalog=record.hero_catalog})
   local actual=launch.omit_empty_summoner_loadouts(final)
-  table.sort(expected.players,function(a,c) return a.player_id<c.player_id end)
   table.sort(actual.players,function(a,c) return a.player_id<c.player_id end)
-  assert(json.encode(actual)==json.encode(expected),'selection changed host-owned rules, Bot or roster')
   assert(type(state.seats)=='table' and #state.seats==#actual.players,'final selection seats mismatch')
   local seats={}
   for _,seat in ipairs(state.seats) do

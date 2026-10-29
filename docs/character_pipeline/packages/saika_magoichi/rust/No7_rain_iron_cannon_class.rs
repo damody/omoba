@@ -27,9 +27,9 @@ pub(crate) fn bonus(rank:u8,class:TargetClass)->Option<Fixed64> {
     let index=usize::from(rank.checked_sub(1)?);
     if index>=content.levels.len() {return None;}
     let key=match class {
-        TargetClass::Building=>"on_attack_bonus_by_target_class_building",
-        TargetClass::Hero=>"on_attack_bonus_by_target_class_hero",
-        TargetClass::Creep=>"on_attack_bonus_by_target_class_creep",
+        TargetClass::Building=>"building_pct",
+        TargetClass::Hero=>"hero_pct",
+        TargetClass::Creep=>"creep_pct",
     };
     let percent=content.extras.iter().find(|(name,_)|*name==key)?.1.get(index).copied()?;
     if percent<Fixed64::ZERO || percent>Fixed64::from_i32(1000) {return None;}
@@ -50,7 +50,9 @@ impl AbilityScript for RainIronCannonClassHandler {
         if attack<=Fixed64::ZERO || attack>Fixed64::from_i32(1_000_000) {return;}
         let raw=i128::from(attack.raw())*i128::from(fraction.raw())/1024;
         if raw<=0 || raw>i128::from(1_000_000*1024) {return;}
-        world.deal_damage(victim,Fixed64::from_raw(raw as i64),DamageKind::Physical,DamageProfile::NORMAL,RSome(attacker));
+        // AMHC:Damage (B01.lua:335): nothing when Magoichi has died before the shot lands (amhc.lua:540).
+        world.deal_damage(victim,Fixed64::from_raw(raw as i64),DamageKind::Physical,
+            DamageProfile::NORMAL.union(DamageProfile::REQUIRE_SOURCE_ALIVE),RSome(attacker));
     }
 }
 

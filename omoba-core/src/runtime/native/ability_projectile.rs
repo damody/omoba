@@ -13,6 +13,29 @@
 //!
 //! Allegiance and kill credit are captured at launch, so a projectile whose
 //! caster dies keeps its original team unless `caster_death = expire`.
+//!
+//! Bounce chain (homing only, optional `bounce` row in the payload, E163): after
+//! each hit the same projectile re-locks a random other live hostile hero or
+//! basic unit within `radius` of the unit it just hit that the owner's team can
+//! see (only the unit just hit is excluded), until `hits` hits in total. The
+//! random pick is deterministic (master seed, tick, projectile identity).
+//!
+//! Optional payload rows (absent = previous behaviour), added by helpers so the
+//! closed `Spec` literal every script builds stays unchanged:
+//! - `dodgeable` (homing, [`with_dodgeable`]): a [`dodge`] of the locked unit
+//!   retires the flight without settling (Dota `ProjectileDodge`).
+//! - `end_radius` (linear, [`with_end_radius`]): the hit radius grows linearly
+//!   with the distance flown, from `radius` to `end_radius` (frontal cone).
+//! - `dot_interval` (with `dot`, [`with_dot_interval`]): the on-hit DoT settles
+//!   `rate × interval` once per interval instead of continuously.
+//! - `hit_stack` (any, [`with_hit_stack`]): each hit asks the host to apply the
+//!   stacking rule carried by the named caster buff (see `hit_stack`), only if
+//!   the caster still has that buff when the hit settles.
+//! - `healing_reduction` (any, [`with_healing_reduction`]): each hit grants the
+//!   shared healing reduction (strongest multiplier, longest time; E184).
+//! - `vision` (any, [`with_vision`]): the flight gives the caster's team plain sight of
+//!   that radius around itself while it lasts (原作 ProvidesVision / VisionRadius; E185),
+//!   a following `reveal_zone` that closes with the projectile.
 use omoba_content_model::ControlEffectKind;
 use omoba_sim::{Fixed64, Vec2};
 use omb_script_abi::types::{DamageKind, DamageProfile};
@@ -28,6 +51,14 @@ pub const BUFF: &str = "ability_projectile";
 pub const MAX_LIVE: usize = 512;
 pub const MAX_LIVE_PER_SOURCE: usize = 32;
 pub const MAX_HITS: u16 = 64;
+/// Bounce chains: at most this many hits in total, radius 1..=MAX_BOUNCE_RADIUS.
+pub const MAX_BOUNCE_HITS: u16 = 16;
+pub const MAX_BOUNCE_RADIUS: i32 = 2_000;
+/// Optional launch delay (`delay` row in the payload): the projectile is
+/// created at the launch point and direction now, but waits this long before
+/// its flight (and lifetime) starts; it cannot hit while waiting. Source B04T
+/// fires its extra bullets 0.05 / 0.1 s after the attack (B04.lua:199-210).
+pub const MAX_LAUNCH_DELAY: Fixed64 = Fixed64::ONE;
 /// Disclosed-render kind for `DemoRenderState::kind` (0 other, 1 hero, 2 unit,
 /// 3 neutral, 4 summon).
 pub const RENDER_KIND: u8 = 5;
@@ -166,7 +197,8 @@ impl Spec {
     pub fn from_payload(buff_id: &str, duration: Fixed64, payload: &Value) -> Option<Self> {
         if buff_id != BUFF || payload.as_object()?.len() != 1 { return None; }
         let row = payload.get(KEY)?.as_object()?;
-        let optional = ["slow", "control", "dot", "buildings", "forced", "retarget_radius"].iter().filter(|key| row.contains_key(**key)).count();
+        let optional = ["slow", "control", "dot", "buildings", "forced", "retarget_radius", "bounce",
+            "dodgeable", "end_radius", "dot_interval", "hit_stack", "delay", "healing_reduction", "vision"].iter().filter(|key| row.contains_key(**key)).count();
         if row.len() != 15 + optional { return None; }
         let raw = |name: &str| row.get(name)?.as_i64().map(Fixed64::from_raw);
         let id = |value: &Value, name: &str| value.get(name)?.as_u64().and_then(|v| u32::try_from(v).ok());
@@ -225,8 +257,193 @@ impl Spec {
             slow, control, dot, buildings, forced,
         };
         // The buff duration is the authored lifetime; a mismatch is ambiguous.
+        if row.contains_key("bounce") && bounce_of(payload).is_none() { return None; }
+        if row.contains_key("dodgeable") && !dodgeable_of(payload) { return None; }
+        if row.contains_key("end_radius") && end_radius_of(payload).is_none() { return None; }
+        if row.contains_key("dot_interval") && dot_interval_of(payload).is_none() { return None; }
+        if row.contains_key("hit_stack") && hit_stack_of(payload).is_none() { return None; }
+        if row.contains_key("delay") && delay_of(payload) == Fixed64::ZERO { return None; }
+        if row.contains_key("healing_reduction") && healing_reduction_of(payload).is_none() { return None; }
+        if row.contains_key("vision") && vision_of(payload).is_none() { return None; }
         (spec.valid() && duration == spec.lifetime).then_some(spec)
     }
+}
+
+/// Adds a bounce chain to a homing payload: `hits` hits in total, re-locking
+/// within `radius` of each unit hit.
+pub fn with_bounce(mut payload: Value, hits: u16, radius: Fixed64) -> Value {
+    if let Some(row) = payload.get_mut(KEY).and_then(Value::as_object_mut) {
+        row.insert("bounce".into(), json!({"hits": hits, "radius": radius.raw()}));
+    }
+    payload
+}
+
+/// The payload's bounce chain as (hits in total, radius); None when absent or invalid.
+pub fn bounce_of(payload: &Value) -> Option<(u16, Fixed64)> {
+    let row = payload.get(KEY)?.as_object()?;
+    if row.get("homing").is_none() { return None; }
+    let bounce = row.get("bounce")?.as_object()?;
+    if bounce.len() != 2 { return None; }
+    let hits = u16::try_from(bounce.get("hits")?.as_u64()?).ok()?;
+    let radius = Fixed64::from_raw(bounce.get("radius")?.as_i64()?);
+    ((2..=MAX_BOUNCE_HITS).contains(&hits) && radius >= Fixed64::ONE && radius <= Fixed64::from_i32(MAX_BOUNCE_RADIUS))
+        .then_some((hits, radius))
+}
+
+fn with_row(mut payload: Value, key: &str, value: Value) -> Value {
+    if let Some(row) = payload.get_mut(KEY).and_then(Value::as_object_mut) { row.insert(key.into(), value); }
+    payload
+}
+
+/// Marks a homing payload dodgeable: [`dodge`] of the locked unit retires it.
+pub fn with_dodgeable(payload: Value) -> Value { with_row(payload, "dodgeable", json!(true)) }
+
+/// Whether the payload is a dodgeable homing flight (canonical: present only when true).
+pub fn dodgeable_of(payload: &Value) -> bool {
+    payload.get(KEY).and_then(Value::as_object)
+        .is_some_and(|row| row.get("homing").is_some() && row.get("dodgeable") == Some(&Value::Bool(true)))
+}
+
+/// Linear widening: the hit radius grows from `radius` to `end` over the flight distance.
+pub fn with_end_radius(payload: Value, end: Fixed64) -> Value { with_row(payload, "end_radius", json!(end.raw())) }
+
+/// The linear payload's end radius; None when absent or invalid (0..=1000, linear only).
+pub fn end_radius_of(payload: &Value) -> Option<Fixed64> {
+    let row = payload.get(KEY)?.as_object()?;
+    if row.get("linear").is_none() { return None; }
+    let end = Fixed64::from_raw(row.get("end_radius")?.as_i64()?);
+    (end >= Fixed64::ZERO && end <= Fixed64::from_i32(1_000)).then_some(end)
+}
+
+/// Discrete DoT: the on-hit `dot` settles `rate × interval` once per interval.
+pub fn with_dot_interval(payload: Value, interval: Fixed64) -> Value { with_row(payload, "dot_interval", json!(interval.raw())) }
+
+/// The payload's DoT interval; None when absent, without `dot`, or outside 1 raw..=60 s.
+pub fn dot_interval_of(payload: &Value) -> Option<Fixed64> {
+    let row = payload.get(KEY)?.as_object()?;
+    if row.get("dot").is_none() { return None; }
+    let interval = Fixed64::from_raw(row.get("dot_interval")?.as_i64()?);
+    (interval >= Fixed64::from_raw(1) && interval <= Fixed64::from_i32(60)).then_some(interval)
+}
+
+/// Each hit applies the stacking rule carried by the caster's `caster_buff`
+/// (`hit_stack::RULE_KEY`), if the caster still has it when the hit settles.
+pub fn with_hit_stack(payload: Value, caster_buff: &str) -> Value { with_row(payload, "hit_stack", json!(caster_buff)) }
+
+/// The caster buff id a hit's stacking rule comes from; None when absent or invalid.
+pub fn hit_stack_of(payload: &Value) -> Option<String> {
+    let id = payload.get(KEY)?.as_object()?.get("hit_stack")?.as_str()?;
+    super::hit_stack::valid_buff_id(id).then(|| id.to_owned())
+}
+
+/// Each hit grants healing reduction: heal received × `multiplier` (0 <= m < 1) for `duration` (<= 60 s).
+pub fn with_healing_reduction(payload: Value, multiplier: Fixed64, duration: Fixed64) -> Value {
+    with_row(payload, "healing_reduction", json!({"multiplier": multiplier.raw(), "duration": duration.raw()}))
+}
+
+/// The payload's on-hit healing reduction; None when absent or invalid.
+pub fn healing_reduction_of(payload: &Value) -> Option<(Fixed64, Fixed64)> {
+    let row = payload.get(KEY)?.as_object()?.get("healing_reduction")?.as_object()?;
+    if row.len() != 2 { return None; }
+    let multiplier = Fixed64::from_raw(row.get("multiplier")?.as_i64()?);
+    let duration = Fixed64::from_raw(row.get("duration")?.as_i64()?);
+    (multiplier >= Fixed64::ZERO && multiplier < Fixed64::ONE && duration > Fixed64::ZERO && duration <= Fixed64::from_i32(60))
+        .then_some((multiplier, duration))
+}
+
+/// The flight gives its caster's team plain sight of `radius` (1..=reveal_zone::MAX_RADIUS) around itself.
+pub fn with_vision(payload: Value, radius: Fixed64) -> Value { with_row(payload, "vision", json!(radius.raw())) }
+
+/// The payload's flight vision radius; None when absent or out of range.
+pub fn vision_of(payload: &Value) -> Option<Fixed64> {
+    let radius = Fixed64::from_raw(payload.get(KEY)?.as_object()?.get("vision")?.as_i64()?);
+    (radius > Fixed64::ZERO && radius <= Fixed64::from_i32(super::reveal_zone::MAX_RADIUS)).then_some(radius)
+}
+
+/// Dodge request: a script sends its own caster
+/// `add_stat_buff(caster, DODGE_BUFF, duration, dodge_payload(caster))`; the host
+/// retires every dodgeable homing ability projectile and every normal-attack
+/// projectile currently tracking the caster, without settling them. Never stored.
+pub const DODGE_KEY: &str = "__projectile_dodge_v1";
+pub const DODGE_BUFF: &str = "__projectile_dodge";
+
+pub fn dodge_payload(source_id: u32, source_generation: u32) -> Value {
+    json!({ (DODGE_KEY): { "source_id": source_id, "source_generation": source_generation } })
+}
+
+/// The unit a dodge request is for: exactly the live sender itself.
+pub fn dodge_admitted(world: &World, target: Entity, buff_id: &str, payload: &Value, expected_source: Option<Entity>) -> Option<Entity> {
+    if buff_id != DODGE_BUFF || payload.as_object()?.len() != 1 { return None; }
+    let row = payload.get(DODGE_KEY)?.as_object()?;
+    if row.len() != 2 { return None; }
+    let id = u32::try_from(row.get("source_id")?.as_u64()?).ok()?;
+    let generation = u32::try_from(row.get("source_generation")?.as_u64()?).ok()?;
+    let source = world.entities().entity(id);
+    (generation > 0 && source.gen().id() as u32 == generation && source == target && world.entities().is_alive(source)
+        && expected_source.is_none_or(|expected| expected == source)
+        && world.read_storage::<CProperty>().get(source).is_some_and(|p| p.hp > Fixed64::ZERO)).then_some(source)
+}
+
+/// Serial dodge. Returns the retired projectiles' Death outcomes in canonical order.
+pub fn dodge(world: &mut World, target: Entity, buff_id: &str, payload: &Value) -> Vec<Outcome> {
+    let Some(unit) = dodge_admitted(world, target, buff_id, payload, None) else { return Vec::new(); };
+    let mut outcomes = Vec::new();
+    // Ability projectiles: BTreeMap order.
+    let retired: Vec<Entity> = world.try_fetch::<AbilityProjectiles>().map(|rows| rows.0.iter()
+        .filter(|(_, state)| state.dodgeable && !state.target_lost && state.target == Some(unit)
+            && matches!(state.spec.motion, Motion::Homing { .. }))
+        .map(|(entity, _)| *entity).collect()).unwrap_or_default();
+    for projectile in retired {
+        world.write_resource::<AbilityProjectiles>().0.remove(&projectile);
+        let pos = world.read_storage::<Pos>().get(projectile).map_or(Vec2::ZERO, |p| p.0);
+        emit_fact(world, projectile, 1, crate::runtime::FactKind::Projectile,
+            crate::runtime::ObservableFact::Projectile { source: crate::runtime::canonical_entity_id(projectile),
+                target: None, effect_id: 0, active: false });
+        outcomes.push(Outcome::Death { pos, ent: projectile });
+    }
+    // Normal-attack projectiles (Dota attack projectiles are dodgeable).
+    let attacks: Vec<(Entity, Vec2, u16)> = {
+        let origins = world.try_fetch::<ProjectileOrigins>();
+        let entities = world.entities();
+        let projectiles = world.read_storage::<Projectile>();
+        let positions = world.read_storage::<Pos>();
+        let mut rows: Vec<_> = (&entities, &projectiles, &positions).join()
+            .filter(|(entity, projectile, _)| projectile.target == Some(unit) && projectile.time_left > Fixed64::ZERO
+                && origins.as_ref().and_then(|o| o.0.get(entity)).is_some_and(|origin| origin.normal_attack))
+            .map(|(entity, projectile, pos)| (entity, pos.0, projectile.kind_id)).collect();
+        rows.sort_by_key(|(entity, _, _)| identity(*entity));
+        rows
+    };
+    for (projectile, pos, kind_id) in attacks {
+        if let Some(row) = world.write_storage::<Projectile>().get_mut(projectile) { row.time_left = Fixed64::ZERO; }
+        let source = crate::runtime::canonical_entity_id(projectile);
+        if let (Some(tick), Some(facts)) = (world.try_fetch::<Tick>().map(|t| t.0), world.try_fetch::<crate::runtime::ObservableFactBuffer>()) {
+            let _ = facts.emit(crate::runtime::OrderedFact {
+                key: crate::runtime::FactOrderingKey { tick, phase: crate::runtime::FactPhase::PostStep,
+                    canonical_source_order: source, local_ordinal: 0, fact_kind: crate::runtime::FactKind::Projectile },
+                audience: crate::runtime::FactAudience::VisibilityPolicy(
+                    omb_script_abi::types::projection_policy_ids::PROJECTILE.to_owned()),
+                fact: crate::runtime::ObservableFact::Projectile { source, target: Some(crate::runtime::canonical_entity_id(unit)),
+                    effect_id: u64::from(kind_id), active: false },
+            });
+        }
+        outcomes.push(Outcome::Death { pos, ent: projectile });
+    }
+    outcomes
+}
+
+/// Adds a launch delay (raw Fixed64 seconds, 0 < delay <= [`MAX_LAUNCH_DELAY`]).
+pub fn with_delay(mut payload: Value, delay: Fixed64) -> Value {
+    if let Some(row) = payload.get_mut(KEY).and_then(Value::as_object_mut) {
+        row.insert("delay".into(), json!(delay.raw()));
+    }
+    payload
+}
+
+/// The payload's launch delay; zero when absent or invalid.
+pub fn delay_of(payload: &Value) -> Fixed64 {
+    payload.get(KEY).and_then(|row| row.get("delay")).and_then(Value::as_i64).map(Fixed64::from_raw)
+        .filter(|delay| *delay > Fixed64::ZERO && *delay <= MAX_LAUNCH_DELAY).unwrap_or(Fixed64::ZERO)
 }
 
 /// Authority-private in-flight state. Never disclosed; see [`disclosed_state`].
@@ -245,6 +462,28 @@ pub struct State {
     pub hits: BTreeSet<(u32, u32)>,
     /// Last committed step delta; public motion direction for presentation.
     pub heading: Vec2,
+    /// Bounce chain: (hits left including the current flight, radius).
+    pub bounce: Option<(u16, Fixed64)>,
+    /// Payload extensions (see the module doc); fixed for the flight's life.
+    pub dodgeable: bool,
+    pub end_radius: Option<Fixed64>,
+    pub dot_interval: Option<Fixed64>,
+    pub hit_stack: Option<String>,
+    pub healing_reduction: Option<(Fixed64, Fixed64)>,
+    /// Launch delay still to wait before the first step (see [`MAX_LAUNCH_DELAY`]).
+    pub delay_left: Fixed64,
+}
+
+impl State {
+    /// Linear hit radius after `age`: `radius` widening to `end_radius` over the
+    /// flight distance (exact i128 lerp on the distance flown, capped at the end).
+    pub fn hit_radius(&self) -> Fixed64 {
+        let (Some(end), Motion::Linear { .. }) = (self.end_radius, self.spec.motion) else { return self.spec.radius; };
+        let distance = i128::from(self.spec.distance.raw().max(1));
+        let flown = (i128::from(self.spec.speed.raw()) * i128::from(self.age.raw()) / 1024).clamp(0, distance);
+        let start = i128::from(self.spec.radius.raw());
+        Fixed64::from_raw((start + (i128::from(end.raw()) - start) * flown / distance) as i64)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -253,13 +492,23 @@ pub struct AbilityProjectiles(pub BTreeMap<Entity, State>);
 impl AbilityProjectiles {
     /// Canonical authority state for the lockstep desync hash.
     pub fn hash_value(&self) -> Value {
-        Value::Array(self.0.iter().map(|(entity, state)| json!({
-            "entity": crate::runtime::canonical_entity_id(*entity), "spec": state.spec.payload(),
-            "owner": crate::runtime::canonical_entity_id(state.owner), "faction": state.faction, "team": state.team,
-            "origin": state.origin, "end": [state.end.x.raw(), state.end.y.raw()],
-            "target": state.target.map(crate::runtime::canonical_entity_id), "target_lost": state.target_lost,
-            "age": state.age.raw(), "hits": state.hits, "heading": [state.heading.x.raw(), state.heading.y.raw()],
-        })).collect())
+        Value::Array(self.0.iter().map(|(entity, state)| {
+            let mut row = json!({
+                "entity": crate::runtime::canonical_entity_id(*entity), "spec": state.spec.payload(),
+                "owner": crate::runtime::canonical_entity_id(state.owner), "faction": state.faction, "team": state.team,
+                "origin": state.origin, "end": [state.end.x.raw(), state.end.y.raw()],
+                "target": state.target.map(crate::runtime::canonical_entity_id), "target_lost": state.target_lost,
+                "age": state.age.raw(), "hits": state.hits, "heading": [state.heading.x.raw(), state.heading.y.raw()],
+                "bounce": state.bounce.map(|(hits, radius)| [i64::from(hits), radius.raw()]),
+            });
+            // Extensions join the hash only when set, so older flights hash as before.
+            if state.dodgeable { row["dodgeable"] = json!(true); }
+            if let Some(end) = state.end_radius { row["end_radius"] = json!(end.raw()); }
+            if let Some(interval) = state.dot_interval { row["dot_interval"] = json!(interval.raw()); }
+            if let Some(buff) = &state.hit_stack { row["hit_stack"] = json!(buff); }
+            row["delay_left"] = json!(state.delay_left.raw());
+            row
+        }).collect())
     }
     fn per_source(&self, owner: Entity) -> usize { self.0.values().filter(|state| state.owner == owner).count() }
 }
@@ -344,6 +593,7 @@ pub fn launch(world: &mut World, target: Entity, buff_id: &str, duration: Fixed6
         }
     };
     let team = faction.team_id.max(0) as u32;
+    let lifetime = spec.lifetime;
     let entity = world.create_entity()
         .with(Pos(from))
         .with(ReplicationScope { kind: ReplicationScopeKind::OwnerTeam, owner_team: Some(team) })
@@ -352,7 +602,17 @@ pub fn launch(world: &mut World, target: Entity, buff_id: &str, duration: Fixed6
     world.write_resource::<AbilityProjectiles>().0.insert(entity, State {
         spec, owner: source, faction, team, origin, end, target: victim, target_lost: false,
         age: Fixed64::ZERO, hits: BTreeSet::new(), heading: Vec2::ZERO,
+        bounce: bounce_of(payload),
+        dodgeable: dodgeable_of(payload), end_radius: end_radius_of(payload),
+        dot_interval: dot_interval_of(payload), hit_stack: hit_stack_of(payload),
+        delay_left: delay_of(payload), healing_reduction: healing_reduction_of(payload),
     });
+    // Flight vision: the team sees around the projectile until it retires (the zone follows
+    // the entity and closes when it is removed; the duration only bounds it).
+    if let Some(radius) = vision_of(payload) {
+        let lasting = (lifetime + delay_of(payload)).min(Fixed64::from_i32(super::reveal_zone::MAX_DURATION));
+        super::reveal_zone::open_following(world, team, entity, radius, lasting);
+    }
     Some(entity)
 }
 
@@ -406,11 +666,13 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
             let entities = world.entities();
             let positions = world.read_storage::<Pos>();
             let radii = world.read_storage::<CollisionRadius>();
+            // Widening flights test this step at the radius reached by its end.
+            let radius = state.hit_radius();
             let mut rows: Vec<_> = (&entities, &positions, &world.read_storage::<Faction>()).join()
                 .filter(|(target, _, other)| *target != state.owner && state.faction.is_hostile_to(other)
                     && !state.hits.contains(&identity(*target)))
                 .filter_map(|(target, pos, _)| {
-                    let reach = state.spec.radius + radii.get(target).map_or(Fixed64::ZERO, |r| r.0.max(Fixed64::ZERO));
+                    let reach = radius + radii.get(target).map_or(Fixed64::ZERO, |r| r.0.max(Fixed64::ZERO));
                     omoba_sim::terrain::swept_circle_contact_q32(pos.0, from, to, reach).map(|contact| (contact, target))
                 })
                 .collect();
@@ -449,7 +711,28 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
             // refresh rules are the existing periodic-damage ones.
             outcomes.push(Outcome::AddBuff { target: *target,
                 buff_id: omb_script_abi::buff_ids::generic_dot_buff_id(&state.spec.ability, caster), duration,
-                payload: crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::payload(rate, caster, state.spec.kind) });
+                payload: {
+                    let mut payload = crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::payload(rate, caster, state.spec.kind);
+                    // A spell flight's DoT is the same ability's damage (E188, e.g. A34R).
+                    if state.spec.profile & DamageProfile::SPELL.bits() != 0 {
+                        payload = crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::with_spell(payload);
+                    }
+                    match state.dot_interval {
+                        Some(interval) => crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::with_interval(payload, interval),
+                        None => payload,
+                    }
+                } });
+        }
+        if let Some(caster_buff) = &state.hit_stack {
+            // Decided at hit settlement: the caster must still carry the rule buff.
+            if world.read_resource::<crate::runtime::BuffStore>().has(state.owner, caster_buff) {
+                outcomes.push(Outcome::AddBuff { target: *target, buff_id: super::hit_stack::APPLY_BUFF.to_owned(),
+                    duration: Fixed64::ONE, payload: super::hit_stack::apply_payload(caster.id, caster.gen, caster_buff) });
+            }
+        }
+        if let Some((multiplier, duration)) = state.healing_reduction {
+            // BuffStore merges it (and keeps it off a magic-immune unit) like every other grant.
+            world.write_resource::<crate::runtime::BuffStore>().grant_healing_reduction(*target, multiplier, duration);
         }
         if let Some((mode, distance, duration)) = state.spec.forced {
             // The hit already proved contact; range only bounds the owner link.
@@ -463,6 +746,23 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
         last_contact = Some(*contact);
     }
     let spent = state.hits.len() + hits.len() >= usize::from(state.spec.max_hits);
+    // Bounce chain: the same projectile re-locks the next unit instead of retiring.
+    let next = match (state.bounce, hits.first()) {
+        (Some((left, radius)), Some((_, hit))) if left > 1 => next_bounce(world, &state, projectile, *hit, radius, removed),
+        _ => None,
+    };
+    if let (Some((next, at)), Some((left, radius))) = (next, state.bounce) {
+        let mut rows = world.write_resource::<AbilityProjectiles>();
+        if let Some(row) = rows.0.get_mut(&projectile) {
+            row.spec.motion = Motion::Homing { target_id: next.id(), target_generation: next.gen().id() as u32 };
+            row.target = Some(next);
+            row.end = at;
+            row.target_lost = false;
+            row.age = Fixed64::ZERO;
+            row.bounce = Some((left - 1, radius));
+        }
+        return outcomes;
+    }
     let homing_resolved = matches!(state.spec.motion, Motion::Homing { .. }) && arrival;
     let end_pos = match (spent, last_contact) {
         (true, Some(contact)) if matches!(state.spec.motion, Motion::Linear { .. }) => point_at(from, to, contact),
@@ -485,6 +785,29 @@ pub fn settle_step(world: &mut World, projectile: Entity, from: Vec2, to: Vec2, 
         outcomes.push(Outcome::Death { pos: end_pos, ent: projectile });
     }
     outcomes
+}
+
+/// The next unit of a bounce chain: a random live hostile non-building unit
+/// within `radius` of `from_unit`, other than it, that the owner's team can see.
+fn next_bounce(world: &World, state: &State, projectile: Entity, from_unit: Entity, radius: Fixed64, removed: &[Entity])
+    -> Option<(Entity, Vec2)> {
+    let at = world.read_storage::<Pos>().get(from_unit)?.0;
+    let mut candidates: Vec<(Entity, Vec2)> = {
+        let entities = world.entities();
+        let positions = world.read_storage::<Pos>();
+        (&entities, &positions).join()
+            .filter(|(e, pos)| *e != from_unit && *e != state.owner
+                && omoba_sim::terrain::point_in_swept_circle(pos.0, at, at, radius))
+            .map(|(e, pos)| (e, pos.0)).collect()
+    };
+    candidates.retain(|(e, _)| hittable(world, &state.faction, *e, removed, false)
+        && homing_target_disclosed(world, &state.faction, Motion::Homing { target_id: e.id(), target_generation: e.gen().id() as u32 }));
+    if candidates.is_empty() { return None; }
+    candidates.sort_by_key(|(e, _)| identity(*e));
+    let seed = world.try_fetch::<MasterSeed>().map_or(0, |seed| seed.0);
+    let tick = world.try_fetch::<Tick>().map_or(0, |tick| tick.0);
+    let roll = crate::runtime::tick_random_u64(seed, u64::from(tick), crate::runtime::canonical_entity_id(projectile));
+    Some(candidates[(roll % candidates.len() as u64) as usize])
 }
 
 /// Schema for the public flight component. Version 2, 18 bytes, big endian:

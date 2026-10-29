@@ -44,7 +44,7 @@ pub(super) struct ActiveItemObservation<'a> {
 // ItemUse replaces the current order. Emergency defense may interrupt an
 // attack; routine resource recovery and attack preparation must not do so.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ActiveItemPriority { Shield, Reduction, Escape, Recovery, ChannelRecovery, AttackPreparation }
+enum ActiveItemPriority { Shield, Reduction, Escape, Recovery, ChannelRecovery, AttackPreparation, Engage }
 
 fn active_policy(role:BotRole,builds:&[BotItemBuild])->Option<BotActiveItemPolicy> {
     let policy=builds.iter().find(|b|b.role==role)?.active_use?;
@@ -91,6 +91,9 @@ pub(super) fn choose_active(role: BotRole, builds: &[BotItemBuild], registry: &I
         if !item.cooldown_remaining.is_finite() || item.cooldown_remaining!=0.0 {return None;}
         let config=registry.get(&item.item_id)?;
         let effect=config.active.as_ref()?;
+        // An unaffordable mana cost would only be rejected by the authority.
+        let mana_cost=omoba_template_ids::MOBA_ITEM_CATALOG.iter().find(|entry|entry.id==config.id).map_or(Fixed64::ZERO,|entry|entry.mana_cost);
+        if mana_cost>Fixed64::ZERO && observation.mana.is_some_and(|pool|pool.current()<mana_cost) {return None;}
         let priority=match effect {
             ActiveEffect::RestoreMana {..} if !observation.attack_windup && observation.mana.is_some_and(|pool|
                 pool.maximum()>Fixed64::ZERO && i128::from(pool.current().raw())*1000
@@ -105,6 +108,11 @@ pub(super) fn choose_active(role: BotRole, builds: &[BotItemBuild], registry: &I
                     < i128::from(observation.health.mhp.raw())*i128::from(policy.channel_below_hp_per_mille)
                 && (crate::runtime::native::recovery_channel::Spec {amount:*amount,duration:*duration,interval:*interval}).valid()
                 =>ActiveItemPriority::ChannelRecovery,
+            // Source modifier actives: stat buffs open a fight; a pure heal/mana item recovers.
+            ActiveEffect::ApplyModifiers {modifiers,..} if !modifiers.is_empty() && attack_opportunity
+                && !observation.attack_windup=>ActiveItemPriority::Engage,
+            ActiveEffect::ApplyModifiers {modifiers,heal,..} if modifiers.is_empty() && *heal>Fixed64::ZERO && defend
+                =>ActiveItemPriority::Recovery,
             _=>return None,
         };
         Some((priority,slot))
@@ -136,6 +144,11 @@ pub(super) fn validate(builds: &[BotItemBuild]) -> Result<(), &'static str> {
         }
         if build.items.iter().any(|id| !omoba_template_ids::MOBA_ITEM_CATALOG.iter().any(|i|i.id==id)) {
             return Err("unknown compiled bot item goal");
+        }
+        // Bots buy only what the shop sells; engine fixtures are never a goal (E155).
+        if !cfg!(any(test, feature = "test-support")) && build.items.iter()
+            .any(|id| omoba_template_ids::MOBA_ITEM_CATALOG.iter().any(|i|i.id==id && !i.in_shop())) {
+            return Err("bot item goal is a test_only fixture");
         }
     }
     Ok(())
@@ -263,7 +276,7 @@ mod tests {
         let choose=|builds:&[BotItemBuild],registry:&ItemRegistry,inventory:&Inventory,observation:&ActiveItemObservation<'_>,seen:&[super::super::SeenUnit]|choose_active(BotRole::Carry,builds,registry,inventory,Vec2::ZERO,1,seen,observation);
         assert!(choose(&builds,&registry,&inventory,&observation,&[]).is_none());builds[0].active_use.as_mut().unwrap().channel_below_hp_per_mille=600;
         let before=serde_json::to_value(&inventory).unwrap();assert_eq!(choose(&builds,&registry,&inventory,&observation,&[]),Some(0));assert_eq!(serde_json::to_value(&inventory).unwrap(),before);
-        let enemy=super::super::SeenUnit{canonical_id:2,position:Vec2::new(Fixed64::from_i32(700),Fixed64::ZERO),team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100};
+        let enemy=super::super::SeenUnit{canonical_id:2,position:Vec2::new(Fixed64::from_i32(700),Fixed64::ZERO),team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
         assert!(choose(&builds,&registry,&inventory,&observation,&[enemy]).is_none());
         for unit in [super::super::SeenUnit{position:Vec2::new(Fixed64::from_raw(700*1024+1),Fixed64::ZERO),..enemy},super::super::SeenUnit{team:1,..enemy},super::super::SeenUnit{team:0,..enemy},super::super::SeenUnit{hp_raw:0,..enemy}] {assert_eq!(choose(&builds,&registry,&inventory,&observation,&[unit]),Some(0));}
         observation.silenced=true;assert!(choose(&builds,&registry,&inventory,&observation,&[]).is_none());observation.silenced=false;
@@ -287,7 +300,7 @@ mod tests {
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let mana=ManaPool::new(Fixed64::from_i32(10),Fixed64::from_i32(100)).unwrap();
         let enemy=super::super::SeenUnit {canonical_id:2,position:Vec2::ZERO,team:2,kind:1,
-            owner_player_id:2,hp_raw:1024,max_hp_raw:1024};
+            owner_player_id:2,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO};
         let mut observation=ActiveItemObservation {health:&health,mana:Some(&mana),shield_raw:0,
             next_attack_bonus_raw:0,reduction_active:false,sprint_active:false,immobilized:false,silenced:false,
             attack_windup:false,attack_range:Fixed64::from_i32(500)};
@@ -332,7 +345,7 @@ mod tests {
             msd:Fixed64::ZERO,def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO};
         let mana=ManaPool::new(Fixed64::from_i32(10),Fixed64::from_i32(100)).unwrap();
         let enemy=super::super::SeenUnit {canonical_id:2,position:Vec2::ZERO,team:2,kind:1,
-            owner_player_id:2,hp_raw:1024,max_hp_raw:1024};
+            owner_player_id:2,hp_raw:1024,max_hp_raw:1024,threat:Fixed64::ZERO};
         for ids in [vec!["moba_mana_charm","moba_guard_charm","moba_ward_charm","moba_stride_charm"],
             vec!["moba_stride_charm","moba_ward_charm","moba_guard_charm","moba_mana_charm"]] {
             let mut builds=build(&ids);
@@ -429,7 +442,7 @@ mod tests {
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[]));
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(949),own,home,1,&[]));
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(950),home,home,1,&[]));
-        let enemy=super::super::SeenUnit {canonical_id:2,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100};
+        let enemy=super::super::SeenUnit {canonical_id:2,position:own,team:2,kind:1,owner_player_id:2,hp_raw:1,max_hp_raw:100,threat:Fixed64::ZERO};
         assert!(!may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[enemy]));
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {team:0,kind:3,..enemy}]),"idle neutral is not an enemy team threat");
         assert!(may_recall(BotRole::Carry,&builds,&Gold(950),own,home,1,&[super::super::SeenUnit {hp_raw:0,..enemy}]));

@@ -1,6 +1,7 @@
-//! 動地斧（村上義清，來源 B29W current）：猛擊地面，對自身周圍 500 內存活的
-//! 敵方英雄與一般單位（不含建築）造成 150/250/350/450 魔法傷害並暈眩
-//! 1/1.3/1.6/1.9 秒。前搖 0.3 秒由 host windup 處理；本 handler 在結算時執行。
+//! 動地斧（村上義清，來源 B29W current）：猛擊地面，對自身周圍 radius（B29.lua:15
+//! 寫死；KV AOERadius 只是指示圈）內存活的敵方英雄與一般單位（不含建築）造成
+//! damage 魔法傷害並暈眩 stun 秒；數值見 v3.lua 的 radius、damage、stun。
+//! 前搖由 host windup 處理；本 handler 在結算時執行。
 use abi_stable::std_types::{RErr,ROk,RResult,RSome,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},buff_ids::BuffId,
     types::{DamageKind,DamageProfile,EntityHandle,Fixed64,Target,Vec2},world::GameWorldDyn};
@@ -19,7 +20,7 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<Slam,&'static str> {
     let _:AbilityLevelData=serde_json::from_str(json).map_err(|_|"invalid ground slam metadata")?;
     let extra=|key:&str|content.extras.iter().find(|(name,_)|*name==key).and_then(|(_,rows)|rows.get(index)).copied()
         .ok_or("missing ground slam extra");
-    let spec=Slam {radius:extra("shape_radius")?,damage:extra("damage_amount")?,stun:extra("control_duration")?};
+    let spec=Slam {radius:extra("radius")?,damage:extra("damage")?,stun:extra("stun")?};
     if spec.radius<=Fixed64::ZERO || spec.radius>Fixed64::from_i32(2_000) {return Err("invalid ground slam radius");}
     if spec.damage<Fixed64::ZERO || spec.stun<=Fixed64::ZERO || spec.stun>Fixed64::from_i32(60) {return Err("invalid ground slam values");}
     Ok(spec)
@@ -43,7 +44,7 @@ pub(crate) fn execute(world:&mut GameWorldDyn<'_>,caster:EntityHandle,target:Tar
     let hits=enemy_units_in_circle(world,caster,origin,spec.radius);
     // All checks done; apply outcomes.
     for e in &hits {
-        world.deal_damage(*e,spec.damage,DamageKind::Magical,DamageProfile::CRUSHING,RSome(caster));
+        world.deal_damage(*e,spec.damage,DamageKind::Magical,DamageProfile::CRUSHING.union(DamageProfile::SPELL),RSome(caster));
         world.add_buff(*e,BuffId::Stun.as_rstr(),spec.stun);
     }
     Ok(hits.len())
@@ -58,11 +59,11 @@ impl AbilityScript for GroundSlamHandler {
 }
 
 pub fn b29_ground_slam_ffi()->AbilityDefFFI {
-    build_ability_ffi(ID,GroundSlamHandler,vec![EffectSpec::AreaEffect {radius:extra_at_id_f32(ID,"shape_radius",1),duration:0.2,tick_interval:0.0,
+    build_ability_ffi(ID,GroundSlamHandler,vec![EffectSpec::AreaEffect {radius:extra_at_id_f32(ID,"radius",1),duration:0.2,tick_interval:0.0,
         effects:vec![
-            EffectSpec::Damage {target:TargetSelector::AllEnemies,amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical},
+            EffectSpec::Damage {target:TargetSelector::AllEnemies,amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical},
             EffectSpec::StatusModifier {target:TargetSelector::AllEnemies,modifier_type:"stun".into(),value:1.0,
-                duration:Some(extra_at_id_f32(ID,"control_duration",1))}]}])
+                duration:Some(extra_at_id_f32(ID,"stun",1))}]}])
 }
 
 #[cfg(test)]
@@ -71,10 +72,10 @@ mod tests {
     use crate::heroes::B29_murakami_yoshikiyo::b29_test_support::*;
 
     #[test]
-    fn every_rank_damages_and_stuns_each_enemy_within_500_once() {
+    fn every_rank_damages_and_stuns_each_enemy_within_550_once() {
         for (rank,damage,stun) in [(1u8,150,1.0),(2,250,1.3),(3,350,1.6),(4,450,1.9)] {
             let mut t=TestWorld::new();
-            let near=t.body(p(100,0),2);let edge=t.body(p(0,500),2);let out=t.body(p(0,-501),2);
+            let near=t.body(p(100,0),2);let edge=t.body(p(0,550),2);let out=t.body(p(0,-551),2);
             let ally=t.body(p(50,0),1);let tower=t.building(p(-100,0),2);
             let outcomes=t.cast(&GroundSlamHandler,Target::None,rank,&rank_json(ID,rank)).unwrap();
             assert_eq!(magic_damage(&outcomes),vec![(near,Fixed64::from_i32(damage)),(edge,Fixed64::from_i32(damage))],"rank {rank}");

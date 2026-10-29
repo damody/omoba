@@ -60,6 +60,11 @@ impl<'a> System<'a> for Sys {
                 data.outcomes.push(step_token(from, false, true));
                 continue;
             }
+            // Launch delay: waits at its launch point (no motion, no hits, no lifetime).
+            if state.delay_left > Fixed64::ZERO {
+                state.delay_left = (state.delay_left - dt).max(Fixed64::ZERO);
+                continue;
+            }
             if let (Motion::Homing { .. }, Some(target), false) = (state.spec.motion, state.target, state.target_lost) {
                 match data.pos.get(target).filter(|_| alive(target)) {
                     Some(pos) => state.end = pos.0,

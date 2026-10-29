@@ -62,7 +62,7 @@ local function lifecycle(mode)
   end
   local alive,now,spawns=true,0,0
   local result_file,log
-  local final={schema_version=1,players={{player_id=6,team_id=1,bot=false,hero='training_ranger'}}}
+  local final={schema_version=1,players={{player_id=6,team_id=1,bot=false,hero='tamako'}}}
   local receipt_hash=hash
   if mode=='native-validation' then
     local launch=require('moba_role_launch')
@@ -89,7 +89,7 @@ local function lifecycle(mode)
     if mode=='native-validation' then return b.lib('process').run(exe,args,run_options) end
     if mode=='config-failure' then return {exit_code=1,stderr='fixture config failure'} end
     local validated=json.decode(json.encode(final))
-    if mode=='changed-plan' then validated.players[1].hero='training_luminary' end
+    if mode=='changed-plan' then validated.players[1].hero='murakami_yoshikiyo' end
     return {exit_code=0,stdout=json.encode({scope='host-prepared-selection',plan=validated,
       selection={ready=true,finalized=true,catalog_data_hash=hash}})}
   end

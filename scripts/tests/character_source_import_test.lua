@@ -98,13 +98,16 @@ for _,fn in ipairs({
 local sprefix='/Game/Omoba/Structures/TripoStaticV1/sample_tower/'
 local sresult={schema='omoba.character-source-result.v1',coordinate_policy=a.coordinate_policy,success=true,error='',imported=1,verified=0,saved=3,retarget_verified=false,render_verified=false,
  assets={{id='sample_tower',source_sha256=splan.assets[1].sha256,action='imported',reference_pose={},
- objects={{object_path=sprefix..'sample_tower.sample_tower',class='StaticMesh',height_cm=400,triangles=29000},
+ objects={{object_path=sprefix..'sample_tower.sample_tower',class='StaticMesh',height_cm=400,size_cm=400,triangles=29000},
  {object_path=sprefix..'mat.mat',class='Material'},{object_path=sprefix..'tex.tex',class='Texture2D',width=2048,height=2048}}}}}
 check(function()assert(#a.verify_result(splan,sresult)==3)end)
+-- A held weapon lies flat: a long, thin model is accepted by its longest side.
+check(function()local value=j.decode(j.encode(sresult));value.assets[1].objects[1].height_cm=3;value.assets[1].objects[1].size_cm=150
+ assert(#a.verify_result(splan,value)==3)end)
 local function bad_sresult(fn)local value=j.decode(j.encode(sresult));fn(value);rejected(function()a.verify_result(splan,value)end)end
 for _,fn in ipairs({
  function(x)x.assets[1].objects[1].class='SkeletalMesh'end,function(x)x.assets[1].objects[1].triangles=0 end,
- function(x)x.assets[1].objects[1].height_cm=5 end,function(x)x.assets[1].objects[2]={object_path=sprefix..'rig.rig',class='Skeleton'}end,
+ function(x)x.assets[1].objects[1].size_cm=5 end,function(x)x.assets[1].objects[1].size_cm=nil end,function(x)x.assets[1].objects[2]={object_path=sprefix..'rig.rig',class='Skeleton'}end,
  function(x)x.assets[1].objects[1].object_path=tprefix..'sample_tower.sample_tower'end,
 })do bad_sresult(fn)end
 -- A static model is never accepted by the rigged set.

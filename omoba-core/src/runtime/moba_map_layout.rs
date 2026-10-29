@@ -217,6 +217,9 @@ mod tests {
             jungle_camps: &[],
             presentation_surfaces: &[],
             brushes: &[],
+            bounds: None, world_bounds: None, minimap_bounds: None,
+            towers: &[], barracks: &[], general_towers: &[], bases: &[], fountains: &[], hero_spawns: &[],
+            shops: &[], shop_radius: 0,
             terrain: &[
                 MobaTerrainConst {
                     id: "negative",

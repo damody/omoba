@@ -1,5 +1,5 @@
-//! 一刀．空牙（H06，來源 B08T current）：朝方向斬出巨大刀牙（寬 500、飛行 3000、
-//! 速度 3000），穿透沿途敵人，各受 800/1200/1600 魔法傷害一次。
+//! 一刀．空牙（H06，來源 B08T current，B08.txt:746-875）：朝方向斬出巨大刀牙（半徑、
+//! 飛行距離與速度見 v3.lua 的 radius／distance／speed），穿透沿途敵人，各受 damage 魔法傷害一次。
 use abi_stable::std_types::{RErr,ROk,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},types::{EntityHandle,Target},world::GameWorldDyn};
 use omoba_core::ability_meta::{DamageType,EffectSpec,TargetSelector};
@@ -19,8 +19,8 @@ impl AbilityScript for SkyFangHandler {
 }
 
 pub fn b08_sky_fang_ffi()->AbilityDefFFI {
-    build_ability_ffi(ID,SkyFangHandler,vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"projectile_speed",1),on_hit:vec![
-        EffectSpec::Damage {target:TargetSelector::Target,amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical}]}])
+    build_ability_ffi(ID,SkyFangHandler,vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"speed",1),on_hit:vec![
+        EffectSpec::Damage {target:TargetSelector::Target,amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical}]}])
 }
 
 #[cfg(test)]
@@ -39,8 +39,10 @@ mod tests {
             let spec=outcomes.iter().find_map(|o|match o {Outcome::AddBuff {buff_id,payload,duration,..} if buff_id==host::BUFF=>
                 host::Spec::from_payload(host::BUFF,*duration,payload),_=>None}).expect("launch");
             assert_eq!((spec.distance,spec.speed,spec.radius,spec.max_hits),
-                (Fixed64::from_i32(3000),Fixed64::from_i32(3000),Fixed64::from_i32(250),64),"rank {rank}");
+                (Fixed64::from_i32(3000),Fixed64::from_i32(3000),Fixed64::from_i32(500),64),"rank {rank}: radius 500");
             assert_eq!(spec.amount,Fixed64::from_i32(damage),"rank {rank}");
+            assert!(!outcomes.iter().any(|o|matches!(o,Outcome::AddBuff {buff_id,..} if buff_id==omoba_core::runtime::native::command_restriction::BUFF)),
+                "B08T has no command restriction");
         }
     }
 

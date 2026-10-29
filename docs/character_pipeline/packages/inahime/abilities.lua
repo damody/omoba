@@ -17,21 +17,24 @@ return function(ctx)
       {
         id = "a02_venom_arrow", source_ability_id = "A02W", action = "Q", ability_type = "toggle",
         name = "蠍毒箭", max_level = 4, status = "supported",
-        description = "切換：開啟期間每次普攻消耗 10 法力，命中時額外造成 30/50/70/90 魔法傷害，並使目標移動速度與攻擊速度降低 9/13/17/21%，持續 4 秒。法力不足時自動關閉，該次攻擊不附加效果。",
+        description = "切換：開啟期間每次普攻消耗 10 法力，命中時額外造成 30/50/70/90 魔法傷害，並使目標移動速度降低 9/13/17/21%、攻擊速度降低 9/13/17/21 點，持續 4 秒。攻擊建築時不扣法力、不附加效果。法力不足時自動關閉，該次攻擊不附加效果。",
         capabilities = { "toggle_mana_per_attack", "on_attack_hook", "slow_debuff" },
         targeting = { kind = "none", team = "self", shape = { kind = "none" }, visibility = "always_self" },
         timing = { cast_point = 0, cooldown_starts = "on_cast" },
         resources = { cooldown = { 0, 0, 0, 0 }, mana_cost = { 0, 0, 0, 0 } },
         effects = {
           { kind = "attack_orb", mana_per_attack = { 10, 10, 10, 10 }, amount = { 30, 50, 70, 90 }, damage_kind = "magical",
-            move_slow_pct = { 9, 13, 17, 21 }, attack_slow_pct = { 9, 13, 17, 21 }, slow_duration = { 4, 4, 4, 4 } },
+            -- A02.txt:57 debuff_attack_speed 是 slow_self 的 ATTACKSPEED_BONUS_CONSTANT 點數（dummy.lua:866-902、
+            -- npc_abilities_custom_load.txt:6022），多來源取最強：以 attack_speed_slow_constant（host 攻速常數減益）表達。
+            move_slow_pct = { 9, 13, 17, 21 }, attack_speed_slow_constant = { 9, 13, 17, 21 }, slow_duration = { 4, 4, 4, 4 } },
         },
-        lifecycle = lifecycle({ target_invalid = "閃避或目標失效的普攻不附加效果，仍扣法力",
+        lifecycle = lifecycle({ target_invalid = "閃避或目標失效的普攻不附加效果，仍扣法力；目標是建築時不扣法力、不附加效果",
           expire = "切換關閉、死亡或法力不足時移除" }),
-        implementation = { kind = "rust_handler", module = "No1_venom_arrow", note = "只切換 G-2 attack orb 標記；扣魔、傷害與減速由 host 依當前 rank 結算" },
+        implementation = { kind = "rust_handler", module = "No1_venom_arrow", note = "只切換 G-2 attack orb 標記；扣魔（攻擊開始時）、傷害與減速由 host 依當前 rank 結算" },
         bot_usage = { target = "self_toggle", when = "交戰中、法力高於 25% 時開啟；沒有交戰時關閉", avoid = "法力不足時" },
         verification = { scenarios = {
-          { name = "rank_values", expect = "開啟後每次普攻扣 10 法力；命中額外 30/50/70/90 魔法傷害，目標移速與攻速 −9/13/17/21% 4 秒" },
+          { name = "rank_values", expect = "開啟後每次普攻開始時扣 10 法力；命中額外 30/50/70/90 魔法傷害，目標移速 −9/13/17/21%、攻速 −9/13/17/21 點 4 秒" },
+          { name = "building", expect = "攻擊建築時不扣法力、不附加傷害與減益" },
           { name = "auto_off", expect = "法力低於 10 時下一次普攻自動關閉，該次攻擊不附加效果" },
           { name = "toggle", expect = "再按一次關閉；關閉後普攻不扣法力" },
         } },

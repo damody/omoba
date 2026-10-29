@@ -10,15 +10,20 @@ use specs::{Builder, Entity, World, WorldExt};
 use crate::comp::*;
 mod jungle;
 mod jungle_credit;
+mod original_rewards;
 #[cfg(test)]
 mod projectile_credit_tests;
 mod base_structures;
+mod structure_regen;
 mod tower_focus;
 mod building_rewards;
 mod tower_plating;
 pub use tower_plating::TowerPlatingRules;
 mod first_tower;
 mod first_kill;
+mod surrender;
+pub use surrender::{set_surrender_voter_absent, surrender_available_in, surrender_tally, toggle_surrender_vote,
+    SurrenderRejection, SurrenderTally, SurrenderVote};
 mod objective_notice;
 pub use objective_notice::{OBJECTIVE_TEAM_METRIC_ID,OBJECTIVE_KIND_METRIC_ID,OBJECTIVE_SEQUENCE_METRIC_ID,OBJECTIVE_REMAINING_METRIC_ID};
 pub use first_kill::{FIRST_KILL_KILLER_METRIC_ID,FIRST_KILL_VICTIM_METRIC_ID,FIRST_KILL_GOLD_METRIC_ID};
@@ -32,6 +37,12 @@ mod minion_growth;
 mod objective_buffs;
 mod minion_aura;
 mod personal_buffs;
+// The original game's home defense aura (game_rules.lua home_aura, E187).
+mod home_aura;
+pub(crate) use home_aura::break_home_speed_up;
+// The original game's structure defense (game_rules.lua structure_defense, E187).
+mod structure_defense;
+pub(crate) use structure_defense::structure_damage_factor;
 pub use minion_growth::MinionGrowthRules;
 pub use building_rewards::{BuildingBounty, BuildingRewardRules};
 pub(crate) use building_rewards::record_moba_building_damage;
@@ -39,7 +50,11 @@ pub use tower_focus::TowerFocusRules;
 #[cfg(test)]
 mod brush_attack_tests;
 #[cfg(test)]
+mod boss_tests;
+#[cfg(test)]
 mod npc_facing_tests;
+#[cfg(test)]
+mod nobu_map_tests;
 #[cfg(feature = "kcp")]
 pub mod bots;
 #[cfg(feature = "kcp")]
@@ -201,12 +216,21 @@ pub fn single_lane_metric_player(metric_id: u64, namespace: u64) -> Option<u32> 
     (player != 0 && metric_id & 0xffff_ffff_0000_0000 == namespace).then_some(player)
 }
 
+fn recall_remaining_raw(state: &MobaMatch, slot: &MobaHeroSlot) -> i64 {
+    if state.phase == MobaMatchPhase::Playing {
+        slot.recall.map_or(0, |(_, deadline)| (deadline - state.elapsed).max(Fixed64::ZERO).raw())
+    } else { 0 }
+}
+
+/// The value of the owner-team recall-active fact for this slot.
+fn recall_active_disclosed(state: &MobaMatch, slot: &MobaHeroSlot) -> bool {
+    recall_remaining_raw(state, slot) > 0
+}
+
 fn emit_recall_state(world: &World, state: &MobaMatch, phase: crate::runtime::FactPhase) {
     for (side, slot) in state.heroes.iter().enumerate() {
         let team = state.config.teams[slot.side];
-        let remaining = if state.phase == MobaMatchPhase::Playing {
-            slot.recall.map_or(0, |(_, deadline)| (deadline - state.elapsed).max(Fixed64::ZERO).raw())
-        } else { 0 };
+        let remaining = recall_remaining_raw(state, slot);
         let metric_id = if phase == crate::runtime::FactPhase::PreStep {
             SINGLE_LANE_RECALL_ACTIVE_METRIC_ID
         } else { SINGLE_LANE_RECALL_REMAINING_METRIC_ID };
@@ -231,6 +255,11 @@ fn emit_replica_delta(world: &mut World, state: &MobaMatch, active: bool) {
     if !active { emit_owner_score(world, state, crate::runtime::FactPhase::PreStep); }
     let tick = world.read_resource::<Tick>().0;
     emit_recall_state(world, state, crate::runtime::FactPhase::PreStep);
+    // The authority reads the recall-active fact it just disclosed, not its live
+    // recall, for the rest of the tick: an in-tick interruption is invisible to
+    // the owner's replica, which must cancel the same windups (E175).
+    world.insert(super::cast_windup::DisclosedRecallingOwners(state.heroes.iter()
+        .filter(|slot| recall_active_disclosed(state, slot)).map(|slot| slot.player_id).collect()));
     if state.phase != MobaMatchPhase::Playing {
         emit_recall_state(world, state, crate::runtime::FactPhase::PostStep);
     }
@@ -492,6 +521,8 @@ pub struct SingleLaneConfig {
     pub warmup: Fixed64,
     pub respawn_delay: Fixed64,
     pub wave_interval: Fixed64,
+    /// Match time from the start of play to the first wave (map first_wave_seconds, E187); 0 = at once.
+    pub first_wave_delay: Fixed64,
     pub creeps_per_wave: u32,
     /// Formal map plans use the shared authored composition. Isolated legacy
     /// fixtures may still request a simple fixed-size wave explicitly.
@@ -525,6 +556,12 @@ pub struct SingleLaneConfig {
     pub trinket_loadouts: BTreeMap<u32, Option<u16>>,
     /// Spotlight recording stage; `None` for every real match.
     pub showcase: Option<ShowcaseConfig>,
+    /// The original game's rules (templates/game_rules.lua): starting gold and income schedule
+    /// (instead of `passive_gold_per_second`), sale refund, experience table, respawn by level
+    /// (instead of `respawn_delay`), hero magic resistance and move speed cap, idle acquisition
+    /// and retaliation. Formal matches set it (role plans, the server's single-lane config);
+    /// `None`, the default, keeps the legacy rules that fixtures assert.
+    pub game_rules: Option<omoba_template_ids::GameRulesConst>,
 }
 
 impl Default for SingleLaneConfig {
@@ -547,6 +584,7 @@ impl Default for SingleLaneConfig {
             warmup: Fixed64::from_i32(2),
             respawn_delay: Fixed64::from_i32(5),
             wave_interval: Fixed64::from_i32(8),
+            first_wave_delay: Fixed64::ZERO,
             creeps_per_wave: 3,
             authored_minion_waves: false,
             lane_length: Fixed64::from_i32(2400),
@@ -568,6 +606,7 @@ impl Default for SingleLaneConfig {
             summoner_loadouts: BTreeMap::new(),
             trinket_loadouts: BTreeMap::new(),
             showcase: None,
+            game_rules: None,
         }
     }
 }
@@ -636,6 +675,9 @@ pub struct MobaHeroSlot {
     /// Credited enemy deaths since the last credited kill; persists across lives.
     pub unanswered_deaths: u32,
     pub assists: u32,
+    /// Original rules (E187): credited hero kills in the current chain, each within the multi-kill
+    /// window of the previous one, and the match time of the last.
+    multi_kill: (u32, Fixed64),
     lethal_pending: bool,
     recall: Option<(Vec2, Fixed64)>,
     pub respawns: u32,
@@ -722,6 +764,11 @@ mod input_scheme_tests;
 #[derive(Clone, Debug)]
 pub struct MobaMatch {
     base_structures: Vec<base_structures::RespawningStructure>,
+    /// Inhibitor fall consequences: scheduled extra minions and lost general tower intensify (E187).
+    barracks_fall: base_structures::BarracksFall,
+    /// Index of the last home_aura speed_up refresh (E187: every `speed_up_refresh_ms` of play from
+    /// its start time); None before the first.
+    home_speed_refresh: Option<i64>,
     pub config: SingleLaneConfig,
     pub phase: MobaMatchPhase,
     pub elapsed: Fixed64,
@@ -740,12 +787,18 @@ pub struct MobaMatch {
     pub lane_towers: Vec<[Option<Entity>; 2]>,
     /// Per-lane outer-to-inner authoritative retirement state.
     pub lane_tower_layers: Vec<Vec<[Option<Entity>; 2]>>,
+    /// The second tower of each layer on maps with paired towers (E187 §5.2, nobu_map.lua: two
+    /// towers per tier), same shape as `lane_tower_layers`; empty on every other map. A layer is
+    /// standing while either of its towers stands.
+    pub lane_tower_partners: Vec<Vec<[Option<Entity>; 2]>>,
     routes: Vec<[Vec<Vec2>; 2]>,
     pub bases: [Option<Entity>; 2],
     pub jungle_camps: Vec<MobaJungleCamp>,
     assist_ledger: super::moba_assist::AssistLedger,
     first_tower:first_tower::FirstTowerState,
     first_kill:first_kill::FirstKillState,
+    /// Team surrender votes (E187, vscripts/computer_system/surrender.lua).
+    surrender: surrender::SurrenderState,
     objective_notices:objective_notice::ObjectiveNotices,
     personal_buffs: BTreeMap<(u32,&'static str),personal_buffs::PersonalBuffLease>,
     objective_buffs: BTreeMap<(usize,&'static str),objective_buffs::TeamObjectiveLease>,
@@ -855,8 +908,7 @@ impl MobaMatch {
     pub fn base_structure_rows(&self) -> Vec<(usize, usize, LaneRole, Option<Entity>, Option<Fixed64>, bool)> {
         self.base_structures.iter().map(|node| {
             let unlocked = match node.role {
-                LaneRole::Inhibitor => self.lane_tower_layers.get(node.lane)
-                    .is_some_and(|layers| layers.iter().all(|layer| layer[node.team].is_none())),
+                LaneRole::Inhibitor => self.lane_cleared(node.lane, node.team),
                 LaneRole::NexusTower => self.inhibitor_down(node.team, None),
                 _ => true,
             };
@@ -864,26 +916,72 @@ impl MobaMatch {
         }).collect()
     }
 
+    /// Standing towers of `team` in `layer` of `lane`: the layer slot and, on maps with paired
+    /// towers, its partner (E187 §5.2).
+    fn layer_towers(&self, lane: usize, layer: usize, team: usize) -> impl Iterator<Item = Entity> + '_ {
+        let slot = |layers: &Vec<Vec<[Option<Entity>; 2]>>| layers.get(lane).and_then(|l| l.get(layer)).and_then(|l| l[team]);
+        slot(&self.lane_tower_layers).into_iter().chain(slot(&self.lane_tower_partners))
+    }
+
+    /// Outer-to-inner layer index of a standing tower of `team` in `lane`.
+    pub(crate) fn tower_layer_of(&self, lane: usize, team: usize, entity: Entity) -> Option<usize> {
+        let layers = self.lane_tower_layers.get(lane)?.len();
+        (0..layers).find(|&layer| self.layer_towers(lane, layer, team).any(|tower| tower == entity))
+    }
+
+    /// The outermost layer of `lane` where `team` still has a tower: only its towers can be attacked.
+    fn frontier_layer(&self, lane: usize, team: usize) -> Option<usize> {
+        let layers = self.lane_tower_layers.get(lane).map_or(0, Vec::len);
+        (0..layers).find(|&layer| self.layer_towers(lane, layer, team).next().is_some())
+    }
+
+    /// The side's authored fountain (E187, nobu_map.lua teams.*.fountain): its home for recall, base
+    /// recovery and the home shop. None on maps without one (the base is home).
+    pub(crate) fn authored_fountain(&self, side: usize) -> Option<Vec2> {
+        let map = self.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)?;
+        omoba_template_ids::moba_team_point(map.fountains, side).map(map_point)
+    }
+
+    /// Public home a bot of `side` in `lane` returns to and shops at: the authored fountain, else
+    /// the start of its lane.
+    pub(crate) fn bot_home(&self, lane: usize, side: usize) -> Vec2 {
+        self.authored_fountain(side).unwrap_or(self.routes[lane][side][0])
+    }
+
+    /// Every tower of `team` in `lane` has fallen.
+    fn lane_cleared(&self, lane: usize, team: usize) -> bool { self.frontier_layer(lane, team).is_none() }
+
+    /// After a tower of `team` in `lane` fell: the lane's legacy first tower and the side's.
+    fn refresh_lane_towers(&mut self, lane: usize, team: usize) {
+        let first = self.frontier_layer(lane, team).and_then(|layer| self.layer_towers(lane, layer, team).next());
+        self.lane_towers[lane][team] = first;
+        self.towers[team] = self.lane_towers.iter().find_map(|lane| lane[team]);
+    }
+
     pub fn base_unlocked(&self, side: usize) -> bool {
         if side>=2 {return false;}
         if !self.base_structures.is_empty() {
             return self.inhibitor_down(side, None) && self.base_structures.iter()
-                .filter(|node|node.team==side && node.role==LaneRole::NexusTower)
+                .filter(|node|node.team==side && node.role==LaneRole::NexusTower && self.guards_base(node))
                 .all(|node|node.entity.is_none());
         }
-        let cleared=|lane:&Vec<[Option<Entity>;2]>| !lane.is_empty() && lane.iter().all(|layer|layer[side].is_none());
+        let cleared=|lane:usize| self.lane_tower_layers.get(lane).is_some_and(|layers|!layers.is_empty()) && self.lane_cleared(lane,side);
+        let lanes=0..self.lane_tower_layers.len();
         match self.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
             .map(|map|map.base_unlock).unwrap_or(omoba_template_ids::MobaBaseUnlockConst::AllLaneTowers) {
-            omoba_template_ids::MobaBaseUnlockConst::AllLaneTowers=>self.lane_tower_layers.iter().all(cleared),
-            omoba_template_ids::MobaBaseUnlockConst::AnyLaneTowers=>self.lane_tower_layers.iter().any(cleared),
+            omoba_template_ids::MobaBaseUnlockConst::AllLaneTowers=>lanes.clone().all(cleared),
+            omoba_template_ids::MobaBaseUnlockConst::AnyLaneTowers=>lanes.clone().any(cleared),
         }
     }
 
     fn structure_unlocked(&self, unit: &LaneUnit) -> bool {
         match unit.role {
             LaneRole::Base => self.base_unlocked(unit.team as usize),
-            LaneRole::Inhibitor => self.lane_tower_layers[unit.lane].iter().all(|layer|layer[unit.team as usize].is_none()),
+            LaneRole::Inhibitor => self.lane_cleared(unit.lane, unit.team as usize),
             LaneRole::NexusTower => self.inhibitor_down(unit.team as usize, None),
+            // The outermost standing layer: both towers of a pair (E187 §5.2), else the lane's tower.
+            LaneRole::Tower if !self.lane_tower_partners.is_empty() => self.frontier_layer(unit.lane, unit.team as usize)
+                .is_some_and(|layer| self.layer_towers(unit.lane, layer, unit.team as usize).any(|tower| tower == unit.entity)),
             LaneRole::Tower => self.lane_towers.get(unit.lane)
                 .is_some_and(|lane| lane[unit.team as usize] == Some(unit.entity)),
             _ => true,
@@ -1088,24 +1186,10 @@ pub enum CommunicationRosterError {
 fn communication_bounds_raw(state: &MobaMatch) -> Option<(i64, i64, i64, i64)> {
     if let Some(id) = state.config.map_id.as_deref() {
         let map = omoba_template_ids::moba_map_by_name(id)?;
-        let mut bounds: Option<(i64, i64, i64, i64)> = None;
-        let points = map
-            .lanes
-            .iter()
-            .flat_map(|lane| lane.waypoints.iter().copied())
-            .chain(map.jungle_camps.iter().flat_map(|camp|camp.home_positions()))
-            .chain(map.terrain.iter().flat_map(|region| [region.min, region.max]));
-        for (x, y) in points {
-            let x = Fixed64::from_i32(x).raw();
-            let y = Fixed64::from_i32(y).raw();
-            bounds = Some(match bounds {
-                None => (x, y, x, y),
-                Some((min_x, min_y, max_x, max_y)) => {
-                    (min_x.min(x), min_y.min(y), max_x.max(x), max_y.max(y))
-                }
-            });
-        }
-        return bounds;
+        // The authored playable bounds (E187 §5.8), else lanes, camps and terrain.
+        let extent = map.extent()?;
+        let raw = |v: i32| Fixed64::from_i32(v).raw();
+        return Some((raw(extent.min.0), raw(extent.min.1), raw(extent.max.0), raw(extent.max.1)));
     }
     let max_x = state.config.lane_length.raw();
     if max_x < 0 {
@@ -1162,12 +1246,11 @@ fn faction(side: u8, team: u32) -> Faction {
 
 fn position(config: &SingleLaneConfig, team: usize, offset: Fixed64) -> Vec2 {
     if let Some(map) = config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name) {
-        let lane = map.lanes.iter().find(|lane| lane.id == "mid").unwrap_or(&map.lanes[0]);
-        let index = if team == 0 { 0 } else { lane.waypoints.len()-1 };
-        let next = if team == 0 { 1 } else { index-1 };
+        // Out from the team's own start of mid (its own route on a per-team map, E187 §5.1).
+        let route = map.lane_route(map.lane_index("mid").unwrap_or(0), team).expect("validated lane");
         let point = |(x,y)| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y));
-        let origin = point(lane.waypoints[index]);
-        let direction = point(lane.waypoints[next])-origin;
+        let origin = point(route[0]);
+        let direction = point(route[1])-origin;
         return origin + direction*(offset.min(direction.length())/direction.length());
     }
     Vec2::new(
@@ -1179,6 +1262,9 @@ fn position(config: &SingleLaneConfig, team: usize, offset: Fixed64) -> Vec2 {
         Fixed64::ZERO,
     )
 }
+
+/// An authored map point in world units.
+fn map_point((x, y): (i32, i32)) -> Vec2 { Vec2::new(Fixed64::from_i32(x), Fixed64::from_i32(y)) }
 
 fn finalize_new_life_item_stats(world: &mut World, entity: Entity) {
     use crate::runtime::native::item::{apply_item_stats, ItemStatAggregate, ItemStatApplication};
@@ -1196,10 +1282,22 @@ fn finalize_new_life_item_stats(world: &mut World, entity: Entity) {
     );
     drop(properties);
     drop(attacks);
-    crate::runtime::native::item::sync_item_passives(entity,totals,&mut world.write_resource::<crate::runtime::BuffStore>());
+    // The passive BuffStore entry follows on the next settle_item_passives (E162).
     if let Some(effects) = world.write_storage::<ItemEffects>().get_mut(entity) {
         *effects = next;
     }
+}
+
+/// A lane structure's body: its health and the Dota 2 reference armor for its kind (E154).
+fn structure_property(role: LaneRole, hp: Fixed64, stats: omoba_template_ids::MobaStructureStatsConst) -> CProperty {
+    let armor = match role {
+        LaneRole::Tower => stats.tower_armor,
+        LaneRole::NexusTower => stats.nexus_tower_armor,
+        LaneRole::Inhibitor => stats.inhibitor_armor,
+        LaneRole::Base => stats.base_armor,
+        _ => 0,
+    };
+    CProperty { def_physic: Fixed64::from_i32(armor), ..property(hp, Fixed64::ZERO) }
 }
 
 fn property(hp: Fixed64, speed: Fixed64) -> CProperty {
@@ -1286,6 +1384,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         || config.warmup < Fixed64::ZERO
         || config.respawn_delay <= Fixed64::ZERO
         || config.wave_interval <= Fixed64::ZERO
+        || config.first_wave_delay < Fixed64::ZERO
         || !(1..=16).contains(&config.creeps_per_wave)
         || config.lane_length < Fixed64::from_i32(2000)
         || config.lane_length > Fixed64::from_i32(1_000_000)
@@ -1317,12 +1416,10 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
             if config.lane_length != Fixed64::from_i32(map.lane_length) {
                 return Err(err_msg("MOBA map base distance differs from match lane_length"));
             }
-            map.lanes.iter().map(|lane| {
-                let forward: Vec<_> = lane.waypoints.iter().map(|&(x,y)|
-                    Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))).collect();
-                let reverse = forward.iter().copied().rev().collect();
-                [forward,reverse]
-            }).collect()
+            // Each side walks its own route: the shared lane reversed for side 1, or the side's own
+            // directed lane on a per-team map (E187 §5.1).
+            (0..map.lane_count()).map(|lane| [0,1].map(|side| map.lane_route(lane,side).expect("validated lane")
+                .into_iter().map(|(x,y)| Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))).collect())).collect()
         }
     };
     let mut roster: Vec<_> = (0..2).map(|side| (config.players[side], side, config.heroes[side].clone())).collect();
@@ -1354,6 +1451,7 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         });
         let loadout = omoba_template_ids::active_hero_stats(hero_id).unwrap().moba_loadout;
         apply_moba_birth_loadout(&mut hero, loadout)?;
+        hero.experience_to_next = Hero::moba_experience_to_next(hero.level, config.game_rules.as_ref());
         if config.mana_enabled {
             let mut future = hero.clone();
             for level in 1..=25 {
@@ -1379,18 +1477,21 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         kill_streak: 0,
         unanswered_deaths: 0,
         assists: 0,
+        multi_kill: (0, Fixed64::ZERO),
         lethal_pending: false,
         recall: None,
         respawns: 0,
         respawn_at: None,
         hero: definitions[index].clone(),
         inventory: Inventory::default(),
-        gold: Gold(0),
+        gold: Gold(config.game_rules.map_or(0, |rules| rules.gold_starting.min(i32::MAX as u32) as i32)),
         summoners: summoner_loadouts.get(player_id).cloned().unwrap_or_default(),
         trinket: super::ward_world::WardRosterState::unavailable(),
     }).collect();
     let mut state = MobaMatch {
         base_structures: Vec::new(),
+        barracks_fall: Default::default(),
+        home_speed_refresh: None,
         config,
         phase: MobaMatchPhase::Warmup,
         elapsed: Fixed64::ZERO,
@@ -1406,12 +1507,14 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
         towers: [None; 2],
         lane_towers: vec![[None;2]; routes.len()],
         lane_tower_layers: vec![Vec::new(); routes.len()],
+        lane_tower_partners: Vec::new(),
         routes,
         bases: [None; 2],
         jungle_camps: Vec::new(),
         assist_ledger: super::moba_assist::AssistLedger::default(),
         first_tower:first_tower::FirstTowerState::default(),
         first_kill:first_kill::FirstKillState::default(),
+        surrender:surrender::SurrenderState::default(),
         objective_notices:objective_notice::ObjectiveNotices::default(),
         objective_buffs:BTreeMap::new(),
         tower_plates:BTreeMap::new(),
@@ -1442,27 +1545,58 @@ pub fn setup_single_lane_match(world: &mut World, config: SingleLaneConfig) -> R
     let tower_offsets = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name)
         .map_or_else(|| vec![700], |map| map.tower_layers.to_vec());
     for lane in &mut state.lane_tower_layers { *lane = vec![[None; 2]; tower_offsets.len()]; }
-    world.insert(crate::runtime::ItemRegistry::generated_moba());
+    let mut registry = crate::runtime::ItemRegistry::generated_moba();
+    if let Some(rules) = state.config.game_rules { registry.sell_refund_percent = rules.gold_sell_refund_percent; }
+    world.insert(registry);
     if let Some(level) = state.config.showcase.as_ref().map(|showcase| showcase.start_level) {
         for slot in &mut state.heroes {
             // The normal MOBA progression: exact XP to each next level, a skill point per level.
             while slot.hero.level < level {
                 let missing = (slot.hero.experience_to_next - slot.hero.experience).max(1) as u32;
-                slot.hero.add_moba_experience(missing);
+                slot.hero.add_moba_experience(missing, state.config.game_rules.as_ref());
             }
         }
     }
+    let map = state.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name);
+    // Explicit towers (E187 §5.2): tier t is layer t-1 of its lane; the first tower of a team's
+    // tier takes the layer slot and the second its partner slot.
+    let explicit_towers = map.map_or(&[][..], |map| map.towers);
+    if !explicit_towers.is_empty() {
+        let map = map.expect("explicit towers come from a map");
+        for (lane, layers) in state.lane_tower_layers.iter_mut().enumerate() {
+            let id = map.lane_id(lane).expect("validated lane");
+            let tiers = explicit_towers.iter().filter(|tower| tower.lane == id).map(|tower| usize::from(tower.tier)).max().unwrap_or(0);
+            *layers = vec![[None; 2]; tiers];
+        }
+        state.lane_tower_partners = state.lane_tower_layers.clone();
+    }
     for team in 0..2 {
         state.spawn_hero(world, team);
-        for lane in 0..state.routes.len() {
-            for (layer, offset) in tower_offsets.iter().enumerate() {
-                let tower = state.spawn_structure(world, team, LaneRole::Tower, lane, Fixed64::from_i32(*offset));
-                state.lane_tower_layers[lane][layer][team] = Some(tower);
+        if explicit_towers.is_empty() {
+            for lane in 0..state.routes.len() {
+                for (layer, offset) in tower_offsets.iter().enumerate() {
+                    let tower = state.spawn_structure(world, team, LaneRole::Tower, lane, Fixed64::from_i32(*offset));
+                    state.lane_tower_layers[lane][layer][team] = Some(tower);
+                }
             }
-            state.lane_towers[lane][team] = state.lane_tower_layers[lane][0][team];
+        } else {
+            let map = map.expect("explicit towers come from a map");
+            for tower in explicit_towers.iter().filter(|tower| usize::from(tower.team) == team) {
+                let lane = map.lane_index(tower.lane).expect("validated tower lane");
+                let layer = usize::from(tower.tier) - 1;
+                let entity = state.spawn_structure_at(world, team, LaneRole::Tower, lane, map_point(tower.position));
+                let slot = if state.lane_tower_layers[lane][layer][team].is_none() { &mut state.lane_tower_layers }
+                    else { &mut state.lane_tower_partners };
+                slot[lane][layer][team] = Some(entity);
+            }
         }
-        state.towers[team] = state.lane_towers[0][team];
-        state.bases[team] = Some(state.spawn_structure(world, team, LaneRole::Base, 0, Fixed64::ZERO));
+        for lane in 0..state.routes.len() { state.refresh_lane_towers(lane, team); }
+        // The main base: its authored point (E187, dota_*_fort), else the start of the first lane.
+        let base = match map.and_then(|map| omoba_template_ids::moba_team_point(map.bases, team)) {
+            Some(point) => state.spawn_structure_at(world, team, LaneRole::Base, 0, map_point(point)),
+            None => state.spawn_structure(world, team, LaneRole::Base, 0, Fixed64::ZERO),
+        };
+        state.bases[team] = Some(base);
     }
     for index in 2..state.heroes.len() { state.spawn_hero(world, index); }
     if let Some(showcase) = state.config.showcase.clone() {
@@ -1545,6 +1679,8 @@ impl MobaMatch {
     fn spawn_hero(&mut self, world: &mut World, index: usize) {
         let slot = &self.heroes[index];
         let mut hero = slot.hero.clone();
+        // A new body: the attributes add their max HP to it again (attributes.rs).
+        hero.attribute_hp = Fixed64::ZERO;
         if self.config.mana_enabled {
             // A new life starts full; do not reuse the saved death balance.
             hero.mana_pool = Some(crate::runtime::ability_runtime::ManaPool::full(
@@ -1556,6 +1692,11 @@ impl MobaMatch {
         let mut spawn = position(&self.config, team, Fixed64::from_i32(120 +
             if self.config.map_id.is_some() { rank as i32 * 60 } else { 0 }));
         if self.config.map_id.is_none() { spawn.y += Fixed64::from_i32(rank as i32 * 60); }
+        // Authored hero spawns (E187: the original info_player_start points), in turn by rank.
+        if let Some(map) = self.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name) {
+            let own: Vec<_> = map.hero_spawns.iter().filter(|point| usize::from(point.team) == team).collect();
+            if !own.is_empty() { spawn = map_point(own[rank % own.len()].position); }
+        }
         let id = omoba_template_ids::hero_by_name(&slot.hero.id).expect("validated hero");
         let stats = omoba_template_ids::active_hero_stats(id).expect("validated stats");
         let level_bonus = slot.hero.level.saturating_sub(1);
@@ -1577,6 +1718,7 @@ impl MobaMatch {
         unit.abilities = slot.hero.abilities.clone();
         let mut props = property(hp, stats.move_speed);
         props.def_physic = stats.base_armor;
+        props.def_magic = super::attributes::hero_base_magic_resistance(self.config.game_rules.as_ref());
         let entity = world
             .create_entity()
             .with(hero)
@@ -1596,7 +1738,8 @@ impl MobaMatch {
             .with(props)
             .with(TAttack::new(
                 attack,
-                Fixed64::ONE,
+                // Source heroes attack every AttackRate seconds before attack speed.
+                stats.base_attack_time.unwrap_or(Fixed64::ONE),
                 stats.attack_range,
                 Fixed64::from_i32(1200),
             ))
@@ -1630,7 +1773,16 @@ impl MobaMatch {
         self.track(entity, team, LaneRole::Hero);
     }
 
+    /// A structure `offset` along `team`'s route of `lane`.
     fn spawn_structure(&mut self, world: &mut World, team: usize, role: LaneRole, lane: usize, offset: Fixed64) -> Entity {
+        let route = &self.routes[lane][team];
+        let mut cursor = 1;
+        let spawn = omoba_sim::navigation::advance_route(route,&mut cursor,route[0],offset);
+        self.spawn_structure_at(world, team, role, lane, spawn)
+    }
+
+    /// A structure of `lane` at an exact point (an authored position, E187 §5.2-5.3).
+    fn spawn_structure_at(&mut self, world: &mut World, team: usize, role: LaneRole, lane: usize, spawn: Vec2) -> Entity {
         let (id, hp) = match role {
             LaneRole::Tower => (
                 "single_lane_tower",
@@ -1644,12 +1796,27 @@ impl MobaMatch {
         let mut unit = Unit::new(id.into(), id.into(), UnitType::Neutral);
         unit.max_hp = (hp.raw() / 1024) as i32;
         unit.current_hp = unit.max_hp;
-        unit.base_damage = if role.is_tower() { 90 } else { 0 };
-        unit.attack_range = Fixed64::from_i32(if role.is_tower() { 650 } else { 0 });
+        // Attack, range, attack interval and armor are map-authored (moba_maps.lua structure_stats).
+        let stats = self.structure_stats();
+        let (damage, range, interval_ms) = match role {
+            LaneRole::Tower => (stats.tower_damage_at(self.elapsed.raw()/1024), stats.tower_attack_range, stats.tower_attack_interval_ms),
+            LaneRole::NexusTower => (stats.nexus_tower_damage, stats.nexus_tower_attack_range, stats.nexus_tower_attack_interval_ms),
+            _ => (0, 0, 1000),
+        };
+        unit.base_damage = damage;
+        unit.attack_range = Fixed64::from_i32(range);
         unit.move_speed = Fixed64::ZERO;
-        let route = &self.routes[lane][team];
-        let mut cursor = 1;
-        let spawn = omoba_sim::navigation::advance_route(route,&mut cursor,route[0],offset);
+        // rules::damage reads a non-hero target's armor from its Unit (E193); the body carries the
+        // same base armor for disclosure.
+        let body = structure_property(role, hp, stats);
+        unit.base_armor = body.def_physic;
+        // General towers carry the intensify until their side's first inhibitor falls (E187). It is a
+        // modifier on the Unit only: the disclosed body keeps the base armor, because a later change
+        // of a structure's disclosed armor has no committed fact to reach the team replicas.
+        if role == LaneRole::NexusTower && self.nexus_tower_intensified(team) {
+            unit.base_damage = unit.base_damage.saturating_add(stats.nexus_tower_intensify_damage);
+            unit.base_armor += Fixed64::from_i32(stats.nexus_tower_intensify_armor);
+        }
         let mut builder = world
             .create_entity()
             .with(unit)
@@ -1664,7 +1831,7 @@ impl MobaMatch {
                 detection_level: 0,
             })
             .with(Pos(spawn))
-            .with(property(hp, Fixed64::ZERO))
+            .with(body)
             .with(IsBuilding)
             .with(CircularVision::new(1000.0, 800.0));
         if role == LaneRole::Base {
@@ -1672,80 +1839,132 @@ impl MobaMatch {
         }
         let entity = builder.build();
         self.track(entity, team, role);
-        self.units.get_mut(&entity_key(entity)).expect("tracked structure").lane = lane;
+        let tracked = self.units.get_mut(&entity_key(entity)).expect("tracked structure");
+        tracked.lane = lane;
+        tracked.base_attack_interval = Fixed64::from_raw(i64::from(interval_ms) * 1024 / 1000).max(Fixed64::from_raw(1));
         entity
+    }
+
+    /// Structure stats of the compiled map; matches without one keep the training values.
+    fn structure_stats(&self) -> omoba_template_ids::MobaStructureStatsConst {
+        omoba_template_ids::moba_map_structure_stats(self.config.map_id.as_deref().unwrap_or(""))
+    }
+
+    /// Attack range of a lane structure, from its kind and the map's structure_stats (both public:
+    /// every client sees what a structure is); soldier camps and the base never attack (0).
+    /// None for anything that is not one of this match's structures.
+    pub(crate) fn structure_threat(&self, entity: Entity) -> Option<Fixed64> {
+        let unit = self.units.get(&entity_key(entity)).filter(|unit| unit.entity == entity)?;
+        let stats = self.structure_stats();
+        Some(Fixed64::from_i32(match unit.role {
+            LaneRole::Tower => stats.tower_attack_range,
+            LaneRole::NexusTower => stats.nexus_tower_attack_range,
+            LaneRole::Inhibitor | LaneRole::Base => 0,
+            _ => return None,
+        }))
+    }
+
+    /// Lane towers gain the map's attack growth on the match clock (E187: the original +4 every 45 s).
+    fn grow_tower_damage(&self, world: &mut World) {
+        let stats = self.structure_stats();
+        if stats.tower_damage_growth == 0 { return; }
+        let damage = stats.tower_damage_at(self.elapsed.raw() / 1024);
+        let mut units = world.write_storage::<Unit>();
+        for tracked in self.units.values().filter(|unit| unit.role == LaneRole::Tower) {
+            if let Some(unit) = units.get_mut(tracked.entity) { unit.base_damage = damage; }
+        }
     }
 
     fn spawn_wave(&mut self, world: &mut World) {
         self.waves += 1;
+        let map=self.config.map_id.as_deref().and_then(omoba_template_ids::moba_map_by_name);
         let composition:Vec<_>=if self.config.authored_minion_waves {
-            omoba_template_ids::moba_map_by_name(self.config.map_id.as_deref().expect("validated map"))
-                .expect("validated map").minion_wave.iter().filter(|entry|self.waves%entry.every==0)
-                .flat_map(|entry|std::iter::repeat_n(*entry,entry.count as usize)).collect()
+            map.expect("validated map").minion_wave.iter().filter(|entry|entry.spawn_index(self.waves).is_some()).copied().collect()
         } else {
-            vec![omoba_template_ids::MobaMinionConst {id:"single_lane_creep",count:1,every:1,
-                hp:180,damage:24,attack_range:140,move_speed:240,attack_interval_ms:1000};self.config.creeps_per_wave as usize]
+            vec![omoba_template_ids::MobaMinionConst {id:"single_lane_creep",count:self.config.creeps_per_wave,every:1,
+                hp:180,damage:24,attack_range:140,move_speed:240,attack_interval_ms:1000,first_wave:1,hp_per_wave:0,damage_per_wave:0,
+                armor:0,late_from_wave:0,late_every:0,lane_down_percent:100,first_barracks_percent:100,lane_counts:&[]}]
         };
         for team in 0..2 {
           for lane in 0..self.routes.len() {
-            let lane_composition=self.reinforced_wave(team,lane,&composition);
+            // Per-lane counts by the map's lane id (E187: the original mid lane sends more).
+            let lane_id=map.and_then(|map|map.lane_id(lane)).unwrap_or("");
+            let normal:Vec<_>=composition.iter().flat_map(|entry|std::iter::repeat_n(*entry,entry.count_in_lane(lane_id) as usize)).collect();
+            let lane_composition=self.reinforced_wave(team,lane,&normal);
             for (index,definition) in lane_composition.iter().enumerate() {
-                let route = &self.routes[lane][team];
-                let mut cursor = 1;
-                let spawn = omoba_sim::navigation::advance_route(route,&mut cursor,route[0],
-                    Fixed64::from_i32(180 + index as i32 * 35));
-                let mut unit = Unit::new(
-                    definition.id.into(),
-                    "Lane creep".into(),
-                    UnitType::Creep,
-                );
-                let (hp,damage)=self.config.minion_growth_rules.stats(definition.hp,definition.damage,self.elapsed);
-                unit.max_hp = hp;
-                unit.current_hp = hp;
-                unit.base_damage = damage;
-                unit.attack_range = Fixed64::from_i32(definition.attack_range);
-                unit.move_speed = Fixed64::from_i32(definition.move_speed);
-                let entity = world
-                    .create_entity()
-                    .with(unit)
-                    .with(Creep {
-                        name: definition.id.into(),
-                        label: None,
-                        // No legacy TD path: lane rules own this unit's movement.
-                        path: if self.config.map_id.is_none() { "__single_lane__".into() }
-                            else { format!("__moba_lane_{lane}__") },
-                        pidx: 0,
-                        path_remaining_distance: self.config.lane_length,
-                        block_tower: None,
-                        status: CreepStatus::Walk,
-                        td_layer: None,
-                    })
-                    .with(faction(team as u8, self.config.teams[team]))
-                    .with(ReplicationScope {
-                        kind: ReplicationScopeKind::OwnerTeam,
-                        owner_team: Some(self.config.teams[team]),
-                    })
-                    .with(VisionSource {
-                        team: self.config.teams[team],
-                        radius: Fixed64::from_i32(700),
-                        detection_level: 0,
-                    })
-                    .with(Pos(spawn))
-                    // Born facing its next waypoint; every later step keeps it on its motion.
-                    .with(Facing(route.get(cursor).map_or(omoba_sim::Angle::ZERO, |next| direction_angle(spawn, *next).unwrap_or(omoba_sim::Angle::ZERO))))
-                    .with(property(Fixed64::from_i32(hp), Fixed64::from_i32(definition.move_speed)))
-                    .with(CircularVision::new(700.0, 500.0))
-                    .build();
-                self.track(entity, team, LaneRole::Creep);
-                let tracked = self.units.get_mut(&entity_key(entity)).expect("tracked creep");
-                tracked.lane = lane;
-                tracked.next_waypoint = cursor;
-                // Content validation bounds the integer; quantize once, never
-                // reconstruct authored cadence from an approximate reciprocal.
-                tracked.base_attack_interval=Fixed64::from_raw(i64::from(definition.attack_interval_ms)*1024/1000).max(Fixed64::from_raw(1));
+                let grown=definition.grown(self.waves);
+                self.spawn_lane_minion(world,team,lane,index,definition,grown);
             }
           }
         }
+    }
+
+    /// One lane minion of `team` in `lane`, `index` places behind the lane start, with the group's
+    /// `grown` HP and attack before the match-time growth and the barracks reinforcement (E187:
+    /// the defenders' inhibitor of this lane down).
+    fn spawn_lane_minion(&mut self, world: &mut World, team: usize, lane: usize, index: usize,
+        definition: &omoba_template_ids::MobaMinionConst, (hp,damage): (i32,i32)) {
+        // The defenders' soldier camps of this lane: none, some or all down (E187, chubing.lua team_broken).
+        let (fallen,total)=if self.base_structure_rules().is_some() {self.barracks_fallen(1-team,lane)} else {(0,0)};
+        let route = &self.routes[lane][team];
+        let mut cursor = 1;
+        let spawn = omoba_sim::navigation::advance_route(route,&mut cursor,route[0],
+            Fixed64::from_i32(180 + index as i32 * 35));
+        let mut unit = Unit::new(
+            definition.id.into(),
+            "Lane creep".into(),
+            UnitType::Creep,
+        );
+        let (hp,damage)=self.config.minion_growth_rules.stats(hp,damage,self.elapsed);
+        let armor=self.config.minion_growth_rules.armor(definition.armor,self.elapsed);
+        let percent=i64::from(definition.barracks_percent(fallen,total));
+        let scale=|value:i32|(i64::from(value)*percent/100).clamp(0,i64::from(i32::MAX)) as i32;
+        let (hp,damage,armor)=(scale(hp).max(1),scale(damage).max(1),scale(armor));
+        unit.base_armor = Fixed64::from_i32(armor);
+        unit.max_hp = hp;
+        unit.current_hp = hp;
+        unit.base_damage = damage;
+        unit.attack_range = Fixed64::from_i32(definition.attack_range);
+        unit.move_speed = Fixed64::from_i32(definition.move_speed);
+        let entity = world
+            .create_entity()
+            .with(unit)
+            .with(Creep {
+                name: definition.id.into(),
+                label: None,
+                // No legacy TD path: lane rules own this unit's movement.
+                path: if self.config.map_id.is_none() { "__single_lane__".into() }
+                    else { format!("__moba_lane_{lane}__") },
+                pidx: 0,
+                path_remaining_distance: self.config.lane_length,
+                block_tower: None,
+                status: CreepStatus::Walk,
+                td_layer: None,
+            })
+            .with(faction(team as u8, self.config.teams[team]))
+            .with(ReplicationScope {
+                kind: ReplicationScopeKind::OwnerTeam,
+                owner_team: Some(self.config.teams[team]),
+            })
+            .with(VisionSource {
+                team: self.config.teams[team],
+                radius: Fixed64::from_i32(700),
+                detection_level: 0,
+            })
+            .with(Pos(spawn))
+            // Born facing its next waypoint; every later step keeps it on its motion.
+            .with(Facing(route.get(cursor).map_or(omoba_sim::Angle::ZERO, |next| direction_angle(spawn, *next).unwrap_or(omoba_sim::Angle::ZERO))))
+            .with(CProperty { def_physic: Fixed64::from_i32(armor),
+                ..property(Fixed64::from_i32(hp), Fixed64::from_i32(definition.move_speed)) })
+            .with(CircularVision::new(700.0, 500.0))
+            .build();
+        self.track(entity, team, LaneRole::Creep);
+        let tracked = self.units.get_mut(&entity_key(entity)).expect("tracked creep");
+        tracked.lane = lane;
+        tracked.next_waypoint = cursor;
+        // Content validation bounds the integer; quantize once, never
+        // reconstruct authored cadence from an approximate reciprocal.
+        tracked.base_attack_interval=Fixed64::from_raw(i64::from(definition.attack_interval_ms)*1024/1000).max(Fixed64::from_raw(1));
     }
 }
 
@@ -1958,6 +2177,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         tower_plating::synchronize(world,&state,Fixed64::ZERO);
         objective_buffs::synchronize(world,&mut state,Fixed64::ZERO);
         personal_buffs::synchronize(world,&mut state,Fixed64::ZERO);
+        home_aura::synchronize(world,&mut state);
         #[cfg(feature="kcp")]
         apply_owner_scheme_inputs(world,&mut state,false);
         let records = super::ward_world::take_ward_records(&mut state);
@@ -1984,7 +2204,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     let active=state.elapsed>=state.config.warmup && dt>Fixed64::ZERO;
     if active && state.phase == MobaMatchPhase::Warmup {
         state.phase = MobaMatchPhase::Playing;
-        state.next_wave_at = state.elapsed;
+        state.next_wave_at = state.elapsed + state.config.first_wave_delay;
     }
     #[cfg(feature="kcp")]
     let direction_begins=apply_owner_scheme_inputs(world,&mut state,active);
@@ -2019,6 +2239,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     }
     objective_comeback::begin(world,&mut state);
     state.tick_base_structures(world);
+    state.grow_tower_damage(world);
+    state.regenerate_structures(world, summoner_delta);
     tower_plating::synchronize(world,&state,dt);
     personal_buffs::synchronize(world,&mut state,dt);
     let minion_waves = state.config.showcase.as_ref().is_none_or(|showcase| showcase.minion_waves);
@@ -2026,9 +2248,12 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
         if minion_waves {state.spawn_wave(world);}
         state.next_wave_at += state.config.wave_interval;
     }
+    // Extra waves called by fallen inhibitors (E187), after this tick's regular wave.
+    state.tick_fall_reinforcements(world);
     jungle::tick(world, &mut state, dt);
     // Include newly spawned waves before their first combat decision.
     objective_buffs::synchronize(world,&mut state,dt);
+    home_aura::synchronize(world,&mut state);
     // Units and decisions are always reduced in (entity ID, generation) order.
     let positions = world.read_storage::<Pos>();
     let properties = world.read_storage::<CProperty>();
@@ -2132,7 +2357,7 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
                     if unit.role==LaneRole::Creep {npc_attack_commits.push(unit.entity);}
                     tracked.attack_duration = if unit.role==LaneRole::Creep {
                         npc_stats.final_attack_interval(tracked.base_attack_interval,unit.entity).max(Fixed64::from_raw(1))
-                    }else{Fixed64::ONE};
+                    }else{tracked.base_attack_interval};
                     tracked.attack_remaining = tracked.attack_duration;
                     brush_attacks.push((unit.entity,target.entity));
                     tracked.attack_sequence=tracked.attack_sequence.wrapping_add(1).max(1);
@@ -2213,6 +2438,8 @@ pub fn begin_moba_match_tick(world: &mut World) -> bool {
     super::forced_motion::step(world);
     super::reveal_zone::step(world);
     for (attacker,victim) in brush_attacks {record_brush_attack_reveal(world,attacker,victim);}
+    // Positions the team replicas also hold now; approach-to-cast reads them (E210).
+    super::cast_approach::capture_tick_start(world);
     true
 }
 
@@ -2294,14 +2521,19 @@ impl SingleLaneConfig {
     pub fn scale_hero_xp(&self, xp: u32) -> u32 {
         (u64::from(xp) * u64::from(self.hero_xp_scale_permille) / 1000).min(u64::from(u32::MAX)) as u32
     }
+
+    /// Tower plating is a training rule: the original game's rules have none (E187).
+    pub fn active_tower_plating_rules(&self) -> Option<TowerPlatingRules> {
+        self.tower_plating_rules.filter(|_| self.game_rules.is_none())
+    }
 }
 
-fn award_live_moba_xp(world: &World, entity: Entity, amount: u32) {
+fn award_live_moba_xp(world: &World, entity: Entity, amount: u32, rules: Option<&omoba_template_ids::GameRulesConst>) {
     let growth = {
         let mut heroes = world.write_storage::<Hero>();
         let Some(hero) = heroes.get_mut(entity) else { return; };
         let before = hero.level;
-        hero.add_moba_experience(amount);
+        hero.add_moba_experience(amount, rules);
         let levels = hero.level - before;
         (hero.level_growth.hp_per_level * levels, hero.level_growth.damage_per_level * levels)
     };
@@ -2318,6 +2550,7 @@ fn award_live_moba_xp(world: &World, entity: Entity, amount: u32) {
 fn credit_moba_player(world:&World,state:&mut MobaMatch,index:usize,gold:u32,xp:u32)->bool {
     // Every kill, assist and jungle XP award passes here; gold is never scaled.
     let xp=state.config.scale_hero_xp(xp);
+    let rules=state.config.game_rules;
     let slot=&mut state.heroes[index];
     let paid;
     let amount=gold.min(i32::MAX as u32) as i32;
@@ -2330,12 +2563,12 @@ fn credit_moba_player(world:&World,state:&mut MobaMatch,index:usize,gold:u32,xp:
             balance.0=balance.0.saturating_add(amount);
             paid=(i64::from(balance.0)-i64::from(before)) as u64;
         }
-        if xp>0 {award_live_moba_xp(world,entity,xp);}
+        if xp>0 {award_live_moba_xp(world,entity,xp,rules.as_ref());}
     } else if let Some((_,balance))=slot.admitted_dead_wallet() {
         let before=balance.0;
         balance.0=balance.0.saturating_add(amount);
         paid=(i64::from(balance.0)-i64::from(before)) as u64;
-        if xp>0 {slot.hero.add_moba_experience(xp);}
+        if xp>0 {slot.hero.add_moba_experience(xp,rules.as_ref());}
     } else {return false;}
     state.earned_gold[slot.side]=state.earned_gold[slot.side].saturating_add(paid);
     true
@@ -2363,8 +2596,12 @@ pub(crate) fn record_moba_lane_damage(world:&World,source:Option<Entity>,target:
     };
     let Some(credit)=jungle_credit::resolve(world,&state,source).filter(|c|c.side!=victim_side) else {return;};
     let Some(index)=state.heroes.iter().position(|slot|Some(slot.player_id)==credit.player && slot.side==credit.side) else {return;};
-    let gold=state.config.lane_creep_gold;
-    credit_moba_player(world,&mut state,index,gold,0);
+    // Original rules (E187): the minion type's gold and, for gunners and cavalry, the killer's XP.
+    let (gold,xp)=match state.config.game_rules {
+        Some(rules)=>original_rewards::lane_minion_last_hit(world,&rules,target),
+        None=>(state.config.lane_creep_gold,0),
+    };
+    credit_moba_player(world,&mut state,index,gold,xp);
 }
 
 /// Called after actual positive damage to a live target, not after an input ACK.
@@ -2393,21 +2630,47 @@ pub(crate) fn record_moba_hero_damage(world: &World, source: Option<Entity>, tar
     state.heroes[victim].lethal_pending = true;
     let window = i64::from(state.config.assist_window_seconds) * 1024;
     let assistants = state.assist_ledger.settle(key, killer.map(|side| roster[side]), now, window, &roster);
+    let rules = state.config.game_rules;
+    // The victim before this death touches it (original rules read its level, streaks and gold).
+    let victim_state = original_rewards::Victim {
+        level: world.read_storage::<Hero>().get(target).map_or(state.heroes[victim].hero.level, |hero| hero.level),
+        kill_streak: state.heroes[victim].kill_streak,
+        deaths: state.heroes[victim].unanswered_deaths,
+        gold: world.read_storage::<Gold>().get(target).map_or(0, |gold| i64::from(gold.0)),
+    };
+    let killer_level = killer.map(|index| original_rewards::slot_level(world, &state.heroes[index]));
+    if let (Some(rules), Some(origin)) = (rules, world.read_storage::<Pos>().get(target).map(|p| p.0)) {
+        original_rewards::hero_death_xp(world, &state, &rules, victim, victim_state.level, origin);
+    }
     let bonus=state.config.kill_bounty_rules.bonus(state.heroes[victim].kill_streak);
     state.heroes[victim].kill_streak=0;
     let Some(killer) = killer else { return; };
-    let base_gold=state.config.death_streak_rules.gold(state.config.hero_kill_gold,state.heroes[victim].unanswered_deaths);
-    let (kill_gold,kill_xp)=(base_gold.saturating_add(bonus),state.config.hero_kill_xp);
+    // Original rules (E187) replace the training kill-streak bounty, death-streak reduction,
+    // kill XP and first-kill bonus.
+    let (kill_gold, kill_xp, chain) = match rules {
+        Some(rules) => {
+            let (gold, xp, chain) = original_rewards::killer_reward(&state, &rules, killer, killer_level.unwrap_or(1), victim_state);
+            (gold, xp, Some(chain))
+        }
+        None => {
+            let base_gold=state.config.death_streak_rules.gold(state.config.hero_kill_gold,state.heroes[victim].unanswered_deaths);
+            (base_gold.saturating_add(bonus),state.config.hero_kill_xp,None)
+        }
+    };
     if !credit_moba_player(world,&mut state,killer,kill_gold,kill_xp) {return;}
+    if let Some(chain) = chain { state.heroes[killer].multi_kill = chain; }
     personal_buffs::transfer(world,&mut state,killer,victim);
     state.heroes[victim].unanswered_deaths=state.heroes[victim].unanswered_deaths.saturating_add(1);
     state.heroes[killer].unanswered_deaths=0;
     state.heroes[killer].kills = state.heroes[killer].kills.saturating_add(1);
     state.heroes[killer].kill_streak = state.heroes[killer].kill_streak.saturating_add(1);
-    let (winner,loser,bonus)=(state.heroes[killer].player_id,state.heroes[victim].player_id,state.config.first_kill_bonus_gold);
+    let first_kill_bonus = if rules.is_some() { 0 } else { state.config.first_kill_bonus_gold };
+    let (winner,loser,bonus)=(state.heroes[killer].player_id,state.heroes[victim].player_id,first_kill_bonus);
     state.first_kill.observe(world.read_resource::<Tick>().0,key,winner,loser,bonus);
-    let assist_gold = state.config.hero_assist_gold;
-    let assist_xp = state.config.hero_assist_xp;
+    // library/common/assist.lua: 300 + the streak term per assisting hero, no XP (the proximity XP
+    // above covers it).
+    let (assist_gold, assist_xp) = rules.map_or((state.config.hero_assist_gold, state.config.hero_assist_xp),
+        |rules| (rules.hero_kill.assist_gold(victim_state.kill_streak, victim_state.deaths), 0));
     for player in assistants {
         let index=state.heroes.iter().position(|slot|slot.player_id==player).expect("validated roster");
         if credit_moba_player(world,&mut state,index,assist_gold,assist_xp) {
@@ -2492,6 +2755,10 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
     if let Some(unit) = state.units.remove(&entity_key(entity)) {
         state.assist_ledger.retire(crate::runtime::canonical_entity_id(entity));
         let team = unit.team as usize;
+        // One structured line per structure loss and hero death, for match summaries (E154).
+        if matches!(unit.role, LaneRole::Tower | LaneRole::Inhibitor | LaneRole::NexusTower | LaneRole::Base) {
+            log::info!("[match] structure_destroyed tick={} side={} role={:?} lane={}", world.read_resource::<Tick>().0, team, unit.role, unit.lane);
+        }
         match unit.role {
             LaneRole::Hero => {
                 let slot = state.heroes.iter_mut().find(|slot| slot.entity == Some(entity)).expect("tracked hero slot");
@@ -2516,8 +2783,12 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                 slot.deaths = slot.deaths.saturating_add(1);
                 slot.kill_streak = 0;
                 let retired_player = slot.player_id;
+                log::info!("[match] hero_death tick={} player={} side={} deaths={}", world.read_resource::<Tick>().0, retired_player, team, slot.deaths);
                 super::shop::retire_owner_shop_undo(world, retired_player);
-                slot.respawn_at = Some(state.elapsed + state.config.respawn_delay);
+                // The original game's respawn table by hero level, else the fixed delay.
+                let respawn = state.config.game_rules.map_or(state.config.respawn_delay,
+                    |rules| Fixed64::from_i32(rules.respawn_seconds(slot.hero.level).min(i32::MAX as u32) as i32));
+                slot.respawn_at = Some(state.elapsed + respawn);
                 objective_buffs::retire_hero(&mut state,retired_player);
                 personal_buffs::retire_hero(&mut state,retired_player);
                 world
@@ -2525,17 +2796,18 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                     .remove_all_for(entity);
                 minion_aura::synchronize(world,&mut state);
             }
-            LaneRole::Inhibitor | LaneRole::NexusTower => state.retire_base_structure(entity),
+            LaneRole::Inhibitor | LaneRole::NexusTower => state.retire_base_structure(world, entity),
             LaneRole::Tower => {
                 if !unit.last_hit_retired && state.phase==MobaMatchPhase::Playing
                     && !world.read_resource::<GamePause>().is_paused {
                     state.first_tower.observe(world.read_resource::<Tick>().0,entity_key(entity),None,BTreeSet::new());
                 }
-                for layer in &mut state.lane_tower_layers[unit.lane] {
-                    if layer[team] == Some(entity) { layer[team] = None; }
+                for layers in [&mut state.lane_tower_layers, &mut state.lane_tower_partners] {
+                    for layer in layers.get_mut(unit.lane).into_iter().flatten() {
+                        if layer[team] == Some(entity) { layer[team] = None; }
+                    }
                 }
-                state.lane_towers[unit.lane][team] = state.lane_tower_layers[unit.lane].iter().find_map(|layer| layer[team]);
-                state.towers[team] = state.lane_towers.iter().find_map(|lane| lane[team]);
+                state.refresh_lane_towers(unit.lane, team);
             }
             LaneRole::Base => state.bases[team] = None,
             LaneRole::Creep => {
@@ -2543,7 +2815,11 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                     && !world.read_resource::<GamePause>().is_paused
                     && world.read_storage::<CProperty>().get(entity).is_some_and(|p| p.hp <= Fixed64::ZERO)
                 {
-                    if let Some(origin) = world.read_storage::<Pos>().get(entity).map(|p| p.0) {
+                    let origin = world.read_storage::<Pos>().get(entity).map(|p| p.0);
+                    // Original rules (E187): XP by minion type, each hero in range the whole share.
+                    if let (Some(rules), Some(origin)) = (state.config.game_rules, origin) {
+                        original_rewards::lane_minion_death_xp(world, &state, &rules, entity, team, origin);
+                    } else if let Some(origin) = origin {
                         let radius = Fixed64::from_i32(state.config.lane_xp_radius as i32);
                         let recipients: Vec<_> = state.heroes.iter().filter(|slot|
                             slot.side != team && !slot.lethal_pending).filter_map(|slot| slot.entity)
@@ -2555,7 +2831,7 @@ pub fn record_moba_death(world: &mut World, entity: Entity) {
                         if !recipients.is_empty() {
                             // Equal floor shares, no iteration-order remainder bonus.
                             let share = state.config.scale_hero_xp(state.config.lane_creep_xp) / recipients.len() as u32;
-                            for hero in recipients { award_live_moba_xp(world, hero, share); }
+                            for hero in recipients { award_live_moba_xp(world, hero, share, state.config.game_rules.as_ref()); }
                         }
                     }
                 }
@@ -2696,7 +2972,9 @@ pub fn finish_moba_match_tick(world: &mut World) {
                 state.heroes[side].recall = None;
             } else if state.elapsed >= deadline {
                 let base = state.bases[team].unwrap();
-                let destination = world.read_storage::<Pos>().get(base).expect("base position").0;
+                // The fountain on a map that authors one (E187), else the base.
+                let destination = state.authored_fountain(team)
+                    .unwrap_or_else(|| world.read_storage::<Pos>().get(base).expect("base position").0);
                 world.write_storage::<Pos>().get_mut(valid.unwrap()).expect("hero position").0 = destination;
                 state.heroes[side].recall = None;
             }
@@ -2721,8 +2999,10 @@ pub fn finish_moba_match_tick(world: &mut World) {
             let Some(base)=state.bases[slot.side] else {continue;};
             if !properties.get(base).is_some_and(|p|p.hp>Fixed64::ZERO)
                 || !properties.get(entity).is_some_and(|p|p.hp>Fixed64::ZERO) {continue;}
-            let (Some(own),Some(home))=(positions.get(entity),positions.get(base)) else {continue;};
-            if (own.0-home.0).length_squared()<=radius*radius {home_recovery.insert(entity);}
+            let (Some(own),Some(base))=(positions.get(entity),positions.get(base)) else {continue;};
+            // Around the fountain on a map that authors one (E187), else around the base.
+            let home=state.authored_fountain(slot.side).unwrap_or(base.0);
+            if (own.0-home).length_squared()<=radius*radius {home_recovery.insert(entity);}
         }
     }
     if state.config.mana_enabled && delta > 0 {
@@ -2741,7 +3021,8 @@ pub fn finish_moba_match_tick(world: &mut World) {
                 } else {Fixed64::ZERO};
                 // Combine rates before applying dt so one remainder carries
                 // both contributions and a full pool cannot retain stale credit.
-                let natural=crate::runtime::UnitStats::from_refs(&buffs,false).mana_regen(rate,entity);
+                // Natural regen plus the per-second share of max mana and its amplification (rules::regen).
+                let natural=super::rules::regen::mana_per_second(&crate::runtime::UnitStats::from_refs(&buffs,false),rate,pool.maximum(),entity);
                 let combined=i128::from(natural.raw())+i128::from(base_rate.raw());
                 // Buff overflow cannot panic or wrap into a giant refill.
                 let combined=i64::try_from(combined).map(Fixed64::from_raw).unwrap_or(base_rate);
@@ -2764,8 +3045,25 @@ pub fn finish_moba_match_tick(world: &mut World) {
     let accrued = i128::from(state.income_remainder_raw) + i128::from(delta);
     let seconds = accrued / i128::from(omoba_sim::fixed::SCALE);
     state.income_remainder_raw = (accrued % i128::from(omoba_sim::fixed::SCALE)) as i64;
-    let award = (seconds * i128::from(state.config.passive_gold_per_second))
+    // The game rules' schedule replaces the flat per-second income.
+    let per_second = if state.config.game_rules.is_some() { 0 } else { state.config.passive_gold_per_second };
+    let mut award = (seconds * i128::from(per_second))
         .min(i128::from(i32::MAX)) as i32;
+    // The original game's schedule: from a start time, a fixed amount each interval, plus a
+    // periodic grant (game_rules.lua), counted on playing time (after warmup).
+    if let (Some(rules), true) = (state.config.game_rules, delta > 0) {
+        let after = i128::from((state.elapsed - state.config.warmup).raw());
+        let before = after - i128::from(delta);
+        let scheduled = |start: u32, interval: u32, amount: u32| {
+            let scale = i128::from(omoba_sim::fixed::SCALE);
+            let (start, interval) = (i128::from(start) * scale, i128::from(interval.max(1)) * scale);
+            let reached = |t: i128| if t < start { 0 } else { (t - start) / interval + 1 };
+            (reached(after) - reached(before.max(0))).max(0) * i128::from(amount)
+        };
+        let extra = scheduled(rules.gold_passive_start_seconds, rules.gold_passive_interval_seconds, rules.gold_passive_amount)
+            + scheduled(rules.gold_periodic_interval_seconds, rules.gold_periodic_interval_seconds, rules.gold_periodic_amount);
+        award = (i128::from(award) + extra).min(i128::from(i32::MAX)) as i32;
+    }
     if award > 0 {
         for index in 0..state.heroes.len() {
             credit_moba_player(world,&mut state,index,award as u32,0);
@@ -2959,12 +3257,15 @@ pub fn finish_moba_match_tick(world: &mut World) {
     drop(positions);
     drop(facings);
     drop(attacks);
-    let winner = match state.bases {
+    // A passed surrender vote (E187, surrender.lua:98-106 -> :147-193 kills the conceding
+    // side's base) ends the match through this same finish. It was committed before this
+    // tick's combat, so it decides before a base that fell in the same tick.
+    let winner = surrender::conceded_winner(world, &state).or(match state.bases {
         [None, None] => Some(None),
         [None, Some(_)] => Some(Some(1)),
         [Some(_), None] => Some(Some(0)),
         _ => None,
-    };
+    });
     if let Some(winner) = winner {
         state.phase = MobaMatchPhase::Finished { winner, tick };
         super::cast_windup::clear_preparation(world);
@@ -2980,6 +3281,7 @@ pub fn finish_moba_match_tick(world: &mut World) {
     super::cast_windup::emit_progress(world,&state);
     if let Some(winner) = winner {
         state.phase = MobaMatchPhase::Finished { winner, tick };
+        log::info!("[match] finished tick={} winner_side={:?}", tick, winner);
         let winner_team = winner.map(|side| state.config.teams[side as usize]);
         let records = super::ward_world::take_ward_records(&mut state);
         drop(state);
@@ -3059,7 +3361,7 @@ fn emit_incoming_damage_observations(world: &mut World, tick: u64) {
         let buffs = world.read_resource::<crate::runtime::BuffStore>();
         (&entities,&properties,&positions).join().map(|(entity,_,_)| {
             (crate::runtime::canonical_entity_id(entity),
-                buffs.sum_add(entity,omb_script_abi::stat_keys::StatKey::DamageTakenBonus).raw())
+                crate::runtime::ability_runtime::unit_stats::damage_taken_bonus(&buffs,entity).raw())
         }).collect()
     };
     let mut cache = world.write_resource::<IncomingDamageObservationCache>();
@@ -3093,7 +3395,8 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     hash.update(format!("|objective-buffs:{:?}|personal-buffs:{:?}",state.objective_buffs,state.personal_buffs));
     hash.update(format!("|minion-auras:{:?}",state.minion_aura_targets));
     hash.update(format!("|tower-plating:{:?}:{:?}",state.config.tower_plating_rules,state.tower_plates));
-    hash.update(format!("|base-structures:{:?}",state.base_structures));
+    hash.update(format!("|base-structures:{:?}|barracks-fall:{:?}",state.base_structures,state.barracks_fall));
+    if let Some(material) = surrender::hash_material(&state) { hash.update(material); }
     // The step envelope must keep the current wire tick even while no gameplay
     // can execute. It is not a running gameplay clock during pause/terminal.
     // Preserve the entire active snapshot (including controls and tick) in the
@@ -3113,6 +3416,8 @@ pub fn single_lane_replay_digest(world: &World) -> String {
         }
     }
     hash.update(format!("|map:{:?}|routes:{:?}|towers:{:?}|layers:{:?}",state.config.map_id,state.routes,state.lane_towers,state.lane_tower_layers));
+    // Paired towers (E187 §5.2) only exist on maps that author them; others keep their digest.
+    if !state.lane_tower_partners.is_empty() { hash.update(format!("|partners:{:?}",state.lane_tower_partners)); }
     hash.update(format!("|authored-minions:{}",state.config.authored_minion_waves));
     hash.update(format!(
         "{:?}|{}|{}|{}|{}",
@@ -3132,6 +3437,8 @@ pub fn single_lane_replay_digest(world: &World) -> String {
     for slot in &state.heroes {
         hash.update(format!("|side:{}", slot.side));
         hash.update(format!("|assists:{}|kill-streak:{}|unanswered-deaths:{}", slot.assists,slot.kill_streak,slot.unanswered_deaths));
+        // Only a started kill chain (original rules) adds material.
+        if slot.multi_kill.0 > 0 { hash.update(format!("|multi-kill:{}:{}", slot.multi_kill.0, slot.multi_kill.1.raw())); }
         hash.update(format!(
             "|{}|{:?}|{}|{}|{:?}|{}|{}|kills:{}|lethal:{}|recall:{:?}",
             slot.player_id,
@@ -3509,6 +3816,7 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
         kill_streak: 0,
         unanswered_deaths: 0,
             assists: 0,
+            multi_kill: (0, Fixed64::ZERO),
             lethal_pending: false,
             recall: None,
             respawns: 0,
@@ -3522,13 +3830,17 @@ pub(crate) fn stop_command_match(hero: Entity, phase: MobaMatchPhase) -> MobaMat
         towers: [None, None],
         lane_towers: Vec::new(),
         lane_tower_layers: Vec::new(),
+        lane_tower_partners: Vec::new(),
         base_structures: Vec::new(),
+        barracks_fall: Default::default(),
+        home_speed_refresh: None,
         routes: Vec::new(),
         bases: [None, None],
         jungle_camps: Vec::new(),
         assist_ledger: super::moba_assist::AssistLedger::default(),
         first_tower:first_tower::FirstTowerState::default(),
         first_kill:first_kill::FirstKillState::default(),
+        surrender:surrender::SurrenderState::default(),
         objective_notices:objective_notice::ObjectiveNotices::default(),
         objective_buffs:BTreeMap::new(),
         tower_plates:BTreeMap::new(),
@@ -3576,13 +3888,17 @@ pub(crate) fn communication_roster_match(
         towers: [None, None],
         lane_towers: Vec::new(),
         lane_tower_layers: Vec::new(),
+        lane_tower_partners: Vec::new(),
         base_structures: Vec::new(),
+        barracks_fall: Default::default(),
+        home_speed_refresh: None,
         routes: Vec::new(),
         bases: [None, None],
         jungle_camps,
         assist_ledger: super::moba_assist::AssistLedger::default(),
         first_tower:first_tower::FirstTowerState::default(),
         first_kill:first_kill::FirstKillState::default(),
+        surrender:surrender::SurrenderState::default(),
         objective_notices:objective_notice::ObjectiveNotices::default(),
         objective_buffs:BTreeMap::new(),
         tower_plates:BTreeMap::new(),
@@ -3611,6 +3927,7 @@ pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Enti
         kill_streak: 0,
         unanswered_deaths: 0,
         assists: 0,
+        multi_kill: (0, Fixed64::ZERO),
         lethal_pending: false,
         recall: None,
         respawns: 0,
@@ -3621,6 +3938,15 @@ pub(crate) fn shop_fixture_slot(player_id: u32, side: usize, entity: Option<Enti
         summoners: crate::runtime::summoner_runtime::SummonerLoadout::default(),
         trinket: super::ward_world::WardRosterState::unavailable(),
     }
+}
+
+/// Test fixtures: bring in every jungle camp still waiting for its first appearance (the bosses'
+/// `first_spawn_seconds`, E187) now, for fixtures that fight a boss at match start.
+#[cfg(any(test, feature = "test-support"))]
+pub fn spawn_waiting_jungle_camps_for_test(world: &mut World) {
+    let Some(mut state) = world.remove::<MobaMatch>() else { return; };
+    jungle::spawn_waiting_camps(world, &mut state);
+    world.insert(state);
 }
 
 #[cfg(test)]
@@ -3666,6 +3992,14 @@ impl MobaMatch {
                 respawn_seconds: 1,
                 gold: 0,
                 xp: 0,
+                attack_interval_ms: 1000,
+                first_spawn_seconds: 0,
+                respawn_growth_hp: 0,
+                respawn_growth_damage: 0,
+                armor: 0,
+                magic_resistance: 0,
+                tags: &[],
+                original_reward: None,
         });
         camp.entity = Some(entity);
         camp.returning = returning;

@@ -102,10 +102,23 @@ impl DamageProfile {
     pub const NORMAL: Self = Self(1 << 5);
     pub const CRUSHING: Self = Self(1 << 6);
     pub const TRUE: Self = Self(1 << 7);
-    pub const KNOWN_BITS: u32 = (1 << 8) - 1;
+    /// The damage types above; every packet carries at least one.
+    pub const TYPE_BITS: u32 = (1 << 8) - 1;
+    /// Not a type: the packet is dealt by an ability or item (Dota's damage with an inflictor),
+    /// so the source's spell amplification scales it (E188, runtime spell_amplify.rs). Attacks
+    /// and scripts that dealt inflictor-less damage in the source (AMHC:Damage) never set it.
+    /// The settlement strips it before TD layers and presentation see the profile.
+    pub const SPELL: Self = Self(1 << 8);
+    /// Not a type: the packet is dropped when its source is no longer alive at settlement
+    /// (the source's `AMHC:Damage`, amhc.lua:540, returns without damage once the attacker is
+    /// dead; omoba-core `rules::damage`). Stripped with SPELL before TD layers and presentation.
+    pub const REQUIRE_SOURCE_ALIVE: Self = Self(1 << 9);
+    /// The non-type marks above.
+    pub const FLAG_BITS: u32 = Self::SPELL.0 | Self::REQUIRE_SOURCE_ALIVE.0;
+    pub const KNOWN_BITS: u32 = Self::TYPE_BITS | Self::FLAG_BITS;
 
     pub const fn from_bits(bits: u32) -> Option<Self> {
-        if bits != 0 && bits & !Self::KNOWN_BITS == 0 {
+        if bits & Self::TYPE_BITS != 0 && bits & !Self::KNOWN_BITS == 0 {
             Some(Self(bits))
         } else {
             None
@@ -374,7 +387,14 @@ mod tests {
     #[test]
     fn damage_profile_rejects_zero_and_unknown_bits() {
         assert_eq!(DamageProfile::from_bits(0), None);
-        assert_eq!(DamageProfile::from_bits(1 << 8), None);
+        assert_eq!(DamageProfile::from_bits(1 << 9), None);
+        // SPELL marks a typed packet; it is not a type of its own.
+        assert_eq!(DamageProfile::from_bits(DamageProfile::SPELL.bits()), None);
+        let spell = DamageProfile::ENERGY.union(DamageProfile::SPELL);
+        assert_eq!(DamageProfile::from_bits(spell.bits()), Some(spell));
+        let alive = DamageProfile::NORMAL.union(DamageProfile::REQUIRE_SOURCE_ALIVE);
+        assert_eq!(DamageProfile::from_bits(alive.bits()), Some(alive));
+        assert_eq!(DamageProfile::from_bits(DamageProfile::NORMAL.bits() | (1 << 10)), None);
         assert_eq!(
             DamageProfile::from_bits(DamageProfile::KNOWN_BITS | (1 << 31)),
             None

@@ -1270,11 +1270,17 @@ pub fn extract_snapshot(
             let armor = prop
                 .map(|p| stats.final_armor(p.def_physic, entity).to_f32_for_render())
                 .unwrap_or(0.0);
+            // def_magic is percent (the damage paths' unit); a hero's is capped by the game rules.
             let magic_resist = prop
                 .map(|p| {
-                    stats
-                        .final_magic_resist(p.def_magic, entity)
-                        .to_f32_for_render()
+                    let hundred = Fixed64::from_i32(100);
+                    // A hero's pool is capped by the game rules (rules::magic_resist).
+                    let percent = if hero_storage.get(entity).is_some() {
+                        super::rules::magic_resist::hero_percent(&stats, entity, p.def_magic, omoba_template_ids::GAME_RULES.as_ref())
+                    } else {
+                        stats.final_magic_resist(p.def_magic / hundred, entity) * hundred
+                    };
+                    (percent / hundred).to_f32_for_render()
                 })
                 .unwrap_or(0.0);
             let move_speed = prop
@@ -1286,7 +1292,7 @@ pub fn extract_snapshot(
             let attack_speed_sec = atk
                 .map(|a| {
                     let asd_mult = stats.final_attack_speed_mult(entity).to_f32_for_render();
-                    let base = a.asd.v.to_f32_for_render();
+                    let base = stats.base_attack_interval(a.asd.v, entity).to_f32_for_render();
                     if asd_mult > 0.0 {
                         base / asd_mult
                     } else {
@@ -1739,11 +1745,17 @@ pub fn extract_data_for_render(
             let armor = prop
                 .map(|p| stats.final_armor(p.def_physic, entity).to_f32_for_render())
                 .unwrap_or(0.0);
+            // def_magic is percent (the damage paths' unit); a hero's is capped by the game rules.
             let magic_resist = prop
                 .map(|p| {
-                    stats
-                        .final_magic_resist(p.def_magic, entity)
-                        .to_f32_for_render()
+                    let hundred = Fixed64::from_i32(100);
+                    // A hero's pool is capped by the game rules (rules::magic_resist).
+                    let percent = if hero_storage.get(entity).is_some() {
+                        super::rules::magic_resist::hero_percent(&stats, entity, p.def_magic, omoba_template_ids::GAME_RULES.as_ref())
+                    } else {
+                        stats.final_magic_resist(p.def_magic / hundred, entity) * hundred
+                    };
+                    (percent / hundred).to_f32_for_render()
                 })
                 .unwrap_or(0.0);
             let move_speed = prop
@@ -1755,7 +1767,7 @@ pub fn extract_data_for_render(
             let attack_speed_sec = atk
                 .map(|a| {
                     let asd_mult = stats.final_attack_speed_mult(entity).to_f32_for_render();
-                    let base = a.asd.v.to_f32_for_render();
+                    let base = stats.base_attack_interval(a.asd.v, entity).to_f32_for_render();
                     if asd_mult > 0.0 {
                         base / asd_mult
                     } else {

@@ -165,6 +165,36 @@ function M.validate(dir, loaded, opts)
       err("source.lua abilities entries need source_ability_id and 64-hex raw_sha256")
     else
       source_abilities[s.source_ability_id] = s
+      -- E170 "已對照原作": the ability was re-checked against the source scripts. It names the
+      -- card file (with a `## ...（<id> ...）` section) and the script spans it read; a
+      -- stale_review entry contradicts it.
+      local p = s.parity
+      if p ~= nil then
+        local label = "source ability " .. s.source_ability_id .. " parity"
+        if type(p) ~= "table" then err(label .. " must be a table")
+        else
+          if s.stale_review then err(label .. " cannot be set while stale_review is pending") end
+          if type(p.card) ~= "string" or not p.card:match("^[%w_%-]+%.md$") then err(label .. ".card must name a .md file in the package")
+          else
+            local f = io.open(dir .. "/" .. p.card, "rb")
+            if not f then err(label .. ".card " .. p.card .. " is missing")
+            else
+              local text = f:read("a"); f:close()
+              if not text:find("\n## [^\n]*（" .. s.source_ability_id .. "[ %s]") and not text:find("^## [^\n]*（" .. s.source_ability_id .. "[ %s]") then
+                err(label .. ".card " .. p.card .. " has no section for " .. s.source_ability_id)
+              end
+            end
+          end
+          if type(p.scripts) ~= "table" or #p.scripts == 0 then err(label .. ".scripts must list the source spans read")
+          else
+            for _, span in ipairs(p.scripts) do
+              if type(span) ~= "string" or not span:match("^game/dota_addons/nobu/scripts/.+%.%a+:.*%d+%-%d+$") then
+                err(label .. ".scripts entry must be game/dota_addons/nobu/scripts/<file>:[fn:]<from>-<to>, got " .. tostring(span))
+              end
+            end
+          end
+        end
+      end
     end
   end
   -- Unit-slot entries that are not part of the kit (engine-generic passives such
@@ -356,6 +386,8 @@ function M.validate(dir, loaded, opts)
     -- MOBA birth rank (omoba-content-model validate_moba_loadout): a slot may
     -- start learned only if its first rank needs hero level 1.
     if ab.auto_learn ~= nil and ab.auto_learn ~= true then err(label .. " auto_learn must be true when present") end
+    -- Source SPELL_IMMUNITY_ENEMIES_YES (E184): targets, controls and debuffs magic-immune enemies.
+    if ab.pierces_magic_immunity ~= nil and ab.pierces_magic_immunity ~= true then err(label .. " pierces_magic_immunity must be true when present") end
     local slot = ({ Q = 1, W = 2, E = 3, R = 4, extra1 = 5 })[ab.action]
     if slot then
       local rank = loadout and loadout.ranks and loadout.ranks[slot]
@@ -465,7 +497,14 @@ function M.validate(dir, loaded, opts)
       local a = by[id]
       if not a then err("source ability " .. id .. " not in catalog")
       else
-        if a.raw_sha256 ~= s.raw_sha256 then err("source ability " .. id .. " raw_sha256 differs from catalog (stale package)") end
+        -- A source switch (E169) may acknowledge changed text with stale_review: exactly the
+        -- current text, with a reason; the package then warns until it is re-checked.
+        if s.stale_review then
+          if s.stale_review.raw_sha256 ~= a.raw_sha256 then err("source ability " .. id .. " stale_review does not acknowledge the current source text") end
+          if s.raw_sha256 == a.raw_sha256 then err("source ability " .. id .. " is marked stale but its pin is current") end
+          if not s.stale_review.reason or s.stale_review.reason == "" then err("source ability " .. id .. " stale_review needs a reason") end
+          warn("source ability " .. id .. " changed in the source; package review pending: " .. tostring(s.stale_review.reason))
+        elseif a.raw_sha256 ~= s.raw_sha256 then err("source ability " .. id .. " raw_sha256 differs from catalog (stale package)") end
         if a.variant ~= prov.variant then err("source ability " .. id .. " is variant " .. a.variant .. ", package is " .. tostring(prov.variant)) end
         if a.source_hero_id ~= prov.source_hero_id then err("source ability " .. id .. " belongs to " .. tostring(a.source_hero_id)) end
       end

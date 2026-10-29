@@ -9,3 +9,5 @@ pub use No1_frost_bolt::a34_frost_bolt_ffi;
 pub use No2_iceberg_strike::a34_iceberg_strike_ffi;
 pub use No3_frost_breath::a34_frost_breath_ffi;
 pub use No4_rapid_cooling::a34_rapid_cooling_ffi;
+pub mod hero_unit;
+pub use hero_unit::hero_unit_script;

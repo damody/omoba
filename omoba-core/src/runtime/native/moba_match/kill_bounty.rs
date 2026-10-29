@@ -27,7 +27,11 @@ impl KillBountyRules {
 impl MobaMatch {
     pub fn shutdown_bounty(&self,player:u32)->u32 {
         self.heroes.iter().find(|s|s.player_id==player && s.entity.is_some() && !s.lethal_pending)
-            .map_or(0,|s|self.config.kill_bounty_rules.bonus(s.kill_streak))
+            .map_or(0,|s|match self.config.game_rules {
+                // Original rules (E187): the positive streak term on this hero (kill.lua:56-66).
+                Some(rules)=>rules.hero_kill.streak_gold(s.kill_streak,0).max(0) as u32,
+                None=>self.config.kill_bounty_rules.bonus(s.kill_streak),
+            })
     }
 }
 

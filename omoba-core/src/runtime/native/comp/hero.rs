@@ -51,6 +51,11 @@ pub struct Hero {
 
     // 升級數據
     pub level_growth: LevelGrowth,
+    /// Max HP the attributes have added to this life's `CProperty.mhp` (attributes.rs). Kept on
+    /// the hero so a disclosed hero carries it with its max HP and no replica adds it again.
+    /// A new life starts at zero.
+    #[serde(default)]
+    pub attribute_hp: Fixed64,
 }
 
 /// One charge ability. `remaining` counts down to the next restored use and is
@@ -62,6 +67,29 @@ pub struct AbilityChargeState {
     pub max: u16,
     pub recharge: Fixed64,
     pub remaining: Fixed64,
+}
+
+/// Content-declared charge behaviour when a rank raises the maximum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChargeRankUp {
+    /// Default: the extra uses are granted at once; a running cycle continues.
+    GrantNewUses,
+    /// Source B01E (B01.lua:49-59, modifier_charges.lua:15-22): the stored
+    /// count is kept and, when below the new maximum, the recharge cycle
+    /// restarts at the full per-use time.
+    KeepCountRestart,
+}
+
+impl ChargeRankUp {
+    /// Generated extras key (`custom` effect `charges_rank_up_keep_count`, per rank).
+    pub const KEEP_COUNT_KEY: &'static str = "custom_charges_rank_up_keep_count";
+
+    pub fn authored(content: &omoba_template_ids::AbilityConst, rank: u8) -> Self {
+        let keep = usize::from(rank).checked_sub(1).and_then(|index|
+            content.extras.iter().find(|(name, _)| *name == Self::KEEP_COUNT_KEY)?.1.get(index).copied())
+            .is_some_and(|value| value > Fixed64::ZERO);
+        if keep { Self::KeepCountRestart } else { Self::GrantNewUses }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -93,9 +121,10 @@ impl Hero {
             name,
             title,
             background: String::new(),
-            strength: 1,
-            agility: 1,
-            intelligence: 1,
+            // No template: no attributes (attributes.rs would otherwise grant HP, armor, ...).
+            strength: 0,
+            agility: 0,
+            intelligence: 0,
             primary_attribute: AttributeType::Strength,
             level: 1,
             experience: 0,
@@ -108,6 +137,7 @@ impl Hero {
             ability_charges: std::collections::BTreeMap::new(),
             mana_pool: None,
             level_growth: LevelGrowth::default(),
+            attribute_hp: Fixed64::ZERO,
         }
     }
 
@@ -171,6 +201,7 @@ impl Hero {
                 hp_per_level: s.level_growth.hp_per_level,
                 mana_per_level: s.level_growth.mana_per_level,
             },
+            attribute_hp: Fixed64::ZERO,
         }
     }
 
@@ -303,20 +334,33 @@ impl Hero {
 
     /// 增加經驗值
     /// MOBA authority rewards use bounded integer progression; legacy TD is unchanged.
-    pub fn add_moba_experience(&mut self, exp: u32) -> bool {
-        if exp == 0 || self.level >= 25 { return false; }
+    /// `rules`: the match's game rules (templates/game_rules.lua: the original game's table and
+    /// level cap); `None` keeps the legacy 100 x 1.2^(level-1) curve and a cap of 25.
+    pub fn add_moba_experience(&mut self, exp: u32, rules: Option<&omoba_template_ids::GameRulesConst>) -> bool {
+        let cap = rules.map_or(25, |rules| (rules.experience_max_level as i32).clamp(1, 25));
+        if exp == 0 || self.level >= cap { return false; }
         self.experience = self.experience.max(0).saturating_add(exp.min(i32::MAX as u32) as i32);
         let before = self.level;
         // At most 24 iterations, even for a saturated reward. Never use floats.
-        while self.level < 25 && self.experience >= self.experience_to_next.max(1) {
+        while self.level < cap && self.experience >= self.experience_to_next.max(1) {
             self.experience -= self.experience_to_next.max(1);
             self.level += 1;
             self.skill_points = self.skill_points.saturating_add(1);
-            let exponent = (self.level - 1).clamp(0, 24) as u32;
-            self.experience_to_next = (100u128 * 6u128.pow(exponent) / 5u128.pow(exponent)) as i32;
+            self.experience_to_next = Self::moba_experience_to_next(self.level, rules);
         }
-        if self.level == 25 { self.experience = 0; }
+        if self.level == cap { self.experience = 0; }
         self.level != before
+    }
+
+    /// Experience from `level` to the next level under `rules` (see add_moba_experience).
+    pub fn moba_experience_to_next(level: i32, rules: Option<&omoba_template_ids::GameRulesConst>) -> i32 {
+        match rules {
+            Some(rules) => rules.experience_to_next(level).unwrap_or(i32::MAX),
+            None => {
+                let exponent = (level - 1).clamp(0, 24) as u32;
+                (100u128 * 6u128.pow(exponent) / 5u128.pow(exponent)) as i32
+            }
+        }
     }
 
     /// Legacy progression retained for existing TD/script callers.
@@ -483,13 +527,14 @@ impl Hero {
     pub fn sync_authored_charges(&mut self) {
         for slot in 0..self.abilities.len() {
             let rank = self.get_ability_level(&self.abilities[slot]);
-            let spec = u8::try_from(rank).ok().filter(|rank| *rank > 0).and_then(|rank|
+            let content = u8::try_from(rank).ok().filter(|rank| *rank > 0).and_then(|rank|
                 omoba_template_ids::ability_by_name(&self.abilities[slot])
-                    .and_then(omoba_template_ids::active_ability_const)
-                    .and_then(|content| content.charges_at(rank)));
+                    .and_then(omoba_template_ids::active_ability_const).map(|content| (content, rank)));
+            let spec = content.and_then(|(content, rank)| content.charges_at(rank));
+            let policy = content.map_or(ChargeRankUp::GrantNewUses, |(content, rank)| ChargeRankUp::authored(content, rank));
             if spec.is_some() || self.ability_charges.contains_key(&self.abilities[slot]) {
                 let id = self.abilities[slot].clone();
-                self.sync_charges(&id, spec);
+                self.sync_charges_with(&id, spec, policy);
             }
         }
     }
@@ -518,19 +563,28 @@ impl Hero {
     /// maximum clamps. A new per-use duration applies from the next cycle;
     /// a running cycle never exceeds it. Unlearned (rank 0) drops the state.
     pub fn sync_charges(&mut self, ability_id: &str, spec: Option<(u16, Fixed64)>) {
+        self.sync_charges_with(ability_id, spec, ChargeRankUp::GrantNewUses);
+    }
+
+    /// [`Self::sync_charges`] with the ability's authored rank-up policy.
+    /// `KeepCountRestart`: a higher maximum adds no uses; when not full the
+    /// recharge cycle restarts at the full per-use time (source B01E).
+    pub fn sync_charges_with(&mut self, ability_id: &str, spec: Option<(u16, Fixed64)>, policy: ChargeRankUp) {
         let Some((max, recharge)) = spec.filter(|(max, recharge)| *max > 0 && *recharge > Fixed64::ZERO) else {
             self.ability_charges.remove(ability_id);
             return;
         };
         let state = self.ability_charges.entry(ability_id.to_owned())
             .or_insert(AbilityChargeState { charges: max, max, recharge, remaining: Fixed64::ZERO });
-        if max > state.max { state.charges = state.charges.saturating_add(max - state.max); }
+        let raised = max > state.max;
+        if raised && policy == ChargeRankUp::GrantNewUses { state.charges = state.charges.saturating_add(max - state.max); }
         state.max = max;
         state.charges = state.charges.min(max);
         state.recharge = recharge;
         if state.charges >= max {
             state.remaining = Fixed64::ZERO;
-        } else if state.remaining <= Fixed64::ZERO || state.remaining > recharge {
+        } else if (raised && policy == ChargeRankUp::KeepCountRestart)
+            || state.remaining <= Fixed64::ZERO || state.remaining > recharge {
             state.remaining = recharge;
         }
     }
@@ -601,20 +655,33 @@ mod moba_progression_tests {
     #[test]
     fn integer_moba_xp_crosses_multiple_levels_and_caps_without_overflow() {
         let mut hero = Hero::default();
-        assert!(!hero.add_moba_experience(99));
+        assert!(!hero.add_moba_experience(99, None));
         assert_eq!((hero.level, hero.experience, hero.skill_points), (1, 99, 0));
-        assert!(hero.add_moba_experience(266)); // 100 + 120 + 144; one XP remains.
+        assert!(hero.add_moba_experience(266, None)); // 100 + 120 + 144; one XP remains.
         assert_eq!((hero.level, hero.experience, hero.experience_to_next, hero.skill_points), (4, 1, 172, 3));
-        assert!(hero.add_moba_experience(u32::MAX));
+        assert!(hero.add_moba_experience(u32::MAX, None));
         assert_eq!((hero.level, hero.experience, hero.skill_points), (25, 0, 24));
-        assert!(!hero.add_moba_experience(u32::MAX));
+        assert!(!hero.add_moba_experience(u32::MAX, None));
         assert_eq!((hero.level, hero.experience, hero.skill_points), (25, 0, 24));
+    }
+
+    #[test]
+    fn game_rules_xp_follows_the_original_table() {
+        // templates/game_rules.lua: 220, 265, 310, ... to the next level.
+        let rules = omoba_template_ids::GAME_RULES.expect("the catalog carries game_rules");
+        let mut hero = Hero::default();
+        hero.experience_to_next = Hero::moba_experience_to_next(1, Some(&rules));
+        assert!(!hero.add_moba_experience(219, Some(&rules)));
+        assert!(hero.add_moba_experience(267, Some(&rules))); // 220 + 265; one XP remains.
+        assert_eq!((hero.level, hero.experience, hero.experience_to_next, hero.skill_points), (3, 1, 310, 2));
+        assert!(hero.add_moba_experience(u32::MAX, Some(&rules)));
+        assert_eq!((hero.level, hero.experience), (rules.experience_max_level as i32, 0));
     }
 
     #[test]
     fn zero_xp_does_not_change_progression_and_legacy_remains_single_level() {
         let mut hero = Hero::default();
-        assert!(!hero.add_moba_experience(0));
+        assert!(!hero.add_moba_experience(0, None));
         assert_eq!((hero.level, hero.experience), (1, 0));
         assert!(hero.add_experience(365));
         assert_eq!((hero.level, hero.experience), (2, 265));
@@ -717,6 +784,38 @@ mod charge_tests {
         assert_eq!((h.ability_charges["b"].charges, h.ability_charges["b"].remaining), (1, Fixed64::ZERO), "lower max clamps and stops the cycle");
         h.sync_charges("b", None);
         assert!(!h.ability_charges.contains_key("b") && h.has_charge("b"));
+    }
+
+    #[test]
+    fn keep_count_policy_adds_no_uses_and_restarts_an_unfilled_cycle() {
+        let keep = ChargeRankUp::KeepCountRestart;
+        // Full at rank 1 (2/2): rank 2 raises the cap to 3 without a use; a cycle starts.
+        let mut h = hero();
+        h.sync_charges_with("b", Some((3, s(15))), keep);
+        assert_eq!(h.ability_charges["b"], AbilityChargeState { charges: 2, max: 3, recharge: s(15), remaining: s(15) });
+        // Mid-cycle: the progress is lost and the cycle starts over at 15 s.
+        h.tick_cooldowns(s(10));
+        assert_eq!(h.ability_charges["b"].remaining, s(5));
+        h.sync_charges_with("b", Some((4, s(15))), keep);
+        assert_eq!(h.ability_charges["b"], AbilityChargeState { charges: 2, max: 4, recharge: s(15), remaining: s(15) });
+        // Re-syncing the same rank every tick is idempotent (the cycle keeps running).
+        h.tick_cooldowns(s(4));
+        h.sync_charges_with("b", Some((4, s(15))), keep);
+        assert_eq!(h.ability_charges["b"].remaining, s(11));
+        // A lower maximum still clamps; first learn is still full.
+        h.sync_charges_with("b", Some((1, s(15))), keep);
+        assert_eq!((h.ability_charges["b"].charges, h.ability_charges["b"].remaining), (1, Fixed64::ZERO));
+        h.sync_charges_with("fresh", Some((2, s(15))), keep);
+        assert_eq!(h.ability_charges["fresh"].charges, 2);
+    }
+
+    #[test]
+    fn authored_policy_comes_from_content_extras_and_defaults_to_granting() {
+        let saika = omoba_template_ids::ability_by_name("b01_saika_corps").and_then(omoba_template_ids::active_ability_const).unwrap();
+        for rank in 1..=4 { assert_eq!(ChargeRankUp::authored(saika, rank), ChargeRankUp::KeepCountRestart, "rank {rank}"); }
+        assert_eq!(ChargeRankUp::authored(saika, 0), ChargeRankUp::GrantNewUses);
+        let other = omoba_template_ids::ability_by_name("a02_wind_prayer").and_then(omoba_template_ids::active_ability_const).unwrap();
+        assert_eq!(ChargeRankUp::authored(other, 1), ChargeRankUp::GrantNewUses);
     }
 
     #[test]

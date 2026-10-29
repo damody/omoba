@@ -50,7 +50,10 @@ local report=batch.execute(options,{
       {cwd=b.root,env=env,check=false})
     path.write(path.join(output,('match-%04d.log'):format(ordinal)),
       (result.stdout or '')..(result.stderr or ''))
-    assert(result.exit_code==0,'match '..ordinal..' failed: '..tostring(result.exit_code))
+    if result.exit_code~=0 then
+      local ok,failed=pcall(json.read,report_path(ordinal))
+      error(batch.match_failure(ordinal,seed,result.exit_code,ok and failed or nil,report_path(ordinal)),0)
+    end
     print(('completed match %d/%d seed=%d'):format(ordinal,options.matches,seed))
     return json.read(report_path(ordinal))
   end,

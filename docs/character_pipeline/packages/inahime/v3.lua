@@ -1,0 +1,257 @@
+-- A02 稻姬（current 版，heromap_version["16"] = "WERT"，沒有 D）— package schema v3。
+-- 這是稻姬的正式來源（單一份）：數值與說明照現行移植（M1，v2 abilities.lua；每個 v2 extras 數字以 v2_key 對應）；
+-- 行為（statuses、events、passive）照原作，由 census-v3（heroes/A02.lua）移入，行為裡的數值名稱已改用本檔名稱；
+-- 現行移植與原作不同的地方記在 quirks（port_adaptation）。四招的 `coverage` 是 `expressible`：M5 起由 behavior IR 執行（scripts/base_content/src/ir_switch.rs），handler 留給重播比對。
+-- 原作槽位 W/E/R/T → Q/W/E/R。原作對照：parity.md；假設：assumptions.md、source.lua。
+-- 英雄共通魔抗池（magical_resistance）屬規則層，A02_precache 只是資產，都不列入。
+return function(ctx)
+  return {
+    schema_version = 3, kind = "hero", id = "A02",
+    source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
+    hero = {
+      source_id = "A02",
+      text = { zh_TW = { name = "稻姬" }, en = { name = "Inahime" } },
+    },
+    abilities = {
+      -------------------------------------------------------------------------
+      { id = "a02_venom_arrow", source_id = "A02W", slot = "Q", kind = "toggle", max_level = 4, tags = { "basic", "toggle", "orb" },
+        values = {
+          mana_per_attack = { 10, unit = "mana", source = "kv:mana_cost@npc/A_Oda/A02.txt:67",
+            v2_key = "attack_orb_mana_per_attack", note = "host attack_orb.mana_per_attack_key" },
+          damage = { 30, 50, 70, 90, unit = "dmg", damage_type = "magical", source = "kv:AbilityDamage@npc/A_Oda/A02.txt:45",
+            v2_key = "attack_orb_amount", note = "host attack_orb.amount_key" },
+          move_slow = { 9, 13, 17, 21, unit = "pct", kv = { -9, -13, -17, -21 },
+            source = "kv:debuff_movement_speed@npc/A_Oda/A02.txt:62",
+            source_differs = "KV 以負數表示減益；這裡寫減少量",
+            v2_key = "attack_orb_move_slow", note = "host attack_orb.move_slow_key（產生器轉成比例 0.09…）" },
+          move_slow_percent = { expr = "$move_slow", unit = "pct", source = "derived", hidden = true, v2_only = true,
+            v2_key = "attack_orb_move_slow_pct", note = "v2 extras 的百分比副本，現行沒有 Rust 讀取" },
+          attack_slow = { 9, 13, 17, 21, unit = "atk_speed", kv = { -9, -13, -17, -21 },
+            source = "kv:debuff_attack_speed@npc/A_Oda/A02.txt:57（slow_self ATTACKSPEED_BONUS_CONSTANT 點數）",
+            source_differs = "KV 以負數表示減益；這裡寫減少的攻速點數" },
+          attack_orb_attack_speed_slow_constant = { expr = "$attack_slow", unit = "atk_speed", source = "derived", hidden = true,
+            v2_key = "attack_orb_attack_speed_slow_constant",
+            note = "omoba-core attack_orb::ATTACK_SPEED_CONSTANT_KEY 以這個固定名稱讀 extras（不是產生器宣告的 host 鍵），所以 v3 名稱必須照舊" },
+          slow_duration = { 4, unit = "s", source = "kv:debuff_duration@npc/A_Oda/A02.txt:52",
+            v2_key = "attack_orb_slow_duration", note = "host attack_orb.slow_duration_key" },
+        },
+        text = {
+          zh_TW = { name = "蠍毒箭",
+            body = "切換：開啟期間每次普攻開始時消耗 {mana_per_attack} 法力，命中時額外造成 {damage} 魔法傷害，並使目標移動速度降低 {move_slow}、攻擊速度降低 {attack_slow} 點，持續 {slow_duration} 秒。攻擊建築時不扣法力、不附加效果。法力不足時自動關閉，該次攻擊不附加效果。" },
+          en = { name = "Venom Arrow",
+            body = "Toggle: while on, each attack costs {mana_per_attack} mana when it starts; on hit it deals an extra {damage} magic damage and slows the target's movement speed by {move_slow} and attack speed by {attack_slow} for {slow_duration} seconds. Attacks on buildings cost no mana and apply nothing. When mana runs short the toggle switches off and that attack applies nothing." },
+        },
+        target = { type = "none" },
+        statuses = {
+          { id = "a02w_orb", runtime_id = "attack_orb:a02_venom_arrow", duration = "infinite", stacking = "refresh", dispel = "none", visibility = "hidden",
+            reveal = "public", cue = "a02w_orb_projectile",
+            triggers = {
+              on_attack_windup = { actions = {
+                { op = "if", cond = "self.mana < $mana_per_attack",
+                  actions = {
+                    { op = "toggle_ability", of = "self", ability = "a02_venom_arrow", on = false },
+                  },
+                  otherwise = {
+                    { op = "if", cond = "not event.target.is_building and not event.target.is_magic_immune",
+                      actions = { { op = "spend_mana", from = "self", amount = "$mana_per_attack", ability = "a02_venom_arrow" } },
+                      otherwise = {
+                        { op = "attack", attacker = "self", target = "event.target", use_orb = false, trigger_effects = false,
+                          instant = false, cannot_miss = false },
+                      } },
+                  } },
+              } },
+              on_attack_hit = {
+                filter = "not event.target.is_building and not event.target.is_magic_immune",
+                actions = {
+                  { op = "apply_status", status = "a02w_poison", to = "event.target" },
+                  { op = "damage", to = "event.target", type = "magical", amount = "$damage", require_source_alive = false },
+                  { op = "cue", id = "a02w_poison_number", at = "event.target" },
+                } },
+            },
+            notes = "原作 modifier_A02W：IsHidden、Orb（Priority ABILITY，只換投射物外觀）；由 OnToggleOn 以 ApplyDataDrivenModifier 掛上、OnToggleOff 移除。法球槽 nobuorb1 的檢查已整段註解，不佔也不檢查法球槽。" },
+          { id = "a02w_poison", runtime_id = "generic_slow:a02_venom_arrow:{caster}", text = { zh_TW = { name = "蠍毒箭", body = "移動速度降低 {move_slow}，攻擊速度降低 {attack_slow} 點。" }, en = { name = "Venom Arrow", body = "Movement speed reduced by {move_slow} and attack speed by {attack_slow}." } }, duration = "$slow_duration", stacking = "refresh", dispel = "basic", visibility = "debuff",
+            reveal = "public", cue = "a02w_poison_glow", tags = { "slow" },
+            stats = { slow_pct = "$move_slow", attack_speed = "-$attack_slow" },
+            notes = "原作 modifier_A02W_debuff：IsDebuff，Properties 版本已註解；OnCreated 以 dummy.lua Slow 寫進緩速池（名稱 A02W_debuff），OnDestroy 以 ReturnSpeed 移除。緩速合成（移速依來源乘法、攻速取最負者）、緩速抗性與 C14T 例外屬規則層。沒寫 IsPurgable：依 §12.3 暫定 basic（推定）。" },
+        },
+        events = {
+          on_toggle_on = {
+            { op = "apply_status", status = "a02w_orb", to = "caster" },
+            { op = "cue", id = "a02w_vo", at = "caster" },
+          },
+          on_toggle_off = { { op = "remove_status", from = "caster", status = "a02w_orb" } },
+        },
+        -- host attack_orb reads the attack speed slow by its fixed extras name (attack_orb.rs ATTACK_SPEED_CONSTANT_KEY)
+        host = { component = "attack_orb", reads = { "$attack_orb_attack_speed_slow_constant" } },
+        coverage = "expressible",
+        confidence = "high",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:36-43",
+            text = "攻擊開始時先檢查法力不足（關閉並 return，該次不附加），目標不是建築才扣法力；host 在攻擊前搖開始（AttackPhaseCue）結算，前搖被取消也已扣魔。" },
+          { policy = "port_adaptation", ref = "vscripts/heroes/A_Oda/A02.lua:45",
+            text = "打建築時原作另呼叫 PerformAttack 補一次不觸發法球的普攻；引擎沒有腳本發動普攻的 API，現行不實作（needs_framework）。" },
+          { policy = "as_source", ref = "vscripts/library/common/dummy.lua:866-902",
+            text = "攻速減益是 slow_self 的攻速常數點數，多來源只取最強（host aggregation family slow_self_attack_speed）；移速減益依來源乘法疊加。" },
+          { policy = "note", ref = "npc/A_Oda/A02.txt:42",
+            text = "原作說明寫「毒傷」，KV 傷害型別是魔法；採 KV。" },
+          { policy = "port_adaptation",
+            text = "開關在攻擊前搖中才打開的那一下：原作 OnAttackLanded 仍附加效果但不扣魔；現行在發射時補扣並附加。" },
+          { policy = "note", ref = "vscripts/heroes/A_Oda/A02.lua:42,54",
+            text = "原作 ENEMIES_NO：目標魔免時不扣魔、不附加傷害與減速（由通用魔免規則處理）。" },
+          -- 以下由 census-v3 移入
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:36-39",
+            text = "法力檢查在 OnAttackStart（前搖開始），在建築判定之前：對建築出手時法力不足也會關閉。扣魔也在前搖開始，攻擊被取消仍然扣魔。" },
+          { policy = "fix_candidate", ref = "vscripts/heroes/A_Oda/A02.lua:41-46",
+            text = "目標是建築或魔免時不扣魔，改呼叫 PerformAttack(target, false, false, false, false, true, false, false)：在前搖開始時立刻多射出一發不觸發法球與攻擊特效的普通攻擊，原本那一擊照常進行，等於對建築與魔免單位每次出手打兩下。註解寫「當目標是英雄或小兵才作用」，推定意圖只是不作用，不是加倍攻擊。資料照原作寫 attack。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:49-69",
+            text = "OnAttackLanded 只排除建築與魔免，不分敵我：反補友方小兵也會附加毒傷與緩速。傷害走 ApplyDamage（不經 AMHC），稻姬在箭飛行中死亡仍會造成傷害。攻擊落空不觸發 OnAttackLanded。" },
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:22-69",
+            text = "前搖中才打開開關的那一擊：OnAttackStart 沒有扣魔，命中時 OnAttackLanded 仍附加傷害與緩速（不扣魔）；前搖中關閉開關則那一擊不附加。" },
+          { policy = "port_adaptation", ref = "vscripts/library/common/dummy.lua:866-902",
+            text = "現行攻速緩速以 host attack_speed_slow_constant（攻速常數，多來源取最強）表達，移速緩速照現有 generic slow 介面；緩速抗性與 C14T 例外未實作。" },
+          { policy = "note", ref = "npc/A_Oda/A02.txt:79-86",
+            text = "說明寫「毒傷」；KV AbilityUnitDamageType 是魔法，腳本以 GetAbilityDamageType 取魔法。OnAbilityPhaseStart 與 OnToggleOn 的語音屬呈現。" },
+        },
+        provenance = { "npc/A_Oda/A02.txt:33-180", "vscripts/heroes/A_Oda/A02.lua:22-69", "vscripts/library/common/dummy.lua:816-902",
+          "vscripts/heroes/A_Oda/A02.lua:3-69", "npc/npc_abilities_custom_load.txt:5987-6026" },
+      },
+      -------------------------------------------------------------------------
+      { id = "a02_wind_prayer", source_id = "A02E", slot = "W", kind = "active", max_level = 4, tags = { "basic" },
+        values = {
+          cooldown = { 15, 14, 13, 12, unit = "s", source = "kv:AbilityCooldown@npc/A_Oda/A02.txt:191" },
+          mana_cost = { 130, 150, 170, 190, unit = "mana", source = "kv:AbilityManaCost@npc/A_Oda/A02.txt:192" },
+          cast_point = { 0.1, unit = "s", source = "kv:AbilityCastPoint@npc/A_Oda/A02.txt:190" },
+          heal = { 100, 200, 300, 400, unit = "heal", source = "kv:hp_recover@npc/A_Oda/A02.txt:199", v2_key = "heal_amount" },
+          attack_speed = { 40, 70, 100, 130, unit = "atk_speed", source = "kv:buff_attack_speed@npc/A_Oda/A02.txt:204",
+            v2_key = "stat_buff_attack_speed_bonus", note = "攻速點（ATTACKSPEED_BONUS_CONSTANT），100 點 = 兩倍" },
+          duration = { 10, unit = "s", source = "kv:buff_duration@npc/A_Oda/A02.txt:209", v2_key = "stat_buff_duration" },
+        },
+        text = {
+          zh_TW = { name = "風之祈",
+            body = "立即回復 {heal} 生命，並在 {duration} 秒內增加 {attack_speed} 攻擊速度。重複施放只刷新持續時間，不疊加。" },
+          en = { name = "Wind Prayer",
+            body = "Instantly restores {heal} health and grants +{attack_speed} attack speed for {duration} seconds. Recasting refreshes the duration without stacking." },
+        },
+        target = { type = "none" },
+        cast = { cast_point = "$cast_point", immediate = true },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        statuses = {
+          { id = "a02e_haste", runtime_id = "a02_wind_prayer", text = { zh_TW = { name = "風之祈", body = "攻擊速度 +{attack_speed}。" }, en = { name = "Wind Prayer", body = "+{attack_speed} attack speed." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
+            reveal = "public", cue = "a02e_bow_glow", stats = { attack_speed = "$attack_speed" },
+            notes = "原作 modifier_A02E_buff：IsBuff，ATTACKSPEED_BONUS_CONSTANT（攻速點數）與動作替換；沒寫 IsPurgable：依 §12.3 暫定 basic（推定）。" },
+        },
+        events = {
+          on_cast = {
+            { op = "heal", to = "caster", source = "caster", amount = "$heal" },
+            { op = "apply_status", status = "a02e_haste", to = "caster" },
+            { op = "cue", id = "a02e_cast", at = "caster" },
+          },
+        },
+        coverage = "expressible",
+        confidence = "high",
+        quirks = {
+          { policy = "note", ref = "npc/A_Oda/A02.txt:204",
+            text = "KV 註解寫 %，實際是 ATTACKSPEED_BONUS_CONSTANT 攻速點；現行以 AttackSpeedBonusConstant 表達。" },
+          { policy = "note", ref = "npc/A_Oda/A02.txt:189",
+            text = "原作 NO_TARGET | IMMEDIATE；動作替換與粒子屬表現，不實作。" },
+          -- 以下由 census-v3 移入
+          { policy = "as_source", ref = "vscripts/heroes/A_Oda/A02.lua:71-84",
+            text = "回復走 Heal（經治療增減），之後才掛攻速增益。ApplyModifier 的 Target 寫成 Center CASTER 加旗標，實際只作用於自己。" },
+          { policy = "port_adaptation",
+            text = "現行 handler 以 heal 加 add_stat_buff（AttackSpeedBonusConstant）實作，重施刷新、不疊加；與原作一致。" },
+        },
+        provenance = { "npc/A_Oda/A02.txt:183-292", "vscripts/heroes/A_Oda/A02.lua:71-84" },
+      },
+      -------------------------------------------------------------------------
+      { id = "a02_wind_drift", source_id = "A02R", slot = "E", kind = "passive", max_level = 4, tags = { "basic" },
+        values = {
+          magic_resist = { 9, 18, 27, 36, unit = "pct", source = "kv:magical_resistance_bonus@npc/A_Oda/A02.txt:313",
+            v2_key = "stat_bonus_permanent_magic_resist_bonus", note = "魔抗點數，與基礎魔抗乘法疊加" },
+          damage_pct = { 6, 9, 12, 15, unit = "pct", source = "kv:outgoing_damage_percentage@npc/A_Oda/A02.txt:308",
+            v2_key = "stat_bonus_permanent_base_damage_outgoing_pct", note = "handler 以 (raw+50)/100 轉比例" },
+        },
+        text = {
+          zh_TW = { name = "遊風行身", body = "被動：魔法抗性 +{magic_resist}，總攻擊傷害 +{damage_pct}。" },
+          en = { name = "Drifting Wind", body = "Passive: +{magic_resist} magic resistance and +{damage_pct} total attack damage." },
+        },
+        target = { type = "none" },
+        passive = {
+          reveal = "public",
+          stats = { attack_damage_pct = "$damage_pct", magic_resist = "$magic_resist" },
+        },
+        coverage = "expressible",
+        confidence = "high",
+        quirks = {
+          { policy = "note", ref = "npc/A_Oda/A02.txt:313",
+            text = "原作說明「降低所受到的法術傷害」對應 KV MAGICAL_RESISTANCE_BONUS，與基礎魔抗乘法疊加。" },
+          { policy = "as_source", ref = "npc/A_Oda/A02.txt:308",
+            text = "DAMAGEOUTGOING_PERCENTAGE 以 BaseDamageOutgoingPercentage 表達，只放大普攻（Dota 慣例）。" },
+          { policy = "note", text = "學習或升級以同一 buff id 取代上一級，不疊加。" },
+          -- 以下由 census-v3 移入
+          { policy = "as_source", ref = "npc/A_Oda/A02.txt:335-336",
+            text = "DAMAGEOUTGOING_PERCENTAGE 乘在總攻擊上（同 C17E，對應 attack_damage_pct）；MAGICAL_RESISTANCE_BONUS 是 Dota 魔抗加成，在 nobu 魔抗池之外乘法疊加，不進魔抗池。說明寫「降低所受到的法術傷害」。" },
+          { policy = "port_adaptation",
+            text = "現行以 base_damage_outgoing_pct 與 magic_resist_bonus 的永久 buff 實作，升級以同一 buff id 取代；與原作一致。" },
+        },
+        provenance = { "npc/A_Oda/A02.txt:295-340" },
+      },
+      -------------------------------------------------------------------------
+      { id = "a02_shadow_meld", source_id = "A02T", slot = "R", kind = "active", max_level = 3, tags = { "ultimate" },
+        values = {
+          cooldown = { 140, 130, 120, unit = "s", source = "kv:AbilityCooldown@npc/A_Oda/A02.txt:350" },
+          mana_cost = { 200, 225, 250, unit = "mana", source = "kv:AbilityManaCost@npc/A_Oda/A02.txt:351" },
+          required_level = { 6, 12, 18, unit = "level", source = "assumed:原作沒寫 RequiredLevel，大招取 6/12/18" },
+          duration = { 20, 22, 24, unit = "s", source = "kv:duration@npc/A_Oda/A02.txt:358", v2_key = "stat_buff_duration" },
+          move_speed = { 60, unit = "move_speed", source = "kv:add_move_speed@npc/A_Oda/A02.txt:368",
+            v2_key = "stat_buff_move_speed_bonus" },
+          attack_speed_mult = { 2, unit = "ratio", kv = { 0.9 },
+            source = "design:說明用的等效倍數：基礎攻擊間隔 1.8 秒覆寫成 0.9 秒，攻擊頻率變成兩倍",
+            source_differs = "原作是 base_attack_time 0.9（A02.txt:363）。這個值只給說明用，行為直接以 base_attack_time 覆寫基礎攻擊間隔（host 已支援，handler 與 IR 都讀 base_attack_time）",
+            v2_key = "stat_buff_attack_speed_multiplier" },
+          invisibility_level = { 1, unit = "count", hidden = true, v2_only = true, source = "design:host invisibility_level buff（攻擊不破隱）",
+            v2_key = "stat_buff_invisibility_level", note = "handler 檢查必須是正整數" },
+          base_attack_time = { 0.9, unit = "s", hidden = true, source = "kv:base_attack_time@npc/A_Oda/A02.txt:363",
+            note = "host 的 base_attack_time_constant 覆寫（UnitStats::base_attack_interval）；handler 與 IR 都讀這個值" },
+        },
+        text = {
+          zh_TW = { name = "融影術",
+            body = "{duration} 秒內持續隱形，攻擊時不會現形；攻擊速度 ×{attack_speed_mult}、移動速度 +{move_speed}，並且無單位碰撞。" },
+          en = { name = "Shadow Meld",
+            body = "Turns invisible for {duration} seconds; attacking does not reveal her. Gains ×{attack_speed_mult} attack speed, +{move_speed} movement speed and no unit collision." },
+        },
+        target = { type = "none" },
+        cast = { immediate = true },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        requires = { hero_level = "$required_level" },
+        statuses = {
+          { id = "a02t_meld", runtime_id = "a02_shadow_meld", text = { zh_TW = { name = "融影術", body = "隱形，攻擊時不會現形；攻擊速度 ×{attack_speed_mult}、移動速度 +{move_speed}，並且無單位碰撞。" }, en = { name = "Shadow Meld", body = "Invisible; attacking does not reveal her. ×{attack_speed_mult} attack speed, +{move_speed} movement speed and no unit collision." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
+            reveal = "public", cue = "a02t_windrun", tags = { "invisible" },
+            states = { "invisible", "no_unit_collision" },
+            stats = { base_attack_time = { op = "set_absolute", value = "$base_attack_time" }, move_speed = "$move_speed" },
+            notes = "原作 modifier_A02T：MODIFIER_STATE_INVISIBLE、NO_UNIT_COLLISION，BASE_ATTACK_TIME_CONSTANT、MOVESPEED_BONUS_CONSTANT、動作替換。隱形是 modifier 狀態，不是引擎 modifier_invisible，所以攻擊施法不會破除。沒寫 IsPurgable：依 §12.3 暫定 basic（推定）。" },
+        },
+        events = {
+          on_cast = {
+            { op = "apply_status", status = "a02t_meld", to = "caster" },
+            { op = "cue", id = "a02t_title", at = "caster" },
+          },
+        },
+        coverage = "expressible",
+        confidence = "high",
+        quirks = {
+          { policy = "port_adaptation", ref = "npc/A_Oda/A02.txt:363",
+            text = "原作把基礎攻擊間隔設為 0.9；現行以攻速乘數 ×2 表達，基礎攻擊間隔 1.8 時相同。" },
+          { policy = "as_source", ref = "npc/A_Oda/A02.txt:420-424",
+            text = "隱形且無單位碰撞，攻擊與施法不破隱；現行以 invisibility_level buff 與 no_unit_collision 狀態實作。" },
+          { policy = "note", text = "原作 NO_TARGET | IMMEDIATE；解鎖等級沒寫，取 6/12/18。" },
+          -- 以下由 census-v3 移入
+          { policy = "port_adaptation", ref = "npc/A_Oda/A02.txt:428",
+            text = "現行以 AttackSpeedMultiplier ×2 表達 BAT 0.9（基礎攻擊間隔 1.8 時等價）；隱形用 invisibility_level buff，無碰撞用 no_unit_collision 狀態 buff。基礎攻擊間隔改變時（例如其他 BAT 效果）兩者不等價。" },
+          { policy = "note", ref = "npc/A_Oda/A02.txt:343-412",
+            text = "KV 沒寫 RequiredLevel（見 required_level 的 source）；showTitle 與 icy_wind 音效屬呈現。" },
+        },
+        provenance = { "npc/A_Oda/A02.txt:343-448" },
+      },
+    },
+  }
+end

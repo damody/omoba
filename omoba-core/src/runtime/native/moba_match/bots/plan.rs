@@ -42,7 +42,39 @@ pub struct RoleBotMatchPlan {
     pub showcase: Option<ShowcaseConfig>,
 }
 
+/// Which heroes a plan may seat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeroAdmission {
+    /// Every real match (selection, server role plans, headless batches): source heroes only.
+    Playable,
+    /// Automated tests and fixtures only: test-only heroes too. No match a player sees uses it.
+    Fixture,
+}
+
 impl RoleBotMatchPlan {
+    /// One hero per team, as in a LoL normal game; the two teams may share heroes. Humans keep
+    /// their pick; a bot whose hero a human (or a lower player ID bot) of its team already holds
+    /// gets the first playable hero, in catalog order, that its team does not use. Deterministic,
+    /// so every host that loads the same plan seats the same heroes. Human-human clashes stay for
+    /// the compile check to reject.
+    pub fn resolve_bot_hero_conflicts(&mut self) {
+        let mut order: Vec<usize> = (0..self.players.len()).collect();
+        order.sort_by_key(|&index| (self.players[index].bot, self.players[index].player_id));
+        let mut taken: BTreeSet<(u32, String)> = BTreeSet::new();
+        for index in order {
+            let team = self.players[index].team_id;
+            if !self.players[index].bot || taken.insert((team, self.players[index].hero.clone())) {
+                taken.insert((team, self.players[index].hero.clone()));
+                continue;
+            }
+            if let Some(free) = omoba_template_ids::HERO_PLAYABLE_IDS.iter()
+                .map(|id| id.as_str()).find(|hero| !taken.contains(&(team, (*hero).to_owned()))) {
+                self.players[index].hero = free.to_owned();
+                taken.insert((team, free.to_owned()));
+            }
+        }
+    }
+
     /// Build atomically before allocating a World; changing map declaration
     /// order cannot silently reassign a role to a different named lane.
     pub fn compile(&self, seed: u64, profile: SimulationTickProfile)
@@ -51,8 +83,21 @@ impl RoleBotMatchPlan {
         self.compile_with_tick_rate(seed,profile.ticks_per_game_second())
     }
 
-    /// The server's configured clock is authoritative, including 90 Hz.
+    /// The server's configured clock is authoritative, including 90 Hz. Source heroes only.
     pub fn compile_with_tick_rate(&self, seed:u64, fps:u32)
+        -> Result<(SingleLaneConfig, RoleBotConfig), String>
+    {
+        self.compile_with_admission(seed,fps,HeroAdmission::Playable)
+    }
+
+    /// Tests and fixtures that exercise a test-only hero's kit. Never a server or recipe path.
+    pub fn compile_fixture(&self, seed: u64, profile: SimulationTickProfile)
+        -> Result<(SingleLaneConfig, RoleBotConfig), String>
+    {
+        self.compile_with_admission(seed,profile.ticks_per_game_second(),HeroAdmission::Fixture)
+    }
+
+    pub fn compile_with_admission(&self, seed:u64, fps:u32, admission:HeroAdmission)
         -> Result<(SingleLaneConfig, RoleBotConfig), String>
     {
         if self.schema_version != 1 { return Err("unsupported role bot plan schema".into()); }
@@ -61,6 +106,7 @@ impl RoleBotMatchPlan {
             return Err("bot recovery intent requires explicit mana_enabled".into());
         }
         abilities::validate_learning(&self.ability_learning).map_err(str::to_owned)?;
+        abilities::validate_learning(&self.expanded_learning()).map_err(str::to_owned)?;
         items::validate_feasible(&self.item_builds).map_err(str::to_owned)?;
         if let Some(policy)=self.sustain {policy.validate().map_err(str::to_owned)?;}
         if self.sustain.is_some_and(|policy|policy.mana.is_some()) && !self.mana_enabled {
@@ -80,6 +126,13 @@ impl RoleBotMatchPlan {
         }
         let mut ids = BTreeSet::new();
         let mut roles = BTreeSet::new();
+        // A real match seats each hero at most once per team; fixtures may repeat a test kit.
+        let mut team_heroes = BTreeSet::new();
+        if admission == HeroAdmission::Playable {
+            if let Some(player) = self.players.iter().find(|p| !team_heroes.insert((p.team_id, p.hero.as_str()))) {
+                return Err(format!("hero '{}' is seated twice on team {}: one hero per team", player.hero, player.team_id));
+            }
+        }
         let mut roster = self.players.clone();
         roster.sort_by_key(|p| p.player_id);
         let mut first = [None, None];
@@ -94,10 +147,14 @@ impl RoleBotMatchPlan {
             if !roles.insert((side,player.role)) || counts[side] >= 5 {
                 return Err("bot plan requires unique roles and at most five players per team".into());
             }
-            if omoba_template_ids::hero_by_name(&player.hero).and_then(omoba_template_ids::hero_stats).is_none() {
+            let Some(hero_id) = omoba_template_ids::hero_by_name(&player.hero)
+                .filter(|id| omoba_template_ids::hero_stats(*id).is_some()) else {
                 return Err(format!("unknown active compiled bot hero '{}'",player.hero));
+            };
+            if admission == HeroAdmission::Playable && !omoba_template_ids::hero_playable(hero_id) {
+                return Err(format!("hero '{}' is test-only: a match seats only source heroes",player.hero));
             }
-            let lane = map.lanes.iter().position(|lane| lane.id == player.lane)
+            let lane = map.lane_index(&player.lane)
                 .ok_or_else(|| format!("unknown bot lane '{}' in '{}'",player.lane,map.id))?;
             if player.role == BotRole::Jungle && map.jungle_camps.is_empty() {
                 return Err("jungle role requires compiled camps".into());
@@ -119,20 +176,45 @@ impl RoleBotMatchPlan {
         Ok((SingleLaneConfig {
             building_reward_rules:BuildingRewardRules::training(),
             tower_plating_rules:Some(TowerPlatingRules::training()),
-            minion_growth_rules:MinionGrowthRules::training(),
+            minion_growth_rules:MinionGrowthRules::for_map(map),
             seed,map_id:Some(map.id.into()),lane_length:Fixed64::from_i32(map.lane_length),
             tower_hp:Fixed64::from_i32(map.tower_hp),base_hp:Fixed64::from_i32(map.base_hp),
             hero_xp_scale_permille:map.hero_xp_scale_permille(),
             authored_minion_waves:true,wave_interval:Fixed64::from_i32(map.wave_interval_seconds as i32),
+            first_wave_delay:Fixed64::from_i32(map.first_wave_seconds() as i32),
             players:[left.player_id,right.player_id],heroes:[left.hero,right.hero],additional_players:additional,
             base_recovery_enabled:self.sustain.is_some(),
             mana_enabled:self.mana_enabled,
             summoner_loadouts:self.summoner_loadouts.clone(),
             showcase:self.showcase.clone(),
+            // A formal match plays by the original game's rules (templates/game_rules.lua), whose
+            // reward model replaces the training building bounty and plating above (E187).
+            game_rules:omoba_template_ids::GAME_RULES,
             ..Default::default()
         },RoleBotConfig { assignments,think_interval_ticks:u64::from(fps.div_ceil(self.think_hz)),
-            ability_policies:self.ability_policies.clone(),ability_learning:self.ability_learning.clone(),sustain:self.sustain,
+            ability_policies:self.ability_policies.clone(),ability_learning:self.expanded_learning(),sustain:self.sustain,
             item_builds:self.item_builds.clone() }))
+    }
+
+    /// Authored steps in order; a `{ability:"*",rank:0}` step becomes each seated hero's kit
+    /// (heroes in player order, abilities the plan already authors skipped).
+    fn expanded_learning(&self) -> Vec<abilities::BotAbilityLearningStep> {
+        let authored:BTreeSet<String>=self.ability_learning.iter()
+            .filter(|step|step.ability!=abilities::KIT_LEARNING).map(|step|step.ability.clone()).collect();
+        let mut out=Vec::new();
+        for step in &self.ability_learning {
+            if step.ability!=abilities::KIT_LEARNING {out.push(step.clone());continue;}
+            let mut seen=authored.clone();
+            let mut roster=self.players.clone();
+            roster.sort_by_key(|player|player.player_id);
+            for player in roster {
+                let Some(hero)=omoba_template_ids::hero_by_name(&player.hero) else {continue;};
+                let kit=abilities::kit_learning(omoba_template_ids::hero_abilities(hero),&seen);
+                for step in &kit {seen.insert(step.ability.clone());}
+                out.extend(kit);
+            }
+        }
+        out
     }
 }
 
@@ -145,24 +227,52 @@ mod tests {
             for (index,(role,lane)) in [(BotRole::Top,"top"),(BotRole::Mid,"mid"),(BotRole::Carry,"bottom"),
                 (BotRole::Support,"bottom"),(BotRole::Jungle,"mid")].into_iter().enumerate() {
                 players.push(RoleBotPlayerPlan { player_id:team*10+index as u32,team_id:team,
-                    hero:"training_luminary".into(),role,lane:lane.into(),bot:team != 1 || index != 0 });
+                    hero:["murakami_yoshikiyo","date_masamune","saika_magoichi","oichi","asai_nagamasa"][index].into(),role,lane:lane.into(),bot:team != 1 || index != 0 });
             }
         }
         RoleBotMatchPlan { schema_version:1,map_id:"three_lane_training".into(),think_hz:5,mana_enabled:false,players,ability_policies:Vec::new(),ability_learning:Vec::new(),sustain:None,item_builds:Vec::new(),summoner_loadouts:BTreeMap::new(),showcase:None }
     }
     #[test]
+    fn one_hero_per_team_is_compiled_and_bot_clashes_resolve_deterministically() {
+        let mut clash = plan();
+        clash.players[1].hero = clash.players[0].hero.clone();
+        let error = clash.compile(1,SimulationTickProfile::Production60Hz).unwrap_err();
+        assert!(error.contains("seated twice on team 1"), "{error}");
+        // Fixtures may repeat a test kit on one team.
+        assert!(clash.compile_fixture(1,SimulationTickProfile::Production60Hz).is_ok());
+        // The human (player 10) keeps its pick; the clashing bot moves to a free playable hero.
+        let mut resolved = clash.clone();
+        resolved.resolve_bot_hero_conflicts();
+        assert_eq!(resolved.players[0].hero, clash.players[0].hero);
+        assert_ne!(resolved.players[1].hero, clash.players[0].hero);
+        assert!(resolved.compile(1,SimulationTickProfile::Production60Hz).is_ok());
+        let mut again = clash.clone();
+        again.resolve_bot_hero_conflicts();
+        assert_eq!(again.players.iter().map(|p|p.hero.clone()).collect::<Vec<_>>(),
+            resolved.players.iter().map(|p|p.hero.clone()).collect::<Vec<_>>(), "deterministic");
+        // Cross-team repeats are allowed (the shipped mirror lineup).
+        assert!(plan().players.iter().filter(|p|p.hero=="murakami_yoshikiyo").count() == 2);
+        assert!(plan().compile(1,SimulationTickProfile::Production60Hz).is_ok());
+    }
+
+    #[test]
     fn role_bot_plan_takes_structure_hit_points_from_the_compiled_map() {
         let shipped = plan().compile(1,SimulationTickProfile::Production60Hz).unwrap().0;
-        assert_eq!((shipped.tower_hp,shipped.base_hp),(Fixed64::from_i32(1200),Fixed64::from_i32(1600)));
+        let standard = omoba_template_ids::moba_map_by_name(shipped.map_id.as_deref().unwrap()).unwrap();
+        assert_eq!((shipped.tower_hp,shipped.base_hp),(Fixed64::from_i32(standard.tower_hp),Fixed64::from_i32(standard.base_hp)));
         let mut quick = plan();
         quick.map_id = "three_lane_quick_training".into();
         let map = omoba_template_ids::moba_map_by_name("three_lane_quick_training").unwrap();
         let config = quick.compile(1,SimulationTickProfile::Production60Hz).unwrap().0;
         assert_eq!((config.tower_hp,config.base_hp),(Fixed64::from_i32(map.tower_hp),Fixed64::from_i32(map.base_hp)));
-        assert!(map.tower_hp < 1200 && map.base_hp < 1600);
+        // The quick map has its own structure values, so the equality above proves they come from the map.
+        assert!((map.tower_hp, map.base_hp) != (standard.tower_hp, standard.base_hp));
         // E096: the map's hero XP multiplier reaches the role-plan entry too (E055: every entry).
         assert_eq!(shipped.hero_xp_scale_permille,1000);
         assert_eq!(config.hero_xp_scale_permille,map.hero_xp_scale_permille());
+        // E187: the map's first-wave delay reaches the match config (fixtures without a plan keep 0).
+        assert_eq!(config.first_wave_delay,Fixed64::from_i32(map.first_wave_seconds() as i32));
+        assert!(config.first_wave_delay>Fixed64::ZERO);
         assert!(map.hero_xp_scale_permille() > 1000);
     }
     #[test]
@@ -175,7 +285,8 @@ mod tests {
         assert_eq!(config.players,[10,20]); assert_eq!(config.additional_players.len(),8);
         assert_eq!(config.building_reward_rules,BuildingRewardRules::training());
         assert_eq!(config.tower_plating_rules,Some(TowerPlatingRules::training()));
-        assert_eq!(config.minion_growth_rules,MinionGrowthRules::training());
+        assert_eq!(config.minion_growth_rules,MinionGrowthRules::for_map(
+            omoba_template_ids::moba_map_by_name(config.map_id.as_deref().unwrap()).unwrap()));
         assert_eq!(bots.assignments.len(),9); assert_eq!(bots.think_interval_ticks,12);
         assert!(!bots.assignments.iter().any(|a|a.player_id == 10));
         assert_eq!(bots.assignments.iter().find(|a|a.player_id == 12).unwrap().lane,2);
@@ -196,6 +307,20 @@ mod tests {
         let mut p=valid.clone(); p.think_hz=61; reject(p);
         let mut p=valid.clone(); p.map_id="missing".into(); reject(p);
         let mut p=valid.clone(); p.players[0].hero="missing".into(); reject(p);
+        // "*" learns each seated kit: rank by rank, the ultimate first, nothing authored twice.
+        let mut p=valid.clone(); p.players[1].hero="omatsu".into();
+        p.ability_learning=vec![BotAbilityLearningStep {ability:"a34_frost_bolt".into(),rank:1},BotAbilityLearningStep {ability:"*".into(),rank:0}];
+        let learning=p.compile(1,SimulationTickProfile::Production60Hz).unwrap().1.ability_learning;
+        assert_eq!(learning[0].ability,"a34_frost_bolt");
+        assert!(!learning[1..].iter().any(|step|step.ability=="a34_frost_bolt"),"authored abilities are not expanded again");
+        let position=|ability:&str,rank:u8|learning.iter().position(|s|s.ability==ability&&s.rank==rank).unwrap();
+        assert!(position("a34_rapid_cooling",1)<position("a34_iceberg_strike",1),"ultimate first within a rank");
+        assert!(position("a34_iceberg_strike",1)<position("a34_rapid_cooling",2));
+        assert!(learning.iter().any(|s|s.ability=="b29_ground_slam"),"every seated hero's kit");
+        // A test-only hero never enters a real match; only fixture compiles admit it.
+        let mut p=valid.clone(); p.players[0].hero="training_luminary".into();
+        assert!(p.compile(1,SimulationTickProfile::Production60Hz).unwrap_err().contains("test-only"));
+        assert!(p.compile_fixture(1,SimulationTickProfile::Production60Hz).is_ok());
         let mut p=valid.clone(); p.players[0].lane="missing".into(); reject(p);
         let mut p=valid.clone(); p.players[0].team_id=3; reject(p);
         let mut p=valid.clone(); p.players[0].player_id=0; reject(p);
@@ -293,6 +418,41 @@ mod tests {
             placements:[(1,[2300,2400]),(2,[2050,2400]),(6,[2750,2400])].into(),
             hold_players:[2,6].into(), hold_hp_permille:5000 });
         p
+    }
+    #[test]
+    fn a_bot_hero_winding_up_its_own_cast_gets_no_new_order() {
+        // E187: any new order cancels the owner's windup, so a 0.2 s windup re-ordered on every
+        // 0.2 s think never released and never started its cooldown (the cast was chosen again).
+        use super::super::super::super::cast_windup::{AbilityWindups,Windup};
+        let decisions = |winding:bool| {
+            let (config,bots) = plan().compile(3,SimulationTickProfile::Production60Hz).unwrap();
+            let pool = crate::runtime::StateInitializer::create_thread_pool();
+            let mut world = crate::runtime::StateInitializer::setup_campaign_ecs_world(&pool);
+            setup_single_lane_match(&mut world, config).unwrap();
+            world.write_resource::<MobaMatch>().phase = MobaMatchPhase::Playing;
+            let player = bots.assignments[0].player_id;
+            if winding {
+                let entity = world.read_resource::<MobaMatch>().heroes.iter()
+                    .find(|slot|slot.player_id==player).unwrap().entity.unwrap();
+                let mut windups = AbilityWindups::default();
+                windups.0.insert(entity, Windup { skill_id:"murakami_any".into(),
+                    target:crate::runtime::native::scripting::SkillTarget::None, origin:Vec2::ZERO,
+                    remaining:Fixed64::ONE, rank:1, interrupt_on_damage:false, last_tick:0, anchored:true });
+                world.insert(windups);
+            }
+            let mut players = BTreeSet::new();
+            for tick in 1..=bots.think_interval_ticks * 3 {
+                world.write_resource::<crate::comp::Tick>().0 = tick;
+                crate::runtime::run_committed_visibility_wave_b(&mut world, tick, 0);
+                players.extend(super::role_bot_inputs(&world, &bots).unwrap().into_iter().map(|(player,_)|player));
+            }
+            (player,players)
+        };
+        let (player,free) = decisions(false);
+        assert!(free.contains(&player), "control: the seat orders when it is not casting");
+        let (_,winding) = decisions(true);
+        assert!(!winding.contains(&player), "no order while its own windup runs");
+        assert!(!winding.is_empty(), "the other seats still decide");
     }
     #[test]
     fn showcase_stage_levels_places_and_holds_seats_without_role_decisions() {

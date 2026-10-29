@@ -808,6 +808,7 @@ impl StateInitializer {
         ecs.register::<RegionBlocker>();
         // SlowBuff component 已移除，slow 走 ability_runtime::BuffStore resource
         ecs.register::<crate::scripting::ScriptUnitTag>();
+        ecs.register::<UnitTags>();
         ecs.register::<IsBuilding>();
         ecs.register::<CreepMoveBroadcast>();
     }
@@ -1254,30 +1255,32 @@ impl StateInitializer {
             let hero_pos = Pos::from_xy_f32(idx as f32 * 80.0, 0.0);
             let hero_vel = Vel::zero();
 
-            // 創建英雄的戰鬥屬性 (基於英雄等級和屬性計算)
-            use omoba_sim::Fixed64;
-            let base_hp = Fixed64::from_i32(500)
-                + Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
-            let base_damage = Fixed64::from_i32(50)
-                + Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level;
-
             // 從 templates.lua generated stats 取 hero stats（attack_range / turn_speed / 等）。
             // generated story hero 條目已 slim 成只剩 id，無 attack_range / turn_speed / collision_radius。
             let hero_template_stats = omoba_template_ids::hero_by_name(&hero_data.id)
                 .and_then(|hid| omoba_template_ids::active_hero_stats(hid))
                 .unwrap_or_else(|| panic!("hero '{}' not in generated templates", hero_data.id));
+            // Template base plus flat level growth; what the attributes grant comes from
+            // attributes::settle_hero_attributes (templates/attribute_rules.lua).
+            use omoba_sim::Fixed64;
+            let levels = hero.level.saturating_sub(1);
+            let base_hp = Fixed64::from_i32(hero_template_stats.base_hp)
+                + hero.level_growth.hp_per_level * levels;
+            let base_damage = Fixed64::from_i32(hero_template_stats.base_damage)
+                + hero.level_growth.damage_per_level * levels;
 
             let hero_properties = CProperty {
                 hp: base_hp,
                 mhp: base_hp,
                 msd: hero_template_stats.move_speed,
-                def_physic: Fixed64::from_i32(hero.strength) * Fixed64::from_raw(205), // ≈ 0.2 = 205/1024
-                def_magic: Fixed64::from_i32(hero.intelligence) * Fixed64::from_raw(154), // ≈ 0.15 = 154/1024
+                def_physic: hero_template_stats.base_armor,
+                def_magic: Fixed64::ZERO,
             };
 
             let hero_attack = TAttack {
                 atk_physic: Vf32::new(base_damage),
-                asd: Vf32::new(Fixed64::from_raw(602)), // 1/1.7 ≈ 0.588 (= 602/1024)
+                // Source heroes: AttackRate seconds; others keep 1/1.7 ≈ 0.588 (= 602/1024).
+                asd: Vf32::new(hero_template_stats.base_attack_time.unwrap_or(Fixed64::from_raw(602))),
                 range: Vf32::new(hero_template_stats.attack_range),
                 asd_count: Fixed64::ZERO,
                 bullet_speed: Fixed64::from_i32(1000),
@@ -1711,17 +1714,16 @@ fn refresh_live_heroes_from_lua(ecs: &mut World) {
             .retain(|id, _| new_abilities.iter().any(|new_id| new_id == id));
         hero.abilities = new_abilities;
 
-        let new_mhp = omoba_sim::Fixed64::from_i32(500)
-            + omoba_sim::Fixed64::from_i32(hero.level) * hero.level_growth.hp_per_level;
+        // Same base as spawn; the attribute entry is recomputed by settle_hero_attributes.
+        let levels = hero.level.saturating_sub(1);
+        let new_mhp = omoba_sim::Fixed64::from_i32(stats.base_hp) + hero.level_growth.hp_per_level * levels;
+        hero.attribute_hp = omoba_sim::Fixed64::ZERO;
         preserve_cproperty_hp_ratio(prop, new_mhp);
         prop.msd = stats.move_speed;
-        prop.def_physic =
-            omoba_sim::Fixed64::from_i32(hero.strength) * omoba_sim::Fixed64::from_raw(205);
-        prop.def_magic =
-            omoba_sim::Fixed64::from_i32(hero.intelligence) * omoba_sim::Fixed64::from_raw(154);
+        prop.def_physic = stats.base_armor;
+        prop.def_magic = omoba_sim::Fixed64::ZERO;
         attack.atk_physic = Vf32::new(
-            omoba_sim::Fixed64::from_i32(50)
-                + omoba_sim::Fixed64::from_i32(hero.level) * hero.level_growth.damage_per_level,
+            omoba_sim::Fixed64::from_i32(stats.base_damage) + hero.level_growth.damage_per_level * levels,
         );
         attack.range = Vf32::new(stats.attack_range);
         attack.attack_phase = AttackSequencePhase::Idle;

@@ -320,7 +320,7 @@ fn forced_spec(caster:EntityHandle,motion:ForcedMotionKind,distance:Fixed64,cast
 
 fn reveal_spec(caster:EntityHandle,center:Vec2,radius:Fixed64,cast_range:Fixed64)
     ->Option<omoba_core::runtime::native::reveal_zone::Spec> {
-    omoba_core::runtime::native::reveal_zone::Spec { source_id:caster.id, source_generation:caster.gen, center, radius, cast_range }.checked()
+    omoba_core::runtime::native::reveal_zone::Spec { source_id:caster.id, source_generation:caster.gen, center, radius, cast_range, detect:true }.checked()
 }
 
 /// Exclusive projectile launch. Every check precedes the single host envelope.

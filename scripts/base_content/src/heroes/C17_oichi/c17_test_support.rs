@@ -26,6 +26,11 @@ impl TestWorld {
                 def_physic:Fixed64::ZERO,def_magic:Fixed64::ZERO}).with(CollisionRadius(Fixed64::from_i32(10)))
             .with(Facing(omoba_sim::Angle::ZERO)).build()
     }
+    /// A body the host reports as a hero (MOBA hero template id).
+    pub fn hero(&mut self,at:Vec2,team:i32)->Entity {
+        let e=self.body(at,team);
+        self.world.write_storage::<omoba_core::Hero>().insert(e,omoba_core::Hero::new("training_luminary".into(),"fixture".into(),String::new())).unwrap();e
+    }
     pub fn building(&mut self,at:Vec2,team:i32)->Entity {
         let e=self.body(at,team);self.world.write_storage::<IsBuilding>().insert(e,IsBuilding).unwrap();e
     }
@@ -44,6 +49,11 @@ impl TestWorld {
             Ok(())=>Ok(outcomes),
             Err(error)=>{assert!(outcomes.is_empty(),"rejected cast emitted outcomes: {error}");Err(error.into())}
         }
+    }
+    /// Commits outcomes the way the host does after a script phase.
+    pub fn apply(&mut self,outcomes:Vec<Outcome>) {
+        self.world.write_resource::<Vec<Outcome>>().extend(outcomes);
+        omoba_core::runtime::process_outcomes(&mut self.world,&mut omoba_core::runtime::RuntimeEventVecSink::default()).unwrap();
     }
     pub fn learn(&mut self,handler:&dyn AbilityScript,rank:u8)->Vec<Outcome> {
         let cache=ParallelAdapterCache::new(&self.world,1);

@@ -16,10 +16,11 @@ pub struct HeroSelectionOption {
     pub abilities: Vec<String>,
 }
 
-/// Same compiled active catalog as admission; no UI-side hero whitelist.
+/// Same compiled catalog as admission, playable (source) heroes only; no UI-side whitelist.
+/// Test-only heroes stay compiled for fixtures but are never offered.
 pub fn hero_selection_catalog() -> Vec<HeroSelectionOption> {
     use omoba_template_ids as ids;
-    ids::HERO_CATALOG_IDS
+    ids::HERO_PLAYABLE_IDS
         .iter()
         .copied()
         .filter(|id| ids::hero_stats(*id).is_some())
@@ -35,6 +36,14 @@ pub fn hero_selection_catalog() -> Vec<HeroSelectionOption> {
                 .collect(),
         })
         .collect()
+}
+
+/// The playable hero a seat gets when nothing selected one: the playable catalog in order,
+/// cycling by seat. Never a test-only hero.
+pub fn default_playable_hero(seat: usize) -> &'static str {
+    let playable = omoba_template_ids::HERO_PLAYABLE_IDS;
+    assert!(!playable.is_empty(), "the compiled catalog has no playable source hero");
+    playable[seat % playable.len()].as_str()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -195,7 +204,13 @@ impl HeroSelectionSession {
         match request.action {
             HeroSelectionAction::Select { hero } => {
                 let mut candidate = self.plan.clone();
+                let team = candidate.players[index].team_id;
+                if candidate.players.iter().any(|p| !p.bot && p.player_id != admitted_player_id && p.team_id == team && p.hero == hero) {
+                    return Err(format!("hero '{hero}' is already picked by a teammate"));
+                }
                 candidate.players[index].hero = hero;
+                // A bot teammate holding the pick moves to a hero its team does not use.
+                candidate.resolve_bot_hero_conflicts();
                 // Same production plan/catalog validator; reject without mutation.
                 candidate.compile_with_tick_rate(self.seed, self.tick_rate_hz)?;
                 self.plan = candidate;
@@ -255,7 +270,7 @@ mod tests {
                 RoleBotPlayerPlan {
                     player_id: 7,
                     team_id: 1,
-                    hero: "training_luminary".into(),
+                    hero: "murakami_yoshikiyo".into(),
                     role: BotRole::Top,
                     lane: "top".into(),
                     bot: false,
@@ -263,7 +278,7 @@ mod tests {
                 RoleBotPlayerPlan {
                     player_id: 8,
                     team_id: 2,
-                    hero: "training_luminary".into(),
+                    hero: "murakami_yoshikiyo".into(),
                     role: BotRole::Top,
                     lane: "top".into(),
                     bot: false,
@@ -271,7 +286,7 @@ mod tests {
                 RoleBotPlayerPlan {
                     player_id: 9,
                     team_id: 2,
-                    hero: "training_luminary".into(),
+                    hero: "saika_magoichi".into(),
                     role: BotRole::Mid,
                     lane: "mid".into(),
                     bot: true,
@@ -287,6 +302,30 @@ mod tests {
     }
 
     #[test]
+    fn hero_selection_keeps_one_hero_per_team_and_moves_the_clashing_bot() {
+        // Team 2: human 8 (murakami) and bot 9 (saika). Team 1: human 7 (murakami).
+        let mut session = HeroSelectionSession::new(plan(), 1, 60).unwrap();
+        // Human 8 picks the bot's hero: the bot moves to the first playable hero team 2 lacks.
+        let snapshot = session.apply(8, request(0, HeroSelectionAction::Select { hero: "saika_magoichi".into() })).unwrap();
+        let heroes = |s: &HeroSelectionSnapshot, id: u32| s.seats.iter().find(|seat| seat.player.player_id == id).unwrap().player.hero.clone();
+        assert_eq!(heroes(&snapshot, 8), "saika_magoichi");
+        let moved = heroes(&snapshot, 9);
+        let expected = omoba_template_ids::HERO_PLAYABLE_IDS.iter().map(|id| id.as_str())
+            .find(|hero| *hero != "saika_magoichi").unwrap();
+        assert_eq!(moved, expected, "first playable hero the team does not use");
+        // The other team may pick the same hero (cross-team clashes are allowed).
+        let snapshot = session.apply(7, request(1, HeroSelectionAction::Select { hero: "saika_magoichi".into() })).unwrap();
+        assert_eq!(heroes(&snapshot, 7), "saika_magoichi");
+        // A human teammate's pick is refused without mutation.
+        let mut two = plan();
+        two.players[2].bot = false;
+        let mut session = HeroSelectionSession::new(two, 1, 60).unwrap();
+        assert!(session.apply(8, request(0, HeroSelectionAction::Select { hero: "saika_magoichi".into() }))
+            .unwrap_err().contains("teammate"));
+        assert_eq!(session.snapshot().revision, 0);
+    }
+
+    #[test]
     fn hero_selection_select_lock_finalize_preserves_roster_and_rules() {
         let original = plan();
         let mut session = HeroSelectionSession::new(original.clone(), 42, 60).unwrap();
@@ -298,7 +337,7 @@ mod tests {
                 request(
                     0,
                     HeroSelectionAction::Select {
-                        hero: "training_ranger".into(),
+                        hero: "tamako".into(),
                     },
                 ),
             )
@@ -312,8 +351,8 @@ mod tests {
             .unwrap();
         assert!(session.snapshot().ready);
         let finalized = session.finalize(3).unwrap();
-        assert_eq!(finalized.players[0].hero, "training_ranger");
-        assert_eq!(original.players[0].hero, "training_luminary");
+        assert_eq!(finalized.players[0].hero, "tamako");
+        assert_eq!(original.players[0].hero, "murakami_yoshikiyo");
         assert_eq!(finalized.players[0].team_id, 1);
         assert_eq!(finalized.players[0].role, BotRole::Top);
         assert!(finalized.players[2].bot);
@@ -359,7 +398,7 @@ mod tests {
                 request(
                     1,
                     HeroSelectionAction::Select {
-                        hero: "training_ranger".into()
+                        hero: "tamako".into()
                     }
                 )
             )
@@ -400,7 +439,16 @@ mod tests {
         assert!(catalog
             .windows(2)
             .all(|pair| pair[0].catalog_id < pair[1].catalog_id));
-        assert!(catalog.iter().any(|hero| hero.hero == "training_ranger"));
+        assert!(catalog.iter().any(|hero| hero.hero == "tamako"));
+        // Only source heroes are offered; the training fixtures are compiled but never listed.
+        assert!(catalog.iter().all(|hero| omoba_template_ids::hero_playable(omoba_template_ids::hero_by_name(&hero.hero).unwrap())));
+        assert!(!catalog.iter().any(|hero| hero.hero.starts_with("training_")));
+        for seat in 0..20 {
+            assert!(omoba_template_ids::hero_playable(omoba_template_ids::hero_by_name(default_playable_hero(seat)).unwrap()));
+        }
+        let mut session = HeroSelectionSession::new(plan(), 1, 60).unwrap();
+        assert!(session.apply(7, request(0, HeroSelectionAction::Select { hero: "training_ranger".into() })).is_err(),
+            "a test-only hero cannot be selected");
         for hero in catalog {
             let mut session = HeroSelectionSession::new(plan(), 1, 60).unwrap();
             session
@@ -437,12 +485,12 @@ mod tests {
         session.install_trusted_loadouts(good.clone()).unwrap();
         assert_eq!(session.snapshot().revision, revision + 1);
         assert!(serde_json::from_str::<HeroSelectionRequest>(
-            r#"{"expected_revision":1,"action":{"kind":"select","hero":"training_ranger","summoner_loadouts":{"7":[null,null]}}}"#
+            r#"{"expected_revision":1,"action":{"kind":"select","hero":"tamako","summoner_loadouts":{"7":[null,null]}}}"#
         ).is_err());
-        session.apply(7, request(revision + 1, HeroSelectionAction::Select { hero: "training_ranger".into() })).unwrap();
+        session.apply(7, request(revision + 1, HeroSelectionAction::Select { hero: "tamako".into() })).unwrap();
         assert_eq!(session.snapshot().summoner_loadouts, good);
         assert_eq!(session.plan.summoner_loadouts, good);
-        assert_eq!(session.snapshot().seats[0].player.hero, "training_ranger");
+        assert_eq!(session.snapshot().seats[0].player.hero, "tamako");
         session.apply(7, request(revision + 2, HeroSelectionAction::Lock)).unwrap();
         assert!(session.install_trusted_loadouts(BTreeMap::new()).unwrap_err().contains("human seat locks"));
         assert_eq!(session.snapshot().summoner_loadouts, good);

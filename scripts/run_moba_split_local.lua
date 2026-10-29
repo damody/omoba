@@ -34,7 +34,7 @@ function M.options(args)
       options.netem_outages[#options.netem_outages+1]={team=tonumber(team),at_s=tonumber(at),duration_s=tonumber(duration)}
     elseif key=='--recipe' or key=='--ue-root' or key=='--autopilot' or key=='--output' or key=='--port'
       or key=='--netem' or key=='--netem-seed' or key=='--packaged-game' or key=='--max-seconds' or key=='--resolution'
-      or key=='--spotlight-script' or key=='--autopilot-shot-interval' or key=='--frame-cap' then
+      or key=='--spotlight-script' or key=='--autopilot-shot-interval' or key=='--frame-cap' or key=='--wait-live-lock' then
       i=i+1;options[key:sub(3):gsub('%-','_')]=assert(args[i],key..' requires a value')
     else error('unknown argument: '..key) end
     i=i+1
@@ -47,6 +47,8 @@ function M.options(args)
     assert(options.max_seconds>0,'--max-seconds must be positive')
   end
   assert(#options.netem_outages==0 or options.netem,'--netem-outage requires --netem PROFILE')
+  -- One live match per machine (E197): how long to wait for another one to end.
+  options.wait_live_lock=require('machine_lock').wait_seconds(options.wait_live_lock)
   if options.netem_seed then
     options.netem_seed=assert(math.tointeger(tonumber(options.netem_seed)),'--netem-seed must be an integer')
   end
@@ -162,11 +164,21 @@ function M.run(options)
     assert(not path.exists(root),'output must be a new directory: '..root);path.mkdir_p(root)
   end
   assert(root,'cannot reserve split run directory')
+  -- One live match per machine (E197). Every child joins this lock through its token and
+  -- attaches the processes it starts; the lock is released when this run returns or fails.
+  local acquired,lock=pcall(require('machine_lock').acquire,b.root,'live_match',{run=root,label='run_moba_split_local',
+    wait_seconds=options.wait_live_lock or 0})
+  if not acquired then lfs.rmdir(root);error(lock,0) end -- the refused run leaves no directory behind
+  local held <close> = lock
+  -- Every role of this match is checked against the sources as they were now (E202).
+  local child_env=lock:env()
+  child_env.OMOBA_SOURCES_AS_OF=tostring(os.time())
   local children={}
   local function spawn(label,args)
     local log=path.join(root,label..'.log')
-    local _,record=process.spawn_owned(platform.lua_executable,args,{cwd=b.root,stdout=log,stderr=log})
+    local _,record=process.spawn_owned(platform.lua_executable,args,{cwd=b.root,stdout=log,stderr=log,env=child_env})
     record=process.validate_owned(record);record.label=label;record.log=log
+    lock:attach(record,label)
     children[#children+1]=record
     path.write(path.join(root,'children.json'),json.encode(children),true)
     return record,log
@@ -193,6 +205,7 @@ function M.run(options)
       local _,record=process.spawn_owned(exe,M.netem_args(options,tonumber(options.port or 57061),evidence),
         {cwd=path.parent(exe),stdout=path.join(evidence,'proxy.stdout.log'),stderr=path.join(evidence,'proxy.stderr.log')})
       record=process.validate_owned(record);record.label='netem';record.log=path.join(evidence,'proxy.stdout.log')
+      lock:attach(record,'netem')
       children[#children+1]=record
       path.write(path.join(root,'children.json'),json.encode(children),true)
       wait_for(record,record.log,'netem-proxy ready',30000,'netem proxy')
@@ -247,7 +260,7 @@ end
 
 if arg and arg[0] and arg[0]:match('run_moba_split_local%.lua$') then
   if arg[1]=='--help' then
-    print('Usage: tools/lua/lua.exe scripts/run_moba_split_local.lua [--recipe FILE] [--hero PLAYER_ID=HERO (repeatable)] [--autopilot PROFILE] [--netem PROFILE [--netem-seed N] [--netem-outage TEAM:AT_S:DURATION_S (repeatable)]] [--no-build] [--ue-root PATH] [--port 57061] [--output NEW_DIRECTORY]')
+    print('Usage: tools/lua/lua.exe scripts/run_moba_split_local.lua [--recipe FILE] [--hero PLAYER_ID=HERO (repeatable)] [--autopilot PROFILE] [--netem PROFILE [--netem-seed N] [--netem-outage TEAM:AT_S:DURATION_S (repeatable)]] [--no-build] [--ue-root PATH] [--port 57061] [--output NEW_DIRECTORY] [--wait-live-lock SECONDS]')
     print('--netem routes each team client through omoba-netem-proxy (e.g. wan-80-20-loss1 = 80 ms +/-20 ms RTT, 1% loss); one human per team.')
     print('--netem-outage drops all traffic of one team both ways for DURATION_S seconds, AT_S seconds after every client is admitted (e.g. 1:120:10).')
     print('Runs the same-machine B+C+C topology: one --server-only authority and one --connect client per human seat, with shared host totals and staggered renderer start.')

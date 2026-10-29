@@ -206,7 +206,7 @@ test('successful execute appends content, installs hooks once and is idempotent'
   -- Package summons reach templates/summons.lua with their native visual profile.
   local gunner
   for _, s in ipairs(builder.include('templates/summons.lua')) do if s.id == 'b01_saika_corps_gunner' then gunner = s end end
-  assert(gunner and gunner.immobile and gunner.damage_per_owner_level == 10 and gunner.ue and gunner.ue.native_visual,
+  assert(gunner and gunner.immobile and gunner.damage_per_owner_level == 5 and gunner.ue and gunner.ue.native_visual,
     'authored summon with resolved visual')
   assert(gunner.native_visual_profile == nil, 'profile name is resolved, not passed through')
   local summons_text = first['/scripts/lua_data/templates/summons.lua'] or path.read(root .. '/scripts/lua_data/templates/summons.lua', true)
@@ -283,12 +283,16 @@ test('append slices keep ranks with their abilities and the D slot stays fifth',
   local pkg = {
     character = { hero = { id = 'fixture_hero', display_name = 'F' }, identity = { integration = 'append', rust_module = 'F' } },
     abilities = { abilities = { ab('f_q', 'Q'), ab('f_w', 'W'), ab('f_e', 'E'), ab('f_r', 'R', true), ab('f_d', 'extra1') } },
+    source = { provenance = { repository = 'https://github.com/damody/history_nobu',
+      commit = 'f966720b0956d002099d72aabec7ddc94b16d4bf', source_hero_id = 'C99' } },
   }
   local e = generate.package_entries(pkg, { f_w = true, f_r = true })
   assert(table.concat(e.hero.abilities, ',') == 'f_w,f_r', table.concat(e.hero.abilities, ','))
   assert(table.concat(e.hero.moba_loadout.ranks, ',') == '1,0,0,0', 'ranks follow the moved abilities: ' .. table.concat(e.hero.moba_loadout.ranks, ','))
   e = generate.package_entries(pkg, nil)
   assert(table.concat(e.hero.abilities, ',') == 'f_q,f_w,f_e,f_r,f_d' and table.concat(e.hero.moba_loadout.ranks, ',') == '1,1,1,0,1')
+  -- A generated hero is playable only through its package's source hero.
+  assert(e.hero.source_ref == 'history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:C99', tostring(e.hero.source_ref))
   -- Without every basic slot the positional D slot cannot be placed.
   assert(not pcall(generate.package_entries, pkg, { f_w = true, f_d = true }))
 end)
@@ -396,5 +400,43 @@ local function remove_tree(target)
     assert(os.remove(target))
   end
 end
+-- E189: every repo file base_content tests load through tools/lua at run time is inside a
+-- shadow tree, so a shadow build runs the same tests as the checkout.
+test('shadow trees cover the files base_content tests load at run time', function()
+  local shadow = require('hero_author.shadow')
+  local function covered(rel)
+    for _, tree in ipairs(shadow.TREES) do if rel == tree or rel:sub(1, #tree + 1) == tree .. '/' then return true end end
+    for _, file in ipairs(shadow.FILES) do if rel == file then return true end end
+    for _, tree in ipairs(shadow.REFRESH) do if rel:sub(1, #tree + 1) == tree .. "/" then return true end end
+    return false
+  end
+  local loaded = 0
+  local function scan(dir)
+    for name in lfs.dir(dir) do
+      if name ~= '.' and name ~= '..' then
+        local p = dir .. '/' .. name
+        if lfs.attributes(p, 'mode') == 'directory' then scan(p)
+        elseif name:match('%.rs$') then
+          local text = path.read(p, true)
+          for rel in text:gmatch("loadfile%('([%w_%./%-]+)'%)") do
+            loaded = loaded + 1
+            assert(covered(rel), p .. ' loads ' .. rel .. ', which no hero_author shadow tree copies')
+          end
+          -- A Lua script a test runs directly (`.args(["docs/.../x.lua", ...])`, E207).
+          for rel in text:gmatch('%.args%(%["([%w_%./%-]+%.lua)"') do
+            loaded = loaded + 1
+            assert(covered(rel), p .. ' runs ' .. rel .. ', which no hero_author shadow tree copies')
+          end
+          for module in text:gmatch("require%('([%w_%.]+)'%)") do
+            assert(covered((module:gsub('%.', '/')) .. '.lua'), p .. ' requires ' .. module .. ', which no shadow tree copies')
+          end
+        end
+      end
+    end
+  end
+  scan(repo .. '/scripts/base_content/src')
+  assert(loaded > 0, 'the scan found the recipe loads')
+end)
+
 remove_tree(base)
 print(count .. ' hero author tests passed')

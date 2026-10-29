@@ -150,17 +150,26 @@ test('fixture source builds, verifies and detects tampering', function()
   local src = path.join(root, 'src')
   local commit = string.rep('a', 40)
   path.write(path.join(src, '.git', 'HEAD'), commit .. '\n', true, true)
-  path.write(path.join(src, 'langtext.lua'), 'zhtw_heroname = {\nB01 = "雜賀孫市",\n--B02 = "風魔小太郎",\n}\n', true, true)
-  path.write(path.join(src, 'addon_tchinese2.txt'), kv.BOM .. '"lang"\r\n{\r\n\t"Tokens"\r\n\t{\r\n' ..
+  -- history_nobu layout (E169): addon under game/dota_addons/nobu, UTF-16LE tooltips, names in
+  -- addon_game_mode.lua, selection by herolist.txt, unit defaults in npc_heroes_override.txt.
+  local addon = path.join(src, 'game', 'dota_addons', 'nobu')
+  local npc = path.join(addon, 'scripts', 'npc')
+  path.write(path.join(addon, 'scripts', 'vscripts', 'addon_game_mode.lua'),
+    '_G.hero_name_zh = {\n  B01 = "雜賀孫市",\n  B02 = "風魔小太郎",\n}\n', true, true)
+  path.write(path.join(addon, 'resource', 'addon_tchinese.txt'), require('hero_source.text').utf8_to_utf16le('"lang"\r\n{\r\n\t"Tokens"\r\n\t{\r\n' ..
     '\t\t"DOTA_Tooltip_Ability_B01W"\t"狙擊模式"\r\n' ..
-    '\t\t"DOTA_Tooltip_Ability_B01W_Description"\t"增加<font color=\'#5cb85c\'>(1/2)</font>攻擊距離"\r\n\t}\r\n}\r\n', true, true)
-  for _, faction in ipairs({ 'A_Oda', 'B_Unified', 'C_Neutral' }) do path.mkdir_p(path.join(src, 'npc', faction)) end
-  path.write(path.join(src, 'npc', 'B_Unified', 'B01.txt'), '//雜賀孫市\r\n"DOTAAbilities"\r\n{\r\n' ..
+    '\t\t"DOTA_Tooltip_Ability_B01W_Description"\t"增加<font color=\'#5cb85c\'>(1/2)</font>攻擊距離"\r\n\t}\r\n}\r\n'), true, true)
+  for _, faction in ipairs({ 'A_Oda', 'B_Unified', 'C_Neutral' }) do path.mkdir_p(path.join(npc, faction)) end
+  path.write(path.join(npc, 'herolist.txt'), '"CustomHeroList"\r\n{\r\n\t"npc_dota_hero_nevermore" "1" //雜賀孫市\r\n}\r\n', true, true)
+  path.write(path.join(npc, 'npc_heroes_override.txt'), '"DOTAHeroes"\r\n{\r\n\t"npc_dota_hero_base"\r\n\t{\r\n' ..
+    '\t\t"AttackAcquisitionRange"\t\t"800"\r\n\t}\r\n}\r\n', true, true)
+  path.write(path.join(npc, 'B_Unified', 'B01.txt'), '//雜賀孫市\r\n"DOTAAbilities"\r\n{\r\n' ..
     '\t"B01_precache" { "BaseClass" "ability_datadriven" }\r\n' ..
     '\t"B01W"\r\n\t{\r\n\t\t"AbilityBehavior"\t"DOTA_ABILITY_BEHAVIOR_TOGGLE"\r\n\t\t"AbilityCastRange"\t"%range"\r\n' ..
     '\t\t"AbilitySpecial" { "01" { "var_type" "FIELD_INTEGER" "range" "900 1050" } }\r\n\t}\r\n' ..
     '\t"B01W_old" { "AbilityBehavior" "DOTA_ABILITY_BEHAVIOR_PASSIVE" "AbilityCooldown" }\r\n}\r\n', true, true)
-  path.write(path.join(src, 'npc', 'B_Unified', 'B01_2.txt'), kv.BOM .. '"DOTAHeroes"\r\n{\r\n\t"B01"\r\n\t{\r\n' ..
+  path.write(path.join(npc, 'B_Unified', 'B01_2.txt'), kv.BOM .. '"DOTAHeroes"\r\n{\r\n\t"B01"\r\n\t{\r\n' ..
+    '\t\t"override_hero"\t"npc_dota_hero_nevermore"\r\n' ..
     '\t\t"Ability1"\t"B01W"\r\n\t\t"AttackCapabilities"\t"DOTA_UNIT_CAP_RANGED_ATTACK"\r\n\t}\r\n}\r\n', true, true)
   local fake_repo = path.join(root, 'repo')
   path.mkdir_p(path.join(fake_repo, 'scripts', 'base_content', 'src', 'heroes', 'B02_date_masamune'))
@@ -183,7 +192,10 @@ test('fixture source builds, verifies and detects tampering', function()
   assert(w.tooltip.description.value:find('<font', 1, true) and w.description_plain == '增加(1/2)攻擊距離')
   assert(w.classification.status == 'classified')
   assert(by.B01W_old.fields[2].missing_value)
-  local text = path.read(path.join(src, 'npc', 'B_Unified', 'B01.txt'), true)
+  assert(catalog.hero_unit_defaults[1].key == 'AttackAcquisitionRange', 'hero base defaults indexed')
+  assert(require('hero_source.roster').stats(catalog.heroes[1].unit, catalog.hero_unit_defaults).acquisition_range == 800,
+    'a unit without AttackAcquisitionRange inherits npc_dota_hero_base')
+  local text = path.read(path.join(npc, 'B_Unified', 'B01.txt'), true)
   assert(text:sub(w.start, w.stop) == w.raw and w.key_token == '"B01W"' and w.raw_sha256 == sha256(w.raw))
   assert(catalog.id_mapping.entries[1].number_conflict == nil)
   local problems = catalog_mod.verify(catalog, src)
@@ -196,7 +208,7 @@ test('fixture source builds, verifies and detects tampering', function()
   assert(pack:find(w.raw_sha256, 1, true) and pack:find('增加(1/2)攻擊距離', 1, true) and pack:find('"range" "900 1050"', 1, true))
   assert(pack:find('### B01W：狙擊模式（單位技能欄 1）', 1, true) and pack:find('### B01W_old', 1, true))
   assert(not pack:find('classified', 1, true), 'no analysis in a raw pack')
-  path.write(path.join(src, 'npc', 'B_Unified', 'B01.txt'), text:gsub('900 1050', '900 1051'), true, true)
+  path.write(path.join(npc, 'B_Unified', 'B01.txt'), text:gsub('900 1050', '900 1051'), true, true)
   problems = catalog_mod.verify(reloaded, src)
   assert(#problems > 0, 'tampered source must fail verification')
 end)
@@ -245,6 +257,25 @@ test('requirements derive worst status and reject stale or unmapped reviews', fu
   rejects(function(r) r.heroes[1].slots[2].action = 'extra1' end, 'without an extra_action_slot mechanic')
   local md = requirements.render(req(), catalog, derived)
   assert(md:find('`needs_framework`', 1, true))
+end)
+
+-- E170: kit coverage reports per-ability source parity from each package's source.lua.
+test('coverage reports reviewed, stale and unchecked source parity', function()
+  local coverage = require('hero_source.coverage')
+  assert(coverage.parity_status(nil) == coverage.PARITY_NONE)
+  assert(coverage.parity_status({ source_ability_id = 'X' }) == coverage.PARITY_NONE)
+  assert(coverage.parity_status({ parity = { card = 'parity.md' } }) == coverage.PARITY_REVIEWED)
+  assert(coverage.parity_status({ parity = { card = 'parity.md' }, stale_review = { reason = 'r' } }) == coverage.PARITY_STALE)
+  local md = coverage.render({
+    { plan = 'H01', source = 'B01', name = 'N', package = 'p', kit_status = 'supported', acceptance = 'pending',
+      parity = coverage.PARITY_REVIEWED, abilities = {
+        { id = 'a', source_ability_id = 'B01W', action = 'Q', status = 'supported', capabilities = {}, parity = coverage.PARITY_REVIEWED },
+        { id = 'b', source_ability_id = 'B01T', action = 'R', status = 'supported', capabilities = {}, parity = coverage.PARITY_STALE } } },
+  })
+  assert(md:find('| 欄位 | 技能 | 來源 | 狀態 | 原作對照 | 能力 |', 1, true), md)
+  assert(md:find('| Q | `a` | B01W | supported | 已對照原作 |  |', 1, true), md)
+  assert(md:find('| R | `b` | B01T | supported | 待重審 |  |', 1, true), md)
+  assert(md:find('| H01 | B01 | N | `p` | supported | pending | 已對照原作 | 2 |', 1, true), md)
 end)
 
 local function remove_tree(target)

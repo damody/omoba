@@ -1,5 +1,6 @@
-//! 精準之光（玉子，來源 C15R current）：被動；攻擊傷害 +10/18/26/34%，並提升
-//! 5/10/15/20 點靈活（換算為攻擊、攻速點與護甲，見 assumptions precise_light_agility）。
+//! 精準之光（玉子，來源 C15R current，C15.txt:278-308）：被動 modifier_C15R；攻擊傷害
+//! +damage_pct（DAMAGEOUTGOING_PERCENTAGE），並提升 agility 點靈活（數值見 v3.lua）
+//! （STATS_AGILITY_BONUS → StatKey::StatsAgilityBonus，由 omoba-core 三圍 settle 換算）。
 //! 每次學習或升級以同一 buff id 取代，不疊加。
 use abi_stable::std_types::{RErr,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},stat_keys::StatKey,types::{EntityHandle,Fixed64,Target},world::GameWorldDyn};
@@ -10,26 +11,21 @@ use crate::ability_builder::{build_ability_ffi,extra_at_id,extra_at_id_f32};
 
 const ID:omoba_template_ids::AbilityId=ABILITY_C15_PRECISE_LIGHT;
 pub(crate) const BUFF_ID:&str="c15_precise_light";
-const OUTGOING:&str="stat_bonus_permanent_base_damage_outgoing_pct";
-const DAMAGE:&str="stat_bonus_permanent_attack_damage_bonus";
-const ATTACK_SPEED:&str="stat_bonus_permanent_attack_speed_bonus";
-const ARMOR:&str="stat_bonus_permanent_armor_bonus";
+const OUTGOING:&str="damage_pct";
+const AGILITY:&str="agility";
 
 /// Raw payload for one rank, or None for an invalid rank or value.
 pub(crate) fn payload(rank:u8)->Option<String> {
     let content=active_ability_const(ID)?;
     if rank==0 || rank>content.max_level || usize::from(rank)>content.levels.len() {return None;}
-    let outgoing=extra_at_id(ID,OUTGOING,rank);let damage=extra_at_id(ID,DAMAGE,rank);
-    let attack_speed=extra_at_id(ID,ATTACK_SPEED,rank);let armor=extra_at_id(ID,ARMOR,rank);
+    let outgoing=extra_at_id(ID,OUTGOING,rank);let agility=extra_at_id(ID,AGILITY,rank);
     let bounded=|v:Fixed64,max:i32|v>=Fixed64::ZERO && v<=Fixed64::from_i32(max);
-    if !bounded(outgoing,1_000) || !bounded(damage,100_000) || !bounded(attack_speed,1_000) || !bounded(armor,1_000) {return None;}
-    // Percent authored as 10 → engine fraction 0.10 (rounded raw).
+    if !bounded(outgoing,1_000) || !bounded(agility,1_000) {return None;}
+    // Authored percent → engine fraction (rounded raw).
     let fraction=(outgoing.raw()+50)/100;
     Some(serde_json::json!({
         StatKey::BaseDamageOutgoingPercentage.as_str():fraction,
-        StatKey::BaseAttackBonusDamage.as_str():damage.raw(),
-        StatKey::AttackSpeedBonusConstant.as_str():attack_speed.raw(),
-        StatKey::PhysicalArmorBonus.as_str():armor.raw(),
+        StatKey::StatsAgilityBonus.as_str():agility.raw(),
         "level":rank}).to_string())
 }
 
@@ -48,9 +44,7 @@ impl AbilityScript for PreciseLightHandler {
 pub fn c15_precise_light_ffi()->AbilityDefFFI {
     let mut modifiers=HashMap::new();
     modifiers.insert(StatKey::BaseDamageOutgoingPercentage.as_str().into(),extra_at_id_f32(ID,OUTGOING,1)/100.0);
-    modifiers.insert(StatKey::BaseAttackBonusDamage.as_str().into(),extra_at_id_f32(ID,DAMAGE,1));
-    modifiers.insert(StatKey::AttackSpeedBonusConstant.as_str().into(),extra_at_id_f32(ID,ATTACK_SPEED,1));
-    modifiers.insert(StatKey::PhysicalArmorBonus.as_str().into(),extra_at_id_f32(ID,ARMOR,1));
+    modifiers.insert(StatKey::StatsAgilityBonus.as_str().into(),extra_at_id_f32(ID,AGILITY,1));
     build_ability_ffi(ID,PreciseLightHandler,vec![EffectSpec::Buff {target:TargetSelector::SelfUnit,duration:None,modifiers}])
 }
 
@@ -63,8 +57,8 @@ mod tests {
     fn q(v:f64)->i64 {(v*1024.0).round() as i64}
 
     #[test]
-    fn every_rank_grants_outgoing_damage_and_converted_agility_and_replaces_the_previous_rank() {
-        for (rank,pct,agi,armor) in [(1u8,10.0,5.0,0.833),(2,18.0,10.0,1.667),(3,26.0,15.0,2.5),(4,34.0,20.0,3.333)] {
+    fn every_rank_grants_outgoing_damage_and_source_agility_and_replaces_the_previous_rank() {
+        for (rank,pct,agi) in [(1u8,10.0,5.0),(2,18.0,10.0),(3,26.0,15.0),(4,34.0,20.0)] {
             let mut t=TestWorld::new();
             let outcomes=t.learn(&PreciseLightHandler,rank);
             let buffs:Vec<_>=outcomes.iter().filter_map(|o|match o {
@@ -76,9 +70,11 @@ mod tests {
             // (raw + 50) / 100 of the authored percent.
             assert_eq!(payload[StatKey::BaseDamageOutgoingPercentage.as_str()].as_i64(),Some((q(pct)+50)/100),"rank {rank}");
             assert_eq!(payload[StatKey::BaseDamageOutgoingPercentage.as_str()].as_i64(),Some(q(pct/100.0)),"rank {rank}: ≈ pct/100");
-            assert_eq!(payload[StatKey::BaseAttackBonusDamage.as_str()].as_i64(),Some(q(agi)),"rank {rank}");
-            assert_eq!(payload[StatKey::AttackSpeedBonusConstant.as_str()].as_i64(),Some(q(agi)),"rank {rank}");
-            assert_eq!(payload[StatKey::PhysicalArmorBonus.as_str()].as_i64(),Some(q(armor)),"rank {rank}");
+            // STATS_AGILITY_BONUS only: the attribute settle converts it (no hand conversion).
+            assert_eq!(payload[StatKey::StatsAgilityBonus.as_str()].as_i64(),Some(q(agi)),"rank {rank}");
+            for converted in [StatKey::BaseAttackBonusDamage,StatKey::AttackSpeedBonusConstant,StatKey::PhysicalArmorBonus] {
+                assert!(payload.get(converted.as_str()).is_none(),"rank {rank}");
+            }
         }
     }
 

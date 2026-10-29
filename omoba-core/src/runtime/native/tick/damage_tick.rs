@@ -8,6 +8,9 @@ use std::collections::HashMap;
 /// 使重播決定論無效。
 // armor, percent magic resistance, (critical chance, multiplier), evasion, miss.
 type NativeDamageStats = (Fixed64, Fixed64, (Fixed64,Fixed64), Fixed64, Fixed64);
+/// The tuple's critical slot is only read by the legacy test entry; the system rolls criticals
+/// through the attack pipeline (rules::attack::critical_sources).
+const NO_CRIT: (Fixed64, Fixed64) = (Fixed64::ZERO, Fixed64::ONE);
 
 // DamageInstance uses percentage points; UnitStats aggregates a normalized resistance.
 fn resistance_percent(stats:&crate::runtime::UnitStats<'_>,base:Fixed64,entity:Entity)->Fixed64 {
@@ -31,6 +34,8 @@ pub struct DamageRead<'a> {
     facts: Read<'a, crate::runtime::ObservableFactBuffer>,
     moba: Option<Read<'a, crate::runtime::MobaMatch>>,
     buffs: Read<'a, crate::runtime::BuffStore>,
+    // Rolls are keyed by a hero's player (rules::chance::roll_key).
+    owners: ReadStorage<'a, PlayerOwner>,
 }
 
 #[derive(SystemData)]
@@ -62,7 +67,7 @@ impl<'a> System<'a> for Sys {
             unit_stats.insert(entity, (
                 modifiers.final_armor(properties.def_physic,entity),
                 resistance_percent(&modifiers,properties.def_magic,entity),
-                modifiers.crit_with_base(entity,Fixed64::ZERO,Fixed64::from_i32(2)), modifiers.evasion_chance(entity), modifiers.miss_chance(entity),
+                NO_CRIT, modifiers.evasion_chance(entity), modifiers.miss_chance(entity),
             ));
         }
 
@@ -73,7 +78,7 @@ impl<'a> System<'a> for Sys {
                 (
                     modifiers.final_armor(unit.base_armor,entity),
                     resistance_percent(&modifiers,unit.magic_resistance,entity),
-                    modifiers.crit_with_base(entity,Fixed64::ZERO,Fixed64::from_i32(2)),
+                    NO_CRIT,
                     modifiers.evasion_chance(entity),
                     modifiers.miss_chance(entity),
                 ),
@@ -82,12 +87,14 @@ impl<'a> System<'a> for Sys {
 
         // 收集 Hero 屬性
         for (entity, hero, properties) in (&tr.entities, &tr.heroes, &tr.properties).join() {
-            let critical=modifiers.crit_with_base(entity,hero.get_crit_chance(),Fixed64::from_i32(2));
+            let (critical,_)=(NO_CRIT,hero);
             unit_stats.insert(
                 entity,
                 (
                     modifiers.final_armor(properties.def_physic,entity),
-                    resistance_percent(&modifiers,properties.def_magic,entity),
+                    // A hero's pool is capped by the game rules (rules::magic_resist).
+                    super::super::rules::magic_resist::hero_percent(&modifiers,entity,properties.def_magic,
+                        tr.moba.as_ref().and_then(|state| state.config.game_rules).as_ref()),
                     critical,
                     modifiers.evasion_chance(entity),
                     modifiers.miss_chance(entity),
@@ -99,8 +106,27 @@ impl<'a> System<'a> for Sys {
         let mut damage_results = Vec::new();
         let mut outcomes = Vec::new();
 
+        let key_of=|entity:Entity| crate::runtime::native::rules::chance::roll_key(entity,
+            tr.heroes.get(entity).and(tr.owners.get(entity)).map(|owner|owner.player_id));
         for (local_ordinal, damage_inst) in tw.damage_instances.drain(..).enumerate() {
-            let result = calculate_damage(&damage_inst, &unit_stats, master_seed, tick);
+            let attacker=damage_inst.source.source_entity;
+            // The attack pipeline's critical (each source rolls, the highest multiplier wins) and
+            // the target's physical block (rules::attack, rules::damage).
+            let critical=if damage_inst.damage_flags.can_crit {
+                let base=tr.heroes.get(attacker).map_or(Fixed64::ZERO,|hero|hero.get_crit_chance());
+                let sources=crate::runtime::native::rules::attack::critical_sources(&tr.buffs,attacker,base,Fixed64::from_i32(2));
+                crate::runtime::native::rules::attack::roll_critical(&sources,master_seed,tick,key_of(attacker),attacker,None)
+            } else {None};
+            let rolls=Rolls {source_key:key_of(attacker),target_key:key_of(damage_inst.target),critical,
+                block:if damage_inst.damage_flags.can_dodge {crate::runtime::native::rules::damage::block_amount(&tr.buffs,damage_inst.target)}else{Fixed64::ZERO}};
+            let (result,source_missed) = calculate_damage_with(&damage_inst, &unit_stats, master_seed, tick, &rolls);
+            // An ordinary instant attack (lane, jungle and lane towers) runs the attack pipeline's
+            // windup, launch and judgement in this one tick (rules::attack::instant).
+            if matches!(damage_inst.source.source_type,DamageSourceType::Attack) {
+                outcomes.push(Outcome::InstantAttack {attacker,target:damage_inst.target,
+                    critical:rolls.critical.filter(|_|result.is_critical),missed:source_missed,
+                    evaded:result.is_dodged&&!source_missed});
+            }
 
             // 生成傷害事件而不是直接修改組件
             if !result.is_dodged && result.total_damage > Fixed64::ZERO {
@@ -187,14 +213,42 @@ impl<'a> System<'a> for Sys {
     }
 }
 
-/// 計算傷害的核心函數
-/// 階段 1c.3：完整固定 64 — 護甲/抵抗/傷害/爆擊/閃避全部確定。
+/// The rolls of one instance decided by the rules layer.
+struct Rolls {
+    source_key: u64,
+    target_key: u64,
+    /// The critical multiplier, when this instance crits (rules::attack::roll_critical).
+    critical: Option<Fixed64>,
+    /// The target's physical block against an attack (rules::damage::block_amount).
+    block: Fixed64,
+}
+
+/// Legacy single-source entry (tests): entity-id keys, the stats' crit tuple, no block.
+#[cfg(test)]
 fn calculate_damage(
     damage_inst: &DamageInstance,
     unit_stats: &HashMap<Entity, NativeDamageStats>,
     master_seed: u64,
     tick: u32,
 ) -> DamageResult {
+    let source=damage_inst.source.source_entity;
+    let (_, _, (chance,multiplier), _, _) = unit_stats.get(&source).copied().unwrap_or_default();
+    let source_key=u64::from(source.id());
+    let critical=(damage_inst.damage_flags.can_crit
+        && super::super::attack_accuracy::source_crits(master_seed,tick,source_key,chance)).then_some(multiplier);
+    calculate_damage_with(damage_inst,unit_stats,master_seed,tick,&Rolls {source_key,
+        target_key:u64::from(damage_inst.target.id()),critical,block:Fixed64::ZERO}).0
+}
+
+/// 計算傷害的核心函數；回傳結果與「是否攻擊者失手」。
+/// 階段 1c.3：完整固定 64 — 護甲/抵抗/傷害/爆擊/閃避全部確定。
+fn calculate_damage_with(
+    damage_inst: &DamageInstance,
+    unit_stats: &HashMap<Entity, NativeDamageStats>,
+    master_seed: u64,
+    tick: u32,
+    rolls: &Rolls,
+) -> (DamageResult, bool) {
     let mut result = DamageResult {
         target: damage_inst.target,
         source: damage_inst.source.clone(),
@@ -214,36 +268,38 @@ fn calculate_damage(
         .unwrap_or_default();
 
     // 獲取攻擊者屬性
-    let (_, _, (crit_chance,crit_multiplier), _, miss_chance) = unit_stats
+    let (_, _, _, _, miss_chance) = unit_stats
         .get(&damage_inst.source.source_entity)
         .copied()
         .unwrap_or_default();
 
     // 檢查閃避 — Phase 1c.3: deterministic SimRng stream per (victim, OP_DODGE)
     if damage_inst.damage_flags.can_dodge && super::super::attack_accuracy::target_evades(
-        master_seed,tick,damage_inst.target,dodge_chance) {
+        master_seed,tick,rolls.target_key,dodge_chance) {
         result.is_dodged = true;
         result.actual_damage = DamageTypes::physical_only(Fixed64::ZERO);
-        return result;
+        return (result, false);
     }
 
     // Reuse can_dodge as the existing avoidable-hit policy; ability/true hits
     // opt out. Independent operation2 preserves dodge0 and critical1 streams.
     if damage_inst.damage_flags.can_dodge && super::super::attack_accuracy::source_misses(
-        master_seed,tick,damage_inst.source.source_entity,miss_chance) {
+        master_seed,tick,rolls.source_key,miss_chance) {
         result.is_dodged = true;
         result.actual_damage = DamageTypes::physical_only(Fixed64::ZERO);
-        return result;
+        return (result, true);
     }
 
-    // 檢查暴擊 — Phase 1c.3: deterministic SimRng stream per (attacker, OP_CRIT)
-    result.is_critical=damage_inst.damage_flags.can_crit && super::super::attack_accuracy::source_crits(
-        master_seed,tick,damage_inst.source.source_entity,crit_chance);
+    // 暴擊：攻擊管線擲的結果（rules::attack）。
+    result.is_critical=damage_inst.damage_flags.can_crit && rolls.critical.is_some();
 
-    // 計算物理傷害
+    // 計算物理傷害：爆擊、再減去格擋（Dota 在護甲之前）
     let mut physical_damage = damage_inst.damage_types.physical;
-    if result.is_critical {
-        physical_damage = physical_damage * crit_multiplier;
+    if let Some(multiplier) = rolls.critical.filter(|_| result.is_critical) {
+        physical_damage = physical_damage * multiplier;
+    }
+    if rolls.block > Fixed64::ZERO && physical_damage > Fixed64::ZERO {
+        physical_damage = (physical_damage - rolls.block).max(Fixed64::ZERO);
     }
 
     let before_defenses=DamageTypes::new(physical_damage,damage_inst.damage_types.magical,damage_inst.damage_types.pure);
@@ -262,7 +318,7 @@ fn calculate_damage(
             result.healing + result.actual_damage.magical * damage_inst.damage_flags.spell_vamp;
     }
 
-    result
+    (result, false)
 }
 
 #[cfg(test)]
@@ -283,7 +339,9 @@ mod tests {
             if mode==1 {hit.damage_flags=DamageFlags::ability_damage();}
             if mode==2 {hit.damage_flags=DamageFlags::true_damage();}
             hit.damage_flags.lifesteal=Fixed64::ONE;w.write_resource::<Vec<DamageInstance>>().push(hit);crate::comp::run_now::<Sys>(&w);
-            let outcomes=w.read_resource::<Vec<Outcome>>();if mode==3 {assert!(outcomes.is_empty());}else {
+            let outcomes=w.read_resource::<Vec<Outcome>>();
+            // The instant attack's pipeline event (rules::attack) is no damage.
+            if mode==3 {assert!(outcomes.iter().all(|o|matches!(o,Outcome::InstantAttack {missed:true,..})));}else {
                 let expected=Fixed64::from_i32(if mode==0 {300}else{100});
                 assert!(outcomes.iter().any(|o|matches!(candidate(o),Outcome::Damage {phys,magi,real,..}if *phys==expected&&*magi==Fixed64::from_i32(20)&&*real==Fixed64::from_i32(7))));
                 assert!(outcomes.iter().any(|o|matches!(leech_candidate(o),Outcome::DamageWithLeech {physical_leech,..}if *physical_leech==Fixed64::ONE)));
@@ -320,7 +378,7 @@ mod tests {
             w.write_resource::<Vec<DamageInstance>>().push(hit);
             crate::comp::run_now::<Sys>(&w);
             let outcomes=w.read_resource::<Vec<Outcome>>();let avoided=!ability&&matches!(mode,1|3);
-            if avoided {assert!(outcomes.is_empty(),"kind{kind} mode{mode}");}
+            if avoided {assert!(outcomes.iter().all(|o|matches!(o,Outcome::InstantAttack {critical:None,..})),"kind{kind} mode{mode}");}
             else {
                 let armor=Fixed64::from_i32(if kind==1 {200}else{100});
                 let expected=mitigate_base_defenses(&DamageTypes::physical_only(Fixed64::from_i32(100)),armor,Fixed64::ZERO,false,false).physical;

@@ -1,0 +1,69 @@
+/* Generated site style. Layout follows the old nobugg site loosely: dark header, card lists. */
+:root {
+  --bg: #f4f1ea; --fg: #1d1b18; --muted: #6b645a; --card: #fffdf8; --line: #ddd4c4;
+  --accent: #9b2c1f; --gold: #9a7414; --phys: #b5541c; --magic: #2f5fb3; --pure: #8a3fb0;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16140f; --fg: #ece6da; --muted: #a69d8e; --card: #211e18; --line: #3a342a;
+    --accent: #e0725f; --gold: #e0b84a; --phys: #e68a50; --magic: #7da4ec; --pure: #c58ae6; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; padding: 12px 16px; background: #231c14; color: #f2e6cf; }
+header.top a { color: #f2e6cf; }
+header.top .brand { font-weight: 700; font-size: 18px; }
+header.top nav { display: flex; gap: 16px; }
+header.top .langs { margin-left: auto; display: flex; gap: 8px; }
+header.top .langs .cur { opacity: .6; }
+main { max-width: 1040px; margin: 0 auto; padding: 16px; }
+footer { max-width: 1040px; margin: 32px auto; padding: 16px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); }
+code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; }
+code.hash { word-break: break-all; }
+h1 { margin: 8px 0; } h2 { margin: 24px 0 8px; border-bottom: 2px solid var(--line); } h3 { margin: 0; }
+.sub { margin: 0; color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; color: var(--fg); text-align: center; }
+.portrait { width: 96px; height: 96px; object-fit: cover; border-radius: 6px; background: var(--line); }
+.icon { width: 48px; height: 48px; border-radius: 4px; background: var(--line); }
+.icon.big { width: 64px; height: 64px; }
+.icon.sm { width: 24px; height: 24px; vertical-align: middle; margin-right: 6px; }
+.hero-head { display: flex; gap: 16px; align-items: center; }
+.hero-stats table { border-collapse: collapse; margin-bottom: 8px; }
+.hero-stats th, .hero-stats td { padding: 2px 12px 2px 0; text-align: left; }
+.hero-stats tr.primary th { color: var(--accent); }
+section.ability { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
+.ab-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.slot, .kind, .badge { display: inline-block; font-size: 12px; padding: 0 6px; border-radius: 3px; background: var(--line); }
+.slot { font-weight: 700; }
+.badge.warn { background: var(--accent); color: #fff; }
+dl.row { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 8px 0; font-size: 14px; }
+dl.row div { display: flex; gap: 6px; }
+dl.row dt { color: var(--muted); }
+dl.row dd { margin: 0; }
+.desc { margin: 8px 0; }
+ul.stats { list-style: none; padding: 0; margin: 8px 0; }
+.statuses h4 { margin: 8px 0 4px; font-size: 14px; color: var(--muted); }
+.statuses ul { margin: 0; padding-left: 18px; }
+.statuses .meta { margin-left: 8px; color: var(--muted); font-size: 13px; }
+.statuses p { margin: 2px 0 6px; }
+.dt-physical { color: var(--phys); } .dt-magical { color: var(--magic); } .dt-pure { color: var(--pure); }
+.gold { color: var(--gold); font-weight: 600; }
+.rs > input { position: absolute; opacity: 0; pointer-events: none; }
+.rs > label { display: inline-block; padding: 2px 10px; margin: 0 4px 4px 0; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; cursor: pointer; }
+.rs > input:checked + label { background: var(--accent); border-color: var(--accent); color: #fff; }
+.rs > input:focus-visible + label { outline: 2px solid var(--accent); }
+.rs > .panel { display: none; }
+ul.tree, ul.tree ul { list-style: none; padding-left: 20px; }
+ul.tree { padding-left: 0; }
+ul.tree li { margin: 4px 0; }
+.missing { color: var(--muted); }
+.more { margin-top: 16px; }
+@media (max-width: 600px) {
+  .grid { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); }
+  .portrait { width: 72px; height: 72px; }
+  header.top .langs { margin-left: 0; }
+}
+.tile.unlisted { opacity: .72; }
+ul.deferred code.reason { color: var(--muted); }

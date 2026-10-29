@@ -13,16 +13,6 @@ return function(ctx)
         "rain_iron_cannon",
         "three_stage_technique",
       },
-      strength = 18,
-      agility = 28,
-      intelligence = 16,
-      primary_attribute = "agility",
-      attack_range = 900.0,
-      base_damage = 52,
-      base_armor = 1.5,
-      base_hp = 580,
-      base_mana = 300,
-      move_speed = 320.0,
       turn_speed = 720.0,
       render = {
         render_mode = "model_3d",
@@ -208,14 +198,6 @@ return function(ctx)
           fallback_policy = "UseGenericState",
         },
       },
-      level_growth = {
-        strength_per_level = 1.8,
-        agility_per_level = 3.2,
-        intelligence_per_level = 1.6,
-        damage_per_level = 2.8,
-        hp_per_level = 58.0,
-        mana_per_level = 26.0,
-      },
     },
     {
       id = "date_masamune",
@@ -230,28 +212,12 @@ return function(ctx)
         "flame_assault",
         "matchlock_gun",
       },
-      strength = 26,
-      agility = 22,
-      intelligence = 14,
-      primary_attribute = "strength",
-      attack_range = 250.0,
-      base_damage = 60,
-      base_armor = 2.5,
-      base_hp = 680,
-      base_mana = 240,
-      move_speed = 310.0,
       turn_speed = 200.0,
-      level_growth = {
-        strength_per_level = 3.0,
-        agility_per_level = 1.8,
-        intelligence_per_level = 1.4,
-        damage_per_level = 3.2,
-        hp_per_level = 68.0,
-        mana_per_level = 22.0,
-      },
     },
     {
       id = "training_luminary",
+      -- Not a source hero: automated tests and fixtures only, never selectable or in a match.
+      test_only = true,
       ue = { native_only = true },
       display_name = "晨光導師",
       title = "技能範本英雄",
@@ -366,6 +332,8 @@ return function(ctx)
         local ranks = {}
         for i = 1, 5 do ranks[i] = (update.ranks_by_slot or {})[i] or base[i] end
         hero.moba_loadout = { ranks = ranks, skill_points = update.skill_points or loadout.skill_points or 0 }
+        -- The package that updates a hand-written hero carries its source hero.
+        if update.source_ref then hero.source_ref = update.source_ref end
       end
     end
   end
@@ -388,6 +356,17 @@ return function(ctx)
     if not rendered and not (visual and (visual.mesh_asset or visual.static_mesh_asset)) then
       local ue={};for key,value in pairs(hero.ue or{})do ue[key]=value end
       ue.native_visual=shared_fallback.profile(hero.id,visual);hero.ue=ue
+    end
+  end
+  -- Playable heroes take these from their source unit (templates/hero_source_stats.lua, applied in
+  -- templates.lua). Authoring them here would be dead data that silently disagrees with the source.
+  local SOURCE_OWNED = { 'primary_attribute', 'strength', 'agility', 'intelligence', 'base_hp', 'base_mana',
+    'base_armor', 'base_damage', 'attack_range', 'move_speed', 'base_attack_time', 'health_regen', 'mana_regen', 'level_growth' }
+  for _, hero in ipairs(heroes) do
+    if hero.source_ref and not hero.tombstone then
+      for _, field in ipairs(SOURCE_OWNED) do
+        assert(hero[field] == nil, ("hero '%s' authors %s, which its source unit provides (%s)"):format(hero.id, field, hero.source_ref))
+      end
     end
   end
   return heroes

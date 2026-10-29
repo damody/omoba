@@ -45,6 +45,8 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
         }
         if (payload.get(super::super::ally_cleanse::KEY).is_some() || buff_id==super::super::ally_cleanse::BUFF)
             && super::super::ally_cleanse::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if (payload.get(super::super::aura_emitter::KEY).is_some() || buff_id.starts_with(super::super::aura_emitter::PREFIX))
+            && super::super::aura_emitter::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::ally_area_buff::KEY).is_some() || buff_id==super::super::ally_area_buff::BUFF)
             && super::super::ally_area_buff::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::ally_area_restore::KEY).is_some() || buff_id==super::super::ally_area_restore::BUFF)
@@ -55,8 +57,12 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
             && super::super::forced_motion::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::blink_landing::KEY).is_some() || buff_id==super::super::blink_landing::BUFF)
             && super::super::blink_landing::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if (payload.get(super::super::delayed_effect::KEY).is_some() || buff_id.starts_with(super::super::delayed_effect::PREFIX))
+            && !super::super::delayed_effect::admitted(*target,buff_id,*duration,payload,caster){return false;}
         if (payload.get(super::super::reveal_zone::KEY).is_some() || buff_id==super::super::reveal_zone::BUFF)
             && super::super::reveal_zone::admitted(world,*target,buff_id,*duration,payload,Some(caster)).is_none(){return false;}
+        if (payload.get(super::super::ability_projectile::DODGE_KEY).is_some() || buff_id==super::super::ability_projectile::DODGE_BUFF)
+            && super::super::ability_projectile::dodge_admitted(world,*target,buff_id,payload,Some(caster)).is_none(){return false;}
         if (payload.get(super::super::attack_orb::KEY).is_some() || buff_id.starts_with("attack_orb:"))
             && !super::super::attack_orb::admitted(world,*target,buff_id,payload,Some(caster)){return false;}
         if payload.get(super::super::ally_shield::KEY).is_some()
@@ -98,6 +104,8 @@ pub(super) fn admit(world:&World,caster:Entity,skill:&str,rank:u32,faction:Optio
         Outcome::ScriptManaSpent {entity,amount,ability_id}=>*entity==caster&&*amount>=Fixed64::ZERO&&ability_id==skill,
         Outcome::ScriptStartCooldown {entity,ability_id,duration}=>*entity==caster&&ability_id==skill
             && *duration>=Fixed64::ZERO&&*duration<=Fixed64::from_i32(1_000_000),
+        // The cast breaking the caster's own invisibility (rules::status::invisibility_broken_by_cast, E226).
+        Outcome::ScriptRemoveBuff {target,..}=>*target==caster,
         _=>false,
     })
 }

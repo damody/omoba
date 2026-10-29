@@ -442,6 +442,19 @@ impl SpecsDisclosedWorldStepper {
         &mut self,
         disclosed: &DisclosedReplicaWorld,
     ) -> Result<(), ReplicaRuntimeError> {
+        self.synchronize_specs_membership_after_inputs(disclosed, &BTreeSet::new())
+    }
+
+    /// INPUT_TARGETS: replica ids targeted by this frame's accepted inputs. The
+    /// authority keeps such a target disclosed one more frame when it was deleted
+    /// during the step (visibility input_grace, E175); when this replica's own step
+    /// settled the same death, the local entity is already gone (E190). It stays
+    /// gone: its disclosed row is not written back, and the next frame retires it.
+    fn synchronize_specs_membership_after_inputs(
+        &mut self,
+        disclosed: &DisclosedReplicaWorld,
+        input_targets: &BTreeSet<u64>,
+    ) -> Result<(), ReplicaRuntimeError> {
         self.filtered
             .world
             .write_resource::<DisclosedAttackabilityGate>()
@@ -467,6 +480,8 @@ impl SpecsDisclosedWorldStepper {
                 if let Some(mut buffs) = self.filtered.world.try_fetch_mut::<crate::runtime::ability_runtime::BuffStore>() {
                     buffs.remove_all_for(entry.entity);
                 }
+                // Already deleted by this replica's own step (a graced input target, E190).
+                if !self.filtered.world.entities().is_alive(entry.entity) { continue; }
                 self.filtered
                     .world
                     .delete_entity(entry.entity)
@@ -482,6 +497,11 @@ impl SpecsDisclosedWorldStepper {
                 return Err(ReplicaRuntimeError::ComponentNotAllowlisted);
             }
             if let Some(entry) = self.filtered.entities.0.get_mut(&state.replica_id) {
+                if !self.filtered.world.entities().is_alive(entry.entity) {
+                    // Any other locally deleted, still disclosed entity is a divergence.
+                    if !input_targets.contains(&state.replica_id) { return Err(ReplicaRuntimeError::MalformedBaseline); }
+                    continue;
+                }
                 entry.disclosure_epoch = state.disclosure_epoch;
                 entry.authority_revision = state.authority_revision;
                 self.filtered
@@ -780,6 +800,16 @@ impl SpecsDisclosedWorldStepper {
             crate::runtime::DISCLOSED_SCRIPT_UNIT_TAG_COMPONENT_SCHEMA_ID,
             crate::runtime::ScriptUnitTag
         );
+        // A disclosed lane structure is a building on the replica too (E170): scripts that skip
+        // buildings (`is_building`, ally_area_restore exclude_buildings, point_blast) decide the
+        // same on the authority and every team replica.
+        if state.components.contains_key(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID) {
+            self.filtered
+                .world
+                .write_storage::<crate::runtime::IsBuilding>()
+                .insert(entity, crate::runtime::IsBuilding)
+                .map_err(|_| ReplicaRuntimeError::MalformedBaseline)?;
+        }
         let structure_denied = state
             .components
             .get(&crate::runtime::DISCLOSED_STRUCTURE_COMPONENT_SCHEMA_ID)
@@ -1277,6 +1307,8 @@ impl SpecsDisclosedWorldStepper {
         if let (Some(start), Some(detail)) = (preparation_started, detail.as_mut()) {
             detail.preparation_ns = start.elapsed().as_nanos();
         }
+        // The tick-start positions the authority captured too (approach to cast, E210).
+        crate::runtime::native::cast_approach::capture_tick_start(&mut self.filtered.world);
         run_deterministic_gameplay_phases(&mut |phase| -> Result<(), ReplicaRuntimeError> {
             let phase_started = Instant::now();
             self.filtered
@@ -1409,7 +1441,8 @@ impl SpecsDisclosedWorldStepper {
         self.export_gameplay_components(world)?;
         apply_disclosed_events(world, injections)?;
         apply_disclosed_summoner_projection(self, injections);
-        self.synchronize_specs_membership(world)?;
+        let input_targets = injections.accepted_inputs.iter().filter_map(|input| input.target.as_ref().map(|id| id.value)).collect();
+        self.synchronize_specs_membership_after_inputs(world, &input_targets)?;
         if let (Some(start), Some(detail)) = (finalization_started, detail.as_mut()) {
             detail.finalization_ns = start.elapsed().as_nanos();
             detail.process_cpu_ns = crate::comp::process_cpu::process_cpu_delta(
@@ -2488,9 +2521,76 @@ mod canonical_json_tests {
         assert!(moba_damage_allowed(&stepper.filtered.world, specs_entity(7)));
         assert!(!moba_damage_allowed(&stepper.filtered.world, specs_entity(5)));
         assert!(!moba_damage_allowed(&stepper.filtered.world, specs_entity(6)));
+        {
+            // E170: disclosed lane structures are buildings on the replica, other units are not.
+            let buildings = stepper.filtered.world.read_storage::<crate::runtime::IsBuilding>();
+            assert!(buildings.get(specs_entity(5)).is_some() && buildings.get(specs_entity(6)).is_some());
+            for id in [1, 2, 3, 4, 7] { assert!(buildings.get(specs_entity(id)).is_none(), "entity {id}"); }
+        }
         disclosed.entities.get_mut(&2).unwrap().components.insert(
             DISCLOSED_COMBAT_RELATION_COMPONENT_SCHEMA_ID, vec![1, 9, 0, 0, 0, 2, 1, 1]);
         assert!(stepper.bootstrap_membership(&disclosed).is_err());
+    }
+
+    /// E190: the authority keeps a target of this frame's accepted input disclosed one
+    /// frame after it was deleted during the step (input_grace). When this replica's own
+    /// step settled the same death, the entity stays deleted (no write into a dead entity,
+    /// no resurrection) and the next frame retires it; any other locally deleted entity
+    /// that is still disclosed remains a divergence.
+    #[test]
+    fn graced_input_target_deleted_by_the_replica_step_stays_deleted_until_retired() {
+        use crate::runtime::*;
+        use specs::{Join, WorldExt};
+        let start = crate::game_proto::TeamGameStart { tick_rate_hz: 60, global_seed: 7, ..Default::default() };
+        let render = encode_demo_render_state(DemoRenderState { x_raw: 0, y_raw: 0, team_id: 2, kind: 2, owner_player_id: 0 });
+        let mut property = vec![0u8; 40];
+        property[..8].copy_from_slice(&(100i64 * 1024).to_be_bytes());
+        property[8..16].copy_from_slice(&(100i64 * 1024).to_be_bytes());
+        let disclosed = || {
+            let mut world = DisclosedReplicaWorld::default();
+            for id in [1u64, 2] {
+                world.entities.insert(id, ReplicaEntityState { replica_id: id, disclosure_epoch: 1, entity_kind: 2, authority_revision: 1,
+                    components: BTreeMap::from([(DEMO_RENDER_COMPONENT_SCHEMA_ID, render.clone()),
+                        (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID, property.clone())]) });
+            }
+            world
+        };
+        let booted = |world: &DisclosedReplicaWorld| {
+            let mut stepper = SpecsDisclosedWorldStepper::from_start(&start, secure_replica_component_allowlist(), std::collections::BTreeSet::new());
+            stepper.bootstrap_membership(world).unwrap();
+            stepper
+        };
+        let kill = |stepper: &mut SpecsDisclosedWorldStepper, id: u64| {
+            let entity = stepper.filtered.entities.0[&id].entity;
+            stepper.filtered.world.delete_entity(entity).unwrap();
+            stepper.filtered.world.maintain();
+            entity
+        };
+        let targets = |ids: &[u64]| ids.iter().copied().collect::<std::collections::BTreeSet<u64>>();
+
+        let mut world = disclosed();
+        let mut stepper = booted(&world);
+        let dead = kill(&mut stepper, 1);
+        let alive = stepper.filtered.entities.0[&2].entity;
+        let count = |stepper: &SpecsDisclosedWorldStepper| stepper.filtered.world.entities().join().count();
+        let before = count(&stepper);
+        stepper.synchronize_specs_membership_after_inputs(&world, &targets(&[1])).unwrap();
+        assert_eq!(stepper.filtered.entities.0[&1].entity, dead, "the graced row keeps its mapping");
+        assert!(!stepper.filtered.world.is_alive(dead), "and is not resurrected");
+        assert_eq!(count(&stepper), before, "no new local entity");
+        assert!(stepper.filtered.world.read_storage::<CProperty>().get(alive).is_some(), "other rows still synchronize");
+        // Next frame: the authority hides it; the mapping retires without a second delete.
+        world.entities.remove(&1);
+        stepper.synchronize_specs_membership_after_inputs(&world, &targets(&[])).unwrap();
+        assert!(!stepper.filtered.entities.0.contains_key(&1));
+        assert_eq!(count(&stepper), before);
+
+        // Not a target of this frame's inputs: a local death the authority did not settle.
+        let world = disclosed();
+        let mut stepper = booted(&world);
+        kill(&mut stepper, 2);
+        assert!(matches!(stepper.synchronize_specs_membership_after_inputs(&world, &targets(&[1])),
+            Err(ReplicaRuntimeError::MalformedBaseline)));
     }
 
     #[test]

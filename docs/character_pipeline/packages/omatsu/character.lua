@@ -14,6 +14,8 @@ return function(ctx)
       integration = "append",
       rust_module = "A34_omatsu",
       source_hero_id = "A34",
+      -- hero UnitScript: on_skill_cast restores mana while 急速冷卻 is active (A34T OnAbilityExecuted).
+      unit_script = true,
     },
     attack = { kind = "ranged", range = 600, projectile_speed = 1300, attack_point = 0.25, base_attack_time = 1.8 },
     base_stats = {

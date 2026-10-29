@@ -134,6 +134,8 @@ replaced, count = replaced:gsub('STEP_FPS%s*=%s*%d+', 'STEP_FPS = ' .. tick_rate
 assert(count == 1, "expected one STEP_FPS")
 if first_learn_smoke then
   assert(not replaced:find('AUTHENTICATED_HERO_BINDINGS',1,true), 'refusing to replace existing hero bindings')
+  -- Test-only fixture hero (born with unlearned slots): the server admits it only when told so.
+  replaced = replaced:gsub('%[server%]', '[server]\nMATCH_TEST_FIXTURE_HEROES = true', 1)
   replaced = replaced .. '\n[server.AUTHENTICATED_HERO_BINDINGS]\n"1" = "training_apprentice"\n"2" = "training_apprentice"\n'
 end
 path.write(server_game, replaced, false)

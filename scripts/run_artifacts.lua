@@ -23,6 +23,7 @@ local function deps_of(deps)
     lfs=deps.lfs or require('lfs'),
     sha256=deps.sha256 or b.lib('hash').sha256,
     json=deps.json or b.lib('json'),
+    getenv=deps.getenv or os.getenv,
   }
 end
 
@@ -73,6 +74,67 @@ local function copy(source_file,destination)
   input:close();output:close()
 end
 
+-- Build freshness (E190). The content marker only proves the catalog data matches; a launch
+-- with --no-build from a session target (OM_RUST_RUN_BINARIES) ran a server linked before
+-- a gameplay fix landed, and its acceptance run failed on a divergence live had already
+-- fixed. cargo writes <target>/<profile>/<name>.d beside every binary it links, listing each
+-- source file rustc read (crate sources, include_str! files, generated OUT_DIR sources); a
+-- source newer than the binary means cargo would relink it. Returns those sources (newest
+-- first), or nil when the binary has no dep-info (not a cargo build, cannot be checked).
+-- OMOBA_SOURCES_AS_OF (unix seconds, set by a launcher that starts several role launchers
+-- for one match) tolerates sources changed after that moment: the authority was checked
+-- when the match started, and a client started minutes later must not be refused because
+-- another session landed a change meanwhile (E202). A deleted source is always stale.
+function M.dep_info_sources(text)
+  local body=text:match('^.-: (.-)\r?\n') or text:match('^.-: (.*)$') or ''
+  local sources,current={},{}
+  local i=1
+  while i<=#body do
+    local c=body:sub(i,i)
+    if c=='\\' and body:sub(i+1,i+1)==' ' then current[#current+1]=' ';i=i+1
+    elseif c==' ' then
+      if #current>0 then sources[#sources+1]=table.concat(current);current={} end
+    else current[#current+1]=c end
+    i=i+1
+  end
+  if #current>0 then sources[#sources+1]=table.concat(current) end
+  for index,source_file in ipairs(sources) do sources[index]=source_file:gsub('^\\\\%?\\','') end
+  return sources
+end
+function M.stale_sources(binary,deps)
+  local d=deps_of(deps)
+  local built=stat(d,binary)
+  local dep_info=binary:gsub('%.[^./\\]+$','')..'.d'
+  if not built or not d.path.is_file(dep_info) then return nil end
+  local stale={}
+  local as_of=math.tointeger(tonumber(d.getenv('OMOBA_SOURCES_AS_OF') or ''))
+  for _,source_file in ipairs(M.dep_info_sources(d.path.read(dep_info,true))) do
+    local a=stat(d,source_file)
+    -- A listed directory (a tracked content root) changes time whenever any file in it is
+    -- written; the files rustc actually read are listed one by one.
+    -- Relative entries (deps/*.d of a test binary) have no known base and are not checked.
+    if d.lfs.attributes(source_file,'mode')=='directory' or not source_file:match('^%a:[/\\]') and not source_file:match('^[/\\]') then
+    elseif not a then stale[#stale+1]={file=source_file,missing=true,modification=math.huge}
+    elseif a.modification>built.modification and not (as_of and a.modification>as_of) then
+      stale[#stale+1]={file=source_file,modification=a.modification}
+    end
+  end
+  table.sort(stale,function(a,b) return a.modification>b.modification end)
+  return stale
+end
+-- Refuses a binary built before one of its sources changed. ROLE names it in the error.
+function M.verify_current_build(role,binary,deps)
+  local stale=M.stale_sources(binary,deps)
+  if not stale or #stale==0 then return end
+  local shown={}
+  for index=1,math.min(#stale,5) do
+    shown[#shown+1]='  '..stale[index].file..(stale[index].missing and ' (deleted)' or '')
+  end
+  error(('%s was built before %d of its sources changed: %s\n%s\n'..
+    'Rebuild it (drop --no-build, or cargo build with the same CARGO_TARGET_DIR); a launch '..
+    'would test code that is not the current source.'):format(role,#stale,binary,table.concat(shown,'\n')),0)
+end
+
 -- Copies the current build into RUN_DIR and returns {scripts_dir, dll, manifest, profile,
 -- source, sha256}. A build that relinks the DLL while it is copied is detected (size/time
 -- changed) and the copy retried; the digest is of the copy, so it is what this run loads.
@@ -94,6 +156,7 @@ function M.stage_base_content(root,run_dir,deps,preferred,from)
     else
       built=M.built_base_content(root,d,preferred)
       assert(built,'no base_content build in scripts/target/{debug,release}; build it before launch')
+      M.verify_current_build('base_content',built.file,d)
     end
     copy(built.file,dll)
     local after=stat(d,built.file)
@@ -174,6 +237,9 @@ end
 function M.stage_binaries(root,files,deps)
   local d=deps_of(deps)
   local base=d.path.join(root,'target','run-bin')
+  for _,file in ipairs(files) do
+    if stat(d,file.source) then M.verify_current_build(file.name,file.source,d) end
+  end
   d.path.mkdir_p(base)
   for attempt=1,M.ATTEMPTS do
     local key=M.binaries_key(files,d)

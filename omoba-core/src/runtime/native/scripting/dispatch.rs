@@ -66,6 +66,11 @@ pub(crate) fn publish_successful_cast_facts(world: &World, visuals: &mut [Script
     if !visuals.iter().any(|event| matches!(event.kind, ScriptVisualEventKind::SkillCast | ScriptVisualEventKind::SkillArea)) {
         return;
     }
+    // A published cast is an executed ability (managed casts after their settlement):
+    // OnAbilityExecuted ends home_aura's speed_up (E187, dummy.lua:763-767).
+    for event in visuals.iter().filter(|event| event.kind == ScriptVisualEventKind::SkillCast) {
+        crate::runtime::native::moba_match::break_home_speed_up(world, event.primary);
+    }
     // Bare legacy hook harnesses have no observable projection infrastructure.
     // Production worlds install all three resources in StateInitializer.
     let Some(buffer) = world.try_fetch::<crate::runtime::ObservableFactBuffer>() else {return};
@@ -101,8 +106,26 @@ pub fn run_script_dispatch(
     rng_seed: u64,
     dt: Fixed64,
 ) {
+    // Handlers judge targets by the life both the authority and the team replica
+    // hold: before this tick's settled batch (E194).
+    let settled = super::super::tick_start_hp::enter(world);
+    dispatch_scripts(world, registry, rng_seed, dt);
+    super::super::tick_start_hp::leave(world, settled);
+}
+
+fn dispatch_scripts(
+    world: &mut World,
+    registry: &ScriptRegistry,
+    rng_seed: u64,
+    dt: Fixed64,
+) {
     crate::runtime::refresh_moba_mana_capacities(world);
     bind_hero_unit_scripts(world, registry);
+    // delayed_effect: buff_tick fills this queue once it exists.
+    if world.try_fetch::<super::super::delayed_effect::DueDelayedEffects>().is_none() {
+        world.insert(super::super::delayed_effect::DueDelayedEffects::default());
+    }
+    let any_delayed = !world.read_resource::<super::super::delayed_effect::DueDelayedEffects>().0.is_empty();
     // 先收集所有帶 tag 的 entity（避免 adapter 建立後又要 read_storage 借用衝突）
     let tagged: Vec<(Entity, String)> = {
         let entities = world.entities();
@@ -126,7 +149,7 @@ pub fn run_script_dispatch(
     let events:Vec<_>=events.into_iter().map(|event|(event,false))
         .chain(releases.into_iter().map(|event|(event,true))).collect();
     if tagged.is_empty() && events.is_empty() && windups.0.is_empty() && windups.1.is_empty()
-        && !super::super::ability_channel::any_active(world) {
+        && !super::super::ability_channel::any_active(world) && !any_delayed {
         return;
     }
 
@@ -225,6 +248,14 @@ pub fn run_script_dispatch(
                 Ok(value) => value,
                 Err(reason) => reject_cast!(cast_outcomes,ev,releasing,reason),
             };
+            // Magic immunity (E179): an enemy unit-targeted cast needs a target that is not immune,
+            // unless the ability pierces. The same buffs decide on authority and the caster's replica.
+            if let ScriptEvent::SkillCast {caster,skill_id,target:SkillTarget::Entity(victim)}=&ev {
+                if !super::super::magic_immunity::admits_target(&cache.buffs,cache.faction.get(*caster),cache.faction.get(*victim),*victim,
+                    super::super::magic_immunity::ability_pierces(skill_id)) {
+                    reject_cast!(cast_outcomes,ev,releasing,code::INVALID_TARGET);
+                }
+            }
             let settlement_skill = match &ev { ScriptEvent::SkillCast {skill_id,..} => Some(skill_id.clone()), _ => None };
             let expected_mana = cast_heroes.get(&invocation_entity).or_else(||cache.hero.get(invocation_entity))
                 .and_then(|hero|hero.mana_pool.clone());
@@ -450,6 +481,8 @@ pub fn run_script_dispatch(
     }
     // G-2: host-owned channel pulses after every hook of this tick, serial and bounded.
     dispatch_channel_pulses(world, registry, rng_seed, event_count as u64 + tagged.len() as u64);
+    // delayed_effect: due effects after the channel pulses, serial, same pulse rule.
+    dispatch_delayed_effects(world, registry, rng_seed, event_count as u64 + tagged.len() as u64 + 4096);
     let on_tick_compute_ns = on_tick_compute_started.elapsed().as_nanos();
     drop(on_tick_span);
 
@@ -584,6 +617,45 @@ fn dispatch_channel_pulses(world: &mut World, registry: &ScriptRegistry, rng_see
     }
 }
 
+/// One `on_delayed_effect` per due delayed effect (omoba-core `delayed_effect`),
+/// in the canonical expiry order. Like a channel pulse, a hook that tries to
+/// charge, cast or spawn has its whole effect dropped. A caster that is no
+/// longer alive resolves nothing.
+fn dispatch_delayed_effects(world: &mut World, registry: &ScriptRegistry, rng_seed: u64, ordinal_base: u64) {
+    let due = std::mem::take(&mut world.write_resource::<super::super::delayed_effect::DueDelayedEffects>().0);
+    if due.is_empty() {
+        return;
+    }
+    let cache = ParallelAdapterCache::new(&*world, rng_seed);
+    let mut accepted = Vec::new();
+    for (ordinal, (caster, spec)) in due.into_iter().enumerate() {
+        if !cache.entities.is_alive(caster) || cache.cprop.get(caster).is_none_or(|p| p.hp <= Fixed64::ZERO) {
+            continue;
+        }
+        let Some((_, script)) = registry.get_ability(&spec.ability) else { continue };
+        let handle = ParallelWorldAdapter::entity_to_handle(caster);
+        let mut adapter = ParallelWorldAdapter::new_with_random_ordinal(&cache, caster, ordinal_base + ordinal as u64);
+        let mut world_dyn = world_dyn_of(&mut adapter);
+        let result = catch_unwind(AssertUnwindSafe(|| script.on_delayed_effect(handle, spec.pulse(), &mut world_dyn)));
+        drop(world_dyn);
+        if result.is_err() {
+            log::error!("[scripting] panic in AbilityScript::on_delayed_effect of {}", spec.ability);
+            adapter.discard_cast();
+            continue;
+        }
+        let outcomes = adapter.finish();
+        if outcomes.iter().all(super::super::ability_channel::pulse_outcome_allowed) {
+            accepted.extend(outcomes);
+        } else {
+            log::warn!("[scripting] delayed effect {} of '{}' tried to charge or spawn; dropped", spec.index, spec.ability);
+        }
+    }
+    drop(cache);
+    if !accepted.is_empty() {
+        world.write_resource::<Vec<crate::comp::Outcome>>().extend(accepted);
+    }
+}
+
 fn filter_ready_on_ticks(
     world: &mut World,
     tagged: Vec<(Entity, String)>,
@@ -610,10 +682,9 @@ fn filter_ready_on_ticks(
             let Some(atk) = attacks.get_mut(*ent) else {
                 return true;
             };
-            let speed =
-                crate::runtime::UnitStats::from_refs(&*buffs, buildings.get(*ent).is_some())
-                    .final_attack_speed_mult(*ent);
-            let interval = (atk.asd.v / speed).max(Fixed64::from_raw(1));
+            let stats = crate::runtime::UnitStats::from_refs(&*buffs, buildings.get(*ent).is_some());
+            let speed = stats.final_attack_speed_mult(*ent);
+            let interval = (stats.base_attack_interval(atk.asd.v, *ent) / speed).max(Fixed64::from_raw(1));
             if interval <= Fixed64::ZERO {
                 return true;
             }
@@ -661,6 +732,7 @@ fn event_invocation_entity(ev: &ScriptEvent) -> Entity {
         ScriptEvent::SkillCast { caster, .. }
         | ScriptEvent::SkillLearn { caster, .. }
         | ScriptEvent::SpentMana { caster, .. } => *caster,
+        ScriptEvent::ItemUsed { owner, .. } => *owner,
         ScriptEvent::AttackHit { attacker, .. }
         | ScriptEvent::ProjectileHit { attacker, .. }
         | ScriptEvent::AttackStart { attacker, .. }
@@ -797,7 +869,7 @@ fn visual_event_from_script_event(ev: &ScriptEvent, tick: u64) -> Option<ScriptV
             event.secondary = skill_target_entity(target);
             event
         }
-        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. } => return None,
+        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. } | ScriptEvent::ItemUsed { .. } => return None,
     };
     Some(event)
 }
@@ -907,6 +979,19 @@ fn dispatch_passive_attack_hit(adapter:&mut ParallelWorldAdapter<'_>,registry:&S
     }
 }
 
+fn dispatch_attack_launch(adapter:&mut ParallelWorldAdapter<'_>,registry:&ScriptRegistry,attacker:Entity,target:Entity) {
+    let attacker_handle=ParallelWorldAdapter::entity_to_handle(attacker);
+    let target_handle=ParallelWorldAdapter::entity_to_handle(target);
+    for (id,rank) in adapter.source_ability_levels(attacker) {
+        let Some((definition,script))=registry.get_ability(&id) else{continue;};
+        if rank==0 || u32::from(rank)>u32::from(definition.max_level) {continue;}
+        let mut world_dyn=world_dyn_of(adapter);
+        if catch_unwind(AssertUnwindSafe(||script.on_attack_launch(attacker_handle,target_handle,rank,&mut world_dyn))).is_err() {
+            log::error!("[scripting] panic in attack launch hook {}",id);
+        }
+    }
+}
+
 fn dispatch_one(
     adapter: &mut ParallelWorldAdapter<'_>,
     registry: &ScriptRegistry,
@@ -916,9 +1001,11 @@ fn dispatch_one(
     tick: u64,
     visual_events: &mut Vec<ScriptVisualEvent>,
 ) {
+    // AttackStart is the host's hero attack-launch hook; the attack's public
+    // visuals are already published by the attack phase cue and projectile.
     if !matches!(
         ev,
-        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. }
+        ScriptEvent::Damage { .. } | ScriptEvent::SkillLearn { .. } | ScriptEvent::AttackStart { .. }
     ) {
         if let Some(event) = visual_event_from_script_event(&ev, tick) {
             visual_events.push(event);
@@ -1060,6 +1147,20 @@ fn dispatch_one(
                 }
             }
 
+            // Spell guard (E163): an enemy unit-targeted cast trips the target's guard
+            // inside this cast's transaction, so a rejected cast trips nothing.
+            if let SkillTarget::Entity(victim) = &target {
+                let rows = super::super::spell_guard::trip(&adapter.cache.buffs, adapter.cache.faction.get(caster),
+                    adapter.cache.faction.get(*victim), *victim);
+                if let Some(rows) = rows {
+                    let victim_handle = ParallelWorldAdapter::entity_to_handle(*victim);
+                    let mut world_dyn = world_dyn_of(adapter);
+                    for (id, duration, payload) in rows {
+                        world_dyn.add_stat_buff(victim_handle, id.as_str().into(), duration, payload.to_string().as_str().into());
+                    }
+                }
+            }
+
             let caster_handle = ParallelWorldAdapter::entity_to_handle(caster);
             let target_abi = match target {
                 SkillTarget::Entity(e) => Target::Entity(ParallelWorldAdapter::entity_to_handle(e)),
@@ -1099,6 +1200,11 @@ fn dispatch_one(
                     .unwrap_or_else(|| "{}".to_string());
 
                 let mut handler_rejection = None;
+                // v3: a cast breaks the caster's invisibility unless the ability says otherwise
+                // (rules::status::invisibility_broken_by_cast); this cast's own statuses land after it.
+                let invisibility_mark = adapter.outcome_count();
+                let broken_invisibility = crate::runtime::native::rules::status::invisibility_broken_by_cast(
+                    &adapter.cache.buffs, caster, &skill_id);
                 // G-2 pulse channel: the host stages the lifecycle instead of
                 // running `execute`; later pulses call `on_channel_pulse`.
                 let pulse_channel = level_data.as_ref().map(|rank|super::super::ability_channel::ability_spec(def,rank));
@@ -1144,6 +1250,11 @@ fn dispatch_one(
                 }};
 
                 // 執行成功後啟動 CD；失敗不扣 CD（讓玩家重試）
+                if exec_ok && !broken_invisibility.is_empty() {
+                    let removals = broken_invisibility.into_iter()
+                        .map(|buff_id| crate::Outcome::ScriptRemoveBuff { target: caster, buff_id }).collect();
+                    adapter.insert_outcomes(invisibility_mark, removals);
+                }
                 if exec_ok {
                     // Live-acceptance evidence, one line per accepted handler run.
                     // Serial settlement may still refuse the transaction (resources).
@@ -1223,6 +1334,14 @@ fn dispatch_one(
                 script.on_projectile_hit(handle, victim_handle, context, &query_dyn, world_dyn);
             });
             if origin.as_ref().is_some_and(|origin|origin.source==attacker&&origin.normal_attack) {
+                // A hero's landed normal attack also reaches its own UnitScript `on_attack_hit`
+                // (hero_unit_hooks); hero attacks are projectiles, so no AttackHit event exists
+                // for them. Towers and creeps keep their projectile hook only (E163).
+                if adapter.cache.hero.get(attacker).is_some() {
+                    with_script(adapter, registry, attacker, |script, handle, world_dyn| {
+                        script.on_attack_hit(handle, victim_handle, world_dyn);
+                    });
+                }
                 dispatch_passive_attack_hit(adapter,registry,attacker,victim);
             }
         }
@@ -1247,6 +1366,10 @@ fn dispatch_one(
                     script.on_attack_start(handle, t_opt, world_dyn);
                 },
             );
+            // Hero attack launch hook: every learned ability of the attacker.
+            if let Some(target) = target.filter(|_| adapter.cache.hero.get(attacker).is_some()) {
+                dispatch_attack_launch(adapter, registry, attacker, target);
+            }
         }
 
         ScriptEvent::AttackLanded {
@@ -1365,6 +1488,13 @@ fn dispatch_one(
             };
             with_script(adapter, registry, e, move |script, handle, world_dyn| {
                 script.on_order(handle, (&*kind_clone).into(), target_abi, world_dyn);
+            });
+        }
+
+        ScriptEvent::ItemUsed { owner, item_id } => {
+            let skill_id = format!("{}{}", super::ITEM_SKILL_PREFIX, item_id);
+            with_script(adapter, registry, owner, move |script, handle, world_dyn| {
+                script.on_skill_cast(handle, (&*skill_id).into(), Target::None, world_dyn);
             });
         }
     }

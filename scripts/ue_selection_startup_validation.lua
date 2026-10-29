@@ -12,7 +12,7 @@ end
 local allowed={['--output']=true,['--ue-root']=true,['--graphics']=true,['--profile']=true,
   ['--editor-ready-timeout-seconds']=true,['--selection-timeout-seconds']=true,['--selection-smoke-hero']=true}
 local forwarded={'--interactive-selection'}
-local smoke_hero='training_ranger'
+local smoke_hero='tamako'
 local seen={};local i=1
 while i<=#arg do
   local key=arg[i];assert(allowed[key] and not seen[key],'unknown or duplicate validation option: '..key)

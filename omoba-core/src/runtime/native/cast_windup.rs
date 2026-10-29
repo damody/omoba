@@ -12,19 +12,22 @@ use super::scripting::{ScriptEvent,SkillTarget};
 #[derive(Clone,Copy,Debug,Default)]
 pub struct FormalCastRules;
 
-/// Replica stand-in for `MobaMatch::is_recalling`: owners whose team-private
-/// recall-active fact is set this frame. A recall cancels a windup on the
-/// authority, so the owner's replica must cancel the same windup.
+/// Owners whose team-private recall-active fact is set this frame. The owner's
+/// replica installs it from the fact; the authority installs the same snapshot
+/// when it emits that fact, so both read one recall state for the whole tick.
 #[derive(Clone,Debug,Default)]
 pub struct DisclosedRecallingOwners(pub std::collections::BTreeSet<u32>);
 
-/// One recall predicate for the authority (`MobaMatch`) and the owner's
-/// filtered replica (its disclosed recall-active fact).
+/// One recall predicate for the authority and the owner's filtered replica: the
+/// disclosed recall-active snapshot. A recall started and interrupted within one
+/// tick still reads as recalling for that tick on both sides (E175); the replica
+/// cannot see the interruption. `MobaMatch` answers only without a snapshot.
 pub(crate) fn hero_recalling(moba:Option<&super::MobaMatch>,disclosed:Option<&DisclosedRecallingOwners>,
     owners:&specs::ReadStorage<'_,PlayerOwner>,entity:Entity)->bool {
-    match moba {
-        Some(state)=>state.is_recalling(entity),
-        None=>disclosed.zip(owners.get(entity)).is_some_and(|(recalls,owner)|recalls.0.contains(&owner.player_id)),
+    match (disclosed,moba) {
+        (Some(recalls),_)=>owners.get(entity).is_some_and(|owner|recalls.0.contains(&owner.player_id)),
+        (None,Some(state))=>state.is_recalling(entity),
+        (None,None)=>false,
     }
 }
 
@@ -87,13 +90,14 @@ pub(crate) fn synchronize_preparation(world:&World) {
     {
         let props=world.read_storage::<CProperty>();let positions=world.read_storage::<Pos>();
         let heroes=world.read_storage::<Hero>();let buffs=world.read_resource::<super::BuffStore>();
+        let disclosed_recalls=world.try_fetch::<DisclosedRecallingOwners>();let owners=world.read_storage::<PlayerOwner>();
         for (&entity,cast) in &windups.0 {
             let view=windups.1.get(&entity);
             let valid=state.phase==super::MobaMatchPhase::Playing && world.entities().is_alive(entity)
                 && props.get(entity).is_some_and(|p|p.hp>Fixed64::ZERO)
                 && positions.get(entity).is_some_and(|p|p.0==cast.origin)
                 && heroes.get(entity).is_some_and(|h|h.get_ability_level(&cast.skill_id)==i32::from(cast.rank))
-                && !buffs.is_silenced(entity) && !state.is_recalling(entity)
+                && !buffs.is_silenced(entity) && !hero_recalling(Some(&state),disclosed_recalls.as_deref(),&owners,entity)
                 && !matches!(cast.target,SkillTarget::Entity(target) if !world.entities().is_alive(target)
                     || props.get(target).is_none_or(|p|p.hp<=Fixed64::ZERO))
                 && view.is_some_and(|v|v.state==1 && v.instance>0 && v.skill_id==cast.skill_id
@@ -263,6 +267,30 @@ let cast=casts.0.remove(&caster).unwrap();casts.start(caster,cast);
             assert_eq!(casts.advance(&world,Fixed64::ONE).len(),released);
             assert!(casts.0.is_empty());
             assert_eq!(casts.1[&caster].state,if recalling {2} else {1});
+        }
+    }
+    #[test]
+    fn authority_and_replica_read_one_disclosed_recall_snapshot() {
+        // E175: a Recall started and then interrupted by damage within one tick
+        // left the authority's MobaMatch not recalling, while the owner's replica
+        // only saw the disclosed recall-active fact and cancelled the windup, so
+        // its cooldown went missing. Both sides now read the disclosed snapshot.
+        for recalling in [false,true] {
+            let mut results=Vec::new();
+            for authority in [true,false] {
+                let (mut world,caster,mut casts)=if authority {
+                    let (mut world,caster)=public_fixture();let casts=world.remove::<AbilityWindups>().unwrap();(world,caster,casts)
+                } else {
+                    let (world,caster,mut casts)=fixture();let cast=casts.0.remove(&caster).unwrap();casts.start(caster,cast);(world,caster,casts)
+                };
+                world.write_storage::<PlayerOwner>().insert(caster,PlayerOwner {player_id:6}).unwrap();
+                assert!(world.try_fetch::<super::super::MobaMatch>().is_none_or(|state|!state.is_recalling(caster)));
+                world.insert(DisclosedRecallingOwners(if recalling {[6].into()} else {[7].into()}));
+                world.write_resource::<Tick>().0=1;
+                results.push((casts.advance(&world,Fixed64::ONE).len(),casts.1[&caster].state));
+            }
+            assert_eq!(results[0],results[1],"recalling={recalling}");
+            assert_eq!(results[0],if recalling {(0,2)} else {(1,1)});
         }
     }
     #[test]

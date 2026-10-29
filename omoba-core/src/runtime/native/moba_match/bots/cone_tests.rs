@@ -37,7 +37,7 @@ fn line_intent_keeps_owner_mana_public_enemy_filter_and_root_without_relocation_
 }
 
 fn p(x:i32,y:i32)->Vec2 {Vec2::new(Fixed64::from_i32(x),Fixed64::from_i32(y))}
-fn unit(id:u64,x:i32,y:i32)->SeenUnit {SeenUnit{canonical_id:id,position:p(x,y),team:2,kind:1,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100}}
+fn unit(id:u64,x:i32,y:i32)->SeenUnit {SeenUnit{canonical_id:id,position:p(x,y),team:2,kind:1,owner_player_id:id as u32,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO}}
 fn policy(min_targets:u16)->BotAbilityPolicy {BotAbilityPolicy{ability:"ranger_scatter".into(),intent:BotAbilityIntent::EnemyCone{min_targets}}}
 fn hero()->Hero {let mut h=Hero::new("unrelated".into(),"unrelated".into(),"unrelated".into());h.abilities=vec!["ranger_scatter".into()];h.ability_levels.insert("ranger_scatter".into(),1);h}
 

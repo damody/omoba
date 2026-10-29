@@ -109,7 +109,8 @@ test('package summons follow the summon template rules', function()
   mutate(d, 'abilities.lua', 'unit = "b01_saika_corps_gunner"', 'unit = "b01_missing_gunner"')
   expect(d, 'summons b01_missing_gunner, which summons.lua does not declare')
   d = copy_package('saika_magoichi')
-  mutate(d, 'abilities.lua', 'name = "三段", max_level = 3, status = "supported",\n        description', 'name = "三段", max_level = 3, status = "supported",\n        no_description')
+  -- Line-ending independent (the package may be checked out with CRLF).
+  mutate(d, 'abilities.lua', 'description = "施展三段技法', 'no_description = "施展三段技法')
   expect(d, 'needs description (tooltip)')
 end)
 
@@ -166,6 +167,36 @@ test('every source skill is mapped and every reference resolves', function()
   d = copy_package('saika_magoichi')
   os.remove(path.join(d, 'acceptance.md'))
   expect(d, 'acceptance.md is required')
+end)
+
+-- E170: `parity` marks an ability as re-checked against the source scripts.
+test('parity needs a card section and script spans and excludes stale_review', function()
+  local entry = '{ source_ability_id = "B01W"'
+  local span = 'game/dota_addons/nobu/scripts/vscripts/heroes/B_Unified/B01.lua:B01W:3-28'
+  -- The fixture's own B01W parity (B01W is the first source entry) is renamed away so the
+  -- test controls the field, and the card is a fixture file next to the real parity.md.
+  local function with_parity(d, parity)
+    local p = path.join(d, 'source.lua')
+    path.write(p, (path.read(p, true):gsub('parity = {', 'superseded_parity = {', 1)), true, true)
+    mutate(d, 'source.lua', entry, '{ parity = ' .. parity .. ', source_ability_id = "B01W"')
+  end
+  local d = copy_package('saika_magoichi')
+  with_parity(d, '{ card = "fixture.md", scripts = { "' .. span .. '" } }')
+  path.write(path.join(d, 'fixture.md'), '# B01\n\n## Q b01_sniper_mode（B01W 狙擊模式）\n- 原作出處\n', true, true)
+  local all = errors_of(d)
+  assert(not all:find('parity', 1, true), all)
+  d = copy_package('saika_magoichi')
+  with_parity(d, '{ card = "fixture.md", scripts = { "' .. span .. '" } }')
+  expect(d, 'B01W parity.card fixture.md is missing')
+  path.write(path.join(d, 'fixture.md'), '# B01\n\n## R b01_three_stage（B01T 三段）\n', true, true)
+  expect(d, 'B01W parity.card fixture.md has no section for B01W')
+  d = copy_package('saika_magoichi')
+  with_parity(d, '{ card = "parity.md", scripts = { "B01.lua" } }')
+  expect(d, 'B01W parity.scripts entry must be')
+  d = copy_package('saika_magoichi')
+  with_parity(d, '{ card = "parity.md", scripts = { "' .. span .. '" } }')
+  mutate(d, 'source.lua', 'source_ability_id = "B01W"', 'source_ability_id = "B01W", stale_review = { raw_sha256 = "' .. string.rep('0', 64) .. '", reason = "x" }')
+  expect(d, 'B01W parity cannot be set while stale_review is pending')
 end)
 
 local function remove_tree(target)

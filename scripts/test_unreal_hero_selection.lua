@@ -10,7 +10,7 @@ local reserved
 for i=1,1000 do local p=path.join(parent,os.time()..'-'..i);if lfs.mkdir(p) then reserved=p;break end end
 assert(reserved)
 local options=launch.options({'--profile','debug','--output',path.join(reserved,'match')})
-options.selection_smoke_hero=arg[1] or 'training_ranger'
+options.selection_smoke_hero=arg[1] or 'tamako'
 local editor=launch.editor(options)
 local deadline=time.monotonic_ms()+120000
 local bounded_time={monotonic_ms=time.monotonic_ms,sleep_ms=function(ms)

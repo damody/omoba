@@ -2,11 +2,15 @@ use std::collections::BTreeSet;
 pub mod buff_visual_sources;
 pub mod animation_metadata;
 pub mod moba_items;
+pub mod v3;
+pub mod ir;
 pub mod objective_comeback;
 pub mod moba_summoners;
 pub mod moba_trinkets;
 pub mod moba_communication;
 pub mod recall_rules;
+pub mod attribute_rules;
+pub mod game_rules;
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 mod aim_geometry_tests;
@@ -81,12 +85,20 @@ pub struct AbilityDefinition {
     /// Declarative effects still decide when they do; a contradiction is invalid.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit_target: Option<String>,
+    /// The source lets this ability target, control and debuff a magic-immune enemy (E179;
+    /// Dota SPELL_IMMUNITY_ENEMIES_YES). Its piercing debuffs carry magic_immunity::PIERCE_KEY.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pierces_magic_immunity: bool,
     /// Owner cast hook (G-4): while learned, every committed cast of another
     /// non-ultimate ability of the same hero shortens the remaining cooldowns
     /// of the hero's other non-ultimate abilities. Host-owned, so team replicas
     /// recompute it from the same cast; independent of how the ability executes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cast_cooldown_refund: Option<CastCooldownRefund>,
+    /// Package schema v3 block (values, info line, tooltip templates); `description`,
+    /// `levels` and `extras` are generated from it and deprecated (v3-content-model-proposal.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v3: Option<v3::V3Block>,
 }
 
 /// Seconds (per rank, `seconds_key` extras in (0, 60]) taken off each other
@@ -716,6 +728,9 @@ pub fn validate_ability_progression(ability: &AbilityDefinition) -> Result<(), S
     validate_ability_aim_geometry(ability)?;
     validate_ability_targeting_shape(ability)?;
     validate_ability_targeting_reach(ability)?;
+    if let Some(block) = &ability.v3 {
+        v3::validate_block(block, "ability", ability.max_level).map_err(|e| format!("ability '{}': {e}", ability.id))?;
+    }
     validate_ability_effects(ability)
 }
 
@@ -1108,10 +1123,30 @@ pub struct HeroDefinition {
     pub move_speed: f32,
     #[serde(default)]
     pub turn_speed: f32,
+    /// Seconds between attacks at no attack speed bonus (Dota AttackRate). None keeps the
+    /// runtime's legacy interval for heroes without source stats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_attack_time: Option<f32>,
+    /// Base HP and mana per second before attributes (Dota StatusHealthRegen / StatusManaRegen).
+    #[serde(default)]
+    pub health_regen: f32,
+    #[serde(default)]
+    pub mana_regen: f32,
+    /// Auto-acquisition range (Dota AttackAcquisitionRange). None uses the game rules' hero default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acquisition_range: Option<f32>,
     #[serde(default)]
     pub render: Option<HeroRender>,
     #[serde(default)]
     pub level_growth: HeroLevelGrowth,
+    /// The source-site hero this hero is (`history_nobu@<commit>:B01`). Only heroes with a
+    /// source_ref that names a hero of the generated source roster are playable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
+    /// Not a source hero: compiled for automated tests and fixtures only. Never offered for
+    /// selection, never seated by a bot or a match recipe.
+    #[serde(default)]
+    pub test_only: bool,
 }
 
 /// Q, W, E, R. Every hero has these slots.

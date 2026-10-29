@@ -128,16 +128,52 @@ for name in lfs.dir(path.join(root, 'target/run-bin')) do if name:match('^%x+$')
 check(kept <= artifacts.KEEP_BINARIES, 'old copies pruned, kept ' .. kept)
 
 -- The content marker is read from the binary; a mixed set is refused before anything starts.
-check(artifacts.content_hash(bin2.files['omobab.exe']) == 'bbbb000011112222', 'marker read')
+-- (Not bin2's copy: copies staged within one second tie on time, so pruning may remove it.)
+local marked = put('marked/omobab.exe', 'server-v2 OM_CONTENT_CATALOG_DATA_HASH=bbbb000011112222;')
+check(artifacts.content_hash(marked) == 'bbbb000011112222', 'marker read')
 check(artifacts.content_hash(first.dll) == nil, 'no marker, no hash')
 local big = put('big.bin', string.rep('x', 4 * 1024 * 1024 - 10) .. 'OM_CONTENT_CATALOG_DATA_HASH=cccc000011112222;')
 check(artifacts.content_hash(big) == 'cccc000011112222', 'a marker across a read boundary is found')
 local notes = {}
 local note = function(line) notes[#notes + 1] = line end
-rejects(function() artifacts.verify_content({{role = 'server', file = bin2.files['omobab.exe']},
+rejects(function() artifacts.verify_content({{role = 'server', file = marked},
   {role = 'renderer bridge', file = big}}, 'cccc000011112222', note) end, 'carry different content')
 check(artifacts.verify_content({{role = 'renderer bridge', file = big}, {role = 'runtime', file = first.dll}},
   'CCCC000011112222', note) and #notes == 1 and notes[1]:find('no content marker', 1, true), 'unmarked binaries are reported, not refused')
+
+-- E190: a binary older than a source in its cargo dep-info is refused before it is staged.
+do
+  local exe = put('fresh/release/omobab.exe', 'server', now - 10)
+  local a = put('fresh-src/a.rs', 'a', now - 100)
+  local spaced = put('fresh-src/with space/b.rs', 'b', now - 100)
+  local dep_info = '\\\\?\\' .. a .. ' ' .. spaced:gsub(' ', '\\ ') .. ' ' .. path.join(root, 'fresh-src') .. ' src/relative.rs'
+  put('fresh/release/omobab.d', exe .. ': ' .. dep_info .. '\n', now - 10)
+  check(#artifacts.dep_info_sources(path.read(path.join(root, 'fresh/release/omobab.d'), true)) == 4, 'escaped space keeps one path')
+  check(#artifacts.stale_sources(exe) == 0, 'sources older than the binary: current (directory and relative entries ignored)')
+  check(artifacts.stale_sources(server_exe) == nil, 'no dep-info: cannot be checked')
+  local fresh = {{name = 'omobab.exe', source = exe}}
+  check(artifacts.stage_binaries(root, fresh, quiet).files['omobab.exe'], 'a current build is staged')
+  lfs.touch(spaced, now, now)
+  rejects(function() artifacts.stage_binaries(root, fresh, quiet) end, 'built before 1 of its sources changed')
+  rejects(function() artifacts.verify_current_build('server', exe) end, 'b.rs')
+  -- E202: a role launcher of a match already under way tolerates sources changed after it started.
+  local as_of = function(at) return {getenv = function(key) return key == 'OMOBA_SOURCES_AS_OF' and tostring(at) or nil end} end
+  check(#artifacts.stale_sources(exe, as_of(now - 5)) == 0, 'a source changed after the match started is tolerated')
+  check(#artifacts.stale_sources(exe, as_of(now + 5)) == 1, 'a source changed before the match started is still stale')
+  lfs.touch(spaced, now - 100, now - 100)
+  os.remove(a)
+  rejects(function() artifacts.verify_current_build('server', exe) end, '(deleted)')
+  -- base_content is checked when a launch picks the newest build, not when it shares a staged copy.
+  local newest = artifacts.built_base_content(root)
+  local source_rs = put('fresh-src/content.rs', 'c', newest.modification + 5)
+  local content_d = newest.file:gsub('%.dll$', '.d')
+  put(content_d:sub(#root + 2), newest.file .. ': ' .. source_rs .. '\n')
+  rejects(function() artifacts.stage_base_content(root, path.join(root, 'runs/stale-content')) end, 'base_content was built before')
+  check(artifacts.stage_base_content(root, path.join(root, 'runs/stale-shared'), nil, nil, second.dll), 'a shared run copy is not rechecked')
+  lfs.touch(source_rs, newest.modification - 5, newest.modification - 5)
+  check(artifacts.stage_base_content(root, path.join(root, 'runs/current-content')), 'a current base_content is staged')
+  os.remove(content_d)
+end
 
 -- OM_RUST_RUN_BINARIES: one session-owned cargo target directory for every crate.
 check(artifacts.rust_binary(root, 'omb', 'release', 'omobab.exe') == path.join(root, 'omb', 'target', 'release', 'omobab.exe'),

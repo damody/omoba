@@ -11,7 +11,7 @@ use crate::runtime::visibility::{decode_demo_render_state, decode_disclosed_comp
 pub enum BotRole { Top, Mid, Carry, Support, Jungle }
 
 mod plan;
-pub use plan::{RoleBotMatchPlan, RoleBotPlayerPlan};
+pub use plan::{HeroAdmission, RoleBotMatchPlan, RoleBotPlayerPlan};
 mod abilities;
 pub use abilities::{BotAbilityIntent, BotAbilityPolicy, BotAbilityLearningStep};
 mod sustain;
@@ -76,7 +76,14 @@ impl RoleBotConfig {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct SeenUnit { canonical_id: u64, position: Vec2, team: u32, kind: u8, owner_player_id: u32, hp_raw: i64, max_hp_raw:i64 }
+struct SeenUnit { canonical_id: u64, position: Vec2, team: u32, kind: u8, owner_player_id: u32, hp_raw: i64, max_hp_raw:i64,
+    /// Attack range of a disclosed attacking structure (kind 4); zero for everything else.
+    threat: Fixed64 }
+
+/// Bots stay this far beyond an unescorted structure's attack range (1100 for the 650 training tower).
+const STRUCTURE_ALERT_MARGIN:i32=450;
+/// Structures whose kind is unknown keep the training tower range.
+const DEFAULT_STRUCTURE_THREAT:i32=650;
 
 fn disclosed_threat(own:Vec2,team:u32,seen:&[SeenUnit],radius:u32) -> bool {
     let radius=Fixed64::from_i32(radius as i32);
@@ -90,7 +97,9 @@ fn disclosed_identity(entity: Entity) -> u64 {
 }
 
 /// No remembered ghosts, hidden HP, enemy command queues, aggro or respawn timers.
-fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32) -> Vec<SeenUnit> {
+/// `threat` gives a disclosed structure's attack range (public: what the structure is); a structure
+/// that never attacks (soldier camp) is an objective like the base (kind 5), not a tower.
+fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32, threat: impl Fn(u64)->Option<Fixed64>) -> Vec<SeenUnit> {
     runtime.teams.get(&team).into_iter().flat_map(|state| state.index.current.iter())
         .filter_map(|&canonical_id| {
             let components = decode_disclosed_components(runtime.latest_disclosed_baseline_by_canonical.get(&canonical_id)?)?;
@@ -100,9 +109,11 @@ fn disclosed_units(runtime: &TeamVisibilityRuntime, team: u32) -> Vec<SeenUnit> 
                 let (role,attackable)=crate::runtime::visibility::decode_disclosed_structure(bytes)?;
                 if !attackable {6} else if role==1 {4} else {5}
             } else {render.kind};
+            let range=if kind==4 {threat(canonical_id).unwrap_or(Fixed64::from_i32(DEFAULT_STRUCTURE_THREAT))} else {Fixed64::ZERO};
+            let kind=if kind==4 && range<=Fixed64::ZERO {5} else {kind};
             Some(SeenUnit { canonical_id,
                 position: Vec2::new(Fixed64::from_raw(render.x_raw), Fixed64::from_raw(render.y_raw)),
-                team: render.team_id, kind, owner_player_id:render.owner_player_id, hp_raw,max_hp_raw })
+                team: render.team_id, kind, owner_player_id:render.owner_player_id, hp_raw,max_hp_raw, threat:range })
         }).collect()
 }
 
@@ -135,7 +146,8 @@ enum Decision { Attack(u64), Advance(Vec2), Escort(Vec2), ApproachStructure(Vec2
 
 /// A visible living wave is an opportunity signal, not proof of tower aggro.
 fn disclosed_wave_at_tower(team:u32,tower:&SeenUnit,seen:&[SeenUnit])->bool {
-    let radius=Fixed64::from_i32(650);
+    // An allied creep inside the structure's own attack range draws its fire.
+    let radius=tower.threat;
     seen.iter().any(|u|u.kind==2 && u.team==team && u.hp_raw>0
         && (u.position-tower.position).length_squared()<=radius*radius)
 }
@@ -143,12 +155,11 @@ fn disclosed_wave_at_tower(team:u32,tower:&SeenUnit,seen:&[SeenUnit])->bool {
 /// A hero inside the tower alert and still within creep aggro of the front
 /// allied creep zones that wave outside tower range. Step one aggro radius
 /// behind the front creep on the public tower-to-creep ray. Missing, dead,
-/// enemy, or distant creeps stay on Hold; the 650 gate still owns Attack.
+/// enemy, or distant creeps stay on Hold; the structure's range gate still owns Attack.
 fn yield_behind_wave(team:u32,own:Vec2,seen:&[SeenUnit])->Option<Vec2> {
-    let alert=Fixed64::from_i32(1100);
     let nearby=Fixed64::from_i32(700);
     let tower=seen.iter().filter(|u|u.kind==4 && u.team!=team && u.team!=0 && u.hp_raw>0
-        && (u.position-own).length_squared()<=alert*alert
+        && (u.position-own).length_squared()<=structure_alert(u)*structure_alert(u)
         && !disclosed_wave_at_tower(team,u,seen))
         .min_by_key(|u|((u.position-own).length_squared().raw(),u.canonical_id))?;
     let own_dist=(tower.position-own).length();
@@ -161,6 +172,8 @@ fn yield_behind_wave(team:u32,own:Vec2,seen:&[SeenUnit])->Option<Vec2> {
     if step==Vec2::ZERO {return None;}
     Some(creep.position+step*nearby)
 }
+
+fn structure_alert(tower:&SeenUnit)->Fixed64 {tower.threat+Fixed64::from_i32(STRUCTURE_ALERT_MARGIN)}
 
 fn yield_or_hold(team:u32,own:Vec2,seen:&[SeenUnit])->Decision {
     yield_behind_wave(team,own,seen).map(Decision::YieldBehind).unwrap_or(Decision::Hold)
@@ -273,9 +286,8 @@ fn decide_excluding(role:BotRole,team:u32,own:Vec2,destination:Vec2,seen:&[SeenU
     }
     // Do not fall back to AttackMove into an observed unescorted tower while
     // waiting outside the ordinary target-selection radius.
-    let approach=Fixed64::from_i32(1100);
     if seen.iter().any(|u|u.kind==4 && u.team!=team && u.team!=0
-        && u.hp_raw>0 && (u.position-own).length_squared()<=approach*approach
+        && u.hp_raw>0 && (u.position-own).length_squared()<=structure_alert(u)*structure_alert(u)
         && !disclosed_wave_at_tower(team,u,seen)) {return yield_or_hold(team,own,seen);}
     Decision::Advance(destination)
 }
@@ -459,8 +471,12 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
     let registry = world.try_fetch::<ItemRegistry>();
     let abilities = world.try_fetch::<crate::runtime::ability_runtime::AbilityRegistry>();
     let buffs = world.try_fetch::<crate::runtime::ability_runtime::BuffStore>();
+    let windups = world.try_fetch::<super::super::cast_windup::AbilityWindups>();
     // Decode a team perception once per think, not once per hero.
-    let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team));
+    let perceptions = state.config.teams.map(|team|disclosed_units(&visibility,team,|id|{
+        let entity=world.entities().entity(id as u32);
+        (disclosed_identity(entity)==id).then(||state.structure_threat(entity)).flatten()
+    }));
     let mut inputs = Vec::new();
     for assignment in &config.assignments {
         // A held showcase seat stands still: no movement, attack, cast, shop or learning input.
@@ -469,6 +485,9 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         let Some(entity) = slot.entity else { continue; };
         // Own health is owner-visible; never inspect opponents' ECS health.
         if !properties.get(entity).is_some_and(|p| p.hp > Fixed64::ZERO) { continue; }
+        // The owner's own cast windup (E187): any new order would cancel it before release, so a
+        // 0.2 s windup re-ordered every 0.2 s think never released and never started its cooldown.
+        if windups.as_ref().is_some_and(|windups|windups.0.contains_key(&entity)) { continue; }
         if state.is_recalling(entity)
             || super::super::recovery_channel::is_active_for_owner(world,entity,slot.player_id)
             || super::super::ability_channel::is_active_for_owner(world,entity,slot.player_id) { continue; }
@@ -492,9 +511,9 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
         if buffs.as_ref().is_some_and(|store|store.is_stunned(entity)) { continue; }
         let immobilized=buffs.as_ref().is_some_and(|store|store.is_rooted(entity));
         let recall_blocked=buffs.as_ref().is_some_and(|store|super::recall_control_blocked(store,entity));
-        let home=state.routes[assignment.lane][slot.side][0];
+        let home=state.bot_home(assignment.lane,slot.side);
         let radius=radii.get(entity).map(|r|r.0).unwrap_or_else(||CollisionRadius::default().0);
-        let shop_radius=Fixed64::from_i32(super::super::shop::MOBA_SHOP_RADIUS);
+        let shop_radius=super::super::shop::shop_radius(&state);
         let purchase=match (inventories.get(entity),gold.get(entity),registry.as_ref()) {
             (Some(inventory),Some(balance),Some(registry))=>items::choose_purchase(assignment.role,&config.item_builds,registry,inventory,balance),
             _=>None,
@@ -581,7 +600,7 @@ pub fn role_bot_inputs(world: &World, config: &RoleBotConfig) -> Result<Vec<(u32
                             carry_last_hit_target(team,own.position,std::slice::from_ref(u),damage,range,incoming))
                     } else {None};
                     let candidate=winding.or_else(||carry_last_hit_target(team,own.position,seen,damage,range,incoming));
-                    let interval=attack.asd.v/stats.final_attack_speed_mult(entity).max(Fixed64::from_raw(10));
+                    let interval=stats.base_attack_interval(attack.asd.v,entity)/stats.final_attack_speed_mult(entity).max(Fixed64::from_raw(10));
                     (candidate,reserve_last_hit_attack(attack,interval,active_target,candidate))
                 },_ => (None,false),
             }
@@ -841,7 +860,7 @@ mod tests {
     #[test]
     fn role_bot_jungle_farm_focus_keeps_area_skill_on_current_disclosed_camp() {
         let assignment=BotAssignment {player_id:1,role:BotRole::Jungle,lane:0,escort_player_id:None};
-        let near=SeenUnit {canonical_id:7,position:p(100),team:0,kind:3,owner_player_id:0,hp_raw:100,max_hp_raw:100};
+        let near=SeenUnit {canonical_id:7,position:p(100),team:0,kind:3,owner_player_id:0,hp_raw:100,max_hp_raw:100,threat:Fixed64::ZERO};
         let far=SeenUnit {canonical_id:8,position:p(600),..near};
         let cluster=SeenUnit {canonical_id:9,position:p(610),..near};
         let seen=[near,far,cluster];
@@ -1108,13 +1127,32 @@ mod tests {
     }
     use crate::runtime::visibility::{encode_demo_render_state, encode_disclosed_baseline, DemoRenderState, TeamVisibilityState};
     fn p(x: i32) -> Vec2 { Vec2::new(Fixed64::from_i32(x), Fixed64::ZERO) }
+    #[test]
+    fn structure_safety_follows_each_structures_own_attack_range() {
+        // E187: original towers reach 800 and general towers 1100; soldier camps never attack.
+        let near=|threat:i32,x:i32|SeenUnit {threat:Fixed64::from_i32(threat),..unit(4,x,2,4,100)};
+        // Training range 650: 1101 away is outside the 1100 alert, 1100 inside it (unchanged behaviour).
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(650,1101)]),Decision::Advance(p(5000)));
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(650,1100)]),Decision::Hold);
+        // A general tower's 1100 range holds the hero back at 1500, outside the old fixed alert.
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(1100,1500)]),Decision::Hold);
+        // An allied creep inside that range (not within the old 650) draws its fire: attack.
+        let wave=unit(8,600,1,2,100);
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(1100,500),wave]),Decision::Attack(4));
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[near(650,500),SeenUnit {position:p(1251),..wave}]),Decision::Hold);
+        // A disclosed structure that never attacks is an objective (kind 5), not a tower.
+        let mut runtime=TeamVisibilityRuntime::default();let _=&mut runtime;
+        let camp=SeenUnit {kind:5,threat:Fixed64::ZERO,..unit(5,400,2,5,100)};
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(5000),&[camp]),Decision::Attack(5));
+    }
     fn baseline(render:Vec<u8>,hp:i64) -> Vec<u8> {
         encode_disclosed_baseline(&[(DEMO_RENDER_COMPONENT_SCHEMA_ID,render),
             (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,[hp,Fixed64::from_i32(100).raw(),0,0,0]
                 .into_iter().flat_map(i64::to_be_bytes).collect())])
     }
     fn unit(id:u64,x:i32,team:u32,kind:u8,hp:i32) -> SeenUnit {
-        SeenUnit {canonical_id:id,position:p(x),team,kind,owner_player_id:0,hp_raw:Fixed64::from_i32(hp).raw(),max_hp_raw:100*1024}
+        SeenUnit {canonical_id:id,position:p(x),team,kind,owner_player_id:0,hp_raw:Fixed64::from_i32(hp).raw(),max_hp_raw:100*1024,
+            threat:if kind==4 {Fixed64::from_i32(DEFAULT_STRUCTURE_THREAT)} else {Fixed64::ZERO}}
     }
     #[test]
     fn role_bots_identity_uses_visibility_generation_layout() {
@@ -1138,13 +1176,13 @@ mod tests {
         let render = |x| encode_demo_render_state(DemoRenderState { x_raw: p(x).x.raw(), y_raw: 0, team_id: 2, kind: 1, owner_player_id: 9 });
         runtime.latest_disclosed_baseline_by_canonical.insert(7, baseline(render(100),10));
         runtime.latest_disclosed_baseline_by_canonical.insert(8, baseline(render(1),1)); // hidden nearest enemy
-        let first = decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1));
+        let first = decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1,|_|None));
         assert_eq!(first, Decision::Attack(7));
         runtime.latest_disclosed_baseline_by_canonical.insert(8,baseline(render(500),50));
-        assert_eq!(first, decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1)));
+        assert_eq!(first, decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1,|_|None)));
         runtime.teams.get_mut(&1).unwrap().index.current.clear();
-        assert_eq!(decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1)), Decision::Advance(p(900)));
-        assert!(disclosed_units(&runtime,2).is_empty());
+        assert_eq!(decide(BotRole::Mid,1,p(0),p(900),&disclosed_units(&runtime,1,|_|None)), Decision::Advance(p(900)));
+        assert!(disclosed_units(&runtime,2,|_|None).is_empty());
     }
     #[test]
     fn role_bots_targets_are_role_specific_and_order_independent() {
@@ -1231,13 +1269,13 @@ mod tests {
         runtime.ensure_team(1); runtime.teams.get_mut(&1).unwrap().index.current.insert(7);
         let render=encode_demo_render_state(DemoRenderState {x_raw:0,y_raw:0,team_id:2,kind:2,owner_player_id:0});
         runtime.latest_disclosed_baseline_by_canonical.insert(7,baseline(render.clone(),1));
-        assert_eq!(disclosed_units(&runtime,1).len(),1);
+        assert_eq!(disclosed_units(&runtime,1,|_|None).len(),1);
         for bytes in [baseline(render.clone(),-1),baseline(render.clone(),Fixed64::from_i32(101).raw()),
             encode_disclosed_baseline(&[(DEMO_RENDER_COMPONENT_SCHEMA_ID,render.clone())]),
             encode_disclosed_baseline(&[(DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,vec![0;40]),
                 (DISCLOSED_PROPERTY_COMPONENT_SCHEMA_ID,vec![0;40])]),vec![255;4]] {
             runtime.latest_disclosed_baseline_by_canonical.insert(7,bytes);
-            assert!(disclosed_units(&runtime,1).is_empty());
+            assert!(disclosed_units(&runtime,1,|_|None).is_empty());
         }
         let mut trailing=baseline(render,1); trailing.push(0);
         assert!(decode_disclosed_components(&trailing).is_none());

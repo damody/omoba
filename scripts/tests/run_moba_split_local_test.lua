@@ -60,9 +60,9 @@ assert(outage:find('--outage team=1,at_ms=120000,duration_ms=10000',1,true) and 
 assert(not table.concat(split.netem_args(n,57061,'E'),' '):find('--outage',1,true))
 for _,bad in ipairs({'3:1:1','1:1:0','1:x:5','1:5'}) do assert(not pcall(split.options,{'--netem','fixed-20','--netem-outage',bad}),bad) end
 assert(not pcall(split.options,{'--netem-outage','1:120:10'}),'outage needs a proxy')
-local h=split.options({'--hero','1=date_masamune','--hero','6=training_frost_mage'})
+local h=split.options({'--hero','1=date_masamune','--hero','6=omatsu'})
 local hs=table.concat(split.role_args(h,'server',nil,nil,2,'S'),' ')
-assert(hs:find('--hero 1=date_masamune',1,true) and hs:find('--hero 6=training_frost_mage',1,true))
+assert(hs:find('--hero 1=date_masamune',1,true) and hs:find('--hero 6=omatsu',1,true))
 assert(not table.concat(split.role_args(h,'client','PLAN',1,2,'C'),' '):find('--hero',1,true))
 assert(not pcall(split.options,{'--hero','date_masamune'}))
 -- Hero spotlight: the script goes to renderer seats only, with the spotlight autopilot,

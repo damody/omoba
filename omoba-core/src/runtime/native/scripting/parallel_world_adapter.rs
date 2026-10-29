@@ -199,7 +199,7 @@ impl TowerActiveAbilityAccess for ParallelTowerActiveAbilityAccess<'_> {
             self.cache.is_building.get(entity).is_some(),
         );
         let interval =
-            (base_interval / stats.final_attack_speed_mult(entity)).max(Fixed64::from_raw(1));
+            (stats.base_attack_interval(base_interval, entity) / stats.final_attack_speed_mult(entity)).max(Fixed64::from_raw(1));
         self.outcomes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -544,6 +544,15 @@ impl<'a> ParallelWorldAdapter<'a> {
     }
 
     pub fn mark_cast_succeeded(&mut self) { self.cast_succeeded = true; }
+
+    /// How many outcomes this invocation has produced so far.
+    pub(crate) fn outcome_count(&self) -> usize { self.outcomes.len() }
+
+    /// Puts `outcomes` before everything produced since `at` (a rule that precedes a cast's own effects).
+    pub(crate) fn insert_outcomes(&mut self, at: usize, outcomes: Vec<Outcome>) {
+        let at = at.min(self.outcomes.len());
+        self.outcomes.splice(at..at, outcomes);
+    }
 
     pub(crate) fn note_cast_rejection(&mut self, code: &'static str) { self.cast_rejection = Some(code); }
 
@@ -1185,16 +1194,20 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
             || self.capture_cast_areas || !self.is_alive(spec.owner)
             || spec.splash_radius!=Fixed64::ZERO || spec.hit_radius!=Fixed64::ZERO
             || spec.speed<=Fixed64::ZERO || spec.damage<Fixed64::ZERO) {return EntityHandle::INVALID;}
+        // Script attackers (summons, script towers) roll by entity id (rules::chance::roll_key).
+        let roll_key=crate::runtime::native::rules::chance::roll_key(owner_ent,None);
         let missed=basic_attack && crate::runtime::native::attack_accuracy::source_misses(
-            self.cache.rng_seed,self.cache.tick.0 as u32,owner_ent,
+            self.cache.rng_seed,self.cache.tick.0 as u32,roll_key,
             UnitStats::from_refs(&self.cache.buffs,false).miss_chance(owner_ent));
         let mut critical=false;
         let mut attack_damage=if missed {Fixed64::ZERO}else{spec.damage};
         if basic_attack&&!missed {
-            let (chance,multiplier)=UnitStats::from_refs(&self.cache.buffs,false)
-                .crit_with_base(owner_ent,Fixed64::ZERO,Fixed64::from_i32(2));
-            critical=crate::runtime::native::attack_accuracy::source_crits(self.cache.rng_seed,self.cache.tick.0 as u32,owner_ent,chance);
-            if critical {
+            // Each critical source rolls; the highest multiplier wins (rules::attack).
+            let sources=crate::runtime::native::rules::attack::critical_sources(&self.cache.buffs,owner_ent,
+                Fixed64::ZERO,Fixed64::from_i32(2));
+            if let Some(multiplier)=crate::runtime::native::rules::attack::roll_critical(&sources,
+                self.cache.rng_seed,self.cache.tick.0 as u32,roll_key,owner_ent,None) {
+                critical=true;
                 attack_damage=attack_damage*multiplier;
             }
         }
@@ -1287,7 +1300,7 @@ impl<'a> GameWorld for ParallelWorldAdapter<'a> {
         };
         let stats =
             UnitStats::from_refs(self.source_buffs(ent), self.source_is_building(ent));
-        let interval = base_interval / stats.final_attack_speed_mult(ent);
+        let interval = stats.base_attack_interval(base_interval, ent) / stats.final_attack_speed_mult(ent);
         interval.max(Fixed64::from_raw(1))
     }
 

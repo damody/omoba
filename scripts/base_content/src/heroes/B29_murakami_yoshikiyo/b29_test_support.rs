@@ -73,6 +73,14 @@ impl TestWorld {
         handler.on_channel_pulse(self.handle(self.source),target,pulse,&mut dynworld);
         drop(dynworld);adapter.finish()
     }
+    /// A due `delayed_effect` delivered to the ability script (host dispatch).
+    pub fn delayed(&mut self,handler:&dyn AbilityScript,effect:ChannelPulse)->Vec<Outcome> {
+        let cache=ParallelAdapterCache::new(&self.world,1);
+        let mut adapter=ParallelWorldAdapter::new(&cache,self.source);
+        let mut dynworld=GameWorld_TO::from_ptr(RMut::new(&mut adapter),TD_Opaque);
+        handler.on_delayed_effect(self.handle(self.source),effect,&mut dynworld);
+        drop(dynworld);adapter.finish()
+    }
     /// Commits outcomes the way the host does after a script phase.
     pub fn apply(&mut self,outcomes:Vec<Outcome>) {
         self.world.write_resource::<Vec<Outcome>>().extend(outcomes);
@@ -93,6 +101,12 @@ pub(crate) fn final_position(outcomes:&[Outcome])->Option<Vec2> {
 /// Buff rows of `outcomes` whose id is `id`: (target, payload, duration).
 pub(crate) fn buffs(outcomes:&[Outcome],id:&str)->Vec<(Entity,serde_json::Value,Fixed64)> {
     outcomes.iter().filter_map(|o|match o {Outcome::AddBuff {target,buff_id,payload,duration} if buff_id==id=>Some((*target,payload.clone(),*duration)),_=>None}).collect()
+}
+
+//// The delayed effects the outcomes schedule: (caster, spec, delay).
+pub(crate) fn delayed_effects(outcomes:&[Outcome])->Vec<(Entity,omoba_core::runtime::native::delayed_effect::Spec,Fixed64)> {
+    outcomes.iter().filter_map(|o|match o {Outcome::AddBuff {target,buff_id,payload,duration}=>
+        omoba_core::runtime::native::delayed_effect::Spec::from_buff(buff_id,payload).map(|spec|(*target,spec,*duration)),_=>None}).collect()
 }
 
 /// (target, magical damage) rows, ordered by entity id.

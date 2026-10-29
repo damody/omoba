@@ -85,6 +85,7 @@ fn main() {
     emit_tower_namespace(&mut out, &m.towers);
     emit_tower_render_metadata(&mut out, &m.towers);
     emit_hero_namespace(&mut out, &m.heroes);
+    emit_hero_source_stats(&mut out, &m.heroes, m.hero_sources.as_ref());
     emit_hero_render_metadata(&mut out, &m.heroes);
     let ability_ids_for_ns: Vec<Entry> = m
         .abilities
@@ -93,6 +94,8 @@ fn main() {
             id: a.id.clone(),
             display_name: a.display_name.clone(),
             tombstone: a.tombstone,
+            runtime_id: None,
+            public: false,
         })
         .collect();
     emit_namespace(&mut out, "Ability", "ability", &ability_ids_for_ns, true);
@@ -104,6 +107,7 @@ fn main() {
         out.push_str(&format!("({:?}, {stat}) => Some(BuffId({})),\n", binding.source.ability_id, index + 1));
     }
     out.push_str("_ => None, } }\n");
+    emit_status_buffs(&mut out, &m.buffs);
     let summon_ids: Vec<Entry> = m
         .summons
         .iter()
@@ -111,6 +115,8 @@ fn main() {
             id: s.id.clone(),
             display_name: s.display_name.clone(),
             tombstone: s.tombstone,
+            runtime_id: None,
+            public: false,
         })
         .collect();
     emit_namespace(&mut out, "Summon", "summon", &summon_ids, true);
@@ -121,12 +127,15 @@ fn main() {
             id: c.id.clone(),
             display_name: c.display_name.clone(),
             tombstone: c.tombstone,
+            runtime_id: None,
+            public: false,
         })
         .collect();
     emit_namespace(&mut out, "Creep", "creep", &creep_ids, true);
     emit_projectile_kinds(&mut out, &m.projectile_kinds);
     emit_td_layers(&mut out, &m.td_layers);
     emit_moba_items(&mut out, &m.moba_items);
+    emit_v3_catalog(&mut out, &catalog_data_hash, &m.heroes, &m.abilities, &m.moba_items);
     emit_moba_summoners(&mut out, &m.moba_summoners);
     emit_moba_trinkets(&mut out, &m.moba_trinkets);
     emit_moba_communication(&mut out, &m.moba_communication);
@@ -149,6 +158,8 @@ fn main() {
     out.push_str(&format!("pub const MOBA_BASE_RECOVERY_RADIUS: u32 = {};\n", m.moba_economy.base_recovery_radius));
     out.push_str(&format!("pub const MOBA_MANA_REGEN_PER_SECOND: u32 = {};\n", m.moba_economy.mana_regen_per_second));
     out.push_str(&format!("pub const MOBA_BASE_RECOVERY_MANA_PER_SECOND: u32 = {};\n", m.moba_economy.base_recovery_mana_per_second));
+    emit_attribute_rules(&mut out, m.attribute_rules.as_ref());
+    emit_game_rules(&mut out, m.game_rules.as_ref());
 
     // Hero → abilities lookup（必須在 abilities namespace emit 後做，因為 AbilityId 才存在）。
     // build.rs 自己 build 一個 ability id map，把字串 abilities 翻成 raw u16。
@@ -197,6 +208,14 @@ fn emit_moba_communication(out: &mut String, rows: &[omoba_content_model::moba_c
     out.push_str("];\npub fn communication_content(id: u16) -> Option<&'static CommunicationContentConst> { COMMUNICATION_CONTENT.iter().find(|row| row.catalog_id == id) }\n");
 }
 
+fn minion_const(m: &lua_content::MobaMinionEntry) -> String {
+    let (late_from_wave,late_every)=m.late.map_or((0,0),|late|(late.from_wave,late.every));
+    let lane_counts=m.lane_counts.iter().map(|(lane,count)|format!("({lane:?},{count})")).collect::<Vec<_>>().join(",");
+    format!("MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{},first_wave:{},hp_per_wave:{},damage_per_wave:{},armor:{},late_from_wave:{},late_every:{},lane_down_percent:{},first_barracks_percent:{},lane_counts:&[{}]}}",
+        m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms,m.first_wave.unwrap_or(m.every),m.hp_per_wave,m.damage_per_wave,
+        m.armor,late_from_wave,late_every,m.lane_down_percent,m.first_barracks_percent,lane_counts)
+}
+
 fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
     let json = serde_json::to_string(maps).expect("validated MOBA map catalog");
     let hash = canonical_template_hash(&serde_json::to_value(maps).expect("map JSON"))
@@ -209,19 +228,21 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
         let unlock=if map.base_unlock=="any_lane_towers" {"AnyLaneTowers"}else{"AllLaneTowers"};
         let base_structures=map.base_structures.as_ref().map_or_else(||"None".to_string(), |s| {
             let m=&s.super_minion;
-            format!("Some(MobaBaseStructuresConst {{ minimum_spacing:{},inhibitor_offset:{},inhibitor_hp:{},inhibitor_respawn_seconds:{},nexus_tower_offset:{},nexus_tower_hp:{},nexus_tower_respawn_seconds:{},nexus_tower_respawn_hp_percent:{},siege_minion_id:{:?},super_minion:MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{}}} }})",
-                s.minimum_spacing,s.inhibitor_offset,s.inhibitor_hp,s.inhibitor_respawn_seconds,s.nexus_tower_offset,s.nexus_tower_hp,s.nexus_tower_respawn_seconds,s.nexus_tower_respawn_hp_percent,s.siege_minion_id,m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms)
+            let fall=s.fall_reinforcements.iter().map(|f|format!("MobaFallReinforcementConst {{delay_seconds:{},minion_id:{:?},count:{}}}",
+                f.delay_seconds,f.minion_id,f.count)).collect::<Vec<_>>().join(",");
+            format!("Some(MobaBaseStructuresConst {{ minimum_spacing:{},inhibitor_offset:{},inhibitor_hp:{},inhibitor_respawn_seconds:{},nexus_tower_offset:{},nexus_tower_hp:{},nexus_tower_respawn_seconds:{},nexus_tower_respawn_hp_percent:{},siege_minion_id:{:?},super_minion:{},super_minion_replaces_siege:{},fall_reinforcements:&[{}],general_guard_radius:{} }})",
+                s.minimum_spacing,s.inhibitor_offset,s.inhibitor_hp,s.inhibitor_respawn_seconds,s.nexus_tower_offset,s.nexus_tower_hp,s.nexus_tower_respawn_seconds,s.nexus_tower_respawn_hp_percent,s.siege_minion_id,minion_const(m),
+                s.super_minion_replaces_siege,fall,s.general_guard_radius)
         });
         out.push_str(&format!("MobaMapConst {{ base_structures: {}, ",base_structures));
         out.push_str(&format!("base_unlock: MobaBaseUnlockConst::{}, id: {:?}, lane_length: {}, tower_offset: {}, tower_hp: {}, base_hp: {}, tower_layers: &{:?}, wave_interval_seconds: {}, minion_wave: &[\n",
             unlock,map.id, map.lane_length, map.tower_offset, map.tower_hp.unwrap_or(1200), map.base_hp.unwrap_or(1600), layers,map.wave_interval_seconds));
         for m in &map.minion_wave {
-            out.push_str(&format!("MobaMinionConst {{id:{:?},count:{},every:{},hp:{},damage:{},attack_range:{},move_speed:{},attack_interval_ms:{}}},\n",
-                m.id,m.count,m.every,m.hp,m.damage,m.attack_range,m.move_speed,m.attack_interval_ms));
+            out.push_str(&format!("{},\n",minion_const(m)));
         }
         out.push_str("], lanes: &[\n");
         for lane in &map.lanes {
-            out.push_str(&format!("MobaLaneConst {{ id: {:?}, waypoints: &[", lane.id));
+            out.push_str(&format!("MobaLaneConst {{ id: {:?}, team: {:?}, waypoints: &[", lane.id, lane.team.map(|team| team.side())));
             for [x,y] in &lane.waypoints { out.push_str(&format!("({x},{y}),")); }
             out.push_str("] },\n");
         }
@@ -233,13 +254,26 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
         for c in &map.jungle_camps {
             let buff=|b:&lua_content::MobaObjectiveBuffEntry| {
                 let aura=b.minion_aura.as_ref().map_or("None".into(),|a|format!("Some(MobaMinionAuraConst {{buff_id:{:?},radius:{},attack_bonus:{},armor_bonus:{}}})",a.buff_id,a.radius,a.attack_bonus,a.armor_bonus));
-                format!("MobaObjectiveBuffConst {{minion_aura:{},transfer_on_kill:{},buff_id:{:?},max_stacks:{},duration_seconds:{},attack_bonus:{},armor_bonus:{},lost_on_death:{}}}",
-                    aura,b.transfer_on_kill,b.buff_id,b.max_stacks,b.duration_seconds,b.attack_bonus,b.armor_bonus,b.lost_on_death)
+                let s=b.stats;
+                format!("MobaObjectiveBuffConst {{minion_aura:{},transfer_on_kill:{},buff_id:{:?},max_stacks:{},duration_seconds:{},attack_bonus:{},armor_bonus:{},lost_on_death:{},\
+                    stats:MobaBuffStatsConst {{damage_percent:{},spell_amp_percent:{},attack_speed:{},move_speed_percent:{},magic_resistance:{},hp_regen_max_percent:{},mana_regen:{}}}}}",
+                    aura,b.transfer_on_kill,b.buff_id,b.max_stacks,b.duration_seconds,b.attack_bonus,b.armor_bonus,b.lost_on_death,
+                    s.damage_percent,s.spell_amp_percent,s.attack_speed,s.move_speed_percent,s.magic_resistance,s.hp_regen_max_percent,s.mana_regen)
             };
             let objective=c.objective_buff.as_ref().map_or("None".to_owned(),|b|format!("Some({})",buff(b)));
             let personal=c.personal_buff.as_ref().map_or("None".to_owned(),|b|format!("Some({})",buff(b)));
             let additional=c.additional_objective_buffs.iter().map(buff).collect::<Vec<_>>().join(",");
-            out.push_str(&format!("MobaJungleConst {{ death_children:&[{}], additional_objective_buffs:&[{additional}], personal_buff:{personal}, objective_buff:{objective}, patience_seconds:{}, soft_reset_seconds:{}, members: &[{}",
+            // E187: boss timing, growth, defenses, exact interval, tags and the original reward.
+            let original=c.original_reward.as_ref().map_or("None".to_owned(),|r|format!(
+                "Some(MobaOriginalRewardConst {{team_gold:{},team_xp:{},buff_choice:MobaBuffChoiceConst::{},buffs:&[{}]}})",
+                r.team_gold,r.team_xp,match r.buff_choice {lua_content::MobaBuffChoiceEntry::All=>"All",lua_content::MobaBuffChoiceEntry::Rotation=>"Rotation"},
+                r.buffs.iter().map(buff).collect::<Vec<_>>().join(",")));
+            let tags=c.tags.iter().map(|tag|match tag.as_str() {"boss"=>"MobaUnitTag::Boss",other=>panic!("validated unit tag '{other}'")})
+                .collect::<Vec<_>>().join(",");
+            let growth=c.respawn_growth.unwrap_or(lua_content::MobaCampGrowthEntry {hp:0,damage:0});
+            out.push_str(&format!("MobaJungleConst {{ attack_interval_ms:{}, first_spawn_seconds:{}, respawn_growth_hp:{}, respawn_growth_damage:{}, armor:{}, magic_resistance:{}, tags:&[{tags}], original_reward:{original}, ",
+                c.attack_interval_ms.unwrap_or(c.attack_interval_seconds.saturating_mul(1000)),c.first_spawn_seconds,growth.hp,growth.damage,c.armor,c.magic_resistance));
+            out.push_str(&format!("death_children:&[{}], additional_objective_buffs:&[{additional}], personal_buff:{personal}, objective_buff:{objective}, patience_seconds:{}, soft_reset_seconds:{}, members: &[{}",
                 children(&c.death_children),c.patience_seconds,c.soft_reset_seconds,children(&c.members)));
             out.push_str(&format!("], id: {:?}, position: ({},{}), hp: {}, damage: {}, move_speed: {}, attack_range: {}, leash_radius: {}, attack_interval_seconds: {}, respawn_seconds: {}, gold: {}, xp: {} }},\n",
                 c.id,c.position[0],c.position[1],c.hp,c.damage,c.move_speed,c.attack_range,c.leash_radius,c.attack_interval_seconds,c.respawn_seconds,c.gold,c.xp));
@@ -265,7 +299,21 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
             for [x,y] in &surface.points { out.push_str(&format!("({x},{y}),")); }
             out.push_str("] },\n");
         }
-        out.push_str("] },\n");
+        // E187 (nobu-map-comparison.md §5.1-5.3, 5.8, 5.9): explicit layout, all optional.
+        let bounds = |b: Option<lua_content::MobaBoundsEntry>| b.map_or("None".to_string(), |b|
+            format!("Some(MobaBoundsConst {{ min: ({},{}), max: ({},{}) }})", b.min[0], b.min[1], b.max[0], b.max[1]));
+        let points = |list: &[lua_content::MobaTeamPointEntry]| list.iter().map(|p|
+            format!("MobaTeamPointConst {{ team: {}, position: ({},{}) }}", p.team.side(), p.position[0], p.position[1])).collect::<Vec<_>>().join(",");
+        let towers = map.towers.iter().map(|t| format!("MobaTowerConst {{ team: {}, lane: {:?}, tier: {}, position: ({},{}) }}",
+            t.team.side(), t.lane, t.tier, t.position[0], t.position[1])).collect::<Vec<_>>().join(",\n");
+        let barracks = map.barracks.iter().map(|b| format!("MobaBarracksConst {{ team: {}, lane: {:?}, position: ({},{}) }}",
+            b.team.side(), b.lane, b.position[0], b.position[1])).collect::<Vec<_>>().join(",");
+        let shops = map.shops.iter().map(|s| format!("MobaShopConst {{ kind: MobaShopKind::{}, team: {:?}, position: ({},{}) }}",
+            match s.kind { lua_content::MobaShopKindEntry::Home => "Home", lua_content::MobaShopKindEntry::Side => "Side", lua_content::MobaShopKindEntry::Secret => "Secret" },
+            s.team.map(|team| team.side()), s.position[0], s.position[1])).collect::<Vec<_>>().join(",");
+        out.push_str(&format!("], bounds: {}, world_bounds: {}, minimap_bounds: {}, towers: &[{}], barracks: &[{}], general_towers: &[{}], bases: &[{}], fountains: &[{}], hero_spawns: &[{}], shops: &[{}], shop_radius: {} }},\n",
+            bounds(map.bounds), bounds(map.world_bounds), bounds(map.minimap_bounds), towers, barracks, points(&map.general_towers),
+            points(&map.bases), points(&map.fountains), points(&map.hero_spawns), shops, map.shop_radius));
     }
     out.push_str("];\npub fn moba_map_by_name(id: &str) -> Option<&'static MobaMapConst> { MOBA_MAPS.iter().find(|map| map.id == id) }\n");
     // Map-authored hero XP multiplier as integer per-mille; maps without one (and maps built
@@ -278,6 +326,46 @@ fn emit_moba_maps(out: &mut String, maps: &[MobaMapEntry]) {
         }
     }
     out.push_str("    _ => 1000,\n} }\n");
+    // Map-authored structure stats, first wave delay and minion time growth; maps without them
+    // (and maps built outside the catalog) keep the training values.
+    let stats = |s: lua_content::MobaStructureStatsEntry| format!("MobaStructureStatsConst {{ tower_damage:{}, tower_attack_range:{}, tower_attack_interval_ms:{}, tower_armor:{}, nexus_tower_damage:{}, nexus_tower_attack_range:{}, nexus_tower_attack_interval_ms:{}, nexus_tower_armor:{}, inhibitor_armor:{}, base_armor:{}, tower_damage_growth:{}, tower_damage_growth_first_seconds:{}, tower_damage_growth_interval_seconds:{}, nexus_tower_intensify_damage:{}, nexus_tower_intensify_armor:{}, tower_hp_regen:{}, inhibitor_hp_regen:{}, nexus_tower_hp_regen:{}, base_hp_regen:{} }}",
+        s.tower_damage,s.tower_attack_range,s.tower_attack_interval_ms,s.tower_armor,s.nexus_tower_damage,s.nexus_tower_attack_range,s.nexus_tower_attack_interval_ms,s.nexus_tower_armor,s.inhibitor_armor,s.base_armor,
+        s.tower_damage_growth,s.tower_damage_growth_first_seconds,s.tower_damage_growth_interval_seconds,
+        s.nexus_tower_intensify_damage,s.nexus_tower_intensify_armor,s.tower_hp_regen,s.inhibitor_hp_regen,s.nexus_tower_hp_regen,s.base_hp_regen);
+    out.push_str("pub fn moba_map_structure_stats(id: &str) -> MobaStructureStatsConst { match id {\n");
+    for map in maps {
+        if let Some(s) = map.structure_stats { out.push_str(&format!("    {:?} => {},\n", map.id, stats(s))); }
+    }
+    out.push_str(&format!("    _ => {},\n}} }}\n", stats(Default::default())));
+    out.push_str("pub fn moba_map_first_wave_seconds(id: &str) -> u32 { match id {\n");
+    for map in maps {
+        if let Some(seconds) = map.first_wave_seconds { out.push_str(&format!("    {:?} => {},\n", map.id, seconds)); }
+    }
+    out.push_str("    _ => 0,\n} }\n");
+    let growth = |g: lua_content::MobaMinionTimeGrowthEntry| format!("MobaMinionTimeGrowthConst {{ interval_seconds:{}, hp_step_percent:{}, damage_step_percent:{}, max_hp_bonus_percent:{}, max_damage_bonus_percent:{}, armor_step:{} }}",
+        g.interval_seconds,g.hp_step_percent,g.damage_step_percent,g.max_hp_bonus_percent,g.max_damage_bonus_percent,g.armor_step);
+    out.push_str("pub fn moba_map_minion_time_growth(id: &str) -> MobaMinionTimeGrowthConst { match id {\n");
+    for map in maps {
+        if let Some(g) = map.minion_time_growth { out.push_str(&format!("    {:?} => {},\n", map.id, growth(g))); }
+    }
+    out.push_str(&format!("    _ => {},\n}} }}\n", growth(Default::default())));
+}
+
+/// `V3_CATALOG_JSON`: the package schema v3 blocks of every live hero ability and shelf item,
+/// with the content hash, for UE tooltips and the website generator
+/// (docs/character_pipeline/schema/v3-content-model-proposal.md §2.1). Written out by
+/// `cargo run -p omoba-template-ids --example export_content_catalog -- <out.json>`.
+fn emit_v3_catalog(out: &mut String, data_hash: &str, heroes: &[HeroEntry], abilities: &[AbilityEntry], items: &[MobaItemEntry]) {
+    let heroes: Vec<_> = heroes.iter().filter(|h| !h.tombstone).map(|h| serde_json::json!({
+        "id": h.id, "display_name": h.display_name, "title": h.title, "abilities": h.abilities })).collect();
+    let abilities: Vec<_> = abilities.iter().filter(|a| !a.tombstone && a.v3.is_some()).map(|a| serde_json::json!({
+        "id": a.id, "display_name": a.display_name, "max_level": a.max_level, "v3": a.v3 })).collect();
+    let items: Vec<_> = items.iter().filter(|i| !i.test_only && i.v3.is_some()).map(|i| serde_json::json!({
+        "id": i.id, "catalog_id": i.catalog_id, "name": i.name, "cost": i.cost, "recipe": i.recipe, "v3": i.v3 })).collect();
+    let doc = serde_json::json!({ "schema": omoba_content_model::v3::SCHEMA, "content_data_hash": data_hash,
+        "heroes": heroes, "abilities": abilities, "items": items });
+    out.push_str(&format!("\npub const V3_CATALOG_JSON: &str = {:?};\n",
+        serde_json::to_string(&doc).expect("serialize v3 catalog")));
 }
 
 fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
@@ -293,10 +381,12 @@ fn emit_moba_items(out: &mut String, items: &[MobaItemEntry]) {
         let active = item.active.as_ref().map(|effect| format!("Some({})", effect.rust_literal()))
             .unwrap_or_else(|| "None".into());
         out.push_str(&format!(
-            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, unique_passive: {}, purchase_group: {}, active: {}, cooldown: {}, recipe: &[{}], target: {} }},\n",
+            "MobaItemConst {{ catalog_id: {}, id: {:?}, name: {:?}, cost: {}, atk: {}, hp: {}, ms: {}, armor: {}, lifesteal: {}, critical_chance: {}, unique_passive: {}, purchase_group: {}, active: {}, cooldown: {}, mana_cost: {}, consumable: {}, shares_cooldown_with: &[{}], aura: {}, recipe: &[{}], target: {}, source_ref: {}, test_only: {}, modifiers: [{}] }},\n",
             item.catalog_id, item.id, item.name, item.cost,
             fixed64_lit(item.atk), fixed64_lit(item.hp), fixed64_lit(item.ms), fixed64_lit(item.armor),
-            fixed64_lit(item.lifesteal), fixed64_lit(item.critical_chance), item.unique_passive.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), item.purchase_group.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), active, fixed64_lit(item.cooldown), recipe, item.target.rust_literal(),
+            fixed64_lit(item.lifesteal), fixed64_lit(item.critical_chance), item.unique_passive.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), item.purchase_group.as_ref().map(|v|format!("Some({})",v.rust_literal())).unwrap_or_else(||"None".into()), active, fixed64_lit(item.cooldown), fixed64_lit(item.mana_cost), item.consumable, item.shares_cooldown_with.iter().map(|id| format!("{id:?}")).collect::<Vec<_>>().join(", "), item.aura.as_ref().map(|a| format!("Some({})", a.rust_literal())).unwrap_or_else(|| "None".into()), recipe, item.target.rust_literal(),
+            item.source_ref.as_deref().map(|r| format!("Some({r:?})")).unwrap_or_else(|| "None".into()), item.test_only,
+            item.modifier_values().iter().map(|v| fixed64_lit(*v)).collect::<Vec<_>>().join(", "),
         ));
     }
     out.push_str("];\n");
@@ -535,6 +625,29 @@ fn const_name(ns_lower: &str, id: &str) -> String {
     format!("{}_{}", ns_upper, stripped.to_uppercase())
 }
 
+/// `status_buff_by_key`: the buff a v3 status shows, by the BuffStore key it is held under
+/// (templates/status_buffs.lua, E218). Exact runtime ids first, then `{caster}`/`{rank}` patterns.
+fn emit_status_buffs(out: &mut String, buffs: &[Entry]) {
+    let rows: Vec<(usize, &str)> = buffs.iter().enumerate()
+        .filter(|(_, b)| !b.tombstone)
+        .filter_map(|(i, b)| b.runtime_id.as_deref().map(|id| (i + 1, id))).collect();
+    out.push_str("pub fn status_buff_by_key(key: &str) -> Option<BuffId> {\n    match key {\n");
+    for (index, id) in rows.iter().filter(|(_, id)| !id.contains('{')) {
+        out.push_str(&format!("        {id:?} => return Some(BuffId({index})),\n"));
+    }
+    out.push_str("        _ => {}\n    }\n    const PATTERNS: &[(&str, u16)] = &[\n");
+    for (index, id) in rows.iter().filter(|(_, id)| id.contains('{')) {
+        out.push_str(&format!("        ({id:?}, {index}),\n"));
+    }
+    out.push_str("    ];\n    PATTERNS.iter().find(|(pattern, _)| crate::runtime_id_matches(pattern, key)).map(|(_, index)| BuffId(*index))\n}\n");
+    // E216: a buff every v3 status of which is `reveal = "public"`.
+    out.push_str("/// Every team that sees the unit may show this buff (all its v3 statuses are `reveal = \"public\"`, E216).\n");
+    let public: Vec<String> = buffs.iter().enumerate().filter(|(_, b)| !b.tombstone && b.public)
+        .map(|(i, _)| (i + 1).to_string()).collect();
+    let body = if public.is_empty() { "false".to_owned() } else { format!("matches!(id.0, {})", public.join(" | ")) };
+    out.push_str(&format!("pub fn buff_is_public(id: BuffId) -> bool {{\n    {body}\n}}\n"));
+}
+
 fn emit_namespace(
     out: &mut String,
     ty: &str,
@@ -670,6 +783,8 @@ fn emit_tower_namespace(out: &mut String, entries: &[TowerEntry]) {
             id: t.id.clone(),
             display_name: t.display_name.clone(),
             tombstone: t.tombstone,
+            runtime_id: None,
+            public: false,
         })
         .collect();
     emit_namespace(out, "Tower", "tower", &converted, /*display*/ true);
@@ -952,6 +1067,27 @@ fn emit_tower_render_metadata(out: &mut String, entries: &[TowerEntry]) {
     out.push_str("\t\t_ => None,\n\t}\n}\n\n");
 }
 
+/// `hero_source_stats(HeroId)`: each playable hero's source unit stats (validated complete by
+/// validate_hero_sources), looked up through its source_ref in the generated roster.
+fn emit_hero_source_stats(out: &mut String, entries: &[HeroEntry], roster: Option<&HeroSourceRoster>) {
+    let mut arms = String::new();
+    for (index, hero) in entries.iter().enumerate() {
+        let (false, Some(source), Some(roster)) = (hero.tombstone, hero.source_ref.as_deref(), roster) else { continue };
+        let id = source.rsplit_once(':').map(|(_, id)| id).expect("validated source_ref");
+        let stats = &roster.heroes.iter().find(|entry| entry.id == id).expect("validated roster hero").stats;
+        let fixed = |value: Option<f64>| fixed64_lit(value.expect("validated source stat") as f32);
+        let required = stats.required().map(|(name, value)| format!("{name}: {}", fixed(value)));
+        let starting = stats.starting_mana.map_or("None".to_owned(), |value| format!("Some({})", fixed64_lit(value as f32)));
+        // A named const: a reference to it is 'static (const-fn literals are not promoted inline).
+        out.push_str(&format!("const HERO_SOURCE_STATS_{}: HeroSourceStatsConst = HeroSourceStatsConst {{ primary_attribute: {}, {}, starting_mana: {} }};\n",
+            index + 1, stats.primary_code().expect("validated primary"), required.join(", "), starting));
+        arms.push_str(&format!("\t\t{} => Some(&HERO_SOURCE_STATS_{}),\n", index + 1, index + 1));
+    }
+    out.push_str("/// A playable hero's source unit stats (history_nobu X_2.txt); None for test-only heroes.\npub fn hero_source_stats(id: HeroId) -> Option<&'static HeroSourceStatsConst> {\n\tmatch id.0 {\n");
+    out.push_str(&arms);
+    out.push_str("\t\t_ => None,\n\t}\n}\n");
+}
+
 fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
     // 重用 emit_namespace 的 id/display 機制，並加上 hero_title lookup。
     let converted: Vec<Entry> = entries
@@ -960,6 +1096,8 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
             id: h.id.clone(),
             display_name: h.display_name.clone(),
             tombstone: h.tombstone,
+            runtime_id: None,
+            public: false,
         })
         .collect();
     emit_namespace(out, "Hero", "hero", &converted, true);
@@ -970,6 +1108,22 @@ fn emit_hero_namespace(out: &mut String, entries: &[HeroEntry]) {
         }
     }
     out.push_str("];\n");
+    // Playable = a source hero (validated source_ref); test-only heroes stay compiled for fixtures.
+    out.push_str("/// Heroes that may be selected, seated by a bot or named by a match recipe.\npub const HERO_PLAYABLE_IDS: &[HeroId] = &[\n");
+    for (index, hero) in entries.iter().enumerate() {
+        if !hero.tombstone && hero.source_ref.is_some() {
+            out.push_str(&format!("HeroId({}),\n", index + 1));
+        }
+    }
+    out.push_str("];\n");
+    out.push_str("/// The source-site hero behind a playable hero (`<site>@<commit>:<id>`); None for test-only heroes.\npub fn hero_source_ref(id: HeroId) -> Option<&'static str> {\n\tmatch id.0 {\n");
+    for (index, hero) in entries.iter().enumerate() {
+        if let (false, Some(source)) = (hero.tombstone, &hero.source_ref) {
+            out.push_str(&format!("\t\t{} => Some(\"{}\"),\n", index + 1, escape_str_literal(source)));
+        }
+    }
+    out.push_str("\t\t_ => None,\n\t}\n}\n");
+    out.push_str("/// Only source heroes are playable (selection, bots, match recipes).\npub fn hero_playable(id: HeroId) -> bool { hero_source_ref(id).is_some() }\n");
 
     out.push_str(
         "pub fn hero_title(id: HeroId) -> &'static str {\n\tmatch id.0 {\n\t\t0 => \"\",\n",
@@ -1311,6 +1465,91 @@ fn emit_hero_abilities(
     out.push_str("\t\t_ => &[],\n\t}\n}\n\n");
 }
 
+/// `ATTRIBUTE_RULES`: templates/attribute_rules.lua as Fixed64 per-point coefficients.
+fn emit_attribute_rules(out: &mut String, rules: Option<&omoba_content_model::attribute_rules::AttributeRules>) {
+    let v = |f: fn(&omoba_content_model::attribute_rules::AttributeRules) -> f32| rules.map_or(0.0, f);
+    out.push_str(&format!(
+        "pub const ATTRIBUTE_RULES: AttributeRulesConst = AttributeRulesConst {{ version: {:?}, \
+         strength_health: {}, strength_health_regen: {}, agility_armor: {}, agility_attack_speed: {}, \
+         intelligence_mana: {}, intelligence_mana_regen: {}, intelligence_magic_resistance: {}, primary_damage: {} }};\n",
+        rules.map_or("", |r| r.version.as_str()),
+        fixed64_lit(v(|r| r.strength.health)),
+        fixed64_lit(v(|r| r.strength.health_regen)),
+        fixed64_lit(v(|r| r.agility.armor)),
+        fixed64_lit(v(|r| r.agility.attack_speed)),
+        fixed64_lit(v(|r| r.intelligence.mana)),
+        fixed64_lit(v(|r| r.intelligence.mana_regen)),
+        fixed64_lit(v(|r| r.intelligence.magic_resistance)),
+        fixed64_lit(v(|r| r.primary_damage)),
+    ));
+}
+
+/// `GAME_RULES`: templates/game_rules.lua (None when the catalog has no game rules).
+fn emit_game_rules(out: &mut String, rules: Option<&omoba_content_model::game_rules::GameRules>) {
+    let Some(r) = rules else {
+        out.push_str("pub const GAME_RULES: Option<GameRulesConst> = None;\n");
+        return;
+    };
+    out.push_str(&format!(
+        "pub const GAME_RULES: Option<GameRulesConst> = Some(GameRulesConst {{ \
+         hero_base_magic_resistance: {}, hero_max_magic_resistance: {}, hero_max_move_speed: {}, hero_acquisition_range: {}, \
+         gold_starting: {}, gold_passive_start_seconds: {}, gold_passive_interval_seconds: {}, gold_passive_amount: {}, \
+         gold_periodic_interval_seconds: {}, gold_periodic_amount: {}, gold_sell_refund_percent: {}, \
+         experience_max_level: {}, experience_total_to_reach: &{:?}, \
+         respawn_hero_seconds_by_level: &{:?}, respawn_beyond_table_seconds: {}, \
+         acquisition_tower: {}, acquisition_general_tower: {}, acquisition_ashigaru: {}, acquisition_archer: {}, \
+         acquisition_gunner: {}, acquisition_cavalry: {}, \
+         lane_minions: &[{}], lane_xp_radius: {}, lane_xp_percent_by_heroes: &{:?}, \
+         hero_kill: GameRulesHeroKillConst {{ xp_radius: {}, xp_per_victim_level: {}, xp_percent_by_level_gap: &{:?}, \
+         killer_lower_level_xp_per_victim_level: {}, kill_gold: {}, extra_gold: {}, streak_threshold: {}, streak_gold: {}, \
+         max_streak_gold: {}, death_gold: {}, max_death_gold: {}, multi_kill_seconds: {}, multi_kill_gold: {}, \
+         hoard_threshold: {}, hoard_step: {}, hoard_base_steps: {}, hoard_gold_per_step: {} }}, \
+         building_tower_gold: {}, building_inhibitor_gold: {}, building_base_gold: {}, building_nexus_tower_gold: {}, \
+         building_npc_kill_radius: {}, building_nexus_tower_ally_radius: {}, building_nexus_tower_ally_gold: {}, \
+         jungle_comeback_xp_percent_per_level: {}, surrender: {}, home_aura: {}, structure_defense: {} }});\n",
+        r.hero.base_magic_resistance, r.hero.max_magic_resistance, r.hero.max_move_speed, r.hero.acquisition_range,
+        r.gold.starting, r.gold.passive_start_seconds, r.gold.passive_interval_seconds, r.gold.passive_amount,
+        r.gold.periodic_interval_seconds, r.gold.periodic_amount, r.gold.sell_refund_percent,
+        r.experience.max_level, r.experience.total_to_reach,
+        r.respawn.hero_seconds_by_level, r.respawn.beyond_table_seconds,
+        r.acquisition.tower, r.acquisition.general_tower, r.acquisition.ashigaru, r.acquisition.archer,
+        r.acquisition.gunner, r.acquisition.cavalry,
+        r.lane_minions.iter().map(|m| format!("GameRulesLaneMinionConst {{ id: {:?}, xp: {}, gold: {}, killer_xp: {} }}",
+            m.id, m.xp, m.gold, m.killer_xp)).collect::<Vec<_>>().join(", "),
+        r.lane_experience.radius, r.lane_experience.percent_by_heroes,
+        r.hero_kill.xp_radius, r.hero_kill.xp_per_victim_level, r.hero_kill.xp_percent_by_level_gap,
+        r.hero_kill.killer_lower_level_xp_per_victim_level, r.hero_kill.kill_gold, r.hero_kill.extra_gold,
+        r.hero_kill.streak_threshold, r.hero_kill.streak_gold, r.hero_kill.max_streak_gold, r.hero_kill.death_gold,
+        r.hero_kill.max_death_gold, r.hero_kill.multi_kill_seconds, r.hero_kill.multi_kill_gold,
+        r.hero_kill.hoard_threshold, r.hero_kill.hoard_step, r.hero_kill.hoard_base_steps, r.hero_kill.hoard_gold_per_step,
+        r.buildings.tower, r.buildings.inhibitor, r.buildings.base, r.buildings.nexus_tower,
+        r.buildings.npc_kill_radius, r.buildings.nexus_tower_ally_radius, r.buildings.nexus_tower_ally_gold,
+        r.jungle.comeback_xp_percent_per_level,
+        r.surrender.as_ref().map_or_else(|| "None".to_owned(), |s| format!(
+            "Some(SurrenderRulesConst {{ available_after_seconds: {}, vote_player_numerator: {}, \
+             vote_bias_numerator: {}, vote_denominator: {} }})",
+            s.available_after_seconds, s.vote_threshold.player_numerator,
+            s.vote_threshold.bias_numerator, s.vote_threshold.denominator)),
+        r.home_aura.as_ref().map_or_else(|| "None".to_owned(), |h| format!(
+            "Some(HomeAuraRulesConst {{ start_seconds: {}, radius: {}, hp_regen_max_percent: {}, armor: {}, \
+             magic_resistance: {}, speed_up_radius: {}, speed_up_move_speed: {}, speed_up_seconds: {}, \
+             speed_up_refresh_ms: {} }})",
+            h.start_seconds, h.radius, h.hp_regen_max_percent, h.armor, h.magic_resistance,
+            h.speed_up_radius, h.speed_up_move_speed, h.speed_up_seconds, h.speed_up_refresh_ms)),
+        r.structure_defense.as_ref().map_or_else(|| "None".to_owned(), |d| {
+            let percents = |p: &omoba_content_model::game_rules::AttackerPercents| format!(
+                "AttackerPercentsConst {{ hero: {}, lane_creep: {}, lane_tower: {}, general_tower: {}, summon: {}, \
+                 neutral: {}, other: {} }}",
+                p.hero, p.lane_creep, p.lane_tower, p.general_tower, p.summon, p.neutral, p.other);
+            format!("Some(StructureDefenseRulesConst {{ tower_armor: {}, unit_armor: {}, pressure_radius: {}, \
+                 pressure_min_unowned_units: {}, pressure_min_heroes: {}, pressure_hero_bonus_percent: {}, \
+                 base_general_radius: {} }})",
+                percents(&d.tower_armor), percents(&d.unit_armor), d.pressure.radius, d.pressure.min_unowned_units,
+                d.pressure.min_heroes, d.pressure.hero_bonus_percent, d.base_general_radius)
+        }),
+    ));
+}
+
 fn primary_attribute_to_u8(s: &str) -> u8 {
     match s {
         "" | "strength" => 0,
@@ -1371,6 +1610,10 @@ fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
              \t\thp_per_level: {},\n\
              \t\tmana_per_level: {},\n\
              \t}},\n\
+             \tbase_attack_time: {},\n\
+             \thealth_regen: {},\n\
+             \tmana_regen: {},\n\
+             \tacquisition_range: {},\n\
              }};\n",
             cname,
             e.moba_loadout.ranks,
@@ -1392,6 +1635,10 @@ fn emit_hero_stats(out: &mut String, entries: &[HeroEntry]) {
             fixed64_lit(e.level_growth.damage_per_level),
             fixed64_lit(e.level_growth.hp_per_level),
             fixed64_lit(e.level_growth.mana_per_level),
+            e.base_attack_time.map_or("None".to_owned(), |v| format!("Some({})", fixed64_lit(v))),
+            fixed64_lit(e.health_regen),
+            fixed64_lit(e.mana_regen),
+            e.acquisition_range.map_or("None".to_owned(), |v| format!("Some({})", fixed64_lit(v))),
         ));
     }
     out.push('\n');
@@ -1622,6 +1869,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
         out.push_str(&format!(
             "pub const {}_CONST: AbilityConst = AbilityConst {{\n\
              \tcleanses_allies: {},\n\
+             \tpierces_magic_immunity: {},\n\
              \tauto_learn: {},\n\
              \tability_type: AbilityTypeC::{},\n\
              \tcast_type: CastTypeC::{},\n\
@@ -1644,6 +1892,7 @@ fn emit_ability_const(out: &mut String, entries: &[AbilityEntry]) {
              }};\n",
             cname,
             e.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
+            e.pierces_magic_immunity,
             e.auto_learn,
             ability_type_to_variant(&e.ability_type),
             cast_type_to_variant(&e.cast_type),
@@ -2053,6 +2302,8 @@ fn emit_projectile_kinds(out: &mut String, entries: &[ProjKind]) {
             id: p.id.clone(),
             display_name: String::new(),
             tombstone: p.tombstone,
+            runtime_id: None,
+            public: false,
         })
         .collect();
     emit_namespace(out, "ProjectileKind", "projectile", &converted, false);

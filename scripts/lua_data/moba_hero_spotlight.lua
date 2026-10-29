@@ -20,6 +20,8 @@ return {schema_version=1,map_id='three_lane_quick_training',think_hz=5,mana_enab
   -- survive summons and empowered attacks for the whole demonstration.
   showcase={start_level=16,minion_waves=false,hold_players={2,6},hold_hp_permille=30000,
     -- +x is down on screen and the caption covers the bottom: stand-ins left and right (y),
-    -- 280 apart, clear of the north river brush (y 2700+).
-    placements={['1']={2300,2400},['2']={2300,2120},['6']={2300,2680}}},
+    -- 240 apart, clear of the north river brush (y 2700+). 240 keeps every published cast range
+    -- in reach (B06 連牙炎突 is 250: at 280 its spotlight was skipped, E163) and stays outside
+    -- the melee stand-ins' 128 attack range.
+    placements={['1']={2300,2400},['2']={2300,2160},['6']={2300,2640}}},
 }

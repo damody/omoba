@@ -20,10 +20,10 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<Blessing,&'static str> {
     let extra=|key:&str|content.extras.iter().find(|(name,_)|*name==key).and_then(|(_,rows)|rows.get(index)).copied()
         .ok_or("missing blessing extra");
     let spec=Blessing {range:Fixed64::from_raw((f64::from(data.range)*1024.0).round() as i64),
-        armor:extra("stat_buff_armor_bonus")?,
+        armor:extra("armor")?,
         // Authored in percent (7.5 = +7.5%); the stat is a fraction of one.
-        damage_pct:Fixed64::from_raw((extra("stat_buff_base_damage_outgoing_pct")?.raw()+50)/100),
-        regen:extra("stat_buff_health_regen")?,duration:extra("stat_buff_duration")?};
+        damage_pct:Fixed64::from_raw((extra("damage_pct")?.raw()+50)/100),
+        regen:extra("regen")?,duration:extra("duration")?};
     if spec.duration<=Fixed64::ZERO || spec.duration>Fixed64::from_i32(60) {return Err("invalid blessing duration");}
     Ok(spec)
 }
@@ -57,8 +57,8 @@ impl AbilityScript for VictoryBlessingHandler {
 
 pub fn c17_victory_blessing_ffi()->AbilityDefFFI {
     build_ability_ffi(ID,VictoryBlessingHandler,vec![EffectSpec::StatusModifier {target:TargetSelector::Target,
-        modifier_type:"victory_blessing".into(),value:extra_at_id_f32(ID,"stat_buff_base_damage_outgoing_pct",1)/100.0,
-        duration:Some(extra_at_id_f32(ID,"stat_buff_duration",1))}])
+        modifier_type:"victory_blessing".into(),value:extra_at_id_f32(ID,"damage_pct",1)/100.0,
+        duration:Some(extra_at_id_f32(ID,"duration",1))}])
 }
 
 #[cfg(test)]

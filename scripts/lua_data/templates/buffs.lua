@@ -64,6 +64,8 @@ return function(ctx)
       ue = { buff_visual = { sources = {{ability_id = "vanguard_recover", kind = "mana_buff_self", stat = "mana_bonus"}} } },
     },
     { id = "root", display_name = "定身", ue = { native_only = true } },
+    -- Magic immunity (E179, magic_immunity.rs): magical damage zero, hostile debuffs kept out.
+    { id = "magic_immune", display_name = "魔法免疫", ue = { native_only = true } },
     { id = "silence", display_name = "沉默", ue = { native_only = true } },
     { id = "objective_might", display_name = "史詩之力", ue = { native_only = true } },
     { id = "objective_guard", display_name = "守護祝福", ue = { native_only = true } },
@@ -89,5 +91,13 @@ return function(ctx)
     -- G-4 forced displacement status: stunned while moved; plays the hit pose, not a walk.
     { id = "forced_motion", display_name = "強制位移", ue = { native_only = true,
       animation_overlay = { overlay = "forced_motion", priority = 1000, locomotion = { walk = "hit", stand = "hit" } } } },
+    -- E187 boss rewards (moba_maps.lua original_reward; items/Addon_Items/tofar_goback.lua robber_death,
+    -- warrior_souls_OnDeath) and the home defense (game_rules.lua home_aura).
+    { id = "robbers_king_weapons", display_name = "強盜王的武器", ue = { native_only = true } },
+    { id = "robbers_king_armor", display_name = "強盜王的裝甲", ue = { native_only = true } },
+    { id = "robbers_king_remedy", display_name = "強盜王的療傷藥", ue = { native_only = true } },
+    { id = "warrior_souls_morale", display_name = "武士亡靈的士氣", ue = { native_only = true } },
+    { id = "home_aura", display_name = "溫泉靈氣", ue = { native_only = true } },
+    { id = "home_speed_up", display_name = "守護家園", ue = { native_only = true } },
   }
 end

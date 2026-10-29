@@ -1,6 +1,29 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Passive stat modifiers an item may carry (E155): BuffStore stat keys whose runtime reader
+/// matches the source's (Dota) meaning. The index is the position in fixed-size arrays of
+/// compiled items, so this list is append-only. Units are the reader's: `*_percentage` and
+/// `evasion_constant` are fractions (0.15), the rest are flat values (attack speed in Dota
+/// units, regeneration per second, magic resistance in percent).
+pub const ITEM_STAT_MODIFIERS: [&str; 13] = [
+    "attackspeed_bonus_constant",
+    "health_regen_constant",
+    "mana_regen_constant",
+    "mana_bonus",
+    "movespeed_bonus_percentage",
+    "basedamageoutgoing_percentage",
+    "evasion_constant",
+    "magical_resistance_bonus",
+    "attack_range_bonus",
+    // Attributes: converted by templates/attribute_rules.lua (runtime attributes.rs).
+    "stats_strength_bonus",
+    "stats_agility_bonus",
+    "stats_intellect_bonus",
+    // Spell amplification (E188, a fraction): runtime spell_amplify.rs.
+    "spell_amplify_percentage",
+];
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct MobaItemEntry {
@@ -28,12 +51,57 @@ pub struct MobaItemEntry {
     pub active: Option<MobaItemActiveEntry>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub cooldown: f32,
+    /// Mana the active costs (source AbilityManaCost); 0 is free. Spent only when the match has mana.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub mana_cost: f32,
+    /// Single use (source ItemInitialCharges 1 + SpendCharge): a committed use removes the item.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub consumable: bool,
+    /// Items in the user's inventory that also start this item's cooldown when it is used (source
+    /// AbilitySharedCooldown groups and script StartCooldown loops, E169). Not symmetric.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shares_cooldown_with: Vec<String>,
+    /// Passive aura (source modifier with Aura keys, E173): allied heroes and units within
+    /// `radius` of the holder, the holder included, carry `name` with these stats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aura: Option<ItemAuraEntry>,
     #[serde(default)]
     pub recipe: Vec<String>,
     /// Omitted on legacy self items so their catalog JSON stays stable.
     #[serde(default, skip_serializing_if = "is_legacy_self_target")]
     pub target: MobaItemTargetEntry,
+    /// The source row this item follows (`history_nobu@<commit>:item_<key>`, E155). Every shop item cites
+    /// one; templates/item_sources_check.lua proves name, cost, recipe, stats and text match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ref: Option<String>,
+    /// The source's item description, shown by the shop instead of generated stat lines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Engine fixture outside the source: kept for tests, never sold, never a bot goal and
+    /// never a component of a shop item (E155, like a test_only hero).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub test_only: bool,
+    /// Passive stat modifiers by ITEM_STAT_MODIFIERS key (E155).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modifiers: BTreeMap<String, f32>,
+    /// Package schema v3 block (values, info line, stat lines, tooltip templates); the
+    /// description is its rendered zh_TW template (v3-content-model-proposal.md §2.4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v3: Option<crate::v3::V3Block>,
 }
+
+impl MobaItemEntry {
+    /// Modifiers in ITEM_STAT_MODIFIERS order (0 when absent).
+    pub fn modifier_values(&self) -> [f32; ITEM_STAT_MODIFIERS.len()] {
+        let mut values = [0.0; ITEM_STAT_MODIFIERS.len()];
+        for (index, key) in ITEM_STAT_MODIFIERS.iter().enumerate() {
+            values[index] = self.modifiers.get(*key).copied().unwrap_or(0.0);
+        }
+        values
+    }
+}
+
+fn is_false(value: &bool) -> bool { !*value }
 
 pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
     validate_purchase_groups(items.iter().filter_map(|item|item.purchase_group.as_ref()))?;
@@ -57,8 +125,18 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
             || (item.active.is_none() && item.cooldown != 0.0) {
             return Err(format!("invalid MOBA item '{}' cooldown", item.id));
         }
+        if !item.mana_cost.is_finite() || !(0.0..=10_000.0).contains(&item.mana_cost)
+            || (item.active.is_none() && (item.mana_cost != 0.0 || item.consumable || !item.shares_cooldown_with.is_empty()))
+            || item.shares_cooldown_with.len() > 16
+            || item.shares_cooldown_with.iter().any(|id| id == &item.id || id.is_empty() || id.len() > 64
+                || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')) {
+            return Err(format!("invalid MOBA item '{}' mana cost", item.id));
+        }
         if let Some(active) = &item.active {
             active.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
+        }
+        if let Some(aura) = &item.aura {
+            aura.validate().map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
         }
         item.target.validate(item.active.as_ref())
             .map_err(|error| format!("MOBA item '{}': {error}", item.id))?;
@@ -72,10 +150,41 @@ pub fn validate_moba_items(items: &[MobaItemEntry]) -> Result<(), String> {
         {
             return Err(format!("invalid MOBA item '{}'", item.id));
         }
+        // Fixtures never cite the source (E155). That every shop item of the real catalog cites
+        // one is enforced on the Lua data by templates/item_sources_check.lua; minimal catalogs
+        // of unit tests stay valid here.
+        if item.test_only && item.source_ref.is_some() {
+            return Err(format!("MOBA item '{}' is test_only and cannot cite source_ref", item.id));
+        }
+        // `<source>@<40-hex commit>:item_<key>` (E169); the source and commit are checked against
+        // templates/source_items.lua by the Lua build check.
+        if item.source_ref.as_deref().is_some_and(|r| r.len() > 160 || r.split_once('@').and_then(|(site, rest)| {
+                let (commit, row) = rest.split_once(':')?;
+                Some(!site.is_empty() && commit.len() == 40 && commit.bytes().all(|b| b.is_ascii_hexdigit()) && row.starts_with("item_"))
+            }) != Some(true))
+            || item.description.as_deref().is_some_and(|d| d.is_empty() || d.len() > 4096)
+            || (item.test_only && item.description.is_some()) {
+            return Err(format!("invalid MOBA item '{}' source fields", item.id));
+        }
+        if let Some(block) = &item.v3 {
+            if item.test_only { return Err(format!("MOBA item '{}' is test_only and cannot carry v3", item.id)); }
+            crate::v3::validate_block(block, "item", block.max_level).map_err(|e| format!("MOBA item '{}': {e}", item.id))?;
+        }
+        for (key, value) in &item.modifiers {
+            if !ITEM_STAT_MODIFIERS.contains(&key.as_str()) {
+                return Err(format!("MOBA item '{}' has unsupported modifier '{key}'", item.id));
+            }
+            if !value.is_finite() || value.abs() > 100_000.0 || *value == 0.0 || (value * 1024.0).round() == 0.0 {
+                return Err(format!("MOBA item '{}' has invalid modifier '{key}'", item.id));
+            }
+        }
         let mut materials = 0i32;
         for id in &item.recipe {
             let component = by_id.get(id.as_str())
                 .ok_or_else(|| format!("MOBA item '{}' has unknown component '{id}'", item.id))?;
+            if component.test_only && !item.test_only {
+                return Err(format!("MOBA shop item '{}' uses test_only component '{id}'", item.id));
+            }
             // Strictly increasing full price also prevents recipe cycles.
             if component.cost <= 0 || component.cost >= item.cost {
                 return Err(format!("MOBA item '{}' has non-increasing recipe price", item.id));
@@ -119,6 +228,30 @@ pub fn validate_purchase_groups<'a>(groups:impl IntoIterator<Item=&'a MobaItemPu
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn source_fields_and_modifiers_validate() {
+    let item=|extra:serde_json::Value|{
+        let mut v=serde_json::json!({"catalog_id":1,"id":"katana","name":"打刀","cost":1120});
+        for (k,x) in extra.as_object().unwrap() {v[k]=x.clone();}
+        serde_json::from_value::<MobaItemEntry>(v).unwrap()
+    };
+    let ok=item(serde_json::json!({"source_ref":"history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:item_katana","modifiers":{"attackspeed_bonus_constant":15.0}}));
+    validate_moba_items(&[ok.clone()]).unwrap();
+    assert_eq!(ok.modifier_values()[0],15.0,"values follow ITEM_STAT_MODIFIERS order");
+    for bad in [serde_json::json!({"modifiers":{"cooldown_percentage":5.0}}),serde_json::json!({"modifiers":{"mana_bonus":0.0}}),
+        serde_json::json!({"test_only":true,"source_ref":"history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:item_katana"}),serde_json::json!({"source_ref":"katana"}),
+        serde_json::json!({"source_ref":"item_katana"}),serde_json::json!({"source_ref":"history_nobu@f966720:item_katana"}),
+        serde_json::json!({"source_ref":"history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:katana"}),
+        serde_json::json!({"test_only":true,"description":"x"})] {
+        assert!(validate_moba_items(&[item(bad.clone())]).is_err(),"{bad}");
+    }
+    // A shop item never uses an engine fixture as a component.
+    let fixture=item(serde_json::json!({"id":"fixture","catalog_id":2,"test_only":true,"cost":100}));
+    let shop=item(serde_json::json!({"catalog_id":3,"id":"shop","source_ref":"history_nobu@f966720b0956d002099d72aabec7ddc94b16d4bf:item_shop","recipe":["fixture"]}));
+    assert!(validate_moba_items(&[fixture,shop]).is_err());
 }
 
 #[cfg(test)]
@@ -265,15 +398,18 @@ impl MobaItemTargetEntry {
                 None | Some(MobaItemActiveEntry::Shield { .. } | MobaItemActiveEntry::SprintBuff { .. }
                     | MobaItemActiveEntry::ChannelHeal { .. } | MobaItemActiveEntry::SelfControlCleanse {}
                     | MobaItemActiveEntry::RestoreMana { .. } | MobaItemActiveEntry::DamageReduce { .. }
-                    | MobaItemActiveEntry::HeadshotNext { .. })),
+                    | MobaItemActiveEntry::HeadshotNext { .. } | MobaItemActiveEntry::ApplyModifiers { .. })),
             MobaItemTargetShape::Point => !legacy && positive(self.range, 10_000.0)
                 && matches!(self.team, MobaItemTeamFilter::Enemy | MobaItemTeamFilter::Hostile) && self.requires_visible
                 && self.out_of_range == MobaItemOutOfRange::Reject
                 && matches!(active, Some(MobaItemActiveEntry::PointNova { .. })),
-            MobaItemTargetShape::Unit => !legacy && positive(self.range, 10_000.0)
-                && matches!(self.team, MobaItemTeamFilter::Enemy | MobaItemTeamFilter::Hostile) && self.requires_visible
+            MobaItemTargetShape::Unit => !legacy && positive(self.range, 10_000.0) && self.requires_visible
                 && self.out_of_range == MobaItemOutOfRange::Reject
-                && matches!(active, Some(MobaItemActiveEntry::UnitHex { .. })),
+                && match active {
+                    Some(MobaItemActiveEntry::UnitHex { .. }) => matches!(self.team, MobaItemTeamFilter::Enemy | MobaItemTeamFilter::Hostile),
+                    Some(MobaItemActiveEntry::UnitHeal { .. }) => self.team == MobaItemTeamFilter::Ally,
+                    _ => false,
+                },
         };
         if shape_ok { Ok(()) } else { Err("target contract does not match the active effect".into()) }
     }
@@ -289,6 +425,7 @@ impl MobaItemTargetEntry {
             MobaItemTeamFilter::Any => "Any",
             MobaItemTeamFilter::Enemy => "Enemy",
             MobaItemTeamFilter::Hostile => "Hostile",
+            MobaItemTeamFilter::Ally => "Ally",
         };
         format!(
             "MobaItemTargetConst {{ shape: MobaItemTargetShapeConst::{shape}, range: {}, team: MobaItemTeamConst::{team}, requires_visible: {}, out_of_range: MobaItemOutOfRangeConst::Reject }}",
@@ -315,6 +452,8 @@ pub enum MobaItemTeamFilter {
     Enemy,
     /// Source faction hostility, including aggressive neutrals; passive neutrals stay excluded.
     Hostile,
+    /// The caster's own team (source DOTA_UNIT_TARGET_TEAM_FRIENDLY), caster included.
+    Ally,
 }
 
 /// The only authored out-of-range policy. Approach and queue are not item contracts.
@@ -336,10 +475,118 @@ pub enum MobaItemActiveEntry {
     DamageReduce { percent: f32, duration: f32 },
     HeadshotNext { bonus_damage: f32 },
     /// Flat damage to visible enemies standing in the radius of an explicit point.
-    PointNova { damage: f32, radius: f32 },
+    PointNova { damage: f32, radius: f32,
+        /// Source damage type (E178); pure for the engine fixtures.
+        #[serde(default,skip_serializing_if="ItemDamageType::is_pure")] damage_type:ItemDamageType,
+        /// The source's `if not unit:IsBuilding()` guard: buildings are not hit.
+        #[serde(default,skip_serializing_if="is_false")] skip_buildings:bool,
+        /// A control every hit unit gets (source modifier_stunned / States).
+        #[serde(default,skip_serializing_if="Option::is_none")] control:Option<ItemControlEntry>,
+        /// The damage has an inflictor (KV Damage): the caster's spell amplification scales it (E188).
+        #[serde(default,skip_serializing_if="is_false")] spell:bool,
+        /// Buildings take this instead of `damage` and nothing else (source IsBuilding branch).
+        #[serde(default,skip_serializing_if="Option::is_none")] building_damage:Option<f32>,
+        /// FindUnitsInRadius without DOTA_UNIT_TARGET_FLAG_MAGIC_IMMUNE_ENEMIES: magic-immune
+        /// enemies are not found. Found ones get the control through the immunity, as the source
+        /// script applies it directly.
+        #[serde(default,skip_serializing_if="is_false")] excludes_magic_immune:bool,
+        /// A damage-over-time modifier on every hit non-building unit.
+        #[serde(default,skip_serializing_if="Option::is_none")] dot:Option<ItemDotEntry>,
+        /// AddFOWViewer: the caster's team sees around the point.
+        #[serde(default,skip_serializing_if="Option::is_none")] vision:Option<ItemVisionEntry> },
     /// Flat damage to one disclosed living enemy unit.
     UnitHex { damage: f32, #[serde(default)] healing_reduction:Option<HealingReductionEntry>,
-        #[serde(default,skip_serializing_if="Option::is_none")] control:Option<ItemControlEntry> },
+        #[serde(default,skip_serializing_if="Option::is_none")] control:Option<ItemControlEntry>,
+        /// How the damage meets defences (E176): pure (the engine fixtures) or the source's
+        /// physical/magical damage through armor and magic resistance.
+        #[serde(default,skip_serializing_if="ItemDamageType::is_pure")] damage_type:ItemDamageType,
+        /// The source's TrackingProjectile (E184): the effects land when it reaches the target
+        /// (OnProjectileHitUnit); absent, they land on cast.
+        #[serde(default,skip_serializing_if="Option::is_none")] projectile:Option<ItemProjectileEntry>,
+        /// The damage has an inflictor (KV Damage): the caster's spell amplification scales it (E188).
+        #[serde(default,skip_serializing_if="is_false")] spell:bool,
+        /// A move-speed slow on the target (source dummy.lua Slow `ms_slow`).
+        #[serde(default,skip_serializing_if="Option::is_none")] slow:Option<ItemSlowEntry> },
+    /// A source item's datadriven active (E160): named timed modifiers on the caster, or (`area`)
+    /// on friendly heroes (and basic units with `include_basic`) within `radius` of the caster,
+    /// plus a caster heal and mana restore. The modifier name is the buff id, so a reapplication
+    /// (from any item sharing it) refreshes instead of stacking, as the source's shared names do.
+    /// Heal one living allied non-building unit (E160, source Heal Target TARGET).
+    UnitHeal { amount: f32 },
+    ApplyModifiers {
+        #[serde(default, skip_serializing_if = "is_zero")] radius: f32,
+        #[serde(default, skip_serializing_if = "is_false")] include_basic: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")] modifiers: Vec<ItemModifierEntry>,
+        #[serde(default, skip_serializing_if = "is_zero")] heal: f32,
+        #[serde(default, skip_serializing_if = "is_zero")] mana: f32,
+        /// Seconds of magic immunity (strong dispel first) on the caster (E179).
+        #[serde(default, skip_serializing_if = "is_zero")] magic_immunity: f32,
+    },
+}
+
+/// Stats a translated modifier may carry: BuffStore StatKey names, percentages as fractions.
+pub const ITEM_ACTIVE_STATS: &[&str] = &[
+    "basedamageoutgoing_percentage",
+    "attackspeed_bonus_constant",
+    "movespeed_bonus_percentage",
+    "movespeed_bonus_constant",
+    "physical_armor_bonus",
+    "health_regen_constant",
+    "mana_regen_constant",
+];
+
+/// How an item's damage meets defences (E176).
+#[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemDamageType {
+    /// Ignores armor and magic resistance (engine fixtures, source DAMAGE_TYPE_PURE).
+    #[default]
+    Pure,
+    Physical,
+    Magical,
+}
+
+impl ItemDamageType {
+    pub fn is_pure(&self) -> bool { *self == Self::Pure }
+}
+
+/// A passive item aura (E173). The name is the buff id on every receiver, so one aura never
+/// stacks with itself whoever emits it.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ItemAuraEntry {
+    pub name: String,
+    pub radius: f32,
+    pub stats: BTreeMap<String, f32>,
+}
+
+impl ItemAuraEntry {
+    pub fn validate(&self) -> Result<(), String> {
+        let ok = !self.name.is_empty() && self.name.len() <= 64 && !self.name.starts_with("__")
+            && self.name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            && self.radius.is_finite() && self.radius > 0.0 && self.radius <= 100_000.0
+            && !self.stats.is_empty() && self.stats.len() <= 8
+            && self.stats.iter().all(|(key, value)| ITEM_ACTIVE_STATS.contains(&key.as_str())
+                && value.is_finite() && *value != 0.0 && value.abs() <= 10_000.0);
+        if ok { Ok(()) } else { Err("invalid aura".into()) }
+    }
+
+    pub fn rust_literal(&self) -> String {
+        let fixed = |v: f32| format!("Fixed64::from_raw({})", (f64::from(v) * 1024.0).round() as i64);
+        let stats = self.stats.iter().map(|(key, value)| format!("({key:?}, {})", fixed(*value))).collect::<Vec<_>>().join(", ");
+        format!("MobaItemAuraConst {{ name: {:?}, radius: {}, stats: &[{stats}] }}", self.name, fixed(self.radius))
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct ItemModifierEntry {
+    pub name: String,
+    /// Seconds; 0 is a modifier the source applies without a Duration (it lasts until removed).
+    pub duration: f32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub area: bool,
+    pub stats: BTreeMap<String, f32>,
 }
 
 #[derive(Debug,Deserialize,Serialize,Clone)]
@@ -349,6 +596,32 @@ pub struct ItemControlEntry {pub kind:crate::ControlEffectKind,pub duration:f32}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct HealingReductionEntry {pub multiplier:f32,pub duration:f32}
+
+/// A tracking projectile carrying a unit item's effects (source TrackingProjectile MoveSpeed,
+/// Dodgeable): a dodge of the target retires it without effect.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ItemProjectileEntry {pub speed:f32,#[serde(default,skip_serializing_if="is_false")] pub dodgeable:bool,
+    /// Source ProvidesVision + VisionRadius: the caster's team sees around the flight (E185).
+    #[serde(default,skip_serializing_if="is_zero")] pub vision:f32}
+
+/// A move-speed slow (fraction 0..1) for `duration` seconds; it stacks with other ability
+/// slows by the source's rule (dummy.lua slow_self_passive).
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ItemSlowEntry {pub move_speed:f32,pub duration:f32}
+
+/// A datadriven OnIntervalThink Damage: `damage` of the item's damage type every `interval`
+/// for `duration`; `spell` when its attacker is the caster (the caster's amplification).
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ItemDotEntry {pub damage:f32,pub interval:f32,pub duration:f32,
+    #[serde(default,skip_serializing_if="is_false")] pub spell:bool}
+
+/// Caster-team sight of `radius` around the point for `duration` seconds.
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ItemVisionEntry {pub radius:f32,pub duration:f32}
 
 impl MobaItemActiveEntry {
     fn validate(&self) -> Result<(), String> {
@@ -363,11 +636,34 @@ impl MobaItemActiveEntry {
             Self::RestoreMana { amount } => positive(*amount, 1_000_000.0),
             Self::DamageReduce { percent, duration } => positive(*percent, 1.0) && positive(*duration, 60.0),
             Self::HeadshotNext { bonus_damage } => positive(*bonus_damage, 1_000_000.0),
-            Self::PointNova { damage, radius } => positive(*damage, 1_000_000.0) && positive(*radius, 2_000.0),
-            Self::UnitHex { damage,healing_reduction,control } => positive(*damage, 1_000_000.0)
+            Self::PointNova { damage, radius, control, skip_buildings, building_damage, dot, vision, .. } => positive(*damage, 1_000_000.0) && positive(*radius, 2_000.0)
+                && control.as_ref().is_none_or(|c|positive(c.duration,60.0))
+                && building_damage.is_none_or(|d|positive(d,1_000_000.0) && !*skip_buildings)
+                && dot.as_ref().is_none_or(|d|positive(d.damage,1_000_000.0) && positive(d.interval,10.0) && positive(d.duration,60.0) && d.interval<=d.duration)
+                && vision.as_ref().is_none_or(|v|positive(v.radius,2_000.0) && positive(v.duration,60.0)),
+            Self::UnitHex { slow:Some(slow),.. } if !(slow.move_speed.is_finite() && (1.0/1024.0..1.0).contains(&slow.move_speed)
+                && positive(slow.duration,60.0)) => false,
+            Self::UnitHex { damage,healing_reduction,control,projectile,.. } => positive(*damage, 1_000_000.0)
+                && projectile.as_ref().is_none_or(|p|positive(p.speed,20_000.0) && (p.vision==0.0 || positive(p.vision,2_000.0)))
                 && control.as_ref().is_none_or(|c|positive(c.duration,60.0))
                 && healing_reduction.as_ref().is_none_or(|r|r.multiplier.is_finite() && (0.0..1.0).contains(&r.multiplier)
                     && (r.multiplier*1024.0).round()<1024.0 && positive(r.duration,60.0)),
+            Self::UnitHeal { amount } => positive(*amount, 1_000_000.0),
+            Self::ApplyModifiers { radius, include_basic, modifiers, heal, mana, magic_immunity } => {
+                let any_area = modifiers.iter().any(|m| m.area);
+                let mut names = std::collections::BTreeSet::new();
+                (!modifiers.is_empty() || *heal > 0.0 || *mana > 0.0 || *magic_immunity > 0.0) && modifiers.len() <= 8
+                    && magic_immunity.is_finite() && (0.0..=60.0).contains(magic_immunity)
+                    && (if any_area { positive(*radius, 2_000.0) } else { *radius == 0.0 && !include_basic })
+                    && heal.is_finite() && (0.0..=1_000_000.0).contains(heal)
+                    && mana.is_finite() && (0.0..=1_000_000.0).contains(mana)
+                    && modifiers.iter().all(|m| names.insert(m.name.as_str())
+                        && !m.name.is_empty() && m.name.len() <= 64
+                        && m.name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                        && (m.duration == 0.0 || positive(m.duration, 60.0)) && !m.stats.is_empty() && m.stats.len() <= 8
+                        && m.stats.iter().all(|(key, value)| ITEM_ACTIVE_STATS.contains(&key.as_str())
+                            && value.is_finite() && *value != 0.0 && value.abs() <= 10_000.0))
+            }
         };
         if valid { Ok(()) } else { Err("invalid active effect amount or duration".into()) }
     }
@@ -382,11 +678,31 @@ impl MobaItemActiveEntry {
             Self::RestoreMana { amount } => format!("MobaItemActiveConst::RestoreMana {{ amount: {} }}", fixed(*amount)),
             Self::DamageReduce { percent, duration } => format!("MobaItemActiveConst::DamageReduce {{ percent: {}, duration: {} }}", fixed(*percent), fixed(*duration)),
             Self::HeadshotNext { bonus_damage } => format!("MobaItemActiveConst::HeadshotNext {{ bonus_damage: {} }}", fixed(*bonus_damage)),
-            Self::PointNova { damage, radius } => format!("MobaItemActiveConst::PointNova {{ damage: {}, radius: {} }}", fixed(*damage), fixed(*radius)),
-            Self::UnitHex { damage,healing_reduction,control } => {
+            Self::PointNova { damage, radius, damage_type, skip_buildings, control, spell, building_damage, excludes_magic_immune, dot, vision } => {
+                let control=control.as_ref().map_or("None".to_owned(),|c|format!("Some(MobaItemControlConst {{kind:MobaItemControlKindConst::{:?},duration:{} }})",c.kind,fixed(c.duration)));
+                let building=building_damage.map_or("None".to_owned(),|d|format!("Some({})",fixed(d)));
+                let dot=dot.as_ref().map_or("None".to_owned(),|d|format!("Some(MobaItemDotConst {{ damage:{},interval:{},duration:{},spell:{} }})",fixed(d.damage),fixed(d.interval),fixed(d.duration),d.spell));
+                let vision=vision.as_ref().map_or("None".to_owned(),|v|format!("Some(MobaItemVisionConst {{ radius:{},duration:{} }})",fixed(v.radius),fixed(v.duration)));
+                format!("MobaItemActiveConst::PointNova {{ damage: {}, radius: {}, damage_type: MobaItemDamageTypeConst::{:?}, skip_buildings: {}, control: {control}, \
+                    hit: MobaItemHitConst {{ spell:{spell},slow:None,building_damage:{building},excludes_magic_immune:{excludes_magic_immune},dot:{dot},vision:{vision} }} }}",
+                    fixed(*damage), fixed(*radius), damage_type, skip_buildings)
+            },
+            Self::UnitHex { damage,healing_reduction,control,damage_type,projectile,spell,slow } => {
+                let projectile=projectile.as_ref().map_or("None".to_owned(),|p|format!("Some(MobaItemProjectileConst {{ speed:{},dodgeable:{},vision:{} }})",fixed(p.speed),p.dodgeable,fixed(p.vision)));
                 let reduction=healing_reduction.as_ref().map_or("None".to_owned(),|r|format!("Some(MobaHealingReductionConst {{ multiplier:{},duration:{} }})",fixed(r.multiplier),fixed(r.duration)));
                 let control=control.as_ref().map_or("None".to_owned(),|c|format!("Some(MobaItemControlConst {{kind:MobaItemControlKindConst::{:?},duration:{} }})",c.kind,fixed(c.duration)));
-                format!("MobaItemActiveConst::UnitHex {{ damage: {},healing_reduction:{reduction},control:{control} }}", fixed(*damage))
+                let slow=slow.as_ref().map_or("None".to_owned(),|s|format!("Some(MobaItemSlowConst {{ move_speed:{},duration:{} }})",fixed(s.move_speed),fixed(s.duration)));
+                format!("MobaItemActiveConst::UnitHex {{ damage: {},healing_reduction:{reduction},control:{control},damage_type:MobaItemDamageTypeConst::{:?},projectile:{projectile}, \
+                    hit: MobaItemHitConst {{ spell:{spell},slow:{slow},building_damage:None,excludes_magic_immune:false,dot:None,vision:None }} }}", fixed(*damage), damage_type)
+            },
+            Self::UnitHeal { amount } => format!("MobaItemActiveConst::UnitHeal {{ amount: {} }}", fixed(*amount)),
+            Self::ApplyModifiers { radius, include_basic, modifiers, heal, mana, magic_immunity } => {
+                let modifiers = modifiers.iter().map(|m| {
+                    let stats = m.stats.iter().map(|(key, value)| format!("({key:?}, {})", fixed(*value))).collect::<Vec<_>>().join(", ");
+                    format!("MobaItemModifierConst {{ name: {:?}, duration: {}, area: {}, stats: &[{stats}] }}", m.name, fixed(m.duration), m.area)
+                }).collect::<Vec<_>>().join(", ");
+                format!("MobaItemActiveConst::ApplyModifiers {{ radius: {}, include_basic: {include_basic}, modifiers: &[{modifiers}], heal: {}, mana: {}, magic_immunity: {} }}",
+                    fixed(*radius), fixed(*heal), fixed(*mana), fixed(*magic_immunity))
             },
         }
     }

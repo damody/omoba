@@ -18,7 +18,9 @@ impl BuffVisualState {
                 .or_else(|| {
                     let (ability, stat) = omb_script_abi::buff_ids::declarative_buff_source(name)?;
                     omoba_template_ids::declarative_buff_visual_id(ability, stat)
-                })?
+                })
+                // A v3 status's own buff, by its runtime id (E218).
+                .or_else(|| omoba_template_ids::status_buff_by_key(name))?
                 .raw();
             let raw = entry.remaining.raw();
             (raw != 0).then_some((id, if raw < 0 { -1 } else { raw }))
@@ -104,6 +106,16 @@ fn channel_status_valid(name:&str,entry:&crate::runtime::native::ability_runtime
         && entry.payload[name]["total_raw"].as_i64().is_some_and(|raw|
             raw>0 && raw<=60*1024 && entry.remaining>omoba_sim::Fixed64::ZERO && entry.remaining.raw()<=raw)
 }
+/// The snapshot another team may see (E216): only the icons whose statuses are all
+/// `reveal = "public"`, with their channel totals; empty when none is. Malformed bytes give None.
+pub fn public_snapshot(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut snapshot = BuffVisualSnapshot::decode(bytes)?;
+    snapshot.buffs.0.retain(|(id, _)| omoba_template_ids::buff_is_public(BuffId(*id)));
+    let kept = snapshot.buffs.0.clone();
+    snapshot.channel_totals.retain(|(id, _)| kept.iter().any(|row| row.0 == *id));
+    snapshot.encode()
+}
+
 /// Current owner-team snapshot. BVS1 remains an exact legacy codec.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BuffVisualSnapshot {
@@ -369,6 +381,20 @@ mod tests {
         assert_eq!(buffs[0].buff_id, "slow");
         assert!(buffs[0].payload_json.is_empty());
         assert_eq!(buffs[0].remaining_secs, 2.0);
+    }
+
+    #[test]
+    fn v3_statuses_show_their_own_buff_by_runtime_id() {
+        let mut world = specs::World::new();
+        let entity = world.create_entity().build();
+        let mut store = crate::runtime::BuffStore::default();
+        for key in ["b01_sniper_mode", "generic_slow:a34_iceberg_strike:5:1", "a07_strongest_r2:5:1", "stun"] {
+            store.add(entity, key, omoba_sim::Fixed64::from_i32(3), serde_json::json!({}));
+        }
+        let mut names: Vec<String> = BuffVisualState::from_store(&store, entity).render_buffs().into_iter().map(|b| b.buff_id.to_string()).collect();
+        names.sort();
+        // The status id names the buff; a key a hand-written buff names (stun) keeps it.
+        assert_eq!(names, ["a07t_strongest", "a34e_slow", "b01w_sniper", "stun"]);
     }
 
     #[test]

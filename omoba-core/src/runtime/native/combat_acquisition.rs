@@ -1254,6 +1254,75 @@ mod tests {
     }
 
     #[test]
+    fn idle_hero_answers_a_camp_that_hits_it_but_not_while_moving() {
+        let mut fix = CombatFixture::legacy();
+        let camp = fix.spawn_units(IndexedBody::Creep, 6, 0, 100);
+        fix.world.write_storage::<Faction>().get_mut(camp).unwrap().faction_id = FactionType::HostileNeutral;
+        let creep = fix.spawn_units(IndexedBody::Creep, 4, 2, 100);
+        fix.authority();
+        fix.world.write_resource::<crate::runtime::MobaMatch>().config.game_rules = omoba_template_ids::GAME_RULES;
+        fix.commit(1, &[camp, creep]);
+        fix.idle();
+        assert_eq!(fix.attack_targets(), vec![creep], "idle acquisition never pulls a camp on its own");
+        let now = fix.world.read_resource::<crate::runtime::MobaMatch>().elapsed;
+        crate::runtime::native::retaliation::record(&mut fix.world, camp, fix.hero, now);
+        assert_eq!(fix.attack_targets(), vec![camp], "idle and hit by the camp: answer it, before the nearer creep");
+        // A move order wins: no automatic attack while moving.
+        fix.command(HeroCommand::MoveTo { pos: away_from(0) });
+        fix.ready();
+        fix.rebuild();
+        fix.world.write_storage::<crate::runtime::MoveTarget>().insert(fix.hero, crate::runtime::MoveTarget(away_from(0))).unwrap();
+        fix.world.write_resource::<Vec<Outcome>>().clear();
+        run_now::<hero_tick::Sys>(&fix.world);
+        assert!(!fix.world.read_resource::<Vec<Outcome>>().iter().any(|o| matches!(o, Outcome::AttackPhaseCue { .. })),
+            "moving: no retaliation");
+        // Stopping restores it.
+        fix.idle();
+        assert_eq!(fix.attack_targets(), vec![camp], "stopped: retaliation resumes");
+        // Out of attack range: the ordinary idle rule.
+        fix.world.write_storage::<Pos>().get_mut(camp).unwrap().0 = Vec2::new(Fixed64::from_i32(400), Fixed64::ZERO);
+        fix.rebuild();
+        assert_eq!(fix.attack_targets(), vec![creep]);
+        // The hit expires after the window.
+        fix.world.write_storage::<Pos>().get_mut(camp).unwrap().0 = Vec2::new(Fixed64::from_i32(6), Fixed64::ZERO);
+        fix.world.write_resource::<crate::runtime::MobaMatch>().elapsed =
+            now + Fixed64::from_i32(crate::runtime::native::retaliation::WINDOW_SECONDS + 1);
+        assert_eq!(fix.attack_targets(), vec![creep], "an old hit does not keep the hero on the camp");
+    }
+
+    #[test]
+    fn idle_hero_goes_after_enemies_and_attackers_within_acquisition_range() {
+        let rules = omoba_template_ids::GAME_RULES.expect("the catalog carries game_rules");
+        let acquisition = rules.hero_acquisition_range as i32;
+        let mut fix = CombatFixture::legacy();
+        let creep = fix.spawn_units(IndexedBody::Creep, acquisition - 100, 2, 100);
+        let camp = fix.spawn_units(IndexedBody::Creep, -(acquisition - 200), 0, 100);
+        fix.world.write_storage::<Faction>().get_mut(camp).unwrap().faction_id = FactionType::HostileNeutral;
+        let far = fix.spawn_units(IndexedBody::Creep, acquisition + 400, 2, 100);
+        fix.authority();
+        fix.world.write_resource::<crate::runtime::MobaMatch>().config.game_rules = Some(rules);
+        fix.commit(1, &[creep, camp, far]);
+        fix.idle();
+        let observed = fix.run_command();
+        assert_eq!(observed.active, Some(HeroCommand::AttackTarget { target: creep, chase_origin: Some(Vec2::ZERO) }),
+            "idle: the nearest enemy within acquisition range, never a camp on its own");
+        assert!(observed.moving);
+        // Hit by the camp: it is chased first.
+        fix.idle();
+        let now = fix.world.read_resource::<crate::runtime::MobaMatch>().elapsed;
+        crate::runtime::native::retaliation::record(&mut fix.world, camp, fix.hero, now);
+        assert!(matches!(fix.run_command().active, Some(HeroCommand::AttackTarget { target, .. }) if target == camp));
+        // An order wins: a move is never replaced.
+        fix.command(HeroCommand::MoveTo { pos: away_from(0) });
+        assert!(matches!(fix.run_command().active, Some(HeroCommand::MoveTo { .. })));
+        // Nothing within acquisition range: stay idle.
+        fix.delete(creep);
+        fix.delete(camp);
+        fix.idle();
+        assert_eq!(fix.run_command().active, None);
+    }
+
+    #[test]
     fn attack_move_windup_still_holds_and_dead_explicit_target_does_not() {
         let mut fix = CombatFixture::legacy();
         fix.command(HeroCommand::AttackMove { pos: away_from(0) });

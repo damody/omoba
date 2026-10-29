@@ -339,6 +339,9 @@ impl RuntimeContent {
                 if runtime.cleanses_allies!=compiled.cleanses_allies {
                     return Err("MOBA ally cleanse execution differs from compiled content; rebuild all peers".into());
                 }
+                if runtime.pierces_magic_immunity!=compiled.pierces_magic_immunity {
+                    return Err("MOBA magic immunity piercing differs from compiled content; rebuild all peers".into());
+                }
                 if runtime.recovery_channel!=compiled.recovery_channel
                     || (runtime.recovery_channel.is_some() && (runtime.cast_type!=compiled.cast_type || runtime.target_type!=compiled.target_type)) {
                     return Err("MOBA recovery channel execution differs from compiled content; rebuild all peers".into());
@@ -703,7 +706,7 @@ struct ContentShape {
     mana_regen_per_second: u32,
     base_recovery_mana_per_second: u32,
     moba_map_catalog_json: String,
-    hero_moba_loadouts: Vec<(String, [u8; 4], u8)>,
+    hero_moba_loadouts: Vec<(String, [u8; omoba_content_model::HERO_ABILITY_SLOTS], u8)>,
     ability_rank_requirements: Vec<(String, u16, Vec<(u8,bool)>)>,
     ability_aim_previews:Vec<(String,String)>,
     ability_recovery_channels:Vec<(String,(String,String,String))>,
@@ -1296,6 +1299,10 @@ fn build_hero_stats(entry: &HeroEntry) -> Result<HeroStats, String> {
             hp_per_level: fixed64(entry.level_growth.hp_per_level),
             mana_per_level: fixed64(entry.level_growth.mana_per_level),
         },
+        base_attack_time: entry.base_attack_time.map(fixed64),
+        health_regen: fixed64(entry.health_regen),
+        mana_regen: fixed64(entry.mana_regen),
+        acquisition_range: entry.acquisition_range.map(fixed64),
     })
 }
 
@@ -1451,6 +1458,7 @@ fn ability_const_from_entry(entry: &AbilityEntry) -> Result<AbilityConst, String
     }
     Ok(AbilityConst {
         cleanses_allies: entry.effects.iter().any(|effect|matches!(effect,omoba_content_model::AbilityEffect::CleanseAlly {})),
+        pierces_magic_immunity: entry.pierces_magic_immunity,
         auto_learn: entry.auto_learn,
         ability_type: ability_type(&entry.ability_type)?,
         cast_type: cast_type(&entry.cast_type)?,

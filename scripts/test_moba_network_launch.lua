@@ -23,7 +23,7 @@ test('strict endpoint/remote ownership options',function()
   end
   for _,args in ipairs({{'--connect','192.0.2.10'},
     {'--connect','192.0.2.10','--recipe','host.lua','--local-player','1'},
-    {'--connect','192.0.2.10','--recipe','host.json','--local-player','1','--hero','1=training_ranger'},
+    {'--connect','192.0.2.10','--recipe','host.json','--local-player','1','--hero','1=tamako'},
     {'--connect','192.0.2.10','--recipe','host.json','--local-player','1','--interactive-selection'},
     {'--connect','192.0.2.10','--recipe','host.json','--local-player','1','--server-bind','192.0.2.20'},
     {'--local-player','1','--local-player','01'},{'--local-player','0'},{'--local-player','4294967296'}}) do

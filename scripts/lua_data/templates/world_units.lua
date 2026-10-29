@@ -40,6 +40,9 @@ return function(ctx)
     unit('single_lane_base', 32769, 'castle_keep', 260),
     unit('moba_inhibitor', 32770, 'shrine_gate', 110),
     unit('moba_nexus_tower', 32771, 'tower_yagura', 210),
+    -- Disclosed wards (frame entity kind Ward, no presentation catalog of their own) wear this
+    -- stone lantern; its paper panels carry the owner's team colour (OmWorldBridgeActor maps them).
+    unit('moba_ward', 32772, 'ward_lantern', 48),
     {id='single_lane_creep',kind='Creep',catalog_id=32768,ue={native_only=true,native_visual=creep}},
     {id='north_guardian',kind='Creep',catalog_id=32769,ue={native_only=true,native_visual=north}},
     {id='south_guardian',kind='Creep',catalog_id=32770,ue={native_only=true,native_visual=south}},
@@ -98,6 +101,11 @@ return function(ctx)
         super_ids[id]=true;next_super_id=next_super_id+1
       end
     end
+  end
+  -- Every MOBA world unit is visible in a match: none may fall back to the runtime's default cube.
+  for _,row in ipairs(units) do
+    local visual=row.ue and row.ue.native_visual
+    assert(visual and (visual.mesh_asset or visual.static_mesh_asset),'world unit without a model: '..row.id)
   end
   return units
 end

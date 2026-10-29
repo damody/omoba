@@ -7,6 +7,10 @@
 -- derived (worst wins), so the data cannot claim `supported` for a kit whose
 -- mechanics are not. Each reviewed skill pins the catalog raw_sha256 it was
 -- read against, so a changed source makes the review stale instead of silent.
+-- A source switch (E169, nobugg_official -> history_nobu) may acknowledge a changed
+-- skill with `stale_review = { raw_sha256 = <new>, reason = ... }`: the old review is
+-- kept, the skill derives at best `ambiguous` until it is re-read, and a further
+-- source change (raw_sha256 differs from the acknowledged one) is an error again.
 local M = {}
 
 M.SCHEMA = "omoba.hero_source_requirements/1"
@@ -71,7 +75,13 @@ function M.validate(req, catalog)
       else
         if a.source_hero_id ~= hid then bad(alabel .. " belongs to " .. tostring(a.source_hero_id)) end
         if a.variant ~= h.variant then bad(alabel .. " is variant " .. a.variant .. ", kit is " .. tostring(h.variant)) end
-        if ab.reviewed_sha256 ~= a.raw_sha256 then bad(alabel .. " review is stale (raw_sha256 changed)") end
+        if ab.stale_review then
+          if ab.reviewed_sha256 == a.raw_sha256 then bad(alabel .. " is marked stale but its review is current") end
+          if ab.stale_review.raw_sha256 ~= a.raw_sha256 then bad(alabel .. " stale_review does not acknowledge the current source text") end
+          if not ab.stale_review.reason or ab.stale_review.reason == "" then bad(alabel .. " stale_review needs a reason") end
+        elseif ab.reviewed_sha256 ~= a.raw_sha256 then
+          bad(alabel .. " review is stale (raw_sha256 changed)")
+        end
       end
       if ab.read ~= true then bad(alabel .. " must be read before classification") end
       local status
@@ -93,6 +103,8 @@ function M.validate(req, catalog)
       if ab.status ~= nil and ab.status ~= status then
         bad(alabel .. " declares " .. tostring(ab.status) .. " but mechanics derive " .. tostring(status))
       end
+      -- A review read against older source text is not evidence for the current text.
+      if ab.stale_review then status = worst(status, "ambiguous") end
       d.abilities[ab.id] = status
       d.status = worst(d.status, status)
       reviewed[ab.id] = true

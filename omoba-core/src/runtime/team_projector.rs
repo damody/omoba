@@ -1917,7 +1917,15 @@ fn team_safe_components(bytes: &[u8], team: u32) -> BTreeMap<u32, Vec<u8>> {
     let owns=components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
         .and_then(|bytes|crate::runtime::decode_demo_render_state(bytes))
         .is_some_and(|state|state.team_id==team && state.owner_player_id!=0);
-    if !owns {components.remove(&crate::runtime::buff_visual_state::SCHEMA_ID);}
+    // Another team sees only the public statuses' icons (v3 `reveal = "public"`, E216); the owner team sees all.
+    if !owns {
+        let schema = crate::runtime::buff_visual_state::SCHEMA_ID;
+        match components.get(&schema).map(|bytes| crate::runtime::buff_visual_state::public_snapshot(bytes)) {
+            Some(Some(public)) => { components.insert(schema, public); }
+            Some(None) => { components.remove(&schema); }
+            None => {}
+        }
+    }
     if components.contains_key(&crate::runtime::DISCLOSED_GOLD_COMPONENT_SCHEMA_ID) {
         let owned = components.get(&crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID)
             .and_then(|bytes| crate::runtime::decode_demo_render_state(bytes))
@@ -2075,15 +2083,23 @@ mod ability_cue_projection_tests {
     use super::*;
 
     #[test]
-    fn buff_visual_state_baseline_is_owner_team_only() {
+    fn buff_visual_state_shows_every_icon_to_the_owner_team_and_public_ones_to_others() {
         use crate::runtime::buff_visual_state::{BuffVisualState,SCHEMA_ID};
+        // E216: stun is public (every v3 status held as `stun`); a hand-written icon no v3 status declares is not.
+        let stun=omoba_template_ids::buff_by_name("stun").unwrap();
+        assert!(omoba_template_ids::buff_is_public(stun));
+        let private=(1..u16::MAX).map(omoba_template_ids::BuffId).find(|id|omoba_template_ids::buff_id_str(*id)!=""
+            && !omoba_template_ids::buff_is_public(*id)).expect("a non-public buff");
+        let state=BuffVisualState(vec![(stun.raw(),1024),(private.raw(),2048)]);
+        let public=BuffVisualState(vec![(stun.raw(),1024)]).encode().unwrap();
         for owner in [0,7] {
             let bytes=crate::runtime::encode_disclosed_baseline(&[
                 (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(
                     crate::runtime::DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:owner})),
-                (SCHEMA_ID,BuffVisualState(vec![]).encode().unwrap())]);
-            assert_eq!(team_safe_components(&bytes,1).contains_key(&SCHEMA_ID),owner!=0);
-            assert!(!team_safe_components(&bytes,2).contains_key(&SCHEMA_ID));
+                (SCHEMA_ID,state.encode().unwrap())]);
+            let own=team_safe_components(&bytes,1);
+            assert_eq!(own.get(&SCHEMA_ID),Some(&if owner!=0 {state.encode().unwrap()} else {public.clone()}),"owner {owner}");
+            assert_eq!(team_safe_components(&bytes,2).get(&SCHEMA_ID),Some(&public),"the other team sees the public icon only");
         }
     }
 
@@ -2145,7 +2161,9 @@ mod ability_cue_projection_tests {
                 else {BuffVisualSnapshot {buffs:BuffVisualState(vec![(id,remaining)]),channel_totals:vec![(id,3072)]}};
             let bytes=state.encode().unwrap();let baseline=crate::runtime::encode_disclosed_baseline(&[
                 (crate::runtime::DEMO_RENDER_COMPONENT_SCHEMA_ID,crate::runtime::encode_demo_render_state(crate::runtime::DemoRenderState {x_raw:0,y_raw:0,team_id:1,kind:1,owner_player_id:7})),(SCHEMA_ID,bytes.clone())]);
-            assert!(team_safe_components(&baseline,1).contains_key(&SCHEMA_ID));assert!(!team_safe_components(&baseline,2).contains_key(&SCHEMA_ID));
+            // recovery_channel is no v3 status: the other team gets the empty public snapshot.
+            assert!(team_safe_components(&baseline,1).contains_key(&SCHEMA_ID));
+            assert_eq!(team_safe_components(&baseline,2).get(&SCHEMA_ID),Some(&BuffVisualState(vec![]).encode().unwrap()));
             let visible=BTreeSet::from([source]);projector.refresh_expected_visible_components(tick,&visible,&BTreeMap::from([(source,baseline)]));
             let step=projector.build_step(tick,&visible,&[],vec![],&[],&[]).unwrap();
             let events:Vec<_>=step.public_events.iter().filter(|event|event.event_kind==crate::runtime::FactKind::OwnerBuffVisual as u32).collect();assert_eq!(events.len(),1);assert_eq!(events[0].sanitized_payload,bytes);

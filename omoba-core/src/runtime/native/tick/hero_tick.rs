@@ -1,5 +1,5 @@
 use crate::comp::*;
-use crate::runtime::combat_controls::AcquisitionIntent;
+use crate::runtime::combat_controls::{within_raw_range, AcquisitionIntent};
 use crate::runtime::native::combat_acquisition::{
     acquire, AcquisitionRequest, CombatAcquisitionView, DisclosureContext,
 };
@@ -45,6 +45,7 @@ pub struct HeroRead<'a> {
     admitted: Option<Read<'a, crate::runtime::native::combat_acquisition::AdmittedCombatPreferences>>,
     attack_gate: Option<Read<'a, crate::runtime::filtered_specs::DisclosedAttackabilityGate>>,
     disclosed_wards: Option<Read<'a, crate::runtime::filtered_specs::DisclosedWardCandidates>>,
+    retaliation: Option<Read<'a, super::super::retaliation::HeroRetaliation>>,
     replica_identities: ReadStorage<'a, crate::runtime::ReplicaIdentity>,
     ward_bodies: ReadStorage<'a, crate::runtime::DisclosedWardBody>,
 }
@@ -220,7 +221,15 @@ impl<'a> System<'a> for Sys {
                                 Some(HeroCommand::AttackMove { pos }) => {
                                     (AcquisitionIntent::AttackMove, Some(pos), None)
                                 }
-                                _ => (AcquisitionIntent::Idle, None, None),
+                                // Idle: answer a recent attacker in attack range first (authority,
+                                // retaliation.rs), otherwise the nearest enemy in range.
+                                _ => match match_state.filter(|state| state.config.game_rules.is_some()).zip(tr.retaliation.as_deref())
+                                    .and_then(|(state, hits)| super::super::retaliation::attacker(hits, e, state.elapsed))
+                                    .filter(|attacker| tr.pos.get(*attacker)
+                                        .is_some_and(|at| within_raw_range(pos.0, at.0, attack_range))) {
+                                    Some(attacker) => (AcquisitionIntent::AttackTarget, None, Some(attacker)),
+                                    None => (AcquisitionIntent::Idle, None, None),
+                                },
                             }};
                             let view = CombatAcquisitionView {
                                 entities: &tr.entities,

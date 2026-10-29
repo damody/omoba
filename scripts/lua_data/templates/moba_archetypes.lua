@@ -44,7 +44,8 @@ return function(ctx)
   }
   local result={heroes={},abilities={},ability_policies={},ability_learning={}}
   for _,entry in ipairs(definitions) do
-    local hero={id=entry.id,ue={native_only=true},display_name=entry.name,title=entry.title,
+    -- Original prototypes, not source heroes: automated tests and fixtures only.
+    local hero={id=entry.id,test_only=true,ue={native_only=true},display_name=entry.name,title=entry.title,
       background='使用共用宣告式效果與生成呈現的原創 MOBA 原型。',abilities={},
       strength=entry.strength,agility=entry.agility,intelligence=entry.intelligence,
       primary_attribute=entry.primary,base_hp=entry.hp,base_mana=entry.mana,

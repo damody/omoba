@@ -1,8 +1,9 @@
--- Usage: lua validate_package.lua <package_dir> [--catalog <source-catalog.lua>] [--requirements <file>]
+-- Usage: lua validate_package.lua <package_dir|v3_document.lua> [--catalog <source-catalog.lua>] [--requirements <file>]
 -- As a module (set the global VALIDATE_PACKAGE_AS_MODULE = true, then dofile)
 -- it returns { validate = function(dir, opts) -> errors, warnings }.
 -- schema_version 1 packages use the v1 art rules below; schema_version 2
--- packages add the gameplay contract in package_v2.lua.
+-- packages add the gameplay contract in package_v2.lua; schema v3 documents (a .lua
+-- file, or v3.lua in a package dir) are checked by package_v3.lua.
 local tools_dir = (debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or ".")
 local as_module = rawget(_G, "VALIDATE_PACKAGE_AS_MODULE") == true
 local package_dir
@@ -234,7 +235,43 @@ local function sandbox_load(file_name)
   return ok2 and type(v) == "table" and v or nil
 end
 
+-- Schema v3 (schema/v3.md): a single document file, or a package dir holding v3.lua.
+-- A shipped hero's package also carries the v2 files until M5; both are checked.
+local v3_module
+local validate_v12
+local function v3()
+  if not v3_module then
+    local prev = rawget(_G, "PACKAGE_V3_AS_MODULE")
+    PACKAGE_V3_AS_MODULE = true
+    v3_module = dofile(tools_dir .. "/package_v3.lua")
+    PACKAGE_V3_AS_MODULE = prev
+  end
+  return v3_module
+end
+
 local function validate(dir, options)
+package_dir = dir
+opts = options or {}
+errors, warnings = {}, {}
+if dir:match("%.lua$") then
+  return v3().validate_file(dir, opts)
+end
+local kit = io.open(dir .. "/v3.lua", "rb")
+if kit then
+  kit:close()
+  local e3, w3 = v3().validate_file(dir, opts)
+  local char = io.open(dir .. "/character.lua", "rb")
+  if not char then return e3, w3 end
+  char:close()
+  local e2, w2 = validate_v12(dir, options)
+  for _, m in ipairs(e3) do e2[#e2 + 1] = m end
+  for _, m in ipairs(w3) do w2[#w2 + 1] = m end
+  return e2, w2
+end
+return validate_v12(dir, options)
+end
+
+function validate_v12(dir, options)
 package_dir = dir
 opts = options or {}
 errors, warnings = {}, {}

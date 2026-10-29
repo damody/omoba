@@ -1,0 +1,312 @@
+-- B15 今川義元（current 版）— package schema v3。
+-- current 版＝英雄實際出生時的技能：npc/B_Unified/B15_2.txt:16-22 的 B15W/B15E/B15R/B15D/B15T。
+-- choose_16 在 vscripts/library/events/eventforpichero.lua:63-73 被註解掉，heromap_skill 不會套用。
+-- 原作槽位 W/E/R/D/T → Q/W/E/D/R。heromap_autoskill B15 ["16"] = ""（addon_game_mode.lua:397），
+-- 但 B15D 是 NOT_LEARNABLE，由 eventforpichero.lua:163-171 每秒檢查、英雄 8 級時 SetLevel(1)（hero.auto_learn 加 requires.hero_level，v3.1）。
+-- _old（11 版）與 _20 版不做。英雄共通的 magical_resistance（nobu 魔抗池）屬規則層，B15_precache 只是資產，都不列入。
+-- 慣例：KV 未寫 IsPurgable 的 datadriven modifier 寫 dispel = "basic"（v3.md §12.3 推定）。
+-- 原作 HERO | BASIC 照 C01 寫成 types = { "hero", "creep", "neutral", "summon" }。
+-- EXCLUDE_TARGET_NAME2（com_general_oda／com_general_unified 武將）以單位 tag general 表達（v3.1）。
+return function(ctx)
+  return {
+    schema_version = 3, kind = "hero", id = "B15",
+    source = { repository = "history_nobu", commit = "f966720", root = "game/dota_addons/nobu/scripts/" },
+    hero = {
+      source_id = "B15",
+      text = { zh_TW = { name = "今川義元" }, en = { name = "Imagawa Yoshimoto" } },
+      auto_learn = { "b15_multishot" },
+    },
+    abilities = {
+      -------------------------------------------------------------------------
+      { id = "b15_tokai_giant", source_id = "B15W", slot = "Q", kind = "active", max_level = 4, tags = { "basic" },
+        values = {
+          cooldown = { 24, unit = "s", source = "kv:AbilityCooldown" },
+          mana_cost = { 120, 140, 160, 180, unit = "mana", source = "kv:AbilityManaCost" },
+          duration = { 6, 7, 8, 9, unit = "s", source = "kv:duration" },
+          attack_bonus = { 25, 35, 45, 55, unit = "dmg", source = "kv:attack_bonus", note = "modifier_b15w BASEATTACK_BONUSDAMAGE" },
+        },
+        text = {
+          zh_TW = { name = "東海巨人",
+            body = "化身巨人 {duration} 秒：基礎攻擊力 +{attack_bonus}，並獲得魔法免疫。施放時移除身上所有由敵方施加的狀態（不論能否驅散）。" },
+          en = { name = "Giant of Tokai",
+            body = "Becomes a giant for {duration} seconds: +{attack_bonus} base attack damage and spell immunity. On cast, removes every status on Yoshimoto that was applied by an enemy, dispellable or not." },
+        },
+        target = { type = "none" },
+        cast = { immediate = true },
+        cost = { mana = "$mana_cost", cooldown = "$cooldown", cooldown_start = "on_cast" },
+        statuses = {
+          { id = "b15w_giant", text = { zh_TW = { name = "東海巨人", body = "基礎攻擊力提高 {attack_bonus}，並獲得魔法免疫。" }, en = { name = "Giant of Tokai", body = "+{attack_bonus} base attack damage and spell immunity." } }, duration = "$duration", stacking = "refresh", dispel = "basic", visibility = "buff",
+            reveal = "public", cue = "b15w_giant_aura",
+            stats = { base_attack_damage = "$attack_bonus" },
+            states = { "magic_immune" },
+            notes = "原作 modifier_b15w：BASEATTACK_BONUSDAMAGE（白字）、MAGIC_IMMUNE；沒寫 IsPurgable，暫定 basic。" },
+        },
+        events = {
+          on_cast = {
+            { op = "cue", id = "b15w_vo", at = "caster" },
+            { op = "apply_status", status = "b15w_giant", to = "caster" },
+            { op = "cue", id = "b15w_model_grow", at = "caster", duration = "$duration" },
+            { op = "remove_status", from = "caster", dispel = "all", team_of_source = "enemy" },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:5-12",
+            text = "施放後逐一檢查身上所有 modifier，施加者隊伍與自己不同的一律 RemoveModifierByName，不看可否驅散（含大招暈眩、中立生物施加的狀態）；原作說明沒有提到這個淨化。施加者實體已不存在（IsValidEntity 為假）的 modifier 不會被移除。" },
+          { policy = "note", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:9",
+            text = "RemoveModifierByName 只移除同名的第一個實例；同名 modifier 同時有友方與敵方實例時，可能移除到友方那份。資料以 team_of_source 精確移除敵方實例。" },
+          { policy = "as_source", ref = "npc/B_Unified/B15.txt:44-55",
+            text = "先套 modifier_b15w 再淨化；魔免本身不會移除既有狀態，移除完全靠腳本。敵方光環類 modifier 被移除後會由光環重新套上。" },
+          { policy = "note", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:4",
+            text = "AMHC:AddModelScale 放大模型 1.3 倍並在時間到後縮回，只是呈現，改用 cue。" },
+          { policy = "note", ref = "npc/B_Unified/B15.txt:19",
+            text = "KV 沒寫 AbilityCastPoint（IMMEDIATE）。" },
+        },
+        provenance = { "npc/B_Unified/B15.txt:16-106", "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:1-13" },
+      },
+      -------------------------------------------------------------------------
+      { id = "b15_flame_arrow", source_id = "B15E", slot = "W", kind = "toggle", max_level = 4, tags = { "basic", "toggle", "orb" },
+        values = {
+          mana_per_attack = { 8, 10, 12, 14, unit = "mana", source = "kv:mana_cost",
+            note = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:92-100 SpendMana；原作說明寫每次 10/12/14/16 法力，KV 與腳本實際是 8/10/12/14" },
+          damage = { 40, 75, 110, 145, unit = "dmg", damage_type = "magical", source = "kv:damage_bonus" },
+          building_pct = { 25, unit = "pct", source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:49-50 dmg*0.25" },
+          illusion_damage = { 20, 25, 30, 35, unit = "dmg", damage_type = "magical", source = "kv:damage_bonus2", note = "B15E_attack2 讀取" },
+          illusion_orb_duration = { 999, unit = "s", hidden = true,
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:257 {duration=999}" },
+        },
+        text = {
+          zh_TW = { name = "烈焰箭",
+            body = "開啟時，每次普攻開始都消耗 {mana_per_attack} 法力；法力不足時自動關閉並耗盡剩餘法力。普攻命中時額外造成 {damage} 魔法傷害，對建築只造成 {building_pct}。開啟時產生的{@b15_bluff}幻象，普攻命中時額外造成 {illusion_damage} 魔法傷害（受幻象傷害折減）。" },
+          en = { name = "Flame Arrows",
+            body = "While active, each attack Yoshimoto starts costs {mana_per_attack} mana; if he lacks the mana, the ability turns off and his remaining mana is drained. Attacks that land deal {damage} bonus magic damage ({building_pct} against buildings). {@b15_bluff} illusions created while it is active deal {illusion_damage} bonus magic damage on hit (reduced by the illusion damage penalty)." },
+        },
+        target = { type = "none" },
+        passive = { orb_slot = { release = "status_end", claim = true, overridable = true } },
+        statuses = {
+          { id = "b15e_orb", text = { zh_TW = { name = "烈焰箭", body = "每次普攻開始消耗 {mana_per_attack} 法力；普攻命中時額外造成 {damage} 魔法傷害（對建築為 {building_pct}）。" }, en = { name = "Flame Arrows", body = "Each attack costs {mana_per_attack} mana; attacks that land deal {damage} bonus magic damage ({building_pct} against buildings)." } }, duration = "infinite", stacking = "refresh", dispel = "basic", visibility = "buff",
+            reveal = "public", cue = "b15e_searing_arrow_projectile", remove_on = { "death" },
+            triggers = {
+              on_attack_windup = {
+                { op = "if", cond = "self.mana < $mana_per_attack", actions = {
+                  { op = "toggle_ability", of = "self", ability = "b15_flame_arrow", on = false },
+                } },
+                { op = "spend_mana", from = "self", amount = "min(self.mana, $mana_per_attack)" },
+              },
+              on_attack_hit = {
+                filter = "orb_slot_free(self, ability)",
+                actions = {
+                  { op = "damage", to = "event.target", type = "magical",
+                    amount = "select(event.target.is_building, $damage * $building_pct, $damage)" },
+                  { op = "cue", id = "b15e_split_sound", at = "event.target" },
+                } },
+            },
+            notes = "原作 modifier_searing_arrow：Orb 只換投射物外觀（CastAttack 0）；OnAttackStart 扣魔、OnAttackLanded 加傷；沒寫 IsPurgable，暫定 basic。" },
+          { id = "b15e_illusion_orb", text = { zh_TW = { name = "烈焰箭（幻象）", body = "普攻命中時額外造成 {illusion_damage} 魔法傷害。" }, en = { name = "Flame Arrows (Illusion)", body = "Attacks that land deal {illusion_damage} bonus magic damage." } }, duration = "$illusion_orb_duration", stacking = "refresh", dispel = "basic", visibility = "buff",
+            reveal = "public", cue = "b15e_searing_arrow_projectile",
+            triggers = {
+              on_attack_hit = {
+                filter = "has_status(self.owner, b15e_orb)",
+                actions = {
+                  { op = "damage", to = "event.target", source = "self", type = "magical", amount = "$illusion_damage" },
+                  { op = "cue", id = "b15e_split_sound", at = "event.target" },
+                } },
+            },
+            notes = "原作 modifier_searing_arrow2：B15T 幻象出生時本體開著烈焰箭才套上；只在命中時檢查本體的 nobuorb1，不扣幻象法力；建築不打折。" },
+        },
+        events = {
+          on_toggle_on = { { op = "apply_status", status = "b15e_orb", to = "caster" } },
+          on_toggle_off = { { op = "remove_status", from = "caster", status = "b15e_orb" } },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:15-24,48",
+            text = "法球槽 nobuorb1：開啟時無條件寫成 B15E_1（覆寫道具佔用），之後法球道具（item_mana_thief、item_kokumo、item_the_spear_of_saddle）觸發時又會覆寫，這時烈焰箭照扣魔但不加傷；關閉時只有槽仍是自己才清空。以 orb_slot = { claim = true（開啟時佔用）, overridable = true（可被之後的法球覆寫）, release = status_end（b15e_orb 移除時讓出）} 表達，命中加傷以 orb_slot_free 判斷槽仍是自己。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:87-101",
+            text = "扣魔在 OnAttackStart（前搖開始）：攻擊被取消仍扣魔，打建築也扣；扣魔不看法球槽。法力不足時先 CastAbilityToggle 關閉，再 SpendMana 把剩餘法力扣到零，這一擊沒有加傷（狀態已移除）。" },
+          { policy = "fix_candidate", ref = "npc/B_Unified/B15.txt:217-238",
+            text = "modifier_searing_arrow 不是 Passive，死亡時被移除，但開關仍亮、nobuorb1 仍是 B15E_1（推定）：復活後不扣魔也不加傷，必須手動關再開；期間法球槽仍被佔用，幻象的 searing_arrow2 仍會加傷。v3 的 release = status_end 在死亡移除 b15e_orb 時就讓出法球槽，只差在這段期間其他只在槽空著時生效的法球可以生效。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:40-55",
+            text = "加傷走 AMHC:Damage（義元已死不傷害）；建築 25%。命中的單位類型不限（KV 含建築）。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:74-85",
+            text = "幻象加傷讀本體 B15E 的等級（keys.ability 是本體的技能），在命中當下檢查本體 nobuorb1；幻象是攻擊者，全域傷害過濾把幻象的非物理傷害乘 0.3（eventfordamage.lua:63-64），由 b15_bluff 的 create_illusion outgoing 表達。資料以「本體身上有 b15e_orb」近似 nobuorb1 == B15E_1。" },
+          { policy = "note", text = "b15e_illusion_orb 由 b15_bluff 施加，$illusion_damage 應取本體 b15_flame_arrow 的等級；§2.1「狀態跟著施加它的技能」在跨技能施加時的 rank 取法待 M2 確認。" },
+          { policy = "no_effect", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:157-160,203-207",
+            text = "B15D 腳本裡對 B15E_old（11 版）的檢查在 current 版永遠不成立，烈焰箭不會附加到多重箭上。" },
+        },
+        provenance = { "npc/B_Unified/B15.txt:198-330", "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:15-24",
+          "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:40-101", "vscripts/library/events/eventfordamage.lua:63-64" },
+      },
+      -------------------------------------------------------------------------
+      { id = "b15_giant_hide", source_id = "B15R", slot = "E", kind = "passive", max_level = 4, tags = { "basic" },
+        values = {
+          str_bonus = { 5, 10, 15, 20, unit = "stat", source = "kv:Stronger_Bonus" },
+          block = { 16, 29, 42, 55, unit = "dmg", source = "kv:Damage_Income", note = "PHYSICAL_CONSTANT_BLOCK" },
+        },
+        text = {
+          zh_TW = { name = "巨人之外皮",
+            body = "被動：力量 +{str_bonus}，每次受到的物理傷害減少 {block}。" },
+          en = { name = "Giant's Hide",
+            body = "Passive: +{str_bonus} strength, and each instance of physical damage taken is reduced by {block}." },
+        },
+        target = { type = "none" },
+        passive = {
+          reveal = "public",
+          stats = { str = "$str_bonus", physical_block = "$block" },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "npc/B_Unified/B15.txt:512-519",
+            text = "MODIFIER_PROPERTY_PHYSICAL_CONSTANT_BLOCK：每次物理傷害固定格擋、100% 機率；是否也格擋物理技能傷害依引擎實作，交給規則層的 physical_block（M2 實測）。" },
+          { policy = "no_effect", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:103-127",
+            text = "腳本 B15R／B15R_Damage（以 caster.damagetype 判斷物理傷害後 SetHealth 回補）沒有任何 KV 呼叫，而且 damagetype 的賦值已註解，是死碼。" },
+        },
+        provenance = { "npc/B_Unified/B15.txt:506-536" },
+      },
+      -------------------------------------------------------------------------
+      { id = "b15_multishot", source_id = "B15D", slot = "D", kind = "passive", max_level = 1, learnable = false,
+        values = {
+          learn_level = { 8, unit = "level", source = "script:vscripts/library/events/eventforpichero.lua:163-171 GetLevel() >= 8 → SetLevel(1)" },
+          arrow_count = { 2, unit = "count", source = "kv:arrow_count" },
+          split_range = { 800, unit = "dist", source = "kv:range" },
+          projectile_speed = { 1800, unit = "speed", hidden = true, source = "kv:projectile_speed" },
+          arrow_damage = { 90, unit = "pct",
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:198 GetAverageTrueAttackDamage(target) * 0.9" },
+          illusion_arrow_damage = { 27, unit = "pct", hidden = true,
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:195-196 幻象 * 0.27" },
+          general_pct = { 50, unit = "pct",
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:200-202 EXCLUDE_TARGET_NAME2 傷害 * 0.5" },
+        },
+        text = {
+          zh_TW = { name = "多重箭",
+            body = "英雄達到 {learn_level} 級時自動學會。被動：普攻出手時，對周圍 {split_range} 內最近的另外最多 {arrow_count} 名可見敵方英雄與部隊（含魔免）各射出一支箭，造成自身平均攻擊力 {arrow_damage} 的物理傷害（對武將減為 {general_pct}）。" },
+          en = { name = "Multishot",
+            body = "Learned automatically at hero level {learn_level}. Passive: when attacking, fires an extra arrow at each of up to {arrow_count} other nearest visible enemy heroes and units within {split_range} (spell-immune ones included), dealing {arrow_damage} of Yoshimoto's average attack damage as physical damage ({general_pct} against generals)." },
+        },
+        target = { type = "none" },
+        requires = { hero_level = "$learn_level" },
+        passive = {
+          reveal = "public",
+          triggers = {
+            on_attack_launch = { actions = {
+              { op = "for_each",
+                select = { from = "self", shape = "circle", radius = "$split_range", team = "enemy",
+                  types = { "hero", "creep", "neutral", "summon" }, flags = { "include_magic_immune", "visible_only" },
+                  exclude = "event.target", where = "not has_status_tag(it, engine_invisible)",
+                  order = "nearest", limit = "$arrow_count" },
+                actions = {
+                  { op = "projectile", kind = "tracking", from = "self", to = "it", speed = "$projectile_speed",
+                    dodgeable = true, cue = "b15d_split_arrow",
+                    on_hit = {
+                      { op = "cue", id = "b15d_split_hit", at = "it" },
+                      { op = "damage", to = "it", type = "physical", require_source_alive = false, flags = { "no_amplify" },
+                        amount = "avg_attack_against(caster, it) * select(caster.is_illusion, $illusion_arrow_damage, $arrow_damage) * select(has_tag(it, general), $general_pct, 1)" },
+                    } },
+                } },
+            } },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "design_intent", ref = "vscripts/library/events/eventforpichero.lua:163-171",
+            text = "原作每 1 秒輪詢一次，升到 8 級後最多晚一秒學會；照設計意圖在 8 級當下生效。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:133-182",
+            text = "OnAttack（出手）時以自己為圓心 FIND_CLOSEST 搜尋 KV 的 HERO|BASIC＋MAGIC_IMMUNE_ENEMIES，跳過目前攻擊目標、己方看不見的與帶 modifier_invisible 的單位，射滿 arrow_count 支為止；攻擊建築時也會分箭。和 A31T 的被動分箭是同一份程式。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:185-211",
+            text = "箭的傷害走 ApplyDamage（不經 AMHC），義元死亡後已飛出的箭仍造成傷害；不觸發攻擊特效。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:195-196",
+            text = "幻象（b15_bluff）也有這個被動，箭傷害改用 0.27（= 0.9 × 0.3）。原作物理 ApplyDamage 不吃全域幻象傷害過濾，所以腳本自己打折；若規則層把 create_illusion 的 outgoing.physical 也套在非攻擊的物理傷害上，會重複打折，待 M2 確認。" },
+          { policy = "note", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:152-156",
+            text = "在 pairs 迴圈中 table.remove 掉帶 majia 技能的單位（會跳過下一個元素）；majia 是馬甲 dummy，selector 預設排除，不影響結算。" },
+          { policy = "as_source", ref = "npc/B_Unified/B15.txt:507",
+            text = "原作說明只寫「額外多射出兩支箭矢」，沒有寫傷害比例與範圍；說明改由數值產生。" },
+        },
+        provenance = { "npc/B_Unified/B15.txt:431-505", "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:130-211",
+          "vscripts/library/events/eventforpichero.lua:163-171", "vscripts/library/common/dummy.lua:327-330" },
+      },
+      -------------------------------------------------------------------------
+      { id = "b15_bluff", source_id = "B15T", slot = "R", kind = "active", max_level = 3, tags = { "ultimate" },
+        values = {
+          cooldown = { 110, unit = "s", source = "kv:AbilityCooldown" },
+          cast_point = { 0.25, unit = "s", source = "kv:AbilityCastPoint" },
+          required_level = { 6, 12, 18, unit = "level", source = "kv:RequiredLevel + LevelsBetweenUpgrades" },
+          radius = { 500, unit = "dist", source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:278（KV AOERadius 也是 500）" },
+          stun = { 0.1, 1.0, 1.5, unit = "s", source = "kv:stun_time" },
+          stun_damage = { 1, unit = "dmg", damage_type = "magical", hidden = true, source = "kv:modifier_B15T OnCreated Damage Damage" },
+          spawn_interval = { 0.8, 0.7, 0.6, unit = "s",
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:293 0.9 - 0.1 * level" },
+          illusion_count = { 14, 16, 18, unit = "count", kv = { 12, 16, 18 },
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:294,317-322 num = 10 + 2*level，先產生再判斷 num < 0",
+            source_differs = "原作說明寫 12/16/18；Timer 每次先產生幻象再檢查 num < 0，實際是 num + 2 = 14/16/18 個" },
+          illusion_duration = { 10, unit = "s", source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:263 modifier_illusion duration" },
+          illusion_dealt = { 30, unit = "pct",
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:223,263 outgoing_damage = -70；eventfordamage.lua:63-64 非物理傷害 × illusion_damage 0.3" },
+          illusion_incoming = { 75, unit = "pct", source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:263 incoming_damage = 75" },
+          illusion_offset = { 100, unit = "dist", hidden = true,
+            source = "script:vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:304 GetForwardVector()*-100" },
+        },
+        text = {
+          zh_TW = { name = "虛張聲勢",
+            body = "大喝一聲，暈眩周圍 {radius} 內的敵人（含魔免，不含建築）{stun} 秒。之後每 {spawn_interval} 秒在身後產生一個自身的幻象，共 {illusion_count} 個，義元死亡即停止。幻象持續 {illusion_duration} 秒，只造成 {illusion_dealt} 傷害，承受的傷害增加 {illusion_incoming}；施放當下開著{@b15_flame_arrow}時，幻象的普攻也帶火。" },
+          en = { name = "Bluff",
+            body = "Lets out a war cry that stuns enemies within {radius} (spell-immune ones included, buildings excluded) for {stun} seconds. Then every {spawn_interval} seconds an illusion of Yoshimoto appears behind him, {illusion_count} in total, stopping if he dies. Illusions last {illusion_duration} seconds, deal only {illusion_dealt} damage and take {illusion_incoming} more damage; if {@b15_flame_arrow} is on when this is cast, their attacks carry its fire too." },
+        },
+        target = { type = "none", aoe_radius = "$radius" },
+        cast = { cast_point = "$cast_point" },
+        cost = { cooldown = "$cooldown", cooldown_start = "on_cast" },
+        requires = { hero_level = "$required_level" },
+        flags = { "pierce_magic_immune" },
+        statuses = {
+          { id = "b15t_stun", text = { zh_TW = { name = "暈眩", body = "暈眩中，無法移動、攻擊與施法。" }, en = { name = "Stunned", body = "Stunned: cannot move, attack or cast." } }, duration = "$stun", stacking = "independent", dispel = "basic", visibility = "debuff",
+            reveal = "public", states = { "stun" },
+            triggers = {
+              on_created = { { op = "damage", to = "self", type = "magical", amount = "$stun_damage", require_source_alive = false } },
+            },
+            notes = "原作 modifier_B15T：MULTIPLE、IsPurgable 1、IsStunDebuff；不在 ultimate_modifiers（受狀態抗性縮短）。OnCreated 的 datadriven Damage 1 不經 AMHC。" },
+        },
+        events = {
+          on_cast = {
+            { op = "cue", id = "b15t_vo", at = "caster" },
+            { op = "cue", id = "b15t_roar", at = "caster" },
+            { op = "for_each",
+              select = { from = "caster", shape = "circle", radius = "$radius", team = "enemy", types = { "all" },
+                flags = { "include_magic_immune" }, where = "not it.is_building" },
+              actions = {
+                { op = "apply_status", status = "b15t_stun", to = "it" },
+              } },
+            { op = "repeat", interval = "$spawn_interval", first = "$spawn_interval", count = "$illusion_count",
+              ["while"] = "alive(caster)", actions = {
+                { op = "create_illusion", of = "caster", as = "ill", control = "owner",
+                  at = "offset(caster, caster.forward, -$illusion_offset)",
+                  duration = "$illusion_duration",
+                  copy = { level = true, abilities = true, items = "fresh", statuses = {},
+                    hp = "caster.hp", mana = "caster.max_mana", unit_state = false },
+                  outgoing = { physical = "$illusion_dealt - 1", magical = "$illusion_dealt - 1", pure = "$illusion_dealt - 1" },
+                  incoming = { all = "$illusion_incoming" } },
+                { op = "if", cond = "has_status(caster, b15e_orb)", actions = {
+                  { op = "apply_status", status = "b15e_illusion_orb", to = "ill", source = "ill" },
+                } },
+              } },
+          },
+        },
+        coverage = "expressible", confidence = "medium",
+        quirks = {
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:270-324",
+            text = "腳本以 FindUnitsInRadius(500, TEAM_ENEMY, TYPE_ALL, MAGIC_IMMUNE_ENEMIES) 選取再排除建築；沒有 FOW 旗標，隱形與迷霧中的敵人也會被暈。暈眩本身沒有傷害（只有 OnCreated 的 1 點魔法傷害，魔免者由規則層歸零）；原作說明沒有寫傷害。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:293-322",
+            text = "第一個幻象在施放後一個間隔才出現；每次先產生再判斷 num < 0，共 14/16/18 個，原作說明寫 12/16/18。義元死亡時停止產生，已產生的幻象照常存在到時間結束。" },
+          { policy = "as_source", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:214-268",
+            text = "幻象以 CreateUnitByName 建立（尋找空地），升到本體等級並照本體設定技能等級（含多重箭），複製 0～5 格道具為新實例，生命等於本體目前生命，可由玩家控制；狀態不複製（東海巨人的複製已註解），只在本體帶 modifier_searing_arrow 時另外套 searing_arrow2。法力原作是新英雄的滿法力，copy.mana 寫本體最大法力（推定相同，B11 慣例）。" },
+          { policy = "as_source", ref = "vscripts/library/events/eventfordamage.lua:63-64",
+            text = "modifier_illusion outgoing −70%、incoming +75%；全域傷害過濾另把幻象的非物理傷害乘 illusion_damage 0.3。原作說明寫「受到 175% 傷害」與 incoming +75% 一致。Dota 的 −70% 是否也作用於幻象的魔法傷害（會變成 0.09）依引擎，資料取 30%，待 M2 實測。" },
+          { policy = "note", ref = "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:302-313",
+            text = "illusion1_direction 擲了骰但沒有使用（四方位的寫法已註解），幻象固定出生在本體正後方 100。" },
+          { policy = "note", ref = "npc/B_Unified/B15.txt:565-641",
+            text = "KV 沒有 AbilityManaCost，大招不耗魔。粒子與音效屬呈現，改用 cue。" },
+        },
+        provenance = { "npc/B_Unified/B15.txt:565-641", "vscripts/heroes/B_Unified/B15_Imagawa_Yoshimoto.lua:214-324",
+          "vscripts/library/events/eventfordamage.lua:63-64", "vscripts/events.lua:246-268" },
+      },
+    },
+  }
+end

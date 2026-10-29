@@ -3,6 +3,7 @@ local generate = require("hero_author.generate")
 local install = require("hero_author.install")
 local build = require("hero_author.build")
 local rust_install = require("hero_author.rust_install")
+local v3 = require("hero_author.v3")
 local lfs = require("lfs")
 
 local M = {}
@@ -69,12 +70,26 @@ local function parse(argv)
   return o
 end
 
-local function load_package(dir)
+-- root: the repo root, for the v3 validator and compiler a v3.lua needs.
+local function load_package(dir, root)
   local pkg = {}
   for _, name in ipairs({ "character", "source", "abilities", "capabilities", "presentation" }) do
     pkg[name] = sandbox(dir .. "/" .. name .. ".lua")
   end
   if exists(dir .. "/summons.lua") then pkg.summons = sandbox(dir .. "/summons.lua") end
+  -- Schema v3 document (the package's authoring source): values and text for every ability;
+  -- see hero_author/v3.lua and docs/character_pipeline/tools/v3_sources.lua.
+  -- kit.lua was the M1 name; a leftover one would be ignored and the build would lose every v3 block
+  assert(not exists(dir .. "/kit.lua"), dir .. "/kit.lua: the package's v3 document is v3.lua (merge it, then remove kit.lua)")
+  if exists(dir .. "/v3.lua") then
+    pkg.kit_compiled = v3.compile(root, sandbox(dir .. "/v3.lua"))
+    pkg.rust_texts = {}
+    if lfs.attributes(dir .. "/rust", "mode") == "directory" then
+      for name in lfs.dir(dir .. "/rust") do
+        if name:match("%.rs$") then pkg.rust_texts["rust/" .. name] = read(dir .. "/rust/" .. name) end
+      end
+    end
+  end
   return pkg
 end
 
@@ -159,7 +174,7 @@ function M.validate(dir, opts, deps)
   for _, w in ipairs(warns) do notes[#notes + 1] = w end
   if #problems > 0 then return { ok = false, problems = problems, notes = notes } end
 
-  local pkg = load_package(dir)
+  local pkg = load_package(dir, root)
   local unsupported = {}
   for _, ab in ipairs(pkg.abilities.abilities) do
     if ab.status ~= "supported" then unsupported[#unsupported + 1] = ab.id .. " (" .. ab.status .. ")" end

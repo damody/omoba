@@ -1,22 +1,17 @@
 # H04 阿市：假設與阻塞
 
-來源：`damody/nobugg_official@ca6ee86`，C17 current 版。結構化版本在 `source.lua`。
+來源：`damody/history_nobu@f966720`（E169 前為 nobugg_official@ca6ee86；此英雄單位數值兩者相同），C17 current 版。KV `npc/C_Neutral/C17.txt`、腳本 `vscripts/heroes/C_Neutral/C17.lua`。結構化版本在 `source.lua`，逐招對照在 `parity.md`。
 
 ## 阻塞
 
-無（2026-10-25 解除）：
-
-- 光鍊：host tether（`runtime/native/tether.rs`）。
-- 極光守護、自我奉獻的範圍友軍：host `ally_area_restore` 封包。
-- 自我奉獻：第 5 欄（ward-canonical）＋`auto_learn`，施法掛點用英雄 UnitScript。
+無。仍缺的通用能力列在 `parity.md` 的 needs_framework（前搖範圍提示對敵公開；光鍊雙隊跟隨視野已接上，E185）。
 
 ## 假設
 
 - 基礎數值：本地沒有阿市。生命、法力、攻擊、轉身沿用遠程施法者 `training_luminary`；護甲、射程、移速、普攻彈速與攻擊前搖取來源。
 - 只使用 current 版，不混入 `_old` 版本。
-- `C17.lua` 不在來源 repo，效果依 KV 與描述推定。
-- 祈勝光輝：
-  - 「全區域」以施法距離 10000 表達。
-  - 總攻擊 +7.5/15/22.5/30% 以 `base_damage_outgoing_pct` 表達。Fixed64 精度 1/1024，7.5% 存成 77/1024。
-- 極光守護：KV 有兩個 `"05"`，依描述解讀：`regen` 是友軍回復最大生命 %，`hp` 是敵人最大生命 % 傷害。6/12/18 級解鎖。
-- 自我奉獻：描述範圍 750、KV 800，依 D4 政策採 KV 800。
+- 光鍊：C17W_Enemy（C17.lua:172-194）的 OBB 距離以中心距離減兩者碰撞半徑近似；定身 ((1000−r)/200+1)×{0.3,0.5,0.7,0.9} 在 r≤1000 對 r 線性，以近端 1.8..5.4、遠端 0.3..0.9 表達；定身另受 5 魔法傷害（C17.txt:109-114）；施法者先死仍定身（194）。
+- 祈勝光輝：「全區域」以施法距離 10000 表達；總攻擊 +7.5/15/22.5/30% 以 `base_damage_outgoing_pct` 表達（7.5% 存成 77/1024）。
+- 極光守護：依腳本實際行為，與 tooltip 不同——`hpx` 不存在（C17.lua:299），只造成固定 650/700/750；友軍 SetHealth 直接加生命 40/45/50%（318-319），排除建築（309）。重複 `"05"` 假設兩者都保留。6/12/18 級解鎖。
+- 自我奉獻：依腳本實際行為，與 tooltip 不同——物理 −20 的條件 `caster.damagetype==1` 永不成立（C17.lua:96），不做格擋。半徑 800（腳本 57）；技能與物品都觸發，排除切換技與 5 種物品（49-54）；只選友方英雄與小兵。
+- 魔免（原作設定，E170；引擎接上通用魔免時依此）：C17W 對敵 ENEMIES_NO（不打魔免），對友不限；C17E 友方無限制；C17R 不打魔免（ENEMIES_NO）；C17T 對敵 ENEMIES_NO、旗標 INVULNERABLE（無敵單位也選得到）；C17D 友方範圍含魔免（MAGIC_IMMUNE_ENEMIES）。

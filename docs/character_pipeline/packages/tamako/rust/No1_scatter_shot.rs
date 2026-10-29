@@ -27,19 +27,19 @@ pub(crate) fn resolve(rank:u8,json:&str)->Result<ScatterShot,&'static str> {
     let extra=|key:&str|content.extras.iter().find(|(name,_)|*name==key).and_then(|(_,rows)|rows.get(index)).copied()
         .ok_or("missing scatter shot extra");
     let in_range=|v:Fixed64,min:Fixed64,max:Fixed64|if v>=min && v<=max {Ok(v)} else {Err("scatter shot value out of range")};
-    let cap=extra("projectile_max_targets")?;
+    let cap=extra("max_targets")?;
     if cap.raw()%1024!=0 || cap<Fixed64::ONE || cap>Fixed64::from_i32(host::MAX_LIVE_PER_SOURCE as i32) {
         return Err("scatter shot target cap must be a whole number in 1..=32");
     }
     Ok(ScatterShot {
         range:Fixed64::from_raw((f64::from(data.range)*1024.0).round() as i64),
-        radius:in_range(extra("shape_radius")?,Fixed64::from_raw(1),Fixed64::from_i32(2_500))?,
-        speed:in_range(extra("projectile_speed")?,Fixed64::ONE,Fixed64::from_i32(20_000))?,
-        hit_radius:in_range(extra("projectile_radius")?,Fixed64::ZERO,Fixed64::from_i32(1_000))?,
-        lifetime:in_range(extra("projectile_lifetime")?,Fixed64::from_raw(1),Fixed64::from_i32(30))?,
+        radius:in_range(extra("radius")?,Fixed64::from_raw(1),Fixed64::from_i32(2_500))?,
+        speed:in_range(extra("arrow_speed")?,Fixed64::ONE,Fixed64::from_i32(20_000))?,
+        hit_radius:in_range(extra("arrow_radius")?,Fixed64::ZERO,Fixed64::from_i32(1_000))?,
+        lifetime:in_range(extra("arrow_lifetime")?,Fixed64::from_raw(1),Fixed64::from_i32(30))?,
         max_targets:(cap.raw()/1024) as usize,
-        damage:in_range(extra("damage_amount")?,Fixed64::ZERO,Fixed64::from_i32(1_000_000))?,
-        stun:in_range(extra("control_duration")?,Fixed64::from_raw(1),Fixed64::from_i32(60))?,
+        damage:in_range(extra("damage")?,Fixed64::ZERO,Fixed64::from_i32(1_000_000))?,
+        stun:in_range(extra("stun")?,Fixed64::from_raw(1),Fixed64::from_i32(60))?,
     })
 }
 
@@ -49,7 +49,7 @@ fn envelope(caster:EntityHandle,victim:EntityHandle,spec:&ScatterShot)->host::Sp
         motion:host::Motion::Homing {target_id:victim.id,target_generation:victim.gen},
         speed:spec.speed,radius:spec.hit_radius,distance:Fixed64::ZERO,lifetime:spec.lifetime,max_hits:1,
         wall:host::WallPolicy::Pass,target_lost:host::TargetLostPolicy::Expire,caster_death:host::CasterDeathPolicy::Continue,
-        amount:spec.damage,kind:DamageKind::Magical,profile:DamageProfile::NORMAL.bits(),slow:None,
+        amount:spec.damage,kind:DamageKind::Magical,profile:DamageProfile::NORMAL.union(DamageProfile::SPELL).bits(),slow:None,
         control:Some((ControlEffectKind::Stun,spec.stun)),dot:None,
         // Source targets DOTA_UNIT_TARGET_HERO | DOTA_UNIT_TARGET_BASIC only.
         buildings:false,forced:None,
@@ -85,7 +85,8 @@ pub(crate) fn execute_filtered(world:&mut GameWorldDyn<'_>,caster:EntityHandle,t
     for victim in &victims {
         let row=envelope(caster,*victim,&spec);
         if !row.valid() {return Err("invalid scatter shot projectile envelope");}
-        payloads.push(row.payload().to_string());
+        // Source C15.txt:75 `Dodgeable 1`.
+        payloads.push(host::with_dodgeable(row.payload()).to_string());
     }
     // Every check precedes the first launch.
     for payload in &payloads {world.add_stat_buff(caster,host::BUFF.into(),spec.lifetime,payload.as_str().into());}
@@ -117,12 +118,12 @@ impl AbilityScript for ScatterShotHandler {
 }
 
 pub fn c15_scatter_shot_ffi()->AbilityDefFFI {
-    let radius=extra_at_id_f32(ID,"shape_radius",1);
-    build_ability_ffi(ID,ScatterShotHandler,vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"projectile_speed",1),on_hit:vec![
+    let radius=extra_at_id_f32(ID,"radius",1);
+    build_ability_ffi(ID,ScatterShotHandler,vec![EffectSpec::Projectile {speed:extra_at_id_f32(ID,"arrow_speed",1),on_hit:vec![
         EffectSpec::Damage {target:TargetSelector::Custom(format!("each_enemy_near_point(radius={radius})")),
-            amount:extra_at_id_f32(ID,"damage_amount",1),damage_type:DamageType::Magical},
+            amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical},
         EffectSpec::StatusModifier {target:TargetSelector::Target,modifier_type:"stun".into(),value:1.0,
-            duration:Some(extra_at_id_f32(ID,"control_duration",1))}]}])
+            duration:Some(extra_at_id_f32(ID,"stun",1))}]}])
 }
 
 #[cfg(test)]
@@ -134,8 +135,9 @@ mod tests {
 
     fn q(v:f64)->i64 {(v*1024.0).round() as i64}
     fn launches(outcomes:&[Outcome])->Vec<host::Spec> {
-        outcomes.iter().filter_map(|o|match o {Outcome::AddBuff {buff_id,payload,duration,..} if buff_id==host::BUFF=>
-            host::Spec::from_payload(host::BUFF,*duration,payload),_=>None}).collect()
+        outcomes.iter().filter_map(|o|match o {Outcome::AddBuff {buff_id,payload,duration,..} if buff_id==host::BUFF=>{
+            assert!(host::dodgeable_of(payload),"C15W arrows are Dodgeable 1");
+            host::Spec::from_payload(host::BUFF,*duration,payload)},_=>None}).collect()
     }
     fn locked(outcomes:&[Outcome])->Vec<u32> {
         launches(outcomes).into_iter().map(|s|match s.motion {host::Motion::Homing {target_id,..}=>target_id,_=>u32::MAX}).collect()

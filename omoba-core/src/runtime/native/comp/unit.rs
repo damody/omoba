@@ -514,6 +514,10 @@ pub struct SummonedUnit {
     /// G-3 owner policy: removed once the exact owner life is dead or retired.
     #[serde(default)]
     pub expire_with_owner: bool,
+    /// Committed spawn tick; orders "earliest spawned" for per-owner caps
+    /// (`summon_owner_cap`). Canonical entity id breaks ties.
+    #[serde(default)]
+    pub spawn_tick: u64,
 }
 
 /// Content opt-in follow policy and bounded public-terrain waypoint cache.
@@ -529,6 +533,34 @@ pub struct SummonNavigation {
 
 impl Component for SummonedUnit {
     type Storage = VecStorage<Self>;
+}
+
+/// Queryable unit tags (E187): the camp's moba_maps.lua `tags`, e.g. a boss. Only tagged bodies
+/// carry the component. Rules that treat bosses differently ask `is_boss`, never unit ids.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct UnitTags(pub u32);
+
+impl Component for UnitTags {
+    type Storage = specs::storage::DenseVecStorage<Self>;
+}
+
+impl UnitTags {
+    pub fn from_tags(tags: &[omoba_template_ids::MobaUnitTag]) -> Self {
+        Self(tags.iter().fold(0, |bits, tag| bits | tag.bit()))
+    }
+    pub fn has(self, tag: omoba_template_ids::MobaUnitTag) -> bool { self.0 & tag.bit() != 0 }
+}
+
+/// The entity carries `tag` (E187). A world that never registered `UnitTags` has no tagged unit.
+pub fn has_unit_tag(world: &specs::World, entity: Entity, tag: omoba_template_ids::MobaUnitTag) -> bool {
+    use specs::WorldExt;
+    world.has_value::<specs::storage::MaskedStorage<UnitTags>>()
+        && world.read_storage::<UnitTags>().get(entity).is_some_and(|tags| tags.has(tag))
+}
+
+/// A map boss (moba_maps.lua camp `tags = {"boss"}`: 強盜之王, 受詛咒的武士亡靈), E187.
+pub fn is_boss(world: &specs::World, entity: Entity) -> bool {
+    has_unit_tag(world, entity, omoba_template_ids::MobaUnitTag::Boss)
 }
 
 impl SummonedUnit {
@@ -548,6 +580,7 @@ impl SummonedUnit {
             navigation: SummonNavigation::default(),
             immobile: false,
             expire_with_owner: false,
+            spawn_tick: 0,
         }
     }
 

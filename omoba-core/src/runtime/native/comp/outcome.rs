@@ -83,6 +83,24 @@ pub enum Outcome {
         source: Option<Entity>,
         target: Option<Entity>,
     },
+    /// An ordinary attack's projectile arrived and was judged (rules::attack): a hit, or a miss
+    /// (`source_missed`: the attacker missed at launch; otherwise the target evaded).
+    AttackJudged {
+        attacker: Entity,
+        target: Entity,
+        projectile: Entity,
+        hit: bool,
+        source_missed: bool,
+    },
+    /// An ordinary instant attack (lane, jungle, lane towers; damage_tick): windup, launch and
+    /// judgement in one tick (rules::attack::instant). `critical` is the multiplier of a crit.
+    InstantAttack {
+        attacker: Entity,
+        target: Entity,
+        critical: Option<Fixed64>,
+        missed: bool,
+        evaded: bool,
+    },
     Death {
         pos: SimVec2,
         ent: Entity,

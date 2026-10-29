@@ -16,6 +16,9 @@ pub struct ProjectileRead<'a> {
     searcher: Read<'a, Searcher>,
     creeps: ReadStorage<'a, Creep>,
     towers: ReadStorage<'a, Tower>,
+    // A hero target's evasion rolls by its player (rules::chance::roll_key).
+    heroes: ReadStorage<'a, Hero>,
+    owners: ReadStorage<'a, PlayerOwner>,
     origins: Option<Read<'a, ProjectileOrigins>>,
     orbs: Option<Read<'a, crate::runtime::native::attack_orb::OrbAttacks>>,
 }
@@ -185,9 +188,15 @@ impl<'a> System<'a> for Sys {
                             let normal=tr.origins.as_ref().and_then(|origins|origins.0.get(&e))
                                 .is_some_and(|origin|(origin.normal_attack||origin.script_attack)&&origin.source==proj.owner);
                             let missed=tr.origins.as_ref().and_then(|origins|origins.0.get(&e)).is_some_and(|o|o.source==proj.owner&&o.attack_missed);
+                            let target_key=crate::runtime::native::rules::chance::roll_key(target,
+                                tr.heroes.get(target).and(tr.owners.get(target)).map(|owner|owner.player_id));
                             let evaded=missed||(normal&&super::super::attack_accuracy::target_evades(
-                                tr.master_seed.0,tr.tick.0 as u32,target,
+                                tr.master_seed.0,tr.tick.0 as u32,target_key,
                                 crate::runtime::UnitStats::from_refs(&tr.buffs,false).evasion_chance(target)));
+                            // The ordinary attack's judgement event (rules::attack).
+                            if normal || missed {
+                                outcomes.push(Outcome::AttackJudged {attacker:proj.owner,target,projectile:e,hit:!evaded,source_missed:missed});
+                            }
                             if evaded {
                                 if target_positions.contains_key(&target) {emit_attack_avoided(&tr,e,target);}
                             } else {create_projectile_damage(
@@ -543,6 +552,8 @@ mod tests {
         world.register::<Projectile>();
         world.register::<Creep>();
         world.register::<Tower>();
+        world.register::<Hero>();
+        world.register::<PlayerOwner>();
         world.insert(DeltaTime(Fixed64::from_raw(512)));
         world.insert(Searcher::default());
         world.insert(Vec::<Outcome>::new());
@@ -710,7 +721,13 @@ mod tests {
             if mode==14 {w.write_storage::<Pos>().remove(target);}
             run_now::<Sys>(&w);let outcomes=w.read_resource::<Vec<Outcome>>();let evaded=matches!(mode,0|4|7|8|10|11|14);
             assert!(outcomes.iter().any(|o|matches!(o,Outcome::Death {ent,..}if *ent==projectile)));
-            if evaded {assert_eq!(outcomes.len(),1,"mode{mode}: no damage/hit/slow/stun envelopes");}
+            // The ordinary attack's judgement event (rules::attack) is not a hit effect.
+            let judged=outcomes.iter().filter(|o|matches!(o,Outcome::AttackJudged {..})).count();
+            if evaded {
+                assert_eq!(outcomes.len()-judged,1,"mode{mode}: no damage/hit/slow/stun envelopes");
+                assert!(outcomes.iter().all(|o|!matches!(o,Outcome::AttackJudged {hit:true,..})),"mode{mode}: judged a miss");
+                assert_eq!(judged,1,"mode{mode}: an attack's miss is judged");
+            }
             else {assert!(outcomes.len()>3,"mode{mode}: unaffected hit/control path");}
             let facts=w.read_resource::<crate::runtime::ObservableFactBuffer>().drain_ordered().unwrap();
             assert_eq!(facts.iter().filter(|f|matches!(f.fact,crate::runtime::ObservableFact::AttackAvoided {target:t} if t==crate::runtime::canonical_entity_id(target))).count(),usize::from(evaded&&mode!=14));

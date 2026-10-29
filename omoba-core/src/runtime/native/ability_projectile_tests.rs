@@ -422,3 +422,245 @@ fn retarget_on_loss_locks_the_nearest_live_hostile_or_expires() {
     bad[KEY]["retarget_radius"] = serde_json::json!(1024);
     assert_eq!(Spec::from_payload(BUFF, homing(caster, other).lifetime, &bad), None, "radius without the retarget policy");
 }
+
+fn cast_bounce(w: &mut World, caster: Entity, spec: &Spec, hits: u16, radius: i32) {
+    w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: caster, buff_id: BUFF.into(),
+        duration: spec.lifetime, payload: with_bounce(spec.payload(), hits, Fixed64::from_i32(radius)) });
+    settle(w);
+}
+
+#[test]
+fn bounce_chain_hits_at_most_its_total_and_only_units_in_radius_of_the_last_hit() {
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let first = body(&mut w, 200, 0, 2);
+    let second = body(&mut w, 600, 0, 2);
+    let far = body(&mut w, 1400, 0, 2);
+    let ally = body(&mut w, 250, 0, 1);
+    let spec = Spec { lifetime: Fixed64::from_i32(5), ..homing(caster, first) };
+    cast_bounce(&mut w, caster, &spec, 5, 500);
+    fly(&mut w, 60, 600, &[]);
+    // Only first and second are in reach of each other: the chain alternates
+    // between them (only the unit just hit is excluded) for 5 hits in total.
+    let (a, b) = (1000 - hp(&w, first), 1000 - hp(&w, second));
+    assert_eq!(a + b, 500, "five hits of 100: first {a} second {b}");
+    assert!(a >= 200 && b >= 200, "alternates: first {a} second {b}");
+    assert_eq!((hp(&w, far), hp(&w, ally)), (1000, 1000));
+    assert_eq!(live(&w), 0, "retires after the last hit");
+}
+
+#[test]
+fn bounce_chain_ends_early_without_another_unit_and_rejects_bad_rows() {
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let lone = body(&mut w, 200, 0, 2);
+    cast_bounce(&mut w, caster, &homing(caster, lone), 5, 500);
+    fly(&mut w, 60, 240, &[]);
+    assert_eq!(hp(&w, lone), 900, "nothing else in reach: one hit");
+    assert_eq!(live(&w), 0);
+    let spec = homing(caster, lone);
+    for (hits, radius) in [(1u16, 500), (17, 500), (5, 0), (5, 2001)] {
+        assert!(Spec::from_payload(BUFF, spec.lifetime, &with_bounce(spec.payload(), hits, Fixed64::from_i32(radius))).is_none(), "{hits} {radius}");
+    }
+    let linear_spec = linear(caster, at(1, 0));
+    assert!(bounce_of(&with_bounce(linear_spec.payload(), 5, Fixed64::from_i32(500))).is_none(), "homing only");
+    assert_eq!(bounce_of(&with_bounce(spec.payload(), 5, Fixed64::from_i32(500))), Some((5, Fixed64::from_i32(500))));
+}
+
+fn cast_payload(w: &mut World, caster: Entity, spec: &Spec, payload: Value) {
+    assert!(Spec::from_payload(BUFF, spec.lifetime, &payload).is_some(), "admitted envelope: {payload}");
+    w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: caster, buff_id: BUFF.into(), duration: spec.lifetime, payload });
+    settle(w);
+}
+
+fn request_dodge(w: &mut World, unit: Entity) {
+    w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: unit, buff_id: DODGE_BUFF.into(), duration: Fixed64::ONE,
+        payload: dodge_payload(unit.id(), unit.gen().id() as u32) });
+    settle(w);
+}
+
+#[test]
+fn dodge_retires_only_dodgeable_homing_flights_on_the_dodger_without_damage() {
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let dodger = body(&mut w, 900, 0, 2);
+    let other = body(&mut w, 0, 900, 2);
+    let dodgeable = homing(caster, dodger);
+    cast_payload(&mut w, caster, &dodgeable, with_dodgeable(dodgeable.payload()));
+    cast(&mut w, caster, &homing(caster, dodger));
+    cast_payload(&mut w, caster, &homing(caster, other), with_dodgeable(homing(caster, other).payload()));
+    // A widening linear flight is never dodged (Dota: tracking projectiles only).
+    let line = Spec { max_hits: 4, ..linear(caster, at(1, 0)) };
+    cast(&mut w, caster, &line);
+    fly(&mut w, 60, 10, &[]);
+    assert_eq!(live(&w), 4);
+    // Another unit's dodge request is refused; the dodger's own retires one flight.
+    w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: other, buff_id: DODGE_BUFF.into(), duration: Fixed64::ONE,
+        payload: dodge_payload(dodger.id(), dodger.gen().id() as u32) });
+    settle(&mut w);
+    assert_eq!(live(&w), 4);
+    request_dodge(&mut w, dodger);
+    assert_eq!(live(&w), 3);
+    fly(&mut w, 60, 120, &[]);
+    // The non-dodgeable bolt and the line still hit the dodger; the dodged one never does.
+    assert_eq!((hp(&w, dodger), hp(&w, other)), (800, 900));
+    assert_eq!(live(&w), 0);
+    // Canonical rows: homing only, present only when true.
+    assert!(!dodgeable_of(&with_dodgeable(line.payload())));
+    assert!(Spec::from_payload(BUFF, line.lifetime, &with_dodgeable(line.payload())).is_none());
+    let mut bad = homing(caster, dodger).payload();
+    bad[KEY]["dodgeable"] = serde_json::json!(false);
+    assert!(Spec::from_payload(BUFF, dodgeable.lifetime, &bad).is_none());
+}
+
+#[test]
+fn dodge_retires_normal_attack_projectiles_tracking_the_dodger_only() {
+    let mut w = world();
+    let attacker = body(&mut w, 0, 0, 1);
+    let dodger = body(&mut w, 600, 0, 2);
+    let other = body(&mut w, 0, 600, 2);
+    let shoot = |w: &mut World, target: Entity, normal: bool| {
+        let projectile = w.create_entity().with(Pos(at(10, 0))).with(Projectile { damage_stage: Default::default(),
+            time_left: Fixed64::from_i32(3), owner: attacker, target: Some(target), tpos: at(600, 0), radius: Fixed64::ZERO,
+            msd: Fixed64::from_i32(900), damage_phys: Fixed64::from_i32(50), damage_magi: Fixed64::ZERO, damage_real: Fixed64::ZERO,
+            damage_profile: DamageProfile::NORMAL.bits(), slow_factor: Fixed64::ZERO, slow_duration: Fixed64::ZERO,
+            hit_radius: Fixed64::ZERO, stun_duration: Fixed64::ZERO, kind_id: 0, generation: 0 }).build();
+        if w.try_fetch::<ProjectileOrigins>().is_none() { w.insert(ProjectileOrigins::default()); }
+        w.write_resource::<ProjectileOrigins>().0.insert(projectile, ProjectileOrigin { source: attacker, normal_attack: normal,
+            script_attack: false, attack_missed: false, attack_critical: false, attack_lifesteal: Fixed64::ZERO,
+            launch_position: None, credit_team: None, credit_player: None, script: None });
+        projectile
+    };
+    let attack = shoot(&mut w, dodger, true);
+    let script_shot = shoot(&mut w, dodger, false);
+    let elsewhere = shoot(&mut w, other, true);
+    let outcomes = {
+        let payload = dodge_payload(dodger.id(), dodger.gen().id() as u32);
+        dodge(&mut w, dodger, DODGE_BUFF, &payload)
+    };
+    assert_eq!(outcomes.len(), 1);
+    assert!(matches!(outcomes[0], Outcome::Death { ent, .. } if ent == attack));
+    assert_eq!(w.read_storage::<Projectile>().get(attack).unwrap().time_left, Fixed64::ZERO, "frozen before its Death settles");
+    assert!(w.read_storage::<Projectile>().get(script_shot).unwrap().time_left > Fixed64::ZERO);
+    assert!(w.read_storage::<Projectile>().get(elsewhere).unwrap().time_left > Fixed64::ZERO);
+    request_dodge(&mut w, other);
+    w.maintain();
+    assert!(!w.entities().is_alive(elsewhere) && w.entities().is_alive(script_shot));
+}
+
+#[test]
+fn widening_line_hits_by_the_radius_reached_at_each_distance() {
+    // 10 → 310 over 1000: about 70 at x=200, 250 at x=800.
+    for (end, expected) in [(None, (1000, 1000)), (Some(310), (1000, 900))] {
+        let mut w = world();
+        let caster = body(&mut w, 0, 0, 1);
+        let early = body(&mut w, 200, 120, 2);
+        let late = body(&mut w, 800, 200, 2);
+        let spec = Spec { max_hits: 8, ..linear(caster, at(1, 0)) };
+        match end {
+            Some(end) => cast_payload(&mut w, caster, &spec, with_end_radius(spec.payload(), Fixed64::from_i32(end))),
+            None => cast(&mut w, caster, &spec),
+        }
+        fly(&mut w, 60, 120, &[]);
+        assert_eq!((hp(&w, early), hp(&w, late)), expected, "end {end:?}");
+    }
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let target = body(&mut w, 300, 0, 2);
+    assert_eq!(end_radius_of(&with_end_radius(homing(caster, target).payload(), Fixed64::ONE)), None, "linear only");
+    assert_eq!(end_radius_of(&with_end_radius(linear(caster, at(1, 0)).payload(), Fixed64::from_i32(1_001))), None);
+    // The radius is an exact lerp on the distance flown, capped at the end.
+    let mut state = State { spec: linear(caster, at(1, 0)), owner: caster, faction: Faction::new(FactionType::Player, 1), team: 1,
+        origin: super::super::moba_match::capture_projectile_origin(&w, caster).unwrap(), end: at(1000, 0), target: None,
+        target_lost: false, age: Fixed64::ZERO, hits: BTreeSet::new(), heading: Vec2::ZERO, bounce: None, dodgeable: false,
+        end_radius: Some(Fixed64::from_i32(310)), dot_interval: None, hit_stack: None, delay_left: Fixed64::ZERO, healing_reduction: None };
+    assert_eq!(state.hit_radius(), Fixed64::from_i32(10));
+    state.age = Fixed64::from_raw(512);
+    assert_eq!(state.hit_radius(), Fixed64::from_i32(10 + 300 * 600 / 1000));
+    state.age = Fixed64::from_i32(2);
+    assert_eq!(state.hit_radius(), Fixed64::from_i32(310));
+}
+
+#[test]
+fn on_hit_dot_interval_rides_the_periodic_payload_and_requires_a_dot() {
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let first = body(&mut w, 200, 0, 2);
+    let spec = Spec { max_hits: 8, dot: Some((Fixed64::from_i32(50), Fixed64::from_i32(5))), kind: DamageKind::Magical,
+        ..linear(caster, at(1, 0)) };
+    assert_eq!(dot_interval_of(&with_dot_interval(linear(caster, at(1, 0)).payload(), Fixed64::ONE)), None, "needs a dot");
+    cast_payload(&mut w, caster, &spec, with_dot_interval(spec.payload(), Fixed64::ONE));
+    fly(&mut w, 60, 20, &[]);
+    let handle = omb_script_abi::types::EntityHandle { id: caster.id(), gen: caster.gen().id() as u32 };
+    let key = omb_script_abi::buff_ids::generic_dot_buff_id("fixture_bolt", handle);
+    let row = w.read_resource::<crate::runtime::BuffStore>().get(first, &key).unwrap().payload.clone();
+    let parsed = crate::runtime::ability_runtime::periodic_damage::PeriodicDamageSpec::from_payload(&row).unwrap();
+    assert_eq!((parsed.interval, parsed.pulse_amount()), (Some(Fixed64::ONE), Some(Fixed64::from_i32(50))));
+}
+
+#[test]
+fn hit_stack_applies_the_caster_rule_only_while_the_caster_has_it() {
+    use super::super::hit_stack::{Rule, RULE_KEY};
+    let rule = Rule { buff: "fixture_shred".into(), stat: omb_script_abi::stat_keys::StatKey::MagicalResistanceBonus,
+        per_stack: Fixed64::from_i32(-5), max: 3, duration: Fixed64::from_i32(3), refresh_at_max: false, heroes_only: true };
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let hero = body(&mut w, 200, 0, 2);
+    w.write_storage::<Hero>().insert(hero, Hero::default()).unwrap();
+    let creep = body(&mut w, 300, 0, 2);
+    let spec = Spec { max_hits: 8, ..linear(caster, at(1, 0)) };
+    // Without the caster buff: no stack.
+    cast_payload(&mut w, caster, &spec, with_hit_stack(spec.payload(), "fixture_rule"));
+    fly(&mut w, 60, 60, &[]);
+    assert!(!w.read_resource::<crate::runtime::BuffStore>().has(hero, "fixture_shred"));
+    w.write_resource::<crate::runtime::BuffStore>().add(caster, "fixture_rule", Fixed64::from_i32(22),
+        serde_json::json!({ (RULE_KEY): rule.value() }));
+    for stacks in [1, 2, 3, 3] {
+        cast_payload(&mut w, caster, &spec, with_hit_stack(spec.payload(), "fixture_rule"));
+        fly(&mut w, 60, 30, &[]);
+        let buffs = w.read_resource::<crate::runtime::BuffStore>();
+        assert_eq!(buffs.sum_add(hero, omb_script_abi::stat_keys::StatKey::MagicalResistanceBonus), Fixed64::from_i32(-5 * stacks));
+        assert!(!buffs.has(creep, "fixture_shred"), "heroes only");
+    }
+    assert!(hit_stack_of(&with_hit_stack(spec.payload(), "__envelope")).is_none());
+}
+
+#[test]
+fn launch_delay_waits_at_the_launch_point_then_flies_the_same_line() {
+    let hz = 60;
+    let mut w = world();
+    let caster = body(&mut w, 0, 0, 1);
+    let target = body(&mut w, 300, 0, 2);
+    let spec = Spec { max_hits: 2, ..linear(caster, at(1, 0)) };
+    // Same shot twice: once now, once 0.1 s later, both from the launch point.
+    cast(&mut w, caster, &spec);
+    let delayed = with_delay(spec.payload(), Fixed64::from_raw(102));
+    assert_eq!(delay_of(&delayed), Fixed64::from_raw(102));
+    assert_eq!(Spec::from_payload(BUFF, spec.lifetime, &delayed), Some(spec.clone()), "delay is an optional row");
+    w.write_resource::<Vec<Outcome>>().push(Outcome::AddBuff { target: caster, buff_id: BUFF.into(), duration: spec.lifetime, payload: delayed });
+    settle(&mut w);
+    // The caster moving away afterwards does not move the waiting shot.
+    w.write_storage::<Pos>().get_mut(caster).unwrap().0 = at(0, 500);
+    let mut damage_ticks = Vec::new();
+    let mut elapsed = 0;
+    for tick in 1..=hz as u64 * 2 {
+        let next = tick as i64 * 1024 / hz;
+        w.insert(DeltaTime(Fixed64::from_raw(next - elapsed)));
+        elapsed = next;
+        w.write_resource::<Tick>().0 = tick;
+        let before = hp(&w, target);
+        run_now::<FlightSys>(&mut w);
+        settle(&mut w);
+        if hp(&w, target) < before { damage_ticks.push(tick); }
+    }
+    assert_eq!(hp(&w, target), 800, "both shots hit");
+    assert_eq!(damage_ticks.len(), 2);
+    // 0.1 s at 60 Hz is 6 waiting ticks.
+    assert_eq!(damage_ticks[1] - damage_ticks[0], 6, "{damage_ticks:?}");
+    assert_eq!(live(&w), 0);
+    // Out-of-range delays are refused at admission.
+    for bad in [Fixed64::ZERO, MAX_LAUNCH_DELAY + Fixed64::from_raw(1)] {
+        let payload = with_delay(spec.payload(), bad);
+        assert!(Spec::from_payload(BUFF, spec.lifetime, &payload).is_none(), "{bad:?}");
+    }
+}

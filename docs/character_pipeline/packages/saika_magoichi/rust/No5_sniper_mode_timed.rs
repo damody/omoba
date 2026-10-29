@@ -11,15 +11,15 @@ use crate::self_transform::{Encoding,Field};
 const ID:omoba_template_ids::AbilityId=ABILITY_B01_SNIPER_MODE;
 pub(crate) const BUFF_ID:&str="b01_sniper_mode";
 const FIELDS:&[Field]=&[
-    Field {key:"stat_buff_attack_damage_bonus",stat:StatKey::BaseAttackBonusDamage,maximum:1_000_000,encoding:Encoding::Raw},
-    Field {key:"stat_buff_attack_range_bonus",stat:StatKey::AttackRangeBonus,maximum:10_000,encoding:Encoding::Raw},
+    Field {key:"attack_bonus",stat:StatKey::BaseAttackBonusDamage,maximum:1_000_000,encoding:Encoding::Raw},
+    Field {key:"range_bonus",stat:StatKey::AttackRangeBonus,maximum:10_000,encoding:Encoding::Raw},
 ];
 
 pub struct SniperModeTimedHandler;
 impl AbilityScript for SniperModeTimedHandler {
     fn ability_id(&self)->RStr<'_> {RStr::from_str(ID.as_str())}
     fn execute(&self,caster:EntityHandle,target:Target,level:u8,json:RStr<'_>,world:&mut GameWorldDyn<'_>)->RResult<(),RString> {
-        let result=crate::self_transform::resolve_keyed(ID,level,json.as_str(),FIELDS,None,"stat_buff_duration",true)
+        let result=crate::self_transform::resolve_keyed(ID,level,json.as_str(),FIELDS,None,"duration",true)
             .and_then(|spec|crate::self_transform::execute(world,caster,target,BUFF_ID,spec));
         match result {Ok(())=>ROk(()),Err(error)=>RErr(error.into())}
     }
@@ -29,7 +29,7 @@ pub fn b01_sniper_mode_ffi()->AbilityDefFFI {
     let mut modifiers=HashMap::new();
     for field in FIELDS {modifiers.insert(field.stat.as_str().into(),extra_at_id_f32(ID,field.key,1));}
     build_ability_ffi(ID,SniperModeTimedHandler,vec![EffectSpec::Buff {target:TargetSelector::SelfUnit,
-        duration:Some(extra_at_id_f32(ID,"stat_buff_duration",1)),modifiers}])
+        duration:Some(extra_at_id_f32(ID,"duration",1)),modifiers}])
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
-//! 蠍毒箭（H05，來源 A02W current）：切換 G-2 attack orb。handler 只切換施法者
-//! 身上的標記 buff；每次普攻扣魔、沒藍自動關閉、命中加傷與減速都由 host 依當前
-//! rank 從 content `attack_orb` 結算。
+//! 蠍毒箭（H05，來源 A02W current，A02.lua:3-69）：切換 G-2 attack orb。handler 只切換
+//! 施法者身上的標記 buff；每次普攻開始時扣魔、沒藍自動關閉、目標是建築時不扣魔也不附加、
+//! 命中加傷、移速減益（%）與攻速減益（攻速點，多來源取最強）都由 host 依當前 rank 從
+//! content `attack_orb` 結算。
 use abi_stable::std_types::{RErr,ROk,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},types::{EntityHandle,Fixed64,Target},world::GameWorldDyn};
 use omoba_core::ability_meta::{DamageType,EffectSpec,TargetSelector};
@@ -37,7 +38,7 @@ impl AbilityScript for VenomArrowHandler {
 
 pub fn a02_venom_arrow_ffi()->AbilityDefFFI {
     build_ability_ffi(ID,VenomArrowHandler,vec![EffectSpec::Damage {target:TargetSelector::Target,
-        amount:extra_at_id_f32(ID,"attack_orb_amount",1),damage_type:DamageType::Magical}])
+        amount:extra_at_id_f32(ID,"damage",1),damage_type:DamageType::Magical}])
 }
 
 #[cfg(test)]
@@ -54,7 +55,10 @@ mod tests {
             assert_eq!(v.mana_per_attack,Fixed64::from_i32(10),"rank {rank}");
             assert_eq!(v.amount,Fixed64::from_i32(amount),"rank {rank}");
             let q=Fixed64::from_raw((slow*1024.0).round() as i64);
-            assert_eq!((v.move_slow,v.attack_slow),(Some(q),Some(q)),"rank {rank}");
+            assert_eq!((v.move_slow,v.attack_slow),(Some(q),None),"rank {rank}: attack slow is points, not a percentage");
+            // A02.txt:57 debuff_attack_speed: slow_self ATTACKSPEED_BONUS_CONSTANT points.
+            let points=crate::ability_builder::extra_at_id(ID,attack_orb::ATTACK_SPEED_CONSTANT_KEY,rank);
+            assert_eq!(points,Fixed64::from_raw((slow*100.0*1024.0).round() as i64),"rank {rank}");
             assert_eq!(v.slow_duration,Fixed64::from_i32(4));
         }
     }

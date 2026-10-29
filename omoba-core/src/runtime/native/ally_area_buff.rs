@@ -16,6 +16,8 @@ use omb_script_abi::stat_keys::StatKey;
 pub const KEY: &str = "__ally_area_buff_v1";
 pub const BUFF: &str = "__ally_area_buff";
 const MAX_STATS: usize = 8;
+/// Upper bound of the radius: covers the whole map for team-wide auras (E163, 日本第一武士).
+pub const MAX_RADIUS: i32 = 100_000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
@@ -44,7 +46,7 @@ impl Spec {
             && self.stats.iter().all(|(key, raw)| StatKey::from_str_key(key).is_some() && raw.unsigned_abs() <= 1_000_000 * 1024);
         (self.source_id != u32::MAX && self.source_generation > 0 && self.source_generation <= i32::MAX as u32
             && self.center.x.raw().abs() <= bounded && self.center.y.raw().abs() <= bounded
-            && self.radius > Fixed64::ZERO && self.radius <= Fixed64::from_i32(5_000)
+            && self.radius > Fixed64::ZERO && self.radius <= Fixed64::from_i32(MAX_RADIUS)
             && valid_buff_id(&self.buff)
             && self.seconds > Fixed64::ZERO && self.seconds <= Fixed64::from_i32(60) && stats_ok).then_some(self)
     }
@@ -69,8 +71,8 @@ impl Spec {
             seconds: Fixed64::from_raw(row.get("seconds_raw")?.as_i64()?), stats }.checked()
     }
     fn restore_view(&self) -> super::ally_area_restore::Spec {
-        super::ally_area_restore::Spec { source_id: self.source_id, source_generation: self.source_generation, center: self.center,
-            radius: self.radius, hp_fraction: Fixed64::ZERO, mana_fraction: Fixed64::ZERO, cast_range: Fixed64::ONE }
+        super::ally_area_restore::Spec::new(self.source_id, self.source_generation, self.center,
+            self.radius, Fixed64::ZERO, Fixed64::ZERO, Fixed64::ONE)
     }
 }
 
@@ -113,7 +115,7 @@ mod tests {
         for bad in [
             Spec { buff: "__ally_area_buff".into(), ..spec() }, Spec { buff: "has space".into(), ..spec() },
             Spec { stats: vec![], ..spec() }, Spec { stats: vec![("not_a_stat".into(), 1)], ..spec() },
-            Spec { seconds: Fixed64::ZERO, ..spec() }, Spec { radius: Fixed64::from_i32(5_001), ..spec() },
+            Spec { seconds: Fixed64::ZERO, ..spec() }, Spec { radius: Fixed64::from_i32(MAX_RADIUS + 1), ..spec() },
             Spec { stats: vec![("health_bonus".into(), 1), ("health_bonus".into(), 2)], ..spec() },
         ] { let shown = format!("{bad:?}"); assert!(bad.checked().is_none(), "{shown}"); }
         let mut extra = s.payload(); extra[KEY]["mana"] = json!(1);

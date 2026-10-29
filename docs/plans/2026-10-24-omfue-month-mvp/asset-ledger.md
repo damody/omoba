@@ -58,6 +58,17 @@
 | 2026-10-27 | 建置期上色 | 3 種兵 × 友方／敵方 | 米白（飽和度 ≤ 0.22、亮度 ≥ 0.5）改成藍（215°）或紅（0°） | 0 | 4890 | `/Game/Omoba/Characters/TripoVariantsV1/minion_*/` | 超級兵直接用近戰兵放大（115 單位），沒有另外生成 |
 | 2026-10-27 | Grok Build CLI | 河童、天狗、鬼 正＋背各 1 張 | 2:3 A-pose，中立配色（苔綠、赭黃、暗紫；天狗只有臉上的面具是紅的），武器背在身上 | 不另計費 | — | `TripoV1/jungle_*/reference/` | 一次可用 |
 | 2026-10-27 | Tripo（image-to-3D＋自動綁定＋匯出） | jungle_kappa、jungle_tengu、jungle_oni | 同小兵：多視角正＋背、H3.0、2K、去光、PBR 關、三角面 30,000；UE5 Mannequin；FBX Mixamo 版 | 3 × 45 = 135 | 4755 | `5afa88b6…`、`ade18bb4…`、`e30d1c8d…` | 一次可用，開始時 4890（和小兵階段結束時相同）。野怪不分陣營，不做上色變體 |
+| 2026-10-27 | Grok Build CLI | 守衛石燈籠參考圖 1 張 | 1:1 三分之四俯角，深灰石材，紙窗和布條是米白（之後做陣營上色） | 不另計費 | — | `TripoStaticV1/ward_lantern/reference/` | 一次可用 |
+| 2026-10-27 | Tripo（image-to-3D，單張圖，不綁骨） | ward_lantern（視野守衛） | 同建築：H3.0、2K、去光、PBR 關、三角面 30,000；FBX | 25 | 3230 | `22404334…` | 一次可用，28,188 面。原本守衛在 UE 是預設方塊。**開始前帳號是 3255，不是野怪階段結束時的 4755**：又有 1500 點被別處用掉，資產列表裡出現不是這項工作做的家具模型 |
+| 2026-10-27 | Grok Build CLI | honda_tadakatsu（A07 本多忠勝）正、側、背參考圖 | 2:3 A-pose，黑具足、鹿角兜、念珠，長槍斜背在背上、雙手空出 | 不另計費 | — | `TripoV1/honda_tadakatsu/reference/` | 一次可用（a1） |
+| 2026-10-27 | Tripo（image-to-3D＋自動綁定＋匯出） | honda_tadakatsu | 同英雄：多視角正＋背、H3.0、2K、去光、PBR 關、三角面 30,000；人形 UE5 Mannequin；FBX Mixamo 版 | 25＋20＋0 | 3185 | `a7ec26fe-b0f9-4ed8-b96b-d1d178513907` | 一次可用：29,461 面；開始時 3230（與上次結束相同）。匯入 61 骨；retarget facing 180、參考姿勢誤差 4°、最大 18°（Pistol_Aim_Down） |
+| 2026-10-27 | Grok Build CLI | honda_tadakatsu 頭像、載入圖、5 個技能圖示 | 頭像 1:1（1254 PNG）、載入圖 2:3、技能圖示 1:1 | 不另計費 | — | scratchpad `grok/portrait/honda_tadakatsu/`、`grok/out/honda_tadakatsu-a1/`、`grok/abil/a07_*/` | 退回 3 次：頭像 a1 畫中畫（人物在內框裡）；奮起 a1 有較淺的內框、a2 左右有暗色直條。重生後全部可用 |
+| 2026-10-27 | Grok Build CLI | sanada_yukimura（B06 真田幸村）正、側、背參考圖 | 2:3 A-pose，朱紅具足、白毛皮披肩、白頭帶，十文字槍斜背在背上、雙手空出 | 不另計費 | — | `TripoV1/sanada_yukimura/reference/` | 一次可用（a1） |
+| 2026-10-27 | Tripo（image-to-3D＋自動綁定＋匯出） | sanada_yukimura | 同英雄：多視角正＋背、H3.0、2K、去光、PBR 關、三角面 30,000；人形 UE5 Mannequin；FBX Mixamo 版 | 25＋20＋0 | 3140 | `65587f92-d1dd-40ba-a9af-037986e7f260` | 一次可用：29,484 面；開始時 3185（與本多忠勝結束時相同）。背上的槍生成成兩支交叉（正背參考圖的槍方向不同），雙手空出、不影響動畫，沒有重生。匯入 61 骨；retarget facing 180、參考姿勢誤差 3°、最大 20°（Pistol_Aim_Down） |
+| 2026-10-28 | Grok Build CLI | 8 位持武器英雄的空手正＋背參考圖（saika、date、murakami、asai、inahime、tamako、honda、sanada） | 以舊正面圖為外觀依據，去掉所有武器、刀鞘、箭筒；雙手張開空手、A-pose | 不另計費 | — | `TripoV1/<id>/reference/`（舊圖移到 `reference/armed_v1/`） | 一次可用 |
+| 2026-10-28 | Grok Build CLI | 7 把武器參考圖（katana、matchlock、war_axe、yumi、hankyu、tonbokiri、jumonji） | 3:2 橫放側視，握把在左 | 不另計費 | — | `TripoStaticV1/weapon_*/reference/` | katana 第一次有白邊與內框、matchlock 畫成西式步槍，各重生 1 次 |
+| 2026-10-28 | Tripo（image-to-3D＋自動綁定＋匯出） | 上述 8 位的空手身體 | 同英雄：多視角正＋背、H3.0、2K、去光、PBR 關、三角面 30,000；UE5 Mannequin；FBX | 8 × 45 = 360 | — | `9c7b65cb…`、`33458c14…`、`662a8bdc…`、`86c5f0fd…`、`062665cf…`、`7967f819…`、`b2569acf…`、`ef712a92…` | 使用者要求角色和武器分開生成（武器做進身體會讓 rig 和動畫壞掉）。8 位都一次可用、手上沒有東西 |
+| 2026-10-28 | Tripo（image-to-3D，單張圖，不綁骨） | 7 把武器 | H3.0、2K、去光、PBR 關、三角面 10,000；FBX | 7 × 25 = 175 | 2525 | `f0664eb1…`（katana，伊達與淺井共用）、`b1925478…`、`844bbcc9…`、`c3f82414…`、`d724955f…`、`127d09d0…`、`f4446d5c…` | 一次可用。開始前帳號是 3060；這批合計 535 點（3060 → 2525） |
 
 7 位是先連續送出生成、再逐一綁骨，所以點數是交錯扣的，中間的剩餘點數不逐列記。7 位合計 315 點（7410 → 7095），與「7 × 45」相符。
 
@@ -79,7 +90,7 @@
   - 側面 idle／跑步／attack：`.ai-collab/tripo-pose-2/all_heroes_idle_move_attack.png`（每位的單張在 `.ai-collab/tripo-pose-2/<hero>/png/`）。
   - 8 人同框的 MOBA 鏡頭：`.ai-collab/tripo-pose-2/ingame_lineup_moba_camera.png`；影片在 `target/spotlight-lineup/saika_magoichi/`。
 
-### 總結（2026-10-27，三個非英雄階段完成後）
+### 總結（2026-10-27 最終：英雄、三個非英雄階段與守衛完成後）
 
 | 項目 | 資產 | Tripo 點數 |
 |---|---|---|
@@ -87,22 +98,24 @@
 | 階段 1 建築 | 塔、主堡、抑制塔（只生成，不綁骨） | 75 |
 | 階段 2 小兵 | 近戰兵、遠程兵、攻城兵 | 135 |
 | 階段 3 野怪 | 河童、天狗、鬼 | 135 |
-| **本工作合計** | 17 個模型，全部一次可用，沒有重生 | **705** |
+| 守衛 | 石燈籠（只生成，不綁骨） | 25 |
+| **本工作合計** | 18 個模型，全部一次可用，沒有重生 | **730** |
 
-- 帳號從 7455 降到 4755，少了 2700 點。其中 705 點是上表；其餘 1995 點（1500＋495）在兩個階段之間被別處用掉，不是這項工作花的（見上表備註）。
+- 帳號從 7455 降到 3230，少了 4225 點。其中 730 點是上表；其餘 3495 點（1500＋495＋1500）在階段之間被別處用掉，不是這項工作花的（見上表備註）。
 - 陣營色與阿市的配色都在建置期上色，沒有花點數。Grok 是訂閱制，不另計費。
 - 在 runtime 中的對應：
   - 英雄：每位使用自己的 Tripo 身體。
   - 建築（`TripoStaticV1`）有友方／敵方兩套變體。
   - 小兵有友方／敵方兩套變體。
   - 野怪不分陣營：天狗是一般營地與南北守衛，鬼是 epic，河童是營地小怪。
-- 尚未換成 Tripo 的：訓練用英雄（training_vanguard、training_luminary）仍是 CC0 模型。
+  - 視野守衛（moba_ward）是石燈籠，顏色依擁有者英雄的隊伍；原本是預設方塊（errors.md E151）。
+- 尚未換成 Tripo 的：訓練用英雄（training_vanguard、training_luminary）仍是 CC0 模型；它們現在是 test-only，正式對局不會出現。TD 與訓練模式的 30 個類別仍沒有模型，不在 build 期「單位不可沒有模型」檢查的範圍內。
 
 ## 待決定
 
 - 下載的 Tripo 原始模型（FBX／GLB）是否進版控。角色放在 `omfue/SourceArt/Characters/TripoV1/<id>/`，建築放在 `omfue/SourceArt/Structures/TripoStaticV1/<id>/`，都還沒 commit。`omfue/` 照使用者要求不納入一般 commit。
 - Tripo 生成物的授權（免費方案是否可商用）。網站上沒有看到相關條款，仍待確認。
-- Tripo 的「模型私密性」維持網站預設「仅分享」，17 個模型都在帳號的資產列表裡。要不要改成私密，屬於帳號設定，由使用者決定。
-- 帳號點數在階段之間共少了 1995 點，原因不明，需要使用者確認是否是自己或其他人在用同一個帳號。
-- 原始下載（`C:\Users\User\Downloads\<id>.zip`，17 個）沒有刪除。收件用的解壓副本在本 session 的 scratchpad `tripo-dl/<hero>/`，保留期限不保證；已收件的 FBX 和 manifest（含下載檔的 sha256）在 `TripoV1/<hero>/`。
+- Tripo 的「模型私密性」維持網站預設「仅分享」，18 個模型都在帳號的資產列表裡。要不要改成私密，屬於帳號設定，由使用者決定。
+- 帳號點數在階段之間共少了 3495 點，原因不明。最後一次在資產列表看到不是這項工作做的家具模型，表示有其他人或其他工作在用同一個帳號，需要使用者確認。
+- 原始下載（`C:\Users\User\Downloads\<id>.zip`，18 個）沒有刪除。收件用的解壓副本在本 session 的 scratchpad `tripo-dl/<hero>/`，保留期限不保證；已收件的 FBX 和 manifest（含下載檔的 sha256）在 `TripoV1/<hero>/`。
 - 8 張 Grok 側面參考圖都沒有用在 Tripo 生成：多視角只上傳正＋背，因為 Grok 側面圖的手臂和武器位置常和正背不一致。

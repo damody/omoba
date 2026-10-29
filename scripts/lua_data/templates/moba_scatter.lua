@@ -8,7 +8,7 @@ return function(ctx)
         {range=700,cooldown=9,mana_cost=55},{range=700,cooldown=8,mana_cost=60}},
       extras={damage={110,160,210,260},half_angle={math.pi/6,math.pi/6,math.pi/6,math.pi/6}},
       effects={{kind='cone_damage',amount_key='damage',half_angle_key='half_angle',damage_kind='physical'}}},
-    hero={id='training_scatter_ranger',ue={native_only=true},display_name='逐風散射手',title='方向扇形配裝',
+    hero={id='training_scatter_ranger',test_only=true,ue={native_only=true},display_name='逐風散射手',title='方向扇形配裝',
       background='逐風遊俠的方向散射配裝，使用共用資料效果與原生呈現。',
       abilities={'ranger_shot','ranger_patch','ranger_scatter','ranger_finisher'},
       strength=16,agility=30,intelligence=16,primary_attribute='agility',

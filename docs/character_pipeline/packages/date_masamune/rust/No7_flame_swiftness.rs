@@ -1,4 +1,6 @@
-//! 炎之迅捷（H02，來源 B04R current）：被動永久靈活，換算為攻速點與護甲。
+//! 炎之迅捷（H02，來源 B04R current，B04.txt:241-271）：被動永久 +agility 敏捷（見 v3.lua）
+//! （MODIFIER_PROPERTY_STATS_AGILITY_BONUS）。以 StatKey::StatsAgilityBonus 送出，由 host
+//! attributes settle 依屬性規則換算護甲、攻速與主屬性攻擊；技能本身不換算。
 //! 每次學習或升級以同一 buff id 取代，不疊加。
 use abi_stable::std_types::{RErr,RResult,RStr,RString};
 use omb_script_abi::{ability::{AbilityDefFFI,AbilityScript},stat_keys::StatKey,types::{EntityHandle,Fixed64,Target},world::GameWorldDyn};
@@ -9,17 +11,15 @@ use crate::ability_builder::{build_ability_ffi,extra_at_id,extra_at_id_f32};
 
 const ID:omoba_template_ids::AbilityId=ABILITY_B04_FLAME_SWIFTNESS;
 pub(crate) const BUFF_ID:&str="b04_flame_swiftness";
-const ATTACK_SPEED:&str="stat_bonus_permanent_attack_speed_bonus";
-const ARMOR:&str="stat_bonus_permanent_armor_bonus";
+const AGILITY:&str="agility";
 
 /// Raw payload for one rank, or None for an invalid rank.
 pub(crate) fn payload(rank:u8)->Option<String> {
     let content=active_ability_const(ID)?;
     if rank==0 || rank>content.max_level || usize::from(rank)>content.levels.len() {return None;}
-    let attack_speed=extra_at_id(ID,ATTACK_SPEED,rank);let armor=extra_at_id(ID,ARMOR,rank);
-    if attack_speed<Fixed64::ZERO || armor<Fixed64::ZERO {return None;}
-    Some(serde_json::json!({StatKey::AttackSpeedBonusConstant.as_str():attack_speed.raw(),
-        StatKey::PhysicalArmorBonus.as_str():armor.raw(),"level":rank}).to_string())
+    let agility=extra_at_id(ID,AGILITY,rank);
+    if agility<=Fixed64::ZERO || agility>Fixed64::from_i32(10_000) {return None;}
+    Some(serde_json::json!({StatKey::StatsAgilityBonus.as_str():agility.raw(),"level":rank}).to_string())
 }
 
 pub struct FlameSwiftnessHandler;
@@ -36,8 +36,7 @@ impl AbilityScript for FlameSwiftnessHandler {
 
 pub fn b04_flame_swiftness_ffi()->AbilityDefFFI {
     let mut modifiers=HashMap::new();
-    modifiers.insert(StatKey::AttackSpeedBonusConstant.as_str().into(),extra_at_id_f32(ID,ATTACK_SPEED,1));
-    modifiers.insert(StatKey::PhysicalArmorBonus.as_str().into(),extra_at_id_f32(ID,ARMOR,1));
+    modifiers.insert(StatKey::StatsAgilityBonus.as_str().into(),extra_at_id_f32(ID,AGILITY,1));
     build_ability_ffi(ID,FlameSwiftnessHandler,vec![EffectSpec::Buff {target:TargetSelector::SelfUnit,duration:None,modifiers}])
 }
 
@@ -47,11 +46,9 @@ mod tests {
     use crate::heroes::B02_date_masamune::h02_test_support::*;
     use omoba_core::Outcome;
 
-    fn q(v:f64)->i64 {(v*1024.0).round() as i64}
-
     #[test]
-    fn every_rank_grants_converted_agility_and_replaces_the_previous_rank() {
-        for (rank,attack_speed,armor) in [(1u8,10.0,1.667),(2,20.0,3.333),(3,30.0,5.0),(4,40.0,6.667)] {
+    fn every_rank_grants_source_agility_and_replaces_the_previous_rank() {
+        for (rank,agility) in [(1u8,10i64),(2,20),(3,30),(4,40)] {
             let mut t=TestWorld::new();
             let outcomes=t.learn(&FlameSwiftnessHandler,rank);
             let buffs:Vec<_>=outcomes.iter().filter_map(|o|match o {
@@ -59,8 +56,10 @@ mod tests {
             assert_eq!(buffs.len(),1,"rank {rank}: one buff id, so an upgrade replaces instead of stacking");
             let (payload,duration)=&buffs[0];
             assert_eq!(*duration,Fixed64::from_raw(i64::MAX));
-            assert_eq!(payload[StatKey::AttackSpeedBonusConstant.as_str()].as_i64(),Some(q(attack_speed)),"rank {rank}");
-            assert_eq!(payload[StatKey::PhysicalArmorBonus.as_str()].as_i64(),Some(q(armor)),"rank {rank}");
+            // B04.txt:254 add_agi; the attributes settle converts it (no armor/attack speed here).
+            assert_eq!(payload[StatKey::StatsAgilityBonus.as_str()].as_i64(),Some(agility*1024),"rank {rank}");
+            assert!(payload.get(StatKey::AttackSpeedBonusConstant.as_str()).is_none(),"rank {rank}");
+            assert!(payload.get(StatKey::PhysicalArmorBonus.as_str()).is_none(),"rank {rank}");
         }
     }
 
